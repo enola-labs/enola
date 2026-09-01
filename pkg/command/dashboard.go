@@ -53,10 +53,11 @@ func (r *Runner) Dashboard(ctx context.Context, args []string) {
 	// Validate before binding a listener so a missing snapshot produces the useful
 	// generate-first guidance without briefly registering a dashboard process.
 	t := r.resolveTarget(arg)
+	snapshotDir := t.engine.OutputDir(t.repoPaths[0])
+	fmt.Fprintf(os.Stderr, "Loading dashboard snapshot from %s...\n", snapshotDir)
 	if restored := bootstrap.AutoLoadSnapshot(t.engine, t.engine.Config()); restored == nil {
 		r.missingDashboardSnapshot(t.configNote, arg)
 	}
-	snapshotDir := t.engine.OutputDir(t.repoPaths[0])
 	// A dashboard-only process is still an active Enola session. Register it just
 	// like the MCP startup path does so Activity does not claim zero sessions while
 	// the process serving that very page is running. No tool callback is installed:
@@ -116,15 +117,22 @@ func (r *Runner) dashboardFatal(format string, args ...any) {
 }
 
 func openBrowser(url string) error {
+	name, args := browserCommand(runtime.GOOS, url)
+	return exec.Command(name, args...).Start()
+}
+
+func browserCommand(goos, url string) (string, []string) {
 	var name string
 	var args []string
-	switch runtime.GOOS {
+	switch goos {
 	case "darwin":
-		name, args = "open", []string{url}
+		// Force LaunchServices to interpret the argument as a URL. Without -u,
+		// `open` may classify a localhost address as a filesystem path instead.
+		name, args = "open", []string{"-u", url}
 	case "windows":
 		name, args = "rundll32", []string{"url.dll,FileProtocolHandler", url}
 	default:
 		name, args = "xdg-open", []string{url}
 	}
-	return exec.Command(name, args...).Start()
+	return name, args
 }
