@@ -1,8 +1,8 @@
 # The dashboard
 
-The dashboard displays snapshots produced by Enola's CLI and MCP tools. Use it to review
-changes, follow dependencies, inspect snapshot metadata, and check extraction coverage.
-It runs locally and reads existing snapshot data.
+The dashboard displays snapshots produced by Enola's CLI and MCP tools. It opens on the
+findings and changes for the selected repository, follows newer snapshots written to disk,
+and keeps process details out of the way unless you open Diagnostics.
 
 ![The Architecture tab showing the searchable module graph, dependency direction, inspector, and finding summary](images/DashboardArchitecture.png)
 
@@ -101,15 +101,16 @@ The categories are:
 - **Unresolved cross-repository connections** lists edges whose remote target was absent
   from the cluster snapshot.
 
-## Understand sessions and usage
+## See lifetime usage
 
-**Activity** shows active processes and lifetime totals. The highlighted row identifies
-the process serving the page.
+**Lifetime usage** shows tool calls and estimated value accumulated across repositories
+and completed sessions. These machine-wide totals are deliberately separate from the
+repository snapshot shown on the other screens.
 
 ![The Activity tab showing the standalone dashboard session serving the current page](images/DashboardActivity.png)
 
-A dashboard-only process serves zero MCP tool calls. Snapshot generation performed by a
-separate command appears in lifetime activity.
+For active processes, dashboard URLs, ports, paths, and the process serving the current
+page, open **Diagnostics**.
 
 ![Lifetime activity aggregated across completed and active sessions](images/DashboardLifetimeActivity.png)
 
@@ -117,13 +118,19 @@ Lifetime activity aggregates completed and active sessions across repositories. 
 retains aggregate totals. Time and token savings estimate the repository reconstruction
 avoided by using snapshot data.
 
-## Refresh data
+## Automatic refresh
 
-After generating or writing a newer snapshot, choose **Refresh data**. The dashboard
-refreshes on request.
+After another Enola process writes a newer snapshot, a standalone dashboard reloads it
+from disk and updates the page automatically. **Refresh** performs the same disk check
+immediately. An MCP-hosted dashboard reads its server's live graph.
 
-Refresh reloads the state available to the process serving that page. Use
-`enola --status` in another terminal to find the URL for another workspace.
+An ordinary repository launch shows only that repository's snapshot. A multi-repository
+graph is restored only when the dashboard is launched with an explicit cluster config.
+Use `enola --status` to find the URL for another workspace.
+
+`enola upgrade` replaces the binary; it does not regenerate repository snapshots. When
+the extraction schema differs, the dashboard keeps the existing findings visible and
+shows one regeneration notice with the command to run.
 
 ## Several dashboards at once
 
@@ -133,7 +140,7 @@ running sessions and their dashboard URLs.
 
 While any dashboard is running, Enola also tries to provide the bookmarkable shared URL
 `http://127.0.0.1:7171`. The first process owns it; another can take over after that
-process exits. The Activity page identifies the process serving the page.
+process exits. Diagnostics identifies the process serving the page.
 
 ## Related commands
 

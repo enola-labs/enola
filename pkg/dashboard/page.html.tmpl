@@ -211,32 +211,43 @@
 <body>
 <div class="wrap">
   <div class="topbar">
-    <div class="brand"><h1>{{.Title}}<span class="brand-dot">.</span></h1></div>
+    <div class="brand"><h1>{{.Title}}<span class="brand-dot">.</span>{{if .HasReceipt}} <span class="note">· {{.Snapshot.RepoName}}{{if .Snapshot.Age}} · updated {{.Snapshot.Age}}{{end}}</span>{{end}}</h1></div>
     <div class="top-actions">
-      {{if .Running}}<span class="badge on">running</span>{{else}}<span class="badge off">not running</span>{{end}}
-      <button class="secondary-action" type="button" onclick="location.reload()" title="Reload the dashboard from the currently loaded snapshot">Refresh data</button>
+      <button class="secondary-action" type="button" onclick="refreshSnapshot(true)" title="Reload the latest snapshot from disk">Refresh</button>
     </div>
   </div>
 
   <nav class="tabs" role="tablist" aria-label="Dashboard sections">
-    <button class="tab active" id="tab-overview" role="tab" aria-selected="true" aria-controls="panel-overview" data-tab="overview" onclick="selectTab('overview')">Overview</button>
+    <button class="tab active" id="tab-overview" role="tab" aria-selected="true" aria-controls="panel-overview" data-tab="overview" onclick="selectTab('overview')">Findings</button>
     <button class="tab" id="tab-architecture" role="tab" aria-selected="false" aria-controls="panel-architecture" data-tab="architecture" onclick="selectTab('architecture')">Architecture</button>
-    <button class="tab" id="tab-snapshots" role="tab" aria-selected="false" aria-controls="panel-snapshots" data-tab="snapshots" onclick="selectTab('snapshots')">Snapshots</button>
-    <button class="tab" id="tab-activity" role="tab" aria-selected="false" aria-controls="panel-activity" data-tab="activity" onclick="selectTab('activity')">Activity</button>
+    <button class="tab" id="tab-snapshots" role="tab" aria-selected="false" aria-controls="panel-snapshots" data-tab="snapshots" onclick="selectTab('snapshots')">Snapshot</button>
+    <button class="tab" id="tab-activity" role="tab" aria-selected="false" aria-controls="panel-activity" data-tab="activity" onclick="selectTab('activity')">Lifetime usage</button>
     <button class="tab" id="tab-quality" role="tab" aria-selected="false" aria-controls="panel-quality" data-tab="quality" onclick="selectTab('quality')">Quality</button>
+    <button class="tab" id="tab-diagnostics" role="tab" aria-selected="false" aria-controls="panel-diagnostics" data-tab="diagnostics" onclick="selectTab('diagnostics')">Diagnostics</button>
   </nav>
 
   <main>
   <section class="tab-panel active" id="panel-overview" role="tabpanel" aria-labelledby="tab-overview">
+  {{if .VersionNotice}}<div class="snapshot-alert"><b>Snapshot update recommended.</b> {{.VersionNotice}} <code>{{.GenerateCommand}}</code></div>{{end}}
   <section class="hero">
     <div class="section-kicker">Repository intelligence</div>
     <h1>{{if .HasGraph}}Your architecture is mapped.{{else}}Ready to map this repository.{{end}}</h1>
-    <p>{{if .HasGraph}}See what Enola found and whether the analysis is complete enough to trust.{{else}}Generate a snapshot from your coding agent to reveal dependencies, hotspots, routes, and structural findings.{{end}}</p>
+    {{if .HasGraph}}<p>Review findings, changes, and the architecture captured for this repository.</p>{{else}}<p>No snapshot exists for this repository yet. Generate one and this page will update automatically.</p>{{if .GenerateCommand}}<p><code>{{.GenerateCommand}}</code></p>{{end}}{{end}}
     <div class="hero-meta">
       {{if .HasReceipt}}{{with .Receipt}}<span class="chip">{{.FactCount}} facts</span><span class="chip">{{.InsightCount}} findings</span>{{end}}{{end}}
       {{if .Insights}}<button type="button" class="primary-action" onclick="openModal('insights-modal')">Review findings</button>{{end}}
     </div>
   </section>
+
+  {{if .Insights}}<div class="data-section">
+    <div class="section-kicker">Current snapshot</div><h2>Findings</h2>
+    <p class="insight-summary">{{.InsightStructural}} structural · {{.InsightCandidate}} candidate{{if ne .InsightCandidate 1}}s{{end}}</p>
+    {{range .Insights}}<details class="insight-group" open>
+      <summary><span class="ig-label">{{.Label}}</span><span class="ig-count">{{.Count}}</span></summary>
+      <div class="table-scroll"><table><thead><tr><th>Finding</th><th class="num">Confidence</th><th>Evidence</th></tr></thead>
+      <tbody>{{range .Items}}<tr><td class="title">{{.Title}}</td><td class="num">{{.Confidence}}%</td><td>{{.Evidence}}</td></tr>{{end}}</tbody></table></div>
+    </details>{{end}}
+  </div>{{else if .HasReceipt}}<div class="data-section"><div class="section-kicker">Current snapshot</div><h2>No findings</h2><p class="note">Enola found no structural issues or review candidates in this snapshot.</p></div>{{end}}
 
   <div class="data-section">
     <div class="section-kicker">Development feedback</div><h2>What changed?</h2>
@@ -395,30 +406,8 @@
   </section>
 
   <section class="tab-panel" id="panel-activity" role="tabpanel" aria-labelledby="tab-activity" hidden>
-  <div class="panel-intro"><div class="section-kicker">Usage</div><h2>Activity</h2><p>Every active Enola session, this page's session, and lifetime activity across completed and running sessions.</p></div>
-
-  <div class="snapshot-head">
-    <div><h2>Active sessions</h2><p>{{len .Instances}} Enola server(s) running now. The highlighted row is the session serving this page.</p></div>
-  </div>
-  {{if .Instances}}<div class="table-scroll"><table>
-    <thead><tr><th>Session</th><th>Repositories</th><th>Uptime</th><th class="num">Calls</th><th>Dashboard</th></tr></thead>
-    <tbody>{{range .Instances}}<tr{{if .Self}} class="self-row"{{end}}><td>{{.Binary}} · PID {{.PID}}{{if .Self}} <span class="chip">this page</span>{{end}}</td><td>{{.Repos}}</td><td>{{.Uptime}}</td><td class="num">{{.Calls}}</td><td>{{if .URL}}<a href="{{.URL}}">open{{if .FrontDoor}} · shared{{end}}</a>{{else}}—{{end}}</td></tr>{{end}}</tbody>
-  </table></div>{{else}}<p class="note">No registered Enola server sessions are currently available.</p>{{end}}
-
-  <div class="snapshot-head data-section">
-    <div><h2>This page's session</h2><p>{{if .ReposLoaded}}{{.ReposLoaded}}{{else}}No repository label available{{end}}{{if .Uptime}} · running for {{.Uptime}}{{end}}</p></div>
-    {{if .Running}}<span class="badge on">running</span>{{else}}<span class="badge off">stopped</span>{{end}}
-  </div>
-  <div class="grid">
-    <div class="card"><div class="k">Tool calls this session</div><div class="v">{{.SessionCalls}}</div></div>
-    {{if .StartedAt}}<div class="card"><div class="k">Session started</div><div class="v">{{.StartedAt}}</div></div>{{end}}
-  </div>
-  {{if .SessionCalls}}<div class="data-section"><h2>Tools used this session</h2><div class="table-scroll"><table>
-    <thead><tr><th>Tool</th><th class="num">Calls</th></tr></thead>
-    <tbody>{{range .Tools}}{{if .Session}}<tr><td>{{.Name}}</td><td class="num">{{.Session}}</td></tr>{{end}}{{end}}</tbody>
-  </table></div></div>{{else}}<p class="note">No MCP tool calls have reached this server session yet. Snapshot generation performed by a separate command is recorded in lifetime activity, not here.</p>{{end}}
-
-  <div class="data-section"><div class="snapshot-head"><div><h2>Lifetime activity</h2><p>Aggregated across completed and active sessions · {{.ReposTracked}} repositories{{if .TrackingSince}} · tracked since {{.TrackingSince}}{{end}}. Individual completed-session records are not retained.</p></div></div>
+  <div class="panel-intro"><div class="section-kicker">All-time value</div><h2>Lifetime usage</h2><p>Usage accumulated across repositories and completed Enola sessions. These totals do not affect the snapshot shown elsewhere.</p></div>
+  <div class="data-section"><div class="snapshot-head"><div><h2>Tool activity</h2><p>{{.ReposTracked}} repositories tracked{{if .TrackingSince}} since {{.TrackingSince}}{{end}}.</p></div></div>
   {{if .Tools}}<div class="table-scroll"><table>
     <thead><tr><th>Tool</th><th class="num">Total calls</th></tr></thead>
     <tbody>{{range .Tools}}<tr><td>{{.Name}}</td><td class="num">{{.Total}}</td></tr>{{end}}</tbody>
@@ -429,11 +418,25 @@
     <tbody>{{range .Values}}<tr><td>{{.Label}}</td><td class="num">{{.Calls}}</td><td class="num">{{.TimeSaved}}</td><td class="num">{{.TokensSaved}}</td></tr>{{end}}<tr class="total"><td>{{.ValueTotal.Label}}</td><td class="num">{{.ValueTotal.Calls}}</td><td class="num">{{.ValueTotal.TimeSaved}}</td><td class="num">{{.ValueTotal.TokensSaved}}{{if $.BeyondContext}}+{{end}}</td></tr></tbody>
   </table></div>{{else}}<p class="note">No value recorded yet.</p>{{end}}</div>
 
-  <details class="technical-receipt"><summary>Runtime details</summary>
-  <div class="grid">
-    <div class="card"><div class="k">Server process</div><div class="v">{{if .Running}}PID {{.PID}}{{else}}stopped{{end}}</div></div>
+  </section>
+
+  <section class="tab-panel" id="panel-diagnostics" role="tabpanel" aria-labelledby="tab-diagnostics" hidden>
+  <div class="panel-intro"><div class="section-kicker">Troubleshooting</div><h2>Diagnostics</h2><p>Processes, paths, ports, and the exact data source for this page.</p></div>
+  <div class="snapshot-head"><div><h2>Active sessions</h2><p>{{len .Instances}} Enola process(es) running now. The highlighted row serves this page.</p></div></div>
+  {{if .Instances}}<div class="table-scroll"><table>
+    <thead><tr><th>Session</th><th>Repositories</th><th>Uptime</th><th class="num">Calls</th><th>Dashboard</th></tr></thead>
+    <tbody>{{range .Instances}}<tr{{if .Self}} class="self-row"{{end}}><td>{{.Binary}} · PID {{.PID}}{{if .Self}} <span class="chip">this page</span>{{end}}</td><td>{{.Repos}}</td><td>{{.Uptime}}</td><td class="num">{{.Calls}}</td><td>{{if .URL}}<a href="{{.URL}}">open{{if .FrontDoor}} · shared{{end}}</a>{{else}}—{{end}}</td></tr>{{end}}</tbody>
+  </table></div>{{else}}<p class="note">No registered Enola processes are available.</p>{{end}}
+  <div class="grid data-section">
+    <div class="card"><div class="k">This process</div><div class="v">{{if .Running}}PID {{.PID}}{{else}}stopped{{end}}</div></div>
     {{if .Binary}}<div class="card"><div class="k">Binary</div><div class="v">{{.Binary}}</div></div>{{end}}
     <div class="card"><div class="k">Dashboard port</div><div class="v">{{.Port}}</div></div>
+    <div class="card"><div class="k">Calls this session</div><div class="v">{{.SessionCalls}}</div></div>
+  </div>
+  <details class="technical-receipt"><summary>Paths and runtime details</summary>
+  <div class="grid">
+    {{if .SnapshotPath}}<div class="card path-card"><div class="k">Snapshot directory</div><div class="v">{{.SnapshotPath}}</div></div>{{end}}
+    {{if .GenerateCommand}}<div class="card path-card"><div class="k">Regenerate command</div><div class="v">{{.GenerateCommand}}</div></div>{{end}}
   </div>
   {{if .WorkDir}}<div class="card path-card" style="margin-top:.75rem"><div class="k">Working directory</div><div class="v">{{.WorkDir}}</div></div>{{end}}
   {{if .ConfigPath}}<div class="card path-card" style="margin-top:.75rem"><div class="k">Config path</div><div class="v">{{.ConfigPath}}</div></div>{{end}}
@@ -693,6 +696,14 @@
 {{block "extra-modals" $}}{{end}}
 
 <script>
+  function refreshSnapshot(manual) {
+    fetch('/api/refresh', {cache: 'no-store'})
+      .then(function(response) { return response.json(); })
+      .then(function(result) {
+        if (result.changed || manual) location.reload();
+      })
+      .catch(function() { if (manual) location.reload(); });
+  }
   function selectTab(name, updateHash) {
     var panel = document.getElementById('panel-' + name);
     var tab = document.getElementById('tab-' + name);
@@ -955,6 +966,7 @@
   window.addEventListener('hashchange', initialTab);
   initialTab();
   restoreFindingInspector();
+  window.setInterval(function() { refreshSnapshot(false); }, 5000);
 </script>
 </body>
 </html>

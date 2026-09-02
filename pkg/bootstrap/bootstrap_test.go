@@ -358,6 +358,40 @@ func TestAutoLoadSnapshot_IgnoresForeignGlobalReceipt(t *testing.T) {
 	}
 }
 
+func TestLoadDashboardSnapshotKeepsOrdinaryRepoScope(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	repo := writeGoRepo(t)
+	other := writeBiggerGoRepo(t)
+	eng, cfg := engineFor(t, repo)
+	one, err := eng.GenerateSnapshot(context.Background(), repo, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := eng.WriteArtifacts(repo); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := eng.GenerateSnapshot(context.Background(), other, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := eng.WriteArtifacts(other); err != nil {
+		t.Fatal(err)
+	}
+	if err := eng.WriteGlobalReceipt(); err != nil {
+		t.Fatal(err)
+	}
+
+	restarted, restartCfg := engineFor(t, cfg.Repo)
+	if !bootstrap.LoadDashboardSnapshot(restarted, restartCfg) {
+		t.Fatal("dashboard snapshot was not restored")
+	}
+	if got := restarted.Store().Count(); got != one.Meta.FactCount {
+		t.Fatalf("dashboard restored %d facts, want the selected repo's %d", got, one.Meta.FactCount)
+	}
+	if got := len(restarted.RepoPaths()); got != 1 {
+		t.Fatalf("dashboard restored %d repositories, want 1", got)
+	}
+}
+
 // TestNewServer exercises the public server constructor and its accessors,
 // which enterprise code relies on to register license-gated tools before Run.
 func TestNewServer(t *testing.T) {

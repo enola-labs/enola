@@ -848,19 +848,20 @@ Open the latest snapshot directly:
 enola dashboard --open
 ```
 
-This serves only the dashboard and stays attached to the terminal until Ctrl-C. Startup prints the snapshot directory and complete `http://` URL. Use `enola --status` in another terminal to list running sessions and their dashboard URLs. Starting the MCP server also starts the same **read-only dashboard** on a free loopback port (`127.0.0.1`), printed to stderr at startup. Data refresh is explicit, so a graph investigation is never interrupted by a periodic page reload.
+This serves only the dashboard and stays attached to the terminal until Ctrl-C. An MCP server is not required. Startup prints the selected snapshot directory and complete `http://` URL. Use `enola --status` in another terminal to list running sessions and their dashboard URLs. Starting the MCP server also starts the same **read-only dashboard** on a free loopback port (`127.0.0.1`), printed to stderr at startup. A standalone dashboard checks for newer snapshots written to its selected directory and reloads the page when one appears.
 
-The dashboard is organized into five tabs:
+The dashboard is organized into six tabs:
 
 - **Overview** — architectural change cards, current facts, findings, repositories, services, and cross-repository edges.
 - **Architecture** — a searchable module graph, focused consumer/dependency neighborhoods, edge evidence, findings, and a synchronized module table.
 - **Snapshots** — freshness, Git capture, extractor schema, repositories in the graph, and the complete technical receipt.
-- **Activity** — every currently active Enola session, this page's highlighted session, lifetime totals across completed and active sessions, and estimated value. Lifetime totals are retained; individual completed-session records are not.
+- **Lifetime usage** — retained tool totals and estimated value across repositories and completed sessions, kept separate from current-snapshot data.
+- **Diagnostics** — active processes, dashboard URLs, paths, ports, and this page's runtime identity.
 - **Quality** — complete file accounting, expected exclusions, potential blind spots, inactive extractors, parse failures, and unresolved cross-repository connections. Genuine parse failures include a prefilled GitHub issue action.
 
-It is strictly a viewer: every request reads through the same concurrency-safe accessors the MCP tools use and never mutates server state. It binds loopback only and serves nothing but the dashboard. Use **Refresh data** when you want to reload the currently available state. Pass `--no-dashboard` to skip the dashboard attached to an MCP server.
+It is strictly a viewer: it never extracts source or writes snapshot data. It binds loopback only and serves nothing but the dashboard. **Refresh** checks the selected snapshot directory immediately. Pass `--no-dashboard` to skip the dashboard attached to an MCP server.
 
-`enola --generate` is different: it generates the snapshot files and exits, without starting an MCP server or dashboard and without registering a running instance. A later MCP server can auto-load those files when it starts. A dashboard that is already running still describes its own process and its own in-memory graph; a separate `--generate` invocation does not turn that dashboard into a viewer for the generator process.
+`enola --generate` is different: it generates the snapshot files and exits, without starting an MCP server or dashboard and without registering a running instance. A running standalone dashboard notices that publication and reloads it. A normal repository dashboard restores only that repository's snapshot; pass an explicit cluster config to display a multi-repository graph.
 
 #### Several servers at once
 
@@ -868,7 +869,7 @@ Agent tooling starts one enola server per session, so opening four terminals mea
 
 **One bookmarkable URL.** Besides its own port, every server competes for a fixed **shared URL**, `http://127.0.0.1:7171` by default. The first to start wins it; when that one exits another takes over within a few seconds, so the address keeps working for as long as any server is up. Whichever server answers there lists all the others. Set `ENOLA_DASHBOARD_PORT` (or `dashboard.port` in the config) to move it, or `ENOLA_DASHBOARD_PORT=off` to keep only the ephemeral ports.
 
-There is no standalone dashboard process. When the last agent session closes, the last MCP server and its dashboard exit too, so the shared URL stops responding. When a new session starts, its server claims the shared URL again. As sessions start and stop, click **Refresh data** on an open dashboard to update the server list; joining servers appear and departed servers disappear on that request.
+`enola dashboard` is a standalone dashboard process. MCP-hosted dashboards exit with their agent sessions; a standalone dashboard remains until Ctrl-C. Diagnostics refreshes its process list on each page request.
 
 **Every page describes its own server.** The PID, uptime, repos and per-server call counts on a page belong to the process serving it - never to whichever server happened to start last. If a page shows a graph you did not expect, the switcher tells you which server holds the one you want.
 

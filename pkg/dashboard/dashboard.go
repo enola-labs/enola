@@ -94,6 +94,18 @@ type Options struct {
 	// others retry in the background and take it over when that server exits.
 	// Zero disables it.
 	StablePort int
+
+	// Refresh reloads the selected persisted snapshot when it changed. It is used
+	// by dashboard-only processes; an MCP-hosted dashboard already sees its
+	// engine's live publications. The bool reports whether a new snapshot was
+	// published.
+	Refresh func() (bool, error)
+
+	// SnapshotPath and GenerateCommand support a useful empty state and keep
+	// operational detail out of the primary UI unless the user asks for it.
+	SnapshotPath            string
+	GenerateCommand         string
+	CurrentExtractorVersion string
 }
 
 // defaultTitle is the product name shown when Options.Title is empty.
@@ -175,6 +187,7 @@ func Start(eng *bootstrap.Engine, opts Options) (*Server, error) {
 
 	s.mux = http.NewServeMux()
 	s.mux.HandleFunc("/", s.handleIndex)
+	s.mux.HandleFunc("/api/refresh", s.handleRefresh)
 
 	go func() {
 		if err := http.Serve(ln, s.mux); err != nil {
@@ -279,11 +292,35 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if s.opts.Refresh != nil {
+		if _, err := s.opts.Refresh(); err != nil {
+			log.Printf("dashboard: refreshing snapshot: %v", err)
+		}
+	}
 	data := s.buildPageForModule(r.URL.Query().Get("module"))
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := s.tmpl.Execute(w, data); err != nil {
 		log.Printf("dashboard: render failed: %v", err)
 	}
+}
+
+func (s *Server) handleRefresh(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/api/refresh" {
+		http.NotFound(w, r)
+		return
+	}
+	changed := false
+	var err error
+	if s.opts.Refresh != nil {
+		changed, err = s.opts.Refresh()
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(map[string]any{"changed": false, "error": err.Error()})
+		return
+	}
+	_ = json.NewEncoder(w).Encode(map[string]any{"changed": changed})
 }
 
 // titleOr returns the configured product name, or the default when unset.
@@ -405,7 +442,10 @@ type changeFinding struct {
 
 // pageData is the full template model.
 type pageData struct {
-	Title string
+	Title           string
+	SnapshotPath    string
+	GenerateCommand string
+	VersionNotice   string
 
 	// This server's own identity. Never sourced from the cross-process aggregate:
 	// with several agent terminals open, that would name a sibling process.
@@ -486,8 +526,10 @@ type pageData struct {
 // module if non-empty. Every source degrades gracefully to a note on error.
 func (s *Server) buildPageForModule(module string) pageData {
 	data := pageData{
-		Title: s.title,
-		Port:  s.port,
+		Title:           s.title,
+		Port:            s.port,
+		SnapshotPath:    s.opts.SnapshotPath,
+		GenerateCommand: s.opts.GenerateCommand,
 	}
 
 	now := time.Now()
@@ -547,6 +589,9 @@ func (s *Server) buildPageForModule(module string) pageData {
 		data.SkippedSample = rv.Quality.SkippedSample
 		data.ParseErrors = rv.Quality.ParseErrorSample
 		data.Quality = assessQuality(rv)
+		if s.opts.CurrentExtractorVersion != "" && rv.ExtractorVersion != "" && rv.ExtractorVersion != s.opts.CurrentExtractorVersion {
+			data.VersionNotice = "This snapshot uses a different extraction schema. Regenerate it before relying on comparisons or completeness."
+		}
 	} else {
 		data.ReceiptNote = "No snapshot loaded yet — run generate_snapshot to populate this."
 	}

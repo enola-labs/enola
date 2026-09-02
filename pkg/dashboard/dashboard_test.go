@@ -216,18 +216,34 @@ func TestHandlerDegradesGracefully(t *testing.T) {
 	}
 	body := rec.Body.String()
 	wantContains := []string{
-		"Refresh data",                   // explicit refresh; investigations are never interrupted
+		"Refresh",                        // explicit disk refresh remains available
 		"Ready to map this repository.",  // product-facing empty state
 		"No snapshot loaded yet",         // degraded current receipt
 		"No graph loaded in this server", // degraded graph receipt
+		"refreshSnapshot(false)",         // newer snapshots are discovered automatically
 	}
 	for _, want := range wantContains {
 		if !strings.Contains(body, want) {
 			t.Errorf("body missing %q", want)
 		}
 	}
-	if strings.Contains(body, "setTimeout(function () { location.reload()") || strings.Contains(body, "updates every") {
-		t.Error("dashboard still contains automatic refresh behavior")
+}
+
+func TestRefreshEndpointReportsPublishedSnapshot(t *testing.T) {
+	isolateHome(t)
+	calls := 0
+	s := newTestServer(54321, fakeArtifacts{}, Options{Refresh: func() (bool, error) {
+		calls++
+		return true, nil
+	}})
+
+	rec := httptest.NewRecorder()
+	s.handleRefresh(rec, httptest.NewRequest(http.MethodGet, "/api/refresh", nil))
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"changed":true`) {
+		t.Fatalf("refresh response = %d %s", rec.Code, rec.Body.String())
+	}
+	if calls != 1 {
+		t.Fatalf("refresh callback called %d times, want 1", calls)
 	}
 }
 

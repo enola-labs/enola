@@ -87,12 +87,12 @@ func TestPageListsLiveInstances(t *testing.T) {
 		}
 	}
 	activeAt := strings.Index(body, "Active sessions")
-	runtimeAt := strings.Index(body, "Runtime details")
+	runtimeAt := strings.Index(body, "Paths and runtime details")
 	if activeAt < 0 || runtimeAt < 0 || activeAt > runtimeAt {
-		t.Error("active sessions must be visible before the collapsed runtime details")
+		t.Error("Diagnostics must show active sessions before collapsed runtime details")
 	}
-	if !strings.Contains(body, "Individual completed-session records are not retained") {
-		t.Error("Activity tab does not explain lifetime aggregation versus session history")
+	if !strings.Contains(body, "These totals do not affect the snapshot shown elsewhere") {
+		t.Error("Lifetime usage must be clearly separated from the current snapshot")
 	}
 }
 

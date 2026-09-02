@@ -646,6 +646,35 @@ func AutoLoadSnapshot(eng *Engine, cfg *config.Config) map[string]int {
 	return nil
 }
 
+// LoadDashboardSnapshot restores exactly the scope selected by the dashboard
+// command. An explicit multi-repository config restores its graph; an ordinary
+// repository launch reads only that repository's own snapshot and never adopts
+// an accumulated MCP workspace graph by surprise.
+func LoadDashboardSnapshot(eng *Engine, cfg *config.Config) bool {
+	if len(cfg.Repos) > 1 {
+		repos, err := cfg.RepoPaths()
+		if err != nil || len(repos) == 0 {
+			return false
+		}
+		paths := make(map[string]string, len(repos))
+		for _, repo := range repos {
+			paths[filepath.Base(repo)] = repo
+		}
+		dir := filepath.Join(repos[0], cfg.Output.Dir)
+		return eng.RestoreFromDir(dir, paths, "") == nil
+	}
+	repoPath, err := filepath.Abs(cfg.Repo)
+	if err != nil {
+		return false
+	}
+	dir := filepath.Join(repoPath, cfg.Output.Dir)
+	label := restoredLabel(dir, repoPath)
+	if err := eng.RestoreFromDir(dir, map[string]string{label: repoPath}, label); err != nil {
+		return false
+	}
+	return true
+}
+
 // restoredLabel reads the repo label recorded in a snapshot directory, falling back to
 // the checkout directory name when the snapshot predates the recorded label — which is
 // exactly what labelled the facts in that older snapshot.

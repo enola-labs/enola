@@ -224,8 +224,9 @@ func (e *Engine) SetSnapshot(snap *facts.Snapshot) {
 // already tagged, so pass an empty singleRepoLabel to preserve the baked-in labels.
 //
 // Missing insights/meta are tolerated (a partial restore still serves facts); a
-// missing facts.jsonl is an error. It MUST run single-threaded at startup, before
-// Server.Run begins serving — like SetSnapshot, it publishes a new bundle.
+// missing facts.jsonl is an error. The complete replacement is built off to the
+// side and atomically published, so a dashboard may use it to follow a newer
+// on-disk snapshot while requests continue reading the previous bundle.
 func (e *Engine) RestoreFromDir(dir string, repoPaths map[string]string, singleRepoLabel string) error {
 	factsPath := filepath.Join(dir, "facts.jsonl")
 	if _, err := os.Stat(factsPath); err != nil {

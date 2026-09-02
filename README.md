@@ -136,7 +136,7 @@ A report, not a gate - it always exits `0`. It is the fastest way to find out th
 enola dashboard --open
 ```
 
-It stays attached to the terminal until you press Ctrl-C. The dashboard brings together architectural changes, the dependency map, findings, snapshot provenance, every active Enola session, lifetime activity, and extraction quality. If no snapshot exists yet, create one with `enola --generate`; repository data never leaves your machine. See the **[dashboard user guide](docs/DASHBOARD.md)** for a walkthrough of every tab.
+It stays attached to the terminal until you press Ctrl-C and follows newer snapshots written for that repository. The opening screen prioritizes findings and architectural changes; lifetime usage has its own screen, while ports, processes, and paths live under Diagnostics. If no snapshot exists yet, the dashboard shows the exact generation command and updates when it appears. Repository data never leaves your machine. See the **[dashboard user guide](docs/DASHBOARD.md)** for a walkthrough of every tab.
 
 ### Not using an agent?
 
