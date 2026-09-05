@@ -3,6 +3,7 @@ package dashboard
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -481,9 +482,11 @@ func TestBuildEdgeDiagram(t *testing.T) {
 	}
 }
 
-// TestInsightDetails covers the store-independent grouping: groups sorted by count
-// desc, items within a group sorted by confidence desc, the largest group's bar at
-// 100%, the structural/candidate split, evidence extraction, and nil → empty.
+// TestInsightDetails covers the store-independent grouping: groups with a proven
+// (structural) finding rank first regardless of size, then by count desc; items
+// within a group are sorted by confidence desc; the largest group's bar is at
+// 100%; the structural/candidate split and evidence extraction are correct; and
+// nil input yields empty output.
 func TestInsightDetails(t *testing.T) {
 	labels := mergedLabels(nil)
 
@@ -502,25 +505,92 @@ func TestInsightDetails(t *testing.T) {
 	if len(groups) != 2 {
 		t.Fatalf("groups = %d, want 2", len(groups))
 	}
-	// hotspots (3) ranks before cycles (1).
-	if groups[0].Source != "hotspots" || groups[0].Count != 3 || groups[0].BarPct != 100 {
-		t.Errorf("group0 = %+v, want hotspots/3/100%%", groups[0])
+	// cycles (1, but proven/structural) ranks before hotspots (3, heuristic) — a
+	// real problem outranks a bigger bucket of candidates.
+	if groups[0].Source != "cycles" || groups[0].BarPct != 33 || !groups[0].HasStructural {
+		t.Errorf("group0 = %+v, want cycles/33%%/structural", groups[0])
 	}
-	if groups[0].Label != "Hotspots" {
-		t.Errorf("group0 label = %q, want Hotspots", groups[0].Label)
+	if !groups[0].Items[0].Structural || groups[0].Items[0].Evidence != "foo" {
+		t.Errorf("cycles item = %+v, want structural + evidence foo", groups[0].Items[0])
+	}
+	if groups[1].Source != "hotspots" || groups[1].Count != 3 || groups[1].BarPct != 100 || groups[1].HasStructural {
+		t.Errorf("group1 = %+v, want hotspots/3/100%%/not structural", groups[1])
+	}
+	if groups[1].Label != "Hotspots" {
+		t.Errorf("group1 label = %q, want Hotspots", groups[1].Label)
 	}
 	// Within hotspots, highest confidence first (85, 65, 65 by title).
-	if groups[0].Items[0].Title != "Alloc in loop" || groups[0].Items[0].Confidence != 85 {
-		t.Errorf("hotspots item0 = %+v, want Alloc in loop/85", groups[0].Items[0])
-	}
-	if groups[1].Source != "cycles" || groups[1].BarPct != 33 {
-		t.Errorf("group1 = %+v, want cycles/33%%", groups[1])
-	}
-	if !groups[1].Items[0].Structural || groups[1].Items[0].Evidence != "foo" {
-		t.Errorf("cycles item = %+v, want structural + evidence foo", groups[1].Items[0])
+	if groups[1].Items[0].Title != "Alloc in loop" || groups[1].Items[0].Confidence != 85 {
+		t.Errorf("hotspots item0 = %+v, want Alloc in loop/85", groups[1].Items[0])
 	}
 	if structural != 1 || candidate != 3 {
 		t.Errorf("split = %d structural / %d candidate, want 1/3", structural, candidate)
+	}
+}
+
+// TestInsightDetailsExcludesInformationalFromBothCounts covers the fix for a real
+// leak: an Informational finding (e.g. "Architecture pattern: declared") describes
+// the graph rather than flagging a problem, and pkg/check never grades it — so it
+// must not inflate the "structural" count just because it happens to sit at 1.0,
+// nor count as a "candidate" needing a fix. It still renders in its group's Items.
+func TestInsightDetailsExcludesInformationalFromBothCounts(t *testing.T) {
+	ins := []facts.Insight{
+		{Source: "domain", Title: "Architecture pattern: declared", Confidence: 1.0, Informational: true},
+		{Source: "domain", Title: "Real boundary violation", Confidence: 1.0},
+	}
+	groups, structural, candidate := insightDetails(ins, mergedLabels(nil))
+	if structural != 1 || candidate != 0 {
+		t.Fatalf("split = %d/%d, want 1 structural / 0 candidate — the informational note must be counted in neither", structural, candidate)
+	}
+	if len(groups) != 1 || len(groups[0].Items) != 2 {
+		t.Fatalf("groups = %+v, want one group with both items", groups)
+	}
+	var sawInformational bool
+	for _, item := range groups[0].Items {
+		if item.Title == "Architecture pattern: declared" {
+			sawInformational = true
+			if !item.Informational || item.Structural {
+				t.Errorf("informational item = %+v, want Informational=true, Structural=false", item)
+			}
+		}
+	}
+	if !sawInformational {
+		t.Fatalf("groups = %+v, want the informational item still present", groups)
+	}
+}
+
+// TestInsightDetailsCapsPreviewAndCarriesTopAction covers the overview's per-group
+// preview cap (Items stays complete for the modal; Shown/Hidden bound what the
+// overview renders inline) and that each row carries only the first suggested
+// action, since explainers already order their own Actions most-direct-fix first.
+func TestInsightDetailsCapsPreviewAndCarriesTopAction(t *testing.T) {
+	ins := make([]facts.Insight, 0, 7)
+	for i := 0; i < 7; i++ {
+		in := facts.Insight{Source: "hotspots", Title: fmt.Sprintf("Hot symbol %d", i), Confidence: 0.7}
+		if i == 0 {
+			in.Actions = []string{"do X", "do Y"}
+		}
+		ins = append(ins, in)
+	}
+	groups, _, _ := insightDetails(ins, mergedLabels(nil))
+	if len(groups) != 1 {
+		t.Fatalf("groups = %d, want 1", len(groups))
+	}
+	g := groups[0]
+	if len(g.Items) != 7 || len(g.Shown) != 5 || g.Hidden != 2 {
+		t.Fatalf("g = %+v, want 7 items / 5 shown / 2 hidden", g)
+	}
+	var found bool
+	for _, item := range g.Items {
+		if item.Title == "Hot symbol 0" {
+			found = true
+			if item.Action != "do X" {
+				t.Errorf("action = %q, want only the first suggested action (do X)", item.Action)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("items = %+v, want Hot symbol 0 present", g.Items)
 	}
 }
 

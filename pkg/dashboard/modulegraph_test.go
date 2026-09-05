@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"strings"
 	"testing"
 
@@ -14,7 +15,7 @@ func TestBuildModuleGraphRanksBoundsAndLinks(t *testing.T) {
 	st := facts.NewStore()
 	st.Add(
 		facts.Fact{Kind: facts.KindModule, Name: "core", File: "src/core", Relations: []facts.Relation{{Kind: facts.RelImports, Target: "api"}, {Kind: facts.RelImports, Target: "storage"}}},
-		facts.Fact{Kind: facts.KindModule, Name: "api", File: "src/api", Relations: []facts.Relation{{Kind: facts.RelImports, Target: "core"}}},
+		facts.Fact{Kind: facts.KindModule, Name: "api", File: "src/api", Relations: []facts.Relation{{Kind: facts.RelImports, Target: "storage"}}},
 		facts.Fact{Kind: facts.KindModule, Name: "storage", File: "src/storage"},
 		facts.Fact{Kind: facts.KindModule, Name: "core_test", File: "tests/core", Props: map[string]any{facts.PropModuleRole: facts.ModuleRoleTest}, Relations: []facts.Relation{{Kind: facts.RelImports, Target: "core"}}},
 	)
@@ -23,8 +24,8 @@ func TestBuildModuleGraphRanksBoundsAndLinks(t *testing.T) {
 	if view == nil || len(view.Nodes) != 3 || len(view.Edges) != 3 {
 		t.Fatalf("view = %+v, want 3 production nodes and 3 directed edges", view)
 	}
-	if view.Nodes[0].Name != "core" || view.Nodes[0].FanIn != 1 || view.Nodes[0].FanOut != 2 {
-		t.Errorf("top node = %+v, want core with fan-in 1 / fan-out 2", view.Nodes[0])
+	if view.Nodes[0].Name != "core" || view.Nodes[0].FanIn != 0 || view.Nodes[0].FanOut != 2 {
+		t.Errorf("top node = %+v, want core with fan-in 0 / fan-out 2", view.Nodes[0])
 	}
 }
 
@@ -130,6 +131,65 @@ func TestBuildModuleGraphLayersConsumersBeforeDependencies(t *testing.T) {
 	}
 }
 
+func TestBuildModuleGraphCondensesCyclesIntoClusterNode(t *testing.T) {
+	st := facts.NewStore()
+	st.Add(
+		facts.Fact{Kind: facts.KindModule, Name: "a", Relations: []facts.Relation{{Kind: facts.RelImports, Target: "b"}, {Kind: facts.RelImports, Target: "db"}}},
+		facts.Fact{Kind: facts.KindModule, Name: "b", Relations: []facts.Relation{{Kind: facts.RelImports, Target: "c"}, {Kind: facts.RelImports, Target: "db"}}},
+		facts.Fact{Kind: facts.KindModule, Name: "c", Relations: []facts.Relation{{Kind: facts.RelImports, Target: "a"}}},
+		facts.Fact{Kind: facts.KindModule, Name: "app", Relations: []facts.Relation{{Kind: facts.RelImports, Target: "a"}}},
+		facts.Fact{Kind: facts.KindModule, Name: "db"},
+	)
+
+	view := buildModuleGraph(st)
+	if view == nil {
+		t.Fatal("view is nil")
+	}
+
+	var cluster *moduleNode
+	for i := range view.Nodes {
+		if view.Nodes[i].Role == "cluster" {
+			if cluster != nil {
+				t.Fatalf("found more than one cluster node: %+v and %+v", *cluster, view.Nodes[i])
+			}
+			cluster = &view.Nodes[i]
+		}
+	}
+	if cluster == nil {
+		t.Fatalf("view = %+v, want one cluster node for the a/b/c cycle", view)
+	}
+	members := append([]string(nil), cluster.Members...)
+	sort.Strings(members)
+	if fmt.Sprint(members) != fmt.Sprint([]string{"a", "b", "c"}) {
+		t.Fatalf("cluster members = %v, want [a b c]", members)
+	}
+	if !strings.Contains(cluster.Display, "+2") {
+		t.Fatalf("cluster display = %q, want it to mention +2 (b and c folded in)", cluster.Display)
+	}
+
+	// The condensation of any cyclic graph is acyclic, so every drawn edge
+	// must run strictly left to right — this is the concrete check that the
+	// original tangle (same-column back-edges) can no longer occur.
+	for _, e := range view.Edges {
+		if view.Nodes[e.Source].X >= view.Nodes[e.Target].X {
+			t.Errorf("edge %+v is not forward: source X=%d, target X=%d", e, view.Nodes[e.Source].X, view.Nodes[e.Target].X)
+		}
+	}
+
+	seen := map[[2]int]int{}
+	for _, e := range view.Edges {
+		seen[[2]int{e.Source, e.Target}]++
+	}
+	for pair, count := range seen {
+		if count > 1 {
+			t.Errorf("duplicate edge %v drawn %d times", pair, count)
+		}
+	}
+	if len(view.Edges) != 2 {
+		t.Fatalf("edges = %+v, want exactly app->cluster and cluster->db, deduped from the two members (a and b) that both point at db", view.Edges)
+	}
+}
+
 func TestBuildModuleGraphCapsLargeRepositories(t *testing.T) {
 	st := facts.NewStore()
 	for i := 0; i < moduleGraphLimit+10; i++ {
@@ -148,7 +208,7 @@ func TestBuildModuleGraphCapsOverviewEdges(t *testing.T) {
 	for i := 0; i < moduleGraphOverviewLimit; i++ {
 		relations := make([]facts.Relation, 0, moduleGraphOverviewLimit-1)
 		for j := 0; j < moduleGraphOverviewLimit; j++ {
-			if i != j {
+			if i < j {
 				relations = append(relations, facts.Relation{Kind: facts.RelImports, Target: fmt.Sprintf("m%02d", j)})
 			}
 		}

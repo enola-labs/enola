@@ -125,10 +125,12 @@
     .module-node text { fill: #cbd3eb; font: 10px ui-monospace, SFMono-Regular, Menlo, monospace; pointer-events: none; }
     .module-node:hover rect, .module-node.active rect { fill: #172657; stroke: #7d92e4; }
     .module-node[data-role="selected"] rect { fill: #23336b; stroke: #9b75e8; stroke-width: 2; }
+    .module-node[data-role="cluster"] rect { fill: #241c46; stroke: #8b6fe0; stroke-dasharray: 4 3; }
     .module-node.dim, .module-edge.dim { opacity: .12; }
     .module-edge.active { opacity: .9; stroke: #9b75e8; stroke-width: 1.8; }
     .module-detail { display: none; padding: .9rem 1rem; background: #0a1432; }
     .module-detail.open { display: block; }
+    .module-detail-members { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .6rem; }
     .module-detail b { display: block; font-size: .82rem; }
     .module-detail span { color: #8f9bbb; font-size: .7rem; }
     .module-stats { display: flex; flex-wrap: wrap; gap: .35rem .8rem; margin-top: .65rem; font: .65rem ui-monospace, SFMono-Regular, Menlo, monospace; color: #9bb4f5; }
@@ -204,6 +206,7 @@
     .insight-group .table-scroll { padding: .1rem .3rem .4rem; }
     td.title { white-space: normal; }
     .structural-chip { margin-left: .4rem; font-size: .72rem; color: var(--muted); border: 1px solid var(--border); border-radius: 6px; padding: 0 .35rem; }
+    .finding-action { color: var(--muted); font-size: .78rem; margin-top: .15rem; }
     {{/* extra-styles: extension slot — see pkg/dashboard.Options.Overlay */}}
     {{block "extra-styles" $}}{{end}}
   </style>
@@ -242,10 +245,12 @@
   {{if .Insights}}<div class="data-section">
     <div class="section-kicker">Current snapshot</div><h2>Findings</h2>
     <p class="insight-summary">{{.InsightStructural}} structural · {{.InsightCandidate}} candidate{{if ne .InsightCandidate 1}}s{{end}}</p>
-    {{range .Insights}}<details class="insight-group" open>
-      <summary><span class="ig-label">{{.Label}}</span><span class="ig-count">{{.Count}}</span></summary>
+    {{range $i, $g := .Insights}}<details class="insight-group"{{if or (eq $i 0) $g.HasStructural}} open{{end}}>
+      <summary><span class="ig-label">{{$g.Label}}</span><span class="ig-count">{{$g.Count}}</span></summary>
       <div class="table-scroll"><table><thead><tr><th>Finding</th><th class="num">Confidence</th><th>Evidence</th></tr></thead>
-      <tbody>{{range .Items}}<tr><td class="title">{{.Title}}</td><td class="num">{{.Confidence}}%</td><td>{{.Evidence}}</td></tr>{{end}}</tbody></table></div>
+      <tbody>{{range $g.Shown}}<tr><td class="title">{{.Title}}{{if .Action}}<div class="finding-action">→ {{.Action}}</div>{{end}}</td><td class="num">{{.Confidence}}%</td><td>{{.Evidence}}</td></tr>{{end}}</tbody></table>
+      {{if $g.Hidden}}<button type="button" class="count-link" onclick="openModal('insights-modal')">+{{$g.Hidden}} more — review all</button>{{end}}
+      </div>
     </details>{{end}}
   </div>{{else if .HasReceipt}}<div class="data-section"><div class="section-kicker">Current snapshot</div><h2>No findings</h2><p class="note">Enola found no structural issues or review candidates in this snapshot.</p></div>{{end}}
 
@@ -302,8 +307,9 @@
     {{if $graph.Focused}}<span class="chip">Neighborhood of {{$graph.FocusName}}</span>{{else}}<span class="chip">Showing {{len $graph.Nodes}} of {{$graph.Total}} connected modules</span>{{end}}
     <span class="chip">{{len $graph.Edges}} visible module dependencies{{if $graph.OmittedEdges}} · {{$graph.OmittedEdges}} hidden for clarity{{end}}</span>
     {{if not $graph.Focused}}<span class="chip">Layered by dependency direction</span>{{end}}
+    {{if $graph.ClusterCount}}<span class="chip">{{$graph.ClusterCount}} cyclic cluster{{if ne $graph.ClusterCount 1}}s{{end}} collapsed</span>{{end}}
   </div>
-  <p class="note">Search covers {{if $graph.AllModulesTruncated}}the {{len $graph.AllModules}} most-connected of {{$graph.Total}}{{else}}all {{$graph.Total}}{{end}} connected modules. {{if $graph.Focused}}This view contains the selected module, its immediate incoming and outgoing dependencies, and the dependencies between them. <a href="/#architecture">Clear focus</a>.{{else}}Choose a module to replace this overview with its immediate dependency neighborhood.{{end}}</p>
+  <p class="note">Search covers {{if $graph.AllModulesTruncated}}the {{len $graph.AllModules}} most-connected of {{$graph.Total}}{{else}}all {{$graph.Total}}{{end}} connected modules. {{if $graph.Focused}}This view contains the selected module, its immediate incoming and outgoing dependencies, and the dependencies between them. <a href="/#architecture">Clear focus</a>.{{else}}Choose a module to replace this overview with its immediate dependency neighborhood.{{end}}{{if $graph.ClusterCount}} Dashed ⟲ nodes are modules that import each other in a cycle, folded into one box so the map stays readable — click one to see its members, then click a member to explore it on its own.{{end}}</p>
   <section class="explorer" aria-label="Architecture explorer">
     <div class="graph-pane">
       {{if $graph.Focused}}<div class="graph-columns"><span>Consumers</span><span>Selected module</span><span>Dependencies</span></div>{{end}}
@@ -311,7 +317,7 @@
         <svg class="module-graph" width="{{$graph.Width}}" height="{{$graph.Height}}" viewBox="0 0 {{$graph.Width}} {{$graph.Height}}" role="img" aria-label="Module dependency graph">
           <defs><marker id="module-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#536a9f"/></marker></defs>
           {{range $graph.Edges}}{{if .Curve}}<path class="module-edge-hit" data-source="{{.Source}}" data-target="{{.Target}}" data-source-name="{{.SourceName}}" data-target-name="{{.TargetName}}" data-source-file="{{.SourceFile}}" data-target-file="{{.TargetFile}}" data-kind="{{.Kind}}" d="M{{.X1}},{{.Y1}} Q{{.CX}},{{.CY}} {{.X2}},{{.Y2}}" onclick="selectDependency(this)"/><path class="module-edge" data-source="{{.Source}}" data-target="{{.Target}}" d="M{{.X1}},{{.Y1}} Q{{.CX}},{{.CY}} {{.X2}},{{.Y2}}" marker-end="url(#module-arrow)"/>{{else}}<line class="module-edge-hit" data-source="{{.Source}}" data-target="{{.Target}}" data-source-name="{{.SourceName}}" data-target-name="{{.TargetName}}" data-source-file="{{.SourceFile}}" data-target-file="{{.TargetFile}}" data-kind="{{.Kind}}" x1="{{.X1}}" y1="{{.Y1}}" x2="{{.X2}}" y2="{{.Y2}}" onclick="selectDependency(this)"/><line class="module-edge" data-source="{{.Source}}" data-target="{{.Target}}" x1="{{.X1}}" y1="{{.Y1}}" x2="{{.X2}}" y2="{{.Y2}}" marker-end="url(#module-arrow)"/>{{end}}{{end}}
-          {{range $graph.Nodes}}<g class="module-node" data-id="{{.ID}}" data-role="{{.Role}}" data-name="{{.Name}}" data-file="{{.File}}" data-in="{{.FanIn}}" data-out="{{.FanOut}}" onclick="selectModule(this)"><title>{{.Name}}</title><rect x="{{.X}}" y="{{.Y}}" width="154" height="36"/><text x="{{.X}}" y="{{.Y}}" dx="9" dy="22">{{.Display}}</text></g>{{end}}
+          {{range $graph.Nodes}}<g class="module-node" data-id="{{.ID}}" data-role="{{.Role}}" data-name="{{.Name}}" data-file="{{.File}}" data-in="{{.FanIn}}" data-out="{{.FanOut}}" data-members="{{.MembersAttr}}" onclick="selectModule(this)"><title>{{.Tooltip}}</title><rect x="{{.X}}" y="{{.Y}}" width="154" height="36"/><text x="{{.X}}" y="{{.Y}}" dx="9" dy="22">{{.Display}}</text></g>{{end}}
         </svg>
       </div>
       {{if $graph.Limited}}<div class="graph-note">{{if $graph.Focused}}This neighborhood is bounded to keep individual relationships inspectable.{{else}}This overview shows the most-connected modules and a representative dependency backbone. Search for any module to inspect its complete immediate neighborhood.{{end}}</div>{{end}}
@@ -319,7 +325,7 @@
     <aside class="inspector-pane" aria-label="Architecture inspector">
       <div class="inspector-head"><h3>Inspector</h3><p>Select a module, dependency, or finding to inspect it.</p></div>
       <div id="inspector-empty" class="inspector-empty">Nothing selected. Choose a node or edge on the map.</div>
-      <div id="module-detail" class="module-detail"><div><b id="module-detail-name"></b><span id="module-detail-file"></span></div><div class="module-stats"><span id="module-detail-in"></span><span id="module-detail-out"></span></div></div>
+      <div id="module-detail" class="module-detail"><div><b id="module-detail-name"></b><span id="module-detail-file"></span></div><div class="module-stats"><span id="module-detail-in"></span><span id="module-detail-out"></span></div><div id="module-detail-members" class="module-detail-members" hidden></div></div>
       {{if .Insights}}<div class="findings-pane">
       <h3>Findings <span class="note">({{.InsightTotal}})</span> <button type="button" class="count-link" onclick="openModal('insights-modal')">review all</button></h3>
       <div class="findings-groups">{{range .Insights}}
@@ -602,7 +608,7 @@
       <div class="table-scroll"><table>
         <thead><tr><th>Title</th><th class="num">Confidence</th><th>Evidence</th></tr></thead>
         <tbody>
-          {{range .Items}}<tr data-conf="{{.Confidence}}"><td class="title">{{.Title}}</td><td class="num">{{.Confidence}}%{{if .Structural}}<span class="structural-chip">structural</span>{{end}}</td><td>{{.Evidence}}</td></tr>{{end}}
+          {{range .Items}}<tr data-conf="{{.Confidence}}"><td class="title">{{.Title}}{{if .Action}}<div class="finding-action">→ {{.Action}}</div>{{end}}</td><td class="num">{{.Confidence}}%{{if .Structural}}<span class="structural-chip">structural</span>{{else if .Informational}}<span class="structural-chip">context</span>{{end}}</td><td>{{.Evidence}}</td></tr>{{end}}
         </tbody>
       </table></div>
     </details>
@@ -838,6 +844,28 @@
       document.getElementById('module-detail-file').textContent = node.getAttribute('data-file') || '';
       document.getElementById('module-detail-in').textContent = node.getAttribute('data-in') + ' consumer modules';
       document.getElementById('module-detail-out').textContent = node.getAttribute('data-out') + ' dependency modules';
+    }
+    var membersBox = document.getElementById('module-detail-members');
+    if (membersBox) {
+      var membersAttr = node.getAttribute('data-members');
+      membersBox.innerHTML = '';
+      membersBox.hidden = !membersAttr;
+      if (membersAttr) {
+        var hint = document.createElement('p');
+        hint.className = 'note';
+        hint.style.width = '100%';
+        hint.style.margin = '0 0 .1rem';
+        hint.textContent = 'These modules import each other in a cycle. Click one to explore just that module:';
+        membersBox.appendChild(hint);
+        membersAttr.split('|').forEach(function(name) {
+          var btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'count-link';
+          btn.textContent = name;
+          btn.onclick = function() { window.location.assign('/?module=' + encodeURIComponent(name) + '#architecture'); };
+          membersBox.appendChild(btn);
+        });
+      }
     }
   }
   function selectDependency(hit) {
