@@ -117,8 +117,8 @@
     .graph-canvas { flex: 1; min-height: 420px; overflow: auto; padding: .5rem; background-image: radial-gradient(rgba(139,165,255,.13) .7px, transparent .7px); background-size: 18px 18px; }
     .module-graph { display: block; width: auto; min-width: 100%; height: auto; }
     .graph-canvas.fit .module-graph { width: 100%; min-width: 100%; }
-    .module-edge { stroke: #536a9f; stroke-width: 1.2; opacity: .34; transition: opacity .18s, stroke .18s; pointer-events: none; }
-    .module-edge-hit { stroke: transparent; stroke-width: 12; cursor: pointer; }
+    .module-edge { fill: none; stroke: #536a9f; stroke-width: 1.2; opacity: .34; transition: opacity .18s, stroke .18s; pointer-events: none; }
+    .module-edge-hit { fill: none; stroke: transparent; stroke-width: 12; cursor: pointer; }
     .module-edge-hit:hover + .module-edge { opacity: 1; stroke: #9b75e8; stroke-width: 2; }
     .module-node { cursor: pointer; transition: opacity .18s; }
     .module-node rect { fill: #0d193b; stroke: #33456f; rx: 7; transition: fill .18s, stroke .18s; }
@@ -310,7 +310,7 @@
       <div class="graph-canvas">
         <svg class="module-graph" width="{{$graph.Width}}" height="{{$graph.Height}}" viewBox="0 0 {{$graph.Width}} {{$graph.Height}}" role="img" aria-label="Module dependency graph">
           <defs><marker id="module-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#536a9f"/></marker></defs>
-          {{range $graph.Edges}}<line class="module-edge-hit" data-source="{{.Source}}" data-target="{{.Target}}" data-source-name="{{.SourceName}}" data-target-name="{{.TargetName}}" data-source-file="{{.SourceFile}}" data-target-file="{{.TargetFile}}" data-kind="{{.Kind}}" x1="{{.X1}}" y1="{{.Y1}}" x2="{{.X2}}" y2="{{.Y2}}" onclick="selectDependency(this)"/><line class="module-edge" data-source="{{.Source}}" data-target="{{.Target}}" x1="{{.X1}}" y1="{{.Y1}}" x2="{{.X2}}" y2="{{.Y2}}" marker-end="url(#module-arrow)"/>{{end}}
+          {{range $graph.Edges}}{{if .Curve}}<path class="module-edge-hit" data-source="{{.Source}}" data-target="{{.Target}}" data-source-name="{{.SourceName}}" data-target-name="{{.TargetName}}" data-source-file="{{.SourceFile}}" data-target-file="{{.TargetFile}}" data-kind="{{.Kind}}" d="M{{.X1}},{{.Y1}} Q{{.CX}},{{.CY}} {{.X2}},{{.Y2}}" onclick="selectDependency(this)"/><path class="module-edge" data-source="{{.Source}}" data-target="{{.Target}}" d="M{{.X1}},{{.Y1}} Q{{.CX}},{{.CY}} {{.X2}},{{.Y2}}" marker-end="url(#module-arrow)"/>{{else}}<line class="module-edge-hit" data-source="{{.Source}}" data-target="{{.Target}}" data-source-name="{{.SourceName}}" data-target-name="{{.TargetName}}" data-source-file="{{.SourceFile}}" data-target-file="{{.TargetFile}}" data-kind="{{.Kind}}" x1="{{.X1}}" y1="{{.Y1}}" x2="{{.X2}}" y2="{{.Y2}}" onclick="selectDependency(this)"/><line class="module-edge" data-source="{{.Source}}" data-target="{{.Target}}" x1="{{.X1}}" y1="{{.Y1}}" x2="{{.X2}}" y2="{{.Y2}}" marker-end="url(#module-arrow)"/>{{end}}{{end}}
           {{range $graph.Nodes}}<g class="module-node" data-id="{{.ID}}" data-role="{{.Role}}" data-name="{{.Name}}" data-file="{{.File}}" data-in="{{.FanIn}}" data-out="{{.FanOut}}" onclick="selectModule(this)"><title>{{.Name}}</title><rect x="{{.X}}" y="{{.Y}}" width="154" height="36"/><text x="{{.X}}" y="{{.Y}}" dx="9" dy="22">{{.Display}}</text></g>{{end}}
         </svg>
       </div>

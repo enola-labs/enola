@@ -26,6 +26,8 @@ type moduleNode struct {
 type moduleEdge struct {
 	Source, Target         int
 	X1, Y1, X2, Y2         int
+	Curve                  bool // true when the target is not in a later column: a back or same-layer edge
+	CX, CY                 int  // quadratic control point, set only when Curve is true
 	SourceName, TargetName string
 	SourceFile, TargetFile string
 	Kind                   string
@@ -211,7 +213,41 @@ func buildModuleGraphFocused(store *facts.Store, focus string) *moduleGraphView 
 			}
 			i := index[r.name]
 			a, b := view.Nodes[i], view.Nodes[j]
-			view.Edges = append(view.Edges, moduleEdge{Source: i, Target: j, X1: a.X + nodeW, Y1: a.Y + nodeH/2, X2: b.X, Y2: b.Y + nodeH/2, SourceName: a.Name, TargetName: b.Name, SourceFile: a.File, TargetFile: b.File, Kind: facts.RelImports})
+			edge := moduleEdge{Source: i, Target: j, SourceName: a.Name, TargetName: b.Name, SourceFile: a.File, TargetFile: b.File, Kind: facts.RelImports}
+			if b.X > a.X {
+				edge.X1, edge.Y1 = a.X+nodeW, a.Y+nodeH/2
+				edge.X2, edge.Y2 = b.X, b.Y+nodeH/2
+			} else {
+				// b is in the same column as a, or an earlier one (a cycle, or a
+				// forward-ranked node pointing back into one). A straight line from
+				// a's right edge to b's left edge would cross every node stacked
+				// between them, so loop it out past both nodes' right edges instead.
+				edge.Curve = true
+				edge.X1, edge.Y1 = a.X+nodeW, a.Y+nodeH/2
+				edge.X2, edge.Y2 = b.X+nodeW, b.Y+nodeH/2
+				rim := a.X + nodeW
+				if b.X+nodeW > rim {
+					rim = b.X + nodeW
+				}
+				dy := edge.Y2 - edge.Y1
+				if dy < 0 {
+					dy = -dy
+				}
+				// Nest the arcs by vertical span, like an arc diagram: edges spanning
+				// many rows bow further out than edges between neighbors. A fixed
+				// bow made every back-edge in a tangled column converge on the same
+				// curve, reading as one thick cable instead of distinct edges.
+				bow := 20 + dy/3
+				if max := nodeW + gapX/2; bow > max {
+					bow = max
+				}
+				edge.CX = rim + bow
+				edge.CY = (edge.Y1 + edge.Y2) / 2
+			}
+			if edge.CX+margin > view.Width {
+				view.Width = edge.CX + margin
+			}
+			view.Edges = append(view.Edges, edge)
 		}
 	}
 	sortEdgesByEndpoints(view.Edges)
@@ -228,6 +264,9 @@ func buildModuleGraphFocused(store *facts.Store, focus string) *moduleGraphView 
 		view.Edges = view.Edges[:moduleGraphOverviewEdges]
 		sortEdgesByEndpoints(view.Edges)
 	}
+	// Paint wide arcs first so the tighter arcs and straight lines nested inside
+	// them (CX is 0 on straight edges) land on top and stay readable.
+	sort.SliceStable(view.Edges, func(i, j int) bool { return view.Edges[i].CX > view.Edges[j].CX })
 	return view
 }
 
