@@ -2414,7 +2414,9 @@ import (
 // Prisma schemas are discovered below monorepo package roots; SQL CREATE/ALTER
 // TABLE migrations emit de-duplicated storage facts; OpenAPI route facts identify
 // contract operations separately from implementations and client calls.
-const cacheVersion = "v268"
+// v269: TypeScript dependency facts distinguish runtime imports from type-only
+// imports and re-exports erased during compilation.
+const cacheVersion = "v269"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

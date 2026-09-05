@@ -786,8 +786,12 @@ func (e *TSExtractor) extractImports(kinds *tsutil.KindTable, root *sitter.Node,
 		}
 
 		props := map[string]any{
-			"language": "typescript",
-			"source":   importSource,
+			"language":                "typescript",
+			"source":                  importSource,
+			facts.PropDependencyPhase: facts.DependencyPhaseRuntime,
+		}
+		if isTypeOnlyModuleStatement(nodeText(child, src), isReexport) {
+			props[facts.PropDependencyPhase] = facts.DependencyPhaseTypeOnly
 		}
 		if isReexport {
 			props["reexport"] = true
@@ -834,11 +838,16 @@ func (e *TSExtractor) extractImports(kinds *tsutil.KindTable, root *sitter.Node,
 								source = "external"
 							}
 							result = append(result, facts.Fact{
-								Kind:      facts.KindDependency,
-								Name:      name,
-								File:      relFile,
-								Line:      int(n.StartPosition().Row) + 1,
-								Props:     map[string]any{"language": "typescript", "source": source, "dynamic": true},
+								Kind: facts.KindDependency,
+								Name: name,
+								File: relFile,
+								Line: int(n.StartPosition().Row) + 1,
+								Props: map[string]any{
+									"language":                "typescript",
+									"source":                  source,
+									"dynamic":                 true,
+									facts.PropDependencyPhase: facts.DependencyPhaseRuntime,
+								},
 								Relations: []facts.Relation{{Kind: facts.RelImports, Target: resolved}},
 							})
 						}
@@ -853,6 +862,44 @@ func (e *TSExtractor) extractImports(kinds *tsutil.KindTable, root *sitter.Node,
 	walkDeps(root)
 
 	return result
+}
+
+// isTypeOnlyModuleStatement reports whether every binding in a static import or
+// re-export is erased by TypeScript. Whole-statement `import type` / `export type`
+// forms are direct. For the inline form (`import { type A, type B }`) every named
+// binding must carry the type modifier; mixed lists remain runtime dependencies.
+// Returning false for unfamiliar syntax is deliberately conservative: cycle analysis
+// must never hide a possible runtime edge merely because classification was uncertain.
+func isTypeOnlyModuleStatement(statement string, reexport bool) bool {
+	s := strings.TrimSpace(statement)
+	keyword := "import"
+	if reexport {
+		keyword = "export"
+	}
+	if strings.HasPrefix(s, keyword+" type ") || strings.HasPrefix(s, keyword+" type{") {
+		return true
+	}
+	if !strings.HasPrefix(s, keyword+" {") && !strings.HasPrefix(s, keyword+"{") {
+		return false
+	}
+	open := strings.IndexByte(s, '{')
+	close := strings.IndexByte(s[open+1:], '}')
+	if close < 0 {
+		return false
+	}
+	body := s[open+1 : open+1+close]
+	sawBinding := false
+	for _, binding := range strings.Split(body, ",") {
+		binding = strings.TrimSpace(binding)
+		if binding == "" {
+			continue
+		}
+		sawBinding = true
+		if !strings.HasPrefix(binding, "type ") {
+			return false
+		}
+	}
+	return sawBinding
 }
 
 func (e *TSExtractor) extractDeclarations(kinds *tsutil.KindTable, root *sitter.Node, ctx *extractCtx) []facts.Fact {
