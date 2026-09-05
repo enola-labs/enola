@@ -38,8 +38,22 @@ ignore:
   - "**/*_test.go"
   - "**/*.test.ts"
   - "**/*.test.tsx"
+  - "**/*.test.js"
+  - "**/*.test.jsx"
+  - "**/*.test.mjs"
+  - "**/*.test.cjs"
   - "**/*.spec.ts"
   - "**/*.spec.tsx"
+  - "**/*.spec.js"
+  - "**/*.spec.jsx"
+  - "**/*.spec.mjs"
+  - "**/*.spec.cjs"
+  - "**/__tests__/**/*.ts"
+  - "**/__tests__/**/*.tsx"
+  - "**/__tests__/**/*.js"
+  - "**/__tests__/**/*.jsx"
+  - "**/__tests__/**/*.mjs"
+  - "**/__tests__/**/*.cjs"
   # Ember's convention is a HYPHENATED suffix under tests/ (ember-cli generates
   # and qunit discovers tests/**/*-test.*). The directory is demanded for the
   # same reason as Ruby's below: a bare "**/*-test.ts" also swallows production
