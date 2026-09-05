@@ -181,6 +181,11 @@ func parseOpenAPIFile(absPath, relFile string) ([]facts.Fact, error) {
 				"language":       "openapi",
 				"role":           role,
 			}
+			if role == facts.RoleClient {
+				props[facts.PropRouteOrigin] = facts.RouteOriginClientCall
+			} else {
+				props[facts.PropRouteOrigin] = facts.RouteOriginContract
+			}
 
 			if gatewayPrefix != "" {
 				props["gateway_prefix"] = gatewayPrefix

@@ -2412,7 +2412,8 @@ import (
 // when a client found nothing, so a client that matches nothing anywhere is reported.
 // v268: JavaScript test suffixes join TypeScript's reference-only test pass;
 // Prisma schemas are discovered below monorepo package roots; SQL CREATE/ALTER
-// TABLE migrations emit de-duplicated storage facts.
+// TABLE migrations emit de-duplicated storage facts; OpenAPI route facts identify
+// contract operations separately from implementations and client calls.
 const cacheVersion = "v268"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.

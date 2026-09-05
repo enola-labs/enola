@@ -35,6 +35,9 @@ const (
 	PropFramework = "framework"
 	// PropRole is which side of a call a route fact represents (RoleClient/RoleServer).
 	PropRole = "role"
+	// PropRouteOrigin separates an interface declared by a contract from a route
+	// implemented in executable code and an outbound client call site.
+	PropRouteOrigin = "route_origin"
 	// PropRouteType sub-classifies a route beyond HTTP (RouteTypeGRPC,
 	// RouteTypeMiddleware). Absent means a plain HTTP route.
 	PropRouteType = "type"
@@ -190,9 +193,29 @@ const TypePackage = "package"
 // RoleServer ones; a route with no role is treated as a server route, because an
 // extractor that found a route declaration without a call site found a served endpoint.
 const (
-	RoleClient = "client"
-	RoleServer = "server"
+	RoleClient                = "client"
+	RoleServer                = "server"
+	RouteOriginContract       = "contract"
+	RouteOriginImplementation = "implementation"
+	RouteOriginClientCall     = "client_call"
 )
+
+// RouteOrigin returns the semantic origin of a route, including a fallback for
+// facts written before route_origin existed.
+func RouteOrigin(f Fact) string {
+	if origin := f.PropString(PropRouteOrigin); origin != "" {
+		return origin
+	}
+	if f.PropString(PropRole) == RoleClient {
+		return RouteOriginClientCall
+	}
+	switch f.PropString(PropSource) {
+	case RouteSourceOpenAPI, RouteSourceGRPCProto:
+		return RouteOriginContract
+	default:
+		return RouteOriginImplementation
+	}
+}
 
 // Route type values (the PropRouteType prop on a KindRoute fact).
 const (
