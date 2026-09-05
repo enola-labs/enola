@@ -439,6 +439,7 @@ Nothing here is a setting. enola looks for the markers below and runs whatever i
 | AsyncAPI   | any AsyncAPI 2.x/3.x YAML or JSON spec (channels and producer/consumer operations → messaging topics; local `$ref` and payload-schema identity) |
 | OpenAPI    | any spec with an `openapi:` / `swagger:` key |
 | gRPC       | any `.proto` file (proto services → routes; TypeScript gRPC-web client calls detected) |
+| SQL        | any `.sql` file (CREATE/ALTER TABLE migration DDL → storage facts) |
 | GraphQL    | graphql-ruby root types (server) + gql tags, `.graphql` operation documents and Ruby operation strings (clients); operation documents activate detection without a TypeScript root |
 
 Framework- and platform-specific detection for each language is described in **[ARCHITECTURE.md → Supported languages](ARCHITECTURE.md#supported-languages)**.

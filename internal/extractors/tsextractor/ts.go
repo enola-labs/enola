@@ -461,7 +461,7 @@ func (e *TSExtractor) Extract(ctx context.Context, repoPath string, files []stri
 
 	// Prisma models live in schema.prisma — a separate DSL, so tree-sitter never sees it.
 	// Read it off-glob, the same way package.json and tsconfig.json already are.
-	if isPrisma {
+	if isPrisma || hasPrismaSchema(repoPath) {
 		allFacts = append(allFacts, extractPrismaStorage(repoPath)...)
 	}
 
@@ -1540,7 +1540,28 @@ func isMinifiedSource(content []byte) bool {
 // non-Angular repository is read by nothing, so the only cost is a cache key that
 // notices a page changing.
 func (e *TSExtractor) OwnsFile(relFile string) bool {
-	return isTypeScriptFile(relFile) || isAngularTemplateFile(relFile)
+	return isTypeScriptFile(relFile) || isAngularTemplateFile(relFile) || strings.EqualFold(filepath.Ext(relFile), ".prisma")
+}
+
+func hasPrismaSchema(repoPath string) bool {
+	found := false
+	_ = filepath.WalkDir(repoPath, func(path string, d os.DirEntry, err error) error {
+		if err != nil || found {
+			return err
+		}
+		if d.IsDir() {
+			switch d.Name() {
+			case ".git", "node_modules", "vendor", "dist", "build", ".next", ".enola":
+				if path != repoPath {
+					return filepath.SkipDir
+				}
+			}
+			return nil
+		}
+		found = strings.EqualFold(filepath.Ext(path), ".prisma")
+		return nil
+	})
+	return found
 }
 
 // isAngularTemplateFile reports whether a path is a candidate component template.

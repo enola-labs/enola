@@ -66,6 +66,7 @@ var extractorDocs = map[string]extractorDoc{
 	"asyncapi":   {Labels: []string{"AsyncAPI"}, Page: "asyncapi.md"},
 	"openapi":    {Labels: []string{"OpenAPI", "gRPC and OpenAPI"}, Page: "grpc-openapi.md"},
 	"grpc":       {Labels: []string{"gRPC", "gRPC and OpenAPI"}, Page: "grpc-openapi.md"},
+	"sql":        {Labels: []string{"SQL"}, Page: "sql.md"},
 
 	"manifests": {
 		NoPageWhy: "not a language. It reads the package manifests of seven ecosystems " +

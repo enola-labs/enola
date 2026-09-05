@@ -33,6 +33,7 @@ pages changing, the golden tests fail first.
 | [gRPC and OpenAPI](grpc-openapi.md) | `.proto` services, OpenAPI specs | the contract as the server side of an edge |
 | [AsyncAPI](asyncapi.md) | AsyncAPI 2.x/3.x YAML and JSON specs | event channels as producer/consumer topic facts |
 | [Terraform / HCL](hcl.md) | resources, modules, variables, outputs, locals | Terraform addresses as symbol names; declared-set bare references |
+| [SQL](sql.md) | migration DDL | created and altered tables as storage facts |
 | [Ansible](ansible.md) | plays, roles, `include_role`/`import_role` | by-name structure read without rendering a template |
 
 ## How to read a page

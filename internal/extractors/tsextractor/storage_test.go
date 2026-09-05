@@ -177,6 +177,19 @@ model Comment {
 	}
 }
 
+func TestStorage_PrismaModelsInMonorepoPackage(t *testing.T) {
+	ff := extractWithPkg(t, `{"workspaces":["packages/*"]}`, map[string]string{
+		"packages/shared/prisma/schema.prisma": "model Trace {\n id String @id\n}\n",
+	})
+	f, ok := findStorage(ff, "packages/shared/prisma.Trace")
+	if !ok {
+		t.Fatal("nested monorepo Prisma schema emitted no storage fact")
+	}
+	if f.File != "packages/shared/prisma/schema.prisma" || f.Props["table"] != "Trace" {
+		t.Fatalf("fact = %#v", f)
+	}
+}
+
 // TestStorage_NoORMDependencyEmitsNothing is the guard against over-firing. Detection is
 // gated on the package.json dependency, so a class decorated @Entity in a repo that does
 // not use TypeORM — or a helper coincidentally named pgTable — models no storage.

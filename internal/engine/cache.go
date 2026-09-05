@@ -2410,7 +2410,10 @@ import (
 // extraction fact per client (typescript:client:<name>) with its receivers, the calls
 // made through it, the routes they became and the calls skipped by cause. Emitted even
 // when a client found nothing, so a client that matches nothing anywhere is reported.
-const cacheVersion = "v267"
+// v268: JavaScript test suffixes join TypeScript's reference-only test pass;
+// Prisma schemas are discovered below monorepo package roots; SQL CREATE/ALTER
+// TABLE migrations emit de-duplicated storage facts.
+const cacheVersion = "v268"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
