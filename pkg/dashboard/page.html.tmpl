@@ -99,6 +99,7 @@
     .explorer { display: grid; grid-template-columns: minmax(0, 1fr) 300px; min-height: 500px; border: 1px solid var(--border); border-radius: 14px; overflow: hidden; background: #07112d; }
     .inspector-pane { min-width: 0; border-left: 1px solid var(--border); background: #08112b; }
     .inspector-head { padding: .85rem 1rem; border-bottom: 1px solid var(--border); }
+    .inspector-head-row { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
     .inspector-head h3 { margin: 0; font-size: .88rem; }
     .inspector-head p { margin: .2rem 0 0; color: #7180aa; font-size: .68rem; }
     .inspector-empty { padding: .9rem 1rem; color: var(--muted); font-size: .75rem; }
@@ -323,7 +324,7 @@
       {{if $graph.Limited}}<div class="graph-note">{{if $graph.Focused}}This neighborhood is bounded to keep individual relationships inspectable.{{else}}This overview shows the most-connected modules and a representative dependency backbone. Search for any module to inspect its complete immediate neighborhood.{{end}}</div>{{end}}
     </div>
     <aside class="inspector-pane" aria-label="Architecture inspector">
-      <div class="inspector-head"><h3>Inspector</h3><p>Select a module, dependency, or finding to inspect it.</p></div>
+      <div class="inspector-head"><div class="inspector-head-row"><h3>Inspector</h3><button type="button" id="inspector-clear" class="count-link" hidden onclick="clearInspector()">Clear selection</button></div><p>Select a module, dependency, or finding to inspect it.</p></div>
       <div id="inspector-empty" class="inspector-empty">Nothing selected. Choose a node or edge on the map.</div>
       <div id="module-detail" class="module-detail"><div><b id="module-detail-name"></b><span id="module-detail-file"></span></div><div class="module-stats"><span id="module-detail-in"></span><span id="module-detail-out"></span></div><div id="module-detail-members" class="module-detail-members" hidden></div></div>
       {{if .Insights}}<div class="findings-pane">
@@ -812,9 +813,21 @@
   function openInspector() {
     var empty = document.getElementById('inspector-empty');
     var detail = document.getElementById('module-detail');
+    var clearBtn = document.getElementById('inspector-clear');
     if (empty) empty.hidden = true;
     if (detail) detail.classList.add('open');
+    if (clearBtn) clearBtn.hidden = false;
     return detail;
+  }
+  function clearInspector() {
+    clearGraphFocus();
+    document.querySelectorAll('.finding-button').forEach(function(b) { b.classList.remove('active'); });
+    var detail = document.getElementById('module-detail');
+    var empty = document.getElementById('inspector-empty');
+    var clearBtn = document.getElementById('inspector-clear');
+    if (detail) detail.classList.remove('open');
+    if (empty) empty.hidden = false;
+    if (clearBtn) clearBtn.hidden = true;
   }
   function toggleGraphFit(button) {
     var canvas = document.querySelector('.graph-canvas');
