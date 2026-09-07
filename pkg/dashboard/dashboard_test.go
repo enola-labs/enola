@@ -803,7 +803,7 @@ func TestHandlerRendersQualityModals(t *testing.T) {
 	for _, want := range []string{
 		`id="coverage-modal"`, `id="coverage-unresolved-modal"`, `id="skipped-modal"`, `id="parse-errors-modal"`,
 		`Files walked`, `Intentionally ignored`, `Non-source / unsupported`, `No facts emitted`,
-		`Ignored and non-source files are not parse failures`, `.sql`, `claimed by go, no facts emitted`,
+		`Ignored and non-source files aren't parse failures`, `.sql`, `claimed by go, no facts emitted`,
 		`onclick="openModal('coverage-modal')"`,
 		`onclick="openModal('coverage-unresolved-modal')"`,
 		`onclick="openModal('skipped-modal')"`,

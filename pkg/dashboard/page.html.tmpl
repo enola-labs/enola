@@ -217,6 +217,7 @@
   <div class="topbar">
     <div class="brand"><h1>{{.Title}}<span class="brand-dot">.</span>{{if .HasReceipt}} <span class="note">· {{.Snapshot.RepoName}}{{if .Snapshot.Age}} · updated {{.Snapshot.Age}}{{end}}</span>{{end}}</h1></div>
     <div class="top-actions">
+      <span class="note" id="refresh-status" title="Auto-checks for a new snapshot every 5s"></span>
       <button class="secondary-action" type="button" onclick="refreshSnapshot(true)" title="Reload the latest snapshot from disk">Refresh</button>
     </div>
   </div>
@@ -253,7 +254,7 @@
       {{if $g.Hidden}}<button type="button" class="count-link" onclick="openModal('insights-modal')">+{{$g.Hidden}} more — review all</button>{{end}}
       </div>
     </details>{{end}}
-  </div>{{else if .HasReceipt}}<div class="data-section"><div class="section-kicker">Current snapshot</div><h2>No findings</h2><p class="note">Enola found no structural issues or review candidates in this snapshot.</p></div>{{end}}
+  </div>{{else if .HasReceipt}}<div class="data-section"><div class="section-kicker">Current snapshot</div><h2>No findings</h2><p class="note">No structural issues or review candidates found.</p></div>{{end}}
 
   <div class="data-section">
     <div class="section-kicker">Development feedback</div><h2>What changed?</h2>
@@ -261,7 +262,7 @@
       {{if .Changes.Incomparable}}
       <div class="snapshot-alert"><b>Comparison unavailable.</b> The current and previous snapshots used different extraction inputs, so their raw deltas would describe rebuild noise rather than a trustworthy code change.</div>
       {{else if .Changes.Initial}}
-      <p class="note">This is the first recorded architecture snapshot. The next snapshot will provide a change comparison.</p>
+      <p class="note">First recorded snapshot. The next one will show a comparison.</p>
       {{else}}
       <p class="note">Compared with the {{.Changes.ComparedTo}} · {{.Changes.Headline}}</p>
       <div class="grid">
@@ -271,7 +272,7 @@
         <div class="card"><div class="k">Dependencies added / removed</div><div class="v">+{{.Changes.EdgesAdded}} / −{{.Changes.EdgesRemoved}}</div></div>
       </div>
       {{end}}
-    {{else}}<p class="note">No earlier architecture snapshot is available yet. Generate another snapshot after a change to start tracking deltas.</p>{{end}}
+    {{else}}<p class="note">No earlier snapshot yet. Generate one after a change to track deltas.</p>{{end}}
   </div>
 
   <div class="grid">
@@ -310,7 +311,7 @@
     {{if not $graph.Focused}}<span class="chip">Layered by dependency direction</span>{{end}}
     {{if $graph.ClusterCount}}<span class="chip">{{$graph.ClusterCount}} cyclic cluster{{if ne $graph.ClusterCount 1}}s{{end}} collapsed</span>{{end}}
   </div>
-  <p class="note">Search covers {{if $graph.AllModulesTruncated}}the {{len $graph.AllModules}} most-connected of {{$graph.Total}}{{else}}all {{$graph.Total}}{{end}} connected modules. {{if $graph.Focused}}This view contains the selected module, its immediate incoming and outgoing dependencies, and the dependencies between them. <a href="/#architecture">Clear focus</a>.{{else}}Choose a module to replace this overview with its immediate dependency neighborhood.{{end}}{{if $graph.ClusterCount}} Dashed ⟲ nodes are modules that import each other in a cycle, folded into one box so the map stays readable — click one to see its members, then click a member to explore it on its own.{{end}}</p>
+  <p class="note">Search covers {{if $graph.AllModulesTruncated}}the {{len $graph.AllModules}} most-connected of {{$graph.Total}}{{else}}all {{$graph.Total}}{{end}} connected modules. {{if $graph.Focused}}Shows the selected module and its direct dependencies. <a href="/#architecture">Clear focus</a>.{{else}}Select a module to see its dependency neighborhood.{{end}}{{if $graph.ClusterCount}} Dashed ⟲ nodes group a cycle of modules — click for members.{{end}}</p>
   <section class="explorer" aria-label="Architecture explorer">
     <div class="graph-pane">
       {{if $graph.Focused}}<div class="graph-columns"><span>Consumers</span><span>Selected module</span><span>Dependencies</span></div>{{end}}
@@ -340,7 +341,7 @@
   </section>
 
   <div class="data-section"><h2>Most-connected modules in this view</h2>
-  <p class="note">These counts describe module imports. Symbol-level finding counts may be larger because many call sites can live inside one module.</p>
+  <p class="note">These are module-import counts. Symbol-level finding counts may be higher — one module can hold many call sites.</p>
   <div class="table-scroll"><table class="module-table">
     <thead><tr><th>Module</th><th>File</th><th class="num">Consumer modules</th><th class="num">Dependency modules</th><th class="num">Connections</th></tr></thead>
     <tbody>{{range $graph.Nodes}}<tr><td><button type="button" class="count-link" onclick="focusModule('{{.ID}}')">{{.Name}}</button></td><td>{{.File}}</td><td class="num">{{.FanIn}}</td><td class="num">{{.FanOut}}</td><td class="num">{{.Degree}}</td></tr>{{end}}</tbody>
@@ -372,10 +373,10 @@
     <div class="card"><div class="k">Extraction schema</div><div class="v">{{if .ExtractorVersion}}{{.ExtractorVersion}}{{else}}not recorded{{end}}</div></div>
     <div class="card"><div class="k">Analysis duration</div><div class="v">{{.Duration}}</div></div>
   </div>
-  {{if and .Git .Git.Dirty}}<p class="snapshot-alert">This snapshot was generated while the working tree had local changes. It describes that exact working state, not only commit <code>{{$.Snapshot.ShortCommit}}</code>.</p>{{end}}
+  {{if and .Git .Git.Dirty}}<p class="snapshot-alert">Generated with local changes present — reflects that working state, not just commit <code>{{$.Snapshot.ShortCommit}}</code>.</p>{{end}}
 
   <div class="data-section"><h2>Analysis scope</h2>
-    <p class="note">These extractors contributed facts. Quality details explain ignored and unsupported files.</p>
+    <p class="note">Extractors that contributed facts. See Quality for ignored and unsupported files.</p>
     {{if .Extractors}}<div class="chips">{{range .Extractors}}<span class="chip">{{.}}</span>{{end}}</div>{{else}}<p class="note">No extractors recorded.</p>{{end}}
     <p style="margin:.8rem 0 0"><button type="button" class="count-link" onclick="selectTab('quality')">Review analysis completeness →</button></p>
   </div>
@@ -429,7 +430,7 @@
 
   <section class="tab-panel" id="panel-diagnostics" role="tabpanel" aria-labelledby="tab-diagnostics" hidden>
   <div class="panel-intro"><div class="section-kicker">Troubleshooting</div><h2>Diagnostics</h2><p>Processes, paths, ports, and the exact data source for this page.</p></div>
-  <div class="snapshot-head"><div><h2>Active sessions</h2><p>{{len .Instances}} Enola process(es) running now. The highlighted row serves this page.</p></div></div>
+  <div class="snapshot-head"><div><h2>Active sessions</h2><p>{{len .Instances}} process(es) running. Highlighted row serves this page.</p></div></div>
   {{if .Instances}}<div class="table-scroll"><table>
     <thead><tr><th>Session</th><th>Repositories</th><th>Uptime</th><th class="num">Calls</th><th>Dashboard</th></tr></thead>
     <tbody>{{range .Instances}}<tr{{if .Self}} class="self-row"{{end}}><td>{{.Binary}} · PID {{.PID}}{{if .Self}} <span class="chip">this page</span>{{end}}</td><td>{{.Repos}}</td><td>{{.Uptime}}</td><td class="num">{{.Calls}}</td><td>{{if .URL}}<a href="{{.URL}}">open{{if .FrontDoor}} · shared{{end}}</a>{{else}}—{{end}}</td></tr>{{end}}</tbody>
@@ -458,7 +459,7 @@
     <div><h2>{{$.Quality.Status}}</h2><p>{{$.Quality.Summary}}</p></div>
     <span class="badge {{$.Quality.StatusClass}}">{{if .Quality.ParseErrors}}{{.Quality.ParseErrors}} error(s){{else}}{{if $.Quality.CoverageLabel}}{{$.Quality.CoverageLabel}}{{else}}no parse errors{{end}}{{end}}</span>
   </div>
-  {{if $.Quality.Inactive}}<div class="snapshot-alert"><b>Extractor coverage detail:</b> {{range $i, $cause := $.Quality.Inactive}}{{if $i}} · {{end}}{{$cause.Count}} file(s) {{$cause.Cause}}{{end}}. This affects {{$.Quality.InactiveShare}} of the {{$.Quality.FilesWalked}} files walked and does not mean the rest of the snapshot failed.</div>{{end}}
+  {{if $.Quality.Inactive}}<div class="snapshot-alert"><b>Extractor coverage detail:</b> {{range $i, $cause := $.Quality.Inactive}}{{if $i}} · {{end}}{{$cause.Count}} file(s) {{$cause.Cause}}{{end}}. Affects {{$.Quality.InactiveShare}} of {{$.Quality.FilesWalked}} files walked; the rest of the snapshot is unaffected.</div>{{end}}
 
   {{if .Quality.Census}}{{with .Quality.Census}}
   <h2>File accounting</h2>
@@ -469,20 +470,20 @@
     <div class="quality-item"><span class="k">Non-source / unsupported</span><span class="v">{{.ExcludedByKind}}</span><span class="why">Assets, data, or file types without an extractor.</span></div>
     <div class="quality-item"><span class="k">No facts emitted</span><span class="v">{{.SkippedWithCause}}</span><span class="why">Recognized files that contained no indexable structure.</span></div>
   </div>
-  <p class="accounting-note ok">These categories account for every walked file. Ignored and non-source files are not parse failures.</p>
+  <p class="accounting-note ok">Accounts for every walked file. Ignored and non-source files aren't parse failures.</p>
 
   {{if $.Quality.Potential}}<div class="data-section"><h2>Potential architecture blind spots</h2><p class="note">These file types can carry behavior or architecture, but are outside the current graph. Review whether they matter for this repository.</p><div class="table-scroll"><table>
     <thead><tr><th>File kind</th><th class="num">Files</th><th>Why review it</th></tr></thead>
     <tbody>{{range $.Quality.Potential}}<tr><td>{{.Kind}}</td><td class="num">{{.Count}}</td><td class="title">{{.Reason}}</td></tr>{{end}}</tbody>
   </table></div></div>{{end}}
 
-  {{if $.Quality.NoFacts}}<div class="data-section"><h2>Recognized files with no facts</h2><p class="note">These were analyzed successfully but contained no indexable architecture.</p><div class="table-scroll"><table>
+  {{if $.Quality.NoFacts}}<div class="data-section"><h2>Recognized files with no facts</h2><p class="note">Analyzed successfully; no indexable architecture found.</p><div class="table-scroll"><table>
     <thead><tr><th>Reason</th><th class="num">Files</th></tr></thead>
     <tbody>{{range $.Quality.NoFacts}}<tr><td>{{.Cause}}</td><td class="num">{{.Count}}</td></tr>{{end}}</tbody>
   </table></div></div>{{end}}
 
   {{if $.Quality.ExpectedFiles}}<details class="technical-receipt"><summary>Expected non-source exclusions · {{$.Quality.ExpectedFiles}} files across {{$.Quality.ExpectedKinds}} kinds</summary>
-    <p class="note">Assets, fixtures, snapshots, certificates, and other file kinds that normally do not define application architecture.</p>
+    <p class="note">Assets, fixtures, certs, and other files that don't usually define architecture.</p>
     <div class="table-scroll"><table><thead><tr><th>File kind</th><th class="num">Files</th></tr></thead><tbody>
     {{range $.Quality.Expected}}<tr><td>{{.Kind}}</td><td class="num">{{.Count}}</td></tr>{{end}}
     </tbody></table></div>
@@ -506,7 +507,7 @@
   </div></div>
   {{if gt .Quality.ParseErrors 0}}
   <div class="snapshot-alert">
-    <b>Possible extractor gap.</b> Enola could not parse {{.Quality.ParseErrors}} source file(s). If the files contain valid source, this may be an extractor bug.
+    <b>Possible extractor gap.</b> Could not parse {{.Quality.ParseErrors}} source file(s) — may be an extractor bug if the source is valid.
     <a class="secondary-action" style="display:inline-block;margin-left:.55rem;text-decoration:none" target="_blank" rel="noopener noreferrer" href="https://github.com/enola-labs/enola/issues/new?title=Extraction%20gap%20in%20snapshot%20{{.SnapshotID}}&amp;body=Snapshot%3A%20{{.SnapshotID}}%0AEnola%20version%3A%20{{.EnolaVersion}}%0AParse%20errors%3A%20{{.Quality.ParseErrors}}%0A%0APlease%20describe%20the%20valid%20source%20Enola%20could%20not%20parse.">Report extraction issue</a>
   </div>
   {{end}}
@@ -703,13 +704,21 @@
 {{block "extra-modals" $}}{{end}}
 
 <script>
+  function setRefreshStatus(text) {
+    var status = document.getElementById('refresh-status');
+    if (status) status.textContent = text;
+  }
   function refreshSnapshot(manual) {
     fetch('/api/refresh', {cache: 'no-store'})
       .then(function(response) { return response.json(); })
       .then(function(result) {
-        if (result.changed || manual) location.reload();
+        if (result.changed || manual) { location.reload(); return; }
+        setRefreshStatus('Checked ' + new Date().toLocaleTimeString());
       })
-      .catch(function() { if (manual) location.reload(); });
+      .catch(function() {
+        if (manual) { location.reload(); return; }
+        setRefreshStatus('Check failed');
+      });
   }
   function selectTab(name, updateHash) {
     var panel = document.getElementById('panel-' + name);
@@ -1007,6 +1016,7 @@
   window.addEventListener('hashchange', initialTab);
   initialTab();
   restoreFindingInspector();
+  setRefreshStatus('Checked ' + new Date().toLocaleTimeString());
   window.setInterval(function() { refreshSnapshot(false); }, 5000);
 </script>
 </body>

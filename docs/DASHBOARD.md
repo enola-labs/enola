@@ -38,11 +38,11 @@ enola check --write
 enola dashboard --open
 ```
 
-Start on **Overview**. Change cards group new and resolved findings. Open a finding to
+Start on **Findings**. Change cards group new and resolved findings. Open a finding to
 inspect its evidence in the Architecture tab. Findings describe the measured structure;
 project policy determines which findings fail a check.
 
-New and resolved categories require a comparable baseline. Without one, Overview shows
+New and resolved categories require a comparable baseline. Without one, Findings shows
 the current snapshot.
 
 ## Follow a dependency
