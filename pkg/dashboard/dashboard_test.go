@@ -697,7 +697,8 @@ func TestHandlerRendersInsightsModal(t *testing.T) {
 		"UserService is a god class", // an insight title
 		"90%", "100%",                // confidence rendering
 		"structural",   // structural chip on the 100% insight
-		"1 structural", // header split
+		"1 <span",      // header split count
+		">structural<", // header split label
 		// confidence-band filter wiring
 		`id="insight-band"`,
 		"Structural (100%)",

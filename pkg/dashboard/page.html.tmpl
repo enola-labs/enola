@@ -246,7 +246,7 @@
 
   {{if .Insights}}<div class="data-section">
     <div class="section-kicker">Current snapshot</div><h2>Findings</h2>
-    <p class="insight-summary">{{.InsightStructural}} structural · {{.InsightCandidate}} candidate{{if ne .InsightCandidate 1}}s{{end}}</p>
+    <p class="insight-summary">{{.InsightStructural}} <span title="Confidence 100% — a proven, code-verified finding">structural</span> · {{.InsightCandidate}} <span title="Confidence below 100% — a heuristic suggestion worth reviewing">candidate{{if ne .InsightCandidate 1}}s{{end}}</span></p>
     {{range $i, $g := .Insights}}<details class="insight-group"{{if or (eq $i 0) $g.HasStructural}} open{{end}}>
       <summary><span class="ig-label">{{$g.Label}}</span><span class="ig-count">{{$g.Count}}</span></summary>
       <div class="table-scroll"><table><thead><tr><th>Finding</th><th class="num">Confidence</th><th>Evidence</th></tr></thead>
@@ -472,7 +472,7 @@
   </div>
   <p class="accounting-note ok">Accounts for every walked file. Ignored and non-source files aren't parse failures.</p>
 
-  {{if $.Quality.Potential}}<div class="data-section"><h2>Potential architecture blind spots</h2><p class="note">These file types can carry behavior or architecture, but are outside the current graph. Review whether they matter for this repository.</p><div class="table-scroll"><table>
+  {{if $.Quality.Potential}}<div class="data-section"><h2 title="File types that could carry architecture but aren't parsed">Potential architecture blind spots</h2><p class="note">These file types can carry behavior or architecture, but are outside the current graph. Review whether they matter for this repository.</p><div class="table-scroll"><table>
     <thead><tr><th>File kind</th><th class="num">Files</th><th>Why review it</th></tr></thead>
     <tbody>{{range $.Quality.Potential}}<tr><td>{{.Kind}}</td><td class="num">{{.Count}}</td><td class="title">{{.Reason}}</td></tr>{{end}}</tbody>
   </table></div></div>{{end}}
@@ -588,7 +588,7 @@
       <h3>Insights</h3>
       <button type="button" class="modal-close" aria-label="Close" onclick="closeModal(this)">&times;</button>
     </div>
-    <div class="insight-summary">{{.InsightStructural}} structural &middot; {{.InsightCandidate}} candidate{{if ne .InsightCandidate 1}}s{{end}} &mdash; grouped by explainer, click a row to expand</div>
+    <div class="insight-summary">{{.InsightStructural}} <span title="Confidence 100% — a proven, code-verified finding">structural</span> &middot; {{.InsightCandidate}} <span title="Confidence below 100% — a heuristic suggestion worth reviewing">candidate{{if ne .InsightCandidate 1}}s{{end}}</span> &mdash; grouped by explainer, click a row to expand</div>
     <div class="insight-filter">
       <label for="insight-band">Confidence</label>
       <select id="insight-band" onchange="filterInsights(this.value)">
@@ -610,7 +610,7 @@
       <div class="table-scroll"><table>
         <thead><tr><th>Title</th><th class="num">Confidence</th><th>Evidence</th></tr></thead>
         <tbody>
-          {{range .Items}}<tr data-conf="{{.Confidence}}"><td class="title">{{.Title}}{{if .Action}}<div class="finding-action">→ {{.Action}}</div>{{end}}</td><td class="num">{{.Confidence}}%{{if .Structural}}<span class="structural-chip">structural</span>{{else if .Informational}}<span class="structural-chip">context</span>{{end}}</td><td>{{.Evidence}}</td></tr>{{end}}
+          {{range .Items}}<tr data-conf="{{.Confidence}}"><td class="title">{{.Title}}{{if .Action}}<div class="finding-action">→ {{.Action}}</div>{{end}}</td><td class="num">{{.Confidence}}%{{if .Structural}}<span class="structural-chip" title="Confidence 100% — a proven, code-verified finding">structural</span>{{else if .Informational}}<span class="structural-chip" title="Describes the architecture — not a problem to fix">context</span>{{end}}</td><td>{{.Evidence}}</td></tr>{{end}}
         </tbody>
       </table></div>
     </details>
