@@ -185,6 +185,12 @@ type assets struct {
 
 // assetNames derives the release artifact names for a version and platform,
 // matching the naming produced by .github/workflows/release.yml.
+//
+// The checksum is deliberately not the `.sha256` that install.sh fetches, though
+// it holds the same digest. GitHub counts downloads per asset and records nothing
+// else about a request, so two clients fetching the same file cannot be told
+// apart. A checksum of its own is what lets the release counters separate
+// upgrades from fresh scripted installs.
 func assetNames(version, goos, goarch string) (assets, error) {
 	if !supportedPlatforms[goos+"/"+goarch] {
 		return assets{}, fmt.Errorf("no prebuilt release for %s/%s; install manually from https://github.com/%s/releases", goos, goarch, repoSlug)
@@ -196,7 +202,7 @@ func assetNames(version, goos, goarch string) (assets, error) {
 	}
 	return assets{
 		tarball:     base + ".tar.gz",
-		checksum:    base + ".sha256",
+		checksum:    base + ".upgrade.sha256",
 		innerBinary: inner,
 	}, nil
 }

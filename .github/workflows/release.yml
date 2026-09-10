@@ -197,6 +197,10 @@ jobs:
           # ignored by both and nothing lands in ~/.local/bin.
           tar czf "${BINARY}.tar.gz" "${BINARY}${EXT}" LICENSE NOTICE
           sha256sum "${BINARY}.tar.gz" > "${BINARY}.sha256"
+          # The same digest under a name only `enola upgrade` fetches. GitHub's
+          # per-asset download counter is the only usage signal a release has,
+          # and one shared checksum would count upgrades as fresh installs.
+          cp "${BINARY}.sha256" "${BINARY}.upgrade.sha256"
 
       # Packages the pip-stamped binary from the build step, not the one in the
       # tarball. Same source, same compiler, same container, one linker flag
@@ -237,6 +241,7 @@ jobs:
           files: |
             enola-${{ steps.version.outputs.version }}-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz
             enola-${{ steps.version.outputs.version }}-${{ matrix.goos }}-${{ matrix.goarch }}.sha256
+            enola-${{ steps.version.outputs.version }}-${{ matrix.goos }}-${{ matrix.goarch }}.upgrade.sha256
 
   # Publishes the draft only if all platform assets are present. If a build leg
   # fails — or never gets scheduled, e.g. because its runner label was retired —
@@ -267,7 +272,9 @@ jobs:
 
           missing=0
           for platform in $PLATFORMS; do
-            for ext in tar.gz sha256; do
+            # upgrade.sha256 is what `enola upgrade` verifies against, so a
+            # release without it would be one no installed build can upgrade to.
+            for ext in tar.gz sha256 upgrade.sha256; do
               name="enola-${VERSION}-${platform}.${ext}"
               if ! grep -qxF "$name" <<<"$ASSETS"; then
                 echo "::error::missing release asset: $name"
@@ -324,7 +331,9 @@ jobs:
   # be one users can install and then cannot upgrade away from.
   pypi-publish:
     needs: publish
-    if: github.event_name == 'push'
+    # TEMPORARILY DISABLED while the install and upgrade changes are tested on a
+    # GitHub release. Re-enable by dropping `false &&`.
+    if: false && github.event_name == 'push'
     runs-on: ubuntu-latest
 
     # Named by the Trusted Publisher configuration on PyPI. Publishing uses no

@@ -55,7 +55,9 @@ func TestAssetNames(t *testing.T) {
 		if got.tarball != c.wantTarball {
 			t.Errorf("%s/%s tarball = %q, want %q", c.goos, c.goarch, got.tarball, c.wantTarball)
 		}
-		if got.checksum != "enola-1.2.3-"+c.goos+"-"+c.goarch+".sha256" {
+		// Not install.sh's `.sha256`: a shared asset would make upgrades
+		// indistinguishable from installs in the download counters.
+		if got.checksum != "enola-1.2.3-"+c.goos+"-"+c.goarch+".upgrade.sha256" {
 			t.Errorf("%s/%s checksum = %q", c.goos, c.goarch, got.checksum)
 		}
 		if got.innerBinary != c.wantInner {

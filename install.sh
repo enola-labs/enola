@@ -1,14 +1,21 @@
-#!/usr/bin/env bash
-# install.sh — Install the latest enola release.
+#!/bin/sh
+# install.sh: install the latest enola release.
 # Usage: curl -fsSL https://raw.githubusercontent.com/enola-labs/enola/main/install.sh | sh
+#
+# POSIX sh on purpose, with no `set -o pipefail`. A piped script never honours its
+# own shebang: the `sh` on the right of the pipe runs it, and on Debian and Ubuntu
+# that is dash, which rejects pipefail before the first line of real work.
 
-set -euo pipefail
+set -eu
 
 # --- Detect OS ---
 OS="$(uname -s)"
 case "$OS" in
   Linux)   OS=linux ;;
   Darwin)  OS=darwin ;;
+  # Git Bash, MSYS2 and Cygwin report a decorated name. WSL reports Linux and
+  # gets the linux build, which is the right one for it.
+  MINGW*|MSYS*|CYGWIN*) OS=windows ;;
   *)       echo "Unsupported OS: $OS" >&2; exit 1 ;;
 esac
 
@@ -58,16 +65,26 @@ tar xzf "$TMPDIR/$ASSET" -C "$TMPDIR"
 
 # --- Install ---
 BIN_NAME="${BASE}"
+TARGET="enola"
 if [ "$OS" = "windows" ]; then
   BIN_NAME="${BIN_NAME}.exe"
+  TARGET="enola.exe"
 fi
 
 INSTALL_DIR="${ENOLA_INSTALL_DIR:-$HOME/.local/bin}"
 mkdir -p "$INSTALL_DIR"
 
-install -m 755 "$TMPDIR/$BIN_NAME" "$INSTALL_DIR/enola"
+# Windows refuses to overwrite a running executable, and a re-run to upgrade
+# usually finds the MCP server holding this one. Renaming it is allowed, so move
+# it aside first, as `enola upgrade` does.
+if [ "$OS" = "windows" ] && [ -e "$INSTALL_DIR/$TARGET" ]; then
+  rm -f "$INSTALL_DIR/$TARGET.old" 2>/dev/null || true
+  mv "$INSTALL_DIR/$TARGET" "$INSTALL_DIR/$TARGET.old"
+fi
 
-echo "==> enola v${VERSION} installed to $INSTALL_DIR/enola"
+install -m 755 "$TMPDIR/$BIN_NAME" "$INSTALL_DIR/$TARGET"
+
+echo "==> enola v${VERSION} installed to $INSTALL_DIR/$TARGET"
 echo ""
 echo "If \$HOME/.local/bin is not in your PATH, add it:"
 echo "  export PATH=\"$HOME/.local/bin:\$PATH\""

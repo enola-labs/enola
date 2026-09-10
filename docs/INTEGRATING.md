@@ -32,6 +32,10 @@ https://github.com/enola-labs/enola/releases/download/v{version}/enola-{version}
 https://github.com/enola-labs/enola/releases/download/v{version}/enola-{version}-{os}-{arch}.sha256
 ```
 
+Each release also carries `enola-{version}-{os}-{arch}.upgrade.sha256`, the same
+digest under a name only `enola upgrade` fetches, so upgrades can be counted
+apart from installs. Integrations should verify against `.sha256`.
+
 The release workflow currently publishes:
 
 | OS | Architectures |
