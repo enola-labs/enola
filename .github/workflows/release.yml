@@ -100,7 +100,7 @@ jobs:
       # Python builds the wheels further down. Pinned rather than left to whatever
       # the runner image ships, so the packaging step does not change under us.
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
@@ -224,7 +224,7 @@ jobs:
             --outdir dist
 
       - name: Upload wheel
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: wheels-${{ matrix.goos }}-${{ matrix.goarch }}
           path: dist/*.whl
@@ -350,7 +350,7 @@ jobs:
 
     steps:
       - name: Download wheels
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v8
         with:
           pattern: wheels-*
           path: dist
@@ -394,7 +394,7 @@ jobs:
 
     steps:
       - name: Download wheels
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v8
         with:
           pattern: wheels-*
           path: dist
