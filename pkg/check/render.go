@@ -68,6 +68,37 @@ func (v Verdict) DeclineKey() string {
 	return strings.Join(kinds, ",")
 }
 
+// ReportKey identifies WHAT this verdict would say out loud, so a caller can tell a
+// repeat from something new without diffing prose.
+//
+// DeclineKey answers the same question for the one path that already had it. The other
+// two paths a Stop hook speaks on, a regression and findings no policy enforced, had no
+// identity at all, and that omission is what let the identical report re-fire at every
+// Stop until the harness overrode the hook.
+//
+// Keyed on the findings rather than on the rendered text: the render carries counts and
+// a delta that move with almost every edit, so prose would make each repeat look new.
+// Status is part of the key because the same finding failing and the same finding merely
+// being reported are different sentences.
+func (v Verdict) ReportKey() string {
+	if v.Status == StatusIncomparable {
+		return v.DeclineKey()
+	}
+	findings := v.Failures
+	if v.Status != StatusRegression {
+		findings = v.UnenforcedAtFloor()
+	}
+	if len(findings) == 0 {
+		return ""
+	}
+	ids := make([]string, 0, len(findings))
+	for _, in := range findings {
+		ids = append(ids, in.Source+":"+in.Title)
+	}
+	sort.Strings(ids)
+	return string(v.Status) + "|" + strings.Join(ids, ",")
+}
+
 // Render is the human-readable verdict: the headline, why the gate did or did not
 // grade, then the delta itself from internal/diff.
 func (v Verdict) Render() string {

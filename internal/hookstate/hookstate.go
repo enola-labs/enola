@@ -70,16 +70,32 @@ type Record struct {
 	Count       int       `json:"count"`
 	LastOutcome Outcome   `json:"last_outcome,omitempty"`
 
-	// LastReason identifies WHICH decline was last reported, so a repeat can be
-	// recognised and left unsaid. Empty whenever the last run did not decline —
-	// including a run that graded successfully, which is what makes a recurrence
-	// speak again instead of being suppressed forever by a problem that was fixed
-	// in between.
+	// LastReason identifies WHAT was last reported, so a repeat can be recognised
+	// and left unsaid. Empty whenever the last run reported nothing, including a run
+	// that graded clean, which is what makes a recurrence speak again instead of
+	// being suppressed forever by a problem that was fixed in between.
+	//
+	// It began as the decline identity alone, and covering only that path is what
+	// let the regression and unenforced reports repeat at every Stop. It now holds
+	// check.Verdict.ReportKey() for all three.
 	//
 	// Absent from older heartbeat files, where it reads as the zero value: an
-	// upgrade therefore reports the current decline once, which is the right
+	// upgrade therefore reports the current state once, which is the right
 	// behaviour rather than a migration.
 	LastReason string `json:"last_reason,omitempty"`
+
+	// LastSession is the agent session LastReason was decided in, so a suppression
+	// cannot outlive the session that earned it.
+	//
+	// Without it the rule is keyed on nothing but the repository, and a DELIBERATELY
+	// pinned baseline is never replaced by the session-start hook: the same verdict
+	// then stands for days, so the report would be made once ever and every later
+	// session would be told nothing at all. A regression going permanently quiet is
+	// worse than repeating it.
+	//
+	// Empty when the payload carried no session id, which reduces to the older
+	// repository-wide behaviour rather than to reporting on every Stop.
+	LastSession string `json:"last_session,omitempty"`
 }
 
 // State is the whole file.
@@ -120,45 +136,89 @@ func Load(outDir string) State {
 	return s
 }
 
+// Report identifies WHAT a hook said and WHICH session it said it in. Both halves are
+// needed: the key tells a repeat from something new without diffing prose, and the
+// session keeps a suppression from outliving the session that earned it.
+type Report struct {
+	// Key comes from check.Verdict.ReportKey(). Empty for every run that said
+	// nothing, which is what clears a previously reported key so the same problem
+	// returning after being fixed is reported again rather than suppressed forever.
+	Key string
+	// Session is the agent's session id, or "" when the payload carried none.
+	Session string
+}
+
 // RecordFired stamps an event. Best-effort and silent by contract: this is called from
 // a hook, and a hook that cannot fail loudly must not try. Every error path returns
 // without disturbing the caller.
-func RecordFired(outDir string, e Event, o Outcome) { RecordFiredWithReason(outDir, e, o, "") }
+func RecordFired(outDir string, e Event, o Outcome) {
+	RecordFiredWithReport(outDir, e, o, Report{})
+}
 
-// RecordFiredWithReason is RecordFired carrying the decline identity from
-// check.Verdict.DeclineKey(). Pass "" for every outcome that is not a decline — that
-// is what clears a previously reported reason, so the same problem returning after
-// being fixed is reported again rather than silently suppressed.
-func RecordFiredWithReason(outDir string, e Event, o Outcome, reason string) {
+// RecordFiredWithReport is RecordFired carrying the identity of what the run reported.
+// Pass the zero Report for every run that reported nothing: that is what clears a
+// previously recorded key.
+func RecordFiredWithReport(outDir string, e Event, o Outcome, rep Report) {
 	mutate(outDir, func(s *State) {
-		if s.Events == nil {
-			s.Events = map[Event]*Record{}
-		}
-		r := s.Events[e]
-		if r == nil {
-			r = &Record{FirstFired: now()}
-			s.Events[e] = r
-		}
+		r := recordFor(s, e)
 		r.LastFired = now()
 		r.Count++
 		r.LastOutcome = o
-		r.LastReason = reason
+		r.LastReason = rep.Key
+		r.LastSession = rep.Session
 	})
 }
 
-// ShouldReport reports whether a decline with this identity is worth saying out loud.
+// RecordSuppressed stamps a run that fired and deliberately said nothing because the
+// harness was already replaying a report this hook had already made.
 //
-// True when it differs from what was last recorded — a first occurrence, a different
-// problem, or the same problem returning after a successful grade cleared it. False
-// for an unchanged repeat, because a hook that says the same thing at the end of every
-// session is one people uninstall, and the standing state is visible in `enola doctor`
-// either way.
-func ShouldReport(outDir string, e Event, reason string) bool {
-	if reason == "" {
+// It touches ONLY the timestamp and the count. Writing an outcome here would overwrite
+// the verdict of the run that actually graded something, and writing a reason (even an
+// empty one) would clear the key the suppression depends on, re-arming the identical
+// report and reinstating the very loop through the dedupe that the flag just broke.
+//
+// Recorded rather than skipped because the heartbeat is the only place a change in that
+// flag's meaning would ever surface: "fires and always suppresses" and "fires and
+// reports" are different states, and one of them is the hook silently not running.
+func RecordSuppressed(outDir string, e Event) {
+	mutate(outDir, func(s *State) {
+		r := recordFor(s, e)
+		r.LastFired = now()
+		r.Count++
+	})
+}
+
+// recordFor returns the event's record, creating it on first use.
+func recordFor(s *State, e Event) *Record {
+	if s.Events == nil {
+		s.Events = map[Event]*Record{}
+	}
+	r := s.Events[e]
+	if r == nil {
+		r = &Record{FirstFired: now()}
+		s.Events[e] = r
+	}
+	return r
+}
+
+// ShouldReport reports whether what a hook is about to say is worth saying out loud.
+//
+// True when it differs from what was last recorded: a first occurrence, a different
+// problem, the same problem returning after a clean grade cleared it, or the same
+// problem in a NEW session. False for an unchanged repeat inside one session.
+//
+// That last case is not a matter of taste. A Stop hook's output does not annotate a
+// finished turn, it prevents the turn from ending: the harness feeds the text back to
+// the model and stops again afterwards. So an identical repeat costs the user a whole
+// model turn, and repeating it costs one per Stop until the harness overrides the hook
+// at its consecutive-block cap and the session ends on a warning instead of on the
+// report. The standing state is visible in `enola doctor` either way.
+func ShouldReport(outDir string, e Event, rep Report) bool {
+	if rep.Key == "" {
 		return false
 	}
 	r := Load(outDir).Get(e)
-	return r == nil || r.LastReason != reason
+	return r == nil || r.LastReason != rep.Key || r.LastSession != rep.Session
 }
 
 // RecordInstalled stamps the install time and the hook command, so a later report can

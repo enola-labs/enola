@@ -44,9 +44,10 @@ var installedHooks = []hookSpec{{
 }, {
 	Event:      "Stop",
 	Subcommand: "hook stop",
-	Description: "at the end of a session, the architectural delta is reported only if the " +
-		"change introduced a regression — or, once per cause, that the baseline was not " +
-		"comparable so nothing could be graded at all",
+	Description: "at the end of a turn, the architectural delta is reported only if the " +
+		"change introduced a regression or a finding no policy enforces, or that the baseline " +
+		"was not comparable so nothing could be graded at all. Said once per distinct report " +
+		"per session, never repeated at every stop",
 }}
 
 // HookSummary describes what --hooks will actually configure for THIS run, for callers

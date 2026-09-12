@@ -176,3 +176,58 @@ func TestFileName_IsNotASnapshotArtifact(t *testing.T) {
 		}
 	}
 }
+
+// A suppressed run is the second Stop of a turn, when the harness is already replaying
+// the report the first one made. It must count as a run and change nothing else.
+//
+// The reason it must not clear LastReason is the bug this was written for: clearing it
+// re-arms the identical report, so the next Stop says it again and the loop comes back
+// through the dedupe after the flag closed it off.
+func TestRecordSuppressed_CountsTheRunAndKeepsTheReportIdentity(t *testing.T) {
+	dir := t.TempDir()
+	base := time.Date(2026, 9, 12, 10, 0, 0, 0, time.UTC)
+	restore := now
+	defer func() { now = restore }()
+
+	now = func() time.Time { return base }
+	rep := Report{Key: "layers:Layer violation", Session: "s1"}
+	RecordFiredWithReport(dir, EventStop, OutcomeReported, rep)
+
+	now = func() time.Time { return base.Add(time.Minute) }
+	RecordSuppressed(dir, EventStop)
+
+	r := Load(dir).Get(EventStop)
+	if r.Count != 2 {
+		t.Errorf("Count = %d, want 2: a run that fired and said nothing still ran", r.Count)
+	}
+	if !r.LastFired.Equal(base.Add(time.Minute)) {
+		t.Errorf("LastFired = %v, want the suppressed run's time", r.LastFired)
+	}
+	if r.LastOutcome != OutcomeReported {
+		t.Errorf("LastOutcome = %q, want %q: a suppressed run must not overwrite the verdict of the run that graded",
+			r.LastOutcome, OutcomeReported)
+	}
+	if r.LastReason != rep.Key || r.LastSession != rep.Session {
+		t.Fatalf("a suppressed run cleared the report identity (%q/%q): that re-arms the identical report and the loop returns",
+			r.LastReason, r.LastSession)
+	}
+	if ShouldReport(dir, EventStop, rep) {
+		t.Error("the report must still be suppressed after a suppressed run")
+	}
+}
+
+// The first suppressed run on a repository with no heartbeat yet must create one rather
+// than panicking on a nil map.
+func TestRecordSuppressed_OnAFreshRepository(t *testing.T) {
+	dir := t.TempDir()
+	RecordSuppressed(dir, EventStop)
+
+	r := Load(dir).Get(EventStop)
+	if r == nil || r.Count != 1 {
+		t.Fatalf("a suppressed run on a fresh repository must record one run, got %+v", r)
+	}
+	if r.LastOutcome != "" {
+		t.Errorf("LastOutcome = %q, want empty: nothing was graded", r.LastOutcome)
+	}
+	RecordSuppressed("", EventStop) // must stay silent, as every hook path does
+}

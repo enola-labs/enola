@@ -104,11 +104,30 @@ func A() string { return "a" + b.B() }
 	}
 	// Firing is necessary but not sufficient: a hook that runs and stays silent
 	// leaves the session ungraded just as completely. The repo declares no policy, so
-	// the cycle is REPORTED rather than failed — the finding still has to reach the
+	// the cycle is REPORTED rather than failed: the finding still has to reach the
 	// agent, which is the whole point of the hook.
 	if !strings.Contains(stdout, "Cyclic dependency detected") {
 		t.Errorf("the Stop hook produced no verdict for a repo with a real cycle.\n"+
 			"stdout:\n%s\nstderr:\n%s", stdout, readIfPresent(filepath.Join(log, "stderr.log")))
+	} else if n := strings.Count(stdout, "Cyclic dependency detected"); n != 1 {
+		// Speaking ONCE is as much a part of the contract as speaking at all. A Stop
+		// hook's output does not annotate a finished turn, it prevents the turn from
+		// ending: the harness feeds the report back to the model and stops again. So a
+		// hook that emits the same report twice over an unchanged tree is looping, and
+		// the session ends on the harness's block-cap warning instead of on the report.
+		//
+		// That was issue #288, and this test was already reproducing it on every run
+		// while unable to see it, because it asked whether the report appeared at all
+		// rather than how many times. Counting is the entire difference.
+		t.Errorf("the Stop hook emitted its report %d times in one session, want exactly 1: "+
+			"it is re-grading an unchanged baseline at every Stop and will run until the "+
+			"harness overrides it.\nstdout:\n%s", n, stdout)
+	}
+	// The second run is expected and must stay silent: the report, then one replay
+	// carrying stop_hook_active. More than that means the suppression is not holding.
+	if n := strings.Count(fired, "hook stop"); n > 2 {
+		t.Errorf("the Stop hook ran %d times in one session, want at most 2 (one report and "+
+			"one suppressed replay).\nhooks that ran:\n%s", n, fired)
 	}
 	// SessionStart was already correct, and is the control: if neither fired, the
 	// session itself did not run the way this test assumes.

@@ -119,36 +119,135 @@ func TestDeclineKey_IdentifiesTheProblemNotTheProse(t *testing.T) {
 	}
 }
 
-// The whole point of the dedupe: say it once, say it again when it is a NEW problem,
-// and say it again when a fixed problem comes back.
-func TestShouldReport_OncePerReasonAndAgainAfterResolution(t *testing.T) {
+// The whole point of the once-per-report rule: say it once, say it again when it is a
+// NEW problem, say it again when a fixed problem comes back, and say it again in a new
+// session.
+func TestShouldReport_OncePerReportPerSession(t *testing.T) {
 	dir := t.TempDir()
-	key := declined(diff.WarnVersionMismatch).DeclineKey()
+	rep := hookstate.Report{Key: declined(diff.WarnVersionMismatch).DeclineKey(), Session: "s1"}
 
-	if !hookstate.ShouldReport(dir, hookstate.EventStop, key) {
-		t.Fatal("a first decline must be reported")
+	if !hookstate.ShouldReport(dir, hookstate.EventStop, rep) {
+		t.Fatal("a first report must be made")
 	}
-	hookstate.RecordFiredWithReason(dir, hookstate.EventStop, hookstate.OutcomeDeclined, key)
+	hookstate.RecordFiredWithReport(dir, hookstate.EventStop, hookstate.OutcomeDeclined, rep)
 
-	if hookstate.ShouldReport(dir, hookstate.EventStop, key) {
-		t.Error("the same decline repeating must stay quiet")
+	if hookstate.ShouldReport(dir, hookstate.EventStop, rep) {
+		t.Error("the same report repeating in one session must stay quiet: on Stop it prevents the turn from ending")
 	}
 
-	other := declined(diff.WarnDifferentRepo).DeclineKey()
+	other := hookstate.Report{Key: declined(diff.WarnDifferentRepo).DeclineKey(), Session: "s1"}
 	if !hookstate.ShouldReport(dir, hookstate.EventStop, other) {
-		t.Error("a different decline is a new problem and must be reported")
+		t.Error("a different problem is a new report and must be made")
 	}
 
-	// A successful grade clears the reason, so a recurrence is heard again — without
-	// this, a problem fixed and then reintroduced would be suppressed forever.
-	hookstate.RecordFiredWithReason(dir, hookstate.EventStop, hookstate.OutcomeClean, "")
-	if !hookstate.ShouldReport(dir, hookstate.EventStop, key) {
-		t.Error("a decline recurring after a clean grade must be reported again")
+	// A new session hears it again. Without this, a deliberately pinned baseline (which
+	// the session-start hook never replaces) would be reported once and then never, and
+	// a regression going permanently quiet is worse than one repeated across sessions.
+	if !hookstate.ShouldReport(dir, hookstate.EventStop, hookstate.Report{Key: rep.Key, Session: "s2"}) {
+		t.Error("a standing problem must be reported again in a new session")
 	}
 
-	if hookstate.ShouldReport(dir, hookstate.EventStop, "") {
-		t.Error("an empty reason is not a decline and must never be reported")
+	// A successful grade clears the key, so a recurrence is heard again even inside the
+	// same session: without this, a problem fixed and then reintroduced would be
+	// suppressed forever.
+	hookstate.RecordFiredWithReport(dir, hookstate.EventStop, hookstate.OutcomeClean, hookstate.Report{Session: "s1"})
+	if !hookstate.ShouldReport(dir, hookstate.EventStop, rep) {
+		t.Error("a problem recurring after a clean grade must be reported again")
 	}
+
+	if hookstate.ShouldReport(dir, hookstate.EventStop, hookstate.Report{Session: "s1"}) {
+		t.Error("an empty key is nothing to say and must never be reported")
+	}
+}
+
+// ReportKey drives that rule on all three paths the hook speaks on, not just the decline
+// it started on, so it has to distinguish DIFFERENT reports while treating the same
+// report as the same report.
+func TestReportKey_IdentifiesTheReportNotTheProse(t *testing.T) {
+	layer := facts.Insight{Source: "layers", Title: "Layer violation: storage -> delivery", Confidence: 1.0}
+	cycle := facts.Insight{Source: "cycles", Title: "Cyclic dependency detected: a -> b -> a", Confidence: 1.0}
+	advisory := func(ins ...facts.Insight) check.Verdict {
+		return check.Evaluate(&diff.SnapshotDiff{
+			Comparability: diff.Comparability{Comparable: true},
+			FindingsNew:   ins,
+		}, check.Policy{})
+	}
+
+	one, again := advisory(layer), advisory(layer)
+	if one.ReportKey() == "" {
+		t.Fatal("a verdict carrying an unenforced finding needs a key, or its report repeats at every Stop")
+	}
+	if one.ReportKey() != again.ReportKey() {
+		t.Errorf("the same finding must produce the same key: %q vs %q", one.ReportKey(), again.ReportKey())
+	}
+	if one.ReportKey() == advisory(cycle).ReportKey() {
+		t.Errorf("different findings must produce different keys, both %q", one.ReportKey())
+	}
+	// A re-ordered findings list is the same report; treating it as new would reinstate
+	// the repeat this key exists to stop.
+	if advisory(layer, cycle).ReportKey() != advisory(cycle, layer).ReportKey() {
+		t.Error("the key must be order-independent")
+	}
+	// Nothing to say means no key, which is what clears a previously reported one.
+	if advisory().ReportKey() != "" {
+		t.Error("a verdict with nothing to report must have no key")
+	}
+	// The decline path keeps exactly the identity it already had.
+	d := declined(diff.WarnVersionMismatch)
+	if d.ReportKey() != d.DeclineKey() {
+		t.Errorf("a declined verdict's report key must be its decline key: %q vs %q", d.ReportKey(), d.DeclineKey())
+	}
+}
+
+// The payload fields the hook depends on, read through the real stdin path.
+//
+// stop_hook_active was never parsed at all, and that is what looped a turn until the
+// harness overrode the hook at its consecutive-block cap. A struct-tag typo would
+// reintroduce it in the quietest possible way: the field would simply always be false.
+func TestReadHookInput_ReadsTheLoopBreakerAndTheSession(t *testing.T) {
+	in := readHookInputFrom(t, `{"session_id":"abc123","transcript_path":"/tmp/t.jsonl",`+
+		`"cwd":"/repo","hook_event_name":"Stop","stop_hook_active":true,"added_later":{"x":1}}`)
+
+	if in.CWD != "/repo" {
+		t.Errorf("cwd = %q, want /repo", in.CWD)
+	}
+	if !in.StopHookActive {
+		t.Error("stop_hook_active must be read: ignoring it is what re-fired the identical report until the block cap")
+	}
+	if in.SessionID != "abc123" {
+		t.Errorf("session_id = %q, want abc123", in.SessionID)
+	}
+
+	// Absent on the first Stop of a turn, and absent entirely on a harness that predates
+	// the flag. Neither may read as active, or the hook would go permanently silent.
+	if readHookInputFrom(t, `{"cwd":"/repo"}`).StopHookActive {
+		t.Error("a payload without the flag must not read as active")
+	}
+}
+
+// readHookInputFrom feeds a payload through readHookInput's own stdin rather than around
+// it, so the struct tags are what is under test.
+func readHookInputFrom(t *testing.T, payload string) hookInput {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "payload.json")
+	if err := os.WriteFile(path, []byte(payload), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = f.Close() }()
+
+	saved := os.Stdin
+	os.Stdin = f
+	defer func() { os.Stdin = saved }()
+
+	in, err := readHookInput()
+	if err != nil {
+		t.Fatalf("readHookInput: %v", err)
+	}
+	return in
 }
 
 // shouldAutoPin's new rule: refresh a baseline that can no longer be compared, but

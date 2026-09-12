@@ -24,10 +24,24 @@ import (
 // ignored, so the payload growing does not break the hook.
 type hookInput struct {
 	CWD string `json:"cwd"`
+
+	// StopHookActive is the harness's loop breaker, set on every Stop that is itself
+	// the continuation of a previous Stop hook's output. Reading it is not optional:
+	// see runStopHook for what ignoring it costs.
+	StopHookActive bool `json:"stop_hook_active"`
+
+	// SessionID scopes the once-per-report rule to a single session, so a suppression
+	// cannot outlive the session it was decided in. See hookstate.Record.LastSession.
+	SessionID string `json:"session_id"`
 }
 
-// stopHookOutput is the response shape for a Stop hook that wants to hand the model
-// something to act on without preventing it from finishing.
+// stopHookOutput is the response shape for handing the model something to act on at the
+// end of a turn.
+//
+// It does NOT hand it over passively. On Stop, `additionalContext` prevents the turn
+// from ending: the harness feeds the text back to the model and stops again afterwards.
+// This comment used to claim the opposite, as a stated fact that was never checked, and
+// the whole defect in runStopHook grew out of believing it.
 type stopHookOutput struct {
 	HookSpecificOutput struct {
 		HookEventName     string `json:"hookEventName"`
@@ -67,30 +81,34 @@ func (r *Runner) Hook(ctx context.Context, args []string) {
 	os.Exit(0)
 }
 
-// runStopHook grades the session's change and, only if it introduced a structural
-// regression, hands the verdict back as context.
+// runStopHook grades the session's change and, only if it introduced something the user
+// should see, hands the verdict back as context.
 func (r *Runner) runStopHook(ctx context.Context) {
 	in, err := readHookInput()
 	if err != nil || in.CWD == "" {
 		return
 	}
 
-	// Silence is the norm. The gate only has something to say when a baseline was pinned
-	// during this session AND the change regressed the architecture; every other path
-	// ends here, having printed nothing.
-	verdict, outDir, ok := r.gradeQuietly(ctx, in.CWD)
-
-	// Record the run BEFORE deciding whether to speak, and on every path. The silent
-	// paths are the ones worth recording: a hook that never fires and a hook that fires
-	// and finds nothing are indistinguishable in a session, and only one of them is
-	// broken. See internal/hookstate.
-	declineKey := ""
-	if ok {
-		declineKey = verdict.DeclineKey()
+	// The harness is already replaying a report this hook made, so this run says nothing.
+	//
+	// stop_hook_active is set on every Stop that is itself the continuation of a previous
+	// Stop hook's output, and it exists because a Stop hook's output is not an annotation
+	// on a finished turn: it PREVENTS the turn from ending. A hook that re-grades here
+	// re-emits the identical verdict from an unchanged baseline, buys another model turn,
+	// and repeats until the consecutive-block cap overrides it, so the session ends on the
+	// harness's warning instead of on the report. Reported as issue #288.
+	//
+	// Checked BEFORE grading. A suppressed run must cost nothing, and grading first would
+	// pay a full snapshot per loop iteration for output that is thrown away.
+	if in.StopHookActive {
+		hookstate.RecordSuppressed(r.outputDirFor(in.CWD), hookstate.EventStop)
+		return
 	}
-	// ShouldReport is asked BEFORE recording, because recording is what makes the next
-	// identical decline a repeat.
-	sayDecline := ok && declineKey != "" && hookstate.ShouldReport(outDir, hookstate.EventStop, declineKey)
+
+	// Silence is the norm. The gate only has something to say when a baseline was pinned
+	// during this session AND the change either regressed the architecture or introduced
+	// a finding nothing enforced; every other path ends here, having printed nothing.
+	verdict, outDir, ok := r.gradeQuietly(ctx, in.CWD)
 
 	// Findings the run measured exactly and did not fail, because no policy named them.
 	// The hook reports these: an agent that hears nothing after closing a layer violation
@@ -99,34 +117,49 @@ func (r *Runner) runStopHook(ctx context.Context) {
 	if ok && verdict.Status == check.StatusClean {
 		unenforced = verdict.UnenforcedAtFloor()
 	}
-	hookstate.RecordFiredWithReason(outDir, hookstate.EventStop, stopOutcome(verdict, ok, len(unenforced) > 0), declineKey)
 
-	var context string
+	// One switch decides both what to say and what identifies it. A non-empty key means
+	// there is something to say, which is what lets the once-per-report rule below cover
+	// every path rather than only the decline it started on.
+	var key, context string
 	switch {
 	case ok && verdict.Status == check.StatusRegression:
+		key = verdict.ReportKey()
 		context = "enola graded the architectural change made in this session and found a structural " +
-			"regression. This was not necessarily intended — review it before considering the task " +
+			"regression. This was not necessarily intended: review it before considering the task " +
 			"finished, and either fix it or say why it is deliberate.\n\n" + verdict.Render()
 
 	case len(unenforced) > 0:
+		key = verdict.ReportKey()
 		context = unenforcedReport(r.name(), verdict)
 
-	case sayDecline:
+	case ok && verdict.Status == check.StatusIncomparable:
 		// The gate could not grade at all, and saying nothing would be indistinguishable
 		// from grading it clean. `enola check` spends a whole exit code (3) keeping those
 		// apart so "I refuse to grade this" is never read as "your change is bad"; a hook
 		// that stays silent collapses the same distinction in the other direction, and
 		// leaves someone believing the loop is protecting them when it is not.
-		//
-		// Said once per distinct reason, not once per session — see hookstate.ShouldReport.
+		key = verdict.ReportKey()
 		context = "enola could NOT grade the architectural change made in this session: " +
 			verdict.DeclineReason() + ".\n\n" +
-			"This is NOT a statement about your change — the comparison itself was untrustworthy, " +
+			"This is NOT a statement about your change. The comparison itself was untrustworthy, " +
 			"so no verdict was reached in either direction. Re-pin the baseline to restore grading " +
 			fmt.Sprintf("(`%s baseline pin`, or the set_baseline tool), and `%s doctor` reports whether ", r.name(), r.name()) +
 			"the hooks are grading again."
+	}
 
-	default:
+	// Recorded on EVERY path, and the silent paths are the ones worth recording: a hook
+	// that never fires and a hook that fires and finds nothing are indistinguishable in a
+	// session, and only one of them is broken. See internal/hookstate.
+	//
+	// ShouldReport is asked BEFORE recording, because recording is what makes the next
+	// identical report a repeat. Said once per distinct report per session, not once per
+	// Stop: the whole cost of repeating it is in hookstate.ShouldReport.
+	report := hookstate.Report{Key: key, Session: in.SessionID}
+	say := hookstate.ShouldReport(outDir, hookstate.EventStop, report)
+	hookstate.RecordFiredWithReport(outDir, hookstate.EventStop,
+		stopOutcome(verdict, ok, len(unenforced) > 0), report)
+	if !say {
 		return
 	}
 
@@ -339,9 +372,13 @@ func unenforcedReport(bin string, v check.Verdict) string {
 // incomparable baseline exactly as it is silent for a clean change, and only a
 // heartbeat can tell an operator which of the two has been happening all week.
 //
-// reported covers the other way the hook now speaks without failing: a clean verdict
-// carrying findings no policy enforces. The heartbeat records whether the hook SPOKE,
-// so a run that handed the agent a report must not be filed as a silent clean one.
+// reported covers the other way the hook speaks without failing: a clean verdict
+// carrying findings no policy enforces. A run that found those must not be filed as a
+// silent clean one.
+//
+// It classifies what the run FOUND, not whether the words reached the agent. A repeat
+// suppressed inside one session still found the finding, and filing it as clean would
+// tell `doctor` the loop has gone quiet when the opposite is true.
 func stopOutcome(v check.Verdict, ok, reported bool) hookstate.Outcome {
 	if !ok {
 		return hookstate.OutcomeUnavailable
@@ -426,6 +463,26 @@ func (r *Runner) gradeQuietly(ctx context.Context, repoDir string) (check.Verdic
 	verdict := check.EvaluateCurrent(diff.Compute(base, current), policy, current.Insights)
 	verdict = check.AttachCensus(verdict, current.Meta, policy, current.Insights)
 	return check.AttachLedger(verdict, eng.Store(), policy, current.Insights, time.Now()), outDir, true
+}
+
+// outputDirFor resolves just the engine's output directory, for a path that must record
+// a heartbeat without grading anything. Config resolution only: no snapshot, no store,
+// nothing that scales with the size of the repository. Returns "" on every failure, and
+// hookstate treats that as "nowhere to record" rather than as an error.
+func (r *Runner) outputDirFor(repoDir string) string {
+	if !isDirectory(repoDir) {
+		return ""
+	}
+	eng, cfg, err := r.newEngine(bootstrap.Options{ConfigPath: configForRepo(repoDir)})
+	if err != nil {
+		return ""
+	}
+	cfg.Repo, cfg.Repos = repoDir, nil
+	repoPaths, err := cfg.RepoPaths()
+	if err != nil || len(repoPaths) == 0 {
+		return ""
+	}
+	return eng.OutputDir(repoPaths[0])
 }
 
 // configForRepo prefers a config inside the repository, matching how `enola check`
