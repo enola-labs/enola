@@ -7,6 +7,19 @@ The full per-release change lists — every Added, Changed and Fixed line — ar
 [enola.tech/changelog](https://enola.tech/changelog). This file is the same history at
 the resolution a reader of the repository needs.
 
+## v0.4.19 — 2026-09-12
+
+**The Stop hook reports once per session instead of at every stop**
+
+A Stop hook's output prevents the turn from ending: the harness feeds it back to the
+model and stops again, setting `stop_hook_active` on that second stop. enola did not
+read that flag, and deduplicated only its incomparable-baseline report, so a standing
+finding re-emitted the identical report at every stop until the harness overrode the
+hook at its consecutive-block cap. The flag is now read before grading, so a suppressed
+run costs no snapshot, and the once-per-report rule also covers the regression and
+unenforced-finding reports, keyed by the findings themselves and the session id. A new
+session, a different finding, or a recurrence after a clean grade is reported again.
+
 ## v0.4.18 — 2026-09-10
 
 **install.sh runs under dash and on Windows, and upgrades get their own checksum**
