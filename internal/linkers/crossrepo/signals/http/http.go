@@ -50,98 +50,160 @@ func (s *Signal) Contribute(in plugin.SignalInput, out plugin.EvidenceSink) {
 			continue
 		}
 		// Every client call site is a detected outbound edge. Counting here, before
-		// the low-signal filters below, means call sites we choose not to resolve
-		// (no method, generic path) and call sites with no matching server both fall
-		// into unresolved (detected - resolved) — the blind spot the report exposes.
+		// the low-signal filters in resolveCall, means call sites we choose not to
+		// resolve (no method, generic path) and call sites with no matching server
+		// both fall into unresolved (detected - resolved) — the blind spot the report
+		// exposes.
 		out.Coverage(f.Repo, CoverageEdgeType).Detected++
-		// Attempt to resolve the call site to a loaded server first, then fall back
-		// to the external bucket. Ordering matters: a route tagged external may
-		// still target a hardcoded *internal* host that is loaded (the Go extractor
-		// tags those since v101), and such a call must keep its cross-repo edge
-		// rather than vanish into the external bucket. Bucketing external only after
-		// a failed match also preserves the blind-spot signal — an untagged,
-		// unmatched call still falls into unresolved (detected - resolved - external).
-		matched := false
-		method := routeindex.NormalizeMethod(f.PropString("method"))
-		if method != "" {
-			np := m.NormalizePath(f.Name)
-			if !m.IsGenericPath(np) {
-				// Canonicalize the leading slash so a base-relative client path
-				// ("settings/x") matches the indexed suffix form ("/settings/x").
-				clientPath := routeindex.CanonicalLeadingSlash(np)
-				// Try the client path's trailing-segment suffixes against the server
-				// suffix index, longest first. The server index already holds suffixes
-				// of every server path, so matching client suffixes too makes the join
-				// symmetric: it resolves a client call that carries an extra gateway/BFF
-				// prefix ("/api/settings/tickets/{}/resolve") to a server serving the
-				// un-prefixed path ("/tickets/{}/resolve"), as well as the reverse (a
-				// base-relative client calling a longer server path).
-				matches, matchedPath, viaParam := m.LookupClientMatchesDetailed(server, clientPath, method)
-				provider, unambiguous := pickProvider(m, f, matches)
-				// A single-segment path (/activate) cleared the generic vocabulary but
-				// is thinner evidence than a multi-segment one: there is less path to
-				// coincide by accident, so a hint-disambiguated pick among several
-				// candidate providers is normally not enough. Demand an outright
-				// unambiguous match — with one carve-out: a hint whose normalized form
-				// EQUALS a provider's label exactly is not a coincidence class (the
-				// source names the host — `${config.ACME_HOST}/mcp` — and two
-				// loaded repos serving /mcp is precisely the case that hint exists
-				// for). Substring hint matches stay rejected for these paths. A service alias
-				// the config declares names the repo just as outright.
-				//
-				// Only target_hint qualifies, for the same reason the external
-				// classification below says so: serviceHint falls back to the `api`
-				// prop, which is the client FILE's name. A file named api.ts would
-				// otherwise elect the repo named api out of several candidates, and
-				// renaming that file would move the dependency.
-				if provider != "" && routeindex.SingleSegmentPath(np) && !unambiguous &&
-					facts.NormalizeRepoLabel(namedProvider(m, f)) != facts.NormalizeRepoLabel(provider) {
-					provider = ""
-				}
-				// A non-empty provider means the call site matched a loaded service (a
-				// self-match is internal, not a blind spot) — count it resolved either way.
-				if provider != "" {
-					out.Coverage(f.Repo, CoverageEdgeType).Resolved++
-					matched = true
-				}
-				if provider != "" && provider != f.Repo {
-					e := out.Edge(f.Repo, provider)
-					e.Via(httpVia(f))
-					e.Sample(plugin.BucketEndpoints, method+" "+f.Name)
-					if viaParam {
-						// A server parameter absorbed a literal segment: evidence the exact
-						// join could not give, so never verified, and named as such.
-						e.Sample(plugin.BucketParamEndpoints, method+" "+f.Name)
-						e.Confidence("probable")
-					} else {
-						e.Confidence(matchConfidence(matchedPath, np, provider, matches, unambiguous))
-					}
-				}
+		call := resolveCall(m, server, declaredTargets, f)
+		switch call.bucket {
+		case bucketResolved:
+			// A non-empty provider means the call site matched a loaded service (a
+			// self-match is internal, not a blind spot) — count it resolved either way.
+			out.Coverage(f.Repo, CoverageEdgeType).Resolved++
+			if call.provider == f.Repo {
+				continue
 			}
-		}
-		// A call to a hardcoded external host (e.g. a third-party API) that matched
-		// no loaded repo is bucketed separately instead of left in unresolved —
-		// otherwise it reads as an internal blind spot it is not. Externality is
-		// claimed from the URL literal naming a foreign host, and from nothing
-		// else: a target_hint that resolves to no loaded repo is as consistent
-		// with a derivation that named no provider as with a third-party call,
-		// and filing a blind spot as an expected non-match stops it being
-		// reported at all.
-		if !matched && routeindex.IsExternalClient(f) {
+			e := out.Edge(f.Repo, call.provider)
+			e.Via(httpVia(f))
+			e.Sample(plugin.BucketEndpoints, call.method+" "+f.Name)
+			if call.viaParam {
+				// A server parameter absorbed a literal segment: evidence the exact
+				// join could not give, so never verified, and named as such.
+				e.Sample(plugin.BucketParamEndpoints, call.method+" "+f.Name)
+				e.Confidence("probable")
+			} else {
+				e.Confidence(matchConfidence(call.matchedPath, call.np, call.provider, call.matches, call.unambiguous))
+			}
+		case bucketExternal:
 			out.Coverage(f.Repo, CoverageEdgeType).External++
-			continue
+		case bucketDeclared:
+			out.Coverage(f.Repo, CoverageEdgeType).Declared++
 		}
-		if !matched {
-			// Attribution by declared intent: when the calling repo's declaration
-			// names exactly one http-client seam, an unmatched call is attributed
-			// to that declared target — counted in its own bucket, never as a
-			// resolved edge endpoint. The declaration is stated, the attribution
-			// is labeled, and the blind spot stops masquerading as unknown.
-			if target, ok := declaredTargets[f.Repo]; ok && target != f.Repo {
-				out.Coverage(f.Repo, CoverageEdgeType).Declared++
+	}
+}
+
+// callBucket is where one client call lands in its service's edge coverage.
+type callBucket int
+
+const (
+	bucketUnresolved callBucket = iota // detected, not resolved; carries a reason
+	bucketResolved                     // matched a loaded service, its own included
+	bucketExternal                     // aimed at a hardcoded third-party host
+	bucketDeclared                     // attributed to the repo's sole declared seam
+)
+
+// callResolution is the one verdict on a client call that the edge pass and the
+// unmatched pass both read.
+type callResolution struct {
+	bucket      callBucket
+	method      string // normalized verb, "" when the call states none usable
+	np          string // normalized client path
+	clientPath  string // np with a canonical leading slash
+	matches     []routeindex.RouteRef
+	matchedPath string
+	viaParam    bool
+	provider    string
+	unambiguous bool
+	// reason explains an unresolved call. It is left empty only when no server
+	// route matched the call's verb, where telling method_mismatch from path_unknown
+	// needs the verb-agnostic suffix index that only the unmatched pass builds.
+	reason string
+}
+
+// resolveCall decides what one client call resolved to. It is the ONLY place that
+// decision is made: the edge pass counts from it and the unmatched pass stamps reasons
+// from it, so a call can never be counted unresolved with no reason saying why, nor
+// carry a reason while counted resolved. Two copies of these steps had already drifted:
+// the single-segment rule below existed in the edge pass alone.
+func resolveCall(m *routeindex.Matcher, server map[string][]routeindex.RouteRef, declaredTargets map[string]string, f facts.Fact) callResolution {
+	var call callResolution
+	call.method = routeindex.NormalizeMethod(f.PropString("method"))
+	switch call.method {
+	case "":
+		call.reason = ReasonNoMethod
+	default:
+		call.np = m.NormalizePath(f.Name)
+		if m.IsGenericPath(call.np) {
+			call.reason = ReasonGenericPath
+			break
+		}
+		// Canonicalize the leading slash so a base-relative client path
+		// ("settings/x") matches the indexed suffix form ("/settings/x").
+		call.clientPath = routeindex.CanonicalLeadingSlash(call.np)
+		// Try the client path's trailing-segment suffixes against the server
+		// suffix index, longest first. The server index already holds suffixes
+		// of every server path, so matching client suffixes too makes the join
+		// symmetric: it resolves a client call that carries an extra gateway/BFF
+		// prefix ("/api/settings/tickets/{}/resolve") to a server serving the
+		// un-prefixed path ("/tickets/{}/resolve"), as well as the reverse (a
+		// base-relative client calling a longer server path).
+		call.matches, call.matchedPath, call.viaParam = m.LookupClientMatchesDetailed(server, call.clientPath, call.method)
+		call.provider, call.unambiguous = pickProvider(m, f, call.matches)
+		// A single-segment path (/activate) cleared the generic vocabulary but
+		// is thinner evidence than a multi-segment one: there is less path to
+		// coincide by accident, so a hint-disambiguated pick among several
+		// candidate providers is normally not enough. Demand an outright
+		// unambiguous match — with one carve-out: a hint whose normalized form
+		// EQUALS a provider's label exactly is not a coincidence class (the
+		// source names the host — `${config.ACME_HOST}/mcp` — and two
+		// loaded repos serving /mcp is precisely the case that hint exists
+		// for). Substring hint matches stay rejected for these paths. A service alias
+		// the config declares names the repo just as outright.
+		//
+		// Only target_hint qualifies, for the same reason the external
+		// classification below says so: serviceHint falls back to the `api`
+		// prop, which is the client FILE's name. A file named api.ts would
+		// otherwise elect the repo named api out of several candidates, and
+		// renaming that file would move the dependency.
+		if call.provider != "" && routeindex.SingleSegmentPath(call.np) && !call.unambiguous &&
+			facts.NormalizeRepoLabel(namedProvider(m, f)) != facts.NormalizeRepoLabel(call.provider) {
+			call.provider = ""
+		}
+		if call.provider != "" {
+			call.bucket = bucketResolved
+			call.reason = ""
+			return call
+		}
+		if len(call.matches) > 0 {
+			// A server serves this path AND this verb, so the call matched and no
+			// candidate was chosen: an alias naming none of them, or several repos
+			// with nothing to pick between (the single-segment rule included).
+			// Neither is a verb problem.
+			if _, aliased := declaredProvider(m, f); aliased {
+				call.reason = ReasonAliasNotServing
+			} else {
+				call.reason = ReasonAmbiguousProvider
 			}
 		}
 	}
+
+	// A call to a hardcoded external host (e.g. a third-party API) that matched
+	// no loaded repo is bucketed separately instead of left in unresolved —
+	// otherwise it reads as an internal blind spot it is not. Externality is
+	// claimed from the URL literal naming a foreign host, and from nothing
+	// else: a target_hint that resolves to no loaded repo is as consistent
+	// with a derivation that named no provider as with a third-party call,
+	// and filing a blind spot as an expected non-match stops it being
+	// reported at all. Ordering matters: a route tagged external may still
+	// target a hardcoded internal host that is loaded, and such a call keeps its
+	// edge, which is why this is decided only after a failed match.
+	if routeindex.IsExternalClient(f) {
+		call.bucket = bucketExternal
+		return call
+	}
+	// Attribution by declared intent: when the calling repo's declaration names
+	// exactly one http-client seam, an unmatched call is attributed to that
+	// declared target — counted in its own bucket, never as a resolved edge
+	// endpoint. It applies to every unresolved call, the ones with no usable verb or
+	// a generic path included, because the edge pass has always counted them there.
+	if target, ok := declaredTargets[f.Repo]; ok && target != f.Repo {
+		call.bucket = bucketDeclared
+		call.reason = ReasonDeclaredTarget
+		return call
+	}
+	call.bucket = bucketUnresolved
+	return call
 }
 
 // soleDeclaredHTTPTargets maps every repo whose declaration names exactly ONE
@@ -482,52 +544,29 @@ func UnmatchedClientRouteKeys(m *routeindex.Matcher, all []facts.Fact) map[strin
 		if f.Kind != facts.KindRoute || f.Repo == "" || routeindex.RoleOf(f) != facts.RoleClient {
 			continue
 		}
-		if routeindex.IsExternalClient(f) {
-			continue // a hardcoded external host is an expected non-match, not a blind spot
-		}
 		if f.PropString(facts.PropRouteType) == facts.RouteTypeGraphQL {
 			continue // GraphQL operations are the graphql signal's domain; an HTTP
 			// verb-and-path reason stamped on one is noise, not triage
 		}
-		id := routeindex.RouteIdentity(f)
-		method := routeindex.NormalizeMethod(f.PropString("method"))
-		if method == "" {
-			unmatched[id] = ReasonNoMethod
+		call := resolveCall(m, server, declaredTargets, f)
+		switch call.bucket {
+		case bucketResolved, bucketExternal:
+			// Resolved, or a hardcoded external host: an expected non-match, not a
+			// blind spot.
 			continue
 		}
-		np := m.NormalizePath(f.Name)
-		if m.IsGenericPath(np) {
-			unmatched[id] = ReasonGenericPath
-			continue
-		}
-		cp := routeindex.CanonicalLeadingSlash(np)
-		matches, _ := m.LookupClientMatches(server, cp, method)
-		if provider, _ := pickProvider(m, f, matches); provider == "" {
-			// No hinted-external skip here either: mirrored from linkHTTP, an
-			// unresolvable hint is not evidence that the call leaves the estate.
-			if target, ok := declaredTargets[f.Repo]; ok && target != f.Repo {
-				unmatched[id] = ReasonDeclaredTarget
-				continue
-			}
-			// A server serves this path AND this verb, so the call matched and no
-			// candidate was chosen: an alias naming none of them, or several repos with
-			// nothing to pick between. Neither is a verb problem.
-			if len(matches) > 0 {
-				if _, aliased := declaredProvider(m, f); aliased {
-					unmatched[id] = ReasonAliasNotServing
-				} else {
-					unmatched[id] = ReasonAmbiguousProvider
-				}
-				continue
-			}
-			// Distinguish "a server serves this path but not this verb" from "no
-			// server serves this path at all", so the residual is self-triaging.
-			if m.ClientPathHasServer(serverSuffixes, cp) {
-				unmatched[id] = ReasonMethodMismatch
+		reason := call.reason
+		if reason == "" {
+			// No server route matched the call's verb. Distinguish "a server serves
+			// this path but not this verb" from "no server serves this path at all",
+			// so the residual is self-triaging.
+			if m.ClientPathHasServer(serverSuffixes, call.clientPath) {
+				reason = ReasonMethodMismatch
 			} else {
-				unmatched[id] = ReasonPathUnknown
+				reason = ReasonPathUnknown
 			}
 		}
+		unmatched[routeindex.RouteIdentity(f)] = reason
 	}
 	return unmatched
 }
