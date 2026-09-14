@@ -267,6 +267,27 @@ func namedProvider(m *routeindex.Matcher, client facts.Fact) string {
 	return client.PropString("target_hint")
 }
 
+// declaredMatches narrows a configured call's matches to the repository its service
+// alias makes the provider, exactly as pickProvider chooses it for the edge. Without an
+// alias, or when the alias names no repository among the matches, the matches are
+// returned unchanged.
+func declaredMatches(m *routeindex.Matcher, client facts.Fact, matches []routeindex.RouteRef) []routeindex.RouteRef {
+	if _, ok := declaredProvider(m, client); !ok {
+		return matches
+	}
+	provider, _ := pickProvider(m, client, matches)
+	if provider == "" {
+		return matches
+	}
+	var out []routeindex.RouteRef
+	for _, ref := range matches {
+		if ref.Repo == provider {
+			out = append(out, ref)
+		}
+	}
+	return out
+}
+
 // httpVia returns the via label for an HTTP edge derived from a client route:
 // "grpc" for a gRPC call site, "http-client" for a hand-written HTTP client call
 // site, "http" for an OpenAPI client spec (the default).
@@ -365,6 +386,12 @@ func ServerRouteVerdicts(m *routeindex.Matcher, all []facts.Fact) (evaluated, un
 
 	// Mark every server route any client resolves to (by suffix + method) as used,
 	// and record which repos actually serve a cross-repo client (HTTP providers).
+	//
+	// Deliberately generous: when several repositories serve a path, every one of them
+	// counts as called, because nothing says which one is, and flagging a route that is
+	// in use is the unsafe direction for a verdict that may drive its removal. A service
+	// alias is the exception. The config states which repository the call reaches, so
+	// the others serving the same path were not called by it.
 	matched := map[string]bool{}
 	providerRepos := map[string]bool{}
 	for _, f := range all {
@@ -380,6 +407,7 @@ func ServerRouteVerdicts(m *routeindex.Matcher, all []facts.Fact) (evaluated, un
 			continue
 		}
 		matches, _ := m.LookupClientMatches(server, routeindex.CanonicalLeadingSlash(np), method)
+		matches = declaredMatches(m, f, matches)
 		for _, m := range matches {
 			matched[routeindex.RouteIdentityKey(m.Repo, m.Method, m.Path)] = true
 			if m.Repo != f.Repo {
