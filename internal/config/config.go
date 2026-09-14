@@ -793,8 +793,13 @@ func contains(ss []string, s string) bool {
 }
 
 // LinkingVocab resolves the effective cross-repo linking vocabulary: the built-in
-// defaults with any `linking:` overlay applied. It returns an error for an invalid
-// threshold rather than clamping — see vocab.Apply.
+// defaults with any `linking:` overlay applied, carrying the declared service_aliases so
+// every matcher built from it resolves a service name the same way. It returns an error
+// for an invalid threshold rather than clamping — see vocab.Apply.
 func (c *Config) LinkingVocab() (*vocab.Set, error) {
-	return vocab.Apply(c.Linking)
+	v, err := vocab.Apply(c.Linking)
+	if v != nil && len(c.ServiceAliases) > 0 {
+		v.ServiceAliases = c.ServiceAliases
+	}
+	return v, err
 }

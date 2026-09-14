@@ -9,6 +9,7 @@ package http
 
 import (
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/enola-labs/enola/internal/facts"
@@ -76,7 +77,7 @@ func (s *Signal) Contribute(in plugin.SignalInput, out plugin.EvidenceSink) {
 				// un-prefixed path ("/tickets/{}/resolve"), as well as the reverse (a
 				// base-relative client calling a longer server path).
 				matches, matchedPath := m.LookupClientMatches(server, clientPath, method)
-				provider, unambiguous := pickProvider(f, matches)
+				provider, unambiguous := pickProvider(m, f, matches)
 				// A single-segment path (/activate) cleared the generic vocabulary but
 				// is thinner evidence than a multi-segment one: there is less path to
 				// coincide by accident, so a hint-disambiguated pick among several
@@ -85,7 +86,8 @@ func (s *Signal) Contribute(in plugin.SignalInput, out plugin.EvidenceSink) {
 				// EQUALS a provider's label exactly is not a coincidence class (the
 				// source names the host — `${config.ACME_HOST}/mcp` — and two
 				// loaded repos serving /mcp is precisely the case that hint exists
-				// for). Substring hint matches stay rejected for these paths.
+				// for). Substring hint matches stay rejected for these paths. A service alias
+				// the config declares names the repo just as outright.
 				//
 				// Only target_hint qualifies, for the same reason the external
 				// classification below says so: serviceHint falls back to the `api`
@@ -93,7 +95,7 @@ func (s *Signal) Contribute(in plugin.SignalInput, out plugin.EvidenceSink) {
 				// otherwise elect the repo named api out of several candidates, and
 				// renaming that file would move the dependency.
 				if provider != "" && routeindex.SingleSegmentPath(np) && !unambiguous &&
-					facts.NormalizeRepoLabel(f.PropString("target_hint")) != facts.NormalizeRepoLabel(provider) {
+					facts.NormalizeRepoLabel(namedProvider(m, f)) != facts.NormalizeRepoLabel(provider) {
 					provider = ""
 				}
 				// A non-empty provider means the call site matched a loaded service (a
@@ -178,32 +180,84 @@ func soleDeclaredHTTPTargets(all []facts.Fact) map[string]string {
 // whose own routes extract thinly hands its whole client surface to a neighbour.
 // The trade-off is a genuine BFF that proxies a path it also serves: its edge is
 // dropped — a miss, in a linker that everywhere prefers missing to fabricating.
-func pickProvider(client facts.Fact, matches []routeindex.RouteRef) (string, bool) {
+//
+// A service alias the config declares for a configured client's service name is a
+// constraint, not a preference: only the aliased repo may provide the call. When it
+// serves none of the matches there is no provider at all, even with one other
+// candidate, because that edge would contradict what the user stated.
+//
+// The hint picks deterministically. An exact label match wins; failing that, a single
+// substring match; anything else is ambiguous. Taking the first substring match in map
+// order made one snapshot link the same call to different repos from run to run.
+func pickProvider(m *routeindex.Matcher, client facts.Fact, matches []routeindex.RouteRef) (string, bool) {
 	providers := map[string]bool{}
-	for _, m := range matches {
-		if m.Repo == client.Repo {
+	for _, ref := range matches {
+		if ref.Repo == client.Repo {
 			return client.Repo, true
 		}
-		providers[m.Repo] = true
+		providers[ref.Repo] = true
 	}
-	switch len(providers) {
-	case 0:
+	if len(providers) == 0 {
 		return "", false
-	case 1:
-		for p := range providers {
-			return p, true
+	}
+	candidates := make([]string, 0, len(providers))
+	for p := range providers {
+		candidates = append(candidates, p)
+	}
+	sort.Strings(candidates)
+
+	if repo, ok := declaredProvider(m, client); ok {
+		want := facts.NormalizeRepoLabel(repo)
+		for _, p := range candidates {
+			if facts.NormalizeRepoLabel(p) == want {
+				return p, len(candidates) == 1
+			}
 		}
+		return "", false
+	}
+	if len(candidates) == 1 {
+		return candidates[0], true
 	}
 	hint := facts.NormalizeRepoLabel(serviceHint(client))
 	if hint == "" {
 		return "", false // ambiguous, no hint
 	}
-	for p := range providers {
-		if facts.NormalizeRepoLabel(p) == hint || strings.Contains(facts.NormalizeRepoLabel(p), hint) || strings.Contains(hint, facts.NormalizeRepoLabel(p)) {
-			return p, false
+	var exact, partial []string
+	for _, p := range candidates {
+		switch label := facts.NormalizeRepoLabel(p); {
+		case label == hint:
+			exact = append(exact, p)
+		case strings.Contains(label, hint) || strings.Contains(hint, label):
+			partial = append(partial, p)
 		}
 	}
+	switch {
+	case len(exact) == 1:
+		return exact[0], false
+	case len(exact) == 0 && len(partial) == 1:
+		return partial[0], false
+	}
 	return "", false
+}
+
+// declaredProvider returns the repository the config's service_aliases maps a
+// configured client's service name to. Only a route read through a declared client
+// qualifies: an alias maps the service name that client passes, and an env-derived or
+// file-name hint on any other route is not that name.
+func declaredProvider(m *routeindex.Matcher, client facts.Fact) (string, bool) {
+	if client.PropString(facts.PropClientSpec) == "" {
+		return "", false
+	}
+	return m.ServiceAlias(client.PropString("target_hint"))
+}
+
+// namedProvider is the repository a client route names outright: the repo its service
+// name is aliased to, else its target_hint.
+func namedProvider(m *routeindex.Matcher, client facts.Fact) string {
+	if repo, ok := declaredProvider(m, client); ok {
+		return repo
+	}
+	return client.PropString("target_hint")
 }
 
 // httpVia returns the via label for an HTTP edge derived from a client route:
@@ -363,12 +417,21 @@ const (
 	ReasonDeclaredTarget = "attributed_by_intent"
 	ReasonGenericPath    = "generic_path"    // a sub-2-segment path the matcher deliberately skips
 	ReasonMethodMismatch = "method_mismatch" // a server route serves this path suffix, but not this verb
-	ReasonPathUnknown    = "path_unknown"    // no server route shares a >=2-segment suffix with this path
+	// ReasonAmbiguousProvider marks a call more than one loaded repository serves, with
+	// nothing that chooses between them. Reporting it as a verb mismatch sent a reader
+	// looking for a wrong verb the call does not have.
+	ReasonAmbiguousProvider = "ambiguous_provider"
+	// ReasonAliasNotServing marks a configured client call whose service name the config
+	// aliases to a repository serving none of the matching routes. The alias is a
+	// constraint, so the repositories that do serve it are not used instead.
+	ReasonAliasNotServing = "alias_not_serving"
+	ReasonPathUnknown     = "path_unknown" // no server route shares a >=2-segment suffix with this path
 )
 
 // UnmatchedClientRouteKeys returns the identity (see routeindex.RouteIdentity) of every client
 // route the cross-repo HTTP linker could not resolve to a loaded server route,
 // mapped to one of the Reason* constants: ReasonNoMethod, ReasonGenericPath,
+// ReasonAmbiguousProvider, ReasonAliasNotServing, ReasonDeclaredTarget,
 // ReasonMethodMismatch (a server serves this path suffix, but not this verb), or
 // ReasonPathUnknown (no server shares a >=2-segment suffix with this path). It mirrors
 // linkHTTP's exact resolution steps, so the set is precisely the client calls that
@@ -407,11 +470,22 @@ func UnmatchedClientRouteKeys(m *routeindex.Matcher, all []facts.Fact) map[strin
 		}
 		cp := routeindex.CanonicalLeadingSlash(np)
 		matches, _ := m.LookupClientMatches(server, cp, method)
-		if provider, _ := pickProvider(f, matches); provider == "" {
+		if provider, _ := pickProvider(m, f, matches); provider == "" {
 			// No hinted-external skip here either: mirrored from linkHTTP, an
 			// unresolvable hint is not evidence that the call leaves the estate.
 			if target, ok := declaredTargets[f.Repo]; ok && target != f.Repo {
 				unmatched[id] = ReasonDeclaredTarget
+				continue
+			}
+			// A server serves this path AND this verb, so the call matched and no
+			// candidate was chosen: an alias naming none of them, or several repos with
+			// nothing to pick between. Neither is a verb problem.
+			if len(matches) > 0 {
+				if _, aliased := declaredProvider(m, f); aliased {
+					unmatched[id] = ReasonAliasNotServing
+				} else {
+					unmatched[id] = ReasonAmbiguousProvider
+				}
 				continue
 			}
 			// Distinguish "a server serves this path but not this verb" from "no

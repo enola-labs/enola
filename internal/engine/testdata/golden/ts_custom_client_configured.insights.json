@@ -1,0 +1,50 @@
+[
+  {
+    "source": "coverage",
+    "title": "Partial coverage: service sdk has 1 unresolved outbound call site(s)",
+    "confidence": 0.75,
+    "evidence": [
+      {
+        "fact": "sdk",
+        "detail": "http_client 1/2 resolved (1 unresolved)"
+      },
+      {
+        "fact": "sdk/src/connectors",
+        "detail": "1 unresolved outbound call site(s) from here"
+      }
+    ]
+  },
+  {
+    "source": "crossrepo",
+    "title": "Cross-repo dependencies (1 edges)",
+    "confidence": 0.9,
+    "evidence": [
+      {
+        "fact": "sdk -\u003e gateway",
+        "detail": "via http-client, 1 endpoint(s)"
+      }
+    ]
+  },
+  {
+    "source": "domain",
+    "title": "Domain findings do not apply to this repository",
+    "confidence": 1,
+    "evidence": [
+      {
+        "detail": "examined: 0 associations, 0 controller handlers, 0 model tables"
+      }
+    ]
+  },
+  {
+    "source": "unused-routes",
+    "title": "Unused endpoint candidates: 1 of 2 route(s) in gateway have no caller among loaded clients",
+    "confidence": 0.6,
+    "evidence": [
+      {
+        "fact": "/v1/resources/:type/items",
+        "file": "gateway/src/resources/resources.controller.ts",
+        "detail": "GET /v1/resources/:type/items — no loaded client calls this route"
+      }
+    ]
+  }
+]

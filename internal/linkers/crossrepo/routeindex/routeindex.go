@@ -32,6 +32,17 @@ type Matcher struct {
 // New returns a Matcher using the given vocabulary.
 func New(v *vocab.Set) *Matcher { return &Matcher{v: v} }
 
+// ServiceAlias returns the repository label the config's service_aliases maps a service
+// name to. Keys match exactly: the name is the string the client passes, and whoever
+// writes the alias writes that same string.
+func (m *Matcher) ServiceAlias(service string) (string, bool) {
+	if service == "" {
+		return "", false
+	}
+	repo := m.v.ServiceAliases[service]
+	return repo, repo != ""
+}
+
 type RouteRef struct {
 	Repo     string
 	Method   string

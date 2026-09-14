@@ -289,6 +289,13 @@ var fixtures = []fixture{
 	// parameterized route needs literal-against-parameter matching.
 	{name: "ts_custom_client_no_alias", dir: "ts_custom_client_cluster", config: "ts_custom_client_no_alias.yaml",
 		subRepos: []string{"gateway", "replica", "sdk", "backend"}},
+	// The client declared and its service name aliased to gateway. The literal route
+	// both gateway and replica serve now resolves to gateway alone: the edge the
+	// feature exists for. The parameterized route stays unresolved until
+	// literal-against-parameter matching. Findings pinned too, since the edge changes
+	// what the crossrepo and unused-routes explainers conclude.
+	{name: "ts_custom_client_configured", dir: "ts_custom_client_cluster", config: "ts_custom_client_configured.yaml",
+		subRepos: []string{"gateway", "replica", "sdk", "backend"}, goldenInsights: true},
 }
 
 func TestGolden(t *testing.T) {

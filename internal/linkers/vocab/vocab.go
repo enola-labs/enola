@@ -76,6 +76,13 @@ type Set struct {
 	TopicOwnerSeparator string
 
 	Thresholds Thresholds
+
+	// ServiceAliases maps a service name an in-house client passes to the repository
+	// label that serves it (config: service_aliases). It is the one entry here that can
+	// choose an edge rather than only remove one, and it is bounded for that reason: it
+	// applies only to routes read through a declared client, and only chooses among
+	// repositories that already serve the called path. Nil when none are declared.
+	ServiceAliases map[string]string
 }
 
 // Thresholds are the numeric gates. Every one of them trades recall against precision,
@@ -240,6 +247,19 @@ func (s *Set) Fingerprint() string {
 	// different fingerprint through formatting drift.
 	sb.WriteString(fmtFloat("max_vocab_repo_share", t.MaxVocabRepoShare))
 	sb.WriteString(fmtFloat("min_file_similarity", t.MinFileSimilarity))
+	// Written only when declared, so a vocabulary with no aliases fingerprints exactly as
+	// it did before aliases existed.
+	if len(s.ServiceAliases) > 0 {
+		services := make([]string, 0, len(s.ServiceAliases))
+		for k := range s.ServiceAliases {
+			services = append(services, k)
+		}
+		sort.Strings(services)
+		sb.WriteString("\nservice_aliases:")
+		for _, k := range services {
+			sb.WriteString(k + "=" + s.ServiceAliases[k] + ";")
+		}
+	}
 	return sb.String()
 }
 
