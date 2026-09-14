@@ -2400,7 +2400,13 @@ import (
 // inside the URL. The separator is now the last `@` before the range's protocol
 // colon, and a spec is unquoted per entry, since a multi-spec header quotes the
 // whole list and the comma split leaves each end with a lone quote.
-const cacheVersion = "v265"
+// v266: TypeScript reads requests made through in-house clients the config declares
+// (clients:, internal/clientspec). `this.<member>.<method>(…)` on a member whose
+// declared type a spec names becomes a client route: its path folded through the
+// enclosing class's own fields and single-assigned locals, its verb read from an
+// options object, its service name kept as a target hint. The declared clients enter
+// the extractor's cache key, so editing them re-extracts.
+const cacheVersion = "v266"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

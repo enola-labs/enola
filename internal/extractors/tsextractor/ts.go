@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/enola-labs/enola/internal/clientspec"
 	"github.com/enola-labs/enola/internal/extractors/detectnames"
 	"github.com/enola-labs/enola/internal/facts"
 	"github.com/enola-labs/enola/internal/parallel"
@@ -22,7 +23,11 @@ import (
 )
 
 // TSExtractor extracts architectural facts from TypeScript/TSX source code using tree-sitter.
-type TSExtractor struct{}
+type TSExtractor struct {
+	// clients are the in-house HTTP clients the config declares for TypeScript, handed
+	// over by the engine at registration and read-only afterwards.
+	clients []clientspec.Spec
+}
 
 // New creates a new TSExtractor.
 func New() *TSExtractor {
@@ -32,6 +37,13 @@ func New() *TSExtractor {
 func (e *TSExtractor) Name() string {
 	return "typescript"
 }
+
+// SetClientSpecs implements clientspec.Consumer.
+func (e *TSExtractor) SetClientSpecs(specs []clientspec.Spec) { e.clients = specs }
+
+// ConfigKey implements plugin.ConfigKeyed: the declared clients decide which call sites
+// become routes, so they are part of what a cached result was extracted under.
+func (e *TSExtractor) ConfigKey() string { return clientspec.Fingerprint(e.clients) }
 
 // Detect returns true if the repository (or one of its immediate subdirectories
 // in the case of a monorepo) contains TypeScript markers.
@@ -691,6 +703,14 @@ func (e *TSExtractor) extractFile(src []byte, relFile string, isNextJS, isVue, i
 		if !facts.IsTestPath(relFile) && declaresAngularRouting(src) {
 			router = collectAngularRouterFile(kinds, root, ctx, aliases)
 		}
+	}
+
+	// Requests through in-house clients the config declares. Not gated on a framework:
+	// the declared receiver type is what makes a call a request, in a NestJS service as
+	// much as anywhere. Test files excluded, as every other route pass excludes them.
+	// See configuredclient.go.
+	if len(e.clients) > 0 && !facts.IsTestPath(relFile) {
+		result = append(result, configuredClientFacts(kinds, root, ctx, e.clients)...)
 	}
 
 	// Detect Vue Router configuration files

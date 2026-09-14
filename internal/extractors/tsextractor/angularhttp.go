@@ -100,6 +100,17 @@ func angularHTTPRoutes(kinds *tsutil.KindTable, body *sitter.Node, ctx *extractC
 // injection dialect: a constructor parameter property or an `inject()` field.
 func angularHTTPReceivers(kinds *tsutil.KindTable, body *sitter.Node, src []byte) map[string]bool {
 	out := map[string]bool{}
+	for member := range typedReceivers(kinds, body, src, angularHTTPTypes) {
+		out[member] = true
+	}
+	return out
+}
+
+// typedReceivers returns the members of a class bound to one of the given types, as
+// member name to type name, by either injection dialect: a constructor parameter
+// property or an `inject()` field.
+func typedReceivers(kinds *tsutil.KindTable, body *sitter.Node, src []byte, types map[string]bool) map[string]string {
+	out := map[string]string{}
 	for i := range body.ChildCount() {
 		member := body.Child(i)
 		switch kindOf(kinds, member) {
@@ -119,7 +130,11 @@ func angularHTTPReceivers(kinds *tsutil.KindTable, body *sitter.Node, src []byte
 					continue
 				}
 				ann := p.ChildByFieldName("type")
-				if ann == nil || !angularHTTPTypes[plainTypeName(kinds, ann, src)] {
+				if ann == nil {
+					continue
+				}
+				typ := plainTypeName(kinds, ann, src)
+				if !types[typ] {
 					continue
 				}
 				// The name is the `pattern` field, or — for a parameter property,
@@ -129,16 +144,16 @@ func angularHTTPReceivers(kinds *tsutil.KindTable, body *sitter.Node, src []byte
 					name = findChildByKind(kinds, p, "identifier")
 				}
 				if name != nil {
-					out[nodeText(name, src)] = true
+					out[nodeText(name, src)] = typ
 				}
 			}
 		case "public_field_definition":
 			for _, t := range injectCallTypes(kinds, member, src) {
-				if !angularHTTPTypes[t] {
+				if !types[t] {
 					continue
 				}
 				if name := member.ChildByFieldName("name"); name != nil {
-					out[nodeText(name, src)] = true
+					out[nodeText(name, src)] = t
 				}
 			}
 		}
@@ -271,13 +286,8 @@ func composeAngularRequests(files []*angularHTTPFile) ([]facts.Fact, angularCoun
 			// one is rooted here. The general client pass cannot do this — it has no
 			// receiver type and so no way to tell a path from a map key — which is
 			// why one client's whole Angular module contributed nothing.
-			path = strings.TrimPrefix(path, "./")
-			if !strings.HasPrefix(path, "/") && !strings.HasPrefix(path, "http") {
-				path = "/" + path
-			}
-			path = strings.ReplaceAll(path, "/./", "/")
-			clean, ok := cleanTSPath(path, nil)
-			if !ok || clean == "" {
+			clean, ok := rootRequestPath(path)
+			if !ok {
 				counts.miss("dynamic_request_path")
 				continue
 			}
@@ -305,6 +315,19 @@ func composeAngularRequests(files []*angularHTTPFile) ([]facts.Fact, angularCoun
 		}
 	}
 	return out, counts
+}
+
+// rootRequestPath roots a path read off a typed client receiver at the application's
+// origin and cleans it for matching. The receiver's type already established that the
+// call is a request, so a relative path is a path rather than a map key.
+func rootRequestPath(path string) (string, bool) {
+	path = strings.TrimPrefix(path, "./")
+	if !strings.HasPrefix(path, "/") && !strings.HasPrefix(path, "http") {
+		path = "/" + path
+	}
+	path = strings.ReplaceAll(path, "/./", "/")
+	clean, ok := cleanTSPath(path, nil)
+	return clean, ok && clean != ""
 }
 
 // angularResolveParts joins a request's operands into path text.

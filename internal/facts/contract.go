@@ -285,7 +285,17 @@ const (
 	// generates its implementation into a .g.dart the extractor excludes, so the
 	// annotation IS the call site as far as extraction is concerned.
 	RouteSourceDartHTTPClient = "dart-http-client"
+
+	// A call site read through an in-house client the config declares (clients:, see
+	// internal/clientspec). Hand-written like the sources above, but recognised because
+	// config named the client's type rather than because enola knows the library. Its
+	// own value, so a reader can tell a route that exists only because of that config.
+	RouteSourceConfiguredHTTPClient = "configured-http-client"
 )
+
+// PropClientSpec is the prop naming the declared client (the spec's name) a
+// RouteSourceConfiguredHTTPClient route was read through.
+const PropClientSpec = "client_spec"
 
 // HandWrittenClientSources is the set of RouteSource values that mean "a human wrote
 // this call site", as opposed to a route derived from a generated client or a contract
@@ -302,27 +312,28 @@ const (
 // via="grpc" first (FrameworkGRPC wins), so their membership only matters if that
 // framework prop is ever absent.
 var HandWrittenClientSources = map[string]bool{
-	RouteSourceGraphQLTag:        true,
-	RouteSourceGraphQLRubyString: true,
-	RouteSourceGraphQLDecorator:  true,
-	RouteSourceGraphQLNexus:      true,
-	RouteSourceGraphQLPothos:     true,
-	RouteSourceGraphQLClientCall: true,
-	RouteSourceGoHTTPClient:      true,
-	RouteSourceTSHTTPClient:      true,
-	RouteSourceRubyHTTPClient:    true,
-	RouteSourcePHPHTTPClient:     true,
-	RouteSourceJavaHTTPClient:    true,
-	RouteSourceFeign:             true,
-	RouteSourceRetrofit:          true,
-	RouteSourceURLSession:        true,
-	RouteSourceSwiftEndpoint:     true,
-	RouteSourceGoGRPCClient:      true,
-	RouteSourceTSGRPCClient:      true,
-	RouteSourcePythonGRPCClient:  true,
-	RouteSourceScalaHTTPClient:   true,
-	RouteSourceDartHTTPClient:    true,
-	RouteSourceAngularRouter:     true,
+	RouteSourceGraphQLTag:           true,
+	RouteSourceGraphQLRubyString:    true,
+	RouteSourceGraphQLDecorator:     true,
+	RouteSourceGraphQLNexus:         true,
+	RouteSourceGraphQLPothos:        true,
+	RouteSourceGraphQLClientCall:    true,
+	RouteSourceGoHTTPClient:         true,
+	RouteSourceTSHTTPClient:         true,
+	RouteSourceRubyHTTPClient:       true,
+	RouteSourcePHPHTTPClient:        true,
+	RouteSourceJavaHTTPClient:       true,
+	RouteSourceFeign:                true,
+	RouteSourceRetrofit:             true,
+	RouteSourceURLSession:           true,
+	RouteSourceSwiftEndpoint:        true,
+	RouteSourceGoGRPCClient:         true,
+	RouteSourceTSGRPCClient:         true,
+	RouteSourcePythonGRPCClient:     true,
+	RouteSourceScalaHTTPClient:      true,
+	RouteSourceDartHTTPClient:       true,
+	RouteSourceAngularRouter:        true,
+	RouteSourceConfiguredHTTPClient: true,
 }
 
 // NativeAppClientSources is the set of RouteSource values only a native application
@@ -378,6 +389,8 @@ var AllRouteSources = map[string]bool{
 	RouteSourceHTTP4s:            true,
 	RouteSourceScalaHTTPClient:   true,
 	RouteSourceDartHTTPClient:    true,
+
+	RouteSourceConfiguredHTTPClient: true,
 }
 
 // DepSource values — the PropSource prop on a KindDependency fact. A SECOND, unrelated

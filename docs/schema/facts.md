@@ -253,6 +253,7 @@ HTTP client call sites:
 | `swift-endpoint` | Swift endpoint enum / protocol extension |
 | `scala-http-client` | sttp / Play WS / http4s client |
 | `dart-http-client` | Dart package:http / dio / chopper call site or annotated interface |
+| `configured-http-client` | call site through an in-house client declared under `clients:` in the config; carries `client_spec` (the declaring spec's name) and, when the call names a service, `target_hint` |
 
 gRPC client call sites: `go-grpc-client`, `ts-grpc-client`,
 `python-grpc-client`.

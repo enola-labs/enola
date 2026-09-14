@@ -282,6 +282,13 @@ var fixtures = []fixture{
 	// gateway only through the SDK.
 	{name: "ts_custom_client_default", dir: "ts_custom_client_cluster",
 		subRepos: []string{"gateway", "replica", "sdk", "backend"}},
+	// The same tree with the client declared and no service alias. sendRequest through
+	// IHttpRequestService becomes client routes; MessageBus's sendRequest on another
+	// type, and the call whose path is a method result, do not. Still no edge: the
+	// literal route has two providers and the service name names neither, and the
+	// parameterized route needs literal-against-parameter matching.
+	{name: "ts_custom_client_no_alias", dir: "ts_custom_client_cluster", config: "ts_custom_client_no_alias.yaml",
+		subRepos: []string{"gateway", "replica", "sdk", "backend"}},
 }
 
 func TestGolden(t *testing.T) {
