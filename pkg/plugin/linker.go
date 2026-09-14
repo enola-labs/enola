@@ -182,6 +182,12 @@ var (
 	BucketImports   = Bucket{Name: "imports", CountProp: "import_count", SamplesProp: "import_samples"}
 	BucketTopics    = Bucket{Name: "topics", CountProp: "topic_count", SamplesProp: "topic_samples"}
 	BucketSymbols   = Bucket{Name: "symbols", CountProp: "symbol_count", SamplesProp: "symbol_samples", UnverifiedProp: "name_match_count"}
+
+	// BucketParamEndpoints holds the endpoints of an HTTP edge that matched only because a
+	// server path parameter absorbed a literal client segment (the opt-in
+	// linking.match_literal_against_params). Each is in BucketEndpoints too; this names the
+	// subset resting on the looser rule, so a reader can weigh it.
+	BucketParamEndpoints = Bucket{Name: "param_segment_endpoints", CountProp: "param_segment_endpoint_count", SamplesProp: "param_segment_endpoints"}
 )
 
 // Coverage tallies, per consumer repo, how many outbound call sites a signal detected

@@ -10,6 +10,7 @@
 package routeindex
 
 import (
+	"strconv"
 	"strings"
 
 	"github.com/enola-labs/enola/internal/facts"
@@ -68,13 +69,27 @@ func (m *Matcher) IndexServerRoutes(all []facts.Fact) map[string][]RouteRef {
 			continue
 		}
 		for _, p := range m.ServerPaths(f) {
-			ref := RouteRef{Repo: f.Repo, Method: method, Path: f.Name, FullPath: p}
-			for _, suf := range m.PathMatchKeys(p) {
-				server[RouteKey(suf, method)] = append(server[RouteKey(suf, method)], ref)
-			}
+			m.IndexServerRef(server, RouteRef{Repo: f.Repo, Method: method, Path: f.Name, FullPath: p})
 		}
 	}
 	return server
+}
+
+// IndexServerRef adds one server route reference to a server index under every key a
+// client call can reach it by: each trailing-segment suffix and, when literal-against-
+// parameter matching is on, its parameter pattern. Every builder of a server index goes
+// through it, so no pass can match a client under a rule another pass did not index for.
+func (m *Matcher) IndexServerRef(server map[string][]RouteRef, ref RouteRef) {
+	for _, suf := range m.PathMatchKeys(ref.FullPath) {
+		key := RouteKey(suf, ref.Method)
+		server[key] = append(server[key], ref)
+	}
+	if m.v.MatchLiteralAgainstParams {
+		if segs := splitSegments(ref.FullPath); paramPatternAdmissible(segs) {
+			key := paramKey(len(segs), ref.Method)
+			server[key] = append(server[key], ref)
+		}
+	}
 }
 
 // IndexServerPathSuffixes returns the set of server route path-suffixes ignoring
@@ -330,7 +345,7 @@ func (m *Matcher) PathMatchKeys(normPath string) []string {
 	return []string{normPath}
 }
 
-// LookupClientMatches resolves a client path against the server suffix index by
+// exactClientMatches resolves a client path against the server suffix index by
 // trying the client path's own trailing-segment suffixes longest-first and
 // returning the first (most specific) hit, plus the suffix that matched. The
 // longest suffix is the full client path, so an exact full-path match still wins
@@ -338,7 +353,7 @@ func (m *Matcher) PathMatchKeys(normPath string) []string {
 // match a server serving the un-prefixed path ("/x/y"). For sub-m.v.Thresholds.MinSharedSegments
 // paths (no suffixes) it falls back to a single full-path lookup, preserving the
 // original behavior.
-func (m *Matcher) LookupClientMatches(server map[string][]RouteRef, clientPath, method string) ([]RouteRef, string) {
+func (m *Matcher) exactClientMatches(server map[string][]RouteRef, clientPath, method string) ([]RouteRef, string) {
 	sufs := m.pathSuffixes(clientPath)
 	if len(sufs) == 0 {
 		if m := server[RouteKey(clientPath, method)]; len(m) > 0 {
@@ -380,6 +395,123 @@ func (m *Matcher) LookupClientMatches(server map[string][]RouteRef, clientPath, 
 		}
 	}
 	return nil, clientPath
+}
+
+// LookupClientMatches resolves a client path against a server index: the exact suffix
+// join first, then, only when that finds nothing and match_literal_against_params is on,
+// the parameter fallback. It returns the matching refs and the client suffix that matched.
+func (m *Matcher) LookupClientMatches(server map[string][]RouteRef, clientPath, method string) ([]RouteRef, string) {
+	refs, matched, _ := m.LookupClientMatchesDetailed(server, clientPath, method)
+	return refs, matched
+}
+
+// LookupClientMatchesDetailed is LookupClientMatches, also reporting whether the match
+// needed a server path parameter to absorb a literal client segment.
+func (m *Matcher) LookupClientMatchesDetailed(server map[string][]RouteRef, clientPath, method string) ([]RouteRef, string, bool) {
+	if refs, matched := m.exactClientMatches(server, clientPath, method); len(refs) > 0 {
+		return refs, matched, false
+	}
+	if m.v.MatchLiteralAgainstParams {
+		if refs, matched := m.paramClientMatches(server, clientPath, method); len(refs) > 0 {
+			return refs, matched, true
+		}
+	}
+	return nil, clientPath, false
+}
+
+// paramClientMatches is the opt-in fallback for a client call no server route shares a
+// suffix with: a server path parameter may absorb a literal client segment, so a call to
+// /v1/resources/catalog/items reaches the handler serving /v1/resources/:type/items.
+//
+// A parameter matches anything, so this is held to more than the exact join:
+//   - the whole server path is matched, against an equally long client suffix;
+//   - at least two literal segments agree exactly;
+//   - a parameter never leads the server path, where it would absorb a tenant or a
+//     version and fit half the estate;
+//   - a client placeholder never matches a server literal;
+//   - when more than one server path pattern fits, nothing matches.
+//
+// Every repository serving the one fitting pattern is returned: which of them provides
+// the call is pickProvider's decision, as for any other match.
+func (m *Matcher) paramClientMatches(server map[string][]RouteRef, clientPath, method string) ([]RouteRef, string) {
+	verbs := []string{method, facts.MethodAny}
+	if method == facts.MethodAny {
+		verbs = append([]string{facts.MethodAny}, clientAnyVerbs...)
+	}
+	for _, suf := range m.pathSuffixes(clientPath) {
+		client := splitSegments(suf)
+		for _, verb := range verbs {
+			var fits []RouteRef
+			patterns := map[string]bool{}
+			for _, ref := range server[paramKey(len(client), verb)] {
+				if paramPatternFits(splitSegments(ref.FullPath), client) {
+					fits = append(fits, ref)
+					patterns[ref.FullPath] = true
+				}
+			}
+			switch {
+			case len(patterns) > 1:
+				return nil, clientPath
+			case len(fits) > 0:
+				return fits, suf
+			}
+		}
+	}
+	return nil, clientPath
+}
+
+// paramKey indexes a parameterized server path by segment count and verb. The NUL prefix
+// keeps it out of the suffix key space, which RouteKey never writes into.
+func paramKey(segments int, method string) string {
+	return "\x00param\x00" + strconv.Itoa(segments) + "|" + method
+}
+
+// splitSegments returns a normalized path's non-empty segments.
+func splitSegments(p string) []string {
+	var out []string
+	for _, s := range strings.Split(p, "/") {
+		if s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// paramPatternAdmissible reports whether a server path may match by parameter at all:
+// it has a parameter, does not lead with one, and has two literal segments to agree on.
+func paramPatternAdmissible(segs []string) bool {
+	if len(segs) == 0 || segs[0] == "{}" {
+		return false
+	}
+	params, literals := 0, 0
+	for _, s := range segs {
+		if s == "{}" {
+			params++
+		} else {
+			literals++
+		}
+	}
+	return params > 0 && literals >= 2
+}
+
+// paramPatternFits reports whether a client suffix fits a server path pattern segment
+// for segment: equal literals, or a server parameter where the client has anything. A
+// client placeholder facing a server literal does not fit.
+func paramPatternFits(server, client []string) bool {
+	if len(server) != len(client) || len(server) == 0 || server[0] == "{}" {
+		return false
+	}
+	literals := 0
+	for i := range server {
+		switch server[i] {
+		case "{}":
+		case client[i]:
+			literals++
+		default:
+			return false
+		}
+	}
+	return literals >= 2
 }
 
 // clientAnyVerbs is the deterministic verb-preference order a method-less

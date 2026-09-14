@@ -76,7 +76,7 @@ func (s *Signal) Contribute(in plugin.SignalInput, out plugin.EvidenceSink) {
 				// prefix ("/api/settings/tickets/{}/resolve") to a server serving the
 				// un-prefixed path ("/tickets/{}/resolve"), as well as the reverse (a
 				// base-relative client calling a longer server path).
-				matches, matchedPath := m.LookupClientMatches(server, clientPath, method)
+				matches, matchedPath, viaParam := m.LookupClientMatchesDetailed(server, clientPath, method)
 				provider, unambiguous := pickProvider(m, f, matches)
 				// A single-segment path (/activate) cleared the generic vocabulary but
 				// is thinner evidence than a multi-segment one: there is less path to
@@ -108,7 +108,14 @@ func (s *Signal) Contribute(in plugin.SignalInput, out plugin.EvidenceSink) {
 					e := out.Edge(f.Repo, provider)
 					e.Via(httpVia(f))
 					e.Sample(plugin.BucketEndpoints, method+" "+f.Name)
-					e.Confidence(matchConfidence(matchedPath, np, provider, matches, unambiguous))
+					if viaParam {
+						// A server parameter absorbed a literal segment: evidence the exact
+						// join could not give, so never verified, and named as such.
+						e.Sample(plugin.BucketParamEndpoints, method+" "+f.Name)
+						e.Confidence("probable")
+					} else {
+						e.Confidence(matchConfidence(matchedPath, np, provider, matches, unambiguous))
+					}
 				}
 			}
 		}
@@ -352,10 +359,7 @@ func ServerRouteVerdicts(m *routeindex.Matcher, all []facts.Fact) (evaluated, un
 		method := routeindex.NormalizeMethod(f.PropString("method"))
 		identities[routeindex.RouteIdentityKey(f.Repo, method, f.Name)] = true
 		for _, p := range m.ServerPaths(f) {
-			ref := routeindex.RouteRef{Repo: f.Repo, Method: method, Path: f.Name, FullPath: p}
-			for _, suf := range m.PathMatchKeys(p) {
-				server[routeindex.RouteKey(suf, method)] = append(server[routeindex.RouteKey(suf, method)], ref)
-			}
+			m.IndexServerRef(server, routeindex.RouteRef{Repo: f.Repo, Method: method, Path: f.Name, FullPath: p})
 		}
 	}
 

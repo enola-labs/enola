@@ -83,6 +83,14 @@ type Set struct {
 	// applies only to routes read through a declared client, and only chooses among
 	// repositories that already serve the called path. Nil when none are declared.
 	ServiceAliases map[string]string
+
+	// MatchLiteralAgainstParams lets a server path parameter absorb a literal client
+	// segment when no exact suffix match exists (config: linking.match_literal_against_params).
+	// Off by default: a parameter matches anything, so unlike the lists above this can ADD
+	// edges. The matcher bounds it (the whole server path matched, two literal segments
+	// agreeing, no leading parameter, a single fitting pattern), and every edge it draws is
+	// probable and names the endpoints that rest on it.
+	MatchLiteralAgainstParams bool
 }
 
 // Thresholds are the numeric gates. Every one of them trades recall against precision,
@@ -247,6 +255,10 @@ func (s *Set) Fingerprint() string {
 	// different fingerprint through formatting drift.
 	sb.WriteString(fmtFloat("max_vocab_repo_share", t.MaxVocabRepoShare))
 	sb.WriteString(fmtFloat("min_file_similarity", t.MinFileSimilarity))
+	// Written only when on, so a vocabulary without it fingerprints exactly as before.
+	if s.MatchLiteralAgainstParams {
+		sb.WriteString("\nmatch_literal_against_params:true")
+	}
 	// Written only when declared, so a vocabulary with no aliases fingerprints exactly as
 	// it did before aliases existed.
 	if len(s.ServiceAliases) > 0 {

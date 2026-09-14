@@ -27,6 +27,10 @@ type Overlay struct {
 
 	TopicOwnerSeparator string `yaml:"topic_owner_separator"`
 
+	// MatchLiteralAgainstParams turns literal-against-parameter route matching on. Nil
+	// leaves it off; see Set.MatchLiteralAgainstParams.
+	MatchLiteralAgainstParams *bool `yaml:"match_literal_against_params"`
+
 	Thresholds ThresholdOverlay `yaml:"thresholds"`
 }
 
@@ -76,6 +80,9 @@ func Apply(o *Overlay) (*Set, error) {
 
 	if o.TopicOwnerSeparator != "" {
 		s.TopicOwnerSeparator = o.TopicOwnerSeparator
+	}
+	if o.MatchLiteralAgainstParams != nil {
+		s.MatchLiteralAgainstParams = *o.MatchLiteralAgainstParams
 	}
 
 	var errs []error

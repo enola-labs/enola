@@ -1,0 +1,23 @@
+[
+  {
+    "source": "crossrepo",
+    "title": "Cross-repo dependencies (1 edges)",
+    "confidence": 0.9,
+    "evidence": [
+      {
+        "fact": "sdk -\u003e gateway",
+        "detail": "via http-client, 2 endpoint(s)"
+      }
+    ]
+  },
+  {
+    "source": "domain",
+    "title": "Domain findings do not apply to this repository",
+    "confidence": 1,
+    "evidence": [
+      {
+        "detail": "examined: 0 associations, 0 controller handlers, 0 model tables"
+      }
+    ]
+  }
+]

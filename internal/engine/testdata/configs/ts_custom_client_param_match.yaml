@@ -1,0 +1,18 @@
+# The in-house client used by testdata/repos/ts_custom_client_cluster, aliased to
+# gateway, with literal-against-parameter route matching turned on.
+clients:
+  - name: sdk-http
+    language: typescript
+    receiver_types: [IHttpRequestService]
+    methods:
+      - name: sendRequest
+        service_arg: 0
+        path_arg: 1
+        options_arg: 2
+        default_verb: GET
+
+service_aliases:
+  resource-api: gateway
+
+linking:
+  match_literal_against_params: true

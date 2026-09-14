@@ -296,6 +296,12 @@ var fixtures = []fixture{
 	// what the crossrepo and unused-routes explainers conclude.
 	{name: "ts_custom_client_configured", dir: "ts_custom_client_cluster", config: "ts_custom_client_configured.yaml",
 		subRepos: []string{"gateway", "replica", "sdk", "backend"}, goldenInsights: true},
+	// The configured tree with literal-against-parameter matching turned on. The call to
+	// /v1/resources/catalog/items now reaches gateway's /v1/resources/:type/items: a
+	// second endpoint on the same edge, probable, and listed as resting on a parameter.
+	// gateway's parameter route stops reading as unused.
+	{name: "ts_custom_client_param_match", dir: "ts_custom_client_cluster", config: "ts_custom_client_param_match.yaml",
+		subRepos: []string{"gateway", "replica", "sdk", "backend"}, goldenInsights: true},
 }
 
 func TestGolden(t *testing.T) {
