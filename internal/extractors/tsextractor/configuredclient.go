@@ -1,7 +1,11 @@
 package tsextractor
 
 import (
+	"fmt"
+	"path/filepath"
 	"regexp"
+	"slices"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -73,10 +77,11 @@ func indexClientSpecs(specs []clientspec.Spec) (map[string]map[string]configured
 // bound exactly once folds to its value. An operand that resolves to nothing is a path
 // parameter, unless it leads the path, where it means the prefix is unknown and the
 // call emits nothing.
-func configuredClientFacts(kinds *tsutil.KindTable, root *sitter.Node, ctx *extractCtx, specs []clientspec.Spec) []facts.Fact {
+func configuredClientFacts(kinds *tsutil.KindTable, root *sitter.Node, ctx *extractCtx, specs []clientspec.Spec) ([]facts.Fact, clientCounts) {
 	index, types := indexClientSpecs(specs)
 	var out []facts.Fact
 	seen := map[string]bool{}
+	counts := clientCounts{}
 	for _, class := range angularClassNodes(kinds, root) {
 		body := findChildByKind(kinds, class, "class_body")
 		if body == nil {
@@ -85,6 +90,13 @@ func configuredClientFacts(kinds *tsutil.KindTable, root *sitter.Node, ctx *extr
 		receivers := typedReceivers(kinds, body, ctx.src, types)
 		if len(receivers) == 0 {
 			continue
+		}
+		for _, typ := range receivers {
+			for _, s := range specs {
+				if slices.Contains(s.ReceiverTypes, typ) {
+					counts.get(s.Name).receivers++
+				}
+			}
 		}
 		className := ""
 		if n := findChildByKind(kinds, class, "type_identifier"); n != nil {
@@ -107,10 +119,17 @@ func configuredClientFacts(kinds *tsutil.KindTable, root *sitter.Node, ctx *extr
 				locals:    singleAssignedLocals(kinds, member, ctx.src),
 			}
 			walkCalls(kinds, member, func(call *sitter.Node) {
-				f, ok := configuredClientCall(call, ctx, index, receivers, r)
+				f, spec, cause, ok := configuredClientCall(call, ctx, index, receivers, r)
+				if spec == "" {
+					return // not a call through a declared client
+				}
+				n := counts.get(spec)
+				n.calls++
 				if !ok {
+					n.skipped[cause]++
 					return
 				}
+				n.routes++
 				key := f.PropString("method") + "\x00" + f.Name + "\x00" + strconv.Itoa(f.Line)
 				if seen[key] {
 					return
@@ -120,43 +139,45 @@ func configuredClientFacts(kinds *tsutil.KindTable, root *sitter.Node, ctx *extr
 			})
 		}
 	}
-	return out
+	return out, counts
 }
 
-// configuredClientCall reads one call against the declared clients.
+// configuredClientCall reads one call against the declared clients. For every call made
+// through a declared client it returns the declaring spec, with the route when the call
+// became one and the cause when it did not. spec is empty for any other call.
 func configuredClientCall(call *sitter.Node, ctx *extractCtx, index map[string]map[string]configuredMethod,
-	receivers map[string]string, r pathResolver) (facts.Fact, bool) {
+	receivers map[string]string, r pathResolver) (facts.Fact, string, string, bool) {
 
 	fn := call.ChildByFieldName("function")
 	if fn == nil {
-		return facts.Fact{}, false
+		return facts.Fact{}, "", "", false
 	}
 	member, name, ok := thisMemberCall(r.kinds, fn, ctx.src)
 	if !ok {
-		return facts.Fact{}, false
+		return facts.Fact{}, "", "", false
 	}
 	typ, ok := receivers[member]
 	if !ok {
-		return facts.Fact{}, false
+		return facts.Fact{}, "", "", false
 	}
 	decl, ok := index[typ][name]
 	if !ok {
-		return facts.Fact{}, false
+		return facts.Fact{}, "", "", false
 	}
 	m := decl.method
 
 	args := callArguments(r.kinds, call)
 	pathArg := argAt(args, m.PathArg)
 	if pathArg == nil {
-		return facts.Fact{}, false
+		return facts.Fact{}, decl.spec, skipMissingPathArgument, false
 	}
 	raw, ok := r.text(pathArg)
 	if !ok {
-		return facts.Fact{}, false
+		return facts.Fact{}, decl.spec, skipDynamicPath, false
 	}
 	path, ok := rootRequestPath(raw)
 	if !ok {
-		return facts.Fact{}, false
+		return facts.Fact{}, decl.spec, skipNonRoutePath, false
 	}
 
 	verb := m.DefaultVerb
@@ -196,7 +217,7 @@ func configuredClientCall(call *sitter.Node, ctx *extractCtx, index map[string]m
 		Line:      int(call.StartPosition().Row) + 1,
 		Props:     props,
 		Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: ctx.dir}},
-	}, true
+	}, decl.spec, "", true
 }
 
 // thisMemberCallText matches `this.<member>.<method>` at the end of a callee, across the
@@ -440,5 +461,99 @@ func (r pathResolver) templateParts(n *sitter.Node, depth int) []pathPart {
 		pos = c.EndByte()
 	}
 	literal(pos, n.EndByte()-1) // up to the closing backtick
+	return out
+}
+
+// Why a call through a declared client did not become a route.
+const (
+	skipMissingPathArgument = "missing_path_argument" // the call passes fewer arguments than path_arg names
+	skipDynamicPath         = "dynamic_path"          // the path's leading operand is nothing enola can read as text
+	skipNonRoutePath        = "non_route_path"        // the path is an absolute URL, or holds no literal segment
+)
+
+// configuredClientEdgeType is the edge_type a declared client's account reports under.
+const configuredClientEdgeType = "configured_http_call"
+
+// clientCount is what one declared client found, in one file or across a repository.
+type clientCount struct {
+	receivers int            // class members declared with one of the client's types
+	calls     int            // calls to a declared method on such a member
+	routes    int            // calls that became a client route
+	skipped   map[string]int // calls that did not, by cause
+}
+
+// clientCounts is keyed by spec name.
+type clientCounts map[string]*clientCount
+
+func (c clientCounts) get(spec string) *clientCount {
+	n := c[spec]
+	if n == nil {
+		n = &clientCount{skipped: map[string]int{}}
+		c[spec] = n
+	}
+	return n
+}
+
+func (c clientCounts) merge(o clientCounts) {
+	for spec, n := range o {
+		t := c.get(spec)
+		t.receivers += n.receivers
+		t.calls += n.calls
+		t.routes += n.routes
+		for cause, k := range n.skipped {
+			t.skipped[cause] += k
+		}
+	}
+}
+
+// clientCoverageFacts accounts for each declared client in one repository: the members
+// that carry it, the calls made through it, the routes they became and the calls that
+// did not, by cause.
+//
+// One fact per declared client, even one that found nothing here. "Declared, looked,
+// found nothing" is exactly what a misspelt receiver type looks like, and the receiver
+// count tells that apart from a client this repository injects but never calls. Whether
+// nothing found is a problem is decided across every loaded repository, not here: a
+// server repository calls no client at all.
+func clientCoverageFacts(repoPath string, specs []clientspec.Spec, totals clientCounts) []facts.Fact {
+	out := make([]facts.Fact, 0, len(specs))
+	for _, s := range specs {
+		n := totals[s.Name]
+		if n == nil {
+			n = &clientCount{}
+		}
+		unresolved := 0
+		causes := make([]string, 0, len(n.skipped))
+		for cause, k := range n.skipped {
+			unresolved += k
+			causes = append(causes, cause)
+		}
+		sort.Strings(causes)
+		props := map[string]any{
+			"extractor":          "typescript",
+			"language":           "typescript",
+			facts.PropClientSpec: s.Name,
+			"receivers":          n.receivers,
+			"edge_coverage": []map[string]any{{
+				"edge_type":  configuredClientEdgeType,
+				"detected":   n.calls,
+				"resolved":   n.routes,
+				"unresolved": unresolved,
+			}},
+		}
+		if len(causes) > 0 {
+			parts := make([]string, 0, len(causes))
+			for _, cause := range causes {
+				parts = append(parts, fmt.Sprintf("%s=%d", cause, n.skipped[cause]))
+			}
+			props["skipped"] = strings.Join(parts, ",")
+		}
+		out = append(out, facts.Fact{
+			Kind:  facts.KindExtraction,
+			Name:  "typescript:client:" + s.Name,
+			File:  filepath.Base(repoPath),
+			Props: props,
+		})
+	}
 	return out
 }

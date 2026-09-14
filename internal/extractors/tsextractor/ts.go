@@ -300,7 +300,7 @@ func (e *TSExtractor) Extract(ctx context.Context, repoPath string, files []stri
 		}
 		aliases := aliasesForDir(aliasRoots, factpath.Dir(relFile))
 		var res tsFileResult
-		res.facts, res.angular, res.angularRouter, res.angularInline, res.angularHTTP = e.extractFile(src, relFile, isNextJS, isVue, isNuxt, isSvelteKit, isEmber, isReactNav, isAngular, graphqlServer, orms, aliases, knownFiles, nuxtAutoComponents, grpcStubs)
+		res.facts, res.angular, res.angularRouter, res.angularInline, res.angularHTTP, res.clients = e.extractFile(src, relFile, isNextJS, isVue, isNuxt, isSvelteKit, isEmber, isReactNav, isAngular, graphqlServer, orms, aliases, knownFiles, nuxtAutoComponents, grpcStubs)
 		// Routers, mounts and held-back routes for the repo-wide mount pass below.
 		// Collected here because resolving an import needs this file's path aliases,
 		// which are in scope only during the per-file walk. Same test-path gate as
@@ -342,6 +342,7 @@ func (e *TSExtractor) Extract(ctx context.Context, repoPath string, files []stri
 	var angular angularCounts
 	var angularRouters []*angularRouterFile
 	var angularHTTPFiles []*angularHTTPFile
+	clientTotals := clientCounts{}
 	var angularRoutes, angularRequests angularCounts
 	inlineTemplates := map[string]*angularTemplate{}
 	for i, res := range perFile {
@@ -358,6 +359,7 @@ func (e *TSExtractor) Extract(ctx context.Context, repoPath string, files []stri
 		if res.angularHTTP != nil {
 			angularHTTPFiles = append(angularHTTPFiles, res.angularHTTP)
 		}
+		clientTotals.merge(res.clients)
 		if len(res.facts) == 0 {
 			continue
 		}
@@ -451,6 +453,12 @@ func (e *TSExtractor) Extract(ctx context.Context, repoPath string, files []stri
 		}
 	}
 
+	// One account per declared client in this repository, including a client that found
+	// nothing here; see clientCoverageFacts.
+	if len(e.clients) > 0 {
+		allFacts = append(allFacts, clientCoverageFacts(repoPath, e.clients, clientTotals)...)
+	}
+
 	// Prisma models live in schema.prisma — a separate DSL, so tree-sitter never sees it.
 	// Read it off-glob, the same way package.json and tsconfig.json already are.
 	if isPrisma {
@@ -510,7 +518,7 @@ type extractCtx struct {
 	aliases     map[string]tsAlias  // this directory's tsconfig path aliases, for resolving an import written as a bare specifier
 }
 
-func (e *TSExtractor) extractFile(src []byte, relFile string, isNextJS, isVue, isNuxt, isSvelteKit, isEmber, isReactNav, isAngular bool, graphqlServer graphqlServerContext, orms ormFlags, aliases map[string]tsAlias, knownFiles map[string]bool, nuxtAutoComponents map[string]string, grpcStubs *grpcStubIndex) ([]facts.Fact, angularCounts, *angularRouterFile, map[string]*angularTemplate, *angularHTTPFile) {
+func (e *TSExtractor) extractFile(src []byte, relFile string, isNextJS, isVue, isNuxt, isSvelteKit, isEmber, isReactNav, isAngular bool, graphqlServer graphqlServerContext, orms ormFlags, aliases map[string]tsAlias, knownFiles map[string]bool, nuxtAutoComponents map[string]string, grpcStubs *grpcStubIndex) ([]facts.Fact, angularCounts, *angularRouterFile, map[string]*angularTemplate, *angularHTTPFile, clientCounts) {
 	// The grammar is chosen here, so the kind table is too: TypeScript and TSX assign
 	// different meanings to the same symbol ids, and everything below reads node kinds
 	// through this table. See kinds.go.
@@ -518,29 +526,29 @@ func (e *TSExtractor) extractFile(src []byte, relFile string, isNextJS, isVue, i
 	kinds := tsKindsFor(isTSX)
 
 	if isVueFile(relFile) {
-		return e.extractVueSFC(kinds, src, relFile, isNuxt, aliases, nuxtAutoComponents), angularCounts{}, nil, nil, nil
+		return e.extractVueSFC(kinds, src, relFile, isNuxt, aliases, nuxtAutoComponents), angularCounts{}, nil, nil, nil, nil
 	}
 	if isSvelteFile(relFile) {
-		return e.extractSvelteSFC(kinds, src, relFile, isSvelteKit, aliases), angularCounts{}, nil, nil, nil
+		return e.extractSvelteSFC(kinds, src, relFile, isSvelteKit, aliases), angularCounts{}, nil, nil, nil, nil
 	}
 	if isGraphQLDocFile(relFile) {
 		if facts.IsTestPath(relFile) {
-			return nil, angularCounts{}, nil, nil, nil
+			return nil, angularCounts{}, nil, nil, nil, nil
 		}
 		if graphqlServer.sdlDocuments[filepath.ToSlash(relFile)] {
 			if routes := extractGraphQLServerSDLDocument(src, relFile); len(routes) > 0 {
-				return routes, angularCounts{}, nil, nil, nil
+				return routes, angularCounts{}, nil, nil, nil, nil
 			}
 		}
-		return extractGraphQLClientOps(string(src), relFile, facts.RouteSourceGraphQLOperation), angularCounts{}, nil, nil, nil
+		return extractGraphQLClientOps(string(src), relFile, facts.RouteSourceGraphQLOperation), angularCounts{}, nil, nil, nil, nil
 	}
 	if isHbsFile(relFile) {
 		// Handlebars is only modeled where Ember's resolver gives the names
 		// deterministic meaning; a lone .hbs in a non-Ember repo stays out.
 		if !isEmber {
-			return nil, angularCounts{}, nil, nil, nil
+			return nil, angularCounts{}, nil, nil, nil, nil
 		}
-		return e.extractEmberHbs(src, relFile, knownFiles), angularCounts{}, nil, nil, nil
+		return e.extractEmberHbs(src, relFile, knownFiles), angularCounts{}, nil, nil, nil, nil
 	}
 	// A Glimmer template-tag file is TypeScript/JavaScript with embedded
 	// <template> blocks: blank the blocks in place (newlines preserved, so every
@@ -593,7 +601,7 @@ func (e *TSExtractor) extractFile(src []byte, relFile string, isNextJS, isVue, i
 	parser := sitter.NewParser()
 	defer parser.Close()
 	if err := parser.SetLanguage(sitter.NewLanguage(lang)); err != nil {
-		return result, angularCounts{}, nil, nil, nil
+		return result, angularCounts{}, nil, nil, nil, nil
 	}
 
 	tree := parser.Parse(src, nil)
@@ -709,8 +717,11 @@ func (e *TSExtractor) extractFile(src []byte, relFile string, isNextJS, isVue, i
 	// the declared receiver type is what makes a call a request, in a NestJS service as
 	// much as anywhere. Test files excluded, as every other route pass excludes them.
 	// See configuredclient.go.
+	var clients clientCounts
 	if len(e.clients) > 0 && !facts.IsTestPath(relFile) {
-		result = append(result, configuredClientFacts(kinds, root, ctx, e.clients)...)
+		var configured []facts.Fact
+		configured, clients = configuredClientFacts(kinds, root, ctx, e.clients)
+		result = append(result, configured...)
 	}
 
 	// Detect Vue Router configuration files
@@ -737,7 +748,7 @@ func (e *TSExtractor) extractFile(src []byte, relFile string, isNextJS, isVue, i
 		}
 	}
 
-	return result, angular, router, inlineTemplates, httpFile
+	return result, angular, router, inlineTemplates, httpFile, clients
 }
 
 func (e *TSExtractor) extractImports(kinds *tsutil.KindTable, root *sitter.Node, src []byte, relFile string, aliases map[string]tsAlias) []facts.Fact {

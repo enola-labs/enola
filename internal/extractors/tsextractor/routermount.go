@@ -56,6 +56,9 @@ type tsFileResult struct {
 	// angularHTTP is the requests and path constants this file declares, held for
 	// the repo-wide pass that joins them.
 	angularHTTP *angularHTTPFile
+	// clients is what each declared in-house client found in this file, summed into one
+	// account per client for the repository.
+	clients clientCounts
 }
 
 // --- what one file contributes ---

@@ -76,6 +76,11 @@ func (r *Runner) Coverage(ctx context.Context, args []string) {
 		return
 	}
 	fmt.Print(report.RenderText())
+	// What each declared in-house client found. Shown with the full report only: a view
+	// narrowed to one service or to its misses is asking about that, not about config.
+	if *service == "" && !*unresolved {
+		fmt.Print(coverage.RenderClientsText(coverage.BuildClients(tgt.engine.Store())))
+	}
 }
 
 func (r *Runner) coverageFatal(format string, args ...any) { r.cmdFatal("coverage", format, args...) }

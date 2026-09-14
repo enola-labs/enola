@@ -1927,13 +1927,14 @@ func (s *Server) registerTools() {
 			if args.Repo != "" {
 				return errorResult(fmt.Sprintf("No service node named %q. coverage_report needs a multi-repo (append-mode) snapshot.", args.Repo)), nil, nil
 			}
-			return textResult("No service nodes found. coverage_report needs a multi-repo (append-mode) snapshot."), nil, nil
+			return textResult("No service nodes found. coverage_report needs a multi-repo (append-mode) snapshot." +
+				coverage.RenderClientsMarkdown(coverage.BuildClients(store))), nil, nil
 		}
 
 		if resolveOutputMode(args.OutputMode, modeSummary) == modeFull {
 			return jsonResult(report)
 		}
-		return textResult(report.RenderMarkdown()), nil, nil
+		return textResult(report.RenderMarkdown() + coverage.RenderClientsMarkdown(coverage.BuildClients(store))), nil, nil
 	})
 
 	// Tool: query_insights

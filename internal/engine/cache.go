@@ -2406,7 +2406,11 @@ import (
 // enclosing class's own fields and single-assigned locals, its verb read from an
 // options object, its service name kept as a target hint. The declared clients enter
 // the extractor's cache key, so editing them re-extracts.
-const cacheVersion = "v266"
+// v267: TypeScript accounts for each declared in-house client per repository: one
+// extraction fact per client (typescript:client:<name>) with its receivers, the calls
+// made through it, the routes they became and the calls skipped by cause. Emitted even
+// when a client found nothing, so a client that matches nothing anywhere is reported.
+const cacheVersion = "v267"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

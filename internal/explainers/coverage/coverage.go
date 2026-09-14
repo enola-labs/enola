@@ -158,7 +158,76 @@ func (e *CoverageExplainer) Explain(ctx context.Context, store *facts.Store) ([]
 		}
 		insights = append(insights, insight)
 	}
-	return insights, nil
+	return append(insights, silentClients(store)...), nil
+}
+
+// silentClients reports each in-house client the config declares (clients:) that matched
+// no call site in any loaded repository.
+//
+// In one repository, finding nothing is ordinary: a server calls no client. Across every
+// loaded repository it is almost always the config, and one of the cheapest mistakes to
+// make in it: a receiver type written the way the interface is named rather than the way
+// classes inject it. The receiver count says which half of the declaration is wrong.
+func silentClients(store *facts.Store) []facts.Insight {
+	type tally struct {
+		receivers, calls int
+		evidence         []facts.Evidence
+	}
+	bySpec := map[string]*tally{}
+	for _, f := range store.ByKind(facts.KindExtraction) {
+		spec := f.PropString(facts.PropClientSpec)
+		if spec == "" {
+			continue
+		}
+		t := bySpec[spec]
+		if t == nil {
+			t = &tally{}
+			bySpec[spec] = t
+		}
+		receivers := asInt(f.Props["receivers"])
+		calls := 0
+		for _, c := range readCoverage(f) {
+			calls += c.detected
+		}
+		t.receivers += receivers
+		t.calls += calls
+		where := f.Repo
+		if where == "" {
+			where = f.File
+		}
+		t.evidence = append(t.evidence, facts.Evidence{Fact: f.Name,
+			Detail: fmt.Sprintf("%s: %d receiver(s), %d call site(s)", where, receivers, calls)})
+	}
+
+	specs := make([]string, 0, len(bySpec))
+	for spec := range bySpec {
+		specs = append(specs, spec)
+	}
+	sort.Strings(specs)
+
+	var out []facts.Insight
+	for _, spec := range specs {
+		t := bySpec[spec]
+		if t.calls > 0 {
+			continue
+		}
+		sort.Slice(t.evidence, func(i, j int) bool { return t.evidence[i].Detail < t.evidence[j].Detail })
+		why := "no class in any loaded repository declares a member of its receiver types"
+		action := "Check receiver_types against the type a class injects (constructor parameter or inject() field)"
+		if t.receivers > 0 {
+			why = fmt.Sprintf("%d member(s) of its receiver types exist, but none of its declared methods is called on them", t.receivers)
+			action = "Check the method names under methods against the calls made on those members"
+		}
+		out = append(out, facts.Insight{
+			Title: fmt.Sprintf("Declared client %s matched no call site", spec),
+			Description: fmt.Sprintf("The config declares the in-house client %s, but %s, so it contributed no client route. "+
+				"The dependencies it would carry are missing from the graph, not absent from the code.", spec, why),
+			Confidence: 0.9,
+			Evidence:   t.evidence,
+			Actions:    []string{action},
+		})
+	}
+	return out
 }
 
 // coverageEntry is one edge_type's tally, read back tolerantly from a service node.
