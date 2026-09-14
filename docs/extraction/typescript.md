@@ -149,6 +149,66 @@ misses carry **different reasons**: `/healthcheck` is too generic to attribute t
 server with confidence, while `/not/served/anywhere` has no candidate at all. The service
 tally is `detected: 4, resolved: 2, unresolved: 2` — reported, not rounded up.
 
+## Declared in-house clients
+
+A client the config declares under `clients:` (see
+[EXTENDING.md](../EXTENDING.md#teaching-enola-your-http-client)) is read by its receiver's
+declared type, in any repository, Angular or not. From
+[examples/custom-client](../../examples/custom-client/README.md):
+
+```ts
+@Injectable()
+export class ResourceConnector {
+  private readonly serviceName = "resource-api";
+  private readonly basePath: string = "/v1/resources/";
+
+  constructor(private readonly httpRequestService: IHttpRequestService) {}
+
+  async getCatalogItems() {
+    const url = `${this.basePath}catalog/items`;
+    return this.httpRequestService.sendRequest<string[]>(this.serviceName, url, { method: GET });
+  }
+
+  async startImport(body: unknown) {
+    await this.httpRequestService.sendRequest<void>(this.serviceName, "/v1/catalog/imports", {
+      method: HttpMethod.POST,
+      body,
+    });
+  }
+
+  async getByKey(key: string) {
+    return this.httpRequestService.sendRequest<string>(this.serviceName, this.pathFor(key), { method: GET });
+  }
+}
+```
+
+```
+route       /v1/resources/catalog/items  props: role=client, source=configured-http-client,
+                                                client_spec=sdk-http, method=GET, target_hint=resource-api
+route       /v1/catalog/imports          props: role=client, source=configured-http-client,
+                                                client_spec=sdk-http, method=POST, target_hint=resource-api
+extraction  typescript:client:sdk-http   props: client_spec=sdk-http, receivers=1, skipped=dynamic_path=1,
+                                                edge_coverage=[configured_http_call detected=3 resolved=2 unresolved=1]
+```
+
+| Written | Read as |
+|---|---|
+| `${this.basePath}catalog/items` through `const url` | the class field joined with the literal: `/v1/resources/catalog/items` |
+| `"/v1/catalog/imports"` | the literal |
+| `"/v1/items/" + id` | `/v1/items/{}`: an unknown operand inside the path is a parameter |
+| a template whose leading operand is unknown | no route: the prefix is unknown |
+| `this.pathFor(key)` | no route, counted `dynamic_path` |
+| `"https://api.example.com/v1/items"` | no route, counted `non_route_path` |
+| a call passing fewer arguments than `path_arg` names | no route, counted `missing_path_argument` |
+| `{ method: GET }`, `{ method: HttpMethod.POST }`, `{ method: "put" }` | GET, POST, PUT |
+
+The limits, stated. `this.<field>` resolves against the enclosing class only: an SDK
+gives every connector its own `basePath`, and a repository-wide table would find the name
+bound several times and resolve none of them. A constant on another class (`Other.BASE`)
+is therefore not resolved. A local assigned more than once anywhere in the member folds to
+nothing. The receiver must be `this.<member>`: a local variable of the configured type is
+not read. Test files are excluded, as for every route pass.
+
 ## File-based routing
 
 Nuxt pages and SvelteKit routes have no decorator to read; the path *is* the route.

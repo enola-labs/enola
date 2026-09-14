@@ -54,7 +54,7 @@ Start with the page closest to what you need:
 |---|---|
 | [PROVIDERS.md](PROVIDERS.md) | Adding facts from Rubydex, runtime observations, RBS and Sorbet through the fail-closed provider interface. |
 | [extraction/](extraction/README.md) | What each language extractor records, with examples from committed fixtures and its known limits. |
-| [EXTENDING.md](EXTENDING.md) | Teaching Enola a connection it does not know through binders, cross-repository signals and `linking:` configuration. |
+| [EXTENDING.md](EXTENDING.md) | Teaching Enola a connection it does not know through binders, cross-repository signals, `linking:` configuration and declared in-house HTTP clients (`clients:`). |
 
 ## Reference
 

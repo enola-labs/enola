@@ -145,6 +145,11 @@ Contract props:
   resolves by name alone.
 - `via`: how a cross-repo edge was established — [Via kinds](#via-kinds)
   (multi-repo mode).
+- `param_segment_endpoints`, `param_segment_endpoint_count`: on an HTTP cross-repo
+  edge, the endpoints that matched only because a server path parameter stood in for
+  a literal client segment (`linking.match_literal_against_params`). Each is also in
+  `endpoints`. The edge's `confidence` is the strongest among its endpoints, so this
+  list is how to weigh the looser ones.
 - `coupling_kind`: on a synthetic module-coupling edge derived from
   references rather than read from an import statement), which reference
   produced it — `reference` (constant-receiver call), `inheritance`, `mixin`,
@@ -199,6 +204,13 @@ The remaining `messaging_*` props (`messaging_contract_bound`,
   of detected vs resolved edges.
 - `unresolved_*`: per-cause counts the extractor could not resolve (e.g.
   `unresolved_macros`).
+- A declared in-house client's account, one per repository and named
+  `<extractor>:client:<name>`, carries `client_spec`, `receivers` (class members declared
+  with one of its receiver types), `edge_coverage` with edge type `configured_http_call`
+  (detected: calls through the client, resolved: routes they became, unresolved:
+  skipped) and `skipped`, per-cause counts written `cause=n,...` (`dynamic_path`,
+  `missing_path_argument`, `non_route_path`). It is emitted even when the client found
+  nothing, so a declaration that matches nothing is visible.
 
 ### association
 

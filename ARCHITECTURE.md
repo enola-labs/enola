@@ -918,10 +918,13 @@ silently discard the rest. Thresholds are validated rather than clamped. And bec
 vocabulary decides which edges get drawn, it is folded into the snapshot's config hash — two
 snapshots taken under different vocabularies are not comparable, and the receipt says so.
 
-What the config deliberately *cannot* express is a matching rule. A config language able to
-describe how to match would let a user manufacture an edge, and every fact in the graph is
-supposed to be derived rather than asserted. Widening what counts as "too generic to link on"
-can only ever remove edges — the safe direction. See
+What the config deliberately *cannot* express is a general matching rule. A config language
+able to describe how to match would let a user manufacture an edge, and every fact in the graph
+is supposed to be derived rather than asserted. Widening what counts as "too generic to link
+on" can only ever remove edges, the safe direction. Two bounded settings are the exception: the
+opt-in `match_literal_against_params`, which lets a server path parameter stand in for a literal
+client segment under strict conditions, and `service_aliases`, which only chooses among
+repositories already serving a path that a declared in-house client (`clients:`) calls. See
 [docs/EXTENDING.md](docs/EXTENDING.md#tuning-without-code).
 
 ### What is deliberately not linked

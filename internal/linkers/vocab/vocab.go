@@ -19,6 +19,12 @@
 // to be derived rather than asserted. Widening what counts as "too generic to link on"
 // can only ever REMOVE edges, which is the safe direction: the linker's governing bias
 // is that a missing edge beats a wrong one.
+//
+// Two fields are bounded exceptions, and each says so where it is declared.
+// ServiceAliases chooses among repositories already serving a path, and
+// MatchLiteralAgainstParams, off by default, lets a parameter absorb a literal segment
+// under the matcher's conditions. Neither can name a repository that no route evidence
+// points at.
 package vocab
 
 import (

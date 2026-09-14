@@ -13,6 +13,7 @@ So start here:
 | Parse a language or framework enola cannot read | **Extractor** | `internal/extractors/<lang>/` |
 | Connect facts *within* one repository that no single extractor could see | **Binder** | `internal/linkers/binders/<name>/` |
 | Establish that one repository depends on another | **Cross-repo signal** | `internal/linkers/crossrepo/signals/<name>/` |
+| Make enola read calls through your own HTTP wrapper | **Nothing, it's config** | `clients:` in `enola.yaml` |
 | Stop a wrong edge, or teach enola a framework's boilerplate | **Nothing — it's config** | `linking:` in `enola.yaml` |
 
 That last row is not a consolation prize. Most accuracy problems are vocabulary problems,
@@ -305,10 +306,95 @@ Three things to know:
   so it is folded into the config hash. Two snapshots taken under different vocabularies
   are not comparable, and the receipt says so rather than pretending otherwise.
 
-What you cannot express here is a matching *rule*. That is deliberate: a config language
-able to describe how to match would let you manufacture an edge, and every fact in the
-graph is supposed to be derived rather than asserted. Widening what counts as "too generic
-to link on" can only ever *remove* edges — the safe direction.
+What you cannot express here is a general matching *rule*. That is deliberate: a config
+language able to describe how to match would let you manufacture an edge, and every fact in the
+graph is supposed to be derived rather than asserted. Widening what counts as "too generic to
+link on" can only ever *remove* edges, the safe direction.
+
+Two settings are the exception, and both are bounded so that they choose among evidence rather
+than create it. `linking.match_literal_against_params`, off by default, lets a server path
+parameter stand in for a literal client segment under strict conditions. `service_aliases`, a
+top-level key, names the repository behind a service name a declared client passes, and only
+ever picks among repositories that already serve the called path. Both change the snapshot ID
+like everything else here. See [Teaching enola your HTTP client](#teaching-enola-your-http-client).
+
+## Teaching enola your HTTP client
+
+enola recognises the HTTP clients it ships knowledge of: `fetch`, axios, Angular's
+`HttpClient`, Spring's `RestTemplate` and the rest listed per language in
+[extraction/](extraction/README.md). A company's own wrapper is none of them. When every call
+goes through something like `httpRequestService.sendRequest(serviceName, path, options)`,
+nothing in the name or signature says HTTP, the calls are invisible, and a service that plainly
+depends on another reads as isolated. That needs no extractor. Declare the client:
+
+```yaml
+clients:
+  - name: sdk-http
+    language: typescript
+    receiver_types: [IHttpRequestService]
+    methods:
+      - name: sendRequest
+        service_arg: 0
+        path_arg: 1
+        options_arg: 2
+        verb_option: method
+        default_verb: GET
+
+service_aliases:
+  resource-api: gateway
+```
+
+| Key | Meaning |
+|---|---|
+| `name` | Stamped on every route the client produces (`client_spec`) and on its account. |
+| `language` | The extractor that reads it. `typescript` today. |
+| `receiver_types` | The declared type of the member a call is made on, by constructor parameter or `inject()` field. The type decides: the same method on any other type is not read. |
+| `methods[].name` | A method that makes a request. |
+| `path_arg` | Required. The argument holding the path. |
+| `service_arg` | The argument naming the target service. Its value becomes the route's `target_hint`. |
+| `options_arg`, `verb_option` | The object literal the verb is read from, and its property (`method` by default). A quoted verb, or an identifier or enum member named for one (`GET`, `HttpMethod.POST`), is read. |
+| `default_verb` | The verb when the call states none. Without one the route carries no verb and matches whichever verb serves the path. |
+| `service_aliases` | Service name to repository label, for when the two differ. |
+
+**What this is, and is not.** A client declaration teaches an extractor to *read* a call site.
+It never declares an edge: the call becomes a client route like any other, and the linker still
+draws an edge only when a loaded repository serves that path. A wrong declaration can at worst
+produce routes that match nothing, and those are visible (below). An alias is the one part that
+chooses. It applies only to routes a declared client read, it picks only among repositories that
+already serve the path, and it is a constraint: if the aliased repository serves none of them, no
+edge is drawn at all, and the call reports `unmatched_reason: alias_not_serving`.
+
+**How a path is read.** `this.<field>` resolves against the enclosing class's own
+fields, a local bound once folds to its value, and template literals and `+`
+concatenations are joined. An operand that resolves to nothing becomes the `{}` path
+parameter, unless it leads the path: then the prefix is unknown and the call produces no route.
+The details are in [extraction/typescript.md](extraction/typescript.md#declared-in-house-clients).
+
+**When a path parameter must absorb a literal.** A call to `/v1/resources/catalog/items`
+against a server serving `/v1/resources/:type/items` does not match exactly. Turn on:
+
+```yaml
+linking:
+  match_literal_against_params: true
+```
+
+It is tried only when no exact match exists. The whole server path must be matched, at least two
+literal segments must agree, a parameter may not lead the server path, a client placeholder never
+matches a server literal, and when more than one server path pattern fits, nothing matches.
+Endpoints matched this way are listed in `param_segment_endpoints` on the dependency.
+An edge's `confidence` is the strongest among its endpoints, so that list is how to
+weigh the looser ones.
+
+**Checking that a declaration did anything.** Every declared client gets an account per
+repository, an `extraction` fact named `typescript:client:<name>`: its
+receivers, the calls made through it, the routes they became, and the calls skipped by cause
+(`dynamic_path`, `missing_path_argument`, `non_route_path`).
+`enola coverage` prints them as a *Declared clients* table. A client that matched no
+call site in any loaded repository is reported as a finding that names the likely cause: no
+receivers means `receiver_types` is wrong, receivers without call sites means the
+method names are.
+
+A worked example you can run end to end: [examples/custom-client](../examples/custom-client/README.md).
 
 ---
 
