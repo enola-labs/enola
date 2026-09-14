@@ -132,6 +132,26 @@ endpoints, and here the literal `POST` is a verified match.
 The graph now holds `backend -> sdk -> gateway`, which is the answer to "does backend
 depend on gateway" that the call style hid.
 
+## 4. Who calls the route
+
+```bash
+enola endpoint 'GET /v1/resources' cluster-with-params.yaml
+```
+
+```text
+routes:
+  GET /v1/resources/:type/items  -> listItems
+
+callers:
+  sdk/src/connectors/resource-connector.ts
+```
+
+`enola endpoint` names the callers the linker matched to the route, under the same
+config. Run it with `cluster-with-client.yaml` and this route has no callers, because
+without parameter matching the linker does not reach it either;
+`enola endpoint 'POST /v1/catalog/imports' cluster-with-client.yaml` names the connector
+under both.
+
 ## Why this is config and not an edge
 
 The `clients:` block says which call is a request and where its path is. It does not say
@@ -154,6 +174,9 @@ the rules above.
 - **Other languages.** Declared clients are read in TypeScript only.
 - **A direct `backend -> gateway` edge.** The call is made in the SDK, so the dependency is
   the path through it.
+- **The controller behind a NestJS route.** `enola endpoint` names the route and its
+  callers, then stops at the controller: that step looks for a Rails-style
+  `Controller#action` handler, and a NestJS route names only its method.
 
 For the rules behind cross-repo edges, see [docs/CLUSTERS.md](../../docs/CLUSTERS.md) and
 [docs/EXTENDING.md](../../docs/EXTENDING.md).

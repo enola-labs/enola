@@ -28,7 +28,7 @@ func endpointStore() *Store {
 }
 
 func TestAnalyzeEndpointWalksTheWholeChain(t *testing.T) {
-	got := endpointStore().AnalyzeEndpoint("GET /v1/candidates", 25)
+	got := endpointStore().AnalyzeEndpoint("GET /v1/candidates", 25, nil)
 	if len(got.Routes) != 1 {
 		t.Fatalf("one server route matches GET, got %d: %+v", len(got.Routes), got.Routes)
 	}
@@ -57,7 +57,7 @@ func TestAnalyzeEndpointNamesTheHopThatRanOut(t *testing.T) {
 		"method": "GET", "handler": "nowhere#show"}})
 	st.BuildGraph()
 
-	got := st.AnalyzeEndpoint("/orphan", 25)
+	got := st.AnalyzeEndpoint("/orphan", 25, nil)
 	if len(got.Routes) != 1 {
 		t.Fatalf("the route itself is still reported: %+v", got)
 	}
@@ -65,7 +65,7 @@ func TestAnalyzeEndpointNamesTheHopThatRanOut(t *testing.T) {
 		t.Errorf("StoppedAt = %q, want controller", got.StoppedAt)
 	}
 
-	missing := st.AnalyzeEndpoint("/nothing-here", 25)
+	missing := st.AnalyzeEndpoint("/nothing-here", 25, nil)
 	if missing.StoppedAt != "route" {
 		t.Errorf("StoppedAt = %q, want route", missing.StoppedAt)
 	}
@@ -74,7 +74,7 @@ func TestAnalyzeEndpointNamesTheHopThatRanOut(t *testing.T) {
 // TestAnalyzeEndpointIgnoresMocksAndClients pins that the traversal answers
 // about what this application serves.
 func TestAnalyzeEndpointIgnoresMocksAndClients(t *testing.T) {
-	got := endpointStore().AnalyzeEndpoint("/v1/candidates", 25)
+	got := endpointStore().AnalyzeEndpoint("/v1/candidates", 25, nil)
 	for _, route := range got.Routes {
 		if route.Handler == "" {
 			t.Errorf("a mock or client route was followed: %+v", route)
@@ -110,7 +110,19 @@ func TestAnalyzeEndpointFindsTheFrontendScreen(t *testing.T) {
 	)
 	st.BuildGraph()
 
-	got := st.AnalyzeEndpoint("GET /app/api/available_companies", 25)
+	// The finder hands back every client call site, the mock included: which calls reach
+	// the endpoint is the linker's question, tested with it; what this package owns is
+	// dropping the mock, one caller per file, and naming the screen.
+	allClients := func([]Fact) []Fact {
+		var out []Fact
+		for _, f := range st.ByKind(KindRoute) {
+			if f.Props["role"] == "client" {
+				out = append(out, f)
+			}
+		}
+		return out
+	}
+	got := st.AnalyzeEndpoint("GET /app/api/available_companies", 25, allClients)
 	if len(got.Callers) != 2 {
 		t.Fatalf("two real callers and no mock, got %d: %+v", len(got.Callers), got.Callers)
 	}
@@ -124,5 +136,32 @@ func TestAnalyzeEndpointFindsTheFrontendScreen(t *testing.T) {
 	// A component may be used by many screens, so claiming one would be a guess.
 	if screen := byFile["ember_app/app/components/picker.ts"]; screen != "" {
 		t.Errorf("a component names no single screen, got %q", screen)
+	}
+}
+
+// TestAnalyzeEndpointAsksForCallersOfTheFollowedRoutes: callers are asked for exactly the
+// routes the answer follows, after the verb filter, the sort and the cap, so a route the
+// answer does not report cannot contribute a caller.
+func TestAnalyzeEndpointAsksForCallersOfTheFollowedRoutes(t *testing.T) {
+	var asked []Fact
+	record := func(servers []Fact) []Fact {
+		asked = servers
+		return nil
+	}
+	got := endpointStore().AnalyzeEndpoint("/v1/candidates", 1, record)
+	if len(got.Routes) != 1 || len(asked) != 1 {
+		t.Fatalf("want one followed route and one asked about, got routes %+v, asked %+v", got.Routes, asked)
+	}
+	if asked[0].Name != got.Routes[0].Path || asked[0].Props["method"] != got.Routes[0].Method {
+		t.Errorf("asked about %s %v, but followed %s %s", asked[0].Name, asked[0].Props["method"], got.Routes[0].Method, got.Routes[0].Path)
+	}
+	for _, f := range asked {
+		if f.Props["role"] == "client" || f.Props["test_double"] == true {
+			t.Errorf("a client or mock was passed as a served route: %+v", f)
+		}
+	}
+
+	if none := endpointStore().AnalyzeEndpoint("GET /v1/candidates", 25, nil); len(none.Callers) != 0 {
+		t.Errorf("no finder must report no callers, got %+v", none.Callers)
 	}
 }

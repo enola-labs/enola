@@ -7,6 +7,9 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/enola-labs/enola/internal/linkers/crossrepo/routeindex"
+	httpsignal "github.com/enola-labs/enola/internal/linkers/crossrepo/signals/http"
 )
 
 // Endpoint answers what changing an HTTP endpoint reaches.
@@ -62,7 +65,15 @@ func (r *Runner) Endpoint(ctx context.Context, args []string) {
 		}
 	}
 
-	result := tgt.engine.Store().AnalyzeEndpoint(query, *maxRoutes)
+	// Callers come from the cross-repo linker's own matching, under this config's linking
+	// vocabulary, so a call it linked is a caller here too.
+	linkVocab, err := tgt.engine.Config().LinkingVocab()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "invalid linking vocabulary: %v\n", err)
+		os.Exit(2)
+	}
+	store := tgt.engine.Store()
+	result := store.AnalyzeEndpoint(query, *maxRoutes, httpsignal.NewCallerFinder(routeindex.New(linkVocab), store.All()))
 	if *asJSON {
 		out, err := json.MarshalIndent(result, "", "  ")
 		if err != nil {

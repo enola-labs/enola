@@ -186,7 +186,17 @@ func RepoFromIdentity(id string) string {
 // reported as an unused endpoint despite IsUIRoute existing to prevent exactly
 // that.
 func (m *Matcher) IsLinkable(f facts.Fact) bool {
-	if f.Kind != facts.KindRoute || f.Repo == "" || RoleOf(f) == facts.RoleClient ||
+	return f.Repo != "" && m.IsServableRoute(f)
+}
+
+// IsServableRoute reports whether a server route is one a client call can be matched
+// against at all: a server route with an HTTP verb that is not a UI page route, a
+// GraphQL operation or a generic path. It asks nothing about a repository label.
+// IsLinkable adds the label, which the cross-repo verdicts need and an endpoint's
+// callers in a single repository, where a frontend and its backend share one tree, do
+// not.
+func (m *Matcher) IsServableRoute(f facts.Fact) bool {
+	if f.Kind != facts.KindRoute || RoleOf(f) == facts.RoleClient ||
 		IsUIRoute(f) || f.PropString(facts.PropRouteType) == facts.RouteTypeGraphQL {
 		return false
 	}

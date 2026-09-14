@@ -420,31 +420,7 @@ func ServerRouteVerdicts(m *routeindex.Matcher, all []facts.Fact) (evaluated, un
 	// Index server routes by normalized path-suffix + method, exactly as linkHTTP
 	// does, while recording every distinct server route identity so the un-hit
 	// ones can be reported afterwards.
-	server := map[string][]routeindex.RouteRef{}
-	identities := map[string]bool{}
-	for _, f := range all {
-		// The same predicate the binder applies per fact, so a route excluded here
-		// cannot be handed a verdict there through an identity it shares with a
-		// route that was included.
-		//
-		// Generic paths (/health, /status, /metrics) are part of it: the matcher
-		// refuses to link these (a client call to one is dropped by the same
-		// routeindex.IsGenericPath filter below), so we cannot reliably tell whether a client
-		// uses them — and infra / non-client callers commonly do. Excluding them
-		// from the candidate set keeps the unused verdict to routes we can actually
-		// reason about, never flagging a generic endpoint that may be in use.
-		// This is a vocabulary test, not a segment count, so a named single-segment
-		// route (/activate) does enter the candidate set — it is linkable, and its
-		// used/unused verdict is therefore meaningful.
-		if !m.IsLinkable(f) {
-			continue
-		}
-		method := routeindex.NormalizeMethod(f.PropString("method"))
-		identities[routeindex.RouteIdentityKey(f.Repo, method, f.Name)] = true
-		for _, p := range m.ServerPaths(f) {
-			m.IndexServerRef(server, routeindex.RouteRef{Repo: f.Repo, Method: method, Path: f.Name, FullPath: p})
-		}
-	}
+	server, identities := servableIndex(m, all, true)
 
 	// Mark every server route any client resolves to (by suffix + method) as used,
 	// and record which repos actually serve a cross-repo client (HTTP providers).
@@ -457,23 +433,13 @@ func ServerRouteVerdicts(m *routeindex.Matcher, all []facts.Fact) (evaluated, un
 	matched := map[string]bool{}
 	providerRepos := map[string]bool{}
 	for _, f := range all {
-		if f.Kind != facts.KindRoute || f.Repo == "" || routeindex.RoleOf(f) != facts.RoleClient {
+		if f.Repo == "" {
 			continue
 		}
-		method := routeindex.NormalizeMethod(f.PropString("method"))
-		if method == "" {
-			continue
-		}
-		np := m.NormalizePath(f.Name)
-		if m.IsGenericPath(np) {
-			continue
-		}
-		matches, _ := m.LookupClientMatches(server, routeindex.CanonicalLeadingSlash(np), method)
-		matches = declaredMatches(m, f, matches)
-		for _, m := range matches {
-			matched[routeindex.RouteIdentityKey(m.Repo, m.Method, m.Path)] = true
-			if m.Repo != f.Repo {
-				providerRepos[m.Repo] = true
+		for _, ref := range routesCalledBy(m, server, f) {
+			matched[routeindex.RouteIdentityKey(ref.Repo, ref.Method, ref.Path)] = true
+			if ref.Repo != f.Repo {
+				providerRepos[ref.Repo] = true
 			}
 		}
 	}
@@ -495,6 +461,93 @@ func ServerRouteVerdicts(m *routeindex.Matcher, all []facts.Fact) (evaluated, un
 		unmatched[id] = true
 	}
 	return evaluated, unmatched
+}
+
+// servableIndex indexes the server routes client calls are matched against, by
+// normalized path suffix and verb, and records each indexed route's identity.
+// requireRepo restricts it to repository-labelled routes, which the cross-repo verdicts
+// need; an endpoint's callers in a single repository do not.
+//
+// Generic paths (/health, /status, /metrics) are left out: the matcher refuses to link
+// these (a client call to one is dropped by the same routeindex.IsGenericPath filter in
+// routesCalledBy), so there is no telling whether a client uses them, and infra or
+// non-client callers commonly do. Excluding them keeps the unused verdict to routes that
+// can actually be reasoned about, never flagging a generic endpoint that may be in use.
+// This is a vocabulary test, not a segment count, so a named single-segment route
+// (/activate) is indexed: it is linkable, and its verdict is therefore meaningful.
+func servableIndex(m *routeindex.Matcher, all []facts.Fact, requireRepo bool) (map[string][]routeindex.RouteRef, map[string]bool) {
+	server := map[string][]routeindex.RouteRef{}
+	identities := map[string]bool{}
+	for _, f := range all {
+		if !m.IsServableRoute(f) || (requireRepo && f.Repo == "") {
+			continue
+		}
+		method := routeindex.NormalizeMethod(f.PropString("method"))
+		identities[routeindex.RouteIdentityKey(f.Repo, method, f.Name)] = true
+		for _, p := range m.ServerPaths(f) {
+			m.IndexServerRef(server, routeindex.RouteRef{Repo: f.Repo, Method: method, Path: f.Name, FullPath: p})
+		}
+	}
+	return server, identities
+}
+
+// routesCalledBy returns the server routes one client call reaches under the used-route
+// rule: every route it matches, narrowed to the chosen provider only when a declared
+// service alias names one (see declaredMatches). Nil for anything but a client route,
+// and for a call with no usable verb or a generic path.
+//
+// The server-route verdicts and an endpoint's callers both read it, so "this route is
+// used" and "this call is one of its callers" cannot disagree.
+func routesCalledBy(m *routeindex.Matcher, server map[string][]routeindex.RouteRef, f facts.Fact) []routeindex.RouteRef {
+	if f.Kind != facts.KindRoute || routeindex.RoleOf(f) != facts.RoleClient {
+		return nil
+	}
+	method := routeindex.NormalizeMethod(f.PropString("method"))
+	if method == "" {
+		return nil
+	}
+	np := m.NormalizePath(f.Name)
+	if m.IsGenericPath(np) {
+		return nil
+	}
+	matches, _ := m.LookupClientMatches(server, routeindex.CanonicalLeadingSlash(np), method)
+	return declaredMatches(m, f, matches)
+}
+
+// CallersOf returns the client call sites that call any of the given server routes,
+// under exactly the rule the server-route verdicts mark a route used by: the linker's
+// own matching (suffixes, format extensions, base-relative paths, verbs, parameter
+// matching when the vocabulary turns it on), generous where several repositories serve
+// a path, and narrowed by a declared service alias.
+//
+// Unlike the verdicts it answers in a single-repository snapshot too: a frontend and the
+// backend it calls routinely share one repository, and who calls an endpoint is as much
+// a question there.
+func CallersOf(m *routeindex.Matcher, all []facts.Fact, servers []facts.Fact) []facts.Fact {
+	want := map[string]bool{}
+	for _, f := range servers {
+		want[routeindex.RouteIdentityKey(f.Repo, routeindex.NormalizeMethod(f.PropString("method")), f.Name)] = true
+	}
+	if len(want) == 0 {
+		return nil
+	}
+	index, _ := servableIndex(m, all, false)
+	var out []facts.Fact
+	for _, f := range all {
+		for _, ref := range routesCalledBy(m, index, f) {
+			if want[routeindex.RouteIdentityKey(ref.Repo, ref.Method, ref.Path)] {
+				out = append(out, f)
+				break
+			}
+		}
+	}
+	return out
+}
+
+// NewCallerFinder answers facts.Store.AnalyzeEndpoint's caller question with CallersOf
+// over a snapshot's facts.
+func NewCallerFinder(m *routeindex.Matcher, all []facts.Fact) facts.CallerFinder {
+	return func(servers []facts.Fact) []facts.Fact { return CallersOf(m, all, servers) }
 }
 
 // The Reason* constants are the exhaustive set of values written to a client route's

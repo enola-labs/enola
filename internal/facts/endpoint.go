@@ -83,10 +83,21 @@ func ControllerKey(name string) string {
 	return strings.ReplaceAll(name, "_", "")
 }
 
+// CallerFinder returns the client call sites that reach any of the given server
+// routes.
+//
+// It is a parameter rather than a method on the store because the answer must be the
+// one the cross-repo linker gives, and the linker's matching rules (suffixes, format
+// extensions, base-relative paths, verbs, parameter matching, service aliases) live
+// above this package. This package used to re-derive the join by path suffix, and a
+// call the linker had linked could then be missing from an endpoint's callers.
+type CallerFinder func(servers []Fact) []Fact
+
 // AnalyzeEndpoint walks route -> controller -> model -> associated model.
 // maxRoutes caps how many matched endpoints are followed, because a bare prefix
 // can match hundreds and following all of them answers a different question.
-func (s *Store) AnalyzeEndpoint(query string, maxRoutes int) EndpointImpact {
+// findCallers answers who calls the followed routes; nil reports no callers.
+func (s *Store) AnalyzeEndpoint(query string, maxRoutes int, findCallers CallerFinder) EndpointImpact {
 	if maxRoutes <= 0 {
 		maxRoutes = 25
 	}
@@ -100,6 +111,13 @@ func (s *Store) AnalyzeEndpoint(query string, maxRoutes int) EndpointImpact {
 		}
 	}
 
+	// Each matched route keeps its fact, so the callers are asked for exactly the routes
+	// the answer follows, after sorting and the cap.
+	type matchedRoute struct {
+		route EndpointRoute
+		fact  Fact
+	}
+	var matched []matchedRoute
 	for _, fact := range s.ByKind(KindRoute) {
 		if role, _ := fact.Props["role"].(string); role == "client" {
 			continue
@@ -115,31 +133,39 @@ func (s *Store) AnalyzeEndpoint(query string, maxRoutes int) EndpointImpact {
 			continue
 		}
 		handler, _ := fact.Props["handler"].(string)
-		out.Routes = append(out.Routes, EndpointRoute{
-			Method: factMethod, Path: fact.Name, Handler: handler, File: fact.File,
+		matched = append(matched, matchedRoute{
+			route: EndpointRoute{Method: factMethod, Path: fact.Name, Handler: handler, File: fact.File},
+			fact:  fact,
 		})
 	}
-	sort.Slice(out.Routes, func(i, j int) bool {
-		if out.Routes[i].Path != out.Routes[j].Path {
-			return out.Routes[i].Path < out.Routes[j].Path
+	sort.SliceStable(matched, func(i, j int) bool {
+		if matched[i].route.Path != matched[j].route.Path {
+			return matched[i].route.Path < matched[j].route.Path
 		}
-		return out.Routes[i].Method < out.Routes[j].Method
+		return matched[i].route.Method < matched[j].route.Method
 	})
-	if len(out.Routes) == 0 {
+	if len(matched) == 0 {
 		out.StoppedAt = "route"
 		out.Summary = fmt.Sprintf("No server route matches %q.", query)
 		return out
 	}
 	truncated := false
-	if len(out.Routes) > maxRoutes {
-		out.Routes, truncated = out.Routes[:maxRoutes], true
+	if len(matched) > maxRoutes {
+		matched, truncated = matched[:maxRoutes], true
+	}
+	servers := make([]Fact, 0, len(matched))
+	for _, m := range matched {
+		out.Routes = append(out.Routes, m.route)
+		servers = append(servers, m.fact)
 	}
 
 	// Who calls this is independent of how far the model chain gets. Computing
 	// it after the chain meant every endpoint whose controller or model did not
 	// resolve reported no callers at all — an answer about the frontend withheld
 	// because of a gap in the backend walk.
-	out.Callers = s.callersOf(out.Routes)
+	if findCallers != nil {
+		out.Callers = s.callersFrom(findCallers(servers))
+	}
 
 	// Hop 2: the controller class each handler names.
 	classes := map[string]string{}
@@ -258,30 +284,15 @@ func (s *Store) AnalyzeEndpoint(query string, maxRoutes int) EndpointImpact {
 	return out
 }
 
-// callersOf finds the client call sites targeting these endpoints, and the
-// frontend screen each belongs to where the file is a route module.
+// callersFrom turns the client call sites a CallerFinder returned into callers: one per
+// file, mocks excluded, each with the frontend screen it belongs to where the file is a
+// route module.
 //
-// The join is by path SUFFIX, not by equality. A client writes the path its
-// base URL does not already carry — one CLI client calls `/candidates` against
-// a host that supplies `/v1` — so an exact match finds nothing across a
-// repository boundary. Asking the estate cluster what calls
-// `GET /v1/candidates/:id` returned zero callers while that one client held 245
-// call sites and the cross-repo linker had already resolved 101 of its
-// endpoints to the monolith it calls. The linker was right and this was
-// re-deriving the join badly.
-//
-// The screen comes from the Ember convention that app/routes/<name> implements
-// the route declared as <name>, checked against the router's own declarations
-// rather than assumed.
-func (s *Store) callersOf(routes []EndpointRoute) []EndpointCaller {
-	// Index every suffix of each target path, so a client that writes only the
-	// tail of the path still matches.
-	targets := map[string]bool{}
-	for _, route := range routes {
-		for _, suffix := range pathSuffixKeys(route.Method, route.Path) {
-			targets[suffix] = true
-		}
-	}
+// A mock server calling an endpoint is not a caller that notices a change, whatever the
+// matching says. The screen comes from the Ember convention that app/routes/<name>
+// implements the route declared as <name>, checked against the router's own
+// declarations rather than assumed.
+func (s *Store) callersFrom(clients []Fact) []EndpointCaller {
 	// Ember route NAMES are what the file layout mirrors, and they are not the
 	// URL: `this.route("admin-company-linking", { path: "/admin/company-linking" })`
 	// is served at one and implemented at app/routes/admin-company-linking.
@@ -301,15 +312,14 @@ func (s *Store) callersOf(routes []EndpointRoute) []EndpointCaller {
 
 	seen := map[string]bool{}
 	var out []EndpointCaller
-	for _, fact := range s.ByKind(KindRoute) {
+	for _, fact := range clients {
 		if role, _ := fact.Props["role"].(string); role != "client" {
 			continue
 		}
 		if isDouble, _ := fact.Props["test_double"].(bool); isDouble {
 			continue
 		}
-		method, _ := fact.Props["method"].(string)
-		if !targets[endpointPathKey(method, fact.Name)] || seen[fact.File] {
+		if seen[fact.File] {
 			continue
 		}
 		seen[fact.File] = true
@@ -334,36 +344,6 @@ func screenFor(file string, screens map[string]string) string {
 		return declared
 	}
 	return ""
-}
-
-// pathSuffixKeys returns the keys a caller might match a path by: the whole
-// path and every tail of it that keeps at least two segments. Two is the floor
-// because a single segment — `/users`, `/health` — collides across services and
-// would attribute one repository's callers to another's endpoint.
-func pathSuffixKeys(method, path string) []string {
-	normalized := endpointPathKey(method, path)
-	verb, rest, found := strings.Cut(normalized, " ")
-	if !found {
-		return []string{normalized}
-	}
-	segments := strings.Split(strings.TrimPrefix(rest, "/"), "/")
-	out := []string{normalized}
-	for i := 1; i+2 <= len(segments); i++ {
-		out = append(out, verb+" /"+strings.Join(segments[i:], "/"))
-	}
-	return out
-}
-
-// endpointPathKey compares a client's dialect against a server's: {} and :id
-// both mean a parameter.
-func endpointPathKey(method, path string) string {
-	segments := strings.Split(path, "/")
-	for i, segment := range segments {
-		if segment == "{}" || strings.HasPrefix(segment, ":") || strings.HasPrefix(segment, "*") {
-			segments[i] = ":param"
-		}
-	}
-	return strings.ToUpper(method) + " " + strings.TrimSuffix(strings.Join(segments, "/"), "/")
 }
 
 func summarize(out EndpointImpact, truncated bool) string {

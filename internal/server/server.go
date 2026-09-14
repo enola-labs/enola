@@ -20,6 +20,8 @@ import (
 	"github.com/enola-labs/enola/internal/engine"
 	"github.com/enola-labs/enola/internal/explainers/constraints"
 	"github.com/enola-labs/enola/internal/facts"
+	"github.com/enola-labs/enola/internal/linkers/crossrepo/routeindex"
+	httpsignal "github.com/enola-labs/enola/internal/linkers/crossrepo/signals/http"
 	"github.com/enola-labs/enola/internal/updatecheck"
 	"github.com/enola-labs/enola/internal/version"
 	"github.com/enola-labs/enola/pkg/coverage"
@@ -1683,7 +1685,14 @@ func (s *Server) registerTools() {
 		if args.Endpoint == "" {
 			return errorResult("endpoint is required"), nil, nil
 		}
-		return jsonResult(store.AnalyzeEndpoint(args.Endpoint, args.MaxRoutes))
+		// Callers come from the cross-repo linker's own matching, under the server's
+		// linking vocabulary, so a call it linked is a caller here too.
+		linkVocab, err := s.eng.Config().LinkingVocab()
+		if err != nil {
+			return errorResult(fmt.Sprintf("invalid linking vocabulary: %v", err)), nil, nil
+		}
+		return jsonResult(store.AnalyzeEndpoint(args.Endpoint, args.MaxRoutes,
+			httpsignal.NewCallerFinder(routeindex.New(linkVocab), store.All())))
 	})
 
 	// Tool: impact_analysis

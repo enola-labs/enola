@@ -51,6 +51,9 @@ edges
 echo
 "$ENOLA" coverage cluster-with-params.yaml 2>/dev/null
 
+echo
+echo "########## 4. Who calls the gateway's resource route"
+"$ENOLA" endpoint 'GET /v1/resources' cluster-with-params.yaml 2>/dev/null
 
 echo
 echo "==> See README.md for what each step shows and what enola still cannot read."
