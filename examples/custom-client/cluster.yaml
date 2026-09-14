@@ -1,0 +1,6 @@
+# The three repositories in one graph, with nothing declared. Paths resolve relative
+# to THIS file, so the config means the same thing wherever it is run from.
+repos:
+  - gateway
+  - sdk
+  - backend

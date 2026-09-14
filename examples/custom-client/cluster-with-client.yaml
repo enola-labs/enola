@@ -1,0 +1,19 @@
+# The same three repositories, with the in-house client declared.
+repos:
+  - gateway
+  - sdk
+  - backend
+
+clients:
+  - name: sdk-http                          # named on every route and account it produces
+    language: typescript
+    receiver_types: [IHttpRequestService]   # the type a class injects; the method name alone never counts
+    methods:
+      - name: sendRequest
+        service_arg: 0                      # the service name the call passes
+        path_arg: 1                         # the path, folded through class fields and local consts
+        options_arg: 2                      # the object literal the verb is read from
+        default_verb: GET                   # used when the call states no verb
+
+service_aliases:
+  resource-api: gateway                     # the service name the client passes -> the repository serving it

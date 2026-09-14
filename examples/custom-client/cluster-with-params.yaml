@@ -1,0 +1,23 @@
+# The declared client, plus the opt-in rule that lets a server path parameter stand in
+# for a literal client segment.
+repos:
+  - gateway
+  - sdk
+  - backend
+
+clients:
+  - name: sdk-http
+    language: typescript
+    receiver_types: [IHttpRequestService]
+    methods:
+      - name: sendRequest
+        service_arg: 0
+        path_arg: 1
+        options_arg: 2
+        default_verb: GET
+
+service_aliases:
+  resource-api: gateway
+
+linking:
+  match_literal_against_params: true
