@@ -137,7 +137,12 @@ func (in *input) OwnScopes(repo string) map[string]bool {
 	if in.ownScopes == nil {
 		in.ownScopes = map[string]map[string]bool{}
 		for _, f := range in.all {
-			if f.Repo == "" {
+			// Module facts only. A manifest dependency fact carries a package_name
+			// too, naming the package the repository DEPENDS ON, and reading that as
+			// published made every scoped dependency in package.json suppress the
+			// import edge to the repository that publishes it: a service depending on
+			// @org/sdk was taken to publish under @org itself.
+			if f.Kind != facts.KindModule || f.Repo == "" {
 				continue
 			}
 			// The scope lives on the module fact's package_name prop — the "name"

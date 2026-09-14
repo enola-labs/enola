@@ -1,9 +1,13 @@
 [
   {
     "source": "crossrepo",
-    "title": "Cross-repo dependencies (1 edges)",
+    "title": "Cross-repo dependencies (2 edges)",
     "confidence": 0.9,
     "evidence": [
+      {
+        "fact": "backend -\u003e sdk",
+        "detail": "via import, 1 import(s)"
+      },
       {
         "fact": "sdk -\u003e gateway",
         "detail": "via http-client, 2 endpoint(s)"
