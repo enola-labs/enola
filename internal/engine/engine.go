@@ -22,6 +22,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/enola-labs/enola/internal/clientspec"
 	"github.com/enola-labs/enola/internal/config"
 	"github.com/enola-labs/enola/internal/explainers"
 	"github.com/enola-labs/enola/internal/extractors"
@@ -139,8 +140,13 @@ func (e *Engine) SetDeferLinking(defer_ bool) { e.deferLinking = defer_ }
 // untouched, while still reusing a cache a prior --generate may have written.
 func (e *Engine) SetPersistCache(persist bool) { e.persistCache = persist }
 
-// RegisterExtractor adds an extractor to the engine.
+// RegisterExtractor adds an extractor to the engine. An extractor that reads client
+// specs is handed the ones declared for its language here, so it never reads the
+// config itself, and an extractor a wrapper registers is treated the same way.
 func (e *Engine) RegisterExtractor(ext extractors.Extractor) {
+	if c, ok := ext.(clientspec.Consumer); ok {
+		c.SetClientSpecs(clientspec.ForLanguage(e.cfg.Clients, ext.Name()))
+	}
 	e.extractors.Register(ext)
 }
 

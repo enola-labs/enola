@@ -81,6 +81,9 @@ layers:
       - "internal/filelock/**"
       - "internal/parallel/**"
       - "internal/litfold/**"
+      # internal/clientspec is core, and depends on nothing: it is the declared
+      # client vocabulary that internal/config loads and the extractors read.
+      - "internal/clientspec/**"
       - "internal/gqlscan/**"
       - "internal/hookstate/**"
       - "internal/updatecheck/**"

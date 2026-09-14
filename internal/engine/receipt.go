@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/enola-labs/enola/internal/clientspec"
 	"github.com/enola-labs/enola/internal/config"
 	"github.com/enola-labs/enola/internal/facts"
 )
@@ -91,6 +92,15 @@ func computeConfigHash(cfg *config.Config) string {
 		sb.WriteString(v.Fingerprint())
 	} else {
 		sb.WriteString("linking:invalid:" + err.Error() + "\n")
+	}
+	// Client specs decide which call sites become client routes, and service aliases
+	// decide which repository such a route links to, so both change emitted facts.
+	// Written only when declared, so a config declaring neither hashes exactly as before.
+	if fp := clientspec.Fingerprint(cfg.Clients); fp != "" {
+		sb.WriteString("clients:\n" + fp)
+	}
+	if fp := clientspec.AliasFingerprint(cfg.ServiceAliases); fp != "" {
+		sb.WriteString("service_aliases:\n" + fp)
 	}
 	return sha256Prefixed([]byte(sb.String()))
 }

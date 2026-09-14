@@ -8,6 +8,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/enola-labs/enola/internal/clientspec"
 	"github.com/enola-labs/enola/internal/intent"
 	"github.com/enola-labs/enola/internal/linkers/vocab"
 	"github.com/enola-labs/enola/internal/providers"
@@ -81,6 +82,19 @@ type Config struct {
 	// hash; two snapshots taken under different vocabularies are not comparable and the
 	// receipt says so.
 	Linking *vocab.Overlay `yaml:"linking,omitempty"`
+
+	// Clients declares in-house HTTP clients: which method on which injected type makes
+	// a request, and where its service name, path and verb sit among the arguments. It
+	// teaches an extractor to read a call site and never declares an edge; see
+	// internal/clientspec. It changes emitted facts, so it is folded into the config
+	// hash and into the reading extractor's cache key.
+	Clients []clientspec.Spec `yaml:"clients,omitempty"`
+
+	// ServiceAliases maps a service name a client passes (a string argument, not a
+	// host) to the repository label that serves it, for when the two differ. It only
+	// chooses between repositories that already serve a called path; it never makes a
+	// repository a candidate. Folded into the config hash.
+	ServiceAliases map[string]string `yaml:"service_aliases,omitempty"`
 
 	// Dashboard configures the localhost dashboard served alongside the MCP
 	// server. Optional: the zero value keeps the built-in defaults.
@@ -628,6 +642,14 @@ func (c *Config) Normalize() error {
 	c.Output.Dir = dir
 
 	if err := providers.Validate(c.Providers); err != nil {
+		return err
+	}
+
+	clientspec.Normalize(c.Clients)
+	if err := clientspec.Validate(c.Clients); err != nil {
+		return err
+	}
+	if err := clientspec.ValidateAliases(c.ServiceAliases); err != nil {
 		return err
 	}
 

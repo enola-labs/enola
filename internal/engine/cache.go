@@ -2929,6 +2929,14 @@ func computeExtractorKeys(all []extractors.Extractor, files []string, hashes map
 		h := sha256.New()
 		h.Write([]byte(cacheVersion + "\x00" + name + "\x00" + sharedHash + "\x00"))
 		h.Write([]byte(hashFileSet(keyFiles[name], hashes)))
+		// Configuration the extractor reads decides its facts as surely as its files
+		// do. Written only when non-empty, so an extractor with nothing configured keys
+		// exactly as before and its existing cache stays valid.
+		if ck, ok := owners[name].(plugin.ConfigKeyed); ok {
+			if k := ck.ConfigKey(); k != "" {
+				h.Write([]byte("\x00config\x00" + k))
+			}
+		}
 		keys[name] = hex.EncodeToString(h.Sum(nil))
 	}
 	return keys

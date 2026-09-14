@@ -101,6 +101,18 @@ type KeyDependent interface {
 	AffectsKey(relFile string) bool
 }
 
+// ConfigKeyed is an optional interface a FileOwner Extractor may implement when
+// configuration, not only file contents, decides its output. A non-empty ConfigKey is
+// folded into the extractor's incremental-cache key, so editing that configuration
+// re-runs the extractor instead of serving facts extracted under the old one. An empty
+// key leaves the cache key exactly as it would be without the interface, so an
+// extractor with nothing configured keeps the caches it already has.
+type ConfigKeyed interface {
+	// ConfigKey returns a stable rendering of the configuration the extractor reads,
+	// or "" when it reads none.
+	ConfigKey() string
+}
+
 // TestRefExtractor is an optional interface an Extractor may implement to parse
 // test/spec files for their outbound references into production code only. The
 // engine calls it with the test files (matched by config.TestGlobs) that the
