@@ -86,9 +86,9 @@ func TestReceiptDeterminism(t *testing.T) {
 func receiptForFixture(t *testing.T, f fixture) facts.Receipt {
 	t.Helper()
 
-	root := copyTree(t, filepath.Join("testdata", "repos", f.name), t.TempDir())
+	root := copyTree(t, f.sourceDir(), t.TempDir())
 	eng, _, err := bootstrap.NewEngine(bootstrap.Options{
-		ConfigPath: filepath.Join(t.TempDir(), "no-such-config.yaml"),
+		ConfigPath: f.configPath(t),
 	})
 	if err != nil {
 		t.Fatalf("bootstrap.NewEngine: %v", err)
