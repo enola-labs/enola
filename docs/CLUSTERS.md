@@ -25,8 +25,15 @@ repos:
   - web
 ```
 
+For a folder whose subfolders are the repositories, `enola cluster init <folder>` writes
+this file for you.
+
 Pass this config wherever a command accepts a repository: a directory selects one
-repository, while a config file can select several.
+repository, while a config file can select several. Given a folder that holds several
+git repositories as a directory, enola indexes it as one repository and says so: in a
+terminal `--generate` offers to write the cluster config and run with it, and everywhere
+else, the MCP server included, it warns and names the command that indexes them as a
+cluster.
 
 ```
 $ enola --generate cluster.yaml

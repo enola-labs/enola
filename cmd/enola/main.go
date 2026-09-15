@@ -18,6 +18,7 @@ import (
 	"github.com/enola-labs/enola/internal/updatecheck"
 	"github.com/enola-labs/enola/internal/upgrade"
 	"github.com/enola-labs/enola/internal/version"
+	"github.com/enola-labs/enola/internal/workspace"
 	"github.com/enola-labs/enola/pkg/bootstrap"
 	"github.com/enola-labs/enola/pkg/cli"
 	"github.com/enola-labs/enola/pkg/command"
@@ -184,6 +185,30 @@ func main() {
 		cfg.Repo, cfg.Repos = abs, nil
 	}
 
+	// A folder holding several git repositories, given as a repository, is indexed as ONE
+	// repository: the cross-repo half of enola is off and nothing in the output said so.
+	// --generate in a terminal offers to write the cluster config and run with it.
+	// Everything else warns and goes on as before, so scripts and agents keep working
+	// and can see why the graph has no services.
+	foldDir, folded := foldedRepos(cfg)
+	if len(folded) > 0 && !refreshMode {
+		if generateMode && cli.CanPrompt() {
+			clusterPath, err := offerCluster(os.Stdin, os.Stderr, foldDir, folded)
+			if err != nil {
+				log.Fatalf("failed to write cluster config: %v", err)
+			}
+			if clusterPath != "" {
+				cfgPath, repoArg, folded = clusterPath, "", nil
+				eng, cfg, err = bootstrap.NewEngine(bootstrap.Options{ConfigPath: cfgPath})
+				if err != nil {
+					log.Fatalf("failed to create engine: %v", err)
+				}
+			}
+		} else {
+			fmt.Fprint(os.Stderr, workspace.FoldWarning(binary().Name, foldDir, folded))
+		}
+	}
+
 	if explainMode {
 		runExplain(ctx, eng, cfg)
 		// Explicit rather than deferred: this path exits, and a deferred Report
@@ -254,6 +279,10 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  Artifacts:   %d\n", len(snapshot.Artifacts))
 		fmt.Fprintf(os.Stderr, "  Duration:    %s\n", snapshot.Meta.Duration)
 		fmt.Fprintf(os.Stderr, "  Output:      %s\n", filepath.Join(repoPaths[len(repoPaths)-1], cfg.Output.Dir))
+		if len(folded) > 0 {
+			fmt.Fprintf(os.Stderr, "  Warning:     %d git repositories indexed as one; to link them: %s\n",
+				len(folded), workspace.Remedy(binary().Name, foldDir))
+		}
 		if cli.ShowDashboardHint(os.Stderr) {
 			printDashboardHint(os.Stderr, repoArg, cfgPath)
 		}

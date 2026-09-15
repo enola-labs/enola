@@ -24,6 +24,7 @@ import (
 	httpsignal "github.com/enola-labs/enola/internal/linkers/crossrepo/signals/http"
 	"github.com/enola-labs/enola/internal/updatecheck"
 	"github.com/enola-labs/enola/internal/version"
+	"github.com/enola-labs/enola/internal/workspace"
 	"github.com/enola-labs/enola/pkg/coverage"
 	"github.com/enola-labs/enola/pkg/mcputil"
 	"github.com/enola-labs/enola/pkg/plan"
@@ -1204,6 +1205,19 @@ func (s *Server) registerTools() {
 					"If you meant a FRESH single-repo snapshot of %q, re-run with fresh=true.\n\n---\n\n",
 				filepath.Base(absRepo), filepath.Base(autoAppendedFrom), filepath.Base(absRepo),
 			) + summary
+		}
+
+		// A folder holding several git repositories was just indexed as one repository.
+		// Lead with that and with how to snapshot them as a cluster, so an agent does not
+		// read the missing cross-repo graph as a fact about the code.
+		if !appendMode {
+			if folded := workspace.Folded(absRepo, ""); len(folded) > 0 {
+				summary = fmt.Sprintf(
+					"⚠️ **%s holds %d git repositories (%s), indexed here as ONE repository.** It has no service nodes and no edges between them. "+
+						"To analyse them as a cluster, call generate_snapshot once per repository (repo_path=%s), passing append=true for every one after the first.\n\n---\n\n",
+					absRepo, len(folded), workspace.Names(folded), filepath.Join(absRepo, "<repo>"),
+				) + summary
+			}
 		}
 
 		return &mcp.CallToolResult{

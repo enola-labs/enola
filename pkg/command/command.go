@@ -196,7 +196,7 @@ func (r *Runner) updateNotice(w io.Writer) {
 // `upgrade` is deliberately absent. It is OSS-only — a wrapper ships through its own
 // release path — so cmd/enola dispatches it itself, before calling Dispatch.
 func Subcommands() []string {
-	return []string{"check", "constraints", "plan", "coverage", "endpoint", "doctor", "providers", "dashboard", "baseline", "log", "show", "diff", "blame", "gc", "history", "install", "uninstall", "hook"}
+	return []string{"check", "cluster", "constraints", "plan", "coverage", "endpoint", "doctor", "providers", "dashboard", "baseline", "log", "show", "diff", "blame", "gc", "history", "install", "uninstall", "hook"}
 }
 
 // Dispatch runs the subcommand named by args[0], if it is one of Subcommands().
@@ -228,6 +228,9 @@ func (r *Runner) Dispatch(ctx context.Context, args []string) bool {
 	switch args[0] {
 	case "check":
 		r.Check(ctx, args[1:]) // exits with the verdict's code
+	case "cluster":
+		r.Cluster(args[1:])
+		os.Exit(0)
 	case "constraints":
 		// lint exits with its own verdict (0 valid, 1 problems, 2 could not run) and
 		// mine exits 0 itself, but init and explain RETURN on success — and a handler

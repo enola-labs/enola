@@ -17,6 +17,7 @@ import (
 	"github.com/enola-labs/enola/internal/diff"
 	"github.com/enola-labs/enola/internal/engine"
 	"github.com/enola-labs/enola/internal/facts"
+	"github.com/enola-labs/enola/internal/workspace"
 	"github.com/enola-labs/enola/pkg/bootstrap"
 	"github.com/enola-labs/enola/pkg/check"
 	"github.com/enola-labs/enola/pkg/cli"
@@ -93,6 +94,13 @@ func (r *Runner) resolveTarget(arg string) target {
 	repoPaths, err := cfg.RepoPaths()
 	if err != nil {
 		r.checkFatal("failed to resolve repo path: %v", err)
+	}
+	// A folder of several git repositories resolves to one repository here, as it does
+	// everywhere. Say so on stderr, which leaves --json output a clean document.
+	if len(cfg.Repos) == 0 && len(repoPaths) == 1 {
+		if folded := workspace.Folded(repoPaths[0], cfg.SourcePath); len(folded) > 0 {
+			fmt.Fprint(os.Stderr, workspace.FoldWarning(r.name(), repoPaths[0], folded))
+		}
 	}
 	return target{engine: eng, repoPaths: repoPaths, configNote: note, cfgPath: cfgPath, historyDir: cfg.History.Dir}
 }
