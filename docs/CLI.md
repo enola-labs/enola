@@ -476,7 +476,8 @@ Every path argument follows the same rule: **a directory is a repository, a file
 
 | Flag | What it does |
 |------|--------------|
-| `--generate [repo_path\|config_path]` | Generate a snapshot and exit - no MCP server. Artifacts go to `output.dir` (default `.enola/`). With `repos:` in the config, indexes the whole cluster in one run. A directory whose immediate subfolders include two or more git repositories is still indexed as one repository, with a warning naming them and the fix; in a terminal it first offers to write `cluster.yaml` there (see `cluster init`) and run with it. |
+| `--generate [repo_path\|config_path]` | Generate a snapshot and exit - no MCP server. Artifacts go to `output.dir` (default `.enola/`). With `repos:` in the config, indexes the whole cluster in one run. A directory whose immediate subfolders include two or more git repositories is indexed as a cluster: enola says it detected them, writes `cluster.yaml` there (see `cluster init`) or uses the one already there, and keeps the other settings of the config in force. A directory that is itself a git repository is indexed as one repository, with a warning. |
+| `--no-cluster` | With `--generate` on a directory holding several git repositories, index it as one repository instead of as a cluster. |
 | `--explain [repo_path\|config_path]` | Print the statistics report above and exit. Read-only: nothing is written to `.enola/`. A directory is a repository; a file is a config, so a `repos:` config reports over the whole cluster. |
 | `--list` | List the MCP tools this build serves, with one-line summaries. |
 | `--status` | List every enola server running right now - PID, repos, uptime, calls, dashboard URL - plus per-tool call counts and an estimate of the reconstruction those calls saved, in time and tokens. |

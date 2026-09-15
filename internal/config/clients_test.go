@@ -75,6 +75,25 @@ service_aliases:
 	}
 }
 
+// A client for a language with no reader must not stop the rest of the config loading.
+func TestLoad_ClientForLanguageWithoutReaderLoads(t *testing.T) {
+	cfg, err := Load(writeConfig(t, `
+clients:
+  - name: py-http
+    language: python
+    receiver_types: [HttpClient]
+    methods:
+      - name: send
+        path_arg: 0
+`))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(cfg.Clients) != 1 || cfg.Clients[0].Language != "python" {
+		t.Errorf("clients not parsed: %+v", cfg.Clients)
+	}
+}
+
 func TestLoad_InvalidServiceAliasFails(t *testing.T) {
 	_, err := Load(writeConfig(t, "service_aliases:\n  resource-api: \"\"\n"))
 	if err == nil || !strings.Contains(err.Error(), "empty repository label") {

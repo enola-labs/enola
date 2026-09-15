@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/enola-labs/enola/internal/clientspec"
 	"github.com/enola-labs/enola/pkg/coverage"
 )
 
@@ -80,6 +81,9 @@ func (r *Runner) Coverage(ctx context.Context, args []string) {
 	// narrowed to one service or to its misses is asking about that, not about config.
 	if *service == "" && !*unresolved {
 		fmt.Print(coverage.RenderClientsText(coverage.BuildClients(tgt.engine.Store())))
+		if notice := clientspec.UnsupportedNotice(tgt.engine.Config().Clients); notice != "" {
+			fmt.Print("\n" + notice)
+		}
 	}
 }
 

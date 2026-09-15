@@ -133,6 +133,7 @@ func DefaultHelp(bin Binary) HelpSpec {
 			{Flag: "--status", Desc: "Show MCP server status: uptime, tool usage and estimated value,\naggregated across every repo the server has served. While the server\nis running this also prints the dashboard URL."},
 			{Flag: "--status --all", Desc: "Show the per-repo breakdown instead (from ~/.enola/usage/)"},
 			{Flag: "--no-dashboard", Desc: "Do not start the localhost dashboard alongside the MCP server"},
+			{Flag: "--no-cluster", Desc: "With --generate on a folder that holds several git repositories:\nindex it as one repository instead of as a cluster"},
 			{Flag: "--version", Desc: "Print version information"},
 			{Flag: "--version --json", Desc: "Print the version and the extractor version as JSON, on stdout.\nThis is the release manifest: what a build is called, and what it\nEXTRACTS LIKE. See UPDATES."},
 			{Flag: "--help, -h", Desc: "Show this help message"},

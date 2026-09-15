@@ -347,7 +347,7 @@ service_aliases:
 | Key | Meaning |
 |---|---|
 | `name` | Stamped on every route the client produces (`client_spec`) and on its account. |
-| `language` | The extractor that reads it. `typescript` today. |
+| `language` | The extractor that reads it. `typescript` today (`ts`, `javascript` and `js` mean the same). A spec for a language enola indexes but has no client reader for yet, such as `python` or `go`, is skipped with a warning at load, in `enola coverage` and in the MCP snapshot summary; the rest of the config still runs. Anything else is a config error. |
 | `receiver_types` | The declared type of the member a call is made on, by constructor parameter or `inject()` field. The type decides: the same method on any other type is not read. |
 | `methods[].name` | A method that makes a request. |
 | `path_arg` | Required. The argument holding the path. |

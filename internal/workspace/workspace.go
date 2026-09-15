@@ -81,6 +81,38 @@ func Folded(dir, configSource string) []string {
 	return repos
 }
 
+// IsRepo reports whether dir is itself a git repository.
+func IsRepo(dir string) bool {
+	_, err := os.Lstat(filepath.Join(dir, ".git"))
+	return err == nil
+}
+
+// Clusterable returns the child repositories enola indexes as a cluster when dir is given
+// as one repository, or nil. It is Folded, except for a dir that is itself a git
+// repository: nested checkouts inside a repository are part of it, and indexing only
+// the children would drop the repository's own code.
+func Clusterable(dir, configSource string) []string {
+	if IsRepo(dir) {
+		return nil
+	}
+	return Folded(dir, configSource)
+}
+
+// EnsureClusterConfig returns dir's cluster config, writing one that lists repos when
+// there is none. existing reports that the file was already there, in which case it is
+// the user's and is read as it is. A write failure returns the error with an empty path,
+// and the caller indexes the cluster without a file.
+func EnsureClusterConfig(dir string, repos []string) (path string, existing bool, err error) {
+	path, err = WriteClusterConfig(dir, repos)
+	if errors.Is(err, ErrClusterExists) {
+		return path, true, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	return path, false, nil
+}
+
 // Names lists repository names for a message, summarising past the first few.
 func Names(repos []string) string {
 	if len(repos) <= maxNamed {
@@ -121,7 +153,7 @@ func FoldWarning(binName, dir string, repos []string) string {
 // wherever enola runs from.
 func ClusterConfig(repos []string) (string, error) {
 	var buf bytes.Buffer
-	buf.WriteString("# Written by `enola cluster init`. Each entry is a git repository, relative to\n" +
+	buf.WriteString("# Written by enola for this folder of repositories. Each entry is a git repository, relative to\n" +
 		"# this file. Pass this file to --generate to index them as one linked graph.\n")
 	enc := yaml.NewEncoder(&buf)
 	enc.SetIndent(2)

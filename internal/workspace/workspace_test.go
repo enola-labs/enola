@@ -63,6 +63,33 @@ func TestFolded(t *testing.T) {
 	}
 }
 
+// A folder that is itself a git repository keeps its nested checkouts: indexing only the
+// children would drop its own code.
+func TestClusterable_SkipsAFolderThatIsItselfARepository(t *testing.T) {
+	two := t.TempDir()
+	mkdirs(t, two, "api/.git", "web/.git")
+	if got := Clusterable(two, ""); len(got) != 2 {
+		t.Errorf("Clusterable = %v, want both repositories", got)
+	}
+	mkdirs(t, two, ".git")
+	if got := Clusterable(two, ""); got != nil {
+		t.Errorf("a repository with nested checkouts is not a cluster, got %v", got)
+	}
+}
+
+func TestEnsureClusterConfig_WritesOnceThenReportsExisting(t *testing.T) {
+	root := t.TempDir()
+	mkdirs(t, root, "api/.git", "web/.git")
+	path, existing, err := EnsureClusterConfig(root, []string{"api", "web"})
+	if err != nil || existing || path != filepath.Join(root, ClusterFileName) {
+		t.Fatalf("first call: path=%q existing=%v err=%v", path, existing, err)
+	}
+	again, existing, err := EnsureClusterConfig(root, []string{"api"})
+	if err != nil || !existing || again != path {
+		t.Fatalf("second call: path=%q existing=%v err=%v", again, existing, err)
+	}
+}
+
 // The written file must load back as exactly the repositories it was written from,
 // resolved against its own directory.
 func TestWriteClusterConfig_LoadsAsTheSameRepositories(t *testing.T) {

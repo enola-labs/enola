@@ -626,9 +626,10 @@ func (s *Server) MCPServer() *mcp.Server {
 
 // generateSnapshotArgs are the arguments for the generate_snapshot tool.
 type generateSnapshotArgs struct {
-	RepoPath string `json:"repo_path" jsonschema:"Path to the repository to analyze. Defaults to the configured repo path."`
-	Append   bool   `json:"append,omitempty" jsonschema:"If true, keep existing facts and add new ones with repo-prefixed file paths (for multi-repo analysis). Default false."`
-	Fresh    bool   `json:"fresh,omitempty" jsonschema:"Force a clean SINGLE-repo snapshot: reset the store (discard any previously loaded repos) and index only repo_path, bypassing the auto-append heuristic. Use when you've moved to a different project and do NOT want it merged into an existing multi-repo store. Mutually exclusive with append."`
+	RepoPath  string `json:"repo_path" jsonschema:"Path to the repository to analyze. Defaults to the configured repo path."`
+	Append    bool   `json:"append,omitempty" jsonschema:"If true, keep existing facts and add new ones with repo-prefixed file paths (for multi-repo analysis). Default false."`
+	Fresh     bool   `json:"fresh,omitempty" jsonschema:"Force a clean SINGLE-repo snapshot: reset the store (discard any previously loaded repos) and index only repo_path, bypassing the auto-append heuristic. Use when you've moved to a different project and do NOT want it merged into an existing multi-repo store. Mutually exclusive with append."`
+	NoCluster bool   `json:"no_cluster,omitempty" jsonschema:"When repo_path is a folder holding several git repositories, index it as ONE repository instead of as a cluster. Default false."`
 }
 
 // queryFactsArgs are the arguments for the query_facts tool.
@@ -1026,6 +1027,7 @@ func (s *Server) registerTools() {
 			"Run this first before any other tool. Re-run after code changes. " +
 			"To VERIFY a change you are about to make, call set_baseline right after this first snapshot (BEFORE editing); " +
 			"then after editing, re-run generate_snapshot and call diff_snapshot to see exactly what the change did to the architecture. " +
+			"A repo_path that is a folder holding several git repositories is indexed as a cluster in one call (each repository a service, the calls between them linked); pass no_cluster=true to index it as one repository. " +
 			"In multi-repo mode, call with append=true for each additional repo after the first; " +
 			"enola auto-enables append when it detects you have switched to a different repo. " +
 			"If you have instead moved to a DIFFERENT project and want a clean single-repo snapshot (not merged into the current store), pass fresh=true to reset.",
@@ -1051,6 +1053,14 @@ func (s *Server) registerTools() {
 		// for the rest of the handler. Read-only tools do not take genMu.
 		s.genMu.Lock()
 		defer s.genMu.Unlock()
+
+		// A folder of git repositories is indexed as a cluster, as --generate does. An
+		// explicit append names one repository to add, so it is left alone.
+		if !args.Append && !args.NoCluster {
+			if repos := workspace.Clusterable(absRepo, ""); len(repos) > 0 {
+				return s.generateCluster(ctx, absRepo, repos)
+			}
+		}
 
 		// Auto-enable append mode when switching to a different repo while facts
 		// from another repo are already loaded — but only once this session has
@@ -1097,24 +1107,10 @@ func (s *Server) registerTools() {
 		// refresh from one that has real work to re-derive. Disk rather than the
 		// in-memory snapshot because in append mode the loaded snapshot describes
 		// whichever repo was indexed last, not this one.
-		prevID, prevHashes := previousSnapshot(absRepo)
-		priorCorpus := s.priorCorpusTokens(absRepo)
-
-		snapshot, err := s.eng.GenerateSnapshot(ctx, absRepo, appendMode)
+		snapshot, err := s.indexRepo(ctx, absRepo, appendMode)
 		if err != nil {
 			return errorResult(fmt.Sprintf("snapshot generation failed: %v", err)), nil, nil
 		}
-		s.snapshotsGenerated = true
-
-		corpusTokens := int(snapshot.Meta.SourceBytes / charsPerToken)
-		s.rememberCorpus(absRepo, corpusTokens)
-		recordSnapshot(ctx, absRepo, status.SnapshotValue{
-			CorpusTokens:      corpusTokens,
-			PriorCorpusTokens: priorCorpus,
-			Append:            appendMode,
-			Unchanged:         prevID != "" && prevID == snapshot.Meta.SnapshotID,
-			ChangedFraction:   changedFraction(prevHashes, snapshot.Meta.FileHashes),
-		})
 
 		// Write artifacts to disk
 		if err := s.eng.WriteArtifacts(absRepo); err != nil {
@@ -1126,68 +1122,14 @@ func (s *Server) registerTools() {
 			log.Printf("[server] warning: failed to write global receipt: %v", err)
 		}
 
-		// Return summary
-		summary := fmt.Sprintf(
-			"Snapshot generated successfully.\n\n"+
-				"- Repository: %s\n"+
-				"- Facts: %d\n"+
-				"- Insights: %d\n"+
-				"- Artifacts: %d\n"+
-				"- Duration: %s\n"+
-				"- Extractors: %v\n"+
-				"- Explainers: %v\n\n"+
-				"Fetch the computed findings with query_insights (e.g. query_insights(explainer='unused-routes') for HTTP routes no loaded client calls); use query_facts or explore to inspect the raw facts.",
-			snapshot.Meta.RepoPath,
-			snapshot.Meta.FactCount,
-			snapshot.Meta.InsightCount,
-			len(snapshot.Artifacts),
-			snapshot.Meta.Duration,
-			snapshot.Meta.Extractors,
-			snapshot.Meta.Explainers,
-		)
+		summary := s.snapshotSummary(snapshot)
 
 		if appendMode {
-			// What the facts are ACTUALLY tagged with — this string is handed to the
-			// agent as the value to pass to query_facts(repo=…), so a guess here sends
-			// it querying a label nothing is stored under.
-			repoLabel := snapshot.Meta.Label()
 			autoNote := ""
 			if autoAppended {
 				autoNote = " (auto-enabled: different repo detected)"
 			}
-			summary += fmt.Sprintf(
-				"\n\n**Multi-repo mode active%s.** Repo label: %q\n"+
-					"- Filter by repo: query_facts(repo=%q)\n"+
-					"- File paths are prefixed: e.g. %s/src/...\n"+
-					"- Generate additional repos with append=true (sequentially, not in parallel).",
-				autoNote, repoLabel, repoLabel, repoLabel,
-			)
-
-			// Report the cross-repo "graph of graphs" links derived from this set.
-			crossEdges, _ := s.eng.Store().QueryAdvanced(facts.QueryOpts{
-				Kind: facts.KindDependency, Prop: "type", PropValue: facts.TypeCrossRepo, Limit: 500,
-			})
-			services := s.eng.Store().ByKind(facts.KindService)
-			summary += fmt.Sprintf(
-				"\n- **Cross-repo graph:** %d service node(s), %d cross-repo dependency edge(s). "+
-					"Traverse between repos with traverse(start=%q) / find_path, list edges with "+
-					"query_facts(kind=\"service\") or query_facts(prop=\"type\", prop_value=\"cross_repo\").",
-				len(services), len(crossEdges), repoLabel,
-			)
-			// Shared-code pairs are NOT edges (no depends_on relation, so traversal never
-			// follows them). Surfaced separately so the signal is discoverable without
-			// being mistaken for a dependency.
-			sharedCode, _ := s.eng.Store().QueryAdvanced(facts.QueryOpts{
-				Kind: facts.KindDependency, Prop: "type", PropValue: facts.TypeCrossRepoSharedCode, Limit: 500,
-			})
-			if len(sharedCode) > 0 {
-				summary += fmt.Sprintf(
-					"\n- **Shared code:** %d repo pair(s) declare many of the same type names with no "+
-						"import or call between them — a maintenance signal, not a dependency, so they carry "+
-						"no graph edge. List them with query_facts(prop=\"type\", prop_value=%q).",
-					len(sharedCode), facts.TypeCrossRepoSharedCode,
-				)
-			}
+			summary += s.multiRepoSummary(snapshot, autoNote)
 		} else {
 			// Single-repo edit-verify loop guidance, tailored to whether a baseline
 			// is already pinned: nudge set_baseline before the agent edits, then

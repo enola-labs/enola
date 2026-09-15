@@ -13,6 +13,7 @@ package clientspec
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"regexp"
 	"sort"
 	"strconv"
@@ -68,12 +69,38 @@ type Consumer interface {
 	SetClientSpecs(specs []Spec)
 }
 
-// Languages are the extractor names that read specs. A spec naming any other language
-// would load and then do nothing, which is exactly the silent failure validation
-// exists to refuse.
+// Languages are the extractor names that read specs.
 var Languages = map[string]bool{
 	"typescript": true,
 }
+
+// WithoutReader are the extractors enola ships that could make HTTP calls but have no
+// client reader yet. A spec naming one loads and is skipped: nothing hands it to an
+// extractor and Fingerprint leaves it out. Loading and doing nothing is the silent
+// failure validation exists to refuse, so every entry point that loads a config
+// reports it through UnsupportedNotice. Any other language is a typo and fails
+// validation. TestClientLanguagesAreRegisteredExtractors in pkg/bootstrap keeps both
+// maps in step with the registered extractors.
+var WithoutReader = map[string]bool{
+	"cpp": true, "dart": true, "dotnet": true, "go": true, "java": true, "kotlin": true,
+	"php": true, "python": true, "ruby": true, "rust": true, "scala": true, "swift": true,
+}
+
+// languageAliases are spellings people write for an extractor name. The typescript
+// extractor reads JavaScript too, so "javascript" is typescript and not a typo.
+var languageAliases = map[string]string{
+	"ts": "typescript", "tsx": "typescript", "js": "typescript", "jsx": "typescript",
+	"javascript": "typescript", "node": "typescript",
+	"golang": "go", "c#": "dotnet", "csharp": "dotnet", "c++": "cpp",
+}
+
+// Issue, contribution and professional-services links the unsupported-language notice
+// points to.
+const (
+	IssuesURL     = "https://github.com/enola-labs/enola/issues/new"
+	ContributeURL = "https://github.com/enola-labs/enola/blob/main/docs/EXTENDING.md#teaching-enola-your-http-client"
+	EnterpriseURL = "https://enola.tech/enterprise"
+)
 
 // DefaultVerbOption is the options property a verb is read from when a method names
 // an options argument but no property.
@@ -92,6 +119,9 @@ func Normalize(specs []Spec) {
 		s := &specs[i]
 		s.Name = strings.TrimSpace(s.Name)
 		s.Language = strings.ToLower(strings.TrimSpace(s.Language))
+		if canonical, ok := languageAliases[s.Language]; ok {
+			s.Language = canonical
+		}
 		for j := range s.ReceiverTypes {
 			s.ReceiverTypes[j] = strings.TrimSpace(s.ReceiverTypes[j])
 		}
@@ -130,8 +160,8 @@ func Validate(specs []Spec) error {
 		}
 		names[s.Name] = true
 
-		if !Languages[s.Language] {
-			fail("%s: language %q has no client reader (supported: %s)", label, s.Language, strings.Join(sortedKeys(Languages), ", "))
+		if !Languages[s.Language] && !WithoutReader[s.Language] {
+			fail("%s: language %q is not a language enola reads (client readers: %s)", label, s.Language, strings.Join(sortedKeys(Languages), ", "))
 		}
 		if len(s.ReceiverTypes) == 0 {
 			fail("%s: receiver_types is empty; a spec is keyed on the receiver's declared type", label)
@@ -228,14 +258,68 @@ func ForLanguage(specs []Spec, language string) []Spec {
 	return out
 }
 
+// Unsupported returns the specs naming a language that has no client reader, in
+// declaration order.
+func Unsupported(specs []Spec) []Spec {
+	var out []Spec
+	for _, s := range specs {
+		if WithoutReader[s.Language] {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// UnsupportedNotice tells the user which declared clients were skipped because their
+// language has no client reader, and where to go for one. One paragraph per language,
+// "" when every spec is read.
+func UnsupportedNotice(specs []Spec) string {
+	byLanguage := map[string][]string{}
+	for _, s := range Unsupported(specs) {
+		byLanguage[s.Language] = append(byLanguage[s.Language], s.Name)
+	}
+	var sb strings.Builder
+	for _, language := range sortedKeys(byLanguage) {
+		names := byLanguage[language]
+		fmt.Fprintf(&sb, "Custom clients are not implemented for %s yet, so %s %s skipped (client readers exist for: %s).\n",
+			language, quotedList(names), pluralVerb(len(names)), strings.Join(sortedKeys(Languages), ", "))
+		fmt.Fprintf(&sb, "If you need it: open an issue at %s?title=%s, send a pull request (see %s), "+
+			"or contact us at %s for professional services.\n",
+			IssuesURL, url.QueryEscape("Custom clients for "+language), ContributeURL, EnterpriseURL)
+	}
+	return sb.String()
+}
+
+func quotedList(names []string) string {
+	quoted := make([]string, len(names))
+	for i, n := range names {
+		quoted[i] = strconv.Quote(n)
+	}
+	return "clients " + strings.Join(quoted, ", ")
+}
+
+func pluralVerb(n int) string {
+	if n == 1 {
+		return "was"
+	}
+	return "were"
+}
+
 // Fingerprint renders specs as a stable string, independent of declaration order. It
 // is "" for no specs, so folding it into a hash or a cache key changes nothing for a
-// configuration that declares none.
+// configuration that declares none. Specs nothing reads are left out, so declaring one
+// does not change a snapshot it cannot affect.
 func Fingerprint(specs []Spec) string {
-	if len(specs) == 0 {
+	var read []Spec
+	for _, s := range specs {
+		if !WithoutReader[s.Language] {
+			read = append(read, s)
+		}
+	}
+	if len(read) == 0 {
 		return ""
 	}
-	sorted := append([]Spec(nil), specs...)
+	sorted := read
 	sort.SliceStable(sorted, func(i, j int) bool { return sorted[i].Name < sorted[j].Name })
 
 	var sb strings.Builder

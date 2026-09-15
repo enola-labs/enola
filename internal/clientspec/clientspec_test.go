@@ -38,7 +38,7 @@ func TestValidate_RejectsEachProblem(t *testing.T) {
 		want   string
 	}{
 		{"missing name", func(s *Spec) { s.Name = "" }, "missing name"},
-		{"unsupported language", func(s *Spec) { s.Language = "cobol" }, `language "cobol" has no client reader`},
+		{"unknown language", func(s *Spec) { s.Language = "cobol" }, `language "cobol" is not a language enola reads`},
 		{"no receiver types", func(s *Spec) { s.ReceiverTypes = nil }, "receiver_types is empty"},
 		{"receiver type not a name", func(s *Spec) { s.ReceiverTypes = []string{"a.b"} }, `receiver type "a.b" is not a type name`},
 		{"no methods", func(s *Spec) { s.Methods = nil }, "methods is empty"},
@@ -71,7 +71,7 @@ func TestValidate_ReportsEveryProblemAtOnce(t *testing.T) {
 	if err == nil {
 		t.Fatal("invalid spec accepted")
 	}
-	for _, want := range []string{"has no client reader", "path_arg is required", "is not an HTTP verb"} {
+	for _, want := range []string{"is not a language enola reads", "path_arg is required", "is not an HTTP verb"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error omits %q:\n%v", want, err)
 		}
@@ -177,6 +177,59 @@ func TestValidateAliases(t *testing.T) {
 	err := ValidateAliases(map[string]string{"": "gateway", "resource-api": " "})
 	if err == nil || !strings.Contains(err.Error(), "empty service name") || !strings.Contains(err.Error(), "empty repository label") {
 		t.Errorf("want both problems reported, got %v", err)
+	}
+}
+
+// A language enola reads without a client reader loads, is skipped, and is named in a
+// notice that points to an issue, a pull request and professional services. It does not
+// reach an extractor or the fingerprint.
+func TestUnsupportedLanguage_LoadsSkipsAndIsReported(t *testing.T) {
+	ts, py, py2 := validSpec(), validSpec(), validSpec()
+	py.Name, py.Language, py.ReceiverTypes = "py-http", "Python", []string{"HttpClient"}
+	py2.Name, py2.Language, py2.ReceiverTypes = "py-other", "python", []string{"OtherClient"}
+	specs := []Spec{ts, py, py2}
+	Normalize(specs)
+
+	if err := Validate(specs); err != nil {
+		t.Fatalf("a spec for a language without a reader must load: %v", err)
+	}
+	if got := Unsupported(specs); len(got) != 2 || got[0].Name != "py-http" || got[1].Name != "py-other" {
+		t.Errorf("Unsupported = %+v, want both python specs", got)
+	}
+	if got := ForLanguage(specs, "typescript"); len(got) != 1 {
+		t.Errorf("ForLanguage(typescript) = %+v, want only the typescript spec", got)
+	}
+	if Fingerprint(specs) != Fingerprint([]Spec{ts}) {
+		t.Error("a spec nothing reads changed the fingerprint")
+	}
+
+	notice := UnsupportedNotice(specs)
+	for _, want := range []string{
+		"not implemented for python yet",
+		`clients "py-http", "py-other" were skipped`,
+		"client readers exist for: typescript",
+		IssuesURL + "?title=Custom+clients+for+python",
+		ContributeURL,
+		EnterpriseURL,
+	} {
+		if !strings.Contains(notice, want) {
+			t.Errorf("notice omits %q:\n%s", want, notice)
+		}
+	}
+	if UnsupportedNotice([]Spec{ts}) != "" {
+		t.Error("a config whose specs are all read must produce no notice")
+	}
+}
+
+func TestNormalize_ResolvesLanguageAliases(t *testing.T) {
+	for alias, want := range map[string]string{"JavaScript": "typescript", "ts": "typescript", "golang": "go", "C#": "dotnet"} {
+		s := validSpec()
+		s.Language = alias
+		specs := []Spec{s}
+		Normalize(specs)
+		if specs[0].Language != want {
+			t.Errorf("language %q normalized to %q, want %q", alias, specs[0].Language, want)
+		}
 	}
 }
 

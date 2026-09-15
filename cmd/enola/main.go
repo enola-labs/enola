@@ -66,6 +66,7 @@ func main() {
 	statusMode := false
 	statusAll := false
 	noDashboard := false
+	noCluster := false // index a folder of repositories as one repository
 	cfgPath := "mcp-arch.yaml"
 	repoArg := "" // optional positional repo path, for --explain and --generate
 
@@ -122,6 +123,8 @@ func main() {
 			statusAll = true
 		case "--no-dashboard":
 			noDashboard = true
+		case "--no-cluster":
+			noCluster = true
 		default:
 			// The positional argument is a REPOSITORY when it names a directory and a
 			// CONFIG FILE when it names a file, so both `--explain /path/to/repo` and
@@ -185,26 +188,29 @@ func main() {
 		cfg.Repo, cfg.Repos = abs, nil
 	}
 
-	// A folder holding several git repositories, given as a repository, is indexed as ONE
-	// repository: the cross-repo half of enola is off and nothing in the output said so.
-	// --generate in a terminal offers to write the cluster config and run with it.
-	// Everything else warns and goes on as before, so scripts and agents keep working
-	// and can see why the graph has no services.
+	// A folder holding several git repositories, given as a repository, would be indexed
+	// as ONE repository, with the cross-repo half of enola off. --generate indexes it as a
+	// cluster instead and says so, unless the folder is itself a git repository (nested
+	// checkouts belong to it) or --no-cluster asks for one repository. Everything else
+	// warns and goes on as before.
 	foldDir, folded := foldedRepos(cfg)
 	if len(folded) > 0 && !refreshMode {
-		if generateMode && cli.CanPrompt() {
-			clusterPath, err := offerCluster(os.Stdin, os.Stderr, foldDir, folded)
+		switch {
+		case noCluster:
+			folded = nil
+		case generateMode && !workspace.IsRepo(foldDir):
+			clusterCfg, clusterPath, err := clusterConfig(os.Stderr, binary().Name, cfg, foldDir, folded)
 			if err != nil {
-				log.Fatalf("failed to write cluster config: %v", err)
+				log.Fatalf("failed to read cluster config: %v", err)
 			}
 			if clusterPath != "" {
-				cfgPath, repoArg, folded = clusterPath, "", nil
-				eng, cfg, err = bootstrap.NewEngine(bootstrap.Options{ConfigPath: cfgPath})
-				if err != nil {
-					log.Fatalf("failed to create engine: %v", err)
-				}
+				cfgPath = clusterPath
 			}
-		} else {
+			repoArg, folded, cfg = "", nil, clusterCfg
+			if eng, err = bootstrap.NewEngineFromConfig(cfg); err != nil {
+				log.Fatalf("failed to create engine: %v", err)
+			}
+		default:
 			fmt.Fprint(os.Stderr, workspace.FoldWarning(binary().Name, foldDir, folded))
 		}
 	}

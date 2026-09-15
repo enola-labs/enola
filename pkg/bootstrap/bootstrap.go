@@ -12,6 +12,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/enola-labs/enola/internal/clientspec"
 	"github.com/enola-labs/enola/internal/config"
 	"github.com/enola-labs/enola/internal/diff"
 	"github.com/enola-labs/enola/internal/drift"
@@ -426,13 +427,27 @@ func NewEngine(opts Options) (*Engine, *config.Config, error) {
 		return nil, nil, err
 	}
 	fmt.Fprintln(os.Stderr, note)
+	if notice := clientspec.UnsupportedNotice(cfg.Clients); notice != "" {
+		fmt.Fprint(os.Stderr, "warning: "+notice)
+	}
 
+	eng, err := NewEngineFromConfig(cfg)
+	if err != nil {
+		return nil, nil, err
+	}
+	return eng, cfg, nil
+}
+
+// NewEngineFromConfig creates an Engine with all OSS plugins registered from a config
+// already resolved, for a caller that adjusts one (a folder of repositories indexed as a
+// cluster keeps every other setting in force).
+func NewEngineFromConfig(cfg *config.Config) (*Engine, error) {
 	eng, err := engine.New(cfg)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create engine: %w", err)
+		return nil, fmt.Errorf("failed to create engine: %w", err)
 	}
 	registerOSSPlugins(eng, cfg)
-	return &Engine{eng: eng}, cfg, nil
+	return &Engine{eng: eng}, nil
 }
 
 func registerOSSPlugins(eng *engine.Engine, cfg *config.Config) {
