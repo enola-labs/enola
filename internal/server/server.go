@@ -22,6 +22,9 @@ import (
 	"github.com/enola-labs/enola/internal/facts"
 	"github.com/enola-labs/enola/internal/linkers/crossrepo/routeindex"
 	httpsignal "github.com/enola-labs/enola/internal/linkers/crossrepo/signals/http"
+	"github.com/enola-labs/enola/internal/metrics"
+	"github.com/enola-labs/enola/internal/orphans"
+	"github.com/enola-labs/enola/internal/perf"
 	"github.com/enola-labs/enola/internal/updatecheck"
 	"github.com/enola-labs/enola/internal/version"
 	"github.com/enola-labs/enola/internal/workspace"
@@ -1017,6 +1020,15 @@ func (s *Server) registerTools() {
 	// The timeline tools, in their own file: everything else here answers about the tree
 	// as it is now, and those answer about the past.
 	s.registerHistoryTools()
+
+	// The three analyzers that own a tool as well as an explainer. They register on
+	// THIS server, so internal/server's value middleware observes their calls like
+	// any other tool's and prices them once; a plugin reporting its own calls could
+	// forget to, or remember twice. Each takes the accessor rather than a store,
+	// because a handler must read whatever the latest snapshot published.
+	metrics.Register(s.mcp, s.eng.Store)
+	orphans.Register(s.mcp, s.eng.Store)
+	perf.Register(s.mcp, s.eng.Store)
 
 	// Tool: generate_snapshot
 	mcp.AddTool(s.mcp, &mcp.Tool{
@@ -2237,7 +2249,7 @@ func (s *Server) currentRepoPath() string {
 }
 
 type queryInsightsArgs struct {
-	Explainer     string  `json:"explainer,omitempty" jsonschema:"Filter to insights produced by this explainer. One of: cycles, layers, crossrepo, coverage, unused-routes, messaging-coverage, god-class, hotspots, dependency-depth, exported-surface, complexity-outliers, intent, constraints, domain, query-loops, entry-points, dead-methods, vendored-candidates, import-closure. Empty = all."`
+	Explainer     string  `json:"explainer,omitempty" jsonschema:"Filter to insights produced by this explainer. One of: cycles, layers, crossrepo, coverage, unused-routes, messaging-coverage, god-class, hotspots, dependency-depth, exported-surface, complexity-outliers, intent, constraints, domain, query-loops, entry-points, dead-methods, vendored-candidates, import-closure, package-metrics, dead-code, performance. Empty = all."`
 	Repo          string  `json:"repo,omitempty" jsonschema:"Filter to insights about this repo label. In multi-repo snapshots this matches the repo-prefix path segment of each insight's evidence files (so 'golf' matches golf/... but not golf-ui/...); single-repo snapshots fall back to a substring match. Empty = all repos."`
 	MinConfidence float64 `json:"min_confidence,omitempty" jsonschema:"Only return insights with confidence >= this (0.0-1.0). Default 0 (all). Unused-routes is emitted at 0.6 as a review candidate."`
 	OutputMode    string  `json:"output_mode,omitempty" jsonschema:"'summary' (DEFAULT — one row per insight: explainer, confidence, title) → 'compact' (adds description, evidence sample, actions) → 'full' (complete JSON)."`

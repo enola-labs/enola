@@ -53,6 +53,9 @@ vocabulary you type, not internals:
 | `dead-methods` | a Ruby method whose name no call edge in the graph uses, or only spec files use |
 | `vendored-candidates` | a directory carrying its own licence under a conventional dependency parent — reported so you can decide, never excluded |
 | `import-closure` | what `import yourpackage` actually executes, and the package `__init__.py` files responsible for most of it |
+| `package-metrics` | how stable and how abstract a package is, and how far that puts it from Martin's main sequence |
+| `dead-code` | a symbol nothing in the snapshot references, in any language, reported with a confidence tier rather than a verdict |
+| `performance` | a loop, a call inside one, or a recursion whose cost grows with the input, with the Big-O that follows from the nesting |
 
 Only the first four ever reach confidence `1.0`. The rest estimate — see
 [docs/EXPLAINERS.md](EXPLAINERS.md) for what each computes and why that distinction is

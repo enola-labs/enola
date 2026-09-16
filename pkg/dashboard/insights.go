@@ -64,6 +64,9 @@ var insightLabels = map[string]string{
 	"messaging-coverage":  "Messaging coverage",
 	"intent":              "Intent",
 	"constraints":         "Constraint violations",
+	"package-metrics":     "Package metrics",
+	"dead-code":           "Dead code",
+	"performance":         "Performance",
 }
 
 // mergedLabels returns the engine's label map widened by a wrapper's extra

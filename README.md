@@ -240,7 +240,7 @@ The whole loop, unedited - the change is reported and nothing fails, the same ru
 
 ## What fails the build
 
-Two separate things decide that, and confusing them is the fastest way to be surprised by this tool: **what enola finds**, and **what your policy fails on**. enola runs all nineteen of its checks - it calls them **explainers** - on every single run. The policy picks which of their findings are allowed to set the exit code.
+Two separate things decide that, and confusing them is the fastest way to be surprised by this tool: **what enola finds**, and **what your policy fails on**. enola runs all twenty-two of its checks - it calls them **explainers** - on every single run. The policy picks which of their findings are allowed to set the exit code.
 
 **Out of the box that policy is empty.** Every finding is reported, the run exits `0`, and the output says in as many words that nothing was enforced. Nothing breaks until you name what should break:
 
@@ -265,7 +265,7 @@ Two separate things decide that, and confusing them is the fastest way to be sur
 
 So enola states what it measured and stops there. The exception it makes for itself is the one above: an unenforced run must say it enforced nothing, because a silent green is exactly what a broken gate looks like.
 
-**Any of the nineteen can fail the build.** `--fail-on` takes the names above as a comma-separated list, and `--min-confidence` sets the floor within them. Two more things can fail it that are not findings at all:
+**Any of the twenty-two can fail the build.** `--fail-on` takes the names above as a comma-separated list, and `--min-confidence` sets the floor within them. Two more things can fail it that are not findings at all:
 
 - **scope spillover** - packages your change reached outside the area you declared with `--target`, gated with `--max-spillover=N`. A change can trip this with zero failing findings.
 - **a gate that could not run.** A missing baseline or a bad flag exits `2`; a baseline that isn't comparable to the current code exits `3` and enola declines to grade rather than blaming your change. Neither is a judgement about the code, and neither is suppressed by `--warn-only`.
@@ -279,7 +279,7 @@ So enola states what it measured and stops there. The exception it makes for its
 | The default: report everything, fail nothing | `enola check` |
 | Fail on violations of a layer order you declared | `enola check --fail-on=layers` |
 | Also fail on a cross-repo seam nobody declared, a declared rule breached, and new cycles | `enola check --fail-on=layers,intent,cycles,constraints` |
-| Everything above, plus every explainer enola infers rather than proves | `enola check --fail-on=layers,intent,cycles,constraints,crossrepo,coverage,unused-routes,messaging-coverage,god-class,hotspots,dependency-depth,exported-surface,complexity-outliers,domain,query-loops,entry-points,dead-methods --min-confidence=0.8` |
+| Everything above, plus every explainer enola infers rather than proves | `enola check --fail-on=layers,intent,cycles,constraints,crossrepo,coverage,unused-routes,messaging-coverage,god-class,hotspots,dependency-depth,exported-surface,complexity-outliers,domain,query-loops,entry-points,dead-methods,package-metrics,dead-code,performance --min-confidence=0.8` |
 | Fail if the change spread outside the area you named | `enola check --target=internal/auth --max-spillover=0` |
 | Enforce a policy you set, but only warn this time | `enola check --fail-on=layers --warn-only` |
 
@@ -336,7 +336,7 @@ The `--target` you declare is a claim about intent, and this is the gate holding
 What enola does not do, and where each limit is documented in full.
 
 - enola models structure: modules, symbols, routes, storage, dependencies and the edges between them. It has no representation for runtime behaviour - a timeout, a retry budget, whether a message can be lost - and cannot report on any of it.
-- Of the nineteen explainers, only `cycles`, `intent`, `constraints` and a declared layer order produce findings at confidence `1.00`. That is the floor `check` gates at, so naming the others in `--fail-on` has no effect unless you also lower `--min-confidence`. See [docs/EXPLAINERS.md](docs/EXPLAINERS.md).
+- Of the twenty-two explainers, only `cycles`, `intent`, `constraints` and a declared layer order produce findings at confidence `1.00`. That is the floor `check` gates at, so naming the others in `--fail-on` has no effect unless you also lower `--min-confidence`. See [docs/EXPLAINERS.md](docs/EXPLAINERS.md).
 - Most findings are advisory. Across the benchmark corpus, 96.3% of them could not fail a build under the default policy.
 - The gate grades the delta against a baseline, so pre-existing findings stay silent and a repository can carry them indefinitely while every check passes. Read the findings directly to pay down existing debt.
 - Outlier thresholds are computed per repository. A uniformly complex codebase produces few findings, and a clean check means the change introduced nothing new rather than that the repository is clean.
@@ -478,8 +478,8 @@ Apache License 2.0 - see [`LICENSE`](LICENSE).
 Everything ships here:
 
 - **Every language** - Go, TypeScript/JavaScript/Vue/Svelte/Ember/Angular, Python, Java, Kotlin, Scala, Dart/Flutter, Ruby, PHP, Swift, Rust, C/C++, .NET (C#/VB.NET/F#/Razor/XAML), Terraform/HCL, Ansible, gRPC/Protobuf, OpenAPI, AsyncAPI, GraphQL
-- **All 19 MCP tools**, plus the cross-repo linker
-- **All nineteen explainers** - `cycles`, `layers`, `crossrepo`, `coverage`, `unused-routes`, `messaging-coverage`, `god-class`, `hotspots`, `dependency-depth`, `exported-surface`, `complexity-outliers`, `intent`, `constraints`, `domain`, `query-loops`, `entry-points`, `dead-methods`, `vendored-candidates`, `import-closure`
+- **All 22 MCP tools**, plus the cross-repo linker
+- **All twenty-two explainers** - `cycles`, `layers`, `crossrepo`, `coverage`, `unused-routes`, `messaging-coverage`, `god-class`, `hotspots`, `dependency-depth`, `exported-surface`, `complexity-outliers`, `intent`, `constraints`, `domain`, `query-loops`, `entry-points`, `dead-methods`, `vendored-candidates`, `import-closure`
 - Baselines, `diff_snapshot`, snapshot receipts, the `--explain` report, and the localhost dashboard
 
 ## Acknowledgements

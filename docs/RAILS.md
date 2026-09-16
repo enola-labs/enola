@@ -246,5 +246,5 @@ same three commands from §4 also run in a git hook or CI —
 
 **Next:** [docs/extraction/ruby.md](extraction/ruby.md) for what Ruby produces in the
 graph, [docs/CONSTRAINTS.md](CONSTRAINTS.md) for the law vocabulary,
-[docs/EXPLAINERS.md](EXPLAINERS.md) for what the nineteen explainers compute and why a
+[docs/EXPLAINERS.md](EXPLAINERS.md) for what the twenty-two explainers compute and why a
 finding is not a verdict.

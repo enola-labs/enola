@@ -30,6 +30,11 @@
     ]
   },
   {
+    "source": "dead-code",
+    "title": "Additional dead-code candidates: 10 more (see find_orphans)",
+    "confidence": 0.4
+  },
+  {
     "source": "domain",
     "title": "Domain findings do not apply to this repository",
     "confidence": 1,

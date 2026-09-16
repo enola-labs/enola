@@ -121,6 +121,12 @@ var (
 		"coverage_report":  20,
 		"impact_analysis":  25,
 		"query_insights":   30,
+		// The three analyzers sit above the band deliberately: reproducing
+		// find_orphans or analyze_performance by hand means a whole-graph
+		// reachability or loop-nesting analysis, not a lookup.
+		"package_metrics":     20,
+		"find_orphans":        40,
+		"analyze_performance": 50,
 	}
 )
 

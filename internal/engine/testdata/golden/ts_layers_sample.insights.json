@@ -1,5 +1,33 @@
 [
   {
+    "source": "dead-code",
+    "title": "Dead code candidate: function src/app.Page",
+    "confidence": 0.6,
+    "evidence": [
+      {
+        "file": "src/app/page.ts",
+        "detail": "function · unreferenced · src/app/page.ts:4"
+      },
+      {
+        "detail": "exported — may be used outside this snapshot; verify before removal"
+      }
+    ]
+  },
+  {
+    "source": "dead-code",
+    "title": "Dead code candidate: function src/lib.emptyBlocks",
+    "confidence": 0.6,
+    "evidence": [
+      {
+        "file": "src/lib/site-blocks.ts",
+        "detail": "function · isolated · src/lib/site-blocks.ts:10"
+      },
+      {
+        "detail": "exported — may be used outside this snapshot; verify before removal"
+      }
+    ]
+  },
+  {
     "source": "layers",
     "title": "Architecture pattern: declared (ts_layers_sample)",
     "confidence": 1,

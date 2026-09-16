@@ -2,6 +2,7 @@ package docslint
 
 import (
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -14,6 +15,13 @@ var numberWords = map[string]int{
 	"nine": 9, "ten": 10, "eleven": 11, "twelve": 12, "thirteen": 13, "fourteen": 14,
 	"fifteen": 15, "sixteen": 16, "seventeen": 17, "eighteen": 18, "nineteen": 19,
 	"twenty": 20,
+	// The compound spellings, added when the explainer and tool inventories passed
+	// twenty. Without them a page saying "twenty-two explainers" is read as a claim
+	// of twenty, which is wrong in the direction that matters: it fails a correct
+	// sentence and would pass an incorrect one the day the inventory reaches 20.
+	"twenty-one": 21, "twenty-two": 22, "twenty-three": 23, "twenty-four": 24,
+	"twenty-five": 25, "twenty-six": 26, "twenty-seven": 27, "twenty-eight": 28,
+	"twenty-nine": 29, "thirty": 30,
 }
 
 // countSubjects maps the noun phrase a claim is about to the inventory that decides
@@ -56,6 +64,18 @@ var claimRe = func() *regexp.Regexp {
 	for w := range numberWords {
 		words = append(words, w)
 	}
+	// Longest first, and not for tidiness: Go's alternation is leftmost-FIRST, so
+	// whichever spelling appears earlier in the pattern wins. `\b` is what kept the
+	// single words safe from each other ("nine" cannot match inside "nineteen"), but
+	// it sits happily between "twenty" and "-two", so "twenty-two explainers" read as
+	// a claim of twenty with "two" absorbed as filler. Built from a map, the order was
+	// also random, so the bug would have come and gone between runs.
+	sort.Slice(words, func(i, j int) bool {
+		if len(words[i]) != len(words[j]) {
+			return len(words[i]) > len(words[j])
+		}
+		return words[i] < words[j]
+	})
 	subjects := make([]string, 0, len(countSubjects))
 	for _, s := range countSubjects {
 		subjects = append(subjects, s.pattern)

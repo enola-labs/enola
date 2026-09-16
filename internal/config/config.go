@@ -231,7 +231,8 @@ var KnownExplainers = []string{
 	"cycles", "layers", "crossrepo", "coverage", "unused-routes", "messaging-coverage",
 	"god-class", "hotspots", "dependency-depth", "exported-surface", "complexity-outliers",
 	"intent", "constraints", "domain", "query-loops", "entry-points", "dead-methods",
-	"vendored-candidates", "import-closure",
+	"vendored-candidates", "import-closure", "package-metrics", "dead-code",
+	"performance",
 }
 
 // Default returns a Config with sensible defaults.

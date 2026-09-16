@@ -47,6 +47,11 @@ func OSSTools() []ToolEntry {
 		{Name: "diff_snapshot", Description: "Show what changed in the architecture between the baseline snapshot and the current one."},
 		{Name: "snapshot_receipt", Description: "Show the receipt for the current snapshot — a compact manifest of what the graph was generated over and how complete extraction was."},
 		{Name: "compare_receipts", Description: "Compare the current snapshot's receipt against a baseline's to check they are comparable before trusting a diff."},
+		// The three analyzers. Each owns a tool as well as an explainer: the tool
+		// answers on demand, the explainer files findings during a snapshot.
+		{Name: "package_metrics", Description: "Robert C. Martin / JDepend package metrics (Ca, Ce, instability, abstractness, distance)."},
+		{Name: "find_orphans", Description: "Find unreferenced symbols (dead code) in the codebase."},
+		{Name: "analyze_performance", Description: "Estimate per-function Big-O complexity and rank performance risks (nested loops, calls-in-loops/N+1, recursion)."},
 		// The only two that answer about the PAST. Everything above describes the tree as
 		// it is now — diff_snapshot included, which compares two nows.
 		{Name: "architecture_history", Description: "Show how the architecture changed over time — one entry per recorded snapshot, with what moved since the previous one."},

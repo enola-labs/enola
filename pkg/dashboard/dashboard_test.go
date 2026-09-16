@@ -650,14 +650,16 @@ func TestInsightDetailsCapsPreviewAndCarriesTopAction(t *testing.T) {
 	}
 }
 
-// Both binaries share a repo's .enola/insights.json, so a file written by a build
-// with extra explainers must not leak findings this engine cannot produce — the
-// dropped insights must not reach the groups OR the structural/candidate counts.
+// insightLabels is an admission list, not decoration: a finding whose source has no
+// label is dropped, and must not reach the groups OR the structural/candidate counts.
+// A repo's .enola/insights.json can be written by a newer build, or by a third-party
+// binary registering explainers of its own, and neither may put an unlabelled source
+// on this page.
 func TestInsightDetailsFiltersUnknownSources(t *testing.T) {
 	ins := []facts.Insight{
 		{Source: "cycles", Title: "Import cycle", Confidence: 1.0},
-		{Source: "performance", Title: "Slow loop", Confidence: 0.65},
-		{Source: "dead-code", Title: "Unused func", Confidence: 1.0},
+		{Source: "not-an-explainer", Title: "Slow loop", Confidence: 0.65},
+		{Source: "also-unknown", Title: "Unused func", Confidence: 1.0},
 		{Source: "", Title: "Unstamped", Confidence: 0.5},
 	}
 
@@ -669,13 +671,14 @@ func TestInsightDetailsFiltersUnknownSources(t *testing.T) {
 		t.Errorf("split = %d/%d, want 1 structural / 0 candidate — dropped insights must not be counted", structural, candidate)
 	}
 
-	// A wrapper admits its own explainers by labelling them.
+	// A caller admits sources of its own by labelling them, and the admission is
+	// per-Server rather than global.
 	groups, structural, candidate = insightDetails(ins, mergedLabels(map[string]string{
-		"performance": "Performance",
-		"dead-code":   "Dead code",
+		"not-an-explainer": "Slow things",
+		"also-unknown":     "Unused things",
 	}))
 	if len(groups) != 3 {
-		t.Fatalf("groups = %d, want 3 once the wrapper's labels are registered", len(groups))
+		t.Fatalf("groups = %d, want 3 once the caller's labels are registered", len(groups))
 	}
 	if structural != 2 || candidate != 1 {
 		t.Errorf("split = %d/%d, want 2 structural / 1 candidate", structural, candidate)
@@ -710,15 +713,15 @@ func TestInsightDetailsAdmitsEveryCurrentBuiltInSource(t *testing.T) {
 // package map (and thus into another dashboard in the same process).
 func TestMergedLabelsDoesNotMutatePackageMap(t *testing.T) {
 	before := len(insightLabels)
-	m := mergedLabels(map[string]string{"performance": "Performance"})
+	m := mergedLabels(map[string]string{"third-party": "Third party"})
 
 	if len(insightLabels) != before {
 		t.Errorf("insightLabels grew to %d, want %d — mergedLabels must copy", len(insightLabels), before)
 	}
-	if _, leaked := insightLabels["performance"]; leaked {
-		t.Error("wrapper label leaked into the package map")
+	if _, leaked := insightLabels["third-party"]; leaked {
+		t.Error("caller's label leaked into the package map")
 	}
-	if m["performance"] != "Performance" || m["cycles"] != "Dependency cycles" {
+	if m["third-party"] != "Third party" || m["cycles"] != "Dependency cycles" {
 		t.Errorf("merged map lost an entry: %+v", m)
 	}
 }

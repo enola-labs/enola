@@ -75,6 +75,9 @@ import (
 	kafkasignal "github.com/enola-labs/enola/internal/linkers/crossrepo/signals/kafka"
 	sharedcodesignal "github.com/enola-labs/enola/internal/linkers/crossrepo/signals/sharedcode"
 	"github.com/enola-labs/enola/internal/linkers/vocab"
+	"github.com/enola-labs/enola/internal/metrics"
+	"github.com/enola-labs/enola/internal/orphans"
+	"github.com/enola-labs/enola/internal/perf"
 	"github.com/enola-labs/enola/internal/renderers/llmcontext"
 	"github.com/enola-labs/enola/internal/server"
 	"github.com/enola-labs/enola/pkg/plan"
@@ -526,6 +529,9 @@ func registerOSSPlugins(eng *engine.Engine, cfg *config.Config) {
 	eng.RegisterExplainer(constraints.New())
 	eng.RegisterExplainer(vendoredcandidates.New())
 	eng.RegisterExplainer(importclosure.New())
+	eng.RegisterExplainer(metrics.NewExplainer())
+	eng.RegisterExplainer(orphans.NewExplainer())
+	eng.RegisterExplainer(perf.NewExplainer())
 
 	// Register all OSS renderers
 	eng.RegisterRenderer(llmcontext.New(cfg.Output.MaxContextTokens))

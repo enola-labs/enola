@@ -25,6 +25,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/enola-labs/enola/internal/explainers/queryloops"
 	"github.com/enola-labs/enola/internal/facts"
 	"github.com/enola-labs/enola/pkg/mcputil"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -68,7 +69,16 @@ type funcInfo struct {
 	ScalingLoopDepth int
 	HasScalingDepth  bool
 	LoopCount        int
-	CallsInLoop      []string // call targets invoked at loop depth >= 1
+	// Claimed records that the query-loops explainer already reports a
+	// per-iteration query against this symbol. That explainer answers the same
+	// question for Ruby from the receiver's type, measured down from 1,698
+	// candidates to 97, where the gate here is a keyword heuristic spanning ten
+	// languages. Where both can see a symbol the measured answer is the one worth
+	// having, and two findings on one loop read as two problems. It suppresses
+	// only call-in-loop: nested-loop, compounded and recursion are questions
+	// query-loops does not ask.
+	Claimed     bool
+	CallsInLoop []string // call targets invoked at loop depth >= 1
 	// CallsInScalingLoop is the subset of CallsInLoop made inside an input-scaling
 	// (unbounded) loop — a call only ever in a bounded loop (literal/constant/while(true))
 	// is not an N+1. HasScalingLoopCalls records whether the extractor emitted it; when it
@@ -372,7 +382,13 @@ func Analyze(store *facts.Store) []Finding {
 	return analyze(funcs, storage, routeHandlers, assoc)
 }
 
+func claimedHas(claimed map[string]struct{}, name string) bool {
+	_, ok := claimed[name]
+	return ok
+}
+
 func collect(store *facts.Store) (funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) {
+	claimed := queryloops.ClaimedSymbols(store)
 	storage = make(map[string]bool)
 	for _, f := range store.ByKind(facts.KindStorage) {
 		storage[f.Name] = true
@@ -447,6 +463,7 @@ func collect(store *facts.Store) (funcs []funcInfo, storage, routeHandlers, asso
 			ScalingLoopDepth:    intProp(f.Props, propScalingLoopDepth),
 			HasScalingDepth:     hasScaling,
 			LoopCount:           intProp(f.Props, propLoopCount),
+			Claimed:             claimedHas(claimed, f.Name),
 			CallsInLoop:         stringSliceProp(f.Props, propCallsInLoop),
 			CallsInScalingLoop:  stringSliceProp(f.Props, propCallsInScalingLoop),
 			HasScalingLoopCalls: hasScalingCalls,
@@ -1477,7 +1494,11 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 			}
 			evidence = append(evidence, "call_in_loop="+callee)
 		}
-		if len(evidence) > 0 && !eventLoop {
+		// f.Claimed says the query-loops explainer already reports a query per
+		// iteration against this symbol, from the receiver's type rather than from a
+		// keyword. Deferring here rather than earlier keeps confirmedIO, which the
+		// nested-loop and compounded findings on the same function still read.
+		if len(evidence) > 0 && !eventLoop && !f.Claimed {
 			// Severity is evidence-based, not export-based (exported is noise in Python and
 			// on the JVM). Every emitted finding has already passed a per-language
 			// expensiveness gate, so it is at least worth review (medium). It rises to high

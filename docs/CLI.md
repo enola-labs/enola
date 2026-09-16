@@ -133,7 +133,7 @@ Everything below is a prompt you type at your agent in plain English. enola pick
 
 > "Generate an architectural snapshot of /path/to/my/project"
 
-The snapshot gives your agent all 19 tools (`enola --list`) plus a summary at
+The snapshot gives your agent all 22 tools (`enola --list`) plus a summary at
 `.enola/llm_context.md`. Measured cold and warm times across the public corpus are in
 [BENCHMARKS.md](BENCHMARKS.md#4-scale).
 
@@ -234,7 +234,7 @@ to interpret the result:
 
 ---
 
-## The nineteen tools
+## The twenty-two tools
 
 `enola --list` prints this catalogue from the running binary; it is reproduced here so
 you can read it without one installed. You never call these by name — you ask in plain
@@ -256,6 +256,9 @@ thing.
 | `plan_check` | What would this change do, before it exists? |
 | `coverage_report` | Which cross-repo edges were resolved, and which were missed? |
 | `query_insights` | What did the explainers find? |
+| `package_metrics` | How stable and how abstract is this package, and how far is that from the main sequence? |
+| `find_orphans` | What does nothing reference any more? |
+| `analyze_performance` | Where does the cost grow with the input? |
 | `set_baseline` | Remember the architecture as it is now. |
 | `diff_snapshot` | What did my change actually do? |
 | `snapshot_receipt` | What was this graph generated over, what was excluded, and where are its known limits? |
@@ -660,7 +663,7 @@ Pin when you start a piece of work and the answer stays "what has this branch do
 
 **A stale baseline warns; it never blocks.** Past three days it tells you exactly how stale and what that means (the delta now also contains whatever the repo itself changed in between) - then grades anyway, because a long-lived baseline is a legitimate way to measure a multi-day refactor and only you know which you meant.
 
-**Nothing fails by default.** A bare `enola check` runs all nineteen explainers, reports every finding the change introduced, and exits `0` - saying in its own output that no policy was in effect, because a gate that enforces nothing must never be mistaken for a gate that found nothing. What breaks the build is what you name:
+**Nothing fails by default.** A bare `enola check` runs all twenty-two explainers, reports every finding the change introduced, and exits `0` - saying in its own output that no policy was in effect, because a gate that enforces nothing must never be mistaken for a gate that found nothing. What breaks the build is what you name:
 
 ```bash
 enola check --fail-on=layers                               # fail on a declared layer order

@@ -29,6 +29,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/enola-labs/enola/internal/explainers/deadmethods"
 	"github.com/enola-labs/enola/internal/facts"
 	"github.com/enola-labs/enola/pkg/mcputil"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -147,6 +148,12 @@ type symInput struct {
 	Package  string // declaring module (the declares-relation target)
 	Exported bool
 	UsageOut bool // has at least one outgoing usage edge
+	// Claimed records that the dead-methods explainer already reports this method.
+	// That explainer asks the narrower question it can answer on Ruby, scoped to the
+	// surfaces whose callers the graph can actually see, and leaves out the ones
+	// where a name index reads wrong (models, controllers, views, serializers).
+	// Where both can see a method, the scoped answer is the one worth reporting.
+	Claimed bool
 	// Framework/DI entry points: reached by the runtime/container via dispatch, not
 	// by a call edge, so an absent incoming reference does not mean dead code.
 	Override         bool   // an `override` — dispatched through its supertype
@@ -855,6 +862,9 @@ func Detect(store *facts.Store) []Orphan {
 func classify(syms []symInput, refSources map[string]map[string]struct{}, opts options) []Orphan {
 	out := make([]Orphan, 0)
 	for _, sym := range syms {
+		if sym.Claimed {
+			continue // dead-methods already reports it; see symInput.Claimed
+		}
 		if !isCandidate(sym, opts) {
 			continue
 		}
@@ -908,6 +918,7 @@ func sortOrphans(o []Orphan) {
 // classifier inputs: the per-symbol records and the short-name reference index.
 // It never names a facts.* type (module boundary).
 func collect(store *facts.Store) ([]symInput, map[string]map[string]struct{}) {
+	claimed := deadmethods.ClaimedSymbols(store)
 	symbols := store.ByKind(facts.KindSymbol)
 	// References are matched by name (see responseNote), so a symbol's identity is
 	// its name. Snapshots can carry several facts for one name (re-exports, the
@@ -924,7 +935,8 @@ func collect(store *facts.Store) ([]symInput, map[string]map[string]struct{}) {
 		}
 		si := byName[f.Name]
 		if si == nil {
-			si = &symInput{Name: f.Name, File: f.File, Line: f.Line, Repo: f.Repo}
+			_, isClaimed := claimed[f.Name]
+			si = &symInput{Name: f.Name, File: f.File, Line: f.Line, Repo: f.Repo, Claimed: isClaimed}
 			byName[f.Name] = si
 			order = append(order, f.Name)
 		}

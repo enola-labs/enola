@@ -40,7 +40,7 @@ find*. It is **what happens to a finding after you have found it** — and that 
 entirely on the thing [SNAPSHOTS.md](SNAPSHOTS.md) describes: whether your graph is a
 value you can compare against another one, or a picture of right now.
 
-## Nineteen explainers: three proofs and sixteen estimates
+## Twenty-two explainers: three proofs and sixteen estimates
 
 An explainer reads the fact graph and emits **findings** — a claim, a confidence, and
 the entities the claim is about. There are nineteen, and they fall into six kinds:
@@ -153,9 +153,27 @@ the entities the claim is about. There are nineteen, and they fall into six kind
   library. It reports the initialisations responsible for the most of it, because that
   is the part splitting one would give back.
 
+  `package-metrics`, `dead-code` and `performance` are the three that ask about a
+  whole repository rather than a framework's conventions. `package-metrics` is
+  arithmetic over edges the graph already holds — Ca, Ce, instability, abstractness,
+  and distance from Martin's main sequence — so the numbers are exact and only the
+  claim that a large distance is a problem is an opinion. `dead-code` asks what
+  nothing references, in every language, and answers in three confidence tiers that
+  encode what the graph can actually see rather than how sure it feels: functions
+  high, types medium, everything else low. `performance` estimates where cost grows
+  with the input, from loop-nesting and call-in-loop props the parsers record; its
+  Big-O labels are a structural worst case, not a measurement, and nothing here
+  knows whether a loop is hot.
+
+  Two of them defer. `dead-code` says nothing about a method `dead-methods` has
+  claimed, and `performance` files no `call-in-loop` against a symbol `query-loops`
+  has claimed. In both pairs the narrow explainer answers from a type the graph
+  actually knows while the broad one answers from a keyword across ten languages,
+  and reporting both would be the same loop counted twice.
+
 What each one computes, every threshold it uses and what it deliberately ignores is in
 [ARCHITECTURE.md → Insights](../ARCHITECTURE.md#insights-explainers). The distinction
-that matters here is smaller and blunter: **three of the nineteen prove something. The
+that matters here is smaller and blunter: **three of the twenty-two prove something. The
 other sixteen estimate.** A cycle is a fact about your import graph. A god class is an opinion
 about your repository, expressed as a number, and reasonable people can disagree with
 it.
@@ -224,7 +242,7 @@ Comparing findings across two snapshots gives three outcomes, not two:
 
 The third bucket prevents statistical movement from being attributed to the change.
 
-Most of the nineteen explainers are relative to your repository. `mean + 2σ` moves when the
+Most of the twenty-two explainers are relative to your repository. `mean + 2σ` moves when the
 population moves. A ranked top-N list has fixed membership size, so when a worse
 offender is deleted the next module rises into the window — and a finding "appears" for
 a module nobody edited. Both are real effects of statistics, not of your work.

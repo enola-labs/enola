@@ -41,6 +41,9 @@ Before changing code whose blast radius is not obvious:
   reconstructing it by reading files.
 - ` + "`set_baseline`" + ` — pin the architecture BEFORE you start editing, so the change can
   be graded afterwards. Do this once, early.
+- ` + "`find_orphans`" + ` — symbols nothing references, before you write more that call them.
+- ` + "`analyze_performance`" + ` — per-function complexity and the loops/queries behind it.
+- ` + "`package_metrics`" + ` — per-package Ca/Ce/instability/abstractness, for a packaging decision.
 
 After a structural change, re-run ` + "`generate_snapshot`" + ` and ` + "`diff_snapshot`" + ` to see what
 the change actually did: findings introduced or resolved, coupling added, symbols added
