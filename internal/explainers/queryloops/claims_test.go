@@ -2,7 +2,11 @@ package queryloops
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"testing"
+
+	"github.com/enola-labs/enola/internal/explainers/common"
 
 	"github.com/enola-labs/enola/internal/facts"
 )
@@ -17,8 +21,13 @@ func reported(t *testing.T, s *facts.Store) map[string]struct{} {
 	}
 	out := map[string]struct{}{}
 	for _, in := range got {
+		// A rollup stands for the findings past the cap rather than for one symbol,
+		// so it carries no evidence and claims nothing. Everything else must.
 		if len(in.Evidence) == 0 {
-			t.Fatalf("insight %q carries no evidence, so nothing can be claimed for it", in.Title)
+			if !strings.HasPrefix(in.Title, "Additional ") {
+				t.Fatalf("insight %q carries no evidence and is not a rollup", in.Title)
+			}
+			continue
 		}
 		out[in.Evidence[0].Symbol] = struct{}{}
 	}
@@ -82,5 +91,35 @@ func TestAnExcludedSurfaceIsNotClaimed(t *testing.T) {
 func TestNoFindingsMeansNoClaims(t *testing.T) {
 	if got := ClaimedSymbols(store()); len(got) != 0 {
 		t.Fatalf("an empty store claimed %v", got)
+	}
+}
+
+// The cap must not become a hole. A claim silences the performance analyzer on
+// that symbol, so if this explainer capped its report but still claimed every
+// candidate, the loops past the cap would be reported by NEITHER. The Phase 0
+// fixtures were all smaller than the cap, so only a fixture larger than it can
+// fail this.
+func TestClaimsDoNotOutrunTheCap(t *testing.T) {
+	fs := []facts.Fact{model("AccessLevel")}
+	const n = common.MaxIndividualInsights * 2
+	for i := 0; i < n; i++ {
+		fs = append(fs, symbol(fmt.Sprintf("Helpers#run_%03d", i),
+			[]string{"AccessLevel.find_by"}, 1))
+	}
+	s := store(fs...)
+
+	claimed := ClaimedSymbols(s)
+	rep := reported(t, s)
+	if len(rep) > common.MaxIndividualInsights+1 {
+		t.Fatalf("reported %d findings, want at most the cap plus one rollup", len(rep))
+	}
+	if len(claimed) > common.MaxIndividualInsights {
+		t.Fatalf("claimed %d symbols but reports at most %d — the rest are silenced for "+
+			"the performance analyzer and reported by nobody", len(claimed), common.MaxIndividualInsights)
+	}
+	for sym := range claimed {
+		if _, ok := rep[sym]; !ok {
+			t.Fatalf("claimed %q without reporting it", sym)
+		}
 	}
 }

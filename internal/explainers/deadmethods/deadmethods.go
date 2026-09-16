@@ -35,6 +35,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/enola-labs/enola/internal/explainers/common"
 	"github.com/enola-labs/enola/internal/facts"
 	"github.com/enola-labs/enola/internal/linkers/binders/frameworkroots"
 )
@@ -250,7 +251,7 @@ func candidates(store *facts.Store) (uncalled, testOnly []candidate) {
 // explainer's output depending on whether another ran, and a prop would make it
 // depend on whether another is enabled.
 func ClaimedSymbols(store *facts.Store) map[string]struct{} {
-	uncalled, testOnly := candidates(store)
+	uncalled, testOnly, _ := reportable(store)
 	claimed := make(map[string]struct{}, len(uncalled)+len(testOnly))
 	for _, c := range uncalled {
 		claimed[c.name] = struct{}{}
@@ -261,10 +262,28 @@ func ClaimedSymbols(store *facts.Store) map[string]struct{} {
 	return claimed
 }
 
-func (e *Explainer) Explain(_ context.Context, store *facts.Store) ([]facts.Insight, error) {
-	uncalled, testOnly := candidates(store)
+// reportable is the two lists this explainer actually files and the count it leaves
+// to the rollup. The budget is shared between the shapes rather than one each, and
+// the uncalled ones take it first: "nothing names it" is a stronger reading than
+// "only a spec names it".
+//
+// The cap lives here rather than in Explain because a claim silences the orphans
+// analyzer on that method. Claiming a method this explainer does not report would
+// leave one that NEITHER reports, turning the cap into a hole.
+func reportable(store *facts.Store) (uncalled, testOnly []candidate, omitted int) {
+	uncalled, testOnly = candidates(store)
+	// Per repository, so one noisy repository in a cluster snapshot cannot spend the
+	// whole budget and leave another looking clean when nobody looked at it.
+	repoOf := func(c candidate) string { return c.repo }
+	uncalled, uncalledOmitted := common.CapByRepo(uncalled, repoOf)
+	testOnly, testOmitted := common.CapByRepo(testOnly, repoOf)
+	return uncalled, testOnly, uncalledOmitted + testOmitted
+}
 
-	out := make([]facts.Insight, 0, len(uncalled)+len(testOnly))
+func (e *Explainer) Explain(_ context.Context, store *facts.Store) ([]facts.Insight, error) {
+	uncalled, testOnly, omitted := reportable(store)
+
+	out := make([]facts.Insight, 0, len(uncalled)+len(testOnly)+1)
 	for _, c := range testOnly {
 		evidence := []facts.Evidence{{File: c.file, Symbol: c.name, Detail: "defined here, surface: " + c.surface}}
 		for _, s := range c.specs {
@@ -290,6 +309,18 @@ func (e *Explainer) Explain(_ context.Context, store *facts.Store) ([]facts.Insi
 			Confidence: 0.5,
 			Evidence:   []facts.Evidence{{File: c.file, Symbol: c.name, Detail: "defined here, named nowhere, surface: " + c.surface}},
 			Actions:    []string{"grep the repository for the bare name once; if nothing names it, delete it", "if it is reached through metaprogramming, say so next to the definition so the next reader does not ask again"},
+		})
+	}
+	if omitted > 0 {
+		out = append(out, facts.Insight{
+			Title: fmt.Sprintf("Additional unnamed methods: %d more", omitted),
+			Description: fmt.Sprintf(
+				"%d further methods are named by nothing the graph holds, or only by specs, and are not "+
+					"listed individually. They are the same kind of candidate as those above, not a weaker "+
+					"one: the list is capped so a repository with hundreds does not bury every other "+
+					"finding. query_facts over the scoped surfaces returns the rest.", omitted),
+			Confidence: 0.5,
+			Actions:    []string{"Read the listed candidates first; they are ranked by the stronger of the two shapes"},
 		})
 	}
 	return out, nil

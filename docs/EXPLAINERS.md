@@ -262,6 +262,40 @@ its explainer. Lowering `--min-confidence` can include advisory findings such as
 classes, deep dependency chains, large exported surfaces and complexity outliers when a
 team deliberately chooses to enforce them.
 
+### Why a finding list stops at fifty
+
+An explainer that reports a large repository one finding at a time buries every
+other explainer. On a large Rails application `dead-methods` produces 955 and
+`query-loops` 419; uncapped, the performance analyzer produced 1,254 of enola's own
+1,385. So an explainer reports at most fifty findings individually and the rest as a
+single rollup naming the number. The tool behind it still returns everything.
+
+The budget is per repository rather than per snapshot. A snapshot can hold several,
+and one budget spent in rank order is spent by whichever repository ranks first: a
+cluster where one repository carries 200 dead methods and another carries 3 would
+report nothing at all about the second, and a reader would take that for a clean
+repository rather than an unexamined one.
+
+The cap is not free, and what it costs decides who may use it. A diff identifies a
+finding by its explainer and its title, so a finding past the cap is invisible to
+`diff_snapshot`, and therefore to `check --fail-on`, except that the rollup's own
+number moves. For a **candidate** that is an acceptable trade: it was going to be
+verified before anyone acted on it. For a **proof** it is not — a repository
+carrying 231 dependency cycles would rank a newly introduced one past the cap, and
+a gate set on cycles would never fire. `cycles`, declared `layers`, `intent` and
+`constraints` are therefore never capped, however many they report.
+
+Some explainers buy their way past the cap with a second channel: props are diffed
+as fact attributes rather than as insights, so `dead-code` stamps `orphan_class` on
+the symbol, `performance` stamps `perf_risk`, and `package-metrics` stamps the
+Martin measures on the module. A change past the cap still shows up on the fact it
+is about, with a name attached, rather than only as a counter moving.
+
+`vendored-candidates` is the deliberate exception in the other direction. It lists
+every candidate uncapped, because it reports directories that look like somebody
+else's code and excludes nothing: a truncated report there is the same failure as a
+silent exclusion, in a quieter form.
+
 ### Measured precision of the newest explainers
 
 `package-metrics`, `dead-code` and `performance` are gateable like any other inferred

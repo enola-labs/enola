@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/enola-labs/enola/internal/explainers/common"
 	"github.com/enola-labs/enola/internal/facts"
 )
 
@@ -31,7 +32,7 @@ func (e *Explainer) Name() string { return "performance" }
 // one of twenty-two explainers, in a tool whose documentation says a list of
 // everything wrong is not a list of anything you did. It also became gateable in the
 // same change, and a gate nobody can read is a gate that gets switched off.
-const maxIndividualInsights = 50
+const maxIndividualInsights = common.MaxIndividualInsights
 
 // Explain produces one insight per medium-or-higher-severity finding, capped.
 func (e *Explainer) Explain(_ context.Context, store *facts.Store) ([]facts.Insight, error) {
@@ -48,14 +49,18 @@ func (e *Explainer) Explain(_ context.Context, store *facts.Store) ([]facts.Insi
 func findingsToInsights(findings []Finding) []facts.Insight {
 	out := make([]facts.Insight, 0, len(findings))
 	var dropped int
+	// Per repository: one slow repo in a cluster must not spend the whole budget and
+	// leave the others reading as clean when nobody looked at them.
+	spent := map[string]int{}
 	for _, f := range findings {
 		if severityRank(f.Severity) < severityRank("medium") {
 			continue
 		}
-		if len(out) >= maxIndividualInsights {
+		if spent[f.Repo] >= maxIndividualInsights {
 			dropped++
 			continue
 		}
+		spent[f.Repo]++
 		// Prefer the finding's own confidence (decays with Big-O exponent / bounded-loop
 		// discount / cold path); fall back to the severity-based default for any finding
 		// that predates confidence scoring.

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/enola-labs/enola/internal/explainers/common"
 	"github.com/enola-labs/enola/internal/explainers/vendoredcandidates"
 	"github.com/enola-labs/enola/internal/facts"
 )
@@ -12,7 +13,7 @@ import (
 // maxIndividualInsights bounds how many per-symbol dead-code insights the
 // explainer emits, so a large dead codebase does not flood query_insights. The
 // remainder is reported as a single rollup; find_orphans returns the full list.
-const maxIndividualInsights = 50
+const maxIndividualInsights = common.MaxIndividualInsights
 
 // Explainer adapts dead-code detection to enola's explainer subsystem so its
 // findings surface via the OSS query_insights tool (explainer="dead-code"),
@@ -101,6 +102,10 @@ func orphansToInsights(orphans []Orphan) []facts.Insight {
 
 	out := make([]facts.Insight, 0)
 	var lowCount, dropped int
+	// Per repository. A single budget is spent by whichever repository ranks first,
+	// so in a cluster snapshot one dead-heavy repo left the others reported as clean
+	// when nobody had looked at them.
+	spent := map[string]int{}
 	for _, o := range ranked {
 		var conf float64
 		switch o.Confidence {
@@ -112,10 +117,11 @@ func orphansToInsights(orphans []Orphan) []facts.Insight {
 			lowCount++
 			continue
 		}
-		if len(out) >= maxIndividualInsights {
+		if spent[o.Repo] >= maxIndividualInsights {
 			dropped++
 			continue
 		}
+		spent[o.Repo]++
 		loc := o.File
 		if o.Line > 0 {
 			loc = fmt.Sprintf("%s:%d", o.File, o.Line)

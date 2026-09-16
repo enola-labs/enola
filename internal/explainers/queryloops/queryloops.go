@@ -52,6 +52,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/enola-labs/enola/internal/explainers/common"
 	"github.com/enola-labs/enola/internal/facts"
 )
 
@@ -509,18 +510,42 @@ func candidates(store *facts.Store) []finding {
 // The filter below is the emission loop's own: a surface this explainer excludes
 // is one it does not report, and so not one it claims.
 func ClaimedSymbols(store *facts.Store) map[string]struct{} {
-	claimed := map[string]struct{}{}
-	for _, f := range candidates(store) {
-		if surfaceOf(f.file).excluded {
-			continue
-		}
+	reported, _ := reportable(store)
+	claimed := make(map[string]struct{}, len(reported))
+	for _, f := range reported {
 		claimed[f.symbol] = struct{}{}
 	}
 	return claimed
 }
 
+// reportable is the findings this explainer actually files, and the count it leaves
+// to the rollup: candidates, minus the surfaces it refuses to report, capped.
+//
+// The cap is inside it rather than applied by Explain, and that is load-bearing.
+// A claim silences the performance analyzer on that symbol, so claiming a finding
+// this explainer does not report would leave a loop that NEITHER reports — the cap
+// would quietly become a hole instead of a summary. Filtering before capping
+// matters for the same reason: capping first would spend budget on excluded
+// surfaces and emit fewer than the cap.
+func reportable(store *facts.Store) ([]finding, int) {
+	all := candidates(store)
+	kept := all[:0]
+	for _, f := range all {
+		if surfaceOf(f.file).excluded {
+			continue
+		}
+		kept = append(kept, f)
+	}
+	// Per repository: a single budget spent in rank order is spent by whichever
+	// repository ranks first, and the others read as clean when nobody looked.
+	return common.CapByRepo(kept, func(f finding) string { return f.repo })
+}
+
 func (e *Explainer) Explain(_ context.Context, store *facts.Store) ([]facts.Insight, error) {
-	found := candidates(store)
+	// candidates() ranks deepest loop first, which is the order the budget is spent
+	// in: a query at depth 2 runs a product of two collections and is a different
+	// order of problem from one at depth 1.
+	found, omitted := reportable(store)
 
 	out := make([]facts.Insight, 0, len(found))
 	for _, f := range found {
@@ -563,9 +588,6 @@ func (e *Explainer) Explain(_ context.Context, store *facts.Store) ([]facts.Insi
 		// measured, and whether the loop is hot is not. This is a candidate to
 		// verify against a query count, which is the one oracle available here.
 		where := surfaceOf(f.file)
-		if where.excluded {
-			continue
-		}
 		confidence := 0.8
 		evidence := []facts.Evidence{{
 			File:   f.file,
@@ -594,6 +616,17 @@ func (e *Explainer) Explain(_ context.Context, store *facts.Store) ([]facts.Insi
 			Evidence:      evidence,
 			Actions:       actions,
 			Informational: where.oneOff,
+		})
+	}
+	if omitted > 0 {
+		out = append(out, facts.Insight{
+			Title: fmt.Sprintf("Additional per-iteration queries: %d more", omitted),
+			Description: fmt.Sprintf(
+				"%d further loops issue a query per iteration and are not listed individually. They sit "+
+					"at the same or shallower loop depth as those above, which is the order the budget is "+
+					"spent in, and are candidates on the same footing.", omitted),
+			Confidence: 0.5,
+			Actions:    []string{"Fix the deepest loops first; they multiply the collection sizes"},
 		})
 	}
 	return out, nil

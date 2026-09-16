@@ -2,6 +2,7 @@ package deadmethods
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/enola-labs/enola/internal/facts"
@@ -25,8 +26,13 @@ func reported(t *testing.T, s *facts.Store) map[string]struct{} {
 	}
 	out := map[string]struct{}{}
 	for _, in := range got {
+		// A rollup stands for the findings past the cap rather than for one symbol,
+		// so it carries no evidence and claims nothing. Everything else must.
 		if len(in.Evidence) == 0 {
-			t.Fatalf("insight %q carries no evidence, so nothing can be claimed for it", in.Title)
+			if !strings.HasPrefix(in.Title, "Additional ") {
+				t.Fatalf("insight %q carries no evidence and is not a rollup", in.Title)
+			}
+			continue
 		}
 		out[in.Evidence[0].Symbol] = struct{}{}
 	}

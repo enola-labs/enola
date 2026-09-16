@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/enola-labs/enola/internal/explainers/common"
 	"github.com/enola-labs/enola/internal/facts"
 )
 
@@ -56,7 +57,26 @@ func (e *Explainer) Explain(ctx context.Context, store *facts.Store) ([]facts.In
 	out = append(out, tablesSharedAcrossNamespaces(store)...)
 	out = append(out, outboundIntegrations(store)...)
 	if len(out) == 0 {
-		out = append(out, examinedPopulations(store)...)
+		// The "nothing found, here is what was examined" note. It is a scope
+		// statement rather than a finding list, so it is never capped: truncating
+		// an account of what was looked at would misreport the scope.
+		return append(out, examinedPopulations(store)...), nil
+	}
+
+	// Highest confidence first, so the budget goes to the strongest reading of the
+	// domain rather than to whichever shape happened to be appended first.
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Confidence > out[j].Confidence })
+	out, omitted := common.Cap(out)
+	if omitted > 0 {
+		out = append(out, facts.Insight{
+			Title: fmt.Sprintf("Additional domain observations: %d more", omitted),
+			Description: fmt.Sprintf(
+				"%d further observations about this repository's models, handlers, shared tables and "+
+					"outbound integrations are not listed individually. They rank below those above.",
+				omitted),
+			Confidence:    0.5,
+			Informational: true,
+		})
 	}
 	return out, nil
 }

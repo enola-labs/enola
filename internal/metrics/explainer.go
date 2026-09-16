@@ -5,13 +5,14 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/enola-labs/enola/internal/explainers/common"
 	"github.com/enola-labs/enola/internal/facts"
 )
 
 // maxMetricInsights bounds how many off-main-sequence insights the explainer
 // emits, so a large repo does not flood query_insights. The remainder is reported
 // as a single rollup; package_metrics returns the full ranked list.
-const maxMetricInsights = 50
+const maxMetricInsights = common.MaxIndividualInsights
 
 // Explainer adapts package metrics to enola's explainer subsystem so its findings
 // surface via the OSS query_insights tool (explainer="package-metrics"), alongside
@@ -55,11 +56,14 @@ func metricsToInsights(results []PackageMetric) []facts.Insight {
 
 	out := make([]facts.Insight, 0, len(off)+1)
 	dropped := 0
+	// Per repository, for the reason the other analyzers cap that way.
+	spent := map[string]int{}
 	for _, m := range off {
-		if len(out) >= maxMetricInsights {
+		if spent[m.Repo] >= maxMetricInsights {
 			dropped++
 			continue
 		}
+		spent[m.Repo]++
 		// A package is only in this list when D > painfulDistance (0.7), which forces
 		// A+I<0.3 (both low → zone of pain: stable + concrete) or A+I>1.7 (both high →
 		// zone of uselessness: unstable + abstract). So instability alone cleanly

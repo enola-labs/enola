@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/enola-labs/enola/internal/explainers/common"
 	"github.com/enola-labs/enola/internal/facts"
 )
 
@@ -69,7 +70,28 @@ func (e *Explainer) Explain(ctx context.Context, store *facts.Store) ([]facts.In
 		out = append(out, e.summary(entry, pkg, closure, total, arrival))
 		out = append(out, e.dominatingBarrels(g, entry, pkg, closure, externals)...)
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Title < out[j].Title })
+	// Ranked before capping, and by CONFIDENCE rather than by title: a package whose
+	// __init__ dominates its closure (0.7) is the finding worth the budget, and the
+	// per-package summaries (informational) are the part a rollup can stand in for.
+	// Sorted by title within a rank so the output stays deterministic.
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Confidence != out[j].Confidence {
+			return out[i].Confidence > out[j].Confidence
+		}
+		return out[i].Title < out[j].Title
+	})
+	out, omitted := common.Cap(out)
+	if omitted > 0 {
+		out = append(out, facts.Insight{
+			Title: fmt.Sprintf("Additional import closures: %d more", omitted),
+			Description: fmt.Sprintf(
+				"%d further packages were measured and are not listed individually. They rank below "+
+					"those above, which are the initialisations dominating the most of their closure.",
+				omitted),
+			Confidence:    0.5,
+			Informational: true,
+		})
+	}
 	return out, nil
 }
 

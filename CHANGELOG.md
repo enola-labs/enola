@@ -40,6 +40,19 @@ the resolution a reader of the repository needs.
   has it reported as dead code while it is being called.
 - Dead-code candidates under a directory conventionally holding other projects'
   code rank last, so the capped list is your own code first. Nothing is excluded.
+- Every explainer that can flood a findings list now reports at most 50 individually
+  plus a rollup naming the remainder, from one shared definition: `dead-methods`
+  (955 on a large Rails application), `query-loops` (419), `import-closure` (219)
+  and `domain` join the three analyzers. The tool behind each still returns
+  everything.
+- `cycles`, declared `layers`, `intent` and `constraints` are deliberately NOT
+  capped. A diff identifies a finding by explainer and title, so one past a cap
+  never reaches `check --fail-on`; on a repository with hundreds of cycles a cap
+  would rank a newly introduced one out of sight and the gate would silently stop
+  firing.
+- `performance` annotates the symbols it reports at high severity (`perf_risk`), so
+  a diff can name the function a change made expensive rather than only report that
+  a counter moved. `dead-code` and `package-metrics` already did this.
 
 **Upgrading:** the added explainers change the insight set, so the snapshot ID
 moves and every pinned baseline will report new findings on the first snapshot after
