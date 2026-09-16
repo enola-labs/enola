@@ -12,6 +12,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/enola-labs/enola/internal/explainers/common"
 	"github.com/enola-labs/enola/internal/facts"
@@ -90,6 +91,12 @@ func (e *HotspotExplainer) Explain(ctx context.Context, store *facts.Store) ([]f
 	scores := make(map[string]int, len(distinct))
 	values := make([]float64, 0, len(distinct))
 	for _, s := range distinct {
+		// Documentation intent facts are symbols so they can participate in the
+		// documentation graph, but their outgoing edges are links, not executable
+		// calls. Reporting README.md as a call-graph hotspot is a category error.
+		if s.PropString("language") == "markdown" || strings.HasSuffix(strings.ToLower(s.File), ".md") || strings.HasSuffix(strings.ToLower(s.File), ".mdx") {
+			continue
+		}
 		in := graph.ArchitecturalFanIn(s.Name)
 		out := graph.ArchitecturalFanOut(s.Name)
 		score := in * out

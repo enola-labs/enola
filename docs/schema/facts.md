@@ -158,6 +158,9 @@ Contract props:
   `symbol-rollup` (rolled up from resolved symbol edges, for languages with no
   import statement). Absent means unclassified — a normal edge. Where several
   references produce one edge the hardest kind wins.
+- `dependency_phase`: on a TypeScript import, `runtime` or `type_only`
+  (`import type`, erased at compile time). Cycles excludes `type_only` edges;
+  other readings keep them as real coupling. TypeScript only.
 
 ### storage
 

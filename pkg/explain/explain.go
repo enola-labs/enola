@@ -112,9 +112,12 @@ type Report struct {
 	SymbolKinds    []LabelCount `json:"symbol_kinds"`    // function/method/struct/…
 	DepSources     []LabelCount `json:"dep_sources"`     // external/internal/stdlib/…
 
-	Routes         int          `json:"routes"`
-	RoutesByMethod []LabelCount `json:"routes_by_method,omitempty"`
-	Storage        int          `json:"storage"`
+	Routes            int          `json:"routes"`
+	ContractRoutes    int          `json:"contract_routes"`
+	ImplementedRoutes int          `json:"implemented_routes"`
+	ClientRouteCalls  int          `json:"client_route_calls"`
+	RoutesByMethod    []LabelCount `json:"routes_by_method,omitempty"`
+	Storage           int          `json:"storage"`
 
 	// Architecture and ArchConfidence are the STRONGEST statement, kept as scalars
 	// so the existing JSON shape does not move. Architectures holds all of them,
@@ -213,6 +216,14 @@ func Compute(eng *bootstrap.Engine) *Report {
 	r.Routes = len(routes)
 	methodCount := map[string]int{}
 	for _, f := range routes {
+		switch facts.RouteOrigin(f) {
+		case facts.RouteOriginContract:
+			r.ContractRoutes++
+		case facts.RouteOriginClientCall:
+			r.ClientRouteCalls++
+		default:
+			r.ImplementedRoutes++
+		}
 		m, _ := f.Props["method"].(string)
 		if m == "" {
 			m = "(unspecified)"

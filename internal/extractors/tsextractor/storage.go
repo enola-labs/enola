@@ -1,7 +1,7 @@
 package tsextractor
 
 import (
-	"github.com/enola-labs/enola/internal/extractors/tsutil"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -9,6 +9,7 @@ import (
 
 	sitter "github.com/tree-sitter/go-tree-sitter"
 
+	"github.com/enola-labs/enola/internal/extractors/tsutil"
 	"github.com/enola-labs/enola/internal/factpath"
 	"github.com/enola-labs/enola/internal/facts"
 )
@@ -190,14 +191,9 @@ func firstStringArg(kinds *tsutil.KindTable, args *sitter.Node, src []byte) stri
 // prismaModel matches a `model User {` block header in a Prisma schema.
 var prismaModel = regexp.MustCompile(`(?m)^\s*model\s+(\w+)\s*\{`)
 
-// prismaSchemaFiles are the conventional locations of a Prisma schema, relative to the
-// repo (or TS) root.
-var prismaSchemaFiles = []string{
-	filepath.Join("prisma", "schema.prisma"),
-	"schema.prisma",
-}
-
-// extractPrismaStorage reads schema.prisma OFF-GLOB and emits one storage fact per model.
+// extractPrismaStorage reads Prisma schemas OFF-GLOB and emits one storage fact per
+// model. Schemas live below package roots in monorepos, so checking only
+// <repo>/prisma/schema.prisma silently misses the common packages/shared/prisma shape.
 //
 // schema.prisma is a separate DSL, not TypeScript, so tree-sitter never sees it. That is
 // not an obstacle: the extractor ALREADY reads non-TS files from disk this way —
@@ -205,51 +201,58 @@ var prismaSchemaFiles = []string{
 // same mechanism, plus a block-header match. (`datasource`/`generator` blocks are not
 // models and are ignored by construction.)
 func extractPrismaStorage(repoPath string) []facts.Fact {
-	tsRoot, _ := findTSRoot(repoPath)
-	roots := []string{tsRoot}
-	if tsRoot != repoPath {
-		roots = append(roots, repoPath)
-	}
-
 	var out []facts.Fact
 	seen := map[string]bool{}
-	for _, root := range roots {
-		for _, rel := range prismaSchemaFiles {
-			abs := filepath.Join(root, rel)
-			data, err := os.ReadFile(abs)
-			if err != nil {
-				continue
-			}
-			rawRel, err := filepath.Rel(repoPath, abs)
-			if err != nil {
-				continue
-			}
-			relFile := factpath.Slash(rawRel)
-			dir := factpath.Dir(relFile)
-			src := string(data)
-			for _, m := range prismaModel.FindAllStringSubmatchIndex(src, -1) {
-				model := src[m[2]:m[3]]
-				name := dir + "." + model
-				if seen[name] {
-					continue
-				}
-				seen[name] = true
-				out = append(out, facts.Fact{
-					Kind: facts.KindStorage,
-					Name: name,
-					File: relFile,
-					Line: strings.Count(src[:m[0]], "\n") + 1,
-					Props: map[string]any{
-						"storage_kind": "entity",
-						"language":     "typescript",
-						"framework":    "prisma",
-						"table":        model,
-					},
-					Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: dir}},
-				})
-			}
+	_ = filepath.WalkDir(repoPath, func(abs string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
 		}
-	}
+		if d.IsDir() {
+			switch d.Name() {
+			case ".git", "node_modules", "vendor", "dist", "build", ".next", ".enola":
+				if abs != repoPath {
+					return filepath.SkipDir
+				}
+			}
+			return nil
+		}
+		if strings.ToLower(filepath.Ext(abs)) != ".prisma" {
+			return nil
+		}
+		data, err := os.ReadFile(abs)
+		if err != nil {
+			return nil
+		}
+		rawRel, err := filepath.Rel(repoPath, abs)
+		if err != nil {
+			return nil
+		}
+		relFile := factpath.Slash(rawRel)
+		dir := factpath.Dir(relFile)
+		src := string(data)
+		for _, m := range prismaModel.FindAllStringSubmatchIndex(src, -1) {
+			model := src[m[2]:m[3]]
+			name := dir + "." + model
+			if seen[name] {
+				continue
+			}
+			seen[name] = true
+			out = append(out, facts.Fact{
+				Kind: facts.KindStorage,
+				Name: name,
+				File: relFile,
+				Line: strings.Count(src[:m[0]], "\n") + 1,
+				Props: map[string]any{
+					"storage_kind": "entity",
+					"language":     "typescript",
+					"framework":    "prisma",
+					"table":        model,
+				},
+				Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: dir}},
+			})
+		}
+		return nil
+	})
 	return out
 }
 

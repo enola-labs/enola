@@ -245,6 +245,55 @@ func TestExplain_OversizedClusterSoftened(t *testing.T) {
 	}
 }
 
+// TestExplain_TypeOnlyBridgesSplitOversizedCluster: five independent 2-module
+// runtime cycles, bridged into one 10-module ring solely by type-only edges,
+// softened to a single non-actionable "coupled cluster" if the bridges count.
+// Excluding them must split the ring back into five separate, actionable
+// 2-module cycles — the real-world effect this exclusion is for: type-only
+// edges can smuggle unrelated real cycles into one cluster too large to act on.
+func TestExplain_TypeOnlyBridgesSplitOversizedCluster(t *testing.T) {
+	const n = 5
+	s := facts.NewStore()
+	for i := 0; i < n; i++ {
+		s.Add(facts.Fact{Kind: facts.KindModule, Name: fmt.Sprintf("src/a%d", i)})
+		s.Add(facts.Fact{Kind: facts.KindModule, Name: fmt.Sprintf("src/b%d", i)})
+	}
+	addDep := func(file, target, phase string) {
+		s.Add(facts.Fact{
+			Kind: facts.KindDependency, File: file,
+			Props:     map[string]any{facts.PropDependencyPhase: phase},
+			Relations: []facts.Relation{{Kind: facts.RelImports, Target: target}},
+		})
+	}
+	for i := 0; i < n; i++ {
+		a, b := fmt.Sprintf("src/a%d", i), fmt.Sprintf("src/b%d", i)
+		nextA := fmt.Sprintf("src/a%d", (i+1)%n)
+		addDep(a+"/index.ts", b, facts.DependencyPhaseRuntime)
+		addDep(b+"/index.ts", a, facts.DependencyPhaseRuntime)
+		addDep(b+"/types.ts", nextA, facts.DependencyPhaseTypeOnly) // ring bridge
+	}
+
+	insights, err := New().Explain(context.Background(), s)
+	if err != nil {
+		t.Fatalf("Explain: %v", err)
+	}
+	var cycles, clusters int
+	for _, in := range insights {
+		switch {
+		case strings.HasPrefix(in.Title, "Cyclic dependency"):
+			cycles++
+		case strings.HasPrefix(in.Title, "Highly coupled module cluster"):
+			clusters++
+		}
+	}
+	if clusters != 0 {
+		t.Errorf("type-only bridges should not survive into a cluster finding, got %d", clusters)
+	}
+	if cycles != n {
+		t.Errorf("expected %d separate 2-module cycles once bridges are excluded, got %d: %+v", n, cycles, insights)
+	}
+}
+
 // TestExplain_AssociationEdgesExcluded: a two-model "cycle" formed solely by
 // ActiveRecord associations (Order has_many LineItems, LineItem belongs_to Order)
 // is bidirectional by nature, not a load-order cycle, and must not be reported.
@@ -270,6 +319,67 @@ func TestExplain_AssociationEdgesExcluded(t *testing.T) {
 	}
 	if len(insights) != 0 {
 		t.Errorf("association-only 2-cycle should not be reported, got %d: %+v", len(insights), insights)
+	}
+}
+
+// TestExplain_TypeOnlyEdgesExcluded mirrors TestExplain_AssociationEdgesExcluded:
+// two TS modules that reference only each other's types form a cycle in the type
+// graph, but `import type` is erased by the compiler and never runs, so there is
+// no load-order edge for the cycle explainer to report.
+func TestExplain_TypeOnlyEdgesExcluded(t *testing.T) {
+	s := facts.NewStore()
+	s.Add(facts.Fact{Kind: facts.KindModule, Name: "src/a"})
+	s.Add(facts.Fact{Kind: facts.KindModule, Name: "src/b"})
+	s.Add(facts.Fact{
+		Kind: facts.KindDependency, File: "src/a/index.ts",
+		Props:     map[string]any{facts.PropDependencyPhase: facts.DependencyPhaseTypeOnly},
+		Relations: []facts.Relation{{Kind: facts.RelImports, Target: "src/b"}},
+	})
+	s.Add(facts.Fact{
+		Kind: facts.KindDependency, File: "src/b/index.ts",
+		Props:     map[string]any{facts.PropDependencyPhase: facts.DependencyPhaseTypeOnly},
+		Relations: []facts.Relation{{Kind: facts.RelImports, Target: "src/a"}},
+	})
+
+	insights, err := New().Explain(context.Background(), s)
+	if err != nil {
+		t.Fatalf("Explain: %v", err)
+	}
+	if len(insights) != 0 {
+		t.Errorf("type-only 2-cycle should not be reported, got %d: %+v", len(insights), insights)
+	}
+}
+
+// TestExplain_RuntimeEdgeStillCyclesAlongsideTypeOnly guards against the phase
+// exclusion swallowing a real cycle: a genuine runtime a<->b cycle is still
+// reported even when a's import of b also carries a redundant type-only edge
+// (e.g. the module imports both a value and, separately, one of its types).
+func TestExplain_RuntimeEdgeStillCyclesAlongsideTypeOnly(t *testing.T) {
+	s := facts.NewStore()
+	s.Add(facts.Fact{Kind: facts.KindModule, Name: "src/a"})
+	s.Add(facts.Fact{Kind: facts.KindModule, Name: "src/b"})
+	s.Add(facts.Fact{
+		Kind: facts.KindDependency, File: "src/a/index.ts",
+		Props:     map[string]any{facts.PropDependencyPhase: facts.DependencyPhaseRuntime},
+		Relations: []facts.Relation{{Kind: facts.RelImports, Target: "src/b"}},
+	})
+	s.Add(facts.Fact{
+		Kind: facts.KindDependency, File: "src/a/types.ts",
+		Props:     map[string]any{facts.PropDependencyPhase: facts.DependencyPhaseTypeOnly},
+		Relations: []facts.Relation{{Kind: facts.RelImports, Target: "src/b"}},
+	})
+	s.Add(facts.Fact{
+		Kind: facts.KindDependency, File: "src/b/index.ts",
+		Props:     map[string]any{facts.PropDependencyPhase: facts.DependencyPhaseRuntime},
+		Relations: []facts.Relation{{Kind: facts.RelImports, Target: "src/a"}},
+	})
+
+	insights, err := New().Explain(context.Background(), s)
+	if err != nil {
+		t.Fatalf("Explain: %v", err)
+	}
+	if len(insights) != 1 {
+		t.Fatalf("expected 1 cycle insight, got %d: %+v", len(insights), insights)
 	}
 }
 

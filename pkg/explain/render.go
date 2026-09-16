@@ -71,6 +71,15 @@ func (r *Report) Render() string {
 	// API surface
 	b.WriteString("API & data surface\n")
 	countRow(&b, "routes", r.Routes)
+	if r.ContractRoutes > 0 {
+		countRow(&b, "  contract operations", r.ContractRoutes)
+	}
+	if r.ImplementedRoutes > 0 {
+		countRow(&b, "  implemented routes", r.ImplementedRoutes)
+	}
+	if r.ClientRouteCalls > 0 {
+		countRow(&b, "  outbound client calls", r.ClientRouteCalls)
+	}
 	for _, m := range r.RoutesByMethod {
 		countRow(&b, "  "+m.Label, m.Count)
 	}

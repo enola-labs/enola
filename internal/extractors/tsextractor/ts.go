@@ -461,7 +461,7 @@ func (e *TSExtractor) Extract(ctx context.Context, repoPath string, files []stri
 
 	// Prisma models live in schema.prisma — a separate DSL, so tree-sitter never sees it.
 	// Read it off-glob, the same way package.json and tsconfig.json already are.
-	if isPrisma {
+	if isPrisma || hasPrismaSchema(repoPath) {
 		allFacts = append(allFacts, extractPrismaStorage(repoPath)...)
 	}
 
@@ -786,8 +786,12 @@ func (e *TSExtractor) extractImports(kinds *tsutil.KindTable, root *sitter.Node,
 		}
 
 		props := map[string]any{
-			"language": "typescript",
-			"source":   importSource,
+			"language":                "typescript",
+			"source":                  importSource,
+			facts.PropDependencyPhase: facts.DependencyPhaseRuntime,
+		}
+		if isTypeOnlyModuleStatement(nodeText(child, src), isReexport) {
+			props[facts.PropDependencyPhase] = facts.DependencyPhaseTypeOnly
 		}
 		if isReexport {
 			props["reexport"] = true
@@ -834,11 +838,16 @@ func (e *TSExtractor) extractImports(kinds *tsutil.KindTable, root *sitter.Node,
 								source = "external"
 							}
 							result = append(result, facts.Fact{
-								Kind:      facts.KindDependency,
-								Name:      name,
-								File:      relFile,
-								Line:      int(n.StartPosition().Row) + 1,
-								Props:     map[string]any{"language": "typescript", "source": source, "dynamic": true},
+								Kind: facts.KindDependency,
+								Name: name,
+								File: relFile,
+								Line: int(n.StartPosition().Row) + 1,
+								Props: map[string]any{
+									"language":                "typescript",
+									"source":                  source,
+									"dynamic":                 true,
+									facts.PropDependencyPhase: facts.DependencyPhaseRuntime,
+								},
 								Relations: []facts.Relation{{Kind: facts.RelImports, Target: resolved}},
 							})
 						}
@@ -853,6 +862,44 @@ func (e *TSExtractor) extractImports(kinds *tsutil.KindTable, root *sitter.Node,
 	walkDeps(root)
 
 	return result
+}
+
+// isTypeOnlyModuleStatement reports whether every binding in a static import or
+// re-export is erased by TypeScript. Whole-statement `import type` / `export type`
+// forms are direct. For the inline form (`import { type A, type B }`) every named
+// binding must carry the type modifier; mixed lists remain runtime dependencies.
+// Returning false for unfamiliar syntax is deliberately conservative: cycle analysis
+// must never hide a possible runtime edge merely because classification was uncertain.
+func isTypeOnlyModuleStatement(statement string, reexport bool) bool {
+	s := strings.TrimSpace(statement)
+	keyword := "import"
+	if reexport {
+		keyword = "export"
+	}
+	if strings.HasPrefix(s, keyword+" type ") || strings.HasPrefix(s, keyword+" type{") {
+		return true
+	}
+	if !strings.HasPrefix(s, keyword+" {") && !strings.HasPrefix(s, keyword+"{") {
+		return false
+	}
+	open := strings.IndexByte(s, '{')
+	close := strings.IndexByte(s[open+1:], '}')
+	if close < 0 {
+		return false
+	}
+	body := s[open+1 : open+1+close]
+	sawBinding := false
+	for _, binding := range strings.Split(body, ",") {
+		binding = strings.TrimSpace(binding)
+		if binding == "" {
+			continue
+		}
+		sawBinding = true
+		if !strings.HasPrefix(binding, "type ") {
+			return false
+		}
+	}
+	return sawBinding
 }
 
 func (e *TSExtractor) extractDeclarations(kinds *tsutil.KindTable, root *sitter.Node, ctx *extractCtx) []facts.Fact {
@@ -1540,7 +1587,28 @@ func isMinifiedSource(content []byte) bool {
 // non-Angular repository is read by nothing, so the only cost is a cache key that
 // notices a page changing.
 func (e *TSExtractor) OwnsFile(relFile string) bool {
-	return isTypeScriptFile(relFile) || isAngularTemplateFile(relFile)
+	return isTypeScriptFile(relFile) || isAngularTemplateFile(relFile) || strings.EqualFold(filepath.Ext(relFile), ".prisma")
+}
+
+func hasPrismaSchema(repoPath string) bool {
+	found := false
+	_ = filepath.WalkDir(repoPath, func(path string, d os.DirEntry, err error) error {
+		if err != nil || found {
+			return err
+		}
+		if d.IsDir() {
+			switch d.Name() {
+			case ".git", "node_modules", "vendor", "dist", "build", ".next", ".enola":
+				if path != repoPath {
+					return filepath.SkipDir
+				}
+			}
+			return nil
+		}
+		found = strings.EqualFold(filepath.Ext(path), ".prisma")
+		return nil
+	})
+	return found
 }
 
 // isAngularTemplateFile reports whether a path is a candidate component template.
@@ -2452,7 +2520,10 @@ func (e *TSExtractor) collectTSFileRefs(kinds *tsutil.KindTable, root *sitter.No
 // tsTestSuffixes are the co-located TypeScript test/spec suffixes that
 // config.Default().TestGlobs matches. Kept in one place so isTSTestFile and any
 // future glob check agree.
-var tsTestSuffixes = []string{".test.ts", ".test.tsx", ".spec.ts", ".spec.tsx"}
+var tsTestSuffixes = []string{
+	".test.ts", ".test.tsx", ".test.js", ".test.jsx", ".test.mjs", ".test.cjs",
+	".spec.ts", ".spec.tsx", ".spec.js", ".spec.jsx", ".spec.mjs", ".spec.cjs",
+}
 
 // emberTestSuffixes are Ember's hyphenated test suffixes, valid ONLY under a
 // tests/ directory segment — ember-cli generates and qunit discovers
@@ -2466,6 +2537,11 @@ var emberTestSuffixes = []string{"-test.ts", "-test.js", "-test.gts", "-test.gjs
 // *_test.go — no production file can legally collide; the Ember convention is
 // reserved only inside tests/, so the directory is demanded there.
 func isTSTestFile(relFile string) bool {
+	for _, seg := range strings.Split(filepath.ToSlash(relFile), "/") {
+		if seg == "__tests__" {
+			return true
+		}
+	}
 	for _, suffix := range tsTestSuffixes {
 		if strings.HasSuffix(relFile, suffix) {
 			return true

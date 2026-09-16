@@ -71,7 +71,14 @@ func (e *CycleExplainer) Explain(ctx context.Context, store *facts.Store) ([]fac
 	// 508-module blob (46 cycles and 3 clusters became 40 and 4). The edges
 	// stay in the store for the readings that want coupling rather than
 	// cycles: the metrics suite, impact, and the layer rules.
-	graph := common.BuildModuleGraphExcluding(store, facts.CouplingAssociation, facts.CouplingReference, facts.CouplingSymbolRollup)
+	//
+	// Type-only TypeScript imports are excluded for the same load-order reason:
+	// `import type { X }` is erased by the compiler and never runs, so it cannot
+	// be a link in an initialization chain. Admitting it manufactured cycles that
+	// exist only in the type graph — two modules that reference each other's
+	// types but never actually import each other's values at runtime. The edge
+	// stays in the store for coupling readings, same as the exclusions above.
+	graph := common.BuildModuleGraphExcluding(store, facts.CouplingAssociation, facts.CouplingReference, facts.CouplingSymbolRollup, facts.DependencyPhaseTypeOnly)
 
 	// Which build unit each module compiles into, where the language models one.
 	// See facts.CompilationUnitProps: a cycle confined to a single unit is not a

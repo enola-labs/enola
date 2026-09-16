@@ -152,3 +152,14 @@ func TestExtractTestRefs_ReferenceFreeFileYieldsNoFact(t *testing.T) {
 		t.Fatalf("want no fact for a reference-free test file, got %+v", ff)
 	}
 }
+
+func TestIsTSTestFile_JSVariantsAndTestsDirectory(t *testing.T) {
+	for _, file := range []string{"src/a.test.mjs", "src/a.spec.js", "web/src/__tests__/custom.clienttest.ts"} {
+		if !isTSTestFile(file) {
+			t.Errorf("%s was not classified as a test", file)
+		}
+	}
+	if isTSTestFile("src/contest.ts") {
+		t.Error("production file classified as a test")
+	}
+}

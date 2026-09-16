@@ -197,6 +197,12 @@ const (
 // hardest kind wins (a real reference is never downgraded to an association).
 const (
 	PropCouplingKind = "coupling_kind"
+	// PropDependencyPhase distinguishes imports that survive compilation from
+	// type-only edges erased by TypeScript. Consumers such as cycle analysis can
+	// then describe runtime risk separately from source-level coupling.
+	PropDependencyPhase     = "dependency_phase"
+	DependencyPhaseRuntime  = "runtime"
+	DependencyPhaseTypeOnly = "type_only"
 
 	CouplingReference   = "reference"   // constant-receiver method call
 	CouplingInheritance = "inheritance" // superclass

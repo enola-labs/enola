@@ -342,6 +342,48 @@ import React from 'react'
 	}
 }
 
+func TestExtract_ImportDependencyPhase(t *testing.T) {
+	ff := extractAll(t, map[string]string{
+		"src/main.ts": `
+import type { A } from "./only";
+import { type B, type C as Renamed } from "./inline";
+import { type D, runtimeValue } from "./mixed";
+import "./side-effect";
+export type { E } from "./exported-type";
+export { type F, runtimeExport } from "./mixed-export";
+async function load() { return import("./lazy"); }
+`,
+	}, false)
+
+	want := map[string]string{
+		"src/only":          facts.DependencyPhaseTypeOnly,
+		"src/inline":        facts.DependencyPhaseTypeOnly,
+		"src/mixed":         facts.DependencyPhaseRuntime,
+		"src/side-effect":   facts.DependencyPhaseRuntime,
+		"src/exported-type": facts.DependencyPhaseTypeOnly,
+		"src/mixed-export":  facts.DependencyPhaseRuntime,
+		"src/lazy":          facts.DependencyPhaseRuntime,
+	}
+	seen := make(map[string]bool)
+	for _, dep := range findFactsByKind(ff, facts.KindDependency) {
+		for _, rel := range dep.Relations {
+			phase, ok := want[rel.Target]
+			if !ok {
+				continue
+			}
+			seen[rel.Target] = true
+			if got := dep.Props[facts.PropDependencyPhase]; got != phase {
+				t.Errorf("%s: dependency phase = %v, want %q", rel.Target, got, phase)
+			}
+		}
+	}
+	for target := range want {
+		if !seen[target] {
+			t.Errorf("dependency %q was not extracted", target)
+		}
+	}
+}
+
 func TestExtract_Monorepo_NestedTSConfigAlias(t *testing.T) {
 	ff := extractAll(t, map[string]string{
 		"tsconfig.json":                 `{}`,

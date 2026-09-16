@@ -48,6 +48,28 @@ func TestExplain_NoGraph(t *testing.T) {
 	}
 }
 
+func TestExplain_ExcludesMarkdownIntentSymbols(t *testing.T) {
+	s := facts.NewStore()
+	calls := make([]facts.Relation, 0, 5)
+	for i := 0; i < 5; i++ {
+		target := fmt.Sprintf("doc.section.%d", i)
+		calls = append(calls, facts.Relation{Kind: facts.RelCalls, Target: target})
+		s.Add(facts.Fact{Kind: facts.KindSymbol, Name: target, File: "README.md", Props: map[string]any{"language": "markdown"}})
+		s.Add(facts.Fact{Kind: facts.KindSymbol, Name: fmt.Sprintf("incoming.%d", i), File: "README.md", Props: map[string]any{"language": "markdown"}, Relations: []facts.Relation{{Kind: facts.RelCalls, Target: "README.md"}}})
+	}
+	s.Add(facts.Fact{Kind: facts.KindSymbol, Name: "README.md", File: "README.md", Props: map[string]any{"language": "markdown"}, Relations: calls})
+	s.BuildGraph()
+	got, err := New().Explain(context.Background(), s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, in := range got {
+		if strings.Contains(in.Title, "README.md") {
+			t.Fatalf("markdown became call hotspot: %s", in.Title)
+		}
+	}
+}
+
 func TestExplain_DetectsHotspot(t *testing.T) {
 	store := makeStore("core.Hub", 5, 5) // score 25, clear outlier vs the 0-score neighbors
 

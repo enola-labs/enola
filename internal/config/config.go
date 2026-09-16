@@ -265,8 +265,22 @@ func Default() *Config {
 			"**/*_test.go",
 			"**/*.test.ts",
 			"**/*.test.tsx",
+			"**/*.test.js",
+			"**/*.test.jsx",
+			"**/*.test.mjs",
+			"**/*.test.cjs",
 			"**/*.spec.ts",
 			"**/*.spec.tsx",
+			"**/*.spec.js",
+			"**/*.spec.jsx",
+			"**/*.spec.mjs",
+			"**/*.spec.cjs",
+			"**/__tests__/**/*.ts",
+			"**/__tests__/**/*.tsx",
+			"**/__tests__/**/*.js",
+			"**/__tests__/**/*.jsx",
+			"**/__tests__/**/*.mjs",
+			"**/__tests__/**/*.cjs",
 			// Ember's test convention is a HYPHENATED suffix under tests/ —
 			// ember-cli generates and qunit discovers tests/**/*-test.{js,ts,gjs,gts}.
 			// The directory is demanded for the same reason Ruby's is below: a bare
@@ -504,7 +518,9 @@ func Default() *Config {
 		// production file can collide with them.
 		TestGlobs: []string{
 			"**/*_test.go",
-			"**/*.test.ts", "**/*.test.tsx", "**/*.spec.ts", "**/*.spec.tsx",
+			"**/*.test.ts", "**/*.test.tsx", "**/*.test.js", "**/*.test.jsx", "**/*.test.mjs", "**/*.test.cjs",
+			"**/*.spec.ts", "**/*.spec.tsx", "**/*.spec.js", "**/*.spec.jsx", "**/*.spec.mjs", "**/*.spec.cjs",
+			"**/__tests__/**/*.ts", "**/__tests__/**/*.tsx", "**/__tests__/**/*.js", "**/__tests__/**/*.jsx", "**/__tests__/**/*.mjs", "**/__tests__/**/*.cjs",
 			"**/tests/**/*-test.js", "**/tests/**/*-test.ts",
 			"**/tests/**/*-test.gjs", "**/tests/**/*-test.gts",
 			"**/spec/**/*_spec.rb", "**/test/**/*_test.rb",
@@ -549,7 +565,7 @@ func Default() *Config {
 			"**/integration_test/**/*.dart",
 			"**/test_driver/**/*.dart",
 		},
-		Extractors: []string{"asyncapi", "cpp", "dart", "dotnet", "go", "grpc", "java", "kotlin", "openapi", "php", "python", "typescript", "swift", "ruby", "rust", "scala", "hcl", "ansible", "mdintent", "manifests"},
+		Extractors: []string{"asyncapi", "cpp", "dart", "dotnet", "go", "grpc", "java", "kotlin", "openapi", "php", "python", "typescript", "swift", "ruby", "rust", "scala", "hcl", "ansible", "sql", "mdintent", "manifests"},
 		Explainers: append([]string(nil), KnownExplainers...),
 		Renderers:  []string{"llm_context"},
 		Output: OutputConfig{
