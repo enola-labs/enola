@@ -890,6 +890,88 @@ func isExpensiveDartCall(target string, storage map[string]bool, byName map[stri
 	return false
 }
 
+// rustExpensiveMethods are the Rust round-trip calls that are distinctive enough to
+// stand on their name alone: the async filesystem and process APIs, and the query
+// methods of the ecosystem's database crates.
+//
+// Deliberately absent: read, write, send, recv, connect, flush, poll and next. Every
+// one is a channel, stream or buffer primitive before it is ever I/O, and it is the
+// generic list's matching of exactly those that this handler exists to stop.
+var rustExpensiveMethods = []string{
+	// sqlx / diesel / sea-orm / tokio-postgres / rusqlite — query round trips
+	"fetch_one", "fetch_all", "fetch_optional", "execute_many", "query_as",
+	"query_one", "query_opt", "query_row", "load_iter", "get_results", "get_result",
+	// reqwest / hyper — an HTTP request, not a channel send
+	"send_request", "request_builder",
+	// tokio::fs / std::fs — named operations rather than the read/write verbs
+	"read_to_string", "read_to_end", "read_dir", "write_all", "create_dir_all",
+	"copy_file", "remove_file", "metadata_at", "open_file",
+	// serde round trips against a reader/writer, which carry the I/O with them
+	"from_reader", "to_writer",
+}
+
+// rustIOReceivers are receiver tokens that make a call I/O whatever the method is
+// named. A `.send` on a pool is a query; a `.send` on an mpsc Sender is a move
+// between tasks, which is why the receiver rather than the method decides.
+var rustIOReceivers = []string{
+	"pool.", "db.", "conn.", "connection.", "client.", "transaction.", "tx_db.",
+	"repo.", "repository.", "store.", "fs::", "tokio::fs", "reqwest::", "sqlx::",
+	"diesel::", "redis.",
+}
+
+// rustPrimitiveNames are Rust and Tokio's in-memory primitives, excluded from the
+// loose short-name performs_io path the way Dart's dispatch names are. They are the
+// measured cause: on tokio, 42 of the high-severity call-in-loop findings named
+// new, send, recv, poll and iter — a constructor and a channel send, reported as
+// per-iteration database access. The exact-name, storage and receiver paths still
+// apply, so a genuinely resolved I/O callee is unaffected.
+var rustPrimitiveNames = map[string]bool{
+	"new": true, "with_capacity": true, "default": true, "clone": true,
+	"send": true, "recv": true, "try_send": true, "try_recv": true,
+	"poll": true, "poll_next": true, "poll_ready": true, "next": true,
+	"iter": true, "iter_mut": true, "into_iter": true, "collect": true,
+	"lock": true, "read": true, "write": true, "borrow": true, "borrow_mut": true,
+	"push": true, "insert": true, "get": true, "set": true, "update": true,
+	"len": true, "is_empty": true, "await": true, "spawn": true, "wait": true,
+}
+
+// isExpensiveRustCall reports whether a Rust in-loop call is per-iteration I/O.
+//
+// It is the fifth ecosystem handler, and it exists for the reason the other four do:
+// the language spells its in-memory primitives with the generic list's I/O verbs.
+// Rust is worse than most, because an async runtime's whole vocabulary is send,
+// recv, read, write and poll over channels and buffers that never leave the process.
+//
+// The rule is the same as Dart's and TypeScript's: evidence of I/O SHAPE, not a verb.
+// A storage fact, a resolved callee the extractor flagged performs_io, an I/O
+// receiver token, or a distinctive round-trip method. A bare call to a locally
+// defined helper is treated as in-memory, which accepts a false negative for an
+// unresolved helper that genuinely does I/O.
+func isExpensiveRustCall(target string, storage map[string]bool, byName map[string]funcInfo, ioMethods map[string]bool) bool {
+	if storage[target] {
+		return true
+	}
+	if f, ok := byName[target]; ok && f.PerformsIO {
+		return true
+	}
+	method := methodSegment(target)
+	if ioMethods[method] && !rustPrimitiveNames[method] {
+		return true
+	}
+	for _, kw := range rustExpensiveMethods {
+		if containsKeyword(method, kw) {
+			return true
+		}
+	}
+	lower := strings.ToLower(target)
+	for _, kw := range rustIOReceivers {
+		if strings.Contains(lower, kw) {
+			return true
+		}
+	}
+	return false
+}
+
 // composeAwaitMethods are Jetpack Compose gesture/frame suspend primitives. A loop that
 // awaits these — the canonical `while (true) { awaitPointerEvent() }` gesture detector —
 // is an event loop whose iteration count is driven by user input / frames, not a data
@@ -1392,6 +1474,7 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 			strings.HasSuffix(f.File, ".js") || strings.HasSuffix(f.File, ".jsx") ||
 			strings.HasSuffix(f.File, ".vue") || strings.HasSuffix(f.File, ".svelte")
 		dart := strings.HasSuffix(f.File, ".dart")
+		rust := strings.HasSuffix(f.File, ".rs")
 		rs := strings.HasSuffix(f.File, ".rs")
 		php := strings.HasSuffix(f.File, ".php")
 		cpp := strings.HasSuffix(f.File, ".cpp") || strings.HasSuffix(f.File, ".cc") ||
@@ -1428,6 +1511,12 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 				// produced 58 call-in-loop findings about list processing. Use the
 				// extractor's import-gated performs_io signal plus an I/O receiver.
 				isExpensive = isExpensiveDartCall(callee, storage, byName, ioMethods)
+			case rust:
+				// Rust: an async runtime's vocabulary IS the generic keyword list.
+				// send/recv on a channel, read/write on a buffer, poll on a future and
+				// new for construction are all in-memory, and on tokio they produced 42
+				// high-severity findings claiming per-iteration I/O.
+				isExpensive = isExpensiveRustCall(callee, storage, byName, ioMethods)
 			case py:
 				// Python: the cross-language keyword "merge" (SQLAlchemy Session.merge)
 				// collides with pure helpers like merge_dicts, and every module-level

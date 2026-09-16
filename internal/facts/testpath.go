@@ -32,6 +32,13 @@ var testSegments = map[string]bool{
 	"iosTest": true, "nativeTest": true,
 	// Python shared test-support trees.
 	"tests_common": true, "test_utils": true,
+	// Cargo builds `benches/` as bench targets, which is this list's admission rule:
+	// the directory is enforced by the tool rather than merely conventional. Rust's
+	// `tests/` tree is already covered by the `tests` segment above. Measured on
+	// tokio, where 11 of 43 high-severity performance findings were loops inside
+	// benchmarks — a benchmark iterates by definition, so a loop there is the point
+	// rather than a finding.
+	"benches": true,
 }
 
 // testFileSuffixes are the filename conventions safe enough to trust on their own,

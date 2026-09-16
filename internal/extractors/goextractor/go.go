@@ -1055,7 +1055,15 @@ func resolveChain(chain []string, ctx resolveCtx) string {
 	case 1:
 		// Builtins and predeclared type conversions (len, make, string(...), etc.)
 		// are not symbols — emitting them produces dangling phantom nodes.
-		if goBuiltins[chain[0]] {
+		//
+		// Unless this package declares a function of that name, which SHADOWS the
+		// predeclared identifier: Go resolves `min(a, b)` to the package's own min,
+		// and so must this. Repositories written before Go 1.21 carry their own min
+		// and max helpers by the hundred, and dropping those calls left the helper
+		// with no incoming edge at all — reported as dead code at HIGH confidence,
+		// the tier documented as the safest to delete, while being called seventeen
+		// times. Measured on one Go service: 4 of 41 high-confidence findings.
+		if goBuiltins[chain[0]] && !ctx.pkgFuncs[chain[0]] {
 			return ""
 		}
 		return ctx.pkgDir + "." + chain[0]

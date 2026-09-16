@@ -2410,7 +2410,14 @@ import (
 // extraction fact per client (typescript:client:<name>) with its receivers, the calls
 // made through it, the routes they became and the calls skipped by cause. Emitted even
 // when a client found nothing, so a client that matches nothing anywhere is reported.
-const cacheVersion = "v267"
+// v268: a Go package's own top-level function shadows the predeclared identifier of
+// the same name, so `min(a, b)` in a package declaring min resolves to that function
+// instead of being dropped as a builtin. Repositories predating Go 1.21 carry their
+// own min/max helpers, and with no incoming edge the dead-code analyzer reported them
+// at high confidence while they were called. Also adds `benches` to the shared
+// test-path segments (Cargo builds it as bench targets), which the TypeScript
+// extractor consults.
+const cacheVersion = "v268"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

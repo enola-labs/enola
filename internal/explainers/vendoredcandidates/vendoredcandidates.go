@@ -34,6 +34,9 @@ import (
 // Every one of them also names first-party code somewhere in the wild — a Go
 // package called external, a Ruby module called third_party, a Python package
 // called deps — which is exactly why this package reports rather than acts.
+//
+// UnderDependencyParent exposes the same vocabulary, so a consumer that wants to
+// RANK by it rather than act on it reads one list instead of copying this one.
 var candidateNames = map[string]bool{
 	"third_party": true, "thirdparty": true, "3rdparty": true,
 	"external": true, "externals": true, "extern": true,
@@ -311,4 +314,21 @@ func matchCandidate(prefix, infix []string, file string) int {
 		}
 	}
 	return -1
+}
+
+// UnderDependencyParent reports whether a repo-relative path passes through a
+// directory conventionally used to hold other projects' code.
+//
+// It is deliberately weaker than what this explainer reports. A finding here needs
+// the licence file too, because a container routinely mixes dependencies with the
+// repository's own code — gmsh's `contrib/mobile/` is gmsh's. A caller that merely
+// ORDERS its output can use the weaker test: over-matching costs a first-party
+// directory some rank, where excluding on it would hide the code entirely.
+func UnderDependencyParent(path string) bool {
+	for _, seg := range strings.Split(strings.ReplaceAll(path, "\\", "/"), "/") {
+		if candidateNames[seg] {
+			return true
+		}
+	}
+	return false
 }

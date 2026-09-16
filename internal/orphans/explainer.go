@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/enola-labs/enola/internal/explainers/vendoredcandidates"
 	"github.com/enola-labs/enola/internal/facts"
 )
 
@@ -40,6 +41,15 @@ func (e *Explainer) Explain(_ context.Context, store *facts.Store) ([]facts.Insi
 // exported), then class (isolated → unreferenced), with package/name as a stable
 // tiebreak for deterministic output.
 func moreActionable(a, b Orphan) bool {
+	// Somebody else's code, last. On gmsh, 20 of the 51 reported candidates sat
+	// under contrib/, which is a real finding about a vendored solver and not something
+	// the reader is going to delete. Ranking rather than excluding is deliberate: a
+	// dependency-named directory routinely holds first-party code too (gmsh's own
+	// contrib/mobile/ is gmsh's), and hiding it would be the silent kind of wrong.
+	// The tool still returns every candidate either way.
+	if va, vb := vendoredcandidates.UnderDependencyParent(a.File), vendoredcandidates.UnderDependencyParent(b.File); va != vb {
+		return !va
+	}
 	if ra, rb := confidenceRank(a.Confidence), confidenceRank(b.Confidence); ra != rb {
 		return ra < rb
 	}

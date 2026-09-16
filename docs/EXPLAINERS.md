@@ -264,34 +264,36 @@ team deliberately chooses to enforce them.
 
 ### Measured precision of the newest explainers
 
-`package-metrics`, `dead-code` and `performance` are gateable like any other
-inferred explainer. What follows is what they were measured at on a twelve-repository
-cross-language sample, so a team choosing to gate on one knows what it is buying.
-Everything below is the tier a gate would actually fire on.
+`package-metrics`, `dead-code` and `performance` are gateable like any other inferred
+explainer. What follows is what they measure at on a twelve-repository cross-language
+sample, at the tier a gate would actually fire on. Four defects were found this way and
+all four are fixed; the numbers below are after.
 
-**`dead-code`, high-confidence tier: 37 of 41 correct on a Go service.** Every one of
-the four misses is one class rather than diffuse noise: a package-local function whose
-name collides with a Go builtin. A repository carrying its own `min` helper, written
-before Go 1.21 had one, gets no incoming call edge at all for `min(a, b)` — the call is
-attributed to the builtin — so a function that is called seventeen times reads as
-referenced by nothing. Check for a shadowed builtin before acting on a high-confidence
-finding whose name is a short common verb.
+**`dead-code`, high-confidence tier: 37 of 37 on a Go service.** It was 37 of 41. Every
+one of the four misses was the same thing: a package-local function whose name collides
+with a Go builtin. A repository carrying its own `min` helper, written before Go 1.21
+had one, got no incoming call edge for `min(a, b)` at all — the call was attributed to
+the builtin — so a function called seventeen times read as referenced by nothing, at the
+tier documented as safest to delete. A package's own declaration now shadows the
+predeclared identifier, as it does in Go itself.
 
-**`dead-code` spends its budget on vendored code.** On a C++ repository, 20 of the 51
-reported candidates sit under `contrib/`, in directories the `vendored-candidates`
-explainer identified as third-party in the same snapshot. Nothing is wrong with the
-findings; they are about somebody else's code. Add the directories that explainer lists
-to `ignore:` before reading this one.
+**`dead-code` no longer spends its budget on other people's code.** On a C++ repository
+20 of 51 candidates sat under `contrib/`, third-party solvers the reader is not going to
+delete. Candidates under a directory conventionally holding other projects' code now
+rank last, so the capped list is the reader's own code first. They are ranked, not
+excluded: such a directory routinely holds first-party code too, and `find_orphans`
+still returns every candidate.
 
-**`performance`, high-severity tier: the Ruby and Go readings held up; the Rust ones did
-not.** Across the sample, 172 findings reached high severity. On Rails applications they
-are ActiveRecord reads in loops (`find_by`, `where`, `save!`) and are what they say they
-are. On Rust, 42 of tokio's findings name `new`, `send`, `recv`, `poll` and `iter` — a
-channel send and a constructor are not per-iteration I/O, and the generic keyword gate
-has no Rust handler to tell it so, the way it has one for Swift, the JVM, TypeScript and
-Dart. Eleven of them are in `benches/`, which no other language reports because their
-test surfaces are excluded and Rust's is not. **Do not gate `performance` on a Rust
-repository yet.**
+**`performance`, high-severity tier.** On Rails applications these are ActiveRecord
+reads in loops (`find_by`, `where`, `save!`) and are what they say they are. Rust was
+the exception and is now the fifth ecosystem with its own expensive-call gate, beside
+Swift, the JVM, TypeScript and Dart, for the same reason each of those has one: an async
+runtime spells its in-memory primitives with the generic list's I/O verbs. A `send` on
+an mpsc channel is not a database write. On tokio that cut 42 high-severity findings to
+3 — a `file_type` per directory entry, a socket `connect` in a loop, and a
+`spawn_blocking` per iteration, which are the three that were real. Cargo's `benches/`
+tree also counts as test code now, as `tests/` already did; it accounted for 11 of the
+42.
 
 **Deference is worth what it costs.** On a large Rails application, `query-loops` claims
 333 symbols and suppresses 265 of the `call-in-loop` findings this explainer would
