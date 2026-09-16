@@ -268,11 +268,14 @@ func IsTestModule(m facts.Fact) bool {
 }
 
 // BuildModuleGraphExcluding is BuildModuleGraph with the ability to drop synthetic
-// coupling edges by their Props["coupling_kind"] (see facts.Coupling* constants).
-// A dependency fact whose coupling_kind is in excludeKinds contributes no edge.
-// The cycles explainer uses this to exclude ActiveRecord associations, whose
-// inherent bidirectionality would otherwise manufacture false cycles. With no
-// excludeKinds it is identical to BuildModuleGraph.
+// coupling edges by their Props["coupling_kind"] (see facts.Coupling* constants)
+// or their Props["dependency_phase"] (see facts.DependencyPhase* constants). A
+// dependency fact whose coupling_kind OR dependency_phase is in excludeKinds
+// contributes no edge. The cycles explainer uses this to exclude ActiveRecord
+// associations, whose inherent bidirectionality would otherwise manufacture false
+// cycles, and type-only TypeScript imports, which are erased at compile time and
+// so cannot be a link in a load-order chain. With no excludeKinds it is identical
+// to BuildModuleGraph.
 func BuildModuleGraphExcluding(store *facts.Store, excludeKinds ...string) map[string][]string {
 	graph := make(map[string][]string)
 
@@ -317,6 +320,9 @@ func BuildModuleGraphExcluding(store *facts.Store, excludeKinds ...string) map[s
 		}
 		if excluded != nil {
 			if ck, _ := dep.Props[facts.PropCouplingKind].(string); excluded[ck] {
+				continue
+			}
+			if ph, _ := dep.Props[facts.PropDependencyPhase].(string); excluded[ph] {
 				continue
 			}
 		}

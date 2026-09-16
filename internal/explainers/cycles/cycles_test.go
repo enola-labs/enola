@@ -273,6 +273,67 @@ func TestExplain_AssociationEdgesExcluded(t *testing.T) {
 	}
 }
 
+// TestExplain_TypeOnlyEdgesExcluded mirrors TestExplain_AssociationEdgesExcluded:
+// two TS modules that reference only each other's types form a cycle in the type
+// graph, but `import type` is erased by the compiler and never runs, so there is
+// no load-order edge for the cycle explainer to report.
+func TestExplain_TypeOnlyEdgesExcluded(t *testing.T) {
+	s := facts.NewStore()
+	s.Add(facts.Fact{Kind: facts.KindModule, Name: "src/a"})
+	s.Add(facts.Fact{Kind: facts.KindModule, Name: "src/b"})
+	s.Add(facts.Fact{
+		Kind: facts.KindDependency, File: "src/a/index.ts",
+		Props:     map[string]any{facts.PropDependencyPhase: facts.DependencyPhaseTypeOnly},
+		Relations: []facts.Relation{{Kind: facts.RelImports, Target: "src/b"}},
+	})
+	s.Add(facts.Fact{
+		Kind: facts.KindDependency, File: "src/b/index.ts",
+		Props:     map[string]any{facts.PropDependencyPhase: facts.DependencyPhaseTypeOnly},
+		Relations: []facts.Relation{{Kind: facts.RelImports, Target: "src/a"}},
+	})
+
+	insights, err := New().Explain(context.Background(), s)
+	if err != nil {
+		t.Fatalf("Explain: %v", err)
+	}
+	if len(insights) != 0 {
+		t.Errorf("type-only 2-cycle should not be reported, got %d: %+v", len(insights), insights)
+	}
+}
+
+// TestExplain_RuntimeEdgeStillCyclesAlongsideTypeOnly guards against the phase
+// exclusion swallowing a real cycle: a genuine runtime a<->b cycle is still
+// reported even when a's import of b also carries a redundant type-only edge
+// (e.g. the module imports both a value and, separately, one of its types).
+func TestExplain_RuntimeEdgeStillCyclesAlongsideTypeOnly(t *testing.T) {
+	s := facts.NewStore()
+	s.Add(facts.Fact{Kind: facts.KindModule, Name: "src/a"})
+	s.Add(facts.Fact{Kind: facts.KindModule, Name: "src/b"})
+	s.Add(facts.Fact{
+		Kind: facts.KindDependency, File: "src/a/index.ts",
+		Props:     map[string]any{facts.PropDependencyPhase: facts.DependencyPhaseRuntime},
+		Relations: []facts.Relation{{Kind: facts.RelImports, Target: "src/b"}},
+	})
+	s.Add(facts.Fact{
+		Kind: facts.KindDependency, File: "src/a/types.ts",
+		Props:     map[string]any{facts.PropDependencyPhase: facts.DependencyPhaseTypeOnly},
+		Relations: []facts.Relation{{Kind: facts.RelImports, Target: "src/b"}},
+	})
+	s.Add(facts.Fact{
+		Kind: facts.KindDependency, File: "src/b/index.ts",
+		Props:     map[string]any{facts.PropDependencyPhase: facts.DependencyPhaseRuntime},
+		Relations: []facts.Relation{{Kind: facts.RelImports, Target: "src/a"}},
+	})
+
+	insights, err := New().Explain(context.Background(), s)
+	if err != nil {
+		t.Fatalf("Explain: %v", err)
+	}
+	if len(insights) != 1 {
+		t.Fatalf("expected 1 cycle insight, got %d: %+v", len(insights), insights)
+	}
+}
+
 // TestExplain_Deterministic guards BUG-2: the cycle path, evidence order, and
 // multi-cycle insight order used to depend on Go's randomized map iteration
 // (tarjanSCC ranged the graph map directly and never sorted). Each Explain call
