@@ -262,6 +262,43 @@ its explainer. Lowering `--min-confidence` can include advisory findings such as
 classes, deep dependency chains, large exported surfaces and complexity outliers when a
 team deliberately chooses to enforce them.
 
+### Measured precision of the newest explainers
+
+`package-metrics`, `dead-code` and `performance` are gateable like any other
+inferred explainer. What follows is what they were measured at on a twelve-repository
+cross-language sample, so a team choosing to gate on one knows what it is buying.
+Everything below is the tier a gate would actually fire on.
+
+**`dead-code`, high-confidence tier: 37 of 41 correct on a Go service.** Every one of
+the four misses is one class rather than diffuse noise: a package-local function whose
+name collides with a Go builtin. A repository carrying its own `min` helper, written
+before Go 1.21 had one, gets no incoming call edge at all for `min(a, b)` — the call is
+attributed to the builtin — so a function that is called seventeen times reads as
+referenced by nothing. Check for a shadowed builtin before acting on a high-confidence
+finding whose name is a short common verb.
+
+**`dead-code` spends its budget on vendored code.** On a C++ repository, 20 of the 51
+reported candidates sit under `contrib/`, in directories the `vendored-candidates`
+explainer identified as third-party in the same snapshot. Nothing is wrong with the
+findings; they are about somebody else's code. Add the directories that explainer lists
+to `ignore:` before reading this one.
+
+**`performance`, high-severity tier: the Ruby and Go readings held up; the Rust ones did
+not.** Across the sample, 172 findings reached high severity. On Rails applications they
+are ActiveRecord reads in loops (`find_by`, `where`, `save!`) and are what they say they
+are. On Rust, 42 of tokio's findings name `new`, `send`, `recv`, `poll` and `iter` — a
+channel send and a constructor are not per-iteration I/O, and the generic keyword gate
+has no Rust handler to tell it so, the way it has one for Swift, the JVM, TypeScript and
+Dart. Eleven of them are in `benches/`, which no other language reports because their
+test surfaces are excluded and Rust's is not. **Do not gate `performance` on a Rust
+repository yet.**
+
+**Deference is worth what it costs.** On a large Rails application, `query-loops` claims
+333 symbols and suppresses 265 of the `call-in-loop` findings this explainer would
+otherwise file — a quarter of them — and `dead-methods` claims 268 symbols, suppressing
+184 dead-code candidates. Those were the same loops and the same methods, reported twice
+from a weaker signal.
+
 ## What it looks like when it works
 
 The point of all this machinery is a single moment: an agent finishes a task, and
