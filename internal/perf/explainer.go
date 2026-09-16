@@ -1,0 +1,64 @@
+package perf
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/enola-labs/enola/internal/facts"
+)
+
+// Explainer adapts the performance analysis to enola's explainer subsystem so its
+// findings surface via the OSS query_insights tool (explainer="performance"),
+// alongside the OSS explainers. It runs during generate_snapshot and reuses the
+// same collect/analyze core as the analyze_performance MCP tool.
+type Explainer struct{}
+
+// NewExplainer creates a performance Explainer.
+func NewExplainer() *Explainer { return &Explainer{} }
+
+// Name is the explainer identifier used as the insight Source and the
+// query_insights explainer= filter value.
+func (e *Explainer) Name() string { return "performance" }
+
+// Explain produces one insight per medium-or-higher-severity finding.
+func (e *Explainer) Explain(_ context.Context, store *facts.Store) ([]facts.Insight, error) {
+	funcs, storage, routeHandlers, assoc := collect(store)
+	return findingsToInsights(analyze(funcs, storage, routeHandlers, assoc)), nil
+}
+
+// findingsToInsights maps ranked performance findings to insights. Low-severity
+// findings are omitted to keep query_insights focused on actionable risks; the
+// analyze_performance tool still returns the full set.
+func findingsToInsights(findings []Finding) []facts.Insight {
+	out := make([]facts.Insight, 0, len(findings))
+	for _, f := range findings {
+		if severityRank(f.Severity) < severityRank("medium") {
+			continue
+		}
+		// Prefer the finding's own confidence (decays with Big-O exponent / bounded-loop
+		// discount / cold path); fall back to the severity-based default for any finding
+		// that predates confidence scoring.
+		conf := f.Confidence
+		if conf == 0 {
+			conf = 0.65
+			if f.Severity == "high" {
+				conf = 0.85
+			}
+		}
+		ev := []facts.Evidence{{Symbol: f.Symbol, File: f.File, Detail: f.Why}}
+		for _, e := range f.Evidence {
+			ev = append(ev, facts.Evidence{Symbol: f.Symbol, Detail: e})
+		}
+		out = append(out, facts.Insight{
+			Title:       fmt.Sprintf("Performance risk (%s, %s): %s", f.Kind, f.BigO, f.Symbol),
+			Description: f.Why + " Big-O is a deterministic estimate of structural worst case from parser facts, not a proof — treat as a lead to verify.",
+			Confidence:  conf,
+			Evidence:    ev,
+			Actions: []string{
+				"Confirm the hot path with a profiler or benchmark before optimizing",
+				"Batch or hoist per-iteration I/O out of loops; add memoization or an iterative rewrite for recursion",
+			},
+		})
+	}
+	return out
+}

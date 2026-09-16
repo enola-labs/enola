@@ -62,6 +62,12 @@ layers:
       - "internal/extractors/**"
       - "internal/linkers/**"
       - "internal/explainers/**"
+      # The three analyzers that each own an MCP tool as well as an explainer.
+      # They sit here rather than under internal/explainers because the explainer
+      # is one of their consumers, not their shape.
+      - "internal/metrics/**"
+      - "internal/orphans/**"
+      - "internal/perf/**"
       - "internal/renderers/**"
       - "internal/diff/**"
       - "internal/conformance/**"
