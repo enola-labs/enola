@@ -3,7 +3,8 @@ module github.com/enola-labs/enola
 go 1.25.13
 
 require (
-	github.com/modelcontextprotocol/go-sdk v1.7.0
+	github.com/ebitengine/purego v0.10.2
+	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/pbnjay/memory v0.0.0-20210728143218-7b4eea64cf58
 	github.com/tree-sitter-grammars/tree-sitter-kotlin v1.1.0
 	github.com/tree-sitter/go-tree-sitter v0.24.0
@@ -22,7 +23,6 @@ require (
 )
 
 require (
-	github.com/ebitengine/purego v0.10.2 // indirect
 	github.com/google/jsonschema-go v0.4.3 // indirect
 	github.com/mattn/go-pointer v0.0.1 // indirect
 	github.com/segmentio/asm v1.1.3 // indirect
