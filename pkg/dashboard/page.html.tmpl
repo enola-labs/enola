@@ -208,6 +208,37 @@
     td.title { white-space: normal; }
     .structural-chip { margin-left: .4rem; font-size: .72rem; color: var(--muted); border: 1px solid var(--border); border-radius: 6px; padding: 0 .35rem; }
     .finding-action { color: var(--muted); font-size: .78rem; margin-top: .15rem; }
+    /* Package metrics: the main-sequence panel, part of the page rather than an overlay. */
+
+    /* Package-metrics main-sequence scatter (server-computed inline SVG, like .edge-graph). */
+    .metric-scatter { display: block; width: 100%; height: auto; max-height: 58vh; margin: .25rem 0 .4rem; }
+    .metric-scatter .grid-line { stroke: var(--border); stroke-width: 1; }
+    .metric-scatter .plot-frame { fill: none; stroke: var(--border); stroke-width: 1; }
+    .metric-scatter .main-seq { stroke: var(--muted); stroke-width: 1.5; stroke-dasharray: 5 4; opacity: .8; }
+    .metric-scatter .tick { fill: var(--muted); font-size: 11px; }
+    .metric-scatter .axis-title { fill: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+    .metric-scatter .mp { stroke: var(--bg); stroke-width: 1.2; }
+    .metric-scatter .mp-main-sequence { fill: var(--ok); }
+    .metric-scatter .mp-pain { fill: var(--warn); }
+    .metric-scatter .mp-useless { fill: var(--off); }
+    .metric-scatter .mp-neutral { fill: var(--muted); opacity: .7; }
+    .metric-legend { display: flex; flex-wrap: wrap; gap: .3rem 1rem; margin: .2rem 0 .6rem; font-size: .85rem; }
+    .metric-legend .lg { display: flex; align-items: baseline; gap: .4rem; }
+    .metric-legend .sw { width: .7rem; height: .7rem; border-radius: 999px; flex: 0 0 auto; align-self: center; }
+    .metric-legend .sw-main-sequence { background: var(--ok); }
+    .metric-legend .sw-pain { background: var(--warn); }
+    .metric-legend .sw-useless { background: var(--off); }
+    .metric-legend .lg .cnt { color: var(--muted); font-variant-numeric: tabular-nums; }
+    .zone-badge { font-size: .78rem; font-weight: 600; padding: .05rem .45rem; border-radius: 999px; white-space: nowrap; }
+    .zone-badge.z-main-sequence { background: color-mix(in srgb, var(--ok) 18%, transparent); color: var(--ok); }
+    .zone-badge.z-pain { background: color-mix(in srgb, var(--warn) 20%, transparent); color: var(--warn); }
+    .zone-badge.z-useless { background: color-mix(in srgb, var(--off) 18%, transparent); color: var(--off); }
+    .zone-badge.z-neutral { color: var(--muted); }
+    .metric-repo-picker { display: inline-flex; align-items: center; gap: .4rem; color: var(--muted); font-size: .85rem; }
+    .metric-repo-picker select {
+      font: inherit; color: var(--fg); background: var(--card);
+      border: 1px solid var(--border); border-radius: 6px; padding: .2rem .4rem; max-width: 16rem;
+    }
     {{/* extra-styles: extension slot — see pkg/dashboard.Options.Overlay */}}
     {{block "extra-styles" $}}{{end}}
   </style>
@@ -287,6 +318,7 @@
     <div class="card"><div class="k">Services</div><div class="v">{{if $.Services}}<button type="button" class="count-link" onclick="openModal('services-modal')">{{.ServiceCount}}</button>{{else}}{{.ServiceCount}}{{end}}</div></div>
     <div class="card"><div class="k">Cross-repo edges</div><div class="v">{{if $.CrossRepoEdges}}<button type="button" class="count-link" onclick="openModal('edges-modal')">{{.CrossRepoEdgeCount}}</button>{{else}}{{.CrossRepoEdgeCount}}{{end}}</div></div>
     {{end}}{{end}}
+    {{if $.PackageMetrics}}<div class="card"><div class="k">Package metrics</div><div class="v"><button type="button" class="count-link" onclick="openModal('package-metrics-modal')">{{$.PackageMetrics.TotalAnalyzed}} packages{{if $.PackageMetrics.Multi}} · {{len $.PackageMetrics.Repos}} repos{{end}}</button></div></div>{{end}}
     {{/* extra-cards: extension slot — see pkg/dashboard.Options.Overlay */}}
     {{block "extra-cards" $}}{{end}}
   </div>
@@ -702,6 +734,64 @@
 </div>
 {{end}}
 
+{{if .PackageMetrics}}{{with .PackageMetrics}}
+<div class="modal" id="package-metrics-modal" onclick="if(event.target===this)closeModal(this)">
+  <div class="modal-panel wide" role="dialog" aria-modal="true" aria-label="Package metrics">
+    <div class="modal-head">
+      <h3>Package metrics <span class="note">(main sequence)</span></h3>
+      <div class="modal-head-actions">
+        {{if .Multi}}
+        <label class="metric-repo-picker">Repo
+          <select id="metric-repo" onchange="selectMetricRepo(this.value)">
+            {{range .Repos}}<option value="{{.}}"{{if eq . $.PackageMetrics.Default}} selected{{end}}>{{.}}</option>{{end}}
+          </select>
+        </label>
+        {{end}}
+        <button type="button" class="modal-close" aria-label="Close" onclick="closeModal(this)">&times;</button>
+      </div>
+    </div>
+    <div class="insight-summary">Uncle Bob's package metrics{{if .Multi}} per repository{{end}} &mdash; each package's distance from the main sequence (A + I = 1). Lower distance is healthier.{{if .Multi}} Pick a repo above.{{end}}</div>
+
+    <div class="grid">
+      <div class="card"><div class="k">Analyzed packages</div><div class="v" data-agg="analyzed">{{.Agg.Analyzed}}</div></div>
+      <div class="card"><div class="k">Avg afferent (Ca)</div><div class="v" data-agg="ca">{{.Agg.AvgCa}}</div></div>
+      <div class="card"><div class="k">Avg efferent (Ce)</div><div class="v" data-agg="ce">{{.Agg.AvgCe}}</div></div>
+      <div class="card"><div class="k">Avg instability (I)</div><div class="v" data-agg="i">{{.Agg.AvgI}}</div></div>
+      <div class="card"><div class="k">Avg abstractness (A)</div><div class="v" data-agg="a">{{.Agg.AvgA}}</div></div>
+      <div class="card"><div class="k">Avg distance (D)</div><div class="v" data-agg="d">{{.Agg.AvgD}}</div></div>
+    </div>
+
+    {{with .Scatter}}
+    <svg class="metric-scatter" viewBox="0 0 {{.Width}} {{.Height}}" role="img" aria-label="Package status: abstractness versus instability">
+      {{range .XTicks}}<line class="grid-line" x1="{{.LineX1}}" y1="{{.LineY1}}" x2="{{.LineX2}}" y2="{{.LineY2}}"/>{{end}}
+      {{range .YTicks}}<line class="grid-line" x1="{{.LineX1}}" y1="{{.LineY1}}" x2="{{.LineX2}}" y2="{{.LineY2}}"/>{{end}}
+      <rect class="plot-frame" x="{{.PlotX}}" y="{{.PlotY}}" width="{{.PlotW}}" height="{{.PlotH}}"/>
+      <line class="main-seq" x1="{{.LineX1}}" y1="{{.LineY1}}" x2="{{.LineX2}}" y2="{{.LineY2}}"/>
+      {{range .XTicks}}<text class="tick" x="{{.LabelX}}" y="{{.LabelY}}" text-anchor="middle">{{.Label}}</text>{{end}}
+      {{range .YTicks}}<text class="tick" x="{{.LabelX}}" y="{{.LabelY}}" text-anchor="end">{{.Label}}</text>{{end}}
+      <text class="axis-title" x="{{.XAxisX}}" y="{{.XAxisY}}" text-anchor="middle">Instability (I)</text>
+      <text class="axis-title" x="{{.YAxisX}}" y="{{.YAxisY}}" text-anchor="middle" transform="rotate(-90 {{.YAxisX}} {{.YAxisY}})">Abstractness (A)</text>
+      {{range .Points}}<circle class="mp mp-{{.Zone}}" cx="{{.CX}}" cy="{{.CY}}" r="5"{{if .Repo}} data-repo="{{.Repo}}"{{end}}{{if .Hidden}} style="display:none"{{end}}><title>{{.Label}}</title></circle>{{end}}
+    </svg>
+    {{end}}
+
+    <div class="metric-legend">
+      <span class="lg"><span class="sw sw-main-sequence"></span> On the main sequence &mdash; healthy balance <span class="cnt">(<span data-agg="healthy">{{.Agg.HealthyCount}}</span>)</span></span>
+      <span class="lg"><span class="sw sw-pain"></span> Zone of Pain &mdash; stable + concrete, rigid <span class="cnt">(<span data-agg="pain">{{.Agg.PainCount}}</span>)</span></span>
+      <span class="lg"><span class="sw sw-useless"></span> Zone of Uselessness &mdash; unstable + abstract <span class="cnt">(<span data-agg="useless">{{.Agg.UselessCount}}</span>)</span></span>
+    </div>
+    <div class="insight-summary">Distance <code>D = |A + I &minus; 1|</code> is how far a package sits from the ideal line; <strong>ideal is D close to 0</strong>. Whether any package warrants action depends on your context &mdash; this is a map, not a mandate.</div>
+
+    <div class="table-scroll"><table>
+      <thead><tr>{{if .Multi}}<th>Repo</th>{{end}}<th>Package</th><th class="num">N</th><th class="num">Ca</th><th class="num">Ce</th><th class="num">I</th><th class="num">A</th><th class="num">D</th><th>Status</th></tr></thead>
+      <tbody>
+        {{range .Rows}}<tr{{if $.PackageMetrics.Multi}} data-repo="{{.Repo}}"{{end}}{{if .Hidden}} style="display:none"{{end}}>{{if $.PackageMetrics.Multi}}<td class="note">{{.Repo}}</td>{{end}}<td class="title">{{.Package}}</td><td class="num">{{.N}}</td><td class="num">{{.Ca}}</td><td class="num">{{.Ce}}</td><td class="num">{{.I}}</td><td class="num">{{.A}}</td><td class="num">{{.D}}</td><td><span class="zone-badge z-{{.Zone}}">{{.Status}}</span></td></tr>{{end}}
+      </tbody>
+    </table></div>
+  </div>
+</div>
+{{if .Multi}}<script>window.METRIC_AGG = {{.AggMapJS}};</script>{{end}}
+{{end}}{{end}}
 {{/* extra-modals: extension slot — see pkg/dashboard.Options.Overlay */}}
 {{block "extra-modals" $}}{{end}}
 
@@ -985,6 +1075,25 @@
       sessionStorage.removeItem('enola-selected-finding');
       showFindingDetails(JSON.parse(raw));
     } catch (_) {}
+  }
+// selectMetricRepo filters the Package Metrics modal to one repository: it shows
+  // only that repo's table rows and scatter points and swaps the aggregate cards +
+  // legend counts from the server-embedded per-repo map (window.METRIC_AGG).
+  function selectMetricRepo(repo) {
+    var modal = document.getElementById('package-metrics-modal');
+    if (!modal) return;
+    modal.querySelectorAll('tbody tr[data-repo]').forEach(function (r) {
+      r.style.display = r.getAttribute('data-repo') === repo ? '' : 'none';
+    });
+    modal.querySelectorAll('.metric-scatter circle[data-repo]').forEach(function (c) {
+      c.style.display = c.getAttribute('data-repo') === repo ? '' : 'none';
+    });
+    var a = (window.METRIC_AGG || {})[repo];
+    if (!a) return;
+    modal.querySelectorAll('[data-agg]').forEach(function (el) {
+      var key = el.getAttribute('data-agg');
+      if (a[key] !== undefined) el.textContent = a[key];
+    });
   }
   {{/* extra-scripts: extension slot — see pkg/dashboard.Options.Overlay */}}
   {{block "extra-scripts" $}}{{end}}

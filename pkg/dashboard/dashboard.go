@@ -31,6 +31,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/enola-labs/enola/internal/metrics"
 	"github.com/enola-labs/enola/pkg/bootstrap"
 	"github.com/enola-labs/enola/pkg/diff"
 	"github.com/enola-labs/enola/pkg/facts"
@@ -499,10 +500,15 @@ type pageData struct {
 	Quality          qualityAssessment
 	Changes          changeSummary
 
-	// Extra is whatever Options.Extra returned for this request — the data the
-	// overlay blocks render. Nil in a plain engine dashboard, and nil whenever a
-	// wrapper declines to supply it (e.g. an unlicensed feature), which is what a
-	// fragment guarded by {{if .Extra}} keys off.
+	// PackageMetrics backs the Package Metrics card and its main-sequence modal.
+	// Nil when the store holds no typed package, which both guard on, so they
+	// disappear rather than render empty.
+	PackageMetrics *metricsView
+
+	// Extra is whatever Options.Extra returned for this request — the data a
+	// caller's overlay blocks render. Nil in a plain dashboard, and nil whenever
+	// the caller declines to supply it, which is what a fragment guarded by
+	// {{if .Extra}} keys off.
 	Extra any
 }
 
@@ -624,8 +630,14 @@ func (s *Server) buildPageForModule(module string) pageData {
 	// clickable Extraction-quality coverage cards.
 	data.Coverage, data.UnresolvedRoutes = coverageDetails(store)
 
-	// Whatever a wrapper's overlay blocks render, recomputed per request from the
-	// same live store as everything above.
+	// Package metrics, recomputed per request from the same live store as
+	// everything above. Zone classification comes from metrics.Classify, the same
+	// source the explainer and the package_metrics tool use, so the page cannot
+	// disagree with the tool. Nil when nothing has a type, which is what the card
+	// and the modal guard on.
+	data.PackageMetrics = packageMetricsView(metrics.Compute(store))
+
+	// Whatever a caller's overlay blocks render, from the same store.
 	if s.opts.Extra != nil {
 		data.Extra = s.opts.Extra(store)
 	}

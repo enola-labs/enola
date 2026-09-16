@@ -161,6 +161,12 @@ func Compute(store *facts.Store) []PackageMetric {
 }
 
 func collect(store *facts.Store) ([]pkgInput, []importEdge, []string) {
+	// A dashboard renders before the first snapshot is generated, and the whole page
+	// is written to degrade to a note rather than fail. The sibling readers on that
+	// page (coverageDetails, graphDetails) all guard the same way.
+	if store == nil {
+		return nil, nil, nil
+	}
 	// 1. Seed packages from module facts and remember their names + short names.
 	type pkgAcc struct {
 		repo        string
