@@ -12,7 +12,7 @@ import (
 
 // An enola MCP server is launched once per agent/terminal session, so a user
 // commonly has several running at the same time — different repos, different
-// binaries (enola / enola-enterprise), each with its own in-memory graph and its
+// binaries (enola, or a wrapper built on it), each with its own in-memory graph and its
 // own dashboard on its own ephemeral port.
 //
 // The instance registry is what makes that fleet observable. Every server writes
@@ -58,9 +58,9 @@ type Instance struct {
 
 	// Identity of the binary and the launch context — what distinguishes two
 	// instances at a glance.
-	Binary     string `json:"binary"`                // "enola" / "enola-enterprise"
+	Binary     string `json:"binary"`                // "enola", or a wrapper's own name
 	Version    string `json:"version,omitempty"`     // build version
-	Licensed   bool   `json:"licensed,omitempty"`    // enterprise features active
+	Licensed   bool   `json:"licensed,omitempty"`    // a wrapper's own gated features are active
 	ConfigPath string `json:"config_path,omitempty"` // resolved mcp-arch.yaml
 	WorkDir    string `json:"work_dir,omitempty"`    // cwd, i.e. which workspace launched it
 

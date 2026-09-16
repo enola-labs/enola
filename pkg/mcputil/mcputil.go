@@ -1,5 +1,5 @@
-// Package mcputil holds the shared MCP tool-output helpers used by enola's OSS
-// server and by out-of-module tools (enola-enterprise): result builders, the
+// Package mcputil holds the shared MCP tool-output helpers used by enola's own
+// server and by tools outside this module: result builders, the
 // summary→compact→full output-mode ladder, and a token cap. Centralizing them
 // keeps every tool on one verbosity model and output shape.
 package mcputil

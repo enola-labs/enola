@@ -39,7 +39,7 @@ type Binary struct {
 	VersionVar string // ldflags -X target for the version string
 
 	// BuildOutput is the artifact name a source build produces, when it differs
-	// from Name (e.g. "enola-ent" for enola-enterprise). Defaults to Name.
+	// from Name (a wrapper commonly ships under a shorter one). Defaults to Name.
 	BuildOutput string
 
 	// Version is the build version of THIS binary, as its own main package knows
@@ -47,8 +47,8 @@ type Binary struct {
 	//
 	// It is carried here rather than read from internal/version because that
 	// variable is enola's, stamped by enola's release workflow. A wrapper is
-	// stamped through a different -X target (enola-enterprise uses
-	// `main.version`), so anything reading internal/version inside a wrapper
+	// stamped through a different -X target (typically its own `main.version`),
+	// so anything reading internal/version inside a wrapper
 	// reports "dev" forever: `doctor` said "enola dev", the SARIF driver claimed
 	// to be enola dev, and the dashboard registered its instance as dev. Empty
 	// falls back to internal/version, which is correct for the OSS binary and is

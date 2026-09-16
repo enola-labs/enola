@@ -30,7 +30,7 @@ func TestServerConcurrentToolCalls(t *testing.T) {
 
 	// Mirror the enterprise wrapper: register an extra long-running read-only tool
 	// against the SAME server + engine, so a heavy reader overlaps generate_snapshot
-	// exactly as find_orphans/analyze_performance do in enola-enterprise.
+	// exactly as find_orphans/analyze_performance do.
 	mcp.AddTool(srv.MCP(), &mcp.Tool{
 		Name:        "heavy_scan",
 		Description: "test-only long read over the shared store",

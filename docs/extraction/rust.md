@@ -160,6 +160,33 @@ prefix. It is not composed yet: the attribute path is stored as written. The mod
 closing that is the Axum `.nest()` fixpoint above, and it needs a repository that
 actually uses it to be worth building.
 
+## Complexity and loop metrics
+
+Function and method symbols carry the standard props the performance analyzer reads:
+`cyclomatic`, `loop_count`, `loop_depth`, `scaling_loop_depth`, `calls_in_loop`,
+`calls_in_scaling_loop`, `recursive_self` and `performs_io`.
+
+`for`, `while` and `loop` are the loops. A **bounded** one — a constant-trip `for`
+over a literal range or array, or an infinite `loop {}` / `while true` — raises
+`loop_depth` but not `scaling_loop_depth`: it adds no data-dependent factor, so a
+call inside it is not an N+1. That distinction is what keeps an event loop from
+reading as O(n) in a data size it has nothing to do with.
+
+`benches/` counts as test code, alongside `tests/`. Cargo builds it as bench
+targets, and a benchmark iterates by definition, so a loop there is the point rather
+than a finding.
+
+**What the analyzer does with these is Rust-specific**, and worth knowing before
+reading a finding. An async runtime spells its in-memory primitives with the same
+verbs other languages reserve for I/O: `send` and `recv` on a channel, `read` and
+`write` on a buffer, `poll` on a future, `new` for construction. The generic
+keyword gate treats those as per-iteration I/O and is wrong to; Rust therefore has
+its own gate (`isExpensiveRustCall`) that asks for I/O SHAPE instead — a storage
+fact, a callee the extractor flagged `performs_io`, a database or HTTP receiver
+token, or a distinctive round-trip method such as `fetch_one` or `read_to_string`.
+Measured on tokio, that is the difference between 42 high-severity call-in-loop
+findings and 3.
+
 ## What is deliberately not extracted
 
 - **Macro-generated routes and items.** Anything produced by a proc macro is not

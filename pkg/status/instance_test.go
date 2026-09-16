@@ -66,7 +66,7 @@ func TestLiveInstancesReapsDeadAndKeepsLive(t *testing.T) {
 	// A live PID whose record has not been refreshed for far longer than the
 	// heartbeat interval: treated as stale, guarding against PID reuse.
 	stalePID := Instance{PID: os.Getppid(), StartTime: now.Add(-24 * time.Hour), Heartbeat: now.Add(-24 * time.Hour)}
-	alive := Instance{PID: os.Getpid(), StartTime: now, Heartbeat: now, Binary: "enola-enterprise"}
+	alive := Instance{PID: os.Getpid(), StartTime: now, Heartbeat: now, Binary: "acme-arch"}
 
 	for _, inst := range []Instance{dead, stalePID, alive} {
 		if err := writeInstance(inst); err != nil {

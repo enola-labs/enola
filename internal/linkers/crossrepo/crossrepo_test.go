@@ -170,7 +170,7 @@ func TestNormalizeLabel(t *testing.T) {
 	}
 }
 
-// A named single-segment endpoint links. This is the enola-enterprise ->
+// A named single-segment endpoint links. This is the wrapper ->
 // enola-licensing-api shape: a client POSTing /activate to the service that
 // serves POST /activate. It drew no edge while isGenericPath was a segment
 // count, and even once the path cleared that filter the server-side index still

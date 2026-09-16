@@ -68,7 +68,7 @@ type Options struct {
 
 	// Extra computes the data the overlay blocks render, once per request from
 	// the live fact store, and is exposed to the template as {{.Extra}}. Leaving
-	// it nil — or returning nil, e.g. for an unlicensed feature — renders the
+	// it nil — or returning nil, e.g. when a caller has nothing to add — renders the
 	// blocks with no data, which a fragment guarded by {{if .Extra}} skips.
 	Extra func(*facts.Store) any
 

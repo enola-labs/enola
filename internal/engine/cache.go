@@ -386,7 +386,7 @@ import (
 // genuine DB/network round-trips — every method of a @FeignClient interface or a
 // Spring Data repository interface (extends JpaRepository/CrudRepository/…), any
 // @Query/@Modifying/@Procedure method, and Room ops inside a @Dao interface. This
-// populates enola-enterprise's isExpensiveJvmCall I/O index, which was empty on
+// populates the performance analyzer's isExpensiveJvmCall I/O index, which was empty on
 // pure-Java Spring/JPA repos (v57 wired the prop for Kotlin only), so a per-iteration
 // repository call now ranks a confirmed N+1 `high` instead of a keyword guess. The
 // seed is deliberately type-level and never keys off a bare HTTP verb (@GET/@GetMapping),

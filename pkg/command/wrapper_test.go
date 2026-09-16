@@ -21,7 +21,7 @@ func ossRunner() *Runner {
 }
 
 func wrapperRunner() *Runner {
-	return New(cli.Binary{Name: "enola-enterprise", Version: "1.4.2"}, "activate")
+	return New(cli.Binary{Name: "acme-arch", Version: "1.4.2"}, "activate")
 }
 
 // A wrapper is stamped through its own -X target, so anything reading enola's

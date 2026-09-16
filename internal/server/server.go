@@ -3627,7 +3627,7 @@ func (s *Server) expandFilePrefix(prefix string) []string {
 }
 
 // The MCP result builders and the output-mode/token-cap helpers live in
-// pkg/mcputil so out-of-module tools (enola-enterprise) share one implementation.
+// pkg/mcputil so tools outside this module share one implementation.
 // These file-local names forward to it, keeping the server's many call sites
 // unchanged.
 

@@ -7,7 +7,7 @@ import (
 )
 
 // GAP-JV-02: the Java extractor emits io_direct/performs_io on methods that are
-// genuine DB/network round-trips, so enola-enterprise's isExpensiveJvmCall I/O
+// genuine DB/network round-trips, so the performance analyzer's isExpensiveJvmCall I/O
 // index is populated on pure-Java Spring/JPA repos (it was empty — only Kotlin
 // carried the prop, from v57). The seed is annotation/interface-driven and
 // carries no transitive fixpoint (performs_io == io_direct), mirroring Kotlin's

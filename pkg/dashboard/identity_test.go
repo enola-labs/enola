@@ -31,7 +31,7 @@ func TestPageDescribesItsOwnServer(t *testing.T) {
 
 	tr := status.NewTracker("/tmp/my-repo")
 	tr.SetStartTime(time.Now().Add(-5 * time.Minute))
-	tr.SetIdentity(status.Identity{Binary: "enola-enterprise", Version: "4.2.0", WorkDir: "/tmp/my-workspace"})
+	tr.SetIdentity(status.Identity{Binary: "acme-arch", Version: "4.2.0", WorkDir: "/tmp/my-workspace"})
 	tr.SetGraphFunc(func() status.GraphState {
 		return status.GraphState{Repos: []status.InstanceRepo{{Label: "my-repo", Path: "/tmp/my-repo"}}}
 	})
@@ -43,7 +43,7 @@ func TestPageDescribesItsOwnServer(t *testing.T) {
 	s.handleIndex(rec, httptest.NewRequest(http.MethodGet, "/", nil))
 	body := rec.Body.String()
 
-	for _, operational := range []string{"panel-activity", "enola-enterprise 4.2.0", "/tmp/my-workspace", "my-repo"} {
+	for _, operational := range []string{"panel-activity", "acme-arch 4.2.0", "/tmp/my-workspace", "my-repo"} {
 		if !strings.Contains(body, operational) {
 			t.Errorf("Activity tab missing this server's operational detail %q", operational)
 		}

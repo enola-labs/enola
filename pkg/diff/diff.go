@@ -1,7 +1,6 @@
 // Package diff re-exports enola's internal snapshot-diff engine as public type
-// aliases and functions so out-of-module code (e.g. enola-enterprise) can compute
-// and consume architecture deltas — for a future governance/metric-delta layer —
-// without importing the internal package directly.
+// aliases and functions so code outside this module can compute and consume
+// architecture deltas without importing the internal package directly.
 //
 // These are Go ALIASES, identical to the internal types.
 package diff

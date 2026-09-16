@@ -1,11 +1,12 @@
 // Package explain produces a human-readable statistical summary of an Enola
 // architectural snapshot — the data behind `enola --explain <repository>`.
 //
-// It is intentionally a public package (not internal/) so that enola-enterprise
-// can reuse the base Report and append its own license-gated sections (dead code,
-// package metrics) before rendering. Compute works purely off the exported
-// bootstrap.Engine API, so it sees whatever the engine currently holds: run
-// GenerateSnapshot (or auto-load a snapshot) first.
+// It is intentionally a public package (not internal/) because a report is
+// something code outside this module may want to build and extend: Report is
+// exported data, Render turns it into text, and ExtraSections takes a caller's own
+// block. Compute works purely off the exported bootstrap.Engine API, so it sees
+// whatever the engine currently holds: run GenerateSnapshot (or auto-load a
+// snapshot) first.
 package explain
 
 import (
@@ -90,8 +91,8 @@ type VendoredReport struct {
 }
 
 // Report is the full statistical picture of a snapshot. Fields are plain types
-// only, so consumers in other modules (enola-enterprise) can read them without
-// importing enola's internal packages.
+// only, so consumers in other modules can read them without importing enola's
+// internal packages.
 // ArchitectureStatement is one named layer order the snapshot recognised. There
 // is one per language cohort, so a repository written in two things has two.
 type ArchitectureStatement struct {

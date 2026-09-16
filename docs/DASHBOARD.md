@@ -78,6 +78,27 @@ The technical receipt contains the comparison inputs. Enola checks receipt compa
 before computing a change: extractor and ignore-rule changes can alter the observed
 graph.
 
+## Read the packaging of a repository
+
+**Package metrics** reports Robert C. Martin's measures per package, over the same
+import edges the coupling cards read: afferent coupling (Ca, what depends on it),
+efferent coupling (Ce, what it depends on), instability (I = Ce/(Ca+Ce)),
+abstractness (A, the share of its symbols that are interfaces or abstract types),
+and distance from the main sequence (D = |A+I-1|).
+
+The card names how many packages carry a type, and opens a scatter of each package
+at its (I, A) with the main sequence drawn as the diagonal. A package far from that
+line is either rigid (abstract and depended upon by nothing) or painful (concrete
+and depended upon by everything); the ranked table below the scatter lists them
+worst first with a zone badge. In a multi-repository snapshot a selector switches
+repositories without reloading.
+
+Ca is the same number the hotspot cards report as fan-in. The two are placed to be
+read together rather than as separate findings.
+
+Packages with no types are excluded from the averages, because A and D are
+undefined for them. The count says how many were left out.
+
 ## Check whether the analysis is complete
 
 **Quality** accounts for indexed source, configured exclusions, unsupported or

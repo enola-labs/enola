@@ -1,7 +1,7 @@
 // Package facts re-exports enola's internal fact model as public type aliases and
-// constants so out-of-module code (e.g. enola-enterprise) can implement
-// plugin.Explainer — whose method signatures name these types — and read facts
-// without importing the internal package directly.
+// constants so code outside this module can implement plugin.Explainer — whose
+// method signatures name these types — and read facts without importing the
+// internal package directly.
 //
 // These are Go type ALIASES, not new types: facts.Store here is the exact same
 // type as the internal facts.Store, so a method written against the alias

@@ -1,12 +1,11 @@
 // Package cli renders what an enola binary prints about itself: the `--list`
 // tool catalogue and the `--help` text.
 //
-// It is a public package rather than internal/ because a wrapper binary (e.g.
-// enola-enterprise) builds on the same surfaces: it lists its own license-gated
-// tools alongside the engine's, and extends the shared help with sections that
-// are meaningless here. Both extension points are data — ToolListSpec.Extra and
-// HelpSpec's Commands/Flags/Sections — so nothing about a wrapper's features
-// leaks into this package.
+// It is a public package rather than internal/ because a wrapper binary builds on
+// the same surfaces: it lists tools of its own alongside the engine's, and extends
+// the shared help with sections that are meaningless here. Both extension points
+// are data — ToolListSpec.Extra and HelpSpec's Commands/Flags/Sections — so nothing
+// about a wrapper's features leaks into this package.
 package cli
 
 import (

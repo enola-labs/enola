@@ -7,6 +7,45 @@ The full per-release change lists — every Added, Changed and Fixed line — ar
 [enola.tech/changelog](https://enola.tech/changelog). This file is the same history at
 the resolution a reader of the repository needs.
 
+## Unreleased
+
+**Dead code, performance and package metrics become part of enola**
+
+- Three analyzers that previously shipped only in a licensed wrapper are now part of
+  this repository, with no licence check and no feature flag: `find_orphans`
+  (`dead-code`), `analyze_performance` (`performance`) and `package_metrics`
+  (`package-metrics`). enola serves twenty-two MCP tools and runs twenty-two
+  explainers.
+- `dead-code`, `performance` and `package-metrics` are all nameable in
+  `enola check --fail-on`. Like every other inferred
+  explainer they cap below `1.00`, so naming one changes nothing without
+  `--min-confidence`.
+- `enola --explain` gains Package metrics, Dead code and Performance sections.
+  Package metrics renders beside the hotspot table it shares import edges with;
+  the other two render with Code health.
+- The dashboard gains a Package Metrics card and its main-sequence scatter, and the
+  Insights modal admits findings from all of them.
+- The narrower explainers keep their ground: `performance` files no `call-in-loop`
+  finding against a symbol `query-loops` already reports, and `dead-code` stays
+  silent on a method `dead-methods` already reports. On a large Rails application
+  that is a quarter of the `call-in-loop` findings.
+- `performance` reports at most 50 findings individually plus a rollup, as
+  `dead-code` and `package-metrics` already did. `analyze_performance` still returns
+  the full set.
+- Rust joins Swift, the JVM, TypeScript and Dart in having its own expensive-call
+  gate, so a channel `send` or a constructor in a loop is no longer reported as
+  per-iteration I/O. Cargo's `benches/` tree counts as test code.
+- A Go package's own top-level function now shadows the predeclared identifier of
+  the same name, so a repository carrying its own `min` or `max` helper no longer
+  has it reported as dead code while it is being called.
+- Dead-code candidates under a directory conventionally holding other projects'
+  code rank last, so the capped list is your own code first. Nothing is excluded.
+
+**Upgrading:** the added explainers change the insight set, so the snapshot ID
+moves and every pinned baseline will report new findings on the first snapshot after
+upgrading. That is the new analysis, not a regression. Re-pin with
+`enola baseline pin` when you have read them.
+
 ## v0.4.20 — 2026-09-15
 
 **A folder of repositories indexes as a cluster, and in-house HTTP clients can be declared**

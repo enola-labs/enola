@@ -798,7 +798,7 @@ func (w *astWalker) handleMethod(node *sitter.Node) {
 	if m.recursive && !m.sawSuperSelf {
 		props["recursive_self"] = true
 	}
-	// GAP-JV-02: flag genuine DB/network round-trips so enola-enterprise's
+	// GAP-JV-02: flag genuine DB/network round-trips so the performance analyzer's
 	// isExpensiveJvmCall I/O index sees the in-loop callee. Seeded from type-level
 	// signals (@FeignClient / Spring Data repository / @Dao) plus unambiguous query
 	// annotations (@Query/@Modifying/@Procedure) — never a bare HTTP verb or

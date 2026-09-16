@@ -100,9 +100,9 @@ const (
 // It is a parameter rather than the constant it used to be because a wrapper
 // binary produces verdicts too, and a SARIF document is uploaded rather than
 // read locally: GitHub code scanning keys alerts on the driver name, so an
-// `enola-enterprise check --format sarif` that declared itself "enola" would
-// merge its alerts into another tool's and stamp them with a version it was
-// never built at — enola's internal/version, which no wrapper stamps, so "dev".
+// a wrapper's `check --format sarif` that declared itself "enola" would merge its
+// alerts into another tool's and stamp them with a version it was never built at —
+// enola's internal/version, which no wrapper stamps, so "dev".
 //
 // The zero value is enola, which is what keeps every existing caller correct.
 type Tool struct {

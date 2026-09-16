@@ -257,7 +257,7 @@ func TestOpencode_ServerNameMatchesThePluginsPrefix(t *testing.T) {
 	for cmd, want := range map[string]string{
 		"/opt/enola/enola":      "enola",
 		`"/opt/my tools/enola"`: "enola",
-		"/opt/enola/enola-ent":  "enola-ent",
+		"/opt/enola/acme-arch":  "acme-arch",
 		"/opt/enola/enola.exe":  "enola",
 		"enola":                 "enola",
 	} {

@@ -36,7 +36,7 @@ import (
 //
 // The binary is held rather than passed per call because it reaches almost every
 // user-facing string: usage blocks, error prefixes, and — the part that matters — the
-// commands suggested in remedies. A gate that tells an enola-enterprise user to run
+// commands suggested in remedies. A gate that tells a wrapper's user to run
 // `enola baseline pin` names a binary they may not have installed.
 type Runner struct {
 	bin cli.Binary

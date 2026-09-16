@@ -10,7 +10,7 @@ import (
 // merged its alerts into another tool's and stamped them with enola's internal/version —
 // which no wrapper stamps, so "dev".
 func TestSARIF_DriverNamesTheBinaryThatGraded(t *testing.T) {
-	out, err := formatVerdict().SARIF(Tool{Name: "enola-enterprise", Version: "v1.4.2"})
+	out, err := formatVerdict().SARIF(Tool{Name: "acme-arch", Version: "v1.4.2"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -29,7 +29,7 @@ func TestSARIF_DriverNamesTheBinaryThatGraded(t *testing.T) {
 		t.Fatal(err)
 	}
 	d := doc.Runs[0].Tool.Driver
-	if d.Name != "enola-enterprise" {
+	if d.Name != "acme-arch" {
 		t.Errorf("driver.name = %q, want the binary that produced the verdict", d.Name)
 	}
 	if d.Version != "1.4.2" {

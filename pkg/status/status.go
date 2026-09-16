@@ -88,9 +88,9 @@ type Tracker struct {
 // Identity is the launch context that distinguishes one running server from
 // another in the registry: which binary, from which workspace, with which config.
 type Identity struct {
-	Binary     string // "enola" / "enola-enterprise"
+	Binary     string // "enola", or a wrapper's own name
 	Version    string
-	Licensed   bool // enterprise features active
+	Licensed   bool // a wrapper's own gated features are active
 	ConfigPath string
 	WorkDir    string
 }
