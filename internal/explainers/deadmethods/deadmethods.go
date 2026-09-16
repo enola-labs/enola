@@ -132,7 +132,7 @@ func controllerClass(path string) string {
 	return strings.Join(segments, "::") + "Controller"
 }
 
-func (e *Explainer) Explain(ctx context.Context, store *facts.Store) ([]facts.Insight, error) {
+func candidates(store *facts.Store) (uncalled, testOnly []candidate) {
 	callers := map[string]map[string]bool{}
 	prefixes := []string{}
 	addCaller := func(target, file string) {
@@ -168,7 +168,6 @@ func (e *Explainer) Explain(ctx context.Context, store *facts.Store) ([]facts.In
 	}
 	routed := routedActions(store)
 
-	var uncalled, testOnly []candidate
 	for _, fact := range store.ByKind(facts.KindSymbol) {
 		if lang, _ := fact.Props["language"].(string); lang != "ruby" {
 			continue
@@ -234,6 +233,36 @@ func (e *Explainer) Explain(ctx context.Context, store *facts.Store) ([]facts.In
 	}
 	sort.Slice(uncalled, func(i, j int) bool { return uncalled[i].name < uncalled[j].name })
 	sort.Slice(testOnly, func(i, j int) bool { return testOnly[i].name < testOnly[j].name })
+	return uncalled, testOnly
+}
+
+// ClaimedSymbols is the set of methods this explainer reports on, computed by the
+// same pass that produces the findings themselves.
+//
+// It exists so a broader analyzer can stay silent where this one speaks. The
+// orphans analyzer asks whole-graph reachability over every language; this one
+// asks the narrower question it can answer on Ruby, and is scoped to the surfaces
+// whose callers the graph can actually see. Where both can see a method, the
+// scoped answer is the one worth reporting.
+//
+// Direct call rather than a stamped prop or a read of the other's insights, for
+// the reason given on queryloops.ClaimedSymbols: runExplainers forbids an
+// explainer's output depending on whether another ran, and a prop would make it
+// depend on whether another is enabled.
+func ClaimedSymbols(store *facts.Store) map[string]struct{} {
+	uncalled, testOnly := candidates(store)
+	claimed := make(map[string]struct{}, len(uncalled)+len(testOnly))
+	for _, c := range uncalled {
+		claimed[c.name] = struct{}{}
+	}
+	for _, c := range testOnly {
+		claimed[c.name] = struct{}{}
+	}
+	return claimed
+}
+
+func (e *Explainer) Explain(_ context.Context, store *facts.Store) ([]facts.Insight, error) {
+	uncalled, testOnly := candidates(store)
 
 	out := make([]facts.Insight, 0, len(uncalled)+len(testOnly))
 	for _, c := range testOnly {

@@ -340,7 +340,7 @@ func (i associationIndex) on(model, method string) string {
 	return ""
 }
 
-func (e *Explainer) Explain(ctx context.Context, store *facts.Store) ([]facts.Insight, error) {
+func candidates(store *facts.Store) []finding {
 	// Two shapes, two prerequisites. The class-level shape needs the model
 	// classes; the association-read shape needs association facts and block
 	// bindings. Gating both on models would have silenced the association shape
@@ -350,7 +350,7 @@ func (e *Explainer) Explain(ctx context.Context, store *facts.Store) ([]facts.In
 	models := modelClasses(store)
 	associations := buildAssociationIndex(store)
 	if len(models) == 0 && len(associations.byName) == 0 {
-		return nil, nil
+		return nil
 	}
 	preloadsElsewhere := buildPreloadIndex(store)
 
@@ -462,7 +462,7 @@ func (e *Explainer) Explain(ctx context.Context, store *facts.Store) ([]facts.In
 		}
 	}
 	if len(found) == 0 {
-		return nil, nil
+		return nil
 	}
 	// One finding per (symbol, call): a loop body reporting the same read twice
 	// is the explainer counting its own passes, not two problems.
@@ -486,6 +486,41 @@ func (e *Explainer) Explain(ctx context.Context, store *facts.Store) ([]facts.In
 		}
 		return found[i].symbol < found[j].symbol
 	})
+	return found
+}
+
+// ClaimedSymbols is the set of symbols this explainer reports on, computed by the
+// same pass that produces the findings themselves.
+//
+// It exists so a broader analyzer can stay silent where this one speaks. The
+// performance analyzer estimates a per-iteration I/O call from a keyword gate over
+// ten languages; this explainer answers the same question for Ruby from the
+// receiver's type, and was measured down from 1,698 candidates to 97. Where both
+// can see a symbol, the measured answer is the one worth reporting, and two
+// findings on one loop read as two problems.
+//
+// It is deliberately a direct call rather than a prop an annotator stamps or an
+// insight the consumer reads back. runExplainers is explicit that one explainer's
+// insights may never depend on another's having run, or the snapshot would depend
+// on registration order; and a prop would make this explainer's output depend on
+// whether that one is enabled in config. A pure function of the store has neither
+// problem, at the cost of running the candidate pass twice.
+//
+// The filter below is the emission loop's own: a surface this explainer excludes
+// is one it does not report, and so not one it claims.
+func ClaimedSymbols(store *facts.Store) map[string]struct{} {
+	claimed := map[string]struct{}{}
+	for _, f := range candidates(store) {
+		if surfaceOf(f.file).excluded {
+			continue
+		}
+		claimed[f.symbol] = struct{}{}
+	}
+	return claimed
+}
+
+func (e *Explainer) Explain(_ context.Context, store *facts.Store) ([]facts.Insight, error) {
+	found := candidates(store)
 
 	out := make([]facts.Insight, 0, len(found))
 	for _, f := range found {
