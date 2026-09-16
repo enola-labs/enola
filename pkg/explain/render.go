@@ -3,6 +3,9 @@ package explain
 import (
 	"fmt"
 	"strings"
+
+	"github.com/enola-labs/enola/internal/metrics"
+	"github.com/enola-labs/enola/internal/perf"
 )
 
 // Render returns the human-readable report as a single string, ready to print to
@@ -126,6 +129,22 @@ func (r *Report) Render() string {
 	}
 	b.WriteString("\n")
 
+	// Package metrics — the same module coupling the section above reports as
+	// fan-in and fan-out, read as Martin's model. Deliberately adjacent: Ca IS the
+	// fan-in, and a reader who sees them apart tends to treat them as two findings.
+	if m := r.PackageMetrics; m != nil {
+		b.WriteString("Package metrics\n")
+		fmt.Fprintf(&b, "  %-24s %6d%s\n", "packages analyzed", m.Analyzed, metrics.ExcludedNote(m.Typeless, m.ExcludedTestTooling))
+		fmt.Fprintf(&b, "  %-24s %6.2f\n", "avg instability (I)", m.AvgI)
+		fmt.Fprintf(&b, "  %-24s %6.2f\n", "avg distance (D)", m.AvgD)
+		fmt.Fprintf(&b, "  %-24s %6d  (D > %.1f, N >= %d, coupled — rigid or useless)\n",
+			"off main sequence", m.OffMain, m.PainfulDistance, m.MinPainfulTypes)
+		if m.MostCoupledPackage != "" {
+			fmt.Fprintf(&b, "  %-24s %s (Ca=%d)\n", "most depended-upon", m.MostCoupledPackage, m.MostCoupledCa)
+		}
+		b.WriteString("\n")
+	}
+
 	// Code health — symbol/module-level findings from the god-class, hotspots,
 	// dependency-depth, exported-surface and complexity explainers. Distinct from
 	// the module-coupling "Impact analysis (hotspots)" section above.
@@ -135,6 +154,51 @@ func (r *Report) Render() string {
 			countRow(&b, g.Label, g.Count)
 			for _, it := range g.Top {
 				fmt.Fprintf(&b, "    %-44s %s\n", truncate(it.Name, 44), it.Detail)
+			}
+		}
+		b.WriteString("\n")
+	}
+
+	// Dead code and Performance — symbol-level findings, so they sit with Code
+	// health rather than after the module-level sections.
+	if d := r.DeadCode; d != nil {
+		b.WriteString("Dead code\n")
+		fmt.Fprintf(&b, "  %-22s %6d  (of %d symbols)\n", "potential dead code", d.Total, d.Candidates)
+		// The tiers partition the set, listed first so the eye starts at the small
+		// actionable bucket rather than the larger cross-cutting counts below.
+		fmt.Fprintf(&b, "    %-20s %6d   (%s)\n", "high confidence", d.High, "functions — incoming calls tracked; safest to remove first")
+		fmt.Fprintf(&b, "    %-20s %6d   (%s)\n", "medium confidence", d.Medium, "structs/classes/interfaces — usage tracked via instantiate/inject/implements")
+		fmt.Fprintf(&b, "    %-20s %6d   (%s)\n", "low confidence", d.Low, "methods & types — dispatch/reflection & type usage not edge-tracked; verify each")
+		// Orthogonal cuts of the SAME set, not further buckets.
+		fmt.Fprintf(&b, "    %-20s %6d   (%s)\n", "isolated", d.Isolated, "breakdown: no references in or out")
+		fmt.Fprintf(&b, "    %-20s %6d   (%s)\n", "unreferenced", d.Unreferenced, "breakdown: unreferenced, but references others")
+		fmt.Fprintf(&b, "    %-20s %6d   (%s)\n", "exported", d.Exported, "breakdown: public API — may be used outside this snapshot")
+		b.WriteString("  (heuristic — references matched by short name; verify before removal)\n")
+		b.WriteString("\n")
+	}
+
+	if p := r.Performance; p != nil {
+		b.WriteString("Performance\n")
+		fmt.Fprintf(&b, "  %-24s %6d\n", "functions analyzed", p.FunctionsAnalyzed)
+		fmt.Fprintf(&b, "  %-24s %6d   (high %d / medium %d / low %d)\n",
+			"performance findings", p.Total, p.High, p.Medium, p.Low)
+		if line := bucketLine(p.ByKind); line != "" {
+			fmt.Fprintf(&b, "  %-24s %s\n", "by kind", line)
+		}
+		if line := bucketLine(p.ByComplexity); line != "" {
+			fmt.Fprintf(&b, "  %-24s %s\n", "by complexity", line)
+		}
+		if len(p.Top) > 0 {
+			b.WriteString("  top findings:\n")
+			for _, f := range p.Top {
+				loc := f.Symbol
+				if f.File != "" {
+					loc = fmt.Sprintf("%s (%s:%d)", f.Symbol, f.File, f.Line)
+				}
+				fmt.Fprintf(&b, "    [%s] %s %s — %s\n", f.Severity, f.BigO, loc, f.Kind)
+			}
+			if p.Total > len(p.Top) {
+				fmt.Fprintf(&b, "  %d more — analyze_performance filters by package and severity.\n", p.Total-len(p.Top))
 			}
 		}
 		b.WriteString("\n")
@@ -195,4 +259,15 @@ func vendoredPlural(n int) string {
 		return "y"
 	}
 	return "ies"
+}
+
+// bucketLine renders an ordered distribution as "label n · label n". Empty when
+// there is nothing in it, so the caller can drop the row rather than print a
+// heading with nothing after it.
+func bucketLine(bs []perf.Bucket) string {
+	parts := make([]string, 0, len(bs))
+	for _, b := range bs {
+		parts = append(parts, fmt.Sprintf("%s %d", b.Label, b.Count))
+	}
+	return strings.Join(parts, " · ")
 }

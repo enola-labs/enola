@@ -633,11 +633,11 @@ func aggregateMetrics(results []PackageMetric) aggregate {
 	return agg
 }
 
-// excludedNote renders the "(N type-less, M test/tooling excluded)" suffix shared
+// ExcludedNote renders the "(N type-less, M test/tooling excluded)" suffix shared
 // by the summary and --explain views. Both categories are set aside from the
 // analyzed population: type-less (N==0) packages have no A/D, and test/tooling
 // modules describe non-production structure. Only non-zero parts are shown.
-func excludedNote(typeless, excludedTestTooling int) string {
+func ExcludedNote(typeless, excludedTestTooling int) string {
 	var parts []string
 	if typeless > 0 {
 		parts = append(parts, fmt.Sprintf("%d type-less", typeless))
@@ -674,7 +674,7 @@ func renderSummary(population, results []PackageMetric, excluded []string, pkg, 
 
 	// Headline() ends in a period; the excluded note and colon follow it here.
 	fmt.Fprintf(&b, "Package metrics — %s", strings.TrimSuffix(scope.Headline("package(s) analyzed"), "."))
-	b.WriteString(excludedNote(agg.typeless, countExcluded(excluded, pkg, repo)))
+	b.WriteString(ExcludedNote(agg.typeless, countExcluded(excluded, pkg, repo)))
 	b.WriteString(":\n")
 	fmt.Fprintf(&b, "  avg instability (I): %.2f\n", agg.avgI)
 	fmt.Fprintf(&b, "  avg distance (D):    %.2f\n", agg.avgD)
@@ -818,4 +818,45 @@ func isOffMainSequence(m PackageMetric) bool {
 		m.ClassesInterfaces >= minPainfulTypes &&
 		m.Ca+m.Ce > 0 &&
 		m.DataHolderRatio < dataHolderReclassifyRatio
+}
+
+// Summary is the aggregate health block `enola --explain` prints. It is data
+// rather than a rendered string, so pkg/explain formats it beside every other
+// section of the report instead of receiving one section pre-rendered.
+type Summary struct {
+	Analyzed int
+	// Typeless and ExcludedTestTooling say what the analyzed count leaves out:
+	// packages with no types, for which A and D are undefined, and modules tagged
+	// as test or tooling.
+	Typeless            int
+	ExcludedTestTooling int
+	AvgI, AvgD          float64
+	// OffMain counts packages past PainfulDistance that are large enough and
+	// coupled enough for the distance to mean something; the thresholds travel with
+	// it so the report can state them rather than hard-coding a second copy.
+	OffMain         int
+	PainfulDistance float64
+	MinPainfulTypes int
+	// MostCoupledPackage is empty when nothing is depended upon at all.
+	MostCoupledPackage string
+	MostCoupledCa      int
+}
+
+// Summarize computes the aggregate health numbers over the whole store, using the
+// same collect/compute core as the package_metrics tool so the two agree.
+func Summarize(store *facts.Store) Summary {
+	pkgs, edges, excluded := collect(store)
+	agg := aggregateMetrics(compute(pkgs, edges))
+	return Summary{
+		Analyzed:            agg.analyzed,
+		Typeless:            agg.typeless,
+		ExcludedTestTooling: len(excluded),
+		AvgI:                agg.avgI,
+		AvgD:                agg.avgD,
+		OffMain:             agg.offMain,
+		PainfulDistance:     painfulDistance,
+		MinPainfulTypes:     minPainfulTypes,
+		MostCoupledPackage:  agg.mostCoupled.Package,
+		MostCoupledCa:       agg.mostCoupled.Ca,
+	}
 }

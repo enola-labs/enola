@@ -1517,3 +1517,48 @@ func isOwnerTypeKind(kind string) bool {
 	}
 	return false
 }
+
+// Summary is the dead-code block `enola --explain` prints: the headline counts,
+// split by confidence tier and, orthogonally, by class and visibility.
+type Summary struct {
+	// Total is the number of orphans; Candidates is the population they were drawn
+	// from, which is the set the tool actually examines rather than every symbol in
+	// the snapshot. Printing the latter as the denominator overstated the rate by
+	// counting test and entry-point symbols orphan analysis never looks at.
+	Total      int
+	Candidates int
+	// The confidence tiers partition the set.
+	High, Medium, Low int
+	// These two pairs re-cut the SAME set rather than adding to it.
+	Isolated, Unreferenced int
+	Exported               int
+}
+
+// Summarize counts orphans over the whole store with the find_orphans tool's own
+// defaults (both classes, all kinds and visibility), so the two agree.
+func Summarize(store *facts.Store) Summary {
+	syms, refSources := collect(store)
+	opts := options{Mode: "both", Visibility: "all"}
+
+	s := Summary{Candidates: population(syms, opts)}
+	for _, o := range classify(syms, refSources, opts) {
+		s.Total++
+		if o.Class == classIsolated {
+			s.Isolated++
+		} else {
+			s.Unreferenced++
+		}
+		switch o.Confidence {
+		case confHigh:
+			s.High++
+		case confMedium:
+			s.Medium++
+		default:
+			s.Low++
+		}
+		if o.Exported {
+			s.Exported++
+		}
+	}
+	return s
+}

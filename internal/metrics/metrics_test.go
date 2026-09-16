@@ -182,8 +182,8 @@ func TestExcludedNote(t *testing.T) {
 		{3, 5, " (3 type-less, 5 test/tooling excluded)"},
 	}
 	for _, c := range cases {
-		if got := excludedNote(c.typeless, c.testTooling); got != c.want {
-			t.Errorf("excludedNote(%d,%d) = %q, want %q", c.typeless, c.testTooling, got, c.want)
+		if got := ExcludedNote(c.typeless, c.testTooling); got != c.want {
+			t.Errorf("ExcludedNote(%d,%d) = %q, want %q", c.typeless, c.testTooling, got, c.want)
 		}
 	}
 }

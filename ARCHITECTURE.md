@@ -226,33 +226,37 @@ The second was learned the hard way. Callers build that slice by walking the fac
 
 ## The explain package (`pkg/explain`)
 
-`pkg/explain` ([`pkg/explain/explain.go`](pkg/explain/explain.go)) is a **public** package rather than `internal/` for one reason: `enola-enterprise` imports it to append its own license-gated sections (dead code, package metrics) to the base `Report` before rendering. It is one of several `pkg/` packages that exist for that cross-module consumer — see [The CLI surface](#the-cli-surface-pkgcli-pkgcommand-pkgstatus-and-pkgdashboard) for the two that back `--help`, `--list` and `--status`.
+`pkg/explain` ([`pkg/explain/explain.go`](pkg/explain/explain.go)) is a **public** package rather than `internal/` because a report is something a caller outside this module may want to build and extend: `Report` is exported data, `Render` turns it into text, and `ExtraSections` lets a caller append its own block. It is one of several `pkg/` packages carrying that kind of surface — see [The CLI surface](#the-cli-surface-pkgcli-pkgcommand-pkgstatus-and-pkgdashboard) for the ones behind `--help`, `--list` and `--status`.
 
 ### `Report` and `Compute()`
 
-`Compute(eng *bootstrap.Engine) *Report` reads the engine's current fact store and snapshot — it does not generate a snapshot; callers do that first. The fields it populates map directly to the eight output sections:
+`Compute(eng *bootstrap.Engine) *Report` reads the engine's current fact store and snapshot — it does not generate a snapshot; callers do that first. The fields it populates map directly to the thirteen output sections:
 
 | Report field(s) | Output section |
 |---|---|
 | `RepoPath`, `GeneratedAt`, `Duration`, `Extractors`, `TotalFacts` | Overview |
 | `KindCounts` | Architectural kinds |
+| `RelationCounts` | Relations |
 | `SymbolKinds` | Symbol breakdown |
 | `Routes`, `RoutesByMethod`, `Storage` | API & data surface |
 | `DepSources` | Dependencies |
 | `Architecture`, `ArchConfidence`, `Cycles`, `LayerViolations`, `CrossRepoEdges` | Architecture |
 | `Modules`, `HighCriticality`, `MediumCriticality`, `Hotspots`, `CouplingUnresolved` | Impact analysis (hotspots) |
+| `PackageMetrics` | Package metrics |
 | `CodeHealth` | Code health |
+| `DeadCode` | Dead code |
+| `Performance` | Performance |
 | `Vendored` | Vendored candidates (nothing excluded) |
 
 `CouplingUnresolved` is a special flag: it is set when dependency facts exist but no import edge resolved to a module, meaning coupling analysis is unavailable rather than genuinely zero. The renderer surfaces this as an explanatory note instead of implying the codebase has no coupling.
 
-`CodeHealth` is a slice of `FindingGroup` (label + count + top offenders), one per symbol/module-level explainer (god-class, hotspots, dependency-depth, exported-surface, complexity-outliers). `Compute` builds it by parsing those explainers' insight titles — the title formats are the contract, noted at each explainer's `Title:` site. Groups with a zero count are omitted, so the section disappears for snapshots without symbols (e.g. OpenAPI-only). Because enola-enterprise renders this same base `Report`, the Code health section appears in the enterprise `--explain` too, before its license-gated sections.
+`CodeHealth` is a slice of `FindingGroup` (label + count + top offenders), one per symbol/module-level explainer (god-class, hotspots, dependency-depth, exported-surface, complexity-outliers). `Compute` builds it by parsing those explainers' insight titles — the title formats are the contract, noted at each explainer's `Title:` site. Groups with a zero count are omitted, so the section disappears for snapshots without symbols (e.g. OpenAPI-only). `PackageMetrics`, `DeadCode` and `Performance` are the three analyzers' aggregate blocks, each computed by the same core as its MCP tool so the report and the tool cannot disagree. Each is nil, and its section absent, when there is nothing to measure — a repository with no typed package has nothing to say about the main sequence, and saying it in zeroes reads as a measurement. They are placed by ALTITUDE rather than by the order they were added: `PackageMetrics` renders directly after Impact analysis, since Ca and Ce are the same import edges that section reports as fan-in and fan-out; `DeadCode` and `Performance` render directly after Code health, all three being symbol-level.
 
 `Vendored` is the `vendored-candidates` explainer's summary — count, total files, and the largest few with their evidence. It is matched off the insight's `Source` rather than its title, because that explainer carries its candidates as evidence rather than encoding them in a string. It is kept out of `CodeHealth` deliberately: nothing in it is a defect, and nothing in it has been excluded from the snapshot. The count of candidates the section does not list is reported explicitly (`Omitted`) rather than left for the reader to infer — a truncated list that does not say it is truncated is the failure this finding exists to prevent.
 
 ### Extensibility via `ExtraSections`
 
-`Report.ExtraSections []Section` is the extension point for enterprise code. After calling `Compute()`, enterprise calls `report.AddSection(title, body)` (or directly appends `explain.Section{...}`) and then calls `report.Render()`. The renderer appends the extra sections after the seven base sections, using the same plain-text format. This design means `enola-enterprise` only depends on the exported `pkg/explain` surface and never needs to import `internal/facts` or `internal/engine` directly.
+`Report.ExtraSections []Section` is the extension point for a caller outside this module. After calling `Compute()`, it calls `report.AddSection(title, body)` (or appends an `explain.Section{...}` directly) and then `report.Render()`, which appends those sections after the built-in ones in the same plain-text format. A caller therefore needs nothing but the exported `pkg/explain` surface, and never imports `internal/facts` or `internal/engine`.
 
 ### Output format
 

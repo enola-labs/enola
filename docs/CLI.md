@@ -296,7 +296,7 @@ enola --explain ci/cluster.yaml
 
 The argument is a **repository** when it is a directory and a **config file** when it is a file, so both forms work without a flag to tell them apart.
 
-**The report covers nine sections:**
+**The report covers thirteen sections:**
 - **Overview** - path, analysis time, active languages, total fact count
 - **Architectural kinds** - counts of modules, symbols, routes, storage, dependencies, services
 - **Relations** - the edge census: declares, imports, calls, implements, instantiates, injects, has_method
@@ -305,7 +305,10 @@ The argument is a **repository** when it is a directory and a **config file** wh
 - **Dependencies** - external, internal, and stdlib import counts
 - **Architecture** - detected pattern with confidence, cyclic dependencies, layer violations, cross-repo edges
 - **Impact analysis (hotspots)** - top modules ranked by fan-in + fan-out coupling, with criticality tier and blast radius
+- **Package metrics** - Ca, Ce, instability, abstractness and average distance from the main sequence, with the most depended-upon package. Directly after Impact analysis because both read the same import edges: Ca IS the fan-in
 - **Code health** - per-explainer findings with their top offenders: god classes (high fan-in symbols), call-graph hotspots, deep dependency chains, large public surfaces, and complexity outliers
+- **Dead code** - how many symbols nothing references, split by confidence tier and, separately, by class and visibility, over the population the analyzer actually examines rather than every symbol in the snapshot
+- **Performance** - functions analyzed, findings by severity, kind and Big-O bucket, and the worst few with their locations. The full set is `analyze_performance`
 - **Vendored candidates** - directories that look like in-tree copies of another project, so you can decide whether to exclude them. Nothing is excluded on your behalf; the section is absent when there is nothing to report
 
 Every finding carries a confidence score. Proof-class findings reach `1.0`: dependency

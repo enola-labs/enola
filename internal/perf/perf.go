@@ -1940,3 +1940,108 @@ func filterFindings(in []Finding, a args) []Finding {
 	}
 	return out
 }
+
+// bigORank maps a Big-O label to an orderable complexity weight, so distribution
+// lines sort from cheapest to worst. The two recursive buckets ("O(?) — …") rank
+// above any polynomial so they sort last.
+func bigORank(bigO string) int {
+	switch bigO {
+	case "O(1)":
+		return 0
+	case "O(n)":
+		return 1
+	case "O(n²)":
+		return 2
+	case "O(n³)":
+		return 3
+	case "O(n³+)":
+		return 4 // capped deep estimate — sorts just above O(n³)
+	}
+	if strings.HasPrefix(bigO, "O(n^") {
+		var k int
+		if _, err := fmt.Sscanf(bigO, "O(n^%d)", &k); err == nil {
+			return k
+		}
+	}
+	return 1000 // recursive / unknown — sort last
+}
+
+// Summary is the performance block `enola --explain` prints: how much was looked
+// at, what was found, and the worst of it.
+type Summary struct {
+	FunctionsAnalyzed int
+	Total             int
+	High, Medium, Low int
+	// ByKind and ByComplexity are ordered for printing, not maps: kinds in a fixed
+	// order, complexity cheapest to worst with the recursive bucket last, and empty
+	// buckets already dropped.
+	ByKind       []Bucket
+	ByComplexity []Bucket
+	// Top is the worst findings, already ranked by analyze().
+	Top []Finding
+}
+
+// Bucket is one labelled count in a distribution.
+type Bucket struct {
+	Label string
+	Count int
+}
+
+// summaryTopN is how many findings the report lists individually. The rest are a
+// number; analyze_performance is where the full set lives.
+const summaryTopN = 8
+
+// Summarize analyzes the whole store with the same core as the
+// analyze_performance tool, so the report and the tool cannot disagree.
+func Summarize(store *facts.Store) Summary {
+	funcs, storage, routeHandlers, assoc := collect(store)
+	findings := analyze(funcs, storage, routeHandlers, assoc)
+
+	s := Summary{FunctionsAnalyzed: len(funcs), Total: len(findings)}
+	byKind := map[string]int{}
+	byBigO := map[string]int{}
+	var recursive int
+	for _, f := range findings {
+		switch f.Severity {
+		case "high":
+			s.High++
+		case "medium":
+			s.Medium++
+		default:
+			s.Low++
+		}
+		byKind[f.Kind]++
+		// The two "O(?)" buckets both mean "recursion, so no exponent"; collapsing
+		// them keeps the distribution readable.
+		if bigORank(f.BigO) >= 1000 {
+			recursive++
+		} else {
+			byBigO[f.BigO]++
+		}
+	}
+
+	for _, k := range []string{"nested-loop", "compounded", "call-in-loop", "recursion"} {
+		if byKind[k] > 0 {
+			s.ByKind = append(s.ByKind, Bucket{Label: k, Count: byKind[k]})
+		}
+	}
+
+	bigos := make([]string, 0, len(byBigO))
+	for o := range byBigO {
+		bigos = append(bigos, o)
+	}
+	sort.Slice(bigos, func(i, j int) bool { return bigORank(bigos[i]) < bigORank(bigos[j]) })
+	for _, o := range bigos {
+		s.ByComplexity = append(s.ByComplexity, Bucket{Label: o, Count: byBigO[o]})
+	}
+	if recursive > 0 {
+		s.ByComplexity = append(s.ByComplexity, Bucket{Label: "recursive", Count: recursive})
+	}
+
+	if len(findings) > summaryTopN {
+		s.Top = findings[:summaryTopN]
+	} else {
+		s.Top = findings
+	}
+	return s
+}
