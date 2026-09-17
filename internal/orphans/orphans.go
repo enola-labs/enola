@@ -293,16 +293,10 @@ func bareName(name string) string { return lastSeg(name) }
 // referencedByOther reports whether any source other than the symbol itself
 // references one of the symbol's short forms. Self-references (e.g. recursion)
 // do not count as use.
-func referencedByOther(sym symInput, refSources map[string]map[string]struct{}) bool {
+func referencedByOther(sym symInput, refSources refIndex) bool {
 	for _, cand := range candidateNames(sym.Name, sym.Kind) {
-		srcs, ok := refSources[cand]
-		if !ok {
-			continue
-		}
-		for s := range srcs {
-			if s != sym.Name {
-				return true
-			}
+		if refSources[cand].referenced(sym.Name) {
+			return true
 		}
 	}
 	return false
@@ -859,7 +853,7 @@ func Detect(store *facts.Store) []Orphan {
 	return orphans
 }
 
-func classify(syms []symInput, refSources map[string]map[string]struct{}, opts options) []Orphan {
+func classify(syms []symInput, refSources refIndex, opts options) []Orphan {
 	out := make([]Orphan, 0)
 	for _, sym := range syms {
 		if sym.Claimed {
@@ -917,7 +911,7 @@ func sortOrphans(o []Orphan) {
 // collect reads the fact store via the public bootstrap API and produces the
 // classifier inputs: the per-symbol records and the short-name reference index.
 // It never names a facts.* type (module boundary).
-func collect(store *facts.Store) ([]symInput, map[string]map[string]struct{}) {
+func collect(store *facts.Store) ([]symInput, refIndex) {
 	claimed := deadmethods.ClaimedSymbols(store)
 	symbols := store.ByKind(facts.KindSymbol)
 	// References are matched by name (see responseNote), so a symbol's identity is
@@ -927,7 +921,7 @@ func collect(store *facts.Store) ([]symInput, map[string]map[string]struct{}) {
 	// and classified consistently rather than as both isolated and unreferenced.
 	byName := make(map[string]*symInput, len(symbols))
 	order := make([]string, 0, len(symbols))
-	refSources := make(map[string]map[string]struct{})
+	refSources := make(refIndex)
 
 	for _, f := range symbols {
 		if mcputil.IsGeneratedPath(f.File) {
@@ -1173,16 +1167,8 @@ func collect(store *facts.Store) ([]symInput, map[string]map[string]struct{}) {
 }
 
 // addRef records that source references the given candidate name.
-func addRef(refSources map[string]map[string]struct{}, name, source string) {
-	if name == "" {
-		return
-	}
-	m := refSources[name]
-	if m == nil {
-		m = make(map[string]struct{})
-		refSources[name] = m
-	}
-	m[source] = struct{}{}
+func addRef(refSources refIndex, name, source string) {
+	refSources.add(name, source)
 }
 
 // toStringSlice coerces a fact prop into a []string. Props deserialized from a
@@ -1466,7 +1452,7 @@ func Register(srv *mcp.Server, store func() *facts.Store) {
 
 // foldMemberUseIntoOwner marks a type as referenced by whoever references one of
 // its members. See the call site for why.
-func foldMemberUseIntoOwner(order []string, byName map[string]*symInput, refSources map[string]map[string]struct{}) {
+func foldMemberUseIntoOwner(order []string, byName map[string]*symInput, refSources refIndex) {
 	for _, name := range order {
 		m := byName[name]
 		if m == nil {
@@ -1482,7 +1468,7 @@ func foldMemberUseIntoOwner(order []string, byName map[string]*symInput, refSour
 			continue
 		}
 		for _, cand := range candidateNames(m.Name, m.Kind) {
-			for src := range refSources[cand] {
+			for _, src := range refSources.sources(cand) {
 				// External use only. A member referencing its own type, the type
 				// referencing itself, or a SIBLING member of the same type, is all
 				// internal: a class whose members only call each other is dead as a

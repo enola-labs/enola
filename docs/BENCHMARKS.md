@@ -1,6 +1,6 @@
 # Benchmarks
 
-Everything here was measured on 2026-09-04, at extractor version v264, on 91 public
+Everything here was measured on 2026-09-17, at extractor version v268, on 91 public
 open-source repositories, with one binary, by scripts you can re-run. This page
 carries the latest sweep rather than a released version's, so it moves when the
 extractors do. Where a number is unflattering it is still here.
@@ -33,7 +33,7 @@ would have been.
 
 ## The corpus
 
-91 repositories, 448,086 source files parsed of 743,817 seen, 8,194,786 facts
+91 repositories, 461,488 source files parsed of 757,356 seen, 8,228,794 facts
 carrying 26 distinct language tags (Ansible, C, C++, C#, Dart, F#, Go, HCL, Java,
 Kotlin, Markdown, PHP, Python, Razor, Ruby, Rust, Scala, SQL, Stimulus, Swift,
 TypeScript, VB.NET, XAML, gRPC, OpenAPI, and enola's own intent pages). Public open-source only: every row is a
@@ -646,63 +646,74 @@ so the demonstration proves its own limit in the same run.
 
 | | |
 |---|---|
-| Largest repository indexed | **Linux kernel** — 57,423 files, **2,062,288 facts**, 159.2s cold / 29.4s warm |
-| Largest .NET | dotnet/runtime — 23,625 files, 533,390 facts, 67.9s / 33.1s |
-| Largest Ruby | GitLab — 55,949 files, 549,649 facts, 44.6s / 25.3s |
-| Largest Rust | rust-lang/rust — 37,724 files, 404,731 facts, 23.1s / 8.9s |
-| Largest Scala | Spark — 5,749 files, 219,121 facts, 35.5s / 18.8s |
-| Largest Go | Grafana — 11,379 files, 187,076 facts, 8.9s / 4.6s |
-| Throughput | 1,400–37,200 facts/sec depending on language |
+| Largest repository indexed | **Linux kernel** — 57,423 files, **2,062,288 facts**, 162.6s cold / 38.0s warm |
+| Largest .NET | dotnet/runtime — 23,625 files, 533,390 facts, 68.3s / 34.2s |
+| Largest Ruby | GitLab — 55,949 files, 549,649 facts, 46.4s / 27.8s |
+| Largest Rust | rust-lang/rust — 37,724 files, 404,731 facts, 23.3s / 10.2s |
+| Largest Scala | Spark — 5,749 files, 219,122 facts, 36.6s / 19.6s |
+| Largest Go | Grafana — 11,379 files, 187,076 facts, 9.3s / 5.1s |
+| Throughput | 1,500–36,500 facts/sec depending on language |
 | Parse errors, all 91 repositories | **0** |
-| Memory | peak heap per run is recorded by the sweep (`--memstats`) alongside time and hashes. The Linux kernel is the high-water mark at **6,638 MiB**; only five others exceed 1 GiB (GitLab 2,622, dotnet/runtime 2,016, rust-lang/rust 1,546, roslyn 1,510, dart-sdk 1,401). The largest Angular repository peaks at 385 MiB. No repository required tuning on this machine |
+| Memory | peak heap per run is recorded by the sweep (`--memstats`) alongside time and hashes. The Linux kernel is the high-water mark at **6,761 MiB**; only five others exceed 1 GiB (GitLab 2,687, dotnet/runtime 2,004, rust-lang/rust 1,580, roslyn 1,455, dart-sdk 1,401). No repository required tuning on this machine |
 
-Warm runs are 0.38×–33.1× faster than cold (over the 74 repositories whose cold run
+Warm runs are 1.2×–28.3× faster than cold (over the 51 repositories whose cold run
 exceeds 0.5s; below that the timing is noise), from the per-file content-hash cache
 in `snapshot.meta.json`. These numbers establish that the graph the other four
 sections rely on can actually be built on real code. enola isn't benchmarked on
 speed as a competitive claim.
 
-**The memory ratchet passes, and getting there is worth recording.** The sweep that
-first ran at v264 breached both pinned ceilings — `peak_heap_mib` 8,504 against 8,000
-and `mallocs_per_fact` 505.9 against 480. The two claims were not equally strong, and
-the harness's own `mem-ceilings.json` says why: peak has a 23–28% run-to-run spread,
-so one sweep crossing its ceiling is not evidence, while churn per fact has a 1.8%
-spread and is the sensitive instrument. Run the way that file prescribes — both
-binaries cold, back to back — the peak breach turned out to be machine state and the
-churn regression was real: 459.8 to 500.2 on linux, ten times the instrument's spread.
+**The memory ratchet passes, and what it caught this time is worth recording.** Three
+analyzers moved into enola at v268 and became defaults: `package-metrics`,
+`dead-code` and `performance`. The first sweep after that breached a ceiling by six
+times — `runtime` peaked at 13,130 MiB against 2,250 — and the harness is the only
+reason anyone found out, because nothing about the analyzers' output was wrong.
 
-**It was not one extractor, and it was not proportional to output.** The increase
-appeared on Ruby and TypeScript repositories holding no C or C++, while C#, Java,
-Rust and F# were flat. gmsh was the clearest case: +0.5% facts, +27.5% allocations.
-Heap profiles diffed across the two versions named a single mechanism.
-`Node.Child()` in go-tree-sitter allocates a Go object on every call — `newNode`
-returns `&Node{...}` — and **96% of the added allocations arrived through it**. Three
-passes added in v258–v260 each walked the syntax tree again in Go to find a handful of
-nodes, paying an allocation for every node they stepped over to get there.
+Two measurements separated the cause from the noise. The first sweep ALSO reported
+`roslyn` at 3,665s cold against 21.5s and a 30 GB peak, which was not a regression at
+all: that sweep was run while a test suite and a linter were running on the same
+machine, and `mem-ceilings.json` says in its own header to calibrate a ceiling
+against the kind of run it grades. Re-run quiet, the timings came back and the memory
+did not — which is what made the remaining figure a real finding rather than a
+contended one.
 
-No traversal idiom avoids that. Measured on a 92 KB source file, `Node.Child` costs
-32,150 allocations, driving a `TreeCursor` directly and asking it for the node costs
-32,153, and `Node.Children(cursor)` — the form the library documents for this — is
-worse at 43,551. The node has to cross into Go, and crossing is the cost.
+The second was an A/B on rust-lang/rust, same binary, same repository, one explainer
+at a time:
 
-Matching inside tree-sitter avoids the question, because the scan runs in C and only
-the matches cross: **845 allocations instead of 32,150, and 3.2× faster**. The passes
-now use queries, and the three Vue ones share a single match of the tree rather than
-walking it three times. The result on linux, cold and back to back:
+| explainer set | peak heap | wall |
+|---|---|---|
+| the nineteen that shipped before | 1,614 MiB | 27.2s |
+| plus `package-metrics` | 1,535 MiB | 26.1s |
+| plus `performance` | 1,535 MiB | 26.7s |
+| plus `dead-code` | **8,798 MiB** | **51.0s** |
 
-| | v256 | v264 as first measured | v264 shipped |
-|---|---|---|---|
-| `mallocs_per_fact` | 459.8 | 500.2 | **441.9** |
-| peak heap | 7,031 MiB | 7,175 MiB | **6,842 MiB** |
-| facts | 1,908,734 | 2,062,288 | 2,062,288 |
+Two of the three were free. Profiling the third put all of it in one structure: a
+reference index of `map[string]map[string]struct{}` holding **120,897,613 entries
+over 1,625,276 relations**, 75 per relation, retaining 5 GiB. The multiplier is name
+collision rather than volume — the index keys on folded short names, and
+rust-lang/rust carries a UI test corpus declaring `Foo`, `T` and `Struct` in tens of
+thousands of files, so 9,984 names held a thousand sources or more each.
 
-Lower than the version the regression was measured against, on both figures, while
-keeping every fact the C++ work added. **90 of 90 comparable repositories produced a
-byte-identical fact stream** before and after the change, which is what makes it a
-performance fix rather than a behaviour change; the extractors' output is untouched,
-so no cache version moves. The same shape is worth watching for: enola's
-`tsutil.KindTable` exists because `Node.Kind()` had already cost 180 M allocations on
-one repository, and this is the same lesson one level up.
+The fix is that the index was answering a question nobody asked. Both of its readers
+ask only whether *at least one* source satisfies a predicate, so it now stores a
+count that saturates at two, the first source, and up to four sources with distinct
+owners — which answers both EXACTLY rather than approximately, and the exactness is
+what licenses throwing the rest away.
+
+| | before | after |
+|---|---|---|
+| `runtime` peak (ceiling 2,250) | 13,130 MiB | **2,004 MiB** |
+| `linux` peak (ceiling 8,000) | 6,725 MiB | **6,761 MiB** |
+| rust-lang/rust peak | 10,435 MiB | **1,580 MiB** |
+| rust-lang/rust wall | 51.6s | **27.4s** |
+
+No ceiling was raised. The orphan set is byte-identical on four repositories checked
+before and after (golf 1,399, dubbo 7,791, chatwoot 1,408, gmsh 12,194), which is
+what makes it a performance fix rather than a behaviour change.
+
+The lesson is the one the harness exists for: this cost was always there, and it was
+invisible for as long as the analyzer shipped behind a licence that the open-source
+benchmark never exercised. Making it a default is what measured it.
+
 
 ## 5. What the extractors see
 

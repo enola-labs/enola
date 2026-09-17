@@ -17,14 +17,14 @@ func TestClaimedSymbolIsNotReportedAsAnOrphan(t *testing.T) {
 	sym := symInput{Name: "BillingService#charge", File: "app/services/billing_service.rb",
 		Kind: facts.SymbolFunc, Package: "app/services"}
 
-	unclaimed := classify([]symInput{sym}, map[string]map[string]struct{}{},
+	unclaimed := classify([]symInput{sym}, make(refIndex),
 		options{Mode: "both", Visibility: "all"})
 	if len(unclaimed) == 0 {
 		t.Fatal("unclaimed: expected an orphan, so the claimed case below means something")
 	}
 
 	sym.Claimed = true
-	if got := classify([]symInput{sym}, map[string]map[string]struct{}{},
+	if got := classify([]symInput{sym}, make(refIndex),
 		options{Mode: "both", Visibility: "all"}); len(got) != 0 {
 		t.Fatalf("claimed: dead-methods reports this one, so it should be deferred; got %+v", got)
 	}

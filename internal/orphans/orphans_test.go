@@ -22,7 +22,7 @@ func TestClassify_ExcludesTestSupportPackages(t *testing.T) {
 		{Name: "internal/domain/user.deadHelper", Kind: facts.SymbolFunc,
 			File: "internal/domain/user/service.go", Package: "internal/domain/user", Exported: false},
 	}
-	got := classify(syms, map[string]map[string]struct{}{}, options{Mode: "both", Visibility: "all"})
+	got := classify(syms, make(refIndex), options{Mode: "both", Visibility: "all"})
 
 	names := orphansByName(got)
 	if _, ok := names["internal/mocks/services.NewMockBlogHandlerServices"]; ok {
@@ -36,7 +36,7 @@ func TestClassify_ExcludesTestSupportPackages(t *testing.T) {
 	}
 
 	// With include_tests=true, test-support code is brought back in.
-	withTests := orphansByName(classify(syms, map[string]map[string]struct{}{}, options{Mode: "both", Visibility: "all", IncludeTests: true}))
+	withTests := orphansByName(classify(syms, make(refIndex), options{Mode: "both", Visibility: "all", IncludeTests: true}))
 	if _, ok := withTests["internal/mocks/services.NewMockBlogHandlerServices"]; !ok {
 		t.Error("include_tests=true should include test-support packages")
 	}
@@ -55,7 +55,7 @@ func TestClassify_ExcludesAndroidTestSourceSets(t *testing.T) {
 		{Name: "app/src/main/java/com/example/app/ui/common.deadExtension", Kind: facts.SymbolFunc,
 			File: "app/src/main/java/com/example/app/ui/common/StringExt.kt", Package: "app/src/main/java/com/example/app/ui/common", Exported: true},
 	}
-	names := orphansByName(classify(syms, map[string]map[string]struct{}{}, options{Mode: "both", Visibility: "all"}))
+	names := orphansByName(classify(syms, make(refIndex), options{Mode: "both", Visibility: "all"}))
 	for _, n := range []string{
 		"app/src/androidTest/java/com/example/app/ui.runOnUiThreadAndWait",
 		"shared/src/commonTest/kotlin/fixtures.buildUser",
@@ -108,8 +108,8 @@ func TestOrphansToInsights_PrioritizesActionable(t *testing.T) {
 
 // refsFrom builds a reference index the same way collect() does: each (source →
 // targets) pair contributes both the full target and its last segment.
-func refsFrom(pairs map[string][]string) map[string]map[string]struct{} {
-	refs := make(map[string]map[string]struct{})
+func refsFrom(pairs map[string][]string) refIndex {
+	refs := make(refIndex)
 	for source, targets := range pairs {
 		for _, t := range targets {
 			addRef(refs, t, source)
@@ -596,7 +596,7 @@ func TestConstReceiverFolding(t *testing.T) {
 	chatMessage := symInput{Name: "Chat::Message", Kind: facts.SymbolClass, Package: "plugins/chat",
 		File: "plugins/chat/app/models/chat/message.rb"}
 
-	refs := make(map[string]map[string]struct{})
+	refs := make(refIndex)
 	for _, target := range []string{"PostCreator.create", "Chat::Message.find"} {
 		addRef(refs, target, caller.Name)
 		if seg := lastSeg(target); seg != target {
@@ -956,7 +956,7 @@ func TestIsGeneratedPath(t *testing.T) {
 // collectFromJSONL builds an engine from inline JSONL facts and runs the real
 // collect(), so dedup and generated-path filtering are exercised end-to-end
 // without naming the un-importable facts.* types.
-func collectFromJSONL(t *testing.T, jsonl string) ([]symInput, map[string]map[string]struct{}) {
+func collectFromJSONL(t *testing.T, jsonl string) ([]symInput, refIndex) {
 	t.Helper()
 	store := facts.NewStore()
 	if err := store.ReadJSONL(strings.NewReader(jsonl)); err != nil {
@@ -1111,7 +1111,7 @@ func TestRubyImplicitHooksExcluded(t *testing.T) {
 		{Name: "Jobs::Onceoff.inherited", Kind: facts.SymbolMethod, File: "app/jobs/onceoff.rb"},
 		{Name: "pkg.inherited", Kind: facts.SymbolFunc, File: "pkg/thing.go"},
 	}
-	got := orphansByName(classify(syms, map[string]map[string]struct{}{}, options{Mode: "both", Visibility: "all"}))
+	got := orphansByName(classify(syms, make(refIndex), options{Mode: "both", Visibility: "all"}))
 	if _, isOrphan := got["Jobs::Onceoff.inherited"]; isOrphan {
 		t.Error("Ruby lifecycle hook `inherited` must be excluded for .rb symbols")
 	}
@@ -1191,7 +1191,7 @@ func TestRubyFrameworkHooksExcluded(t *testing.T) {
 		{Name: "pkg.authorizes_object?", Kind: facts.SymbolFunc, File: "pkg/thing.go"}, // non-.rb
 		{Name: "Foo.ordinary_method", Kind: facts.SymbolFunc, File: "app/models/foo.rb"},
 	}
-	got := orphansByName(classify(syms, map[string]map[string]struct{}{}, options{Mode: "both", Visibility: "all"}))
+	got := orphansByName(classify(syms, make(refIndex), options{Mode: "both", Visibility: "all"}))
 	for _, excluded := range []string{
 		"Mutations::BaseMutation.authorizes_object?",
 		"ApplicationCable::Channel.action_methods",
@@ -1217,7 +1217,7 @@ func TestRailsStiHooksExcluded(t *testing.T) {
 		{Name: "Model.sti_name", Kind: facts.SymbolFunc, File: "app/models/model.rb"},
 		{Name: "Foo.regular_method", Kind: facts.SymbolFunc, File: "app/models/foo.rb"},
 	}
-	got := orphansByName(classify(syms, map[string]map[string]struct{}{}, options{Mode: "both", Visibility: "all"}))
+	got := orphansByName(classify(syms, make(refIndex), options{Mode: "both", Visibility: "all"}))
 	for _, excluded := range []string{"Event.find_sti_class", "Model.sti_name"} {
 		if _, isOrphan := got[excluded]; isOrphan {
 			t.Errorf("STI framework hook %q must be excluded for .rb symbols", excluded)
@@ -1271,7 +1271,7 @@ func TestClassify_ExcludesPythonFrameworkEntryPoints(t *testing.T) {
 		{Name: "airflow-core/src/airflow/utils/helpers.reallyDead", Kind: facts.SymbolFunc,
 			File: "airflow-core/src/airflow/utils/helpers.py", Package: "airflow-core/src/airflow/utils", Exported: true, Language: "python"},
 	}
-	names := orphansByName(classify(syms, map[string]map[string]struct{}{}, options{Mode: "both", Visibility: "all"}))
+	names := orphansByName(classify(syms, make(refIndex), options{Mode: "both", Visibility: "all"}))
 	for _, n := range []string{
 		"airflow-core/src/airflow/api_fastapi/gunicorn_config.post_worker_init",
 		"airflow-core/src/airflow/api_fastapi/app.lifespan",
@@ -1287,7 +1287,7 @@ func TestClassify_ExcludesPythonFrameworkEntryPoints(t *testing.T) {
 	}
 
 	// Opt back in: include_entrypoints surfaces the hooks; package= surfaces docs.
-	withEntry := orphansByName(classify(syms, map[string]map[string]struct{}{}, options{Mode: "both", Visibility: "all", IncludeEntrypoints: true}))
+	withEntry := orphansByName(classify(syms, make(refIndex), options{Mode: "both", Visibility: "all", IncludeEntrypoints: true}))
 	if _, ok := withEntry["airflow-core/src/airflow/settings.task_policy"]; !ok {
 		t.Error("include_entrypoints=true should surface Python framework hooks")
 	}
@@ -1317,7 +1317,7 @@ func TestClassify_ExcludesPythonNonAppTreesAndCLI(t *testing.T) {
 		cli,
 		py("airflow-core/src/airflow/utils/helpers.reallyDead", "airflow-core/src/airflow/utils/helpers.py"),
 	}
-	names := orphansByName(classify(syms, map[string]map[string]struct{}{}, options{Mode: "both", Visibility: "all"}))
+	names := orphansByName(classify(syms, make(refIndex), options{Mode: "both", Visibility: "all"}))
 	for _, n := range []string{
 		"devel-common/src/tests_common/test_utils/db.clear_db",
 		"devel-common/src/sphinx_exts/exampleinclude.setup",
@@ -1333,7 +1333,7 @@ func TestClassify_ExcludesPythonNonAppTreesAndCLI(t *testing.T) {
 		}
 	}
 	// package=dev opts back in to the developer-tooling tree.
-	scopedDev := orphansByName(classify(syms, map[string]map[string]struct{}{}, options{Mode: "both", Visibility: "all", Package: "dev"}))
+	scopedDev := orphansByName(classify(syms, make(refIndex), options{Mode: "both", Visibility: "all", Package: "dev"}))
 	if _, ok := scopedDev["dev/breeze/src/airflow_breeze/utils/console.get_stderr_console"]; !ok {
 		t.Error("package=dev should surface the dev/ tooling tree")
 	}
@@ -1342,11 +1342,11 @@ func TestClassify_ExcludesPythonNonAppTreesAndCLI(t *testing.T) {
 	}
 
 	// Opt back in: include_tests surfaces test-support; include_entrypoints surfaces CLI.
-	withTests := orphansByName(classify(syms, map[string]map[string]struct{}{}, options{Mode: "both", Visibility: "all", IncludeTests: true}))
+	withTests := orphansByName(classify(syms, make(refIndex), options{Mode: "both", Visibility: "all", IncludeTests: true}))
 	if _, ok := withTests["devel-common/src/tests_common/test_utils/db.clear_db"]; !ok {
 		t.Error("include_tests=true should surface test-support trees")
 	}
-	withEntry := orphansByName(classify(syms, map[string]map[string]struct{}{}, options{Mode: "both", Visibility: "all", IncludeEntrypoints: true}))
+	withEntry := orphansByName(classify(syms, make(refIndex), options{Mode: "both", Visibility: "all", IncludeEntrypoints: true}))
 	if _, ok := withEntry["airflow-core/src/airflow/cli/commands/provider_command.providers_list"]; !ok {
 		t.Error("include_entrypoints=true should surface click CLI commands")
 	}
@@ -1556,7 +1556,7 @@ func TestClassify_ExcludesSampleTreesGeneratedAndRegistered(t *testing.T) {
 		generated,
 		py("app/shared/cache.read_cache_file", "app/shared/cache.py"),
 	}
-	names := orphansByName(classify(syms, map[string]map[string]struct{}{}, options{Mode: "both", Visibility: "all"}))
+	names := orphansByName(classify(syms, make(refIndex), options{Mode: "both", Visibility: "all"}))
 
 	for _, n := range []string{
 		"examples/demos/pipeline.run_simple_pipeline",
@@ -1576,11 +1576,11 @@ func TestClassify_ExcludesSampleTreesGeneratedAndRegistered(t *testing.T) {
 
 	// package= opts back into a sample tree; include_entrypoints surfaces the
 	// decorator-registered handler.
-	scoped := orphansByName(classify(syms, map[string]map[string]struct{}{}, options{Mode: "both", Visibility: "all", Package: "examples"}))
+	scoped := orphansByName(classify(syms, make(refIndex), options{Mode: "both", Visibility: "all", Package: "examples"}))
 	if _, ok := scoped["examples/demos/pipeline.run_simple_pipeline"]; !ok {
 		t.Error("package=examples should surface the examples tree")
 	}
-	withEntry := orphansByName(classify(syms, map[string]map[string]struct{}{}, options{Mode: "both", Visibility: "all", IncludeEntrypoints: true}))
+	withEntry := orphansByName(classify(syms, make(refIndex), options{Mode: "both", Visibility: "all", IncludeEntrypoints: true}))
 	if _, ok := withEntry["app/api/client.exception_handler"]; !ok {
 		t.Error("include_entrypoints=true should surface decorator-registered handlers")
 	}
