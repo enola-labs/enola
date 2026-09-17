@@ -66,6 +66,14 @@ func (e *Engine) unseenCensus(skips walkSkips, records []facts.ProviderRecord, i
 			if !isOutsideGraphKind(rel.Kind) || names[rel.Target] {
 				continue
 			}
+			// TypeScript's internal dependency target is often an implicit,
+			// extensionless graph node rather than a standalone fact. The extractor
+			// has already proven it local; counting it as outside would turn healthy
+			// aliased imports into the very coverage warning meant to diagnose broken
+			// aliases.
+			if f.Kind == facts.KindDependency && f.Props["source"] == "internal" {
+				continue
+			}
 			u.OutsideGraph[rel.Kind]++
 			if rel.Kind == facts.RelImports {
 				if prefix := unresolvedImportPrefix(rel.Target); prefix != "" {
