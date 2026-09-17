@@ -33,6 +33,7 @@ func (e *Engine) unseenCensus(skips walkSkips, records []facts.ProviderRecord, i
 		FilesExcludedByIgnore: skips.count,
 		DirsExcludedByIgnore:  skips.dirCount,
 		OutsideGraph:          map[string]int{},
+		OutsideGraphPrefixes:  map[string]int{},
 	}
 	for _, r := range records {
 		skip := facts.ProviderSkip{Name: r.Name}
@@ -66,6 +67,11 @@ func (e *Engine) unseenCensus(skips walkSkips, records []facts.ProviderRecord, i
 				continue
 			}
 			u.OutsideGraph[rel.Kind]++
+			if rel.Kind == facts.RelImports {
+				if prefix := unresolvedImportPrefix(rel.Target); prefix != "" {
+					u.OutsideGraphPrefixes[prefix]++
+				}
+			}
 		}
 		if f.Kind == facts.KindSymbol && f.Props["symbol_kind"] == facts.SymbolClass && dynamicFiles[f.File] {
 			u.DynamicFeatureClasses++
@@ -77,6 +83,24 @@ func (e *Engine) unseenCensus(skips walkSkips, records []facts.ProviderRecord, i
 		}
 	}
 	return u
+}
+
+func unresolvedImportPrefix(target string) string {
+	target = strings.Trim(strings.TrimSpace(target), "/")
+	if target == "" || strings.HasPrefix(target, ".") {
+		return ""
+	}
+	parts := strings.Split(target, "/")
+	if len(parts) < 2 {
+		return ""
+	}
+	if strings.HasPrefix(parts[0], "@") {
+		if len(parts) < 3 {
+			return ""
+		}
+		return parts[0] + "/" + parts[1]
+	}
+	return parts[0]
 }
 
 func isOutsideGraphKind(kind string) bool {

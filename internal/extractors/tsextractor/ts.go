@@ -1958,77 +1958,166 @@ func withSvelteKitLibDefault(roots []tsAliasRoot) []tsAliasRoot {
 
 // tryParseTSConfigAliases reads path alias mappings from a tsconfig.json,
 // e.g. "@/*": ["./src/*"] maps prefix "@/" to replacement "src/". ok is
-// false if the file is missing/invalid or declares no usable paths.
-// tsAliasTarget resolves one `paths` target against the tsconfig's baseUrl.
-//
-// A target that already starts with "./" is relative to the tsconfig's own
-// directory and is left alone; anything else is relative to baseUrl, which is what
-// TypeScript does and what a workspace that sets `"baseUrl": "./src"` relies on.
-func tsAliasTarget(base, target string) string {
-	target = strings.TrimSpace(target)
-	if strings.HasPrefix(target, "./") || strings.HasPrefix(target, "../") {
-		return strings.TrimPrefix(target, "./")
+// false if the file and its relative extends chain are missing/invalid or declare
+// no usable paths. Targets are rebased to the child config's directory so the caller
+// can qualify them exactly as it qualifies aliases declared directly in that child.
+
+type tsConfigAliasFile struct {
+	Extends         string `json:"extends"`
+	CompilerOptions struct {
+		// BaseUrl is what a non-relative `paths` target is resolved against.
+		// TypeScript resolves `"@common/*": ["common/*"]` under a `baseUrl` of
+		// "./src" to src/common/*, and ignoring it resolved one directory too
+		// high — which in one workspace meant every aliased import in the
+		// application resolved to nothing, and with it every module composition
+		// edge those imports carry.
+		BaseURL string              `json:"baseUrl"`
+		Paths   map[string][]string `json:"paths"`
+	} `json:"compilerOptions"`
+}
+
+// stripJSONC removes comments and trailing commas without touching comment-looking
+// text inside strings. tsconfig.json is JSONC in practice; using encoding/json directly
+// made a perfectly ordinary commented config indistinguishable from a missing one.
+func stripJSONC(data []byte) []byte {
+	out := make([]byte, 0, len(data))
+	inString, escaped := false, false
+	for i := 0; i < len(data); i++ {
+		c := data[i]
+		if inString {
+			out = append(out, c)
+			if escaped {
+				escaped = false
+			} else if c == '\\' {
+				escaped = true
+			} else if c == '"' {
+				inString = false
+			}
+			continue
+		}
+		if c == '"' {
+			inString = true
+			out = append(out, c)
+			continue
+		}
+		if c == '/' && i+1 < len(data) && data[i+1] == '/' {
+			i += 2
+			for i < len(data) && data[i] != '\n' && data[i] != '\r' {
+				i++
+			}
+			if i < len(data) {
+				out = append(out, data[i])
+			}
+			continue
+		}
+		if c == '/' && i+1 < len(data) && data[i+1] == '*' {
+			i += 2
+			for i+1 < len(data) && !(data[i] == '*' && data[i+1] == '/') {
+				i++
+			}
+			i++
+			continue
+		}
+		if c == ',' {
+			j := i + 1
+			for j < len(data) && (data[j] == ' ' || data[j] == '\t' || data[j] == '\n' || data[j] == '\r') {
+				j++
+			}
+			if j < len(data) && (data[j] == '}' || data[j] == ']') {
+				continue
+			}
+		}
+		out = append(out, c)
 	}
-	if base == "" {
-		return target
+	return out
+}
+
+func readTSConfig(path string) (tsConfigAliasFile, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return tsConfigAliasFile{}, err
 	}
-	return base + "/" + target
+	var config tsConfigAliasFile
+	if err := json.Unmarshal(stripJSONC(data), &config); err != nil {
+		return tsConfigAliasFile{}, err
+	}
+	return config, nil
+}
+
+func resolveTSConfigExtends(from, spec string) string {
+	if spec == "" || (!strings.HasPrefix(spec, ".") && !filepath.IsAbs(spec)) {
+		return ""
+	}
+	p := spec
+	if !filepath.IsAbs(p) {
+		p = filepath.Join(filepath.Dir(from), filepath.FromSlash(p)) //factpath:host
+	}
+	if filepath.Ext(p) == "" {
+		p += ".json"
+	}
+	return filepath.Clean(p) //factpath:host
 }
 
 func tryParseTSConfigAliases(tsconfigPath string) (map[string]tsAlias, bool) {
-	data, err := os.ReadFile(tsconfigPath)
-	if err != nil {
-		return nil, false
+	originDir := filepath.Dir(tsconfigPath) //factpath:host
+	path := filepath.Clean(tsconfigPath)    //factpath:host
+	seen := map[string]bool{}
+	for depth := 0; depth < 32; depth++ {
+		if seen[path] {
+			return nil, false
+		}
+		seen[path] = true
+		config, err := readTSConfig(path)
+		if err != nil {
+			return nil, false
+		}
+		// TypeScript replaces (rather than merges) an inherited paths map. The first
+		// declaration while walking child to parent is therefore the effective one.
+		if config.CompilerOptions.Paths != nil {
+			return parseTSConfigAliases(config, path, originDir)
+		}
+		path = resolveTSConfigExtends(path, strings.TrimSpace(config.Extends))
+		if path == "" {
+			return nil, false
+		}
+	}
+	return nil, false
+}
+
+func parseTSConfigAliases(config tsConfigAliasFile, declaringPath, originDir string) (map[string]tsAlias, bool) {
+	declaringDir := filepath.Dir(declaringPath) //factpath:host
+	base := strings.TrimSpace(config.CompilerOptions.BaseURL)
+	if base == "" {
+		base = "."
+	}
+	absoluteBase := filepath.Clean(filepath.Join(declaringDir, filepath.FromSlash(base))) //factpath:host
+	toOrigin := func(target string) string {
+		target = strings.TrimSpace(target)
+		root := absoluteBase
+		if strings.HasPrefix(target, "./") || strings.HasPrefix(target, "../") {
+			root = declaringDir
+		}
+		abs := filepath.Clean(filepath.Join(root, filepath.FromSlash(target))) //factpath:host
+		rel, err := filepath.Rel(originDir, abs)
+		if err != nil {
+			return filepath.ToSlash(abs)
+		}
+		return filepath.ToSlash(rel)
 	}
 
-	var config struct {
-		CompilerOptions struct {
-			// BaseUrl is what a non-relative `paths` target is resolved against.
-			// TypeScript resolves `"@common/*": ["common/*"]` under a `baseUrl` of
-			// "./src" to src/common/*, and ignoring it resolved one directory too
-			// high — which in one workspace meant every aliased import in the
-			// application resolved to nothing, and with it every module composition
-			// edge those imports carry.
-			BaseURL string              `json:"baseUrl"`
-			Paths   map[string][]string `json:"paths"`
-		} `json:"compilerOptions"`
-	}
-	if err := json.Unmarshal(data, &config); err != nil {
-		return nil, false
-	}
-
-	base := strings.Trim(strings.TrimPrefix(strings.TrimSpace(config.CompilerOptions.BaseURL), "./"), "/")
-	if base == "." {
-		base = ""
-	}
 	aliases := make(map[string]tsAlias)
 	for pattern, targets := range config.CompilerOptions.Paths {
 		if len(targets) == 0 {
 			continue
 		}
+		target := toOrigin(targets[0])
 		switch {
-		// "@/*": ["./src/*"] → prefix "@/" maps to replacement "src/"
-		case strings.HasSuffix(pattern, "*") && strings.Contains(targets[0], "*"):
+		case strings.HasSuffix(pattern, "*") && strings.Contains(target, "*"):
 			prefix := strings.TrimSuffix(pattern, "*")
-			head, tail, _ := strings.Cut(targets[0], "*")
-			aliases[prefix] = tsAlias{
-				replacement: tsAliasTarget(base, head),
-				suffix:      tail,
-			}
-
-		// "@acme/common": ["./packages/common/src/index.ts"] — the bare package
-		// specifier, and the dominant way a monorepo names a sibling package. Dropping
-		// this form (as this function did until v134) left every `import { x } from
-		// "@acme/common"` classified external, so the call edge fell back to the
-		// CALLER's directory and landed on a phantom node. Measured on excalidraw:
-		// 4,847 internal call edges dangling, and impact_analysis/traverse returning
-		// nothing for any cross-package symbol. The subpath form resolved fine, which
-		// is exactly why it went unnoticed.
-		case !strings.HasSuffix(pattern, "*") && !strings.HasSuffix(targets[0], "*"):
-			aliases[pattern] = tsAlias{
-				replacement: tsAliasTarget(base, targets[0]),
-				exact:       true,
-			}
+			head, tail, _ := strings.Cut(target, "*")
+			aliases[prefix] = tsAlias{replacement: head, suffix: tail}
+		case !strings.HasSuffix(pattern, "*") && !strings.HasSuffix(target, "*"):
+			aliases[pattern] = tsAlias{replacement: target, exact: true}
 		}
 	}
 	return aliases, len(aliases) > 0

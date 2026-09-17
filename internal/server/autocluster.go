@@ -133,7 +133,48 @@ func (s *Server) snapshotSummary(snapshot *facts.Snapshot) string {
 	if notice := clientspec.UnsupportedNotice(s.cfg.Clients); notice != "" {
 		summary += "\n\n**Declared clients skipped.** " + notice
 	}
+	if warning := unresolvedImportWarning(snapshot); warning != "" {
+		summary += "\n\n" + warning
+	}
 	return summary
+}
+
+// unresolvedImportWarning promotes a suspiciously incomplete import graph into the
+// snapshot response. The concentration requirement avoids warning on a healthy project
+// that merely imports many unrelated third-party packages.
+func unresolvedImportWarning(snapshot *facts.Snapshot) string {
+	if snapshot == nil || snapshot.Meta.Unseen == nil {
+		return ""
+	}
+	u := snapshot.Meta.Unseen
+	total := u.OutsideGraph[facts.RelImports]
+	if total < 25 || snapshot.Meta.FactCount > 0 && total*20 < snapshot.Meta.FactCount {
+		return ""
+	}
+	prefix, count := "", 0
+	for p, n := range u.OutsideGraphPrefixes {
+		if n > count || n == count && p < prefix {
+			prefix, count = p, n
+		}
+	}
+	if prefix == "" || count*2 < total {
+		return ""
+	}
+	local := false
+	for _, f := range snapshot.Facts {
+		file := strings.TrimPrefix(filepath.ToSlash(f.File), snapshot.Meta.Label()+"/")
+		if strings.HasPrefix(file, prefix+"/") {
+			local = true
+			break
+		}
+	}
+	if !local {
+		return ""
+	}
+	return fmt.Sprintf(
+		"**Graph coverage warning.** %d import targets are outside the graph; %d begin with `%s/`, which also exists as a local source path. This usually means a TypeScript path alias was not resolved. Impact and dependency answers for that area may be incomplete.",
+		total, count, prefix,
+	)
 }
 
 // multiRepoSummary is the part of a generate_snapshot answer a multi-repository store

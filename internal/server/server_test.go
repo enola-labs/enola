@@ -1123,6 +1123,59 @@ func TestResolveNodeName_ExactMatch(t *testing.T) {
 	}
 }
 
+func TestCanonicalImpactTarget_FileRefUsesExtensionlessDependencyNode(t *testing.T) {
+	store := facts.NewStore()
+	store.Add(
+		facts.Fact{Kind: facts.KindFileRef, Name: "ui/src/api/api.ts", File: "ui/src/api/api.ts"},
+		facts.Fact{Kind: facts.KindDependency, Name: "ui/src/page -> ui/src/api/api", Relations: []facts.Relation{
+			{Kind: facts.RelImports, Target: "ui/src/api/api"},
+		}},
+	)
+	got, res := canonicalImpactTarget(store, "ui/src/api/api.ts")
+	if got != "ui/src/api/api" {
+		t.Fatalf("canonical target = %q", got)
+	}
+	if res == nil || res.Query != "ui/src/api/api.ts" || res.Matched != got {
+		t.Fatalf("normalization was not disclosed: %+v", res)
+	}
+}
+
+func TestCanonicalImpactTarget_GenuineFileRefStaysPut(t *testing.T) {
+	store := facts.NewStore()
+	store.Add(facts.Fact{Kind: facts.KindFileRef, Name: "ui/src/setup.ts", File: "ui/src/setup.ts"})
+	got, res := canonicalImpactTarget(store, "ui/src/setup.ts")
+	if got != "ui/src/setup.ts" || res != nil {
+		t.Fatalf("got %q, %+v", got, res)
+	}
+}
+
+func TestUnresolvedImportWarning_ConcentratedLocalPrefix(t *testing.T) {
+	snap := &facts.Snapshot{
+		Meta: facts.SnapshotMeta{FactCount: 100, Unseen: &facts.UnseenCensus{
+			OutsideGraph:         map[string]int{facts.RelImports: 30},
+			OutsideGraphPrefixes: map[string]int{"src": 27, "react": 3},
+		}},
+		Facts: []facts.Fact{{Kind: facts.KindSymbol, Name: "Button", File: "src/components/Button.ts"}},
+	}
+	got := unresolvedImportWarning(snap)
+	if !strings.Contains(got, "27 begin with `src/`") || !strings.Contains(got, "may be incomplete") {
+		t.Fatalf("warning = %q", got)
+	}
+}
+
+func TestUnresolvedImportWarning_DiverseExternalImportsStayQuiet(t *testing.T) {
+	snap := &facts.Snapshot{
+		Meta: facts.SnapshotMeta{FactCount: 100, Unseen: &facts.UnseenCensus{
+			OutsideGraph:         map[string]int{facts.RelImports: 30},
+			OutsideGraphPrefixes: map[string]int{"react": 8, "lodash": 7, "@types/node": 6},
+		}},
+		Facts: []facts.Fact{{Kind: facts.KindSymbol, Name: "App", File: "src/App.ts"}},
+	}
+	if got := unresolvedImportWarning(snap); got != "" {
+		t.Fatalf("unexpected warning: %q", got)
+	}
+}
+
 func TestResolveNodeName_SingleSubstring(t *testing.T) {
 	store := populateTestStore()
 	srv := newTestServer(store)

@@ -1399,6 +1399,69 @@ func TestParseTSConfigAliases_ExactPatternIsRecorded(t *testing.T) {
 	}
 }
 
+func TestParseTSConfigAliases_FollowsExtendsAndRebasesDeclaringFile(t *testing.T) {
+	dir := t.TempDir()
+	generated := filepath.Join(dir, ".svelte-kit")
+	if err := os.MkdirAll(generated, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(generated, "tsconfig.json"), []byte(`{
+		// Generated aliases are relative to this file, not to its child.
+		"compilerOptions": { "paths": { "src/*": ["../src/*"], }, },
+	}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	child := filepath.Join(dir, "tsconfig.json")
+	if err := os.WriteFile(child, []byte(`{"extends":"./.svelte-kit/tsconfig.json"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	aliases, ok := tryParseTSConfigAliases(child)
+	if !ok {
+		t.Fatal("no inherited aliases parsed")
+	}
+	if got := aliases["src/"].replacement; got != "src/" {
+		t.Fatalf("inherited replacement = %q, want src/", got)
+	}
+}
+
+func TestParseTSConfigAliases_ChildPathsReplaceParent(t *testing.T) {
+	dir := t.TempDir()
+	base := filepath.Join(dir, "base.json")
+	if err := os.WriteFile(base, []byte(`{"compilerOptions":{"paths":{"parent/*":["src/parent/*"]}}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	child := filepath.Join(dir, "tsconfig.json")
+	if err := os.WriteFile(child, []byte(`{"extends":"./base","compilerOptions":{"paths":{"child/*":["src/child/*"]}}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	aliases, ok := tryParseTSConfigAliases(child)
+	if !ok {
+		t.Fatal("no child aliases parsed")
+	}
+	if _, found := aliases["parent/"]; found {
+		t.Fatalf("parent paths must be replaced: %v", aliases)
+	}
+	if got := aliases["child/"].replacement; got != "src/child/" {
+		t.Fatalf("child replacement = %q", got)
+	}
+}
+
+func TestParseTSConfigAliases_ExtendsCycleFailsClosed(t *testing.T) {
+	dir := t.TempDir()
+	a, b := filepath.Join(dir, "a.json"), filepath.Join(dir, "b.json")
+	if err := os.WriteFile(a, []byte(`{"extends":"./b.json"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(b, []byte(`{"extends":"./a.json"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if aliases, ok := tryParseTSConfigAliases(a); ok || aliases != nil {
+		t.Fatalf("cycle parsed: %v", aliases)
+	}
+}
+
 // The reason the match mode is carried explicitly rather than inferred: an exact entry
 // stored as a bare prefix would also swallow a DIFFERENT package whose name extends it,
 // drawing edges into code that was never imported.

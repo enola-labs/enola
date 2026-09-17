@@ -2417,7 +2417,10 @@ import (
 // at high confidence while they were called. Also adds `benches` to the shared
 // test-path segments (Cargo builds it as bench targets), which the TypeScript
 // extractor consults.
-const cacheVersion = "v268"
+// v269: TypeScript path aliases follow relative tsconfig extends chains, preserving
+// child-over-parent replacement and resolving each paths target relative to the file
+// that declared it. JSONC comments and trailing commas are accepted as TypeScript does.
+const cacheVersion = "v269"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

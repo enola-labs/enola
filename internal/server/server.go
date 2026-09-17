@@ -1693,6 +1693,17 @@ func (s *Server) registerTools() {
 		if err != nil {
 			return errorResult(err.Error()), nil, nil
 		}
+		if targetName != "" {
+			canonical, normalization := canonicalImpactTarget(store, targetName)
+			if canonical != targetName {
+				targetName = canonical
+				// An exact file_ref normally has no resolution note. Surface this
+				// normalization because it materially changes what was traversed.
+				if res == nil {
+					res = normalization
+				}
+			}
+		}
 		mode := resolveOutputMode(args.OutputMode, modeSummary)
 
 		// Over threshold: refuse to guess; return resolution with empty results.
@@ -2328,6 +2339,54 @@ type nameResolution struct {
 	Confidence   float64           `json:"confidence,omitempty"`
 	AutoPicked   bool              `json:"auto_picked,omitempty"`
 	Ambiguous    bool              `json:"ambiguous"`
+}
+
+// canonicalImpactTarget maps reference-only TypeScript/JavaScript file nodes to the
+// extensionless module target imports actually point at. A file_ref records top-level
+// calls for dead-code analysis; it is not the dependency node, so reverse traversal from
+// it can truthfully see no edges while the corresponding module has many callers.
+func canonicalImpactTarget(store *facts.Store, target string) (string, *nameResolution) {
+	exact := store.LookupByExactName(target)
+	referenceOnly := false
+	for _, f := range exact {
+		switch f.Kind {
+		case facts.KindFileRef, facts.KindTestRef:
+			referenceOnly = true
+		default:
+			return target, nil
+		}
+	}
+	if !referenceOnly {
+		return target, nil
+	}
+
+	ext := strings.ToLower(filepath.Ext(target))
+	switch ext {
+	case ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs":
+	default:
+		return target, nil
+	}
+	candidate := strings.TrimSuffix(target, filepath.Ext(target))
+	// A module target may be an implicit graph node (relations name it even when no
+	// standalone fact does), so confirm it through either a fact or a relation.
+	confirmed := len(store.LookupByExactName(candidate)) > 0
+	if !confirmed {
+		for _, f := range store.All() {
+			for _, rel := range f.Relations {
+				if rel.Target == candidate {
+					confirmed = true
+					break
+				}
+			}
+			if confirmed {
+				break
+			}
+		}
+	}
+	if !confirmed {
+		return target, nil
+	}
+	return candidate, &nameResolution{Query: target, Matched: candidate, AutoPicked: true}
 }
 
 // resolveNodeName resolves a user-provided name to an exact fact name.

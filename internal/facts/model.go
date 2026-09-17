@@ -452,6 +452,10 @@ type UnseenCensus struct {
 	// indexed. Outside, never unresolved: the target exists, it is simply not
 	// in this graph.
 	OutsideGraph map[string]int `json:"outside_graph,omitempty"`
+	// OutsideGraphPrefixes keeps the leading path/package prefix for unresolved
+	// imports. It turns a large count into a diagnosis: thousands of `src/...`
+	// targets point to one missing alias, unlike thousands of unrelated packages.
+	OutsideGraphPrefixes map[string]int `json:"outside_graph_prefixes,omitempty"`
 	// DeadExemptions counts declared exemptions whose witness matched no
 	// violation, the constraints explainer's own finding.
 	DeadExemptions int `json:"dead_exemptions"`
