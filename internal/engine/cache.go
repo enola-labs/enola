@@ -2420,7 +2420,10 @@ import (
 // v269: TypeScript path aliases follow relative tsconfig extends chains, preserving
 // child-over-parent replacement and resolving each paths target relative to the file
 // that declared it. JSONC comments and trailing commas are accepted as TypeScript does.
-const cacheVersion = "v269"
+// v270: SvelteKit reads literal kit.alias fallbacks before generated config exists,
+// keeps tsconfig paths authoritative, and classifies $app/$env/$service-worker imports
+// as framework-provided rather than unresolved third-party dependencies.
+const cacheVersion = "v270"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

@@ -167,6 +167,68 @@ func TestDetectSvelteKit_PkgDep(t *testing.T) {
 	}
 }
 
+func TestStaticSvelteKitAliases_LiteralsOnly(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "svelte.config.js")
+	config := `const unrelated = { alias: { wrong: "./wrong" } };
+	export default {
+		kit: {
+			alias: {
+				src: "./src",
+				"@ui": "./packages/ui/src",
+				dynamic: path.resolve("src/dynamic"),
+				...sharedAliases
+			}
+		}
+	}`
+	if err := os.WriteFile(path, []byte(config), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := staticSvelteKitAliases(path)
+	if got["src"] != "./src" || got["@ui"] != "./packages/ui/src" {
+		t.Fatalf("literal aliases = %v", got)
+	}
+	if _, ok := got["dynamic"]; ok {
+		t.Fatalf("dynamic alias must be skipped: %v", got)
+	}
+	if _, ok := got["wrong"]; ok {
+		t.Fatalf("alias outside kit must be skipped: %v", got)
+	}
+}
+
+func TestSvelteKitAliasFallbacks_TsconfigWins(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "svelte.config.js"), []byte(`export default { kit: { alias: { src: "./fallback", ui: "./src/ui" } } }`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	roots := []tsAliasRoot{{dir: "", aliases: map[string]tsAlias{
+		"src/": {replacement: "generated/src/"},
+	}}}
+	got := withSvelteKitAliasFallbacks(dir, roots)[0].aliases
+	if got["src/"].replacement != "generated/src/" {
+		t.Fatalf("config overrode tsconfig: %+v", got["src/"])
+	}
+	if got["ui/"].replacement != "src/ui/" {
+		t.Fatalf("literal fallback missing: %+v", got["ui/"])
+	}
+	if got["$lib/"].replacement != "src/lib/" {
+		t.Fatalf("$lib fallback missing: %+v", got["$lib/"])
+	}
+}
+
+func TestSvelteKitVirtualImports(t *testing.T) {
+	for _, path := range []string{"$app/navigation", "$env/static/private", "$service-worker"} {
+		if !isSvelteKitVirtualImport(path) {
+			t.Errorf("%q should be virtual", path)
+		}
+	}
+	for _, path := range []string{"$lib/Button.svelte", "$application/x", "svelte"} {
+		if isSvelteKitVirtualImport(path) {
+			t.Errorf("%q should not be virtual", path)
+		}
+	}
+}
+
 // --- SvelteKit route detection ---
 
 func TestDetectSvelteKitRoute(t *testing.T) {

@@ -229,9 +229,10 @@ func (e *TSExtractor) Extract(ctx context.Context, repoPath string, files []stri
 	// Parse tsconfig.json path aliases, one root per package for monorepos.
 	aliasRoots := collectTSAliasRoots(repoPath)
 
-	// SvelteKit maps $lib → src/lib by convention.
+	// SvelteKit maps $lib by convention and may declare literal aliases in its
+	// config even before `svelte-kit sync` has generated a tsconfig.
 	if isSvelteKit {
-		aliasRoots = withSvelteKitLibDefault(aliasRoots)
+		aliasRoots = withSvelteKitAliasFallbacks(repoPath, aliasRoots)
 	}
 
 	// Restrict to TypeScript files once, then parse them in parallel. The
@@ -627,7 +628,7 @@ func (e *TSExtractor) extractFile(src []byte, relFile string, isNextJS, isVue, i
 	}
 
 	// Extract from the tree
-	result = append(result, e.extractImports(kinds, root, src, relFile, aliases)...)
+	result = append(result, e.extractImports(kinds, root, src, relFile, aliases, isSvelteKit)...)
 
 	ctx := &extractCtx{
 		src:         src,
@@ -751,7 +752,7 @@ func (e *TSExtractor) extractFile(src []byte, relFile string, isNextJS, isVue, i
 	return result, angular, router, inlineTemplates, httpFile, clients
 }
 
-func (e *TSExtractor) extractImports(kinds *tsutil.KindTable, root *sitter.Node, src []byte, relFile string, aliases map[string]tsAlias) []facts.Fact {
+func (e *TSExtractor) extractImports(kinds *tsutil.KindTable, root *sitter.Node, src []byte, relFile string, aliases map[string]tsAlias, isSvelteKit bool) []facts.Fact {
 	var result []facts.Fact
 	dir := factpath.Dir(relFile)
 
@@ -783,6 +784,9 @@ func (e *TSExtractor) extractImports(kinds *tsutil.KindTable, root *sitter.Node,
 		importSource := "internal"
 		if isExternal {
 			importSource = "external"
+		}
+		if isSvelteKit && isSvelteKitVirtualImport(importPath) {
+			importSource = "framework"
 		}
 
 		props := map[string]any{
@@ -832,6 +836,9 @@ func (e *TSExtractor) extractImports(kinds *tsutil.KindTable, root *sitter.Node,
 							source := "internal"
 							if isExternal {
 								source = "external"
+							}
+							if isSvelteKit && isSvelteKitVirtualImport(importPath) {
+								source = "framework"
 							}
 							result = append(result, facts.Fact{
 								Kind:      facts.KindDependency,
@@ -1935,25 +1942,6 @@ func aliasesForDir(roots []tsAliasRoot, dir string) map[string]tsAlias {
 		return nil
 	}
 	return best.aliases
-}
-
-// withSvelteKitLibDefault adds the "$lib/" -> "<root>/src/lib/" convention
-// to every root that doesn't already define it.
-func withSvelteKitLibDefault(roots []tsAliasRoot) []tsAliasRoot {
-	if len(roots) == 0 {
-		roots = []tsAliasRoot{{dir: "", aliases: map[string]tsAlias{}}}
-	}
-	for i := range roots {
-		if _, ok := roots[i].aliases["$lib/"]; ok {
-			continue
-		}
-		target := "src/lib/"
-		if roots[i].dir != "" {
-			target = roots[i].dir + "/src/lib/"
-		}
-		roots[i].aliases["$lib/"] = tsAlias{replacement: target}
-	}
-	return roots
 }
 
 // tryParseTSConfigAliases reads path alias mappings from a tsconfig.json,

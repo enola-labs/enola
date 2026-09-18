@@ -791,6 +791,21 @@ func TestExtract_SvelteKitLoadClassification(t *testing.T) {
 	}
 }
 
+func TestExtract_SvelteKitVirtualDependencyIsFrameworkProvided(t *testing.T) {
+	ff := extractAllSvelteKit(t, map[string]string{
+		"src/routes/+page.ts": `import { goto } from "$app/navigation"; export const load = () => goto("/");`,
+	})
+	for _, f := range ff {
+		if f.Kind == facts.KindDependency && f.Name == "src/routes -> $app/navigation" {
+			if f.Props["source"] != "framework" {
+				t.Fatalf("source = %v, want framework", f.Props["source"])
+			}
+			return
+		}
+	}
+	t.Fatalf("missing $app dependency in %v", factNames(ff))
+}
+
 func TestExtract_SvelteKitServerLoadClassification(t *testing.T) {
 	ff := extractAllSvelteKit(t, map[string]string{
 		"src/routes/+page.server.ts":   `export const load = async () => { return {}; }`,

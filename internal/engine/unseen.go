@@ -71,8 +71,11 @@ func (e *Engine) unseenCensus(skips walkSkips, records []facts.ProviderRecord, i
 			// has already proven it local; counting it as outside would turn healthy
 			// aliased imports into the very coverage warning meant to diagnose broken
 			// aliases.
-			if f.Kind == facts.KindDependency && f.Props["source"] == "internal" {
-				continue
+			if f.Kind == facts.KindDependency {
+				source, _ := f.Props["source"].(string)
+				if source == "internal" || source == "framework" {
+					continue
+				}
 			}
 			u.OutsideGraph[rel.Kind]++
 			if rel.Kind == facts.RelImports {
