@@ -5,7 +5,7 @@ Thank you for your interest in contributing to enola. Every contribution — cod
 ## Getting started
 
 1. **Fork and clone** the repository.
-2. Make sure you have **Go 1.25+** and a **C compiler** (for tree-sitter bindings).
+2. Make sure you have **Go 1.26+** and a **C compiler** (for tree-sitter bindings).
 3. Build and verify:
 
    ```bash

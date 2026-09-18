@@ -1,6 +1,6 @@
 module github.com/enola-labs/enola
 
-go 1.25.13
+go 1.26.8
 
 require (
 	github.com/ebitengine/purego v0.10.2
@@ -18,7 +18,7 @@ require (
 	github.com/tree-sitter/tree-sitter-rust v0.23.3
 	github.com/tree-sitter/tree-sitter-scala v0.24.1
 	github.com/tree-sitter/tree-sitter-typescript v0.23.2
-	golang.org/x/sys v0.47.0
+	golang.org/x/sys v0.48.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
