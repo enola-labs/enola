@@ -46,15 +46,6 @@ type (
 
 var RanProviders = internal.RanProviders
 
-// Graph / impact-analysis types (aliases — identical to the internal types).
-// Re-exported so out-of-module consumers (the enterprise architecture validator)
-// can run reverse-dependency impact analysis over a snapshot's facts.
-type (
-	Graph         = internal.Graph
-	ImpactResult  = internal.ImpactResult
-	TraversalNode = internal.TraversalNode
-)
-
 // RepoIdentity returns the portable identity of the repository a snapshot describes —
 // its normalized git remote, falling back to the checkout directory name. Re-exported
 // because anything that PERSISTS a reference to a repository (the architecture history)
@@ -115,9 +106,7 @@ const (
 	SymbolEnum      = internal.SymbolEnum
 )
 
-// Module role property key + values, re-exported for out-of-module consumers
-// (e.g. the enterprise package-metrics tool) that classify the production
-// population.
+// Module role property key + values.
 const (
 	PropModuleRole       = internal.PropModuleRole
 	ModuleRoleProduction = internal.ModuleRoleProduction
@@ -125,43 +114,3 @@ const (
 	ModuleRoleTooling    = internal.ModuleRoleTooling
 	ModuleRoleUnknown    = internal.ModuleRoleUnknown
 )
-
-// ModuleRoleForPath classifies a module directory by its path segments (test /
-// tooling / unknown). Re-exported so consumers share one source of truth with the
-// extractors instead of re-implementing the heuristic.
-func ModuleRoleForPath(dir string) string { return internal.ModuleRoleForPath(dir) }
-
-// IsTestPath reports whether a repo-relative path is test or test-support code.
-// Re-exported so out-of-module consumers (the enterprise dead-code and performance
-// analyzers) share one definition with the OSS explainers instead of each carrying
-// its own copy — they previously carried three, which drifted in both directions.
-// See internal/facts for the full contract, in particular why it trusts the
-// directory and not the filename.
-func IsTestPath(p string) bool { return internal.IsTestPath(p) }
-
-// MatchGlob reports which of the patterns matches a forward-slash relative path, and
-// MatchAnyGlob whether any does. Unlike path.Match / filepath.Match, these understand
-// `**`:
-//
-//	vendor/**                 anchored directory prefix
-//	**/build/**               a directory named "build" at any depth
-//	**/*_test.go              a basename glob at any depth
-//	**/spec/**/*_spec.rb      a basename glob under a directory named "spec"
-//
-// Re-exported so out-of-module consumers share the engine's matcher instead of
-// reaching for path.Match — which silently reads `**` as `*` and cannot cross a `/`,
-// so every documented `**` pattern quietly matches nothing.
-func MatchGlob(relPath string, patterns []string) (string, bool) {
-	return internal.MatchGlob(relPath, patterns)
-}
-
-// MatchAnyGlob reports whether relPath matches any of the patterns. See MatchGlob.
-func MatchAnyGlob(relPath string, patterns []string) bool {
-	return internal.MatchAnyGlob(relPath, patterns)
-}
-
-// CanonicalSymbols collapses #if/#else conditional-compilation duplicates in a
-// symbol-fact slice, keeping non-conditional overloads intact. Re-exported so
-// out-of-module consumers that count symbols (package-metrics) apply the same rule
-// as the OSS explainers. See internal/facts for the full contract.
-func CanonicalSymbols(syms []Fact) []Fact { return internal.CanonicalSymbols(syms) }
