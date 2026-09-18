@@ -221,17 +221,6 @@ func (r *Report) Render() string {
 		b.WriteString("\n")
 	}
 
-	// Enterprise / extra sections
-	for _, s := range r.ExtraSections {
-		fmt.Fprintf(&b, "%s\n", s.Title)
-		body := s.Body
-		if !strings.HasSuffix(body, "\n") {
-			body += "\n"
-		}
-		b.WriteString(body)
-		b.WriteString("\n")
-	}
-
 	return b.String()
 }
 

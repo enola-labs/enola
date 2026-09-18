@@ -47,10 +47,10 @@ func main() {
 	// switch over os.Args and cannot parse `--flag=value`. Each subcommand owns its own
 	// FlagSet instead.
 	//
-	// `upgrade` is handled here rather than in pkg/command because it is OSS-only: a
-	// wrapper binary ships through its own release path and must not offer to replace
-	// itself with an enola build. It is still declared to the Runner (below) so a typo
-	// like `enola upgrad` is recognised as a near-miss rather than as an unknown word.
+	// `upgrade` is handled here rather than in pkg/command because replacing this binary
+	// in place is cmd/enola's own business: it knows the release path it shipped from. It
+	// is still declared to the Runner (below) so a typo like `enola upgrad` is recognised
+	// as a near-miss rather than as an unknown word.
 	if len(args) > 0 && args[0] == "upgrade" {
 		if err := upgrade.Run(ctx, version.Version); err != nil {
 			log.Fatalf("upgrade failed: %v", err)
@@ -109,7 +109,7 @@ func main() {
 			cli.RenderHelp(os.Stderr, helpSpec())
 			os.Exit(0)
 		case "--list":
-			fmt.Fprint(os.Stderr, cli.RenderToolList(cli.ToolListSpec{}))
+			fmt.Fprint(os.Stderr, cli.RenderToolList())
 			os.Exit(0)
 		case "--generate":
 			generateMode = true
@@ -311,8 +311,8 @@ func main() {
 	// Record per-tool usage so a later `enola --status` has something to report.
 	// Per-repo counters are loaded lazily from ~/.enola/usage/ on first touch, so
 	// they survive restarts; the config's repo is the fallback for calls made
-	// before any snapshot is loaded. srv.StartTime() is only set once Run() is
-	// called, so stamp the start time here to get a correct uptime.
+	// before any snapshot is loaded. The server does not start its own clock until
+	// Run(), so stamp the start time here to get a correct uptime.
 	repoPath, _ := filepath.Abs(cfg.Repo)
 	tracker := status.NewTracker(repoPath)
 	tracker.SetStartTime(time.Now())

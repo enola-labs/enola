@@ -58,9 +58,8 @@ type Instance struct {
 
 	// Identity of the binary and the launch context — what distinguishes two
 	// instances at a glance.
-	Binary     string `json:"binary"`                // "enola", or a wrapper's own name
+	Binary     string `json:"binary"`                // the binary's own name
 	Version    string `json:"version,omitempty"`     // build version
-	Licensed   bool   `json:"licensed,omitempty"`    // a wrapper's own gated features are active
 	ConfigPath string `json:"config_path,omitempty"` // resolved mcp-arch.yaml
 	WorkDir    string `json:"work_dir,omitempty"`    // cwd, i.e. which workspace launched it
 
@@ -223,15 +222,4 @@ func instanceAlive(inst Instance, now time.Time) bool {
 		hb = inst.StartTime
 	}
 	return now.Sub(hb) <= staleAfter
-}
-
-// FrontDoorInstance returns the live instance currently serving the stable
-// dashboard port, if any.
-func FrontDoorInstance() (Instance, bool) {
-	for _, inst := range LiveInstances() {
-		if inst.FrontDoor {
-			return inst, true
-		}
-	}
-	return Instance{}, false
 }

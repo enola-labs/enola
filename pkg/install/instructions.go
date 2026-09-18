@@ -107,25 +107,12 @@ func header() string {
 		"     and `enola uninstall` will remove this file. -->\n\n"
 }
 
-// body composes what actually gets written: the shared instructions, the hooks note when
-// hooks are installed, and whatever the calling binary appends.
-//
-// ExtraInstructions is the seam for a wrapper that serves tools the OSS build does not,
-// so it can tell the agent they exist without this package having to know about them —
-// and without a wrapper having to fork the instruction text to add two lines. Empty for
-// every current caller; the shared output is byte-identical while it stays empty.
+// body composes what actually gets written: the shared instructions, plus the hooks note
+// when hooks are installed.
 func body(o Options) string {
 	out := Instructions
 	if o.Hooks {
 		out += HooksNote
-	}
-	if extra := strings.TrimSpace(o.ExtraInstructions); extra != "" {
-		out += "\n\n" + extra
-	}
-	if o.Hooks {
-		if extra := strings.TrimSpace(o.ExtraHooksNote); extra != "" {
-			out += "\n\n" + extra
-		}
 	}
 	return out
 }
@@ -148,9 +135,6 @@ func opencodeInstructions(o Options) string {
 	out := Instructions
 	if o.Hooks {
 		out += OpencodeGateNote
-	}
-	if extra := strings.TrimSpace(o.ExtraInstructions); extra != "" {
-		out += "\n\n" + extra
 	}
 	return header() + out + "\n"
 }

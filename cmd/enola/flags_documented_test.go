@@ -28,7 +28,7 @@ var undocumentedFlagsByDesign = map[string]string{
 // that every flag they accept is one `enola --help` tells you about.
 //
 // pkg/command already asserts this in both directions for SUBCOMMANDS, and it exists
-// because the help once advertised commands the wrapper binary could not run. Flags
+// because the help once advertised commands the binary could not run. Flags
 // are the other half of the same surface and had no such tie: --memstats and
 // --memprofile were accepted and unmentioned, which is fine, and nothing recorded
 // that it was deliberate — so the next undocumented flag would have looked identical.

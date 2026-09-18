@@ -1,11 +1,8 @@
 // Package cli renders what an enola binary prints about itself: the `--list`
 // tool catalogue and the `--help` text.
 //
-// It is a public package rather than internal/ because a wrapper binary builds on
-// the same surfaces: it lists tools of its own alongside the engine's, and extends
-// the shared help with sections that are meaningless here. Both extension points
-// are data — ToolListSpec.Extra and HelpSpec's Commands/Flags/Sections — so nothing
-// about a wrapper's features leaks into this package.
+// It is a public package rather than internal/ so that anything wanting only the
+// help or the catalogue can reach them without pulling in the engine.
 package cli
 
 import (
@@ -58,72 +55,28 @@ func OSSTools() []ToolEntry {
 	}
 }
 
-// ToolListSpec describes an optional second group of tools to render after the
-// engine's own. A zero spec yields the plain engine catalogue with no reference
-// to any wrapper — which is what the OSS binary passes.
-type ToolListSpec struct {
-	// Extra holds a wrapper's own tools. Rendered under ExtraHeading, unless
-	// ExtraLocked is set.
-	Extra []ToolEntry
-
-	// ExtraHeading titles the second group (e.g. "Enterprise tools:").
-	ExtraHeading string
-
-	// ExtraLocked reports that the wrapper's tools exist but are not currently
-	// available (e.g. unlicensed). LockedNote is printed in place of Extra.
-	ExtraLocked bool
-
-	// LockedNote explains how to unlock the tools. Only used when ExtraLocked.
-	LockedNote string
-}
-
 // nameColumn is the minimum width of the tool-name column. A longer name widens
 // it for every group, so the descriptions stay in one line.
 const nameColumn = 22
 
-// RenderToolList renders the `--list` output for the given spec.
-func RenderToolList(spec ToolListSpec) string {
+// RenderToolList renders the `--list` tool catalogue.
+func RenderToolList() string {
 	var b strings.Builder
-
-	engine := OSSTools()
-	width := nameWidth(engine, spec.Extra)
-
-	b.WriteString("Available tools:\n")
-	if spec.hasSecondGroup() {
-		// Only label the engine's group when there is another one to tell it apart from.
-		b.WriteString("\nOSS tools:\n")
-	} else {
-		b.WriteString("\n")
-	}
-	writeEntries(&b, engine, width)
-
-	switch {
-	case spec.ExtraLocked:
-		fmt.Fprintf(&b, "\n%s\n", spec.LockedNote)
-	case len(spec.Extra) > 0:
-		fmt.Fprintf(&b, "\n%s\n", spec.ExtraHeading)
-		writeEntries(&b, spec.Extra, width)
-	}
-
+	tools := OSSTools()
+	b.WriteString("Available tools:\n\n")
+	writeEntries(&b, tools, nameWidth(tools))
 	return b.String()
 }
 
-// nameWidth returns the tool-name column width for the given groups.
-func nameWidth(groups ...[]ToolEntry) int {
+// nameWidth returns the tool-name column width for the given entries.
+func nameWidth(entries []ToolEntry) int {
 	width := nameColumn
-	for _, g := range groups {
-		for _, t := range g {
-			if len(t.Name) > width {
-				width = len(t.Name)
-			}
+	for _, t := range entries {
+		if len(t.Name) > width {
+			width = len(t.Name)
 		}
 	}
 	return width
-}
-
-// hasSecondGroup reports whether anything is rendered after the engine's tools.
-func (s ToolListSpec) hasSecondGroup() bool {
-	return s.ExtraLocked || len(s.Extra) > 0
 }
 
 // writeEntries renders one group of catalogue rows at the given name width.

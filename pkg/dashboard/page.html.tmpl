@@ -240,7 +240,6 @@
       border: 1px solid var(--border); border-radius: 6px; padding: .2rem .4rem; max-width: 16rem;
     }
     {{/* extra-styles: extension slot — see pkg/dashboard.Options.Overlay */}}
-    {{block "extra-styles" $}}{{end}}
   </style>
 </head>
 <body>
@@ -320,7 +319,6 @@
     {{end}}{{end}}
     {{if $.PackageMetrics}}<div class="card"><div class="k">Package metrics</div><div class="v"><button type="button" class="count-link" onclick="openModal('package-metrics-modal')">{{$.PackageMetrics.TotalAnalyzed}} packages{{if $.PackageMetrics.Multi}} · {{len $.PackageMetrics.Repos}} repos{{end}}</button></div></div>{{end}}
     {{/* extra-cards: extension slot — see pkg/dashboard.Options.Overlay */}}
-    {{block "extra-cards" $}}{{end}}
   </div>
   </section>
 
@@ -793,7 +791,6 @@
 {{if .Multi}}<script>window.METRIC_AGG = {{.AggMapJS}};</script>{{end}}
 {{end}}{{end}}
 {{/* extra-modals: extension slot — see pkg/dashboard.Options.Overlay */}}
-{{block "extra-modals" $}}{{end}}
 
 <script>
   function selectTab(name, updateHash) {
@@ -1096,7 +1093,6 @@
     });
   }
   {{/* extra-scripts: extension slot — see pkg/dashboard.Options.Overlay */}}
-  {{block "extra-scripts" $}}{{end}}
   function closeModal(el) {
     var m = el && el.closest ? el.closest('.modal') : el;
     if (m && m.classList) m.classList.remove('open');

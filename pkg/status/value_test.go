@@ -363,26 +363,14 @@ func TestWeightForKnownTools(t *testing.T) {
 	}
 }
 
-func TestRegisterToolWeights(t *testing.T) {
-	const tool = "wrapper_only_tool"
-	t.Cleanup(func() {
-		weightsMu.Lock()
-		delete(toolWeights, tool)
-		weightsMu.Unlock()
-	})
-
-	if got := weightFor(tool); got != defaultWeight {
-		t.Fatalf("unregistered tool weight: got %d, want defaultWeight %d", got, defaultWeight)
+// A tool with no entry in the table falls back to defaultWeight rather than
+// scoring zero, so an unpriced tool is never counted as worthless.
+func TestUnpricedToolFallsBackToDefaultWeight(t *testing.T) {
+	if got := weightFor("not_a_registered_tool"); got != defaultWeight {
+		t.Errorf("unpriced tool weight: got %d, want defaultWeight %d", got, defaultWeight)
 	}
-
-	RegisterToolWeights(map[string]int{tool: 42})
-	if got := weightFor(tool); got != 42 {
-		t.Errorf("registered tool weight: got %d, want 42", got)
-	}
-
-	// A registration must not disturb the built-in weights.
 	if got := weightFor("query_insights"); got != 30 {
-		t.Errorf("query_insights weight after registration: got %d, want 30", got)
+		t.Errorf("query_insights weight: got %d, want 30", got)
 	}
 }
 

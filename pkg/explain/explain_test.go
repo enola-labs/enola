@@ -314,18 +314,6 @@ func TestRender_ContainsHeadlineNumbers(t *testing.T) {
 	}
 }
 
-func TestRender_ExtraSections(t *testing.T) {
-	r := computeFixture(t)
-	r.AddSection("Dead code (enterprise)", "  potential dead code        3\n")
-	out := r.Render()
-	if !strings.Contains(out, "Dead code (enterprise)") {
-		t.Errorf("extra section title missing\n%s", out)
-	}
-	if !strings.Contains(out, "potential dead code") {
-		t.Errorf("extra section body missing\n%s", out)
-	}
-}
-
 // unresolvedFixtureFacts mimics a Python snapshot before import resolution:
 // module names are slash paths but dependency import targets are raw dotted
 // paths that match no module.

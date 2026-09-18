@@ -17,14 +17,6 @@ func shouldShowDashboardHint(ci, noPrompts string, outputTTY bool) bool {
 	return ci == "" && noPrompts == "" && outputTTY
 }
 
-// CanPrompt reports whether this process may ask the user a question and wait for the
-// answer: stdin and stderr are both a terminal, and neither CI nor ENOLA_NO_PROMPTS is
-// set. Scripts and agents get the non-interactive path.
-func CanPrompt() bool {
-	return shouldShowDashboardHint(os.Getenv("CI"), os.Getenv("ENOLA_NO_PROMPTS"), isTerminal(os.Stderr)) &&
-		isTerminal(os.Stdin)
-}
-
 func isTerminal(f *os.File) bool {
 	if f == nil {
 		return false

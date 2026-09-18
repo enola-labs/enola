@@ -115,14 +115,6 @@ type Config struct {
 	// are unchanged. Defaults to true. Set `incremental: false` to force a full
 	// re-extraction every run.
 	Incremental *bool `yaml:"incremental,omitempty"`
-
-	// ChangeVerifyHint is optional extra guidance a host/wrapper can inject into the
-	// change-verification surfaces — the server Instructions block and the runtime
-	// post-snapshot nudge (loopHint). It lets a wrapper that registers additional
-	// change-verification tools draw the agent toward them from the same
-	// generate_snapshot → diff loop the OSS tools advertise. Not read from YAML; set
-	// programmatically before the server is constructed. Empty by default (OSS).
-	ChangeVerifyHint string `yaml:"-"`
 }
 
 // IncrementalEnabled reports whether per-extractor caching is on (the default).

@@ -217,7 +217,7 @@ func opencodeConfigPath(o Options) (string, string) {
 }
 
 // opencodeServerName is the key enola's MCP server gets in opencode's config. Derived
-// from the binary's own name so a wrapper registers itself alongside the OSS server
+// from the binary's own name so a differently-named binary registers alongside enola's own server
 // rather than overwriting it, which is also how the tool ids the plugin matches are
 // spelled: `enola_explore`, `enola-ent_explore`.
 func opencodeServerName(o Options) string {

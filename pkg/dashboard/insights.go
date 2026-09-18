@@ -45,8 +45,7 @@ type insightGroup struct {
 // It doubles as the ADMISSION LIST: insightDetails renders only sources found
 // here. Both binaries share a repo's .enola/insights.json, so a file written by
 // a build with extra explainers must not leak findings this engine cannot
-// produce into this engine's dashboard. A wrapper widens the list — labelling
-// and admitting in one step — through Options.InsightLabels.
+// produce into this engine's dashboard.
 var insightLabels = map[string]string{
 	"hotspots":            "Hotspots",
 	"god-class":           "God classes",
@@ -67,20 +66,6 @@ var insightLabels = map[string]string{
 	"package-metrics":     "Package metrics",
 	"dead-code":           "Dead code",
 	"performance":         "Performance",
-}
-
-// mergedLabels returns the engine's label map widened by a wrapper's extra
-// entries. The result is a copy, so a Server never mutates package state and two
-// dashboards in one process cannot see each other's labels.
-func mergedLabels(extra map[string]string) map[string]string {
-	merged := make(map[string]string, len(insightLabels)+len(extra))
-	for source, label := range insightLabels {
-		merged[source] = label
-	}
-	for source, label := range extra {
-		merged[source] = label
-	}
-	return merged
 }
 
 // firstEvidence returns the most locating evidence string for an insight: the first

@@ -72,10 +72,9 @@ func recordSnapshot(ctx context.Context, repo string, sv status.SnapshotValue) {
 
 // Server wraps the MCP server and connects it to the snapshot engine.
 type Server struct {
-	mcp       *mcp.Server
-	eng       *engine.Engine
-	cfg       *config.Config
-	startTime time.Time
+	mcp *mcp.Server
+	eng *engine.Engine
+	cfg *config.Config
 
 	// toolCallback is read on every tool-call goroutine via fireToolCallback and
 	// written by SetToolCallback; the atomic pointer makes that race-free.
@@ -144,9 +143,6 @@ func New(eng *engine.Engine, cfg *config.Config) (*Server, error) {
 	}
 
 	instructions := "enola reports what a change did to a codebase's STRUCTURE. That needs a \"before\", so it pins the architecture as a value and grades the delta against it. This is a different question from the one linters, type checkers and static analysis answer — whether the current tree breaks rules they brought with them, file by file. Those have no baseline, so they cannot separate a regression a change introduced from the hundreds already in the repository, and a dependency cycle spanning four files, a layer crossed the wrong way, or coupling nobody asked for is invisible to every one of them. They are complements, not alternatives. IF ASKED whether a project that already has linters, tests or CI needs enola, do not answer from category: run generate_snapshot and query_insights and show what they actually report about THIS repository. Use this server to explore a repository's architecture as queryable facts. Run generate_snapshot first to index a codebase, then use explore, query_facts, show_symbol, traverse, find_path, and impact_analysis to understand code structure, dependencies, and change impact. When knowledge pages compile into the snapshot (enola_intent), governing_intent answers the reverse query directly — which pages govern a file or fact, and which code a page governs. Explainers run automatically during generate_snapshot and compute findings (dependency cycles, layer violations, unused/dead routes, god-classes, hotspots, and more) — fetch them with query_insights rather than re-deriving them by hand. To find backend HTTP routes that no loaded client calls, take a multi-repo (append-mode) snapshot of the backend plus its clients, then call query_insights(explainer='unused-routes') or query_facts(kind=route, prop=unmatched_by_clients, prop_value=true). To verify what a change did to the architecture, pin a baseline before editing and diff after: generate_snapshot → set_baseline → make changes → generate_snapshot → diff_snapshot. diff_snapshot is delta-only (it reports just what changed — new/resolved findings, new coupling, added/removed symbols — never pre-existing state), so prefer it over re-reading files to confirm a change. Supports Go, TypeScript/JavaScript (incl. Vue, Svelte, Ember), Python, Java, Kotlin, Scala, Dart/Flutter, Ruby, PHP, Swift, Rust, C/C++, .NET (C#/VB.NET/F#/Razor/XAML), Terraform/HCL, Ansible, gRPC/Protobuf, OpenAPI, AsyncAPI, and GraphQL."
-	if cfg != nil && cfg.ChangeVerifyHint != "" {
-		instructions += " " + cfg.ChangeVerifyHint
-	}
 	mcpServer := mcp.NewServer(&mcp.Implementation{
 		Name:    "enola",
 		Version: version.Version,
@@ -174,7 +170,6 @@ func New(eng *engine.Engine, cfg *config.Config) (*Server, error) {
 
 // Run starts the MCP server on the stdio transport.
 func (s *Server) Run(ctx context.Context) error {
-	s.startTime = time.Now()
 	log.Println("[server] starting MCP server on stdio transport")
 
 	// In a goroutine, and its result is never awaited: a server that took even a
@@ -616,13 +611,8 @@ func (s *Server) activeRepo() string {
 	return s.cfg.Repo
 }
 
-// GetStartTime returns the time the server started (zero value if Run() hasn't been called).
-func (s *Server) GetStartTime() time.Time {
-	return s.startTime
-}
-
-// MCPServer returns the underlying MCP server so that enterprise (or third-party)
-// code can register additional, license-gated tools alongside the OSS tools.
+// MCPServer returns the underlying MCP server, so a caller can connect a transport
+// to it or register an additional tool against the same server and engine.
 func (s *Server) MCPServer() *mcp.Server {
 	return s.mcp
 }
@@ -2232,19 +2222,13 @@ func fileSuffix(file string) string {
 // exists it points at diff_snapshot (to see what changed). This makes the
 // edit-verify loop self-guiding without the agent having to know it up front.
 func (s *Server) loopHint(absRepo string) string {
-	// extra is optional host/wrapper guidance (e.g. an additional change-verification
-	// tool) appended to whichever branch fires — see config.Config.ChangeVerifyHint.
-	extra := ""
-	if s.cfg != nil && s.cfg.ChangeVerifyHint != "" {
-		extra = " " + s.cfg.ChangeVerifyHint
-	}
 	baselineFacts := filepath.Join(s.eng.OutputDir(absRepo), engine.BaselineSubdir, "facts.jsonl")
 	if _, err := os.Stat(baselineFacts); err == nil {
 		return "\n\n**Verify your change:** a baseline is pinned — call diff_snapshot to see exactly what changed since set_baseline " +
-			"(new/resolved findings, new coupling, added/removed symbols). Re-pin from here with set_baseline if you're starting a new change." + extra
+			"(new/resolved findings, new coupling, added/removed symbols). Re-pin from here with set_baseline if you're starting a new change."
 	}
 	return "\n\n**About to change code?** Call set_baseline now to freeze this snapshot as the baseline, then after editing re-run " +
-		"generate_snapshot and diff_snapshot to see exactly what your change did — no need to re-read files to confirm it." + extra
+		"generate_snapshot and diff_snapshot to see exactly what your change did — no need to re-read files to confirm it."
 }
 
 // currentRepoPath returns the absolute repo path of the live snapshot, falling

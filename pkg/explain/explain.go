@@ -1,12 +1,9 @@
 // Package explain produces a human-readable statistical summary of an Enola
 // architectural snapshot — the data behind `enola --explain <repository>`.
 //
-// It is intentionally a public package (not internal/) because a report is
-// something code outside this module may want to build and extend: Report is
-// exported data, Render turns it into text, and ExtraSections takes a caller's own
-// block. Compute works purely off the exported bootstrap.Engine API, so it sees
-// whatever the engine currently holds: run GenerateSnapshot (or auto-load a
-// snapshot) first.
+// Report is exported data and Render turns it into text. Compute works purely off
+// the exported bootstrap.Engine API, so it sees whatever the engine currently
+// holds: run GenerateSnapshot (or auto-load a snapshot) first.
 package explain
 
 import (
@@ -53,13 +50,6 @@ type Hotspot struct {
 	FanOut      int    `json:"fan_out"`
 	Criticality string `json:"criticality"`  // high | medium | low
 	BlastRadius int    `json:"blast_radius"` // transitive reverse-dependents within blastDepth
-}
-
-// Section is an extra block appended to the report by enterprise code. Body is
-// pre-rendered text (the lines under the Title heading).
-type Section struct {
-	Title string
-	Body  string
 }
 
 // RankedItem is one offender in a code-health finding group: a symbol or module
@@ -166,9 +156,6 @@ type Report struct {
 	PackageMetrics *metrics.Summary `json:"package_metrics,omitempty"`
 	DeadCode       *orphans.Summary `json:"dead_code,omitempty"`
 	Performance    *perf.Summary    `json:"performance,omitempty"`
-
-	// ExtraSections are appended by a caller and rendered after the base report.
-	ExtraSections []Section `json:"-"`
 }
 
 // Compute reads the engine's current fact store and snapshot and builds a Report.
@@ -687,11 +674,4 @@ func fileDir(file string) string {
 		return "."
 	}
 	return strings.Join(parts[:len(parts)-1], "/")
-}
-
-// AddSection appends an extra section (used by enterprise code) and returns the
-// report for chaining.
-func (r *Report) AddSection(title, body string) *Report {
-	r.ExtraSections = append(r.ExtraSections, Section{Title: title, Body: body})
-	return r
 }

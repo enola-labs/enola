@@ -35,14 +35,6 @@ type Options struct {
 	DryRun bool
 	// Targets restricts the run to named targets; empty means every applicable one.
 	Targets []string
-	// ExtraInstructions is appended to the instruction body every target receives.
-	// The seam for a wrapper binary that serves additional tools: it can name them
-	// without this package knowing they exist, and without forking the shared text.
-	// Empty here — no binary sets it yet, and the output is unchanged while it is.
-	ExtraInstructions string
-	// ExtraHooksNote is appended only when Hooks is set, for a wrapper whose hooks do
-	// something the shared HooksNote does not describe.
-	ExtraHooksNote string
 }
 
 func (o Options) hookCommand() string {

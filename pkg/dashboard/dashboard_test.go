@@ -106,17 +106,17 @@ func TestReadChangeSummaryMatchesLoadedSnapshotInConfiguredHistory(t *testing.T)
 		t.Fatal(err)
 	}
 
-	got := readChangeSummary(repo, "sha256:loaded", historyDir, mergedLabels(nil))
+	got := readChangeSummary(repo, "sha256:loaded", historyDir, insightLabels)
 	if !got.Available || got.FactsAdded != 2 || got.EdgesAdded != 7 || got.FactsRemoved != 0 {
 		t.Fatalf("summary = %+v, want loaded snapshot rather than newest history entry", got)
 	}
-	if got := readChangeSummary(repo, "sha256:missing", historyDir, mergedLabels(nil)); got.Available {
+	if got := readChangeSummary(repo, "sha256:missing", historyDir, insightLabels); got.Available {
 		t.Fatalf("missing snapshot unexpectedly returned %+v", got)
 	}
 }
 
 func TestNewFindingsCardLinksToDrillDown(t *testing.T) {
-	tmpl, err := buildTemplate("")
+	tmpl, err := buildTemplate()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -187,11 +187,11 @@ func newTestServer(port int, eng engineView, opts ...Options) *Server {
 	if len(opts) > 0 {
 		o = opts[0]
 	}
-	tmpl, err := buildTemplate(o.Overlay)
+	tmpl, err := buildTemplate()
 	if err != nil {
 		panic(err)
 	}
-	return &Server{port: port, eng: eng, opts: o, tmpl: tmpl, labels: mergedLabels(o.InsightLabels), title: titleOr(o.Title)}
+	return &Server{port: port, eng: eng, opts: o, tmpl: tmpl}
 }
 
 // isolateHome points HOME at an empty temp dir so status.ServerSnapshot (which
@@ -521,7 +521,7 @@ func TestBuildEdgeDiagram(t *testing.T) {
 // 100%; the structural/candidate split and evidence extraction are correct; and
 // nil input yields empty output.
 func TestInsightDetails(t *testing.T) {
-	labels := mergedLabels(nil)
+	labels := insightLabels
 
 	if g, s, c := insightDetails(nil, labels); g != nil || s != 0 || c != 0 {
 		t.Fatalf("insightDetails(nil) = (%v, %d, %d), want empty", g, s, c)
@@ -577,7 +577,7 @@ func TestInsightDetailsExcludesInformationalFromBothCounts(t *testing.T) {
 		{Source: "domain", Title: "Architecture pattern: declared", Confidence: 1.0, Informational: true},
 		{Source: "domain", Title: "Real boundary violation", Confidence: 1.0},
 	}
-	groups, structural, candidate := insightDetails(ins, mergedLabels(nil))
+	groups, structural, candidate := insightDetails(ins, insightLabels)
 	if structural != 1 || candidate != 0 {
 		t.Fatalf("split = %d/%d, want 1 structural / 0 candidate — the informational note must be counted in neither", structural, candidate)
 	}
@@ -603,7 +603,7 @@ func TestInsightBandUsesFindingSemanticsBeforeRoundedDisplay(t *testing.T) {
 		{Source: "hotspots", Title: "Near certain candidate", Confidence: 0.999},
 		{Source: "domain", Title: "Architecture context", Confidence: 1, Informational: true},
 	}
-	groups, _, _ := insightDetails(ins, mergedLabels(nil))
+	groups, _, _ := insightDetails(ins, insightLabels)
 	bands := map[string]string{}
 	for _, group := range groups {
 		for _, item := range group.Items {
@@ -628,7 +628,7 @@ func TestInsightDetailsCapsPreviewAndCarriesTopAction(t *testing.T) {
 		}
 		ins = append(ins, in)
 	}
-	groups, _, _ := insightDetails(ins, mergedLabels(nil))
+	groups, _, _ := insightDetails(ins, insightLabels)
 	if len(groups) != 1 {
 		t.Fatalf("groups = %d, want 1", len(groups))
 	}
@@ -663,30 +663,12 @@ func TestInsightDetailsFiltersUnknownSources(t *testing.T) {
 		{Source: "", Title: "Unstamped", Confidence: 0.5},
 	}
 
-	groups, structural, candidate := insightDetails(ins, mergedLabels(nil))
+	groups, structural, candidate := insightDetails(ins, insightLabels)
 	if len(groups) != 1 || groups[0].Source != "cycles" {
 		t.Fatalf("groups = %+v, want only cycles", groups)
 	}
 	if structural != 1 || candidate != 0 {
 		t.Errorf("split = %d/%d, want 1 structural / 0 candidate — dropped insights must not be counted", structural, candidate)
-	}
-
-	// A caller admits sources of its own by labelling them, and the admission is
-	// per-Server rather than global.
-	groups, structural, candidate = insightDetails(ins, mergedLabels(map[string]string{
-		"not-an-explainer": "Slow things",
-		"also-unknown":     "Unused things",
-	}))
-	if len(groups) != 3 {
-		t.Fatalf("groups = %d, want 3 once the caller's labels are registered", len(groups))
-	}
-	if structural != 2 || candidate != 1 {
-		t.Errorf("split = %d/%d, want 2 structural / 1 candidate", structural, candidate)
-	}
-	for _, g := range groups {
-		if g.Source == "" {
-			t.Error("an unstamped source must stay filtered even for a wrapper")
-		}
 	}
 }
 
@@ -702,27 +684,10 @@ func TestInsightDetailsAdmitsEveryCurrentBuiltInSource(t *testing.T) {
 		ins = append(ins, facts.Insight{Source: source, Title: source, Confidence: 1})
 	}
 
-	groups, structural, candidate := insightDetails(ins, mergedLabels(nil))
+	groups, structural, candidate := insightDetails(ins, insightLabels)
 	if len(groups) != len(sources) || structural != len(sources) || candidate != 0 {
 		t.Fatalf("built-in insights = %d groups, %d/%d split; want %d groups, %d/0 split",
 			len(groups), structural, candidate, len(sources), len(sources))
-	}
-}
-
-// mergedLabels must copy, so one dashboard's wrapper labels never bleed into the
-// package map (and thus into another dashboard in the same process).
-func TestMergedLabelsDoesNotMutatePackageMap(t *testing.T) {
-	before := len(insightLabels)
-	m := mergedLabels(map[string]string{"third-party": "Third party"})
-
-	if len(insightLabels) != before {
-		t.Errorf("insightLabels grew to %d, want %d — mergedLabels must copy", len(insightLabels), before)
-	}
-	if _, leaked := insightLabels["third-party"]; leaked {
-		t.Error("caller's label leaked into the package map")
-	}
-	if m["third-party"] != "Third party" || m["cycles"] != "Dependency cycles" {
-		t.Errorf("merged map lost an entry: %+v", m)
 	}
 }
 
@@ -899,141 +864,29 @@ func TestValueRowsHasTotal(t *testing.T) {
 	}
 }
 
-// The overlay is the whole contract a wrapper binary builds its extra panels on:
-// each of the four blocks must render, reach the wrapper's own data through
-// {{.Extra}}, and land inside the right part of the page.
-func TestOverlayRendersExtraBlocks(t *testing.T) {
-	isolateHome(t)
-
-	receipt, err := json.Marshal(facts.Receipt{SnapshotID: "snap-1", FactCount: 1})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	const overlay = `
-{{define "extra-styles"}}.wrapper-panel { color: hotpink; }{{end}}
-{{define "extra-cards"}}{{if .Extra}}<div class="card" id="wrapper-card">{{.Extra.Label}}</div>{{end}}{{end}}
-{{define "extra-modals"}}{{if .Extra}}<div class="modal" id="wrapper-modal">{{.Extra.Count}} things</div>{{end}}{{end}}
-{{define "extra-scripts"}}function wrapperFn() { return 1; }{{end}}`
-
-	type extra struct {
-		Label string
-		Count int
-	}
-	s := newTestServer(8080, fakeArtifacts{receipt: receipt}, Options{
-		Overlay: overlay,
-		Extra:   func(*facts.Store) any { return extra{Label: "Wrapper panel", Count: 7} },
-	})
-
-	rec := httptest.NewRecorder()
-	s.handleIndex(rec, httptest.NewRequest(http.MethodGet, "/", nil))
-	body := rec.Body.String()
-
-	for _, want := range []string{
-		".wrapper-panel { color: hotpink; }", // extra-styles
-		`id="wrapper-card"`, "Wrapper panel", // extra-cards, reading .Extra
-		`id="wrapper-modal"`, "7 things", // extra-modals
-		"function wrapperFn()", // extra-scripts
-	} {
-		if !strings.Contains(body, want) {
-			t.Errorf("overlay output missing %q", want)
-		}
-	}
-
-	// Each block must land in its own region: styles inside <style>, scripts inside
-	// <script>, and the card inside the receipt card grid rather than after it.
-	if head := body[:strings.Index(body, "</style>")]; !strings.Contains(head, ".wrapper-panel") {
-		t.Error("extra-styles rendered outside the <style> block")
-	}
-	if card, grid := strings.Index(body, `id="wrapper-card"`), strings.Index(body, `id="wrapper-modal"`); card > grid {
-		t.Error("extra-cards should render before extra-modals")
-	}
-}
-
-// A wrapper that supplies no Extra (e.g. an unlicensed feature) must render a
-// clean page, not a half-built panel.
-func TestOverlayWithoutExtraDataRendersNothing(t *testing.T) {
-	isolateHome(t)
-
-	s := newTestServer(8080, fakeArtifacts{err: errors.New("no snapshot")}, Options{
-		Overlay: `{{define "extra-modals"}}{{if .Extra}}<div id="wrapper-modal"></div>{{end}}{{end}}`,
-	})
-
-	rec := httptest.NewRecorder()
-	s.handleIndex(rec, httptest.NewRequest(http.MethodGet, "/", nil))
-	if body := rec.Body.String(); strings.Contains(body, "wrapper-modal") {
-		t.Error("a nil Extra must render no panel")
-	}
-}
-
-// A broken overlay must fail at Start, where a wrapper author sees it — not
-// silently drop every panel from every page.
-func TestStartRejectsInvalidOverlay(t *testing.T) {
-	if _, err := Start(nil, Options{Overlay: `{{define "extra-cards"}}{{.Unclosed`}); err == nil {
-		t.Fatal("Start accepted a malformed overlay")
-	}
-}
-
 // html/template refuses to Clone a template that has already executed, so a
 // server must never render straight from the package-level base. Starting a
-// plain dashboard and then an overlay one in the same process is exactly the
-// order that regressed.
+// second dashboard in a process where the first has already served a page is
+// exactly the order that regressed.
 func TestSecondServerCanStartAfterFirstHasRendered(t *testing.T) {
 	isolateHome(t)
 
 	first := newTestServer(1, fakeArtifacts{err: errors.New("no snapshot")})
 	first.handleIndex(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/", nil))
 
-	if _, err := buildTemplate(`{{define "extra-cards"}}<div id="late"></div>{{end}}`); err != nil {
-		t.Fatalf("overlay template after a render: %v", err)
-	}
-	if _, err := buildTemplate(""); err != nil {
-		t.Fatalf("plain template after a render: %v", err)
+	if _, err := buildTemplate(); err != nil {
+		t.Fatalf("template build after a render: %v", err)
 	}
 }
 
-// OverlayBlocks is the published half of the overlay contract, so every name it
-// promises must actually be a block in the page — otherwise a wrapper's panel
-// parses cleanly and then renders nowhere.
-func TestOverlayBlocksExistInPage(t *testing.T) {
-	names := OverlayBlocks()
-	if len(names) == 0 {
-		t.Fatal("OverlayBlocks is empty")
-	}
-	for _, name := range names {
-		if baseTmpl.Lookup(name) == nil {
-			t.Errorf("OverlayBlocks names %q, but the page defines no such block", name)
-		}
-	}
-
-	// And the page must not carry extension blocks it never told wrappers about.
-	declared := make(map[string]bool, len(names))
-	for _, n := range names {
-		declared[n] = true
-	}
-	for _, tpl := range baseTmpl.Templates() {
-		if n := tpl.Name(); strings.HasPrefix(n, "extra-") && !declared[n] {
-			t.Errorf("page defines block %q, which OverlayBlocks does not list", n)
-		}
-	}
-}
-
-// The page is branded per binary, so a wrapper can name its own product without
-// forking the template — and the default must never be a wrapper's name.
-func TestTitleDefaultsAndOverrides(t *testing.T) {
+// The page is branded in the title, the heading and the footer, all from one constant.
+func TestTitleIsTheProductName(t *testing.T) {
 	isolateHome(t)
-	req := func() *http.Request { return httptest.NewRequest(http.MethodGet, "/", nil) }
 
 	rec := httptest.NewRecorder()
-	newTestServer(1, fakeArtifacts{err: errors.New("none")}).handleIndex(rec, req())
-	if body := rec.Body.String(); !strings.Contains(body, "<title>enola — dashboard</title>") {
-		t.Error("default title is not the engine's own name")
-	}
-
-	rec = httptest.NewRecorder()
-	newTestServer(1, fakeArtifacts{err: errors.New("none")}, Options{Title: "wrapper build"}).handleIndex(rec, req())
+	newTestServer(1, fakeArtifacts{err: errors.New("none")}).handleIndex(rec, httptest.NewRequest(http.MethodGet, "/", nil))
 	body := rec.Body.String()
-	for _, want := range []string{"<title>wrapper build — dashboard</title>", `<h1>wrapper build<span class="brand-dot">.</span></h1>`} {
+	for _, want := range []string{"<title>enola — dashboard</title>", `<h1>enola<span class="brand-dot">.</span></h1>`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("body missing %q", want)
 		}

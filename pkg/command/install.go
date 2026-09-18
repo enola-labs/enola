@@ -69,10 +69,6 @@ func (r *Runner) Install(args []string, remove bool) {
 		Hooks:       *hooks && !remove,
 		DryRun:      *dryRun,
 		HookCommand: hookBinary(),
-		// Empty for the OSS binary, so its output is unchanged; a wrapper names the
-		// tools only it serves. See Runner.WithInstructions.
-		ExtraInstructions: r.extraInstructions,
-		ExtraHooksNote:    r.extraHooksNote,
 	}
 	if *global {
 		opts.Scope = install.ScopeGlobal

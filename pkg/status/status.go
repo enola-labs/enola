@@ -88,9 +88,8 @@ type Tracker struct {
 // Identity is the launch context that distinguishes one running server from
 // another in the registry: which binary, from which workspace, with which config.
 type Identity struct {
-	Binary     string // "enola", or a wrapper's own name
+	Binary     string // the binary's own name
 	Version    string
-	Licensed   bool // a wrapper's own gated features are active
 	ConfigPath string
 	WorkDir    string
 }
@@ -359,7 +358,6 @@ func (t *Tracker) Self() Instance {
 		Heartbeat:     time.Now(),
 		Binary:        t.ident.Binary,
 		Version:       t.ident.Version,
-		Licensed:      t.ident.Licensed,
 		ConfigPath:    t.ident.ConfigPath,
 		WorkDir:       t.ident.WorkDir,
 		PrimaryRepo:   primary,

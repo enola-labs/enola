@@ -64,9 +64,8 @@ func (b Binary) output() string {
 	return b.Name
 }
 
-// HelpSpec is the rendered form of `--help`. A wrapper binary starts from
-// DefaultHelp and appends to Commands/Flags/Sections rather than restating the
-// shared text.
+// HelpSpec is the rendered form of `--help`. Every field is plain data, so a caller
+// composing its own help starts from DefaultHelp rather than restating the shared text.
 type HelpSpec struct {
 	Bin       Binary
 	Tagline   string    // one-line description, printed beside the binary name
@@ -79,9 +78,8 @@ type HelpSpec struct {
 	Sections  []Section // trailing blocks, in order
 }
 
-// DefaultHelp returns the help shared by every enola binary. It documents only
-// what the engine itself provides — it never mentions licensing, activation or
-// anything a wrapper adds.
+// DefaultHelp returns the help shared by every enola binary. It documents what the
+// engine itself provides, with the binary's own name and version substituted in.
 func DefaultHelp(bin Binary) HelpSpec {
 	return HelpSpec{
 		Bin:     bin,
@@ -299,32 +297,6 @@ func buildSection(bin Binary) Section {
     go build -ldflags "-X %s=0.1.0" -o %s %s
 `, bin.VersionVar, bin.output(), bin.CmdPackage),
 	}
-}
-
-// AppendFlagNote appends note as extra lines to an existing flag's description,
-// so a wrapper can qualify a shared flag without restating the Flags slice. It
-// is a no-op when the flag is absent.
-func (s *HelpSpec) AppendFlagNote(flag, note string) {
-	for i := range s.Flags {
-		if s.Flags[i].Flag == flag {
-			s.Flags[i].Desc += "\n" + note
-			return
-		}
-	}
-}
-
-// InsertSectionsBefore inserts sections immediately before the section with the
-// given title, so a wrapper can place its own blocks precisely rather than only
-// at the end. Sections are appended when the title is not found.
-func (s *HelpSpec) InsertSectionsBefore(title string, secs ...Section) {
-	for i, sec := range s.Sections {
-		if sec.Title == title {
-			rest := append([]Section{}, s.Sections[i:]...)
-			s.Sections = append(append(s.Sections[:i:i], secs...), rest...)
-			return
-		}
-	}
-	s.Sections = append(s.Sections, secs...)
 }
 
 // RenderHelp writes the help text for spec to w.

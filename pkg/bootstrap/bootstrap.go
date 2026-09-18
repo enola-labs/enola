@@ -14,8 +14,6 @@ import (
 
 	"github.com/enola-labs/enola/internal/clientspec"
 	"github.com/enola-labs/enola/internal/config"
-	"github.com/enola-labs/enola/internal/diff"
-	"github.com/enola-labs/enola/internal/drift"
 	"github.com/enola-labs/enola/internal/engine"
 	"github.com/enola-labs/enola/internal/explainers/complexity"
 	"github.com/enola-labs/enola/internal/explainers/constraints"
@@ -81,13 +79,13 @@ import (
 	"github.com/enola-labs/enola/internal/renderers/llmcontext"
 	"github.com/enola-labs/enola/internal/server"
 	"github.com/enola-labs/enola/pkg/plan"
+
 	"github.com/enola-labs/enola/pkg/plugin"
 	"github.com/enola-labs/enola/pkg/status"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// Engine wraps the internal engine with a public interface for
-// extension by enterprise or third-party code.
+// Engine wraps the internal engine with a public interface.
 type Engine struct {
 	eng *engine.Engine
 }
@@ -217,29 +215,6 @@ func LoadSnapshotDir(dir string) (*facts.Snapshot, error) {
 	return engine.LoadSnapshotDir(dir)
 }
 
-// AddDriftWarning appends a comparability caveat to d when repoPath's working tree no
-// longer matches the snapshot eng holds. rerunTool names the tool to call again.
-//
-// Exported because every tool that computes its OWN delta needs this caveat, and they do
-// not all live in this module. A consumer that builds a diff the server never sees is not
-// covered by the server's own call, so the check has to be reachable from outside. See
-// internal/drift for why the implementation lives a layer down.
-func AddDriftWarning(d *diff.SnapshotDiff, eng *Engine, repoPath, rerunTool string) {
-	drift.AddWarning(d, eng, repoPath, rerunTool)
-}
-
-// ResolveBaselineDir maps a baseline selector to the directory holding that snapshot's
-// artifacts: "" / "pinned" → the explicit SetBaseline pin, "previous" → the
-// automatically-rotated preceding run, anything else → an explicit path.
-//
-// Re-exported so out-of-module callers resolve a selector the same way the MCP tools
-// and the `check` gate do. What `previous` means is a contract, not a path convention:
-// a consumer that spelled it out locally would keep working right up until the rotation
-// changed, and then disagree with every other surface about which snapshot it named.
-func ResolveBaselineDir(outDir, selector string) string {
-	return engine.ResolveBaselineDir(outDir, selector)
-}
-
 // GetArtifact returns the content of a named artifact.
 func (e *Engine) GetArtifact(name string) ([]byte, error) {
 	return e.eng.GetArtifact(name)
@@ -286,25 +261,17 @@ func (s *Server) SeedCorpus(byRepo map[string]int) {
 // its response size and any snapshot detail — everything the value model needs
 // that cannot be recovered from a call count afterwards.
 //
-// It fires for every tool on the server, including those a wrapper binary
-// registers, so a wrapper does not report its own calls.
+// It fires for every tool registered on the server, including any added after
+// construction.
 func (s *Server) SetToolCallback(cb func(status.ToolCall)) {
 	s.srv.SetToolCallback(cb)
 }
 
-// StartTime returns the time the server started (zero value if Run() hasn't been called).
-func (s *Server) StartTime() time.Time {
-	return s.srv.GetStartTime()
-}
-
-// MCP returns the underlying MCP server so enterprise code can register
-// additional (license-gated) tools before calling Run.
+// MCP returns the underlying MCP server. It is the handle the end-to-end tests use
+// to connect an in-memory transport and drive this server as a real client would,
+// and to register a test-only tool against the same server and engine.
 func (s *Server) MCP() *mcp.Server {
 	return s.srv.MCPServer()
-}
-
-func (s *Server) SetPlanEngineFactory(factory plan.EngineFactory) {
-	s.srv.SetPlanEngineFactory(factory)
 }
 
 func PlanEngineFactory(cfg *config.Config) plan.EngineFactory {

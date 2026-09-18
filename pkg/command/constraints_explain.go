@@ -224,13 +224,6 @@ func renderOrigin(b *strings.Builder, o *constraints.Origin) {
 	}
 }
 
-// RenderRadius is the text form of a blast radius, shared by explain and plan.
-func RenderRadius(r constraints.BlastRadius) string {
-	var b strings.Builder
-	renderRadius(&b, r)
-	return b.String()
-}
-
 func renderRadius(b *strings.Builder, r constraints.BlastRadius) {
 	fmt.Fprintf(b, "  if %s left every part (%d rule(s) re-run over the loaded snapshot):\n", strings.Join(r.Files, ", "), r.RulesRun)
 	renderRadiusList(b, "would start failing", r.Appear)

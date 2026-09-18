@@ -406,7 +406,7 @@ func TestNewServer(t *testing.T) {
 		t.Fatalf("NewServer: %v", err)
 	}
 	if srv.MCP() == nil {
-		t.Error("MCP() returned nil; enterprise code needs it to register extra tools")
+		t.Error("MCP() returned nil; the end-to-end tests need it to connect a transport")
 	}
 }
 

@@ -3,7 +3,6 @@ package status
 import (
 	"math"
 	"sort"
-	"sync"
 	"time"
 )
 
@@ -96,60 +95,34 @@ const (
 
 // toolWeights maps each query tool to an ordinal judgement: how much manual
 // exploration one call displaces, relative to the other tools. It covers the
-// tools this engine registers (see pkg/cli.OSSTools); a wrapper binary that adds
-// its own MCP tools prices them via RegisterToolWeights rather than by editing
-// this table.
+// tools this engine registers (see pkg/cli.OSSTools).
 //
 // generate_snapshot is deliberately absent: its value is corpus-derived (see
 // SnapshotValue) and cannot be expressed as a fixed number of lookups.
-//
-// weightsMu guards the map: registration happens once at startup, but reads run
-// from the MCP server's tool callback and, in wrapper binaries, from concurrent
-// HTTP handlers.
-var (
-	weightsMu   sync.RWMutex
-	toolWeights = map[string]int{
-		"show_symbol":      3,
-		"snapshot_receipt": 3,
-		"set_baseline":     4,
-		"query_facts":      8,
-		"compare_receipts": 10,
-		"traverse":         10,
-		"find_path":        12,
-		"explore":          15,
-		"diff_snapshot":    15,
-		"coverage_report":  20,
-		"impact_analysis":  25,
-		"query_insights":   30,
-		// The three analyzers sit above the band deliberately: reproducing
-		// find_orphans or analyze_performance by hand means a whole-graph
-		// reachability or loop-nesting analysis, not a lookup.
-		"package_metrics":     20,
-		"find_orphans":        40,
-		"analyze_performance": 50,
-	}
-)
-
-// RegisterToolWeights merges caller-supplied per-tool weights into the value
-// model, so a wrapper binary that registers additional MCP tools can price them
-// instead of letting them fall back to defaultWeight. Call it during startup,
-// before the server begins serving. Later registrations win for a given tool.
-//
-// Note that the weight is applied when the call is recorded, and the resulting
-// token figure is what gets persisted — so a wrapper's pricing survives into
-// usage files that an OSS binary later reads and renders.
-func RegisterToolWeights(extra map[string]int) {
-	weightsMu.Lock()
-	defer weightsMu.Unlock()
-	for tool, w := range extra {
-		toolWeights[tool] = w
-	}
+var toolWeights = map[string]int{
+	"show_symbol":      3,
+	"snapshot_receipt": 3,
+	"set_baseline":     4,
+	"query_facts":      8,
+	"compare_receipts": 10,
+	"traverse":         10,
+	"find_path":        12,
+	"explore":          15,
+	"diff_snapshot":    15,
+	"coverage_report":  20,
+	"impact_analysis":  25,
+	"query_insights":   30,
+	// The three analyzers sit above the band deliberately: reproducing
+	// find_orphans or analyze_performance by hand means a whole-graph
+	// reachability or loop-nesting analysis, not a lookup.
+	"package_metrics":     20,
+	"find_orphans":        40,
+	"analyze_performance": 50,
 }
 
-// weightFor returns the manual-ops-avoided weight for a query tool.
+// weightFor returns the manual-ops-avoided weight for a query tool. toolWeights is
+// written once at init and never after, so concurrent readers need no lock.
 func weightFor(tool string) int {
-	weightsMu.RLock()
-	defer weightsMu.RUnlock()
 	if w, ok := toolWeights[tool]; ok {
 		return w
 	}
