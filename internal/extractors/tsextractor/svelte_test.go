@@ -170,7 +170,8 @@ func TestDetectSvelteKit_PkgDep(t *testing.T) {
 func TestStaticSvelteKitAliases_LiteralsOnly(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "svelte.config.js")
-	config := `const unrelated = { alias: { wrong: "./wrong" } };
+	config := `const docs = 'https://kit.svelte.dev';
+	const unrelated = { alias: { wrong: "./wrong" } };
 	export default {
 		kit: {
 			alias: {

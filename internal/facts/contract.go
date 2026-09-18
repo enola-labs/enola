@@ -403,9 +403,10 @@ var AllRouteSources = map[string]bool{
 // vocabulary. Registered here so the conformance test can tell the two apart rather than
 // reporting every "internal" as an unknown route source.
 const (
-	DepSourceInternal = "internal" // resolves to a module inside this repo
-	DepSourceExternal = "external" // resolves to a third-party package
-	DepSourceStdlib   = "stdlib"   // resolves to the language's standard library
+	DepSourceInternal  = "internal"  // resolves to a module inside this repo
+	DepSourceExternal  = "external"  // resolves to a third-party package
+	DepSourceStdlib    = "stdlib"    // resolves to the language's standard library
+	DepSourceFramework = "framework" // supplied virtually by a framework/compiler
 )
 
 // CompilationUnitProps name the module props that identify the unit a module is

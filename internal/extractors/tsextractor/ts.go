@@ -786,7 +786,7 @@ func (e *TSExtractor) extractImports(kinds *tsutil.KindTable, root *sitter.Node,
 			importSource = "external"
 		}
 		if isSvelteKit && isSvelteKitVirtualImport(importPath) {
-			importSource = "framework"
+			importSource = facts.DepSourceFramework
 		}
 
 		props := map[string]any{
@@ -838,7 +838,7 @@ func (e *TSExtractor) extractImports(kinds *tsutil.KindTable, root *sitter.Node,
 								source = "external"
 							}
 							if isSvelteKit && isSvelteKitVirtualImport(importPath) {
-								source = "framework"
+								source = facts.DepSourceFramework
 							}
 							result = append(result, facts.Fact{
 								Kind:      facts.KindDependency,
@@ -1969,22 +1969,22 @@ type tsConfigAliasFile struct {
 // made a perfectly ordinary commented config indistinguishable from a missing one.
 func stripJSONC(data []byte) []byte {
 	out := make([]byte, 0, len(data))
-	inString, escaped := false, false
+	quote, escaped := byte(0), false
 	for i := 0; i < len(data); i++ {
 		c := data[i]
-		if inString {
+		if quote != 0 {
 			out = append(out, c)
 			if escaped {
 				escaped = false
 			} else if c == '\\' {
 				escaped = true
-			} else if c == '"' {
-				inString = false
+			} else if c == quote {
+				quote = 0
 			}
 			continue
 		}
-		if c == '"' {
-			inString = true
+		if c == '"' || c == '\'' || c == '`' {
+			quote = c
 			out = append(out, c)
 			continue
 		}

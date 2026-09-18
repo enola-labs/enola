@@ -73,7 +73,7 @@ func (e *Engine) unseenCensus(skips walkSkips, records []facts.ProviderRecord, i
 			// aliases.
 			if f.Kind == facts.KindDependency {
 				source, _ := f.Props["source"].(string)
-				if source == "internal" || source == "framework" {
+				if source == facts.DepSourceInternal || source == facts.DepSourceFramework {
 					continue
 				}
 			}

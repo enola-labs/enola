@@ -126,7 +126,7 @@ Contract props:
 
 ### dependency
 
-- `source`: where the import resolves — `internal` | `external` | `stdlib`.
+- `source`: where the import resolves — `internal` | `external` | `stdlib` | `framework` (a compiler/framework-provided virtual module).
   This is a second, unrelated vocabulary on the same prop key as route's
   `source`, discriminated by the fact's kind. Reading `source` without first
   checking kind gets a value from the wrong vocabulary.

@@ -78,7 +78,7 @@ failed, because nothing tied the reading side to the writing side.
 
 **The `source` prop carries two unrelated vocabularies.** On a `route` fact it is
 provenance (`ts-http-client`, `grpc-proto`, …). On a `dependency` fact it is where an
-import *resolves to* (`internal` / `external` / `stdlib`). Reading it without checking
+import *resolves to* (`internal` / `external` / `stdlib` / `framework`). Reading it without checking
 `Kind` first gets you a value from the wrong vocabulary. The overload is historical and not
 worth a migration — renaming a prop key rewrites every golden and every saved snapshot —
 but it is a real trap.
