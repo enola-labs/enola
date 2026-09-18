@@ -31,28 +31,6 @@ func TestCapTruncatesAndCountsTheRest(t *testing.T) {
 	}
 }
 
-// Cap2 shares ONE budget with an already-capped first list, so an explainer
-// reporting two shapes of the same finding reports one list's worth in total rather
-// than one per shape.
-func TestCap2SharesTheBudget(t *testing.T) {
-	first, _ := Cap(items("a", 30))
-	second, omitted := Cap2(items("a", 40), len(first))
-	if len(first)+len(second) != MaxIndividualInsights {
-		t.Fatalf("two shapes reported %d, want the shared budget of %d",
-			len(first)+len(second), MaxIndividualInsights)
-	}
-	if omitted != 40-(MaxIndividualInsights-30) {
-		t.Fatalf("omitted %d, want %d", omitted, 40-(MaxIndividualInsights-30))
-	}
-}
-
-func TestCap2WithNoBudgetLeftKeepsNothing(t *testing.T) {
-	kept, omitted := Cap2(items("b", 5), MaxIndividualInsights)
-	if len(kept) != 0 || omitted != 5 {
-		t.Fatalf("kept %d omitted %d, want 0 and 5", len(kept), omitted)
-	}
-}
-
 // The failure this exists to prevent: a snapshot holding several repositories spends
 // one budget in rank order, so whichever repository ranks first takes all of it and
 // the rest are reported as clean when nobody looked at them. Silence that means "not

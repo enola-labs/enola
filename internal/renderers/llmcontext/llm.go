@@ -1205,30 +1205,6 @@ func (r *LLMContextRenderer) renderMeta(snapshot *facts.Snapshot) string {
 	return sb.String()
 }
 
-// detectDominantLanguage returns the most common language across module facts.
-func detectDominantLanguage(snapshot *facts.Snapshot) string {
-	counts := make(map[string]int)
-	for _, f := range snapshot.Facts {
-		if f.Kind == facts.KindModule {
-			if lang, ok := f.Props["language"].(string); ok {
-				counts[lang]++
-			}
-		}
-	}
-	best := ""
-	bestCount := 0
-	for lang, count := range counts {
-		// Same map-iteration hazard as the critical-module ranking: a tie on count
-		// must be settled by name, or the guidance a tied repository renders
-		// changes between two runs of one binary.
-		if count > bestCount || (count == bestCount && lang < best) {
-			best = lang
-			bestCount = count
-		}
-	}
-	return best
-}
-
 func propStr(f facts.Fact, key string) string {
 	if f.Props == nil {
 		return ""

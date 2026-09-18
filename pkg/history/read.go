@@ -180,52 +180,6 @@ func Last(entries []Entry) (Entry, bool) {
 	return entries[len(entries)-1], true
 }
 
-// Merge unions two logs of the same repository, dropping duplicate revisions and
-// returning them in a stable order.
-//
-// This is the whole of the merge algorithm, and it is a property of the format rather
-// than of any transport: entries are content-addressed by ID, so the same revision
-// observed on two machines is one revision. It is exercised now, with no remote in
-// sight, because it is what pins down the three format rules that make a later merge
-// possible at all — identity by ID, repo by portable identity, and Seq as local
-// bookkeeping that must never be used for ordering.
-//
-// Ordering is by At — as an INSTANT, see SortedByTime — then by ID as a tiebreak so the
-// result is deterministic when two machines record the same second. Two machines is
-// precisely where offsets differ, so comparing the strings would interleave them wrong.
-// Seq is renumbered locally: it describes THIS machine's log, so carrying the other side's
-// would produce duplicates and gaps.
-func Merge(a, b []Entry) []Entry {
-	seen := make(map[string]struct{}, len(a)+len(b))
-	out := make([]Entry, 0, len(a)+len(b))
-	for _, src := range [][]Entry{a, b} {
-		for _, e := range src {
-			if e.ID != "" {
-				if _, dup := seen[e.ID]; dup {
-					continue
-				}
-				seen[e.ID] = struct{}{}
-			}
-			out = append(out, e)
-		}
-	}
-	sort.SliceStable(out, func(i, j int) bool {
-		ti, oki := time.Parse(time.RFC3339, out[i].At)
-		tj, okj := time.Parse(time.RFC3339, out[j].At)
-		switch {
-		case oki == nil && okj == nil && !ti.Equal(tj):
-			return ti.Before(tj)
-		case (oki != nil || okj != nil) && out[i].At != out[j].At:
-			return out[i].At < out[j].At
-		}
-		return out[i].ID < out[j].ID
-	})
-	for i := range out {
-		out[i].Seq = i + 1
-	}
-	return out
-}
-
 // Resolve maps a revision selector to an entry.
 //
 // Accepted forms, in the order they are tried:

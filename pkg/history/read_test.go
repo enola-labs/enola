@@ -116,45 +116,6 @@ func TestParse_MalformedFinalLineOfACompleteFileIsAnError(t *testing.T) {
 	}
 }
 
-// Merging two machines' logs of one repository is the property the format is shaped to
-// have (see the package doc): content-addressed identity, portable repo identity, and
-// Seq as local bookkeeping. Exercised now, with no remote in existence, because it is
-// what pins those three rules in place while they are still cheap to keep.
-func TestMerge_UnionsAndDedupsByID(t *testing.T) {
-	shared := entry("aaa1", "2026-08-01T10:00:00Z", "c1")
-	laptop := []Entry{shared, entry("bbb2", "2026-08-02T10:00:00Z", "c2")}
-	ci := []Entry{shared, entry("ccc3", "2026-08-03T10:00:00Z", "c3")}
-	// Seq values that disagree between the machines, which is the normal case.
-	laptop[0].Seq, laptop[1].Seq = 1, 2
-	ci[0].Seq, ci[1].Seq = 7, 8
-
-	got := Merge(laptop, ci)
-
-	if len(got) != 3 {
-		t.Fatalf("want 3 distinct revisions, got %d", len(got))
-	}
-	for i, wantID := range []string{"sha256:aaa1", "sha256:bbb2", "sha256:ccc3"} {
-		if got[i].ID != wantID {
-			t.Errorf("position %d: want %s, got %s", i, wantID, got[i].ID)
-		}
-		if got[i].Seq != i+1 {
-			t.Errorf("Seq must be renumbered locally, got %d at position %d", got[i].Seq, i)
-		}
-	}
-}
-
-func TestMerge_IsOrderedByTimeNotByInputOrder(t *testing.T) {
-	// The later-timestamped entry arrives first, as it would from a machine whose log
-	// was fetched second.
-	got := Merge(
-		[]Entry{entry("bbb2", "2026-08-02T10:00:00Z", "c2")},
-		[]Entry{entry("aaa1", "2026-08-01T10:00:00Z", "c1")},
-	)
-	if got[0].ID != "sha256:aaa1" {
-		t.Fatalf("want the older revision first, got %s", got[0].ID)
-	}
-}
-
 func TestResolve(t *testing.T) {
 	entries := []Entry{
 		entry("aaa1111", "2026-08-01T10:00:00Z", "c0ffee1111"),
@@ -237,18 +198,6 @@ func TestSortedByTime_ComparesInstantsNotStrings(t *testing.T) {
 	if got[0].ID != earlier.ID {
 		t.Errorf("want the chronologically earlier revision first, got %s (%s) before %s (%s)",
 			got[0].ID, got[0].At, got[1].ID, got[1].At)
-	}
-}
-
-// The same rule for Merge, and it matters more there: two machines is exactly where offsets
-// differ.
-func TestMerge_OrdersByInstant(t *testing.T) {
-	got := Merge(
-		[]Entry{entry("bbb", "2026-06-25T20:05:30+02:00", "c2")},
-		[]Entry{entry("aaa", "2026-06-25T20:27:26+03:00", "c1")},
-	)
-	if got[0].ID != "sha256:aaa" {
-		t.Errorf("want the chronologically earlier revision first, got %s at %s", got[0].ID, got[0].At)
 	}
 }
 

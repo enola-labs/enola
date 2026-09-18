@@ -176,22 +176,6 @@ func nearestModule(dir string, prod, test map[string]bool) string {
 	return dir
 }
 
-// IsExternalImport reports whether an import target points outside the repo
-// (Go stdlib, third-party, or an npm package) rather than at an internal module.
-func IsExternalImport(path string) bool {
-	// Go external imports contain dots (fmt, net/http, github.com/...).
-	// TS external imports don't start with . or / and aren't relative.
-	if strings.HasPrefix(path, ".") || strings.HasPrefix(path, "/") {
-		return false
-	}
-	// Go standard library or third-party.
-	if strings.Contains(path, ".") || !strings.Contains(path, "/") {
-		// Likely a Go stdlib or npm package (e.g., "fmt", "react", "@types/node").
-		return true
-	}
-	return false
-}
-
 // ResolveRelativeImport resolves a "./x" or "../x" import target against the
 // source module's path, yielding an absolute (repo-relative) module path.
 func ResolveRelativeImport(sourceModule, target string) string {

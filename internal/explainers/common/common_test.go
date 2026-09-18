@@ -8,34 +8,6 @@ import (
 	"github.com/enola-labs/enola/internal/facts"
 )
 
-func TestIsExternalImport(t *testing.T) {
-	tests := []struct {
-		path string
-		want bool
-	}{
-		{"fmt", true},                // Go stdlib (no slash)
-		{"react", true},              // npm package (no slash)
-		{"github.com/foo/bar", true}, // Go third-party (has dot)
-		{"./relative", false},        // relative import
-		{"../parent", false},         // parent relative import
-		{"/absolute/path", false},    // absolute path
-		{"internal/pkg", false},      // internal module (has slash, no dot)
-		{"src/components", false},    // internal path (has slash, no dot)
-		// Known edge case: @types/node has slash but is npm-external.
-		// Current implementation returns false (treats as internal) because
-		// it has "/" and no ".". This documents the behavior.
-		{"@types/node", false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.path, func(t *testing.T) {
-			if got := IsExternalImport(tt.path); got != tt.want {
-				t.Errorf("IsExternalImport(%q) = %v, want %v", tt.path, got, tt.want)
-			}
-		})
-	}
-}
-
 func TestResolveRelativeImport(t *testing.T) {
 	tests := []struct {
 		source string

@@ -63,60 +63,6 @@ func TestTokenBudgetEnforcement(t *testing.T) {
 	}
 }
 
-func TestDetectDominantLanguage(t *testing.T) {
-	tests := []struct {
-		name     string
-		facts    []facts.Fact
-		wantLang string
-	}{
-		{
-			"go dominant",
-			[]facts.Fact{
-				{Kind: facts.KindModule, Props: map[string]any{"language": "go"}},
-				{Kind: facts.KindModule, Props: map[string]any{"language": "go"}},
-				{Kind: facts.KindModule, Props: map[string]any{"language": "go"}},
-				{Kind: facts.KindModule, Props: map[string]any{"language": "typescript"}},
-			},
-			"go",
-		},
-		{
-			"no modules",
-			nil,
-			"",
-		},
-		{
-			"single language",
-			[]facts.Fact{
-				{Kind: facts.KindModule, Props: map[string]any{"language": "swift"}},
-			},
-			"swift",
-		},
-		{
-			// A tie is settled by name, not by whichever key the map happened to
-			// yield first: on a repository split evenly between two languages the
-			// guidance rendered changed between two runs of one binary.
-			"tie settled by name",
-			[]facts.Fact{
-				{Kind: facts.KindModule, Props: map[string]any{"language": "swift"}},
-				{Kind: facts.KindModule, Props: map[string]any{"language": "swift"}},
-				{Kind: facts.KindModule, Props: map[string]any{"language": "go"}},
-				{Kind: facts.KindModule, Props: map[string]any{"language": "go"}},
-			},
-			"go",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			snapshot := makeSnapshot(tt.facts, nil)
-			got := detectDominantLanguage(snapshot)
-			if got != tt.wantLang {
-				t.Errorf("detectDominantLanguage = %q, want %q", got, tt.wantLang)
-			}
-		})
-	}
-}
-
 func TestRender_EmptySnapshot(t *testing.T) {
 	snapshot := makeSnapshot(nil, nil)
 	r := New(4000)

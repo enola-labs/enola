@@ -49,22 +49,6 @@ func Cap[T any](ranked []T) (kept []T, omitted int) {
 	return ranked[:MaxIndividualInsights], len(ranked) - MaxIndividualInsights
 }
 
-// Cap2 caps a SECOND list that shares one budget with a first, already-capped one.
-//
-// It exists for an explainer reporting two shapes of the same finding: the budget
-// is one list's worth, not one per shape, or a repository with two hundred of each
-// reports a hundred.
-func Cap2[T any](ranked []T, alreadyKept int) (kept []T, omitted int) {
-	remaining := MaxIndividualInsights - alreadyKept
-	if remaining < 0 {
-		remaining = 0
-	}
-	if len(ranked) <= remaining {
-		return ranked, 0
-	}
-	return ranked[:remaining], len(ranked) - remaining
-}
-
 // CapByRepo caps a RANKED list to MaxIndividualInsights per repository, preserving
 // the ranking within each, and returns how many it left over in total.
 //
