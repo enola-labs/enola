@@ -318,7 +318,7 @@ func cppIsTrueCondition(cond *sitter.Node, src []byte) bool {
 // cppCheapMethods are obviously-cheap STL container / iterator / accessor methods.
 // A call to one of these on an unknown receiver inside a loop is NOT recorded in
 // calls_in_loop, keeping the metric focused on potential per-iteration work (the
-// enterprise keyword gate is the real precision filter, but suppressing these at the
+// analyzer's keyword gate is the real precision filter, but suppressing these at the
 // source avoids false positives like a JSON `db.begin()`/`db.end()` matching the
 // generic `db.` I/O prefix).
 var cppCheapMethods = map[string]bool{

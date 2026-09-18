@@ -5,7 +5,7 @@ import (
 )
 
 // TestOverrideModifier_EmitsOverrideProp asserts that a method declared with the
-// `override` modifier carries override=true, so the enterprise dead-code detector
+// `override` modifier carries override=true, so the dead-code detector
 // excludes framework lifecycle callbacks (viewDidLoad, viewWillAppear, …) that are
 // dispatched polymorphically and never called by their own literal name. GAP-SW-01.
 func TestOverrideModifier_EmitsOverrideProp(t *testing.T) {

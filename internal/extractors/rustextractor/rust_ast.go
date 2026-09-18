@@ -125,7 +125,7 @@ type astWalker struct {
 	decisions int
 
 	// Loop/IO complexity state, mirroring the Python/Kotlin extractors so the
-	// enterprise performance analyzer works for Rust too. The walk-time depth
+	// performance analyzer works for Rust too. The walk-time depth
 	// counters track the loop nesting at the current node; the fn-prefixed
 	// accumulators collect the per-function peak/collection that becomes the
 	// symbol's loop_depth/scaling_loop_depth/calls_in_loop/... props. All are
@@ -586,7 +586,7 @@ func (w *astWalker) handleFunction(node *sitter.Node) {
 	}
 	w.out[ownerIdx].Props["cyclomatic"] = 1 + w.decisions
 	// Emit the loop/IO props using the identical string keys the Python/Kotlin
-	// extractors and enterprise perf.go already consume. The scaling values and
+	// extractors and internal/perf already consume. The scaling values and
 	// call collections are emitted whenever the function contains any loop (even
 	// when the scaling subset is empty) so the consumer can tell "all bounded"
 	// from "no loop signal at all".

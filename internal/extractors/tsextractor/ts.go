@@ -380,7 +380,7 @@ func (e *TSExtractor) Extract(ctx context.Context, repoPath string, files []stri
 
 	// Serial post-pass: propagate the per-body io_direct flag transitively across the
 	// call graph into performs_io, so wrapper-hidden network/file I/O is visible to the
-	// enterprise performance analyzer. Mirrors the Swift extractor's computePerformsIO.
+	// performance analyzer. Mirrors the Swift extractor's computePerformsIO.
 	if isNuxt {
 		resolveNuxtAutoComposableCalls(allFacts)
 	}
@@ -2721,7 +2721,7 @@ var tsIterators = map[string]bool{
 
 // tsCheapMethods are obviously-cheap methods that are not I/O. No-arg-ish method
 // calls to these inside loops are not recorded in calls_in_loop, keeping it focused
-// (the enterprise keyword gate is the real precision filter).
+// (the analyzer's keyword gate is the real precision filter).
 var tsCheapMethods = map[string]bool{
 	"toString": true, "push": true, "pop": true, "shift": true, "unshift": true,
 	"slice": true, "splice": true, "join": true, "concat": true, "includes": true,
@@ -2768,7 +2768,7 @@ var tsIOMemberMethods = map[string]bool{
 	//
 	// These seed io_direct, which computeTSPerformsIO then propagates transitively into
 	// performs_io. That is the whole point: a direct in-loop `prisma.post.findMany()` was
-	// already caught by the enterprise analyzer's own name list, but a REPOSITORY WRAPPER
+	// already caught by the analyzer's own name list, but a REPOSITORY WRAPPER
 	// around it was not — the wrapper invokes no network primitive, so it was never
 	// io_direct, so it was never performs_io, so a per-iteration call to it was invisible.
 	//
@@ -3120,7 +3120,7 @@ func (w *tsBodyWalker) walk(n *sitter.Node) {
 		} else if w.metrics != nil && w.loopDepth > 0 {
 			// Method call on an unknown receiver inside a loop (repo.findMany(),
 			// prisma.user.create()). No graph edge today, but its name feeds the perf
-			// metric so the enterprise analyzer can flag per-iteration ORM/fetch I/O.
+			// metric so the performance analyzer can flag per-iteration ORM/fetch I/O.
 			if recv, prop := tsMemberCall(w.kinds, n, w.src); prop != "" && !tsCheapMethods[prop] {
 				tgt := prop
 				if recv != "" {
@@ -3447,7 +3447,7 @@ func tsIsTrueCondition(kinds *tsutil.KindTable, c *sitter.Node, src []byte) bool
 
 // computeTSPerformsIO propagates the walk-time io_direct flag transitively across the
 // call graph into a performs_io prop, so a function that reaches network/file I/O only
-// through helpers is still flagged — the signal the enterprise analyzer reads to catch a
+// through helpers is still flagged — the signal the performance analyzer reads to catch a
 // per-iteration network call behind a wrapper. Mirrors the Swift computePerformsIO, but
 // simpler: TS call targets are already canonical fact names, so no bare-name fan-out is
 // needed. A monotone fixpoint (only ever flips false→true) makes it cycle-safe.

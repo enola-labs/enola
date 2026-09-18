@@ -746,7 +746,7 @@ func TestRenderSummary_NamesTheFilter(t *testing.T) {
 	}
 }
 
-// TestLooksNonProduction_CoversTheTestPathSet pins the enterprise half of new/55.
+// TestLooksNonProduction_CoversTheTestPathSet pins the analyzer half of new/55.
 // looksNonProduction is the fallback for extractors that emit no module_role (Go,
 // Python, TypeScript, PHP, C/C++). It delegated to facts.ModuleRoleForPath, whose
 // segment list predates facts.IsTestPath and knows nothing of `Mocks`, `__tests__`,

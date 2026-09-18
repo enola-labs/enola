@@ -153,14 +153,11 @@ func New(eng *engine.Engine, cfg *config.Config) (*Server, error) {
 	s.mcp = mcpServer
 	s.registerTools()
 
-	// Prepend a freshness warning to tool results when the loaded graph looks
-	// stale. Registered once here so it also covers the license-gated enterprise
-	// tools, which register on this same MCP server after New returns.
+	// Prepend a freshness warning to tool results when the loaded graph looks stale.
 	// Order matters: valueMiddleware is registered first so it runs OUTSIDE the
 	// freshness one, and therefore measures the response the agent actually
-	// receives — banner included. Both are registered once here, so they also
-	// cover the license-gated enterprise tools, which register on this same MCP
-	// server after New returns.
+	// receives — banner included. Both are registered here rather than per tool, so
+	// they cover every tool on the server, including any added after New returns.
 	s.mcp.AddReceivingMiddleware(s.valueMiddleware)
 	s.mcp.AddReceivingMiddleware(s.freshnessMiddleware)
 	s.mcp.AddReceivingMiddleware(s.updateMiddleware)
@@ -213,8 +210,8 @@ func (s *Server) fireToolCallback(call status.ToolCall) {
 // generate_snapshot first" is counted as a call but credited nothing. The
 // response is in hand, so its size can be subtracted — which is what makes
 // output_mode visible in the estimate. And because it is registered once on the
-// shared MCP server, it covers the license-gated enterprise tools too, so a
-// wrapper never has to report its own calls and cannot drift by forgetting.
+// shared MCP server, it covers every tool registered on it, including any added
+// after New returns, which cannot then drift by forgetting to report themselves.
 func (s *Server) valueMiddleware(next mcp.MethodHandler) mcp.MethodHandler {
 	return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
 		if method != "tools/call" {
@@ -486,7 +483,7 @@ func bannerSuppressed(tool string) bool {
 // freshnessMiddleware prepends a staleness warning to successful tool-call results
 // when the loaded graph looks out of date (older than 24h, or a repo's code moved
 // since its snapshot). It is warn-only: it never blocks or regenerates. Registered
-// once, it also covers the enterprise tools that share this MCP server.
+// once, it also covers the analyzers that share this MCP server.
 func (s *Server) freshnessMiddleware(next mcp.MethodHandler) mcp.MethodHandler {
 	return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
 		if method == "tools/call" {

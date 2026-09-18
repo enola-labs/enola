@@ -237,7 +237,7 @@ func TestRecursionRequiresSelfReceiver(t *testing.T) {
 
 // TestDependencyFactsCarryImporter pins the shared `<importer> -> <imported>` naming.
 //
-// It is a contract, not a style: the enterprise package-metrics explainer recovers the
+// It is a contract, not a style: the package-metrics explainer recovers the
 // importing side by splitting on " -> ". Naming a dependency by its target alone made
 // every Dart edge unrecoverable there, so Ce came out 0 for every package and average
 // instability 0.00 — the metrics were computed over an empty edge set and nothing

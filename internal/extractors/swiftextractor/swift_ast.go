@@ -131,7 +131,7 @@ var swiftIterators = map[string]bool{
 
 // swiftCheapMethods are obviously-cheap methods that are not I/O. No-arg-ish
 // instance calls to these inside loops are not recorded in calls_in_loop, keeping
-// it focused (the enterprise keyword gate is the real precision filter).
+// it focused (the analyzer's keyword gate is the real precision filter).
 var swiftCheapMethods = map[string]bool{
 	"append": true, "count": true, "isEmpty": true, "first": true, "last": true,
 	"contains": true, "map": true, "filter": true, "forEach": true, "compactMap": true,

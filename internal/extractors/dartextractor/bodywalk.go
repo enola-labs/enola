@@ -10,7 +10,7 @@ import (
 )
 
 // bodyWalk is one function body's derived facts: the edges it draws and the metrics the
-// complexity-outliers explainer and the enterprise performance analyzer read.
+// complexity-outliers explainer and the performance analyzer read.
 type bodyWalk struct {
 	relations []facts.Relation
 

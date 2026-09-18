@@ -445,7 +445,7 @@ another language is a row:
   at all. Registering the prop is what stops the explainer telling a Flutter author
   their mutual import "can cause initialization issues".
 - **`data_holder`** marks a type that declares state and no behaviour. The
-  enterprise package-metrics explainer spares such packages its "extract
+  package-metrics explainer spares such packages its "extract
   interfaces" advice, and recognises a dedicated construct (`data_class`, `record`)
   where one exists. Emit `data_holder` when your language has none in common use —
   C# writes its DTOs as plain classes with auto-properties. Scala emits it for a
@@ -461,7 +461,7 @@ another language is a row:
   as in Go — absence means "abstract", so emitting it only when true is the same as
   not emitting it at all.
 
-An enterprise explainer cannot import `internal/facts`, so it mirrors these key
+An explainer in another module cannot import `internal/facts`, so it mirrors these key
 strings locally. That is the same arrangement the route `source` values have, and it
 carries the same hazard: a prop renamed on one side goes silently unread on the
 other.
@@ -487,7 +487,7 @@ facts.Fact{
 ```
 
 The relation carries the imported side; the *name* is the only place the **importing**
-side survives, and the enterprise package-metrics explainer recovers it by splitting on
+side survives, and the package-metrics explainer recovers it by splitting on
 `" -> "`. Name a dependency by its target alone and every one of your language's edges
 is invisible there — efferent coupling comes out 0 for every package, average
 instability 0.00, and the most depended-upon package of a real application is whatever
@@ -518,7 +518,7 @@ package. Prefer emitting the module edge first anyway — it reads better and ma
 but nothing breaks if you do not.
 
 Neither convention is checked by the golden tests, because both produce perfectly
-well-formed facts. The way to catch this class of mistake is to run the enterprise tools
+well-formed facts. The way to catch this class of mistake is to run the analyzers
 over a real repository in your language and ask whether the numbers are *plausible*, not
 merely present: a metric that is uniformly `0.00`, or a "most depended-upon package"
 naming a generated directory, is the shape of a contract that was never met.

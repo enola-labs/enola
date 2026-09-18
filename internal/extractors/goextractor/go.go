@@ -369,7 +369,7 @@ func (e *GoExtractor) extractFunc(fset *token.FileSet, fn *ast.FuncDecl, relFile
 
 	// Extract function calls and per-function complexity metrics in a single
 	// body walk. The metrics ride on Props (map[string]any) and feed the
-	// enterprise performance analyzer; they are parser-derived, never inferred.
+	// performance analyzer; they are parser-derived, never inferred.
 	if fn.Body != nil {
 		ctx := resolveCtx{
 			pkgDir:     pkgDir,

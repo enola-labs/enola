@@ -1361,7 +1361,7 @@ func TestClassify_ExcludesPythonNonAppTreesAndCLI(t *testing.T) {
 //
 // `__tests__` is pinned here only: no repo in any corpus tier has such a
 // directory, so this test is its sole assertion (a TestGolden fixture cannot
-// pin an enterprise analyzer).
+// pin an analyzer).
 func TestIsTestPath_ConventionalTestDirSegments(t *testing.T) {
 	for _, p := range []string{
 		"Tests/App/TestHelper.swift",                      // Xcode test target

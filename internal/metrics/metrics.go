@@ -1,4 +1,4 @@
-// Package metrics implements the enterprise "package_metrics" MCP tool, which
+// Package metrics implements the "package_metrics" MCP tool, which
 // computes the classic Robert C. Martin / JDepend software package metrics from
 // an Enola architectural snapshot.
 //
@@ -153,8 +153,8 @@ func round3(f float64) float64 {
 // pure-computation inputs.
 // Compute returns one PackageMetric per production package in the store, using
 // the same collect+compute core as the package_metrics tool (unfiltered — the
-// caller narrows). It is exported so the enterprise validator can score a
-// baseline and a current snapshot and diff the results per package.
+// caller narrows). It is exported for the dashboard's Package Metrics panel, which
+// scores the live store rather than going through the tool.
 func Compute(store *facts.Store) []PackageMetric {
 	pkgs, edges, _ := collect(store)
 	return compute(pkgs, edges)
@@ -522,7 +522,7 @@ const toolDescription = "Compute software package metrics (Robert C. Martin / JD
 
 // Register adds the package_metrics tool to the given MCP server. Calls are
 // recorded by the OSS value middleware, which is registered once on this shared
-// MCP server and so observes the enterprise tools too.
+// MCP server and so observes the analyzers too.
 func Register(srv *mcp.Server, store func() *facts.Store) {
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "package_metrics",
@@ -771,7 +771,7 @@ const mainSequenceBand = 0.2
 
 // Zone is the canonical main-sequence classification of a package (Robert Martin's
 // "Distance from the Main Sequence"). It is the single source of truth shared by
-// the package-metrics explainer and the enterprise dashboard so their labels can
+// the package-metrics explainer and the dashboard so their labels can
 // never drift from what package_metrics reports.
 type Zone string
 

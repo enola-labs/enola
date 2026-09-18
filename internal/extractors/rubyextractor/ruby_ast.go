@@ -471,7 +471,7 @@ func (m *rubyBodyMetrics) recordFieldAccess(name string, write bool) {
 // over that batch. Counting the batch block as a loop as well double-counts and
 // mislabels a single O(n) pass as O(n²). (find_each yields individual elements
 // and is a genuine per-element loop, so it stays.) Both names remain in the
-// enterprise expensiveMethods gate, so a batch scan nested inside another loop is
+// analyzer's expensiveMethods gate, so a batch scan nested inside another loop is
 // still flagged by name — only the spurious extra depth is dropped.
 var rubyIterators = map[string]bool{
 	"each": true, "each_with_index": true, "each_with_object": true,
@@ -535,7 +535,7 @@ func (w *rubyWalker) recordInLoopCall(target string) {
 
 // rubyCheapMethods are obviously-cheap attribute/Enumerable/Kernel methods that
 // are not DB I/O. No-arg instance calls to these inside loops are not recorded in
-// calls_in_loop, to keep it focused (the enterprise association/keyword gate is
+// calls_in_loop, to keep it focused (the analyzer's association/keyword gate is
 // the real precision filter, so this list need not be exhaustive).
 var rubyCheapMethods = map[string]bool{
 	"id": true, "name": true, "to_s": true, "to_str": true, "to_i": true,
@@ -1329,7 +1329,7 @@ func (w *rubyWalker) walkForCalls(node *sitter.Node, ownerIdx int, seen, locals 
 			case w.loopDepth > 0:
 				// A no-arg single-level read inside a loop (the association read
 				// `u.posts` or `record.reload`). It is not a graph edge, but its method
-				// name feeds the perf metric so the enterprise analyzer can flag
+				// name feeds the perf metric so the performance analyzer can flag
 				// lazy-loaded association / per-iteration I/O (N+1).
 				//
 				// The RECEIVER is kept when it is a plain variable, and that is the

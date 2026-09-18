@@ -1062,9 +1062,8 @@ func (e *Engine) matchesTestGlob(relPath string) bool {
 	return matchAnyGlob(filepath.ToSlash(relPath), e.cfg.TestGlobs)
 }
 
-// matchAnyGlob and matchGlob are thin aliases onto the shared matcher, which now
-// lives in internal/facts alongside the other path predicates (IsTestPath) so that
-// out-of-module consumers can reach it through pkg/facts. The enterprise performance
+// matchAnyGlob and matchGlob are thin aliases onto the shared matcher, which lives
+// in internal/facts alongside the other path predicates (IsTestPath). The performance
 // analyzer's ENOLA_PERF_EXCLUDE globs documented `**` support that path.Match cannot
 // give them; rather than grow a second glob implementation, it uses this one.
 func matchAnyGlob(relPath string, patterns []string) bool {

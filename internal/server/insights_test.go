@@ -138,7 +138,7 @@ func TestRenderQuerySummary_SurfacesUnmatchedFlag(t *testing.T) {
 
 // TestRenderInsightsSummary_HeadlineReflectsTheFilter composes the filter with the
 // summary, which no test in either repo did before. It pins the invariant that the
-// enterprise analyze_performance tool violated (bug new/56): a tool that filters its
+// analyze_performance tool violated (bug new/56): a tool that filters its
 // results and then summarizes must count the FILTERED set, not the corpus. There,
 // the summary was built before the filter ran, so package="androidTest" printed the
 // repo-wide total (61 findings) above an empty table — a real number, and the answer

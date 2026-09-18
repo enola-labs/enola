@@ -3,7 +3,7 @@ package server_test
 // Concurrency stress test driving the real MCP server over the in-memory transport,
 // through the same jsonrpc2.Async dispatch production uses (tool calls run on their
 // own goroutines, unserialized). It fires overlapping generate_snapshot calls
-// interleaved with read-only tools and, to mirror the enterprise wrapper, a
+// interleaved with read-only tools and, to mirror an extra registered tool, a
 // long-running read tool registered against the same *mcp.Server. Must be race-clean
 // under `go test -race`.
 
@@ -110,7 +110,7 @@ func TestServerConcurrentToolCalls(t *testing.T) {
 		})
 	}
 
-	// Readers: OSS read tools + the enterprise-style heavy_scan, all against the
+	// Readers: the read tools + the extra heavy_scan, all against the
 	// shared store while generates churn it.
 	readers := []struct {
 		name string

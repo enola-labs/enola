@@ -1,4 +1,4 @@
-// Package orphans implements the enterprise "find_orphans" MCP tool, which
+// Package orphans implements the "find_orphans" MCP tool, which
 // surfaces orphan symbols — code that nothing references — from an Enola
 // architectural snapshot, so users can pinpoint dead code to remove.
 //
@@ -843,9 +843,8 @@ func population(syms []symInput, opts options) int {
 // "isolated" when it also references nothing, else "unreferenced".
 // Detect returns dead-code orphans in the store using the same collect+classify
 // core as the find_orphans tool, with the tool's default options (mode=both, all
-// kinds and visibility, tests and entry points excluded). It is exported so the
-// enterprise validator can diff orphans between a baseline and a current snapshot
-// to measure the dead weight a change introduced.
+// kinds and visibility, tests and entry points excluded). It is what the package's
+// own annotate pass runs to mark orphan symbols on the store.
 func Detect(store *facts.Store) []Orphan {
 	syms, refSources := collect(store)
 	orphans := classify(syms, refSources, options{Mode: "both", Visibility: "all"})
@@ -1396,7 +1395,7 @@ func norm(v, def string) string {
 
 // Register adds the find_orphans tool to the given MCP server. Calls are
 // recorded by the OSS value middleware, which is registered once on this shared
-// MCP server and so observes the enterprise tools too.
+// MCP server and so observes the analyzers too.
 func Register(srv *mcp.Server, store func() *facts.Store) {
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "find_orphans",

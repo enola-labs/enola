@@ -374,7 +374,7 @@ var kotlinIterators = map[string]bool{
 
 // kotlinCheapMethods are obviously-cheap methods that are not I/O. No-arg-ish
 // instance calls to these inside loops are not recorded in calls_in_loop, keeping
-// it focused (the enterprise keyword gate is the real precision filter).
+// it focused (the analyzer's keyword gate is the real precision filter).
 var kotlinCheapMethods = map[string]bool{
 	"toString": true, "let": true, "also": true, "apply": true, "run": true,
 	"with": true, "takeIf": true, "takeUnless": true, "size": true, "count": true,
@@ -1239,7 +1239,7 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 					case w.loopDepth > 0 && isNav && !kotlinCheapMethods[name]:
 						// Method call on a non-this receiver inside a loop (dao.insert,
 						// repo.getAll). No graph edge today, but its name feeds the perf
-						// metric so the enterprise analyzer can flag per-iteration I/O.
+						// metric so the performance analyzer can flag per-iteration I/O.
 						tgt := name
 						if r := firstNamedChild(callee); r != nil {
 							if recv := nodeText(r, w.src); recv != "" {

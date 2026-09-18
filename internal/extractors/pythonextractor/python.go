@@ -185,7 +185,7 @@ func (e *PythonExtractor) Extract(ctx context.Context, repoPath string, files []
 
 	// Propagate the walk-time io_direct flag transitively across the (now canonical)
 	// call graph into performs_io, so a function that reaches DB/network I/O only through
-	// helpers is still flagged — the signal the enterprise analyzer reads to tell a real
+	// helpers is still flagged — the signal the performance analyzer reads to tell a real
 	// per-iteration I/O call from a name that merely collides with a DB verb.
 	computePyPerformsIO(allFacts)
 

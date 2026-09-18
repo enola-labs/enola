@@ -1,4 +1,4 @@
-// Package perf implements the enterprise "analyze_performance" MCP tool, which
+// Package perf implements the "analyze_performance" MCP tool, which
 // estimates per-function algorithmic complexity (Big-O) and ranks performance
 // risks — nested loops, expensive calls inside loops (N+1 patterns), recursion,
 // and complexity that compounds across the call graph — from an Enola snapshot.
@@ -224,7 +224,7 @@ func isTestPath(p string) bool { return facts.IsTestPath(p) }
 
 // isIgnoredPath reports whether a path matches an operator-supplied exclusion glob.
 // Globs come from the ENOLA_PERF_EXCLUDE environment variable (os.PathListSeparator-
-// or comma-separated), so an enterprise can hide its own generated/vendored trees
+// or comma-separated), so an operator can hide their own generated/vendored trees
 // without a rebuild — e.g.:
 //
 //	ENOLA_PERF_EXCLUDE=**/proto/**,src/legacy/**,**/*.pb.go,*.thrift.go
@@ -374,9 +374,8 @@ func collectRouteHandlers(routes []facts.Fact) map[string]bool {
 }
 
 // Analyze returns every performance finding in the store, using the same
-// collect+analyze core as the analyze_performance tool. It is exported so the
-// enterprise validator can diff findings between a baseline and a current
-// snapshot to detect performance regressions introduced by a change.
+// collect+analyze core as the analyze_performance tool. It is what the package's
+// own annotate pass runs to mark findings on the store.
 func Analyze(store *facts.Store) []Finding {
 	funcs, storage, routeHandlers, assoc := collect(store)
 	return analyze(funcs, storage, routeHandlers, assoc)
@@ -1849,7 +1848,7 @@ const toolDescription = "Estimate algorithmic complexity (Big-O) and rank perfor
 
 // Register adds the analyze_performance tool to the given MCP server. Calls are
 // recorded by the OSS value middleware, which is registered once on this shared
-// MCP server and so observes the enterprise tools too.
+// MCP server and so observes the analyzers too.
 func Register(srv *mcp.Server, store func() *facts.Store) {
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "analyze_performance",

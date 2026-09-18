@@ -136,7 +136,7 @@ func (s *Store) Add(ff ...Fact) {
 // often the published snapshot bundle, which concurrent MCP readers are traversing.
 // The append-mode path in engine.GenerateSnapshot copies the previous bundle precisely
 // so it can mutate the result safely — binders delete props (unmatchedroutes) and
-// annotators add them (the enterprise metrics/orphans passes) — and it was relying on
+// annotators add them (the metrics/orphans passes) — and it was relying on
 // a guarantee this method did not provide.
 //
 // Freeze makes that guarantee load-bearing rather than merely correct: once a store is

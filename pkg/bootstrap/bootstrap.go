@@ -388,9 +388,9 @@ func bundledConfigDir() (string, bool) {
 	return exeDir, true
 }
 
-// NewEngine creates an Engine with all OSS plugins registered.
-// Use the returned Engine's methods to add additional (enterprise) plugins
-// before starting the server or generating snapshots.
+// NewEngine creates an Engine with every built-in plugin registered. Use the
+// returned Engine's methods to add further plugins before starting the server or
+// generating snapshots.
 func NewEngine(opts Options) (*Engine, *config.Config, error) {
 	cfg, note, err := ResolveConfig(opts.ConfigPath)
 	if err != nil {
@@ -562,7 +562,7 @@ func GraphStateFunc(eng *Engine) status.GraphFunc {
 }
 
 // AutoLoadSnapshot restores an existing snapshot from disk if available, so queries
-// (and the enterprise tools) work immediately after a restart WITHOUT a
+// (and the analyzers) work immediately after a restart WITHOUT a
 // generate_snapshot call.
 //
 // It prefers a graph registry listing every repo in the graph and their paths, so

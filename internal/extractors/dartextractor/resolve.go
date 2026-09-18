@@ -98,8 +98,8 @@ func resolveCallTargets(all []facts.Fact) []facts.Fact {
 // attributeSymbolsToModules gives every symbol a leading `declares` edge to the module
 // that declares it.
 //
-// This is the convention the Go extractor established and that the enterprise
-// package-metrics explainer depends on: it reads a symbol's FIRST `declares` target as
+// This is the convention the Go extractor established and that the package-metrics
+// explainer depends on: it reads a symbol's FIRST `declares` target as
 // the package the symbol belongs to. A Dart class already carries `declares` edges to
 // its own members, so without this the explainer read the first MEMBER name as a
 // package — minting one phantom package per class. Measured on drift: 1,746 "packages"

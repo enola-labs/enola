@@ -83,7 +83,7 @@ func TestRestoreFromDir_PublishesFrozenStore(t *testing.T) {
 // sharing rests on, asserted through the real engine.
 //
 // An append-mode regeneration carries the previously published bundle's facts forward
-// and then lets binders rewrite them — unmatchedroutes deletes a prop, the enterprise
+// and then lets binders rewrite them — unmatchedroutes deletes a prop, the
 // annotators add them. Those facts came from a FROZEN store, where one Props map backs
 // ~9 facts, so an aliased carry-forward would let one binder rewrite unrelated facts
 // inside a bundle that concurrent MCP readers are still traversing.

@@ -122,7 +122,7 @@ var javaIterators = map[string]bool{
 
 // javaCheapMethods are obviously-cheap methods that are not I/O. Calls to these on
 // an unknown receiver inside a loop are not recorded in calls_in_loop, keeping it
-// focused (the enterprise keyword gate is the real precision filter).
+// focused (the analyzer's keyword gate is the real precision filter).
 var javaCheapMethods = map[string]bool{
 	"toString": true, "equals": true, "hashCode": true, "get": true, "set": true,
 	"add": true, "remove": true, "put": true, "contains": true, "size": true,
@@ -1113,7 +1113,7 @@ func (w *astWalker) handleInvocation(node *sitter.Node) {
 		}
 	} else if w.metrics != nil && w.loopDepth > 0 && !javaCheapMethods[name] {
 		// Method call on a non-this receiver inside a loop (repo.findById(), …). No
-		// graph edge today, but its name feeds the perf metric so the enterprise
+		// graph edge today, but its name feeds the perf metric so the performance
 		// analyzer can flag per-iteration JPA/JDBC/network I/O.
 		tgt := name
 		if recv := nodeText(obj, w.src); recv != "" {

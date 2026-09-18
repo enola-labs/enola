@@ -116,7 +116,7 @@ func TestSwComplexity_NonIteratorClosureNotLoop(t *testing.T) {
 
 func TestSwComplexity_InLoopMethodCallCaptured(t *testing.T) {
 	// A method call on a lowercase receiver inside a loop is captured (metrics-only)
-	// so the enterprise keyword heuristic can flag per-iteration I/O.
+	// so the analyzer's keyword heuristic can flag per-iteration I/O.
 	ff := extractAST(t, "func run() {\n  items.forEach { item in\n    context.fetch(item)\n  }\n}", false)
 	f, _ := findFact(ff, "pkg.run")
 	if cil := swStrSlice(f, "calls_in_loop"); !swContains(cil, "context.fetch") {
