@@ -233,6 +233,20 @@ func (e *GoExtractor) extractPackage(fset *token.FileSet, pkgDir string, pp *par
 			"language": "go",
 		},
 	}
+	// Functions referenced by the package's own var and const initializers. They hang
+	// on the package rather than on a symbol because the table that holds them is
+	// usually unexported and so has no symbol of its own — `var builtIns = map[string]
+	// providerFunc{"rubydex": runRubydex}` is the shape, and runRubydex read as dead
+	// with it unrecorded. Package-level initialization IS the package's work, so the
+	// package is the honest source for the edge.
+	if refs := packageLevelInitRefs(pp, pkgDir, modulePath, pkgNames, pkgFuncs); len(refs) > 0 {
+		for _, ref := range refs {
+			moduleFact.Relations = append(moduleFact.Relations, facts.Relation{
+				Kind:   facts.RelCalls,
+				Target: ref,
+			})
+		}
+	}
 	// Store the full Go module path on the root package fact so that the graph
 	// layer can normalise cross-repo call targets (Bug 2).
 	if pkgDir == "." && modulePath != "" {
@@ -386,6 +400,22 @@ func (e *GoExtractor) extractFunc(fset *token.FileSet, fn *ast.FuncDecl, relFile
 			symbolFact.Relations = append(symbolFact.Relations, facts.Relation{
 				Kind:   facts.RelCalls,
 				Target: call,
+			})
+		}
+		// A function handed somewhere as a value rather than called: a dispatch-table
+		// entry, a callback argument, a struct field. analyzeBody only looks for
+		// CallExpr, so without this the callee has no incoming edge at all.
+		called := make(map[string]bool, len(m.calls))
+		for _, call := range m.calls {
+			called[call] = true
+		}
+		for _, ref := range funcValueRefs(fn.Body, ctx) {
+			if called[ref] {
+				continue // already recorded as a call from this same body
+			}
+			symbolFact.Relations = append(symbolFact.Relations, facts.Relation{
+				Kind:   facts.RelCalls,
+				Target: ref,
 			})
 		}
 		for _, inst := range m.instantiates {

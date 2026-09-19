@@ -1008,6 +1008,24 @@ func collect(store *facts.Store) ([]symInput, refIndex) {
 		syms = append(syms, *byName[name])
 	}
 
+	// Package facts carry the functions a package's own var and const initializers
+	// reference. A dispatch table is usually an unexported package-level var, so it
+	// has no symbol of its own and the only honest owner of the edge is the package
+	// — see goextractor/funcvalues.go. Without this, every parser reachable only
+	// through such a table reads as dead at high confidence. Only usage relations are
+	// folded in; a module's `imports` and `declares` say nothing about a symbol.
+	for _, f := range store.ByKind(facts.KindModule) {
+		for _, r := range f.Relations {
+			if !isUsageKind(r.Kind) {
+				continue
+			}
+			addRef(refSources, r.Target, f.Name)
+			if seg := lastSeg(r.Target); seg != r.Target {
+				addRef(refSources, seg, f.Name)
+			}
+		}
+	}
+
 	// Route facts reference their handler symbol via props["handler"] (e.g.
 	// "aiCoachHandler.GetCoachingInsight"). HTTP handlers are registered as method
 	// VALUES, so this usage never appears as a "calls" edge — fold it in here so

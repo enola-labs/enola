@@ -20,6 +20,17 @@ import (
 	"github.com/enola-labs/enola/pkg/plugin"
 )
 
+// v271: Go records a function used as a VALUE. analyzeBody walked bodies for CallExpr
+// only, so `"go.mod": readGoMod` in a dispatch table and `rc.lock(f, "yarn.lock",
+// yarnLock)` as an argument left the callee with no incoming edge; package-level var
+// and const initializers were not walked at all, so `var repoRoot = findRepoRoot()`
+// was invisible too. Both read as dead code at HIGH confidence — the tier documented
+// as the safest to delete. On enola itself, 23 of 27 first-party high-confidence
+// findings were one of these two shapes, every one false. Package-level references
+// hang on the package fact, because the table holding them is usually an unexported
+// var with no symbol of its own. Resolution stays narrow (a bare identifier naming
+// this package's own top-level function) and a redeclared name suppresses the edge,
+// so a shadow costs a reference rather than inventing one.
 // cacheVersion is mixed into every cache key. Bump it whenever the fact schema or
 // an extractor's output format changes in a way that invalidates stored facts.
 // v2: Swift URLSession extractor precision (file-URL exclusion, interpolation fix).
@@ -2423,7 +2434,7 @@ import (
 // v270: SvelteKit reads literal kit.alias fallbacks before generated config exists,
 // keeps tsconfig paths authoritative, and classifies $app/$env/$service-worker imports
 // as framework-provided rather than unresolved third-party dependencies.
-const cacheVersion = "v270"
+const cacheVersion = "v271"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
