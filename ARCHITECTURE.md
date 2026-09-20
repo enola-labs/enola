@@ -2,7 +2,8 @@
 
 How enola works under the hood — the mental model first, the reference second.
 
-If you just want to install it and point your agent at a repo, start with the [README](README.md). This document is for people who want to understand *why* enola is built the way it is, and for anyone extending it.
+For installation and the quality-gate workflow, start with the [README](README.md). This document
+covers the engine's design and extension points.
 
 ---
 
@@ -12,7 +13,7 @@ enola models a codebase as a **graph of architectural types and the relations be
 
 The types are called **kinds** — modules, symbols, routes, storage, dependencies, services. The relations are the edges between them — *declares*, *imports*, *calls*, *implements*, and so on. Together they form a typed, directed graph: a structural map of what exists in your code and how it connects.
 
-Two design choices make this graph useful in a way that "throw the repo at an LLM" is not:
+Two design choices make exact structural analysis possible:
 
 1. **It is typed and structural, not textual.** The unit of knowledge is a fact (`AuthHandler is a struct in internal/auth/handler.go`) and an edge (`LoginController calls AuthHandler.Verify`), not a chunk of text or an embedding vector. A graph of typed nodes can be *traversed* and *queried* with exact answers — "what depends on this?", "what is the path from A to B?" — instead of *retrieved* with approximate similarity.
 
@@ -20,7 +21,8 @@ Two design choices make this graph useful in a way that "throw the repo at an LL
 
    > **Nothing in the graph is guessed by a language model.** Every node and edge comes from a real parser (Go's `go/ast`, a tree-sitter grammar, a YAML/JSON scanner) or a deterministic algorithm (Tarjan's strongly-connected-components for cycles, pattern matching for layers). Run enola twice on the same commit and you get the same graph, byte for byte.
 
-That determinism is the whole point. An AI agent reasoning over enola's graph is standing on ground truth it can trust, instead of re-deriving the structure of your code — imperfectly, and at the cost of tokens — on every single task.
+That determinism makes snapshots comparable. A query reads the same graph regardless of whether
+it comes from the CLI, CI, dashboard or an MCP client.
 
 Those two choices describe what is *in* the graph. A third describes what happens to it: the graph is computed when asked and kept as a value rather than maintained in place, which is what makes one snapshot comparable to another — see [Why a snapshot, not a store](#why-a-snapshot-not-a-store), and [docs/SNAPSHOTS.md](docs/SNAPSHOTS.md) for the full argument.
 

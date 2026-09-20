@@ -1,14 +1,23 @@
 # Documentation
 
-Start with the page closest to what you need:
+**Architectural regression testing for AI-assisted development.**
 
-- **New to Enola?** Read the main [README](../README.md).
-- **Installing, configuring or scripting it?** Use [CLI.md](CLI.md).
-- **Want to see the loop once, end to end?** Follow [FIRST-CHANGE.md](FIRST-CHANGE.md).
-- **More than one repository?** Follow [CLUSTERS.md](CLUSTERS.md).
-- **Building a tool on Enola's graph?** Read [INTEGRATING.md](INTEGRATING.md).
-- **Using Rails specifically?** Follow [RAILS.md](RAILS.md).
-- **Understanding the engine?** Read [ARCHITECTURE.md](../ARCHITECTURE.md).
+Enola compares a code change with a pinned baseline and acts as an architectural quality gate. It
+fails only the architectural rules selected by the project.
+
+Start here:
+
+| Task | Page |
+|---|---|
+| Install or upgrade Enola | [Installation](INSTALL.md) |
+| Configure an MCP client | [MCP integration](MCP.md) |
+| Script Enola or look up flags | [CLI reference](CLI.md) |
+| Run the baseline/change/check workflow | [First change](FIRST-CHANGE.md) |
+| Gate a Ruby or Rails application | [Rails guide](RAILS.md) |
+| Analyze multiple repositories | [Clusters](CLUSTERS.md) |
+| Define architecture policy | [Intent](INTENT.md) and [constraints](CONSTRAINTS.md) |
+| Consume snapshot data | [Integration](INTEGRATING.md) and [schema](schema/README.md) |
+| Modify the engine | [Architecture](../ARCHITECTURE.md) and [contributing](../CONTRIBUTING.md) |
 
 ## Using Enola
 
@@ -24,7 +33,7 @@ Start with the page closest to what you need:
 
 | Page | Covers |
 |---|---|
-| [EXPLAINERS.md](EXPLAINERS.md) | The nineteen structural checks, confidence levels, and how before/after comparison isolates findings introduced by a change. |
+| [EXPLAINERS.md](EXPLAINERS.md) | The twenty-two structural checks, confidence levels, and how before/after comparison isolates findings introduced by a change. |
 | [SNAPSHOTS.md](SNAPSHOTS.md) | Why Enola computes addressable snapshots instead of maintaining one continuously updated graph. |
 | [HISTORY.md](HISTORY.md) | `log`, `show`, `diff`, `blame`, `gc` and `history` - the recorded timeline of a repository's architecture, what it costs to keep, and how to share it across machines. |
 

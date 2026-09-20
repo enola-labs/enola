@@ -18,7 +18,7 @@ the wrong question.
 **A finding is a computed claim, with evidence and confidence.** For a cycle at
 confidence `1.0`, that claim is a structural conclusion over the measured graph. For an
 outlier or recognised convention below `1.0`, it is a candidate to inspect. In both
-cases enola returns the result rather than asking the agent to reconstruct it from a set
+cases enola returns the result rather than asking the caller to reconstruct it from a set
 of files. Nothing in that chain is retrieved by similarity or guessed by a model; see
 [ARCHITECTURE.md → The idea](../ARCHITECTURE.md#the-idea) for why that is the founding
 constraint rather than an optimisation.
@@ -40,10 +40,10 @@ find*. It is **what happens to a finding after you have found it** — and that 
 entirely on the thing [SNAPSHOTS.md](SNAPSHOTS.md) describes: whether your graph is a
 value you can compare against another one, or a picture of right now.
 
-## Twenty-two explainers: three proofs and sixteen estimates
+## Twenty-two explainers: proofs and estimates
 
 An explainer reads the fact graph and emits **findings** — a claim, a confidence, and
-the entities the claim is about. There are nineteen, and they fall into six kinds:
+the entities the claim is about. There are twenty-two, and they fall into six kinds:
 
 - **The proofs.** `cycles` runs Tarjan's SCC over the resolved import edges — a cycle
   either exists or it does not. `intent` diffs DECLARED architecture (a repo's

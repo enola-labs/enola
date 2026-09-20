@@ -14,8 +14,8 @@ repository, and only the rules you choose can fail the build.
   embeddings, no upload, no account, no license check.
 - **One graph across the repository.** 23 languages and formats, detected
   automatically and combined into one baseline and verdict.
-- **One loop everywhere.** Your coding agent reads the graph before it edits and
-  receives the verdict afterward. The same check runs from the CLI or in CI.
+- **One loop everywhere.** Inspect the graph before a change and verify the result
+  afterward. The same check runs through MCP, from the CLI and in CI.
 
 ## Install
 

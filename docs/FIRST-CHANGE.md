@@ -91,7 +91,7 @@ New findings (reported — no failure policy set):
 
 No --fail-on policy is set, so nothing in this run could fail the build. These are
 reported for you to judge. Enforce the ones you want enforced: --fail-on=layers
-(`enola check --help` lists all 18).
+(`enola check --help` lists all 22).
 
 What changed
   symbols      +1

@@ -1,60 +1,23 @@
 # enola — command-line reference
 
-Every command, flag and setup step. For what enola is and why you would run it, see
-[the README](../README.md); for how the engine works, see [ARCHITECTURE.md](../ARCHITECTURE.md).
-
----
+Commands, flags, configuration and exit codes for Enola's architectural quality gate. See the
+[README](../README.md) for the regression-testing workflow and
+[ARCHITECTURE.md](../ARCHITECTURE.md) for internals.
 
 ## Quick start
 
 ### Install
 
-Grab a prebuilt binary - no Go toolchain or C compiler required:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/enola-labs/enola/main/install.sh | sh
-```
-
-This installs `enola` to `~/.local/bin`. If that's not on your `PATH`, add it:
-
-```bash
-export PATH="$HOME/.local/bin:$PATH"
-```
-
-It is also on PyPI and RubyGems. Same binary, same `enola` command:
-
-```bash
-pip install enola-cli
-```
-
-```ruby
-gem "enola"   # then: bundle exec enola
-```
-
-`enola-cli` is the PyPI project name because `enola` was taken; the installed command is unaffected. The gems live at [enola-labs/enola-rb](https://github.com/enola-labs/enola-rb).
-
-Binaries are published for Linux, macOS (amd64/arm64), and Windows (amd64). You can also download a specific build from the [Releases page](https://github.com/enola-labs/enola/releases), or [build from source](#build-from-source).
+See [Installation](INSTALL.md) for prebuilt binaries, package managers and source builds.
 
 ### Upgrade
 
-Once installed, update to the latest release in place:
-
-```bash
-enola upgrade
-```
-
-This downloads the newest build for your platform, verifies its checksum, and replaces the running binary. If enola is installed somewhere your user can't write, re-run with elevated permissions or re-run the install script above.
-
-Because your agent launches enola as a long-lived MCP server process, an upgrade only takes effect once that process restarts - reconnect the MCP server so it picks up the new binary:
-
-- **Claude Code** - restart the session, or re-register with `claude mcp remove enola && claude mcp add enola enola`.
-- **Cursor** - toggle the enola server off and back on in **Settings → MCP** (or reload the window).
-- **GitHub Copilot (VS Code)** - restart the server from the `.vscode/mcp.json` editor (the **Restart** CodeLens above the server entry), or reload the window.
-- **opencode** - quit and restart it; it loads its configuration once at startup and never reloads it.
+Run `enola upgrade`, then restart any running MCP server. See [Installation](INSTALL.md).
 
 ### Configuration (optional)
 
-**enola needs no config file.** Every setting has a built-in default, so out of the box it indexes the current repo with all extractors enabled and writes to `.enola/`. A config file (`mcp-arch.yaml`) only *overrides* those defaults - it never adds capability you'd otherwise lack.
+Enola needs no config file. By default it indexes the current repository with all extractors and
+writes to `.enola/`. `mcp-arch.yaml` overrides those defaults.
 
 Every command prints the config it resolved, on stderr, before it does anything:
 
@@ -77,162 +40,23 @@ Third-party code copied into your own source tree is worth adding to those globs
 
 The [`examples/`](../examples/) directory has ready-made per-language and multi-repo starting points, and [`examples/full.yaml`](../examples/full.yaml) documents every option. For the full field reference and defaults, see **[ARCHITECTURE.md → Configuration](../ARCHITECTURE.md#configuration)**.
 
-### Connect it to your agent
+### MCP integration
 
-**Claude Code** - register enola as an MCP server with one command. This assumes the `enola` binary is on your `PATH` (the install script above puts it in `~/.local/bin`):
+See [MCP integration](MCP.md) for client registration, repository instructions, hooks and
+large-repository timeout handling.
 
-```bash
-claude mcp add enola enola
-```
-
-The shape is `claude mcp add <name> <command> [args…]`: the first `enola` names the server, the second is the binary. The trailing config path is **optional** - omit it (as above) to run on built-in defaults, or pass one to override them:
+### First check
 
 ```bash
-claude mcp add enola enola /path/to/enola/mcp-arch.yaml
+enola baseline pin
+# edit the repository
+enola check
+enola check --fail-on=cycles
 ```
 
-When you do pass a config, its `repo:` is only the *default* repository - you can still snapshot any repo by passing `repo_path` to `generate_snapshot`. Verify it registered with `claude mcp list`, then start Claude Code and ask it to generate a snapshot.
-
-**Cursor / other MCP clients** - add enola to your client's MCP configuration. For example, in Cursor's `mcp.json` (the config path in `args` is optional - drop it to use defaults):
-
-```json
-{
-  "mcpServers": {
-    "enola": {
-      "command": "enola",
-      "args": ["/path/to/enola/mcp-arch.yaml"]
-    }
-  }
-}
-```
-
-**opencode** - `enola install --targets opencode` writes the registration itself, because it is already editing the same file to register enola's instructions. It uses an existing `opencode.json` if there is one and otherwise creates `.opencode/opencode.json`, and it leaves a server entry you wrote yourself exactly as it is, in both directions: not overwritten on install, not deleted on uninstall. A `.jsonc` config is skipped rather than rewritten, since the comments in it would not survive. opencode reads its configuration once at startup, so restart it afterwards.
-
-With `--hooks` the same target installs `.opencode/plugin/enola.js`. opencode has no hook configuration in the shape Claude Code and Codex accept, so the plugin does a narrower job: it names the enola tool that answers a structural question in the descriptions of `grep`, `glob` and `list`, repeats that in the system prompt where it also reaches subagents, and refuses the first searches of a session outright with the tool to call instead. That last part blocks, so it is bounded twice: it gives up after two refusals, and it gives up the moment any enola tool is called, including one that failed. `ENOLA_OPENCODE_GATE=off` disables the refusals and leaves the rest.
-
-**GitHub Copilot (VS Code)** - add enola to `.vscode/mcp.json` in your workspace (or your user-level MCP config via **MCP: Open User Configuration**). Note the top-level key is `servers` (not `mcpServers`), and the config path in `args` is optional - drop it to use defaults:
-
-```json
-{
-  "servers": {
-    "enola": {
-      "command": "enola",
-      "args": ["/path/to/enola/mcp-arch.yaml"]
-    }
-  }
-}
-```
-
-Or add it from the command line: `code --add-mcp "{\"name\":\"enola\",\"command\":\"enola\"}"`. Then open a project and ask Copilot to generate a snapshot.
-
-### Use it
-
-Everything below is a prompt you type at your agent in plain English. enola picks the tool.
-
-#### 1. Map it
-
-> "Generate an architectural snapshot of /path/to/my/project"
-
-The snapshot gives your agent all 22 tools (`enola --list`) plus a summary at
-`.enola/llm_context.md`. Measured cold and warm times across the public corpus are in
-[BENCHMARKS.md](BENCHMARKS.md#4-scale).
-
-#### 2. Understand it
-
-> "I just joined this project - based on the snapshot, give me a tour: the main modules, how they relate, and where to start reading."
-
-> "Draw me a mermaid diagram of the module dependencies from the snapshot."
-
-> "Where are the architectural risks - dependency cycles, layer violations, god classes with high fan-in, call-graph hotspots, complexity outliers, or modules buried deep in the dependency chain?"
-
-> "Which modules have the largest public surface? We're trying to tighten up what's exported."
-
-#### 3. Plan the change
-
-> "I need to add an API endpoint for user preferences. Which packages should I touch, and in what order?"
-
-> "What would break if I refactor `internal/server`? Show me the impact analysis."
-
-> "How does the HTTP handler layer reach the database layer? Show me the shortest path."
-
-#### 4. Make the change - and verify it
-
-This closes the verification loop around the agent's change:
-
-> "Pin the current architecture as a baseline before we start."
-
-> *…now let the agent do the work…*
-
-> "Re-snapshot and show me the architecture diff against the baseline. Did we introduce any coupling or cycles we didn't intend?"
-
-If the diff shows a regression, hand it straight back:
-
-> "You introduced a cycle between `internal/auth` and `internal/session`. Refactor to remove it, then diff again."
-
-Two prompts, no file re-reading, no review meeting. Repeat until the diff is boring.
-
-**The same loop without an agent.** Everything above is also a shell command, so the check can run in a git hook or CI instead of depending on the agent remembering to ask:
-
-```bash
-enola baseline pin              # before editing
-enola check                     # after - reports the delta, always exits 0
-enola check --fail-on=layers    # …or exits 1 on what you named
-```
-
-See [The gate - `enola check`](#the-gate---enola-check).
-
-#### 5. Go multi-repo
-
-Generate the first repo, then add the rest with append mode - enola links them into one cross-repo graph:
-
-> "Generate a snapshot of /path/to/go-service with append mode"
-
-> "If I change the auth service, which other services are impacted?"
-
-> "Trace the login flow from the web client through to the backend route that serves it."
-
-> "Which of my backend's endpoints aren't called by any of the client apps?" *(cleanup candidates - check for callers outside these repos first: cron, webhooks, third-party clients)*
-
-> "Which cross-repo calls did enola fail to resolve? I want to know where the map has blind spots."
-
-When you snapshot a *different* repo without `append`, enola assumes you're extending the set and auto-appends it - handy when you forgot `append` on repo #2. If you've actually **moved to another project** and want a clean single-repo snapshot instead, ask for a fresh one (`fresh=true`) so the old repos are discarded rather than merged in.
-
-#### 6. Look at it yourself - without spending a token
-
-Some questions don't need an agent at all. The MCP server also serves a **read-only dashboard** on localhost (URL printed at startup, or run `enola --status`), and it already answers, on one page:
-
-- *What is in this graph right now?* - the repos loaded, services, cross-repo edges (with a node-link diagram), fact and insight counts.
-- *What did the analysis find?* - every insight grouped by explainer and filterable by confidence, so you can see the cycles and hotspots without asking a model to list them.
-- *How was this snapshot produced?* - the receipt: snapshot ID, enola version, git ref and dirty flag, extractors used.
-- *Why does this snapshot look thin?* - extraction quality: files seen vs. parsed vs. skipped, parse errors with samples, unresolved cross-repo edges, coverage gaps.
-- *What has this actually saved me?* - the same value estimate `--status` prints, per tool and lifetime ([how it's calculated](../ARCHITECTURE.md#the-value-model)).
-
-Reading it costs nothing and burns no context. It is also the fastest way to inspect a snapshot before relying on an answer built from it.
-
-#### 7. Useful with local and smaller models
-
-Local and smaller models often have less context available for exploring a large repository.
-Enola can move structural questions into deterministic graph queries and leave the model
-to interpret the result:
-
-- **Less source in context.** A graph query returns the dependents measured within the
-  snapshot's scope, so the model can open only the evidence it needs.
-- **Graph traversal outside the model.** Questions such as "what depends on this across
-  three repositories?" are answered over resolved edges rather than reconstructed from
-  a sequence of file reads.
-- **Fewer exploration turns.** Avoiding grep-open-read loops can reduce both inference
-  time and context use on local hardware.
-- **Nothing leaves your machine.** enola is a local binary, the graph is a local file, the dashboard binds loopback only. A fully offline architecture-intelligence stack.
-
-#### Keeping it current
-
-**Regenerate after major changes** so the snapshot stays current. Refreshes are fast: enola caches each language's facts and re-parses a language only when one of its files (or a shared config like `package.json`) actually changed, reusing the rest. If a snapshot does go stale, enola tells your agent so on every tool call - a warning, never a block.
-
-> **Very large repositories (e.g. the Linux kernel).** The first, cold index of a huge repo can take a minute or more and may exceed your MCP client's per-tool-call timeout, surfacing as `MCP error -32001: Request timed out`. The snapshot usually still finishes and is cached server-side - but to avoid the error, either:
-> - **Raise your MCP client's tool-call timeout.** In Claude Code, set the `MCP_TOOL_TIMEOUT` environment variable (milliseconds) before launching, e.g. `MCP_TOOL_TIMEOUT=600000`.
-> - **Pre-generate from the shell once**, then start the server: run `enola --generate <config-pointing-at-the-repo>` (writes `.enola/`), after which the MCP server auto-loads the cached snapshot on startup and later `generate_snapshot` calls reuse the extractor cache (only changed files are re-parsed), so they return quickly.
-
----
+See [Your first graded change](FIRST-CHANGE.md) for the workflow, [Clusters](CLUSTERS.md)
+for multi-repository analysis, and [The gate](#the-gate---enola-check) for all check flags
+and exit codes.
 
 ## The twenty-two tools
 
@@ -450,8 +274,6 @@ For interactive per-module blast-radius queries with configurable depth, see the
 
 ---
 
----
-
 ## Command-line reference
 
 Run `enola --help` for the full text. With no flags, enola starts the MCP server on stdio.
@@ -460,18 +282,18 @@ Every path argument follows the same rule: **a directory is a repository, a file
 
 | Command | What it does |
 |------|--------------|
-| `install [--hooks] [--global]` | **Tell your coding agents enola is here.** Writes its instructions into the files they actually read - `.claude/rules/enola.md`, `.cursor/rules/enola.mdc`, and a marked block in `AGENTS.md` if you have one. Previews every change and asks before writing. See [Wiring it into your agents](#wiring-it-into-your-agents---enola-install). |
-| `coverage [--repo=<svc>] [--unresolved] [--json]` | **Which cross-repo edges enola resolved, and which it did not** — per service, so you can tell a genuinely isolated service from one whose outbound edges enola could not follow. The unresolved list is always shown: it is what makes the resolved count worth believing, and each entry is either a repository you have not loaded, a third-party endpoint, or a blind spot in enola. Needs two or more repositories in one graph. A report, not a gate — it always exits `0`. In-house clients declared under `clients:` get their own table in the text output: receivers, call sites, routes, and calls skipped by cause. |
-| `doctor [repo]` | **Are the session hooks actually firing?** `install --hooks` writes a hook configuration and reports success — but whether your agent honours that configuration is a contract owned by the agent, not by enola, and a config it ignores looks identical to one it runs. So the hooks record every time they fire, *including* the runs where they deliberately say nothing, and this reports when each last ran, what it concluded, and whether the pinned baseline can still be graded against at all. `NEVER FIRED` after a real session means the wiring is not working. A report, not a gate — it always exits `0`. |
+| `install [--hooks] [--global]` | Install repository instructions and optional session hooks. Previews changes before writing. See [MCP integration](MCP.md). |
+| `coverage [--repo=<svc>] [--unresolved] [--json]` | Report resolved and unresolved cross-repository edges per service. Always exits `0`. |
+| `doctor [repo]` | Report hook activity, baseline compatibility and update status. Always exits `0`. |
 | `dashboard [--open] [repo\|config]` | **Explore the latest snapshot visually without starting MCP.** Starts the read-only localhost dashboard attached to the terminal until Ctrl-C; `--open` also launches the browser. |
-| `cluster init [--dry-run] [dir]` | **Write the cluster config for a folder of repositories.** Lists every immediate subfolder of `dir` that is a git repository into `dir/cluster.yaml`, with paths relative to the file, so `enola --generate dir/cluster.yaml` indexes them as one linked graph. Refuses to overwrite, and refuses a folder with fewer than two repositories; `--dry-run` prints the file instead. See [CLUSTERS.md](CLUSTERS.md). |
+| `cluster init [--dry-run] [dir]` | Create `cluster.yaml` from immediate Git repository subdirectories. See [Clusters](CLUSTERS.md). |
 | `providers list \| fetch <name>` | **The fact providers this binary carries itself.** `list` names each built-in and whether it is ready; `fetch rubydex` downloads the pinned Rubydex engine library from rubygems.org, verifies its published sha256, and caches it under the user cache directory, after which a `providers:` entry named `rubydex` with no command runs in-process. The only network access a provider ever makes, and never at snapshot time. |
 | `uninstall [--global]` | Remove everything `install` wrote, leaving the rest of each file byte-for-byte as it was. |
-| `baseline pin\|show\|clear [repo\|config]` | Manage the diff baseline - the "before" a change is graded against. `pin` freezes the snapshot on disk when every repository's own receipt shows it matches the working tree under this build and config (members of a cluster must also agree on one union), and otherwise snapshots first, linking once on the cluster's last turn, and says which repository made it regenerate; `show` reports what the current baseline describes; `clear` removes it. Stored per repository, in that repo's `.enola/baseline`, so several repos each keep their own. |
+| `baseline pin\|show\|clear [repo\|config]` | Create, inspect or remove the per-repository comparison baseline. |
 | `check [flags] [repo\|config]` | **Grade what a change did to the architecture**, and exit with a code CI can act on. Read-only: writes nothing and leaves the baseline in place, so it can be run repeatedly. See [The gate](#the-gate---enola-check). |
 | `constraints <lint\|mine\|init\|explain\|ledger> [repo\|config]` | **The authoring loop.** `lint` validates the declared vocabulary and resolves each component against the current snapshot; `mine` proposes candidate rules out of the snapshot's own regularities; `init` writes a first declaration binding every shipped recipe whose required roles resolve to directories the repository has, refusing to overwrite and guessing nothing; `explain <path>` names the components a file's facts belong to, the selector that admitted each, and the edges the file makes; `ledger` reports how much of the declared law is being EXCUSED rather than obeyed — each rule's breaches beside the suppressions and exemptions that signed them away, with every excuse's owner, reason and age, and the ones that now match nothing. `lint` exits `0` when every declaration is valid, `1` when it reported validation problems; `mine`, `init`, `explain` and `ledger` exit `0` whenever they produced a report, and `2` when they could not run — no snapshot to read, or a declaration `init` would have had to overwrite. See [CONSTRAINTS.md](CONSTRAINTS.md). |
-| `endpoint [flags] <endpoint> [repo\|config]` | **What changing an HTTP endpoint reaches.** The controller serving it, the models that controller touches, the models associated with those, the tables behind them, and the callers - including the frontend screen a calling route module implements. The endpoint is matched as a substring of the path, optionally prefixed with a verb (`GET /v1/candidates`, or just `/v1/candidates`). Client call sites and mock-server routes are excluded: this answers about what the application serves. `--json` emits the report; `--max-routes` bounds how many matched endpoints are followed. The `endpoint_impact` MCP tool answers the same question in a session. The callers are the client call sites the cross-repo linker matches to the route, under the same config, parameter matching and service aliases included. |
-| `plan [flags] [path...] [repo\|config]` | **The pre-edit contract.** Which declared constraints govern an intended change (`--paths`, `--symbols`), its blast radius over the current snapshot, and — for a `--patch` — the constraint verdicts that WOULD appear, evaluated over a scratch copy before any edit lands in the tree. Nothing is written; a report, never a gate. Exits `0` on any produced report, `2` when it could not run. See [CONSTRAINTS.md](CONSTRAINTS.md). |
+| `endpoint [flags] <endpoint> [repo\|config]` | Trace a served HTTP endpoint to controllers, models, storage and callers. |
+| `plan [flags] [path...] [repo\|config]` | Report applicable constraints and blast radius; `--patch` evaluates a proposed diff. See [Constraints](CONSTRAINTS.md). |
 | `log [flags] [repo\|config]` | **What has this architecture done over time?** One line per snapshot enola recorded, oldest first, with what changed since the one before it - `--graph` draws the branch topology, `--stat` breaks each delta down by fact kind, `-n` and `--since` bound the window. Read-only: it reports what was observed and never snapshots to fill a gap. `--backfill` instead BUILDS the timeline from the repository's own commit history, so a repository enola has never seen still has a past to read. **Experimental.** See [HISTORY.md](HISTORY.md). |
 | `show [rev] [repo\|config]` | **What did THIS revision do?** `log` says a revision added twelve facts; this says which twelve. Reconstructs the revision and its predecessor out of the stored history and compares them, so a past change is described in the words it was described in at the time. A revision is a snapshot id or prefix, a git commit, `HEAD~3`, `@7`, a ref name, or `latest` (the default). **Experimental.** |
 | `diff <a>..<b> [repo\|config]` | **What happened between these two points?** The architecture delta across a range - the question a week of work produces, where `show` answers for a single revision. Either side of the range may be empty, meaning the oldest or the newest recorded revision. **Experimental.** |
@@ -521,6 +343,11 @@ export ENOLA_NO_UPDATE_CHECK=1
 `enola doctor` reports the standing answer either way, including when it is "up to date".
 
 ### Wiring it into your agents - `enola install`
+
+The canonical setup guide is [MCP integration](MCP.md).
+
+<details>
+<summary>Installation targets and hook behavior</summary>
 
 An MCP server your agent forgets to use is a tool you don't have. `enola install` writes a short instruction into the files your agents already read, so they know the graph is there and what it's for:
 
@@ -608,6 +435,8 @@ It is deliberately opt-in and deliberately quiet:
 The hooks shell out to `enola hook session-start` and `enola hook stop`, which is what you'll see in `.claude/settings.json` (or Codex's `hooks.json`), pinned to the absolute path of the binary you installed with. You never run them yourself.
 
 Codex additionally requires you to approve a new hook once before it will run it - inside Codex, run `/hooks`. That's a Codex requirement, not something `enola install` can do for you.
+
+</details>
 
 ### The gate - `enola check`
 
@@ -729,10 +558,11 @@ and this is neither.
 
 **The verdict has four writers, and all four read the same verdict.** `--format` picks `text` (the default), `json` (what `--json` means), `sarif` or `annotations`; nothing is recomputed for a writer, so a fifth is a table row. SARIF carries one rule per declared rule id with the team's `because` as its description, one result per finding in every bucket (failures as errors, advisories and declared findings as warnings, resolved findings at no level and with no region, suppressed and exempted findings with the ledger entry or exemption that excused them), the evidence span as the region, and the finding's stable identity under `partialFingerprints.enola/v1`. Annotations place every finding that has a measured position on its file and line, as Buildkite markdown grouped by file (`--link` takes the pull request's files view so each line links into the diff) or as GitHub workflow commands; findings without a position are counted at the end and never placed. The host is a flag and never read from the environment, so a run on a laptop renders exactly what the run in CI rendered.
 
-The nineteen names `--fail-on` accepts are `cycles`, `layers`, `intent`, `constraints`,
+The twenty-two names `--fail-on` accepts are `cycles`, `layers`, `intent`, `constraints`,
 `crossrepo`, `coverage`, `unused-routes`, `messaging-coverage`, `god-class`, `hotspots`,
 `dependency-depth`, `exported-surface`, `complexity-outliers`, `domain`, `query-loops`,
-`entry-points`, `dead-methods`, `vendored-candidates` and `import-closure`.
+`entry-points`, `dead-methods`, `vendored-candidates`, `import-closure`, `package-metrics`,
+`dead-code` and `performance`.
 
 **A name it does not recognise is refused, not ignored.** `--fail-on=cyles` exits `2`
 and names what it could not match, rather than exiting `0` while enforcing nothing —
@@ -894,8 +724,6 @@ Agent tooling starts one enola server per session, so opening four terminals mea
 **Every page describes its own server.** The PID, uptime, repos and per-server call counts on a page belong to the process serving it - never to whichever server happened to start last. If a page shows a graph you did not expect, the switcher tells you which server holds the one you want.
 
 Running servers register themselves under `~/.enola/instances/`; a record is removed on exit, and one left behind by a hard-killed process is cleaned up by the next reader. Each workspace also keeps its own graph receipt under `~/.enola/graphs/`, so restarting a server in one repo restores *that* repo's graph rather than whatever another terminal snapshotted last.
-
----
 
 ---
 

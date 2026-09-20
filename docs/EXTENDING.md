@@ -121,7 +121,7 @@ without this file changing.
 If you find yourself writing a language name into a binder, look for the structural fact
 underneath it.
 
-### Registering it
+### Registering a binder
 
 ```go
 // pkg/bootstrap/bootstrap.go
@@ -261,7 +261,7 @@ repository with no outbound edges but a non-zero unresolved count is a *coverage
 an isolate, and `coverage_report` says so. If your signal can fail to resolve something it
 detected, count both. This is the mechanism that makes "a missing edge is visible" true.
 
-### Registering it
+### Registering a cross-repo signal
 
 ```go
 // pkg/bootstrap/bootstrap.go
