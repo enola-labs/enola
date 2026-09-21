@@ -58,13 +58,17 @@ type wireFact struct {
 //
 // The caller must hold s.mu.
 func (s *Store) targetFactFor(target, fromRepo string) int {
-	idx := s.byName[target]
-	if len(idx) == 0 {
+	first, rest, ok := s.namedIdxs(target)
+	if !ok {
 		return -1
 	}
 
 	pick := -1
-	for _, i := range idx {
+	if s.facts[first].Repo == fromRepo {
+		pick = first
+	}
+	for _, i32 := range rest {
+		i := int(i32)
 		if s.facts[i].Repo != fromRepo {
 			continue
 		}
@@ -80,8 +84,8 @@ func (s *Store) targetFactFor(target, fromRepo string) int {
 	if pick == -1 {
 		// No fact in this repository carries the name, so the reference points
 		// outward: consider the whole snapshot, under the same all-or-nothing rule.
-		pick = idx[0]
-		for _, i := range idx[1:] {
+		pick = first
+		for _, i := range rest {
 			if !sameIdentity(s.facts[pick], s.facts[i]) {
 				return -1
 			}
@@ -193,14 +197,18 @@ func (s *Store) evidenceFactFor(e Evidence) int {
 	if ref == "" {
 		return -1
 	}
-	idx := s.byName[ref]
-	if len(idx) == 0 {
+	first, rest, ok := s.namedIdxs(ref)
+	if !ok {
 		return -1
 	}
 
 	pick := -1
 	if e.File != "" {
-		for _, i := range idx {
+		if s.facts[first].File == e.File {
+			pick = first
+		}
+		for _, i32 := range rest {
+			i := int(i32)
 			if s.facts[i].File != e.File {
 				continue
 			}
@@ -215,8 +223,8 @@ func (s *Store) evidenceFactFor(e Evidence) int {
 	}
 
 	if pick == -1 {
-		pick = idx[0]
-		for _, i := range idx[1:] {
+		pick = first
+		for _, i := range rest {
 			if !sameIdentity(s.facts[pick], s.facts[i]) {
 				return -1
 			}

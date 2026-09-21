@@ -23,8 +23,16 @@ type Store struct {
 	// Indexes for fast lookups
 	byKind map[string][]int // kind -> indices into facts
 	byFile map[string][]int // file -> indices into facts
-	byName map[string][]int // name -> indices into facts
-	byRepo map[string][]int // repo label -> indices into facts
+	// byName maps a name to the facts carrying it, in a form sized for how names
+	// actually distribute: on a kernel-sized graph 1.9M names index 2.06M facts and
+	// 98.2% of them carry exactly one. A map[string][]int spends a 24-byte slice
+	// header per name plus a separate heap object holding one int; this spends four
+	// bytes and no object. A non-negative value IS the fact index; a negative value
+	// v means ^v indexes byNameDup, which holds the full index list for that name.
+	// Measured at that shape: 167 MiB against 71.
+	byName    map[string]int32
+	byNameDup [][]int32
+	byRepo    map[string][]int // repo label -> indices into facts
 
 	// Graph provides adjacency-list traversal over fact relations
 	graph *Graph
@@ -45,7 +53,7 @@ func NewStore() *Store {
 	return &Store{
 		byKind: make(map[string][]int),
 		byFile: make(map[string][]int),
-		byName: make(map[string][]int),
+		byName: make(map[string]int32),
 		byRepo: make(map[string][]int),
 	}
 }
@@ -118,12 +126,88 @@ func (s *Store) Add(ff ...Fact) {
 			s.byFile[f.File] = append(s.byFile[f.File], idx)
 		}
 		if f.Name != "" {
-			s.byName[f.Name] = append(s.byName[f.Name], idx)
+			s.indexName(f.Name, idx)
 		}
 		if f.Repo != "" {
 			s.byRepo[f.Repo] = append(s.byRepo[f.Repo], idx)
 		}
 	}
+}
+
+// indexName records that facts[idx] carries name. The caller must hold s.mu.
+func (s *Store) indexName(name string, idx int) {
+	v, seen := s.byName[name]
+	switch {
+	case !seen:
+		s.byName[name] = int32(idx)
+	case v >= 0:
+		s.byNameDup = append(s.byNameDup, []int32{v, int32(idx)})
+		s.byName[name] = ^int32(len(s.byNameDup) - 1)
+	default:
+		d := ^v
+		s.byNameDup[d] = append(s.byNameDup[d], int32(idx))
+	}
+}
+
+// namedIdxs returns the indices of every fact carrying name. The single-fact case,
+// which is the overwhelming majority, comes back as (idx, nil, true) and touches no
+// slice at all; a shared name comes back as (first, rest, true). Callers iterate
+// first and then rest. The caller must hold s.mu, and must not retain rest.
+func (s *Store) namedIdxs(name string) (first int, rest []int32, ok bool) {
+	v, seen := s.byName[name]
+	if !seen {
+		return 0, nil, false
+	}
+	if v >= 0 {
+		return int(v), nil, true
+	}
+	all := s.byNameDup[^v]
+	return int(all[0]), all[1:], true
+}
+
+// appendNamedIdxs appends every index carrying name to dst.
+// The caller must hold s.mu.
+func (s *Store) appendNamedIdxs(dst []int, name string) []int {
+	first, rest, ok := s.namedIdxs(name)
+	if !ok {
+		return dst
+	}
+	dst = append(dst, first)
+	for _, i := range rest {
+		dst = append(dst, int(i))
+	}
+	return dst
+}
+
+// namedCount returns how many facts carry name. The caller must hold s.mu.
+func (s *Store) namedCount(name string) int {
+	v, seen := s.byName[name]
+	switch {
+	case !seen:
+		return 0
+	case v >= 0:
+		return 1
+	default:
+		return len(s.byNameDup[^v])
+	}
+}
+
+// collectByName returns the facts carrying name. The caller must hold s.mu.
+func (s *Store) collectByName(name string) []Fact {
+	first, rest, ok := s.namedIdxs(name)
+	if !ok {
+		return nil
+	}
+	out := make([]Fact, 0, 1+len(rest))
+	if first < len(s.facts) {
+		out = append(out, s.facts[first])
+	}
+	for _, i := range rest {
+		if int(i) < len(s.facts) {
+			out = append(out, s.facts[i])
+		}
+	}
+	return out
 }
 
 // All returns an independent copy of every fact in the store — including each fact's
@@ -282,7 +366,7 @@ func (s *Store) ByFile(file string) []Fact {
 func (s *Store) ByName(name string) []Fact {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.collectByIndex(s.byName[name])
+	return s.collectByName(name)
 }
 
 // ByRepo returns all facts for the given repo label.
@@ -471,12 +555,12 @@ func (s *Store) QueryAdvanced(opts QueryOpts) ([]Fact, int) {
 		// to keep the logic simple.
 		total := 0
 		for n := range nameSet {
-			total += len(s.byName[n])
+			total += s.namedCount(n)
 		}
 		if total < len(s.facts) {
 			union := make([]int, 0, total)
 			for n := range nameSet {
-				union = append(union, s.byName[n]...)
+				union = s.appendNamedIdxs(union, n)
 			}
 			indexSlice = union
 			mode = iterNameUnion
@@ -602,7 +686,7 @@ func (s *Store) QueryAdvanced(opts QueryOpts) ([]Fact, int) {
 func (s *Store) LookupByExactName(name string) []Fact {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.collectByIndex(s.byName[name])
+	return s.collectByName(name)
 }
 
 // ReverseLookup returns all facts that have a relation targeting the given name.
@@ -793,7 +877,8 @@ func (s *Store) RemoveWhere(pred func(Fact) bool) int {
 	s.facts = kept
 	s.byKind = make(map[string][]int)
 	s.byFile = make(map[string][]int)
-	s.byName = make(map[string][]int)
+	s.byName = make(map[string]int32)
+	s.byNameDup = nil
 	s.byRepo = make(map[string][]int)
 	for idx, f := range s.facts {
 		s.byKind[f.Kind] = append(s.byKind[f.Kind], idx)
@@ -801,7 +886,7 @@ func (s *Store) RemoveWhere(pred func(Fact) bool) int {
 			s.byFile[f.File] = append(s.byFile[f.File], idx)
 		}
 		if f.Name != "" {
-			s.byName[f.Name] = append(s.byName[f.Name], idx)
+			s.indexName(f.Name, idx)
 		}
 		if f.Repo != "" {
 			s.byRepo[f.Repo] = append(s.byRepo[f.Repo], idx)
@@ -849,7 +934,8 @@ func (s *Store) Clear() {
 	s.facts = nil
 	s.byKind = make(map[string][]int)
 	s.byFile = make(map[string][]int)
-	s.byName = make(map[string][]int)
+	s.byName = make(map[string]int32)
+	s.byNameDup = nil
 	s.byRepo = make(map[string][]int)
 	s.graph = nil
 	s.intern = nil
