@@ -162,16 +162,17 @@ func (e *ScalaExtractor) Extract(ctx context.Context, repoPath string, files []s
 	// that declares it instead of being written off as an external dependency.
 	packageIndex := jvmsrc.BuildPackageIndex(repoPath, files)
 
-	// extractFileAST is a pure function of (src, relFile); parse in parallel and
+	// extractFileFacts is a pure function of (src, relFile); parse in parallel and
 	// merge in file order so the output is deterministic regardless of scheduling.
+	// It parses each file ONCE and runs both the declaration walk and the DSL
+	// route/storage walks over that one tree.
 	perFileFacts := parallel.MapFiles(ctx, scalaFiles, func(relFile string) fileResult {
 		src, err := os.ReadFile(filepath.Join(repoPath, relFile))
 		if err != nil {
 			log.Printf("[scala-extractor] error reading %s: %v", relFile, err)
 			return fileResult{}
 		}
-		ff, pkg := extractFileASTFull(src, relFile, packageIndex)
-		ff = append(ff, extractDSLRoutes(src, relFile)...)
+		ff, pkg := extractFileFacts(src, relFile, packageIndex)
 		return fileResult{facts: ff, pkg: pkg}
 	})
 

@@ -25,6 +25,25 @@ func extractFileAST(src []byte, relFile string, packageIndex map[string]string) 
 // whether such a type exists. Neither half can decide alone, so the walker records
 // the package rather than guessing with it (see resolveTypeName).
 func extractFileASTFull(src []byte, relFile string, packageIndex map[string]string) ([]facts.Fact, string) {
+	return withScalaTree(src, func(root *sitter.Node) ([]facts.Fact, string) {
+		return walkFileAST(root, src, relFile, packageIndex)
+	})
+}
+
+// extractFileFacts runs BOTH Scala source passes over ONE parse of the file: the
+// declaration walk and the route/storage DSL walks. They used to parse the same
+// bytes twice, once each, which made Scala the corpus's allocation outlier at
+// 50 MiB per file against Java's 0.5 on the same parser infrastructure.
+func extractFileFacts(src []byte, relFile string, packageIndex map[string]string) ([]facts.Fact, string) {
+	return withScalaTree(src, func(root *sitter.Node) ([]facts.Fact, string) {
+		ff, pkg := walkFileAST(root, src, relFile, packageIndex)
+		return append(ff, dslFactsFrom(root, src, relFile)...), pkg
+	})
+}
+
+// withScalaTree parses src once and hands the root to fn, closing the tree after.
+// A nil-returning parser setup yields the zero value, as every caller expects.
+func withScalaTree(src []byte, fn func(root *sitter.Node) ([]facts.Fact, string)) ([]facts.Fact, string) {
 	parser := sitter.NewParser()
 	defer parser.Close()
 	if err := parser.SetLanguage(sitter.NewLanguage(scala.Language())); err != nil {
@@ -32,7 +51,11 @@ func extractFileASTFull(src []byte, relFile string, packageIndex map[string]stri
 	}
 	tree := parser.Parse(src, nil)
 	defer tree.Close()
+	return fn(tree.RootNode())
+}
 
+// walkFileAST is extractFileASTFull over a tree the caller already parsed.
+func walkFileAST(root *sitter.Node, src []byte, relFile string, packageIndex map[string]string) ([]facts.Fact, string) {
 	w := &astWalker{
 		src:          src,
 		relFile:      relFile,
@@ -41,7 +64,7 @@ func extractFileASTFull(src []byte, relFile string, packageIndex map[string]stri
 		imports:      map[string]string{},
 		ownerStack:   []int{},
 	}
-	w.walk(tree.RootNode())
+	w.walk(root)
 	return w.out, w.pkg
 }
 

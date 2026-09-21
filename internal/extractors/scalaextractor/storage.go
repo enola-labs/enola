@@ -1,6 +1,7 @@
 package scalaextractor
 
 import (
+	"bytes"
 	"regexp"
 	"strings"
 
@@ -43,18 +44,17 @@ var topicSuffixRe = regexp.MustCompile(`(?i)(topic|stream|queue)$`)
 // cross-repo join.
 func extractStorage(root *sitter.Node, src []byte, relFile, dir string) []facts.Fact {
 	var out []facts.Fact
-	text := string(src)
 
 	// Slick tables. Matched on the source text rather than the AST because the
 	// declaration is a class header whose shape (`extends Table[T](tag, "name")`)
 	// is a single regular form, and the walker already has the class facts.
-	for _, m := range slickTableRe.FindAllStringSubmatchIndex(text, -1) {
-		name := text[m[2]:m[3]]
+	for _, m := range slickTableRe.FindAllSubmatchIndex(src, -1) {
+		name := string(src[m[2]:m[3]])
 		out = append(out, facts.Fact{
 			Kind: facts.KindStorage,
 			Name: name,
 			File: relFile,
-			Line: lineOfOffset(text, m[0]),
+			Line: lineOfOffset(src, m[0]),
 			Props: map[string]any{
 				"language":          "scala",
 				"storage_kind":      "table",
@@ -129,13 +129,7 @@ var messagingImports = []string{
 // into a producer/consumer edge between services by name ownership. A phantom topic
 // therefore invents asynchronous coupling between repositories that share nothing.
 func importsMessaging(src []byte) bool {
-	s := string(src)
-	for _, imp := range messagingImports {
-		if strings.Contains(s, imp) {
-			return true
-		}
-	}
-	return false
+	return containsAny(src, messagingImports)
 }
 
 // valNameAndLiteral returns a val's bound name and its string-literal value, or
@@ -168,11 +162,26 @@ func plausibleTopicName(v string) bool {
 	return !strings.ContainsAny(v, " /\\:?#") && !strings.HasPrefix(v, ".")
 }
 
-func lineOfOffset(s string, off int) int {
-	if off > len(s) {
-		off = len(s)
+func lineOfOffset(b []byte, off int) int {
+	if off > len(b) {
+		off = len(b)
 	}
-	return strings.Count(s[:off], "\n") + 1
+	return bytes.Count(b[:off], []byte("\n")) + 1
+}
+
+// containsAny reports whether src holds any of the needles.
+//
+// It exists so an import gate never copies the whole file to run a substring test:
+// the gates used to do `strings.Contains(string(src), imp)`, which allocated a copy
+// of every Scala source in the repository. The []byte conversion below does not
+// escape, so it costs no allocation at all.
+func containsAny(src []byte, needles []string) bool {
+	for _, n := range needles {
+		if bytes.Contains(src, []byte(n)) {
+			return true
+		}
+	}
+	return false
 }
 
 // --- outbound HTTP clients ---
@@ -242,13 +251,7 @@ func extractHTTPClients(root *sitter.Node, src []byte, relFile, dir string) []fa
 }
 
 func importsScalaHTTPClient(src []byte) bool {
-	s := string(src)
-	for _, imp := range clientImports {
-		if strings.Contains(s, imp) {
-			return true
-		}
-	}
-	return false
+	return containsAny(src, clientImports)
 }
 
 // clientCall recognises `client.get(uri"/x")`, `ws.url("/x").get()` and the sttp

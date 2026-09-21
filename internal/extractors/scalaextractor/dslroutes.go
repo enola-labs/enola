@@ -6,7 +6,6 @@ import (
 	"github.com/enola-labs/enola/internal/factpath"
 	"github.com/enola-labs/enola/internal/facts"
 	sitter "github.com/tree-sitter/go-tree-sitter"
-	scala "github.com/tree-sitter/tree-sitter-scala/bindings/go"
 )
 
 // Route trees written in Scala, as opposed to Play's separate routes DSL.
@@ -71,17 +70,18 @@ var pekkoServerImports = []string{
 // distinctive enough to stand alone; `path(...)` is not, so the import is what
 // separates the two readings.
 func importsPekkoHTTPServer(src []byte) bool {
-	s := string(src)
-	for _, imp := range pekkoServerImports {
-		if strings.Contains(s, imp) {
-			return true
-		}
+	if containsAny(src, pekkoServerImports) {
+		return true
 	}
 	// A route file frequently mixes in `Directives` rather than importing the
 	// package path directly.
-	return strings.Contains(s, "http.scaladsl.server.Directives") ||
-		strings.Contains(s, "extends Directives") ||
-		strings.Contains(s, "with Directives")
+	return containsAny(src, directivesMixins)
+}
+
+// directivesMixins are the `Directives` spellings the gate accepts besides an
+// explicit package import.
+var directivesMixins = []string{
+	"http.scaladsl.server.Directives", "extends Directives", "with Directives",
 }
 
 type dslWalker struct {
@@ -521,18 +521,21 @@ func isHTTPMethod(s string) bool {
 	return false
 }
 
-// extractDSLRoutes runs both Scala-source route passes over one file. They are a
-// separate parse from the main walker because each needs to descend a combinator
-// tree carrying state the declaration walk has no use for.
+// extractDSLRoutes runs the Scala-source route and storage passes over one file,
+// parsing it itself. The extractor goes through extractFileFacts instead, which
+// shares the declaration walk's parse; this entry point remains for tests that
+// exercise the DSL passes alone.
 func extractDSLRoutes(src []byte, relFile string) []facts.Fact {
-	parser := sitter.NewParser()
-	defer parser.Close()
-	if err := parser.SetLanguage(sitter.NewLanguage(scala.Language())); err != nil {
-		return nil
-	}
-	tree := parser.Parse(src, nil)
-	defer tree.Close()
-	root := tree.RootNode()
+	ff, _ := withScalaTree(src, func(root *sitter.Node) ([]facts.Fact, string) {
+		return dslFactsFrom(root, src, relFile), ""
+	})
+	return ff
+}
+
+// dslFactsFrom runs those passes over a tree the caller already parsed. Each one
+// descends a combinator tree carrying state the declaration walk has no use for,
+// which is why they are separate walks; they no longer need a separate parse.
+func dslFactsFrom(root *sitter.Node, src []byte, relFile string) []facts.Fact {
 	dir := factpath.Dir(relFile)
 
 	out := extractPekkoRoutes(root, src, relFile, dir)
