@@ -16,16 +16,26 @@ func positionInsights(insights []facts.Insight, store *facts.Store) {
 		return
 	}
 	type key struct{ file, name string }
-	positions := map[key]facts.Fact{}
-	for _, f := range store.All() {
+	type span struct{ line, endLine, column, endColumn int }
+
+	// FactsRef, not All: the four fields below are all this needs, and All hands
+	// back a deep copy of every fact, Props map and Relations slice included. On a
+	// kernel-sized graph that copy was 252 MiB of the run's peak live heap, built
+	// to read four ints and dropped. This loop neither retains the slice nor
+	// mutates the store, which is the contract FactsRef asks for.
+	//
+	// The map holds the span for the same reason: a facts.Fact value would keep
+	// every positioned fact's props and relations alive for as long as it exists.
+	positions := map[key]span{}
+	for _, f := range store.FactsRef() {
 		if f.Line == 0 || f.Name == "" {
 			continue
 		}
 		k := key{f.File, f.Name}
-		if existing, ok := positions[k]; ok && existing.Line <= f.Line {
+		if existing, ok := positions[k]; ok && existing.line <= f.Line {
 			continue
 		}
-		positions[k] = f
+		positions[k] = span{f.Line, f.EndLine, f.Column, f.EndColumn}
 	}
 	for i := range insights {
 		for j := range insights[i].Evidence {
@@ -37,7 +47,7 @@ func positionInsights(insights []facts.Insight, store *facts.Store) {
 			if !ok {
 				continue
 			}
-			ev.Line, ev.EndLine, ev.Column, ev.EndColumn = f.Line, f.EndLine, f.Column, f.EndColumn
+			ev.Line, ev.EndLine, ev.Column, ev.EndColumn = f.line, f.endLine, f.column, f.endColumn
 		}
 	}
 }
