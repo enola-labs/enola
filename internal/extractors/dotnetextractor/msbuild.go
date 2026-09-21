@@ -325,24 +325,24 @@ func applyMSBuild(mods map[string]*facts.Fact, projects []*msbuildProject) []fac
 		// The project file names the language authoritatively; a directory holding
 		// .cs beside an .fsproj is the rare mixed case, and the sources win there
 		// because they are what produced the symbols.
-		if _, has := f.Props["language"]; !has {
-			f.Props["language"] = p.language
+		if _, has := f.Prop("language"); !has {
+			f.SetProp("language", p.language)
 		}
-		f.Props["project"] = p.assembly
-		f.Props["msbuild"] = true
+		f.SetProp("project", p.assembly)
+		f.SetProp("msbuild", true)
 		if p.tfm != "" {
-			f.Props["target_framework"] = p.tfm
+			f.SetProp("target_framework", p.tfm)
 		}
 		if p.outputType != "" {
-			f.Props["output_type"] = p.outputType
+			f.SetProp("output_type", p.outputType)
 		}
 		if p.solution != "" {
-			f.Props["solution"] = p.solution
+			f.SetProp("solution", p.solution)
 		}
 		// MSBuild's own answer outranks the path heuristic: a test project named
 		// Foo.UnitTests/ under src/ is a test project whatever its path suggests.
 		if p.isTest {
-			f.Props[facts.PropModuleRole] = facts.ModuleRoleTest
+			f.SetProp(facts.PropModuleRole, facts.ModuleRoleTest)
 		}
 
 		seen := make(map[string]bool, len(p.refs))

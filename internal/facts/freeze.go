@@ -51,7 +51,7 @@ func (s *Store) Freeze() {
 	for i := range s.facts {
 		f := &s.facts[i]
 
-		if len(f.Props) > 0 {
+		if f.PropCount() > 0 {
 			if key, ok := appendProps(buf[:0], f.Props); ok {
 				buf = key
 				if canon, hit := propSeen[string(key)]; hit {

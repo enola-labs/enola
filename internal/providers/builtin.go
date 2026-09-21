@@ -161,7 +161,7 @@ func readRubydexMeta(cache Cache) (rubydexIndexMeta, bool) {
 	if !ok || len(entry) != 1 {
 		return rubydexIndexMeta{}, false
 	}
-	encoded, _ := entry[0].Props["meta"].(string)
+	encoded, _ := entry[0].PropAny("meta").(string)
 	var meta rubydexIndexMeta
 	if err := json.Unmarshal([]byte(strings.TrimSpace(encoded)), &meta); err != nil {
 		return rubydexIndexMeta{}, false

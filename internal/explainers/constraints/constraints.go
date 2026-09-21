@@ -524,7 +524,7 @@ func (e *Explainer) evaluate(store *facts.Store, opts evaluation) evaluated {
 			continue
 		}
 		for _, f := range store.FactsRef() {
-			if visible, ok := f.Props["exported"].(bool); ok && visible && f.File != "" {
+			if visible, ok := f.PropAny("exported").(bool); ok && visible && f.File != "" {
 				exportedFiles[f.File] = true
 			}
 		}
@@ -1327,7 +1327,7 @@ func (e *Explainer) verdictPrivate(r rule, graphWalk []facts.Fact, resolve *reso
 	// surface at all.
 	public := resolve.components[r.private].public
 	for _, f := range memberFacts[r.private] {
-		visible, ok := f.Props["exported"].(bool)
+		visible, ok := f.PropAny("exported").(bool)
 		if len(public) > 0 && f.File != "" {
 			visible, ok = matchConstraintPath(f.File, public), true
 		}
@@ -1645,7 +1645,7 @@ func (e *Explainer) verdictRequireDefines(r rule, memberFacts map[string][]facts
 		if f.Kind != facts.KindSymbol {
 			continue
 		}
-		if sk, _ := f.Props["symbol_kind"].(string); definesMethods(sk) {
+		if sk, _ := f.PropAny("symbol_kind").(string); definesMethods(sk) {
 			if _, seen := classKind[f.Name]; !seen {
 				classKind[f.Name] = true
 			}
@@ -2519,7 +2519,7 @@ func firstFactByName(sorted []facts.Fact) map[string]facts.Fact {
 // goes through, where an int survives as a float64. Copied from intentcheck
 // rather than shared, for the same reason the path matcher is.
 func intPropOf(f facts.Fact, key string) (int, bool) {
-	switch v := f.Props[key].(type) {
+	switch v := f.PropAny(key).(type) {
 	case int:
 		return v, true
 	case float64:

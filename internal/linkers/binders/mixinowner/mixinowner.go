@@ -112,7 +112,7 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 		if f.Props == nil {
 			f.Props = map[string]any{}
 		}
-		f.Props[MembersProp] = recorded
+		f.SetProp(MembersProp, recorded)
 	})
 	log.Printf("[mixin-owner] %d includer(s) own %d projected member(s) through %d mixin(s); %d mixin(s) name no module fact", len(projected), relations, mixins, unresolved)
 	return nil

@@ -225,7 +225,7 @@ func NewGraph(ff []Fact) *Graph {
 		}
 		if f.Kind == KindModule {
 			moduleNames[f.Name] = true
-			if mp, ok := f.Props["modulePath"].(string); ok && mp != "" {
+			if mp, ok := f.PropAny("modulePath").(string); ok && mp != "" {
 				modulePaths[mp] = struct{}{}
 			}
 		}
@@ -306,7 +306,7 @@ func NewGraph(ff []Fact) *Graph {
 		if f.Kind != KindSymbol {
 			continue
 		}
-		sk, _ := f.Props["symbol_kind"].(string)
+		sk, _ := f.PropAny("symbol_kind").(string)
 		if sk != SymbolMethod && sk != SymbolFunc && sk != SymbolGetter {
 			continue
 		}
@@ -564,7 +564,7 @@ func (g *Graph) declaredTypeNamed(name string) string {
 	if of.Kind != KindSymbol {
 		return ""
 	}
-	switch sk, _ := of.Props["symbol_kind"].(string); sk {
+	switch sk, _ := of.PropAny("symbol_kind").(string); sk {
 	case SymbolStruct, SymbolInterface, SymbolClass, SymbolType:
 		return name
 	}
@@ -1183,7 +1183,7 @@ func (g *Graph) impactSeeds(target string) []string {
 	if g.facts[idx].Kind != KindSymbol {
 		return seeds
 	}
-	switch sk, _ := g.facts[idx].Props["symbol_kind"].(string); sk {
+	switch sk, _ := g.facts[idx].PropAny("symbol_kind").(string); sk {
 	case SymbolStruct, SymbolClass, SymbolInterface, SymbolType:
 	default:
 		return seeds

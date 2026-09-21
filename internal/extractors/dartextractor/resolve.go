@@ -161,8 +161,8 @@ func resolveRoutePathRefs(all []facts.Fact, consts map[string]string) []facts.Fa
 			continue
 		}
 		f.Name = composePath(f.PropString(pathPrefixProp), literal)
-		delete(f.Props, pathRefProp)
-		delete(f.Props, pathPrefixProp)
+		f.DelProp(pathRefProp)
+		f.DelProp(pathPrefixProp)
 		out = append(out, f)
 	}
 	return out
@@ -203,10 +203,10 @@ func computeDartPerformsIO(all []facts.Fact) {
 		if f.Props == nil {
 			return false
 		}
-		if v, _ := f.Props["io_direct"].(bool); v {
+		if v, _ := f.PropAny("io_direct").(bool); v {
 			return true
 		}
-		v, _ := f.Props["performs_io"].(bool)
+		v, _ := f.PropAny("performs_io").(bool)
 		return v
 	}
 
@@ -231,7 +231,7 @@ func computeDartPerformsIO(all []facts.Fact) {
 					if f.Props == nil {
 						f.Props = map[string]any{}
 					}
-					f.Props["performs_io"] = true
+					f.SetProp("performs_io", true)
 					changed = true
 					break
 				}

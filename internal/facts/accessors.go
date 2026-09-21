@@ -8,9 +8,22 @@ import "strings"
 // existing relation, copying props before a rewrite. Four copies of a nil check is
 // four chances to forget one.
 //
-// They are value-receiver methods so they work on both a Fact and a *Fact without the
-// caller thinking about it: every one is a read, and CloneProps returns a new map
-// rather than touching the receiver.
+// The readers are value-receiver methods so they work on both a Fact and a *Fact
+// without the caller thinking about it, and CloneProps returns a new map rather than
+// touching the receiver.
+//
+// SetProp and DelProp take a POINTER receiver, and every prop write in the tree goes
+// through them rather than indexing Props directly. That is what makes the field's
+// representation changeable: it is a map[string]any today, one per fact, and on a
+// kernel-sized graph that is 1.89M maps whose per-map overhead dwarfs the two or three
+// values each one holds. A representation that does not pay that overhead is only
+// reachable if writes have a single seam to move behind.
+//
+// If that move happens, note what the WRITERS must preserve and the map gives for
+// free: a Fact copied by value shares its props with the original. Three call sites
+// mutate props through a value copy, and all three are correct today for that reason.
+// A replacement must either keep the aliasing or copy on write, and the check that
+// catches getting it wrong is a facts.jsonl hash comparison over the corpus.
 
 // PropString reads a string prop, returning "" when the map is nil, the key is absent,
 // or the value is not a string. The three cases collapse deliberately: every caller
@@ -34,6 +47,49 @@ func (f Fact) PropBool(key string) bool {
 	v, _ := f.Props[key].(bool)
 	return v
 }
+
+// Prop reads a prop, reporting whether the key was present. It is the comma-ok map
+// read, through a possibly-nil map.
+func (f Fact) Prop(key string) (any, bool) {
+	if f.Props == nil {
+		return nil, false
+	}
+	v, ok := f.Props[key]
+	return v, ok
+}
+
+// PropAny reads a prop, returning nil when the map is nil or the key is absent. It is
+// the one-value map read, and callers type-assert the result as they always did.
+func (f Fact) PropAny(key string) any {
+	if f.Props == nil {
+		return nil
+	}
+	return f.Props[key]
+}
+
+// SetProp stores a prop, creating the map when the fact has none. Assigning into a nil
+// map panics, so every caller used to have to know whether its fact had props yet.
+//
+// The receiver is a POINTER, unlike the readers above, and that is load-bearing: this
+// has to be the one place a prop is written. See the note at the top of this file.
+func (f *Fact) SetProp(key string, val any) {
+	if f.Props == nil {
+		f.Props = make(map[string]any, 4)
+	}
+	f.Props[key] = val
+}
+
+// DelProp removes a prop. Like delete on a nil map, removing from a fact with no props
+// does nothing.
+func (f *Fact) DelProp(key string) {
+	if f.Props == nil {
+		return
+	}
+	delete(f.Props, key)
+}
+
+// PropCount returns how many props the fact carries.
+func (f Fact) PropCount() int { return len(f.Props) }
 
 // HasRelation reports whether the fact already carries this exact edge. It is what
 // makes a binder idempotent across appends: every binder re-runs on every snapshot,

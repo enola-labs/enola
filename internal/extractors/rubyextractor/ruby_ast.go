@@ -56,12 +56,12 @@ func extractFileAST(src []byte, relFile string, isRails, exportedByPackwerk bool
 	// file-scope fact so the collector can mark same-prefix methods as used.
 	if len(w.dynamicPrefixes) > 0 {
 		idx := w.ensureFileRefFact()
-		w.out[idx].Props["dynamic_send_prefixes"] = sortedKeys(w.dynamicPrefixes)
+		w.out[idx].SetProp("dynamic_send_prefixes", sortedKeys(w.dynamicPrefixes))
 	}
 	// Drop the file-scope reference fact if it carries neither call edges nor
 	// dynamic-dispatch prefixes, so empty facts never reach the store.
 	if w.fileRefIdx >= 0 && len(w.out[w.fileRefIdx].Relations) == 0 &&
-		w.out[w.fileRefIdx].Props["dynamic_send_prefixes"] == nil {
+		w.out[w.fileRefIdx].PropAny("dynamic_send_prefixes") == nil {
 		w.out = append(w.out[:w.fileRefIdx], w.out[w.fileRefIdx+1:]...)
 	}
 	return w.out
@@ -79,11 +79,11 @@ func (w *rubyWalker) setModelTable(table string) {
 		if fact.Kind != facts.KindStorage || fact.Props == nil {
 			continue
 		}
-		if kind, _ := fact.Props["storage_kind"].(string); kind != "model" {
+		if kind, _ := fact.PropAny("storage_kind").(string); kind != "model" {
 			continue
 		}
-		fact.Props["table"] = table
-		fact.Props["table_source"] = "declared"
+		fact.SetProp("table", table)
+		fact.SetProp("table_source", "declared")
 		return
 	}
 }
@@ -99,7 +99,7 @@ func (w *rubyWalker) setModuleTableNamePrefix(node *sitter.Node) {
 		return
 	}
 	if prefix := plainStringBody(node.ChildByFieldName("body"), w.src); prefix != "" {
-		w.out[s.symFactIdx].Props["table_name_prefix"] = prefix
+		w.out[s.symFactIdx].SetProp("table_name_prefix", prefix)
 	}
 }
 
@@ -1724,7 +1724,7 @@ func (w *rubyWalker) addInstantiation(ownerIdx int, class, oneShot string) {
 	if w.out[ownerIdx].Props == nil {
 		w.out[ownerIdx].Props = map[string]any{}
 	}
-	existing, _ := w.out[ownerIdx].Props[OneShotCallProp].(string)
+	existing, _ := w.out[ownerIdx].PropAny(OneShotCallProp).(string)
 	entry := class + "." + oneShot
 	for _, seen := range strings.Fields(existing) {
 		if seen == entry {
@@ -1732,9 +1732,9 @@ func (w *rubyWalker) addInstantiation(ownerIdx int, class, oneShot string) {
 		}
 	}
 	if existing == "" {
-		w.out[ownerIdx].Props[OneShotCallProp] = entry
+		w.out[ownerIdx].SetProp(OneShotCallProp, entry)
 	} else {
-		w.out[ownerIdx].Props[OneShotCallProp] = existing + " " + entry
+		w.out[ownerIdx].SetProp(OneShotCallProp, existing+" "+entry)
 	}
 }
 

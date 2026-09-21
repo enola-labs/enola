@@ -94,7 +94,7 @@ func (e *Explainer) Explain(ctx context.Context, store *facts.Store) ([]facts.In
 func routeRoots(store *facts.Store, symbols map[string]bool) (int, int) {
 	resolved, missing := 0, 0
 	for _, fact := range store.ByKind(facts.KindRoute) {
-		handler, _ := fact.Props["handler"].(string)
+		handler, _ := fact.PropAny("handler").(string)
 		controller, action, ok := strings.Cut(handler, "#")
 		if !ok || controller == "" {
 			continue

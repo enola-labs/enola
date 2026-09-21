@@ -168,10 +168,10 @@ func grapeAPIFiles(classFacts []facts.Fact) []string {
 		if f.Kind != facts.KindSymbol || f.Props == nil {
 			continue
 		}
-		if f.Props["symbol_kind"] != facts.SymbolClass {
+		if f.PropAny("symbol_kind") != facts.SymbolClass {
 			continue
 		}
-		super, _ := f.Props["superclass"].(string)
+		super, _ := f.PropAny("superclass").(string)
 		if super == "" {
 			continue
 		}

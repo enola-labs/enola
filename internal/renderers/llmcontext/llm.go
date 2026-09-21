@@ -235,7 +235,7 @@ func (r *LLMContextRenderer) renderRepoMap(snapshot *facts.Snapshot) string {
 		for _, rel := range f.Relations {
 			if rel.Kind == facts.RelDeclares {
 				symbolCounts[rel.Target]++
-				if exported, ok := f.Props["exported"].(bool); ok && exported {
+				if exported, ok := f.PropAny("exported").(bool); ok && exported {
 					exportedCounts[rel.Target]++
 				}
 			}
@@ -394,7 +394,7 @@ func multiRepo(modules []facts.Fact) bool {
 
 // moduleLanguage reads the language every extractor sets on a module fact.
 func moduleLanguage(m facts.Fact) string {
-	if l, ok := m.Props["language"].(string); ok && l != "" {
+	if l, ok := m.PropAny("language").(string); ok && l != "" {
 		return l
 	}
 	return "unknown"
@@ -527,8 +527,8 @@ func (r *LLMContextRenderer) renderEntryPoints(snapshot *facts.Snapshot) string 
 			continue
 		}
 
-		symbolKind, _ := f.Props["symbol_kind"].(string)
-		exported, _ := f.Props["exported"].(bool)
+		symbolKind, _ := f.PropAny("symbol_kind").(string)
+		exported, _ := f.PropAny("exported").(bool)
 
 		// Main functions
 		if strings.HasSuffix(f.Name, ".main") && symbolKind == facts.SymbolFunc {
@@ -545,7 +545,7 @@ func (r *LLMContextRenderer) renderEntryPoints(snapshot *facts.Snapshot) string 
 		}
 
 		// iOS/macOS app entry point (@main struct conforming to App)
-		if iosComp, _ := f.Props["ios_component"].(string); iosComp == "swiftui_app" {
+		if iosComp, _ := f.PropAny("ios_component").(string); iosComp == "swiftui_app" {
 			entryPoints = append(entryPoints, fmt.Sprintf("- **app**: `%s` (%s)", f.Name, f.File))
 		}
 	}
@@ -553,7 +553,7 @@ func (r *LLMContextRenderer) renderEntryPoints(snapshot *facts.Snapshot) string 
 	// Routes as entry points
 	routes := filterByKind(snapshot.Facts, facts.KindRoute)
 	for _, route := range routes {
-		method, _ := route.Props["method"].(string)
+		method, _ := route.PropAny("method").(string)
 		entryPoints = append(entryPoints, fmt.Sprintf("- **route** %s `%s` (%s)", method, route.Name, route.File))
 	}
 
@@ -648,8 +648,8 @@ func (r *LLMContextRenderer) renderRoutes(snapshot *facts.Snapshot) string {
 	sb.WriteString("| Method | Path | File | Type |\n")
 	sb.WriteString("|--------|------|------|------|\n")
 	for _, route := range routes {
-		method, _ := route.Props["method"].(string)
-		routeType, _ := route.Props["type"].(string)
+		method, _ := route.PropAny("method").(string)
+		routeType, _ := route.PropAny("type").(string)
 		fmt.Fprintf(&sb, "| %s | `%s` | `%s` | %s |\n", method, route.Name, route.File, routeType)
 	}
 	sb.WriteString("\n")
@@ -680,7 +680,7 @@ func writeRouteSummary(sb *strings.Builder, routes []facts.Fact) {
 			order = append(order, key)
 		}
 		g.count++
-		if m, _ := rt.Props["method"].(string); m != "" {
+		if m, _ := rt.PropAny("method").(string); m != "" {
 			g.methods[m] = true
 		}
 	}
@@ -747,8 +747,8 @@ func (r *LLMContextRenderer) renderStorage(snapshot *facts.Snapshot) string {
 	sb.WriteString("| Name | Kind | Operation | File |\n")
 	sb.WriteString("|------|------|-----------|------|\n")
 	for _, s := range storage {
-		storageKind, _ := s.Props["storage_kind"].(string)
-		operation, _ := s.Props["operation"].(string)
+		storageKind, _ := s.PropAny("storage_kind").(string)
+		operation, _ := s.PropAny("operation").(string)
 		fmt.Fprintf(&sb, "| `%s` | %s | %s | `%s` |\n",
 			s.Name, storageKind, operation, s.File)
 	}
@@ -764,7 +764,7 @@ func writeStorageSummary(sb *strings.Builder, storage []facts.Fact) {
 	byKind := map[string][]string{}
 	var kinds []string
 	for _, st := range storage {
-		kind, _ := st.Props["storage_kind"].(string)
+		kind, _ := st.PropAny("storage_kind").(string)
 		if kind == "" {
 			kind = "unknown"
 		}
@@ -1209,7 +1209,7 @@ func propStr(f facts.Fact, key string) string {
 	if f.Props == nil {
 		return ""
 	}
-	s, _ := f.Props[key].(string)
+	s, _ := f.PropAny(key).(string)
 	return s
 }
 
@@ -1219,7 +1219,7 @@ func propInt(f facts.Fact, key string) int {
 	if f.Props == nil {
 		return 0
 	}
-	switch v := f.Props[key].(type) {
+	switch v := f.PropAny(key).(type) {
 	case int:
 		return v
 	case float64:
@@ -1234,7 +1234,7 @@ func propStrSlice(f facts.Fact, key string) []string {
 	if f.Props == nil {
 		return nil
 	}
-	switch v := f.Props[key].(type) {
+	switch v := f.PropAny(key).(type) {
 	case []string:
 		return v
 	case []interface{}:

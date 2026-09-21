@@ -191,7 +191,7 @@ func attachReactNavLinks(kinds *tsutil.KindTable, result []facts.Fact, root *sit
 		sort.Strings(links)
 		for i := range result {
 			if result[i].Kind == facts.KindSymbol && result[i].Name == factName {
-				result[i].Props[NavRouteLinksProp] = links
+				result[i].SetProp(NavRouteLinksProp, links)
 				break
 			}
 		}

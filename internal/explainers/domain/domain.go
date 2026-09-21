@@ -102,12 +102,12 @@ func examinedPopulations(store *facts.Store) []facts.Insight {
 	associations := len(store.ByKind(facts.KindAssociation))
 	handlers, tables := 0, 0
 	for _, fact := range store.ByKind(facts.KindRoute) {
-		if handler, _ := fact.Props["handler"].(string); strings.Contains(handler, "#") {
+		if handler, _ := fact.PropAny("handler").(string); strings.Contains(handler, "#") {
 			handlers++
 		}
 	}
 	for _, fact := range store.ByKind(facts.KindStorage) {
-		if kind, _ := fact.Props["storage_kind"].(string); kind == "model" {
+		if kind, _ := fact.PropAny("storage_kind").(string); kind == "model" {
 			tables++
 		}
 	}
@@ -143,11 +143,11 @@ func examinedPopulations(store *facts.Store) []facts.Insight {
 func modelHubs(store *facts.Store) []facts.Insight {
 	inbound := map[string][]string{}
 	for _, fact := range store.ByKind(facts.KindAssociation) {
-		if macro, _ := fact.Props["macro"].(string); macro == "inherits" {
+		if macro, _ := fact.PropAny("macro").(string); macro == "inherits" {
 			continue
 		}
-		target, _ := fact.Props["target"].(string)
-		model, _ := fact.Props["model"].(string)
+		target, _ := fact.PropAny("target").(string)
+		model, _ := fact.PropAny("model").(string)
 		if target == "" || model == "" || target == model {
 			continue
 		}
@@ -213,7 +213,7 @@ func modelHubs(store *facts.Store) []facts.Insight {
 func unresolvedHandlers(store *facts.Store) []facts.Insight {
 	controllers := map[string]bool{}
 	for _, fact := range store.ByKind(facts.KindSymbol) {
-		if kind, _ := fact.Props["symbol_kind"].(string); kind != facts.SymbolClass {
+		if kind, _ := fact.PropAny("symbol_kind").(string); kind != facts.SymbolClass {
 			continue
 		}
 		controllers[controllerKey(fact.Name)] = true
@@ -224,11 +224,11 @@ func unresolvedHandlers(store *facts.Store) []facts.Insight {
 
 	missing := map[string][]string{}
 	for _, fact := range store.ByKind(facts.KindRoute) {
-		handler, _ := fact.Props["handler"].(string)
+		handler, _ := fact.PropAny("handler").(string)
 		if handler == "" {
 			continue
 		}
-		if role, _ := fact.Props["role"].(string); role == "client" {
+		if role, _ := fact.PropAny("role").(string); role == "client" {
 			continue
 		}
 		controller, _, found := strings.Cut(handler, "#")
@@ -304,10 +304,10 @@ func unresolvedHandlers(store *facts.Store) []facts.Insight {
 func tablesSharedAcrossNamespaces(store *facts.Store) []facts.Insight {
 	byTable := map[string][]string{}
 	for _, fact := range store.ByKind(facts.KindStorage) {
-		if kind, _ := fact.Props["storage_kind"].(string); kind != "model" {
+		if kind, _ := fact.PropAny("storage_kind").(string); kind != "model" {
 			continue
 		}
-		table, _ := fact.Props["table"].(string)
+		table, _ := fact.PropAny("table").(string)
 		if table == "" {
 			continue
 		}
@@ -393,7 +393,7 @@ func outboundEvidence(labels []string, byLabel map[string]facts.Fact) []facts.Ev
 			continue
 		}
 		detail := "called from here"
-		if method, _ := fact.Props["method"].(string); method != "" {
+		if method, _ := fact.PropAny("method").(string); method != "" {
 			detail = method + " " + detail
 		}
 		out = append(out, facts.Evidence{Fact: fact.Name, File: fact.File, Line: fact.Line, Detail: detail})

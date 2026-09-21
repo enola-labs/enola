@@ -543,7 +543,7 @@ func (d patternDef) cohort(modules []facts.Fact) ([]facts.Fact, map[string]bool)
 	out := make([]facts.Fact, 0, len(modules))
 	langs := map[string]bool{}
 	for _, m := range modules {
-		lang, _ := m.Props["language"].(string)
+		lang, _ := m.PropAny("language").(string)
 		if !d.describes(lang) {
 			continue
 		}
@@ -1238,7 +1238,7 @@ func thickEnough(best *archPattern) *archPattern {
 func presentFrameworks(ff []facts.Fact) map[string]bool {
 	out := make(map[string]bool)
 	for _, f := range ff {
-		if fw, ok := f.Props["framework"].(string); ok && fw != "" {
+		if fw, ok := f.PropAny("framework").(string); ok && fw != "" {
 			out[fw] = true
 		}
 	}
@@ -1541,7 +1541,7 @@ func moduleProjects(ff []facts.Fact) map[string]string {
 		if m.Kind != facts.KindModule {
 			continue
 		}
-		if p, ok := m.Props["project"].(string); ok && p != "" {
+		if p, ok := m.PropAny("project").(string); ok && p != "" {
 			out[m.Name] = p
 		}
 	}

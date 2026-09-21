@@ -116,7 +116,7 @@ func readEdgeCoverage(svc facts.Fact) []EdgeCoverage {
 		return nil
 	}
 	var raw []map[string]any
-	switch v := svc.Props["edge_coverage"].(type) {
+	switch v := svc.PropAny("edge_coverage").(type) {
 	case []map[string]any:
 		raw = v
 	case []any:

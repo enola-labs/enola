@@ -138,10 +138,10 @@ func (d *SnapshotDiff) RenderCompact() string {
 // holding whatever an extractor put there, and a differ that assumed a type would go
 // quiet the first time one changed.
 func changedProps(c FactChange) []string {
-	if len(c.Before.Props) == 0 && len(c.After.Props) == 0 {
+	if c.Before.PropCount() == 0 && c.After.PropCount() == 0 {
 		return nil
 	}
-	keys := make(map[string]bool, len(c.Before.Props)+len(c.After.Props))
+	keys := make(map[string]bool, c.Before.PropCount()+c.After.PropCount())
 	for k := range c.Before.Props {
 		keys[k] = true
 	}
@@ -158,8 +158,8 @@ func changedProps(c FactChange) []string {
 
 	var out []string
 	for _, k := range names {
-		before, hadBefore := c.Before.Props[k]
-		after, hadAfter := c.After.Props[k]
+		before, hadBefore := c.Before.Prop(k)
+		after, hadAfter := c.After.Prop(k)
 		switch {
 		case hadBefore && hadAfter:
 			if fmt.Sprintf("%v", before) != fmt.Sprintf("%v", after) {

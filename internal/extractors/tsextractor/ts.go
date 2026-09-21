@@ -658,7 +658,7 @@ func (e *TSExtractor) extractFile(src []byte, relFile string, isNextJS, isVue, i
 			}
 			local := decls[i].Name[strings.LastIndexByte(decls[i].Name, '.')+1:]
 			if exported[local] {
-				decls[i].Props["exported"] = true
+				decls[i].SetProp("exported", true)
 			}
 		}
 	}
@@ -948,7 +948,7 @@ func (e *TSExtractor) extractNode(kinds *tsutil.KindTable, node *sitter.Node, ct
 		// cannot be instantiated) — tag it so package-metrics counts it toward
 		// abstractness, matching Java/Kotlin/Python. Plain classes stay concrete.
 		if kindOf(kinds, node) == "abstract_class_declaration" {
-			f.Props["abstract"] = true
+			f.SetProp("abstract", true)
 		}
 
 		// The base class the source names, and the module the file imported that
@@ -958,9 +958,9 @@ func (e *TSExtractor) extractNode(kinds *tsutil.KindTable, node *sitter.Node, ct
 		// aliased import binds is not the name the exporting file declares, so an
 		// edge built from either would be a resolution nothing measured.
 		if super := tsSuperclassName(kinds, node, src); super != "" {
-			f.Props[superclassProp] = super
+			f.SetProp(superclassProp, super)
 			if module := ctx.imports.modules[super]; module != "" {
-				f.Props[superclassModuleProp] = module
+				f.SetProp(superclassModuleProp, module)
 			}
 		}
 
@@ -988,7 +988,7 @@ func (e *TSExtractor) extractNode(kinds *tsutil.KindTable, node *sitter.Node, ct
 		classBody := findChildByKind(kinds, node, "class_body")
 		classifySymbol(kinds, &f, symbolName, classBody, ctx, facts.SymbolClass)
 		if names := classDecoratorNames(kinds, node, src); names != "" {
-			f.Props["decorators"] = names
+			f.SetProp("decorators", names)
 		}
 		result = append(result, f)
 
@@ -1190,7 +1190,7 @@ func (e *TSExtractor) extractNode(kinds *tsutil.KindTable, node *sitter.Node, ct
 			}
 			if symbolKind == facts.SymbolFunc {
 				if takes, ok := declaresParameters(kinds, decl); ok {
-					f.Props["takes_parameters"] = takes
+					f.SetProp("takes_parameters", takes)
 				}
 				applyTSMetrics(f.Props, vMetrics)
 			}
@@ -1262,7 +1262,7 @@ func (e *TSExtractor) funcSymbol(kinds *tsutil.KindTable, declNode, body *sitter
 		Relations: rels,
 	}
 	if takes, ok := declaresParameters(kinds, declNode); ok {
-		f.Props["takes_parameters"] = takes
+		f.SetProp("takes_parameters", takes)
 	}
 	applyTSMetrics(f.Props, m)
 	classifySymbol(kinds, &f, name, body, ctx, facts.SymbolFunc)
@@ -1661,9 +1661,9 @@ var reactHTTPMethods = map[string]bool{
 func classifySymbol(kinds *tsutil.KindTable, f *facts.Fact, name string, body *sitter.Node, ctx *extractCtx, symbolKind string) {
 	// Next.js App Router route handler: GET/POST/... in a route.{ts,tsx} file.
 	if symbolKind == facts.SymbolFunc && reactHTTPMethods[name] && isAppRouteFile(ctx.relFile) {
-		f.Props["web_component"] = "route_handler"
-		f.Props["method"] = name
-		f.Props["framework"] = "nextjs"
+		f.SetProp("web_component", "route_handler")
+		f.SetProp("method", name)
+		f.SetProp("framework", "nextjs")
 		return
 	}
 	// SvelteKit `load` export: +page.ts/+layout.ts/+page.server.ts/+layout.server.ts
@@ -1671,16 +1671,16 @@ func classifySymbol(kinds *tsutil.KindTable, f *facts.Fact, name string, body *s
 	// never by an in-repo call — same shape as the Next.js case above.
 	if symbolKind == facts.SymbolFunc && name == "load" && ctx.isSvelteKit &&
 		isUnderRoutesDir(ctx.relFile) && svelteKitLoadFileBasenames[svelteKitFileBasename(ctx.relFile)] {
-		f.Props["web_component"] = "route_handler"
-		f.Props["framework"] = "sveltekit"
+		f.SetProp("web_component", "route_handler")
+		f.SetProp("framework", "sveltekit")
 		return
 	}
 	// SvelteKit +server.ts HTTP-method export (GET/POST/...) under routes/.
 	if symbolKind == facts.SymbolFunc && reactHTTPMethods[name] && ctx.isSvelteKit &&
 		isUnderRoutesDir(ctx.relFile) && svelteKitFileBasename(ctx.relFile) == "+server" {
-		f.Props["web_component"] = "route_handler"
-		f.Props["method"] = name
-		f.Props["framework"] = "sveltekit"
+		f.SetProp("web_component", "route_handler")
+		f.SetProp("method", name)
+		f.SetProp("framework", "sveltekit")
 		return
 	}
 	// SvelteKit hooks.server.ts hooks (handle/handleError/handleFetch) — invoked by
@@ -1688,22 +1688,22 @@ func classifySymbol(kinds *tsutil.KindTable, f *facts.Fact, name string, body *s
 	// precedent as Python's framework-hook-name exclusion (gunicorn/ASGI lifespan).
 	if symbolKind == facts.SymbolFunc && svelteKitHookNames[name] && ctx.isSvelteKit &&
 		svelteKitFileBasename(ctx.relFile) == "hooks.server" {
-		f.Props["web_component"] = "route_handler"
-		f.Props["framework"] = "sveltekit"
+		f.SetProp("web_component", "route_handler")
+		f.SetProp("framework", "sveltekit")
 		return
 	}
 	// Composable (Vue/Nuxt) or hook (React): a useXxx function.
 	if symbolKind == facts.SymbolFunc && isHookName(name) {
 		if ctx.isVue || ctx.isNuxt {
-			f.Props["web_component"] = "composable"
+			f.SetProp("web_component", "composable")
 			if ctx.isNuxt {
-				f.Props["framework"] = "nuxt"
+				f.SetProp("framework", "nuxt")
 			} else {
-				f.Props["framework"] = "vue"
+				f.SetProp("framework", "vue")
 			}
 		} else {
-			f.Props["web_component"] = "hook"
-			f.Props["framework"] = "react"
+			f.SetProp("web_component", "hook")
+			f.SetProp("framework", "react")
 		}
 		return
 	}
@@ -1712,11 +1712,11 @@ func classifySymbol(kinds *tsutil.KindTable, f *facts.Fact, name string, body *s
 	// require literal JSX in the body to avoid misclassifying plain classes.
 	if isComponentName(name) && (symbolKind == facts.SymbolFunc || symbolKind == facts.SymbolClass) {
 		if ctx.isTSX || (body != nil && containsJSX(kinds, body)) {
-			f.Props["web_component"] = "component"
+			f.SetProp("web_component", "component")
 			if ctx.isNextJS {
-				f.Props["framework"] = "nextjs"
+				f.SetProp("framework", "nextjs")
 			} else {
-				f.Props["framework"] = "react"
+				f.SetProp("framework", "react")
 			}
 		}
 	}
@@ -3467,7 +3467,7 @@ func computeTSPerformsIO(allFacts []facts.Fact) {
 		if f.Kind != facts.KindSymbol {
 			continue
 		}
-		if b, _ := f.Props["io_direct"].(bool); b {
+		if b, _ := f.PropAny("io_direct").(bool); b {
 			io[f.Name] = true
 		}
 		seen := make(map[string]bool)
@@ -3504,7 +3504,7 @@ func computeTSPerformsIO(allFacts []facts.Fact) {
 			if f.Props == nil {
 				f.Props = map[string]any{}
 			}
-			f.Props["performs_io"] = true
+			f.SetProp("performs_io", true)
 		}
 	}
 }

@@ -138,7 +138,7 @@ func mergePartialTypes(allFacts []facts.Fact) []facts.Fact {
 		if f.Kind != facts.KindSymbol {
 			continue
 		}
-		if p, _ := f.Props["partial"].(bool); !p {
+		if p, _ := f.PropAny("partial").(bool); !p {
 			continue
 		}
 		groups[f.Name] = append(groups[f.Name], i)
@@ -189,14 +189,14 @@ func mergePartialTypes(allFacts []facts.Fact) []facts.Fact {
 		// Relations were appended in fact order; sort so the merged fact is a
 		// function of the SET of halves rather than of their file order.
 		sortRelations(dst.Relations)
-		dst.Props["partial_declarations"] = len(groups[name])
+		dst.SetProp("partial_declarations", len(groups[name]))
 	}
 
 	out := allFacts[:0]
 	for i := range allFacts {
 		f := &allFacts[i]
 		if f.Kind == facts.KindSymbol {
-			if p, _ := f.Props["partial"].(bool); p {
+			if p, _ := f.PropAny("partial").(bool); p {
 				if keep, ok := survivor[f.Name]; ok && keep != i {
 					continue // folded into the survivor
 				}
@@ -298,7 +298,7 @@ func resolveCSharpTargets(allFacts []facts.Fact) {
 		// Functions as well as methods. A bare call target naming a declared FREE
 		// FUNCTION is as real as one naming a method, and F# is the first .NET
 		// language here to have any — every F#-to-F# call was being dropped.
-		if k := f.Props["symbol_kind"]; k != facts.SymbolMethod && k != facts.SymbolFunc {
+		if k := f.PropAny("symbol_kind"); k != facts.SymbolMethod && k != facts.SymbolFunc {
 			continue
 		}
 		short := f.Name
@@ -310,13 +310,13 @@ func resolveCSharpTargets(allFacts []facts.Fact) {
 
 	for i := range allFacts {
 		f := &allFacts[i]
-		if f.Kind != facts.KindSymbol || !isTypeKind(f.Props["symbol_kind"]) {
+		if f.Kind != facts.KindSymbol || !isTypeKind(f.PropAny("symbol_kind")) {
 			continue
 		}
-		if p, _ := f.Props["partial"].(bool); p {
+		if p, _ := f.PropAny("partial").(bool); p {
 			partialTypes[f.Name] = true
 		}
-		fqn, _ := f.Props["fqn"].(string)
+		fqn, _ := f.PropAny("fqn").(string)
 		if fqn == "" {
 			continue
 		}
@@ -334,7 +334,7 @@ func resolveCSharpTargets(allFacts []facts.Fact) {
 
 		dir := factpath.Dir(f.File)
 		typeDir[fqn] = dir
-		if ns, _ := f.Props["namespace"].(string); ns != "" {
+		if ns, _ := f.PropAny("namespace").(string); ns != "" {
 			if prev, ok := nsDir[ns]; ok && prev != dir {
 				nsAmbig[ns] = true
 			} else {
@@ -378,7 +378,7 @@ func resolveCSharpTargets(allFacts []facts.Fact) {
 		if f.Kind != facts.KindSymbol {
 			continue
 		}
-		fromNS, _ := f.Props["namespace"].(string)
+		fromNS, _ := f.PropAny("namespace").(string)
 		kept := f.Relations[:0]
 		// typeRefs collects the extra edge each resolved qualified reference owes
 		// to its TYPE. Appended after the loop, since kept aliases f.Relations'
@@ -484,7 +484,7 @@ func isTypeKind(v any) bool {
 // directory happened to be indexed first, and the choice would move when an
 // unrelated file was added.
 func classifyUsing(f *facts.Fact, nsDir map[string]string, nsAmbig map[string]bool, typeDir map[string]string) {
-	imp, _ := f.Props["import"].(string)
+	imp, _ := f.PropAny("import").(string)
 	if imp == "" {
 		return
 	}
@@ -494,7 +494,7 @@ func classifyUsing(f *facts.Fact, nsDir map[string]string, nsAmbig map[string]bo
 	// declares, and reading them only against nsDir filed every one of them as
 	// external.
 	if dir, ok := typeDir[imp]; ok {
-		f.Props["source"] = "internal"
+		f.SetProp("source", "internal")
 		for j := range f.Relations {
 			if f.Relations[j].Kind == facts.RelImports {
 				f.Relations[j].Target = dir
@@ -503,7 +503,7 @@ func classifyUsing(f *facts.Fact, nsDir map[string]string, nsAmbig map[string]bo
 		return
 	}
 	if dir, ok := nsDir[imp]; ok && !nsAmbig[imp] {
-		f.Props["source"] = "internal"
+		f.SetProp("source", "internal")
 		for j := range f.Relations {
 			if f.Relations[j].Kind == facts.RelImports {
 				f.Relations[j].Target = dir
@@ -516,7 +516,7 @@ func classifyUsing(f *facts.Fact, nsDir map[string]string, nsAmbig map[string]bo
 		root = root[:i]
 	}
 	if stdlibRoots[imp] || stdlibRoots[root] {
-		f.Props["source"] = "stdlib"
+		f.SetProp("source", "stdlib")
 		return
 	}
 	// Left as "external", the value the walker wrote.

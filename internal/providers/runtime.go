@@ -43,8 +43,8 @@ func LinkRuntimeObservations(store *facts.Store, startIdx int) int {
 		if f.Props == nil {
 			f.Props = map[string]any{}
 		}
-		f.Props[PropRuntimeObserved] = true
-		f.Props[PropObservedVia] = mergeViaSet(f.PropString(PropObservedVia), vias)
+		f.SetProp(PropRuntimeObserved, true)
+		f.SetProp(PropObservedVia, mergeViaSet(f.PropString(PropObservedVia), vias))
 		annotated++
 	})
 	return annotated

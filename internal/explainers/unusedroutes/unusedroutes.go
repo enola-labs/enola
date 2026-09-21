@@ -60,10 +60,10 @@ func (e *Explainer) Explain(ctx context.Context, store *facts.Store) ([]facts.In
 		if f.Props == nil {
 			continue
 		}
-		if role, _ := f.Props["role"].(string); role == "client" {
+		if role, _ := f.PropAny("role").(string); role == "client" {
 			continue
 		}
-		if level, _ := f.Props[providers.PropResolutionLevel].(string); level == providers.LevelRuntimeObserved {
+		if level, _ := f.PropAny(providers.PropResolutionLevel).(string); level == providers.LevelRuntimeObserved {
 			continue
 		}
 		// Only routes the linker actually evaluated. It declines, with reasons,
@@ -77,7 +77,7 @@ func (e *Explainer) Explain(ctx context.Context, store *facts.Store) ([]facts.In
 		if repo == "" {
 			repo = "(unlabeled)"
 		}
-		if f.Props["unmatched_by_clients"] != true && f.Props["matched_by_clients"] != true {
+		if f.PropAny("unmatched_by_clients") != true && f.PropAny("matched_by_clients") != true {
 			// Counted, not dropped. A route the linker declined belongs in the
 			// finding as a coverage fact — it is the difference between "39
 			// endpoints, 27 unused" and "39 of 866 endpoints could be assessed
@@ -91,10 +91,10 @@ func (e *Explainer) Explain(ctx context.Context, store *facts.Store) ([]facts.In
 
 	byRepo := map[string][]route{}
 	for _, f := range store.ByKind(facts.KindRoute) {
-		if f.Props == nil || f.Props["unmatched_by_clients"] != true {
+		if f.Props == nil || f.PropAny("unmatched_by_clients") != true {
 			continue
 		}
-		if level, _ := f.Props[providers.PropResolutionLevel].(string); level == providers.LevelRuntimeObserved {
+		if level, _ := f.PropAny(providers.PropResolutionLevel).(string); level == providers.LevelRuntimeObserved {
 			continue
 		}
 		repo := f.Repo
@@ -196,7 +196,7 @@ type route struct {
 // routeLabel renders a route fact as "METHOD /path" when a method prop is present,
 // else just its name.
 func routeLabel(f facts.Fact) string {
-	if m, ok := f.Props["method"].(string); ok && m != "" {
+	if m, ok := f.PropAny("method").(string); ok && m != "" {
 		return m + " " + f.Name
 	}
 	return f.Name

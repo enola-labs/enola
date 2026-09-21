@@ -458,6 +458,6 @@ func (w *fsWalker) bodyRefs(t string) {
 
 func (w *fsWalker) markIO() {
 	if w.member >= 0 {
-		w.out[w.member].Props["io_direct"] = true
+		w.out[w.member].SetProp("io_direct", true)
 	}
 }

@@ -405,7 +405,7 @@ func setProp(f *facts.Fact, key, value string) {
 	if f.Props == nil {
 		f.Props = map[string]any{}
 	}
-	f.Props[key] = value
+	f.SetProp(key, value)
 }
 
 func joinSorted(set map[string]bool) string {

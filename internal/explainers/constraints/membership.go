@@ -187,7 +187,7 @@ func (m *MembershipIndex) Declaration(id string) (string, bool) {
 // string: sorted, so the identity is a function of the declaration and never of
 // map order.
 func declarationIdentity(f facts.Fact) string {
-	pairs := make([]string, 0, len(f.Props))
+	pairs := make([]string, 0, f.PropCount())
 	for key, value := range f.Props {
 		if declarationBookkeeping[key] {
 			continue

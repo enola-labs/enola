@@ -535,7 +535,7 @@ func (w *astWalker) stampConditional(from int) {
 		if w.out[i].Props == nil {
 			w.out[i].Props = map[string]any{}
 		}
-		w.out[i].Props["conditional"] = true
+		w.out[i].SetProp("conditional", true)
 	}
 }
 
@@ -695,16 +695,16 @@ func (w *astWalker) handleClassDeclaration(node *sitter.Node) {
 		},
 	}
 	if keyword == "enum" {
-		f.Props["enum"] = true
+		f.SetProp("enum", true)
 	}
 	if keyword == "actor" {
-		f.Props["concurrency"] = "actor"
+		f.SetProp("concurrency", "actor")
 	}
 	if strings.Contains(modifierText, "final") {
-		f.Props["final"] = true
+		f.SetProp("final", true)
 	}
 	if containsAnnotation(attrs, "MainActor") {
-		f.Props["main_actor"] = true
+		f.SetProp("main_actor", true)
 	}
 	for _, st := range supertypes {
 		f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelImplements, Target: st})
@@ -713,18 +713,18 @@ func (w *astWalker) handleClassDeclaration(node *sitter.Node) {
 	body := typeBody(node)
 	if sig, published := computeSignature(body, w.src); sig != "" || len(published) > 0 {
 		if sig != "" {
-			f.Props["signature"] = sig
+			f.SetProp("signature", sig)
 		}
 		if len(published) > 0 {
-			f.Props["reactive"] = true
-			f.Props["published_properties"] = strings.Join(published, ",")
+			f.SetProp("reactive", true)
+			f.SetProp("published_properties", strings.Join(published, ","))
 		}
 	}
 
 	if w.isiOS {
 		addIOSProps(&f, name, attrs, strings.Join(supertypes, ", "))
 	}
-	iosComponent, _ := f.Props["ios_component"].(string)
+	iosComponent, _ := f.PropAny("ios_component").(string)
 
 	w.out = append(w.out, f)
 	ownerIdx := len(w.out) - 1
@@ -769,7 +769,7 @@ func (w *astWalker) handleProtocol(node *sitter.Node) {
 	}
 	body := findChildByKind(node, "protocol_body")
 	if sig, _ := computeSignature(body, w.src); sig != "" {
-		f.Props["signature"] = sig
+		f.SetProp("signature", sig)
 	}
 	if w.isiOS {
 		addIOSProps(&f, name, attrs, strings.Join(supertypes, ", "))
@@ -887,26 +887,26 @@ func (w *astWalker) handleFunction(node *sitter.Node) {
 		},
 	}
 	if enclosing != "" {
-		f.Props["receiver"] = enclosing
+		f.SetProp("receiver", enclosing)
 	}
 	// An `override` is dispatched polymorphically through its supertype — UIKit /
 	// SwiftUI lifecycle callbacks (viewDidLoad, viewWillAppear, …) are invoked by
 	// the framework, never by the override's own literal name, so the dead-code
 	// detector must not report them as orphans. Mirrors kotlin_ast.go.
 	if strings.Contains(modifierText, "override") {
-		f.Props["override"] = true
+		f.SetProp("override", true)
 	}
 	if strings.Contains(header, " async") {
-		f.Props["async"] = true
+		f.SetProp("async", true)
 	}
 	if strings.Contains(header, " throws") {
-		f.Props["throws"] = true
+		f.SetProp("throws", true)
 	}
 	if strings.Contains(header, "nonisolated") {
-		f.Props["nonisolated"] = true
+		f.SetProp("nonisolated", true)
 	}
 	if strings.Contains(header, "@MainActor") || containsAnnotation(attrs, "MainActor") {
-		f.Props["main_actor"] = true
+		f.SetProp("main_actor", true)
 	}
 
 	w.out = append(w.out, f)

@@ -153,7 +153,7 @@ func extractStimulusBindings(repoPath, relFile string, src []byte, controllers *
 			},
 		}
 		if handlers := sortedKeys(handlersOf[identifier]); len(handlers) > 0 {
-			fact.Props[stimulusHandlersProp] = strings.Join(handlers, " ")
+			fact.SetProp(stimulusHandlersProp, strings.Join(handlers, " "))
 		}
 		if target := stimulusControllerFile(repoPath, identifier, controllers); target != "" {
 			fact.Relations = []facts.Relation{{Kind: facts.RelDependsOn, Target: target}}

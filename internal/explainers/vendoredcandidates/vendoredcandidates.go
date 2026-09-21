@@ -270,7 +270,7 @@ func describe(store *facts.Store, cands []candidate) {
 			seenFile[f.File] = true
 			cands[idx].files++
 		}
-		if l, ok := f.Props["language"].(string); ok && l != "" {
+		if l, ok := f.PropAny("language").(string); ok && l != "" {
 			langs[idx][l] = true
 		}
 	}

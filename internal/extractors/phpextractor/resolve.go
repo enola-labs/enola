@@ -81,7 +81,7 @@ func buildFQNIndex(allFacts []facts.Fact) *fqnIndex {
 		if f.Kind != facts.KindSymbol {
 			continue
 		}
-		switch sk, _ := f.Props["symbol_kind"].(string); sk {
+		switch sk, _ := f.PropAny("symbol_kind").(string); sk {
 		case facts.SymbolClass, facts.SymbolInterface, facts.SymbolEnum,
 			facts.SymbolFunc, facts.SymbolConstant:
 		default:
@@ -179,8 +179,8 @@ func setSource(f *facts.Fact, source string) {
 	if f.Props == nil {
 		f.Props = map[string]any{}
 	}
-	if _, ok := f.Props["source"]; !ok {
-		f.Props["source"] = source
+	if _, ok := f.Prop("source"); !ok {
+		f.SetProp("source", source)
 	}
 }
 

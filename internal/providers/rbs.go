@@ -50,11 +50,11 @@ func LinkDeclaredContracts(store *facts.Store, startIdx int) int {
 		if f.Props == nil {
 			f.Props = map[string]any{}
 		}
-		f.Props[PropTyped] = true
+		f.SetProp(PropTyped, true)
 		if sig := joinSortedSet(c.signatures, " | "); sig != "" {
-			f.Props[PropDeclaredSignature] = sig
+			f.SetProp(PropDeclaredSignature, sig)
 		}
-		f.Props[PropDeclaredIn] = mergeViaSet(f.PropString(PropDeclaredIn), c.files)
+		f.SetProp(PropDeclaredIn, mergeViaSet(f.PropString(PropDeclaredIn), c.files))
 		annotated++
 	})
 	return annotated
@@ -67,7 +67,7 @@ func contractIdentity(f facts.Fact) string {
 		return ""
 	}
 	separator := "#"
-	if singleton, _ := f.Props["singleton"].(bool); singleton {
+	if singleton, _ := f.PropAny("singleton").(bool); singleton {
 		separator = "."
 	}
 	return receiver + separator + method

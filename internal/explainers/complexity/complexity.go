@@ -139,7 +139,7 @@ func (e *ComplexityExplainer) Explain(ctx context.Context, store *facts.Store) (
 // for which cyclomatic complexity is meaningful). Symbols without a recorded
 // kind are allowed through so a missing prop doesn't silently drop functions.
 func isCallable(s facts.Fact) bool {
-	kind, ok := s.Props["symbol_kind"].(string)
+	kind, ok := s.PropAny("symbol_kind").(string)
 	if !ok {
 		return true
 	}

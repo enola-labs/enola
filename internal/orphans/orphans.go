@@ -934,47 +934,47 @@ func collect(store *facts.Store) ([]symInput, refIndex) {
 			order = append(order, f.Name)
 		}
 		if si.Kind == "" {
-			if sk, ok := f.Props[propSymbolKind].(string); ok {
+			if sk, ok := f.PropAny(propSymbolKind).(string); ok {
 				si.Kind = sk
 			}
 		}
-		if exp, ok := f.Props[propExported].(bool); ok && exp {
+		if exp, ok := f.PropAny(propExported).(bool); ok && exp {
 			si.Exported = true
 		}
-		if ov, ok := f.Props[propOverride].(bool); ok && ov {
+		if ov, ok := f.PropAny(propOverride).(bool); ok && ov {
 			si.Override = true
 		}
-		if di, ok := f.Props[propDIProvider].(bool); ok && di {
+		if di, ok := f.PropAny(propDIProvider).(bool); ok && di {
 			si.DIProvider = true
 		}
-		if ac, ok := f.Props[propAndroidComponent].(string); ok && si.AndroidComponent == "" {
+		if ac, ok := f.PropAny(propAndroidComponent).(string); ok && si.AndroidComponent == "" {
 			si.AndroidComponent = ac
 		}
-		if ic, ok := f.Props[propIOSComponent].(string); ok && si.IOSComponent == "" {
+		if ic, ok := f.PropAny(propIOSComponent).(string); ok && si.IOSComponent == "" {
 			si.IOSComponent = ic
 		}
-		if wc, ok := f.Props[propWebComponent].(string); ok && si.WebComponent == "" {
+		if wc, ok := f.PropAny(propWebComponent).(string); ok && si.WebComponent == "" {
 			si.WebComponent = wc
 		}
-		if lang, ok := f.Props[propLanguage].(string); ok && si.Language == "" {
+		if lang, ok := f.PropAny(propLanguage).(string); ok && si.Language == "" {
 			si.Language = lang
 		}
-		if cc, ok := f.Props[propCLICommand].(bool); ok && cc {
+		if cc, ok := f.PropAny(propCLICommand).(bool); ok && cc {
 			si.CLICommand = true
 		}
-		if fr, ok := f.Props[propFrameworkRegistered].(bool); ok && fr {
+		if fr, ok := f.PropAny(propFrameworkRegistered).(bool); ok && fr {
 			si.FrameworkReg = true
 		}
-		if g, ok := f.Props[propGenerated].(bool); ok && g {
+		if g, ok := f.PropAny(propGenerated).(bool); ok && g {
 			si.Generated = true
 		}
-		if sc, ok := f.Props[propSpringComponent].(string); ok && si.SpringComponent == "" {
+		if sc, ok := f.PropAny(propSpringComponent).(string); ok && si.SpringComponent == "" {
 			si.SpringComponent = sc
 		}
-		if da, ok := f.Props[propDubboActivate].(bool); ok && da {
+		if da, ok := f.PropAny(propDubboActivate).(bool); ok && da {
 			si.DubboActivate = true
 		}
-		if sp, ok := f.Props[propScannedPlugin].(bool); ok && sp {
+		if sp, ok := f.PropAny(propScannedPlugin).(bool); ok && sp {
 			si.ScannedPlugin = true
 		}
 		for _, r := range f.Relations {
@@ -1032,7 +1032,7 @@ func collect(store *facts.Store) ([]symInput, refIndex) {
 	// handler methods are not mis-reported as orphans. The route name is the
 	// reference source (never equal to a symbol name).
 	for _, f := range store.ByKind(facts.KindRoute) {
-		h, _ := f.Props[propHandler].(string)
+		h, _ := f.PropAny(propHandler).(string)
 		if h == "" {
 			continue
 		}
@@ -1134,7 +1134,7 @@ func collect(store *facts.Store) ([]symInput, refIndex) {
 	// call edge, so fold them in as references to avoid mis-reporting public
 	// re-exported symbols as orphans. The dependency fact name is the source.
 	for _, f := range store.ByKind(facts.KindDependency) {
-		if names, ok := f.Props[propReexports]; ok {
+		if names, ok := f.Prop(propReexports); ok {
 			for _, n := range toStringSlice(names) {
 				addRef(refSources, n, f.Name)
 			}
@@ -1161,7 +1161,7 @@ func collect(store *facts.Store) ([]symInput, refIndex) {
 	// exists) and additive — it can only hide a real orphan, never invent one.
 	var dynPrefixes []string
 	for _, f := range store.ByKind(facts.KindFileRef) {
-		if raw, ok := f.Props[propDynamicSendPrefixes]; ok {
+		if raw, ok := f.Prop(propDynamicSendPrefixes); ok {
 			dynPrefixes = append(dynPrefixes, toStringSlice(raw)...)
 		}
 	}

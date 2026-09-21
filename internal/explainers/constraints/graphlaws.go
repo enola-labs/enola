@@ -279,7 +279,7 @@ func (e *Explainer) verdictRequireConsumer(r rule, store *facts.Store, memberFac
 	}
 	var out []facts.Insight
 	for _, f := range memberFacts[r.requireConsumer] {
-		if f.Kind != facts.KindRoute || f.Props[propUnmatchedByClients] != true {
+		if f.Kind != facts.KindRoute || f.PropAny(propUnmatchedByClients) != true {
 			continue
 		}
 		out = append(out, facts.Insight{

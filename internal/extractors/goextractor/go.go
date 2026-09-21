@@ -250,7 +250,7 @@ func (e *GoExtractor) extractPackage(fset *token.FileSet, pkgDir string, pp *par
 	// Store the full Go module path on the root package fact so that the graph
 	// layer can normalise cross-repo call targets (Bug 2).
 	if pkgDir == "." && modulePath != "" {
-		moduleFact.Props["modulePath"] = modulePath
+		moduleFact.SetProp("modulePath", modulePath)
 	}
 	result = append(result, moduleFact)
 
@@ -359,7 +359,7 @@ func (e *GoExtractor) extractFunc(fset *token.FileSet, fn *ast.FuncDecl, relFile
 	}
 
 	if receiver != "" {
-		symbolFact.Props["receiver"] = receiver
+		symbolFact.SetProp("receiver", receiver)
 	}
 
 	// An HTTP handler is exactly func(http.ResponseWriter, *http.Request). Tag it, so a
@@ -378,7 +378,7 @@ func (e *GoExtractor) extractFunc(fset *token.FileSet, fn *ast.FuncDecl, relFile
 	// parses with go/ast, so fn.Type.Params is exact. Set only when true — a positive
 	// marker, so the goldens do not gain a line per function.
 	if isHTTPHandlerSignature(fn.Type) {
-		symbolFact.Props["http_handler"] = true
+		symbolFact.SetProp("http_handler", true)
 	}
 
 	// Extract function calls and per-function complexity metrics in a single
@@ -426,21 +426,21 @@ func (e *GoExtractor) extractFunc(fset *token.FileSet, fn *ast.FuncDecl, relFile
 		}
 		// Only emit non-trivial metrics so existing snapshots and facts from
 		// other extractors (which don't compute these) stay clean.
-		symbolFact.Props["cyclomatic"] = m.cyclomatic
+		symbolFact.SetProp("cyclomatic", m.cyclomatic)
 		if m.loopDepth > 0 {
-			symbolFact.Props["loop_depth"] = m.loopDepth
+			symbolFact.SetProp("loop_depth", m.loopDepth)
 			// Emit the scaling depth (bounded loops discounted) alongside — even when 0 —
 			// so the consumer distinguishes "all loops bounded" from "signal absent".
-			symbolFact.Props["scaling_loop_depth"] = m.scalingLoopDepth
+			symbolFact.SetProp("scaling_loop_depth", m.scalingLoopDepth)
 		}
 		if m.loopCount > 0 {
-			symbolFact.Props["loop_count"] = m.loopCount
+			symbolFact.SetProp("loop_count", m.loopCount)
 		}
 		if len(m.clientPathCalls) > 0 {
-			symbolFact.Props["client_path_calls"] = m.clientPathCalls
+			symbolFact.SetProp("client_path_calls", m.clientPathCalls)
 		}
 		if len(m.callsInLoop) > 0 {
-			symbolFact.Props["calls_in_loop"] = m.callsInLoop
+			symbolFact.SetProp("calls_in_loop", m.callsInLoop)
 			// Emit the N+1 subset alongside — even when EMPTY — so the consumer
 			// distinguishes "no call repeats" from "signal absent". An omitted key makes
 			// perf.scalingLoopCalls() fall back to the unfiltered calls_in_loop, which
@@ -449,10 +449,10 @@ func (e *GoExtractor) extractFunc(fset *token.FileSet, fn *ast.FuncDecl, relFile
 			if m.callsInScalingLoop == nil {
 				m.callsInScalingLoop = []string{}
 			}
-			symbolFact.Props["calls_in_scaling_loop"] = m.callsInScalingLoop
+			symbolFact.SetProp("calls_in_scaling_loop", m.callsInScalingLoop)
 		}
 		if m.recursiveSelf {
-			symbolFact.Props["recursive_self"] = true
+			symbolFact.SetProp("recursive_self", true)
 		}
 	}
 

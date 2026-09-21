@@ -144,8 +144,8 @@ func angularEnrich(kinds *tsutil.KindTable, in []facts.Fact, root *sitter.Node, 
 			continue
 		}
 		f := &in[idx]
-		f.Props[facts.PropFramework] = AngularFramework
-		f.Props["web_component"] = role
+		f.SetProp(facts.PropFramework, AngularFramework)
+		f.SetProp("web_component", role)
 		// framework_registered marks a class whose use is NOT derivable from the
 		// graph, and after the template, composition and injection passes that is
 		// only the modules: a root module is named by a bootstrap call and a lazy one
@@ -157,7 +157,7 @@ func angularEnrich(kinds *tsutil.KindTable, in []facts.Fact, root *sitter.Node, 
 		// components, directives, pipes and services, and every one of those zeros
 		// is a reading the flag would have suppressed either way.
 		if role == "ng_module" {
-			f.Props["framework_registered"] = true
+			f.SetProp("framework_registered", true)
 		}
 		if tpl := angularDecoratorProps(kinds, args, ctx, role, f.Props); tpl != nil {
 			inline[f.Name] = tpl
@@ -172,7 +172,7 @@ func angularEnrich(kinds *tsutil.KindTable, in []facts.Fact, root *sitter.Node, 
 			modRels, modProps, c := angularModuleEdges(kinds, args, ctx, imports, local)
 			counts.merge(c)
 			for k, v := range modProps {
-				f.Props[k] = v
+				f.SetProp(k, v)
 			}
 			for _, r := range modRels {
 				if !f.HasRelation(r.Kind, r.Target) {
@@ -548,14 +548,14 @@ func resolveAngularLazyComponents(all []facts.Fact) angularCounts {
 		if f.Kind != facts.KindRoute || file == "" {
 			continue
 		}
-		delete(f.Props, "angular_lazy_component_file")
+		f.DelProp("angular_lazy_component_file")
 		cand := byFile[file]
 		if len(cand) != 1 {
 			counts.miss("ambiguous_lazy_component")
 			continue
 		}
 		counts.resolved++
-		f.Props["handler"] = cand[0]
+		f.SetProp("handler", cand[0])
 		if !f.HasRelation(facts.RelHandledBy, cand[0]) {
 			f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelHandledBy, Target: cand[0]})
 		}

@@ -900,7 +900,7 @@ func emberEnrich(kinds *tsutil.KindTable, result []facts.Fact, root *sitter.Node
 			return
 		}
 		if typed := scanTypedLiteralInvocations(text, folds); len(typed) > 0 {
-			f.Props[EmberInvocationsProp] = mergeSorted(propStringsLocal(f.Props[EmberInvocationsProp]), typed)
+			f.SetProp(EmberInvocationsProp, mergeSorted(propStringsLocal(f.PropAny(EmberInvocationsProp)), typed))
 		}
 		if yh := scanEmberYieldHash(text); len(yh) > 0 {
 			resolved := make([]string, 0, len(yh))
@@ -915,7 +915,7 @@ func emberEnrich(kinds *tsutil.KindTable, result []facts.Fact, root *sitter.Node
 			}
 			if len(resolved) > 0 {
 				sort.Strings(resolved)
-				f.Props[EmberYieldHashProp] = resolved
+				f.SetProp(EmberYieldHashProp, resolved)
 			}
 		}
 		if ctx := scanEmberContextualUses(text); len(ctx) > 0 {
@@ -929,11 +929,11 @@ func emberEnrich(kinds *tsutil.KindTable, result []facts.Fact, root *sitter.Node
 				}
 			}
 			sort.Strings(resolved)
-			f.Props[EmberContextualProp] = resolved
+			f.SetProp(EmberContextualProp, resolved)
 		}
 		if n, samples := countDynamicInvocations(text, folds); n > 0 {
-			f.Props[EmberDynamicCountProp] = n
-			f.Props[EmberDynamicSamplesProp] = samples
+			f.SetProp(EmberDynamicCountProp, n)
+			f.SetProp(EmberDynamicSamplesProp, samples)
 		}
 	}
 
@@ -965,8 +965,8 @@ func emberEnrich(kinds *tsutil.KindTable, result []facts.Fact, root *sitter.Node
 		}
 	}
 	markComponent := func(f *facts.Fact) {
-		f.Props["web_component"] = "component"
-		f.Props["framework"] = EmberFramework
+		f.SetProp("web_component", "component")
+		f.SetProp("framework", EmberFramework)
 	}
 	claimed := make(map[int]bool)
 
@@ -974,7 +974,7 @@ func emberEnrich(kinds *tsutil.KindTable, result []facts.Fact, root *sitter.Node
 		factName := dir + "." + defaultName
 		for i := range result {
 			if result[i].Kind == facts.KindSymbol && result[i].Name == factName {
-				result[i].Props[EmberDefaultExportProp] = true
+				result[i].SetProp(EmberDefaultExportProp, true)
 				break
 			}
 		}
@@ -982,8 +982,8 @@ func emberEnrich(kinds *tsutil.KindTable, result []facts.Fact, root *sitter.Node
 
 	if frameworkRegistered {
 		for i := range result {
-			if result[i].Kind == facts.KindSymbol && result[i].Props["receiver"] == nil {
-				result[i].Props["framework_registered"] = true
+			if result[i].Kind == facts.KindSymbol && result[i].PropAny("receiver") == nil {
+				result[i].SetProp("framework_registered", true)
 			}
 		}
 	}
@@ -1027,19 +1027,19 @@ func emberEnrich(kinds *tsutil.KindTable, result []facts.Fact, root *sitter.Node
 					links = append(links, l)
 				}
 				sort.Strings(links)
-				result[i].Props[EmberRouteLinksProp] = links
+				result[i].SetProp(EmberRouteLinksProp, links)
 			}
 			if cls.isDefault {
-				result[i].Props[EmberDefaultExportProp] = true
+				result[i].SetProp(EmberDefaultExportProp, true)
 			}
 			if cls.isService {
-				result[i].Props["ember_service"] = base
+				result[i].SetProp("ember_service", base)
 			}
 			if role := emberDataRoleForFile(relFile); role != "" {
-				result[i].Props[EmberDataRoleProp] = role
+				result[i].SetProp(EmberDataRoleProp, role)
 			}
 			if len(cls.services) > 0 {
-				result[i].Props[EmberServicesProp] = cls.services
+				result[i].SetProp(EmberServicesProp, cls.services)
 			}
 			break
 		}
@@ -1086,7 +1086,7 @@ func emberEnrich(kinds *tsutil.KindTable, result []facts.Fact, root *sitter.Node
 			markComponent(&result[i])
 			attachCalls(&result[i], refs)
 			if links := linksFor(tb.start, tb.end); len(links) > 0 {
-				result[i].Props[EmberRouteLinksProp] = links
+				result[i].SetProp(EmberRouteLinksProp, links)
 			}
 			applySegmentProps(&result[i], tb.start, tb.end)
 			break
@@ -1982,8 +1982,8 @@ func isEmberEngineRoutesFile(relFile string) (engine string, ok bool) {
 func extractEmberEngineRoutes(kinds *tsutil.KindTable, root *sitter.Node, src []byte, relFile, engine string) []facts.Fact {
 	routes := extractEmberRoutes(kinds, root, src, relFile)
 	for i := range routes {
-		routes[i].Props["ember_engine"] = engine
-		routes[i].Props["router"] = "engine"
+		routes[i].SetProp("ember_engine", engine)
+		routes[i].SetProp("router", "engine")
 	}
 	return routes
 }
@@ -2011,6 +2011,6 @@ func composeEngineMounts(all []facts.Fact) {
 			continue
 		}
 		f.Name = joinEmberPath(ms[0], strings.TrimPrefix(f.Name, "/"))
-		f.Props["ember_mounted"] = true
+		f.SetProp("ember_mounted", true)
 	}
 }

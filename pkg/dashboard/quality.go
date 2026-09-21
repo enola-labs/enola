@@ -114,7 +114,7 @@ func edgeCoverageSum(svc facts.Fact, field string) int {
 		return 0
 	}
 	var entries []map[string]any
-	switch v := svc.Props["edge_coverage"].(type) {
+	switch v := svc.PropAny("edge_coverage").(type) {
 	case []map[string]any:
 		entries = v
 	case []any:
@@ -143,7 +143,7 @@ func propStr(f facts.Fact, key string) string {
 	if f.Props == nil {
 		return ""
 	}
-	if s, ok := f.Props[key].(string); ok {
+	if s, ok := f.PropAny(key).(string); ok {
 		return s
 	}
 	return ""
@@ -154,6 +154,6 @@ func propBool(f facts.Fact, key string) bool {
 	if f.Props == nil {
 		return false
 	}
-	b, ok := f.Props[key].(bool)
+	b, ok := f.PropAny(key).(bool)
 	return ok && b
 }

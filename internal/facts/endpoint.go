@@ -119,20 +119,20 @@ func (s *Store) AnalyzeEndpoint(query string, maxRoutes int, findCallers CallerF
 	}
 	var matched []matchedRoute
 	for _, fact := range s.ByKind(KindRoute) {
-		if role, _ := fact.Props["role"].(string); role == "client" {
+		if role, _ := fact.PropAny("role").(string); role == "client" {
 			continue
 		}
-		if isDouble, _ := fact.Props["test_double"].(bool); isDouble {
+		if isDouble, _ := fact.PropAny("test_double").(bool); isDouble {
 			continue
 		}
-		factMethod, _ := fact.Props["method"].(string)
+		factMethod, _ := fact.PropAny("method").(string)
 		if method != "" && !strings.EqualFold(factMethod, method) {
 			continue
 		}
 		if !strings.Contains(strings.ToLower(fact.Name), needle) {
 			continue
 		}
-		handler, _ := fact.Props["handler"].(string)
+		handler, _ := fact.PropAny("handler").(string)
 		matched = append(matched, matchedRoute{
 			route: EndpointRoute{Method: factMethod, Path: fact.Name, Handler: handler, File: fact.File},
 			fact:  fact,
@@ -170,7 +170,7 @@ func (s *Store) AnalyzeEndpoint(query string, maxRoutes int, findCallers CallerF
 	// Hop 2: the controller class each handler names.
 	classes := map[string]string{}
 	for _, fact := range s.ByKind(KindSymbol) {
-		if kind, _ := fact.Props["symbol_kind"].(string); kind != SymbolClass {
+		if kind, _ := fact.PropAny("symbol_kind").(string); kind != SymbolClass {
 			continue
 		}
 		classes[ControllerKey(fact.Name)] = fact.Name
@@ -196,10 +196,10 @@ func (s *Store) AnalyzeEndpoint(query string, maxRoutes int, findCallers CallerF
 	// a storage fact, which is how this graph already says "this is a model".
 	models := map[string]string{}
 	for _, fact := range s.ByKind(KindStorage) {
-		if kind, _ := fact.Props["storage_kind"].(string); kind != "model" {
+		if kind, _ := fact.PropAny("storage_kind").(string); kind != "model" {
 			continue
 		}
-		table, _ := fact.Props["table"].(string)
+		table, _ := fact.PropAny("table").(string)
 		models[fact.Name] = table
 	}
 	// A controller rarely names a model directly. A JSONAPI controller is a
@@ -255,8 +255,8 @@ func (s *Store) AnalyzeEndpoint(query string, maxRoutes int, findCallers CallerF
 	// Hop 4: one association hop out from those models.
 	associated := map[string]bool{}
 	for _, fact := range s.ByKind(KindAssociation) {
-		owner, _ := fact.Props["model"].(string)
-		target, _ := fact.Props["target"].(string)
+		owner, _ := fact.PropAny("model").(string)
+		target, _ := fact.PropAny("target").(string)
 		if target == "" || !reached[owner] || reached[target] {
 			continue
 		}
@@ -300,10 +300,10 @@ func (s *Store) callersFrom(clients []Fact) []EndpointCaller {
 	// overrides its path, which is most of the interesting ones.
 	screens := map[string]string{}
 	for _, fact := range s.ByKind(KindRoute) {
-		if framework, _ := fact.Props["framework"].(string); framework != "ember" {
+		if framework, _ := fact.PropAny("framework").(string); framework != "ember" {
 			continue
 		}
-		name, _ := fact.Props["ember_route_name"].(string)
+		name, _ := fact.PropAny("ember_route_name").(string)
 		if name == "" {
 			continue
 		}
@@ -313,10 +313,10 @@ func (s *Store) callersFrom(clients []Fact) []EndpointCaller {
 	seen := map[string]bool{}
 	var out []EndpointCaller
 	for _, fact := range clients {
-		if role, _ := fact.Props["role"].(string); role != "client" {
+		if role, _ := fact.PropAny("role").(string); role != "client" {
 			continue
 		}
-		if isDouble, _ := fact.Props["test_double"].(bool); isDouble {
+		if isDouble, _ := fact.PropAny("test_double").(bool); isDouble {
 			continue
 		}
 		if seen[fact.File] {

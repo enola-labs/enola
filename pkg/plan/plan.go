@@ -380,7 +380,7 @@ func declaresConstraints(snap *facts.Snapshot) bool {
 		if f.Kind != facts.KindIntent {
 			continue
 		}
-		if k, _ := f.Props["intent_kind"].(string); k == "component" {
+		if k, _ := f.PropAny("intent_kind").(string); k == "component" {
 			return true
 		}
 	}

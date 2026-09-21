@@ -482,10 +482,10 @@ func (e *TSExtractor) extractVueSFC(kinds *tsutil.KindTable, rawSrc []byte, relF
 	found := false
 	for i := range result {
 		if result[i].Kind == facts.KindSymbol && result[i].Name == factName {
-			result[i].Props["web_component"] = "component"
-			result[i].Props["framework"] = fw
+			result[i].SetProp("web_component", "component")
+			result[i].SetProp("framework", fw)
 			if isSetup {
-				result[i].Props["vue_setup"] = true
+				result[i].SetProp("vue_setup", true)
 			}
 			found = true
 			break
@@ -507,7 +507,7 @@ func (e *TSExtractor) extractVueSFC(kinds *tsutil.KindTable, rawSrc []byte, relF
 			Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: dir}},
 		}
 		if isSetup {
-			compFact.Props["vue_setup"] = true
+			compFact.SetProp("vue_setup", true)
 		}
 		result = append(result, compFact)
 	}
@@ -521,9 +521,9 @@ func (e *TSExtractor) extractVueSFC(kinds *tsutil.KindTable, rawSrc []byte, relF
 			if result[i].Kind != facts.KindSymbol || result[i].Name != factName {
 				continue
 			}
-			result[i].Props["vue_macros"] = macros
+			result[i].SetProp("vue_macros", macros)
 			for _, macro := range macros {
-				result[i].Props["vue_"+strings.TrimPrefix(strings.ToLower(macro), "define")] = true
+				result[i].SetProp("vue_"+strings.TrimPrefix(strings.ToLower(macro), "define"), true)
 			}
 			for contract, names := range macroContracts {
 				var ordered []string
@@ -531,7 +531,7 @@ func (e *TSExtractor) extractVueSFC(kinds *tsutil.KindTable, rawSrc []byte, relF
 					ordered = append(ordered, name)
 				}
 				sort.Strings(ordered)
-				result[i].Props[contract] = ordered
+				result[i].SetProp(contract, ordered)
 			}
 			if len(macroTypes) > 0 {
 				declared := make([]string, 0, len(macroTypes))
@@ -539,7 +539,7 @@ func (e *TSExtractor) extractVueSFC(kinds *tsutil.KindTable, rawSrc []byte, relF
 					declared = append(declared, contract+"="+typeText)
 				}
 				sort.Strings(declared)
-				result[i].Props["vue_contract_types"] = declared
+				result[i].SetProp("vue_contract_types", declared)
 			}
 			break
 		}
@@ -633,7 +633,7 @@ func (e *TSExtractor) extractVueScriptBlock(kinds *tsutil.KindTable, block *vueS
 			}
 			local := decls[i].Name[strings.LastIndexByte(decls[i].Name, '.')+1:]
 			if exported[local] {
-				decls[i].Props["exported"] = true
+				decls[i].SetProp("exported", true)
 			}
 		}
 	}

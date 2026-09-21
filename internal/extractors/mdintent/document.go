@@ -131,8 +131,8 @@ func documentFacts(scope *inScope, relFile string, src []byte, count *linkCount)
 	if title == "" {
 		title = strings.TrimSuffix(filepath.Base(relFile), ".md")
 	}
-	doc.fact.Props["title"] = title
-	doc.fact.Props["sections"] = len(sections)
+	doc.fact.SetProp("title", title)
+	doc.fact.SetProp("sections", len(sections))
 
 	out := []facts.Fact{*doc.fact}
 	for _, sec := range sections {

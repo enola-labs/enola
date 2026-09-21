@@ -74,7 +74,7 @@ func (e *Explainer) Annotate(_ context.Context, store *facts.Store) error {
 		if f.Props == nil {
 			f.Props = make(map[string]any, 1)
 		}
-		f.Props[PropOrphanClass] = class
+		f.SetProp(PropOrphanClass, class)
 	})
 	return nil
 }

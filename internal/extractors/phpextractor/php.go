@@ -191,7 +191,7 @@ func computePhpPerformsIO(allFacts []facts.Fact) {
 		if f.Kind != facts.KindSymbol {
 			continue
 		}
-		if b, _ := f.Props["io_direct"].(bool); b {
+		if b, _ := f.PropAny("io_direct").(bool); b {
 			io[f.Name] = true
 		}
 		seen := make(map[string]bool)
@@ -226,7 +226,7 @@ func computePhpPerformsIO(allFacts []facts.Fact) {
 			if f.Props == nil {
 				f.Props = map[string]any{}
 			}
-			f.Props["performs_io"] = true
+			f.SetProp("performs_io", true)
 		}
 	}
 }

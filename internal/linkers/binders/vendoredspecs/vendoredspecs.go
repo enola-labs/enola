@@ -71,7 +71,7 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 			f.PropString(facts.PropSource) != facts.RouteSourceOpenAPI {
 			return
 		}
-		wasRewritten, _ := f.Props[PropVendoredSpec].(bool)
+		wasRewritten, _ := f.PropAny(PropVendoredSpec).(bool)
 		// A spec the extractor already classified as a client spec is correct as it
 		// stands: leave it alone, and — crucially — do not let the restore branch below
 		// promote it to a server route it was never extracted as.
@@ -85,13 +85,13 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 			if !wasRewritten {
 				demoted++
 			}
-			f.Props[facts.PropRole] = facts.RoleClient
-			f.Props[PropVendoredSpec] = true
+			f.SetProp(facts.PropRole, facts.RoleClient)
+			f.SetProp(PropVendoredSpec, true)
 			return
 		}
 		if wasRewritten {
-			f.Props[facts.PropRole] = facts.RoleServer
-			delete(f.Props, PropVendoredSpec)
+			f.SetProp(facts.PropRole, facts.RoleServer)
+			f.DelProp(PropVendoredSpec)
 			restored++
 		}
 	})

@@ -87,7 +87,7 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 	methodSet := map[string]map[string]bool{} // repo -> method name -> exists
 
 	for _, s := range symbols {
-		kind, _ := s.Props["symbol_kind"].(string)
+		kind, _ := s.PropAny("symbol_kind").(string)
 		switch kind {
 		case facts.SymbolStruct, facts.SymbolClass:
 			short := b.implShortName(s)
@@ -116,7 +116,7 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 		if f.Kind != facts.KindRoute || f.Props == nil {
 			return
 		}
-		if f.Props[facts.PropRouteType] != facts.RouteTypeGRPC || f.Props[facts.PropRole] != facts.RoleServer {
+		if f.PropAny(facts.PropRouteType) != facts.RouteTypeGRPC || f.PropAny(facts.PropRole) != facts.RoleServer {
 			return
 		}
 		short := facts.ShortName(f.PropString("rpc_service"))
@@ -139,7 +139,7 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 			return // idempotent across appends
 		}
 		f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelHandledBy, Target: target})
-		f.Props["handler"] = target
+		f.SetProp("handler", target)
 		bound++
 	})
 	if bound > 0 {

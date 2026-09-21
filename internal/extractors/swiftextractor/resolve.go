@@ -26,10 +26,10 @@ func resolveImports(allFacts []facts.Fact) {
 		if f.Kind != facts.KindModule {
 			continue
 		}
-		if name, ok := f.Props["spm_target"].(string); ok && name != "" {
+		if name, ok := f.PropAny("spm_target").(string); ok && name != "" {
 			spmDir[name] = f.Name
 		}
-		if name, ok := f.Props["xcode_target"].(string); ok && name != "" {
+		if name, ok := f.PropAny("xcode_target").(string); ok && name != "" {
 			spmDir[name] = f.Name
 		}
 	}
@@ -71,10 +71,10 @@ func resolveImports(allFacts []facts.Fact) {
 // target is already a path: "internal" when it was flagged so by the
 // type-reference pass or carries an internal source, else the existing/external.
 func sourceForResolvedDep(f *facts.Fact) string {
-	if s, ok := f.Props["source"].(string); ok && s != "" {
+	if s, ok := f.PropAny("source").(string); ok && s != "" {
 		return s
 	}
-	if b, _ := f.Props["internal"].(bool); b {
+	if b, _ := f.PropAny("internal").(bool); b {
 		return "internal"
 	}
 	return "internal" // a path target inside the repo is internal by construction
@@ -85,10 +85,10 @@ func setSource(f *facts.Fact, source string) {
 	if f.Props == nil {
 		f.Props = map[string]any{}
 	}
-	if s, ok := f.Props["source"].(string); ok && s != "" {
+	if s, ok := f.PropAny("source").(string); ok && s != "" {
 		return
 	}
-	f.Props["source"] = source
+	f.SetProp("source", source)
 }
 
 // swiftSystemFramework is the set of Apple/system module names that an `import`

@@ -366,7 +366,7 @@ func collectRouteHandlers(routes []facts.Fact) map[string]bool {
 				out[r.Target] = true
 			}
 		}
-		if h, ok := f.Props[propHandler].(string); ok && h != "" {
+		if h, ok := f.PropAny(propHandler).(string); ok && h != "" {
 			out[h] = true
 		}
 	}
@@ -417,13 +417,13 @@ func collect(store *facts.Store) (funcs []funcInfo, storage, routeHandlers, asso
 	// a loop is a lazy-loaded association read — the classic N+1.
 	assoc = make(map[string]bool)
 	for _, f := range store.ByKind(facts.KindDependency) {
-		if a, ok := f.Props[propAssociation].(string); ok && a != "" {
+		if a, ok := f.PropAny(propAssociation).(string); ok && a != "" {
 			assoc[a] = true
 		}
 	}
 
 	for _, f := range store.ByKind(facts.KindSymbol) {
-		sk, _ := f.Props[propSymbolKind].(string)
+		sk, _ := f.PropAny(propSymbolKind).(string)
 		// Analyze functions and methods, plus any other symbol that carries
 		// complexity metrics — a Swift computed-property getter or willSet/didSet
 		// observer is emitted as a variable/constant symbol but can hold a loop or
@@ -448,8 +448,8 @@ func collect(store *facts.Store) (funcs []funcInfo, storage, routeHandlers, asso
 				calls = append(calls, r.Target)
 			}
 		}
-		_, hasScaling := f.Props[propScalingLoopDepth]
-		_, hasScalingCalls := f.Props[propCallsInScalingLoop]
+		_, hasScaling := f.Prop(propScalingLoopDepth)
+		_, hasScalingCalls := f.Prop(propCallsInScalingLoop)
 		funcs = append(funcs, funcInfo{
 			Name:                f.Name,
 			File:                f.File,

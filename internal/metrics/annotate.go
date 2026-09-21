@@ -74,11 +74,11 @@ func (e *Explainer) Annotate(_ context.Context, store *facts.Store) error {
 		if f.Props == nil {
 			f.Props = make(map[string]any, 5)
 		}
-		f.Props[PropAfferent] = m.Ca
-		f.Props[PropEfferent] = m.Ce
-		f.Props[PropInstability] = m.Instability
-		f.Props[PropAbstractness] = m.Abstractness
-		f.Props[PropDistance] = m.Distance
+		f.SetProp(PropAfferent, m.Ca)
+		f.SetProp(PropEfferent, m.Ce)
+		f.SetProp(PropInstability, m.Instability)
+		f.SetProp(PropAbstractness, m.Abstractness)
+		f.SetProp(PropDistance, m.Distance)
 	})
 	return nil
 }

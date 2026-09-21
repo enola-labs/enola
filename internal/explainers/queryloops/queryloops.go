@@ -189,12 +189,12 @@ type preloadIndex struct {
 func buildPreloadIndex(store *facts.Store) preloadIndex {
 	idx := preloadIndex{scopes: map[string]map[string][]string{}, methods: map[string][]string{}}
 	for _, fact := range store.ByKind(facts.KindSymbol) {
-		if lang, _ := fact.Props["language"].(string); lang != "ruby" {
+		if lang, _ := fact.PropAny("language").(string); lang != "ruby" {
 			continue
 		}
-		preloads := propStrings(fact.Props["preloads"])
-		if isScope, _ := fact.Props["scope"].(bool); isScope {
-			model, _ := fact.Props["model"].(string)
+		preloads := propStrings(fact.PropAny("preloads"))
+		if isScope, _ := fact.PropAny("scope").(bool); isScope {
+			model, _ := fact.PropAny("model").(string)
 			name := strings.TrimPrefix(fact.Name, "scope:")
 			if model == "" || name == "" {
 				continue
@@ -367,17 +367,17 @@ func candidates(store *facts.Store) []finding {
 		// A local typed by assignment resolves the same way a block parameter
 		// does, and gives the same guarantee: the receiver's type is stated in
 		// the source rather than guessed from a name.
-		preloaded := stringSet(propStrings(fact.Props["preloads"]))
-		unpersisted := stringSet(propStrings(fact.Props["unpersisted_locals"]))
-		batched, _ := fact.Props["batch_loader"].(bool)
-		params := stringSet(propStrings(fact.Props["params"]))
+		preloaded := stringSet(propStrings(fact.PropAny("preloads")))
+		unpersisted := stringSet(propStrings(fact.PropAny("unpersisted_locals")))
+		batched, _ := fact.PropAny("batch_loader").(bool)
+		params := stringSet(propStrings(fact.PropAny("params")))
 		owner := ownerOf(fact.Name)
-		for _, typed := range propStrings(fact.Props["local_types"]) {
+		for _, typed := range propStrings(fact.PropAny("local_types")) {
 			name, class, ok := strings.Cut(typed, "=")
 			if !ok {
 				continue
 			}
-			for _, call := range propStrings(fact.Props["calls_in_loop"]) {
+			for _, call := range propStrings(fact.PropAny("calls_in_loop")) {
 				receiver, method, dotted := strings.Cut(call, ".")
 				if !dotted || receiver != name {
 					continue
@@ -390,7 +390,7 @@ func candidates(store *facts.Store) []finding {
 				if models[demodulize(class)] && persistMethods[method] {
 					found = append(found, finding{
 						symbol: fact.Name, file: fact.File, repo: fact.Repo,
-						call: call, depth: propInt(fact.Props["loop_depth"]),
+						call: call, depth: propInt(fact.PropAny("loop_depth")),
 						element: demodulize(class), write: true,
 					})
 					continue
@@ -403,13 +403,13 @@ func candidates(store *facts.Store) []finding {
 				if target := associations.on(demodulize(class), method); target != "" {
 					found = append(found, finding{
 						symbol: fact.Name, file: fact.File, repo: fact.Repo,
-						call: call, depth: propInt(fact.Props["loop_depth"]),
+						call: call, depth: propInt(fact.PropAny("loop_depth")),
 						element: demodulize(class), target: target,
 					})
 				}
 			}
 		}
-		for _, binding := range propStrings(fact.Props["block_bindings"]) {
+		for _, binding := range propStrings(fact.PropAny("block_bindings")) {
 			param, collection, ok := strings.Cut(binding, "=")
 			if !ok {
 				continue
@@ -422,7 +422,7 @@ func candidates(store *facts.Store) []finding {
 			if !ok || batched {
 				continue
 			}
-			for _, call := range propStrings(fact.Props["calls_in_loop"]) {
+			for _, call := range propStrings(fact.PropAny("calls_in_loop")) {
 				receiver, method, dotted := strings.Cut(call, ".")
 				if !dotted || receiver != param {
 					continue
@@ -433,7 +433,7 @@ func candidates(store *facts.Store) []finding {
 				if target := associations.on(res.element, method); target != "" {
 					found = append(found, finding{
 						symbol: fact.Name, file: fact.File, repo: fact.Repo,
-						call: call, depth: propInt(fact.Props["loop_depth"]),
+						call: call, depth: propInt(fact.PropAny("loop_depth")),
 						element: res.element, target: target, weak: res.weak,
 					})
 				}
@@ -441,14 +441,14 @@ func candidates(store *facts.Store) []finding {
 		}
 	}
 	for _, fact := range store.ByKind(facts.KindSymbol) {
-		if lang, _ := fact.Props["language"].(string); lang != "ruby" {
+		if lang, _ := fact.PropAny("language").(string); lang != "ruby" {
 			continue
 		}
 		if len(models) == 0 {
 			continue
 		}
-		depth := propInt(fact.Props["loop_depth"])
-		for _, call := range propStrings(fact.Props["calls_in_loop"]) {
+		depth := propInt(fact.PropAny("loop_depth"))
+		for _, call := range propStrings(fact.PropAny("calls_in_loop")) {
 			receiver, method, ok := strings.Cut(call, ".")
 			if !ok || !queryMethods[method] {
 				continue
@@ -638,7 +638,7 @@ func (e *Explainer) Explain(_ context.Context, store *facts.Store) ([]facts.Insi
 func modelClasses(store *facts.Store) map[string]bool {
 	models := map[string]bool{}
 	for _, fact := range store.ByKind(facts.KindStorage) {
-		if kind, _ := fact.Props["storage_kind"].(string); kind != "model" {
+		if kind, _ := fact.PropAny("storage_kind").(string); kind != "model" {
 			continue
 		}
 		models[demodulize(fact.Name)] = true
@@ -684,9 +684,9 @@ func propInt(v any) int {
 func buildAssociationIndex(store *facts.Store) associationIndex {
 	index := associationIndex{byName: map[string][]string{}, onType: map[string]map[string]string{}}
 	for _, fact := range store.ByKind(facts.KindAssociation) {
-		name, _ := fact.Props["association"].(string)
-		model, _ := fact.Props["model"].(string)
-		target, _ := fact.Props["target"].(string)
+		name, _ := fact.PropAny("association").(string)
+		model, _ := fact.PropAny("model").(string)
+		target, _ := fact.PropAny("target").(string)
 		if name == "" || target == "" {
 			continue
 		}

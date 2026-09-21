@@ -97,7 +97,7 @@ func pairAcrossProviders(names []string, kept [][]facts.Fact, records []facts.Pr
 	aliasAt := map[string]bool{}
 	for p, ff := range kept {
 		for i, f := range ff {
-			if f.Kind == facts.KindDependency && len(f.Relations) == 0 && f.Props[PropResolutionCause] == "alias" {
+			if f.Kind == facts.KindDependency && len(f.Relations) == 0 && f.PropAny(PropResolutionCause) == "alias" {
 				aliasAt[fmt.Sprintf("%s\x00%d", f.File, f.Line)] = true
 			}
 			for r, rel := range f.Relations {
@@ -171,7 +171,7 @@ func pairAcrossProviders(names []string, kept [][]facts.Fact, records []facts.Pr
 			if f.Props == nil {
 				f.Props = map[string]any{}
 			}
-			f.Props[PropResolutionAgreement] = AgreementLevel
+			f.SetProp(PropResolutionAgreement, AgreementLevel)
 			for _, p := range providers {
 				ref := byProvider[p][round]
 				paired[ref] = true

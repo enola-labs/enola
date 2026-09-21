@@ -169,8 +169,8 @@ func (e *Extractor) Extract(ctx context.Context, repoPath string, files []string
 							Relations: []facts.Relation{{Kind: facts.RelImports, Target: resolved}},
 						})
 					} else {
-						f.Props["module_source"] = src
-						f.Props["external"] = true
+						f.SetProp("module_source", src)
+						f.SetProp("external", true)
 					}
 				}
 			}

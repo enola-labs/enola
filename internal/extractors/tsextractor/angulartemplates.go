@@ -572,7 +572,7 @@ func angularTemplateEdges(f *facts.Fact, t *angularTemplate, idx *angularSelecto
 		}
 	}
 	if len(t.links) > 0 {
-		f.Props["angular_router_links"] = strings.Join(t.links, ",")
+		f.SetProp("angular_router_links", strings.Join(t.links, ","))
 	}
 	return counts
 }

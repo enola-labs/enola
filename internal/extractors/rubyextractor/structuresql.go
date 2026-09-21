@@ -66,7 +66,7 @@ func foldTables(tables map[string]*parsedTable, allFacts []facts.Fact, dumpPath 
 		if f.Kind != facts.KindStorage || f.Props == nil {
 			continue
 		}
-		if table, _ := f.Props["table"].(string); table != "" {
+		if table, _ := f.PropAny("table").(string); table != "" {
 			claimed[table] = append(claimed[table], i)
 		}
 	}

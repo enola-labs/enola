@@ -108,7 +108,7 @@ type candidate struct {
 func routedActions(store *facts.Store) map[string]bool {
 	out := map[string]bool{}
 	for _, fact := range store.ByKind(facts.KindRoute) {
-		handler, _ := fact.Props["handler"].(string)
+		handler, _ := fact.PropAny("handler").(string)
 		controller, action, ok := strings.Cut(handler, "#")
 		if !ok || controller == "" {
 			continue
@@ -157,7 +157,7 @@ func candidates(store *facts.Store) (uncalled, testOnly []candidate) {
 					}
 				}
 			}
-			for _, p := range propStrings(fact.Props["dynamic_send_prefixes"]) {
+			for _, p := range propStrings(fact.PropAny("dynamic_send_prefixes")) {
 				if p != "" {
 					prefixes = append(prefixes, p)
 				}
@@ -170,10 +170,10 @@ func candidates(store *facts.Store) (uncalled, testOnly []candidate) {
 	routed := routedActions(store)
 
 	for _, fact := range store.ByKind(facts.KindSymbol) {
-		if lang, _ := fact.Props["language"].(string); lang != "ruby" {
+		if lang, _ := fact.PropAny("language").(string); lang != "ruby" {
 			continue
 		}
-		if kind, _ := fact.Props["symbol_kind"].(string); kind != "method" {
+		if kind, _ := fact.PropAny("symbol_kind").(string); kind != "method" {
 			continue
 		}
 		path := repoRelative(fact.File)
@@ -192,7 +192,7 @@ func candidates(store *facts.Store) (uncalled, testOnly []candidate) {
 			// the surface every serializer, resource and template reads, often
 			// through strings the graph cannot follow; only private ones are
 			// reached by name inside the class, where the graph sees every caller.
-			if exported, ok := fact.Props["exported"].(bool); !ok || exported {
+			if exported, ok := fact.PropAny("exported").(bool); !ok || exported {
 				continue
 			}
 		}

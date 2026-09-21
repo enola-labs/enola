@@ -460,7 +460,7 @@ func composeRouterPrefixes(allFacts []facts.Fact, topos []pyRouterTopology, file
 			nf := f
 			nf.Name = facts.JoinRoutePath(p, f.Name)
 			nf.Props = f.CloneProps()
-			nf.Props["path"] = nf.Name
+			nf.SetProp("path", nf.Name)
 			out = append(out, nf)
 		}
 	}

@@ -38,7 +38,7 @@ var conflictKinds = map[string]bool{
 func Account(records []facts.ProviderRecord, merged, extracted []facts.Fact, git *facts.GitInfo) {
 	byProvider := map[string][]facts.Fact{}
 	for _, f := range merged {
-		name, _ := f.Props[PropProvider].(string)
+		name, _ := f.PropAny(PropProvider).(string)
 		byProvider[name] = append(byProvider[name], f)
 	}
 	for i := range records {
@@ -114,7 +114,7 @@ func Overlap(extracted, provider []facts.Fact) map[string]*facts.RelationOverlap
 const PropAncestorDistance = "ancestor_distance"
 
 func transitive(f facts.Fact) bool {
-	switch d := f.Props[PropAncestorDistance].(type) {
+	switch d := f.PropAny(PropAncestorDistance).(type) {
 	case int:
 		return d > 1
 	case float64:

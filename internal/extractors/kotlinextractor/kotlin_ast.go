@@ -684,25 +684,25 @@ func (w *astWalker) handleClassDeclaration(node *sitter.Node) {
 	}
 
 	if strings.Contains(modifierText, "data") {
-		f.Props["data_class"] = true
+		f.SetProp("data_class", true)
 	}
 	if strings.Contains(modifierText, "sealed") {
-		f.Props["sealed"] = true
+		f.SetProp("sealed", true)
 		// A sealed class/interface is non-instantiable — its subclasses are the
 		// concrete types — so it is an abstraction in Martin's sense. Mark it
 		// abstract so package-metrics abstractness (A) counts it, matching how
 		// interfaces and `abstract` classes are treated. (For a sealed interface
 		// this is redundant with symbol_kind=interface but harmless.)
-		f.Props["abstract"] = true
+		f.SetProp("abstract", true)
 	}
 	if strings.Contains(modifierText, "enum") {
-		f.Props["enum"] = true
+		f.SetProp("enum", true)
 	}
 	if strings.Contains(modifierText, "abstract") {
-		f.Props["abstract"] = true
+		f.SetProp("abstract", true)
 	}
 	if strings.Contains(modifierText, "annotation") {
-		f.Props["annotation_class"] = true
+		f.SetProp("annotation_class", true)
 	}
 
 	for _, st := range supertypes {
@@ -866,26 +866,26 @@ func (w *astWalker) handleFunctionDeclaration(node *sitter.Node) {
 	// When declared inside a class/object, record the enclosing type as the
 	// receiver (parity with Go/TypeScript method facts).
 	if len(w.typeStack) > 0 {
-		f.Props["receiver"] = w.typeStack[len(w.typeStack)-1]
+		f.SetProp("receiver", w.typeStack[len(w.typeStack)-1])
 	}
 	// An `override` is dispatched polymorphically — Android/framework lifecycle
 	// callbacks (onCreate, onBind, …) and interface implementations are invoked
 	// through the supertype, never by the override's own literal name, so it must
 	// not be reported as an orphan.
 	if strings.Contains(modifierText, "override") {
-		f.Props["override"] = true
+		f.SetProp("override", true)
 	}
 	// Dagger/Hilt @Provides / @Binds methods are invoked reflectively by the DI
 	// container, never by name.
 	if containsAnnotation(annotations, "Provides") || containsAnnotation(annotations, "Binds") {
-		f.Props["di_provider"] = true
+		f.SetProp("di_provider", true)
 	}
 	if strings.Contains(modifierText, "suspend") {
-		f.Props["suspend"] = true
+		f.SetProp("suspend", true)
 	}
 	if w.isAndroid && containsAnnotation(annotations, "Composable") {
-		f.Props["android_component"] = "composable"
-		f.Props["framework"] = "android"
+		f.SetProp("android_component", "composable")
+		f.SetProp("framework", "android")
 	}
 	// Direct I/O leaf: a Retrofit endpoint (@GET/@POST/…) or a Room DAO operation
 	// (@Query/@Insert/@Update/@Delete/…) is a real network/DB round-trip. Marking it
@@ -893,8 +893,8 @@ func (w *astWalker) handleFunctionDeclaration(node *sitter.Node) {
 	// N+1 (and rank it high) via the method's real I/O identity — a precise signal that
 	// does not depend on the cross-language keyword guess.
 	if kotlinIODirectFromAnnotations(annotations) {
-		f.Props["io_direct"] = true
-		f.Props["performs_io"] = true
+		f.SetProp("io_direct", true)
+		f.SetProp("performs_io", true)
 	}
 
 	w.out = append(w.out, f)

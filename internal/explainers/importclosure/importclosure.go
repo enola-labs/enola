@@ -144,13 +144,13 @@ func externalImports(store *facts.Store) map[string][]string {
 	out := map[string][]string{}
 	seen := map[[2]string]bool{}
 	for _, dep := range store.ByKind(facts.KindDependency) {
-		if lang, _ := dep.Props["language"].(string); lang != "python" {
+		if lang, _ := dep.PropAny("language").(string); lang != "python" {
 			continue
 		}
-		if deferred, _ := dep.Props["deferred"].(bool); deferred {
+		if deferred, _ := dep.PropAny("deferred").(bool); deferred {
 			continue
 		}
-		if src, _ := dep.Props[facts.PropSource].(string); src != facts.DepSourceExternal {
+		if src, _ := dep.PropAny(facts.PropSource).(string); src != facts.DepSourceExternal {
 			continue
 		}
 		for _, rel := range dep.Relations {

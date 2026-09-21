@@ -205,7 +205,7 @@ func scoreCandidate(f facts.Fact, sq scopedQuery) float64 {
 	score := float64(matchTier(f.Name, term)) // 0, 1, or 2 — dominant term
 
 	// Within-tier tie-breakers (small relative to the tier step of 1.0).
-	switch sk, _ := f.Props["symbol_kind"].(string); sk {
+	switch sk, _ := f.PropAny("symbol_kind").(string); sk {
 	case facts.SymbolStruct, facts.SymbolClass, facts.SymbolInterface, facts.SymbolType:
 		score += 0.15 // type-level: the usual target of a bare name
 	case facts.SymbolFunc, facts.SymbolMethod, facts.SymbolGetter:

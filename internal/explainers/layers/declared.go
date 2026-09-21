@@ -40,14 +40,14 @@ func declaredPatterns(store *facts.Store, repo string) []*archPattern {
 			continue
 		}
 		order := 0
-		if o, ok := f.Props["order"].(int); ok {
+		if o, ok := f.PropAny("order").(int); ok {
 			order = o
-		} else if o, ok := f.Props["order"].(float64); ok {
+		} else if o, ok := f.PropAny("order").(float64); ok {
 			order = int(o)
 		}
-		paths, _ := f.Props["paths"].([]string)
+		paths, _ := f.PropAny("paths").([]string)
 		if paths == nil {
-			if raw, ok := f.Props["paths"].([]any); ok {
+			if raw, ok := f.PropAny("paths").([]any); ok {
 				for _, p := range raw {
 					if sp, ok := p.(string); ok {
 						paths = append(paths, sp)

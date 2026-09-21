@@ -202,89 +202,89 @@ func detectAndroidProject(repoPath string) bool {
 // addAndroidProps classifies a class/interface declaration as an Android component.
 func addAndroidProps(f *facts.Fact, name string, annotations []string, supertypes string) {
 	if containsAnnotation(annotations, "HiltAndroidApp") {
-		f.Props["android_component"] = "application"
-		f.Props["framework"] = "android"
+		f.SetProp("android_component", "application")
+		f.SetProp("framework", "android")
 		return
 	}
 	if containsAnnotation(annotations, "HiltViewModel") {
-		f.Props["android_component"] = "viewmodel"
-		f.Props["framework"] = "android"
+		f.SetProp("android_component", "viewmodel")
+		f.SetProp("framework", "android")
 		return
 	}
 	if containsAnnotation(annotations, "AndroidEntryPoint") {
-		f.Props["framework"] = "android"
+		f.SetProp("framework", "android")
 		if supertypeMatches(supertypes, "Activity", "ComponentActivity", "AppCompatActivity", "FragmentActivity") {
-			f.Props["android_component"] = "activity"
+			f.SetProp("android_component", "activity")
 		} else if supertypeMatches(supertypes, "Fragment") {
-			f.Props["android_component"] = "fragment"
+			f.SetProp("android_component", "fragment")
 		} else if supertypeMatches(supertypes, "Service") {
-			f.Props["android_component"] = "service"
+			f.SetProp("android_component", "service")
 		} else if supertypeMatches(supertypes, "BroadcastReceiver") {
-			f.Props["android_component"] = "broadcast_receiver"
+			f.SetProp("android_component", "broadcast_receiver")
 		}
 		return
 	}
 	if containsAnnotation(annotations, "Component") || containsAnnotation(annotations, "Subcomponent") {
 		// Dagger/Hilt DI component interface — infrastructure, not domain code.
-		f.Props["di_component"] = true
-		f.Props["framework"] = "android"
+		f.SetProp("di_component", true)
+		f.SetProp("framework", "android")
 		return
 	}
 	if containsAnnotation(annotations, "Module") {
-		f.Props["android_component"] = "di_module"
-		f.Props["di_module"] = true
-		f.Props["framework"] = "android"
+		f.SetProp("android_component", "di_module")
+		f.SetProp("di_module", true)
+		f.SetProp("framework", "android")
 		return
 	}
 
 	if strings.HasSuffix(name, "ViewModel") || supertypeMatches(supertypes, "ViewModel") {
-		f.Props["android_component"] = "viewmodel"
-		f.Props["framework"] = "android"
+		f.SetProp("android_component", "viewmodel")
+		f.SetProp("framework", "android")
 		return
 	}
 	if supertypeMatches(supertypes, "Application") {
-		f.Props["android_component"] = "application"
-		f.Props["framework"] = "android"
+		f.SetProp("android_component", "application")
+		f.SetProp("framework", "android")
 		return
 	}
 	if supertypeMatches(supertypes, "Activity", "ComponentActivity", "AppCompatActivity") {
-		f.Props["android_component"] = "activity"
-		f.Props["framework"] = "android"
+		f.SetProp("android_component", "activity")
+		f.SetProp("framework", "android")
 		return
 	}
 	if supertypeMatches(supertypes, "Fragment") {
-		f.Props["android_component"] = "fragment"
-		f.Props["framework"] = "android"
+		f.SetProp("android_component", "fragment")
+		f.SetProp("framework", "android")
 		return
 	}
 	if supertypeMatches(supertypes, "Service", "FirebaseMessagingService", "IntentService", "JobIntentService") {
-		f.Props["android_component"] = "service"
-		f.Props["framework"] = "android"
+		f.SetProp("android_component", "service")
+		f.SetProp("framework", "android")
 		return
 	}
 	if supertypeMatches(supertypes, "BroadcastReceiver") {
-		f.Props["android_component"] = "broadcast_receiver"
-		f.Props["framework"] = "android"
+		f.SetProp("android_component", "broadcast_receiver")
+		f.SetProp("framework", "android")
 		return
 	}
 	if supertypeMatches(supertypes, "ContentProvider") {
-		f.Props["android_component"] = "content_provider"
-		f.Props["framework"] = "android"
+		f.SetProp("android_component", "content_provider")
+		f.SetProp("framework", "android")
 		return
 	}
 	if supertypeMatches(supertypes, "Worker", "CoroutineWorker", "ListenableWorker") {
-		f.Props["android_component"] = "worker"
-		f.Props["framework"] = "android"
+		f.SetProp("android_component", "worker")
+		f.SetProp("framework", "android")
 		return
 	}
 	if strings.HasSuffix(name, "Repository") || strings.HasSuffix(name, "RepositoryImpl") {
-		f.Props["android_component"] = "repository"
-		f.Props["framework"] = "android"
+		f.SetProp("android_component", "repository")
+		f.SetProp("framework", "android")
 		return
 	}
 	if strings.HasSuffix(name, "UseCase") {
-		f.Props["android_component"] = "usecase"
-		f.Props["framework"] = "android"
+		f.SetProp("android_component", "usecase")
+		f.SetProp("framework", "android")
 		return
 	}
 }

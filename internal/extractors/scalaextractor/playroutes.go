@@ -123,7 +123,7 @@ func extractPlayRoutes(repoPath string) []facts.Fact {
 	for _, f := range files {
 		for _, r := range f.routes {
 			fact := playRouteFact(f.rel, "", r)
-			fact.Props["unmounted"] = true
+			fact.SetProp("unmounted", true)
 			out = append(out, fact)
 		}
 	}

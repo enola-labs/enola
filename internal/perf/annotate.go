@@ -80,7 +80,7 @@ func (e *Explainer) Annotate(_ context.Context, store *facts.Store) error {
 		if f.Props == nil {
 			f.Props = make(map[string]any, 1)
 		}
-		f.Props[PropPerfRisk] = kind
+		f.SetProp(PropPerfRisk, kind)
 	})
 	return nil
 }

@@ -416,7 +416,7 @@ func composeAxumPrefixes(allFacts []facts.Fact, builders []axumBuilder, crates [
 
 	out := make([]facts.Fact, 0, len(allFacts))
 	for _, f := range allFacts {
-		if f.Kind != facts.KindRoute || f.Props["framework"] != "axum" {
+		if f.Kind != facts.KindRoute || f.PropAny("framework") != "axum" {
 			out = append(out, f)
 			continue
 		}

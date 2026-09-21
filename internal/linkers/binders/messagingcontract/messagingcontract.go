@@ -124,18 +124,18 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 			return
 		}
 		if isCodeOperation(*f) {
-			delete(f.Props, facts.PropMessagingContractBound)
-			delete(f.Props, facts.PropMessagingContractOperationID)
-			delete(f.Props, facts.PropMessagingContractFile)
+			f.DelProp(facts.PropMessagingContractBound)
+			f.DelProp(facts.PropMessagingContractOperationID)
+			f.DelProp(facts.PropMessagingContractFile)
 			identity := codeIdentity(*f)
-			f.Props[facts.PropMessagingContractStatus] = statuses[identity]
-			f.Props[facts.PropMessagingContractCandidates] = candidateCounts[identity]
+			f.SetProp(facts.PropMessagingContractStatus, statuses[identity])
+			f.SetProp(facts.PropMessagingContractCandidates, candidateCounts[identity])
 			if match, ok := bindings[identity]; ok {
-				f.Props[facts.PropMessagingContractBound] = true
+				f.SetProp(facts.PropMessagingContractBound, true)
 				if match.contract.operationID != "" {
-					f.Props[facts.PropMessagingContractOperationID] = match.contract.operationID
+					f.SetProp(facts.PropMessagingContractOperationID, match.contract.operationID)
 				}
-				f.Props[facts.PropMessagingContractFile] = match.contract.file
+				f.SetProp(facts.PropMessagingContractFile, match.contract.file)
 				bound++
 			}
 			return
@@ -143,11 +143,11 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 		if !isContractOperation(*f) {
 			return
 		}
-		delete(f.Props, facts.PropMessagingImplementationCount)
-		delete(f.Props, facts.PropMessagingImplementedBy)
-		delete(f.Props, facts.PropMessagingImplementationStatus)
-		delete(f.Props, facts.PropMessagingDuplicateOf)
-		delete(f.Props, facts.PropMessagingCanonicalFile)
+		f.DelProp(facts.PropMessagingImplementationCount)
+		f.DelProp(facts.PropMessagingImplementedBy)
+		f.DelProp(facts.PropMessagingImplementationStatus)
+		f.DelProp(facts.PropMessagingDuplicateOf)
+		f.DelProp(facts.PropMessagingCanonicalFile)
 		kept := f.Relations[:0]
 		for _, relation := range f.Relations {
 			if relation.Kind != facts.RelImplementedBy {
@@ -157,31 +157,31 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 		f.Relations = kept
 		identity := contractIdentity(*f)
 		if dup := dedupSorted(duplicateOf[identity]); len(dup) > 0 {
-			f.Props[facts.PropMessagingDuplicateOf] = dup
+			f.SetProp(facts.PropMessagingDuplicateOf, dup)
 		}
 		canonical := canonicalOf[identity]
 		if canonical != "" && canonical != identity {
 			for _, ref := range contracts[operationKey(*f)] {
 				if ref.identity == canonical {
-					f.Props[facts.PropMessagingCanonicalFile] = ref.file
+					f.SetProp(facts.PropMessagingCanonicalFile, ref.file)
 					break
 				}
 			}
 		}
 		set := implementers[canonical]
 		implementationCount := len(implementations[canonical])
-		f.Props[facts.PropMessagingImplementationCount] = implementationCount
+		f.SetProp(facts.PropMessagingImplementationCount, implementationCount)
 		if implementationCount == 0 {
-			f.Props[facts.PropMessagingImplementationStatus] = facts.MessagingImplementationUnimplemented
+			f.SetProp(facts.PropMessagingImplementationStatus, facts.MessagingImplementationUnimplemented)
 			return
 		}
-		f.Props[facts.PropMessagingImplementationStatus] = facts.MessagingImplementationImplemented
+		f.SetProp(facts.PropMessagingImplementationStatus, facts.MessagingImplementationImplemented)
 		symbols := make([]string, 0, len(set))
 		for symbol := range set {
 			symbols = append(symbols, symbol)
 		}
 		sort.Strings(symbols)
-		f.Props[facts.PropMessagingImplementedBy] = symbols
+		f.SetProp(facts.PropMessagingImplementedBy, symbols)
 		for _, symbol := range symbols {
 			f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelImplementedBy, Target: symbol})
 		}
@@ -240,7 +240,7 @@ func codeIdentity(f facts.Fact) string {
 }
 
 func contractContentKey(f facts.Fact) string {
-	props := make(map[string]any, len(f.Props))
+	props := make(map[string]any, f.PropCount())
 	for key, value := range f.Props {
 		switch key {
 		case "spec_file", facts.PropMessagingContractBound, facts.PropMessagingContractOperationID,

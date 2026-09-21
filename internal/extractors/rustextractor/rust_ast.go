@@ -550,13 +550,13 @@ func (w *astWalker) handleFunction(node *sitter.Node) {
 		Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: w.dir}},
 	}
 	if len(w.typeStack) > 0 {
-		f.Props["receiver"] = w.typeStack[len(w.typeStack)-1]
+		f.SetProp("receiver", w.typeStack[len(w.typeStack)-1])
 		if !hasSelfParam(node.ChildByFieldName("parameters")) {
-			f.Props["static"] = true
+			f.SetProp("static", true)
 		}
 	}
 	if compilerInvokedTraitMethods[w.implTrait][name] {
-		f.Props["override"] = true
+		f.SetProp("override", true)
 	}
 
 	w.out = append(w.out, f)
@@ -584,24 +584,24 @@ func (w *astWalker) handleFunction(node *sitter.Node) {
 		w.walkForCalls(body)
 		w.modFnStack = w.modFnStack[:len(w.modFnStack)-1]
 	}
-	w.out[ownerIdx].Props["cyclomatic"] = 1 + w.decisions
+	w.out[ownerIdx].SetProp("cyclomatic", 1+w.decisions)
 	// Emit the loop/IO props using the identical string keys the Python/Kotlin
 	// extractors and internal/perf already consume. The scaling values and
 	// call collections are emitted whenever the function contains any loop (even
 	// when the scaling subset is empty) so the consumer can tell "all bounded"
 	// from "no loop signal at all".
 	if w.fnLoopCount > 0 {
-		w.out[ownerIdx].Props["loop_depth"] = w.fnMaxLoop
-		w.out[ownerIdx].Props["loop_count"] = w.fnLoopCount
-		w.out[ownerIdx].Props["scaling_loop_depth"] = w.fnMaxScaling
-		w.out[ownerIdx].Props["calls_in_loop"] = nonNilStrings(w.fnCallsInLoop)
-		w.out[ownerIdx].Props["calls_in_scaling_loop"] = nonNilStrings(w.fnCallsInScaling)
+		w.out[ownerIdx].SetProp("loop_depth", w.fnMaxLoop)
+		w.out[ownerIdx].SetProp("loop_count", w.fnLoopCount)
+		w.out[ownerIdx].SetProp("scaling_loop_depth", w.fnMaxScaling)
+		w.out[ownerIdx].SetProp("calls_in_loop", nonNilStrings(w.fnCallsInLoop))
+		w.out[ownerIdx].SetProp("calls_in_scaling_loop", nonNilStrings(w.fnCallsInScaling))
 	}
 	if w.fnRecursive {
-		w.out[ownerIdx].Props["recursive_self"] = true
+		w.out[ownerIdx].SetProp("recursive_self", true)
 	}
 	if w.fnIODirect {
-		w.out[ownerIdx].Props["io_direct"] = true
+		w.out[ownerIdx].SetProp("io_direct", true)
 	}
 
 	w.decisions = savedDecisions
@@ -650,7 +650,7 @@ func (w *astWalker) handleFunctionSignature(node *sitter.Node) {
 		Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: w.dir}},
 	}
 	if len(w.typeStack) > 0 {
-		f.Props["receiver"] = w.typeStack[len(w.typeStack)-1]
+		f.SetProp("receiver", w.typeStack[len(w.typeStack)-1])
 	}
 	w.out = append(w.out, f)
 }

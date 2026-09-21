@@ -122,7 +122,7 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 	// nesting level; it renders at the parent's own path, so the lookup strips
 	// the suffix rather than requiring a declared index route.
 	routeLinks := func(f *facts.Fact) []string {
-		names := append(propStrings(f.Props[routeLinksProp]), propStrings(f.Props[navLinksProp])...)
+		names := append(propStrings(f.PropAny(routeLinksProp)), propStrings(f.PropAny(navLinksProp))...)
 		if len(names) == 0 {
 			return nil
 		}
@@ -158,7 +158,7 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 			w.ownerSymbol = idx.resolveRouteOwner(f.Repo, f.Name)
 		}
 		if w.ownerSymbol != "" {
-			if entries := propStrings(f.Props[yieldHashProp]); len(entries) > 0 {
+			if entries := propStrings(f.PropAny(yieldHashProp)); len(entries) > 0 {
 				idx.addYieldHash(f.Repo, w.ownerSymbol, entries)
 			}
 		}
@@ -169,7 +169,7 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 			continue
 		}
 		w := work[f.Name]
-		for _, name := range propStrings(f.Props[invocationsProp]) {
+		for _, name := range propStrings(f.PropAny(invocationsProp)) {
 			if target := idx.resolveInvocation(f.Repo, name, f.Name); target != "" {
 				w.targets = append(w.targets, target)
 				invokedAs.record(target, name)
@@ -177,7 +177,7 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 				w.unresolved = append(w.unresolved, name)
 			}
 		}
-		for _, pair := range propStrings(f.Props[contextualProp]) {
+		for _, pair := range propStrings(f.PropAny(contextualProp)) {
 			if target := idx.resolveContextual(f.Repo, pair, f.Name); target != "" {
 				w.targets = append(w.targets, target)
 			} else {
@@ -191,7 +191,7 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 	dataRoleTargets := map[string]string{}
 	templateOwners := map[string][]string{}
 	for _, s := range store.ByKind(facts.KindSymbol) {
-		if names := propStrings(s.Props[servicesProp]); len(names) > 0 {
+		if names := propStrings(s.PropAny(servicesProp)); len(names) > 0 {
 			var targets []string
 			for _, name := range names {
 				if target := idx.resolveService(s.Repo, name); target != "" {
@@ -245,7 +245,7 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 
 	relationships := map[string][]string{}
 	for _, s := range store.ByKind(facts.KindStorage) {
-		entries := propStrings(s.Props[relationshipsProp])
+		entries := propStrings(s.PropAny(relationshipsProp))
 		if len(entries) == 0 {
 			continue
 		}
@@ -288,7 +288,7 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 				resolvedBindings += len(w.targets) + len(w.linkTargets)
 				if len(w.unresolved) > 0 {
 					sort.Strings(w.unresolved)
-					f.Props[unresolvedProp] = w.unresolved
+					f.SetProp(unresolvedProp, w.unresolved)
 					unresolvedBindings += len(w.unresolved)
 					templatesWithMisses++
 				}
@@ -304,7 +304,7 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 					}
 				}
 			}
-			for _, tname := range propStrings(f.Props[attrTransformsProp]) {
+			for _, tname := range propStrings(f.PropAny(attrTransformsProp)) {
 				if t := idx.resolveTransform(f.Repo, tname); t != "" && !f.HasRelation(facts.RelDependsOn, t) {
 					f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelDependsOn, Target: t})
 					bound++
@@ -316,7 +316,7 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 			return
 		}
 		if names := invokedAs.namesFor(f.Name); len(names) > 0 {
-			f.Props[invokedAsProp] = names
+			f.SetProp(invokedAsProp, names)
 		}
 		if targets, ok := injections[f.Name]; ok {
 			for _, t := range targets {
@@ -346,7 +346,7 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 				bound++
 			}
 		}
-		for _, name := range propStrings(f.Props[invocationsProp]) {
+		for _, name := range propStrings(f.PropAny(invocationsProp)) {
 			if t := idx.resolveInvocation(f.Repo, name, f.File); t != "" && t != f.Name {
 				invokedAs.record(t, name)
 			}
@@ -355,7 +355,7 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 				bound++
 			}
 		}
-		for _, pair := range propStrings(f.Props[contextualProp]) {
+		for _, pair := range propStrings(f.PropAny(contextualProp)) {
 			if t := idx.resolveContextual(f.Repo, pair, f.File); t != "" && t != f.Name && !f.HasRelation(facts.RelCalls, t) {
 				f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelCalls, Target: t})
 				bound++
@@ -381,7 +381,7 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 	if fact, ok := extcoverage.Fact(repoRoot(store), "ember:templates", "ember_binding",
 		resolvedBindings, map[string]int{"unresolved_binding": unresolvedBindings}); ok {
 		if templatesWithMisses > 0 {
-			fact.Props["templates_with_misses"] = templatesWithMisses
+			fact.SetProp("templates_with_misses", templatesWithMisses)
 		}
 		store.Add(fact)
 	}
@@ -501,7 +501,7 @@ func buildIndex(store *facts.Store) *index {
 		idx.reexports[d.Repo][stub] = target
 	}
 	for _, sym := range store.ByKind(facts.KindSymbol) {
-		if entries := propStrings(sym.Props[yieldHashProp]); len(entries) > 0 {
+		if entries := propStrings(sym.PropAny(yieldHashProp)); len(entries) > 0 {
 			idx.addYieldHash(sym.Repo, sym.Name, entries)
 		}
 	}

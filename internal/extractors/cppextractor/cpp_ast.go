@@ -565,7 +565,7 @@ func (w *astWalker) handleClassLike(node *sitter.Node, kind string) {
 		Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: w.dir}},
 	}
 	if kindOf(w.kinds, node) == "union_specifier" {
-		f.Props["union"] = true
+		f.SetProp("union", true)
 	}
 	for _, base := range baseClassNames(w.kinds, node, w.src) {
 		f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelImplements, Target: base})
@@ -636,7 +636,7 @@ func (w *astWalker) handleEnum(node *sitter.Node) {
 		Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: w.dir}},
 	}
 	if isScopedEnum(node, w.src) {
-		f.Props["scoped"] = true
+		f.SetProp("scoped", true)
 	}
 	w.out = append(w.out, f)
 }
@@ -713,7 +713,7 @@ func (w *astWalker) handleFunctionDefinition(node *sitter.Node) {
 		Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: w.dir}},
 	}
 	if receiver != "" {
-		f.Props["receiver"] = receiver
+		f.SetProp("receiver", receiver)
 	}
 	w.applyFuncQualifiers(&f, node, fdecl)
 
@@ -860,7 +860,7 @@ func (w *astWalker) handleTemplate(node *sitter.Node) {
 	w.walkDecl(inner)
 	for i := before; i < len(w.out); i++ {
 		if w.out[i].Props != nil {
-			w.out[i].Props["templated"] = true
+			w.out[i].SetProp("templated", true)
 		}
 	}
 }
@@ -955,7 +955,7 @@ func (w *astWalker) handleDeclaration(node *sitter.Node) {
 		Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: w.dir}},
 	}
 	if receiver != "" {
-		f.Props["receiver"] = receiver
+		f.SetProp("receiver", receiver)
 	}
 	w.applyFuncQualifiers(&f, node, fdecl)
 	w.out = append(w.out, f)
@@ -1481,16 +1481,16 @@ func (w *astWalker) handleInclude(node *sitter.Node) {
 func (w *astWalker) applyFuncQualifiers(f *facts.Fact, node, fdecl *sitter.Node) {
 	header := w.signatureText(node)
 	if strings.Contains(header, "static") {
-		f.Props["static"] = true
+		f.SetProp("static", true)
 		// In C a `static` function has internal linkage — it is file-private, not
 		// externally visible. (C++ keeps exported=true: file scope there is rare and
 		// visibility is expressed via access specifiers / anonymous namespaces.)
 		if w.lang == langC {
-			f.Props["exported"] = false
+			f.SetProp("exported", false)
 		}
 	}
 	if strings.Contains(header, "virtual") {
-		f.Props["virtual"] = true
+		f.SetProp("virtual", true)
 	}
 	// Trailing const: a type_qualifier child after the parameter_list.
 	if fdecl != nil {
@@ -1499,7 +1499,7 @@ func (w *astWalker) applyFuncQualifiers(f *facts.Fact, node, fdecl *sitter.Node)
 			c := fdecl.Child(i)
 			if kindOf(w.kinds, c) == "type_qualifier" && params != nil && c.StartByte() >= params.EndByte() {
 				if nodeText(c, w.src) == "const" {
-					f.Props["const"] = true
+					f.SetProp("const", true)
 				}
 			}
 		}

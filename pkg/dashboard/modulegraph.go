@@ -80,7 +80,7 @@ func buildModuleGraphFocused(store *facts.Store, focus string) *moduleGraphView 
 
 	byName := make(map[string]*moduleRaw, len(mods))
 	for _, m := range mods {
-		if role, _ := m.Props[facts.PropModuleRole].(string); role == facts.ModuleRoleTest {
+		if role, _ := m.PropAny(facts.PropModuleRole).(string); role == facts.ModuleRoleTest {
 			continue
 		}
 		if _, exists := byName[m.Name]; !exists {

@@ -240,7 +240,7 @@ func IsExternalClient(f facts.Fact) bool {
 	if f.Props == nil {
 		return false
 	}
-	v, _ := f.Props["external"].(bool)
+	v, _ := f.PropAny("external").(bool)
 	return v
 }
 

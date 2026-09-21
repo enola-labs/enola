@@ -64,7 +64,7 @@ func resolveImports(allFacts []facts.Fact, modules map[string]bool, fileModules 
 			if f.Props == nil {
 				f.Props = map[string]any{}
 			}
-			f.Props["source"] = source
+			f.SetProp("source", source)
 		}
 	}
 }
@@ -130,7 +130,7 @@ func resolveImplementsTargets(allFacts []facts.Fact, fileModules map[string]bool
 	byShortName := make(map[string][]string)
 	importedByFile := make(map[string]map[string]string)
 	for i := range allFacts {
-		if allFacts[i].Kind == facts.KindDependency && allFacts[i].Props["from"] == true {
+		if allFacts[i].Kind == facts.KindDependency && allFacts[i].PropAny("from") == true {
 			var module string
 			for _, rel := range allFacts[i].Relations {
 				if rel.Kind == facts.RelImports {
@@ -165,7 +165,7 @@ func resolveImplementsTargets(allFacts []facts.Fact, fileModules map[string]bool
 	}
 	for i := range allFacts {
 		if allFacts[i].Kind == facts.KindDependency && allFacts[i].Props != nil {
-			delete(allFacts[i].Props, "bindings")
+			allFacts[i].DelProp("bindings")
 		}
 	}
 

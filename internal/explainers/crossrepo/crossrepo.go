@@ -131,7 +131,7 @@ func sharedCodeInsight(store *facts.Store) *facts.Insight {
 // edgeDetail renders a short description of what justifies a cross-repo edge.
 func edgeDetail(d facts.Fact) string {
 	var parts []string
-	if v := stringSlice(d.Props["via"]); len(v) > 0 {
+	if v := stringSlice(d.PropAny("via")); len(v) > 0 {
 		parts = append(parts, "via "+strings.Join(v, "+"))
 	}
 	if n := propInt(d, "endpoint_count"); n > 0 {
@@ -175,7 +175,7 @@ func propInt(d facts.Fact, key string) int {
 	if d.Props == nil {
 		return 0
 	}
-	switch v := d.Props[key].(type) {
+	switch v := d.PropAny(key).(type) {
 	case int:
 		return v
 	case float64:

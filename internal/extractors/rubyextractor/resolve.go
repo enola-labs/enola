@@ -121,7 +121,7 @@ func applyTableNamePrefixes(allFacts []facts.Fact) {
 		if f.Kind != facts.KindSymbol || f.Props == nil {
 			continue
 		}
-		prefix, _ := f.Props["table_name_prefix"].(string)
+		prefix, _ := f.PropAny("table_name_prefix").(string)
 		if prefix == "" {
 			continue
 		}
@@ -140,13 +140,13 @@ func applyTableNamePrefixes(allFacts []facts.Fact) {
 		if f.Kind != facts.KindStorage || f.Props == nil {
 			continue
 		}
-		if kind, _ := f.Props["storage_kind"].(string); kind != "model" {
+		if kind, _ := f.PropAny("storage_kind").(string); kind != "model" {
 			continue
 		}
-		if source, _ := f.Props["table_source"].(string); source != "derived" {
+		if source, _ := f.PropAny("table_source").(string); source != "derived" {
 			continue
 		}
-		table, _ := f.Props["table"].(string)
+		table, _ := f.PropAny("table").(string)
 		if table == "" {
 			continue
 		}
@@ -157,7 +157,7 @@ func applyTableNamePrefixes(allFacts []facts.Fact) {
 				continue
 			}
 			if prefix != "" {
-				f.Props["table"] = prefix + table
+				f.SetProp("table", prefix+table)
 			}
 			break
 		}
@@ -203,7 +203,7 @@ func buildConstIndex(allFacts []facts.Fact) *constIndex {
 		if f.Kind != facts.KindSymbol {
 			continue
 		}
-		switch sk, _ := f.Props["symbol_kind"].(string); sk {
+		switch sk, _ := f.PropAny("symbol_kind").(string); sk {
 		case facts.SymbolClass, facts.SymbolInterface, facts.SymbolConstant:
 		default:
 			continue
@@ -285,7 +285,7 @@ func commonPrefixSegments(a, b string) int {
 // requires are stdlib or external. Sets Props["source"] in place.
 func classifyRequire(f *facts.Fact, rel *facts.Relation, src string, moduleNames map[string]bool, add func(s, d, kind string)) {
 	raw := rel.Target
-	isRel, _ := f.Props["require_relative"].(bool)
+	isRel, _ := f.PropAny("require_relative").(bool)
 	switch {
 	case isRel || strings.HasPrefix(raw, "."):
 		if dst := resolveRequireRelative(raw, src, moduleNames); dst != "" {
@@ -416,8 +416,8 @@ func setSource(f *facts.Fact, source string) {
 	if f.Props == nil {
 		f.Props = map[string]any{}
 	}
-	if _, ok := f.Props["source"]; !ok {
-		f.Props["source"] = source
+	if _, ok := f.Prop("source"); !ok {
+		f.SetProp("source", source)
 	}
 }
 

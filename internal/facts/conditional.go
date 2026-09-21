@@ -20,7 +20,7 @@ func CanonicalSymbols(syms []Fact) []Fact {
 	out := make([]Fact, 0, len(syms))
 	var seen map[[2]string]bool
 	for _, s := range syms {
-		if cond, _ := s.Props["conditional"].(bool); cond {
+		if cond, _ := s.PropAny("conditional").(bool); cond {
 			key := [2]string{s.Name, s.File}
 			if seen == nil {
 				seen = make(map[[2]string]bool, len(syms))

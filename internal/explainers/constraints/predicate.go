@@ -123,7 +123,7 @@ func propTokens(f facts.Fact, prop string) []string {
 	if f.Props == nil {
 		return nil
 	}
-	switch v := f.Props[prop].(type) {
+	switch v := f.PropAny(prop).(type) {
 	case string:
 		return strings.Fields(v)
 	case bool:
@@ -154,7 +154,7 @@ func propNumber(f facts.Fact, prop string) (float64, bool) {
 	if f.Props == nil {
 		return 0, false
 	}
-	switch v := f.Props[prop].(type) {
+	switch v := f.PropAny(prop).(type) {
 	case int:
 		return float64(v), true
 	case int64:

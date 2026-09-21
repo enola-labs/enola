@@ -122,49 +122,49 @@ func classifyComponent(f *facts.Fact, name string, annotations []javaAnnotation,
 	// (annotations are matched by simple name) and keeps DI wiring out of the
 	// domain-architecture metrics. @Module classes are DI wiring regardless of kind.
 	if hasAnnotation(annotations, "Module") {
-		f.Props["di_module"] = true
+		f.SetProp("di_module", true)
 	}
-	if f.Props["symbol_kind"] == facts.SymbolInterface &&
+	if f.PropAny("symbol_kind") == facts.SymbolInterface &&
 		(hasAnnotation(annotations, "Component") || hasAnnotation(annotations, "Subcomponent")) {
-		f.Props["di_component"] = true
+		f.SetProp("di_component", true)
 		return // do NOT fall through to the Spring stereotype switch (avoids mislabel)
 	}
 
 	switch {
 	case hasAnnotation(annotations, "RestController"):
-		f.Props["framework"] = "spring"
-		f.Props["component"] = "controller"
+		f.SetProp("framework", "spring")
+		f.SetProp("component", "controller")
 	case hasAnnotation(annotations, "Controller"):
-		f.Props["framework"] = "spring"
-		f.Props["component"] = "controller"
+		f.SetProp("framework", "spring")
+		f.SetProp("component", "controller")
 	case hasAnnotation(annotations, "Service"):
-		f.Props["framework"] = "spring"
-		f.Props["component"] = "service"
+		f.SetProp("framework", "spring")
+		f.SetProp("component", "service")
 	case hasAnnotation(annotations, "Repository"):
-		f.Props["framework"] = "spring"
-		f.Props["component"] = "repository"
+		f.SetProp("framework", "spring")
+		f.SetProp("component", "repository")
 	case hasAnnotation(annotations, "Configuration"):
-		f.Props["framework"] = "spring"
-		f.Props["component"] = "configuration"
+		f.SetProp("framework", "spring")
+		f.SetProp("component", "configuration")
 	case hasAnnotation(annotations, "Component"):
-		f.Props["framework"] = "spring"
-		f.Props["component"] = "component"
+		f.SetProp("framework", "spring")
+		f.SetProp("component", "component")
 	}
 
 	// Dubbo SPI extension mechanism.
 	if hasAnnotation(annotations, "SPI") {
-		f.Props["framework"] = "dubbo"
-		f.Props["dubbo_spi"] = true
+		f.SetProp("framework", "dubbo")
+		f.SetProp("dubbo_spi", true)
 	}
 	if hasAnnotation(annotations, "Activate") {
-		f.Props["dubbo_activate"] = true
-		if f.Props["framework"] == nil {
-			f.Props["framework"] = "dubbo"
+		f.SetProp("dubbo_activate", true)
+		if f.PropAny("framework") == nil {
+			f.SetProp("framework", "dubbo")
 		}
 	}
 	if hasAnnotation(annotations, "DubboService") {
-		f.Props["framework"] = "dubbo"
-		f.Props["component"] = "service"
+		f.SetProp("framework", "dubbo")
+		f.SetProp("component", "service")
 	}
 
 	// Runtime classpath-scanned plugin annotations: the class is discovered and
@@ -173,13 +173,13 @@ func classifyComponent(f *facts.Fact, name string, annotations []javaAnnotation,
 	// @RuleNode (rule-engine nodes); the `scanned_plugin` prop is generic so other
 	// scanned-plugin annotations can join it.
 	if hasAnnotation(annotations, "RuleNode") {
-		f.Props["scanned_plugin"] = true
+		f.SetProp("scanned_plugin", true)
 	}
 
 	// Spring Data repository interface (extends JpaRepository/CrudRepository/...).
 	if isSpringDataRepository(supertypes) {
-		f.Props["framework"] = "spring"
-		f.Props["component"] = "repository"
+		f.SetProp("framework", "spring")
+		f.SetProp("component", "repository")
 	}
 }
 
@@ -226,9 +226,9 @@ func detectJpaStorage(name string, annotations []javaAnnotation, relFile string,
 	// @Table(name="...") or @Entity(name="...") → table name.
 	if t := findAnnotation(annotations, "Table"); t != nil {
 		if tn := t.named["name"]; tn != "" {
-			f.Props["table"] = tn
+			f.SetProp("table", tn)
 		} else if len(t.positional) > 0 {
-			f.Props["table"] = t.positional[0]
+			f.SetProp("table", t.positional[0])
 		}
 	}
 	return f

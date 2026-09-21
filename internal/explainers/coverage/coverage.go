@@ -33,7 +33,7 @@ const maxUnresolvedCallers = 8
 func unresolvedCallers(store *facts.Store, repo string) []facts.Evidence {
 	served := map[string]bool{}
 	for _, fact := range store.ByKind(facts.KindRoute) {
-		if role, _ := fact.Props["role"].(string); role == "client" {
+		if role, _ := fact.PropAny("role").(string); role == "client" {
 			continue
 		}
 		served[routeKey(fact)] = true
@@ -44,10 +44,10 @@ func unresolvedCallers(store *facts.Store, repo string) []facts.Evidence {
 		if fact.Repo != repo {
 			continue
 		}
-		if role, _ := fact.Props["role"].(string); role != "client" {
+		if role, _ := fact.PropAny("role").(string); role != "client" {
 			continue
 		}
-		if isDouble, _ := fact.Props["test_double"].(bool); isDouble {
+		if isDouble, _ := fact.PropAny("test_double").(bool); isDouble {
 			continue
 		}
 		if served[routeKey(fact)] {
@@ -89,7 +89,7 @@ func unresolvedCallers(store *facts.Store, repo string) []facts.Evidence {
 
 // routeKey compares a client's path dialect against a server's.
 func routeKey(fact facts.Fact) string {
-	method, _ := fact.Props["method"].(string)
+	method, _ := fact.PropAny("method").(string)
 	segments := strings.Split(fact.Name, "/")
 	for i, segment := range segments {
 		if segment == "{}" || strings.HasPrefix(segment, ":") || strings.HasPrefix(segment, "*") {
@@ -184,7 +184,7 @@ func silentClients(store *facts.Store) []facts.Insight {
 			t = &tally{}
 			bySpec[spec] = t
 		}
-		receivers := asInt(f.Props["receivers"])
+		receivers := asInt(f.PropAny("receivers"))
 		calls := 0
 		for _, c := range readCoverage(f) {
 			calls += c.detected
@@ -266,7 +266,7 @@ func readCoverage(svc facts.Fact) []coverageEntry {
 		return nil
 	}
 	var raw []map[string]any
-	switch v := svc.Props["edge_coverage"].(type) {
+	switch v := svc.PropAny("edge_coverage").(type) {
 	case []map[string]any:
 		raw = v
 	case []any:

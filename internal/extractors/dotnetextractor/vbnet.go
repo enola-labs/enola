@@ -524,7 +524,7 @@ func (w *vbWalker) openMember(name, decl string, line int) {
 		kind = "constructor"
 	}
 	f := w.memberFact(kind, name, decl, line)
-	f.Props["cyclomatic"] = 1
+	f.SetProp("cyclomatic", 1)
 	w.out = append(w.out, f)
 	w.member = len(w.out) - 1
 	w.loopDepth = 0
@@ -605,6 +605,6 @@ func (w *vbWalker) bodyRefs(t string) {
 
 func (w *vbWalker) markIO() {
 	if w.member >= 0 {
-		w.out[w.member].Props["io_direct"] = true
+		w.out[w.member].SetProp("io_direct", true)
 	}
 }

@@ -97,10 +97,10 @@ func (e *SurfaceExplainer) Explain(ctx context.Context, store *facts.Store) ([]f
 
 	mods := make(map[string]*moduleSurface)
 	for _, s := range symbols {
-		if lang, _ := s.Props["language"].(string); noSurfaceLanguages[lang] {
+		if lang, _ := s.PropAny("language").(string); noSurfaceLanguages[lang] {
 			continue
 		}
-		exported, ok := s.Props["exported"].(bool)
+		exported, ok := s.PropAny("exported").(bool)
 		if !ok {
 			// Extractor didn't record visibility; ignore so it doesn't distort the ratio.
 			continue

@@ -386,21 +386,21 @@ func (w *astWalker) handleTypeDecl(node *sitter.Node, kind string) {
 		},
 	}
 	if ns := w.namespace(); ns != "" {
-		f.Props["namespace"] = ns
+		f.SetProp("namespace", ns)
 	}
 	for _, m := range []string{"abstract", "sealed", "static", "partial"} {
 		if mods[m] {
-			f.Props[m] = true
+			f.SetProp(m, true)
 		}
 	}
 	if kindOf(node) == "record_declaration" {
-		f.Props["record"] = true
+		f.SetProp("record", true)
 	}
 	// State and no behaviour: a DTO, a constants holder, an attribute. Read by the
 	// package-metrics explainer, which spares such packages advice that only makes
 	// sense for types with behaviour to abstract.
 	if kind != facts.SymbolInterface && isDataHolderBody(node.ChildByFieldName("body")) {
-		f.Props["data_holder"] = true
+		f.SetProp("data_holder", true)
 	}
 
 	for _, t := range w.baseTypes(node) {
@@ -474,7 +474,7 @@ func (w *astWalker) handleEnum(node *sitter.Node) {
 		},
 	}
 	if ns := w.namespace(); ns != "" {
-		f.Props["namespace"] = ns
+		f.SetProp("namespace", ns)
 	}
 	w.out = append(w.out, f)
 

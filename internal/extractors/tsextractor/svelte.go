@@ -470,8 +470,8 @@ func (e *TSExtractor) extractSvelteSFC(kinds *tsutil.KindTable, rawSrc []byte, r
 	found := false
 	for i := range result {
 		if result[i].Kind == facts.KindSymbol && result[i].Name == factName {
-			result[i].Props["web_component"] = "component"
-			result[i].Props["framework"] = fw
+			result[i].SetProp("web_component", "component")
+			result[i].SetProp("framework", fw)
 			found = true
 			break
 		}
@@ -540,7 +540,7 @@ func (e *TSExtractor) extractSvelteScriptBlock(kinds *tsutil.KindTable, block *s
 			}
 			local := decls[i].Name[strings.LastIndexByte(decls[i].Name, '.')+1:]
 			if exported[local] {
-				decls[i].Props["exported"] = true
+				decls[i].SetProp("exported", true)
 			}
 		}
 	}

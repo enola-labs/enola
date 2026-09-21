@@ -52,15 +52,15 @@ func Build(store *facts.Store) *Graph {
 
 	seen := map[[2]string]bool{}
 	for _, dep := range store.ByKind(facts.KindDependency) {
-		if lang, _ := dep.Props["language"].(string); lang != "python" {
+		if lang, _ := dep.PropAny("language").(string); lang != "python" {
 			continue
 		}
 		// Only imports that actually run when the module is imported.
-		if deferred, _ := dep.Props["deferred"].(bool); deferred {
+		if deferred, _ := dep.PropAny("deferred").(bool); deferred {
 			continue
 		}
 		// An external or stdlib target names no file in this repository.
-		if src, _ := dep.Props[facts.PropSource].(string); src != facts.DepSourceInternal {
+		if src, _ := dep.PropAny(facts.PropSource).(string); src != facts.DepSourceInternal {
 			continue
 		}
 		for _, rel := range dep.Relations {
@@ -199,7 +199,7 @@ func (g *Graph) ancestorPackages(target string) []string {
 // submodules by absolute path — the target there names the package the importer IS,
 // so it resolves to no distinct file.
 func (g *Graph) reexportedSubmodules(dep facts.Fact, resolved string) []string {
-	raw, ok := dep.Props["reexports"].([]any)
+	raw, ok := dep.PropAny("reexports").([]any)
 	if !ok || len(raw) == 0 {
 		return nil
 	}

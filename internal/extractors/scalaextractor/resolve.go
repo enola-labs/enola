@@ -57,12 +57,12 @@ func canonicalizeTargets(allFacts []facts.Fact, crossLangIndex, filePkg map[stri
 		if f.Kind != facts.KindSymbol {
 			continue
 		}
-		switch f.Props["symbol_kind"] {
+		switch f.PropAny("symbol_kind") {
 		case facts.SymbolClass, facts.SymbolInterface, facts.SymbolEnum, facts.SymbolType:
 		default:
 			continue
 		}
-		fqn, _ := f.Props["fqn"].(string)
+		fqn, _ := f.PropAny("fqn").(string)
 		if fqn == "" {
 			continue
 		}
@@ -167,7 +167,7 @@ func computeScalaPerformsIO(allFacts []facts.Fact) {
 		if f.Kind != facts.KindSymbol {
 			continue
 		}
-		if b, _ := f.Props["io_direct"].(bool); b {
+		if b, _ := f.PropAny("io_direct").(bool); b {
 			io[f.Name] = true
 		}
 		seen := make(map[string]bool)
@@ -202,7 +202,7 @@ func computeScalaPerformsIO(allFacts []facts.Fact) {
 			if f.Props == nil {
 				f.Props = map[string]any{}
 			}
-			f.Props["performs_io"] = true
+			f.SetProp("performs_io", true)
 		}
 	}
 }
@@ -272,14 +272,14 @@ func isTypeName(s string) bool {
 // this repository declares, and repoints the edge at the declaring directory so
 // module-level coupling is visible.
 func resolveImport(f *facts.Fact, typeDir, packageDir map[string]string) {
-	imp, _ := f.Props["import"].(string)
+	imp, _ := f.PropAny("import").(string)
 	if imp == "" {
 		return
 	}
 	// A stdlib classification is already correct and must not be overwritten: a
 	// repository that declares its own `scala.meta` package would otherwise
 	// reclassify the language's own library as its internal code.
-	if f.Props[facts.PropSource] == "stdlib" {
+	if f.PropAny(facts.PropSource) == "stdlib" {
 		return
 	}
 
@@ -292,7 +292,7 @@ func resolveImport(f *facts.Fact, typeDir, packageDir map[string]string) {
 		// declaring type rather than a package; try the parent. Skipped for a
 		// wildcard, whose import string is already the package — walking to its
 		// parent would resolve the wrong thing.
-		if wc, _ := f.Props["wildcard"].(bool); !wc {
+		if wc, _ := f.PropAny("wildcard").(bool); !wc {
 			if parent := parentName(imp); parent != "" {
 				if dir, ok = typeDir[parent]; !ok {
 					dir, ok = packageDir[parent]
@@ -304,7 +304,7 @@ func resolveImport(f *facts.Fact, typeDir, packageDir map[string]string) {
 		return // genuinely external
 	}
 
-	f.Props[facts.PropSource] = "internal"
+	f.SetProp(facts.PropSource, "internal")
 	for j := range f.Relations {
 		if f.Relations[j].Kind == facts.RelImports {
 			f.Relations[j].Target = dir

@@ -56,7 +56,7 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 		if f.Kind != facts.KindSymbol {
 			continue
 		}
-		for _, candidate := range propStrings(f.Props["client_path_calls"]) {
+		for _, candidate := range propStrings(f.PropAny("client_path_calls")) {
 			callee, rest, ok := strings.Cut(candidate, "\x00")
 			if !ok || !seams[key(f.Repo, callee)] {
 				continue
@@ -104,7 +104,7 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 	// with no seam is left exactly as clean as one with a resolved seam.
 	store.UpdateWhere(func(f *facts.Fact) {
 		if f.Kind == facts.KindSymbol && f.Props != nil {
-			delete(f.Props, "client_path_calls")
+			f.DelProp("client_path_calls")
 		}
 	})
 	if len(out) > 0 {

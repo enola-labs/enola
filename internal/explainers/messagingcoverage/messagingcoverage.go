@@ -55,7 +55,7 @@ func (*Explainer) Explain(_ context.Context, store *facts.Store) ([]facts.Insigh
 					label, f.PropString(facts.PropMessagingOperation), f.Name),
 			})
 		}
-		if others, ok := f.Props[facts.PropMessagingDuplicateOf].([]string); ok && len(others) > 0 {
+		if others, ok := f.PropAny(facts.PropMessagingDuplicateOf).([]string); ok && len(others) > 0 {
 			addItem(duplicates, repo, item{
 				name: f.Name, file: f.File,
 				detail: fmt.Sprintf("%s %s also declared, inconsistently, in %s", f.PropString(facts.PropMessagingOperation), f.Name, strings.Join(others, ", ")),

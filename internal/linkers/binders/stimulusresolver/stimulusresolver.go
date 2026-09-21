@@ -84,7 +84,7 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 		}
 		if len(misses) > 0 {
 			sort.Strings(misses)
-			f.Props[unresolvedProp] = strings.Join(misses, " ")
+			f.SetProp(unresolvedProp, strings.Join(misses, " "))
 			unresolved += len(misses)
 			bindingsWithMisses++
 		}
@@ -96,7 +96,7 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 	if fact, ok := extcoverage.Fact(repoRoot(store), "stimulus:actions", "stimulus_handler",
 		resolved, map[string]int{"unresolved_handler": unresolved}); ok {
 		if bindingsWithMisses > 0 {
-			fact.Props["bindings_with_misses"] = bindingsWithMisses
+			fact.SetProp("bindings_with_misses", bindingsWithMisses)
 		}
 		store.Add(fact)
 	}

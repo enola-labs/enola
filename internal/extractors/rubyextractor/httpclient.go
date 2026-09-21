@@ -138,7 +138,7 @@ func extractRubyHTTPClientFactsCounted(src []byte, relFile string) ([]facts.Fact
 			Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: factpath.Dir(relFile)}},
 		})
 		if derived != "" {
-			out[len(out)-1].Props["derived"] = derived
+			out[len(out)-1].SetProp("derived", derived)
 		}
 	}
 	return out, derivedCount, misses

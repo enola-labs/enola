@@ -614,13 +614,13 @@ func (w *astWalker) handleClassLike(node *sitter.Node, kind string) {
 		},
 	}
 	if strings.Contains(modifierText, "abstract") {
-		f.Props["abstract"] = true
+		f.SetProp("abstract", true)
 	}
 	if kindOf(node) == "record_declaration" {
-		f.Props["record"] = true
+		f.SetProp("record", true)
 	}
 	if kindOf(node) == "annotation_type_declaration" {
-		f.Props["annotation_class"] = true
+		f.SetProp("annotation_class", true)
 	}
 
 	// Inheritance: `extends` superclass + `implements`/`extends` interfaces.
@@ -729,10 +729,10 @@ func (w *astWalker) handleMethod(node *sitter.Node) {
 		},
 	}
 	if t := w.enclosingType(); t != "" {
-		f.Props["receiver"] = t
+		f.SetProp("receiver", t)
 	}
 	if strings.Contains(modifierText, "static") {
-		f.Props["static"] = true
+		f.SetProp("static", true)
 	}
 
 	// Request-mapping annotation on a method: a server route on a @Controller, or an

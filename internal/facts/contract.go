@@ -448,7 +448,7 @@ var CompilationUnitProps = []string{
 // language does not model one. Only module facts carry these props.
 func CompilationUnit(f Fact) string {
 	for _, key := range CompilationUnitProps {
-		if v, ok := f.Props[key].(string); ok && v != "" {
+		if v, ok := f.PropAny(key).(string); ok && v != "" {
 			return v
 		}
 	}

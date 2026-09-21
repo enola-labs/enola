@@ -241,7 +241,7 @@ func BuildModuleGraph(store *facts.Store) map[string][]string {
 // and 2 of the 10 cycles ran through them: an explainer whose entire output was test
 // scaffolding. Where the prop is absent, fall back to the path.
 func IsTestModule(m facts.Fact) bool {
-	switch role, _ := m.Props[facts.PropModuleRole].(string); role {
+	switch role, _ := m.PropAny(facts.PropModuleRole).(string); role {
 	case facts.ModuleRoleTest:
 		return true
 	case facts.ModuleRoleProduction, facts.ModuleRoleTooling:
@@ -300,7 +300,7 @@ func BuildModuleGraphExcluding(store *facts.Store, excludeKinds ...string) map[s
 			continue // edge out of a test bundle — not production architecture
 		}
 		if excluded != nil {
-			if ck, _ := dep.Props[facts.PropCouplingKind].(string); excluded[ck] {
+			if ck, _ := dep.PropAny(facts.PropCouplingKind).(string); excluded[ck] {
 				continue
 			}
 		}

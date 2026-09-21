@@ -188,7 +188,7 @@ func composeStorageFacts(allFacts []facts.Fact, sc storageScaffold) []facts.Fact
 	candidates := map[string][]string{}
 	for i := range allFacts {
 		f := &allFacts[i]
-		if f.Kind != facts.KindSymbol || !isTypeKind(f.Props["symbol_kind"]) {
+		if f.Kind != facts.KindSymbol || !isTypeKind(f.PropAny("symbol_kind")) {
 			continue
 		}
 		short := f.Name

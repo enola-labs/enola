@@ -709,7 +709,7 @@ func renderQuerySummary(results []facts.Fact, total int) string {
 			byFile[f.File]++
 		}
 		for _, p := range notableBoolProps {
-			if f.Props != nil && f.Props[p] == true {
+			if f.Props != nil && f.PropAny(p) == true {
 				flagCounts[p]++
 			}
 		}
@@ -1370,10 +1370,10 @@ func (s *Server) registerTools() {
 			sb.WriteString(fmt.Sprintf("File: %s  Line: %d\n", fact.File, fact.Line))
 
 			// Show props summary
-			if sig, ok := fact.Props["signature"].(string); ok {
+			if sig, ok := fact.PropAny("signature").(string); ok {
 				sb.WriteString(fmt.Sprintf("Signature:\n```\n%s\n```\n", sig))
 			}
-			if comp, ok := fact.Props["ios_component"].(string); ok {
+			if comp, ok := fact.PropAny("ios_component").(string); ok {
 				sb.WriteString(fmt.Sprintf("iOS Component: %s\n", comp))
 			}
 			if g := store.Graph(); g != nil {
@@ -1397,7 +1397,7 @@ func (s *Server) registerTools() {
 			}
 
 			lang := "go"
-			if l, ok := fact.Props["language"].(string); ok && l != "" {
+			if l, ok := fact.PropAny("language").(string); ok && l != "" {
 				lang = l
 			}
 			sb.WriteString(fmt.Sprintf("```%s\n%s\n```\n", lang, source))
@@ -2534,7 +2534,7 @@ func (s *Server) gatherCandidates(store *facts.Store, sq scopedQuery, term strin
 		})
 		for _, f := range res {
 			if sq.SymbolKind != "" {
-				if sk, _ := f.Props["symbol_kind"].(string); sk != sq.SymbolKind {
+				if sk, _ := f.PropAny("symbol_kind").(string); sk != sq.SymbolKind {
 					continue
 				}
 			}
@@ -2912,10 +2912,10 @@ func (s *Server) exploreModule(store *facts.Store, focus string, depth int, mode
 	sb.WriteString(fmt.Sprintf("# Module: %s\n\n", mod.Name))
 
 	// Props summary
-	if lang, ok := mod.Props["language"].(string); ok {
+	if lang, ok := mod.PropAny("language").(string); ok {
 		sb.WriteString(fmt.Sprintf("- Language: %s\n", lang))
 	}
-	if pkg, ok := mod.Props["package"].(string); ok {
+	if pkg, ok := mod.PropAny("package").(string); ok {
 		sb.WriteString(fmt.Sprintf("- Package: %s\n", pkg))
 	}
 	sb.WriteString("\n")
@@ -2927,9 +2927,9 @@ func (s *Server) exploreModule(store *facts.Store, focus string, depth int, mode
 		sb.WriteString("| Name | Kind | File | Line | Exported |\n")
 		sb.WriteString("|------|------|------|------|----------|\n")
 		for _, sym := range declaredSymbols {
-			symKind, _ := sym.Props["symbol_kind"].(string)
+			symKind, _ := sym.PropAny("symbol_kind").(string)
 			exported := "no"
-			if exp, ok := sym.Props["exported"].(bool); ok && exp {
+			if exp, ok := sym.PropAny("exported").(bool); ok && exp {
 				exported = "yes"
 			}
 			sb.WriteString(fmt.Sprintf("| %s | %s | %s | %d | %s |\n",
@@ -3317,7 +3317,7 @@ func (s *Server) exploreFile(store *facts.Store, focus string, depth int, sb *st
 			if f.Line > 0 {
 				sb.WriteString(fmt.Sprintf(" (line %d)", f.Line))
 			}
-			if sk, ok := f.Props["symbol_kind"].(string); ok {
+			if sk, ok := f.PropAny("symbol_kind").(string); ok {
 				sb.WriteString(fmt.Sprintf(" [%s]", sk))
 			}
 			sb.WriteString("\n")
@@ -3354,13 +3354,13 @@ func (s *Server) exploreSymbol(store *facts.Store, focus string, depth int, sb *
 		sb.WriteString(fmt.Sprintf("## %s\n\n", sym.Name))
 		sb.WriteString(fmt.Sprintf("- File: %s\n", sym.File))
 		sb.WriteString(fmt.Sprintf("- Line: %d\n", sym.Line))
-		if sk, ok := sym.Props["symbol_kind"].(string); ok {
+		if sk, ok := sym.PropAny("symbol_kind").(string); ok {
 			sb.WriteString(fmt.Sprintf("- Kind: %s\n", sk))
 		}
-		if lang, ok := sym.Props["language"].(string); ok {
+		if lang, ok := sym.PropAny("language").(string); ok {
 			sb.WriteString(fmt.Sprintf("- Language: %s\n", lang))
 		}
-		if exp, ok := sym.Props["exported"].(bool); ok {
+		if exp, ok := sym.PropAny("exported").(bool); ok {
 			sb.WriteString(fmt.Sprintf("- Exported: %v\n", exp))
 		}
 		sb.WriteString("\n")
@@ -3494,7 +3494,7 @@ func (s *Server) exploreDirectory(store *facts.Store, focus string, sb *strings.
 		sb.WriteString("| Name | Kind | File | Line |\n")
 		sb.WriteString("|------|------|------|------|\n")
 		for _, sym := range symbols[:limit] {
-			symKind, _ := sym.Props["symbol_kind"].(string)
+			symKind, _ := sym.PropAny("symbol_kind").(string)
 			sb.WriteString(fmt.Sprintf("| %s | %s | %s | %d |\n",
 				sym.Name, symKind, sym.File, sym.Line))
 		}
@@ -4097,7 +4097,7 @@ func (s *Server) renderTraverseSummary(store *facts.Store, resp traverseResponse
 			continue
 		}
 		for _, f := range store.LookupByExactName(n.Name) {
-			src, _ := f.Props["source"].(string)
+			src, _ := f.PropAny("source").(string)
 			switch src {
 			case "external":
 				external++

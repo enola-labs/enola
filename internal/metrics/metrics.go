@@ -189,7 +189,7 @@ func collect(store *facts.Store) ([]pkgInput, []importEdge, []string) {
 		if mcputil.IsGeneratedPath(f.Name) {
 			continue
 		}
-		role, _ := f.Props[propModuleRole].(string)
+		role, _ := f.PropAny(propModuleRole).(string)
 		if nonProductionRoles[role] {
 			excluded[f.Name] = struct{}{}
 			excludedNames = append(excludedNames, f.Name)
@@ -220,7 +220,7 @@ func collect(store *facts.Store) ([]pkgInput, []importEdge, []string) {
 	// CanonicalSymbols collapses #if/#else duplicates so a type declared once per
 	// branch is not counted twice toward N; genuine overloads are preserved.
 	for _, f := range facts.CanonicalSymbols(store.ByKind(facts.KindSymbol)) {
-		sk, _ := f.Props[propSymbolKind].(string)
+		sk, _ := f.PropAny(propSymbolKind).(string)
 		if sk != facts.SymbolStruct && sk != facts.SymbolClass && sk != facts.SymbolInterface {
 			continue
 		}
@@ -232,7 +232,7 @@ func collect(store *facts.Store) ([]pkgInput, []importEdge, []string) {
 		// (b) treat two equivalent constructs asymmetrically. Exclude TS interfaces
 		// from N for parity; TS abstractness then comes solely from `abstract class`.
 		if sk == facts.SymbolInterface {
-			if lang, _ := f.Props[propLanguage].(string); lang == langTypeScript {
+			if lang, _ := f.PropAny(propLanguage).(string); lang == langTypeScript {
 				continue
 			}
 		}
@@ -274,7 +274,7 @@ func collect(store *facts.Store) ([]pkgInput, []importEdge, []string) {
 		// modules (demoting them to concrete so Rails namespaces don't inflate A).
 		// Java/Kotlin/Python abstract classes and Python ABC/Protocol set true.
 		isAbstract := sk == facts.SymbolInterface
-		if ab, ok := f.Props[propAbstract].(bool); ok {
+		if ab, ok := f.PropAny(propAbstract).(bool); ok {
 			isAbstract = ab
 		}
 		if isAbstract {
@@ -388,7 +388,7 @@ func declaringModule(f facts.Fact, moduleSet map[string]struct{}) string {
 
 // boolProp reports whether the fact carries prop key set to boolean true.
 func boolProp(f facts.Fact, key string) bool {
-	b, ok := f.Props[key].(bool)
+	b, ok := f.PropAny(key).(bool)
 	return ok && b
 }
 

@@ -76,7 +76,7 @@ func (e *Explainer) Explain(ctx context.Context, store *facts.Store) ([]facts.In
 			continue
 		}
 		hasIntent = true
-		if f.PropString("overridden") != "" || f.Props["overridden"] == true {
+		if f.PropString("overridden") != "" || f.PropAny("overridden") == true {
 			overridden = append(overridden, f)
 		}
 		if f.PropString("intent_kind") != "consumes" {
@@ -110,9 +110,9 @@ func (e *Explainer) Explain(ctx context.Context, store *facts.Store) ([]facts.In
 		if len(parts) != 2 {
 			continue
 		}
-		vias, _ := f.Props["via"].([]string)
+		vias, _ := f.PropAny("via").([]string)
 		if vias == nil {
-			if raw, ok := f.Props["via"].([]any); ok {
+			if raw, ok := f.PropAny("via").([]any); ok {
 				for _, v := range raw {
 					if sv, ok := v.(string); ok {
 						vias = append(vias, sv)
@@ -372,7 +372,7 @@ func claimVerdicts(store *facts.Store, present, retired map[string]bool) []facts
 			for _, g := range all {
 				if g.Kind == facts.KindDependency && g.PropString("type") == "cross_repo" &&
 					g.Repo == owner && g.Name == owner+" -> "+provider {
-					if vias, ok := g.Props["via"].([]string); ok {
+					if vias, ok := g.PropAny("via").([]string); ok {
 						for _, v := range vias {
 							if v == via {
 								found = true
@@ -621,7 +621,7 @@ func fileBase(path string) string {
 // toolchain's job, where the mapping is known.
 
 func intPropOf(f facts.Fact, key string) (int, bool) {
-	switch v := f.Props[key].(type) {
+	switch v := f.PropAny(key).(type) {
 	case int:
 		return v, true
 	case float64:

@@ -204,7 +204,7 @@ func Compute(eng *bootstrap.Engine) *Report {
 	// Symbol-kind breakdown (function/method/struct/…).
 	skCount := map[string]int{}
 	for _, f := range store.ByKind(facts.KindSymbol) {
-		sk, _ := f.Props["symbol_kind"].(string)
+		sk, _ := f.PropAny("symbol_kind").(string)
 		if sk == "" {
 			sk = "unknown"
 		}
@@ -217,7 +217,7 @@ func Compute(eng *bootstrap.Engine) *Report {
 	r.Routes = len(routes)
 	methodCount := map[string]int{}
 	for _, f := range routes {
-		m, _ := f.Props["method"].(string)
+		m, _ := f.PropAny("method").(string)
 		if m == "" {
 			m = "(unspecified)"
 		} else {
@@ -234,7 +234,7 @@ func Compute(eng *bootstrap.Engine) *Report {
 	// Dependency facts grouped by their declared source (external/internal/stdlib).
 	srcCount := map[string]int{}
 	for _, f := range store.ByKind(facts.KindDependency) {
-		s, _ := f.Props["source"].(string)
+		s, _ := f.PropAny("source").(string)
 		if s == "" {
 			s = "unclassified"
 		}
@@ -365,7 +365,7 @@ func Compute(eng *bootstrap.Engine) *Report {
 func languagesByPrevalence(store *facts.Store) []string {
 	counts := map[string]int{}
 	for _, f := range store.ByKind(facts.KindModule) {
-		if l, _ := f.Props["language"].(string); l != "" {
+		if l, _ := f.PropAny("language").(string); l != "" {
 			counts[l]++
 		}
 	}

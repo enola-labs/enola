@@ -156,7 +156,7 @@ func (s *Store) All() []Fact {
 			copy(rels, result[i].Relations)
 			result[i].Relations = rels
 		}
-		if len(result[i].Props) > 0 {
+		if result[i].PropCount() > 0 {
 			result[i].Props = result[i].CloneProps()
 		}
 	}
@@ -541,7 +541,7 @@ func (s *Store) QueryAdvanced(opts QueryOpts) ([]Fact, int) {
 
 		// Property filter
 		if opts.Prop != "" {
-			v, ok := f.Props[opts.Prop]
+			v, ok := f.Prop(opts.Prop)
 			if !ok {
 				return false
 			}
@@ -712,7 +712,7 @@ func (s *Store) SetPropRange(startIdx int, key string, value any, match func(fil
 		if f.Props == nil {
 			f.Props = map[string]any{}
 		}
-		f.Props[key] = value
+		f.SetProp(key, value)
 		n++
 	}
 	return n

@@ -1093,7 +1093,7 @@ func edgeSet(ff []facts.Fact) map[string]Edge {
 // propsChanged reports whether two facts sharing an identity differ in their
 // props. encoding/json sorts map keys, so the marshaled form is order-stable.
 func propsChanged(a, b facts.Fact) bool {
-	if len(a.Props) == 0 && len(b.Props) == 0 {
+	if a.PropCount() == 0 && b.PropCount() == 0 {
 		return false
 	}
 	return propsJSON(a.Props) != propsJSON(b.Props)

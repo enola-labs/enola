@@ -226,7 +226,7 @@ func (rs *resolver) target(r rule, name string, rel facts.Relation, from facts.F
 // the target is a member here only if this component measured that name in
 // that file. A relation carrying no file resolves by name as before.
 func (rs *resolver) memberAtCarriedFile(name string, rel facts.Relation, from facts.Fact) bool {
-	file, _ := from.Props[facts.PropTargetFile].(string)
+	file, _ := from.PropAny(facts.PropTargetFile).(string)
 	if file == "" {
 		return true
 	}

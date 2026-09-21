@@ -49,7 +49,7 @@ func BuildClients(store *facts.Store) []Client {
 			c = &Client{Spec: spec, Skipped: map[string]int{}}
 			byName[spec] = c
 		}
-		c.Receivers += readInt(f.Props["receivers"])
+		c.Receivers += readInt(f.PropAny("receivers"))
 		for _, e := range readEdgeCoverage(f) {
 			c.CallSites += e.Detected
 			c.Routes += e.Resolved

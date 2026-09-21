@@ -886,7 +886,7 @@ func (e *Engine) linkCrossRepo(repoPaths map[string]string) {
 		if f.Props == nil {
 			return false
 		}
-		return f.Props["synthetic"] == crossrepo.SyntheticMarker
+		return f.PropAny("synthetic") == crossrepo.SyntheticMarker
 	})
 
 	// A cross-repo edge needs two repos, and ComputeLinks says so itself — but only

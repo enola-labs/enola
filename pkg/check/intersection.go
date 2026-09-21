@@ -129,7 +129,7 @@ func newProducerMatcher(ex *ExcludedProducer, owners FileOwnership) (*producerMa
 		name := ex.Name
 		return &producerMatcher{
 			producer:    ex,
-			matchesFact: func(f facts.Fact) bool { return f.Props[providers.PropProvider] == name },
+			matchesFact: func(f facts.Fact) bool { return f.PropAny(providers.PropProvider) == name },
 		}, nil
 	}
 	owns, ok := owners[ex.Name]

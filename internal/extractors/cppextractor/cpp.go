@@ -202,7 +202,7 @@ func (e *CppExtractor) Extract(ctx context.Context, repoPath string, files []str
 			if fact.Kind != facts.KindSymbol {
 				continue
 			}
-			sk, _ := fact.Props["symbol_kind"].(string)
+			sk, _ := fact.PropAny("symbol_kind").(string)
 			switch sk {
 			case facts.SymbolClass, facts.SymbolStruct, facts.SymbolEnum, facts.SymbolInterface:
 				if simple := lastScopeComponent(fact.Name); simple != "" {
@@ -283,7 +283,7 @@ func computeCppPerformsIO(allFacts []facts.Fact) {
 		if f.Kind != facts.KindSymbol {
 			continue
 		}
-		if b, _ := f.Props["io_direct"].(bool); b {
+		if b, _ := f.PropAny("io_direct").(bool); b {
 			io[f.Name] = true
 		}
 		seen := make(map[string]bool)
@@ -318,7 +318,7 @@ func computeCppPerformsIO(allFacts []facts.Fact) {
 			if f.Props == nil {
 				f.Props = map[string]any{}
 			}
-			f.Props["performs_io"] = true
+			f.SetProp("performs_io", true)
 		}
 	}
 }
@@ -382,8 +382,8 @@ func dedupeSymbols(in []facts.Fact) []facts.Fact {
 }
 
 func mergeSymbol(dst *facts.Fact, src facts.Fact) {
-	dstHasBody, _ := dst.Props["has_body"].(bool)
-	srcHasBody, _ := src.Props["has_body"].(bool)
+	dstHasBody, _ := dst.PropAny("has_body").(bool)
+	srcHasBody, _ := src.PropAny("has_body").(bool)
 
 	// Prefer the definition's location.
 	if srcHasBody && !dstHasBody {
@@ -393,23 +393,23 @@ func mergeSymbol(dst *facts.Fact, src facts.Fact) {
 
 	// Union props, preferring truthy booleans and keeping a non-empty receiver.
 	for k, v := range src.Props {
-		switch existing := dst.Props[k]; existing {
+		switch existing := dst.PropAny(k); existing {
 		case nil:
-			dst.Props[k] = v
+			dst.SetProp(k, v)
 		default:
 			if b, ok := v.(bool); ok && b {
-				dst.Props[k] = true
+				dst.SetProp(k, true)
 			}
 			if k == "receiver" {
 				if s, ok := v.(string); ok && s != "" {
-					dst.Props[k] = s
+					dst.SetProp(k, s)
 				}
 			}
 		}
 	}
 	// A method identity wins over a plain function (out-of-line defs are methods).
-	if skSrc, _ := src.Props["symbol_kind"].(string); skSrc == facts.SymbolMethod {
-		dst.Props["symbol_kind"] = facts.SymbolMethod
+	if skSrc, _ := src.PropAny("symbol_kind").(string); skSrc == facts.SymbolMethod {
+		dst.SetProp("symbol_kind", facts.SymbolMethod)
 	}
 
 	// Union relations (dedup by kind+target).
@@ -697,7 +697,7 @@ func resolveIncludeDependencies(allFacts []facts.Fact, headerIndex headerPathInd
 			kept = append(kept, *f)
 			continue
 		}
-		inc, _ := f.Props["include"].(string)
+		inc, _ := f.PropAny("include").(string)
 		if inc == "" {
 			kept = append(kept, *f)
 			continue
@@ -708,12 +708,12 @@ func resolveIncludeDependencies(allFacts []facts.Fact, headerIndex headerPathInd
 					f.Relations[j].Target = dir
 				}
 			}
-			f.Props["source"] = "internal"
+			f.SetProp("source", "internal")
 		} else {
 			if f.PropString("include_style") == "angle" {
 				continue
 			}
-			f.Props["source"] = "external"
+			f.SetProp("source", "external")
 		}
 		kept = append(kept, *f)
 	}

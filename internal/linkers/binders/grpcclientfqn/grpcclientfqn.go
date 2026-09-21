@@ -92,7 +92,7 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 		if short != "" && method != "" && fq != "" && !ambiguous[short] && methodsOf[fq][method] {
 			r.Props = r.CloneProps()
 			r.Name = "/" + fq + "/" + method
-			r.Props["rpc_service"] = fq
+			r.SetProp("rpc_service", fq)
 		}
 		replaced = append(replaced, r)
 	}

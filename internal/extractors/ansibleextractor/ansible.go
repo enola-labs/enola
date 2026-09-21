@@ -136,7 +136,7 @@ func (e *Extractor) Extract(ctx context.Context, repoPath string, _ []string) ([
 			Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: roleDirs[name]}},
 		}
 		if n := templateCounts[name]; n > 0 {
-			f.Props["template_count"] = n
+			f.SetProp("template_count", n)
 		}
 		refs := make([]string, 0, len(taskRefs[name]))
 		for r := range taskRefs[name] {

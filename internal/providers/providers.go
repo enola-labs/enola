@@ -504,8 +504,8 @@ func invoke(ctx context.Context, p Provider, repoPath, listing string) ([]facts.
 
 func stamp(ff []facts.Fact, name, version string) {
 	for i := range ff {
-		ff[i].Props[PropProvider] = name
-		ff[i].Props[PropProviderVersion] = version
+		ff[i].SetProp(PropProvider, name)
+		ff[i].SetProp(PropProviderVersion, version)
 	}
 }
 
@@ -596,21 +596,21 @@ func validateFact(f facts.Fact) error {
 			return fmt.Errorf("relation %q has no target", rel.Kind)
 		}
 	}
-	level, _ := f.Props[PropResolutionLevel].(string)
+	level, _ := f.PropAny(PropResolutionLevel).(string)
 	if level == "" {
 		return fmt.Errorf("fact %q carries no %s prop — a provider must say how it resolved what it emitted", f.Name, PropResolutionLevel)
 	}
 	if !allowedResolutionLevels[level] {
 		return fmt.Errorf("fact %q carries %s %q, which is not in the vocabulary (allowed: %s)", f.Name, PropResolutionLevel, level, joinSorted(allowedResolutionLevels))
 	}
-	if via, _ := f.Props[PropObservedVia].(string); level == LevelRuntimeObserved && via == "" {
+	if via, _ := f.PropAny(PropObservedVia).(string); level == LevelRuntimeObserved && via == "" {
 		return fmt.Errorf("fact %q is %s but carries no %s prop — a runtime fact must name its observation channel", f.Name, LevelRuntimeObserved, PropObservedVia)
 	}
-	if in, _ := f.Props[PropDeclaredIn].(string); level == LevelDeclared && in == "" {
+	if in, _ := f.PropAny(PropDeclaredIn).(string); level == LevelDeclared && in == "" {
 		return fmt.Errorf("fact %q is %s but carries no %s prop — a declared fact must name the signature file that claims it", f.Name, LevelDeclared, PropDeclaredIn)
 	}
 	for _, reserved := range []string{PropProvider, PropProviderVersion} {
-		if _, claimed := f.Props[reserved]; claimed {
+		if _, claimed := f.Prop(reserved); claimed {
 			return fmt.Errorf("prop %q is stamped by the seam; a provider must not set it", reserved)
 		}
 	}

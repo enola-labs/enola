@@ -724,12 +724,12 @@ func (w *pyWalker) handleDecoratedDefinition(node *sitter.Node) {
 			// Tag a route handler as an entry point (framework-dispatched, no in-code
 			// caller). Covers computed/keyword paths the route-fact regex can't parse.
 			if isRouteHandler && fnIdx < len(w.out) && w.out[fnIdx].Kind == facts.KindSymbol {
-				w.out[fnIdx].Props["web_component"] = "route_handler"
+				w.out[fnIdx].SetProp("web_component", "route_handler")
 			}
 			handlerName := w.module + "." + w.qualify(pyFuncName(c, w.src))
 			// Back-fill handler into pending FastAPI route facts.
 			for _, idx := range pendingRouteIndices {
-				w.out[idx].Props["handler"] = handlerName
+				w.out[idx].SetProp("handler", handlerName)
 			}
 			// A framework-registration decorator (@compiles, @x.register, @sig.connect,
 			// @event.listens_for, Flask hooks) dispatches the function — mark it used.
@@ -1362,7 +1362,7 @@ func (w *pyWalker) handleExprStatement(node *sitter.Node) {
 			},
 		}
 		if className != "" {
-			sf.Props["class"] = className
+			sf.SetProp("class", className)
 			sf.Relations = []facts.Relation{{Kind: facts.RelDeclares, Target: w.dir}}
 		}
 		w.out = append(w.out, sf)
