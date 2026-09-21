@@ -616,7 +616,7 @@ func (s *Server) MCPServer() *mcp.Server {
 
 // generateSnapshotArgs are the arguments for the generate_snapshot tool.
 type generateSnapshotArgs struct {
-	RepoPath  string `json:"repo_path" jsonschema:"Path to the repository to analyze. Defaults to the configured repo path."`
+	RepoPath  string `json:"repo_path,omitempty" jsonschema:"Path to the repository to analyze. Defaults to the configured repo path."`
 	Append    bool   `json:"append,omitempty" jsonschema:"If true, keep existing facts and add new ones with repo-prefixed file paths (for multi-repo analysis). Default false."`
 	Fresh     bool   `json:"fresh,omitempty" jsonschema:"Force a clean SINGLE-repo snapshot: reset the store (discard any previously loaded repos) and index only repo_path, bypassing the auto-append heuristic. Use when you've moved to a different project and do NOT want it merged into an existing multi-repo store. Mutually exclusive with append."`
 	NoCluster bool   `json:"no_cluster,omitempty" jsonschema:"When repo_path is a folder holding several git repositories, index it as ONE repository instead of as a cluster. Default false."`
