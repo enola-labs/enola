@@ -1,6 +1,9 @@
 package cppextractor
 
-import "strings"
+import (
+	"bytes"
+	"strings"
+)
 
 // This file implements a small, self-contained C macro expander used purely to
 // recover function REFERENCES that the preprocessor would synthesize — most
@@ -148,37 +151,66 @@ func tokensText(toks []token) string {
 
 // collectMacros scans src line-by-line for #define directives and adds them to
 // table. Continuation lines (ending in `\`) are joined. Later definitions win.
+//
+// A logical line is materialised as a string only when it can BE a directive, which
+// is decided from its first physical line alone: a continuation cannot introduce a
+// leading `#`. The previous form built a []string of every logical line in the file
+// before testing any of them, so a source tree paid one string allocation per line
+// to find the few lines that begin with `#`.
 func collectMacros(src []byte, table macroTable) {
-	lines := splitLogicalLines(src)
-	for _, line := range lines {
-		name, def, ok := parseDefine(line)
-		if ok {
-			table[name] = def
+	var joined strings.Builder
+	for off := 0; off < len(src); {
+		directive := startsDirective(src[off:])
+		joined.Reset()
+		for {
+			line, next := physicalLine(src, off)
+			off = next
+			cont := len(line) > 0 && line[len(line)-1] == '\\'
+			if cont {
+				line = line[:len(line)-1]
+			}
+			if directive {
+				joined.Write(line)
+				if cont {
+					joined.WriteByte(' ')
+				}
+			}
+			if !cont || off >= len(src) {
+				break
+			}
+		}
+		if directive {
+			if name, def, ok := parseDefine(joined.String()); ok {
+				table[name] = def
+			}
 		}
 	}
 }
 
-// splitLogicalLines splits src into logical lines, joining backslash-newline
-// continuations into a single line.
-func splitLogicalLines(src []byte) []string {
-	var out []string
-	var cur strings.Builder
-	raw := strings.Split(string(src), "\n")
-	for _, ln := range raw {
-		trimmed := strings.TrimRight(ln, "\r")
-		if strings.HasSuffix(trimmed, "\\") {
-			cur.WriteString(trimmed[:len(trimmed)-1])
-			cur.WriteByte(' ')
-			continue
+// physicalLine returns the line beginning at off with its trailing carriage returns
+// removed, and the offset the next line starts at.
+func physicalLine(src []byte, off int) (line []byte, next int) {
+	if nl := bytes.IndexByte(src[off:], '\n'); nl >= 0 {
+		line, next = src[off:off+nl], off+nl+1
+	} else {
+		line, next = src[off:], len(src)
+	}
+	return bytes.TrimRight(line, "\r"), next
+}
+
+// startsDirective reports whether a logical line beginning at the start of b opens a
+// preprocessor directive: a `#` after nothing but spaces and tabs.
+func startsDirective(b []byte) bool {
+	for _, c := range b {
+		switch c {
+		case ' ', '\t':
+		case '#':
+			return true
+		default:
+			return false
 		}
-		cur.WriteString(trimmed)
-		out = append(out, cur.String())
-		cur.Reset()
 	}
-	if cur.Len() > 0 {
-		out = append(out, cur.String())
-	}
-	return out
+	return false
 }
 
 // parseDefine parses a single logical line as `#define NAME[(params)] body`.
