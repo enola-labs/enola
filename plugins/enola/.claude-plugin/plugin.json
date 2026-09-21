@@ -1,0 +1,19 @@
+{
+  "name": "enola",
+  "displayName": "Enola",
+  "description": "Architecture context and structural regression testing for coding agents. Requires the Enola CLI: install it first, then run /enola:setup.",
+  "version": "0.4.21",
+  "author": {
+    "name": "Enola Labs",
+    "url": "https://github.com/enola-labs/enola"
+  },
+  "homepage": "https://github.com/enola-labs/enola",
+  "repository": "https://github.com/enola-labs/enola",
+  "license": "Apache-2.0",
+  "keywords": ["architecture", "quality-gate", "dependency-graph", "structural-regression", "mcp"],
+  "mcpServers": {
+    "enola": {
+      "command": "enola"
+    }
+  }
+}

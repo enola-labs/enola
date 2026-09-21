@@ -1,0 +1,16 @@
+{
+  "$schema": "https://code.claude.com/schemas/marketplace.json",
+  "name": "enola",
+  "owner": {
+    "name": "Enola Labs",
+    "url": "https://github.com/enola-labs/enola"
+  },
+  "description": "Architecture context and structural regression testing for coding agents. Install the Enola CLI first, then run /enola:setup.",
+  "version": "0.4.21",
+  "plugins": [
+    {
+      "name": "enola",
+      "source": "./plugins/enola"
+    }
+  ]
+}
