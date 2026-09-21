@@ -51,6 +51,44 @@ func extractFileAST(src []byte, relFile string, isDjango, isFlask, isFastAPI boo
 	return w.out, topo
 }
 
+// extractFileIndexed is extractFileAST for the extractor's own path: it parses the
+// file ONCE and returns, besides the facts and the router topology, the index this
+// file contributes and the implementor lookups that need the merged one.
+//
+// extractFileAST above keeps taking a ready-made index, because a single-file test
+// supplies one directly and has no merge step to defer anything to.
+func extractFileIndexed(src []byte, relFile string, isDjango, isFlask, isFastAPI bool) ([]facts.Fact, pyRouterTopology, *pySymbolIndex, []pyImplCall) {
+	parser := sitter.NewParser()
+	defer parser.Close()
+	if err := parser.SetLanguage(sitter.NewLanguage(python.Language())); err != nil {
+		return nil, pyRouterTopology{}, nil, nil
+	}
+	tree := parser.Parse(src, nil)
+	defer tree.Close()
+	root := tree.RootNode()
+
+	module := strings.TrimSuffix(relFile, ".py")
+	local := &pySymbolIndex{classes: make(map[string]*pyClassInfo), moduleDefs: make(map[string]map[string]bool)}
+	indexTree(root, src, relFile, local)
+
+	w := &pyWalker{
+		src:               src,
+		relFile:           relFile,
+		module:            module,
+		dir:               factpath.Dir(relFile),
+		isDjango:          isDjango,
+		isFlask:           isFlask,
+		isFastAPI:         isFastAPI,
+		idx:               local,
+		deferImplementors: true,
+	}
+	w.walkModule(root)
+
+	topo := collectRouterTopology(root, src, relFile, module, w.importMap)
+	topo.routes = w.routeRefs
+	return w.out, topo, local, w.pendingImpl
+}
+
 type pyWalker struct {
 	src       []byte
 	relFile   string
@@ -107,9 +145,21 @@ type pyWalker struct {
 	// used to resolve bare same-class calls.
 	methodSets []map[string]bool
 
-	// idx is the global symbol index, nil when called from tests that do not
-	// need cross-file resolution. All lookups must nil-check.
+	// idx is the symbol index the walk resolves against, nil when called from tests
+	// that do not need cross-file resolution. All lookups must nil-check.
+	//
+	// On the extractor's own path this is the CURRENT FILE's index, not the merged
+	// one: the two lookups made during the walk (resolveCall and the value-reference
+	// check) only ever ask about w.module, which no other file contributes to. The
+	// one lookup that is genuinely cross-file is deferred instead, below.
 	idx *pySymbolIndex
+
+	// deferImplementors records implementor-call lookups rather than answering them,
+	// because they need the merged index. Answering them during the walk is what
+	// forced a whole separate indexing pass, and with it a second parse of every
+	// file in the repository.
+	deferImplementors bool
+	pendingImpl       []pyImplCall
 
 	// localTypes maps a variable name in the current function scope to its
 	// canonical qualified type. Reset at the entry of every handleFunction call.
@@ -218,6 +268,15 @@ func (w *pyWalker) currentOwner() *facts.Fact {
 		return nil
 	}
 	return &w.out[w.ownerStack[len(w.ownerStack)-1]]
+}
+
+// currentOwnerIdx is currentOwner as an index into w.out, for edges resolved after
+// the walk: a *Fact would dangle as soon as a later append reallocates w.out.
+func (w *pyWalker) currentOwnerIdx() int {
+	if len(w.ownerStack) == 0 {
+		return -1
+	}
+	return w.ownerStack[len(w.ownerStack)-1]
 }
 
 func (w *pyWalker) enclosingType() string { return strings.Join(w.typeStack, ".") }
@@ -1845,7 +1904,7 @@ func (w *pyWalker) emitCallEdge(fn *sitter.Node) {
 			Target: target,
 		})
 		w.recordCallMetrics(target)
-		w.emitImplementorCalls(owner, attr, qualType)
+		w.emitImplementorCalls(w.currentOwnerIdx(), attr, qualType)
 	}
 }
 
@@ -1868,19 +1927,52 @@ func (w *pyWalker) resolveVarType(obj string) string {
 
 // emitImplementorCalls emits additional RelCalls edges to all concrete classes
 // that implement qualType, when a matching method exists on each implementor.
-func (w *pyWalker) emitImplementorCalls(owner *facts.Fact, methodName, qualType string) {
+func (w *pyWalker) emitImplementorCalls(ownerIdx int, methodName, qualType string) {
+	if ownerIdx < 0 {
+		return
+	}
+	if w.deferImplementors {
+		w.pendingImpl = append(w.pendingImpl, pyImplCall{owner: ownerIdx, method: methodName, qualType: qualType})
+		return
+	}
 	if w.idx == nil {
 		return
 	}
+	addImplementorCalls(&w.out[ownerIdx], methodName, qualType, w.idx)
+}
+
+// pyImplCall is one implementor lookup held back until the merged index exists.
+type pyImplCall struct {
+	owner    int // index into the file's fact slice
+	method   string
+	qualType string
+}
+
+// applyPendingImplementors answers the held-back lookups against the merged index.
+func applyPendingImplementors(ff []facts.Fact, pending []pyImplCall, idx *pySymbolIndex) {
+	if idx == nil {
+		return
+	}
+	for _, p := range pending {
+		if p.owner < 0 || p.owner >= len(ff) {
+			continue
+		}
+		addImplementorCalls(&ff[p.owner], p.method, p.qualType, idx)
+	}
+}
+
+// addImplementorCalls appends a RelCalls edge to every concrete implementor of
+// qualType that declares methodName.
+func addImplementorCalls(owner *facts.Fact, methodName, qualType string, idx *pySymbolIndex) {
 	bare := lastComponent(qualType)
 	seen := make(map[string]bool)
 	for _, key := range []string{bare, qualType} {
-		for _, concreteQual := range w.idx.implMap[key] {
+		for _, concreteQual := range idx.implMap[key] {
 			if seen[concreteQual] {
 				continue
 			}
 			seen[concreteQual] = true
-			info, ok := w.idx.classes[concreteQual]
+			info, ok := idx.classes[concreteQual]
 			if !ok || !info.methods[methodName] {
 				continue
 			}
@@ -2387,9 +2479,13 @@ func buildFileIndex(src []byte, relFile string, idx *pySymbolIndex) {
 	}
 	tree := parser.Parse(src, nil)
 	defer tree.Close()
+	indexTree(tree.RootNode(), src, relFile, idx)
+}
 
+// indexTree is buildFileIndex over a tree the caller already parsed, so the
+// extractor contributes to the index from the same parse that emits the facts.
+func indexTree(root *sitter.Node, src []byte, relFile string, idx *pySymbolIndex) {
 	module := strings.TrimSuffix(relFile, ".py")
-	root := tree.RootNode()
 	for i := uint(0); i < uint(root.ChildCount()); i++ {
 		node := root.Child(i)
 		switch kindOf(node) {

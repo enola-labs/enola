@@ -83,37 +83,20 @@ func (e *PythonExtractor) Extract(ctx context.Context, repoPath string, files []
 		}
 	}
 
-	// Pass 1: build a global symbol index across all Python files. Each file is
-	// indexed into a local table in parallel, then the tables are merged in file
-	// order so duplicate-module last-write-wins stays deterministic.
-	idx := &pySymbolIndex{classes: make(map[string]*pyClassInfo), moduleDefs: make(map[string]map[string]bool)}
-	localIdxs := parallel.MapFiles(ctx, pyFiles, func(relFile string) *pySymbolIndex {
-		src, err := os.ReadFile(filepath.Join(repoPath, relFile))
-		if err != nil {
-			return nil
-		}
-		local := &pySymbolIndex{classes: make(map[string]*pyClassInfo), moduleDefs: make(map[string]map[string]bool)}
-		buildFileIndex(src, relFile, local)
-		return local
-	})
-	for _, m := range localIdxs {
-		if m == nil {
-			continue
-		}
-		for qualName, info := range m.classes {
-			idx.classes[qualName] = info
-		}
-		for module, defs := range m.moduleDefs {
-			idx.moduleDefs[module] = defs
-		}
-	}
-	finalizeImplMap(idx)
-
-	// Pass 2: extract facts using the populated symbol index (read-only here, so
-	// the per-file work is fully independent and parallel-safe).
+	// One parse per file. Each file emits its facts and, from the SAME tree, the
+	// slice of the symbol index it contributes. There used to be a separate indexing
+	// pass ahead of this one, which read and parsed every file a second time purely
+	// to populate the index; measured on two corpus repositories it was 15-18% of
+	// this extractor's wall time.
+	//
+	// Only one lookup in the walk is genuinely cross-file (the implementor calls of
+	// a receiver's type), so that one is held back per file and answered below once
+	// the index is merged. The other two only ask about the file's own module.
 	type pyFileResult struct {
-		ff   []facts.Fact
-		topo pyRouterTopology
+		ff      []facts.Fact
+		topo    pyRouterTopology
+		idx     *pySymbolIndex
+		pending []pyImplCall
 	}
 	perFileFacts := parallel.MapFiles(ctx, pyFiles, func(relFile string) pyFileResult {
 		src, err := os.ReadFile(filepath.Join(repoPath, relFile))
@@ -121,14 +104,33 @@ func (e *PythonExtractor) Extract(ctx context.Context, repoPath string, files []
 			log.Printf("[python-extractor] error reading %s: %v", relFile, err)
 			return pyFileResult{}
 		}
-		ff, topo := extractFileAST(src, relFile, isDjango, isFlask, isFastAPI, idx)
+		ff, topo, local, pending := extractFileIndexed(src, relFile, isDjango, isFlask, isFastAPI)
 		// gRPC client call sites (stub.Method(...)) become client-role routes,
 		// detected from source since generated *_pb2_grpc.py stubs are typically
 		// not committed. Names are provisional (short service) and resolved to the
 		// fully-qualified wire path by the engine before cross-repo linking.
 		ff = append(ff, extractPyGRPCClientFacts(src, relFile)...)
-		return pyFileResult{ff: ff, topo: topo}
+		return pyFileResult{ff: ff, topo: topo, idx: local, pending: pending}
 	})
+
+	// Merge the per-file indices in file order, so duplicate-module last-write-wins
+	// stays deterministic, then answer the held-back lookups against the result.
+	idx := &pySymbolIndex{classes: make(map[string]*pyClassInfo), moduleDefs: make(map[string]map[string]bool)}
+	for _, r := range perFileFacts {
+		if r.idx == nil {
+			continue
+		}
+		for qualName, info := range r.idx.classes {
+			idx.classes[qualName] = info
+		}
+		for module, defs := range r.idx.moduleDefs {
+			idx.moduleDefs[module] = defs
+		}
+	}
+	finalizeImplMap(idx)
+	for _, r := range perFileFacts {
+		applyPendingImplementors(r.ff, r.pending, idx)
+	}
 
 	var allFacts []facts.Fact
 	var routerTopos []pyRouterTopology
