@@ -86,6 +86,8 @@ gem "enola"   # then: bundle exec enola
 
 The PyPI project is called `enola-cli` because `enola` was already taken there. The Ruby gems are maintained at [enola-labs/enola-rb](https://github.com/enola-labs/enola-rb) and fetch the same release on first use.
 
+Some tools bundle `enola-cli` as a dependency rather than asking you to install it - [Cognee](#inside-cognee) pins the release it has validated - so their users get the same binary with no extra step.
+
 **Ruby and Rails?** There is a community-maintained gem that wraps the same release, fetches the binary on first use and forwards every command - and `enola-rb` adds a Rails generator plus `enola:snapshot` / `enola:check` rake tasks:
 
 ```bash
@@ -412,6 +414,10 @@ That reports, per service, how many outbound calls it found, how many it matched
 
 [`examples/cross-repo/`](examples/cross-repo/) is a two-service demo you can run in one command. It contains one deliberately unresolvable call, so you can see what a miss looks like before you go looking for them in your own code.
 
+## Inside Cognee
+
+[Cognee](https://github.com/topoteretes/cognee) runs enola as the engine of its code-graph route: a pinned `enola-cli` release, the snapshot contract, and a deterministic `SearchType.CODE` search that needs no LLM key. The practical details - where its bundled binary lives, how it is found, what it writes - are in [the Cognee section of INTEGRATING.md](docs/INTEGRATING.md#cognee).
+
 ## Supported languages
 
 Nothing here is a setting. enola looks for the markers below and runs whatever it finds, so a repository that is two languages is indexed as two languages without being told - and a language you don't see listed is a gap worth [reporting](https://github.com/enola-labs/enola/issues), not a verdict on whether enola is for you.
@@ -460,6 +466,7 @@ It is silent for builds from source, never runs when `CI` is set, and turns off 
 - **[Documentation](docs/README.md)** — choose a guide by task.
 - **[Your first graded change](docs/FIRST-CHANGE.md)** — the loop end to end, on a module small enough to read.
 - **[Dashboard guide](docs/DASHBOARD.md)** — review changes visually, trace dependencies and verify snapshot provenance.
+- **[Building on Enola](docs/INTEGRATING.md)** — run it as a subprocess and load its snapshot into another store.
 - **[Architecture](ARCHITECTURE.md)** — the fact model, pipeline, graph, MCP tools and value model.
 - **[Changelog](CHANGELOG.md)** — every released version, newest first.
 - **[Examples](examples/)** — runnable gates, cross-repository analysis, configuration and CI workflows.
