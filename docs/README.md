@@ -46,7 +46,7 @@ Start with the page closest to what you need:
 
 | Page | Covers |
 |---|---|
-| [INTEGRATING.md](INTEGRATING.md) | Run Enola as a subprocess and load its snapshot artifacts into another store. |
+| [INTEGRATING.md](INTEGRATING.md) | Run Enola as a subprocess and load its snapshot artifacts into another store, with Cognee as the named reference implementation. |
 
 ## Extending the graph
 
