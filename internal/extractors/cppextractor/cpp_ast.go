@@ -2140,12 +2140,7 @@ func findFirstIdentifier(kinds *tsutil.KindTable, node *sitter.Node, src []byte)
 	return nil
 }
 
-func nodeText(node *sitter.Node, src []byte) string {
-	if node == nil {
-		return ""
-	}
-	return string(src[node.StartByte():node.EndByte()])
-}
+func nodeText(node *sitter.Node, src []byte) string { return tsutil.Text(node, src) }
 
 func isCapitalized(s string) bool {
 	if s == "" {

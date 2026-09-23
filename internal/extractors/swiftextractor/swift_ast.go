@@ -5,6 +5,7 @@ import (
 	"unicode"
 
 	swift "github.com/enola-labs/enola/internal/extractors/swiftextractor/grammar"
+	"github.com/enola-labs/enola/internal/extractors/tsutil"
 	"github.com/enola-labs/enola/internal/factpath"
 	"github.com/enola-labs/enola/internal/facts"
 	sitter "github.com/tree-sitter/go-tree-sitter"
@@ -1756,9 +1757,4 @@ func findFirstIdentifier(node *sitter.Node, src []byte) *sitter.Node {
 	return nil
 }
 
-func nodeText(node *sitter.Node, src []byte) string {
-	if node == nil {
-		return ""
-	}
-	return string(src[node.StartByte():node.EndByte()])
-}
+func nodeText(node *sitter.Node, src []byte) string { return tsutil.Text(node, src) }

@@ -3,6 +3,7 @@ package phpextractor
 import (
 	"strings"
 
+	"github.com/enola-labs/enola/internal/extractors/tsutil"
 	"github.com/enola-labs/enola/internal/factpath"
 	"github.com/enola-labs/enola/internal/facts"
 	sitter "github.com/tree-sitter/go-tree-sitter"
@@ -921,9 +922,4 @@ func line(node *sitter.Node) int {
 }
 
 // phpText returns the source text covered by a node (nil-safe).
-func phpText(node *sitter.Node, src []byte) string {
-	if node == nil {
-		return ""
-	}
-	return string(src[node.StartByte():node.EndByte()])
-}
+func phpText(node *sitter.Node, src []byte) string { return tsutil.Text(node, src) }

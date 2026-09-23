@@ -1834,9 +1834,7 @@ func findChildByKind(kinds *tsutil.KindTable, node *sitter.Node, kind string) *s
 	return nil
 }
 
-func nodeText(node *sitter.Node, src []byte) string {
-	return string(src[node.StartByte():node.EndByte()])
-}
+func nodeText(node *sitter.Node, src []byte) string { return tsutil.Text(node, src) }
 
 // tsAliasRoot is a directory (repoPath-relative, "" = root) and the alias
 // map its tsconfig declares, already qualified with dir as a prefix.

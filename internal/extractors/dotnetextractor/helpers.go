@@ -10,12 +10,7 @@ import (
 
 // ── Node text ───────────────────────────────────────────────────────────────
 
-func nodeText(node *sitter.Node, src []byte) string {
-	if node == nil {
-		return ""
-	}
-	return string(src[node.StartByte():node.EndByte()])
-}
+func nodeText(node *sitter.Node, src []byte) string { return tsutil.Text(node, src) }
 
 func (w *astWalker) nameText(node *sitter.Node) string { return nodeText(node, w.src) }
 

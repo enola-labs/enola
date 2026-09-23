@@ -4,6 +4,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/enola-labs/enola/internal/extractors/tsutil"
 	"github.com/enola-labs/enola/internal/factpath"
 	"github.com/enola-labs/enola/internal/facts"
 	sitter "github.com/tree-sitter/go-tree-sitter"
@@ -2613,12 +2614,7 @@ func endColumn(node *sitter.Node) int {
 }
 
 // rubyText returns the source text covered by a node (nil-safe).
-func rubyText(node *sitter.Node, src []byte) string {
-	if node == nil {
-		return ""
-	}
-	return string(src[node.StartByte():node.EndByte()])
-}
+func rubyText(node *sitter.Node, src []byte) string { return tsutil.Text(node, src) }
 
 // declaresAbstractClass reports whether a class body sets abstract_class.
 func declaresAbstractClass(node *sitter.Node, src []byte) bool {
