@@ -395,7 +395,7 @@ func (e *GoExtractor) extractFunc(fset *token.FileSet, fn *ast.FuncDecl, relFile
 			pkgFuncs:   pkgFuncs,
 		}
 		ctx.localTypes = collectLocalTypes(fn.Body, ctx)
-		m := analyzeBody(fn.Body, ctx, qualifiedName)
+		m := analyzeBody(fn.Body, ctx, qualifiedName, funcParamNames(fn))
 		for _, call := range m.calls {
 			symbolFact.Relations = append(symbolFact.Relations, facts.Relation{
 				Kind:   facts.RelCalls,
@@ -450,6 +450,15 @@ func (e *GoExtractor) extractFunc(fset *token.FileSet, fn *ast.FuncDecl, relFile
 				m.callsInScalingLoop = []string{}
 			}
 			symbolFact.SetProp("calls_in_scaling_loop", m.callsInScalingLoop)
+			// Emitted even when empty, for the same reason as calls_in_scaling_loop:
+			// an absent key cannot be told from "no such call".
+			if m.callsOnLoopElement == nil {
+				m.callsOnLoopElement = []string{}
+			}
+			symbolFact.SetProp("calls_on_loop_element", m.callsOnLoopElement)
+		}
+		if m.loopsOverParam {
+			symbolFact.SetProp("loops_over_param", true)
 		}
 		if m.recursiveSelf {
 			symbolFact.SetProp("recursive_self", true)
@@ -637,11 +646,20 @@ type bodyMetrics struct {
 	// lives in another package and this pass sees one. The seam binder decides.
 	clientPathCalls    []string
 	callsInScalingLoop []string // subset of calls invoked at scaling (unbounded) nesting depth >= 1
-	loopDepth          int      // max nesting depth of for/range loops
-	scalingLoopDepth   int      // max nesting counting only unbounded (input-scaling) loops
-	loopCount          int      // total number of for/range loops
-	cyclomatic         int      // McCabe complexity (1 + decision points)
-	recursiveSelf      bool     // body directly calls the enclosing function
+	// callsOnLoopElement is the subset of callsInScalingLoop handed an element of an
+	// enclosing loop — as an argument or as the receiver. Paired with the callee's
+	// own loopsOverParam it is the cross-call form of the hierarchical rule: the
+	// callee is continuing this walk, not starting one per element.
+	callsOnLoopElement []string
+	// loopsOverParam records that a scaling loop in this body walks something reached
+	// through a parameter or the receiver, which is what makes it a continuation of
+	// the caller's walk rather than an independent traversal.
+	loopsOverParam   bool
+	loopDepth        int  // max nesting depth of for/range loops
+	scalingLoopDepth int  // max nesting counting only unbounded (input-scaling) loops
+	loopCount        int  // total number of for/range loops
+	cyclomatic       int  // McCabe complexity (1 + decision points)
+	recursiveSelf    bool // body directly calls the enclosing function
 }
 
 // analyzeBody walks a function body once and extracts both the call edges
@@ -653,13 +671,14 @@ type bodyMetrics struct {
 // is inside every loop on the stack whose body it lexically falls within. Calls
 // inside func literals are attributed by lexical nesting; interface-dispatch
 // targets remain unresolved exactly as before.
-func analyzeBody(body ast.Node, ctx resolveCtx, selfName string) bodyMetrics {
+func analyzeBody(body ast.Node, ctx resolveCtx, selfName string, params map[string]bool) bodyMetrics {
 	var m bodyMetrics
 	decisions := 0
 	seen := make(map[string]bool)
 	instSeen := make(map[string]bool)
 	inLoopSeen := make(map[string]bool)
 	inScalingSeen := make(map[string]bool)
+	onElementSeen := make(map[string]bool)
 	var loopEnds []token.Pos // end positions of enclosing loops
 	// scalingEnds tracks only the enclosing loops that scale with input (a `for {}` event
 	// loop and a `range` over a composite literal are excluded), so len(scalingEnds) is
@@ -715,6 +734,11 @@ func analyzeBody(body ast.Node, ctx resolveCtx, selfName string) bodyMetrics {
 			constBounded := goForConstBounded(x)
 			sharesCursor := goForSharesOuterCursor(x, loopScopes)
 			forScales := !goForBounded(x) && !constBounded && !sharesCursor
+			if forScales && referencesParam(x.Cond, params) {
+				// `for i := 0; i < len(s); i++` walks s just as `range s` does; the
+				// parameter is named in the bound rather than in a range expression.
+				m.loopsOverParam = true
+			}
 			if forScales {
 				scalingEnds = append(scalingEnds, x.End())
 				if len(scalingEnds) > m.scalingLoopDepth {
@@ -744,6 +768,9 @@ func analyzeBody(body ast.Node, ctx resolveCtx, selfName string) bodyMetrics {
 				// of n to the scaling exponent. Only a loop over an independent or same
 				// collection (all-pairs) multiplies. Derived loops still repeat, so they
 				// stay N+1 candidates (repeatEnds) — only the scaling depth is spared.
+				if referencesParam(x.X, params) {
+					m.loopsOverParam = true
+				}
 				if !referencesLoopVar(x.X, loopScopes) {
 					scalingEnds = append(scalingEnds, x.End())
 					if len(scalingEnds) > m.scalingLoopDepth {
@@ -753,6 +780,21 @@ func analyzeBody(body ast.Node, ctx resolveCtx, selfName string) bodyMetrics {
 				repeatEnds = append(repeatEnds, x.End())
 			}
 			loopScopes = append(loopScopes, loopScope{end: x.End(), vars: rangeLoopVars(x), amortizes: rangeAmortizes})
+		case *ast.AssignStmt:
+			// A value computed from the current element is still the current element
+			// as far as the traversal is concerned: `rel := norm(f); use(rel)` hands
+			// `use` what the loop is walking, one indirection later. Without this the
+			// cross-call hierarchical rule only ever fires on a bare loop variable,
+			// which is the minority of call sites.
+			if len(loopScopes) > 0 && referencesLoopVar(rhsExpr(x), loopScopes) {
+				top := &loopScopes[len(loopScopes)-1]
+				for _, lhs := range x.Lhs {
+					if id, ok := lhs.(*ast.Ident); ok && id.Name != "_" {
+						top.vars = append(top.vars, id.Name)
+					}
+				}
+			}
+			decisions += 0
 		case *ast.IfStmt:
 			decisions++
 		case *ast.CaseClause:
@@ -802,6 +844,10 @@ func analyzeBody(body ast.Node, ctx resolveCtx, selfName string) bodyMetrics {
 			if len(repeatEnds) > 0 && !inScalingSeen[resolved] {
 				inScalingSeen[resolved] = true
 				m.callsInScalingLoop = append(m.callsInScalingLoop, resolved)
+			}
+			if len(scalingEnds) > 0 && !onElementSeen[resolved] && passesLoopElement(x, loopScopes) {
+				onElementSeen[resolved] = true
+				m.callsOnLoopElement = append(m.callsOnLoopElement, resolved)
 			}
 			if resolved == selfName {
 				m.recursiveSelf = true
@@ -884,6 +930,9 @@ func forLoopVars(x *ast.ForStmt) []string {
 // enclosing loop — i.e. the collection is reached through an outer loop element
 // (a hierarchical walk) rather than being independent of the outer loops.
 func referencesLoopVar(expr ast.Expr, scopes []loopScope) bool {
+	if expr == nil {
+		return false
+	}
 	vars := map[string]bool{}
 	for _, s := range scopes {
 		if !s.amortizes {
@@ -1745,4 +1794,74 @@ func isIntLiteral(e ast.Expr) bool {
 	}
 	lit, ok := e.(*ast.BasicLit)
 	return ok && lit.Kind == token.INT
+}
+
+// referencesParam reports whether expr reaches into a parameter or the receiver.
+// A loop over one of those walks something the CALLER handed in, which is what makes
+// it a continuation of the caller's traversal rather than a traversal of its own.
+func referencesParam(expr ast.Expr, params map[string]bool) bool {
+	// A for statement may have no condition (`for i := 0; ; i++`), and ast.Inspect
+	// panics on a nil node rather than ignoring it.
+	if expr == nil || len(params) == 0 {
+		return false
+	}
+	found := false
+	ast.Inspect(expr, func(n ast.Node) bool {
+		if found {
+			return false
+		}
+		if id, ok := n.(*ast.Ident); ok && params[id.Name] {
+			found = true
+		}
+		return !found
+	})
+	return found
+}
+
+// passesLoopElement reports whether a call hands the callee an element of an
+// enclosing loop, as an argument or as the receiver it is invoked on.
+func passesLoopElement(call *ast.CallExpr, scopes []loopScope) bool {
+	for _, arg := range call.Args {
+		if referencesLoopVar(arg, scopes) {
+			return true
+		}
+	}
+	if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
+		return referencesLoopVar(sel.X, scopes)
+	}
+	return false
+}
+
+// funcParamNames returns the parameter and receiver names of a function
+// declaration, the set referencesParam matches a ranged collection against.
+func funcParamNames(fn *ast.FuncDecl) map[string]bool {
+	out := map[string]bool{}
+	add := func(fl *ast.FieldList) {
+		if fl == nil {
+			return
+		}
+		for _, f := range fl.List {
+			for _, n := range f.Names {
+				if n.Name != "" && n.Name != "_" {
+					out[n.Name] = true
+				}
+			}
+		}
+	}
+	add(fn.Recv)
+	if fn.Type != nil {
+		add(fn.Type.Params)
+	}
+	return out
+}
+
+// rhsExpr wraps an assignment's right-hand side so it can be inspected as one node.
+// A multi-value assignment has several, and any of them carrying the loop element is
+// enough to taint the whole statement's targets — which is the conservative direction
+// for a rule whose only effect is to REMOVE an over-count.
+func rhsExpr(x *ast.AssignStmt) ast.Expr {
+	if len(x.Rhs) == 1 {
+		return x.Rhs[0]
+	}
+	return &ast.CompositeLit{Elts: x.Rhs}
 }

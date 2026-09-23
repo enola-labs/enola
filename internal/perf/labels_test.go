@@ -31,6 +31,12 @@ type label struct {
 	Verdict string `json:"verdict"`
 	Class   string `json:"class"`
 	Why     string `json:"why"`
+	// Sample says which round produced the row. "high-tier" is the original sample of
+	// what the analyzer reported; "removed" is a second sample, drawn from the
+	// findings a later change stopped reporting and read the same way. The second
+	// exists because a cut has to be audited from the other side: the first sample
+	// shows what SHOULD go, and only the second shows what actually went.
+	Sample string `json:"sample"`
 }
 
 // Counts at the time of labeling, against enola at main d82f0343: 250 high findings,
@@ -38,9 +44,13 @@ type label struct {
 // 3 of 35 survived scrutiny. Pinned so the sample cannot be edited without the headline
 // moving with it.
 const (
-	labeledTotal   = 35
+	labeledTotal   = 45
 	labeledScales  = 3
-	labeledBounded = 32
+	labeledBounded = 42
+	// Of the 250 high findings, 35 were sampled and read. Of the 170 that later
+	// stopped being high, 10 were sampled and read; all ten were over-counts.
+	labeledHighTier = 35
+	labeledRemoved  = 10
 )
 
 // knownClasses are the over-count shapes the sample found. A `bounded` row must name
@@ -121,6 +131,21 @@ func TestLabelCorpus_ShapeAndCounts(t *testing.T) {
 		default:
 			t.Errorf("%s: kind %q is not one this analyzer emits", l.Symbol, l.Kind)
 		}
+
+		switch l.Sample {
+		case "high-tier", "removed":
+		default:
+			t.Errorf("%s: sample %q is neither round", l.Symbol, l.Sample)
+		}
+	}
+
+	rounds := map[string]int{}
+	for _, l := range labels {
+		rounds[l.Sample]++
+	}
+	if rounds["high-tier"] != labeledHighTier || rounds["removed"] != labeledRemoved {
+		t.Errorf("rounds are %d high-tier / %d removed, want %d / %d",
+			rounds["high-tier"], rounds["removed"], labeledHighTier, labeledRemoved)
 	}
 
 	if scales != labeledScales || bounded != labeledBounded {

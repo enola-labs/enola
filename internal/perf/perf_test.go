@@ -887,7 +887,7 @@ func TestAnalyze_RecursiveNotCompoundedToN3(t *testing.T) {
 func TestEffectiveDepthOf_SelfCycleNoDoubleCount(t *testing.T) {
 	f := funcInfo{Name: "p.walk", LoopDepth: 1, CallsInLoop: []string{"p.walk"}}
 	eff := computeEffectiveDepths(map[string]funcInfo{"p.walk": f})
-	if got := effectiveDepthOf(f, eff); got != 1 {
+	if got := effectiveDepthOf(f, eff, map[string]funcInfo{f.Name: f}); got != 1 {
 		t.Errorf("effectiveDepthOf(self-recursive, loop_depth=1) = %d, want 1 (no double-count)", got)
 	}
 }
@@ -1268,7 +1268,7 @@ func TestEffectiveDepthOf_BoundedFanoutIsZero(t *testing.T) {
 	if eff[fanout.Name] != 0 {
 		t.Fatalf("computeEffectiveDepths(bounded fan-out) = %d, want 0", eff[fanout.Name])
 	}
-	if got := effectiveDepthOf(funcs[0], eff); got != 0 {
+	if got := effectiveDepthOf(funcs[0], eff, byName); got != 0 {
 		t.Errorf("effectiveDepthOf(bounded fan-out) = %d, want 0 (must mirror computeEffectiveDepths)", got)
 	}
 }
@@ -1758,5 +1758,47 @@ func TestIsExpensiveDartCall(t *testing.T) {
 		if isExpensiveDartCall(c, storage, byName, ioMethods) {
 			t.Errorf("isExpensiveDartCall(%q) = true, want false", c)
 		}
+	}
+}
+
+// The cross-call form of the hierarchical rule. `for _, x := range xs { g(x) }`,
+// where g loops over what it was handed, visits each element of each x once across
+// the whole nest — so the callee finishes the caller's walk instead of running one
+// per element, and its depth must not compound.
+func TestAnalyze_ContinuedWalkDoesNotCompound(t *testing.T) {
+	continued := []funcInfo{
+		{Name: "p.Outer", File: "p/o.go", LoopDepth: 1, LoopCount: 1,
+			CallsInLoop: []string{"p.inner"}, CallsInScalingLoop: []string{"p.inner"},
+			HasScalingLoopCalls: true, CallsOnLoopElement: []string{"p.inner"}},
+		{Name: "p.inner", File: "p/i.go", LoopDepth: 1, LoopCount: 1, LoopsOverParam: true},
+	}
+	if f, ok := findFinding(analyze(continued, nil, nil, nil), "p.Outer", "compounded"); ok {
+		t.Errorf("a continued walk must not compound; got %s", f.BigO)
+	}
+
+	// Both halves are required, and each control removes one of them.
+	//
+	// The callee loops over a parameter, but this caller passes it something else:
+	// nothing says the two loops walk the same data.
+	notPassed := []funcInfo{
+		{Name: "p.Outer", File: "p/o.go", LoopDepth: 1, LoopCount: 1,
+			CallsInLoop: []string{"p.inner"}, CallsInScalingLoop: []string{"p.inner"},
+			HasScalingLoopCalls: true},
+		{Name: "p.inner", File: "p/i.go", LoopDepth: 1, LoopCount: 1, LoopsOverParam: true},
+	}
+	if _, ok := findFinding(analyze(notPassed, nil, nil, nil), "p.Outer", "compounded"); !ok {
+		t.Errorf("a callee that is not handed the element must still compound")
+	}
+
+	// The element is passed, but the callee walks its own state, so the work really
+	// is one traversal per element.
+	ownState := []funcInfo{
+		{Name: "p.Outer", File: "p/o.go", LoopDepth: 1, LoopCount: 1,
+			CallsInLoop: []string{"p.inner"}, CallsInScalingLoop: []string{"p.inner"},
+			HasScalingLoopCalls: true, CallsOnLoopElement: []string{"p.inner"}},
+		{Name: "p.inner", File: "p/i.go", LoopDepth: 1, LoopCount: 1},
+	}
+	if _, ok := findFinding(analyze(ownState, nil, nil, nil), "p.Outer", "compounded"); !ok {
+		t.Errorf("a callee looping over its own state must still compound")
 	}
 }

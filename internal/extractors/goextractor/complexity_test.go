@@ -469,3 +469,167 @@ func Spread(files []string, more []string) int {
 		t.Errorf("spread append: scaling_loop_depth = %d, want 2", got)
 	}
 }
+
+// A for statement may carry an init and a post and no condition at all. The loop
+// analysis inspects the condition, and ast.Inspect panics on a nil node rather than
+// ignoring it, so this shape crashed extraction of any file containing one.
+func TestExtract_ScalingDepth_ForWithoutCondition(t *testing.T) {
+	ff := extractAll(t, map[string]string{
+		"pkg/x.go": `package pkg
+
+func Walk(items []int) int {
+	n := 0
+	for i := 0; ; i++ {
+		if i >= len(items) {
+			break
+		}
+		n += items[i]
+	}
+	return n
+}
+`,
+	})
+	if got := scalingLoopDepthOf(ff, "pkg.Walk"); got < 0 {
+		t.Fatalf("pkg.Walk was not extracted")
+	}
+}
+
+// --- cross-call hierarchy signals -------------------------------------------
+
+func strSliceOf(t *testing.T, ff []facts.Fact, name, key string) []string {
+	t.Helper()
+	for _, f := range ff {
+		if f.Kind == facts.KindSymbol && f.Name == name {
+			return strSliceProp(f, key)
+		}
+	}
+	t.Fatalf("no symbol %q", name)
+	return nil
+}
+
+// A call is only a continuation of the caller's walk when it is HANDED what the
+// caller is walking. Recording that is half the cross-call hierarchical rule; the
+// callee looping over its parameter is the other half, and neither means anything
+// alone.
+func TestExtract_CallsOnLoopElement(t *testing.T) {
+	ff := extractAll(t, map[string]string{
+		"pkg/x.go": `package pkg
+
+func Direct(items []string, other string) {
+	for _, it := range items {
+		takes(it)
+		takesOther(other)
+	}
+}
+
+func Derived(items []string) {
+	for _, it := range items {
+		norm := clean(it)
+		takes(norm)
+	}
+}
+
+func Receiver(items []*Box) {
+	for _, b := range items {
+		b.Open()
+	}
+}
+
+type Box struct{}
+
+func (b *Box) Open() {}
+
+func takes(s string)      {}
+func takesOther(s string) {}
+func clean(s string) string { return s }
+`,
+	})
+
+	got := strSliceOf(t, ff, "pkg.Direct", "calls_on_loop_element")
+	if !containsStr(got, "pkg.takes") {
+		t.Errorf("Direct: calls_on_loop_element = %v, want to contain pkg.takes", got)
+	}
+	// The control: a call inside the same loop that receives something else is not
+	// continuing the walk, and charging it as one would discount a real factor.
+	if containsStr(got, "pkg.takesOther") {
+		t.Errorf("Direct: a call handed an unrelated value must not count: %v", got)
+	}
+
+	// One indirection later is still the element: `norm` is what the loop is walking.
+	if got := strSliceOf(t, ff, "pkg.Derived", "calls_on_loop_element"); !containsStr(got, "pkg.takes") {
+		t.Errorf("Derived: calls_on_loop_element = %v, want to contain pkg.takes", got)
+	}
+	// A method called ON the element counts the same as one passed it. The target is
+	// recorded as this extractor resolves it — unqualified, because the receiver's
+	// type is not known here — so the analyzer only acts on it when the same
+	// unqualified name reaches it as a function. That is a limit of call resolution,
+	// not of this signal.
+	if got := strSliceOf(t, ff, "pkg.Receiver", "calls_on_loop_element"); !containsStr(got, "b.Open") {
+		t.Errorf("Receiver: calls_on_loop_element = %v, want to contain b.Open", got)
+	}
+}
+
+// loops_over_param is what makes a callee's loop a continuation rather than a
+// traversal of its own, whether it is written as a range or as an indexed for.
+func TestExtract_LoopsOverParam(t *testing.T) {
+	ff := extractAll(t, map[string]string{
+		"pkg/x.go": `package pkg
+
+var registry = []string{"a", "b"}
+
+func Ranged(items []string) int {
+	n := 0
+	for _, it := range items {
+		n += len(it)
+	}
+	return n
+}
+
+func Indexed(s string) int {
+	n := 0
+	for i := 0; i < len(s); i++ {
+		n += int(s[i])
+	}
+	return n
+}
+
+func OverGlobal(count int) int {
+	n := 0
+	for _, r := range registry {
+		n += len(r) + count
+	}
+	return n
+}
+
+type Holder struct{ items []string }
+
+func (h *Holder) Walk() int {
+	n := 0
+	for _, it := range h.items {
+		n += len(it)
+	}
+	return n
+}
+`,
+	})
+	loopsOverParam := func(name string) bool {
+		for _, f := range ff {
+			if f.Kind == facts.KindSymbol && f.Name == name {
+				v, _ := f.Props["loops_over_param"].(bool)
+				return v
+			}
+		}
+		t.Fatalf("no symbol %q", name)
+		return false
+	}
+	for _, name := range []string{"pkg.Ranged", "pkg.Indexed", "pkg.Holder.Walk"} {
+		if !loopsOverParam(name) {
+			t.Errorf("%s: loops_over_param = false, want true", name)
+		}
+	}
+	// The control: a loop over package state is not walking anything a caller
+	// handed in, so calling it from a loop really does multiply.
+	if loopsOverParam("pkg.OverGlobal") {
+		t.Errorf("pkg.OverGlobal: loops_over_param = true, want false")
+	}
+}

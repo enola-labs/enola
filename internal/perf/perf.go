@@ -43,6 +43,8 @@ const (
 	propLoopCount          = "loop_count"
 	propCallsInLoop        = "calls_in_loop"
 	propCallsInScalingLoop = "calls_in_scaling_loop" // extractor: in-loop calls inside an unbounded loop
+	propCallsOnLoopElement = "calls_on_loop_element" // extractor: in-loop calls handed the loop's element
+	propLoopsOverParam     = "loops_over_param"      // extractor: a scaling loop walks a parameter/receiver
 	propRecursiveSelf      = "recursive_self"
 	propPerformsIO         = "performs_io"        // extractor: method transitively performs network/file I/O
 	propScalingLoopDepth   = "scaling_loop_depth" // extractor: loop nesting counting only unbounded loops
@@ -85,9 +87,15 @@ type funcInfo struct {
 	// did not, scalingLoopCalls() falls back to CallsInLoop so behavior is unchanged.
 	CallsInScalingLoop  []string
 	HasScalingLoopCalls bool
-	Recursive           bool     // extractor flagged a direct self-call
-	PerformsIO          bool     // extractor flagged transitive network/file I/O
-	Calls               []string // all resolved call targets
+	// CallsOnLoopElement is the subset of in-loop calls handed an element of the
+	// caller's loop, and LoopsOverParam says this function's own loop walks something
+	// a caller passed it. Together they identify a call that CONTINUES the caller's
+	// traversal instead of starting one per element; see computeEffectiveDepths.
+	CallsOnLoopElement []string
+	LoopsOverParam     bool
+	Recursive          bool     // extractor flagged a direct self-call
+	PerformsIO         bool     // extractor flagged transitive network/file I/O
+	Calls              []string // all resolved call targets
 	// BoundedFanout marks a bounded background-job/mailer fan-out (see isBoundedFanout).
 	// It is precomputed by markNonScaling rather than derived where it is needed, because
 	// computeEffectiveDepths (per-name) and effectiveDepthOf (per-fact) must never disagree
@@ -466,6 +474,8 @@ func collect(store *facts.Store) (funcs []funcInfo, storage, routeHandlers, asso
 			CallsInLoop:         stringSliceProp(f.Props, propCallsInLoop),
 			CallsInScalingLoop:  stringSliceProp(f.Props, propCallsInScalingLoop),
 			HasScalingLoopCalls: hasScalingCalls,
+			CallsOnLoopElement:  stringSliceProp(f.Props, propCallsOnLoopElement),
+			LoopsOverParam:      boolProp(f.Props, propLoopsOverParam),
 			Recursive:           boolProp(f.Props, propRecursiveSelf),
 			PerformsIO:          boolProp(f.Props, propPerformsIO),
 			Calls:               calls,
@@ -1239,8 +1249,26 @@ func computeEffectiveDepths(funcs map[string]funcInfo) map[string]int {
 		// not by n, and compounding over the raw in-loop call list charged it as a
 		// factor of n anyway — which is how a walk over a three-element string literal
 		// came to report a cubic worst case.
+		onElement := map[string]bool{}
+		for _, c := range f.CallsOnLoopElement {
+			onElement[c] = true
+		}
 		for _, callee := range f.scalingLoopCalls() {
-			if _, known := funcs[callee]; !known {
+			g, known := funcs[callee]
+			if !known {
+				continue
+			}
+			// The cross-call form of the hierarchical rule the extractor applies
+			// within one body. `for _, x := range xs { g(x) }`, where g loops over
+			// what it was passed, visits each element of each x once across the whole
+			// nest: the callee is finishing this walk, not running one per element.
+			// Adding its depth reported the commonest shape in a traversal-heavy
+			// codebase — a loop that hands each element to a helper — as quadratic.
+			//
+			// Both halves are required. Passing the element proves nothing on its own
+			// (the callee may loop over a global), and looping over a parameter proves
+			// nothing when the caller passes something else.
+			if onElement[callee] && g.LoopsOverParam {
 				continue
 			}
 			if d := dfs(callee); d > best {
@@ -1284,7 +1312,7 @@ func computeEffectiveDepths(funcs map[string]funcInfo) map[string]int {
 // in-loop callees, so overloaded siblings (which share a name in `eff`) don't
 // borrow each other's depth. A loop-free fact (no calls_in_loop) yields its
 // loop_depth (0), so it can never produce a spurious compounded finding.
-func effectiveDepthOf(f funcInfo, eff map[string]int) int {
+func effectiveDepthOf(f funcInfo, eff map[string]int, byName map[string]funcInfo) int {
 	// Both non-scaling special cases must mirror computeEffectiveDepths, or the two paths
 	// disagree about the same function: a bounded fan-out that is an overload sibling would
 	// return its scaling depth here while the memo says 0. BoundedFanout is precomputed by
@@ -1292,14 +1320,26 @@ func effectiveDepthOf(f funcInfo, eff map[string]int) int {
 	if isEventLoop(f) || f.BoundedFanout {
 		return 0
 	}
+	onElement := map[string]bool{}
+	for _, c := range f.CallsOnLoopElement {
+		onElement[c] = true
+	}
 	best := 0
-	for _, callee := range f.CallsInLoop {
+	// The call list, the bounded-loop filter and the continued-walk skip all have to
+	// match computeEffectiveDepths. They are the same question asked twice — once
+	// memoised per name, once recomputed per fact so overloaded siblings do not
+	// borrow each other's depth — and a difference between them shows up as one
+	// function reported two ways.
+	for _, callee := range f.scalingLoopCalls() {
 		// Skip a self-call: eff[f.Name] already folds in f.LoopDepth, so adding
 		// f.LoopDepth again below would double-count a directly-recursive function up
 		// to O(n³). This mirrors the cycle-cut in computeEffectiveDepths, which
 		// effectiveDepthOf must repeat because it recomputes per-fact (not per-name).
 		if callee == f.Name {
 			continue
+		}
+		if onElement[callee] && byName[callee].LoopsOverParam {
+			continue // the callee is finishing this walk, not starting one per element
 		}
 		if d, ok := eff[callee]; ok && d > best {
 			best = d
@@ -1377,7 +1417,7 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 		// in-loop callees, rather than reading eff[f.Name]: with overloads, byName
 		// (and thus eff) collapses to one representative per name, which would
 		// otherwise make a loop-free overload borrow a looping sibling's depth.
-		effHere := effectiveDepthOf(f, eff)
+		effHere := effectiveDepthOf(f, eff, byName)
 
 		// A Compose input/frame event loop (`while (true) { awaitPointerEvent() }`)
 		// iterates on user input, not a data size, so its structural Big-O is
