@@ -27,6 +27,7 @@ import (
 
 	"github.com/enola-labs/enola/internal/explainers/queryloops"
 	"github.com/enola-labs/enola/internal/facts"
+	"github.com/enola-labs/enola/internal/pathglob"
 	"github.com/enola-labs/enola/pkg/mcputil"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -237,7 +238,7 @@ func isTestPath(p string) bool { return facts.IsTestPath(p) }
 //
 //	ENOLA_PERF_EXCLUDE=**/proto/**,src/legacy/**,**/*.pb.go,*.thrift.go
 //
-// Matched with facts.MatchGlob (the OSS engine's matcher) against the full path, then
+// Matched with pathglob.Match (the OSS engine's matcher) against the full path, then
 // against the basename. Supported forms:
 //
 //	vendor/**                 anchored directory prefix
@@ -257,22 +258,22 @@ func isIgnoredPath(p string) bool {
 	if len(globs) == 0 {
 		return false
 	}
-	// facts.MatchAnyGlob is the OSS engine's matcher — the one behind the ignore list
+	// pathglob.MatchAny is the OSS engine's matcher — the one behind the ignore list
 	// and the test globs — and it understands `**`. This used to call path.Match, which
 	// does NOT: `*` cannot cross a `/`, and `**` is simply read as `*`. So every `**`
 	// pattern this function's own doc advertised matched nothing at all, silently, with
 	// no error for the operator to notice.
-	if facts.MatchAnyGlob(p, globs) {
+	if pathglob.MatchAny(p, globs) {
 		return true
 	}
 	// Basename fallback, kept: it is what lets a bare `*.thrift.go` match at any depth.
-	// MatchGlob has no bare-basename form (it wants `**/*.thrift.go`), and the doc has
+	// pathglob.Match has no bare-basename form (it wants `**/*.thrift.go`), and the doc has
 	// promised the short spelling for as long as this has existed.
 	base := p
 	if i := strings.LastIndex(base, "/"); i >= 0 {
 		base = base[i+1:]
 	}
-	return facts.MatchAnyGlob(base, globs)
+	return pathglob.MatchAny(base, globs)
 }
 
 func ignoreGlobs() []string {

@@ -3,7 +3,7 @@ package config
 import (
 	"testing"
 
-	"github.com/enola-labs/enola/internal/facts"
+	"github.com/enola-labs/enola/internal/pathglob"
 )
 
 // TestScalaTestGlobsScopeToSourceSet pins the one decision that separates a correct
@@ -43,8 +43,8 @@ func TestScalaTestGlobsScopeToSourceSet(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		gotIgnored := facts.MatchAnyGlob(tc.path, cfg.Ignore)
-		gotTest := facts.MatchAnyGlob(tc.path, cfg.TestGlobs)
+		gotIgnored := pathglob.MatchAny(tc.path, cfg.Ignore)
+		gotTest := pathglob.MatchAny(tc.path, cfg.TestGlobs)
 
 		if gotIgnored != tc.isTest {
 			t.Errorf("Ignore: %s\n  got ignored=%v, want %v (%s)", tc.path, gotIgnored, tc.isTest, tc.why)
@@ -73,7 +73,7 @@ func TestMultiSegmentGlobPrefixIsConsecutive(t *testing.T) {
 		"a/src/test/scala/deep/Foo.scala",
 	}
 	for _, p := range adjacent {
-		if !facts.MatchAnyGlob(p, pattern) {
+		if !pathglob.MatchAny(p, pattern) {
 			t.Errorf("%s should match %v (src/test adjacent)", p, pattern)
 		}
 	}
@@ -85,7 +85,7 @@ func TestMultiSegmentGlobPrefixIsConsecutive(t *testing.T) {
 		"src/testing/Foo.scala",                   // segment is not `test`
 	}
 	for _, p := range separated {
-		if facts.MatchAnyGlob(p, pattern) {
+		if pathglob.MatchAny(p, pattern) {
 			t.Errorf("%s must NOT match %v (src/test not adjacent)", p, pattern)
 		}
 	}
@@ -110,7 +110,7 @@ func TestExistingSingleSegmentGlobsUnchanged(t *testing.T) {
 		{"src/System.Private.Xml/XmlQualifiedNameTest.cs", false, "c#: production XPath node-test type"},
 	}
 	for _, tc := range cases {
-		if got := facts.MatchAnyGlob(tc.path, cfg.Ignore); got != tc.want {
+		if got := pathglob.MatchAny(tc.path, cfg.Ignore); got != tc.want {
 			t.Errorf("%s: ignored = %v, want %v (%s)", tc.path, got, tc.want, tc.why)
 		}
 	}

@@ -1588,7 +1588,7 @@ func TestIsColdPath_CommandsIsNotColdByItself(t *testing.T) {
 // TestIsIgnoredPath_DoublestarGlobs is new/48. isIgnoredPath matched with path.Match,
 // which has NO `**` — `*` cannot cross `/`. So the doc's own advertised examples
 // silently matched nothing: an operator setting ENOLA_PERF_EXCLUDE to hide a generated
-// tree got zero exclusions and no error. It now uses facts.MatchGlob, the **-capable
+// tree got zero exclusions and no error. It now uses pathglob.Match, the **-capable
 // matcher the OSS engine has had since the ignore globs were directory-scoped.
 func TestIsIgnoredPath_DoublestarGlobs(t *testing.T) {
 	t.Setenv("ENOLA_PERF_EXCLUDE", "**/proto/**,src/legacy/**,**/*.pb.go,*.thrift.go")

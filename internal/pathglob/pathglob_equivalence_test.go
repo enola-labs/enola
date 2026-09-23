@@ -1,4 +1,4 @@
-package facts_test
+package pathglob_test
 
 import (
 	"io/fs"
@@ -7,11 +7,11 @@ import (
 	"testing"
 
 	"github.com/enola-labs/enola/internal/config"
-	"github.com/enola-labs/enola/internal/facts"
+	"github.com/enola-labs/enola/internal/pathglob"
 )
 
-// CompileGlobs exists to make the walk cheaper, not to decide anything differently.
-// If it ever answers differently from MatchGlob, files leave or enter the graph
+// Compile exists to make the walk cheaper, not to decide anything differently.
+// If it ever answers differently from Match, files leave or enter the graph
 // silently: the walk drops what it should keep, or the receipt names a different
 // pattern beside a skipped path than the one that actually matched.
 //
@@ -76,19 +76,19 @@ func TestCompileGlobs_AgreesWithMatchGlob(t *testing.T) {
 		if len(patterns) == 0 {
 			t.Fatalf("%s: no patterns, the comparison would be vacuous", name)
 		}
-		set := facts.CompileGlobs(patterns)
+		set := pathglob.Compile(patterns)
 		if set.Len() != len(patterns) {
 			t.Errorf("%s: compiled %d patterns, want %d", name, set.Len(), len(patterns))
 		}
 		for _, p := range paths {
-			wantPat, wantOK := facts.MatchGlob(p, patterns)
+			wantPat, wantOK := pathglob.Match(p, patterns)
 			gotPat, gotOK := set.Match(p)
 			if gotOK != wantOK || gotPat != wantPat {
-				t.Errorf("%s: Match(%q) = (%q, %v), MatchGlob = (%q, %v)",
+				t.Errorf("%s: Match(%q) = (%q, %v), Match = (%q, %v)",
 					name, p, gotPat, gotOK, wantPat, wantOK)
 			}
-			if got, want := set.MatchAny(p), facts.MatchAnyGlob(p, patterns); got != want {
-				t.Errorf("%s: MatchAny(%q) = %v, MatchAnyGlob = %v", name, p, got, want)
+			if got, want := set.MatchAny(p), pathglob.MatchAny(p, patterns); got != want {
+				t.Errorf("%s: MatchAny(%q) = %v, MatchAny = %v", name, p, got, want)
 			}
 		}
 	}
@@ -119,12 +119,12 @@ func TestCompileGlobs_AgreesPerForm(t *testing.T) {
 	paths := append(repoPaths(t), adversarialPaths...)
 	for _, form := range forms {
 		patterns := []string{form}
-		set := facts.CompileGlobs(patterns)
+		set := pathglob.Compile(patterns)
 		for _, p := range paths {
-			wantPat, wantOK := facts.MatchGlob(p, patterns)
+			wantPat, wantOK := pathglob.Match(p, patterns)
 			gotPat, gotOK := set.Match(p)
 			if gotOK != wantOK || gotPat != wantPat {
-				t.Errorf("form %q: Match(%q) = (%q, %v), MatchGlob = (%q, %v)",
+				t.Errorf("form %q: Match(%q) = (%q, %v), Match = (%q, %v)",
 					form, p, gotPat, gotOK, wantPat, wantOK)
 			}
 		}
@@ -142,7 +142,7 @@ func reversed(in []string) []string {
 func BenchmarkGlobMatching(b *testing.B) {
 	cfg := config.Default()
 	patterns := append(append([]string{}, cfg.Ignore...), cfg.TestGlobs...)
-	set := facts.CompileGlobs(patterns)
+	set := pathglob.Compile(patterns)
 	paths := []string{
 		"internal/extractors/tsextractor/ts.go",
 		"node_modules/react/index.js",
@@ -154,7 +154,7 @@ func BenchmarkGlobMatching(b *testing.B) {
 	b.Run("linear", func(b *testing.B) {
 		for b.Loop() {
 			for _, p := range paths {
-				facts.MatchGlob(p, patterns)
+				pathglob.Match(p, patterns)
 			}
 		}
 	})

@@ -1,4 +1,6 @@
-package facts
+// Package pathglob matches forward-slash repository paths against the ignore and
+// test glob lists the config declares.
+package pathglob
 
 import (
 	"github.com/enola-labs/enola/internal/factpath"
@@ -7,12 +9,12 @@ import (
 	"strings"
 )
 
-// matchAnyGlob reports whether a forward-slash path matches any of the patterns.
+// MatchAny reports whether a forward-slash path matches any of the patterns.
 // It is the single matcher behind both the ignore list and the test globs, so a
 // file the two lists disagree about cannot exist: an ignored file that stops being
 // a test necessarily stops being ignored.
-func MatchAnyGlob(relPath string, patterns []string) bool {
-	_, ok := MatchGlob(relPath, patterns)
+func MatchAny(relPath string, patterns []string) bool {
+	_, ok := Match(relPath, patterns)
 	return ok
 }
 
@@ -37,7 +39,7 @@ func MatchAnyGlob(relPath string, patterns []string) bool {
 // .NET needs the general form: the dominant solution layout puts a test project in
 // `MyApp.Tests/` beside `MyApp/` rather than under a `tests/` directory, so no
 // literal segment names it.
-func MatchGlob(relPath string, patterns []string) (string, bool) {
+func Match(relPath string, patterns []string) (string, bool) {
 	for _, pattern := range patterns {
 		// "<prefix>/**/<fileglob>". Handled first and exclusively: the branches
 		// below would match such a pattern only when exactly one directory sits
@@ -175,30 +177,30 @@ func containsSegmentRun(dirSegs, want []string) bool {
 
 // --- compiled matching ------------------------------------------------------
 //
-// MatchGlob analyses the SHAPE of every pattern on every call: which of the five
+// Match analyses the SHAPE of every pattern on every call: which of the five
 // forms it is, where its "/**/" sits, what its directory prefix splits into. None of
 // that depends on the path being tested, and the walk tests every pattern against
 // every entry it visits. With the bundled config that is 114 ignore patterns per
 // directory entry, 49 of which re-split the path before they look at the basename.
 //
-// CompileGlobs does the shape analysis once and GlobSet.Match reuses it, splitting
+// Compile does the shape analysis once and Set.Match reuses it, splitting
 // the path at most once per call and never concatenating a string to test a prefix.
-// The branch order is MatchGlob's, pattern for pattern, because the first matching
+// The branch order is Match's, pattern for pattern, because the first matching
 // pattern is what the receipt records beside a skipped path.
 //
-// A GlobSet is immutable once built and safe for concurrent use.
-type GlobSet struct {
+// A Set is immutable once built and safe for concurrent use.
+type Set struct {
 	pats []compiledGlob
 }
 
 // compiledGlob is one pattern with its shape resolved. The flags are not exclusive:
 // `**/build/**` is all three of segAnyDepth, dirPrefixed and starPrefixed, and Match
-// tries them in that order, which is the order MatchGlob tries them in.
+// tries them in that order, which is the order Match tries them in.
 type compiledGlob struct {
 	pattern string
 
 	// dirScoped is "<prefix>/**/<fileGlob>" where fileGlob names no directory. It is
-	// exclusive: MatchGlob `continue`s past the other branches for such a pattern.
+	// exclusive: Match `continue`s past the other branches for such a pattern.
 	dirScoped bool
 	dsPrefix  string   // the part before "/**/"
 	dsFile    string   // the basename glob after it
@@ -237,11 +239,11 @@ func literalTail(pattern string) string {
 	return pattern
 }
 
-// CompileGlobs resolves each pattern's shape once, for a list that will be matched
-// against many paths. Compiling a list to test one path is slower than MatchGlob, not
+// Compile resolves each pattern's shape once, for a list that will be matched
+// against many paths. Compiling a list to test one path is slower than Match, not
 // faster: this is for the walk, not for one-off questions.
-func CompileGlobs(patterns []string) *GlobSet {
-	g := &GlobSet{pats: make([]compiledGlob, 0, len(patterns))}
+func Compile(patterns []string) *Set {
+	g := &Set{pats: make([]compiledGlob, 0, len(patterns))}
 	for _, pattern := range patterns {
 		c := compiledGlob{pattern: pattern}
 		if i := strings.Index(pattern, "/**/"); i >= 0 {
@@ -282,7 +284,7 @@ func CompileGlobs(patterns []string) *GlobSet {
 }
 
 // Len reports how many patterns the set holds.
-func (g *GlobSet) Len() int {
+func (g *Set) Len() int {
 	if g == nil {
 		return 0
 	}
@@ -290,9 +292,9 @@ func (g *GlobSet) Len() int {
 }
 
 // Match returns the first pattern in the set that matches relPath, which must be in
-// fact-path (forward-slash) form. It is MatchGlob's answer, reached without redoing
+// fact-path (forward-slash) form. It is Match's answer, reached without redoing
 // the shape analysis.
-func (g *GlobSet) Match(relPath string) (string, bool) {
+func (g *Set) Match(relPath string) (string, bool) {
 	if g == nil || len(g.pats) == 0 {
 		return "", false
 	}
@@ -350,7 +352,7 @@ func (g *GlobSet) Match(relPath string) (string, bool) {
 }
 
 // MatchAny reports whether any pattern in the set matches relPath.
-func (g *GlobSet) MatchAny(relPath string) bool {
+func (g *Set) MatchAny(relPath string) bool {
 	_, ok := g.Match(relPath)
 	return ok
 }

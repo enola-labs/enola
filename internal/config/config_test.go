@@ -3,7 +3,7 @@ package config
 import (
 	"testing"
 
-	"github.com/enola-labs/enola/internal/facts"
+	"github.com/enola-labs/enola/internal/pathglob"
 )
 
 // TestDefaultIgnoresNestedBuildAndPods locks in the ignore-pattern fix: build
@@ -152,7 +152,7 @@ func TestPythonTestGlobsMatchRealPaths(t *testing.T) {
 		"conftest.py",
 	}
 	for _, p := range ignored {
-		if !facts.MatchAnyGlob(p, ignore) {
+		if !pathglob.MatchAny(p, ignore) {
 			t.Errorf("%q should be ignored but is not", p)
 		}
 	}
@@ -170,7 +170,7 @@ func TestPythonTestGlobsMatchRealPaths(t *testing.T) {
 		"cognee/testing/harness.py",
 	}
 	for _, p := range production {
-		if facts.MatchAnyGlob(p, ignore) {
+		if pathglob.MatchAny(p, ignore) {
 			t.Errorf("%q is production code but is ignored", p)
 		}
 	}
@@ -179,7 +179,7 @@ func TestPythonTestGlobsMatchRealPaths(t *testing.T) {
 func TestDefaultIgnores_NestedHeavyDirsExcluded(t *testing.T) {
 	cfg := Default()
 	match := func(path string) bool {
-		return facts.MatchAnyGlob(path, cfg.Ignore)
+		return pathglob.MatchAny(path, cfg.Ignore)
 	}
 	for _, p := range []string{
 		"ember_app/node_modules/lodash/index.js",

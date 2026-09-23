@@ -32,6 +32,7 @@ import (
 	"github.com/enola-labs/enola/internal/linkers/crossrepo"
 	"github.com/enola-labs/enola/internal/linkers/crossrepo/signals"
 	"github.com/enola-labs/enola/internal/linkers/vocab"
+	"github.com/enola-labs/enola/internal/pathglob"
 	"github.com/enola-labs/enola/internal/providers"
 	"github.com/enola-labs/enola/internal/renderers"
 	"github.com/enola-labs/enola/internal/version"
@@ -778,7 +779,7 @@ func (e *Engine) runProviders(ctx context.Context, absRepo string, preCount int,
 	in.Taken = func(kind, name string) bool { return owned[kind+"\x00"+name] }
 	// Compiled once for the whole provider run: this closure is asked about every
 	// file a provider considers, and the bundled config ships 114 ignore patterns.
-	provIgnore := facts.CompileGlobs(e.cfg.Ignore)
+	provIgnore := pathglob.Compile(e.cfg.Ignore)
 	in.Ignored = func(file string) bool { return provIgnore.MatchAny(filepath.ToSlash(file)) }
 	provFacts, records := providers.RunWith(ctx, in)
 	// The join against the extractor's relations runs once per provider over
@@ -987,10 +988,10 @@ func (e *Engine) walkRepo(repoPath string) (files, testFiles, allNames []string,
 		repoPath = resolved
 	}
 	// Both lists are asked about every entry the walk visits, so their shapes are
-	// resolved once here rather than re-derived per entry. facts.CompileGlobs answers
+	// resolved once here rather than re-derived per entry. pathglob.Compile answers
 	// exactly as matchGlob does; internal/facts proves the two agree.
-	ignoreSet := facts.CompileGlobs(e.cfg.Ignore)
-	testGlobSet := facts.CompileGlobs(e.cfg.TestGlobs)
+	ignoreSet := pathglob.Compile(e.cfg.Ignore)
+	testGlobSet := pathglob.Compile(e.cfg.TestGlobs)
 	err = filepath.WalkDir(repoPath, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -1070,11 +1071,11 @@ func (e *Engine) detect(ext extractors.Extractor, repoPath string, allNames []st
 // analyzer's ENOLA_PERF_EXCLUDE globs documented `**` support that path.Match cannot
 // give them; rather than grow a second glob implementation, it uses this one.
 func matchAnyGlob(relPath string, patterns []string) bool {
-	return facts.MatchAnyGlob(relPath, patterns)
+	return pathglob.MatchAny(relPath, patterns)
 }
 
 func matchGlob(relPath string, patterns []string) (string, bool) {
-	return facts.MatchGlob(relPath, patterns)
+	return pathglob.Match(relPath, patterns)
 }
 
 // isIgnored checks whether a path matches any ignore pattern. isDir is unused: the
