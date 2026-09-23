@@ -884,3 +884,87 @@ func TestDeclaringModuleResolvesAgainstKnownModules(t *testing.T) {
 		t.Errorf("a calls relation must not be read as the declaring module, got %q", got)
 	}
 }
+
+// --- the rigid corner's coupling gate ---------------------------------------
+
+// "Rigid" claims many packages depend on this one and cannot move without it
+// moving. That claim is false of a package a single package imports, and the gate
+// used to admit any package coupled at all, so a small concrete leaf was reported as
+// architectural pain beside a genuine hub.
+func TestIsOffMainSequence_RigidNeedsRealCoupling(t *testing.T) {
+	base := PackageMetric{ClassesInterfaces: 3, Distance: 1.0, Instability: 0, RigidCaFloor: 5}
+	cases := []struct {
+		name string
+		ca   int
+		want bool
+	}{
+		{"one dependent is not many", 1, false},
+		{"just under the floor", 4, false},
+		{"at the floor", 5, true},
+		{"a real hub", 83, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := base
+			m.Ca = tc.ca
+			if got := isOffMainSequence(m); got != tc.want {
+				t.Errorf("Ca=%d: isOffMainSequence = %v, want %v", tc.ca, got, tc.want)
+			}
+			// Classify must not disagree with the gate it shares.
+			if zone := Classify(m); (zone == ZonePain) != tc.want {
+				t.Errorf("Ca=%d: Classify = %q, off-main = %v", tc.ca, zone, tc.want)
+			}
+		})
+	}
+}
+
+// The other corner makes the opposite claim: almost nothing depends on this
+// abstraction. Gating it on Ca would delete the finding.
+func TestIsOffMainSequence_UselessCornerIgnoresTheFloor(t *testing.T) {
+	m := PackageMetric{ClassesInterfaces: 3, Distance: 0.8, Instability: 0.9, Abstractness: 0.9, Ca: 0, Ce: 2, RigidCaFloor: 5}
+	if !isOffMainSequence(m) {
+		t.Fatalf("an unstable abstraction nothing depends on must stay off-main")
+	}
+	if got := Classify(m); got != ZoneUseless {
+		t.Errorf("Classify = %q, want %q", got, ZoneUseless)
+	}
+}
+
+func TestRigidCaFloor_ScalesWithThePopulation(t *testing.T) {
+	sparse := make([]PackageMetric, 0, 20)
+	for range 20 {
+		sparse = append(sparse, PackageMetric{ClassesInterfaces: 4, Ca: 1})
+	}
+	if got := rigidCaFloor(sparse); got != minRigidCa {
+		t.Errorf("sparse population: floor = %d, want the %d minimum", got, minRigidCa)
+	}
+
+	// A population where being depended on by five packages is unremarkable.
+	dense := make([]PackageMetric, 0, 20)
+	for i := range 20 {
+		dense = append(dense, PackageMetric{ClassesInterfaces: 4, Ca: 10 + i})
+	}
+	if got := rigidCaFloor(dense); got <= minRigidCa {
+		t.Errorf("dense population: floor = %d, want above the %d minimum", got, minRigidCa)
+	}
+
+	// Packages with no types have no A/D and must not drag the percentile.
+	if got := rigidCaFloor(nil); got != minRigidCa {
+		t.Errorf("empty population: floor = %d, want %d", got, minRigidCa)
+	}
+}
+
+// compute stamps the floor on every metric, because a caller holding one metric
+// cannot recover a property of the population from it.
+func TestCompute_StampsTheRigidFloor(t *testing.T) {
+	pkgs := []pkgInput{{Name: "a", Classes: 3}, {Name: "b", Classes: 3}, {Name: "c", Classes: 3}}
+	got := compute(pkgs, []importEdge{{From: "a", To: "c"}, {From: "b", To: "c"}})
+	if len(got) != 3 {
+		t.Fatalf("got %d metrics", len(got))
+	}
+	for _, m := range got {
+		if m.RigidCaFloor != minRigidCa {
+			t.Errorf("%s: RigidCaFloor = %d, want %d", m.Package, m.RigidCaFloor, minRigidCa)
+		}
+	}
+}

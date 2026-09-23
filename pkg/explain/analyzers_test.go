@@ -17,7 +17,7 @@ func filledReport() *Report {
 		CodeHealth: []FindingGroup{{Label: "god classes (high fan-in)", Count: 25}},
 		PackageMetrics: &metrics.Summary{
 			Analyzed: 117, Typeless: 32, AvgI: 0.5, AvgD: 0.49,
-			OffMain: 9, PainfulDistance: 0.7, MinPainfulTypes: 3,
+			OffMain: 6, PainfulDistance: 0.7, MinPainfulTypes: 3, RigidCaFloor: 5,
 			MostCoupledPackage: "internal/facts", MostCoupledCa: 83,
 		},
 		DeadCode: &orphans.Summary{
@@ -97,7 +97,10 @@ func TestAbsentSummariesRenderNothing(t *testing.T) {
 // a change to painfulDistance moves the sentence too.
 func TestOffMainSequenceLineStatesItsThresholds(t *testing.T) {
 	out := filledReport().Render()
-	if !strings.Contains(out, "(D > 0.7, N >= 3, coupled") {
+	// The coupling bar belongs in the line because it varies with the repository:
+	// a reader who cannot see it cannot tell a count that dropped because the
+	// architecture improved from one that dropped because the bar moved.
+	if !strings.Contains(out, "(D > 0.7, N >= 3, rigid needs Ca >= 5)") {
 		t.Errorf("off-main-sequence line does not state its thresholds:\n%s", out)
 	}
 }

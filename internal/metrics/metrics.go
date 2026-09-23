@@ -86,6 +86,13 @@ type PackageMetric struct {
 	Abstractness      float64 `json:"abstractness"`       // A = interfaces / N
 	Distance          float64 `json:"distance"`           // D = |A + I - 1|
 	DataHolderRatio   float64 `json:"data_holder_ratio"`  // fraction of N that are data holders (data class/record/enum)
+
+	// RigidCaFloor is how depended-upon a package must be, IN THIS SNAPSHOT, for a
+	// rigid off-main-sequence finding to be worth reporting. It is a property of the
+	// population rather than of the package, stamped on every metric by compute so
+	// that isOffMainSequence and Classify stay pure predicates over one value. Not
+	// serialized: it is an internal threshold, not a measurement of this package.
+	RigidCaFloor int `json:"-"`
 }
 
 // compute is the pure metric core: given per-package type counts and the set of
@@ -141,6 +148,13 @@ func compute(pkgs []pkgInput, edges []importEdge) []PackageMetric {
 			Distance:          round3(distance),
 			DataHolderRatio:   round3(dataHolderRatio),
 		})
+	}
+	// The rigid gate is relative to this population, so it can only be known once
+	// every package is counted. Stamping it here keeps isOffMainSequence and Classify
+	// pure predicates that any caller holding a metric can apply.
+	floor := rigidCaFloor(out)
+	for i := range out {
+		out[i].RigidCaFloor = floor
 	}
 	return out
 }
@@ -600,16 +614,52 @@ func Register(srv *mcp.Server, store func() *facts.Store) {
 // are counted separately and kept OUT of the abstractness/distance averages,
 // where A and D are undefined for them. The most-depended-upon package is chosen
 // across the whole population, since Ca is meaningful regardless of N.
+// rigidCaFloor returns the afferent-coupling floor a rigid off-main-sequence
+// finding must clear in this population: the larger of minRigidCa and the 90th
+// percentile of Ca among packages with types.
+//
+// A fixed floor cannot serve both sizes of repository. Martin's "zone of pain" is
+// about a package MANY things depend on, and what counts as many is relative: Ca=5
+// is a hub in a forty-package service and background noise in a four-thousand-package
+// monorepo. Scaling to the population keeps the finding proportionate, and minRigidCa
+// stops a repository where almost nothing is coupled from reporting its handful of
+// two-dependent packages as architectural pain.
+func rigidCaFloor(results []PackageMetric) int {
+	cas := make([]int, 0, len(results))
+	for _, m := range results {
+		if m.ClassesInterfaces > 0 {
+			cas = append(cas, m.Ca)
+		}
+	}
+	if len(cas) == 0 {
+		return minRigidCa
+	}
+	sort.Ints(cas)
+	// Nearest-rank: the smallest value at or above the 90th percentile.
+	idx := (len(cas)*9 + 9) / 10
+	if idx >= len(cas) {
+		idx = len(cas) - 1
+	}
+	if p90 := cas[idx]; p90 > minRigidCa {
+		return p90
+	}
+	return minRigidCa
+}
+
 type aggregate struct {
 	analyzed    int // packages with N≥1 (the A/D metrics apply)
 	typeless    int // packages with N==0, excluded from the averages
 	avgI, avgD  float64
 	offMain     int
 	mostCoupled PackageMetric
+	// rigidCaFloor is the population's own bar for a rigid finding, reported so the
+	// summary line states the threshold it applied rather than a constant.
+	rigidCaFloor int
 }
 
 func aggregateMetrics(results []PackageMetric) aggregate {
 	var agg aggregate
+	agg.rigidCaFloor = rigidCaFloor(results)
 	var sumI, sumD float64
 	for _, m := range results {
 		if m.Ca > agg.mostCoupled.Ca {
@@ -678,7 +728,7 @@ func renderSummary(population, results []PackageMetric, excluded []string, pkg, 
 	b.WriteString(":\n")
 	fmt.Fprintf(&b, "  avg instability (I): %.2f\n", agg.avgI)
 	fmt.Fprintf(&b, "  avg distance (D):    %.2f\n", agg.avgD)
-	fmt.Fprintf(&b, "  off main sequence:   %d  (D > %.1f, N ≥ %d, coupled — rigid or useless)\n", agg.offMain, painfulDistance, minPainfulTypes)
+	fmt.Fprintf(&b, "  off main sequence:   %d  (D > %.1f, N ≥ %d, rigid needs Ca ≥ %d — rigid or useless)\n", agg.offMain, painfulDistance, minPainfulTypes, agg.rigidCaFloor)
 	if agg.mostCoupled.Package != "" {
 		fmt.Fprintf(&b, "  most depended-upon:  %s (Ca=%d)\n", agg.mostCoupled.Package, agg.mostCoupled.Ca)
 	}
@@ -814,11 +864,27 @@ func Classify(m PackageMetric) Zone {
 // Shared by the summary count, the --explain section, and the package-metrics
 // explainer so all three agree.
 func isOffMainSequence(m PackageMetric) bool {
-	return m.Distance > painfulDistance &&
-		m.ClassesInterfaces >= minPainfulTypes &&
-		m.Ca+m.Ce > 0 &&
-		m.DataHolderRatio < dataHolderReclassifyRatio
+	if m.Distance <= painfulDistance ||
+		m.ClassesInterfaces < minPainfulTypes ||
+		m.Ca+m.Ce == 0 ||
+		m.DataHolderRatio >= dataHolderReclassifyRatio {
+		return false
+	}
+	// The two corners are asymmetric, because their claims are. "Useless" says
+	// almost nothing depends on this abstraction, so a low Ca is the finding and
+	// gating on it would delete it. "Rigid" says many things depend on it and cannot
+	// move, which is false of a package one other package imports — and that was most
+	// of what this reported: on enola's own tree, four of nine rigid findings had
+	// Ca ≤ 3, each carrying the sentence "many packages depend on it".
+	if m.Instability >= 0.5 {
+		return true // useless corner; see Classify for the same split
+	}
+	return m.Ca >= m.RigidCaFloor
 }
+
+// minRigidCa is the floor under rigidCaFloor: below this, "many packages depend on
+// it" is not a sentence worth printing however small the repository.
+const minRigidCa = 5
 
 // Summary is the aggregate health block `enola --explain` prints. It is data
 // rather than a rendered string, so pkg/explain formats it beside every other
@@ -837,6 +903,10 @@ type Summary struct {
 	OffMain         int
 	PainfulDistance float64
 	MinPainfulTypes int
+	// RigidCaFloor is the afferent-coupling bar a rigid finding had to clear in this
+	// snapshot. It travels with the other two thresholds so the report states what it
+	// applied instead of restating a constant that is no longer the whole rule.
+	RigidCaFloor int
 	// MostCoupledPackage is empty when nothing is depended upon at all.
 	MostCoupledPackage string
 	MostCoupledCa      int
@@ -856,6 +926,7 @@ func Summarize(store *facts.Store) Summary {
 		OffMain:             agg.offMain,
 		PainfulDistance:     painfulDistance,
 		MinPainfulTypes:     minPainfulTypes,
+		RigidCaFloor:        agg.rigidCaFloor,
 		MostCoupledPackage:  agg.mostCoupled.Package,
 		MostCoupledCa:       agg.mostCoupled.Ca,
 	}

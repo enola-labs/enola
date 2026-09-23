@@ -71,7 +71,13 @@ func metricsToInsights(results []PackageMetric) []facts.Insight {
 		// D>0.7 and thus never reaches here. (Data/model packages that are mostly value
 		// carriers are concrete BY DESIGN and are filtered upstream by isOffMainSequence,
 		// so they never reach this list.)
-		kind := "rigid (zone of pain: stable + concrete — many packages depend on it, so it is hard to change without editing dependents)"
+		// The count, not the word "many". This sentence used to assert that many
+		// packages depended on every package it named, including ones a single package
+		// imported, which is how a small concrete leaf came to be reported as
+		// architectural pain. isOffMainSequence now gates the rigid corner on Ca, and
+		// the description states the number it cleared.
+		kind := fmt.Sprintf("rigid (zone of pain: stable + concrete — %s depend%s on it, so it is hard to change without editing dependents)",
+			pluralPackages(m.Ca), map[bool]string{true: "s", false: ""}[m.Ca == 1])
 		// "Extract interfaces" is Martin's classic remedy for statically-typed OO, but
 		// abstractness is only an approximation for dynamically-typed languages (Python
 		// duck typing / plain base classes yield A≈0), where a stable+concrete hub is
@@ -125,4 +131,13 @@ func metricsToInsights(results []PackageMetric) []facts.Insight {
 		})
 	}
 	return out
+}
+
+// pluralPackages renders an afferent-coupling count as the subject of the rigid
+// finding's sentence.
+func pluralPackages(ca int) string {
+	if ca == 1 {
+		return "1 package"
+	}
+	return fmt.Sprintf("%d packages", ca)
 }

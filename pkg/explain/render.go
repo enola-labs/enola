@@ -137,8 +137,10 @@ func (r *Report) Render() string {
 		fmt.Fprintf(&b, "  %-24s %6d%s\n", "packages analyzed", m.Analyzed, metrics.ExcludedNote(m.Typeless, m.ExcludedTestTooling))
 		fmt.Fprintf(&b, "  %-24s %6.2f\n", "avg instability (I)", m.AvgI)
 		fmt.Fprintf(&b, "  %-24s %6.2f\n", "avg distance (D)", m.AvgD)
-		fmt.Fprintf(&b, "  %-24s %6d  (D > %.1f, N >= %d, coupled — rigid or useless)\n",
-			"off main sequence", m.OffMain, m.PainfulDistance, m.MinPainfulTypes)
+		// State the rigid corner's coupling bar rather than "coupled": it is now the
+		// threshold that decides most of this count, and it varies with the repository.
+		fmt.Fprintf(&b, "  %-24s %6d  (D > %.1f, N >= %d, rigid needs Ca >= %d)\n",
+			"off main sequence", m.OffMain, m.PainfulDistance, m.MinPainfulTypes, m.RigidCaFloor)
 		if m.MostCoupledPackage != "" {
 			fmt.Fprintf(&b, "  %-24s %s (Ca=%d)\n", "most depended-upon", m.MostCoupledPackage, m.MostCoupledCa)
 		}
