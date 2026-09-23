@@ -48,11 +48,12 @@ func (s *Store) Freeze() {
 	relSeen := make(map[string][]Relation)
 
 	buf := make([]byte, 0, 1024)
+	keys := &propKeys{buf: make([]string, 0, 64)}
 	for i := range s.facts {
 		f := &s.facts[i]
 
 		if f.PropCount() > 0 {
-			if key, ok := appendProps(buf[:0], f.Props); ok {
+			if key, ok := appendProps(buf[:0], f.Props, keys); ok {
 				buf = key
 				if canon, hit := propSeen[string(key)]; hit {
 					f.Props = canon
@@ -116,22 +117,44 @@ const (
 	tagMap        = 'm'
 )
 
+// propKeys is the sorted-key scratch shared by every appendProps in one Freeze.
+//
+// The encoding has to visit a map's keys in a fixed order, and the obvious way to get
+// one is to collect and sort them — which allocated a slice for every fact encoded,
+// 1.89M of them on the graph this file's own comment measures, each immediately
+// discarded. Levels take the tail of one backing array and give it back on the way
+// out, so a nested map (the []map[string]any case) has its own run and the level
+// above keeps reading the keys it was given.
+type propKeys struct{ buf []string }
+
+func (s *propKeys) sorted(p map[string]any) []string {
+	base := len(s.buf)
+	for k := range p {
+		s.buf = append(s.buf, k)
+	}
+	keys := s.buf[base:]
+	sort.Strings(keys)
+	return keys
+}
+
+// release returns a level's run. An append by a deeper level may have moved the
+// backing array, which is harmless: the caller reads the run it was handed, and push
+// and release stay balanced by length either way.
+func (s *propKeys) release(keys []string) { s.buf = s.buf[:len(s.buf)-len(keys)] }
+
 // appendProps appends an injective encoding of p to buf, returning false if p holds a
 // value the encoder does not accept. A rejected fact keeps its own Props: leaving one
 // map unshared costs a few hundred bytes, whereas guessing at an unknown type risks
 // conflating two facts that differ.
-func appendProps(buf []byte, p map[string]any) ([]byte, bool) {
-	keys := make([]string, 0, len(p))
-	for k := range p {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
+func appendProps(buf []byte, p map[string]any, scratch *propKeys) ([]byte, bool) {
+	keys := scratch.sorted(p)
+	defer scratch.release(keys)
 
 	buf = appendUint(buf, uint64(len(p)))
 	for _, k := range keys {
 		buf = appendLenString(buf, k)
 		var ok bool
-		buf, ok = appendPropValue(buf, p[k])
+		buf, ok = appendPropValue(buf, p[k], scratch)
 		if !ok {
 			return buf, false
 		}
@@ -150,7 +173,7 @@ func appendRelations(buf []byte, rr []Relation) []byte {
 	return buf
 }
 
-func appendPropValue(buf []byte, v any) ([]byte, bool) {
+func appendPropValue(buf []byte, v any, scratch *propKeys) ([]byte, bool) {
 	switch t := v.(type) {
 	case nil:
 		return append(buf, tagNil), true
@@ -184,7 +207,7 @@ func appendPropValue(buf []byte, v any) ([]byte, bool) {
 		buf = appendUint(append(buf, tagAnySlice), uint64(len(t)))
 		for _, e := range t {
 			var ok bool
-			buf, ok = appendPropValue(buf, e)
+			buf, ok = appendPropValue(buf, e, scratch)
 			if !ok {
 				return buf, false
 			}
@@ -194,7 +217,7 @@ func appendPropValue(buf []byte, v any) ([]byte, bool) {
 		buf = appendUint(append(buf, tagMapSlice), uint64(len(t)))
 		for _, m := range t {
 			var ok bool
-			buf, ok = appendProps(buf, m)
+			buf, ok = appendProps(buf, m, scratch)
 			if !ok {
 				return buf, false
 			}
@@ -202,7 +225,7 @@ func appendPropValue(buf []byte, v any) ([]byte, bool) {
 		return buf, true
 	case map[string]any:
 		var ok bool
-		buf, ok = appendProps(append(buf, tagMap), t)
+		buf, ok = appendProps(append(buf, tagMap), t, scratch)
 		return buf, ok
 	default:
 		// An unrecognised type. Refusing is the only sound answer: two values this

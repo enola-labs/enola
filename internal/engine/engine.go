@@ -776,7 +776,10 @@ func (e *Engine) runProviders(ctx context.Context, absRepo string, preCount int,
 	in.Providers = e.cfg.Providers
 	in.RepoPath = absRepo
 	in.Taken = func(kind, name string) bool { return owned[kind+"\x00"+name] }
-	in.Ignored = func(file string) bool { return e.isIgnored(file, false) }
+	// Compiled once for the whole provider run: this closure is asked about every
+	// file a provider considers, and the bundled config ships 114 ignore patterns.
+	provIgnore := facts.CompileGlobs(e.cfg.Ignore)
+	in.Ignored = func(file string) bool { return provIgnore.MatchAny(filepath.ToSlash(file)) }
 	provFacts, records := providers.RunWith(ctx, in)
 	// The join against the extractor's relations runs once per provider over
 	// the facts that survived the merge, and stamps which tree they describe;
@@ -983,6 +986,11 @@ func (e *Engine) walkRepo(repoPath string) (files, testFiles, allNames []string,
 	if resolved, rerr := filepath.EvalSymlinks(repoPath); rerr == nil && resolved != repoPath {
 		repoPath = resolved
 	}
+	// Both lists are asked about every entry the walk visits, so their shapes are
+	// resolved once here rather than re-derived per entry. facts.CompileGlobs answers
+	// exactly as matchGlob does; internal/facts proves the two agree.
+	ignoreSet := facts.CompileGlobs(e.cfg.Ignore)
+	testGlobSet := facts.CompileGlobs(e.cfg.TestGlobs)
 	err = filepath.WalkDir(repoPath, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -1010,7 +1018,7 @@ func (e *Engine) walkRepo(repoPath string) (files, testFiles, allNames []string,
 		}
 
 		// Skip ignored paths
-		if pattern, ok := e.ignoreMatch(relPath); ok {
+		if pattern, ok := ignoreSet.Match(relPath); ok {
 			if d.IsDir() {
 				// enola's own output directory is not part of the source tree.
 				// Counting it would make dirs_skipped differ between a repo's
@@ -1024,7 +1032,7 @@ func (e *Engine) walkRepo(repoPath string) (files, testFiles, allNames []string,
 			// An ignored FILE that is a test/spec is not indexed as production
 			// source, but is collected for reference-only extraction so a
 			// production symbol exercised only by a test does not look dead.
-			if e.matchesTestGlob(relPath) {
+			if testGlobSet.MatchAny(relPath) {
 				testFiles = append(testFiles, relPath)
 			}
 			skips.count++
@@ -1057,11 +1065,6 @@ func (e *Engine) detect(ext extractors.Extractor, repoPath string, allNames []st
 	return ext.Detect(repoPath)
 }
 
-// matchesTestGlob reports whether a repo-relative path matches any TestGlob.
-func (e *Engine) matchesTestGlob(relPath string) bool {
-	return matchAnyGlob(filepath.ToSlash(relPath), e.cfg.TestGlobs)
-}
-
 // matchAnyGlob and matchGlob are thin aliases onto the shared matcher, which lives
 // in internal/facts alongside the other path predicates (IsTestPath). The performance
 // analyzer's ENOLA_PERF_EXCLUDE globs documented `**` support that path.Match cannot
@@ -1079,12 +1082,6 @@ func matchGlob(relPath string, patterns []string) (string, bool) {
 // pruned by the caller.
 func (e *Engine) isIgnored(relPath string, isDir bool) bool {
 	return matchAnyGlob(filepath.ToSlash(relPath), e.cfg.Ignore)
-}
-
-// ignoreMatch reports whether a path is ignored, and by which pattern. The walker
-// needs the pattern to record it in the receipt's skipped sample.
-func (e *Engine) ignoreMatch(relPath string) (string, bool) {
-	return matchGlob(filepath.ToSlash(relPath), e.cfg.Ignore)
 }
 
 // runExtractors detects applicable extractors and runs them. When cache is

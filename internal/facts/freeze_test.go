@@ -139,7 +139,7 @@ func TestFreeze_EncodingIsInjective(t *testing.T) {
 
 	seen := map[string]int{}
 	for i, m := range distinct {
-		key, ok := appendProps(nil, m)
+		key, ok := appendProps(nil, m, &propKeys{})
 		if !ok {
 			t.Fatalf("case %d (%v) was rejected by the encoder", i, m)
 		}
@@ -159,8 +159,8 @@ func TestFreeze_EqualValuesEncodeEqually(t *testing.T) {
 	b := map[string]any{"q": []string{"p", "r"}, "b": 2.5, "a": "x", "z": 1, "m": true}
 
 	for i := 0; i < 20; i++ { // repeat: Go randomizes map iteration order per range
-		ka, okA := appendProps(nil, a)
-		kb, okB := appendProps(nil, b)
+		ka, okA := appendProps(nil, a, &propKeys{})
+		kb, okB := appendProps(nil, b, &propKeys{})
 		if !okA || !okB {
 			t.Fatal("encoder rejected a supported value")
 		}
@@ -272,5 +272,82 @@ func TestFreeze_PreservesEveryFactValue(t *testing.T) {
 		if !reflect.DeepEqual(before[i], after[i]) {
 			t.Fatalf("fact %d changed value across Freeze:\nbefore %+v\nafter  %+v", i, before[i], after[i])
 		}
+	}
+}
+
+// The key scratch is shared by every level of the encoding, so a nested map takes its
+// run of the same backing array while the level above is still reading its own. If
+// the two ever overlapped, two facts with different nested props would encode to the
+// same key and Freeze would collapse them onto one map — a corruption that reads back
+// as perfectly valid facts, just not the ones extraction produced.
+func TestFreeze_NestedMapsDoNotShareKeyRuns(t *testing.T) {
+	nested := func(inner map[string]any) map[string]any {
+		return map[string]any{
+			"alpha": "a",
+			"omega": "z",
+			"rows":  []map[string]any{{"k": "v"}, inner},
+		}
+	}
+	s := NewStore()
+	s.Add(Fact{Kind: KindSymbol, Name: "one", Props: nested(map[string]any{"x": 1, "y": 2})})
+	s.Add(Fact{Kind: KindSymbol, Name: "two", Props: nested(map[string]any{"x": 1, "y": 3})})
+	s.Add(Fact{Kind: KindSymbol, Name: "three", Props: nested(map[string]any{"x": 1, "y": 2})})
+	s.Freeze()
+
+	ff := s.FactsRef()
+	get := func(name string) map[string]any {
+		for _, f := range ff {
+			if f.Name == name {
+				return f.Props
+			}
+		}
+		t.Fatalf("missing %s", name)
+		return nil
+	}
+	one, two, three := get("one"), get("two"), get("three")
+
+	// Equal shapes share; the one that differs deep inside a nested map must not.
+	if !sameMap(one, three) {
+		t.Errorf("identical nested props were not shared")
+	}
+	if sameMap(one, two) {
+		t.Errorf("props differing only inside a nested map were collapsed onto one")
+	}
+	// And the values themselves must survive.
+	for _, tc := range []struct {
+		name string
+		want int
+	}{{"one", 2}, {"two", 3}, {"three", 2}} {
+		rows, ok := get(tc.name)["rows"].([]map[string]any)
+		if !ok || len(rows) != 2 {
+			t.Fatalf("%s: rows = %v", tc.name, get(tc.name)["rows"])
+		}
+		if got := rows[1]["y"]; got != tc.want {
+			t.Errorf("%s: rows[1][y] = %v, want %d", tc.name, got, tc.want)
+		}
+	}
+}
+
+func BenchmarkFreeze(b *testing.B) {
+	// Shapes an extractor really repeats: a handful of distinct prop maps over many
+	// facts, which is what makes Freeze worth doing at all.
+	shapes := []map[string]any{
+		{"symbol_kind": "function", "language": "go", "exported": true, "cyclomatic": 1},
+		{"symbol_kind": "function", "language": "go", "exported": false, "cyclomatic": 4, "loop_depth": 2},
+		{"symbol_kind": "method", "language": "go", "receiver": "Engine", "exported": true},
+		{"source": "internal", "language": "go"},
+	}
+	for b.Loop() {
+		b.StopTimer()
+		s := NewStore()
+		for i := range 20000 {
+			props := make(map[string]any, len(shapes[i%len(shapes)]))
+			for k, v := range shapes[i%len(shapes)] {
+				props[k] = v
+			}
+			s.Add(Fact{Kind: KindSymbol, Name: "n" + itoa(i), Props: props})
+		}
+		b.StartTimer()
+		s.Freeze()
 	}
 }

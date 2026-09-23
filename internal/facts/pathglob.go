@@ -172,3 +172,215 @@ func containsSegmentRun(dirSegs, want []string) bool {
 	}
 	return false
 }
+
+// --- compiled matching ------------------------------------------------------
+//
+// MatchGlob analyses the SHAPE of every pattern on every call: which of the five
+// forms it is, where its "/**/" sits, what its directory prefix splits into. None of
+// that depends on the path being tested, and the walk tests every pattern against
+// every entry it visits. With the bundled config that is 114 ignore patterns per
+// directory entry, 49 of which re-split the path before they look at the basename.
+//
+// CompileGlobs does the shape analysis once and GlobSet.Match reuses it, splitting
+// the path at most once per call and never concatenating a string to test a prefix.
+// The branch order is MatchGlob's, pattern for pattern, because the first matching
+// pattern is what the receipt records beside a skipped path.
+//
+// A GlobSet is immutable once built and safe for concurrent use.
+type GlobSet struct {
+	pats []compiledGlob
+}
+
+// compiledGlob is one pattern with its shape resolved. The flags are not exclusive:
+// `**/build/**` is all three of segAnyDepth, dirPrefixed and starPrefixed, and Match
+// tries them in that order, which is the order MatchGlob tries them in.
+type compiledGlob struct {
+	pattern string
+
+	// dirScoped is "<prefix>/**/<fileGlob>" where fileGlob names no directory. It is
+	// exclusive: MatchGlob `continue`s past the other branches for such a pattern.
+	dirScoped bool
+	dsPrefix  string   // the part before "/**/"
+	dsFile    string   // the basename glob after it
+	dsWant    []string // dsPrefix after "**/", split into segments
+	dsNoSeg   bool     // dsPrefix was exactly "**/", which matches nothing
+	dsAnyDir  bool     // dsPrefix was exactly "**"
+	dsTail    string   // dsFile's literal tail; see literalTail
+
+	segAnyDepth bool // "**/<seg>/**" with seg naming one segment
+	seg         string
+
+	dirPrefixed bool // "<dir>/**"
+	dirPrefix   string
+
+	starPrefixed bool // "**/<sub>"
+	sub          string
+
+	// tail and subTail are literal tails (see literalTail) for the two branches
+	// that call filepath.Match: the whole pattern against the path, and `sub`
+	// against the basename and the path. They are computed from DIFFERENT strings
+	// and must not be shared — `**/x` has tail "/x" and subTail "x", and the path
+	// "x" matches it through the sub branch while failing the full-pattern tail.
+	tail    string
+	subTail string
+}
+
+// literalTail returns the part of a glob that any string it matches must end with:
+// whatever follows its last metacharacter, or the whole thing when it has none (a
+// pattern without metacharacters is compared for equality, so the subject ends with
+// it too). Conservative by construction, since a stray "]" or an escaped
+// metacharacter only shortens the tail, and a shorter tail rejects less.
+func literalTail(pattern string) string {
+	if i := strings.LastIndexAny(pattern, "*?[]"); i >= 0 {
+		return pattern[i+1:]
+	}
+	return pattern
+}
+
+// CompileGlobs resolves each pattern's shape once, for a list that will be matched
+// against many paths. Compiling a list to test one path is slower than MatchGlob, not
+// faster: this is for the walk, not for one-off questions.
+func CompileGlobs(patterns []string) *GlobSet {
+	g := &GlobSet{pats: make([]compiledGlob, 0, len(patterns))}
+	for _, pattern := range patterns {
+		c := compiledGlob{pattern: pattern}
+		if i := strings.Index(pattern, "/**/"); i >= 0 {
+			prefix, fileGlob := pattern[:i], pattern[i+len("/**/"):]
+			if !strings.Contains(fileGlob, "/") {
+				c.dirScoped, c.dsPrefix, c.dsFile = true, prefix, fileGlob
+				c.dsTail = literalTail(fileGlob)
+				switch seg, cut := strings.CutPrefix(prefix, "**/"); {
+				case cut && seg == "":
+					c.dsNoSeg = true
+				case cut:
+					c.dsWant = strings.Split(seg, "/")
+				case prefix == "**":
+					c.dsAnyDir = true
+				}
+				g.pats = append(g.pats, c)
+				continue
+			}
+		}
+		if strings.HasPrefix(pattern, "**/") && strings.HasSuffix(pattern, "/**") {
+			if seg := strings.TrimSuffix(strings.TrimPrefix(pattern, "**/"), "/**"); seg != "" && !strings.Contains(seg, "/") {
+				c.segAnyDepth, c.seg = true, seg
+			}
+		}
+		if strings.HasSuffix(pattern, "/**") {
+			c.dirPrefixed, c.dirPrefix = true, strings.TrimSuffix(pattern, "/**")
+		}
+		if strings.HasPrefix(pattern, "**/") {
+			c.starPrefixed, c.sub = true, strings.TrimPrefix(pattern, "**/")
+		}
+		c.tail = literalTail(pattern)
+		if c.starPrefixed {
+			c.subTail = literalTail(c.sub)
+		}
+		g.pats = append(g.pats, c)
+	}
+	return g
+}
+
+// Len reports how many patterns the set holds.
+func (g *GlobSet) Len() int {
+	if g == nil {
+		return 0
+	}
+	return len(g.pats)
+}
+
+// Match returns the first pattern in the set that matches relPath, which must be in
+// fact-path (forward-slash) form. It is MatchGlob's answer, reached without redoing
+// the shape analysis.
+func (g *GlobSet) Match(relPath string) (string, bool) {
+	if g == nil || len(g.pats) == 0 {
+		return "", false
+	}
+	// Split lazily: a set of nothing but basename globs never needs the segments, and
+	// a path is far more often rejected by every pattern than matched by one.
+	var segs []string
+	haveSegs := false
+	segments := func() []string {
+		if !haveSegs {
+			segs, haveSegs = strings.Split(relPath, "/"), true
+		}
+		return segs
+	}
+
+	for i := range g.pats {
+		c := &g.pats[i]
+		if c.dirScoped {
+			// The basename is a suffix of the path, so a basename glob that cannot
+			// end this path cannot match it — and rejecting here skips the split.
+			if c.dsTail != "" && !strings.HasSuffix(relPath, c.dsTail) {
+				continue
+			}
+			if c.matchDirScoped(relPath, segments()) {
+				return c.pattern, true
+			}
+			continue
+		}
+		if c.segAnyDepth {
+			for _, part := range segments() {
+				if matchSegment(c.seg, part) {
+					return c.pattern, true
+				}
+			}
+		}
+		if c.dirPrefixed && (relPath == c.dirPrefix || hasDirPrefix(relPath, c.dirPrefix)) {
+			return c.pattern, true
+		}
+		// Both remaining branches call filepath.Match against a subject that ends
+		// where relPath ends, so a suffix test rejects each without running it.
+		if c.tail == "" || strings.HasSuffix(relPath, c.tail) {
+			if m, err := factpath.Match(c.pattern, relPath); err == nil && m {
+				return c.pattern, true
+			}
+		}
+		if c.starPrefixed && (c.subTail == "" || strings.HasSuffix(relPath, c.subTail)) {
+			if m, err := factpath.Match(c.sub, filepath.Base(relPath)); err == nil && m {
+				return c.pattern, true
+			}
+			if m, err := factpath.Match(c.sub, relPath); err == nil && m {
+				return c.pattern, true
+			}
+		}
+	}
+	return "", false
+}
+
+// MatchAny reports whether any pattern in the set matches relPath.
+func (g *GlobSet) MatchAny(relPath string) bool {
+	_, ok := g.Match(relPath)
+	return ok
+}
+
+// matchDirScoped is matchDirScopedGlob over the pre-resolved prefix.
+func (c *compiledGlob) matchDirScoped(relPath string, segs []string) bool {
+	if len(segs) < 2 {
+		return false // no directory component, so no prefix can name an ancestor
+	}
+	dirSegs, base := segs[:len(segs)-1], segs[len(segs)-1]
+	if m, err := factpath.Match(c.dsFile, base); err != nil || !m {
+		return false
+	}
+	switch {
+	case c.dsNoSeg:
+		return false
+	case len(c.dsWant) == 1:
+		return slices.ContainsFunc(dirSegs, func(part string) bool {
+			return matchSegment(c.dsWant[0], part)
+		})
+	case len(c.dsWant) > 1:
+		return containsSegmentRun(dirSegs, c.dsWant)
+	case c.dsAnyDir:
+		return true
+	}
+	return hasDirPrefix(relPath, c.dsPrefix)
+}
+
+// hasDirPrefix reports whether dir names an ancestor directory of relPath. It is
+// `strings.HasPrefix(relPath, dir+"/")` without building dir+"/" on every call.
+func hasDirPrefix(relPath, dir string) bool {
+	return len(relPath) > len(dir) && relPath[len(dir)] == '/' && relPath[:len(dir)] == dir
+}
