@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/enola-labs/enola/internal/config"
+	"github.com/enola-labs/enola/internal/endpoint"
 	"github.com/enola-labs/enola/internal/facts"
 	"github.com/enola-labs/enola/internal/linkers/crossrepo/routeindex"
 	httpsignal "github.com/enola-labs/enola/internal/linkers/crossrepo/signals/http"
@@ -51,7 +52,7 @@ func exampleCallers(t *testing.T, store *facts.Store, cfg *config.Config, query 
 	if err != nil {
 		t.Fatal(err)
 	}
-	result := store.AnalyzeEndpoint(query, 25, httpsignal.NewCallerFinder(routeindex.New(linkVocab), store.All()))
+	result := endpoint.Analyze(store, query, 25, httpsignal.NewCallerFinder(routeindex.New(linkVocab), store.All()))
 	files := make([]string, 0, len(result.Callers))
 	for _, c := range result.Callers {
 		files = append(files, c.File)

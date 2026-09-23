@@ -494,3 +494,12 @@ func keyOrder(t *testing.T, v any) []string {
 	}
 	return keys
 }
+
+func sortedKeys(set map[string]bool) []string {
+	out := make([]string, 0, len(set))
+	for key := range set {
+		out = append(out, key)
+	}
+	sort.Strings(out)
+	return out
+}

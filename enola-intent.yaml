@@ -68,6 +68,9 @@ layers:
       - "internal/metrics/**"
       - "internal/orphans/**"
       - "internal/perf/**"
+      # Endpoint impact: a route -> controller -> model walk over the store. It is
+      # analysis, not fact model, so it sits here rather than in internal/facts.
+      - "internal/endpoint/**"
       - "internal/renderers/**"
       - "internal/diff/**"
       - "internal/conformance/**"

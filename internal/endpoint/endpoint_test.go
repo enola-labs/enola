@@ -1,34 +1,38 @@
-package facts
+package endpoint
 
-import "testing"
+import (
+	"testing"
 
-func endpointStore() *Store {
-	st := NewStore()
+	"github.com/enola-labs/enola/internal/facts"
+)
+
+func endpointStore() *facts.Store {
+	st := facts.NewStore()
 	st.Add(
-		Fact{Kind: KindRoute, Name: "/v1/candidates/:id", Props: map[string]any{
+		facts.Fact{Kind: facts.KindRoute, Name: "/v1/candidates/:id", Props: map[string]any{
 			"method": "GET", "handler": "api/v1/candidates#show"}},
-		Fact{Kind: KindRoute, Name: "/v1/candidates/:id", Props: map[string]any{
+		facts.Fact{Kind: facts.KindRoute, Name: "/v1/candidates/:id", Props: map[string]any{
 			"method": "DELETE", "handler": "api/v1/candidates#destroy"}},
 		// A mock and a client call site must never be followed: they describe
 		// what something else does, not what this app serves.
-		Fact{Kind: KindRoute, Name: "/v1/candidates/:id", Props: map[string]any{
+		facts.Fact{Kind: facts.KindRoute, Name: "/v1/candidates/:id", Props: map[string]any{
 			"method": "GET", "role": "client", "test_double": true}},
-		Fact{Kind: KindSymbol, Name: "Api::V1::CandidatesController", Props: map[string]any{
-			"symbol_kind": SymbolClass}, Relations: []Relation{{Kind: RelCalls, Target: "Candidate"}}},
-		Fact{Kind: KindSymbol, Name: "Candidate", Props: map[string]any{"symbol_kind": SymbolClass}},
-		Fact{Kind: KindStorage, Name: "Candidate", Props: map[string]any{
+		facts.Fact{Kind: facts.KindSymbol, Name: "Api::V1::CandidatesController", Props: map[string]any{
+			"symbol_kind": facts.SymbolClass}, Relations: []facts.Relation{{Kind: facts.RelCalls, Target: "Candidate"}}},
+		facts.Fact{Kind: facts.KindSymbol, Name: "Candidate", Props: map[string]any{"symbol_kind": facts.SymbolClass}},
+		facts.Fact{Kind: facts.KindStorage, Name: "Candidate", Props: map[string]any{
 			"storage_kind": "model", "table": "candidates"}},
-		Fact{Kind: KindStorage, Name: "JobApplication", Props: map[string]any{
+		facts.Fact{Kind: facts.KindStorage, Name: "JobApplication", Props: map[string]any{
 			"storage_kind": "model", "table": "job_applications"}},
-		Fact{Kind: KindAssociation, Name: "Candidate#job_applications", Props: map[string]any{
+		facts.Fact{Kind: facts.KindAssociation, Name: "Candidate#job_applications", Props: map[string]any{
 			"model": "Candidate", "target": "JobApplication", "macro": "has_many"}},
 	)
 	st.BuildGraph()
 	return st
 }
 
-func TestAnalyzeEndpointWalksTheWholeChain(t *testing.T) {
-	got := endpointStore().AnalyzeEndpoint("GET /v1/candidates", 25, nil)
+func TestAnalyzeWalksTheWholeChain(t *testing.T) {
+	got := Analyze(endpointStore(), "GET /v1/candidates", 25, nil)
 	if len(got.Routes) != 1 {
 		t.Fatalf("one server route matches GET, got %d: %+v", len(got.Routes), got.Routes)
 	}
@@ -49,15 +53,15 @@ func TestAnalyzeEndpointWalksTheWholeChain(t *testing.T) {
 	}
 }
 
-// TestAnalyzeEndpointNamesTheHopThatRanOut is the property that keeps an empty
+// TestAnalyzeNamesTheHopThatRanOut is the property that keeps an empty
 // answer honest: "touches nothing" and "I stopped here" are different claims.
-func TestAnalyzeEndpointNamesTheHopThatRanOut(t *testing.T) {
-	st := NewStore()
-	st.Add(Fact{Kind: KindRoute, Name: "/orphan", Props: map[string]any{
+func TestAnalyzeNamesTheHopThatRanOut(t *testing.T) {
+	st := facts.NewStore()
+	st.Add(facts.Fact{Kind: facts.KindRoute, Name: "/orphan", Props: map[string]any{
 		"method": "GET", "handler": "nowhere#show"}})
 	st.BuildGraph()
 
-	got := st.AnalyzeEndpoint("/orphan", 25, nil)
+	got := Analyze(st, "/orphan", 25, nil)
 	if len(got.Routes) != 1 {
 		t.Fatalf("the route itself is still reported: %+v", got)
 	}
@@ -65,16 +69,16 @@ func TestAnalyzeEndpointNamesTheHopThatRanOut(t *testing.T) {
 		t.Errorf("StoppedAt = %q, want controller", got.StoppedAt)
 	}
 
-	missing := st.AnalyzeEndpoint("/nothing-here", 25, nil)
+	missing := Analyze(st, "/nothing-here", 25, nil)
 	if missing.StoppedAt != "route" {
 		t.Errorf("StoppedAt = %q, want route", missing.StoppedAt)
 	}
 }
 
-// TestAnalyzeEndpointIgnoresMocksAndClients pins that the traversal answers
+// TestAnalyzeIgnoresMocksAndClients pins that the traversal answers
 // about what this application serves.
-func TestAnalyzeEndpointIgnoresMocksAndClients(t *testing.T) {
-	got := endpointStore().AnalyzeEndpoint("/v1/candidates", 25, nil)
+func TestAnalyzeIgnoresMocksAndClients(t *testing.T) {
+	got := Analyze(endpointStore(), "/v1/candidates", 25, nil)
 	for _, route := range got.Routes {
 		if route.Handler == "" {
 			t.Errorf("a mock or client route was followed: %+v", route)
@@ -85,26 +89,26 @@ func TestAnalyzeEndpointIgnoresMocksAndClients(t *testing.T) {
 	}
 }
 
-// TestAnalyzeEndpointFindsTheFrontendScreen covers the cross-stack half: the
+// TestAnalyzeFindsTheFrontendScreen covers the cross-stack half: the
 // models say what an endpoint writes, the callers say who notices. The screen
 // is matched on the Ember route NAME rather than its URL, because a route that
 // overrides its path — which is most of the interesting ones — has a name the
 // file layout mirrors and a URL it does not.
-func TestAnalyzeEndpointFindsTheFrontendScreen(t *testing.T) {
-	st := NewStore()
+func TestAnalyzeFindsTheFrontendScreen(t *testing.T) {
+	st := facts.NewStore()
 	st.Add(
-		Fact{Kind: KindRoute, Name: "/app/api/available_companies", Props: map[string]any{
+		facts.Fact{Kind: facts.KindRoute, Name: "/app/api/available_companies", Props: map[string]any{
 			"method": "GET", "handler": "app/api/available_companies#index"}},
-		Fact{Kind: KindRoute, Name: "/admin/company-linking", Props: map[string]any{
+		facts.Fact{Kind: facts.KindRoute, Name: "/admin/company-linking", Props: map[string]any{
 			"method": "GET", "framework": "ember", "ember_route_name": "admin-company-linking"}},
-		Fact{Kind: KindRoute, Name: "/app/api/available_companies",
+		facts.Fact{Kind: facts.KindRoute, Name: "/app/api/available_companies",
 			File:  "ember_app/app/routes/admin-company-linking.ts",
 			Props: map[string]any{"method": "GET", "role": "client"}},
-		Fact{Kind: KindRoute, Name: "/app/api/available_companies",
+		facts.Fact{Kind: facts.KindRoute, Name: "/app/api/available_companies",
 			File:  "ember_app/app/components/picker.ts",
 			Props: map[string]any{"method": "GET", "role": "client"}},
 		// A mock calling the same endpoint is not a caller that notices.
-		Fact{Kind: KindRoute, Name: "/app/api/available_companies",
+		facts.Fact{Kind: facts.KindRoute, Name: "/app/api/available_companies",
 			File:  "ember_app/app/mirage/routes.js",
 			Props: map[string]any{"method": "GET", "role": "client", "test_double": true}},
 	)
@@ -113,16 +117,16 @@ func TestAnalyzeEndpointFindsTheFrontendScreen(t *testing.T) {
 	// The finder hands back every client call site, the mock included: which calls reach
 	// the endpoint is the linker's question, tested with it; what this package owns is
 	// dropping the mock, one caller per file, and naming the screen.
-	allClients := func([]Fact) []Fact {
-		var out []Fact
-		for _, f := range st.ByKind(KindRoute) {
+	allClients := func([]facts.Fact) []facts.Fact {
+		var out []facts.Fact
+		for _, f := range st.ByKind(facts.KindRoute) {
 			if f.Props["role"] == "client" {
 				out = append(out, f)
 			}
 		}
 		return out
 	}
-	got := st.AnalyzeEndpoint("GET /app/api/available_companies", 25, allClients)
+	got := Analyze(st, "GET /app/api/available_companies", 25, allClients)
 	if len(got.Callers) != 2 {
 		t.Fatalf("two real callers and no mock, got %d: %+v", len(got.Callers), got.Callers)
 	}
@@ -139,16 +143,16 @@ func TestAnalyzeEndpointFindsTheFrontendScreen(t *testing.T) {
 	}
 }
 
-// TestAnalyzeEndpointAsksForCallersOfTheFollowedRoutes: callers are asked for exactly the
+// TestAnalyzeAsksForCallersOfTheFollowedRoutes: callers are asked for exactly the
 // routes the answer follows, after the verb filter, the sort and the cap, so a route the
 // answer does not report cannot contribute a caller.
-func TestAnalyzeEndpointAsksForCallersOfTheFollowedRoutes(t *testing.T) {
-	var asked []Fact
-	record := func(servers []Fact) []Fact {
+func TestAnalyzeAsksForCallersOfTheFollowedRoutes(t *testing.T) {
+	var asked []facts.Fact
+	record := func(servers []facts.Fact) []facts.Fact {
 		asked = servers
 		return nil
 	}
-	got := endpointStore().AnalyzeEndpoint("/v1/candidates", 1, record)
+	got := Analyze(endpointStore(), "/v1/candidates", 1, record)
 	if len(got.Routes) != 1 || len(asked) != 1 {
 		t.Fatalf("want one followed route and one asked about, got routes %+v, asked %+v", got.Routes, asked)
 	}
@@ -161,7 +165,7 @@ func TestAnalyzeEndpointAsksForCallersOfTheFollowedRoutes(t *testing.T) {
 		}
 	}
 
-	if none := endpointStore().AnalyzeEndpoint("GET /v1/candidates", 25, nil); len(none.Callers) != 0 {
+	if none := Analyze(endpointStore(), "GET /v1/candidates", 25, nil); len(none.Callers) != 0 {
 		t.Errorf("no finder must report no callers, got %+v", none.Callers)
 	}
 }

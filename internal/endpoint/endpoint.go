@@ -1,9 +1,14 @@
-package facts
+// Package endpoint answers what changing one HTTP endpoint reaches: the route, the
+// controller serving it, the models that controller reaches, their associations and
+// tables, and the client call sites that hit it.
+package endpoint
 
 import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/enola-labs/enola/internal/facts"
 )
 
 // modelSearchDepth is how far past the controller the walk looks for a model.
@@ -17,7 +22,7 @@ const modelSearchDepth = 3
 // that long is not an answer to a question about one endpoint.
 const maxAssociated = 25
 
-// EndpointImpact answers the question the route work was pitched on: what does
+// Impact answers the question the route work was pitched on: what does
 // changing this HTTP endpoint reach?
 //
 // Every link in the chain already exists as a fact — a route names a handler,
@@ -30,10 +35,10 @@ const maxAssociated = 25
 // controller does not resolve still reports the route; a controller that
 // reaches no model still reports the controller. Saying which hop ran out is
 // the difference between "this endpoint touches nothing" and "I stopped here".
-type EndpointImpact struct {
+type Impact struct {
 	Query string `json:"query"`
 	// Routes are the endpoints the query matched.
-	Routes []EndpointRoute `json:"routes"`
+	Routes []Route `json:"routes"`
 	// Controllers are the classes serving them, where the class resolves.
 	Controllers []string `json:"controllers,omitempty"`
 	// Models are the model classes those controllers reach.
@@ -48,15 +53,15 @@ type EndpointImpact struct {
 	// Callers are the client call sites that hit this endpoint, and the frontend
 	// screens they belong to. This is the other half of the blast radius: the
 	// models say what the endpoint writes, the callers say who notices.
-	Callers []EndpointCaller `json:"callers,omitempty"`
+	Callers []Caller `json:"callers,omitempty"`
 	// StoppedAt names the first hop that produced nothing, so an empty result
 	// reads as a boundary rather than as an answer.
 	StoppedAt string `json:"stopped_at,omitempty"`
 	Summary   string `json:"summary"`
 }
 
-// EndpointCaller is one place that calls the endpoint.
-type EndpointCaller struct {
+// Caller is one place that calls the endpoint.
+type Caller struct {
 	File string `json:"file"`
 	// Screen is the frontend route the calling file implements, when the file is
 	// a route module and a router declaration matches its name. Empty for a
@@ -64,8 +69,8 @@ type EndpointCaller struct {
 	Screen string `json:"screen,omitempty"`
 }
 
-// EndpointRoute is one matched endpoint.
-type EndpointRoute struct {
+// Route is one matched endpoint.
+type Route struct {
 	Method  string `json:"method,omitempty"`
 	Path    string `json:"path"`
 	Handler string `json:"handler,omitempty"`
@@ -91,17 +96,17 @@ func ControllerKey(name string) string {
 // extensions, base-relative paths, verbs, parameter matching, service aliases) live
 // above this package. This package used to re-derive the join by path suffix, and a
 // call the linker had linked could then be missing from an endpoint's callers.
-type CallerFinder func(servers []Fact) []Fact
+type CallerFinder func(servers []facts.Fact) []facts.Fact
 
-// AnalyzeEndpoint walks route -> controller -> model -> associated model.
+// Analyze walks route -> controller -> model -> associated model.
 // maxRoutes caps how many matched endpoints are followed, because a bare prefix
 // can match hundreds and following all of them answers a different question.
 // findCallers answers who calls the followed routes; nil reports no callers.
-func (s *Store) AnalyzeEndpoint(query string, maxRoutes int, findCallers CallerFinder) EndpointImpact {
+func Analyze(s *facts.Store, query string, maxRoutes int, findCallers CallerFinder) Impact {
 	if maxRoutes <= 0 {
 		maxRoutes = 25
 	}
-	out := EndpointImpact{Query: query}
+	out := Impact{Query: query}
 	needle := strings.ToLower(strings.TrimSpace(query))
 	method := ""
 	if verb, rest, found := strings.Cut(needle, " "); found {
@@ -114,11 +119,11 @@ func (s *Store) AnalyzeEndpoint(query string, maxRoutes int, findCallers CallerF
 	// Each matched route keeps its fact, so the callers are asked for exactly the routes
 	// the answer follows, after sorting and the cap.
 	type matchedRoute struct {
-		route EndpointRoute
-		fact  Fact
+		route Route
+		fact  facts.Fact
 	}
 	var matched []matchedRoute
-	for _, fact := range s.ByKind(KindRoute) {
+	for _, fact := range s.ByKind(facts.KindRoute) {
 		if role, _ := fact.PropAny("role").(string); role == "client" {
 			continue
 		}
@@ -134,7 +139,7 @@ func (s *Store) AnalyzeEndpoint(query string, maxRoutes int, findCallers CallerF
 		}
 		handler, _ := fact.PropAny("handler").(string)
 		matched = append(matched, matchedRoute{
-			route: EndpointRoute{Method: factMethod, Path: fact.Name, Handler: handler, File: fact.File},
+			route: Route{Method: factMethod, Path: fact.Name, Handler: handler, File: fact.File},
 			fact:  fact,
 		})
 	}
@@ -153,7 +158,7 @@ func (s *Store) AnalyzeEndpoint(query string, maxRoutes int, findCallers CallerF
 	if len(matched) > maxRoutes {
 		matched, truncated = matched[:maxRoutes], true
 	}
-	servers := make([]Fact, 0, len(matched))
+	servers := make([]facts.Fact, 0, len(matched))
 	for _, m := range matched {
 		out.Routes = append(out.Routes, m.route)
 		servers = append(servers, m.fact)
@@ -164,13 +169,13 @@ func (s *Store) AnalyzeEndpoint(query string, maxRoutes int, findCallers CallerF
 	// resolve reported no callers at all — an answer about the frontend withheld
 	// because of a gap in the backend walk.
 	if findCallers != nil {
-		out.Callers = s.callersFrom(findCallers(servers))
+		out.Callers = callersFrom(s, findCallers(servers))
 	}
 
 	// Hop 2: the controller class each handler names.
 	classes := map[string]string{}
-	for _, fact := range s.ByKind(KindSymbol) {
-		if kind, _ := fact.PropAny("symbol_kind").(string); kind != SymbolClass {
+	for _, fact := range s.ByKind(facts.KindSymbol) {
+		if kind, _ := fact.PropAny("symbol_kind").(string); kind != facts.SymbolClass {
 			continue
 		}
 		classes[ControllerKey(fact.Name)] = fact.Name
@@ -195,7 +200,7 @@ func (s *Store) AnalyzeEndpoint(query string, maxRoutes int, findCallers CallerF
 	// Hop 3: the model classes those controllers reach. A model is a class with
 	// a storage fact, which is how this graph already says "this is a model".
 	models := map[string]string{}
-	for _, fact := range s.ByKind(KindStorage) {
+	for _, fact := range s.ByKind(facts.KindStorage) {
 		if kind, _ := fact.PropAny("storage_kind").(string); kind != "model" {
 			continue
 		}
@@ -217,15 +222,15 @@ func (s *Store) AnalyzeEndpoint(query string, maxRoutes int, findCallers CallerF
 		seen := map[string]bool{}
 		frontier := append([]string{}, out.Controllers...)
 		for _, controller := range out.Controllers {
-			frontier = append(frontier, s.methodsOf(controller)...)
+			frontier = append(frontier, methodsOf(s, controller)...)
 		}
 		// A JSONAPI controller declares no methods at all — it inherits them — and
 		// its model is reached through the resource class. The class is located by
 		// name and only used when it exists, so this is a convention checked
 		// rather than a convention assumed.
-		for _, resource := range s.resourceClassesFor(out.Routes, classes) {
+		for _, resource := range resourceClassesFor(s, out.Routes, classes) {
 			frontier = append(frontier, resource)
-			frontier = append(frontier, s.methodsOf(resource)...)
+			frontier = append(frontier, methodsOf(s, resource)...)
 		}
 		for depth := 0; depth < modelSearchDepth && len(frontier) > 0; depth++ {
 			var next []string
@@ -254,7 +259,7 @@ func (s *Store) AnalyzeEndpoint(query string, maxRoutes int, findCallers CallerF
 
 	// Hop 4: one association hop out from those models.
 	associated := map[string]bool{}
-	for _, fact := range s.ByKind(KindAssociation) {
+	for _, fact := range s.ByKind(facts.KindAssociation) {
 		owner, _ := fact.PropAny("model").(string)
 		target, _ := fact.PropAny("target").(string)
 		if target == "" || !reached[owner] || reached[target] {
@@ -292,14 +297,14 @@ func (s *Store) AnalyzeEndpoint(query string, maxRoutes int, findCallers CallerF
 // matching says. The screen comes from the Ember convention that app/routes/<name>
 // implements the route declared as <name>, checked against the router's own
 // declarations rather than assumed.
-func (s *Store) callersFrom(clients []Fact) []EndpointCaller {
+func callersFrom(s *facts.Store, clients []facts.Fact) []Caller {
 	// Ember route NAMES are what the file layout mirrors, and they are not the
 	// URL: `this.route("admin-company-linking", { path: "/admin/company-linking" })`
 	// is served at one and implemented at app/routes/admin-company-linking.
 	// Matching on the path's last segment finds nothing whenever a route
 	// overrides its path, which is most of the interesting ones.
 	screens := map[string]string{}
-	for _, fact := range s.ByKind(KindRoute) {
+	for _, fact := range s.ByKind(facts.KindRoute) {
 		if framework, _ := fact.PropAny("framework").(string); framework != "ember" {
 			continue
 		}
@@ -311,7 +316,7 @@ func (s *Store) callersFrom(clients []Fact) []EndpointCaller {
 	}
 
 	seen := map[string]bool{}
-	var out []EndpointCaller
+	var out []Caller
 	for _, fact := range clients {
 		if role, _ := fact.PropAny("role").(string); role != "client" {
 			continue
@@ -323,7 +328,7 @@ func (s *Store) callersFrom(clients []Fact) []EndpointCaller {
 			continue
 		}
 		seen[fact.File] = true
-		out = append(out, EndpointCaller{File: fact.File, Screen: screenFor(fact.File, screens)})
+		out = append(out, Caller{File: fact.File, Screen: screenFor(fact.File, screens)})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].File < out[j].File })
 	return out
@@ -346,7 +351,7 @@ func screenFor(file string, screens map[string]string) string {
 	return ""
 }
 
-func summarize(out EndpointImpact, truncated bool) string {
+func summarize(out Impact, truncated bool) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%d route(s)", len(out.Routes))
 	if truncated {
@@ -394,7 +399,7 @@ func summarize(out EndpointImpact, truncated bool) string {
 
 // resourceClassesFor finds the JSONAPI resource class a route's declaration
 // implies, when such a class exists.
-func (s *Store) resourceClassesFor(routes []EndpointRoute, classes map[string]string) []string {
+func resourceClassesFor(s *facts.Store, routes []Route, classes map[string]string) []string {
 	found := map[string]bool{}
 	for _, route := range routes {
 		controller, _, ok := strings.Cut(route.Handler, "#")
@@ -433,10 +438,10 @@ func singularCandidates(plural string) []string {
 }
 
 // methodsOf returns the `Class#method` symbols declared on a class.
-func (s *Store) methodsOf(class string) []string {
+func methodsOf(s *facts.Store, class string) []string {
 	prefix := class + "#"
 	var out []string
-	for _, fact := range s.ByKind(KindSymbol) {
+	for _, fact := range s.ByKind(facts.KindSymbol) {
 		if strings.HasPrefix(fact.Name, prefix) {
 			out = append(out, fact.Name)
 		}

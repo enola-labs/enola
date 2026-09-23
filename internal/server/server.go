@@ -17,6 +17,7 @@ import (
 	"github.com/enola-labs/enola/internal/conformance"
 	"github.com/enola-labs/enola/internal/diff"
 	"github.com/enola-labs/enola/internal/drift"
+	"github.com/enola-labs/enola/internal/endpoint"
 	"github.com/enola-labs/enola/internal/engine"
 	"github.com/enola-labs/enola/internal/explainers/constraints"
 	"github.com/enola-labs/enola/internal/facts"
@@ -1646,7 +1647,7 @@ func (s *Server) registerTools() {
 		if err != nil {
 			return errorResult(fmt.Sprintf("invalid linking vocabulary: %v", err)), nil, nil
 		}
-		return jsonResult(store.AnalyzeEndpoint(args.Endpoint, args.MaxRoutes,
+		return jsonResult(endpoint.Analyze(store, args.Endpoint, args.MaxRoutes,
 			httpsignal.NewCallerFinder(routeindex.New(linkVocab), store.All())))
 	})
 

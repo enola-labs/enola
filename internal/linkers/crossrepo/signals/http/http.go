@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/enola-labs/enola/internal/endpoint"
 	"github.com/enola-labs/enola/internal/facts"
 	"github.com/enola-labs/enola/internal/linkers/crossrepo/routeindex"
 	"github.com/enola-labs/enola/internal/linkers/vocab"
@@ -544,9 +545,9 @@ func CallersOf(m *routeindex.Matcher, all []facts.Fact, servers []facts.Fact) []
 	return out
 }
 
-// NewCallerFinder answers facts.Store.AnalyzeEndpoint's caller question with CallersOf
+// NewCallerFinder answers endpoint.Analyze's caller question with CallersOf
 // over a snapshot's facts.
-func NewCallerFinder(m *routeindex.Matcher, all []facts.Fact) facts.CallerFinder {
+func NewCallerFinder(m *routeindex.Matcher, all []facts.Fact) endpoint.CallerFinder {
 	return func(servers []facts.Fact) []facts.Fact { return CallersOf(m, all, servers) }
 }
 

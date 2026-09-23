@@ -12,12 +12,13 @@ import "strings"
 // without the caller thinking about it, and CloneProps returns a new map rather than
 // touching the receiver.
 //
-// SetProp and DelProp take a POINTER receiver, and every prop write in the tree goes
-// through them rather than indexing Props directly. That is what makes the field's
-// representation changeable: it is a map[string]any today, one per fact, and on a
-// kernel-sized graph that is 1.89M maps whose per-map overhead dwarfs the two or three
-// values each one holds. A representation that does not pay that overhead is only
-// reachable if writes have a single seam to move behind.
+// SetProp and DelProp take a POINTER receiver so they can create the map on a fact
+// that has none. They are NOT the only way props get written: most extractors build a
+// local map[string]any (a literal, or props["k"] = v) and assign it to Props whole, and
+// Store.SetPropRange writes in bulk. The field is a map[string]any today, one per fact,
+// and on a kernel-sized graph that is 1.89M maps whose per-map overhead dwarfs the two
+// or three values each one holds. Changing that representation means moving every one
+// of those write paths, not just these two methods.
 //
 // If that move happens, note what the WRITERS must preserve and the map gives for
 // free: a Fact copied by value shares its props with the original. Three call sites
@@ -70,8 +71,8 @@ func (f Fact) PropAny(key string) any {
 // SetProp stores a prop, creating the map when the fact has none. Assigning into a nil
 // map panics, so every caller used to have to know whether its fact had props yet.
 //
-// The receiver is a POINTER, unlike the readers above, and that is load-bearing: this
-// has to be the one place a prop is written. See the note at the top of this file.
+// The receiver is a POINTER, unlike the readers above, because it may replace a nil
+// map. It is not the only write path; see the note at the top of this file.
 func (f *Fact) SetProp(key string, val any) {
 	if f.Props == nil {
 		f.Props = make(map[string]any, 4)
