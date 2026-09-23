@@ -1234,7 +1234,12 @@ func computeEffectiveDepths(funcs map[string]funcInfo) map[string]int {
 		}
 		visiting[name] = true
 		best := 0
-		for _, callee := range f.CallsInLoop {
+		// Only a call inside a loop that SCALES compounds. Calling a looping function
+		// from a loop with a constant trip count multiplies the work by that constant,
+		// not by n, and compounding over the raw in-loop call list charged it as a
+		// factor of n anyway — which is how a walk over a three-element string literal
+		// came to report a cubic worst case.
+		for _, callee := range f.scalingLoopCalls() {
 			if _, known := funcs[callee]; !known {
 				continue
 			}

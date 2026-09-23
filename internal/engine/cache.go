@@ -20,6 +20,23 @@ import (
 	"github.com/enola-labs/enola/pkg/plugin"
 )
 
+// v272: Go's scaling_loop_depth gains three bounded-loop rules, so nesting that
+// cannot grow with the input stops entering the Big-O exponent. A loop with a literal
+// trip count (`for d := 1; d <= 10; d++`), a loop that advances an index its enclosing
+// loop already advances (one scan of a buffer, not a scan per byte), and a range over
+// a collection rebuilt from a composite literal on every iteration (at most a couple
+// of entries, however large the graph) are each proved constant syntactically.
+//
+// The hierarchical discount that already existed had to be split from the new ones:
+// reaching a collection through an outer loop's variable cancels a factor only when
+// the outer loop contributed one, so under a constant outer it must not apply, or a
+// plain walk reads as O(1). A hierarchical loop still passes the hierarchy on.
+//
+// Measured on this repository: a hand-labeled sample of 35 of its 250 high findings
+// held 3 that scale and 32 that count a loop which cannot
+// (internal/perf/testdata/high_tier_labels.jsonl). Every rule fails closed, so a loop
+// it cannot prove bounded keeps counting.
+//
 // v271: Go records a function used as a VALUE. analyzeBody walked bodies for CallExpr
 // only, so `"go.mod": readGoMod` in a dispatch table and `rc.lock(f, "yarn.lock",
 // yarnLock)` as an argument left the callee with no incoming edge; package-level var
@@ -2434,7 +2451,7 @@ import (
 // v270: SvelteKit reads literal kit.alias fallbacks before generated config exists,
 // keeps tsconfig paths authoritative, and classifies $app/$env/$service-worker imports
 // as framework-provided rather than unresolved third-party dependencies.
-const cacheVersion = "v271"
+const cacheVersion = "v272"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

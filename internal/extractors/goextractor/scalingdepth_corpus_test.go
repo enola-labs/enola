@@ -83,7 +83,7 @@ func Summary(byDepth map[int][]string) int {
 	},
 	{
 		name: "fixed-bound/const-by-local-map", from: "internal/facts.Graph.buildImpactSummary",
-		fn: "pkg.Tally", want: 1, today: 2,
+		fn: "pkg.Tally", want: 1, today: 1,
 		src: `package pkg
 
 func Tally(byDepth map[int][]string) int {
@@ -103,7 +103,7 @@ func Tally(byDepth map[int][]string) int {
 	},
 	{
 		name: "fixed-bound/local-literal-slice", from: "internal/facts.Graph.GovernedByPage",
-		fn: "pkg.Forms", want: 1, today: 2,
+		fn: "pkg.Forms", want: 1, today: 1,
 		src: `package pkg
 
 import "strings"
@@ -168,7 +168,7 @@ func Caller(children []string) string { return ChildOfKind(children, "a", "b") }
 	},
 	{
 		name: "monotonic-index", from: "internal/extractors/dotnetextractor.stripLiterals",
-		fn: "pkg.Strip", want: 1, today: 2,
+		fn: "pkg.Strip", want: 1, today: 1,
 		src: `package pkg
 
 func Strip(s string) string {

@@ -325,3 +325,147 @@ func Count(items []int) int {
 		t.Fatalf("calls_in_scaling_loop must be absent when calls_in_loop is")
 	}
 }
+
+// --- bounded-loop rules -----------------------------------------------------
+
+// A loop whose trip count is written into it adds no factor of n, however large the
+// constant: `for d := 1; d <= 10; d++` runs ten times on an empty graph and ten times
+// on the Linux kernel.
+func TestExtract_ScalingDepth_ConstBoundedLoop(t *testing.T) {
+	ff := extractAll(t, map[string]string{
+		"pkg/x.go": `package pkg
+
+func ConstOuter(rows [][]int) int {
+	n := 0
+	for d := 0; d < 10; d++ {
+		for _, r := range rows {
+			n += len(r)
+		}
+	}
+	return n
+}
+
+func VariableOuter(rows [][]int, limit int) int {
+	n := 0
+	for d := 0; d < limit; d++ {
+		for _, r := range rows {
+			n += len(r)
+		}
+	}
+	return n
+}
+`,
+	})
+	if got := scalingLoopDepthOf(ff, "pkg.ConstOuter"); got != 1 {
+		t.Errorf("const-bounded outer: scaling_loop_depth = %d, want 1", got)
+	}
+	// The control: a bound that is a variable is not a bound at all.
+	if got := scalingLoopDepthOf(ff, "pkg.VariableOuter"); got != 2 {
+		t.Errorf("variable outer: scaling_loop_depth = %d, want 2", got)
+	}
+}
+
+// A loop that advances an index its enclosing loop is already advancing is part of
+// one scan, not a scan per element.
+func TestExtract_ScalingDepth_SharedCursorLoop(t *testing.T) {
+	ff := extractAll(t, map[string]string{
+		"pkg/x.go": `package pkg
+
+func Scan(b []byte) int {
+	n := 0
+	for i := 0; i < len(b); i++ {
+		if b[i] != '"' {
+			continue
+		}
+		i++
+		for i < len(b) && b[i] != '"' {
+			n++
+			i++
+		}
+	}
+	return n
+}
+
+func PerElement(b []byte, other []byte) int {
+	n := 0
+	for i := 0; i < len(b); i++ {
+		for j := 0; j < len(other); j++ {
+			n++
+		}
+	}
+	return n
+}
+`,
+	})
+	if got := scalingLoopDepthOf(ff, "pkg.Scan"); got != 1 {
+		t.Errorf("shared cursor: scaling_loop_depth = %d, want 1", got)
+	}
+	// The control: an inner loop with its own index over its own collection is the
+	// quadratic shape the rule must leave alone.
+	if got := scalingLoopDepthOf(ff, "pkg.PerElement"); got != 2 {
+		t.Errorf("independent inner index: scaling_loop_depth = %d, want 2", got)
+	}
+}
+
+// A collection rebuilt from a literal on every iteration holds a fixed number of
+// entries; one initialised outside the loop that fills it is an accumulator and grows
+// with whatever the loop walks. The two look alike and must not be treated alike.
+func TestExtract_ScalingDepth_LocalLiteralCollection(t *testing.T) {
+	ff := extractAll(t, map[string]string{
+		"pkg/x.go": `package pkg
+
+import "strings"
+
+func Forms(files []string, repo string) int {
+	n := 0
+	for _, f := range files {
+		forms := []string{f}
+		if t := strings.TrimPrefix(f, repo); t != f {
+			forms = append(forms, t)
+		}
+		for _, form := range forms {
+			n += len(form)
+		}
+	}
+	return n
+}
+
+func Accumulate(files []string) int {
+	seen := []string{}
+	for _, f := range files {
+		seen = append(seen, f)
+	}
+	n := 0
+	for _, f := range files {
+		for _, s := range seen {
+			n += len(s)
+		}
+	}
+	return n
+}
+
+func Spread(files []string, more []string) int {
+	batch := []string{"first"}
+	batch = append(batch, more...)
+	n := 0
+	for _, f := range files {
+		for _, b := range batch {
+			n += len(b) + len(f)
+		}
+	}
+	return n
+}
+`,
+	})
+	if got := scalingLoopDepthOf(ff, "pkg.Forms"); got != 1 {
+		t.Errorf("literal rebuilt per iteration: scaling_loop_depth = %d, want 1", got)
+	}
+	// Controls. An accumulator grows with the input even though it starts as a
+	// literal, and a spread append adds however many the spread collection holds.
+	if got := scalingLoopDepthOf(ff, "pkg.Accumulate"); got != 2 {
+		t.Errorf("accumulator: scaling_loop_depth = %d, want 2", got)
+	}
+	if got := scalingLoopDepthOf(ff, "pkg.Spread"); got != 2 {
+		t.Errorf("spread append: scaling_loop_depth = %d, want 2", got)
+	}
+}
