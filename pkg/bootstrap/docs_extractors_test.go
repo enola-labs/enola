@@ -83,7 +83,7 @@ var extractorDocs = map[string]extractorDoc{
 
 // languageTables are the surfaces that promise a complete list of what enola parses.
 var languageTables = []struct{ Doc, Section, Why string }{
-	{"README.md", "Supported languages",
+	{"docs/LANGUAGES.md", "",
 		"the first place anyone checks whether their stack is covered"},
 	{"ARCHITECTURE.md", "Supported languages",
 		"the parser used and the exact files that trigger detection"},
