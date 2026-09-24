@@ -27,7 +27,7 @@ Start with the page closest to what you need:
 | Page | Covers |
 |---|---|
 | [GATING.md](GATING.md) | What a verdict contains, where the check runs, and exactly what can fail a build: policies, confidence floors and scope. |
-| [EXPLAINERS.md](EXPLAINERS.md) | The nineteen structural checks, confidence levels, and how before/after comparison isolates findings introduced by a change. |
+| [EXPLAINERS.md](EXPLAINERS.md) | The twenty-two structural checks (explainers), confidence levels, and how before/after comparison isolates findings introduced by a change. |
 | [SNAPSHOTS.md](SNAPSHOTS.md) | Why Enola computes addressable snapshots instead of maintaining one continuously updated graph. |
 | [HISTORY.md](HISTORY.md) | `log`, `show`, `diff`, `blame`, `gc` and `history` - the recorded timeline of a repository's architecture, what it costs to keep, and how to share it across machines. |
 
