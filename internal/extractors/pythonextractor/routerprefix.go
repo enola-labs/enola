@@ -60,6 +60,10 @@ type pyRouterGroup struct {
 	// filled into prefix by resolveRouterPrefixes. nil for a literal or none.
 	prefixParts []pyPathPart
 	isApp       bool // FastAPI() application root — mounts things, is never mounted
+	// ctor is the constructor's bare name when it is not APIRouter/FastAPI
+	// itself (`UserAPIRouter(prefix=...)`); composeRouterPrefixes keeps the group
+	// only if the repository declares that class as an APIRouter subclass.
+	ctor string
 }
 
 // pyRouterMount is one `parent.include_router(child, prefix=...)` call.
@@ -230,7 +234,8 @@ func (c *routerCollector) handleAssign(node *sitter.Node) {
 		return
 	}
 	ctor := lastComponent(pyText(fn, c.src))
-	if ctor != "APIRouter" && ctor != "FastAPI" {
+	subclass := ctor != "APIRouter" && ctor != "FastAPI" && strings.HasSuffix(ctor, "Router")
+	if ctor != "APIRouter" && ctor != "FastAPI" && !subclass {
 		if c.funcScope == "" && selfAttr == "" {
 			if target, name := c.childRouterKey(right); target != "" {
 				c.topo.aliases = append(c.topo.aliases, pyRouterAlias{key: c.module + "." + pyText(left, c.src), target: target, targetName: name})
@@ -247,12 +252,16 @@ func (c *routerCollector) handleAssign(node *sitter.Node) {
 	}
 	c.varKeys[c.funcScope+"\x00"+varName] = key
 	prefix, parts := c.prefixArg(right)
-	c.topo.groups = append(c.topo.groups, pyRouterGroup{
+	g := pyRouterGroup{
 		key:         key,
 		prefix:      prefix,
 		prefixParts: parts,
 		isApp:       ctor == "FastAPI",
-	})
+	}
+	if subclass {
+		g.ctor = ctor
+	}
+	c.topo.groups = append(c.topo.groups, g)
 }
 
 // handleCall records `parent.include_router(child, prefix="/p")`.
@@ -423,8 +432,12 @@ func composeRouterPrefixes(allFacts []facts.Fact, topos []pyRouterTopology, file
 	groups := map[string]*pyRouterGroup{}
 	byName := map[string][]string{}
 	var routes []pyRouteRef
+	routerClasses := apiRouterSubclasses(allFacts)
 	for i := range topos {
 		for _, g := range topos[i].groups {
+			if g.ctor != "" && !routerClasses[g.ctor] {
+				continue // named like a router, but not one
+			}
 			gg := g
 			if prev, ok := groups[g.key]; ok {
 				// Two routers keyed alike (several APIRouter()s in one factory).
@@ -601,6 +614,42 @@ func composeRouterPrefixes(allFacts []facts.Fact, topos []pyRouterTopology, file
 			nf.Props = f.CloneProps()
 			nf.SetProp("path", nf.Name)
 			out = append(out, nf)
+		}
+	}
+	return out
+}
+
+// apiRouterSubclasses returns the bare names of the classes the repository
+// declares as APIRouter subclasses, directly or through another subclass
+// (`class UserAPIRouter(APIRouter)`). Matched by bare name, as the walker
+// records a base as written.
+func apiRouterSubclasses(allFacts []facts.Fact) map[string]bool {
+	bases := map[string][]string{}
+	for i := range allFacts {
+		f := &allFacts[i]
+		if f.Kind != facts.KindSymbol || f.PropAny("symbol_kind") != facts.SymbolClass {
+			continue
+		}
+		for _, r := range f.Relations {
+			if r.Kind == facts.RelImplements {
+				bases[lastComponent(f.Name)] = append(bases[lastComponent(f.Name)], lastComponent(r.Target))
+			}
+		}
+	}
+	out := map[string]bool{}
+	for changed := true; changed; {
+		changed = false
+		for class, bs := range bases {
+			if out[class] {
+				continue
+			}
+			for _, b := range bs {
+				if b == "APIRouter" || out[b] {
+					out[class] = true
+					changed = true
+					break
+				}
+			}
 		}
 	}
 	return out

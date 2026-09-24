@@ -204,6 +204,10 @@ type pyWalker struct {
 	// variable it was registered on, for composeRouterPrefixes.
 	routeRefs []pyRouteRef
 
+	// emittingPending is set while emitRouteAt emits a route whose path is not
+	// known yet, whose "" is a placeholder rather than the router root.
+	emittingPending bool
+
 	// pathRefs holds the routes emitted with a computed path (a constant, an
 	// f-string), for resolveRoutePaths.
 	pathRefs []pyPathRef
@@ -667,8 +671,8 @@ func (w *pyWalker) relativeImportTarget(moduleName, importedName string) string 
 	if base == "." {
 		return importedName // imported from the root package: nothing to qualify it with
 	}
-	if w.fileModules[base+"/"+importedName] {
-		return base + "/" + importedName
+	if sub := base + "/" + importedName; w.fileModules[sub] || w.fileModules[sub+"/__init__"] {
+		return sub // a submodule, or a subpackage (`from . import explore`)
 	}
 	return base + "." + importedName
 }
@@ -857,6 +861,11 @@ func (w *pyWalker) emitDecoratorRoute(c *sitter.Node, text string, pending *[]in
 // Each new fact's index is appended to *pending so handleDecoratedDefinition can
 // back-fill the handler prop once the function name is known.
 func (w *pyWalker) emitRoutes(path string, methods []string, framework string, line int, pending *[]int) {
+	if path == "" && !w.emittingPending {
+		// `@router.get("")` is the router's own root; composing a mount prefix
+		// onto it yields the same as onto "/", and unmounted it must not be "".
+		path = "/"
+	}
 	for _, method := range methods {
 		w.out = append(w.out, facts.Fact{
 			Kind: facts.KindRoute,

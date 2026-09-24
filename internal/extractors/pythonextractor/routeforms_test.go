@@ -242,15 +242,23 @@ router = APIRouter()
 @router.post("/")
 async def update_admin(): ...
 `,
+		"app/explore/__init__.py": `from fastapi import APIRouter
+router = APIRouter(prefix="/explore")
+
+@router.get("/groups")
+def groups(): ...
+`,
 		"app/main.py": `from fastapi import FastAPI
+from . import explore
 from .internal import admin
 from .routers import items
 app = FastAPI()
 app.include_router(items.router)
 app.include_router(admin.router, prefix="/admin")
+app.include_router(explore.router, prefix="/api")
 `,
 	})
-	wantRoutes(t, ff, "GET /items/{item_id}", "POST /admin")
+	wantRoutes(t, ff, "GET /items/{item_id}", "POST /admin", "GET /api/explore/groups")
 	found := false
 	for _, f := range ff {
 		for _, r := range f.Relations {
@@ -353,4 +361,53 @@ app.include_router(account.router, prefix="/account")
 `,
 	})
 	wantRoutes(t, ff, "POST /account/user")
+}
+
+// A router built from an APIRouter subclass is a router: its constructor prefix
+// and its mount apply. A class merely named like one is not.
+func TestRouteForms_APIRouterSubclass(t *testing.T) {
+	ff := extractRepo(t, map[string]string{
+		"app/__init__.py": "",
+		"app/base.py": `from fastapi import APIRouter
+class UserAPIRouter(APIRouter): ...
+class AdminAPIRouter(UserAPIRouter): ...
+class MessageRouter: ...
+`,
+		"app/groups.py": `from app.base import AdminAPIRouter
+router = AdminAPIRouter(prefix="/groups")
+
+@router.get("")
+def list_groups(): ...
+`,
+		"app/bus.py": `from app.base import MessageRouter
+router = MessageRouter(prefix="/bus")
+
+@router.get("/ping")
+def ping(): ...
+`,
+		"app/main.py": `from fastapi import FastAPI
+from app import groups, bus
+app = FastAPI()
+app.include_router(groups.router, prefix="/api")
+app.include_router(bus.router, prefix="/api")
+`,
+	})
+	wantRoutes(t, ff, "GET /api/groups", "GET /ping")
+}
+
+// `@router.get("")` on a router whose mount is unknown is the router's root.
+func TestRouteForms_EmptyPathIsRoot(t *testing.T) {
+	ff := extractRepo(t, map[string]string{
+		"app/api.py": `from fastapi import APIRouter
+ROOT = ""
+router = APIRouter()
+
+@router.get("")
+def a(): ...
+
+@router.post(ROOT)
+def b(): ...
+`,
+	})
+	wantRoutes(t, ff, "GET /", "POST /")
 }

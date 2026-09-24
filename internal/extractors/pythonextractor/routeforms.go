@@ -268,7 +268,9 @@ func keywordArg(call *sitter.Node, src []byte, want string) *sitter.Node {
 func (w *pyWalker) emitRouteAt(parts []pyPathPart, methods []string, framework string, websocket bool, receiver string, line int, pending *[]int) {
 	path, literal := literalPath(parts)
 	before := len(w.out)
+	w.emittingPending = !literal
 	w.emitRoutes(path, methods, framework, line, pending)
+	w.emittingPending = false
 	for i := before; i < len(w.out); i++ {
 		if websocket {
 			w.out[i].SetProp("protocol", "websocket")
@@ -669,6 +671,9 @@ func resolveRoutePaths(allFacts []facts.Fact, topos []pyRouterTopology, r *const
 			path, ok := r.renderPath(pr.parts, dir)
 			if !ok {
 				continue
+			}
+			if path == "" {
+				path = "/" // the router's own root, as for a literal ""
 			}
 			f := &allFacts[pr.idx]
 			f.Name = path

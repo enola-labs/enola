@@ -29,7 +29,10 @@ import (
 // `API + "/v1"`) resolves through the v274 constant table, including a class
 // default read through a module-level instance (`settings = Settings()`). A
 // module-level `router = build_router()` names its factory's router, and a
-// router defined in a package __init__ resolves from `pkg.router`.
+// router defined in a package __init__ resolves from `pkg.router`, including one
+// imported relatively (`from . import explore`). A router built from an APIRouter
+// subclass the repository declares (`UserAPIRouter(prefix=...)`) is a router. A
+// route registered on "" is named "/" when no mount composes onto it.
 // v274: Python reads the FastAPI/Starlette route forms beyond `@router.get("/x")`:
 // @x.api_route (verbs from methods=, default GET), @x.websocket/@x.websocket_route
 // (GET, protocol=websocket), add_api_route/add_route and their websocket forms
