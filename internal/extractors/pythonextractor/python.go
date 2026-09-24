@@ -98,13 +98,19 @@ func (e *PythonExtractor) Extract(ctx context.Context, repoPath string, files []
 		idx     *pySymbolIndex
 		pending []pyImplCall
 	}
+	// The file modules are known before any file is walked, and a relative import
+	// needs them to tell `from .internal import admin` (a submodule) from a symbol.
+	walkModules := make(map[string]bool, len(pyFiles))
+	for _, f := range pyFiles {
+		walkModules[strings.TrimSuffix(f, ".py")] = true
+	}
 	perFileFacts := parallel.MapFiles(ctx, pyFiles, func(relFile string) pyFileResult {
 		src, err := os.ReadFile(filepath.Join(repoPath, relFile))
 		if err != nil {
 			log.Printf("[python-extractor] error reading %s: %v", relFile, err)
 			return pyFileResult{}
 		}
-		ff, topo, local, pending := extractFileIndexed(src, relFile, isDjango, isFlask, isFastAPI)
+		ff, topo, local, pending := extractFileIndexed(src, relFile, isDjango, isFlask, isFastAPI, walkModules)
 		// gRPC client call sites (stub.Method(...)) become client-role routes,
 		// detected from source since generated *_pb2_grpc.py stubs are typically
 		// not committed. Names are provisional (short service) and resolved to the
@@ -186,10 +192,13 @@ func (e *PythonExtractor) Extract(ctx context.Context, repoPath string, files []
 	// a route reads as the path it actually serves ("/api/v1/cognify") rather than
 	// the leaf its router declares ("/"). Runs last among the index-based passes:
 	// it rebuilds the fact slice, invalidating the route indices it consumes.
-	// Resolve routes registered on a computed path (`@router.get(HEALTH_PATH)`)
-	// against the repository's string constants first, so composing joins the
-	// mount prefix onto the real leaf. Unresolved ones are dropped after composing.
-	resolveRoutePaths(allFacts, routerTopos, fileModules, pkgDirs, buildReexportIndex(allFacts, pkgDirs))
+	// Resolve routes registered on a computed path (`@router.get(HEALTH_PATH)`) and
+	// computed router prefixes (`prefix=settings.API_V1_STR`) against the
+	// repository's string constants first, so composing joins real prefixes onto
+	// real leaves. Unresolved routes are dropped after composing.
+	consts := newConstResolver(routerTopos, fileModules, pkgDirs, buildReexportIndex(allFacts, pkgDirs))
+	resolveRoutePaths(allFacts, routerTopos, consts)
+	resolveRouterPrefixes(routerTopos, consts)
 	allFacts = composeRouterPrefixes(allFacts, routerTopos, fileModules, pkgDirs)
 	allFacts = dropPendingRoutes(allFacts)
 

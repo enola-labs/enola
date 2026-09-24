@@ -497,119 +497,203 @@ func collectConsts(root *sitter.Node, src []byte, module string, importMap map[s
 		}
 	}
 	walk(root, "")
+
+	// `settings = Settings()` at module level: settings.API_V1_STR reads the
+	// class's declared default. That is the value a settings object carries unless
+	// the environment overrides it, and the one the source states.
+	byClass := map[string][]pyConst{}
+	for _, c := range out {
+		if mod, _, ok := splitConstKey(c.key); ok && strings.HasPrefix(mod, module+".") {
+			byClass[mod] = append(byClass[mod], c)
+		}
+	}
+	for i := uint(0); i < uint(root.ChildCount()); i++ {
+		stmt := root.Child(i)
+		if kindOf(stmt) == "expression_statement" && stmt.NamedChildCount() == 1 {
+			stmt = stmt.NamedChild(0)
+		}
+		if kindOf(stmt) != "assignment" {
+			continue
+		}
+		left, right := stmt.ChildByFieldName("left"), stmt.ChildByFieldName("right")
+		if left == nil || right == nil || kindOf(left) != "identifier" || kindOf(right) != "call" {
+			continue
+		}
+		fn := right.ChildByFieldName("function")
+		if fn == nil || kindOf(fn) != "identifier" {
+			continue
+		}
+		class := module + "." + pyText(fn, src)
+		inst := module + "." + pyText(left, src)
+		for _, c := range byClass[class] {
+			out = append(out, pyConst{key: inst + strings.TrimPrefix(c.key, class), parts: c.parts})
+		}
+	}
 	return out
 }
 
-// resolveRoutePaths resolves every pending computed route path against the
-// repository's string constants.
-// It runs BEFORE composeRouterPrefixes so the mount prefix is joined onto the
-// resolved leaf. Unresolved routes keep pathPendingProp and are removed by
-// dropPendingRoutes once composing is done (composing rebuilds the slice, so the
-// drop is by mark, not by index).
-func resolveRoutePaths(allFacts []facts.Fact, topos []pyRouterTopology, fileModules, pkgDirs map[string]bool, reexports reexportIndex) {
-	type constDef struct {
-		parts []pyPathPart
-		dir   string // defining file's directory, for its own relative refs
+// constResolver renders path parts against the repository's string constants.
+// Built once per extraction from every file's constants, after all files are
+// walked; shared by computed route paths and computed router prefixes.
+type constResolver struct {
+	consts    map[string]constDef
+	keys      map[string]bool
+	fileIdx   suffixIndex
+	topPkgs   map[string]bool
+	reexports reexportIndex
+	memo      map[string]string
+	failed    map[string]bool
+}
+
+type constDef struct {
+	parts []pyPathPart
+	dir   string // defining file's directory, for its own relative refs
+}
+
+func newConstResolver(topos []pyRouterTopology, fileModules, pkgDirs map[string]bool, reexports reexportIndex) *constResolver {
+	r := &constResolver{
+		consts:    map[string]constDef{},
+		keys:      map[string]bool{},
+		fileIdx:   buildSuffixIndex(fileModules, pkgDirs),
+		topPkgs:   importableRoots(fileModules, pkgDirs),
+		reexports: reexports,
+		memo:      map[string]string{},
+		failed:    map[string]bool{},
 	}
-	consts := map[string]constDef{}
-	keys := map[string]bool{}
+	add := func(key string, d constDef) {
+		if _, dup := r.consts[key]; dup {
+			return // first definition wins, in file order
+		}
+		r.consts[key] = d
+		r.keys[key] = true
+	}
 	for i := range topos {
 		dir := fileDir(topos[i].relFile)
 		for _, c := range topos[i].consts {
-			if _, dup := consts[c.key]; dup {
-				continue // first definition wins, in file order
-			}
-			consts[c.key] = constDef{parts: c.parts, dir: dir}
-			keys[c.key] = true
+			d := constDef{parts: c.parts, dir: dir}
+			add(c.key, d)
 			// A package's constants are imported as pkg.NAME, not pkg.__init__.NAME.
 			if mod, name, ok := splitConstKey(c.key); ok && strings.HasSuffix(mod, "/__init__") {
-				alias := strings.TrimSuffix(mod, "/__init__") + "." + name
-				if _, dup := consts[alias]; !dup {
-					consts[alias] = constDef{parts: c.parts, dir: dir}
-					keys[alias] = true
-				}
+				add(strings.TrimSuffix(mod, "/__init__")+"."+name, d)
 			}
 		}
 	}
+	return r
+}
 
-	fileIdx := buildSuffixIndex(fileModules, pkgDirs)
-	topPkgs := importableRoots(fileModules, pkgDirs)
-	lookup := func(ref, importerDir string) (constDef, bool) {
-		if c, ok := consts[ref]; ok {
-			return c, true
-		}
-		if !isDottedCallTarget(ref) {
-			return constDef{}, false
-		}
-		// `from app.core import ROOT` names a package, whose constants live in its
-		// __init__ module; the module index knows that file, not the directory.
-		candidates := []string{ref}
-		if mod, name, ok := splitConstKey(ref); ok {
-			candidates = append(candidates, mod+".__init__."+name)
-		}
-		for _, cand := range candidates {
-			if res, keep := resolveDottedTarget(cand, fileIdx, topPkgs, importerDir, reexports, keys); keep {
-				if c, ok := consts[res]; ok {
-					return c, true
-				}
-			}
-		}
+func (r *constResolver) lookup(ref, importerDir string) (constDef, bool) {
+	if c, ok := r.consts[ref]; ok {
+		return c, true
+	}
+	if !isDottedCallTarget(ref) {
 		return constDef{}, false
 	}
-
-	memo := map[string]string{}
-	failed := map[string]bool{}
-	var render func(parts []pyPathPart, dir string, depth int) (string, bool)
-	render = func(parts []pyPathPart, dir string, depth int) (string, bool) {
-		if depth > 8 {
-			return "", false // a constant cycle, or a chain too deep to trust
-		}
-		var b strings.Builder
-		for _, p := range parts {
-			if p.ref == "" {
-				b.WriteString(p.lit)
-				continue
-			}
-			memoKey := dir + "\x00" + p.ref
-			if v, ok := memo[memoKey]; ok {
-				b.WriteString(v)
-				continue
-			}
-			if failed[memoKey] {
-				return "", false
-			}
-			c, ok := lookup(p.ref, dir)
-			if !ok {
-				failed[memoKey] = true
-				return "", false
-			}
-			v, ok := render(c.parts, c.dir, depth+1)
-			if !ok {
-				failed[memoKey] = true
-				return "", false
-			}
-			memo[memoKey] = v
-			b.WriteString(v)
-		}
-		return b.String(), true
+	// `from app.core import ROOT` names a package, whose constants live in its
+	// __init__ module; the module index knows that file, not the directory.
+	candidates := []string{ref}
+	if mod, name, ok := splitConstKey(ref); ok {
+		candidates = append(candidates, mod+".__init__."+name)
 	}
+	for _, cand := range candidates {
+		if res, keep := resolveDottedTarget(cand, r.fileIdx, r.topPkgs, importerDir, r.reexports, r.keys); keep {
+			if c, ok := r.consts[res]; ok {
+				return c, true
+			}
+		}
+	}
+	return constDef{}, false
+}
 
+// render resolves parts written in a file under dir. ok is false when any
+// reference does not resolve.
+func (r *constResolver) render(parts []pyPathPart, dir string) (string, bool) {
+	return r.renderDepth(parts, dir, 0)
+}
+
+func (r *constResolver) renderDepth(parts []pyPathPart, dir string, depth int) (string, bool) {
+	if depth > 8 {
+		return "", false // a constant cycle, or a chain too deep to trust
+	}
+	var b strings.Builder
+	for _, p := range parts {
+		if p.ref == "" {
+			b.WriteString(p.lit)
+			continue
+		}
+		memoKey := dir + "\x00" + p.ref
+		if v, ok := r.memo[memoKey]; ok {
+			b.WriteString(v)
+			continue
+		}
+		if r.failed[memoKey] {
+			return "", false
+		}
+		c, ok := r.lookup(p.ref, dir)
+		if !ok {
+			r.failed[memoKey] = true
+			return "", false
+		}
+		v, ok := r.renderDepth(c.parts, c.dir, depth+1)
+		if !ok {
+			r.failed[memoKey] = true
+			return "", false
+		}
+		r.memo[memoKey] = v
+		b.WriteString(v)
+	}
+	return b.String(), true
+}
+
+// renderPath is render restricted to what FastAPI accepts as a path or prefix:
+// "" or "/"-rooted. Anything else is a constant that happens to share the name.
+func (r *constResolver) renderPath(parts []pyPathPart, dir string) (string, bool) {
+	path, ok := r.render(parts, dir)
+	if !ok || (path != "" && !strings.HasPrefix(path, "/")) {
+		return "", false
+	}
+	return path, true
+}
+
+// resolveRoutePaths resolves every pending computed route path. It runs BEFORE
+// composeRouterPrefixes so the mount prefix is joined onto the resolved leaf.
+// Unresolved routes keep pathPendingProp and are removed by dropPendingRoutes
+// once composing is done (composing rebuilds the slice, so the drop is by mark,
+// not by index).
+func resolveRoutePaths(allFacts []facts.Fact, topos []pyRouterTopology, r *constResolver) {
 	for i := range topos {
 		dir := fileDir(topos[i].relFile)
 		for _, pr := range topos[i].paths {
 			if pr.idx < 0 || pr.idx >= len(allFacts) {
 				continue
 			}
-			path, ok := render(pr.parts, dir, 0)
-			// FastAPI only accepts "" or a "/"-rooted path; anything else is a
-			// constant that happens to share the name, not a route path.
-			if !ok || (path != "" && !strings.HasPrefix(path, "/")) {
+			path, ok := r.renderPath(pr.parts, dir)
+			if !ok {
 				continue
 			}
 			f := &allFacts[pr.idx]
 			f.Name = path
 			f.SetProp("path", path)
 			delete(f.Props, pathPendingProp)
+		}
+	}
+}
+
+// resolveRouterPrefixes fills in the computed prefixes of router constructors
+// and include_router mounts (`prefix=settings.API_V1_STR`). An unresolved one
+// stays "", the behaviour composeRouterPrefixes always had for a prefix it could
+// not read.
+func resolveRouterPrefixes(topos []pyRouterTopology, r *constResolver) {
+	for i := range topos {
+		dir := fileDir(topos[i].relFile)
+		for j := range topos[i].groups {
+			if g := &topos[i].groups[j]; g.prefixParts != nil {
+				g.prefix, _ = r.renderPath(g.prefixParts, dir)
+			}
+		}
+		for j := range topos[i].mounts {
+			if m := &topos[i].mounts[j]; m.prefixParts != nil {
+				m.prefix, _ = r.renderPath(m.prefixParts, dir)
+			}
 		}
 	}
 }

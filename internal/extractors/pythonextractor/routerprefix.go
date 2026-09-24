@@ -56,7 +56,10 @@ type pyRouteRef struct {
 type pyRouterGroup struct {
 	key    string // "<module>.<var>" or "<module>.<factory-fn>"
 	prefix string // constructor prefix, e.g. APIRouter(prefix="/items")
-	isApp  bool   // FastAPI() application root — mounts things, is never mounted
+	// prefixParts is a computed constructor prefix (a constant, an f-string),
+	// filled into prefix by resolveRouterPrefixes. nil for a literal or none.
+	prefixParts []pyPathPart
+	isApp       bool // FastAPI() application root — mounts things, is never mounted
 }
 
 // pyRouterMount is one `parent.include_router(child, prefix=...)` call.
@@ -65,6 +68,17 @@ type pyRouterMount struct {
 	child     string // child key: canonical, dotted import target, or bare name
 	childName string // child's bare name, for the unique-name fallback
 	prefix    string
+	// prefixParts is a computed mount prefix, as for pyRouterGroup.
+	prefixParts []pyPathPart
+}
+
+// pyRouterAlias is a module-level `router = build_router()`: the variable names
+// the router its factory builds, which is the group routes are keyed to. A mount
+// of the variable (`app.include_router(account.router)`) resolves through it.
+type pyRouterAlias struct {
+	key        string // "<module>.<var>"
+	target     string // the factory call's target, as childRouterKey reads it
+	targetName string
 }
 
 // pyRouterTopology is one file's router wiring, collected alongside its facts.
@@ -73,6 +87,7 @@ type pyRouterTopology struct {
 	groups  []pyRouterGroup
 	mounts  []pyRouterMount
 	routes  []pyRouteRef
+	aliases []pyRouterAlias
 	paths   []pyPathRef
 	consts  []pyConst
 }
@@ -121,6 +136,10 @@ type routerCollector struct {
 	classStack []string
 	funcScope  string // outermost enclosing function's qualified name
 
+	// locals holds, per enclosing function, the names it binds (parameters and
+	// locals), which can never name a module constant.
+	locals []map[string]bool
+
 	// varKeys maps "<scope>\x00<var>" to the group key that variable names, so a
 	// later `x.include_router(...)` resolves x to the group `x = APIRouter()` made.
 	varKeys map[string]string
@@ -144,7 +163,9 @@ func (c *routerCollector) walk(node *sitter.Node) {
 			// inside it share one key.
 			c.funcScope = c.qualify(pyFuncName(node, c.src))
 		}
+		c.locals = append(c.locals, collectLocalBoundNames(node.ChildByFieldName("parameters"), node.ChildByFieldName("body"), c.src))
 		c.walkChildren(node)
+		c.locals = c.locals[:len(c.locals)-1]
 		c.funcScope = saved
 		return
 	case "assignment":
@@ -210,6 +231,11 @@ func (c *routerCollector) handleAssign(node *sitter.Node) {
 	}
 	ctor := lastComponent(pyText(fn, c.src))
 	if ctor != "APIRouter" && ctor != "FastAPI" {
+		if c.funcScope == "" && selfAttr == "" {
+			if target, name := c.childRouterKey(right); target != "" {
+				c.topo.aliases = append(c.topo.aliases, pyRouterAlias{key: c.module + "." + pyText(left, c.src), target: target, targetName: name})
+			}
+		}
 		return
 	}
 	varName := pyText(left, c.src)
@@ -220,10 +246,12 @@ func (c *routerCollector) handleAssign(node *sitter.Node) {
 		key = c.module + "." + strings.Join(c.classStack, ".") + "." + selfAttr
 	}
 	c.varKeys[c.funcScope+"\x00"+varName] = key
+	prefix, parts := c.prefixArg(right)
 	c.topo.groups = append(c.topo.groups, pyRouterGroup{
-		key:    key,
-		prefix: kwargString(right, c.src, "prefix"),
-		isApp:  ctor == "FastAPI",
+		key:         key,
+		prefix:      prefix,
+		prefixParts: parts,
+		isApp:       ctor == "FastAPI",
 	})
 }
 
@@ -257,12 +285,49 @@ func (c *routerCollector) handleCall(node *sitter.Node) {
 	if child == "" {
 		return
 	}
+	prefix, parts := c.prefixArg(node)
 	c.topo.mounts = append(c.topo.mounts, pyRouterMount{
-		parent:    c.parentRouterKey(obj),
-		child:     child,
-		childName: childName,
-		prefix:    kwargString(node, c.src, "prefix"),
+		parent:      c.parentRouterKey(obj),
+		child:       child,
+		childName:   childName,
+		prefix:      prefix,
+		prefixParts: parts,
 	})
+}
+
+// prefixArg reads a call's prefix= argument: a literal as the prefix itself, or
+// a computed one (`settings.API_V1_STR`, `API + "/v1"`) as parts for
+// resolveRouterPrefixes. Neither when it is absent or unreadable.
+func (c *routerCollector) prefixArg(call *sitter.Node) (string, []pyPathPart) {
+	if p := kwargString(call, c.src, "prefix"); p != "" {
+		return p, nil
+	}
+	v := keywordArg(call, c.src, "prefix")
+	if v == nil {
+		return "", nil
+	}
+	parts, ok := pathTemplate(v, c.src, c.refKey)
+	if !ok {
+		return "", nil
+	}
+	if lit, isLit := literalPath(parts); isLit {
+		return lit, nil
+	}
+	return "", parts
+}
+
+// refKey is constRefKey that refuses names an enclosing function binds.
+func (c *routerCollector) refKey(name string) string {
+	head := name
+	if i := strings.IndexByte(name, '.'); i >= 0 {
+		head = name[:i]
+	}
+	for _, bound := range c.locals {
+		if bound[head] {
+			return ""
+		}
+	}
+	return constRefKey(name, c.module, c.importMap)
 }
 
 // parentRouterKey resolves the receiver of an include_router call to a group key,
@@ -386,6 +451,50 @@ func composeRouterPrefixes(allFacts []facts.Fact, topos []pyRouterTopology, file
 	// router whose short name is not repo-wide unique still finds its group.
 	reexports := buildReexportIndex(allFacts, pkgDirs)
 
+	// `router = build_router()` makes the variable another name for the factory's
+	// group. Only an alias whose factory resolves to a known group is kept, and a
+	// variable that is itself a group keeps that meaning.
+	alias := map[string]string{}
+	for i := range topos {
+		importerDir := fileDir(topos[i].relFile)
+		for _, a := range topos[i].aliases {
+			if _, isGroup := groups[a.key]; isGroup {
+				continue
+			}
+			if target := resolveRouterKey(a.target, a.targetName, groups, byName, fileIdx, topPkgs, importerDir, reexports); target != "" {
+				alias[a.key] = target
+			}
+		}
+	}
+	// Mounts resolve against the groups and the aliases alike, then name the
+	// group itself, since that is the key its routes carry.
+	resolvable, byNameR := groups, byName
+	if len(alias) > 0 {
+		resolvable = make(map[string]*pyRouterGroup, len(groups)+len(alias))
+		for k, g := range groups {
+			resolvable[k] = g
+		}
+		byNameR = make(map[string][]string, len(byName))
+		for k, v := range byName {
+			byNameR[k] = v
+		}
+		aliasKeys := make([]string, 0, len(alias))
+		for k := range alias {
+			aliasKeys = append(aliasKeys, k)
+		}
+		sort.Strings(aliasKeys)
+		for _, k := range aliasKeys {
+			resolvable[k] = groups[alias[k]]
+			byNameR[baseName(k)] = append(byNameR[baseName(k)], k)
+		}
+	}
+	canonical := func(k string) string {
+		if t, ok := alias[k]; ok {
+			return t
+		}
+		return k
+	}
+
 	// Resolve mounts to group keys, in file then source order.
 	type mountEdge struct{ parent, child, prefix string }
 	var edges []mountEdge
@@ -393,16 +502,17 @@ func composeRouterPrefixes(allFacts []facts.Fact, topos []pyRouterTopology, file
 	for i := range topos {
 		importerDir := fileDir(topos[i].relFile)
 		for _, m := range topos[i].mounts {
-			child := resolveRouterKey(m.child, m.childName, groups, byName, fileIdx, topPkgs, importerDir, reexports)
-			if child == "" || child == m.parent {
+			child := canonical(resolveRouterKey(m.child, m.childName, resolvable, byNameR, fileIdx, topPkgs, importerDir, reexports))
+			parent := canonical(m.parent)
+			if child == "" || child == parent {
 				continue
 			}
-			if _, ok := groups[m.parent]; !ok {
+			if _, ok := groups[parent]; !ok {
 				// Unknown receiver (`app = create_app()`): treat it as a root so its
 				// children still compose, but give it no prefix of its own.
-				groups[m.parent] = &pyRouterGroup{key: m.parent, isApp: true}
+				groups[parent] = &pyRouterGroup{key: parent, isApp: true}
 			}
-			edges = append(edges, mountEdge{parent: m.parent, child: child, prefix: m.prefix})
+			edges = append(edges, mountEdge{parent: parent, child: child, prefix: m.prefix})
 			mounted[child] = true
 		}
 	}
@@ -505,10 +615,25 @@ func resolveRouterKey(raw, name string, groups map[string]*pyRouterGroup, byName
 		return raw
 	}
 	if isDottedCallTarget(raw) {
-		if resolved, keep := resolveDottedTarget(raw, fileIdx, topPkgs, importerDir, reexports, nil); keep {
-			if _, ok := groups[resolved]; ok {
-				return resolved
+		// `from app.routers import account` then `account.router`: account is a
+		// package, whose router is defined in its __init__ module.
+		candidates := []string{raw}
+		if mod, sym, ok := splitConstKey(raw); ok {
+			candidates = append(candidates, mod+".__init__."+sym)
+		}
+		for _, cand := range candidates {
+			if resolved, keep := resolveDottedTarget(cand, fileIdx, topPkgs, importerDir, reexports, nil); keep {
+				if _, ok := groups[resolved]; ok {
+					return resolved
+				}
 			}
+		}
+	}
+	// A relative import binds a submodule by path ("app/routers/account" +
+	// ".router"); for a package that is its __init__ module.
+	if mod, sym, ok := splitConstKey(raw); ok && strings.IndexByte(raw, '/') >= 0 {
+		if k := mod + "/__init__." + sym; groups[k] != nil {
+			return k
 		}
 	}
 	if cands := byName[name]; len(cands) == 1 {

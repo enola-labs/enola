@@ -20,6 +20,16 @@ import (
 	"github.com/enola-labs/enola/pkg/plugin"
 )
 
+// v275: Python router mounts follow the application layout FastAPI documents.
+// A relative from-import binds a submodule (`from .internal import admin`) to its
+// module path, so `admin.router` resolves to its group and its include_router
+// prefix applies; dots past the first climb packages (`from ..deps import f`
+// had resolved one package too shallow, leaving the reference dangling). A
+// computed include_router or APIRouter prefix (`settings.API_V1_STR`,
+// `API + "/v1"`) resolves through the v274 constant table, including a class
+// default read through a module-level instance (`settings = Settings()`). A
+// module-level `router = build_router()` names its factory's router, and a
+// router defined in a package __init__ resolves from `pkg.router`.
 // v274: Python reads the FastAPI/Starlette route forms beyond `@router.get("/x")`:
 // @x.api_route (verbs from methods=, default GET), @x.websocket/@x.websocket_route
 // (GET, protocol=websocket), add_api_route/add_route and their websocket forms
@@ -2481,7 +2491,7 @@ import (
 // v270: SvelteKit reads literal kit.alias fallbacks before generated config exists,
 // keeps tsconfig paths authoritative, and classifies $app/$env/$service-worker imports
 // as framework-provided rather than unresolved third-party dependencies.
-const cacheVersion = "v274"
+const cacheVersion = "v275"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
