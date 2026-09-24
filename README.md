@@ -84,7 +84,7 @@ pip install enola-cli
 gem "enola"   # then: bundle exec enola
 ```
 
-The PyPI project is called `enola-cli` because `enola` was already taken there. The Ruby gems are maintained at [enola-labs/enola-rb](https://github.com/enola-labs/enola-rb) and fetch the same release on first use.
+The PyPI project is called `enola-cli` because `enola` was already taken there. The Ruby gems fetch the same release on first use; see below for where they are maintained.
 
 Some tools bundle `enola-cli` as a dependency rather than asking you to install it - [Cognee](#inside-cognee) pins the release it has validated - so their users get the same binary with no extra step.
 
@@ -214,7 +214,7 @@ New findings (reported — no failure policy set):
 
 No --fail-on policy is set, so nothing in this run could fail the build. These are
 reported for you to judge. Enforce the ones you want enforced: --fail-on=layers
-(`enola check --help` lists all 17).
+(`enola check --help` lists all 22).
 ```
 
 A gate that enforces nothing has to *say* it enforces nothing. Silence there is indistinguishable from an all-clear, and that is the one failure mode a green exit code cannot report on its own.
@@ -274,7 +274,7 @@ So enola states what it measured and stops there. The exception it makes for its
 - **scope spillover** - packages your change reached outside the area you declared with `--target`, gated with `--max-spillover=N`. A change can trip this with zero failing findings.
 - **a gate that could not run.** A missing baseline or a bad flag exits `2`; a baseline that isn't comparable to the current code exits `3` and enola declines to grade rather than blaming your change. Neither is a judgement about the code, and neither is suppressed by `--warn-only`.
 
-**Which of them can actually fail at the default floor: three.** `cycles`, `intent`, and `layers` when the order is declared in `enola-intent.yaml` are the ones enola computes with certainty, so only they reach `1.00`. Everything else is an estimate measured against your own repository - "this file has unusually many dependents *for this codebase*" - and caps below `1.00` by design ([`MaxHeuristicConfidence`](internal/explainers/common/common.go) is `0.95`). Naming an inferred explainer in `--fail-on` and nothing else therefore changes nothing at all; it needs `--min-confidence` too.
+**Which of them can actually fail at the default floor: four.** `cycles`, `intent`, `constraints`, and `layers` when the order is declared in `enola-intent.yaml` are the ones enola computes with certainty, so only they reach `1.00`. Everything else is an estimate measured against your own repository - "this file has unusually many dependents *for this codebase*" - and caps below `1.00` by design ([`MaxHeuristicConfidence`](internal/explainers/common/common.go) is `0.95`). Naming an inferred explainer in `--fail-on` and nothing else therefore changes nothing at all; it needs `--min-confidence` too.
 
 ### Changing what counts
 
@@ -283,7 +283,7 @@ So enola states what it measured and stops there. The exception it makes for its
 | The default: report everything, fail nothing | `enola check` |
 | Fail on violations of a layer order you declared | `enola check --fail-on=layers` |
 | Also fail on a cross-repo seam nobody declared, a declared rule breached, and new cycles | `enola check --fail-on=layers,intent,cycles,constraints` |
-| Everything above, plus every explainer enola infers rather than proves | `enola check --fail-on=layers,intent,cycles,constraints,crossrepo,coverage,unused-routes,messaging-coverage,god-class,hotspots,dependency-depth,exported-surface,complexity-outliers,domain,query-loops,entry-points,dead-methods,package-metrics,dead-code,performance --min-confidence=0.8` |
+| Everything above, plus every explainer enola infers rather than proves | `enola check --fail-on=layers,intent,cycles,constraints,crossrepo,coverage,unused-routes,messaging-coverage,god-class,hotspots,dependency-depth,exported-surface,complexity-outliers,domain,query-loops,entry-points,dead-methods,package-metrics,dead-code,performance,import-closure --min-confidence=0.8` |
 | Fail if the change spread outside the area you named | `enola check --target=internal/auth --max-spillover=0` |
 | Enforce a policy you set, but only warn this time | `enola check --fail-on=layers --warn-only` |
 
@@ -330,7 +330,7 @@ New findings (reported — no failure policy set):
 
 No --fail-on policy is set, so no FINDING could fail this run — only the threshold
 above grades it. These are reported for you to judge; enforce the ones you want
-enforced: --fail-on=layers (`enola check --help` lists all 17).
+enforced: --fail-on=layers (`enola check --help` lists all 22).
 ```
 
 The `--target` you declare is a claim about intent, and this is the gate holding you to it. Nothing here is a judgement about `telemetry` - the code may be perfectly good. It is a report that the change did something its own description didn't cover.
@@ -482,13 +482,13 @@ And if it missed something it should have caught - an unresolved edge, a route i
 
 Apache License 2.0 - see [`LICENSE`](LICENSE).
 
-**This repository is the full engine, not a trial edition.** Nothing in it is gated, metered, or degraded without a key: there is no license check anywhere in this repository, and no snapshot, fact, or usage counter ever leaves your machine. The only outbound request enola makes is to GitHub's release API, and only when you explicitly run `enola upgrade`.
+**This repository is the full engine, not a trial edition.** Nothing in it is gated, metered, or degraded without a key: there is no license check anywhere in this repository, and no snapshot, fact, or usage counter ever leaves your machine. The only outbound request enola makes is to GitHub's release API: the background release check described in [Staying current](#staying-current), which you can turn off, and `enola upgrade` when you run it.
 
 Everything ships here:
 
 - **Every language** - Go, TypeScript/JavaScript/Vue/Svelte/Ember/Angular, Python, Java, Kotlin, Scala, Dart/Flutter, Ruby, PHP, Swift, Rust, C/C++, .NET (C#/VB.NET/F#/Razor/XAML), Terraform/HCL, Ansible, gRPC/Protobuf, OpenAPI, AsyncAPI, GraphQL
 - **All 22 MCP tools**, plus the cross-repo linker
-- **All twenty-two explainers** - `cycles`, `layers`, `crossrepo`, `coverage`, `unused-routes`, `messaging-coverage`, `god-class`, `hotspots`, `dependency-depth`, `exported-surface`, `complexity-outliers`, `intent`, `constraints`, `domain`, `query-loops`, `entry-points`, `dead-methods`, `vendored-candidates`, `import-closure`
+- **All twenty-two explainers** - `cycles`, `layers`, `crossrepo`, `coverage`, `unused-routes`, `messaging-coverage`, `god-class`, `hotspots`, `dependency-depth`, `exported-surface`, `complexity-outliers`, `intent`, `constraints`, `domain`, `query-loops`, `entry-points`, `dead-methods`, `vendored-candidates`, `import-closure`, `package-metrics`, `dead-code`, `performance`
 - Baselines, `diff_snapshot`, snapshot receipts, the `--explain` report, and the localhost dashboard
 
 ## Acknowledgements
