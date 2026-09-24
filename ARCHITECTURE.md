@@ -28,79 +28,7 @@ Those two choices describe what is *in* the graph. A third describes what happen
 
 ## The fact model
 
-Defined in [`internal/facts/model.go`](internal/facts/model.go). A `Fact` is a node in the graph:
-
-```go
-type Fact struct {
-    Kind      string         // one of the kinds below
-    Name      string         // canonical identifier
-    File      string         // source path (repo-prefixed in multi-repo mode)
-    Line      int            // source line
-    Repo      string         // repo label (multi-repo mode)
-    Props     map[string]any // kind-specific properties
-    Relations []Relation     // outgoing edges
-}
-```
-
-### Kinds — the architectural types
-
-| Kind         | What it represents |
-|--------------|--------------------|
-| `module`     | A package, directory, or logical grouping of code |
-| `symbol`     | A function, method, struct, interface, type, class, variable, constant, or enum |
-| `route`      | An HTTP/API endpoint (Next.js page, Rails route, FastAPI handler, OpenAPI operation, …) |
-| `storage`    | A data store — a database table/model, cache, or a messaging topic |
-| `dependency` | An import / require relationship |
-| `service`    | A whole repository, used as a node in the cross-repo graph (see [Graph of graphs](#cross-repo-the-graph-of-graphs)) |
-
-For `symbol` facts, the specific construct is carried in `Props["symbol_kind"]`, one of: `function`, `method`, `struct`, `interface`, `type`, `class`, `variable`, `constant`, `enum`.
-
-`storage` facts carry the analogous discriminator in `Props["storage_kind"]` — `table`, `model`, `entity`, `repository`, `s3`, `topic`, … — because a Kafka topic and a Postgres table are the same *kind* of node (a data store the code names) but not the same thing. A `topic` fact additionally carries `messaging` (the transport, e.g. `kafka`) and `source` (which syntactic form the topic name was read from), and is what the async cross-repo signal binds on (see [Linking, not just co-locating](#linking-not-just-co-locating)).
-
-### Relations — the edges
-
-| Relation       | Meaning |
-|----------------|---------|
-| `declares`     | A module/file declares a symbol |
-| `imports`      | A module imports another module |
-| `calls`        | A symbol calls another symbol |
-| `implements`   | A symbol implements an interface |
-| `depends_on`   | A generic dependency (e.g. a package-boundary rule) |
-| `instantiates` | A symbol constructs an instance of a type |
-| `injects`      | A symbol takes a type as a dependency-injected constructor parameter |
-| `has_method`   | A type owns a method (synthesized when the graph is built — see below) |
-| `handled_by`   | A route/endpoint is served by a symbol — e.g. a gRPC RPC route bound to its Go handler method (added post-extraction) |
-
-### A tiny example
-
-A Go file `internal/auth/handler.go` with a `LoginHandler` struct, a `Verify` method on it, and a call to `tokens.Decode` produces roughly:
-
-```
-module    internal/auth
-symbol    LoginHandler            (symbol_kind: struct)   declares-> LoginHandler.Verify
-symbol    LoginHandler.Verify     (symbol_kind: method)   calls-> tokens.Decode
-dependency internal/tokens        (imported by internal/auth)
-```
-
-Every one of those lines came from parsing the file — not from asking a model what the file "looks like."
-
----
-
-## The graph
-
-Once facts are extracted they're indexed into a **bidirectional graph** ([`internal/facts/graph.go`](internal/facts/graph.go)). Each node keeps both its outgoing edges (*what it depends on*) and its incoming edges (*what depends on it*). That single structure is what makes three kinds of question cheap to answer:
-
-- **Reachability** — follow edges *forward* ("what does X depend on, transitively?") or *reverse* ("what depends on X, transitively?").
-- **Shortest path** — the chain of edges connecting two nodes ("how does the HTTP handler reach the database layer?").
-- **Impact / blast radius** — the full set of nodes that transitively depend on a target, grouped by distance.
-
-The graph builder adds a few **synthetic edges** so that traversals are semantically complete rather than literally what each parser emitted:
-
-- **`has_method`** links a type to its methods. Extractors emit methods as their own facts (named `Type.method`) with no back-link; without `has_method`, walking forward from a struct would miss everything it owns.
-- **module → import bridging** connects a module straight through to the things it imports, so a forward walk from a module reaches its dependencies.
-- **cross-repo target normalization** strips known module-path prefixes so a call in one repo resolves to the symbol in another.
-
-These are why, when you ask "what's the blast radius of changing `AuthService`?", enola also finds callers that only ever touch `AuthService` through one of its methods or its constructor — not just the ones that name the type directly.
+A snapshot is a set of **facts** (typed nodes: modules, symbols, routes, storage, dependencies, services and a few reference-only kinds) joined by typed **relations**. Every kind and relation, what each means, how facts are identified and how the graph is indexed for traversal are described once, in **[docs/GRAPH.md](docs/GRAPH.md)**; field-level contracts are in [docs/schema/facts.md](docs/schema/facts.md). The Go types are in [`internal/facts/model.go`](internal/facts/model.go) and the bidirectional index with its synthetic edges in [`internal/facts/graph.go`](internal/facts/graph.go).
 
 ---
 
@@ -163,7 +91,7 @@ Stage by stage:
    **Cross-repo signals** run next, and only when two or more repos are loaded. Each is an independent plugin reporting evidence — HTTP route role matching, imports, Kafka topic ownership, shared code — which the linker materializes into `service` nodes and cross-repo dependency facts. Directional signals run before symmetric ones, because the only honest way to orient a symmetric finding is to defer to a direction something else established.
    **Post-link binders** run last: route-to-handler binding for gRPC and HTTP, and the pass that records which routes went unmatched.
    The whole stage is recomputed from scratch on every append, so it always reflects exactly the repos currently loaded.
-5. **Graph index** — builds the bidirectional graph (with the synthetic edges above) that powers `traverse`, `find_path`, and `impact_analysis`.
+5. **Graph index** — builds the bidirectional graph (with the synthetic edges described in [docs/GRAPH.md](docs/GRAPH.md#how-its-built)) that powers `traverse`, `find_path`, and `impact_analysis`.
 6. **Explainers** — run deterministic analyses over the facts and emit insights (next section).
 7. **Renderer** — produces `llm_context.md`, a compact, token-budgeted architecture summary an agent can read directly. The architecture statement and the feature guide beneath it are RESERVED out of the budget: the repository map grows with the repository, and on two of the benchmark corpus's larger repositories it spent all 64,000 characters before either section was reached, rendering a module list and not one word of the architecture the snapshot had recognised. No unreserved section may take more than a third of what is left, because bounding sections one at a time only moved the problem down the list — the map was fixed and Entry Points took the budget, that was fixed and Routes took it — and a section over its share is truncated rather than dropped, since half of Routes plus Storage plus the rest tells a reader more than all of Routes. Every section that listed one row per item — the map, entry points, routes, storage, the dependency edges — stops being a census above sixty rows and becomes a summary: modules by area and by size, routes by path prefix, stores by kind, modules by how far they reach. A census sorted by NAME is the least informative prefix a truncation could keep, and these were all sorted by name. Together this took a large monolith's digest from 64,000 characters holding two sections, one of them an alphabetical module list, to 28,000 holding ten and truncating nothing. The guide is derived from the recognised layer order rather than authored — layers of one level listed together because they are peers, layers with no module here left out, and each tier shown with a module from this repository — where it previously held hand-written prose for a few of the taxonomies by name and generic advice for every other repository.
 8. **Artifacts** — everything is written to `.enola/` (see [Output artifacts](#output-artifacts)). Content hashes enable incremental re-extraction on the next run.
@@ -1186,23 +1114,7 @@ Three C#-specific decisions carry most of the weight. **A `partial` type is one 
 
 ## Output artifacts
 
-After `generate_snapshot`, these are written to the output directory (default `.enola/`):
-
-| File | Description |
-|------|-------------|
-| `llm_context.md` | Compact, token-budgeted architecture summary for an agent to read directly |
-| `facts.jsonl` | Every extracted fact, one JSON object per line |
-| `insights.json` | Architectural insights with confidence scores |
-| `snapshot.meta.json` | Metadata including per-file content hashes for incremental updates, plus the full receipt fields |
-| `receipt.json` | The **snapshot receipt** — a compact manifest of what the graph was generated over (enola version, git ref + dirty status, a content-fingerprint snapshot ID, the extractor/explainer sets, ignore-glob hash, output-artifact hashes) and extraction-quality metrics (files seen/parsed/skipped, directory trees pruned, parse errors, coverage gaps). Read it via the `snapshot_receipt` tool. |
-| `previous/` | The immediately-preceding snapshot, auto-rotated on each write — the `baseline='previous'` source for `diff_snapshot` |
-| `baseline/` | A snapshot pinned by `set_baseline`, preserved across re-snapshots — the default `diff_snapshot` baseline |
-
-Outside the repository, `~/.enola/graphs/<workspace>/history/` holds the **architecture history**: one append-only line per snapshot, plus each revision's graph stored as a patch against the previous one. See [docs/HISTORY.md](docs/HISTORY.md).
-
-It sits outside `.enola/` for a reason that is not convenience. Every artifact in the table above is derivable from the tree — delete them all and the next run reproduces the same `snapshot_id` — and a history is the first thing enola keeps that the working tree has forgotten. So it is bounded: every revision is replayable (`enola log --backfill` reproduces it from the commit), **nothing that judges the present reads it** (`check`, `diff_snapshot`, freshness and drift consult only the current snapshot and the pinned baseline), and deleting it changes no verdict and no `snapshot_id`. Both halves are regression tests, not intentions.
-
-That rule is also why `previous/` and `baseline/` above are still full copies rather than references into the history. Making them references would save the duplication and would make removing the history able to change what the gate says — precisely the dependency the rule forbids.
+What a snapshot writes, which files are a stable contract, and where the architecture history lives: **[docs/GRAPH.md → On disk](docs/GRAPH.md#on-disk)**. This section covers the receipt's internals.
 
 ### The snapshot receipt
 

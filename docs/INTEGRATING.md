@@ -2,7 +2,8 @@
 
 Use this guide when another tool runs enola, reads its snapshot artifacts, and
 loads the graph into its own store. For interactive CLI use, see
-[CLI.md](CLI.md). For field definitions, see [schema/](schema/README.md).
+[CLI.md](CLI.md). For what the graph contains and how it is built, see
+[GRAPH.md](GRAPH.md). For field definitions, see [schema/](schema/README.md).
 
 One implementation of the core workflow is already live: [Cognee](https://github.com/topoteretes/cognee).
 The [Cognee section below](#cognee) documents its precise behavior and validation boundaries.

@@ -54,7 +54,7 @@ Everything below is one of six kinds — `module`, `symbol`, `route`, `storage`,
 `dependency`, `service` — plus two reference-only kinds (`file_ref`, `test_ref`) that
 carry edges without being architecture themselves. Facts are name-keyed, carry a
 `file:line`, and hold typed relations (`imports`, `calls`, `declares`, `handled_by`,
-`depends_on`, …). [ARCHITECTURE.md](../../ARCHITECTURE.md#the-fact-model) has the full
+`depends_on`, …). [GRAPH.md](../GRAPH.md) has the full
 model; these pages assume it only loosely.
 
 ## If you are adding one

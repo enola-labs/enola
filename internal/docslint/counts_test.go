@@ -38,6 +38,8 @@ var countSubjects = []struct {
 	{`tools?`, "MCP tools"},
 	{`(?:rule|enforceable) forms?`, "rule forms"},
 	{`taxonom(?:y|ies)`, "layer taxonomies"},
+	{`fact kinds?`, "fact kinds"},
+	{`relation kinds?`, "relation kinds"},
 }
 
 // countWaivers are count claims that deliberately do NOT track the live inventory.

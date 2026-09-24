@@ -53,6 +53,24 @@ var contracts = []contract{
 		},
 	},
 	{
+		Inventory: "fact kinds",
+		Surfaces: []surface{
+			{Doc: "docs/GRAPH.md", Section: "What's in the graph",
+				Why: "what one fact of that kind stands for"},
+			{Doc: "docs/schema/facts.md", Section: "Fact kinds",
+				Why: "what its name holds and which contract props it carries"},
+		},
+	},
+	{
+		Inventory: "relation kinds",
+		Surfaces: []surface{
+			{Doc: "docs/GRAPH.md", Section: "What's in the graph",
+				Why: "what the edge means"},
+			{Doc: "docs/schema/facts.md", Section: "Relation kinds",
+				Why: "what the edge means, for a consumer loading facts.jsonl"},
+		},
+	},
+	{
 		Inventory: "MCP tools",
 		Surfaces: []surface{
 			{Doc: "ARCHITECTURE.md", Section: "The tools",
@@ -104,7 +122,11 @@ func TestEveryInventoryIsCompleteOnEverySurface(t *testing.T) {
 			lower := strings.ToLower(text)
 
 			for _, item := range inv.Items {
-				if strings.Contains(lower, strings.ToLower(item)) {
+				want := item
+				if inv.Quoted {
+					want = "`" + item + "`"
+				}
+				if strings.Contains(lower, strings.ToLower(want)) {
 					continue
 				}
 				if _, waived := c.Exceptions[s.Doc+":"+item]; waived {

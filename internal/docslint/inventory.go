@@ -1,6 +1,14 @@
 package docslint
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
+
 	"github.com/enola-labs/enola/internal/config"
 	"github.com/enola-labs/enola/internal/explainers/layers"
 	"github.com/enola-labs/enola/internal/intent"
@@ -29,6 +37,10 @@ type Inventory struct {
 	// and "Next.js". Demanding the raw key would push documentation toward
 	// naming implementation details it has no reason to name.
 	UserFacing bool
+	// Quoted demands each item appear in backticks. Relation kinds such as `calls`
+	// and `names` are ordinary English words, so a bare substring match would find
+	// them on any page and prove nothing.
+	Quoted bool
 }
 
 // Inventories returns every vocabulary the docs make counted claims about.
@@ -55,5 +67,47 @@ func Inventories() []Inventory {
 		{Key: "MCP tools", Source: "cli.OSSTools()", Items: toolNames, UserFacing: true},
 		{Key: "rule forms", Source: "intent.RuleForms", Items: forms, UserFacing: true},
 		{Key: "layer taxonomies", Source: "layers.TaxonomyNames()", Items: layers.TaxonomyNames()},
+		{Key: "fact kinds", Source: "the Kind* constants in internal/facts/model.go", Items: factConsts("Kind"), UserFacing: true, Quoted: true},
+		{Key: "relation kinds", Source: "the Rel* constants in internal/facts/model.go", Items: factConsts("Rel"), UserFacing: true, Quoted: true},
 	}
+}
+
+// factConsts returns the values of the string constants in internal/facts/model.go
+// whose names start with prefix followed by an upper-case letter.
+//
+// It reads the source rather than a slice exported for the purpose: an exported list
+// would be one more copy to keep in step with the constants, and the constants are
+// what every extractor actually writes. A file that cannot be read yields one item no
+// page can contain, so the contract fails loudly instead of checking an empty list.
+func factConsts(prefix string) []string {
+	path := filepath.Join(repoRoot, "internal", "facts", "model.go")
+	f, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+	if err != nil {
+		return []string{"<unreadable " + path + ": " + err.Error() + ">"}
+	}
+	var out []string
+	for _, decl := range f.Decls {
+		gen, ok := decl.(*ast.GenDecl)
+		if !ok || gen.Tok != token.CONST {
+			continue
+		}
+		for _, spec := range gen.Specs {
+			vs := spec.(*ast.ValueSpec)
+			for i, name := range vs.Names {
+				rest, ok := strings.CutPrefix(name.Name, prefix)
+				if !ok || rest == "" || rest[0] < 'A' || rest[0] > 'Z' || i >= len(vs.Values) {
+					continue
+				}
+				lit, ok := vs.Values[i].(*ast.BasicLit)
+				if !ok || lit.Kind != token.STRING {
+					continue
+				}
+				if v, err := strconv.Unquote(lit.Value); err == nil {
+					out = append(out, v)
+				}
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
 }

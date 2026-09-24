@@ -17,12 +17,25 @@ You can ask that graph questions yourself, give it to your coding agent, or buil
 curl -fsSL https://raw.githubusercontent.com/enola-labs/enola/main/install.sh | sh
 ```
 
-No config file, no account, nothing written to disk. It prints what it found. Here is part of the output for this repository:
+Then point it at any repository you have checked out:
+
+```bash
+enola --explain /path/to/your/repo
+```
+
+No config file, no account, nothing written to disk. It prints what it found. If you have nothing at hand, try it on enola itself:
+
+```bash
+git clone https://github.com/enola-labs/enola
+enola --explain enola
+```
+
+Part of what that prints (the numbers move as the code does):
 
 ```
 Overview
   Languages:           go, typescript, c, ruby, python
-  Total facts:         10073
+  Total facts:         10814
 
 Architecture
   cyclic dependencies         0
@@ -129,7 +142,7 @@ Before an edit, the agent asks the graph what depends on the code it is about to
 
 ### As a foundation for your own tools
 
-A snapshot is a set of plain files with a [documented format](docs/schema/README.md): the facts, the relationships between them, the findings, and a receipt recording exactly how it was built. Run enola as a subprocess and load them wherever you need them. [Cognee](https://github.com/topoteretes/cognee) does exactly that for its code-graph search. See [docs/INTEGRATING.md](docs/INTEGRATING.md).
+A snapshot is a set of plain files with a [documented format](docs/schema/README.md): the facts, the relationships between them, the findings, and a receipt recording exactly how it was built. Run enola as a subprocess and load them wherever you need them. [Cognee](https://github.com/topoteretes/cognee) does exactly that for its code-graph search. [docs/GRAPH.md](docs/GRAPH.md) explains what the graph contains and which files are a stable contract; [docs/INTEGRATING.md](docs/INTEGRATING.md) shows how to load it.
 
 ## What it reads
 
@@ -149,7 +162,7 @@ enola parses each file, turns what it finds into typed facts ("this function cal
 - **Fast enough for every commit.** Re-indexing an unchanged tree took 7.5s for grafana and 52.6s for the Linux kernel.
 - **Local.** One binary reading local files. No model, no embeddings, no upload.
 
-Numbers and the scripts that produce them: [docs/BENCHMARKS.md](docs/BENCHMARKS.md). Internals: [ARCHITECTURE.md](ARCHITECTURE.md).
+What the graph contains, how it is built and what it writes to disk: [docs/GRAPH.md](docs/GRAPH.md). Numbers and the scripts that produce them: [docs/BENCHMARKS.md](docs/BENCHMARKS.md). Internals: [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Limitations
 
@@ -164,6 +177,7 @@ With a coding agent, most of these stop being dead ends. enola says exactly wher
 
 - **[Choose a guide by task](docs/README.md)**
 - **[Your first graded change](docs/FIRST-CHANGE.md)**: the loop end to end, on a module small enough to read
+- **[The graph](docs/GRAPH.md)**: what is in it, how it is built, what it writes to disk
 - **[CLI reference](docs/CLI.md)**: install, agent setup, commands, flags and exit codes
 - **[Gating a change](docs/GATING.md)**: what a verdict contains and what can fail a build
 - **[Dashboard guide](docs/DASHBOARD.md)**
