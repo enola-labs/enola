@@ -462,7 +462,8 @@ func (r *Runner) gradeQuietly(ctx context.Context, repoDir string) (check.Verdic
 	}
 	verdict := check.EvaluateCurrent(diff.Compute(base, current), policy, current.Insights)
 	verdict = check.AttachCensus(verdict, current.Meta, policy, current.Insights)
-	return check.AttachLedger(verdict, eng.Store(), policy, current.Insights, time.Now()), outDir, true
+	verdict = check.AttachLedger(verdict, eng.Store(), policy, current.Insights, time.Now())
+	return check.AttachSources(verdict, repoPaths, eng.MetaFor), outDir, true
 }
 
 // outputDirFor resolves just the engine's output directory, for a path that must record

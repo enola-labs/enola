@@ -178,7 +178,7 @@ func (v Verdict) SARIF(tool Tool) ([]byte, error) {
 		if p.located && p.bucket.name != "resolved" {
 			region := &sarifRegion{StartLine: p.evidence.Line, StartColumn: p.evidence.Column, EndLine: p.evidence.EndLine, EndColumn: p.evidence.EndColumn}
 			r.Locations = []sarifLocation{{PhysicalLocation: sarifPhysical{
-				ArtifactLocation: sarifArtifact{URI: hostPath(p.evidence.File)},
+				ArtifactLocation: sarifArtifact{URI: v.sources.hostPath(p.evidence.File)},
 				Region:           region,
 			}}}
 		}

@@ -50,7 +50,7 @@ func (v Verdict) buildkiteAnnotations(link string) string {
 			continue
 		}
 		placedCount++
-		path := hostPath(p.evidence.File)
+		path := v.sources.hostPath(p.evidence.File)
 		if path != file {
 			if file != "" {
 				sb.WriteString("\n")
@@ -101,7 +101,7 @@ func (v Verdict) githubAnnotations() string {
 		}
 		command := map[string]string{levelError: "error", levelWarning: "warning", levelNote: "notice"}[p.bucket.level]
 		props := []string{
-			"file=" + commandProperties.Replace(hostPath(p.evidence.File)),
+			"file=" + commandProperties.Replace(v.sources.hostPath(p.evidence.File)),
 			fmt.Sprintf("line=%d", p.evidence.Line),
 		}
 		if p.evidence.EndLine >= p.evidence.Line && p.evidence.EndLine > 0 {

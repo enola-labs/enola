@@ -26,7 +26,7 @@ func TestWriteFindings_ShowsTheFrameWhenTheExtractorMeasuredOne(t *testing.T) {
 	defer func() { frameRoot = previous }()
 
 	var sb strings.Builder
-	writeFindings(&sb, []facts.Insight{
+	Verdict{}.writeFindings(&sb, []facts.Insight{
 		{Title: "located", Source: "constraints", Confidence: 1, Evidence: []facts.Evidence{{
 			File: "app/models/order.rb", Symbol: "Order#get_total", Detail: "name inside the forbidden pattern",
 			Line: 2, EndLine: 4, Column: 3, EndColumn: 6}}},

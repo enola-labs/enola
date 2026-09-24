@@ -260,12 +260,10 @@ func (v Verdict) placements() []placed {
 	return out
 }
 
-// hostPath is the path a host can open: the fact's file with the repository
-// label a union snapshot prefixes removed when the rest resolves on disk, and
-// the file as recorded otherwise. A frame can afford to guess the label away
-// because a wrong guess prints nothing; an annotation cannot, because a wrong
-// path pins the finding to a file the reviewer does not have.
-func hostPath(file string) string {
+// legacyHostPath is hostPath for a verdict with no Sources: the fact's file
+// with the repository label a union snapshot prefixes removed when the rest
+// resolves in the working directory, and the file as recorded otherwise.
+func legacyHostPath(file string) string {
 	if _, err := os.Stat(filepath.Join(frameRoot, filepath.FromSlash(file))); err == nil { //factpath:host
 		return file
 	}

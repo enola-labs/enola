@@ -329,6 +329,7 @@ func (r *Runner) Check(ctx context.Context, args []string) {
 	}
 	verdict = check.AttachCensus(verdict, current.Meta, policy, current.Insights)
 	verdict = check.AttachLedger(verdict, eng.Store(), policy, current.Insights, time.Now())
+	verdict = check.AttachSources(verdict, repoPaths, eng.MetaFor)
 
 	switch outFormat {
 	case check.FormatText:

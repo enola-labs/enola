@@ -402,6 +402,11 @@ type Verdict struct {
 	// Diff is the underlying delta, carried so --json emits one self-contained
 	// document and so Render can delegate the detail view to internal/diff.
 	Diff *diff.SnapshotDiff `json:"diff,omitempty"`
+
+	// sources is where the files the findings name live on disk; see Sources.
+	// Unexported, so it never reaches the JSON verdict: a path on the grading
+	// machine means nothing to whoever reads the document.
+	sources Sources
 }
 
 // ExitCode is the process exit code for this verdict.

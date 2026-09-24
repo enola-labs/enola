@@ -190,7 +190,7 @@ func (v Verdict) Render() string {
 			header = "Regressions (fail)"
 		}
 		fmt.Fprintf(&sb, "\n%s:\n", header)
-		writeFindings(&sb, v.Failures)
+		v.writeFindings(&sb, v.Failures)
 		if v.Status != StatusIncomparable && v.Status != StatusUsageError {
 			fmt.Fprintf(&sb, "\nPolicy: fail on new findings from [%s] at confidence >= %.2f.\n",
 				strings.Join(v.Policy.failExplainers(), ", "), v.Policy.minConfidence())
@@ -208,13 +208,13 @@ func (v Verdict) Render() string {
 		} else {
 			sb.WriteString("\nNew findings (reported — no failure policy set):\n")
 		}
-		writeFindings(&sb, v.Advisories)
+		v.writeFindings(&sb, v.Advisories)
 		sb.WriteString(advisoryNote(v.Advisories, v.Policy))
 	}
 
 	if len(v.Descriptive) > 0 {
 		sb.WriteString("\nDescriptive (never graded) — what the change declared or renamed, not a problem:\n")
-		writeFindings(&sb, v.Descriptive)
+		v.writeFindings(&sb, v.Descriptive)
 	}
 
 	if len(v.Suppressed) > 0 {
@@ -222,36 +222,36 @@ func (v Verdict) Render() string {
 		// and someone signed them away. The header names the ledger so an auditor
 		// knows where the signatures live.
 		fmt.Fprintf(&sb, "\nSuppressed (%d) — excused by %s, never failed:\n", len(v.Suppressed), SuppressionsFileName)
-		writeFindings(&sb, v.Suppressed)
+		v.writeFindings(&sb, v.Suppressed)
 	}
 
 	if len(v.Exempted) > 0 {
 		fmt.Fprintf(&sb, "\nExempted by declaration (%d) — carve-outs the rules themselves declare, never failed:\n", len(v.Exempted))
-		writeFindings(&sb, v.Exempted)
+		v.writeFindings(&sb, v.Exempted)
 	}
 
 	if len(v.Resolved) > 0 {
 		fmt.Fprintf(&sb, "\nResolved by this change (%d):\n", len(v.Resolved))
-		writeFindings(&sb, v.Resolved)
+		v.writeFindings(&sb, v.Resolved)
 	}
 
 	if len(v.Silenced) > 0 {
 		fmt.Fprintf(&sb, "\nNo longer verdicted (%d) — the code these breaches named is still measured and\nno longer selected by the component its rule binds. The rule lost its subject;\nnothing was fixed:\n", len(v.Silenced))
-		writeFindings(&sb, v.Silenced)
+		v.writeFindings(&sb, v.Silenced)
 	}
 
 	if len(v.Declared) > 0 {
 		fmt.Fprintf(&sb, "\nNewly declared (%d) — a rule this change declares, re-forms or un-exempts\nreports these on code the change did not touch. The baseline the rule starts\nfrom, not regressions the change made:\n", len(v.Declared))
-		writeFindings(&sb, v.Declared)
+		v.writeFindings(&sb, v.Declared)
 	}
 	if len(v.Undeclared) > 0 {
 		fmt.Fprintf(&sb, "\nNo longer declared (%d) — the rule that reported these was deleted, re-formed\nunder the same id, or carved out by an exemption. The breaching code is\nunchanged; the law stopped asking:\n", len(v.Undeclared))
-		writeFindings(&sb, v.Undeclared)
+		v.writeFindings(&sb, v.Undeclared)
 	}
 
 	if len(v.Unattributed) > 0 {
 		fmt.Fprintf(&sb, "\nNot attributable to this change (%d) — the repository these breaches were\nmeasured in is absent from this snapshot, or the baseline carried the finding\nwithout the declaration that produced it. Nothing here was compared; whether\nthe code was fixed is not something these two snapshots can say:\n", len(v.Unattributed))
-		writeFindings(&sb, v.Unattributed)
+		v.writeFindings(&sb, v.Unattributed)
 	}
 
 	v.writeGuidance(&sb)
@@ -850,7 +850,7 @@ func (v Verdict) writeBreaches(sb *strings.Builder) {
 	}
 }
 
-func writeFindings(sb *strings.Builder, ins []facts.Insight) {
+func (v Verdict) writeFindings(sb *strings.Builder, ins []facts.Insight) {
 	for _, in := range ins {
 		source := in.Source
 		if source == "" {
@@ -860,29 +860,29 @@ func writeFindings(sb *strings.Builder, ins []facts.Insight) {
 		for _, ev := range in.Evidence {
 			if d := strings.TrimSpace(ev.Detail); d != "" {
 				fmt.Fprintf(sb, "      %s\n", oneLine(d))
-				writeFrame(sb, ev)
+				v.writeFrame(sb, ev)
 				break
 			}
 		}
 	}
 }
 
-// frameRoot is where a located finding's source is read from. It is the
-// process's working directory, which is the repository a check runs in; a
-// frame is a courtesy for the reader in front of the code, so a file that
-// cannot be read prints nothing rather than an error.
+// frameRoot is where a verdict with no Sources reads a finding's source from:
+// the process's working directory. Every verdict `check` and the stop hook
+// build carries Sources, so this is the fallback for one built without them.
 var frameRoot = "."
 
 // writeFrame prints the line a finding is about with its span underlined.
 // Nothing is printed when the extractor measured no position, when the file
-// is unreadable, or when the recorded line is past the file's end: an invented
-// frame would be worse than none, since a reader trusts what it points at.
-func writeFrame(sb *strings.Builder, ev facts.Evidence) {
+// is unreadable or no longer holds what was graded, or when the recorded line
+// is past the file's end: an invented frame would be worse than none, since a
+// reader trusts what it points at.
+func (v Verdict) writeFrame(sb *strings.Builder, ev facts.Evidence) {
 	if ev.Line <= 0 || ev.File == "" {
 		return
 	}
-	src, err := os.ReadFile(filepath.Join(frameRoot, filepath.FromSlash(repoRelative(ev.File)))) //factpath:host
-	if err != nil {
+	src, ok := v.sources.frameSource(ev.File)
+	if !ok {
 		return
 	}
 	lines := strings.Split(string(src), "\n")
