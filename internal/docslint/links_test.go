@@ -92,7 +92,7 @@ var repoPathRe = regexp.MustCompile("`((?:internal|pkg|cmd|examples|docs|\\.gith
 // rest, and it keeps each exception visible rather than encoding a blanket rule like
 // "ignore anything under internal/" that would quietly stop checking the real ones.
 var foreignPaths = map[string]string{
-	"internal/auth":                              "the worked example for --target and --max-spillover, in README.md, ARCHITECTURE.md and docs/CLI.md",
+	"internal/auth":                              "the worked example for --target and --max-spillover, in docs/GATING.md, ARCHITECTURE.md and docs/CLI.md",
 	"internal/auth/handler.go":                   "the same worked example, in ARCHITECTURE.md",
 	"internal/session":                           "the second package in the --max-spillover example in docs/CLI.md",
 	"internal/engine.cacheVersion":               "a Go selector written as a path, naming the cacheVersion constant, in docs/CLI.md",

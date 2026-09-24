@@ -15,6 +15,7 @@ Start with the page closest to what you need:
 | Page | Covers |
 |---|---|
 | [CLI.md](CLI.md) | Installation, agent integration, commands, flags, exit codes, scope controls, reviewer routing and the dashboard. |
+| [LANGUAGES.md](LANGUAGES.md) | Every supported language and format, what marks it in a repository, and the frameworks each extractor understands. |
 | [FIRST-CHANGE.md](FIRST-CHANGE.md) | The loop end to end on a module small enough to read: declare a layer order, pin, change, grade, and hold the change to its declared scope. The same rule is shown in Go and TypeScript. |
 | [CLUSTERS.md](CLUSTERS.md) | Two services in one graph: how client calls are matched to server routes across repositories, and how unresolved calls are reported. |
 | [DASHBOARD.md](DASHBOARD.md) | Reviewing a change visually, following dependencies, verifying snapshot provenance and judging analysis completeness. |
@@ -24,6 +25,7 @@ Start with the page closest to what you need:
 
 | Page | Covers |
 |---|---|
+| [GATING.md](GATING.md) | What a verdict contains, where the check runs, and exactly what can fail a build: policies, confidence floors and scope. |
 | [EXPLAINERS.md](EXPLAINERS.md) | The nineteen structural checks, confidence levels, and how before/after comparison isolates findings introduced by a change. |
 | [SNAPSHOTS.md](SNAPSHOTS.md) | Why Enola computes addressable snapshots instead of maintaining one continuously updated graph. |
 | [HISTORY.md](HISTORY.md) | `log`, `show`, `diff`, `blame`, `gc` and `history` - the recorded timeline of a repository's architecture, what it costs to keep, and how to share it across machines. |

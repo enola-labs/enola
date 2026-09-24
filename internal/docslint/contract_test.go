@@ -48,7 +48,7 @@ var contracts = []contract{
 				Why: "why a derived finding is still not a verdict"},
 			{Doc: "docs/GLOSSARY.md",
 				Why: "the name as vocabulary — it is what you type in --fail-on"},
-			{Doc: "README.md", Section: "What fails the build",
+			{Doc: "docs/GATING.md", Section: "What fails the build",
 				Why: "which names a policy can gate on"},
 		},
 	},

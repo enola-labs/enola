@@ -125,6 +125,12 @@ With `--hooks` the same target installs `.opencode/plugin/enola.js`. opencode ha
 
 Or add it from the command line: `code --add-mcp "{\"name\":\"enola\",\"command\":\"enola\"}"`. Then open a project and ask Copilot to generate a snapshot.
 
+**Codex** - register it from the command line:
+
+```bash
+codex mcp add enola -- enola
+```
+
 ### Use it
 
 Everything below is a prompt you type at your agent in plain English. enola picks the tool.
