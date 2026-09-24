@@ -780,7 +780,12 @@ func (e *Engine) runProviders(ctx context.Context, absRepo string, preCount int,
 	// Compiled once for the whole provider run: this closure is asked about every
 	// file a provider considers, and the bundled config ships 114 ignore patterns.
 	provIgnore := pathglob.Compile(e.cfg.Ignore)
-	in.Ignored = func(file string) bool { return provIgnore.MatchAny(filepath.ToSlash(file)) }
+	provPkgs := newPyPackageExemption(absRepo, e.cfg.Ignore)
+	in.Ignored = func(file string) bool {
+		rel := filepath.ToSlash(file)
+		pattern, ok := provIgnore.Match(rel)
+		return ok && !provPkgs.exempt(rel, pattern, false)
+	}
 	provFacts, records := providers.RunWith(ctx, in)
 	// The join against the extractor's relations runs once per provider over
 	// the facts that survived the merge, and stamps which tree they describe;
@@ -992,6 +997,7 @@ func (e *Engine) walkRepo(repoPath string) (files, testFiles, allNames []string,
 	// exactly as matchGlob does; internal/facts proves the two agree.
 	ignoreSet := pathglob.Compile(e.cfg.Ignore)
 	testGlobSet := pathglob.Compile(e.cfg.TestGlobs)
+	pkgs := newPyPackageExemption(repoPath, e.cfg.Ignore)
 	err = filepath.WalkDir(repoPath, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -1019,7 +1025,7 @@ func (e *Engine) walkRepo(repoPath string) (files, testFiles, allNames []string,
 		}
 
 		// Skip ignored paths
-		if pattern, ok := ignoreSet.Match(relPath); ok {
+		if pattern, ok := ignoreSet.Match(relPath); ok && !pkgs.exempt(relPath, pattern, d.IsDir()) {
 			if d.IsDir() {
 				// enola's own output directory is not part of the source tree.
 				// Counting it would make dirs_skipped differ between a repo's

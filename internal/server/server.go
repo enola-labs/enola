@@ -688,10 +688,27 @@ func renderNamesOnly(results []facts.Fact, total int) string {
 	return sb.String()
 }
 
+// queryAllPages runs a query to exhaustion, 500 facts (the store's page cap) at a
+// time, starting at opts.Offset.
+func queryAllPages(store *facts.Store, opts facts.QueryOpts) ([]facts.Fact, int) {
+	opts.Limit = 500
+	results, total := store.QueryAdvanced(opts)
+	for len(results) < total-opts.Offset {
+		page := opts
+		page.Offset = opts.Offset + len(results)
+		more, _ := store.QueryAdvanced(page)
+		if len(more) == 0 {
+			break
+		}
+		results = append(results, more...)
+	}
+	return results, total
+}
+
 // renderQuerySummary returns counts only — total plus a breakdown by kind and the
 // top files — so the caller can size a result set before fetching the facts
-// themselves. The breakdown is computed over the returned sample (results); when
-// total exceeds the sample it is annotated as approximate.
+// themselves. The caller passes every match (queryAllPages); should results still
+// fall short of total, the breakdown is annotated as approximate.
 // notableBoolProps are high-signal boolean fact properties surfaced in the
 // query_facts summary so a caller sizing a result set discovers actionable
 // flags (e.g. dead routes) without already knowing the prop name exists.
@@ -1200,12 +1217,7 @@ func (s *Server) registerTools() {
 
 		mode := resolveOutputMode(args.OutputMode, modeFull)
 
-		// Summary mode aggregates over as many matches as the store allows (cap 500)
-		// so the by-kind/by-file breakdown reflects the widest available sample.
 		limit := args.Limit
-		if mode == modeSummary {
-			limit = 500
-		}
 
 		// Query with the first (or only) prefix.
 		opts := facts.QueryOpts{
@@ -1224,12 +1236,19 @@ func (s *Server) registerTools() {
 			Limit:      limit,
 		}
 
-		results, total := store.QueryAdvanced(opts)
+		query := store.QueryAdvanced
+		if mode == modeSummary {
+			// Summary renders counts, not facts, so it can afford every match: a
+			// breakdown over the first 500 read "993 matching facts" beside
+			// "route: 500", which looks like a contradiction.
+			query = func(o facts.QueryOpts) ([]facts.Fact, int) { return queryAllPages(store, o) }
+		}
+		results, total := query(opts)
 
 		// If multiple repo labels matched, merge results from additional prefixes.
 		for _, p := range prefixes[1:] {
 			opts.FilePrefix = p
-			extra, extraTotal := store.QueryAdvanced(opts)
+			extra, extraTotal := query(opts)
 			results = append(results, extra...)
 			total += extraTotal
 		}

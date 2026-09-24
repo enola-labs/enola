@@ -108,7 +108,17 @@ type Report struct {
 
 	Routes         int          `json:"routes"`
 	RoutesByMethod []LabelCount `json:"routes_by_method,omitempty"`
-	Storage        int          `json:"storage"`
+	// Routes splits into the endpoints this repository SERVES and the outbound
+	// HTTP calls it makes (client-role route facts). A full-stack repository's
+	// frontend calls used to be counted as its API: one read 993 routes while
+	// serving 597.
+	RoutesServed   int `json:"routes_served"`
+	RoutesOutbound int `json:"routes_outbound"`
+	// RouteGapFramework names a web framework the manifests declare as a
+	// dependency when no served route was found: either the service really has
+	// none, or it registers them in a form enola does not read.
+	RouteGapFramework string `json:"route_gap_framework,omitempty"`
+	Storage           int    `json:"storage"`
 
 	// Architecture and ArchConfidence are the STRONGEST statement, kept as scalars
 	// so the existing JSON shape does not move. Architectures holds all of them,
@@ -227,6 +237,21 @@ func Compute(eng *bootstrap.Engine) *Report {
 	}
 	if r.Routes > 0 {
 		r.RoutesByMethod = sortedCounts(methodCount)
+	}
+	for _, f := range routes {
+		if role, _ := f.PropAny(facts.PropRole).(string); role == facts.RoleClient {
+			r.RoutesOutbound++
+		} else {
+			r.RoutesServed++ // no role means server, as the cross-repo linker reads it
+		}
+	}
+	if r.RoutesServed == 0 {
+		for _, f := range store.ByKind(facts.KindDependency) {
+			if fw, ok := routeFrameworkDeps[f.Name]; ok {
+				r.RouteGapFramework = fw
+				break
+			}
+		}
 	}
 
 	r.Storage = len(store.ByKind(facts.KindStorage))
@@ -563,6 +588,18 @@ func criticalityLabel(score int) string {
 
 // sortedCounts converts a tally map into a slice ordered by count desc, then
 // label asc, for deterministic output.
+// routeFrameworkDeps are the server frameworks whose routes enola extracts,
+// keyed by the dependency fact the manifests extractor emits for them. Declaring
+// one while no served route was found is worth saying out loud: a report that
+// reads "routes 0" for a FastAPI service is otherwise indistinguishable from a
+// service without an API.
+var routeFrameworkDeps = map[string]string{
+	"pkg:pypi/fastapi":   "FastAPI",
+	"pkg:pypi/starlette": "Starlette",
+	"pkg:pypi/flask":     "Flask",
+	"pkg:pypi/django":    "Django",
+}
+
 func sortedCounts(m map[string]int) []LabelCount {
 	out := make([]LabelCount, 0, len(m))
 	for k, v := range m {

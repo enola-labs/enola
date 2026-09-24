@@ -49,6 +49,8 @@ func extractFileAST(src []byte, relFile string, isDjango, isFlask, isFastAPI boo
 	// argument is routinely a router imported from another module.
 	topo := collectRouterTopology(tree.RootNode(), src, relFile, module, w.importMap)
 	topo.routes = w.routeRefs
+	topo.paths = w.pathRefs
+	topo.consts = collectConsts(tree.RootNode(), src, module, w.importMap)
 	return w.out, topo
 }
 
@@ -87,6 +89,8 @@ func extractFileIndexed(src []byte, relFile string, isDjango, isFlask, isFastAPI
 
 	topo := collectRouterTopology(root, src, relFile, module, w.importMap)
 	topo.routes = w.routeRefs
+	topo.paths = w.pathRefs
+	topo.consts = collectConsts(root, src, module, w.importMap)
 	return w.out, topo, local, w.pendingImpl
 }
 
@@ -194,6 +198,10 @@ type pyWalker struct {
 	// routeRefs ties each emitted route fact (by index into w.out) to the router
 	// variable it was registered on, for composeRouterPrefixes.
 	routeRefs []pyRouteRef
+
+	// pathRefs holds the routes emitted with a computed path (a constant, an
+	// f-string), for resolveRoutePaths.
+	pathRefs []pyPathRef
 
 	// routeDecorators is the set of decorator start byte offsets already turned
 	// into route facts, so a decorator reached by two walks emits once. A class
@@ -349,6 +357,7 @@ func (w *pyWalker) walkTopLevelCalls(node *sitter.Node) {
 		if fn := node.ChildByFieldName("function"); fn != nil {
 			w.emitFileRefCall(fn)
 		}
+		w.emitCallRoute(node)
 		if args := node.ChildByFieldName("arguments"); args != nil {
 			w.fileRefs = append(w.fileRefs, w.argRefRelations(args)...)
 		}
@@ -480,6 +489,9 @@ func (w *pyWalker) walkStatement(node *sitter.Node) {
 		}
 		w.registerBodyImports(node)
 		w.importDeferred = prevDeferred
+		if !isTypeCheckingGuard(node, w.src) {
+			w.walkGuardedRoutes(node)
+		}
 	}
 }
 
@@ -794,32 +806,26 @@ func (w *pyWalker) emitDecoratorRoute(c *sitter.Node, text string, pending *[]in
 	}
 	// FastAPI/Starlette verb decorator (@r.get) or Flask @app.route / @bp.route.
 	if m := routeDecoratorRe.FindStringSubmatch(text); m != nil {
-		path := m[3]
-		line := int(c.StartPosition().Row) + 1
-		before := len(w.out)
-		if strings.EqualFold(m[2], "route") {
-			// Flask: HTTP verbs come from methods=[...] (default GET); framework
-			// is the @X.route idiom itself, not the project detection.
-			w.emitRoutes(path, routeMethods(text), "flask", line, pending)
-		} else {
-			// Verb shorthand (@r.get). Shared by FastAPI and Flask 2.0, so the
-			// framework is derived from project detection rather than hardcoded.
-			w.emitRoutes(path, []string{strings.ToUpper(m[2])}, w.verbShorthandFramework(), line, pending)
-		}
+		// Flask @X.route takes its verbs from methods=[...] (default GET) and is
+		// labelled flask by the idiom itself; the verb shorthand (@r.get) is shared
+		// by FastAPI and Flask 2.0, so its label comes from project detection.
 		// m[1] is the receiver the route was registered on (the `router` in
-		// `@router.get`). Tie the new facts to it so composeRouterPrefixes can fold
-		// on the prefix it is mounted at.
-		if group := w.routerGroupKey(m[1]); group != "" {
-			for i := before; i < len(w.out); i++ {
-				w.routeRefs = append(w.routeRefs, pyRouteRef{idx: i, group: group})
-			}
-		}
+		// `@router.get`); emitRouteAt ties the facts to it so composeRouterPrefixes
+		// can fold on the prefix it is mounted at.
+		methods, framework, websocket := w.decoratorVerbs(m[2], text)
+		w.emitRouteAt([]pyPathPart{{lit: m[3]}}, methods, framework, websocket, m[1], int(c.StartPosition().Row)+1, pending)
 		w.routeDecorators[c.StartByte()] = true
 		return isRoute, true
 	}
 	// Flask-AppBuilder @expose("/path", methods=[...]).
 	if m := exposeDecoratorRe.FindStringSubmatch(text); m != nil {
 		w.emitRoutes(m[1], routeMethods(text), "flask", int(c.StartPosition().Row)+1, pending)
+		w.routeDecorators[c.StartByte()] = true
+		return isRoute, true
+	}
+	// A path the literal regex cannot read: a constant, an f-string, a `+`
+	// concatenation. Emitted pending, resolved repo-wide by resolveRoutePaths.
+	if isRoute && w.emitComputedDecoratorRoute(c, pending) {
 		w.routeDecorators[c.StartByte()] = true
 		return isRoute, true
 	}
@@ -1426,6 +1432,7 @@ func (w *pyWalker) walkForCalls(node *sitter.Node) {
 	}
 	kind := kindOf(node)
 	if kind == "call" {
+		w.emitCallRoute(node)
 		if fn := node.ChildByFieldName("function"); fn != nil {
 			w.emitCallEdge(fn)
 			// Tag the body io_direct when it directly invokes a DB/network/file primitive

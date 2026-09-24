@@ -74,8 +74,17 @@ func (r *Report) Render() string {
 	// API surface
 	b.WriteString("API & data surface\n")
 	countRow(&b, "routes", r.Routes)
+	if r.RoutesOutbound > 0 {
+		countRow(&b, "  served", r.RoutesServed)
+		countRow(&b, "  outbound calls", r.RoutesOutbound)
+	}
 	for _, m := range r.RoutesByMethod {
 		countRow(&b, "  "+m.Label, m.Count)
+	}
+	if r.RouteGapFramework != "" {
+		fmt.Fprintf(&b, "  note: %s is a dependency, but no served route was found.\n", r.RouteGapFramework)
+		b.WriteString("        If the service has an API, it registers routes in a form enola\n")
+		b.WriteString("        does not read yet; please report it.\n")
 	}
 	countRow(&b, "storage", r.Storage)
 	b.WriteString("\n")

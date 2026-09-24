@@ -142,6 +142,9 @@ func (e *PythonExtractor) Extract(ctx context.Context, repoPath string, files []
 		for j := range r.topo.routes {
 			r.topo.routes[j].idx += base
 		}
+		for j := range r.topo.paths {
+			r.topo.paths[j].idx += base
+		}
 		allFacts = append(allFacts, r.ff...)
 		routerTopos = append(routerTopos, r.topo)
 		modules[factpath.Dir(pyFiles[i])] = true
@@ -183,7 +186,12 @@ func (e *PythonExtractor) Extract(ctx context.Context, repoPath string, files []
 	// a route reads as the path it actually serves ("/api/v1/cognify") rather than
 	// the leaf its router declares ("/"). Runs last among the index-based passes:
 	// it rebuilds the fact slice, invalidating the route indices it consumes.
+	// Resolve routes registered on a computed path (`@router.get(HEALTH_PATH)`)
+	// against the repository's string constants first, so composing joins the
+	// mount prefix onto the real leaf. Unresolved ones are dropped after composing.
+	resolveRoutePaths(allFacts, routerTopos, fileModules, pkgDirs, buildReexportIndex(allFacts, pkgDirs))
 	allFacts = composeRouterPrefixes(allFacts, routerTopos, fileModules, pkgDirs)
+	allFacts = dropPendingRoutes(allFacts)
 
 	// Propagate the walk-time io_direct flag transitively across the (now canonical)
 	// call graph into performs_io, so a function that reaches DB/network I/O only through
@@ -275,12 +283,12 @@ var (
 	// `\s*` spans the newline of a multi-line decorator. When method is `route`
 	// (Flask), the HTTP verbs live in a `methods=[...]` kwarg parsed by
 	// routeMethodsListRe below, defaulting to GET.
-	routeDecoratorRe = regexp.MustCompile(`^\s*@([\w.]+)\.(route|get|post|put|delete|patch|head|options)\s*\(\s*(?:path\s*=\s*)?["']([^"']*)["']`)
+	routeDecoratorRe = regexp.MustCompile(`^\s*@([\w.]+)\.(route|api_route|websocket|websocket_route|get|post|put|delete|patch|head|options)\s*\(\s*(?:path\s*=\s*)?["']([^"']*)["']`)
 
 	// routeMethodRe matches a route-method decorator in ANY path form (literal,
 	// path= keyword, or a computed expression), used to tag the handler as a
 	// framework-dispatched entry point even when the path isn't a parseable literal.
-	routeMethodRe = regexp.MustCompile(`^\s*@[\w.]+\.(?:route|get|post|put|delete|patch|head|options)\s*\(`)
+	routeMethodRe = regexp.MustCompile(`^\s*@[\w.]+\.(?:route|api_route|websocket|websocket_route|get|post|put|delete|patch|head|options)\s*\(`)
 
 	// exposeDecoratorRe matches Flask-AppBuilder's @expose("/path", methods=[...]) —
 	// which has no receiver dot, so routeDecoratorRe cannot match it. It is the
@@ -291,7 +299,7 @@ var (
 	// routeMethodsListRe extracts the `methods=[...]` kwarg of a Flask route/expose
 	// decorator. Group: (list body) — the uppercase verbs are then pulled by
 	// httpMethodWordRe, mirroring @api_view.
-	routeMethodsListRe = regexp.MustCompile(`methods\s*=\s*\[([^\]]+)\]`)
+	routeMethodsListRe = regexp.MustCompile(`methods\s*=\s*[\[({]([^\])}]+)[\])}]`)
 
 	// tableNameRe matches SQLAlchemy __tablename__ assignments. Group: (table).
 	tableNameRe = regexp.MustCompile(`^\s*__tablename__\s*=\s*["']([^"']+)["']`)

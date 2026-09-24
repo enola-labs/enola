@@ -20,6 +20,15 @@ import (
 	"github.com/enola-labs/enola/pkg/plugin"
 )
 
+// v274: Python reads the FastAPI/Starlette route forms beyond `@router.get("/x")`:
+// @x.api_route (verbs from methods=, default GET), @x.websocket/@x.websocket_route
+// (GET, protocol=websocket), add_api_route/add_route and their websocket forms
+// (module level and in controller methods, `self.router` keyed to its class), and
+// route-decorated defs under a module-level if/try. A path held in a constant, an
+// f-string or a `+` concatenation resolves repo-wide against module- and class-level
+// string constants, through imports; a route whose path does not resolve is dropped,
+// never emitted half-known. The engine also keeps a build/, tmp/ or dist/ directory
+// that holds an __init__.py: it is a Python package, not build output.
 // v273: the hierarchical rule crosses call boundaries. Go records, per in-loop call,
 // whether the callee is handed an element of the caller's loop (calls_on_loop_element)
 // and, per function, whether its own loops walk something a caller passed it
@@ -2472,7 +2481,7 @@ import (
 // v270: SvelteKit reads literal kit.alias fallbacks before generated config exists,
 // keeps tsconfig paths authoritative, and classifies $app/$env/$service-worker imports
 // as framework-provided rather than unresolved third-party dependencies.
-const cacheVersion = "v273"
+const cacheVersion = "v274"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

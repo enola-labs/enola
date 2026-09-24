@@ -73,14 +73,21 @@ type pyRouterTopology struct {
 	groups  []pyRouterGroup
 	mounts  []pyRouterMount
 	routes  []pyRouteRef
+	paths   []pyPathRef
+	consts  []pyConst
 }
 
 // routerGroupKey maps the receiver of a route decorator (`@router.get`) to the
 // router group that owns it. A receiver bound inside a function body belongs to
 // that function — the factory pattern above — and is keyed by the function, which
 // is the name include_router mounts. Anything else is a module-level router.
-// Dotted receivers (`self.router`) are not tracked.
+// A `self.router` receiver inside a class is the class-based controller pattern
+// and is keyed by the class, as collectRouterTopology keys `self.router = ...`.
+// Other dotted receivers are not tracked.
 func (w *pyWalker) routerGroupKey(receiver string) string {
+	if attr, ok := strings.CutPrefix(receiver, "self."); ok && len(w.typeStack) > 0 && attr != "" && !strings.Contains(attr, ".") {
+		return w.module + "." + w.enclosingType() + "." + attr
+	}
 	if receiver == "" || strings.Contains(receiver, ".") {
 		return ""
 	}
@@ -164,6 +171,19 @@ func (c *routerCollector) qualify(name string) string {
 	return c.module + "." + strings.Join(append(append([]string{}, c.classStack...), name), ".")
 }
 
+// selfAttr returns X for a `self.X` assignment target inside a class, else "".
+func (c *routerCollector) selfAttr(left *sitter.Node) string {
+	if kindOf(left) != "attribute" || len(c.classStack) == 0 {
+		return ""
+	}
+	obj := left.ChildByFieldName("object")
+	attr := left.ChildByFieldName("attribute")
+	if obj == nil || attr == nil || kindOf(obj) != "identifier" || pyText(obj, c.src) != "self" {
+		return ""
+	}
+	return pyText(attr, c.src)
+}
+
 // scopeKey is the group key a variable assigned in the current scope belongs to:
 // the enclosing factory function, or the module-level variable itself.
 func (c *routerCollector) scopeKey(varName string) string {
@@ -177,7 +197,11 @@ func (c *routerCollector) scopeKey(varName string) string {
 func (c *routerCollector) handleAssign(node *sitter.Node) {
 	left := node.ChildByFieldName("left")
 	right := node.ChildByFieldName("right")
-	if left == nil || right == nil || kindOf(left) != "identifier" || kindOf(right) != "call" {
+	if left == nil || right == nil || kindOf(right) != "call" {
+		return
+	}
+	selfAttr := c.selfAttr(left)
+	if kindOf(left) != "identifier" && selfAttr == "" {
 		return
 	}
 	fn := right.ChildByFieldName("function")
@@ -190,6 +214,11 @@ func (c *routerCollector) handleAssign(node *sitter.Node) {
 	}
 	varName := pyText(left, c.src)
 	key := c.scopeKey(varName)
+	if selfAttr != "" {
+		// `self.router = APIRouter(prefix=...)` in a controller method: the router
+		// belongs to the class, the key routerGroupKey gives `@self.router.get`.
+		key = c.module + "." + strings.Join(c.classStack, ".") + "." + selfAttr
+	}
 	c.varKeys[c.funcScope+"\x00"+varName] = key
 	c.topo.groups = append(c.topo.groups, pyRouterGroup{
 		key:    key,
