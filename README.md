@@ -142,7 +142,11 @@ Before an edit, the agent asks the graph what depends on the code it is about to
 
 ### As a foundation for your own tools
 
-A snapshot is a set of plain files with a [documented format](docs/schema/README.md): the facts, the relationships between them, the findings, and a receipt recording exactly how it was built. Run enola as a subprocess and load them wherever you need them. [Cognee](https://github.com/topoteretes/cognee) does exactly that for its code-graph search. [docs/GRAPH.md](docs/GRAPH.md) explains what the graph contains and which files are a stable contract; [docs/INTEGRATING.md](docs/INTEGRATING.md) shows how to load it.
+A snapshot is a set of plain files with a [documented format](docs/schema/README.md): the facts, the relationships between them, the findings, and a receipt recording exactly how it was built. Run enola as a subprocess and load them wherever you need them.
+
+[Cognee](https://github.com/topoteretes/cognee) builds its code-graph search this way: it pins an `enola-cli` release and loads the snapshot files, and that search needs no LLM key. How it finds the binary and what it writes: [docs/INTEGRATING.md](docs/INTEGRATING.md#cognee).
+
+[docs/GRAPH.md](docs/GRAPH.md) explains what the graph contains and which files are a stable contract; [docs/INTEGRATING.md](docs/INTEGRATING.md) shows how to load it.
 
 ## What it reads
 
