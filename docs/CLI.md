@@ -51,6 +51,7 @@ Because your agent launches enola as a long-lived MCP server process, an upgrade
 - **Cursor** - toggle the enola server off and back on in **Settings → MCP** (or reload the window).
 - **GitHub Copilot (VS Code)** - restart the server from the `.vscode/mcp.json` editor (the **Restart** CodeLens above the server entry), or reload the window.
 - **opencode** - quit and restart it; it loads its configuration once at startup and never reloads it.
+- **Pi** - start a new session or run `/reload`; the extension starts its enola server once per session.
 
 ### Configuration (optional)
 
@@ -66,6 +67,8 @@ enola: no mcp-arch.yaml in /Users/you/src/api, using built-in defaults
 It is worth reading. A config decides which extractors run and which paths are ignored, so the wrong one does not fail - it analyses something other than what you asked for. enola looks in the working directory, then (only for a binary that is *not* on your `PATH`, i.e. an unpacked bundle rather than an installed one) beside the executable; the second case says so explicitly.
 
 Note that a list-valued setting **replaces** its default rather than extending it. That is why the bundled `mcp-arch.yaml` declares no `extractors:`, `explainers:` or `renderers:` - a copied list silently falls behind as new ones ship. Set `extractors:` only to deliberately narrow a run; enola warns when an extractor you excluded would have detected the repository.
+
+Two sets of paths are ignored whatever your `ignore:` list says: the output directory, and the files `enola install` owns inside a repository (`.claude/rules/enola.md`, `.pi/extensions/enola.js` and the rest). Neither is your architecture, and indexing them would change it.
 
 The install script installs **only the binary**, by design - it does not place a config file. Grab the bundled one from the repo whenever you want to customize (tune the `ignore` globs, pick a subset of extractors, change the output dir, …):
 
@@ -109,6 +112,10 @@ When you do pass a config, its `repo:` is only the *default* repository - you ca
 **opencode** - `enola install --targets opencode` writes the registration itself, because it is already editing the same file to register enola's instructions. It uses an existing `opencode.json` if there is one and otherwise creates `.opencode/opencode.json`, and it leaves a server entry you wrote yourself exactly as it is, in both directions: not overwritten on install, not deleted on uninstall. A `.jsonc` config is skipped rather than rewritten, since the comments in it would not survive. opencode reads its configuration once at startup, so restart it afterwards.
 
 With `--hooks` the same target installs `.opencode/plugin/enola.js`. opencode has no hook configuration in the shape Claude Code and Codex accept, so the plugin does a narrower job: it names the enola tool that answers a structural question in the descriptions of `grep`, `glob` and `list`, repeats that in the system prompt where it also reaches subagents, and refuses the first searches of a session outright with the tool to call instead. That last part blocks, so it is bounded twice: it gives up after two refusals, and it gives up the moment any enola tool is called, including one that failed. `ENOLA_OPENCODE_GATE=off` disables the refusals and leaves the rest.
+
+**Pi** - nothing to register. Pi has no MCP client, so `enola install --targets pi` writes an extension, `.pi/extensions/enola.js` (or `~/.pi/agent/extensions/enola.js` with `--global`), that is the client: at session start it launches enola's MCP server and registers every tool with Pi as `enola_<tool>` (`enola_explore`, `enola_impact_analysis`, ...), and tells the model those names in the system prompt. It is written on every install, not only with `--hooks`, since without it Pi has no enola tools at all. The extension runs the enola binary that installed it, by absolute path, so re-run `enola install` if you move the binary.
+
+Pi loads a project's extensions only once the project is trusted: accept Pi's trust prompt, run `/trust`, or start it with `pi --approve`. Until then it still reads `AGENTS.md` but has none of the tools. A global install needs no trust.
 
 **GitHub Copilot (VS Code)** - add enola to `.vscode/mcp.json` in your workspace (or your user-level MCP config via **MCP: Open User Configuration**). Note the top-level key is `servers` (not `mcpServers`), and the config path in `args` is optional - drop it to use defaults:
 
@@ -551,9 +558,9 @@ enola uninstall               # remove it all again
 | opencode | `mcp.enola` in the same config *(the one target that registers the server itself)* | same |
 | opencode | `.opencode/plugin/enola.js` *(owned, `--hooks` only)* | `~/.config/opencode/plugin/enola.js` *(owned, `--hooks` only)* |
 
-**Codex, Copilot, Pi and opencode all read the repository's `AGENTS.md`**, so locally one block serves all four - enola won't write a second repo-local file for them, which would only put the same instruction into the same context window twice. Their `--global` entries add what `AGENTS.md` can't: guidance in projects where nobody has run `enola install`. Those are written only when the tool's config directory already exists, so enola never creates `~/.codex` for someone who doesn't use Codex.
+**Codex, Copilot, Pi and opencode all read the repository's `AGENTS.md`**, so locally one block serves all four - enola won't write a second repo-local instruction file for them, which would only put the same instruction into the same context window twice. Their `--global` entries add what `AGENTS.md` can't: guidance in projects where nobody has run `enola install`. Those are written only when the tool's config directory already exists, so enola never creates `~/.codex` for someone who doesn't use Codex.
 
-**Pi gets an extension on every install**, not only with `--hooks`, because Pi has no MCP client: without it, the instructions would name tools Pi cannot call. The extension is that client. It starts the enola MCP server and registers each of its tools with Pi as `enola_<tool>`. With `--hooks` it also runs the session-start and stop hooks through Pi's events, and `enola doctor` reports on them as it does for Claude Code. Pi loads a project's extensions only once the project is trusted, so after a local install accept Pi's trust prompt, run `/trust`, or start it with `pi --approve`. Until then Pi still reads `AGENTS.md` but has no enola tools. A global install needs no trust.
+**Pi also gets an extension on every install**, not only with `--hooks`: it is not a second copy of the instructions but the MCP client Pi lacks, without which the instructions would name tools Pi cannot call. See [Pi](#connect-it-to-your-agent) above for what it does and the project trust step a local install needs.
 
 **`--targets` is for narrowing, not for choosing.** The default is every target, and that
 is almost always what you want: each one writes only into files its own agent reads, and
@@ -587,7 +594,7 @@ exists, which it is free to read and then ignore. That is the honest description
 default, and on a small local model it is often what happens. `--hooks` is what makes the
 loop run whether or not the agent remembers to.
 
-In Claude Code and Codex that means two session hooks:
+In Claude Code, Codex and Pi that means two session hooks (in Pi they run from the extension, on its session start and agent end events, and `enola doctor` reports on them the same way):
 
 - **`SessionStart`** freezes the architecture as a baseline when a session begins - the "before".
 - **`Stop`** grades what the session changed when your agent finishes a turn, and hands the verdict back **only if** there is something to say: a structural regression under the policy you set, or - since the default policy is empty - a finding enola measured exactly and did not enforce.

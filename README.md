@@ -145,6 +145,7 @@ Then give the agent the graph over MCP:
 | **Copilot (VS Code)** | `code --add-mcp '{"name":"enola","command":"enola"}'` |
 | **Cursor** | add the block below to `.cursor/mcp.json` (or `~/.cursor/mcp.json` for every project) |
 | **opencode** | nothing, `enola install` already registered it |
+| **Pi** | nothing, `enola install` wrote an extension that serves the tools (Pi has no MCP client); trust the project in Pi, or use `--global` |
 | **Any other MCP client** | add the block below to its MCP config |
 
 ```json
