@@ -1,0 +1,66 @@
+{
+  "about": "The headline figures enola.tech shows from BENCHMARKS.md. Update them in the same change as BENCHMARKS.md: internal/docslint fails when a figure, a number in a label, or an evidence phrase is no longer stated in the section it names. A headline with a question gets its own block on the benchmarks page; one without is a figure other pages quote.",
+  "headlines": [
+    {
+      "id": "reproducibility",
+      "question": "Does the same commit produce the same graph?",
+      "figure": "91/91",
+      "label": "public repositories produced byte-identical graphs across a cold run and two warm ones",
+      "anchor": "1-reproducibility",
+      "evidence": [
+        "91 of 91 repositories in this sweep produced a byte-identical"
+      ]
+    },
+    {
+      "id": "isolation",
+      "question": "When something regresses, is exactly that reported?",
+      "figure": "20/20",
+      "label": "injected cycles caught, with none of 1,859 pre-existing findings repeated as new",
+      "anchor": "2-delta-precision--the-ratchet",
+      "evidence": [
+        "all twenty repositories, 20 of 20",
+        "**1,859 pre-existing"
+      ]
+    },
+    {
+      "id": "isolation-worst",
+      "figure": "239",
+      "label": "pre-existing findings in one benchmark repository, and the injected cycle was the only one reported",
+      "anchor": "2-delta-precision--the-ratchet",
+      "evidence": [
+        "up to 239 in a single one"
+      ]
+    },
+    {
+      "id": "crossrepo",
+      "question": "Of the cross-repo calls that exist, how many are linked, and are the misses shown?",
+      "figure": "19/24",
+      "label": "fixture calls resolved, with the 3 unresolved and 2 external reported, not hidden",
+      "anchor": "3-cross-repo-resolution-misses-included",
+      "evidence": [
+        "| **Total** | | **24** | **19** | **3** | **2** |"
+      ]
+    },
+    {
+      "id": "scale",
+      "question": "Does it finish on a real repository?",
+      "figure": "0",
+      "label": "parse errors across the whole corpus, the Linux kernel included",
+      "anchor": "4-scale",
+      "evidence": [
+        "| Parse errors, all 91 repositories | **0** |"
+      ]
+    },
+    {
+      "id": "agent",
+      "question": "Does an agent, given the check, avoid shipping the regression?",
+      "figure": "3/3 → 0/3",
+      "label": "agents shipped the cycle without Enola versus with hooks, over nine trials",
+      "anchor": "6-agent-ab--does-the-agent-ship-the-regression",
+      "evidence": [
+        "| bare | **3 / 3** |",
+        "| loop | **0 / 3** |"
+      ]
+    }
+  ]
+}

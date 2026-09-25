@@ -438,7 +438,7 @@ either way — the delta itself, and the fact that it is exactly one finding.
 | sveltekit-realworld | TypeScript | 3 | PASS · +0 facts | PASS · +2 facts | **FAIL · 1 regression** | PASS · +0 |
 | cachet | PHP | 1 | PASS · +0 facts | PASS · +3 facts | **FAIL · 1 regression** | PASS · +0 |
 
-Read the columns as four separate claims, all of which hold on all twenty:
+Read the columns as four separate claims, all of which hold on all twenty repositories, 20 of 20:
 
 - **No change → +0 facts, +0 edges, PASS.** Exactly zero on all twenty repositories.
   That's what makes a PASS or FAIL on a real change something you can rely on.
