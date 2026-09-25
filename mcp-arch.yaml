@@ -164,6 +164,14 @@ ignore:
   # sync with config.Default() in internal/config/config.go)
   - "**/*.min.js"
   - "**/*.bundle.js"
+  # Files `enola install` owns (config.InstalledFiles). Normalize adds these to any
+  # config, so they are listed here only to keep this file equal to the defaults.
+  - "**/.claude/rules/**/enola.md"
+  - "**/.cursor/rules/**/enola.mdc"
+  - "**/.github/instructions/**/enola.instructions.md"
+  - "**/.opencode/**/enola.md"
+  - "**/.opencode/plugin/**/enola.js"
+  - "**/.pi/extensions/**/enola.js"
   # Documentation
   - "**/*.md"
   - "**/*.mdx"

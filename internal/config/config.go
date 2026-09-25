@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -231,7 +232,9 @@ var KnownExplainers = []string{
 func Default() *Config {
 	return &Config{
 		Repo: ".",
-		Ignore: []string{
+		// enola's own installed files close the list, so Normalize adds nothing to a
+		// default config and its ignore-glob hash is the same before and after.
+		Ignore: append([]string{
 			// Any-depth forms, deliberately: a monorepo's sub-app carries its own
 			// node_modules/dist, and the root-anchored globs these replace let a
 			// nested tree straight into the graph — on one production monolith the
@@ -483,7 +486,7 @@ func Default() *Config {
 			// the bundled mcp-arch.yaml ignore list.
 			"**/*.min.js",
 			"**/*.bundle.js",
-		},
+		}, installedFileGlobs()...),
 		// TestGlobs identify test/spec files. They stay ignored for normal indexing
 		// (still listed in Ignore above) — production architecture facts must not
 		// include test symbols — but the engine collects them separately for
@@ -659,7 +662,43 @@ func (c *Config) Normalize() error {
 			c.Ignore = append(c.Ignore, glob)
 		}
 	}
+	// Appended here rather than listed in Default().Ignore for the same reason as the
+	// output directory: a config with its own `ignore:` replaces the defaults, and
+	// these files must stay out of the graph whatever that list says.
+	for _, glob := range installedFileGlobs() {
+		if !contains(c.Ignore, glob) {
+			c.Ignore = append(c.Ignore, glob)
+		}
+	}
 	return nil
+}
+
+// InstalledFiles are the files `enola install` owns outright inside a repository,
+// relative to its root. None of them is the repository's architecture, and indexing
+// them changed it: Pi's extension is JavaScript, and a TypeScript one made a Go
+// repository detect as TypeScript. Files enola only edits a section of (AGENTS.md,
+// settings.json, opencode.json) are the user's and stay indexed.
+//
+// pkg/install asserts that every owned file it writes is listed here.
+var InstalledFiles = []string{
+	".claude/rules/enola.md",
+	".cursor/rules/enola.mdc",
+	".github/instructions/enola.instructions.md",
+	".opencode/enola.md",
+	".opencode/plugin/enola.js",
+	".pi/extensions/enola.js",
+}
+
+// installedFileGlobs is InstalledFiles as ignore globs. `**/<dir>/**/<file>` rather
+// than `**/<dir>/<file>`: pathglob matches the second at most one directory deep, and
+// a monorepo service can carry its own install.
+func installedFileGlobs() []string {
+	out := make([]string, 0, len(InstalledFiles))
+	for _, f := range InstalledFiles {
+		dir, file := path.Split(f)
+		out = append(out, "**/"+dir+"**/"+file)
+	}
+	return out
 }
 
 // cleanOutputDir validates output.dir and returns it in slash form.

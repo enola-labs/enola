@@ -295,8 +295,9 @@ func TestInstall_CopilotOwnsItsFileAndAppliesUnconditionally(t *testing.T) {
 }
 
 // TestInstall_CodexAndPiAreNotDuplicatedLocally — both read the repo-root AGENTS.md the
-// `agents` target already writes. Writing a second repo-local file for them would put the
-// same instruction into the same context window twice, for no gain.
+// `agents` target already writes. Writing a second repo-local instruction file for them
+// would put the same instruction into the same context window twice, for no gain. Pi
+// still gets its extension, which is a tool bridge, not a second copy of the text.
 func TestInstall_CodexAndPiAreNotDuplicatedLocally(t *testing.T) {
 	o := opts(t, false)
 	if err := os.WriteFile(filepath.Join(o.RepoDir, "AGENTS.md"), []byte("# Team\n"), 0o644); err != nil {
@@ -306,11 +307,11 @@ func TestInstall_CodexAndPiAreNotDuplicatedLocally(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, tool := range []string{"(codex)", "(pi)"} {
-		a, ok := actionFor(rs, tool)
-		if !ok || a != ActionSkipped {
-			t.Errorf("%s local action = %q, want %q with an explanation", tool, a, ActionSkipped)
-		}
+	if a, ok := actionFor(rs, "(codex)"); !ok || a != ActionSkipped {
+		t.Errorf("(codex) local action = %q, want %q with an explanation", a, ActionSkipped)
+	}
+	if a, ok := actionFor(rs, "enola.js"); !ok || a != ActionCreated {
+		t.Errorf("pi extension local action = %q, want %q", a, ActionCreated)
 	}
 	// Exactly one repo-local block, in AGENTS.md.
 	if n := strings.Count(read(t, filepath.Join(o.RepoDir, "AGENTS.md")), beginMarker); n != 1 {

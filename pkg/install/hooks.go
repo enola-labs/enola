@@ -70,11 +70,11 @@ func HookSummary(o Options) []string {
 	return append(out, gateSummary(o)...)
 }
 
-// InstallsSessionHooks reports whether this run writes the session hooks, which only
-// the targets with a hook configuration enola can write do: Claude Code and Codex.
+// InstallsSessionHooks reports whether this run writes the session hooks: Claude Code
+// and Codex through their hook configs, Pi through its extension's events.
 func InstallsSessionHooks(o Options) bool {
 	for _, t := range o.selectedTargets() {
-		if t == "claude" || t == "codex" {
+		if t == "claude" || t == "codex" || t == "pi" {
 			return true
 		}
 	}

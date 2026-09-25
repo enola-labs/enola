@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/enola-labs/enola/pkg/install"
 )
 
 func writeSettings(t *testing.T, repo, body string) {
@@ -87,5 +89,27 @@ func TestHookOutputDir_UnreadableConfigFallsBackToDefault(t *testing.T) {
 	// A diagnostic must never be the reason something breaks.
 	if got, want := hookOutputDir(repo), filepath.Join(repo, ".enola"); got != want {
 		t.Errorf("got %q, want the default %q", got, want)
+	}
+}
+
+// TestHooksConfiguredIn_PiExtension — Pi's hooks live in its extension, not a hook
+// config. An install without --hooks writes the extension too, and must not be reported
+// as hooks that are configured and have never fired.
+func TestHooksConfiguredIn_PiExtension(t *testing.T) {
+	for _, hooks := range []bool{false, true} {
+		repo := t.TempDir()
+		if _, err := install.Install(install.Options{
+			Scope: install.ScopeLocal, RepoDir: repo, HomeDir: t.TempDir(),
+			Hooks: hooks, Targets: []string{"pi"},
+		}); err != nil {
+			t.Fatal(err)
+		}
+		got := hooksConfiguredIn(repo)
+		if want := filepath.Join(".pi", "extensions", "enola.js"); hooks && got != want {
+			t.Errorf("with hooks: configured in %q, want %q", got, want)
+		}
+		if !hooks && got != "" {
+			t.Errorf("without hooks: configured in %q, want none", got)
+		}
 	}
 }

@@ -546,12 +546,14 @@ enola uninstall               # remove it all again
 | GitHub Copilot | `.github/instructions/enola.instructions.md` *(owned)* | — lives in IDE/account settings |
 | Codex · Copilot · Pi | `AGENTS.md` *(marked block, only if it already exists)* | — |
 | Codex | `.codex/hooks.json` *(managed entries, `--hooks` only)*, covered by `AGENTS.md` otherwise | `~/.codex/AGENTS.md` *(marked block)*, `~/.codex/hooks.json` *(managed entries, `--hooks` only)* |
-| Pi | *covered by `AGENTS.md`* | `~/.pi/agent/AGENTS.md` *(marked block)* |
+| Pi | `.pi/extensions/enola.js` *(owned)*, instructions covered by `AGENTS.md` | `~/.pi/agent/AGENTS.md` *(marked block)*, `~/.pi/agent/extensions/enola.js` *(owned)* |
 | opencode | `.opencode/enola.md` *(owned)* + its entry in `opencode.json`, or covered by `AGENTS.md` | `~/.config/opencode/enola.md` *(owned)* + its entry in `~/.config/opencode/opencode.json` |
 | opencode | `mcp.enola` in the same config *(the one target that registers the server itself)* | same |
 | opencode | `.opencode/plugin/enola.js` *(owned, `--hooks` only)* | `~/.config/opencode/plugin/enola.js` *(owned, `--hooks` only)* |
 
 **Codex, Copilot, Pi and opencode all read the repository's `AGENTS.md`**, so locally one block serves all four - enola won't write a second repo-local file for them, which would only put the same instruction into the same context window twice. Their `--global` entries add what `AGENTS.md` can't: guidance in projects where nobody has run `enola install`. Those are written only when the tool's config directory already exists, so enola never creates `~/.codex` for someone who doesn't use Codex.
+
+**Pi gets an extension on every install**, not only with `--hooks`, because Pi has no MCP client: without it, the instructions would name tools Pi cannot call. The extension is that client. It starts the enola MCP server and registers each of its tools with Pi as `enola_<tool>`. With `--hooks` it also runs the session-start and stop hooks through Pi's events, and `enola doctor` reports on them as it does for Claude Code. Pi loads a project's extensions only once the project is trusted, so after a local install accept Pi's trust prompt, run `/trust`, or start it with `pi --approve`. Until then Pi still reads `AGENTS.md` but has no enola tools. A global install needs no trust.
 
 **`--targets` is for narrowing, not for choosing.** The default is every target, and that
 is almost always what you want: each one writes only into files its own agent reads, and

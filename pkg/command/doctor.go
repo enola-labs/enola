@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/enola-labs/enola/internal/diff"
@@ -15,6 +16,7 @@ import (
 	"github.com/enola-labs/enola/internal/updatecheck"
 	"github.com/enola-labs/enola/pkg/bootstrap"
 	"github.com/enola-labs/enola/pkg/check"
+	"github.com/enola-labs/enola/pkg/install"
 )
 
 // runDoctor is `enola doctor`: does the loop actually run in this repository?
@@ -66,7 +68,8 @@ func (r *Runner) Doctor(args []string) {
 
 	outDir := hookOutputDir(repoDir)
 	state := hookstate.Load(outDir)
-	installed := hooksConfigured(repoDir)
+	where := hooksConfiguredIn(repoDir)
+	installed := where != ""
 	baselineIssue := r.baselineUsability(repoDir, outDir)
 
 	memLimit, memSource := bootstrap.MemoryLimit()
@@ -157,7 +160,7 @@ func (r *Runner) Doctor(args []string) {
 		fmt.Println("  at session start, and the change graded when the session ends.")
 		return
 	}
-	fmt.Println("  configured in .claude/settings.json")
+	fmt.Printf("  configured in %s\n", where)
 	if !state.InstalledAt.IsZero() {
 		fmt.Printf("  installed        %s (%s ago)\n",
 			state.InstalledAt.Format(time.RFC3339), humanSince(state.InstalledAt))
@@ -230,6 +233,21 @@ func (r *Runner) baselineUsability(repoDir, outDir string) string {
 	}
 	v := check.Evaluate(&diff.SnapshotDiff{Comparability: diff.CompareMeta(base.Meta, *current)}, check.Policy{})
 	return v.DeclineReason()
+}
+
+// hooksConfiguredIn names the file that installs enola's session hooks for this
+// repository, or "" when none does: `.claude/settings.json` with an entry enola owns, or
+// Pi's extension written with its hooks switched on.
+func hooksConfiguredIn(repoDir string) string {
+	if hooksConfigured(repoDir) {
+		return filepath.Join(".claude", "settings.json")
+	}
+	rel := filepath.Join(".pi", filepath.FromSlash(install.PiExtensionFile))
+	if data, err := os.ReadFile(filepath.Join(repoDir, rel)); err == nil &&
+		strings.Contains(string(data), install.PiHooksMarker) {
+		return rel
+	}
+	return ""
 }
 
 // hooksConfigured reports whether .claude/settings.json carries an entry enola owns.

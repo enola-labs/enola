@@ -48,7 +48,8 @@ func (o Options) hookCommand() string {
 //
 // `agents` is the repo-root AGENTS.md, which Codex, Copilot and Pi all read — so the
 // codex/copilot/pi targets below add only what AGENTS.md does NOT already cover: their
-// user-level files, and Copilot's own owned-file format. Writing a second repo-local file
+// user-level files, Copilot's own owned-file format, and Pi's extension, without which
+// Pi cannot call a single enola tool (see piTarget). Writing a second repo-local file
 // for a tool that already reads AGENTS.md would duplicate the instruction into the same
 // context window twice.
 var TargetNames = []string{"claude", "cursor", "agents", "codex", "copilot", "pi", "opencode"}
@@ -118,7 +119,7 @@ func runTarget(name string, o Options, remove bool) ([]Result, error) {
 	case "codex":
 		return codexTarget(o, remove)
 	case "pi":
-		return globalAgentsTarget(o, remove, "pi", filepath.Join(".pi", "agent", "AGENTS.md"))
+		return piTarget(o, remove)
 	case "copilot":
 		return copilotTarget(o, remove)
 	case "opencode":

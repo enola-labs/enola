@@ -207,6 +207,25 @@ func (r *Runner) Install(args []string, remove bool) {
 		// registered mid-session are both invisible until it is restarted.
 		fmt.Println("\nopencode loads its configuration once at startup — quit and restart it for these to take effect.")
 	}
+	if !remove && install.InstallsPiExtension(opts) && touchedPi(applied) {
+		// Without trust Pi skips `.pi/extensions/` silently and still loads AGENTS.md, so
+		// the session looks configured and has no enola tools.
+		fmt.Println("\nPi loads a project's extensions only once the project is trusted: start Pi here and")
+		fmt.Println("accept the trust prompt, run `/trust` inside it, or start it with `pi --approve`.")
+	}
+}
+
+// touchedPi reports whether this run wrote or updated Pi's extension.
+func touchedPi(rs []install.Result) bool {
+	for _, r := range rs {
+		if !strings.HasSuffix(filepath.ToSlash(r.Path), "/.pi/"+install.PiExtensionFile) {
+			continue
+		}
+		if r.Action == install.ActionCreated || r.Action == install.ActionUpdated {
+			return true
+		}
+	}
+	return false
 }
 
 // touchedOpencode reports whether this run changed anything opencode reads.
