@@ -87,6 +87,15 @@ func IsRepo(dir string) bool {
 	return err == nil
 }
 
+// IsFolderOfRepos reports whether dir is a folder of repositories rather than a
+// repository: not a git repository itself, and holding at least MinRepos that are. The
+// session hooks ask this, because they snapshot their directory as ONE repository
+// whatever config sits in it. Over a folder of every repository a user has, that was
+// hundreds of thousands of files per session start and again per graded turn.
+func IsFolderOfRepos(dir string) bool {
+	return !IsRepo(dir) && len(ChildRepos(dir)) >= MinRepos
+}
+
 // Clusterable returns the child repositories enola indexes as a cluster when dir is given
 // as one repository, or nil. It is Folded, except for a dir that is itself a git
 // repository: nested checkouts inside a repository are part of it, and indexing only

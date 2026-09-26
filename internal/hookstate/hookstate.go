@@ -53,6 +53,9 @@ const (
 	// OutcomeSkipped: the session-start hook deliberately did no work — a deliberate
 	// baseline it must not replace, an unchanged tree, or another session holding the lock.
 	OutcomeSkipped Outcome = "skipped"
+	// OutcomeNotARepo: the hook ran in a folder of repositories, not a repository, and
+	// did nothing. Snapshotting it as one repository is the cost the hooks must not pay.
+	OutcomeNotARepo Outcome = "not_a_repository"
 )
 
 // Event names a hook. These match the `enola hook <event>` subcommands.

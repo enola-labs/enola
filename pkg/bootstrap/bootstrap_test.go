@@ -418,3 +418,42 @@ func contains(ss []string, s string) bool {
 	}
 	return false
 }
+
+// TestAutoLoadSnapshot_SkipsAFolderOfRepositories: a snapshot of a folder of
+// repositories taken as ONE repository is what the session hooks once left in a user's
+// development folder: every repository they had, 9M facts in a 6 GB facts.jsonl. The
+// server loaded it at startup, before it read stdin, so it grew to tens of GB and a
+// quit did not end it. A folder's graph restores through its workspace receipt; its
+// own .enola is never loaded as one repository.
+func TestAutoLoadSnapshot_SkipsAFolderOfRepositories(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	eng, cfg, err := bootstrap.NewEngine(bootstrap.Options{
+		ConfigPath: filepath.Join(t.TempDir(), "no-such-config.yaml"),
+	})
+	if err != nil {
+		t.Fatalf("NewEngine: %v", err)
+	}
+
+	folder := t.TempDir()
+	for _, repo := range []string{"alpha", "beta"} {
+		if err := os.MkdirAll(filepath.Join(folder, repo, ".git"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	enolaDir := filepath.Join(folder, cfg.Output.Dir)
+	if err := os.MkdirAll(enolaDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	store := facts.NewStore()
+	store.Add(facts.Fact{Kind: facts.KindModule, Name: "alpha", File: "alpha"})
+	if err := store.WriteJSONLFile(filepath.Join(enolaDir, "facts.jsonl")); err != nil {
+		t.Fatalf("WriteJSONLFile: %v", err)
+	}
+
+	cfg.Repo = folder
+	bootstrap.AutoLoadSnapshot(eng, cfg)
+	if n := eng.Store().Count(); n != 0 {
+		t.Errorf("restored %d facts from a folder of repositories' own .enola, want none", n)
+	}
+}

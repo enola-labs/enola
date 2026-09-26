@@ -9,6 +9,7 @@ import (
 
 	"github.com/enola-labs/enola/internal/config"
 	"github.com/enola-labs/enola/internal/hookstate"
+	"github.com/enola-labs/enola/internal/workspace"
 	"github.com/enola-labs/enola/pkg/install"
 )
 
@@ -73,6 +74,17 @@ func (r *Runner) Install(args []string, remove bool) {
 	if *global {
 		opts.Scope = install.ScopeGlobal
 	}
+	// The session hooks snapshot the directory they run in as one repository, so in a
+	// folder of repositories they could only ever skip. Installing them there would
+	// configure a mechanism that does nothing, and hide that until `doctor` is read.
+	hooksRefused := opts.Hooks && opts.Scope == install.ScopeLocal && workspace.IsFolderOfRepos(repoDir)
+	if hooksRefused {
+		opts.Hooks = false
+		fmt.Printf("Not installing hooks: %s is a folder of repositories, not a repository, and\n", repoDir)
+		fmt.Println("the hooks would snapshot all of them as one. Run `install --hooks` inside each")
+		fmt.Println("repository you want graded. Instructions and the MCP setup are still installed.")
+		fmt.Println()
+	}
 	if *targets != "" {
 		for _, t := range strings.Split(*targets, ",") {
 			if t = strings.TrimSpace(t); t != "" {
@@ -131,6 +143,8 @@ func (r *Runner) Install(args []string, remove bool) {
 			fmt.Println("Hooks:      no — instructions only, which an agent is free to ignore.")
 			fmt.Println("            Re-run with --hooks for opencode's plugin, which points a")
 			fmt.Println("            session's first searches at the index instead.")
+		} else if hooksRefused {
+			fmt.Println("Hooks:      no — a folder of repositories (see above).")
 		} else {
 			fmt.Println("Hooks:      no — instructions only. Re-run with --hooks to automate the loop.")
 		}

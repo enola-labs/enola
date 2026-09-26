@@ -16,6 +16,7 @@ import (
 	"github.com/enola-labs/enola/internal/filelock"
 	"github.com/enola-labs/enola/internal/hookstate"
 	"github.com/enola-labs/enola/internal/updatecheck"
+	"github.com/enola-labs/enola/internal/workspace"
 	"github.com/enola-labs/enola/pkg/bootstrap"
 	"github.com/enola-labs/enola/pkg/check"
 )
@@ -93,6 +94,9 @@ func (r *Runner) Hook(ctx context.Context, args []string) {
 func (r *Runner) runStopHook(ctx context.Context) {
 	in, err := readHookInput()
 	if err != nil || in.CWD == "" {
+		return
+	}
+	if skipFolderOfRepos(r, in.CWD, hookstate.EventStop) {
 		return
 	}
 
@@ -187,6 +191,18 @@ func (r *Runner) runStopHook(ctx context.Context) {
 	fmt.Println(string(encoded))
 }
 
+// skipFolderOfRepos reports whether dir is a folder of repositories, recording the
+// skip so `doctor` can say why the hooks do nothing there. Both hooks snapshot their
+// directory as one repository, and over a folder holding every repository a user has
+// that is hundreds of thousands of files, per session start and per graded turn.
+func skipFolderOfRepos(r *Runner, dir string, e hookstate.Event) bool {
+	if !workspace.IsFolderOfRepos(dir) {
+		return false
+	}
+	hookstate.RecordFired(r.outputDirFor(dir), e, hookstate.OutcomeNotARepo)
+	return true
+}
+
 // detachedRunFlag marks the re-invocation that does the actual pinning. The hook the
 // agent calls spawns a copy of itself carrying this flag, so the work happens in a
 // process the agent does not own and does not wait for.
@@ -223,6 +239,11 @@ func (r *Runner) runSessionStartHook(ctx context.Context, args []string) {
 	if err != nil || in.CWD == "" || !isDirectory(in.CWD) {
 		return
 	}
+	// Decided here, not in the detached child, so a folder of repositories costs one
+	// directory read and no process at all.
+	if skipFolderOfRepos(r, in.CWD, hookstate.EventSessionStart) {
+		return
+	}
 	if !detachable {
 		// Better to do nothing than to make every session start wait on a snapshot.
 		return
@@ -247,6 +268,9 @@ func (r *Runner) runSessionStartHook(ctx context.Context, args []string) {
 // Everything here is silent. It has no terminal, nobody is reading its output, and a hook
 // that cannot fail loudly must not try.
 func (r *Runner) pinBaselineSingleFlight(ctx context.Context, repoDir string) {
+	if workspace.IsFolderOfRepos(repoDir) {
+		return
+	}
 	// Refreshed here because this is already the one place enola does slow, unattended
 	// work that nobody is waiting on — so the update check costs no extra process spawn
 	// and cannot delay anything. It runs BEFORE the pin lock and every early return
