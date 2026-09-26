@@ -104,6 +104,12 @@ const (
 )
 
 func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
+	// Binders run again on every append, over the whole union, so the edges derived
+	// last time go first, as the cross-repo linker drops its own. Left in place, each
+	// append added every edge again: one copy per repository appended after it.
+	store.RemoveWhere(func(f facts.Fact) bool {
+		return f.Kind == facts.KindDependency && f.PropAny(DerivedProp) == derivedFromSymbols
+	})
 	production, test := moduleNames(store)
 	if len(production) == 0 {
 		return nil

@@ -73,8 +73,17 @@ const (
 
 var sourceExts = []string{".ts", ".js", ".gts", ".gjs", ".hbs"}
 
+// coverageName is the extraction fact this binder reports its coverage under.
+const coverageName = "ember:templates"
+
 func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
-	var resolvedBindings, unresolvedBindings, templatesWithMisses int
+	// Binders run again on every append, over the whole union, so the coverage fact
+	// from the last pass goes first. It counts the whole union, so a copy per append
+	// would add every earlier repository's bindings in again.
+	store.RemoveWhere(func(f facts.Fact) bool {
+		return f.Kind == facts.KindExtraction && f.Name == coverageName
+	})
+	byRepo := extcoverage.ByRepo{}
 	idx := buildIndex(store)
 	bound := 0
 
@@ -285,12 +294,13 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 						}
 					}
 				}
-				resolvedBindings += len(w.targets) + len(w.linkTargets)
+				c := byRepo.For(f.Repo)
+				c.Resolved += len(w.targets) + len(w.linkTargets)
 				if len(w.unresolved) > 0 {
 					sort.Strings(w.unresolved)
 					f.SetProp(unresolvedProp, w.unresolved)
-					unresolvedBindings += len(w.unresolved)
-					templatesWithMisses++
+					c.Unresolved += len(w.unresolved)
+					c.WithMisses++
 				}
 			}
 			return
@@ -378,24 +388,10 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 	// over 1,363 unexamined templates, because nothing aggregated it — the
 	// original evidence for building a coverage mechanism at all. Nineteen
 	// extractors later it had exactly one adopter, and this is the second.
-	if fact, ok := extcoverage.Fact(repoRoot(store), "ember:templates", "ember_binding",
-		resolvedBindings, map[string]int{"unresolved_binding": unresolvedBindings}); ok {
-		if templatesWithMisses > 0 {
-			fact.SetProp("templates_with_misses", templatesWithMisses)
-		}
-		store.Add(fact)
+	if out := byRepo.Facts(coverageName, "ember_binding", "unresolved_binding", "templates_with_misses"); len(out) > 0 {
+		store.Add(out...)
 	}
 	return nil
-}
-
-// repoRoot names the repository this binder ran over, for the coverage fact's
-// file field. A multi-repo store reports the first label, which is the same
-// convention the cross-repo coverage already uses.
-func repoRoot(store *facts.Store) string {
-	if labels := store.RepoLabels(); len(labels) > 0 {
-		return labels[0]
-	}
-	return "."
 }
 
 // index holds, per repo, the file paths that can back a resolver name and the

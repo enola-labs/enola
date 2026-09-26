@@ -53,13 +53,23 @@ const (
 	stimulus       = "stimulus"
 )
 
+// coverageName is the extraction fact this binder reports its coverage under.
+const coverageName = "stimulus:actions"
+
 func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
+	// Binders run again on every append, over the whole union, so the coverage fact
+	// from the last pass goes first. It counts the whole union, so a copy per append
+	// would add every earlier repository's bindings in again.
+	store.RemoveWhere(func(f facts.Fact) bool {
+		return f.Kind == facts.KindExtraction && f.Name == coverageName
+	})
 	members := membersByFile(store)
 	if len(members) == 0 {
 		return nil
 	}
 
-	var resolved, unresolved, bindingsWithMisses, bound int
+	byRepo := extcoverage.ByRepo{}
+	bound := 0
 	store.UpdateWhere(func(f *facts.Fact) {
 		if f.Kind != facts.KindDependency || f.PropString(frameworkProp) != stimulus {
 			return
@@ -69,6 +79,7 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 			return
 		}
 		byName := members[f.Repo+"\x00"+controllerFileOf(f)]
+		c := byRepo.For(f.Repo)
 		var misses []string
 		for _, handler := range handlers {
 			target := byName[handler]
@@ -76,7 +87,7 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 				misses = append(misses, handler)
 				continue
 			}
-			resolved++
+			c.Resolved++
 			if !f.HasRelation(facts.RelCalls, target) {
 				f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelCalls, Target: target})
 				bound++
@@ -85,20 +96,16 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 		if len(misses) > 0 {
 			sort.Strings(misses)
 			f.SetProp(unresolvedProp, strings.Join(misses, " "))
-			unresolved += len(misses)
-			bindingsWithMisses++
+			c.Unresolved += len(misses)
+			c.WithMisses++
 		}
 	})
 
 	if bound > 0 {
 		log.Printf("[binder:stimulus-resolver] bound %d Stimulus handler edge(s)", bound)
 	}
-	if fact, ok := extcoverage.Fact(repoRoot(store), "stimulus:actions", "stimulus_handler",
-		resolved, map[string]int{"unresolved_handler": unresolved}); ok {
-		if bindingsWithMisses > 0 {
-			fact.SetProp("bindings_with_misses", bindingsWithMisses)
-		}
-		store.Add(fact)
+	if out := byRepo.Facts(coverageName, "stimulus_handler", "unresolved_handler", "bindings_with_misses"); len(out) > 0 {
+		store.Add(out...)
 	}
 	return nil
 }
@@ -144,14 +151,4 @@ func membersByFile(store *facts.Store) map[string]map[string]string {
 		out[key][name] = s.Name
 	}
 	return out
-}
-
-// repoRoot names the repository this binder ran over, for the coverage fact's
-// file field. A multi-repo store reports the first label, which is the same
-// convention the cross-repo coverage already uses.
-func repoRoot(store *facts.Store) string {
-	if labels := store.RepoLabels(); len(labels) > 0 {
-		return labels[0]
-	}
-	return "."
 }

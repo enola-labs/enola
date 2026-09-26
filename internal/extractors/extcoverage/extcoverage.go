@@ -75,3 +75,52 @@ func extractorOf(name string) string {
 	}
 	return name
 }
+
+// Counts is what one repository resolved, for its coverage fact.
+type Counts struct{ Resolved, Unresolved, WithMisses int }
+
+// ByRepo accumulates Counts per repository label, for a pass that runs over a
+// multi-repo store: a binder, which sees every repository at once.
+type ByRepo map[string]*Counts
+
+// For returns the counts for repo, creating them on first use.
+func (b ByRepo) For(repo string) *Counts {
+	c := b[repo]
+	if c == nil {
+		c = &Counts{}
+		b[repo] = c
+	}
+	return c
+}
+
+// Facts builds one coverage fact per repository, in label order, each tagged with
+// its repository. missesProp, when non-empty, records how many items had misses.
+//
+// Per repository because the alternative was wrong in a way that moved: summed
+// over the whole store and filed under the first label the store listed, which in
+// a multi-repo store was an arbitrary repository, a different one from run to run.
+func (b ByRepo) Facts(name, edgeType, cause, missesProp string) []facts.Fact {
+	repos := make([]string, 0, len(b))
+	for repo := range b {
+		repos = append(repos, repo)
+	}
+	sort.Strings(repos)
+	var out []facts.Fact
+	for _, repo := range repos {
+		c := b[repo]
+		root := repo
+		if root == "" {
+			root = "."
+		}
+		fact, ok := Fact(root, name, edgeType, c.Resolved, map[string]int{cause: c.Unresolved})
+		if !ok {
+			continue
+		}
+		fact.Repo = repo
+		if missesProp != "" && c.WithMisses > 0 {
+			fact.SetProp(missesProp, c.WithMisses)
+		}
+		out = append(out, fact)
+	}
+	return out
+}
