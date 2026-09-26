@@ -20,6 +20,16 @@ import (
 	"github.com/enola-labs/enola/pkg/plugin"
 )
 
+// v276: Scala reads capture-checking syntax. The grammar moves from
+// tree-sitter-scala v0.24.1 to v0.26.2, vendored and regenerated at ABI 14 the
+// way the Dart grammar is, because v0.25.0+ ship ABI 15. v0.24.1 had no
+// capture sets: on `() ->{this} Unit`, `T^{C}` or `class Box[T, C^]` its error
+// recovery re-synced past the set, so methods vanished, a class's members were
+// hoisted to the enclosing object and whole objects' members to package scope,
+// all under `parse_errors: 0`. Measured on a capture-checked Scala 3 codebase
+// of 318 files: 33 parsed with errors before and none after, 94 symbols move
+// to their correct owner and 19 that were dropped reappear, and the dependency
+// facts are unchanged.
 // v275: Python router mounts follow the application layout FastAPI documents.
 // A relative from-import binds a submodule (`from .internal import admin`) to its
 // module path, so `admin.router` resolves to its group and its include_router
@@ -2494,7 +2504,7 @@ import (
 // v270: SvelteKit reads literal kit.alias fallbacks before generated config exists,
 // keeps tsconfig paths authoritative, and classifies $app/$env/$service-worker imports
 // as framework-provided rather than unresolved third-party dependencies.
-const cacheVersion = "v275"
+const cacheVersion = "v276"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

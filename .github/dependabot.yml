@@ -68,11 +68,6 @@ updates:
       - dependency-name: "github.com/tree-sitter/tree-sitter-rust"
         versions: [">= 0.24.0"]
 
-      # v0.25.0+ are ABI 15. Last ABI-14 release: v0.24.1 — the version pinned today,
-      # already documented as a deliberate pin in scalaextractor/probe_test.go.
-      - dependency-name: "github.com/tree-sitter/tree-sitter-scala"
-        versions: [">= 0.25.0"]
-
       # No bound for tree-sitter-cpp, -java, -ruby, -typescript or
       # tree-sitter-kotlin: their newest releases are still ABI 14. When upstream
       # regenerates one at ABI 15, the TestGrammarSmoke probe in that extractor's

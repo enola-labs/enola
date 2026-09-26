@@ -1,9 +1,9 @@
 package scalaextractor
 
 import (
+	scala "github.com/enola-labs/enola/internal/extractors/scalaextractor/grammar"
 	"github.com/enola-labs/enola/internal/extractors/tsutil"
 	sitter "github.com/tree-sitter/go-tree-sitter"
-	scala "github.com/tree-sitter/tree-sitter-scala/bindings/go"
 )
 
 // scalaKinds names Scala node kinds without allocating. go-tree-sitter's

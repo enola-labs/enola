@@ -8,10 +8,10 @@ import (
 	"sort"
 	"strings"
 
+	scala "github.com/enola-labs/enola/internal/extractors/scalaextractor/grammar"
 	"github.com/enola-labs/enola/internal/facts"
 	"github.com/enola-labs/enola/internal/parallel"
 	sitter "github.com/tree-sitter/go-tree-sitter"
-	scala "github.com/tree-sitter/tree-sitter-scala/bindings/go"
 )
 
 // ExtractTestRefs implements plugin.TestRefExtractor. It parses test sources for the
