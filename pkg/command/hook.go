@@ -34,6 +34,12 @@ type hookInput struct {
 	// SessionID scopes the once-per-report rule to a single session, so a suppression
 	// cannot outlive the session it was decided in. See hookstate.Record.LastSession.
 	SessionID string `json:"session_id"`
+
+	// TurnID is a Codex extension no other harness sends, and it is how this hook
+	// knows it is answering Codex, whose Stop hook reads a different output field.
+	// Told apart from the payload, not from the installed command, so an install
+	// made before this needs no rewrite.
+	TurnID string `json:"turn_id"`
 }
 
 // stopHookOutput is the response shape for handing the model something to act on at the
@@ -47,9 +53,30 @@ type hookInput struct {
 // SystemMessage is the other channel: shown to the user, never to the model, and it does
 // not extend the turn. Claude Code and Codex both read it. A report about enola's own
 // setup goes there, because the model can do nothing useful with it (see runStopHook).
+//
+// Codex reads neither: its Stop hook ignores additionalContext, so a report sent that
+// way reached no model. It continues the turn on decision "block" and uses reason as
+// the next prompt, which is the same effect by another field. See stopOutput.
 type stopHookOutput struct {
 	SystemMessage      string              `json:"systemMessage,omitempty"`
+	Decision           string              `json:"decision,omitempty"`
+	Reason             string              `json:"reason,omitempty"`
 	HookSpecificOutput *stopHookContextOut `json:"hookSpecificOutput,omitempty"`
+}
+
+// stopOutput shapes a report for the harness that sent in: context for the model,
+// notice for the user. Codex takes the context as decision "block" with reason;
+// Claude Code, and Pi through its extension, take it as additionalContext.
+func stopOutput(in hookInput, context, notice string) stopHookOutput {
+	out := stopHookOutput{SystemMessage: notice}
+	switch {
+	case context == "":
+	case in.TurnID != "":
+		out.Decision, out.Reason = "block", context
+	default:
+		out.HookSpecificOutput = &stopHookContextOut{HookEventName: "Stop", AdditionalContext: context}
+	}
+	return out
 }
 
 type stopHookContextOut struct {
@@ -179,10 +206,7 @@ func (r *Runner) runStopHook(ctx context.Context) {
 		return
 	}
 
-	out := stopHookOutput{SystemMessage: notice}
-	if context != "" {
-		out.HookSpecificOutput = &stopHookContextOut{HookEventName: "Stop", AdditionalContext: context}
-	}
+	out := stopOutput(in, context, notice)
 
 	encoded, err := json.Marshal(out)
 	if err != nil {

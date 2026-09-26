@@ -762,6 +762,72 @@ type queryResponse struct {
 	HasMore bool   `json:"has_more"`
 }
 
+// withoutRepoLabel returns opts with a leading repo label stripped from name and names,
+// scoped to that repository, when any carried one. It reports the label, and false
+// when nothing was stripped or the entries name different repositories.
+func (s *Server) withoutRepoLabel(opts facts.QueryOpts) (facts.QueryOpts, string, bool) {
+	labels := s.repoLabels()
+	strip := func(n string) (string, string) {
+		for _, l := range labels {
+			if rest, ok := strings.CutPrefix(n, l+"/"); ok && rest != "" {
+				return rest, l
+			}
+		}
+		return n, ""
+	}
+	found := ""
+	take := func(l string) bool {
+		if l == "" {
+			return true
+		}
+		if found != "" && found != l {
+			return false
+		}
+		found = l
+		return true
+	}
+	out := opts
+	var l string
+	out.Name, l = strip(opts.Name)
+	if !take(l) {
+		return opts, "", false
+	}
+	if len(opts.Names) > 0 {
+		out.Names = make([]string, len(opts.Names))
+		for i, n := range opts.Names {
+			out.Names[i], l = strip(n)
+			if !take(l) {
+				return opts, "", false
+			}
+		}
+	}
+	if found == "" || (opts.Repo != "" && opts.Repo != found) {
+		return opts, "", false
+	}
+	out.Repo = found
+	return out, found, true
+}
+
+// broadNameNote warns when a name substring matched a large share of what the same
+// query matches without it. name is a case-insensitive substring, so a short one
+// matches inside other words: name="ai" matched tailwindcss, Domain and AiCoach, 37%
+// of every dependency, and an agent read that as the filter being ignored. One extra
+// count, paid only when name is set and matched enough to matter.
+func broadNameNote(store *facts.Store, opts facts.QueryOpts, total int) string {
+	if opts.Name == "" || total < 200 {
+		return ""
+	}
+	o := opts
+	o.Name, o.Offset, o.Limit = "", 0, 1
+	_, without := store.QueryAdvanced(o)
+	if without == 0 || total*4 < without {
+		return ""
+	}
+	return fmt.Sprintf("name contains %q matched %d of %d facts (%d%%): it is a case-insensitive substring, so a short "+
+		"name matches inside other words. Use a longer name, or names=[...] for exact names.",
+		opts.Name, total, without, total*100/without)
+}
+
 // describeFilters states the filters a query_facts call actually carried, as the first
 // line of its answer. An agent that meant to filter and sent a call without the filter
 // reads the unfiltered result as the filter being ignored; seeing what arrived tells
@@ -1434,10 +1500,30 @@ func (s *Server) registerTools() {
 		// A query_facts(kind=service) that comes back empty on a single-repo snapshot
 		// means the cross-repo graph was never built, not that this service is a leaf.
 		// Say so, mirroring coverage_report, instead of returning a bare null.
+		// A name copied from a file path carries the repo label, which names never do,
+		// so it matched nothing. Only an empty answer is retried, so a name that really
+		// starts that way is never rewritten, and the answer says what was done.
+		note := ""
+		if total == 0 && len(prefixes) == 1 {
+			if retry, label, ok := s.withoutRepoLabel(opts); ok {
+				if r2, t2 := query(retry); t2 > 0 {
+					results, total, opts = r2, t2, retry
+					note = fmt.Sprintf("Nothing matched as given: names never carry the repo label, file paths do. "+
+						"Retried without %q, scoped to repo=%s.", label+"/", label)
+				}
+			}
+		}
+		if note == "" && len(prefixes) == 1 {
+			note = broadNameNote(store, opts, total)
+		}
+
 		if hint, ok := singleRepoServiceHint(args.Kind, len(results), store); ok {
 			return textResult(hint), nil, nil
 		}
 		filters := describeFilters(args)
+		if note != "" {
+			filters += "\n" + note
+		}
 
 		// Non-JSON output modes: return text instead of JSON.
 		switch mode {
