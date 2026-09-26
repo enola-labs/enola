@@ -818,8 +818,8 @@ func broadNameNote(store *facts.Store, opts facts.QueryOpts, total int) string {
 		return ""
 	}
 	o := opts
-	o.Name, o.Offset, o.Limit = "", 0, 1
-	_, without := store.QueryAdvanced(o)
+	o.Name, o.Offset = "", 0
+	without := store.QueryEach(o, func(*facts.Fact) {})
 	if without == 0 || total*4 < without {
 		return ""
 	}
@@ -914,23 +914,6 @@ func renderNamesOnly(results []facts.Fact, total int) string {
 	return sb.String()
 }
 
-// queryAllPages runs a query to exhaustion, 500 facts (the store's page cap) at a
-// time, starting at opts.Offset.
-func queryAllPages(store *facts.Store, opts facts.QueryOpts) ([]facts.Fact, int) {
-	opts.Limit = 500
-	results, total := store.QueryAdvanced(opts)
-	for len(results) < total-opts.Offset {
-		page := opts
-		page.Offset = opts.Offset + len(results)
-		more, _ := store.QueryAdvanced(page)
-		if len(more) == 0 {
-			break
-		}
-		results = append(results, more...)
-	}
-	return results, total
-}
-
 // renderQuerySummary returns counts only — total plus a breakdown by kind and the
 // top files — so the caller can size a result set before fetching the facts
 // themselves. The caller passes every match (queryAllPages); should results still
@@ -941,47 +924,65 @@ func queryAllPages(store *facts.Store, opts facts.QueryOpts) ([]facts.Fact, int)
 var notableBoolProps = []string{"unmatched_by_clients"}
 
 func renderQuerySummary(results []facts.Fact, total int) string {
+	q := newQuerySummary()
+	for i := range results {
+		q.add(&results[i])
+	}
+	return q.render(total)
+}
+
+// querySummary aggregates query_facts' summary one fact at a time, so summary mode
+// can count straight off the store. It used to page through every match 500 at a
+// time, and each page re-ran the whole query and copied every match to skip to its
+// offset: quadratic, and an unfiltered summary of a 3M-fact store ran for minutes.
+type querySummary struct {
+	byKind, byFile, flags map[string]int
+	seen                  int
+}
+
+func newQuerySummary() *querySummary {
+	return &querySummary{byKind: map[string]int{}, byFile: map[string]int{}, flags: map[string]int{}}
+}
+
+func (q *querySummary) add(f *facts.Fact) {
+	q.seen++
+	q.byKind[f.Kind]++
+	if f.File != "" {
+		q.byFile[f.File]++
+	}
+	for _, p := range notableBoolProps {
+		if f.Props != nil && f.PropAny(p) == true {
+			q.flags[p]++
+		}
+	}
+}
+
+func (q *querySummary) render(total int) string {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "Found **%d** matching facts.\n\n", total)
-
-	byKind := map[string]int{}
-	byFile := map[string]int{}
-	flagCounts := map[string]int{}
-	for _, f := range results {
-		byKind[f.Kind]++
-		if f.File != "" {
-			byFile[f.File]++
-		}
-		for _, p := range notableBoolProps {
-			if f.Props != nil && f.PropAny(p) == true {
-				flagCounts[p]++
-			}
-		}
-	}
-
-	if len(byKind) > 0 {
+	if len(q.byKind) > 0 {
 		sb.WriteString("## By kind\n\n")
-		for _, k := range topCounts(byKind, len(byKind)) {
-			fmt.Fprintf(&sb, "- %s: %d\n", k, byKind[k])
+		for _, k := range topCounts(q.byKind, len(q.byKind)) {
+			fmt.Fprintf(&sb, "- %s: %d\n", k, q.byKind[k])
 		}
 		sb.WriteString("\n")
 	}
-	if len(flagCounts) > 0 {
+	if len(q.flags) > 0 {
 		sb.WriteString("## Flags\n\n")
-		for _, p := range topCounts(flagCounts, len(flagCounts)) {
-			fmt.Fprintf(&sb, "- %s=true: %d — list with query_facts(prop=%q, prop_value=true); see the summarized finding via query_insights\n", p, flagCounts[p], p)
+		for _, p := range topCounts(q.flags, len(q.flags)) {
+			fmt.Fprintf(&sb, "- %s=true: %d — list with query_facts(prop=%q, prop_value=true); see the summarized finding via query_insights\n", p, q.flags[p], p)
 		}
 		sb.WriteString("\n")
 	}
-	if len(byFile) > 0 {
+	if len(q.byFile) > 0 {
 		sb.WriteString("## Top files\n\n")
-		for _, f := range topCounts(byFile, 10) {
-			fmt.Fprintf(&sb, "- %s: %d\n", f, byFile[f])
+		for _, f := range topCounts(q.byFile, 10) {
+			fmt.Fprintf(&sb, "- %s: %d\n", f, q.byFile[f])
 		}
 		sb.WriteString("\n")
 	}
-	if total > len(results) {
-		fmt.Fprintf(&sb, "_Breakdown computed over a sample of %d of %d matches; counts are approximate. Re-run with filters to narrow, or output_mode=compact/names to list facts._\n", len(results), total)
+	if total > q.seen {
+		fmt.Fprintf(&sb, "_Breakdown computed over a sample of %d of %d matches; counts are approximate. Re-run with filters to narrow, or output_mode=compact/names to list facts._\n", q.seen, total)
 	}
 	return sb.String()
 }
@@ -1485,7 +1486,11 @@ func (s *Server) registerTools() {
 			// Summary renders counts, not facts, so it can afford every match: a
 			// breakdown over the first 500 read "993 matching facts" beside
 			// "route: 500", which looks like a contradiction.
-			query = func(o facts.QueryOpts) ([]facts.Fact, int) { return queryAllPages(store, o) }
+			// Counted, not collected: the breakdown is aggregated straight off the store
+			// when the answer is rendered, so no call pays for a slice of every match.
+			query = func(o facts.QueryOpts) ([]facts.Fact, int) {
+				return nil, store.QueryEach(o, func(*facts.Fact) {})
+			}
 		}
 		results, total := query(opts)
 
@@ -1517,7 +1522,7 @@ func (s *Server) registerTools() {
 			note = broadNameNote(store, opts, total)
 		}
 
-		if hint, ok := singleRepoServiceHint(args.Kind, len(results), store); ok {
+		if hint, ok := singleRepoServiceHint(args.Kind, total, store); ok {
 			return textResult(hint), nil, nil
 		}
 		filters := describeFilters(args)
@@ -1528,7 +1533,13 @@ func (s *Server) registerTools() {
 		// Non-JSON output modes: return text instead of JSON.
 		switch mode {
 		case modeSummary:
-			return textResult(capTokens(filters+"\n\n"+renderQuerySummary(results, total), args.MaxTokens, false)), nil, nil
+			q := newQuerySummary()
+			for _, p := range prefixes {
+				o := opts
+				o.FilePrefix = p
+				store.QueryEach(o, q.add)
+			}
+			return textResult(capTokens(filters+"\n\n"+q.render(total), args.MaxTokens, false)), nil, nil
 		case modeCompact:
 			return textResult(capTokens(filters+"\n\n"+renderCompact(results, total), args.MaxTokens, false)), nil, nil
 		case modeNames:

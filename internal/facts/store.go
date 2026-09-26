@@ -493,9 +493,10 @@ type QueryOpts struct {
 	Limit      int      // max results to return (0 = default 100, max 500)
 }
 
-// QueryAdvanced returns facts matching the provided filter options along with
-// the total count of matches before offset/limit are applied.
-func (s *Store) QueryAdvanced(opts QueryOpts) ([]Fact, int) {
+// eachMatch calls visit for every fact matching opts, in store order, ignoring
+// Offset and Limit. It holds the read lock throughout: visit must not call back into
+// the store, and must neither keep nor modify the fact it is handed.
+func (s *Store) eachMatch(opts QueryOpts, visit func(*Fact)) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -537,7 +538,7 @@ func (s *Store) QueryAdvanced(opts QueryOpts) ([]Fact, int) {
 				mode = iterKindIndex
 			} else {
 				// Kind filter specified but no facts of that kind — fast exit.
-				return nil, 0
+				return
 			}
 		}
 	} else if len(fileSet) == 1 && opts.FilePrefix == "" {
@@ -546,7 +547,7 @@ func (s *Store) QueryAdvanced(opts QueryOpts) ([]Fact, int) {
 				indexSlice = idxs
 				mode = iterFileIndex
 			} else {
-				return nil, 0
+				return
 			}
 		}
 	} else if len(nameSet) > 0 && opts.Name == "" {
@@ -637,8 +638,6 @@ func (s *Store) QueryAdvanced(opts QueryOpts) ([]Fact, int) {
 		return true
 	}
 
-	var matched []Fact
-
 	switch mode {
 	case iterKindIndex, iterFileIndex, iterNameUnion:
 		for _, idx := range indexSlice {
@@ -646,16 +645,23 @@ func (s *Store) QueryAdvanced(opts QueryOpts) ([]Fact, int) {
 				continue
 			}
 			if filterFact(s.facts[idx]) {
-				matched = append(matched, s.facts[idx])
+				visit(&s.facts[idx])
 			}
 		}
 	default:
-		for _, f := range s.facts {
-			if filterFact(f) {
-				matched = append(matched, f)
+		for i := range s.facts {
+			if filterFact(s.facts[i]) {
+				visit(&s.facts[i])
 			}
 		}
 	}
+}
+
+// QueryAdvanced returns facts matching the provided filter options along with
+// the total count of matches before offset/limit are applied.
+func (s *Store) QueryAdvanced(opts QueryOpts) ([]Fact, int) {
+	var matched []Fact
+	s.eachMatch(opts, func(f *Fact) { matched = append(matched, *f) })
 
 	total := len(matched)
 
@@ -680,6 +686,22 @@ func (s *Store) QueryAdvanced(opts QueryOpts) ([]Fact, int) {
 	}
 
 	return matched, total
+}
+
+// QueryEach calls visit for every fact matching opts from Offset on, with no Limit,
+// and returns the total number of matches, as QueryAdvanced counts them. It copies
+// nothing, so a caller that only aggregates does not pay for a slice of every match.
+// visit runs under the store's read lock: it must not call back into the store, and
+// must neither keep nor modify the fact it is handed.
+func (s *Store) QueryEach(opts QueryOpts, visit func(*Fact)) int {
+	total := 0
+	s.eachMatch(opts, func(f *Fact) {
+		total++
+		if total > opts.Offset {
+			visit(f)
+		}
+	})
+	return total
 }
 
 // LookupByExactName returns all facts with the given exact name using the index.
