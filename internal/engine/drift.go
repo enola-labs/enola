@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"context"
 	"fmt"
 	"sort"
 
@@ -128,11 +129,11 @@ func (e *Engine) DriftFromMeta(repoPath string, meta facts.SnapshotMeta) (Drift,
 		return Drift{Unknown: true}, nil
 	}
 
-	files, _, _, _, err := e.walkRepo(repoPath)
+	files, _, _, _, err := e.walkRepo(context.Background(), repoPath)
 	if err != nil {
 		return Drift{}, fmt.Errorf("walking %s: %w", repoPath, err)
 	}
-	current := e.computeFileHashes(repoPath, files)
+	current := e.computeFileHashes(context.Background(), repoPath, files)
 
 	var d Drift
 	for path, curHash := range current {

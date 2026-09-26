@@ -592,6 +592,24 @@ func TestE2E_MultiRepoAppendStillAccumulates(t *testing.T) {
 	}
 }
 
+// TestE2E_AppendWithoutRepoPathIsRefused: append names one repository to add. Without
+// repo_path it used to fall back to the configured repo, the directory the agent was
+// started in, which can be a folder of every repository the user has. It must fail at
+// once, with the store untouched, instead of indexing that.
+func TestE2E_AppendWithoutRepoPathIsRefused(t *testing.T) {
+	s := startInMemory(t)
+	s.snapshot(t)
+	before := text(s.call(t, "coverage_report", map[string]any{}))
+
+	res := s.call(t, "generate_snapshot", map[string]any{"append": true, "no_cluster": true})
+	if !res.IsError || !strings.Contains(text(res), "needs repo_path") {
+		t.Fatalf("append without repo_path must be refused naming repo_path; got error=%v:\n%s", res.IsError, text(res))
+	}
+	if after := text(s.call(t, "coverage_report", map[string]any{})); after != before {
+		t.Errorf("a refused append changed the store:\nbefore:\n%s\nafter:\n%s", before, after)
+	}
+}
+
 // TestE2E_FreshForcesSingleRepoOverAutoAppend covers the auto-append footgun:
 // once a multi-repo store is loaded, a plain generate_snapshot on a different repo
 // would auto-append (merging it in), but fresh=true must force a clean single-repo

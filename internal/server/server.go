@@ -1049,6 +1049,13 @@ func (s *Server) registerTools() {
 			"enola auto-enables append when it detects you have switched to a different repo. " +
 			"If you have instead moved to a DIFFERENT project and want a clean single-repo snapshot (not merged into the current store), pass fresh=true to reset.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args generateSnapshotArgs) (*mcp.CallToolResult, any, error) {
+		// append adds ONE named repository to the store. Without repo_path it fell back to
+		// the configured repo, which is wherever the agent was started: a folder holding
+		// every repository the user has, indexed as one. That took minutes, not an answer.
+		if args.Append && args.RepoPath == "" {
+			return errorResult(fmt.Sprintf("append=true needs repo_path: the repository to add to the current store. "+
+				"Without it, enola would index the default path (%s) instead.", s.cfg.Repo)), nil, nil
+		}
 		repoPath := args.RepoPath
 		if repoPath == "" {
 			repoPath = s.cfg.Repo

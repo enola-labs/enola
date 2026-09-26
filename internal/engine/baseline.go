@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -219,7 +220,7 @@ func (e *Engine) CurrentMeta(repoPath string) *facts.SnapshotMeta {
 	if err != nil {
 		return nil
 	}
-	_, _, allNames, _, walkErr := e.walkRepo(absRepo)
+	_, _, allNames, _, walkErr := e.walkRepo(context.Background(), absRepo)
 	if walkErr != nil {
 		allNames = nil
 	}

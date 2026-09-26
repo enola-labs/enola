@@ -1,6 +1,8 @@
 package engine
 
 import (
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -37,7 +39,7 @@ func walkFixture(t *testing.T, ignore []string, files map[string]string) ([]stri
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	srcFiles, testFiles, _, skips, err := eng.walkRepo(root)
+	srcFiles, testFiles, _, skips, err := eng.walkRepo(context.Background(), root)
 	if err != nil {
 		t.Fatalf("walkRepo: %v", err)
 	}
@@ -190,5 +192,23 @@ func TestMatchGlob_ReturnsMatchedPattern(t *testing.T) {
 					tt.relPath, tt.patterns, got, ok, tt.want, tt.wantOK)
 			}
 		})
+	}
+}
+
+// TestGenerateSnapshot_StopsWhenCancelled: a cancelled request must end the snapshot,
+// not just abandon waiting for it. The MCP server holds its snapshot lock for the whole
+// call, so a walk that ran on after cancellation blocked every later snapshot in the
+// session: pointed at a folder of ~880k files by mistake, for many minutes.
+func TestGenerateSnapshot_StopsWhenCancelled(t *testing.T) {
+	cfg := config.Default()
+	cfg.Repo = filepath.Join("testdata", "repos", "go_sample")
+	eng, err := New(cfg)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := eng.GenerateSnapshot(ctx, cfg.Repo, false); !errors.Is(err, context.Canceled) {
+		t.Fatalf("GenerateSnapshot on a cancelled context = %v, want context.Canceled", err)
 	}
 }

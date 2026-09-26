@@ -479,7 +479,7 @@ func (e *Engine) GenerateSnapshot(ctx context.Context, repoPath string, appendMo
 
 	// 1. Walk repository and collect files
 	tStage := time.Now()
-	files, testFiles, allNames, skips, err := e.walkRepo(absRepo)
+	files, testFiles, allNames, skips, err := e.walkRepo(ctx, absRepo)
 	if err != nil {
 		return nil, fmt.Errorf("walking repo: %w", err)
 	}
@@ -488,8 +488,11 @@ func (e *Engine) GenerateSnapshot(ctx context.Context, repoPath string, appendMo
 
 	// 2. Compute file hashes (for snapshot metadata)
 	tStage = time.Now()
-	currentHashes := e.computeFileHashes(absRepo, files)
+	currentHashes := e.computeFileHashes(ctx, absRepo, files)
 	tHash = time.Since(tStage)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 
 	// 3. Detect and run extractors (with optional per-extractor caching).
 	tStage = time.Now()
@@ -529,7 +532,7 @@ func (e *Engine) GenerateSnapshot(ctx context.Context, repoPath string, appendMo
 	// an extractor already owns is never overwritten, so the census can say a
 	// provider contributed less than it emitted but the graph cannot silently
 	// change authorship.
-	provRecords := e.runProviders(ctx, absRepo, preCount, providerInput(files, testFiles, currentHashes, e.computeFileHashes(absRepo, testFiles), cache))
+	provRecords := e.runProviders(ctx, absRepo, preCount, providerInput(files, testFiles, currentHashes, e.computeFileHashes(ctx, absRepo, testFiles), cache))
 	if cache != nil {
 		log.Printf("[engine] extractor cache: %d reused", cache.hits)
 		// Saved after the providers, whose entries share the spool. save is a no-op
@@ -983,7 +986,10 @@ const skippedSampleCap = 20
 // become a C++ project by carrying node_modules. Pre-ignore: an ignored FILE may be
 // the only marker a language has, and the bundled config ignores **/*.yaml, which
 // is how a Dart repository is spelled.
-func (e *Engine) walkRepo(repoPath string) (files, testFiles, allNames []string, skips walkSkips, err error) {
+// ctx is checked at every entry: pointed at a folder of many repositories by mistake, the
+// walk alone visits hundreds of thousands of files, and a cancelled request must stop it
+// rather than hold the snapshot lock until it finishes.
+func (e *Engine) walkRepo(ctx context.Context, repoPath string) (files, testFiles, allNames []string, skips walkSkips, err error) {
 	// A symlinked repo root walks as a single non-directory entry (WalkDir
 	// Lstats the root), silently yielding zero files. Resolve the ROOT only —
 	// symlinks inside the tree keep their non-followed semantics — so a config
@@ -1000,6 +1006,9 @@ func (e *Engine) walkRepo(repoPath string) (files, testFiles, allNames []string,
 	pkgs := newPyPackageExemption(repoPath, e.cfg.Ignore)
 	err = filepath.WalkDir(repoPath, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
+			return err
+		}
+		if err := ctx.Err(); err != nil {
 			return err
 		}
 
@@ -1581,9 +1590,13 @@ func (e *Engine) GetArtifact(name string) ([]byte, error) {
 // concurrent random reads contend worse than the sequential reads the OS
 // prefetches. The extraction parsing, not hashing, is the bottleneck worth
 // parallelizing.
-func (e *Engine) computeFileHashes(repoPath string, files []string) map[string]string {
+// It stops early once ctx is done, returning what it has; the caller checks ctx.
+func (e *Engine) computeFileHashes(ctx context.Context, repoPath string, files []string) map[string]string {
 	hashes := make(map[string]string, len(files))
 	for _, relFile := range files {
+		if ctx.Err() != nil {
+			break
+		}
 		absFile := filepath.Join(repoPath, relFile)
 		data, err := os.ReadFile(absFile)
 		if err != nil {
