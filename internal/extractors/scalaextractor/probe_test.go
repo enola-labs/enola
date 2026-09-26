@@ -3,8 +3,9 @@ package scalaextractor
 import (
 	"testing"
 
+	scala "github.com/enola-labs/enola/internal/extractors/scalaextractor/grammar"
+	"github.com/enola-labs/enola/internal/facts"
 	sitter "github.com/tree-sitter/go-tree-sitter"
-	scala "github.com/tree-sitter/tree-sitter-scala/bindings/go"
 )
 
 // TestGrammarSmoke is the ABI guard, and it is the most important test in this
@@ -14,19 +15,19 @@ import (
 // while the vendored go-tree-sitter runtime accepts at most 14. The rejection is
 // SILENT: SetLanguage fails, every file parses to nothing, and the result is
 // indistinguishable from a repository that contains no Scala. That is exactly how
-// the C# grammar failed once, which is why the dependency is pinned to v0.24.1 —
-// the newest ABI-14 release — and why this test asserts the pin still holds rather
-// than trusting the go.mod line to stay put through a routine `go get -u`.
+// the C# grammar failed once, which is why the grammar is vendored under grammar/
+// and regenerated at ABI 14, and why this test asserts it still loads rather than
+// trusting the vendored bytes to stay put.
 //
-// If this fails after a dependency bump, the fix is to pin the grammar back, not
-// to loosen the assertion.
+// If this fails after a grammar update, the fix is to regenerate at ABI 14 (see
+// grammar/ATTRIBUTION.md), not to loosen the assertion.
 func TestGrammarSmoke(t *testing.T) {
 	parser := sitter.NewParser()
 	defer parser.Close()
 	if err := parser.SetLanguage(sitter.NewLanguage(scala.Language())); err != nil {
 		t.Fatalf("SetLanguage failed — the grammar is almost certainly built against a "+
-			"newer tree-sitter ABI than the vendored runtime accepts. Pin "+
-			"tree-sitter-scala to v0.24.1. Error: %v", err)
+			"newer tree-sitter ABI than the vendored runtime accepts. Regenerate "+
+			"grammar/src/parser.c with --abi 14. Error: %v", err)
 	}
 
 	// Both dialects, because they exercise different halves of the grammar and a
@@ -118,6 +119,82 @@ object Holder {
 		if !seen[kind] {
 			t.Errorf("grammar no longer produces node kind %q — the walker dispatches on it "+
 				"and would silently stop extracting", kind)
+		}
+	}
+}
+
+// TestCaptureCheckingSyntax pins that Scala 3 capture-checking syntax parses and
+// that the declarations around it keep their symbols and their nesting. A grammar
+// without it does not fail loudly: error recovery re-syncs somewhere past the
+// capture set, so a method whose result is `() ->{this} Unit` disappears, a class
+// with a capture parameter loses its members to the enclosing object, and the
+// receipt still reports no parse errors. Every form below is accepted by the
+// Scala 3.8 compiler under -language:experimental.captureChecking.
+func TestCaptureCheckingSyntax(t *testing.T) {
+	src := `package com.example.caps
+
+import scala.caps.{any, SharedCapability}
+
+class CanRead extends SharedCapability {
+  def read(): String = "data"
+}
+
+object Caps {
+  def format(x: CanRead): () ->{x} String = () => x.read()
+  def combine(a: CanRead, b: CanRead): () ->{a, b} String = () => a.read() + b.read()
+  def log(msg: String): () ->{any} Unit = () => println(msg)
+  def load(using r: CanRead): () ->{r} String = () => r.read()
+  def pure(f: String -> Int): Int = f("x")
+
+  class Box[T, C^] {
+    private var value: T = compiletime.uninitialized
+    def get: T^{C} = value
+    def put(x: T): Unit = value = x
+  }
+
+  def makeBox[T](t: T): Box[T, {any}] = new Box[T, {any}]
+
+  class Store extends SharedCapability {
+    def apply(e: String): () ->{this} Unit = () => println(e)
+  }
+
+  def after: Int = 1
+}
+`
+	parser := sitter.NewParser()
+	defer parser.Close()
+	if err := parser.SetLanguage(sitter.NewLanguage(scala.Language())); err != nil {
+		t.Fatal(err)
+	}
+	tree := parser.Parse([]byte(src), nil)
+	defer tree.Close()
+	if root := tree.RootNode(); root.HasError() {
+		t.Errorf("capture-checking syntax parsed with errors:\n%s", root.ToSexp())
+	}
+
+	ff := extractAST(t, "src/Caps.scala", src)
+	for name, kind := range map[string]string{
+		"src.Caps.format":      facts.SymbolMethod,
+		"src.Caps.combine":     facts.SymbolMethod,
+		"src.Caps.log":         facts.SymbolMethod,
+		"src.Caps.load":        facts.SymbolMethod,
+		"src.Caps.pure":        facts.SymbolMethod,
+		"src.Caps.Box":         facts.SymbolClass,
+		"src.Caps.Box.get":     facts.SymbolMethod,
+		"src.Caps.Box.put":     facts.SymbolMethod,
+		"src.Caps.makeBox":     facts.SymbolMethod,
+		"src.Caps.Store":       facts.SymbolClass,
+		"src.Caps.Store.apply": facts.SymbolMethod,
+		"src.Caps.after":       facts.SymbolMethod,
+	} {
+		if got := findFact(t, ff, name).Props["symbol_kind"]; got != kind {
+			t.Errorf("%s: symbol_kind = %v, want %s", name, got, kind)
+		}
+	}
+	// A class's members stay inside it rather than being hoisted to the object.
+	for _, f := range ff {
+		if f.Name == "src.Caps.get" || f.Name == "src.Caps.put" {
+			t.Errorf("%s: a Box member was hoisted out of Box", f.Name)
 		}
 	}
 }

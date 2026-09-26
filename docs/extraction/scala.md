@@ -243,12 +243,20 @@ have to discover.
 
 ## Grammar
 
-Pinned to `tree-sitter-scala` **v0.24.1**, the newest release built against
-tree-sitter ABI 14. v0.25.0 and later are ABI 15, which the vendored runtime rejects
+`tree-sitter-scala` **v0.26.2**, vendored under
+`internal/extractors/scalaextractor/grammar/` and regenerated at tree-sitter ABI 14.
+Upstream ships v0.25.0 and later at ABI 15, which the vendored runtime rejects
 **silently** — every file parses to nothing, which is indistinguishable from a
-repository containing no Scala. A probe test asserts the pin rather than trusting
-`go.mod` to stay put.
+repository containing no Scala. A probe test asserts the grammar still loads rather
+than trusting the vendored bytes to stay put.
 
-Measured over the corpus, between 0% and 4.6% of files contain a construct the
+The last ABI-14 release, v0.24.1, predates capture-checking syntax (`T^{x}`,
+`A ->{x} B`, `class Box[T, C^]`). On a capture-checked codebase it dropped and
+mis-nested symbols with no parse error reported, which is why the grammar is vendored
+rather than pinned. ABI 14 cannot carry upstream's reserved-word set, so a keyword in
+identifier position (`val val = ???`) parses rather than producing an ERROR node; only
+source the compiler rejects is affected.
+
+Measured over the corpus on v0.24.1, between 0% and 4.6% of files contain a construct the
 grammar cannot parse in a way that costs the enclosing type; the outlier is Scala 3's
 fewer-braces trailing-argument form (`f(x): arg =>`), which is not yet supported.

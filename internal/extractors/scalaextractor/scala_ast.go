@@ -3,10 +3,10 @@ package scalaextractor
 import (
 	"strings"
 
+	scala "github.com/enola-labs/enola/internal/extractors/scalaextractor/grammar"
 	"github.com/enola-labs/enola/internal/factpath"
 	"github.com/enola-labs/enola/internal/facts"
 	sitter "github.com/tree-sitter/go-tree-sitter"
-	scala "github.com/tree-sitter/tree-sitter-scala/bindings/go"
 )
 
 // extractFileAST parses one Scala file with tree-sitter and emits its declaration
