@@ -563,6 +563,10 @@ func (s *Store) eachMatch(opts QueryOpts, visit func(*Fact)) {
 			for n := range nameSet {
 				union = s.appendNamedIdxs(union, n)
 			}
+			// nameSet is a map, so the union came out in a different order on every
+			// call: offset paging over a names= query could skip or repeat facts. Store
+			// order, as every other mode yields.
+			sort.Ints(union)
 			indexSlice = union
 			mode = iterNameUnion
 		}
