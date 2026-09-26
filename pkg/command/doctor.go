@@ -191,6 +191,12 @@ func (r *Runner) Doctor(args []string) {
 	// The verdict, stated rather than left for the reader to assemble.
 	fmt.Println()
 	switch {
+	case outcomeIs(state, hookstate.EventStop, hookstate.OutcomeNotARepo) ||
+		outcomeIs(state, hookstate.EventSessionStart, hookstate.OutcomeNotARepo):
+		fmt.Println("  The hooks are firing and doing nothing, on purpose: this is a folder of")
+		fmt.Println("  repositories, not a repository, and grading it would snapshot all of them as")
+		fmt.Printf("  one. Install the hooks inside each repository instead (`%s install --hooks`\n", r.name())
+		fmt.Println("  run there).")
 	case !state.Fired(hookstate.EventStop) && !state.Fired(hookstate.EventSessionStart):
 		fmt.Println("  NEITHER HOOK HAS EVER RUN.")
 		fmt.Println("  The configuration exists but nothing is invoking it. Start a session in this")
@@ -320,4 +326,11 @@ func humanSince(t time.Time) string {
 	default:
 		return fmt.Sprintf("%d day(s)", int(d.Hours()/24))
 	}
+}
+
+// outcomeIs reports whether event last ran with outcome o. Nil-safe: an event that
+// never fired has no record.
+func outcomeIs(state hookstate.State, e hookstate.Event, o hookstate.Outcome) bool {
+	r := state.Get(e)
+	return r != nil && r.LastOutcome == o
 }

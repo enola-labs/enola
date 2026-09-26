@@ -78,6 +78,7 @@ import (
 	"github.com/enola-labs/enola/internal/perf"
 	"github.com/enola-labs/enola/internal/renderers/llmcontext"
 	"github.com/enola-labs/enola/internal/server"
+	"github.com/enola-labs/enola/internal/workspace"
 	"github.com/enola-labs/enola/pkg/plan"
 
 	"github.com/enola-labs/enola/pkg/plugin"
@@ -620,6 +621,14 @@ func AutoLoadSnapshot(eng *Engine, cfg *config.Config) map[string]int {
 	dir := filepath.Join(repoPath, cfg.Output.Dir)
 	if _, err := os.Stat(filepath.Join(dir, "facts.jsonl")); err != nil {
 		return nil // nothing on disk; start empty
+	}
+	// A folder of repositories restores through its workspace receipt above, as the
+	// multi-repo graph it is. A snapshot of it as ONE repository is what the session
+	// hooks once left there by accident: every repository the user has, 9M facts and a
+	// 6 GB facts.jsonl, loaded before the server read stdin, so a quit did not end it.
+	if workspace.IsFolderOfRepos(repoPath) {
+		log.Printf("[bootstrap] not restoring %s: it is a folder of repositories, and its snapshot there indexes them all as one", dir)
+		return nil
 	}
 	// The label from the snapshot on disk, not from the directory it sits in. The map
 	// below is what repo-scoped queries and fact counts are keyed by, so guessing it
