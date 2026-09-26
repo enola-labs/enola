@@ -18,7 +18,20 @@ jobs:
           cache: true
 
       - name: Run tests with coverage
-        run: go test -race -count=1 -coverprofile=coverage.out -covermode=atomic ./...
+        # Under an empty HOME, and failing if anything lands in it: a test that
+        # snapshots without sandboxing HOME writes into the developer's real
+        # ~/.enola, which a real server then restores. The Go caches stay put.
+        run: |
+          GOCACHE="$(go env GOCACHE)"
+          GOMODCACHE="$(go env GOMODCACHE)"
+          export GOCACHE GOMODCACHE
+          sentinel="$(mktemp -d)"
+          HOME="$sentinel" go test -race -count=1 -coverprofile=coverage.out -covermode=atomic ./...
+          if [ -e "$sentinel/.enola" ]; then
+            echo "::error::tests wrote to \$HOME/.enola; add a TestMain HOME sandbox to the package"
+            find "$sentinel/.enola" -maxdepth 3 | head -20
+            exit 1
+          fi
 
       - name: Coverage summary
         run: |
