@@ -882,17 +882,30 @@ func (s *Store) RemoveWhere(pred func(Fact) bool) int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	kept := s.facts[:0:0]
-	removed := 0
-	for _, f := range s.facts {
+	// Find the first match before copying anything. Binders and the cross-repo
+	// linker call this at the start of every snapshot to drop output from a previous
+	// pass, and on a single-repository snapshot there usually is none: copying the
+	// whole store to learn that cost four full copies per snapshot, which put about
+	// 650 MiB on gitlab's peak heap.
+	first := -1
+	for i := range s.facts {
+		if pred(s.facts[i]) {
+			first = i
+			break
+		}
+	}
+	if first < 0 {
+		return 0
+	}
+	kept := make([]Fact, first, len(s.facts)-1)
+	copy(kept, s.facts[:first])
+	removed := 1
+	for _, f := range s.facts[first+1:] {
 		if pred(f) {
 			removed++
 			continue
 		}
 		kept = append(kept, f)
-	}
-	if removed == 0 {
-		return 0
 	}
 
 	// Rebuild facts slice and all indices from scratch.
