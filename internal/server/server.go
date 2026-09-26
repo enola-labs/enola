@@ -705,11 +705,76 @@ type enrichedFact struct {
 
 // queryResponse is the structured response for query_facts when advanced features are used.
 type queryResponse struct {
-	Facts   any  `json:"facts"`
-	Total   int  `json:"total"`
-	Offset  int  `json:"offset"`
-	Limit   int  `json:"limit"`
-	HasMore bool `json:"has_more"`
+	Filters string `json:"filters"`
+	Facts   any    `json:"facts"`
+	Total   int    `json:"total"`
+	Offset  int    `json:"offset"`
+	Limit   int    `json:"limit"`
+	HasMore bool   `json:"has_more"`
+}
+
+// describeFilters states the filters a query_facts call actually carried, as the first
+// line of its answer. An agent that meant to filter and sent a call without the filter
+// reads the unfiltered result as the filter being ignored; seeing what arrived tells
+// it which one was wrong. It says so outright when nothing narrowed the result, since
+// that is the case that gets misread.
+func describeFilters(args queryFactsArgs) string {
+	var parts []string
+	add := func(format string, v ...any) { parts = append(parts, fmt.Sprintf(format, v...)) }
+	if args.Repo != "" {
+		add("repo=%s", args.Repo)
+	}
+	if args.Kind != "" {
+		add("kind=%s", args.Kind)
+	}
+	if len(args.Kinds) > 0 {
+		add("kinds=%s", strings.Join(args.Kinds, ","))
+	}
+	if args.Name != "" {
+		add("name contains %q (case-insensitive substring)", args.Name)
+	}
+	if len(args.Names) > 0 {
+		add("names=%s (exact)", strings.Join(args.Names, ","))
+	}
+	if args.File != "" {
+		add("file=%s", args.File)
+	}
+	if len(args.Files) > 0 {
+		add("files=%s", strings.Join(args.Files, ","))
+	}
+	if args.FilePrefix != "" {
+		add("file_prefix=%s", args.FilePrefix)
+	}
+	if args.Relation != "" {
+		add("relation=%s", args.Relation)
+	}
+	if args.Prop != "" {
+		if args.PropValue != "" {
+			add("%s=%s", args.Prop, args.PropValue)
+		} else {
+			add("has prop %s", args.Prop)
+		}
+	}
+	// repo alone scopes the answer to one repository but narrows nothing inside it.
+	narrowed := len(parts) > 1 || len(parts) == 1 && args.Repo == ""
+	if args.Offset > 0 {
+		add("offset=%d", args.Offset)
+	}
+	if args.Limit > 0 {
+		add("limit=%d", args.Limit)
+	}
+	line := "Filters applied: none"
+	if len(parts) > 0 {
+		line = "Filters applied: " + strings.Join(parts, ", ")
+	}
+	if !narrowed {
+		scope := "the whole store"
+		if args.Repo != "" {
+			scope = "every fact in repo " + args.Repo
+		}
+		line += fmt.Sprintf(". No kind, name, file or prop filter was sent, so this is %s.", scope)
+	}
+	return line
 }
 
 // renderCompact formats facts as a markdown table for minimal token usage.
@@ -1323,15 +1388,16 @@ func (s *Server) registerTools() {
 		if hint, ok := singleRepoServiceHint(args.Kind, len(results), store); ok {
 			return textResult(hint), nil, nil
 		}
+		filters := describeFilters(args)
 
 		// Non-JSON output modes: return text instead of JSON.
 		switch mode {
 		case modeSummary:
-			return textResult(capTokens(renderQuerySummary(results, total), args.MaxTokens, false)), nil, nil
+			return textResult(capTokens(filters+"\n\n"+renderQuerySummary(results, total), args.MaxTokens, false)), nil, nil
 		case modeCompact:
-			return textResult(capTokens(renderCompact(results, total), args.MaxTokens, false)), nil, nil
+			return textResult(capTokens(filters+"\n\n"+renderCompact(results, total), args.MaxTokens, false)), nil, nil
 		case modeNames:
-			return textResult(capTokens(renderNamesOnly(results, total), args.MaxTokens, false)), nil, nil
+			return textResult(capTokens(filters+"\n\n"+renderNamesOnly(results, total), args.MaxTokens, false)), nil, nil
 		}
 
 		// Determine if advanced features are in use (triggers structured response)
@@ -1369,6 +1435,7 @@ func (s *Server) registerTools() {
 				limit = 500
 			}
 			resp := queryResponse{
+				Filters: filters,
 				Facts:   output,
 				Total:   total,
 				Offset:  args.Offset,
@@ -1384,7 +1451,9 @@ func (s *Server) registerTools() {
 			return errorResult(fmt.Sprintf("failed to marshal results: %v", err)), nil, nil
 		}
 
-		text := string(data)
+		// The filters lead: max_tokens truncation cuts from the end, and an oversized
+		// answer is exactly the one whose filters the agent needs to see.
+		text := filters + "\n\n" + string(data)
 		if total > len(results) {
 			text += fmt.Sprintf("\n\n... (showing %d of %d results, refine your query or use offset/limit for pagination)", len(results), total)
 		}
@@ -2979,16 +3048,54 @@ type impactAnalysisArgs struct {
 }
 
 // exploreModule renders a module exploration if the focus matches a module name.
-func (s *Server) exploreModule(store *facts.Store, focus string, depth int, mode string, sb *strings.Builder) bool {
-	modules := store.LookupByExactName(focus)
-	// Filter to only module-kind facts
-	var mod *facts.Fact
-	for i := range modules {
-		if modules[i].Kind == facts.KindModule {
-			mod = &modules[i]
-			break
+// sameRepo keeps the facts that belong to repo. Graph lookups are keyed on names, and a
+// module name such as internal/svc recurs across the repositories of a multi-repo
+// store, so a reverse lookup returns every repository's declarers and importers. A
+// fact with no repo is kept, and an empty repo keeps everything.
+func sameRepo(fs []facts.Fact, repo string) []facts.Fact {
+	if repo == "" {
+		return fs
+	}
+	out := fs[:0:0]
+	for _, f := range fs {
+		if f.Repo == "" || f.Repo == repo {
+			out = append(out, f)
 		}
 	}
+	return out
+}
+
+// lookupModule finds the module fact focus names. A focus that starts with a repo
+// label, the form every file path in a multi-repo store takes, names that repo's
+// module without the label; module names never carry it. Without this the path fell
+// through to the file match, where the only fact filed under a directory is its own
+// module, and explore answered "Total facts: 1".
+func (s *Server) lookupModule(store *facts.Store, focus string) *facts.Fact {
+	// find returns the first module fact named name, from repo when repo is set.
+	find := func(name, repo string) *facts.Fact {
+		for _, f := range store.LookupByExactName(name) {
+			if f.Kind == facts.KindModule && (repo == "" || f.Repo == repo) {
+				m := f
+				return &m
+			}
+		}
+		return nil
+	}
+	if mod := find(focus, ""); mod != nil {
+		return mod
+	}
+	for _, label := range s.repoLabels() {
+		if rest, ok := strings.CutPrefix(focus, label+"/"); ok && rest != "" {
+			if mod := find(rest, label); mod != nil {
+				return mod
+			}
+		}
+	}
+	return nil
+}
+
+func (s *Server) exploreModule(store *facts.Store, focus string, depth int, mode string, sb *strings.Builder) bool {
+	mod := s.lookupModule(store, focus)
 	if mod == nil {
 		return false
 	}
@@ -3005,7 +3112,7 @@ func (s *Server) exploreModule(store *facts.Store, focus string, depth int, mode
 	sb.WriteString("\n")
 
 	// Find symbols declared in this module (symbols whose "declares" relation targets this module)
-	declaredSymbols := store.ReverseLookup(mod.Name, facts.RelDeclares)
+	declaredSymbols := sameRepo(store.ReverseLookup(mod.Name, facts.RelDeclares), mod.Repo)
 	if len(declaredSymbols) > 0 {
 		sb.WriteString(fmt.Sprintf("## Symbols (%d)\n\n", len(declaredSymbols)))
 		sb.WriteString("| Name | Kind | File | Line | Exported |\n")
@@ -3025,6 +3132,13 @@ func (s *Server) exploreModule(store *facts.Store, focus string, depth int, mode
 	// Dependencies: facts with kind=dependency whose file starts with the module path,
 	// plus direct depends_on relations from the module fact itself (packwerk).
 	deps, _ := store.QueryAdvanced(facts.QueryOpts{Kind: facts.KindDependency, FilePrefix: mod.Name + "/"})
+	// In a multi-repo store a file path carries its repo label and a module name does
+	// not, so the name alone matched none of the module's files and the section was
+	// silently empty. The module's own directory carries the label.
+	if mod.File != "" && mod.File != mod.Name {
+		more, _ := store.QueryAdvanced(facts.QueryOpts{Kind: facts.KindDependency, FilePrefix: mod.File + "/"})
+		deps = append(deps, more...)
+	}
 	// Collect all dependency targets grouped by relation kind.
 	depsByKind := make(map[string][]string) // relKind → targets
 	seen := make(map[string]struct{})
@@ -3067,8 +3181,8 @@ func (s *Server) exploreModule(store *facts.Store, focus string, depth int, mode
 	}
 
 	// Reverse dependencies: who depends on or imports this module
-	dependents := store.ReverseLookup(mod.Name, facts.RelImports)
-	revDeps := store.ReverseLookup(mod.Name, facts.RelDependsOn)
+	dependents := sameRepo(store.ReverseLookup(mod.Name, facts.RelImports), mod.Repo)
+	revDeps := sameRepo(store.ReverseLookup(mod.Name, facts.RelDependsOn), mod.Repo)
 	allDependents := append(dependents, revDeps...)
 	if len(allDependents) > 0 {
 		depSeen := make(map[string]struct{})
