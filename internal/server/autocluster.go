@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"log"
 	"path/filepath"
+	"sort"
 	"strings"
+	"time"
 
 	"github.com/enola-labs/enola/internal/clientspec"
 	"github.com/enola-labs/enola/internal/config"
@@ -36,11 +38,10 @@ func (s *Server) generateCluster(ctx context.Context, dir string, names []string
 		}
 	}
 
-	snapshot, failed, err := s.indexSet(ctx, repoPaths, false)
+	set, failed, err := s.indexSet(ctx, repoPaths, false)
 	if err != nil {
 		return errorResult(fmt.Sprintf("snapshot generation failed for %s: %v", failed, err)), nil, nil
 	}
-	labels := repoLabels(repoPaths)
 	var lead strings.Builder
 	fmt.Fprintf(&lead, "**%s holds %d git repositories (%s), indexed as a cluster.** Each one is a service node and the calls between them are linked.",
 		dir, len(names), workspace.Names(names))
@@ -54,9 +55,8 @@ func (s *Server) generateCluster(ctx context.Context, dir string, names []string
 	}
 	fmt.Fprintf(&lead, " To index %s as one repository instead, call generate_snapshot(repo_path=%q, no_cluster=true).\n\n---\n\n", dir, dir)
 
-	summary := lead.String() + s.snapshotSummary(snapshot) +
-		fmt.Sprintf("\n\n- Repositories indexed: %s", strings.Join(labels, ", ")) +
-		s.multiRepoSummary(snapshot, " (folder of repositories)")
+	summary := lead.String() + s.setSummary(set) +
+		s.multiRepoSummary(set.union(), " (folder of repositories)", set.labels())
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: summary}}}, nil, nil
 }
 
@@ -65,20 +65,22 @@ func (s *Server) generateCluster(ctx context.Context, dir string, names []string
 // already holds; otherwise the first repository resets it. On failure it returns the
 // repository that failed. Artifacts and the global receipt are written once, at the end.
 // The caller holds genMu.
-func (s *Server) indexSet(ctx context.Context, repoPaths []string, appendFirst bool) (*facts.Snapshot, string, error) {
+func (s *Server) indexSet(ctx context.Context, repoPaths []string, appendFirst bool) (indexedSet, string, error) {
 	if !appendFirst {
 		s.resetCorpus()
 	}
 	defer s.eng.SetDeferLinking(false)
-	var snapshot *facts.Snapshot
+	set := indexedSet{repoPaths: repoPaths}
+	start := time.Now()
 	for i, repo := range repoPaths {
 		s.eng.SetDeferLinking(i < len(repoPaths)-1)
 		snap, err := s.indexRepo(ctx, repo, appendFirst || i > 0)
 		if err != nil {
-			return nil, repo, err
+			return indexedSet{}, repo, err
 		}
-		snapshot = snap
+		set.snapshots = append(set.snapshots, snap)
 	}
+	set.duration = time.Since(start)
 	for _, repo := range repoPaths {
 		if err := s.eng.WriteArtifacts(repo); err != nil {
 			log.Printf("[server] warning: failed to write artifacts for %s: %v", repo, err)
@@ -87,34 +89,71 @@ func (s *Server) indexSet(ctx context.Context, repoPaths []string, appendFirst b
 	if err := s.eng.WriteGlobalReceipt(); err != nil {
 		log.Printf("[server] warning: failed to write global receipt: %v", err)
 	}
-	return snapshot, "", nil
+	return set, "", nil
+}
+
+// indexedSet is what indexSet produced: each repository's snapshot, in order, and the
+// wall time of the whole set. The last snapshot is the linked union.
+type indexedSet struct {
+	repoPaths []string
+	snapshots []*facts.Snapshot
+	duration  time.Duration
+}
+
+func (set indexedSet) union() *facts.Snapshot { return set.snapshots[len(set.snapshots)-1] }
+
+// labels are the labels the set's facts are actually tagged with, in order.
+func (set indexedSet) labels() []string {
+	out := make([]string, len(set.snapshots))
+	for i, snap := range set.snapshots {
+		out[i] = snap.Meta.Label()
+	}
+	return out
+}
+
+// summary is the snapshot part of the answer for a set. It names every repository,
+// not the last one: the union's own meta describes the repository indexed last, and
+// the answer used to read "Repository: <last>" with that one's duration and
+// extractors, under a headline saying five were indexed.
+func (s *Server) setSummary(set indexedSet) string {
+	lines := make([]string, len(set.repoPaths))
+	extractors := map[string]bool{}
+	for i, p := range set.repoPaths {
+		lines[i] = fmt.Sprintf("%s (%s)", facts.RepoDirName(p), p)
+		for _, e := range set.snapshots[i].Meta.Extractors {
+			extractors[e] = true
+		}
+	}
+	used := make([]string, 0, len(extractors))
+	for e := range extractors {
+		used = append(used, e)
+	}
+	sort.Strings(used)
+	repository := fmt.Sprintf("Repositories (%d): %s", len(set.repoPaths), strings.Join(lines, ", "))
+	out := s.snapshotSummaryOf(set.union(), repository, set.duration.Round(time.Millisecond).String(), used)
+	// The union's meta carries the last repository's import graph; each one's is its own.
+	for _, snap := range set.snapshots[:len(set.snapshots)-1] {
+		if warning := unresolvedImportWarning(snap); warning != "" {
+			out += "\n\n" + warning
+		}
+	}
+	return out
 }
 
 // generateSet indexes the repositories an agent listed in repo_paths, in one call. It is
 // generateCluster without the folder: the list is the cluster. The caller holds genMu.
 func (s *Server) generateSet(ctx context.Context, repoPaths []string, appendMode bool) (*mcp.CallToolResult, any, error) {
-	snapshot, failed, err := s.indexSet(ctx, repoPaths, appendMode)
+	set, failed, err := s.indexSet(ctx, repoPaths, appendMode)
 	if err != nil {
 		return errorResult(fmt.Sprintf("snapshot generation failed for %s: %v", failed, err)), nil, nil
 	}
 	lead := fmt.Sprintf("**Indexed %d repositories in one call (%s).** Each one is a service node and the calls between them are linked.",
-		len(repoPaths), strings.Join(repoLabels(repoPaths), ", "))
+		len(repoPaths), strings.Join(set.labels(), ", "))
 	if appendMode {
 		lead += " They were added to the repositories already loaded."
 	}
-	summary := lead + "\n\n---\n\n" + s.snapshotSummary(snapshot) +
-		fmt.Sprintf("\n\n- Repositories indexed: %s", strings.Join(repoLabels(repoPaths), ", ")) +
-		s.multiRepoSummary(snapshot, "")
+	summary := lead + "\n\n---\n\n" + s.setSummary(set) + s.multiRepoSummary(set.union(), "", set.labels())
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: summary}}}, nil, nil
-}
-
-// repoLabels is each repository's label, its directory name.
-func repoLabels(repoPaths []string) []string {
-	labels := make([]string, len(repoPaths))
-	for i, p := range repoPaths {
-		labels[i] = facts.RepoDirName(p)
-	}
-	return labels
 }
 
 // indexRepo snapshots one repository into the store and records what the snapshot was
@@ -148,9 +187,15 @@ func (s *Server) indexRepo(ctx context.Context, absRepo string, appendMode bool)
 
 // snapshotSummary is the part of a generate_snapshot answer every snapshot gets.
 func (s *Server) snapshotSummary(snapshot *facts.Snapshot) string {
+	return s.snapshotSummaryOf(snapshot, "Repository: "+snapshot.Meta.RepoPath, snapshot.Meta.Duration, snapshot.Meta.Extractors)
+}
+
+// snapshotSummaryOf is snapshotSummary with the repository line (label included),
+// duration and extractors given, which a set of repositories reports for all of them.
+func (s *Server) snapshotSummaryOf(snapshot *facts.Snapshot, repository, duration string, extractors []string) string {
 	summary := fmt.Sprintf(
 		"Snapshot generated successfully.\n\n"+
-			"- Repository: %s\n"+
+			"- %s\n"+
 			"- Facts: %d\n"+
 			"- Insights: %d\n"+
 			"- Artifacts: %d\n"+
@@ -158,12 +203,12 @@ func (s *Server) snapshotSummary(snapshot *facts.Snapshot) string {
 			"- Extractors: %v\n"+
 			"- Explainers: %v\n\n"+
 			"Fetch the computed findings with query_insights (e.g. query_insights(explainer='unused-routes') for HTTP routes no loaded client calls); use query_facts or explore to inspect the raw facts.",
-		snapshot.Meta.RepoPath,
+		repository,
 		snapshot.Meta.FactCount,
 		snapshot.Meta.InsightCount,
 		len(snapshot.Artifacts),
-		snapshot.Meta.Duration,
-		snapshot.Meta.Extractors,
+		duration,
+		extractors,
 		snapshot.Meta.Explainers,
 	)
 	// A declared client nothing reads leaves its calls unresolved, so say so where the
@@ -217,17 +262,26 @@ func unresolvedImportWarning(snapshot *facts.Snapshot) string {
 
 // multiRepoSummary is the part of a generate_snapshot answer a multi-repository store
 // gets: the label to query by and the cross-repo graph.
-func (s *Server) multiRepoSummary(snapshot *facts.Snapshot, autoNote string) string {
+//
+// labels, when it names more than one repository, is the set just indexed: the answer
+// lists them all and gives the first as the example, rather than presenting the
+// last-indexed one as the store's label.
+func (s *Server) multiRepoSummary(snapshot *facts.Snapshot, autoNote string, labels []string) string {
 	// What the facts are ACTUALLY tagged with: this string is handed to the agent as
 	// the value to pass to query_facts(repo=…), so a guess here sends it querying a
 	// label nothing is stored under.
 	repoLabel := snapshot.Meta.Label()
+	labelLine := fmt.Sprintf("Repo label: %q", repoLabel)
+	if len(labels) > 1 {
+		repoLabel = labels[0]
+		labelLine = "Repo labels: " + strings.Join(labels, ", ")
+	}
 	summary := fmt.Sprintf(
-		"\n\n**Multi-repo mode active%s.** Repo label: %q\n"+
+		"\n\n**Multi-repo mode active%s.** %s\n"+
 			"- Filter by repo: query_facts(repo=%q)\n"+
 			"- File paths are prefixed: e.g. %s/src/...\n"+
 			"- Add more repos with generate_snapshot(repo_paths=[...], append=true), all in one call.",
-		autoNote, repoLabel, repoLabel, repoLabel,
+		autoNote, labelLine, repoLabel, repoLabel,
 	)
 
 	// Report the cross-repo "graph of graphs" links derived from this set.

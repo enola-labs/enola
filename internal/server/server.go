@@ -1391,7 +1391,7 @@ func (s *Server) registerTools() {
 			if autoAppended {
 				autoNote = " (auto-enabled: different repo detected)"
 			}
-			summary += s.multiRepoSummary(snapshot, autoNote)
+			summary += s.multiRepoSummary(snapshot, autoNote, nil)
 		} else {
 			// Single-repo edit-verify loop guidance, tailored to whether a baseline
 			// is already pinned: nudge set_baseline before the agent edits, then

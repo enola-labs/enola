@@ -34,7 +34,8 @@ func TestE2E_FolderOfReposIsIndexedAsACluster(t *testing.T) {
 	for _, want := range []string{
 		"holds 2 git repositories (go_sample, ts_sample), indexed as a cluster",
 		"Wrote " + filepath.Join(parent, "cluster.yaml"),
-		"Repositories indexed: go_sample, ts_sample",
+		"Repositories (2): go_sample (" + filepath.Join(parent, "go_sample") + "), ts_sample (" + filepath.Join(parent, "ts_sample") + ")",
+		"Repo labels: go_sample, ts_sample",
 		"Multi-repo mode active",
 		"no_cluster=true",
 	} {

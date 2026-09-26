@@ -105,3 +105,25 @@ func TestRepoPaths_RefusesConflictingArguments(t *testing.T) {
 		t.Errorf("a refused repo_paths call changed the store:\nbefore:\n%s\nafter:\n%s", before, after)
 	}
 }
+
+// TestRepoPaths_AnswerNamesEveryRepository: the union's meta describes the repository
+// indexed last, and the answer read "Repository: <last>" with that one's duration and
+// extractors, and offered it as the store's repo label, under a headline saying two
+// were indexed. It now names them all.
+func TestRepoPaths_AnswerNamesEveryRepository(t *testing.T) {
+	api, consumer := multirepoFixture(t)
+	s := startInMemory(t)
+	out := text(s.call(t, "generate_snapshot", map[string]any{"repo_paths": []string{api, consumer}}))
+	for _, want := range []string{
+		"Repositories (2): api (" + api + "), consumer (" + consumer + ")",
+		"Repo labels: api, consumer",
+		`query_facts(repo="api")`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("answer lacks %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "- Repository: "+consumer) {
+		t.Errorf("answer still presents the last repository as the only one:\n%s", out)
+	}
+}
