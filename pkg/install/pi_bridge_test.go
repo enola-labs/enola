@@ -40,11 +40,21 @@ out.prompt = (await fire("before_agent_start", { systemPrompt: "BASE" }))?.syste
 out.snapshot = await call("enola_generate_snapshot", {})
 out.missingParam = await call("enola_explore", {})
 
-// Stop: the first agent_end grades the change the Go side made before this ran; the
-// second is the end of the turn that report started, and must stay silent.
-await fire("agent_end", {})
+// A run of reads and enola queries is not graded, although the tree has a cycle to
+// report: nothing in the run could have made it.
+const run = async (...toolNames) => {
+  await fire("agent_start", {})
+  for (const toolName of toolNames) await fire("tool_call", { toolName })
+  await fire("agent_end", {})
+}
+await run("read", "enola_query_facts")
+out.afterReadOnlyRun = messages.length
+
+// Stop: the first run that edits grades the change the Go side made before this ran; the
+// second is the turn that report started, and must stay silent though it edits too.
+await run("edit")
 out.afterFirstStop = messages.length
-await fire("agent_end", {})
+await run("edit")
 out.messages = messages
 await fire("session_shutdown", { reason: "quit" })
 console.log(JSON.stringify(out))
@@ -112,8 +122,9 @@ func A() string { return "a" + b.B() }
 			OK   bool
 			Text string
 		}
-		AfterFirstStop int
-		Messages       []struct {
+		AfterReadOnlyRun int
+		AfterFirstStop   int
+		Messages         []struct {
 			Content     string
 			TriggerTurn bool
 		}
@@ -140,6 +151,9 @@ func A() string { return "a" + b.B() }
 	}
 	if got.MissingParam.OK {
 		t.Errorf("a tool error came back as success: %+v", got.MissingParam)
+	}
+	if got.AfterReadOnlyRun != 0 {
+		t.Errorf("a run with no tree-changing tool was graded: %d report(s)", got.AfterReadOnlyRun)
 	}
 	if got.AfterFirstStop != 1 || len(got.Messages) != 1 {
 		t.Fatalf("stop reports = %d after the first agent_end, %d in total; want 1 and 1",

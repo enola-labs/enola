@@ -42,11 +42,18 @@ type hookInput struct {
 // from ending: the harness feeds the text back to the model and stops again afterwards.
 // This comment used to claim the opposite, as a stated fact that was never checked, and
 // the whole defect in runStopHook grew out of believing it.
+//
+// SystemMessage is the other channel: shown to the user, never to the model, and it does
+// not extend the turn. Claude Code and Codex both read it. A report about enola's own
+// setup goes there, because the model can do nothing useful with it (see runStopHook).
 type stopHookOutput struct {
-	HookSpecificOutput struct {
-		HookEventName     string `json:"hookEventName"`
-		AdditionalContext string `json:"additionalContext"`
-	} `json:"hookSpecificOutput"`
+	SystemMessage      string              `json:"systemMessage,omitempty"`
+	HookSpecificOutput *stopHookContextOut `json:"hookSpecificOutput,omitempty"`
+}
+
+type stopHookContextOut struct {
+	HookEventName     string `json:"hookEventName"`
+	AdditionalContext string `json:"additionalContext"`
 }
 
 // runHook dispatches `enola hook <event>`.
@@ -120,8 +127,9 @@ func (r *Runner) runStopHook(ctx context.Context) {
 
 	// One switch decides both what to say and what identifies it. A non-empty key means
 	// there is something to say, which is what lets the once-per-report rule below cover
-	// every path rather than only the decline it started on.
-	var key, context string
+	// every path rather than only the decline it started on. context goes to the model;
+	// notice goes to the user only.
+	var key, context, notice string
 	switch {
 	case ok && verdict.Status == check.StatusRegression:
 		key = verdict.ReportKey()
@@ -139,13 +147,17 @@ func (r *Runner) runStopHook(ctx context.Context) {
 		// apart so "I refuse to grade this" is never read as "your change is bad"; a hook
 		// that stays silent collapses the same distinction in the other direction, and
 		// leaves someone believing the loop is protecting them when it is not.
+		//
+		// Said to the USER, not the model. It is a fact about enola's setup, true of a
+		// read-only session as much as of an edit, and handing it to the model bought a
+		// turn it spent "fixing" it: it re-pinned over a deliberate baseline, which is the
+		// "before" the user chose to keep, and then chased the CLI, which in an agent's
+		// shell can resolve to a different enola build than the one grading.
 		key = verdict.ReportKey()
-		context = "enola could NOT grade the architectural change made in this session: " +
-			verdict.DeclineReason() + ".\n\n" +
-			"This is NOT a statement about your change. The comparison itself was untrustworthy, " +
-			"so no verdict was reached in either direction. Re-pin the baseline to restore grading " +
-			fmt.Sprintf("(`%s baseline pin`, or the set_baseline tool), and `%s doctor` reports whether ", r.name(), r.name()) +
-			"the hooks are grading again."
+		notice = "enola could not grade this session's architectural change: " +
+			verdict.DeclineReason() + ". This is not a verdict on the change. " +
+			fmt.Sprintf("To restore grading, re-pin the baseline (`%s baseline pin`); ", r.name()) +
+			fmt.Sprintf("`%s doctor` shows whether the hooks grade again.", r.name())
 	}
 
 	// Recorded on EVERY path, and the silent paths are the ones worth recording: a hook
@@ -163,9 +175,10 @@ func (r *Runner) runStopHook(ctx context.Context) {
 		return
 	}
 
-	var out stopHookOutput
-	out.HookSpecificOutput.HookEventName = "Stop"
-	out.HookSpecificOutput.AdditionalContext = context
+	out := stopHookOutput{SystemMessage: notice}
+	if context != "" {
+		out.HookSpecificOutput = &stopHookContextOut{HookEventName: "Stop", AdditionalContext: context}
+	}
 
 	encoded, err := json.Marshal(out)
 	if err != nil {

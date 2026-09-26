@@ -70,10 +70,10 @@ say that nothing was enforced, and ask whether to accept it, change it, or set a
 (` + "`--fail-on`" + `) that would fail on it next time. Do not revert work over it on your
 own initiative, and do not describe the session as clean without mentioning it.
 
-It speaks in one other case: when it could not grade the change at all, because the
-baseline is not comparable to the current snapshot. That is NOT a verdict about your
-change — it means no verdict was reached — and the remedy is to re-pin the baseline.
-Said once per cause, not once per session.`
+When it cannot grade at all, because the baseline is not comparable to the current
+snapshot, it tells the user directly, not you. That is enola's setup, not your change.
+Do not re-pin a baseline you did not pin in this session: it may be the "before" the
+user chose to keep.`
 
 // block wraps content in the sentinels used for files the user also maintains.
 func block(content string) string {

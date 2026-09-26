@@ -11,10 +11,19 @@
 //
 //   - session_start (startup, resume) runs `enola hook session-start`, which pins the
 //     baseline in the background and returns at once.
-//   - agent_end runs `enola hook stop`. When it has a report, the report is sent back
-//     as a message that starts one more turn, which is what a Stop hook's
-//     additionalContext does in Claude Code. The agent_end that closes THAT turn is
-//     flagged stop_hook_active, so the hook's own loop breaker applies unchanged.
+//   - agent_end runs `enola hook stop`, but only after a run that called a tool able to
+//     change the tree. A run of reads and enola queries has nothing to grade, and
+//     grading it costs a snapshot and can surface a report the model then acts on.
+//     When the hook has a report for the model, it is sent back as a message that
+//     starts one more turn, which is what a Stop hook's additionalContext does in Claude
+//     Code. The agent_end that closes THAT turn is flagged stop_hook_active, so the
+//     hook's own loop breaker applies unchanged. A systemMessage is for the user and is
+//     shown as a notification, never sent to the model.
+//
+// Tool output is bounded, since Pi, unlike Claude Code, caps no extension tool's
+// output. A tool that takes max_tokens gets DEFAULT_MAX_TOKENS when the model gives
+// none, so the server truncates cleanly and says how to narrow; MAX_OUTPUT_CHARS is the
+// backstop for the rest, at the limit Pi's own tools use.
 //
 // It imports nothing outside Node, so it loads as the single file it is written as, and
 // every failure is silent to the model: a server that does not start means no enola
@@ -35,6 +44,14 @@ const PREFIX = "enola_"
 const START_TIMEOUT_MS = 30_000
 // Matches hookTimeoutSeconds in the Go installer.
 const HOOK_TIMEOUT_MS = 60_000
+// About 20 KB. Unbounded, one query_facts call with no filters returns 54 KB on a
+// mid-sized repository, most of a local model's context.
+const DEFAULT_MAX_TOKENS = 5000
+// Pi's built-in tool limit (50 KB).
+const MAX_OUTPUT_CHARS = 50_000
+// Pi's tools that only read. Any other tool call outside enola's own may change the
+// tree (bash included), so it makes the run worth grading.
+const READ_ONLY_TOOLS = new Set(["read", "grep", "find", "ls"])
 
 // A minimal MCP client over newline-delimited JSON-RPC on stdio: initialize,
 // tools/list and tools/call are all this needs, and a dependency would stop the file
@@ -180,6 +197,47 @@ function toolSchema(schema) {
   return out
 }
 
+// withDefaultBudget adds max_tokens when the tool takes it and the model left it out.
+// An explicit value, 0 (no cap) included, is the model's choice and is kept.
+function withDefaultBudget(schema, params) {
+  const args = params ?? {}
+  if (schema?.properties?.max_tokens && args.max_tokens === undefined) return { ...args, max_tokens: DEFAULT_MAX_TOKENS }
+  return args
+}
+
+// capText cuts text past MAX_OUTPUT_CHARS on a line boundary and says how to get less.
+function capText(content) {
+  let budget = MAX_OUTPUT_CHARS
+  let cut = false
+  const out = []
+  for (const c of content) {
+    if (c.type !== "text") {
+      out.push(c)
+      continue
+    }
+    if (budget <= 0) {
+      cut = true
+      continue
+    }
+    let text = c.text
+    if (text.length > budget) {
+      text = text.slice(0, budget)
+      const nl = text.lastIndexOf("\n")
+      if (nl > 0) text = text.slice(0, nl)
+      cut = true
+    }
+    budget -= text.length
+    out.push({ type: "text", text })
+  }
+  if (cut) {
+    out.push({
+      type: "text",
+      text: `\n\n[truncated at ${MAX_OUTPUT_CHARS} characters. Narrow the query (filters, limit, output_mode=summary) or set max_tokens.]`,
+    })
+  }
+  return out
+}
+
 function toContent(result) {
   const items = (result?.content ?? [])
     .map((c) => (c.type === "image" ? { type: "image", data: c.data, mimeType: c.mimeType } : c.type === "text" ? { type: "text", text: c.text } : null))
@@ -195,6 +253,7 @@ export default function (pi) {
   let starting
   const registered = new Set()
   let continuing = false
+  let mutated = false
 
   const connect = (ctx) => {
     if (server && !server.closed) return starting
@@ -216,8 +275,9 @@ export default function (pi) {
             parameters: toolSchema(t.inputSchema),
             async execute(_id, params, signal) {
               if (!server || server.closed) throw new Error("the enola server is not running; restart the Pi session")
-              const res = await server.request("tools/call", { name: t.name, arguments: params ?? {} }, signal)
-              const content = toContent(res)
+              const args = withDefaultBudget(t.inputSchema, params)
+              const res = await server.request("tools/call", { name: t.name, arguments: args }, signal)
+              const content = capText(toContent(res))
               if (res?.isError) throw new Error(content.map((c) => c.text ?? "").join("\n") || "enola tool failed")
               return { content, details: undefined }
             },
@@ -255,15 +315,26 @@ export default function (pi) {
     }
   })
 
+  pi.on("agent_start", () => {
+    mutated = false
+  })
+
+  pi.on("tool_call", (event) => {
+    if (!READ_ONLY_TOOLS.has(event.toolName) && !event.toolName.startsWith(PREFIX)) mutated = true
+  })
+
   pi.on("agent_end", async (_event, ctx) => {
     if (!HOOKS) return
     const active = continuing
     continuing = false
+    if (!mutated) return
     const out = await runHook("stop", { cwd: ctx.cwd, session_id: ctx.sessionManager?.getSessionId?.(), hook_event_name: "Stop", stop_hook_active: active }, true)
-    let report = ""
+    let parsed = {}
     try {
-      report = JSON.parse(out.trim().split("\n").pop() || "{}")?.hookSpecificOutput?.additionalContext ?? ""
+      parsed = JSON.parse(out.trim().split("\n").pop() || "{}") ?? {}
     } catch {}
+    if (parsed.systemMessage && ctx.hasUI) ctx.ui.notify(`enola: ${parsed.systemMessage}`, "warning")
+    const report = parsed.hookSpecificOutput?.additionalContext ?? ""
     if (!report) return
     continuing = true
     pi.sendMessage({ customType: "enola", content: report, display: true }, { triggerTurn: true })
