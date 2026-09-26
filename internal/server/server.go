@@ -88,6 +88,11 @@ type Server struct {
 	// genMu, so they stay concurrent and lock-free against the published bundle.
 	genMu sync.Mutex
 
+	// restored is closed once the startup restore has published its graph; nil when
+	// none was started. Set before Run, read by restoreMiddleware. See
+	// RestoreInBackground.
+	restored chan struct{}
+
 	// snapshotsGenerated records whether generate_snapshot has run at least once
 	// in this session. It distinguishes a user-driven multi-repo session from a
 	// store that was merely pre-populated by AutoLoadSnapshot at startup, so the
@@ -159,6 +164,9 @@ func New(eng *engine.Engine, cfg *config.Config) (*Server, error) {
 	// freshness one, and therefore measures the response the agent actually
 	// receives — banner included. Both are registered here rather than per tool, so
 	// they cover every tool on the server, including any added after New returns.
+	// restoreMiddleware goes first, outermost, so no tool, the freshness reload
+	// included, runs before the startup restore has published.
+	s.mcp.AddReceivingMiddleware(s.restoreMiddleware)
 	s.mcp.AddReceivingMiddleware(s.valueMiddleware)
 	s.mcp.AddReceivingMiddleware(s.freshnessMiddleware)
 	s.mcp.AddReceivingMiddleware(s.updateMiddleware)
@@ -279,8 +287,8 @@ func (s *Server) resetCorpus() {
 // Without it the pool is empty until the first generate_snapshot, and a restart
 // silently un-scales every query — which is the normal path, since
 // AutoLoadSnapshot exists precisely so queries work after a restart WITHOUT
-// re-snapshotting. Call it before Run; a nil or empty map is ignored, and a
-// later snapshot overwrites what it seeded.
+// re-snapshotting. RestoreInBackground calls it once the restore publishes; a nil or
+// empty map is ignored, and a later snapshot overwrites what it seeded.
 func (s *Server) SeedCorpus(byRepo map[string]int) {
 	if len(byRepo) == 0 {
 		return
@@ -394,6 +402,47 @@ func resultBytes(ctr *mcp.CallToolResult) int {
 		}
 	}
 	return n
+}
+
+// RestoreInBackground restores the workspace's graph from disk while the server is
+// already serving, instead of before it. Call it once, before Run.
+//
+// The restore used to run in main, before stdio was read. A large graph takes tens of
+// seconds to load, and for all of it the process could neither answer the handshake
+// nor see its agent quit: a closed stdin went unread, so quitting the agent left the
+// server loading, and the next session started another. Now stdio is served from the
+// start, so the handshake is immediate and a closed stdin ends the process mid-restore
+// (the restore only reads). Tool calls wait for the restore, as they would have waited
+// for the process to start; one whose request is cancelled stops waiting.
+//
+// genMu is taken here, before the goroutine starts, so a generate_snapshot cannot run
+// ahead of the restore and be overwritten by it: it waits, then runs as usual.
+func (s *Server) RestoreInBackground(restore func() map[string]int) {
+	done := make(chan struct{})
+	s.restored = done
+	s.genMu.Lock()
+	go func() {
+		defer close(done)
+		defer s.genMu.Unlock()
+		if corpus := restore(); corpus != nil {
+			s.SeedCorpus(corpus)
+		}
+	}()
+}
+
+// restoreMiddleware holds every tool call until the startup restore has published.
+// Everything else, the handshake and tools/list included, passes straight through.
+func (s *Server) restoreMiddleware(next mcp.MethodHandler) mcp.MethodHandler {
+	return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+		if method == "tools/call" && s.restored != nil {
+			select {
+			case <-s.restored:
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+		return next(ctx, method, req)
+	}
 }
 
 // SetReloader installs the function that restores this workspace's graph from disk

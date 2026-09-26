@@ -250,6 +250,13 @@ func (s *Server) Run(ctx context.Context) error {
 	return s.srv.Run(ctx)
 }
 
+// RestoreInBackground restores this workspace's graph with AutoLoadSnapshot while the
+// server is already serving, so the handshake is immediate and a closed stdin ends the
+// process mid-restore. Tool calls wait for it. Call it once, before Run.
+func (s *Server) RestoreInBackground(eng *Engine, cfg *config.Config) {
+	s.srv.RestoreInBackground(func() map[string]int { return AutoLoadSnapshot(eng, cfg) })
+}
+
 // SeedCorpus publishes the corpus of a graph restored from disk, so queries are
 // priced against it before this process takes a snapshot of its own. Pass the map
 // returned by AutoLoadSnapshot, and call it before Run.
