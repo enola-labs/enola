@@ -839,6 +839,7 @@ enola can analyze multiple repositories together. Use `append` mode to increment
 
 1. **Generate the first snapshot** as usual.
 2. **Append additional repos** by calling `generate_snapshot` with `append=true`. Each appended repo's facts are tagged with a **repo label** (the directory basename, e.g. `/path/to/go-service` → `go-service`) and its file paths are prefixed with that label (e.g. `go-service/lib/foo.go`).
+   To index several repos at once, pass them in one call as `repo_paths=[...]`: they are indexed into a fresh store (or added to the loaded one with `append=true`) and linked once, on the last.
 3. **Query across repos** with the `repo` filter on `query_facts` to scope to one repo, or omit it to query all at once.
 
 ### Linking, not just co-locating

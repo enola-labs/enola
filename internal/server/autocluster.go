@@ -36,30 +36,11 @@ func (s *Server) generateCluster(ctx context.Context, dir string, names []string
 		}
 	}
 
-	s.resetCorpus()
-	defer s.eng.SetDeferLinking(false)
-	var snapshot *facts.Snapshot
-	for i, repo := range repoPaths {
-		s.eng.SetDeferLinking(i < len(repoPaths)-1)
-		snap, err := s.indexRepo(ctx, repo, i > 0)
-		if err != nil {
-			return errorResult(fmt.Sprintf("snapshot generation failed for %s: %v", repo, err)), nil, nil
-		}
-		snapshot = snap
+	snapshot, failed, err := s.indexSet(ctx, repoPaths, false)
+	if err != nil {
+		return errorResult(fmt.Sprintf("snapshot generation failed for %s: %v", failed, err)), nil, nil
 	}
-	for _, repo := range repoPaths {
-		if err := s.eng.WriteArtifacts(repo); err != nil {
-			log.Printf("[server] warning: failed to write artifacts for %s: %v", repo, err)
-		}
-	}
-	if err := s.eng.WriteGlobalReceipt(); err != nil {
-		log.Printf("[server] warning: failed to write global receipt: %v", err)
-	}
-
-	labels := make([]string, len(repoPaths))
-	for i, p := range repoPaths {
-		labels[i] = filepath.Base(p)
-	}
+	labels := repoLabels(repoPaths)
 	var lead strings.Builder
 	fmt.Fprintf(&lead, "**%s holds %d git repositories (%s), indexed as a cluster.** Each one is a service node and the calls between them are linked.",
 		dir, len(names), workspace.Names(names))
@@ -77,6 +58,63 @@ func (s *Server) generateCluster(ctx context.Context, dir string, names []string
 		fmt.Sprintf("\n\n- Repositories indexed: %s", strings.Join(labels, ", ")) +
 		s.multiRepoSummary(snapshot, " (folder of repositories)")
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: summary}}}, nil, nil
+}
+
+// indexSet indexes repoPaths into the store as one linked set, linking once, on the
+// last: every repository before it defers linking. appendFirst keeps what the store
+// already holds; otherwise the first repository resets it. On failure it returns the
+// repository that failed. Artifacts and the global receipt are written once, at the end.
+// The caller holds genMu.
+func (s *Server) indexSet(ctx context.Context, repoPaths []string, appendFirst bool) (*facts.Snapshot, string, error) {
+	if !appendFirst {
+		s.resetCorpus()
+	}
+	defer s.eng.SetDeferLinking(false)
+	var snapshot *facts.Snapshot
+	for i, repo := range repoPaths {
+		s.eng.SetDeferLinking(i < len(repoPaths)-1)
+		snap, err := s.indexRepo(ctx, repo, appendFirst || i > 0)
+		if err != nil {
+			return nil, repo, err
+		}
+		snapshot = snap
+	}
+	for _, repo := range repoPaths {
+		if err := s.eng.WriteArtifacts(repo); err != nil {
+			log.Printf("[server] warning: failed to write artifacts for %s: %v", repo, err)
+		}
+	}
+	if err := s.eng.WriteGlobalReceipt(); err != nil {
+		log.Printf("[server] warning: failed to write global receipt: %v", err)
+	}
+	return snapshot, "", nil
+}
+
+// generateSet indexes the repositories an agent listed in repo_paths, in one call. It is
+// generateCluster without the folder: the list is the cluster. The caller holds genMu.
+func (s *Server) generateSet(ctx context.Context, repoPaths []string, appendMode bool) (*mcp.CallToolResult, any, error) {
+	snapshot, failed, err := s.indexSet(ctx, repoPaths, appendMode)
+	if err != nil {
+		return errorResult(fmt.Sprintf("snapshot generation failed for %s: %v", failed, err)), nil, nil
+	}
+	lead := fmt.Sprintf("**Indexed %d repositories in one call (%s).** Each one is a service node and the calls between them are linked.",
+		len(repoPaths), strings.Join(repoLabels(repoPaths), ", "))
+	if appendMode {
+		lead += " They were added to the repositories already loaded."
+	}
+	summary := lead + "\n\n---\n\n" + s.snapshotSummary(snapshot) +
+		fmt.Sprintf("\n\n- Repositories indexed: %s", strings.Join(repoLabels(repoPaths), ", ")) +
+		s.multiRepoSummary(snapshot, "")
+	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: summary}}}, nil, nil
+}
+
+// repoLabels is each repository's label, its directory name.
+func repoLabels(repoPaths []string) []string {
+	labels := make([]string, len(repoPaths))
+	for i, p := range repoPaths {
+		labels[i] = facts.RepoDirName(p)
+	}
+	return labels
 }
 
 // indexRepo snapshots one repository into the store and records what the snapshot was
@@ -188,7 +226,7 @@ func (s *Server) multiRepoSummary(snapshot *facts.Snapshot, autoNote string) str
 		"\n\n**Multi-repo mode active%s.** Repo label: %q\n"+
 			"- Filter by repo: query_facts(repo=%q)\n"+
 			"- File paths are prefixed: e.g. %s/src/...\n"+
-			"- Generate additional repos with append=true (sequentially, not in parallel).",
+			"- Add more repos with generate_snapshot(repo_paths=[...], append=true), all in one call.",
 		autoNote, repoLabel, repoLabel, repoLabel,
 	)
 

@@ -617,10 +617,56 @@ func (s *Server) MCPServer() *mcp.Server {
 
 // generateSnapshotArgs are the arguments for the generate_snapshot tool.
 type generateSnapshotArgs struct {
-	RepoPath  string `json:"repo_path,omitempty" jsonschema:"Path to the repository to analyze. Defaults to the configured repo path."`
-	Append    bool   `json:"append,omitempty" jsonschema:"If true, keep existing facts and add new ones with repo-prefixed file paths (for multi-repo analysis). Default false."`
-	Fresh     bool   `json:"fresh,omitempty" jsonschema:"Force a clean SINGLE-repo snapshot: reset the store (discard any previously loaded repos) and index only repo_path, bypassing the auto-append heuristic. Use when you've moved to a different project and do NOT want it merged into an existing multi-repo store. Mutually exclusive with append."`
-	NoCluster bool   `json:"no_cluster,omitempty" jsonschema:"When repo_path is a folder holding several git repositories, index it as ONE repository instead of as a cluster. Default false."`
+	RepoPath  string   `json:"repo_path,omitempty" jsonschema:"Path to the repository to analyze. Defaults to the configured repo path."`
+	RepoPaths []string `json:"repo_paths,omitempty" jsonschema:"Several repositories to index in ONE call, as one linked multi-repo set (each a service node, the calls between them linked). Resets the store unless append=true. Use instead of one call per repository. Not combined with repo_path or fresh."`
+	Append    bool     `json:"append,omitempty" jsonschema:"If true, keep existing facts and add new ones with repo-prefixed file paths (for multi-repo analysis). Default false."`
+	Fresh     bool     `json:"fresh,omitempty" jsonschema:"Force a clean SINGLE-repo snapshot: reset the store (discard any previously loaded repos) and index only repo_path, bypassing the auto-append heuristic. Use when you've moved to a different project and do NOT want it merged into an existing multi-repo store. Mutually exclusive with append."`
+	NoCluster bool     `json:"no_cluster,omitempty" jsonschema:"When repo_path is a folder holding several git repositories, index it as ONE repository instead of as a cluster. Default false."`
+}
+
+// quotedPaths renders dir's named subdirectories as the JSON list repo_paths takes, so
+// the remedy an agent is handed is the exact call to make.
+func quotedPaths(dir string, names []string) string {
+	paths := make([]string, len(names))
+	for i, n := range names {
+		paths[i] = filepath.Join(dir, n)
+	}
+	out, _ := json.Marshal(paths)
+	return string(out)
+}
+
+// resolveRepoPaths validates repo_paths and makes each entry absolute, dropping repeats.
+// Two entries with the same directory name would share one repo label and merge into
+// one service node, so they are refused rather than silently conflated.
+func resolveRepoPaths(args generateSnapshotArgs) ([]string, error) {
+	if args.RepoPath != "" {
+		return nil, fmt.Errorf("pass repo_path or repo_paths, not both")
+	}
+	if args.Fresh {
+		return nil, fmt.Errorf("repo_paths already starts a fresh store unless append=true; drop fresh")
+	}
+	var out []string
+	seen := map[string]bool{}
+	byLabel := map[string]string{}
+	for _, p := range args.RepoPaths {
+		abs, err := filepath.Abs(p)
+		if err != nil {
+			return nil, fmt.Errorf("invalid repo path %q: %v", p, err)
+		}
+		if seen[abs] {
+			continue
+		}
+		if info, err := os.Stat(abs); err != nil || !info.IsDir() {
+			return nil, fmt.Errorf("repo path %s is not a directory", abs)
+		}
+		label := facts.RepoDirName(abs)
+		if other, ok := byLabel[label]; ok {
+			return nil, fmt.Errorf("%s and %s would share the repo label %q (a repository is labelled by its directory name) and merge into one service node; list only one of them", other, abs, label)
+		}
+		seen[abs], byLabel[label] = true, abs
+		out = append(out, abs)
+	}
+	return out, nil
 }
 
 // queryFactsArgs are the arguments for the query_facts tool.
@@ -1045,15 +1091,26 @@ func (s *Server) registerTools() {
 			"To VERIFY a change you are about to make, call set_baseline right after this first snapshot (BEFORE editing); " +
 			"then after editing, re-run generate_snapshot and call diff_snapshot to see exactly what the change did to the architecture. " +
 			"A repo_path that is a folder holding several git repositories is indexed as a cluster in one call (each repository a service, the calls between them linked); pass no_cluster=true to index it as one repository. " +
-			"In multi-repo mode, call with append=true for each additional repo after the first; " +
+			"To index several repositories, pass them all in ONE call as repo_paths=[...]: they are indexed as one linked set. " +
+			"To add a repository to what is already loaded, call with repo_path and append=true; " +
 			"enola auto-enables append when it detects you have switched to a different repo. " +
 			"If you have instead moved to a DIFFERENT project and want a clean single-repo snapshot (not merged into the current store), pass fresh=true to reset.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args generateSnapshotArgs) (*mcp.CallToolResult, any, error) {
+		if len(args.RepoPaths) > 0 {
+			paths, err := resolveRepoPaths(args)
+			if err != nil {
+				return errorResult(err.Error()), nil, nil
+			}
+			s.genMu.Lock()
+			defer s.genMu.Unlock()
+			return s.generateSet(ctx, paths, args.Append)
+		}
+
 		// append adds ONE named repository to the store. Without repo_path it fell back to
 		// the configured repo, which is wherever the agent was started: a folder holding
 		// every repository the user has, indexed as one. That took minutes, not an answer.
 		if args.Append && args.RepoPath == "" {
-			return errorResult(fmt.Sprintf("append=true needs repo_path: the repository to add to the current store. "+
+			return errorResult(fmt.Sprintf("append=true needs repo_path (or repo_paths): the repository to add to the current store. "+
 				"Without it, enola would index the default path (%s) instead.", s.cfg.Repo)), nil, nil
 		}
 		repoPath := args.RepoPath
@@ -1180,8 +1237,8 @@ func (s *Server) registerTools() {
 			if folded := workspace.Folded(absRepo, ""); len(folded) > 0 {
 				summary = fmt.Sprintf(
 					"⚠️ **%s holds %d git repositories (%s), indexed here as ONE repository.** It has no service nodes and no edges between them. "+
-						"To analyse them as a cluster, call generate_snapshot once per repository (repo_path=%s), passing append=true for every one after the first.\n\n---\n\n",
-					absRepo, len(folded), workspace.Names(folded), filepath.Join(absRepo, "<repo>"),
+						"To analyse them as a cluster, index them in one call: generate_snapshot(repo_paths=%s).\n\n---\n\n",
+					absRepo, len(folded), workspace.Names(folded), quotedPaths(absRepo, folded),
 				) + summary
 			}
 		}

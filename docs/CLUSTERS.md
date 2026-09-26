@@ -37,7 +37,8 @@ and link them. Settings from the config in force still apply to that run. Pass
 `--no-cluster` (`no_cluster=true` over MCP) to index the folder as one repository. A
 folder that is itself a git repository is not treated this way, since nested checkouts
 belong to it; it is indexed as one repository with a warning naming the command that
-makes a cluster, as every other command does.
+makes a cluster, as every other command does. Over MCP, repositories that do not share
+a folder are indexed together in one call with `repo_paths=[...]`.
 
 ```
 $ enola --generate cluster.yaml

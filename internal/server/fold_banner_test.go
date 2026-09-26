@@ -68,8 +68,8 @@ func TestE2E_RepositoryWithNestedReposLeadsWithTheFold(t *testing.T) {
 	}
 
 	out := text(s.call(t, "generate_snapshot", map[string]any{"repo_path": parent}))
-	if !strings.HasPrefix(out, "⚠️") || !strings.Contains(out, "holds 2 git repositories (go_sample, ts_sample)") || !strings.Contains(out, "append=true") {
-		t.Errorf("a repository with nested repositories must lead with the fold; got:\n%s", out)
+	if !strings.HasPrefix(out, "⚠️") || !strings.Contains(out, "holds 2 git repositories (go_sample, ts_sample)") || !strings.Contains(out, "repo_paths=[") || !strings.Contains(out, filepath.Join(parent, "ts_sample")) {
+		t.Errorf("a repository with nested repositories must lead with the fold and the repo_paths call; got:\n%s", out)
 	}
 
 	for _, call := range []map[string]any{
