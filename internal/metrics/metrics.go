@@ -455,12 +455,12 @@ func resolveToModule(target string, moduleSet map[string]struct{}) string {
 
 // args are the arguments for the package_metrics tool.
 type args struct {
-	Package    string `json:"package,omitempty" jsonschema:"Filter to packages whose name contains this substring (e.g. 'internal/app')"`
-	Repo       string `json:"repo,omitempty" jsonschema:"Filter by repository label (set in multi-repo/append mode, e.g. 'go-service')"`
-	SortBy     string `json:"sort_by,omitempty" jsonschema:"Sort key: 'ca', 'ce', 'classes', 'instability', 'distance', or 'name'. Default 'ca' (most-depended-upon first)."`
-	Limit      int    `json:"limit,omitempty" jsonschema:"Maximum number of packages to return in compact/full output (1-1000). Default 100."`
-	OutputMode string `json:"output_mode,omitempty" jsonschema:"'summary' (DEFAULT — aggregate health: avg instability/distance, off-main-sequence count, most depended-upon package) → 'compact' (markdown table) → 'full' (complete JSON)."`
-	MaxTokens  int    `json:"max_tokens,omitempty" jsonschema:"Optional hard cap on output size (approx tokens). Default: no cap."`
+	Package    string `json:"package,omitempty" jsonschema:"Package name substring, e.g. 'internal/app'."`
+	Repo       string `json:"repo,omitempty" jsonschema:"Repository label (multi-repo snapshots), e.g. 'go-service'."`
+	SortBy     string `json:"sort_by,omitempty" jsonschema:"'ca' (default, most depended-upon first), 'ce', 'classes', 'instability', 'distance', or 'name'."`
+	Limit      int    `json:"limit,omitempty" jsonschema:"Maximum packages in compact or full output (1-1000). Default 100."`
+	OutputMode string `json:"output_mode,omitempty" jsonschema:"'summary' (DEFAULT, average instability and distance, off-main-sequence count, most depended-upon package), 'compact' (markdown table), or 'full' (complete JSON)."`
+	MaxTokens  int    `json:"max_tokens,omitempty" jsonschema:"Approximate token cap; output is truncated with a notice. Default: no cap."`
 }
 
 type response struct {
@@ -512,27 +512,15 @@ func countExcluded(excluded []string, pkg, repo string) int {
 	return n
 }
 
-const toolDescription = "Compute software package metrics (Robert C. Martin / JDepend) for every " +
-	"package in the snapshot, to assess responsibility, extensibility, and stability. " +
-	"Run after generate_snapshot. Per package it reports: " +
-	"classes_interfaces (N) — concrete + abstract classes and interfaces, an extensibility indicator; " +
-	"afferent_couplings (Ca) — how many OTHER packages depend on this one (inward responsibility); " +
-	"efferent_couplings (Ce) — how many OTHER packages this one depends on (outward dependence); " +
-	"instability (I = Ce/(Ca+Ce), 0=stable..1=unstable); " +
-	"abstractness (A = abstract types / N, where abstract types = interfaces plus abstract classes " +
-	"(incl. Python ABC/Protocol/@abstractmethod), 0=concrete..1=abstract; NOTE: TypeScript/JS " +
-	"interfaces are structural data shapes (like `type` aliases), not implemented abstractions, " +
-	"so they are excluded from N — TS abstractness comes from `abstract class` only; SCALA is the " +
-	"mirror image: a trait routinely CARRIES its implementation, so one is counted abstract only " +
-	"when it declares an unimplemented member, and a case class is marked a data holder); " +
-	"distance (D = |A+I-1|) — distance from the 'main sequence'; high D flags packages that are " +
-	"either rigid (stable+concrete) or useless (unstable+abstract). " +
-	"NOTE: Ca/Ce are PACKAGE-granular, derived from the reliable internal import graph — they count " +
-	"packages, not individual classes (true class→class edges are not extracted for most languages). " +
-	"For class-level blast radius use impact_analysis; for graph walks use traverse. " +
-	"Filter with package=/repo=, order with sort_by= (default 'ca'). " +
-	"output_mode='summary' (DEFAULT) → 'compact' → 'full'; pass max_tokens to hard-cap output. " +
-	"Off-main-sequence packages also surface via query_insights(explainer=\"package-metrics\")."
+const toolDescription = "Robert C. Martin (JDepend) package metrics, to assess responsibility, extensibility and stability. Per package: " +
+	"classes_interfaces (N), concrete and abstract classes plus interfaces; afferent_couplings (Ca), how many OTHER packages depend on it; efferent_couplings (Ce), how many OTHER packages it depends on; " +
+	"instability I = Ce/(Ca+Ce), 0 stable to 1 unstable; abstractness A = abstract types / N, 0 concrete to 1 abstract; " +
+	"distance D = |A+I-1| from the main sequence, where high D means rigid (stable and concrete) or useless (unstable and abstract). " +
+	"Ca and Ce count packages, not classes, from the internal import graph (class-to-class edges are not extracted for most languages); for class-level blast radius use impact_analysis. " +
+	"Abstract types are interfaces and abstract classes, including Python ABC, Protocol and @abstractmethod. " +
+	"TypeScript/JS interfaces are structural data shapes, so they are excluded from N and TS abstractness comes from abstract classes only. " +
+	"A Scala trait routinely carries its implementation, so it counts as abstract only when it declares an unimplemented member; a case class is marked a data holder. " +
+	"Off-main-sequence packages also appear in query_insights(explainer=\"package-metrics\")."
 
 // Register adds the package_metrics tool to the given MCP server. Calls are
 // recorded by the OSS value middleware, which is registered once on this shared

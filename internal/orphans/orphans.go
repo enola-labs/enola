@@ -1366,42 +1366,28 @@ func renderCompact(orphans []Orphan, mode string) string {
 	return sb.String()
 }
 
-const toolDescription = "Find orphan symbols — dead code that nothing references — directly from the " +
-	"loaded snapshot graph (no re-indexing). Run after generate_snapshot. " +
-	"An orphan is a symbol that nothing else references; it is class='isolated' when it also " +
-	"references nothing, or class='unreferenced' when it still calls others (uncalled-but-calling " +
-	"dead code). mode= selects 'both' (default), 'isolated', or 'unreferenced'. " +
-	"By default output_mode='summary' returns counts grouped per symbol kind (with isolated/" +
-	"unreferenced/exported/high_confidence splits); use output_mode='full' for the per-symbol list " +
-	"with file:line cleanup targets, or 'compact' for a markdown table. " +
-	"CONFIDENCE: references are matched by short name (the graph's call/implements edges are " +
-	"unresolved), so detection is conservative and never flags clearly-used code. Only 'function' " +
-	"findings are confidence='high' (plain calls are reliably tracked); 'method' is 'low' (methods " +
-	"are reached as values, via interface dispatch, or reflection — route handlers are partially " +
-	"rescued via route metadata) and struct/interface/type/const/var are 'low' (type usage is not " +
-	"edge-tracked). Filter with confidence='high' for the actionable set; treat 'low' as leads to " +
-	"verify, not safe deletions. Exported symbols are included but flagged (may be used outside this " +
-	"snapshot); combine confidence='high' with visibility='unexported' for the safest cleanup list. " +
-	"Test symbols and entry points (main/init) are excluded by default (include_tests/" +
-	"include_entrypoints to keep them). Filter with kind=/package=/repo=. " +
-	"For the blast radius of a specific symbol use impact_analysis; for package-level health use " +
-	"package_metrics; for graph walks use traverse. " +
-	"Pass max_tokens to hard-cap output. High-confidence orphans also surface via " +
-	"query_insights(explainer=\"dead-code\")."
+const toolDescription = "Dead-code candidates: symbols nothing references, read from the loaded snapshot without re-indexing. " +
+	"class=isolated when the symbol references nothing either, class=unreferenced when it still calls others. " +
+	"References are matched by short name (call and implements edges are unresolved), so detection is conservative and never flags clearly-used code. " +
+	"Only functions are confidence=high, since plain calls are reliably tracked. Methods are low: they are reached as values, via interface dispatch or reflection (route handlers are partly rescued via route metadata). " +
+	"Structs, interfaces, types, constants and variables are low: type usage is not edge-tracked. Treat low as leads to verify, not safe deletions. " +
+	"Exported symbols are included but flagged, since they may be used outside this snapshot; confidence=high with visibility=unexported is the safest cleanup list. " +
+	"Tests and entry points (main, init) are excluded by default. " +
+	"For one symbol's blast radius use impact_analysis; for package-level health, package_metrics. High-confidence orphans also appear in query_insights(explainer=\"dead-code\")."
 
 // args are the arguments for the find_orphans tool.
 type args struct {
-	Mode               string `json:"mode,omitempty" jsonschema:"Which orphans to report: 'both' (default) returns every symbol with no incoming references, each tagged class=isolated|unreferenced; 'isolated' = no references in or out; 'unreferenced' = referenced by nobody but still references others (uncalled-but-calling dead code)."`
-	Kind               string `json:"kind,omitempty" jsonschema:"Filter to one symbol kind: function, method, struct, interface, type, class, constant, variable. Default: all kinds."`
-	Package            string `json:"package,omitempty" jsonschema:"Filter to symbols whose declaring package contains this substring (e.g. 'internal/app')."`
-	Repo               string `json:"repo,omitempty" jsonschema:"Filter by repository label (set in multi-repo/append mode, e.g. 'go-service')."`
-	Visibility         string `json:"visibility,omitempty" jsonschema:"'all' (default), 'exported' (public API only), or 'unexported' (private symbols only — the safer-to-delete-within-repo set)."`
-	Confidence         string `json:"confidence,omitempty" jsonschema:"Filter by detection confidence: '' (all, default), 'high' (functions — incoming calls are reliably tracked), or 'low' (methods/structs/interfaces/types/consts/vars — dispatch and type usage are not edge-tracked, so verify before removal)."`
-	IncludeTests       bool   `json:"include_tests,omitempty" jsonschema:"Include symbols in *_test files, Test/Benchmark/Example/Fuzz functions, and test-support packages (mocks/testutils/fixtures). Default false. Note: _test.go files are excluded from the snapshot itself, so test-support code is flagged dead by default because its test callers are invisible — this keeps it out of the cleanup list."`
-	IncludeEntrypoints bool   `json:"include_entrypoints,omitempty" jsonschema:"Include runtime entry points (main, init) which have no callers by nature. Default false."`
-	OutputMode         string `json:"output_mode,omitempty" jsonschema:"Output format: 'summary' (DEFAULT, counts grouped per symbol kind), 'full' (per-symbol JSON list with file:line), or 'compact' (markdown table)."`
-	Limit              int    `json:"limit,omitempty" jsonschema:"Maximum symbols in full/compact output (1-2000). Default 200. Ignored for summary."`
-	MaxTokens          int    `json:"max_tokens,omitempty" jsonschema:"Optional hard cap on output size (approx tokens). Default: no cap."`
+	Mode               string `json:"mode,omitempty" jsonschema:"'both' (default), 'isolated' (no references in or out), or 'unreferenced' (referenced by nobody, still references others)."`
+	Kind               string `json:"kind,omitempty" jsonschema:"function, method, struct, interface, type, class, constant, or variable. Default: all."`
+	Package            string `json:"package,omitempty" jsonschema:"Declaring package substring, e.g. 'internal/app'."`
+	Repo               string `json:"repo,omitempty" jsonschema:"Repository label (multi-repo snapshots), e.g. 'go-service'."`
+	Visibility         string `json:"visibility,omitempty" jsonschema:"'all' (default), 'exported', or 'unexported' (the safer set to delete)."`
+	Confidence         string `json:"confidence,omitempty" jsonschema:"'high', 'low', or empty for all (default)."`
+	IncludeTests       bool   `json:"include_tests,omitempty" jsonschema:"Include *_test files, Test/Benchmark/Example/Fuzz functions and test-support packages (mocks, testutils, fixtures). Off by default: Go _test.go files are not in the snapshot, so test-support code would look dead. Default false."`
+	IncludeEntrypoints bool   `json:"include_entrypoints,omitempty" jsonschema:"Include main and init, which have no callers by nature. Default false."`
+	OutputMode         string `json:"output_mode,omitempty" jsonschema:"'summary' (DEFAULT, counts per symbol kind with isolated, unreferenced, exported and high-confidence splits), 'compact' (markdown table), or 'full' (per-symbol JSON with file:line)."`
+	Limit              int    `json:"limit,omitempty" jsonschema:"Maximum symbols in compact or full output (1-2000). Default 200. Ignored for summary."`
+	MaxTokens          int    `json:"max_tokens,omitempty" jsonschema:"Approximate token cap; output is truncated with a notice. Default: no cap."`
 }
 
 func norm(v, def string) string {

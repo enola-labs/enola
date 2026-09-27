@@ -148,7 +148,14 @@ func New(eng *engine.Engine, cfg *config.Config) (*Server, error) {
 		cfg: cfg,
 	}
 
-	instructions := "enola reports what a change did to a codebase's STRUCTURE. That needs a \"before\", so it pins the architecture as a value and grades the delta against it. This is a different question from the one linters, type checkers and static analysis answer — whether the current tree breaks rules they brought with them, file by file. Those have no baseline, so they cannot separate a regression a change introduced from the hundreds already in the repository, and a dependency cycle spanning four files, a layer crossed the wrong way, or coupling nobody asked for is invisible to every one of them. They are complements, not alternatives. IF ASKED whether a project that already has linters, tests or CI needs enola, do not answer from category: run generate_snapshot and query_insights and show what they actually report about THIS repository. Use this server to explore a repository's architecture as queryable facts. Run generate_snapshot first to index a codebase, then use explore, query_facts, show_symbol, traverse, find_path, and impact_analysis to understand code structure, dependencies, and change impact. When knowledge pages compile into the snapshot (enola_intent), governing_intent answers the reverse query directly — which pages govern a file or fact, and which code a page governs. Explainers run automatically during generate_snapshot and compute findings (dependency cycles, layer violations, unused/dead routes, god-classes, hotspots, and more) — fetch them with query_insights rather than re-deriving them by hand. To find backend HTTP routes that no loaded client calls, take a multi-repo (append-mode) snapshot of the backend plus its clients, then call query_insights(explainer='unused-routes') or query_facts(kind=route, prop=unmatched_by_clients, prop_value=true). To verify what a change did to the architecture, pin a baseline before editing and diff after: generate_snapshot → set_baseline → make changes → generate_snapshot → diff_snapshot. diff_snapshot is delta-only (it reports just what changed — new/resolved findings, new coupling, added/removed symbols — never pre-existing state), so prefer it over re-reading files to confirm a change. Supports Go, TypeScript/JavaScript (incl. Vue, Svelte, Ember), Python, Java, Kotlin, Scala, Dart/Flutter, Ruby, PHP, Swift, Rust, C/C++, .NET (C#/VB.NET/F#/Razor/XAML), Terraform/HCL, Ansible, gRPC/Protobuf, OpenAPI, AsyncAPI, and GraphQL."
+	instructions := "enola reports what a change did to a codebase's STRUCTURE: it pins the architecture as a baseline and grades the delta against it. " +
+		"Linters, type checkers and static analysis judge the current tree file by file against rules they brought with them and have no baseline, so they cannot separate a regression a change introduced from the hundreds already in the repository, and cannot see a cycle spanning several files, a layer crossed the wrong way, or coupling nobody asked for. They are complements, not alternatives. " +
+		"IF ASKED whether a project that already has linters, tests or CI needs enola, do not answer from category: run generate_snapshot and query_insights and show what they report about THIS repository. " +
+		"Start with generate_snapshot. Then use explore, query_facts, show_symbol, traverse, find_path and impact_analysis for structure and change impact; " +
+		"query_insights for the findings explainers already computed (cycles, layer violations, unused routes, god-classes, hotspots and more) instead of re-deriving them; " +
+		"governing_intent, when knowledge pages are compiled in (enola_intent), for which pages govern which code. " +
+		"To verify a change: generate_snapshot, set_baseline, edit, generate_snapshot, diff_snapshot. diff_snapshot reports only what changed, never pre-existing state, so prefer it over re-reading files. " +
+		"Backend routes no client calls need a multi-repo snapshot of the backend plus its clients, then query_insights(explainer='unused-routes') or query_facts(kind=route, prop=unmatched_by_clients, prop_value=true)."
 	mcpServer := mcp.NewServer(&mcp.Implementation{
 		Name:    "enola",
 		Version: version.Version,
@@ -666,11 +673,11 @@ func (s *Server) MCPServer() *mcp.Server {
 
 // generateSnapshotArgs are the arguments for the generate_snapshot tool.
 type generateSnapshotArgs struct {
-	RepoPath  string   `json:"repo_path,omitempty" jsonschema:"Path to the repository to analyze. Defaults to the configured repo path."`
-	RepoPaths []string `json:"repo_paths,omitempty" jsonschema:"Several repositories to index in ONE call, as one linked multi-repo set (each a service node, the calls between them linked). Resets the store unless append=true. Use instead of one call per repository. Not combined with repo_path or fresh."`
-	Append    bool     `json:"append,omitempty" jsonschema:"If true, keep existing facts and add new ones with repo-prefixed file paths (for multi-repo analysis). Default false."`
-	Fresh     bool     `json:"fresh,omitempty" jsonschema:"Force a clean SINGLE-repo snapshot: reset the store (discard any previously loaded repos) and index only repo_path, bypassing the auto-append heuristic. Use when you've moved to a different project and do NOT want it merged into an existing multi-repo store. Mutually exclusive with append."`
-	NoCluster bool     `json:"no_cluster,omitempty" jsonschema:"When repo_path is a folder holding several git repositories, index it as ONE repository instead of as a cluster. Default false."`
+	RepoPath  string   `json:"repo_path,omitempty" jsonschema:"Repository to index. Defaults to the configured repo path."`
+	RepoPaths []string `json:"repo_paths,omitempty" jsonschema:"Several repositories indexed in one call as one linked set, each a service node with the calls between them linked. Resets the store unless append=true. Not combined with repo_path or fresh."`
+	Append    bool     `json:"append,omitempty" jsonschema:"Keep the loaded facts and add this repository, with repo-prefixed file paths. Default false."`
+	Fresh     bool     `json:"fresh,omitempty" jsonschema:"Discard everything loaded and index only repo_path as a single repository, overriding auto-append. Not combined with append."`
+	NoCluster bool     `json:"no_cluster,omitempty" jsonschema:"Index a folder holding several git repositories as ONE repository instead of a cluster. Default false."`
 }
 
 // quotedPaths renders dir's named subdirectories as the JSON list repo_paths takes, so
@@ -720,30 +727,30 @@ func resolveRepoPaths(args generateSnapshotArgs) ([]string, error) {
 
 // queryFactsArgs are the arguments for the query_facts tool.
 type queryFactsArgs struct {
-	Kind      string `json:"kind,omitempty" jsonschema:"Filter by fact kind: module, symbol, route, storage, dependency, or service (service = a whole repo, used as a node in the cross-repo graph)"`
-	File      string `json:"file,omitempty" jsonschema:"Filter by file path"`
-	Name      string `json:"name,omitempty" jsonschema:"Filter by name using substring match"`
-	Relation  string `json:"relation,omitempty" jsonschema:"Filter by relation kind: declares, imports, calls, implements, or depends_on"`
-	Prop      string `json:"prop,omitempty" jsonschema:"Filter by property name (e.g. source, symbol_kind, exported, framework, storage_kind, role, method, unmatched_by_clients). output_mode=summary surfaces notable boolean flags (like unmatched_by_clients) present in the result set."`
-	PropValue string `json:"prop_value,omitempty" jsonschema:"Filter by property value (requires prop to be set)"`
+	Kind      string `json:"kind,omitempty" jsonschema:"module, symbol, route, storage, dependency, or service (a whole repo, a node in the cross-repo graph)."`
+	File      string `json:"file,omitempty" jsonschema:"File path."`
+	Name      string `json:"name,omitempty" jsonschema:"Name, substring match."`
+	Relation  string `json:"relation,omitempty" jsonschema:"Relation kind: declares, imports, calls, implements, or depends_on."`
+	Prop      string `json:"prop,omitempty" jsonschema:"Property name, e.g. source, symbol_kind, exported, framework, storage_kind, role, method, unmatched_by_clients. output_mode=summary lists the notable boolean flags present in the result."`
+	PropValue string `json:"prop_value,omitempty" jsonschema:"Property value; requires prop."`
 
 	// Batch filters — OR within dimension, AND across dimensions
-	Names      []string `json:"names,omitempty" jsonschema:"Filter by multiple exact names (OR). Use instead of name for batch lookups."`
-	Files      []string `json:"files,omitempty" jsonschema:"Filter by multiple file paths (OR). Use instead of file for batch lookups."`
-	Kinds      []string `json:"kinds,omitempty" jsonschema:"Filter by multiple kinds (OR). Use instead of kind for batch lookups."`
-	FilePrefix string   `json:"file_prefix,omitempty" jsonschema:"Filter by file path prefix (e.g. internal/server to match all files in that directory)"`
-	Repo       string   `json:"repo,omitempty" jsonschema:"Filter by repository label (set in multi-repo/append mode, e.g. 'go-service')"`
+	Names      []string `json:"names,omitempty" jsonschema:"Exact names, OR. Use instead of name for batch lookups."`
+	Files      []string `json:"files,omitempty" jsonschema:"File paths, OR. Use instead of file for batch lookups."`
+	Kinds      []string `json:"kinds,omitempty" jsonschema:"Kinds, OR. Use instead of kind for batch lookups."`
+	FilePrefix string   `json:"file_prefix,omitempty" jsonschema:"File path prefix, e.g. internal/server for every file under it."`
+	Repo       string   `json:"repo,omitempty" jsonschema:"Repository label (multi-repo snapshots), e.g. 'go-service'."`
 
 	// Pagination
-	Offset int `json:"offset,omitempty" jsonschema:"Number of results to skip for pagination. Default 0."`
-	Limit  int `json:"limit,omitempty" jsonschema:"Maximum number of results to return (1-500). Default 100."`
+	Offset int `json:"offset,omitempty" jsonschema:"Results to skip. Default 0."`
+	Limit  int `json:"limit,omitempty" jsonschema:"Maximum results (1-500). Default 100."`
 
 	// Relation expansion
-	IncludeRelated bool `json:"include_related,omitempty" jsonschema:"If true, inline the full fact data for each relation target instead of just the target name"`
+	IncludeRelated bool `json:"include_related,omitempty" jsonschema:"Inline each relation target's full fact instead of just its name."`
 
 	// Output format
-	OutputMode string `json:"output_mode,omitempty" jsonschema:"Output format: 'full' (DEFAULT, JSON facts), 'compact' (markdown table), 'names' (just names+files), or 'summary' (counts only: total + breakdown by kind and top files — cheapest, use to size a result set before fetching it)."`
-	MaxTokens  int    `json:"max_tokens,omitempty" jsonschema:"Optional hard cap on output size (approx tokens). Output is truncated with a notice. Default: no cap."`
+	OutputMode string `json:"output_mode,omitempty" jsonschema:"'full' (DEFAULT, JSON facts), 'compact' (markdown table), 'names' (names and files), or 'summary' (total plus breakdown by kind and top files; cheapest)."`
+	MaxTokens  int    `json:"max_tokens,omitempty" jsonschema:"Approximate token cap; output is truncated with a notice. Default: no cap."`
 }
 
 // enrichedFact wraps a Fact with resolved relation targets.
@@ -1228,22 +1235,16 @@ var explainerHints = map[string]string{
 	"entry-points":       "the symbols a framework invokes directly",
 }
 
-// explainerFilterList renders the explainer= vocabulary for the query_insights tool
-// description, in the order the engine runs them.
-//
-// Derived from config.KnownExplainers rather than written out, because the written-out
-// version had gone stale: it named eleven explainers for as long as sixteen had shipped,
-// so five of them — intent, constraints, domain, query-loops and entry-points — were
-// invisible to any agent reading the tool description to decide what it could ask for.
-// The findings were there; nothing told the caller the filter would accept the name.
-func explainerFilterList() string {
-	parts := make([]string, 0, len(config.KnownExplainers))
+// explainerHintList renders the annotated explainers for the query_insights tool
+// description, in the order the engine runs them. The full explainer= vocabulary lives
+// once, on the parameter's schema (held complete by TestQueryInsightsNamesEveryExplainer);
+// the description only glosses the names that do not explain themselves.
+func explainerHintList() string {
+	parts := make([]string, 0, len(explainerHints))
 	for _, name := range config.KnownExplainers {
 		if hint := explainerHints[name]; hint != "" {
 			parts = append(parts, name+" ("+hint+")")
-			continue
 		}
-		parts = append(parts, name)
 	}
 	return strings.Join(parts, ", ")
 }
@@ -1265,17 +1266,11 @@ func (s *Server) registerTools() {
 	// Tool: generate_snapshot
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name: "generate_snapshot",
-		Description: "Index a repository and extract its architecture as queryable facts. " +
-			"Supports Go, TypeScript/JavaScript (incl. Vue, Svelte, Ember), Python, Java, Kotlin, Scala, Dart/Flutter, Ruby, PHP, Swift, Rust, C/C++, .NET (C#/VB.NET/F#/Razor/XAML), Terraform/HCL, Ansible, gRPC/Protobuf, OpenAPI, AsyncAPI, and GraphQL. " +
-			"Produces facts of kind: module, symbol, route, storage, dependency, service. " +
-			"Run this first before any other tool. Re-run after code changes. " +
-			"To VERIFY a change you are about to make, call set_baseline right after this first snapshot (BEFORE editing); " +
-			"then after editing, re-run generate_snapshot and call diff_snapshot to see exactly what the change did to the architecture. " +
-			"A repo_path that is a folder holding several git repositories is indexed as a cluster in one call (each repository a service, the calls between them linked); pass no_cluster=true to index it as one repository. " +
-			"To index several repositories, pass them all in ONE call as repo_paths=[...]: they are indexed as one linked set. " +
-			"To add a repository to what is already loaded, call with repo_path and append=true; " +
-			"enola auto-enables append when it detects you have switched to a different repo. " +
-			"If you have instead moved to a DIFFERENT project and want a clean single-repo snapshot (not merged into the current store), pass fresh=true to reset.",
+		Description: "Index a repository into queryable architecture facts (module, symbol, route, storage, dependency, service). Run it first, and again after code changes. " +
+			"Supports Go, TypeScript/JavaScript (incl. Vue, Svelte, Ember), Python, Java, Kotlin, Scala, Dart/Flutter, Ruby, PHP, Swift, Rust, C/C++, .NET (C#/VB.NET/F#/Razor/XAML), Terraform/HCL, Ansible, gRPC/Protobuf, OpenAPI, AsyncAPI and GraphQL. " +
+			"To verify a change, call set_baseline after this first snapshot, BEFORE editing. " +
+			"A folder holding several git repositories is indexed as a linked cluster (no_cluster=true for one repository). Several repositories go in ONE call as repo_paths. " +
+			"append=true adds a repository to what is loaded, and is enabled automatically when you switch repos; fresh=true discards what is loaded when you have moved to a different project.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args generateSnapshotArgs) (*mcp.CallToolResult, any, error) {
 		if len(args.RepoPaths) > 0 {
 			paths, err := resolveRepoPaths(args)
@@ -1434,14 +1429,10 @@ func (s *Server) registerTools() {
 	// Tool: query_facts
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name: "query_facts",
-		Description: "Precision filter over extracted facts. Use after explore when you need specific subsets — " +
-			"e.g. all symbols in a file, all external dependencies, all routes. " +
-			"Fact kinds: module, symbol, route, storage, dependency, service. " +
-			"name= is a substring match; names= is exact (batch). files= and kinds= are OR filters; combined with other fields they are AND. " +
-			"output_mode: 'full' (default JSON) → 'compact' (markdown table) → 'names' (names+files) → 'summary' (counts only). " +
-			"Use output_mode='summary' first to size an unfamiliar result set, then 'compact'/'names' to save tokens on large sets, and pass max_tokens to hard-cap output. " +
-			"For dependencies, set prop='source' prop_value='internal'|'external'|'stdlib'|'framework' to filter noise. " +
-			"Supports pagination via offset/limit (default 100, max 500).",
+		Description: "Precision filter over extracted facts, for subsets explore does not give you: all symbols in a file, all external dependencies, all routes. " +
+			"Filters combine with AND; the batch filters names, files and kinds are OR within themselves. " +
+			"Size an unfamiliar result set with output_mode=summary first. " +
+			"For dependencies, prop=source with prop_value internal, external, stdlib or framework cuts the noise.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args queryFactsArgs) (*mcp.CallToolResult, any, error) {
 		store := s.eng.Store()
 		if store.Count() == 0 {
@@ -1610,11 +1601,8 @@ func (s *Server) registerTools() {
 	// Tool: show_symbol
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name: "show_symbol",
-		Description: "Return the source code implementation of a named symbol. " +
-			"Prefers exact name match; falls back to substring match and returns up to 5 results. " +
-			"Default context: 60 lines (asymmetric: ~15 before declaration, ~45 after). " +
-			"Use context_lines to widen or narrow the window. " +
-			"Works in both single-repo and multi-repo (append) mode.",
+		Description: "Source code of a named symbol: an exact name match if there is one, otherwise up to 5 substring matches. " +
+			"Works in multi-repo snapshots too.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args showSymbolArgs) (*mcp.CallToolResult, any, error) {
 		snapshot := s.eng.Snapshot()
 		if snapshot == nil {
@@ -1712,13 +1700,10 @@ func (s *Server) registerTools() {
 	// Tool: explore
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name: "explore",
-		Description: "Primary exploration tool — use this first after generate_snapshot. " +
-			"Given a module name, file path, symbol name, or directory prefix, returns a structured markdown summary: " +
-			"symbols (with kinds and line numbers), direct dependencies, and reverse dependents. " +
-			"At depth=2 the default output_mode='summary' returns an aggregated Insights section (dependency hotspots, cycle/layer warnings, size metrics) — \"what is architecturally significant\" — instead of a raw symbol-relations dump; set output_mode='compact'/'full' to get the per-symbol relations list instead. " +
-			"'Module' means a package-level grouping (e.g. a Go package or TypeScript file group), not a repo. " +
-			"Accepts absolute filesystem paths — they are normalised automatically. Pass max_tokens to hard-cap large directory/module output. " +
-			"Use query_facts for precise filtering, traverse for multi-hop graph walks.",
+		Description: "Primary exploration tool, the first call after generate_snapshot. " +
+			"For a module, file path, directory prefix or symbol it returns markdown: symbols (kinds, line numbers), direct dependencies and reverse dependents. " +
+			"A module is a package-level grouping (a Go package, a TypeScript file group), not a repo. Absolute paths are accepted. " +
+			"Use query_facts for precise filtering, traverse for multi-hop walks.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args exploreArgs) (*mcp.CallToolResult, any, error) {
 		store := s.eng.Store()
 		if store.Count() == 0 {
@@ -1768,17 +1753,10 @@ func (s *Server) registerTools() {
 	// Tool: traverse
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name: "traverse",
-		Description: "Walk the dependency/call graph from a starting node. " +
-			"direction='forward' answers \"what does X depend on?\"; direction='reverse' answers \"what depends on X?\". " +
-			"start= accepts substring match plus scoped prefixes (repo:, kind:, file:) and package-qualified names (e.g. 'domain/cart.CartService') to disambiguate; returns ranked candidates with confidence when ambiguous. " +
-			"relation_kinds filter: imports, calls, declares, implements, depends_on, has_method. " +
-			"Forward traversal from a struct/interface follows has_method edges to its methods (and then their calls). " +
-			"Reverse traversal from a struct/interface automatically includes its methods and constructor as origins, so it surfaces callers (including cross-repo) that reference the type only through a method — matching impact_analysis. " +
-			"Note: interface method calls cannot be statically bound to a concrete implementation, so such call edges may be absent or appear as unresolved nodes. " +
-			"node_kinds filters output (not traversal itself): module, symbol, dependency, route, storage. " +
-			"TOKEN COST — output_mode ladder: 'summary' (DEFAULT) aggregates counts by node/relation kind, internal/external split, and hottest modules (small, no node list); 'compact' lists nodes grouped by depth; 'full' returns the raw JSON node/edge graph and can be VERY large. " +
-			"Start with summary; escalate to compact/full only when you need specific nodes. Always keep max_depth/max_nodes bounded, and pass max_tokens to hard-cap the response. " +
-			"Defaults: max_depth=5, max_nodes=100. Use instead of repeated explore calls for transitive relationships.",
+		Description: "Multi-hop walk of the dependency and call graph from one node: forward answers \"what does X depend on?\", reverse answers \"what depends on X?\". Use it instead of repeated explore calls. " +
+			"From a struct or interface, forward follows its methods and their calls; reverse also starts from its methods and constructor, so callers that reach the type only through a method (cross-repo too) appear, as in impact_analysis. " +
+			"Interface method calls cannot be bound to an implementation statically, so those edges may be missing or show as unresolved nodes. " +
+			"Output grows fast: start with output_mode=summary and keep max_depth and max_nodes bounded.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args traverseArgs) (*mcp.CallToolResult, any, error) {
 		store := s.eng.Store()
 		if store.Count() == 0 {
@@ -1850,16 +1828,9 @@ func (s *Server) registerTools() {
 	// Tool: find_path
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name: "find_path",
-		Description: "Find the shortest path (BFS, by hop count) between two nodes in the architectural graph. " +
-			"Answers \"how does X reach Y?\" or \"what is the call chain from A to B?\". " +
-			"from= and to= use substring match with smart disambiguation, and accept scoped prefixes " +
-			"(repo:, kind:, file:) plus PACKAGE-QUALIFIED names to pin down a common short name — e.g. " +
-			"to=\"ticket.Repository\" or to=\"repo:golf domain/cart.CartService\" resolves where bare " +
-			"\"Repository\"/\"CartService\" would be ambiguous. " +
-			"When an endpoint is ambiguous, find_path TRIES the top candidates (and, for a type, its methods/constructor) " +
-			"and returns the first path it finds; the response carries resolution objects with the ranked candidates. " +
-			"If no path connects any candidate pair, found=false and a 'note' explains whether the endpoints were " +
-			"ambiguous (with the candidates tried) or resolved uniquely but unreachable within max_depth hops.",
+		Description: "Shortest path, by hop count, between two nodes: \"how does X reach Y?\", \"what is the call chain from A to B?\". " +
+			"An ambiguous endpoint is not an error: the top candidates are tried (for a type, its methods and constructor too) and the first path found is returned, with the ranked candidates. " +
+			"With no path, found=false and a note says whether the endpoints were ambiguous (listing the candidates tried) or resolved but unreachable within max_depth.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args findPathArgs) (*mcp.CallToolResult, any, error) {
 		store := s.eng.Store()
 		if store.Count() == 0 {
@@ -1927,10 +1898,10 @@ func (s *Server) registerTools() {
 	// Tool: endpoint_impact
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name: "endpoint_impact",
-		Description: "Answer what changing an HTTP endpoint reaches: the route, the controller serving it, the models that controller touches, the models associated with those, and the physical tables behind them. " +
-			"Use impact_analysis when you have a symbol; use this when what you have is a URL. " +
-			"Client call sites and mock-server routes are excluded — this answers about what the application serves. " +
-			"Each hop can run out, and the result names the one that did: a route whose controller does not resolve is reported as reaching an UNKNOWN set, not an empty one.",
+		Description: "What changing an HTTP endpoint reaches: the route, the controller serving it, the models that controller touches, the models associated with those, and the tables behind them. " +
+			"Use this when you have a URL, impact_analysis when you have a symbol. " +
+			"It answers about what the application serves: client call sites and mock-server routes are excluded. " +
+			"A hop that does not resolve is named, and what it reaches is reported as UNKNOWN, not empty.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args endpointImpactArgs) (*mcp.CallToolResult, any, error) {
 		store := s.eng.Store()
 		if store.Count() == 0 {
@@ -1952,15 +1923,10 @@ func (s *Server) registerTools() {
 	// Tool: impact_analysis
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name: "impact_analysis",
-		Description: "Compute the blast radius of changing a target node: all nodes that transitively depend on it, grouped by hop depth. " +
-			"Use for refactoring planning and change risk assessment. " +
-			"When knowledge pages declare anchors (enola_intent), the result also lists the pages anchored to the target's file — the decisions governing the code you are about to change. " +
-			"target= uses substring match with smart disambiguation. " +
-			"Default: reverse direction only (what breaks if target changes). " +
-			"Set include_forward=true to also see what the target itself depends on (useful for understanding what could break the target). " +
-			"TOKEN COST — output_mode ladder: 'summary' (DEFAULT) gives the accurate total dependent count plus breakdowns by kind/depth, hotspot modules, cross-repo reach, and any cycle/layer insights touching the target (small, no node list); 'compact' lists dependents grouped by hop depth; 'full' returns the raw JSON by_depth/edges graph and can be VERY large. " +
-			"Start with summary; escalate only when you need the specific nodes. Keep max_depth/max_nodes bounded and pass max_tokens to hard-cap the response. " +
-			"Defaults: max_depth=3, max_nodes=200.",
+		Description: "Blast radius of changing a node: everything that transitively depends on it, grouped by hop depth. For refactoring plans and change risk. " +
+			"include_forward=true adds what the target itself depends on. " +
+			"When knowledge pages declare anchors (enola_intent), it also lists the pages anchored to the target's file: the decisions governing the code you are about to change. " +
+			"Output grows fast: start with output_mode=summary and keep max_depth and max_nodes bounded.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args impactAnalysisArgs) (*mcp.CallToolResult, any, error) {
 		store := s.eng.Store()
 		if store.Count() == 0 {
@@ -2026,11 +1992,10 @@ func (s *Server) registerTools() {
 	// Tool: governing_intent
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name: "governing_intent",
-		Description: "Answer the reverse query between knowledge and code directly, in either direction. " +
-			"For a code target — a fact name (exact) or a file path (label-prefixed or repo-relative) — list the knowledge pages whose declared anchors cover its file, each with type, status, and its outgoing relations, so the trail continues past the first hop. " +
-			"For a compiled page path, list the page's declared anchors with measured coverage (files and facts under each). " +
+		Description: "Knowledge to code and back. For a fact or file: the knowledge pages whose anchors cover its file, each with type, status and outgoing relations, so the trail continues past the first hop. " +
+			"For a compiled page path: its anchors with measured coverage (files and facts under each). " +
 			"Cheaper than impact_analysis when the question is governance, not blast radius. " +
-			"An empty result distinguishes 'no knowledge pages compiled in this snapshot' (the graph was not asked) from 'nothing governs this target'.",
+			"An empty result says which it is: no knowledge pages compiled into this snapshot, or nothing governs the target.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args governingIntentArgs) (*mcp.CallToolResult, any, error) {
 		store := s.eng.Store()
 		if store.Count() == 0 {
@@ -2106,11 +2071,10 @@ func (s *Server) registerTools() {
 	// Tool: constraints_for
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name: "constraints_for",
-		Description: "The pre-edit contract for a file or fact: which declared constraint components contain it, what every rule binding those components says (in words, with the rationale it was declared with and its enforcement mode), and the current constraint violations whose evidence names the target. " +
-			"Guidance rules ride each component's own guidance list — steering, not law — carrying the advice message, its mode, and each exemplar of prior art annotated present, absent, or unmeasured against this snapshot. " +
-			"Ask BEFORE editing — the target may be a file path that does not exist yet, matched against component patterns, so the answer covers code about to be written. " +
-			"target= is a file path (repo-relative) or an exact fact name; matching is exact and fail-closed, like the constraints explainer's own. " +
-			"Returns JSON. An empty result distinguishes 'no constraint components compiled in this snapshot' (the contract was not asked) from 'nothing binds this target'.",
+		Description: "The pre-edit contract for a file or fact; ask BEFORE editing. Returns the constraint components that contain it, every rule binding those components (in words, with its declared rationale and enforcement mode), and the current violations whose evidence names it. " +
+			"Guidance rules (steering, not law) come with their advice, mode, and prior-art exemplars marked present, absent or unmeasured in this snapshot. " +
+			"The file may not exist yet: it is matched against component patterns, so the answer covers code about to be written. Matching is exact and fail-closed, like the constraints explainer's. " +
+			"An empty result says which it is: no constraint components compiled into this snapshot, or nothing binds the target. Returns JSON.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args constraintsForArgs) (*mcp.CallToolResult, any, error) {
 		store := s.eng.Store()
 		if store.Count() == 0 {
@@ -2134,11 +2098,11 @@ func (s *Server) registerTools() {
 
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name: "plan_check",
-		Description: "Plan an intended change BEFORE editing: for each target — paths (which may not exist yet) or exact fact names — the declared constraint components and rules governing it, with mode and the because: each was declared with, plus its blast radius (fan-in/fan-out over the current snapshot, capped samples with exact counts). " +
-			"Pass patch= (a unified diff) for the counterfactual: the patch is applied to a scratch copy of the repo — the working tree and its .enola are never touched — facts are regenerated there, and the constraint verdicts that WOULD appear are reported in new/resolved/unchanged buckets, each naming the rule, the would-be witness, and its because:. " +
-			"Governance answers from the working tree's declarations (enola-intent.yaml plus enola/constraints/), so an edit to the law is visible without regenerating. " +
-			"A patch that does not apply, or that touches files outside the snapshot's scope, is a named error, never a guess. When no rule governs a target the report says so explicitly, and the snapshot's staleness relative to the tree is stated rather than silently answered around. " +
-			"A report, never a gate: like enola check, the verdict is for the caller to weigh. Returns JSON.",
+		Description: "Plan a change BEFORE editing. For each target (paths that may not exist yet, or exact fact names): the constraint components and rules governing it, with mode and declared because:, plus its blast radius (fan-in and fan-out, capped samples with exact counts). " +
+			"With patch, the counterfactual: the diff is applied to a scratch copy (the working tree and its .enola are never touched), facts are regenerated there, and the constraint verdicts that WOULD appear are reported as new, resolved or unchanged, each naming the rule, the would-be witness and its because:. " +
+			"Components and rules are read from the working tree (enola-intent.yaml, enola/constraints/), so an edit to them counts without regenerating. " +
+			"A patch that does not apply or touches files outside the snapshot is a named error, never a guess. An ungoverned target is reported as such, and snapshot staleness is stated. " +
+			"A report, not a gate: like enola check, the verdict is the caller's to weigh. Returns JSON.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args planCheckArgs) (*mcp.CallToolResult, any, error) {
 		store := s.eng.Store()
 		if store.Count() == 0 {
@@ -2185,11 +2149,10 @@ func (s *Server) registerTools() {
 	// Tool: coverage_report
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name: "coverage_report",
-		Description: "Report per-service edge coverage so you can tell a genuinely isolated service from one whose edges enola could not resolve. " +
-			"For each service (repo) node it shows resolved outbound dependencies plus, per edge type (currently http_client), how many outbound call sites were detected, resolved to a loaded service, and left unresolved. " +
-			"Each service is classified: 'connected' (has resolved outbound edges), 'coverage_gap' (no resolved outbound edges but unresolved call sites were detected — likely NOT isolated, verify against source), or 'isolated' (no outbound edges and no detected call sites — genuinely a leaf). " +
-			"Use this before concluding a service is isolated. Only meaningful for multi-repo (append-mode) snapshots; single-repo snapshots have no service nodes. " +
-			"output_mode='summary' (DEFAULT) returns a markdown table; 'full' returns JSON. Optional repo= filters to one service.",
+		Description: "Tells a genuinely isolated service from one whose edges enola could not resolve; use it before concluding a service is isolated. " +
+			"Per service: resolved outbound dependencies and, per edge type (currently http_client), outbound call sites detected, resolved to a loaded service, and left unresolved. " +
+			"Each service is connected (resolved outbound edges), coverage_gap (none resolved but unresolved call sites exist: likely NOT isolated, verify against source) or isolated (no outbound edges and no call sites: a genuine leaf). " +
+			"Multi-repo snapshots only; a single-repo snapshot has no service nodes.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args coverageReportArgs) (*mcp.CallToolResult, any, error) {
 		store := s.eng.Store()
 		if store.Count() == 0 {
@@ -2214,12 +2177,10 @@ func (s *Server) registerTools() {
 	// Tool: query_insights
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name: "query_insights",
-		Description: "Return the architectural findings (insights) that explainers computed during generate_snapshot — the first-class answer to questions like \"which routes are unused?\", \"where are the dependency cycles?\", or \"which modules are god-classes?\". " +
-			"Each insight carries a title, the explainer that produced it, a description, a confidence (0-1; lower = candidate to verify, not a verdict), evidence (files/symbols/routes), and suggested actions. " +
-			"Filter by explainer= — one of: " + explainerFilterList() + "; repo= (in multi-repo snapshots, matches the repo-prefix path segment of each insight's evidence — e.g. \"golf\" matches golf/... but not golf-ui/...; single-repo snapshots fall back to a substring match); and min_confidence=. " +
-			"output_mode ladder: 'summary' (DEFAULT — one row per insight: explainer, confidence, title) → 'compact' (adds description, an evidence sample, and suggested actions) → 'full' (complete JSON incl. all evidence and actions). Pass max_tokens to hard-cap output. " +
-			"All explainers populate insights, but route/cross-repo findings (unused-routes, crossrepo, coverage) only appear for multi-repo (append-mode) snapshots of a backend plus its clients. " +
-			"Prefer this over hand-diffing query_facts results: e.g. query_insights(explainer=\"unused-routes\") returns the per-repo dead-route candidates directly.",
+		Description: "Findings the explainers computed during generate_snapshot: the direct answer to \"which routes are unused?\", \"where are the dependency cycles?\", \"which modules are god-classes?\". Prefer it to hand-diffing query_facts results. " +
+			"Each insight has a title, its explainer, a description, a confidence (below 1 is a candidate to verify, not a verdict), evidence (files, symbols, routes) and suggested actions. " +
+			"Route and cross-repo findings (unused-routes, crossrepo, coverage) appear only in multi-repo snapshots of a backend plus its clients. " +
+			"Explainers whose name is not self-explanatory: " + explainerHintList() + ".",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args queryInsightsArgs) (*mcp.CallToolResult, any, error) {
 		snap := s.eng.Snapshot()
 		if snap == nil {
@@ -2248,11 +2209,8 @@ func (s *Server) registerTools() {
 	// Tool: set_baseline
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name: "set_baseline",
-		Description: "Pin the current snapshot as the baseline for diff_snapshot. " +
-			"Call this once at the START of a task (after generate_snapshot), make your changes, " +
-			"re-run generate_snapshot, then call diff_snapshot to see exactly what the change did to the architecture. " +
-			"The pinned baseline survives repeated generate_snapshot runs, so it stays valid across several edit rounds — " +
-			"unlike the auto-rotated 'previous' snapshot, which only ever holds the immediately-preceding run.",
+		Description: "Pin the current snapshot as the baseline diff_snapshot compares against. Call it once at the START of a task, after generate_snapshot. " +
+			"It survives later generate_snapshot runs, so it holds across several edit rounds, unlike 'previous', which only ever holds the run before.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args setBaselineArgs) (*mcp.CallToolResult, any, error) {
 		repoPath := s.currentRepoPath()
 		if repoPath == "" {
@@ -2270,17 +2228,10 @@ func (s *Server) registerTools() {
 	// Tool: diff_snapshot
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name: "diff_snapshot",
-		Description: "Show what changed in the architecture between a baseline snapshot and the current one — " +
-			"the deterministic \"what did my change actually do?\" answer that replaces re-reading files. " +
-			"This is a DELTA, not a linter: it reports only what CHANGED (findings that newly appeared or were resolved, " +
-			"new/removed coupling edges, added/removed symbols/modules/routes) and stays silent about pre-existing state, " +
-			"so a pattern that was already there before and after never fires. " +
-			"baseline= selects what to compare against: 'pinned' (DEFAULT — the snapshot you froze with set_baseline), " +
-			"'previous' (the immediately-preceding generate_snapshot run, rotated automatically), or an explicit path to a directory holding facts.jsonl. " +
-			"Typical loop: generate_snapshot → set_baseline → edit → generate_snapshot → diff_snapshot. " +
-			"focus= narrows the report to entries referencing a module/file/symbol (use it to verify just what you touched). " +
-			"output_mode ladder: 'summary' (DEFAULT — headline regressions/improvements + structural tally) → 'compact' (adds finding descriptions, evidence, and the changed edges/facts) → 'full' (complete JSON). " +
-			"New findings carry their original confidence and caveats; confidence < 1.0 is a candidate to verify, not a verdict.",
+		Description: "What a change did to the architecture: the deterministic answer that replaces re-reading files. " +
+			"A DELTA, not a linter: findings that appeared or were resolved, coupling edges added or removed, symbols, modules and routes added or removed. Anything present both before and after stays silent. " +
+			"Loop: generate_snapshot, set_baseline, edit, generate_snapshot, diff_snapshot. " +
+			"New findings keep their original confidence and caveats; below 1 is a candidate to verify, not a verdict.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args diffSnapshotArgs) (*mcp.CallToolResult, any, error) {
 		snap := s.eng.Snapshot()
 		if snap == nil || s.eng.Store().Count() == 0 {
@@ -2367,12 +2318,9 @@ func (s *Server) registerTools() {
 	// Tool: snapshot_receipt
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name: "snapshot_receipt",
-		Description: "Show the receipt for the current snapshot — a compact manifest that proves WHAT the deterministic graph was generated over, " +
-			"and how complete the extraction was. Fields: enola version, git ref + dirty-tree status, snapshot_id (a content fingerprint, stable across reruns on identical inputs), " +
-			"the extractor/explainer sets actually used, the ignore-glob hash, SHA-256 hashes of the output artifacts, and extraction-quality metrics " +
-			"(files seen vs parsed vs skipped, parse-error count, and cross-repo coverage gaps / unresolved edges). " +
-			"Read it before trusting an impact_analysis or a diff, and to spot thin extraction (a missing detection, a bad ignore glob, a failing extractor). " +
-			"output_mode: 'summary' (DEFAULT — the headline provenance + quality metrics) → 'full' (complete JSON receipt).",
+		Description: "Proof of WHAT the current snapshot was generated over and how complete extraction was: enola version, git ref and dirty-tree status, snapshot_id (a content fingerprint, stable on identical inputs), " +
+			"the extractor and explainer sets used, the ignore-glob hash, SHA-256 of the output artifacts, and quality metrics (files seen, parsed and skipped; parse errors; cross-repo coverage gaps and unresolved edges). " +
+			"Read it before trusting an impact_analysis or a diff, and to spot thin extraction (a missed detection, a bad ignore glob, a failing extractor).",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args snapshotReceiptArgs) (*mcp.CallToolResult, any, error) {
 		snap := s.eng.Snapshot()
 		if snap == nil || s.eng.Store().Count() == 0 {
@@ -2388,12 +2336,10 @@ func (s *Server) registerTools() {
 	// Tool: compare_receipts
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name: "compare_receipts",
-		Description: "Compare the current snapshot's receipt against a baseline's, BEFORE trusting a diff between them. " +
-			"Returns (1) a comparability verdict — whether the two were generated over equivalent inputs (same repo, enola version, extractor set, ignore globs); " +
-			"a mismatch means a diff_snapshot between them would report spurious churn — and (2) metric deltas (files parsed, parse errors, coverage gaps, unresolved edges, fact/insight counts), " +
-			"flagging extraction-quality REGRESSIONS (enola's own extraction got thinner). Use it as the gate before diff_snapshot, or poll it to drive improvements to enola's coverage. " +
-			"baseline= selects what to compare against: 'pinned' (DEFAULT — set_baseline snapshot), 'previous' (the immediately-preceding run), or an explicit path to a directory holding receipt.json/snapshot.meta.json. " +
-			"output_mode: 'summary' (DEFAULT — markdown) → 'full' (complete JSON).",
+		Description: "Check that the current snapshot and a baseline are comparable BEFORE trusting a diff between them. " +
+			"Returns a comparability verdict (same repo, enola version, extractor set, ignore globs; a mismatch means diff_snapshot would report spurious churn) " +
+			"and metric deltas (files parsed, parse errors, coverage gaps, unresolved edges, fact and insight counts) that flag regressions in enola's own extraction. " +
+			"Also the signal to poll when improving enola's coverage.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args compareReceiptsArgs) (*mcp.CallToolResult, any, error) {
 		snap := s.eng.Snapshot()
 		if snap == nil || s.eng.Store().Count() == 0 {
@@ -2541,40 +2487,40 @@ func (s *Server) currentRepoPath() string {
 
 type queryInsightsArgs struct {
 	Explainer     string  `json:"explainer,omitempty" jsonschema:"Filter to insights produced by this explainer. One of: cycles, layers, crossrepo, coverage, unused-routes, messaging-coverage, god-class, hotspots, dependency-depth, exported-surface, complexity-outliers, intent, constraints, domain, query-loops, entry-points, dead-methods, vendored-candidates, import-closure, package-metrics, dead-code, performance. Empty = all."`
-	Repo          string  `json:"repo,omitempty" jsonschema:"Filter to insights about this repo label. In multi-repo snapshots this matches the repo-prefix path segment of each insight's evidence files (so 'golf' matches golf/... but not golf-ui/...); single-repo snapshots fall back to a substring match. Empty = all repos."`
-	MinConfidence float64 `json:"min_confidence,omitempty" jsonschema:"Only return insights with confidence >= this (0.0-1.0). Default 0 (all). Unused-routes is emitted at 0.6 as a review candidate."`
-	OutputMode    string  `json:"output_mode,omitempty" jsonschema:"'summary' (DEFAULT — one row per insight: explainer, confidence, title) → 'compact' (adds description, evidence sample, actions) → 'full' (complete JSON)."`
-	MaxTokens     int     `json:"max_tokens,omitempty" jsonschema:"Optional hard cap on output size (approx tokens). Default: no cap."`
+	Repo          string  `json:"repo,omitempty" jsonschema:"Repo label. In multi-repo snapshots it matches the repo path segment of each insight's evidence ('golf' matches golf/... but not golf-ui/...); in single-repo snapshots it is a substring match. Empty = all."`
+	MinConfidence float64 `json:"min_confidence,omitempty" jsonschema:"Minimum confidence (0.0-1.0). Default 0. unused-routes findings are emitted at 0.6, as review candidates."`
+	OutputMode    string  `json:"output_mode,omitempty" jsonschema:"'summary' (DEFAULT, one row per insight: explainer, confidence, title), 'compact' (adds description, evidence sample, actions), or 'full' (complete JSON)."`
+	MaxTokens     int     `json:"max_tokens,omitempty" jsonschema:"Approximate token cap; output is truncated with a notice. Default: no cap."`
 }
 
 // setBaselineArgs has no parameters: set_baseline always pins the current snapshot.
 type setBaselineArgs struct{}
 
 type diffSnapshotArgs struct {
-	Baseline         string   `json:"baseline,omitempty" jsonschema:"What to compare against: 'pinned' (DEFAULT — the snapshot frozen by set_baseline), 'previous' (the immediately-preceding generate_snapshot run, rotated automatically), or an explicit path to a directory containing facts.jsonl."`
-	Focus            string   `json:"focus,omitempty" jsonschema:"Optional: narrow the diff to entries referencing this module, file, or symbol (substring match). Use it to verify only the area you changed."`
-	OutputMode       string   `json:"output_mode,omitempty" jsonschema:"'summary' (DEFAULT — headline regressions/improvements + structural tally) → 'compact' (adds finding descriptions, evidence, changed edges/facts) → 'full' (complete JSON)."`
-	MaxTokens        int      `json:"max_tokens,omitempty" jsonschema:"Optional hard cap on output size (approx tokens). Default: no cap."`
-	Target           string   `json:"target,omitempty" jsonschema:"Optional: the symbol, type or package you INTENDED to change. Turns the diff into a conformance check — reverse-dependency impact analysis runs on the PRE-change graph and any package the change reached outside that predicted radius is reported as spillover. Omit for a plain delta."`
-	ExpectedPackages []string `json:"expected_packages,omitempty" jsonschema:"Optional: packages you expected this change to touch, in addition to whatever the impact analysis predicts. Anything touched that is neither expected nor predicted is spillover."`
-	MaxDepth         int      `json:"max_depth,omitempty" jsonschema:"Reverse-dependency traversal depth for the predicted radius (1-10). Default 3. Only used with target/expected_packages."`
-	MaxNodes         int      `json:"max_nodes,omitempty" jsonschema:"Max nodes per impact traversal (1-500). Default 200. Only used with target/expected_packages."`
+	Baseline         string   `json:"baseline,omitempty" jsonschema:"'pinned' (DEFAULT, the snapshot frozen by set_baseline), 'previous' (the run before, rotated automatically), or a directory containing facts.jsonl."`
+	Focus            string   `json:"focus,omitempty" jsonschema:"Only entries referencing this module, file or symbol (substring match). Use it to verify just what you touched."`
+	OutputMode       string   `json:"output_mode,omitempty" jsonschema:"'summary' (DEFAULT, headline regressions and improvements plus a structural tally), 'compact' (adds finding descriptions, evidence, changed edges and facts), or 'full' (complete JSON)."`
+	MaxTokens        int      `json:"max_tokens,omitempty" jsonschema:"Approximate token cap; output is truncated with a notice. Default: no cap."`
+	Target           string   `json:"target,omitempty" jsonschema:"The symbol, type or package you INTENDED to change. Turns the diff into a conformance check: impact analysis on the PRE-change graph predicts the radius, and any package the change reached outside it is reported as spillover. Omit for a plain delta."`
+	ExpectedPackages []string `json:"expected_packages,omitempty" jsonschema:"Packages you expected to touch beyond the predicted radius. Touched packages that are neither expected nor predicted are spillover."`
+	MaxDepth         int      `json:"max_depth,omitempty" jsonschema:"Depth of the predicted radius (1-10). Default 3. Only with target or expected_packages."`
+	MaxNodes         int      `json:"max_nodes,omitempty" jsonschema:"Nodes per impact traversal (1-500). Default 200. Only with target or expected_packages."`
 }
 
 type coverageReportArgs struct {
-	Repo       string `json:"repo,omitempty" jsonschema:"Optional: limit the report to one service (repo label). Default: all services."`
-	OutputMode string `json:"output_mode,omitempty" jsonschema:"'summary' (DEFAULT) returns a markdown table; 'full' returns JSON."`
+	Repo       string `json:"repo,omitempty" jsonschema:"One service (repo label). Default: all services."`
+	OutputMode string `json:"output_mode,omitempty" jsonschema:"'summary' (DEFAULT, markdown table) or 'full' (JSON)."`
 }
 
 type snapshotReceiptArgs struct {
-	OutputMode string `json:"output_mode,omitempty" jsonschema:"'summary' (DEFAULT — headline provenance + extraction-quality metrics) → 'full' (complete JSON receipt)."`
-	MaxTokens  int    `json:"max_tokens,omitempty" jsonschema:"Optional hard cap on output size (approx tokens). Default: no cap."`
+	OutputMode string `json:"output_mode,omitempty" jsonschema:"'summary' (DEFAULT, headline provenance and quality metrics) or 'full' (complete JSON receipt)."`
+	MaxTokens  int    `json:"max_tokens,omitempty" jsonschema:"Approximate token cap; output is truncated with a notice. Default: no cap."`
 }
 
 type compareReceiptsArgs struct {
-	Baseline   string `json:"baseline,omitempty" jsonschema:"What to compare the current receipt against: 'pinned' (DEFAULT — the snapshot frozen by set_baseline), 'previous' (the immediately-preceding generate_snapshot run), or an explicit path to a directory containing receipt.json / snapshot.meta.json."`
-	OutputMode string `json:"output_mode,omitempty" jsonschema:"'summary' (DEFAULT — markdown: comparability verdict, metric deltas, quality regressions) → 'full' (complete JSON)."`
-	MaxTokens  int    `json:"max_tokens,omitempty" jsonschema:"Optional hard cap on output size (approx tokens). Default: no cap."`
+	Baseline   string `json:"baseline,omitempty" jsonschema:"'pinned' (DEFAULT, the snapshot frozen by set_baseline), 'previous' (the run before), or a directory containing receipt.json or snapshot.meta.json."`
+	OutputMode string `json:"output_mode,omitempty" jsonschema:"'summary' (DEFAULT, markdown: verdict, metric deltas, quality regressions) or 'full' (complete JSON)."`
+	MaxTokens  int    `json:"max_tokens,omitempty" jsonschema:"Approximate token cap; output is truncated with a notice. Default: no cap."`
 }
 
 // edgeCoverage is one edge type's detected-vs-resolved tally for a service.
@@ -3152,45 +3098,45 @@ func candidateNames(results []facts.Fact, exclude string) []string {
 
 // exploreArgs are the arguments for the explore tool.
 type exploreArgs struct {
-	Focus      string `json:"focus" jsonschema:"required,Module name, file path, or symbol name to explore"`
-	Depth      int    `json:"depth,omitempty" jsonschema:"How deep to follow relations (1=direct only, 2=include relations of relations). Default 1, max 2."`
-	OutputMode string `json:"output_mode,omitempty" jsonschema:"At depth=2: 'summary' (default) returns aggregated Insights (dependency hotspots, cycle/layer warnings, size metrics); 'compact'/'full' instead list per-symbol relations. Ignored at depth=1."`
-	MaxTokens  int    `json:"max_tokens,omitempty" jsonschema:"Optional hard cap on output size (approx tokens). Output is truncated on a line boundary with a notice. Default: no cap."`
+	Focus      string `json:"focus" jsonschema:"Module name, file path, directory prefix or symbol name."`
+	Depth      int    `json:"depth,omitempty" jsonschema:"1 for direct relations (default), 2 to include relations of relations. Max 2."`
+	OutputMode string `json:"output_mode,omitempty" jsonschema:"Only at depth=2. 'summary' (default) returns aggregated insights (dependency hotspots, cycle and layer warnings, size metrics): what is architecturally significant. 'compact' or 'full' list per-symbol relations instead."`
+	MaxTokens  int    `json:"max_tokens,omitempty" jsonschema:"Approximate token cap; output is truncated with a notice. Default: no cap."`
 }
 
 // traverseArgs are the arguments for the traverse tool.
 type traverseArgs struct {
-	Start         string   `json:"start" jsonschema:"required,Starting node name (fact name, module name, or symbol name). Substring match; supports scoped prefixes repo:/kind:/file: to disambiguate (e.g. 'repo:go-auth kind:struct AuthHandler')."`
-	Direction     string   `json:"direction,omitempty" jsonschema:"'forward' follows outgoing relations (what does X depend on?), 'reverse' follows incoming relations (what depends on X?). Default: forward."`
-	RelationKinds []string `json:"relation_kinds,omitempty" jsonschema:"Filter to specific relation types: imports, calls, declares, implements, depends_on, has_method. Default: all."`
-	MaxDepth      int      `json:"max_depth,omitempty" jsonschema:"Maximum traversal depth (1-20). Default: 5."`
-	MaxNodes      int      `json:"max_nodes,omitempty" jsonschema:"Maximum nodes to return (1-500). Traversal stops when this limit is reached. Default: 100."`
-	NodeKinds     []string `json:"node_kinds,omitempty" jsonschema:"Filter results to specific fact kinds: module, symbol, dependency, route, storage. Default: all."`
-	OutputMode    string   `json:"output_mode,omitempty" jsonschema:"Verbosity ladder: 'summary' (DEFAULT — aggregated counts by node/relation kind, internal/external split, hottest modules; smallest) → 'compact' (per-node markdown grouped by depth) → 'full' (raw JSON node/edge graph; can be VERY large). Start with summary; escalate only when you need node-level detail."`
-	MaxTokens     int      `json:"max_tokens,omitempty" jsonschema:"Optional hard cap on output size (approx tokens). Output is truncated on a line boundary with a notice telling you to narrow. Default: no cap."`
+	Start         string   `json:"start" jsonschema:"Starting node (fact, module or symbol name), substring match. Disambiguate with repo:, kind:, file: prefixes or a package-qualified name, e.g. 'repo:go-auth kind:struct AuthHandler' or 'domain/cart.CartService'. An ambiguous name returns ranked candidates with confidence."`
+	Direction     string   `json:"direction,omitempty" jsonschema:"'forward' (default) follows outgoing relations, 'reverse' incoming ones."`
+	RelationKinds []string `json:"relation_kinds,omitempty" jsonschema:"Relations to follow: imports, calls, declares, implements, depends_on, has_method. Default: all."`
+	MaxDepth      int      `json:"max_depth,omitempty" jsonschema:"Maximum depth (1-20). Default 5."`
+	MaxNodes      int      `json:"max_nodes,omitempty" jsonschema:"Maximum nodes (1-500); the walk stops there. Default 100."`
+	NodeKinds     []string `json:"node_kinds,omitempty" jsonschema:"Filters the output, not the walk: module, symbol, dependency, route, storage. Default: all."`
+	OutputMode    string   `json:"output_mode,omitempty" jsonschema:"'summary' (DEFAULT, counts by node and relation kind, internal/external split, hottest modules), 'compact' (nodes grouped by depth), or 'full' (raw JSON node/edge graph; can be VERY large). Escalate only when you need specific nodes."`
+	MaxTokens     int      `json:"max_tokens,omitempty" jsonschema:"Approximate token cap; output is truncated with a notice. Default: no cap."`
 }
 
 // findPathArgs are the arguments for the find_path tool.
 type findPathArgs struct {
-	From          string   `json:"from" jsonschema:"required,Source node name. Substring match; supports scoped prefixes repo:/kind:/file: to disambiguate (e.g. 'repo:go-auth Login')."`
-	To            string   `json:"to" jsonschema:"required,Target node name. Substring match; supports scoped prefixes repo:/kind:/file: to disambiguate (e.g. 'kind:struct AuthMiddleware')."`
-	RelationKinds []string `json:"relation_kinds,omitempty" jsonschema:"Filter to specific relation types. Default: all."`
-	MaxDepth      int      `json:"max_depth,omitempty" jsonschema:"Maximum path length to search (1-20). Default: 10."`
+	From          string   `json:"from" jsonschema:"Source node, substring match. Disambiguate with repo:, kind:, file: prefixes or a package-qualified name, e.g. 'repo:go-auth Login' or 'ticket.Repository'."`
+	To            string   `json:"to" jsonschema:"Target node, matched like from, e.g. 'kind:struct AuthMiddleware' or 'repo:golf domain/cart.CartService'."`
+	RelationKinds []string `json:"relation_kinds,omitempty" jsonschema:"Relations to follow. Default: all."`
+	MaxDepth      int      `json:"max_depth,omitempty" jsonschema:"Maximum path length (1-20). Default 10."`
 }
 
 // impactAnalysisArgs are the arguments for the impact_analysis tool.
 type endpointImpactArgs struct {
-	Endpoint  string `json:"endpoint" jsonschema:"required,The HTTP endpoint being changed. Substring match on the path, optionally prefixed with a verb: 'GET /v1/candidates' or just '/v1/candidates'."`
-	MaxRoutes int    `json:"max_routes,omitempty" jsonschema:"How many matched endpoints to follow (1-200). A bare prefix can match hundreds. Default: 25."`
+	Endpoint  string `json:"endpoint" jsonschema:"Path substring, optionally prefixed with a verb: 'GET /v1/candidates' or '/v1/candidates'."`
+	MaxRoutes int    `json:"max_routes,omitempty" jsonschema:"Matched endpoints to follow (1-200); a bare prefix can match hundreds. Default 25."`
 }
 
 type impactAnalysisArgs struct {
-	Target         string `json:"target" jsonschema:"required,The node being changed (fact name, substring match). Supports scoped prefixes repo:/kind:/file: to disambiguate."`
-	MaxDepth       int    `json:"max_depth,omitempty" jsonschema:"How many hops of impact to compute (1-10). Default: 3."`
-	MaxNodes       int    `json:"max_nodes,omitempty" jsonschema:"Maximum impacted nodes to return (1-500). Default: 200."`
-	IncludeForward bool   `json:"include_forward,omitempty" jsonschema:"Include what the target depends on (what might break the target). Default: false."`
-	OutputMode     string `json:"output_mode,omitempty" jsonschema:"Verbosity ladder: 'summary' (DEFAULT — total dependents, breakdown by kind/depth, hotspot modules, cross-repo reach, relevant cycle/layer insights; smallest) → 'compact' (per-depth dependent list) → 'full' (raw JSON by_depth/edges graph; can be VERY large). Start with summary; escalate only when you need node-level detail."`
-	MaxTokens      int    `json:"max_tokens,omitempty" jsonschema:"Optional hard cap on output size (approx tokens). Output is truncated on a line boundary with a notice telling you to narrow. Default: no cap."`
+	Target         string `json:"target" jsonschema:"The node being changed, substring match. Disambiguate with repo:, kind:, file: prefixes."`
+	MaxDepth       int    `json:"max_depth,omitempty" jsonschema:"Hops of impact (1-10). Default 3."`
+	MaxNodes       int    `json:"max_nodes,omitempty" jsonschema:"Maximum impacted nodes (1-500). Default 200."`
+	IncludeForward bool   `json:"include_forward,omitempty" jsonschema:"Also show what the target depends on, i.e. what could break it. Default false."`
+	OutputMode     string `json:"output_mode,omitempty" jsonschema:"'summary' (DEFAULT, exact dependent count, breakdown by kind and depth, hotspot modules, cross-repo reach, cycle and layer insights touching the target), 'compact' (dependents by depth), or 'full' (raw JSON graph; can be VERY large). Escalate only when you need specific nodes."`
+	MaxTokens      int    `json:"max_tokens,omitempty" jsonschema:"Approximate token cap; output is truncated with a notice. Default: no cap."`
 }
 
 // exploreModule renders a module exploration if the focus matches a module name.
@@ -3853,28 +3799,28 @@ func (s *Server) exploreDirectory(store *facts.Store, focus string, sb *strings.
 
 // showSymbolArgs are the arguments for the show_symbol tool.
 type showSymbolArgs struct {
-	Name         string `json:"name" jsonschema:"required,Symbol name to look up (substring match)"`
-	ContextLines int    `json:"context_lines,omitempty" jsonschema:"Number of source lines to show around the symbol (default 60)"`
+	Name         string `json:"name" jsonschema:"Symbol name, exact or substring."`
+	ContextLines int    `json:"context_lines,omitempty" jsonschema:"Source lines to show around the declaration. Default 60: about 15 before, 45 after."`
 }
 
 // governingIntentArgs are the arguments for the governing_intent tool.
 type governingIntentArgs struct {
-	Target    string `json:"target" jsonschema:"required,A fact name (exact match)\\, a file path (label-prefixed or repo-relative)\\, or a compiled page path"`
-	Repo      string `json:"repo,omitempty" jsonschema:"Repo label to disambiguate a file path measured in more than one repo"`
-	MaxTokens int    `json:"max_tokens,omitempty" jsonschema:"Optional hard cap on output size (approx tokens)"`
+	Target    string `json:"target" jsonschema:"An exact fact name, a file path (repo-relative or label-prefixed), or a compiled page path."`
+	Repo      string `json:"repo,omitempty" jsonschema:"Repo label, when the file path is measured in more than one repo."`
+	MaxTokens int    `json:"max_tokens,omitempty" jsonschema:"Approximate token cap; output is truncated with a notice. Default: no cap."`
 }
 
 // constraintsForArgs are the arguments for the constraints_for tool.
 type constraintsForArgs struct {
-	Target    string `json:"target" jsonschema:"required,A file path (repo-relative\\, may not exist yet) or an exact fact name"`
-	MaxTokens int    `json:"max_tokens,omitempty" jsonschema:"Optional hard cap on output size (approx tokens)"`
+	Target    string `json:"target" jsonschema:"A repo-relative file path (it may not exist yet) or an exact fact name."`
+	MaxTokens int    `json:"max_tokens,omitempty" jsonschema:"Approximate token cap; output is truncated with a notice. Default: no cap."`
 }
 
 type planCheckArgs struct {
-	Paths     []string `json:"paths,omitempty" jsonschema:"Repo-relative file paths the intended change touches (they may not exist yet)"`
-	Symbols   []string `json:"symbols,omitempty" jsonschema:"Exact fact names the intended change touches"`
-	Patch     string   `json:"patch,omitempty" jsonschema:"A unified diff to evaluate counterfactually over a scratch copy — the working tree is never touched"`
-	MaxTokens int      `json:"max_tokens,omitempty" jsonschema:"Optional hard cap on output size (approx tokens)"`
+	Paths     []string `json:"paths,omitempty" jsonschema:"Repo-relative file paths the change touches; they may not exist yet."`
+	Symbols   []string `json:"symbols,omitempty" jsonschema:"Exact fact names the change touches."`
+	Patch     string   `json:"patch,omitempty" jsonschema:"A unified diff to evaluate on a scratch copy; the working tree is never touched."`
+	MaxTokens int      `json:"max_tokens,omitempty" jsonschema:"Approximate token cap; output is truncated with a notice. Default: no cap."`
 }
 
 // constraintsForResponse is the constraints_for tool's JSON shape: the

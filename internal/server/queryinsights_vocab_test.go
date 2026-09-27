@@ -8,11 +8,10 @@ import (
 	"github.com/enola-labs/enola/internal/config"
 )
 
-// TestQueryInsightsNamesEveryExplainer holds the two places that advertise the
-// explainer= vocabulary in step with the vocabulary itself.
+// TestQueryInsightsNamesEveryExplainer holds the explainer= vocabulary on the
+// parameter's schema, its one full listing, in step with the vocabulary itself.
 //
-// The tool description is computed from config.KnownExplainers, so it cannot drift.
-// The jsonschema struct tag CAN: a Go tag is a string literal, there is nowhere to
+// The jsonschema struct tag can drift: a Go tag is a string literal, there is nowhere to
 // interpolate, and it had gone stale exactly that way — naming eleven explainers
 // while sixteen shipped. An agent reads the schema to decide what it may ask for, so
 // a name missing from the tag is a filter nobody knows exists.
@@ -22,15 +21,11 @@ func TestQueryInsightsNamesEveryExplainer(t *testing.T) {
 		t.Fatal("queryInsightsArgs has no Explainer field")
 	}
 	tag := field.Tag.Get("jsonschema")
-	list := explainerFilterList()
 
 	for _, name := range config.KnownExplainers {
 		if !strings.Contains(tag, name) {
 			t.Errorf("the explainer= jsonschema tag never names %q, which config.KnownExplainers ships — "+
 				"an agent reading the schema cannot know the filter accepts it", name)
-		}
-		if !strings.Contains(list, name) {
-			t.Errorf("explainerFilterList() omits %q", name)
 		}
 	}
 

@@ -25,10 +25,10 @@ type historyArgs struct {
 }
 
 type blameArgs struct {
-	Pattern  string `json:"pattern" jsonschema:"What to look for: a module or symbol name, a file path, or both endpoints of an edge (e.g. 'internal/server -> internal/facts'). Matched case-insensitively."`
+	Pattern  string `json:"pattern" jsonschema:"A module or symbol name, a file path, or both endpoints of an edge (e.g. 'internal/server -> internal/facts'). Case-insensitive."`
 	RepoPath string `json:"repo_path,omitempty" jsonschema:"Repository whose history to search. Defaults to the snapshot's repo."`
-	Findings bool   `json:"findings,omitempty" jsonschema:"Search recorded FINDINGS instead of facts — 'when did this cycle first appear'. Default false."`
-	First    bool   `json:"first,omitempty" jsonschema:"Stop at the first appearance. Use for 'when was this introduced'. Default false."`
+	Findings bool   `json:"findings,omitempty" jsonschema:"Search recorded FINDINGS instead of facts, e.g. when a cycle first appeared. Default false."`
+	First    bool   `json:"first,omitempty" jsonschema:"Stop at the first appearance, for 'when was this introduced'. Default false."`
 }
 
 // registerHistoryTools adds the timeline tools. They are registered even when no history has
@@ -37,11 +37,10 @@ type blameArgs struct {
 func (s *Server) registerHistoryTools() {
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name: "architecture_history",
-		Description: "Show how this repository's architecture CHANGED OVER TIME — one entry per recorded snapshot, oldest first, with what changed since the one before it. " +
-			"Every other tool here describes the tree as it is now; this is the only one that can answer questions about the past, so prefer it over reading git log and guessing what the code looked like. " +
-			"Each entry carries the revision id, when it was taken, its git commit/branch, and counts of facts, edges and findings that moved. " +
-			"Entries marked 'incomparable' sit across a change to enola itself (a new version or extractor), where the numbers describe a rebuild rather than anyone's edit. " +
-			"Recording happens automatically on generate_snapshot; a repository enola has not snapshotted before has no history yet.",
+		Description: "How the architecture CHANGED OVER TIME: one entry per recorded snapshot, oldest first, with what moved since the one before (revision id, time taken, git commit and branch, counts of facts, edges and findings that moved). " +
+			"Every other tool describes the tree as it is now; this one answers about the past, so prefer it over reading git log and guessing. " +
+			"Entries marked 'incomparable' span a change to enola itself (a new version or extractor): their numbers describe a rebuild, not an edit. " +
+			"generate_snapshot records history automatically, so a repository never snapshotted has none yet.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args historyArgs) (*mcp.CallToolResult, any, error) {
 		entries, _, err := s.readHistory(args.RepoPath)
 		if err != nil {
@@ -65,10 +64,9 @@ func (s *Server) registerHistoryTools() {
 
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name: "architecture_blame",
-		Description: "Find WHEN something entered the architecture and when it left — 'when did this module start importing that one?', 'which snapshot introduced this cycle?'. " +
-			"Answers from the recorded timeline, so it reports what the graph actually held at each point rather than inferring it from source history. " +
-			"pattern= matches a module or symbol name, a file path, or both endpoints of an edge; findings=true searches recorded findings instead of facts; first=true stops at the introduction. " +
-			"Revisions whose stored contents have aged out are reported as unsearched rather than as absent — 'not found' and 'not found in what I could read' are different answers, and the second means look further back.",
+		Description: "WHEN something entered or left the architecture: \"when did this module start importing that one?\", \"which snapshot introduced this cycle?\". " +
+			"It reads what the graph held at each recorded point instead of inferring it from source history. " +
+			"Revisions whose stored contents aged out are reported as unsearched, not absent: \"not found in what I could read\" means look further back.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args blameArgs) (*mcp.CallToolResult, any, error) {
 		if strings.TrimSpace(args.Pattern) == "" {
 			return errorResult("architecture_blame needs a pattern — a module or symbol name, a file path, or an edge."), nil, nil

@@ -1850,13 +1850,13 @@ func sortFindings(f []Finding) {
 // --- MCP tool ---
 
 type args struct {
-	Package     string `json:"package,omitempty" jsonschema:"Filter to functions whose package or name contains this substring (e.g. 'internal/app')"`
-	Repo        string `json:"repo,omitempty" jsonschema:"Filter by repository label (set in multi-repo/append mode)"`
-	Symbol      string `json:"symbol,omitempty" jsonschema:"Filter to findings whose symbol name contains this substring"`
-	MinSeverity string `json:"min_severity,omitempty" jsonschema:"Minimum severity to return: 'low' (default), 'medium', or 'high'"`
-	Limit       int    `json:"limit,omitempty" jsonschema:"Maximum number of findings to return (1-1000). Default 100."`
-	OutputMode  string `json:"output_mode,omitempty" jsonschema:"'summary' (DEFAULT — counts by severity/kind plus the top findings) → 'compact' (a markdown table of findings) → 'full' (complete JSON with the summary block)."`
-	MaxTokens   int    `json:"max_tokens,omitempty" jsonschema:"Optional hard cap on output size (approx tokens). Default: no cap."`
+	Package     string `json:"package,omitempty" jsonschema:"Package or function name substring, e.g. 'internal/app'."`
+	Repo        string `json:"repo,omitempty" jsonschema:"Repository label (multi-repo snapshots), e.g. 'go-service'."`
+	Symbol      string `json:"symbol,omitempty" jsonschema:"Symbol name substring."`
+	MinSeverity string `json:"min_severity,omitempty" jsonschema:"'low' (default), 'medium', or 'high'."`
+	Limit       int    `json:"limit,omitempty" jsonschema:"Maximum findings (1-1000). Default 100."`
+	OutputMode  string `json:"output_mode,omitempty" jsonschema:"'summary' (DEFAULT, counts by severity and kind plus the top findings), 'compact' (markdown table), or 'full' (complete JSON with the summary)."`
+	MaxTokens   int    `json:"max_tokens,omitempty" jsonschema:"Approximate token cap; output is truncated with a notice. Default: no cap."`
 }
 
 // summary holds the aggregate counts. Every field except RepoWideFindings is
@@ -1880,17 +1880,13 @@ type response struct {
 	Note     string    `json:"note"`
 }
 
-const toolDescription = "Estimate algorithmic complexity (Big-O) and rank performance risks across the snapshot. " +
-	"Run after generate_snapshot. Each finding reports: symbol (file:line); kind — " +
-	"'nested-loop' (loops nested in one function), 'compounded' (nesting that grows across the call graph " +
-	"when looping functions call other looping functions), 'call-in-loop' (an I/O/DB/network call inside a " +
-	"loop — a likely N+1 pattern), or 'recursion' (direct or mutual recursive cycles); big_o — the estimated " +
-	"structural worst case (O(1), O(n), O(n²), …); severity (high/medium/low); and a plain-English 'why'. " +
-	"Signals are parser-derived (loop nesting depth, cyclomatic complexity, call-in-loop targets) — Big-O is a " +
-	"deterministic estimate of worst case, not a proof. Currently supports Go, Python, Ruby, Swift, Kotlin, Scala, Dart, TypeScript, Java, C++, and C#. " +
-	"Filter with package=/repo=/symbol=, gate with min_severity=, cap with limit=. " +
-	"output_mode='summary' (DEFAULT) → 'compact' → 'full'; pass max_tokens to hard-cap output. " +
-	"Findings (medium severity and up) also surface via query_insights(explainer=\"performance\")."
+const toolDescription = "Estimated Big-O and ranked performance risks per function. " +
+	"Finding kinds: nested-loop (loops nested in one function), compounded (nesting that grows across the call graph as looping functions call looping functions), " +
+	"call-in-loop (an I/O, DB or network call inside a loop, a likely N+1), and recursion (direct or mutual). " +
+	"Each finding has symbol (file:line), big_o (the structural worst case), severity (high, medium, low) and a plain-English why. " +
+	"Parser-derived from loop nesting depth, cyclomatic complexity and call-in-loop targets: a deterministic worst-case estimate, not a proof. " +
+	"Supports Go, Python, Ruby, Swift, Kotlin, Scala, Dart, TypeScript, Java, C++ and C#. " +
+	"Findings of medium severity and up also appear in query_insights(explainer=\"performance\")."
 
 // Register adds the analyze_performance tool to the given MCP server. Calls are
 // recorded by the OSS value middleware, which is registered once on this shared
