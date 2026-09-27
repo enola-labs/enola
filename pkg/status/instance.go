@@ -223,3 +223,8 @@ func instanceAlive(inst Instance, now time.Time) bool {
 	}
 	return now.Sub(hb) <= staleAfter
 }
+
+// ProcessAlive reports whether a process with the given PID is running.
+func ProcessAlive(pid int) bool {
+	return isProcessAlive(pid)
+}

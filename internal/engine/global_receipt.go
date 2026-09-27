@@ -228,6 +228,7 @@ func (e *Engine) assembleGraphReceipt(b *snapshotBundle, now time.Time) facts.Gr
 		CrossRepoEdgeCount: crossRepoEdgeCount(b.store),
 		Coverage:           coverageSummary(b.store),
 		Repos:              entries,
+		Writer:             &facts.GraphWriter{PID: os.Getpid(), ClientPID: int(e.sessionClient.Load())},
 	}
 	if b.snapshot != nil {
 		gr.SnapshotID = b.snapshot.Meta.SnapshotID
@@ -285,7 +286,121 @@ func (e *Engine) WriteGlobalReceipt() error {
 	if err := e.writeWorkspaceReceipt(b, data); err != nil {
 		log.Printf("[engine] warning: workspace receipt not written: %v", err)
 	}
+	// And this session's own, which the workspace receipt cannot be: every agent
+	// session started in the same directory shares that one. Non-fatal as well.
+	if err := e.writeSessionReceipt(b, data); err != nil {
+		log.Printf("[engine] warning: session receipt not written: %v", err)
+	}
 	return nil
+}
+
+// SetSessionClient records the PID of the agent process this server serves. A
+// server keeps it across an MCP restart (the agent process survives the restart),
+// and two concurrent sessions never share it, so it tells a restarted server which
+// graph it was serving. Call it before serving; a CLI run never does.
+func (e *Engine) SetSessionClient(pid int) {
+	e.sessionClient.Store(int64(pid))
+}
+
+// SessionClient returns the PID set by SetSessionClient, or zero.
+func (e *Engine) SessionClient() int {
+	return int(e.sessionClient.Load())
+}
+
+// sessionsDirName holds one receipt per agent session under ~/.enola/graphs/.
+const sessionsDirName = "sessions"
+
+// SessionReceiptPath resolves ~/.enola/graphs/sessions/<key>.<clientPID>.json, the
+// receipt of the graph one agent session holds in one workspace.
+func SessionReceiptPath(repoPath string, clientPID int) (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("resolving home dir: %w", err)
+	}
+	name := fmt.Sprintf("%s.%d.json", workspaceKey(canonicalRepoPath(repoPath)), clientPID)
+	return filepath.Join(home, globalReceiptDirName, graphsDirName, sessionsDirName, name), nil
+}
+
+// SessionReceipts lists the session receipts recorded for a workspace, keyed by the
+// client PID each belongs to, so a caller that can tell a live process from a dead
+// one can remove the receipts of sessions that have ended.
+func SessionReceipts(repoPath string) (map[int]string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, fmt.Errorf("resolving home dir: %w", err)
+	}
+	prefix := workspaceKey(canonicalRepoPath(repoPath)) + "."
+	dir := filepath.Join(home, globalReceiptDirName, graphsDirName, sessionsDirName)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	out := map[int]string{}
+	for _, ent := range entries {
+		name := ent.Name()
+		if !strings.HasPrefix(name, prefix) || !strings.HasSuffix(name, ".json") {
+			continue
+		}
+		var pid int
+		if _, err := fmt.Sscanf(strings.TrimSuffix(strings.TrimPrefix(name, prefix), ".json"), "%d", &pid); err != nil || pid <= 0 {
+			continue
+		}
+		out[pid] = filepath.Join(dir, name)
+	}
+	return out, nil
+}
+
+// LoadSessionReceipt reads the graph receipt one agent session wrote for a workspace.
+func LoadSessionReceipt(repoPath string, clientPID int) (*facts.GraphReceipt, error) {
+	path, err := SessionReceiptPath(repoPath, clientPID)
+	if err != nil {
+		return nil, err
+	}
+	return readGraphReceiptFile(path)
+}
+
+// writeSessionReceipt persists the receipt bytes for this session, when this engine
+// serves one.
+func (e *Engine) writeSessionReceipt(b *snapshotBundle, data []byte) error {
+	client := e.SessionClient()
+	repo := e.workspaceRepo(b)
+	if client <= 0 || repo == "" {
+		return nil
+	}
+	path, err := SessionReceiptPath(repo, client)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("creating sessions dir: %w", err)
+	}
+	return writeFileAtomic(path, data, 0o644)
+}
+
+// ServesReposOf reports whether the receipt names exactly the repositories of the
+// graph being served. loaded is false when nothing is served yet. A receipt for the
+// same repos is a refresh of this graph (a CLI --generate, or a sibling session
+// re-indexing the same code); one for different repos is another graph entirely.
+func (e *Engine) ServesReposOf(gr *facts.GraphReceipt) (same, loaded bool) {
+	_, served := e.loadedGraph()
+	if len(served) == 0 {
+		return false, false
+	}
+	named := make(map[string]bool, len(gr.Repos))
+	for _, r := range gr.Repos {
+		if r.Path != "" {
+			named[canonicalRepoPath(r.Path)] = true
+		}
+	}
+	if len(named) != len(served) {
+		return false, true
+	}
+	for p := range named {
+		if !served[p] {
+			return false, true
+		}
+	}
+	return true, true
 }
 
 // writeWorkspaceReceipt persists the same receipt bytes under

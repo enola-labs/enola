@@ -1136,12 +1136,19 @@ Because the receipt fields live in `snapshot.meta.json`, they ride into every pi
 
 Alongside the per-snapshot receipt in `.enola/`, a snapshot writes a **graph receipt** describing the whole graph the server holds — every repo in it, where each lives, its git state and fact count. That is what a restart reads (`bootstrap.AutoLoadSnapshot`) to reload a *multi-repo* graph without re-running any extractor: the per-repo `.enola/` dirs alone cannot say which repos were appended.
 
-It is written to two places ([`internal/engine/global_receipt.go`](internal/engine/global_receipt.go)):
+It is written to three places ([`internal/engine/global_receipt.go`](internal/engine/global_receipt.go)):
 
+- `~/.enola/graphs/sessions/<repo-base>-<hash8>.<client-pid>.json`: keyed by the workspace *and* the agent session the server serves (its parent process, which survives an MCP restart). Written only by a server; a CLI run has no session.
 - `~/.enola/graphs/<repo-base>-<hash8>.json` — keyed by the repo the server was *launched for* (`cfg.Repo`), stable across appends.
 - `~/.enola/receipt.json` — the machine-wide copy, kept for tooling that already reads it.
 
+Each receipt records its `writer`: the enola PID and the agent PID it served.
+
 The machine-wide file necessarily describes only whichever server generated last, so with one server per agent terminal it is the wrong thing to restore from: a server launched in repo A would come back holding the repos another terminal had snapshotted, then answer every query about the wrong codebase. `AutoLoadSnapshot` therefore prefers this workspace's own receipt, falls back to the machine-wide one **only when it actually covers `cfg.Repo`** (`receiptCovers`), and otherwise restores just `cfg.Repo` — or nothing, leaving the agent to run `generate_snapshot`. Starting empty is recoverable and visible; starting with someone else's graph is neither.
+
+The workspace receipt has the same problem one level down: every agent session started in the same directory shares it. So a restart reads **this session's** receipt first, and only a session with no graph of its own falls back to the workspace one. When the graph it restores that way was written by another session that is still running, the first tool result says so once (`siblingNotice`), naming the repos, since this session may be about different code. Receipts of ended sessions are pruned on the next restore.
+
+A running server also reloads when the workspace receipt names a snapshot it is not serving (`reloadIfRewritten`), so a CLI `--generate` reaches it without a restart. It reloads only when that receipt names **the same repos** it serves (`Engine.ServesReposOf`): that is a refresh of its graph. A receipt for other repos is a sibling session's graph; the server keeps its own and says so once.
 
 #### Relation to the issue #60 proposal
 

@@ -97,6 +97,9 @@ type Engine struct {
 	historyRecorded map[string]string
 	// summaries remembers this run's previous/ deltas; see summarizeOnce.
 	summaries map[string]pkghistory.Summary
+	// sessionClient is the PID of the agent process this server serves; zero for a
+	// CLI run. See SetSessionClient.
+	sessionClient atomic.Int64
 }
 
 // New creates a new Engine with the given config.

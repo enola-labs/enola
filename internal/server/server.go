@@ -127,6 +127,12 @@ type Server struct {
 	reloadSeenMod time.Time
 	reloadTriedID string
 
+	// notices are one-time messages for the agent, attached to the next tool result
+	// and then dropped: which graph a restore or a skipped reload left this session
+	// serving. Guarded by noticeMu, since tool calls run concurrently.
+	noticeMu sync.Mutex
+	notices  []string
+
 	planFactory plan.EngineFactory
 
 	// updateSaid is set once the "a newer enola exists" notice has been attached to a
@@ -491,6 +497,17 @@ func (s *Server) reloadIfRewritten() bool {
 	if snap := s.eng.Snapshot(); snap != nil && snap.Meta.SnapshotID == gr.SnapshotID {
 		return false
 	}
+	// Every agent session started in one directory shares this receipt. One naming
+	// the repos this server serves is a refresh of this graph; one naming other repos
+	// is a sibling session's graph, and swapping it in would answer this session's
+	// questions about code it never asked for. Keep serving, and say so once.
+	if same, loaded := s.eng.ServesReposOf(gr); loaded && !same {
+		s.reloadTriedID = gr.SnapshotID
+		log.Printf("[server] workspace receipt names another graph (snapshot %s); not reloading", shortID(gr.SnapshotID))
+		s.AddNotice(fmt.Sprintf("Another agent session in this workspace snapshotted a different graph at %s (%s). "+
+			"This session keeps serving its own; call generate_snapshot to switch.", gr.GeneratedAt, gr.RepoLabels(6)))
+		return false
+	}
 	if !s.genMu.TryLock() {
 		s.reloadSeenMod = time.Time{}
 		return false
@@ -506,6 +523,27 @@ func (s *Server) reloadIfRewritten() bool {
 	s.freshAt = time.Time{}
 	s.freshMu.Unlock()
 	return true
+}
+
+// AddNotice queues a one-time message for the agent, attached to the next tool
+// result. Empty messages are ignored.
+func (s *Server) AddNotice(msg string) {
+	if msg == "" {
+		return
+	}
+	s.noticeMu.Lock()
+	s.notices = append(s.notices, msg)
+	s.noticeMu.Unlock()
+}
+
+// takeNotices returns and clears the queued notices, so each is said exactly once
+// even when tool calls arrive concurrently.
+func (s *Server) takeNotices() string {
+	s.noticeMu.Lock()
+	defer s.noticeMu.Unlock()
+	out := strings.Join(s.notices, "\n")
+	s.notices = nil
+	return out
 }
 
 func (s *Server) loadedSnapshotID() string {
@@ -560,7 +598,12 @@ func (s *Server) freshnessMiddleware(next mcp.MethodHandler) mcp.MethodHandler {
 		if !ok || ctr == nil || ctr.IsError {
 			return result, err
 		}
+		// Which graph is being served goes first: a stale warning about the wrong graph
+		// is beside the point.
 		banner := s.freshnessBanner()
+		if notice := s.takeNotices(); notice != "" {
+			banner = strings.TrimSpace("⚠️ " + notice + "\n" + banner)
+		}
 		if banner == "" {
 			return result, err
 		}

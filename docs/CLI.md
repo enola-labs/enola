@@ -908,7 +908,7 @@ Agent tooling starts one enola server per session, so opening four terminals mea
 
 **Every page describes its own server.** The PID, uptime, repos and per-server call counts on a page belong to the process serving it - never to whichever server happened to start last. If a page shows a graph you did not expect, the switcher tells you which server holds the one you want.
 
-Running servers register themselves under `~/.enola/instances/`; a record is removed on exit, and one left behind by a hard-killed process is cleaned up by the next reader. Each workspace also keeps its own graph receipt under `~/.enola/graphs/`, so restarting a server in one repo restores *that* repo's graph rather than whatever another terminal snapshotted last.
+Running servers register themselves under `~/.enola/instances/`; a record is removed on exit, and one left behind by a hard-killed process is cleaned up by the next reader. Each workspace also keeps its own graph receipt under `~/.enola/graphs/`, and each agent session its own under `~/.enola/graphs/sessions/`, so restarting a server restores *that* session's graph rather than whatever another terminal or another session in the same directory snapshotted last.
 
 ---
 

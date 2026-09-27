@@ -3,6 +3,7 @@ package facts
 import (
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -804,6 +805,28 @@ type GraphReceipt struct {
 	CrossRepoEdgeCount int              `json:"cross_repo_edge_count"` // consumer->provider edges in the cross-repo "graph of graphs" (NOT the total dependency-fact count, which also covers ordinary imports)
 	Coverage           *CoverageSummary `json:"coverage,omitempty"`    // cross-repo edge-coverage rollup, nil in single-repo mode
 	Repos              []GraphRepoEntry `json:"repos"`                 // one entry per repository in the graph, sorted by Label
+	Writer             *GraphWriter     `json:"writer,omitempty"`      // the process that wrote this receipt; nil in receipts written before it was recorded
+}
+
+// RepoLabels lists the receipt's repositories for a one-line message, naming at most
+// max of them and counting the rest.
+func (gr *GraphReceipt) RepoLabels(max int) string {
+	labels := make([]string, 0, len(gr.Repos))
+	for _, r := range gr.Repos {
+		labels = append(labels, r.Label)
+	}
+	if len(labels) > max {
+		return strings.Join(labels[:max], ", ") + " and " + strconv.Itoa(len(labels)-max) + " more"
+	}
+	return strings.Join(labels, ", ")
+}
+
+// GraphWriter identifies the process behind a graph receipt. Several agent sessions
+// in one workspace share its receipt, so a server restoring or reloading from it must
+// be able to tell its own graph from a sibling session's.
+type GraphWriter struct {
+	PID       int `json:"pid"`                  // the enola process
+	ClientPID int `json:"client_pid,omitempty"` // the agent process it served; zero for a CLI run
 }
 
 // GraphRepoEntry describes one repository's membership in the current graph.

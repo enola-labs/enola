@@ -181,6 +181,13 @@ func (e *Engine) WriteGlobalReceipt() error {
 	return e.eng.WriteGlobalReceipt()
 }
 
+// SetSessionClient records the PID of the agent session this engine serves, which
+// keys the session receipt a restart restores from. NewServer sets it to the
+// server's parent process.
+func (e *Engine) SetSessionClient(pid int) {
+	e.eng.SetSessionClient(pid)
+}
+
 // GraphReceipt returns the receipt for the graph THIS engine currently holds,
 // assembled in memory. A viewer with several servers running must use this
 // rather than reading ~/.enola/receipt.json, which describes whichever process
@@ -254,7 +261,11 @@ func (s *Server) Run(ctx context.Context) error {
 // server is already serving, so the handshake is immediate and a closed stdin ends the
 // process mid-restore. Tool calls wait for it. Call it once, before Run.
 func (s *Server) RestoreInBackground(eng *Engine, cfg *config.Config) {
-	s.srv.RestoreInBackground(func() map[string]int { return AutoLoadSnapshot(eng, cfg) })
+	s.srv.RestoreInBackground(func() map[string]int {
+		corpus, notice := autoLoad(eng, cfg)
+		s.srv.AddNotice(notice)
+		return corpus
+	})
 }
 
 // SeedCorpus publishes the corpus of a graph restored from disk, so queries are
@@ -519,7 +530,14 @@ func NewServer(eng *Engine, cfg *config.Config) (*Server, error) {
 		return nil, err
 	}
 	srv.SetPlanEngineFactory(PlanEngineFactory(cfg))
-	srv.SetReloader(func() map[string]int { return AutoLoadSnapshot(eng, cfg) })
+	// A server's parent is the agent session it serves, and it outlives an MCP
+	// restart; its receipts are keyed by it so a restart restores this session's graph.
+	eng.eng.SetSessionClient(os.Getppid())
+	srv.SetReloader(func() map[string]int {
+		corpus, notice := autoLoad(eng, cfg)
+		srv.AddNotice(notice)
+		return corpus
+	})
 	// The one place the soft memory limit is worth announcing. ConfigureRuntime is
 	// silent (see its doc) because a working default is not news on every CLI
 	// invocation — but a server is long-lived, holds whole graphs in memory, and its
@@ -575,17 +593,21 @@ func GraphStateFunc(eng *Engine) status.GraphFunc {
 //
 // It prefers a graph registry listing every repo in the graph and their paths, so
 // a restart restores the WHOLE multi-repo graph — not just cfg.Repo — with no
-// extractor runs. Two registries exist and are tried in order:
+// extractor runs. Three registries exist and are tried in order:
 //
-//  1. ~/.enola/graphs/<workspace>.json — the receipt for THIS workspace (cfg.Repo).
-//  2. ~/.enola/receipt.json — the machine-wide receipt, describing whichever
+//  1. ~/.enola/graphs/sessions/<workspace>.<client>.json — the receipt of the graph
+//     THIS agent session held, when the engine knows its session (SetSessionClient).
+//  2. ~/.enola/graphs/<workspace>.json — the receipt for THIS workspace (cfg.Repo).
+//  3. ~/.enola/receipt.json — the machine-wide receipt, describing whichever
 //     server generated a snapshot last.
 //
-// The workspace file comes first because a user typically runs several servers at
-// once, one per agent terminal: reading the shared file would restore a sibling
-// terminal's repo set into this process. The shared file remains the fallback for
-// graphs snapshotted before the workspace receipt existed. Failing both, it falls
-// back to a single-repo restore of cfg.Repo. Either way it restores facts +
+// The session file comes first because several agent sessions started in one
+// directory share a workspace, and the workspace file holds whichever of them
+// snapshotted last. The workspace file comes before the shared one because a user
+// typically runs several servers at once, one per agent terminal: reading the shared
+// file would restore a sibling terminal's repo set into this process. The shared file
+// remains the fallback for graphs snapshotted before the workspace receipt existed.
+// Failing all three, it falls back to a single-repo restore of cfg.Repo. Either way it restores facts +
 // insights + the snapshot meta (incl. generated_at, which the freshness check
 // needs), unlike the old facts-only load.
 //
@@ -601,10 +623,32 @@ func GraphStateFunc(eng *Engine) status.GraphFunc {
 // to Server.SeedCorpus so queries are priced against the restored graph without
 // waiting for a snapshot this process did not need to take.
 func AutoLoadSnapshot(eng *Engine, cfg *config.Config) map[string]int {
-	// Preferred path: this workspace's own graph.
+	corpus, _ := autoLoad(eng, cfg)
+	return corpus
+}
+
+// autoLoad is AutoLoadSnapshot plus the notice a server owes its agent when the
+// graph it restored belongs to another agent session that is still running: that
+// graph was chosen for a different conversation, and nothing else would tell this
+// one. Empty when the graph is this session's own, or its writer has ended.
+func autoLoad(eng *Engine, cfg *config.Config) (map[string]int, string) {
+	client := eng.eng.SessionClient()
+	pruneEndedSessions(cfg.Repo, client)
+
+	// Preferred path: the graph this session itself held before a restart.
+	if client > 0 {
+		if gr, err := engine.LoadSessionReceipt(cfg.Repo, client); err == nil && len(gr.Repos) > 0 {
+			if restoreFromGlobalReceipt(eng, cfg, gr) {
+				return corpusFromReceipt(gr), ""
+			}
+			log.Printf("[bootstrap] session receipt present but multi-repo restore incomplete; trying the workspace receipt")
+		}
+	}
+
+	// Next: this workspace's own graph.
 	if gr, err := engine.LoadWorkspaceReceipt(cfg.Repo); err == nil && len(gr.Repos) > 0 {
 		if restoreFromGlobalReceipt(eng, cfg, gr) {
-			return corpusFromReceipt(gr)
+			return corpusFromReceipt(gr), siblingNotice(gr, client)
 		}
 		log.Printf("[bootstrap] workspace receipt present but multi-repo restore incomplete; trying the machine-wide receipt")
 	}
@@ -615,7 +659,7 @@ func AutoLoadSnapshot(eng *Engine, cfg *config.Config) map[string]int {
 	// the cross-talk the workspace receipt above exists to prevent.
 	if gr, err := engine.LoadGlobalReceipt(); err == nil && len(gr.Repos) > 0 && receiptCovers(gr, cfg.Repo) {
 		if restoreFromGlobalReceipt(eng, cfg, gr) {
-			return corpusFromReceipt(gr)
+			return corpusFromReceipt(gr), siblingNotice(gr, client)
 		}
 		log.Printf("[bootstrap] global receipt present but multi-repo restore incomplete; falling back to single-repo")
 	}
@@ -623,11 +667,11 @@ func AutoLoadSnapshot(eng *Engine, cfg *config.Config) map[string]int {
 	// Fallback: single-repo restore of cfg.Repo.
 	repoPath, err := filepath.Abs(cfg.Repo)
 	if err != nil {
-		return nil
+		return nil, ""
 	}
 	dir := filepath.Join(repoPath, cfg.Output.Dir)
 	if _, err := os.Stat(filepath.Join(dir, "facts.jsonl")); err != nil {
-		return nil // nothing on disk; start empty
+		return nil, "" // nothing on disk; start empty
 	}
 	// A folder of repositories restores through its workspace receipt above, as the
 	// multi-repo graph it is. A snapshot of it as ONE repository is what the session
@@ -635,7 +679,7 @@ func AutoLoadSnapshot(eng *Engine, cfg *config.Config) map[string]int {
 	// 6 GB facts.jsonl, loaded before the server read stdin, so a quit did not end it.
 	if workspace.IsFolderOfRepos(repoPath) {
 		log.Printf("[bootstrap] not restoring %s: it is a folder of repositories, and its snapshot there indexes them all as one", dir)
-		return nil
+		return nil, ""
 	}
 	// The label from the snapshot on disk, not from the directory it sits in. The map
 	// below is what repo-scoped queries and fact counts are keyed by, so guessing it
@@ -644,16 +688,42 @@ func AutoLoadSnapshot(eng *Engine, cfg *config.Config) map[string]int {
 	label := restoredLabel(dir, repoPath)
 	if err := eng.RestoreFromDir(dir, map[string]string{label: repoPath}, label); err != nil {
 		log.Printf("[bootstrap] warning: failed to restore snapshot from %s: %v", dir, err)
-		return nil
+		return nil, ""
 	}
 	log.Printf("[bootstrap] restored single-repo snapshot for %s", label)
 
 	// No graph receipt on this path, so read the size from the snapshot we just
 	// restored — it carries the same measurement.
 	if snap := eng.Snapshot(); snap != nil && snap.Meta.SourceBytes > 0 {
-		return map[string]int{repoPath: int(snap.Meta.SourceBytes / charsPerToken)}
+		return map[string]int{repoPath: int(snap.Meta.SourceBytes / charsPerToken)}, ""
 	}
-	return nil
+	return nil, ""
+}
+
+// siblingNotice says, once, that the restored graph is another running session's.
+// Empty when this session wrote it, when its writer is unknown (a receipt from before
+// writers were recorded) or was a CLI run, or when that session has ended: adopting
+// the graph of a finished session is resuming the workspace, not cross-talk.
+func siblingNotice(gr *facts.GraphReceipt, client int) string {
+	if gr.Writer == nil || gr.Writer.ClientPID <= 0 || gr.Writer.ClientPID == client || !status.ProcessAlive(gr.Writer.ClientPID) {
+		return ""
+	}
+	return fmt.Sprintf("Restored the latest graph for this workspace (%s), snapshotted by another running agent session at %s. "+
+		"If this session works on different code, call generate_snapshot to load it.", gr.RepoLabels(6), gr.GeneratedAt)
+}
+
+// pruneEndedSessions removes the session receipts of agent sessions that are no longer
+// running, keeping this one's. They only ever answer a restart of their own session.
+func pruneEndedSessions(repo string, client int) {
+	receipts, err := engine.SessionReceipts(repo)
+	if err != nil {
+		return
+	}
+	for pid, path := range receipts {
+		if pid != client && !status.ProcessAlive(pid) {
+			_ = os.Remove(path)
+		}
+	}
 }
 
 // LoadDashboardSnapshot restores exactly the scope selected by the dashboard

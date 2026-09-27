@@ -358,6 +358,52 @@ func TestAutoLoadSnapshot_IgnoresForeignGlobalReceipt(t *testing.T) {
 	}
 }
 
+// TestAutoLoadSnapshot_RestoresThisSessionsGraph: several agent sessions started in
+// one directory share a workspace, and so its receipt. A restart must bring back the
+// graph THIS session held, not whichever session snapshotted last; only a session with
+// no graph of its own falls back to the workspace receipt.
+func TestAutoLoadSnapshot_RestoresThisSessionsGraph(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	workspace := t.TempDir()
+	const sessionOne, sessionTwo, newSession = 424201, 424202, 424203
+
+	snapshotIn := func(client int, repo string) int {
+		t.Helper()
+		eng, _ := engineFor(t, workspace)
+		eng.SetSessionClient(client)
+		snap, err := eng.GenerateSnapshot(context.Background(), repo, false)
+		if err != nil {
+			t.Fatalf("GenerateSnapshot(%s): %v", repo, err)
+		}
+		if err := eng.WriteArtifacts(repo); err != nil {
+			t.Fatalf("WriteArtifacts(%s): %v", repo, err)
+		}
+		if err := eng.WriteGlobalReceipt(); err != nil {
+			t.Fatalf("WriteGlobalReceipt(%s): %v", repo, err)
+		}
+		return snap.Meta.FactCount
+	}
+	mine := snapshotIn(sessionOne, writeGoRepo(t))
+	theirs := snapshotIn(sessionTwo, writeBiggerGoRepo(t))
+	if mine == theirs {
+		t.Fatalf("test setup: both graphs have %d facts, so the restore cannot be told apart", mine)
+	}
+
+	restarted, cfg := engineFor(t, workspace)
+	restarted.SetSessionClient(sessionOne)
+	bootstrap.AutoLoadSnapshot(restarted, cfg)
+	if got := restarted.Store().Count(); got != mine {
+		t.Errorf("session one restarted onto %d facts, want its own %d; %d is the sibling session's graph", got, mine, theirs)
+	}
+
+	fresh, cfg := engineFor(t, workspace)
+	fresh.SetSessionClient(newSession)
+	bootstrap.AutoLoadSnapshot(fresh, cfg)
+	if got := fresh.Store().Count(); got != theirs {
+		t.Errorf("a session with no graph of its own restored %d facts, want the workspace's latest %d", got, theirs)
+	}
+}
+
 func TestLoadDashboardSnapshotKeepsOrdinaryRepoScope(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	repo := writeGoRepo(t)
