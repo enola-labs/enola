@@ -440,7 +440,29 @@ func (s *Server) RestoreInBackground(restore func() map[string]int) {
 		if corpus := restore(); corpus != nil {
 			s.SeedCorpus(corpus)
 		}
+		s.markReceiptSeen()
 	}()
+}
+
+// markReceiptSeen records the workspace receipt as it stands when the restore
+// finishes, so reloadIfRewritten answers only to a rewrite that happens while this
+// server runs. A sibling session's graph written before the restart is not news: the
+// restore already chose between it and this session's own, and said so if it mattered.
+func (s *Server) markReceiptSeen() {
+	if s.cfg == nil {
+		return
+	}
+	path, err := engine.WorkspaceReceiptPath(s.cfg.Repo)
+	if err != nil {
+		return
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return
+	}
+	s.reloadMu.Lock()
+	s.reloadSeenMod = info.ModTime()
+	s.reloadMu.Unlock()
 }
 
 // restoreMiddleware holds every tool call until the startup restore has published.
