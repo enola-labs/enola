@@ -729,13 +729,13 @@ func resolveRepoPaths(args generateSnapshotArgs) ([]string, error) {
 type queryFactsArgs struct {
 	Kind      string `json:"kind,omitempty" jsonschema:"module, symbol, route, storage, dependency, or service (a whole repo, a node in the cross-repo graph)."`
 	File      string `json:"file,omitempty" jsonschema:"File path."`
-	Name      string `json:"name,omitempty" jsonschema:"Name, substring match."`
+	Name      string `json:"name,omitempty" jsonschema:"Name substring, case-insensitive."`
 	Relation  string `json:"relation,omitempty" jsonschema:"Relation kind: declares, imports, calls, implements, or depends_on."`
 	Prop      string `json:"prop,omitempty" jsonschema:"Property name, e.g. source, symbol_kind, exported, framework, storage_kind, role, method, unmatched_by_clients. output_mode=summary lists the notable boolean flags present in the result."`
 	PropValue string `json:"prop_value,omitempty" jsonschema:"Property value; requires prop."`
 
 	// Batch filters — OR within dimension, AND across dimensions
-	Names      []string `json:"names,omitempty" jsonschema:"Exact names, OR. Use instead of name for batch lookups."`
+	Names      []string `json:"names,omitempty" jsonschema:"Exact fact names, which are package-qualified (e.g. internal/server.Server, not Server). OR with each other and with name."`
 	Files      []string `json:"files,omitempty" jsonschema:"File paths, OR. Use instead of file for batch lookups."`
 	Kinds      []string `json:"kinds,omitempty" jsonschema:"Kinds, OR. Use instead of kind for batch lookups."`
 	FilePrefix string   `json:"file_prefix,omitempty" jsonschema:"File path prefix, e.g. internal/server for every file under it."`
@@ -1430,7 +1430,7 @@ func (s *Server) registerTools() {
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name: "query_facts",
 		Description: "Precision filter over extracted facts, for subsets explore does not give you: all symbols in a file, all external dependencies, all routes. " +
-			"Filters combine with AND; the batch filters names, files and kinds are OR within themselves. " +
+			"Filters are OR within a dimension (name with names; file with files and file_prefix; kind with kinds) and AND across dimensions. " +
 			"Size an unfamiliar result set with output_mode=summary first. " +
 			"For dependencies, prop=source with prop_value internal, external, stdlib or framework cuts the noise.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args queryFactsArgs) (*mcp.CallToolResult, any, error) {
