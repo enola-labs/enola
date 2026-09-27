@@ -203,6 +203,57 @@ func TestExplain_WithCycle(t *testing.T) {
 	}
 }
 
+// TestExplain_CyclePathFollowsRealEdges pins the path to the graph's edges. The
+// component's members are sorted, and the path used to be those members joined
+// with arrows: here that printed "src/a -> src/b -> src/c -> src/a", naming an
+// a -> b edge that does not exist. An agent repairing the cycle acts on exactly
+// those arrows.
+func TestExplain_CyclePathFollowsRealEdges(t *testing.T) {
+	store := makeStore(
+		[]string{"src/a", "src/b", "src/c"},
+		map[string][]string{
+			"src/a": {"src/c"},
+			"src/c": {"src/b"},
+			"src/b": {"src/a"},
+		},
+	)
+	insights, err := New().Explain(context.Background(), store)
+	if err != nil || len(insights) != 1 {
+		t.Fatalf("Explain = %v, %v; want one cycle", insights, err)
+	}
+	const want = "src/a -> src/c -> src/b -> src/a"
+	if !strings.Contains(insights[0].Description, want) {
+		t.Errorf("description = %q, want path %q", insights[0].Description, want)
+	}
+	// The text gate prints only the first evidence detail, so the path has to
+	// live there too for an agent reading the gate's output to see it.
+	if !strings.Contains(insights[0].Evidence[0].Detail, want) {
+		t.Errorf("first evidence detail = %q, want path %q", insights[0].Evidence[0].Detail, want)
+	}
+}
+
+// TestExplain_CyclePathNamesMembersOffTheWitness covers a component whose
+// shortest cycle through its first member does not visit every member: the
+// rest are named, never implied to lie on that path.
+func TestExplain_CyclePathNamesMembersOffTheWitness(t *testing.T) {
+	store := makeStore(
+		[]string{"src/a", "src/b", "src/c"},
+		map[string][]string{
+			"src/a": {"src/b"},
+			"src/b": {"src/a", "src/c"},
+			"src/c": {"src/b"},
+		},
+	)
+	insights, err := New().Explain(context.Background(), store)
+	if err != nil || len(insights) != 1 {
+		t.Fatalf("Explain = %v, %v; want one cycle", insights, err)
+	}
+	const want = "src/a -> src/b -> src/a (also in the same cycle group: src/c)"
+	if !strings.Contains(insights[0].Description, want) {
+		t.Errorf("description = %q, want %q", insights[0].Description, want)
+	}
+}
+
 // TestExplain_OversizedClusterSoftened: an SCC larger than maxCycleModules is
 // reported as a coupling cluster rather than a fixable cycle — the advice
 // differs, because "introduce an interface" means nothing for a 99-node

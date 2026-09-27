@@ -109,6 +109,28 @@ func TestExplain_UngroundableImportTargetsAreCounted(t *testing.T) {
 // Directory imports resolve to their index file, and the resolution is scoped to
 // the importing repository: a file measured in one repo can never ground a
 // target written in another.
+// TestGrounding_ResolvesPythonImportsByTheImportersLanguage: the Python
+// extractor measures `import inventory.stock` as the path inventory/stock. It
+// grounds onto the module file or the package's __init__.py, and only for a
+// Python importer: a TypeScript "./stock" never means stock.py.
+func TestGrounding_ResolvesPythonImportsByTheImportersLanguage(t *testing.T) {
+	store := facts.NewStore()
+	store.Add(
+		facts.Fact{Kind: facts.KindFileRef, Name: "inventory/stock.py", File: "inventory/stock.py"},
+		facts.Fact{Kind: facts.KindFileRef, Name: "payments/__init__.py", File: "payments/__init__.py"},
+	)
+	g := newGrounding(store, nil)
+	if got, ok := g.resolve("inventory/stock", "", "orders/service.py"); !ok || got != "inventory/stock.py" {
+		t.Errorf("resolve(inventory/stock) from Python = %q/%v, want the module file", got, ok)
+	}
+	if got, ok := g.resolve("payments", "", "orders/service.py"); !ok || got != "payments/__init__.py" {
+		t.Errorf("resolve(payments) from Python = %q/%v, want the package's __init__.py", got, ok)
+	}
+	if _, ok := g.resolve("inventory/stock", "", "web/app.ts"); ok {
+		t.Error("a TypeScript import must not ground onto a Python file")
+	}
+}
+
 func TestGrounding_ResolvesIndexAndStaysInsideTheRepo(t *testing.T) {
 	store := facts.NewStore()
 	store.Add(
@@ -116,13 +138,13 @@ func TestGrounding_ResolvesIndexAndStaysInsideTheRepo(t *testing.T) {
 		facts.Fact{Kind: facts.KindFileRef, Repo: "b", Name: "src/other.ts", File: "b/src/other.ts"},
 	)
 	g := newGrounding(store, nil)
-	if got, ok := g.resolve("src/widgets", "a"); !ok || got != "a/src/widgets/index.ts" {
+	if got, ok := g.resolve("src/widgets", "a", "a/src/app.ts"); !ok || got != "a/src/widgets/index.ts" {
 		t.Errorf("resolve(src/widgets, a) = %q/%v, want the index file", got, ok)
 	}
-	if _, ok := g.resolve("src/other", "a"); ok {
+	if _, ok := g.resolve("src/other", "a", "a/src/app.ts"); ok {
 		t.Error("a file measured in repo b must not ground a target written in repo a")
 	}
-	if _, ok := g.resolve("src/missing", "a"); ok {
+	if _, ok := g.resolve("src/missing", "a", "a/src/app.ts"); ok {
 		t.Error("a target naming no measured file must not resolve")
 	}
 }

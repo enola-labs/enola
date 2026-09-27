@@ -911,6 +911,8 @@ func deadExemptionInsight(r rule, ex intent.ConstraintExemption) facts.Insight {
 // component into the to component.
 func (e *Explainer) verdictForbid(r rule, resolve *resolver, ground *grounding) []facts.Insight {
 	var out []facts.Insight
+	var rollups []edgeBreach
+	var direct [][2]string
 	skipped := map[string]bool{}
 	for _, f := range resolve.sources(r, r.forbid) {
 		from, sourced := resolve.source(r, r.forbid, f)
@@ -945,29 +947,113 @@ func (e *Explainer) verdictForbid(r rule, resolve *resolver, ground *grounding) 
 					continue
 				}
 			}
-			out = append(out, facts.Insight{
-				Title:       r.titled(fmt.Sprintf("%s -> %s via %s", f.Name, rel.Target, r.via)),
+			breach := facts.Insight{
+				Title:       r.titled(edgeTitle(f, rel.Target, r.via)),
 				Description: fmt.Sprintf("%s must not reach %s via %s, and the graph measures exactly this edge. The rule is declared, %s, so this is a decided-rule breach, not a heuristic. Because: %s", r.forbid, forbidFarEnd(r), r.via, forbidFarBasis(r, from, onto), r.because),
 				Confidence:  r.confidence(),
-				Evidence: []facts.Evidence{{
-					File:   f.File,
-					Symbol: f.Name,
-					Fact:   rel.Target,
-					Detail: "forbidden " + r.via + " edge",
-				}},
+				Evidence:    []facts.Evidence{citeEdge(f, rel.Target, fmt.Sprintf("forbidden %s edge: %s must not reach %s", r.via, r.forbid, forbidFarEnd(r)))},
 				Actions: []string{
 					cutForEdge(resolve, r.to, f, rel.Target),
 					"Remove or reroute the edge if the rule stands",
 					"Amend the rule on its declaring page if the decision behind it changed",
 				},
-			})
+			}
+			if symbolRollup(f) {
+				rollups = append(rollups, edgeBreach{breach, repoRelativeFile(f), rel.Target})
+				continue
+			}
+			out = append(out, breach)
+			direct = append(direct, [2]string{repoRelativeFile(f), rel.Target})
 		}
 	}
-	out = dedupVerdicts(out)
+	out = dedupVerdicts(append(out, unexplainedRollups(rollups, direct)...))
 	if len(skipped) > 0 {
 		out = append(out, groundSkipInsight(r, skipped))
 	}
 	return out
+}
+
+// citeEdge cites the fact that made a breaching edge at the position its
+// extractor measured, naming the edge's target. The position is what lets a
+// reader — or an agent repairing the change — go straight to the line.
+func citeEdge(f facts.Fact, target, detail string) facts.Evidence {
+	ev := f.EvidenceHere(detail)
+	ev.Fact = target
+	return ev
+}
+
+// edgeTitle names a breaching edge by its source and target. A dependency
+// fact is named "<importer> -> <imported>", and when the imported part only
+// restates the target — module-edge: orders -> payments onto payments, or
+// Python's payments.checkout onto payments/checkout — printing the name whole
+// gave "orders -> payments -> payments", the target twice in an arrow notation
+// that reads as a three-hop path. Anything else is kept: in Rust the imported
+// part names the item (codex_git_utils::collect_git_info) while the target is
+// the crate's directory, and that item is what tells two imports apart.
+func edgeTitle(f facts.Fact, target, via string) string {
+	source := f.Name
+	if f.Kind == facts.KindDependency {
+		if importer, imported, ok := strings.Cut(source, " -> "); ok && importer != "" && samePath(imported, target) {
+			source = importer
+		}
+	}
+	return fmt.Sprintf("%s -> %s via %s", source, target, via)
+}
+
+// samePath compares two module paths with ".", "::" and "/" as one separator.
+func samePath(a, b string) bool {
+	norm := strings.NewReplacer("::", "/", ".", "/")
+	return norm.Replace(a) == norm.Replace(b)
+}
+
+// edgeBreach is a breach found on a derived module edge, held back until the
+// rule's direct breaches are known.
+type edgeBreach struct {
+	insight        facts.Insight
+	source, target string
+}
+
+// symbolRollup reports whether a fact is a module edge the module-edges binder
+// derived from symbol edges, rather than one an extractor read.
+func symbolRollup(f facts.Fact) bool {
+	return f.Kind == facts.KindDependency && f.PropString(facts.PropCouplingKind) == facts.CouplingSymbolRollup
+}
+
+// unexplainedRollups returns the rollup breaches no direct breach of the same
+// rule already reports. A rollup restates, at module granularity and with no
+// line, a coupling that a direct edge from a file inside its source module into
+// its target module already names at the line that made it; reporting both
+// counted one import as two breaches. A rollup with no direct breach behind it
+// is kept: in a language without import statements it is the only edge there is.
+func unexplainedRollups(rollups []edgeBreach, direct [][2]string) []facts.Insight {
+	var out []facts.Insight
+	for _, rollup := range rollups {
+		explained := false
+		for _, d := range direct {
+			if within(d[0], rollup.source) && within(d[1], rollup.target) {
+				explained = true
+				break
+			}
+		}
+		if !explained {
+			out = append(out, rollup.insight)
+		}
+	}
+	return out
+}
+
+// within reports whether path is dir or lies beneath it.
+func within(path, dir string) bool {
+	return path == dir || strings.HasPrefix(path, dir+"/")
+}
+
+// repoRelativeFile drops a fact's repository label from its file, so a direct
+// edge and a derived one compare in the same coordinates.
+func repoRelativeFile(f facts.Fact) string {
+	if f.Repo != "" {
+		return strings.TrimPrefix(f.File, f.Repo+"/")
+	}
+	return f.File
 }
 
 // verdictForbidReach emits one violation per (source, target) pair where a
@@ -1208,6 +1294,8 @@ func (e *Explainer) verdictAllowOnly(r rule, resolve *resolver, resolvable map[s
 		return false
 	}
 	var out []facts.Insight
+	var rollups []edgeBreach
+	var direct [][2]string
 	skipped := map[string]bool{}
 	for _, f := range resolve.sources(r, r.allow) {
 		from, sourced := resolve.source(r, r.allow, f)
@@ -1231,24 +1319,25 @@ func (e *Explainer) verdictAllowOnly(r rule, resolve *resolver, resolvable map[s
 			if resolvable[rel.Target] {
 				onto = exactBasis
 			}
-			out = append(out, facts.Insight{
-				Title:       r.titled(fmt.Sprintf("%s -> %s via %s", f.Name, rel.Target, r.via)),
+			breach := facts.Insight{
+				Title:       r.titled(edgeTitle(f, rel.Target, r.via)),
 				Description: fmt.Sprintf("%s may reach only %s via %s, and the graph measures this edge landing in none of them. The rule is declared, %s, so this is a decided-rule breach, not a heuristic. Because: %s", r.allow, strings.Join(r.only, ", "), r.via, disallowedBasis(from, onto), r.because),
 				Confidence:  r.confidence(),
-				Evidence: []facts.Evidence{{
-					File:   f.File,
-					Symbol: f.Name,
-					Fact:   rel.Target,
-					Detail: "disallowed " + r.via + " edge",
-				}},
+				Evidence:    []facts.Evidence{citeEdge(f, rel.Target, fmt.Sprintf("disallowed %s edge: %s may reach only %s", r.via, r.allow, strings.Join(r.only, ", ")))},
 				Actions: []string{
 					"Reroute the edge into an allowed component if the rule stands",
 					"Widen only: on the declaring page if the decision behind it changed",
 				},
-			})
+			}
+			if symbolRollup(f) {
+				rollups = append(rollups, edgeBreach{breach, repoRelativeFile(f), rel.Target})
+				continue
+			}
+			out = append(out, breach)
+			direct = append(direct, [2]string{repoRelativeFile(f), rel.Target})
 		}
 	}
-	out = dedupVerdicts(out)
+	out = dedupVerdicts(append(out, unexplainedRollups(rollups, direct)...))
 	if len(skipped) > 0 {
 		out = append(out, groundSkipInsight(r, skipped))
 	}
@@ -1279,15 +1368,10 @@ func (e *Explainer) verdictProtect(r rule, graphWalk []facts.Fact, resolve *reso
 				continue
 			}
 			out = append(out, facts.Insight{
-				Title:       r.titled(fmt.Sprintf("%s -> %s via %s", f.Name, rel.Target, r.via)),
+				Title:       r.titled(edgeTitle(f, rel.Target, r.via)),
 				Description: fmt.Sprintf("Only %s may reach members of %s via %s, and the graph measures this edge arriving from outside every owner. The rule is declared, %s, so this is a decided-rule breach, not a heuristic. Because: %s", strings.Join(r.owners, ", "), r.protect, r.via, reverseBasis(onto, "owners:"), r.because),
 				Confidence:  r.confidence(),
-				Evidence: []facts.Evidence{{
-					File:   f.File,
-					Symbol: f.Name,
-					Fact:   rel.Target,
-					Detail: "unowned " + r.via + " edge",
-				}},
+				Evidence:    []facts.Evidence{citeEdge(f, rel.Target, "unowned "+r.via+" edge")},
 				Actions: []string{
 					cutForEdge(resolve, r.protect, f, rel.Target),
 					"Route the access through an owning component if the rule stands",
@@ -1381,15 +1465,10 @@ func (e *Explainer) verdictPrivate(r rule, graphWalk []facts.Fact, resolve *reso
 				continue
 			}
 			out = append(out, facts.Insight{
-				Title:       r.titled(fmt.Sprintf("%s -> %s via %s", f.Name, rel.Target, rel.Kind)),
+				Title:       r.titled(edgeTitle(f, rel.Target, rel.Kind)),
 				Description: fmt.Sprintf("%s %s %s, reachable only from inside the component%s, and the graph measures this %s edge arriving from outside. The rule is declared, %s, and the visibility is the extractor's own measurement, so this is a decided-rule breach, not a heuristic. Because: %s", rel.Target, privateSubject(onto), r.private, scope, rel.Kind, privateBasisPhrase(onto), r.because),
 				Confidence:  r.confidence(),
-				Evidence: []facts.Evidence{{
-					File:   f.File,
-					Symbol: f.Name,
-					Fact:   rel.Target,
-					Detail: "reach into a non-exported member via " + rel.Kind,
-				}},
+				Evidence:    []facts.Evidence{citeEdge(f, rel.Target, "reach into a non-exported member via "+rel.Kind)},
 				Actions: []string{
 					cutForEdge(resolve, r.private, f, rel.Target),
 					"Route the access through the component's exported surface if the rule stands",
@@ -1412,11 +1491,7 @@ func (e *Explainer) verdictForbidFact(r rule, memberFacts map[string][]facts.Fac
 			Title:       r.titled(fmt.Sprintf("%s is measured in %s", name, r.forbidFact)),
 			Description: fmt.Sprintf("%s must have no members, and the graph measures this fact inside it. The rule is declared and the membership is exact, so this is a decided-rule breach, not a heuristic. Because: %s", r.forbidFact, r.because),
 			Confidence:  r.confidence(),
-			Evidence: []facts.Evidence{{
-				File:   f.File,
-				Symbol: f.Name,
-				Detail: "member of forbidden component " + r.forbidFact,
-			}},
+			Evidence:    []facts.Evidence{f.EvidenceHere("member of forbidden component " + r.forbidFact)},
 			Actions: []string{
 				"Remove or relocate the fact if the rule stands",
 				"Retire the rule on its declaring page if the decision behind it changed",
@@ -1513,11 +1588,7 @@ func (e *Explainer) verdictRequire(r rule, memberFacts map[string][]facts.Fact, 
 			Title:       r.titled(fmt.Sprintf("%s must have %s containing %s", name, r.mustProp, r.mustValue)),
 			Description: fmt.Sprintf("%s is a member of %s%s, so it must have %s containing %s — and the measured fact does not. The rule is declared, membership is exact, and containment is whole-member, so this is a decided-rule breach, not a heuristic. Because: %s", name, r.require, scope, r.mustProp, r.mustValue, r.because),
 			Confidence:  r.confidence(),
-			Evidence: []facts.Evidence{{
-				File:   f.File,
-				Symbol: f.Name,
-				Detail: detail,
-			}},
+			Evidence:    []facts.Evidence{f.EvidenceHere(detail)},
 			Actions: []string{
 				fmt.Sprintf("Add the required %s if the rule stands", r.mustProp),
 				"Amend the rule in its declaring file if the decision behind it changed",
@@ -1667,11 +1738,7 @@ func (e *Explainer) verdictRequireDefines(r rule, memberFacts map[string][]facts
 			Title:       r.titled(fmt.Sprintf("%s does not define %s", name, r.wantedSentence())),
 			Description: fmt.Sprintf("%s is a class member of %s, so it must define %s — and no measured symbol %s#%s or %s.%s exists. Classes that inherit, include or extend anything are out of this rule's scope, so the definition is visibly absent, not composed in. The rule is declared and membership is exact, so this is a decided-rule breach, not a heuristic. Because: %s", name, r.requireDefines, r.method, name, r.method, name, r.method, r.because),
 			Confidence:  r.confidence(),
-			Evidence: []facts.Evidence{{
-				File:   f.File,
-				Symbol: f.Name,
-				Detail: "no measured definition of " + r.method,
-			}},
+			Evidence:    []facts.Evidence{f.EvidenceHere("no measured definition of " + r.method)},
 			Actions: []string{
 				fmt.Sprintf("Define %s on the class if the rule stands", r.method),
 				"Amend the rule on its declaring page if the decision behind it changed",
@@ -1702,11 +1769,7 @@ func (e *Explainer) verdictRequireName(r rule, memberFacts map[string][]facts.Fa
 			Title:       r.titled(fmt.Sprintf("%s does not match %s", name, r.pattern)),
 			Description: fmt.Sprintf("%s is a member of %s, so its name must match %s — and it does not. The rule is declared, membership is exact, and the pattern dialect is bounded, so this is a decided-rule breach, not a heuristic. Because: %s", name, r.requireName, r.pattern, r.because),
 			Confidence:  r.confidence(),
-			Evidence: []facts.Evidence{{
-				File:   f.File,
-				Symbol: f.Name,
-				Detail: "name outside the declared convention " + r.pattern,
-			}},
+			Evidence:    []facts.Evidence{f.EvidenceHere("name outside the declared convention " + r.pattern)},
 			Actions: []string{
 				"Rename the member into the convention if the rule stands",
 				"Amend the pattern on its declaring page if the decision behind it changed",
@@ -1740,11 +1803,7 @@ func (e *Explainer) verdictForbidName(r rule, memberFacts map[string][]facts.Fac
 			Title:       r.titled(fmt.Sprintf("%s matches the forbidden %s", name, r.pattern)),
 			Description: fmt.Sprintf("%s is a member of %s, so its name must not match %s — and it does. The rule is declared, membership is exact, and the pattern dialect is bounded, so this is a decided-rule breach, not a heuristic. Because: %s", name, r.forbidName, r.pattern, r.because),
 			Confidence:  r.confidence(),
-			Evidence: []facts.Evidence{{
-				File:   f.File,
-				Symbol: f.Name,
-				Detail: "name inside the forbidden pattern " + r.pattern,
-			}},
+			Evidence:    []facts.Evidence{f.EvidenceHere("name inside the forbidden pattern " + r.pattern)},
 			Actions: []string{
 				"Rename the member out of the pattern if the rule stands",
 				"Amend the pattern on its declaring page if the decision behind it changed",
@@ -1891,11 +1950,7 @@ func (e *Explainer) verdictRequireEdge(r rule, graphWalk []facts.Fact, memberFac
 			Title:       r.titled(requireEdgeWitness(r, name)),
 			Description: fmt.Sprintf("%s is a member of %s%s, so %s — and the graph measures none. The rule is declared, membership is exact, and %s demonstrably source %s edges elsewhere in this snapshot, so the absence is measured, never extraction blindness. Because: %s", name, r.requireEdge, requireEdgeScope(r), requireEdgeDemand(r), requireEdgeProvers(r), r.via, r.because),
 			Confidence:  r.confidence(),
-			Evidence: []facts.Evidence{{
-				File:   f.File,
-				Symbol: f.Name,
-				Detail: "no measured " + r.direction + " " + r.via + " edge",
-			}},
+			Evidence:    []facts.Evidence{f.EvidenceHere("no measured " + r.direction + " " + r.via + " edge")},
 			Actions: []string{
 				requireEdgeAction(r),
 				"Amend the rule on its declaring page if the decision behind it changed",
@@ -2079,12 +2134,7 @@ func (e *Explainer) verdictProtocol(r rule, memberFacts, carriers map[string][]f
 			Title:       r.titled(fmt.Sprintf("%s %s %s without %s", name, r.via, r.steps[highest], r.steps[highestMissing])),
 			Description: fmt.Sprintf("%s is a member of %s and makes a measured %s edge into %s, step %d of the declared order %s — so it must also make %s edges into every earlier step, and the graph measures none into %s. This is structural protocol conformance, not runtime ordering: the verdict says the member references a later step's surface without referencing every prerequisite step's surface, which a static fact graph can decide; whether the steps execute in order at runtime it cannot see and does not claim. The rule is declared, %s, and facts of this member's file kind demonstrably source %s edges elsewhere in this snapshot, so each absence is measured, never extraction blindness. Because: %s", name, r.protocol, r.via, r.steps[highest], highest+1, strings.Join(r.steps, " -> "), r.via, strings.Join(missing, ", "), edgeBasis(madeBasis[name], stepBasis[name]), r.via, r.because),
 			Confidence:  r.confidence(),
-			Evidence: []facts.Evidence{{
-				File:   f.File,
-				Symbol: f.Name,
-				Fact:   r.steps[highestMissing],
-				Detail: fmt.Sprintf("reaches step %s with no %s edge into prerequisite %s", r.steps[highest], r.via, r.steps[highestMissing]),
-			}},
+			Evidence:    []facts.Evidence{citeEdge(f, r.steps[highestMissing], fmt.Sprintf("reaches step %s with no %s edge into prerequisite %s", r.steps[highest], r.via, r.steps[highestMissing]))},
 			Actions: []string{
 				fmt.Sprintf("Wire the member's %s edge(s) into %s if the rule stands", r.via, strings.Join(missing, ", ")),
 				"Amend the step order on the declaring page if the decision behind it changed",
