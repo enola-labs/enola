@@ -12,11 +12,11 @@ func TestResponseNoteCarriesOnlyThePresentLanguages(t *testing.T) {
 	sym := func(lang, pkg string) symInput {
 		return symInput{Name: pkg + ".F", Kind: "function", File: pkg + "/f", Package: pkg, Language: lang}
 	}
-	syms := []symInput{sym("go", "svc"), sym("python", "tools"), sym("cpp", "native")}
+	syms := []symInput{sym("go", "svc"), sym("python", "tools"), sym("cpp", "native"), sym("typescript", "web")}
 	all := options{Mode: "both", Visibility: "all"}
 
 	note := responseNote(syms, all)
-	for _, want := range []string{"CONFIDENCE:", "PYTHON:", "C/C++:"} {
+	for _, want := range []string{"CONFIDENCE:", "PYTHON:", "C/C++:", "TYPESCRIPT/JS:"} {
 		if !strings.Contains(note, want) {
 			t.Errorf("note lacks %q for a population holding it", want)
 		}
@@ -28,7 +28,7 @@ func TestResponseNoteCarriesOnlyThePresentLanguages(t *testing.T) {
 	}
 
 	goOnly := options{Mode: "both", Visibility: "all", Package: "svc"}
-	if note := responseNote(syms, goOnly); strings.Contains(note, "PYTHON:") || strings.Contains(note, "C/C++:") {
+	if note := responseNote(syms, goOnly); strings.Contains(note, "PYTHON:") || strings.Contains(note, "C/C++:") || strings.Contains(note, "TYPESCRIPT/JS:") {
 		t.Errorf("a call scoped to Go code still carries other languages' caveats: %q", note)
 	}
 }

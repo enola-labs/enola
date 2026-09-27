@@ -1251,7 +1251,7 @@ const noteCore = "References are matched by symbol short-name (the snapshot's ca
 	"unresolved), so detection is conservative: a symbol is treated as used if its name matches any " +
 	"reference, avoiding false 'unused' reports at the cost of missing some orphans (common names, " +
 	"generated code). CONFIDENCE: 'function' findings are HIGH — plain calls are reliably tracked as " +
-	"edges. 'struct'/'class'/'interface' findings are MEDIUM — these are marked used via " +
+	"edges (operator overloads, invoked through operator syntax, are LOW). 'struct'/'class'/'interface' findings are MEDIUM — these are marked used via " +
 	"instantiates/injects/implements edges (which ARE tracked), so an unreferenced one is a strong " +
 	"dead-code lead, but field/param/return type usage is not edge-tracked so verify before removing. " +
 	"'method'/'type'/'const'/'var' findings are LOW — methods are often reached as method values " +
@@ -1267,6 +1267,9 @@ var languageNotes = []struct {
 	langs []string
 	text  string
 }{
+	{[]string{"typescript", "javascript"}, "TYPESCRIPT/JS: usage is only partly edge-tracked (components render through JSX, " +
+		"pages are wired by route tables, dynamic import() and string dispatch have no edge), so a function is MEDIUM, " +
+		"not HIGH, and React components and hooks, like every other TypeScript symbol, are LOW."},
 	{[]string{"python"}, "PYTHON: call edges are now emitted for absolute intra-project imports (from pkg.mod import fn; " +
 		"fn()), same-module/relative calls, top-level (module-scope) calls, and decorator applications, " +
 		"so most functions are edge-tracked — but still treat findings as leads: registry/dynamic wiring " +
@@ -1402,7 +1405,7 @@ func renderCompact(orphans []Orphan, mode string) string {
 
 const toolDescription = "Dead-code candidates: symbols nothing references, read from the loaded snapshot without re-indexing. " +
 	"class=isolated when the symbol references nothing either, class=unreferenced when it still calls others. " +
-	"Confidence: functions are high; structs, classes and interfaces medium; methods, types, constants and variables low. " +
+	"Confidence: functions are high (TypeScript/JavaScript functions medium, operator overloads low); structs, classes and interfaces medium; the rest low. " +
 	"Treat medium and low as leads to verify, not safe deletions; the response says why, for the languages in the graph. " +
 	"Exported symbols are included but flagged, since they may be used outside this snapshot; confidence=high with " +
 	"visibility=unexported is the safest cleanup list. Tests and entry points (main, init) are excluded by default. " +
@@ -1416,7 +1419,7 @@ type args struct {
 	Package            string `json:"package,omitempty" jsonschema:"Declaring package substring, e.g. 'internal/app'."`
 	Repo               string `json:"repo,omitempty" jsonschema:"Repository label (multi-repo snapshots), e.g. 'go-service'."`
 	Visibility         string `json:"visibility,omitempty" jsonschema:"'all' (default), 'exported', or 'unexported' (the safer set to delete)."`
-	Confidence         string `json:"confidence,omitempty" jsonschema:"'high' (functions), 'medium' (structs, classes, interfaces), 'low' (methods, types, constants, variables), or empty for all (default)."`
+	Confidence         string `json:"confidence,omitempty" jsonschema:"'high' (functions outside TypeScript/JavaScript), 'medium' (structs, classes, interfaces; TypeScript/JavaScript functions), 'low' (everything else), or empty for all (default)."`
 	IncludeTests       bool   `json:"include_tests,omitempty" jsonschema:"Include *_test files, Test/Benchmark/Example/Fuzz functions and test-support packages (mocks, testutils, fixtures). Off by default: Go _test.go files are not in the snapshot, so test-support code would look dead. Default false."`
 	IncludeEntrypoints bool   `json:"include_entrypoints,omitempty" jsonschema:"Include main and init, which have no callers by nature. Default false."`
 	OutputMode         string `json:"output_mode,omitempty" jsonschema:"'summary' (DEFAULT, counts per symbol kind with isolated, unreferenced, exported and high-confidence splits), 'compact' (markdown table), or 'full' (per-symbol JSON with file:line)."`
