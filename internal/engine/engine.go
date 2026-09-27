@@ -1500,6 +1500,11 @@ func (e *Engine) WriteArtifacts(repoPath string) error {
 	// which the previous arrangement could not manage.
 	e.recordHistory(repoPath, meta, b, factsPath)
 
+	// Say which agent session wrote this run. Rotated into previous/ with the rest by
+	// the next write, where it tells a diff whose run it is comparing against.
+	if err := e.writeSessionMark(outDir, RunMarkFile); err != nil {
+		log.Printf("[engine] warning: could not record the run's session: %v", err)
+	}
 	return nil
 }
 

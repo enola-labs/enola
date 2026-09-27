@@ -92,6 +92,7 @@ type Identity struct {
 	Version    string
 	ConfigPath string
 	WorkDir    string
+	ClientPID  int // the agent process the server serves; see AgentPID
 }
 
 // GraphState is the snapshot of the engine's graph published in the instance
@@ -360,6 +361,7 @@ func (t *Tracker) Self() Instance {
 		Version:       t.ident.Version,
 		ConfigPath:    t.ident.ConfigPath,
 		WorkDir:       t.ident.WorkDir,
+		ClientPID:     t.ident.ClientPID,
 		PrimaryRepo:   primary,
 		Repos:         g.Repos,
 		SnapshotID:    g.SnapshotID,

@@ -8,6 +8,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/enola-labs/enola/internal/diff"
@@ -19,6 +21,7 @@ import (
 	"github.com/enola-labs/enola/internal/workspace"
 	"github.com/enola-labs/enola/pkg/bootstrap"
 	"github.com/enola-labs/enola/pkg/check"
+	"github.com/enola-labs/enola/pkg/status"
 )
 
 // hookInput is the subset of the agent's hook payload enola reads. Unknown fields are
@@ -172,6 +175,13 @@ func (r *Runner) runStopHook(ctx context.Context) {
 		key = verdict.ReportKey()
 		context = unenforcedReport(r.name(), verdict)
 
+	case ok && hasKind(verdict.AdvisoryKinds, diff.WarnOtherSession):
+		// Graded clean, but against a "before" another running session pinned. Silence
+		// would read as "this session's change is clean", which the grade cannot say.
+		key = verdict.ReportKey() + "|" + string(diff.WarnOtherSession)
+		notice = "enola graded this session's change against a baseline another agent session, still running " +
+			"on this repository, pinned. The result can include that session's changes, so treat it as a caveat, not a clean bill."
+
 	case ok && verdict.Status == check.StatusIncomparable:
 		// The gate could not grade at all, and saying nothing would be indistinguishable
 		// from grading it clean. `enola check` spends a whole exit code (3) keeping those
@@ -215,6 +225,15 @@ func (r *Runner) runStopHook(ctx context.Context) {
 	fmt.Println(string(encoded))
 }
 
+func hasKind(kinds []diff.WarningKind, k diff.WarningKind) bool {
+	for _, x := range kinds {
+		if x == k {
+			return true
+		}
+	}
+	return false
+}
+
 // skipFolderOfRepos reports whether dir is a folder of repositories, recording the
 // skip so `doctor` can say why the hooks do nothing there. Both hooks snapshot their
 // directory as one repository, and over a folder holding every repository a user has
@@ -254,7 +273,11 @@ func (r *Runner) runSessionStartHook(ctx context.Context, args []string) {
 	if len(args) > 0 && args[0] == detachedRunFlag {
 		// The detached child: the only place any work happens.
 		if len(args) > 1 {
-			r.pinBaselineSingleFlight(ctx, args[1])
+			agent := 0
+			if len(args) > 2 {
+				agent, _ = strconv.Atoi(args[2])
+			}
+			r.pinBaselineSingleFlight(ctx, args[1], agent)
 		}
 		return
 	}
@@ -277,7 +300,9 @@ func (r *Runner) runSessionStartHook(ctx context.Context, args []string) {
 		return
 	}
 
-	cmd := exec.Command(exe, "hook", "session-start", detachedRunFlag, in.CWD)
+	// The agent session is resolved here, not in the child: detached, the child is
+	// re-parented and can no longer walk up to the agent it was started for.
+	cmd := exec.Command(exe, "hook", "session-start", detachedRunFlag, in.CWD, strconv.Itoa(status.AgentPID()))
 	// No stdio: the child must not write to the agent's streams, and an inherited pipe
 	// would keep the hook's descriptors open after it returns.
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = nil, nil, nil
@@ -291,7 +316,7 @@ func (r *Runner) runSessionStartHook(ctx context.Context, args []string) {
 //
 // Everything here is silent. It has no terminal, nobody is reading its output, and a hook
 // that cannot fail loudly must not try.
-func (r *Runner) pinBaselineSingleFlight(ctx context.Context, repoDir string) {
+func (r *Runner) pinBaselineSingleFlight(ctx context.Context, repoDir string, agent int) {
 	if workspace.IsFolderOfRepos(repoDir) {
 		return
 	}
@@ -310,6 +335,8 @@ func (r *Runner) pinBaselineSingleFlight(ctx context.Context, repoDir string) {
 		return
 	}
 	cfg.Repo, cfg.Repos = repoDir, nil
+	// Stamped on the run and the pin this writes, so other sessions can tell it is ours.
+	eng.SetSessionClient(agent)
 	repoPaths, err := cfg.RepoPaths()
 	if err != nil || len(repoPaths) == 0 {
 		return
@@ -337,6 +364,12 @@ func (r *Runner) pinBaselineSingleFlight(ctx context.Context, repoDir string) {
 	defer lock.Release()
 
 	baselineDir := engine.ResolveBaselineDir(outDir, "pinned")
+	// Another agent session still working here is grading against this baseline. Its
+	// tree is dirty with its own edits, which shouldAutoPin reads as "refresh": re-pinning
+	// now would fold those edits into its "before" and hide them from its grade.
+	if otherSessionPin(baselineDir, agent) != nil {
+		return
+	}
 	if !shouldAutoPin(baselineDir, anchor, cfg.Output.Dir, eng.CurrentMeta(anchor)) {
 		return
 	}
@@ -358,6 +391,45 @@ func (r *Runner) pinBaselineSingleFlight(ctx context.Context, repoDir string) {
 	// replaced by us. Written after SetBaseline, which republishes the directory.
 	_ = os.WriteFile(filepath.Join(baselineDir, autoPinMarker), nil, 0o644)
 	outcome = hookstate.OutcomePinned
+}
+
+// otherSessionPin returns the pin mark of a baseline pinned by another agent session
+// that is still running, or nil: no mark, an unknown pinner, this session (agent), or a
+// session that has ended.
+func otherSessionPin(baselineDir string, agent int) *engine.SessionMark {
+	m := engine.ReadSessionMark(baselineDir, engine.PinMarkFile)
+	if !isOtherRunningSession(m, agent) {
+		return nil
+	}
+	return m
+}
+
+// isOtherRunningSession reports whether a session mark names an agent session other
+// than agent that is still running. An unknown writer (zero) is never "other".
+func isOtherRunningSession(m *engine.SessionMark, agent int) bool {
+	return m != nil && m.AgentPID > 0 && m.AgentPID != agent && status.ProcessAlive(m.AgentPID)
+}
+
+// otherSessionBefore describes a baseline whose "before" came from another running agent
+// session: the pin it made, or the previous run it took. Empty for an explicit baseline
+// path, which the caller chose knowingly, and whenever the session is this one or unknown.
+func otherSessionBefore(dir, selector string, agent int) string {
+	name := engine.PinMarkFile
+	switch strings.ToLower(strings.TrimSpace(selector)) {
+	case "", "pinned":
+	case "previous":
+		name = engine.RunMarkFile
+	default:
+		return ""
+	}
+	m := engine.ReadSessionMark(dir, name)
+	if !isOtherRunningSession(m, agent) {
+		return ""
+	}
+	if name == engine.RunMarkFile {
+		return fmt.Sprintf("the previous run was taken at %s by another agent session that is still running on this repository", m.At)
+	}
+	return fmt.Sprintf("the baseline was pinned at %s by another agent session that is still running on this repository", m.At)
 }
 
 // shouldAutoPin decides whether to replace the existing baseline.
@@ -521,7 +593,11 @@ func (r *Runner) gradeQuietly(ctx context.Context, repoDir string) (check.Verdic
 	if suppressions, err := check.LoadSuppressions(anchor); err == nil {
 		policy.Suppressions = suppressions
 	}
-	verdict := check.EvaluateCurrent(diff.Compute(base, current), policy, current.Insights)
+	d := diff.Compute(base, current)
+	if note := otherSessionBefore(engine.ResolveBaselineDir(outDir, "pinned"), "pinned", status.AgentPID()); note != "" {
+		d.AddWarningKind(diff.WarnOtherSession, note)
+	}
+	verdict := check.EvaluateCurrent(d, policy, current.Insights)
 	verdict = check.AttachCensus(verdict, current.Meta, policy, current.Insights)
 	verdict = check.AttachLedger(verdict, eng.Store(), policy, current.Insights, time.Now())
 	return check.AttachSources(verdict, repoPaths, eng.MetaFor), outDir, true

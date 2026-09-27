@@ -777,6 +777,7 @@ func TestComparability_InvalidatesDeltaSeparatesRebuildsFromElapsedTime(t *testi
 		WarnStaleBaseline: false,
 		WarnPreReceipt:    false,
 		WarnExplainerSet:  false,
+		WarnOtherSession:  false,
 	} {
 		c := Comparability{Kinds: []WarningKind{kind}}
 		if got := c.InvalidatesDelta(); got != want {

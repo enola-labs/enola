@@ -2281,13 +2281,18 @@ func (s *Server) registerTools() {
 		if repoPath == "" {
 			return errorResult("No snapshot available. Run generate_snapshot first, then set_baseline."), nil, nil
 		}
+		replaced := s.otherSessionMark(s.resolveBaselineDir(repoPath, "pinned"), engine.PinMarkFile)
 		if err := s.eng.SetBaseline(repoPath); err != nil {
 			return errorResult(fmt.Sprintf("could not set baseline: %v", err)), nil, nil
 		}
-		return textResult(
-			"Baseline pinned from the current snapshot.\n\n" +
-				"Now make your changes, re-run generate_snapshot, then call diff_snapshot to see what changed " +
-				"(new findings, new coupling, added/removed symbols). The baseline persists across re-snapshots until you pin a new one."), nil, nil
+		msg := "Baseline pinned from the current snapshot.\n\n" +
+			"Now make your changes, re-run generate_snapshot, then call diff_snapshot to see what changed " +
+			"(new findings, new coupling, added/removed symbols). The baseline persists across re-snapshots until you pin a new one."
+		if replaced != nil {
+			msg += fmt.Sprintf("\n\nThis replaced a baseline another running agent session pinned at %s; "+
+				"that session's diffs now compare against this one.", replaced.At)
+		}
+		return textResult(msg), nil, nil
 	})
 
 	// Tool: diff_snapshot
@@ -2331,6 +2336,8 @@ func (s *Server) registerTools() {
 			}
 		}
 
+		note := s.baselineNote(s.resolveBaselineDir(repoPath, sel), sel)
+
 		d := diff.Compute(baseline, current)
 		if args.Focus != "" {
 			d = d.Focused(s.normalizeToRelative(args.Focus))
@@ -2361,6 +2368,9 @@ func (s *Server) registerTools() {
 		// not on every tool call. Focused() preserves Comparability, so this is added
 		// after narrowing and still renders above the delta.
 		drift.AddWarning(d, s.eng, repoPath, "diff_snapshot")
+		if note != "" {
+			d.AddWarningKind(diff.WarnOtherSession, note)
+		}
 
 		switch resolveOutputMode(args.OutputMode, modeSummary) {
 		case modeFull:
@@ -2443,6 +2453,38 @@ func conformanceFirst(conf *conformance.Report, body string) string {
 		return strings.TrimLeft(s, "\n") + "\n" + body
 	}
 	return body
+}
+
+// otherSessionMark returns the session mark in dir when it names another agent session
+// that is still running, and nil otherwise: no mark, an unknown writer, this session,
+// or a session that has ended. Only a running session can still be changing the tree
+// or re-pinning, so only it is worth a word.
+func (s *Server) otherSessionMark(dir, name string) *engine.SessionMark {
+	m := engine.ReadSessionMark(dir, name)
+	me := s.eng.SessionClient()
+	if m == nil || m.AgentPID <= 0 || me <= 0 || m.AgentPID == me || !status.ProcessAlive(m.AgentPID) {
+		return nil
+	}
+	return m
+}
+
+// baselineNote says when a diff's "before" came from another running agent session:
+// the pinned baseline it pinned, or the previous run it took. Empty otherwise,
+// including for an explicit baseline path, which the caller chose knowingly.
+func (s *Server) baselineNote(dir, selector string) string {
+	switch strings.ToLower(strings.TrimSpace(selector)) {
+	case "", "pinned":
+		if m := s.otherSessionMark(dir, engine.PinMarkFile); m != nil {
+			return fmt.Sprintf("the baseline was pinned at %s by another agent session that is still running on this repository, "+
+				"so it may include that session's changes, or have replaced a baseline this session pinned", m.At)
+		}
+	case "previous":
+		if m := s.otherSessionMark(dir, engine.RunMarkFile); m != nil {
+			return fmt.Sprintf("the previous run was taken at %s by another agent session that is still running on this repository, "+
+				"so this compares against that session's snapshot, not this session's last one", m.At)
+		}
+	}
+	return ""
 }
 
 // resolveBaselineDir maps a baseline selector ('pinned'/”/'previous'/explicit

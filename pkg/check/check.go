@@ -267,6 +267,9 @@ var advisoryKinds = map[diff.WarningKind]bool{
 	// silent — a kind in neither map is carried in ComparabilityWarnings but named in
 	// no summary line.
 	diff.WarnExplainerSet: true,
+	// The baseline came from another running agent session. The delta stands; its
+	// "before" is just not this session's, which only the caller can weigh.
+	diff.WarnOtherSession: true,
 }
 
 // Verdict is the graded delta.

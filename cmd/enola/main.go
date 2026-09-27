@@ -325,6 +325,9 @@ func main() {
 		Version:    version.Version,
 		ConfigPath: cfgPath,
 		WorkDir:    wd,
+		// The agent session this server serves, so a hook or CLI command that agent runs
+		// can find its session by walking up to it (status.AgentPID).
+		ClientPID: os.Getppid(),
 	})
 	tracker.SetGraphFunc(bootstrap.GraphStateFunc(eng))
 	// Deregister on the way out so the registry reflects the shutdown at once

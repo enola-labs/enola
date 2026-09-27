@@ -754,7 +754,7 @@ The first two rules were in place from the start; the third was learned from [#2
 
 **The snapshot never runs in the hook.** It costs 0.2 s on a small repository and over ten seconds on a large one, and a session start that stalls for ten seconds is a broken tool however good the report at the other end is. The hook spawns a detached copy of itself and returns immediately, so session-start latency is the cost of one process spawn — measured at the binary's own floor (~17 ms) on a repository that takes ~10 s to index. That is the only mitigation constant in the size of the repo; a `timeout` still pays the timeout.
 
-Four properties make automatic pinning safe to enable at all:
+Five properties make automatic pinning safe to enable at all:
 
 | Guarantee | Mechanism |
 |---|---|
@@ -762,8 +762,13 @@ Four properties make automatic pinning safe to enable at all:
 | A timeout kill does not kill the snapshot | new session (`setsid`) / detached process group on Windows, so a group-wide kill of the hook does not reach the child |
 | Several terminals do one snapshot, not N | non-blocking [`internal/filelock`](internal/filelock) `TryAcquire`; a session that finds the lock held does nothing. Blocking would have turned one redundant snapshot into a queue of them |
 | A deliberate baseline is never destroyed | an auto-pinned baseline carries a marker file; one without it was pinned by a person or an agent and is left alone |
+| Another session's baseline is never moved | `baseline/pin.json` records the agent session that pinned it; a pin by another session that is still running is left alone |
 
 That last rule matters more than it looks. A baseline pinned at the start of a multi-day refactor is the "before" of that whole effort — replacing it at the next session start would destroy exactly what it was recording, and the diff would silently start reporting nothing. An auto-pinned baseline is refreshed only when the tree has actually moved, and a **dirty tree is never treated as current**: "dirty" says the content is not identified by the commit, so two dirty trees at one commit may differ arbitrarily.
+
+The fifth rule exists because of the dirty-tree rule. Session A pins and starts editing; session B opens the same repository and finds the tree dirty with A's edits, which reads as "refresh". Re-pinning then would fold A's edits into A's "before" and hide them from A's grade. So a pin by another running session is left alone, and B grades against it with a caveat instead.
+
+**Sessions share a repository's `.enola`.** Each run writes `run.json` beside the artifacts (rotated into `previous/` with them) and each pin writes `baseline/pin.json`: the agent session behind it and when. An MCP server knows its session as its parent process; a hook or a CLI command walks up its own ancestors to the first process a live server in the instance registry names as its client (`status.AgentPID`). When a diff's "before" came from another session that is still running, `diff_snapshot`, the Stop hook and `enola check` carry an advisory `other_session` caveat, and `set_baseline` or `enola baseline pin` says when it replaced such a pin. Two sessions editing one working tree still share one "after": no baseline can separate their edits, only separate worktrees can.
 
 Every failure path — no git, not a repository, the lock held, a snapshot error, a platform that cannot detach — does nothing and says nothing.
 

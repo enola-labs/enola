@@ -145,6 +145,10 @@ const (
 	// facts.SameRepo compares the snapshot's own identity, and a union's members
 	// are not that, so a union that lost a member compared clean.
 	WarnUnionMembership WarningKind = "union_membership"
+	// WarnOtherSession — the baseline was pinned, or the previous run taken, by another
+	// agent session that is still running on the same repository. Advisory: the delta is
+	// real, but its "before" is that session's, so it can include that session's edits.
+	WarnOtherSession WarningKind = "other_session"
 )
 
 // InvalidatesDelta reports whether a warning means the numbers describe something OTHER

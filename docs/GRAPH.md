@@ -115,8 +115,9 @@ Why the graph is a value computed on demand rather than a store kept up to date:
 | `snapshot.meta.json` | The receipt fields plus per-file content hashes, for incremental runs | no |
 | `llm_context.md` | A compact written summary for an agent to read directly | no |
 | `extractor_cache.json` | Parsed results per file, so unchanged files are not re-parsed | no; keep it between runs |
+| `run.json` | Which agent session wrote this run, and when, so a diff can tell another session's "before" from its own | no |
 | `previous/` | The snapshot before this one, rotated on every write | same files as above |
-| `baseline/` | The snapshot you pinned with `enola baseline pin`; survives re-snapshots | same files as above |
+| `baseline/` | The snapshot you pinned with `enola baseline pin`; survives re-snapshots. Its `pin.json` records which agent session pinned it | same files as above |
 
 The contract files carry `format_version` (currently `1`). Additive changes, such as a new kind or property, keep the version; renaming, removing or changing the meaning of a documented field bumps it. Consumers must accept unknown kinds and fields. Rules in full: [schema/README.md](schema/README.md).
 

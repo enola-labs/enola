@@ -22,6 +22,7 @@ import (
 	"github.com/enola-labs/enola/pkg/check"
 	"github.com/enola-labs/enola/pkg/cli"
 	pkghistory "github.com/enola-labs/enola/pkg/history"
+	"github.com/enola-labs/enola/pkg/status"
 )
 
 // target is the repository the gate operates on, plus how it was resolved — reported to
@@ -284,6 +285,9 @@ func (r *Runner) Check(ctx context.Context, args []string) {
 	if *focus != "" {
 		d = d.Focused(*focus)
 	}
+	if note := otherSessionBefore(baseDir, *baseline, status.AgentPID()); note != "" {
+		d.AddWarningKind(diff.WarnOtherSession, note)
+	}
 
 	// Conformance: did the change stay inside what the caller declared? Computed only
 	// when something WAS declared — a gate that graded scope nobody stated would be
@@ -474,6 +478,10 @@ func (r *Runner) Baseline(args []string) {
 		// as "the state before my change", so the reuse below is gated on the on-disk
 		// snapshot proving it describes today's tree under today's build and config.
 		fmt.Fprintf(os.Stderr, r.name()+" baseline: %s\n", tgt.configNote)
+		// Run by an agent, the pin belongs to that agent's session; from a terminal, to none.
+		agent := status.AgentPID()
+		eng.SetSessionClient(agent)
+		replaced := otherSessionPin(baseDir, agent)
 		// A snapshot that already describes every working tree under this build and
 		// config is the snapshot a regenerate would produce, byte for byte, so it is
 		// pinned as it stands. Anything less (a moved file, another extractor version,
@@ -499,6 +507,10 @@ func (r *Runner) Baseline(args []string) {
 			r.checkFatal("could not pin baseline: %v", err)
 		}
 		fmt.Printf("Baseline pinned for %s\n", anchor)
+		if replaced != nil {
+			fmt.Fprintf(os.Stderr, r.name()+" baseline: this replaced a baseline another running agent session pinned at %s; "+
+				"that session's diffs and its end-of-session grade now compare against this one\n", replaced.At)
+		}
 		if snap, err := bootstrap.LoadSnapshotDir(baseDir); err == nil {
 			describeBaseline(snap)
 		}

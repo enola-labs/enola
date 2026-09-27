@@ -27,6 +27,7 @@ var kindMeaning = map[diff.WarningKind]string{
 	diff.WarnStaleBaseline:   "the delta is real, but it also contains whatever the repository itself changed since the baseline was pinned",
 	diff.WarnPreReceipt:      "the baseline has no recorded version or extractor set, so comparability could not be fully verified",
 	diff.WarnInvertedPair:    "the current snapshot predates the baseline, so it does not contain your change",
+	diff.WarnOtherSession:    "the baseline came from another agent session still working on this repository, so the delta can include that session's changes",
 }
 
 // DeclineReason is the short "why the gate could not grade this" line, for callers

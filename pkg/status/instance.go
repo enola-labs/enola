@@ -62,6 +62,7 @@ type Instance struct {
 	Version    string `json:"version,omitempty"`     // build version
 	ConfigPath string `json:"config_path,omitempty"` // resolved mcp-arch.yaml
 	WorkDir    string `json:"work_dir,omitempty"`    // cwd, i.e. which workspace launched it
+	ClientPID  int    `json:"client_pid,omitempty"`  // the agent process this server serves (its parent)
 
 	// Graph state, refreshed after each generate_snapshot.
 	PrimaryRepo  string         `json:"primary_repo,omitempty"` // abs cfg.Repo

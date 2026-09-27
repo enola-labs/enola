@@ -50,7 +50,7 @@ func TestHooks_DoNothingInAFolderOfRepositories(t *testing.T) {
 	withHookPayload(t, payload, func() { r.runSessionStartHook(context.Background(), nil) })
 	withHookPayload(t, payload, func() { r.runStopHook(context.Background()) })
 	// The detached child, reached directly, must refuse as well.
-	r.pinBaselineSingleFlight(context.Background(), folder)
+	r.pinBaselineSingleFlight(context.Background(), folder, 0)
 
 	outDir := filepath.Join(folder, ".enola")
 	state := hookstate.Load(outDir)
