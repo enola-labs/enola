@@ -1965,8 +1965,7 @@ func (s *Server) registerTools() {
 		Name: "endpoint_impact",
 		Description: "What changing an HTTP endpoint reaches: the route, the controller serving it, the models that controller touches, the models associated with those, and the tables behind them. " +
 			"Use this when you have a URL, impact_analysis when you have a symbol. " +
-			"It answers about what the application serves: client call sites and mock-server routes are excluded. " +
-			"A hop that does not resolve is named, and what it reaches is reported as UNKNOWN, not empty.",
+			"It answers about what the application serves: client call sites and mock-server routes are excluded.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args endpointImpactArgs) (*mcp.CallToolResult, any, error) {
 		store := s.eng.Store()
 		if store.Count() == 0 {
@@ -2059,8 +2058,7 @@ func (s *Server) registerTools() {
 		Name: "governing_intent",
 		Description: "Knowledge to code and back. For a fact or file: the knowledge pages whose anchors cover its file, each with type, status and outgoing relations, so the trail continues past the first hop. " +
 			"For a compiled page path: its anchors with measured coverage (files and facts under each). " +
-			"Cheaper than impact_analysis when the question is governance, not blast radius. " +
-			"An empty result says which it is: no knowledge pages compiled into this snapshot, or nothing governs the target.",
+			"Cheaper than impact_analysis when the question is governance, not blast radius.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args governingIntentArgs) (*mcp.CallToolResult, any, error) {
 		store := s.eng.Store()
 		if store.Count() == 0 {
@@ -2138,8 +2136,7 @@ func (s *Server) registerTools() {
 		Name: "constraints_for",
 		Description: "The pre-edit contract for a file or fact; ask BEFORE editing. Returns the constraint components that contain it, every rule binding those components (in words, with its declared rationale and enforcement mode), and the current violations whose evidence names it. " +
 			"Guidance rules (steering, not law) come with their advice, mode, and prior-art exemplars marked present, absent or unmeasured in this snapshot. " +
-			"The file may not exist yet: it is matched against component patterns, so the answer covers code about to be written. Matching is exact and fail-closed, like the constraints explainer's. " +
-			"An empty result says which it is: no constraint components compiled into this snapshot, or nothing binds the target. Returns JSON.",
+			"The file may not exist yet: it is matched against component patterns, so the answer covers code about to be written. Matching is exact and fail-closed, like the constraints explainer's. Returns JSON.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args constraintsForArgs) (*mcp.CallToolResult, any, error) {
 		store := s.eng.Store()
 		if store.Count() == 0 {
@@ -2166,7 +2163,6 @@ func (s *Server) registerTools() {
 		Description: "Plan a change BEFORE editing. For each target (paths that may not exist yet, or exact fact names): the constraint components and rules governing it, with mode and declared because:, plus its blast radius (fan-in and fan-out, capped samples with exact counts). " +
 			"With patch, the counterfactual: the diff is applied to a scratch copy (the working tree and its .enola are never touched), facts are regenerated there, and the constraint verdicts that WOULD appear are reported as new, resolved or unchanged, each naming the rule, the would-be witness and its because:. " +
 			"Components and rules are read from the working tree (enola-intent.yaml, enola/constraints/), so an edit to them counts without regenerating. " +
-			"A patch that does not apply or touches files outside the snapshot is a named error, never a guess. An ungoverned target is reported as such, and snapshot staleness is stated. " +
 			"A report, not a gate: like enola check, the verdict is the caller's to weigh. Returns JSON.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args planCheckArgs) (*mcp.CallToolResult, any, error) {
 		store := s.eng.Store()
@@ -2215,8 +2211,8 @@ func (s *Server) registerTools() {
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name: "coverage_report",
 		Description: "Tells a genuinely isolated service from one whose edges enola could not resolve; use it before concluding a service is isolated. " +
-			"Per service: resolved outbound dependencies and, per edge type (currently http_client), outbound call sites detected, resolved to a loaded service, and left unresolved. " +
-			"Each service is connected (resolved outbound edges), coverage_gap (none resolved but unresolved call sites exist: likely NOT isolated, verify against source) or isolated (no outbound edges and no call sites: a genuine leaf). " +
+			"Per service: resolved outbound dependencies and, per edge type (currently http_client), outbound call sites detected, resolved and unresolved, " +
+			"classified connected, coverage_gap (likely NOT isolated, verify against source) or isolated. " +
 			"Multi-repo snapshots only; a single-repo snapshot has no service nodes.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args coverageReportArgs) (*mcp.CallToolResult, any, error) {
 		store := s.eng.Store()
@@ -2393,8 +2389,7 @@ func (s *Server) registerTools() {
 	// Tool: snapshot_receipt
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name: "snapshot_receipt",
-		Description: "Proof of WHAT the current snapshot was generated over and how complete extraction was: enola version, git ref and dirty-tree status, snapshot_id (a content fingerprint, stable on identical inputs), " +
-			"the extractor and explainer sets used, the ignore-glob hash, SHA-256 of the output artifacts, and quality metrics (files seen, parsed and skipped; parse errors; cross-repo coverage gaps and unresolved edges). " +
+		Description: "Proof of WHAT the current snapshot was generated over (enola version, git state, extractors, a content fingerprint) and how complete extraction was (files parsed and skipped, parse errors, unresolved cross-repo edges). " +
 			"Read it before trusting an impact_analysis or a diff, and to spot thin extraction (a missed detection, a bad ignore glob, a failing extractor).",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args snapshotReceiptArgs) (*mcp.CallToolResult, any, error) {
 		snap := s.eng.Snapshot()

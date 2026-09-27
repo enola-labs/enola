@@ -171,5 +171,11 @@ func (r Report) RenderMarkdown() string {
 		fmt.Fprintf(&sb, "| %s | %s | %d | %d | %d | %d | %d |\n",
 			s.Service, s.Classification, s.OutboundEdges, s.Detected(), s.Resolved(), s.UnresolvedTotal, s.ExternalTotal)
 	}
+	for _, s := range r {
+		if s.Classification == facts.ServiceIsolated {
+			sb.WriteString("\n`isolated` means no outbound edges and no detected call sites either: a genuine leaf, not a gap in enola's resolution.\n")
+			break
+		}
+	}
 	return sb.String()
 }

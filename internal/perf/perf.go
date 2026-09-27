@@ -1880,11 +1880,10 @@ type response struct {
 	Note     string    `json:"note"`
 }
 
-const toolDescription = "Estimated Big-O and ranked performance risks per function. " +
-	"Finding kinds: nested-loop (loops nested in one function), compounded (nesting that grows across the call graph as looping functions call looping functions), " +
-	"call-in-loop (an I/O, DB or network call inside a loop, a likely N+1), and recursion (direct or mutual). " +
-	"Each finding has symbol (file:line), big_o (the structural worst case), severity (high, medium, low) and a plain-English why. " +
-	"Parser-derived from loop nesting depth, cyclomatic complexity and call-in-loop targets: a deterministic worst-case estimate, not a proof. " +
+const toolDescription = "Estimated Big-O and ranked performance risks per function: nested loops, nesting compounded across the call graph, " +
+	"I/O or database calls inside loops (a likely N+1), and recursion. Each finding has symbol (file:line), kind, big_o (the " +
+	"structural worst case), severity (high, medium, low) and a plain-English why. Parser-derived from loop nesting depth, " +
+	"cyclomatic complexity and call-in-loop targets: a deterministic worst-case estimate, not a proof. " +
 	"Supports Go, Python, Ruby, Swift, Kotlin, Scala, Dart, TypeScript, Java, C++ and C#. " +
 	"Findings of medium severity and up also appear in query_insights(explainer=\"performance\")."
 
@@ -1936,16 +1935,52 @@ func Register(srv *mcp.Server, store func() *facts.Store) {
 				Returned: len(shown),
 				Note: "Big-O values are deterministic estimates of structural worst case derived from parser facts " +
 					"(loop nesting, call graph), not formal proofs. Supports Go, Python, Ruby, Swift, Kotlin, Scala, Dart, TypeScript, Java, C++, and C#. " +
-					"SCALA: a `for … yield` comprehension and flatMap/fold are monadic binds as often as iteration, so they raise loop_depth but NOT scaling depth — a finding over one is downgraded rather than claimed; a combinator applied to an Option is discounted the same way.",
+					"SCALA: a `for … yield` comprehension and flatMap/fold are monadic binds as often as iteration, so they raise loop_depth but NOT scaling depth — a finding over one is downgraded rather than claimed; a combinator applied to an Option is discounted the same way. " +
+					strings.ReplaceAll(strings.TrimSpace(kindLegend(shown)), "\n", " "),
 			}, in.MaxTokens)
 		case mcputil.ModeCompact:
-			return mcputil.TextResult(mcputil.CapTokens(renderPerfCompact(shown), in.MaxTokens, false)), nil, nil
+			return mcputil.TextResult(mcputil.CapTokens(withLegend(renderPerfCompact(shown), shown), in.MaxTokens, false)), nil, nil
 		default:
 			// The summary renders its own topN list, so it gets the full matched set —
 			// its counts and its headline must describe the same thing.
-			return mcputil.TextResult(mcputil.CapTokens(renderPerfSummary(sum, matched, in), in.MaxTokens, false)), nil, nil
+			return mcputil.TextResult(mcputil.CapTokens(withLegend(renderPerfSummary(sum, matched, in), matched), in.MaxTokens, false)), nil, nil
 		}
 	})
+}
+
+// kindMeanings define the finding kinds, for the legend a response carries.
+var kindMeanings = []struct{ kind, meaning string }{
+	{"nested-loop", "loops nested inside one function"},
+	{"compounded", "nesting that grows across the call graph, as a looping function calls another looping function"},
+	{"call-in-loop", "an I/O, database or network call inside a loop, a likely N+1"},
+	{"recursion", "a direct or mutually recursive cycle"},
+}
+
+// kindLegend defines the kinds that occur in findings, one line each, or "" for none.
+func kindLegend(findings []Finding) string {
+	seen := map[string]bool{}
+	for _, f := range findings {
+		seen[f.Kind] = true
+	}
+	var b strings.Builder
+	for _, k := range kindMeanings {
+		if seen[k.kind] {
+			fmt.Fprintf(&b, "  %s: %s\n", k.kind, k.meaning)
+		}
+	}
+	if b.Len() == 0 {
+		return ""
+	}
+	return "Kinds:\n" + b.String()
+}
+
+// withLegend appends the kind legend to a text rendering.
+func withLegend(text string, findings []Finding) string {
+	legend := kindLegend(findings)
+	if legend == "" {
+		return text
+	}
+	return strings.TrimRight(text, "\n") + "\n\n" + legend
 }
 
 // summarize computes the aggregate counts over the FILTERED findings. `population`

@@ -1246,58 +1246,93 @@ type fullResponse struct {
 	Note     string   `json:"note"`
 }
 
-const responseNote = "References are matched by symbol short-name (the snapshot's call/implements " +
-	"edges are unresolved), so detection is conservative: a symbol is treated as used if its name " +
-	"matches any reference, avoiding false 'unused' reports at the cost of missing some orphans " +
-	"(common names, generated code). CONFIDENCE: 'function' findings are HIGH — plain calls are " +
-	"reliably tracked as edges. 'struct'/'class'/'interface' findings are MEDIUM — these are marked " +
-	"used via instantiates/injects/implements edges (which ARE tracked), so an unreferenced one is a " +
-	"strong dead-code lead, but field/param/return type usage is not edge-tracked so verify before " +
-	"removing. 'method'/'type'/'const'/'var' findings are LOW — methods are often reached as method " +
-	"values (e.g. HTTP handler registration — partially rescued via route handler metadata), via " +
-	"interface dispatch, or by reflection, and plain type/const/var usage is not edge-tracked. Treat " +
-	"medium/low findings as leads to verify, not safe deletions. Exported symbols may be consumed " +
-	"outside this snapshot. PYTHON: call edges are now emitted for absolute intra-project imports " +
-	"(from pkg.mod import fn; fn()), same-module/relative calls, top-level (module-scope) calls, and " +
-	"decorator applications, so most functions are edge-tracked — but still treat findings as leads: " +
-	"registry/dynamic wiring (provider.yaml, entry_points, importlib-by-name, getattr dispatch) is not " +
-	"a call edge. Excluded as entry points / non-app: framework hooks loaded by name (gunicorn hooks, " +
-	"ASGI lifespan, Airflow cluster policies), click/Typer CLI commands, decorator-registered handlers " +
-	"(FastAPI exception_handler/middleware/on_event, Modal function/local_entrypoint), codegen output " +
-	"(files carrying a DO NOT EDIT / generated-by banner), and the docs/, sphinx_exts/, example_dags/, " +
-	"migrations/, examples/, evals/, benchmarks/, notebooks/, scripts/ and top-level dev/ (developer tooling) trees; test code (incl. tests_common/test_utils) is excluded " +
-	"by default (pass include_tests, or include_entrypoints for CLI/hooks, or package= for a tree). Dunder " +
-	"methods and __init__.py re-exports are treated as used; the exported flag follows the leading-" +
-	"underscore convention. RUBY: also an UPPER BOUND — Ruby is public-by-default so most " +
-	"symbols are 'exported' and the visibility filter is weak; metaprogramming, dynamic dispatch, view " +
-	"templates, and resourceful-route controller actions are not call edges. Bare method calls, Rails " +
-	"callback/validation symbol references (before_action :x, validate :y), mixin includes, and the " +
-	"constant receiver of Foo.bar calls ARE folded in. Rails migrations (db/migrate, db/post_migrate), " +
-	"the script/ and vendor/ trees, and `scope :name` model-scope pseudo-symbols are excluded by " +
-	"default (they are loaded/dispatched by the framework, never referenced by name); spec/ test trees " +
-	"are excluded too. Scope to one of those trees with package= to inspect it. " +
-	"SCALA: every symbol inside an object or class is a METHOD, so a Scala repository emits few or no " +
-	"high-confidence findings and the actionable tier is class/interface (medium) — filtering " +
-	"confidence=high there returns almost nothing and reads as a clean bill of health. Test source sets " +
-	"(src/test, src/it, src/multi-jvm) are excluded, with their outbound references folded back in, so a " +
-	"symbol exercised only by a spec is not reported. Still NOT tracked, so verify before deleting: a " +
-	"type used only in a TYPE position (a DTO named solely as `f[Payload]` or a field type), a bare " +
-	"identifier passed as a value (a function reference handed to a callback), and a generic function " +
-	"reference (`fsm[IO].apply`). Implicit resolution and extension-method dispatch are not edges. " +
-	"C/C++: macros are not " +
-	"expanded. Function-pointer wiring IS tracked — struct ops-table initializers (.read = fn), field " +
-	"assignments (obj->cb = fn), in-body compound-literal initializers (cfg = (struct X){ .cb = fn }), " +
-	"callback args (register(fn)), file-scope registration macros " +
-	"(module_init/*_initcall/EXPORT_SYMBOL/module_*_driver/DEVICE_ATTR, incl. qualifier-prefixed " +
-	"`static DEFINE_*_PM_OPS(name, suspend, resume)`), function calls or ops-table fields " +
-	"(.set = fn) inside #define bodies, attribute/show macros expanded with the repo's own " +
-	"#defines (CONFIGFS_ATTR, DEVICE_ATTR_RO/RW/WO incl. the static single-arg form, BUS_ATTR_*, " +
-	"SENSOR_DEVICE_ATTR, DEFINE_SHOW_ATTRIBUTE → name##_show/_store), ALL-CAPS `static inline` " +
-	"functions called in C, and callbacks in macro-opened structs (MACHINE_START/DT_MACHINE_START ... " +
-	"MACHINE_END). Still NOT tracked: macros defined only in external/system headers (not in the analyzed " +
-	"tree), conditional (#ifdef) macro variants (the last definition wins), macro invocations nested in an " +
-	"array/struct initializer (e.g. an ioctl table), and callbacks wired in a local (in-function) struct/array " +
-	"initializer — verify C/C++ findings before deleting."
+// noteCore is the part of the response note true of every language.
+const noteCore = "References are matched by symbol short-name (the snapshot's call/implements edges are " +
+	"unresolved), so detection is conservative: a symbol is treated as used if its name matches any " +
+	"reference, avoiding false 'unused' reports at the cost of missing some orphans (common names, " +
+	"generated code). CONFIDENCE: 'function' findings are HIGH — plain calls are reliably tracked as " +
+	"edges. 'struct'/'class'/'interface' findings are MEDIUM — these are marked used via " +
+	"instantiates/injects/implements edges (which ARE tracked), so an unreferenced one is a strong " +
+	"dead-code lead, but field/param/return type usage is not edge-tracked so verify before removing. " +
+	"'method'/'type'/'const'/'var' findings are LOW — methods are often reached as method values " +
+	"(e.g. HTTP handler registration — partially rescued via route handler metadata), via interface " +
+	"dispatch, or by reflection, and plain type/const/var usage is not edge-tracked. Treat medium/low " +
+	"findings as leads to verify, not safe deletions. Exported symbols may be consumed outside this " +
+	"snapshot."
+
+// languageNotes are the caveats specific to one extractor's languages. A response
+// carries only the ones for languages among the symbols it considered: sent whole, they
+// were about 5,000 characters on every call, mostly about languages the graph did not hold.
+var languageNotes = []struct {
+	langs []string
+	text  string
+}{
+	{[]string{"python"}, "PYTHON: call edges are now emitted for absolute intra-project imports (from pkg.mod import fn; " +
+		"fn()), same-module/relative calls, top-level (module-scope) calls, and decorator applications, " +
+		"so most functions are edge-tracked — but still treat findings as leads: registry/dynamic wiring " +
+		"(provider.yaml, entry_points, importlib-by-name, getattr dispatch) is not a call edge. Excluded " +
+		"as entry points / non-app: framework hooks loaded by name (gunicorn hooks, ASGI lifespan, " +
+		"Airflow cluster policies), click/Typer CLI commands, decorator-registered handlers (FastAPI " +
+		"exception_handler/middleware/on_event, Modal function/local_entrypoint), codegen output (files " +
+		"carrying a DO NOT EDIT / generated-by banner), and the docs/, sphinx_exts/, example_dags/, " +
+		"migrations/, examples/, evals/, benchmarks/, notebooks/, scripts/ and top-level dev/ (developer " +
+		"tooling) trees; test code (incl. tests_common/test_utils) is excluded by default (pass " +
+		"include_tests, or include_entrypoints for CLI/hooks, or package= for a tree). Dunder methods and " +
+		"__init__.py re-exports are treated as used; the exported flag follows the leading-underscore " +
+		"convention."},
+	{[]string{"ruby"}, "RUBY: also an UPPER BOUND — Ruby is public-by-default so most symbols are 'exported' and the " +
+		"visibility filter is weak; metaprogramming, dynamic dispatch, view templates, and " +
+		"resourceful-route controller actions are not call edges. Bare method calls, Rails " +
+		"callback/validation symbol references (before_action :x, validate :y), mixin includes, and the " +
+		"constant receiver of Foo.bar calls ARE folded in. Rails migrations (db/migrate, " +
+		"db/post_migrate), the script/ and vendor/ trees, and `scope :name` model-scope pseudo-symbols " +
+		"are excluded by default (they are loaded/dispatched by the framework, never referenced by name); " +
+		"spec/ test trees are excluded too. Scope to one of those trees with package= to inspect it."},
+	{[]string{"scala"}, "SCALA: every symbol inside an object or class is a METHOD, so a Scala repository emits few or no " +
+		"high-confidence findings and the actionable tier is class/interface (medium) — filtering " +
+		"confidence=high there returns almost nothing and reads as a clean bill of health. Test source " +
+		"sets (src/test, src/it, src/multi-jvm) are excluded, with their outbound references folded back " +
+		"in, so a symbol exercised only by a spec is not reported. Still NOT tracked, so verify before " +
+		"deleting: a type used only in a TYPE position (a DTO named solely as `f[Payload]` or a field " +
+		"type), a bare identifier passed as a value (a function reference handed to a callback), and a " +
+		"generic function reference (`fsm[IO].apply`). Implicit resolution and extension-method dispatch " +
+		"are not edges."},
+	{[]string{"c", "cpp"}, "C/C++: macros are not expanded. Function-pointer wiring IS tracked — struct ops-table " +
+		"initializers (.read = fn), field assignments (obj->cb = fn), in-body compound-literal " +
+		"initializers (cfg = (struct X){ .cb = fn }), callback args (register(fn)), file-scope " +
+		"registration macros (module_init/*_initcall/EXPORT_SYMBOL/module_*_driver/DEVICE_ATTR, incl. " +
+		"qualifier-prefixed `static DEFINE_*_PM_OPS(name, suspend, resume)`), function calls or ops-table " +
+		"fields (.set = fn) inside #define bodies, attribute/show macros expanded with the repo's own " +
+		"#defines (CONFIGFS_ATTR, DEVICE_ATTR_RO/RW/WO incl. the static single-arg form, BUS_ATTR_*, " +
+		"SENSOR_DEVICE_ATTR, DEFINE_SHOW_ATTRIBUTE → name##_show/_store), ALL-CAPS `static inline` " +
+		"functions called in C, and callbacks in macro-opened structs (MACHINE_START/DT_MACHINE_START ... " +
+		"MACHINE_END). Still NOT tracked: macros defined only in external/system headers (not in the " +
+		"analyzed tree), conditional (#ifdef) macro variants (the last definition wins), macro " +
+		"invocations nested in an array/struct initializer (e.g. an ioctl table), and callbacks wired in " +
+		"a local (in-function) struct/array initializer — verify C/C++ findings before deleting."},
+}
+
+// responseNote is noteCore plus the language caveats for the languages among the
+// candidate symbols: the population this call's answer was drawn from.
+func responseNote(syms []symInput, opts options) string {
+	present := map[string]bool{}
+	for _, sym := range syms {
+		if isCandidate(sym, opts) {
+			present[sym.Language] = true
+		}
+	}
+	var b strings.Builder
+	b.WriteString(noteCore)
+	for _, ln := range languageNotes {
+		for _, l := range ln.langs {
+			if present[l] {
+				b.WriteString(" " + ln.text)
+				break
+			}
+		}
+	}
+	return b.String()
+}
 
 // summarize builds the per-symbol-type summary from the orphan list.
 // summarize aggregates the orphan set. `candidates` is the population the orphans
@@ -1310,7 +1345,6 @@ func summarize(orphans []Orphan, candidates, repoWide int, mode string) summaryR
 		RepoWideSymbols: repoWide,
 		TotalOrphans:    len(orphans),
 		Mode:            mode,
-		Note:            responseNote,
 	}
 	idx := make(map[string]int)
 	for _, o := range orphans {
@@ -1368,12 +1402,12 @@ func renderCompact(orphans []Orphan, mode string) string {
 
 const toolDescription = "Dead-code candidates: symbols nothing references, read from the loaded snapshot without re-indexing. " +
 	"class=isolated when the symbol references nothing either, class=unreferenced when it still calls others. " +
-	"References are matched by short name (call and implements edges are unresolved), so detection is conservative and never flags clearly-used code. " +
-	"Only functions are confidence=high, since plain calls are reliably tracked. Methods are low: they are reached as values, via interface dispatch or reflection (route handlers are partly rescued via route metadata). " +
-	"Structs, interfaces, types, constants and variables are low: type usage is not edge-tracked. Treat low as leads to verify, not safe deletions. " +
-	"Exported symbols are included but flagged, since they may be used outside this snapshot; confidence=high with visibility=unexported is the safest cleanup list. " +
-	"Tests and entry points (main, init) are excluded by default. " +
-	"For one symbol's blast radius use impact_analysis; for package-level health, package_metrics. High-confidence orphans also appear in query_insights(explainer=\"dead-code\")."
+	"Confidence: functions are high; structs, classes and interfaces medium; methods, types, constants and variables low. " +
+	"Treat medium and low as leads to verify, not safe deletions; the response says why, for the languages in the graph. " +
+	"Exported symbols are included but flagged, since they may be used outside this snapshot; confidence=high with " +
+	"visibility=unexported is the safest cleanup list. Tests and entry points (main, init) are excluded by default. " +
+	"For one symbol's blast radius use impact_analysis; for package-level health, package_metrics. " +
+	"High-confidence orphans also appear in query_insights(explainer=\"dead-code\")."
 
 // args are the arguments for the find_orphans tool.
 type args struct {
@@ -1382,7 +1416,7 @@ type args struct {
 	Package            string `json:"package,omitempty" jsonschema:"Declaring package substring, e.g. 'internal/app'."`
 	Repo               string `json:"repo,omitempty" jsonschema:"Repository label (multi-repo snapshots), e.g. 'go-service'."`
 	Visibility         string `json:"visibility,omitempty" jsonschema:"'all' (default), 'exported', or 'unexported' (the safer set to delete)."`
-	Confidence         string `json:"confidence,omitempty" jsonschema:"'high', 'low', or empty for all (default)."`
+	Confidence         string `json:"confidence,omitempty" jsonschema:"'high' (functions), 'medium' (structs, classes, interfaces), 'low' (methods, types, constants, variables), or empty for all (default)."`
 	IncludeTests       bool   `json:"include_tests,omitempty" jsonschema:"Include *_test files, Test/Benchmark/Example/Fuzz functions and test-support packages (mocks, testutils, fixtures). Off by default: Go _test.go files are not in the snapshot, so test-support code would look dead. Default false."`
 	IncludeEntrypoints bool   `json:"include_entrypoints,omitempty" jsonschema:"Include main and init, which have no callers by nature. Default false."`
 	OutputMode         string `json:"output_mode,omitempty" jsonschema:"'summary' (DEFAULT, counts per symbol kind with isolated, unreferenced, exported and high-confidence splits), 'compact' (markdown table), or 'full' (per-symbol JSON with file:line)."`
@@ -1444,11 +1478,12 @@ func Register(srv *mcp.Server, store func() *facts.Store) {
 				Total:    total,
 				Returned: len(orphans),
 				Mode:     opts.Mode,
-				Note:     responseNote,
+				Note:     responseNote(syms, opts),
 			}, in.MaxTokens)
 		default:
-			return mcputil.JSONResultCapped(
-				summarize(orphans, population(syms, opts), len(syms), opts.Mode), in.MaxTokens)
+			sum := summarize(orphans, population(syms, opts), len(syms), opts.Mode)
+			sum.Note = responseNote(syms, opts)
+			return mcputil.JSONResultCapped(sum, in.MaxTokens)
 		}
 	})
 }

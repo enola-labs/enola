@@ -517,10 +517,59 @@ const toolDescription = "Robert C. Martin (JDepend) package metrics, to assess r
 	"instability I = Ce/(Ca+Ce), 0 stable to 1 unstable; abstractness A = abstract types / N, 0 concrete to 1 abstract; " +
 	"distance D = |A+I-1| from the main sequence, where high D means rigid (stable and concrete) or useless (unstable and abstract). " +
 	"Ca and Ce count packages, not classes, from the internal import graph (class-to-class edges are not extracted for most languages); for class-level blast radius use impact_analysis. " +
-	"Abstract types are interfaces and abstract classes, including Python ABC, Protocol and @abstractmethod. " +
-	"TypeScript/JS interfaces are structural data shapes, so they are excluded from N and TS abstractness comes from abstract classes only. " +
-	"A Scala trait routinely carries its implementation, so it counts as abstract only when it declares an unimplemented member; a case class is marked a data holder. " +
+	"Abstract types are interfaces and abstract classes; the response says how that is read for the languages in the result. " +
 	"Off-main-sequence packages also appear in query_insights(explainer=\"package-metrics\")."
+
+// abstractnessNotes say how "abstract type" is read for a language whose reading is not
+// the obvious one. A response carries only those for languages among its packages.
+var abstractnessNotes = []struct {
+	lang string
+	text string
+}{
+	{"python", "Python: ABCs, Protocols and classes with an @abstractmethod count as abstract."},
+	{langTypeScript, "TypeScript/JS: interfaces are structural data shapes, not implemented abstractions, " +
+		"so they are excluded from N and abstractness comes from abstract classes only."},
+	{"scala", "Scala: a trait routinely carries its implementation, so it counts as abstract only when it " +
+		"declares an unimplemented member; a case class is marked a data holder."},
+}
+
+// abstractnessNote returns the abstractness readings for the languages declared in
+// the given packages, or "" when none of them needs one.
+func abstractnessNote(store *facts.Store, pkgs []PackageMetric) string {
+	want := make(map[string]struct{}, len(pkgs))
+	for _, m := range pkgs {
+		want[m.Package] = struct{}{}
+	}
+	moduleSet := make(map[string]struct{})
+	for _, f := range store.ByKind(facts.KindModule) {
+		moduleSet[f.Name] = struct{}{}
+	}
+	present := map[string]bool{}
+	for _, f := range store.ByKind(facts.KindSymbol) {
+		lang, _ := f.PropAny(propLanguage).(string)
+		if lang == "" || present[lang] {
+			continue
+		}
+		if _, ok := want[declaringModule(f, moduleSet)]; ok {
+			present[lang] = true
+		}
+	}
+	var parts []string
+	for _, n := range abstractnessNotes {
+		if present[n.lang] {
+			parts = append(parts, n.text)
+		}
+	}
+	return strings.Join(parts, " ")
+}
+
+// withNote appends a note to a text rendering, on its own line.
+func withNote(text, note string) string {
+	if note == "" {
+		return text
+	}
+	return strings.TrimRight(text, "\n") + "\n\nNote: " + note + "\n"
+}
 
 // Register adds the package_metrics tool to the given MCP server. Calls are
 // recorded by the OSS value middleware, which is registered once on this shared
@@ -548,9 +597,10 @@ func Register(srv *mcp.Server, store func() *facts.Store) {
 
 		// Summary reports aggregate health over the full (filtered) set, before the
 		// per-package limit is applied.
+		note := abstractnessNote(store(), results)
 		if mode == mcputil.ModeSummary {
 			return mcputil.TextResult(mcputil.CapTokens(
-				renderSummary(population, results, excluded, in.Package, in.Repo), in.MaxTokens, false)), nil, nil
+				withNote(renderSummary(population, results, excluded, in.Package, in.Repo), note), in.MaxTokens, false)), nil, nil
 		}
 
 		limit := in.Limit
@@ -578,12 +628,15 @@ func Register(srv *mcp.Server, store func() *facts.Store) {
 			if len(typed) > limit {
 				typed = typed[:limit]
 			}
-			return mcputil.TextResult(mcputil.CapTokens(renderCompact(typed, matchedTyped, hiddenTypeless), in.MaxTokens, false)), nil, nil
+			return mcputil.TextResult(mcputil.CapTokens(withNote(renderCompact(typed, matchedTyped, hiddenTypeless), note), in.MaxTokens, false)), nil, nil
 		}
 
 		// Total is the size of the MATCHED set, captured before the display limit;
 		// Returned is what actually went out.
 		resp := buildResponse(population, results)
+		if note != "" {
+			resp.Note += " " + note
+		}
 		if len(results) > limit {
 			results = results[:limit]
 		}

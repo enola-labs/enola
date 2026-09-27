@@ -39,7 +39,6 @@ func (s *Server) registerHistoryTools() {
 		Name: "architecture_history",
 		Description: "How the architecture CHANGED OVER TIME: one entry per recorded snapshot, oldest first, with what moved since the one before (revision id, time taken, git commit and branch, counts of facts, edges and findings that moved). " +
 			"Every other tool describes the tree as it is now; this one answers about the past, so prefer it over reading git log and guessing. " +
-			"Entries marked 'incomparable' span a change to enola itself (a new version or extractor): their numbers describe a rebuild, not an edit. " +
 			"generate_snapshot records history automatically, so a repository never snapshotted has none yet.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args historyArgs) (*mcp.CallToolResult, any, error) {
 		entries, _, err := s.readHistory(args.RepoPath)
@@ -65,8 +64,7 @@ func (s *Server) registerHistoryTools() {
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name: "architecture_blame",
 		Description: "WHEN something entered or left the architecture: \"when did this module start importing that one?\", \"which snapshot introduced this cycle?\". " +
-			"It reads what the graph held at each recorded point instead of inferring it from source history. " +
-			"Revisions whose stored contents aged out are reported as unsearched, not absent: \"not found in what I could read\" means look further back.",
+			"It reads what the graph held at each recorded point instead of inferring it from source history.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args blameArgs) (*mcp.CallToolResult, any, error) {
 		if strings.TrimSpace(args.Pattern) == "" {
 			return errorResult("architecture_blame needs a pattern — a module or symbol name, a file path, or an edge."), nil, nil
