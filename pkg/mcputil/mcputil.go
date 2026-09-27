@@ -88,11 +88,14 @@ func CapTokens(s string, maxTokens int, isJSON bool) string {
 	if nl := strings.LastIndexByte(cut, '\n'); nl > 0 {
 		cut = cut[:nl]
 	}
-	notice := fmt.Sprintf("\n\n[truncated: output exceeded max_tokens=%d. "+
-		"Re-run with output_mode=summary, tighter filters, or a lower max_depth/max_nodes/limit.]", maxTokens)
+	// Worded to be true of every tool, because this is shared and knows none of them: it
+	// used to recommend output_mode=summary, which some tools do not have and others
+	// were already answering in.
+	const remedy = "Narrow the query (tighter filters, a lower limit or depth, or a smaller output_mode " +
+		"where the tool has one) or raise max_tokens."
+	notice := fmt.Sprintf("\n\n[truncated: output exceeded max_tokens=%d. %s]", maxTokens, remedy)
 	if isJSON {
-		notice = fmt.Sprintf("\n\n[truncated: JSON output exceeded max_tokens=%d and is no longer valid JSON. "+
-			"Re-run with output_mode=summary/compact, or raise max_tokens / narrow the query.]", maxTokens)
+		notice = fmt.Sprintf("\n\n[truncated: JSON output exceeded max_tokens=%d and is no longer valid JSON. %s]", maxTokens, remedy)
 	}
 	return cut + notice
 }
