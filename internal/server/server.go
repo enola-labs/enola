@@ -2169,15 +2169,27 @@ func (s *Server) registerTools() {
 		if store.Count() == 0 {
 			return errorResult("No facts available. Run generate_snapshot first."), nil, nil
 		}
-		repoPath := s.currentRepoPath()
-		if repoPath == "" {
-			return errorResult("No snapshot available. Run generate_snapshot first."), nil, nil
-		}
 		if len(args.Paths) == 0 && len(args.Symbols) == 0 && args.Patch == "" {
 			return errorResult("nothing to plan: give paths, symbols, or patch"), nil, nil
 		}
-		label := filepath.Base(repoPath)
-		contractStore, err := plan.ContractStore(repoPath, store.All(), s.eng.Config().Intent[label])
+		target, err := s.planTarget(store, args)
+		if err != nil {
+			return errorResult(err.Error()), nil, nil
+		}
+		repoPath, label, paths := target.repoPath, target.label, target.paths
+		measured := store.All()
+		if target.multi {
+			// Only this repository's facts: a repo-relative target would otherwise match
+			// the same relative path in every other member.
+			own := measured[:0:0]
+			for _, f := range measured {
+				if f.Repo == label {
+					own = append(own, f)
+				}
+			}
+			measured = own
+		}
+		contractStore, err := plan.ContractStore(repoPath, measured, s.eng.Config().Intent[label])
 		if err != nil {
 			return errorResult(err.Error()), nil, nil
 		}
@@ -2185,12 +2197,8 @@ func (s *Server) registerTools() {
 		if snap := s.eng.Snapshot(); snap != nil {
 			info.GeneratedAt = snap.Meta.GeneratedAt
 		}
-		if d, driftErr := s.eng.Drift(repoPath); driftErr == nil && (d.Unknown || d.Any()) {
+		if d, driftErr := s.driftOf(repoPath); driftErr == nil && (d.Unknown || d.Any()) {
 			info.Staleness = d.Summary(5)
-		}
-		paths := make([]string, 0, len(args.Paths))
-		for _, p := range args.Paths {
-			paths = append(paths, s.normalizeToRelative(p))
 		}
 		deps := plan.Deps{
 			RepoPath:      repoPath,
@@ -2448,6 +2456,121 @@ func conformanceFirst(conf *conformance.Report, body string) string {
 		return strings.TrimLeft(s, "\n") + "\n" + body
 	}
 	return body
+}
+
+// planScope is the one repository a plan_check call is about, and its targets
+// relative to that repository's root.
+type planScope struct {
+	repoPath, label string
+	paths           []string
+	multi           bool
+}
+
+// planTarget resolves which repository a plan_check call is about. A plan is one
+// repository's: its declarations govern it and a patch applies to its tree. In a
+// multi-repo snapshot that repository used to be the primary one, whichever was
+// indexed last, whatever the targets named, so a golf/ path was planned against another
+// member's rules and drift. Now label-prefixed paths and fact names select it, repo
+// names it outright, and targets in two repositories are refused rather than guessed.
+func (s *Server) planTarget(store *facts.Store, args planCheckArgs) (planScope, error) {
+	repos := s.eng.RepoPaths()
+	if len(repos) <= 1 {
+		repoPath := s.currentRepoPath()
+		if repoPath == "" {
+			return planScope{}, fmt.Errorf("no snapshot available; run generate_snapshot first")
+		}
+		paths := make([]string, 0, len(args.Paths))
+		for _, p := range args.Paths {
+			paths = append(paths, s.normalizeToRelative(p))
+		}
+		return planScope{repoPath: repoPath, label: filepath.Base(repoPath), paths: paths}, nil
+	}
+
+	labels := make([]string, 0, len(repos))
+	for l := range repos {
+		labels = append(labels, l)
+	}
+	sort.Strings(labels)
+	if args.Repo != "" {
+		if _, ok := repos[args.Repo]; !ok {
+			return planScope{}, fmt.Errorf("repo %q is not in this snapshot; its repositories are %s", args.Repo, strings.Join(labels, ", "))
+		}
+	}
+	named := map[string]bool{}
+	if args.Repo != "" {
+		named[args.Repo] = true
+	}
+	// A path's repository is its label prefix, longest first so golf-ui/ is not read as golf.
+	byLength := append([]string(nil), labels...)
+	sort.Slice(byLength, func(i, j int) bool { return len(byLength[i]) > len(byLength[j]) })
+	type split struct{ label, rel string }
+	splits := make([]split, 0, len(args.Paths))
+	for _, p := range args.Paths {
+		p = filepath.ToSlash(s.normalizeToRelative(p))
+		sp := split{rel: p}
+		for _, l := range byLength {
+			if strings.HasPrefix(p, l+"/") {
+				sp = split{label: l, rel: strings.TrimPrefix(p, l+"/")}
+				break
+			}
+		}
+		if sp.label == "" && args.Repo == "" {
+			return planScope{}, fmt.Errorf("path %q names no repository: prefix it with its repo label (%s) or pass repo", p, strings.Join(labels, ", "))
+		}
+		if sp.label != "" {
+			named[sp.label] = true
+		}
+		splits = append(splits, sp)
+	}
+	// A fact name selects its repository only when repo does not: the same name can be
+	// declared in several members, and an explicit repo is the caller settling that.
+	if args.Repo == "" {
+		for _, sym := range args.Symbols {
+			for _, f := range store.LookupByExactName(sym) {
+				if f.Repo != "" {
+					named[f.Repo] = true
+				}
+			}
+		}
+	}
+	if len(named) == 0 {
+		return planScope{}, fmt.Errorf("cannot tell which repository this plan is for: pass repo (%s)", strings.Join(labels, ", "))
+	}
+	if len(named) > 1 {
+		got := make([]string, 0, len(named))
+		for l := range named {
+			got = append(got, l)
+		}
+		sort.Strings(got)
+		return planScope{}, fmt.Errorf("the targets are in %s; a plan covers one repository's declarations, so plan each separately", strings.Join(got, " and "))
+	}
+	var label string
+	for l := range named {
+		label = l
+	}
+	paths := make([]string, 0, len(splits))
+	for _, sp := range splits {
+		paths = append(paths, sp.rel)
+	}
+	return planScope{repoPath: repos[label], label: label, paths: paths, multi: true}, nil
+}
+
+// driftOf measures drift for one repository against its own snapshot meta. The published
+// snapshot's meta describes the primary repository only, so another member of a
+// multi-repo graph is measured against the meta in its own output directory.
+func (s *Server) driftOf(repoPath string) (engine.Drift, error) {
+	if snap := s.eng.Snapshot(); snap != nil && snap.Meta.RepoPath == repoPath {
+		return s.eng.Drift(repoPath)
+	}
+	raw, err := os.ReadFile(filepath.Join(s.eng.OutputDir(repoPath), "snapshot.meta.json"))
+	if err != nil {
+		return engine.Drift{Unknown: true, Reason: "this repository has no snapshot of its own on disk, so whether the graph still matches its working tree cannot be verified"}, nil
+	}
+	var meta facts.SnapshotMeta
+	if err := json.Unmarshal(raw, &meta); err != nil {
+		return engine.Drift{}, err
+	}
+	return s.eng.DriftFromMeta(repoPath, meta)
 }
 
 // otherSessionMark returns the session mark in dir when it names another agent session
@@ -3922,6 +4045,7 @@ type planCheckArgs struct {
 	Paths     []string `json:"paths,omitempty" jsonschema:"Repo-relative file paths the change touches; they may not exist yet."`
 	Symbols   []string `json:"symbols,omitempty" jsonschema:"Exact fact names the change touches."`
 	Patch     string   `json:"patch,omitempty" jsonschema:"A unified diff to evaluate on a scratch copy; the working tree is never touched."`
+	Repo      string   `json:"repo,omitempty" jsonschema:"Repo label, in a multi-repo snapshot. Inferred from label-prefixed paths and fact names when omitted; needed for a patch, whose paths are relative to one repository."`
 	MaxTokens int      `json:"max_tokens,omitempty" jsonschema:"Approximate token cap; output is truncated with a notice. Default: no cap."`
 }
 

@@ -30,6 +30,9 @@ type Drift struct {
 	Removed  []string // in the snapshot, absent now
 	Modified []string // present in both, different content hash
 	Unknown  bool     // no recorded hashes to compare against
+	// Reason says why drift is Unknown, when it is for a reason other than the
+	// snapshot recording no hashes.
+	Reason string
 }
 
 // Any reports whether any file was added, removed, or edited. It is false when
@@ -48,6 +51,9 @@ func (d Drift) Count() int {
 // message becoming unbounded on a large refactor.
 func (d Drift) Summary(maxPaths int) string {
 	if d.Unknown {
+		if d.Reason != "" {
+			return d.Reason
+		}
 		return "the snapshot recorded no file hashes, so whether it still matches the working tree cannot be verified"
 	}
 	if !d.Any() {
@@ -127,6 +133,16 @@ func (e *Engine) DriftFromMeta(repoPath string, meta facts.SnapshotMeta) (Drift,
 	}
 	if len(recorded) == 0 {
 		return Drift{Unknown: true}, nil
+	}
+	// The walk below applies THIS engine's ignore globs. A snapshot taken under
+	// another set recorded files this walk skips, or skipped files it walks, and every
+	// one of them would read as removed or added: a server whose config ignores *.md
+	// reported 139 files of a repository indexed under another config as removed, all
+	// of them on disk. Under a different ignore set the comparison measures the config,
+	// not the tree.
+	if meta.IgnoreGlobHash != "" && meta.IgnoreGlobHash != computeIgnoreGlobHash(e.cfg) {
+		return Drift{Unknown: true, Reason: "the snapshot was taken under different ignore globs than this server's config, " +
+			"so whether it still matches the working tree cannot be verified here"}, nil
 	}
 
 	files, _, _, _, err := e.walkRepo(context.Background(), repoPath)

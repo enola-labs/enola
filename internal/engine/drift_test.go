@@ -153,3 +153,27 @@ func TestDrift_NoRecordedHashesIsUnknown(t *testing.T) {
 		t.Errorf("Unknown drift must not claim specific changes: %+v", d)
 	}
 }
+
+// A snapshot taken under other ignore globs recorded a different file set than this
+// engine walks, and every difference would read as a removed or added file: a server
+// whose config ignores *.md reported 139 files of a repository indexed under another
+// config as removed, all of them on disk. That is unknown, not drift.
+func TestDrift_DifferentIgnoreGlobsIsUnknownNotRemoved(t *testing.T) {
+	repo := driftRepo(t)
+	writeFile(t, filepath.Join(repo, "NOTES.md"), "notes\n")
+	eng := driftEngine(t, repo)
+	meta := eng.Snapshot().Meta
+	meta.FileHashes = append(meta.FileHashes, facts.FileHash{Path: "NOTES.md", Hash: "sha256:x"})
+	meta.IgnoreGlobHash = "sha256:another-config"
+
+	d, err := eng.DriftFromMeta(repo, meta)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !d.Unknown || d.Any() {
+		t.Fatalf("drift under another ignore set = %+v, want unknown with no paths", d)
+	}
+	if d.Summary(3) == "" {
+		t.Error("unknown drift must say why")
+	}
+}
