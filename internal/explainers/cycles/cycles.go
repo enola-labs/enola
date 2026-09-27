@@ -233,7 +233,11 @@ func witnessCycle(graph map[string][]string, scc []string) []string {
 		neighbours := append([]string(nil), graph[node]...)
 		sort.Strings(neighbours)
 		for _, next := range neighbours {
-			if !inSCC[next] {
+			// A module's edge to itself — files in one directory importing
+			// each other — is real, but it is not the cycle between modules
+			// the finding reports. Taking it printed "a -> a" for 73 of 83
+			// cycles measured across four real repositories.
+			if !inSCC[next] || next == node {
 				continue
 			}
 			if next == start {

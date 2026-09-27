@@ -232,6 +232,29 @@ func TestExplain_CyclePathFollowsRealEdges(t *testing.T) {
 	}
 }
 
+// TestExplain_CyclePathIgnoresSelfEdges: files in one directory importing each
+// other give a module an edge to itself. That edge is real but is not the cycle
+// between modules; taking it printed "src/a -> src/a", which names no second
+// module and gives a reader nothing to cut.
+func TestExplain_CyclePathIgnoresSelfEdges(t *testing.T) {
+	store := makeStore(
+		[]string{"src/a", "src/b", "src/c"},
+		map[string][]string{
+			"src/a": {"src/a", "src/c"},
+			"src/b": {"src/b", "src/a"},
+			"src/c": {"src/c", "src/b"},
+		},
+	)
+	insights, err := New().Explain(context.Background(), store)
+	if err != nil || len(insights) != 1 {
+		t.Fatalf("Explain = %v, %v; want one cycle", insights, err)
+	}
+	const want = "src/a -> src/c -> src/b -> src/a"
+	if !strings.Contains(insights[0].Description, want) {
+		t.Errorf("description = %q, want path %q", insights[0].Description, want)
+	}
+}
+
 // TestExplain_CyclePathNamesMembersOffTheWitness covers a component whose
 // shortest cycle through its first member does not visit every member: the
 // rest are named, never implied to lie on that path.
