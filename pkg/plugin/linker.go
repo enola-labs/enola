@@ -69,6 +69,18 @@ type Binder interface {
 	Bind(ctx context.Context, store *facts.Store) error
 }
 
+// IndexBinder is a Binder whose Bind changes no fact: it only derives an index the
+// store keeps beside them (the target aliases). Such an index is not written to
+// facts.jsonl, so a store restored from disk has none; the engine reruns every
+// IndexBinder over a restored store before building its graph, which reproduces it
+// exactly because it is a function of the facts alone. A binder that changes facts
+// must not declare this: rerunning it would apply its change a second time.
+type IndexBinder interface {
+	Binder
+	// DerivesIndexOnly marks the binder as safe to rerun on a restored store.
+	DerivesIndexOnly()
+}
+
 // ---------------------------------------------------------------------------
 // Cross-repo signals
 // ---------------------------------------------------------------------------

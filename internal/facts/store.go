@@ -1010,7 +1010,7 @@ func (s *Store) Clear() {
 func (s *Store) BuildGraph() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.graph = NewGraph(s.facts)
+	s.graph = NewGraphWithAliases(s.facts, s.targetAliases)
 	// The interning table has done its job: the strings it canonicalized are held by
 	// the facts themselves now, and the map is pure overhead (1.3M entries on the
 	// kernel) for the rest of the store's life. Add recreates it if more facts

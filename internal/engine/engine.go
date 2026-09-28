@@ -251,6 +251,16 @@ func (e *Engine) RestoreFromDir(dir string, repoPaths map[string]string, singleR
 		// Tags only facts whose Repo is empty, so a pre-tagged file is left intact.
 		work.SetRepoRange(0, singleRepoLabel)
 	}
+	// Indexes a binder derives beside the facts are not in facts.jsonl; rebuild them
+	// before the graph reads them, or a restored graph would lose the cross-repo
+	// edges they resolve. Only index binders run: they change no fact.
+	for _, b := range e.binders.All() {
+		if ib, ok := b.(plugin.IndexBinder); ok {
+			if err := ib.Bind(context.Background(), work); err != nil {
+				log.Printf("[engine] restore: rebuilding the %s index failed: %v", ib.Name(), err)
+			}
+		}
+	}
 	work.BuildGraph()
 
 	// Default the primary repo path from the dir; snapshot.meta.json (loaded below)

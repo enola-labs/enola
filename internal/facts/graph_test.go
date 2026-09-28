@@ -842,12 +842,14 @@ func TestNewGraph_CrossRepoCallNormalisation(t *testing.T) {
 
 // TestNormalizeExternalTarget verifies the helper directly.
 func TestNormalizeExternalTarget(t *testing.T) {
-	mods := map[string]struct{}{"github.com/dejo1307/go-auth": {}}
+	// Longest first, as NewGraph orders them, so the nested module claims its targets.
+	mods := []string{"github.com/dejo1307/go-auth/tools", "github.com/dejo1307/go-auth"}
 
 	cases := []struct {
 		target string
 		want   string
 	}{
+		{"github.com/dejo1307/go-auth/tools.Run", "..Run"},
 		{"github.com/dejo1307/go-auth/adapters.Handler.Login", "adapters.Handler.Login"},
 		{"github.com/dejo1307/go-auth.SecurityHeaders", "..SecurityHeaders"},
 		{"github.com/other/lib/pkg.Type.Method", ""}, // no matching module
@@ -1627,5 +1629,35 @@ func TestGovernedByPage(t *testing.T) {
 	}
 	if NewGraph([]Fact{{Kind: KindSymbol, Repo: "backend", File: "a.rb", Name: "A"}}).HasCompiledPages() {
 		t.Fatal("a graph without page nodes must not report compiled pages")
+	}
+}
+
+// An edge whose target names no fact lands on the node its alias names, for a call
+// and for a dependency's package import alike, so a traversal crosses into the
+// repository the alias points at.
+func TestGraph_FollowsTargetAliases(t *testing.T) {
+	s := NewStore()
+	s.Add(
+		Fact{Kind: KindModule, Name: "src/catalog", File: "src/catalog", Repo: "backend"},
+		Fact{Kind: KindSymbol, Name: "src/catalog.CatalogService.items", File: "backend/src/catalog/catalog.service.ts", Repo: "backend",
+			Relations: []Relation{{Kind: RelCalls, Target: "@example/sdk.ResourceConnector.getCatalogItems"}}},
+		Fact{Kind: KindDependency, Name: "src/catalog -> @example/sdk", File: "src/catalog/catalog.service.ts", Repo: "backend",
+			Relations: []Relation{{Kind: RelImports, Target: "@example/sdk"}}},
+		Fact{Kind: KindModule, Name: "src", File: "src", Repo: "sdk"},
+		Fact{Kind: KindSymbol, Name: "src/connectors.ResourceConnector.getCatalogItems", File: "sdk/src/connectors/resource-connector.ts", Repo: "sdk"},
+	)
+	s.SetTargetAliases(map[string]FactKey{
+		"@example/sdk.ResourceConnector.getCatalogItems": {Repo: "sdk", Kind: KindSymbol, Name: "src/connectors.ResourceConnector.getCatalogItems", File: "sdk/src/connectors/resource-connector.ts"},
+		"@example/sdk": {Repo: "sdk", Kind: KindModule, Name: "src", File: "src"},
+	})
+	s.BuildGraph()
+	g := s.Graph()
+
+	path := g.FindPath("src/catalog.CatalogService.items", "src/connectors.ResourceConnector.getCatalogItems", nil, 3)
+	if !path.Found {
+		t.Fatalf("the aliased call is not an edge: %+v", path)
+	}
+	if imp := g.FindPath("src/catalog", "src", []string{RelImports}, 2); !imp.Found {
+		t.Fatalf("the aliased package import is not a module edge: %+v", imp)
 	}
 }

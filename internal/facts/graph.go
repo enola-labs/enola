@@ -203,7 +203,15 @@ type PathResult struct {
 // emitted by an external consumer), the graph normalises the target by stripping known
 // Go module path prefixes (stored in KindModule facts as props["modulePath"]). This
 // allows edges to land on the correct fact in the loaded external repo.
-func NewGraph(ff []Fact) *Graph {
+func NewGraph(ff []Fact) *Graph { return NewGraphWithAliases(ff, nil) }
+
+// NewGraphWithAliases is NewGraph over a store's target aliases (see
+// Store.SetTargetAliases): an edge whose target names no fact but has an alias lands
+// on the node of the fact the alias names, for every relation kind, including a
+// dependency's import of another repository's package. Without an alias a call
+// target still gets the Go module-path normalization below, which is what a graph
+// built from bare facts (a conformance baseline) has to go on.
+func NewGraphWithAliases(ff []Fact, aliases map[string]FactKey) *Graph {
 	g := &Graph{
 		facts:  ff,
 		ids:    make(map[string]uint32, len(ff)),
@@ -216,7 +224,7 @@ func NewGraph(ff []Fact) *Graph {
 	// declaredNodes a usable boundary: after this loop, an ID below it is a name some
 	// fact declares and an ID at or above it is a dangling edge target.
 	moduleNames := make(map[string]bool)
-	modulePaths := make(map[string]struct{}) // Go module paths for cross-repo normalisation
+	var modulePaths []string // Go module paths for cross-repo normalisation, longest first
 	nameID := make([]uint32, len(ff))        // per-fact node ID, so the next pass needn't re-hash
 	for i, f := range ff {
 		nameID[i] = noNode
@@ -226,11 +234,19 @@ func NewGraph(ff []Fact) *Graph {
 		if f.Kind == KindModule {
 			moduleNames[f.Name] = true
 			if mp, ok := f.PropAny("modulePath").(string); ok && mp != "" {
-				modulePaths[mp] = struct{}{}
+				modulePaths = append(modulePaths, mp)
 			}
 		}
 	}
 	g.declaredNodes = uint32(len(g.names))
+	// Longest first, so a module nested under another's path claims its own targets;
+	// ranging over a map picked between them by iteration order.
+	sort.Slice(modulePaths, func(i, j int) bool {
+		if len(modulePaths[i]) != len(modulePaths[j]) {
+			return len(modulePaths[i]) > len(modulePaths[j])
+		}
+		return modulePaths[i] < modulePaths[j]
+	})
 
 	// Index which facts declare each node, as CSR. Every fact declaring the name is
 	// recorded, not just the first: which one a node means depends on the edge that
@@ -260,10 +276,12 @@ func NewGraph(ff []Fact) *Graph {
 	for fi, f := range ff {
 		for _, rel := range f.Relations {
 			target := rel.Target
-			// For unresolved call targets, attempt cross-repo normalisation by
-			// stripping known Go module path prefixes.
-			if rel.Kind == RelCalls {
-				if !g.declares(target) {
+			if !g.declares(target) {
+				if k, ok := aliases[target]; ok && g.declares(k.Name) {
+					target = k.Name
+				} else if rel.Kind == RelCalls {
+					// For unresolved call targets, attempt cross-repo normalisation
+					// by stripping known Go module path prefixes.
 					if normalized := normalizeExternalTarget(target, modulePaths); normalized != "" {
 						if g.declares(normalized) {
 							target = normalized
@@ -285,6 +303,9 @@ func NewGraph(ff []Fact) *Graph {
 				for _, rel := range f.Relations {
 					if rel.Kind == RelImports {
 						target := resolveToModule(rel.Target, moduleNames)
+						if k, ok := aliases[rel.Target]; ok && target == "" && k.Kind == KindModule {
+							target = k.Name
+						}
 						if target != "" && target != modName {
 							b.addEdge(b.idFor(modName), RelImports, target)
 						}
@@ -1215,8 +1236,8 @@ func (g *Graph) impactSeeds(target string) []string {
 //
 //	subpackage: "github.com/x/go-auth/adapters.Handler.Login" → "adapters.Handler.Login"
 //	root pkg:   "github.com/x/go-auth.SecurityHeaders"        → "..SecurityHeaders"
-func normalizeExternalTarget(target string, modulePaths map[string]struct{}) string {
-	for modulePath := range modulePaths {
+func normalizeExternalTarget(target string, modulePaths []string) string {
+	for _, modulePath := range modulePaths {
 		if !strings.HasPrefix(target, modulePath) {
 			continue
 		}

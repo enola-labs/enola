@@ -43,6 +43,10 @@ func (b *Binder) Name() string { return "import-aliases" }
 
 func (b *Binder) Stage() plugin.BindStage { return plugin.StagePostLink }
 
+// DerivesIndexOnly declares the binder a plugin.IndexBinder: it sets the store's
+// target aliases and changes no fact, so a restored store gets them back.
+func (b *Binder) DerivesIndexOnly() {}
+
 // goModule is one loaded repository's Go module path.
 type goModule struct {
 	path string
