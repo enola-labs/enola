@@ -20,6 +20,12 @@ import (
 	"github.com/enola-labs/enola/pkg/plugin"
 )
 
+// v286: a TypeScript function held by an object literal in a top-level declaration
+// is a symbol, "<dir>.<decl>.<key path>" (object_member), framework_registered when
+// the literal was handed to a call. `x.member()` resolves when x is such a
+// declaration or a name imported from the repository; package imports stay
+// unresolved.
+//
 // v285: a Go route whose handler is a package function (`Home`, or `repo.Home`
 // through the file's imports) carries handler_target, the function's fact name; the
 // http-handler binder binds it to the function symbol of exactly that name.
@@ -2551,7 +2557,7 @@ import (
 // v270: SvelteKit reads literal kit.alias fallbacks before generated config exists,
 // keeps tsconfig paths authoritative, and classifies $app/$env/$service-worker imports
 // as framework-provided rather than unresolved third-party dependencies.
-const cacheVersion = "v285"
+const cacheVersion = "v286"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

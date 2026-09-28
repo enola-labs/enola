@@ -7,9 +7,9 @@ import (
 )
 
 // Each hand-written call site names the symbol whose body makes it: a class method,
-// an arrow function held by a const, and the method around a callback that has no
-// symbol of its own. A call at module scope, and one inside an object-literal
-// property (which gets no symbol), name nothing rather than a neighbour.
+// an arrow function held by a const, the method around a callback that has no
+// symbol of its own, and a function held by an object-literal property. A call at
+// module scope names nothing rather than a neighbour.
 func TestClientCallers_NameTheEnclosingSymbol(t *testing.T) {
 	src := `
 export class OrdersClient {
@@ -50,7 +50,7 @@ fetch("/api/boot/config", { method: "GET" });
 		"/api/orders":           "src/api.OrdersClient.list",
 		"/api/orders/{}/cancel": "src/api.OrdersClient.cancel",
 		"/api/invoices":         "src/api.loadInvoices",
-		"/api/status/current":   "",
+		"/api/status/current":   "src/api.statusApi.current",
 		"/api/boot/config":      "",
 	} {
 		caller, ok := got[path]

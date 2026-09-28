@@ -514,6 +514,9 @@ type extractCtx struct {
 	isSvelteKit bool
 	orms        ormFlags
 	importMap   map[string]string
+	// memberRoots are the names `<name>.<member>()` resolves through (see
+	// memberCallRoots); nil where a component script block builds its own context.
+	memberRoots map[string]string
 	imports     emberImportBindings // the file's import table, read for the module a superclass identifier came from
 	ioBindings  map[string]bool     // local names bound to imports from a network module (I/O sinks)
 	knownFiles  map[string]bool     // repo-relative (slash) paths of all indexed TS/JS files
@@ -631,6 +634,7 @@ func (e *TSExtractor) extractFile(src []byte, relFile string, isNextJS, isVue, i
 	// Extract from the tree
 	result = append(result, e.extractImports(kinds, root, src, relFile, aliases, isSvelteKit)...)
 
+	importMap, internalImports := buildImportBindings(kinds, root, src, relFile, aliases, files)
 	ctx := &extractCtx{
 		src:         src,
 		relFile:     relFile,
@@ -641,7 +645,8 @@ func (e *TSExtractor) extractFile(src []byte, relFile string, isNextJS, isVue, i
 		isNuxt:      isNuxt,
 		isSvelteKit: isSvelteKit,
 		orms:        orms,
-		importMap:   buildImportSymbols(kinds, root, src, relFile, aliases, files),
+		importMap:   importMap,
+		memberRoots: memberCallRoots(kinds, root, src, factpath.Dir(relFile), internalImports),
 		imports:     buildEmberImportBindings(kinds, root, src, relFile, aliases),
 		ioBindings:  buildIOImportBindings(kinds, root, src),
 		knownFiles:  knownFiles,
@@ -1061,7 +1066,7 @@ func (e *TSExtractor) extractNode(kinds *tsutil.KindTable, node *sitter.Node, ct
 					}
 				}
 				mRels := []facts.Relation{{Kind: facts.RelDeclares, Target: dir}}
-				callRels, m := collectCallsWithMetrics(kinds, member, src, dir, symbolName, ctx.importMap, fieldTypes, ctx.ioBindings, dir+"."+symbolName+"."+mName, mName)
+				callRels, m := collectCallsWithMetrics(kinds, member, src, dir, symbolName, ctx.importMap, fieldTypes, ctx.memberRoots, ctx.ioBindings, dir+"."+symbolName+"."+mName, mName)
 				mRels = append(mRels, callRels...)
 				mProps := map[string]any{
 					"symbol_kind": facts.SymbolMethod,
@@ -1176,7 +1181,7 @@ func (e *TSExtractor) extractNode(kinds *tsutil.KindTable, node *sitter.Node, ct
 			vRels := []facts.Relation{{Kind: facts.RelDeclares, Target: dir}}
 			var vMetrics *tsBodyMetrics
 			if body != nil {
-				callRels, m := collectCallsWithMetrics(kinds, body, src, dir, "", ctx.importMap, nil, ctx.ioBindings, dir+"."+symbolName, symbolName)
+				callRels, m := collectCallsWithMetrics(kinds, body, src, dir, "", ctx.importMap, nil, ctx.memberRoots, ctx.ioBindings, dir+"."+symbolName, symbolName)
 				vRels = append(vRels, callRels...)
 				vMetrics = m
 			}
@@ -1200,6 +1205,9 @@ func (e *TSExtractor) extractNode(kinds *tsutil.KindTable, node *sitter.Node, ct
 			}
 			classifySymbol(kinds, &f, symbolName, body, ctx, symbolKind)
 			result = append(result, f)
+			if symbolKind == facts.SymbolVariable {
+				result = append(result, objectMemberSymbols(kinds, decl.ChildByFieldName("value"), ctx, symbolName, isExported)...)
+			}
 
 			// Drizzle: `export const orders = pgTable("orders", {...})` is a table. The
 			// call_expression is already in hand above — it simply fails isComponentWrapper.
@@ -1251,7 +1259,7 @@ func commonJSExportName(kinds *tsutil.KindTable, left *sitter.Node, src []byte) 
 
 func (e *TSExtractor) funcSymbol(kinds *tsutil.KindTable, declNode, body *sitter.Node, ctx *extractCtx, name string, exported bool) facts.Fact {
 	rels := []facts.Relation{{Kind: facts.RelDeclares, Target: ctx.dir}}
-	callRels, m := collectCallsWithMetrics(kinds, body, ctx.src, ctx.dir, "", ctx.importMap, nil, ctx.ioBindings, ctx.dir+"."+name, name)
+	callRels, m := collectCallsWithMetrics(kinds, body, ctx.src, ctx.dir, "", ctx.importMap, nil, ctx.memberRoots, ctx.ioBindings, ctx.dir+"."+name, name)
 	rels = append(rels, callRels...)
 	f := facts.Fact{
 		Kind: facts.KindSymbol,
@@ -2213,8 +2221,20 @@ func resolveModuleFile(resolved string, knownFiles map[string]bool) (indexPath, 
 // binder resolves the one to the other. Left unmapped, the call fell through to the
 // same-directory spelling, which named a symbol of the importing file's own module.
 func buildImportSymbols(kinds *tsutil.KindTable, root *sitter.Node, src []byte, relFile string, aliases map[string]tsAlias, files *tsFileIndex) map[string]string {
+	m, _ := buildImportBindings(kinds, root, src, relFile, aliases, files)
+	return m
+}
+
+// buildImportBindings is buildImportSymbols plus the local names bound from a
+// module of this repository (a relative, aliased or baseUrl path) rather than from
+// a package, each qualified: the ones whose members can name this repository's
+// symbols. A default import is qualified by its local name, the name a default-
+// exported declaration nearly always carries; it is left out of the import map,
+// where it would change what a bare call to it resolves to.
+func buildImportBindings(kinds *tsutil.KindTable, root *sitter.Node, src []byte, relFile string, aliases map[string]tsAlias, files *tsFileIndex) (map[string]string, map[string]string) {
 	fileDir := factpath.Dir(relFile)
 	m := make(map[string]string)
+	internal := make(map[string]string)
 	for i := range root.ChildCount() {
 		child := root.Child(i)
 		if kindOf(kinds, child) != "import_statement" {
@@ -2227,11 +2247,13 @@ func buildImportSymbols(kinds *tsutil.KindTable, root *sitter.Node, src []byte, 
 		importPath := strings.Trim(nodeText(source, src), `"'`)
 		resolved, isExternal := resolveImportPath(importPath, fileDir, aliases)
 		qualifier := factpath.Dir(resolved)
+		fromRepo := !isExternal
 		if isExternal {
 			// A framework alias or a baseUrl path is a file of this repository that
 			// resolveImportPath could not see; anything else is a package.
 			if file, ok := files.resolve(importPath, relFile); ok {
 				qualifier = factpath.Dir(file)
+				fromRepo = true
 			} else {
 				qualifier = importPath
 			}
@@ -2240,6 +2262,9 @@ func buildImportSymbols(kinds *tsutil.KindTable, root *sitter.Node, src []byte, 
 		clause := findChildByKind(kinds, child, "import_clause")
 		if clause == nil {
 			continue
+		}
+		if def := findChildByKind(kinds, clause, "identifier"); def != nil && fromRepo {
+			internal[nodeText(def, src)] = qualifier + "." + nodeText(def, src)
 		}
 		named := findChildByKind(kinds, clause, "named_imports")
 		if named == nil {
@@ -2260,9 +2285,46 @@ func buildImportSymbols(kinds *tsutil.KindTable, root *sitter.Node, src []byte, 
 				local = nodeText(aliasNode, src)
 			}
 			m[local] = qualifier + "." + exportName
+			if fromRepo {
+				internal[local] = m[local]
+			}
 		}
 	}
-	return m
+	return m, internal
+}
+
+// memberCallRoots returns the names `<name>.<member>()` resolves through, each
+// mapped to its qualified name: a name imported from this repository, and a
+// top-level declaration of this file whose value holds object-member functions
+// (see objectMemberSymbols). Anything else, a package import above all, is left out:
+// its members name no fact, and resolving them would only add dangling edges.
+func memberCallRoots(kinds *tsutil.KindTable, root *sitter.Node, src []byte, dir string, internal map[string]string) map[string]string {
+	roots := map[string]string{}
+	for local, qualified := range internal {
+		roots[local] = qualified
+	}
+	for i := range root.ChildCount() {
+		stmt := root.Child(i)
+		if kindOf(kinds, stmt) == "export_statement" {
+			if d := stmt.ChildByFieldName("declaration"); d != nil {
+				stmt = d
+			}
+		}
+		if k := kindOf(kinds, stmt); k != "lexical_declaration" && k != "variable_declaration" {
+			continue
+		}
+		for j := range stmt.ChildCount() {
+			decl := stmt.Child(j)
+			if kindOf(kinds, decl) != "variable_declarator" {
+				continue
+			}
+			name := findChildByKind(kinds, decl, "identifier")
+			if name != nil && hasObjectMembers(kinds, decl.ChildByFieldName("value"), src) {
+				roots[nodeText(name, src)] = dir + "." + nodeText(name, src)
+			}
+		}
+	}
+	return roots
 }
 
 // collectTSFileRefs performs a whole-file reference pass for the dead-code detector.
@@ -2996,7 +3058,10 @@ type tsBodyWalker struct {
 	dir, className string
 	// fieldTypes is the enclosing class's instance fields with a stated type,
 	// field -> qualified type (see classFieldTypes); nil outside a class method.
-	fieldTypes          map[string]string
+	fieldTypes map[string]string
+	// memberRoots are the names `<name>.<member>()` resolves through (see
+	// memberCallRoots).
+	memberRoots         map[string]string
 	importMap           map[string]string
 	ioBindings          map[string]bool
 	selfName, selfShort string
@@ -3128,7 +3193,7 @@ func (w *tsBodyWalker) walk(n *sitter.Node) {
 		if w.metrics != nil && !w.metrics.ioDirect && tsIsIOCall(w.kinds, n, w.src, w.ioBindings) {
 			w.metrics.ioDirect = true
 		}
-		if target := resolveTSCall(w.kinds, n, w.src, w.dir, w.className, w.importMap, w.fieldTypes); target != "" {
+		if target := resolveTSCall(w.kinds, n, w.src, w.dir, w.className, w.importMap, w.fieldTypes, w.memberRoots); target != "" {
 			if !w.seen[target] {
 				w.seen[target] = true
 				w.rels = append(w.rels, facts.Relation{Kind: facts.RelCalls, Target: target})
@@ -3300,9 +3365,9 @@ func declaresParameters(kinds *tsutil.KindTable, member *sitter.Node) (string, b
 	return "no", true
 }
 
-func collectCallsWithMetrics(kinds *tsutil.KindTable, node *sitter.Node, src []byte, dir, className string, importMap, fieldTypes map[string]string, ioBindings map[string]bool, selfName, selfShort string) ([]facts.Relation, *tsBodyMetrics) {
+func collectCallsWithMetrics(kinds *tsutil.KindTable, node *sitter.Node, src []byte, dir, className string, importMap, fieldTypes, memberRoots map[string]string, ioBindings map[string]bool, selfName, selfShort string) ([]facts.Relation, *tsBodyMetrics) {
 	m := &tsBodyMetrics{}
-	w := &tsBodyWalker{src: src, kinds: kinds, dir: dir, className: className, importMap: importMap, fieldTypes: fieldTypes, ioBindings: ioBindings, selfName: selfName, selfShort: selfShort, metrics: m, seen: make(map[string]bool)}
+	w := &tsBodyWalker{src: src, kinds: kinds, dir: dir, className: className, importMap: importMap, fieldTypes: fieldTypes, memberRoots: memberRoots, ioBindings: ioBindings, selfName: selfName, selfShort: selfShort, metrics: m, seen: make(map[string]bool)}
 	w.walk(node)
 	return w.rels, m
 }
@@ -3532,7 +3597,8 @@ func computeTSPerformsIO(allFacts []facts.Fact) {
 //   - bare calls `foo()` → imported symbol via importMap, else same-module "<dir>.foo"
 //   - `this.method()` inside a class → "<dir>.<className>.method"
 //   - `this.field.method()` on a field of stated type T → "<qualified T>.method"
-func resolveTSCall(kinds *tsutil.KindTable, call *sitter.Node, src []byte, dir, className string, importMap, fieldTypes map[string]string) string {
+//   - `x.member()` where x is a member-call root (see memberCallRoots) → "<qualified x>.member"
+func resolveTSCall(kinds *tsutil.KindTable, call *sitter.Node, src []byte, dir, className string, importMap, fieldTypes, memberRoots map[string]string) string {
 	fn := call.ChildByFieldName("function")
 	if fn == nil {
 		return ""
@@ -3554,6 +3620,11 @@ func resolveTSCall(kinds *tsutil.KindTable, call *sitter.Node, src []byte, dir, 
 		// have an unknown type and are left unresolved to avoid dangling edges.
 		if kindOf(kinds, object) == "this" && className != "" {
 			return dir + "." + className + "." + nodeText(property, src)
+		}
+		if kindOf(kinds, object) == "identifier" && kindOf(kinds, property) == "property_identifier" {
+			if root, ok := memberRoots[nodeText(object, src)]; ok {
+				return root + "." + nodeText(property, src)
+			}
 		}
 		// `this.field.method()`: the field's stated type names the method's class.
 		if kindOf(kinds, object) == "member_expression" && kindOf(kinds, property) == "property_identifier" {

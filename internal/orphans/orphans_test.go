@@ -1585,3 +1585,17 @@ func TestClassify_ExcludesSampleTreesGeneratedAndRegistered(t *testing.T) {
 		t.Error("include_entrypoints=true should surface decorator-registered handlers")
 	}
 }
+
+// A function held by a TS object literal is reached through the object far more
+// often than by name, so an unreferenced one is a low-confidence lead, like a
+// component; the same function declared on its own stays medium.
+func TestConfidence_ObjectMemberIsLow(t *testing.T) {
+	member := symInput{Name: "src/api.matcher.isApplicable", Kind: facts.SymbolFunc, Language: "typescript", ObjectMember: true}
+	plain := symInput{Name: "src/api.isApplicable", Kind: facts.SymbolFunc, Language: "typescript"}
+	if got := confidenceFor(member); got != confLow {
+		t.Errorf("object member confidence = %q, want %q", got, confLow)
+	}
+	if got := confidenceFor(plain); got != confMedium {
+		t.Errorf("plain TS function confidence = %q, want %q", got, confMedium)
+	}
+}
