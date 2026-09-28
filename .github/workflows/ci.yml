@@ -131,8 +131,11 @@ jobs:
     runs-on: ubuntu-latest
     # github.base_ref is empty outside pull_request, leaving nothing to grade against.
     if: github.event_name == 'pull_request'
+    # pull-requests: write is for the report comment only. A fork's pull request still
+    # gets a read-only token; the action then warns and the verdict stands unchanged.
     permissions:
       contents: read
+      pull-requests: write
     steps:
       - uses: actions/checkout@v7
         with:
@@ -161,6 +164,11 @@ jobs:
           # between packages. The layer order is the part it cannot check — nothing stops
           # a core package importing the CLI surface today except this file.
           fail-on: layers
+          # The report as a pull request comment on every run, passing or not, edited in
+          # place on each push. Needs an enola-action release that has the input; an older
+          # one warns about an unexpected input and carries on.
+          pr-comment: true
+          pr-comment-when: always
 
   # The prose gate. Documentation is the one artifact in this repository with no
   # compiler, and it had drifted accordingly: four dead references, and five counts
