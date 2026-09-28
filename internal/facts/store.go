@@ -1104,6 +1104,11 @@ func (s *Store) WriteJSONL(w io.Writer) error {
 		// f is a copy, and its own Relations field is shadowed by the one below,
 		// so neither the store's facts nor their relation slices are touched.
 		factID, idScratch = factIDInto(idScratch, f.Repo, f.Kind, f.Name, f.File)
+		if f.Kind == KindRoute {
+			// f is a copy, and withFactRefIDs copies before widening, so the
+			// store's shared Props map is never written.
+			f.Props, idScratch = withFactRefIDs(f.Props, idScratch)
+		}
 		b, err := json.Marshal(wireFact{Fact: f, Relations: rels, ID: factID})
 		if err != nil {
 			s.mu.RUnlock()

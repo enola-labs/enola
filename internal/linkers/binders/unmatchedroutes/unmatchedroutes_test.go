@@ -328,3 +328,45 @@ func TestFlagUnmatchedRoutes_RuntimeObservationsCarryNoVerdict(t *testing.T) {
 		}
 	}
 }
+
+// A resolved call names the server route it reaches, and stops naming it once a
+// later append makes the call ambiguous: the positive half is idempotent across
+// appends for the same reason the markers are.
+func TestFlagUnmatchedRoutes_MatchedRoutesFollowTheLinker(t *testing.T) {
+	store := facts.NewStore()
+	call := clientRouteFact("web", "/api/items/{id}", "GET")
+	call.File = "web/src/api.ts"
+	server := serverRouteFact("backend", "/api/items/{itemId}", "GET")
+	server.File = "backend/items.go"
+	store.Add(call, server)
+
+	bind(t, store)
+
+	matched := func() []any {
+		for _, f := range store.All() {
+			if f.Name == "/api/items/{id}" {
+				refs, _ := f.Props[facts.PropMatchedRoutes].([]any)
+				return refs
+			}
+		}
+		return nil
+	}
+	refs := matched()
+	if len(refs) != 1 {
+		t.Fatalf("matched_routes = %v, want one entry", refs)
+	}
+	entry, _ := refs[0].(map[string]any)
+	if entry["repo"] != "backend" || entry["name"] != "/api/items/{itemId}" || entry["file"] != "backend/items.go" || entry["method"] != "GET" {
+		t.Fatalf("entry = %v, want the backend route's identity", entry)
+	}
+
+	// A second repo serving the same path leaves nothing to choose between them.
+	replica := serverRouteFact("replica", "/api/items/{itemId}", "GET")
+	replica.File = "replica/items.go"
+	store.Add(replica)
+	bind(t, store)
+
+	if refs := matched(); refs != nil {
+		t.Fatalf("stale matched_routes survived a re-link that made the call ambiguous: %v", refs)
+	}
+}

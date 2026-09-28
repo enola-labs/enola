@@ -305,3 +305,48 @@ func TestMarshalInsights_LeavesTheDocumentAlone(t *testing.T) {
 		t.Errorf("nil evidence did not stay null:\n%s", out)
 	}
 }
+
+// A matched_routes entry names its target by identity, and the writer adds that
+// identity's id: the same id the target fact itself is written with. It does so on a
+// copy, and recomputes an id already present rather than trusting it.
+func TestWriteJSONL_AddsIDsToMatchedRoutes(t *testing.T) {
+	entry := map[string]any{"repo": "gateway", "name": "/v1/x", "file": "gateway/x.ts", "method": "POST", "id": "stale"}
+	s := NewStore()
+	s.Add(
+		Fact{Kind: KindRoute, Name: "/v1/x", File: "gateway/x.ts", Repo: "gateway",
+			Props: map[string]any{"role": "server", "method": "POST"}},
+		Fact{Kind: KindRoute, Name: "/v1/x", File: "sdk/c.ts", Repo: "sdk",
+			Props: map[string]any{"role": "client", "method": "POST", PropMatchedRoutes: []any{entry}}},
+	)
+
+	var buf bytes.Buffer
+	if err := s.WriteJSONL(&buf); err != nil {
+		t.Fatal(err)
+	}
+	var serverID, refID string
+	for _, l := range strings.Split(strings.TrimSpace(buf.String()), "\n") {
+		var m struct {
+			ID    string         `json:"id"`
+			Repo  string         `json:"repo"`
+			Props map[string]any `json:"props"`
+		}
+		if err := json.Unmarshal([]byte(l), &m); err != nil {
+			t.Fatal(err)
+		}
+		if m.Repo == "gateway" {
+			serverID = m.ID
+			continue
+		}
+		refs, _ := m.Props[PropMatchedRoutes].([]any)
+		if len(refs) != 1 {
+			t.Fatalf("client line lost its matched_routes: %s", l)
+		}
+		refID, _ = refs[0].(map[string]any)["id"].(string)
+	}
+	if serverID == "" || refID != serverID {
+		t.Fatalf("matched_routes id = %q, want the server route's id %q", refID, serverID)
+	}
+	if entry["id"] != "stale" {
+		t.Fatalf("the store's own entry was written: id = %v", entry["id"])
+	}
+}

@@ -123,6 +123,16 @@ Contract props:
   cross-repo edges via=grpc).
 - `method`: the HTTP verb; `*` means the route handles every verb (a raw
   servlet, or a mapping declared without one).
+- `matched_routes` (client routes, multi-repo mode): the server routes the
+  cross-repo HTTP linker resolved this call site to, as an array of
+  `{repo, name, file, method, confidence, id}`. `id` is the target route's fact
+  id, computed by the writer like `target_id`; `confidence` is `verified` or
+  `probable` under the rule the service edge uses. Only the chosen provider's
+  routes are listed, so a call several repositories serve with nothing to choose
+  between them has none. A call its own repository serves keeps its match,
+  although it draws no service edge. This is a prop rather than a relation
+  because a call and the route it reaches usually share a name, and a relation
+  names its target by name.
 
 ### dependency
 

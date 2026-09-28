@@ -39,6 +39,58 @@ type wireFact struct {
 	ID        string         `json:"id"`
 }
 
+// PropMatchedRoutes is the prop on a client route listing the server routes the
+// cross-repo HTTP linker resolved it to. Each entry is a map carrying the target's
+// repo, name and file (plus method and confidence), which is its full identity.
+//
+// It is a prop and not a relation because a relation names its target by NAME, and a
+// client call site and the server route it reaches usually share one: from the
+// client's repository, name resolution prefers the client fact itself, and the graph,
+// which is name-keyed, would draw the link as a self-loop. The entry names the target
+// by identity instead, and the writer adds that identity's id beside it.
+const PropMatchedRoutes = "matched_routes"
+
+// withFactRefIDs returns props with an "id" added to every entry of
+// PropMatchedRoutes, computed from the entry's repo, name and file exactly as the
+// target fact's own id is. It returns props unchanged when there is nothing to add,
+// and otherwise a copy: the store's maps are shared and must not be written here.
+//
+// An id already present is recomputed rather than trusted, so a snapshot read back
+// from disk and written again cannot carry an id its entry no longer agrees with.
+func withFactRefIDs(props map[string]any, scratch []byte) (map[string]any, []byte) {
+	refs, ok := props[PropMatchedRoutes].([]any)
+	if !ok || len(refs) == 0 {
+		return props, scratch
+	}
+	out := make(map[string]any, len(props))
+	for k, v := range props {
+		out[k] = v
+	}
+	widened := make([]any, len(refs))
+	for i, r := range refs {
+		entry, ok := r.(map[string]any)
+		if !ok {
+			widened[i] = r
+			continue
+		}
+		repo, _ := entry["repo"].(string)
+		name, _ := entry["name"].(string)
+		file, _ := entry["file"].(string)
+		copied := make(map[string]any, len(entry)+1)
+		for k, v := range entry {
+			copied[k] = v
+		}
+		if repo != "" && name != "" {
+			copied["id"], scratch = factIDInto(scratch, repo, KindRoute, name, file)
+		} else {
+			delete(copied, "id")
+		}
+		widened[i] = copied
+	}
+	out[PropMatchedRoutes] = widened
+	return out, scratch
+}
+
 // targetFactFor resolves a relation target NAME to the index of the fact it
 // names, or -1 when the snapshot cannot answer that unambiguously. The caller
 // turns the index into an id, so resolution and hashing stay separable and the

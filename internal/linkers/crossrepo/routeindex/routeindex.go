@@ -60,19 +60,25 @@ type RouteRef struct {
 func (m *Matcher) IndexServerRoutes(all []facts.Fact) map[string][]RouteRef {
 	server := map[string][]RouteRef{}
 	for _, f := range all {
-		if f.Kind != facts.KindRoute || f.Repo == "" || RoleOf(f) == facts.RoleClient || IsUIRoute(f) ||
-			f.PropString(facts.PropRouteType) == facts.RouteTypeGraphQL {
+		if !IsIndexedServerRoute(f) {
 			continue
 		}
 		method := NormalizeMethod(f.PropString("method"))
-		if method == "" {
-			continue
-		}
 		for _, p := range m.ServerPaths(f) {
 			m.IndexServerRef(server, RouteRef{Repo: f.Repo, Method: method, Path: f.Name, FullPath: p})
 		}
 	}
 	return server
+}
+
+// IsIndexedServerRoute reports whether IndexServerRoutes indexes f: a repo-labelled,
+// non-client, non-UI, non-GraphQL route with a usable verb. A pass that needs the
+// facts behind the index's refs selects them with this, so it cannot see a route
+// the index left out or miss one it put in.
+func IsIndexedServerRoute(f facts.Fact) bool {
+	return f.Kind == facts.KindRoute && f.Repo != "" && RoleOf(f) != facts.RoleClient && !IsUIRoute(f) &&
+		f.PropString(facts.PropRouteType) != facts.RouteTypeGraphQL &&
+		NormalizeMethod(f.PropString("method")) != ""
 }
 
 // IndexServerRef adds one server route reference to a server index under every key a

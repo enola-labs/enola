@@ -10,6 +10,7 @@ package http
 import (
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/enola-labs/enola/internal/endpoint"
@@ -82,6 +83,112 @@ func (s *Signal) Contribute(in plugin.SignalInput, out plugin.EvidenceSink) {
 			out.Coverage(f.Repo, CoverageEdgeType).Declared++
 		}
 	}
+}
+
+// RouteMatch is one server route a resolved client call reaches, named by the
+// target fact's full identity (repo, name, file) plus the verb, because one path in
+// one file can serve several verbs under a single identity.
+type RouteMatch struct {
+	Repo       string
+	Method     string
+	Name       string
+	File       string
+	Confidence string // "verified" or "probable", by the rule matchConfidence applies
+}
+
+// ClientCallKey identifies one client call site. RouteIdentity alone does not:
+// the same verb and path called from two files are two call sites, and each is
+// resolved on its own props (its target_hint, its declared client).
+func ClientCallKey(f facts.Fact) string {
+	return routeindex.RouteIdentity(f) + "\x00" + f.File + "\x00" + strconv.Itoa(f.Line)
+}
+
+// ClientRouteMatches returns, per client call site (keyed by ClientCallKey), the
+// server routes the call resolved to. It runs resolveCall, the same decision
+// Contribute draws its edges from, so a call gets matches exactly when it counted
+// as resolved, and only the chosen provider's routes: the generous rule the
+// used-route verdicts apply would link one call to every repo serving the path.
+//
+// A call its own repo serves keeps its matches. Contribute draws no service edge
+// for it, since a repo does not depend on itself, but the call does reach that
+// route, and that is what this records.
+//
+// Returns nil for a single-repo snapshot, like the verdicts beside it.
+func ClientRouteMatches(m *routeindex.Matcher, all []facts.Fact) map[string][]RouteMatch {
+	if len(reposOf(all)) < 2 {
+		return nil
+	}
+	server := m.IndexServerRoutes(all)
+	declaredTargets := soleDeclaredHTTPTargets(all)
+
+	// The index carries repo, verb and path; the file completing each target's
+	// identity comes from the server facts. Several files serving one identity each
+	// get an entry, since nothing says which one the call reaches.
+	files := map[string][]string{}
+	for _, f := range all {
+		if !routeindex.IsIndexedServerRoute(f) {
+			continue
+		}
+		key := routeindex.RouteIdentity(f)
+		files[key] = append(files[key], f.File)
+	}
+
+	out := map[string][]RouteMatch{}
+	for _, f := range all {
+		if f.Kind != facts.KindRoute || f.Repo == "" || routeindex.RoleOf(f) != facts.RoleClient ||
+			f.PropString(facts.PropRouteType) == facts.RouteTypeGraphQL {
+			continue
+		}
+		call := resolveCall(m, server, declaredTargets, f)
+		if call.bucket != bucketResolved {
+			continue
+		}
+		best := map[string]string{} // identity -> strongest confidence seen
+		for _, ref := range call.matches {
+			if ref.Repo != call.provider {
+				continue
+			}
+			conf := "probable"
+			if !call.viaParam && call.unambiguous && !strings.Contains(call.np, "{}") && ref.FullPath == call.clientPath {
+				conf = "verified"
+			}
+			id := routeindex.RouteIdentityKey(ref.Repo, ref.Method, ref.Path)
+			if best[id] != "verified" {
+				best[id] = conf
+			}
+		}
+		if len(best) == 0 {
+			continue
+		}
+		var matches []RouteMatch
+		for id, conf := range best {
+			parts := strings.SplitN(id, "\x00", 3)
+			seen := map[string]bool{}
+			for _, file := range files[id] {
+				if seen[file] {
+					continue
+				}
+				seen[file] = true
+				matches = append(matches, RouteMatch{Repo: parts[0], Method: parts[1], Name: parts[2], File: file, Confidence: conf})
+			}
+		}
+		sort.Slice(matches, func(i, j int) bool {
+			a, b := matches[i], matches[j]
+			if a.Repo != b.Repo {
+				return a.Repo < b.Repo
+			}
+			if a.Name != b.Name {
+				return a.Name < b.Name
+			}
+			if a.Method != b.Method {
+				return a.Method < b.Method
+			}
+			return a.File < b.File
+		})
+		// Two facts sharing a key are one call site recorded twice, resolved alike.
+		out[ClientCallKey(f)] = matches
+	}
+	return out
 }
 
 // callBucket is where one client call lands in its service's edge coverage.
