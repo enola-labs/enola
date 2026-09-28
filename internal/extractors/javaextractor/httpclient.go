@@ -58,28 +58,40 @@ func (w *astWalker) detectRestTemplateCall(node *sitter.Node, name string) {
 	if cleaned == "" || cleaned == "/" { // query-only literal ("/?x=1") → no linkable path
 		return
 	}
+	props := map[string]any{
+		facts.PropRole:   facts.RoleClient,
+		"method":         method,
+		"framework":      "resttemplate",
+		"language":       "java",
+		facts.PropSource: facts.RouteSourceJavaHTTPClient,
+		"api":            javaAPIHint(w.relFile),
+	}
+	// The method whose body makes the call, lambdas included: the walker's owner.
+	// A field initializer's owner is its class, which is no caller.
+	if owner := w.currentOwner(); owner != nil && isCallerKind(owner.PropString("symbol_kind")) {
+		props[facts.PropCaller] = owner.Name
+	}
 	w.out = append(w.out, facts.Fact{
-		Kind: facts.KindRoute,
-		Name: cleaned,
-		File: w.relFile,
-		Line: int(node.StartPosition().Row) + 1,
-		Props: map[string]any{
-			facts.PropRole:   facts.RoleClient,
-			"method":         method,
-			"framework":      "resttemplate",
-			"language":       "java",
-			facts.PropSource: facts.RouteSourceJavaHTTPClient,
-			"api":            javaAPIHint(w.relFile),
-		},
+		Kind:      facts.KindRoute,
+		Name:      cleaned,
+		File:      w.relFile,
+		Line:      int(node.StartPosition().Row) + 1,
+		Props:     props,
 		Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: w.dir}},
 	})
+}
+
+// isCallerKind reports whether a symbol of this kind has a body that makes calls.
+// Constructors are emitted as methods.
+func isCallerKind(kind string) bool {
+	return kind == facts.SymbolMethod || kind == facts.SymbolFunc
 }
 
 // feignClientFacts emits a client-route fact for each HTTP method a @FeignClient
 // interface method declares, combining the interface base path with the method
 // mapping. Mirrors springRouteFacts but marks role=client and carries the Feign
 // service name as the cross-repo target hint.
-func feignClientFacts(basePath, hint string, methodAnns []javaAnnotation, relFile string, line int, dir string) []facts.Fact {
+func feignClientFacts(basePath, hint string, methodAnns []javaAnnotation, relFile string, line int, dir, method string) []facts.Fact {
 	var out []facts.Fact
 	for _, a := range methodAnns {
 		var methods []string
@@ -105,6 +117,11 @@ func feignClientFacts(basePath, hint string, methodAnns []javaAnnotation, relFil
 			}
 			if hint != "" {
 				props["target_hint"] = hint
+			}
+			// A Feign route is declared by an interface method, which is its caller
+			// as a Retrofit route's is: code calls the method, the method is the call.
+			if method != "" {
+				props[facts.PropCaller] = method
 			}
 			out = append(out, facts.Fact{
 				Kind:      facts.KindRoute,

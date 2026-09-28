@@ -20,6 +20,11 @@ import (
 	"github.com/enola-labs/enola/pkg/plugin"
 )
 
+// v284: Java and Dart client call sites name their caller. Java reads the walker's
+// owning method (a Feign route names the interface method declaring it); Dart
+// records each function's extent as it emits it, its signature and body being
+// sibling nodes, and assigns callers from those spans.
+//
 // v283: an Angular HttpClient request names its caller, the service member making
 // it. Those requests are emitted repo-wide after the per-file caller pass, so they
 // are attributed where the collector walks the class.
@@ -2542,7 +2547,7 @@ import (
 // v270: SvelteKit reads literal kit.alias fallbacks before generated config exists,
 // keeps tsconfig paths authoritative, and classifies $app/$env/$service-worker imports
 // as framework-provided rather than unresolved third-party dependencies.
-const cacheVersion = "v283"
+const cacheVersion = "v284"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

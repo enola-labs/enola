@@ -27,10 +27,11 @@ type Grammar struct {
 	Wrappers map[string]bool
 }
 
-// span is one function-like node's row range and the symbol it was emitted as.
-type span struct {
-	start, end uint
-	symbol     string
+// Span is one function's row range (0-based, inclusive) and the symbol it was
+// emitted as.
+type Span struct {
+	Start, End uint
+	Symbol     string
 }
 
 // Attribute sets facts.PropCaller on every hand-written client route in result: the
@@ -58,7 +59,11 @@ func Attribute(g Grammar, root *sitter.Node, result []facts.Fact) {
 	if len(calls) == 0 || root == nil {
 		return
 	}
+	AttributeSpans(treeSpans(g, root, result), result)
+}
 
+// treeSpans pairs the function nodes of a tree with the symbols in result.
+func treeSpans(g Grammar, root *sitter.Node, result []facts.Fact) []Span {
 	byLine := map[uint][]string{}
 	for _, f := range result {
 		if f.Kind == facts.KindSymbol && f.Line > 0 {
@@ -81,34 +86,50 @@ func Attribute(g Grammar, root *sitter.Node, result []facts.Fact) {
 		}
 	}
 
-	var spans []span
+	var spans []Span
 	stack := []*sitter.Node{root}
 	for len(stack) > 0 {
 		n := stack[len(stack)-1]
 		stack = stack[:len(stack)-1]
 		if g.Functions[g.KindOf(n)] {
 			if sym := symbolAt(n); sym != "" {
-				spans = append(spans, span{start: n.StartPosition().Row, end: n.EndPosition().Row, symbol: sym})
+				spans = append(spans, Span{Start: n.StartPosition().Row, End: n.EndPosition().Row, Symbol: sym})
 			}
 		}
 		for i := range n.ChildCount() {
 			stack = append(stack, n.Child(i))
 		}
 	}
+	return spans
+}
 
-	for _, i := range calls {
-		row := uint(result[i].Line - 1)
+// AttributeSpans sets facts.PropCaller on every hand-written client route in result
+// to the symbol of the narrowest span containing its line. It is Attribute for an
+// extractor that knows its functions' extents directly: one whose grammar makes a
+// function's signature and body siblings rather than one node, so no single node
+// contains a call and names its function.
+func AttributeSpans(spans []Span, result []facts.Fact) {
+	if len(spans) == 0 {
+		return
+	}
+	for i := range result {
+		f := &result[i]
+		if f.Kind != facts.KindRoute || f.Line <= 0 || f.PropAny(facts.PropRole) != facts.RoleClient ||
+			!facts.HandWrittenClientSources[f.PropString(facts.PropSource)] {
+			continue
+		}
+		row := uint(f.Line - 1)
 		best := -1
 		for j, s := range spans {
-			if row < s.start || row > s.end {
+			if row < s.Start || row > s.End {
 				continue
 			}
-			if best < 0 || s.end-s.start < spans[best].end-spans[best].start {
+			if best < 0 || s.End-s.Start < spans[best].End-spans[best].Start {
 				best = j
 			}
 		}
 		if best >= 0 {
-			result[i].SetProp(facts.PropCaller, spans[best].symbol)
+			f.SetProp(facts.PropCaller, spans[best].Symbol)
 		}
 	}
 }

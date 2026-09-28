@@ -743,7 +743,7 @@ func (w *astWalker) handleMethod(node *sitter.Node) {
 		line := int(node.StartPosition().Row) + 1
 		switch {
 		case rs.isFeignClient:
-			w.out = append(w.out, feignClientFacts(rs.basePath, rs.feignHint, annotations, w.relFile, line, w.dir)...)
+			w.out = append(w.out, feignClientFacts(rs.basePath, rs.feignHint, annotations, w.relFile, line, w.dir, w.canonicalName(w.qualify(name)))...)
 		case rs.isController:
 			w.out = append(w.out, springRouteFacts(rs.basePath, annotations, w.relFile,
 				line, w.dir, w.canonicalName(w.qualify(name)))...)

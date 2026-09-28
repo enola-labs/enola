@@ -144,8 +144,9 @@ Contract props:
   the innermost function containing the call site that has a symbol of its own.
   `caller_id` is that symbol's fact id; the symbol is always declared in the call
   site's own file. Absent for a call at module scope or inside a function with no
-  symbol (an object-literal property). Written by the TypeScript, Kotlin and
-  Swift extractors; a Retrofit route's caller is the interface method it annotates.
+  symbol (an object-literal property). Written by the TypeScript, Kotlin, Swift,
+  Java and Dart extractors; a Retrofit or Feign route's caller is the interface
+  method it annotates.
 
 ### dependency
 

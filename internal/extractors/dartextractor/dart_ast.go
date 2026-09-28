@@ -6,6 +6,7 @@ import (
 
 	sitter "github.com/tree-sitter/go-tree-sitter"
 
+	"github.com/enola-labs/enola/internal/extractors/callsite"
 	"github.com/enola-labs/enola/internal/extractors/dartextractor/grammar"
 	"github.com/enola-labs/enola/internal/factpath"
 	"github.com/enola-labs/enola/internal/facts"
@@ -40,7 +41,10 @@ type walker struct {
 	// language-guaranteed answer to "can this file possibly be using X".
 	importURIs []string
 
-	out       []facts.Fact
+	out []facts.Fact
+	// spans are the extents of the functions and methods emitted with a body, for
+	// naming each client call's caller (see callsite.AttributeSpans).
+	spans     []callsite.Span
 	typeNames []string
 	partOf    string
 	parts     []string
@@ -88,6 +92,7 @@ func extractFile(src []byte, relFile string, pkgs *packageIndex, inheritedImport
 	w.walkDirectives(root)
 	w.walkDeclarations(root)
 	w.extractFrameworkSurface(root)
+	callsite.AttributeSpans(w.spans, w.out)
 
 	return fileResult{
 		facts:        w.out,
@@ -523,6 +528,7 @@ func (w *walker) methodDecl(sig, body *sitter.Node, typeName string, annos []str
 		Kind: facts.KindSymbol, Name: full, File: w.relFile, Line: lineOf(sig),
 		Props: props, Relations: rels,
 	})
+	w.recordSpan(sig, body, full)
 	return memberInfo{name: full, isMethod: true, hasBody: body != nil}, true
 }
 
@@ -553,6 +559,16 @@ func (w *walker) functionDecl(sig, body *sitter.Node, dir, _ string, annos []str
 		Kind: facts.KindSymbol, Name: full, File: w.relFile, Line: lineOf(sig),
 		Props: props, Relations: rels,
 	})
+	w.recordSpan(sig, body, full)
+}
+
+// recordSpan records a function's extent, from its signature to the end of its
+// body, which Dart's grammar makes two sibling nodes.
+func (w *walker) recordSpan(sig, body *sitter.Node, symbol string) {
+	if sig == nil || body == nil {
+		return
+	}
+	w.spans = append(w.spans, callsite.Span{Start: sig.StartPosition().Row, End: body.EndPosition().Row, Symbol: symbol})
 }
 
 // enumDecl emits an enum and its constants.
