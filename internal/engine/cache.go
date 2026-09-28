@@ -20,6 +20,11 @@ import (
 	"github.com/enola-labs/enola/pkg/plugin"
 )
 
+// v278: a Python route handler defined inside a function (the router-factory
+// pattern) is a symbol, named under its enclosing symbol and tagged route_handler.
+// Its routes carry handler and handled_by, and its body's calls are credited to it
+// instead of to the factory. Other nested defs stay part of their enclosing symbol.
+//
 // v277: server routes name their handler method with handled_by at extraction, for
 // the decorator and annotation frameworks where the method is the one the route sits
 // on: NestJS/Inversify (dir.Class.method), Spring (the handler prop, already the
@@ -2512,7 +2517,7 @@ import (
 // v270: SvelteKit reads literal kit.alias fallbacks before generated config exists,
 // keeps tsconfig paths authoritative, and classifies $app/$env/$service-worker imports
 // as framework-provided rather than unresolved third-party dependencies.
-const cacheVersion = "v277"
+const cacheVersion = "v278"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

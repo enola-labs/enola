@@ -1612,6 +1612,7 @@ func (w *pyWalker) walkNestedScope(node *sitter.Node) {
 	// a decorator applied inside a function body is a real reference (a bare
 	// @retry_on_exception as much as a @log_usage(...) call).
 	def := node
+	var nestedRoutes []int
 	if kindOf(node) == "decorated_definition" {
 		if d := node.ChildByFieldName("definition"); d != nil {
 			def = d
@@ -1630,11 +1631,9 @@ func (w *pyWalker) walkNestedScope(node *sitter.Node) {
 			// pattern (`def get_x_router(): router = APIRouter(); @router.post("/")
 			// async def handler(): ...`), which module-level walkStatement never
 			// reaches. Emit its routes here, after the reference walk above so the
-			// edges that walk produces are unchanged. The nested def gets no symbol
-			// of its own, so the route carries no handler prop and the handler needs
-			// no route_handler entry-point tag (nothing can read it as dead).
-			// Mounted prefixes are folded on afterwards by composeRouterPrefixes.
-			var nestedRoutes []int
+			// edges that walk produces are unchanged. The handler becomes a symbol of
+			// its own below. Mounted prefixes are folded on afterwards by
+			// composeRouterPrefixes.
 			w.emitDecoratorRoute(c, pyText(c, w.src), &nestedRoutes)
 		}
 		if def == node {
@@ -1686,10 +1685,25 @@ func (w *pyWalker) walkNestedScope(node *sitter.Node) {
 	}
 	w.localBound = bound
 
+	// A route handler is the one nested def the framework calls by itself, so it is
+	// the one that gets a symbol: its body's calls are credited to it rather than to
+	// the factory, and the route names it. Any other nested def stays part of its
+	// enclosing symbol.
+	handlerIdx := -1
+	if len(nestedRoutes) > 0 && kindOf(def) == "function_definition" {
+		handlerIdx = w.emitNestedRouteHandler(def, nestedRoutes)
+	}
+	if handlerIdx >= 0 {
+		w.pushOwner(handlerIdx)
+	}
+
 	// Walk the definition subtree: parameter defaults and the body. Deeper
 	// nested defs re-enter walkNestedScope with a further-extended scope.
 	for i := uint(0); i < uint(def.ChildCount()); i++ {
 		w.walkForCalls(def.Child(i))
+	}
+	if handlerIdx >= 0 {
+		w.popOwner()
 	}
 
 	w.metrics = savedMetrics
@@ -2745,4 +2759,44 @@ func (w *pyWalker) bindCallRouteHandlers() {
 		}
 	}
 	w.callRouteHandlers = nil
+}
+
+// emitNestedRouteHandler emits the symbol for a route handler defined inside a
+// function (the router-factory pattern), named under its enclosing symbol, and
+// names it on the routes its decorators emitted. Returns the symbol's index in out,
+// or -1 when there is no enclosing symbol to name it under.
+//
+// The symbol is tagged route_handler, the entry-point tag decorated module-level
+// handlers carry: the framework calls it, nothing in the code does, and the helpers
+// it calls are now credited to it rather than to the factory. It carries no
+// complexity metrics; walkNestedScope suppresses them for every nested scope.
+func (w *pyWalker) emitNestedRouteHandler(def *sitter.Node, routes []int) int {
+	owner := w.currentOwner()
+	name := pyFuncName(def, w.src)
+	if owner == nil || name == "" {
+		return -1
+	}
+	qualName := owner.Name + "." + name
+	props := map[string]any{
+		"symbol_kind":   facts.SymbolFunc,
+		"exported":      false,
+		"language":      "python",
+		"web_component": "route_handler",
+	}
+	if strings.HasPrefix(strings.TrimSpace(pyText(def, w.src)), "async ") {
+		props["async"] = true
+	}
+	w.out = append(w.out, facts.Fact{
+		Kind:      facts.KindSymbol,
+		Name:      qualName,
+		File:      w.relFile,
+		Line:      int(def.StartPosition().Row) + 1,
+		Props:     props,
+		Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: w.dir}},
+	})
+	for _, idx := range routes {
+		w.out[idx].SetProp("handler", qualName)
+		w.out[idx].Relations = append(w.out[idx].Relations, facts.Relation{Kind: facts.RelHandledBy, Target: qualName})
+	}
+	return len(w.out) - 1
 }
