@@ -111,3 +111,87 @@ func TestImportAliases_AmbiguousProviderNameIsSkipped(t *testing.T) {
 		t.Fatalf("an ambiguous name was resolved: %q", got)
 	}
 }
+
+func tsModule(repo, dir, pkg string) facts.Fact {
+	return facts.Fact{Kind: facts.KindModule, Name: dir, File: dir, Repo: repo,
+		Props: map[string]any{"language": "typescript", "package_name": pkg}}
+}
+
+// A package-qualified target resolves to the one symbol the package declares under
+// that name, in whichever of its directories; a package import resolves to the
+// package's root module; a longer package name sharing the prefix is not confused
+// with it; two same-named symbols in the package resolve to nothing. It applies in a
+// single repository too, where a monorepo imports its own workspace package.
+func TestImportAliases_TypeScriptPackageTargets(t *testing.T) {
+	consumer := sym("web", "src/app.run", "web/src/app/run.ts")
+	consumer.Relations = []facts.Relation{
+		{Kind: facts.RelCalls, Target: "@acme/sdk.createClient"},
+		{Kind: facts.RelCalls, Target: "@acme/sdk/http.Transport.send"},
+		{Kind: facts.RelCalls, Target: "@acme/sdk.duplicated"},
+		{Kind: facts.RelCalls, Target: "@acme/sdk-extra.createClient"},
+	}
+	imp := facts.Fact{Kind: facts.KindDependency, Name: "src/app -> @acme/sdk", File: "web/src/app/run.ts", Repo: "web",
+		Relations: []facts.Relation{{Kind: facts.RelImports, Target: "@acme/sdk"}}}
+
+	store := facts.NewStore()
+	store.Add(
+		consumer, imp,
+		tsModule("sdk", "src", "@acme/sdk"),
+		tsModule("sdk", "src/client", "@acme/sdk"),
+		tsModule("sdk", "src/http", "@acme/sdk"),
+		sym("sdk", "src/client.createClient", "sdk/src/client/index.ts"),
+		sym("sdk", "src/http.Transport.send", "sdk/src/http/transport.ts"),
+		sym("sdk", "src/client.duplicated", "sdk/src/client/a.ts"),
+		sym("sdk", "src/http.duplicated", "sdk/src/http/b.ts"),
+	)
+	if err := New().Bind(context.Background(), store); err != nil {
+		t.Fatal(err)
+	}
+	ids := targetIDs(t, store, "web")
+	for target, want := range map[string]string{
+		"@acme/sdk.createClient":        facts.FactID("sdk", facts.KindSymbol, "src/client.createClient", "sdk/src/client/index.ts"),
+		"@acme/sdk/http.Transport.send": facts.FactID("sdk", facts.KindSymbol, "src/http.Transport.send", "sdk/src/http/transport.ts"),
+		"@acme/sdk":                     facts.FactID("sdk", facts.KindModule, "src", "src"),
+		"@acme/sdk.duplicated":          "",
+		"@acme/sdk-extra.createClient":  "",
+	} {
+		if got := ids[target]; got != want {
+			t.Errorf("%s target_id = %q, want %q", target, got, want)
+		}
+	}
+
+	// The same package imported inside its own repository resolves the same way.
+	mono := facts.NewStore()
+	self := sym("sdk", "apps/web.run", "apps/web/run.ts")
+	self.Relations = []facts.Relation{{Kind: facts.RelCalls, Target: "@acme/sdk.createClient"}}
+	mono.Add(self, tsModule("sdk", "src/client", "@acme/sdk"), sym("sdk", "src/client.createClient", "src/client/index.ts"))
+	if err := New().Bind(context.Background(), mono); err != nil {
+		t.Fatal(err)
+	}
+	if got := targetIDs(t, mono, "sdk")["@acme/sdk.createClient"]; got != facts.FactID("sdk", facts.KindSymbol, "src/client.createClient", "src/client/index.ts") {
+		t.Errorf("workspace package import not resolved in a single repository: %q", got)
+	}
+}
+
+// A subpath import names a file under the package root, so it settles which of two
+// same-named exports the target means.
+func TestImportAliases_SubpathNarrowsTheExport(t *testing.T) {
+	consumer := sym("web", "src/app.run", "web/src/app/run.ts")
+	consumer.Relations = []facts.Relation{{Kind: facts.RelCalls, Target: "@acme/features/auth/lib/session.getSession"}}
+	store := facts.NewStore()
+	store.Add(
+		consumer,
+		tsModule("mono", "packages/features", "@acme/features"),
+		tsModule("mono", "packages/features/auth/lib", "@acme/features"),
+		tsModule("mono", "packages/features/billing", "@acme/features"),
+		sym("mono", "packages/features/auth/lib.getSession", "mono/packages/features/auth/lib/session.ts"),
+		sym("mono", "packages/features/billing.getSession", "mono/packages/features/billing/session.ts"),
+	)
+	if err := New().Bind(context.Background(), store); err != nil {
+		t.Fatal(err)
+	}
+	want := facts.FactID("mono", facts.KindSymbol, "packages/features/auth/lib.getSession", "mono/packages/features/auth/lib/session.ts")
+	if got := targetIDs(t, store, "web")["@acme/features/auth/lib/session.getSession"]; got != want {
+		t.Fatalf("target_id = %q, want the auth/lib export %q", got, want)
+	}
+}

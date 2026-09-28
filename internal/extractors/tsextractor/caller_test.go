@@ -66,3 +66,35 @@ fetch("/api/boot/config", { method: "GET" });
 		}
 	}
 }
+
+// A name imported from a package is called by its package-qualified name, not by a
+// same-directory name that would claim a symbol of the importing module.
+func TestImportedPackageCallsArePackageQualified(t *testing.T) {
+	src := `import { createClient } from "@acme/sdk";
+import { format } from "./format";
+
+export function run() {
+  createClient();
+  format();
+}
+
+export function createClientLocal() {}
+`
+	ff := extractTS(t, src, "src/app/run.ts")
+	for _, f := range ff {
+		if f.Kind != facts.KindSymbol || f.Name != "src/app.run" {
+			continue
+		}
+		if !f.HasRelation(facts.RelCalls, "@acme/sdk.createClient") {
+			t.Errorf("package import not qualified: %+v", f.Relations)
+		}
+		if f.HasRelation(facts.RelCalls, "src/app.createClient") {
+			t.Errorf("package import fell back to the importing directory: %+v", f.Relations)
+		}
+		if !f.HasRelation(facts.RelCalls, "src/app.format") {
+			t.Errorf("relative import changed: %+v", f.Relations)
+		}
+		return
+	}
+	t.Fatal("symbol src/app.run not emitted")
+}

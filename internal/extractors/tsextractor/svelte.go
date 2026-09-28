@@ -447,12 +447,12 @@ func extractSvelteMarkupRefs(rawSrc []byte, relFile string) *facts.Fact {
 }
 
 // extractSvelteSFC extracts architectural facts from a Svelte Single File Component.
-func (e *TSExtractor) extractSvelteSFC(kinds *tsutil.KindTable, rawSrc []byte, relFile string, isSvelteKit bool, aliases map[string]tsAlias) []facts.Fact {
+func (e *TSExtractor) extractSvelteSFC(kinds *tsutil.KindTable, rawSrc []byte, relFile string, isSvelteKit bool, aliases map[string]tsAlias, files *tsFileIndex) []facts.Fact {
 	var result []facts.Fact
 	blocks := extractSvelteScriptBlocks(rawSrc)
 
 	for _, block := range blocks {
-		result = append(result, e.extractSvelteScriptBlock(kinds, block, relFile, isSvelteKit, aliases)...)
+		result = append(result, e.extractSvelteScriptBlock(kinds, block, relFile, isSvelteKit, aliases, files)...)
 	}
 
 	if ref := extractSvelteMarkupRefs(rawSrc, relFile); ref != nil {
@@ -502,7 +502,7 @@ func (e *TSExtractor) extractSvelteSFC(kinds *tsutil.KindTable, rawSrc []byte, r
 	return result
 }
 
-func (e *TSExtractor) extractSvelteScriptBlock(kinds *tsutil.KindTable, block *svelteScriptBlock, relFile string, isSvelteKit bool, aliases map[string]tsAlias) []facts.Fact {
+func (e *TSExtractor) extractSvelteScriptBlock(kinds *tsutil.KindTable, block *svelteScriptBlock, relFile string, isSvelteKit bool, aliases map[string]tsAlias, files *tsFileIndex) []facts.Fact {
 	isTSX := block.Lang == "tsx"
 	lang := typescript.LanguageTypescript()
 	if isTSX {
@@ -528,7 +528,7 @@ func (e *TSExtractor) extractSvelteScriptBlock(kinds *tsutil.KindTable, block *s
 		relFile:   relFile,
 		dir:       factpath.Dir(relFile),
 		isTSX:     isTSX,
-		importMap: buildImportSymbols(kinds, root, block.Content, relFile, aliases),
+		importMap: buildImportSymbols(kinds, root, block.Content, relFile, aliases, files),
 		imports:   buildEmberImportBindings(kinds, root, block.Content, relFile, aliases),
 	}
 	decls := e.extractDeclarations(kinds, root, ctx)

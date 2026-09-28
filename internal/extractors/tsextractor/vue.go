@@ -432,7 +432,7 @@ func containsCreateRouterCall(kinds *tsutil.KindTable, node *sitter.Node, src []
 }
 
 // extractVueSFC extracts architectural facts from a Vue Single File Component.
-func (e *TSExtractor) extractVueSFC(kinds *tsutil.KindTable, rawSrc []byte, relFile string, isNuxt bool, aliases map[string]tsAlias, nuxtAutoComponents map[string]string) []facts.Fact {
+func (e *TSExtractor) extractVueSFC(kinds *tsutil.KindTable, rawSrc []byte, relFile string, isNuxt bool, aliases map[string]tsAlias, files *tsFileIndex, nuxtAutoComponents map[string]string) []facts.Fact {
 	var result []facts.Fact
 	blocks := extractVueScriptBlocks(rawSrc)
 	allBindings := emberImportBindings{internal: map[string]string{}, external: map[string]string{}, modules: map[string]string{}}
@@ -445,7 +445,7 @@ func (e *TSExtractor) extractVueSFC(kinds *tsutil.KindTable, rawSrc []byte, relF
 		if block.IsSetup {
 			isSetup = true
 		}
-		blockFacts, bindings, macros, contracts, declaredTypes := e.extractVueScriptBlock(kinds, block, relFile, isNuxt, aliases)
+		blockFacts, bindings, macros, contracts, declaredTypes := e.extractVueScriptBlock(kinds, block, relFile, isNuxt, aliases, files)
 		result = append(result, blockFacts...)
 		for name, target := range bindings.internal {
 			allBindings.internal[name] = target
@@ -577,7 +577,7 @@ func (e *TSExtractor) extractVueSFC(kinds *tsutil.KindTable, rawSrc []byte, relF
 
 // extractVueScriptBlock parses a single <script> block from a Vue SFC and
 // returns the extracted facts with line numbers adjusted to the original file.
-func (e *TSExtractor) extractVueScriptBlock(kinds *tsutil.KindTable, block *vueScriptBlock, relFile string, isNuxt bool, aliases map[string]tsAlias) ([]facts.Fact, emberImportBindings, []string, map[string][]string, map[string]string) {
+func (e *TSExtractor) extractVueScriptBlock(kinds *tsutil.KindTable, block *vueScriptBlock, relFile string, isNuxt bool, aliases map[string]tsAlias, files *tsFileIndex) ([]facts.Fact, emberImportBindings, []string, map[string][]string, map[string]string) {
 	isTSX := block.Lang == "tsx"
 	lang := typescript.LanguageTypescript()
 	if isTSX {
@@ -621,7 +621,7 @@ func (e *TSExtractor) extractVueScriptBlock(kinds *tsutil.KindTable, block *vueS
 		isTSX:     isTSX,
 		isVue:     true,
 		isNuxt:    isNuxt,
-		importMap: buildImportSymbols(kinds, root, block.Content, relFile, aliases),
+		importMap: buildImportSymbols(kinds, root, block.Content, relFile, aliases, files),
 		imports:   buildEmberImportBindings(kinds, root, block.Content, relFile, aliases),
 	}
 	decls := e.extractDeclarations(kinds, root, ctx)

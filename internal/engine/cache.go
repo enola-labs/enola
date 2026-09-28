@@ -20,6 +20,12 @@ import (
 	"github.com/enola-labs/enola/pkg/plugin"
 )
 
+// v281: a TypeScript name imported from a package is called by "<package>.<name>",
+// the specifier as written, where it used to fall through to "<dir>.<name>" and name
+// a symbol of the importing module. A framework alias ($lib, ~, @/, #) or a baseUrl
+// path that exactly one repository file ends in resolves to that file's directory. The import-aliases binder resolves such a
+// target to the declaring symbol when a loaded repository declares the package.
+//
 // v280: Kotlin and Swift client call sites name their caller too, through the shared
 // callsite pass the TypeScript extractor now uses. A Retrofit route's caller is the
 // interface method it annotates; a URLSession request's is the method building it.
@@ -2527,7 +2533,7 @@ import (
 // v270: SvelteKit reads literal kit.alias fallbacks before generated config exists,
 // keeps tsconfig paths authoritative, and classifies $app/$env/$service-worker imports
 // as framework-provided rather than unresolved third-party dependencies.
-const cacheVersion = "v280"
+const cacheVersion = "v281"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

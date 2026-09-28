@@ -41,7 +41,8 @@ Current writers resolve `target_id` using the source fact's repository:
    snapshot have the same identity.
 4. If no fact carries the name, and the target is another loaded repository's
    symbol or package as the consumer's source spells it (a Go import path under
-   that repository's module path), emit the ID of the one fact that repository
+   that repository's module path, or an npm package name a repository's
+   `package.json` declares), emit the ID of the one fact that repository
    declares under its own name for it. The target keeps the consumer's spelling:
    `github.com/acme/auth.AuthService.Login` resolves to the `auth` repository's
    `..AuthService.Login`.

@@ -259,6 +259,7 @@ func (e *TSExtractor) Extract(ctx context.Context, repoPath string, files []stri
 	if isNuxt {
 		nuxtAutoComponents = nuxtAutoComponentIndex(knownFiles)
 	}
+	fileIndex := newTSFileIndex(knownFiles)
 
 	// Repo-wide pre-pass: resolve generated gRPC-web client stubs (service FQN +
 	// RPC methods + client class) so per-file call-site detection can map a
@@ -301,7 +302,7 @@ func (e *TSExtractor) Extract(ctx context.Context, repoPath string, files []stri
 		}
 		aliases := aliasesForDir(aliasRoots, factpath.Dir(relFile))
 		var res tsFileResult
-		res.facts, res.angular, res.angularRouter, res.angularInline, res.angularHTTP, res.clients = e.extractFile(src, relFile, isNextJS, isVue, isNuxt, isSvelteKit, isEmber, isReactNav, isAngular, graphqlServer, orms, aliases, knownFiles, nuxtAutoComponents, grpcStubs)
+		res.facts, res.angular, res.angularRouter, res.angularInline, res.angularHTTP, res.clients = e.extractFile(src, relFile, isNextJS, isVue, isNuxt, isSvelteKit, isEmber, isReactNav, isAngular, graphqlServer, orms, aliases, knownFiles, fileIndex, nuxtAutoComponents, grpcStubs)
 		// Routers, mounts and held-back routes for the repo-wide mount pass below.
 		// Collected here because resolving an import needs this file's path aliases,
 		// which are in scope only during the per-file walk. Same test-path gate as
@@ -519,7 +520,7 @@ type extractCtx struct {
 	aliases     map[string]tsAlias  // this directory's tsconfig path aliases, for resolving an import written as a bare specifier
 }
 
-func (e *TSExtractor) extractFile(src []byte, relFile string, isNextJS, isVue, isNuxt, isSvelteKit, isEmber, isReactNav, isAngular bool, graphqlServer graphqlServerContext, orms ormFlags, aliases map[string]tsAlias, knownFiles map[string]bool, nuxtAutoComponents map[string]string, grpcStubs *grpcStubIndex) ([]facts.Fact, angularCounts, *angularRouterFile, map[string]*angularTemplate, *angularHTTPFile, clientCounts) {
+func (e *TSExtractor) extractFile(src []byte, relFile string, isNextJS, isVue, isNuxt, isSvelteKit, isEmber, isReactNav, isAngular bool, graphqlServer graphqlServerContext, orms ormFlags, aliases map[string]tsAlias, knownFiles map[string]bool, files *tsFileIndex, nuxtAutoComponents map[string]string, grpcStubs *grpcStubIndex) ([]facts.Fact, angularCounts, *angularRouterFile, map[string]*angularTemplate, *angularHTTPFile, clientCounts) {
 	// The grammar is chosen here, so the kind table is too: TypeScript and TSX assign
 	// different meanings to the same symbol ids, and everything below reads node kinds
 	// through this table. See kinds.go.
@@ -527,10 +528,10 @@ func (e *TSExtractor) extractFile(src []byte, relFile string, isNextJS, isVue, i
 	kinds := tsKindsFor(isTSX)
 
 	if isVueFile(relFile) {
-		return e.extractVueSFC(kinds, src, relFile, isNuxt, aliases, nuxtAutoComponents), angularCounts{}, nil, nil, nil, nil
+		return e.extractVueSFC(kinds, src, relFile, isNuxt, aliases, files, nuxtAutoComponents), angularCounts{}, nil, nil, nil, nil
 	}
 	if isSvelteFile(relFile) {
-		return e.extractSvelteSFC(kinds, src, relFile, isSvelteKit, aliases), angularCounts{}, nil, nil, nil, nil
+		return e.extractSvelteSFC(kinds, src, relFile, isSvelteKit, aliases, files), angularCounts{}, nil, nil, nil, nil
 	}
 	if isGraphQLDocFile(relFile) {
 		if facts.IsTestPath(relFile) {
@@ -640,7 +641,7 @@ func (e *TSExtractor) extractFile(src []byte, relFile string, isNextJS, isVue, i
 		isNuxt:      isNuxt,
 		isSvelteKit: isSvelteKit,
 		orms:        orms,
-		importMap:   buildImportSymbols(kinds, root, src, relFile, aliases),
+		importMap:   buildImportSymbols(kinds, root, src, relFile, aliases, files),
 		imports:     buildEmberImportBindings(kinds, root, src, relFile, aliases),
 		ioBindings:  buildIOImportBindings(kinds, root, src),
 		knownFiles:  knownFiles,
@@ -2199,12 +2200,18 @@ func resolveModuleFile(resolved string, knownFiles map[string]bool) (indexPath, 
 }
 
 // buildImportSymbols returns a map of locally-bound import name → canonical symbol
-// fact name for named imports from internal modules. It lets bare calls to
-// imported functions (e.g. `formatName()`) resolve to the callee's declaration
-// fact. Symbols declared in an imported module are named "<moduleDir>.<exportName>",
-// where moduleDir is the directory of the resolved module file — this matches the
-// common file-module case (e.g. import "./utils" → utils.ts → "<dir>.foo").
-func buildImportSymbols(kinds *tsutil.KindTable, root *sitter.Node, src []byte, relFile string, aliases map[string]tsAlias) map[string]string {
+// fact name for named imports. It lets bare calls to imported functions (e.g.
+// `formatName()`) resolve to the callee's declaration fact. Symbols declared in an
+// imported module are named "<moduleDir>.<exportName>", where moduleDir is the
+// directory of the resolved module file — this matches the common file-module case
+// (e.g. import "./utils" → utils.ts → "<dir>.foo").
+//
+// A name imported from a package is named "<specifier>.<exportName>"
+// (`@acme/sdk.Client`), the way the source spells it. The package may be another
+// loaded repository, whose facts carry their own names for it; the import-aliases
+// binder resolves the one to the other. Left unmapped, the call fell through to the
+// same-directory spelling, which named a symbol of the importing file's own module.
+func buildImportSymbols(kinds *tsutil.KindTable, root *sitter.Node, src []byte, relFile string, aliases map[string]tsAlias, files *tsFileIndex) map[string]string {
 	fileDir := factpath.Dir(relFile)
 	m := make(map[string]string)
 	for i := range root.ChildCount() {
@@ -2218,10 +2225,16 @@ func buildImportSymbols(kinds *tsutil.KindTable, root *sitter.Node, src []byte, 
 		}
 		importPath := strings.Trim(nodeText(source, src), `"'`)
 		resolved, isExternal := resolveImportPath(importPath, fileDir, aliases)
+		qualifier := factpath.Dir(resolved)
 		if isExternal {
-			continue // external modules have no local declaration facts
+			// A framework alias or a baseUrl path is a file of this repository that
+			// resolveImportPath could not see; anything else is a package.
+			if file, ok := files.resolve(importPath, relFile); ok {
+				qualifier = factpath.Dir(file)
+			} else {
+				qualifier = importPath
+			}
 		}
-		moduleDir := factpath.Dir(resolved)
 
 		clause := findChildByKind(kinds, child, "import_clause")
 		if clause == nil {
@@ -2245,7 +2258,7 @@ func buildImportSymbols(kinds *tsutil.KindTable, root *sitter.Node, src []byte, 
 			if aliasNode := spec.ChildByFieldName("alias"); aliasNode != nil {
 				local = nodeText(aliasNode, src)
 			}
-			m[local] = moduleDir + "." + exportName
+			m[local] = qualifier + "." + exportName
 		}
 	}
 	return m

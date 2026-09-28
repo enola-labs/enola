@@ -5,6 +5,7 @@ package importaliases
 import (
 	"context"
 	"log"
+	"path"
 	"sort"
 	"strings"
 
@@ -49,14 +50,27 @@ type goModule struct {
 }
 
 func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
-	// An alias always crosses repositories: a repository's own Go targets are
-	// already written relative to its module root.
-	if len(store.RepoLabels()) < 2 {
+	all := store.FactsRef()
+	aliases := map[string]facts.FactKey{}
+	nGo := goAliases(store, all, aliases)
+	nTS := tsAliases(store, all, aliases)
+	if len(aliases) == 0 {
 		store.SetTargetAliases(nil)
 		return nil
 	}
-	all := store.FactsRef()
+	store.SetTargetAliases(aliases)
+	log.Printf("[binder:import-aliases] resolved %d Go and %d TypeScript package target(s) to their declaring facts", nGo, nTS)
+	return nil
+}
 
+// goAliases adds the aliases for Go import-path targets under another loaded
+// repository's module path, and returns how many it added.
+func goAliases(store *facts.Store, all []facts.Fact, aliases map[string]facts.FactKey) int {
+	// A Go alias always crosses repositories: a repository's own Go targets are
+	// already written relative to its module root.
+	if len(store.RepoLabels()) < 2 {
+		return 0
+	}
 	var modules []goModule
 	for _, f := range all {
 		if f.Kind != facts.KindModule || f.Name != "." || f.Repo == "" {
@@ -67,8 +81,7 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 		}
 	}
 	if len(modules) == 0 {
-		store.SetTargetAliases(nil)
-		return nil
+		return 0
 	}
 	// Longest first, so a module nested under another's path ("github.com/acme/auth/
 	// tools" beside "github.com/acme/auth") claims its own targets.
@@ -81,7 +94,7 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 
 	// Only targets under a loaded module path are looked up, so the name lookups
 	// below run for the handful of cross-repo references and not for every target.
-	aliases := map[string]facts.FactKey{}
+	n := 0
 	tried := map[string]bool{}
 	for _, f := range all {
 		for _, rel := range f.Relations {
@@ -100,15 +113,11 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 			wantModule := rel.Kind == facts.RelImports
 			if key, ok := uniqueFact(store.ByName(local), repo, wantModule); ok {
 				aliases[target] = key
+				n++
 			}
 		}
 	}
-
-	store.SetTargetAliases(aliases)
-	if len(aliases) > 0 {
-		log.Printf("[binder:import-aliases] resolved %d cross-repo Go target(s) to their declaring facts", len(aliases))
-	}
-	return nil
+	return n
 }
 
 // goLocalName maps a Go import-path target to the repository whose module path
@@ -155,4 +164,163 @@ func uniqueFact(named []facts.Fact, repo string, wantModule bool) (facts.FactKey
 		key, found = k, true
 	}
 	return key, found
+}
+
+// tsPackage is one npm package a loaded repository declares: the repository and the
+// module directories whose package.json names it.
+type tsPackage struct {
+	repo string
+	dirs []string
+}
+
+// tsAliases adds the aliases for TypeScript package targets, "<package>.<export>"
+// and a bare "<package>" import, where a loaded repository declares the package,
+// and returns how many it added.
+//
+// The export resolves to the one symbol named "<dir>.<export>" across the package's
+// module directories. That skips the package's entry file, which usually names
+// build output ("main": "dist/index.js") that is not in the source tree, and the
+// barrel re-exports behind it; two such symbols under distinct identities resolve
+// to nothing. A package import resolves to the package's root module, the one of its
+// modules every other is under, and to nothing when there is no single root.
+//
+// Unlike a Go alias this may stay inside one repository: a monorepo importing its own
+// workspace package by name is the same reference as one repository importing
+// another's.
+func tsAliases(store *facts.Store, all []facts.Fact, aliases map[string]facts.FactKey) int {
+	packages := map[string]*tsPackage{}
+	ambiguous := map[string]bool{}
+	for _, f := range all {
+		if f.Kind != facts.KindModule || f.Repo == "" {
+			continue
+		}
+		name := f.PropString("package_name")
+		if name == "" || ambiguous[name] {
+			continue
+		}
+		p := packages[name]
+		if p == nil {
+			packages[name] = &tsPackage{repo: f.Repo, dirs: []string{f.Name}}
+			continue
+		}
+		if p.repo != f.Repo {
+			// Two repositories declaring one package name (a fork, a vendored copy):
+			// nothing says which one a consumer imports.
+			delete(packages, name)
+			ambiguous[name] = true
+			continue
+		}
+		p.dirs = append(p.dirs, f.Name)
+	}
+	if len(packages) == 0 {
+		return 0
+	}
+
+	n := 0
+	tried := map[string]bool{}
+	for _, f := range all {
+		for _, rel := range f.Relations {
+			target := rel.Target
+			if rel.Kind == facts.RelDeclares || tried[target] {
+				continue
+			}
+			pkg, sub, rest, ok := tsPackageTarget(target, packages)
+			if !ok {
+				continue
+			}
+			tried[target] = true
+			if _, done := aliases[target]; done || len(store.ByName(target)) > 0 {
+				continue
+			}
+			p := packages[pkg]
+			if rest == "" {
+				if root, ok := packageRoot(p.dirs); ok {
+					if key, ok := uniqueFact(store.ByName(root), p.repo, true); ok {
+						aliases[target] = key
+						n++
+					}
+				}
+				continue
+			}
+			if key, ok := tsExport(store, p, sub, rest); ok {
+				aliases[target] = key
+				n++
+			}
+		}
+	}
+	return n
+}
+
+// tsExport resolves a package's export to the one symbol declaring it. A subpath
+// import names a file under the package root, so the export is looked up in that
+// file's directory first; a package-wide lookup follows when the subpath does not
+// settle it (an entry point re-exporting from elsewhere).
+func tsExport(store *facts.Store, p *tsPackage, sub, rest string) (facts.FactKey, bool) {
+	if sub != "" {
+		if root, ok := packageRoot(p.dirs); ok {
+			file := sub
+			if root != "." {
+				file = root + "/" + sub
+			}
+			var named []facts.Fact
+			for _, dir := range []string{file, path.Dir(file)} {
+				named = append(named, store.ByName(dir+"."+rest)...)
+			}
+			if key, ok := uniqueFact(named, p.repo, false); ok {
+				return key, true
+			}
+		}
+	}
+	var named []facts.Fact
+	for _, dir := range p.dirs {
+		named = append(named, store.ByName(dir+"."+rest)...)
+	}
+	return uniqueFact(named, p.repo, false)
+}
+
+// tsPackageTarget splits a target into the declared package it names, the subpath
+// after the package name, and the symbol path: "@acme/sdk.Client.get" -> ("@acme/sdk",
+// "", "Client.get"), "@acme/sdk/http/transport.Transport" -> ("@acme/sdk",
+// "http/transport", "Transport"), and the bare package "@acme/sdk" -> ("@acme/sdk",
+// "", ""). The longest declared package name wins, so "@acme/sdk-extra" is never
+// read as "@acme/sdk".
+func tsPackageTarget(target string, packages map[string]*tsPackage) (pkg, sub, rest string, ok bool) {
+	for i := len(target); i > 0; i-- {
+		if i < len(target) && target[i] != '.' && target[i] != '/' {
+			continue
+		}
+		if _, known := packages[target[:i]]; !known {
+			continue
+		}
+		pkg, tail := target[:i], target[i:]
+		switch {
+		case tail == "":
+			return pkg, "", "", true
+		case tail[0] == '.':
+			return pkg, "", tail[1:], true
+		default: // "/subpath" then ".Export…"
+			dot := strings.IndexByte(tail, '.')
+			if dot < 0 {
+				return "", "", "", false // a subpath import with no symbol: no single module to name
+			}
+			return pkg, tail[1:dot], tail[dot+1:], true
+		}
+	}
+	return "", "", "", false
+}
+
+// packageRoot returns the one directory among dirs that every other is under.
+func packageRoot(dirs []string) (string, bool) {
+	root := ""
+	for _, d := range dirs {
+		if root == "" || len(d) < len(root) {
+			root = d
+		}
+	}
+	for _, d := range dirs {
+		if d != root && !strings.HasPrefix(d, root+"/") && root != "." {
+			return "", false
+		}
+	}
+	return root, root != ""
 }
