@@ -20,6 +20,10 @@ import (
 	"github.com/enola-labs/enola/pkg/plugin"
 )
 
+// v280: Kotlin and Swift client call sites name their caller too, through the shared
+// callsite pass the TypeScript extractor now uses. A Retrofit route's caller is the
+// interface method it annotates; a URLSession request's is the method building it.
+//
 // v279: a TypeScript hand-written client call site names the symbol whose body makes
 // it (caller): the innermost function containing the call that the file emitted a
 // symbol for, paired to its node by line through wrapping declarations only. A
@@ -2523,7 +2527,7 @@ import (
 // v270: SvelteKit reads literal kit.alias fallbacks before generated config exists,
 // keeps tsconfig paths authoritative, and classifies $app/$env/$service-worker imports
 // as framework-provided rather than unresolved third-party dependencies.
-const cacheVersion = "v279"
+const cacheVersion = "v280"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

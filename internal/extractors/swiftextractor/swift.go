@@ -147,9 +147,8 @@ func (e *SwiftExtractor) Extract(ctx context.Context, repoPath string, files []s
 			return nil
 		}
 		dir := moduleForFile(relFile)
-		ff := extractFileASTWithDir(src, relFile, isiOS, dir)
-		ff = append(ff, extractURLSessionFactsWithDir(src, relFile, dir)...)
-		return append(ff, extractEndpointFacts(src, relFile, dir, defaultURLPrefix)...)
+		clients := append(extractURLSessionFactsWithDir(src, relFile, dir), extractEndpointFacts(src, relFile, dir, defaultURLPrefix)...)
+		return extractFileWithClients(src, relFile, isiOS, dir, clients)
 	})
 
 	for i, fileFacts := range perFileFacts {

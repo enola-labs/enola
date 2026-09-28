@@ -30,14 +30,24 @@ func extractFileAST(src []byte, relFile string, isiOS bool) []facts.Fact {
 // symbols are named "<targetDir>.<Type>" and declare into the target module
 // rather than the file's leaf directory.
 func extractFileASTWithDir(src []byte, relFile string, isiOS bool, dir string) []facts.Fact {
+	var out []facts.Fact
+	withTree(src, relFile, isiOS, dir, func(_ *sitter.Node, walked []facts.Fact) {
+		out = walked
+	})
+	return out
+}
+
+// withTree parses and walks one file and hands the walk's facts to use while the
+// tree is still open. use is not called when the file cannot be parsed.
+func withTree(src []byte, relFile string, isiOS bool, dir string, use func(root *sitter.Node, walked []facts.Fact)) {
 	parser := sitter.NewParser()
 	defer parser.Close()
 	if err := parser.SetLanguage(sitter.NewLanguage(swift.Language())); err != nil {
-		return nil
+		return
 	}
 	tree := parser.Parse(src, nil)
 	if tree == nil {
-		return nil
+		return
 	}
 	defer tree.Close()
 
@@ -49,7 +59,7 @@ func extractFileASTWithDir(src []byte, relFile string, isiOS bool, dir string) [
 		fileRefIdx: -1,
 	}
 	w.walkSourceFile(tree.RootNode())
-	return w.out
+	use(tree.RootNode(), w.out)
 }
 
 type astWalker struct {

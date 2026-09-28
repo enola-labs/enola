@@ -129,9 +129,8 @@ func (e *KotlinExtractor) Extract(ctx context.Context, repoPath string, files []
 			log.Printf("[kotlin-extractor] error reading %s: %v", relFile, err)
 			return nil
 		}
-		ff := extractFileAST(src, relFile, isAndroid, sourceRoot, basePackage, packageIndex)
-		ff = append(ff, extractRetrofitFacts(src, relFile)...)
-		return append(ff, extractServletRouteFacts(src, relFile)...)
+		clients := append(extractRetrofitFacts(src, relFile), extractServletRouteFacts(src, relFile)...)
+		return extractFileWithClients(src, relFile, isAndroid, sourceRoot, basePackage, packageIndex, clients)
 	})
 
 	modules := make(map[string]bool)

@@ -17,10 +17,21 @@ import (
 // RelInjects relations are attached to symbol facts when call sites or @Inject
 // constructor parameters are observed.
 func extractFileAST(src []byte, relFile string, isAndroid bool, sourceRoot, basePackage string, packageIndex map[string]string) []facts.Fact {
+	var out []facts.Fact
+	withTree(src, relFile, isAndroid, sourceRoot, basePackage, packageIndex, func(_ *sitter.Node, walked []facts.Fact) {
+		out = walked
+	})
+	return out
+}
+
+// withTree parses and walks one file and hands the walk's facts to use while the
+// tree is still open. use is not called when the grammar cannot be loaded.
+func withTree(src []byte, relFile string, isAndroid bool, sourceRoot, basePackage string, packageIndex map[string]string,
+	use func(root *sitter.Node, walked []facts.Fact)) {
 	parser := sitter.NewParser()
 	defer parser.Close()
 	if err := parser.SetLanguage(sitter.NewLanguage(kotlin.Language())); err != nil {
-		return nil
+		return
 	}
 
 	tree := parser.Parse(src, nil)
@@ -39,7 +50,7 @@ func extractFileAST(src []byte, relFile string, isAndroid bool, sourceRoot, base
 		packageIndex: packageIndex,
 	}
 	w.walkSourceFile(root)
-	return w.out
+	use(root, w.out)
 }
 
 type astWalker struct {
