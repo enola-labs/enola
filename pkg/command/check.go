@@ -292,11 +292,14 @@ func (r *Runner) Check(ctx context.Context, args []string) {
 	// Conformance: did the change stay inside what the caller declared? Computed only
 	// when something WAS declared — a gate that graded scope nobody stated would be
 	// grading its own guess.
+	// The baseline as a store, built once: conformance and the package-metrics delta
+	// both score the pre-change graph.
+	baseStore := facts.NewStore()
+	baseStore.Add(base.Facts...)
+
 	var measurements []check.Measurement
 	var conf *conformance.Report
 	if *target != "" || *expected != "" {
-		baseStore := facts.NewStore()
-		baseStore.Add(base.Facts...)
 		rep := conformance.Compute(baseStore, eng.Store(), d, conformance.Options{
 			Target:           *target,
 			ExpectedPackages: splitList(*expected),
@@ -324,6 +327,8 @@ func (r *Runner) Check(ctx context.Context, args []string) {
 	verdict = check.RegradeIntersection(verdict, base, current, policy,
 		check.OwnershipFromExtractors(eng.Extractors()), current.Insights, *focus, measurements...)
 	verdict = check.AttachGuidance(verdict, eng.Store())
+	verdict = check.AttachPackageMetrics(verdict, baseStore, eng.Store(), base, current,
+		check.OwnershipFromExtractors(eng.Extractors()), *focus)
 	// Opt-in, and gated here rather than inside AttachReviewers, so that without the
 	// flag no git author name is read, computed, or printed at all.
 	if *reviewers {

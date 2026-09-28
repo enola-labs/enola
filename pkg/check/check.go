@@ -12,6 +12,7 @@ import (
 	"github.com/enola-labs/enola/internal/diff"
 	"github.com/enola-labs/enola/internal/explainers/constraints"
 	"github.com/enola-labs/enola/internal/facts"
+	"github.com/enola-labs/enola/internal/metrics"
 )
 
 // Status is the verdict. Its ExitCode is the process's contract with CI.
@@ -365,6 +366,11 @@ type Verdict struct {
 	// is a correlation with defects measured on Windows Vista binaries, not a rule this
 	// repository declared, and enola fails only what was declared. See AttachReviewers.
 	Reviewers *Reviewers `json:"reviewers,omitempty"`
+
+	// PackageMetrics is what the change did to Ca, Ce, I, A and D per package, with
+	// the population aggregates on both sides. Reported, never graded; nil on a
+	// verdict that graded nothing. See AttachPackageMetrics.
+	PackageMetrics *metrics.Delta `json:"package_metrics,omitempty"`
 
 	// ComparabilityWarnings is every warning, verbatim and in full. Not split by
 	// severity: diff.Comparability records kinds as a set rather than per-message, and

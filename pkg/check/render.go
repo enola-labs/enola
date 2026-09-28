@@ -257,6 +257,7 @@ func (v Verdict) Render() string {
 
 	v.writeGuidance(&sb)
 	v.writeReviewers(&sb)
+	v.writePackageMetrics(&sb)
 
 	// Findings first (graded, then resolved, then merely moved), structure after: the
 	// reader is asking "is anything wrong?" before "what did I touch?".
