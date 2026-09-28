@@ -1017,6 +1017,7 @@ func (e *TSExtractor) extractNode(kinds *tsutil.KindTable, node *sitter.Node, ct
 
 		// Extract class methods
 		if classBody != nil {
+			fieldTypes := classFieldTypes(kinds, classBody, src, dir, ctx.importMap)
 			var pendingDecorators []string
 			for j := range classBody.ChildCount() {
 				member := classBody.Child(j)
@@ -1060,7 +1061,7 @@ func (e *TSExtractor) extractNode(kinds *tsutil.KindTable, node *sitter.Node, ct
 					}
 				}
 				mRels := []facts.Relation{{Kind: facts.RelDeclares, Target: dir}}
-				callRels, m := collectCallsWithMetrics(kinds, member, src, dir, symbolName, ctx.importMap, ctx.ioBindings, dir+"."+symbolName+"."+mName, mName)
+				callRels, m := collectCallsWithMetrics(kinds, member, src, dir, symbolName, ctx.importMap, fieldTypes, ctx.ioBindings, dir+"."+symbolName+"."+mName, mName)
 				mRels = append(mRels, callRels...)
 				mProps := map[string]any{
 					"symbol_kind": facts.SymbolMethod,
@@ -1175,7 +1176,7 @@ func (e *TSExtractor) extractNode(kinds *tsutil.KindTable, node *sitter.Node, ct
 			vRels := []facts.Relation{{Kind: facts.RelDeclares, Target: dir}}
 			var vMetrics *tsBodyMetrics
 			if body != nil {
-				callRels, m := collectCallsWithMetrics(kinds, body, src, dir, "", ctx.importMap, ctx.ioBindings, dir+"."+symbolName, symbolName)
+				callRels, m := collectCallsWithMetrics(kinds, body, src, dir, "", ctx.importMap, nil, ctx.ioBindings, dir+"."+symbolName, symbolName)
 				vRels = append(vRels, callRels...)
 				vMetrics = m
 			}
@@ -1250,7 +1251,7 @@ func commonJSExportName(kinds *tsutil.KindTable, left *sitter.Node, src []byte) 
 
 func (e *TSExtractor) funcSymbol(kinds *tsutil.KindTable, declNode, body *sitter.Node, ctx *extractCtx, name string, exported bool) facts.Fact {
 	rels := []facts.Relation{{Kind: facts.RelDeclares, Target: ctx.dir}}
-	callRels, m := collectCallsWithMetrics(kinds, body, ctx.src, ctx.dir, "", ctx.importMap, ctx.ioBindings, ctx.dir+"."+name, name)
+	callRels, m := collectCallsWithMetrics(kinds, body, ctx.src, ctx.dir, "", ctx.importMap, nil, ctx.ioBindings, ctx.dir+"."+name, name)
 	rels = append(rels, callRels...)
 	f := facts.Fact{
 		Kind: facts.KindSymbol,
@@ -2991,8 +2992,11 @@ type tsBodyWalker struct {
 	// kinds names node types for the grammar this file was parsed with. A field is
 	// safe here, unlike on TSExtractor, because a walker belongs to one parse;
 	// TSExtractor is shared across the goroutines parallel.MapFiles runs.
-	kinds               *tsutil.KindTable
-	dir, className      string
+	kinds          *tsutil.KindTable
+	dir, className string
+	// fieldTypes is the enclosing class's instance fields with a stated type,
+	// field -> qualified type (see classFieldTypes); nil outside a class method.
+	fieldTypes          map[string]string
 	importMap           map[string]string
 	ioBindings          map[string]bool
 	selfName, selfShort string
@@ -3124,7 +3128,7 @@ func (w *tsBodyWalker) walk(n *sitter.Node) {
 		if w.metrics != nil && !w.metrics.ioDirect && tsIsIOCall(w.kinds, n, w.src, w.ioBindings) {
 			w.metrics.ioDirect = true
 		}
-		if target := resolveTSCall(w.kinds, n, w.src, w.dir, w.className, w.importMap); target != "" {
+		if target := resolveTSCall(w.kinds, n, w.src, w.dir, w.className, w.importMap, w.fieldTypes); target != "" {
 			if !w.seen[target] {
 				w.seen[target] = true
 				w.rels = append(w.rels, facts.Relation{Kind: facts.RelCalls, Target: target})
@@ -3296,9 +3300,9 @@ func declaresParameters(kinds *tsutil.KindTable, member *sitter.Node) (string, b
 	return "no", true
 }
 
-func collectCallsWithMetrics(kinds *tsutil.KindTable, node *sitter.Node, src []byte, dir, className string, importMap map[string]string, ioBindings map[string]bool, selfName, selfShort string) ([]facts.Relation, *tsBodyMetrics) {
+func collectCallsWithMetrics(kinds *tsutil.KindTable, node *sitter.Node, src []byte, dir, className string, importMap, fieldTypes map[string]string, ioBindings map[string]bool, selfName, selfShort string) ([]facts.Relation, *tsBodyMetrics) {
 	m := &tsBodyMetrics{}
-	w := &tsBodyWalker{src: src, kinds: kinds, dir: dir, className: className, importMap: importMap, ioBindings: ioBindings, selfName: selfName, selfShort: selfShort, metrics: m, seen: make(map[string]bool)}
+	w := &tsBodyWalker{src: src, kinds: kinds, dir: dir, className: className, importMap: importMap, fieldTypes: fieldTypes, ioBindings: ioBindings, selfName: selfName, selfShort: selfShort, metrics: m, seen: make(map[string]bool)}
 	w.walk(node)
 	return w.rels, m
 }
@@ -3527,7 +3531,8 @@ func computeTSPerformsIO(allFacts []facts.Fact) {
 // type). It resolves:
 //   - bare calls `foo()` → imported symbol via importMap, else same-module "<dir>.foo"
 //   - `this.method()` inside a class → "<dir>.<className>.method"
-func resolveTSCall(kinds *tsutil.KindTable, call *sitter.Node, src []byte, dir, className string, importMap map[string]string) string {
+//   - `this.field.method()` on a field of stated type T → "<qualified T>.method"
+func resolveTSCall(kinds *tsutil.KindTable, call *sitter.Node, src []byte, dir, className string, importMap, fieldTypes map[string]string) string {
 	fn := call.ChildByFieldName("function")
 	if fn == nil {
 		return ""
@@ -3549,6 +3554,15 @@ func resolveTSCall(kinds *tsutil.KindTable, call *sitter.Node, src []byte, dir, 
 		// have an unknown type and are left unresolved to avoid dangling edges.
 		if kindOf(kinds, object) == "this" && className != "" {
 			return dir + "." + className + "." + nodeText(property, src)
+		}
+		// `this.field.method()`: the field's stated type names the method's class.
+		if kindOf(kinds, object) == "member_expression" && kindOf(kinds, property) == "property_identifier" {
+			recv, field := object.ChildByFieldName("object"), object.ChildByFieldName("property")
+			if recv != nil && field != nil && kindOf(kinds, recv) == "this" {
+				if typ, ok := fieldTypes[nodeText(field, src)]; ok {
+					return typ + "." + nodeText(property, src)
+				}
+			}
 		}
 	}
 	return ""

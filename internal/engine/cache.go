@@ -20,6 +20,11 @@ import (
 	"github.com/enola-labs/enola/pkg/plugin"
 )
 
+// v282: a TypeScript call on this.<field>.<method>() names the method of the field's
+// stated type: a constructor parameter property, an annotated field, or a `new` /
+// inject() initializer. It was left unresolved, which hid every call a class makes
+// through the services it is handed.
+//
 // v281: a TypeScript name imported from a package is called by "<package>.<name>",
 // the specifier as written, where it used to fall through to "<dir>.<name>" and name
 // a symbol of the importing module. A framework alias ($lib, ~, @/, #) or a baseUrl
@@ -2533,7 +2538,7 @@ import (
 // v270: SvelteKit reads literal kit.alias fallbacks before generated config exists,
 // keeps tsconfig paths authoritative, and classifies $app/$env/$service-worker imports
 // as framework-provided rather than unresolved third-party dependencies.
-const cacheVersion = "v281"
+const cacheVersion = "v282"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
