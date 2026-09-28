@@ -61,6 +61,7 @@ import (
 	"github.com/enola-labs/enola/internal/linkers/binders/grpcclientfqn"
 	"github.com/enola-labs/enola/internal/linkers/binders/grpcimpl"
 	"github.com/enola-labs/enola/internal/linkers/binders/httphandler"
+	"github.com/enola-labs/enola/internal/linkers/binders/importaliases"
 	"github.com/enola-labs/enola/internal/linkers/binders/messagingcontract"
 	"github.com/enola-labs/enola/internal/linkers/binders/mixinowner"
 	"github.com/enola-labs/enola/internal/linkers/binders/moduleedges"
@@ -486,6 +487,7 @@ func registerOSSPlugins(eng *engine.Engine, cfg *config.Config) {
 	eng.RegisterBinder(vendoredspecs.New())
 	eng.RegisterBinder(messagingcontract.New())
 	eng.RegisterBinder(unmatchedroutes.New(linkVocab))
+	eng.RegisterBinder(importaliases.New())
 
 	// Register all OSS cross-repo signals. Phase() decides when each runs, so the
 	// order here is presentation only — see plugin.CrossRepoSignal.

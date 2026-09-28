@@ -39,6 +39,12 @@ Current writers resolve `target_id` using the source fact's repository:
 2. Emit an ID if all local matches have the same identity.
 3. If there is no local match, emit an ID only if all matches across the
    snapshot have the same identity.
+4. If no fact carries the name, and the target is another loaded repository's
+   symbol or package as the consumer's source spells it (a Go import path under
+   that repository's module path), emit the ID of the one fact that repository
+   declares under its own name for it. The target keeps the consumer's spelling:
+   `github.com/acme/auth.AuthService.Login` resolves to the `auth` repository's
+   `..AuthService.Login`.
 
 Do not choose an arbitrary fact when `target_id` is absent.
 

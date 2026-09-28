@@ -46,6 +46,29 @@ type Store struct {
 	// Relations slices are now SHARED between facts. See Freeze for what that
 	// forbids.
 	frozen bool
+
+	// targetAliases maps a relation target that names no fact to the one fact it
+	// refers to in another repository, keyed by the target exactly as written. See
+	// SetTargetAliases.
+	targetAliases map[string]FactKey
+}
+
+// FactKey is a fact's identity: the four fields its id is computed from.
+type FactKey struct {
+	Repo, Kind, Name, File string
+}
+
+// SetTargetAliases records which fact a relation target names when the target is
+// not any fact's name: a consumer names a symbol of another loaded repository the
+// way its own source spells it (a Go import path, an npm package), while the
+// provider's fact carries its repo-relative name. WriteJSONL resolves target_id
+// through these when name resolution finds nothing, so the id is exact without
+// renaming the target, which would make it collide with same-named facts of the
+// consumer. A later call replaces the whole table; nil clears it.
+func (s *Store) SetTargetAliases(aliases map[string]FactKey) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.targetAliases = aliases
 }
 
 // NewStore creates an empty fact store.
@@ -979,6 +1002,7 @@ func (s *Store) Clear() {
 	s.graph = nil
 	s.intern = nil
 	s.frozen = false
+	s.targetAliases = nil
 }
 
 // BuildGraph constructs the adjacency-list graph index from the current facts.
@@ -1090,6 +1114,8 @@ func (s *Store) WriteJSONL(w io.Writer) error {
 			if t := s.targetFactFor(r.Target, f.Repo); t >= 0 {
 				tf := s.facts[t]
 				wr.TargetID, idScratch = factIDInto(idScratch, tf.Repo, tf.Kind, tf.Name, tf.File)
+			} else if k, ok := s.targetAliases[r.Target]; ok {
+				wr.TargetID, idScratch = factIDInto(idScratch, k.Repo, k.Kind, k.Name, k.File)
 			}
 			rels = append(rels, wr)
 		}
