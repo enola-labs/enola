@@ -261,6 +261,9 @@ var mappingMethods = map[string]string{
 
 // springRouteFacts emits a KindRoute fact for each HTTP method a controller method
 // handles, combining the class base path with the method-level mapping path.
+//
+// handler is the annotated method's own symbol name, which handleMethod emits
+// unconditionally beside these routes, so each route names it with handled_by.
 func springRouteFacts(basePath string, methodAnns []javaAnnotation, relFile string, line int, dir, handler string) []facts.Fact {
 	var out []facts.Fact
 	for _, a := range methodAnns {
@@ -290,6 +293,7 @@ func springRouteFacts(basePath string, methodAnns []javaAnnotation, relFile stri
 				},
 				Relations: []facts.Relation{
 					{Kind: facts.RelDeclares, Target: dir},
+					{Kind: facts.RelHandledBy, Target: handler},
 				},
 			})
 		}

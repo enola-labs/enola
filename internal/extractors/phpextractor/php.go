@@ -125,7 +125,7 @@ func (e *PHPExtractor) Extract(ctx context.Context, repoPath string, files []str
 				ff = append(ff, extractLaravelRoutes(src, relFile)...)
 			}
 		case frameworkSymfony:
-			ff = append(ff, extractSymfonyRoutes(src, relFile)...)
+			ff = append(ff, bindSymfonyHandlers(extractSymfonyRoutes(src, relFile), ff)...)
 		}
 		return ff
 	})

@@ -20,6 +20,14 @@ import (
 	"github.com/enola-labs/enola/pkg/plugin"
 )
 
+// v277: server routes name their handler method with handled_by at extraction, for
+// the decorator and annotation frameworks where the method is the one the route sits
+// on: NestJS/Inversify (dir.Class.method), Spring (the handler prop, already the
+// method's symbol name), Python route decorators and @api_view, add_api_route when
+// the file declares the named function, and Symfony Route attributes when the file
+// declares Class::method. Registration-style routes (Go, axum, Django urls.py,
+// Laravel, Play) are unchanged: their handler is the call-site expression.
+//
 // v276: Scala reads capture-checking syntax. The grammar moves from
 // tree-sitter-scala v0.24.1 to v0.26.2, vendored and regenerated at ABI 14 the
 // way the Dart grammar is, because v0.25.0+ ship ABI 15. v0.24.1 had no
@@ -2504,7 +2512,7 @@ import (
 // v270: SvelteKit reads literal kit.alias fallbacks before generated config exists,
 // keeps tsconfig paths authoritative, and classifies $app/$env/$service-worker imports
 // as framework-provided rather than unresolved third-party dependencies.
-const cacheVersion = "v276"
+const cacheVersion = "v277"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

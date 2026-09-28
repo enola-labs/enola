@@ -96,6 +96,11 @@ func extractFileIndexed(src []byte, relFile string, isDjango, isFlask, isFastAPI
 }
 
 type pyWalker struct {
+	// callRouteHandlers pairs each route an add_api_route-style call emitted (by
+	// index into out) with the handler it names. The handler may be defined further
+	// down the file, so it is bound with handled_by only once the walk is done.
+	callRouteHandlers []pyRouteHandler
+
 	src       []byte
 	relFile   string
 	module    string
@@ -337,6 +342,7 @@ func (w *pyWalker) walkModule(root *sitter.Node) {
 		// detector. Nested class/function bodies are skipped — they own their calls.
 		w.walkTopLevelCalls(child)
 	}
+	w.bindCallRouteHandlers()
 	if len(w.fileRefs) > 0 {
 		w.out = append(w.out, facts.Fact{
 			Kind:      facts.KindFileRef,
@@ -761,9 +767,17 @@ func (w *pyWalker) handleDecoratedDefinition(node *sitter.Node) {
 				w.out[fnIdx].SetProp("web_component", "route_handler")
 			}
 			handlerName := w.module + "." + w.qualify(pyFuncName(c, w.src))
+			// The routes name the handler with handled_by only when handleFunction
+			// emitted the symbol under exactly that name: a wrong edge feeds
+			// impact_analysis and find_path, a missing one only leaves them short.
+			var handledBy []facts.Relation
+			if fnIdx < len(w.out) && w.out[fnIdx].Kind == facts.KindSymbol && w.out[fnIdx].Name == handlerName {
+				handledBy = []facts.Relation{{Kind: facts.RelHandledBy, Target: handlerName}}
+			}
 			// Back-fill handler into pending FastAPI route facts.
 			for _, idx := range pendingRouteIndices {
 				w.out[idx].SetProp("handler", handlerName)
+				w.out[idx].Relations = append(w.out[idx].Relations, handledBy...)
 			}
 			// A framework-registration decorator (@compiles, @x.register, @sig.connect,
 			// @event.listens_for, Flask hooks) dispatches the function — mark it used.
@@ -788,6 +802,7 @@ func (w *pyWalker) handleDecoratedDefinition(node *sitter.Node) {
 							"handler":      handlerName,
 							"language":     "python",
 						},
+						Relations: handledBy,
 					})
 				}
 			}
@@ -2700,4 +2715,34 @@ func (w *pyWalker) claimImport(node *sitter.Node) bool {
 	}
 	w.emittedImports[start] = true
 	return true
+}
+
+// pyRouteHandler is one call-registered route awaiting its handled_by edge.
+type pyRouteHandler struct {
+	idx     int
+	handler string
+}
+
+// bindCallRouteHandlers adds handled_by to each call-registered route whose handler
+// this file declares as a symbol under exactly that name. A handler imported from
+// another module, or one the call names in a form the walker does not declare,
+// keeps only its handler prop: a wrong edge feeds impact_analysis and find_path, a
+// missing one only leaves them short.
+func (w *pyWalker) bindCallRouteHandlers() {
+	if len(w.callRouteHandlers) == 0 {
+		return
+	}
+	declared := map[string]bool{}
+	for _, f := range w.out {
+		if f.Kind == facts.KindSymbol {
+			declared[f.Name] = true
+		}
+	}
+	for _, rh := range w.callRouteHandlers {
+		if declared[rh.handler] {
+			w.out[rh.idx].Relations = append(w.out[rh.idx].Relations,
+				facts.Relation{Kind: facts.RelHandledBy, Target: rh.handler})
+		}
+	}
+	w.callRouteHandlers = nil
 }

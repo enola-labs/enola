@@ -1009,7 +1009,7 @@ func (e *TSExtractor) extractNode(kinds *tsutil.KindTable, node *sitter.Node, ct
 		// that no production client calls, i.e. false unused-route findings (the
 		// counterpart to the v141 client-side gate).
 		if !facts.IsTestPath(relFile) {
-			result = append(result, decoratorRouteFacts(kinds, node, classBody, src, relFile, dir)...)
+			result = append(result, decoratorRouteFacts(kinds, node, classBody, src, relFile, dir, symbolName)...)
 		}
 
 		// Extract class methods

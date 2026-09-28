@@ -47,6 +47,11 @@ var verbDecorators = map[string]map[string]string{
 // controller class, at the path formed by the class base and the method sub-path.
 // Returns nil for any class without a controller decorator.
 //
+// className is the name the class's own symbol fact carries after dir, so each route
+// can name its handler method's symbol exactly: the decorated method is emitted as
+// dir.className.method by the class walk in ts.go, with no condition a route-bearing
+// method can fail.
+//
 // Two things it deliberately does NOT compose into the path:
 //
 //   - a `version:` property on the @Controller object. NestJS versioning can be
@@ -57,7 +62,7 @@ var verbDecorators = map[string]map[string]string{
 //     read from the environment and so is not knowable statically. The cross-repo
 //     linker matches on >=2-segment path SUFFIXES, so "/v2/slots/available" still
 //     resolves a client's "/api/v2/slots/available" without it.
-func decoratorRouteFacts(kinds *tsutil.KindTable, classNode, classBody *sitter.Node, src []byte, relFile, dir string) []facts.Fact {
+func decoratorRouteFacts(kinds *tsutil.KindTable, classNode, classBody *sitter.Node, src []byte, relFile, dir, className string) []facts.Fact {
 	base, framework, ok := controllerBase(kinds, classNode, src)
 	if !ok || classBody == nil {
 		return nil
@@ -83,7 +88,7 @@ func decoratorRouteFacts(kinds *tsutil.KindTable, classNode, classBody *sitter.N
 			// one real NestJS API measured against, both a decorated handler
 			// documented just above its signature.
 		case kindOf(kinds, member) == "method_definition":
-			out = append(out, methodRouteFacts(kinds, pending, member, src, base, framework, verbs, relFile, dir)...)
+			out = append(out, methodRouteFacts(kinds, pending, member, src, base, framework, verbs, relFile, dir, className)...)
 			pending = pending[:0]
 		default:
 			// A real member (a field, an index signature) ends the run: its decorators
@@ -96,7 +101,7 @@ func decoratorRouteFacts(kinds *tsutil.KindTable, classNode, classBody *sitter.N
 
 // methodRouteFacts emits the routes declared by one method's decorators.
 func methodRouteFacts(kinds *tsutil.KindTable, decorators []*sitter.Node, method *sitter.Node, src []byte,
-	base, framework string, verbs map[string]string, relFile, dir string) []facts.Fact {
+	base, framework string, verbs map[string]string, relFile, dir, className string) []facts.Fact {
 
 	handler := methodDecoratorName(kinds, method, src)
 	if handler == "" {
@@ -124,7 +129,10 @@ func methodRouteFacts(kinds *tsutil.KindTable, decorators []*sitter.Node, method
 				"language":     "typescript",
 				"handler":      handler,
 			},
-			Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: dir}},
+			Relations: []facts.Relation{
+				{Kind: facts.RelDeclares, Target: dir},
+				{Kind: facts.RelHandledBy, Target: dir + "." + className + "." + handler},
+			},
 		})
 	}
 	return out

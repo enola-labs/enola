@@ -386,6 +386,7 @@ func (w *pyWalker) emitCallRoute(call *sitter.Node) {
 	if handler := w.callRouteHandler(call); handler != "" {
 		for _, idx := range pending {
 			w.out[idx].SetProp("handler", handler)
+			w.callRouteHandlers = append(w.callRouteHandlers, pyRouteHandler{idx: idx, handler: handler})
 		}
 	}
 }

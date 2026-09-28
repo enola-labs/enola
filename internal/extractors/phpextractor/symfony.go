@@ -27,6 +27,26 @@ func extractSymfonyRoutes(src []byte, relFile string) []facts.Fact {
 	return w.out
 }
 
+// bindSymfonyHandlers adds handled_by to each route whose handler (namespace\Class::
+// method) is a symbol the file's own walk declared. Both walks qualify the class the
+// same way, so a match is the method the attribute sits on; a handler with no such
+// symbol keeps only its prop, because a wrong edge feeds impact_analysis and
+// find_path and a missing one only leaves them short.
+func bindSymfonyHandlers(routes, fileFacts []facts.Fact) []facts.Fact {
+	declared := map[string]bool{}
+	for _, f := range fileFacts {
+		if f.Kind == facts.KindSymbol {
+			declared[f.Name] = true
+		}
+	}
+	for i := range routes {
+		if h := routes[i].PropString("handler"); h != "" && declared[h] {
+			routes[i].Relations = append(routes[i].Relations, facts.Relation{Kind: facts.RelHandledBy, Target: h})
+		}
+	}
+	return routes
+}
+
 type symfonyRouteWalker struct {
 	src       []byte
 	relFile   string
