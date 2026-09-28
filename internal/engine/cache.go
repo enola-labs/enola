@@ -20,6 +20,10 @@ import (
 	"github.com/enola-labs/enola/pkg/plugin"
 )
 
+// v287: Python requests/httpx/aiohttp calls are client routes (python-http-client):
+// module calls through the file's imports and calls on a client instance it binds,
+// with the URL reduced to a path, and the enclosing function as caller.
+//
 // v286: a TypeScript function held by an object literal in a top-level declaration
 // is a symbol, "<dir>.<decl>.<key path>" (object_member), framework_registered when
 // the literal was handed to a call. `x.member()` resolves when x is such a
@@ -2557,7 +2561,7 @@ import (
 // v270: SvelteKit reads literal kit.alias fallbacks before generated config exists,
 // keeps tsconfig paths authoritative, and classifies $app/$env/$service-worker imports
 // as framework-provided rather than unresolved third-party dependencies.
-const cacheVersion = "v286"
+const cacheVersion = "v287"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

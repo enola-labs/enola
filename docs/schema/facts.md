@@ -145,7 +145,7 @@ Contract props:
   `caller_id` is that symbol's fact id; the symbol is always declared in the call
   site's own file. Absent for a call at module scope or inside a function with no
   symbol of its own. Written by the TypeScript, Kotlin, Swift,
-  Java and Dart extractors; a Retrofit or Feign route's caller is the interface
+  Java, Dart and Python extractors; a Retrofit or Feign route's caller is the interface
   method it annotates.
 
 ### dependency
@@ -279,6 +279,7 @@ HTTP client call sites:
 | Value | Meaning |
 |---|---|
 | `go-http-client` | Go net/http call site |
+| `python-http-client` | Python requests / httpx / aiohttp call site |
 | `ts-http-client` | TypeScript fetch/axios call site |
 | `ruby-http-client` | Ruby HTTP call site |
 | `php-http-client` | PHP HTTP call site |

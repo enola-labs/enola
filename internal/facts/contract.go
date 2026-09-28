@@ -231,15 +231,17 @@ const (
 // label.
 const (
 	// Hand-written HTTP call sites: code a human wrote that issues a request.
-	RouteSourceGoHTTPClient   = "go-http-client"
-	RouteSourceTSHTTPClient   = "ts-http-client"
-	RouteSourceRubyHTTPClient = "ruby-http-client"
-	RouteSourcePHPHTTPClient  = "php-http-client"
-	RouteSourceJavaHTTPClient = "java-http-client" // Spring RestTemplate / WebClient
-	RouteSourceFeign          = "feign"            // Spring Cloud @FeignClient interface
-	RouteSourceRetrofit       = "retrofit"         // Kotlin/Java Retrofit service interface
-	RouteSourceURLSession     = "urlsession"       // Swift URLSession
-	RouteSourceSwiftEndpoint  = "swift-endpoint"   // Swift endpoint enum / protocol extension
+	RouteSourceGoHTTPClient = "go-http-client"
+	// RouteSourcePythonHTTPClient is a requests/httpx/aiohttp call site.
+	RouteSourcePythonHTTPClient = "python-http-client"
+	RouteSourceTSHTTPClient     = "ts-http-client"
+	RouteSourceRubyHTTPClient   = "ruby-http-client"
+	RouteSourcePHPHTTPClient    = "php-http-client"
+	RouteSourceJavaHTTPClient   = "java-http-client" // Spring RestTemplate / WebClient
+	RouteSourceFeign            = "feign"            // Spring Cloud @FeignClient interface
+	RouteSourceRetrofit         = "retrofit"         // Kotlin/Java Retrofit service interface
+	RouteSourceURLSession       = "urlsession"       // Swift URLSession
+	RouteSourceSwiftEndpoint    = "swift-endpoint"   // Swift endpoint enum / protocol extension
 
 	// Hand-written gRPC call sites. Same "a human wrote this call" property as the
 	// HTTP sources above, over a different transport.
@@ -326,6 +328,7 @@ var HandWrittenClientSources = map[string]bool{
 	RouteSourceGraphQLPothos:        true,
 	RouteSourceGraphQLClientCall:    true,
 	RouteSourceGoHTTPClient:         true,
+	RouteSourcePythonHTTPClient:     true,
 	RouteSourceTSHTTPClient:         true,
 	RouteSourceRubyHTTPClient:       true,
 	RouteSourcePHPHTTPClient:        true,

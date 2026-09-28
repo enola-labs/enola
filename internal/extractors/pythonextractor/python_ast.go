@@ -43,6 +43,7 @@ func extractFileAST(src []byte, relFile string, isDjango, isFlask, isFastAPI boo
 		isFastAPI: isFastAPI,
 		idx:       idx,
 	}
+	w.prepareHTTPClients(tree.RootNode())
 	w.walkModule(tree.RootNode())
 
 	// Collected after the walk so the import map is fully populated: a mount
@@ -86,6 +87,7 @@ func extractFileIndexed(src []byte, relFile string, isDjango, isFlask, isFastAPI
 		deferImplementors: true,
 		fileModules:       fileModules,
 	}
+	w.prepareHTTPClients(root)
 	w.walkModule(root)
 
 	topo := collectRouterTopology(root, src, relFile, module, w.importMap)
@@ -96,6 +98,16 @@ func extractFileIndexed(src []byte, relFile string, isDjango, isFlask, isFastAPI
 }
 
 type pyWalker struct {
+	// httpClients are the names this file binds to an HTTP client instance, mapped
+	// to its library (see collectHTTPClients).
+	httpClients map[string]string
+	// httpAliases are the local names this file imports from an HTTP library,
+	// mapped to what they name ("hx" -> "httpx", "Session" -> "requests.Session").
+	httpAliases map[string]string
+	// httpCallSites maps a request call's start byte to its route in out, so a call
+	// walked twice is emitted once.
+	httpCallSites map[uint]int
+
 	// callRouteHandlers pairs each route an add_api_route-style call emitted (by
 	// index into out) with the handler it names. The handler may be defined further
 	// down the file, so it is bound with handled_by only once the walk is done.
@@ -1474,6 +1486,7 @@ func (w *pyWalker) walkForCalls(node *sitter.Node) {
 	kind := kindOf(node)
 	if kind == "call" {
 		w.emitCallRoute(node)
+		w.emitHTTPClientRoute(node)
 		if fn := node.ChildByFieldName("function"); fn != nil {
 			w.emitCallEdge(fn)
 			// Tag the body io_direct when it directly invokes a DB/network/file primitive
