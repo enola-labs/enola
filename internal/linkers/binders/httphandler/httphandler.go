@@ -4,6 +4,7 @@ package httphandler
 import (
 	"context"
 	"log"
+	"strings"
 
 	"github.com/enola-labs/enola/internal/facts"
 	"github.com/enola-labs/enola/pkg/plugin"
@@ -71,8 +72,22 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 	// tell them apart, and grpcimpl's precedent is to skip rather than guess.
 	index := map[string]map[string]string{}   // repo -> method name -> symbol name
 	ambiguous := map[string]map[string]bool{} // repo -> method name -> seen twice
+	// Types by their package-qualified name, for a handler a routes file names that
+	// way (Play's `controllers.Users.list`): repo -> fqn -> type symbol name, "" when
+	// two types claim one fqn.
+	byFQN := map[string]map[string]string{}
 
 	for _, s := range store.ByKind(facts.KindSymbol) {
+		if fqn := s.PropString("fqn"); fqn != "" {
+			if byFQN[s.Repo] == nil {
+				byFQN[s.Repo] = map[string]string{}
+			}
+			if prev, seen := byFQN[s.Repo][fqn]; seen && prev != s.Name {
+				byFQN[s.Repo][fqn] = ""
+			} else {
+				byFQN[s.Repo][fqn] = s.Name
+			}
+		}
 		if !s.PropBool(HandlerProp) {
 			continue
 		}
@@ -90,6 +105,8 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 			index[s.Repo][method] = s.Name
 		}
 	}
+
+	exact := resolveExactHandlers(store, byFQN)
 
 	bound := 0
 	store.UpdateWhere(func(f *facts.Fact) {
@@ -111,6 +128,14 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 			// depend on which ran first, which the Binder contract forbids. The old
 			// `language == "go"` test excluded these only by accident, gRPC routes
 			// carrying language="grpc".
+			return
+		}
+		if key, _, _ := exactCandidate(*f, byFQN); key != "" && exact[key] != "" {
+			t := exact[key]
+			if !f.HasRelation(facts.RelHandledBy, t) {
+				f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelHandledBy, Target: t})
+				bound++
+			}
 			return
 		}
 		handler := f.PropString("handler")
@@ -139,4 +164,55 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 		log.Printf("[binder:http-handler] bound %d HTTP route(s) to their handler", bound)
 	}
 	return nil
+}
+
+// resolveExactHandlers resolves the routes whose handler names its symbol outright,
+// so no signature is needed and the name is not a guess: a package function the
+// extractor resolved (PropHandlerTarget), or `<type fqn>.<method>` as a routes file
+// writes it. Each resolves only to a symbol carrying exactly the resolved name in the
+// route's repo; the result maps exactCandidate's key to that name, "" when none. It
+// runs before the update, which holds the store's write lock.
+func resolveExactHandlers(store *facts.Store, byFQN map[string]map[string]string) map[string]string {
+	exact := map[string]string{}
+	for _, f := range store.FactsRef() {
+		key, name, wantKind := exactCandidate(f, byFQN)
+		if key == "" {
+			continue
+		}
+		if _, done := exact[key]; done {
+			continue
+		}
+		exact[key] = ""
+		for _, s := range store.ByName(name) {
+			if s.Kind == facts.KindSymbol && s.Repo == f.Repo && s.PropString("symbol_kind") == wantKind {
+				exact[key] = name
+				break
+			}
+		}
+	}
+	return exact
+}
+
+// exactCandidate returns the symbol name a route's handler names outright and the
+// symbol kind it must have, keyed per repo: the extractor's PropHandlerTarget (a
+// function), else a `<type fqn>.<method>` handler whose type a symbol's fqn prop
+// names (a method). "" when the route names neither.
+func exactCandidate(f facts.Fact, byFQN map[string]map[string]string) (key, name, kind string) {
+	if f.Kind != facts.KindRoute {
+		return "", "", ""
+	}
+	if t := f.PropString(facts.PropHandlerTarget); t != "" {
+		return f.Repo + "\x00f\x00" + t, t, facts.SymbolFunc
+	}
+	h := f.PropString("handler")
+	dot := strings.LastIndexByte(h, '.')
+	if dot <= 0 || dot == len(h)-1 {
+		return "", "", ""
+	}
+	typ := byFQN[f.Repo][h[:dot]]
+	if typ == "" {
+		return "", "", ""
+	}
+	name = typ + "." + h[dot+1:]
+	return f.Repo + "\x00m\x00" + name, name, facts.SymbolMethod
 }

@@ -305,7 +305,13 @@ func (e *GoExtractor) extractFile(fset *token.FileSet, f *ast.File, relFile, pkg
 	}
 
 	// Extract route registrations
-	result = append(result, extractRoutes(fset, f, relFile, pkgDir, routePrefixes)...)
+	routes := extractRoutes(fset, f, relFile, pkgDir, routePrefixes)
+	for i := range routes {
+		if t := handlerTarget(routes[i].PropString("handler"), pkgDir, fileImports); t != "" {
+			routes[i].SetProp(facts.PropHandlerTarget, t)
+		}
+	}
+	result = append(result, routes...)
 
 	// Extract outbound HTTP-client calls
 	result = append(result, extractHTTPClientFacts(fset, f, relFile, pkgDir, baseURLLits)...)

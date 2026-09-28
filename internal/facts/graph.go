@@ -224,8 +224,8 @@ func NewGraphWithAliases(ff []Fact, aliases map[string]FactKey) *Graph {
 	// declaredNodes a usable boundary: after this loop, an ID below it is a name some
 	// fact declares and an ID at or above it is a dangling edge target.
 	moduleNames := make(map[string]bool)
-	var modulePaths []string // Go module paths for cross-repo normalisation, longest first
-	nameID := make([]uint32, len(ff))        // per-fact node ID, so the next pass needn't re-hash
+	var modulePaths []string          // Go module paths for cross-repo normalisation, longest first
+	nameID := make([]uint32, len(ff)) // per-fact node ID, so the next pass needn't re-hash
 	for i, f := range ff {
 		nameID[i] = noNode
 		if f.Name != "" {

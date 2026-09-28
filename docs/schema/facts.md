@@ -265,7 +265,7 @@ adding them to coupling metrics.
 | `instantiates` | Source constructs an instance of target via a constructor call |
 | `injects` | Source declares target as a DI-injected constructor parameter |
 | `has_method` | Owner type (struct/interface/class) declares target as a method. Synthesized, not read from source |
-| `handled_by` | A route/endpoint is served by target, its handler symbol. Written at extraction where the route sits on its handler (decorator and annotation frameworks, .NET, Rails routes) and by post-link binders elsewhere (Go handler signatures, gRPC implementations). Emitted only when the target is a symbol the snapshot declares under that exact name |
+| `handled_by` | A route/endpoint is served by target, its handler symbol. Written at extraction where the route sits on its handler (decorator and annotation frameworks, .NET, Rails routes) and by post-link binders elsewhere: a Go handler that is a package function or has the `func(http.ResponseWriter, *http.Request)` signature, a routes-file handler named `<type fqn>.<method>` (Play), and gRPC implementations. Emitted only when the target is a symbol the snapshot declares under that exact name |
 | `implemented_by` | A declared contract operation is implemented by a code symbol. Added post-extraction |
 | `names` | Source names target by symbol literal without calling it — a method name passed as data for something else to dispatch. A reference, not a call |
 

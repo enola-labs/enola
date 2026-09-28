@@ -661,3 +661,29 @@ func routeToFact(r routeInfo, relFile, pkgDir string) facts.Fact {
 		},
 	}
 }
+
+// handlerTarget names the function a route's handler expression registers, in the
+// form Go call targets take, when the expression alone settles it: `Home` is the
+// file's own package's function, `repo.Home` the function of the package the file
+// imports as repo. A method value (`h.Home`, a receiver variable) or a call
+// (`routing.Wrap(h.Home)`) names no function by itself and gets "".
+func handlerTarget(handler, pkgDir string, fileImports map[string]string) string {
+	if handler == "" || strings.ContainsAny(handler, "()[]{} *&") {
+		return ""
+	}
+	parts := strings.Split(handler, ".")
+	switch len(parts) {
+	case 1:
+		if !token.IsIdentifier(parts[0]) {
+			return ""
+		}
+		return pkgDir + "." + parts[0]
+	case 2:
+		pkg, ok := fileImports[parts[0]]
+		if !ok || !token.IsIdentifier(parts[1]) {
+			return ""
+		}
+		return pkg + "." + parts[1]
+	}
+	return ""
+}

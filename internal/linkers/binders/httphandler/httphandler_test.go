@@ -253,3 +253,52 @@ func TestBindHTTPHandlers_NoLanguageGate(t *testing.T) {
 		t.Errorf("handled_by = %q (ok=%v), want the TypeScript handler — binding must not be gated on language", target, ok)
 	}
 }
+
+// A route whose handler names its symbol outright binds without a handler
+// signature: a package function by PropHandlerTarget, and a routes-file handler
+// `<type fqn>.<method>` through the type's fqn. A name no symbol carries, and a
+// type fqn two types claim, bind nothing.
+func TestBind_ExactlyNamedHandlers(t *testing.T) {
+	route := func(name string, props map[string]any) facts.Fact {
+		p := map[string]any{"method": "GET"}
+		for k, v := range props {
+			p[k] = v
+		}
+		return facts.Fact{Kind: facts.KindRoute, Name: name, Repo: "r", Props: p}
+	}
+	sym := func(name, kind string, props map[string]any) facts.Fact {
+		p := map[string]any{"symbol_kind": kind}
+		for k, v := range props {
+			p[k] = v
+		}
+		return facts.Fact{Kind: facts.KindSymbol, Name: name, Repo: "r", Props: p}
+	}
+	store := facts.NewStore()
+	store.Add(
+		route("/diff", map[string]any{"handler": "repo.DownloadPullDiff", facts.PropHandlerTarget: "routers/web/repo.DownloadPullDiff"}),
+		route("/missing", map[string]any{"handler": "repo.Gone", facts.PropHandlerTarget: "routers/web/repo.Gone"}),
+		route("/", map[string]any{"handler": "controllers.Lobby.home", "framework": "play"}),
+		route("/dup", map[string]any{"handler": "controllers.Dup.show", "framework": "play"}),
+		sym("routers/web/repo.DownloadPullDiff", facts.SymbolFunc, nil),
+		sym("app/controllers.Lobby", "class", map[string]any{"fqn": "controllers.Lobby"}),
+		sym("app/controllers.Lobby.home", facts.SymbolMethod, nil),
+		sym("a/controllers.Dup", "class", map[string]any{"fqn": "controllers.Dup"}),
+		sym("b/controllers.Dup", "class", map[string]any{"fqn": "controllers.Dup"}),
+		sym("a/controllers.Dup.show", facts.SymbolMethod, nil),
+	)
+	if err := New().Bind(context.Background(), store); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{"/diff": "routers/web/repo.DownloadPullDiff", "/": "app/controllers.Lobby.home", "/missing": "", "/dup": ""}
+	for _, f := range store.ByKind(facts.KindRoute) {
+		got := ""
+		for _, r := range f.Relations {
+			if r.Kind == facts.RelHandledBy {
+				got = r.Target
+			}
+		}
+		if got != want[f.Name] {
+			t.Errorf("%s handled_by = %q, want %q", f.Name, got, want[f.Name])
+		}
+	}
+}

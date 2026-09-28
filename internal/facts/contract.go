@@ -297,6 +297,13 @@ const (
 // RouteSourceConfiguredHTTPClient route was read through.
 const PropClientSpec = "client_spec"
 
+// PropHandlerTarget is the fact name a route's registered handler resolves to, when
+// the extractor can name it from the registration site alone: a package function
+// (`repo.Home`, the import alias resolved through the file's imports) or one of the
+// file's own package (`Home`). The http-handler binder binds the route to it when a
+// function symbol carries exactly that name.
+const PropHandlerTarget = "handler_target"
+
 // HandWrittenClientSources is the set of RouteSource values that mean "a human wrote
 // this call site", as opposed to a route derived from a generated client or a contract
 // spec. The cross-repo linker reads it to label an edge via="http-client" instead of the

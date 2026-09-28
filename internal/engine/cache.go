@@ -20,6 +20,10 @@ import (
 	"github.com/enola-labs/enola/pkg/plugin"
 )
 
+// v285: a Go route whose handler is a package function (`Home`, or `repo.Home`
+// through the file's imports) carries handler_target, the function's fact name; the
+// http-handler binder binds it to the function symbol of exactly that name.
+//
 // v284: Java and Dart client call sites name their caller. Java reads the walker's
 // owning method (a Feign route names the interface method declaring it); Dart
 // records each function's extent as it emits it, its signature and body being
@@ -2547,7 +2551,7 @@ import (
 // v270: SvelteKit reads literal kit.alias fallbacks before generated config exists,
 // keeps tsconfig paths authoritative, and classifies $app/$env/$service-worker imports
 // as framework-provided rather than unresolved third-party dependencies.
-const cacheVersion = "v284"
+const cacheVersion = "v285"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
