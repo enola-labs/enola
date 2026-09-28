@@ -171,3 +171,45 @@ export class FixtureService {
 		t.Errorf("a spec's requests were extracted: %v", got)
 	}
 }
+
+// A request made through an injected HttpClient names the service method making it,
+// including from inside an RxJS operator callback, and the method is a symbol the
+// declaration walk emitted.
+func TestAngularRequestNamesItsCallingMethod(t *testing.T) {
+	fs := extractAngular(t, map[string]string{
+		"src/app/abuse.service.ts": `import { Injectable } from '@angular/core';
+import { HttpClient } from '@angular/common/http';
+
+@Injectable({ providedIn: 'root' })
+export class AbuseService {
+  constructor(private authHttp: HttpClient) {}
+
+  removeAbuse(ids: number[]) {
+    return from(ids).pipe(
+      concatMap(id => this.authHttp.delete('/api/v1/abuses/' + id)),
+    );
+  }
+
+  list = () => this.authHttp.get('/api/v1/abuses');
+}
+`,
+	}, true)
+	symbols := map[string]bool{}
+	callers := map[string]string{}
+	for _, f := range fs {
+		if f.Kind == facts.KindSymbol {
+			symbols[f.Name] = true
+		}
+		if f.Kind == facts.KindRoute && f.PropString("api") == "angular-httpclient" {
+			callers[f.PropString("method")+" "+f.Name] = f.PropString(facts.PropCaller)
+		}
+	}
+	for route, want := range map[string]string{
+		"DELETE /api/v1/abuses/{}": "src/app.AbuseService.removeAbuse",
+		"GET /api/v1/abuses":       "src/app.AbuseService.list",
+	} {
+		if got := callers[route]; got != want || !symbols[got] {
+			t.Errorf("%s caller = %q, want the emitted symbol %q (routes: %v)", route, got, want, callers)
+		}
+	}
+}

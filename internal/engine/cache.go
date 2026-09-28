@@ -20,6 +20,10 @@ import (
 	"github.com/enola-labs/enola/pkg/plugin"
 )
 
+// v283: an Angular HttpClient request names its caller, the service member making
+// it. Those requests are emitted repo-wide after the per-file caller pass, so they
+// are attributed where the collector walks the class.
+//
 // v282: a TypeScript call on this.<field>.<method>() names the method of the field's
 // stated type: a constructor parameter property, an annotated field, or a `new` /
 // inject() initializer. It was left unresolved, which hid every call a class makes
@@ -2538,7 +2542,7 @@ import (
 // v270: SvelteKit reads literal kit.alias fallbacks before generated config exists,
 // keeps tsconfig paths authoritative, and classifies $app/$env/$service-worker imports
 // as framework-provided rather than unresolved third-party dependencies.
-const cacheVersion = "v282"
+const cacheVersion = "v283"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

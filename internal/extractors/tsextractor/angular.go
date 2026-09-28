@@ -189,7 +189,7 @@ func angularEnrich(kinds *tsutil.KindTable, in []facts.Fact, root *sitter.Node, 
 		// that touches it. Test files are excluded for the reason every other route
 		// pass excludes them — a spec's traffic is not the application's.
 		if !facts.IsTestPath(ctx.relFile) {
-			angularHTTPRoutes(kinds, body, ctx, className, http)
+			angularHTTPRoutes(kinds, body, ctx, className, byName, http)
 		}
 
 		rels, c := angularInjects(kinds, body, ctx, imports, external, local)
