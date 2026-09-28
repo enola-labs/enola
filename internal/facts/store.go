@@ -1107,7 +1107,7 @@ func (s *Store) WriteJSONL(w io.Writer) error {
 		if f.Kind == KindRoute {
 			// f is a copy, and withFactRefIDs copies before widening, so the
 			// store's shared Props map is never written.
-			f.Props, idScratch = withFactRefIDs(f.Props, idScratch)
+			f.Props, idScratch = withFactRefIDs(f.Props, f.Repo, f.File, idScratch)
 		}
 		b, err := json.Marshal(wireFact{Fact: f, Relations: rels, ID: factID})
 		if err != nil {

@@ -133,6 +133,11 @@ Contract props:
   although it draws no service edge. This is a prop rather than a relation
   because a call and the route it reaches usually share a name, and a relation
   names its target by name.
+- `caller`, `caller_id` (client routes): the symbol whose body makes the call,
+  the innermost function containing the call site that has a symbol of its own.
+  `caller_id` is that symbol's fact id; the symbol is always declared in the call
+  site's own file. Absent for a call at module scope or inside a function with no
+  symbol (an object-literal property). Written by the TypeScript extractor.
 
 ### dependency
 

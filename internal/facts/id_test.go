@@ -350,3 +350,37 @@ func TestWriteJSONL_AddsIDsToMatchedRoutes(t *testing.T) {
 		t.Fatalf("the store's own entry was written: id = %v", entry["id"])
 	}
 }
+
+// caller names a symbol in the call site's own file, so its id is derived from the
+// route's repo and file, and matches the symbol fact's own id.
+func TestWriteJSONL_AddsCallerID(t *testing.T) {
+	s := NewStore()
+	s.Add(
+		Fact{Kind: KindSymbol, Name: "src/api.OrdersClient.list", File: "web/src/api/orders.ts", Repo: "web"},
+		Fact{Kind: KindRoute, Name: "/api/orders", File: "web/src/api/orders.ts", Repo: "web",
+			Props: map[string]any{"role": "client", "method": "GET", PropCaller: "src/api.OrdersClient.list", PropCallerID: "stale"}},
+	)
+	var buf bytes.Buffer
+	if err := s.WriteJSONL(&buf); err != nil {
+		t.Fatal(err)
+	}
+	var symID, callerID string
+	for _, l := range strings.Split(strings.TrimSpace(buf.String()), "\n") {
+		var m struct {
+			ID    string         `json:"id"`
+			Kind  string         `json:"kind"`
+			Props map[string]any `json:"props"`
+		}
+		if err := json.Unmarshal([]byte(l), &m); err != nil {
+			t.Fatal(err)
+		}
+		if m.Kind == KindSymbol {
+			symID = m.ID
+		} else {
+			callerID, _ = m.Props[PropCallerID].(string)
+		}
+	}
+	if symID == "" || callerID != symID {
+		t.Fatalf("caller_id = %q, want the symbol's id %q", callerID, symID)
+	}
+}

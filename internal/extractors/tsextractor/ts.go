@@ -749,6 +749,8 @@ func (e *TSExtractor) extractFile(src []byte, relFile string, isNextJS, isVue, i
 		}
 	}
 
+	attributeClientCallers(kinds, root, result)
+
 	return result, angular, router, inlineTemplates, httpFile, clients
 }
 

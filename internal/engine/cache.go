@@ -20,6 +20,12 @@ import (
 	"github.com/enola-labs/enola/pkg/plugin"
 )
 
+// v279: a TypeScript hand-written client call site names the symbol whose body makes
+// it (caller): the innermost function containing the call that the file emitted a
+// symbol for, paired to its node by line through wrapping declarations only. A
+// callback with no symbol credits the enclosing function; module scope and
+// object-literal properties get no caller.
+//
 // v278: a Python route handler defined inside a function (the router-factory
 // pattern) is a symbol, named under its enclosing symbol and tagged route_handler.
 // Its routes carry handler and handled_by, and its body's calls are credited to it
@@ -2517,7 +2523,7 @@ import (
 // v270: SvelteKit reads literal kit.alias fallbacks before generated config exists,
 // keeps tsconfig paths authoritative, and classifies $app/$env/$service-worker imports
 // as framework-provided rather than unresolved third-party dependencies.
-const cacheVersion = "v278"
+const cacheVersion = "v279"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

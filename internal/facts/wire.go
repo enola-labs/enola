@@ -50,21 +50,44 @@ type wireFact struct {
 // by identity instead, and the writer adds that identity's id beside it.
 const PropMatchedRoutes = "matched_routes"
 
-// withFactRefIDs returns props with an "id" added to every entry of
-// PropMatchedRoutes, computed from the entry's repo, name and file exactly as the
-// target fact's own id is. It returns props unchanged when there is nothing to add,
-// and otherwise a copy: the store's maps are shared and must not be written here.
+// PropCaller is the prop on a client route naming the symbol whose body makes the
+// call: the innermost function or method containing the call site that the
+// extractor emitted as a symbol. That symbol is declared in the call site's own
+// file, so the writer derives its id from the route's repo and file and writes it
+// beside the name as PropCallerID. A prop for the reason PropMatchedRoutes is one:
+// a relation to the route would name it by a name other call sites share.
+const (
+	PropCaller   = "caller"
+	PropCallerID = "caller_id"
+)
+
+// withFactRefIDs returns a route's props with the ids of the facts they name: an
+// "id" on every entry of PropMatchedRoutes, computed from the entry's repo, name and
+// file, and PropCallerID for PropCaller, computed from the route's own repo and file.
+// Each is derived exactly as the named fact's own id is. It returns props unchanged
+// when there is nothing to add, and otherwise a copy: the store's maps are shared and
+// must not be written here.
 //
 // An id already present is recomputed rather than trusted, so a snapshot read back
 // from disk and written again cannot carry an id its entry no longer agrees with.
-func withFactRefIDs(props map[string]any, scratch []byte) (map[string]any, []byte) {
-	refs, ok := props[PropMatchedRoutes].([]any)
-	if !ok || len(refs) == 0 {
+func withFactRefIDs(props map[string]any, repo, file string, scratch []byte) (map[string]any, []byte) {
+	refs, hasRefs := props[PropMatchedRoutes].([]any)
+	hasRefs = hasRefs && len(refs) > 0
+	caller, _ := props[PropCaller].(string)
+	_, staleCallerID := props[PropCallerID]
+	if !hasRefs && caller == "" && !staleCallerID {
 		return props, scratch
 	}
-	out := make(map[string]any, len(props))
+	out := make(map[string]any, len(props)+1)
 	for k, v := range props {
 		out[k] = v
+	}
+	delete(out, PropCallerID)
+	if caller != "" {
+		out[PropCallerID], scratch = factIDInto(scratch, repo, KindSymbol, caller, file)
+	}
+	if !hasRefs {
+		return out, scratch
 	}
 	widened := make([]any, len(refs))
 	for i, r := range refs {
