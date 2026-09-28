@@ -106,9 +106,6 @@ func TestExplain_UngroundableImportTargetsAreCounted(t *testing.T) {
 	}
 }
 
-// Directory imports resolve to their index file, and the resolution is scoped to
-// the importing repository: a file measured in one repo can never ground a
-// target written in another.
 // TestGrounding_ResolvesPythonImportsByTheImportersLanguage: the Python
 // extractor measures `import inventory.stock` as the path inventory/stock. It
 // grounds onto the module file or the package's __init__.py, and only for a
@@ -131,6 +128,9 @@ func TestGrounding_ResolvesPythonImportsByTheImportersLanguage(t *testing.T) {
 	}
 }
 
+// Directory imports resolve to their index file, and the resolution is scoped to
+// the importing repository: a file measured in one repo can never ground a
+// target written in another.
 func TestGrounding_ResolvesIndexAndStaysInsideTheRepo(t *testing.T) {
 	store := facts.NewStore()
 	store.Add(
