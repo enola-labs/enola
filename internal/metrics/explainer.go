@@ -43,7 +43,11 @@ func metricsToInsights(results []PackageMetric) []facts.Insight {
 		if isOffMainSequence(m) {
 			off = append(off, m)
 		}
-		if m.Ca > mostCoupled.Ca {
+		// Ties go to the lexically first package (then repo): results arrive in map
+		// order, so keeping the first maximum seen named a different package on
+		// each run of the same snapshot.
+		if m.Ca > mostCoupled.Ca || (m.Ca == mostCoupled.Ca && m.Ca > 0 &&
+			(m.Package < mostCoupled.Package || (m.Package == mostCoupled.Package && m.Repo < mostCoupled.Repo))) {
 			mostCoupled = m
 		}
 	}

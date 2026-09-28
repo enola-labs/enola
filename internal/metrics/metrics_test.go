@@ -968,3 +968,25 @@ func TestCompute_StampsTheRigidFloor(t *testing.T) {
 		}
 	}
 }
+
+// Two packages tied on Ca name the same one whichever order they arrive in, since
+// compute hands results over in map order.
+func TestMostDependedUpon_TieIsDeterministic(t *testing.T) {
+	a := PackageMetric{Package: "common/data", Repo: "r", Ca: 396}
+	b := PackageMetric{Package: "common/data/id", Repo: "r", Ca: 396}
+	title := func(results []PackageMetric) string {
+		for _, in := range metricsToInsights(results) {
+			if strings.HasPrefix(in.Title, "Most depended-upon package") {
+				return in.Title
+			}
+		}
+		return ""
+	}
+	first, second := title([]PackageMetric{a, b}), title([]PackageMetric{b, a})
+	if first == "" || first != second {
+		t.Fatalf("tie resolved by arrival order: %q vs %q", first, second)
+	}
+	if !strings.Contains(first, "common/data (") {
+		t.Fatalf("got %q, want the lexically first package", first)
+	}
+}
