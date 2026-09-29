@@ -33,6 +33,7 @@ func ScanJSONL(r io.Reader, fn func(Fact) error) error {
 		if err := json.Unmarshal(line, &f); err != nil {
 			return err
 		}
+		dropWireIDs(&f)
 		if err := fn(f); err != nil {
 			return err
 		}

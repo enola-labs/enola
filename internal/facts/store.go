@@ -1198,6 +1198,7 @@ func (s *Store) ReadJSONL(r io.Reader) error {
 		if err := json.Unmarshal(line, &f); err != nil {
 			return fmt.Errorf("decoding fact: %w", err)
 		}
+		dropWireIDs(&f)
 		s.Add(f)
 	}
 	return scanner.Err()

@@ -384,3 +384,38 @@ func TestWriteJSONL_AddsCallerID(t *testing.T) {
 		t.Fatalf("caller_id = %q, want the symbol's id %q", callerID, symID)
 	}
 }
+
+// The ids the writer adds (caller_id, matched_routes[].id) are wire-only, like
+// target_id: a fact read back from facts.jsonl, by ReadJSONL or ScanJSONL, equals the
+// fact that was written, so a diff against a snapshot on disk sees no change.
+func TestReadBack_DropsWireOnlyIDs(t *testing.T) {
+	route := Fact{Kind: KindRoute, Name: "/api/orders", File: "web/src/api.ts", Repo: "web",
+		Props: map[string]any{
+			"role": "client", "method": "GET", PropCaller: "src/api.list",
+			PropMatchedRoutes: []any{map[string]any{"repo": "api", "name": "/api/orders", "file": "api/h.go", "method": "GET", "confidence": "verified"}},
+		}}
+	s := NewStore()
+	s.Add(route)
+	var buf bytes.Buffer
+	if err := s.WriteJSONL(&buf); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(buf.String(), PropCallerID) {
+		t.Fatalf("precondition: the writer adds caller_id: %s", buf.String())
+	}
+
+	back := NewStore()
+	if err := back.ReadJSONL(strings.NewReader(buf.String())); err != nil {
+		t.Fatal(err)
+	}
+	var scanned []Fact
+	if err := ScanJSONL(strings.NewReader(buf.String()), func(f Fact) error { scanned = append(scanned, f); return nil }); err != nil {
+		t.Fatal(err)
+	}
+	want, _ := json.Marshal(route.Props)
+	for name, got := range map[string]Fact{"ReadJSONL": back.All()[0], "ScanJSONL": scanned[0]} {
+		if b, _ := json.Marshal(got.Props); string(b) != string(want) {
+			t.Errorf("%s props = %s, want %s", name, b, want)
+		}
+	}
+}

@@ -114,6 +114,26 @@ func withFactRefIDs(props map[string]any, repo, file string, scratch []byte) (ma
 	return out, scratch
 }
 
+// dropWireIDs removes from a fact read back from facts.jsonl the ids only the writer
+// adds (PropCallerID, and the id of each PropMatchedRoutes entry), the same way
+// target_id is dropped by decoding into Relation. They are derived on every write and
+// never stored, so a fact read back must equal the fact that was written: kept, they
+// made every client route with a caller or a matched route differ from its in-memory
+// self, and a diff against a snapshot on disk reported those routes as changed on a
+// tree nothing had touched.
+func dropWireIDs(f *Fact) {
+	if f.Kind != KindRoute || f.Props == nil {
+		return
+	}
+	delete(f.Props, PropCallerID)
+	refs, _ := f.Props[PropMatchedRoutes].([]any)
+	for _, r := range refs {
+		if entry, ok := r.(map[string]any); ok {
+			delete(entry, "id")
+		}
+	}
+}
+
 // targetFactFor resolves a relation target NAME to the index of the fact it
 // names, or -1 when the snapshot cannot answer that unambiguously. The caller
 // turns the index into an id, so resolution and hashing stay separable and the

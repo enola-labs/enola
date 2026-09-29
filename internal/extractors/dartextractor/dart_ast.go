@@ -41,10 +41,7 @@ type walker struct {
 	// language-guaranteed answer to "can this file possibly be using X".
 	importURIs []string
 
-	out []facts.Fact
-	// spans are the extents of the functions and methods emitted with a body, for
-	// naming each client call's caller (see callsite.AttributeSpans).
-	spans     []callsite.Span
+	out       []facts.Fact
 	typeNames []string
 	partOf    string
 	parts     []string
@@ -92,7 +89,7 @@ func extractFile(src []byte, relFile string, pkgs *packageIndex, inheritedImport
 	w.walkDirectives(root)
 	w.walkDeclarations(root)
 	w.extractFrameworkSurface(root)
-	callsite.AttributeSpans(w.spans, w.out)
+	w.attributeCallers(root)
 
 	return fileResult{
 		facts:        w.out,
@@ -528,7 +525,6 @@ func (w *walker) methodDecl(sig, body *sitter.Node, typeName string, annos []str
 		Kind: facts.KindSymbol, Name: full, File: w.relFile, Line: lineOf(sig),
 		Props: props, Relations: rels,
 	})
-	w.recordSpan(sig, body, full)
 	return memberInfo{name: full, isMethod: true, hasBody: body != nil}, true
 }
 
@@ -559,16 +555,48 @@ func (w *walker) functionDecl(sig, body *sitter.Node, dir, _ string, annos []str
 		Kind: facts.KindSymbol, Name: full, File: w.relFile, Line: lineOf(sig),
 		Props: props, Relations: rels,
 	})
-	w.recordSpan(sig, body, full)
 }
 
-// recordSpan records a function's extent, from its signature to the end of its
-// body, which Dart's grammar makes two sibling nodes.
-func (w *walker) recordSpan(sig, body *sitter.Node, symbol string) {
-	if sig == nil || body == nil {
+// attributeCallers names the caller of each client call this file makes. Dart's
+// grammar makes a function's signature and body two sibling nodes, so no single node
+// contains a call and names its function: each function_body is paired with the
+// signature before it, whose start row is the Line of the symbol the declaration
+// walk emitted for it. It walks the tree only for a file that makes a client call;
+// the declaration walk runs on every snapshot, cache or not, and bookkeeping there
+// for every function cost a measurable share of a warm run.
+func (w *walker) attributeCallers(root *sitter.Node) {
+	hasCall := false
+	for i := range w.out {
+		if w.out[i].Kind == facts.KindRoute && w.out[i].PropAny(facts.PropRole) == facts.RoleClient {
+			hasCall = true
+			break
+		}
+	}
+	if !hasCall {
 		return
 	}
-	w.spans = append(w.spans, callsite.Span{Start: sig.StartPosition().Row, End: body.EndPosition().Row, Symbol: symbol})
+	byLine := map[uint][]string{}
+	for i := range w.out {
+		if f := &w.out[i]; f.Kind == facts.KindSymbol && f.Line > 0 {
+			byLine[uint(f.Line-1)] = append(byLine[uint(f.Line-1)], f.Name)
+		}
+	}
+	var spans []callsite.Span
+	var visit func(n *sitter.Node)
+	visit = func(n *sitter.Node) {
+		kids := namedChildren(n)
+		for i, c := range kids {
+			if kindOf(c) == "function_body" && i > 0 {
+				sig := kids[i-1]
+				if names := byLine[sig.StartPosition().Row]; len(names) == 1 {
+					spans = append(spans, callsite.Span{Start: sig.StartPosition().Row, End: c.EndPosition().Row, Symbol: names[0]})
+				}
+			}
+			visit(c)
+		}
+	}
+	visit(root)
+	callsite.AttributeSpans(spans, w.out)
 }
 
 // enumDecl emits an enum and its constants.
