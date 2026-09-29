@@ -58,13 +58,88 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 	aliases := map[string]facts.FactKey{}
 	nGo := goAliases(store, all, aliases)
 	nTS := tsAliases(store, all, aliases)
+	nFQN := fqnAliases(store, all, aliases)
 	if len(aliases) == 0 {
 		store.SetTargetAliases(nil)
 		return nil
 	}
 	store.SetTargetAliases(aliases)
-	log.Printf("[binder:import-aliases] resolved %d Go and %d TypeScript package target(s) to their declaring facts", nGo, nTS)
+	log.Printf("[binder:import-aliases] resolved %d Go, %d TypeScript and %d qualified-type target(s) to their declaring facts", nGo, nTS, nFQN)
 	return nil
+}
+
+// fqnAliases adds the aliases for targets written as a type's fully qualified name,
+// the way Java, Scala and .NET reference a type from another package
+// (`org.acme.lib.Client`), or that name followed by a member
+// (`org.acme.lib.Client.connect`). Those extractors name their facts by directory
+// (`lib/src/main/java/org/acme/lib.Client`) and record the qualified name as the
+// type's fqn prop, which is what the target is matched against. It returns how many
+// it added.
+//
+// It applies within one repository as much as across two, since a reference its
+// extractor could not resolve locally is written the same way. A qualified name two
+// types claim resolves to nothing.
+func fqnAliases(store *facts.Store, all []facts.Fact, aliases map[string]facts.FactKey) int {
+	types := map[string]facts.FactKey{}
+	ambiguous := map[string]bool{}
+	for _, f := range all {
+		if f.Kind != facts.KindSymbol {
+			continue
+		}
+		fqn := f.PropString("fqn")
+		if fqn == "" || ambiguous[fqn] {
+			continue
+		}
+		k := facts.FactKey{Repo: f.Repo, Kind: f.Kind, Name: f.Name, File: f.File}
+		if prev, seen := types[fqn]; seen && prev != k {
+			delete(types, fqn)
+			ambiguous[fqn] = true
+			continue
+		}
+		types[fqn] = k
+	}
+	if len(types) == 0 {
+		return 0
+	}
+
+	n := 0
+	tried := map[string]bool{}
+	for _, f := range all {
+		for _, rel := range f.Relations {
+			target := rel.Target
+			if rel.Kind == facts.RelDeclares || tried[target] || !strings.Contains(target, ".") {
+				continue
+			}
+			if _, done := aliases[target]; done {
+				continue
+			}
+			tried[target] = true
+			key, ok := fqnTarget(store, types, target)
+			if !ok || len(store.ByName(target)) > 0 {
+				continue
+			}
+			aliases[target] = key
+			n++
+		}
+	}
+	return n
+}
+
+// fqnTarget resolves a qualified-name target: the type whose fqn it is, or the
+// member of the longest fqn it starts with, when that type's repository declares a
+// fact named exactly "<type fact name>.<rest>".
+func fqnTarget(store *facts.Store, types map[string]facts.FactKey, target string) (facts.FactKey, bool) {
+	if k, ok := types[target]; ok {
+		return k, true
+	}
+	for i := strings.LastIndexByte(target, '.'); i > 0; i = strings.LastIndexByte(target[:i], '.') {
+		typ, ok := types[target[:i]]
+		if !ok {
+			continue
+		}
+		return uniqueFact(store.ByName(typ.Name+target[i:]), typ.Repo, false)
+	}
+	return facts.FactKey{}, false
 }
 
 // goAliases adds the aliases for Go import-path targets under another loaded

@@ -23,6 +23,7 @@ func (s *Signal) Phase() plugin.SignalPhase { return plugin.PhaseDirectional }
 // --- signal (B): import / shared-lib references ---
 
 func (s *Signal) Contribute(in plugin.SignalInput, out plugin.EvidenceSink) {
+	var qualified *qualifiedIndex
 	for _, f := range in.Facts() {
 		if f.Repo == "" || f.Kind == facts.KindService {
 			continue
@@ -32,6 +33,14 @@ func (s *Signal) Contribute(in plugin.SignalInput, out plugin.EvidenceSink) {
 				continue
 			}
 			provider := importProvider(rel.Target, f.Repo, in, in.TopDirs(f.Repo), in.OwnScopes(f.Repo))
+			if provider == "" {
+				if qualified == nil {
+					qualified = newQualifiedIndex(in.Facts())
+				}
+				if p := qualified.provider(rel.Target); p != f.Repo {
+					provider = p
+				}
+			}
 			if provider == "" {
 				continue
 			}
@@ -108,4 +117,54 @@ func importCandidates(target string) []string {
 		}
 	}
 	return out
+}
+
+// qualifiedIndex maps the fully qualified type names Java, Scala and .NET record as
+// a type's fqn prop, and the packages or namespaces holding them, to the one
+// repository declaring them. Their imports name a type or package that way
+// (`import com.acme.inventory.Client;`), with no segment matching a repository label,
+// so the label match above finds nothing for them.
+type qualifiedIndex struct {
+	types    map[string]string // fqn -> repo, "" when two repos declare it
+	packages map[string]string // package -> repo, "" when two repos declare into it
+}
+
+func newQualifiedIndex(all []facts.Fact) *qualifiedIndex {
+	ix := &qualifiedIndex{types: map[string]string{}, packages: map[string]string{}}
+	note := func(m map[string]string, key, repo string) {
+		if prev, seen := m[key]; seen && prev != repo {
+			m[key] = ""
+		} else if !seen {
+			m[key] = repo
+		}
+	}
+	for _, f := range all {
+		fqn := f.PropString("fqn")
+		if f.Kind != facts.KindSymbol || fqn == "" || f.Repo == "" {
+			continue
+		}
+		note(ix.types, fqn, f.Repo)
+		if i := strings.LastIndexByte(fqn, '.'); i > 0 {
+			note(ix.packages, fqn[:i], f.Repo)
+		}
+	}
+	return ix
+}
+
+// provider returns the repository an import of target reaches: the one declaring
+// the type it names, the package a wildcard import names (`com.acme.inventory.*`),
+// or the type a static import's member belongs to. "" when none or several do.
+func (ix *qualifiedIndex) provider(target string) string {
+	if repo, ok := ix.types[target]; ok {
+		return repo
+	}
+	if pkg, ok := strings.CutSuffix(target, ".*"); ok {
+		return ix.packages[pkg]
+	}
+	if i := strings.LastIndexByte(target, '.'); i > 0 {
+		if repo, ok := ix.types[target[:i]]; ok {
+			return repo
+		}
+	}
+	return ""
 }

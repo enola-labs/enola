@@ -195,3 +195,57 @@ func TestImportAliases_SubpathNarrowsTheExport(t *testing.T) {
 		t.Fatalf("target_id = %q, want the auth/lib export %q", got, want)
 	}
 }
+
+// A fully qualified type name resolves to the type whose fqn prop it is, and a
+// member after it to that type's member, across repositories; a qualified name two
+// types claim resolves to nothing.
+func TestImportAliases_QualifiedTypeTargets(t *testing.T) {
+	typ := func(repo, name, file, fqn string) facts.Fact {
+		f := sym(repo, name, file)
+		f.Props = map[string]any{"symbol_kind": "class", "fqn": fqn}
+		return f
+	}
+	consumer := sym("storefront", "src/main/java/com/shop.Checkout.run", "storefront/src/main/java/com/shop/Checkout.java")
+	consumer.Relations = []facts.Relation{
+		{Kind: facts.RelInstantiates, Target: "com.acme.inventory.Client"},
+		{Kind: facts.RelCalls, Target: "com.acme.inventory.Client.reserve"},
+		{Kind: facts.RelInstantiates, Target: "com.acme.dup.Thing"},
+	}
+	store := facts.NewStore()
+	store.Add(
+		consumer,
+		typ("inventory", "src/main/java/com/acme/inventory.Client", "inventory/src/main/java/com/acme/inventory/Client.java", "com.acme.inventory.Client"),
+		sym("inventory", "src/main/java/com/acme/inventory.Client.reserve", "inventory/src/main/java/com/acme/inventory/Client.java"),
+		typ("a", "x.Thing", "a/x/Thing.java", "com.acme.dup.Thing"),
+		typ("b", "y.Thing", "b/y/Thing.java", "com.acme.dup.Thing"),
+	)
+	if err := New().Bind(context.Background(), store); err != nil {
+		t.Fatal(err)
+	}
+	ids := targetIDs(t, store, "storefront")
+	for target, want := range map[string]string{
+		"com.acme.inventory.Client":         facts.FactID("inventory", facts.KindSymbol, "src/main/java/com/acme/inventory.Client", "inventory/src/main/java/com/acme/inventory/Client.java"),
+		"com.acme.inventory.Client.reserve": facts.FactID("inventory", facts.KindSymbol, "src/main/java/com/acme/inventory.Client.reserve", "inventory/src/main/java/com/acme/inventory/Client.java"),
+		"com.acme.dup.Thing":                "",
+	} {
+		if got := ids[target]; got != want {
+			t.Errorf("%s target_id = %q, want %q", target, got, want)
+		}
+	}
+}
+
+// PHP needs no alias: its facts are named by namespace, the same spelling a consumer
+// writes, so a reference into another loaded repository resolves by name.
+func TestPHPReferencesResolveAcrossReposByName(t *testing.T) {
+	consumer := sym("shop", `App\Checkout::run`, "shop/src/Checkout.php")
+	consumer.Relations = []facts.Relation{{Kind: facts.RelCalls, Target: `Acme\Inventory\Client::reserve`}}
+	store := facts.NewStore()
+	store.Add(consumer, sym("inventory", `Acme\Inventory\Client::reserve`, "inventory/src/Client.php"))
+	if err := New().Bind(context.Background(), store); err != nil {
+		t.Fatal(err)
+	}
+	want := facts.FactID("inventory", facts.KindSymbol, `Acme\Inventory\Client::reserve`, "inventory/src/Client.php")
+	if got := targetIDs(t, store, "shop")[`Acme\Inventory\Client::reserve`]; got != want {
+		t.Fatalf("target_id = %q, want %q", got, want)
+	}
+}
