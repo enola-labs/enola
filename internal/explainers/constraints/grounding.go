@@ -54,6 +54,27 @@ func pathTargetEdge(rel facts.Relation, from facts.Fact) bool {
 // have elided, in the resolver's own order (mirroring the TS extractor's).
 var importModuleExts = []string{".ts", ".tsx", ".js", ".jsx", ".mjs", ".vue", ".svelte", ".gts", ".gjs"}
 
+// pythonModuleExts and pythonPackageIndex are the same two questions for a
+// Python importer: `import inventory.stock` is measured as the path
+// inventory/stock, which is inventory/stock.py, or the package directory's
+// __init__.py. Without them every in-repository Python import named "nothing
+// measured", so a file-level breach went unverdicted and was caught, if at all,
+// only on the derived module edge, which has no line to point at.
+var (
+	pythonModuleExts   = []string{".py", ".pyi"}
+	pythonPackageIndex = "/__init__.py"
+)
+
+// moduleExtsFor picks the extensions an importer's own language would elide. A
+// TypeScript import of "./stock" never means stock.py, so the two sets are never
+// merged: a stray file of the other language must not ground an edge.
+func moduleExtsFor(importer string) (exts []string, index func(ext string) string) {
+	if strings.HasSuffix(importer, ".py") || strings.HasSuffix(importer, ".pyi") {
+		return pythonModuleExts, func(string) string { return pythonPackageIndex }
+	}
+	return importModuleExts, func(ext string) string { return "/index" + ext }
+}
+
 // groundSkipConfidence caps the ungroundable-target advisory, for the same
 // reason the reach-skip advisory sits at 0.4: it reports that no verdict was
 // reached for those targets, and silence there must never read as compliance.
@@ -121,7 +142,7 @@ func newGrounding(store *facts.Store, memberFacts map[string][]facts.Fact) *grou
 // form the fact carries it. Both the bare and the repo-labelled shapes are
 // tried, because a target is written repo-relative while an append-mode
 // snapshot's files are label-prefixed.
-func (g *grounding) resolve(target, repo string) (string, bool) {
+func (g *grounding) resolve(target, repo, importer string) (string, bool) {
 	set := g.files[repo]
 	if set == nil || target == "" {
 		return "", false
@@ -130,19 +151,20 @@ func (g *grounding) resolve(target, repo string) (string, bool) {
 	if repo != "" {
 		bases = append(bases, repo+"/"+target)
 	}
+	exts, index := moduleExtsFor(importer)
 	for _, base := range bases {
 		if set[base] {
 			return base, true
 		}
-		for _, ext := range importModuleExts {
+		for _, ext := range exts {
 			if p := base + ext; set[p] {
 				return p, true
 			}
 		}
 		// A directory import resolves to its index file, exactly as the module
 		// resolver the extractor mirrors does.
-		for _, ext := range importModuleExts {
-			if p := base + "/index" + ext; set[p] {
+		for _, ext := range exts {
+			if p := base + index(ext); set[p] {
 				return p, true
 			}
 		}
@@ -186,7 +208,7 @@ func (g *grounding) resolvedPathIn(rel facts.Relation, from facts.Fact, ok func(
 	if !pathTargetEdge(rel, from) {
 		return false
 	}
-	path, resolved := g.resolve(rel.Target, from.Repo)
+	path, resolved := g.resolve(rel.Target, from.Repo, from.File)
 	if !resolved {
 		return false
 	}
@@ -207,7 +229,7 @@ func (g *grounding) resolves(rel facts.Relation, from facts.Fact) bool {
 	if !pathTargetEdge(rel, from) {
 		return false
 	}
-	_, ok := g.resolve(rel.Target, from.Repo)
+	_, ok := g.resolve(rel.Target, from.Repo, from.File)
 	return ok
 }
 
@@ -219,7 +241,7 @@ func groundedMembers(rel facts.Relation, from facts.Fact, memberFacts []facts.Fa
 	if !pathTargetEdge(rel, from) {
 		return nil
 	}
-	path, ok := g.resolve(rel.Target, from.Repo)
+	path, ok := g.resolve(rel.Target, from.Repo, from.File)
 	if !ok {
 		return nil
 	}
@@ -241,7 +263,7 @@ func (g *grounding) ungroundable(rel facts.Relation, from facts.Fact) bool {
 	if !pathTargetEdge(rel, from) || g.names[rel.Target] {
 		return false
 	}
-	_, resolved := g.resolve(rel.Target, from.Repo)
+	_, resolved := g.resolve(rel.Target, from.Repo, from.File)
 	return !resolved
 }
 

@@ -54,6 +54,79 @@ func TestExplain_ForbiddenEdgeIsAProofClassViolation(t *testing.T) {
 	}
 }
 
+// TestExplain_RollupRestatingADirectBreachIsNotASecondBreach reproduces a
+// Python import: the file-level edge grounds onto payments/checkout.py and is
+// cited at its line, while the module-edges binder also derives
+// orders -> payments from the call behind it. Reporting both counted one import
+// as two breaches, the second with no line to point at. A rollup no direct
+// breach explains is still reported: it is the only edge a language without
+// import statements has.
+func TestExplain_RollupRestatingADirectBreachIsNotASecondBreach(t *testing.T) {
+	rollup := facts.Fact{Kind: facts.KindDependency, Name: "module-edge: orders -> payments", File: "orders",
+		Props:     map[string]any{facts.PropCouplingKind: facts.CouplingSymbolRollup},
+		Relations: []facts.Relation{{Kind: facts.RelImports, Target: "payments"}}}
+	direct := facts.Fact{Kind: facts.KindDependency, Name: "orders/service -> payments.checkout", File: "orders/service.py", Line: 2,
+		Relations: []facts.Relation{{Kind: facts.RelImports, Target: "payments/checkout"}}}
+	base := []facts.Fact{
+		componentIntent("orders", "orders/**"),
+		componentIntent("payments", "payments/**"),
+		ruleIntent("orders-not-payments", "orders", "payments", "imports", "payments depends on orders"),
+		{Kind: facts.KindModule, Name: "orders", File: "orders"},
+		{Kind: facts.KindModule, Name: "payments", File: "payments"},
+		{Kind: facts.KindSymbol, Name: "payments/checkout.charge", File: "payments/checkout.py", Line: 3},
+	}
+	violations := func(extra ...facts.Fact) []facts.Insight {
+		store := facts.NewStore()
+		store.Add(append(append([]facts.Fact(nil), base...), extra...)...)
+		var out []facts.Insight
+		for _, in := range explain(t, store) {
+			if strings.Contains(in.Title, " violated: ") {
+				out = append(out, in)
+			}
+		}
+		return out
+	}
+
+	got := violations(rollup, direct)
+	if len(got) != 1 {
+		t.Fatalf("violations = %+v, want only the direct breach", got)
+	}
+	if ev := got[0].Evidence[0]; ev.File != "orders/service.py" || ev.Line != 2 || ev.Fact != "payments/checkout" {
+		t.Errorf("evidence = %+v, want orders/service.py:2 naming payments/checkout", ev)
+	}
+	if want := "orders/service -> payments/checkout via imports"; !strings.HasSuffix(got[0].Title, want) {
+		t.Errorf("title = %q, want suffix %q", got[0].Title, want)
+	}
+
+	if got := violations(rollup); len(got) != 1 || !strings.HasSuffix(got[0].Title, "module-edge: orders -> payments via imports") {
+		t.Errorf("rollup-only violations = %+v, want the rollup kept", got)
+	}
+}
+
+// TestEdgeTitle_DropsOnlyARestatedTarget: the imported half of a dependency
+// name is dropped when it merely restates the target, and kept when it says
+// something the target does not. Dropping it for Rust merged every `use` of a
+// crate from one directory into a single finding, measured on codex: 90
+// breaches became 59, and the text gate printed one line of each merged group.
+func TestEdgeTitle_DropsOnlyARestatedTarget(t *testing.T) {
+	dep := func(name string) facts.Fact { return facts.Fact{Kind: facts.KindDependency, Name: name} }
+	for _, tt := range []struct {
+		fact   facts.Fact
+		target string
+		want   string
+	}{
+		{dep("module-edge: orders -> payments"), "payments", "module-edge: orders -> payments via imports"},
+		{dep("orders/service -> payments.checkout"), "payments/checkout", "orders/service -> payments/checkout via imports"},
+		{dep("codex-rs/analytics/src -> codex_git_utils::collect_git_info"), "codex-rs/git-utils/src",
+			"codex-rs/analytics/src -> codex_git_utils::collect_git_info -> codex-rs/git-utils/src via imports"},
+		{facts.Fact{Kind: facts.KindSymbol, Name: "a -> b"}, "b", "a -> b -> b via imports"},
+	} {
+		if got := edgeTitle(tt.fact, tt.target, "imports"); got != tt.want {
+			t.Errorf("edgeTitle(%q, %q) = %q, want %q", tt.fact.Name, tt.target, got, tt.want)
+		}
+	}
+}
+
 func TestExplain_SameDependencyFromTwoCarriersIsOneVerdict(t *testing.T) {
 	store := facts.NewStore()
 	store.Add(
@@ -415,7 +488,7 @@ func TestExplain_ImportsCarrierResolvesSourceMembership(t *testing.T) {
 	got := insights[0]
 	// The source name is the carrier's own canonical name — extractors name a
 	// dependency fact "pkg -> import", so the title reads source-name -> target.
-	want := "Constraint domain-imports-nothing-delivered violated: app/domain -> app/adapters/http -> app/adapters/http via imports"
+	want := "Constraint domain-imports-nothing-delivered violated: app/domain -> app/adapters/http via imports"
 	if got.Title != want {
 		t.Errorf("title = %q, want %q", got.Title, want)
 	}
@@ -1283,7 +1356,7 @@ func TestExplain_ForbidViaImplementsSeesAnIncludeEdge(t *testing.T) {
 	// The source name is the mixin carrier's own canonical name — the Ruby
 	// extractor names an include's dependency fact "includer -> mixin", so the
 	// title reads source-name -> target, same as the imports carriers.
-	if want := "Constraint no-model-concerns-in-services violated: SyncService -> Auditable -> Auditable via implements"; got.Title != want {
+	if want := "Constraint no-model-concerns-in-services violated: SyncService -> Auditable via implements"; got.Title != want {
 		t.Errorf("title = %q, want %q", got.Title, want)
 	}
 	if got.Confidence != 1.0 {
@@ -1314,7 +1387,7 @@ func TestExplain_ProtectViaImplementsScopesWhoMayInclude(t *testing.T) {
 	if len(insights) != 1 {
 		t.Fatalf("insights = %d, want only the service's include: %+v", len(insights), insights)
 	}
-	if want := "Constraint only-models-include violated: SyncService -> Auditable -> Auditable via implements"; insights[0].Title != want {
+	if want := "Constraint only-models-include violated: SyncService -> Auditable via implements"; insights[0].Title != want {
 		t.Errorf("title = %q, want %q", insights[0].Title, want)
 	}
 }
