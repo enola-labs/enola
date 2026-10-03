@@ -389,15 +389,15 @@ func (w *pyWalker) walkTopLevelCalls(node *sitter.Node) {
 			w.fileRefs = append(w.fileRefs, w.argRefRelations(args)...)
 		}
 	case "assignment":
-		// A module-level assignment whose RHS is a bare def name installs that
-		// symbol as a value (the click monkeypatch idiom `click.echo = handler`,
-		// dispatch-table entries, alias exports). Fold the RHS value-ref so the
-		// referenced def is not mis-flagged dead. resolveCall (via emitFileRefCall)
-		// gates on moduleDefs, so only real defs fold — a plain identifier that
-		// names a variable resolves to nothing. Nested calls in the RHS are still
-		// caught by the generic recursion below.
-		if rhs := node.ChildByFieldName("right"); rhs != nil && kindOf(rhs) == "identifier" {
-			w.emitFileRefCall(rhs)
+		// A module-level assignment whose RHS carries def names installs those
+		// symbols as values (the click monkeypatch idiom `click.echo = handler`,
+		// dispatch-table entries, alias exports, or `run, label = handler, "x"`).
+		// Fold every bare identifier value so the referenced defs are not
+		// mis-flagged dead. resolveCall (via emitFileRefCall) gates on moduleDefs,
+		// so ordinary variables and tuple literals resolve to nothing. Nested calls
+		// in the RHS are still caught by the generic recursion below.
+		for _, ident := range collectRefValueIdents(node.ChildByFieldName("right")) {
+			w.emitFileRefCall(ident)
 		}
 	case "string":
 		if rel, ok := w.stringRefRelation(node); ok {
@@ -1518,6 +1518,15 @@ func (w *pyWalker) walkForCalls(node *sitter.Node) {
 	}
 	if kind == "assignment" {
 		for _, ident := range collectRefValueIdents(node.ChildByFieldName("right")) {
+			w.emitValueRef(ident)
+		}
+	}
+	if kind == "default_parameter" || kind == "typed_default_parameter" {
+		// A default is evaluated when the def is executed and may install a
+		// function as a callback without calling it: `def walk(fetch=fetch_page)`.
+		// Calls inside the default were already collected above, but a bare value
+		// has no call node and must still keep the referenced definition live.
+		for _, ident := range collectRefValueIdents(node.ChildByFieldName("value")) {
 			w.emitValueRef(ident)
 		}
 	}
