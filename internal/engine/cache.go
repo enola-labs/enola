@@ -20,6 +20,10 @@ import (
 	"github.com/enola-labs/enola/pkg/plugin"
 )
 
+// v288: Python function references in parameter defaults and module-level assignment
+// values, plus C++ function references in file-scope static_assert declarations and
+// non-type template defaults, emit edges. Functions reached only through those forms
+// no longer appear dead.
 // v287: Python requests/httpx/aiohttp calls are client routes (python-http-client):
 // module calls through the file's imports and calls on a client instance it binds,
 // with the URL reduced to a path, and the enclosing function as caller.
@@ -2561,7 +2565,7 @@ import (
 // v270: SvelteKit reads literal kit.alias fallbacks before generated config exists,
 // keeps tsconfig paths authoritative, and classifies $app/$env/$service-worker imports
 // as framework-provided rather than unresolved third-party dependencies.
-const cacheVersion = "v287"
+const cacheVersion = "v288"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

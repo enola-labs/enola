@@ -1039,6 +1039,22 @@ def handler(body = Depends(parse_login_body)):
 	}
 }
 
+func TestAST_ParameterDefaultFunctionValueEmitsEdge(t *testing.T) {
+	src := `
+def list_commits_page(anchor, page):
+    return []
+
+def extend_commits(anchor, list_page=list_commits_page):
+    return list_page(anchor, 1)
+`
+	result := astExtractIdx(t, "history.py", src)
+	fn := byName(result)["history.extend_commits"]
+	want := "history.list_commits_page"
+	if !hasCallTo(fn, want) {
+		t.Errorf("extend_commits: RelCalls = %v, want default function-value ref to %q", relsByKind(fn, facts.RelCalls), want)
+	}
+}
+
 func TestAST_DecoratorArgumentCallEmitsFileRef(t *testing.T) {
 	src := `
 from airflow.security import requires_access_asset
@@ -1676,6 +1692,59 @@ def get_handler():
 	}
 	if calls := relsByKind(getFact, facts.RelCalls); len(calls) == 0 || calls[0] != "svc.handler" {
 		t.Errorf("get_handler: RelCalls = %v, want [svc.handler]", calls)
+	}
+}
+
+func TestAST_TupleAssignedCallbacksEmitEdges(t *testing.T) {
+	src := `
+def run_codex_once(prompt):
+    pass
+
+def run_copilot_once(prompt):
+    pass
+
+def choose(agent):
+    if agent == "codex":
+        run_once, agent_name = run_codex_once, "Codex"
+    else:
+        run_once, agent_name = run_copilot_once, "Copilot"
+    return run_once, agent_name
+`
+	result := astExtractIdx(t, "review.py", src)
+	fn := byName(result)["review.choose"]
+	for _, want := range []string{"review.run_codex_once", "review.run_copilot_once"} {
+		if !hasCallTo(fn, want) {
+			t.Errorf("choose: RelCalls = %v, want tuple-assignment function-value ref to %q", relsByKind(fn, facts.RelCalls), want)
+		}
+	}
+}
+
+func TestAST_MainGuardTupleAssignedCallbacksEmitFileRefs(t *testing.T) {
+	src := `
+import sys
+
+def run_codex_once(prompt):
+    pass
+
+def run_copilot_once(prompt):
+    pass
+
+if __name__ == "__main__":
+    if "--codex" in sys.argv:
+        run_once, agent_name = run_codex_once, "Codex"
+    else:
+        run_once, agent_name = run_copilot_once, "Copilot"
+    run_once("review")
+`
+	result := astExtractIdx(t, "review.py", src)
+	fr, ok := firstOfKind(result, facts.KindFileRef)
+	if !ok {
+		t.Fatal("expected a file_ref for main-guard callback assignments")
+	}
+	for _, want := range []string{"review.run_codex_once", "review.run_copilot_once"} {
+		if !hasCallTo(fr, want) {
+			t.Errorf("file_ref: RelCalls = %v, want tuple-assignment function-value ref to %q", relsByKind(fr, facts.RelCalls), want)
+		}
 	}
 }
 

@@ -256,6 +256,35 @@ EXPORT_SYMBOL(read_mem);
 	}
 }
 
+func TestCppFileScopeStaticAssertReferencesConstexprFunction(t *testing.T) {
+	ff := extractProject(t, map[string]string{
+		"src/size.cpp": `
+constexpr int encodedWords(int n) { return n * 2; }
+static_assert(encodedWords(4) == 8);
+`,
+	})
+	mod := mustFact(t, ff, "src")
+	if !hasRelation(mod, facts.RelCalls, "src.encodedWords") {
+		t.Errorf("module should reference encodedWords from static_assert, got %+v", mod.Relations)
+	}
+}
+
+func TestCppNonTypeTemplateDefaultReferencesFunction(t *testing.T) {
+	ff := extractProject(t, map[string]string{
+		"src/factory.cpp": `
+template <typename T>
+T * defaultCtor() { return nullptr; }
+
+template <typename T, auto Ctor = defaultCtor<T>>
+struct Factory {};
+`,
+	})
+	mod := mustFact(t, ff, "src")
+	if !hasRelation(mod, facts.RelCalls, "src.defaultCtor") {
+		t.Errorf("module should reference defaultCtor from non-type template default, got %+v", mod.Relations)
+	}
+}
+
 // TestCRegistrationMacroMultiArg covers DEVICE_ATTR-style macros that mix
 // non-function args (a name, a mode literal) with function-name args (show/store):
 // only the real functions become edges.

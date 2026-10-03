@@ -480,6 +480,13 @@ func (w *astWalker) walkDecl(node *sitter.Node) {
 		// Macros are not expanded, so the function-name arguments would otherwise be
 		// invisible and the referenced entry points mis-reported as dead.
 		w.handleFileScopeMacroCall(node)
+	case "static_assert_declaration":
+		// File-scope constexpr calls are real uses even though they have no
+		// enclosing function owner: `static_assert(encodedWords(N) < Limit)`.
+		// Credit them to the module so dead-code analysis sees the inbound edge.
+		w.pushOwner(w.moduleOwner())
+		w.walkForCalls(node)
+		w.popOwner()
 	case "preproc_def", "preproc_function_def":
 		// A function called inside a #define body (e.g. `#define ____cmpxchg(...) (
 		// size == 2 ? ____cmpxchg_u16(p,o,n) : ...)`) is invisible to the AST — the
@@ -848,7 +855,11 @@ func (w *astWalker) handleTemplate(node *sitter.Node) {
 	var inner *sitter.Node
 	for i := uint(0); i < node.ChildCount(); i++ {
 		c := node.Child(i)
-		if kindOf(w.kinds, c) == "template_parameter_list" || !c.IsNamed() {
+		if kindOf(w.kinds, c) == "template_parameter_list" {
+			w.emitTemplateDefaultRefs(c)
+			continue
+		}
+		if !c.IsNamed() {
 			continue
 		}
 		inner = c
@@ -863,6 +874,41 @@ func (w *astWalker) handleTemplate(node *sitter.Node) {
 			w.out[i].SetProp("templated", true)
 		}
 	}
+}
+
+// emitTemplateDefaultRefs records functions installed as non-type template
+// defaults, e.g. `template <typename T, auto Make = defaultMake<T>>`. There is
+// no call_expression in that syntax, but instantiating the template uses the
+// function value. Candidates are filtered against the project function index
+// later, so type names, constants and template parameters do not become edges.
+func (w *astWalker) emitTemplateDefaultRefs(params *sitter.Node) {
+	w.pushOwner(w.moduleOwner())
+	defer w.popOwner()
+	var walk func(*sitter.Node)
+	walk = func(node *sitter.Node) {
+		if node == nil {
+			return
+		}
+		if kindOf(w.kinds, node) == "optional_parameter_declaration" {
+			if value := node.ChildByFieldName("default_value"); value != nil {
+				var values func(*sitter.Node)
+				values = func(v *sitter.Node) {
+					if kindOf(w.kinds, v) == "identifier" {
+						w.emitFuncPtrRef(nodeText(v, w.src))
+					}
+					for i := uint(0); i < v.ChildCount(); i++ {
+						values(v.Child(i))
+					}
+				}
+				values(value)
+			}
+			return
+		}
+		for i := uint(0); i < node.ChildCount(); i++ {
+			walk(node.Child(i))
+		}
+	}
+	walk(params)
 }
 
 // handleDeclaration handles a translation-unit / namespace-level declaration:
