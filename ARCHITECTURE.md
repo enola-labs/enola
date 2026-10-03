@@ -12,6 +12,8 @@ enola models a codebase as a **graph of architectural types and the relations be
 
 The types are called **kinds** — modules, symbols, routes, storage, dependencies, services. The relations are the edges between them — *declares*, *imports*, *calls*, *implements*, and so on. Together they form a typed, directed graph: a structural map of what exists in your code and how it connects.
 
+Together, the fact vocabulary, relation semantics and extraction-quality contract form enola's purpose-built software ontology.
+
 Two design choices make this graph useful in a way that "throw the repo at an LLM" is not:
 
 1. **It is typed and structural, not textual.** The unit of knowledge is a fact (`AuthHandler is a struct in internal/auth/handler.go`) and an edge (`LoginController calls AuthHandler.Verify`), not a chunk of text or an embedding vector. A graph of typed nodes can be *traversed* and *queried* with exact answers — "what depends on this?", "what is the path from A to B?" — instead of *retrieved* with approximate similarity.

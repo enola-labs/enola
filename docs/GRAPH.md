@@ -4,6 +4,16 @@ Everything enola does starts from one thing: a graph of your software system, bu
 
 This page covers what is in the graph, how it is built, what it writes to disk, and how to consume it. It is the overview; each section links to the page that owns the detail.
 
+## The graph has a domain model
+
+enola's graph is not an arbitrary collection of nodes and edges. Its fact kinds and relation kinds form a purpose-built software ontology: a shared model of modules, symbols, routes, storage, services and the relationships between them.
+
+"Ontology" here describes the conceptual contract, not a required technology stack. enola stores typed facts as JSON Lines and exposes purpose-built traversal operations. It does not use RDF or OWL, and it does not require SPARQL.
+
+The model also includes the boundaries of what enola knows. Unresolved relationships, skipped files, parse failures and extraction coverage are recorded rather than represented as missing edges with no explanation.
+
+For the longer design argument, see [A code graph is not a software ontology](https://menges.dev/writing/software-ontologies-ai-coding-agents/).
+
 ## What's in the graph
 
 The graph is made of **facts**. A fact is one thing enola found in the source: a module, a function, a route, a table. Each fact records where it was found (repository, file, line), some properties, and its **relations**, the directed edges to other facts.
