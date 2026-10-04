@@ -529,6 +529,8 @@ What makes it precise:
 - **Accurate totals.** `max_nodes` caps what's *shown*, not what's *counted* — the reported total dependent count reflects the true reachable set within `max_depth`.
 - **Cross-repo aware.** In multi-repo mode it reports which other repos contain a dependent.
 
+`enola impact <target>` asks the same question from a shell, through the same code ([`internal/impact`](internal/impact/impact.go), resolving the target with [`internal/resolve`](internal/resolve/resolve.go)): `--json` is this tool's `full` document. See [docs/CLI.md](docs/CLI.md).
+
 ### `governing_intent` — "which decisions govern this code?"
 
 The reverse query between knowledge and code, answered directly. Where `impact_analysis` reports governing pages as a rider on the blast radius, this tool answers governance alone, in either direction:

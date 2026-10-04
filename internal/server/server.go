@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -21,6 +22,7 @@ import (
 	"github.com/enola-labs/enola/internal/engine"
 	"github.com/enola-labs/enola/internal/explainers/constraints"
 	"github.com/enola-labs/enola/internal/facts"
+	"github.com/enola-labs/enola/internal/impact"
 	"github.com/enola-labs/enola/internal/linkers/crossrepo/routeindex"
 	httpsignal "github.com/enola-labs/enola/internal/linkers/crossrepo/signals/http"
 	"github.com/enola-labs/enola/internal/metrics"
@@ -1993,65 +1995,28 @@ func (s *Server) registerTools() {
 			"When knowledge pages declare anchors (enola_intent), it also lists the pages anchored to the target's file: the decisions governing the code you are about to change. " +
 			"Output grows fast: start with output_mode=summary and keep max_depth and max_nodes bounded.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args impactAnalysisArgs) (*mcp.CallToolResult, any, error) {
-		store := s.eng.Store()
-		if store.Count() == 0 {
+		report, err := impact.Analyze(s.resolver(s.eng.Store()), impact.Request{
+			Target:         args.Target,
+			MaxDepth:       args.MaxDepth,
+			MaxNodes:       args.MaxNodes,
+			IncludeForward: args.IncludeForward,
+		})
+		switch {
+		case errors.Is(err, impact.ErrNoFacts):
 			return errorResult("No facts available. Run generate_snapshot first."), nil, nil
-		}
-		graph := store.Graph()
-		if graph == nil {
+		case errors.Is(err, impact.ErrNoGraph):
 			return errorResult("No graph available. Run generate_snapshot first."), nil, nil
-		}
-
-		if args.Target == "" {
-			return errorResult("target is required"), nil, nil
-		}
-
-		targetName, res, err := s.resolveNodeName(store, args.Target)
-		if err != nil {
+		case err != nil:
 			return errorResult(err.Error()), nil, nil
 		}
-		if targetName != "" {
-			canonical, normalization := canonicalImpactTarget(store, targetName)
-			if canonical != targetName {
-				targetName = canonical
-				// An exact file_ref normally has no resolution note. Surface this
-				// normalization because it materially changes what was traversed.
-				if res == nil {
-					res = normalization
-				}
-			}
-		}
 		mode := resolveOutputMode(args.OutputMode, modeSummary)
-
-		// Over threshold: refuse to guess; return resolution with empty results.
-		if res != nil && res.Matched == "" {
-			resp := impactResponse{
-				Resolution: res,
-				ImpactResult: facts.ImpactResult{
-					Target:  args.Target,
-					ByDepth: map[int][]facts.TraversalNode{},
-					Edges:   []facts.TraversalEdge{},
-				},
-			}
-			if wantsFullOutput(mode) {
-				return jsonResultCapped(resp, args.MaxTokens)
-			}
-			if wantsSummary(mode) {
-				return textResult(capTokens(s.renderImpactSummary(resp), args.MaxTokens, false)), nil, nil
-			}
-			return textResult(capTokens(renderImpactCompact(resp), args.MaxTokens, false)), nil, nil
-		}
-
-		result := graph.ImpactSet(targetName, args.MaxDepth, args.MaxNodes, args.IncludeForward)
-
-		resp := impactResponse{Resolution: res, ImpactResult: result}
 		if wantsFullOutput(mode) {
-			return jsonResultCapped(resp, args.MaxTokens)
+			return jsonResultCapped(report, args.MaxTokens)
 		}
 		if wantsSummary(mode) {
-			return textResult(capTokens(s.renderImpactSummary(resp), args.MaxTokens, false)), nil, nil
+			return textResult(capTokens(s.renderImpactSummary(report), args.MaxTokens, false)), nil, nil
 		}
-		return textResult(capTokens(renderImpactCompact(resp), args.MaxTokens, false)), nil, nil
+		return textResult(capTokens(renderImpactCompact(report), args.MaxTokens, false)), nil, nil
 	})
 
 	// Tool: governing_intent
@@ -2756,54 +2721,6 @@ const maxPathCandidates = 8
 // maxPathAttempts caps the total FindPath probes find_path runs across the
 // candidate/seed combinations, so a doubly-ambiguous query stays bounded.
 const maxPathAttempts = 40
-
-// canonicalImpactTarget maps reference-only TypeScript/JavaScript file nodes to the
-// extensionless module target imports actually point at. A file_ref records top-level
-// calls for dead-code analysis; it is not the dependency node, so reverse traversal from
-// it can truthfully see no edges while the corresponding module has many callers.
-func canonicalImpactTarget(store *facts.Store, target string) (string, *nameResolution) {
-	exact := store.LookupByExactName(target)
-	referenceOnly := false
-	for _, f := range exact {
-		switch f.Kind {
-		case facts.KindFileRef, facts.KindTestRef:
-			referenceOnly = true
-		default:
-			return target, nil
-		}
-	}
-	if !referenceOnly {
-		return target, nil
-	}
-
-	ext := strings.ToLower(filepath.Ext(target))
-	switch ext {
-	case ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs":
-	default:
-		return target, nil
-	}
-	candidate := strings.TrimSuffix(target, filepath.Ext(target))
-	// A module target may be an implicit graph node (relations name it even when no
-	// standalone fact does), so confirm it through either a fact or a relation.
-	confirmed := len(store.LookupByExactName(candidate)) > 0
-	if !confirmed {
-		for _, f := range store.All() {
-			for _, rel := range f.Relations {
-				if rel.Target == candidate {
-					confirmed = true
-					break
-				}
-			}
-			if confirmed {
-				break
-			}
-		}
-	}
-	if !confirmed {
-		return target, nil
-	}
-	return candidate, &nameResolution{Query: target, Matched: candidate, AutoPicked: true}
-}
 
 // pathCandidates returns the ranked node names find_path should try for one
 // endpoint, most-likely first and capped at maxPathCandidates. It leads with the
@@ -4222,11 +4139,8 @@ type traverseResponse struct {
 	facts.TraversalResult
 }
 
-// impactResponse wraps an impact analysis with the optional name resolution.
-type impactResponse struct {
-	Resolution *nameResolution `json:"resolution,omitempty"`
-	facts.ImpactResult
-}
+// impactResponse is impact.Report under the server's name for it.
+type impactResponse = impact.Report
 
 // findPathResponse wraps a shortest-path result. find_path resolves two names,
 // so it carries one resolution per side.
