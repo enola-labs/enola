@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	"github.com/enola-labs/enola/internal/config"
+	"github.com/enola-labs/enola/internal/impact"
 	"github.com/enola-labs/enola/pkg/bootstrap"
 	"github.com/enola-labs/enola/pkg/cli"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -277,6 +278,39 @@ func TestE2E_ImpactAnalysis(t *testing.T) {
 	out = text(s.call(t, "impact_analysis", map[string]any{"target": "pkg/a.Alpha", "output_mode": "compact"}))
 	if !strings.Contains(out, "Beta") {
 		t.Errorf("impact_analysis(Alpha, compact) should list Beta as a dependent; got:\n%s", out)
+	}
+}
+
+// The command and the tool must produce one document for the same query.
+func TestE2E_ImpactReportMatchesTool(t *testing.T) {
+	eng, cfg := newTestEngine(t)
+	s := connect(t, eng, cfg)
+	s.repo = copyTree(t, filepath.Join("..", "engine", "testdata", "repos", "go_sample"), t.TempDir())
+	s.snapshot(t)
+
+	// "a" matches too many nodes to pick from.
+	for _, target := range []string{"pkg/a.Alpha", "a"} {
+		report, err := impact.Analyze(eng.Resolver(), impact.Request{Target: target, IncludeForward: true})
+		if err != nil {
+			t.Fatalf("Impact(%q): %v", target, err)
+		}
+		doc, err := report.JSON()
+		if err != nil {
+			t.Fatalf("JSON(%q): %v", target, err)
+		}
+		tool := text(s.call(t, "impact_analysis", map[string]any{
+			"target": target, "include_forward": true, "output_mode": "full",
+		}))
+		if string(doc) != tool {
+			t.Errorf("target %q: --json and output_mode=full differ.\ncommand:\n%s\ntool:\n%s", target, doc, tool)
+		}
+		if got, want := report.Resolved(), target != "a"; got != want {
+			t.Errorf("target %q: Resolved() = %v, want %v", target, got, want)
+		}
+	}
+
+	if _, err := impact.Analyze(eng.Resolver(), impact.Request{Target: "NoSuchSymbolAnywhere"}); err == nil {
+		t.Error("a target matching nothing must be an error, as it is on the tool")
 	}
 }
 

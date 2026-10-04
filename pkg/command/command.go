@@ -113,7 +113,7 @@ func (r *Runner) updateNotice(w io.Writer) {
 // `upgrade` is deliberately absent. It is dispatched by cmd/enola itself, which ships
 // release path — so cmd/enola dispatches it itself, before calling Dispatch.
 func Subcommands() []string {
-	return []string{"check", "cluster", "constraints", "plan", "coverage", "endpoint", "doctor", "providers", "dashboard", "baseline", "log", "show", "diff", "blame", "gc", "history", "install", "uninstall", "hook"}
+	return []string{"check", "cluster", "constraints", "plan", "coverage", "endpoint", "impact", "doctor", "providers", "dashboard", "baseline", "log", "show", "diff", "blame", "gc", "history", "install", "uninstall", "hook"}
 }
 
 // Dispatch runs the subcommand named by args[0], if it is one of Subcommands().
@@ -167,6 +167,8 @@ func (r *Runner) Dispatch(ctx context.Context, args []string) bool {
 	case "endpoint":
 		r.Endpoint(ctx, args[1:])
 		os.Exit(0)
+	case "impact":
+		r.Impact(ctx, args[1:]) // exits with its own code
 	case "doctor":
 		r.Doctor(args[1:])
 		os.Exit(0)
