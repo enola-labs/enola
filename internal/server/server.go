@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -3062,8 +3063,8 @@ func (s *Server) resolveRepoLabelToServiceNode(store *facts.Store, input string)
 
 // maybePrefixRepoLabel rewrites "<repo> <term>" → "repo:<repo> <term>" when the
 // first whitespace token is exactly a known repo label and a remainder follows.
-// It is a no-op in single-repo mode (RepoPaths is nil), when the input has no
-// remainder, or when the first token is already a scope token. This lets a bare
+// It is a no-op when the input has no remainder, or when the first token is
+// already a scope token. This lets a bare
 // "go-auth AuthHandler" resolve the same as "repo:go-auth AuthHandler".
 func (s *Server) maybePrefixRepoLabel(input string) string {
 	if s.eng == nil {
@@ -3077,6 +3078,10 @@ func (s *Server) maybePrefixRepoLabel(input string) string {
 		return input // already scoped
 	}
 	if paths := s.eng.RepoPaths(); paths[fields[0]] != "" {
+		return "repo:" + input
+	}
+	// A single-repo graph has a path map only when restored from disk, so ask the facts too.
+	if slices.Contains(s.eng.Store().RepoLabels(), fields[0]) {
 		return "repo:" + input
 	}
 	return input

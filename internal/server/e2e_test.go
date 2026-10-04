@@ -568,6 +568,35 @@ func TestE2E_AutoLoadedSnapshotResetOnFreshGenerate(t *testing.T) {
 	}
 }
 
+// TestE2E_LabelShorthandResolvesHoweverTheGraphWasLoaded: "<label> <term>" must mean the
+// same node after generate_snapshot and after a restore from disk. A restore carries a
+// label-to-path map and a single-repo generate does not, and the shorthand once read
+// only that map.
+func TestE2E_LabelShorthandResolvesHoweverTheGraphWasLoaded(t *testing.T) {
+	repo := copyTree(t, filepath.Join("..", "engine", "testdata", "repos", "go_sample"), t.TempDir())
+	target := map[string]any{"target": filepath.Base(repo) + " Alpha", "output_mode": "compact"}
+
+	generated := startInMemory(t)
+	generated.repo = repo
+	generated.snapshot(t)
+	afterGenerate := generated.call(t, "impact_analysis", target)
+
+	writeSnapshotToDisk(t, repo)
+	eng, cfg := newTestEngine(t)
+	cfg.Repo = repo
+	bootstrap.AutoLoadSnapshot(eng, cfg)
+	if eng.Store().Count() == 0 {
+		t.Fatalf("expected AutoLoadSnapshot to populate the store from %s", repo)
+	}
+	afterRestore := connect(t, eng, cfg).call(t, "impact_analysis", target)
+
+	for name, res := range map[string]*mcp.CallToolResult{"generate": afterGenerate, "restore": afterRestore} {
+		if res.IsError || !strings.Contains(text(res), "pkg/a.Alpha") {
+			t.Errorf("after %s: the shorthand should resolve to pkg/a.Alpha; got:\n%s", name, text(res))
+		}
+	}
+}
+
 // TestE2E_MultiRepoAppendStillAccumulates guards against the session-flag gate
 // over-resetting: a genuine multi-repo flow (first snapshot resets, then
 // append=true) must still accumulate both repos as service nodes.
