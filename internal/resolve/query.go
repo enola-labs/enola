@@ -1,4 +1,4 @@
-package server
+package resolve
 
 import (
 	"sort"
@@ -106,9 +106,9 @@ func splitOnce(s, sep string) (left, rest string) {
 	return s, ""
 }
 
-// scoredCandidate is a ranked resolution candidate surfaced when a name is
+// ScoredCandidate is a ranked resolution candidate surfaced when a name is
 // ambiguous, so callers can pick the right one or trust the auto-pick.
-type scoredCandidate struct {
+type ScoredCandidate struct {
 	Name  string  `json:"name"`
 	Kind  string  `json:"kind"`
 	Repo  string  `json:"repo,omitempty"`
@@ -130,15 +130,15 @@ func matchTier(name, term string) int {
 	if n == term {
 		return 2
 	}
-	if hasShortName(n, term) || isQualifiedSuffix(n, term) {
+	if HasShortName(n, term) || isQualifiedSuffix(n, term) {
 		return 1
 	}
 	return 0
 }
 
-// hasShortName reports whether term equals any of lowerName's natural short-name
+// HasShortName reports whether term equals any of lowerName's natural short-name
 // forms (see shortNames). lowerName must already be lowercased.
-func hasShortName(lowerName, term string) bool {
+func HasShortName(lowerName, term string) bool {
 	for _, seg := range shortNames(lowerName) {
 		if seg == term {
 			return true
@@ -225,10 +225,10 @@ func scoreCandidate(f facts.Fact, sq scopedQuery) float64 {
 
 // rankCandidates scores and sorts facts by descending score (stable, so store
 // order breaks ties deterministically).
-func rankCandidates(results []facts.Fact, sq scopedQuery) []scoredCandidate {
-	ranked := make([]scoredCandidate, 0, len(results))
+func rankCandidates(results []facts.Fact, sq scopedQuery) []ScoredCandidate {
+	ranked := make([]ScoredCandidate, 0, len(results))
 	for _, r := range results {
-		ranked = append(ranked, scoredCandidate{
+		ranked = append(ranked, ScoredCandidate{
 			Name:  r.Name,
 			Kind:  r.Kind,
 			Repo:  r.Repo,
@@ -247,7 +247,7 @@ func rankCandidates(results []facts.Fact, sq scopedQuery) []scoredCandidate {
 // decisive (the term names it more directly than anything else) → high
 // confidence. Within the same tier, confidence is top/(top+runnerUp): a lone
 // candidate scores 1.0, an even tie 0.5.
-func pickConfidence(ranked []scoredCandidate, term string) float64 {
+func pickConfidence(ranked []ScoredCandidate, term string) float64 {
 	if len(ranked) == 0 || ranked[0].Score <= 0 {
 		return 0
 	}
