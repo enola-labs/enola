@@ -1701,10 +1701,16 @@ func TestMaybePrefixRepoLabel(t *testing.T) {
 			t.Errorf("maybePrefixRepoLabel(%q) = %q, want %q", c.in, got, c.want)
 		}
 	}
-	// Single-repo mode (RepoPaths nil) must never prefix.
+	// A single repository has no path map after a generate, so the label its facts
+	// carry is what makes the shorthand work there. A word no fact is labelled with
+	// stays a search term.
 	single := &Server{eng: newEngineWithSnapshot("/work")}
-	if got := single.maybePrefixRepoLabel("go-auth AuthHandler"); got != "go-auth AuthHandler" {
-		t.Errorf("single-repo should not prefix, got %q", got)
+	single.eng.Store().Add(facts.Fact{Kind: facts.KindSymbol, Name: "adapters.AuthHandler", Repo: "go-auth", File: "adapters/auth.go"})
+	if got := single.maybePrefixRepoLabel("go-auth AuthHandler"); got != "repo:go-auth AuthHandler" {
+		t.Errorf("single-repo: a label the facts carry should prefix, got %q", got)
+	}
+	if got := single.maybePrefixRepoLabel("golf AuthHandler"); got != "golf AuthHandler" {
+		t.Errorf("single-repo: a word no fact is labelled with should not prefix, got %q", got)
 	}
 }
 

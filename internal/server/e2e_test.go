@@ -607,13 +607,33 @@ func TestE2E_AutoLoadedSnapshotResetOnFreshGenerate(t *testing.T) {
 // label-to-path map and a single-repo generate does not, and the shorthand once read
 // only that map.
 func TestE2E_LabelShorthandResolvesHoweverTheGraphWasLoaded(t *testing.T) {
+	sameAnswerOnBothLoadPaths(t, "impact_analysis", func(repo string) map[string]any {
+		return map[string]any{"target": filepath.Base(repo) + " Alpha", "output_mode": "compact"}
+	})
+}
+
+// TestE2E_AbsolutePathResolvesHoweverTheGraphWasLoaded is the same split read the other
+// way. The map a restore carries made an absolute path gain the repo label, which only
+// an appended repository's files have, so a path that resolved after generate_snapshot
+// matched nothing in a session that restored the graph.
+func TestE2E_AbsolutePathResolvesHoweverTheGraphWasLoaded(t *testing.T) {
+	sameAnswerOnBothLoadPaths(t, "explore", func(repo string) map[string]any {
+		return map[string]any{"focus": filepath.Join(repo, "pkg", "a", "a.go")}
+	})
+}
+
+// sameAnswerOnBothLoadPaths asks one question of go_sample straight after
+// generate_snapshot and again in a server that restored that snapshot from disk, and
+// expects pkg/a.Alpha in both answers.
+func sameAnswerOnBothLoadPaths(t *testing.T, tool string, args func(repo string) map[string]any) {
+	t.Helper()
 	repo := copyTree(t, filepath.Join("..", "engine", "testdata", "repos", "go_sample"), t.TempDir())
-	target := map[string]any{"target": filepath.Base(repo) + " Alpha", "output_mode": "compact"}
+	target := args(repo)
 
 	generated := startInMemory(t)
 	generated.repo = repo
 	generated.snapshot(t)
-	afterGenerate := generated.call(t, "impact_analysis", target)
+	afterGenerate := generated.call(t, tool, target)
 
 	writeSnapshotToDisk(t, repo)
 	eng, cfg := newTestEngine(t)
@@ -622,11 +642,11 @@ func TestE2E_LabelShorthandResolvesHoweverTheGraphWasLoaded(t *testing.T) {
 	if eng.Store().Count() == 0 {
 		t.Fatalf("expected AutoLoadSnapshot to populate the store from %s", repo)
 	}
-	afterRestore := connect(t, eng, cfg).call(t, "impact_analysis", target)
+	afterRestore := connect(t, eng, cfg).call(t, tool, target)
 
 	for name, res := range map[string]*mcp.CallToolResult{"generate": afterGenerate, "restore": afterRestore} {
 		if res.IsError || !strings.Contains(text(res), "pkg/a.Alpha") {
-			t.Errorf("after %s: the shorthand should resolve to pkg/a.Alpha; got:\n%s", name, text(res))
+			t.Errorf("after %s: %s %v should reach pkg/a.Alpha; got:\n%s", name, tool, target, text(res))
 		}
 	}
 }

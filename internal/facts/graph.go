@@ -1714,6 +1714,10 @@ func (g *Graph) buildImpactSummary(byDepth map[int][]TraversalNode, total int) s
 	if shown < total {
 		prefix += " (showing " + itoa(shown) + ")"
 	}
+	// The node cap can leave nothing to break down.
+	if summary == "" {
+		return prefix
+	}
 	return prefix + " — " + summary
 }
 

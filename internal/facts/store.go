@@ -407,6 +407,21 @@ func (s *Store) CountByRepo(repo string) int {
 	return len(s.byRepo[repo])
 }
 
+// HasFileOutside reports whether any fact of the given kind labelled repo names a
+// file that is not under prefix, stopping at the first one. It reads the byRepo
+// index, so it costs nothing for a repo the store does not hold.
+func (s *Store) HasFileOutside(repo, kind, prefix string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, i := range s.byRepo[repo] {
+		f := &s.facts[i]
+		if f.Kind == kind && f.File != "" && !strings.HasPrefix(f.File, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
 // ByRelation returns all facts that have a relation of the given kind.
 func (s *Store) ByRelation(relKind string) []Fact {
 	s.mu.RLock()

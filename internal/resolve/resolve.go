@@ -473,6 +473,9 @@ func (r Resolver) normalizeToRelative(p string) string {
 	for label, absRoot := range r.RepoPaths {
 		rel, err := filepath.Rel(absRoot, p)
 		if err == nil && !strings.HasPrefix(rel, "..") {
+			if !r.filesCarryLabel(label) {
+				return filepath.ToSlash(rel)
+			}
 			// Prefix with repo label so it matches the prefixed fact files.
 			return filepath.ToSlash(filepath.Join(label, rel))
 		}
@@ -487,6 +490,17 @@ func (r Resolver) normalizeToRelative(p string) string {
 	}
 
 	return p
+}
+
+// filesCarryLabel reports whether the facts of repo label store their files under
+// "<label>/". Append mode prefixes them; a single repository restored from disk has
+// a label map and bare files, so the map alone does not say. One symbol outside the
+// prefix settles it. Only symbols are asked: a symbol's file is the source file it
+// was read from, where a derived fact (a rolled-up module edge) names a bare
+// directory even in an appended repository. That leaves a repository whose every
+// source file sits in a directory named after its own label read as prefixed.
+func (r Resolver) filesCarryLabel(label string) bool {
+	return r.Store == nil || !r.Store.HasFileOutside(label, facts.KindSymbol, label+"/")
 }
 
 // repoLabels returns the known repo labels from multi-repo mode, or nil.
@@ -544,8 +558,3 @@ func (r Resolver) expandFilePrefix(prefix string) []string {
 	}
 	return expanded
 }
-
-// The MCP result builders and the output-mode/token-cap helpers live in
-// pkg/mcputil so tools outside this module share one implementation.
-// These file-local names forward to it, keeping the server's many call sites
-// unchanged.

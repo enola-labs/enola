@@ -542,6 +542,16 @@ func TestImpactSet_TotalDependents(t *testing.T) {
 	}
 }
 
+// A cap of one node holds only the target, so there is no breakdown to append.
+func TestImpactSet_SummaryWithNothingShown(t *testing.T) {
+	g, _ := buildTestGraph()
+
+	result := g.ImpactSet("C", 10, 1, false)
+	if want := "3 total dependents (showing 0)"; result.Summary != want {
+		t.Errorf("Summary = %q, want %q", result.Summary, want)
+	}
+}
+
 func TestImpactSet_TotalDependents_Truncated(t *testing.T) {
 	g, _ := buildTestGraph()
 

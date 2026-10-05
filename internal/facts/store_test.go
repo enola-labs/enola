@@ -1046,3 +1046,25 @@ func TestTagRange_IndexesEachFactOnceUnderItsRepo(t *testing.T) {
 		t.Fatalf("ByFile(svc/m.go) = %d, want 2", got)
 	}
 }
+
+func TestStore_HasFileOutside(t *testing.T) {
+	s := NewStore()
+	s.Add(
+		Fact{Kind: KindSymbol, Name: "a.A", Repo: "api", File: "api/a.go"},
+		Fact{Kind: KindModule, Name: "a", Repo: "api"}, // no file: says nothing either way
+		Fact{Kind: KindDependency, Name: "module-edge: a -> b", Repo: "api", File: "a"},
+		Fact{Kind: KindSymbol, Name: "b.B", Repo: "web", File: "src/b.ts"},
+	)
+	if s.HasFileOutside("api", KindSymbol, "api/") {
+		t.Error("every api symbol is under api/; the dependency outside it is another kind")
+	}
+	if !s.HasFileOutside("api", KindDependency, "api/") {
+		t.Error("the api dependency names a file outside api/")
+	}
+	if !s.HasFileOutside("web", KindSymbol, "web/") {
+		t.Error("src/b.ts is outside web/")
+	}
+	if s.HasFileOutside("absent", KindSymbol, "absent/") {
+		t.Error("a repo the store does not hold has no file anywhere")
+	}
+}
