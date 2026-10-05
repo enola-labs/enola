@@ -132,6 +132,18 @@ func TestImpact_NodeCapKeepsTheTotalExact(t *testing.T) {
 	}
 }
 
+// The footer says how many dependents the breakdown covers, which is what was kept
+// under the cap, beside the exact total.
+func TestImpact_SummaryFooterCountsWhatIsShown(t *testing.T) {
+	stdout, _, code := runImpactIn(t, impactRepo(t), "--max-nodes", "2", "pkg/a.Alpha")
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0", code)
+	}
+	if want := "cover the 1 dependents --max-nodes allowed; the total of 2 is exact."; !strings.Contains(stdout, want) {
+		t.Errorf("summary should end with %q; got:\n%s", want, stdout)
+	}
+}
+
 // An empty list that exits 0 would tell a script the change is safe.
 func TestImpact_UnresolvedTargetIsNotAnEmptyAnswer(t *testing.T) {
 	repo := impactRepo(t)
