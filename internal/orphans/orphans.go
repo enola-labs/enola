@@ -90,6 +90,10 @@ const (
 	// whether or not the project uses all of it, and the unused half is not a
 	// cleanup opportunity: deleting it just means regenerating it.
 	propGenerated = "generated"
+	// propCompileTimeContext marks a Rust function declared inside a const/static
+	// initializer. Such a body can intentionally exist only for compile-time
+	// type-checking or diagnostics, so absent runtime callers are weak evidence.
+	propCompileTimeContext = "compile_time_context"
 	// propSpringComponent: symbol fact (Java/Kotlin) → the Spring stereotype role
 	// (a non-empty string: component/service/repository/controller/configuration).
 	// The class is instantiated and wired by the Spring container via classpath
@@ -173,6 +177,7 @@ type symInput struct {
 	FrameworkReg     bool   // Python decorator-registered handler (FastAPI/Modal) — framework-invoked
 	ObjectMember     bool   // a function held by a TS/JS object literal — reached through the object
 	Generated        bool   // declared in codegen output — unused surface is not a cleanup target
+	CompileTime      bool   // Rust const/static-local function — may exist for compiler diagnostics only
 	SpringComponent  string // Spring stereotype role (component/service/…) — container-instantiated
 	DubboActivate    bool   // Apache Dubbo @Activate SPI extension — ExtensionLoader-instantiated
 	ScannedPlugin    bool   // classpath-scanned plugin class (e.g. ThingsBoard @RuleNode)
@@ -722,6 +727,9 @@ var pyFrameworkHookNames = map[string]bool{
 // either, so every other kind is low.
 func confidenceFor(sym symInput) string {
 	name, kind := sym.Name, sym.Kind
+	if sym.CompileTime {
+		return confLow
+	}
 	// Operator overloads (Swift `func +`, `func <-`; Ruby `def +`) are invoked via
 	// operator syntax, which is largely NOT tracked as a call edge (only custom
 	// operators are, in Swift), so an unreferenced one is a lead to verify — never
@@ -980,6 +988,9 @@ func collect(store *facts.Store) ([]symInput, refIndex) {
 		}
 		if g, ok := f.PropAny(propGenerated).(bool); ok && g {
 			si.Generated = true
+		}
+		if ct, ok := f.PropAny(propCompileTimeContext).(bool); ok && ct {
+			si.CompileTime = true
 		}
 		if sc, ok := f.PropAny(propSpringComponent).(string); ok && si.SpringComponent == "" {
 			si.SpringComponent = sc

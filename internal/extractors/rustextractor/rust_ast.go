@@ -164,6 +164,16 @@ type astWalker struct {
 	// backing array and silently orphan writes through a stale pointer.
 	testRefRels []facts.Relation
 	testRefSeen map[string]bool
+
+	// compileTimeDepth is non-zero while walking a const/static initializer.
+	// Local functions there can exist solely to make the compiler type-check or
+	// lint their bodies, even when no runtime call reaches them.
+	compileTimeDepth int
+
+	// registeredNestedDepth is non-zero inside an attribute macro that turns
+	// nested function declarations into runtime-dispatched registrations (for
+	// example starlark_module).
+	registeredNestedDepth int
 }
 
 // calleeForm classifies how a call_expression's callee was written, so the
@@ -223,7 +233,7 @@ func (w *astWalker) currentMethods() map[string]bool {
 func (w *astWalker) walkSourceFile(root *sitter.Node) {
 	w.modFnStack = append(w.modFnStack, collectFnNames(root, w.src))
 	w.modSubmoduleStack = append(w.modSubmoduleStack, collectSubmoduleNames(root, w.src))
-	w.walkItemsTrackingAttrs(root)
+	w.walkItems(root)
 	w.modSubmoduleStack = w.modSubmoduleStack[:len(w.modSubmoduleStack)-1]
 	w.modFnStack = w.modFnStack[:len(w.modFnStack)-1]
 }
@@ -252,41 +262,86 @@ func (w *astWalker) isKnownSubmodule(name string) bool {
 	return false
 }
 
-// walkItemsTrackingAttrs iterates parent's children like walkChild, but first
-// tracks preceding attribute_item siblings so a `#[cfg(test)] mod { ... }` can
-// be detected and routed into test mode (enterTestMod) instead of being walked
-// as ordinary production code. Attributes are separate sibling nodes in the
-// grammar, not children of the item they annotate, so this bookkeeping can't
-// live in walkChild itself. Used at file scope and inside mod bodies — the two
-// places a Rust test module can appear; impl/trait bodies never contain one.
-func (w *astWalker) walkItemsTrackingAttrs(parent *sitter.Node) {
-	sawCfgTest := false
-	sawTestAttr := false
+// rustItemAttrs is the one-pass interpretation of the attribute_item siblings
+// attached to a Rust item. Keeping this typed summary avoids rescanning raw
+// attribute text in each consumer and makes attribute ownership explicit.
+type rustItemAttrs struct {
+	cfgTest             bool
+	test                bool
+	runtimeEntrypoint   bool
+	registersNested     bool
+	executableTokenTree []*sitter.Node
+}
+
+func (a *rustItemAttrs) add(item *sitter.Node, src []byte) {
+	attr, ok := parseRustAttribute(item, src)
+	if !ok {
+		return
+	}
+	a.cfgTest = a.cfgTest || attr.isCfgTest(src)
+	a.test = a.test || isTestAttribute(attr.path)
+	a.runtimeEntrypoint = a.runtimeEntrypoint || rustRuntimeEntrypoint(attr, src)
+	a.registersNested = a.registersNested || attr.path == "starlark_module"
+	if attr.path == "instrument" || attr.path == "tracing::instrument" {
+		if attr.args != nil {
+			a.executableTokenTree = append(a.executableTokenTree, attr.args)
+		}
+	}
+}
+
+// rustAttribute is the structural portion of an attribute used for
+// classification. In particular, path never includes token-tree contents or
+// string literals, so documentation such as `#[doc = "#[pymodule]"]` cannot
+// masquerade as an entrypoint attribute.
+type rustAttribute struct {
+	path string
+	args *sitter.Node
+}
+
+func parseRustAttribute(item *sitter.Node, src []byte) (rustAttribute, bool) {
+	attr := findChildByKind(item, "attribute")
+	if attr == nil || attr.NamedChildCount() == 0 {
+		return rustAttribute{}, false
+	}
+	name := attr.NamedChild(0)
+	switch kindOf(name) {
+	case "identifier", "scoped_identifier":
+	default:
+		return rustAttribute{}, false
+	}
+	return rustAttribute{
+		path: strings.Join(strings.Fields(nodeText(name, src)), ""),
+		args: findChildByKind(attr, "token_tree"),
+	}, true
+}
+
+// walkItems pairs attributes with the item they annotate before dispatching it.
+// tree-sitter represents attributes as siblings, so comments must be skipped
+// without consuming the pending attributes. Used for file, module, impl and
+// trait bodies.
+func (w *astWalker) walkItems(parent *sitter.Node) {
+	var attrs rustItemAttrs
 	for i := uint(0); i < uint(parent.ChildCount()); i++ {
 		c := parent.Child(i)
 		if kindOf(c) == "attribute_item" {
-			text := nodeText(c, w.src)
-			if isCfgTestAttribute(text) {
-				sawCfgTest = true
-			}
-			if isTestAttribute(text) {
-				sawTestAttr = true
-			}
+			attrs.add(c, w.src)
+			continue
+		}
+		if kindOf(c) == "line_comment" || kindOf(c) == "block_comment" {
 			continue
 		}
 		switch {
-		case kindOf(c) == "mod_item" && sawCfgTest:
+		case kindOf(c) == "mod_item" && attrs.cfgTest:
 			w.enterTestMod(c)
-		case kindOf(c) == "function_item" && sawTestAttr:
+		case kindOf(c) == "function_item" && attrs.test:
 			saved := w.inTestMod
 			w.inTestMod = true
 			w.walkTestItem(c)
 			w.inTestMod = saved
 		default:
-			w.walkChild(c)
+			w.walkItem(c, attrs)
 		}
-		sawCfgTest = false
-		sawTestAttr = false
+		attrs = rustItemAttrs{}
 	}
 }
 
@@ -294,22 +349,30 @@ func (w *astWalker) walkItemsTrackingAttrs(parent *sitter.Node) {
 // test (#[test], #[tokio::test], #[wasm_bindgen_test]) — catching a #[test]
 // fn wherever it lives (a plain tests.rs file, an un-gated mod tests {}),
 // not just inside a #[cfg(test)] module.
-func isTestAttribute(text string) bool {
-	inner := strings.TrimSuffix(strings.TrimPrefix(strings.TrimSpace(text), "#["), "]")
-	if i := strings.IndexAny(inner, "(["); i >= 0 {
-		inner = inner[:i]
-	}
-	inner = strings.TrimSpace(inner)
-	return inner == "test" || strings.HasSuffix(inner, "::test") || inner == "wasm_bindgen_test"
+func isTestAttribute(path string) bool {
+	return path == "test" || strings.HasSuffix(path, "::test") || path == "wasm_bindgen_test"
 }
 
-// isCfgTestAttribute reports whether an attribute_item's raw text is a
-// `#[cfg(test)]`-shaped gate. A coarse substring check (rather than requiring
-// an exact `cfg(test)` match) also catches compound forms like
-// `#[cfg(all(test, feature = "x"))]`, at the cost of a vanishingly unlikely
-// false positive (an attribute mentioning both words for an unrelated reason).
-func isCfgTestAttribute(text string) bool {
-	return strings.Contains(text, "cfg") && strings.Contains(text, "test")
+// isCfgTest reports whether this is a cfg gate containing the test predicate.
+// Walking identifier nodes catches compound forms such as
+// `#[cfg(all(test, feature = "x"))]` without matching text in string literals.
+func (a rustAttribute) isCfgTest(src []byte) bool {
+	return a.path == "cfg" && containsRustIdentifier(a.args, "test", src)
+}
+
+func containsRustIdentifier(node *sitter.Node, want string, src []byte) bool {
+	if node == nil {
+		return false
+	}
+	if kindOf(node) == "identifier" && nodeText(node, src) == want {
+		return true
+	}
+	for i := uint(0); i < node.NamedChildCount(); i++ {
+		if containsRustIdentifier(node.NamedChild(i), want, src) {
+			return true
+		}
+	}
+	return false
 }
 
 // enterTestMod walks a #[cfg(test)] module's body in test mode: no symbol
@@ -368,11 +431,27 @@ func (w *astWalker) walkTestItem(c *sitter.Node) {
 // item declarations nested inside a function body (Rust allows local `fn`,
 // `struct`, etc.).
 func (w *astWalker) walkChild(c *sitter.Node) {
+	// Test mode is reference-only. In particular, a local `fn` nested inside a
+	// #[test] body must not escape through the normal declaration dispatcher and
+	// become a production symbol (dbt-core uses several function-pointer stubs
+	// of exactly this shape).
+	if w.inTestMod {
+		w.walkTestItem(c)
+		return
+	}
+	w.walkItem(c, rustItemAttrs{})
+}
+
+func (w *astWalker) walkItem(c *sitter.Node, attrs rustItemAttrs) {
 	switch kindOf(c) {
 	case "use_declaration":
 		w.handleUse(c)
 	case "extern_crate_declaration":
 		w.handleExternCrate(c)
+	case "foreign_mod_item":
+		// An extern block declares functions implemented outside this repository.
+		// They are imports, not removable Rust function bodies.
+		return
 	case "mod_item":
 		w.handleMod(c)
 	case "struct_item":
@@ -384,7 +463,7 @@ func (w *astWalker) walkChild(c *sitter.Node) {
 	case "impl_item":
 		w.handleImpl(c)
 	case "function_item":
-		w.handleFunction(c)
+		w.handleFunction(c, attrs)
 	case "function_signature_item":
 		w.handleFunctionSignature(c)
 	case "type_item":
@@ -410,7 +489,7 @@ func (w *astWalker) handleMod(node *sitter.Node) {
 	w.modStack = append(w.modStack, name)
 	w.modFnStack = append(w.modFnStack, collectFnNames(body, w.src))
 	w.modSubmoduleStack = append(w.modSubmoduleStack, collectSubmoduleNames(body, w.src))
-	w.walkItemsTrackingAttrs(body)
+	w.walkItems(body)
 	w.modSubmoduleStack = w.modSubmoduleStack[:len(w.modSubmoduleStack)-1]
 	w.modFnStack = w.modFnStack[:len(w.modFnStack)-1]
 	w.modStack = w.modStack[:len(w.modStack)-1]
@@ -490,9 +569,7 @@ func (w *astWalker) handleTrait(node *sitter.Node) {
 	body := node.ChildByFieldName("body")
 	w.pushType(name, collectFnNames(body, w.src))
 	if body != nil {
-		for i := uint(0); i < uint(body.ChildCount()); i++ {
-			w.walkChild(body.Child(i))
-		}
+		w.walkItems(body)
 	}
 	w.popType()
 }
@@ -518,15 +595,13 @@ func (w *astWalker) handleImpl(node *sitter.Node) {
 	savedImplTrait := w.implTrait
 	w.implTrait = traitName
 	if body != nil {
-		for i := uint(0); i < uint(body.ChildCount()); i++ {
-			w.walkChild(body.Child(i))
-		}
+		w.walkItems(body)
 	}
 	w.implTrait = savedImplTrait
 	w.popType()
 }
 
-func (w *astWalker) handleFunction(node *sitter.Node) {
+func (w *astWalker) handleFunction(node *sitter.Node, attrs rustItemAttrs) {
 	nameNode := node.ChildByFieldName("name")
 	if nameNode == nil {
 		return
@@ -559,6 +634,12 @@ func (w *astWalker) handleFunction(node *sitter.Node) {
 	if compilerInvokedTraitMethods[w.implTrait][name] {
 		f.SetProp("override", true)
 	}
+	if attrs.runtimeEntrypoint || w.registeredNestedDepth > 0 {
+		f.SetProp("framework_registered", true)
+	}
+	if w.compileTimeDepth > 0 {
+		f.SetProp("compile_time_context", true)
+	}
 
 	w.out = append(w.out, f)
 	ownerIdx := len(w.out) - 1
@@ -579,10 +660,17 @@ func (w *astWalker) handleFunction(node *sitter.Node) {
 	w.fnInLoopSeen, w.fnInScalingSeen = nil, nil
 	w.fnIODirect, w.fnRecursive = false, false
 	w.fnSelfName = f.Name
+	w.scanItemAttributeCalls(attrs)
 
 	if body := node.ChildByFieldName("body"); body != nil {
 		w.modFnStack = append(w.modFnStack, collectFnNames(body, w.src))
+		if attrs.registersNested {
+			w.registeredNestedDepth++
+		}
 		w.walkForCalls(body)
+		if attrs.registersNested {
+			w.registeredNestedDepth--
+		}
 		w.modFnStack = w.modFnStack[:len(w.modFnStack)-1]
 	}
 	w.out[ownerIdx].SetProp("cyclomatic", 1+w.decisions)
@@ -615,6 +703,49 @@ func (w *astWalker) handleFunction(node *sitter.Node) {
 	w.popOwner()
 }
 
+// rustRuntimeEntrypoint reports whether compact attribute text marks a function
+// invoked through a generated ABI or framework registry rather than an ordinary
+// Rust call edge.
+// Keep this list to attributes with entry-point semantics: treating arbitrary
+// proc macros as registration would hide genuinely unused functions.
+var rustRuntimeEntrypointAttrs = map[string]struct{}{
+	"pymodule":             {},
+	"proc_macro":           {},
+	"proc_macro_attribute": {},
+	"proc_macro_derive":    {},
+	"no_mangle":            {},
+	"export_name":          {},
+	"wasm_bindgen":         {},
+	"tauri::command":       {},
+	"ctor::ctor":           {},
+	"divan::bench":         {},
+}
+
+func rustRuntimeEntrypoint(attr rustAttribute, src []byte) bool {
+	if _, ok := rustRuntimeEntrypointAttrs[attr.path]; ok {
+		return true
+	}
+	// Rust 2024 requires unsafe attributes to use #[unsafe(no_mangle)]. Match
+	// the exact nested identifier rather than arbitrary text in the arguments.
+	return attr.path == "unsafe" && tokenTreeSingleIdentifier(attr.args, "no_mangle", src)
+}
+
+func tokenTreeSingleIdentifier(tree *sitter.Node, want string, src []byte) bool {
+	return tree != nil && tree.NamedChildCount() == 1 &&
+		kindOf(tree.NamedChild(0)) == "identifier" && nodeText(tree.NamedChild(0), src) == want
+}
+
+// scanItemAttributeCalls records calls evaluated by selected attribute macros.
+// `tracing::instrument(fields(...))` is the common case: its field expressions
+// execute on function entry and can be the only reference to a helper. A
+// curated list avoids interpreting descriptive identifiers in arbitrary
+// attributes as code references.
+func (w *astWalker) scanItemAttributeCalls(attrs rustItemAttrs) {
+	for _, tree := range attrs.executableTokenTree {
+		w.walkForCalls(tree)
+	}
+}
+
 // nonNilStrings returns s, or an empty (non-nil) slice when s is nil, so a
 // prop marked "present but empty" survives JSON round-trips as [] not null.
 func nonNilStrings(s []string) []string {
@@ -628,6 +759,13 @@ func nonNilStrings(s []string) []string {
 // without a body (`fn foo(&self);`) — a real part of the trait's contract,
 // but with nothing to walk for calls/complexity.
 func (w *astWalker) handleFunctionSignature(node *sitter.Node) {
+	// Body-less functions are valid only inside a trait or an extern block.
+	// A top-level signature therefore represents foreign code (including modern
+	// `unsafe extern` syntax parsed through error recovery by the pinned grammar),
+	// never a removable implementation from this repository.
+	if len(w.typeStack) == 0 {
+		return
+	}
 	nameNode := node.ChildByFieldName("name")
 	if nameNode == nil {
 		return
@@ -697,7 +835,9 @@ func (w *astWalker) handleConstOrStatic(node *sitter.Node, symbolKind string) {
 	w.out = append(w.out, f)
 	w.pushOwner(len(w.out) - 1)
 	if valueNode := node.ChildByFieldName("value"); valueNode != nil {
+		w.compileTimeDepth++
 		w.walkForCalls(valueNode)
+		w.compileTimeDepth--
 	}
 	w.popOwner()
 }
@@ -862,6 +1002,16 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 		w.scanArgumentReferences(node)
 	case "field_initializer":
 		w.emitValueReference(node.ChildByFieldName("value"))
+	case "shorthand_field_initializer":
+		if node.NamedChildCount() > 0 {
+			w.emitValueReference(node.NamedChild(0))
+		}
+	case "type_cast_expression":
+		value := node.ChildByFieldName("value")
+		if value == nil && node.NamedChildCount() > 0 {
+			value = node.NamedChild(0)
+		}
+		w.emitValueReference(value)
 	case "reference_expression":
 		w.emitValueReference(node.ChildByFieldName("value"))
 	case "scoped_identifier":
@@ -1022,15 +1172,38 @@ func (w *astWalker) scanTokenTreeCalls(node *sitter.Node) {
 // literal item) for a function passed by name (`.map_err(f)`, `&[f, g]`
 // dispatch tables), which produces no call_expression since it isn't applied.
 func (w *astWalker) scanArgumentReferences(node *sitter.Node) {
-	for i := uint(0); i < node.NamedChildCount(); i++ {
-		w.emitValueReference(node.NamedChild(i))
+	allowUnresolved := false
+	if kindOf(node) == "arguments" {
+		if call := node.Parent(); call != nil && kindOf(call) == "call_expression" {
+			if name, _ := w.calleeTrailing(call.ChildByFieldName("function")); rustCallbackMethods[name] {
+				allowUnresolved = true
+			}
+		}
 	}
+	for i := uint(0); i < node.NamedChildCount(); i++ {
+		w.emitValueReferenceWithFallback(node.NamedChild(i), allowUnresolved)
+	}
+}
+
+// rustCallbackMethods accept callable values. For these APIs, an unresolved
+// bare identifier is still emitted by short name: wildcard imports make exact
+// resolution impossible, while the orphan detector already matches references
+// conservatively by their final segment.
+var rustCallbackMethods = map[string]bool{
+	"and_then": true, "filter": true, "filter_map": true, "flat_map": true,
+	"for_each": true, "inspect": true, "inspect_err": true, "map": true,
+	"map_err": true, "or_else": true, "sort_by": true, "sort_by_key": true,
+	"then": true,
 }
 
 // emitValueReference treats a bare identifier/generic-function/scoped-path
 // as a reference when passed as a value rather than called (`&f`, `diff_fn:
 // f`). A nested call like `foo(f())` is unaffected — f() isn't a leaf shape.
 func (w *astWalker) emitValueReference(v *sitter.Node) {
+	w.emitValueReferenceWithFallback(v, false)
+}
+
+func (w *astWalker) emitValueReferenceWithFallback(v *sitter.Node, allowUnresolved bool) {
 	if v == nil {
 		return
 	}
@@ -1042,9 +1215,11 @@ func (w *astWalker) emitValueReference(v *sitter.Node) {
 		}
 		if target := w.resolveValueReference(name); target != "" {
 			w.emitEdge(facts.RelCalls, target)
+		} else if allowUnresolved {
+			w.emitEdge(facts.RelCalls, name)
 		}
 	case "generic_function":
-		w.emitValueReference(v.ChildByFieldName("function"))
+		w.emitValueReferenceWithFallback(v.ChildByFieldName("function"), allowUnresolved)
 	case "scoped_identifier":
 		if nameNode := v.ChildByFieldName("name"); nameNode != nil {
 			w.emitEdge(facts.RelCalls, nodeText(nameNode, w.src))

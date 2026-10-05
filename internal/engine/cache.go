@@ -20,6 +20,11 @@ import (
 	"github.com/enola-labs/enola/pkg/plugin"
 )
 
+// v291: Rust keeps test-local declarations out of production facts, records calls
+// evaluated by tracing::instrument, marks ABI/framework and ctor/divan/starlark
+// registrations, and tags const-local functions as compile-time context. It also
+// recognizes callback values across wildcard imports, shorthand fields and casts,
+// excludes foreign declarations, and classifies attributes structurally.
 // v290: a Go type alias (`type Store = facts.Store`) resolves to the type it names
 // wherever a type is read: a parameter, field, result or literal declared under the
 // alias reaches the methods of the aliased type instead of naming them under the
@@ -2575,7 +2580,7 @@ import (
 // v270: SvelteKit reads literal kit.alias fallbacks before generated config exists,
 // keeps tsconfig paths authoritative, and classifies $app/$env/$service-worker imports
 // as framework-provided rather than unresolved third-party dependencies.
-const cacheVersion = "v290"
+const cacheVersion = "v291"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
