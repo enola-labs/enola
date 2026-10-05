@@ -26,6 +26,9 @@ pip install enola-cli
 The command is `enola`. This package ships a prebuilt binary, so there is no
 Python dependency at run time and nothing is importable from Python.
 
+Got this package with Cognee? You already have all of enola. See
+<https://github.com/enola-labs/enola/blob/main/docs/COGNEE.md>.
+
 ## Try it read-only
 
 ```bash

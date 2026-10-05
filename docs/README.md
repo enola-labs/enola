@@ -8,6 +8,7 @@ Start with the page closest to what you need:
 - **More than one repository?** Follow [CLUSTERS.md](CLUSTERS.md).
 - **Want to know what the graph is?** Read [GRAPH.md](GRAPH.md).
 - **Building a tool on Enola's graph?** Read [INTEGRATING.md](INTEGRATING.md).
+- **Got Enola with Cognee?** Read [COGNEE.md](COGNEE.md).
 - **Using Rails specifically?** Follow [RAILS.md](RAILS.md).
 - **Understanding the engine?** Read [ARCHITECTURE.md](../ARCHITECTURE.md).
 
@@ -51,6 +52,7 @@ Start with the page closest to what you need:
 |---|---|
 | [GRAPH.md](GRAPH.md) | What the graph contains, how it is built, how facts are identified, every file a snapshot writes and which are a stable contract, and the ways to consume it. |
 | [INTEGRATING.md](INTEGRATING.md) | Run Enola as a subprocess and load its snapshot artifacts into another store, with Cognee as the named reference implementation. |
+| [COGNEE.md](COGNEE.md) | For Cognee users: where the Enola binary that came with Cognee is, how to connect it to a coding agent over MCP, how to grade a change with it, and how your runs coexist with Cognee's. |
 
 ## Extending the graph
 
