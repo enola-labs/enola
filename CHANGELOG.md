@@ -7,6 +7,61 @@ The full per-release change lists — every Added, Changed and Fixed line — ar
 [enola.tech/changelog](https://enola.tech/changelog). This file is the same history at
 the resolution a reader of the repository needs.
 
+## v0.4.27 — 2026-10-05
+
+**`enola impact` answers "what breaks if I change this?" from the command line, and a name resolves the same however the graph was loaded**
+
+- `enola impact <target> [repo|config]`: everything that transitively depends on a
+  symbol, type or module, grouped by hop depth. Until now only an agent holding an MCP
+  session could ask; a pre-commit hook, a CI step or a review bot can ask it too. It
+  prints a summary by default, the dependents by depth with `--list`, and with `--json`
+  the document `impact_analysis` returns as `output_mode=full`. The command and the tool
+  run the same code, and a test holds their output together.
+- `enola impact` takes a source file as its target. A file is not a node, so a path
+  taken from a diff matched nothing. It now walks back from every symbol the file
+  declares and lists them as seeds. A file declaring no symbol is an error, not an empty
+  answer.
+- The command exits `2` when nothing was traversed: the target matched nothing, or too
+  many nodes to pick from. An empty list that exited `0` would read as "nothing depends
+  on this".
+- Name resolution no longer depends on how the graph got into memory. A graph restored
+  from disk and one just generated differ in their label map and in the order of their
+  facts, and `impact_analysis`, `traverse`, `find_path` and `explore` could answer the
+  same question two ways. Fixed: the `<label> <term>` shorthand found nothing straight
+  after `generate_snapshot` on one repository, and an absolute path found nothing in a
+  single repository restored from disk.
+- Candidates rank in a total order (score, then the shorter name, then name, kind, file,
+  repo and line), so a tie no longer falls to store order. A match that keeps the case
+  the term was typed in outranks one that only matches folded, so `edgeRoles` and
+  `EdgeRoles` each resolve to themselves. A scoped query ranks before it cuts to 500
+  matches, so the exact name is never the one dropped.
+- A capped walk admits the same nodes on every run: a node's edges are sorted by
+  neighbour and relation at build instead of sitting in store order. `explore` lists in
+  source order and counts every fact; it summarised the first 100 or 500 under the full
+  total.
+- Go: a method call resolves through the types the source declares. A call on a
+  parameter was recorded as the literal `r.Method`, and a call on a call's result not at
+  all, so the method read as uncalled. Parameters, named results, declared return types,
+  type assertions and variables assigned from a call now give the receiver its type, and
+  a type alias resolves to the type it names.
+- Python and C++: a function used as a value counts as used. Python parameter defaults
+  and module-level assignment values, and C++ file-scope `static_assert` declarations
+  and non-type template defaults, emit edges, so a function reached only through them no
+  longer appears dead.
+- Fixed: a truncated impact summary reported the walk's visited count as the number
+  shown (676 under a cap of 200), fact kinds were pluralised as "dependencys" and
+  "storages", and a derived module edge in an appended repository was written without
+  its repository label.
+- Consumer contract tests run the built binary as a snapshot consumer does and assert
+  invariants across `facts.jsonl`, `receipt.json` and `insights.json`, for one
+  repository and for a cluster.
+- Docs: [Using Enola alongside Cognee](docs/COGNEE.md), for people who got the binary
+  through Cognee's `enola-cli` dependency.
+- `cacheVersion` moves to `v290`: every repository re-extracts once.
+
+Thanks to [Tal Rotbart](https://github.com/redbeard) for `enola impact` and the label
+shorthand fix, his first contribution to enola.
+
 ## v0.4.26 — 2026-09-29
 
 **Cross-repo links reach the function that makes a call and the one that serves it**
