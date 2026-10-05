@@ -20,6 +20,10 @@ import (
 	"github.com/enola-labs/enola/pkg/plugin"
 )
 
+// v290: a Go type alias (`type Store = facts.Store`) resolves to the type it names
+// wherever a type is read: a parameter, field, result or literal declared under the
+// alias reaches the methods of the aliased type instead of naming them under the
+// alias, where nothing declares them. A defined type keeps its own name.
 // v289: Go method calls resolve where the source declares the type of what they are
 // called on: a parameter or named result, a variable assigned from a call into this
 // module (one result or several), and a call on a call's result or on a type
@@ -2571,7 +2575,7 @@ import (
 // v270: SvelteKit reads literal kit.alias fallbacks before generated config exists,
 // keeps tsconfig paths authoritative, and classifies $app/$env/$service-worker imports
 // as framework-provided rather than unresolved third-party dependencies.
-const cacheVersion = "v289"
+const cacheVersion = "v290"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

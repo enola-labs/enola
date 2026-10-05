@@ -13,6 +13,70 @@ import (
 // a call on a value of unknown type is left as it was, unresolved or unrecorded. A
 // missing edge beats a wrong one.
 
+// callTypeTables are the module-wide tables call resolution reads besides field types.
+type callTypeTables struct {
+	returns map[string][]string // "pkgDir.Func" / "pkgDir.Type.Method" → declared result types
+	aliases map[string]string   // "pkgDir.Alias" → the type it is an alias of
+}
+
+// collectAliases maps each alias a package declares (`type Store = facts.Store`) to
+// the type it names. An alias is another name for a type, so a value declared under
+// it has that type's methods, and those are declared, and named in the graph, under
+// the type itself. A defined type (`type Store facts.Store`, no `=`) is a new type
+// with none of them, and is not collected.
+func collectAliases(files []*ast.File, pkgDir, modulePath string, pkgNames map[string]string) map[string]string {
+	m := make(map[string]string)
+	// A name the package also declares as a type of its own is not followed. Files
+	// are read without evaluating build constraints, so `type Signature =
+	// object.Signature` under one tag and `type Signature struct{…}` with methods
+	// under another are both here, and the methods are real: they are declared, and
+	// named in the graph, under the package's own name.
+	defined := make(map[string]bool)
+	for _, f := range files {
+		ctx := resolveCtx{pkgDir: pkgDir, imports: buildFileImports(f, modulePath, pkgNames)}
+		for _, decl := range f.Decls {
+			gd, ok := decl.(*ast.GenDecl)
+			if !ok || gd.Tok != token.TYPE {
+				continue
+			}
+			for _, spec := range gd.Specs {
+				ts, ok := spec.(*ast.TypeSpec)
+				if !ok {
+					continue
+				}
+				if !ts.Assign.IsValid() {
+					defined[ts.Name.Name] = true
+					continue
+				}
+				if ts.TypeParams != nil {
+					continue
+				}
+				if target := declaredType(ts.Type, ctx, nil); target != "" && target != pkgDir+"."+ts.Name.Name {
+					m[pkgDir+"."+ts.Name.Name] = target
+				}
+			}
+		}
+	}
+	for name := range defined {
+		delete(m, pkgDir+"."+name)
+	}
+	return m
+}
+
+// aliasTarget follows qualified through the alias table to the type it finally
+// names. Aliases chain (`type A = B; type B = c.C`); the hop limit is only there so
+// a cycle the compiler would reject cannot loop here.
+func aliasTarget(qualified string, aliases map[string]string) string {
+	for range 8 {
+		next, ok := aliases[qualified]
+		if !ok {
+			break
+		}
+		qualified = next
+	}
+	return qualified
+}
+
 // declaredType returns the qualified name of the named type expr spells, as fact
 // names carry it ("internal/auth.Service"), or "" when expr names none this
 // extractor can stand behind: a predeclared type, a type parameter, or a composite
@@ -112,10 +176,10 @@ func resultTypes(ft *ast.FuncType, ctx resolveCtx, typeParams map[string]bool) [
 // declares, by the name its fact carries, to its result types. Built for the whole
 // module before any package is extracted, the way field types are, so a call into
 // another package knows what it gets back.
-func collectReturnTypes(files []*ast.File, pkgDir, modulePath string, pkgNames map[string]string) map[string][]string {
+func collectReturnTypes(files []*ast.File, pkgDir, modulePath string, pkgNames map[string]string, aliases map[string]string) map[string][]string {
 	m := make(map[string][]string)
 	for _, f := range files {
-		ctx := resolveCtx{pkgDir: pkgDir, imports: buildFileImports(f, modulePath, pkgNames)}
+		ctx := resolveCtx{pkgDir: pkgDir, imports: buildFileImports(f, modulePath, pkgNames), aliases: aliases}
 		for _, decl := range f.Decls {
 			switch d := decl.(type) {
 			case *ast.FuncDecl:

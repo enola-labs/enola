@@ -148,6 +148,14 @@ func (e *GoExtractor) Extract(ctx context.Context, repoPath string, files []stri
 	// Pass 2: build a global field-type map from ALL packages in the module.
 	// This allows cross-package field-chain resolution (e.g., a subpackage can
 	// look up fields of a root-package struct).
+	// Aliases first: a field or a result declared as an alias is a value of the type
+	// the alias names, and that is where its methods are.
+	aliases := make(map[string]string)
+	for _, pkgDir := range pkgDirs {
+		for k, v := range collectAliases(parsedPkgs[pkgDir].parsedFiles, pkgDir, modulePath, pkgNames) {
+			aliases[k] = v
+		}
+	}
 	globalFieldTypes := make(map[string]string)
 	for _, pkgDir := range pkgDirs {
 		select {
@@ -155,7 +163,7 @@ func (e *GoExtractor) Extract(ctx context.Context, repoPath string, files []stri
 			return allFacts, ctx.Err()
 		default:
 		}
-		for k, v := range collectFieldTypes(parsedPkgs[pkgDir].parsedFiles, pkgDir, modulePath, pkgNames) {
+		for k, v := range collectFieldTypes(parsedPkgs[pkgDir].parsedFiles, pkgDir, modulePath, pkgNames, aliases) {
 			globalFieldTypes[k] = v
 		}
 	}
@@ -163,10 +171,10 @@ func (e *GoExtractor) Extract(ctx context.Context, repoPath string, files []stri
 	// Pass 2a: what every function in the module is declared to return, so a call
 	// on a call's result (`eng.Resolver().NodeName(x)`) and a variable assigned from
 	// one (`r := eng.Resolver()`) resolve to the method they reach.
-	globalReturnTypes := make(map[string][]string)
+	callTypes := callTypeTables{returns: make(map[string][]string), aliases: aliases}
 	for _, pkgDir := range pkgDirs {
-		for k, v := range collectReturnTypes(parsedPkgs[pkgDir].parsedFiles, pkgDir, modulePath, pkgNames) {
-			globalReturnTypes[k] = v
+		for k, v := range collectReturnTypes(parsedPkgs[pkgDir].parsedFiles, pkgDir, modulePath, pkgNames, aliases) {
+			callTypes.returns[k] = v
 		}
 	}
 
@@ -196,14 +204,14 @@ func (e *GoExtractor) Extract(ctx context.Context, repoPath string, files []stri
 		if pp.pkgName == "" {
 			continue
 		}
-		pkgFacts := e.extractPackage(fset, pkgDir, pp, modulePath, globalFieldTypes, globalReturnTypes, pkgNames, grpcStubs, routePrefixes)
+		pkgFacts := e.extractPackage(fset, pkgDir, pp, modulePath, globalFieldTypes, callTypes, pkgNames, grpcStubs, routePrefixes)
 		allFacts = append(allFacts, pkgFacts...)
 	}
 
 	return allFacts, nil
 }
 
-func (e *GoExtractor) extractPackage(fset *token.FileSet, pkgDir string, pp *parsedPkg, modulePath string, fieldTypes map[string]string, returnTypes map[string][]string, pkgNames map[string]string, grpcStubs *goGRPCStubIndex, routePrefixes routePrefixIndex) []facts.Fact {
+func (e *GoExtractor) extractPackage(fset *token.FileSet, pkgDir string, pp *parsedPkg, modulePath string, fieldTypes map[string]string, callTypes callTypeTables, pkgNames map[string]string, grpcStubs *goGRPCStubIndex, routePrefixes routePrefixIndex) []facts.Fact {
 	var result []facts.Fact
 
 	// Package-scoped map of top-level `var x = NewXxxClient(...)` bindings, so a
@@ -231,7 +239,7 @@ func (e *GoExtractor) extractPackage(fset *token.FileSet, pkgDir string, pp *par
 		if !ok {
 			continue
 		}
-		result = append(result, e.extractFile(fset, f, relFile, pkgDir, modulePath, fieldTypes, returnTypes, pkgNames, grpcStubs, pkgVarClients, baseURLLits, routePrefixes, pkgFuncs)...)
+		result = append(result, e.extractFile(fset, f, relFile, pkgDir, modulePath, fieldTypes, callTypes, pkgNames, grpcStubs, pkgVarClients, baseURLLits, routePrefixes, pkgFuncs)...)
 	}
 
 	moduleFact := facts.Fact{
@@ -267,7 +275,7 @@ func (e *GoExtractor) extractPackage(fset *token.FileSet, pkgDir string, pp *par
 	return result
 }
 
-func (e *GoExtractor) extractFile(fset *token.FileSet, f *ast.File, relFile, pkgDir, modulePath string, fieldTypes map[string]string, returnTypes map[string][]string, pkgNames map[string]string, grpcStubs *goGRPCStubIndex, pkgVarClients map[string]string, baseURLLits map[string][]string, routePrefixes routePrefixIndex, pkgFuncs map[string]bool) []facts.Fact {
+func (e *GoExtractor) extractFile(fset *token.FileSet, f *ast.File, relFile, pkgDir, modulePath string, fieldTypes map[string]string, callTypes callTypeTables, pkgNames map[string]string, grpcStubs *goGRPCStubIndex, pkgVarClients map[string]string, baseURLLits map[string][]string, routePrefixes routePrefixIndex, pkgFuncs map[string]bool) []facts.Fact {
 	var result []facts.Fact
 
 	// Build per-file import alias map for call resolution.
@@ -308,7 +316,7 @@ func (e *GoExtractor) extractFile(fset *token.FileSet, f *ast.File, relFile, pkg
 	for _, decl := range f.Decls {
 		switch d := decl.(type) {
 		case *ast.FuncDecl:
-			result = append(result, e.extractFunc(fset, d, relFile, pkgDir, modulePath, fileImports, fieldTypes, returnTypes, pkgFuncs)...)
+			result = append(result, e.extractFunc(fset, d, relFile, pkgDir, modulePath, fileImports, fieldTypes, callTypes, pkgFuncs)...)
 		case *ast.GenDecl:
 			result = append(result, e.extractGenDecl(fset, d, relFile, pkgDir, modulePath, fileImports)...)
 		}
@@ -338,7 +346,7 @@ func (e *GoExtractor) extractFile(fset *token.FileSet, f *ast.File, relFile, pkg
 	return result
 }
 
-func (e *GoExtractor) extractFunc(fset *token.FileSet, fn *ast.FuncDecl, relFile, pkgDir, modulePath string, fileImports map[string]string, fieldTypes map[string]string, returnTypes map[string][]string, pkgFuncs map[string]bool) []facts.Fact {
+func (e *GoExtractor) extractFunc(fset *token.FileSet, fn *ast.FuncDecl, relFile, pkgDir, modulePath string, fileImports map[string]string, fieldTypes map[string]string, callTypes callTypeTables, pkgFuncs map[string]bool) []facts.Fact {
 	var result []facts.Fact
 
 	name := fn.Name.Name
@@ -410,7 +418,8 @@ func (e *GoExtractor) extractFunc(fset *token.FileSet, fn *ast.FuncDecl, relFile
 			fieldTypes: fieldTypes,
 			pkgFuncs:   pkgFuncs,
 
-			returnTypes: returnTypes,
+			returnTypes: callTypes.returns,
+			aliases:     callTypes.aliases,
 		}
 		typeParams := typeParamNames(fn.Recv, fn.Type)
 		ctx.localTypes = collectLocalTypesFrom(fn.Body, ctx, signatureTypes(fn.Type, ctx, typeParams), typeParams)
@@ -652,7 +661,9 @@ type resolveCtx struct {
 	localTypes map[string]string // local variable name → qualified type, e.g. "svc" → "internal/auth.Service"
 	// "pkgDir.Func" / "pkgDir.Type.Method" → declared result types, module-wide. See calltypes.go.
 	returnTypes map[string][]string
-	pkgFuncs    map[string]bool // this package's top-level function names
+	// "pkgDir.Alias" → the type `type Alias = T` names, module-wide. See calltypes.go.
+	aliases  map[string]string
+	pkgFuncs map[string]bool // this package's top-level function names
 }
 
 // bodyMetrics holds the call list and the per-function complexity signals
@@ -1127,11 +1138,11 @@ func buildFileImports(f *ast.File, modulePath string, pkgNames map[string]string
 // named fields. Types are pre-qualified at collection time using each struct's
 // source-package context so they remain correct when looked up from a different
 // package (e.g. an adapters package looking up root-package struct fields).
-func collectFieldTypes(files []*ast.File, pkgDir, modulePath string, pkgNames map[string]string) map[string]string {
+func collectFieldTypes(files []*ast.File, pkgDir, modulePath string, pkgNames map[string]string, aliases map[string]string) map[string]string {
 	m := make(map[string]string)
 	for _, f := range files {
 		fileImports := buildFileImports(f, modulePath, pkgNames)
-		ctx := resolveCtx{pkgDir: pkgDir, imports: fileImports}
+		ctx := resolveCtx{pkgDir: pkgDir, imports: fileImports, aliases: aliases}
 		for _, decl := range f.Decls {
 			gd, ok := decl.(*ast.GenDecl)
 			if !ok {
@@ -1479,11 +1490,11 @@ func newConventionType(name string) string {
 // passed through unchanged when their alias part is not in the import map.
 func resolveTypeName(typeStr string, ctx resolveCtx) string {
 	if !strings.Contains(typeStr, ".") {
-		return ctx.pkgDir + "." + typeStr
+		return aliasTarget(ctx.pkgDir+"."+typeStr, ctx.aliases)
 	}
 	parts := strings.SplitN(typeStr, ".", 2)
 	if resolvedPkg, ok := ctx.imports[parts[0]]; ok {
-		return resolvedPkg + "." + parts[1]
+		return aliasTarget(resolvedPkg+"."+parts[1], ctx.aliases)
 	}
 	return typeStr
 }

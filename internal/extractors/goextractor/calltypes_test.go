@@ -175,3 +175,58 @@ func Loose[T any](err error, item T, many ...resolve.Resolver) {
 		}
 	}
 }
+
+// An alias is another name for a type. A value declared under it has that type's
+// methods, and they are declared under the type, so that is where a call lands.
+func TestCallThroughATypeAliasLandsOnTheAliasedType(t *testing.T) {
+	files := shopModule(`
+import "example.com/shop/public"
+
+type local = resolve.Resolver
+
+func Use(e public.Engine, r public.Resolver, l local, n public.Names, sig *public.Signature) {
+	sig.Decode()
+	e.Resolver().NodeName("a") // an aliased type, then what its method returns
+	r.Reset()                  // an alias of an alias
+	l.NodeName("b")            // an alias declared in this package
+	public.Open("p")
+	n.Len()
+}
+`)
+	files["public/public.go"] = `package public
+
+import "example.com/shop/resolve"
+
+type Engine = resolve.Engine
+type Mid = resolve.Resolver
+type Resolver = Mid
+
+// A defined type is a new type: it has none of the methods of what it is built on.
+type Names []string
+
+func (Names) Len() int { return 0 }
+
+func Open(p string) (*Engine, error) { return resolve.Open(p) }
+`
+	// One name declared both ways, as build-tagged files do. Both are read, and the
+	// methods are declared under the package's own name.
+	files["public/sig_a.go"] = "//go:build a\n\npackage public\n\nimport \"example.com/shop/resolve\"\n\ntype Signature = resolve.Resolver\n"
+	files["public/sig_b.go"] = "//go:build !a\n\npackage public\n\ntype Signature struct{}\n\nfunc (s *Signature) Decode() {}\n"
+	ff := extractAll(t, files)
+	targets := callTargetsOf(ff, "app.Use")
+	for _, want := range []string{
+		"resolve.Engine.Resolver", "resolve.Resolver.NodeName", "resolve.Resolver.Reset",
+		"public.Open",             // a function is where it is declared; only types are aliased
+		"public.Names.Len",        // and a defined type keeps its own name
+		"public.Signature.Decode", // as does a name that is an alias in one file and a type in another
+	} {
+		if !hasTarget(targets, want) {
+			t.Errorf("Use missing %q; has %v", want, targets)
+		}
+	}
+	for _, wrong := range []string{"public.Engine.Resolver", "public.Resolver.Reset", "public.Mid.Reset", "app.local.NodeName"} {
+		if hasTarget(targets, wrong) {
+			t.Errorf("Use has %q, a method named under an alias; targets %v", wrong, targets)
+		}
+	}
+}
