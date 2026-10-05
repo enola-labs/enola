@@ -133,7 +133,7 @@ func (r Resolver) resolveNodeName(store *facts.Store, input string) (string, *Na
 			ranked := rankCandidates(fileMatches, sq)
 			return "", &NameResolution{
 				Query:        query,
-				Alternatives: candidateNames(fileMatches, ""),
+				Alternatives: candidateNames(ranked, ""),
 				Candidates:   topCandidates(ranked),
 				Ambiguous:    true,
 			}, nil
@@ -167,7 +167,7 @@ func (r Resolver) resolveNodeName(store *facts.Store, input string) (string, *Na
 	if r.crossRepoAmbiguous(ranked, sq) {
 		return "", &NameResolution{
 			Query:        query,
-			Alternatives: candidateNames(results, ""),
+			Alternatives: candidateNames(ranked, ""),
 			Candidates:   topCandidates(ranked),
 			Confidence:   confidence,
 			Ambiguous:    true,
@@ -182,7 +182,7 @@ func (r Resolver) resolveNodeName(store *facts.Store, input string) (string, *Na
 		return top, &NameResolution{
 			Query:        query,
 			Matched:      top,
-			Alternatives: candidateNames(results, top),
+			Alternatives: candidateNames(ranked, top),
 			Candidates:   topCandidates(ranked),
 			Confidence:   confidence,
 			AutoPicked:   true,
@@ -196,7 +196,7 @@ func (r Resolver) resolveNodeName(store *facts.Store, input string) (string, *Na
 		return top, &NameResolution{
 			Query:        query,
 			Matched:      top,
-			Alternatives: candidateNames(results, top),
+			Alternatives: candidateNames(ranked, top),
 			Candidates:   topCandidates(ranked),
 			Confidence:   confidence,
 			Ambiguous:    true,
@@ -206,17 +206,23 @@ func (r Resolver) resolveNodeName(store *facts.Store, input string) (string, *Na
 	// Too ambiguous to guess: surface ranked candidates and refuse to pick.
 	return "", &NameResolution{
 		Query:        query,
-		Alternatives: candidateNames(results, ""),
+		Alternatives: candidateNames(ranked, ""),
 		Candidates:   topCandidates(ranked),
 		Confidence:   confidence,
 		Ambiguous:    true,
 	}, nil
 }
 
+// candidateLimit caps how many candidates a scoped query carries into ranking.
+const candidateLimit = 500
+
 // gatherCandidates returns the facts matching a (possibly scoped) query. Unscoped
 // inputs use the legacy substring Query to preserve existing semantics. Scoped
-// inputs use QueryAdvanced with repo/kind/file-prefix filters (expanding the file
-// prefix across repos in multi-repo mode) and an optional symbol_kind post-filter.
+// inputs filter by repo, kind and file prefix (expanding the file prefix across
+// repos in multi-repo mode) with an optional symbol_kind post-filter, and keep the
+// candidateLimit best-ranked distinct names. They are the best, not the first the
+// store happens to hold: a broad term matches more than the limit, and the exact
+// name it was typed for must not be cut because it sits late in the store.
 func (r Resolver) gatherCandidates(store *facts.Store, sq scopedQuery, term string) []facts.Fact {
 	scoped := sq.Repo != "" || len(sq.Kinds) > 0 || sq.FilePrefix != "" || sq.SymbolKind != ""
 	if !scoped {
@@ -228,28 +234,40 @@ func (r Resolver) gatherCandidates(store *facts.Store, sq scopedQuery, term stri
 		prefixes = r.expandFilePrefix(sq.FilePrefix)
 	}
 
-	seen := make(map[string]struct{})
-	var out []facts.Fact
+	best := make([]scored, 0, 2*candidateLimit)
+	// Once the limit is full, its last entry is the bar a new candidate has to clear.
+	var bar *scored
 	for _, pfx := range prefixes {
-		res, _ := store.QueryAdvanced(facts.QueryOpts{
+		store.QueryEach(facts.QueryOpts{
 			Repo:       sq.Repo,
 			Kinds:      sq.Kinds,
 			FilePrefix: pfx,
 			Name:       term,
-			Limit:      500,
-		})
-		for _, f := range res {
+		}, func(f *facts.Fact) {
 			if sq.SymbolKind != "" {
 				if sk, _ := f.PropAny("symbol_kind").(string); sk != sq.SymbolKind {
-					continue
+					return
 				}
 			}
-			if _, dup := seen[f.Name]; dup {
-				continue
+			c := scored{fact: *f, score: scoreCandidate(*f, sq)}
+			if bar != nil && !c.before(*bar) {
+				return
 			}
-			seen[f.Name] = struct{}{}
-			out = append(out, f)
-		}
+			best = append(best, c)
+			// Compact as it fills, so a term matching the whole store holds a bounded set.
+			if len(best) == cap(best) {
+				best = keepBest(best, candidateLimit)
+				if len(best) == candidateLimit {
+					last := best[candidateLimit-1]
+					bar = &last
+				}
+			}
+		})
+	}
+	best = keepBest(best, candidateLimit)
+	out := make([]facts.Fact, 0, len(best))
+	for _, c := range best {
+		out = append(out, c.fact)
 	}
 	return out
 }
@@ -338,7 +356,7 @@ func (r Resolver) crossRepoAmbiguous(ranked []ScoredCandidate, sq scopedQuery) b
 
 // suggestNames does a relaxed substring search to recover near-misses when an
 // input matched nothing exactly. It searches on the longest alphanumeric run of
-// the term (and its last dotted segment) and returns up to 5 fact names,
+// the term (and its last dotted segment) and returns the 5 nearest fact names,
 // repo-qualified in multi-repo mode, so a no-match error is never a dead end.
 func (r Resolver) suggestNames(store *facts.Store, sq scopedQuery, term string) []string {
 	probe := longestAlnumRun(term)
@@ -348,24 +366,42 @@ func (r Resolver) suggestNames(store *facts.Store, sq scopedQuery, term string) 
 	if len(probe) < 3 {
 		return nil
 	}
-	matches, _ := store.QueryAdvanced(facts.QueryOpts{Name: probe, Repo: sq.Repo, Limit: 50})
 	multiRepo := len(r.RepoPaths) > 1
-	seen := make(map[string]struct{})
-	out := make([]string, 0, 5)
-	for _, m := range matches {
+	// The shortest names holding the probe, then by name: the nearest misses, and
+	// the same five whatever order the store holds them in.
+	closer := func(a, b string) bool {
+		if len(a) != len(b) {
+			return len(a) < len(b)
+		}
+		return a < b
+	}
+	const limit = 5
+	out := make([]string, 0, limit+1)
+	store.QueryEach(facts.QueryOpts{Name: probe, Repo: sq.Repo}, func(m *facts.Fact) {
 		name := m.Name
 		if multiRepo && m.Repo != "" {
 			name = "repo:" + m.Repo + " " + m.Name
 		}
-		if _, dup := seen[name]; dup {
-			continue
+		if len(out) == limit && !closer(name, out[limit-1]) {
+			return
 		}
-		seen[name] = struct{}{}
-		out = append(out, name)
-		if len(out) >= 5 {
-			break
+		at, dup := slices.BinarySearchFunc(out, name, func(have, want string) int {
+			switch {
+			case have == want:
+				return 0
+			case closer(have, want):
+				return -1
+			}
+			return 1
+		})
+		if dup {
+			return
 		}
-	}
+		out = slices.Insert(out, at, name)
+		if len(out) > limit {
+			out = out[:limit]
+		}
+	})
 	return out
 }
 
@@ -445,15 +481,15 @@ func longestAlnumRun(s string) string {
 	return best
 }
 
-// candidateNames collects up to MaxAlternatives fact names from results,
-// preserving store order and excluding exclude (the chosen match) when set.
-func candidateNames(results []facts.Fact, exclude string) []string {
-	names := make([]string, 0, len(results))
-	for _, r := range results {
-		if r.Name == exclude {
+// candidateNames collects up to MaxAlternatives distinct names from ranked, best
+// first, excluding exclude (the chosen match) when set.
+func candidateNames(ranked []ScoredCandidate, exclude string) []string {
+	names := make([]string, 0, min(len(ranked), MaxAlternatives))
+	for _, c := range ranked {
+		if c.Name == exclude || slices.Contains(names, c.Name) {
 			continue
 		}
-		names = append(names, r.Name)
+		names = append(names, c.Name)
 		if len(names) >= MaxAlternatives {
 			break
 		}

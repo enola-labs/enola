@@ -56,3 +56,16 @@ func TestMatchTier_QualifiedSuffix(t *testing.T) {
 		t.Errorf("mid-token suffix tier = %d, want 0", got)
 	}
 }
+
+// Alternatives are offered best first and each name once, however many facts share it.
+func TestCandidateNames_RankOrderEachNameOnce(t *testing.T) {
+	ranked := []ScoredCandidate{
+		{Name: "pkg.Run", Score: 1.15}, {Name: "pkg.Run", Score: 0.85}, {Name: "pkg.Runner", Score: 0.15}, {Name: "pkg.rerun", Score: -0.15},
+	}
+	if got := strings.Join(candidateNames(ranked, ""), ","); got != "pkg.Run,pkg.Runner,pkg.rerun" {
+		t.Errorf("candidateNames = %s", got)
+	}
+	if got := strings.Join(candidateNames(ranked, "pkg.Run"), ","); got != "pkg.Runner,pkg.rerun" {
+		t.Errorf("candidateNames excluding the pick = %s", got)
+	}
+}
