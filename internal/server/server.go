@@ -3331,7 +3331,7 @@ func (s *Server) exploreFile(store *facts.Store, focus string, depth int, sb *st
 		if len(ff) == 0 {
 			continue
 		}
-		sb.WriteString(fmt.Sprintf("## %ss (%d)\n\n", capitalize(kind), len(ff)))
+		sb.WriteString(fmt.Sprintf("## %s (%d)\n\n", capitalize(facts.PluralKind(kind)), len(ff)))
 		for _, f := range ff {
 			sb.WriteString(fmt.Sprintf("- **%s**", f.Name))
 			if f.Line > 0 {
@@ -3504,7 +3504,7 @@ func (s *Server) exploreDirectory(store *facts.Store, focus string, sb *strings.
 	sb.WriteString(fmt.Sprintf("- Files: %d\n", len(files)))
 	for _, kind := range []string{facts.KindModule, facts.KindSymbol, facts.KindDependency, facts.KindRoute, facts.KindStorage} {
 		if c, ok := kindCount[kind]; ok {
-			sb.WriteString(fmt.Sprintf("- %ss: %d\n", capitalize(kind), c))
+			sb.WriteString(fmt.Sprintf("- %s: %d\n", capitalize(facts.PluralKind(kind)), c))
 		}
 	}
 	sb.WriteString("\n")

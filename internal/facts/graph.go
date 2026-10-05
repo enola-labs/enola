@@ -1806,10 +1806,10 @@ func (g *Graph) buildImpactSummary(byDepth map[int][]TraversalNode, total int) s
 			if !first {
 				summary += ", "
 			}
-			summary += itoa(count) + " " + kind
 			if count > 1 {
-				summary += "s"
+				kind = PluralKind(kind)
 			}
+			summary += itoa(count) + " " + kind
 			first = false
 		}
 	}

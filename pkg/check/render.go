@@ -618,26 +618,7 @@ func signed(added, removed int) string {
 	}
 }
 
-// kindPlural spells the architectural kinds out, because appending "s" produces
-// "dependencys" and "storages".
-var kindPlural = map[string]string{
-	facts.KindService:    "services",
-	facts.KindModule:     "modules",
-	facts.KindSymbol:     "symbols",
-	facts.KindRoute:      "routes",
-	facts.KindStorage:    "storage",
-	facts.KindDependency: "dependencies",
-}
-
-func pluralKind(kind string) string {
-	if p, ok := kindPlural[kind]; ok {
-		return p
-	}
-	if strings.HasSuffix(kind, "s") {
-		return kind
-	}
-	return kind + "s"
-}
+func pluralKind(kind string) string { return facts.PluralKind(kind) }
 
 // truncate shortens an identifier from the LEFT, keeping its tail.
 //
