@@ -90,7 +90,7 @@ func TestExploreDirectory_CountsEveryFact(t *testing.T) {
 	}
 	out := sb.String()
 	for _, want := range []string{
-		"Total facts: 603", "- Files: 8", "- Symbols: 600", "- Dependencys: 2", // the module's own directory is not under "pkg/big/"
+		"Total facts: 603", "- Files: 8", "- Symbols: 600", "- Dependencies: 2", // the module's own directory is not under "pkg/big/"
 		"| pkg/big.Fn595 | function | pkg/big/f0.go | 5 |", // first in source order: file, then line
 		"... and 570 more symbols",
 	} {

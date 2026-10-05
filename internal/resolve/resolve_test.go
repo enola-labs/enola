@@ -158,3 +158,64 @@ func TestSuggestNames_NearestFiveWhateverTheStoreOrder(t *testing.T) {
 		}
 	}
 }
+
+// Tiers fold case, so two names that differ only in case tie for either spelling.
+// The one spelled as typed is the one that was asked for, whichever it is.
+func TestNodeName_CaseAsTypedDecidesBetweenFoldedTies(t *testing.T) {
+	ff := []facts.Fact{
+		{Kind: facts.KindSymbol, Name: "internal/intent.EdgeRoles", Repo: "shop", File: "internal/intent/roles.go", Props: map[string]any{"symbol_kind": facts.SymbolFunc}},
+		{Kind: facts.KindSymbol, Name: "internal/explainers/constraints.rule.edgeRoles", Repo: "shop", File: "internal/explainers/constraints/rule.go", Props: map[string]any{"symbol_kind": facts.SymbolMethod}},
+		{Kind: facts.KindSymbol, Name: "internal/intent.edgeRolesFor", Repo: "shop", File: "internal/intent/roles.go", Props: map[string]any{"symbol_kind": facts.SymbolFunc}},
+	}
+	for input, want := range map[string]string{
+		"edgeRoles":           "internal/explainers/constraints.rule.edgeRoles",
+		"EdgeRoles":           "internal/intent.EdgeRoles",
+		"repo:shop edgeRoles": "internal/explainers/constraints.rule.edgeRoles",
+		"intent.EdgeRoles":    "internal/intent.EdgeRoles",
+	} {
+		for name, store := range map[string]*facts.Store{"as written": storeWith(ff...), "reversed": reversed(ff)} {
+			got, res, err := Resolver{Store: store}.NodeName(input)
+			if err != nil || got != want {
+				t.Errorf("%s: NodeName(%q) = %q, %v; want %q", name, input, got, err, want)
+				continue
+			}
+			// Three candidates is past the threshold: only a decisive pick gets through.
+			if res == nil || !res.AutoPicked {
+				t.Errorf("%s: NodeName(%q) should be a reported auto-pick, got %+v", name, input, res)
+			}
+		}
+	}
+}
+
+// Case tells folded ties apart; it does not choose between two names that both keep it.
+func TestNodeName_TwoNamesSpelledAsTypedStayAmbiguous(t *testing.T) {
+	store := storeWith(
+		facts.Fact{Kind: facts.KindSymbol, Name: "internal/resolve.Resolver", File: "internal/resolve/resolve.go", Props: map[string]any{"symbol_kind": facts.SymbolStruct}},
+		facts.Fact{Kind: facts.KindSymbol, Name: "pkg/bootstrap.Engine.Resolver", File: "pkg/bootstrap/bootstrap.go", Props: map[string]any{"symbol_kind": facts.SymbolMethod}},
+		facts.Fact{Kind: facts.KindSymbol, Name: "internal/explainers/constraints.resolver", File: "internal/explainers/constraints/ownership.go", Props: map[string]any{"symbol_kind": facts.SymbolStruct}},
+	)
+	got, res, err := Resolver{Store: store}.NodeName("Resolver")
+	if err != nil || got != "" || res == nil || !res.Ambiguous {
+		t.Fatalf("NodeName(Resolver) = %q, %+v, %v; want no pick and candidates", got, res, err)
+	}
+	// The two that keep the case lead; the folded match comes last.
+	if n := candidateNames(res.Candidates, ""); len(n) != 3 || n[0] != "internal/resolve.Resolver" || n[1] != "pkg/bootstrap.Engine.Resolver" {
+		t.Errorf("candidates = %v; want the type, then the method, then the folded match", n)
+	}
+}
+
+// The longest word in a path is a directory most names share. What a mistyped path
+// was reaching for is in its base name.
+func TestSuggestNames_PathSuggestsFromTheBaseName(t *testing.T) {
+	store := storeWith(
+		facts.Fact{Kind: facts.KindModule, Name: "internal/diff", File: "internal/diff"},
+		facts.Fact{Kind: facts.KindModule, Name: "internal/perf", File: "internal/perf"},
+		facts.Fact{Kind: facts.KindModule, Name: "internal/resolve", File: "internal/resolve"},
+		facts.Fact{Kind: facts.KindSymbol, Name: "internal/resolve.Resolver", File: "internal/resolve/resolve.go"},
+	)
+	term := "internal/resolve/resolve.go"
+	got := Resolver{Store: store}.suggestNames(store, parseScopedQuery(term), term)
+	if want := []string{"internal/resolve", "internal/resolve.Resolver"}; !slices.Equal(got, want) {
+		t.Errorf("suggestNames(%q) = %v, want %v", term, got, want)
+	}
+}

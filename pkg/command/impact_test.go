@@ -132,6 +132,18 @@ func TestImpact_NodeCapKeepsTheTotalExact(t *testing.T) {
 	}
 }
 
+// The footer says how many dependents the breakdown covers, which is what was kept
+// under the cap, beside the exact total.
+func TestImpact_SummaryFooterCountsWhatIsShown(t *testing.T) {
+	stdout, _, code := runImpactIn(t, impactRepo(t), "--max-nodes", "2", "pkg/a.Alpha")
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0", code)
+	}
+	if want := "cover the 1 dependents --max-nodes allowed; the total of 2 is exact."; !strings.Contains(stdout, want) {
+		t.Errorf("summary should end with %q; got:\n%s", want, stdout)
+	}
+}
+
 // An empty list that exits 0 would tell a script the change is safe.
 func TestImpact_UnresolvedTargetIsNotAnEmptyAnswer(t *testing.T) {
 	repo := impactRepo(t)
@@ -223,6 +235,20 @@ func TestImpact_UsageErrors(t *testing.T) {
 		}
 		if out.Len() != 0 {
 			t.Errorf("%s: a usage error writes nothing to stdout; got %q", name, out.String())
+		}
+	}
+}
+
+// A review starts from a diff, which names files. A file is answered from the
+// symbols it declares, and the report says that is what it did.
+func TestImpact_FilePathReportsItsSymbols(t *testing.T) {
+	stdout, _, code := runImpactIn(t, impactRepo(t), "--list", "pkg/a/a.go")
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0; stdout:\n%s", code, stdout)
+	}
+	for _, want := range []string{"pkg/a/a.go is a file, not a node; this is the impact of the", "pkg/b.Beta (symbol)  pkg/b/b.go:"} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("--list on a file should contain %q; got:\n%s", want, stdout)
 		}
 	}
 }

@@ -363,6 +363,17 @@ func (r Resolver) suggestNames(store *facts.Store, sq scopedQuery, term string) 
 	if seg := lastSegment(term); len(seg) > len(probe) {
 		probe = longestAlnumRun(seg)
 	}
+	// A path's longest word is usually a directory every name shares. Its base
+	// name, without a source extension, is the part that says what was meant.
+	if i := strings.LastIndexByte(term, '/'); i >= 0 {
+		base := term[i+1:]
+		if j := strings.LastIndexByte(base, '.'); j > 0 && codeExtensions[strings.ToLower(base[j+1:])] {
+			base = base[:j]
+		}
+		if run := longestAlnumRun(base); len(run) >= 3 {
+			probe = run
+		}
+	}
 	if len(probe) < 3 {
 		return nil
 	}
@@ -532,9 +543,9 @@ func (r Resolver) normalizeToRelative(p string) string {
 // "<label>/". Append mode prefixes them; a single repository restored from disk has
 // a label map and bare files, so the map alone does not say. One symbol outside the
 // prefix settles it. Only symbols are asked: a symbol's file is the source file it
-// was read from, where a derived fact (a rolled-up module edge) names a bare
-// directory even in an appended repository. That leaves a repository whose every
-// source file sits in a directory named after its own label read as prefixed.
+// was read from, where a fact a binder or linker adds names whatever path its
+// author gave it. That leaves a repository whose every source file sits in a
+// directory named after its own label read as prefixed.
 func (r Resolver) filesCarryLabel(label string) bool {
 	return r.Store == nil || !r.Store.HasFileOutside(label, facts.KindSymbol, label+"/")
 }

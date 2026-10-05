@@ -289,7 +289,8 @@ func TestE2E_ImpactReportMatchesTool(t *testing.T) {
 	s.snapshot(t)
 
 	// "a" matches too many nodes to pick from.
-	for _, target := range []string{"pkg/a.Alpha", "a"} {
+	// "pkg/a/a.go" is a file, answered from the symbols it declares.
+	for _, target := range []string{"pkg/a.Alpha", "a", "pkg/a/a.go"} {
 		report, err := impact.Analyze(eng.Resolver(), impact.Request{Target: target, IncludeForward: true})
 		if err != nil {
 			t.Fatalf("Impact(%q): %v", target, err)
@@ -306,6 +307,14 @@ func TestE2E_ImpactReportMatchesTool(t *testing.T) {
 		}
 		if got, want := report.Resolved(), target != "a"; got != want {
 			t.Errorf("target %q: Resolved() = %v, want %v", target, got, want)
+		}
+	}
+
+	// The readable modes say a file was asked about, and how it was answered.
+	for _, mode := range []string{"summary", "compact"} {
+		got := text(s.call(t, "impact_analysis", map[string]any{"target": "pkg/a/a.go", "output_mode": mode}))
+		if !strings.Contains(got, "pkg/a/a.go is a file, not a node") || !strings.Contains(got, "4 total dependents") {
+			t.Errorf("output_mode=%s on a file should name it and count its dependents; got:\n%s", mode, got)
 		}
 	}
 

@@ -3331,7 +3331,7 @@ func (s *Server) exploreFile(store *facts.Store, focus string, depth int, sb *st
 		if len(ff) == 0 {
 			continue
 		}
-		sb.WriteString(fmt.Sprintf("## %ss (%d)\n\n", capitalize(kind), len(ff)))
+		sb.WriteString(fmt.Sprintf("## %s (%d)\n\n", capitalize(facts.PluralKind(kind)), len(ff)))
 		for _, f := range ff {
 			sb.WriteString(fmt.Sprintf("- **%s**", f.Name))
 			if f.Line > 0 {
@@ -3504,7 +3504,7 @@ func (s *Server) exploreDirectory(store *facts.Store, focus string, sb *strings.
 	sb.WriteString(fmt.Sprintf("- Files: %d\n", len(files)))
 	for _, kind := range []string{facts.KindModule, facts.KindSymbol, facts.KindDependency, facts.KindRoute, facts.KindStorage} {
 		if c, ok := kindCount[kind]; ok {
-			sb.WriteString(fmt.Sprintf("- %ss: %d\n", capitalize(kind), c))
+			sb.WriteString(fmt.Sprintf("- %s: %d\n", capitalize(facts.PluralKind(kind)), c))
 		}
 	}
 	sb.WriteString("\n")
@@ -3766,6 +3766,16 @@ const compactPerDepthCap = 40
 // compact graph-tool output: when a name was ambiguous and refused, it lists the
 // candidates so the caller can re-run with an exact name; when it was auto-picked
 // it notes the match and alternatives.
+// writeImpactResolution is writeResolutionNote for an impact report, which may be
+// about a source file: no node, so the note says what was walked back from instead.
+func writeImpactResolution(sb *strings.Builder, resp impactResponse) {
+	if n := len(resp.Seeds); n > 0 {
+		fmt.Fprintf(sb, "> %s is a file, not a node: this is the impact of the %d symbols it declares.\n\n", resp.Resolution.Matched, n)
+		return
+	}
+	writeResolutionNote(sb, resp.Resolution)
+}
+
 func writeResolutionNote(sb *strings.Builder, res *nameResolution) {
 	if res == nil {
 		return
@@ -3929,7 +3939,7 @@ func renderImpactCompact(resp impactResponse) string {
 	var sb strings.Builder
 	r := resp.ImpactResult
 	fmt.Fprintf(&sb, "# Impact: %s\n\n", r.Target)
-	writeResolutionNote(&sb, resp.Resolution)
+	writeImpactResolution(&sb, resp)
 
 	// Ambiguous-and-refused: no traversal was run; the candidate list above is
 	// the actionable content.
@@ -4111,7 +4121,7 @@ func (s *Server) renderImpactSummary(resp impactResponse) string {
 	var sb strings.Builder
 	r := resp.ImpactResult
 	fmt.Fprintf(&sb, "# Impact summary: %s\n\n", r.Target)
-	writeResolutionNote(&sb, resp.Resolution)
+	writeImpactResolution(&sb, resp)
 	if resp.Resolution != nil && resp.Resolution.Matched == "" {
 		return sb.String()
 	}

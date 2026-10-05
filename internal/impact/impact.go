@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/enola-labs/enola/internal/facts"
@@ -22,6 +23,9 @@ type Request struct {
 // Report is the traversal, plus how the target was resolved when not by exact name.
 type Report struct {
 	Resolution *resolve.NameResolution `json:"resolution,omitempty"`
+	// Seeds names what was walked back from when the target is a source file: the
+	// symbols it declares. A file is not a node, so its impact is theirs together.
+	Seeds []string `json:"seeds,omitempty"`
 	facts.ImpactResult
 }
 
@@ -48,6 +52,14 @@ func Analyze(r resolve.Resolver, req Request) (Report, error) {
 
 	targetName, res, err := r.NodeName(req.Target)
 	if err != nil {
+		// Nothing is named that. A path to a source file still says what was meant.
+		if file, seeds := declaredIn(r, req.Target); len(seeds) > 0 {
+			return Report{
+				Resolution:   &resolve.NameResolution{Query: req.Target, Matched: file},
+				Seeds:        seeds,
+				ImpactResult: graph.ImpactSetOf(file, seeds, req.MaxDepth, req.MaxNodes, req.IncludeForward),
+			}, nil
+		}
 		return Report{}, err
 	}
 	if targetName != "" {
@@ -86,6 +98,27 @@ func (r Report) Resolved() bool {
 // JSON encodes the report as impact_analysis does for output_mode=full.
 func (r Report) JSON() ([]byte, error) {
 	return json.MarshalIndent(r, "", "  ")
+}
+
+// declaredIn reads target as a path to a source file, absolute or relative, and
+// returns the file as the facts name it with the symbols it declares, sorted. A
+// file holding no symbol returns none: there is nothing to walk back from.
+func declaredIn(r resolve.Resolver, target string) (string, []string) {
+	rel := r.NormalizeToRelative(target)
+	// In a multi-repo graph the facts name the file under its repo label.
+	for _, file := range append([]string{rel}, r.ExpandFilePrefix(rel)...) {
+		var names []string
+		for _, f := range r.Store.ByFile(file) {
+			if f.Kind == facts.KindSymbol {
+				names = append(names, f.Name)
+			}
+		}
+		if len(names) > 0 {
+			slices.Sort(names)
+			return file, slices.Compact(names)
+		}
+	}
+	return "", nil
 }
 
 // canonicalTarget maps reference-only TypeScript/JavaScript file nodes to the

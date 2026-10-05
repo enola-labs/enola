@@ -119,6 +119,10 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 	symbolModule := map[string]placed{}
 	knownSymbols := map[string]bool{}
 	shortNameCount := map[string]int{}
+	// Repositories whose files carry their label, as an appended repository's do. A
+	// module name never carries it, so a symbol whose file sits under
+	// "<label>/<module>/" is the evidence; the root module "." shows nothing either way.
+	labelled := map[string]bool{}
 	for _, f := range store.ByKind(facts.KindSymbol) {
 		if f.File == "" {
 			continue
@@ -127,6 +131,9 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 		shortNameCount[symbolShortName(f.Name)]++
 		if module := resolve(f, production, test); module != "" && production[module] {
 			symbolModule[f.Name] = placed{module: module, repo: f.Repo}
+			if f.Repo != "" && module != "." && strings.HasPrefix(f.File, f.Repo+"/"+module+"/") {
+				labelled[f.Repo] = true
+			}
 		}
 	}
 	if len(symbolModule) == 0 {
@@ -193,10 +200,18 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 			skipped++
 			continue
 		}
+		// The edge sits at its source module's directory, named the way every other
+		// fact of that repository names a path. Added after the engine prefixed an
+		// appended repository's files, a bare module name here was the one path in
+		// the repository without its label.
+		file := e.source
+		if labelled[e.repo] {
+			file = e.repo + "/" + e.source
+		}
 		derived = append(derived, facts.Fact{
 			Kind: facts.KindDependency,
 			Name: fmt.Sprintf("module-edge: %s -> %s", e.source, e.target),
-			File: e.source,
+			File: file,
 			Repo: e.repo,
 			Props: map[string]any{
 				facts.PropCouplingKind: facts.CouplingSymbolRollup,

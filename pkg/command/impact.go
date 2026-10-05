@@ -172,7 +172,11 @@ func writeImpactHead(w *strings.Builder, report impact.Report) bool {
 			}
 			return false
 		}
-		fmt.Fprintf(w, "resolved %q to %s\n", res.Query, res.Matched)
+		if n := len(report.Seeds); n > 0 {
+			fmt.Fprintf(w, "%s is a file, not a node; this is the impact of the %d symbols it declares\n", res.Matched, n)
+		} else {
+			fmt.Fprintf(w, "resolved %q to %s\n", res.Query, res.Matched)
+		}
 		if len(res.Alternatives) > 0 {
 			fmt.Fprintf(w, "  also matched: %s\n", strings.Join(res.Alternatives, ", "))
 		}
@@ -191,7 +195,9 @@ func writeImpactSummary(w *strings.Builder, report impact.Report) {
 	}
 	byKind, byModule := map[string]int{}, map[string]int{}
 	depths := impactDepths(report.ByDepth)
+	shown := 0
 	for _, d := range depths {
+		shown += len(report.ByDepth[d])
 		for _, n := range report.ByDepth[d] {
 			byKind[n.Kind]++
 			byModule[impactModule(n)]++
@@ -225,8 +231,9 @@ func writeImpactSummary(w *strings.Builder, report impact.Report) {
 		counts("what the target depends on, by kind", forward, len(forward))
 	}
 	if report.Stats.Truncated {
-		fmt.Fprintf(w, "\nThe counts above cover the %d nodes --max-nodes allowed; the total of %d is exact.\n",
-			report.Stats.NodesVisited, report.TotalDependents)
+		// Not Stats.NodesVisited: that counts the walk, the target included, not what was kept.
+		fmt.Fprintf(w, "\nThe counts above cover the %d dependents --max-nodes allowed; the total of %d is exact.\n",
+			shown, report.TotalDependents)
 	}
 }
 
