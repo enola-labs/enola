@@ -1,6 +1,8 @@
 package resolve
 
 import (
+	"fmt"
+	"slices"
 	"testing"
 
 	"github.com/enola-labs/enola/internal/facts"
@@ -69,6 +71,90 @@ func TestNodeName_AbsolutePathInARestoredSingleRepo(t *testing.T) {
 		got, _, err := r.NodeName(root + "/pkg/a")
 		if err != nil || got != "pkg/a" {
 			t.Errorf("%s: NodeName(%q) = %q, %v; want pkg/a", name, root+"/pkg/a", got, err)
+		}
+	}
+}
+
+// reversed returns a store holding the same facts in the opposite order, which is
+// what separates a graph just extracted from the same graph read back from disk.
+func reversed(ff []facts.Fact) *facts.Store {
+	back := make([]facts.Fact, len(ff))
+	for i, f := range ff {
+		back[len(ff)-1-i] = f
+	}
+	return storeWith(back...)
+}
+
+// Two names the term fits equally well are a tie, and a tie must not be settled by
+// which fact the store happens to hold first.
+func TestNodeName_TieDoesNotDependOnStoreOrder(t *testing.T) {
+	ff := []facts.Fact{
+		{Kind: facts.KindSymbol, Name: "Vote::ALL_COMMENT_REASONS", Repo: "shop", File: "app/models/vote.rb", Line: 12},
+		{Kind: facts.KindSymbol, Name: "Vote::COMMENT_REASONS", Repo: "shop", File: "app/models/vote.rb", Line: 4},
+	}
+	for _, input := range []string{"COMMENT_REASONS", "repo:shop COMMENT_REASONS", "file:app/models COMMENT_REASONS"} {
+		var picks []string
+		for _, store := range []*facts.Store{storeWith(ff...), reversed(ff)} {
+			got, res, err := Resolver{Store: store}.NodeName(input)
+			if err != nil || res == nil || !res.Ambiguous {
+				t.Fatalf("NodeName(%q) = %q, %+v, %v; want an ambiguous pick", input, got, res, err)
+			}
+			picks = append(picks, got)
+		}
+		// The shorter name is the one the term covers more of.
+		if picks[0] != "Vote::COMMENT_REASONS" || picks[1] != picks[0] {
+			t.Errorf("NodeName(%q) picked %q and %q in the two store orders; want Vote::COMMENT_REASONS both times", input, picks[0], picks[1])
+		}
+	}
+}
+
+// A scoped term that matches more facts than candidateLimit must still find the
+// name it was typed for, wherever that fact sits in the store.
+func TestNodeName_ScopedExactNameSurvivesTheCandidateLimit(t *testing.T) {
+	ff := make([]facts.Fact, 0, candidateLimit+101)
+	for i := range candidateLimit + 100 {
+		ff = append(ff, facts.Fact{
+			Kind: facts.KindDependency, Repo: "shop", File: "internal/engine/engine.go",
+			Name: fmt.Sprintf("internal/engine%03d -> example.com/shop/internal/extractors", i),
+		})
+	}
+	ff = append(ff, facts.Fact{Kind: facts.KindModule, Name: "internal/extractors", Repo: "shop", File: "internal/extractors"})
+
+	for name, store := range map[string]*facts.Store{"module last": storeWith(ff...), "module first": reversed(ff)} {
+		got, _, err := Resolver{Store: store}.NodeName("repo:shop internal/extractors")
+		if err != nil || got != "internal/extractors" {
+			t.Errorf("%s: NodeName = %q, %v; want internal/extractors", name, got, err)
+		}
+	}
+}
+
+func TestGatherCandidates_KeepsTheBestOfEachName(t *testing.T) {
+	ff := []facts.Fact{
+		{Kind: facts.KindSymbol, Name: "pkg.Run", Repo: "shop", File: "pkg/b.go", Props: map[string]any{"symbol_kind": facts.SymbolFunc}},
+		{Kind: facts.KindSymbol, Name: "pkg.Run", Repo: "shop", File: "pkg/a.go", Props: map[string]any{"symbol_kind": facts.SymbolStruct}},
+		{Kind: facts.KindSymbol, Name: "pkg.Runner", Repo: "shop", File: "pkg/a.go", Props: map[string]any{"symbol_kind": facts.SymbolStruct}},
+	}
+	sq := parseScopedQuery("repo:shop Run")
+	for name, store := range map[string]*facts.Store{"as written": storeWith(ff...), "reversed": reversed(ff)} {
+		got := Resolver{Store: store}.gatherCandidates(store, sq, sq.Term)
+		if len(got) != 2 || got[0].Name != "pkg.Run" || got[0].File != "pkg/a.go" || got[1].Name != "pkg.Runner" {
+			t.Errorf("%s: got %d candidates %+v; want pkg.Run (the struct in pkg/a.go) then pkg.Runner", name, len(got), got)
+		}
+	}
+}
+
+func TestSuggestNames_NearestFiveWhateverTheStoreOrder(t *testing.T) {
+	var ff []facts.Fact
+	for _, n := range []string{"pkg.HandlerRegistryBuilder", "pkg.Handler", "pkg.HandlerFunc", "web.Handler", "pkg.HandlerSet", "pkg.HandlerMap", "pkg.Handlers"} {
+		ff = append(ff, facts.Fact{Kind: facts.KindSymbol, Name: n, Repo: "shop", File: "pkg/h.go"})
+	}
+	want := []string{"pkg.Handler", "web.Handler", "pkg.Handlers", "pkg.HandlerMap", "pkg.HandlerSet"}
+	sq := parseScopedQuery("Handlr")
+	for name, store := range map[string]*facts.Store{"as written": storeWith(ff...), "reversed": reversed(ff)} {
+		// "Handlr" matches nothing; its longest run is the probe, so ask with the run that does.
+		got := Resolver{Store: store}.suggestNames(store, sq, "Handler")
+		if !slices.Equal(got, want) {
+			t.Errorf("%s: suggestNames = %v, want %v", name, got, want)
 		}
 	}
 }

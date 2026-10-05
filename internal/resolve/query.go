@@ -223,22 +223,75 @@ func scoreCandidate(f facts.Fact, sq scopedQuery) float64 {
 	return score
 }
 
-// rankCandidates scores and sorts facts by descending score (stable, so store
-// order breaks ties deterministically).
+// scored is a fact with the score scoreCandidate gave it.
+type scored struct {
+	fact  facts.Fact
+	score float64
+}
+
+// before orders candidates best first. Score decides. Among equals the shorter name
+// wins, as the one the term covers more of, and name, kind, file, repo and line make
+// the order total. It must never fall back to the order facts sit in the store: that
+// order is extraction order in a graph just generated and file order in the same
+// graph read back from disk, so a tie left to it picks a different node on each.
+func (a scored) before(b scored) bool {
+	if a.score != b.score {
+		return a.score > b.score
+	}
+	if len(a.fact.Name) != len(b.fact.Name) {
+		return len(a.fact.Name) < len(b.fact.Name)
+	}
+	if a.fact.Name != b.fact.Name {
+		return a.fact.Name < b.fact.Name
+	}
+	if a.fact.Kind != b.fact.Kind {
+		return a.fact.Kind < b.fact.Kind
+	}
+	if a.fact.File != b.fact.File {
+		return a.fact.File < b.fact.File
+	}
+	if a.fact.Repo != b.fact.Repo {
+		return a.fact.Repo < b.fact.Repo
+	}
+	return a.fact.Line < b.fact.Line
+}
+
+// keepBest sorts in place, best first, drops every repeat of a name after its best
+// fact, and cuts the result to limit.
+func keepBest(in []scored, limit int) []scored {
+	sort.Slice(in, func(i, j int) bool { return in[i].before(in[j]) })
+	seen := make(map[string]struct{}, min(len(in), limit))
+	out := in[:0]
+	for _, c := range in {
+		if _, dup := seen[c.fact.Name]; dup {
+			continue
+		}
+		seen[c.fact.Name] = struct{}{}
+		out = append(out, c)
+		if len(out) == limit {
+			break
+		}
+	}
+	return out
+}
+
+// rankCandidates scores facts and sorts them best first, in the order before defines.
 func rankCandidates(results []facts.Fact, sq scopedQuery) []ScoredCandidate {
-	ranked := make([]ScoredCandidate, 0, len(results))
+	all := make([]scored, 0, len(results))
 	for _, r := range results {
+		all = append(all, scored{fact: r, score: scoreCandidate(r, sq)})
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].before(all[j]) })
+	ranked := make([]ScoredCandidate, 0, len(all))
+	for _, c := range all {
 		ranked = append(ranked, ScoredCandidate{
-			Name:  r.Name,
-			Kind:  r.Kind,
-			Repo:  r.Repo,
-			File:  r.File,
-			Score: scoreCandidate(r, sq),
+			Name:  c.fact.Name,
+			Kind:  c.fact.Kind,
+			Repo:  c.fact.Repo,
+			File:  c.fact.File,
+			Score: c.score,
 		})
 	}
-	sort.SliceStable(ranked, func(i, j int) bool {
-		return ranked[i].Score > ranked[j].Score
-	})
 	return ranked
 }
 
