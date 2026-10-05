@@ -1,7 +1,9 @@
 package facts
 
 import (
+	"cmp"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -40,8 +42,8 @@ type Graph struct {
 
 	// CSR adjacency over node IDs. fwdOff has len(names)+1 entries; the edges of node
 	// n are the half-open range [fwdOff[n], fwdOff[n+1]) in fwdTgt/fwdRel. Within a
-	// node's range, edges keep the order they were added — traversal output, and so
-	// every golden file, depends on it.
+	// node's range, edges are ordered by the neighbour's name, then the relation's —
+	// traversal output, and so every golden file, depends on it. See sortAdjacency.
 	fwdOff []uint32
 	fwdTgt []uint32
 	fwdRel []uint16
@@ -250,9 +252,8 @@ func NewGraphWithAliases(ff []Fact, aliases map[string]FactKey) *Graph {
 
 	// Index which facts declare each node, as CSR. Every fact declaring the name is
 	// recorded, not just the first: which one a node means depends on the edge that
-	// reaches it, and that is not known until traversal time. Counting first and
-	// filling in fact order keeps each node's list in ascending fact index, as
-	// appending to a per-name slice did.
+	// reaches it, and that is not known until traversal time. Each node's list is then
+	// put in the order sortDeclaringFacts defines.
 	g.factOff = make([]uint32, g.declaredNodes+1)
 	for _, id := range nameID {
 		if id != noNode {
@@ -271,6 +272,7 @@ func NewGraphWithAliases(ff []Fact, aliases map[string]FactKey) *Graph {
 			fillPos[id]++
 		}
 	}
+	sortDeclaringFacts(g.factOff, g.factIdxs, ff)
 
 	// Second pass: build adjacency lists
 	for fi, f := range ff {
@@ -389,6 +391,8 @@ func (b *graphBuilder) finish() {
 
 	g.fwdOff, g.fwdTgt, g.fwdRel = buildCSR(b.src, b.tgt, b.rel, n)
 	g.revOff, g.revTgt, g.revRel = buildCSR(b.tgt, b.src, b.rel, n)
+	sortAdjacency(g.fwdOff, g.fwdTgt, g.fwdRel, g.names, g.relKinds)
+	sortAdjacency(g.revOff, g.revTgt, g.revRel, g.names, g.relKinds)
 }
 
 // dedup marks duplicate (source, relation, target) triples by setting their source to
@@ -487,6 +491,74 @@ func buildCSR(from, to []uint32, rel []uint16, n uint32) (off, tgt []uint32, kin
 		kinds[i] = rel[ei]
 	}
 	return off, tgt, kinds
+}
+
+// sortDeclaringFacts orders the facts declaring each node by repo, file, line and
+// kind. Where several facts of one kind share a name (a Ruby module reopened in
+// forty files) the first of them is the one a traversal reports the node as, and in
+// fact-index order that was whichever the store held first, so a node's file and
+// line changed with how the graph was loaded.
+func sortDeclaringFacts(off []uint32, idxs []int32, ff []Fact) {
+	for n := 0; n+1 < len(off); n++ {
+		own := idxs[off[n]:off[n+1]]
+		if len(own) < 2 {
+			continue
+		}
+		slices.SortFunc(own, func(a, b int32) int {
+			fa, fb := &ff[a], &ff[b]
+			return cmp.Or(
+				cmp.Compare(fa.Repo, fb.Repo),
+				cmp.Compare(fa.File, fb.File),
+				cmp.Compare(fa.Line, fb.Line),
+				cmp.Compare(fa.Kind, fb.Kind),
+				cmp.Compare(a, b),
+			)
+		})
+	}
+}
+
+// sortAdjacency orders every node's edges by neighbour name, then relation name.
+//
+// Left as built, a node's edges sit in the order its facts sit in the store, and
+// that is not one order: extractors emit in map-iteration order, and a store read
+// back from facts.jsonl is in file order. A walk visits neighbours in this order
+// and stops at a node cap, so the same question listed different dependents after
+// a generate, after a restore, and from one generate to the next. IDs and relation
+// IDs are handed out in store order too, which is why the names are compared.
+//
+// A (neighbour, relation) pair is unique within a node once dedup has run, so the
+// order is total.
+func sortAdjacency(off, tgt []uint32, kinds []uint16, names, relKinds []string) {
+	s := adjacencySorter{names: names, relKinds: relKinds}
+	for n := 0; n+1 < len(off); n++ {
+		lo, hi := off[n], off[n+1]
+		if hi-lo < 2 {
+			continue
+		}
+		s.tgt, s.kinds = tgt[lo:hi], kinds[lo:hi]
+		sort.Sort(&s)
+	}
+}
+
+// adjacencySorter sorts one node's slice of the two parallel CSR arrays in place.
+type adjacencySorter struct {
+	tgt             []uint32
+	kinds           []uint16
+	names, relKinds []string
+}
+
+func (s *adjacencySorter) Len() int { return len(s.tgt) }
+
+func (s *adjacencySorter) Swap(i, j int) {
+	s.tgt[i], s.tgt[j] = s.tgt[j], s.tgt[i]
+	s.kinds[i], s.kinds[j] = s.kinds[j], s.kinds[i]
+}
+
+func (s *adjacencySorter) Less(i, j int) bool {
+	if s.tgt[i] != s.tgt[j] {
+		return s.names[s.tgt[i]] < s.names[s.tgt[j]]
+	}
+	return s.relKinds[s.kinds[i]] < s.relKinds[s.kinds[j]]
 }
 
 // lookup resolves a node name to its ID. A name with no node is not in the graph at
@@ -1697,8 +1769,15 @@ func (g *Graph) buildImpactSummary(byDepth map[int][]TraversalNode, total int) s
 			summary += "; "
 		}
 		summary += "depth " + itoa(d) + ": "
+		// Sorted: a map's own order differs from one call to the next.
+		kinds := make([]string, 0, len(kindCount))
+		for kind := range kindCount {
+			kinds = append(kinds, kind)
+		}
+		sort.Strings(kinds)
 		first := true
-		for kind, count := range kindCount {
+		for _, kind := range kinds {
+			count := kindCount[kind]
 			if !first {
 				summary += ", "
 			}

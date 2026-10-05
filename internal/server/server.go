@@ -1,13 +1,16 @@
 package server
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -2925,6 +2928,7 @@ func (s *Server) exploreModule(store *facts.Store, focus string, depth int, mode
 
 	// Find symbols declared in this module (symbols whose "declares" relation targets this module)
 	declaredSymbols := sameRepo(store.ReverseLookup(mod.Name, facts.RelDeclares), mod.Repo)
+	slices.SortFunc(declaredSymbols, bySourcePosition)
 	if len(declaredSymbols) > 0 {
 		sb.WriteString(fmt.Sprintf("## Symbols (%d)\n\n", len(declaredSymbols)))
 		sb.WriteString("| Name | Kind | File | Line | Exported |\n")
@@ -2943,13 +2947,12 @@ func (s *Server) exploreModule(store *facts.Store, focus string, depth int, mode
 
 	// Dependencies: facts with kind=dependency whose file starts with the module path,
 	// plus direct depends_on relations from the module fact itself (packwerk).
-	deps, _ := store.QueryAdvanced(facts.QueryOpts{Kind: facts.KindDependency, FilePrefix: mod.Name + "/"})
+	deps := allMatching(store, facts.QueryOpts{Kind: facts.KindDependency, FilePrefix: mod.Name + "/"})
 	// In a multi-repo store a file path carries its repo label and a module name does
 	// not, so the name alone matched none of the module's files and the section was
 	// silently empty. The module's own directory carries the label.
 	if mod.File != "" && mod.File != mod.Name {
-		more, _ := store.QueryAdvanced(facts.QueryOpts{Kind: facts.KindDependency, FilePrefix: mod.File + "/"})
-		deps = append(deps, more...)
+		deps = append(deps, allMatching(store, facts.QueryOpts{Kind: facts.KindDependency, FilePrefix: mod.File + "/"})...)
 	}
 	// Collect all dependency targets grouped by relation kind.
 	depsByKind := make(map[string][]string) // relKind → targets
@@ -2975,6 +2978,7 @@ func (s *Server) exploreModule(store *facts.Store, focus string, depth int, mode
 	}
 	totalDeps := 0
 	for _, targets := range depsByKind {
+		sort.Strings(targets)
 		totalDeps += len(targets)
 	}
 	if totalDeps > 0 {
@@ -2996,6 +3000,7 @@ func (s *Server) exploreModule(store *facts.Store, focus string, depth int, mode
 	dependents := sameRepo(store.ReverseLookup(mod.Name, facts.RelImports), mod.Repo)
 	revDeps := sameRepo(store.ReverseLookup(mod.Name, facts.RelDependsOn), mod.Repo)
 	allDependents := append(dependents, revDeps...)
+	slices.SortFunc(allDependents, byName)
 	if len(allDependents) > 0 {
 		depSeen := make(map[string]struct{})
 		sb.WriteString(fmt.Sprintf("## Dependents (%d)\n\n", len(allDependents)))
@@ -3045,7 +3050,7 @@ func (s *Server) writeSymbolRelations(declaredSymbols []facts.Fact, sb *strings.
 			continue // skip symbols with only a "declares" relation
 		}
 		fmt.Fprintf(sb, "**%s**\n", sym.Name)
-		for _, r := range sym.Relations {
+		for _, r := range sortedRelations(sym.Relations) {
 			if r.Kind == facts.RelDeclares {
 				continue
 			}
@@ -3135,24 +3140,22 @@ func (s *Server) writeNestedModules(store *facts.Store, modName string, directSy
 	if nestedSymbols < 0 {
 		nestedSymbols = 0
 	}
-	modFacts, modTotal := store.QueryAdvanced(facts.QueryOpts{Kind: facts.KindModule, FilePrefix: prefix, Limit: 500})
-	if modTotal == 0 && nestedSymbols == 0 {
-		return
-	}
-
 	// Group descendant modules by their immediate child segment under modName,
-	// counting how many modules live under each child.
+	// counting how many modules live under each child. Every module is counted, so
+	// the children agree with the subtree total printed beside them.
 	childCounts := make(map[string]int)
-	for _, m := range modFacts {
+	modTotal := store.QueryEach(facts.QueryOpts{Kind: facts.KindModule, FilePrefix: prefix}, func(m *facts.Fact) {
 		rest := strings.TrimPrefix(m.Name, prefix)
 		seg := rest
 		if i := strings.IndexByte(rest, '/'); i >= 0 {
 			seg = rest[:i]
 		}
-		if seg == "" {
-			continue
+		if seg != "" {
+			childCounts[seg]++
 		}
-		childCounts[seg]++
+	})
+	if modTotal == 0 && nestedSymbols == 0 {
+		return
 	}
 
 	children := make([]string, 0, len(childCounts))
@@ -3194,8 +3197,11 @@ const maxModuleSubstringList = 15
 // rendering. Otherwise it renders a bounded, repo-grouped summary so a broad term
 // does not dump 100 raw module lines; the caller is told how to narrow it.
 func (s *Server) exploreModuleSubstring(store *facts.Store, focus string, depth int, mode string, sb *strings.Builder) bool {
-	matches, total := store.QueryAdvanced(facts.QueryOpts{Kind: facts.KindModule, Name: focus, Limit: 500})
-	if len(matches) == 0 {
+	// Every match is ranked, so the list is the best of them and not the first the
+	// store returned.
+	matches := allMatching(store, facts.QueryOpts{Kind: facts.KindModule, Name: focus})
+	total := len(matches)
+	if total == 0 {
 		return false
 	}
 
@@ -3218,7 +3224,7 @@ func (s *Server) exploreModuleSubstring(store *facts.Store, focus string, depth 
 		if ti != tj {
 			return ti > tj
 		}
-		return matches[i].Name < matches[j].Name
+		return byName(matches[i], matches[j]) < 0
 	})
 
 	// A single match, or a unique exact/suffix-exact top match, is unambiguous —
@@ -3310,10 +3316,14 @@ func (s *Server) exploreFile(store *facts.Store, focus string, depth int, sb *st
 	sb.WriteString(fmt.Sprintf("# File: %s\n\n", focus))
 	sb.WriteString(fmt.Sprintf("Total facts: %d\n\n", len(fileFacts)))
 
-	// Group by kind
+	// Group by kind, each group in source order: the store's own order is not one
+	// order, it differs between a graph just generated and one read back from disk.
 	byKind := make(map[string][]facts.Fact)
 	for _, f := range fileFacts {
 		byKind[f.Kind] = append(byKind[f.Kind], f)
+	}
+	for _, ff := range byKind {
+		slices.SortFunc(ff, bySourcePosition)
 	}
 
 	for _, kind := range []string{facts.KindModule, facts.KindSymbol, facts.KindDependency, facts.KindRoute, facts.KindStorage} {
@@ -3332,7 +3342,7 @@ func (s *Server) exploreFile(store *facts.Store, focus string, depth int, sb *st
 			}
 			sb.WriteString("\n")
 			if depth >= 2 {
-				for _, r := range f.Relations {
+				for _, r := range sortedRelations(f.Relations) {
 					sb.WriteString(fmt.Sprintf("  - %s → %s\n", r.Kind, r.Target))
 				}
 			}
@@ -3349,6 +3359,10 @@ func (s *Server) exploreSymbol(store *facts.Store, focus string, depth int, sb *
 	if len(results) == 0 {
 		return false
 	}
+	// The ten shown are the ten nearest the focus: the shortest names holding it.
+	slices.SortFunc(results, func(a, b facts.Fact) int {
+		return cmp.Or(cmp.Compare(len(a.Name), len(b.Name)), byName(a, b))
+	})
 
 	if len(results) > 10 {
 		results = results[:10]
@@ -3360,6 +3374,7 @@ func (s *Server) exploreSymbol(store *facts.Store, focus string, depth int, sb *
 		if i > 0 {
 			sb.WriteString("---\n\n")
 		}
+		relations := sortedRelations(sym.Relations)
 
 		sb.WriteString(fmt.Sprintf("## %s\n\n", sym.Name))
 		sb.WriteString(fmt.Sprintf("- File: %s\n", sym.File))
@@ -3376,24 +3391,25 @@ func (s *Server) exploreSymbol(store *facts.Store, focus string, depth int, sb *
 		sb.WriteString("\n")
 
 		// Relations
-		if len(sym.Relations) > 0 {
+		if len(relations) > 0 {
 			sb.WriteString("### Relations\n\n")
-			for _, r := range sym.Relations {
+			for _, r := range relations {
 				sb.WriteString(fmt.Sprintf("- %s → %s\n", r.Kind, r.Target))
 			}
 			sb.WriteString("\n")
 		}
 
 		// Resolve relation targets (depth >= 1)
-		if depth >= 1 && len(sym.Relations) > 0 {
+		if depth >= 1 && len(relations) > 0 {
 			sb.WriteString("### Related Facts\n\n")
 			seen := make(map[string]struct{})
-			for _, r := range sym.Relations {
+			for _, r := range relations {
 				if _, dup := seen[r.Target]; dup {
 					continue
 				}
 				seen[r.Target] = struct{}{}
 				related := store.LookupByExactName(r.Target)
+				slices.SortFunc(related, bySourcePosition)
 				for _, rf := range related {
 					sb.WriteString(fmt.Sprintf("- **%s** (%s) — %s", rf.Name, rf.Kind, rf.File))
 					if rf.Line > 0 {
@@ -3407,6 +3423,7 @@ func (s *Server) exploreSymbol(store *facts.Store, focus string, depth int, sb *
 
 		// Reverse relations: who calls/imports/depends on this symbol
 		callers := store.ReverseLookup(sym.Name, "")
+		slices.SortFunc(callers, byName)
 		if len(callers) > 0 {
 			sb.WriteString("### Referenced By\n\n")
 			limit := len(callers)
@@ -3414,7 +3431,7 @@ func (s *Server) exploreSymbol(store *facts.Store, focus string, depth int, sb *
 				limit = 20
 			}
 			for _, c := range callers[:limit] {
-				for _, r := range c.Relations {
+				for _, r := range sortedRelations(c.Relations) {
 					if r.Target == sym.Name {
 						sb.WriteString(fmt.Sprintf("- %s (%s)\n", c.Name, r.Kind))
 						break
@@ -3443,11 +3460,38 @@ func (s *Server) exploreDirectory(store *facts.Store, focus string, sb *strings.
 
 	// In multi-repo mode, expand bare prefixes to include repo labels.
 	prefixes := s.expandFilePrefix(prefix)
-	dirFacts, total := store.QueryAdvanced(facts.QueryOpts{FilePrefix: prefixes[0], Limit: 500})
-	for _, p := range prefixes[1:] {
-		extra, extraTotal := store.QueryAdvanced(facts.QueryOpts{FilePrefix: p, Limit: 500})
-		dirFacts = append(dirFacts, extra...)
-		total += extraTotal
+
+	// Count every fact under the prefix. The summary used to be taken over the first
+	// 500 the store returned, under a heading giving the full total, so the counts
+	// were a sample and which sample depended on the store's order.
+	const keySymbols = 30
+	total, symbolCount := 0, 0
+	kindCount := make(map[string]int)
+	files := make(map[string]struct{})
+	modules := make(map[string]struct{})
+	symbols := make([]facts.Fact, 0, keySymbols+1)
+	for _, p := range prefixes {
+		total += store.QueryEach(facts.QueryOpts{FilePrefix: p}, func(f *facts.Fact) {
+			kindCount[f.Kind]++
+			if f.File != "" {
+				files[f.File] = struct{}{}
+			}
+			switch f.Kind {
+			case facts.KindModule:
+				modules[f.Name] = struct{}{}
+			case facts.KindSymbol:
+				symbolCount++
+				// Keep the first keySymbols in source order without holding them all.
+				if len(symbols) == keySymbols && bySourcePosition(*f, symbols[keySymbols-1]) >= 0 {
+					return
+				}
+				at, _ := slices.BinarySearchFunc(symbols, *f, bySourcePosition)
+				symbols = slices.Insert(symbols, at, *f)
+				if len(symbols) > keySymbols {
+					symbols = symbols[:keySymbols]
+				}
+			}
+		})
 	}
 	if total == 0 {
 		return false
@@ -3455,16 +3499,6 @@ func (s *Server) exploreDirectory(store *facts.Store, focus string, sb *strings.
 
 	sb.WriteString(fmt.Sprintf("# Directory: %s\n\n", focus))
 	sb.WriteString(fmt.Sprintf("Total facts: %d\n\n", total))
-
-	// Count by kind
-	kindCount := make(map[string]int)
-	files := make(map[string]struct{})
-	for _, f := range dirFacts {
-		kindCount[f.Kind]++
-		if f.File != "" {
-			files[f.File] = struct{}{}
-		}
-	}
 
 	sb.WriteString("## Summary\n\n")
 	sb.WriteString(fmt.Sprintf("- Files: %d\n", len(files)))
@@ -3475,46 +3509,65 @@ func (s *Server) exploreDirectory(store *facts.Store, focus string, sb *strings.
 	}
 	sb.WriteString("\n")
 
-	// List modules
-	var modules []facts.Fact
-	var symbols []facts.Fact
-	for _, f := range dirFacts {
-		switch f.Kind {
-		case facts.KindModule:
-			modules = append(modules, f)
-		case facts.KindSymbol:
-			symbols = append(symbols, f)
-		}
-	}
-
 	if len(modules) > 0 {
 		sb.WriteString(fmt.Sprintf("## Modules (%d)\n\n", len(modules)))
-		for _, m := range modules {
-			sb.WriteString(fmt.Sprintf("- %s\n", m.Name))
+		for _, name := range slices.Sorted(maps.Keys(modules)) {
+			sb.WriteString(fmt.Sprintf("- %s\n", name))
 		}
 		sb.WriteString("\n")
 	}
 
 	if len(symbols) > 0 {
-		sb.WriteString("## Key Symbols (showing up to 30)\n\n")
-		limit := len(symbols)
-		if limit > 30 {
-			limit = 30
-		}
+		sb.WriteString(fmt.Sprintf("## Key Symbols (showing up to %d)\n\n", keySymbols))
 		sb.WriteString("| Name | Kind | File | Line |\n")
 		sb.WriteString("|------|------|------|------|\n")
-		for _, sym := range symbols[:limit] {
+		for _, sym := range symbols {
 			symKind, _ := sym.PropAny("symbol_kind").(string)
 			sb.WriteString(fmt.Sprintf("| %s | %s | %s | %d |\n",
 				sym.Name, symKind, sym.File, sym.Line))
 		}
-		if len(symbols) > 30 {
-			sb.WriteString(fmt.Sprintf("\n... and %d more symbols\n", len(symbols)-30))
+		if symbolCount > len(symbols) {
+			sb.WriteString(fmt.Sprintf("\n... and %d more symbols\n", symbolCount-len(symbols)))
 		}
 		sb.WriteString("\n")
 	}
 
 	return true
+}
+
+// byName orders facts by name, then by where they are declared.
+func byName(a, b facts.Fact) int {
+	return cmp.Or(cmp.Compare(a.Name, b.Name), cmp.Compare(a.Repo, b.Repo), bySourcePosition(a, b))
+}
+
+// sortedRelations returns a fact's relations by kind, then target. A fact holds them
+// in the order its extractor emitted them, and facts.jsonl holds them sorted, so the
+// same fact lists them differently before and after a restore.
+func sortedRelations(rels []facts.Relation) []facts.Relation {
+	out := slices.Clone(rels)
+	slices.SortFunc(out, func(a, b facts.Relation) int {
+		return cmp.Or(cmp.Compare(a.Kind, b.Kind), cmp.Compare(a.Target, b.Target))
+	})
+	return out
+}
+
+// allMatching returns every fact matching opts, with no limit, in source order.
+func allMatching(store *facts.Store, opts facts.QueryOpts) []facts.Fact {
+	var out []facts.Fact
+	store.QueryEach(opts, func(f *facts.Fact) { out = append(out, *f) })
+	slices.SortFunc(out, bySourcePosition)
+	return out
+}
+
+// bySourcePosition orders facts by file, then line, then name and kind, which is the
+// order a reader meets them in and does not depend on the store's.
+func bySourcePosition(a, b facts.Fact) int {
+	return cmp.Or(
+		cmp.Compare(a.File, b.File),
+		cmp.Compare(a.Line, b.Line),
+		cmp.Compare(a.Name, b.Name),
+		cmp.Compare(a.Kind, b.Kind),
+	)
 }
 
 // showSymbolArgs are the arguments for the show_symbol tool.
