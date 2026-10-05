@@ -214,6 +214,8 @@ snapshots after an upgrade.
 
 The discovery order, the error name and the clone directory above are facts about cognee's current implementation, not part of enola's contract. If cognee changes them, its documentation - not this page - is the source of truth.
 
+If you use cognee rather than build on enola, [COGNEE.md](COGNEE.md) shows where the binary is and how to use it directly.
+
 ## Unsupported dependencies
 
 Do not depend on:
