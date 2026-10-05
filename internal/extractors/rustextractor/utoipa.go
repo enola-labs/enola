@@ -40,7 +40,7 @@ func extractUtoipaRoutes(root *sitter.Node, src []byte, relFile, dir string) []f
 		for i := uint(0); i < uint(parent.ChildCount()); i++ {
 			c := parent.Child(i)
 			if kindOf(c) == "attribute_item" {
-				if isCfgTestAttribute(nodeText(c, src)) {
+				if attr, ok := parseRustAttribute(c, src); ok && attr.isCfgTest(src) {
 					sawCfgTest = true
 				}
 				if isUtoipaPathAttribute(c, src) {

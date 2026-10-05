@@ -837,6 +837,13 @@ func TestConfidenceTier(t *testing.T) {
 	}
 }
 
+func TestConfidenceTier_CompileTimeFunction(t *testing.T) {
+	sym := symInput{Name: "pkg.trigger_warning", Kind: facts.SymbolFunc, Language: "rust", CompileTime: true}
+	if got := confidenceFor(sym); got != confLow {
+		t.Fatalf("compile-time-only function confidence = %q, want %q", got, confLow)
+	}
+}
+
 // TS/JS usage (JSX, dynamic import, string dispatch) is only partially edge-tracked,
 // so a TS/JS function is a verify-first MEDIUM lead — never the "safe to delete" HIGH
 // a Go/Rust call-graph orphan earns — and React components/hooks drop a further tier.

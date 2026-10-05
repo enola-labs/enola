@@ -70,6 +70,14 @@ impl Point {
         Ok(v)
     }
 }
+
+extern "C" { fn Foreign(x: i32) -> i32; }
+fn callback() {}
+fn forms() {
+    let callback = callback as *const ();
+    let _ = CallbackHolder { callback };
+}
+struct CallbackHolder { callback: fn() }
 `
 
 // TestWalkerNodeKindsStillExist pins the exact grammar node kinds the walker dispatches
@@ -103,12 +111,12 @@ func TestWalkerNodeKindsStillExist(t *testing.T) {
 		"arguments", "array_expression", "attribute", "attribute_item", "binary_expression",
 		"call_expression", "const_item", "crate", "enum_item", "extern_crate_declaration",
 		"field_expression", "field_identifier", "field_initializer", "for_expression",
-		"function_item", "function_signature_item", "generic_function", "generic_type",
+		"foreign_mod_item", "function_item", "function_signature_item", "generic_function", "generic_type",
 		"identifier", "if_expression", "impl_item", "integer_literal", "loop_expression",
 		"match_arm", "metavariable", "mod_item", "range_expression", "raw_string_literal",
 		"reference_expression", "reference_type", "scoped_identifier", "scoped_type_identifier",
 		"scoped_use_list", "self", "self_parameter", "static_item", "string_content",
-		"string_literal", "struct_expression", "struct_item", "super", "token_tree",
+		"shorthand_field_initializer", "string_literal", "struct_expression", "struct_item", "super", "token_tree", "type_cast_expression",
 		"trait_item", "true", "try_expression", "tuple_expression", "type_identifier",
 		"type_item", "use_as_clause", "use_declaration", "use_list", "use_wildcard",
 		"while_expression",

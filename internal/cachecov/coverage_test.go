@@ -33,6 +33,16 @@ import (
 // test functions that assert the behavior that version introduced. v1 is the
 // implicit baseline (no changelog line), so coverage starts at v2.
 var versionCoverage = map[int][]string{
+	291: {
+		"TestAST_CfgTestMod_LocalFunctionsStayTestOnly",
+		"TestAST_InstrumentAttributeRecordsCalls",
+		"TestAST_RustRuntimeEntrypointsAreFrameworkRegistered",
+		"TestAST_FunctionInsideConstCarriesCompileTimeContext",
+		"TestConfidenceTier_CompileTimeFunction",
+		"TestAST_CodexRuntimeRegistrationPatterns",
+		"TestAST_CallbackMethodKeepsWildcardImportedFunctionReachable",
+		"TestAST_RuntimeEntrypointsUseStructuralAttributePaths",
+	}, // Rust dead-code precision: test/compile-time contexts, callback values, FFI and macro registrations, and structural attributes
 	290: {"TestCallThroughATypeAliasLandsOnTheAliasedType"},                                                                                                                                                                                                                                                                                                  // Go: a type alias resolves to the type it names
 	289: {"TestCallOnATypedParameterResolvesToItsMethod", "TestChainedCallResolvesThroughTheDeclaredResult", "TestLocalAssignedFromACallTakesItsDeclaredResult", "TestRedeclaredParameterIsNotResolved", "TestNoTypeIsInventedWhereNoneIsDeclared"},                                                                                                          // Go: a method call resolves through the declared type of a parameter, a call's result or a type assertion
 	288: {"TestAST_ParameterDefaultFunctionValueEmitsEdge", "TestAST_MainGuardTupleAssignedCallbacksEmitFileRefs", "TestCppFileScopeStaticAssertReferencesConstexprFunction", "TestCppNonTypeTemplateDefaultReferencesFunction"},                                                                                                                             // Python/C++: function-valued defaults and file-scope references keep live functions reachable

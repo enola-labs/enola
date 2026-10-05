@@ -670,6 +670,225 @@ mod inner {
 	}
 }
 
+func TestAST_CfgTestMod_LocalFunctionsStayTestOnly(t *testing.T) {
+	ff := extractAST(t, `
+pub fn production() {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn callback_fixture() {
+        fn no_env(_: &str) -> Option<String> { None }
+        fn run_callback() { production(); }
+        let _env = &no_env;
+        let _run = &run_callback;
+    }
+}
+`)
+	for _, name := range []string{"pkg.tests.callback_fixture", "pkg.no_env", "pkg.run_callback"} {
+		if _, ok := findFact(ff, name); ok {
+			t.Errorf("test-only function %s must not become a production symbol", name)
+		}
+	}
+	refs := findFactsByKind(ff, facts.KindTestRef)
+	if len(refs) != 1 || !hasRelation(refs[0], facts.RelCalls, "pkg.production") {
+		t.Errorf("expected production call to survive as a test reference, got %+v", refs)
+	}
+}
+
+func TestAST_InstrumentAttributeRecordsCalls(t *testing.T) {
+	ff := extractAST(t, `
+fn parse_asset_count_total() -> u64 { 0 }
+
+#[tracing::instrument(skip_all, fields(total = parse_asset_count_total()))]
+// An attribute still belongs to the item across comments.
+fn resolve() {}
+
+struct Resolver;
+impl Resolver {
+    #[instrument(fields(total = parse_asset_count_total()))]
+    // Same rule inside an impl body.
+    fn resolve_method(&self) {}
+}
+
+#[instrument(fields(recurse = recursive()))]
+fn recursive() {}
+`)
+	for _, name := range []string{"pkg.resolve", "pkg.Resolver.resolve_method"} {
+		resolve, ok := findFact(ff, name)
+		if !ok {
+			t.Fatalf("expected %s symbol", name)
+		}
+		if !hasRelation(resolve, facts.RelCalls, "pkg.parse_asset_count_total") {
+			t.Errorf("instrument attribute call was not recorded on %s: %+v", name, resolve.Relations)
+		}
+	}
+	recursive, ok := findFact(ff, "pkg.recursive")
+	if !ok || recursive.Props["recursive_self"] != true {
+		t.Errorf("attribute call must be measured in the annotated function's scope, got %+v", recursive)
+	}
+}
+
+func TestAST_RustRuntimeEntrypointsAreFrameworkRegistered(t *testing.T) {
+	ff := extractAST(t, `
+#[pymodule]
+#[pyo3(name = "_core")]
+// Comments do not detach attributes from their item.
+fn python_module() {}
+
+#[wasm_bindgen]
+pub fn wasm_start() {}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rust_2024_export() {}
+
+fn ordinary() {}
+`)
+	for _, name := range []string{"pkg.python_module", "pkg.wasm_start", "pkg.rust_2024_export"} {
+		f, ok := findFact(ff, name)
+		if !ok || f.Props["framework_registered"] != true {
+			t.Errorf("%s must be framework_registered, got %+v", name, f)
+		}
+	}
+	ordinary, ok := findFact(ff, "pkg.ordinary")
+	if !ok {
+		t.Fatal("expected ordinary symbol")
+	}
+	if ordinary.Props["framework_registered"] != nil {
+		t.Errorf("ordinary function must remain eligible for dead-code analysis: %+v", ordinary.Props)
+	}
+}
+
+func TestAST_RuntimeEntrypointsUseStructuralAttributePaths(t *testing.T) {
+	ff := extractAST(t, `
+#[doc = "example: #[pymodule]"]
+fn documented() {}
+
+#[allow(dead_code, reason = "#[tauri::command]")]
+fn string_argument() {}
+
+#[my_pymodule]
+fn lookalike() {}
+
+#[unsafe(other(no_mangle))]
+fn nested_lookalike() {}
+
+// #[ctor::ctor]
+fn commented() {}
+
+#[ctor::ctor]
+fn actual_entrypoint() {}
+`)
+	for _, name := range []string{
+		"pkg.documented",
+		"pkg.string_argument",
+		"pkg.lookalike",
+		"pkg.nested_lookalike",
+		"pkg.commented",
+	} {
+		f, ok := findFact(ff, name)
+		if !ok {
+			t.Fatalf("expected %s symbol", name)
+		}
+		if f.Props["framework_registered"] != nil {
+			t.Errorf("attribute text must not register %s: %+v", name, f.Props)
+		}
+	}
+	entrypoint, ok := findFact(ff, "pkg.actual_entrypoint")
+	if !ok || entrypoint.Props["framework_registered"] != true {
+		t.Errorf("exact attribute path must register actual_entrypoint: %+v", entrypoint)
+	}
+}
+
+func TestAST_FunctionInsideConstCarriesCompileTimeContext(t *testing.T) {
+	ff := extractAST(t, `
+const _: () = {
+    fn trigger_warning() {}
+};
+
+fn ordinary() {}
+`)
+	trigger, ok := findFact(ff, "pkg.trigger_warning")
+	if !ok || trigger.Props["compile_time_context"] != true {
+		t.Errorf("const-local function must carry compile_time_context, got %+v", trigger)
+	}
+	ordinary, ok := findFact(ff, "pkg.ordinary")
+	if !ok || ordinary.Props["compile_time_context"] != nil {
+		t.Errorf("ordinary function must not carry compile_time_context, got %+v", ordinary)
+	}
+}
+
+func TestAST_CodexRuntimeRegistrationPatterns(t *testing.T) {
+	ff := extractAST(t, `
+fn wildcard_callback() {}
+fn signal_handler(_: i32) {}
+fn host_binding() {}
+
+fn caller(value: Option<()>) {
+    value.map(wildcard_callback);
+    let _handler = signal_handler as *const ();
+    let _provider = Provider { host_binding };
+}
+
+struct Provider { host_binding: fn() }
+
+#[ctor::ctor]
+fn pre_main() {}
+
+#[divan::bench]
+fn benchmark() {}
+
+#[starlark_module]
+fn builtins() {
+    fn prefix_rule() {}
+    fn network_rule() {}
+}
+
+unsafe extern "C" {
+    fn ForeignFunction(value: i32) -> i32;
+}
+`)
+	caller, ok := findFact(ff, "pkg.caller")
+	if !ok {
+		t.Fatal("expected caller")
+	}
+	for _, target := range []string{"pkg.wildcard_callback", "pkg.signal_handler", "pkg.host_binding"} {
+		if !hasRelation(caller, facts.RelCalls, target) {
+			t.Errorf("caller missing function-value reference to %s: %+v", target, caller.Relations)
+		}
+	}
+	for _, name := range []string{"pkg.pre_main", "pkg.benchmark", "pkg.prefix_rule", "pkg.network_rule"} {
+		f, ok := findFact(ff, name)
+		if !ok || f.Props["framework_registered"] != true {
+			t.Errorf("%s must be framework_registered, got %+v", name, f)
+		}
+	}
+	if _, ok := findFact(ff, "pkg.ForeignFunction"); ok {
+		t.Error("extern declaration must not become a removable Rust symbol")
+	}
+}
+
+func TestAST_CallbackMethodKeepsWildcardImportedFunctionReachable(t *testing.T) {
+	ff := extractAST(t, `
+mod parent {
+    fn callback() {}
+    mod child {
+        use super::*;
+        fn caller(value: Option<()>) { value.map(callback); }
+    }
+}
+`)
+	caller, ok := findFact(ff, "pkg.parent.child.caller")
+	if !ok {
+		t.Fatal("expected caller")
+	}
+	if !hasRelation(caller, facts.RelCalls, "pkg.parent.child.callback") {
+		t.Errorf("wildcard-imported callback must retain a short-name reference: %+v", caller.Relations)
+	}
+}
+
 func TestAST_CallInsideMacroArgument(t *testing.T) {
 	ff := extractAST(t, `
 fn caller() {
