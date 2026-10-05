@@ -20,6 +20,12 @@ import (
 	"github.com/enola-labs/enola/pkg/plugin"
 )
 
+// v289: Go method calls resolve where the source declares the type of what they are
+// called on: a parameter or named result, a variable assigned from a call into this
+// module (one result or several), and a call on a call's result or on a type
+// assertion. These were recorded as the literal "r.Method", or not at all when the
+// callee passed over a call, so a method read as having no callers. A parameter the
+// body declares again under another type resolves to neither.
 // v288: Python function references in parameter defaults and module-level assignment
 // values, plus C++ function references in file-scope static_assert declarations and
 // non-type template defaults, emit edges. Functions reached only through those forms
@@ -2565,7 +2571,7 @@ import (
 // v270: SvelteKit reads literal kit.alias fallbacks before generated config exists,
 // keeps tsconfig paths authoritative, and classifies $app/$env/$service-worker imports
 // as framework-provided rather than unresolved third-party dependencies.
-const cacheVersion = "v288"
+const cacheVersion = "v289"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
