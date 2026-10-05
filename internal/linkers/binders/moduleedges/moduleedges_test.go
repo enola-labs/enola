@@ -219,3 +219,46 @@ func TestFormatTopTargets_IsStableAndBounded(t *testing.T) {
 		t.Fatalf("formatTopTargets = %q, want %q", got, want)
 	}
 }
+
+// An appended repository's files carry its label, and the edge is added after the
+// engine put it there. The edge sits at its source module, so it carries the label
+// too; a repository indexed alone has bare files and a bare edge.
+func TestBind_EdgeFileFollowsHowTheRepositoryNamesPaths(t *testing.T) {
+	repo := func(label, prefix string) []facts.Fact {
+		return []facts.Fact{
+			{Kind: facts.KindModule, Name: "app/models", File: prefix + "app/models", Repo: label},
+			{Kind: facts.KindModule, Name: "app/jobs", File: prefix + "app/jobs", Repo: label},
+			{Kind: facts.KindSymbol, Name: label + "Model", File: prefix + "app/models/m.rb", Repo: label,
+				Relations: []facts.Relation{{Kind: facts.RelCalls, Target: label + "Job"}}},
+			{Kind: facts.KindSymbol, Name: label + "Job", File: prefix + "app/jobs/j.rb", Repo: label},
+		}
+	}
+	files := func(store *facts.Store) map[string]string {
+		out := map[string]string{}
+		for _, f := range store.ByKind(facts.KindDependency) {
+			if f.PropString(DerivedProp) == derivedFromSymbols {
+				out[f.Repo] = f.File
+			}
+		}
+		return out
+	}
+
+	union := facts.NewStore()
+	union.Add(repo("shop", "shop/")...)
+	union.Add(repo("blog", "blog/")...)
+	if err := New().Bind(context.Background(), union); err != nil {
+		t.Fatal(err)
+	}
+	if got := files(union); got["shop"] != "shop/app/models" || got["blog"] != "blog/app/models" {
+		t.Errorf("appended repositories: edge files = %v, want each under its label", got)
+	}
+
+	alone := facts.NewStore()
+	alone.Add(repo("shop", "")...)
+	if err := New().Bind(context.Background(), alone); err != nil {
+		t.Fatal(err)
+	}
+	if got := files(alone); got["shop"] != "app/models" {
+		t.Errorf("a repository indexed alone: edge file = %q, want the bare module", got["shop"])
+	}
+}

@@ -543,9 +543,9 @@ func (r Resolver) normalizeToRelative(p string) string {
 // "<label>/". Append mode prefixes them; a single repository restored from disk has
 // a label map and bare files, so the map alone does not say. One symbol outside the
 // prefix settles it. Only symbols are asked: a symbol's file is the source file it
-// was read from, where a derived fact (a rolled-up module edge) names a bare
-// directory even in an appended repository. That leaves a repository whose every
-// source file sits in a directory named after its own label read as prefixed.
+// was read from, where a fact a binder or linker adds names whatever path its
+// author gave it. That leaves a repository whose every source file sits in a
+// directory named after its own label read as prefixed.
 func (r Resolver) filesCarryLabel(label string) bool {
 	return r.Store == nil || !r.Store.HasFileOutside(label, facts.KindSymbol, label+"/")
 }
