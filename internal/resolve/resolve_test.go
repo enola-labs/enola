@@ -203,3 +203,19 @@ func TestNodeName_TwoNamesSpelledAsTypedStayAmbiguous(t *testing.T) {
 		t.Errorf("candidates = %v; want the type, then the method, then the folded match", n)
 	}
 }
+
+// The longest word in a path is a directory most names share. What a mistyped path
+// was reaching for is in its base name.
+func TestSuggestNames_PathSuggestsFromTheBaseName(t *testing.T) {
+	store := storeWith(
+		facts.Fact{Kind: facts.KindModule, Name: "internal/diff", File: "internal/diff"},
+		facts.Fact{Kind: facts.KindModule, Name: "internal/perf", File: "internal/perf"},
+		facts.Fact{Kind: facts.KindModule, Name: "internal/resolve", File: "internal/resolve"},
+		facts.Fact{Kind: facts.KindSymbol, Name: "internal/resolve.Resolver", File: "internal/resolve/resolve.go"},
+	)
+	term := "internal/resolve/resolve.go"
+	got := Resolver{Store: store}.suggestNames(store, parseScopedQuery(term), term)
+	if want := []string{"internal/resolve", "internal/resolve.Resolver"}; !slices.Equal(got, want) {
+		t.Errorf("suggestNames(%q) = %v, want %v", term, got, want)
+	}
+}

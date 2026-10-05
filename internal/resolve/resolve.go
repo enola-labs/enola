@@ -363,6 +363,17 @@ func (r Resolver) suggestNames(store *facts.Store, sq scopedQuery, term string) 
 	if seg := lastSegment(term); len(seg) > len(probe) {
 		probe = longestAlnumRun(seg)
 	}
+	// A path's longest word is usually a directory every name shares. Its base
+	// name, without a source extension, is the part that says what was meant.
+	if i := strings.LastIndexByte(term, '/'); i >= 0 {
+		base := term[i+1:]
+		if j := strings.LastIndexByte(base, '.'); j > 0 && codeExtensions[strings.ToLower(base[j+1:])] {
+			base = base[:j]
+		}
+		if run := longestAlnumRun(base); len(run) >= 3 {
+			probe = run
+		}
+	}
 	if len(probe) < 3 {
 		return nil
 	}

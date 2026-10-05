@@ -172,7 +172,11 @@ func writeImpactHead(w *strings.Builder, report impact.Report) bool {
 			}
 			return false
 		}
-		fmt.Fprintf(w, "resolved %q to %s\n", res.Query, res.Matched)
+		if n := len(report.Seeds); n > 0 {
+			fmt.Fprintf(w, "%s is a file, not a node; this is the impact of the %d symbols it declares\n", res.Matched, n)
+		} else {
+			fmt.Fprintf(w, "resolved %q to %s\n", res.Query, res.Matched)
+		}
 		if len(res.Alternatives) > 0 {
 			fmt.Fprintf(w, "  also matched: %s\n", strings.Join(res.Alternatives, ", "))
 		}

@@ -3766,6 +3766,16 @@ const compactPerDepthCap = 40
 // compact graph-tool output: when a name was ambiguous and refused, it lists the
 // candidates so the caller can re-run with an exact name; when it was auto-picked
 // it notes the match and alternatives.
+// writeImpactResolution is writeResolutionNote for an impact report, which may be
+// about a source file: no node, so the note says what was walked back from instead.
+func writeImpactResolution(sb *strings.Builder, resp impactResponse) {
+	if n := len(resp.Seeds); n > 0 {
+		fmt.Fprintf(sb, "> %s is a file, not a node: this is the impact of the %d symbols it declares.\n\n", resp.Resolution.Matched, n)
+		return
+	}
+	writeResolutionNote(sb, resp.Resolution)
+}
+
 func writeResolutionNote(sb *strings.Builder, res *nameResolution) {
 	if res == nil {
 		return
@@ -3929,7 +3939,7 @@ func renderImpactCompact(resp impactResponse) string {
 	var sb strings.Builder
 	r := resp.ImpactResult
 	fmt.Fprintf(&sb, "# Impact: %s\n\n", r.Target)
-	writeResolutionNote(&sb, resp.Resolution)
+	writeImpactResolution(&sb, resp)
 
 	// Ambiguous-and-refused: no traversal was run; the candidate list above is
 	// the actionable content.
@@ -4111,7 +4121,7 @@ func (s *Server) renderImpactSummary(resp impactResponse) string {
 	var sb strings.Builder
 	r := resp.ImpactResult
 	fmt.Fprintf(&sb, "# Impact summary: %s\n\n", r.Target)
-	writeResolutionNote(&sb, resp.Resolution)
+	writeImpactResolution(&sb, resp)
 	if resp.Resolution != nil && resp.Resolution.Matched == "" {
 		return sb.String()
 	}

@@ -969,6 +969,35 @@ func (g *Graph) FindPath(from, to string, relKinds []string, maxDepth int) PathR
 // It performs a reverse BFS and groups results by depth.
 // If includeForward is true, it also includes what the target depends on.
 func (g *Graph) ImpactSet(target string, maxDepth, maxNodes int, includeForward bool) ImpactResult {
+	// Reverse traversal: who depends on target? When the target is a type, seed
+	// from its methods (via has_method) and constructor too, so callers that
+	// reference the type through those — not the bare type node — are included.
+	return g.impactFrom(target, g.impactSeeds(target), []string{target}, maxDepth, maxNodes, includeForward)
+}
+
+// ImpactSetOf is ImpactSet for a target that is several nodes at once and no node
+// itself: a source file, given as the names it declares. Each is expanded as a
+// target of its own would be, so a type declared there brings its methods along.
+// Dependents among the names themselves are not dependents of the file.
+func (g *Graph) ImpactSetOf(target string, names []string, maxDepth, maxNodes int, includeForward bool) ImpactResult {
+	seen := make(map[string]struct{}, len(names))
+	var seeds []string
+	for _, name := range names {
+		for _, seed := range g.impactSeeds(name) {
+			if _, dup := seen[seed]; !dup {
+				seen[seed] = struct{}{}
+				seeds = append(seeds, seed)
+			}
+		}
+	}
+	if len(seeds) == 0 {
+		seeds = []string{target}
+	}
+	return g.impactFrom(target, seeds, seeds, maxDepth, maxNodes, includeForward)
+}
+
+// impactFrom walks back from seeds, and forward from forwardFrom when asked to.
+func (g *Graph) impactFrom(target string, seeds, forwardFrom []string, maxDepth, maxNodes int, includeForward bool) ImpactResult {
 	if maxDepth <= 0 {
 		maxDepth = 3
 	}
@@ -982,10 +1011,6 @@ func (g *Graph) ImpactSet(target string, maxDepth, maxNodes int, includeForward 
 		maxNodes = 500
 	}
 
-	// Reverse traversal: who depends on target? When the target is a type, seed
-	// from its methods (via has_method) and constructor too, so callers that
-	// reference the type through those — not the bare type node — are included.
-	seeds := g.impactSeeds(target)
 	rev := g.traverseFrom(seeds, "reverse", nil, nil, maxDepth, maxNodes)
 
 	// max_nodes caps rev.Nodes, so len(rev.Nodes) is not the dependent count.
@@ -1005,7 +1030,7 @@ func (g *Graph) ImpactSet(target string, maxDepth, maxNodes int, includeForward 
 
 	// Bucket nodes by depth (skip depth 0, which holds the target entity's own
 	// seed nodes) and roll up which other repos contain a dependent.
-	targetRepo := g.repoOf(target)
+	targetRepo := g.repoOf(seeds[0])
 	repoSet := map[string]bool{}
 	for _, n := range rev.Nodes {
 		if n.Depth > 0 {
@@ -1037,7 +1062,7 @@ func (g *Graph) ImpactSet(target string, maxDepth, maxNodes int, includeForward 
 
 	// Optionally include forward dependencies
 	if includeForward {
-		fwd := g.Traverse(target, "forward", nil, nil, maxDepth, maxNodes)
+		fwd := g.TraverseFrom(forwardFrom, "forward", nil, nil, maxDepth, maxNodes)
 		result.Forward = &fwd
 	}
 

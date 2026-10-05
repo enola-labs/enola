@@ -238,3 +238,17 @@ func TestImpact_UsageErrors(t *testing.T) {
 		}
 	}
 }
+
+// A review starts from a diff, which names files. A file is answered from the
+// symbols it declares, and the report says that is what it did.
+func TestImpact_FilePathReportsItsSymbols(t *testing.T) {
+	stdout, _, code := runImpactIn(t, impactRepo(t), "--list", "pkg/a/a.go")
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0; stdout:\n%s", code, stdout)
+	}
+	for _, want := range []string{"pkg/a/a.go is a file, not a node; this is the impact of the", "pkg/b.Beta (symbol)  pkg/b/b.go:"} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("--list on a file should contain %q; got:\n%s", want, stdout)
+		}
+	}
+}
