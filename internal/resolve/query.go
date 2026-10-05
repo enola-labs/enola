@@ -136,6 +136,29 @@ func matchTier(name, term string) int {
 	return 0
 }
 
+// caseBonus is what a tier-1 or tier-2 match gains when it also matches the term's
+// case as typed. It is larger than the kind and scope tweaks put together cannot
+// undo (a method spelled as typed beats a type that merely folds to it) and small
+// enough that a tier-1 match with every bonus stays below any tier-2 match.
+const caseBonus = 0.3
+
+// matchesCase reports whether name answers term as typed, case included: the whole
+// name, a short name, or a package-qualified suffix. Tiers fold case, so "EdgeRoles"
+// and "edgeRoles" tie for either spelling; this is what tells them apart.
+func matchesCase(name, term string) bool {
+	return term != "" && (name == term || HasShortName(name, term) || isQualifiedSuffix(name, term))
+}
+
+// directness is the match tier, raised half a step for a match that keeps the
+// term's case. pickConfidence reads a strictly more direct top candidate as decisive.
+func directness(name, term string) float64 {
+	d := float64(matchTier(name, strings.ToLower(term)))
+	if d >= 1 && matchesCase(name, term) {
+		d += 0.5
+	}
+	return d
+}
+
 // HasShortName reports whether term equals any of lowerName's natural short-name
 // forms (see shortNames). lowerName must already be lowercased.
 func HasShortName(lowerName, term string) bool {
@@ -203,6 +226,9 @@ func shortNames(lowerName string) []string {
 func scoreCandidate(f facts.Fact, sq scopedQuery) float64 {
 	term := strings.ToLower(sq.Term)
 	score := float64(matchTier(f.Name, term)) // 0, 1, or 2 — dominant term
+	if score >= 1 && matchesCase(f.Name, sq.Term) {
+		score += caseBonus
+	}
 
 	// Within-tier tie-breakers (small relative to the tier step of 1.0).
 	switch sk, _ := f.PropAny("symbol_kind").(string); sk {
@@ -296,10 +322,11 @@ func rankCandidates(results []facts.Fact, sq scopedQuery) []ScoredCandidate {
 }
 
 // pickConfidence expresses how decisively the top candidate beats the runner-up
-// in [0,1]. A candidate in a strictly higher match tier than the runner-up is
-// decisive (the term names it more directly than anything else) → high
-// confidence. Within the same tier, confidence is top/(top+runnerUp): a lone
-// candidate scores 1.0, an even tie 0.5.
+// in [0,1]. A candidate that is strictly more direct than the runner-up (a higher
+// match tier, or the same tier and the only one keeping the term's case) is
+// decisive: the term names it more directly than anything else → high confidence.
+// Otherwise confidence is top/(top+runnerUp): a lone candidate scores 1.0, an even
+// tie 0.5.
 func pickConfidence(ranked []ScoredCandidate, term string) float64 {
 	if len(ranked) == 0 || ranked[0].Score <= 0 {
 		return 0
@@ -307,9 +334,8 @@ func pickConfidence(ranked []ScoredCandidate, term string) float64 {
 	if len(ranked) == 1 {
 		return 1
 	}
-	term = strings.ToLower(term)
-	if matchTier(ranked[0].Name, term) > matchTier(ranked[1].Name, term) {
-		return 0.9 // sole highest-tier match: clearly the intended target
+	if directness(ranked[0].Name, term) > directness(ranked[1].Name, term) {
+		return 0.9 // sole most direct match: clearly the intended target
 	}
 	top, runnerUp := ranked[0].Score, ranked[1].Score
 	if runnerUp < 0 {
