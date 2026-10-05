@@ -71,6 +71,9 @@ layers:
       # Endpoint impact: a route -> controller -> model walk over the store. It is
       # analysis, not fact model, so it sits here rather than in internal/facts.
       - "internal/endpoint/**"
+      # Name resolution and symbol impact, shared by the graph tools and `enola impact`.
+      - "internal/resolve/**"
+      - "internal/impact/**"
       - "internal/renderers/**"
       - "internal/diff/**"
       - "internal/conformance/**"

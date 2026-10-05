@@ -78,6 +78,7 @@ import (
 	"github.com/enola-labs/enola/internal/orphans"
 	"github.com/enola-labs/enola/internal/perf"
 	"github.com/enola-labs/enola/internal/renderers/llmcontext"
+	"github.com/enola-labs/enola/internal/resolve"
 	"github.com/enola-labs/enola/internal/server"
 	"github.com/enola-labs/enola/internal/workspace"
 	"github.com/enola-labs/enola/pkg/plan"
@@ -160,6 +161,15 @@ func (e *Engine) RepoPaths() map[string]string {
 // Config returns the engine config.
 func (e *Engine) Config() *config.Config {
 	return e.eng.Config()
+}
+
+// Resolver returns the name resolver over the engine's loaded graph.
+func (e *Engine) Resolver() resolve.Resolver {
+	r := resolve.Resolver{Store: e.eng.Store(), RepoPaths: e.eng.RepoPaths()}
+	if snap := e.eng.Snapshot(); snap != nil {
+		r.RepoPath = snap.Meta.RepoPath
+	}
+	return r
 }
 
 // GenerateSnapshot runs the full pipeline: walk -> extract -> explain -> render.
@@ -755,6 +765,36 @@ func LoadDashboardSnapshot(eng *Engine, cfg *config.Config) bool {
 		return false
 	}
 	return true
+}
+
+// RestoreSnapshot loads the on-disk snapshot under its recorded labels, refusing one without readable insights.
+func RestoreSnapshot(eng *Engine, repoPaths []string) error {
+	if len(repoPaths) == 0 {
+		return errors.New("no repository to restore")
+	}
+	dir := eng.OutputDir(repoPaths[0])
+	raw, err := os.ReadFile(filepath.Join(dir, "insights.json"))
+	if err != nil {
+		return fmt.Errorf("reading insights from %s: %w", dir, err)
+	}
+	var insights []facts.Insight
+	if err := json.Unmarshal(raw, &insights); err != nil {
+		return fmt.Errorf("reading insights from %s: %w", dir, err)
+	}
+
+	paths := make(map[string]string, len(repoPaths))
+	for _, repoPath := range repoPaths {
+		label := restoredLabel(eng.OutputDir(repoPath), repoPath)
+		if other, taken := paths[label]; taken {
+			return fmt.Errorf("%s and %s are both labelled %q", other, repoPath, label)
+		}
+		paths[label] = repoPath
+	}
+	single := ""
+	if len(repoPaths) == 1 {
+		single = restoredLabel(dir, repoPaths[0])
+	}
+	return eng.RestoreFromDir(dir, paths, single)
 }
 
 // restoredLabel reads the repo label recorded in a snapshot directory, falling back to

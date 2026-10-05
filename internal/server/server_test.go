@@ -11,6 +11,7 @@ import (
 	"github.com/enola-labs/enola/internal/config"
 	"github.com/enola-labs/enola/internal/engine"
 	"github.com/enola-labs/enola/internal/facts"
+	"github.com/enola-labs/enola/internal/resolve"
 )
 
 func TestReadSourceWindow(t *testing.T) {
@@ -1123,32 +1124,6 @@ func TestResolveNodeName_ExactMatch(t *testing.T) {
 	}
 }
 
-func TestCanonicalImpactTarget_FileRefUsesExtensionlessDependencyNode(t *testing.T) {
-	store := facts.NewStore()
-	store.Add(
-		facts.Fact{Kind: facts.KindFileRef, Name: "ui/src/api/api.ts", File: "ui/src/api/api.ts"},
-		facts.Fact{Kind: facts.KindDependency, Name: "ui/src/page -> ui/src/api/api", Relations: []facts.Relation{
-			{Kind: facts.RelImports, Target: "ui/src/api/api"},
-		}},
-	)
-	got, res := canonicalImpactTarget(store, "ui/src/api/api.ts")
-	if got != "ui/src/api/api" {
-		t.Fatalf("canonical target = %q", got)
-	}
-	if res == nil || res.Query != "ui/src/api/api.ts" || res.Matched != got {
-		t.Fatalf("normalization was not disclosed: %+v", res)
-	}
-}
-
-func TestCanonicalImpactTarget_GenuineFileRefStaysPut(t *testing.T) {
-	store := facts.NewStore()
-	store.Add(facts.Fact{Kind: facts.KindFileRef, Name: "ui/src/setup.ts", File: "ui/src/setup.ts"})
-	got, res := canonicalImpactTarget(store, "ui/src/setup.ts")
-	if got != "ui/src/setup.ts" || res != nil {
-		t.Fatalf("got %q, %+v", got, res)
-	}
-}
-
 func TestUnresolvedImportWarning_ConcentratedLocalPrefix(t *testing.T) {
 	snap := &facts.Snapshot{
 		Meta: facts.SnapshotMeta{FactCount: 100, Unseen: &facts.UnseenCensus{
@@ -1214,8 +1189,8 @@ func TestResolveNodeName_ConfidentSuffixExact(t *testing.T) {
 	if !res.AutoPicked {
 		t.Error("a confident unique-suffix pick should be marked AutoPicked")
 	}
-	if res.Confidence <= autoPickConfidence {
-		t.Errorf("confidence = %v, want > %v", res.Confidence, autoPickConfidence)
+	if res.Confidence <= resolve.AutoPickConfidence {
+		t.Errorf("confidence = %v, want > %v", res.Confidence, resolve.AutoPickConfidence)
 	}
 }
 
@@ -1282,8 +1257,8 @@ func TestResolveNodeName_OverThreshold(t *testing.T) {
 	if res.Query != "beta" {
 		t.Errorf("resolution.Query = %q, want beta", res.Query)
 	}
-	if len(res.Alternatives) < ambiguousMatchThreshold {
-		t.Errorf("expected at least %d alternatives, got %v", ambiguousMatchThreshold, res.Alternatives)
+	if len(res.Alternatives) < resolve.AmbiguousMatchThreshold {
+		t.Errorf("expected at least %d alternatives, got %v", resolve.AmbiguousMatchThreshold, res.Alternatives)
 	}
 }
 
@@ -1332,7 +1307,7 @@ func TestResolveNodeName_FileBasenameFallback(t *testing.T) {
 
 func TestResolveNodeName_OverThresholdCapsAlternatives(t *testing.T) {
 	store := facts.NewStore()
-	for i := 0; i < maxAlternatives+5; i++ {
+	for i := 0; i < resolve.MaxAlternatives+5; i++ {
 		store.Add(facts.Fact{Kind: facts.KindModule, Name: "pkg/widget" + itoa(i), Props: map[string]any{"language": "go"}})
 	}
 	srv := newTestServer(store)
@@ -1344,8 +1319,8 @@ func TestResolveNodeName_OverThresholdCapsAlternatives(t *testing.T) {
 	if res == nil {
 		t.Fatal("expected a resolution")
 	}
-	if len(res.Alternatives) > maxAlternatives {
-		t.Errorf("alternatives = %d, want <= %d", len(res.Alternatives), maxAlternatives)
+	if len(res.Alternatives) > resolve.MaxAlternatives {
+		t.Errorf("alternatives = %d, want <= %d", len(res.Alternatives), resolve.MaxAlternatives)
 	}
 }
 
@@ -1577,44 +1552,6 @@ func TestCapitalize(t *testing.T) {
 	}
 }
 
-func TestParseScopedQuery(t *testing.T) {
-	cases := []struct {
-		in         string
-		repo       string
-		kinds      []string
-		symbolKind string
-		filePrefix string
-		term       string
-	}{
-		{"Currency", "", nil, "", "", "Currency"},
-		{"repo:golf kind:struct Currency", "golf", []string{"symbol"}, "struct", "", "Currency"},
-		{"kind:module internal/server", "", []string{"module"}, "", "", "internal/server"},
-		{"repo:golf/subtenant", "golf", nil, "", "", "subtenant"},
-		{"kind:symbol/Currency", "", []string{"symbol"}, "", "", "Currency"},
-		{"file:/domain//Currency", "", nil, "", "domain", "Currency"},
-		{"file:domain", "", nil, "", "domain", ""},
-		{"http://example.com", "", nil, "", "", "http://example.com"}, // not a scope keyword
-	}
-	for _, tc := range cases {
-		sq := parseScopedQuery(tc.in)
-		if sq.Repo != tc.repo {
-			t.Errorf("%q: Repo = %q, want %q", tc.in, sq.Repo, tc.repo)
-		}
-		if sq.SymbolKind != tc.symbolKind {
-			t.Errorf("%q: SymbolKind = %q, want %q", tc.in, sq.SymbolKind, tc.symbolKind)
-		}
-		if sq.FilePrefix != tc.filePrefix {
-			t.Errorf("%q: FilePrefix = %q, want %q", tc.in, sq.FilePrefix, tc.filePrefix)
-		}
-		if sq.Term != tc.term {
-			t.Errorf("%q: Term = %q, want %q", tc.in, sq.Term, tc.term)
-		}
-		if strings.Join(sq.Kinds, ",") != strings.Join(tc.kinds, ",") {
-			t.Errorf("%q: Kinds = %v, want %v", tc.in, sq.Kinds, tc.kinds)
-		}
-	}
-}
-
 func TestResolveNodeName_ScopedRepo(t *testing.T) {
 	store := facts.NewStore()
 	store.Add(
@@ -1706,8 +1643,8 @@ func TestResolveNodeName_AutoPickAboveConfidence(t *testing.T) {
 	if res.Matched != "adapters.AuthHandler" {
 		t.Errorf("resolution.Matched = %q, want adapters.AuthHandler", res.Matched)
 	}
-	if res.Confidence <= autoPickConfidence {
-		t.Errorf("confidence = %v, want > %v", res.Confidence, autoPickConfidence)
+	if res.Confidence <= resolve.AutoPickConfidence {
+		t.Errorf("confidence = %v, want > %v", res.Confidence, resolve.AutoPickConfidence)
 	}
 	if len(res.Candidates) == 0 {
 		t.Error("expected ranked candidates in the resolution")
@@ -1734,7 +1671,7 @@ func TestResolveNodeName_OverThresholdReturnsCandidates(t *testing.T) {
 	if len(res.Candidates) == 0 {
 		t.Error("expected ranked candidates to be surfaced")
 	}
-	if res.Confidence > autoPickConfidence {
+	if res.Confidence > resolve.AutoPickConfidence {
 		t.Errorf("confidence = %v, should not exceed auto-pick threshold for near-ties", res.Confidence)
 	}
 }
@@ -1871,20 +1808,6 @@ func TestResolveNodeName_NoMatchSuggests(t *testing.T) {
 }
 
 // --- #3: package-qualified resolution + find_path try-candidates ---
-
-func TestMatchTier_QualifiedSuffix(t *testing.T) {
-	// matchTier expects an already-lowercased term (callers lowercase sq.Term).
-	if got := matchTier("internal/domain/ticket.Repository", "ticket.repository"); got != 1 {
-		t.Errorf("qualified-suffix tier = %d, want 1", got)
-	}
-	if got := matchTier("internal/adapters/contracts.Repository", "ticket.repository"); got != 0 {
-		t.Errorf("non-suffix tier = %d, want 0", got)
-	}
-	// Suffix must align on a '.'/'/' boundary, not mid-token.
-	if got := matchTier("internal/domain/myticket.Repository", "ticket.repository"); got != 0 {
-		t.Errorf("mid-token suffix tier = %d, want 0", got)
-	}
-}
 
 func TestResolveNodeName_PackageQualified(t *testing.T) {
 	store := facts.NewStore()
