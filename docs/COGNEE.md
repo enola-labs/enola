@@ -177,20 +177,3 @@ Enola also keeps an architecture history under `~/.enola/graphs/`, one revision 
 snapshot. It is what `enola log` and `enola diff` read. Cognee's runs add to it too.
 [HISTORY.md](HISTORY.md#where-it-lives-and-what-it-costs) covers its size and how to
 prune it with `enola gc`.
-
-## When Cognee's code graph looks incomplete
-
-The graph Cognee serves is the snapshot enola wrote, so enola can tell you what the
-run covered. Open the dashboard and read the extraction quality section, or read the
-`quality` block in `.enola/receipt.json`: files seen against files parsed, skipped
-paths with the glob that matched each, and parse errors with their messages.
-[schema/receipt.md](schema/receipt.md#quality) defines every field, and
-[LANGUAGES.md](LANGUAGES.md) lists what enola extracts.
-
-| Symptom | Report to |
-|---|---|
-| A fact is missing or wrong, a file fails to parse, or the binary crashes | [enola issues](https://github.com/enola-labs/enola/issues) |
-| Ingestion, storage or search behaves wrongly, or the binary is not found | [Cognee issues](https://github.com/topoteretes/cognee/issues) |
-
-For an enola report, include the output of `enola --version` and, from
-`.enola/receipt.json`, the `format_version`, the `snapshot_id` and the `quality` block.
