@@ -346,3 +346,58 @@ func call() {
 		t.Fatalf("route name changed; got %+v", goClientRoutes(ff))
 	}
 }
+
+// A value in the middle of a concatenated URL is a path parameter. Reading only
+// the rightmost absolute literal turned the first call into "/status" and the
+// second into the collection route "/api/v1/orders/".
+func TestGoHTTPClient_ConcatenatedPathParameters(t *testing.T) {
+	src := `package svc
+
+import (
+	"net/http"
+	"net/url"
+)
+
+type C struct{ baseURL string }
+
+func (c *C) calls(id, sku, q, name, suffix string) {
+	http.NewRequest("POST", c.baseURL+"/api/v1/orders/"+id+"/status", nil)
+	http.Get(c.baseURL + "/api/v1/orders/" + id)
+	http.Get(c.baseURL + "/api/v1/inventory/" + url.PathEscape(sku))
+	http.Get(c.baseURL + "/api/v1/search?q=" + q)
+	http.Get(c.baseURL + "/api/v1/files/" + name + ".json")
+	http.Get(c.baseURL + "/api/v1/items" + suffix)
+	http.Get(c.baseURL + "/api" + "/v2/things")
+	http.Get((c.baseURL + "/api/v1/customers/") + id + "/orders/" + id)
+}
+`
+	ff := extractAll(t, map[string]string{"svc/client.go": src})
+
+	want := map[string]string{
+		"/api/v1/orders/{}/status":       "POST",
+		"/api/v1/orders/{}":              "GET",
+		"/api/v1/inventory/{}":           "GET",
+		"/api/v1/search":                 "GET",
+		"/api/v1/files/{}":               "GET",
+		"/api/v1/items":                  "GET",
+		"/api/v2/things":                 "GET",
+		"/api/v1/customers/{}/orders/{}": "GET",
+	}
+	for path, method := range want {
+		f, ok := clientRouteByPath(ff, path)
+		if !ok {
+			t.Errorf("missing client route %s", path)
+			continue
+		}
+		if f.Props["method"] != method {
+			t.Errorf("%s method = %v, want %s", path, f.Props["method"], method)
+		}
+	}
+	if got := goClientRoutes(ff); len(got) != len(want) {
+		var names []string
+		for _, f := range got {
+			names = append(names, f.Name)
+		}
+		t.Errorf("client routes = %v, want exactly %d", names, len(want))
+	}
+}

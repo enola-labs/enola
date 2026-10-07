@@ -52,7 +52,7 @@ func extractHTTPClientFacts(fset *token.FileSet, f *ast.File, relFile, pkgDir st
 		if urlArg == nil {
 			return true
 		}
-		path, ok := cleanGoURL(extractStringExpr(urlArg))
+		path, ok := cleanGoURL(clientURLPath(urlArg))
 		if !ok {
 			return true
 		}
@@ -87,6 +87,78 @@ func extractHTTPClientFacts(fset *token.FileSet, f *ast.File, relFile, pkgDir st
 		return true
 	})
 	return out
+}
+
+// clientURLPath reads the path out of a client call's URL argument.
+//
+// extractStringExpr answers for a server registration, where the path is one
+// literal. A client builds its URL, and the usual build puts a value in the
+// middle: `c.baseURL + "/api/v1/orders/" + id + "/status"`. Read as "the
+// rightmost absolute literal" that is "/status", a path no server serves under
+// that name, and `"/api/v1/orders/" + id` is "/api/v1/orders/", which matches
+// the collection route instead of the item route.
+//
+// So the concatenation is read left to right. The path starts at the first
+// literal beginning with "/", everything before it is the host, and from there
+// a literal is kept and anything else is one path parameter, written "{}" as
+// the TypeScript client extractor writes a template substitution. A segment
+// that mixes text with a parameter ("/files/" + name + ".json") is still one
+// parameter. A value appended to an unterminated segment ("/items" + suffix)
+// is dropped, since it may be a query string or nothing at all.
+//
+// An expression with no such literal falls back to extractStringExpr, so every
+// shape that resolved before resolves to the same path.
+func clientURLPath(urlArg ast.Expr) string {
+	var operands []ast.Expr
+	var flatten func(e ast.Expr)
+	flatten = func(e ast.Expr) {
+		switch x := e.(type) {
+		case *ast.ParenExpr:
+			flatten(x.X)
+			return
+		case *ast.BinaryExpr:
+			if x.Op == token.ADD {
+				flatten(x.X)
+				flatten(x.Y)
+				return
+			}
+		}
+		operands = append(operands, e)
+	}
+	flatten(urlArg)
+
+	var sb strings.Builder
+	started := false
+	for _, op := range operands {
+		lit, isLit := stringLitValue(op)
+		if !started {
+			if !isLit || !strings.HasPrefix(lit, "/") {
+				continue
+			}
+			started = true
+		}
+		switch {
+		case isLit:
+			sb.WriteString(lit)
+		case strings.HasSuffix(sb.String(), "/"):
+			sb.WriteString("{}")
+		}
+	}
+	if !started {
+		return extractStringExpr(urlArg)
+	}
+	path, query, hasQuery := strings.Cut(sb.String(), "?")
+	segs := strings.Split(path, "/")
+	for i, seg := range segs {
+		if strings.Contains(seg, "{}") {
+			segs[i] = "{}"
+		}
+	}
+	path = strings.Join(segs, "/")
+	if hasQuery {
+		return path + "?" + query
+	}
+	return path
 }
 
 // collectBaseURLLiterals maps an identifier name to every string literal bound to

@@ -728,6 +728,11 @@ func (d *SnapshotDiff) touchedNames() map[string]struct{} {
 	return m
 }
 
+// intentExplainerName is the Source the intent explainer's findings carry. It is
+// spelled here rather than imported: this package needs the name and nothing else
+// from that one.
+const intentExplainerName = "intent"
+
 // findingHasStructuralCause reports whether any entity the finding cites was
 // structurally touched by this change. Evidence-less findings can't be attributed,
 // so they default to real (never silently hidden).
@@ -745,6 +750,14 @@ func findingHasStructuralCause(in facts.Insight, touched map[string]struct{}) bo
 	// the 1.0 "selector cannot be evaluated" finding was filed as incidental and
 	// exited 0 — a vacuous pass wearing the shape of the guarantee against it.
 	if in.Source == constraints.ExplainerName {
+		return true
+	}
+	// An intent finding is the same case. It is declared against measured, and it
+	// cites the DECLARATION: a failed seam claim names the claim, a missing seam
+	// names the consumes entry. Neither moves when the code moves out from under
+	// it, so a route rename that deleted a claimed cross-repo seam filed the 1.0
+	// "Claim failed" as incidental and `--fail-on=intent` exited 0.
+	if in.Source == intentExplainerName {
 		return true
 	}
 	for _, ev := range in.Evidence {

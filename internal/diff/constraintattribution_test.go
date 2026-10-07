@@ -184,3 +184,38 @@ func TestCompute_BreachFixedInsideTheComponentStaysResolved(t *testing.T) {
 		t.Fatalf("FindingsResolved = %+v, want the renamed class's breach", d.FindingsResolved)
 	}
 }
+
+// The same blind spot, one explainer over. An intent finding cites the
+// declaration, and a route rename that deletes a claimed cross-repo seam touches
+// the routes and the dependency but never the claim. Graded by evidence entity,
+// the 1.0 "Claim failed" was incidental and `--fail-on=intent` exited 0 on the
+// change that broke the seam.
+func TestCompute_IntentFindingIsNeverIncidental(t *testing.T) {
+	claim := facts.Fact{Kind: facts.KindIntent, Name: "claim: seam worker -> api via http-client", File: "docs/adr/0001.md",
+		Props: map[string]any{"intent_kind": "claim", "metric": "seam"}}
+	seam := facts.Fact{Kind: facts.KindDependency, Name: "worker -> api", Repo: "worker",
+		Props: map[string]any{"type": "cross_repo"}}
+	base := snap([]facts.Fact{claim, seam}, nil)
+	cur := snap([]facts.Fact{claim},
+		[]facts.Insight{
+			{
+				Source:     "intent",
+				Title:      "Claim failed: claim: seam worker -> api via http-client",
+				Confidence: 1.0,
+				Evidence:   []facts.Evidence{{Fact: claim.Name, Detail: "claimed in docs/adr/0001.md"}},
+			},
+			{
+				Source:     "intent",
+				Title:      "Missing intended seam: worker -> api via http-client",
+				Confidence: 0.8,
+				Evidence:   []facts.Evidence{{Fact: "consumes api via http-client", Detail: "declared in enola-intent.yaml"}},
+			},
+		})
+	d := Compute(base, cur)
+	if len(d.FindingsNew) != 2 {
+		t.Fatalf("FindingsNew = %+v, want both intent findings graded", d.FindingsNew)
+	}
+	if len(d.FindingsNewIncidental) != 0 {
+		t.Errorf("FindingsNewIncidental = %+v, want none: a declaration has no drifting threshold to be incidental about", d.FindingsNewIncidental)
+	}
+}
