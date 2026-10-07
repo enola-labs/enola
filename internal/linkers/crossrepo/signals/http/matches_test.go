@@ -104,3 +104,32 @@ func TestClientRouteMatches_SingleRepoIsNil(t *testing.T) {
 		t.Fatalf("single-repo snapshot produced matches: %+v", got)
 	}
 }
+
+// A caller left on /v1 after the route moved to /v2 is unresolved, the route it
+// used to reach is unused, and the reason says which of the two it was: not a
+// wrong verb, and not an unknown path.
+func TestVersionMismatch_CallIsUnresolvedAndSaysWhy(t *testing.T) {
+	served := facts.Fact{Kind: facts.KindRoute, Name: "/api/v2/orders/{id}", Repo: "api",
+		Props: map[string]any{"method": "GET"}}
+	other := facts.Fact{Kind: facts.KindRoute, Name: "/api/v1/customers/{id}", Repo: "api",
+		Props: map[string]any{"method": "GET"}}
+	stale := facts.Fact{Kind: facts.KindRoute, Name: "/api/v1/orders/{}", Repo: "web",
+		Props: map[string]any{"role": "client", "method": "GET", "source": facts.RouteSourceTSHTTPClient}}
+	current := facts.Fact{Kind: facts.KindRoute, Name: "/api/v1/customers/{}", Repo: "web",
+		Props: map[string]any{"role": "client", "method": "GET", "source": facts.RouteSourceTSHTTPClient}}
+	all := []facts.Fact{served, other, stale, current}
+	m := routeindex.New(vocab.Default())
+
+	reasons := UnmatchedClientRouteKeys(m, all)
+	if got := reasons[routeindex.RouteIdentity(stale)]; got != ReasonVersionMismatch {
+		t.Errorf("stale call: unmatched_reason = %q, want %q", got, ReasonVersionMismatch)
+	}
+	if _, unresolved := reasons[routeindex.RouteIdentity(current)]; unresolved {
+		t.Errorf("the call to a route still served at its version must resolve")
+	}
+
+	_, unmatched := ServerRouteVerdicts(m, all)
+	if !unmatched[routeindex.RouteIdentity(served)] {
+		t.Errorf("the v2 route has no v2 caller and must be reported unused")
+	}
+}

@@ -128,3 +128,55 @@ func TestLookupClientMatches_ClientMethodAny(t *testing.T) {
 		t.Fatalf("method-less client matched an unserved path: %+v", refs)
 	}
 }
+
+// The suffix join drops a leading prefix on either side. Dropping one on both
+// joined "/api/v1/orders/{}" to "/api/v2/orders/{}" at "/orders/{}": after a
+// route moved to v2, every v1 caller still resolved to it.
+func TestLookupClientMatches_VersionsThatDisagreeDoNotJoin(t *testing.T) {
+	m := New(vocab.Default())
+	route := func(path string) facts.Fact {
+		return facts.Fact{Kind: facts.KindRoute, Name: path, Repo: "backend",
+			Props: map[string]any{"method": "GET", "role": "server"}}
+	}
+	cases := []struct {
+		name, server, client string
+		want                 bool
+	}{
+		{"another version", "/api/v2/orders/{id}", "/api/v1/orders/{}", false},
+		{"another version, no shared prefix", "/api/v2/orders/{id}", "/v1/orders/{}", false},
+		{"dotted and cased versions", "/api/V2.1/orders/{id}", "/api/v2/orders/{}", false},
+		{"same version", "/api/v1/orders/{id}", "/api/v1/orders/{}", true},
+		{"same version under a gateway prefix", "/v1/orders/{id}", "/gateway/v1/orders/{}", true},
+		{"client states no version", "/api/v2/orders/{id}", "/gateway/orders/{}", true},
+		{"server states no version", "/internal/orders/{id}", "/api/v1/orders/{}", true},
+		{"base-relative client", "/api/v2/orders/{id}", "/orders/{}", true},
+		{"a number is an id, not a version", "/tenants/2/orders/{id}", "/tenants/1/orders/{}", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			server := m.IndexServerRoutes([]facts.Fact{route(tc.server)})
+			refs, _ := m.LookupClientMatches(server, tc.client, "GET")
+			if got := len(refs) > 0; got != tc.want {
+				t.Errorf("%s against %s: matched = %v, want %v", tc.client, tc.server, got, tc.want)
+			}
+			if got := m.ServedAtAnotherVersion(server, tc.client, "GET"); got == tc.want {
+				t.Errorf("%s against %s: ServedAtAnotherVersion = %v, want %v", tc.client, tc.server, got, !tc.want)
+			}
+		})
+	}
+}
+
+// With both versions served, the call reaches its own and only its own.
+func TestLookupClientMatches_PicksItsOwnVersion(t *testing.T) {
+	m := New(vocab.Default())
+	var all []facts.Fact
+	for _, p := range []string{"/api/v1/orders/{id}", "/api/v2/orders/{id}"} {
+		all = append(all, facts.Fact{Kind: facts.KindRoute, Name: p, Repo: "backend",
+			Props: map[string]any{"method": "GET", "role": "server"}})
+	}
+	server := m.IndexServerRoutes(all)
+	refs, _ := m.LookupClientMatches(server, "/gateway/v2/orders/{}", "GET")
+	if len(refs) != 1 || refs[0].Path != "/api/v2/orders/{id}" {
+		t.Fatalf("refs = %+v, want only the v2 route", refs)
+	}
+}
