@@ -20,6 +20,15 @@ import (
 	"github.com/enola-labs/enola/pkg/plugin"
 )
 
+// v294: C/C++ extracts the definitions tree-sitter's error recovery displaced. A
+// function it could not close swallows every later definition into its body; those
+// are now extracted in the enclosing scope, and their calls and decision points no
+// longer count for the function that swallowed them (one 125-line function had
+// reported a cyclomatic complexity of 714). Definitions left under an ERROR node,
+// which were dropped whole, are extracted too; loose declarations and expression
+// fragments in the region are not. A local class's inline methods stay with their
+// function, and a statement recovery misread as a definition named `if` stays a
+// statement.
 // v293: a Go struct's field edges name every declared type its field types mention,
 // through slices, arrays, maps, channels, pointers, generic arguments and function
 // signatures, so a struct used only as `[]T` or `map[K]T` is no longer edge-less.
@@ -2597,7 +2606,7 @@ import (
 // v270: SvelteKit reads literal kit.alias fallbacks before generated config exists,
 // keeps tsconfig paths authoritative, and classifies $app/$env/$service-worker imports
 // as framework-provided rather than unresolved third-party dependencies.
-const cacheVersion = "v293"
+const cacheVersion = "v294"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

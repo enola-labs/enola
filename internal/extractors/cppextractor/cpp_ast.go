@@ -169,6 +169,16 @@ type astWalker struct {
 	// receiverTypes maps explicit parameter/local names in the current function
 	// body to their simple project type. Empty values mark conflicting declarations.
 	receiverTypes map[string]string
+	// swallowed collects the function definitions found inside the body being
+	// walked. C and C++ have no nested functions, so one there is a later
+	// definition that parse-error recovery attached to a function it could not
+	// close. localClassDepth is non-zero inside a local class, whose inline methods
+	// are legitimately inside the body.
+	swallowed       []*sitter.Node
+	localClassDepth int
+	// errorGuardDepth is non-zero while walking a preprocessor guard reached
+	// through an ERROR node, where only definitions are trusted.
+	errorGuardDepth int
 }
 
 // cppBodyMetrics accumulates per-function complexity signals during the single
@@ -447,6 +457,26 @@ func (w *astWalker) walkDecl(node *sitter.Node) {
 	if node == nil {
 		return
 	}
+	if w.errorGuardDepth > 0 {
+		// Inside an ERROR region the loose declarations and statements are the
+		// unparsed construct's debris. A definition is trusted, and what it
+		// contains is walked normally.
+		switch kindOf(w.kinds, node) {
+		case "declaration", "expression_statement", "compound_statement",
+			"static_assert_declaration", "type_definition", "alias_declaration":
+			return
+		case "function_definition":
+			if w.isMisreadStatement(node, false) {
+				return
+			}
+			fallthrough
+		case "namespace_definition", "class_specifier", "struct_specifier", "union_specifier",
+			"enum_specifier", "template_declaration", "linkage_specification":
+			saved := w.errorGuardDepth
+			w.errorGuardDepth = 0
+			defer func() { w.errorGuardDepth = saved }()
+		}
+	}
 	switch kindOf(w.kinds, node) {
 	case "preproc_include":
 		w.handleInclude(node)
@@ -509,6 +539,105 @@ func (w *astWalker) walkDecl(node *sitter.Node) {
 		// children (after the condition/name field). gmsh wraps large amounts of
 		// code in #if defined(HAVE_*); headers wrap everything in #ifndef guards.
 		w.walkGuardChildren(node)
+	case "ERROR":
+		w.walkErrorRegion(node)
+	}
+}
+
+// isMisreadStatement reports whether a function_definition found where no
+// definition can be (inside a body, or under an ERROR node) is a statement in a
+// definition's clothes, not a definition recovery displaced:
+//
+//   - `if (x) { ... }` after unparseable text reads as a function named "if";
+//   - `for_each_net(net) for_each_netdev(net, dev) { ... }` reads as a function
+//     whose return type is the first macro;
+//   - `CRITFLAGS DBG(__func__) ...` reads as one returning CRITFLAGS.
+//
+// A real definition has a return type that is not a macro call (or, with none, a
+// qualified name: an out-of-line constructor or destructor), and its parameter
+// list holds parameter declarations only, not all of them bare names.
+//
+// With no function declarator at all the node is a macro followed by a block. At
+// file scope that is a name-carrying macro such as SYSCALL_DEFINE0(name) { ... },
+// which handleFunctionDefinition knows; inside a body it is a loop macro,
+// `for_each_possible_cpu(i) { ... }`, and is the body's own code.
+func (w *astWalker) isMisreadStatement(node *sitter.Node, inBody bool) bool {
+	fdecl := findFunctionDeclarator(w.kinds, node.ChildByFieldName("declarator"))
+	if fdecl == nil {
+		return inBody
+	}
+	name := declaratorLeafName(w.kinds, fdecl.ChildByFieldName("declarator"), w.src)
+	if cppStatementKeywords[name] {
+		return true
+	}
+	typ := node.ChildByFieldName("type")
+	if typ == nil {
+		return !strings.Contains(name, "::")
+	}
+	if kindOf(w.kinds, typ) == "macro_type_specifier" {
+		return true
+	}
+	params := fdecl.ChildByFieldName("parameters")
+	if params == nil {
+		return false
+	}
+	named, bare := 0, 0
+	for i := uint(0); i < params.ChildCount(); i++ {
+		p := params.Child(i)
+		switch kindOf(w.kinds, p) {
+		case "parameter_declaration":
+		case "optional_parameter_declaration", "variadic_parameter", "variadic_parameter_declaration", "comment":
+			named++
+			continue
+		case "identifier":
+			// A K&R identifier list, `int gcd(a, b) int a; int b; { ... }`, which
+			// is a definition only with the declarations that type its names.
+			if findChildByKind(w.kinds, node, "declaration") == nil {
+				return true
+			}
+			named++
+			continue
+		default:
+			if p.IsNamed() {
+				// A literal or an expression: these are a macro call's arguments.
+				return true
+			}
+			continue
+		}
+		t := p.ChildByFieldName("type")
+		if p.ChildByFieldName("declarator") == nil && t != nil && kindOf(w.kinds, t) == "type_identifier" {
+			bare++
+		} else {
+			named++
+		}
+	}
+	return bare > 0 && named == 0
+}
+
+var cppStatementKeywords = map[string]bool{
+	"if": true, "else": true, "for": true, "while": true, "do": true, "switch": true,
+	"case": true, "return": true, "catch": true, "sizeof": true, "defined": true,
+}
+
+// walkErrorRegion extracts the definitions inside an ERROR node. When a construct
+// cannot be parsed (a brace opened in both branches of an #if, a macro standing in
+// for syntax), recovery wraps it and often everything after it in ERROR, with the
+// later definitions intact underneath. Only nodes that are definitions in their own
+// right are walked; loose declarations and expression fragments in the region are
+// the unparsed construct's debris and are left alone.
+func (w *astWalker) walkErrorRegion(node *sitter.Node) {
+	for i := uint(0); i < node.ChildCount(); i++ {
+		child := node.Child(i)
+		switch kindOf(w.kinds, child) {
+		case "function_definition", "template_declaration", "namespace_definition",
+			"class_specifier", "struct_specifier", "union_specifier", "enum_specifier",
+			"linkage_specification", "preproc_include",
+			"preproc_if", "preproc_ifdef", "preproc_else", "preproc_elif", "preproc_elifdef",
+			"ERROR":
+			w.errorGuardDepth++
+			w.walkDecl(child)
+			w.errorGuardDepth--
+		}
 	}
 }
 
@@ -750,10 +879,14 @@ func (w *astWalker) handleFunctionDefinition(node *sitter.Node) {
 	w.repeatDepth = 0
 	w.selfName = symbolName
 	w.selfShort = shortName
+	savedSwallowed, savedClassDepth := w.swallowed, w.localClassDepth
+	w.swallowed, w.localClassDepth = nil, 0
 	if body := node.ChildByFieldName("body"); body != nil {
 		w.receiverTypes = collectExplicitReceiverTypes(w.kinds, w.lang, fdecl, body, w.src)
 		w.walkForCalls(body)
 	}
+	swallowed := w.swallowed
+	w.swallowed, w.localClassDepth = savedSwallowed, savedClassDepth
 	m := w.metrics
 	props := w.out[idx].Props
 	props["cyclomatic"] = 1 + m.decisions
@@ -789,6 +922,11 @@ func (w *astWalker) handleFunctionDefinition(node *sitter.Node) {
 		w.popType()
 	}
 	w.popOwner()
+	// The definitions recovery nested in this body belong to the scope this
+	// function was declared in. Extract them now that its own state is unwound.
+	for _, def := range swallowed {
+		w.walkDecl(def)
+	}
 }
 
 // handleFieldDeclaration handles a member of a class body: either a member
@@ -1576,6 +1714,21 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 	}
 	kind := kindOf(w.kinds, node)
 
+	// A function definition inside a function body is not this function's code.
+	// Set it aside (handleFunctionDefinition extracts it afterwards) so its calls
+	// and decision points are not credited here. A local class's inline methods
+	// are the exception and stay part of the enclosing body.
+	switch kind {
+	case "function_definition":
+		if w.metrics != nil && w.localClassDepth == 0 && !w.isMisreadStatement(node, true) {
+			w.swallowed = append(w.swallowed, node)
+			return
+		}
+	case "class_specifier", "struct_specifier", "union_specifier":
+		w.localClassDepth++
+		defer func() { w.localClassDepth-- }()
+	}
+
 	// A lambda is a deferred scope: its body runs when invoked, NOT per-iteration of
 	// the enclosing loops — so reset the loop depth for its subtree (e.g. a callback
 	// defined inside a loop). An STL iterator's OWN lambda is handled in the
@@ -1849,7 +2002,9 @@ func referencedDeclarator(kinds *tsutil.KindTable, node *sitter.Node) *sitter.No
 // every node, which is why it stays cheap.
 func declaredInsideLambda(kinds *tsutil.KindTable, node, stop *sitter.Node) bool {
 	for p := node.Parent(); p != nil && p.Id() != stop.Id(); p = p.Parent() {
-		if kindOf(kinds, p) == "lambda_expression" {
+		// A function definition here is one that recovery nested in this body. Its
+		// locals are its own, like a lambda's.
+		if k := kindOf(kinds, p); k == "lambda_expression" || k == "function_definition" {
 			return true
 		}
 	}
