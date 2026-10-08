@@ -369,6 +369,8 @@ func (c *C) calls(id, sku, q, name, suffix string) {
 	http.Get(c.baseURL + "/api/v1/items" + suffix)
 	http.Get(c.baseURL + "/api" + "/v2/things")
 	http.Get((c.baseURL + "/api/v1/customers/") + id + "/orders/" + id)
+	http.Get(c.baseURL + "/" + id)
+	http.Get(c.baseURL + "/" + id + "/" + sku)
 }
 `
 	ff := extractAll(t, map[string]string{"svc/client.go": src})

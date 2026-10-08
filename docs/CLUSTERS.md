@@ -133,9 +133,9 @@ func fetchDynamic(tenant string) {
 }
 ```
 
-The path is assembled at runtime from a value enola cannot see, so there is no complete
-path to match against a route. enola records the outbound call and reports it unresolved
-rather than guessing. Reporting unresolved calls gives the resolved count context.
+The tenant is a value enola cannot see, so the call is recorded as `/api/v2/{}/orders`,
+and no route is served at that shape. enola records the outbound call and reports it
+unresolved rather than guessing. Reporting unresolved calls gives the resolved count context.
 `coverage` exits `0` because it is a report, not a gate.
 
 Three things put an entry on that list, and they need different responses:
