@@ -200,7 +200,8 @@ func (rw *routeWalker) handleCall(call *sitter.Node, stack []routeScope) {
 		// action is served at. Reading only the action name emits a path the app
 		// does not serve AND misses the one it does — one declaration reported as
 		// two defects, which is the shape this comparison keeps finding.
-		if override, present := pairStringPresent(args, "path", rw.src); present {
+		override, pathGiven := pairStringPresent(args, "path", rw.src)
+		if pathGiven {
 			path = override
 		}
 		if path == "" {
@@ -215,11 +216,24 @@ func (rw *routeWalker) handleCall(call *sitter.Node, stack []routeScope) {
 		// already supplied; `on: :member` addresses the resource itself and
 		// uses `:id` (`/steps/:id/audit`); `on: :collection` stays at the
 		// collection path.
-		switch pairSymbol(args, "on", rw.src) {
+		on := pairSymbol(args, "on", rw.src)
+		switch on {
 		case "collection":
 			prefix = collectionPrefix(stack)
 		case "member":
 			prefix = collectionPrefix(stack) + memberSegment(stack)
+		}
+		// Rails' path_for_action: inside a member/collection scope — the block form
+		// or the `on:` option — an action given as a SYMBOL that is one of the
+		// canonical actions is served at the scope's own path. `collection do
+		// get :index, to: 'reviews#show' end` is GET /orders/:id/review,
+		// not /review/index. A string path (`get 'index'`) or an explicit `path:`
+		// keeps its segment, as Rails does.
+		inMethodScope := on == "collection" || on == "member" ||
+			(len(stack) > 0 && stack[len(stack)-1].resourceMethodScope)
+		if inMethodScope && !pathGiven && firstPositionalIsSymbol(args) &&
+			canonicalResourceActions[strings.TrimPrefix(path, "/")] {
+			path = ""
 		}
 		props := map[string]any{
 			"method":    strings.ToUpper(method),
@@ -610,7 +624,7 @@ func (rw *routeWalker) handleCall(call *sitter.Node, stack []routeScope) {
 		}
 		if body != nil {
 			rw.walk(body, append(stack, routeScope{
-				pathPrefix: memberPrefix, dropParentMember: true,
+				pathPrefix: memberPrefix, dropParentMember: true, resourceMethodScope: true,
 			}))
 		}
 

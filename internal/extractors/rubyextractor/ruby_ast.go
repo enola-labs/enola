@@ -2574,6 +2574,30 @@ func firstPositionalPath(args *sitter.Node, src []byte) string {
 	return ""
 }
 
+// firstPositionalIsSymbol reports whether the argument firstPositionalPath reads
+// is a bare symbol (`get :index`) rather than a string (`get 'index'`). Rails
+// routes the two differently inside a member/collection scope: a symbol is an
+// action name, and a canonical action is served at the scope's own path.
+func firstPositionalIsSymbol(args *sitter.Node) bool {
+	if args == nil {
+		return false
+	}
+	for i := uint(0); i < args.ChildCount(); i++ {
+		c := args.Child(i)
+		switch kindOf(c) {
+		case "simple_symbol":
+			return true
+		case "string":
+			return false
+		case "pair":
+			if k := c.ChildByFieldName("key"); k != nil && kindOf(k) == "string" {
+				return false
+			}
+		}
+	}
+	return false
+}
+
 // isAllCaps reports whether s is an ALL_CAPS constant name (letters uppercase,
 // digits and underscores allowed). Matches the former constant regex.
 func isAllCaps(s string) bool {

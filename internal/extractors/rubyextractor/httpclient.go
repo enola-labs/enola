@@ -10,6 +10,13 @@ import (
 	"github.com/enola-labs/enola/internal/litfold"
 )
 
+// rubyReceiver is the receiver of an outbound client call: a variable or a
+// (possibly "::"-scoped) constant, optionally followed by ONE client accessor —
+// `Billing.client`, `Ledger.connection` — the module-level accessor shape a
+// wrapper exposes instead of a `*Client` constant. isHTTPClientReceiver decides
+// whether the captured token really names a client.
+const rubyReceiver = `([A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)*(?:\.(?:client|connection|conn|http_client|http))?)`
+
 // rubyClientCall matches an outbound HTTP-client call whose first argument is a
 // string literal, capturing the receiver, the HTTP verb, and the path literal in
 // one of two groups (double- or single-quote — RE2 has no backreferences). It
@@ -17,10 +24,26 @@ import (
 //
 //	SvcCheckoutClient.post('purchase/build')
 //	conn.get "users/123"
+//	Billing.client.post('/api/v1/accounts/balance', body)
 //
 // The leading (?:^|[^.\w@$]) ensures the receiver is not itself the tail of a
 // longer method chain (e.g. record.posts.get), which cuts ActiveRecord noise.
-var rubyClientCall = regexp.MustCompile(`(?:^|[^.\w@$])([A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)*)\.(get|post|put|patch|delete|head)\b\s*\(?\s*(?:"([^"]*)"|'([^']*)')`)
+var rubyClientCall = regexp.MustCompile(`(?:^|[^.\w@$])` + rubyReceiver + `\.(get|post|put|patch|delete|head)\b\s*\(?\s*(?:"([^"]*)"|'([^']*)')`)
+
+// rubyOpenCallAtEOL matches a client call whose argument list opens at the end
+// of the line, the path literal sitting on the next one:
+//
+//	Billing.client.get(
+//	  '/api/v1/accounts/limits',
+var rubyOpenCallAtEOL = regexp.MustCompile(`\.(?:get|post|put|patch|delete|head)\s*\(\s*$`)
+
+// rubyLiteralThenLiteral matches a second path-like argument — a string
+// literal or a SCREAMING_CASE constant — right after the first literal. A
+// wrapper taking `(label, path)` — `ApiClient.get('product lookup',
+// 'products/graph/attributes')`, `ApiClient.post('listing', PATH, …)`
+// — puts its path second, so the first literal is not the path and the call
+// derives nothing.
+var rubyLiteralThenLiteral = regexp.MustCompile(`^\s*,\s*(?:["']|[A-Z][A-Z0-9_]*\s*[,)])`)
 
 // rubyWrapperCall matches a client call whose first argument is a WRAPPER CALL
 // carrying one string literal — connection.post(build_url("/pageview"), attrs)
@@ -28,7 +51,7 @@ var rubyClientCall = regexp.MustCompile(`(?:^|[^.\w@$])([A-Za-z_][A-Za-z0-9_]*(?
 // plus its single quoted argument) is captured whole and handed to litfold,
 // which owns the rule: the wrapped literal must be "/"-rooted or it derives
 // nothing.
-var rubyWrapperCall = regexp.MustCompile(`(?:^|[^.\w@$])([A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)*)\.(get|post|put|patch|delete|head)\b\s*\(?\s*([a-z_][\w.]*[!?]?\(\s*(?:"[^"]*"|'[^']*')\s*\))`)
+var rubyWrapperCall = regexp.MustCompile(`(?:^|[^.\w@$])` + rubyReceiver + `\.(get|post|put|patch|delete|head)\b\s*\(?\s*([a-z_][\w.]*[!?]?\(\s*(?:"[^"]*"|'[^']*')\s*\))`)
 
 // rubyInterpolation matches a Ruby string interpolation, e.g. #{id}.
 var rubyInterpolation = regexp.MustCompile(`#\{[^}]*\}`)
@@ -87,9 +110,20 @@ func extractRubyHTTPClientFactsCounted(src []byte, relFile string) ([]facts.Fact
 	out := extractWrapperMethodClientFacts(string(src), relFile, api, envHint)
 	derivedFacts, derivedCount, misses := extractParameterClientFacts(strings.Split(string(src), "\n"), relFile, api, envHint)
 	out = append(out, derivedFacts...)
-	for i, line := range strings.Split(string(src), "\n") {
+	lines := strings.Split(string(src), "\n")
+	for i, line := range lines {
 		derived := ""
+		// The first argument and the one after it, so a (label, path) pair is
+		// seen as a pair.
+		if rubyOpenCallAtEOL.MatchString(line) {
+			for j := i + 1; j < len(lines) && j <= i+2; j++ {
+				line += " " + strings.TrimSpace(lines[j])
+			}
+		}
 		m := rubyClientCall.FindStringSubmatch(line)
+		if loc := rubyClientCall.FindStringIndex(line); loc != nil && rubyLiteralThenLiteral.MatchString(line[loc[1]:]) {
+			continue
+		}
 		if m == nil {
 			if wm := rubyWrapperCall.FindStringSubmatch(line); wm != nil {
 				if lit, ok := litfold.WrapperLiteralPath(wm[3]); ok {
@@ -244,9 +278,19 @@ func extractWrapperMethodClientFacts(src, relFile, api, envHint string) []facts.
 }
 
 // isHTTPClientReceiver reports whether a receiver token names an HTTP client: a
-// constant ending in "Client", or a known client variable name. The base name
-// after the last "::" is used so Net::HTTP and similar scoped receivers match.
+// constant ending in "Client", a known client variable name, or a client
+// accessor read off a constant (`Billing.client`). The base name after the last
+// "::" is used so Net::HTTP and similar scoped receivers match. An accessor on
+// a variable (`user.client`) is a model attribute far more often than a
+// client, so only a constant owner qualifies.
 func isHTTPClientReceiver(recv string) bool {
+	if owner, ok := accessorOwner(recv); ok {
+		base := owner
+		if i := strings.LastIndex(base, "::"); i >= 0 {
+			base = base[i+2:]
+		}
+		return base != "" && base[0] >= 'A' && base[0] <= 'Z'
+	}
 	base := recv
 	if i := strings.LastIndex(base, "::"); i >= 0 {
 		base = base[i+2:]
@@ -292,6 +336,11 @@ func cleanRubyPath(raw string) (string, bool) {
 	if p == "" || p == "/" {
 		return "", false
 	}
+	// A URL path carries no whitespace; a literal that does is a label or a
+	// message passed where the extractor expected a path ('product lookup').
+	if strings.ContainsAny(p, " \t") {
+		return "", false
+	}
 	// An interpolation the pattern could not close — `#{ENV["HOST"]}` has a
 	// bracket inside it — leaves a fragment behind. A path built from a value
 	// this extractor cannot read is not a path, and emitting the fragment
@@ -310,17 +359,36 @@ func cleanRubyPath(raw string) (string, bool) {
 }
 
 // hintFromReceiver derives a provider hint from a wrapper-client constant by
-// stripping a trailing "Client" and lowercasing, e.g. SvcCheckoutClient ->
-// "svccheckout". Returns "" for plain variable receivers (conn, client, http).
+// stripping a trailing "Client" and lowercasing, e.g. BillingClient ->
+// "billing". A client accessor names its provider by the constant that
+// owns it: Billing.client -> "billing", Ledger.connection -> "ledger".
+// Returns "" for plain variable receivers (conn, client, http).
 func hintFromReceiver(recv string) string {
+	owner, accessor := accessorOwner(recv)
 	base := recv
+	if accessor {
+		base = owner
+	}
 	if i := strings.LastIndex(base, "::"); i >= 0 {
 		base = base[i+2:]
+	}
+	if accessor && !strings.HasSuffix(base, "Client") {
+		return strings.ToLower(base)
 	}
 	if !strings.HasSuffix(base, "Client") || base == "Client" {
 		return ""
 	}
 	return strings.ToLower(strings.TrimSuffix(base, "Client"))
+}
+
+// accessorOwner splits an accessor receiver (`Billing.client`) into its owning
+// constant; ok is false for a receiver without an accessor.
+func accessorOwner(recv string) (string, bool) {
+	i := strings.LastIndexByte(recv, '.')
+	if i < 0 {
+		return "", false
+	}
+	return recv[:i], true
 }
 
 // envVarHint returns a provider hint derived from the first base-URL env var name

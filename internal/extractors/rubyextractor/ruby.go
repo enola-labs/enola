@@ -130,6 +130,8 @@ func (e *RubyExtractor) Extract(ctx context.Context, repoPath string, files []st
 	var clientMu sync.Mutex
 	clientDerived := 0
 	clientMisses := map[string]int{}
+	var constAssigns []rubyConstAssign
+	var constSinks []rubyConstSink
 	perFileFacts := parallel.MapFiles(ctx, rbFiles, func(relFile string) []facts.Fact {
 		src, err := os.ReadFile(filepath.Join(repoPath, relFile))
 		if err != nil {
@@ -142,9 +144,12 @@ func (e *RubyExtractor) Extract(ctx context.Context, repoPath string, files []st
 		// extractRubyHTTPClientFacts adds outbound HTTP-client routes.
 		ff := extractFileAST(src, relFile, isRails, exported)
 		clientFacts, derived, misses := extractRubyHTTPClientFactsCounted(src, relFile)
+		assigns, sinks := scanRubyClientConstants(src, relFile)
 		clientMu.Lock()
 		clientDerived += derived
 		mergeCounts(clientMisses, misses)
+		constAssigns = append(constAssigns, assigns...)
+		constSinks = append(constSinks, sinks...)
 		clientMu.Unlock()
 		ff = append(ff, clientFacts...)
 		ff = append(ff, extractGraphQLRubyRoutes(src, relFile)...)
@@ -221,6 +226,18 @@ func (e *RubyExtractor) Extract(ctx context.Context, repoPath string, files []st
 		allFacts = append(allFacts, fact)
 	}
 	if fact, ok := extcoverage.Fact(repoPath, "ruby:http-client", "ruby_client_path_parameter", clientDerived, clientMisses); ok {
+		allFacts = append(allFacts, fact)
+	}
+
+	// Client calls whose path is a constant resolve after the AST pass: a
+	// `self.class::PATH` sink in a base class is answered by subclasses in
+	// other files, which only the repository's class symbols connect. The
+	// parallel scan collected its inputs in completion order, so they are
+	// sorted first for a reproducible output.
+	sortConstInputs(constAssigns, constSinks)
+	constFacts, constDerived, constMisses := resolveRubyClientConstants(allFacts, constAssigns, constSinks)
+	allFacts = append(allFacts, constFacts...)
+	if fact, ok := extcoverage.Fact(repoPath, "ruby:http-client-constants", "ruby_client_path_constant", constDerived, constMisses); ok {
 		allFacts = append(allFacts, fact)
 	}
 

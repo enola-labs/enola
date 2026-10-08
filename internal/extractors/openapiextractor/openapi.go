@@ -161,11 +161,15 @@ func parseOpenAPIFile(absPath, relFile string) ([]facts.Fact, error) {
 
 	specDir := factpath.Dir(relFile)
 	var result []facts.Fact
+	refs := newPathItemResolver(absPath, relFile)
 
 	for path, pathItem := range spec.Paths {
 		if pathItem == nil {
 			continue
 		}
+		// A path item may be only a `$ref` to one held elsewhere — split specs
+		// keep each path in its own file. Its operations are read from there.
+		pathItem, itemFile := refs.resolve(pathItem)
 		for methodKey, opRaw := range pathItem {
 			httpMethod, ok := httpMethods[strings.ToLower(methodKey)]
 			if !ok {
@@ -185,6 +189,9 @@ func parseOpenAPIFile(absPath, relFile string) ([]facts.Fact, error) {
 			if gatewayPrefix != "" {
 				props["gateway_prefix"] = gatewayPrefix
 				props["gateway_path"] = gatewayPrefix + path
+			}
+			if itemFile != "" {
+				props["path_item_file"] = itemFile
 			}
 
 			if opRaw != nil {
@@ -239,14 +246,17 @@ func parseOpenAPIFile(absPath, relFile string) ([]facts.Fact, error) {
 	return result, nil
 }
 
-// isClientSpec returns true when the spec file lives inside a "client" directory
-// that is itself inside an "openapi" directory. These specs describe the API of
-// another service that this repo calls, not routes this service serves.
-// Examples: api/openapi/client/svc-foo.yml, packages/x/api/openapi/client/svc-bar.yml
+// isClientSpec returns true when the spec file lives inside a "client" (or
+// "clients") directory that is itself inside an "openapi" directory. These
+// specs describe the API of another service that this repo calls, not routes
+// this service serves; read as server routes, they make the repo look like the
+// provider of every service it vendors a client for.
+// Examples: api/openapi/client/billing.yml, api/openapi/clients/geo.yml,
+// packages/x/api/openapi/client/ledger.yml
 func isClientSpec(relFile string) bool {
 	parts := strings.Split(filepath.ToSlash(relFile), "/")
 	for i, part := range parts {
-		if part == "client" && i > 0 && parts[i-1] == "openapi" {
+		if (part == "client" || part == "clients") && i > 0 && parts[i-1] == "openapi" {
 			return true
 		}
 	}

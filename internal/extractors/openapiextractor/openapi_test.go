@@ -181,6 +181,31 @@ paths:
 	}
 }
 
+// Vendored specs may live under openapi/clients/ (plural). Read as server
+// routes they would make the repository the provider of every API it calls.
+func TestExtract_ClientRolePluralDirectory(t *testing.T) {
+	repo := t.TempDir()
+	writeSpec(t, repo, "api/openapi/clients/geo.yml", `openapi: 3.0.0
+info: { title: Geo, version: 1.0.0 }
+paths:
+  /api/v1/regions:
+    get:
+      operationId: listRegions
+      responses:
+        "200": { description: OK }
+`)
+
+	got := extract(t, repo)
+
+	client := findRoute(got, "/api/v1/regions", "GET")
+	if client == nil {
+		t.Fatal("missing client route /api/v1/regions")
+	}
+	if client.Props["role"] != "client" {
+		t.Errorf("spec under openapi/clients/ should be role=client; got %v", client.Props["role"])
+	}
+}
+
 func TestExtract_GatewayPrefix(t *testing.T) {
 	repo := t.TempDir()
 	writeSpec(t, repo, "api/openapi/svc.openapi.yaml", `openapi: 3.0.0

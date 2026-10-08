@@ -247,6 +247,16 @@ type routeScope struct {
 	// member param: `member`/`collection` blocks address the resource itself
 	// rather than something nested under it.
 	dropParentMember bool
+	// resourceMethodScope marks a `member`/`collection` block: Rails' scope level
+	// there is a resource method scope, so a canonical action declared by symbol
+	// (`get :index`) is served at the block's own path, not at /index.
+	resourceMethodScope bool
+}
+
+// canonicalResourceActions are the actions Rails' path_for_action serves at the
+// scope's own path inside a resource method scope (CANONICAL_ACTIONS).
+var canonicalResourceActions = map[string]bool{
+	"index": true, "create": true, "new": true, "show": true, "update": true, "destroy": true,
 }
 
 // buildPrefix constructs the current URL prefix from the scope stack,
