@@ -23,6 +23,7 @@ var kindMeaning = map[diff.WarningKind]string{
 	diff.WarnProviderSet:     "a provider that ran on one side only makes all of its facts appear added or removed",
 	diff.WarnExplainerSet:    "an explainer present on one side only makes all of its findings appear new or resolved; the facts and coupling in this delta are unaffected",
 	diff.WarnIgnoreGlobs:     "the set of files parsed changed, so some of this delta is exclusion changes, not code changes",
+	diff.WarnUnionMembership: "a repository the baseline measured is not in this snapshot, so everything about its code reads as removed and its findings as resolved",
 	diff.WarnUnclassified:    "an uncategorized caveat was raised; the gate fails closed rather than grade what it cannot judge",
 	diff.WarnStaleBaseline:   "the delta is real, but it also contains whatever the repository itself changed since the baseline was pinned",
 	diff.WarnPreReceipt:      "the baseline has no recorded version or extractor set, so comparability could not be fully verified",

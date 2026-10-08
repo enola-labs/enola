@@ -30,3 +30,7 @@ var CompareMeta = internal.CompareMeta
 // CompareReceipts compares two snapshot receipts (comparability + metric deltas
 // + extraction-quality regressions).
 var CompareReceipts = internal.CompareReceipts
+
+// CompareSnapshotReceipts is CompareReceipts over two whole snapshots, which also
+// sees a union that lost a member.
+var CompareSnapshotReceipts = internal.CompareSnapshotReceipts

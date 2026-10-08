@@ -125,6 +125,9 @@ func TestEvaluate_BlockingDeclinesRatherThanFails(t *testing.T) {
 		diff.WarnExtractorSet,
 		diff.WarnIgnoreGlobs,
 		diff.WarnUnclassified,
+		// A union that lost a member: the diff layer declares the delta invalid, and
+		// the gate graded it PASS because the kind sat in neither map.
+		diff.WarnUnionMembership,
 	} {
 		t.Run(string(kind), func(t *testing.T) {
 			d := &diff.SnapshotDiff{
@@ -574,5 +577,32 @@ func TestUnenforcedAtFloor_SkipsDescriptiveFindings(t *testing.T) {
 
 	if got := v.UnenforcedAtFloor(); len(got) != 0 {
 		t.Errorf("UnenforcedAtFloor() = %+v, want empty", got)
+	}
+}
+
+// TestEveryWarningKindIsClassified guards the two copies of "which warnings are
+// fatal". A kind declared in internal/diff and registered in neither map here is
+// printed and then graded as if it had not been raised: union_membership reached
+// production that way, as PASS over a baseline that had lost a whole repository.
+func TestEveryWarningKindIsClassified(t *testing.T) {
+	for _, kind := range diff.WarningKinds() {
+		// The gate reads an inverted pair as a usage error, not as either bucket.
+		usage := kind == diff.WarnInvertedPair
+		var homes int
+		for _, in := range []bool{blockingKinds[kind], advisoryKinds[kind], usage} {
+			if in {
+				homes++
+			}
+		}
+		if homes != 1 {
+			t.Errorf("%s is classified %d times, want exactly once (blocking, advisory, or usage error)", kind, homes)
+		}
+		if _, ok := kindMeaning[kind]; !ok {
+			t.Errorf("%s has no kindMeaning: the gate would name it without saying what it does to the delta", kind)
+		}
+		invalidates := diff.Comparability{Kinds: []diff.WarningKind{kind}}.InvalidatesDelta()
+		if want := blockingKinds[kind] || usage; invalidates != want {
+			t.Errorf("%s: InvalidatesDelta() = %v but the gate treats it as blocking-or-usage = %v", kind, invalidates, want)
+		}
 	}
 }

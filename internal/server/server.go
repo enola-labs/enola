@@ -2405,7 +2405,11 @@ func (s *Server) registerTools() {
 				return errorResult(fmt.Sprintf("could not load baseline from %q: %v", args.Baseline, err)), nil, nil
 			}
 		}
-		rc := diff.CompareReceipts(baseline.Meta, s.eng.MetaFor(s.currentRepoPath()))
+		// Both snapshots, not both metas: a union's members are labels on its facts,
+		// and a meta-only comparison cleared a pair diff_snapshot refused. FactsRef
+		// for the reason diff_snapshot gives — the comparison only reads.
+		current := &facts.Snapshot{Meta: s.eng.MetaFor(s.currentRepoPath()), Facts: s.eng.Store().FactsRef()}
+		rc := diff.CompareSnapshotReceipts(baseline, current)
 		if resolveOutputMode(args.OutputMode, modeSummary) == modeFull {
 			return jsonResultCapped(rc, args.MaxTokens)
 		}

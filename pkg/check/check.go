@@ -249,6 +249,10 @@ var blockingKinds = map[diff.WarningKind]bool{
 	// ran-provider set invalidates the fact delta the same way.
 	diff.WarnProviderSet: true,
 	diff.WarnIgnoreGlobs: true,
+	// A union that lost a member. internal/diff declares the delta invalid
+	// (InvalidatesDelta); unregistered here, the gate printed the warning and
+	// graded the pair PASS, with the lost repository's findings as resolved.
+	diff.WarnUnionMembership: true,
 	// Fail closed on a caveat this package cannot categorize — see diff.AddWarning.
 	diff.WarnUnclassified: true,
 }

@@ -772,6 +772,7 @@ func TestComparability_InvalidatesDeltaSeparatesRebuildsFromElapsedTime(t *testi
 		WarnIgnoreGlobs:     true,
 		WarnInvertedPair:    true,
 		WarnUnclassified:    true,
+		WarnUnionMembership: true,
 		// Advisory: the fact delta stands, it just also contains the repo's own drift or
 		// a finding misattribution.
 		WarnStaleBaseline: false,
