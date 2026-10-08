@@ -33,6 +33,11 @@ import (
 // test functions that assert the behavior that version introduced. v1 is the
 // implicit baseline (no changelog line), so coverage starts at v2.
 var versionCoverage = map[int][]string{
+	293: { // Go: struct field edges name the declared types inside composite field types and nothing else; a bare call through a local func value is not a package call
+		"TestStructFieldEdgesReachTypesInsideCompositeTypes",
+		"TestStructFieldEdgesNameOnlyDeclaredTypes",
+		"TestBareCallThroughLocalFuncValueIsNotAPackageCall",
+	},
 	292: { // C/C++: duplicated type names resolve per referencing fact; namespaced types and members resolve by simple name; reference receivers are typed
 		"TestReceiverCallBindsToTheCopyTheCallerIncludes",
 		"TestReceiverCallStaysUnboundWhenNoCopyIsVisible",
