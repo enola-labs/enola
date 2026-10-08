@@ -20,6 +20,16 @@ import (
 	"github.com/enola-labs/enola/pkg/plugin"
 )
 
+// v292: C/C++ resolves a type name declared in several directories (vendored copies
+// of one header, two modules that each define a Config) per referencing fact: the
+// only copy with the member, else the caller's own directory, else the one copy its
+// includes reach. It used to take whichever declaration was indexed last, for
+// receiver calls, Type::method() calls, base classes and constructors alike. A name
+// no rule can tell apart is left unresolved. Once the directory is known, a type or
+// member inside a namespace is reached by its simple name (a base class `Surface`
+// lands on dir.geo::Surface instead of a dir.Surface nothing declares), and a
+// receiver declared as a reference (`T &x`, `const T &x`) is typed like a pointer
+// or a local, so calls through it are edges.
 // v291: Rust keeps test-local declarations out of production facts, records calls
 // evaluated by tracing::instrument, marks ABI/framework and ctor/divan/starlark
 // registrations, and tags const-local functions as compile-time context. It also
@@ -2580,7 +2590,7 @@ import (
 // v270: SvelteKit reads literal kit.alias fallbacks before generated config exists,
 // keeps tsconfig paths authoritative, and classifies $app/$env/$service-worker imports
 // as framework-provided rather than unresolved third-party dependencies.
-const cacheVersion = "v291"
+const cacheVersion = "v292"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

@@ -33,6 +33,20 @@ import (
 // test functions that assert the behavior that version introduced. v1 is the
 // implicit baseline (no changelog line), so coverage starts at v2.
 var versionCoverage = map[int][]string{
+	292: { // C/C++: duplicated type names resolve per referencing fact; namespaced types and members resolve by simple name; reference receivers are typed
+		"TestReceiverCallBindsToTheCopyTheCallerIncludes",
+		"TestReceiverCallStaysUnboundWhenNoCopyIsVisible",
+		"TestReceiverCallPrefersTheCallersOwnDirectory",
+		"TestReceiverCallBindsToTheOnlyCopyDeclaringTheMethod",
+		"TestBaseClassBindsToTheCopyTheCallerIncludes",
+		"TestConstructorBindsToTheCopyTheCallerIncludes",
+		"TestScopedCallBindsToTheCopyTheCallerIncludes",
+		"TestDuplicatedTypeWithNoVisibleCopyIsNotGuessed",
+		"TestNamespacedMemberResolvesInsideTheChosenDirectory",
+		"TestBaseClassInsideNamespaceResolvesByItsSimpleName",
+		"TestReferenceParameterAndLocalReceiverCalls",
+		"TestFileScopeMacroReferenceStaysInItsOwnDirectory",
+	},
 	291: {
 		"TestAST_CfgTestMod_LocalFunctionsStayTestOnly",
 		"TestAST_InstrumentAttributeRecordsCalls",
