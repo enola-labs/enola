@@ -2,6 +2,7 @@ package diff
 
 import (
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -141,4 +142,42 @@ func TestCompareReceipts(t *testing.T) {
 			t.Errorf("pruning a directory is not a regression, got: %v", rc.QualityRegressions)
 		}
 	})
+}
+
+// A union's members are labels on its facts, not fields of its meta, so the meta
+// of a two-repository union and of its last member alone are field-for-field
+// equal. compare_receipts answered "equivalent inputs" for that pair while
+// diff_snapshot, over the same two snapshots, refused it.
+func TestCompareSnapshotReceipts_ADroppedUnionMemberIsNotEquivalentInputs(t *testing.T) {
+	meta := facts.SnapshotMeta{EnolaVersion: "1.0", Extractors: []string{"go"}, FilesSeen: 10, FilesParsed: 10}
+	kept := facts.Fact{Kind: facts.KindSymbol, Name: "Kept", File: "web/kept.ts", Repo: "web"}
+	gone := facts.Fact{Kind: facts.KindSymbol, Name: "Gone", File: "api/gone.rb", Repo: "api"}
+
+	base := &facts.Snapshot{Meta: meta, Facts: []facts.Fact{kept, gone}}
+	base.Meta.SnapshotID = "aaa"
+	cur := &facts.Snapshot{Meta: meta, Facts: []facts.Fact{kept}}
+	cur.Meta.SnapshotID = "bbb"
+
+	if c := CompareMeta(base.Meta, cur.Meta); !c.Comparable {
+		t.Fatalf("the metas alone must compare clean, or this test proves nothing: %+v", c)
+	}
+
+	rc := CompareSnapshotReceipts(base, cur)
+	if !rc.Comparability.HasKind(WarnUnionMembership) {
+		t.Fatalf("comparability = %+v, want union_membership", rc.Comparability)
+	}
+	if rc.Comparability.Comparable {
+		t.Error("Comparable = true for a union that lost a member")
+	}
+	if out := rc.Render(); !strings.Contains(out, "Not safely comparable") || strings.Contains(out, "equivalent inputs") {
+		t.Errorf("render must refuse the pair, got:\n%s", out)
+	}
+	if want := Compute(base, cur).Comparability; !reflect.DeepEqual(rc.Comparability, want) {
+		t.Errorf("compare_receipts and diff_snapshot disagree about one pair:\n receipt %+v\n diff    %+v", rc.Comparability, want)
+	}
+
+	same := CompareSnapshotReceipts(base, &facts.Snapshot{Meta: cur.Meta, Facts: []facts.Fact{kept, gone}})
+	if !same.Comparability.Comparable {
+		t.Errorf("an unchanged member set must stay comparable: %+v", same.Comparability)
+	}
 }

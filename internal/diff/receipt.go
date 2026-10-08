@@ -8,9 +8,11 @@ import (
 )
 
 // CompareMeta reports whether two snapshots were generated over equivalent
-// inputs (see compareMeta). It is exported so the compare_receipts tool can reuse
-// the exact comparability logic diff_snapshot applies, without computing a full
-// structural delta.
+// inputs (see compareMeta), for callers that hold only the two receipts.
+//
+// It is not everything diff_snapshot checks. A union's members are labels on its
+// facts, not fields of its meta, so a union and its last member alone compare
+// clean here; a caller holding both snapshots uses CompareSnapshotReceipts.
 func CompareMeta(base, cur facts.SnapshotMeta) Comparability {
 	return compareMeta(base, cur)
 }
@@ -38,7 +40,8 @@ type ReceiptComparison struct {
 }
 
 // CompareReceipts compares a baseline snapshot's receipt against the current one.
-// It computes comparability, per-metric deltas, and quality regressions.
+// It computes comparability, per-metric deltas, and quality regressions. Its
+// comparability is meta-only (see CompareMeta).
 func CompareReceipts(base, cur facts.SnapshotMeta) *ReceiptComparison {
 	rc := &ReceiptComparison{
 		Comparability: compareMeta(base, cur),
@@ -82,6 +85,15 @@ func CompareReceipts(base, cur facts.SnapshotMeta) *ReceiptComparison {
 		}
 	}
 
+	return rc
+}
+
+// CompareSnapshotReceipts is CompareReceipts for a caller that holds both
+// snapshots, and the one the compare_receipts tool uses: its comparability is
+// the diff's own, so the pre-check cannot clear a pair diff_snapshot refuses.
+func CompareSnapshotReceipts(base, cur *facts.Snapshot) *ReceiptComparison {
+	rc := CompareReceipts(base.Meta, cur.Meta)
+	rc.Comparability = compareSnapshots(base, cur)
 	return rc
 }
 

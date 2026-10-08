@@ -657,6 +657,7 @@ The engine lives in [`internal/diff`](internal/diff/diff.go) (pure `Compute` + d
 | `version_mismatch` | different enola versions (extractor changes read as churn) | blocking |
 | `extractor_set` | a language present on one side only | blocking |
 | `ignore_globs` | the set of files parsed changed | blocking |
+| `union_membership` | a repository the baseline measured is absent from the current snapshot (a union that lost a member); raised only where both snapshots are in hand, because membership is a label on facts, not a field of the receipt | blocking |
 | `unclassified` | contributed via `AddWarning` by a caller that knows something this package cannot (notably `engine.Drift`) | blocking — a gate must **fail closed** on a caveat it cannot categorize |
 | `inverted_pair` | the baseline is *newer* than the current snapshot | usage error (concrete remedy: re-generate) |
 | `stale_baseline` | the baseline is ≥ 3 days older | **advisory** — warn and still grade |

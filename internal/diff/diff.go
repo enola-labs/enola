@@ -151,6 +151,19 @@ const (
 	WarnOtherSession WarningKind = "other_session"
 )
 
+// WarningKinds returns every kind this package can raise. It exists for the
+// consumers that keep their own classification of the kinds (the gate's blocking
+// and advisory maps): a test over this list is what stops a kind added here from
+// landing in none of them.
+func WarningKinds() []WarningKind {
+	return []WarningKind{
+		WarnDifferentRepo, WarnRepoLabel, WarnVersionMismatch, WarnExtractorSet,
+		WarnProviderSet, WarnExplainerSet, WarnIgnoreGlobs, WarnInvertedPair,
+		WarnStaleBaseline, WarnPreReceipt, WarnUnclassified, WarnUnionMembership,
+		WarnOtherSession,
+	}
+}
+
 // InvalidatesDelta reports whether a warning means the numbers describe something OTHER
 // than the change being examined — a different repository, a different enola, a different
 // extractor set or ignore list. Those make a delta a fiction.
@@ -279,6 +292,22 @@ type SnapshotDiff struct {
 	FindingsChanged []InsightChange `json:"findings_changed,omitempty"`
 }
 
+// compareSnapshots is compareMeta plus the one question the meta cannot answer.
+// Every surface that holds both snapshots goes through it, so the diff and the
+// receipt comparison cannot give different answers about one pair.
+func compareSnapshots(baseline, current *facts.Snapshot) Comparability {
+	c := compareMeta(baseline.Meta, current.Meta)
+	// The union arm: a multi-repo snapshot's members are labels on its facts,
+	// not fields of its identity.
+	if gone := droppedRepos(baseline, current); len(gone) > 0 {
+		c.add(WarnUnionMembership,
+			"the baseline measured %s and this snapshot does not — every verdict about that code went quiet at once, so a breach that stopped being reported is not a breach that was fixed",
+			strings.Join(gone, ", "))
+		c.Comparable = false
+	}
+	return c
+}
+
 // Compute returns the delta from baseline to current. A nil snapshot is treated
 // as empty (so the first diff against no baseline reports everything as added).
 func Compute(baseline, current *facts.Snapshot) *SnapshotDiff {
@@ -310,15 +339,7 @@ func ComputeChanged(baseline, current *facts.Snapshot, changedFiles []string) *S
 		d.CurrentGeneratedAt = current.Meta.GeneratedAt
 	}
 	if baseline != nil && current != nil {
-		d.Comparability = compareMeta(baseline.Meta, current.Meta)
-		// The union arm, which the meta cannot answer: a multi-repo snapshot's
-		// members are labels on its facts, not fields of its identity.
-		if gone := droppedRepos(baseline, current); len(gone) > 0 {
-			d.Comparability.add(WarnUnionMembership,
-				"the baseline measured %s and this snapshot does not — every verdict about that code went quiet at once, so a breach that stopped being reported is not a breach that was fixed",
-				strings.Join(gone, ", "))
-			d.Comparability.Comparable = false
-		}
+		d.Comparability = compareSnapshots(baseline, current)
 	} else {
 		// No baseline (or no current) to check against — the delta stands alone, so
 		// there is nothing it could be incomparable with.
