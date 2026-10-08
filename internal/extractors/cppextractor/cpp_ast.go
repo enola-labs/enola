@@ -1792,7 +1792,7 @@ func collectExplicitReceiverTypes(kinds *tsutil.KindTable, lang string, fdecl, b
 			if node.FieldNameForChild(uint32(i)) != "declarator" {
 				continue
 			}
-			name := declaratorLeafName(kinds, node.Child(i), src)
+			name := declaratorLeafName(kinds, referencedDeclarator(kinds, node.Child(i)), src)
 			if name == "" {
 				continue
 			}
@@ -1824,6 +1824,23 @@ func collectExplicitReceiverTypes(kinds *tsutil.KindTable, lang string, fdecl, b
 		addDeclaration(decl)
 	}
 	return out
+}
+
+// referencedDeclarator steps through the reference in `T &name` and
+// `T &name = init`. The grammar gives a reference_declarator's operand no field
+// name, so declaratorLeafName, which descends by the declarator field, stops there.
+func referencedDeclarator(kinds *tsutil.KindTable, node *sitter.Node) *sitter.Node {
+	if kindOf(kinds, node) == "init_declarator" {
+		if inner := node.ChildByFieldName("declarator"); inner != nil {
+			node = inner
+		}
+	}
+	if kindOf(kinds, node) == "reference_declarator" && node.ChildByFieldName("declarator") == nil {
+		if inner := firstNamedChild(node); inner != nil {
+			return inner
+		}
+	}
+	return node
 }
 
 // declaredInsideLambda reports whether node sits under a lambda between it and

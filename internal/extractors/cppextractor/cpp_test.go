@@ -360,6 +360,207 @@ void run(Worker worker) { worker.missing(); }`,
 	}
 }
 
+// duplicatedLexer mirrors two vendored copies of one C header: the same struct,
+// with the same function-pointer members, declared in two directories.
+func duplicatedLexer() map[string]string {
+	const header = `typedef struct Lexer Lexer;
+struct Lexer {
+  void (*advance)(Lexer *);
+};`
+	const scanner = `#include "tree/lexer.h"
+void scan(Lexer *lexer) { lexer->advance(lexer); }`
+	return map[string]string{
+		"a/tree/lexer.h": header,
+		"a/scan.c":       scanner,
+		"b/tree/lexer.h": header,
+		"b/scan.c":       scanner,
+	}
+}
+
+func TestReceiverCallBindsToTheCopyTheCallerIncludes(t *testing.T) {
+	ff := extractProject(t, duplicatedLexer())
+	for _, dir := range []string{"a", "b"} {
+		other := "b"
+		if dir == "b" {
+			other = "a"
+		}
+		scan := mustFact(t, ff, dir+".scan")
+		if !hasRelation(scan, facts.RelCalls, dir+"/tree.Lexer::advance") {
+			t.Errorf("%s/scan.c should call its own copy of Lexer::advance, got %+v", dir, scan.Relations)
+		}
+		if hasRelation(scan, facts.RelCalls, other+"/tree.Lexer::advance") {
+			t.Errorf("%s/scan.c was bound to the copy under %s/, which it never includes: %+v", dir, other, scan.Relations)
+		}
+	}
+}
+
+func TestReceiverCallStaysUnboundWhenNoCopyIsVisible(t *testing.T) {
+	files := duplicatedLexer()
+	files["c/scan.c"] = `typedef struct Lexer Lexer;
+void scan(Lexer *lexer) { lexer->advance(lexer); }`
+	ff := extractProject(t, files)
+	scan := mustFact(t, ff, "c.scan")
+	for _, rel := range scan.Relations {
+		if rel.Kind == facts.RelCalls || rel.Kind == relReceiverCallCandidate {
+			t.Fatalf("a receiver call with two candidate types and no include path was bound: %+v", scan.Relations)
+		}
+	}
+}
+
+func TestReceiverCallPrefersTheCallersOwnDirectory(t *testing.T) {
+	ff := extractProject(t, map[string]string{
+		"app/worker.h":    `class Worker { public: void step(); };`,
+		"vendor/worker.h": `class Worker { public: void step(); };`,
+		"vendor/extra.h":  `void extra();`,
+		// A C++ source keeps vendor/'s bare .h files on the C++ grammar.
+		"vendor/extra.cpp": `void extra() {}`,
+		"app/run.cpp": `#include "worker.h"
+#include "../vendor/extra.h"
+void run(Worker *worker) { worker->step(); }`,
+	})
+	run := mustFact(t, ff, "app.run")
+	if !hasRelation(run, facts.RelCalls, "app.Worker::step") {
+		t.Fatalf("a type declared in the caller's own directory should win over an included copy: %+v", run.Relations)
+	}
+}
+
+func TestReceiverCallBindsToTheOnlyCopyDeclaringTheMethod(t *testing.T) {
+	ff := extractProject(t, map[string]string{
+		"lib/worker.h":     `class Worker { public: void step(); };`,
+		"lib/worker.cpp":   `void Worker::step() {}`,
+		"other/worker.h":   `class Worker { public: int id; };`,
+		"other/worker.cpp": `int unrelated() { return 0; }`,
+		"app/run.cpp":      `void run(Worker *worker) { worker->step(); }`,
+	})
+	run := mustFact(t, ff, "app.run")
+	if !hasRelation(run, facts.RelCalls, "lib.Worker::step") {
+		t.Fatalf("Worker::step is declared once in the repository and should resolve: %+v", run.Relations)
+	}
+}
+
+// duplicatedBase declares one class name in two directories, each with a consumer
+// that includes only its own copy.
+func duplicatedBase(consumer string) map[string]string {
+	const header = `class Base { public: Base(); static void init(); };`
+	return map[string]string{
+		"a/base.h":  header,
+		"a/use.cpp": "#include \"base.h\"\n" + consumer,
+		"b/base.h":  header,
+		"b/use.cpp": "#include \"base.h\"\n" + consumer,
+	}
+}
+
+func TestBaseClassBindsToTheCopyTheCallerIncludes(t *testing.T) {
+	ff := extractProject(t, duplicatedBase(`class Derived : public Base {};`))
+	derived := mustFact(t, ff, "a.Derived")
+	if !hasRelation(derived, facts.RelImplements, "a.Base") || hasRelation(derived, facts.RelImplements, "b.Base") {
+		t.Fatalf("a.Derived should implement a.Base only, got %+v", derived.Relations)
+	}
+}
+
+func TestConstructorBindsToTheCopyTheCallerIncludes(t *testing.T) {
+	ff := extractProject(t, duplicatedBase(`void make() { Base made = Base(); }`))
+	make := mustFact(t, ff, "a.make")
+	if !hasRelation(make, facts.RelInstantiates, "a.Base") || hasRelation(make, facts.RelInstantiates, "b.Base") {
+		t.Fatalf("a.make should instantiate a.Base only, got %+v", make.Relations)
+	}
+}
+
+func TestScopedCallBindsToTheCopyTheCallerIncludes(t *testing.T) {
+	ff := extractProject(t, duplicatedBase(`void start() { Base::init(); }`))
+	start := mustFact(t, ff, "a.start")
+	if !hasRelation(start, facts.RelCalls, "a.Base::init") || hasRelation(start, facts.RelCalls, "b.Base::init") {
+		t.Fatalf("a.start should call a.Base::init only, got %+v", start.Relations)
+	}
+}
+
+func TestDuplicatedTypeWithNoVisibleCopyIsNotGuessed(t *testing.T) {
+	files := duplicatedBase(`void start() { Base::init(); }`)
+	files["c/use.cpp"] = `class Derived : public Base {};
+void make() { Base made = Base(); }
+void start() { Base::init(); }`
+	ff := extractProject(t, files)
+	for _, name := range []string{"c.Derived", "c.make", "c.start"} {
+		for _, rel := range mustFact(t, ff, name).Relations {
+			if strings.HasPrefix(rel.Target, "a.Base") || strings.HasPrefix(rel.Target, "b.Base") {
+				t.Errorf("%s was bound to one of two copies it cannot see: %+v", name, rel)
+			}
+		}
+	}
+}
+
+func TestNamespacedMemberResolvesInsideTheChosenDirectory(t *testing.T) {
+	const header = `namespace ns { class Server { public: static void instance(); }; }`
+	const use = `#include "server.h"
+using namespace ns;
+void start() { Server::instance(); }
+void poll(Server *server) { server->instance(); }`
+	ff := extractProject(t, map[string]string{
+		"a/server.h": header, "a/use.cpp": use,
+		"b/server.h": header, "b/use.cpp": use,
+	})
+	for _, name := range []string{"a.start", "a.poll"} {
+		caller := mustFact(t, ff, name)
+		if !hasRelation(caller, facts.RelCalls, "a.ns::Server::instance") {
+			t.Errorf("%s should call a.ns::Server::instance, got %+v", name, caller.Relations)
+		}
+	}
+}
+
+func TestBaseClassInsideNamespaceResolvesByItsSimpleName(t *testing.T) {
+	ff := extractProject(t, map[string]string{
+		"src/shape.cpp": `namespace geo { class Surface {}; }
+using namespace geo;
+class Plane : public Surface {};
+void make() { Surface made = Surface(); }`,
+	})
+	if plane := mustFact(t, ff, "src.Plane"); !hasRelation(plane, facts.RelImplements, "src.geo::Surface") {
+		t.Errorf("src.Plane should implement src.geo::Surface, got %+v", plane.Relations)
+	}
+	if made := mustFact(t, ff, "src.make"); !hasRelation(made, facts.RelInstantiates, "src.geo::Surface") {
+		t.Errorf("src.make should instantiate src.geo::Surface, got %+v", made.Relations)
+	}
+}
+
+func TestReferenceParameterAndLocalReceiverCalls(t *testing.T) {
+	ff := extractProject(t, map[string]string{
+		"src/worker.cpp": `
+class Worker { public: void step(); void stop(); void rest() const; };
+void Worker::step() {}
+void Worker::stop() {}
+void Worker::rest() const {}
+void byParameter(Worker &worker) { worker.step(); }
+void byConstParameter(const Worker &worker) { worker.rest(); }
+void byLocal(Worker *source) {
+  Worker &alias = *source;
+  alias.stop();
+}`,
+	})
+	for caller, method := range map[string]string{"byParameter": "step", "byConstParameter": "rest", "byLocal": "stop"} {
+		if f := mustFact(t, ff, "src."+caller); !hasRelation(f, facts.RelCalls, "src.Worker::"+method) {
+			t.Errorf("%s: a call through a reference was not resolved: %+v", caller, f.Relations)
+		}
+	}
+}
+
+func TestFileScopeMacroReferenceStaysInItsOwnDirectory(t *testing.T) {
+	ff := extractProject(t, map[string]string{
+		"lib/setup.h": `int setup(void);`,
+		"lib/setup.c": `int setup(void) { return 0; }`,
+		"drv/mod.c": `#include "../lib/setup.h"
+int local(void) { return 0; }
+module_init(setup);
+module_exit(local);`,
+	})
+	drv := mustFact(t, ff, "drv")
+	if !hasRelation(drv, facts.RelCalls, "drv.local") {
+		t.Errorf("a registration macro naming a function in its own directory should resolve: %+v", drv.Relations)
+	}
+	if hasRelation(drv, facts.RelCalls, "lib.setup") {
+		t.Errorf("a bare file-scope identifier was bound to a function in another directory: %+v", drv.Relations)
+	}
+}
+
 func TestBareCallResolvesToUniqueFunctionInAnotherDirectory(t *testing.T) {
 	ff := extractProject(t, map[string]string{
 		"lib/check.h":   `bool check(int);`,
@@ -408,7 +609,9 @@ func TestQualifiedCallResolvesByUniqueQualifiedSuffix(t *testing.T) {
 		{Kind: facts.KindSymbol, Name: "app.run", File: "app/run.cpp", Props: map[string]any{"symbol_kind": facts.SymbolFunc}, Relations: []facts.Relation{{Kind: facts.RelCalls, Target: "Util::check"}}},
 	}
 	visibility := &includeVisibility{edges: map[string]map[string]bool{"app": {"lib": true}}, cache: map[string]map[string]bool{}}
-	stats := canonicalizeTargets(ff, map[string]string{"Util": "lib"}, indexFunctionNames(ff), visibility)
+	types := newTypeIndex()
+	types.add("Util", "lib", "lib.DB::Util")
+	stats := canonicalizeTargets(ff, types, indexFunctionNames(ff), visibility)
 	run := mustFact(t, ff, "app.run")
 	if !hasRelation(run, facts.RelCalls, "lib.DB::Util::check") {
 		t.Fatalf("unique qualified cross-directory function was not resolved: %+v", run.Relations)
