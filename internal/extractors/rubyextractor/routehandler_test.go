@@ -848,3 +848,56 @@ end
 		}
 	}
 }
+
+// Inside a member/collection scope Rails serves a canonical action declared by
+// SYMBOL at the scope's own path (path_for_action / CANONICAL_ACTIONS):
+// GET /orders/:order_id/review, not .../index.
+// A string path or an explicit `path:` keeps its segment, and a non-canonical
+// symbol keeps its own name.
+func TestRoute_CanonicalActionInMethodScopeUsesScopePath(t *testing.T) {
+	idx := routeIndex(t, `
+Rails.application.routes.draw do
+  resources :orders, only: [] do
+    resources :review, only: [] do
+      collection do
+        get :index, to: 'reviews#show'
+        put :update, to: 'reviews#update'
+        get :notes, to: 'review_notes#show'
+        get 'show', to: 'reviews#legacy'
+        get :new, path: 'new', to: 'reviews#fresh'
+      end
+    end
+  end
+  resources :posts do
+    get :show, on: :member, to: 'posts#preview'
+    delete :destroy, on: :collection, to: 'posts#purge'
+  end
+end
+`)
+	for key, handler := range map[string]string{
+		"GET /orders/:order_id/review":       "reviews#show",
+		"PUT /orders/:order_id/review":       "reviews#update",
+		"GET /orders/:order_id/review/notes": "review_notes#show",
+		"GET /orders/:order_id/review/show":  "reviews#legacy",
+		"GET /orders/:order_id/review/new":   "reviews#fresh",
+		"GET /posts/:id":                     "posts#preview",
+		"DELETE /posts":                      "posts#purge",
+	} {
+		f, ok := idx[key]
+		if !ok {
+			t.Errorf("missing %s; have:\n  %s", key, routeKeys(idx))
+			continue
+		}
+		if f.Props["handler"] != handler {
+			t.Errorf("%s handler = %v, want %s", key, f.Props["handler"], handler)
+		}
+	}
+	for _, key := range []string{
+		"GET /orders/:order_id/review/index",
+		"PUT /orders/:order_id/review/update",
+	} {
+		if _, ok := idx[key]; ok {
+			t.Errorf("%s emitted; Rails serves it at the collection path", key)
+		}
+	}
+}
