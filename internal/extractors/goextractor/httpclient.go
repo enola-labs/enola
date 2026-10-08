@@ -155,6 +155,19 @@ func clientURLPath(urlArg ast.Expr) string {
 		}
 	}
 	path = strings.Join(segs, "/")
+	// A path that is nothing but parameters ("/" + id) names no endpoint, and "/{}"
+	// would fit any one-segment route a server declares. Read it as before, where
+	// the bare "/" is dropped.
+	literal := false
+	for _, seg := range segs {
+		if seg != "" && seg != "{}" {
+			literal = true
+			break
+		}
+	}
+	if !literal {
+		return extractStringExpr(urlArg)
+	}
 	if hasQuery {
 		return path + "?" + query
 	}

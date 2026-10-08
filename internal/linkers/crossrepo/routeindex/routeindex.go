@@ -370,6 +370,20 @@ func (m *Matcher) PathMatchKeys(normPath string) []string {
 // paths (no suffixes) it falls back to a single full-path lookup, preserving the
 // original behavior.
 func (m *Matcher) exactClientMatches(server map[string][]RouteRef, clientPath, method string) ([]RouteRef, string) {
+	return m.suffixClientMatches(server, clientPath, method, true)
+}
+
+// suffixClientMatches is the suffix join itself. sameVersion drops the refs whose
+// version disagrees with the client's (see versionsDisagree); the unmatched pass
+// turns it off to ask whether a call missed ONLY because of that.
+func (m *Matcher) suffixClientMatches(server map[string][]RouteRef, clientPath, method string, sameVersion bool) ([]RouteRef, string) {
+	at := func(suf, verb string) []RouteRef {
+		refs := server[RouteKey(suf, verb)]
+		if !sameVersion {
+			return refs
+		}
+		return sameVersionRefs(refs, clientPath, suf)
+	}
 	sufs := m.pathSuffixes(clientPath)
 	if len(sufs) == 0 {
 		if m := server[RouteKey(clientPath, method)]; len(m) > 0 {
@@ -391,10 +405,10 @@ func (m *Matcher) exactClientMatches(server map[string][]RouteRef, clientPath, m
 		// Prefer an exact-verb server route at this suffix, then fall back to a
 		// wildcard route (facts.MethodAny — a servlet or verb-less mapping that serves
 		// every method), so a concrete client call still resolves to it.
-		if m := server[RouteKey(suf, method)]; len(m) > 0 {
+		if m := at(suf, method); len(m) > 0 {
 			return m, suf
 		}
-		if m := server[RouteKey(suf, facts.MethodAny)]; len(m) > 0 {
+		if m := at(suf, facts.MethodAny); len(m) > 0 {
 			return m, suf
 		}
 		// The symmetric wildcard: a CLIENT whose method the source does not state
@@ -404,13 +418,88 @@ func (m *Matcher) exactClientMatches(server map[string][]RouteRef, clientPath, m
 		// deterministic.
 		if method == facts.MethodAny {
 			for _, v := range clientAnyVerbs {
-				if m := server[RouteKey(suf, v)]; len(m) > 0 {
+				if m := at(suf, v); len(m) > 0 {
 					return m, suf
 				}
 			}
 		}
 	}
 	return nil, clientPath
+}
+
+// sameVersionRefs keeps the refs a client suffix may join: all of them, unless the
+// join dropped a leading prefix on BOTH sides and the two prefixes name different
+// API versions.
+//
+// The suffix join is symmetric on purpose. A client carrying a gateway prefix
+// reaches a server serving the bare path, and a base-relative client reaches a
+// server serving the full one. Applied to both sides at once it also joins
+// "/api/v1/orders/{}" to "/api/v2/orders/{}" at "/orders/{}", which is the one
+// case where the dropped segments are not routing detail but the contract: after
+// a route moves to v2, every v1 caller still resolved, as "verified", to an
+// endpoint it does not call.
+//
+// Only a stated disagreement refuses the join. A prefix with no version says
+// nothing about one, so "/gateway/orders/{}" still reaches "/api/v2/orders/{}".
+func sameVersionRefs(refs []RouteRef, clientPath, suf string) []RouteRef {
+	clientVersion := versionIn(strings.TrimSuffix(clientPath, suf))
+	if clientVersion == "" {
+		return refs
+	}
+	var out []RouteRef
+	for _, ref := range refs {
+		if v := versionIn(strings.TrimSuffix(ref.FullPath, suf)); v != "" && v != clientVersion {
+			continue
+		}
+		out = append(out, ref)
+	}
+	return out
+}
+
+// versionIn returns the last API version segment of a path prefix ("v1", "v2.1"),
+// lowercased, or "" when it has none. The last one is the one nearest the joined
+// suffix, which is the version of the resource being called.
+func versionIn(prefix string) string {
+	segs := splitSegments(prefix)
+	for i := len(segs) - 1; i >= 0; i-- {
+		if isVersionSegment(segs[i]) {
+			return strings.ToLower(segs[i])
+		}
+	}
+	return ""
+}
+
+// isVersionSegment reports whether a path segment is an API version: "v" followed
+// by digits, optionally dotted ("v1", "V2", "v2.1"). A bare number is not one: it
+// is as likely an id.
+func isVersionSegment(seg string) bool {
+	if len(seg) < 2 || (seg[0] != 'v' && seg[0] != 'V') {
+		return false
+	}
+	digit := false
+	for i := 1; i < len(seg); i++ {
+		switch c := seg[i]; {
+		case c >= '0' && c <= '9':
+			digit = true
+		case c == '.' && digit && i+1 < len(seg):
+			digit = false
+		default:
+			return false
+		}
+	}
+	return digit
+}
+
+// ServedAtAnotherVersion reports whether a client call misses only because of its
+// version: some server route serves this path and verb, and every one that does
+// states a different version than the call. It is what lets the unmatched pass say
+// version_mismatch where it would otherwise say the verb was wrong.
+func (m *Matcher) ServedAtAnotherVersion(server map[string][]RouteRef, clientPath, method string) bool {
+	if refs, _ := m.suffixClientMatches(server, clientPath, method, true); len(refs) > 0 {
+		return false
+	}
+	refs, _ := m.suffixClientMatches(server, clientPath, method, false)
+	return len(refs) > 0
 }
 
 // LookupClientMatches resolves a client path against a server index: the exact suffix

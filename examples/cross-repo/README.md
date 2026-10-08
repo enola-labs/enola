@@ -58,8 +58,9 @@ func fetchDynamic(tenant string) {
 }
 ```
 
-The path is assembled at runtime from a value enola cannot see. There is no path to
-match, so enola reports the call as **unresolved** rather than guessing at one.
+The tenant is a value enola cannot see, so the call is recorded as
+`/api/v2/{}/orders`. No route is served at that shape, so enola reports the call as
+**unresolved** rather than guessing at one.
 
 That is deliberate, and it is the more important half of this example. A missing edge
 is visible — it shows up in the unresolved count, and you can go look. A *wrong* edge is

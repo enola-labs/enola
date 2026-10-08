@@ -21,7 +21,7 @@ echo "==> Indexing both services into one graph"
 echo
 echo "==> Routes the api service actually serves"
 echo "    (registered as \"/orders/{id}\" — stored at the composed runtime path)"
-grep -ho '"name":"/api/v2[^"]*"' api/.enola/facts.jsonl | sort -u | sed 's/"name":/    /'
+grep -h '"file":"api/' api/.enola/facts.jsonl | grep -o '"name":"/api/v2[^"]*"' | sort -u | sed 's/"name":/    /'
 
 echo
 echo "==> Cross-repo edge coverage"

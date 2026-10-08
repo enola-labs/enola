@@ -681,13 +681,17 @@ const (
 	// constraint, so the repositories that do serve it are not used instead.
 	ReasonAliasNotServing = "alias_not_serving"
 	ReasonPathUnknown     = "path_unknown" // no server route shares a >=2-segment suffix with this path
+	// ReasonVersionMismatch marks a call whose path and verb a server does serve, but
+	// only under another API version: the call says /v1, every route that fits says /v2.
+	ReasonVersionMismatch = "version_mismatch"
 )
 
 // UnmatchedClientRouteKeys returns the identity (see routeindex.RouteIdentity) of every client
 // route the cross-repo HTTP linker could not resolve to a loaded server route,
 // mapped to one of the Reason* constants: ReasonNoMethod, ReasonGenericPath,
 // ReasonAmbiguousProvider, ReasonAliasNotServing, ReasonDeclaredTarget,
-// ReasonMethodMismatch (a server serves this path suffix, but not this verb), or
+// ReasonMethodMismatch (a server serves this path suffix, but not this verb),
+// ReasonVersionMismatch (a server serves it, under another API version), or
 // ReasonPathUnknown (no server shares a >=2-segment suffix with this path). It mirrors
 // linkHTTP's exact resolution steps, so the set is precisely the client calls that
 // fell into the unresolved coverage count — the queryable counterpart to the
@@ -721,9 +725,12 @@ func UnmatchedClientRouteKeys(m *routeindex.Matcher, all []facts.Fact) map[strin
 			// No server route matched the call's verb. Distinguish "a server serves
 			// this path but not this verb" from "no server serves this path at all",
 			// so the residual is self-triaging.
-			if m.ClientPathHasServer(serverSuffixes, call.clientPath) {
+			switch {
+			case m.ServedAtAnotherVersion(server, call.clientPath, call.method):
+				reason = ReasonVersionMismatch
+			case m.ClientPathHasServer(serverSuffixes, call.clientPath):
 				reason = ReasonMethodMismatch
-			} else {
+			default:
 				reason = ReasonPathUnknown
 			}
 		}
