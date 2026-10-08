@@ -20,6 +20,13 @@ import (
 	"github.com/enola-labs/enola/pkg/plugin"
 )
 
+// v293: a Go struct's field edges name every declared type its field types mention,
+// through slices, arrays, maps, channels, pointers, generic arguments and function
+// signatures, so a struct used only as `[]T` or `map[K]T` is no longer edge-less.
+// A predeclared type, a type parameter and an unnamed type emit nothing; they used
+// to emit `pkg.string` and `pkg.`. A bare call whose name the package does not
+// declare (a parameter, a closure bound to a local) is no longer recorded as a
+// call to `pkg.<name>`, in the call edges or in the loop-call lists.
 // v292: C/C++ resolves a type name declared in several directories (vendored copies
 // of one header, two modules that each define a Config) per referencing fact: the
 // only copy with the member, else the caller's own directory, else the one copy its
@@ -2590,7 +2597,7 @@ import (
 // v270: SvelteKit reads literal kit.alias fallbacks before generated config exists,
 // keeps tsconfig paths authoritative, and classifies $app/$env/$service-worker imports
 // as framework-provided rather than unresolved third-party dependencies.
-const cacheVersion = "v292"
+const cacheVersion = "v293"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

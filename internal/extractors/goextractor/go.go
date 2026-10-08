@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"unicode"
@@ -233,13 +234,14 @@ func (e *GoExtractor) extractPackage(fset *token.FileSet, pkgDir string, pp *par
 	// reachability walk had to find the seam by another route and found only
 	// part of it.
 	pkgFuncs := collectPackageFuncs(pp.parsedFiles)
+	pkgScope := collectPackageScope(pp.parsedFiles)
 
 	for _, relFile := range pp.relFiles {
 		f, ok := pp.fileMap[relFile]
 		if !ok {
 			continue
 		}
-		result = append(result, e.extractFile(fset, f, relFile, pkgDir, modulePath, fieldTypes, callTypes, pkgNames, grpcStubs, pkgVarClients, baseURLLits, routePrefixes, pkgFuncs)...)
+		result = append(result, e.extractFile(fset, f, relFile, pkgDir, modulePath, fieldTypes, callTypes, pkgNames, grpcStubs, pkgVarClients, baseURLLits, routePrefixes, pkgFuncs, pkgScope)...)
 	}
 
 	moduleFact := facts.Fact{
@@ -275,7 +277,7 @@ func (e *GoExtractor) extractPackage(fset *token.FileSet, pkgDir string, pp *par
 	return result
 }
 
-func (e *GoExtractor) extractFile(fset *token.FileSet, f *ast.File, relFile, pkgDir, modulePath string, fieldTypes map[string]string, callTypes callTypeTables, pkgNames map[string]string, grpcStubs *goGRPCStubIndex, pkgVarClients map[string]string, baseURLLits map[string][]string, routePrefixes routePrefixIndex, pkgFuncs map[string]bool) []facts.Fact {
+func (e *GoExtractor) extractFile(fset *token.FileSet, f *ast.File, relFile, pkgDir, modulePath string, fieldTypes map[string]string, callTypes callTypeTables, pkgNames map[string]string, grpcStubs *goGRPCStubIndex, pkgVarClients map[string]string, baseURLLits map[string][]string, routePrefixes routePrefixIndex, pkgFuncs, pkgScope map[string]bool) []facts.Fact {
 	var result []facts.Fact
 
 	// Build per-file import alias map for call resolution.
@@ -316,9 +318,9 @@ func (e *GoExtractor) extractFile(fset *token.FileSet, f *ast.File, relFile, pkg
 	for _, decl := range f.Decls {
 		switch d := decl.(type) {
 		case *ast.FuncDecl:
-			result = append(result, e.extractFunc(fset, d, relFile, pkgDir, modulePath, fileImports, fieldTypes, callTypes, pkgFuncs)...)
+			result = append(result, e.extractFunc(fset, d, relFile, pkgDir, modulePath, fileImports, fieldTypes, callTypes, pkgFuncs, pkgScope)...)
 		case *ast.GenDecl:
-			result = append(result, e.extractGenDecl(fset, d, relFile, pkgDir, modulePath, fileImports)...)
+			result = append(result, e.extractGenDecl(fset, d, relFile, pkgDir, modulePath, fileImports, pkgScope)...)
 		}
 	}
 
@@ -346,7 +348,7 @@ func (e *GoExtractor) extractFile(fset *token.FileSet, f *ast.File, relFile, pkg
 	return result
 }
 
-func (e *GoExtractor) extractFunc(fset *token.FileSet, fn *ast.FuncDecl, relFile, pkgDir, modulePath string, fileImports map[string]string, fieldTypes map[string]string, callTypes callTypeTables, pkgFuncs map[string]bool) []facts.Fact {
+func (e *GoExtractor) extractFunc(fset *token.FileSet, fn *ast.FuncDecl, relFile, pkgDir, modulePath string, fileImports map[string]string, fieldTypes map[string]string, callTypes callTypeTables, pkgFuncs, pkgScope map[string]bool) []facts.Fact {
 	var result []facts.Fact
 
 	name := fn.Name.Name
@@ -417,6 +419,7 @@ func (e *GoExtractor) extractFunc(fset *token.FileSet, fn *ast.FuncDecl, relFile
 			recvType:   receiver,
 			fieldTypes: fieldTypes,
 			pkgFuncs:   pkgFuncs,
+			pkgScope:   pkgScope,
 
 			returnTypes: callTypes.returns,
 			aliases:     callTypes.aliases,
@@ -497,13 +500,13 @@ func (e *GoExtractor) extractFunc(fset *token.FileSet, fn *ast.FuncDecl, relFile
 	return result
 }
 
-func (e *GoExtractor) extractGenDecl(fset *token.FileSet, gd *ast.GenDecl, relFile, pkgDir, modulePath string, fileImports map[string]string) []facts.Fact {
+func (e *GoExtractor) extractGenDecl(fset *token.FileSet, gd *ast.GenDecl, relFile, pkgDir, modulePath string, fileImports map[string]string, pkgScope map[string]bool) []facts.Fact {
 	var result []facts.Fact
 
 	for _, spec := range gd.Specs {
 		switch s := spec.(type) {
 		case *ast.TypeSpec:
-			result = append(result, e.extractTypeSpec(fset, gd, s, relFile, pkgDir, modulePath, fileImports)...)
+			result = append(result, e.extractTypeSpec(fset, gd, s, relFile, pkgDir, modulePath, fileImports, pkgScope)...)
 		case *ast.ValueSpec:
 			result = append(result, e.extractValueSpec(fset, gd, s, relFile, pkgDir)...)
 		}
@@ -545,7 +548,7 @@ func (e *GoExtractor) extractValueSpec(fset *token.FileSet, gd *ast.GenDecl, vs 
 	return result
 }
 
-func (e *GoExtractor) extractTypeSpec(fset *token.FileSet, gd *ast.GenDecl, ts *ast.TypeSpec, relFile, pkgDir, modulePath string, fileImports map[string]string) []facts.Fact {
+func (e *GoExtractor) extractTypeSpec(fset *token.FileSet, gd *ast.GenDecl, ts *ast.TypeSpec, relFile, pkgDir, modulePath string, fileImports map[string]string, pkgScope map[string]bool) []facts.Fact {
 	var result []facts.Fact
 
 	name := ts.Name.Name
@@ -560,6 +563,14 @@ func (e *GoExtractor) extractTypeSpec(fset *token.FileSet, gd *ast.GenDecl, ts *
 	switch t := ts.Type.(type) {
 	case *ast.StructType:
 		kind = facts.SymbolStruct
+		typeParams := map[string]bool{}
+		if ts.TypeParams != nil {
+			for _, field := range ts.TypeParams.List {
+				for _, n := range field.Names {
+					typeParams[n.Name] = true
+				}
+			}
+		}
 		if t.Fields != nil {
 			for _, field := range t.Fields.List {
 				if len(field.Names) == 0 {
@@ -569,11 +580,19 @@ func (e *GoExtractor) extractTypeSpec(fset *token.FileSet, gd *ast.GenDecl, ts *
 					}
 					continue
 				}
-				// A named field of an internal struct type USES that type. Emit a
-				// usage edge so a struct referenced only as a field type is not a
-				// dead-code false positive (type usage is otherwise not edge-tracked).
-				if target := resolveTypeName(typeExprToString(field.Type), ctx); target != "" && isInternalTypeTarget(target, pkgDir) {
-					instantiates = append(instantiates, target)
+				// A named field USES every internal type its type mentions, however
+				// it is wrapped: `[]Layer` and `map[Key]*Value` use Layer, Key and
+				// Value. Emit a usage edge so a struct referenced only as a field
+				// type is not a dead-code false positive (type usage is otherwise
+				// not edge-tracked).
+				for _, typeStr := range namedTypesIn(field.Type, nil) {
+					if !strings.Contains(typeStr, ".") && (!pkgScope[typeStr] || typeParams[typeStr]) {
+						continue // predeclared, or a type parameter: nothing declared
+					}
+					target := resolveTypeName(typeStr, ctx)
+					if isInternalTypeTarget(target, pkgDir) && !slices.Contains(instantiates, target) {
+						instantiates = append(instantiates, target)
+					}
 				}
 			}
 		}
@@ -664,6 +683,9 @@ type resolveCtx struct {
 	// "pkgDir.Alias" → the type `type Alias = T` names, module-wide. See calltypes.go.
 	aliases  map[string]string
 	pkgFuncs map[string]bool // this package's top-level function names
+	// Every name this package declares at top level: functions, types, variables
+	// and constants. nil where a pass does not collect it.
+	pkgScope map[string]bool
 }
 
 // bodyMetrics holds the call list and the per-function complexity signals
@@ -1209,6 +1231,13 @@ func resolveChain(chain []string, ctx resolveCtx) string {
 		if goBuiltins[chain[0]] && !ctx.pkgFuncs[chain[0]] {
 			return ""
 		}
+		// A bare name the package does not declare is a parameter, a closure
+		// bound to a local, or a type parameter. Calling it calls no function
+		// this name could identify, and pkgDir.name would be a node nothing
+		// declares.
+		if ctx.pkgScope != nil && !ctx.pkgScope[chain[0]] {
+			return ""
+		}
 		return ctx.pkgDir + "." + chain[0]
 	case 2:
 		root, sel := chain[0], chain[1]
@@ -1606,6 +1635,81 @@ func typeExprToString(expr ast.Expr) string {
 		return typeExprToString(t.X)
 	}
 	return ""
+}
+
+// namedTypesIn appends the named types a type expression mentions, as written
+// ("Layer", "other.Thing"), looking through whatever wraps them: pointers, slices,
+// arrays, maps, channels, generic arguments, function signatures and anonymous
+// structs. An interface literal names methods, not types it stores, and is skipped.
+func namedTypesIn(expr ast.Expr, out []string) []string {
+	fields := func(list *ast.FieldList) {
+		if list == nil {
+			return
+		}
+		for _, f := range list.List {
+			out = namedTypesIn(f.Type, out)
+		}
+	}
+	switch t := expr.(type) {
+	case *ast.Ident:
+		out = append(out, t.Name)
+	case *ast.SelectorExpr:
+		if x, ok := t.X.(*ast.Ident); ok {
+			out = append(out, x.Name+"."+t.Sel.Name)
+		}
+	case *ast.StarExpr:
+		out = namedTypesIn(t.X, out)
+	case *ast.ParenExpr:
+		out = namedTypesIn(t.X, out)
+	case *ast.Ellipsis:
+		out = namedTypesIn(t.Elt, out)
+	case *ast.ArrayType:
+		out = namedTypesIn(t.Elt, out)
+	case *ast.MapType:
+		out = namedTypesIn(t.Key, out)
+		out = namedTypesIn(t.Value, out)
+	case *ast.ChanType:
+		out = namedTypesIn(t.Value, out)
+	case *ast.IndexExpr:
+		out = namedTypesIn(t.X, out)
+		out = namedTypesIn(t.Index, out)
+	case *ast.IndexListExpr:
+		out = namedTypesIn(t.X, out)
+		for _, arg := range t.Indices {
+			out = namedTypesIn(arg, out)
+		}
+	case *ast.FuncType:
+		fields(t.Params)
+		fields(t.Results)
+	case *ast.StructType:
+		fields(t.Fields)
+	}
+	return out
+}
+
+// collectPackageScope returns every name a package declares at top level:
+// functions (methods excluded), types, variables and constants.
+func collectPackageScope(files []*ast.File) map[string]bool {
+	out := collectPackageFuncs(files)
+	for _, f := range files {
+		for _, decl := range f.Decls {
+			gd, ok := decl.(*ast.GenDecl)
+			if !ok {
+				continue
+			}
+			for _, spec := range gd.Specs {
+				switch s := spec.(type) {
+				case *ast.TypeSpec:
+					out[s.Name.Name] = true
+				case *ast.ValueSpec:
+					for _, n := range s.Names {
+						out[n.Name] = true
+					}
+				}
+			}
+		}
+	}
+	return out
 }
 
 // collectPackageFuncs returns the names of every top-level function declared in
