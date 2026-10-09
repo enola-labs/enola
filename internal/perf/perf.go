@@ -194,9 +194,24 @@ type Finding struct {
 	// analyze() used to drop it, which forced the package= filter to match the symbol
 	// NAME instead. That works only where the name embeds the path (Kotlin/Swift/Go)
 	// and returns a silent, permanent zero on Ruby, whose names do not.
-	Package  string `json:"package,omitempty"`
-	Kind     string `json:"kind"`     // nested-loop | compounded | call-in-loop | recursion
-	BigO     string `json:"big_o"`    // estimated structural worst case
+	Package string `json:"package,omitempty"`
+	Kind    string `json:"kind"` // nested-loop | compounded | call-in-loop | recursion
+	// BigO is the estimated worst case, and is set only for the kinds that can
+	// state one: call-in-loop (how often the call is made) and recursion.
+	//
+	// nested-loop and compounded do NOT carry one. They carry Depth instead. A
+	// count of nested loops is a fact the parser can establish; the complexity it
+	// implies is not, because loops multiply only when each walks an independent
+	// collection. Three hand-read samples of what this analyzer reported (1,042
+	// findings over 14 repositories) found 8 of 181 such findings right as a
+	// complexity on the last of them, and 1 of 93 above O(n²): the nest was real
+	// and was a parent-then-children walk, a loop over a registry, or a callee
+	// continuing its caller's traversal. So the depth is reported as what it is.
+	BigO string `json:"big_o,omitempty"`
+	// Depth is the loop nesting depth of a nested-loop finding (within the
+	// function) or a compounded one (across the call graph), counting only loops
+	// that scale with some input. It is a structural count, not an exponent.
+	Depth    int    `json:"depth,omitempty"`
 	Severity string `json:"severity"` // high | medium | low
 	// Confidence in [0,1]: how much to trust this as a real risk vs. a structural
 	// over-estimate. Decays with the reported Big-O exponent (deep polynomials are
@@ -208,6 +223,23 @@ type Finding struct {
 	RiskScore float64  `json:"risk_score,omitempty"`
 	Why       string   `json:"why"`
 	Evidence  []string `json:"evidence,omitempty"`
+}
+
+// deepCompoundedDepth is the label a compounded finding carries from
+// deepEstimateDepth up: beyond three levels the exact count of a cross-call-graph
+// estimate is not worth stating.
+const deepCompoundedDepth = "depth 4+"
+
+// Label is what a finding shows where a Big-O used to be shown for every kind: the
+// Big-O where one is claimed, and "depth N" where the finding is a structural one.
+func (f Finding) Label() string {
+	if f.BigO != "" {
+		return f.BigO
+	}
+	if f.Kind == "compounded" && f.Depth >= deepEstimateDepth {
+		return deepCompoundedDepth
+	}
+	return fmt.Sprintf("depth %d", f.Depth)
 }
 
 // --- Prop readers (snapshot values decode as float64/[]any after JSONL round-trip) ---
@@ -640,21 +672,16 @@ func bigOForDepth(d int) string {
 	}
 }
 
-// deepNestingIsUnproven is appended to a nested-loop or compounded finding of depth
-// three or more, which is also held at medium severity.
-//
-// TEMPORARY, and a statement about this analyzer's precision rather than about
-// the code it reads. Two hand-read samples of what it reports (742 findings over
-// 14 repositories, graded by bench-perf in the benchmarks repository) found 2
-// correct among 291 nested-loop and compounded findings above O(n²). The count of
-// nested loops is real; what it cannot yet tell is which of them multiply. A
-// parent-then-children walk, a loop over a named constant or an enum, and a callee
-// that continues its caller's traversal each add a level and no factor of n.
-//
-// Until those are recognised the depth is an upper bound, and ranking it `high`
-// puts the claims most likely to be wrong at the top of the list. Lift this when
-// the bench shows the deep tier holding.
-const deepNestingIsUnproven = " The exponent is an upper bound: it counts every nested loop as scaling with the same input, which deep nests rarely do. Check which loops multiply before acting."
+// depthIsNotComplexity is the sentence every nested-loop and compounded finding
+// carries after its count. See Finding.BigO for why these two kinds state a depth
+// and not a Big-O.
+const depthIsNotComplexity = "That is a count of nested loops, not a complexity: they multiply only when each walks an independent collection. A walk from parents to their children, a loop over a fixed list, or a callee finishing its caller's traversal nests without multiplying. Check which loops here do."
+
+// structuralSeverity is the severity of a nested-loop or compounded finding at any
+// depth. It is a fact about the shape of the code and a lead worth a look, never
+// evidence of a cost by itself: `high` is for a finding that has evidence, which
+// here means a confirmed I/O call in a loop or a route handler.
+const structuralSeverity = "medium"
 
 // deepEstimateDepth is the nesting beyond which a cross-call-graph worst-case estimate
 // (compounded / call-in-loop, whose depth comes from effective nesting across the call
@@ -1727,51 +1754,37 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 		// finding nor inflates the exponent.
 		scaling := f.scalingDepth()
 		if scaling >= 2 && !eventLoop {
-			// Medium whatever the depth; see deepNestingIsUnproven.
-			sev := "medium"
 			ev := []string{fmt.Sprintf("loop_depth=%d, loop_count=%d, cyclomatic=%d",
 				f.LoopDepth, f.LoopCount, f.Cyclomatic)}
-			why := fmt.Sprintf("Loops nest %d deep, so the body runs about %s in the loop bounds.",
-				scaling, bigOForDepth(scaling))
+			why := fmt.Sprintf("Loops nest %d deep. %s", scaling, depthIsNotComplexity)
 			if f.loopDiscounted() {
 				ev = append(ev, fmt.Sprintf("scaling_loop_depth=%d (bounded loops discounted)", scaling))
-				why += " (Some enclosing loops iterate bounded/constant ranges and are excluded.)"
-			}
-			if scaling >= 3 {
-				why += deepNestingIsUnproven
+				why += " (Enclosing loops over bounded or constant ranges are already excluded.)"
 			}
 			findings = append(findings, Finding{
 				Symbol: f.Name, File: f.File, Line: f.Line, Repo: f.Repo, Package: f.Package,
-				Kind: "nested-loop", BigO: bigOForDepth(scaling), Severity: sev,
+				Kind: "nested-loop", Depth: scaling, Severity: structuralSeverity,
 				Confidence: confidenceFor("nested-loop", false, scaling, f.loopDiscounted()),
 				Why:        why,
 				Evidence:   ev,
 			})
 		}
 
-		// 2. Complexity that compounds across the call graph (beyond local nesting).
+		// 2. Nesting that continues across the call graph (beyond local nesting).
 		// Skip directly-recursive functions: the recursion finding below already covers
 		// them, and their self-edge does not represent independent nested iteration.
 		if effHere >= 2 && effHere > scaling && !recursive[f.Name] && !eventLoop {
-			// Medium whatever the depth; see deepNestingIsUnproven.
-			sev := "medium"
-			bigO, deep := bigOEstimate(effHere)
-			why := fmt.Sprintf("Loops here call other looping functions; worst-case nesting compounds across the call graph to about %s.", bigO)
-			if effHere >= 3 && !deep {
-				why += deepNestingIsUnproven
-			}
-			if deep {
-				// Beyond three levels the exact exponent of a cross-call-graph estimate is
-				// not trustworthy — present an honest bucket and step back to medium.
-				sev = "medium"
-				why = "Loops here call other looping functions; worst-case nesting compounds across the call graph to O(n³+) — a deep structural estimate, verify before acting."
+			levels := fmt.Sprintf("%d levels", effHere)
+			if effHere >= deepEstimateDepth {
+				levels = "four or more levels"
 			}
 			findings = append(findings, Finding{
 				Symbol: f.Name, File: f.File, Line: f.Line, Repo: f.Repo, Package: f.Package,
-				Kind: "compounded", BigO: bigO, Severity: sev,
+				Kind: "compounded", Depth: effHere, Severity: structuralSeverity,
 				Confidence: confidenceFor("compounded", false, effHere, f.loopDiscounted()),
-				Why:        why,
-				Evidence:   callsInLoopEvidence(f, byName),
+				Why: fmt.Sprintf("A loop here calls a function that itself loops: %s of nesting across the call graph. %s",
+					levels, depthIsNotComplexity),
+				Evidence: callsInLoopEvidence(f, byName),
 			})
 		}
 
@@ -2060,6 +2073,19 @@ func minConfidence(a, b float64) float64 {
 	return a
 }
 
+// findingWeight is the cost weight of a finding for the risk score: its Big-O's
+// weight where it has one, and otherwise its depth on the same scale, so that
+// stating a depth where an exponent used to be printed did not reorder anything.
+func findingWeight(f Finding) float64 {
+	if f.BigO != "" {
+		return complexityWeight(f.BigO)
+	}
+	if f.Kind == "compounded" && f.Depth >= deepEstimateDepth {
+		return 4
+	}
+	return float64(f.Depth)
+}
+
 // complexityWeight maps a Big-O label to a numeric cost weight for the risk score. Unlike
 // bigORank (which sorts the recursive buckets last at 1000), this keeps recursion at a
 // moderate weight so it does not dominate the ranking.
@@ -2089,7 +2115,7 @@ func complexityWeight(bigO string) float64 {
 // for a known request hot path (an HTTP route handler — the one hot path we can identify
 // precisely; the scheduler is not tagged, so it ranks on cost × confidence alone).
 func riskScore(f Finding, routeHandlers map[string]bool) float64 {
-	s := complexityWeight(f.BigO) * f.Confidence
+	s := findingWeight(f) * f.Confidence
 	if routeHandlers[f.Symbol] {
 		s *= 1.3
 	}
@@ -2200,7 +2226,10 @@ type summary struct {
 	FunctionsAnalyzed int            `json:"functions_analyzed"`
 	TotalFindings     int            `json:"total_findings"`
 	BySeverity        map[string]int `json:"by_severity"`
-	ByBigO            map[string]int `json:"by_big_o"`
+	// ByBigO counts the findings that state a Big-O (call-in-loop, recursion);
+	// ByDepth the structural ones (nested-loop, compounded), by their depth label.
+	ByBigO  map[string]int `json:"by_big_o"`
+	ByDepth map[string]int `json:"by_depth,omitempty"`
 	// RepoWideFindings is the unfiltered total, carried so a filtered result can
 	// state the population it was drawn from. It is the ONLY unfiltered number here,
 	// and it is named so it cannot be mistaken for the others.
@@ -2214,10 +2243,12 @@ type response struct {
 	Note     string    `json:"note"`
 }
 
-const toolDescription = "Estimated Big-O and ranked performance risks per function: nested loops, nesting compounded across the call graph, " +
-	"I/O or database calls inside loops (a likely N+1), and recursion. Each finding has symbol (file:line), kind, big_o (the " +
-	"structural worst case), severity (high, medium, low) and a plain-English why. Parser-derived from loop nesting depth, " +
-	"cyclomatic complexity and call-in-loop targets: a deterministic worst-case estimate, not a proof. " +
+const toolDescription = "Ranked performance risks per function: I/O or database calls inside loops (a likely N+1), recursion, " +
+	"nested loops, and nesting that continues across the call graph. Each finding has symbol (file:line), kind, severity " +
+	"(high, medium, low) and a plain-English why. A call-in-loop or recursion finding has big_o, the estimated worst case. " +
+	"A nested-loop or compounded finding has depth instead: a count of nested loops, which is a fact about the code's shape " +
+	"and NOT a complexity, since nested loops multiply only when each walks an independent collection. Parser-derived and " +
+	"deterministic: an estimate, not a proof. " +
 	"Supports Go, Python, Ruby, Swift, Kotlin, Scala, Dart, TypeScript, Java, C++ and C#. " +
 	"Findings of medium severity and up also appear in query_insights(explainer=\"performance\")."
 
@@ -2267,8 +2298,8 @@ func Register(srv *mcp.Server, store func() *facts.Store) {
 				Findings: shown,
 				Summary:  sum,
 				Returned: len(shown),
-				Note: "Big-O values are deterministic estimates of structural worst case derived from parser facts " +
-					"(loop nesting, call graph), not formal proofs. Supports Go, Python, Ruby, Swift, Kotlin, Scala, Dart, TypeScript, Java, C++, and C#. " +
+				Note: "big_o (call-in-loop, recursion) is a deterministic estimate of worst case from parser facts, not a proof. " +
+					"depth (nested-loop, compounded) is a count of nested loops and NOT a complexity: nested loops multiply only when each walks an independent collection. Supports Go, Python, Ruby, Swift, Kotlin, Scala, Dart, TypeScript, Java, C++, and C#. " +
 					"SCALA: a `for … yield` comprehension and flatMap/fold are monadic binds as often as iteration, so they raise loop_depth but NOT scaling depth — a finding over one is downgraded rather than claimed; a combinator applied to an Option is discounted the same way. " +
 					strings.ReplaceAll(strings.TrimSpace(kindLegend(shown)), "\n", " "),
 			}, in.MaxTokens)
@@ -2284,10 +2315,10 @@ func Register(srv *mcp.Server, store func() *facts.Store) {
 
 // kindMeanings define the finding kinds, for the legend a response carries.
 var kindMeanings = []struct{ kind, meaning string }{
-	{"nested-loop", "loops nested inside one function"},
-	{"compounded", "nesting that grows across the call graph, as a looping function calls another looping function"},
+	{"nested-loop", "loops nested inside one function; the depth is a count, not a complexity"},
+	{"compounded", "nesting that continues across the call graph, as a loop calls a function that loops; a count, not a complexity"},
 	{"call-in-loop", "an I/O, database or network call inside a loop, a likely N+1"},
-	{"recursion", "a direct or mutually recursive cycle"},
+	{"recursion", "a function that calls itself"},
 }
 
 // kindLegend defines the kinds that occur in findings, one line each, or "" for none.
@@ -2330,10 +2361,15 @@ func summarize(population, findings []Finding) summary {
 		FunctionsAnalyzed: countFunctions(findings),
 		BySeverity:        map[string]int{},
 		ByBigO:            map[string]int{},
+		ByDepth:           map[string]int{},
 	}
 	for _, f := range findings {
 		sum.BySeverity[f.Severity]++
-		sum.ByBigO[f.BigO]++
+		if f.BigO != "" {
+			sum.ByBigO[f.BigO]++
+		} else {
+			sum.ByDepth[f.Label()]++
+		}
 	}
 	return sum
 }
@@ -2383,7 +2419,7 @@ func renderPerfSummary(sum summary, findings []Finding, in args) string {
 			if f.File != "" {
 				loc = fmt.Sprintf("%s (%s:%d)", f.Symbol, f.File, f.Line)
 			}
-			fmt.Fprintf(&b, "  [%s] %s %s — %s\n", f.Severity, f.BigO, loc, f.Kind)
+			fmt.Fprintf(&b, "  [%s] %s %s — %s\n", f.Severity, f.Label(), loc, f.Kind)
 		}
 	}
 	return b.String()
@@ -2393,14 +2429,14 @@ func renderPerfSummary(sum summary, findings []Finding, in args) string {
 func renderPerfCompact(findings []Finding) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Performance findings — %d:\n\n", len(findings))
-	b.WriteString("| Severity | Risk | Big-O | Kind | Symbol | Location |\n")
-	b.WriteString("|----------|------|-------|------|--------|----------|\n")
+	b.WriteString("| Severity | Risk | Estimate | Kind | Symbol | Location |\n")
+	b.WriteString("|----------|------|----------|------|--------|----------|\n")
 	for _, f := range findings {
 		loc := f.File
 		if f.Line > 0 {
 			loc = fmt.Sprintf("%s:%d", f.File, f.Line)
 		}
-		fmt.Fprintf(&b, "| %s | %.2f | %s | %s | %s | %s |\n", f.Severity, f.RiskScore, f.BigO, f.Kind, f.Symbol, loc)
+		fmt.Fprintf(&b, "| %s | %.2f | %s | %s | %s | %s |\n", f.Severity, f.RiskScore, f.Label(), f.Kind, f.Symbol, loc)
 	}
 	return b.String()
 }
@@ -2476,6 +2512,10 @@ type Summary struct {
 	// buckets already dropped.
 	ByKind       []Bucket
 	ByComplexity []Bucket
+	// ByDepth is the structural findings (nested-loop, compounded) by nesting
+	// depth, shallowest first. They state no complexity, so they are not in
+	// ByComplexity.
+	ByDepth []Bucket
 	// Top is the worst findings, already ranked by analyze().
 	Top []Finding
 }
@@ -2499,6 +2539,7 @@ func Summarize(store *facts.Store) Summary {
 	s := Summary{FunctionsAnalyzed: len(funcs), Total: len(findings)}
 	byKind := map[string]int{}
 	byBigO := map[string]int{}
+	byDepth := map[string]int{}
 	var recursive int
 	for _, f := range findings {
 		switch f.Severity {
@@ -2512,9 +2553,12 @@ func Summarize(store *facts.Store) Summary {
 		byKind[f.Kind]++
 		// The two "O(?)" buckets both mean "recursion, so no exponent"; collapsing
 		// them keeps the distribution readable.
-		if bigORank(f.BigO) >= 1000 {
+		switch {
+		case f.BigO == "":
+			byDepth[f.Label()]++
+		case bigORank(f.BigO) >= 1000:
 			recursive++
-		} else {
+		default:
 			byBigO[f.BigO]++
 		}
 	}
@@ -2535,6 +2579,24 @@ func Summarize(store *facts.Store) Summary {
 	}
 	if recursive > 0 {
 		s.ByComplexity = append(s.ByComplexity, Bucket{Label: "recursive", Count: recursive})
+	}
+	// "depth 2" < "depth 3" < … < "depth 4+" < "depth 5": ordered by the number,
+	// with the open-ended compounded bucket after its own exact value.
+	depths := make([]string, 0, len(byDepth))
+	for d := range byDepth {
+		depths = append(depths, d)
+	}
+	sort.Slice(depths, func(i, j int) bool {
+		var a, b int
+		_, _ = fmt.Sscanf(depths[i], "depth %d", &a)
+		_, _ = fmt.Sscanf(depths[j], "depth %d", &b)
+		if a != b {
+			return a < b
+		}
+		return depths[i] < depths[j]
+	})
+	for _, d := range depths {
+		s.ByDepth = append(s.ByDepth, Bucket{Label: d, Count: byDepth[d]})
 	}
 
 	if len(findings) > summaryTopN {

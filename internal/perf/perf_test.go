@@ -98,22 +98,21 @@ func TestAnalyze_NestedLoopSeverity(t *testing.T) {
 	if !ok {
 		t.Fatalf("no nested-loop finding for p.Quad; got %+v", got)
 	}
-	if q.BigO != "O(n²)" || q.Severity != "medium" {
-		t.Errorf("p.Quad: got BigO=%q sev=%q, want O(n²)/medium", q.BigO, q.Severity)
+	if q.Depth != 2 || q.BigO != "" || q.Severity != "medium" {
+		t.Errorf("p.Quad: got depth=%d BigO=%q sev=%q, want depth 2, no Big-O, medium", q.Depth, q.BigO, q.Severity)
 	}
 	c, ok := findFinding(got, "p.Cubic", "nested-loop")
 	if !ok {
 		t.Fatalf("no nested-loop finding for p.Cubic")
 	}
-	// Held at medium while the deep tier is unproven; see deepNestingIsUnproven.
-	if c.BigO != "O(n³)" || c.Severity != "medium" {
-		t.Errorf("p.Cubic: got BigO=%q sev=%q, want O(n³)/medium", c.BigO, c.Severity)
+	// A structural finding is medium at any depth; see structuralSeverity.
+	if c.Depth != 3 || c.BigO != "" || c.Severity != "medium" || c.Label() != "depth 3" {
+		t.Errorf("p.Cubic: got depth=%d BigO=%q sev=%q label=%q, want depth 3, no Big-O, medium", c.Depth, c.BigO, c.Severity, c.Label())
 	}
-	if !strings.HasSuffix(c.Why, deepNestingIsUnproven) {
-		t.Errorf("p.Cubic: a depth-3 finding must say its exponent is an upper bound; why = %q", c.Why)
-	}
-	if strings.Contains(q.Why, "upper bound") {
-		t.Errorf("p.Quad: the note is for depth three and deeper; why = %q", q.Why)
+	for _, f := range []Finding{q, c} {
+		if !strings.Contains(f.Why, depthIsNotComplexity) {
+			t.Errorf("%s: a nested-loop finding must say its depth is not a complexity; why = %q", f.Symbol, f.Why)
+		}
 	}
 }
 
@@ -130,8 +129,8 @@ func TestAnalyze_CompoundedAcrossCallGraph(t *testing.T) {
 	if !ok {
 		t.Fatalf("no compounded finding for p.f; got %+v", got)
 	}
-	if c.BigO != "O(n²)" {
-		t.Errorf("p.f compounded BigO = %q, want O(n²)", c.BigO)
+	if c.Depth != 2 || c.BigO != "" {
+		t.Errorf("p.f compounded depth = %d, BigO = %q; want depth 2 and no Big-O", c.Depth, c.BigO)
 	}
 	// p.f loops only once locally, so it must NOT produce a nested-loop finding.
 	if _, ok := findFinding(got, "p.f", "nested-loop"); ok {
@@ -947,7 +946,7 @@ func TestAnalyze_ScalingDepthKeepsGenuineNesting(t *testing.T) {
 	}
 	got := analyze(funcs, nil, nil, nil)
 	f, ok := findFinding(got, "p.Cubic", "nested-loop")
-	if !ok || f.BigO != "O(n³)" || f.Severity != "medium" {
+	if !ok || f.Depth != 3 || f.Severity != "medium" {
 		t.Fatalf("fallback to loop_depth failed: ok=%v %+v", ok, f)
 	}
 }
@@ -1206,8 +1205,8 @@ func TestAnalyze_DeepCompoundedRelabeledAndCapped(t *testing.T) {
 	if !ok {
 		t.Fatalf("no compounded finding for p.f; got %+v", got)
 	}
-	if c.BigO != "O(n³+)" {
-		t.Errorf("deep compounded BigO = %q, want O(n³+)", c.BigO)
+	if c.Depth != 4 || c.Label() != "depth 4+" {
+		t.Errorf("deep compounded depth = %d, label = %q; want depth 4 shown as %q", c.Depth, c.Label(), "depth 4+")
 	}
 	if c.Severity != "medium" {
 		t.Errorf("deep compounded severity = %q, want medium (capped)", c.Severity)
@@ -1833,8 +1832,8 @@ func TestCallInLoopExponentIsItsOwnNestingNotTheCallGraphs(t *testing.T) {
 	}
 	// The callee's cost is still reported, as what it is.
 	comp, ok := findFinding(got, "app.DeleteAll", "compounded")
-	if !ok || comp.BigO != "O(n³)" {
-		t.Errorf("compounded finding = %+v (ok=%v), want O(n³)", comp, ok)
+	if !ok || comp.Depth != 3 {
+		t.Errorf("compounded finding = %+v (ok=%v), want depth 3", comp, ok)
 	}
 }
 
@@ -2082,15 +2081,15 @@ func TestCompoundingUsesTheDepthTheCalleeIsCalledAt(t *testing.T) {
 	// Called from inside the pair loop it really is one level deeper.
 	caller.CallDepth = map[string]int{"app.bounds": 2}
 	c, ok := findFinding(analyze([]funcInfo{caller, helper}, nil, nil, nil), "app.snap", "compounded")
-	if !ok || c.BigO != "O(n³)" {
-		t.Errorf("callee at depth 2: %+v (ok=%v), want O(n³)", c, ok)
+	if !ok || c.Depth != 3 {
+		t.Errorf("callee at depth 2: %+v (ok=%v), want depth 3", c, ok)
 	}
 
 	// No per-call depth: the old upper bound.
 	caller.CallDepth = nil
 	c, ok = findFinding(analyze([]funcInfo{caller, helper}, nil, nil, nil), "app.snap", "compounded")
-	if !ok || c.BigO != "O(n³)" {
-		t.Errorf("no per-call depth: %+v (ok=%v), want the upper bound O(n³)", c, ok)
+	if !ok || c.Depth != 3 {
+		t.Errorf("no per-call depth: %+v (ok=%v), want the upper bound, depth 3", c, ok)
 	}
 }
 
@@ -2121,8 +2120,8 @@ func TestCrossCallNeedsTheParameterTheElementArrivesIn(t *testing.T) {
 
 	// hasQuery(frame, words) loops over words, parameter 1: it multiplies.
 	c, ok := findFinding(analyze([]funcInfo{caller, loops("app.render", 0), loops("app.hasQuery", 1)}, nil, nil, nil), "app.r", "compounded")
-	if !ok || c.BigO != "O(n²)" {
-		t.Errorf("a callee looping over a different parameter: %+v (ok=%v), want compounded O(n²)", c, ok)
+	if !ok || c.Depth != 2 {
+		t.Errorf("a callee looping over a different parameter: %+v (ok=%v), want compounded at depth 2", c, ok)
 	}
 
 	// Without positions (the Go extractor) the pair of booleans decides, as before.
@@ -2132,5 +2131,48 @@ func TestCrossCallNeedsTheParameterTheElementArrivesIn(t *testing.T) {
 	g.LoopParams = nil
 	if c, ok := findFinding(analyze([]funcInfo{legacy, g}, nil, nil, nil), "app.r", "compounded"); ok {
 		t.Errorf("the boolean pair alone must still discount: %+v", c)
+	}
+}
+
+// Which kinds claim a complexity and which state a count. A call-in-loop or
+// recursion finding has a Big-O and no depth; a nested-loop or compounded one has
+// a depth, no Big-O, and says in words that the depth is not a complexity.
+func TestOnlyCallInLoopAndRecursionClaimABigO(t *testing.T) {
+	funcs := []funcInfo{
+		{Name: "p.nest", File: "p/n.go", LoopDepth: 3, LoopCount: 3},
+		{Name: "p.caller", File: "p/c.go", LoopDepth: 1, LoopCount: 1, CallsInLoop: []string{"p.looper"}},
+		{Name: "p.looper", File: "p/l.go", LoopDepth: 1, LoopCount: 1},
+		{Name: "p.nplus1", File: "p/q.go", LoopDepth: 1, LoopCount: 1, CallsInLoop: []string{"db.Query"}},
+		{Name: "p.walk", File: "p/w.go", Recursive: true, Cyclomatic: 2},
+	}
+	got := analyze(funcs, nil, nil, nil)
+	want := map[string]bool{"nested-loop": false, "compounded": false, "call-in-loop": true, "recursion": true}
+	seen := map[string]bool{}
+	for _, f := range got {
+		claims, known := want[f.Kind]
+		if !known {
+			t.Fatalf("unexpected kind %q", f.Kind)
+		}
+		seen[f.Kind] = true
+		if claims {
+			if f.BigO == "" || f.Depth != 0 || f.Label() != f.BigO {
+				t.Errorf("%s (%s): BigO=%q depth=%d label=%q; want a Big-O and no depth", f.Symbol, f.Kind, f.BigO, f.Depth, f.Label())
+			}
+			continue
+		}
+		if f.BigO != "" || f.Depth < 2 || !strings.HasPrefix(f.Label(), "depth ") {
+			t.Errorf("%s (%s): BigO=%q depth=%d label=%q; want a depth and no Big-O", f.Symbol, f.Kind, f.BigO, f.Depth, f.Label())
+		}
+		if !strings.Contains(f.Why, depthIsNotComplexity) {
+			t.Errorf("%s (%s): why does not say the depth is not a complexity: %q", f.Symbol, f.Kind, f.Why)
+		}
+		if f.Severity == "high" {
+			t.Errorf("%s (%s): a structural finding ranked high", f.Symbol, f.Kind)
+		}
+	}
+	for kind := range want {
+		if !seen[kind] {
+			t.Errorf("no %s finding produced; the fixture should yield one of each kind", kind)
+		}
 	}
 }

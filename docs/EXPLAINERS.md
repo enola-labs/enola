@@ -160,10 +160,13 @@ the entities the claim is about. There are nineteen, and they fall into six kind
   claim that a large distance is a problem is an opinion. `dead-code` asks what
   nothing references, in every language, and answers in three confidence tiers that
   encode what the graph can actually see rather than how sure it feels: functions
-  high, types medium, everything else low. `performance` estimates where cost grows
-  with the input, from loop-nesting and call-in-loop props the parsers record; its
-  Big-O labels are a structural worst case, not a measurement, and nothing here
-  knows whether a loop is hot.
+  high, types medium, everything else low. `performance` reports where cost may grow
+  with the input, from loop-nesting and call-in-loop props the parsers record. It
+  states a Big-O only where it can stand behind one: a call inside a loop, and a
+  recursion. For nested loops and for nesting that continues across calls it states
+  the depth, which is a count and not a complexity, because nested loops multiply
+  only when each walks an independent collection. None of it is a measurement, and
+  nothing here knows whether a loop is hot.
 
   Two of them defer. `dead-code` says nothing about a method `dead-methods` has
   claimed, and `performance` files no `call-in-loop` against a symbol `query-loops`

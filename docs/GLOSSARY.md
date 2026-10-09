@@ -55,7 +55,7 @@ vocabulary you type, not internals:
 | `import-closure` | what `import yourpackage` actually executes, and the package `__init__.py` files responsible for most of it |
 | `package-metrics` | how stable and how abstract a package is, and how far that puts it from Martin's main sequence |
 | `dead-code` | a symbol nothing in the snapshot references, in any language, reported with a confidence tier rather than a verdict |
-| `performance` | a loop, a call inside one, or a recursion whose cost grows with the input, with the Big-O that follows from the nesting |
+| `performance` | a call inside a loop or a recursion, with its estimated Big-O, or loops that nest, within a function or across calls, with their depth (a count, not a complexity) |
 
 Only the first four ever reach confidence `1.0`. The rest estimate — see
 [docs/EXPLAINERS.md](EXPLAINERS.md) for what each computes and why that distinction is
