@@ -20,6 +20,11 @@ import (
 	"github.com/enola-labs/enola/pkg/plugin"
 )
 
+// v302: a C-style for is fixed-count only when it both starts and stops at a constant,
+// in C/C++, C# and PHP as in TypeScript and Java since v300. The condition alone used
+// to decide, so `for (i = n - 1; i >= 0; i--)` was read as constant for comparing
+// against a literal: it left scaling_loop_depth and its calls left
+// calls_in_scaling_loop. A loop the analysis had been ignoring is counted again.
 // v301: batch loops in Go and Python. A loop that takes its input a batch at a time
 // (a paging `for {}` / `while`, a stepped range, a call named for chunking) and
 // drains what each round fetched is one pass over the rows: the drain loop adds no
@@ -2651,7 +2656,7 @@ import (
 // v270: SvelteKit reads literal kit.alias fallbacks before generated config exists,
 // keeps tsconfig paths authoritative, and classifies $app/$env/$service-worker imports
 // as framework-provided rather than unresolved third-party dependencies.
-const cacheVersion = "v301"
+const cacheVersion = "v302"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

@@ -33,6 +33,11 @@ import (
 // test functions that assert the behavior that version introduced. v1 is the
 // implicit baseline (no changelog line), so coverage starts at v2.
 var versionCoverage = map[int][]string{
+	302: { // a for loop is fixed-count only when both ends are constant (C/C++, C#, PHP): a descending loop to a literal scales
+		"TestCppDescendingLoopToALiteralStillScales",
+		"TestPHPDescendingLoopToALiteralStillScales",
+		"TestCSharpDescendingLoopToALiteralStillScales",
+	},
 	301: { // batch loops (paging, stepped, chunking) in Go and Python: the drain loop adds no scaling depth and the per-round call is not an N+1 candidate
 		"TestBatchLoopDrainIsNotNestingAndItsQueryIsNotAnNPlusOne",
 		"TestLoopsThatOnlyResembleBatchingKeepTheirCalls",

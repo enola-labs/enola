@@ -674,7 +674,11 @@ func phpSyntacticLoopClass(node *sitter.Node, src []byte) phpLoopClass {
 		if cond == nil {
 			return phpLoopInfinite // for (;;)
 		}
-		if phpConstantForCondition(cond, src) {
+		// Both ends have to be constant. `for (i = n - 1; i >= 0; i--)` compares against a
+		// literal and walks all n: the bound that scales is where it starts. The
+		// condition alone used to decide, which read every descending loop as a
+		// fixed-count one and dropped it, and the calls inside it, from the analysis.
+		if phpConstantForCondition(cond, src) && phpForStartsAtConstant(node, src) {
 			return phpLoopConstant
 		}
 	case "foreach_statement":
@@ -703,6 +707,27 @@ func phpForeachIterable(node *sitter.Node) *sitter.Node {
 // against an integer literal (`$i < 3`), so the loop runs a statically fixed number of
 // times. A data-derived bound (`$i < $n`, `$i < count($xs)`) is conservatively treated
 // as scaling — no genuine O(n) finding is deleted.
+// phpForStartsAtConstant reports whether a for statement initialises its counter to
+// an integer literal or an ALL_CAPS constant. No initialiser, or one computed from
+// anything else (`count($xs) - 1`), does not qualify.
+func phpForStartsAtConstant(node *sitter.Node, src []byte) bool {
+	init := node.ChildByFieldName("initialize")
+	if init == nil || kindOf(init) != "assignment_expression" {
+		return false
+	}
+	right := init.ChildByFieldName("right")
+	if right == nil {
+		return false
+	}
+	switch kindOf(right) {
+	case "integer":
+		return true
+	case "name":
+		return phpIsScreamingConst(phpText(right, src))
+	}
+	return false
+}
+
 func phpConstantForCondition(cond *sitter.Node, src []byte) bool {
 	if cond == nil || kindOf(cond) != "binary_expression" {
 		return false
