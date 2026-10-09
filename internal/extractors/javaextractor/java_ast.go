@@ -879,8 +879,8 @@ func (w *astWalker) handleMethod(node *sitter.Node) {
 	// signals (@FeignClient / Spring Data repository / @Dao) plus unambiguous query
 	// annotations (@Query/@Modifying/@Procedure) — never a bare HTTP verb or
 	// @GetMapping, which on server-side Java is an INBOUND handler, not I/O.
-	// performs_io == io_direct: no transitive pass (Java call edges are same-class
-	// only, and the consumer matches the flagged leaf callee by short name).
+	// performs_io is set here for the round-trip itself; ioclosure.Propagate
+	// carries it to the methods that reach one.
 	if w.methodPerformsIO(annotations) {
 		props["io_direct"] = true
 		props["performs_io"] = true

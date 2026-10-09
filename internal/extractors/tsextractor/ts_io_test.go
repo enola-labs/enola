@@ -3,6 +3,7 @@ package tsextractor
 import (
 	"testing"
 
+	"github.com/enola-labs/enola/internal/extractors/ioclosure"
 	"github.com/enola-labs/enola/internal/facts"
 )
 
@@ -156,7 +157,7 @@ func TestComputeTSPerformsIO_MultiHopAndCycleSafe(t *testing.T) {
 		sym("d.X", false, "d.Y"),
 		sym("d.Y", false, "d.X"),
 	}
-	computeTSPerformsIO(all)
+	ioclosure.Propagate(all)
 	want := map[string]bool{"d.A": true, "d.B": true, "d.C": true, "d.X": false, "d.Y": false}
 	for _, f := range all {
 		if got := tsBoolProp(f, "performs_io"); got != want[f.Name] {

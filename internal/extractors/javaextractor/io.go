@@ -2,8 +2,8 @@ package javaextractor
 
 // GAP-JV-02 — Java I/O identity.
 //
-// A method carries io_direct (and, since there is no transitive fixpoint on the
-// JVM side, performs_io == io_direct) when it is a genuine DB/network round-trip.
+// A method carries io_direct (and performs_io) when it is a genuine DB/network
+// round-trip. The methods that reach one get performs_io from ioclosure.Propagate.
 // The Kotlin extractor keys off bare HTTP-verb annotations (@GET/@POST) because on
 // Android those only ever mean a Retrofit client call. That set is UNSAFE on
 // server-side Java, where @GET is a JAX-RS inbound resource and @GetMapping a

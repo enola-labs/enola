@@ -14,6 +14,7 @@ import (
 
 	"github.com/enola-labs/enola/internal/clientspec"
 	"github.com/enola-labs/enola/internal/extractors/detectnames"
+	"github.com/enola-labs/enola/internal/extractors/ioclosure"
 	"github.com/enola-labs/enola/internal/facts"
 	"github.com/enola-labs/enola/internal/parallel"
 
@@ -381,11 +382,11 @@ func (e *TSExtractor) Extract(ctx context.Context, repoPath string, files []stri
 
 	// Serial post-pass: propagate the per-body io_direct flag transitively across the
 	// call graph into performs_io, so wrapper-hidden network/file I/O is visible to the
-	// performance analyzer. Mirrors the Swift extractor's computePerformsIO.
+	// performance analyzer.
 	if isNuxt {
 		resolveNuxtAutoComposableCalls(allFacts)
 	}
-	computeTSPerformsIO(allFacts)
+	ioclosure.Propagate(allFacts)
 
 	// Engine-relative routes compose onto their mount point here, where every
 	// mount in the repo is visible; a per-file pass cannot see both sides.
@@ -2830,7 +2831,7 @@ var tsCheapMethods = map[string]bool{
 // (fetch), a member call on a known receiver (axios.get, fs.readFile), or a call to
 // a local binding imported from a network module (e.g. a `request` helper default-
 // exported from a `.../lib/network/request` module). The io_direct flag is then
-// propagated transitively into performs_io by computeTSPerformsIO, mirroring Swift.
+// propagated transitively into performs_io by ioclosure.Propagate, mirroring Swift.
 
 // tsIOCallNames are bare-identifier callees that are unambiguous network/file I/O.
 var tsIOCallNames = map[string]bool{
@@ -2850,7 +2851,7 @@ var tsIOMemberMethods = map[string]bool{
 
 	// ORM query methods (Prisma, TypeORM, Drizzle) — a real DB round-trip.
 	//
-	// These seed io_direct, which computeTSPerformsIO then propagates transitively into
+	// These seed io_direct, which ioclosure.Propagate then propagates transitively into
 	// performs_io. That is the whole point: a direct in-loop `prisma.post.findMany()` was
 	// already caught by the analyzer's own name list, but a REPOSITORY WRAPPER
 	// around it was not — the wrapper invokes no network primitive, so it was never
@@ -3679,70 +3680,6 @@ func tsIsTrueCondition(kinds *tsutil.KindTable, c *sitter.Node, src []byte) bool
 		return nodeText(inner, src) != "0"
 	}
 	return false
-}
-
-// computeTSPerformsIO propagates the walk-time io_direct flag transitively across the
-// call graph into a performs_io prop, so a function that reaches network/file I/O only
-// through helpers is still flagged — the signal the performance analyzer reads to catch a
-// per-iteration network call behind a wrapper. Mirrors the Swift computePerformsIO, but
-// simpler: TS call targets are already canonical fact names, so no bare-name fan-out is
-// needed. A monotone fixpoint (only ever flips false→true) makes it cycle-safe.
-func computeTSPerformsIO(allFacts []facts.Fact) {
-	// Index symbol facts by name (a name may map to >1 fact) and record which names exist.
-	exists := make(map[string]bool)
-	for i := range allFacts {
-		if allFacts[i].Kind == facts.KindSymbol {
-			exists[allFacts[i].Name] = true
-		}
-	}
-
-	io := make(map[string]bool)      // name → performs I/O (directly or transitively)
-	adj := make(map[string][]string) // name → called names that are known symbols
-	for i := range allFacts {
-		f := &allFacts[i]
-		if f.Kind != facts.KindSymbol {
-			continue
-		}
-		if b, _ := f.PropAny("io_direct").(bool); b {
-			io[f.Name] = true
-		}
-		seen := make(map[string]bool)
-		for _, r := range f.Relations {
-			if r.Kind != facts.RelCalls || r.Target == f.Name || seen[r.Target] || !exists[r.Target] {
-				continue
-			}
-			seen[r.Target] = true
-			adj[f.Name] = append(adj[f.Name], r.Target)
-		}
-	}
-
-	// Fixpoint: a name performs I/O if any callee does. Monotone, so it terminates
-	// even with call cycles (a no-I/O cycle simply stays false).
-	for changed := true; changed; {
-		changed = false
-		for name, callees := range adj {
-			if io[name] {
-				continue
-			}
-			for _, c := range callees {
-				if io[c] {
-					io[name] = true
-					changed = true
-					break
-				}
-			}
-		}
-	}
-
-	for i := range allFacts {
-		f := &allFacts[i]
-		if f.Kind == facts.KindSymbol && io[f.Name] {
-			if f.Props == nil {
-				f.Props = map[string]any{}
-			}
-			f.SetProp("performs_io", true)
-		}
-	}
 }
 
 // resolveTSCall resolves a single call_expression to a canonical target fact name,

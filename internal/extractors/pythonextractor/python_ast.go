@@ -1597,7 +1597,7 @@ func (w *pyWalker) walkForCalls(node *sitter.Node) {
 			w.emitCallEdge(fn)
 			w.noteCallOnLoopElement(node, fn, w.lastCallTarget)
 			// Tag the body io_direct when it directly invokes a DB/network/file primitive
-			// (session.execute, requests.get, open(...)); computePyPerformsIO then
+			// (session.execute, requests.get, open(...)); ioclosure.Propagate then
 			// propagates it transitively into performs_io across the call graph.
 			if w.metrics != nil && !w.metrics.ioDirect && pyIsIODirectCall(fn, w.src) {
 				w.metrics.ioDirect = true

@@ -196,7 +196,7 @@ export const orders = pgTable("orders", {});
 
 // TestIODirect_ORMCallSeedsPerformsIO is the half that moves perf findings.
 //
-// TS already propagates io_direct into performs_io transitively (computeTSPerformsIO),
+// TS already propagates io_direct into performs_io transitively (ioclosure.Propagate),
 // but ORM calls never seeded it — so a repository wrapper around prisma.post.findMany()
 // was NOT performs_io, and a per-iteration call to that wrapper was invisible to the
 // performance analyzer. This is new/26's own second bullet, and it is the reachable

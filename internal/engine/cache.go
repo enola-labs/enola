@@ -20,6 +20,12 @@ import (
 	"github.com/enola-labs/enola/pkg/plugin"
 )
 
+// v303: performs_io is propagated by one shared closure (internal/extractors/ioclosure)
+// in place of seven copies, and it follows a call on an interface method or an
+// abstract method to the implementers' methods of that name. A caller holding an
+// injected interface used to stop there, one hop short of the I/O. Java and Kotlin
+// run it too, over the calls edges they have: their performs_io had been the
+// round-trip method alone.
 // v302: a C-style for is fixed-count only when it both starts and stops at a constant,
 // in C/C++, C# and PHP as in TypeScript and Java since v300. The condition alone used
 // to decide, so `for (i = n - 1; i >= 0; i--)` was read as constant for comparing
@@ -2656,7 +2662,7 @@ import (
 // v270: SvelteKit reads literal kit.alias fallbacks before generated config exists,
 // keeps tsconfig paths authoritative, and classifies $app/$env/$service-worker imports
 // as framework-provided rather than unresolved third-party dependencies.
-const cacheVersion = "v302"
+const cacheVersion = "v303"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

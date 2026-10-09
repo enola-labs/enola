@@ -1,6 +1,7 @@
 package phpextractor
 
 import (
+	"github.com/enola-labs/enola/internal/extractors/ioclosure"
 	"testing"
 )
 
@@ -67,7 +68,7 @@ function load_row($id) {
 }
 `
 	result := extractFileAST([]byte(src), "x.php")
-	computePhpPerformsIO(result)
+	ioclosure.Propagate(result)
 
 	lr := symbolsByName(result)["load_row"]
 	if lr.Props["io_direct"] != true {

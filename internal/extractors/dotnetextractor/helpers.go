@@ -637,7 +637,7 @@ func iteratorReceiverBounded(node *sitter.Node, src []byte) bool {
 // ── I/O vocabulary ──────────────────────────────────────────────────────────
 
 // ioMethods are calls that cross a process boundary — network, disk or database.
-// A member invoking one is tagged io_direct, and computeCSharpPerformsIO
+// A member invoking one is tagged io_direct, and ioclosure.Propagate
 // propagates that up the call graph so a per-iteration call to a wrapper reads as
 // an N+1 rather than as ordinary work.
 var ioMethods = map[string]bool{
