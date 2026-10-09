@@ -1841,3 +1841,111 @@ func TestCallInLoopExponentCountsItsOwnNest(t *testing.T) {
 		t.Errorf("call-in-loop = %+v (ok=%v), want O(n²) from the function's own two-deep nest", c, ok)
 	}
 }
+
+// Go drops the keywords that name another ecosystem's API, and a name that states
+// or builds something is not doing I/O whatever noun it ends in.
+func TestGoCallGateUsesGoVerbsAndPartOfSpeech(t *testing.T) {
+	notIO := []string{
+		"pkg/usage.Ingester.mergeBack",   // `merge` is SQLAlchemy's, not Go's
+		"pkg/usage.aggregateField",       // `aggregate` is Prisma's
+		"issue.IsPullRequest",            // a predicate
+		"pkg/schema.isCloudWatchQuery",   // an unexported predicate
+		"pkg/kinds.NewAzureMonitorQuery", // a constructor
+		"models/db.ErrCancelledf",        // an error value, under a db package
+		"pkg/tracker.Issue.Labels",       // `Issue` is not `Is` + `sue`: no verb either
+	}
+	for _, c := range notIO {
+		if isExpensiveGoCall(c, nil) {
+			t.Errorf("%s read as I/O", c)
+		}
+	}
+	isIO := []string{
+		"models/actions.UpdateTask", "repo.FindByID", "stmt.ExecContext", "pkg/store.queryRows",
+		"client.DoRequest", "models/db.GetEngine", "sql.Open", "tracker.IssueUpdate",
+		"services/actions.loadJobTaskOutputs",        // found by name or not at all: Go has no performs_io
+		"pkg/infra/db.DB.WithTransactionalDbSession", // runs its closure in a transaction
+	}
+	for _, c := range isIO {
+		if !isExpensiveGoCall(c, nil) {
+			t.Errorf("%s not read as I/O", c)
+		}
+	}
+	if !isExpensiveGoCall("pkg/x.NewThing", map[string]bool{"pkg/x.NewThing": true}) {
+		t.Errorf("a storage fact is I/O whatever its name")
+	}
+}
+
+func TestPHPInMemoryCallsAreNotIO(t *testing.T) {
+	for _, c := range []string{"array_merge", "array_merge_recursive", "query.where", "whereIn", "builder.whereExists"} {
+		if !phpInMemory(c) {
+			t.Errorf("%s not recognised as in-memory", c)
+		}
+	}
+	for _, c := range []string{"Model.save", "db.array_merge", "wherever", "repo.findWhere"} {
+		if phpInMemory(c) {
+			t.Errorf("%s read as in-memory", c)
+		}
+	}
+}
+
+// One init that does I/O must not make every init in a TypeScript loop a network
+// call, and the guard must not reach a real DAO method that shares its name with
+// its own interface declaration.
+func TestTSLifecycleNamesAreNotIOByNameAlone(t *testing.T) {
+	funcs := []funcInfo{
+		{Name: "net/socket.Client.init", File: "net/socket.ts", PerformsIO: true},
+		{Name: "data/dao.UserDao.insertAll", File: "data/dao.ts", PerformsIO: true},
+		{Name: "data/dao.Dao.insertAll", File: "data/base.ts"}, // the interface's declaration
+		{Name: "data/mem.Buffer.insertAll", File: "data/mem.ts"},
+		{
+			Name: "ui/page.render", File: "ui/page.ts", LoopDepth: 1, LoopCount: 1,
+			CallsInLoop: []string{"r.init", "dao.insertAll"}, Calls: []string{"r.init", "dao.insertAll"},
+		},
+	}
+	c, ok := findFinding(analyze(funcs, nil, nil, nil), "ui/page.render", "call-in-loop")
+	if !ok {
+		t.Fatalf("no call-in-loop finding: the DAO insert is real")
+	}
+	sawInsert := false
+	for _, e := range c.Evidence {
+		if e == "call_in_loop=r.init" {
+			t.Errorf("r.init reported as I/O because one unrelated init does some: %v", c.Evidence)
+		}
+		if e == "call_in_loop=dao.insertAll" {
+			sawInsert = true
+		}
+	}
+	if !sawInsert {
+		t.Errorf("dao.insertAll dropped: %v", c.Evidence)
+	}
+}
+
+// C# keeps the generic gate; only collection methods are taken out of it.
+func TestCSharpCollectionMethodsAreNotIO(t *testing.T) {
+	funcs := []funcInfo{
+		{Name: "Lib.Provider.DeleteEpisode", File: "Lib/Provider.cs"}, // resolved, no performs_io: an interface hides it
+		{
+			Name: "Lib.Provider.Run", File: "Lib/Provider.cs", LoopDepth: 1, LoopCount: 1,
+			CallsInLoop: []string{"Lib.Provider.DeleteEpisode", "_cache.AddOrUpdate", "videos.InsertRange"},
+		},
+	}
+	c, ok := findFinding(analyze(funcs, nil, nil, nil), "Lib.Provider.Run", "call-in-loop")
+	if !ok {
+		t.Fatalf("DeleteEpisode in a loop must still be reported")
+	}
+	if len(c.Evidence) != 1 || c.Evidence[0] != "call_in_loop=Lib.Provider.DeleteEpisode" {
+		t.Errorf("evidence = %v, want only DeleteEpisode", c.Evidence)
+	}
+}
+
+// A resolved TypeScript callee that does no I/O is not I/O for sharing a name with
+// an ORM method.
+func TestResolvedTSCalleeIsJudgedByItsOwnIO(t *testing.T) {
+	byName := map[string]funcInfo{"src/chart.aggregate": {Name: "src/chart.aggregate"}}
+	if isExpensiveTSCall("src/chart.aggregate", nil, byName, nil) {
+		t.Errorf("a local aggregate() that does no I/O read as a Prisma aggregate")
+	}
+	if !isExpensiveTSCall("prisma.user.aggregate", nil, byName, nil) {
+		t.Errorf("an unresolved ORM aggregate must still be I/O")
+	}
+}

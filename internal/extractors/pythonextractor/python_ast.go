@@ -1591,6 +1591,7 @@ func (w *pyWalker) walkForCalls(node *sitter.Node) {
 	// repeats, so it raises repeatDepth.
 	isLoop := kind == "for_statement" || kind == "while_statement"
 	bounded, repeats := false, false
+	var once *sitter.Node // the part of a loop statement evaluated before it starts
 	if isLoop {
 		bounded = pyLoopBounded(node, w.src)
 		repeats = pyLoopRepeats(node, w.src)
@@ -1604,6 +1605,15 @@ func (w *pyWalker) walkForCalls(node *sitter.Node) {
 			pyBindTargetNames(node.ChildByFieldName("left"), w.src, &scope)
 		}
 		w.loopScopes = append(w.loopScopes, scope)
+		// A for statement evaluates its iterable once, before the first iteration.
+		// Walking it with the body read `for spec in load_engine_specs():` as a
+		// load per spec. (The scope pushed above binds only this loop's own
+		// targets, which the iterable cannot mention.)
+		if kind == "for_statement" {
+			if once = node.ChildByFieldName("right"); once != nil {
+				w.walkForCalls(once)
+			}
+		}
 		if w.metrics != nil {
 			w.metrics.loopCount++
 			w.metrics.decisions++
@@ -1624,7 +1634,9 @@ func (w *pyWalker) walkForCalls(node *sitter.Node) {
 	}
 
 	for i := uint(0); i < uint(node.ChildCount()); i++ {
-		w.walkForCalls(node.Child(i))
+		if c := node.Child(i); once == nil || c.StartByte() != once.StartByte() || c.EndByte() != once.EndByte() {
+			w.walkForCalls(c)
+		}
 	}
 
 	if isLoop {

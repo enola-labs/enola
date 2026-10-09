@@ -3196,6 +3196,20 @@ func (w *tsBodyWalker) walk(n *sitter.Node) {
 				w.metrics.scalingLoopDepth = w.scalingDepth + 1
 			}
 		}
+		// What the loop draws from is evaluated once, before the first iteration:
+		// the collection of a for..of, the initializer of a C-style for. Walking it
+		// with the body read `for (const s of loadSpecs())` as a call per spec, and
+		// an iterator in the header as one more level of nesting.
+		var once *sitter.Node
+		switch kind {
+		case "for_in_statement":
+			once = n.ChildByFieldName("right")
+		case "for_statement":
+			once = n.ChildByFieldName("initializer")
+		}
+		if once != nil {
+			w.walk(once)
+		}
 		w.loopDepth++
 		if !bounded {
 			w.scalingDepth++
@@ -3205,7 +3219,9 @@ func (w *tsBodyWalker) walk(n *sitter.Node) {
 		}
 		w.loopScopes = append(w.loopScopes, scope)
 		for i := range n.ChildCount() {
-			w.walk(n.Child(i))
+			if c := n.Child(i); once == nil || c.StartByte() != once.StartByte() || c.EndByte() != once.EndByte() {
+				w.walk(c)
+			}
 		}
 		w.loopScopes = w.loopScopes[:len(w.loopScopes)-1]
 		w.loopDepth--

@@ -20,6 +20,11 @@ import (
 	"github.com/enola-labs/enola/pkg/plugin"
 )
 
+// v297: what a loop draws from is evaluated once, so it is walked outside the loop:
+// a range operand and for-init in Go, the collection of a for..of / foreach / for-each
+// / for-in in TypeScript, PHP, Python, Java, Kotlin and Rust (C# already did). A call
+// there is no longer in calls_in_loop and an iterator there no longer nests. Java's
+// Map.computeIfAbsent lambda, which runs at most once, is no longer a loop.
 // v296: the hierarchical-loop rule, until now Go's alone, in TypeScript, PHP, Python,
 // Kotlin, Rust, Java and C#. A loop over what belongs to the element an enclosing loop
 // is on (`for job of jobs { for need of job.needs }`) visits each child once, so it
@@ -2621,7 +2626,7 @@ import (
 // v270: SvelteKit reads literal kit.alias fallbacks before generated config exists,
 // keeps tsconfig paths authoritative, and classifies $app/$env/$service-worker imports
 // as framework-provided rather than unresolved third-party dependencies.
-const cacheVersion = "v296"
+const cacheVersion = "v297"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

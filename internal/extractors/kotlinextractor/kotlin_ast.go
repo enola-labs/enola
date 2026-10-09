@@ -1299,10 +1299,21 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 				w.metrics.scalingLoopDepth = w.scalingLoopDepth + 1
 			}
 		}
+		// A for statement evaluates its collection once, before the first
+		// iteration; walking it with the body read `for (x in load())` as a load
+		// per element.
+		var once *sitter.Node
+		if kind == "for_statement" {
+			if once = kotlinForCollection(node); once != nil {
+				w.walkChild(once)
+			}
+		}
 		w.pushLoop(class)
 		w.loopScopes = append(w.loopScopes, scope)
 		for i := uint(0); i < uint(node.ChildCount()); i++ {
-			w.walkChild(node.Child(i))
+			if c := node.Child(i); once == nil || c.StartByte() != once.StartByte() || c.EndByte() != once.EndByte() {
+				w.walkChild(c)
+			}
 		}
 		w.loopScopes = w.loopScopes[:len(w.loopScopes)-1]
 		w.popLoop(class)

@@ -596,6 +596,88 @@ func isExpensiveCall(target string, storage, assoc map[string]bool) bool {
 	return false
 }
 
+// --- Go-specific expensive-call detection ---
+//
+// Go used the generic gate unqualified, which matches every language's keywords
+// against every language's code. On Go that read `mergeBack` as SQLAlchemy's Session.merge and
+// `aggregateField` as a Prisma aggregate, and it has no notion of what part of
+// speech a keyword is in: `IsPullRequest` is a predicate, `NewAzureMonitorQuery` a
+// constructor, `ErrCancelledf` an error value, and none of them sends anything.
+
+// goForeignKeywords are the entries of expensiveMethods that name another
+// ecosystem's API and no Go one: SQLAlchemy's Session.merge, Prisma's aggregate,
+// ActiveRecord's where. The rest of the list stays in force for Go. Much of it is
+// another language's spelling of a verb Go code uses for the same thing (`load`,
+// `commit`, `flush`), and Go has no performs_io to fall back on, so a real
+// `loadJobTaskOutputs` is found by its name or not at all.
+var goForeignKeywords = map[string]bool{"merge": true, "aggregate": true, "where": true}
+
+// goNonIOPrefixes open a name that states or builds something rather than doing it.
+//
+// `With` is deliberately absent. An option (`WithTimeout`) builds, but
+// `WithTransactionalDbSession(ctx, fn)` runs fn inside a transaction, and the two
+// cannot be told apart by name.
+var goNonIOPrefixes = []string{"Is", "Has", "New", "Err", "To", "As", "Can", "Should"}
+
+// goStatesOrBuilds reports whether a Go method name is a predicate, a constructor,
+// an error value or a conversion, by its leading word.
+func goStatesOrBuilds(method string) bool {
+	for _, p := range goNonIOPrefixes {
+		if len(method) <= len(p) {
+			continue
+		}
+		head := method[:len(p)]
+		if head != p && head != strings.ToLower(p) {
+			continue
+		}
+		// The prefix has to be a whole word: `Issue` is not `Is` + `sue`.
+		if next := method[len(p)]; isUpper(next) || next == '_' {
+			return true
+		}
+	}
+	return false
+}
+
+func isExpensiveGoCall(target string, storage map[string]bool) bool {
+	if storage[target] {
+		return true
+	}
+	method := methodSegment(target)
+	if goStatesOrBuilds(method) {
+		return false
+	}
+	for _, kw := range expensiveMethods {
+		if !goForeignKeywords[kw] && containsKeyword(method, kw) {
+			return true
+		}
+	}
+	for _, kw := range expensivePrefixes {
+		if strings.Contains(target, kw) {
+			return true
+		}
+	}
+	return false
+}
+
+// phpInMemory reports whether a PHP call target is in-memory work that the generic
+// keywords claim. `array_merge` and its family are the standard library's array
+// functions, matched by `merge`. `where…` is `where` from the ActiveRecord list: on
+// a Laravel or Flarum query builder it adds a clause to a query that something
+// else (`get`, `first`, `count`) later runs.
+func phpInMemory(target string) bool {
+	method := methodSegment(target)
+	if strings.HasPrefix(method, "array_") && !strings.ContainsAny(target, ".:>\\") {
+		return true
+	}
+	return method == "where" || (strings.HasPrefix(method, "where") && len(method) > 5 && isUpper(method[5]))
+}
+
+// csInMemoryMethods are .NET collection methods the generic verbs match: a
+// List<T>.InsertRange, a ConcurrentDictionary.AddOrUpdate, an index search.
+var csInMemoryMethods = map[string]bool{
+	"AddOrUpdate": true, "InsertRange": true, "FindIndex": true, "FindLastIndex": true,
+}
+
 // --- Swift-specific expensive-call detection ---
 //
 // The cross-language expensiveMethods list matches Swift's verb-prefixed method
@@ -764,6 +846,19 @@ var tsExpensiveMethods = []string{
 // matched against the FULL target (axios.get, http.request, prisma.$queryRaw).
 var tsExpensivePrefixes = []string{"axios", "http.", "https.", "db.", "sql.", "prisma."}
 
+// tsLifecycleNames are method names the short-name performs_io index must not
+// carry in TypeScript, the way jvmIONameDenylist guards `get` and `put` on the JVM.
+// One `init` that opens a socket puts `init` in the index, and every
+// `renderer.init()` and `calendar.init()` in a loop then reads as a per-iteration
+// network call. A resolved callee flagged performs_io is unaffected: only the
+// match by bare name is refused.
+//
+// Two names, each from a read finding. A rule general enough to need no list (admit
+// a name only when most functions bearing it do I/O) was tried and took real
+// `dao.save` and `client.delete` calls with it, because an interface declaration
+// and an in-memory namesake outnumber the one implementation that matters.
+var tsLifecycleNames = map[string]bool{"init": true, "setup": true}
+
 // isExpensiveTSCall reports whether a TypeScript/JavaScript in-loop call is
 // per-iteration I/O: a storage fact, a resolved callee the extractor flagged
 // performs_io, an HTTP/DB receiver, the global fetch, or a distinctive ORM query
@@ -774,7 +869,8 @@ func isExpensiveTSCall(target string, storage map[string]bool, byName map[string
 	if storage[target] {
 		return true
 	}
-	if f, ok := byName[target]; ok && f.PerformsIO {
+	resolved, isResolved := byName[target]
+	if isResolved && resolved.PerformsIO {
 		return true
 	}
 	method := methodSegment(target)
@@ -782,15 +878,22 @@ func isExpensiveTSCall(target string, storage map[string]bool, byName map[string
 	// in-loop call to a wrapper is recorded as a receiver-qualified metric string
 	// (`api.updateNotificationPreferencesChannels`) or a misresolved default-import
 	// edge, so the exact-name byName lookup above misses — the short-name index catches it.
-	if ioMethods[method] {
+	if ioMethods[method] && !tsLifecycleNames[method] {
 		return true
 	}
 	if method == "fetch" {
 		return true
 	}
-	for _, kw := range tsExpensiveMethods {
-		if containsKeyword(method, kw) {
-			return true
+	// The ORM method names are a guess about a callee nobody could see. One that
+	// resolved to a function in this repository is not a Prisma method for sharing
+	// its name: a local `aggregate(rows)` that sums an array read as a database
+	// aggregate. Only this test is skipped. performs_io is not complete enough to
+	// overrule the others, so they stand as they were.
+	if !isResolved {
+		for _, kw := range tsExpensiveMethods {
+			if containsKeyword(method, kw) {
+				return true
+			}
 		}
 	}
 	for _, kw := range tsExpensivePrefixes {
@@ -1518,6 +1621,8 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 		ts := strings.HasSuffix(f.File, ".ts") || strings.HasSuffix(f.File, ".tsx") ||
 			strings.HasSuffix(f.File, ".js") || strings.HasSuffix(f.File, ".jsx") ||
 			strings.HasSuffix(f.File, ".vue") || strings.HasSuffix(f.File, ".svelte")
+		golang := strings.HasSuffix(f.File, ".go")
+		cs := strings.HasSuffix(f.File, ".cs")
 		dart := strings.HasSuffix(f.File, ".dart")
 		rust := strings.HasSuffix(f.File, ".rs")
 		rs := strings.HasSuffix(f.File, ".rs")
@@ -1605,7 +1710,21 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 				if resolved, ok := byName[callee]; ok && !resolved.PerformsIO && !storage[callee] {
 					nameMatch = false
 				}
+				if phpInMemory(callee) {
+					nameMatch = false
+				}
 				isExpensive = isConfirmedIOCall(callee, storage, byName, ioMethods) || nameMatch
+			case cs:
+				// C#: the generic gate, minus the collection methods that own several
+				// of its verbs. Not PHP's "a callee resolving to a method that does no
+				// I/O is not an N+1": C# performs_io stops at an injected interface, so
+				// `DeleteEpisode`, whose body is `_libraryManager.DeleteItem(…)`,
+				// carries no flag, and trusting that removed it.
+				isExpensive = isExpensiveCall(callee, storage, assoc) && !csInMemoryMethods[methodSegment(callee)]
+			case golang:
+				// Go: the generic verbs minus other ecosystems' API names, and a
+				// predicate or constructor is not I/O. See isExpensiveGoCall.
+				isExpensive = isExpensiveGoCall(callee, storage)
 			default:
 				// nolint:staticcheck // QF1001 wants De Morgan's law applied here.
 				// "expensive, and NOT a Ruby in-memory call" is the rule as anyone

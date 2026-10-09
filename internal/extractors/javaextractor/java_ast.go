@@ -114,12 +114,16 @@ type javaBodyMetrics struct {
 // javaIterators are Stream/Collection methods whose lambda argument runs once per
 // element — i.e. a loop. A lambda passed to a method NOT in this set (Runnable,
 // Comparator, a listener, a Supplier) is deferred and not treated as a loop.
+//
+// Map.computeIfAbsent is not in it. Its lambda runs at most once, for the one key
+// it was given, and counting it turned every "group these into a map" loop into a
+// nest one level deeper than it is.
 var javaIterators = map[string]bool{
 	"forEach": true, "forEachOrdered": true, "map": true, "mapToInt": true,
 	"mapToLong": true, "mapToDouble": true, "mapToObj": true, "flatMap": true,
 	"filter": true, "reduce": true, "collect": true, "anyMatch": true,
 	"allMatch": true, "noneMatch": true, "peek": true, "sorted": true,
-	"removeIf": true, "replaceAll": true, "computeIfAbsent": true, "takeWhile": true,
+	"removeIf": true, "replaceAll": true, "takeWhile": true,
 	"dropWhile": true,
 }
 
@@ -1049,6 +1053,19 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 				w.metrics.scalingLoopDepth = w.scalingDepth + 1
 			}
 		}
+		// What the loop draws from is evaluated once, before the first iteration:
+		// the collection of a for-each, the initializer of a for. Walking it with
+		// the body read `for (Schema s : schema.getAllOf())` as a call per element.
+		var once *sitter.Node
+		switch kind {
+		case "enhanced_for_statement":
+			once = node.ChildByFieldName("value")
+		case "for_statement":
+			once = node.ChildByFieldName("init")
+		}
+		if once != nil {
+			w.walkForCalls(once)
+		}
 		w.loopDepth++
 		if class.scales() {
 			w.scalingDepth++
@@ -1057,7 +1074,9 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 			w.repeatDepth++
 		}
 		for i := uint(0); i < uint(node.ChildCount()); i++ {
-			w.walkForCalls(node.Child(i))
+			if c := node.Child(i); once == nil || c.StartByte() != once.StartByte() || c.EndByte() != once.EndByte() {
+				w.walkForCalls(c)
+			}
 		}
 		w.loopDepth--
 		if class.scales() {

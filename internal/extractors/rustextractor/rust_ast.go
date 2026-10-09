@@ -1066,13 +1066,24 @@ func (w *astWalker) walkLoop(node *sitter.Node) {
 		w.fnMaxScaling = w.scalingDepth + 1
 	}
 
+	// A `for` evaluates what it iterates once, before the first iteration; walking
+	// it with the body read `for x in load()` as a load per element. A `while let`
+	// scrutinee is different: it is re-evaluated every time round.
+	var once *sitter.Node
+	if kindOf(node) == "for_expression" {
+		if once = value; once != nil {
+			w.walkChild(once)
+		}
+	}
 	w.loopDepth++
 	if !bounded {
 		w.scalingDepth++
 	}
 	w.loopScopes = append(w.loopScopes, scope)
 	for i := uint(0); i < uint(node.ChildCount()); i++ {
-		w.walkChild(node.Child(i))
+		if c := node.Child(i); once == nil || c.StartByte() != once.StartByte() || c.EndByte() != once.EndByte() {
+			w.walkChild(c)
+		}
 	}
 	w.loopScopes = w.loopScopes[:len(w.loopScopes)-1]
 	w.loopDepth--

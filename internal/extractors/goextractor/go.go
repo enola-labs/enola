@@ -750,6 +750,9 @@ func analyzeBody(body ast.Node, ctx resolveCtx, selfName string, params map[stri
 	// independent/same collection (all-pairs). A hierarchical loop visits each element
 	// once across the whole nest, so it adds no factor of n to the Big-O exponent.
 	var loopScopes []loopScope
+	// loopHeads are, per enclosing loop, the part of its statement evaluated once
+	// before the first iteration: a range's operand, a for's init clause.
+	var loopHeads []loopHead
 	// Locals whose contents cannot grow with the input, resolved once for the body
 	// so the range case below is a lookup rather than a second walk per loop.
 	boundedVars := boundedLocals(body)
@@ -761,6 +764,7 @@ func analyzeBody(body ast.Node, ctx resolveCtx, selfName string, params map[stri
 		// Pop loops whose extent we have now left.
 		for len(loopEnds) > 0 && n.Pos() >= loopEnds[len(loopEnds)-1] {
 			loopEnds = loopEnds[:len(loopEnds)-1]
+			loopHeads = loopHeads[:len(loopHeads)-1]
 		}
 		for len(scalingEnds) > 0 && n.Pos() >= scalingEnds[len(scalingEnds)-1] {
 			scalingEnds = scalingEnds[:len(scalingEnds)-1]
@@ -803,6 +807,11 @@ func analyzeBody(body ast.Node, ctx resolveCtx, selfName string, params map[stri
 			if !constBounded {
 				repeatEnds = append(repeatEnds, x.End())
 			}
+			var init ast.Node
+			if x.Init != nil {
+				init = x.Init
+			}
+			loopHeads = append(loopHeads, newLoopHead(init, forScales, !constBounded))
 			loopScopes = append(loopScopes, loopScope{end: x.End(), vars: forLoopVars(x), cursor: forCursor(x), amortizes: forScales})
 		case *ast.RangeStmt:
 			m.loopCount++
@@ -814,6 +823,7 @@ func analyzeBody(body ast.Node, ctx resolveCtx, selfName string, params map[stri
 			// A range whose trip count is not constant amortizes inner hierarchical
 			// loops whether or not it scales itself; see loopScope.amortizes.
 			rangeAmortizes := false
+			rangeScales := false
 			if !goRangeBounded(x) && !goRangeBoundedLocal(x, boundedVars) {
 				rangeAmortizes = true
 				// A hierarchical loop — one whose ranged collection is reached THROUGH
@@ -826,6 +836,7 @@ func analyzeBody(body ast.Node, ctx resolveCtx, selfName string, params map[stri
 					m.loopsOverParam = true
 				}
 				if !referencesLoopVar(x.X, loopScopes) {
+					rangeScales = true
 					scalingEnds = append(scalingEnds, x.End())
 					if len(scalingEnds) > m.scalingLoopDepth {
 						m.scalingLoopDepth = len(scalingEnds)
@@ -833,6 +844,7 @@ func analyzeBody(body ast.Node, ctx resolveCtx, selfName string, params map[stri
 				}
 				repeatEnds = append(repeatEnds, x.End())
 			}
+			loopHeads = append(loopHeads, newLoopHead(x.X, rangeScales, rangeAmortizes))
 			loopScopes = append(loopScopes, loopScope{end: x.End(), vars: rangeLoopVars(x), amortizes: rangeAmortizes})
 		case *ast.AssignStmt:
 			// A value computed from the current element is still the current element
@@ -885,7 +897,22 @@ func analyzeBody(body ast.Node, ctx resolveCtx, selfName string, params map[stri
 				seen[resolved] = true
 				m.calls = append(m.calls, resolved)
 			}
-			if len(loopEnds) > 0 && !inLoopSeen[resolved] {
+			// A call in the innermost loop's head runs once per iteration of the
+			// loops AROUND that one, not of it: `for _, x := range load()` calls
+			// load once.
+			inLoops, inRepeating, inScaling := len(loopEnds), len(repeatEnds), len(scalingEnds)
+			if len(loopHeads) > 0 {
+				if h := loopHeads[len(loopHeads)-1]; h.contains(x.Pos()) {
+					inLoops--
+					if h.repeats {
+						inRepeating--
+					}
+					if h.scales {
+						inScaling--
+					}
+				}
+			}
+			if inLoops > 0 && !inLoopSeen[resolved] {
 				inLoopSeen[resolved] = true
 				m.callsInLoop = append(m.callsInLoop, resolved)
 			}
@@ -893,11 +920,11 @@ func analyzeBody(body ast.Node, ctx resolveCtx, selfName string, params map[stri
 			// candidate. A call only ever inside a constant loop (range over a composite
 			// literal) runs a fixed number of times and is not — but a `for {}` DOES
 			// repeat, so its calls stay candidates even though its depth is discounted.
-			if len(repeatEnds) > 0 && !inScalingSeen[resolved] {
+			if inRepeating > 0 && !inScalingSeen[resolved] {
 				inScalingSeen[resolved] = true
 				m.callsInScalingLoop = append(m.callsInScalingLoop, resolved)
 			}
-			if len(scalingEnds) > 0 && !onElementSeen[resolved] && passesLoopElement(x, loopScopes) {
+			if inScaling > 0 && !onElementSeen[resolved] && passesLoopElement(x, loopScopes) {
 				onElementSeen[resolved] = true
 				m.callsOnLoopElement = append(m.callsOnLoopElement, resolved)
 			}
@@ -931,6 +958,24 @@ func analyzeBody(body ast.Node, ctx resolveCtx, selfName string, params map[stri
 	m.cyclomatic = 1 + decisions
 	return m
 }
+
+// loopHead is the span of a loop statement evaluated once, before the first
+// iteration, with which of the nesting counters that loop raised.
+type loopHead struct {
+	pos, end        token.Pos
+	scales, repeats bool
+}
+
+// newLoopHead takes nil for a loop with no such part (`for cond {}`, `for {}`).
+func newLoopHead(n ast.Node, scales, repeats bool) loopHead {
+	h := loopHead{scales: scales, repeats: repeats}
+	if n != nil {
+		h.pos, h.end = n.Pos(), n.End()
+	}
+	return h
+}
+
+func (h loopHead) contains(p token.Pos) bool { return h.pos != token.NoPos && p >= h.pos && p < h.end }
 
 // loopScope records the variables an enclosing loop introduces, with the loop's
 // end position so it can be popped by the position-based nesting walk.

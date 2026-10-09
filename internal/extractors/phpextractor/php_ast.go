@@ -429,6 +429,15 @@ func (w *phpWalker) walkForCalls(node *sitter.Node, ownerIdx int, seen map[strin
 				w.metrics.scalingLoopDepth = w.scalingDepth + 1
 			}
 		}
+		// A foreach evaluates its collection once, before the first iteration.
+		// Walking it with the body read `foreach (array_merge($a, $b) as $x)` as a
+		// merge per element.
+		var once *sitter.Node
+		if kindOf(node) == "foreach_statement" {
+			if once = phpForeachIterable(node); once != nil {
+				w.walkForCalls(once, ownerIdx, seen)
+			}
+		}
 		w.loopDepth++
 		if class.scales() {
 			w.scalingDepth++
@@ -438,7 +447,9 @@ func (w *phpWalker) walkForCalls(node *sitter.Node, ownerIdx int, seen map[strin
 		}
 		w.loopScopes = append(w.loopScopes, scope)
 		for i := uint(0); i < node.ChildCount(); i++ {
-			w.walkForCalls(node.Child(i), ownerIdx, seen)
+			if c := node.Child(i); once == nil || c.StartByte() != once.StartByte() || c.EndByte() != once.EndByte() {
+				w.walkForCalls(c, ownerIdx, seen)
+			}
 		}
 		w.loopScopes = w.loopScopes[:len(w.loopScopes)-1]
 		w.loopDepth--
