@@ -136,7 +136,8 @@ type kotlinBodyMetrics struct {
 	// times and is excluded.
 	callsInScalingLoop []string
 	inScalingSeen      map[string]bool
-	recursive          bool // body directly calls the enclosing function
+	scalingCallDepth   map[string]int // deepest scaling nesting each of those is called at (calldepth.go)
+	recursive          bool           // body directly calls the enclosing function
 	// sawSuperSelf is set when the body calls super.<enclosingName>(). Such a method
 	// is a framework/override that also makes a bare <enclosingName>(...) call to a
 	// DIFFERENT same-named overload (a real self-call would be infinite recursion), so
@@ -502,6 +503,7 @@ func (w *astWalker) recordInLoopCall(target string) {
 	if w.metrics.inScalingSeen == nil {
 		w.metrics.inScalingSeen = make(map[string]bool)
 	}
+	w.metrics.scalingCallDepth = noteCallDepth(w.metrics.scalingCallDepth, target, w.scalingLoopDepth)
 	if !w.metrics.inScalingSeen[target] {
 		w.metrics.inScalingSeen[target] = true
 		w.metrics.callsInScalingLoop = append(w.metrics.callsInScalingLoop, target)
@@ -976,6 +978,7 @@ func (w *astWalker) handleFunctionDeclaration(node *sitter.Node) {
 			m.callsInScalingLoop = []string{}
 		}
 		props["calls_in_scaling_loop"] = m.callsInScalingLoop
+		props["calls_in_scaling_loop_depth"] = callDepths(m.callsInScalingLoop, m.scalingCallDepth)
 	}
 	// A body that calls super.<self>() is a framework override delegating to a
 	// same-named overload, not genuine recursion — the arity-matched bare self-call is

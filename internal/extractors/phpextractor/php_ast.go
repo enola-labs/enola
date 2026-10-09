@@ -78,6 +78,7 @@ type phpBodyMetrics struct {
 	scalingLoopDepth   int             // max nesting counting only unbounded (input-scaling) loops
 	callsInScalingLoop []string        // distinct targets invoked inside a repeating loop (N+1 candidates)
 	inScalingSeen      map[string]bool // dedup set for callsInScalingLoop
+	scalingCallDepth   map[string]int  // deepest scaling nesting each of those is called at (calldepth.go)
 	recursive          bool            // body directly calls the enclosing callable
 	ioDirect           bool            // body makes a direct filesystem/DB/HTTP call
 }
@@ -362,6 +363,7 @@ func (w *phpWalker) handleCallable(node *sitter.Node, isMethod bool) {
 			w.metrics.callsInScalingLoop = []string{}
 		}
 		props["calls_in_scaling_loop"] = w.metrics.callsInScalingLoop
+		props["calls_in_scaling_loop_depth"] = callDepths(w.metrics.callsInScalingLoop, w.metrics.scalingCallDepth)
 	}
 	if w.metrics.recursive {
 		props["recursive_self"] = true
@@ -608,6 +610,7 @@ func (w *phpWalker) recordInLoopCall(target string) {
 		if w.metrics.inScalingSeen == nil {
 			w.metrics.inScalingSeen = make(map[string]bool)
 		}
+		w.metrics.scalingCallDepth = noteCallDepth(w.metrics.scalingCallDepth, target, w.scalingDepth)
 		if !w.metrics.inScalingSeen[target] {
 			w.metrics.inScalingSeen[target] = true
 			w.metrics.callsInScalingLoop = append(w.metrics.callsInScalingLoop, target)

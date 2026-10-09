@@ -2014,3 +2014,50 @@ func TestColdPathRecognisesWhereOneShotCodeLives(t *testing.T) {
 		}
 	}
 }
+
+// The exponent of a call-in-loop finding is the nesting around the call, not the
+// function's deepest nest.
+func TestCallInLoopExponentIsTheNestingAroundTheCall(t *testing.T) {
+	sync := funcInfo{
+		Name: "app.Sync", File: "app/sync.py", LoopDepth: 2, LoopCount: 3,
+		ScalingLoopDepth: 2, HasScalingDepth: true,
+		CallsInLoop:        []string{"session.execute"},
+		CallsInScalingLoop: []string{"session.execute"}, HasScalingLoopCalls: true,
+		Calls: []string{"session.execute"},
+	}
+
+	// One query per row at depth 1; the depth-2 nest is a matrix built further down.
+	sync.CallDepth = map[string]int{"session.execute": 1}
+	c, ok := findFinding(analyze([]funcInfo{sync}, nil, nil, nil), "app.Sync", "call-in-loop")
+	if !ok || c.BigO != "O(n)" {
+		t.Errorf("call at depth 1 in a depth-2 function: %+v (ok=%v), want O(n)", c, ok)
+	}
+
+	// The same call inside the nest really is made n² times.
+	sync.CallDepth = map[string]int{"session.execute": 2}
+	c, ok = findFinding(analyze([]funcInfo{sync}, nil, nil, nil), "app.Sync", "call-in-loop")
+	if !ok || c.BigO != "O(n²)" {
+		t.Errorf("call at depth 2: %+v (ok=%v), want O(n²)", c, ok)
+	}
+
+	// An extractor that reports no per-call depth keeps the function-wide bound.
+	sync.CallDepth = nil
+	c, ok = findFinding(analyze([]funcInfo{sync}, nil, nil, nil), "app.Sync", "call-in-loop")
+	if !ok || c.BigO != "O(n²)" {
+		t.Errorf("no per-call depth: %+v (ok=%v), want the function's O(n²)", c, ok)
+	}
+}
+
+func TestCallDepthPropHasToLineUpWithItsCalls(t *testing.T) {
+	calls := []string{"a.save", "b.load"}
+	got := callDepthProp(map[string]any{propCallsInScalingLoopDepth: []any{float64(1), float64(2)}}, calls)
+	if got["a.save"] != 1 || got["b.load"] != 2 {
+		t.Errorf("after a JSONL round trip: %v", got)
+	}
+	if got := callDepthProp(map[string]any{propCallsInScalingLoopDepth: []int{1}}, calls); got != nil {
+		t.Errorf("a depth list of the wrong length must be ignored, got %v", got)
+	}
+	if got := callDepthProp(map[string]any{}, calls); got != nil {
+		t.Errorf("an absent prop is nil, got %v", got)
+	}
+}

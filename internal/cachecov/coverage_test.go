@@ -33,6 +33,17 @@ import (
 // test functions that assert the behavior that version introduced. v1 is the
 // implicit baseline (no changelog line), so coverage starts at v2.
 var versionCoverage = map[int][]string{
+	298: { // calls_in_scaling_loop_depth: the scaling nesting each in-loop call sits in, parallel to calls_in_scaling_loop
+		"TestGoCallDepthIsTheNestingAroundTheCall",
+		"TestTsCallDepthIsTheNestingAroundTheCall",
+		"TestPyCallDepthIsTheNestingAroundTheCall",
+		"TestPHPCallDepthIsTheNestingAroundTheCall",
+		"TestKtCallDepthIsTheNestingAroundTheCall",
+		"TestJavaCallDepthIsTheNestingAroundTheCall",
+		"TestRustCallDepthIsTheNestingAroundTheCall",
+		"TestCSharpCallDepthIsTheNestingAroundTheCall",
+		"TestCppCallDepthIsTheNestingAroundTheCall",
+	},
 	297: { // a loop's operand/collection is evaluated once and walked outside the loop (Go, TS, PHP, Python, Java, Kotlin, Rust); Java computeIfAbsent is not a loop
 		"TestRangeOperandIsNotCalledPerIteration",
 		"TestTsLoopHeaderIsNotPerIteration",

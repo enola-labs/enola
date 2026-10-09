@@ -192,6 +192,7 @@ type cppBodyMetrics struct {
 	scalingLoopDepth   int             // max nesting counting only unbounded (input-scaling) loops
 	callsInScalingLoop []string        // distinct targets invoked inside a repeating loop (N+1 candidates)
 	inScalingSeen      map[string]bool // dedup set for callsInScalingLoop
+	scalingCallDepth   map[string]int  // deepest scaling nesting each of those is called at (calldepth.go)
 	recursive          bool            // body directly calls the enclosing function
 	ioDirect           bool            // body makes a direct file/socket I/O call
 }
@@ -242,6 +243,7 @@ func (w *astWalker) recordInLoop(target string) {
 		if w.metrics.inScalingSeen == nil {
 			w.metrics.inScalingSeen = make(map[string]bool)
 		}
+		w.metrics.scalingCallDepth = noteCallDepth(w.metrics.scalingCallDepth, target, w.scalingDepth)
 		if !w.metrics.inScalingSeen[target] {
 			w.metrics.inScalingSeen[target] = true
 			w.metrics.callsInScalingLoop = append(w.metrics.callsInScalingLoop, target)
@@ -907,6 +909,7 @@ func (w *astWalker) handleFunctionDefinition(node *sitter.Node) {
 			m.callsInScalingLoop = []string{}
 		}
 		props["calls_in_scaling_loop"] = m.callsInScalingLoop
+		props["calls_in_scaling_loop_depth"] = callDepths(m.callsInScalingLoop, m.scalingCallDepth)
 	}
 	if m.recursive {
 		props["recursive_self"] = true

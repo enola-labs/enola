@@ -20,6 +20,11 @@ import (
 	"github.com/enola-labs/enola/pkg/plugin"
 )
 
+// v298: calls_in_scaling_loop_depth, a slice parallel to calls_in_scaling_loop giving
+// the deepest scaling nesting each of those calls sits in. scaling_loop_depth is the
+// function's deepest nest anywhere; a call-in-loop finding needs the nesting around
+// the call, and the two differ whenever a deeper nest elsewhere does not contain it.
+// Go, TypeScript, Python, PHP, Kotlin, Java, Rust, C# and C/C++.
 // v297: what a loop draws from is evaluated once, so it is walked outside the loop:
 // a range operand and for-init in Go, the collection of a for..of / foreach / for-each
 // / for-in in TypeScript, PHP, Python, Java, Kotlin and Rust (C# already did). A call
@@ -2626,7 +2631,7 @@ import (
 // v270: SvelteKit reads literal kit.alias fallbacks before generated config exists,
 // keeps tsconfig paths authoritative, and classifies $app/$env/$service-worker imports
 // as framework-provided rather than unresolved third-party dependencies.
-const cacheVersion = "v297"
+const cacheVersion = "v298"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

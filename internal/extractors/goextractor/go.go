@@ -481,6 +481,7 @@ func (e *GoExtractor) extractFunc(fset *token.FileSet, fn *ast.FuncDecl, relFile
 				m.callsInScalingLoop = []string{}
 			}
 			symbolFact.SetProp("calls_in_scaling_loop", m.callsInScalingLoop)
+			symbolFact.SetProp("calls_in_scaling_loop_depth", callDepths(m.callsInScalingLoop, m.scalingCallDepth))
 			// Emitted even when empty, for the same reason as calls_in_scaling_loop:
 			// an absent key cannot be told from "no such call".
 			if m.callsOnLoopElement == nil {
@@ -700,6 +701,9 @@ type bodyMetrics struct {
 	// lives in another package and this pass sees one. The seam binder decides.
 	clientPathCalls    []string
 	callsInScalingLoop []string // subset of calls invoked at scaling (unbounded) nesting depth >= 1
+	// scalingCallDepth is the deepest scaling nesting each of those is called at
+	// (calldepth.go).
+	scalingCallDepth map[string]int
 	// callsOnLoopElement is the subset of callsInScalingLoop handed an element of an
 	// enclosing loop — as an argument or as the receiver. Paired with the callee's
 	// own loopsOverParam it is the cross-call form of the hierarchical rule: the
@@ -920,6 +924,9 @@ func analyzeBody(body ast.Node, ctx resolveCtx, selfName string, params map[stri
 			// candidate. A call only ever inside a constant loop (range over a composite
 			// literal) runs a fixed number of times and is not — but a `for {}` DOES
 			// repeat, so its calls stay candidates even though its depth is discounted.
+			if inRepeating > 0 {
+				m.scalingCallDepth = noteCallDepth(m.scalingCallDepth, resolved, inScaling)
+			}
 			if inRepeating > 0 && !inScalingSeen[resolved] {
 				inScalingSeen[resolved] = true
 				m.callsInScalingLoop = append(m.callsInScalingLoop, resolved)

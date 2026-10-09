@@ -44,12 +44,15 @@ const (
 	propLoopCount          = "loop_count"
 	propCallsInLoop        = "calls_in_loop"
 	propCallsInScalingLoop = "calls_in_scaling_loop" // extractor: in-loop calls inside an unbounded loop
-	propCallsOnLoopElement = "calls_on_loop_element" // extractor: in-loop calls handed the loop's element
-	propLoopsOverParam     = "loops_over_param"      // extractor: a scaling loop walks a parameter/receiver
-	propRecursiveSelf      = "recursive_self"
-	propPerformsIO         = "performs_io"        // extractor: method transitively performs network/file I/O
-	propScalingLoopDepth   = "scaling_loop_depth" // extractor: loop nesting counting only unbounded loops
-	propAssociation        = "association"        // Rails association name on a dependency fact
+	// extractor: for each entry of calls_in_scaling_loop, in order, the deepest
+	// scaling nesting it is called at
+	propCallsInScalingLoopDepth = "calls_in_scaling_loop_depth"
+	propCallsOnLoopElement      = "calls_on_loop_element" // extractor: in-loop calls handed the loop's element
+	propLoopsOverParam          = "loops_over_param"      // extractor: a scaling loop walks a parameter/receiver
+	propRecursiveSelf           = "recursive_self"
+	propPerformsIO              = "performs_io"        // extractor: method transitively performs network/file I/O
+	propScalingLoopDepth        = "scaling_loop_depth" // extractor: loop nesting counting only unbounded loops
+	propAssociation             = "association"        // Rails association name on a dependency fact
 )
 
 // funcInfo is the per-function input to the pure analysis. It is populated from
@@ -88,6 +91,12 @@ type funcInfo struct {
 	// did not, scalingLoopCalls() falls back to CallsInLoop so behavior is unchanged.
 	CallsInScalingLoop  []string
 	HasScalingLoopCalls bool
+	// CallDepth is, per CallsInScalingLoop target, the deepest scaling nesting the
+	// call sits in. It is what a call-in-loop finding's exponent should be: the
+	// function's own scalingDepth() is its deepest nest ANYWHERE, including one
+	// that does not contain the call. nil when the extractor did not emit it, in
+	// which case callDepth falls back to that function-wide depth.
+	CallDepth map[string]int
 	// CallsOnLoopElement is the subset of in-loop calls handed an element of the
 	// caller's loop, and LoopsOverParam says this function's own loop walks something
 	// a caller passed it. Together they identify a call that CONTINUES the caller's
@@ -115,6 +124,16 @@ func (f funcInfo) scalingLoopCalls() []string {
 		return f.CallsInScalingLoop
 	}
 	return f.CallsInLoop
+}
+
+// callDepth returns the scaling loop depth at which this function calls target, and
+// whether the extractor recorded one. Without a record the function's deepest
+// scaling nest stands in, which is an upper bound.
+func (f funcInfo) callDepth(target string) (int, bool) {
+	if f.CallDepth == nil {
+		return f.scalingDepth(), false
+	}
+	return f.CallDepth[target], true
 }
 
 // scalingDepth returns the input-scaling loop nesting depth used for Big-O — the
@@ -192,6 +211,42 @@ func stringSliceProp(props map[string]any, key string) []string {
 		return out
 	}
 	return nil
+}
+
+// callDepthProp reads calls_in_scaling_loop_depth, a slice parallel to
+// calls_in_scaling_loop, into a map. nil when the prop is absent or does not line
+// up with the calls it describes, so a half-written fact degrades to the old
+// function-wide depth instead of to a wrong one.
+func callDepthProp(props map[string]any, calls []string) map[string]int {
+	var depths []int
+	switch v := props[propCallsInScalingLoopDepth].(type) {
+	case []int:
+		depths = v
+	case []any:
+		depths = make([]int, 0, len(v))
+		for _, d := range v {
+			switch n := d.(type) {
+			case float64:
+				depths = append(depths, int(n))
+			case int:
+				depths = append(depths, n)
+			case int64:
+				depths = append(depths, int(n))
+			default:
+				return nil
+			}
+		}
+	default:
+		return nil
+	}
+	if len(depths) != len(calls) {
+		return nil
+	}
+	out := make(map[string]int, len(calls))
+	for i, c := range calls {
+		out[c] = depths[i]
+	}
+	return out
 }
 
 // hasComplexityMetrics reports whether a symbol carries any of the per-body
@@ -481,6 +536,7 @@ func collect(store *facts.Store) (funcs []funcInfo, storage, routeHandlers, asso
 		}
 		_, hasScaling := f.Prop(propScalingLoopDepth)
 		_, hasScalingCalls := f.Prop(propCallsInScalingLoop)
+		scalingCalls := stringSliceProp(f.Props, propCallsInScalingLoop)
 		funcs = append(funcs, funcInfo{
 			Name:                f.Name,
 			File:                f.File,
@@ -495,7 +551,8 @@ func collect(store *facts.Store) (funcs []funcInfo, storage, routeHandlers, asso
 			LoopCount:           intProp(f.Props, propLoopCount),
 			Claimed:             claimedHas(claimed, f.Name),
 			CallsInLoop:         stringSliceProp(f.Props, propCallsInLoop),
-			CallsInScalingLoop:  stringSliceProp(f.Props, propCallsInScalingLoop),
+			CallsInScalingLoop:  scalingCalls,
+			CallDepth:           callDepthProp(f.Props, scalingCalls),
 			HasScalingLoopCalls: hasScalingCalls,
 			CallsOnLoopElement:  stringSliceProp(f.Props, propCallsOnLoopElement),
 			LoopsOverParam:      boolProp(f.Props, propLoopsOverParam),
@@ -1696,6 +1753,9 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 		// unambiguous DB method / I/O receiver), as opposed to a name-only keyword guess.
 		// It is what promotes a call-in-loop to "high".
 		confirmedIO := false
+		// The deepest scaling loop any of the reported calls sits in, and whether
+		// every one of those depths came from the extractor.
+		callNesting, callNestingKnown := 0, true
 		for _, callee := range inLoopCalls {
 			var isExpensive bool
 			switch {
@@ -1807,6 +1867,11 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 				expensive = append(expensive, callee)
 			}
 			evidence = append(evidence, "call_in_loop="+callee)
+			d, known := f.callDepth(callee)
+			if d > callNesting {
+				callNesting = d
+			}
+			callNestingKnown = callNestingKnown && known
 		}
 		// f.Claimed says the query-loops explainer already reports a query per
 		// iteration against this symbol, from the receiver's type rather than from a
@@ -1824,18 +1889,19 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 			if routeHandlers[f.Name] || confirmedIO {
 				sev = "high"
 			}
-			// The exponent is this function's own loop nesting, not the nesting
-			// compounded across the call graph. A call-in-loop finding says how
-			// often the call is made, and that is set by the loops around it. What
-			// the callee then does per call is the `compounded` finding's subject,
-			// reported beside this one when it applies. Taking effHere here printed
-			// O(n³) on a single loop over rows whose callee happened to loop twice,
-			// and none of 103 hand-read findings above O(n) was right.
+			// The exponent is the nesting of the loops AROUND THE CALL. A
+			// call-in-loop finding says how often the call is made, and nothing else
+			// decides that: not what the callee does per call (the `compounded`
+			// finding's subject, reported beside this one when it applies), and not a
+			// deeper nest elsewhere in the function that the call is not inside.
+			// Both were once folded in. The first printed O(n³) on a single loop over
+			// rows whose callee looped twice; the second printed O(n²) for one query
+			// per row because the function also built a matrix further down. None of
+			// 215 hand-read call-in-loop findings above O(n) was right.
 			//
-			// Still an upper bound: the extractors report the function's deepest
-			// nest, not the depth of the loop this call sits in, so a sibling nest
-			// that does not enclose the call is counted too.
-			depth := scaling
+			// Extractors that do not report a per-call depth leave callNesting at the
+			// function's deepest nest, which is an upper bound.
+			depth := callNesting
 			if depth < 1 {
 				depth = 1
 			}

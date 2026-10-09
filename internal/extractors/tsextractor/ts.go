@@ -2777,6 +2777,7 @@ type tsBodyMetrics struct {
 	inLoopSeen         map[string]bool // dedup set for callsInLoop
 	callsInScalingLoop []string        // distinct call targets invoked at scaling (unbounded) depth >= 1
 	inScalingSeen      map[string]bool // dedup set for callsInScalingLoop
+	scalingCallDepth   map[string]int  // deepest scaling nesting each of those is called at (calldepth.go)
 	recursive          bool            // body directly calls the enclosing function
 	ioDirect           bool            // body directly invokes a network/file I/O primitive
 	fieldsWritten      []string        // distinct `this.<name>` targets the body assigns to
@@ -3108,6 +3109,7 @@ func (w *tsBodyWalker) recordInLoop(target string) {
 		if w.metrics.inScalingSeen == nil {
 			w.metrics.inScalingSeen = make(map[string]bool)
 		}
+		w.metrics.scalingCallDepth = noteCallDepth(w.metrics.scalingCallDepth, target, w.scalingDepth)
 		if !w.metrics.inScalingSeen[target] {
 			w.metrics.inScalingSeen[target] = true
 			w.metrics.callsInScalingLoop = append(w.metrics.callsInScalingLoop, target)
@@ -3503,6 +3505,7 @@ func applyTSMetrics(props map[string]any, m *tsBodyMetrics) {
 			m.callsInScalingLoop = []string{}
 		}
 		props["calls_in_scaling_loop"] = m.callsInScalingLoop
+		props["calls_in_scaling_loop_depth"] = callDepths(m.callsInScalingLoop, m.scalingCallDepth)
 	}
 	if m.recursive {
 		props["recursive_self"] = true

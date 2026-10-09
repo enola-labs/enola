@@ -147,6 +147,7 @@ type bodyMetrics struct {
 	scalingLoopDepth   int
 	callsInScalingLoop []string
 	inScalingSeen      map[string]bool
+	scalingCallDepth   map[string]int // deepest scaling nesting each of those is called at (calldepth.go)
 	recursive          bool
 	ioDirect           bool
 }
@@ -888,6 +889,7 @@ func (w *astWalker) walkBodyWithMetrics(node *sitter.Node, idx int, shortName st
 			m.callsInScalingLoop = []string{}
 		}
 		props["calls_in_scaling_loop"] = m.callsInScalingLoop
+		props["calls_in_scaling_loop_depth"] = callDepths(m.callsInScalingLoop, m.scalingCallDepth)
 	}
 	if m.recursive {
 		props["recursive_self"] = true
@@ -1271,6 +1273,7 @@ func (w *astWalker) noteInLoop(target string) {
 	if m.inScalingSeen == nil {
 		m.inScalingSeen = map[string]bool{}
 	}
+	m.scalingCallDepth = noteCallDepth(m.scalingCallDepth, target, w.scalingDepth)
 	if !m.inScalingSeen[target] {
 		m.inScalingSeen[target] = true
 		m.callsInScalingLoop = append(m.callsInScalingLoop, target)

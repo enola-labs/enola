@@ -143,9 +143,12 @@ type astWalker struct {
 	fnCallsInScaling []string        // resolved callees invoked at repeatDepth > 0 (scaling subset)
 	fnInLoopSeen     map[string]bool // dedup set for fnCallsInLoop
 	fnInScalingSeen  map[string]bool // dedup set for fnCallsInScaling
-	fnIODirect       bool            // the current function makes a direct I/O call
-	fnRecursive      bool            // the current function calls itself
-	fnSelfName       string          // canonical name of the current function (for recursion)
+	// fnScalingCallDepth is the deepest scaling nesting each of those is called at
+	// (calldepth.go).
+	fnScalingCallDepth map[string]int
+	fnIODirect         bool   // the current function makes a direct I/O call
+	fnRecursive        bool   // the current function calls itself
+	fnSelfName         string // canonical name of the current function (for recursion)
 
 	// importMap maps a `use`-imported simple name to its canonical symbol fact
 	// name (e.g. "run" -> "src/helper.run") when the import resolved to a known
@@ -654,6 +657,8 @@ func (w *astWalker) handleFunction(node *sitter.Node, attrs rustItemAttrs) {
 	savedMaxLoop, savedMaxScaling, savedLoopCount := w.fnMaxLoop, w.fnMaxScaling, w.fnLoopCount
 	savedCIL, savedCIS := w.fnCallsInLoop, w.fnCallsInScaling
 	savedILSeen, savedISSeen := w.fnInLoopSeen, w.fnInScalingSeen
+	savedCallDepth := w.fnScalingCallDepth
+	w.fnScalingCallDepth = nil
 	savedIO, savedRec, savedSelf := w.fnIODirect, w.fnRecursive, w.fnSelfName
 	savedScopes := w.loopScopes
 	w.loopScopes = nil
@@ -689,6 +694,7 @@ func (w *astWalker) handleFunction(node *sitter.Node, attrs rustItemAttrs) {
 		w.out[ownerIdx].SetProp("scaling_loop_depth", w.fnMaxScaling)
 		w.out[ownerIdx].SetProp("calls_in_loop", nonNilStrings(w.fnCallsInLoop))
 		w.out[ownerIdx].SetProp("calls_in_scaling_loop", nonNilStrings(w.fnCallsInScaling))
+		w.out[ownerIdx].SetProp("calls_in_scaling_loop_depth", callDepths(w.fnCallsInScaling, w.fnScalingCallDepth))
 	}
 	if w.fnRecursive {
 		w.out[ownerIdx].SetProp("recursive_self", true)
@@ -702,6 +708,7 @@ func (w *astWalker) handleFunction(node *sitter.Node, attrs rustItemAttrs) {
 	w.fnMaxLoop, w.fnMaxScaling, w.fnLoopCount = savedMaxLoop, savedMaxScaling, savedLoopCount
 	w.fnCallsInLoop, w.fnCallsInScaling = savedCIL, savedCIS
 	w.fnInLoopSeen, w.fnInScalingSeen = savedILSeen, savedISSeen
+	w.fnScalingCallDepth = savedCallDepth
 	w.fnIODirect, w.fnRecursive, w.fnSelfName = savedIO, savedRec, savedSelf
 	w.loopScopes = savedScopes
 
@@ -1387,6 +1394,7 @@ func (w *astWalker) recordCallMetrics(target string) {
 		}
 	}
 	if w.scalingDepth > 0 {
+		w.fnScalingCallDepth = noteCallDepth(w.fnScalingCallDepth, target, w.scalingDepth)
 		if w.fnInScalingSeen == nil {
 			w.fnInScalingSeen = make(map[string]bool)
 		}

@@ -257,6 +257,7 @@ type pyBodyMetrics struct {
 	inLoopSeen         map[string]bool // dedup set for callsInLoop
 	callsInScalingLoop []string        // distinct call targets invoked at scaling (unbounded) depth >= 1
 	inScalingSeen      map[string]bool // dedup set for callsInScalingLoop
+	scalingCallDepth   map[string]int  // deepest scaling nesting each of those is called at (calldepth.go)
 	recursive          bool            // body directly calls the enclosing function
 	ioDirect           bool            // body directly invokes a network/file/DB I/O primitive
 }
@@ -296,6 +297,7 @@ func (w *pyWalker) recordInLoopCall(target string) {
 		if w.metrics.inScalingSeen == nil {
 			w.metrics.inScalingSeen = make(map[string]bool)
 		}
+		w.metrics.scalingCallDepth = noteCallDepth(w.metrics.scalingCallDepth, target, w.scalingDepth)
 		if !w.metrics.inScalingSeen[target] {
 			w.metrics.inScalingSeen[target] = true
 			w.metrics.callsInScalingLoop = append(w.metrics.callsInScalingLoop, target)
@@ -1213,6 +1215,7 @@ func (w *pyWalker) handleFunction(node *sitter.Node, decorators []string) {
 				w.metrics.callsInScalingLoop = []string{}
 			}
 			props["calls_in_scaling_loop"] = w.metrics.callsInScalingLoop
+			props["calls_in_scaling_loop_depth"] = callDepths(w.metrics.callsInScalingLoop, w.metrics.scalingCallDepth)
 		}
 		if w.metrics.recursive {
 			props["recursive_self"] = true
