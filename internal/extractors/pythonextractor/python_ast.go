@@ -217,7 +217,9 @@ type pyWalker struct {
 	paramScope     []pyLoopScope
 	paramIndex     map[string]int
 	lastCallTarget string
-	selfName       string
+	// constLocals are the locals proven to be literal collections (constbound.go).
+	constLocals map[string]bool
+	selfName    string
 
 	// funcScope is the qualified name of the OUTERMOST enclosing function whose
 	// body is being walked ("" at module/class level). Unlike selfName it is
@@ -1252,6 +1254,7 @@ func (w *pyWalker) handleFunction(node *sitter.Node, decorators []string) {
 		w.loopScopes = nil
 		paramScope, paramIndex := pyParamScope(node.ChildByFieldName("parameters"), w.src)
 		w.paramScope, w.paramIndex = []pyLoopScope{paramScope}, paramIndex
+		w.constLocals = pyConstLiteralLocals(bodyNode, w.src)
 		w.selfName = qualName
 		// Only the outermost function establishes the router scope: a router
 		// variable is local to the factory that builds it, and collectRouterTopology
@@ -1690,8 +1693,8 @@ func (w *pyWalker) walkForCalls(node *sitter.Node) {
 	bounded, repeats := false, false
 	var once *sitter.Node // the part of a loop statement evaluated before it starts
 	if isLoop {
-		bounded = pyLoopBounded(node, w.src)
-		repeats = pyLoopRepeats(node, w.src)
+		bounded = pyLoopBounded(node, w.src, w.constLocals)
+		repeats = pyLoopRepeats(node, w.src, w.constLocals)
 		scope := pyLoopScope{amortizes: repeats}
 		if kind == "for_statement" {
 			if !bounded {
@@ -1895,7 +1898,7 @@ func (w *pyWalker) walkComprehension(node *sitter.Node) {
 	}
 	// A comprehension over a literal/constant iterable (`[f(x) for x in (A, B, C)]`) is
 	// bounded, so it does not add a scaling loop level.
-	bounded := firstIter != nil && pyIterableBounded(firstIter, w.src)
+	bounded := firstIter != nil && pyConstantIterable(firstIter, w.src, w.constLocals)
 	// `[t.id for t in dag.tasks]` under a loop over dags repeats without scaling
 	// (hierarchy.go).
 	repeats := !bounded
@@ -1971,8 +1974,8 @@ func (w *pyWalker) walkComprehension(node *sitter.Node) {
 // loop (driven by external events, not data).
 //
 // It does NOT mean the loop runs a constant number of times — see pyLoopRepeats.
-func pyLoopBounded(node *sitter.Node, src []byte) bool {
-	return pyLoopConstant(node, src) || pyLoopInfinite(node, src)
+func pyLoopBounded(node *sitter.Node, src []byte, consts map[string]bool) bool {
+	return pyLoopConstant(node, src, consts) || pyLoopInfinite(node, src)
 }
 
 // pyLoopRepeats reports whether the loop body runs a non-constant number of times, so a
@@ -1980,18 +1983,18 @@ func pyLoopBounded(node *sitter.Node, src []byte) bool {
 // `while True: row = fetch(id)` is a retry / chain walk that queries once per iteration,
 // even though its depth is discounted from the Big-O exponent. Scaling and repeating are
 // not the same property.
-func pyLoopRepeats(node *sitter.Node, src []byte) bool {
-	return !pyLoopConstant(node, src)
+func pyLoopRepeats(node *sitter.Node, src []byte, consts map[string]bool) bool {
+	return !pyLoopConstant(node, src, consts)
 }
 
 // pyLoopConstant reports whether a for-loop iterates a compile-time-fixed number of
 // times. A while-loop never qualifies: `while True` repeats indefinitely.
-func pyLoopConstant(node *sitter.Node, src []byte) bool {
+func pyLoopConstant(node *sitter.Node, src []byte, consts map[string]bool) bool {
 	if kindOf(node) != "for_statement" {
 		return false
 	}
 	it := node.ChildByFieldName("right")
-	return it != nil && pyIterableBounded(it, src)
+	return it != nil && pyConstantIterable(it, src, consts)
 }
 
 // pyLoopInfinite reports whether a while-loop is the `while True:` / `while 1:` form,
@@ -2009,39 +2012,6 @@ func pyLoopInfinite(node *sitter.Node, src []byte) bool {
 		return true
 	case "integer":
 		return pyText(cond, src) != "0"
-	}
-	return false
-}
-
-// pyIterableBounded reports whether an iterable expression has a compile-time-fixed
-// length: a list/tuple/set/dict literal, or range(...) whose arguments are all integer
-// literals. Anything data-derived (a variable, range(len(x)), a call result) is unbounded.
-func pyIterableBounded(it *sitter.Node, src []byte) bool {
-	switch kindOf(it) {
-	case "list", "tuple", "set", "dictionary":
-		return true
-	case "call":
-		fn := it.ChildByFieldName("function")
-		if fn == nil || pyText(fn, src) != "range" {
-			return false
-		}
-		args := it.ChildByFieldName("arguments")
-		if args == nil {
-			return false
-		}
-		sawArg := false
-		for i := uint(0); i < uint(args.ChildCount()); i++ {
-			c := args.Child(i)
-			switch kindOf(c) {
-			case "(", ")", ",":
-				continue
-			}
-			sawArg = true
-			if kindOf(c) != "integer" {
-				return false
-			}
-		}
-		return sawArg
 	}
 	return false
 }

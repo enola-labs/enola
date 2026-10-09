@@ -3087,8 +3087,10 @@ type tsBodyWalker struct {
 	// rule in hierarchy.go.
 	paramScope []tsLoopScope
 	paramIndex map[string]int
-	rels       []facts.Relation
-	seen       map[string]bool
+	// constLocals are the locals proven to be literal collections (constbound.go).
+	constLocals map[string]bool
+	rels        []facts.Relation
+	seen        map[string]bool
 }
 
 func (w *tsBodyWalker) recordCall(target string) {
@@ -3238,8 +3240,8 @@ func (w *tsBodyWalker) walk(n *sitter.Node) {
 	// loop is bounded — it raises loop_depth but not scaling_loop_depth (the Big-O exponent).
 	switch kind {
 	case "for_statement", "for_in_statement", "while_statement", "do_statement":
-		bounded := tsLoopBounded(w.kinds, n, w.src)
-		repeats := tsLoopRepeats(w.kinds, n)
+		bounded := tsLoopBounded(w.kinds, n, w.src, w.constLocals)
+		repeats := tsLoopRepeats(w.kinds, n, w.src, w.constLocals)
 		// A loop over the children of the element an enclosing loop is on adds no
 		// factor of n (hierarchy.go). It still repeats.
 		var scope tsLoopScope
@@ -3343,7 +3345,7 @@ func (w *tsBodyWalker) walk(n *sitter.Node) {
 				// raises loop_depth but not the scaling depth. The actual w.loopDepth /
 				// w.scalingDepth bump happens at the callback body inside walkCallbackSubtree;
 				// here we only record the maxes.
-				bounded := tsIteratorReceiverBounded(w.kinds, n, w.src)
+				bounded := tsIteratorReceiverBounded(w.kinds, n, w.src, w.constLocals)
 				// `job.needs.map(cb)` under a loop over jobs: the receiver is the
 				// current element's own collection (hierarchy.go).
 				hier := false
@@ -3511,6 +3513,7 @@ func collectCallsWithMetrics(kinds *tsutil.KindTable, node *sitter.Node, src []b
 	w := &tsBodyWalker{src: src, kinds: kinds, dir: dir, className: className, importMap: importMap, fieldTypes: fieldTypes, memberRoots: memberRoots, ioBindings: ioBindings, selfName: selfName, selfShort: selfShort, metrics: m, seen: make(map[string]bool)}
 	paramScope, paramIndex := tsParamScope(kinds, tsEnclosingFunction(node), src)
 	w.paramScope, w.paramIndex = []tsLoopScope{paramScope}, paramIndex
+	w.constLocals = tsConstLiteralLocals(kinds, node, src)
 	w.walk(node)
 	return w.rels, m
 }
@@ -3613,26 +3616,29 @@ func applyTSMetrics(props map[string]any, m *tsBodyMetrics) {
 // unbounded (its bound is not statically evident).
 //
 // It does NOT mean the loop runs a constant number of times — see tsLoopRepeats.
-func tsLoopBounded(kinds *tsutil.KindTable, n *sitter.Node, src []byte) bool {
-	return tsLoopConstant(kinds, n) || tsLoopInfinite(kinds, n, src)
+func tsLoopBounded(kinds *tsutil.KindTable, n *sitter.Node, src []byte, consts map[string]bool) bool {
+	return tsLoopConstant(kinds, n, src, consts) || tsLoopInfinite(kinds, n, src)
 }
 
 // tsLoopRepeats reports whether the loop body runs a non-constant number of times, so a
 // call inside it is an N+1 candidate. Only a genuinely constant loop is excluded: a
 // `while (true) { row = await fetch(id) }` reconnect/retry loop queries once per
 // iteration even though its depth is discounted. Scaling and repeating differ.
-func tsLoopRepeats(kinds *tsutil.KindTable, n *sitter.Node) bool {
-	return !tsLoopConstant(kinds, n)
+func tsLoopRepeats(kinds *tsutil.KindTable, n *sitter.Node, src []byte, consts map[string]bool) bool {
+	return !tsLoopConstant(kinds, n, src, consts)
 }
 
-// tsLoopConstant reports whether a for..of / for..in iterates an array/object literal —
-// a compile-time-fixed element count. A while/do loop never qualifies.
-func tsLoopConstant(kinds *tsutil.KindTable, n *sitter.Node) bool {
-	if kindOf(kinds, n) != "for_in_statement" {
-		return false
+// tsLoopConstant reports whether a loop runs a number of times fixed where it is
+// written: a for..of / for..in over a constant collection, or a C-style for against
+// a constant bound (constbound.go). A while/do loop never qualifies.
+func tsLoopConstant(kinds *tsutil.KindTable, n *sitter.Node, src []byte, consts map[string]bool) bool {
+	switch kindOf(kinds, n) {
+	case "for_in_statement":
+		return tsConstantIterable(kinds, n.ChildByFieldName("right"), src, consts)
+	case "for_statement":
+		return tsForConstBounded(kinds, n, src)
 	}
-	r := n.ChildByFieldName("right")
-	return r != nil && tsIterableLiteral(kinds, r)
+	return false
 }
 
 // tsLoopInfinite reports whether a loop is the `while (true)` / `do … while (true)` form,
@@ -3648,23 +3654,14 @@ func tsLoopInfinite(kinds *tsutil.KindTable, n *sitter.Node, src []byte) bool {
 }
 
 // tsIteratorReceiverBounded reports whether an array-iterator call (`recv.map(cb)`) has a
-// literal receiver (`[a,b,c].map(...)`), so the callback runs a fixed number of times.
-func tsIteratorReceiverBounded(kinds *tsutil.KindTable, n *sitter.Node, src []byte) bool {
+// receiver with a fixed number of elements (`[a,b,c].map(...)`, `PACKAGES.forEach(...)`),
+// so the callback runs a fixed number of times. See constbound.go.
+func tsIteratorReceiverBounded(kinds *tsutil.KindTable, n *sitter.Node, src []byte, consts map[string]bool) bool {
 	fn := n.ChildByFieldName("function")
 	if fn == nil || kindOf(kinds, fn) != "member_expression" {
 		return false
 	}
-	obj := fn.ChildByFieldName("object")
-	return obj != nil && tsIterableLiteral(kinds, obj)
-}
-
-// tsIterableLiteral reports whether a node is an array/object literal (a fixed-size iterable).
-func tsIterableLiteral(kinds *tsutil.KindTable, n *sitter.Node) bool {
-	switch kindOf(kinds, n) {
-	case "array", "object":
-		return true
-	}
-	return false
+	return tsConstantIterable(kinds, fn.ChildByFieldName("object"), src, consts)
 }
 
 // tsIsTrueCondition reports whether a loop condition is the constant `true` / a nonzero

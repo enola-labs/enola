@@ -20,6 +20,13 @@ import (
 	"github.com/enola-labs/enola/pkg/plugin"
 )
 
+// v300: loops fixed by name add no scaling depth, as loops over a literal already did.
+// TypeScript, Python and Rust recognise an ALL_CAPS constant as a collection or a
+// bound (Java and Kotlin already did), views of one (`Object.entries(X)`, `X.items()`,
+// `X.iter()`), and in TypeScript and Python a local bound once to a literal and never
+// grown. TypeScript's C-style for is constant against a literal or constant bound,
+// which it never was. Python and Java read an enum (`for s in State`,
+// `State.values()`), and Java a named bound (`i < MAX_ATTEMPTS`).
 // v299: the cross-call hierarchical facts, until now Go's alone, in TypeScript and
 // Python: calls_on_loop_element (a call inside a scaling loop is handed the loop's
 // element) and loops_over_param (a scaling loop walks what a parameter or the
@@ -2638,7 +2645,7 @@ import (
 // v270: SvelteKit reads literal kit.alias fallbacks before generated config exists,
 // keeps tsconfig paths authoritative, and classifies $app/$env/$service-worker imports
 // as framework-provided rather than unresolved third-party dependencies.
-const cacheVersion = "v299"
+const cacheVersion = "v300"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

@@ -251,7 +251,10 @@ func javaSyntacticLoopClass(node *sitter.Node, src []byte) javaLoopClass {
 		if cond == nil {
 			return javaLoopInfinite
 		}
-		if javaConstantForCondition(cond) {
+		// Both ends have to be constant: `for (int i = n - 1; i >= 0; i--)` compares
+		// against a literal and still walks all n. The condition alone was once
+		// enough, which read every descending loop as constant.
+		if javaConstantForCondition(cond, src) && javaForStartsAtConstant(node, src) {
 			return javaLoopConstant
 		}
 	case "enhanced_for_statement":
@@ -273,20 +276,66 @@ func javaSyntacticLoopClass(node *sitter.Node, src []byte) javaLoopClass {
 // fixed number of times. A data-derived bound (`i < n`, `i < xs.size()`) or a compound
 // condition (`i < 3 && ok`) is conservatively treated as scaling — so no genuine O(n)
 // finding is ever deleted, only a clearly-constant one discounted.
-func javaConstantForCondition(cond *sitter.Node) bool {
+func javaConstantForCondition(cond *sitter.Node, src []byte) bool {
 	if cond == nil || kindOf(cond) != "binary_expression" {
 		return false
 	}
-	hasCmp, hasLiteral := false, false
+	hasCmp, hasConst := false, false
 	for i := uint(0); i < uint(cond.ChildCount()); i++ {
-		switch kindOf(cond.Child(i)) {
+		switch c := cond.Child(i); kindOf(c) {
 		case "<", "<=", ">", ">=", "!=":
 			hasCmp = true
 		case "decimal_integer_literal", "hex_integer_literal", "octal_integer_literal", "binary_integer_literal":
-			hasLiteral = true
+			hasConst = true
+		case "identifier":
+			// `i < MAX_ATTEMPTS`: a static final by its name.
+			hasConst = hasConst || javaIsScreamingConst(nodeText(c, src))
+		case "field_access":
+			// `i < Limits.MAX_ATTEMPTS`
+			if f := c.ChildByFieldName("field"); f != nil {
+				hasConst = hasConst || javaIsScreamingConst(nodeText(f, src))
+			}
 		}
 	}
-	return hasCmp && hasLiteral
+	return hasCmp && hasConst
+}
+
+// javaForStartsAtConstant reports whether a three-clause for initialises its
+// counter to an integer literal or a named constant. A loop with no initialiser,
+// or one starting from anything computed, does not qualify.
+func javaForStartsAtConstant(node *sitter.Node, src []byte) bool {
+	init := node.ChildByFieldName("init")
+	if init == nil {
+		return false
+	}
+	var value *sitter.Node
+	switch kindOf(init) {
+	case "local_variable_declaration":
+		for i := uint(0); i < uint(init.NamedChildCount()); i++ {
+			if d := init.NamedChild(i); kindOf(d) == "variable_declarator" {
+				if value != nil {
+					return false // two counters: not the simple form
+				}
+				value = d.ChildByFieldName("value")
+			}
+		}
+	case "assignment_expression":
+		value = init.ChildByFieldName("right")
+	}
+	if value == nil {
+		return false
+	}
+	switch kindOf(value) {
+	case "decimal_integer_literal", "hex_integer_literal", "octal_integer_literal", "binary_integer_literal":
+		return true
+	case "identifier":
+		return javaIsScreamingConst(nodeText(value, src))
+	case "field_access":
+		if f := value.ChildByFieldName("field"); f != nil {
+			return javaIsScreamingConst(nodeText(f, src))
+		}
+	}
+	return false
 }
 
 // javaConstantIterable reports whether a for-each iterates a compile-time-fixed number
@@ -323,9 +372,23 @@ func javaConstantIterable(value *sitter.Node, src []byte) bool {
 			return obj == "List" || obj == "Set" || obj == "Map"
 		case "asList":
 			return obj == "Arrays"
+		case "values":
+			// `Scope.values()`: the constants of an enum. The receiver has to be a
+			// type name and the call argument-less; `map.values()` is neither.
+			args := value.ChildByFieldName("arguments")
+			return javaTypeName(obj) && (args == nil || args.NamedChildCount() == 0)
 		}
 	}
 	return false
+}
+
+// javaTypeName reports whether s is an UpperCamelCase simple name: an initial
+// capital, no dots, and at least one lower-case letter (which a constant has not).
+func javaTypeName(s string) bool {
+	if s == "" || s[0] < 'A' || s[0] > 'Z' || strings.Contains(s, ".") {
+		return false
+	}
+	return strings.ContainsAny(s, "abcdefghijklmnopqrstuvwxyz")
 }
 
 // javaIsScreamingConst reports whether an identifier is SCREAMING_SNAKE_CASE — a

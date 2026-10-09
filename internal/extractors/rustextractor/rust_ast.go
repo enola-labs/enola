@@ -1126,16 +1126,57 @@ func rustConstIterable(val *sitter.Node, src []byte) bool {
 	}
 	switch kindOf(val) {
 	case "range_expression":
-		return rustRangeLiteralBounds(val, src)
+		return rustRangeConstBounds(val, src)
 	case "array_expression", "tuple_expression":
 		return true
+	case "reference_expression", "parenthesized_expression":
+		// `&TABLE`, `(0..N)`
+		if v := val.ChildByFieldName("value"); v != nil {
+			return rustConstIterable(v, src)
+		}
+		return val.NamedChildCount() > 0 && rustConstIterable(val.NamedChild(0), src)
+	case "identifier", "scoped_identifier":
+		// `for x in TABLE`, `for x in config::TABLE`
+		return rustConstName(val, src)
+	case "call_expression":
+		// `TABLE.iter()`, `(0..N).rev()`: an argument-less adaptor of a constant.
+		fn, args := val.ChildByFieldName("function"), val.ChildByFieldName("arguments")
+		if fn != nil && kindOf(fn) == "field_expression" && (args == nil || args.NamedChildCount() == 0) {
+			return rustConstIterable(fn.ChildByFieldName("value"), src)
+		}
 	}
 	return false
 }
 
-// rustRangeLiteralBounds reports whether every bound operand of a range
-// expression is an integer literal (so the trip count is a constant).
-func rustRangeLiteralBounds(node *sitter.Node, src []byte) bool {
+// rustConstName reports whether a path names a `const` or `static` by the
+// convention the compiler itself lints for: SCREAMING_SNAKE_CASE. One capital
+// letter counts here, unlike elsewhere: `const N: usize` and a const generic `N`
+// are both fixed at compile time, and rustc warns on any other use of the form.
+func rustConstName(n *sitter.Node, src []byte) bool {
+	name := nodeText(n, src)
+	if i := strings.LastIndex(name, "::"); i >= 0 {
+		name = name[i+2:]
+	}
+	if name == "" {
+		return false
+	}
+	hasLetter := false
+	for _, r := range name {
+		switch {
+		case r >= 'A' && r <= 'Z':
+			hasLetter = true
+		case r >= '0' && r <= '9', r == '_':
+		default:
+			return false
+		}
+	}
+	return hasLetter
+}
+
+// rustRangeConstBounds reports whether every bound operand of a range
+// expression is an integer literal or a named constant (`0..3`, `0..CHUNK_SIZE`),
+// so the trip count is fixed at compile time.
+func rustRangeConstBounds(node *sitter.Node, src []byte) bool {
 	saw := false
 	for i := uint(0); i < uint(node.ChildCount()); i++ {
 		c := node.Child(i)
@@ -1143,6 +1184,11 @@ func rustRangeLiteralBounds(node *sitter.Node, src []byte) bool {
 		case "..", "..=", "...":
 			continue // the range operator itself
 		case "integer_literal":
+			saw = true
+		case "identifier", "scoped_identifier":
+			if !rustConstName(c, src) {
+				return false // a variable bound (e.g. `0..n`) scales
+			}
 			saw = true
 		default:
 			return false // a non-literal bound (e.g. items.len()) — scales
