@@ -105,8 +105,15 @@ func TestAnalyze_NestedLoopSeverity(t *testing.T) {
 	if !ok {
 		t.Fatalf("no nested-loop finding for p.Cubic")
 	}
-	if c.BigO != "O(n³)" || c.Severity != "high" {
-		t.Errorf("p.Cubic: got BigO=%q sev=%q, want O(n³)/high", c.BigO, c.Severity)
+	// Held at medium while the deep tier is unproven; see deepNestingIsUnproven.
+	if c.BigO != "O(n³)" || c.Severity != "medium" {
+		t.Errorf("p.Cubic: got BigO=%q sev=%q, want O(n³)/medium", c.BigO, c.Severity)
+	}
+	if !strings.HasSuffix(c.Why, deepNestingIsUnproven) {
+		t.Errorf("p.Cubic: a depth-3 finding must say its exponent is an upper bound; why = %q", c.Why)
+	}
+	if strings.Contains(q.Why, "upper bound") {
+		t.Errorf("p.Quad: the note is for depth three and deeper; why = %q", q.Why)
 	}
 }
 
@@ -519,9 +526,9 @@ func TestAnalyze_BoundedFanoutDoesNotCompound(t *testing.T) {
 
 func TestSortFindings_SeverityFirst(t *testing.T) {
 	got := analyze([]funcInfo{
-		{Name: "p.Med", LoopDepth: 2},  // nested-loop medium
-		{Name: "p.High", LoopDepth: 3}, // nested-loop high
-	}, nil, nil, nil)
+		{Name: "p.Med", LoopDepth: 3},                                          // nested-loop, held at medium
+		{Name: "p.High", LoopDepth: 1, CallsInLoop: []string{"app/data.Load"}}, // confirmed I/O in a loop
+	}, map[string]bool{"app/data.Load": true}, nil, nil)
 	if len(got) < 2 {
 		t.Fatalf("expected >=2 findings, got %d", len(got))
 	}
@@ -940,7 +947,7 @@ func TestAnalyze_ScalingDepthKeepsGenuineNesting(t *testing.T) {
 	}
 	got := analyze(funcs, nil, nil, nil)
 	f, ok := findFinding(got, "p.Cubic", "nested-loop")
-	if !ok || f.BigO != "O(n³)" || f.Severity != "high" {
+	if !ok || f.BigO != "O(n³)" || f.Severity != "medium" {
 		t.Fatalf("fallback to loop_depth failed: ok=%v %+v", ok, f)
 	}
 }
@@ -957,8 +964,8 @@ func TestAnalyze_ColdPathDownrankedToLow(t *testing.T) {
 		t.Errorf("migration finding severity = %q (ok=%v), want low (cold path)", m.Severity, ok)
 	}
 	h, ok := findFinding(got, "s.hot", "nested-loop")
-	if !ok || h.Severity != "high" {
-		t.Errorf("hot-path finding severity = %q (ok=%v), want high", h.Severity, ok)
+	if !ok || h.Severity != "medium" {
+		t.Errorf("hot-path finding severity = %q (ok=%v), want medium (above the migration's low)", h.Severity, ok)
 	}
 }
 
@@ -1947,5 +1954,27 @@ func TestResolvedTSCalleeIsJudgedByItsOwnIO(t *testing.T) {
 	}
 	if !isExpensiveTSCall("prisma.user.aggregate", nil, byName, nil) {
 		t.Errorf("an unresolved ORM aggregate must still be I/O")
+	}
+}
+
+// A function with no branch cannot be recursive and return, so a self-call in one
+// names a different function of the same name: forwarding, not recursion.
+func TestBranchFreeFunctionIsNotRecursive(t *testing.T) {
+	funcs := []funcInfo{
+		// `fn local_addr(&self) { self.local_addr() }` in a trait impl.
+		{Name: "net.TcpListener.local_addr", File: "net/tcp.rs", Recursive: true, Cyclomatic: 1},
+		// A real walk: the loop is its base case.
+		{Name: "tree.Node.walk", File: "tree/node.rs", Recursive: true, Cyclomatic: 2, LoopDepth: 1, LoopCount: 1},
+		// No cyclomatic reported: nothing is proven, so the finding stays.
+		{Name: "legacy.descend", File: "legacy/x.rb", Recursive: true},
+	}
+	got := analyze(funcs, nil, nil, nil)
+	if _, ok := findFinding(got, "net.TcpListener.local_addr", "recursion"); ok {
+		t.Errorf("a branch-free forwarding method reported as recursive")
+	}
+	for _, name := range []string{"tree.Node.walk", "legacy.descend"} {
+		if _, ok := findFinding(got, name, "recursion"); !ok {
+			t.Errorf("%s no longer reported as recursive", name)
+		}
 	}
 }

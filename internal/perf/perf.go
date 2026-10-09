@@ -501,6 +501,22 @@ func bigOForDepth(d int) string {
 	}
 }
 
+// deepNestingIsUnproven is appended to a nested-loop or compounded finding of depth
+// three or more, which is also held at medium severity.
+//
+// TEMPORARY, and a statement about this analyzer's precision rather than about
+// the code it reads. Two hand-read samples of what it reports (742 findings over
+// 14 repositories, graded by bench-perf in the benchmarks repository) found 2
+// correct among 291 nested-loop and compounded findings above O(n²). The count of
+// nested loops is real; what it cannot yet tell is which of them multiply. A
+// parent-then-children walk, a loop over a named constant or an enum, and a callee
+// that continues its caller's traversal each add a level and no factor of n.
+//
+// Until those are recognised the depth is an upper bound, and ranking it `high`
+// puts the claims most likely to be wrong at the top of the list. Lift this when
+// the bench shows the deep tier holding.
+const deepNestingIsUnproven = " The exponent is an upper bound: it counts every nested loop as scaling with the same input, which deep nests rarely do. Check which loops multiply before acting."
+
 // deepEstimateDepth is the nesting beyond which a cross-call-graph worst-case estimate
 // (compounded / call-in-loop, whose depth comes from effective nesting across the call
 // graph) is no longer trustworthy as a precise exponent.
@@ -1316,6 +1332,27 @@ func markNonScaling(funcs []funcInfo, byName map[string]funcInfo, storage, assoc
 	}
 }
 
+// branchFree reports whether a function's body has no decision point at all: no
+// conditional, no loop, no early exit the extractor counts.
+//
+// Such a function cannot be recursive and return. A self-call with no branch
+// around it is reached on every call, so if it really named the function it would
+// never terminate; what it names instead is a different function that shares the
+// name. That is the whole of the forwarding idiom:
+//
+//	impl Listener for TcpListener {
+//	    fn local_addr(&self) -> Result<SocketAddr> { self.local_addr() }
+//	}
+//
+// which resolves to the inherent method, and with it a same-arity overload, an
+// extension's method wrapping the one it extends, and a call that differs only in
+// its return type. None of those can be told from a self-call by the call site,
+// in a language-specific way or at all without types. All of them are branch-free.
+//
+// A cyclomatic complexity of exactly 1 is the test. A value of 0 means the
+// extractor did not report one, which proves nothing and keeps the finding.
+func branchFree(f funcInfo) bool { return f.Cyclomatic == 1 }
+
 // computeEffectiveDepths estimates, per function, the worst-case loop nesting that
 // compounds across the call graph: effDepth(f) = loopDepth(f) + max over callees g
 // invoked inside f's loops of effDepth(g). Cycles (recursion) are cut by charging
@@ -1491,7 +1528,7 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 	// negatives — rare in application code, far outweighed by the noise removed.
 	recursive := make(map[string]bool)
 	for _, f := range funcs {
-		if f.Recursive && !overloaded(f.Name) {
+		if f.Recursive && !overloaded(f.Name) && !branchFree(f) {
 			recursive[f.Name] = true
 		}
 	}
@@ -1534,10 +1571,8 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 		// finding nor inflates the exponent.
 		scaling := f.scalingDepth()
 		if scaling >= 2 && !eventLoop {
+			// Medium whatever the depth; see deepNestingIsUnproven.
 			sev := "medium"
-			if scaling >= 3 {
-				sev = "high"
-			}
 			ev := []string{fmt.Sprintf("loop_depth=%d, loop_count=%d, cyclomatic=%d",
 				f.LoopDepth, f.LoopCount, f.Cyclomatic)}
 			why := fmt.Sprintf("Loops nest %d deep, so the body runs about %s in the loop bounds.",
@@ -1545,6 +1580,9 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 			if f.loopDiscounted() {
 				ev = append(ev, fmt.Sprintf("scaling_loop_depth=%d (bounded loops discounted)", scaling))
 				why += " (Some enclosing loops iterate bounded/constant ranges and are excluded.)"
+			}
+			if scaling >= 3 {
+				why += deepNestingIsUnproven
 			}
 			findings = append(findings, Finding{
 				Symbol: f.Name, File: f.File, Line: f.Line, Repo: f.Repo, Package: f.Package,
@@ -1559,12 +1597,13 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 		// Skip directly-recursive functions: the recursion finding below already covers
 		// them, and their self-edge does not represent independent nested iteration.
 		if effHere >= 2 && effHere > scaling && !recursive[f.Name] && !eventLoop {
+			// Medium whatever the depth; see deepNestingIsUnproven.
 			sev := "medium"
-			if effHere >= 3 {
-				sev = "high"
-			}
 			bigO, deep := bigOEstimate(effHere)
 			why := fmt.Sprintf("Loops here call other looping functions; worst-case nesting compounds across the call graph to about %s.", bigO)
+			if effHere >= 3 && !deep {
+				why += deepNestingIsUnproven
+			}
 			if deep {
 				// Beyond three levels the exact exponent of a cross-call-graph estimate is
 				// not trustworthy — present an honest bucket and step back to medium.
