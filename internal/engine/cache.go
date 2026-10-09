@@ -20,6 +20,14 @@ import (
 	"github.com/enola-labs/enola/pkg/plugin"
 )
 
+// v296: the hierarchical-loop rule, until now Go's alone, in TypeScript, PHP, Python,
+// Kotlin, Rust, Java and C#. A loop over what belongs to the element an enclosing loop
+// is on (`for job of jobs { for need of job.needs }`) visits each child once, so it
+// raises loop_depth and leaves scaling_loop_depth alone; its calls stay N+1 candidates.
+// The collection has to be reached through the element: a member, a method, a
+// subscript or a lookup keyed by it, directly or through a local assigned from it. A
+// call on another receiver that only takes the variable (`xs.slice(i + 1)`) is the
+// all-pairs loop and keeps counting. Java and C# cover statement loops only.
 // v295: recursive_self needs a call written in a form that can reach the enclosing
 // function, not just an edge that names it. Rust: a bare `f()` inside a method is the
 // free function (`drop(x)` in `Drop::drop`), and a parameter named like its method is
@@ -2613,7 +2621,7 @@ import (
 // v270: SvelteKit reads literal kit.alias fallbacks before generated config exists,
 // keeps tsconfig paths authoritative, and classifies $app/$env/$service-worker imports
 // as framework-provided rather than unresolved third-party dependencies.
-const cacheVersion = "v295"
+const cacheVersion = "v296"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

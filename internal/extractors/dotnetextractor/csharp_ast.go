@@ -129,9 +129,11 @@ type astWalker struct {
 	// query inside one still runs many times and stays an N+1 candidate.
 	scalingDepth int
 	repeatDepth  int
-	selfName     string
-	selfShort    string
-	selfParams   int
+	// loopScopes are the enclosing loops' variables, for the rule in hierarchy.go.
+	loopScopes []csLoopScope
+	selfName   string
+	selfShort  string
+	selfParams int
 }
 
 // bodyMetrics accumulates per-member complexity signals during the single body
@@ -846,6 +848,9 @@ func (w *astWalker) walkBodyWithMetrics(node *sitter.Node, idx int, shortName st
 	savedScaling, savedRepeat := w.scalingDepth, w.repeatDepth
 	savedName, savedShort, savedParams := w.selfName, w.selfShort, w.selfParams
 
+	savedLoopScopes := w.loopScopes
+	w.loopScopes = nil
+	defer func() { w.loopScopes = savedLoopScopes }()
 	w.metrics = &bodyMetrics{}
 	w.loopDepth, w.scalingDepth, w.repeatDepth = 0, 0, 0
 	w.selfName = w.out[idx].Name
@@ -905,8 +910,21 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 	// A lambda is a deferred scope: its body runs when the delegate is invoked,
 	// not once per iteration of the loops it was created inside. An iterator's own
 	// lambda is handled at the invocation below, which walks it at depth+1.
+	// A local initialised from the current element is still the current element:
+	// `var ops = path.Value.Operations;` puts `ops` one step from `path`.
+	if kind == "variable_declarator" && len(w.loopScopes) > 0 && node.NamedChildCount() >= 2 {
+		name := node.ChildByFieldName("name")
+		value := node.NamedChild(node.NamedChildCount() - 1)
+		if name != nil && kindOf(name) == "identifier" && csReachedThroughElement(value, w.src, w.loopScopes) {
+			w.loopScopes[len(w.loopScopes)-1].add(nodeText(name, w.src))
+		}
+	}
+
 	if w.metrics != nil && (kind == "lambda_expression" || kind == "anonymous_method_expression") {
 		saved, savedScaling, savedRepeat := w.loopDepth, w.scalingDepth, w.repeatDepth
+		savedScopes := w.loopScopes
+		w.loopScopes = nil
+		defer func() { w.loopScopes = savedScopes }()
 		w.loopDepth, w.scalingDepth, w.repeatDepth = 0, 0, 0
 		w.walkChildren(node)
 		w.loopDepth, w.scalingDepth, w.repeatDepth = saved, savedScaling, savedRepeat
@@ -943,6 +961,16 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 		return
 	case "for_statement", "foreach_statement", "while_statement", "do_statement":
 		class := syntacticLoopClass(node, w.src)
+		scope := csLoopScope{amortizes: class.repeats()}
+		if kindOf(node) == "foreach_statement" {
+			// A loop over what belongs to an enclosing loop's element repeats
+			// without scaling (hierarchy.go).
+			if class.scales() && csReachedThroughElement(node.ChildByFieldName("right"), w.src, w.loopScopes) {
+				class = loopInfinite
+			}
+			scope.amortizes = class.repeats()
+			csBindIdentifiers(node.ChildByFieldName("left"), w.src, &scope)
+		}
 		// The parts evaluated in the ENCLOSING scope are walked outside the loop.
 		// A `foreach (x in items.Where(p))` enumerates its iterable once — the
 		// lambda runs per element of `items`, which is the same n the loop itself
@@ -961,11 +989,13 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 			w.walkForCalls(n)
 		}
 		w.enterLoop(class)
+		w.loopScopes = append(w.loopScopes, scope)
 		for i := uint(0); i < uint(node.ChildCount()); i++ {
 			if c := node.Child(i); !containsAny(outer, c) {
 				w.walkForCalls(c)
 			}
 		}
+		w.loopScopes = w.loopScopes[:len(w.loopScopes)-1]
 		w.exitLoop(class)
 		return
 	case "object_creation_expression":

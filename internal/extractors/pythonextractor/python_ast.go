@@ -208,7 +208,9 @@ type pyWalker struct {
 	// It differs from scalingDepth for `while True:`, which adds no factor of n but whose
 	// body still runs many times — so a query inside it is still an N+1 candidate.
 	repeatDepth int
-	selfName    string
+	// loopScopes are the enclosing loops' variables, for the rule in hierarchy.go.
+	loopScopes []pyLoopScope
+	selfName   string
 
 	// funcScope is the qualified name of the OUTERMOST enclosing function whose
 	// body is being walked ("" at module/class level). Unlike selfName it is
@@ -1179,6 +1181,7 @@ func (w *pyWalker) handleFunction(node *sitter.Node, decorators []string) {
 		w.metrics = &pyBodyMetrics{}
 		w.loopDepth = 0
 		w.scalingDepth = 0
+		w.loopScopes = nil
 		w.selfName = qualName
 		// Only the outermost function establishes the router scope: a router
 		// variable is local to the factory that builds it, and collectRouterTopology
@@ -1529,6 +1532,11 @@ func (w *pyWalker) walkForCalls(node *sitter.Node) {
 		for _, ident := range collectRefValueIdents(node.ChildByFieldName("right")) {
 			w.emitValueRef(ident)
 		}
+		// A local assigned from the current element is still the current element:
+		// `tasks = dag.tasks or []` puts `tasks` one step from `dag`.
+		if len(w.loopScopes) > 0 && pyReachedThroughElement(node.ChildByFieldName("right"), w.src, w.loopScopes) {
+			pyBindTargetNames(node.ChildByFieldName("left"), w.src, &w.loopScopes[len(w.loopScopes)-1])
+		}
 	}
 	if kind == "default_parameter" || kind == "typed_default_parameter" {
 		// A default is evaluated when the def is executed and may install a
@@ -1586,6 +1594,16 @@ func (w *pyWalker) walkForCalls(node *sitter.Node) {
 	if isLoop {
 		bounded = pyLoopBounded(node, w.src)
 		repeats = pyLoopRepeats(node, w.src)
+		scope := pyLoopScope{amortizes: repeats}
+		if kind == "for_statement" {
+			// A loop over what belongs to an enclosing loop's element repeats
+			// without scaling (hierarchy.go).
+			if pyReachedThroughElement(node.ChildByFieldName("right"), w.src, w.loopScopes) {
+				bounded = true
+			}
+			pyBindTargetNames(node.ChildByFieldName("left"), w.src, &scope)
+		}
+		w.loopScopes = append(w.loopScopes, scope)
 		if w.metrics != nil {
 			w.metrics.loopCount++
 			w.metrics.decisions++
@@ -1610,6 +1628,7 @@ func (w *pyWalker) walkForCalls(node *sitter.Node) {
 	}
 
 	if isLoop {
+		w.loopScopes = w.loopScopes[:len(w.loopScopes)-1]
 		w.loopDepth--
 		if !bounded {
 			w.scalingDepth--
@@ -1765,6 +1784,18 @@ func (w *pyWalker) walkComprehension(node *sitter.Node) {
 	// A comprehension over a literal/constant iterable (`[f(x) for x in (A, B, C)]`) is
 	// bounded, so it does not add a scaling loop level.
 	bounded := firstIter != nil && pyIterableBounded(firstIter, w.src)
+	// `[t.id for t in dag.tasks]` under a loop over dags repeats without scaling
+	// (hierarchy.go).
+	repeats := !bounded
+	if pyReachedThroughElement(firstIter, w.src, w.loopScopes) {
+		bounded = true
+	}
+	scope := pyLoopScope{amortizes: repeats}
+	for i := uint(0); i < uint(node.ChildCount()); i++ {
+		if c := node.Child(i); kindOf(c) == "for_in_clause" {
+			pyBindTargetNames(c.ChildByFieldName("left"), w.src, &scope)
+		}
+	}
 
 	if w.metrics != nil {
 		w.metrics.loopCount++
@@ -1786,8 +1817,11 @@ func (w *pyWalker) walkComprehension(node *sitter.Node) {
 	w.loopDepth++
 	if !bounded {
 		w.scalingDepth++
+	}
+	if repeats {
 		w.repeatDepth++
 	}
+	w.loopScopes = append(w.loopScopes, scope)
 	for i := uint(0); i < uint(node.ChildCount()); i++ {
 		child := node.Child(i)
 		if kindOf(child) == "for_in_clause" {
@@ -1804,9 +1838,12 @@ func (w *pyWalker) walkComprehension(node *sitter.Node) {
 		}
 		w.walkForCalls(child)
 	}
+	w.loopScopes = w.loopScopes[:len(w.loopScopes)-1]
 	w.loopDepth--
 	if !bounded {
 		w.scalingDepth--
+	}
+	if repeats {
 		w.repeatDepth--
 	}
 }

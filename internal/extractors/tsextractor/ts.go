@@ -3072,8 +3072,11 @@ type tsBodyWalker struct {
 	// differs from scalingDepth for `while (true)`, which adds no factor of n but whose
 	// body still runs many times — so a query inside it is still an N+1 candidate.
 	repeatDepth int
-	rels        []facts.Relation
-	seen        map[string]bool
+	// loopScopes are the enclosing loops' variables, for the hierarchical rule in
+	// hierarchy.go.
+	loopScopes []tsLoopScope
+	rels       []facts.Relation
+	seen       map[string]bool
 }
 
 func (w *tsBodyWalker) recordCall(target string) {
@@ -3126,12 +3129,24 @@ func (w *tsBodyWalker) walk(n *sitter.Node) {
 	// handled separately in the call_expression branch (its body walks at +1).
 	if w.metrics != nil && tsIsFunctionLike(kind) {
 		saved, savedScaling, savedRepeat := w.loopDepth, w.scalingDepth, w.repeatDepth
+		savedScopes := w.loopScopes
 		w.loopDepth, w.scalingDepth, w.repeatDepth = 0, 0, 0
+		w.loopScopes = nil
 		for i := range n.ChildCount() {
 			w.walk(n.Child(i))
 		}
 		w.loopDepth, w.scalingDepth, w.repeatDepth = saved, savedScaling, savedRepeat
+		w.loopScopes = savedScopes
 		return
+	}
+
+	// A local derived from the current element is still the current element:
+	// `const needs = job.needs ?? []` puts `needs` one step from `job`.
+	if kind == "variable_declarator" && len(w.loopScopes) > 0 {
+		if tsReachedThroughElement(w.kinds, n.ChildByFieldName("value"), w.src, w.loopScopes) {
+			top := &w.loopScopes[len(w.loopScopes)-1]
+			tsBindPattern(w.kinds, n.ChildByFieldName("name"), w.src, top.addElem)
+		}
 	}
 
 	// Complexity metrics: count decision points so the single body walk doubles as
@@ -3156,6 +3171,21 @@ func (w *tsBodyWalker) walk(n *sitter.Node) {
 	case "for_statement", "for_in_statement", "while_statement", "do_statement":
 		bounded := tsLoopBounded(w.kinds, n, w.src)
 		repeats := tsLoopRepeats(w.kinds, n)
+		// A loop over the children of the element an enclosing loop is on adds no
+		// factor of n (hierarchy.go). It still repeats.
+		var scope tsLoopScope
+		switch kind {
+		case "for_in_statement":
+			if tsReachedThroughElement(w.kinds, n.ChildByFieldName("right"), w.src, w.loopScopes) {
+				bounded = true
+			}
+			scope = tsForInScope(w.kinds, n, w.src, repeats)
+		case "for_statement":
+			if tsForBoundThroughElement(w.kinds, n, w.src, w.loopScopes) {
+				bounded = true
+			}
+			scope = tsForScope(w.kinds, n, w.src)
+		}
 		if w.metrics != nil {
 			w.metrics.loopCount++
 			w.metrics.decisions++
@@ -3173,9 +3203,11 @@ func (w *tsBodyWalker) walk(n *sitter.Node) {
 		if repeats {
 			w.repeatDepth++
 		}
+		w.loopScopes = append(w.loopScopes, scope)
 		for i := range n.ChildCount() {
 			w.walk(n.Child(i))
 		}
+		w.loopScopes = w.loopScopes[:len(w.loopScopes)-1]
 		w.loopDepth--
 		if !bounded {
 			w.scalingDepth--
@@ -3220,17 +3252,23 @@ func (w *tsBodyWalker) walk(n *sitter.Node) {
 				// w.scalingDepth bump happens at the callback body inside walkCallbackSubtree;
 				// here we only record the maxes.
 				bounded := tsIteratorReceiverBounded(w.kinds, n, w.src)
+				// `job.needs.map(cb)` under a loop over jobs: the receiver is the
+				// current element's own collection (hierarchy.go).
+				hier := false
+				if fn := n.ChildByFieldName("function"); fn != nil {
+					hier = tsReachedThroughElement(w.kinds, fn.ChildByFieldName("object"), w.src, w.loopScopes)
+				}
 				w.metrics.loopCount++
 				w.metrics.decisions++
 				if w.loopDepth+1 > w.metrics.loopDepth {
 					w.metrics.loopDepth = w.loopDepth + 1
 				}
-				if !bounded && w.scalingDepth+1 > w.metrics.scalingLoopDepth {
+				if !bounded && !hier && w.scalingDepth+1 > w.metrics.scalingLoopDepth {
 					w.metrics.scalingLoopDepth = w.scalingDepth + 1
 				}
 				for i := range n.ChildCount() {
 					if c := n.Child(i); tsByteContains(c, cb) {
-						w.walkCallbackSubtree(c, cb, bounded)
+						w.walkCallbackSubtree(c, cb, bounded, hier)
 					} else {
 						w.walk(c)
 					}
@@ -3275,7 +3313,7 @@ func (w *tsBodyWalker) walk(n *sitter.Node) {
 // (the receiver, sibling args) at the current depth. When the iterator's receiver is a
 // literal (bounded), the scaling depth is NOT bumped — the callback runs a fixed number
 // of times, so it does not add a factor of n to Big-O.
-func (w *tsBodyWalker) walkCallbackSubtree(n, cb *sitter.Node, bounded bool) {
+func (w *tsBodyWalker) walkCallbackSubtree(n, cb *sitter.Node, bounded, hier bool) {
 	if n == nil {
 		return
 	}
@@ -3286,24 +3324,32 @@ func (w *tsBodyWalker) walkCallbackSubtree(n, cb *sitter.Node, bounded bool) {
 		// the depth — but THIS callback genuinely runs per iteration.
 		// An iterator receiver is either a literal (constant) or data-derived (scaling);
 		// it is never infinite, so repeating and scaling coincide here.
+		// A hierarchical receiver repeats without scaling (hierarchy.go).
+		scales := !bounded && !hier
 		w.loopDepth++
-		if !bounded {
+		if scales {
 			w.scalingDepth++
+		}
+		if !bounded {
 			w.repeatDepth++
 		}
+		w.loopScopes = append(w.loopScopes, tsCallbackScope(w.kinds, cb, w.src, !bounded))
 		for i := range cb.ChildCount() {
 			w.walk(cb.Child(i))
 		}
+		w.loopScopes = w.loopScopes[:len(w.loopScopes)-1]
 		w.loopDepth--
-		if !bounded {
+		if scales {
 			w.scalingDepth--
+		}
+		if !bounded {
 			w.repeatDepth--
 		}
 		return
 	}
 	for i := range n.ChildCount() {
 		if c := n.Child(i); tsByteContains(c, cb) {
-			w.walkCallbackSubtree(c, cb, bounded)
+			w.walkCallbackSubtree(c, cb, bounded, hier)
 		} else {
 			w.walk(c)
 		}

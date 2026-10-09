@@ -133,6 +133,8 @@ type astWalker struct {
 	// saved/zeroed/restored around each function body alongside `decisions`.
 	loopDepth    int // syntactic loop nesting (for/while/loop)
 	scalingDepth int // nesting of loops with a data-dependent (non-constant) trip count
+	// loopScopes are the enclosing loops' variables, for the rule in hierarchy.go.
+	loopScopes []rustLoopScope
 
 	fnMaxLoop        int             // peak loopDepth seen in the current function
 	fnMaxScaling     int             // peak scalingDepth seen in the current function
@@ -653,6 +655,8 @@ func (w *astWalker) handleFunction(node *sitter.Node, attrs rustItemAttrs) {
 	savedCIL, savedCIS := w.fnCallsInLoop, w.fnCallsInScaling
 	savedILSeen, savedISSeen := w.fnInLoopSeen, w.fnInScalingSeen
 	savedIO, savedRec, savedSelf := w.fnIODirect, w.fnRecursive, w.fnSelfName
+	savedScopes := w.loopScopes
+	w.loopScopes = nil
 	w.decisions = 0
 	w.loopDepth, w.scalingDepth = 0, 0
 	w.fnMaxLoop, w.fnMaxScaling, w.fnLoopCount = 0, 0, 0
@@ -699,6 +703,7 @@ func (w *astWalker) handleFunction(node *sitter.Node, attrs rustItemAttrs) {
 	w.fnCallsInLoop, w.fnCallsInScaling = savedCIL, savedCIS
 	w.fnInLoopSeen, w.fnInScalingSeen = savedILSeen, savedISSeen
 	w.fnIODirect, w.fnRecursive, w.fnSelfName = savedIO, savedRec, savedSelf
+	w.loopScopes = savedScopes
 
 	w.popOwner()
 }
@@ -982,6 +987,12 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 		return
 	}
 	switch kindOf(node) {
+	case "let_declaration":
+		// A local bound from the current element is still the current element:
+		// `let frames = trace.frames();` puts `frames` one step from `trace`.
+		if len(w.loopScopes) > 0 && rustReachedThroughElement(node.ChildByFieldName("value"), w.src, w.loopScopes) {
+			rustBindPattern(node.ChildByFieldName("pattern"), w.src, &w.loopScopes[len(w.loopScopes)-1])
+		}
 	case "if_expression", "match_arm", "try_expression":
 		w.decisions++
 	case "while_expression", "for_expression", "loop_expression":
@@ -1037,6 +1048,15 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 // no data-dependent Big-O factor, so an in-loop call is not counted as N+1.
 func (w *astWalker) walkLoop(node *sitter.Node) {
 	bounded := w.rustLoopBounded(node)
+	// The scope is built before the hierarchical test discounts the loop: a loop
+	// with a constant trip count has no factor of n to pass on, a hierarchical one
+	// passes its parent's.
+	scope := rustLoopScope{amortizes: !bounded}
+	pattern, value := rustLoopSource(node)
+	rustBindPattern(pattern, w.src, &scope)
+	if !bounded && rustReachedThroughElement(value, w.src, w.loopScopes) {
+		bounded = true
+	}
 
 	w.fnLoopCount++
 	if w.loopDepth+1 > w.fnMaxLoop {
@@ -1050,9 +1070,11 @@ func (w *astWalker) walkLoop(node *sitter.Node) {
 	if !bounded {
 		w.scalingDepth++
 	}
+	w.loopScopes = append(w.loopScopes, scope)
 	for i := uint(0); i < uint(node.ChildCount()); i++ {
 		w.walkChild(node.Child(i))
 	}
+	w.loopScopes = w.loopScopes[:len(w.loopScopes)-1]
 	w.loopDepth--
 	if !bounded {
 		w.scalingDepth--

@@ -61,8 +61,10 @@ type phpWalker struct {
 	// still runs many times, so a query inside stays an N+1 candidate.
 	scalingDepth int
 	repeatDepth  int
-	selfName     string // enclosing callable's qualified name (for recursion detection)
-	selfShort    string // enclosing callable's short name
+	// loopScopes are the enclosing loops' variables, for the rule in hierarchy.go.
+	loopScopes []phpLoopScope
+	selfName   string // enclosing callable's qualified name (for recursion detection)
+	selfShort  string // enclosing callable's short name
 }
 
 // phpBodyMetrics accumulates per-function complexity signals during the single
@@ -338,6 +340,7 @@ func (w *phpWalker) handleCallable(node *sitter.Node, isMethod bool) {
 	w.loopDepth = 0
 	w.scalingDepth = 0
 	w.repeatDepth = 0
+	w.loopScopes = nil
 	w.selfName = fullName
 	w.selfShort = name
 	w.walkForCalls(node.ChildByFieldName("body"), ownerIdx, seen)
@@ -394,10 +397,28 @@ func (w *phpWalker) walkForCalls(node *sitter.Node, ownerIdx int, seen map[strin
 	case "function_definition", "method_declaration", "class_declaration",
 		"interface_declaration", "trait_declaration", "enum_declaration":
 		return
+	case "assignment_expression":
+		// A local assigned from the current element is still the current element:
+		// `$models = $driver->models ?? [];` puts `$models` one step from `$driver`.
+		if len(w.loopScopes) > 0 {
+			if left := node.ChildByFieldName("left"); left != nil && kindOf(left) == "variable_name" &&
+				phpReachedThroughElement(node.ChildByFieldName("right"), w.src, w.loopScopes) {
+				w.loopScopes[len(w.loopScopes)-1].add(phpText(left, w.src))
+			}
+		}
 	case "for_statement", "foreach_statement", "while_statement", "do_statement":
 		// A constant-count loop raises loop_depth but not scaling_loop_depth (the Big-O
 		// exponent); an infinite loop is discounted from the exponent but still repeats.
 		class := phpSyntacticLoopClass(node, w.src)
+		scope := phpLoopScope{amortizes: class.repeats()}
+		if kindOf(node) == "foreach_statement" {
+			// A foreach over what belongs to an enclosing loop's element repeats
+			// without scaling (hierarchy.go).
+			if class.scales() && phpReachedThroughElement(phpForeachIterable(node), w.src, w.loopScopes) {
+				class = phpLoopInfinite
+			}
+			scope = phpForeachScope(node, w.src, class.repeats())
+		}
 		if w.metrics != nil {
 			w.metrics.loopCount++
 			w.metrics.decisions++
@@ -415,9 +436,11 @@ func (w *phpWalker) walkForCalls(node *sitter.Node, ownerIdx int, seen map[strin
 		if class.repeats() {
 			w.repeatDepth++
 		}
+		w.loopScopes = append(w.loopScopes, scope)
 		for i := uint(0); i < node.ChildCount(); i++ {
 			w.walkForCalls(node.Child(i), ownerIdx, seen)
 		}
+		w.loopScopes = w.loopScopes[:len(w.loopScopes)-1]
 		w.loopDepth--
 		if class.scales() {
 			w.scalingDepth--

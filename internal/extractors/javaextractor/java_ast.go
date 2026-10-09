@@ -86,8 +86,10 @@ type astWalker struct {
 	// an N+1 candidate.
 	scalingDepth int
 	repeatDepth  int
-	selfName     string
-	selfShort    string
+	// loopScopes are the enclosing loops' variables, for the rule in hierarchy.go.
+	loopScopes []javaLoopScope
+	selfName   string
+	selfShort  string
 	// selfParams is the enclosing method's declared parameter count. A resolved
 	// self-call is only genuine recursion when its argument count matches — otherwise
 	// it is a call to a same-named overload, not recursion.
@@ -761,6 +763,9 @@ func (w *astWalker) handleMethod(node *sitter.Node) {
 	savedScaling, savedRepeat := w.scalingDepth, w.repeatDepth
 	savedName, savedShort := w.selfName, w.selfShort
 	savedParams := w.selfParams
+	savedScopes := w.loopScopes
+	w.loopScopes = nil
+	defer func() { w.loopScopes = savedScopes }()
 	w.metrics = &javaBodyMetrics{}
 	w.loopDepth = 0
 	w.scalingDepth = 0
@@ -966,8 +971,21 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 	// the enclosing loops — so reset the loop depth for its subtree (e.g. a Runnable
 	// or listener defined inside a loop). A stream iterator's OWN lambda is handled
 	// in the method_invocation branch (its body walks at +1).
+	// A local initialised from the current element is still the current element:
+	// `List<Schema> parts = schema.getAllOf();` puts `parts` one step from it.
+	if kind == "variable_declarator" && len(w.loopScopes) > 0 {
+		if javaReachedThroughElement(node.ChildByFieldName("value"), w.src, w.loopScopes) {
+			if name := node.ChildByFieldName("name"); name != nil && kindOf(name) == "identifier" {
+				w.loopScopes[len(w.loopScopes)-1].add(nodeText(name, w.src))
+			}
+		}
+	}
+
 	if w.metrics != nil && kind == "lambda_expression" {
 		saved, savedScaling, savedRepeat := w.loopDepth, w.scalingDepth, w.repeatDepth
+		savedScopes := w.loopScopes
+		w.loopScopes = nil
+		defer func() { w.loopScopes = savedScopes }()
 		w.loopDepth, w.scalingDepth, w.repeatDepth = 0, 0, 0
 		for i := uint(0); i < uint(node.ChildCount()); i++ {
 			w.walkForCalls(node.Child(i))
@@ -1007,6 +1025,20 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 		// loop raises loop_depth but not scaling_loop_depth (the Big-O exponent); an
 		// infinite loop is discounted from the exponent but still repeats.
 		class := javaSyntacticLoopClass(node, w.src)
+		scope := javaLoopScope{amortizes: class.repeats()}
+		if kind == "enhanced_for_statement" {
+			// A loop over what belongs to an enclosing loop's element repeats
+			// without scaling (hierarchy.go).
+			if class.scales() && javaReachedThroughElement(node.ChildByFieldName("value"), w.src, w.loopScopes) {
+				class = javaLoopInfinite
+			}
+			scope.amortizes = class.repeats()
+			if name := node.ChildByFieldName("name"); name != nil {
+				scope.add(nodeText(name, w.src))
+			}
+		}
+		w.loopScopes = append(w.loopScopes, scope)
+		defer func() { w.loopScopes = w.loopScopes[:len(w.loopScopes)-1] }()
 		if w.metrics != nil {
 			w.metrics.loopCount++
 			w.metrics.decisions++

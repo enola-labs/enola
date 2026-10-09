@@ -33,6 +33,27 @@ import (
 // test functions that assert the behavior that version introduced. v1 is the
 // implicit baseline (no changelog line), so coverage starts at v2.
 var versionCoverage = map[int][]string{
+	296: { // hierarchical loops (inner collection reached through the outer element) add no scaling depth in TS, PHP, Python, Kotlin, Rust, Java, C#; independent loops still multiply
+		"TestTsHierarchicalLoopAddsNoScalingDepth",
+		"TestTsIndependentLoopsStillMultiply",
+		"TestTsHierarchyNeedsAnAmortizingOuterLoop",
+		"TestTsHierarchicalLoopStillRepeats",
+		"TestPHPHierarchicalLoopAddsNoScalingDepth",
+		"TestPHPIndependentLoopsStillMultiply",
+		"TestPHPHierarchicalLoopStillRepeats",
+		"TestPyHierarchicalLoopAddsNoScalingDepth",
+		"TestPyIndependentLoopsStillMultiply",
+		"TestPyHierarchicalLoopStillRepeats",
+		"TestKtHierarchicalLoopAddsNoScalingDepth",
+		"TestKtIndependentLoopsStillMultiply",
+		"TestKtHierarchicalLoopStillRepeats",
+		"TestRustHierarchicalLoopAddsNoScalingDepth",
+		"TestRustIndependentLoopsStillMultiply",
+		"TestJavaHierarchicalLoopAddsNoScalingDepth",
+		"TestJavaIndependentLoopsStillMultiply",
+		"TestCSharpHierarchicalLoopAddsNoScalingDepth",
+		"TestCSharpIndependentLoopsStillMultiply",
+	},
 	295: { // recursive_self needs a call form that can reach the enclosing function: Rust bare/value names, Kotlin foreign named arguments, PHP parent:: and other receivers, C# base., Python bare names in methods
 		"TestRustRecursion_SameNameIsNotSelfCall",
 		"TestRustRecursion_RealSelfCallsStillFlagged",

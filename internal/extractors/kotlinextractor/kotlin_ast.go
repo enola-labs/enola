@@ -112,6 +112,8 @@ type astWalker struct {
 	// delegation: a call that passes an argument by a name the function does not
 	// declare is a call to something else.
 	selfParamNames map[string]bool
+	// loopScopes are the enclosing loops' variables, for the rule in hierarchy.go.
+	loopScopes []kotlinLoopScope
 	// reactiveContext is true when the enclosing function is an RxJava / coroutine
 	// Flow chain, so the ambiguous operators (map/flatMap/filter/…) are reactive
 	// stream transforms — NOT per-element collection loops — and must not inflate
@@ -924,7 +926,8 @@ func (w *astWalker) handleFunctionDeclaration(node *sitter.Node) {
 	savedScaling, savedRepeat := w.scalingLoopDepth, w.repeatDepth
 	savedName, savedShort := w.selfName, w.selfShort
 	savedParams, savedReactive := w.selfParams, w.reactiveContext
-	savedParamNames := w.selfParamNames
+	savedParamNames, savedScopes := w.selfParamNames, w.loopScopes
+	w.loopScopes = nil
 	w.metrics = &kotlinBodyMetrics{}
 	w.loopDepth = 0
 	w.scalingLoopDepth, w.repeatDepth = 0, 0
@@ -984,7 +987,7 @@ func (w *astWalker) handleFunctionDeclaration(node *sitter.Node) {
 	w.scalingLoopDepth, w.repeatDepth = savedScaling, savedRepeat
 	w.selfName, w.selfShort = savedName, savedShort
 	w.selfParams, w.reactiveContext = savedParams, savedReactive
-	w.selfParamNames = savedParamNames
+	w.selfParamNames, w.loopScopes = savedParamNames, savedScopes
 	w.popOwner()
 }
 
@@ -1235,8 +1238,22 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 	// subtree (e.g. a click handler defined inside a `forEach { … }` must not be
 	// counted as a per-iteration call). The iterator's OWN lambda is handled in the
 	// call_expression branch (its body walks at +1).
+	// A local initialised from the current element is still the current element:
+	// `val deps = config.dependencies ?: emptyList()` puts `deps` one step from it.
+	if kind == "property_declaration" && len(w.loopScopes) > 0 && node.NamedChildCount() >= 2 {
+		if kotlinReachedThroughElement(lastNamedChild(node), w.src, w.loopScopes) {
+			top := &w.loopScopes[len(w.loopScopes)-1]
+			for i := uint(0); i < node.NamedChildCount(); i++ {
+				kotlinBindDeclared(node.NamedChild(i), w.src, top)
+			}
+		}
+	}
+
 	if w.metrics != nil && kind == "lambda_literal" {
 		savedLoop, savedScaling, savedRepeat := w.loopDepth, w.scalingLoopDepth, w.repeatDepth
+		savedLambdaScopes := w.loopScopes
+		w.loopScopes = nil
+		defer func() { w.loopScopes = savedLambdaScopes }()
 		w.loopDepth, w.scalingLoopDepth, w.repeatDepth = 0, 0, 0
 		for i := uint(0); i < uint(node.ChildCount()); i++ {
 			w.walkForCalls(node.Child(i))
@@ -1263,6 +1280,15 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 	switch kind {
 	case "for_statement", "while_statement", "do_while_statement":
 		class := kotlinSyntacticLoopClass(node, w.src)
+		scope := kotlinLoopScope{amortizes: class.repeats()}
+		if kind == "for_statement" {
+			// A loop over what belongs to an enclosing loop's element repeats
+			// without scaling (hierarchy.go).
+			if class.scales() && kotlinReachedThroughElement(kotlinForCollection(node), w.src, w.loopScopes) {
+				class = kotlinLoopInfinite
+			}
+			scope = kotlinForScope(node, w.src, class.repeats())
+		}
 		if w.metrics != nil {
 			w.metrics.loopCount++
 			w.metrics.decisions++
@@ -1274,9 +1300,11 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 			}
 		}
 		w.pushLoop(class)
+		w.loopScopes = append(w.loopScopes, scope)
 		for i := uint(0); i < uint(node.ChildCount()); i++ {
 			w.walkChild(node.Child(i))
 		}
+		w.loopScopes = w.loopScopes[:len(w.loopScopes)-1]
 		w.popLoop(class)
 		return
 	}
@@ -1356,6 +1384,10 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 					// candidates. An iterator is never infinite.
 					if isNav && kotlinConstantBoundReceiver(firstNamedChild(callee), w.src) {
 						iterClass = kotlinLoopConstant
+					} else if isNav && kotlinReachedThroughElement(firstNamedChild(callee), w.src, w.loopScopes) {
+						// `config.dependencies.forEach { … }` under a loop over
+						// configurations repeats without scaling (hierarchy.go).
+						iterClass = kotlinLoopInfinite
 					}
 				}
 			}
@@ -1476,9 +1508,11 @@ func (w *astWalker) walkLambdaSubtree(node, lambda *sitter.Node, class kotlinLoo
 			body = lit
 		}
 		w.pushLoop(class)
+		w.loopScopes = append(w.loopScopes, kotlinLambdaScope(body, w.src, class.repeats()))
 		for i := uint(0); i < uint(body.ChildCount()); i++ {
 			w.walkChild(body.Child(i))
 		}
+		w.loopScopes = w.loopScopes[:len(w.loopScopes)-1]
 		w.popLoop(class)
 		return
 	}
