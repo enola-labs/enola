@@ -108,6 +108,10 @@ type astWalker struct {
 	// self-call is only genuine recursion when its argument count matches — otherwise
 	// it is delegation to a same-named overload (updateItem(x) → updateItem(i, x)).
 	selfParams int
+	// selfParamNames are that function's parameter names, for the other proof of
+	// delegation: a call that passes an argument by a name the function does not
+	// declare is a call to something else.
+	selfParamNames map[string]bool
 	// reactiveContext is true when the enclosing function is an RxJava / coroutine
 	// Flow chain, so the ambiguous operators (map/flatMap/filter/…) are reactive
 	// stream transforms — NOT per-element collection loops — and must not inflate
@@ -920,12 +924,14 @@ func (w *astWalker) handleFunctionDeclaration(node *sitter.Node) {
 	savedScaling, savedRepeat := w.scalingLoopDepth, w.repeatDepth
 	savedName, savedShort := w.selfName, w.selfShort
 	savedParams, savedReactive := w.selfParams, w.reactiveContext
+	savedParamNames := w.selfParamNames
 	w.metrics = &kotlinBodyMetrics{}
 	w.loopDepth = 0
 	w.scalingLoopDepth, w.repeatDepth = 0, 0
 	w.selfName = f.Name
 	w.selfShort = name
 	w.selfParams = kotlinParamCount(node)
+	w.selfParamNames = kotlinParamNames(node, w.src)
 	body := findChildByKind(node, "function_body")
 	bodyText := ""
 	if body != nil {
@@ -978,6 +984,7 @@ func (w *astWalker) handleFunctionDeclaration(node *sitter.Node) {
 	w.scalingLoopDepth, w.repeatDepth = savedScaling, savedRepeat
 	w.selfName, w.selfShort = savedName, savedShort
 	w.selfParams, w.reactiveContext = savedParams, savedReactive
+	w.selfParamNames = savedParamNames
 	w.popOwner()
 }
 
@@ -994,6 +1001,78 @@ func kotlinParamCount(node *sitter.Node) int {
 		}
 	}
 	return n
+}
+
+// kotlinParamNames returns a function's declared parameter names.
+func kotlinParamNames(node *sitter.Node, src []byte) map[string]bool {
+	params := findChildByKind(node, "function_value_parameters")
+	if params == nil {
+		return nil
+	}
+	var out map[string]bool
+	for i := uint(0); i < uint(params.ChildCount()); i++ {
+		p := params.Child(i)
+		if kindOf(p) != "parameter" {
+			continue
+		}
+		// The parameter's name is its first identifier; the type follows it.
+		for j := uint(0); j < uint(p.ChildCount()); j++ {
+			if kotlinIsIdentifier(p.Child(j)) {
+				if out == nil {
+					out = make(map[string]bool)
+				}
+				out[nodeText(p.Child(j), src)] = true
+				break
+			}
+		}
+	}
+	return out
+}
+
+// kotlinIsIdentifier accepts both names the grammar has used for a plain identifier.
+func kotlinIsIdentifier(n *sitter.Node) bool {
+	k := kindOf(n)
+	return k == "identifier" || k == "simple_identifier"
+}
+
+// kotlinNotSelfCall is an argument count no function has, standing in for the
+// real one when a call is proven not to be the enclosing function calling itself.
+const kotlinNotSelfCall = -1
+
+// kotlinCallNamesForeignParam reports whether a call passes an argument by a name
+// the enclosing function does not declare, which makes it a call to a different
+// function however the name and the arity line up.
+//
+// The arity check alone reads every Gradle convention plugin as recursive:
+//
+//	override fun apply(target: Project) {
+//	    with(target) { apply(plugin = "com.android.library") }
+//	}
+//
+// One argument each, same name, and the inner one is Project.apply, reached through
+// the `with` receiver. `plugin` is not a parameter of the outer function, so it
+// cannot be the callee. An unnamed call stays as it was.
+func kotlinCallNamesForeignParam(callExpr *sitter.Node, params map[string]bool, src []byte) bool {
+	args := findChildByKind(callExpr, "value_arguments")
+	if args == nil {
+		return false
+	}
+	for i := uint(0); i < uint(args.ChildCount()); i++ {
+		a := args.Child(i)
+		if kindOf(a) != "value_argument" {
+			continue
+		}
+		// A named argument is `name = expr`: an identifier directly followed by "=".
+		for j := uint(0); j+1 < uint(a.ChildCount()); j++ {
+			if kotlinIsIdentifier(a.Child(j)) && kindOf(a.Child(j+1)) == "=" {
+				if !params[nodeText(a.Child(j), src)] {
+					return true
+				}
+				break
+			}
+		}
+	}
+	return false
 }
 
 // kotlinReturnType returns the source text of a function's declared return type, or ""
@@ -1206,6 +1285,9 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 		var iterLambda *sitter.Node
 		iterClass := kotlinLoopScaling
 		argCount := kotlinCallArgCount(node)
+		if kotlinCallNamesForeignParam(node, w.selfParamNames, w.src) {
+			argCount = kotlinNotSelfCall
+		}
 		// First named child is the callee expression.
 		if callee := firstNamedChild(node); callee != nil {
 			if name, isNav := calleeName(callee, w.src); name != "" {

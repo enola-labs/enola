@@ -1114,7 +1114,14 @@ func (w *astWalker) handleInvocation(node *sitter.Node) {
 		case recv == "this" || recv == "base":
 			if target, ok := w.resolveOwnMember(name); ok {
 				w.addEdge(facts.RelCalls, target)
-				w.recordCallMetrics(target, name, args)
+				// `base.M()` from an override of M binds to this type's M, which is
+				// the only M the resolver knows, and is the one call that provably
+				// is not M calling itself.
+				if recv == "base" {
+					w.recordCallMetrics(target, name, notSelfCall)
+				} else {
+					w.recordCallMetrics(target, name, args)
+				}
 			}
 		case recvNode != nil && isTypeNameShaped(recvNode, recv):
 			// `Type.Method(...)` — a static call. Emitted as "<Type>.<Method>" and
@@ -1184,6 +1191,10 @@ func (w *astWalker) markIO() {
 		w.metrics.ioDirect = true
 	}
 }
+
+// notSelfCall is an argument count no member has, passed to recordCallMetrics for
+// a call that cannot be the enclosing member calling itself.
+const notSelfCall = -1
 
 // recordCallMetrics flags direct recursion and records in-loop call targets.
 // Recursion needs the argument count to match the enclosing member's parameter

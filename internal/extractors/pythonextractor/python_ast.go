@@ -268,6 +268,15 @@ func (w *pyWalker) recordCallMetrics(target string) {
 	if target == w.selfName {
 		w.metrics.recursive = true
 	}
+	w.recordInLoopCall(target)
+}
+
+// recordInLoopCall is recordCallMetrics without the recursion check, for a call
+// whose edge names the enclosing function but whose form cannot reach it.
+func (w *pyWalker) recordInLoopCall(target string) {
+	if w.metrics == nil || target == "" {
+		return
+	}
 	if w.loopDepth > 0 {
 		if w.metrics.inLoopSeen == nil {
 			w.metrics.inLoopSeen = make(map[string]bool)
@@ -1956,7 +1965,16 @@ func (w *pyWalker) emitCallEdge(fn *sitter.Node) {
 				Kind:   facts.RelCalls,
 				Target: target,
 			})
-			w.recordCallMetrics(target)
+			// A bare name never reaches a method of the enclosing class: that takes
+			// `self.` or `cls.`. resolveCall binds the edge to a sibling method so
+			// the method stays alive for dead-code analysis, but a method `f` whose
+			// body calls a module-level or locally imported `f(...)` is delegating,
+			// not recursing.
+			if w.currentMethods()[name] {
+				w.recordInLoopCall(target)
+			} else {
+				w.recordCallMetrics(target)
+			}
 		}
 
 	case "attribute":

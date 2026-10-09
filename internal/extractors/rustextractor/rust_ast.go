@@ -1145,6 +1145,9 @@ func (w *astWalker) scanTokenTreeCalls(node *sitter.Node) {
 			}
 			if target := w.resolveCall(name); target != "" {
 				w.emitEdge(facts.RelCalls, target)
+				if !w.currentMethods()[name] {
+					w.noteSelfCall(target)
+				}
 			}
 			continue
 		}
@@ -1262,10 +1265,17 @@ func (w *astWalker) handleCallExpression(node *sitter.Node) {
 	case calleeBare:
 		if target := w.resolveCall(name); target != "" {
 			w.emitEdge(facts.RelCalls, target)
+			// A bare `f()` never reaches a method, whatever resolveCall bound the
+			// edge to: inside `impl Drop`, `drop(x)` is the free function.
+			if !w.currentMethods()[name] {
+				w.noteSelfCall(target)
+			}
 		}
 	case calleeSelfRef:
 		if methods := w.currentMethods(); methods[name] {
-			w.emitEdge(facts.RelCalls, w.dir+"."+w.qualify(name))
+			target := w.dir + "." + w.qualify(name)
+			w.emitEdge(facts.RelCalls, target)
+			w.noteSelfCall(target)
 			break
 		}
 		// Not a sibling of this impl block (another impl block, a trait
@@ -1311,14 +1321,29 @@ func (w *astWalker) emitEdge(kind, target string) {
 	owner.Relations = append(owner.Relations, facts.Relation{Kind: kind, Target: target})
 }
 
-// recordCallMetrics attributes a resolved production call to the current
-// function's loop/recursion metrics: it feeds calls_in_loop (any enclosing
-// loop), the calls_in_scaling_loop subset (a data-dependent loop only), and
-// recursive_self (a call whose target is the function itself).
-func (w *astWalker) recordCallMetrics(target string) {
+// noteSelfCall flags direct recursion, and is reached only from a call written in
+// a form that can name the enclosing function: `self.f()` / `Self::f()` for a
+// method, a bare `f()` for a free function.
+//
+// It used to sit in recordCallMetrics, which sees every RelCalls edge, and the
+// edges are deliberately liberal: a bare identifier resolves to a sibling method
+// so that dead-code analysis keeps the method alive. An edge is not a call. A
+// method that takes a parameter of its own name (`fn fmt(&self, fmt: &mut
+// Formatter)` passing `fmt` on, `fn arg(self, arg)` forwarding to an inner
+// builder) and `Drop::drop` calling the prelude's free `drop(x)` each produced an
+// edge to themselves and were reported as recursive: 9 of the 12 recursion
+// findings sampled on an async runtime.
+func (w *astWalker) noteSelfCall(target string) {
 	if w.fnSelfName != "" && target == w.fnSelfName {
 		w.fnRecursive = true
 	}
+}
+
+// recordCallMetrics attributes a resolved production call to the current
+// function's loop metrics: it feeds calls_in_loop (any enclosing loop) and the
+// calls_in_scaling_loop subset (a data-dependent loop only). Recursion is
+// noteSelfCall's, which needs the call form and not just the edge.
+func (w *astWalker) recordCallMetrics(target string) {
 	if w.loopDepth > 0 {
 		if w.fnInLoopSeen == nil {
 			w.fnInLoopSeen = make(map[string]bool)

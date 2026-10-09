@@ -442,7 +442,14 @@ func (w *phpWalker) walkForCalls(node *sitter.Node, ownerIdx int, seen map[strin
 		if scope != nil && method != nil {
 			target := w.resolveRef(phpText(scope, w.src)) + "::" + phpText(method, w.src)
 			w.addCall(ownerIdx, seen, target)
-			w.recordCallMetrics(target)
+			// resolveRef folds `parent` into the current class, so `parent::m()` in
+			// an override of m, every constructor that calls its parent's included,
+			// carries this method's own name.
+			if phpText(scope, w.src) == "parent" {
+				w.recordInLoopCall(target)
+			} else {
+				w.recordCallMetrics(target)
+			}
 			w.recordIODirect(phpText(method, w.src), phpIOMethods)
 		}
 		w.walkChildrenExcept(node, ownerIdx, seen, method)
@@ -455,7 +462,16 @@ func (w *phpWalker) walkForCalls(node *sitter.Node, ownerIdx int, seen map[strin
 		if method != nil && kindOf(method) == "name" {
 			target := phpText(method, w.src)
 			w.addCall(ownerIdx, seen, target)
-			w.recordCallMetrics(target)
+			// The edge is the bare method name, because the receiver's type is
+			// unknown. Only `$this->m()` is known to be this class's m: a
+			// decorator's `$this->inner->handle()` or `$container->extend()` inside
+			// an `extend` shares the name and nothing else. A walk that recurses
+			// through another instance (`$child->render()`) is given up with it.
+			if obj := node.ChildByFieldName("object"); obj != nil && phpText(obj, w.src) == "$this" {
+				w.recordCallMetrics(target)
+			} else {
+				w.recordInLoopCall(target)
+			}
 			// $wpdb->get_results(...) / PDO->fetchAll() — the receiver type is unknown,
 			// so a distinctive DB round-trip method name is our only I/O signal.
 			w.recordIODirect(target, phpIOMethods)
@@ -530,6 +546,15 @@ func (w *phpWalker) recordCallMetrics(target string) {
 	}
 	if target == w.selfShort || target == w.selfName {
 		w.metrics.recursive = true
+	}
+	w.recordInLoopCall(target)
+}
+
+// recordInLoopCall is recordCallMetrics without the recursion check, for a call
+// that shares the enclosing method's name and cannot be that method.
+func (w *phpWalker) recordInLoopCall(target string) {
+	if w.metrics == nil || target == "" {
+		return
 	}
 	if w.loopDepth == 0 {
 		return

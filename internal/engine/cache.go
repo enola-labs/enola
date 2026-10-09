@@ -20,6 +20,13 @@ import (
 	"github.com/enola-labs/enola/pkg/plugin"
 )
 
+// v295: recursive_self needs a call written in a form that can reach the enclosing
+// function, not just an edge that names it. Rust: a bare `f()` inside a method is the
+// free function (`drop(x)` in `Drop::drop`), and a parameter named like its method is
+// a value. Kotlin: a call passing an argument by a name the function does not declare
+// (`apply(plugin = …)` inside `apply(target)`) is another function. PHP: `parent::m()`
+// and `$other->m()` are not `$this->m()`. C#: `base.M()` is the parent's. Python: a
+// bare name inside a method is never that method. Edges are unchanged.
 // v294: C/C++ extracts the definitions tree-sitter's error recovery displaced. A
 // function it could not close swallows every later definition into its body; those
 // are now extracted in the enclosing scope, and their calls and decision points no
@@ -2606,7 +2613,7 @@ import (
 // v270: SvelteKit reads literal kit.alias fallbacks before generated config exists,
 // keeps tsconfig paths authoritative, and classifies $app/$env/$service-worker imports
 // as framework-provided rather than unresolved third-party dependencies.
-const cacheVersion = "v294"
+const cacheVersion = "v295"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
