@@ -25,6 +25,8 @@ type pyLoopScope struct {
 	// amortizes is false under a loop with a constant trip count, where there is no
 	// factor of n for a hierarchical inner loop to cancel.
 	amortizes bool
+	// batch marks a loop that takes its input a batch at a time; see batchloop.go.
+	batch bool
 }
 
 func (s *pyLoopScope) add(name string) {

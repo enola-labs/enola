@@ -361,6 +361,12 @@ func (w *pyWalker) recordInLoopCall(target string) {
 	// candidate. Only a genuinely constant loop (literal collection / range(<const>))
 	// excludes its calls; `while True` repeats, so its calls stay candidates even though
 	// its depth is discounted from the Big-O exponent.
+	//
+	// A call made once per round of a batch loop is the batched call, not an N+1
+	// (batchloop.go). One inside its drain loop has a different innermost loop.
+	if n := len(w.loopScopes); n > 0 && w.loopScopes[n-1].batch {
+		return
+	}
 	if w.repeatDepth > 0 {
 		if w.metrics.inScalingSeen == nil {
 			w.metrics.inScalingSeen = make(map[string]bool)
@@ -1706,6 +1712,14 @@ func (w *pyWalker) walkForCalls(node *sitter.Node) {
 				bounded = true
 			}
 			pyBindTargetNames(node.ChildByFieldName("left"), w.src, &scope)
+		}
+		// What a round of a batch loop binds is the round's element, so the loop
+		// draining it is hierarchical (batchloop.go).
+		if pageVars, isBatch := pyBatchLoop(node, w.src); isBatch {
+			scope.batch, scope.amortizes = true, true
+			for _, v := range pageVars {
+				scope.add(v)
+			}
 		}
 		w.loopScopes = append(w.loopScopes, scope)
 		// A for statement evaluates its iterable once, before the first iteration.

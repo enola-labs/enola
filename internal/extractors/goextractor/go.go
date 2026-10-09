@@ -795,7 +795,9 @@ func analyzeBody(body ast.Node, ctx resolveCtx, selfName string, params map[stri
 			// scan it is part of and stays one.
 			constBounded := goForConstBounded(x)
 			sharesCursor := goForSharesOuterCursor(x, loopScopes)
-			forScales := !goForBounded(x) && !constBounded && !sharesCursor
+			// A loop draining what an enclosing batch loop fetched this round is
+			// that loop's hierarchical inner loop (batchloop.go).
+			forScales := !goForBounded(x) && !constBounded && !sharesCursor && !drainsBatch(x, loopScopes)
 			if forScales && referencesParam(x.Cond, params) {
 				// `for i := 0; i < len(s); i++` walks s just as `range s` does; the
 				// parameter is named in the bound rather than in a range expression.
@@ -816,7 +818,14 @@ func analyzeBody(body ast.Node, ctx resolveCtx, selfName string, params map[stri
 				init = x.Init
 			}
 			loopHeads = append(loopHeads, newLoopHead(init, forScales, !constBounded))
-			loopScopes = append(loopScopes, loopScope{end: x.End(), vars: forLoopVars(x), cursor: forCursor(x), amortizes: forScales})
+			scope := loopScope{end: x.End(), vars: forLoopVars(x), cursor: forCursor(x), amortizes: forScales}
+			if pageVars, isBatch := goBatchLoop(x); isBatch {
+				// What a round binds is the round's element, and a `for {}` that
+				// pages amortizes its drain loop though it adds no depth itself.
+				scope.batch, scope.amortizes = true, true
+				scope.vars = append(scope.vars, pageVars...)
+			}
+			loopScopes = append(loopScopes, scope)
 		case *ast.RangeStmt:
 			m.loopCount++
 			decisions++
@@ -924,6 +933,12 @@ func analyzeBody(body ast.Node, ctx resolveCtx, selfName string, params map[stri
 			// candidate. A call only ever inside a constant loop (range over a composite
 			// literal) runs a fixed number of times and is not — but a `for {}` DOES
 			// repeat, so its calls stay candidates even though its depth is discounted.
+			// A call made once per round of a batch loop is the batched call, not an
+			// N+1 (batchloop.go). One inside its drain loop has a different
+			// innermost loop and is unaffected.
+			if len(loopScopes) > 0 && loopScopes[len(loopScopes)-1].batch {
+				inRepeating = 0
+			}
 			if inRepeating > 0 {
 				m.scalingCallDepth = noteCallDepth(m.scalingCallDepth, resolved, inScaling)
 			}
@@ -1002,6 +1017,8 @@ type loopScope struct {
 	// passes the hierarchy on — the elements it yields still belong to the
 	// collection the scaling loop at the root of the chain is walking.
 	amortizes bool
+	// batch marks a loop that takes its input a batch at a time; see batchloop.go.
+	batch bool
 }
 
 // rangeLoopVars returns the key/value variable names a range loop introduces.

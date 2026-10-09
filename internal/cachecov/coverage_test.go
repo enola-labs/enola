@@ -33,6 +33,12 @@ import (
 // test functions that assert the behavior that version introduced. v1 is the
 // implicit baseline (no changelog line), so coverage starts at v2.
 var versionCoverage = map[int][]string{
+	301: { // batch loops (paging, stepped, chunking) in Go and Python: the drain loop adds no scaling depth and the per-round call is not an N+1 candidate
+		"TestBatchLoopDrainIsNotNestingAndItsQueryIsNotAnNPlusOne",
+		"TestLoopsThatOnlyResembleBatchingKeepTheirCalls",
+		"TestPyBatchLoopDrainIsNotNestingAndItsQueryIsNotAnNPlusOne",
+		"TestPyLoopsThatOnlyResembleBatchingKeepTheirCalls",
+	},
 	300: { // loops fixed by name (ALL_CAPS constants, enums, constant bounds, literal locals) add no scaling depth in TS, Python, Rust, Java
 		"TestTsConstantLoopsAddNoScalingDepth",
 		"TestTsLoopsThatOnlyLookConstantStillScale",

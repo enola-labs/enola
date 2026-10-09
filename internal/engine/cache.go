@@ -20,6 +20,12 @@ import (
 	"github.com/enola-labs/enola/pkg/plugin"
 )
 
+// v301: batch loops in Go and Python. A loop that takes its input a batch at a time
+// (a paging `for {}` / `while`, a stepped range, a call named for chunking) and
+// drains what each round fetched is one pass over the rows: the drain loop adds no
+// scaling depth, and a call made once per round leaves calls_in_scaling_loop, since
+// it is the batched call and not an N+1. A call inside the drain loop is unaffected,
+// and so is a loop that walks a chain or queries per element of a range.
 // v300: loops fixed by name add no scaling depth, as loops over a literal already did.
 // TypeScript, Python and Rust recognise an ALL_CAPS constant as a collection or a
 // bound (Java and Kotlin already did), views of one (`Object.entries(X)`, `X.items()`,
@@ -2645,7 +2651,7 @@ import (
 // v270: SvelteKit reads literal kit.alias fallbacks before generated config exists,
 // keeps tsconfig paths authoritative, and classifies $app/$env/$service-worker imports
 // as framework-provided rather than unresolved third-party dependencies.
-const cacheVersion = "v300"
+const cacheVersion = "v301"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
