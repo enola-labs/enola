@@ -90,40 +90,49 @@ var tsViewMethods = map[string]bool{
 // tsReachedThroughElement reports whether expr is reached through the element of
 // an enclosing loop. See the rule at the top of this file.
 func tsReachedThroughElement(kinds *tsutil.KindTable, n *sitter.Node, src []byte, scopes []tsLoopScope) bool {
+	return tsElementRoot(kinds, n, src, scopes) != ""
+}
+
+// tsElementRoot returns the scope variable expr is reached through, or "" when it
+// is not reached through one. `job.needs.filter(f)` is rooted at `job`.
+func tsElementRoot(kinds *tsutil.KindTable, n *sitter.Node, src []byte, scopes []tsLoopScope) string {
 	if n == nil || len(scopes) == 0 {
-		return false
+		return ""
 	}
 	switch kindOf(kinds, n) {
-	case "identifier":
-		return tsScopesHave(scopes, nodeText(n, src), false)
+	case "identifier", "this":
+		if name := nodeText(n, src); tsScopesHave(scopes, name, false) {
+			return name
+		}
 	case "parenthesized_expression", "non_null_expression", "as_expression", "satisfies_expression", "await_expression":
 		if n.NamedChildCount() > 0 {
-			return tsReachedThroughElement(kinds, n.NamedChild(0), src, scopes)
+			return tsElementRoot(kinds, n.NamedChild(0), src, scopes)
 		}
 	case "member_expression":
-		return tsReachedThroughElement(kinds, n.ChildByFieldName("object"), src, scopes)
+		return tsElementRoot(kinds, n.ChildByFieldName("object"), src, scopes)
 	case "subscript_expression":
-		if tsReachedThroughElement(kinds, n.ChildByFieldName("object"), src, scopes) {
-			return true
+		if root := tsElementRoot(kinds, n.ChildByFieldName("object"), src, scopes); root != "" {
+			return root
 		}
 		// `groups[key]`, `rows[i]`: selected by the loop's own variable, and nothing
 		// else. `rows[i + 1]` is a neighbour, not the element.
 		idx := n.ChildByFieldName("index")
 		if idx != nil && kindOf(kinds, idx) == "identifier" {
-			name := nodeText(idx, src)
-			return tsScopesHave(scopes, name, true) || tsScopesHave(scopes, name, false)
+			if name := nodeText(idx, src); tsScopesHave(scopes, name, true) || tsScopesHave(scopes, name, false) {
+				return name
+			}
 		}
 	case "binary_expression":
 		// `job.needs ?? []`, `job.needs || []`: the fallback is empty or constant.
 		if op := n.ChildByFieldName("operator"); op != nil {
 			if t := nodeText(op, src); t == "??" || t == "||" {
-				return tsReachedThroughElement(kinds, n.ChildByFieldName("left"), src, scopes)
+				return tsElementRoot(kinds, n.ChildByFieldName("left"), src, scopes)
 			}
 		}
 	case "call_expression":
 		fn := n.ChildByFieldName("function")
 		if fn == nil {
-			return false
+			return ""
 		}
 		args := n.ChildByFieldName("arguments")
 		var first *sitter.Node
@@ -131,22 +140,25 @@ func tsReachedThroughElement(kinds *tsutil.KindTable, n *sitter.Node, src []byte
 			first = args.NamedChild(0)
 		}
 		if tsWrapsElement[nodeText(fn, src)] {
-			return tsReachedThroughElement(kinds, first, src, scopes)
+			return tsElementRoot(kinds, first, src, scopes)
 		}
 		if kindOf(kinds, fn) != "member_expression" {
-			return false
+			return ""
 		}
 		// `job.needs.filter(…)`, `node.children()`: a view or an accessor of the element.
-		if tsReachedThroughElement(kinds, fn.ChildByFieldName("object"), src, scopes) {
+		if root := tsElementRoot(kinds, fn.ChildByFieldName("object"), src, scopes); root != "" {
 			prop := fn.ChildByFieldName("property")
-			return first == nil || (prop != nil && tsViewMethods[nodeText(prop, src)])
+			if first == nil || (prop != nil && tsViewMethods[nodeText(prop, src)]) {
+				return root
+			}
+			return ""
 		}
 		// `byId.get(job.id)`: a keyed lookup, the Map spelling of `byId[job.id]`.
 		if prop := fn.ChildByFieldName("property"); prop != nil && nodeText(prop, src) == "get" {
-			return tsReachedThroughElement(kinds, first, src, scopes)
+			return tsElementRoot(kinds, first, src, scopes)
 		}
 	}
-	return false
+	return ""
 }
 
 // tsBindPattern adds every name a binding pattern introduces. A destructured
@@ -212,12 +224,18 @@ func tsForScope(kinds *tsutil.KindTable, n *sitter.Node, src []byte) tsLoopScope
 // tsForBoundThroughElement reports whether a C-style loop's bound is a size of
 // the enclosing element: `j < rows[i].length`, `k < node.children.length`.
 func tsForBoundThroughElement(kinds *tsutil.KindTable, n *sitter.Node, src []byte, scopes []tsLoopScope) bool {
+	return tsForBoundRoot(kinds, n, src, scopes) != ""
+}
+
+// tsForBoundRoot is tsForBoundThroughElement naming the variable the bound is
+// reached through.
+func tsForBoundRoot(kinds *tsutil.KindTable, n *sitter.Node, src []byte, scopes []tsLoopScope) string {
 	cond := n.ChildByFieldName("condition")
 	for cond != nil && kindOf(kinds, cond) != "binary_expression" && cond.NamedChildCount() == 1 {
 		cond = cond.NamedChild(0)
 	}
 	if cond == nil || kindOf(kinds, cond) != "binary_expression" {
-		return false
+		return ""
 	}
 	for _, side := range []string{"left", "right"} {
 		e := cond.ChildByFieldName(side)
@@ -231,19 +249,24 @@ func tsForBoundThroughElement(kinds *tsutil.KindTable, n *sitter.Node, src []byt
 		if t := nodeText(prop, src); t != "length" && t != "size" {
 			continue
 		}
-		if tsReachedThroughElement(kinds, e.ChildByFieldName("object"), src, scopes) {
-			return true
+		if root := tsElementRoot(kinds, e.ChildByFieldName("object"), src, scopes); root != "" {
+			return root
 		}
 	}
-	return false
+	return ""
 }
 
 // tsCallbackScope is the scope an iterator callback opens: `(row, i) => …` binds
 // the element and its index.
-func tsCallbackScope(kinds *tsutil.KindTable, cb *sitter.Node, src []byte, amortizes bool) tsLoopScope {
+//
+// elemAt is the position of the element: 0 for map/filter/forEach and the rest, 1
+// for reduce and reduceRight, whose first parameter is the accumulator.
+func tsCallbackScope(kinds *tsutil.KindTable, cb *sitter.Node, src []byte, amortizes bool, elemAt int) tsLoopScope {
 	sc := tsLoopScope{amortizes: amortizes}
 	if p := cb.ChildByFieldName("parameter"); p != nil { // `row => …`
-		sc.addElem(nodeText(p, src))
+		if elemAt == 0 {
+			sc.addElem(nodeText(p, src))
+		}
 		return sc
 	}
 	params := cb.ChildByFieldName("parameters")
@@ -256,12 +279,89 @@ func tsCallbackScope(kinds *tsutil.KindTable, cb *sitter.Node, src []byte, amort
 		if pat := p.ChildByFieldName("pattern"); pat != nil {
 			target = pat
 		}
-		switch i {
-		case 0:
+		switch int(i) {
+		case elemAt:
 			tsBindPattern(kinds, target, src, sc.addElem)
-		case 1:
+		case elemAt + 1:
 			tsBindPattern(kinds, target, src, sc.addIndex)
 		}
 	}
 	return sc
+}
+
+// The cross-call form of the rule. A loop that hands each element to a callee is
+// the same walk as a nested loop when the callee loops over what it was handed:
+//
+//	for (const frame of frames) { render(frame) }
+//	function render(frame) { for (const el of frame.elements) { … } }
+//
+// Two facts decide it, one on each side, and the analyzer joins them:
+//
+//	calls_on_loop_element(_arg)  the caller passes an element, and in which position
+//	loops_over_param(_index)     the callee has a scaling loop over that parameter
+//
+// The position matters. A callee that loops over a DIFFERENT parameter, as
+// `itemHasQuery(item, words)` does over `words`, multiplies.
+
+// tsReceiverParam is the position that stands for `this` on both sides.
+const tsReceiverParam = -1
+
+// tsParamScope is a function's parameters as a scope, with each name's position.
+// It is kept apart from the loop scopes: reaching a collection through a parameter
+// says whose data a loop walks, and nothing about whether the loop scales.
+func tsParamScope(kinds *tsutil.KindTable, fn *sitter.Node, src []byte) (tsLoopScope, map[string]int) {
+	sc := tsLoopScope{amortizes: true}
+	idx := map[string]int{"this": tsReceiverParam}
+	sc.addElem("this")
+	if fn == nil {
+		return sc, idx
+	}
+	bind := func(target *sitter.Node, i int) {
+		tsBindPattern(kinds, target, src, func(name string) {
+			sc.addElem(name)
+			idx[name] = i
+		})
+	}
+	if p := fn.ChildByFieldName("parameter"); p != nil { // `row => …`
+		bind(p, 0)
+		return sc, idx
+	}
+	params := fn.ChildByFieldName("parameters")
+	if params == nil {
+		return sc, idx
+	}
+	for i := range params.NamedChildCount() {
+		p := params.NamedChild(i)
+		if pat := p.ChildByFieldName("pattern"); pat != nil {
+			p = pat
+		}
+		bind(p, int(i))
+	}
+	return sc, idx
+}
+
+// tsEnclosingFunction returns node if it declares parameters, else the nearest
+// ancestor that does: the metrics walk is handed a function in some call sites and
+// its body in others.
+func tsEnclosingFunction(node *sitter.Node) *sitter.Node {
+	for n := node; n != nil; n = n.Parent() {
+		if n.ChildByFieldName("parameters") != nil || n.ChildByFieldName("parameter") != nil {
+			return n
+		}
+	}
+	return nil
+}
+
+// tsCallbackElementAt returns which parameter of an iterator's callback receives
+// the element.
+func tsCallbackElementAt(kinds *tsutil.KindTable, call *sitter.Node, src []byte) int {
+	if fn := call.ChildByFieldName("function"); fn != nil {
+		if prop := fn.ChildByFieldName("property"); prop != nil {
+			switch nodeText(prop, src) {
+			case "reduce", "reduceRight":
+				return 1
+			}
+		}
+	}
+	return 0
 }

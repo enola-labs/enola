@@ -66,36 +66,46 @@ var pyViewMethods = map[string]bool{
 // pyReachedThroughElement reports whether expr is reached through the element of
 // an enclosing loop. See the rule at the top of this file.
 func pyReachedThroughElement(n *sitter.Node, src []byte, scopes []pyLoopScope) bool {
+	return pyElementRoot(n, src, scopes) != ""
+}
+
+// pyElementRoot returns the scope variable expr is reached through, or "" when it
+// is not reached through one. `dag.tasks.values()` is rooted at `dag`.
+func pyElementRoot(n *sitter.Node, src []byte, scopes []pyLoopScope) string {
 	if n == nil || len(scopes) == 0 {
-		return false
+		return ""
 	}
 	switch kindOf(n) {
 	case "identifier":
-		return pyScopesHave(scopes, pyText(n, src))
+		if name := pyText(n, src); pyScopesHave(scopes, name) {
+			return name
+		}
 	case "parenthesized_expression", "await":
 		if n.NamedChildCount() > 0 {
-			return pyReachedThroughElement(n.NamedChild(0), src, scopes)
+			return pyElementRoot(n.NamedChild(0), src, scopes)
 		}
 	case "attribute":
-		return pyReachedThroughElement(n.ChildByFieldName("object"), src, scopes)
+		return pyElementRoot(n.ChildByFieldName("object"), src, scopes)
 	case "subscript":
-		if pyReachedThroughElement(n.ChildByFieldName("value"), src, scopes) {
-			return true
+		if root := pyElementRoot(n.ChildByFieldName("value"), src, scopes); root != "" {
+			return root
 		}
 		// `groups[key]`: selected by the loop's own variable and nothing else.
 		// `rows[i + 1]` is a neighbour and `xs[i:]` a slice, not the element.
 		if sub := n.ChildByFieldName("subscript"); sub != nil && kindOf(sub) == "identifier" {
-			return pyScopesHave(scopes, pyText(sub, src))
+			if name := pyText(sub, src); pyScopesHave(scopes, name) {
+				return name
+			}
 		}
 	case "boolean_operator":
 		// `dag.tasks or []`: the fallback is empty or constant.
 		if op := n.ChildByFieldName("operator"); op != nil && pyText(op, src) == "or" {
-			return pyReachedThroughElement(n.ChildByFieldName("left"), src, scopes)
+			return pyElementRoot(n.ChildByFieldName("left"), src, scopes)
 		}
 	case "call":
 		fn := n.ChildByFieldName("function")
 		if fn == nil {
-			return false
+			return ""
 		}
 		var first *sitter.Node
 		if args := n.ChildByFieldName("arguments"); args != nil && args.NamedChildCount() > 0 {
@@ -104,21 +114,24 @@ func pyReachedThroughElement(n *sitter.Node, src []byte, scopes []pyLoopScope) b
 		switch kindOf(fn) {
 		case "identifier":
 			if pyWrapsElement[pyText(fn, src)] {
-				return pyReachedThroughElement(first, src, scopes)
+				return pyElementRoot(first, src, scopes)
 			}
 		case "attribute":
 			// `dag.tasks.values()`, `node.children()`: a view or an accessor of the element.
-			if pyReachedThroughElement(fn.ChildByFieldName("object"), src, scopes) {
+			if root := pyElementRoot(fn.ChildByFieldName("object"), src, scopes); root != "" {
 				attr := fn.ChildByFieldName("attribute")
-				return first == nil || (attr != nil && pyViewMethods[pyText(attr, src)])
+				if first == nil || (attr != nil && pyViewMethods[pyText(attr, src)]) {
+					return root
+				}
+				return ""
 			}
 			// `by_id.get(task.id)`: a keyed lookup, the dict spelling of `by_id[task.id]`.
 			if attr := fn.ChildByFieldName("attribute"); attr != nil && pyText(attr, src) == "get" {
-				return pyReachedThroughElement(first, src, scopes)
+				return pyElementRoot(first, src, scopes)
 			}
 		}
 	}
-	return false
+	return ""
 }
 
 // pyBindTargetNames adds every name a loop or assignment target binds:
@@ -137,4 +150,64 @@ func pyBindTargetNames(n *sitter.Node, src []byte, sc *pyLoopScope) {
 	for i := uint(0); i < uint(n.NamedChildCount()); i++ {
 		pyBindTargetNames(n.NamedChild(i), src, sc)
 	}
+}
+
+// The cross-call form of the rule. A loop that hands each element to a callee is
+// the same walk as a nested loop when the callee loops over what it was handed:
+//
+//	for dag in dags:
+//	    validate(dag)
+//
+//	def validate(dag):
+//	    for task in dag.tasks: ...
+//
+// Two facts decide it, one on each side, and the analyzer joins them:
+//
+//	calls_on_loop_element(_arg)  the caller passes an element, and in which position
+//	loops_over_param(_index)     the callee has a scaling loop over that parameter
+//
+// The position matters: a callee looping over a different parameter multiplies.
+
+// pyReceiverParam is the position that stands for self / cls on both sides.
+const pyReceiverParam = -1
+
+// pyParamScope is a function's parameters as a scope, with each name's position.
+// A leading self or cls is the receiver and does not count: `obj.method(a)` puts
+// `a` in position 0 on the call side, so it has to be 0 on this side too.
+func pyParamScope(params *sitter.Node, src []byte) (pyLoopScope, map[string]int) {
+	sc := pyLoopScope{amortizes: true}
+	idx := map[string]int{}
+	if params == nil {
+		return sc, idx
+	}
+	pos := 0
+	for i := uint(0); i < uint(params.NamedChildCount()); i++ {
+		p := params.NamedChild(i)
+		name := ""
+		switch kindOf(p) {
+		case "identifier":
+			name = pyText(p, src)
+		case "default_parameter", "typed_default_parameter":
+			if n := p.ChildByFieldName("name"); n != nil {
+				name = pyText(n, src)
+			}
+		case "typed_parameter":
+			if p.NamedChildCount() > 0 && kindOf(p.NamedChild(0)) == "identifier" {
+				name = pyText(p.NamedChild(0), src)
+			}
+		}
+		if name == "" {
+			pos++ // *args, **kwargs, a bare `*`: holds a position, binds nothing we follow
+			continue
+		}
+		if i == 0 && (name == "self" || name == "cls") {
+			sc.add(name)
+			idx[name] = pyReceiverParam
+			continue
+		}
+		sc.add(name)
+		idx[name] = pos
+		pos++
+	}
+	return sc, idx
 }

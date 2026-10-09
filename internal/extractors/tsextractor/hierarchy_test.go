@@ -25,6 +25,9 @@ func TestTsHierarchicalLoopAddsNoScalingDepth(t *testing.T) {
 		"iterator callbacks": `export function r(frames) {
   return frames.map(frame => frame.fields.filter(f => keep(f)))
 }`,
+		"reduce over the element's children": `export function r(groups) {
+  return groups.reduce((acc, group) => acc + group.members.filter(m => keep(m)).length, 0)
+}`,
 		"keyed lookup": `export function r(ids, byId) {
   for (const id of ids) {
     for (const row of byId.get(id) ?? []) { use(row) }
@@ -92,6 +95,9 @@ func TestTsIndependentLoopsStillMultiply(t *testing.T) {
   for (const t of tasks) {
     for (const rel of t.getFlatRelatives(false)) { use(rel) }
   }
+}`,
+		"reduce over the accumulator": `export function r(xs) {
+  return xs.reduce((acc, x) => acc.filter(a => a !== x), xs)
 }`,
 		"neighbour by index": `export function r(rows) {
   for (let i = 0; i < rows.length; i++) {

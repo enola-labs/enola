@@ -33,6 +33,11 @@ import (
 // test functions that assert the behavior that version introduced. v1 is the
 // implicit baseline (no changelog line), so coverage starts at v2.
 var versionCoverage = map[int][]string{
+	299: { // calls_on_loop_element(_arg) and loops_over_param(_index) in TypeScript and Python
+		"TestTsCrossCallFacts",
+		"TestTsCrossCallThroughTheReceiver",
+		"TestPyCrossCallFacts",
+	},
 	298: { // calls_in_scaling_loop_depth: the scaling nesting each in-loop call sits in, parallel to calls_in_scaling_loop
 		"TestGoCallDepthIsTheNestingAroundTheCall",
 		"TestTsCallDepthIsTheNestingAroundTheCall",

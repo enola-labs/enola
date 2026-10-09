@@ -2,6 +2,7 @@ package pythonextractor
 
 import (
 	"path/filepath"
+	"sort"
 	"strings"
 	"unicode"
 
@@ -210,7 +211,13 @@ type pyWalker struct {
 	repeatDepth int
 	// loopScopes are the enclosing loops' variables, for the rule in hierarchy.go.
 	loopScopes []pyLoopScope
-	selfName   string
+	// paramScope and paramIndex are the function's parameters, and lastCallTarget
+	// the target the call being walked resolved to, for the cross-call rule in
+	// hierarchy.go.
+	paramScope     []pyLoopScope
+	paramIndex     map[string]int
+	lastCallTarget string
+	selfName       string
 
 	// funcScope is the qualified name of the OUTERMOST enclosing function whose
 	// body is being walked ("" at module/class level). Unlike selfName it is
@@ -258,8 +265,15 @@ type pyBodyMetrics struct {
 	callsInScalingLoop []string        // distinct call targets invoked at scaling (unbounded) depth >= 1
 	inScalingSeen      map[string]bool // dedup set for callsInScalingLoop
 	scalingCallDepth   map[string]int  // deepest scaling nesting each of those is called at (calldepth.go)
-	recursive          bool            // body directly calls the enclosing function
-	ioDirect           bool            // body directly invokes a network/file/DB I/O primitive
+	// The cross-call hierarchical rule (hierarchy.go): the calls handed a loop
+	// element with the argument position that carries it, and the parameters a
+	// scaling loop of this body walks.
+	callsOnLoopElement    []string
+	callsOnLoopElementArg []int
+	onElementSeen         map[string]bool
+	loopsOverParam        map[int]bool
+	recursive             bool // body directly calls the enclosing function
+	ioDirect              bool // body directly invokes a network/file/DB I/O primitive
 }
 
 // recordCallMetrics notes a resolved call target against the current function's
@@ -274,12 +288,64 @@ func (w *pyWalker) recordCallMetrics(target string) {
 	w.recordInLoopCall(target)
 }
 
+// noteLoopOverParam records that a scaling loop of this body walks what the named
+// parameter (or self) holds. root is "" when the loop walks something else.
+func (w *pyWalker) noteLoopOverParam(root string) {
+	if w.metrics == nil || root == "" {
+		return
+	}
+	i, ok := w.paramIndex[root]
+	if !ok {
+		return
+	}
+	if w.metrics.loopsOverParam == nil {
+		w.metrics.loopsOverParam = make(map[int]bool)
+	}
+	w.metrics.loopsOverParam[i] = true
+}
+
+// noteCallOnLoopElement records a call, made inside a scaling loop, that hands its
+// callee an element of an enclosing loop: as a positional argument, or as the
+// receiver. A keyword argument is not followed: its position on the callee's side
+// is not known here.
+func (w *pyWalker) noteCallOnLoopElement(call, fn *sitter.Node, target string) {
+	if w.metrics == nil || target == "" || w.scalingDepth == 0 || len(w.loopScopes) == 0 || w.metrics.onElementSeen[target] {
+		return
+	}
+	pos, found := 0, false
+	if kindOf(fn) == "attribute" && pyReachedThroughElement(fn.ChildByFieldName("object"), w.src, w.loopScopes) {
+		pos, found = pyReceiverParam, true
+	}
+	if args := call.ChildByFieldName("arguments"); !found && args != nil {
+		for i := uint(0); i < uint(args.NamedChildCount()); i++ {
+			a := args.NamedChild(i)
+			if kindOf(a) == "keyword_argument" {
+				break // everything after it is by name too
+			}
+			if pyReachedThroughElement(a, w.src, w.loopScopes) {
+				pos, found = int(i), true
+				break
+			}
+		}
+	}
+	if !found {
+		return
+	}
+	if w.metrics.onElementSeen == nil {
+		w.metrics.onElementSeen = make(map[string]bool)
+	}
+	w.metrics.onElementSeen[target] = true
+	w.metrics.callsOnLoopElement = append(w.metrics.callsOnLoopElement, target)
+	w.metrics.callsOnLoopElementArg = append(w.metrics.callsOnLoopElementArg, pos)
+}
+
 // recordInLoopCall is recordCallMetrics without the recursion check, for a call
 // whose edge names the enclosing function but whose form cannot reach it.
 func (w *pyWalker) recordInLoopCall(target string) {
 	if w.metrics == nil || target == "" {
 		return
 	}
+	w.lastCallTarget = target
 	if w.loopDepth > 0 {
 		if w.metrics.inLoopSeen == nil {
 			w.metrics.inLoopSeen = make(map[string]bool)
@@ -1184,6 +1250,8 @@ func (w *pyWalker) handleFunction(node *sitter.Node, decorators []string) {
 		w.loopDepth = 0
 		w.scalingDepth = 0
 		w.loopScopes = nil
+		paramScope, paramIndex := pyParamScope(node.ChildByFieldName("parameters"), w.src)
+		w.paramScope, w.paramIndex = []pyLoopScope{paramScope}, paramIndex
 		w.selfName = qualName
 		// Only the outermost function establishes the router scope: a router
 		// variable is local to the factory that builds it, and collectRouterTopology
@@ -1216,6 +1284,19 @@ func (w *pyWalker) handleFunction(node *sitter.Node, decorators []string) {
 			}
 			props["calls_in_scaling_loop"] = w.metrics.callsInScalingLoop
 			props["calls_in_scaling_loop_depth"] = callDepths(w.metrics.callsInScalingLoop, w.metrics.scalingCallDepth)
+		}
+		if len(w.metrics.callsOnLoopElement) > 0 {
+			props["calls_on_loop_element"] = w.metrics.callsOnLoopElement
+			props["calls_on_loop_element_arg"] = w.metrics.callsOnLoopElementArg
+		}
+		if len(w.metrics.loopsOverParam) > 0 {
+			props["loops_over_param"] = true
+			idx := make([]int, 0, len(w.metrics.loopsOverParam))
+			for i := range w.metrics.loopsOverParam {
+				idx = append(idx, i)
+			}
+			sort.Ints(idx)
+			props["loops_over_param_index"] = idx
 		}
 		if w.metrics.recursive {
 			props["recursive_self"] = true
@@ -1503,7 +1584,9 @@ func (w *pyWalker) walkForCalls(node *sitter.Node) {
 		w.emitCallRoute(node)
 		w.emitHTTPClientRoute(node)
 		if fn := node.ChildByFieldName("function"); fn != nil {
+			w.lastCallTarget = ""
 			w.emitCallEdge(fn)
+			w.noteCallOnLoopElement(node, fn, w.lastCallTarget)
 			// Tag the body io_direct when it directly invokes a DB/network/file primitive
 			// (session.execute, requests.get, open(...)); computePyPerformsIO then
 			// propagates it transitively into performs_io across the call graph.
@@ -1539,6 +1622,17 @@ func (w *pyWalker) walkForCalls(node *sitter.Node) {
 		// `tasks = dag.tasks or []` puts `tasks` one step from `dag`.
 		if len(w.loopScopes) > 0 && pyReachedThroughElement(node.ChildByFieldName("right"), w.src, w.loopScopes) {
 			pyBindTargetNames(node.ChildByFieldName("left"), w.src, &w.loopScopes[len(w.loopScopes)-1])
+		}
+		// The same for a parameter: `tasks = dag.tasks or []` is still dag's.
+		if len(w.paramScope) > 0 {
+			if root := pyElementRoot(node.ChildByFieldName("right"), w.src, w.paramScope); root != "" {
+				var bound pyLoopScope
+				pyBindTargetNames(node.ChildByFieldName("left"), w.src, &bound)
+				for name := range bound.vars {
+					w.paramScope[0].add(name)
+					w.paramIndex[name] = w.paramIndex[root]
+				}
+			}
 		}
 	}
 	if kind == "default_parameter" || kind == "typed_default_parameter" {
@@ -1600,6 +1694,9 @@ func (w *pyWalker) walkForCalls(node *sitter.Node) {
 		repeats = pyLoopRepeats(node, w.src)
 		scope := pyLoopScope{amortizes: repeats}
 		if kind == "for_statement" {
+			if !bounded {
+				w.noteLoopOverParam(pyElementRoot(node.ChildByFieldName("right"), w.src, w.paramScope))
+			}
 			// A loop over what belongs to an enclosing loop's element repeats
 			// without scaling (hierarchy.go).
 			if pyReachedThroughElement(node.ChildByFieldName("right"), w.src, w.loopScopes) {
@@ -1802,6 +1899,9 @@ func (w *pyWalker) walkComprehension(node *sitter.Node) {
 	// `[t.id for t in dag.tasks]` under a loop over dags repeats without scaling
 	// (hierarchy.go).
 	repeats := !bounded
+	if !bounded {
+		w.noteLoopOverParam(pyElementRoot(firstIter, w.src, w.paramScope))
+	}
 	if pyReachedThroughElement(firstIter, w.src, w.loopScopes) {
 		bounded = true
 	}

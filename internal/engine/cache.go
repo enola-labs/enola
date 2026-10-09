@@ -20,6 +20,13 @@ import (
 	"github.com/enola-labs/enola/pkg/plugin"
 )
 
+// v299: the cross-call hierarchical facts, until now Go's alone, in TypeScript and
+// Python: calls_on_loop_element (a call inside a scaling loop is handed the loop's
+// element) and loops_over_param (a scaling loop walks what a parameter or the
+// receiver holds). Both languages also say WHERE: calls_on_loop_element_arg is the
+// argument position carrying the element, loops_over_param_index the parameter
+// positions walked, -1 for the receiver, so the analyzer can require that the two
+// meet. A callee looping over a different parameter multiplies.
 // v298: calls_in_scaling_loop_depth, a slice parallel to calls_in_scaling_loop giving
 // the deepest scaling nesting each of those calls sits in. scaling_loop_depth is the
 // function's deepest nest anywhere; a call-in-loop finding needs the nesting around
@@ -2631,7 +2638,7 @@ import (
 // v270: SvelteKit reads literal kit.alias fallbacks before generated config exists,
 // keeps tsconfig paths authoritative, and classifies $app/$env/$service-worker imports
 // as framework-provided rather than unresolved third-party dependencies.
-const cacheVersion = "v298"
+const cacheVersion = "v299"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

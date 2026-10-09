@@ -49,10 +49,15 @@ const (
 	propCallsInScalingLoopDepth = "calls_in_scaling_loop_depth"
 	propCallsOnLoopElement      = "calls_on_loop_element" // extractor: in-loop calls handed the loop's element
 	propLoopsOverParam          = "loops_over_param"      // extractor: a scaling loop walks a parameter/receiver
-	propRecursiveSelf           = "recursive_self"
-	propPerformsIO              = "performs_io"        // extractor: method transitively performs network/file I/O
-	propScalingLoopDepth        = "scaling_loop_depth" // extractor: loop nesting counting only unbounded loops
-	propAssociation             = "association"        // Rails association name on a dependency fact
+	// extractor: for each entry of calls_on_loop_element, in order, the argument
+	// position that carries the element (-1 for the receiver)
+	propCallsOnLoopElementArg = "calls_on_loop_element_arg"
+	// extractor: the parameter positions a scaling loop walks (-1 for the receiver)
+	propLoopsOverParamIndex = "loops_over_param_index"
+	propRecursiveSelf       = "recursive_self"
+	propPerformsIO          = "performs_io"        // extractor: method transitively performs network/file I/O
+	propScalingLoopDepth    = "scaling_loop_depth" // extractor: loop nesting counting only unbounded loops
+	propAssociation         = "association"        // Rails association name on a dependency fact
 )
 
 // funcInfo is the per-function input to the pure analysis. It is populated from
@@ -103,9 +108,17 @@ type funcInfo struct {
 	// traversal instead of starting one per element; see computeEffectiveDepths.
 	CallsOnLoopElement []string
 	LoopsOverParam     bool
-	Recursive          bool     // extractor flagged a direct self-call
-	PerformsIO         bool     // extractor flagged transitive network/file I/O
-	Calls              []string // all resolved call targets
+	// ElementArg is, per CallsOnLoopElement target, the argument position that
+	// carries the element, and LoopParams the parameter positions this function's
+	// scaling loops walk; -1 is the receiver on both sides. They sharpen the pair
+	// above from "passes an element" and "loops over a parameter" to "loops over
+	// THE parameter the element arrives in". Either is nil when its extractor does
+	// not report positions, and continuesWalk then falls back to the pair.
+	ElementArg map[string]int
+	LoopParams map[int]bool
+	Recursive  bool     // extractor flagged a direct self-call
+	PerformsIO bool     // extractor flagged transitive network/file I/O
+	Calls      []string // all resolved call targets
 	// BoundedFanout marks a bounded background-job/mailer fan-out (see isBoundedFanout).
 	// It is precomputed by markNonScaling rather than derived where it is needed, because
 	// computeEffectiveDepths (per-name) and effectiveDepthOf (per-fact) must never disagree
@@ -124,6 +137,25 @@ func (f funcInfo) scalingLoopCalls() []string {
 		return f.CallsInScalingLoop
 	}
 	return f.CallsInLoop
+}
+
+// continuesWalk reports whether callee g, called from f's loop, is finishing f's
+// traversal rather than starting one of its own per element: f hands it the loop's
+// element, and g loops over what it was handed. Such a call adds no depth.
+//
+// Where both sides report positions the two have to meet. `itemHasQuery(item,
+// words)` receives the element first and loops over `words`, a different
+// parameter and an independent size, so it multiplies. Without positions (the Go
+// extractor reports only the two booleans) the pair alone decides, as it did.
+func continuesWalk(f funcInfo, onElement bool, callee string, g funcInfo) bool {
+	if !onElement || !g.LoopsOverParam {
+		return false
+	}
+	pos, known := f.ElementArg[callee]
+	if !known || g.LoopParams == nil {
+		return true
+	}
+	return g.LoopParams[pos]
 }
 
 // callDepth returns the scaling loop depth at which this function calls target, and
@@ -213,38 +245,63 @@ func stringSliceProp(props map[string]any, key string) []string {
 	return nil
 }
 
-// callDepthProp reads calls_in_scaling_loop_depth, a slice parallel to
-// calls_in_scaling_loop, into a map. nil when the prop is absent or does not line
-// up with the calls it describes, so a half-written fact degrades to the old
-// function-wide depth instead of to a wrong one.
-func callDepthProp(props map[string]any, calls []string) map[string]int {
-	var depths []int
-	switch v := props[propCallsInScalingLoopDepth].(type) {
+// intsProp reads a prop holding a list of integers, in either the form an
+// extractor writes or the one a JSONL round trip leaves. ok is false when the prop
+// is absent or holds anything else.
+func intsProp(props map[string]any, key string) (out []int, ok bool) {
+	switch v := props[key].(type) {
 	case []int:
-		depths = v
+		return v, true
 	case []any:
-		depths = make([]int, 0, len(v))
+		out = make([]int, 0, len(v))
 		for _, d := range v {
 			switch n := d.(type) {
 			case float64:
-				depths = append(depths, int(n))
+				out = append(out, int(n))
 			case int:
-				depths = append(depths, n)
+				out = append(out, n)
 			case int64:
-				depths = append(depths, int(n))
+				out = append(out, int(n))
 			default:
-				return nil
+				return nil, false
 			}
 		}
-	default:
+		return out, true
+	}
+	return nil, false
+}
+
+// alignedInts reads an integer-list prop that runs parallel to a list of call
+// targets, as a map from target to its value. nil when the prop is absent or does
+// not line up with the targets it describes, so a half-written fact degrades to
+// the caller's fallback instead of to a wrong answer.
+func alignedInts(props map[string]any, key string, targets []string) map[string]int {
+	vals, ok := intsProp(props, key)
+	if !ok || len(vals) != len(targets) {
 		return nil
 	}
-	if len(depths) != len(calls) {
+	out := make(map[string]int, len(targets))
+	for i, c := range targets {
+		out[c] = vals[i]
+	}
+	return out
+}
+
+// callDepthProp reads calls_in_scaling_loop_depth, a slice parallel to
+// calls_in_scaling_loop.
+func callDepthProp(props map[string]any, calls []string) map[string]int {
+	return alignedInts(props, propCallsInScalingLoopDepth, calls)
+}
+
+// intSetProp reads an integer-list prop as a set; nil when absent.
+func intSetProp(props map[string]any, key string) map[int]bool {
+	vals, ok := intsProp(props, key)
+	if !ok {
 		return nil
 	}
-	out := make(map[string]int, len(calls))
-	for i, c := range calls {
-		out[c] = depths[i]
+	out := make(map[int]bool, len(vals))
+	for _, v := range vals {
+		out[v] = true
 	}
 	return out
 }
@@ -537,6 +594,7 @@ func collect(store *facts.Store) (funcs []funcInfo, storage, routeHandlers, asso
 		_, hasScaling := f.Prop(propScalingLoopDepth)
 		_, hasScalingCalls := f.Prop(propCallsInScalingLoop)
 		scalingCalls := stringSliceProp(f.Props, propCallsInScalingLoop)
+		onElementCalls := stringSliceProp(f.Props, propCallsOnLoopElement)
 		funcs = append(funcs, funcInfo{
 			Name:                f.Name,
 			File:                f.File,
@@ -554,8 +612,10 @@ func collect(store *facts.Store) (funcs []funcInfo, storage, routeHandlers, asso
 			CallsInScalingLoop:  scalingCalls,
 			CallDepth:           callDepthProp(f.Props, scalingCalls),
 			HasScalingLoopCalls: hasScalingCalls,
-			CallsOnLoopElement:  stringSliceProp(f.Props, propCallsOnLoopElement),
+			CallsOnLoopElement:  onElementCalls,
 			LoopsOverParam:      boolProp(f.Props, propLoopsOverParam),
+			ElementArg:          alignedInts(f.Props, propCallsOnLoopElementArg, onElementCalls),
+			LoopParams:          intSetProp(f.Props, propLoopsOverParamIndex),
 			Recursive:           boolProp(f.Props, propRecursiveSelf),
 			PerformsIO:          boolProp(f.Props, propPerformsIO),
 			Calls:               calls,
@@ -1433,9 +1493,12 @@ func markNonScaling(funcs []funcInfo, byName map[string]funcInfo, storage, assoc
 func branchFree(f funcInfo) bool { return f.Cyclomatic == 1 }
 
 // computeEffectiveDepths estimates, per function, the worst-case loop nesting that
-// compounds across the call graph: effDepth(f) = loopDepth(f) + max over callees g
-// invoked inside f's loops of effDepth(g). Cycles (recursion) are cut by charging
-// only the node's own loop depth, so the DFS always terminates.
+// compounds across the call graph: effDepth(f) is the larger of f's own scaling
+// depth and, over the callees g invoked inside f's loops, the depth g is called at
+// plus effDepth(g). Without a per-call depth from the extractor the call is taken
+// to sit in f's deepest nest, which gives the old loopDepth(f) + effDepth(g).
+// Cycles (recursion) are cut by charging only the node's own loop depth, so the DFS
+// always terminates.
 //
 // Callers must run markNonScaling first: the non-scaling special cases are read from
 // funcInfo.BoundedFanout, not re-derived here, so this path and effectiveDepthOf agree.
@@ -1488,17 +1551,25 @@ func computeEffectiveDepths(funcs map[string]funcInfo) map[string]int {
 			// Both halves are required. Passing the element proves nothing on its own
 			// (the callee may loop over a global), and looping over a parameter proves
 			// nothing when the caller passes something else.
-			if onElement[callee] && g.LoopsOverParam {
+			if continuesWalk(f, onElement[callee], callee, g) {
 				continue
 			}
-			if d := dfs(callee); d > best {
+			// A callee multiplies with the loops AROUND ITS CALL, not with the
+			// function's deepest nest. Adding its depth to the latter charged a helper
+			// called once per row for a matrix the function builds further down.
+			at, _ := f.callDepth(callee)
+			if d := at + dfs(callee); d > best {
 				best = d
 			}
 		}
 		visiting[name] = false
-		// Compound on the scaling depth (bounded loops discounted), so a loop over a
-		// constant/literal set does not add a factor of n across the call graph.
-		res := f.scalingDepth() + best
+		// The function's own nesting stands when no call reaches deeper. Both sides
+		// are scaling depths (bounded loops discounted), so a loop over a constant or
+		// literal set adds no factor of n across the call graph.
+		res := f.scalingDepth()
+		if best > res {
+			res = best
+		}
 		memo[name] = res
 		return res
 	}
@@ -1558,14 +1629,20 @@ func effectiveDepthOf(f funcInfo, eff map[string]int, byName map[string]funcInfo
 		if callee == f.Name {
 			continue
 		}
-		if onElement[callee] && byName[callee].LoopsOverParam {
+		if continuesWalk(f, onElement[callee], callee, byName[callee]) {
 			continue // the callee is finishing this walk, not starting one per element
 		}
-		if d, ok := eff[callee]; ok && d > best {
-			best = d
+		if d, ok := eff[callee]; ok {
+			at, _ := f.callDepth(callee)
+			if at+d > best {
+				best = at + d
+			}
 		}
 	}
-	return f.scalingDepth() + best
+	if own := f.scalingDepth(); own > best {
+		return own
+	}
+	return best
 }
 
 // analyze is the pure analysis core: from the function list it produces a ranked

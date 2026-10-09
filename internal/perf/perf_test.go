@@ -2061,3 +2061,76 @@ func TestCallDepthPropHasToLineUpWithItsCalls(t *testing.T) {
 		t.Errorf("an absent prop is nil, got %v", got)
 	}
 }
+
+// A callee multiplies with the loops around its call, not with the caller's deepest
+// nest somewhere else.
+func TestCompoundingUsesTheDepthTheCalleeIsCalledAt(t *testing.T) {
+	helper := funcInfo{Name: "app.bounds", File: "app/b.ts", LoopDepth: 1, LoopCount: 1, ScalingLoopDepth: 1, HasScalingDepth: true}
+	caller := funcInfo{
+		Name: "app.snap", File: "app/s.ts", LoopDepth: 2, LoopCount: 3, ScalingLoopDepth: 2, HasScalingDepth: true,
+		CallsInLoop:        []string{"app.bounds"},
+		CallsInScalingLoop: []string{"app.bounds"}, HasScalingLoopCalls: true,
+	}
+
+	// bounds() is called from a depth-1 map; the depth-2 pair loop is a sibling.
+	// 1 + 1 does not exceed the function's own 2, so nothing compounds.
+	caller.CallDepth = map[string]int{"app.bounds": 1}
+	if c, ok := findFinding(analyze([]funcInfo{caller, helper}, nil, nil, nil), "app.snap", "compounded"); ok {
+		t.Errorf("callee at depth 1 beside a depth-2 nest reported as compounding: %+v", c)
+	}
+
+	// Called from inside the pair loop it really is one level deeper.
+	caller.CallDepth = map[string]int{"app.bounds": 2}
+	c, ok := findFinding(analyze([]funcInfo{caller, helper}, nil, nil, nil), "app.snap", "compounded")
+	if !ok || c.BigO != "O(n³)" {
+		t.Errorf("callee at depth 2: %+v (ok=%v), want O(n³)", c, ok)
+	}
+
+	// No per-call depth: the old upper bound.
+	caller.CallDepth = nil
+	c, ok = findFinding(analyze([]funcInfo{caller, helper}, nil, nil, nil), "app.snap", "compounded")
+	if !ok || c.BigO != "O(n³)" {
+		t.Errorf("no per-call depth: %+v (ok=%v), want the upper bound O(n³)", c, ok)
+	}
+}
+
+// A callee that loops over the parameter the element arrives in is finishing the
+// caller's walk. One that loops over a different parameter multiplies.
+func TestCrossCallNeedsTheParameterTheElementArrivesIn(t *testing.T) {
+	caller := funcInfo{
+		Name: "app.r", File: "app/r.ts", LoopDepth: 1, LoopCount: 1, ScalingLoopDepth: 1, HasScalingDepth: true,
+		CallsInLoop:        []string{"app.render", "app.hasQuery"},
+		CallsInScalingLoop: []string{"app.render", "app.hasQuery"}, HasScalingLoopCalls: true,
+		CallDepth:          map[string]int{"app.render": 1, "app.hasQuery": 1},
+		CallsOnLoopElement: []string{"app.render", "app.hasQuery"},
+		ElementArg:         map[string]int{"app.render": 0, "app.hasQuery": 0},
+	}
+	loops := func(name string, param int) funcInfo {
+		return funcInfo{
+			Name: name, File: "app/x.ts", LoopDepth: 1, LoopCount: 1, ScalingLoopDepth: 1, HasScalingDepth: true,
+			LoopsOverParam: true, LoopParams: map[int]bool{param: true},
+		}
+	}
+
+	// render(frame) loops over frame: no compounding.
+	only := caller
+	only.CallsInLoop, only.CallsInScalingLoop = []string{"app.render"}, []string{"app.render"}
+	if c, ok := findFinding(analyze([]funcInfo{only, loops("app.render", 0)}, nil, nil, nil), "app.r", "compounded"); ok {
+		t.Errorf("a callee continuing the walk reported as compounding: %+v", c)
+	}
+
+	// hasQuery(frame, words) loops over words, parameter 1: it multiplies.
+	c, ok := findFinding(analyze([]funcInfo{caller, loops("app.render", 0), loops("app.hasQuery", 1)}, nil, nil, nil), "app.r", "compounded")
+	if !ok || c.BigO != "O(n²)" {
+		t.Errorf("a callee looping over a different parameter: %+v (ok=%v), want compounded O(n²)", c, ok)
+	}
+
+	// Without positions (the Go extractor) the pair of booleans decides, as before.
+	legacy := only
+	legacy.ElementArg = nil
+	g := loops("app.render", 0)
+	g.LoopParams = nil
+	if c, ok := findFinding(analyze([]funcInfo{legacy, g}, nil, nil, nil), "app.r", "compounded"); ok {
+		t.Errorf("the boolean pair alone must still discount: %+v", c)
+	}
+}
