@@ -1802,3 +1802,42 @@ func TestAnalyze_ContinuedWalkDoesNotCompound(t *testing.T) {
 		t.Errorf("a callee looping over its own state must still compound")
 	}
 }
+
+// A call-in-loop finding says how often the call is made, which the loops around
+// it decide. What the callee does per call belongs to the `compounded` finding.
+func TestCallInLoopExponentIsItsOwnNestingNotTheCallGraphs(t *testing.T) {
+	funcs := []funcInfo{
+		{
+			Name: "app.DeleteAll", File: "app/delete.go", LoopDepth: 1, LoopCount: 1,
+			CallsInLoop: []string{"db.Delete"}, Calls: []string{"db.Delete"},
+		},
+		// The callee loops twice over its own arguments. Compounding makes the
+		// caller's effective depth 3, which is not the number of round-trips.
+		{Name: "db.Delete", File: "db/delete.go", LoopDepth: 2, LoopCount: 2},
+	}
+	got := analyze(funcs, nil, nil, nil)
+
+	c, ok := findFinding(got, "app.DeleteAll", "call-in-loop")
+	if !ok {
+		t.Fatalf("no call-in-loop finding for app.DeleteAll; got %+v", got)
+	}
+	if c.BigO != "O(n)" {
+		t.Errorf("call-in-loop BigO = %s, want O(n): one call per iteration of one loop", c.BigO)
+	}
+	// The callee's cost is still reported, as what it is.
+	comp, ok := findFinding(got, "app.DeleteAll", "compounded")
+	if !ok || comp.BigO != "O(n³)" {
+		t.Errorf("compounded finding = %+v (ok=%v), want O(n³)", comp, ok)
+	}
+}
+
+func TestCallInLoopExponentCountsItsOwnNest(t *testing.T) {
+	funcs := []funcInfo{{
+		Name: "app.Sync", File: "app/sync.go", LoopDepth: 2, LoopCount: 2,
+		CallsInLoop: []string{"db.Query"}, Calls: []string{"db.Query"},
+	}}
+	c, ok := findFinding(analyze(funcs, nil, nil, nil), "app.Sync", "call-in-loop")
+	if !ok || c.BigO != "O(n²)" {
+		t.Errorf("call-in-loop = %+v (ok=%v), want O(n²) from the function's own two-deep nest", c, ok)
+	}
+}

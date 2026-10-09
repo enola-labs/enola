@@ -1644,7 +1644,18 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 			if routeHandlers[f.Name] || confirmedIO {
 				sev = "high"
 			}
-			depth := effHere
+			// The exponent is this function's own loop nesting, not the nesting
+			// compounded across the call graph. A call-in-loop finding says how
+			// often the call is made, and that is set by the loops around it. What
+			// the callee then does per call is the `compounded` finding's subject,
+			// reported beside this one when it applies. Taking effHere here printed
+			// O(n³) on a single loop over rows whose callee happened to loop twice,
+			// and none of 103 hand-read findings above O(n) was right.
+			//
+			// Still an upper bound: the extractors report the function's deepest
+			// nest, not the depth of the loop this call sits in, so a sibling nest
+			// that does not enclose the call is counted too.
+			depth := scaling
 			if depth < 1 {
 				depth = 1
 			}
