@@ -46,6 +46,12 @@ Loop props work as they do in [Go](go.md#loops-for-n1-hunting) — `app/db.get_p
 `loop_count=1, loop_depth=1, calls_in_scaling_loop=[app/db.get_user]`, which is the N+1
 candidate set.
 
+Python also recognises a loop fixed by name (`for p in RESERVED_PREFIXES`, `for s in
+DagRunState`, `range(MAX_RETRIES)`), an inner loop reached through the outer element
+(`for dag in dags: for task in dag.tasks`), and a batch loop (`for chunk in chunked(ids,
+500)`, a three-argument `range`, a `while` that fetches a page and drains it). The rules
+are in [the index](README.md#loops-what-counts-as-nesting).
+
 ### Module-level code is not lost
 
 Python does real work at import time, and those calls belong to no function. They are

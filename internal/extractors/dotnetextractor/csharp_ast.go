@@ -129,9 +129,11 @@ type astWalker struct {
 	// query inside one still runs many times and stays an N+1 candidate.
 	scalingDepth int
 	repeatDepth  int
-	selfName     string
-	selfShort    string
-	selfParams   int
+	// loopScopes are the enclosing loops' variables, for the rule in hierarchy.go.
+	loopScopes []csLoopScope
+	selfName   string
+	selfShort  string
+	selfParams int
 }
 
 // bodyMetrics accumulates per-member complexity signals during the single body
@@ -145,6 +147,7 @@ type bodyMetrics struct {
 	scalingLoopDepth   int
 	callsInScalingLoop []string
 	inScalingSeen      map[string]bool
+	scalingCallDepth   map[string]int // deepest scaling nesting each of those is called at (calldepth.go)
 	recursive          bool
 	ioDirect           bool
 }
@@ -846,6 +849,9 @@ func (w *astWalker) walkBodyWithMetrics(node *sitter.Node, idx int, shortName st
 	savedScaling, savedRepeat := w.scalingDepth, w.repeatDepth
 	savedName, savedShort, savedParams := w.selfName, w.selfShort, w.selfParams
 
+	savedLoopScopes := w.loopScopes
+	w.loopScopes = nil
+	defer func() { w.loopScopes = savedLoopScopes }()
 	w.metrics = &bodyMetrics{}
 	w.loopDepth, w.scalingDepth, w.repeatDepth = 0, 0, 0
 	w.selfName = w.out[idx].Name
@@ -883,6 +889,7 @@ func (w *astWalker) walkBodyWithMetrics(node *sitter.Node, idx int, shortName st
 			m.callsInScalingLoop = []string{}
 		}
 		props["calls_in_scaling_loop"] = m.callsInScalingLoop
+		props["calls_in_scaling_loop_depth"] = callDepths(m.callsInScalingLoop, m.scalingCallDepth)
 	}
 	if m.recursive {
 		props["recursive_self"] = true
@@ -905,8 +912,21 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 	// A lambda is a deferred scope: its body runs when the delegate is invoked,
 	// not once per iteration of the loops it was created inside. An iterator's own
 	// lambda is handled at the invocation below, which walks it at depth+1.
+	// A local initialised from the current element is still the current element:
+	// `var ops = path.Value.Operations;` puts `ops` one step from `path`.
+	if kind == "variable_declarator" && len(w.loopScopes) > 0 && node.NamedChildCount() >= 2 {
+		name := node.ChildByFieldName("name")
+		value := node.NamedChild(node.NamedChildCount() - 1)
+		if name != nil && kindOf(name) == "identifier" && csReachedThroughElement(value, w.src, w.loopScopes) {
+			w.loopScopes[len(w.loopScopes)-1].add(nodeText(name, w.src))
+		}
+	}
+
 	if w.metrics != nil && (kind == "lambda_expression" || kind == "anonymous_method_expression") {
 		saved, savedScaling, savedRepeat := w.loopDepth, w.scalingDepth, w.repeatDepth
+		savedScopes := w.loopScopes
+		w.loopScopes = nil
+		defer func() { w.loopScopes = savedScopes }()
 		w.loopDepth, w.scalingDepth, w.repeatDepth = 0, 0, 0
 		w.walkChildren(node)
 		w.loopDepth, w.scalingDepth, w.repeatDepth = saved, savedScaling, savedRepeat
@@ -943,6 +963,16 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 		return
 	case "for_statement", "foreach_statement", "while_statement", "do_statement":
 		class := syntacticLoopClass(node, w.src)
+		scope := csLoopScope{amortizes: class.repeats()}
+		if kindOf(node) == "foreach_statement" {
+			// A loop over what belongs to an enclosing loop's element repeats
+			// without scaling (hierarchy.go).
+			if class.scales() && csReachedThroughElement(node.ChildByFieldName("right"), w.src, w.loopScopes) {
+				class = loopInfinite
+			}
+			scope.amortizes = class.repeats()
+			csBindIdentifiers(node.ChildByFieldName("left"), w.src, &scope)
+		}
 		// The parts evaluated in the ENCLOSING scope are walked outside the loop.
 		// A `foreach (x in items.Where(p))` enumerates its iterable once — the
 		// lambda runs per element of `items`, which is the same n the loop itself
@@ -961,11 +991,13 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 			w.walkForCalls(n)
 		}
 		w.enterLoop(class)
+		w.loopScopes = append(w.loopScopes, scope)
 		for i := uint(0); i < uint(node.ChildCount()); i++ {
 			if c := node.Child(i); !containsAny(outer, c) {
 				w.walkForCalls(c)
 			}
 		}
+		w.loopScopes = w.loopScopes[:len(w.loopScopes)-1]
 		w.exitLoop(class)
 		return
 	case "object_creation_expression":
@@ -1114,7 +1146,14 @@ func (w *astWalker) handleInvocation(node *sitter.Node) {
 		case recv == "this" || recv == "base":
 			if target, ok := w.resolveOwnMember(name); ok {
 				w.addEdge(facts.RelCalls, target)
-				w.recordCallMetrics(target, name, args)
+				// `base.M()` from an override of M binds to this type's M, which is
+				// the only M the resolver knows, and is the one call that provably
+				// is not M calling itself.
+				if recv == "base" {
+					w.recordCallMetrics(target, name, notSelfCall)
+				} else {
+					w.recordCallMetrics(target, name, args)
+				}
 			}
 		case recvNode != nil && isTypeNameShaped(recvNode, recv):
 			// `Type.Method(...)` — a static call. Emitted as "<Type>.<Method>" and
@@ -1185,6 +1224,10 @@ func (w *astWalker) markIO() {
 	}
 }
 
+// notSelfCall is an argument count no member has, passed to recordCallMetrics for
+// a call that cannot be the enclosing member calling itself.
+const notSelfCall = -1
+
 // recordCallMetrics flags direct recursion and records in-loop call targets.
 // Recursion needs the argument count to match the enclosing member's parameter
 // count, so a call to a same-named overload is not read as self-recursion.
@@ -1230,6 +1273,7 @@ func (w *astWalker) noteInLoop(target string) {
 	if m.inScalingSeen == nil {
 		m.inScalingSeen = map[string]bool{}
 	}
+	m.scalingCallDepth = noteCallDepth(m.scalingCallDepth, target, w.scalingDepth)
 	if !m.inScalingSeen[target] {
 		m.inScalingSeen[target] = true
 		m.callsInScalingLoop = append(m.callsInScalingLoop, target)

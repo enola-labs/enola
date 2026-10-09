@@ -20,6 +20,56 @@ import (
 	"github.com/enola-labs/enola/pkg/plugin"
 )
 
+// v302: a C-style for is fixed-count only when it both starts and stops at a constant,
+// in C/C++, C# and PHP as in TypeScript and Java since v300. The condition alone used
+// to decide, so `for (i = n - 1; i >= 0; i--)` was read as constant for comparing
+// against a literal: it left scaling_loop_depth and its calls left
+// calls_in_scaling_loop. A loop the analysis had been ignoring is counted again.
+// v301: batch loops in Go and Python. A loop that takes its input a batch at a time
+// (a paging `for {}` / `while`, a stepped range, a call named for chunking) and
+// drains what each round fetched is one pass over the rows: the drain loop adds no
+// scaling depth, and a call made once per round leaves calls_in_scaling_loop, since
+// it is the batched call and not an N+1. A call inside the drain loop is unaffected,
+// and so is a loop that walks a chain or queries per element of a range.
+// v300: loops fixed by name add no scaling depth, as loops over a literal already did.
+// TypeScript, Python and Rust recognise an ALL_CAPS constant as a collection or a
+// bound (Java and Kotlin already did), views of one (`Object.entries(X)`, `X.items()`,
+// `X.iter()`), and in TypeScript and Python a local bound once to a literal and never
+// grown. TypeScript's C-style for is constant against a literal or constant bound,
+// which it never was. Python and Java read an enum (`for s in State`,
+// `State.values()`), and Java a named bound (`i < MAX_ATTEMPTS`).
+// v299: the cross-call hierarchical facts, until now Go's alone, in TypeScript and
+// Python: calls_on_loop_element (a call inside a scaling loop is handed the loop's
+// element) and loops_over_param (a scaling loop walks what a parameter or the
+// receiver holds). Both languages also say WHERE: calls_on_loop_element_arg is the
+// argument position carrying the element, loops_over_param_index the parameter
+// positions walked, -1 for the receiver, so the analyzer can require that the two
+// meet. A callee looping over a different parameter multiplies.
+// v298: calls_in_scaling_loop_depth, a slice parallel to calls_in_scaling_loop giving
+// the deepest scaling nesting each of those calls sits in. scaling_loop_depth is the
+// function's deepest nest anywhere; a call-in-loop finding needs the nesting around
+// the call, and the two differ whenever a deeper nest elsewhere does not contain it.
+// Go, TypeScript, Python, PHP, Kotlin, Java, Rust, C# and C/C++.
+// v297: what a loop draws from is evaluated once, so it is walked outside the loop:
+// a range operand and for-init in Go, the collection of a for..of / foreach / for-each
+// / for-in in TypeScript, PHP, Python, Java, Kotlin and Rust (C# already did). A call
+// there is no longer in calls_in_loop and an iterator there no longer nests. Java's
+// Map.computeIfAbsent lambda, which runs at most once, is no longer a loop.
+// v296: the hierarchical-loop rule, until now Go's alone, in TypeScript, PHP, Python,
+// Kotlin, Rust, Java and C#. A loop over what belongs to the element an enclosing loop
+// is on (`for job of jobs { for need of job.needs }`) visits each child once, so it
+// raises loop_depth and leaves scaling_loop_depth alone; its calls stay N+1 candidates.
+// The collection has to be reached through the element: a member, a method, a
+// subscript or a lookup keyed by it, directly or through a local assigned from it. A
+// call on another receiver that only takes the variable (`xs.slice(i + 1)`) is the
+// all-pairs loop and keeps counting. Java and C# cover statement loops only.
+// v295: recursive_self needs a call written in a form that can reach the enclosing
+// function, not just an edge that names it. Rust: a bare `f()` inside a method is the
+// free function (`drop(x)` in `Drop::drop`), and a parameter named like its method is
+// a value. Kotlin: a call passing an argument by a name the function does not declare
+// (`apply(plugin = …)` inside `apply(target)`) is another function. PHP: `parent::m()`
+// and `$other->m()` are not `$this->m()`. C#: `base.M()` is the parent's. Python: a
+// bare name inside a method is never that method. Edges are unchanged.
 // v294: C/C++ extracts the definitions tree-sitter's error recovery displaced. A
 // function it could not close swallows every later definition into its body; those
 // are now extracted in the enclosing scope, and their calls and decision points no
@@ -2606,7 +2656,7 @@ import (
 // v270: SvelteKit reads literal kit.alias fallbacks before generated config exists,
 // keeps tsconfig paths authoritative, and classifies $app/$env/$service-worker imports
 // as framework-provided rather than unresolved third-party dependencies.
-const cacheVersion = "v294"
+const cacheVersion = "v302"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

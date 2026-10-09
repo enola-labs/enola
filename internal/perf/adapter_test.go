@@ -40,8 +40,9 @@ func TestAnalyzeAgainstBundledSnapshot(t *testing.T) {
 		seen[f.Name] = true
 	}
 	for _, f := range findings {
-		if f.BigO == "" {
-			t.Errorf("finding for %q has empty big_o", f.Symbol)
+		// Every finding states one thing: a Big-O, or a nesting depth.
+		if (f.BigO == "") == (f.Depth == 0) {
+			t.Errorf("finding for %q (%s): big_o=%q depth=%d, want exactly one of them", f.Symbol, f.Kind, f.BigO, f.Depth)
 		}
 		if !validSeverity[f.Severity] {
 			t.Errorf("finding for %q has invalid severity %q", f.Symbol, f.Severity)

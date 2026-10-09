@@ -164,12 +164,19 @@ actually uses it to be worth building.
 
 Function and method symbols carry the standard props the performance analyzer reads:
 `cyclomatic`, `loop_count`, `loop_depth`, `scaling_loop_depth`, `calls_in_loop`,
-`calls_in_scaling_loop`, `recursive_self` and `performs_io`.
+`calls_in_scaling_loop`, `calls_in_scaling_loop_depth`, `recursive_self` and
+`performs_io`.
 
 `for`, `while` and `loop` are the loops. A **bounded** one — a constant-trip `for`
-over a literal range or array, or an infinite `loop {}` / `while true` — raises
+over a literal range or array, a range or table named by a constant (`0..CHUNK_SIZE`,
+`TABLE.iter()`), or an infinite `loop {}` / `while true` — raises
 `loop_depth` but not `scaling_loop_depth`: it adds no data-dependent factor, so a
-call inside it is not an N+1. That distinction is what keeps an event loop from
+call inside it is not an N+1. So does a loop reached through the outer element (`for
+frame in trace.frames()`), which visits each frame once.
+
+`recursive_self` needs a call that can reach the function. A bare `drop(x)` inside
+`Drop::drop` is the free function, and `fn fmt(&self, fmt: &mut Formatter)` passing
+`fmt` on is a value, so neither is recursion. That distinction is what keeps an event loop from
 reading as O(n) in a data size it has nothing to do with.
 
 `benches/` counts as test code, alongside `tests/`. Cargo builds it as bench

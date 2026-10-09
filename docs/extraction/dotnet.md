@@ -1031,7 +1031,14 @@ and `calls_in_scaling_loop`. `for`/`foreach`/`while`/`do` and LINQ iterator lamb
 (`Select`, `Where`, `ForEach`, `Aggregate`, …) count as loops; a literal-bounded `for
 (var i = 0; i < 3; i++)` or a `foreach` over a collection literal raises `loop_depth` but
 adds **no** scaling depth, so a fixed-size loop never inflates a genuine O(n) into a
-false O(n²).
+false O(n²). Both ends of the `for` have to be constant: `for (var i = items.Count - 1;
+i >= 0; i--)` compares against a literal and still scales.
+
+A `foreach` over what belongs to the enclosing loop's element (`foreach (var op in
+path.Value.Operations)`) adds no scaling depth either. That holds for statement loops; a
+LINQ lambda's parameter is not followed. `calls_in_scaling_loop_depth` gives the scaling
+depth each in-loop call sits at. `base.M()` from an override of `M` is not
+`recursive_self`.
 
 A member that calls a network, file or database primitive — `HttpClient`'s verbs,
 `File.*`, ADO.NET `Execute*`, EF Core `SaveChangesAsync`/`ToListAsync` — is tagged

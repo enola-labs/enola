@@ -192,6 +192,7 @@ type cppBodyMetrics struct {
 	scalingLoopDepth   int             // max nesting counting only unbounded (input-scaling) loops
 	callsInScalingLoop []string        // distinct targets invoked inside a repeating loop (N+1 candidates)
 	inScalingSeen      map[string]bool // dedup set for callsInScalingLoop
+	scalingCallDepth   map[string]int  // deepest scaling nesting each of those is called at (calldepth.go)
 	recursive          bool            // body directly calls the enclosing function
 	ioDirect           bool            // body makes a direct file/socket I/O call
 }
@@ -242,6 +243,7 @@ func (w *astWalker) recordInLoop(target string) {
 		if w.metrics.inScalingSeen == nil {
 			w.metrics.inScalingSeen = make(map[string]bool)
 		}
+		w.metrics.scalingCallDepth = noteCallDepth(w.metrics.scalingCallDepth, target, w.scalingDepth)
 		if !w.metrics.inScalingSeen[target] {
 			w.metrics.inScalingSeen[target] = true
 			w.metrics.callsInScalingLoop = append(w.metrics.callsInScalingLoop, target)
@@ -273,7 +275,11 @@ func cppSyntacticLoopClass(kinds *tsutil.KindTable, node *sitter.Node, src []byt
 		if cond == nil {
 			return cppLoopInfinite // for (;;)
 		}
-		if cppConstantForCondition(kinds, cond) {
+		// Both ends have to be constant. `for (i = n - 1; i >= 0; i--)` compares against a
+		// literal and walks all n: the bound that scales is where it starts. The
+		// condition alone used to decide, which read every descending loop as a
+		// fixed-count one and dropped it, and the calls inside it, from the analysis.
+		if cppConstantForCondition(kinds, cond) && cppForStartsAtConstant(kinds, node, src) {
 			return cppLoopConstant
 		}
 	case "for_range_loop":
@@ -294,6 +300,66 @@ func cppSyntacticLoopClass(kinds *tsutil.KindTable, node *sitter.Node, src []byt
 // loop variable against a numeric literal (`i < 3`), so the loop runs a statically fixed
 // number of times. A data-derived bound (`i < n`, `i < v.size()`) or a compound
 // condition is conservatively treated as scaling — no genuine O(n) finding is deleted.
+// cppForStartsAtConstant reports whether a for statement initialises its counter
+// (every counter, if it declares several) to a number literal or an ALL_CAPS
+// macro or constant. No initialiser, or one computed from anything else, does not
+// qualify.
+func cppForStartsAtConstant(kinds *tsutil.KindTable, node *sitter.Node, src []byte) bool {
+	init := node.ChildByFieldName("initializer")
+	if init == nil {
+		return false
+	}
+	constant := func(v *sitter.Node) bool {
+		if v == nil {
+			return false
+		}
+		switch kindOf(kinds, v) {
+		case "number_literal":
+			return true
+		case "identifier":
+			return cppScreaming(string(src[v.StartByte():v.EndByte()]))
+		}
+		return false
+	}
+	switch kindOf(kinds, init) {
+	case "assignment_expression":
+		return constant(init.ChildByFieldName("right"))
+	case "declaration":
+		seen := false
+		for i := uint(0); i < init.NamedChildCount(); i++ {
+			d := init.NamedChild(i)
+			if kindOf(kinds, d) != "init_declarator" {
+				continue
+			}
+			if !constant(d.ChildByFieldName("value")) {
+				return false
+			}
+			seen = true
+		}
+		return seen
+	}
+	return false
+}
+
+// cppScreaming reports whether name is ALL_CAPS with at least two characters, the
+// convention for a macro or a constant.
+func cppScreaming(name string) bool {
+	if len(name) < 2 {
+		return false
+	}
+	hasLetter := false
+	for _, r := range name {
+		switch {
+		case r >= 'A' && r <= 'Z':
+			hasLetter = true
+		case r >= '0' && r <= '9', r == '_':
+		default:
+			return false
+		}
+	}
+	return hasLetter
+}
+
 func cppConstantForCondition(kinds *tsutil.KindTable, cond *sitter.Node) bool {
 	if cond == nil || kindOf(kinds, cond) != "binary_expression" {
 		return false
@@ -907,6 +973,7 @@ func (w *astWalker) handleFunctionDefinition(node *sitter.Node) {
 			m.callsInScalingLoop = []string{}
 		}
 		props["calls_in_scaling_loop"] = m.callsInScalingLoop
+		props["calls_in_scaling_loop_depth"] = callDepths(m.callsInScalingLoop, m.scalingCallDepth)
 	}
 	if m.recursive {
 		props["recursive_self"] = true

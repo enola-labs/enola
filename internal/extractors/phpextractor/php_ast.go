@@ -61,8 +61,10 @@ type phpWalker struct {
 	// still runs many times, so a query inside stays an N+1 candidate.
 	scalingDepth int
 	repeatDepth  int
-	selfName     string // enclosing callable's qualified name (for recursion detection)
-	selfShort    string // enclosing callable's short name
+	// loopScopes are the enclosing loops' variables, for the rule in hierarchy.go.
+	loopScopes []phpLoopScope
+	selfName   string // enclosing callable's qualified name (for recursion detection)
+	selfShort  string // enclosing callable's short name
 }
 
 // phpBodyMetrics accumulates per-function complexity signals during the single
@@ -76,6 +78,7 @@ type phpBodyMetrics struct {
 	scalingLoopDepth   int             // max nesting counting only unbounded (input-scaling) loops
 	callsInScalingLoop []string        // distinct targets invoked inside a repeating loop (N+1 candidates)
 	inScalingSeen      map[string]bool // dedup set for callsInScalingLoop
+	scalingCallDepth   map[string]int  // deepest scaling nesting each of those is called at (calldepth.go)
 	recursive          bool            // body directly calls the enclosing callable
 	ioDirect           bool            // body makes a direct filesystem/DB/HTTP call
 }
@@ -338,6 +341,7 @@ func (w *phpWalker) handleCallable(node *sitter.Node, isMethod bool) {
 	w.loopDepth = 0
 	w.scalingDepth = 0
 	w.repeatDepth = 0
+	w.loopScopes = nil
 	w.selfName = fullName
 	w.selfShort = name
 	w.walkForCalls(node.ChildByFieldName("body"), ownerIdx, seen)
@@ -359,6 +363,7 @@ func (w *phpWalker) handleCallable(node *sitter.Node, isMethod bool) {
 			w.metrics.callsInScalingLoop = []string{}
 		}
 		props["calls_in_scaling_loop"] = w.metrics.callsInScalingLoop
+		props["calls_in_scaling_loop_depth"] = callDepths(w.metrics.callsInScalingLoop, w.metrics.scalingCallDepth)
 	}
 	if w.metrics.recursive {
 		props["recursive_self"] = true
@@ -394,10 +399,28 @@ func (w *phpWalker) walkForCalls(node *sitter.Node, ownerIdx int, seen map[strin
 	case "function_definition", "method_declaration", "class_declaration",
 		"interface_declaration", "trait_declaration", "enum_declaration":
 		return
+	case "assignment_expression":
+		// A local assigned from the current element is still the current element:
+		// `$models = $driver->models ?? [];` puts `$models` one step from `$driver`.
+		if len(w.loopScopes) > 0 {
+			if left := node.ChildByFieldName("left"); left != nil && kindOf(left) == "variable_name" &&
+				phpReachedThroughElement(node.ChildByFieldName("right"), w.src, w.loopScopes) {
+				w.loopScopes[len(w.loopScopes)-1].add(phpText(left, w.src))
+			}
+		}
 	case "for_statement", "foreach_statement", "while_statement", "do_statement":
 		// A constant-count loop raises loop_depth but not scaling_loop_depth (the Big-O
 		// exponent); an infinite loop is discounted from the exponent but still repeats.
 		class := phpSyntacticLoopClass(node, w.src)
+		scope := phpLoopScope{amortizes: class.repeats()}
+		if kindOf(node) == "foreach_statement" {
+			// A foreach over what belongs to an enclosing loop's element repeats
+			// without scaling (hierarchy.go).
+			if class.scales() && phpReachedThroughElement(phpForeachIterable(node), w.src, w.loopScopes) {
+				class = phpLoopInfinite
+			}
+			scope = phpForeachScope(node, w.src, class.repeats())
+		}
 		if w.metrics != nil {
 			w.metrics.loopCount++
 			w.metrics.decisions++
@@ -408,6 +431,15 @@ func (w *phpWalker) walkForCalls(node *sitter.Node, ownerIdx int, seen map[strin
 				w.metrics.scalingLoopDepth = w.scalingDepth + 1
 			}
 		}
+		// A foreach evaluates its collection once, before the first iteration.
+		// Walking it with the body read `foreach (array_merge($a, $b) as $x)` as a
+		// merge per element.
+		var once *sitter.Node
+		if kindOf(node) == "foreach_statement" {
+			if once = phpForeachIterable(node); once != nil {
+				w.walkForCalls(once, ownerIdx, seen)
+			}
+		}
 		w.loopDepth++
 		if class.scales() {
 			w.scalingDepth++
@@ -415,9 +447,13 @@ func (w *phpWalker) walkForCalls(node *sitter.Node, ownerIdx int, seen map[strin
 		if class.repeats() {
 			w.repeatDepth++
 		}
+		w.loopScopes = append(w.loopScopes, scope)
 		for i := uint(0); i < node.ChildCount(); i++ {
-			w.walkForCalls(node.Child(i), ownerIdx, seen)
+			if c := node.Child(i); once == nil || c.StartByte() != once.StartByte() || c.EndByte() != once.EndByte() {
+				w.walkForCalls(c, ownerIdx, seen)
+			}
 		}
+		w.loopScopes = w.loopScopes[:len(w.loopScopes)-1]
 		w.loopDepth--
 		if class.scales() {
 			w.scalingDepth--
@@ -442,7 +478,14 @@ func (w *phpWalker) walkForCalls(node *sitter.Node, ownerIdx int, seen map[strin
 		if scope != nil && method != nil {
 			target := w.resolveRef(phpText(scope, w.src)) + "::" + phpText(method, w.src)
 			w.addCall(ownerIdx, seen, target)
-			w.recordCallMetrics(target)
+			// resolveRef folds `parent` into the current class, so `parent::m()` in
+			// an override of m, every constructor that calls its parent's included,
+			// carries this method's own name.
+			if phpText(scope, w.src) == "parent" {
+				w.recordInLoopCall(target)
+			} else {
+				w.recordCallMetrics(target)
+			}
 			w.recordIODirect(phpText(method, w.src), phpIOMethods)
 		}
 		w.walkChildrenExcept(node, ownerIdx, seen, method)
@@ -455,7 +498,16 @@ func (w *phpWalker) walkForCalls(node *sitter.Node, ownerIdx int, seen map[strin
 		if method != nil && kindOf(method) == "name" {
 			target := phpText(method, w.src)
 			w.addCall(ownerIdx, seen, target)
-			w.recordCallMetrics(target)
+			// The edge is the bare method name, because the receiver's type is
+			// unknown. Only `$this->m()` is known to be this class's m: a
+			// decorator's `$this->inner->handle()` or `$container->extend()` inside
+			// an `extend` shares the name and nothing else. A walk that recurses
+			// through another instance (`$child->render()`) is given up with it.
+			if obj := node.ChildByFieldName("object"); obj != nil && phpText(obj, w.src) == "$this" {
+				w.recordCallMetrics(target)
+			} else {
+				w.recordInLoopCall(target)
+			}
 			// $wpdb->get_results(...) / PDO->fetchAll() — the receiver type is unknown,
 			// so a distinctive DB round-trip method name is our only I/O signal.
 			w.recordIODirect(target, phpIOMethods)
@@ -531,6 +583,15 @@ func (w *phpWalker) recordCallMetrics(target string) {
 	if target == w.selfShort || target == w.selfName {
 		w.metrics.recursive = true
 	}
+	w.recordInLoopCall(target)
+}
+
+// recordInLoopCall is recordCallMetrics without the recursion check, for a call
+// that shares the enclosing method's name and cannot be that method.
+func (w *phpWalker) recordInLoopCall(target string) {
+	if w.metrics == nil || target == "" {
+		return
+	}
 	if w.loopDepth == 0 {
 		return
 	}
@@ -549,6 +610,7 @@ func (w *phpWalker) recordCallMetrics(target string) {
 		if w.metrics.inScalingSeen == nil {
 			w.metrics.inScalingSeen = make(map[string]bool)
 		}
+		w.metrics.scalingCallDepth = noteCallDepth(w.metrics.scalingCallDepth, target, w.scalingDepth)
 		if !w.metrics.inScalingSeen[target] {
 			w.metrics.inScalingSeen[target] = true
 			w.metrics.callsInScalingLoop = append(w.metrics.callsInScalingLoop, target)
@@ -612,7 +674,11 @@ func phpSyntacticLoopClass(node *sitter.Node, src []byte) phpLoopClass {
 		if cond == nil {
 			return phpLoopInfinite // for (;;)
 		}
-		if phpConstantForCondition(cond, src) {
+		// Both ends have to be constant. `for (i = n - 1; i >= 0; i--)` compares against a
+		// literal and walks all n: the bound that scales is where it starts. The
+		// condition alone used to decide, which read every descending loop as a
+		// fixed-count one and dropped it, and the calls inside it, from the analysis.
+		if phpConstantForCondition(cond, src) && phpForStartsAtConstant(node, src) {
 			return phpLoopConstant
 		}
 	case "foreach_statement":
@@ -641,6 +707,27 @@ func phpForeachIterable(node *sitter.Node) *sitter.Node {
 // against an integer literal (`$i < 3`), so the loop runs a statically fixed number of
 // times. A data-derived bound (`$i < $n`, `$i < count($xs)`) is conservatively treated
 // as scaling — no genuine O(n) finding is deleted.
+// phpForStartsAtConstant reports whether a for statement initialises its counter to
+// an integer literal or an ALL_CAPS constant. No initialiser, or one computed from
+// anything else (`count($xs) - 1`), does not qualify.
+func phpForStartsAtConstant(node *sitter.Node, src []byte) bool {
+	init := node.ChildByFieldName("initialize")
+	if init == nil || kindOf(init) != "assignment_expression" {
+		return false
+	}
+	right := init.ChildByFieldName("right")
+	if right == nil {
+		return false
+	}
+	switch kindOf(right) {
+	case "integer":
+		return true
+	case "name":
+		return phpIsScreamingConst(phpText(right, src))
+	}
+	return false
+}
+
 func phpConstantForCondition(cond *sitter.Node, src []byte) bool {
 	if cond == nil || kindOf(cond) != "binary_expression" {
 		return false

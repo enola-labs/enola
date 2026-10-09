@@ -44,12 +44,20 @@ const (
 	propLoopCount          = "loop_count"
 	propCallsInLoop        = "calls_in_loop"
 	propCallsInScalingLoop = "calls_in_scaling_loop" // extractor: in-loop calls inside an unbounded loop
-	propCallsOnLoopElement = "calls_on_loop_element" // extractor: in-loop calls handed the loop's element
-	propLoopsOverParam     = "loops_over_param"      // extractor: a scaling loop walks a parameter/receiver
-	propRecursiveSelf      = "recursive_self"
-	propPerformsIO         = "performs_io"        // extractor: method transitively performs network/file I/O
-	propScalingLoopDepth   = "scaling_loop_depth" // extractor: loop nesting counting only unbounded loops
-	propAssociation        = "association"        // Rails association name on a dependency fact
+	// extractor: for each entry of calls_in_scaling_loop, in order, the deepest
+	// scaling nesting it is called at
+	propCallsInScalingLoopDepth = "calls_in_scaling_loop_depth"
+	propCallsOnLoopElement      = "calls_on_loop_element" // extractor: in-loop calls handed the loop's element
+	propLoopsOverParam          = "loops_over_param"      // extractor: a scaling loop walks a parameter/receiver
+	// extractor: for each entry of calls_on_loop_element, in order, the argument
+	// position that carries the element (-1 for the receiver)
+	propCallsOnLoopElementArg = "calls_on_loop_element_arg"
+	// extractor: the parameter positions a scaling loop walks (-1 for the receiver)
+	propLoopsOverParamIndex = "loops_over_param_index"
+	propRecursiveSelf       = "recursive_self"
+	propPerformsIO          = "performs_io"        // extractor: method transitively performs network/file I/O
+	propScalingLoopDepth    = "scaling_loop_depth" // extractor: loop nesting counting only unbounded loops
+	propAssociation         = "association"        // Rails association name on a dependency fact
 )
 
 // funcInfo is the per-function input to the pure analysis. It is populated from
@@ -88,15 +96,29 @@ type funcInfo struct {
 	// did not, scalingLoopCalls() falls back to CallsInLoop so behavior is unchanged.
 	CallsInScalingLoop  []string
 	HasScalingLoopCalls bool
+	// CallDepth is, per CallsInScalingLoop target, the deepest scaling nesting the
+	// call sits in. It is what a call-in-loop finding's exponent should be: the
+	// function's own scalingDepth() is its deepest nest ANYWHERE, including one
+	// that does not contain the call. nil when the extractor did not emit it, in
+	// which case callDepth falls back to that function-wide depth.
+	CallDepth map[string]int
 	// CallsOnLoopElement is the subset of in-loop calls handed an element of the
 	// caller's loop, and LoopsOverParam says this function's own loop walks something
 	// a caller passed it. Together they identify a call that CONTINUES the caller's
 	// traversal instead of starting one per element; see computeEffectiveDepths.
 	CallsOnLoopElement []string
 	LoopsOverParam     bool
-	Recursive          bool     // extractor flagged a direct self-call
-	PerformsIO         bool     // extractor flagged transitive network/file I/O
-	Calls              []string // all resolved call targets
+	// ElementArg is, per CallsOnLoopElement target, the argument position that
+	// carries the element, and LoopParams the parameter positions this function's
+	// scaling loops walk; -1 is the receiver on both sides. They sharpen the pair
+	// above from "passes an element" and "loops over a parameter" to "loops over
+	// THE parameter the element arrives in". Either is nil when its extractor does
+	// not report positions, and continuesWalk then falls back to the pair.
+	ElementArg map[string]int
+	LoopParams map[int]bool
+	Recursive  bool     // extractor flagged a direct self-call
+	PerformsIO bool     // extractor flagged transitive network/file I/O
+	Calls      []string // all resolved call targets
 	// BoundedFanout marks a bounded background-job/mailer fan-out (see isBoundedFanout).
 	// It is precomputed by markNonScaling rather than derived where it is needed, because
 	// computeEffectiveDepths (per-name) and effectiveDepthOf (per-fact) must never disagree
@@ -115,6 +137,35 @@ func (f funcInfo) scalingLoopCalls() []string {
 		return f.CallsInScalingLoop
 	}
 	return f.CallsInLoop
+}
+
+// continuesWalk reports whether callee g, called from f's loop, is finishing f's
+// traversal rather than starting one of its own per element: f hands it the loop's
+// element, and g loops over what it was handed. Such a call adds no depth.
+//
+// Where both sides report positions the two have to meet. `itemHasQuery(item,
+// words)` receives the element first and loops over `words`, a different
+// parameter and an independent size, so it multiplies. Without positions (the Go
+// extractor reports only the two booleans) the pair alone decides, as it did.
+func continuesWalk(f funcInfo, onElement bool, callee string, g funcInfo) bool {
+	if !onElement || !g.LoopsOverParam {
+		return false
+	}
+	pos, known := f.ElementArg[callee]
+	if !known || g.LoopParams == nil {
+		return true
+	}
+	return g.LoopParams[pos]
+}
+
+// callDepth returns the scaling loop depth at which this function calls target, and
+// whether the extractor recorded one. Without a record the function's deepest
+// scaling nest stands in, which is an upper bound.
+func (f funcInfo) callDepth(target string) (int, bool) {
+	if f.CallDepth == nil {
+		return f.scalingDepth(), false
+	}
+	return f.CallDepth[target], true
 }
 
 // scalingDepth returns the input-scaling loop nesting depth used for Big-O — the
@@ -143,9 +194,24 @@ type Finding struct {
 	// analyze() used to drop it, which forced the package= filter to match the symbol
 	// NAME instead. That works only where the name embeds the path (Kotlin/Swift/Go)
 	// and returns a silent, permanent zero on Ruby, whose names do not.
-	Package  string `json:"package,omitempty"`
-	Kind     string `json:"kind"`     // nested-loop | compounded | call-in-loop | recursion
-	BigO     string `json:"big_o"`    // estimated structural worst case
+	Package string `json:"package,omitempty"`
+	Kind    string `json:"kind"` // nested-loop | compounded | call-in-loop | recursion
+	// BigO is the estimated worst case, and is set only for the kinds that can
+	// state one: call-in-loop (how often the call is made) and recursion.
+	//
+	// nested-loop and compounded do NOT carry one. They carry Depth instead. A
+	// count of nested loops is a fact the parser can establish; the complexity it
+	// implies is not, because loops multiply only when each walks an independent
+	// collection. Three hand-read samples of what this analyzer reported (1,042
+	// findings over 14 repositories) found 8 of 181 such findings right as a
+	// complexity on the last of them, and 1 of 93 above O(n²): the nest was real
+	// and was a parent-then-children walk, a loop over a registry, or a callee
+	// continuing its caller's traversal. So the depth is reported as what it is.
+	BigO string `json:"big_o,omitempty"`
+	// Depth is the loop nesting depth of a nested-loop finding (within the
+	// function) or a compounded one (across the call graph), counting only loops
+	// that scale with some input. It is a structural count, not an exponent.
+	Depth    int    `json:"depth,omitempty"`
 	Severity string `json:"severity"` // high | medium | low
 	// Confidence in [0,1]: how much to trust this as a real risk vs. a structural
 	// over-estimate. Decays with the reported Big-O exponent (deep polynomials are
@@ -157,6 +223,23 @@ type Finding struct {
 	RiskScore float64  `json:"risk_score,omitempty"`
 	Why       string   `json:"why"`
 	Evidence  []string `json:"evidence,omitempty"`
+}
+
+// deepCompoundedDepth is the label a compounded finding carries from
+// deepEstimateDepth up: beyond three levels the exact count of a cross-call-graph
+// estimate is not worth stating.
+const deepCompoundedDepth = "depth 4+"
+
+// Label is what a finding shows where a Big-O used to be shown for every kind: the
+// Big-O where one is claimed, and "depth N" where the finding is a structural one.
+func (f Finding) Label() string {
+	if f.BigO != "" {
+		return f.BigO
+	}
+	if f.Kind == "compounded" && f.Depth >= deepEstimateDepth {
+		return deepCompoundedDepth
+	}
+	return fmt.Sprintf("depth %d", f.Depth)
 }
 
 // --- Prop readers (snapshot values decode as float64/[]any after JSONL round-trip) ---
@@ -192,6 +275,67 @@ func stringSliceProp(props map[string]any, key string) []string {
 		return out
 	}
 	return nil
+}
+
+// intsProp reads a prop holding a list of integers, in either the form an
+// extractor writes or the one a JSONL round trip leaves. ok is false when the prop
+// is absent or holds anything else.
+func intsProp(props map[string]any, key string) (out []int, ok bool) {
+	switch v := props[key].(type) {
+	case []int:
+		return v, true
+	case []any:
+		out = make([]int, 0, len(v))
+		for _, d := range v {
+			switch n := d.(type) {
+			case float64:
+				out = append(out, int(n))
+			case int:
+				out = append(out, n)
+			case int64:
+				out = append(out, int(n))
+			default:
+				return nil, false
+			}
+		}
+		return out, true
+	}
+	return nil, false
+}
+
+// alignedInts reads an integer-list prop that runs parallel to a list of call
+// targets, as a map from target to its value. nil when the prop is absent or does
+// not line up with the targets it describes, so a half-written fact degrades to
+// the caller's fallback instead of to a wrong answer.
+func alignedInts(props map[string]any, key string, targets []string) map[string]int {
+	vals, ok := intsProp(props, key)
+	if !ok || len(vals) != len(targets) {
+		return nil
+	}
+	out := make(map[string]int, len(targets))
+	for i, c := range targets {
+		out[c] = vals[i]
+	}
+	return out
+}
+
+// callDepthProp reads calls_in_scaling_loop_depth, a slice parallel to
+// calls_in_scaling_loop.
+func callDepthProp(props map[string]any, calls []string) map[string]int {
+	return alignedInts(props, propCallsInScalingLoopDepth, calls)
+}
+
+// intSetProp reads an integer-list prop as a set; nil when absent.
+func intSetProp(props map[string]any, key string) map[int]bool {
+	vals, ok := intsProp(props, key)
+	if !ok {
+		return nil
+	}
+	out := make(map[int]bool, len(vals))
+	for _, v := range vals {
+		out[v] = true
+	}
+	return out
 }
 
 // hasComplexityMetrics reports whether a symbol carries any of the per-body
@@ -299,10 +443,20 @@ func ignoreGlobs() []string {
 // structurally but not worth acting on with urgency: they are downranked to `low` so the
 // high/medium buckets stay dominated by production hot paths. Kept visible (not excluded)
 // so they remain filterable. `versions` pairs with `migrations` (Alembic's tree).
+//
+// Matched without regard to case: .NET names the directory `Migrations`, and the
+// lowercase-only test left every one of a media server's 56 migration findings
+// ranked as a production risk.
+//
+// `cli` is an operator-invoked command tree (`lib/<app>/cli`, `<pkg>/cli`), `docs`
+// a documentation site's own plugins and components, `.github` CI actions, and
+// `build-logic` a Gradle convention-plugin build. Each is here because hand-read
+// findings sat under it, ranked high or medium, in code that never serves a request.
 var coldPathSegments = map[string]bool{
 	"migrations": true, "versions": true, "alembic": true,
 	"dev": true, "scripts": true, "devel-common": true,
 	"benchmark": true, "benchmarks": true, "examples": true,
+	"cli": true, "docs": true, ".github": true, "build-logic": true,
 }
 
 // isColdPath reports whether a finding's location is one-shot / non-runtime code
@@ -312,16 +466,28 @@ var coldPathSegments = map[string]bool{
 // It used to take a `pkg` argument that the body never read, and that every call site
 // passed as "". Gone.
 func isColdPath(file string) bool {
-	for _, part := range strings.Split(file, "/") {
-		if coldPathSegments[part] {
+	parts := strings.Split(file, "/")
+	dirs := parts[:len(parts)-1] // a FILE called docs.go or cli.py is not a directory of them
+	for i, part := range dirs {
+		if coldPathSegments[strings.ToLower(part)] {
+			return true
+		}
+		// Rails keeps its migrations under db/, in more directories than one:
+		// db/migrate, db/post_migrate, and whatever a project archives old ones
+		// into (db/old_migrations). Anchored on db/ so that a production package
+		// with "migrate" in its name elsewhere is left alone.
+		if i > 0 && dirs[i-1] == "db" && strings.Contains(part, "migrat") {
+			return true
+		}
+		// lib/tasks is where Rails keeps its rake tasks.
+		if i > 0 && dirs[i-1] == "lib" && part == "tasks" {
 			return true
 		}
 	}
-	base := file
-	if i := strings.LastIndex(base, "/"); i >= 0 {
-		base = base[i+1:]
-	}
+	base := parts[len(parts)-1]
 	switch {
+	case strings.HasSuffix(base, ".rake"):
+		return true
 	case strings.HasSuffix(file, "/__main__.py") || base == "__main__.py":
 		return true
 	case base == "setup.py" || base == "conftest.py":
@@ -459,6 +625,8 @@ func collect(store *facts.Store) (funcs []funcInfo, storage, routeHandlers, asso
 		}
 		_, hasScaling := f.Prop(propScalingLoopDepth)
 		_, hasScalingCalls := f.Prop(propCallsInScalingLoop)
+		scalingCalls := stringSliceProp(f.Props, propCallsInScalingLoop)
+		onElementCalls := stringSliceProp(f.Props, propCallsOnLoopElement)
 		funcs = append(funcs, funcInfo{
 			Name:                f.Name,
 			File:                f.File,
@@ -473,10 +641,13 @@ func collect(store *facts.Store) (funcs []funcInfo, storage, routeHandlers, asso
 			LoopCount:           intProp(f.Props, propLoopCount),
 			Claimed:             claimedHas(claimed, f.Name),
 			CallsInLoop:         stringSliceProp(f.Props, propCallsInLoop),
-			CallsInScalingLoop:  stringSliceProp(f.Props, propCallsInScalingLoop),
+			CallsInScalingLoop:  scalingCalls,
+			CallDepth:           callDepthProp(f.Props, scalingCalls),
 			HasScalingLoopCalls: hasScalingCalls,
-			CallsOnLoopElement:  stringSliceProp(f.Props, propCallsOnLoopElement),
+			CallsOnLoopElement:  onElementCalls,
 			LoopsOverParam:      boolProp(f.Props, propLoopsOverParam),
+			ElementArg:          alignedInts(f.Props, propCallsOnLoopElementArg, onElementCalls),
+			LoopParams:          intSetProp(f.Props, propLoopsOverParamIndex),
 			Recursive:           boolProp(f.Props, propRecursiveSelf),
 			PerformsIO:          boolProp(f.Props, propPerformsIO),
 			Calls:               calls,
@@ -500,6 +671,17 @@ func bigOForDepth(d int) string {
 		return fmt.Sprintf("O(n^%d)", d)
 	}
 }
+
+// depthIsNotComplexity is the sentence every nested-loop and compounded finding
+// carries after its count. See Finding.BigO for why these two kinds state a depth
+// and not a Big-O.
+const depthIsNotComplexity = "That is a count of nested loops, not a complexity: they multiply only when each walks an independent collection. A walk from parents to their children, a loop over a fixed list, or a callee finishing its caller's traversal nests without multiplying. Check which loops here do."
+
+// structuralSeverity is the severity of a nested-loop or compounded finding at any
+// depth. It is a fact about the shape of the code and a lead worth a look, never
+// evidence of a cost by itself: `high` is for a finding that has evidence, which
+// here means a confirmed I/O call in a loop or a route handler.
+const structuralSeverity = "medium"
 
 // deepEstimateDepth is the nesting beyond which a cross-call-graph worst-case estimate
 // (compounded / call-in-loop, whose depth comes from effective nesting across the call
@@ -594,6 +776,131 @@ func isExpensiveCall(target string, storage, assoc map[string]bool) bool {
 		return true
 	}
 	return false
+}
+
+// --- Go-specific expensive-call detection ---
+//
+// Go used the generic gate unqualified, which matches every language's keywords
+// against every language's code. On Go that read `mergeBack` as SQLAlchemy's Session.merge and
+// `aggregateField` as a Prisma aggregate, and it has no notion of what part of
+// speech a keyword is in: `IsPullRequest` is a predicate, `NewAzureMonitorQuery` a
+// constructor, `ErrCancelledf` an error value, and none of them sends anything.
+
+// goForeignKeywords are the entries of expensiveMethods that name another
+// ecosystem's API and no Go one: SQLAlchemy's Session.merge, Prisma's aggregate,
+// ActiveRecord's where. The rest of the list stays in force for Go. Much of it is
+// another language's spelling of a verb Go code uses for the same thing (`load`,
+// `commit`, `flush`), and Go has no performs_io to fall back on, so a real
+// `loadJobTaskOutputs` is found by its name or not at all.
+//
+// The Prisma and TypeORM method names are here too. They are multi-word API names
+// chosen because nothing else is called that, which holds in TypeScript and not
+// across languages: `findFirst` whole-word-matches `findFirstIdentifier`, a helper
+// that walks a syntax tree, and being on the "unambiguous" list it was promoted
+// to confirmed I/O and ranked high.
+var goForeignKeywords = map[string]bool{
+	"merge": true, "aggregate": true, "where": true,
+	"findMany": true, "findFirst": true, "findUnique": true, "findOne": true,
+	"createMany": true, "updateMany": true, "deleteMany": true, "queryRaw": true, "executeRaw": true,
+}
+
+// goNonIOPrefixes open a name that states or builds something rather than doing it.
+//
+// `With` is deliberately absent. An option (`WithTimeout`) builds, but
+// `WithTransactionalDbSession(ctx, fn)` runs fn inside a transaction, and the two
+// cannot be told apart by name.
+var goNonIOPrefixes = []string{"Is", "Has", "New", "Err", "To", "As", "Can", "Should"}
+
+// goStatesOrBuilds reports whether a Go method name is a predicate, a constructor,
+// an error value or a conversion, by its leading word.
+func goStatesOrBuilds(method string) bool {
+	for _, p := range goNonIOPrefixes {
+		if len(method) <= len(p) {
+			continue
+		}
+		head := method[:len(p)]
+		if head != p && head != strings.ToLower(p) {
+			continue
+		}
+		// The prefix has to be a whole word: `Issue` is not `Is` + `sue`.
+		if next := method[len(p)]; isUpper(next) || next == '_' {
+			return true
+		}
+	}
+	return false
+}
+
+func isExpensiveGoCall(target string, storage map[string]bool, byName map[string]funcInfo) bool {
+	if storage[target] {
+		return true
+	}
+	method := methodSegment(target)
+	if goStatesOrBuilds(method) {
+		return false
+	}
+	for _, kw := range expensiveMethods {
+		if !goForeignKeywords[kw] && containsKeyword(method, kw) {
+			return true
+		}
+	}
+	return goIOPackage(target, byName)
+}
+
+// goIOPackage reports whether a Go call target sits in a package that is I/O by
+// what it is: `net/http`, `database/sql`, a `db` package, a package whose name
+// ends in `http`.
+//
+// One case is refused: a package of THIS repository named exactly `http`. That
+// name is the standard library's, and a project that reuses it is as likely naming
+// its subject as its transport. A linker that matches HTTP routes to their callers
+// lives in such a package, does no I/O, and had every loop that called a sibling
+// function reported as a confirmed network call per iteration. A wrapper package
+// (`lokihttp`, `errhttp`) and the in-repo `db` and `sql` layers keep matching:
+// there the name is the convention for code that does talk to the outside.
+func goIOPackage(target string, byName map[string]funcInfo) bool {
+	_, inRepo := byName[target]
+	ownHTTP := inRepo && goPackageName(target) == "http"
+	for _, kw := range expensivePrefixes {
+		if kw == "http." && ownHTTP {
+			continue
+		}
+		if strings.Contains(target, kw) {
+			return true
+		}
+	}
+	return false
+}
+
+// goPackageName returns the package a Go call target is in: `http` for
+// `internal/signals/http.Signal.Contribute`.
+func goPackageName(target string) string {
+	pkg := target
+	if i := strings.LastIndex(pkg, "/"); i >= 0 {
+		pkg = pkg[i+1:]
+	}
+	if i := strings.Index(pkg, "."); i >= 0 {
+		pkg = pkg[:i]
+	}
+	return pkg
+}
+
+// phpInMemory reports whether a PHP call target is in-memory work that the generic
+// keywords claim. `array_merge` and its family are the standard library's array
+// functions, matched by `merge`. `where…` is `where` from the ActiveRecord list: on
+// a Laravel or Flarum query builder it adds a clause to a query that something
+// else (`get`, `first`, `count`) later runs.
+func phpInMemory(target string) bool {
+	method := methodSegment(target)
+	if strings.HasPrefix(method, "array_") && !strings.ContainsAny(target, ".:>\\") {
+		return true
+	}
+	return method == "where" || (strings.HasPrefix(method, "where") && len(method) > 5 && isUpper(method[5]))
+}
+
+// csInMemoryMethods are .NET collection methods the generic verbs match: a
+// List<T>.InsertRange, a ConcurrentDictionary.AddOrUpdate, an index search.
+var csInMemoryMethods = map[string]bool{
+	"AddOrUpdate": true, "InsertRange": true, "FindIndex": true, "FindLastIndex": true,
 }
 
 // --- Swift-specific expensive-call detection ---
@@ -764,6 +1071,19 @@ var tsExpensiveMethods = []string{
 // matched against the FULL target (axios.get, http.request, prisma.$queryRaw).
 var tsExpensivePrefixes = []string{"axios", "http.", "https.", "db.", "sql.", "prisma."}
 
+// tsLifecycleNames are method names the short-name performs_io index must not
+// carry in TypeScript, the way jvmIONameDenylist guards `get` and `put` on the JVM.
+// One `init` that opens a socket puts `init` in the index, and every
+// `renderer.init()` and `calendar.init()` in a loop then reads as a per-iteration
+// network call. A resolved callee flagged performs_io is unaffected: only the
+// match by bare name is refused.
+//
+// Two names, each from a read finding. A rule general enough to need no list (admit
+// a name only when most functions bearing it do I/O) was tried and took real
+// `dao.save` and `client.delete` calls with it, because an interface declaration
+// and an in-memory namesake outnumber the one implementation that matters.
+var tsLifecycleNames = map[string]bool{"init": true, "setup": true}
+
 // isExpensiveTSCall reports whether a TypeScript/JavaScript in-loop call is
 // per-iteration I/O: a storage fact, a resolved callee the extractor flagged
 // performs_io, an HTTP/DB receiver, the global fetch, or a distinctive ORM query
@@ -774,7 +1094,8 @@ func isExpensiveTSCall(target string, storage map[string]bool, byName map[string
 	if storage[target] {
 		return true
 	}
-	if f, ok := byName[target]; ok && f.PerformsIO {
+	resolved, isResolved := byName[target]
+	if isResolved && resolved.PerformsIO {
 		return true
 	}
 	method := methodSegment(target)
@@ -782,15 +1103,22 @@ func isExpensiveTSCall(target string, storage map[string]bool, byName map[string
 	// in-loop call to a wrapper is recorded as a receiver-qualified metric string
 	// (`api.updateNotificationPreferencesChannels`) or a misresolved default-import
 	// edge, so the exact-name byName lookup above misses — the short-name index catches it.
-	if ioMethods[method] {
+	if ioMethods[method] && !tsLifecycleNames[method] {
 		return true
 	}
 	if method == "fetch" {
 		return true
 	}
-	for _, kw := range tsExpensiveMethods {
-		if containsKeyword(method, kw) {
-			return true
+	// The ORM method names are a guess about a callee nobody could see. One that
+	// resolved to a function in this repository is not a Prisma method for sharing
+	// its name: a local `aggregate(rows)` that sums an array read as a database
+	// aggregate. Only this test is skipped. performs_io is not complete enough to
+	// overrule the others, so they stand as they were.
+	if !isResolved {
+		for _, kw := range tsExpensiveMethods {
+			if containsKeyword(method, kw) {
+				return true
+			}
 		}
 	}
 	for _, kw := range tsExpensivePrefixes {
@@ -1213,10 +1541,34 @@ func markNonScaling(funcs []funcInfo, byName map[string]funcInfo, storage, assoc
 	}
 }
 
+// branchFree reports whether a function's body has no decision point at all: no
+// conditional, no loop, no early exit the extractor counts.
+//
+// Such a function cannot be recursive and return. A self-call with no branch
+// around it is reached on every call, so if it really named the function it would
+// never terminate; what it names instead is a different function that shares the
+// name. That is the whole of the forwarding idiom:
+//
+//	impl Listener for TcpListener {
+//	    fn local_addr(&self) -> Result<SocketAddr> { self.local_addr() }
+//	}
+//
+// which resolves to the inherent method, and with it a same-arity overload, an
+// extension's method wrapping the one it extends, and a call that differs only in
+// its return type. None of those can be told from a self-call by the call site,
+// in a language-specific way or at all without types. All of them are branch-free.
+//
+// A cyclomatic complexity of exactly 1 is the test. A value of 0 means the
+// extractor did not report one, which proves nothing and keeps the finding.
+func branchFree(f funcInfo) bool { return f.Cyclomatic == 1 }
+
 // computeEffectiveDepths estimates, per function, the worst-case loop nesting that
-// compounds across the call graph: effDepth(f) = loopDepth(f) + max over callees g
-// invoked inside f's loops of effDepth(g). Cycles (recursion) are cut by charging
-// only the node's own loop depth, so the DFS always terminates.
+// compounds across the call graph: effDepth(f) is the larger of f's own scaling
+// depth and, over the callees g invoked inside f's loops, the depth g is called at
+// plus effDepth(g). Without a per-call depth from the extractor the call is taken
+// to sit in f's deepest nest, which gives the old loopDepth(f) + effDepth(g).
+// Cycles (recursion) are cut by charging only the node's own loop depth, so the DFS
+// always terminates.
 //
 // Callers must run markNonScaling first: the non-scaling special cases are read from
 // funcInfo.BoundedFanout, not re-derived here, so this path and effectiveDepthOf agree.
@@ -1269,17 +1621,25 @@ func computeEffectiveDepths(funcs map[string]funcInfo) map[string]int {
 			// Both halves are required. Passing the element proves nothing on its own
 			// (the callee may loop over a global), and looping over a parameter proves
 			// nothing when the caller passes something else.
-			if onElement[callee] && g.LoopsOverParam {
+			if continuesWalk(f, onElement[callee], callee, g) {
 				continue
 			}
-			if d := dfs(callee); d > best {
+			// A callee multiplies with the loops AROUND ITS CALL, not with the
+			// function's deepest nest. Adding its depth to the latter charged a helper
+			// called once per row for a matrix the function builds further down.
+			at, _ := f.callDepth(callee)
+			if d := at + dfs(callee); d > best {
 				best = d
 			}
 		}
 		visiting[name] = false
-		// Compound on the scaling depth (bounded loops discounted), so a loop over a
-		// constant/literal set does not add a factor of n across the call graph.
-		res := f.scalingDepth() + best
+		// The function's own nesting stands when no call reaches deeper. Both sides
+		// are scaling depths (bounded loops discounted), so a loop over a constant or
+		// literal set adds no factor of n across the call graph.
+		res := f.scalingDepth()
+		if best > res {
+			res = best
+		}
 		memo[name] = res
 		return res
 	}
@@ -1339,14 +1699,20 @@ func effectiveDepthOf(f funcInfo, eff map[string]int, byName map[string]funcInfo
 		if callee == f.Name {
 			continue
 		}
-		if onElement[callee] && byName[callee].LoopsOverParam {
+		if continuesWalk(f, onElement[callee], callee, byName[callee]) {
 			continue // the callee is finishing this walk, not starting one per element
 		}
-		if d, ok := eff[callee]; ok && d > best {
-			best = d
+		if d, ok := eff[callee]; ok {
+			at, _ := f.callDepth(callee)
+			if at+d > best {
+				best = at + d
+			}
 		}
 	}
-	return f.scalingDepth() + best
+	if own := f.scalingDepth(); own > best {
+		return own
+	}
+	return best
 }
 
 // analyze is the pure analysis core: from the function list it produces a ranked
@@ -1388,7 +1754,7 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 	// negatives — rare in application code, far outweighed by the noise removed.
 	recursive := make(map[string]bool)
 	for _, f := range funcs {
-		if f.Recursive && !overloaded(f.Name) {
+		if f.Recursive && !overloaded(f.Name) && !branchFree(f) {
 			recursive[f.Name] = true
 		}
 	}
@@ -1431,49 +1797,37 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 		// finding nor inflates the exponent.
 		scaling := f.scalingDepth()
 		if scaling >= 2 && !eventLoop {
-			sev := "medium"
-			if scaling >= 3 {
-				sev = "high"
-			}
 			ev := []string{fmt.Sprintf("loop_depth=%d, loop_count=%d, cyclomatic=%d",
 				f.LoopDepth, f.LoopCount, f.Cyclomatic)}
-			why := fmt.Sprintf("Loops nest %d deep, so the body runs about %s in the loop bounds.",
-				scaling, bigOForDepth(scaling))
+			why := fmt.Sprintf("Loops nest %d deep. %s", scaling, depthIsNotComplexity)
 			if f.loopDiscounted() {
 				ev = append(ev, fmt.Sprintf("scaling_loop_depth=%d (bounded loops discounted)", scaling))
-				why += " (Some enclosing loops iterate bounded/constant ranges and are excluded.)"
+				why += " (Enclosing loops over bounded or constant ranges are already excluded.)"
 			}
 			findings = append(findings, Finding{
 				Symbol: f.Name, File: f.File, Line: f.Line, Repo: f.Repo, Package: f.Package,
-				Kind: "nested-loop", BigO: bigOForDepth(scaling), Severity: sev,
+				Kind: "nested-loop", Depth: scaling, Severity: structuralSeverity,
 				Confidence: confidenceFor("nested-loop", false, scaling, f.loopDiscounted()),
 				Why:        why,
 				Evidence:   ev,
 			})
 		}
 
-		// 2. Complexity that compounds across the call graph (beyond local nesting).
+		// 2. Nesting that continues across the call graph (beyond local nesting).
 		// Skip directly-recursive functions: the recursion finding below already covers
 		// them, and their self-edge does not represent independent nested iteration.
 		if effHere >= 2 && effHere > scaling && !recursive[f.Name] && !eventLoop {
-			sev := "medium"
-			if effHere >= 3 {
-				sev = "high"
-			}
-			bigO, deep := bigOEstimate(effHere)
-			why := fmt.Sprintf("Loops here call other looping functions; worst-case nesting compounds across the call graph to about %s.", bigO)
-			if deep {
-				// Beyond three levels the exact exponent of a cross-call-graph estimate is
-				// not trustworthy — present an honest bucket and step back to medium.
-				sev = "medium"
-				why = "Loops here call other looping functions; worst-case nesting compounds across the call graph to O(n³+) — a deep structural estimate, verify before acting."
+			levels := fmt.Sprintf("%d levels", effHere)
+			if effHere >= deepEstimateDepth {
+				levels = "four or more levels"
 			}
 			findings = append(findings, Finding{
 				Symbol: f.Name, File: f.File, Line: f.Line, Repo: f.Repo, Package: f.Package,
-				Kind: "compounded", BigO: bigO, Severity: sev,
+				Kind: "compounded", Depth: effHere, Severity: structuralSeverity,
 				Confidence: confidenceFor("compounded", false, effHere, f.loopDiscounted()),
-				Why:        why,
-				Evidence:   callsInLoopEvidence(f, byName),
+				Why: fmt.Sprintf("A loop here calls a function that itself loops: %s of nesting across the call graph. %s",
+					levels, depthIsNotComplexity),
+				Evidence: callsInLoopEvidence(f, byName),
 			})
 		}
 
@@ -1518,6 +1872,8 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 		ts := strings.HasSuffix(f.File, ".ts") || strings.HasSuffix(f.File, ".tsx") ||
 			strings.HasSuffix(f.File, ".js") || strings.HasSuffix(f.File, ".jsx") ||
 			strings.HasSuffix(f.File, ".vue") || strings.HasSuffix(f.File, ".svelte")
+		golang := strings.HasSuffix(f.File, ".go")
+		cs := strings.HasSuffix(f.File, ".cs")
 		dart := strings.HasSuffix(f.File, ".dart")
 		rust := strings.HasSuffix(f.File, ".rs")
 		rs := strings.HasSuffix(f.File, ".rs")
@@ -1530,6 +1886,9 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 		// unambiguous DB method / I/O receiver), as opposed to a name-only keyword guess.
 		// It is what promotes a call-in-loop to "high".
 		confirmedIO := false
+		// The deepest scaling loop any of the reported calls sits in, and whether
+		// every one of those depths came from the extractor.
+		callNesting, callNestingKnown := 0, true
 		for _, callee := range inLoopCalls {
 			var isExpensive bool
 			switch {
@@ -1605,7 +1964,21 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 				if resolved, ok := byName[callee]; ok && !resolved.PerformsIO && !storage[callee] {
 					nameMatch = false
 				}
+				if phpInMemory(callee) {
+					nameMatch = false
+				}
 				isExpensive = isConfirmedIOCall(callee, storage, byName, ioMethods) || nameMatch
+			case cs:
+				// C#: the generic gate, minus the collection methods that own several
+				// of its verbs. Not PHP's "a callee resolving to a method that does no
+				// I/O is not an N+1": C# performs_io stops at an injected interface, so
+				// `DeleteEpisode`, whose body is `_libraryManager.DeleteItem(…)`,
+				// carries no flag, and trusting that removed it.
+				isExpensive = isExpensiveCall(callee, storage, assoc) && !csInMemoryMethods[methodSegment(callee)]
+			case golang:
+				// Go: the generic verbs minus other ecosystems' API names, and a
+				// predicate or constructor is not I/O. See isExpensiveGoCall.
+				isExpensive = isExpensiveGoCall(callee, storage, byName)
 			default:
 				// nolint:staticcheck // QF1001 wants De Morgan's law applied here.
 				// "expensive, and NOT a Ruby in-memory call" is the rule as anyone
@@ -1616,7 +1989,15 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 			if !isExpensive {
 				continue
 			}
-			if isConfirmedIOCall(callee, storage, byName, ioMethods) {
+			// What confirms a call as I/O is language-specific for Go: a storage
+			// fact or an I/O package. The shared test also accepts the ORM method
+			// names and the short-name performs_io index, neither of which says
+			// anything about Go code.
+			confirmed := isConfirmedIOCall(callee, storage, byName, ioMethods)
+			if golang {
+				confirmed = storage[callee] || goIOPackage(callee, byName)
+			}
+			if confirmed {
 				confirmedIO = true
 			}
 			if assoc[methodSegment(callee)] && !storage[callee] {
@@ -1627,6 +2008,11 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 				expensive = append(expensive, callee)
 			}
 			evidence = append(evidence, "call_in_loop="+callee)
+			d, known := f.callDepth(callee)
+			if d > callNesting {
+				callNesting = d
+			}
+			callNestingKnown = callNestingKnown && known
 		}
 		// f.Claimed says the query-loops explainer already reports a query per
 		// iteration against this symbol, from the receiver's type rather than from a
@@ -1644,7 +2030,19 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 			if routeHandlers[f.Name] || confirmedIO {
 				sev = "high"
 			}
-			depth := effHere
+			// The exponent is the nesting of the loops AROUND THE CALL. A
+			// call-in-loop finding says how often the call is made, and nothing else
+			// decides that: not what the callee does per call (the `compounded`
+			// finding's subject, reported beside this one when it applies), and not a
+			// deeper nest elsewhere in the function that the call is not inside.
+			// Both were once folded in. The first printed O(n³) on a single loop over
+			// rows whose callee looped twice; the second printed O(n²) for one query
+			// per row because the function also built a matrix further down. None of
+			// 215 hand-read call-in-loop findings above O(n) was right.
+			//
+			// Extractors that do not report a per-call depth leave callNesting at the
+			// function's deepest nest, which is an upper bound.
+			depth := callNesting
 			if depth < 1 {
 				depth = 1
 			}
@@ -1726,6 +2124,19 @@ func minConfidence(a, b float64) float64 {
 	return a
 }
 
+// findingWeight is the cost weight of a finding for the risk score: its Big-O's
+// weight where it has one, and otherwise its depth on the same scale, so that
+// stating a depth where an exponent used to be printed did not reorder anything.
+func findingWeight(f Finding) float64 {
+	if f.BigO != "" {
+		return complexityWeight(f.BigO)
+	}
+	if f.Kind == "compounded" && f.Depth >= deepEstimateDepth {
+		return 4
+	}
+	return float64(f.Depth)
+}
+
 // complexityWeight maps a Big-O label to a numeric cost weight for the risk score. Unlike
 // bigORank (which sorts the recursive buckets last at 1000), this keeps recursion at a
 // moderate weight so it does not dominate the ranking.
@@ -1755,7 +2166,7 @@ func complexityWeight(bigO string) float64 {
 // for a known request hot path (an HTTP route handler — the one hot path we can identify
 // precisely; the scheduler is not tagged, so it ranks on cost × confidence alone).
 func riskScore(f Finding, routeHandlers map[string]bool) float64 {
-	s := complexityWeight(f.BigO) * f.Confidence
+	s := findingWeight(f) * f.Confidence
 	if routeHandlers[f.Symbol] {
 		s *= 1.3
 	}
@@ -1866,7 +2277,10 @@ type summary struct {
 	FunctionsAnalyzed int            `json:"functions_analyzed"`
 	TotalFindings     int            `json:"total_findings"`
 	BySeverity        map[string]int `json:"by_severity"`
-	ByBigO            map[string]int `json:"by_big_o"`
+	// ByBigO counts the findings that state a Big-O (call-in-loop, recursion);
+	// ByDepth the structural ones (nested-loop, compounded), by their depth label.
+	ByBigO  map[string]int `json:"by_big_o"`
+	ByDepth map[string]int `json:"by_depth,omitempty"`
 	// RepoWideFindings is the unfiltered total, carried so a filtered result can
 	// state the population it was drawn from. It is the ONLY unfiltered number here,
 	// and it is named so it cannot be mistaken for the others.
@@ -1880,10 +2294,12 @@ type response struct {
 	Note     string    `json:"note"`
 }
 
-const toolDescription = "Estimated Big-O and ranked performance risks per function: nested loops, nesting compounded across the call graph, " +
-	"I/O or database calls inside loops (a likely N+1), and recursion. Each finding has symbol (file:line), kind, big_o (the " +
-	"structural worst case), severity (high, medium, low) and a plain-English why. Parser-derived from loop nesting depth, " +
-	"cyclomatic complexity and call-in-loop targets: a deterministic worst-case estimate, not a proof. " +
+const toolDescription = "Ranked performance risks per function: I/O or database calls inside loops (a likely N+1), recursion, " +
+	"nested loops, and nesting that continues across the call graph. Each finding has symbol (file:line), kind, severity " +
+	"(high, medium, low) and a plain-English why. A call-in-loop or recursion finding has big_o, the estimated worst case. " +
+	"A nested-loop or compounded finding has depth instead: a count of nested loops, which is a fact about the code's shape " +
+	"and NOT a complexity, since nested loops multiply only when each walks an independent collection. Parser-derived and " +
+	"deterministic: an estimate, not a proof. " +
 	"Supports Go, Python, Ruby, Swift, Kotlin, Scala, Dart, TypeScript, Java, C++ and C#. " +
 	"Findings of medium severity and up also appear in query_insights(explainer=\"performance\")."
 
@@ -1933,8 +2349,8 @@ func Register(srv *mcp.Server, store func() *facts.Store) {
 				Findings: shown,
 				Summary:  sum,
 				Returned: len(shown),
-				Note: "Big-O values are deterministic estimates of structural worst case derived from parser facts " +
-					"(loop nesting, call graph), not formal proofs. Supports Go, Python, Ruby, Swift, Kotlin, Scala, Dart, TypeScript, Java, C++, and C#. " +
+				Note: "big_o (call-in-loop, recursion) is a deterministic estimate of worst case from parser facts, not a proof. " +
+					"depth (nested-loop, compounded) is a count of nested loops and NOT a complexity: nested loops multiply only when each walks an independent collection. Supports Go, Python, Ruby, Swift, Kotlin, Scala, Dart, TypeScript, Java, C++, and C#. " +
 					"SCALA: a `for … yield` comprehension and flatMap/fold are monadic binds as often as iteration, so they raise loop_depth but NOT scaling depth — a finding over one is downgraded rather than claimed; a combinator applied to an Option is discounted the same way. " +
 					strings.ReplaceAll(strings.TrimSpace(kindLegend(shown)), "\n", " "),
 			}, in.MaxTokens)
@@ -1950,10 +2366,10 @@ func Register(srv *mcp.Server, store func() *facts.Store) {
 
 // kindMeanings define the finding kinds, for the legend a response carries.
 var kindMeanings = []struct{ kind, meaning string }{
-	{"nested-loop", "loops nested inside one function"},
-	{"compounded", "nesting that grows across the call graph, as a looping function calls another looping function"},
+	{"nested-loop", "loops nested inside one function; the depth is a count, not a complexity"},
+	{"compounded", "nesting that continues across the call graph, as a loop calls a function that loops; a count, not a complexity"},
 	{"call-in-loop", "an I/O, database or network call inside a loop, a likely N+1"},
-	{"recursion", "a direct or mutually recursive cycle"},
+	{"recursion", "a function that calls itself"},
 }
 
 // kindLegend defines the kinds that occur in findings, one line each, or "" for none.
@@ -1996,10 +2412,15 @@ func summarize(population, findings []Finding) summary {
 		FunctionsAnalyzed: countFunctions(findings),
 		BySeverity:        map[string]int{},
 		ByBigO:            map[string]int{},
+		ByDepth:           map[string]int{},
 	}
 	for _, f := range findings {
 		sum.BySeverity[f.Severity]++
-		sum.ByBigO[f.BigO]++
+		if f.BigO != "" {
+			sum.ByBigO[f.BigO]++
+		} else {
+			sum.ByDepth[f.Label()]++
+		}
 	}
 	return sum
 }
@@ -2049,7 +2470,7 @@ func renderPerfSummary(sum summary, findings []Finding, in args) string {
 			if f.File != "" {
 				loc = fmt.Sprintf("%s (%s:%d)", f.Symbol, f.File, f.Line)
 			}
-			fmt.Fprintf(&b, "  [%s] %s %s — %s\n", f.Severity, f.BigO, loc, f.Kind)
+			fmt.Fprintf(&b, "  [%s] %s %s — %s\n", f.Severity, f.Label(), loc, f.Kind)
 		}
 	}
 	return b.String()
@@ -2059,14 +2480,14 @@ func renderPerfSummary(sum summary, findings []Finding, in args) string {
 func renderPerfCompact(findings []Finding) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Performance findings — %d:\n\n", len(findings))
-	b.WriteString("| Severity | Risk | Big-O | Kind | Symbol | Location |\n")
-	b.WriteString("|----------|------|-------|------|--------|----------|\n")
+	b.WriteString("| Severity | Risk | Estimate | Kind | Symbol | Location |\n")
+	b.WriteString("|----------|------|----------|------|--------|----------|\n")
 	for _, f := range findings {
 		loc := f.File
 		if f.Line > 0 {
 			loc = fmt.Sprintf("%s:%d", f.File, f.Line)
 		}
-		fmt.Fprintf(&b, "| %s | %.2f | %s | %s | %s | %s |\n", f.Severity, f.RiskScore, f.BigO, f.Kind, f.Symbol, loc)
+		fmt.Fprintf(&b, "| %s | %.2f | %s | %s | %s | %s |\n", f.Severity, f.RiskScore, f.Label(), f.Kind, f.Symbol, loc)
 	}
 	return b.String()
 }
@@ -2142,6 +2563,10 @@ type Summary struct {
 	// buckets already dropped.
 	ByKind       []Bucket
 	ByComplexity []Bucket
+	// ByDepth is the structural findings (nested-loop, compounded) by nesting
+	// depth, shallowest first. They state no complexity, so they are not in
+	// ByComplexity.
+	ByDepth []Bucket
 	// Top is the worst findings, already ranked by analyze().
 	Top []Finding
 }
@@ -2165,6 +2590,7 @@ func Summarize(store *facts.Store) Summary {
 	s := Summary{FunctionsAnalyzed: len(funcs), Total: len(findings)}
 	byKind := map[string]int{}
 	byBigO := map[string]int{}
+	byDepth := map[string]int{}
 	var recursive int
 	for _, f := range findings {
 		switch f.Severity {
@@ -2178,9 +2604,12 @@ func Summarize(store *facts.Store) Summary {
 		byKind[f.Kind]++
 		// The two "O(?)" buckets both mean "recursion, so no exponent"; collapsing
 		// them keeps the distribution readable.
-		if bigORank(f.BigO) >= 1000 {
+		switch {
+		case f.BigO == "":
+			byDepth[f.Label()]++
+		case bigORank(f.BigO) >= 1000:
 			recursive++
-		} else {
+		default:
 			byBigO[f.BigO]++
 		}
 	}
@@ -2201,6 +2630,24 @@ func Summarize(store *facts.Store) Summary {
 	}
 	if recursive > 0 {
 		s.ByComplexity = append(s.ByComplexity, Bucket{Label: "recursive", Count: recursive})
+	}
+	// "depth 2" < "depth 3" < … < "depth 4+" < "depth 5": ordered by the number,
+	// with the open-ended compounded bucket after its own exact value.
+	depths := make([]string, 0, len(byDepth))
+	for d := range byDepth {
+		depths = append(depths, d)
+	}
+	sort.Slice(depths, func(i, j int) bool {
+		var a, b int
+		_, _ = fmt.Sscanf(depths[i], "depth %d", &a)
+		_, _ = fmt.Sscanf(depths[j], "depth %d", &b)
+		if a != b {
+			return a < b
+		}
+		return depths[i] < depths[j]
+	})
+	for _, d := range depths {
+		s.ByDepth = append(s.ByDepth, Bucket{Label: d, Count: byDepth[d]})
 	}
 
 	if len(findings) > summaryTopN {

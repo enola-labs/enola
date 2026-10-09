@@ -86,8 +86,10 @@ type astWalker struct {
 	// an N+1 candidate.
 	scalingDepth int
 	repeatDepth  int
-	selfName     string
-	selfShort    string
+	// loopScopes are the enclosing loops' variables, for the rule in hierarchy.go.
+	loopScopes []javaLoopScope
+	selfName   string
+	selfShort  string
 	// selfParams is the enclosing method's declared parameter count. A resolved
 	// self-call is only genuine recursion when its argument count matches — otherwise
 	// it is a call to a same-named overload, not recursion.
@@ -105,6 +107,7 @@ type javaBodyMetrics struct {
 	scalingLoopDepth   int             // max nesting counting only unbounded (input-scaling) loops
 	callsInScalingLoop []string        // distinct targets invoked inside a repeating loop (N+1 candidates)
 	inScalingSeen      map[string]bool // dedup set for callsInScalingLoop
+	scalingCallDepth   map[string]int  // deepest scaling nesting each of those is called at (calldepth.go)
 	recursive          bool            // body directly calls the enclosing method
 	sawSuperSelf       bool            // body calls super.<enclosingName>() (override delegation)
 }
@@ -112,12 +115,16 @@ type javaBodyMetrics struct {
 // javaIterators are Stream/Collection methods whose lambda argument runs once per
 // element — i.e. a loop. A lambda passed to a method NOT in this set (Runnable,
 // Comparator, a listener, a Supplier) is deferred and not treated as a loop.
+//
+// Map.computeIfAbsent is not in it. Its lambda runs at most once, for the one key
+// it was given, and counting it turned every "group these into a map" loop into a
+// nest one level deeper than it is.
 var javaIterators = map[string]bool{
 	"forEach": true, "forEachOrdered": true, "map": true, "mapToInt": true,
 	"mapToLong": true, "mapToDouble": true, "mapToObj": true, "flatMap": true,
 	"filter": true, "reduce": true, "collect": true, "anyMatch": true,
 	"allMatch": true, "noneMatch": true, "peek": true, "sorted": true,
-	"removeIf": true, "replaceAll": true, "computeIfAbsent": true, "takeWhile": true,
+	"removeIf": true, "replaceAll": true, "takeWhile": true,
 	"dropWhile": true,
 }
 
@@ -203,6 +210,7 @@ func (w *astWalker) recordInLoop(target string) {
 		if w.metrics.inScalingSeen == nil {
 			w.metrics.inScalingSeen = make(map[string]bool)
 		}
+		w.metrics.scalingCallDepth = noteCallDepth(w.metrics.scalingCallDepth, target, w.scalingDepth)
 		if !w.metrics.inScalingSeen[target] {
 			w.metrics.inScalingSeen[target] = true
 			w.metrics.callsInScalingLoop = append(w.metrics.callsInScalingLoop, target)
@@ -243,7 +251,10 @@ func javaSyntacticLoopClass(node *sitter.Node, src []byte) javaLoopClass {
 		if cond == nil {
 			return javaLoopInfinite
 		}
-		if javaConstantForCondition(cond) {
+		// Both ends have to be constant: `for (int i = n - 1; i >= 0; i--)` compares
+		// against a literal and still walks all n. The condition alone was once
+		// enough, which read every descending loop as constant.
+		if javaConstantForCondition(cond, src) && javaForStartsAtConstant(node, src) {
 			return javaLoopConstant
 		}
 	case "enhanced_for_statement":
@@ -265,20 +276,66 @@ func javaSyntacticLoopClass(node *sitter.Node, src []byte) javaLoopClass {
 // fixed number of times. A data-derived bound (`i < n`, `i < xs.size()`) or a compound
 // condition (`i < 3 && ok`) is conservatively treated as scaling — so no genuine O(n)
 // finding is ever deleted, only a clearly-constant one discounted.
-func javaConstantForCondition(cond *sitter.Node) bool {
+func javaConstantForCondition(cond *sitter.Node, src []byte) bool {
 	if cond == nil || kindOf(cond) != "binary_expression" {
 		return false
 	}
-	hasCmp, hasLiteral := false, false
+	hasCmp, hasConst := false, false
 	for i := uint(0); i < uint(cond.ChildCount()); i++ {
-		switch kindOf(cond.Child(i)) {
+		switch c := cond.Child(i); kindOf(c) {
 		case "<", "<=", ">", ">=", "!=":
 			hasCmp = true
 		case "decimal_integer_literal", "hex_integer_literal", "octal_integer_literal", "binary_integer_literal":
-			hasLiteral = true
+			hasConst = true
+		case "identifier":
+			// `i < MAX_ATTEMPTS`: a static final by its name.
+			hasConst = hasConst || javaIsScreamingConst(nodeText(c, src))
+		case "field_access":
+			// `i < Limits.MAX_ATTEMPTS`
+			if f := c.ChildByFieldName("field"); f != nil {
+				hasConst = hasConst || javaIsScreamingConst(nodeText(f, src))
+			}
 		}
 	}
-	return hasCmp && hasLiteral
+	return hasCmp && hasConst
+}
+
+// javaForStartsAtConstant reports whether a three-clause for initialises its
+// counter to an integer literal or a named constant. A loop with no initialiser,
+// or one starting from anything computed, does not qualify.
+func javaForStartsAtConstant(node *sitter.Node, src []byte) bool {
+	init := node.ChildByFieldName("init")
+	if init == nil {
+		return false
+	}
+	var value *sitter.Node
+	switch kindOf(init) {
+	case "local_variable_declaration":
+		for i := uint(0); i < uint(init.NamedChildCount()); i++ {
+			if d := init.NamedChild(i); kindOf(d) == "variable_declarator" {
+				if value != nil {
+					return false // two counters: not the simple form
+				}
+				value = d.ChildByFieldName("value")
+			}
+		}
+	case "assignment_expression":
+		value = init.ChildByFieldName("right")
+	}
+	if value == nil {
+		return false
+	}
+	switch kindOf(value) {
+	case "decimal_integer_literal", "hex_integer_literal", "octal_integer_literal", "binary_integer_literal":
+		return true
+	case "identifier":
+		return javaIsScreamingConst(nodeText(value, src))
+	case "field_access":
+		if f := value.ChildByFieldName("field"); f != nil {
+			return javaIsScreamingConst(nodeText(f, src))
+		}
+	}
+	return false
 }
 
 // javaConstantIterable reports whether a for-each iterates a compile-time-fixed number
@@ -315,9 +372,23 @@ func javaConstantIterable(value *sitter.Node, src []byte) bool {
 			return obj == "List" || obj == "Set" || obj == "Map"
 		case "asList":
 			return obj == "Arrays"
+		case "values":
+			// `Scope.values()`: the constants of an enum. The receiver has to be a
+			// type name and the call argument-less; `map.values()` is neither.
+			args := value.ChildByFieldName("arguments")
+			return javaTypeName(obj) && (args == nil || args.NamedChildCount() == 0)
 		}
 	}
 	return false
+}
+
+// javaTypeName reports whether s is an UpperCamelCase simple name: an initial
+// capital, no dots, and at least one lower-case letter (which a constant has not).
+func javaTypeName(s string) bool {
+	if s == "" || s[0] < 'A' || s[0] > 'Z' || strings.Contains(s, ".") {
+		return false
+	}
+	return strings.ContainsAny(s, "abcdefghijklmnopqrstuvwxyz")
 }
 
 // javaIsScreamingConst reports whether an identifier is SCREAMING_SNAKE_CASE — a
@@ -761,6 +832,9 @@ func (w *astWalker) handleMethod(node *sitter.Node) {
 	savedScaling, savedRepeat := w.scalingDepth, w.repeatDepth
 	savedName, savedShort := w.selfName, w.selfShort
 	savedParams := w.selfParams
+	savedScopes := w.loopScopes
+	w.loopScopes = nil
+	defer func() { w.loopScopes = savedScopes }()
 	w.metrics = &javaBodyMetrics{}
 	w.loopDepth = 0
 	w.scalingDepth = 0
@@ -793,6 +867,7 @@ func (w *astWalker) handleMethod(node *sitter.Node) {
 			m.callsInScalingLoop = []string{}
 		}
 		props["calls_in_scaling_loop"] = m.callsInScalingLoop
+		props["calls_in_scaling_loop_depth"] = callDepths(m.callsInScalingLoop, m.scalingCallDepth)
 	}
 	// A body that calls super.<self>() is an override delegating to a same-named
 	// overload, not genuine recursion — clear the arity-matched self-call flag.
@@ -966,8 +1041,21 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 	// the enclosing loops — so reset the loop depth for its subtree (e.g. a Runnable
 	// or listener defined inside a loop). A stream iterator's OWN lambda is handled
 	// in the method_invocation branch (its body walks at +1).
+	// A local initialised from the current element is still the current element:
+	// `List<Schema> parts = schema.getAllOf();` puts `parts` one step from it.
+	if kind == "variable_declarator" && len(w.loopScopes) > 0 {
+		if javaReachedThroughElement(node.ChildByFieldName("value"), w.src, w.loopScopes) {
+			if name := node.ChildByFieldName("name"); name != nil && kindOf(name) == "identifier" {
+				w.loopScopes[len(w.loopScopes)-1].add(nodeText(name, w.src))
+			}
+		}
+	}
+
 	if w.metrics != nil && kind == "lambda_expression" {
 		saved, savedScaling, savedRepeat := w.loopDepth, w.scalingDepth, w.repeatDepth
+		savedScopes := w.loopScopes
+		w.loopScopes = nil
+		defer func() { w.loopScopes = savedScopes }()
 		w.loopDepth, w.scalingDepth, w.repeatDepth = 0, 0, 0
 		for i := uint(0); i < uint(node.ChildCount()); i++ {
 			w.walkForCalls(node.Child(i))
@@ -1007,6 +1095,20 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 		// loop raises loop_depth but not scaling_loop_depth (the Big-O exponent); an
 		// infinite loop is discounted from the exponent but still repeats.
 		class := javaSyntacticLoopClass(node, w.src)
+		scope := javaLoopScope{amortizes: class.repeats()}
+		if kind == "enhanced_for_statement" {
+			// A loop over what belongs to an enclosing loop's element repeats
+			// without scaling (hierarchy.go).
+			if class.scales() && javaReachedThroughElement(node.ChildByFieldName("value"), w.src, w.loopScopes) {
+				class = javaLoopInfinite
+			}
+			scope.amortizes = class.repeats()
+			if name := node.ChildByFieldName("name"); name != nil {
+				scope.add(nodeText(name, w.src))
+			}
+		}
+		w.loopScopes = append(w.loopScopes, scope)
+		defer func() { w.loopScopes = w.loopScopes[:len(w.loopScopes)-1] }()
 		if w.metrics != nil {
 			w.metrics.loopCount++
 			w.metrics.decisions++
@@ -1017,6 +1119,19 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 				w.metrics.scalingLoopDepth = w.scalingDepth + 1
 			}
 		}
+		// What the loop draws from is evaluated once, before the first iteration:
+		// the collection of a for-each, the initializer of a for. Walking it with
+		// the body read `for (Schema s : schema.getAllOf())` as a call per element.
+		var once *sitter.Node
+		switch kind {
+		case "enhanced_for_statement":
+			once = node.ChildByFieldName("value")
+		case "for_statement":
+			once = node.ChildByFieldName("init")
+		}
+		if once != nil {
+			w.walkForCalls(once)
+		}
 		w.loopDepth++
 		if class.scales() {
 			w.scalingDepth++
@@ -1025,7 +1140,9 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 			w.repeatDepth++
 		}
 		for i := uint(0); i < uint(node.ChildCount()); i++ {
-			w.walkForCalls(node.Child(i))
+			if c := node.Child(i); once == nil || c.StartByte() != once.StartByte() || c.EndByte() != once.EndByte() {
+				w.walkForCalls(c)
+			}
 		}
 		w.loopDepth--
 		if class.scales() {

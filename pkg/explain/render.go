@@ -199,6 +199,9 @@ func (r *Report) Render() string {
 		if line := bucketLine(p.ByComplexity); line != "" {
 			fmt.Fprintf(&b, "  %-24s %s\n", "by complexity", line)
 		}
+		if line := bucketLine(p.ByDepth); line != "" {
+			fmt.Fprintf(&b, "  %-24s %s\n", "by nesting", line)
+		}
 		if len(p.Top) > 0 {
 			b.WriteString("  top findings:\n")
 			for _, f := range p.Top {
@@ -206,7 +209,7 @@ func (r *Report) Render() string {
 				if f.File != "" {
 					loc = fmt.Sprintf("%s (%s:%d)", f.Symbol, f.File, f.Line)
 				}
-				fmt.Fprintf(&b, "    [%s] %s %s — %s\n", f.Severity, f.BigO, loc, f.Kind)
+				fmt.Fprintf(&b, "    [%s] %s %s — %s\n", f.Severity, f.Label(), loc, f.Kind)
 			}
 			if p.Total > len(p.Top) {
 				fmt.Fprintf(&b, "  %d more — analyze_performance filters by package and severity.\n", p.Total-len(p.Top))

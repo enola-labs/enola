@@ -133,6 +133,8 @@ type astWalker struct {
 	// saved/zeroed/restored around each function body alongside `decisions`.
 	loopDepth    int // syntactic loop nesting (for/while/loop)
 	scalingDepth int // nesting of loops with a data-dependent (non-constant) trip count
+	// loopScopes are the enclosing loops' variables, for the rule in hierarchy.go.
+	loopScopes []rustLoopScope
 
 	fnMaxLoop        int             // peak loopDepth seen in the current function
 	fnMaxScaling     int             // peak scalingDepth seen in the current function
@@ -141,9 +143,12 @@ type astWalker struct {
 	fnCallsInScaling []string        // resolved callees invoked at repeatDepth > 0 (scaling subset)
 	fnInLoopSeen     map[string]bool // dedup set for fnCallsInLoop
 	fnInScalingSeen  map[string]bool // dedup set for fnCallsInScaling
-	fnIODirect       bool            // the current function makes a direct I/O call
-	fnRecursive      bool            // the current function calls itself
-	fnSelfName       string          // canonical name of the current function (for recursion)
+	// fnScalingCallDepth is the deepest scaling nesting each of those is called at
+	// (calldepth.go).
+	fnScalingCallDepth map[string]int
+	fnIODirect         bool   // the current function makes a direct I/O call
+	fnRecursive        bool   // the current function calls itself
+	fnSelfName         string // canonical name of the current function (for recursion)
 
 	// importMap maps a `use`-imported simple name to its canonical symbol fact
 	// name (e.g. "run" -> "src/helper.run") when the import resolved to a known
@@ -652,7 +657,11 @@ func (w *astWalker) handleFunction(node *sitter.Node, attrs rustItemAttrs) {
 	savedMaxLoop, savedMaxScaling, savedLoopCount := w.fnMaxLoop, w.fnMaxScaling, w.fnLoopCount
 	savedCIL, savedCIS := w.fnCallsInLoop, w.fnCallsInScaling
 	savedILSeen, savedISSeen := w.fnInLoopSeen, w.fnInScalingSeen
+	savedCallDepth := w.fnScalingCallDepth
+	w.fnScalingCallDepth = nil
 	savedIO, savedRec, savedSelf := w.fnIODirect, w.fnRecursive, w.fnSelfName
+	savedScopes := w.loopScopes
+	w.loopScopes = nil
 	w.decisions = 0
 	w.loopDepth, w.scalingDepth = 0, 0
 	w.fnMaxLoop, w.fnMaxScaling, w.fnLoopCount = 0, 0, 0
@@ -685,6 +694,7 @@ func (w *astWalker) handleFunction(node *sitter.Node, attrs rustItemAttrs) {
 		w.out[ownerIdx].SetProp("scaling_loop_depth", w.fnMaxScaling)
 		w.out[ownerIdx].SetProp("calls_in_loop", nonNilStrings(w.fnCallsInLoop))
 		w.out[ownerIdx].SetProp("calls_in_scaling_loop", nonNilStrings(w.fnCallsInScaling))
+		w.out[ownerIdx].SetProp("calls_in_scaling_loop_depth", callDepths(w.fnCallsInScaling, w.fnScalingCallDepth))
 	}
 	if w.fnRecursive {
 		w.out[ownerIdx].SetProp("recursive_self", true)
@@ -698,7 +708,9 @@ func (w *astWalker) handleFunction(node *sitter.Node, attrs rustItemAttrs) {
 	w.fnMaxLoop, w.fnMaxScaling, w.fnLoopCount = savedMaxLoop, savedMaxScaling, savedLoopCount
 	w.fnCallsInLoop, w.fnCallsInScaling = savedCIL, savedCIS
 	w.fnInLoopSeen, w.fnInScalingSeen = savedILSeen, savedISSeen
+	w.fnScalingCallDepth = savedCallDepth
 	w.fnIODirect, w.fnRecursive, w.fnSelfName = savedIO, savedRec, savedSelf
+	w.loopScopes = savedScopes
 
 	w.popOwner()
 }
@@ -982,6 +994,12 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 		return
 	}
 	switch kindOf(node) {
+	case "let_declaration":
+		// A local bound from the current element is still the current element:
+		// `let frames = trace.frames();` puts `frames` one step from `trace`.
+		if len(w.loopScopes) > 0 && rustReachedThroughElement(node.ChildByFieldName("value"), w.src, w.loopScopes) {
+			rustBindPattern(node.ChildByFieldName("pattern"), w.src, &w.loopScopes[len(w.loopScopes)-1])
+		}
 	case "if_expression", "match_arm", "try_expression":
 		w.decisions++
 	case "while_expression", "for_expression", "loop_expression":
@@ -1037,6 +1055,15 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 // no data-dependent Big-O factor, so an in-loop call is not counted as N+1.
 func (w *astWalker) walkLoop(node *sitter.Node) {
 	bounded := w.rustLoopBounded(node)
+	// The scope is built before the hierarchical test discounts the loop: a loop
+	// with a constant trip count has no factor of n to pass on, a hierarchical one
+	// passes its parent's.
+	scope := rustLoopScope{amortizes: !bounded}
+	pattern, value := rustLoopSource(node)
+	rustBindPattern(pattern, w.src, &scope)
+	if !bounded && rustReachedThroughElement(value, w.src, w.loopScopes) {
+		bounded = true
+	}
 
 	w.fnLoopCount++
 	if w.loopDepth+1 > w.fnMaxLoop {
@@ -1046,13 +1073,26 @@ func (w *astWalker) walkLoop(node *sitter.Node) {
 		w.fnMaxScaling = w.scalingDepth + 1
 	}
 
+	// A `for` evaluates what it iterates once, before the first iteration; walking
+	// it with the body read `for x in load()` as a load per element. A `while let`
+	// scrutinee is different: it is re-evaluated every time round.
+	var once *sitter.Node
+	if kindOf(node) == "for_expression" {
+		if once = value; once != nil {
+			w.walkChild(once)
+		}
+	}
 	w.loopDepth++
 	if !bounded {
 		w.scalingDepth++
 	}
+	w.loopScopes = append(w.loopScopes, scope)
 	for i := uint(0); i < uint(node.ChildCount()); i++ {
-		w.walkChild(node.Child(i))
+		if c := node.Child(i); once == nil || c.StartByte() != once.StartByte() || c.EndByte() != once.EndByte() {
+			w.walkChild(c)
+		}
 	}
+	w.loopScopes = w.loopScopes[:len(w.loopScopes)-1]
 	w.loopDepth--
 	if !bounded {
 		w.scalingDepth--
@@ -1086,16 +1126,57 @@ func rustConstIterable(val *sitter.Node, src []byte) bool {
 	}
 	switch kindOf(val) {
 	case "range_expression":
-		return rustRangeLiteralBounds(val, src)
+		return rustRangeConstBounds(val, src)
 	case "array_expression", "tuple_expression":
 		return true
+	case "reference_expression", "parenthesized_expression":
+		// `&TABLE`, `(0..N)`
+		if v := val.ChildByFieldName("value"); v != nil {
+			return rustConstIterable(v, src)
+		}
+		return val.NamedChildCount() > 0 && rustConstIterable(val.NamedChild(0), src)
+	case "identifier", "scoped_identifier":
+		// `for x in TABLE`, `for x in config::TABLE`
+		return rustConstName(val, src)
+	case "call_expression":
+		// `TABLE.iter()`, `(0..N).rev()`: an argument-less adaptor of a constant.
+		fn, args := val.ChildByFieldName("function"), val.ChildByFieldName("arguments")
+		if fn != nil && kindOf(fn) == "field_expression" && (args == nil || args.NamedChildCount() == 0) {
+			return rustConstIterable(fn.ChildByFieldName("value"), src)
+		}
 	}
 	return false
 }
 
-// rustRangeLiteralBounds reports whether every bound operand of a range
-// expression is an integer literal (so the trip count is a constant).
-func rustRangeLiteralBounds(node *sitter.Node, src []byte) bool {
+// rustConstName reports whether a path names a `const` or `static` by the
+// convention the compiler itself lints for: SCREAMING_SNAKE_CASE. One capital
+// letter counts here, unlike elsewhere: `const N: usize` and a const generic `N`
+// are both fixed at compile time, and rustc warns on any other use of the form.
+func rustConstName(n *sitter.Node, src []byte) bool {
+	name := nodeText(n, src)
+	if i := strings.LastIndex(name, "::"); i >= 0 {
+		name = name[i+2:]
+	}
+	if name == "" {
+		return false
+	}
+	hasLetter := false
+	for _, r := range name {
+		switch {
+		case r >= 'A' && r <= 'Z':
+			hasLetter = true
+		case r >= '0' && r <= '9', r == '_':
+		default:
+			return false
+		}
+	}
+	return hasLetter
+}
+
+// rustRangeConstBounds reports whether every bound operand of a range
+// expression is an integer literal or a named constant (`0..3`, `0..CHUNK_SIZE`),
+// so the trip count is fixed at compile time.
+func rustRangeConstBounds(node *sitter.Node, src []byte) bool {
 	saw := false
 	for i := uint(0); i < uint(node.ChildCount()); i++ {
 		c := node.Child(i)
@@ -1103,6 +1184,11 @@ func rustRangeLiteralBounds(node *sitter.Node, src []byte) bool {
 		case "..", "..=", "...":
 			continue // the range operator itself
 		case "integer_literal":
+			saw = true
+		case "identifier", "scoped_identifier":
+			if !rustConstName(c, src) {
+				return false // a variable bound (e.g. `0..n`) scales
+			}
 			saw = true
 		default:
 			return false // a non-literal bound (e.g. items.len()) — scales
@@ -1145,6 +1231,9 @@ func (w *astWalker) scanTokenTreeCalls(node *sitter.Node) {
 			}
 			if target := w.resolveCall(name); target != "" {
 				w.emitEdge(facts.RelCalls, target)
+				if !w.currentMethods()[name] {
+					w.noteSelfCall(target)
+				}
 			}
 			continue
 		}
@@ -1262,10 +1351,17 @@ func (w *astWalker) handleCallExpression(node *sitter.Node) {
 	case calleeBare:
 		if target := w.resolveCall(name); target != "" {
 			w.emitEdge(facts.RelCalls, target)
+			// A bare `f()` never reaches a method, whatever resolveCall bound the
+			// edge to: inside `impl Drop`, `drop(x)` is the free function.
+			if !w.currentMethods()[name] {
+				w.noteSelfCall(target)
+			}
 		}
 	case calleeSelfRef:
 		if methods := w.currentMethods(); methods[name] {
-			w.emitEdge(facts.RelCalls, w.dir+"."+w.qualify(name))
+			target := w.dir + "." + w.qualify(name)
+			w.emitEdge(facts.RelCalls, target)
+			w.noteSelfCall(target)
 			break
 		}
 		// Not a sibling of this impl block (another impl block, a trait
@@ -1311,14 +1407,29 @@ func (w *astWalker) emitEdge(kind, target string) {
 	owner.Relations = append(owner.Relations, facts.Relation{Kind: kind, Target: target})
 }
 
-// recordCallMetrics attributes a resolved production call to the current
-// function's loop/recursion metrics: it feeds calls_in_loop (any enclosing
-// loop), the calls_in_scaling_loop subset (a data-dependent loop only), and
-// recursive_self (a call whose target is the function itself).
-func (w *astWalker) recordCallMetrics(target string) {
+// noteSelfCall flags direct recursion, and is reached only from a call written in
+// a form that can name the enclosing function: `self.f()` / `Self::f()` for a
+// method, a bare `f()` for a free function.
+//
+// It used to sit in recordCallMetrics, which sees every RelCalls edge, and the
+// edges are deliberately liberal: a bare identifier resolves to a sibling method
+// so that dead-code analysis keeps the method alive. An edge is not a call. A
+// method that takes a parameter of its own name (`fn fmt(&self, fmt: &mut
+// Formatter)` passing `fmt` on, `fn arg(self, arg)` forwarding to an inner
+// builder) and `Drop::drop` calling the prelude's free `drop(x)` each produced an
+// edge to themselves and were reported as recursive: 9 of the 12 recursion
+// findings sampled on an async runtime.
+func (w *astWalker) noteSelfCall(target string) {
 	if w.fnSelfName != "" && target == w.fnSelfName {
 		w.fnRecursive = true
 	}
+}
+
+// recordCallMetrics attributes a resolved production call to the current
+// function's loop metrics: it feeds calls_in_loop (any enclosing loop) and the
+// calls_in_scaling_loop subset (a data-dependent loop only). Recursion is
+// noteSelfCall's, which needs the call form and not just the edge.
+func (w *astWalker) recordCallMetrics(target string) {
 	if w.loopDepth > 0 {
 		if w.fnInLoopSeen == nil {
 			w.fnInLoopSeen = make(map[string]bool)
@@ -1329,6 +1440,7 @@ func (w *astWalker) recordCallMetrics(target string) {
 		}
 	}
 	if w.scalingDepth > 0 {
+		w.fnScalingCallDepth = noteCallDepth(w.fnScalingCallDepth, target, w.scalingDepth)
 		if w.fnInScalingSeen == nil {
 			w.fnInScalingSeen = make(map[string]bool)
 		}

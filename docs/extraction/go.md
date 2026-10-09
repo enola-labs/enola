@@ -76,16 +76,38 @@ func Seed() {
 ```
 symbol pkg/a.GetPath   props: loop_count=1, loop_depth=1, scaling_loop_depth=0,
                               calls_in_loop=[pkg/a.getByID],
-                              calls_in_scaling_loop=[pkg/a.getByID]
+                              calls_in_scaling_loop=[pkg/a.getByID],
+                              calls_in_scaling_loop_depth=[0]
 symbol pkg/a.Seed      props: loop_count=1, loop_depth=1, scaling_loop_depth=0,
                               calls_in_loop=[pkg/a.setup],
-                              calls_in_scaling_loop=[]        ← empty, not absent
+                              calls_in_scaling_loop=[],       ← empty, not absent
+                              calls_in_scaling_loop_depth=[]
 ```
 
 A bare `for {}` walking a parent chain repeats without adding a factor of *n*, so
 `getByID` stays in the N+1 candidate set. `Seed`'s loop is bounded by a literal slice,
 so its `calls_in_scaling_loop` is emitted **empty rather than omitted** — an omitted key
 would make a consumer fall back to the unfiltered list and re-report the bounded call.
+
+`calls_in_scaling_loop_depth` runs parallel to it: the deepest scaling loop each of those
+calls sits in. `getByID` is at 0 because a bare `for {}` adds no depth.
+
+A range's operand is evaluated once, so the call in `for _, x := range load()` is not in
+`calls_in_loop`. A loop that pages or chunks and drains what each round fetched is a
+batch loop: its per-round call leaves `calls_in_scaling_loop` and its drain loop adds no
+scaling depth.
+
+```go
+for left > 0 {
+	rows := query(ids[:size]) // one query per chunk: not an N+1 candidate
+	for rows.Next() {         // drains the chunk: no extra depth
+		save(1)               // once per row: still a candidate
+	}
+	left -= size
+}
+```
+
+The rules every language shares are in [the index](README.md#loops-what-counts-as-nesting).
 
 ### Test references
 

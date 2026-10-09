@@ -47,7 +47,7 @@ func OSSTools() []ToolEntry {
 		// answers on demand, the explainer files findings during a snapshot.
 		{Name: "package_metrics", Description: "Robert C. Martin / JDepend package metrics (Ca, Ce, instability, abstractness, distance)."},
 		{Name: "find_orphans", Description: "Find unreferenced symbols (dead code) in the codebase."},
-		{Name: "analyze_performance", Description: "Estimate per-function Big-O complexity and rank performance risks (nested loops, calls-in-loops/N+1, recursion)."},
+		{Name: "analyze_performance", Description: "Rank performance risks per function: calls in loops (N+1) and recursion with a Big-O, nested loops with their depth."},
 		// The only two that answer about the PAST. Everything above describes the tree as
 		// it is now — diff_snapshot included, which compares two nows.
 		{Name: "architecture_history", Description: "Show how the architecture changed over time — one entry per recorded snapshot, with what moved since the previous one."},

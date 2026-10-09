@@ -76,8 +76,8 @@ func findingsToInsights(findings []Finding) []facts.Insight {
 			ev = append(ev, facts.Evidence{Symbol: f.Symbol, Detail: e})
 		}
 		out = append(out, facts.Insight{
-			Title:       fmt.Sprintf("Performance risk (%s, %s): %s", f.Kind, f.BigO, f.Symbol),
-			Description: f.Why + " Big-O is a deterministic estimate of structural worst case from parser facts, not a proof — treat as a lead to verify.",
+			Title:       fmt.Sprintf("Performance risk (%s, %s): %s", f.Kind, f.Label(), f.Symbol),
+			Description: f.Why + caveatFor(f),
 			Confidence:  conf,
 			Evidence:    ev,
 			Actions: []string{
@@ -98,4 +98,14 @@ func findingsToInsights(findings []Finding) []facts.Insight {
 		})
 	}
 	return out
+}
+
+// caveatFor is the sentence an insight ends on. A finding that states a Big-O says
+// what kind of estimate it is; a structural one has already said, in its own why,
+// that its depth is a count and not a complexity.
+func caveatFor(f Finding) string {
+	if f.BigO == "" {
+		return ""
+	}
+	return " Big-O is a deterministic estimate of structural worst case from parser facts, not a proof — treat as a lead to verify."
 }

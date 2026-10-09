@@ -108,6 +108,12 @@ type astWalker struct {
 	// self-call is only genuine recursion when its argument count matches — otherwise
 	// it is delegation to a same-named overload (updateItem(x) → updateItem(i, x)).
 	selfParams int
+	// selfParamNames are that function's parameter names, for the other proof of
+	// delegation: a call that passes an argument by a name the function does not
+	// declare is a call to something else.
+	selfParamNames map[string]bool
+	// loopScopes are the enclosing loops' variables, for the rule in hierarchy.go.
+	loopScopes []kotlinLoopScope
 	// reactiveContext is true when the enclosing function is an RxJava / coroutine
 	// Flow chain, so the ambiguous operators (map/flatMap/filter/…) are reactive
 	// stream transforms — NOT per-element collection loops — and must not inflate
@@ -130,7 +136,8 @@ type kotlinBodyMetrics struct {
 	// times and is excluded.
 	callsInScalingLoop []string
 	inScalingSeen      map[string]bool
-	recursive          bool // body directly calls the enclosing function
+	scalingCallDepth   map[string]int // deepest scaling nesting each of those is called at (calldepth.go)
+	recursive          bool           // body directly calls the enclosing function
 	// sawSuperSelf is set when the body calls super.<enclosingName>(). Such a method
 	// is a framework/override that also makes a bare <enclosingName>(...) call to a
 	// DIFFERENT same-named overload (a real self-call would be infinite recursion), so
@@ -496,6 +503,7 @@ func (w *astWalker) recordInLoopCall(target string) {
 	if w.metrics.inScalingSeen == nil {
 		w.metrics.inScalingSeen = make(map[string]bool)
 	}
+	w.metrics.scalingCallDepth = noteCallDepth(w.metrics.scalingCallDepth, target, w.scalingLoopDepth)
 	if !w.metrics.inScalingSeen[target] {
 		w.metrics.inScalingSeen[target] = true
 		w.metrics.callsInScalingLoop = append(w.metrics.callsInScalingLoop, target)
@@ -920,12 +928,15 @@ func (w *astWalker) handleFunctionDeclaration(node *sitter.Node) {
 	savedScaling, savedRepeat := w.scalingLoopDepth, w.repeatDepth
 	savedName, savedShort := w.selfName, w.selfShort
 	savedParams, savedReactive := w.selfParams, w.reactiveContext
+	savedParamNames, savedScopes := w.selfParamNames, w.loopScopes
+	w.loopScopes = nil
 	w.metrics = &kotlinBodyMetrics{}
 	w.loopDepth = 0
 	w.scalingLoopDepth, w.repeatDepth = 0, 0
 	w.selfName = f.Name
 	w.selfShort = name
 	w.selfParams = kotlinParamCount(node)
+	w.selfParamNames = kotlinParamNames(node, w.src)
 	body := findChildByKind(node, "function_body")
 	bodyText := ""
 	if body != nil {
@@ -967,6 +978,7 @@ func (w *astWalker) handleFunctionDeclaration(node *sitter.Node) {
 			m.callsInScalingLoop = []string{}
 		}
 		props["calls_in_scaling_loop"] = m.callsInScalingLoop
+		props["calls_in_scaling_loop_depth"] = callDepths(m.callsInScalingLoop, m.scalingCallDepth)
 	}
 	// A body that calls super.<self>() is a framework override delegating to a
 	// same-named overload, not genuine recursion — the arity-matched bare self-call is
@@ -978,6 +990,7 @@ func (w *astWalker) handleFunctionDeclaration(node *sitter.Node) {
 	w.scalingLoopDepth, w.repeatDepth = savedScaling, savedRepeat
 	w.selfName, w.selfShort = savedName, savedShort
 	w.selfParams, w.reactiveContext = savedParams, savedReactive
+	w.selfParamNames, w.loopScopes = savedParamNames, savedScopes
 	w.popOwner()
 }
 
@@ -994,6 +1007,78 @@ func kotlinParamCount(node *sitter.Node) int {
 		}
 	}
 	return n
+}
+
+// kotlinParamNames returns a function's declared parameter names.
+func kotlinParamNames(node *sitter.Node, src []byte) map[string]bool {
+	params := findChildByKind(node, "function_value_parameters")
+	if params == nil {
+		return nil
+	}
+	var out map[string]bool
+	for i := uint(0); i < uint(params.ChildCount()); i++ {
+		p := params.Child(i)
+		if kindOf(p) != "parameter" {
+			continue
+		}
+		// The parameter's name is its first identifier; the type follows it.
+		for j := uint(0); j < uint(p.ChildCount()); j++ {
+			if kotlinIsIdentifier(p.Child(j)) {
+				if out == nil {
+					out = make(map[string]bool)
+				}
+				out[nodeText(p.Child(j), src)] = true
+				break
+			}
+		}
+	}
+	return out
+}
+
+// kotlinIsIdentifier accepts both names the grammar has used for a plain identifier.
+func kotlinIsIdentifier(n *sitter.Node) bool {
+	k := kindOf(n)
+	return k == "identifier" || k == "simple_identifier"
+}
+
+// kotlinNotSelfCall is an argument count no function has, standing in for the
+// real one when a call is proven not to be the enclosing function calling itself.
+const kotlinNotSelfCall = -1
+
+// kotlinCallNamesForeignParam reports whether a call passes an argument by a name
+// the enclosing function does not declare, which makes it a call to a different
+// function however the name and the arity line up.
+//
+// The arity check alone reads every Gradle convention plugin as recursive:
+//
+//	override fun apply(target: Project) {
+//	    with(target) { apply(plugin = "com.android.library") }
+//	}
+//
+// One argument each, same name, and the inner one is Project.apply, reached through
+// the `with` receiver. `plugin` is not a parameter of the outer function, so it
+// cannot be the callee. An unnamed call stays as it was.
+func kotlinCallNamesForeignParam(callExpr *sitter.Node, params map[string]bool, src []byte) bool {
+	args := findChildByKind(callExpr, "value_arguments")
+	if args == nil {
+		return false
+	}
+	for i := uint(0); i < uint(args.ChildCount()); i++ {
+		a := args.Child(i)
+		if kindOf(a) != "value_argument" {
+			continue
+		}
+		// A named argument is `name = expr`: an identifier directly followed by "=".
+		for j := uint(0); j+1 < uint(a.ChildCount()); j++ {
+			if kotlinIsIdentifier(a.Child(j)) && kindOf(a.Child(j+1)) == "=" {
+				if !params[nodeText(a.Child(j), src)] {
+					return true
+				}
+				break
+			}
+		}
+	}
+	return false
 }
 
 // kotlinReturnType returns the source text of a function's declared return type, or ""
@@ -1156,8 +1241,22 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 	// subtree (e.g. a click handler defined inside a `forEach { … }` must not be
 	// counted as a per-iteration call). The iterator's OWN lambda is handled in the
 	// call_expression branch (its body walks at +1).
+	// A local initialised from the current element is still the current element:
+	// `val deps = config.dependencies ?: emptyList()` puts `deps` one step from it.
+	if kind == "property_declaration" && len(w.loopScopes) > 0 && node.NamedChildCount() >= 2 {
+		if kotlinReachedThroughElement(lastNamedChild(node), w.src, w.loopScopes) {
+			top := &w.loopScopes[len(w.loopScopes)-1]
+			for i := uint(0); i < node.NamedChildCount(); i++ {
+				kotlinBindDeclared(node.NamedChild(i), w.src, top)
+			}
+		}
+	}
+
 	if w.metrics != nil && kind == "lambda_literal" {
 		savedLoop, savedScaling, savedRepeat := w.loopDepth, w.scalingLoopDepth, w.repeatDepth
+		savedLambdaScopes := w.loopScopes
+		w.loopScopes = nil
+		defer func() { w.loopScopes = savedLambdaScopes }()
 		w.loopDepth, w.scalingLoopDepth, w.repeatDepth = 0, 0, 0
 		for i := uint(0); i < uint(node.ChildCount()); i++ {
 			w.walkForCalls(node.Child(i))
@@ -1184,6 +1283,15 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 	switch kind {
 	case "for_statement", "while_statement", "do_while_statement":
 		class := kotlinSyntacticLoopClass(node, w.src)
+		scope := kotlinLoopScope{amortizes: class.repeats()}
+		if kind == "for_statement" {
+			// A loop over what belongs to an enclosing loop's element repeats
+			// without scaling (hierarchy.go).
+			if class.scales() && kotlinReachedThroughElement(kotlinForCollection(node), w.src, w.loopScopes) {
+				class = kotlinLoopInfinite
+			}
+			scope = kotlinForScope(node, w.src, class.repeats())
+		}
 		if w.metrics != nil {
 			w.metrics.loopCount++
 			w.metrics.decisions++
@@ -1194,10 +1302,23 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 				w.metrics.scalingLoopDepth = w.scalingLoopDepth + 1
 			}
 		}
-		w.pushLoop(class)
-		for i := uint(0); i < uint(node.ChildCount()); i++ {
-			w.walkChild(node.Child(i))
+		// A for statement evaluates its collection once, before the first
+		// iteration; walking it with the body read `for (x in load())` as a load
+		// per element.
+		var once *sitter.Node
+		if kind == "for_statement" {
+			if once = kotlinForCollection(node); once != nil {
+				w.walkChild(once)
+			}
 		}
+		w.pushLoop(class)
+		w.loopScopes = append(w.loopScopes, scope)
+		for i := uint(0); i < uint(node.ChildCount()); i++ {
+			if c := node.Child(i); once == nil || c.StartByte() != once.StartByte() || c.EndByte() != once.EndByte() {
+				w.walkChild(c)
+			}
+		}
+		w.loopScopes = w.loopScopes[:len(w.loopScopes)-1]
 		w.popLoop(class)
 		return
 	}
@@ -1206,6 +1327,9 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 		var iterLambda *sitter.Node
 		iterClass := kotlinLoopScaling
 		argCount := kotlinCallArgCount(node)
+		if kotlinCallNamesForeignParam(node, w.selfParamNames, w.src) {
+			argCount = kotlinNotSelfCall
+		}
 		// First named child is the callee expression.
 		if callee := firstNamedChild(node); callee != nil {
 			if name, isNav := calleeName(callee, w.src); name != "" {
@@ -1274,6 +1398,10 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 					// candidates. An iterator is never infinite.
 					if isNav && kotlinConstantBoundReceiver(firstNamedChild(callee), w.src) {
 						iterClass = kotlinLoopConstant
+					} else if isNav && kotlinReachedThroughElement(firstNamedChild(callee), w.src, w.loopScopes) {
+						// `config.dependencies.forEach { … }` under a loop over
+						// configurations repeats without scaling (hierarchy.go).
+						iterClass = kotlinLoopInfinite
 					}
 				}
 			}
@@ -1394,9 +1522,11 @@ func (w *astWalker) walkLambdaSubtree(node, lambda *sitter.Node, class kotlinLoo
 			body = lit
 		}
 		w.pushLoop(class)
+		w.loopScopes = append(w.loopScopes, kotlinLambdaScope(body, w.src, class.repeats()))
 		for i := uint(0); i < uint(body.ChildCount()); i++ {
 			w.walkChild(body.Child(i))
 		}
+		w.loopScopes = w.loopScopes[:len(w.loopScopes)-1]
 		w.popLoop(class)
 		return
 	}

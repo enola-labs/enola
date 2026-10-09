@@ -98,15 +98,21 @@ func TestAnalyze_NestedLoopSeverity(t *testing.T) {
 	if !ok {
 		t.Fatalf("no nested-loop finding for p.Quad; got %+v", got)
 	}
-	if q.BigO != "O(n²)" || q.Severity != "medium" {
-		t.Errorf("p.Quad: got BigO=%q sev=%q, want O(n²)/medium", q.BigO, q.Severity)
+	if q.Depth != 2 || q.BigO != "" || q.Severity != "medium" {
+		t.Errorf("p.Quad: got depth=%d BigO=%q sev=%q, want depth 2, no Big-O, medium", q.Depth, q.BigO, q.Severity)
 	}
 	c, ok := findFinding(got, "p.Cubic", "nested-loop")
 	if !ok {
 		t.Fatalf("no nested-loop finding for p.Cubic")
 	}
-	if c.BigO != "O(n³)" || c.Severity != "high" {
-		t.Errorf("p.Cubic: got BigO=%q sev=%q, want O(n³)/high", c.BigO, c.Severity)
+	// A structural finding is medium at any depth; see structuralSeverity.
+	if c.Depth != 3 || c.BigO != "" || c.Severity != "medium" || c.Label() != "depth 3" {
+		t.Errorf("p.Cubic: got depth=%d BigO=%q sev=%q label=%q, want depth 3, no Big-O, medium", c.Depth, c.BigO, c.Severity, c.Label())
+	}
+	for _, f := range []Finding{q, c} {
+		if !strings.Contains(f.Why, depthIsNotComplexity) {
+			t.Errorf("%s: a nested-loop finding must say its depth is not a complexity; why = %q", f.Symbol, f.Why)
+		}
 	}
 }
 
@@ -123,8 +129,8 @@ func TestAnalyze_CompoundedAcrossCallGraph(t *testing.T) {
 	if !ok {
 		t.Fatalf("no compounded finding for p.f; got %+v", got)
 	}
-	if c.BigO != "O(n²)" {
-		t.Errorf("p.f compounded BigO = %q, want O(n²)", c.BigO)
+	if c.Depth != 2 || c.BigO != "" {
+		t.Errorf("p.f compounded depth = %d, BigO = %q; want depth 2 and no Big-O", c.Depth, c.BigO)
 	}
 	// p.f loops only once locally, so it must NOT produce a nested-loop finding.
 	if _, ok := findFinding(got, "p.f", "nested-loop"); ok {
@@ -519,9 +525,9 @@ func TestAnalyze_BoundedFanoutDoesNotCompound(t *testing.T) {
 
 func TestSortFindings_SeverityFirst(t *testing.T) {
 	got := analyze([]funcInfo{
-		{Name: "p.Med", LoopDepth: 2},  // nested-loop medium
-		{Name: "p.High", LoopDepth: 3}, // nested-loop high
-	}, nil, nil, nil)
+		{Name: "p.Med", LoopDepth: 3},                                          // nested-loop, held at medium
+		{Name: "p.High", LoopDepth: 1, CallsInLoop: []string{"app/data.Load"}}, // confirmed I/O in a loop
+	}, map[string]bool{"app/data.Load": true}, nil, nil)
 	if len(got) < 2 {
 		t.Fatalf("expected >=2 findings, got %d", len(got))
 	}
@@ -940,7 +946,7 @@ func TestAnalyze_ScalingDepthKeepsGenuineNesting(t *testing.T) {
 	}
 	got := analyze(funcs, nil, nil, nil)
 	f, ok := findFinding(got, "p.Cubic", "nested-loop")
-	if !ok || f.BigO != "O(n³)" || f.Severity != "high" {
+	if !ok || f.Depth != 3 || f.Severity != "medium" {
 		t.Fatalf("fallback to loop_depth failed: ok=%v %+v", ok, f)
 	}
 }
@@ -957,8 +963,8 @@ func TestAnalyze_ColdPathDownrankedToLow(t *testing.T) {
 		t.Errorf("migration finding severity = %q (ok=%v), want low (cold path)", m.Severity, ok)
 	}
 	h, ok := findFinding(got, "s.hot", "nested-loop")
-	if !ok || h.Severity != "high" {
-		t.Errorf("hot-path finding severity = %q (ok=%v), want high", h.Severity, ok)
+	if !ok || h.Severity != "medium" {
+		t.Errorf("hot-path finding severity = %q (ok=%v), want medium (above the migration's low)", h.Severity, ok)
 	}
 }
 
@@ -1199,8 +1205,8 @@ func TestAnalyze_DeepCompoundedRelabeledAndCapped(t *testing.T) {
 	if !ok {
 		t.Fatalf("no compounded finding for p.f; got %+v", got)
 	}
-	if c.BigO != "O(n³+)" {
-		t.Errorf("deep compounded BigO = %q, want O(n³+)", c.BigO)
+	if c.Depth != 4 || c.Label() != "depth 4+" {
+		t.Errorf("deep compounded depth = %d, label = %q; want depth 4 shown as %q", c.Depth, c.Label(), "depth 4+")
 	}
 	if c.Severity != "medium" {
 		t.Errorf("deep compounded severity = %q, want medium (capped)", c.Severity)
@@ -1800,5 +1806,415 @@ func TestAnalyze_ContinuedWalkDoesNotCompound(t *testing.T) {
 	}
 	if _, ok := findFinding(analyze(ownState, nil, nil, nil), "p.Outer", "compounded"); !ok {
 		t.Errorf("a callee looping over its own state must still compound")
+	}
+}
+
+// A call-in-loop finding says how often the call is made, which the loops around
+// it decide. What the callee does per call belongs to the `compounded` finding.
+func TestCallInLoopExponentIsItsOwnNestingNotTheCallGraphs(t *testing.T) {
+	funcs := []funcInfo{
+		{
+			Name: "app.DeleteAll", File: "app/delete.go", LoopDepth: 1, LoopCount: 1,
+			CallsInLoop: []string{"db.Delete"}, Calls: []string{"db.Delete"},
+		},
+		// The callee loops twice over its own arguments. Compounding makes the
+		// caller's effective depth 3, which is not the number of round-trips.
+		{Name: "db.Delete", File: "db/delete.go", LoopDepth: 2, LoopCount: 2},
+	}
+	got := analyze(funcs, nil, nil, nil)
+
+	c, ok := findFinding(got, "app.DeleteAll", "call-in-loop")
+	if !ok {
+		t.Fatalf("no call-in-loop finding for app.DeleteAll; got %+v", got)
+	}
+	if c.BigO != "O(n)" {
+		t.Errorf("call-in-loop BigO = %s, want O(n): one call per iteration of one loop", c.BigO)
+	}
+	// The callee's cost is still reported, as what it is.
+	comp, ok := findFinding(got, "app.DeleteAll", "compounded")
+	if !ok || comp.Depth != 3 {
+		t.Errorf("compounded finding = %+v (ok=%v), want depth 3", comp, ok)
+	}
+}
+
+func TestCallInLoopExponentCountsItsOwnNest(t *testing.T) {
+	funcs := []funcInfo{{
+		Name: "app.Sync", File: "app/sync.go", LoopDepth: 2, LoopCount: 2,
+		CallsInLoop: []string{"db.Query"}, Calls: []string{"db.Query"},
+	}}
+	c, ok := findFinding(analyze(funcs, nil, nil, nil), "app.Sync", "call-in-loop")
+	if !ok || c.BigO != "O(n²)" {
+		t.Errorf("call-in-loop = %+v (ok=%v), want O(n²) from the function's own two-deep nest", c, ok)
+	}
+}
+
+// Go drops the keywords that name another ecosystem's API, and a name that states
+// or builds something is not doing I/O whatever noun it ends in.
+func TestGoCallGateUsesGoVerbsAndPartOfSpeech(t *testing.T) {
+	notIO := []string{
+		"pkg/usage.Ingester.mergeBack",   // `merge` is SQLAlchemy's, not Go's
+		"pkg/usage.aggregateField",       // `aggregate` is Prisma's
+		"issue.IsPullRequest",            // a predicate
+		"pkg/schema.isCloudWatchQuery",   // an unexported predicate
+		"pkg/kinds.NewAzureMonitorQuery", // a constructor
+		"models/db.ErrCancelledf",        // an error value, under a db package
+		"pkg/tracker.Issue.Labels",       // `Issue` is not `Is` + `sue`: no verb either
+	}
+	for _, c := range notIO {
+		if isExpensiveGoCall(c, nil, nil) {
+			t.Errorf("%s read as I/O", c)
+		}
+	}
+	isIO := []string{
+		"models/actions.UpdateTask", "repo.FindByID", "stmt.ExecContext", "pkg/store.queryRows",
+		"client.DoRequest", "models/db.GetEngine", "sql.Open", "tracker.IssueUpdate",
+		"services/actions.loadJobTaskOutputs",        // found by name or not at all: Go has no performs_io
+		"pkg/infra/db.DB.WithTransactionalDbSession", // runs its closure in a transaction
+	}
+	for _, c := range isIO {
+		if !isExpensiveGoCall(c, nil, nil) {
+			t.Errorf("%s not read as I/O", c)
+		}
+	}
+	if !isExpensiveGoCall("pkg/x.NewThing", map[string]bool{"pkg/x.NewThing": true}, nil) {
+		t.Errorf("a storage fact is I/O whatever its name")
+	}
+}
+
+func TestPHPInMemoryCallsAreNotIO(t *testing.T) {
+	for _, c := range []string{"array_merge", "array_merge_recursive", "query.where", "whereIn", "builder.whereExists"} {
+		if !phpInMemory(c) {
+			t.Errorf("%s not recognised as in-memory", c)
+		}
+	}
+	for _, c := range []string{"Model.save", "db.array_merge", "wherever", "repo.findWhere"} {
+		if phpInMemory(c) {
+			t.Errorf("%s read as in-memory", c)
+		}
+	}
+}
+
+// One init that does I/O must not make every init in a TypeScript loop a network
+// call, and the guard must not reach a real DAO method that shares its name with
+// its own interface declaration.
+func TestTSLifecycleNamesAreNotIOByNameAlone(t *testing.T) {
+	funcs := []funcInfo{
+		{Name: "net/socket.Client.init", File: "net/socket.ts", PerformsIO: true},
+		{Name: "data/dao.UserDao.insertAll", File: "data/dao.ts", PerformsIO: true},
+		{Name: "data/dao.Dao.insertAll", File: "data/base.ts"}, // the interface's declaration
+		{Name: "data/mem.Buffer.insertAll", File: "data/mem.ts"},
+		{
+			Name: "ui/page.render", File: "ui/page.ts", LoopDepth: 1, LoopCount: 1,
+			CallsInLoop: []string{"r.init", "dao.insertAll"}, Calls: []string{"r.init", "dao.insertAll"},
+		},
+	}
+	c, ok := findFinding(analyze(funcs, nil, nil, nil), "ui/page.render", "call-in-loop")
+	if !ok {
+		t.Fatalf("no call-in-loop finding: the DAO insert is real")
+	}
+	sawInsert := false
+	for _, e := range c.Evidence {
+		if e == "call_in_loop=r.init" {
+			t.Errorf("r.init reported as I/O because one unrelated init does some: %v", c.Evidence)
+		}
+		if e == "call_in_loop=dao.insertAll" {
+			sawInsert = true
+		}
+	}
+	if !sawInsert {
+		t.Errorf("dao.insertAll dropped: %v", c.Evidence)
+	}
+}
+
+// C# keeps the generic gate; only collection methods are taken out of it.
+func TestCSharpCollectionMethodsAreNotIO(t *testing.T) {
+	funcs := []funcInfo{
+		{Name: "Lib.Provider.DeleteEpisode", File: "Lib/Provider.cs"}, // resolved, no performs_io: an interface hides it
+		{
+			Name: "Lib.Provider.Run", File: "Lib/Provider.cs", LoopDepth: 1, LoopCount: 1,
+			CallsInLoop: []string{"Lib.Provider.DeleteEpisode", "_cache.AddOrUpdate", "videos.InsertRange"},
+		},
+	}
+	c, ok := findFinding(analyze(funcs, nil, nil, nil), "Lib.Provider.Run", "call-in-loop")
+	if !ok {
+		t.Fatalf("DeleteEpisode in a loop must still be reported")
+	}
+	if len(c.Evidence) != 1 || c.Evidence[0] != "call_in_loop=Lib.Provider.DeleteEpisode" {
+		t.Errorf("evidence = %v, want only DeleteEpisode", c.Evidence)
+	}
+}
+
+// A resolved TypeScript callee that does no I/O is not I/O for sharing a name with
+// an ORM method.
+func TestResolvedTSCalleeIsJudgedByItsOwnIO(t *testing.T) {
+	byName := map[string]funcInfo{"src/chart.aggregate": {Name: "src/chart.aggregate"}}
+	if isExpensiveTSCall("src/chart.aggregate", nil, byName, nil) {
+		t.Errorf("a local aggregate() that does no I/O read as a Prisma aggregate")
+	}
+	if !isExpensiveTSCall("prisma.user.aggregate", nil, byName, nil) {
+		t.Errorf("an unresolved ORM aggregate must still be I/O")
+	}
+}
+
+// A function with no branch cannot be recursive and return, so a self-call in one
+// names a different function of the same name: forwarding, not recursion.
+func TestBranchFreeFunctionIsNotRecursive(t *testing.T) {
+	funcs := []funcInfo{
+		// `fn local_addr(&self) { self.local_addr() }` in a trait impl.
+		{Name: "net.TcpListener.local_addr", File: "net/tcp.rs", Recursive: true, Cyclomatic: 1},
+		// A real walk: the loop is its base case.
+		{Name: "tree.Node.walk", File: "tree/node.rs", Recursive: true, Cyclomatic: 2, LoopDepth: 1, LoopCount: 1},
+		// No cyclomatic reported: nothing is proven, so the finding stays.
+		{Name: "legacy.descend", File: "legacy/x.rb", Recursive: true},
+	}
+	got := analyze(funcs, nil, nil, nil)
+	if _, ok := findFinding(got, "net.TcpListener.local_addr", "recursion"); ok {
+		t.Errorf("a branch-free forwarding method reported as recursive")
+	}
+	for _, name := range []string{"tree.Node.walk", "legacy.descend"} {
+		if _, ok := findFinding(got, name, "recursion"); !ok {
+			t.Errorf("%s no longer reported as recursive", name)
+		}
+	}
+}
+
+func TestColdPathRecognisesWhereOneShotCodeLives(t *testing.T) {
+	cold := []string{
+		"Jellyfin.Server/Migrations/Routines/FixDates.cs", // .NET capitalises it
+		"db/migrate/20240101000000_add_index.rb",
+		"db/post_migrate/20240101000000_backfill.rb",
+		"db/old_migrations/20140101000000_move_counts.rb",
+		"lib/tasks/fake_data.rake",
+		"lib/tasks/helpers.rb",
+		"extras/cleanup.rake",
+		"lib/mastodon/cli/maintenance.rb",
+		"airflow-core/src/airflow/cli/simple_table.py",
+		".github/actions/changelog/index.js",
+		"docs/plugins/remark-localize-badges.mjs",
+		"build-logic/convention/src/main/kotlin/Graph.kt",
+	}
+	for _, f := range cold {
+		if !isColdPath(f) {
+			t.Errorf("%s not recognised as a cold path", f)
+		}
+	}
+	hot := []string{
+		"app/models/story.rb",
+		"pkg/migration/schemaversion/v34.go", // runs on every dashboard load
+		"services/migrate/run.go",            // not under db/
+		"internal/server/docs.go",            // a file, not a docs directory
+		"pkg/api/cli.go",
+		"app/lib/tasks_presenter.rb",
+		"superset/commands/chart/export.py", // commands/ is a production layer
+	}
+	for _, f := range hot {
+		if isColdPath(f) {
+			t.Errorf("%s read as a cold path", f)
+		}
+	}
+}
+
+// The exponent of a call-in-loop finding is the nesting around the call, not the
+// function's deepest nest.
+func TestCallInLoopExponentIsTheNestingAroundTheCall(t *testing.T) {
+	sync := funcInfo{
+		Name: "app.Sync", File: "app/sync.py", LoopDepth: 2, LoopCount: 3,
+		ScalingLoopDepth: 2, HasScalingDepth: true,
+		CallsInLoop:        []string{"session.execute"},
+		CallsInScalingLoop: []string{"session.execute"}, HasScalingLoopCalls: true,
+		Calls: []string{"session.execute"},
+	}
+
+	// One query per row at depth 1; the depth-2 nest is a matrix built further down.
+	sync.CallDepth = map[string]int{"session.execute": 1}
+	c, ok := findFinding(analyze([]funcInfo{sync}, nil, nil, nil), "app.Sync", "call-in-loop")
+	if !ok || c.BigO != "O(n)" {
+		t.Errorf("call at depth 1 in a depth-2 function: %+v (ok=%v), want O(n)", c, ok)
+	}
+
+	// The same call inside the nest really is made n² times.
+	sync.CallDepth = map[string]int{"session.execute": 2}
+	c, ok = findFinding(analyze([]funcInfo{sync}, nil, nil, nil), "app.Sync", "call-in-loop")
+	if !ok || c.BigO != "O(n²)" {
+		t.Errorf("call at depth 2: %+v (ok=%v), want O(n²)", c, ok)
+	}
+
+	// An extractor that reports no per-call depth keeps the function-wide bound.
+	sync.CallDepth = nil
+	c, ok = findFinding(analyze([]funcInfo{sync}, nil, nil, nil), "app.Sync", "call-in-loop")
+	if !ok || c.BigO != "O(n²)" {
+		t.Errorf("no per-call depth: %+v (ok=%v), want the function's O(n²)", c, ok)
+	}
+}
+
+func TestCallDepthPropHasToLineUpWithItsCalls(t *testing.T) {
+	calls := []string{"a.save", "b.load"}
+	got := callDepthProp(map[string]any{propCallsInScalingLoopDepth: []any{float64(1), float64(2)}}, calls)
+	if got["a.save"] != 1 || got["b.load"] != 2 {
+		t.Errorf("after a JSONL round trip: %v", got)
+	}
+	if got := callDepthProp(map[string]any{propCallsInScalingLoopDepth: []int{1}}, calls); got != nil {
+		t.Errorf("a depth list of the wrong length must be ignored, got %v", got)
+	}
+	if got := callDepthProp(map[string]any{}, calls); got != nil {
+		t.Errorf("an absent prop is nil, got %v", got)
+	}
+}
+
+// A callee multiplies with the loops around its call, not with the caller's deepest
+// nest somewhere else.
+func TestCompoundingUsesTheDepthTheCalleeIsCalledAt(t *testing.T) {
+	helper := funcInfo{Name: "app.bounds", File: "app/b.ts", LoopDepth: 1, LoopCount: 1, ScalingLoopDepth: 1, HasScalingDepth: true}
+	caller := funcInfo{
+		Name: "app.snap", File: "app/s.ts", LoopDepth: 2, LoopCount: 3, ScalingLoopDepth: 2, HasScalingDepth: true,
+		CallsInLoop:        []string{"app.bounds"},
+		CallsInScalingLoop: []string{"app.bounds"}, HasScalingLoopCalls: true,
+	}
+
+	// bounds() is called from a depth-1 map; the depth-2 pair loop is a sibling.
+	// 1 + 1 does not exceed the function's own 2, so nothing compounds.
+	caller.CallDepth = map[string]int{"app.bounds": 1}
+	if c, ok := findFinding(analyze([]funcInfo{caller, helper}, nil, nil, nil), "app.snap", "compounded"); ok {
+		t.Errorf("callee at depth 1 beside a depth-2 nest reported as compounding: %+v", c)
+	}
+
+	// Called from inside the pair loop it really is one level deeper.
+	caller.CallDepth = map[string]int{"app.bounds": 2}
+	c, ok := findFinding(analyze([]funcInfo{caller, helper}, nil, nil, nil), "app.snap", "compounded")
+	if !ok || c.Depth != 3 {
+		t.Errorf("callee at depth 2: %+v (ok=%v), want depth 3", c, ok)
+	}
+
+	// No per-call depth: the old upper bound.
+	caller.CallDepth = nil
+	c, ok = findFinding(analyze([]funcInfo{caller, helper}, nil, nil, nil), "app.snap", "compounded")
+	if !ok || c.Depth != 3 {
+		t.Errorf("no per-call depth: %+v (ok=%v), want the upper bound, depth 3", c, ok)
+	}
+}
+
+// A callee that loops over the parameter the element arrives in is finishing the
+// caller's walk. One that loops over a different parameter multiplies.
+func TestCrossCallNeedsTheParameterTheElementArrivesIn(t *testing.T) {
+	caller := funcInfo{
+		Name: "app.r", File: "app/r.ts", LoopDepth: 1, LoopCount: 1, ScalingLoopDepth: 1, HasScalingDepth: true,
+		CallsInLoop:        []string{"app.render", "app.hasQuery"},
+		CallsInScalingLoop: []string{"app.render", "app.hasQuery"}, HasScalingLoopCalls: true,
+		CallDepth:          map[string]int{"app.render": 1, "app.hasQuery": 1},
+		CallsOnLoopElement: []string{"app.render", "app.hasQuery"},
+		ElementArg:         map[string]int{"app.render": 0, "app.hasQuery": 0},
+	}
+	loops := func(name string, param int) funcInfo {
+		return funcInfo{
+			Name: name, File: "app/x.ts", LoopDepth: 1, LoopCount: 1, ScalingLoopDepth: 1, HasScalingDepth: true,
+			LoopsOverParam: true, LoopParams: map[int]bool{param: true},
+		}
+	}
+
+	// render(frame) loops over frame: no compounding.
+	only := caller
+	only.CallsInLoop, only.CallsInScalingLoop = []string{"app.render"}, []string{"app.render"}
+	if c, ok := findFinding(analyze([]funcInfo{only, loops("app.render", 0)}, nil, nil, nil), "app.r", "compounded"); ok {
+		t.Errorf("a callee continuing the walk reported as compounding: %+v", c)
+	}
+
+	// hasQuery(frame, words) loops over words, parameter 1: it multiplies.
+	c, ok := findFinding(analyze([]funcInfo{caller, loops("app.render", 0), loops("app.hasQuery", 1)}, nil, nil, nil), "app.r", "compounded")
+	if !ok || c.Depth != 2 {
+		t.Errorf("a callee looping over a different parameter: %+v (ok=%v), want compounded at depth 2", c, ok)
+	}
+
+	// Without positions (the Go extractor) the pair of booleans decides, as before.
+	legacy := only
+	legacy.ElementArg = nil
+	g := loops("app.render", 0)
+	g.LoopParams = nil
+	if c, ok := findFinding(analyze([]funcInfo{legacy, g}, nil, nil, nil), "app.r", "compounded"); ok {
+		t.Errorf("the boolean pair alone must still discount: %+v", c)
+	}
+}
+
+// Which kinds claim a complexity and which state a count. A call-in-loop or
+// recursion finding has a Big-O and no depth; a nested-loop or compounded one has
+// a depth, no Big-O, and says in words that the depth is not a complexity.
+func TestOnlyCallInLoopAndRecursionClaimABigO(t *testing.T) {
+	funcs := []funcInfo{
+		{Name: "p.nest", File: "p/n.go", LoopDepth: 3, LoopCount: 3},
+		{Name: "p.caller", File: "p/c.go", LoopDepth: 1, LoopCount: 1, CallsInLoop: []string{"p.looper"}},
+		{Name: "p.looper", File: "p/l.go", LoopDepth: 1, LoopCount: 1},
+		{Name: "p.nplus1", File: "p/q.go", LoopDepth: 1, LoopCount: 1, CallsInLoop: []string{"db.Query"}},
+		{Name: "p.walk", File: "p/w.go", Recursive: true, Cyclomatic: 2},
+	}
+	got := analyze(funcs, nil, nil, nil)
+	want := map[string]bool{"nested-loop": false, "compounded": false, "call-in-loop": true, "recursion": true}
+	seen := map[string]bool{}
+	for _, f := range got {
+		claims, known := want[f.Kind]
+		if !known {
+			t.Fatalf("unexpected kind %q", f.Kind)
+		}
+		seen[f.Kind] = true
+		if claims {
+			if f.BigO == "" || f.Depth != 0 || f.Label() != f.BigO {
+				t.Errorf("%s (%s): BigO=%q depth=%d label=%q; want a Big-O and no depth", f.Symbol, f.Kind, f.BigO, f.Depth, f.Label())
+			}
+			continue
+		}
+		if f.BigO != "" || f.Depth < 2 || !strings.HasPrefix(f.Label(), "depth ") {
+			t.Errorf("%s (%s): BigO=%q depth=%d label=%q; want a depth and no Big-O", f.Symbol, f.Kind, f.BigO, f.Depth, f.Label())
+		}
+		if !strings.Contains(f.Why, depthIsNotComplexity) {
+			t.Errorf("%s (%s): why does not say the depth is not a complexity: %q", f.Symbol, f.Kind, f.Why)
+		}
+		if f.Severity == "high" {
+			t.Errorf("%s (%s): a structural finding ranked high", f.Symbol, f.Kind)
+		}
+	}
+	for kind := range want {
+		if !seen[kind] {
+			t.Errorf("no %s finding produced; the fixture should yield one of each kind", kind)
+		}
+	}
+}
+
+// A project's own package named http is not the HTTP client, and an ORM's method
+// name is not a Go API. Both produced high-severity findings on a codebase that
+// does neither.
+func TestGoInRepoHTTPPackageAndORMNamesAreNotConfirmedIO(t *testing.T) {
+	funcs := []funcInfo{
+		// A linker package called http: matches routes in memory.
+		{Name: "internal/signals/http.resolveCall", File: "internal/signals/http/http.go"},
+		{
+			Name: "internal/signals/http.Contribute", File: "internal/signals/http/http.go", LoopDepth: 1, LoopCount: 1,
+			CallsInLoop: []string{"internal/signals/http.resolveCall"},
+		},
+		// A syntax-tree helper that recurses through a loop over children.
+		{
+			Name: "internal/ast.findFirstIdentifier", File: "internal/ast/walk.go", LoopDepth: 1, LoopCount: 1,
+			Recursive: true, Cyclomatic: 3, CallsInLoop: []string{"internal/ast.findFirstIdentifier"},
+		},
+		// The real thing: the standard library's client, once per item.
+		{
+			Name: "internal/fetch.All", File: "internal/fetch/all.go", LoopDepth: 1, LoopCount: 1,
+			CallsInLoop: []string{"net/http.Get"},
+		},
+		// And an in-repo client wrapper, whose package name says what it is.
+		{Name: "pkg/lokihttp.client.sendBatch", File: "pkg/lokihttp/client.go"},
+		{
+			Name: "pkg/push.Flush", File: "pkg/push/flush.go", LoopDepth: 1, LoopCount: 1,
+			CallsInLoop: []string{"pkg/lokihttp.client.sendBatch"},
+		},
+	}
+	got := analyze(funcs, nil, nil, nil)
+	for _, name := range []string{"internal/signals/http.Contribute", "internal/ast.findFirstIdentifier"} {
+		if f, ok := findFinding(got, name, "call-in-loop"); ok {
+			t.Errorf("%s reported as a call-in-loop: %+v", name, f)
+		}
+	}
+	for _, name := range []string{"internal/fetch.All", "pkg/push.Flush"} {
+		f, ok := findFinding(got, name, "call-in-loop")
+		if !ok || f.Severity != "high" {
+			t.Errorf("%s: %+v (ok=%v), want a high call-in-loop", name, f, ok)
+		}
 	}
 }

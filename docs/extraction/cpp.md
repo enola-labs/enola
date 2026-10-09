@@ -103,6 +103,10 @@ symbol drivers.constant_loop   drivers/loops.cpp:12
 Same model as [Go](go.md#loops-for-n1-hunting) and [Ruby](ruby.md): a constant-bounded
 loop records the call but keeps the scaling set empty rather than absent.
 
+A `for` is constant-bounded only when it both starts and stops at a constant. `for (int i
+= n - 1; i >= 0; i--)` compares against a literal and walks all *n*, so it scales.
+`calls_in_scaling_loop_depth` gives the scaling depth each in-loop call sits at.
+
 ## C++ specifics
 
 Namespaces, templates and class methods are extracted, with header and source methods
