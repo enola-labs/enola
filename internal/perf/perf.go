@@ -223,6 +223,83 @@ type Finding struct {
 	RiskScore float64  `json:"risk_score,omitempty"`
 	Why       string   `json:"why"`
 	Evidence  []string `json:"evidence,omitempty"`
+	// Calls is set on a call-in-loop finding: one entry per call the finding names,
+	// in the order Evidence names them, with what each rests on. A finding lists
+	// every expensive call in the loop, and they are not equally well founded: one
+	// can be a storage fact and the next a verb in a helper's name.
+	Calls []CallEvidence `json:"calls,omitempty"`
+}
+
+// CallEvidence is one call a call-in-loop finding names, and why it is there.
+type CallEvidence struct {
+	Callee string `json:"callee"`
+	// Basis is the strongest ground the analyzer has for calling this I/O. See
+	// the basis* constants.
+	Basis string `json:"basis"`
+	// Depth is the nesting of the scaling loops around this call, where the
+	// extractor reports it per call.
+	Depth int `json:"depth,omitempty"`
+}
+
+// What a named call rests on, strongest first. The first two are facts about the
+// callee. The rest are readings of its name, and differ in how much of the name
+// is read: a lazy association of that name declared somewhere in the application,
+// a method some function flagged performs_io also bears, a curated ORM or client
+// method, a receiver or module token, and last a generic verb or a per-language
+// name list.
+const (
+	basisStorage     = "storage"     // the callee is a storage fact
+	basisResolvedIO  = "resolved-io" // the callee resolves to a function flagged performs_io
+	basisAssociation = "association" // a method named like an ActiveRecord association
+	basisIOIndex     = "io-index"    // the method name is shared with a performs_io function
+	basisIOMethod    = "io-method"   // a curated ORM/client method name
+	basisIOReceiver  = "io-receiver" // a receiver, module or package token
+	basisName        = "name"        // a generic verb, or a per-language name list
+)
+
+// callBasis names the strongest ground for treating an in-loop call as I/O. It is
+// asked only of a call the per-language gate already admitted, and does not decide
+// whether the call is reported.
+//
+// Go is read by its own rule, as it is where the call is confirmed: the method
+// index and the ORM names say nothing about Go code.
+func callBasis(callee string, golang bool, storage, assoc map[string]bool, byName, byDotted map[string]funcInfo, ioMethods map[string]bool) string {
+	if storage[callee] {
+		return basisStorage
+	}
+	if f, ok := byName[callee]; ok && f.PerformsIO {
+		return basisResolvedIO
+	}
+	if f, ok := byDotted[callee]; ok && f.PerformsIO {
+		return basisResolvedIO
+	}
+	if golang {
+		if goIOPackage(callee, byName) {
+			return basisIOReceiver
+		}
+		return basisName
+	}
+	m := methodSegment(callee)
+	if assoc[m] && !constantReceiver(callee) {
+		return basisAssociation
+	}
+	if ioMethods[m] {
+		return basisIOIndex
+	}
+	if pyIOMethods[m] || m == "fetch" {
+		return basisIOMethod
+	}
+	for _, kw := range tsExpensiveMethods {
+		if containsKeyword(m, kw) {
+			return basisIOMethod
+		}
+	}
+	for _, kw := range expensivePrefixes {
+		if strings.Contains(callee, kw) {
+			return basisIOReceiver
+		}
+	}
+	return basisName
 }
 
 // deepCompoundedDepth is the label a compounded finding carries from
@@ -1865,6 +1942,7 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 		inLoopCalls := f.scalingLoopCalls()
 		var expensive, assocReads []string
 		evidence := make([]string, 0, len(inLoopCalls))
+		var calls []CallEvidence
 		ruby := strings.HasSuffix(f.File, ".rb")
 		swift := strings.HasSuffix(f.File, ".swift")
 		jvm := strings.HasSuffix(f.File, ".kt") || strings.HasSuffix(f.File, ".java")
@@ -2013,6 +2091,11 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 				callNesting = d
 			}
 			callNestingKnown = callNestingKnown && known
+			ce := CallEvidence{Callee: callee, Basis: callBasis(callee, golang, storage, assoc, byName, byDotted, ioMethods)}
+			if known {
+				ce.Depth = d
+			}
+			calls = append(calls, ce)
 		}
 		// f.Claimed says the query-loops explainer already reports a query per
 		// iteration against this symbol, from the receiver's type rather than from a
@@ -2053,6 +2136,7 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 				Confidence: confidenceFor("call-in-loop", confirmedIO, depth, f.loopDiscounted()),
 				Why:        callInLoopWhy(expensive, assocReads),
 				Evidence:   evidence,
+				Calls:      calls,
 			})
 		}
 	}

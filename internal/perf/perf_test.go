@@ -2218,3 +2218,57 @@ func TestGoInRepoHTTPPackageAndORMNamesAreNotConfirmedIO(t *testing.T) {
 		}
 	}
 }
+
+// A call-in-loop finding names every expensive call in the loop, and says of each
+// what it rests on. The four here pass the same gate on four different grounds.
+func TestCallInLoopStatesTheBasisOfEachCall(t *testing.T) {
+	funcs := []funcInfo{
+		{Name: "data/repo.Repo.loadAll", File: "data/repo.py", PerformsIO: true},
+		{Name: "data/other.Thing.refresh", File: "data/other.py", PerformsIO: true},
+		{
+			Name: "app/job.run", File: "app/job.py", LoopDepth: 1, LoopCount: 1,
+			CallsInLoop: []string{"orders", "data/repo.Repo.loadAll", "cache.refresh", "requests.get", "merge_rows"},
+		},
+	}
+	storage := map[string]bool{"orders": true}
+	c, ok := findFinding(analyze(funcs, storage, nil, nil), "app/job.run", "call-in-loop")
+	if !ok {
+		t.Fatalf("no call-in-loop finding")
+	}
+	want := map[string]string{
+		"orders":                 basisStorage,
+		"data/repo.Repo.loadAll": basisResolvedIO,
+		"cache.refresh":          basisIOIndex, // Thing.refresh does I/O; nothing says this is it
+		"requests.get":           basisIOReceiver,
+		"merge_rows":             basisName,
+	}
+	if len(c.Calls) != len(want) || len(c.Calls) != len(c.Evidence) {
+		t.Fatalf("calls = %+v, evidence = %v, want %d of each", c.Calls, c.Evidence, len(want))
+	}
+	for i, ce := range c.Calls {
+		if c.Evidence[i] != "call_in_loop="+ce.Callee {
+			t.Errorf("calls[%d] = %q, evidence[%d] = %q: not in the same order", i, ce.Callee, i, c.Evidence[i])
+		}
+		if ce.Basis != want[ce.Callee] {
+			t.Errorf("basis of %s = %q, want %q", ce.Callee, ce.Basis, want[ce.Callee])
+		}
+	}
+}
+
+// Go is confirmed by its package and by nothing else, so its basis is read the same
+// way: a Go helper is not on the method index for sharing a name with a function in
+// another language that does I/O.
+func TestCallBasisReadsGoByPackage(t *testing.T) {
+	byName := map[string]funcInfo{}
+	ioMethods := map[string]bool{"Save": true, "findFirst": true}
+	for callee, want := range map[string]string{
+		"net/http.Client.Do":   basisIOReceiver,
+		"store.Save":           basisName,
+		"ast.findFirst":        basisName,
+		"internal/db.Tx.Query": basisIOReceiver,
+	} {
+		if got := callBasis(callee, true, nil, nil, byName, byName, ioMethods); got != want {
+			t.Errorf("callBasis(%s) = %q, want %q", callee, got, want)
+		}
+	}
+}
