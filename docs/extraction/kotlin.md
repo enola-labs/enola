@@ -94,6 +94,13 @@ symbol ….fib                       props: recursive_self=true, cyclomatic=2
 Same model as the other languages: a bounded loop records its calls but leaves the scaling
 set empty, and self-recursion is marked rather than reported as a cycle.
 
+A call that passes an argument by a name the function does not declare is another
+function, so it is not recursion. That is every Gradle convention plugin: `apply(plugin =
+"…")` inside `apply(target: Project)` is `Project.apply`.
+
+The shared loop rules, including inner loops reached through the outer element (`for (dep
+in config.dependencies)`), are in [the index](README.md#loops-what-counts-as-nesting).
+
 ## Compose and Android components
 
 Composable functions, ViewModels, repositories and Hilt entry points are tagged with

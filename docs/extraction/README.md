@@ -35,6 +35,57 @@ pages changing, the golden tests fail first.
 | [Terraform / HCL](hcl.md) | resources, modules, variables, outputs, locals | Terraform addresses as symbol names; declared-set bare references |
 | [Ansible](ansible.md) | plays, roles, `include_role`/`import_role` | by-name structure read without rendering a template |
 
+## Loops: what counts as nesting
+
+Every extractor that reads function bodies records loops as props on the symbol:
+`loop_depth` (lexical nesting), `scaling_loop_depth` (nesting counting only loops whose
+trip count grows with some input), `calls_in_loop`, and `calls_in_scaling_loop` (the
+calls that repeat, which are the N+1 candidates). The performance analyzer reads these
+and nothing else, so what a language counts as a loop is decided here.
+
+A loop adds to `loop_depth` and not to `scaling_loop_depth` when the extractor can prove
+from syntax that it adds no factor of *n*. Each rule fails closed: a loop that is not
+proven keeps counting.
+
+| Rule | Example | Languages |
+|---|---|---|
+| A fixed-count loop | `for (i = 0; i < 3; i++)`, a loop over a literal | all with scaling props |
+| Fixed by name | `for p in PACKAGES`, `0..CHUNK_SIZE`, `Scope.values()`, a local bound once to a literal | TypeScript, Python, Rust, Java, Kotlin, PHP, C#, Ruby |
+| An infinite loop | `for {}`, `while (true)`: it repeats, and its calls stay candidates | all with scaling props |
+| Reached through the outer element | `for job in jobs { for need in job.needs }` visits each need once | Go, TypeScript, Python, PHP, Kotlin, Rust; Java and C# for statement loops |
+| A batch loop | one query per page or chunk, drained inside | Go, Python |
+
+Three things hold across those rules.
+
+- **A `for` is fixed-count only when both ends are constant.** `for (i = n - 1; i >= 0;
+  i--)` compares against a literal and walks all *n*.
+- **Reaching a collection through the element is narrower than mentioning it.** A member,
+  a subscript or a keyed lookup of the element counts, and so does a method of it that
+  takes no arguments. `xs.slice(i + 1)` mentions the outer index and is the all-pairs
+  loop, so it keeps counting.
+- **What a loop iterates is evaluated once.** A call in `for x in load()` is not in
+  `calls_in_loop`, and an iterator in that position is beside the loop, not inside it.
+
+Two further props say where a call sits and whose data a loop walks.
+
+| Prop | Meaning | Languages |
+|---|---|---|
+| `calls_in_scaling_loop_depth` | for each entry of `calls_in_scaling_loop`, in order, the deepest scaling loop it is called in | Go, TypeScript, Python, PHP, Kotlin, Java, Rust, C#, C/C++ |
+| `calls_on_loop_element`, `loops_over_param` | a call is handed the loop's element; a scaling loop walks what a parameter or the receiver holds | Go, TypeScript, Python |
+| `calls_on_loop_element_arg`, `loops_over_param_index` | which argument carries the element and which parameters are walked, `-1` for the receiver | TypeScript, Python |
+
+`scaling_loop_depth` is the function's deepest nest anywhere. A call-in-loop finding needs
+the nesting around the call, which is what the first prop gives. The other two let the
+analyzer see that `for frame in frames { render(frame) }` is one walk when `render` loops
+over the frame it was handed, and that it is not when `render` loops over something else.
+
+Ruby and Swift record `loop_depth` and `calls_in_loop` only. Ruby folds a constant-bounded
+iterator (`6.times`, `STOP_CHARS.each`) out of `loop_depth` itself.
+
+`recursive_self` is set only for a call written in a form that can reach the enclosing
+function: `self.f()` or a bare `f()` in a free function, not `super.f()`, `base.F()`,
+`parent::f()`, another receiver's `f`, or a parameter named `f`.
+
 ## How to read a page
 
 Each one is organized the same way:
