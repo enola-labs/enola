@@ -1978,3 +1978,39 @@ func TestBranchFreeFunctionIsNotRecursive(t *testing.T) {
 		}
 	}
 }
+
+func TestColdPathRecognisesWhereOneShotCodeLives(t *testing.T) {
+	cold := []string{
+		"Jellyfin.Server/Migrations/Routines/FixDates.cs", // .NET capitalises it
+		"db/migrate/20240101000000_add_index.rb",
+		"db/post_migrate/20240101000000_backfill.rb",
+		"db/old_migrations/20140101000000_move_counts.rb",
+		"lib/tasks/fake_data.rake",
+		"lib/tasks/helpers.rb",
+		"extras/cleanup.rake",
+		"lib/mastodon/cli/maintenance.rb",
+		"airflow-core/src/airflow/cli/simple_table.py",
+		".github/actions/changelog/index.js",
+		"docs/plugins/remark-localize-badges.mjs",
+		"build-logic/convention/src/main/kotlin/Graph.kt",
+	}
+	for _, f := range cold {
+		if !isColdPath(f) {
+			t.Errorf("%s not recognised as a cold path", f)
+		}
+	}
+	hot := []string{
+		"app/models/story.rb",
+		"pkg/migration/schemaversion/v34.go", // runs on every dashboard load
+		"services/migrate/run.go",            // not under db/
+		"internal/server/docs.go",            // a file, not a docs directory
+		"pkg/api/cli.go",
+		"app/lib/tasks_presenter.rb",
+		"superset/commands/chart/export.py", // commands/ is a production layer
+	}
+	for _, f := range hot {
+		if isColdPath(f) {
+			t.Errorf("%s read as a cold path", f)
+		}
+	}
+}

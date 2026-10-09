@@ -299,10 +299,20 @@ func ignoreGlobs() []string {
 // structurally but not worth acting on with urgency: they are downranked to `low` so the
 // high/medium buckets stay dominated by production hot paths. Kept visible (not excluded)
 // so they remain filterable. `versions` pairs with `migrations` (Alembic's tree).
+//
+// Matched without regard to case: .NET names the directory `Migrations`, and the
+// lowercase-only test left every one of a media server's 56 migration findings
+// ranked as a production risk.
+//
+// `cli` is an operator-invoked command tree (`lib/<app>/cli`, `<pkg>/cli`), `docs`
+// a documentation site's own plugins and components, `.github` CI actions, and
+// `build-logic` a Gradle convention-plugin build. Each is here because hand-read
+// findings sat under it, ranked high or medium, in code that never serves a request.
 var coldPathSegments = map[string]bool{
 	"migrations": true, "versions": true, "alembic": true,
 	"dev": true, "scripts": true, "devel-common": true,
 	"benchmark": true, "benchmarks": true, "examples": true,
+	"cli": true, "docs": true, ".github": true, "build-logic": true,
 }
 
 // isColdPath reports whether a finding's location is one-shot / non-runtime code
@@ -312,16 +322,28 @@ var coldPathSegments = map[string]bool{
 // It used to take a `pkg` argument that the body never read, and that every call site
 // passed as "". Gone.
 func isColdPath(file string) bool {
-	for _, part := range strings.Split(file, "/") {
-		if coldPathSegments[part] {
+	parts := strings.Split(file, "/")
+	dirs := parts[:len(parts)-1] // a FILE called docs.go or cli.py is not a directory of them
+	for i, part := range dirs {
+		if coldPathSegments[strings.ToLower(part)] {
+			return true
+		}
+		// Rails keeps its migrations under db/, in more directories than one:
+		// db/migrate, db/post_migrate, and whatever a project archives old ones
+		// into (db/old_migrations). Anchored on db/ so that a production package
+		// with "migrate" in its name elsewhere is left alone.
+		if i > 0 && dirs[i-1] == "db" && strings.Contains(part, "migrat") {
+			return true
+		}
+		// lib/tasks is where Rails keeps its rake tasks.
+		if i > 0 && dirs[i-1] == "lib" && part == "tasks" {
 			return true
 		}
 	}
-	base := file
-	if i := strings.LastIndex(base, "/"); i >= 0 {
-		base = base[i+1:]
-	}
+	base := parts[len(parts)-1]
 	switch {
+	case strings.HasSuffix(base, ".rake"):
+		return true
 	case strings.HasSuffix(file, "/__main__.py") || base == "__main__.py":
 		return true
 	case base == "setup.py" || base == "conftest.py":
