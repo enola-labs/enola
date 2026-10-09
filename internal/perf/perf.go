@@ -792,7 +792,17 @@ func isExpensiveCall(target string, storage, assoc map[string]bool) bool {
 // another language's spelling of a verb Go code uses for the same thing (`load`,
 // `commit`, `flush`), and Go has no performs_io to fall back on, so a real
 // `loadJobTaskOutputs` is found by its name or not at all.
-var goForeignKeywords = map[string]bool{"merge": true, "aggregate": true, "where": true}
+//
+// The Prisma and TypeORM method names are here too. They are multi-word API names
+// chosen because nothing else is called that, which holds in TypeScript and not
+// across languages: `findFirst` whole-word-matches `findFirstIdentifier`, a helper
+// that walks a syntax tree, and being on the "unambiguous" list it was promoted
+// to confirmed I/O and ranked high.
+var goForeignKeywords = map[string]bool{
+	"merge": true, "aggregate": true, "where": true,
+	"findMany": true, "findFirst": true, "findUnique": true, "findOne": true,
+	"createMany": true, "updateMany": true, "deleteMany": true, "queryRaw": true, "executeRaw": true,
+}
 
 // goNonIOPrefixes open a name that states or builds something rather than doing it.
 //
@@ -820,7 +830,7 @@ func goStatesOrBuilds(method string) bool {
 	return false
 }
 
-func isExpensiveGoCall(target string, storage map[string]bool) bool {
+func isExpensiveGoCall(target string, storage map[string]bool, byName map[string]funcInfo) bool {
 	if storage[target] {
 		return true
 	}
@@ -833,12 +843,45 @@ func isExpensiveGoCall(target string, storage map[string]bool) bool {
 			return true
 		}
 	}
+	return goIOPackage(target, byName)
+}
+
+// goIOPackage reports whether a Go call target sits in a package that is I/O by
+// what it is: `net/http`, `database/sql`, a `db` package, a package whose name
+// ends in `http`.
+//
+// One case is refused: a package of THIS repository named exactly `http`. That
+// name is the standard library's, and a project that reuses it is as likely naming
+// its subject as its transport. A linker that matches HTTP routes to their callers
+// lives in such a package, does no I/O, and had every loop that called a sibling
+// function reported as a confirmed network call per iteration. A wrapper package
+// (`lokihttp`, `errhttp`) and the in-repo `db` and `sql` layers keep matching:
+// there the name is the convention for code that does talk to the outside.
+func goIOPackage(target string, byName map[string]funcInfo) bool {
+	_, inRepo := byName[target]
+	ownHTTP := inRepo && goPackageName(target) == "http"
 	for _, kw := range expensivePrefixes {
+		if kw == "http." && ownHTTP {
+			continue
+		}
 		if strings.Contains(target, kw) {
 			return true
 		}
 	}
 	return false
+}
+
+// goPackageName returns the package a Go call target is in: `http` for
+// `internal/signals/http.Signal.Contribute`.
+func goPackageName(target string) string {
+	pkg := target
+	if i := strings.LastIndex(pkg, "/"); i >= 0 {
+		pkg = pkg[i+1:]
+	}
+	if i := strings.Index(pkg, "."); i >= 0 {
+		pkg = pkg[:i]
+	}
+	return pkg
 }
 
 // phpInMemory reports whether a PHP call target is in-memory work that the generic
@@ -1935,7 +1978,7 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 			case golang:
 				// Go: the generic verbs minus other ecosystems' API names, and a
 				// predicate or constructor is not I/O. See isExpensiveGoCall.
-				isExpensive = isExpensiveGoCall(callee, storage)
+				isExpensive = isExpensiveGoCall(callee, storage, byName)
 			default:
 				// nolint:staticcheck // QF1001 wants De Morgan's law applied here.
 				// "expensive, and NOT a Ruby in-memory call" is the rule as anyone
@@ -1946,7 +1989,15 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 			if !isExpensive {
 				continue
 			}
-			if isConfirmedIOCall(callee, storage, byName, ioMethods) {
+			// What confirms a call as I/O is language-specific for Go: a storage
+			// fact or an I/O package. The shared test also accepts the ORM method
+			// names and the short-name performs_io index, neither of which says
+			// anything about Go code.
+			confirmed := isConfirmedIOCall(callee, storage, byName, ioMethods)
+			if golang {
+				confirmed = storage[callee] || goIOPackage(callee, byName)
+			}
+			if confirmed {
 				confirmedIO = true
 			}
 			if assoc[methodSegment(callee)] && !storage[callee] {

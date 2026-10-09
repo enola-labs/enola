@@ -1861,7 +1861,7 @@ func TestGoCallGateUsesGoVerbsAndPartOfSpeech(t *testing.T) {
 		"pkg/tracker.Issue.Labels",       // `Issue` is not `Is` + `sue`: no verb either
 	}
 	for _, c := range notIO {
-		if isExpensiveGoCall(c, nil) {
+		if isExpensiveGoCall(c, nil, nil) {
 			t.Errorf("%s read as I/O", c)
 		}
 	}
@@ -1872,11 +1872,11 @@ func TestGoCallGateUsesGoVerbsAndPartOfSpeech(t *testing.T) {
 		"pkg/infra/db.DB.WithTransactionalDbSession", // runs its closure in a transaction
 	}
 	for _, c := range isIO {
-		if !isExpensiveGoCall(c, nil) {
+		if !isExpensiveGoCall(c, nil, nil) {
 			t.Errorf("%s not read as I/O", c)
 		}
 	}
-	if !isExpensiveGoCall("pkg/x.NewThing", map[string]bool{"pkg/x.NewThing": true}) {
+	if !isExpensiveGoCall("pkg/x.NewThing", map[string]bool{"pkg/x.NewThing": true}, nil) {
 		t.Errorf("a storage fact is I/O whatever its name")
 	}
 }
@@ -2173,6 +2173,48 @@ func TestOnlyCallInLoopAndRecursionClaimABigO(t *testing.T) {
 	for kind := range want {
 		if !seen[kind] {
 			t.Errorf("no %s finding produced; the fixture should yield one of each kind", kind)
+		}
+	}
+}
+
+// A project's own package named http is not the HTTP client, and an ORM's method
+// name is not a Go API. Both produced high-severity findings on a codebase that
+// does neither.
+func TestGoInRepoHTTPPackageAndORMNamesAreNotConfirmedIO(t *testing.T) {
+	funcs := []funcInfo{
+		// A linker package called http: matches routes in memory.
+		{Name: "internal/signals/http.resolveCall", File: "internal/signals/http/http.go"},
+		{
+			Name: "internal/signals/http.Contribute", File: "internal/signals/http/http.go", LoopDepth: 1, LoopCount: 1,
+			CallsInLoop: []string{"internal/signals/http.resolveCall"},
+		},
+		// A syntax-tree helper that recurses through a loop over children.
+		{
+			Name: "internal/ast.findFirstIdentifier", File: "internal/ast/walk.go", LoopDepth: 1, LoopCount: 1,
+			Recursive: true, Cyclomatic: 3, CallsInLoop: []string{"internal/ast.findFirstIdentifier"},
+		},
+		// The real thing: the standard library's client, once per item.
+		{
+			Name: "internal/fetch.All", File: "internal/fetch/all.go", LoopDepth: 1, LoopCount: 1,
+			CallsInLoop: []string{"net/http.Get"},
+		},
+		// And an in-repo client wrapper, whose package name says what it is.
+		{Name: "pkg/lokihttp.client.sendBatch", File: "pkg/lokihttp/client.go"},
+		{
+			Name: "pkg/push.Flush", File: "pkg/push/flush.go", LoopDepth: 1, LoopCount: 1,
+			CallsInLoop: []string{"pkg/lokihttp.client.sendBatch"},
+		},
+	}
+	got := analyze(funcs, nil, nil, nil)
+	for _, name := range []string{"internal/signals/http.Contribute", "internal/ast.findFirstIdentifier"} {
+		if f, ok := findFinding(got, name, "call-in-loop"); ok {
+			t.Errorf("%s reported as a call-in-loop: %+v", name, f)
+		}
+	}
+	for _, name := range []string{"internal/fetch.All", "pkg/push.Flush"} {
+		f, ok := findFinding(got, name, "call-in-loop")
+		if !ok || f.Severity != "high" {
+			t.Errorf("%s: %+v (ok=%v), want a high call-in-loop", name, f, ok)
 		}
 	}
 }
