@@ -257,12 +257,18 @@ const (
 	basisName        = "name"        // a generic verb, or a per-language name list
 )
 
+// basisIsFact reports whether a basis is a fact about the callee and not a reading
+// of its name. Only a fact confirms a call as I/O.
+func basisIsFact(basis string) bool {
+	return basis == basisStorage || basis == basisResolvedIO
+}
+
 // callBasis names the strongest ground for treating an in-loop call as I/O. It is
 // asked only of a call the per-language gate already admitted, and does not decide
 // whether the call is reported.
 //
-// Go is read by its own rule, as it is where the call is confirmed: the method
-// index and the ORM names say nothing about Go code.
+// Go is read by its own rule: the method index and the ORM names say nothing about
+// Go code.
 func callBasis(callee string, golang bool, storage, assoc map[string]bool, byName, byDotted map[string]funcInfo, ioMethods map[string]bool) string {
 	if storage[callee] {
 		return basisStorage
@@ -1960,9 +1966,14 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 			strings.HasSuffix(f.File, ".cxx") || strings.HasSuffix(f.File, ".hpp") ||
 			strings.HasSuffix(f.File, ".hxx") || strings.HasSuffix(f.File, ".h") ||
 			strings.HasSuffix(f.File, ".c")
-		// confirmedIO: the call is real I/O (storage fact / resolved performs_io /
-		// unambiguous DB method / I/O receiver), as opposed to a name-only keyword guess.
+		// confirmedIO: a named call is known to do I/O, by a fact about the callee:
+		// it is a storage fact, or it resolves to a function flagged performs_io.
 		// It is what promotes a call-in-loop to "high".
+		//
+		// It used to accept readings of the name as well: a method name some
+		// function flagged performs_io also bears, a curated ORM method, a receiver
+		// token, an association of that name. Read one call at a time those were
+		// right 24 times in 58, and they carried the same 0.9 as a fact.
 		confirmedIO := false
 		// The deepest scaling loop any of the reported calls sits in, and whether
 		// every one of those depths came from the extractor.
@@ -2067,21 +2078,15 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 			if !isExpensive {
 				continue
 			}
-			// What confirms a call as I/O is language-specific for Go: a storage
-			// fact or an I/O package. The shared test also accepts the ORM method
-			// names and the short-name performs_io index, neither of which says
-			// anything about Go code.
-			confirmed := isConfirmedIOCall(callee, storage, byName, ioMethods)
-			if golang {
-				confirmed = storage[callee] || goIOPackage(callee, byName)
-			}
-			if confirmed {
+			basis := callBasis(callee, golang, storage, assoc, byName, byDotted, ioMethods)
+			if basisIsFact(basis) {
 				confirmedIO = true
 			}
 			if assoc[methodSegment(callee)] && !storage[callee] {
-				// A lazy ActiveRecord association read in a loop is a confirmed N+1.
+				// Worded as an association read. Not confirmed by that: the name is
+				// matched against every association the application declares, so
+				// `tag.tag`, a string column, reads as one.
 				assocReads = append(assocReads, callee)
-				confirmedIO = true
 			} else {
 				expensive = append(expensive, callee)
 			}
@@ -2091,7 +2096,7 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 				callNesting = d
 			}
 			callNestingKnown = callNestingKnown && known
-			ce := CallEvidence{Callee: callee, Basis: callBasis(callee, golang, storage, assoc, byName, byDotted, ioMethods)}
+			ce := CallEvidence{Callee: callee, Basis: basis}
 			if known {
 				ce.Depth = d
 			}
@@ -2105,9 +2110,9 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 			// Severity is evidence-based, not export-based (exported is noise in Python and
 			// on the JVM). Every emitted finding has already passed a per-language
 			// expensiveness gate, so it is at least worth review (medium). It rises to high
-			// only when there is real evidence: a confirmed I/O call (storage fact /
-			// performs_io / unambiguous DB-network primitive) or a route handler (always
-			// hot). A heuristic-only match (a curated JVM method, a generic verb name) stays
+			// only when there is real evidence: a confirmed I/O call (a storage fact, or
+			// a resolved callee flagged performs_io) or a route handler (always hot). A
+			// match by name (a curated method, a receiver token, a generic verb) stays
 			// medium. Cold-path findings drop to low in the post-process below.
 			sev := "medium"
 			if routeHandlers[f.Name] || confirmedIO {
@@ -2176,7 +2181,7 @@ func confidenceFor(kind string, confirmed bool, depth int, discounted bool) floa
 	switch kind {
 	case "call-in-loop":
 		if confirmed {
-			conf = 0.9 // storage fact / performs_io / unambiguous I/O primitive
+			conf = 0.9 // a storage fact, or a resolved callee flagged performs_io
 		} else {
 			conf = 0.6 // name-keyword heuristic only
 		}
@@ -2269,13 +2274,16 @@ var pyIOMethods = map[string]bool{
 	"get_or_create": true, "update_or_create": true,
 }
 
-// isConfirmedIOCall reports whether an in-loop call is backed by real I/O — a storage
+// isConfirmedIOCall reports whether an in-loop call has the shape of real I/O — a storage
 // fact, a resolved callee flagged performs_io, an unambiguous DB method (SQLAlchemy/DBAPI
 // or a distinctive ORM query method), the global fetch, an I/O method from the transitive
 // performs_io short-name index, or an HTTP/DB receiver/module prefix — as opposed to a
-// name that merely collides with a generic DB verb (Find/Save/Update/where). It is the
-// cross-language "this is a real per-iteration I/O call" predicate, used both to gate
-// Python expensiveness and to escalate any call-in-loop finding to high.
+// name that merely collides with a generic DB verb (Find/Save/Update/where). It gates
+// whether a call is reported, for the languages that have no usable verb list.
+//
+// It no longer decides severity, despite its name. Most of what it accepts is a
+// reading of the callee's name, and only a fact about the callee confirms: see
+// basisIsFact.
 func isConfirmedIOCall(target string, storage map[string]bool, byName map[string]funcInfo, ioMethods map[string]bool) bool {
 	if storage[target] {
 		return true

@@ -354,7 +354,9 @@ func TestAnalyze_TSCallInLoop_LocalHelperNotExpensive(t *testing.T) {
 }
 
 func TestAnalyze_TSCallInLoop_RealN1Flagged(t *testing.T) {
-	// A genuine per-iteration network/DB call in TS/JS is still flagged.
+	// A genuine per-iteration network/DB call in TS/JS is still flagged. Both calls
+	// are known by their names only, so the finding is medium: a curated method name
+	// is a better reading than a verb, and still a reading.
 	funcs := []funcInfo{
 		{Name: "feed.load", File: "client/feed/api.ts", Line: 10,
 			Exported: true, LoopDepth: 1, LoopCount: 1,
@@ -365,8 +367,8 @@ func TestAnalyze_TSCallInLoop_RealN1Flagged(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected a call-in-loop finding for a real TS N+1; got %+v", got)
 	}
-	if f.Severity != "high" {
-		t.Errorf("exported TS N+1 severity = %q, want high", f.Severity)
+	if f.Severity != "medium" || f.Confidence != 0.6 {
+		t.Errorf("TS N+1 known by name = %q at %.1f, want medium at 0.6", f.Severity, f.Confidence)
 	}
 }
 
@@ -375,10 +377,16 @@ func TestAnalyze_TSCallInLoop_PerformsIOWrapperFlagged(t *testing.T) {
 	// per-iteration network call — flagged even though the wrapper's name matches no
 	// keyword. The in-loop callee is the receiver-qualified metric string; the match
 	// comes through the short-name ioMethods index built from the wrapper's own fact.
+	//
+	// That match is by method name, so it reports and does not confirm. The same
+	// call resolved to the wrapper's fact is confirmed, and high.
 	funcs := []funcInfo{
 		{Name: "notif.Subcategory", File: "client/notif/index.tsx", Line: 29,
 			Exported: true, LoopDepth: 1, LoopCount: 1,
 			CallsInLoop: []string{"svc.updateChannels"}},
+		{Name: "notif.Resolved", File: "client/notif/index.tsx", Line: 60,
+			Exported: true, LoopDepth: 1, LoopCount: 1,
+			CallsInLoop: []string{"client/notif/api.updateChannels"}},
 		// The wrapper fact carries performs_io (propagated by the TS extractor).
 		{Name: "client/notif/api.updateChannels", File: "client/notif/api.ts", Line: 4,
 			Exported: true, PerformsIO: true},
@@ -388,8 +396,11 @@ func TestAnalyze_TSCallInLoop_PerformsIOWrapperFlagged(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected a call-in-loop finding for a performs_io wrapper N+1; got %+v", got)
 	}
-	if f.Severity != "high" {
-		t.Errorf("exported performs_io N+1 severity = %q, want high", f.Severity)
+	if f.Severity != "medium" {
+		t.Errorf("performs_io N+1 matched by method name = %q, want medium", f.Severity)
+	}
+	if r, ok := findFinding(got, "notif.Resolved", "call-in-loop"); !ok || r.Severity != "high" || r.Confidence != 0.9 {
+		t.Errorf("performs_io N+1 on a resolved callee = %q at %.1f (ok=%v), want high at 0.9", r.Severity, r.Confidence, ok)
 	}
 }
 
@@ -814,13 +825,16 @@ func TestAnalyze_JvmPerformsIOAccessorNameNoCollision(t *testing.T) {
 	}
 }
 
-func TestAnalyze_JvmPerformsIOLeafIsHighN1(t *testing.T) {
+func TestAnalyze_JvmPerformsIOLeafIsN1(t *testing.T) {
 	// A public Kotlin method looping over a call to a Retrofit endpoint (flagged
-	// performs_io by the extractor) is a genuine N+1 — expensive AND high, even though
-	// the callee name matches no keyword.
+	// performs_io by the extractor) is a genuine N+1, reported even though the callee
+	// name matches no keyword. `service.fetchFurly` reaches the endpoint by its
+	// method name, which reports it; resolved to the endpoint's fact it is high.
 	funcs := []funcInfo{
 		{Name: "biz.UseCase.getEmbeddedUrls", File: "biz/U.kt", Line: 31, Exported: true,
 			LoopDepth: 1, LoopCount: 1, CallsInLoop: []string{"service.fetchFurly"}},
+		{Name: "biz.UseCase.resolved", File: "biz/U.kt", Line: 50, Exported: true,
+			LoopDepth: 1, LoopCount: 1, CallsInLoop: []string{"api.Service.fetchFurly"}},
 		{Name: "api.Service.fetchFurly", File: "api/S.kt", Line: 9, PerformsIO: true},
 	}
 	got := analyze(funcs, nil, nil, nil)
@@ -828,8 +842,11 @@ func TestAnalyze_JvmPerformsIOLeafIsHighN1(t *testing.T) {
 	if !ok {
 		t.Fatalf("no call-in-loop for a per-iteration Retrofit call; got %+v", got)
 	}
-	if f.Severity != "high" {
-		t.Errorf("performs_io N+1 severity = %q, want high", f.Severity)
+	if f.Severity != "medium" {
+		t.Errorf("performs_io N+1 matched by method name = %q, want medium", f.Severity)
+	}
+	if r, ok := findFinding(got, "biz.UseCase.resolved", "call-in-loop"); !ok || r.Severity != "high" {
+		t.Errorf("performs_io N+1 on a resolved callee = %q (ok=%v), want high", r.Severity, ok)
 	}
 }
 
@@ -995,16 +1012,17 @@ func TestAnalyze_PythonExportedNotAutoHigh(t *testing.T) {
 	}
 }
 
-func TestAnalyze_PythonRealDBCallInLoopStaysHigh(t *testing.T) {
-	// A genuine DB round-trip (session.execute) inside a loop must remain high.
+func TestAnalyze_PythonRealDBCallInLoopIsReported(t *testing.T) {
+	// A genuine DB round-trip (session.execute) inside a loop is reported. It is
+	// known by the method's name, on a receiver of unknown type, so it is medium.
 	funcs := []funcInfo{
 		{Name: "d.delete_dag", File: "airflow/api/delete_dag.py", Line: 1, Exported: true, LoopDepth: 1, LoopCount: 1,
 			Calls: []string{"session.execute"}, CallsInLoop: []string{"session.execute"}},
 	}
 	got := analyze(funcs, nil, nil, nil)
 	f, ok := findFinding(got, "d.delete_dag", "call-in-loop")
-	if !ok || f.Severity != "high" {
-		t.Errorf("Python DB call-in-loop severity = %q (ok=%v), want high", f.Severity, ok)
+	if !ok || f.Severity != "medium" {
+		t.Errorf("Python DB call-in-loop severity = %q (ok=%v), want medium", f.Severity, ok)
 	}
 }
 
@@ -1156,7 +1174,7 @@ func TestAnalyze_PythonUrllibRequestIsIO(t *testing.T) {
 		{Name: "s.fetch_all", File: "airflow/api/x.py", Line: 1, Exported: true, LoopDepth: 1, LoopCount: 1,
 			Calls: []string{"urllib.request.urlopen"}, CallsInLoop: []string{"urllib.request.urlopen"}},
 	}
-	f, ok := findFinding(analyze(funcs, nil, nil, nil), "s.fetch_all", "call-in-loop")
+	f, ok := findFinding(analyze(funcs, nil, map[string]bool{"s.fetch_all": true}, nil), "s.fetch_all", "call-in-loop")
 	if !ok || f.Severity != "high" {
 		t.Errorf("urllib.request.urlopen loop = %q (ok=%v), want high", f.Severity, ok)
 	}
@@ -1175,8 +1193,8 @@ func TestAnalyze_BoundedLoopCallNotN1(t *testing.T) {
 	if f, ok := findFinding(got, "app.boundedSetup", "call-in-loop"); ok {
 		t.Errorf("call only in a bounded loop must not be an N+1: %+v", f)
 	}
-	if f, ok := findFinding(got, "app.realN1", "call-in-loop"); !ok || f.Severity != "high" {
-		t.Errorf("call in a scaling loop = %q (ok=%v), want high", f.Severity, ok)
+	if _, ok := findFinding(got, "app.realN1", "call-in-loop"); !ok {
+		t.Errorf("call in a scaling loop must be reported")
 	}
 }
 
@@ -1186,8 +1204,8 @@ func TestAnalyze_ScalingLoopCallsFallback(t *testing.T) {
 		{Name: "app.f", File: "app/f.py", Line: 1, Exported: true, LoopDepth: 1, LoopCount: 1,
 			CallsInLoop: []string{"session.execute"}}, // HasScalingLoopCalls == false
 	}
-	if f, ok := findFinding(analyze(funcs, nil, nil, nil), "app.f", "call-in-loop"); !ok || f.Severity != "high" {
-		t.Errorf("fallback to calls_in_loop failed: sev=%q ok=%v", f.Severity, ok)
+	if _, ok := findFinding(analyze(funcs, nil, nil, nil), "app.f", "call-in-loop"); !ok {
+		t.Errorf("fallback to calls_in_loop failed: not reported")
 	}
 }
 
@@ -2211,10 +2229,12 @@ func TestGoInRepoHTTPPackageAndORMNamesAreNotConfirmedIO(t *testing.T) {
 			t.Errorf("%s reported as a call-in-loop: %+v", name, f)
 		}
 	}
+	// Reported, and medium: a package name is a reading too. `net/http` also holds
+	// `ResponseWriter.Header`, which returns a map.
 	for _, name := range []string{"internal/fetch.All", "pkg/push.Flush"} {
 		f, ok := findFinding(got, name, "call-in-loop")
-		if !ok || f.Severity != "high" {
-			t.Errorf("%s: %+v (ok=%v), want a high call-in-loop", name, f, ok)
+		if !ok || f.Severity != "medium" {
+			t.Errorf("%s: %+v (ok=%v), want a medium call-in-loop", name, f, ok)
 		}
 	}
 }
