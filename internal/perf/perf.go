@@ -2075,6 +2075,23 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 				// and reads as neither.
 				isExpensive = isExpensiveCall(callee, storage, assoc) && !(ruby && rubyInMemory(callee))
 			}
+			// Positive evidence overrules every name gate above: a callee that resolves
+			// to a function flagged performs_io is I/O whatever it is called, in any
+			// language.
+			//
+			// The converse is NOT applied. "Resolves, and carries no flag" does not
+			// mean "does no I/O": performs_io follows calls edges, and a call on a
+			// field that holds a client (`self.hook.copy(…)`, `_repo.Save(…)`) is not
+			// one. Tried over every language at once, that rule removed 5 of 5 labelled
+			// Java findings it touched, 4 of 4 TypeScript and 3 of 6 C#, and of 18
+			// Python removals read against source 11 were real I/O.
+			if !isExpensive {
+				r, ok := byName[callee]
+				if !ok {
+					r, ok = byDotted[callee]
+				}
+				isExpensive = ok && r.PerformsIO && callee != f.Name
+			}
 			if !isExpensive {
 				continue
 			}

@@ -2292,3 +2292,41 @@ func TestCallBasisReadsGoByPackage(t *testing.T) {
 		}
 	}
 }
+
+// A callee that resolves to a function flagged performs_io is reported whatever it
+// is called, in a language whose gate reads names only. The converse does not
+// hold: a resolved callee with no flag is still judged by its name, because the
+// flag stops at a call on a field.
+func TestResolvedPerformsIOCalleeIsReportedInAnyLanguage(t *testing.T) {
+	funcs := []funcInfo{
+		{Name: "Lib/IO.Helper.Resolve", File: "Lib/IO/Helper.cs", PerformsIO: true}, // File.ResolveLinkTarget
+		{Name: "Lib/IO.Helper.Normalize", File: "Lib/IO/Helper.cs"},
+		{Name: "Lib/Tv.Provider.DeleteEpisode", File: "Lib/Tv/Provider.cs"}, // _library.DeleteItem(…): no edge, no flag
+		{
+			Name: "Lib/IO.Helper.Walk", File: "Lib/IO/Helper.cs", LoopDepth: 1, LoopCount: 1,
+			CallsInLoop: []string{"Lib/IO.Helper.Resolve", "Lib/IO.Helper.Normalize"},
+		},
+		{
+			Name: "Lib/Tv.Provider.Prune", File: "Lib/Tv/Provider.cs", LoopDepth: 1, LoopCount: 1,
+			CallsInLoop: []string{"Lib/Tv.Provider.DeleteEpisode"},
+		},
+		{Name: "pkg/store.load", File: "pkg/store/store.go", PerformsIO: true},
+		{
+			Name: "pkg/job.Run", File: "pkg/job/job.go", LoopDepth: 1, LoopCount: 1,
+			CallsInLoop: []string{"pkg/store.load"},
+		},
+	}
+	got := analyze(funcs, nil, nil, nil)
+
+	walk, ok := findFinding(got, "Lib/IO.Helper.Walk", "call-in-loop")
+	if !ok || walk.Severity != "high" || len(walk.Calls) != 1 ||
+		walk.Calls[0] != (CallEvidence{Callee: "Lib/IO.Helper.Resolve", Basis: basisResolvedIO}) {
+		t.Errorf("Walk = %+v (ok=%v), want one high call on Resolve by resolved-io", walk, ok)
+	}
+	if p, ok := findFinding(got, "Lib/Tv.Provider.Prune", "call-in-loop"); !ok || p.Severity != "medium" {
+		t.Errorf("Prune = %+v (ok=%v): a resolved callee with no flag is still read by its name", p, ok)
+	}
+	if r, ok := findFinding(got, "pkg/job.Run", "call-in-loop"); !ok || r.Severity != "high" {
+		t.Errorf("Run = %+v (ok=%v), want high: Go has the same rule once it has the fact", r, ok)
+	}
+}
