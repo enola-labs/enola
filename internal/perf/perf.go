@@ -2448,7 +2448,15 @@ func sortFindings(f []Finding) {
 		if f[i].Symbol != f[j].Symbol {
 			return f[i].Symbol < f[j].Symbol
 		}
-		return f[i].Kind < f[j].Kind
+		if f[i].Kind != f[j].Kind {
+			return f[i].Kind < f[j].Kind
+		}
+		// Overloads share a symbol name. A page boundary must fall in the same
+		// place on every call, so the order between them is fixed too.
+		if f[i].File != f[j].File {
+			return f[i].File < f[j].File
+		}
+		return f[i].Line < f[j].Line
 	})
 }
 
@@ -2459,7 +2467,9 @@ type args struct {
 	Repo        string `json:"repo,omitempty" jsonschema:"Repository label (multi-repo snapshots), e.g. 'go-service'."`
 	Symbol      string `json:"symbol,omitempty" jsonschema:"Symbol name substring."`
 	MinSeverity string `json:"min_severity,omitempty" jsonschema:"'low' (default), 'medium', or 'high'."`
+	Kind        string `json:"kind,omitempty" jsonschema:"Finding kind: call-in-loop, query-loop, recursion, nested-loop or compounded. Several are comma-separated. Default: all."`
 	Limit       int    `json:"limit,omitempty" jsonschema:"Maximum findings (1-1000). Default 100."`
+	Offset      int    `json:"offset,omitempty" jsonschema:"Findings to skip, for paging past limit. Default 0."`
 	OutputMode  string `json:"output_mode,omitempty" jsonschema:"'summary' (DEFAULT, counts by severity and kind plus the top findings), 'compact' (markdown table), or 'full' (complete JSON with the summary)."`
 	MaxTokens   int    `json:"max_tokens,omitempty" jsonschema:"Approximate token cap; output is truncated with a notice. Default: no cap."`
 }
@@ -2485,7 +2495,11 @@ type response struct {
 	Findings []Finding `json:"findings"`
 	Summary  summary   `json:"summary"`
 	Returned int       `json:"returned"`
-	Note     string    `json:"note"`
+	// Offset is where this page starts in the ranked, filtered findings, and
+	// NextOffset where the next one does. NextOffset is absent on the last page.
+	Offset     int    `json:"offset,omitempty"`
+	NextOffset int    `json:"next_offset,omitempty"`
+	Note       string `json:"note"`
 }
 
 const toolDescription = "Ranked performance risks per function: I/O or database calls inside loops (a likely N+1), recursion, " +
@@ -2498,6 +2512,8 @@ const toolDescription = "Ranked performance risks per function: I/O or database 
 	"A query-loop finding is one the query-loops explainer made (Rails): a database query per iteration, read from the " +
 	"receiver's type. All of them are returned here, including those that explainer counts in its rollup and does not list. " +
 	"Supports Go, Python, Ruby, Swift, Kotlin, Scala, Dart, TypeScript, Java, C++ and C#. " +
+	"kind narrows the result to one or more kinds. A call returns at most 1000 findings; a full result says where the " +
+	"next page starts (next_offset), and offset reads it. " +
 	"Findings of medium severity and up also appear in query_insights(explainer=\"performance\"); query-loop findings " +
 	"appear in query_insights(explainer=\"query-loops\")."
 
@@ -2511,6 +2527,11 @@ func Register(srv *mcp.Server, store func() *facts.Store) {
 	}, func(_ context.Context, _ *mcp.CallToolRequest, in args) (*mcp.CallToolResult, any, error) {
 		if store().Count() == 0 {
 			return mcputil.ErrorResult("No facts available. Run generate_snapshot first."), nil, nil
+		}
+
+		if bad := unknownKinds(in.Kind); len(bad) > 0 {
+			return mcputil.ErrorResult(fmt.Sprintf("Unknown kind %s. Kinds: %s.",
+				strings.Join(bad, ", "), strings.Join(kindNames(), ", "))), nil, nil
 		}
 
 		funcs, storage, routeHandlers, assoc := collect(store())
@@ -2540,24 +2561,21 @@ func Register(srv *mcp.Server, store func() *facts.Store) {
 		// above "(high 145 / medium 499 / low 267)", which sums to 911. That is the very
 		// defect new/56 fixed, reintroduced by its own fix, because the tests called
 		// summarize() directly and never exercised a result set larger than the limit.
-		shown := matched
-		if len(shown) > limit {
-			shown = shown[:limit]
-		}
+		shown, offset, next := page(matched, in.Offset, limit)
 
 		switch mcputil.ResolveOutputMode(in.OutputMode, mcputil.ModeSummary) {
 		case mcputil.ModeFull:
 			return mcputil.JSONResultCapped(response{
 				Findings: shown,
 				Summary:  sum,
-				Returned: len(shown),
+				Returned: len(shown), Offset: offset, NextOffset: next,
 				Note: "big_o (recursion, and a call-in-loop whose call sits in one loop) is a deterministic estimate of worst case from parser facts, not a proof. " +
 					"depth (nested-loop, compounded, and a call-in-loop whose call sits in a nest) is a count of nested loops and NOT a complexity: nested loops multiply only when each walks an independent collection. Supports Go, Python, Ruby, Swift, Kotlin, Scala, Dart, TypeScript, Java, C++, and C#. " +
 					"SCALA: a `for … yield` comprehension and flatMap/fold are monadic binds as often as iteration, so they raise loop_depth but NOT scaling depth — a finding over one is downgraded rather than claimed; a combinator applied to an Option is discounted the same way. " +
 					strings.ReplaceAll(strings.TrimSpace(kindLegend(shown)), "\n", " "),
 			}, in.MaxTokens)
 		case mcputil.ModeCompact:
-			return mcputil.TextResult(mcputil.CapTokens(withLegend(renderPerfCompact(shown), shown), in.MaxTokens, false)), nil, nil
+			return mcputil.TextResult(mcputil.CapTokens(withLegend(renderPerfCompact(shown)+pageLine(offset, len(shown), len(matched)), shown), in.MaxTokens, false)), nil, nil
 		default:
 			// The summary renders its own topN list, so it gets the full matched set —
 			// its counts and its headline must describe the same thing.
@@ -2653,6 +2671,80 @@ var kindMeanings = []struct{ kind, meaning string }{
 	{"query-loop", "a database query issued once per iteration, read from the receiver's type by the query-loops explainer"},
 }
 
+// kindNames lists the finding kinds, in the legend's order.
+func kindNames() []string {
+	names := make([]string, 0, len(kindMeanings))
+	for _, k := range kindMeanings {
+		names = append(names, k.kind)
+	}
+	return names
+}
+
+// kindSet reads the kind argument, a comma-separated list, or nil for none.
+func kindSet(arg string) map[string]bool {
+	var set map[string]bool
+	for _, k := range strings.Split(arg, ",") {
+		if k = strings.TrimSpace(k); k != "" {
+			if set == nil {
+				set = map[string]bool{}
+			}
+			set[k] = true
+		}
+	}
+	return set
+}
+
+// unknownKinds returns the names in the kind argument that are no finding kind.
+// A misspelt kind would otherwise match nothing and read as a clean repository.
+func unknownKinds(arg string) []string {
+	set := kindSet(arg)
+	for _, k := range kindNames() {
+		delete(set, k)
+	}
+	bad := make([]string, 0, len(set))
+	for k := range set {
+		bad = append(bad, k)
+	}
+	sort.Strings(bad)
+	return bad
+}
+
+// page cuts one page out of the ranked, filtered findings. It returns the offset
+// it used, clamped to the findings there are, and the offset of the next page, or
+// 0 when this one is the last.
+func page(matched []Finding, offset, limit int) (shown []Finding, at, next int) {
+	if offset < 0 {
+		offset = 0
+	}
+	if offset > len(matched) {
+		offset = len(matched)
+	}
+	shown = matched[offset:]
+	if len(shown) > limit {
+		shown = shown[:limit]
+	}
+	if end := offset + len(shown); end < len(matched) {
+		next = end
+	}
+	return shown, offset, next
+}
+
+// pageLine says which part of the matched findings a table shows, when it is not
+// all of them, and where the next page starts.
+func pageLine(offset, shown, total int) string {
+	if shown == total {
+		return ""
+	}
+	if shown == 0 {
+		return fmt.Sprintf("\nNo findings at offset %d: %d matched.\n", offset, total)
+	}
+	line := fmt.Sprintf("\nShowing %d to %d of %d.", offset+1, offset+shown, total)
+	if offset+shown < total {
+		line += fmt.Sprintf(" Next page: offset=%d.", offset+shown)
+	}
+	return line + "\n"
+}
+
 // kindLegend defines the kinds that occur in findings, one line each, or "" for none.
 func kindLegend(findings []Finding) string {
 	seen := map[string]bool{}
@@ -2725,6 +2817,7 @@ func describeFilter(a args) string {
 		"repo", a.Repo,
 		"symbol", a.Symbol,
 		"min_severity", a.MinSeverity,
+		"kind", a.Kind,
 	)
 }
 
@@ -2778,12 +2871,16 @@ func filterFindings(in []Finding, a args) []Finding {
 	if a.MinSeverity == "" {
 		minRank = 0
 	}
-	if a.Package == "" && a.Repo == "" && a.Symbol == "" && minRank == 0 {
+	kinds := kindSet(a.Kind)
+	if a.Package == "" && a.Repo == "" && a.Symbol == "" && minRank == 0 && kinds == nil {
 		return in
 	}
 	out := in[:0:0]
 	for _, f := range in {
 		if minRank > 0 && severityRank(f.Severity) < minRank {
+			continue
+		}
+		if kinds != nil && !kinds[f.Kind] {
 			continue
 		}
 		// package= matches the declaring package OR the symbol name — the schema

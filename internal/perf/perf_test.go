@@ -2441,3 +2441,100 @@ func TestQueryLoopFindingsAreListedByTheTool(t *testing.T) {
 		t.Errorf("a migration's finding is ranked %q, want low", b.Severity)
 	}
 }
+
+// A kind filter narrows the findings and the counts drawn from them alike.
+func TestFilterFindings_Kind(t *testing.T) {
+	all := perfFindingsFixture()
+
+	if got := filterFindings(all, args{Kind: "nested-loop"}); len(got) != 1 || got[0].Kind != "nested-loop" {
+		t.Errorf("kind=nested-loop: got %d findings, want the one nested-loop", len(got))
+	}
+	if got := filterFindings(all, args{Kind: "call-in-loop, nested-loop"}); len(got) != len(all) {
+		t.Errorf("a comma-separated list is a union: got %d, want %d", len(got), len(all))
+	}
+	if got := filterFindings(all, args{Kind: "recursion"}); len(got) != 0 {
+		t.Errorf("kind=recursion: got %d findings, want none", len(got))
+	}
+	in := args{Kind: "nested-loop"}
+	out := renderPerfSummary(summarize(all, filterFindings(all, in)), filterFindings(all, in), in)
+	if !strings.Contains(out, `kind="nested-loop"`) {
+		t.Errorf("a filtered headline must name the kind filter; got:\n%s", out)
+	}
+}
+
+// A misspelt kind is refused: matching nothing would read as a clean repository.
+func TestUnknownKinds(t *testing.T) {
+	if bad := unknownKinds("call-in-loop,query-loop, recursion,nested-loop,compounded"); len(bad) != 0 {
+		t.Errorf("every kind the analyzer reports must be accepted; refused %v", bad)
+	}
+	if bad := unknownKinds("n+1, call-in-loop,loops"); len(bad) != 2 || bad[0] != "loops" || bad[1] != "n+1" {
+		t.Errorf("unknownKinds = %v, want [loops n+1]", bad)
+	}
+	if bad := unknownKinds(""); len(bad) != 0 {
+		t.Errorf("no kind is no error; got %v", bad)
+	}
+}
+
+// Pages must tile the findings: every one on exactly one page, and the last page
+// saying it is the last.
+func TestPage_TilesTheFindings(t *testing.T) {
+	all := make([]Finding, 25)
+	for i := range all {
+		all[i] = Finding{Symbol: fmt.Sprintf("pkg.F%02d", i), Kind: "recursion", Severity: "medium"}
+	}
+	var seen []string
+	offset, calls := 0, 0
+	for {
+		shown, at, next := page(all, offset, 10)
+		if at != offset {
+			t.Fatalf("page reported offset %d, asked for %d", at, offset)
+		}
+		for _, f := range shown {
+			seen = append(seen, f.Symbol)
+		}
+		calls++
+		if next == 0 {
+			break
+		}
+		offset = next
+	}
+	if calls != 3 || len(seen) != len(all) {
+		t.Fatalf("got %d findings over %d pages, want %d over 3", len(seen), calls, len(all))
+	}
+	for i, s := range seen {
+		if s != all[i].Symbol {
+			t.Fatalf("page order differs from rank at %d: %s", i, s)
+		}
+	}
+	if shown, at, next := page(all, 99, 10); len(shown) != 0 || at != len(all) || next != 0 {
+		t.Errorf("an offset past the end is an empty last page; got %d findings, offset %d, next %d", len(shown), at, next)
+	}
+	if shown, _, next := page(all, -3, 100); len(shown) != len(all) || next != 0 {
+		t.Errorf("a negative offset reads from the start; got %d findings, next %d", len(shown), next)
+	}
+}
+
+// Overloads share a symbol name and a kind. Their order must not depend on the
+// order they were found in, or a page boundary between them moves from call to call.
+func TestSortFindings_OrdersOverloads(t *testing.T) {
+	a := Finding{Symbol: "pkg.T.Get", Kind: "call-in-loop", Severity: "high", File: "t.cs", Line: 40}
+	b := Finding{Symbol: "pkg.T.Get", Kind: "call-in-loop", Severity: "high", File: "t.cs", Line: 12}
+	for _, in := range [][]Finding{{a, b}, {b, a}} {
+		sortFindings(in)
+		if in[0].Line != 12 || in[1].Line != 40 {
+			t.Errorf("overloads must sort by line; got %d then %d", in[0].Line, in[1].Line)
+		}
+	}
+}
+
+func TestPageLine(t *testing.T) {
+	if got := pageLine(0, 7, 7); got != "" {
+		t.Errorf("a complete table needs no page line; got %q", got)
+	}
+	if got := pageLine(100, 100, 250); !strings.Contains(got, "101 to 200 of 250") || !strings.Contains(got, "offset=200") {
+		t.Errorf("a middle page must say what it shows and where the next starts; got %q", got)
+	}
+	if got := pageLine(200, 50, 250); !strings.Contains(got, "201 to 250 of 250") || strings.Contains(got, "offset=") {
+		t.Errorf("the last page names no next offset; got %q", got)
+	}
+}
