@@ -70,6 +70,22 @@ var associationMacros = map[string]bool{
 // eachCall visits every call in a Ruby file, at any nesting depth, so a macro
 // inside `module X; class Y` is seen without tracking the enclosing scopes.
 func eachCall(path string, visit func(method string, args *sitter.Node, src []byte)) {
+	eachCallWithOptions(path, func(method string, args *sitter.Node, _ []*sitter.Node, src []byte) {
+		visit(method, args, src)
+	})
+}
+
+// eachCallWithOptions is eachCall for a reader that honours `with_options`:
+//
+//	with_options class_name: 'Block', dependent: :destroy do
+//	  has_many :block_relationships, foreign_key: 'account_id'
+//	  has_many :blocked_by_relationships, foreign_key: :target_account_id
+//	end
+//
+// Every call in the block is made with those options merged in, so the two
+// associations above are Blocks. shared holds the argument lists of the enclosing
+// with_options calls, innermost first, for the visitor to fall back on.
+func eachCallWithOptions(path string, visit func(method string, args *sitter.Node, shared []*sitter.Node, src []byte)) {
 	src, err := os.ReadFile(path)
 	if err != nil {
 		return
@@ -82,18 +98,23 @@ func eachCall(path string, visit func(method string, args *sitter.Node, src []by
 	tree := parser.Parse(src, nil)
 	defer tree.Close()
 
-	var walk func(n *sitter.Node)
-	walk = func(n *sitter.Node) {
+	var walk func(n *sitter.Node, shared []*sitter.Node)
+	walk = func(n *sitter.Node, shared []*sitter.Node) {
 		for i := uint(0); i < n.ChildCount(); i++ {
 			c := n.Child(i)
+			inner := shared
 			if kindOf(c) == "call" || kindOf(c) == "method_call" {
-				visit(rubyText(c.ChildByFieldName("method"), src), c.ChildByFieldName("arguments"), src)
+				method, args := rubyText(c.ChildByFieldName("method"), src), c.ChildByFieldName("arguments")
+				visit(method, args, shared, src)
+				if method == "with_options" && args != nil && c.ChildByFieldName("block") != nil {
+					inner = append([]*sitter.Node{args}, shared...)
+				}
 			}
 			if kindOf(c) == "identifier" && c.Parent() != nil && kindOf(c.Parent()) == "body_statement" {
-				visit(rubyText(c, src), nil, src)
+				visit(rubyText(c, src), nil, shared, src)
 			}
-			walk(c)
+			walk(c, inner)
 		}
 	}
-	walk(tree.RootNode())
+	walk(tree.RootNode(), nil)
 }

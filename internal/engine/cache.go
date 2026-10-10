@@ -20,6 +20,11 @@ import (
 	"github.com/enola-labs/enola/pkg/plugin"
 )
 
+// v312: a Rails association declared inside `with_options class_name: 'X' do … end`
+// takes that class. It had been derived from the association's own name, which
+// named a class no model has, and the association was dropped as unresolved, along
+// with every `through:` that passes over it. On one application that was the
+// follow, block and mute relationships of its account model.
 // v311: TypeScript I/O that the callee's name does not show. A resolved call on
 // Angular's HttpClient (`this.http.post(…)`, through the declared type of the
 // constructor parameter property) is io_direct and named in io_calls. A call that
@@ -2728,7 +2733,7 @@ import (
 // v270: SvelteKit reads literal kit.alias fallbacks before generated config exists,
 // keeps tsconfig paths authoritative, and classifies $app/$env/$service-worker imports
 // as framework-provided rather than unresolved third-party dependencies.
-const cacheVersion = "v311"
+const cacheVersion = "v312"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
