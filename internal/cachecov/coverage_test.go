@@ -33,6 +33,19 @@ import (
 // test functions that assert the behavior that version introduced. v1 is the
 // implicit baseline (no changelog line), so coverage starts at v2.
 var versionCoverage = map[int][]string{
+	303: {
+		"TestFactoryStringsRequireDeclaredSymbols",
+		"TestNamedReferencesDoNotCountAsCallCoupling",
+		"TestCollectNamedReferencesProtectSymbols",
+		"TestAST_FallbackConstantsAreNotConstructors",
+		"TestClassifyExcludesDocumentSymbols",
+		"TestExtractTestRefs_PackageDefinitionsAndReexports",
+		"TestExtractConfiguredEntryPoints",
+		"TestConfiguredValuesDoNotTreatDockerArgumentsAsHandlers",
+		"TestAST_FactoryStringsAndFallbackCallbacks",
+		"TestAST_LiteralReflectionAndCallableMetadata",
+		"TestPythonConfigurationAffectsCacheKey",
+	},
 	302: { // a for loop is fixed-count only when both ends are constant (C/C++, C#, PHP): a descending loop to a literal scales
 		"TestCppDescendingLoopToALiteralStillScales",
 		"TestPHPDescendingLoopToALiteralStillScales",

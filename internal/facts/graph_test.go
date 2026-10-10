@@ -1220,6 +1220,23 @@ func TestArchitecturalReverse_ExcludesReferenceKinds(t *testing.T) {
 	}
 }
 
+func TestNamedReferencesDoNotCountAsCallCoupling(t *testing.T) {
+	s := NewStore()
+	s.Add(
+		Fact{Kind: KindSymbol, Name: "Target"},
+		Fact{Kind: KindSymbol, Name: "Reader", Relations: []Relation{{Kind: RelNames, Target: "Target"}}},
+		Fact{Kind: KindSymbol, Name: "Caller", Relations: []Relation{{Kind: RelCalls, Target: "Target"}}},
+	)
+	s.BuildGraph()
+	g := s.Graph()
+	if len(g.ReverseEdges("Target")) != 2 || len(g.ForwardEdges("Reader")) != 1 {
+		t.Fatal("ordinary traversal must preserve named references")
+	}
+	if g.ArchitecturalFanIn("Target") != 1 || g.ArchitecturalFanOut("Reader") != 0 {
+		t.Fatal("named references must not inflate call coupling")
+	}
+}
+
 // TestArchitecturalReverse_ExcludesRouteSources pins collateral introduced by the
 // v111 handled_by binder (new/18) and caught by diff_snapshot, not by any test.
 //

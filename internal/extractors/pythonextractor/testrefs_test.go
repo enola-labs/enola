@@ -73,6 +73,27 @@ def test_it():
 	}
 }
 
+func TestExtractTestRefs_PackageDefinitionsAndReexports(t *testing.T) {
+	repo := t.TempDir()
+	writePy(t, repo, "pkg/__init__.py", "from pkg.service import cognify\ndef package_helper(): pass\n")
+	writePy(t, repo, "pkg/service.py", "def cognify(x): return x\n")
+	writePy(t, repo, "tests/test_package.py", `
+from pkg import package_helper, cognify
+def test_package():
+    package_helper()
+    cognify(1)
+`)
+	ff := testRefs(t, repo, []string{"tests/test_package.py"}, []string{"pkg/__init__.py", "pkg/service.py"})
+	if len(ff) != 1 || ff[0].Kind != facts.KindTestRef {
+		t.Fatalf("expected only one test-ref fact: %+v", ff)
+	}
+	for _, target := range []string{"pkg/__init__.package_helper", "pkg/service.cognify"} {
+		if !targets(ff[0])[target] {
+			t.Errorf("missing package reference %s: %v", target, targets(ff[0]))
+		}
+	}
+}
+
 // The contract: reference facts ONLY. This is what lets the pass read files the
 // ignore globs exclude without putting test code back into the production graph.
 func TestExtractTestRefs_EmitsNoSymbolsModulesOrRoutes(t *testing.T) {

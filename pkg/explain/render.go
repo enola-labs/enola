@@ -177,7 +177,7 @@ func (r *Report) Render() string {
 		fmt.Fprintf(&b, "  %-22s %6d  (of %d symbols)\n", "potential dead code", d.Total, d.Candidates)
 		// The tiers partition the set, listed first so the eye starts at the small
 		// actionable bucket rather than the larger cross-cutting counts below.
-		fmt.Fprintf(&b, "    %-20s %6d   (%s)\n", "high confidence", d.High, "functions — incoming calls tracked; safest to remove first")
+		fmt.Fprintf(&b, "    %-20s %6d   (%s)\n", "high confidence", d.High, "functions — incoming calls tracked; verify dynamic use and compatibility before removal")
 		fmt.Fprintf(&b, "    %-20s %6d   (%s)\n", "medium confidence", d.Medium, "structs/classes/interfaces — usage tracked via instantiate/inject/implements")
 		fmt.Fprintf(&b, "    %-20s %6d   (%s)\n", "low confidence", d.Low, "methods & types — dispatch/reflection & type usage not edge-tracked; verify each")
 		// Orthogonal cuts of the SAME set, not further buckets.

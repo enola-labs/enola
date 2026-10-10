@@ -1543,7 +1543,8 @@ func (g *Graph) ArchitecturalFanIn(name string) int {
 // Rails monolith it puts an importer base class (449 lines, 102 one-line delegations,
 // exactly ONE call out) at out-degree 104.
 //
-// Nothing else is filtered. The reverse filter's other two arms cannot fire here:
+// Named references are also excluded: reading a symbol as data is not a call.
+// The reverse filter's other two arms cannot fire here:
 // a symbol never points at a reference-only fact (test_ref/file_ref/route), and
 // RelInstantiates in this direction is the symbol really constructing another type.
 func (g *Graph) ArchitecturalForwardEdges(name string) []Edge {
@@ -1586,19 +1587,22 @@ func (g *Graph) ArchitecturalFanOut(name string) int {
 // isArchitecturalForwardEdge applies the coupling filter to one outgoing edge, given
 // its relation kind. Callers hold the lock.
 func (g *Graph) isArchitecturalForwardEdge(relID uint16) bool {
-	return g.relName(relID) != RelHasMethod
+	rk := g.relName(relID)
+	return rk != RelHasMethod && rk != RelNames
 }
 
 // isArchitecturalEdge applies the coupling filter to one incoming edge, given its
 // SOURCE node and relation kind. Callers hold the lock.
 func (g *Graph) isArchitecturalEdge(srcID uint32, relID uint16) bool {
 	rk := g.relName(relID)
+	// RelNames describes a read, not an invocation; it belongs in traversal and
+	// dead-code evidence, not call coupling.
 	// RelInstantiates keeps ubiquitous DATA structs out of the dead-code report, but
 	// it is not change-risk coupling: a data struct built at many sites is not a god
 	// class or a call-graph hotspot. Exclude it from fan-in / centrality (and the
 	// outlier distribution). Traversal, impact_analysis, find_path and orphans read
 	// the unfiltered index and still see it.
-	if rk == RelInstantiates || rk == RelImplementedBy {
+	if rk == RelInstantiates || rk == RelImplementedBy || rk == RelNames {
 		return false
 	}
 	if idx, ok := g.factIndexForID(srcID, rk); ok && isReferenceOnlyKind(g.facts[idx].Kind) {
