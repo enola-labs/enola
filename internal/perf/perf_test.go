@@ -2287,7 +2287,7 @@ func TestCallBasisReadsGoByPackage(t *testing.T) {
 		"ast.findFirst":        basisName,
 		"internal/db.Tx.Query": basisIOReceiver,
 	} {
-		if got := callBasis(callee, true, nil, nil, byName, byName, ioMethods); got != want {
+		if got := callBasis(funcInfo{}, callee, true, nil, nil, byName, byName, ioMethods); got != want {
 			t.Errorf("callBasis(%s) = %q, want %q", callee, got, want)
 		}
 	}
@@ -2328,5 +2328,55 @@ func TestResolvedPerformsIOCalleeIsReportedInAnyLanguage(t *testing.T) {
 	}
 	if r, ok := findFinding(got, "pkg/job.Run", "call-in-loop"); !ok || r.Severity != "high" {
 		t.Errorf("Run = %+v (ok=%v), want high: Go has the same rule once it has the fact", r, ok)
+	}
+}
+
+// A call the extractor identified as an I/O entry point confirms the finding, where
+// the same call known only by its package does not. And the builder beside it in
+// the loop is told apart from it.
+func TestCallTheExtractorIdentifiedAsIOIsConfirmed(t *testing.T) {
+	funcs := []funcInfo{
+		{
+			Name: "models/token.Convert", File: "models/token/convert.go", LoopDepth: 1, LoopCount: 1,
+			CallsInLoop: []string{"models/db.SQLSession.Cols", "xorm.io/xorm.Session.Update", "strings.TrimSpace"},
+			IOCalls:     []string{"xorm.io/xorm.Session.Update"},
+		},
+		{
+			Name: "web/page.Fill", File: "web/page/fill.go", LoopDepth: 1, LoopCount: 1,
+			CallsInLoop: []string{"net/http.ResponseWriter.Header"},
+		},
+	}
+	got := analyze(funcs, nil, nil, nil)
+	c, ok := findFinding(got, "models/token.Convert", "call-in-loop")
+	if !ok || c.Severity != "high" {
+		t.Fatalf("Convert = %+v (ok=%v), want a high call-in-loop", c, ok)
+	}
+	basis := map[string]string{}
+	for _, ce := range c.Calls {
+		basis[ce.Callee] = ce.Basis
+	}
+	if basis["xorm.io/xorm.Session.Update"] != basisPrimitive {
+		t.Errorf("Update rests on %q, want %q", basis["xorm.io/xorm.Session.Update"], basisPrimitive)
+	}
+	if b, named := basis["models/db.SQLSession.Cols"]; named && basisIsFact(b) {
+		t.Errorf("Cols, a builder, is confirmed by %q", b)
+	}
+	if f, ok := findFinding(got, "web/page.Fill", "call-in-loop"); ok && f.Severity == "high" {
+		t.Errorf("a header read is confirmed I/O for being in net/http: %+v", f)
+	}
+}
+
+// Go stays out of the method-name index: a Go function that reaches a query does
+// not make a TypeScript call of the same name I/O.
+func TestGoFunctionsDoNotFeedTheIOMethodIndex(t *testing.T) {
+	funcs := []funcInfo{
+		{Name: "pkg/store.Store.preparePlot", File: "pkg/store/store.go", PerformsIO: true},
+		{
+			Name: "ui/chart.build", File: "ui/chart.ts", LoopDepth: 1, LoopCount: 1,
+			CallsInLoop: []string{"builder.preparePlot"},
+		},
+	}
+	if f, ok := findFinding(analyze(funcs, nil, nil, nil), "ui/chart.build", "call-in-loop"); ok {
+		t.Errorf("a TypeScript call matched a Go function's name: %+v", f)
 	}
 }

@@ -20,6 +20,18 @@ import (
 	"github.com/enola-labs/enola/pkg/plugin"
 )
 
+// v304: Go functions carry io_direct, io_calls and performs_io. A body that calls an
+// I/O entry point (by package MEMBER: net/http.Client.Do and not
+// ResponseWriter.Header, xorm Session.Find and not Session.Where) is io_direct and
+// names the call in io_calls; the shared closure carries it on. Three things make a
+// project's own wrappers readable: an interface assertion (`var _ Engine =
+// (*xorm.Session)(nil)`) ties an interface to what implements it; a call on a method
+// promoted from an embedded type is rewritten to the method's declaration, in the
+// calls relation and in the calls_in_loop family, so the edge no longer dangles; and
+// a builder chain of a known query library resolves through to the call that runs
+// it. Two things keep the flag from meaning "everything": a logging, tracing or
+// metrics package is opaque to the closure, and a call made only inside a once.Do
+// (calls_once) is not followed.
 // v303: performs_io is propagated by one shared closure (internal/extractors/ioclosure)
 // in place of seven copies, and it follows a call on an interface method or an
 // abstract method to the implementers' methods of that name. A caller holding an
@@ -2662,7 +2674,7 @@ import (
 // v270: SvelteKit reads literal kit.alias fallbacks before generated config exists,
 // keeps tsconfig paths authoritative, and classifies $app/$env/$service-worker imports
 // as framework-provided rather than unresolved third-party dependencies.
-const cacheVersion = "v303"
+const cacheVersion = "v304"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 
@@ -55,6 +56,7 @@ const (
 	// extractor: the parameter positions a scaling loop walks (-1 for the receiver)
 	propLoopsOverParamIndex = "loops_over_param_index"
 	propRecursiveSelf       = "recursive_self"
+	propIOCalls             = "io_calls"           // extractor: the calls in this body that are I/O entry points
 	propPerformsIO          = "performs_io"        // extractor: method transitively performs network/file I/O
 	propScalingLoopDepth    = "scaling_loop_depth" // extractor: loop nesting counting only unbounded loops
 	propAssociation         = "association"        // Rails association name on a dependency fact
@@ -118,6 +120,7 @@ type funcInfo struct {
 	LoopParams map[int]bool
 	Recursive  bool     // extractor flagged a direct self-call
 	PerformsIO bool     // extractor flagged transitive network/file I/O
+	IOCalls    []string // extractor: the calls in this body that are I/O entry points
 	Calls      []string // all resolved call targets
 	// BoundedFanout marks a bounded background-job/mailer fan-out (see isBoundedFanout).
 	// It is precomputed by markNonScaling rather than derived where it is needed, because
@@ -241,26 +244,27 @@ type CallEvidence struct {
 	Depth int `json:"depth,omitempty"`
 }
 
-// What a named call rests on, strongest first. The first two are facts about the
+// What a named call rests on, strongest first. The first three are facts about the
 // callee. The rest are readings of its name, and differ in how much of the name
 // is read: a lazy association of that name declared somewhere in the application,
 // a method some function flagged performs_io also bears, a curated ORM or client
 // method, a receiver or module token, and last a generic verb or a per-language
 // name list.
 const (
-	basisStorage     = "storage"     // the callee is a storage fact
-	basisResolvedIO  = "resolved-io" // the callee resolves to a function flagged performs_io
-	basisAssociation = "association" // a method named like an ActiveRecord association
-	basisIOIndex     = "io-index"    // the method name is shared with a performs_io function
-	basisIOMethod    = "io-method"   // a curated ORM/client method name
-	basisIOReceiver  = "io-receiver" // a receiver, module or package token
-	basisName        = "name"        // a generic verb, or a per-language name list
+	basisStorage     = "storage"      // the callee is a storage fact
+	basisPrimitive   = "io-primitive" // the extractor identified the call as an I/O entry point
+	basisResolvedIO  = "resolved-io"  // the callee resolves to a function flagged performs_io
+	basisAssociation = "association"  // a method named like an ActiveRecord association
+	basisIOIndex     = "io-index"     // the method name is shared with a performs_io function
+	basisIOMethod    = "io-method"    // a curated ORM/client method name
+	basisIOReceiver  = "io-receiver"  // a receiver, module or package token
+	basisName        = "name"         // a generic verb, or a per-language name list
 )
 
 // basisIsFact reports whether a basis is a fact about the callee and not a reading
 // of its name. Only a fact confirms a call as I/O.
 func basisIsFact(basis string) bool {
-	return basis == basisStorage || basis == basisResolvedIO
+	return basis == basisStorage || basis == basisPrimitive || basis == basisResolvedIO
 }
 
 // callBasis names the strongest ground for treating an in-loop call as I/O. It is
@@ -269,9 +273,12 @@ func basisIsFact(basis string) bool {
 //
 // Go is read by its own rule: the method index and the ORM names say nothing about
 // Go code.
-func callBasis(callee string, golang bool, storage, assoc map[string]bool, byName, byDotted map[string]funcInfo, ioMethods map[string]bool) string {
+func callBasis(caller funcInfo, callee string, golang bool, storage, assoc map[string]bool, byName, byDotted map[string]funcInfo, ioMethods map[string]bool) string {
 	if storage[callee] {
 		return basisStorage
+	}
+	if slices.Contains(caller.IOCalls, callee) {
+		return basisPrimitive
 	}
 	if f, ok := byName[callee]; ok && f.PerformsIO {
 		return basisResolvedIO
@@ -733,6 +740,7 @@ func collect(store *facts.Store) (funcs []funcInfo, storage, routeHandlers, asso
 			LoopParams:          intSetProp(f.Props, propLoopsOverParamIndex),
 			Recursive:           boolProp(f.Props, propRecursiveSelf),
 			PerformsIO:          boolProp(f.Props, propPerformsIO),
+			IOCalls:             stringSliceProp(f.Props, propIOCalls),
 			Calls:               calls,
 		})
 	}
@@ -1852,9 +1860,20 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 	// Retrofit endpoints and Room DAO ops. In-loop callees are receiver-qualified short
 	// names (`service.fetchFurly`, `dao.insert`), never canonical fact names, so a
 	// per-iteration call to a genuine I/O method is matched by its method segment.
+	//
+	// Go is kept out of it. Go callers never read the index (see callBasis), and
+	// until Go had performs_io its functions never fed it. Once they did, in a
+	// repository holding a Go backend and a TypeScript frontend every Go function
+	// that reaches a query put its name on the list the TypeScript callees were
+	// matched against, and findings closed as pure calls came back.
+	//
+	// The index is otherwise shared across languages, which is an accident and
+	// not a design: a Java callee can match a TypeScript function's name. On the
+	// labelled findings that accident is right 3 times and wrong 5, so it is left
+	// as it was rather than changed in passing.
 	ioMethods := make(map[string]bool)
 	for _, f := range funcs {
-		if f.PerformsIO {
+		if f.PerformsIO && !strings.HasSuffix(f.File, ".go") {
 			if m := methodSegment(f.Name); !jvmIONameDenylist[m] {
 				ioMethods[m] = true
 			}
@@ -2092,10 +2111,15 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 				}
 				isExpensive = ok && r.PerformsIO && callee != f.Name
 			}
+			// The same for a call the extractor identified as an I/O entry point
+			// in this body: `net/http.Client.Do`, not a name that resembles it.
+			if !isExpensive {
+				isExpensive = slices.Contains(f.IOCalls, callee)
+			}
 			if !isExpensive {
 				continue
 			}
-			basis := callBasis(callee, golang, storage, assoc, byName, byDotted, ioMethods)
+			basis := callBasis(f, callee, golang, storage, assoc, byName, byDotted, ioMethods)
 			if basisIsFact(basis) {
 				confirmedIO = true
 			}

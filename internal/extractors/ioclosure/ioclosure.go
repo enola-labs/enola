@@ -17,6 +17,10 @@ const (
 	propIODirect   = "io_direct"
 	propPerformsIO = "performs_io"
 	propAbstract   = "abstract"
+	// propCallsOnce lists the callees a function reaches only from inside a
+	// run-once guard (Go's sync.Once). The call happens once per process, so what
+	// it does is not what the function does each time it is called.
+	propCallsOnce = "calls_once"
 )
 
 // Propagate sets performs_io on every symbol in all that is io_direct or reaches
@@ -35,6 +39,25 @@ const (
 // Names key the result, as they key the graph: facts that share a name share the
 // answer.
 func Propagate(all []facts.Fact) {
+	PropagateWith(all, Options{})
+}
+
+// Options are what a language adds to Propagate.
+type Options struct {
+	// Declared maps an interface to the types the source states implement it, for
+	// a language whose facts do not say. It is read beside the implements edges.
+	Declared map[string][]string
+	// Opaque names the functions the closure does not pass through: they neither
+	// inherit I/O from what they call nor hand theirs to their callers. It is for
+	// code whose I/O is a side channel and not what a caller asked for: a logger
+	// writes a file, and a function is not doing file I/O per iteration for
+	// logging in its loop. An opaque function that is io_direct is still marked.
+	Opaque func(name string) bool
+}
+
+// PropagateWith is Propagate with a language's additions.
+func PropagateWith(all []facts.Fact, opts Options) {
+	declared := opts.Declared
 	exists := make(map[string]bool)
 	bodiless := make(map[string]bool) // an interface, or an abstract method
 	for i := range all {
@@ -63,6 +86,11 @@ func Propagate(all []facts.Fact) {
 			io[f.Name] = true
 		}
 		seen := make(map[string]bool)
+		if once, ok := f.PropAny(propCallsOnce).([]string); ok {
+			for _, c := range once {
+				seen[c] = true // never followed
+			}
+		}
 		for _, r := range f.Relations {
 			switch r.Kind {
 			case facts.RelCalls:
@@ -75,6 +103,14 @@ func Propagate(all []facts.Fact) {
 				if exists[r.Target] {
 					implementers[r.Target] = append(implementers[r.Target], f.Name)
 				}
+			}
+		}
+	}
+
+	for iface, impls := range declared {
+		for _, impl := range impls {
+			if exists[iface] && exists[impl] {
+				implementers[iface] = append(implementers[iface], impl)
 			}
 		}
 	}
@@ -103,8 +139,11 @@ func Propagate(all []facts.Fact) {
 	for len(work) > 0 {
 		name := work[len(work)-1]
 		work = work[:len(work)-1]
+		if opts.Opaque != nil && opts.Opaque(name) {
+			continue
+		}
 		for _, c := range callers[name] {
-			if !io[c] {
+			if !io[c] && (opts.Opaque == nil || !opts.Opaque(c)) {
 				io[c] = true
 				work = append(work, c)
 			}

@@ -14,6 +14,7 @@ import (
 	"unicode"
 
 	"github.com/enola-labs/enola/internal/extractors/detectnames"
+	"github.com/enola-labs/enola/internal/extractors/ioclosure"
 	"github.com/enola-labs/enola/internal/factpath"
 	"github.com/enola-labs/enola/internal/facts"
 )
@@ -179,6 +180,22 @@ func (e *GoExtractor) Extract(ctx context.Context, repoPath string, files []stri
 		}
 	}
 
+	// Pass 2a': the interface assertions of every package, which are the only
+	// statement of what implements what. They let a call on an interface reach the
+	// I/O behind it: see markGoDirectIO and the closure at the end.
+	callTypes.implementers = make(map[string][]string)
+	callTypes.embeds = make(map[string][]string)
+	for _, pkgDir := range pkgDirs {
+		for iface, impls := range collectInterfaceAssertions(parsedPkgs[pkgDir].parsedFiles, pkgDir, modulePath, pkgNames, aliases) {
+			callTypes.implementers[iface] = append(callTypes.implementers[iface], impls...)
+		}
+		for typ, embedded := range collectEmbeddedTypes(parsedPkgs[pkgDir].parsedFiles, pkgDir, modulePath, pkgNames, aliases) {
+			callTypes.embeds[typ] = append(callTypes.embeds[typ], embedded...)
+		}
+	}
+
+	promoteReturnTypes(callTypes.returns, callTypes.embeds)
+
 	// Pass 2b: build the gRPC client stub index (generated concrete clients →
 	// method wire paths) so consumer call sites in any package resolve to the
 	// "/pkg.Service/Method" they invoke.
@@ -208,6 +225,12 @@ func (e *GoExtractor) Extract(ctx context.Context, repoPath string, files []stri
 		pkgFacts := e.extractPackage(fset, pkgDir, pp, modulePath, globalFieldTypes, callTypes, pkgNames, grpcStubs, routePrefixes)
 		allFacts = append(allFacts, pkgFacts...)
 	}
+
+	resolvePromotedCalls(allFacts, callTypes.embeds)
+
+	// Carry io_direct to every function that reaches one, across packages, and
+	// through an interface to the types asserted to implement it.
+	ioclosure.PropagateWith(allFacts, ioclosure.Options{Declared: callTypes.implementers, Opaque: goObservability})
 
 	return allFacts, nil
 }
@@ -495,6 +518,12 @@ func (e *GoExtractor) extractFunc(fset *token.FileSet, fn *ast.FuncDecl, relFile
 		if m.recursiveSelf {
 			symbolFact.SetProp("recursive_self", true)
 		}
+		markGoDirectIO(&symbolFact, callTypes, m.callsPerCall)
+		// What the body calls only from inside a once.Do. The edge is real and
+		// stays; the closure reads this to not carry I/O across it.
+		if once := onceOnly(m.calls, m.callsPerCall); len(once) > 0 {
+			symbolFact.SetProp("calls_once", once)
+		}
 	}
 
 	result = append(result, symbolFact)
@@ -692,6 +721,9 @@ type resolveCtx struct {
 // bodyMetrics holds the call list and the per-function complexity signals
 // derived from a single walk of a function body.
 type bodyMetrics struct {
+	// callsPerCall are the calls made each time the function runs: calls less
+	// those that sit only inside a `once.Do(func() { … })`.
+	callsPerCall []string
 	calls        []string // resolved call targets, deduped, in source order
 	instantiates []string // resolved internal struct types constructed as composite literals, deduped
 	callsInLoop  []string // subset of calls invoked at loop nesting depth >= 1
@@ -760,10 +792,17 @@ func analyzeBody(body ast.Node, ctx resolveCtx, selfName string, params map[stri
 	// Locals whose contents cannot grow with the input, resolved once for the body
 	// so the range case below is a lookup rather than a second walk per loop.
 	boundedVars := boundedLocals(body)
+	// onceEnds are the ends of the enclosing `once.Do(func() { … })` calls. What
+	// runs in one runs once per process, not once per call of this function.
+	var onceEnds []token.Pos
+	repeatedSeen := make(map[string]bool)
 
 	ast.Inspect(body, func(n ast.Node) bool {
 		if n == nil {
 			return false
+		}
+		for len(onceEnds) > 0 && n.Pos() >= onceEnds[len(onceEnds)-1] {
+			onceEnds = onceEnds[:len(onceEnds)-1]
 		}
 		// Pop loops whose extent we have now left.
 		for len(loopEnds) > 0 && n.Pos() >= loopEnds[len(loopEnds)-1] {
@@ -909,6 +948,13 @@ func analyzeBody(body ast.Node, ctx resolveCtx, selfName string, params map[stri
 			if !seen[resolved] {
 				seen[resolved] = true
 				m.calls = append(m.calls, resolved)
+			}
+			if len(onceEnds) == 0 && !repeatedSeen[resolved] {
+				repeatedSeen[resolved] = true
+				m.callsPerCall = append(m.callsPerCall, resolved)
+			}
+			if isOnceDo(x, resolved) {
+				onceEnds = append(onceEnds, x.End())
 			}
 			// A call in the innermost loop's head runs once per iteration of the
 			// loops AROUND that one, not of it: `for _, x := range load()` calls

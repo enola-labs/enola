@@ -17,6 +17,11 @@ import (
 type callTypeTables struct {
 	returns map[string][]string // "pkgDir.Func" / "pkgDir.Type.Method" → declared result types
 	aliases map[string]string   // "pkgDir.Alias" → the type it is an alias of
+	// implementers maps an interface to the types asserted to implement it
+	// (`var _ I = (*T)(nil)`), module-wide. See collectInterfaceAssertions.
+	implementers map[string][]string
+	// embeds maps a struct type to the types it embeds, whose methods it promotes.
+	embeds map[string][]string
 }
 
 // collectAliases maps each alias a package declares (`type Store = facts.Store`) to
@@ -334,7 +339,13 @@ func callResultTypes(call *ast.CallExpr, ctx resolveCtx) []string {
 	if target == "" {
 		return nil
 	}
-	return ctx.returnTypes[target]
+	if rt, ok := ctx.returnTypes[target]; ok {
+		return rt
+	}
+	if t := goFluentResult(target); t != "" {
+		return []string{t}
+	}
+	return nil
 }
 
 // callResultType is the type of a call used as a single value. A declared result

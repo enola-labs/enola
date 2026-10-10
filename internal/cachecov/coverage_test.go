@@ -33,6 +33,13 @@ import (
 // test functions that assert the behavior that version introduced. v1 is the
 // implicit baseline (no changelog line), so coverage starts at v2.
 var versionCoverage = map[int][]string{
+	304: { // Go io_direct / io_calls / performs_io: entry points by member, asserted facades, promoted-method calls, once and logging barriers
+		"TestGoIOPrimitive_IsByMemberNotByPackage",
+		"TestGoPerformsIO_FromAPrimitiveThroughWrappers",
+		"TestGoPerformsIO_ThroughAnAssertedFacade",
+		"TestGoPromotedMethodCallResolvesToItsDeclaration",
+		"TestGoPerformsIO_StopsAtOnceAndAtLogging",
+	},
 	303: { // one shared performs_io closure, following interface and abstract methods to implementers; Java and Kotlin propagate
 		"TestPropagate_ReachesThroughWrappersAndCycles",
 		"TestPropagate_FollowsAnInterfaceToItsImplementers",
