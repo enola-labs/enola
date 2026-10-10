@@ -860,10 +860,12 @@ func analyzeBody(body ast.Node, ctx resolveCtx, selfName string, params map[stri
 			head.once = terminalBlocks(x.Body)
 			loopHeads = append(loopHeads, head)
 			scope := loopScope{end: x.End(), vars: forLoopVars(x), cursor: forCursor(x), amortizes: forScales}
-			if pageVars, isBatch := goBatchLoop(x); isBatch {
+			if pageVars, isBatch, isWalk := goBatchLoop(x); isBatch || isWalk {
 				// What a round binds is the round's element, and a `for {}` that
-				// pages amortizes its drain loop though it adds no depth itself.
-				scope.batch, scope.amortizes = true, true
+				// pages amortizes its drain loop though it adds no depth itself. A
+				// cursor walk binds per row and amortizes the same way, but its
+				// fetch is one per row and not the batching.
+				scope.batch, scope.fetches, scope.amortizes = isBatch, true, true
 				scope.vars = append(scope.vars, pageVars...)
 			}
 			loopScopes = append(loopScopes, scope)
@@ -1082,6 +1084,9 @@ type loopScope struct {
 	amortizes bool
 	// batch marks a loop that takes its input a batch at a time; see batchloop.go.
 	batch bool
+	// fetches marks a loop whose round binds what it then drains: a batch loop,
+	// or a cursor walk that fetches per row. The drain is hierarchical in both.
+	fetches bool
 }
 
 // rangeLoopVars returns the key/value variable names a range loop introduces.

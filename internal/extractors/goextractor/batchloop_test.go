@@ -51,6 +51,17 @@ func chain(id int) {
 	}
 }
 
+// A cursor walked a row at a time, with a query for each row's children: the
+// outer loop takes one ELEMENT per round, so the query is an N+1.
+func perRow(rows *Rows) {
+	for rows.Next() {
+		children := query([]int{1})
+		for children.Next() {
+			save(1)
+		}
+	}
+}
+
 // A query per element whose rows are then walked: an N+1, not batching.
 func perItem(ids []int) {
 	for _, id := range ids {
@@ -100,5 +111,23 @@ func TestLoopsThatOnlyResembleBatchingKeepTheirCalls(t *testing.T) {
 	}
 	if got := intProp(t, per, "scaling_loop_depth"); got != 2 {
 		t.Errorf("per-item query: scaling_loop_depth = %d, want 2", got)
+	}
+}
+
+// The suspicion recorded in the plan: a row cursor whose body fetches and drains
+// has the shape of a batch loop.
+func TestRowCursorWithAQueryPerRowIsNotABatchLoop(t *testing.T) {
+	ff := extractAll(t, map[string]string{"pkg/x.go": batchLoopSrc})
+	per, ok := findFact(ff, "pkg.perRow")
+	if !ok {
+		t.Fatal("missing pkg.perRow")
+	}
+	if scaling := strSliceProp(per, "calls_in_scaling_loop"); !containsStr(scaling, "pkg.query") {
+		t.Errorf("row cursor: calls_in_scaling_loop = %v, want pkg.query: it runs once per row", scaling)
+	}
+	// What the row's query returned belongs to the row: draining it is no second
+	// factor of n.
+	if got := intProp(t, per, "scaling_loop_depth"); got > 1 {
+		t.Errorf("row cursor: scaling_loop_depth = %d, want at most 1", got)
 	}
 }

@@ -1,6 +1,9 @@
 package dotnetextractor
 
 import (
+	"sort"
+	"strings"
+
 	sitter "github.com/tree-sitter/go-tree-sitter"
 
 	"github.com/enola-labs/enola/internal/facts"
@@ -34,6 +37,9 @@ type typedCall struct {
 	written string // as the in-loop metric records it: `_libraryManager.DeleteItem`
 	typ     string // the receiver's type as the source names it
 	method  string
+	// base marks `base.M(…)`: the receiver is the enclosing type's base, and typ
+	// is empty.
+	base bool
 }
 
 // collectMemberTypes maps the fields, properties and primary-constructor
@@ -195,7 +201,18 @@ func (w *astWalker) noteTypedCall(written, typ, method string) {
 	if w.metrics == nil || typ == "" {
 		return
 	}
-	w.metrics.typedCalls = append(w.metrics.typedCalls, typedCall{written, typ, method})
+	w.metrics.typedCalls = append(w.metrics.typedCalls, typedCall{written: written, typ: typ, method: method})
+}
+
+// noteBaseCall records `base.M(…)` against the member being walked. The walker
+// binds it to this type's own M, the only M it knows, so nothing that follows
+// calls edges got from an override to what it extends: `base.Update(item)` saved
+// the list to disk, and the override carried no I/O.
+func (w *astWalker) noteBaseCall(method string) {
+	if w.metrics == nil {
+		return
+	}
+	w.metrics.typedCalls = append(w.metrics.typedCalls, typedCall{written: "base." + method, method: method, base: true})
 }
 
 // resolveTypedCalls turns the walker's notes into calls edges. resolve binds a
@@ -205,6 +222,11 @@ func (w *astWalker) noteTypedCall(written, typ, method string) {
 // nearest first, and the edge is made only when it lands on a declaration. The
 // same name replaces the written text in the in-loop lists, so the performance
 // analyzer reads a resolved callee where it read `_libraryManager.DeleteItem`.
+//
+// A receiver whose type does not resolve is a library's, and the call is classed
+// by that library's member: named in io_calls, which makes the member io_direct,
+// or, when it is in a loop and does no I/O, in pure_calls, which the performance
+// analyzer takes over a reading of the name.
 func resolveTypedCalls(all []facts.Fact, resolve func(target, fromNS string) (string, bool)) {
 	exists := make(map[string]bool, len(all))
 	supers := make(map[string][]string)
@@ -237,6 +259,24 @@ func resolveTypedCalls(all []facts.Fact, resolve func(target, fromNS string) (st
 		return ""
 	}
 
+	// Which declarations make a library I/O call, before any is marked: see
+	// overloadedWithoutIO.
+	makesIO := make(map[int]bool)
+	for i := range all {
+		calls, _ := all[i].PropAny(propTypedCalls).([]typedCall)
+		fromNS, _ := all[i].PropAny("namespace").(string)
+		for _, c := range calls {
+			if c.base {
+				continue
+			}
+			if _, known := resolve(c.typ, fromNS); !known && csLibraryCall(c.typ, c.method) == csCallIO {
+				makesIO[i] = true
+				break
+			}
+		}
+	}
+	mixed := overloadedWithoutIO(all, makesIO)
+
 	for i := range all {
 		f := &all[i]
 		calls, ok := f.PropAny(propTypedCalls).([]typedCall)
@@ -246,9 +286,33 @@ func resolveTypedCalls(all []facts.Fact, resolve func(target, fromNS string) (st
 		f.DelProp(propTypedCalls)
 		fromNS, _ := f.PropAny("namespace").(string)
 		rename := make(map[string]string)
+		ioCalls := make(map[string]bool)
+		pureCalls := make(map[string]bool)
 		for _, c := range calls {
+			if c.base {
+				// The nearest declaration above the enclosing type.
+				if dot := strings.LastIndexByte(f.Name, '.'); dot > 0 {
+					for _, super := range supers[f.Name[:dot]] {
+						if target := declaring(super, c.method); target != "" && target != f.Name {
+							if !f.HasRelation(facts.RelCalls, target) {
+								f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelCalls, Target: target})
+							}
+							break
+						}
+					}
+				}
+				continue
+			}
 			typ, known := resolve(c.typ, fromNS)
 			if !known {
+				// A library's type: the call is what that library's member is
+				// (ioprim.go).
+				switch csLibraryCall(c.typ, c.method) {
+				case csCallIO:
+					ioCalls[c.written] = true
+				case csCallPure:
+					pureCalls[c.written] = true
+				}
 				continue
 			}
 			target := declaring(typ, c.method)
@@ -260,14 +324,69 @@ func resolveTypedCalls(all []facts.Fact, resolve func(target, fromNS string) (st
 			}
 			rename[c.written] = target
 		}
+		// A call that does no I/O is worth recording only where its name would be
+		// read: in a loop.
+		var pure []string
 		for _, key := range []string{"calls_in_loop", "calls_in_scaling_loop"} {
 			if list, ok := f.PropAny(key).([]string); ok {
 				for j, c := range list {
 					if to, ok := rename[c]; ok {
 						list[j] = to
+					} else if pureCalls[c] && !ioCalls[c] {
+						pureCalls[c] = false
+						pure = append(pure, c)
 					}
 				}
 			}
 		}
+		if len(pure) > 0 {
+			sort.Strings(pure)
+			f.SetProp("pure_calls", pure)
+		}
+		if len(ioCalls) > 0 {
+			names := make([]string, 0, len(ioCalls))
+			for c := range ioCalls {
+				names = append(names, c)
+			}
+			sort.Strings(names)
+			if !mixed[f.Name] {
+				f.SetProp("io_direct", true)
+			}
+			f.SetProp("io_calls", names)
+		}
 	}
+}
+
+// overloadedWithoutIO returns the names borne by several declarations of which at
+// least one makes no library I/O call and is not io_direct already.
+//
+// Overloads share one fact name, and performs_io travels by name. `toJsonNode(Path)`
+// reads a file and `toJsonNode(String)` parses a string: marking the name
+// io_direct for the first would make every caller of the second reach I/O, and a
+// utility class has exactly this shape. So a library call makes an overloaded
+// name io_direct only when every overload makes one, is io_direct already, or
+// delegates to another overload. The call is still named in io_calls on the
+// overload that makes it.
+func overloadedWithoutIO(all []facts.Fact, makesIO map[int]bool) map[string]bool {
+	count := make(map[string]int)
+	io := make(map[string]int)
+	for i := range all {
+		f := &all[i]
+		if f.Kind != facts.KindSymbol {
+			continue
+		}
+		count[f.Name]++
+		// An overload that hands on to another of the same name does what that
+		// one does: `execute(String...)` looping over `execute(String, boolean)`.
+		if direct, _ := f.PropAny("io_direct").(bool); direct || makesIO[i] || f.HasRelation(facts.RelCalls, f.Name) {
+			io[f.Name]++
+		}
+	}
+	out := make(map[string]bool)
+	for name, n := range count {
+		if n > 1 && io[name] < n {
+			out[name] = true
+		}
+	}
+	return out
 }

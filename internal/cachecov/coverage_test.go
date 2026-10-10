@@ -33,6 +33,23 @@ import (
 // test functions that assert the behavior that version introduced. v1 is the
 // implicit baseline (no changelog line), so coverage starts at v2.
 var versionCoverage = map[int][]string{
+	318: {"TestTerminalBlocksAndPageCounters", "TestRowCursorWithAQueryPerRowIsNotABatchLoop"}, // Python at-most-once calls and page counters; Go row cursor is not a batch loop
+	317: { // Java and C#: a call on a library-typed receiver is io_calls or pure_calls by the library's member
+		"TestJavaLibraryCall", "TestJavaCallOnALibraryReceiverIsClassedByMember",
+		"TestCSharpLibraryCall", "TestCSharpCallOnALibraryReceiverIsClassedByMember",
+		"TestJavaLibraryIODoesNotMarkAnOverloadedName", "TestJavaCallOnAGetterResultIsTypedByItsReturnType",
+		"TestJavaInterfaceSharedByRepositoriesIsAnIOType", "TestCSharpBaseCallReachesTheBaseDeclaration",
+	},
+	316: {"TestRoundLoopCallsAreNotPerElement"},                         // Python: a poll, a retry and a cursor are round loops; their own calls are not per element
+	315: {"TestLibraryCallIsClassedWhereItsRootIsARepositoryDirectory"}, // Python: a library whose import root is also a repo directory name is still classed by member
+	314: { // Python: receivers typed by return annotations and by module-level declarations; untyped in-loop I/O calls recorded as written
+		"TestPyValueType", "TestCallOnAccessorResultResolvesByReturnAnnotation",
+		"TestCallOnModuleGlobalResolvesByDeclaredType", "TestUntypedIOCallInLoopIsRecordedAsWritten",
+	},
+	313: { // Python: a call resolved to a library member is io_calls or pure_calls by what the member is
+		"TestPyLibraryCall", "TestLibraryCallsAreClassedByMember", "TestLibraryTableDoesNotClaimARepositoryModule",
+		"TestAnalyze_PureCallIsNotReadByItsName",
+	},
 	312: {"TestAssociationsInsideWithOptionsTakeItsClassName"}, // a Rails association inside with_options class_name: takes that class
 	311: { // TypeScript: Angular HttpClient calls and fetch handed to a wrapper are io_direct; a call on a declared result resolves
 		"TestAngularHttpClientCallIsDirectIO",

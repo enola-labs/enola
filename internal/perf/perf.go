@@ -58,6 +58,7 @@ const (
 	propRecursiveSelf       = "recursive_self"
 	propIODirect            = "io_direct"          // extractor: the body itself makes a network/file/database call
 	propIOCalls             = "io_calls"           // extractor: the calls in this body that are I/O entry points
+	propPureCalls           = "pure_calls"         // extractor: the calls in this body into a library it describes that perform no I/O
 	propPerformsIO          = "performs_io"        // extractor: method transitively performs network/file I/O
 	propScalingLoopDepth    = "scaling_loop_depth" // extractor: loop nesting counting only unbounded loops
 	propAssociation         = "association"        // Rails association name on a dependency fact
@@ -123,6 +124,7 @@ type funcInfo struct {
 	PerformsIO bool     // extractor flagged transitive network/file I/O
 	IODirect   bool     // extractor flagged the body's own I/O call
 	IOCalls    []string // extractor: the calls in this body that are I/O entry points
+	PureCalls  []string // extractor: the library calls in this body that perform no I/O
 	Calls      []string // all resolved call targets
 	// BoundedFanout marks a bounded background-job/mailer fan-out (see isBoundedFanout).
 	// It is precomputed by markNonScaling rather than derived where it is needed, because
@@ -296,6 +298,51 @@ func langFamily(file string) string {
 // overloads and parsers in C and C++, channel and runtime calls in Rust. .NET does
 // not gate on the index, so there it only decides what a call is said to rest on.
 var strictIOIndex = map[string]bool{"js": true, "jvm": true, "c": true, ".rs": true, "dotnet": true}
+
+// javaNotByIndex reports whether a Java method name is one the short-name index
+// must not speak for: a bean accessor (`getName`, `isActive`, `hasNext`), or the
+// `find` and `matches` of java.util.regex.Matcher, which are called on the result
+// of `pattern.matcher(s)` and so never have a typed receiver.
+func javaNotByIndex(m string) bool {
+	if m == "find" || m == "matches" {
+		return true
+	}
+	for _, p := range []string{"get", "is", "has"} {
+		if len(m) > len(p) && strings.HasPrefix(m, p) && m[len(p)] >= 'A' && m[len(p)] <= 'Z' {
+			return true
+		}
+	}
+	return false
+}
+
+// tokenNotOwnPath are the language families in which a receiver token found in a
+// resolved callee's own name is not read, each on a reading of what that took
+// out: URL and SQL-string builders and entity mappers in Java, C# and
+// TypeScript. Python is not among them. There it also took out a batch write, a
+// request and a schema reflection, each a method of a hook that reaches its
+// client through an untyped attribute and so reaches no I/O the extractor can
+// see; the token was the only thing still reporting them.
+var tokenNotOwnPath = map[string]bool{"jvm": true, "dotnet": true, "js": true}
+
+// tokenIsOwnPath reports whether a callee matched by a receiver token is a
+// function of this repository that reaches no I/O and whose method name is not
+// one of the language's I/O verbs: the token came from its own path.
+func tokenIsOwnPath(callee string, byName map[string]funcInfo, ioByName map[string]bool, jvm bool) bool {
+	if _, ok := byName[callee]; !ok || ioByName[callee] {
+		return false
+	}
+	verbs := expensiveMethods
+	if jvm {
+		verbs = jvmExpensiveMethods
+	}
+	method := methodSegment(callee)
+	for _, kw := range verbs {
+		if containsKeyword(method, kw) {
+			return false
+		}
+	}
+	return true
+}
 
 // basisIsFact reports whether a basis is a fact about the callee and not a reading
 // of its name. Only a fact confirms a call as I/O.
@@ -775,6 +822,7 @@ func collect(store *facts.Store) (funcs []funcInfo, storage, routeHandlers, asso
 			PerformsIO:          boolProp(f.Props, propPerformsIO),
 			IODirect:            boolProp(f.Props, propIODirect),
 			IOCalls:             stringSliceProp(f.Props, propIOCalls),
+			PureCalls:           stringSliceProp(f.Props, propPureCalls),
 			Calls:               calls,
 		})
 	}
@@ -1830,10 +1878,17 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 	// a short-name match — so it cannot over-suppress an unrelated same-named function.
 	byDotted := make(map[string]funcInfo, len(funcs))
 	nameCount := make(map[string]int, len(funcs))
+	// ioByName says whether ANY function of a name performs I/O. Overloads share
+	// a name and byName keeps one of them, so "this name does no I/O" has to be
+	// asked of all of them.
+	ioByName := make(map[string]bool, len(funcs))
 	for _, f := range funcs {
 		byName[f.Name] = f
 		byDotted[strings.ReplaceAll(f.Name, "/", ".")] = f
 		nameCount[f.Name]++
+		if f.PerformsIO || f.IODirect {
+			ioByName[f.Name] = true
+		}
 	}
 	// In languages with method overloading (Java, Kotlin, Swift) sibling overloads
 	// share one fact name, so a call from one overload to another resolves to that
@@ -1886,6 +1941,16 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 	// Python's unresolved callees are mostly real clients held in attributes
 	// (`s3_hook.get_key`, `credential.get_token`), whose names are common words.
 	// Narrowing it removed real I/O in about half the Python findings read.
+	//
+	// It was tried a third time after Python gained a library table and typed
+	// receivers, and measured: of 40 findings it removed, read against source, 11
+	// were correct, and 27 of their 40 named calls were real I/O. That is the rate
+	// of the name-matched findings it leaves. What it cannot see is not a missing
+	// seed: a boto client has no type to declare, and an SDK is called through a
+	// chain of handles (`client.bucket(b).blob(k).delete()`) whose links no
+	// annotation in the repository describes. The Python findings it would remove
+	// for the right reason are wrong by the shape of their loop, mostly a poll,
+	// and that is where they are to be closed.
 	//
 	// Go has no list: its callers resolve or are read by package.
 	type ioNameCount struct{ all, io int }
@@ -2041,11 +2106,26 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 		// every one of those depths came from the extractor.
 		callNesting, callNestingKnown := 0, true
 		for _, callee := range inLoopCalls {
+			// The extractor resolved this call to a library member it knows to do
+			// no I/O (`sqlalchemy.update`, `re.search`). That is a fact about the
+			// call, and no reading of its name stands against it.
+			if slices.Contains(f.PureCalls, callee) {
+				continue
+			}
 			ioMethods := loose
 			if lang := langFamily(f.File); strictIOIndex[lang] {
 				ioMethods = strict[lang]
 				// The index is for a callee nobody could see.
 				if _, ok := byName[callee]; ok {
+					ioMethods = nil
+				}
+				// And not for a Java accessor. A client class with a `getDevice`
+				// that makes a request puts the name on the index, and every
+				// `dto.getDevice()` on a receiver nothing types then reads as that
+				// request. An unresolved `get…()` in Java is a field read far more
+				// often than it is anything else, and an unresolved `find()` is a
+				// regex matcher's.
+				if strings.HasSuffix(f.File, ".java") && javaNotByIndex(methodSegment(callee)) {
 					ioMethods = nil
 				}
 			}
@@ -2155,6 +2235,22 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 			// one. Tried over every language at once, that rule removed 5 of 5 labelled
 			// Java findings it touched, 4 of 4 TypeScript and 3 of 6 C#, and of 18
 			// Python removals read against source 11 were real I/O.
+			//
+			// It was tried again for Java and C# alone, after calls on declared
+			// receivers resolved in both, and every removal was read. It removed a
+			// labelled-correct finding in each: a statement per partition through a
+			// Spring JdbcTemplate, and a send per session through a third-party
+			// client. So both got a table of library members and the rule was tried
+			// a third time. The JdbcTemplate finding held. Three others were still
+			// lost, each behind an INTERFACE the closure does not see through: a
+			// repository interface whose queries are declared on the interfaces
+			// extending it, a queue service whose implementation publishes, and a
+			// session manager that sends through a controller taken from a `var`.
+			// The rule is as safe as the closure is complete, and across an
+			// interface it is not.
+			//
+			// What it removed correctly both times was narrower, and is kept: see
+			// tokenIsOwnPath.
 			if !isExpensive {
 				r, ok := byName[callee]
 				if !ok {
@@ -2171,6 +2267,17 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 				continue
 			}
 			basis := callBasis(f, callee, golang, storage, byName, byDotted, ioMethods)
+			// A receiver token is read off the call target, and for a callee that
+			// resolved to a function of this repository the target is that
+			// function's own name: `dao/sql.RelationEntity.toData` holds "sql."
+			// because of the package it is declared in, and
+			// `Tmdb.TmdbClientManager.GetPosterUrl` holds "db." by accident of
+			// spelling. That says where the function lives, not what it is called
+			// on. Such a callee is I/O when it reaches I/O, or when its method is
+			// named for it, and not otherwise.
+			if basis == basisIOReceiver && tokenNotOwnPath[langFamily(f.File)] && tokenIsOwnPath(callee, byName, ioByName, jvm) {
+				continue
+			}
 			if basisIsFact(basis) {
 				confirmedIO = true
 			}
@@ -2448,7 +2555,15 @@ func sortFindings(f []Finding) {
 		if f[i].Symbol != f[j].Symbol {
 			return f[i].Symbol < f[j].Symbol
 		}
-		return f[i].Kind < f[j].Kind
+		if f[i].Kind != f[j].Kind {
+			return f[i].Kind < f[j].Kind
+		}
+		// Overloads share a symbol name. A page boundary must fall in the same
+		// place on every call, so the order between them is fixed too.
+		if f[i].File != f[j].File {
+			return f[i].File < f[j].File
+		}
+		return f[i].Line < f[j].Line
 	})
 }
 
@@ -2459,7 +2574,9 @@ type args struct {
 	Repo        string `json:"repo,omitempty" jsonschema:"Repository label (multi-repo snapshots), e.g. 'go-service'."`
 	Symbol      string `json:"symbol,omitempty" jsonschema:"Symbol name substring."`
 	MinSeverity string `json:"min_severity,omitempty" jsonschema:"'low' (default), 'medium', or 'high'."`
+	Kind        string `json:"kind,omitempty" jsonschema:"Finding kind: call-in-loop, query-loop, recursion, nested-loop or compounded. Several are comma-separated. Default: all."`
 	Limit       int    `json:"limit,omitempty" jsonschema:"Maximum findings (1-1000). Default 100."`
+	Offset      int    `json:"offset,omitempty" jsonschema:"Findings to skip, for paging past limit. Default 0."`
 	OutputMode  string `json:"output_mode,omitempty" jsonschema:"'summary' (DEFAULT, counts by severity and kind plus the top findings), 'compact' (markdown table), or 'full' (complete JSON with the summary)."`
 	MaxTokens   int    `json:"max_tokens,omitempty" jsonschema:"Approximate token cap; output is truncated with a notice. Default: no cap."`
 }
@@ -2485,7 +2602,11 @@ type response struct {
 	Findings []Finding `json:"findings"`
 	Summary  summary   `json:"summary"`
 	Returned int       `json:"returned"`
-	Note     string    `json:"note"`
+	// Offset is where this page starts in the ranked, filtered findings, and
+	// NextOffset where the next one does. NextOffset is absent on the last page.
+	Offset     int    `json:"offset,omitempty"`
+	NextOffset int    `json:"next_offset,omitempty"`
+	Note       string `json:"note"`
 }
 
 const toolDescription = "Ranked performance risks per function: I/O or database calls inside loops (a likely N+1), recursion, " +
@@ -2498,6 +2619,8 @@ const toolDescription = "Ranked performance risks per function: I/O or database 
 	"A query-loop finding is one the query-loops explainer made (Rails): a database query per iteration, read from the " +
 	"receiver's type. All of them are returned here, including those that explainer counts in its rollup and does not list. " +
 	"Supports Go, Python, Ruby, Swift, Kotlin, Scala, Dart, TypeScript, Java, C++ and C#. " +
+	"kind narrows the result to one or more kinds. A call returns at most 1000 findings; a full result says where the " +
+	"next page starts (next_offset), and offset reads it. " +
 	"Findings of medium severity and up also appear in query_insights(explainer=\"performance\"); query-loop findings " +
 	"appear in query_insights(explainer=\"query-loops\")."
 
@@ -2511,6 +2634,11 @@ func Register(srv *mcp.Server, store func() *facts.Store) {
 	}, func(_ context.Context, _ *mcp.CallToolRequest, in args) (*mcp.CallToolResult, any, error) {
 		if store().Count() == 0 {
 			return mcputil.ErrorResult("No facts available. Run generate_snapshot first."), nil, nil
+		}
+
+		if bad := unknownKinds(in.Kind); len(bad) > 0 {
+			return mcputil.ErrorResult(fmt.Sprintf("Unknown kind %s. Kinds: %s.",
+				strings.Join(bad, ", "), strings.Join(kindNames(), ", "))), nil, nil
 		}
 
 		funcs, storage, routeHandlers, assoc := collect(store())
@@ -2540,24 +2668,21 @@ func Register(srv *mcp.Server, store func() *facts.Store) {
 		// above "(high 145 / medium 499 / low 267)", which sums to 911. That is the very
 		// defect new/56 fixed, reintroduced by its own fix, because the tests called
 		// summarize() directly and never exercised a result set larger than the limit.
-		shown := matched
-		if len(shown) > limit {
-			shown = shown[:limit]
-		}
+		shown, offset, next := page(matched, in.Offset, limit)
 
 		switch mcputil.ResolveOutputMode(in.OutputMode, mcputil.ModeSummary) {
 		case mcputil.ModeFull:
 			return mcputil.JSONResultCapped(response{
 				Findings: shown,
 				Summary:  sum,
-				Returned: len(shown),
+				Returned: len(shown), Offset: offset, NextOffset: next,
 				Note: "big_o (recursion, and a call-in-loop whose call sits in one loop) is a deterministic estimate of worst case from parser facts, not a proof. " +
 					"depth (nested-loop, compounded, and a call-in-loop whose call sits in a nest) is a count of nested loops and NOT a complexity: nested loops multiply only when each walks an independent collection. Supports Go, Python, Ruby, Swift, Kotlin, Scala, Dart, TypeScript, Java, C++, and C#. " +
 					"SCALA: a `for … yield` comprehension and flatMap/fold are monadic binds as often as iteration, so they raise loop_depth but NOT scaling depth — a finding over one is downgraded rather than claimed; a combinator applied to an Option is discounted the same way. " +
 					strings.ReplaceAll(strings.TrimSpace(kindLegend(shown)), "\n", " "),
 			}, in.MaxTokens)
 		case mcputil.ModeCompact:
-			return mcputil.TextResult(mcputil.CapTokens(withLegend(renderPerfCompact(shown), shown), in.MaxTokens, false)), nil, nil
+			return mcputil.TextResult(mcputil.CapTokens(withLegend(renderPerfCompact(shown)+pageLine(offset, len(shown), len(matched)), shown), in.MaxTokens, false)), nil, nil
 		default:
 			// The summary renders its own topN list, so it gets the full matched set —
 			// its counts and its headline must describe the same thing.
@@ -2653,6 +2778,80 @@ var kindMeanings = []struct{ kind, meaning string }{
 	{"query-loop", "a database query issued once per iteration, read from the receiver's type by the query-loops explainer"},
 }
 
+// kindNames lists the finding kinds, in the legend's order.
+func kindNames() []string {
+	names := make([]string, 0, len(kindMeanings))
+	for _, k := range kindMeanings {
+		names = append(names, k.kind)
+	}
+	return names
+}
+
+// kindSet reads the kind argument, a comma-separated list, or nil for none.
+func kindSet(arg string) map[string]bool {
+	var set map[string]bool
+	for _, k := range strings.Split(arg, ",") {
+		if k = strings.TrimSpace(k); k != "" {
+			if set == nil {
+				set = map[string]bool{}
+			}
+			set[k] = true
+		}
+	}
+	return set
+}
+
+// unknownKinds returns the names in the kind argument that are no finding kind.
+// A misspelt kind would otherwise match nothing and read as a clean repository.
+func unknownKinds(arg string) []string {
+	set := kindSet(arg)
+	for _, k := range kindNames() {
+		delete(set, k)
+	}
+	bad := make([]string, 0, len(set))
+	for k := range set {
+		bad = append(bad, k)
+	}
+	sort.Strings(bad)
+	return bad
+}
+
+// page cuts one page out of the ranked, filtered findings. It returns the offset
+// it used, clamped to the findings there are, and the offset of the next page, or
+// 0 when this one is the last.
+func page(matched []Finding, offset, limit int) (shown []Finding, at, next int) {
+	if offset < 0 {
+		offset = 0
+	}
+	if offset > len(matched) {
+		offset = len(matched)
+	}
+	shown = matched[offset:]
+	if len(shown) > limit {
+		shown = shown[:limit]
+	}
+	if end := offset + len(shown); end < len(matched) {
+		next = end
+	}
+	return shown, offset, next
+}
+
+// pageLine says which part of the matched findings a table shows, when it is not
+// all of them, and where the next page starts.
+func pageLine(offset, shown, total int) string {
+	if shown == total {
+		return ""
+	}
+	if shown == 0 {
+		return fmt.Sprintf("\nNo findings at offset %d: %d matched.\n", offset, total)
+	}
+	line := fmt.Sprintf("\nShowing %d to %d of %d.", offset+1, offset+shown, total)
+	if offset+shown < total {
+		line += fmt.Sprintf(" Next page: offset=%d.", offset+shown)
+	}
+	return line + "\n"
+}
+
 // kindLegend defines the kinds that occur in findings, one line each, or "" for none.
 func kindLegend(findings []Finding) string {
 	seen := map[string]bool{}
@@ -2725,6 +2924,7 @@ func describeFilter(a args) string {
 		"repo", a.Repo,
 		"symbol", a.Symbol,
 		"min_severity", a.MinSeverity,
+		"kind", a.Kind,
 	)
 }
 
@@ -2778,12 +2978,16 @@ func filterFindings(in []Finding, a args) []Finding {
 	if a.MinSeverity == "" {
 		minRank = 0
 	}
-	if a.Package == "" && a.Repo == "" && a.Symbol == "" && minRank == 0 {
+	kinds := kindSet(a.Kind)
+	if a.Package == "" && a.Repo == "" && a.Symbol == "" && minRank == 0 && kinds == nil {
 		return in
 	}
 	out := in[:0:0]
 	for _, f := range in {
 		if minRank > 0 && severityRank(f.Severity) < minRank {
+			continue
+		}
+		if kinds != nil && !kinds[f.Kind] {
 			continue
 		}
 		// package= matches the declaring package OR the symbol name — the schema

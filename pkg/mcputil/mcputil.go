@@ -131,5 +131,7 @@ func IsGeneratedPath(p string) bool {
 			return true
 		}
 	}
-	return false
+	// `zz_generated.deepcopy.go`, `zz_generated.openapi.go`: the name the
+	// Kubernetes code generators give every file they write.
+	return strings.HasPrefix(base, "zz_generated.")
 }

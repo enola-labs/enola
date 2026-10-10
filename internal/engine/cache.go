@@ -20,6 +20,52 @@ import (
 	"github.com/enola-labs/enola/pkg/plugin"
 )
 
+// v318: loop shapes. Python: a call in a block that ends by leaving the loop
+// (break, return, raise, and no continue before it) runs at most once and is not
+// a call per element (pythonextractor/terminal.go, as goextractor/terminal.go);
+// a `while` over a counter its body steps by more than one is a page loop; and
+// a call in a for statement's iterable belongs to the loop AROUND that statement,
+// so a batch or round loop's rule now sees it. Go: a loop whose condition
+// advances a cursor (`for rows.Next()`) is never a batch loop, so a query per row
+// in its body is a query per row.
+// v317: Java and C#. A call on a receiver whose declared type is a LIBRARY's is
+// classed by that library's member (javaextractor/ioprim.go, dotnetextractor/
+// ioprim.go): `jdbcTemplate.update`, `entityManager.find`, `query.ToListAsync`
+// and `_tmdb.GetMovieAsync` make the method io_direct and are named in io_calls;
+// an in-loop call on a collection, a JSON tree or a logger is named in
+// pure_calls. Before, I/O was seeded only from types the repository declares
+// (Java) or from method names on any receiver (C#). A library call makes an
+// overloaded name io_direct only when every overload makes one or delegates.
+// Java: a call on the result of a method of the class is typed by that method's
+// return type (`getJdbcTemplate().execute(…)`), and an interface every extender
+// of which is a repository is an io_type. C#: `base.M(…)` is an edge to the
+// declaration the override extends.
+// v316: Python round loops (pythonextractor/pollloop.go). A poll (`while` with a
+// sleep, or `while True` left by a test of what the round fetched), a retry (`for`
+// over a counter with a sleep, or over a retry library's attempts) and a cursor
+// (`while request is not None`, moved on by the response) add no nesting, and a
+// call at their own level is the round's, not a call per element. A loop that
+// takes an element each round, a chain walk and a walk that stops early are not
+// round loops.
+// v315: Python. A library call is classed by its member (v313) also where the
+// library's import root is a directory name of the repository, which made its
+// targets read as internal: a provider tree holding `providers/google/…` kept
+// every `google.cloud.…Client` call dotted and unclassed.
+// v314: Python receivers typed by what the source declares
+// (pythonextractor/returntypes.go). A call on the result of a method of the same
+// class or a function of the same file resolves by its return annotation
+// (`self.get_conn().delete_blob(…)`), and so does a local bound to one, when every
+// binding of the name agrees. A call on an imported module-level name resolves by
+// the annotation or constructor it is declared with (`security_manager.x(…)`).
+// The generated clients of google-cloud and kubernetes, and the SFTP clients of
+// paramiko and asyncssh, are I/O by type. And an in-loop call whose receiver
+// nothing types is recorded as written when its method is I/O by name
+// (`conn.execute`): before, a loop named only the calls that resolved.
+// v313: Python. A call that resolution placed in a library is classed by the
+// member it names (pythonextractor/ioprim.go): `sqlalchemy.orm.Session.execute`,
+// `requests.get` and `os.path.exists` make the function io_direct and are named in
+// io_calls; `Session.delete`, `sqlalchemy.update` and `re.search` are named in
+// pure_calls, which the performance analyzer takes over a reading of the name.
 // v312: a Rails association declared inside `with_options class_name: 'X' do … end`
 // takes that class. It had been derived from the association's own name, which
 // named a class no model has, and the association was dropped as unresolved, along
@@ -2733,7 +2779,7 @@ import (
 // v270: SvelteKit reads literal kit.alias fallbacks before generated config exists,
 // keeps tsconfig paths authoritative, and classifies $app/$env/$service-worker imports
 // as framework-provided rather than unresolved third-party dependencies.
-const cacheVersion = "v312"
+const cacheVersion = "v318"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
