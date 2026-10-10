@@ -88,6 +88,11 @@ type astWalker struct {
 	repeatDepth  int
 	// loopScopes are the enclosing loops' variables, for the rule in hierarchy.go.
 	loopScopes []javaLoopScope
+	// fieldTypes are the declared types of the enclosing classes' fields, innermost
+	// last, and localTypes those of the current method's parameters and locals
+	// (nil outside a method). See receivers.go.
+	fieldTypes []map[string]string
+	localTypes map[string]string
 	selfName   string
 	selfShort  string
 	// selfParams is the enclosing method's declared parameter count. A resolved
@@ -99,6 +104,8 @@ type astWalker struct {
 // javaBodyMetrics accumulates per-method complexity signals during the single
 // walkForCalls body traversal — mirrors the other extractors.
 type javaBodyMetrics struct {
+	// typedCalls are the calls made on a receiver of declared type (receivers.go).
+	typedCalls         []typedCall
 	loopDepth          int             // max loop nesting depth
 	loopCount          int             // number of loop constructs (syntactic + stream lambdas)
 	decisions          int             // decision points (cyclomatic = 1 + decisions)
@@ -206,6 +213,10 @@ func (w *astWalker) recordInLoop(target string) {
 	// candidate. Only a genuinely constant loop (a literal-bounded for, a for-each over
 	// a collection literal) excludes its calls; while(true)/for(;;) repeats, so its
 	// calls stay candidates even though its depth is discounted from the Big-O exponent.
+	// A call made once per round of a paging loop is the batched call.
+	if n := len(w.loopScopes); n > 0 && w.loopScopes[n-1].batch {
+		return
+	}
 	if w.repeatDepth > 0 {
 		if w.metrics.inScalingSeen == nil {
 			w.metrics.inScalingSeen = make(map[string]bool)
@@ -466,33 +477,44 @@ func javaStreamLambda(call *sitter.Node, src []byte) *sitter.Node {
 // at +1 (it runs per element), while walking everything else (receiver, other args)
 // at the current depth. Kind-checked so an ancestor with the same byte span isn't
 // mistaken for the lambda.
-// bounded is true when the iterator's receiver is a collection literal, so the callback
-// runs a fixed number of times and neither scales nor repeats.
-func (w *astWalker) walkJavaLambdaSubtree(node, lambda *sitter.Node, bounded bool) {
+// class says what the callback's loop is: constant over a collection literal
+// (neither scales nor repeats), repeating without scaling over what an enclosing
+// loop's element holds, or scaling.
+func (w *astWalker) walkJavaLambdaSubtree(node, lambda *sitter.Node, class javaLoopClass) {
 	if node == nil {
 		return
 	}
 	if kindOf(node) == "lambda_expression" && node.StartByte() == lambda.StartByte() && node.EndByte() == lambda.EndByte() {
+		// The callback is a loop of its own: a call in it is made per element, not
+		// once per round of whatever statement loop encloses it.
+		scope := javaLoopScope{amortizes: class.repeats()}
+		if p := node.ChildByFieldName("parameters"); p != nil && kindOf(p) == "identifier" {
+			scope.add(nodeText(p, w.src))
+		}
+		w.loopScopes = append(w.loopScopes, scope)
 		w.loopDepth++
-		if !bounded {
-			// An iterator receiver is either a literal (constant) or data-derived
-			// (scaling); it is never infinite, so repeating and scaling coincide here.
+		if class.scales() {
 			w.scalingDepth++
+		}
+		if class.repeats() {
 			w.repeatDepth++
 		}
 		for i := uint(0); i < uint(node.ChildCount()); i++ {
 			w.walkForCalls(node.Child(i))
 		}
 		w.loopDepth--
-		if !bounded {
+		if class.scales() {
 			w.scalingDepth--
+		}
+		if class.repeats() {
 			w.repeatDepth--
 		}
+		w.loopScopes = w.loopScopes[:len(w.loopScopes)-1]
 		return
 	}
 	for i := uint(0); i < uint(node.ChildCount()); i++ {
 		if c := node.Child(i); javaByteContains(c, lambda) {
-			w.walkJavaLambdaSubtree(c, lambda, bounded)
+			w.walkJavaLambdaSubtree(c, lambda, class)
 		} else {
 			w.walkForCalls(c)
 		}
@@ -708,6 +730,10 @@ func (w *astWalker) handleClassLike(node *sitter.Node, kind string) {
 		w.out = append(w.out, *sf)
 	}
 
+	if hasAnnotation(annotations, "FeignClient", "Dao") || isSpringDataRepository(supers) {
+		f.SetProp(propIOType, true)
+	}
+
 	w.out = append(w.out, f)
 	owner := &w.out[len(w.out)-1]
 	w.pushOwner(owner)
@@ -715,6 +741,7 @@ func (w *astWalker) handleClassLike(node *sitter.Node, kind string) {
 	// Enter the type scope.
 	body := classBody(node)
 	w.typeStack = append(w.typeStack, name)
+	w.fieldTypes = append(w.fieldTypes, w.collectFieldTypes(body))
 	w.methodStack = append(w.methodStack, collectMethodNames(body, w.src))
 	w.routeStack = append(w.routeStack, routeScope{
 		isController:  isSpringController(annotations),
@@ -737,6 +764,7 @@ func (w *astWalker) handleClassLike(node *sitter.Node, kind string) {
 	}
 
 	w.routeStack = w.routeStack[:len(w.routeStack)-1]
+	w.fieldTypes = w.fieldTypes[:len(w.fieldTypes)-1]
 	w.typeStack = w.typeStack[:len(w.typeStack)-1]
 	w.methodStack = w.methodStack[:len(w.methodStack)-1]
 	w.popOwner()
@@ -836,6 +864,10 @@ func (w *astWalker) handleMethod(node *sitter.Node) {
 	w.loopScopes = nil
 	defer func() { w.loopScopes = savedScopes }()
 	w.metrics = &javaBodyMetrics{}
+	savedLocals := w.localTypes
+	w.localTypes = make(map[string]string)
+	defer func() { w.localTypes = savedLocals }()
+	w.bindParameters(node)
 	w.loopDepth = 0
 	w.scalingDepth = 0
 	w.repeatDepth = 0
@@ -847,6 +879,9 @@ func (w *astWalker) handleMethod(node *sitter.Node) {
 	}
 	m := w.metrics
 	props := w.out[ownerIdx].Props
+	if len(m.typedCalls) > 0 {
+		props[propTypedCalls] = m.typedCalls
+	}
 	props["cyclomatic"] = 1 + m.decisions
 	if m.loopDepth > 0 {
 		props["loop_depth"] = m.loopDepth
@@ -879,8 +914,8 @@ func (w *astWalker) handleMethod(node *sitter.Node) {
 	// signals (@FeignClient / Spring Data repository / @Dao) plus unambiguous query
 	// annotations (@Query/@Modifying/@Procedure) — never a bare HTTP verb or
 	// @GetMapping, which on server-side Java is an INBOUND handler, not I/O.
-	// performs_io == io_direct: no transitive pass (Java call edges are same-class
-	// only, and the consumer matches the flagged leaf callee by short name).
+	// performs_io is set here for the round-trip itself; ioclosure.Propagate
+	// carries it to the methods that reach one.
 	if w.methodPerformsIO(annotations) {
 		props["io_direct"] = true
 		props["performs_io"] = true
@@ -1036,6 +1071,7 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 		return
 	}
 	kind := kindOf(node)
+	w.noteDeclaration(node, kind)
 
 	// A lambda is a deferred scope: its body runs when invoked, NOT per-iteration of
 	// the enclosing loops — so reset the loop depth for its subtree (e.g. a Runnable
@@ -1107,6 +1143,12 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 				scope.add(nodeText(name, w.src))
 			}
 		}
+		// A paging loop: what a round fetched is the round's element, so the loop
+		// that drains it is that loop's hierarchical inner loop.
+		for _, page := range javaBatchLoop(node, w.src) {
+			scope.batch, scope.amortizes = true, true
+			scope.add(page)
+		}
 		w.loopScopes = append(w.loopScopes, scope)
 		defer func() { w.loopScopes = w.loopScopes[:len(w.loopScopes)-1] }()
 		if w.metrics != nil {
@@ -1168,18 +1210,27 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 				// count — it raises loop_depth but not the scaling depth. The depth bump
 				// happens at the lambda body inside walkJavaLambdaSubtree; here we only
 				// record the maxes.
-				bounded := javaStreamReceiverBounded(node, w.src)
+				class := javaLoopScaling
+				switch {
+				case javaStreamReceiverBounded(node, w.src):
+					class = javaLoopConstant
+				case javaReachedThroughElement(node.ChildByFieldName("object"), w.src, w.loopScopes):
+					// `page.getData().forEach(…)`, `schema.getAllOf().forEach(…)`:
+					// over what belongs to an enclosing loop's element. It repeats
+					// without scaling, as the statement form does (hierarchy.go).
+					class = javaLoopInfinite
+				}
 				w.metrics.loopCount++
 				w.metrics.decisions++
 				if w.loopDepth+1 > w.metrics.loopDepth {
 					w.metrics.loopDepth = w.loopDepth + 1
 				}
-				if !bounded && w.scalingDepth+1 > w.metrics.scalingLoopDepth {
+				if class.scales() && w.scalingDepth+1 > w.metrics.scalingLoopDepth {
 					w.metrics.scalingLoopDepth = w.scalingDepth + 1
 				}
 				for i := uint(0); i < uint(node.ChildCount()); i++ {
 					if c := node.Child(i); javaByteContains(c, lambda) {
-						w.walkJavaLambdaSubtree(c, lambda, bounded)
+						w.walkJavaLambdaSubtree(c, lambda, class)
 					} else {
 						w.walkForCalls(c)
 					}
@@ -1212,8 +1263,8 @@ func (w *astWalker) handleInvocation(node *sitter.Node) {
 	w.detectRestTemplateCall(node, name)
 
 	// Resolve bare `foo()` and `this.foo()` calls against the enclosing class's
-	// own methods. Calls on other receivers are left unresolved (the receiver's
-	// type is not tracked), matching the Kotlin extractor's conservative model.
+	// own methods. A call on another receiver is resolved where that receiver's
+	// type is declared (receivers.go), and left as text otherwise.
 	isThis := obj != nil && nodeText(obj, w.src) == "this"
 	if obj != nil && w.metrics != nil && name == w.selfShort && nodeText(obj, w.src) == "super" {
 		// super.<self>() — an override delegating to its supertype. Note it so an
@@ -1228,11 +1279,21 @@ func (w *astWalker) handleInvocation(node *sitter.Node) {
 				Target: target,
 			})
 			w.recordCallMetrics(target, javaArgCount(node))
+		} else if t := w.enclosingType(); t != "" {
+			// Not declared here: inherited, if a supertype of this repository
+			// declares it (receivers.go settles that).
+			w.noteTypedCall(name, w.fqn(t), name)
 		}
-	} else if w.metrics != nil && w.loopDepth > 0 && !javaCheapMethods[name] {
-		// Method call on a non-this receiver inside a loop (repo.findById(), …). No
-		// graph edge today, but its name feeds the perf metric so the performance
-		// analyzer can flag per-iteration JPA/JDBC/network I/O.
+		return
+	}
+	// A receiver whose type is declared: receivers.go.
+	recvText := nodeText(obj, w.src)
+	w.noteTypedCall(writtenCall(recvText, name), w.receiverType(obj), name)
+	if w.metrics != nil && w.loopDepth > 0 && !javaCheapMethods[name] {
+		// Method call on a non-this receiver inside a loop (repo.findById(), …). Its
+		// text feeds the perf metric so the performance analyzer can flag
+		// per-iteration JPA/JDBC/network I/O; where the receiver's type is declared
+		// in this repository, resolveTypedCalls replaces the text with the method.
 		tgt := name
 		if recv := nodeText(obj, w.src); recv != "" {
 			tgt = recv + "." + name

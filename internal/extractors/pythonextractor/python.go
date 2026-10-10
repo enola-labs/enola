@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/enola-labs/enola/internal/extractors/detectnames"
+	"github.com/enola-labs/enola/internal/extractors/ioclosure"
 	"github.com/enola-labs/enola/internal/factpath"
 	"github.com/enola-labs/enola/internal/facts"
 	"github.com/enola-labs/enola/internal/parallel"
@@ -206,7 +207,7 @@ func (e *PythonExtractor) Extract(ctx context.Context, repoPath string, files []
 	// call graph into performs_io, so a function that reaches DB/network I/O only through
 	// helpers is still flagged — the signal the performance analyzer reads to tell a real
 	// per-iteration I/O call from a name that merely collides with a DB verb.
-	computePyPerformsIO(allFacts)
+	ioclosure.Propagate(allFacts)
 
 	for dir := range modules {
 		allFacts = append(allFacts, facts.Fact{
@@ -220,66 +221,6 @@ func (e *PythonExtractor) Extract(ctx context.Context, repoPath string, files []
 	}
 
 	return allFacts, nil
-}
-
-// computePyPerformsIO propagates the per-body io_direct flag transitively across the
-// call graph into a performs_io prop, so a function that reaches DB/network/file I/O only
-// through helpers is still flagged. Mirrors computeTSPerformsIO: a monotone fixpoint that
-// only ever flips false→true, so it is cycle-safe. Only edges to known symbol names
-// propagate (unresolved external calls are ignored), so the closure stays within the repo.
-func computePyPerformsIO(allFacts []facts.Fact) {
-	exists := make(map[string]bool)
-	for i := range allFacts {
-		if allFacts[i].Kind == facts.KindSymbol {
-			exists[allFacts[i].Name] = true
-		}
-	}
-
-	io := make(map[string]bool)      // name → performs I/O (directly or transitively)
-	adj := make(map[string][]string) // name → called names that are known symbols
-	for i := range allFacts {
-		f := &allFacts[i]
-		if f.Kind != facts.KindSymbol {
-			continue
-		}
-		if b, _ := f.PropAny("io_direct").(bool); b {
-			io[f.Name] = true
-		}
-		seen := make(map[string]bool)
-		for _, r := range f.Relations {
-			if r.Kind != facts.RelCalls || r.Target == f.Name || seen[r.Target] || !exists[r.Target] {
-				continue
-			}
-			seen[r.Target] = true
-			adj[f.Name] = append(adj[f.Name], r.Target)
-		}
-	}
-
-	for changed := true; changed; {
-		changed = false
-		for name, callees := range adj {
-			if io[name] {
-				continue
-			}
-			for _, c := range callees {
-				if io[c] {
-					io[name] = true
-					changed = true
-					break
-				}
-			}
-		}
-	}
-
-	for i := range allFacts {
-		f := &allFacts[i]
-		if f.Kind == facts.KindSymbol && io[f.Name] {
-			if f.Props == nil {
-				f.Props = map[string]any{}
-			}
-			f.SetProp("performs_io", true)
-		}
-	}
 }
 
 // --- Regex patterns used by the AST walker ---

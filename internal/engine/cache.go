@@ -20,6 +20,83 @@ import (
 	"github.com/enola-labs/enola/pkg/plugin"
 )
 
+// v312: a Rails association declared inside `with_options class_name: 'X' do … end`
+// takes that class. It had been derived from the association's own name, which
+// named a class no model has, and the association was dropped as unresolved, along
+// with every `through:` that passes over it. On one application that was the
+// follow, block and mute relationships of its account model.
+// v311: TypeScript I/O that the callee's name does not show. A resolved call on
+// Angular's HttpClient (`this.http.post(…)`, through the declared type of the
+// constructor parameter property) is io_direct and named in io_calls. A call that
+// hands the global fetch to a wrapper (`fetchRetry(fetch, opts)`) is io_direct. And
+// a call on the result of one of the file's own functions resolves by that
+// function's declared return type, where it is a plain class name
+// (`getInstance().delete(x)`).
+// v310: Python. The in-loop call lists are resolved with the calls relations: they
+// were left dotted, so a callee under a source root or behind a re-export never
+// matched a symbol. A call on `self.x` resolves by what the class declares it
+// holds there (an annotation, the constructor or the typed parameter it is
+// assigned from, the return annotation of a property of that name). And the
+// object-store client methods of boto3 and google-cloud-storage are io_direct by
+// name, since they are called on a client no receiver type describes.
+// v309: Kotlin calls on a receiver of declared type are calls edges, as in Java
+// (v307) and C# (v308): a constructor property, a property, a parameter, a typed
+// local, a local constructed with `Type(…)`, an object named by its type. And a
+// supertype written by its simple name is an implements edge to the type it names
+// where this repository declares one; the target used to be the bare name, which
+// matched no fact, so nothing could follow a Kotlin interface to its implementers.
+// v308: C# calls on a receiver of declared type are calls edges, as in Java since
+// v307: a field, a property, a primary-constructor parameter, a parameter, a typed
+// local, `var x = new T()`. The bare method name such a call has always emitted is
+// still emitted; beside it there is now an edge to the method the declared type or
+// one of its base types declares, and the in-loop lists carry that name. A call on
+// a receiver whose type is not written down is unchanged.
+// v307: Java calls on a receiver of declared type are calls edges. The receiver's
+// type is read where the source writes it (a field, a parameter, a typed local,
+// `var x = new T()`, a for-each variable, a capitalised static receiver), and the
+// edge is made when this repository declares the type and it or a supertype
+// declares the method. A call was an edge only on `this` before, so the graph
+// stopped at every injected dependency. The in-loop lists carry the resolved name.
+// A type every method of which is a round trip (Spring Data repository, Feign
+// client, Room DAO) carries io_type, and a call on one that lands on no declaration
+// (an inherited `save`) is named in the caller's io_calls.
+// v306: paging loops in Java. A while or do-while whose body binds a local from a
+// call, loops over that local, and goes round again depending on it (its condition
+// reads it, or an `if` that breaks or returns does) takes its input a page at a
+// time: the loop that drains the page adds no factor, and the fetch, made once per
+// round, leaves calls_in_scaling_loop. The third condition is what keeps an
+// iterator walk that queries per element out. A stream callback is now a loop under
+// the same rules as a statement loop: over what an enclosing loop's element holds it
+// repeats without scaling. And in Go, a call in a block that ends by leaving the
+// innermost loop (a return, a panic, the loop's own break) is made at most once per
+// entry: it leaves calls_in_loop and calls_in_scaling_loop, as a call in the loop's
+// head does.
+// v305: Ruby methods carry scaling_loop_depth, calls_in_scaling_loop and
+// calls_in_scaling_loop_depth. loop_depth already left out a loop over a literal or
+// a constant; what was missing is the nest around each call (a call-in-loop finding
+// took its exponent from the method's deepest nest, wherever the call sat), a loop
+// over what an enclosing loop bound (`list.accounts.each` inside `lists.each` visits
+// each account once, and adds no factor), and the batch iterators: a call made
+// directly in an each_slice / in_groups_of block runs once per batch and is not
+// listed.
+// v304: Go functions carry io_direct, io_calls and performs_io. A body that calls an
+// I/O entry point (by package MEMBER: net/http.Client.Do and not
+// ResponseWriter.Header, xorm Session.Find and not Session.Where) is io_direct and
+// names the call in io_calls; the shared closure carries it on. Three things make a
+// project's own wrappers readable: an interface assertion (`var _ Engine =
+// (*xorm.Session)(nil)`) ties an interface to what implements it; a call on a method
+// promoted from an embedded type is rewritten to the method's declaration, in the
+// calls relation and in the calls_in_loop family, so the edge no longer dangles; and
+// a builder chain of a known query library resolves through to the call that runs
+// it. Two things keep the flag from meaning "everything": a logging, tracing or
+// metrics package is opaque to the closure, and a call made only inside a once.Do
+// (calls_once) is not followed.
+// v303: performs_io is propagated by one shared closure (internal/extractors/ioclosure)
+// in place of seven copies, and it follows a call on an interface method or an
+// abstract method to the implementers' methods of that name. A caller holding an
+// injected interface used to stop there, one hop short of the I/O. Java and Kotlin
+// run it too, over the calls edges they have: their performs_io had been the
+// round-trip method alone.
 // v302: a C-style for is fixed-count only when it both starts and stops at a constant,
 // in C/C++, C# and PHP as in TypeScript and Java since v300. The condition alone used
 // to decide, so `for (i = n - 1; i >= 0; i--)` was read as constant for comparing
@@ -2656,7 +2733,7 @@ import (
 // v270: SvelteKit reads literal kit.alias fallbacks before generated config exists,
 // keeps tsconfig paths authoritative, and classifies $app/$env/$service-worker imports
 // as framework-provided rather than unresolved third-party dependencies.
-const cacheVersion = "v302"
+const cacheVersion = "v312"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

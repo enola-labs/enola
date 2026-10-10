@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/enola-labs/enola/internal/extractors/detectnames"
+	"github.com/enola-labs/enola/internal/extractors/ioclosure"
 	"github.com/enola-labs/enola/internal/extractors/jvmsrc"
 	"github.com/enola-labs/enola/internal/factpath"
 	"github.com/enola-labs/enola/internal/facts"
@@ -138,6 +139,14 @@ func (e *KotlinExtractor) Extract(ctx context.Context, repoPath string, files []
 		allFacts = append(allFacts, ff...)
 		modules[factpath.Dir(kotlinFiles[i])] = true
 	}
+
+	// Calls on a receiver of declared type become edges, and supertypes written by
+	// simple name become implements edges, now that every file has been read.
+	resolveTypedCalls(allFacts)
+
+	// The walker marks only the round-trip itself (a Retrofit endpoint, a Room DAO
+	// operation). A method with a calls edge to one is I/O through it.
+	ioclosure.Propagate(allFacts)
 
 	for dir := range modules {
 		allFacts = append(allFacts, facts.Fact{

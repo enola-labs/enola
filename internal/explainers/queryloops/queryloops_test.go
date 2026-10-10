@@ -2,9 +2,11 @@ package queryloops
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
+	"github.com/enola-labs/enola/internal/explainers/common"
 	"github.com/enola-labs/enola/internal/facts"
 )
 
@@ -346,5 +348,37 @@ func TestAClassLevelIterationOnABareConstantTypesItsElement(t *testing.T) {
 	}
 	if strings.Contains(out, "c.users") {
 		t.Fatalf("a constant that is not a model typed an element:\n%s", out)
+	}
+}
+
+// All returns every finding, and says which ones the explainer names itself. Past
+// the cap a finding is counted in the rollup and listed nowhere else, which is
+// what a consumer of All is for.
+func TestAllReturnsFindingsPastTheCap(t *testing.T) {
+	fs := []facts.Fact{model("Account")}
+	const n = common.MaxIndividualInsights + 7
+	for i := 0; i < n; i++ {
+		fs = append(fs, symbol(fmt.Sprintf("Worker%03d#run", i), []string{"Account.find_by"}, 1))
+	}
+	s := store(fs...)
+	all := All(s)
+	if len(all) != n {
+		t.Fatalf("All returned %d findings, want %d", len(all), n)
+	}
+	listed := 0
+	for _, f := range all {
+		if f.Listed {
+			listed++
+		}
+		if f.Call != "Account.find_by" || f.Confidence != 0.8 {
+			t.Errorf("%s: call %q confidence %.1f, want Account.find_by at 0.8", f.Symbol, f.Call, f.Confidence)
+		}
+	}
+	if listed != common.MaxIndividualInsights {
+		t.Errorf("%d findings marked listed, want the cap of %d", listed, common.MaxIndividualInsights)
+	}
+	// The listed ones are exactly the ones Explain names.
+	if got := titles(t, s); !strings.Contains(got, fmt.Sprintf("Additional per-iteration queries: %d more", n-common.MaxIndividualInsights)) {
+		t.Errorf("Explain does not roll up the rest:\n%s", got[len(got)-200:])
 	}
 }

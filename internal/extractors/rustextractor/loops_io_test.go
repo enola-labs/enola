@@ -3,6 +3,7 @@ package rustextractor
 import (
 	"testing"
 
+	"github.com/enola-labs/enola/internal/extractors/ioclosure"
 	"github.com/enola-labs/enola/internal/facts"
 )
 
@@ -199,7 +200,7 @@ fn load_row() {
 `)
 	// io_direct is per-function (set by the walker); performs_io is the transitive
 	// fixpoint computed at the package level, so run it here over the file's facts.
-	computeRustPerformsIO(ff)
+	ioclosure.Propagate(ff)
 
 	lr, _ := findFact(ff, "pkg.load_row")
 	if b, _ := lr.Props["io_direct"].(bool); !b {

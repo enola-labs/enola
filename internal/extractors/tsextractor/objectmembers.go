@@ -40,7 +40,7 @@ func objectMemberSymbols(kinds *tsutil.KindTable, value *sitter.Node, ctx *extra
 		}
 		seen[name] = true
 		rels := []facts.Relation{{Kind: facts.RelDeclares, Target: ctx.dir}}
-		callRels, m := collectCallsWithMetrics(kinds, fn, ctx.src, ctx.dir, "", ctx.importMap, nil, ctx.memberRoots, ctx.ioBindings, name, path[len(path)-1])
+		callRels, m := collectCallsWithMetrics(kinds, fn, ctx.src, ctx.dir, "", ctx.importMap, nil, ctx.memberRoots, ctx.returnTypes, ctx.ioBindings, name, path[len(path)-1])
 		rels = append(rels, callRels...)
 		props := map[string]any{
 			"symbol_kind":   facts.SymbolFunc,

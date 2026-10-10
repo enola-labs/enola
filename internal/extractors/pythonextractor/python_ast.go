@@ -193,6 +193,10 @@ type pyWalker struct {
 	// canonical qualified type. Reset at the entry of every handleFunction call.
 	localTypes map[string]string
 
+	// attrTypes maps, per enclosing class (innermost last), an attribute held in
+	// `self` to its declared type. See selfattrs.go.
+	attrTypes []map[string]string
+
 	// localBound is the set of names bound in the current function's own scope
 	// (params + assigned/iterated/aliased names). Guards bare-identifier call
 	// and value-reference resolution against shadowing. Reset per handleFunction call.
@@ -421,6 +425,9 @@ func (w *pyWalker) popType() {
 	}
 	if len(w.methodSets) > 0 {
 		w.methodSets = w.methodSets[:len(w.methodSets)-1]
+	}
+	if len(w.attrTypes) > len(w.typeStack) {
+		w.attrTypes = w.attrTypes[:len(w.attrTypes)-1]
 	}
 }
 
@@ -1165,6 +1172,7 @@ func (w *pyWalker) handleClass(node *sitter.Node, decorators []string) {
 
 	bodyNode := node.ChildByFieldName("body")
 	w.pushType(name, collectPyMethodNames(bodyNode, w.src))
+	w.attrTypes = append(w.attrTypes, collectSelfAttrTypes(bodyNode, w.src, w.importMap, w.module))
 	if bodyNode != nil {
 		w.walkBody(bodyNode)
 		// Walk class-body statements for call / value-reference edges (attrs/pydantic/
@@ -1597,7 +1605,7 @@ func (w *pyWalker) walkForCalls(node *sitter.Node) {
 			w.emitCallEdge(fn)
 			w.noteCallOnLoopElement(node, fn, w.lastCallTarget)
 			// Tag the body io_direct when it directly invokes a DB/network/file primitive
-			// (session.execute, requests.get, open(...)); computePyPerformsIO then
+			// (session.execute, requests.get, open(...)); ioclosure.Propagate then
 			// propagates it transitively into performs_io across the call graph.
 			if w.metrics != nil && !w.metrics.ioDirect && pyIsIODirectCall(fn, w.src) {
 				w.metrics.ioDirect = true
@@ -2041,6 +2049,16 @@ var pyIODirectMethods = map[string]bool{
 	"bulk_create": true, "bulk_update": true, "bulk_save_objects": true,
 	"bulk_insert_mappings": true, "add_all": true,
 	"get_or_create": true, "update_or_create": true, "urlopen": true,
+	// Object-store client methods (boto3 S3, google-cloud-storage). They are
+	// called on a client an untyped accessor returned (`self.get_conn().
+	// upload_fileobj(…)`), so no receiver says what they are; the names do, being
+	// the API's own and nobody else's. Without them a hook's upload method carried
+	// no flag, and once the call to it resolved it read as a call that does none.
+	"upload_fileobj": true, "upload_file": true, "download_fileobj": true, "download_file": true,
+	"put_object": true, "get_object": true, "delete_object": true, "delete_objects": true,
+	"head_object": true, "copy_object": true, "list_objects_v2": true,
+	"upload_from_filename": true, "upload_from_file": true, "upload_from_string": true,
+	"download_to_filename": true, "download_to_file": true, "download_as_bytes": true,
 }
 
 // pyIOReceivers are module/object roots whose calls are network I/O regardless of method.
@@ -2132,8 +2150,12 @@ func (w *pyWalker) emitCallEdge(fn *sitter.Node) {
 			}
 			return
 		}
-		// Resolve the receiver to a qualified type via localTypes or importMap.
+		// Resolve the receiver to a qualified type via localTypes or importMap, or,
+		// for `self.x`, by what the class declares it holds there.
 		qualType := w.resolveVarType(obj)
+		if qualType == "" {
+			qualType = w.selfAttrType(objNode)
+		}
 		if qualType == "" {
 			return
 		}

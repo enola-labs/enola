@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/enola-labs/enola/internal/extractors/detectnames"
+	"github.com/enola-labs/enola/internal/extractors/ioclosure"
 	"github.com/enola-labs/enola/internal/extractors/jvmsrc"
 	"github.com/enola-labs/enola/internal/factpath"
 	"github.com/enola-labs/enola/internal/facts"
@@ -101,6 +102,15 @@ func (e *JavaExtractor) Extract(ctx context.Context, repoPath string, files []st
 	packageIndex := jvmsrc.BuildPackageIndex(repoPath, files)
 	typeIndex := canonicalizeTargets(allFacts, packageIndex)
 	resolveTableConstants(allFacts)
+
+	// Calls on a receiver of declared type become edges here, now that every type
+	// of the repository is known and the implements targets are canonical.
+	resolveTypedCalls(allFacts, typeIndex)
+
+	// After the targets are canonical: the closure follows calls edges by name. The
+	// walker marks only the round-trip itself (a repository or client method), and
+	// the edges above carry it from there through the services that hold one.
+	ioclosure.Propagate(allFacts)
 
 	// Fold Java/Dubbo SPI service-file registrations in as references so an impl
 	// loaded by name (ExtensionLoader/ServiceLoader) — never called in code — is not

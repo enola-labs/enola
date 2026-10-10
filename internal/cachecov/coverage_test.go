@@ -33,6 +33,62 @@ import (
 // test functions that assert the behavior that version introduced. v1 is the
 // implicit baseline (no changelog line), so coverage starts at v2.
 var versionCoverage = map[int][]string{
+	312: {"TestAssociationsInsideWithOptionsTakeItsClassName"}, // a Rails association inside with_options class_name: takes that class
+	311: { // TypeScript: Angular HttpClient calls and fetch handed to a wrapper are io_direct; a call on a declared result resolves
+		"TestAngularHttpClientCallIsDirectIO",
+		"TestFetchHandedToAWrapperAndCallOnADeclaredResult",
+	},
+	310: { // Python: in-loop callees resolve with the relations; self.x calls resolve by the attribute's declared type
+		"TestPySelfAttributeCallResolvesByItsDeclaredType",
+		"TestPyInLoopCalleesResolveUnderASourceRoot",
+	},
+	309: { // Kotlin: a call on a receiver of declared type is a calls edge; a supertype by simple name is a canonical implements edge
+		"TestKotlinCallOnADeclaredReceiverIsAnEdge",
+		"TestKotlinDeclaredReceiverForms",
+	},
+	308: { // C#: a call on a receiver of declared type is a calls edge, resolved through base types and interfaces
+		"TestCSharpCallOnAnInjectedFieldIsAnEdge",
+		"TestCSharpDeclaredReceiverForms",
+		"TestCSharpTypedCallLandsOnADeclarationOrIsNotMade",
+	},
+	307: { // Java: a call on a receiver of declared type is a calls edge, resolved through supertypes; io_type and inherited repository methods
+		"TestJavaCallOnAnInjectedFieldIsAnEdge",
+		"TestJavaCallOnAnUndeclaredReceiverIsNotAnEdge",
+		"TestJavaTypedCallResolvesThroughSupertypesLocalsAndStatics",
+		"TestJavaInheritedRepositoryMethodIsNamedAsIO",
+	},
+	306: { // Java paging loops and stream callbacks under the statement-loop rules; Go calls on a path that leaves the loop are not per element
+		"TestJavaBatchLoop_DoWhilePaging",
+		"TestJavaBatchLoop_WhileTrueWithStreamDrain",
+		"TestJavaBatchLoop_IteratorWalkIsNotPaging",
+		"TestJavaBatchLoop_FetchWithoutADrainIsNotPaging",
+		"TestJavaStreamCallbackOverTheElementAddsNoDepth",
+		"TestGoCallOnThePathThatLeavesTheLoopIsNotPerElement",
+		"TestGoBreakInsideSwitchDoesNotLeaveTheLoop",
+		"TestGoNestedLoopCallBeforeAnOuterExitStillRepeats",
+		"TestGoFirstMatchLoopStillCallsPerElement",
+	},
+	305: { // Ruby scaling_loop_depth and per-call depth: parent-then-children loops add no factor, batch iterator calls are not per element
+		"TestRbScaling_CallDepthIsTheLoopsAroundTheCall",
+		"TestRbScaling_LoopOverTheOuterElementAddsNoDepth",
+		"TestRbScaling_IndependentInnerLoopStillScales",
+		"TestRbScaling_BatchIteratorCallIsNotPerElement",
+		"TestRbScaling_ConstantLoopCallsAreNotListed",
+	},
+	304: { // Go io_direct / io_calls / performs_io: entry points by member, asserted facades, promoted-method calls, once and logging barriers
+		"TestGoIOPrimitive_IsByMemberNotByPackage",
+		"TestGoPerformsIO_FromAPrimitiveThroughWrappers",
+		"TestGoPerformsIO_ThroughAnAssertedFacade",
+		"TestGoPromotedMethodCallResolvesToItsDeclaration",
+		"TestGoPerformsIO_StopsAtOnceAndAtLogging",
+	},
+	303: { // one shared performs_io closure, following interface and abstract methods to implementers; Java and Kotlin propagate
+		"TestPropagate_ReachesThroughWrappersAndCycles",
+		"TestPropagate_FollowsAnInterfaceToItsImplementers",
+		"TestPropagate_FollowsThroughAnExtendingInterface",
+		"TestPropagate_ConcreteBaseMethodIsNotItsOverride",
+		"TestJavaMethodReachesAQueryInItsOwnClass",
+	},
 	302: { // a for loop is fixed-count only when both ends are constant (C/C++, C#, PHP): a descending loop to a literal scales
 		"TestCppDescendingLoopToALiteralStillScales",
 		"TestPHPDescendingLoopToALiteralStillScales",

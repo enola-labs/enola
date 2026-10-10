@@ -584,11 +584,10 @@ func (e *Explainer) Explain(_ context.Context, store *facts.Store) ([]facts.Insi
 				"confirm with a query-count test that fails against the current code",
 			}
 		}
-		// Below 1.0 and deliberately so: the loop is measured, the receiver is
-		// measured, and whether the loop is hot is not. This is a candidate to
-		// verify against a query count, which is the one oracle available here.
+		// A candidate to verify against a query count, which is the one oracle
+		// available here: see confidenceOf.
 		where := surfaceOf(f.file)
-		confidence := 0.8
+		confidence := confidenceOf(f, where)
 		evidence := []facts.Evidence{{
 			File:   f.file,
 			Symbol: f.symbol,
@@ -598,11 +597,7 @@ func (e *Explainer) Explain(_ context.Context, store *facts.Store) ([]facts.Insi
 			Symbol: f.symbol,
 			Detail: fmt.Sprintf("surface: %s, %s", where.name, where.phrase),
 		}}
-		if where.oneOff {
-			confidence = 0.5
-		}
 		if f.weak {
-			confidence = 0.5
 			evidence = append(evidence, facts.Evidence{
 				File:   f.file,
 				Symbol: f.symbol,
@@ -630,6 +625,72 @@ func (e *Explainer) Explain(_ context.Context, store *facts.Store) ([]facts.Insi
 		})
 	}
 	return out, nil
+}
+
+// Finding is one loop that issues a query per iteration, as this explainer found
+// it, for a consumer that lists every one of them.
+type Finding struct {
+	Symbol string
+	File   string
+	Repo   string
+	// Call is the per-iteration call as written: `Account.find_by`, `block.account`.
+	Call  string
+	Depth int
+	// Element and Target are set for an association read: the type the loop's
+	// element holds, and what the association read on it points at.
+	Element string
+	Target  string
+	// Write marks a persistence call, which cannot be eager-loaded away.
+	Write bool
+	// Confidence is the one the insight carries, or would if it were listed.
+	Confidence float64
+	// OneOff marks a one-shot surface: a rake task, a migration, a seeder.
+	OneOff bool
+	// Listed reports whether the explainer names this finding in an insight of
+	// its own. It names at most a fixed number per repository and counts the
+	// rest in one rollup line.
+	Listed bool
+}
+
+// All returns every finding on a surface this explainer reports, in the order it
+// ranks them, listed or not.
+//
+// It exists because of the cap. The explainer names a fixed number of findings
+// per repository and the performance analyzer leaves a lazy association read to
+// this explainer entirely, so a finding past the cap was named by neither: it was
+// one of "31 more". The analyzer's own tool has no such limit, and is where the
+// rest can be read.
+func All(store *facts.Store) []Finding {
+	listed := make(map[string]bool)
+	reported, _ := reportable(store)
+	for _, f := range reported {
+		listed[f.repo+"\x00"+f.symbol+"\x00"+f.call] = true
+	}
+	var out []Finding
+	for _, f := range candidates(store) {
+		where := surfaceOf(f.file)
+		if where.excluded {
+			continue
+		}
+		out = append(out, Finding{
+			Symbol: f.symbol, File: f.file, Repo: f.repo, Call: f.call, Depth: f.depth,
+			Element: f.element, Target: f.target, Write: f.write,
+			Confidence: confidenceOf(f, where), OneOff: where.oneOff,
+			Listed: listed[f.repo+"\x00"+f.symbol+"\x00"+f.call],
+		})
+	}
+	return out
+}
+
+// confidenceOf is how far a finding is to be trusted. Below 1.0 and deliberately
+// so: the loop is measured, the receiver is measured, and whether the loop is hot
+// is not. A one-shot surface and an element typed by a parameter's name alone
+// each halve it.
+func confidenceOf(f finding, where surface) float64 {
+	if where.oneOff || f.weak {
+		return 0.5
+	}
+	return 0.8
 }
 
 // modelClasses is the set of class names this graph knows to be models, keyed

@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 
@@ -55,6 +56,8 @@ const (
 	// extractor: the parameter positions a scaling loop walks (-1 for the receiver)
 	propLoopsOverParamIndex = "loops_over_param_index"
 	propRecursiveSelf       = "recursive_self"
+	propIODirect            = "io_direct"          // extractor: the body itself makes a network/file/database call
+	propIOCalls             = "io_calls"           // extractor: the calls in this body that are I/O entry points
 	propPerformsIO          = "performs_io"        // extractor: method transitively performs network/file I/O
 	propScalingLoopDepth    = "scaling_loop_depth" // extractor: loop nesting counting only unbounded loops
 	propAssociation         = "association"        // Rails association name on a dependency fact
@@ -118,6 +121,8 @@ type funcInfo struct {
 	LoopParams map[int]bool
 	Recursive  bool     // extractor flagged a direct self-call
 	PerformsIO bool     // extractor flagged transitive network/file I/O
+	IODirect   bool     // extractor flagged the body's own I/O call
+	IOCalls    []string // extractor: the calls in this body that are I/O entry points
 	Calls      []string // all resolved call targets
 	// BoundedFanout marks a bounded background-job/mailer fan-out (see isBoundedFanout).
 	// It is precomputed by markNonScaling rather than derived where it is needed, because
@@ -196,10 +201,12 @@ type Finding struct {
 	// and returns a silent, permanent zero on Ruby, whose names do not.
 	Package string `json:"package,omitempty"`
 	Kind    string `json:"kind"` // nested-loop | compounded | call-in-loop | recursion
-	// BigO is the estimated worst case, and is set only for the kinds that can
-	// state one: call-in-loop (how often the call is made) and recursion.
+	// BigO is the estimated worst case, and is set only where one can be stated:
+	// a call-in-loop whose call sits in a single loop (O(n), once per element), and
+	// recursion.
 	//
-	// nested-loop and compounded do NOT carry one. They carry Depth instead. A
+	// nested-loop and compounded do NOT carry one, and neither does a call-in-loop
+	// whose call sits in a nest. They carry Depth instead. A
 	// count of nested loops is a fact the parser can establish; the complexity it
 	// implies is not, because loops multiply only when each walks an independent
 	// collection. Three hand-read samples of what this analyzer reported (1,042
@@ -209,8 +216,9 @@ type Finding struct {
 	// continuing its caller's traversal. So the depth is reported as what it is.
 	BigO string `json:"big_o,omitempty"`
 	// Depth is the loop nesting depth of a nested-loop finding (within the
-	// function) or a compounded one (across the call graph), counting only loops
-	// that scale with some input. It is a structural count, not an exponent.
+	// function), a compounded one (across the call graph), or the nest around the
+	// call of a call-in-loop finding, counting only loops that scale with some
+	// input. It is a structural count, not an exponent.
 	Depth    int    `json:"depth,omitempty"`
 	Severity string `json:"severity"` // high | medium | low
 	// Confidence in [0,1]: how much to trust this as a real risk vs. a structural
@@ -223,6 +231,121 @@ type Finding struct {
 	RiskScore float64  `json:"risk_score,omitempty"`
 	Why       string   `json:"why"`
 	Evidence  []string `json:"evidence,omitempty"`
+	// Calls is set on a call-in-loop finding: one entry per call the finding names,
+	// in the order Evidence names them, with what each rests on. A finding lists
+	// every expensive call in the loop, and they are not equally well founded: one
+	// can be a storage fact and the next a verb in a helper's name.
+	Calls []CallEvidence `json:"calls,omitempty"`
+}
+
+// CallEvidence is one call a call-in-loop finding names, and why it is there.
+type CallEvidence struct {
+	Callee string `json:"callee"`
+	// Basis is the strongest ground the analyzer has for calling this I/O. See
+	// the basis* constants.
+	Basis string `json:"basis"`
+	// Depth is the nesting of the scaling loops around this call, where the
+	// extractor reports it per call.
+	Depth int `json:"depth,omitempty"`
+}
+
+// What a named call rests on, strongest first. The first three are facts about the
+// callee. The rest are readings of its name, and differ in how much of the name
+// is read: a method some function flagged performs_io also bears, a curated ORM
+// or client method, a receiver or module token, and last a generic verb or a
+// per-language name list.
+//
+// An ActiveRecord association name is not among them. `record.posts` in a loop is
+// the query-loops explainer's question, which answers it from the receiver's type;
+// matched here against every association the application declares, `tag.tag`, a
+// string column, read as one.
+const (
+	basisStorage    = "storage"      // the callee is a storage fact
+	basisPrimitive  = "io-primitive" // the extractor identified the call as an I/O entry point
+	basisResolvedIO = "resolved-io"  // the callee resolves to a function flagged performs_io
+	basisIOIndex    = "io-index"     // the method name is shared with a performs_io function
+	basisIOMethod   = "io-method"    // a curated ORM/client method name
+	basisIOReceiver = "io-receiver"  // a receiver, module or package token
+	basisName       = "name"         // a generic verb, or a per-language name list
+)
+
+// langFamily groups a file with the others whose functions it can call by name:
+// its own language, and for the JVM, JavaScript, C and .NET the languages that
+// share a runtime or a linker with it.
+func langFamily(file string) string {
+	ext := file
+	if i := strings.LastIndexByte(file, '.'); i >= 0 {
+		ext = file[i:]
+	}
+	switch ext {
+	case ".kt", ".java", ".scala":
+		return "jvm"
+	case ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".vue", ".svelte":
+		return "js"
+	case ".c", ".h", ".cc", ".cpp", ".cxx", ".hpp", ".hxx":
+		return "c"
+	case ".cs", ".vb", ".fs":
+		return "dotnet"
+	}
+	return ext
+}
+
+// strictIOIndex are the language families whose short-name index is narrowed, each
+// on a removed-side reading of what narrowing took out: array `find`s, `subscribe`
+// and event handlers in TypeScript, getters and a JSON-path `delete` on the JVM,
+// overloads and parsers in C and C++, channel and runtime calls in Rust. .NET does
+// not gate on the index, so there it only decides what a call is said to rest on.
+var strictIOIndex = map[string]bool{"js": true, "jvm": true, "c": true, ".rs": true, "dotnet": true}
+
+// basisIsFact reports whether a basis is a fact about the callee and not a reading
+// of its name. Only a fact confirms a call as I/O.
+func basisIsFact(basis string) bool {
+	return basis == basisStorage || basis == basisPrimitive || basis == basisResolvedIO
+}
+
+// callBasis names the strongest ground for treating an in-loop call as I/O. It is
+// asked only of a call the per-language gate already admitted, and does not decide
+// whether the call is reported.
+//
+// Go is read by its own rule: the method index and the ORM names say nothing about
+// Go code.
+func callBasis(caller funcInfo, callee string, golang bool, storage map[string]bool, byName, byDotted map[string]funcInfo, ioMethods map[string]bool) string {
+	if storage[callee] {
+		return basisStorage
+	}
+	if slices.Contains(caller.IOCalls, callee) {
+		return basisPrimitive
+	}
+	if f, ok := byName[callee]; ok && f.PerformsIO {
+		return basisResolvedIO
+	}
+	if f, ok := byDotted[callee]; ok && f.PerformsIO {
+		return basisResolvedIO
+	}
+	if golang {
+		if goIOPackage(callee, byName) {
+			return basisIOReceiver
+		}
+		return basisName
+	}
+	m := methodSegment(callee)
+	if ioMethods[m] {
+		return basisIOIndex
+	}
+	if pyIOMethods[m] || m == "fetch" {
+		return basisIOMethod
+	}
+	for _, kw := range tsExpensiveMethods {
+		if containsKeyword(m, kw) {
+			return basisIOMethod
+		}
+	}
+	for _, kw := range expensivePrefixes {
+		if strings.Contains(callee, kw) {
+			return basisIOReceiver
+		}
+	}
+	return basisName
 }
 
 // deepCompoundedDepth is the label a compounded finding carries from
@@ -650,6 +773,8 @@ func collect(store *facts.Store) (funcs []funcInfo, storage, routeHandlers, asso
 			LoopParams:          intSetProp(f.Props, propLoopsOverParamIndex),
 			Recursive:           boolProp(f.Props, propRecursiveSelf),
 			PerformsIO:          boolProp(f.Props, propPerformsIO),
+			IODirect:            boolProp(f.Props, propIODirect),
+			IOCalls:             stringSliceProp(f.Props, propIOCalls),
 			Calls:               calls,
 		})
 	}
@@ -683,21 +808,9 @@ const depthIsNotComplexity = "That is a count of nested loops, not a complexity:
 // here means a confirmed I/O call in a loop or a route handler.
 const structuralSeverity = "medium"
 
-// deepEstimateDepth is the nesting beyond which a cross-call-graph worst-case estimate
-// (compounded / call-in-loop, whose depth comes from effective nesting across the call
-// graph) is no longer trustworthy as a precise exponent.
+// deepEstimateDepth is the nesting beyond which the exact count of an estimated
+// depth (compounded, call-in-loop) is not worth stating or ranking on.
 const deepEstimateDepth = 4
-
-// bigOEstimate renders an estimate-based Big-O, collapsing depth >= deepEstimateDepth into
-// one honest "O(n³+)" bucket instead of a false-precision O(n^7). Returns deep=true when
-// the cap applied. Used only for compounded / call-in-loop; nested-loop uses the exact
-// bigOForDepth of its local (lexical) scaling depth, which is reliable.
-func bigOEstimate(d int) (label string, deep bool) {
-	if d >= deepEstimateDepth {
-		return "O(n³+)", true
-	}
-	return bigOForDepth(d), false
-}
 
 // expensiveMethods flags call targets that are likely I/O / DB / network work by
 // their METHOD NAME — matched against the method segment (the part of the target
@@ -1395,20 +1508,10 @@ func cacheReceiver(target string) bool {
 }
 
 // callInLoopWhy builds the message for an aggregated call-in-loop finding from the
-// expensive callees (DB/I/O methods) and the lazy ActiveRecord association reads
-// found inside the loop, keeping the association guidance (eager-load) distinct
-// from the generic batch-or-hoist advice.
-func callInLoopWhy(expensive, assocReads []string) string {
-	var parts []string
-	if len(expensive) > 0 {
-		parts = append(parts, fmt.Sprintf("Calls %s inside a loop — a likely N+1 / per-iteration I/O pattern; batch or hoist out of the loop.",
-			strings.Join(expensive, ", ")))
-	}
-	if len(assocReads) > 0 {
-		parts = append(parts, fmt.Sprintf("Reads the %s association(s) inside a loop — a lazy-loaded N+1; eager-load with includes/preload.",
-			strings.Join(assocReads, ", ")))
-	}
-	return strings.Join(parts, " ")
+// expensive callees found inside the loop.
+func callInLoopWhy(expensive []string) string {
+	return fmt.Sprintf("Calls %s inside a loop — a likely N+1 / per-iteration I/O pattern; batch or hoist out of the loop.",
+		strings.Join(expensive, ", "))
 }
 
 // containsKeyword reports whether kw appears in method as a whole word — bounded by
@@ -1765,15 +1868,57 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 
 	eff := computeEffectiveDepths(byName)
 
-	// Short-name index of methods the extractor flagged as real I/O (performs_io) —
-	// Retrofit endpoints and Room DAO ops. In-loop callees are receiver-qualified short
-	// names (`service.fetchFurly`, `dao.insert`), never canonical fact names, so a
-	// per-iteration call to a genuine I/O method is matched by its method segment.
-	ioMethods := make(map[string]bool)
+	// Short-name index of I/O methods. An in-loop call on a receiver of unknown type
+	// is recorded as its text (`service.fetchFurly`, `dao.insert`), and the method
+	// segment is all there is to go on.
+	//
+	// In the languages of strictIOIndex a name is on the list when every function of
+	// that language that bears it performs I/O, and it is read only for a callee
+	// that does not resolve. One namesake that does no I/O keeps a name off: `find`,
+	// `get` and `update` are each borne by a query somewhere and by a dozen helpers,
+	// and a call to the name says nothing about which. And a callee that resolves to
+	// a function of this repository is judged by that function, not by what else
+	// shares its name.
+	//
+	// Elsewhere the list is what it always was: every name some I/O function of any
+	// language bears, read for any callee. Read one call at a time that was right 8
+	// times in 23, and it stays for Python because the alternative is worse there:
+	// Python's unresolved callees are mostly real clients held in attributes
+	// (`s3_hook.get_key`, `credential.get_token`), whose names are common words.
+	// Narrowing it removed real I/O in about half the Python findings read.
+	//
+	// Go has no list: its callers resolve or are read by package.
+	type ioNameCount struct{ all, io int }
+	counts := make(map[string]map[string]*ioNameCount)
+	loose := make(map[string]bool)
 	for _, f := range funcs {
+		lang := langFamily(f.File)
+		if lang == ".go" {
+			continue
+		}
+		m := methodSegment(f.Name)
+		if f.PerformsIO && !jvmIONameDenylist[m] {
+			loose[m] = true
+		}
+		if counts[lang] == nil {
+			counts[lang] = make(map[string]*ioNameCount)
+		}
+		c := counts[lang][m]
+		if c == nil {
+			c = &ioNameCount{}
+			counts[lang][m] = c
+		}
+		c.all++
 		if f.PerformsIO {
-			if m := methodSegment(f.Name); !jvmIONameDenylist[m] {
-				ioMethods[m] = true
+			c.io++
+		}
+	}
+	strict := make(map[string]map[string]bool, len(counts))
+	for lang, names := range counts {
+		strict[lang] = make(map[string]bool)
+		for m, c := range names {
+			if c.io == c.all && !jvmIONameDenylist[m] {
+				strict[lang][m] = true
 			}
 		}
 	}
@@ -1863,8 +2008,9 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 		// candidates. Extractors that emit calls_in_scaling_loop supply that subset — even
 		// when empty; others fall back to all in-loop calls, unchanged.
 		inLoopCalls := f.scalingLoopCalls()
-		var expensive, assocReads []string
+		var expensive []string
 		evidence := make([]string, 0, len(inLoopCalls))
+		var calls []CallEvidence
 		ruby := strings.HasSuffix(f.File, ".rb")
 		swift := strings.HasSuffix(f.File, ".swift")
 		jvm := strings.HasSuffix(f.File, ".kt") || strings.HasSuffix(f.File, ".java")
@@ -1882,14 +2028,27 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 			strings.HasSuffix(f.File, ".cxx") || strings.HasSuffix(f.File, ".hpp") ||
 			strings.HasSuffix(f.File, ".hxx") || strings.HasSuffix(f.File, ".h") ||
 			strings.HasSuffix(f.File, ".c")
-		// confirmedIO: the call is real I/O (storage fact / resolved performs_io /
-		// unambiguous DB method / I/O receiver), as opposed to a name-only keyword guess.
+		// confirmedIO: a named call is known to do I/O, by a fact about the callee:
+		// it is a storage fact, or it resolves to a function flagged performs_io.
 		// It is what promotes a call-in-loop to "high".
+		//
+		// It used to accept readings of the name as well: a method name some
+		// function flagged performs_io also bears, a curated ORM method, a receiver
+		// token, an association of that name. Read one call at a time those were
+		// right 24 times in 58, and they carried the same 0.9 as a fact.
 		confirmedIO := false
 		// The deepest scaling loop any of the reported calls sits in, and whether
 		// every one of those depths came from the extractor.
 		callNesting, callNestingKnown := 0, true
 		for _, callee := range inLoopCalls {
+			ioMethods := loose
+			if lang := langFamily(f.File); strictIOIndex[lang] {
+				ioMethods = strict[lang]
+				// The index is for a callee nobody could see.
+				if _, ok := byName[callee]; ok {
+					ioMethods = nil
+				}
+			}
 			var isExpensive bool
 			switch {
 			case swift:
@@ -1928,7 +2087,7 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 				// high. Prefer resolution: a callee that resolves to a known non-I/O local
 				// function is never an N+1, whatever its name; keep the keyword match only
 				// as a fallback for unresolved callees.
-				nameMatch := isExpensiveCall(callee, storage, assoc)
+				nameMatch := isExpensiveCall(callee, storage, nil)
 				resolved, ok := byName[callee]
 				if !ok {
 					// Unresolved local calls arrive in dotted import-path form; resolve them
@@ -1960,7 +2119,7 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 				// known non-I/O local is never an N+1 — and keep the keyword match only
 				// as a fallback for unresolved callees, on top of the extractor's
 				// io_direct/performs_io signal.
-				nameMatch := isExpensiveCall(callee, storage, assoc)
+				nameMatch := isExpensiveCall(callee, storage, nil)
 				if resolved, ok := byName[callee]; ok && !resolved.PerformsIO && !storage[callee] {
 					nameMatch = false
 				}
@@ -1974,7 +2133,7 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 				// I/O is not an N+1": C# performs_io stops at an injected interface, so
 				// `DeleteEpisode`, whose body is `_libraryManager.DeleteItem(…)`,
 				// carries no flag, and trusting that removed it.
-				isExpensive = isExpensiveCall(callee, storage, assoc) && !csInMemoryMethods[methodSegment(callee)]
+				isExpensive = isExpensiveCall(callee, storage, nil) && !csInMemoryMethods[methodSegment(callee)]
 			case golang:
 				// Go: the generic verbs minus other ecosystems' API names, and a
 				// predicate or constructor is not I/O. See isExpensiveGoCall.
@@ -1984,35 +2143,49 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 				// "expensive, and NOT a Ruby in-memory call" is the rule as anyone
 				// states it; "(not ruby) or (not in-memory)" is the same predicate
 				// and reads as neither.
-				isExpensive = isExpensiveCall(callee, storage, assoc) && !(ruby && rubyInMemory(callee))
+				isExpensive = isExpensiveCall(callee, storage, nil) && !(ruby && rubyInMemory(callee))
+			}
+			// Positive evidence overrules every name gate above: a callee that resolves
+			// to a function flagged performs_io is I/O whatever it is called, in any
+			// language.
+			//
+			// The converse is NOT applied. "Resolves, and carries no flag" does not
+			// mean "does no I/O": performs_io follows calls edges, and a call on a
+			// field that holds a client (`self.hook.copy(…)`, `_repo.Save(…)`) is not
+			// one. Tried over every language at once, that rule removed 5 of 5 labelled
+			// Java findings it touched, 4 of 4 TypeScript and 3 of 6 C#, and of 18
+			// Python removals read against source 11 were real I/O.
+			if !isExpensive {
+				r, ok := byName[callee]
+				if !ok {
+					r, ok = byDotted[callee]
+				}
+				isExpensive = ok && r.PerformsIO && callee != f.Name
+			}
+			// The same for a call the extractor identified as an I/O entry point
+			// in this body: `net/http.Client.Do`, not a name that resembles it.
+			if !isExpensive {
+				isExpensive = slices.Contains(f.IOCalls, callee)
 			}
 			if !isExpensive {
 				continue
 			}
-			// What confirms a call as I/O is language-specific for Go: a storage
-			// fact or an I/O package. The shared test also accepts the ORM method
-			// names and the short-name performs_io index, neither of which says
-			// anything about Go code.
-			confirmed := isConfirmedIOCall(callee, storage, byName, ioMethods)
-			if golang {
-				confirmed = storage[callee] || goIOPackage(callee, byName)
-			}
-			if confirmed {
+			basis := callBasis(f, callee, golang, storage, byName, byDotted, ioMethods)
+			if basisIsFact(basis) {
 				confirmedIO = true
 			}
-			if assoc[methodSegment(callee)] && !storage[callee] {
-				// A lazy ActiveRecord association read in a loop is a confirmed N+1.
-				assocReads = append(assocReads, callee)
-				confirmedIO = true
-			} else {
-				expensive = append(expensive, callee)
-			}
+			expensive = append(expensive, callee)
 			evidence = append(evidence, "call_in_loop="+callee)
 			d, known := f.callDepth(callee)
 			if d > callNesting {
 				callNesting = d
 			}
 			callNestingKnown = callNestingKnown && known
+			ce := CallEvidence{Callee: callee, Basis: basis}
+			if known {
+				ce.Depth = d
+			}
+			calls = append(calls, ce)
 		}
 		// f.Claimed says the query-loops explainer already reports a query per
 		// iteration against this symbol, from the receiver's type rather than from a
@@ -2022,9 +2195,9 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 			// Severity is evidence-based, not export-based (exported is noise in Python and
 			// on the JVM). Every emitted finding has already passed a per-language
 			// expensiveness gate, so it is at least worth review (medium). It rises to high
-			// only when there is real evidence: a confirmed I/O call (storage fact /
-			// performs_io / unambiguous DB-network primitive) or a route handler (always
-			// hot). A heuristic-only match (a curated JVM method, a generic verb name) stays
+			// only when there is real evidence: a confirmed I/O call (a storage fact, or
+			// a resolved callee flagged performs_io) or a route handler (always hot). A
+			// match by name (a curated method, a receiver token, a generic verb) stays
 			// medium. Cold-path findings drop to low in the post-process below.
 			sev := "medium"
 			if routeHandlers[f.Name] || confirmedIO {
@@ -2046,14 +2219,30 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 			if depth < 1 {
 				depth = 1
 			}
-			bigO, _ := bigOEstimate(depth)
-			findings = append(findings, Finding{
+			// In one loop the claim is O(n): the call is made once per element, and
+			// that is something a reader can check against the loop. In a nest it
+			// is not a claim this can make. The loops around the call are counted,
+			// and whether they multiply is exactly what the count does not say: of
+			// 55 hand-read findings that printed O(n²) or more for a call in a nest,
+			// one was right. The rest were a parent-then-children walk, a batch
+			// being drained, or a loop over a fixed list around the real one. So a
+			// nest is reported as the depth it is, as nested-loop and compounded
+			// findings are.
+			finding := Finding{
 				Symbol: f.Name, File: f.File, Line: f.Line, Repo: f.Repo, Package: f.Package,
-				Kind: "call-in-loop", BigO: bigO, Severity: sev,
+				Kind: "call-in-loop", Severity: sev,
 				Confidence: confidenceFor("call-in-loop", confirmedIO, depth, f.loopDiscounted()),
-				Why:        callInLoopWhy(expensive, assocReads),
+				Why:        callInLoopWhy(expensive),
 				Evidence:   evidence,
-			})
+				Calls:      calls,
+			}
+			if depth == 1 {
+				finding.BigO = bigOForDepth(1)
+			} else {
+				finding.Depth = depth
+				finding.Why += fmt.Sprintf(" The call sits inside %d nested loops. %s", depth, depthIsNotComplexity)
+			}
+			findings = append(findings, finding)
 		}
 	}
 
@@ -2092,7 +2281,7 @@ func confidenceFor(kind string, confirmed bool, depth int, discounted bool) floa
 	switch kind {
 	case "call-in-loop":
 		if confirmed {
-			conf = 0.9 // storage fact / performs_io / unambiguous I/O primitive
+			conf = 0.9 // a storage fact, or a resolved callee flagged performs_io
 		} else {
 			conf = 0.6 // name-keyword heuristic only
 		}
@@ -2131,7 +2320,9 @@ func findingWeight(f Finding) float64 {
 	if f.BigO != "" {
 		return complexityWeight(f.BigO)
 	}
-	if f.Kind == "compounded" && f.Depth >= deepEstimateDepth {
+	// Capped where the Big-O label for the same depth was: past three levels the
+	// exact count of an estimate is not worth ranking on.
+	if (f.Kind == "compounded" || f.Kind == "call-in-loop") && f.Depth >= deepEstimateDepth {
 		return 4
 	}
 	return float64(f.Depth)
@@ -2185,13 +2376,16 @@ var pyIOMethods = map[string]bool{
 	"get_or_create": true, "update_or_create": true,
 }
 
-// isConfirmedIOCall reports whether an in-loop call is backed by real I/O — a storage
+// isConfirmedIOCall reports whether an in-loop call has the shape of real I/O — a storage
 // fact, a resolved callee flagged performs_io, an unambiguous DB method (SQLAlchemy/DBAPI
 // or a distinctive ORM query method), the global fetch, an I/O method from the transitive
 // performs_io short-name index, or an HTTP/DB receiver/module prefix — as opposed to a
-// name that merely collides with a generic DB verb (Find/Save/Update/where). It is the
-// cross-language "this is a real per-iteration I/O call" predicate, used both to gate
-// Python expensiveness and to escalate any call-in-loop finding to high.
+// name that merely collides with a generic DB verb (Find/Save/Update/where). It gates
+// whether a call is reported, for the languages that have no usable verb list.
+//
+// It no longer decides severity, despite its name. Most of what it accepts is a
+// reading of the callee's name, and only a fact about the callee confirms: see
+// basisIsFact.
 func isConfirmedIOCall(target string, storage map[string]bool, byName map[string]funcInfo, ioMethods map[string]bool) bool {
 	if storage[target] {
 		return true
@@ -2296,12 +2490,16 @@ type response struct {
 
 const toolDescription = "Ranked performance risks per function: I/O or database calls inside loops (a likely N+1), recursion, " +
 	"nested loops, and nesting that continues across the call graph. Each finding has symbol (file:line), kind, severity " +
-	"(high, medium, low) and a plain-English why. A call-in-loop or recursion finding has big_o, the estimated worst case. " +
-	"A nested-loop or compounded finding has depth instead: a count of nested loops, which is a fact about the code's shape " +
-	"and NOT a complexity, since nested loops multiply only when each walks an independent collection. Parser-derived and " +
+	"(high, medium, low) and a plain-English why. A recursion finding, and a call-in-loop finding whose call sits in one loop, " +
+	"has big_o, the estimated worst case. A nested-loop or compounded finding, and a call-in-loop finding whose call sits in " +
+	"a nest, has depth instead: a count of nested loops, which is a fact about the code's shape and NOT a complexity, since " +
+	"nested loops multiply only when each walks an independent collection. Parser-derived and " +
 	"deterministic: an estimate, not a proof. " +
+	"A query-loop finding is one the query-loops explainer made (Rails): a database query per iteration, read from the " +
+	"receiver's type. All of them are returned here, including those that explainer counts in its rollup and does not list. " +
 	"Supports Go, Python, Ruby, Swift, Kotlin, Scala, Dart, TypeScript, Java, C++ and C#. " +
-	"Findings of medium severity and up also appear in query_insights(explainer=\"performance\")."
+	"Findings of medium severity and up also appear in query_insights(explainer=\"performance\"); query-loop findings " +
+	"appear in query_insights(explainer=\"query-loops\")."
 
 // Register adds the analyze_performance tool to the given MCP server. Calls are
 // recorded by the OSS value middleware, which is registered once on this shared
@@ -2317,6 +2515,10 @@ func Register(srv *mcp.Server, store func() *facts.Store) {
 
 		funcs, storage, routeHandlers, assoc := collect(store())
 		all := analyze(funcs, storage, routeHandlers, assoc)
+		// And the query-loops explainer's findings, every one of them: see
+		// queryLoopFindings.
+		all = append(all, queryLoopFindings(store(), routeHandlers)...)
+		sortFindings(all)
 
 		// Filter FIRST, then summarize. The summary must be computed from the same
 		// set the caller is shown; building it beforehand is how a filtered query came
@@ -2349,8 +2551,8 @@ func Register(srv *mcp.Server, store func() *facts.Store) {
 				Findings: shown,
 				Summary:  sum,
 				Returned: len(shown),
-				Note: "big_o (call-in-loop, recursion) is a deterministic estimate of worst case from parser facts, not a proof. " +
-					"depth (nested-loop, compounded) is a count of nested loops and NOT a complexity: nested loops multiply only when each walks an independent collection. Supports Go, Python, Ruby, Swift, Kotlin, Scala, Dart, TypeScript, Java, C++, and C#. " +
+				Note: "big_o (recursion, and a call-in-loop whose call sits in one loop) is a deterministic estimate of worst case from parser facts, not a proof. " +
+					"depth (nested-loop, compounded, and a call-in-loop whose call sits in a nest) is a count of nested loops and NOT a complexity: nested loops multiply only when each walks an independent collection. Supports Go, Python, Ruby, Swift, Kotlin, Scala, Dart, TypeScript, Java, C++, and C#. " +
 					"SCALA: a `for … yield` comprehension and flatMap/fold are monadic binds as often as iteration, so they raise loop_depth but NOT scaling depth — a finding over one is downgraded rather than claimed; a combinator applied to an Option is discounted the same way. " +
 					strings.ReplaceAll(strings.TrimSpace(kindLegend(shown)), "\n", " "),
 			}, in.MaxTokens)
@@ -2364,12 +2566,91 @@ func Register(srv *mcp.Server, store func() *facts.Store) {
 	})
 }
 
+// kindQueryLoop is a finding the query-loops explainer made, listed here.
+const kindQueryLoop = "query-loop"
+
+// basisTypedReceiver is what a query-loop finding's call rests on: the receiver
+// is a model the graph knows, or a record whose type a block binding states.
+const basisTypedReceiver = "typed-receiver"
+
+// queryLoopFindings lists the query-loops explainer's findings as findings of
+// this tool.
+//
+// The analyzer stays silent on a symbol that explainer reports, and leaves a lazy
+// association read to it altogether, because it answers the question from the
+// receiver's type where this analyzer has a name. But the explainer names a fixed
+// number of findings per repository and counts the rest in one line, so a query
+// per iteration that ranked past that number was named nowhere. This tool has no
+// such limit and is the surface that returns every finding, so they are returned
+// here: all of them, the listed ones too, so that the answer to "what does this
+// function do in its loops" is in one place.
+//
+// They are added for the tool only. The explainer publishes its own insights, and
+// publishing them again under this one would report each loop twice.
+func queryLoopFindings(store *facts.Store, routeHandlers map[string]bool) []Finding {
+	found := queryloops.All(store)
+	if len(found) == 0 {
+		return nil
+	}
+	type key struct{ repo, name string }
+	lines := make(map[key]int)
+	for _, f := range store.ByKind(facts.KindSymbol) {
+		lines[key{f.Repo, f.Name}] = f.Line
+	}
+	out := make([]Finding, 0, len(found))
+	for _, q := range found {
+		depth := q.Depth
+		if depth < 1 {
+			depth = 1
+		}
+		f := Finding{
+			Symbol: q.Symbol, File: q.File, Line: lines[key{q.Repo, q.Symbol}], Repo: q.Repo,
+			Kind: kindQueryLoop, Confidence: q.Confidence,
+			Evidence: []string{"query_in_loop=" + q.Call},
+			Calls:    []CallEvidence{{Callee: q.Call, Basis: basisTypedReceiver, Depth: depth}},
+		}
+		// One query per element is a claim this can make. A product of the
+		// enclosing loops is not, so deeper nesting is stated as a depth.
+		if depth == 1 {
+			f.BigO = bigOForDepth(1)
+		} else {
+			f.Depth = depth
+		}
+		switch {
+		case q.Write:
+			f.Why = fmt.Sprintf("Writes with %s once per iteration, on a %s. A write per element cannot be eager-loaded away; replace it with one bulk update or insert.", q.Call, q.Element)
+		case q.Element != "":
+			f.Why = fmt.Sprintf("Reads %s once per iteration: the loop's element is a %s, and each read loads its %s. Eager-load the association on the collection.", q.Call, q.Element, q.Target)
+		default:
+			f.Why = fmt.Sprintf("Calls %s once per iteration. The receiver is a model and the method reaches the database; read the set once outside the loop.", q.Call)
+		}
+		if !q.Listed {
+			f.Why += " Counted in the query-loops rollup, not listed there individually."
+		}
+		// Graded as the explainer grades it: a typed receiver is evidence, a
+		// one-shot surface is not a production risk, and an element typed by a
+		// parameter's name alone is a candidate.
+		switch {
+		case q.OneOff:
+			f.Severity = "low"
+		case q.Confidence >= 0.8:
+			f.Severity = "high"
+		default:
+			f.Severity = "medium"
+		}
+		f.RiskScore = riskScore(f, routeHandlers)
+		out = append(out, f)
+	}
+	return out
+}
+
 // kindMeanings define the finding kinds, for the legend a response carries.
 var kindMeanings = []struct{ kind, meaning string }{
 	{"nested-loop", "loops nested inside one function; the depth is a count, not a complexity"},
 	{"compounded", "nesting that continues across the call graph, as a loop calls a function that loops; a count, not a complexity"},
 	{"call-in-loop", "an I/O, database or network call inside a loop, a likely N+1"},
 	{"recursion", "a function that calls itself"},
+	{"query-loop", "a database query issued once per iteration, read from the receiver's type by the query-loops explainer"},
 }
 
 // kindLegend defines the kinds that occur in findings, one line each, or "" for none.

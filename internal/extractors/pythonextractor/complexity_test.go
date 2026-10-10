@@ -3,6 +3,7 @@ package pythonextractor
 import (
 	"testing"
 
+	"github.com/enola-labs/enola/internal/extractors/ioclosure"
 	"github.com/enola-labs/enola/internal/facts"
 )
 
@@ -296,7 +297,7 @@ func TestPyComputePerformsIO_Transitive(t *testing.T) {
 		{Kind: facts.KindSymbol, Name: "m.wrapper", Props: map[string]any{"io_direct": true}},
 		{Kind: facts.KindSymbol, Name: "m.pure"},
 	}
-	computePyPerformsIO(fs)
+	ioclosure.Propagate(fs)
 	if v, _ := fs[0].Props["performs_io"].(bool); !v {
 		t.Errorf("outer must be flagged performs_io transitively")
 	}

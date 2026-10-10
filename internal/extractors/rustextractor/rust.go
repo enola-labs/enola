@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/enola-labs/enola/internal/extractors/detectnames"
+	"github.com/enola-labs/enola/internal/extractors/ioclosure"
 	"github.com/enola-labs/enola/internal/factpath"
 	"github.com/enola-labs/enola/internal/facts"
 	"github.com/enola-labs/enola/internal/parallel"
@@ -114,7 +115,7 @@ func (e *RustExtractor) Extract(ctx context.Context, repoPath string, files []st
 	}
 
 	applyImplements(allFacts, allImpls)
-	computeRustPerformsIO(allFacts)
+	ioclosure.Propagate(allFacts)
 	// Compose `.nest(prefix, module::router())` mount prefixes onto Axum route
 	// facts interprocedurally, so a route registered on a sub-router is stored at
 	// its true runtime path for cross-repo client↔route matching.
@@ -136,67 +137,6 @@ func (e *RustExtractor) Extract(ctx context.Context, repoPath string, files []st
 	}
 
 	return allFacts, nil
-}
-
-// computeRustPerformsIO propagates the direct-I/O signal (io_direct, set by the
-// walker on functions making a filesystem/DB/HTTP call) transitively over the
-// intra-repo call graph: a function is marked performs_io when it, or anything
-// it reaches through RelCalls edges to known symbols, does I/O. This lets the
-// performance analyzer recognise an in-loop call to a wrapper that itself calls
-// I/O as an N+1. It mirrors the Python extractor's computePyPerformsIO fixpoint.
-func computeRustPerformsIO(allFacts []facts.Fact) {
-	exists := make(map[string]bool)
-	for i := range allFacts {
-		if allFacts[i].Kind == facts.KindSymbol {
-			exists[allFacts[i].Name] = true
-		}
-	}
-
-	io := make(map[string]bool)      // name → performs I/O (directly or transitively)
-	adj := make(map[string][]string) // name → called names that are known symbols
-	for i := range allFacts {
-		f := &allFacts[i]
-		if f.Kind != facts.KindSymbol {
-			continue
-		}
-		if b, _ := f.PropAny("io_direct").(bool); b {
-			io[f.Name] = true
-		}
-		seen := make(map[string]bool)
-		for _, r := range f.Relations {
-			if r.Kind != facts.RelCalls || r.Target == f.Name || seen[r.Target] || !exists[r.Target] {
-				continue
-			}
-			seen[r.Target] = true
-			adj[f.Name] = append(adj[f.Name], r.Target)
-		}
-	}
-
-	for changed := true; changed; {
-		changed = false
-		for name, callees := range adj {
-			if io[name] {
-				continue
-			}
-			for _, c := range callees {
-				if io[c] {
-					io[name] = true
-					changed = true
-					break
-				}
-			}
-		}
-	}
-
-	for i := range allFacts {
-		f := &allFacts[i]
-		if f.Kind == facts.KindSymbol && io[f.Name] {
-			if f.Props == nil {
-				f.Props = map[string]any{}
-			}
-			f.SetProp("performs_io", true)
-		}
-	}
 }
 
 // fileResult holds one file's extracted facts plus its impl-block

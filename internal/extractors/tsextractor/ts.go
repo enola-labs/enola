@@ -9,11 +9,13 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
 	"github.com/enola-labs/enola/internal/clientspec"
 	"github.com/enola-labs/enola/internal/extractors/detectnames"
+	"github.com/enola-labs/enola/internal/extractors/ioclosure"
 	"github.com/enola-labs/enola/internal/facts"
 	"github.com/enola-labs/enola/internal/parallel"
 
@@ -381,11 +383,11 @@ func (e *TSExtractor) Extract(ctx context.Context, repoPath string, files []stri
 
 	// Serial post-pass: propagate the per-body io_direct flag transitively across the
 	// call graph into performs_io, so wrapper-hidden network/file I/O is visible to the
-	// performance analyzer. Mirrors the Swift extractor's computePerformsIO.
+	// performance analyzer.
 	if isNuxt {
 		resolveNuxtAutoComposableCalls(allFacts)
 	}
-	computeTSPerformsIO(allFacts)
+	ioclosure.Propagate(allFacts)
 
 	// Engine-relative routes compose onto their mount point here, where every
 	// mount in the repo is visible; a per-file pass cannot see both sides.
@@ -517,6 +519,9 @@ type extractCtx struct {
 	// memberRoots are the names `<name>.<member>()` resolves through (see
 	// memberCallRoots); nil where a component script block builds its own context.
 	memberRoots map[string]string
+	// returnTypes are the file's own functions with a declared class return type
+	// (see fileReturnTypes).
+	returnTypes map[string]string
 	imports     emberImportBindings // the file's import table, read for the module a superclass identifier came from
 	ioBindings  map[string]bool     // local names bound to imports from a network module (I/O sinks)
 	knownFiles  map[string]bool     // repo-relative (slash) paths of all indexed TS/JS files
@@ -647,6 +652,7 @@ func (e *TSExtractor) extractFile(src []byte, relFile string, isNextJS, isVue, i
 		orms:        orms,
 		importMap:   importMap,
 		memberRoots: memberCallRoots(kinds, root, src, factpath.Dir(relFile), internalImports),
+		returnTypes: fileReturnTypes(kinds, root, src, factpath.Dir(relFile), importMap),
 		imports:     buildEmberImportBindings(kinds, root, src, relFile, aliases),
 		ioBindings:  buildIOImportBindings(kinds, root, src),
 		knownFiles:  knownFiles,
@@ -1066,7 +1072,7 @@ func (e *TSExtractor) extractNode(kinds *tsutil.KindTable, node *sitter.Node, ct
 					}
 				}
 				mRels := []facts.Relation{{Kind: facts.RelDeclares, Target: dir}}
-				callRels, m := collectCallsWithMetrics(kinds, member, src, dir, symbolName, ctx.importMap, fieldTypes, ctx.memberRoots, ctx.ioBindings, dir+"."+symbolName+"."+mName, mName)
+				callRels, m := collectCallsWithMetrics(kinds, member, src, dir, symbolName, ctx.importMap, fieldTypes, ctx.memberRoots, ctx.returnTypes, ctx.ioBindings, dir+"."+symbolName+"."+mName, mName)
 				mRels = append(mRels, callRels...)
 				mProps := map[string]any{
 					"symbol_kind": facts.SymbolMethod,
@@ -1181,7 +1187,7 @@ func (e *TSExtractor) extractNode(kinds *tsutil.KindTable, node *sitter.Node, ct
 			vRels := []facts.Relation{{Kind: facts.RelDeclares, Target: dir}}
 			var vMetrics *tsBodyMetrics
 			if body != nil {
-				callRels, m := collectCallsWithMetrics(kinds, body, src, dir, "", ctx.importMap, nil, ctx.memberRoots, ctx.ioBindings, dir+"."+symbolName, symbolName)
+				callRels, m := collectCallsWithMetrics(kinds, body, src, dir, "", ctx.importMap, nil, ctx.memberRoots, ctx.returnTypes, ctx.ioBindings, dir+"."+symbolName, symbolName)
 				vRels = append(vRels, callRels...)
 				vMetrics = m
 			}
@@ -1259,7 +1265,7 @@ func commonJSExportName(kinds *tsutil.KindTable, left *sitter.Node, src []byte) 
 
 func (e *TSExtractor) funcSymbol(kinds *tsutil.KindTable, declNode, body *sitter.Node, ctx *extractCtx, name string, exported bool) facts.Fact {
 	rels := []facts.Relation{{Kind: facts.RelDeclares, Target: ctx.dir}}
-	callRels, m := collectCallsWithMetrics(kinds, body, ctx.src, ctx.dir, "", ctx.importMap, nil, ctx.memberRoots, ctx.ioBindings, ctx.dir+"."+name, name)
+	callRels, m := collectCallsWithMetrics(kinds, body, ctx.src, ctx.dir, "", ctx.importMap, nil, ctx.memberRoots, ctx.returnTypes, ctx.ioBindings, ctx.dir+"."+name, name)
 	rels = append(rels, callRels...)
 	f := facts.Fact{
 		Kind: facts.KindSymbol,
@@ -2264,7 +2270,18 @@ func buildImportBindings(kinds *tsutil.KindTable, root *sitter.Node, src []byte,
 			continue
 		}
 		if def := findChildByKind(kinds, clause, "identifier"); def != nil && fromRepo {
-			internal[nodeText(def, src)] = qualifier + "." + nodeText(def, src)
+			local := nodeText(def, src)
+			internal[local] = qualifier + "." + local
+			// A default import is bound under its local name in the module it comes
+			// from. The exported declaration is not looked up, so this is right
+			// where the import keeps the declaration's name (`import callApi from
+			// './callApi'`), which is the convention, and names nothing otherwise.
+			// Unbound, a call to it fell through to "a function of this directory",
+			// which is right only when the two files are siblings: across
+			// directories the edge named a symbol that does not exist.
+			if _, bound := m[local]; !bound {
+				m[local] = qualifier + "." + local
+			}
 		}
 		named := findChildByKind(kinds, clause, "named_imports")
 		if named == nil {
@@ -2787,6 +2804,7 @@ type tsBodyMetrics struct {
 	loopsOverParam        map[int]bool
 	recursive             bool            // body directly calls the enclosing function
 	ioDirect              bool            // body directly invokes a network/file I/O primitive
+	ioCalls               []string        // the resolved calls that are themselves the round trip
 	fieldsWritten         []string        // distinct `this.<name>` targets the body assigns to
 	writeSeen             map[string]bool // dedup set for fieldsWritten
 }
@@ -2830,7 +2848,7 @@ var tsCheapMethods = map[string]bool{
 // (fetch), a member call on a known receiver (axios.get, fs.readFile), or a call to
 // a local binding imported from a network module (e.g. a `request` helper default-
 // exported from a `.../lib/network/request` module). The io_direct flag is then
-// propagated transitively into performs_io by computeTSPerformsIO, mirroring Swift.
+// propagated transitively into performs_io by ioclosure.Propagate, mirroring Swift.
 
 // tsIOCallNames are bare-identifier callees that are unambiguous network/file I/O.
 var tsIOCallNames = map[string]bool{
@@ -2850,7 +2868,7 @@ var tsIOMemberMethods = map[string]bool{
 
 	// ORM query methods (Prisma, TypeORM, Drizzle) — a real DB round-trip.
 	//
-	// These seed io_direct, which computeTSPerformsIO then propagates transitively into
+	// These seed io_direct, which ioclosure.Propagate then propagates transitively into
 	// performs_io. That is the whole point: a direct in-loop `prisma.post.findMany()` was
 	// already caught by the analyzer's own name list, but a REPOSITORY WRAPPER
 	// around it was not — the wrapper invokes no network primitive, so it was never
@@ -3070,6 +3088,7 @@ type tsBodyWalker struct {
 	// memberRoots are the names `<name>.<member>()` resolves through (see
 	// memberCallRoots).
 	memberRoots         map[string]string
+	returnTypes         map[string]string // the file's functions with a declared class return type
 	importMap           map[string]string
 	ioBindings          map[string]bool
 	selfName, selfShort string
@@ -3315,10 +3334,18 @@ func (w *tsBodyWalker) walk(n *sitter.Node) {
 		// Seed the performs_io closure: flag the enclosing body when it directly
 		// invokes a network/file I/O primitive. Independent of loop depth — a wrapper
 		// calls its I/O sink once, and the transitive pass carries the signal upward.
-		if w.metrics != nil && !w.metrics.ioDirect && tsIsIOCall(w.kinds, n, w.src, w.ioBindings) {
+		if w.metrics != nil && !w.metrics.ioDirect &&
+			(tsIsIOCall(w.kinds, n, w.src, w.ioBindings) || tsPassesFetch(w.kinds, n, w.src, w.importMap)) {
 			w.metrics.ioDirect = true
 		}
-		if target := resolveTSCall(w.kinds, n, w.src, w.dir, w.className, w.importMap, w.fieldTypes, w.memberRoots); target != "" {
+		if target := resolveTSCall(w.kinds, n, w.src, w.dir, w.className, w.importMap, w.fieldTypes, w.memberRoots, w.returnTypes); target != "" {
+			// A resolved target that is itself the round trip (iotargets.go).
+			if w.metrics != nil && tsIOTargets[target] {
+				w.metrics.ioDirect = true
+				if !slices.Contains(w.metrics.ioCalls, target) {
+					w.metrics.ioCalls = append(w.metrics.ioCalls, target)
+				}
+			}
 			if !w.seen[target] {
 				w.seen[target] = true
 				w.rels = append(w.rels, facts.Relation{Kind: facts.RelCalls, Target: target})
@@ -3508,9 +3535,9 @@ func declaresParameters(kinds *tsutil.KindTable, member *sitter.Node) (string, b
 	return "no", true
 }
 
-func collectCallsWithMetrics(kinds *tsutil.KindTable, node *sitter.Node, src []byte, dir, className string, importMap, fieldTypes, memberRoots map[string]string, ioBindings map[string]bool, selfName, selfShort string) ([]facts.Relation, *tsBodyMetrics) {
+func collectCallsWithMetrics(kinds *tsutil.KindTable, node *sitter.Node, src []byte, dir, className string, importMap, fieldTypes, memberRoots, returnTypes map[string]string, ioBindings map[string]bool, selfName, selfShort string) ([]facts.Relation, *tsBodyMetrics) {
 	m := &tsBodyMetrics{}
-	w := &tsBodyWalker{src: src, kinds: kinds, dir: dir, className: className, importMap: importMap, fieldTypes: fieldTypes, memberRoots: memberRoots, ioBindings: ioBindings, selfName: selfName, selfShort: selfShort, metrics: m, seen: make(map[string]bool)}
+	w := &tsBodyWalker{src: src, kinds: kinds, dir: dir, className: className, importMap: importMap, fieldTypes: fieldTypes, memberRoots: memberRoots, returnTypes: returnTypes, ioBindings: ioBindings, selfName: selfName, selfShort: selfShort, metrics: m, seen: make(map[string]bool)}
 	paramScope, paramIndex := tsParamScope(kinds, tsEnclosingFunction(node), src)
 	w.paramScope, w.paramIndex = []tsLoopScope{paramScope}, paramIndex
 	w.constLocals = tsConstLiteralLocals(kinds, node, src)
@@ -3608,6 +3635,10 @@ func applyTSMetrics(props map[string]any, m *tsBodyMetrics) {
 	if m.ioDirect {
 		props["io_direct"] = true
 	}
+	if len(m.ioCalls) > 0 {
+		sort.Strings(m.ioCalls)
+		props["io_calls"] = m.ioCalls
+	}
 }
 
 // tsLoopBounded reports whether a syntactic loop's trip count is independent of the input
@@ -3681,70 +3712,6 @@ func tsIsTrueCondition(kinds *tsutil.KindTable, c *sitter.Node, src []byte) bool
 	return false
 }
 
-// computeTSPerformsIO propagates the walk-time io_direct flag transitively across the
-// call graph into a performs_io prop, so a function that reaches network/file I/O only
-// through helpers is still flagged — the signal the performance analyzer reads to catch a
-// per-iteration network call behind a wrapper. Mirrors the Swift computePerformsIO, but
-// simpler: TS call targets are already canonical fact names, so no bare-name fan-out is
-// needed. A monotone fixpoint (only ever flips false→true) makes it cycle-safe.
-func computeTSPerformsIO(allFacts []facts.Fact) {
-	// Index symbol facts by name (a name may map to >1 fact) and record which names exist.
-	exists := make(map[string]bool)
-	for i := range allFacts {
-		if allFacts[i].Kind == facts.KindSymbol {
-			exists[allFacts[i].Name] = true
-		}
-	}
-
-	io := make(map[string]bool)      // name → performs I/O (directly or transitively)
-	adj := make(map[string][]string) // name → called names that are known symbols
-	for i := range allFacts {
-		f := &allFacts[i]
-		if f.Kind != facts.KindSymbol {
-			continue
-		}
-		if b, _ := f.PropAny("io_direct").(bool); b {
-			io[f.Name] = true
-		}
-		seen := make(map[string]bool)
-		for _, r := range f.Relations {
-			if r.Kind != facts.RelCalls || r.Target == f.Name || seen[r.Target] || !exists[r.Target] {
-				continue
-			}
-			seen[r.Target] = true
-			adj[f.Name] = append(adj[f.Name], r.Target)
-		}
-	}
-
-	// Fixpoint: a name performs I/O if any callee does. Monotone, so it terminates
-	// even with call cycles (a no-I/O cycle simply stays false).
-	for changed := true; changed; {
-		changed = false
-		for name, callees := range adj {
-			if io[name] {
-				continue
-			}
-			for _, c := range callees {
-				if io[c] {
-					io[name] = true
-					changed = true
-					break
-				}
-			}
-		}
-	}
-
-	for i := range allFacts {
-		f := &allFacts[i]
-		if f.Kind == facts.KindSymbol && io[f.Name] {
-			if f.Props == nil {
-				f.Props = map[string]any{}
-			}
-			f.SetProp("performs_io", true)
-		}
-	}
-}
-
 // resolveTSCall resolves a single call_expression to a canonical target fact name,
 // or "" when the call cannot be resolved (e.g. a method call on a value of unknown
 // type). It resolves:
@@ -3752,7 +3719,8 @@ func computeTSPerformsIO(allFacts []facts.Fact) {
 //   - `this.method()` inside a class → "<dir>.<className>.method"
 //   - `this.field.method()` on a field of stated type T → "<qualified T>.method"
 //   - `x.member()` where x is a member-call root (see memberCallRoots) → "<qualified x>.member"
-func resolveTSCall(kinds *tsutil.KindTable, call *sitter.Node, src []byte, dir, className string, importMap, fieldTypes, memberRoots map[string]string) string {
+//   - `make().method()` where make is a function of this file declared to return T → "<qualified T>.method"
+func resolveTSCall(kinds *tsutil.KindTable, call *sitter.Node, src []byte, dir, className string, importMap, fieldTypes, memberRoots, returnTypes map[string]string) string {
 	fn := call.ChildByFieldName("function")
 	if fn == nil {
 		return ""
@@ -3778,6 +3746,15 @@ func resolveTSCall(kinds *tsutil.KindTable, call *sitter.Node, src []byte, dir, 
 		if kindOf(kinds, object) == "identifier" && kindOf(kinds, property) == "property_identifier" {
 			if root, ok := memberRoots[nodeText(object, src)]; ok {
 				return root + "." + nodeText(property, src)
+			}
+		}
+		// `make().method()`: a call on the result of one of this file's functions,
+		// whose declared return type names the method's class.
+		if kindOf(kinds, object) == "call_expression" && kindOf(kinds, property) == "property_identifier" {
+			if callee := object.ChildByFieldName("function"); callee != nil && kindOf(kinds, callee) == "identifier" {
+				if typ, ok := returnTypes[nodeText(callee, src)]; ok {
+					return typ + "." + nodeText(property, src)
+				}
 			}
 		}
 		// `this.field.method()`: the field's stated type names the method's class.

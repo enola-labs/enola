@@ -19,8 +19,9 @@ import (
 // index, a lookup keyed by it). Mentioning the outer variable proves nothing:
 // `xs.subList(i + 1, n)` is the all-pairs loop.
 //
-// Statement loops only. A stream lambda's parameter is not tracked, so a nest
-// written as `xs.forEach(x -> x.kids().forEach(…))` keeps counting.
+// A stream callback is a loop under the same rule: `x.kids().forEach(…)` inside a
+// loop over x repeats without scaling, and a callback's single parameter is its
+// loop variable.
 
 // javaLoopScope is one enclosing loop's contribution to that proof.
 type javaLoopScope struct {
@@ -29,6 +30,9 @@ type javaLoopScope struct {
 	// amortizes is false under a loop with a constant trip count, where there is no
 	// factor of n for a hierarchical inner loop to cancel.
 	amortizes bool
+	// batch marks a paging loop (batchloop.go): a call made at its own level runs
+	// once per page.
+	batch bool
 }
 
 func (s *javaLoopScope) add(name string) {

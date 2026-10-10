@@ -141,11 +141,18 @@ var classDeclaration = regexp.MustCompile(`(?m)^\s*class\s+([A-Za-z0-9_:]+)\s*<\
 // same class_name:/source: handling, now returning enough for both callers.
 func parseModelFile(path string) []modelAssociation {
 	var out []modelAssociation
-	eachCall(path, func(method string, args *sitter.Node, src []byte) {
+	eachCallWithOptions(path, func(method string, args *sitter.Node, shared []*sitter.Node, src []byte) {
 		if !associationMacros[method] {
 			return
 		}
 		className := pairString(args, "class_name", src)
+		// An enclosing `with_options class_name: …` names the class of every
+		// association in its block that does not name its own. Without it the
+		// class was derived from the association's name (BlockRelationship),
+		// which no model has, and the association was dropped as unresolved.
+		for i := 0; className == "" && i < len(shared); i++ {
+			className = pairString(shared[i], "class_name", src)
+		}
 		through := pairSymbol(args, "through", src)
 		polymorphic := pairBool(args, "polymorphic", src)
 		source := pairSymbol(args, "source", src)

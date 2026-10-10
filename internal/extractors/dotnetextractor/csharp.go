@@ -19,6 +19,7 @@ import (
 	"strings"
 
 	"github.com/enola-labs/enola/internal/extractors/detectnames"
+	"github.com/enola-labs/enola/internal/extractors/ioclosure"
 	"github.com/enola-labs/enola/internal/factpath"
 	"github.com/enola-labs/enola/internal/facts"
 	"github.com/enola-labs/enola/internal/parallel"
@@ -235,7 +236,7 @@ func (e *CSharpExtractor) Extract(ctx context.Context, repoPath string, files []
 			"%d left generic (a {controller}/{action} template needs each controller's area)",
 			len(scaffold.conventional), scaffold.conventionalSkipped)
 	}
-	computeCSharpPerformsIO(allFacts)
+	ioclosure.Propagate(allFacts)
 
 	// Module facts are built into a map keyed by directory, then overlaid with the
 	// MSBuild assembly graph, so a project root that also holds sources yields one
@@ -351,64 +352,4 @@ type fileResult struct {
 	facts     []facts.Fact
 	scaffold  aspnetScaffold
 	generated bool
-}
-
-// computeCSharpPerformsIO propagates the direct-I/O signal (io_direct, set by the
-// walker on members that call a network/file/database primitive) transitively over
-// the intra-repo call graph into a performs_io prop, so a member reaching I/O only
-// through wrapper layers is still flagged and a per-iteration call to it reads as
-// an N+1. Cycle-safe monotone fixpoint; mirrors computeRustPerformsIO.
-func computeCSharpPerformsIO(allFacts []facts.Fact) {
-	exists := make(map[string]bool)
-	for i := range allFacts {
-		if allFacts[i].Kind == facts.KindSymbol {
-			exists[allFacts[i].Name] = true
-		}
-	}
-
-	io := make(map[string]bool)
-	adj := make(map[string][]string)
-	for i := range allFacts {
-		f := &allFacts[i]
-		if f.Kind != facts.KindSymbol {
-			continue
-		}
-		if b, _ := f.PropAny("io_direct").(bool); b {
-			io[f.Name] = true
-		}
-		seen := make(map[string]bool)
-		for _, r := range f.Relations {
-			if r.Kind != facts.RelCalls || r.Target == f.Name || seen[r.Target] || !exists[r.Target] {
-				continue
-			}
-			seen[r.Target] = true
-			adj[f.Name] = append(adj[f.Name], r.Target)
-		}
-	}
-
-	for changed := true; changed; {
-		changed = false
-		for name, callees := range adj {
-			if io[name] {
-				continue
-			}
-			for _, c := range callees {
-				if io[c] {
-					io[name] = true
-					changed = true
-					break
-				}
-			}
-		}
-	}
-
-	for i := range allFacts {
-		f := &allFacts[i]
-		if f.Kind == facts.KindSymbol && io[f.Name] {
-			if f.Props == nil {
-				f.Props = map[string]any{}
-			}
-			f.SetProp("performs_io", true)
-		}
-	}
 }

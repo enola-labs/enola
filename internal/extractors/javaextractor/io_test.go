@@ -1,6 +1,7 @@
 package javaextractor
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/enola-labs/enola/internal/facts"
@@ -9,9 +10,9 @@ import (
 // GAP-JV-02: the Java extractor emits io_direct/performs_io on methods that are
 // genuine DB/network round-trips, so the performance analyzer's isExpensiveJvmCall I/O
 // index is populated on pure-Java Spring/JPA repos (it was empty — only Kotlin
-// carried the prop, from v57). The seed is annotation/interface-driven and
-// carries no transitive fixpoint (performs_io == io_direct), mirroring Kotlin's
-// actual behavior.
+// carried the prop, from v57). The seed is annotation/interface-driven; the
+// methods that reach a seed get performs_io from ioclosure.Propagate, which these
+// single-file tests do not run.
 
 func assertPerformsIO(t *testing.T, ff []facts.Fact, name string) {
 	t.Helper()
@@ -130,4 +131,40 @@ public class UserController {
 `,
 	})
 	assertNotPerformsIO(t, ff, "web.UserController.list")
+}
+
+// The round-trip is the annotated method. A method of the same class that calls
+// it does I/O through it.
+func TestJavaMethodReachesAQueryInItsOwnClass(t *testing.T) {
+	ff := extractAll(t, map[string]string{
+		"dao/ReportDao.java": `package dao;
+
+import org.springframework.data.jpa.repository.Query;
+
+public abstract class ReportDao {
+    @Query("select r from Row r")
+    abstract java.util.List<Row> rows();
+
+    public int count() {
+        return rows().size();
+    }
+
+    public String name() {
+        return "report";
+    }
+}
+`,
+	})
+	for _, f := range ff {
+		if f.Kind != facts.KindSymbol {
+			continue
+		}
+		io, _ := f.Props["performs_io"].(bool)
+		switch {
+		case strings.HasSuffix(f.Name, "ReportDao.count") && !io:
+			t.Errorf("%s: no performs_io; relations=%v", f.Name, f.Relations)
+		case strings.HasSuffix(f.Name, "ReportDao.name") && io:
+			t.Errorf("%s: performs_io on a method that returns a literal", f.Name)
+		}
+	}
 }

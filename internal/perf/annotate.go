@@ -30,9 +30,9 @@ const PropPerfRisk = "perf_risk"
 // # Why only the high tier
 //
 // High severity means evidence rather than a name: a confirmed I/O call (a storage
-// fact, the extractor's performs_io, an unambiguous DB or network primitive) or a
-// route handler, which is always hot. Medium is a curated-keyword match and low is
-// a cold path. Annotating those would put "your change made this slow" into a diff
+// fact, or a callee that resolves to a function the extractor flagged performs_io)
+// or a route handler, which is always hot. Medium is a match by name, however
+// curated, and low is a cold path. Annotating those would put "your change made this slow" into a diff
 // on evidence that does not support the sentence, which is the false-positive
 // problem arriving through a different door. Both tiers stay available through
 // analyze_performance, which presents them with their caveats attached.
