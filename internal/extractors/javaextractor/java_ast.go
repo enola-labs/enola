@@ -206,6 +206,10 @@ func (w *astWalker) recordInLoop(target string) {
 	// candidate. Only a genuinely constant loop (a literal-bounded for, a for-each over
 	// a collection literal) excludes its calls; while(true)/for(;;) repeats, so its
 	// calls stay candidates even though its depth is discounted from the Big-O exponent.
+	// A call made once per round of a paging loop is the batched call.
+	if n := len(w.loopScopes); n > 0 && w.loopScopes[n-1].batch {
+		return
+	}
 	if w.repeatDepth > 0 {
 		if w.metrics.inScalingSeen == nil {
 			w.metrics.inScalingSeen = make(map[string]bool)
@@ -466,33 +470,44 @@ func javaStreamLambda(call *sitter.Node, src []byte) *sitter.Node {
 // at +1 (it runs per element), while walking everything else (receiver, other args)
 // at the current depth. Kind-checked so an ancestor with the same byte span isn't
 // mistaken for the lambda.
-// bounded is true when the iterator's receiver is a collection literal, so the callback
-// runs a fixed number of times and neither scales nor repeats.
-func (w *astWalker) walkJavaLambdaSubtree(node, lambda *sitter.Node, bounded bool) {
+// class says what the callback's loop is: constant over a collection literal
+// (neither scales nor repeats), repeating without scaling over what an enclosing
+// loop's element holds, or scaling.
+func (w *astWalker) walkJavaLambdaSubtree(node, lambda *sitter.Node, class javaLoopClass) {
 	if node == nil {
 		return
 	}
 	if kindOf(node) == "lambda_expression" && node.StartByte() == lambda.StartByte() && node.EndByte() == lambda.EndByte() {
+		// The callback is a loop of its own: a call in it is made per element, not
+		// once per round of whatever statement loop encloses it.
+		scope := javaLoopScope{amortizes: class.repeats()}
+		if p := node.ChildByFieldName("parameters"); p != nil && kindOf(p) == "identifier" {
+			scope.add(nodeText(p, w.src))
+		}
+		w.loopScopes = append(w.loopScopes, scope)
 		w.loopDepth++
-		if !bounded {
-			// An iterator receiver is either a literal (constant) or data-derived
-			// (scaling); it is never infinite, so repeating and scaling coincide here.
+		if class.scales() {
 			w.scalingDepth++
+		}
+		if class.repeats() {
 			w.repeatDepth++
 		}
 		for i := uint(0); i < uint(node.ChildCount()); i++ {
 			w.walkForCalls(node.Child(i))
 		}
 		w.loopDepth--
-		if !bounded {
+		if class.scales() {
 			w.scalingDepth--
+		}
+		if class.repeats() {
 			w.repeatDepth--
 		}
+		w.loopScopes = w.loopScopes[:len(w.loopScopes)-1]
 		return
 	}
 	for i := uint(0); i < uint(node.ChildCount()); i++ {
 		if c := node.Child(i); javaByteContains(c, lambda) {
-			w.walkJavaLambdaSubtree(c, lambda, bounded)
+			w.walkJavaLambdaSubtree(c, lambda, class)
 		} else {
 			w.walkForCalls(c)
 		}
@@ -1107,6 +1122,12 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 				scope.add(nodeText(name, w.src))
 			}
 		}
+		// A paging loop: what a round fetched is the round's element, so the loop
+		// that drains it is that loop's hierarchical inner loop.
+		for _, page := range javaBatchLoop(node, w.src) {
+			scope.batch, scope.amortizes = true, true
+			scope.add(page)
+		}
 		w.loopScopes = append(w.loopScopes, scope)
 		defer func() { w.loopScopes = w.loopScopes[:len(w.loopScopes)-1] }()
 		if w.metrics != nil {
@@ -1168,18 +1189,27 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 				// count — it raises loop_depth but not the scaling depth. The depth bump
 				// happens at the lambda body inside walkJavaLambdaSubtree; here we only
 				// record the maxes.
-				bounded := javaStreamReceiverBounded(node, w.src)
+				class := javaLoopScaling
+				switch {
+				case javaStreamReceiverBounded(node, w.src):
+					class = javaLoopConstant
+				case javaReachedThroughElement(node.ChildByFieldName("object"), w.src, w.loopScopes):
+					// `page.getData().forEach(…)`, `schema.getAllOf().forEach(…)`:
+					// over what belongs to an enclosing loop's element. It repeats
+					// without scaling, as the statement form does (hierarchy.go).
+					class = javaLoopInfinite
+				}
 				w.metrics.loopCount++
 				w.metrics.decisions++
 				if w.loopDepth+1 > w.metrics.loopDepth {
 					w.metrics.loopDepth = w.loopDepth + 1
 				}
-				if !bounded && w.scalingDepth+1 > w.metrics.scalingLoopDepth {
+				if class.scales() && w.scalingDepth+1 > w.metrics.scalingLoopDepth {
 					w.metrics.scalingLoopDepth = w.scalingDepth + 1
 				}
 				for i := uint(0); i < uint(node.ChildCount()); i++ {
 					if c := node.Child(i); javaByteContains(c, lambda) {
-						w.walkJavaLambdaSubtree(c, lambda, bounded)
+						w.walkJavaLambdaSubtree(c, lambda, class)
 					} else {
 						w.walkForCalls(c)
 					}

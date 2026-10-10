@@ -856,7 +856,9 @@ func analyzeBody(body ast.Node, ctx resolveCtx, selfName string, params map[stri
 			if x.Init != nil {
 				init = x.Init
 			}
-			loopHeads = append(loopHeads, newLoopHead(init, forScales, !constBounded))
+			head := newLoopHead(init, forScales, !constBounded)
+			head.once = terminalBlocks(x.Body)
+			loopHeads = append(loopHeads, head)
 			scope := loopScope{end: x.End(), vars: forLoopVars(x), cursor: forCursor(x), amortizes: forScales}
 			if pageVars, isBatch := goBatchLoop(x); isBatch {
 				// What a round binds is the round's element, and a `for {}` that
@@ -896,7 +898,9 @@ func analyzeBody(body ast.Node, ctx resolveCtx, selfName string, params map[stri
 				}
 				repeatEnds = append(repeatEnds, x.End())
 			}
-			loopHeads = append(loopHeads, newLoopHead(x.X, rangeScales, rangeAmortizes))
+			head := newLoopHead(x.X, rangeScales, rangeAmortizes)
+			head.once = terminalBlocks(x.Body)
+			loopHeads = append(loopHeads, head)
 			loopScopes = append(loopScopes, loopScope{end: x.End(), vars: rangeLoopVars(x), amortizes: rangeAmortizes})
 		case *ast.AssignStmt:
 			// A value computed from the current element is still the current element
@@ -1032,6 +1036,9 @@ func analyzeBody(body ast.Node, ctx resolveCtx, selfName string, params map[stri
 type loopHead struct {
 	pos, end        token.Pos
 	scales, repeats bool
+	// once are the runs of the body that end by leaving the loop (terminal.go). A
+	// call in one is made at most once per entry, as a call in the head is.
+	once []posSpan
 }
 
 // newLoopHead takes nil for a loop with no such part (`for cond {}`, `for {}`).
@@ -1043,7 +1050,17 @@ func newLoopHead(n ast.Node, scales, repeats bool) loopHead {
 	return h
 }
 
-func (h loopHead) contains(p token.Pos) bool { return h.pos != token.NoPos && p >= h.pos && p < h.end }
+func (h loopHead) contains(p token.Pos) bool {
+	if h.pos != token.NoPos && p >= h.pos && p < h.end {
+		return true
+	}
+	for _, s := range h.once {
+		if p >= s.pos && p < s.end {
+			return true
+		}
+	}
+	return false
+}
 
 // loopScope records the variables an enclosing loop introduces, with the loop's
 // end position so it can be popped by the position-based nesting walk.

@@ -20,6 +20,17 @@ import (
 	"github.com/enola-labs/enola/pkg/plugin"
 )
 
+// v306: paging loops in Java. A while or do-while whose body binds a local from a
+// call, loops over that local, and goes round again depending on it (its condition
+// reads it, or an `if` that breaks or returns does) takes its input a page at a
+// time: the loop that drains the page adds no factor, and the fetch, made once per
+// round, leaves calls_in_scaling_loop. The third condition is what keeps an
+// iterator walk that queries per element out. A stream callback is now a loop under
+// the same rules as a statement loop: over what an enclosing loop's element holds it
+// repeats without scaling. And in Go, a call in a block that ends by leaving the
+// innermost loop (a return, a panic, the loop's own break) is made at most once per
+// entry: it leaves calls_in_loop and calls_in_scaling_loop, as a call in the loop's
+// head does.
 // v305: Ruby methods carry scaling_loop_depth, calls_in_scaling_loop and
 // calls_in_scaling_loop_depth. loop_depth already left out a loop over a literal or
 // a constant; what was missing is the nest around each call (a call-in-loop finding
@@ -2682,7 +2693,7 @@ import (
 // v270: SvelteKit reads literal kit.alias fallbacks before generated config exists,
 // keeps tsconfig paths authoritative, and classifies $app/$env/$service-worker imports
 // as framework-provided rather than unresolved third-party dependencies.
-const cacheVersion = "v305"
+const cacheVersion = "v306"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
