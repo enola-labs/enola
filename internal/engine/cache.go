@@ -20,6 +20,12 @@ import (
 	"github.com/enola-labs/enola/pkg/plugin"
 )
 
+// v308: C# calls on a receiver of declared type are calls edges, as in Java since
+// v307: a field, a property, a primary-constructor parameter, a parameter, a typed
+// local, `var x = new T()`. The bare method name such a call has always emitted is
+// still emitted; beside it there is now an edge to the method the declared type or
+// one of its base types declares, and the in-loop lists carry that name. A call on
+// a receiver whose type is not written down is unchanged.
 // v307: Java calls on a receiver of declared type are calls edges. The receiver's
 // type is read where the source writes it (a field, a parameter, a typed local,
 // `var x = new T()`, a for-each variable, a capitalised static receiver), and the
@@ -2702,7 +2708,7 @@ import (
 // v270: SvelteKit reads literal kit.alias fallbacks before generated config exists,
 // keeps tsconfig paths authoritative, and classifies $app/$env/$service-worker imports
 // as framework-provided rather than unresolved third-party dependencies.
-const cacheVersion = "v307"
+const cacheVersion = "v308"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

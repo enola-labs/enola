@@ -33,6 +33,11 @@ import (
 // test functions that assert the behavior that version introduced. v1 is the
 // implicit baseline (no changelog line), so coverage starts at v2.
 var versionCoverage = map[int][]string{
+	308: { // C#: a call on a receiver of declared type is a calls edge, resolved through base types and interfaces
+		"TestCSharpCallOnAnInjectedFieldIsAnEdge",
+		"TestCSharpDeclaredReceiverForms",
+		"TestCSharpTypedCallLandsOnADeclarationOrIsNotMade",
+	},
 	307: { // Java: a call on a receiver of declared type is a calls edge, resolved through supertypes; io_type and inherited repository methods
 		"TestJavaCallOnAnInjectedFieldIsAnEdge",
 		"TestJavaCallOnAnUndeclaredReceiverIsNotAnEdge",

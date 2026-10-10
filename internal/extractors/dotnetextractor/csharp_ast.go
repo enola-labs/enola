@@ -131,14 +131,21 @@ type astWalker struct {
 	repeatDepth  int
 	// loopScopes are the enclosing loops' variables, for the rule in hierarchy.go.
 	loopScopes []csLoopScope
-	selfName   string
-	selfShort  string
-	selfParams int
+	// memberTypes are the declared types of the enclosing types' fields, properties
+	// and primary-constructor parameters, innermost last; localTypes those of the
+	// current member's parameters and locals (nil outside one). See receivers.go.
+	memberTypes []map[string]string
+	localTypes  map[string]string
+	selfName    string
+	selfShort   string
+	selfParams  int
 }
 
 // bodyMetrics accumulates per-member complexity signals during the single body
 // traversal — mirrors the other AST extractors.
 type bodyMetrics struct {
+	// typedCalls are the calls made on a receiver of declared type (receivers.go).
+	typedCalls         []typedCall
 	loopDepth          int
 	loopCount          int
 	decisions          int
@@ -424,6 +431,7 @@ func (w *astWalker) handleTypeDecl(node *sitter.Node, kind string) {
 
 	body := node.ChildByFieldName("body")
 	w.typeStack = append(w.typeStack, name)
+	w.memberTypes = append(w.memberTypes, w.collectMemberTypes(node, body))
 	w.methodStack = append(w.methodStack, collectMemberNames(body, w.src))
 	w.interfaceStack = append(w.interfaceStack, kind == facts.SymbolInterface)
 	w.ctorStack = append(w.ctorStack, countConstructors(body))
@@ -447,6 +455,7 @@ func (w *astWalker) handleTypeDecl(node *sitter.Node, kind string) {
 	w.ctorStack = w.ctorStack[:len(w.ctorStack)-1]
 	w.interfaceStack = w.interfaceStack[:len(w.interfaceStack)-1]
 	w.methodStack = w.methodStack[:len(w.methodStack)-1]
+	w.memberTypes = w.memberTypes[:len(w.memberTypes)-1]
 	w.typeStack = w.typeStack[:len(w.typeStack)-1]
 	w.popOwner()
 }
@@ -853,6 +862,12 @@ func (w *astWalker) walkBodyWithMetrics(node *sitter.Node, idx int, shortName st
 	w.loopScopes = nil
 	defer func() { w.loopScopes = savedLoopScopes }()
 	w.metrics = &bodyMetrics{}
+	savedLocals := w.localTypes
+	w.localTypes = make(map[string]string)
+	defer func() { w.localTypes = savedLocals }()
+	if params := findChildByKind(node, "parameter_list"); params != nil {
+		w.bindParameterList(w.localTypes, params)
+	}
 	w.loopDepth, w.scalingDepth, w.repeatDepth = 0, 0, 0
 	w.selfName = w.out[idx].Name
 	w.selfShort = shortName
@@ -875,6 +890,9 @@ func (w *astWalker) walkBodyWithMetrics(node *sitter.Node, idx int, shortName st
 
 	m := w.metrics
 	props := w.out[idx].Props
+	if len(m.typedCalls) > 0 {
+		props[propTypedCalls] = m.typedCalls
+	}
 	props["cyclomatic"] = 1 + m.decisions
 	if m.loopDepth > 0 {
 		props["loop_depth"] = m.loopDepth
@@ -908,6 +926,7 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 		return
 	}
 	kind := kindOf(node)
+	w.noteDeclaration(node, kind)
 
 	// A lambda is a deferred scope: its body runs when the delegate is invoked,
 	// not once per iteration of the loops it was created inside. An iterator's own
@@ -1142,6 +1161,10 @@ func (w *astWalker) handleInvocation(node *sitter.Node) {
 		if ioMethods[name] || ioStaticTypes[recv] {
 			w.markIO()
 		}
+		// A receiver whose type is declared (receivers.go). Read before the
+		// type-name test below: a property is conventionally named for its type
+		// (`ILibraryManager LibraryManager`), and it is the property being called.
+		declared := w.receiverType(recvNode)
 		switch {
 		case recv == "this" || recv == "base":
 			if target, ok := w.resolveOwnMember(name); ok {
@@ -1155,7 +1178,7 @@ func (w *astWalker) handleInvocation(node *sitter.Node) {
 					w.recordCallMetrics(target, name, args)
 				}
 			}
-		case recvNode != nil && isTypeNameShaped(recvNode, recv):
+		case declared == "" && recvNode != nil && isTypeNameShaped(recvNode, recv):
 			// `Type.Method(...)` — a static call. Emitted as "<Type>.<Method>" and
 			// bound only if Type resolves to a declared type; an unresolved one is
 			// left as written and matches nothing.
@@ -1174,6 +1197,7 @@ func (w *astWalker) handleInvocation(node *sitter.Node) {
 			// implementation: the interface member and the class method serving it.
 			w.addEdge(facts.RelCalls, name)
 			w.recordInLoop(recv, name)
+			w.noteTypedCall(recv+"."+name, declared, name)
 		}
 	}
 }

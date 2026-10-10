@@ -433,6 +433,10 @@ func resolveCSharpTargets(allFacts []facts.Fact) {
 			}
 		}
 	}
+
+	// Once every implements target is canonical: the calls on a receiver of
+	// declared type, which need the hierarchy to find where a method is declared.
+	resolveTypedCalls(allFacts, resolve)
 }
 
 // bindMemberCall decides what to do with a bare method name from a call on an
