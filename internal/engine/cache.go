@@ -20,6 +20,14 @@ import (
 	"github.com/enola-labs/enola/pkg/plugin"
 )
 
+// v305: Ruby methods carry scaling_loop_depth, calls_in_scaling_loop and
+// calls_in_scaling_loop_depth. loop_depth already left out a loop over a literal or
+// a constant; what was missing is the nest around each call (a call-in-loop finding
+// took its exponent from the method's deepest nest, wherever the call sat), a loop
+// over what an enclosing loop bound (`list.accounts.each` inside `lists.each` visits
+// each account once, and adds no factor), and the batch iterators: a call made
+// directly in an each_slice / in_groups_of block runs once per batch and is not
+// listed.
 // v304: Go functions carry io_direct, io_calls and performs_io. A body that calls an
 // I/O entry point (by package MEMBER: net/http.Client.Do and not
 // ResponseWriter.Header, xorm Session.Find and not Session.Where) is io_direct and
@@ -2674,7 +2682,7 @@ import (
 // v270: SvelteKit reads literal kit.alias fallbacks before generated config exists,
 // keeps tsconfig paths authoritative, and classifies $app/$env/$service-worker imports
 // as framework-provided rather than unresolved third-party dependencies.
-const cacheVersion = "v304"
+const cacheVersion = "v305"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

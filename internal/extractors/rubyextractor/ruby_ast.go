@@ -212,6 +212,12 @@ type rubyWalker struct {
 	loopDepth int
 	selfName  string
 	selfShort string
+
+	// The enclosing loops that repeat, innermost last, and for each whether it adds
+	// a factor of the input. scalingDepth counts those that do. See scaling.go.
+	loops        []rubyLoop
+	loopScales   []bool
+	scalingDepth int
 }
 
 // rubyBodyMetrics accumulates per-method complexity signals during the single
@@ -222,7 +228,13 @@ type rubyBodyMetrics struct {
 	decisions   int             // decision points (cyclomatic = 1 + decisions)
 	callsInLoop []string        // distinct call targets invoked at loop depth >= 1
 	inLoopSeen  map[string]bool // dedup set for callsInLoop
-	recursive   bool            // body directly calls the enclosing method
+	// scalingLoopDepth is loopDepth less the loops over what an enclosing loop
+	// bound. callsInScalingLoop are the in-loop calls made once per element, and
+	// scalingCallDepth the deepest scaling nest around each.
+	scalingLoopDepth   int
+	callsInScalingLoop []string
+	scalingCallDepth   map[string]int
+	recursive          bool // body directly calls the enclosing method
 
 	// fieldsRead/fieldsWritten record which instance variables the body
 	// touches. They answer "which methods actually use @client", which is the
@@ -532,6 +544,7 @@ func (w *rubyWalker) recordInLoopCall(target string) {
 		w.metrics.inLoopSeen[target] = true
 		w.metrics.callsInLoop = append(w.metrics.callsInLoop, target)
 	}
+	w.recordScalingCall(target)
 }
 
 // rubyCheapMethods are obviously-cheap attribute/Enumerable/Kernel methods that
@@ -1012,18 +1025,34 @@ func (w *rubyWalker) handleMethod(node *sitter.Node, isClassMethod bool) {
 	w.walkForCalls(node.ChildByFieldName("parameters"), ownerIdx, seen, locals)
 	w.metrics = &rubyBodyMetrics{params: parameterNames(node.ChildByFieldName("parameters"), w.src)}
 	w.loopDepth = 0
+	w.loops, w.loopScales, w.scalingDepth = nil, nil, 0
 	w.selfName = fullName
 	w.selfShort = name
 	w.walkForCalls(node.ChildByFieldName("body"), ownerIdx, seen, locals)
 	props["cyclomatic"] = 1 + w.metrics.decisions
 	if w.metrics.loopDepth > 0 {
 		props["loop_depth"] = w.metrics.loopDepth
+		// Beside it even when 0, so "every loop walks what an outer one bound" can
+		// be told from "not measured".
+		props["scaling_loop_depth"] = w.metrics.scalingLoopDepth
 	}
 	if w.metrics.loopCount > 0 {
 		props["loop_count"] = w.metrics.loopCount
 	}
 	if len(w.metrics.callsInLoop) > 0 {
 		props["calls_in_loop"] = w.metrics.callsInLoop
+		// Emitted even when empty: an absent key makes the consumer fall back to
+		// calls_in_loop, which is the list this one exists to narrow.
+		scaling := w.metrics.callsInScalingLoop
+		if scaling == nil {
+			scaling = []string{}
+		}
+		depths := make([]int, len(scaling))
+		for i, c := range scaling {
+			depths[i] = w.metrics.scalingCallDepth[c]
+		}
+		props["calls_in_scaling_loop"] = scaling
+		props["calls_in_scaling_loop_depth"] = depths
 	}
 	if len(w.metrics.fieldsRead) > 0 {
 		sort.Strings(w.metrics.fieldsRead)
@@ -1242,9 +1271,15 @@ func (w *rubyWalker) walkForCalls(node *sitter.Node, ownerIdx int, seen, locals 
 			}
 		}
 		w.loopDepth++
+		var vars []string
+		if p := node.ChildByFieldName("pattern"); p != nil { // `for x in xs`
+			vars = append(vars, rubyText(p, w.src))
+		}
+		w.pushLoop(rubyLoop{vars: vars}, true)
 		for i := uint(0); i < node.ChildCount(); i++ {
 			w.walkForCalls(node.Child(i), ownerIdx, seen, locals)
 		}
+		w.popLoop()
 		w.loopDepth--
 		return
 	case "call":
@@ -1405,7 +1440,16 @@ func (w *rubyWalker) walkForCalls(node *sitter.Node, ownerIdx int, seen, locals 
 					continue
 				}
 				w.loopDepth++
+				// A loop over what an enclosing loop bound (`post.comments.each`,
+				// `batch.each`) repeats and adds no factor: decided before the
+				// block's own parameters are in scope.
+				scales := !w.rootedAtLoopVar(recv)
+				w.pushLoop(rubyLoop{
+					vars:  blockParamNames(block, w.src),
+					batch: rubyBatchIterators[rubyText(method, w.src)],
+				}, scales)
 				w.walkForCalls(c, ownerIdx, seen, locals)
+				w.popLoop()
 				w.loopDepth--
 				continue
 			}

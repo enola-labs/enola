@@ -246,19 +246,22 @@ type CallEvidence struct {
 
 // What a named call rests on, strongest first. The first three are facts about the
 // callee. The rest are readings of its name, and differ in how much of the name
-// is read: a lazy association of that name declared somewhere in the application,
-// a method some function flagged performs_io also bears, a curated ORM or client
-// method, a receiver or module token, and last a generic verb or a per-language
-// name list.
+// is read: a method some function flagged performs_io also bears, a curated ORM
+// or client method, a receiver or module token, and last a generic verb or a
+// per-language name list.
+//
+// An ActiveRecord association name is not among them. `record.posts` in a loop is
+// the query-loops explainer's question, which answers it from the receiver's type;
+// matched here against every association the application declares, `tag.tag`, a
+// string column, read as one.
 const (
-	basisStorage     = "storage"      // the callee is a storage fact
-	basisPrimitive   = "io-primitive" // the extractor identified the call as an I/O entry point
-	basisResolvedIO  = "resolved-io"  // the callee resolves to a function flagged performs_io
-	basisAssociation = "association"  // a method named like an ActiveRecord association
-	basisIOIndex     = "io-index"     // the method name is shared with a performs_io function
-	basisIOMethod    = "io-method"    // a curated ORM/client method name
-	basisIOReceiver  = "io-receiver"  // a receiver, module or package token
-	basisName        = "name"         // a generic verb, or a per-language name list
+	basisStorage    = "storage"      // the callee is a storage fact
+	basisPrimitive  = "io-primitive" // the extractor identified the call as an I/O entry point
+	basisResolvedIO = "resolved-io"  // the callee resolves to a function flagged performs_io
+	basisIOIndex    = "io-index"     // the method name is shared with a performs_io function
+	basisIOMethod   = "io-method"    // a curated ORM/client method name
+	basisIOReceiver = "io-receiver"  // a receiver, module or package token
+	basisName       = "name"         // a generic verb, or a per-language name list
 )
 
 // basisIsFact reports whether a basis is a fact about the callee and not a reading
@@ -273,7 +276,7 @@ func basisIsFact(basis string) bool {
 //
 // Go is read by its own rule: the method index and the ORM names say nothing about
 // Go code.
-func callBasis(caller funcInfo, callee string, golang bool, storage, assoc map[string]bool, byName, byDotted map[string]funcInfo, ioMethods map[string]bool) string {
+func callBasis(caller funcInfo, callee string, golang bool, storage map[string]bool, byName, byDotted map[string]funcInfo, ioMethods map[string]bool) string {
 	if storage[callee] {
 		return basisStorage
 	}
@@ -293,9 +296,6 @@ func callBasis(caller funcInfo, callee string, golang bool, storage, assoc map[s
 		return basisName
 	}
 	m := methodSegment(callee)
-	if assoc[m] && !constantReceiver(callee) {
-		return basisAssociation
-	}
 	if ioMethods[m] {
 		return basisIOIndex
 	}
@@ -1486,20 +1486,10 @@ func cacheReceiver(target string) bool {
 }
 
 // callInLoopWhy builds the message for an aggregated call-in-loop finding from the
-// expensive callees (DB/I/O methods) and the lazy ActiveRecord association reads
-// found inside the loop, keeping the association guidance (eager-load) distinct
-// from the generic batch-or-hoist advice.
-func callInLoopWhy(expensive, assocReads []string) string {
-	var parts []string
-	if len(expensive) > 0 {
-		parts = append(parts, fmt.Sprintf("Calls %s inside a loop — a likely N+1 / per-iteration I/O pattern; batch or hoist out of the loop.",
-			strings.Join(expensive, ", ")))
-	}
-	if len(assocReads) > 0 {
-		parts = append(parts, fmt.Sprintf("Reads the %s association(s) inside a loop — a lazy-loaded N+1; eager-load with includes/preload.",
-			strings.Join(assocReads, ", ")))
-	}
-	return strings.Join(parts, " ")
+// expensive callees found inside the loop.
+func callInLoopWhy(expensive []string) string {
+	return fmt.Sprintf("Calls %s inside a loop — a likely N+1 / per-iteration I/O pattern; batch or hoist out of the loop.",
+		strings.Join(expensive, ", "))
 }
 
 // containsKeyword reports whether kw appears in method as a whole word — bounded by
@@ -1965,7 +1955,7 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 		// candidates. Extractors that emit calls_in_scaling_loop supply that subset — even
 		// when empty; others fall back to all in-loop calls, unchanged.
 		inLoopCalls := f.scalingLoopCalls()
-		var expensive, assocReads []string
+		var expensive []string
 		evidence := make([]string, 0, len(inLoopCalls))
 		var calls []CallEvidence
 		ruby := strings.HasSuffix(f.File, ".rb")
@@ -2036,7 +2026,7 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 				// high. Prefer resolution: a callee that resolves to a known non-I/O local
 				// function is never an N+1, whatever its name; keep the keyword match only
 				// as a fallback for unresolved callees.
-				nameMatch := isExpensiveCall(callee, storage, assoc)
+				nameMatch := isExpensiveCall(callee, storage, nil)
 				resolved, ok := byName[callee]
 				if !ok {
 					// Unresolved local calls arrive in dotted import-path form; resolve them
@@ -2068,7 +2058,7 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 				// known non-I/O local is never an N+1 — and keep the keyword match only
 				// as a fallback for unresolved callees, on top of the extractor's
 				// io_direct/performs_io signal.
-				nameMatch := isExpensiveCall(callee, storage, assoc)
+				nameMatch := isExpensiveCall(callee, storage, nil)
 				if resolved, ok := byName[callee]; ok && !resolved.PerformsIO && !storage[callee] {
 					nameMatch = false
 				}
@@ -2082,7 +2072,7 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 				// I/O is not an N+1": C# performs_io stops at an injected interface, so
 				// `DeleteEpisode`, whose body is `_libraryManager.DeleteItem(…)`,
 				// carries no flag, and trusting that removed it.
-				isExpensive = isExpensiveCall(callee, storage, assoc) && !csInMemoryMethods[methodSegment(callee)]
+				isExpensive = isExpensiveCall(callee, storage, nil) && !csInMemoryMethods[methodSegment(callee)]
 			case golang:
 				// Go: the generic verbs minus other ecosystems' API names, and a
 				// predicate or constructor is not I/O. See isExpensiveGoCall.
@@ -2092,7 +2082,7 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 				// "expensive, and NOT a Ruby in-memory call" is the rule as anyone
 				// states it; "(not ruby) or (not in-memory)" is the same predicate
 				// and reads as neither.
-				isExpensive = isExpensiveCall(callee, storage, assoc) && !(ruby && rubyInMemory(callee))
+				isExpensive = isExpensiveCall(callee, storage, nil) && !(ruby && rubyInMemory(callee))
 			}
 			// Positive evidence overrules every name gate above: a callee that resolves
 			// to a function flagged performs_io is I/O whatever it is called, in any
@@ -2119,18 +2109,11 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 			if !isExpensive {
 				continue
 			}
-			basis := callBasis(f, callee, golang, storage, assoc, byName, byDotted, ioMethods)
+			basis := callBasis(f, callee, golang, storage, byName, byDotted, ioMethods)
 			if basisIsFact(basis) {
 				confirmedIO = true
 			}
-			if assoc[methodSegment(callee)] && !storage[callee] {
-				// Worded as an association read. Not confirmed by that: the name is
-				// matched against every association the application declares, so
-				// `tag.tag`, a string column, reads as one.
-				assocReads = append(assocReads, callee)
-			} else {
-				expensive = append(expensive, callee)
-			}
+			expensive = append(expensive, callee)
 			evidence = append(evidence, "call_in_loop="+callee)
 			d, known := f.callDepth(callee)
 			if d > callNesting {
@@ -2180,7 +2163,7 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 				Symbol: f.Name, File: f.File, Line: f.Line, Repo: f.Repo, Package: f.Package,
 				Kind: "call-in-loop", BigO: bigO, Severity: sev,
 				Confidence: confidenceFor("call-in-loop", confirmedIO, depth, f.loopDiscounted()),
-				Why:        callInLoopWhy(expensive, assocReads),
+				Why:        callInLoopWhy(expensive),
 				Evidence:   evidence,
 				Calls:      calls,
 			})

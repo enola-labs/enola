@@ -441,27 +441,26 @@ func TestAnalyze_PyDottedPerformsIOStillN1(t *testing.T) {
 	}
 }
 
-func TestAnalyze_AssociationReadInLoop(t *testing.T) {
-	// A no-arg association read inside a loop is an N+1 only when the method name
-	// is a known association.
-	funcs := []funcInfo{{
-		Name: "Report#run", File: "app/report.rb", Line: 3, LoopDepth: 1, LoopCount: 1,
-		CallsInLoop: []string{"posts"},
-	}}
-	assoc := map[string]bool{"posts": true}
+func TestAnalyze_AssociationReadIsNotACallInLoop(t *testing.T) {
+	// `record.posts` in a loop is left to the query-loops explainer, which reads
+	// the receiver's type. Here the name alone would have to do, and a string
+	// column called like some other model's association would do as well.
+	funcs := []funcInfo{
+		{Name: "Report#run", File: "app/report.rb", Line: 3, LoopDepth: 1, LoopCount: 1,
+			CallsInLoop: []string{"posts", "tag.tag", "block.account"}},
+		{Name: "Report#sync", File: "app/report.rb", Line: 20, LoopDepth: 1, LoopCount: 1,
+			CallsInLoop: []string{"post.save", "post.author"}},
+	}
+	assoc := map[string]bool{"posts": true, "tag": true, "account": true, "author": true}
 
 	got := analyze(funcs, nil, nil, assoc)
-	f, ok := findFinding(got, "Report#run", "call-in-loop")
-	if !ok {
-		t.Fatalf("expected a call-in-loop finding for an association read; got %+v", got)
+	if f, ok := findFinding(got, "Report#run", "call-in-loop"); ok {
+		t.Errorf("association names alone produced a call-in-loop finding: %+v", f)
 	}
-	if !strings.Contains(f.Why, "association") {
-		t.Errorf("association finding Why should mention association; got %q", f.Why)
-	}
-
-	// Without the association set, the bare method name is not flagged.
-	if _, ok := findFinding(analyze(funcs, nil, nil, nil), "Report#run", "call-in-loop"); ok {
-		t.Errorf("posts should not be flagged when it is not a known association")
+	// A real write beside an association read is still reported, and names the write.
+	f, ok := findFinding(got, "Report#sync", "call-in-loop")
+	if !ok || len(f.Calls) != 1 || f.Calls[0].Callee != "post.save" {
+		t.Errorf("Report#sync = %+v (ok=%v), want one call, post.save", f, ok)
 	}
 }
 
@@ -481,31 +480,6 @@ func TestAnalyze_RubyInMemoryNotN1(t *testing.T) {
 	}
 	if _, ok := findFinding(got, "Q#run", "call-in-loop"); !ok {
 		t.Errorf("cache.fetch / insert_all are real I/O and must still be flagged")
-	}
-}
-
-func TestAnalyze_ConstantReceiverNotAssociationRead(t *testing.T) {
-	// A class-method call on a constant receiver (`SystemEventService.trigger`) is not
-	// an instance association read, even when its method name matches an association;
-	// a bare name and a lowercase-variable instance read still are.
-	assoc := map[string]bool{"trigger": true}
-	funcs := []funcInfo{
-		{Name: "ClassCall#perform", File: "app/c.rb", Exported: true, LoopDepth: 1, LoopCount: 1,
-			CallsInLoop: []string{"SystemEventService.trigger"}},
-		{Name: "InstanceCall#perform", File: "app/i.rb", Exported: true, LoopDepth: 1, LoopCount: 1,
-			CallsInLoop: []string{"job.trigger"}},
-		{Name: "BareCall#perform", File: "app/b.rb", Exported: true, LoopDepth: 1, LoopCount: 1,
-			CallsInLoop: []string{"trigger"}},
-	}
-	got := analyze(funcs, nil, nil, assoc)
-	if _, ok := findFinding(got, "ClassCall#perform", "call-in-loop"); ok {
-		t.Errorf("Const.method must not be flagged as an association-read N+1")
-	}
-	if _, ok := findFinding(got, "InstanceCall#perform", "call-in-loop"); !ok {
-		t.Errorf("instance read job.trigger should still be flagged as an association N+1")
-	}
-	if _, ok := findFinding(got, "BareCall#perform", "call-in-loop"); !ok {
-		t.Errorf("bare association read trigger should still be flagged")
 	}
 }
 
@@ -2287,7 +2261,7 @@ func TestCallBasisReadsGoByPackage(t *testing.T) {
 		"ast.findFirst":        basisName,
 		"internal/db.Tx.Query": basisIOReceiver,
 	} {
-		if got := callBasis(funcInfo{}, callee, true, nil, nil, byName, byName, ioMethods); got != want {
+		if got := callBasis(funcInfo{}, callee, true, nil, byName, byName, ioMethods); got != want {
 			t.Errorf("callBasis(%s) = %q, want %q", callee, got, want)
 		}
 	}
