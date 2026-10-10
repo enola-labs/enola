@@ -468,6 +468,9 @@ func (w *pyWalker) walkTopLevelCalls(node *sitter.Node) {
 		"import_statement", "import_from_statement":
 		return
 	case "call":
+		if rel, ok := w.getattrRefRelation(node); ok {
+			w.fileRefs = append(w.fileRefs, rel)
+		}
 		if fn := node.ChildByFieldName("function"); fn != nil {
 			w.emitFileRefCall(fn)
 		}
@@ -483,7 +486,12 @@ func (w *pyWalker) walkTopLevelCalls(node *sitter.Node) {
 		// mis-flagged dead. resolveCall (via emitFileRefCall) gates on moduleDefs,
 		// so ordinary variables and tuple literals resolve to nothing. Nested calls
 		// in the RHS are still caught by the generic recursion below.
-		for _, ident := range collectRefValueIdents(node.ChildByFieldName("right")) {
+		right := node.ChildByFieldName("right")
+		if kindOf(right) == "boolean_operator" {
+			w.emitFallbackRefs(right)
+			break
+		}
+		for _, ident := range collectRefValueIdents(right) {
 			w.emitFileRefCall(ident)
 		}
 	case "string":
@@ -1431,6 +1439,31 @@ func (w *pyWalker) emitValueRef(node *sitter.Node) {
 	}
 }
 
+// A value selected by a fallback or inspected for metadata is referenced, not
+// called or constructed. Resolve bare names strictly, so uppercase constants do
+// not become invented constructor edges.
+func (w *pyWalker) emitNamedValueRef(node *sitter.Node) {
+	if kindOf(node) != "identifier" {
+		return
+	}
+	target := w.valueRefTarget(pyText(node, w.src))
+	if target == "" {
+		return
+	}
+	rel := facts.Relation{Kind: facts.RelNames, Target: target}
+	if owner := w.currentOwner(); owner != nil {
+		owner.Relations = append(owner.Relations, rel)
+	} else {
+		w.fileRefs = append(w.fileRefs, rel)
+	}
+}
+
+func (w *pyWalker) emitFallbackRefs(node *sitter.Node) {
+	for _, ident := range collectRefValueIdents(node) {
+		w.emitNamedValueRef(ident)
+	}
+}
+
 // emitCollectionValueRefs records value-reference edges for the values of a dict
 // literal or the elements of a list/set/tuple — dispatch tables / registries such
 // as {"ds": ds_filter} or [handler_a, handler_b].
@@ -1480,20 +1513,60 @@ func (w *pyWalker) valueRefTarget(name string) string {
 // stringRefRelation returns a reference edge for a string literal that names an
 // internal symbol by dotted path (e.g. lazy_load_command("airflow.cli.commands.x.y")
 // or a provider "class-name": "airflow.providers….short_circuit_task"). Only plain
-// strings whose content is an identifier-dotted path of ≥3 segments qualify;
+// strings whose content is an identifier-dotted path of ≥3 segments or a
+// module:factory import path qualify;
 // f-strings (which have interpolation children, not a single string_content) and
 // hyphenated/spaced strings are skipped. resolveCallTargets resolves the dotted
 // target to a slash symbol and drops non-internal ones.
 func (w *pyWalker) stringRefRelation(node *sitter.Node) (facts.Relation, bool) {
 	content := firstChildOfKind(node, "string_content")
-	if content == nil {
+	if content == nil || firstChildOfKind(node, "interpolation") != nil {
 		return facts.Relation{}, false
 	}
 	s := pyText(content, w.src)
+	if colon := strings.IndexByte(s, ':'); colon >= 0 {
+		if target := configuredPythonSymbol(s); target != "" {
+			// Keep factory notation until resolution: a colon-delimited data
+			// value such as "en:Japan" is not a call just because "en" happens
+			// to name an internal namespace (e.g. docs/source/en/).
+			return facts.Relation{Kind: facts.RelCalls, Target: s}, true
+		}
+		return facts.Relation{}, false
+	}
 	if !dottedPathRe.MatchString(s) {
 		return facts.Relation{}, false
 	}
 	return facts.Relation{Kind: facts.RelCalls, Target: s}, true
+}
+
+// Literal reflection is a reference when its receiver resolves through imports
+// or type information. Computed attribute names and shadowed builtins are skipped.
+func (w *pyWalker) getattrRefRelation(node *sitter.Node) (facts.Relation, bool) {
+	fn := node.ChildByFieldName("function")
+	if kindOf(fn) != "identifier" || pyText(fn, w.src) != "getattr" || w.localBound["getattr"] || w.importMap["getattr"] != "" || (w.idx != nil && w.idx.moduleDefs[w.module]["getattr"]) {
+		return facts.Relation{}, false
+	}
+	args := node.ChildByFieldName("arguments")
+	if args == nil || args.NamedChildCount() < 2 {
+		return facts.Relation{}, false
+	}
+	obj, attr := args.NamedChild(0), args.NamedChild(1)
+	if kindOf(obj) != "identifier" || kindOf(attr) != "string" || firstChildOfKind(attr, "interpolation") != nil {
+		return facts.Relation{}, false
+	}
+	content := firstChildOfKind(attr, "string_content")
+	if content == nil {
+		return facts.Relation{}, false
+	}
+	name := pyText(content, w.src)
+	if !configuredPythonPath.MatchString(name) || strings.Contains(name, ".") {
+		return facts.Relation{}, false
+	}
+	target := w.resolveVarType(pyText(obj, w.src))
+	if target == "" {
+		return facts.Relation{}, false
+	}
+	return facts.Relation{Kind: facts.RelNames, Target: target + "." + name}, true
 }
 
 // firstChildOfKind returns the first direct child of node with the given kind.
@@ -1590,6 +1663,11 @@ func (w *pyWalker) walkForCalls(node *sitter.Node) {
 	}
 	kind := kindOf(node)
 	if kind == "call" {
+		if rel, ok := w.getattrRefRelation(node); ok {
+			if owner := w.currentOwner(); owner != nil {
+				owner.Relations = append(owner.Relations, rel)
+			}
+		}
 		w.emitCallRoute(node)
 		w.emitHTTPClientRoute(node)
 		if fn := node.ChildByFieldName("function"); fn != nil {
@@ -1611,6 +1689,12 @@ func (w *pyWalker) walkForCalls(node *sitter.Node) {
 			}
 		}
 	}
+	if kind == "attribute" {
+		attr := node.ChildByFieldName("attribute")
+		if name := pyText(attr, w.src); name == "__module__" || name == "__name__" {
+			w.emitNamedValueRef(node.ChildByFieldName("object"))
+		}
+	}
 	if kind == "string" {
 		if rel, ok := w.stringRefRelation(node); ok {
 			if owner := w.currentOwner(); owner != nil {
@@ -1624,8 +1708,13 @@ func (w *pyWalker) walkForCalls(node *sitter.Node) {
 		w.emitCollectionValueRefs(node)
 	}
 	if kind == "assignment" {
-		for _, ident := range collectRefValueIdents(node.ChildByFieldName("right")) {
-			w.emitValueRef(ident)
+		value := node.ChildByFieldName("right")
+		if kindOf(value) == "boolean_operator" {
+			w.emitFallbackRefs(value)
+		} else {
+			for _, ident := range collectRefValueIdents(value) {
+				w.emitValueRef(ident)
+			}
 		}
 		// A local assigned from the current element is still the current element:
 		// `tasks = dag.tasks or []` puts `tasks` one step from `dag`.
@@ -1649,14 +1738,24 @@ func (w *pyWalker) walkForCalls(node *sitter.Node) {
 		// function as a callback without calling it: `def walk(fetch=fetch_page)`.
 		// Calls inside the default were already collected above, but a bare value
 		// has no call node and must still keep the referenced definition live.
-		for _, ident := range collectRefValueIdents(node.ChildByFieldName("value")) {
-			w.emitValueRef(ident)
+		value := node.ChildByFieldName("value")
+		if kindOf(value) == "boolean_operator" {
+			w.emitFallbackRefs(value)
+		} else {
+			for _, ident := range collectRefValueIdents(value) {
+				w.emitValueRef(ident)
+			}
 		}
 	}
 	if kind == "return_statement" {
 		for i := uint(0); i < uint(node.ChildCount()); i++ {
-			for _, ident := range collectRefValueIdents(node.Child(i)) {
-				w.emitValueRef(ident)
+			value := node.Child(i)
+			if kindOf(value) == "boolean_operator" {
+				w.emitFallbackRefs(value)
+			} else {
+				for _, ident := range collectRefValueIdents(value) {
+					w.emitValueRef(ident)
+				}
 			}
 		}
 	}
@@ -2340,8 +2439,8 @@ func walkLocalBoundNames(node *sitter.Node, src []byte, bound map[string]bool) {
 }
 
 // collectRefValueIdents returns the bare identifier(s) a value expression
-// resolves to: itself if it's a plain identifier, or each identifier element
-// of a tuple (expression_list), e.g. `cb = handler` / `a, b = f, g`.
+// resolves to: a plain identifier, tuple elements or boolean fallback operands,
+// e.g. `cb = handler`, `a, b = f, g`, or `cb = provided or default_handler`.
 func collectRefValueIdents(node *sitter.Node) []*sitter.Node {
 	if node == nil {
 		return nil
@@ -2349,12 +2448,10 @@ func collectRefValueIdents(node *sitter.Node) []*sitter.Node {
 	switch kindOf(node) {
 	case "identifier":
 		return []*sitter.Node{node}
-	case "expression_list":
+	case "expression_list", "boolean_operator":
 		var out []*sitter.Node
 		for i := uint(0); i < uint(node.ChildCount()); i++ {
-			if c := node.Child(i); kindOf(c) == "identifier" {
-				out = append(out, c)
-			}
+			out = append(out, collectRefValueIdents(node.Child(i))...)
 		}
 		return out
 	}

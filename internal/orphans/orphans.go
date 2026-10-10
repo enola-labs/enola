@@ -143,7 +143,7 @@ func (o Orphan) UsageTracked() bool { return o.Confidence != confLow }
 // usage edge (as opposed to the structural "declares" or module-level "imports").
 func isUsageKind(kind string) bool {
 	switch kind {
-	case facts.RelCalls, facts.RelImplements, facts.RelInstantiates, facts.RelInjects:
+	case facts.RelCalls, facts.RelImplements, facts.RelInstantiates, facts.RelInjects, facts.RelNames:
 		return true
 	}
 	return false
@@ -489,6 +489,11 @@ var iosEntryPointComponents = map[string]bool{
 // isExcluded reports whether a symbol is dropped before orphan analysis given
 // the test/entry-point options.
 func isExcluded(sym symInput, opts options) bool {
+	// Markdown documents and headings participate in the architectural graph,
+	// but an unlinked page is not unused executable code, even in a kind query.
+	if sym.Kind == "document" || sym.Kind == "section" {
+		return true
+	}
 	bn := bareName(sym.Name)
 	// Dunders (__init__, __enter__, …) are invoked implicitly, never by name.
 	if isDunder(bn) {
@@ -1074,7 +1079,7 @@ func collect(store *facts.Store) ([]symInput, refIndex) {
 	// this introduces no self-reference.
 	for _, f := range store.ByKind(facts.KindTestRef) {
 		for _, r := range f.Relations {
-			if r.Kind != facts.RelCalls {
+			if r.Kind != facts.RelCalls && r.Kind != facts.RelNames {
 				continue
 			}
 			addRef(refSources, r.Target, f.Name)
@@ -1098,7 +1103,7 @@ func collect(store *facts.Store) ([]symInput, refIndex) {
 	// source file path (never equal to a symbol name), so no self-reference arises.
 	for _, f := range store.ByKind(facts.KindFileRef) {
 		for _, r := range f.Relations {
-			if r.Kind != facts.RelCalls {
+			if r.Kind != facts.RelCalls && r.Kind != facts.RelNames {
 				continue
 			}
 			addRef(refSources, r.Target, f.Name)

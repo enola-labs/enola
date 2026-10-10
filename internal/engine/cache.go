@@ -2656,7 +2656,11 @@ import (
 // v270: SvelteKit reads literal kit.alias fallbacks before generated config exists,
 // keeps tsconfig paths authoritative, and classifies $app/$env/$service-worker imports
 // as framework-provided rather than unresolved third-party dependencies.
-const cacheVersion = "v302"
+// v303: Python callable fallback/configuration references, package test imports;
+// documentation symbols no longer enter the dead-code candidate population.
+// Fallback, metadata and literal reflection uses carry names edges, not calls;
+// orphan detection sees them while call coupling excludes them.
+const cacheVersion = "v303"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

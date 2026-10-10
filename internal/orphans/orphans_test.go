@@ -9,6 +9,39 @@ import (
 	"github.com/enola-labs/enola/pkg/mcputil"
 )
 
+func TestClassifyExcludesDocumentSymbols(t *testing.T) {
+	syms := []symInput{
+		{Name: "README.md", Kind: "document", File: "README.md"},
+		{Name: "README.md#usage", Kind: "section", File: "README.md"},
+		{Name: "pkg.document", Kind: facts.SymbolFunc, File: "pkg/code.py"},
+	}
+	opts := options{Mode: "both", Visibility: "all"}
+	got := classify(syms, make(refIndex), opts)
+	if len(got) != 1 || got[0].Name != "pkg.document" || population(syms, opts) != 1 {
+		t.Fatalf("documentation polluted code candidates: %+v", got)
+	}
+	for _, kind := range []string{"document", "section"} {
+		opts.Kind = kind
+		if len(classify(syms, make(refIndex), opts)) != 0 {
+			t.Errorf("explicit kind=%s query reported documentation as dead code", kind)
+		}
+	}
+}
+
+func TestCollectNamedReferencesProtectSymbols(t *testing.T) {
+	syms, refs := collectFromJSONL(t, `
+{"kind":"symbol","name":"pkg.callback","file":"pkg/code.py","props":{"symbol_kind":"function"}}
+{"kind":"symbol","name":"pkg.dead","file":"pkg/code.py","props":{"symbol_kind":"function"}}
+{"kind":"symbol","name":"pkg.owner","file":"pkg/code.py","props":{"symbol_kind":"function"},"relations":[{"kind":"names","target":"pkg.callback"}]}
+{"kind":"test_ref","name":"tests/test_code.py","relations":[{"kind":"names","target":"pkg.owner"}]}
+{"kind":"file_ref","name":"config.py","relations":[{"kind":"names","target":"pkg.callback"}]}
+`)
+	got := classify(syms, refs, options{Mode: "both", Visibility: "all"})
+	if len(got) != 1 || got[0].Name != "pkg.dead" {
+		t.Fatalf("named uses must protect symbols while genuine dead code remains: %+v", got)
+	}
+}
+
 // TestClassify_ExcludesTestSupportPackages guards against mis-reporting test
 // infrastructure (mocks, testutils) as dead: _test.go files are excluded from the
 // snapshot, so a mock's only callers (tests) are invisible. Such code must be

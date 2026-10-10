@@ -219,6 +219,7 @@ func (e *PythonExtractor) Extract(ctx context.Context, repoPath string, files []
 		})
 	}
 
+	allFacts = append(allFacts, extractConfiguredPythonRefs(ctx, repoPath, files, pyFiles, allFacts)...)
 	return allFacts, nil
 }
 
