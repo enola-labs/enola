@@ -107,11 +107,18 @@ func resolveCallTargets(allFacts []facts.Fact, fileModules map[string]bool, pkgD
 			continue
 		}
 		importerDir := fileDir(f.File)
+		// The calls that leave the repository are classed before their edges are
+		// dropped: this is the one place that knows a target is a library's and
+		// not a like-named module of this repository. See ioprim.go.
+		var lib pyLibraryCalls
 		out := f.Relations[:0]
 		for _, rel := range f.Relations {
 			if (rel.Kind == facts.RelCalls || rel.Kind == facts.RelInstantiates) && isDottedCallTarget(rel.Target) {
 				resolved, keep := resolveDottedTarget(rel.Target, fileIdx, topPkgs, importerDir, reexports, symbols)
 				if !keep {
+					if rel.Kind == facts.RelCalls {
+						lib.note(rel.Target, false)
+					}
 					continue // external/stdlib → drop the edge
 				}
 				rel.Target = resolved
@@ -136,10 +143,16 @@ func resolveCallTargets(allFacts []facts.Fact, fileModules map[string]bool, pkgD
 				if !isDottedCallTarget(c) {
 					continue
 				}
-				if resolved, keep := resolveDottedTarget(c, fileIdx, topPkgs, importerDir, reexports, symbols); keep && resolved != "" {
+				resolved, keep := resolveDottedTarget(c, fileIdx, topPkgs, importerDir, reexports, symbols)
+				if !keep {
+					lib.note(c, true)
+				} else if resolved != "" {
 					list[j] = resolved
 				}
 			}
+		}
+		if f.Kind == facts.KindSymbol {
+			lib.mark(f)
 		}
 	}
 }

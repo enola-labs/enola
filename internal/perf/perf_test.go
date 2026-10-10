@@ -2538,3 +2538,37 @@ func TestPageLine(t *testing.T) {
 		t.Errorf("the last page names no next offset; got %q", got)
 	}
 }
+
+// A call the extractor resolved to a library member that does no I/O is not
+// reported, whatever its name: `sqlalchemy.update` builds a statement. The call
+// beside it that the extractor named as the I/O is, and rests on that fact.
+func TestAnalyze_PureCallIsNotReadByItsName(t *testing.T) {
+	loop := funcInfo{Name: "app/store.rename", File: "app/store.py", Exported: true, LoopDepth: 1, LoopCount: 1,
+		CallsInLoop: []string{"sqlalchemy.update", "sqlalchemy.orm.Session.execute"}}
+	// Something in the repository that does I/O under the same short name, which is
+	// what put `update` on the method index.
+	other := funcInfo{Name: "app/dao.Dao.update", File: "app/dao.py", PerformsIO: true}
+
+	named := loop
+	if _, ok := findFinding(analyze([]funcInfo{named, other}, nil, nil, nil), "app/store.rename", "call-in-loop"); !ok {
+		t.Fatal("without the extractor's reading the loop is reported by name: the fixture is wrong")
+	}
+
+	classed := loop
+	classed.PureCalls = []string{"sqlalchemy.update"}
+	classed.IOCalls = []string{"sqlalchemy.orm.Session.execute"}
+	f, ok := findFinding(analyze([]funcInfo{classed, other}, nil, nil, nil), "app/store.rename", "call-in-loop")
+	if !ok {
+		t.Fatal("Session.execute in a loop must be reported")
+	}
+	if len(f.Calls) != 1 || f.Calls[0].Callee != "sqlalchemy.orm.Session.execute" || f.Calls[0].Basis != basisPrimitive {
+		t.Errorf("calls = %+v, want Session.execute alone, resting on %s", f.Calls, basisPrimitive)
+	}
+
+	onlyPure := loop
+	onlyPure.CallsInLoop = []string{"sqlalchemy.update"}
+	onlyPure.PureCalls = []string{"sqlalchemy.update"}
+	if _, ok := findFinding(analyze([]funcInfo{onlyPure, other}, nil, nil, nil), "app/store.rename", "call-in-loop"); ok {
+		t.Error("a loop whose only named call is a statement builder must not be reported")
+	}
+}

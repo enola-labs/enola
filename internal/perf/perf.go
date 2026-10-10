@@ -58,6 +58,7 @@ const (
 	propRecursiveSelf       = "recursive_self"
 	propIODirect            = "io_direct"          // extractor: the body itself makes a network/file/database call
 	propIOCalls             = "io_calls"           // extractor: the calls in this body that are I/O entry points
+	propPureCalls           = "pure_calls"         // extractor: the calls in this body into a library it describes that perform no I/O
 	propPerformsIO          = "performs_io"        // extractor: method transitively performs network/file I/O
 	propScalingLoopDepth    = "scaling_loop_depth" // extractor: loop nesting counting only unbounded loops
 	propAssociation         = "association"        // Rails association name on a dependency fact
@@ -123,6 +124,7 @@ type funcInfo struct {
 	PerformsIO bool     // extractor flagged transitive network/file I/O
 	IODirect   bool     // extractor flagged the body's own I/O call
 	IOCalls    []string // extractor: the calls in this body that are I/O entry points
+	PureCalls  []string // extractor: the library calls in this body that perform no I/O
 	Calls      []string // all resolved call targets
 	// BoundedFanout marks a bounded background-job/mailer fan-out (see isBoundedFanout).
 	// It is precomputed by markNonScaling rather than derived where it is needed, because
@@ -775,6 +777,7 @@ func collect(store *facts.Store) (funcs []funcInfo, storage, routeHandlers, asso
 			PerformsIO:          boolProp(f.Props, propPerformsIO),
 			IODirect:            boolProp(f.Props, propIODirect),
 			IOCalls:             stringSliceProp(f.Props, propIOCalls),
+			PureCalls:           stringSliceProp(f.Props, propPureCalls),
 			Calls:               calls,
 		})
 	}
@@ -2041,6 +2044,12 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 		// every one of those depths came from the extractor.
 		callNesting, callNestingKnown := 0, true
 		for _, callee := range inLoopCalls {
+			// The extractor resolved this call to a library member it knows to do
+			// no I/O (`sqlalchemy.update`, `re.search`). That is a fact about the
+			// call, and no reading of its name stands against it.
+			if slices.Contains(f.PureCalls, callee) {
+				continue
+			}
 			ioMethods := loose
 			if lang := langFamily(f.File); strictIOIndex[lang] {
 				ioMethods = strict[lang]

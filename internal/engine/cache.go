@@ -20,6 +20,11 @@ import (
 	"github.com/enola-labs/enola/pkg/plugin"
 )
 
+// v313: Python. A call that resolution placed in a library is classed by the
+// member it names (pythonextractor/ioprim.go): `sqlalchemy.orm.Session.execute`,
+// `requests.get` and `os.path.exists` make the function io_direct and are named in
+// io_calls; `Session.delete`, `sqlalchemy.update` and `re.search` are named in
+// pure_calls, which the performance analyzer takes over a reading of the name.
 // v312: a Rails association declared inside `with_options class_name: 'X' do … end`
 // takes that class. It had been derived from the association's own name, which
 // named a class no model has, and the association was dropped as unresolved, along
@@ -2733,7 +2738,7 @@ import (
 // v270: SvelteKit reads literal kit.alias fallbacks before generated config exists,
 // keeps tsconfig paths authoritative, and classifies $app/$env/$service-worker imports
 // as framework-provided rather than unresolved third-party dependencies.
-const cacheVersion = "v312"
+const cacheVersion = "v313"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
