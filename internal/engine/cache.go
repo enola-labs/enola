@@ -20,6 +20,18 @@ import (
 	"github.com/enola-labs/enola/pkg/plugin"
 )
 
+// v317: Java and C#. A call on a receiver whose declared type is a LIBRARY's is
+// classed by that library's member (javaextractor/ioprim.go, dotnetextractor/
+// ioprim.go): `jdbcTemplate.update`, `entityManager.find`, `query.ToListAsync`
+// and `_tmdb.GetMovieAsync` make the method io_direct and are named in io_calls;
+// an in-loop call on a collection, a JSON tree or a logger is named in
+// pure_calls. Before, I/O was seeded only from types the repository declares
+// (Java) or from method names on any receiver (C#). A library call makes an
+// overloaded name io_direct only when every overload makes one or delegates.
+// Java: a call on the result of a method of the class is typed by that method's
+// return type (`getJdbcTemplate().execute(…)`), and an interface every extender
+// of which is a repository is an io_type. C#: `base.M(…)` is an edge to the
+// declaration the override extends.
 // v316: Python round loops (pythonextractor/pollloop.go). A poll (`while` with a
 // sleep, or `while True` left by a test of what the round fetched), a retry (`for`
 // over a counter with a sleep, or over a retry library's attempts) and a cursor
@@ -2759,7 +2771,7 @@ import (
 // v270: SvelteKit reads literal kit.alias fallbacks before generated config exists,
 // keeps tsconfig paths authoritative, and classifies $app/$env/$service-worker imports
 // as framework-provided rather than unresolved third-party dependencies.
-const cacheVersion = "v316"
+const cacheVersion = "v317"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

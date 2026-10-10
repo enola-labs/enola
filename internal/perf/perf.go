@@ -299,6 +299,51 @@ func langFamily(file string) string {
 // not gate on the index, so there it only decides what a call is said to rest on.
 var strictIOIndex = map[string]bool{"js": true, "jvm": true, "c": true, ".rs": true, "dotnet": true}
 
+// javaNotByIndex reports whether a Java method name is one the short-name index
+// must not speak for: a bean accessor (`getName`, `isActive`, `hasNext`), or the
+// `find` and `matches` of java.util.regex.Matcher, which are called on the result
+// of `pattern.matcher(s)` and so never have a typed receiver.
+func javaNotByIndex(m string) bool {
+	if m == "find" || m == "matches" {
+		return true
+	}
+	for _, p := range []string{"get", "is", "has"} {
+		if len(m) > len(p) && strings.HasPrefix(m, p) && m[len(p)] >= 'A' && m[len(p)] <= 'Z' {
+			return true
+		}
+	}
+	return false
+}
+
+// tokenNotOwnPath are the language families in which a receiver token found in a
+// resolved callee's own name is not read, each on a reading of what that took
+// out: URL and SQL-string builders and entity mappers in Java, C# and
+// TypeScript. Python is not among them. There it also took out a batch write, a
+// request and a schema reflection, each a method of a hook that reaches its
+// client through an untyped attribute and so reaches no I/O the extractor can
+// see; the token was the only thing still reporting them.
+var tokenNotOwnPath = map[string]bool{"jvm": true, "dotnet": true, "js": true}
+
+// tokenIsOwnPath reports whether a callee matched by a receiver token is a
+// function of this repository that reaches no I/O and whose method name is not
+// one of the language's I/O verbs: the token came from its own path.
+func tokenIsOwnPath(callee string, byName map[string]funcInfo, ioByName map[string]bool, jvm bool) bool {
+	if _, ok := byName[callee]; !ok || ioByName[callee] {
+		return false
+	}
+	verbs := expensiveMethods
+	if jvm {
+		verbs = jvmExpensiveMethods
+	}
+	method := methodSegment(callee)
+	for _, kw := range verbs {
+		if containsKeyword(method, kw) {
+			return false
+		}
+	}
+	return true
+}
+
 // basisIsFact reports whether a basis is a fact about the callee and not a reading
 // of its name. Only a fact confirms a call as I/O.
 func basisIsFact(basis string) bool {
@@ -1833,10 +1878,17 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 	// a short-name match — so it cannot over-suppress an unrelated same-named function.
 	byDotted := make(map[string]funcInfo, len(funcs))
 	nameCount := make(map[string]int, len(funcs))
+	// ioByName says whether ANY function of a name performs I/O. Overloads share
+	// a name and byName keeps one of them, so "this name does no I/O" has to be
+	// asked of all of them.
+	ioByName := make(map[string]bool, len(funcs))
 	for _, f := range funcs {
 		byName[f.Name] = f
 		byDotted[strings.ReplaceAll(f.Name, "/", ".")] = f
 		nameCount[f.Name]++
+		if f.PerformsIO || f.IODirect {
+			ioByName[f.Name] = true
+		}
 	}
 	// In languages with method overloading (Java, Kotlin, Swift) sibling overloads
 	// share one fact name, so a call from one overload to another resolves to that
@@ -2067,6 +2119,15 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 				if _, ok := byName[callee]; ok {
 					ioMethods = nil
 				}
+				// And not for a Java accessor. A client class with a `getDevice`
+				// that makes a request puts the name on the index, and every
+				// `dto.getDevice()` on a receiver nothing types then reads as that
+				// request. An unresolved `get…()` in Java is a field read far more
+				// often than it is anything else, and an unresolved `find()` is a
+				// regex matcher's.
+				if strings.HasSuffix(f.File, ".java") && javaNotByIndex(methodSegment(callee)) {
+					ioMethods = nil
+				}
 			}
 			var isExpensive bool
 			switch {
@@ -2176,16 +2237,20 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 			// Python removals read against source 11 were real I/O.
 			//
 			// It was tried again for Java and C# alone, after calls on declared
-			// receivers resolved in both, and every removal was read. Java: 5
-			// findings removed, one of them labelled correct, a loop that drops a
-			// partition per iteration through a Spring JdbcTemplate field. C#: 24
-			// removed, one labelled correct (a send per session, through an
-			// interface) and at least three more real requests (a metadata client's
-			// `Get…Async`, through the field holding a third-party client). The
-			// receivers resolve now. What is missing is the seed: the type of the
-			// field is a library's, and nothing says that library is a client. Until
-			// Java and C# have a table of library members, as Go and Python do, this
-			// rule removes whatever I/O goes through a library nobody listed.
+			// receivers resolved in both, and every removal was read. It removed a
+			// labelled-correct finding in each: a statement per partition through a
+			// Spring JdbcTemplate, and a send per session through a third-party
+			// client. So both got a table of library members and the rule was tried
+			// a third time. The JdbcTemplate finding held. Three others were still
+			// lost, each behind an INTERFACE the closure does not see through: a
+			// repository interface whose queries are declared on the interfaces
+			// extending it, a queue service whose implementation publishes, and a
+			// session manager that sends through a controller taken from a `var`.
+			// The rule is as safe as the closure is complete, and across an
+			// interface it is not.
+			//
+			// What it removed correctly both times was narrower, and is kept: see
+			// tokenIsOwnPath.
 			if !isExpensive {
 				r, ok := byName[callee]
 				if !ok {
@@ -2202,6 +2267,17 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 				continue
 			}
 			basis := callBasis(f, callee, golang, storage, byName, byDotted, ioMethods)
+			// A receiver token is read off the call target, and for a callee that
+			// resolved to a function of this repository the target is that
+			// function's own name: `dao/sql.RelationEntity.toData` holds "sql."
+			// because of the package it is declared in, and
+			// `Tmdb.TmdbClientManager.GetPosterUrl` holds "db." by accident of
+			// spelling. That says where the function lives, not what it is called
+			// on. Such a callee is I/O when it reaches I/O, or when its method is
+			// named for it, and not otherwise.
+			if basis == basisIOReceiver && tokenNotOwnPath[langFamily(f.File)] && tokenIsOwnPath(callee, byName, ioByName, jvm) {
+				continue
+			}
 			if basisIsFact(basis) {
 				confirmedIO = true
 			}

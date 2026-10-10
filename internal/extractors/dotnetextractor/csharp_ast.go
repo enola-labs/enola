@@ -1167,6 +1167,9 @@ func (w *astWalker) handleInvocation(node *sitter.Node) {
 		declared := w.receiverType(recvNode)
 		switch {
 		case recv == "this" || recv == "base":
+			if recv == "base" {
+				w.noteBaseCall(name)
+			}
 			if target, ok := w.resolveOwnMember(name); ok {
 				w.addEdge(facts.RelCalls, target)
 				// `base.M()` from an override of M binds to this type's M, which is

@@ -2572,3 +2572,54 @@ func TestAnalyze_PureCallIsNotReadByItsName(t *testing.T) {
 		t.Error("a loop whose only named call is a statement builder must not be reported")
 	}
 }
+
+// A receiver token read off a resolved callee's own name says where the function
+// is declared, not what it is called on.
+func TestAnalyze_ReceiverTokenInAResolvedCalleesOwnPath(t *testing.T) {
+	loop := func(callee string) funcInfo {
+		return funcInfo{Name: "Lib/Movies.Provider.Fill", File: "Lib/Movies/Provider.cs", Exported: true,
+			LoopDepth: 1, LoopCount: 1, CallsInLoop: []string{callee}}
+	}
+	reported := func(funcs ...funcInfo) bool {
+		_, ok := findFinding(analyze(funcs, nil, nil, nil), "Lib/Movies.Provider.Fill", "call-in-loop")
+		return ok
+	}
+
+	// "db." is in "Tmdb.", and the method formats a string.
+	url := funcInfo{Name: "Lib/Tmdb.TmdbManager.GetPosterUrl", File: "Lib/Tmdb/TmdbManager.cs"}
+	if reported(loop(url.Name), url) {
+		t.Error("a resolved callee that reaches no I/O must not be reported for a token in its own path")
+	}
+	// The same callee, reaching I/O: reported, and on that fact.
+	url.PerformsIO = true
+	if !reported(loop(url.Name), url) {
+		t.Error("a resolved callee that reaches I/O must be reported")
+	}
+	// A method named for I/O keeps its name's reading.
+	save := funcInfo{Name: "Lib/Tmdb.TmdbManager.SaveImage", File: "Lib/Tmdb/TmdbManager.cs"}
+	if !reported(loop(save.Name), save) {
+		t.Error("a resolved callee whose method is an I/O verb is still read by that verb")
+	}
+	// An unresolved call on a receiver that is named for a database is what the
+	// token is for.
+	if !reported(loop("db.Lookup")) {
+		t.Error("an unresolved call on a `db.` receiver must still be reported")
+	}
+}
+
+// A Java accessor on a receiver nothing types is not read through the short-name
+// index, whatever client class happens to bear the same name.
+func TestAnalyze_JavaAccessorIsNotReadByTheIndex(t *testing.T) {
+	client := funcInfo{Name: "rest/Client.getDevice", File: "rest/Client.java", PerformsIO: true}
+	load := funcInfo{Name: "rest/Client.loadDevice", File: "rest/Client.java", PerformsIO: true}
+	loop := func(callee string) funcInfo {
+		return funcInfo{Name: "app/Sync.run", File: "app/Sync.java", Exported: true, LoopDepth: 1, LoopCount: 1,
+			CallsInLoop: []string{callee}}
+	}
+	if _, ok := findFinding(analyze([]funcInfo{loop("dto.getDevice"), client, load}, nil, nil, nil), "app/Sync.run", "call-in-loop"); ok {
+		t.Error("dto.getDevice() must not be reported because a client has a getDevice that makes a request")
+	}
+	if _, ok := findFinding(analyze([]funcInfo{loop("gateway.loadDevice"), client, load}, nil, nil, nil), "app/Sync.run", "call-in-loop"); !ok {
+		t.Error("a non-accessor name every bearer of which performs I/O is still read through the index")
+	}
+}

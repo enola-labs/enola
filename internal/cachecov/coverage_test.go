@@ -33,6 +33,12 @@ import (
 // test functions that assert the behavior that version introduced. v1 is the
 // implicit baseline (no changelog line), so coverage starts at v2.
 var versionCoverage = map[int][]string{
+	317: { // Java and C#: a call on a library-typed receiver is io_calls or pure_calls by the library's member
+		"TestJavaLibraryCall", "TestJavaCallOnALibraryReceiverIsClassedByMember",
+		"TestCSharpLibraryCall", "TestCSharpCallOnALibraryReceiverIsClassedByMember",
+		"TestJavaLibraryIODoesNotMarkAnOverloadedName", "TestJavaCallOnAGetterResultIsTypedByItsReturnType",
+		"TestJavaInterfaceSharedByRepositoriesIsAnIOType", "TestCSharpBaseCallReachesTheBaseDeclaration",
+	},
 	316: {"TestRoundLoopCallsAreNotPerElement"},                         // Python: a poll, a retry and a cursor are round loops; their own calls are not per element
 	315: {"TestLibraryCallIsClassedWhereItsRootIsARepositoryDirectory"}, // Python: a library whose import root is also a repo directory name is still classed by member
 	314: { // Python: receivers typed by return annotations and by module-level declarations; untyped in-loop I/O calls recorded as written
