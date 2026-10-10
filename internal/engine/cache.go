@@ -20,6 +20,15 @@ import (
 	"github.com/enola-labs/enola/pkg/plugin"
 )
 
+// v307: Java calls on a receiver of declared type are calls edges. The receiver's
+// type is read where the source writes it (a field, a parameter, a typed local,
+// `var x = new T()`, a for-each variable, a capitalised static receiver), and the
+// edge is made when this repository declares the type and it or a supertype
+// declares the method. A call was an edge only on `this` before, so the graph
+// stopped at every injected dependency. The in-loop lists carry the resolved name.
+// A type every method of which is a round trip (Spring Data repository, Feign
+// client, Room DAO) carries io_type, and a call on one that lands on no declaration
+// (an inherited `save`) is named in the caller's io_calls.
 // v306: paging loops in Java. A while or do-while whose body binds a local from a
 // call, loops over that local, and goes round again depending on it (its condition
 // reads it, or an `if` that breaks or returns does) takes its input a page at a
@@ -2693,7 +2702,7 @@ import (
 // v270: SvelteKit reads literal kit.alias fallbacks before generated config exists,
 // keeps tsconfig paths authoritative, and classifies $app/$env/$service-worker imports
 // as framework-provided rather than unresolved third-party dependencies.
-const cacheVersion = "v306"
+const cacheVersion = "v307"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

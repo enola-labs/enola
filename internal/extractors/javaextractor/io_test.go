@@ -133,9 +133,8 @@ public class UserController {
 	assertNotPerformsIO(t, ff, "web.UserController.list")
 }
 
-// The round-trip is the annotated method. A method that calls it does I/O through
-// it. Only calls within the class are edges, so that is as far as it reaches: a
-// call on an injected field (`userRepository.findByEmail(…)`) has no edge to follow.
+// The round-trip is the annotated method. A method of the same class that calls
+// it does I/O through it.
 func TestJavaMethodReachesAQueryInItsOwnClass(t *testing.T) {
 	ff := extractAll(t, map[string]string{
 		"dao/ReportDao.java": `package dao;

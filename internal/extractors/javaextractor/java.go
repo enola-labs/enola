@@ -103,10 +103,13 @@ func (e *JavaExtractor) Extract(ctx context.Context, repoPath string, files []st
 	typeIndex := canonicalizeTargets(allFacts, packageIndex)
 	resolveTableConstants(allFacts)
 
+	// Calls on a receiver of declared type become edges here, now that every type
+	// of the repository is known and the implements targets are canonical.
+	resolveTypedCalls(allFacts, typeIndex)
+
 	// After the targets are canonical: the closure follows calls edges by name. The
-	// walker marks only the round-trip itself (a repository or client method). It
-	// reaches as far as the edges do, which is within a class: a call on an injected
-	// field is not an edge.
+	// walker marks only the round-trip itself (a repository or client method), and
+	// the edges above carry it from there through the services that hold one.
 	ioclosure.Propagate(allFacts)
 
 	// Fold Java/Dubbo SPI service-file registrations in as references so an impl

@@ -33,6 +33,12 @@ import (
 // test functions that assert the behavior that version introduced. v1 is the
 // implicit baseline (no changelog line), so coverage starts at v2.
 var versionCoverage = map[int][]string{
+	307: { // Java: a call on a receiver of declared type is a calls edge, resolved through supertypes; io_type and inherited repository methods
+		"TestJavaCallOnAnInjectedFieldIsAnEdge",
+		"TestJavaCallOnAnUndeclaredReceiverIsNotAnEdge",
+		"TestJavaTypedCallResolvesThroughSupertypesLocalsAndStatics",
+		"TestJavaInheritedRepositoryMethodIsNamedAsIO",
+	},
 	306: { // Java paging loops and stream callbacks under the statement-loop rules; Go calls on a path that leaves the loop are not per element
 		"TestJavaBatchLoop_DoWhilePaging",
 		"TestJavaBatchLoop_WhileTrueWithStreamDrain",

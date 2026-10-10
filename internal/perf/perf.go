@@ -56,6 +56,7 @@ const (
 	// extractor: the parameter positions a scaling loop walks (-1 for the receiver)
 	propLoopsOverParamIndex = "loops_over_param_index"
 	propRecursiveSelf       = "recursive_self"
+	propIODirect            = "io_direct"          // extractor: the body itself makes a network/file/database call
 	propIOCalls             = "io_calls"           // extractor: the calls in this body that are I/O entry points
 	propPerformsIO          = "performs_io"        // extractor: method transitively performs network/file I/O
 	propScalingLoopDepth    = "scaling_loop_depth" // extractor: loop nesting counting only unbounded loops
@@ -120,6 +121,7 @@ type funcInfo struct {
 	LoopParams map[int]bool
 	Recursive  bool     // extractor flagged a direct self-call
 	PerformsIO bool     // extractor flagged transitive network/file I/O
+	IODirect   bool     // extractor flagged the body's own I/O call
 	IOCalls    []string // extractor: the calls in this body that are I/O entry points
 	Calls      []string // all resolved call targets
 	// BoundedFanout marks a bounded background-job/mailer fan-out (see isBoundedFanout).
@@ -740,6 +742,7 @@ func collect(store *facts.Store) (funcs []funcInfo, storage, routeHandlers, asso
 			LoopParams:          intSetProp(f.Props, propLoopsOverParamIndex),
 			Recursive:           boolProp(f.Props, propRecursiveSelf),
 			PerformsIO:          boolProp(f.Props, propPerformsIO),
+			IODirect:            boolProp(f.Props, propIODirect),
 			IOCalls:             stringSliceProp(f.Props, propIOCalls),
 			Calls:               calls,
 		})
@@ -1861,12 +1864,23 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 	// not a design: a Java callee can match a TypeScript function's name. On the
 	// labelled findings that accident is right 3 times and wrong 5, so it is left
 	// as it was rather than changed in passing.
+	//
+	// On the JVM only the round trip itself is listed, the method that is io_direct.
+	// That is what the index held when it was written, when a JVM method's
+	// performs_io WAS its io_direct. Once the flag reached the services above a
+	// repository, a third of one codebase's method names were on the list, `getKey`
+	// and `removeAll` among them, and every unresolved call of those names anywhere
+	// was I/O by association.
 	ioMethods := make(map[string]bool)
 	for _, f := range funcs {
-		if f.PerformsIO && !strings.HasSuffix(f.File, ".go") {
-			if m := methodSegment(f.Name); !jvmIONameDenylist[m] {
-				ioMethods[m] = true
-			}
+		if !f.PerformsIO || strings.HasSuffix(f.File, ".go") {
+			continue
+		}
+		if jvm := strings.HasSuffix(f.File, ".java") || strings.HasSuffix(f.File, ".kt"); jvm && !f.IODirect {
+			continue
+		}
+		if m := methodSegment(f.Name); !jvmIONameDenylist[m] {
+			ioMethods[m] = true
 		}
 	}
 

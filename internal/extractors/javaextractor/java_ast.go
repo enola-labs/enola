@@ -88,6 +88,11 @@ type astWalker struct {
 	repeatDepth  int
 	// loopScopes are the enclosing loops' variables, for the rule in hierarchy.go.
 	loopScopes []javaLoopScope
+	// fieldTypes are the declared types of the enclosing classes' fields, innermost
+	// last, and localTypes those of the current method's parameters and locals
+	// (nil outside a method). See receivers.go.
+	fieldTypes []map[string]string
+	localTypes map[string]string
 	selfName   string
 	selfShort  string
 	// selfParams is the enclosing method's declared parameter count. A resolved
@@ -99,6 +104,8 @@ type astWalker struct {
 // javaBodyMetrics accumulates per-method complexity signals during the single
 // walkForCalls body traversal — mirrors the other extractors.
 type javaBodyMetrics struct {
+	// typedCalls are the calls made on a receiver of declared type (receivers.go).
+	typedCalls         []typedCall
 	loopDepth          int             // max loop nesting depth
 	loopCount          int             // number of loop constructs (syntactic + stream lambdas)
 	decisions          int             // decision points (cyclomatic = 1 + decisions)
@@ -723,6 +730,10 @@ func (w *astWalker) handleClassLike(node *sitter.Node, kind string) {
 		w.out = append(w.out, *sf)
 	}
 
+	if hasAnnotation(annotations, "FeignClient", "Dao") || isSpringDataRepository(supers) {
+		f.SetProp(propIOType, true)
+	}
+
 	w.out = append(w.out, f)
 	owner := &w.out[len(w.out)-1]
 	w.pushOwner(owner)
@@ -730,6 +741,7 @@ func (w *astWalker) handleClassLike(node *sitter.Node, kind string) {
 	// Enter the type scope.
 	body := classBody(node)
 	w.typeStack = append(w.typeStack, name)
+	w.fieldTypes = append(w.fieldTypes, w.collectFieldTypes(body))
 	w.methodStack = append(w.methodStack, collectMethodNames(body, w.src))
 	w.routeStack = append(w.routeStack, routeScope{
 		isController:  isSpringController(annotations),
@@ -752,6 +764,7 @@ func (w *astWalker) handleClassLike(node *sitter.Node, kind string) {
 	}
 
 	w.routeStack = w.routeStack[:len(w.routeStack)-1]
+	w.fieldTypes = w.fieldTypes[:len(w.fieldTypes)-1]
 	w.typeStack = w.typeStack[:len(w.typeStack)-1]
 	w.methodStack = w.methodStack[:len(w.methodStack)-1]
 	w.popOwner()
@@ -851,6 +864,10 @@ func (w *astWalker) handleMethod(node *sitter.Node) {
 	w.loopScopes = nil
 	defer func() { w.loopScopes = savedScopes }()
 	w.metrics = &javaBodyMetrics{}
+	savedLocals := w.localTypes
+	w.localTypes = make(map[string]string)
+	defer func() { w.localTypes = savedLocals }()
+	w.bindParameters(node)
 	w.loopDepth = 0
 	w.scalingDepth = 0
 	w.repeatDepth = 0
@@ -862,6 +879,9 @@ func (w *astWalker) handleMethod(node *sitter.Node) {
 	}
 	m := w.metrics
 	props := w.out[ownerIdx].Props
+	if len(m.typedCalls) > 0 {
+		props[propTypedCalls] = m.typedCalls
+	}
 	props["cyclomatic"] = 1 + m.decisions
 	if m.loopDepth > 0 {
 		props["loop_depth"] = m.loopDepth
@@ -1051,6 +1071,7 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 		return
 	}
 	kind := kindOf(node)
+	w.noteDeclaration(node, kind)
 
 	// A lambda is a deferred scope: its body runs when invoked, NOT per-iteration of
 	// the enclosing loops — so reset the loop depth for its subtree (e.g. a Runnable
@@ -1242,8 +1263,8 @@ func (w *astWalker) handleInvocation(node *sitter.Node) {
 	w.detectRestTemplateCall(node, name)
 
 	// Resolve bare `foo()` and `this.foo()` calls against the enclosing class's
-	// own methods. Calls on other receivers are left unresolved (the receiver's
-	// type is not tracked), matching the Kotlin extractor's conservative model.
+	// own methods. A call on another receiver is resolved where that receiver's
+	// type is declared (receivers.go), and left as text otherwise.
 	isThis := obj != nil && nodeText(obj, w.src) == "this"
 	if obj != nil && w.metrics != nil && name == w.selfShort && nodeText(obj, w.src) == "super" {
 		// super.<self>() — an override delegating to its supertype. Note it so an
@@ -1258,11 +1279,21 @@ func (w *astWalker) handleInvocation(node *sitter.Node) {
 				Target: target,
 			})
 			w.recordCallMetrics(target, javaArgCount(node))
+		} else if t := w.enclosingType(); t != "" {
+			// Not declared here: inherited, if a supertype of this repository
+			// declares it (receivers.go settles that).
+			w.noteTypedCall(name, w.fqn(t), name)
 		}
-	} else if w.metrics != nil && w.loopDepth > 0 && !javaCheapMethods[name] {
-		// Method call on a non-this receiver inside a loop (repo.findById(), …). No
-		// graph edge today, but its name feeds the perf metric so the performance
-		// analyzer can flag per-iteration JPA/JDBC/network I/O.
+		return
+	}
+	// A receiver whose type is declared: receivers.go.
+	recvText := nodeText(obj, w.src)
+	w.noteTypedCall(writtenCall(recvText, name), w.receiverType(obj), name)
+	if w.metrics != nil && w.loopDepth > 0 && !javaCheapMethods[name] {
+		// Method call on a non-this receiver inside a loop (repo.findById(), …). Its
+		// text feeds the perf metric so the performance analyzer can flag
+		// per-iteration JPA/JDBC/network I/O; where the receiver's type is declared
+		// in this repository, resolveTypedCalls replaces the text with the method.
 		tgt := name
 		if recv := nodeText(obj, w.src); recv != "" {
 			tgt = recv + "." + name

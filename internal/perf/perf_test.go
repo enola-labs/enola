@@ -809,7 +809,7 @@ func TestAnalyze_JvmPerformsIOLeafIsN1(t *testing.T) {
 			LoopDepth: 1, LoopCount: 1, CallsInLoop: []string{"service.fetchFurly"}},
 		{Name: "biz.UseCase.resolved", File: "biz/U.kt", Line: 50, Exported: true,
 			LoopDepth: 1, LoopCount: 1, CallsInLoop: []string{"api.Service.fetchFurly"}},
-		{Name: "api.Service.fetchFurly", File: "api/S.kt", Line: 9, PerformsIO: true},
+		{Name: "api.Service.fetchFurly", File: "api/S.kt", Line: 9, PerformsIO: true, IODirect: true},
 	}
 	got := analyze(funcs, nil, nil, nil)
 	f, ok := findFinding(got, "biz.UseCase.getEmbeddedUrls", "call-in-loop")
