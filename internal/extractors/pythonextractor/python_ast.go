@@ -435,6 +435,12 @@ func (w *pyWalker) recordInLoopCall(target string) {
 	if n := len(w.loopScopes); n > 0 && w.loopScopes[n-1].batch {
 		return
 	}
+	// The same for a call made once per round of a poll, a retry or a cursor
+	// (pollloop.go), unless a loop around it walks data: a retry per element is
+	// still a request per element, at that loop's depth.
+	if n := len(w.loopScopes); n > 0 && w.loopScopes[n-1].round && w.scalingDepth == 0 {
+		return
+	}
 	if w.repeatDepth > 0 {
 		if w.metrics.inScalingSeen == nil {
 			w.metrics.inScalingSeen = make(map[string]bool)
@@ -1783,6 +1789,11 @@ func (w *pyWalker) walkForCalls(node *sitter.Node) {
 		bounded = pyLoopBounded(node, w.src, w.constLocals)
 		repeats = pyLoopRepeats(node, w.src, w.constLocals)
 		scope := pyLoopScope{amortizes: repeats}
+		// A poll, a retry or a cursor goes round on what it fetched, not over
+		// data: no factor of n, and its own calls are the round's (pollloop.go).
+		if pyRoundLoop(node, w.src) {
+			bounded, scope.round = true, true
+		}
 		if kind == "for_statement" {
 			if !bounded {
 				w.noteLoopOverParam(pyElementRoot(node.ChildByFieldName("right"), w.src, w.paramScope))

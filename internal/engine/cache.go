@@ -20,6 +20,13 @@ import (
 	"github.com/enola-labs/enola/pkg/plugin"
 )
 
+// v316: Python round loops (pythonextractor/pollloop.go). A poll (`while` with a
+// sleep, or `while True` left by a test of what the round fetched), a retry (`for`
+// over a counter with a sleep, or over a retry library's attempts) and a cursor
+// (`while request is not None`, moved on by the response) add no nesting, and a
+// call at their own level is the round's, not a call per element. A loop that
+// takes an element each round, a chain walk and a walk that stops early are not
+// round loops.
 // v315: Python. A library call is classed by its member (v313) also where the
 // library's import root is a directory name of the repository, which made its
 // targets read as internal: a provider tree holding `providers/google/…` kept
@@ -2752,7 +2759,7 @@ import (
 // v270: SvelteKit reads literal kit.alias fallbacks before generated config exists,
 // keeps tsconfig paths authoritative, and classifies $app/$env/$service-worker imports
 // as framework-provided rather than unresolved third-party dependencies.
-const cacheVersion = "v315"
+const cacheVersion = "v316"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
