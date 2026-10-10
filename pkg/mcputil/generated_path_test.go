@@ -21,6 +21,8 @@ func TestIsGeneratedPath(t *testing.T) {
 		"crates/proto-rust/src/gen/v1.public.core_types.rs",
 		"crates/dbt-telemetry/src/gen/v1.events.rs",
 		"pkg/gen/api.pb.rs",
+		// The Kubernetes code generators' file name.
+		"apps/dashboard/pkg/apis/v0alpha1/zz_generated.deepcopy.go", "zz_generated.openapi.go",
 	}
 	for _, p := range generated {
 		if !IsGeneratedPath(p) {
@@ -37,6 +39,8 @@ func TestIsGeneratedPath(t *testing.T) {
 		"internal/general/config.go", "src/genetics/model.py",
 		// Bare "env" is too common to treat as a venv; only .venv/venv/site-packages match.
 		"app/env/settings.py", "src/environments/prod.py",
+		// Only the generators' own prefix, as a file name.
+		"pkg/zz_generated/helpers.go", "pkg/generated_zz.go",
 	}
 	for _, p := range source {
 		if IsGeneratedPath(p) {

@@ -201,3 +201,113 @@ func TestRoundLoopCallsAreNotPerElement(t *testing.T) {
 		}
 	}
 }
+
+// A call in a block that ends by leaving the loop runs at most once, and a page
+// counter fetches one page a round.
+func TestTerminalBlocksAndPageCounters(t *testing.T) {
+	ff := extractPyRepo(t, map[string]string{
+		"app/__init__.py": "",
+		"app/client.py":   roundClient,
+		"app/search.py": `from app.client import Client
+
+
+def found(client: Client, tables):
+    obj = None
+    for table in tables:
+        if table.unique:
+            obj = client.fetch(table.id)
+            break
+    return obj
+
+
+def error_path(client: Client, ids):
+    for i in ids:
+        if i < 0:
+            client.send(i)
+            raise ValueError(i)
+
+
+def first_match(client: Client, keys):
+    for key in keys:
+        value = client.fetch(key)
+        if value is None:
+            continue
+        return value
+
+
+def fallback(client: Client, hosts):
+    for host in hosts:
+        try:
+            conn = client.fetch(host)
+            return conn
+        except OSError:
+            pass
+
+
+def guarded_exit(client: Client, ids):
+    for i in ids:
+        try:
+            check(i)
+        except ValueError:
+            client.send(i)
+            raise
+
+
+def each(client: Client, keys):
+    for key in keys:
+        if key:
+            client.send(key)
+        else:
+            break
+
+
+def offset_pages(client: Client, total, size):
+    offset = 0
+    while offset < total:
+        for row in client.fetch(offset):
+            client.send(row)
+        offset += size
+
+
+def by_index(client: Client, keys):
+    i = 0
+    while i < len(keys):
+        client.fetch(keys[i])
+        i += 1
+`,
+	})
+	scaling := func(name string) []string {
+		return pyStrings(pySym(t, ff, "search."+name).PropAny("calls_in_scaling_loop"))
+	}
+	for _, name := range []string{"found", "error_path"} {
+		if got := scaling(name); len(got) != 0 {
+			t.Errorf("%s: the call's block leaves the loop; calls_in_scaling_loop = %v, want none", name, got)
+		}
+	}
+	// The opening call of a first-match loop runs on every element that does not match.
+	if got := scaling("first_match"); !slices.Contains(got, "app/client.Client.fetch") {
+		t.Errorf("first_match: calls_in_scaling_loop = %v, want Client.fetch", got)
+	}
+	// A try body that ends in a return goes round again when the call raises.
+	if got := scaling("fallback"); !slices.Contains(got, "app/client.Client.fetch") {
+		t.Errorf("fallback: the fetch is tried per host until one answers; calls_in_scaling_loop = %v", got)
+	}
+	// The handler's own block still leaves the loop.
+	if got := scaling("guarded_exit"); slices.Contains(got, "app/client.Client.send") {
+		t.Errorf("guarded_exit: the send's block raises; calls_in_scaling_loop = %v", got)
+	}
+	if got := scaling("each"); !slices.Contains(got, "app/client.Client.send") {
+		t.Errorf("each: the send's block does not leave the loop; calls_in_scaling_loop = %v", got)
+	}
+
+	pages := scaling("offset_pages")
+	if slices.Contains(pages, "app/client.Client.fetch") {
+		t.Errorf("offset_pages: one fetch a page is the batching; calls_in_scaling_loop = %v", pages)
+	}
+	if !slices.Contains(pages, "app/client.Client.send") {
+		t.Errorf("offset_pages: the per-row send must stay a candidate; calls_in_scaling_loop = %v", pages)
+	}
+	if got := scaling("by_index"); !slices.Contains(got, "app/client.Client.fetch") {
+		t.Errorf("by_index: a step of 1 walks elements; calls_in_scaling_loop = %v, want Client.fetch", got)
+	}
+}

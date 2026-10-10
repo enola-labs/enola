@@ -31,15 +31,23 @@ import (
 //
 // The shape is syntactic. The outer loop has to be a condition loop (`for cond {}`,
 // `for {}`) or a stepped one (`i += size`), and its body has to BOTH bind a local
-// from a call or a slice AND loop over that local. A `for {}` that only walks a
+// from a call or a slice AND loop over that local. A condition that advances a
+// cursor (`for rows.Next()`) is not one: that loop takes an element a round, and
+// what its body fetches it fetches per row. A `for {}` that only walks a
 // chain (`for { id = parent(id) }`) has no drain loop and is not one: its calls stay
 // candidates, a query per level.
 
 // goBatchLoop reports whether x is a batch loop and, when it is, the locals each
 // round binds to what it fetched or sliced off.
-func goBatchLoop(x *ast.ForStmt) (pageVars []string, ok bool) {
+//
+// walk is set instead of ok for a loop of the same shape whose condition advances
+// a cursor (`for rows.Next()`). That loop takes an element a round: its fetch is
+// a fetch per row and stays an N+1 candidate. What the fetch returned still
+// belongs to the row, so the loop that drains it is as hierarchical as it would
+// be under a batch loop, and pageVars is returned for that.
+func goBatchLoop(x *ast.ForStmt) (pageVars []string, ok, walk bool) {
 	if x.Body == nil {
-		return nil, false
+		return nil, false, false
 	}
 	condition := x.Init == nil && x.Post == nil
 	stepped := false
@@ -47,8 +55,9 @@ func goBatchLoop(x *ast.ForStmt) (pageVars []string, ok bool) {
 		stepped = true
 	}
 	if !condition && !stepped {
-		return nil, false
+		return nil, false, false
 	}
+	walk = condition && goTakesElement(x.Cond)
 	bound := map[string]bool{}
 	for _, st := range x.Body.List {
 		as, isAssign := st.(*ast.AssignStmt)
@@ -67,7 +76,7 @@ func goBatchLoop(x *ast.ForStmt) (pageVars []string, ok bool) {
 		}
 	}
 	if len(bound) == 0 {
-		return nil, false
+		return nil, false, false
 	}
 	drained := false
 	for _, st := range x.Body.List {
@@ -84,12 +93,34 @@ func goBatchLoop(x *ast.ForStmt) (pageVars []string, ok bool) {
 		}
 	}
 	if !drained {
-		return nil, false
+		return nil, false, false
 	}
 	for name := range bound {
 		pageVars = append(pageVars, name)
 	}
-	return pageVars, true
+	return pageVars, !walk, walk
+}
+
+// goElementTakers are the methods a cursor is advanced by, one element a call.
+var goElementTakers = map[string]bool{"Next": true, "Scan": true, "HasNext": true, "More": true}
+
+// goTakesElement reports whether a loop condition advances a cursor: `rows.Next()`,
+// `scanner.Scan()`, `dec.More()`, alone or negated.
+func goTakesElement(cond ast.Expr) bool {
+	for {
+		switch x := cond.(type) {
+		case *ast.ParenExpr:
+			cond = x.X
+			continue
+		case *ast.UnaryExpr:
+			cond = x.X
+			continue
+		case *ast.CallExpr:
+			sel, ok := x.Fun.(*ast.SelectorExpr)
+			return ok && goElementTakers[sel.Sel.Name]
+		}
+		return false
+	}
 }
 
 // drainRoot returns the variable a drain loop's source is reached through:
@@ -109,14 +140,14 @@ func drainRoot(e ast.Expr) (string, bool) {
 }
 
 // drainsBatch reports whether a for loop's condition reads a local an enclosing
-// batch loop bound: `for rows.Next()` under the round that produced `rows`.
+// batch loop, or cursor walk, bound: `for rows.Next()` under the round that produced `rows`.
 func drainsBatch(x *ast.ForStmt, scopes []loopScope) bool {
 	name, ok := drainRoot(x.Cond)
 	if !ok {
 		return false
 	}
 	for _, s := range scopes {
-		if !s.batch {
+		if !s.fetches {
 			continue
 		}
 		for _, v := range s.vars {

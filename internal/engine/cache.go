@@ -20,6 +20,14 @@ import (
 	"github.com/enola-labs/enola/pkg/plugin"
 )
 
+// v318: loop shapes. Python: a call in a block that ends by leaving the loop
+// (break, return, raise, and no continue before it) runs at most once and is not
+// a call per element (pythonextractor/terminal.go, as goextractor/terminal.go);
+// a `while` over a counter its body steps by more than one is a page loop; and
+// a call in a for statement's iterable belongs to the loop AROUND that statement,
+// so a batch or round loop's rule now sees it. Go: a loop whose condition
+// advances a cursor (`for rows.Next()`) is never a batch loop, so a query per row
+// in its body is a query per row.
 // v317: Java and C#. A call on a receiver whose declared type is a LIBRARY's is
 // classed by that library's member (javaextractor/ioprim.go, dotnetextractor/
 // ioprim.go): `jdbcTemplate.update`, `entityManager.find`, `query.ToListAsync`
@@ -2771,7 +2779,7 @@ import (
 // v270: SvelteKit reads literal kit.alias fallbacks before generated config exists,
 // keeps tsconfig paths authoritative, and classifies $app/$env/$service-worker imports
 // as framework-provided rather than unresolved third-party dependencies.
-const cacheVersion = "v317"
+const cacheVersion = "v318"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

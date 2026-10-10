@@ -30,6 +30,9 @@ type pyLoopScope struct {
 	// round marks a poll, a retry or a cursor (pollloop.go): a call at its own
 	// level runs once per round, which is per element only of a loop around it.
 	round bool
+	// terminal are the blocks of the loop's body that end by leaving it
+	// (terminal.go). A call in one runs at most once.
+	terminal []pySpan
 }
 
 func (s *pyLoopScope) add(name string) {

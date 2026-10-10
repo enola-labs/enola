@@ -23,6 +23,10 @@ import (
 //	    response = request.execute()
 //	    request = api.list_next(request, response)
 //
+//	while offset < total:                              # a page counter
+//	    rows = session.execute(q.offset(offset).limit(size))
+//	    offset += size
+//
 // Read as a loop over data, the call in each is a query per element. But there is
 // no element. A poll asks the same question until the answer changes, a retry
 // makes one request until it succeeds, and a cursor fetches one page per round,
@@ -138,10 +142,48 @@ func pyWhileIsRound(cond, body *sitter.Node, src []byte) bool {
 	if cond != nil && pyMentionsAny(cond, src, r.derived) {
 		return true
 	}
+	// `while offset < total:` moved on by `offset += limit`: one page a round.
+	if pyStepsCounter(cond, body, src) {
+		return true
+	}
 	// `while True:` left by a test of what the round fetched. A loop with a
 	// test of its own is governed by that test, and an exit from it is a walk
 	// that stops early.
 	return pyIsTrue(cond, src) && pyLeavesOn(body, src, r.fetched)
+}
+
+// pyStepsCounter reports whether a while loop's condition reads a local that its
+// own body advances by more than one: `offset += limit`, `start += len(batch)`.
+// A step of the literal 1 is an index walking elements, and is not one.
+func pyStepsCounter(cond, body *sitter.Node, src []byte) bool {
+	if cond == nil {
+		return false
+	}
+	stepped := false
+	var walk func(n *sitter.Node)
+	walk = func(n *sitter.Node) {
+		if n == nil || stepped {
+			return
+		}
+		switch kindOf(n) {
+		case "for_statement", "while_statement", "function_definition", "class_definition", "lambda":
+			return
+		case "augmented_assignment":
+			left, right := n.ChildByFieldName("left"), n.ChildByFieldName("right")
+			op := n.ChildByFieldName("operator")
+			if left != nil && right != nil && op != nil && kindOf(left) == "identifier" && pyText(op, src) == "+=" &&
+				(kindOf(right) != "integer" || pyText(right, src) != "1") &&
+				pyMentionsAny(cond, src, map[string]bool{pyText(left, src): true}) {
+				stepped = true
+			}
+			return
+		}
+		for i := uint(0); i < n.NamedChildCount(); i++ {
+			walk(n.NamedChild(i))
+		}
+	}
+	walk(body)
+	return stepped
 }
 
 // pyIsTrue reports whether a while condition is the constant `True` or a

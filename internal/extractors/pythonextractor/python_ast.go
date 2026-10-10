@@ -204,6 +204,12 @@ type pyWalker struct {
 	returnTypes []map[string]string
 	funcReturns map[string]string
 
+	// callStart is where the call expression being walked begins.
+	callStart uint
+	// inIterable is set while a for statement's iterable is walked: it is
+	// evaluated once, in the loop AROUND that statement. See callScope.
+	inIterable bool
+
 	// localBound is the set of names bound in the current function's own scope
 	// (params + assigned/iterated/aliased names). Guards bare-identifier call
 	// and value-reference resolution against shadowing. Reset per handleFunction call.
@@ -409,6 +415,21 @@ func pyIsNamePath(n *sitter.Node) bool {
 	return false
 }
 
+// callScope returns the loop the call being walked runs in: the innermost one,
+// or, for a call in a for statement's iterable, the one around that statement.
+// The statement's own scope is pushed before its iterable is walked, and the
+// iterable is evaluated once, outside it.
+func (w *pyWalker) callScope() *pyLoopScope {
+	n := len(w.loopScopes)
+	if w.inIterable {
+		n--
+	}
+	if n <= 0 {
+		return nil
+	}
+	return &w.loopScopes[n-1]
+}
+
 // recordInLoopCall is recordCallMetrics without the recursion check, for a call
 // whose edge names the enclosing function but whose form cannot reach it.
 func (w *pyWalker) recordInLoopCall(target string) {
@@ -432,13 +453,18 @@ func (w *pyWalker) recordInLoopCall(target string) {
 	//
 	// A call made once per round of a batch loop is the batched call, not an N+1
 	// (batchloop.go). One inside its drain loop has a different innermost loop.
-	if n := len(w.loopScopes); n > 0 && w.loopScopes[n-1].batch {
+	scope := w.callScope()
+	if scope != nil && scope.batch {
 		return
 	}
 	// The same for a call made once per round of a poll, a retry or a cursor
 	// (pollloop.go), unless a loop around it walks data: a retry per element is
 	// still a request per element, at that loop's depth.
-	if n := len(w.loopScopes); n > 0 && w.loopScopes[n-1].round && w.scalingDepth == 0 {
+	if scope != nil && scope.round && w.scalingDepth == 0 {
+		return
+	}
+	// Nor is a call in a block that ends by leaving the loop (terminal.go).
+	if scope != nil && scope.holdsTerminal(w.callStart) {
 		return
 	}
 	if w.repeatDepth > 0 {
@@ -1677,6 +1703,7 @@ func (w *pyWalker) walkForCalls(node *sitter.Node) {
 	}
 	kind := kindOf(node)
 	if kind == "call" {
+		w.callStart = node.StartByte()
 		w.emitCallRoute(node)
 		w.emitHTTPClientRoute(node)
 		if fn := node.ChildByFieldName("function"); fn != nil {
@@ -1794,6 +1821,7 @@ func (w *pyWalker) walkForCalls(node *sitter.Node) {
 		if pyRoundLoop(node, w.src) {
 			bounded, scope.round = true, true
 		}
+		scope.terminal = pyTerminalBlocks(node.ChildByFieldName("body"))
 		if kind == "for_statement" {
 			if !bounded {
 				w.noteLoopOverParam(pyElementRoot(node.ChildByFieldName("right"), w.src, w.paramScope))
@@ -1820,7 +1848,10 @@ func (w *pyWalker) walkForCalls(node *sitter.Node) {
 		// targets, which the iterable cannot mention.)
 		if kind == "for_statement" {
 			if once = node.ChildByFieldName("right"); once != nil {
+				was := w.inIterable
+				w.inIterable = true
 				w.walkForCalls(once)
+				w.inIterable = was
 			}
 		}
 		if w.metrics != nil {
