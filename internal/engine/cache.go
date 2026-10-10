@@ -20,6 +20,12 @@ import (
 	"github.com/enola-labs/enola/pkg/plugin"
 )
 
+// v309: Kotlin calls on a receiver of declared type are calls edges, as in Java
+// (v307) and C# (v308): a constructor property, a property, a parameter, a typed
+// local, a local constructed with `Type(…)`, an object named by its type. And a
+// supertype written by its simple name is an implements edge to the type it names
+// where this repository declares one; the target used to be the bare name, which
+// matched no fact, so nothing could follow a Kotlin interface to its implementers.
 // v308: C# calls on a receiver of declared type are calls edges, as in Java since
 // v307: a field, a property, a primary-constructor parameter, a parameter, a typed
 // local, `var x = new T()`. The bare method name such a call has always emitted is
@@ -2708,7 +2714,7 @@ import (
 // v270: SvelteKit reads literal kit.alias fallbacks before generated config exists,
 // keeps tsconfig paths authoritative, and classifies $app/$env/$service-worker imports
 // as framework-provided rather than unresolved third-party dependencies.
-const cacheVersion = "v308"
+const cacheVersion = "v309"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

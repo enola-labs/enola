@@ -114,6 +114,11 @@ type astWalker struct {
 	selfParamNames map[string]bool
 	// loopScopes are the enclosing loops' variables, for the rule in hierarchy.go.
 	loopScopes []kotlinLoopScope
+	// memberTypes are the declared types of the enclosing types' constructor
+	// parameters and properties, innermost last; localTypes those of the current
+	// function's parameters and locals (nil outside one). See receivers.go.
+	memberTypes []map[string]string
+	localTypes  map[string]string
 	// reactiveContext is true when the enclosing function is an RxJava / coroutine
 	// Flow chain, so the ambiguous operators (map/flatMap/filter/…) are reactive
 	// stream transforms — NOT per-element collection loops — and must not inflate
@@ -124,6 +129,8 @@ type astWalker struct {
 // kotlinBodyMetrics accumulates per-function complexity signals during the single
 // walkForCalls body traversal — mirrors the Go/Python/Ruby/Swift extractors.
 type kotlinBodyMetrics struct {
+	// typedCalls are the calls made on a receiver of declared type (receivers.go).
+	typedCalls       []typedCall
 	loopDepth        int             // max loop nesting depth
 	scalingLoopDepth int             // max nesting depth counting only input-scaling loops
 	loopCount        int             // number of loop constructs (syntactic + lambda iterators)
@@ -536,11 +543,13 @@ func (w *astWalker) popLoop(class kotlinLoopClass) {
 func (w *astWalker) pushType(name string, methods map[string]bool) {
 	w.typeStack = append(w.typeStack, name)
 	w.methodStack = append(w.methodStack, methods)
+	w.memberTypes = append(w.memberTypes, make(map[string]string))
 }
 
 func (w *astWalker) popType() {
 	w.typeStack = w.typeStack[:len(w.typeStack)-1]
 	w.methodStack = w.methodStack[:len(w.methodStack)-1]
+	w.memberTypes = w.memberTypes[:len(w.memberTypes)-1]
 }
 
 // enclosingType returns the dotted path of enclosing type names (e.g. "Outer.Inner"),
@@ -728,6 +737,9 @@ func (w *astWalker) handleClassDeclaration(node *sitter.Node) {
 	for _, st := range supertypes {
 		f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelImplements, Target: st})
 	}
+	if cands := w.superCandidates(supertypes); len(cands) > 0 {
+		f.SetProp(propSuperCandidates, cands)
+	}
 
 	if w.isAndroid {
 		// addAndroidProps uses the raw supertype clause text; reconstruct as a comma-joined
@@ -751,6 +763,7 @@ func (w *astWalker) handleClassDeclaration(node *sitter.Node) {
 		body = findChildByKind(node, "enum_class_body")
 	}
 	w.pushType(name, collectMethodNames(body, w.src))
+	w.bindMembers(node)
 
 	// Primary constructor parameters → RelInjects when @Inject is on the class,
 	// on the primary constructor itself (e.g., `class Foo @Inject constructor(...)`),
@@ -820,6 +833,9 @@ func (w *astWalker) handleObjectDeclaration(node *sitter.Node) {
 	for _, st := range supertypes {
 		f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelImplements, Target: st})
 	}
+	if cands := w.superCandidates(supertypes); len(cands) > 0 {
+		f.SetProp(propSuperCandidates, cands)
+	}
 	if w.isAndroid {
 		addAndroidProps(&f, name, annotations, strings.Join(supertypes, ", "))
 	}
@@ -829,6 +845,7 @@ func (w *astWalker) handleObjectDeclaration(node *sitter.Node) {
 	w.pushOwner(owner)
 	body := findChildByKind(node, "class_body")
 	w.pushType(name, collectMethodNames(body, w.src))
+	w.bindMembers(node)
 	if body != nil {
 		w.walkForCalls(body)
 	}
@@ -931,6 +948,10 @@ func (w *astWalker) handleFunctionDeclaration(node *sitter.Node) {
 	savedParamNames, savedScopes := w.selfParamNames, w.loopScopes
 	w.loopScopes = nil
 	w.metrics = &kotlinBodyMetrics{}
+	savedLocals := w.localTypes
+	w.localTypes = make(map[string]string)
+	defer func() { w.localTypes = savedLocals }()
+	w.bindParameters(node)
 	w.loopDepth = 0
 	w.scalingLoopDepth, w.repeatDepth = 0, 0
 	w.selfName = f.Name
@@ -956,6 +977,9 @@ func (w *astWalker) handleFunctionDeclaration(node *sitter.Node) {
 	}
 	m := w.metrics
 	props := w.out[ownerIdx].Props
+	if len(m.typedCalls) > 0 {
+		props[propTypedCalls] = m.typedCalls
+	}
 	props["cyclomatic"] = 1 + m.decisions
 	if m.loopDepth > 0 {
 		props["loop_depth"] = m.loopDepth
@@ -1235,6 +1259,9 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 		return
 	}
 	kind := kindOf(node)
+	if kind == "property_declaration" && w.localTypes != nil {
+		w.bindProperty(w.localTypes, node)
+	}
 
 	// A lambda is a deferred scope: its body runs when the lambda is invoked, NOT
 	// per-iteration of the enclosing loops — so reset the loop depth for its
@@ -1333,6 +1360,12 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 		// First named child is the callee expression.
 		if callee := firstNamedChild(node); callee != nil {
 			if name, isNav := calleeName(callee, w.src); name != "" {
+				// A receiver whose type is declared: receivers.go.
+				if isNav && !isCapitalized(name) {
+					if r := firstNamedChild(callee); r != nil {
+						w.noteTypedCall(nodeText(r, w.src)+"."+name, w.receiverType(r), name)
+					}
+				}
 				if owner := w.currentOwner(); owner != nil {
 					switch {
 					case isCapitalized(name):

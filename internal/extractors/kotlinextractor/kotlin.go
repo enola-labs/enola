@@ -140,6 +140,10 @@ func (e *KotlinExtractor) Extract(ctx context.Context, repoPath string, files []
 		modules[factpath.Dir(kotlinFiles[i])] = true
 	}
 
+	// Calls on a receiver of declared type become edges, and supertypes written by
+	// simple name become implements edges, now that every file has been read.
+	resolveTypedCalls(allFacts)
+
 	// The walker marks only the round-trip itself (a Retrofit endpoint, a Room DAO
 	// operation). A method with a calls edge to one is I/O through it.
 	ioclosure.Propagate(allFacts)
