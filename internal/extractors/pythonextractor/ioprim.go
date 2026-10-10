@@ -31,6 +31,13 @@ type pyLibrary struct {
 	// that is not on it is unknown. Without it the list is complete: a member
 	// that is not on it does no I/O.
 	open bool
+	// clients names, by the end of their names, the types whose methods are each
+	// a request: the generated clients of an SDK (`DlpServiceClient`,
+	// `CoreV1Api`), which are too many to list and all alike. helpers are the
+	// methods of such a type that are not, as a name or as a `prefix*` or
+	// `*suffix` pattern: the resource-path formatters and the constructors.
+	clients []string
+	helpers []string
 }
 
 // pyLibraries is keyed by a dotted prefix of the call target: a distribution's
@@ -135,6 +142,41 @@ var pyLibraries = map[string]pyLibrary{
 		"create_check_constraint", "create_primary_key", "drop_constraint",
 	}},
 
+	// Generated API clients: one class per service, every public method an RPC
+	// but the resource-path helpers and the alternative constructors. The
+	// storage client is hand-written and hands out handles (`bucket`, `blob`)
+	// that are not requests; its requests are the handles' methods.
+	"google.cloud": {open: true, clients: []string{"Client"},
+		helpers: []string{
+			"*_path", "parse_*", "from_*", "common_*", "get_transport_class", "bucket", "batch", "close",
+			"dataset", "table", "topic_path", "subscription_path",
+		},
+		io: []string{
+			"Blob.upload_from_filename", "Blob.upload_from_file", "Blob.upload_from_string",
+			"Blob.download_to_filename", "Blob.download_to_file", "Blob.download_as_bytes",
+			"Blob.download_as_string", "Blob.download_as_text", "Blob.exists", "Blob.delete", "Blob.reload",
+			"Blob.patch", "Blob.update", "Blob.rewrite", "Blob.compose", "Blob.make_public", "Blob.open",
+			"Bucket.list_blobs", "Bucket.get_blob", "Bucket.delete_blob", "Bucket.delete_blobs",
+			"Bucket.copy_blob", "Bucket.rename_blob", "Bucket.exists", "Bucket.reload", "Bucket.create",
+			"Bucket.delete", "Bucket.patch", "Bucket.update",
+			"Transaction.execute_update", "Transaction.execute_sql", "Transaction.batch_update",
+			"Transaction.commit", "Transaction.rollback",
+		}},
+	"kubernetes":         {open: true, clients: []string{"Api"}},
+	"kubernetes_asyncio": {open: true, clients: []string{"Api"}},
+	"paramiko": {open: true, clients: []string{"SFTPClient"},
+		helpers: []string{"getcwd", "get_channel", "from_transport"},
+		io:      []string{"SSHClient.connect", "SSHClient.exec_command", "SSHClient.open_sftp", "SSHClient.invoke_shell"},
+	},
+	"asyncssh": {open: true, clients: []string{"SFTPClient"},
+		helpers: []string{"getcwd", "encode", "decode", "compose_path"},
+		io: []string{
+			"connect", "SSHClientConnection.run", "SSHClientConnection.create_process",
+			"SSHClientConnection.start_sftp_client", "SSHClientConnection.open_session",
+		},
+	},
+	"botocore": {open: true, io: []string{"Waiter.wait"}},
+
 	// Libraries and types that work on memory and nothing else.
 	"re":          {},
 	"logging":     {},
@@ -174,7 +216,7 @@ func pyLibraryCall(target string) int {
 		return pyCallUnknown
 	}
 	names := pyMemberNames(rest)
-	if pyHasMember(lib.io, names) {
+	if pyHasMember(lib.io, names) || lib.isClientRequest(rest) {
 		return pyCallIO
 	}
 	if lib.open || pyHasMember(lib.neutral, names) {
@@ -214,6 +256,44 @@ func pyMemberNames(rest string) []string {
 		return []string{owner + "." + last, owner + ".*"}
 	}
 	return []string{owner + "." + last, last}
+}
+
+// isClientRequest reports whether rest names a method of one of the library's
+// client types that is not one of their helpers.
+func (lib pyLibrary) isClientRequest(rest string) bool {
+	segs := strings.Split(rest, ".")
+	if len(segs) < 2 || len(lib.clients) == 0 {
+		return false
+	}
+	owner, method := segs[len(segs)-2], segs[len(segs)-1]
+	if !pyCapitalized(owner) || strings.HasPrefix(method, "_") {
+		return false
+	}
+	isClient := false
+	for _, suffix := range lib.clients {
+		if strings.HasSuffix(owner, suffix) {
+			isClient = true
+			break
+		}
+	}
+	if !isClient {
+		return false
+	}
+	for _, h := range lib.helpers {
+		switch {
+		case strings.HasPrefix(h, "*"):
+			if strings.HasSuffix(method, h[1:]) {
+				return false
+			}
+		case strings.HasSuffix(h, "*"):
+			if strings.HasPrefix(method, h[:len(h)-1]) {
+				return false
+			}
+		case h == method:
+			return false
+		}
+	}
+	return true
 }
 
 func pyHasMember(members, names []string) bool {

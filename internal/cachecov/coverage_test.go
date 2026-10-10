@@ -33,6 +33,10 @@ import (
 // test functions that assert the behavior that version introduced. v1 is the
 // implicit baseline (no changelog line), so coverage starts at v2.
 var versionCoverage = map[int][]string{
+	314: { // Python: receivers typed by return annotations and by module-level declarations; untyped in-loop I/O calls recorded as written
+		"TestPyValueType", "TestCallOnAccessorResultResolvesByReturnAnnotation",
+		"TestCallOnModuleGlobalResolvesByDeclaredType", "TestUntypedIOCallInLoopIsRecordedAsWritten",
+	},
 	313: { // Python: a call resolved to a library member is io_calls or pure_calls by what the member is
 		"TestPyLibraryCall", "TestLibraryCallsAreClassedByMember", "TestLibraryTableDoesNotClaimARepositoryModule",
 		"TestAnalyze_PureCallIsNotReadByItsName",

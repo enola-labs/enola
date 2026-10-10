@@ -95,6 +95,7 @@ func extractFileIndexed(src []byte, relFile string, isDjango, isFlask, isFastAPI
 	topo.routes = w.routeRefs
 	topo.paths = w.pathRefs
 	topo.consts = collectConsts(root, src, module, w.importMap)
+	local.globals = collectGlobalTypes(root, src, module, w.importMap)
 	return w.out, topo, local, w.pendingImpl
 }
 
@@ -197,6 +198,12 @@ type pyWalker struct {
 	// `self` to its declared type. See selfattrs.go.
 	attrTypes []map[string]string
 
+	// returnTypes maps, per enclosing class (innermost last), a method to the
+	// type its return annotation names, and funcReturns a top-level function of
+	// the file to its return annotation. See returntypes.go.
+	returnTypes []map[string]string
+	funcReturns map[string]string
+
 	// localBound is the set of names bound in the current function's own scope
 	// (params + assigned/iterated/aliased names). Guards bare-identifier call
 	// and value-reference resolution against shadowing. Reset per handleFunction call.
@@ -279,7 +286,10 @@ type pyBodyMetrics struct {
 	onElementSeen         map[string]bool
 	loopsOverParam        map[int]bool
 	recursive             bool // body directly calls the enclosing function
-	ioDirect              bool // body directly invokes a network/file/DB I/O primitive
+	// written are the in-loop calls recorded as the source writes them, because
+	// nothing types their receiver. See recordWrittenIOCall.
+	written  map[string]bool
+	ioDirect bool // body directly invokes a network/file/DB I/O primitive
 }
 
 // recordCallMetrics notes a resolved call target against the current function's
@@ -343,6 +353,60 @@ func (w *pyWalker) noteCallOnLoopElement(call, fn *sitter.Node, target string) {
 	w.metrics.onElementSeen[target] = true
 	w.metrics.callsOnLoopElement = append(w.metrics.callsOnLoopElement, target)
 	w.metrics.callsOnLoopElementArg = append(w.metrics.callsOnLoopElementArg, pos)
+}
+
+// propCallsAsWritten lists, while a file's facts are being resolved, the in-loop
+// calls that are source text and not import paths. resolveCallTargets drops it.
+const propCallsAsWritten = "calls_as_written"
+
+// recordWrittenIOCall records a call in a loop whose receiver nothing types,
+// when its method is one of pyIODirectMethods: `conn.execute(stmt)` on what
+// `op.get_bind()` returned, `cursor.fetchall()`. Those names already make the
+// function io_direct, on any receiver. But an in-loop call was recorded only
+// where it resolved, so a loop that ran one statement per row on an untyped
+// connection named no call at all, and was reported only if some other call in
+// it happened to resolve. The call is named as written and rests on its name.
+//
+// Only a receiver that is a name or an attribute path is recorded: the text of
+// anything longer is not a name a reader could find.
+func (w *pyWalker) recordWrittenIOCall(objNode *sitter.Node, obj, attr string) {
+	if w.metrics == nil || w.loopDepth == 0 || !pyIODirectMethods[attr] || pyDrainMethods[attr] || !pyIsNamePath(objNode) {
+		return
+	}
+	// `sys.stdout.flush()`: the receiver is reached through a module of the
+	// standard library, and is no client.
+	if root := firstSeg(obj); pyStdlib[root] && !w.localBound[root] {
+		return
+	}
+	target := obj + "." + attr
+	if w.metrics.written == nil {
+		w.metrics.written = make(map[string]bool)
+	}
+	w.metrics.written[target] = true
+	w.recordInLoopCall(target)
+	// Not a target the cross-call rule can look up.
+	w.lastCallTarget = ""
+}
+
+// pyDrainMethods read rows a statement already fetched. In a loop they are the
+// loop's own cursor (`while rows := cur.fetchmany(n)`), which is the batched read
+// and not a round trip per element; the statement is the `execute` beside them.
+var pyDrainMethods = map[string]bool{"fetchone": true, "fetchmany": true, "fetchall": true}
+
+// pyIsNamePath reports whether an expression is a name or an attribute path of
+// names: `conn`, `self.cursor`.
+func pyIsNamePath(n *sitter.Node) bool {
+	for n != nil {
+		switch kindOf(n) {
+		case "identifier":
+			return true
+		case "attribute":
+			n = n.ChildByFieldName("object")
+		default:
+			return false
+		}
+	}
+	return false
 }
 
 // recordInLoopCall is recordCallMetrics without the recursion check, for a call
@@ -429,6 +493,9 @@ func (w *pyWalker) popType() {
 	if len(w.attrTypes) > len(w.typeStack) {
 		w.attrTypes = w.attrTypes[:len(w.attrTypes)-1]
 	}
+	if len(w.returnTypes) > len(w.typeStack) {
+		w.returnTypes = w.returnTypes[:len(w.returnTypes)-1]
+	}
 }
 
 func (w *pyWalker) currentMethods() map[string]bool {
@@ -440,6 +507,7 @@ func (w *pyWalker) currentMethods() map[string]bool {
 
 // walkModule iterates the top-level statements of a module node.
 func (w *pyWalker) walkModule(root *sitter.Node) {
+	w.funcReturns = collectFuncReturnAnnotations(root, w.src)
 	for i := uint(0); i < uint(root.ChildCount()); i++ {
 		child := root.Child(i)
 		w.walkStatement(child)
@@ -1173,6 +1241,7 @@ func (w *pyWalker) handleClass(node *sitter.Node, decorators []string) {
 	bodyNode := node.ChildByFieldName("body")
 	w.pushType(name, collectPyMethodNames(bodyNode, w.src))
 	w.attrTypes = append(w.attrTypes, collectSelfAttrTypes(bodyNode, w.src, w.importMap, w.module))
+	w.returnTypes = append(w.returnTypes, collectMethodReturnTypes(bodyNode, w.src, w.importMap, w.module))
 	if bodyNode != nil {
 		w.walkBody(bodyNode)
 		// Walk class-body statements for call / value-reference edges (attrs/pydantic/
@@ -1259,6 +1328,7 @@ func (w *pyWalker) handleFunction(node *sitter.Node, decorators []string) {
 			w.localTypes[k] = v
 		}
 		w.localBound = collectLocalBoundNames(node.ChildByFieldName("parameters"), bodyNode, w.src)
+		w.inferLocalTypes(bodyNode)
 		// Set up per-function complexity tracking for this body walk. The props
 		// map is shared by reference with the fact in w.out, so writing to it
 		// after the walk updates the emitted fact.
@@ -1314,6 +1384,9 @@ func (w *pyWalker) handleFunction(node *sitter.Node, decorators []string) {
 			}
 			sort.Ints(idx)
 			props["loops_over_param_index"] = idx
+		}
+		if len(w.metrics.written) > 0 {
+			props[propCallsAsWritten] = sortedKeys(w.metrics.written)
 		}
 		if w.metrics.recursive {
 			props["recursive_self"] = true
@@ -2157,6 +2230,10 @@ func (w *pyWalker) emitCallEdge(fn *sitter.Node) {
 			qualType = w.selfAttrType(objNode)
 		}
 		if qualType == "" {
+			qualType = w.callResultType(objNode)
+		}
+		if qualType == "" {
+			w.recordWrittenIOCall(objNode, obj, attr)
 			return
 		}
 		target := qualType + "." + attr
@@ -2723,6 +2800,9 @@ type pySymbolIndex struct {
 	// and classes). Used to safely credit a same-module symbol passed by name as a
 	// value (a param/local of the same name is never in this set).
 	moduleDefs map[string]map[string]bool
+	// globals maps a module-level name (`pkg/mod.name`) to its declared type.
+	// See collectGlobalTypes.
+	globals map[string]string
 }
 
 // buildFileIndex scans src for class declarations and populates idx.

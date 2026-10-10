@@ -45,6 +45,19 @@ func TestPyLibraryCall(t *testing.T) {
 		// An open list is silent on what it does not name.
 		{"alembic.op.execute", pyCallIO},
 		{"alembic.op.get_bind", pyCallUnknown},
+		// A generated client: every method is a request but its helpers.
+		{"google.cloud.dlp_v2.DlpServiceClient.create_dlp_job", pyCallIO},
+		{"google.cloud.dlp_v2.DlpServiceClient.dlp_job_path", pyCallUnknown},
+		{"google.cloud.dlp_v2.DlpServiceClient.from_service_account_file", pyCallUnknown},
+		{"google.cloud.storage.Client.bucket", pyCallUnknown},
+		{"google.cloud.storage.Client.list_blobs", pyCallIO},
+		{"google.cloud.storage.blob.Blob.upload_from_filename", pyCallIO},
+		{"google.cloud.tasks_v2.types.Task.to_dict", pyCallUnknown},
+		{"kubernetes.client.CoreV1Api.read_namespaced_pod", pyCallIO},
+		{"kubernetes.client.models.V1Pod.to_dict", pyCallUnknown},
+		{"paramiko.SFTPClient.put", pyCallIO},
+		{"paramiko.sftp_client.SFTPClient.getcwd", pyCallUnknown},
+		{"asyncssh.SFTPClient.makedirs", pyCallIO},
 		// Not described at all, and a name that only starts like one that is.
 		{"yaml.safe_load", pyCallUnknown},
 		{"requests_toolbelt.MultipartEncoder.read", pyCallUnknown},

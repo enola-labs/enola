@@ -122,7 +122,7 @@ func (e *PythonExtractor) Extract(ctx context.Context, repoPath string, files []
 
 	// Merge the per-file indices in file order, so duplicate-module last-write-wins
 	// stays deterministic, then answer the held-back lookups against the result.
-	idx := &pySymbolIndex{classes: make(map[string]*pyClassInfo), moduleDefs: make(map[string]map[string]bool)}
+	idx := &pySymbolIndex{classes: make(map[string]*pyClassInfo), moduleDefs: make(map[string]map[string]bool), globals: make(map[string]string)}
 	for _, r := range perFileFacts {
 		if r.idx == nil {
 			continue
@@ -132,6 +132,9 @@ func (e *PythonExtractor) Extract(ctx context.Context, repoPath string, files []
 		}
 		for module, defs := range r.idx.moduleDefs {
 			idx.moduleDefs[module] = defs
+		}
+		for name, typ := range r.idx.globals {
+			idx.globals[name] = typ
 		}
 	}
 	finalizeImplMap(idx)
@@ -186,7 +189,7 @@ func (e *PythonExtractor) Extract(ctx context.Context, repoPath string, files []
 	// canonical slash symbol names (dropping stdlib/third-party edges) now that the
 	// full file set is known. Without this, functions reached via absolute imports
 	// have no incoming edge and read as dead code.
-	resolveCallTargets(allFacts, fileModules, pkgDirs)
+	resolveCallTargetsWith(allFacts, fileModules, pkgDirs, idx.globals)
 	resolveImplementsTargets(allFacts, fileModules, pkgDirs)
 
 	// Fold FastAPI include_router mount prefixes onto the bare decorator paths, so

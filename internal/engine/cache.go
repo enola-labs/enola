@@ -20,6 +20,16 @@ import (
 	"github.com/enola-labs/enola/pkg/plugin"
 )
 
+// v314: Python receivers typed by what the source declares
+// (pythonextractor/returntypes.go). A call on the result of a method of the same
+// class or a function of the same file resolves by its return annotation
+// (`self.get_conn().delete_blob(…)`), and so does a local bound to one, when every
+// binding of the name agrees. A call on an imported module-level name resolves by
+// the annotation or constructor it is declared with (`security_manager.x(…)`).
+// The generated clients of google-cloud and kubernetes, and the SFTP clients of
+// paramiko and asyncssh, are I/O by type. And an in-loop call whose receiver
+// nothing types is recorded as written when its method is I/O by name
+// (`conn.execute`): before, a loop named only the calls that resolved.
 // v313: Python. A call that resolution placed in a library is classed by the
 // member it names (pythonextractor/ioprim.go): `sqlalchemy.orm.Session.execute`,
 // `requests.get` and `os.path.exists` make the function io_direct and are named in
@@ -2738,7 +2748,7 @@ import (
 // v270: SvelteKit reads literal kit.alias fallbacks before generated config exists,
 // keeps tsconfig paths authoritative, and classifies $app/$env/$service-worker imports
 // as framework-provided rather than unresolved third-party dependencies.
-const cacheVersion = "v313"
+const cacheVersion = "v314"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

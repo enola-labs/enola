@@ -1,6 +1,7 @@
 package pythonextractor
 
 import (
+	"slices"
 	"sort"
 	"strings"
 
@@ -83,6 +84,13 @@ func resolveImports(allFacts []facts.Fact, modules map[string]bool, fileModules 
 // external: its edge is removed to avoid short-name collisions that would hide real
 // dead code. Same-module and relative targets (already slash paths) are untouched.
 func resolveCallTargets(allFacts []facts.Fact, fileModules map[string]bool, pkgDirs map[string]bool) {
+	resolveCallTargetsWith(allFacts, fileModules, pkgDirs, nil)
+}
+
+// resolveCallTargetsWith is resolveCallTargets given the declared types of the
+// repository's module-level names (see collectGlobalTypes), through which a call
+// on an imported global resolves to a method of its type.
+func resolveCallTargetsWith(allFacts []facts.Fact, fileModules map[string]bool, pkgDirs map[string]bool, globals map[string]string) {
 	fileIdx := buildSuffixIndex(fileModules, pkgDirs)
 	topPkgs := importableRoots(fileModules, pkgDirs)
 	reexports := buildReexportIndex(allFacts, pkgDirs)
@@ -107,6 +115,29 @@ func resolveCallTargets(allFacts []facts.Fact, fileModules map[string]bool, pkgD
 			continue
 		}
 		importerDir := fileDir(f.File)
+		// resolve is resolveDottedTarget, and where that lands on no symbol, the
+		// same for the target read as a method of a module-level name's declared
+		// type: `pkg.security_manager.can_access` as `SecurityManager.can_access`.
+		resolve := func(target string) (string, bool) {
+			resolved, keep := resolveDottedTarget(target, fileIdx, topPkgs, importerDir, reexports, symbols)
+			if !keep || symbols[resolved] || len(globals) == 0 {
+				return resolved, keep
+			}
+			typed := methodOfGlobal(target, globals, fileIdx, topPkgs, importerDir, reexports)
+			if typed == "" {
+				return resolved, keep
+			}
+			r, k := resolveDottedTarget(typed, fileIdx, topPkgs, importerDir, reexports, symbols)
+			switch {
+			case !k:
+				// The type is a library's: the call leaves the repository, as that
+				// type's method.
+				return typed, false
+			case symbols[r]:
+				return r, true
+			}
+			return resolved, keep
+		}
 		// The calls that leave the repository are classed before their edges are
 		// dropped: this is the one place that knows a target is a library's and
 		// not a like-named module of this repository. See ioprim.go.
@@ -114,10 +145,10 @@ func resolveCallTargets(allFacts []facts.Fact, fileModules map[string]bool, pkgD
 		out := f.Relations[:0]
 		for _, rel := range f.Relations {
 			if (rel.Kind == facts.RelCalls || rel.Kind == facts.RelInstantiates) && isDottedCallTarget(rel.Target) {
-				resolved, keep := resolveDottedTarget(rel.Target, fileIdx, topPkgs, importerDir, reexports, symbols)
+				resolved, keep := resolve(rel.Target)
 				if !keep {
 					if rel.Kind == facts.RelCalls {
-						lib.note(rel.Target, false)
+						lib.note(pyLibraryTarget(rel.Target, resolved), false)
 					}
 					continue // external/stdlib → drop the edge
 				}
@@ -134,18 +165,26 @@ func resolveCallTargets(allFacts []facts.Fact, fileModules map[string]bool, pkgD
 		// (`providers/amazon/src/airflow/…`), and not through a re-export. A target
 		// of another distribution keeps its dotted form, which is how it is told
 		// from one of this repository.
+		// A call recorded as the source writes it (`conn.execute`) is dotted and is
+		// no import path: resolving it would bind a local that shares a package's
+		// name to that package.
+		written := stringSliceProp(f.Props, propCallsAsWritten)
+		f.DelProp(propCallsAsWritten)
 		for _, key := range inLoopCallProps {
 			list, ok := f.PropAny(key).([]string)
 			if !ok {
 				continue
 			}
 			for j, c := range list {
-				if !isDottedCallTarget(c) {
+				if !isDottedCallTarget(c) || slices.Contains(written, c) {
 					continue
 				}
-				resolved, keep := resolveDottedTarget(c, fileIdx, topPkgs, importerDir, reexports, symbols)
+				resolved, keep := resolve(c)
 				if !keep {
-					lib.note(c, true)
+					if t := pyLibraryTarget(c, resolved); t != c {
+						list[j] = t
+					}
+					lib.note(list[j], true)
 				} else if resolved != "" {
 					list[j] = resolved
 				}
@@ -155,6 +194,48 @@ func resolveCallTargets(allFacts []facts.Fact, fileModules map[string]bool, pkgD
 			lib.mark(f)
 		}
 	}
+}
+
+// methodOfGlobal reads a dotted target as a method call on a module-level name
+// and returns it as a method of that name's declared type, or "" when the target
+// does not go through one.
+func methodOfGlobal(target string, globals map[string]string, fileIdx suffixIndex, topPkgs map[string]bool, importerDir string, reexports reexportIndex) string {
+	mi := strings.LastIndexByte(target, '.')
+	if mi <= 0 {
+		return ""
+	}
+	holder, method := target[:mi], target[mi+1:]
+	ni := strings.LastIndexByte(holder, '.')
+	if ni <= 0 {
+		return ""
+	}
+	prefix, name := holder[:ni], holder[ni+1:]
+	// The holder's module is a file (`pkg/mod.py`) or a package, whose names are
+	// those of its __init__.
+	for _, module := range []string{prefix, prefix + ".__init__"} {
+		if dir := resolveModuleExact(module, fileIdx, topPkgs, importerDir); dir != "" {
+			if typ, ok := globals[dir+"."+name]; ok {
+				return typ + "." + method
+			}
+		}
+	}
+	if mod := reexports.lookup(prefix, name, topPkgs, importerDir); mod != "" {
+		if typ, ok := globals[mod+"."+name]; ok {
+			return typ + "." + method
+		}
+	}
+	return ""
+}
+
+// pyLibraryTarget names a call that left the repository. resolveDottedTarget
+// reports such a target as "" and the caller keeps what was written, unless the
+// call went through a module-level name whose declared type is a library's: then
+// it is that type's method.
+func pyLibraryTarget(written, resolved string) string {
+	if resolved != "" {
+		return resolved
+	}
+	return written
 }
 
 // inLoopCallProps are the props that repeat a function's call targets.
