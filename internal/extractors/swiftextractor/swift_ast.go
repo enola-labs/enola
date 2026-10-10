@@ -848,7 +848,7 @@ func (w *astWalker) handleFunction(node *sitter.Node) {
 
 	// A function declared inside a type is a method (dispatch/reflection usage is
 	// not edge-tracked), so it must be classified SymbolMethod — not SymbolFunc —
-	// or the dead-code detector mislabels it high-confidence "safest to remove".
+	// or the dead-code detector mislabels it high-confidence.
 	// This matches the Python/Java extractors. Free functions stay SymbolFunc.
 	enclosing := w.enclosingType()
 	symbolKind := facts.SymbolFunc

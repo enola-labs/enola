@@ -64,7 +64,7 @@ Package metrics
 
 Dead code
   potential dead code         3  (of 7 symbols)
-    high confidence           1   (functions — incoming calls tracked; safest to remove first)
+    high confidence           1   (functions — incoming calls tracked; verify dynamic use and compatibility before removal)
     medium confidence         1   (structs/classes/interfaces — usage tracked via instantiate/inject/implements)
     low confidence            1   (methods & types — dispatch/reflection & type usage not edge-tracked; verify each)
     isolated                  0   (breakdown: no references in or out)
