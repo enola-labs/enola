@@ -1886,35 +1886,66 @@ func TestPHPInMemoryCallsAreNotIO(t *testing.T) {
 	}
 }
 
-// One init that does I/O must not make every init in a TypeScript loop a network
-// call, and the guard must not reach a real DAO method that shares its name with
-// its own interface declaration.
-func TestTSLifecycleNamesAreNotIOByNameAlone(t *testing.T) {
-	funcs := []funcInfo{
+// The short-name index in TypeScript: a name is I/O when every function bearing it
+// is. One init that does I/O does not make every init a network call, and an
+// insertAll with an in-memory namesake says nothing about which one `dao.insertAll`
+// is. With no such namesake the call is reported.
+func TestTSShortNameIsIOOnlyWhenEveryBearerIs(t *testing.T) {
+	render := funcInfo{
+		Name: "ui/page.render", File: "ui/page.ts", LoopDepth: 1, LoopCount: 1,
+		CallsInLoop: []string{"r.init", "dao.insertAll"}, Calls: []string{"r.init", "dao.insertAll"},
+	}
+	base := []funcInfo{
 		{Name: "net/socket.Client.init", File: "net/socket.ts", PerformsIO: true},
+		{Name: "ui/widget.Widget.init", File: "ui/widget.ts"},
 		{Name: "data/dao.UserDao.insertAll", File: "data/dao.ts", PerformsIO: true},
-		{Name: "data/dao.Dao.insertAll", File: "data/base.ts"}, // the interface's declaration
-		{Name: "data/mem.Buffer.insertAll", File: "data/mem.ts"},
+		{Name: "data/dao.Dao.insertAll", File: "data/base.ts", PerformsIO: true}, // the interface's declaration, flagged through its implementer
+		render,
+	}
+	c, ok := findFinding(analyze(base, nil, nil, nil), "ui/page.render", "call-in-loop")
+	if !ok || len(c.Calls) != 1 || c.Calls[0].Callee != "dao.insertAll" {
+		t.Fatalf("render = %+v (ok=%v), want one call, dao.insertAll: every insertAll does I/O and one init does not", c, ok)
+	}
+	if c.Calls[0].Basis != basisIOIndex || c.Severity != "medium" {
+		t.Errorf("dao.insertAll rests on %q at %s, want the index at medium: it is still a name", c.Calls[0].Basis, c.Severity)
+	}
+
+	withNamesake := append([]funcInfo{{Name: "data/mem.Buffer.insertAll", File: "data/mem.ts"}}, base...)
+	if c, ok := findFinding(analyze(withNamesake, nil, nil, nil), "ui/page.render", "call-in-loop"); ok {
+		t.Errorf("an in-memory insertAll exists, and dao.insertAll was still read as the other one: %+v", c)
+	}
+}
+
+// A callee that resolves is judged by the function it resolves to. The index is
+// for a callee nobody could see.
+func TestResolvedCalleeIsNotReadThroughTheShortNameIndex(t *testing.T) {
+	funcs := []funcInfo{
+		{Name: "src/api.Client.execute", File: "src/api.ts", PerformsIO: true},
+		{Name: "src/plan.Step.execute", File: "src/plan.cc"}, // another language: not a TypeScript namesake
+		{Name: "src/mesh.Recombinator.execute", File: "src/mesh.ts"},
 		{
-			Name: "ui/page.render", File: "ui/page.ts", LoopDepth: 1, LoopCount: 1,
-			CallsInLoop: []string{"r.init", "dao.insertAll"}, Calls: []string{"r.init", "dao.insertAll"},
+			Name: "src/run.all", File: "src/run.ts", LoopDepth: 1, LoopCount: 1,
+			CallsInLoop: []string{"src/mesh.Recombinator.execute"},
 		},
 	}
-	c, ok := findFinding(analyze(funcs, nil, nil, nil), "ui/page.render", "call-in-loop")
-	if !ok {
-		t.Fatalf("no call-in-loop finding: the DAO insert is real")
+	if c, ok := findFinding(analyze(funcs, nil, nil, nil), "src/run.all", "call-in-loop"); ok {
+		t.Errorf("a resolved callee with no I/O was reported for sharing a name with one that has: %+v", c)
 	}
-	sawInsert := false
-	for _, e := range c.Evidence {
-		if e == "call_in_loop=r.init" {
-			t.Errorf("r.init reported as I/O because one unrelated init does some: %v", c.Evidence)
-		}
-		if e == "call_in_loop=dao.insertAll" {
-			sawInsert = true
-		}
+}
+
+// Python keeps the wider index. Its unresolved callees are mostly real clients
+// held in attributes, whose method names are common words.
+func TestPythonKeepsTheWiderShortNameIndex(t *testing.T) {
+	funcs := []funcInfo{
+		{Name: "hooks/s3.S3Hook.get_key", File: "hooks/s3.py", PerformsIO: true},
+		{Name: "util/cache.LocalCache.get_key", File: "util/cache.py"},
+		{
+			Name: "ops/copy.run", File: "ops/copy.py", LoopDepth: 1, LoopCount: 1,
+			CallsInLoop: []string{"s3_hook.get_key"},
+		},
 	}
-	if !sawInsert {
-		t.Errorf("dao.insertAll dropped: %v", c.Evidence)
+	if _, ok := findFinding(analyze(funcs, nil, nil, nil), "ops/copy.run", "call-in-loop"); !ok {
+		t.Errorf("s3_hook.get_key in a loop is not reported")
 	}
 }
 

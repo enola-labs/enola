@@ -266,6 +266,34 @@ const (
 	basisName       = "name"         // a generic verb, or a per-language name list
 )
 
+// langFamily groups a file with the others whose functions it can call by name:
+// its own language, and for the JVM, JavaScript, C and .NET the languages that
+// share a runtime or a linker with it.
+func langFamily(file string) string {
+	ext := file
+	if i := strings.LastIndexByte(file, '.'); i >= 0 {
+		ext = file[i:]
+	}
+	switch ext {
+	case ".kt", ".java", ".scala":
+		return "jvm"
+	case ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".vue", ".svelte":
+		return "js"
+	case ".c", ".h", ".cc", ".cpp", ".cxx", ".hpp", ".hxx":
+		return "c"
+	case ".cs", ".vb", ".fs":
+		return "dotnet"
+	}
+	return ext
+}
+
+// strictIOIndex are the language families whose short-name index is narrowed, each
+// on a removed-side reading of what narrowing took out: array `find`s, `subscribe`
+// and event handlers in TypeScript, getters and a JSON-path `delete` on the JVM,
+// overloads and parsers in C and C++, channel and runtime calls in Rust. .NET does
+// not gate on the index, so there it only decides what a call is said to rest on.
+var strictIOIndex = map[string]bool{"js": true, "jvm": true, "c": true, ".rs": true, "dotnet": true}
+
 // basisIsFact reports whether a basis is a fact about the callee and not a reading
 // of its name. Only a fact confirms a call as I/O.
 func basisIsFact(basis string) bool {
@@ -1849,38 +1877,58 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 
 	eff := computeEffectiveDepths(byName)
 
-	// Short-name index of methods the extractor flagged as real I/O (performs_io) —
-	// Retrofit endpoints and Room DAO ops. In-loop callees are receiver-qualified short
-	// names (`service.fetchFurly`, `dao.insert`), never canonical fact names, so a
-	// per-iteration call to a genuine I/O method is matched by its method segment.
+	// Short-name index of I/O methods. An in-loop call on a receiver of unknown type
+	// is recorded as its text (`service.fetchFurly`, `dao.insert`), and the method
+	// segment is all there is to go on.
 	//
-	// Go is kept out of it. Go callers never read the index (see callBasis), and
-	// until Go had performs_io its functions never fed it. Once they did, in a
-	// repository holding a Go backend and a TypeScript frontend every Go function
-	// that reaches a query put its name on the list the TypeScript callees were
-	// matched against, and findings closed as pure calls came back.
+	// In the languages of strictIOIndex a name is on the list when every function of
+	// that language that bears it performs I/O, and it is read only for a callee
+	// that does not resolve. One namesake that does no I/O keeps a name off: `find`,
+	// `get` and `update` are each borne by a query somewhere and by a dozen helpers,
+	// and a call to the name says nothing about which. And a callee that resolves to
+	// a function of this repository is judged by that function, not by what else
+	// shares its name.
 	//
-	// The index is otherwise shared across languages, which is an accident and
-	// not a design: a Java callee can match a TypeScript function's name. On the
-	// labelled findings that accident is right 3 times and wrong 5, so it is left
-	// as it was rather than changed in passing.
+	// Elsewhere the list is what it always was: every name some I/O function of any
+	// language bears, read for any callee. Read one call at a time that was right 8
+	// times in 23, and it stays for Python because the alternative is worse there:
+	// Python's unresolved callees are mostly real clients held in attributes
+	// (`s3_hook.get_key`, `credential.get_token`), whose names are common words.
+	// Narrowing it removed real I/O in about half the Python findings read.
 	//
-	// On the JVM only the round trip itself is listed, the method that is io_direct.
-	// That is what the index held when it was written, when a JVM method's
-	// performs_io WAS its io_direct. Once the flag reached the services above a
-	// repository, a third of one codebase's method names were on the list, `getKey`
-	// and `removeAll` among them, and every unresolved call of those names anywhere
-	// was I/O by association.
-	ioMethods := make(map[string]bool)
+	// Go has no list: its callers resolve or are read by package.
+	type ioNameCount struct{ all, io int }
+	counts := make(map[string]map[string]*ioNameCount)
+	loose := make(map[string]bool)
 	for _, f := range funcs {
-		if !f.PerformsIO || strings.HasSuffix(f.File, ".go") {
+		lang := langFamily(f.File)
+		if lang == ".go" {
 			continue
 		}
-		if jvm := strings.HasSuffix(f.File, ".java") || strings.HasSuffix(f.File, ".kt"); jvm && !f.IODirect {
-			continue
+		m := methodSegment(f.Name)
+		if f.PerformsIO && !jvmIONameDenylist[m] {
+			loose[m] = true
 		}
-		if m := methodSegment(f.Name); !jvmIONameDenylist[m] {
-			ioMethods[m] = true
+		if counts[lang] == nil {
+			counts[lang] = make(map[string]*ioNameCount)
+		}
+		c := counts[lang][m]
+		if c == nil {
+			c = &ioNameCount{}
+			counts[lang][m] = c
+		}
+		c.all++
+		if f.PerformsIO {
+			c.io++
+		}
+	}
+	strict := make(map[string]map[string]bool, len(counts))
+	for lang, names := range counts {
+		strict[lang] = make(map[string]bool)
+		for m, c := range names {
+			if c.io == c.all && !jvmIONameDenylist[m] {
+				strict[lang][m] = true
+			}
 		}
 	}
 
@@ -2002,6 +2050,14 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 		// every one of those depths came from the extractor.
 		callNesting, callNestingKnown := 0, true
 		for _, callee := range inLoopCalls {
+			ioMethods := loose
+			if lang := langFamily(f.File); strictIOIndex[lang] {
+				ioMethods = strict[lang]
+				// The index is for a callee nobody could see.
+				if _, ok := byName[callee]; ok {
+					ioMethods = nil
+				}
+			}
 			var isExpensive bool
 			switch {
 			case swift:
