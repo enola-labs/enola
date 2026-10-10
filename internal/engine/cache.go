@@ -20,6 +20,13 @@ import (
 	"github.com/enola-labs/enola/pkg/plugin"
 )
 
+// v311: TypeScript I/O that the callee's name does not show. A resolved call on
+// Angular's HttpClient (`this.http.post(…)`, through the declared type of the
+// constructor parameter property) is io_direct and named in io_calls. A call that
+// hands the global fetch to a wrapper (`fetchRetry(fetch, opts)`) is io_direct. And
+// a call on the result of one of the file's own functions resolves by that
+// function's declared return type, where it is a plain class name
+// (`getInstance().delete(x)`).
 // v310: Python. The in-loop call lists are resolved with the calls relations: they
 // were left dotted, so a callee under a source root or behind a re-export never
 // matched a symbol. A call on `self.x` resolves by what the class declares it
@@ -2721,7 +2728,7 @@ import (
 // v270: SvelteKit reads literal kit.alias fallbacks before generated config exists,
 // keeps tsconfig paths authoritative, and classifies $app/$env/$service-worker imports
 // as framework-provided rather than unresolved third-party dependencies.
-const cacheVersion = "v310"
+const cacheVersion = "v311"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
