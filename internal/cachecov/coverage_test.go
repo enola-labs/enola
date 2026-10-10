@@ -33,6 +33,7 @@ import (
 // test functions that assert the behavior that version introduced. v1 is the
 // implicit baseline (no changelog line), so coverage starts at v2.
 var versionCoverage = map[int][]string{
+	315: {"TestLibraryCallIsClassedWhereItsRootIsARepositoryDirectory"}, // Python: a library whose import root is also a repo directory name is still classed by member
 	314: { // Python: receivers typed by return annotations and by module-level declarations; untyped in-loop I/O calls recorded as written
 		"TestPyValueType", "TestCallOnAccessorResultResolvesByReturnAnnotation",
 		"TestCallOnModuleGlobalResolvesByDeclaredType", "TestUntypedIOCallInLoopIsRecordedAsWritten",

@@ -20,6 +20,10 @@ import (
 	"github.com/enola-labs/enola/pkg/plugin"
 )
 
+// v315: Python. A library call is classed by its member (v313) also where the
+// library's import root is a directory name of the repository, which made its
+// targets read as internal: a provider tree holding `providers/google/…` kept
+// every `google.cloud.…Client` call dotted and unclassed.
 // v314: Python receivers typed by what the source declares
 // (pythonextractor/returntypes.go). A call on the result of a method of the same
 // class or a function of the same file resolves by its return annotation
@@ -2748,7 +2752,7 @@ import (
 // v270: SvelteKit reads literal kit.alias fallbacks before generated config exists,
 // keeps tsconfig paths authoritative, and classifies $app/$env/$service-worker imports
 // as framework-provided rather than unresolved third-party dependencies.
-const cacheVersion = "v314"
+const cacheVersion = "v315"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

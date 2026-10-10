@@ -152,3 +152,37 @@ def fetch_all(urls):
 		t.Errorf("io_calls = %v, want none: requests.get is this repository's function", got)
 	}
 }
+
+// A provider tree has a directory named after the library it wraps. The library's
+// calls then look internal and are kept dotted; they are still the library's.
+func TestLibraryCallIsClassedWhereItsRootIsARepositoryDirectory(t *testing.T) {
+	ff := extractPyRepo(t, map[string]string{
+		"providers/kubernetes/__init__.py": "",
+		"providers/kubernetes/hook.py": `from kubernetes import client
+
+
+class Hook:
+    def __init__(self, api: client.CoreV1Api):
+        self.api = api
+
+    def get_pod(self, name):
+        return self.api.read_namespaced_pod(name)
+
+    def get_all(self, names):
+        return [self.api.read_namespaced_pod(n) for n in names]
+`,
+	})
+	get := pySym(t, ff, "Hook.get_pod")
+	if !pyCallsTo(get, "kubernetes.client.CoreV1Api.read_namespaced_pod") {
+		t.Fatalf("the fixture must make the library read as internal, its call kept dotted; relations: %v", get.Relations)
+	}
+	if got := pyStrings(get.PropAny("io_calls")); !slices.Contains(got, "kubernetes.client.CoreV1Api.read_namespaced_pod") {
+		t.Errorf("get_pod io_calls = %v, want the CoreV1Api request", got)
+	}
+	if !pyIO(get) {
+		t.Error("get_pod makes a request and must be performs_io")
+	}
+	if got := pyStrings(pySym(t, ff, "Hook.get_all").PropAny("io_calls")); len(got) != 1 {
+		t.Errorf("get_all io_calls = %v, want the one request", got)
+	}
+}

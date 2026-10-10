@@ -152,6 +152,13 @@ func resolveCallTargetsWith(allFacts []facts.Fact, fileModules map[string]bool, 
 					}
 					continue // external/stdlib → drop the edge
 				}
+				// A library whose import root is also a directory of this
+				// repository (`providers/google/…` beside `google.cloud`) reads as
+				// internal, and its targets are kept dotted. One that named no
+				// symbol here is still the library's member.
+				if rel.Kind == facts.RelCalls && resolved == rel.Target && !symbols[resolved] {
+					lib.note(resolved, false)
+				}
 				rel.Target = resolved
 			}
 			out = append(out, rel)
@@ -187,6 +194,9 @@ func resolveCallTargetsWith(allFacts []facts.Fact, fileModules map[string]bool, 
 					lib.note(list[j], true)
 				} else if resolved != "" {
 					list[j] = resolved
+					if resolved == c && !symbols[resolved] {
+						lib.note(resolved, true) // see the relations loop
+					}
 				}
 			}
 		}

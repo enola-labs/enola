@@ -1890,6 +1890,16 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 	// (`s3_hook.get_key`, `credential.get_token`), whose names are common words.
 	// Narrowing it removed real I/O in about half the Python findings read.
 	//
+	// It was tried a third time after Python gained a library table and typed
+	// receivers, and measured: of 40 findings it removed, read against source, 11
+	// were correct, and 27 of their 40 named calls were real I/O. That is the rate
+	// of the name-matched findings it leaves. What it cannot see is not a missing
+	// seed: a boto client has no type to declare, and an SDK is called through a
+	// chain of handles (`client.bucket(b).blob(k).delete()`) whose links no
+	// annotation in the repository describes. The Python findings it would remove
+	// for the right reason are wrong by the shape of their loop, mostly a poll,
+	// and that is where they are to be closed.
+	//
 	// Go has no list: its callers resolve or are read by package.
 	type ioNameCount struct{ all, io int }
 	counts := make(map[string]map[string]*ioNameCount)
