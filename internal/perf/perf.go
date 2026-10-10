@@ -2174,6 +2174,18 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 			// one. Tried over every language at once, that rule removed 5 of 5 labelled
 			// Java findings it touched, 4 of 4 TypeScript and 3 of 6 C#, and of 18
 			// Python removals read against source 11 were real I/O.
+			//
+			// It was tried again for Java and C# alone, after calls on declared
+			// receivers resolved in both, and every removal was read. Java: 5
+			// findings removed, one of them labelled correct, a loop that drops a
+			// partition per iteration through a Spring JdbcTemplate field. C#: 24
+			// removed, one labelled correct (a send per session, through an
+			// interface) and at least three more real requests (a metadata client's
+			// `Get…Async`, through the field holding a third-party client). The
+			// receivers resolve now. What is missing is the seed: the type of the
+			// field is a library's, and nothing says that library is a client. Until
+			// Java and C# have a table of library members, as Go and Python do, this
+			// rule removes whatever I/O goes through a library nobody listed.
 			if !isExpensive {
 				r, ok := byName[callee]
 				if !ok {
