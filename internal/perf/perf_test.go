@@ -1829,14 +1829,14 @@ func TestCallInLoopExponentIsItsOwnNestingNotTheCallGraphs(t *testing.T) {
 	}
 }
 
-func TestCallInLoopExponentCountsItsOwnNest(t *testing.T) {
+func TestCallInLoopCountsItsOwnNest(t *testing.T) {
 	funcs := []funcInfo{{
 		Name: "app.Sync", File: "app/sync.go", LoopDepth: 2, LoopCount: 2,
 		CallsInLoop: []string{"db.Query"}, Calls: []string{"db.Query"},
 	}}
 	c, ok := findFinding(analyze(funcs, nil, nil, nil), "app.Sync", "call-in-loop")
-	if !ok || c.BigO != "O(n²)" {
-		t.Errorf("call-in-loop = %+v (ok=%v), want O(n²) from the function's own two-deep nest", c, ok)
+	if !ok || c.Depth != 2 || c.BigO != "" {
+		t.Errorf("call-in-loop = %+v (ok=%v), want depth 2 from the function's own two-deep nest and no Big-O", c, ok)
 	}
 }
 
@@ -2055,18 +2055,37 @@ func TestCallInLoopExponentIsTheNestingAroundTheCall(t *testing.T) {
 		t.Errorf("call at depth 1 in a depth-2 function: %+v (ok=%v), want O(n)", c, ok)
 	}
 
-	// The same call inside the nest really is made n² times.
+	// The same call inside the nest is reported as in a nest of two. Whether the
+	// two loops multiply is not something the count says, so no Big-O is stated,
+	// and the finding says why.
 	sync.CallDepth = map[string]int{"session.execute": 2}
 	c, ok = findFinding(analyze([]funcInfo{sync}, nil, nil, nil), "app.Sync", "call-in-loop")
-	if !ok || c.BigO != "O(n²)" {
-		t.Errorf("call at depth 2: %+v (ok=%v), want O(n²)", c, ok)
+	if !ok || c.Depth != 2 || c.BigO != "" || c.Label() != "depth 2" {
+		t.Errorf("call at depth 2: %+v (ok=%v), want depth 2 and no Big-O", c, ok)
+	}
+	if !strings.Contains(c.Why, "inside 2 nested loops") || !strings.Contains(c.Why, "not a complexity") {
+		t.Errorf("a call in a nest does not say what its depth means: %q", c.Why)
 	}
 
 	// An extractor that reports no per-call depth keeps the function-wide bound.
 	sync.CallDepth = nil
 	c, ok = findFinding(analyze([]funcInfo{sync}, nil, nil, nil), "app.Sync", "call-in-loop")
-	if !ok || c.BigO != "O(n²)" {
-		t.Errorf("no per-call depth: %+v (ok=%v), want the function's O(n²)", c, ok)
+	if !ok || c.Depth != 2 || c.BigO != "" {
+		t.Errorf("no per-call depth: %+v (ok=%v), want the function's depth of 2", c, ok)
+	}
+}
+
+// A call in a nest ranks where it ranked when it carried an exponent: the label
+// changed, and what is worth looking at first did not.
+func TestCallInANestKeepsItsRank(t *testing.T) {
+	for depth, want := range map[int]float64{2: 2, 3: 3, 4: 4, 7: 4} {
+		f := Finding{Kind: "call-in-loop", Depth: depth}
+		if got := findingWeight(f); got != want {
+			t.Errorf("weight at depth %d = %v, want %v", depth, got, want)
+		}
+	}
+	if got := findingWeight(Finding{Kind: "call-in-loop", BigO: "O(n)"}); got != 1 {
+		t.Errorf("weight in one loop = %v, want 1", got)
 	}
 }
 

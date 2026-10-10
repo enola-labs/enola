@@ -201,10 +201,12 @@ type Finding struct {
 	// and returns a silent, permanent zero on Ruby, whose names do not.
 	Package string `json:"package,omitempty"`
 	Kind    string `json:"kind"` // nested-loop | compounded | call-in-loop | recursion
-	// BigO is the estimated worst case, and is set only for the kinds that can
-	// state one: call-in-loop (how often the call is made) and recursion.
+	// BigO is the estimated worst case, and is set only where one can be stated:
+	// a call-in-loop whose call sits in a single loop (O(n), once per element), and
+	// recursion.
 	//
-	// nested-loop and compounded do NOT carry one. They carry Depth instead. A
+	// nested-loop and compounded do NOT carry one, and neither does a call-in-loop
+	// whose call sits in a nest. They carry Depth instead. A
 	// count of nested loops is a fact the parser can establish; the complexity it
 	// implies is not, because loops multiply only when each walks an independent
 	// collection. Three hand-read samples of what this analyzer reported (1,042
@@ -214,8 +216,9 @@ type Finding struct {
 	// continuing its caller's traversal. So the depth is reported as what it is.
 	BigO string `json:"big_o,omitempty"`
 	// Depth is the loop nesting depth of a nested-loop finding (within the
-	// function) or a compounded one (across the call graph), counting only loops
-	// that scale with some input. It is a structural count, not an exponent.
+	// function), a compounded one (across the call graph), or the nest around the
+	// call of a call-in-loop finding, counting only loops that scale with some
+	// input. It is a structural count, not an exponent.
 	Depth    int    `json:"depth,omitempty"`
 	Severity string `json:"severity"` // high | medium | low
 	// Confidence in [0,1]: how much to trust this as a real risk vs. a structural
@@ -805,21 +808,9 @@ const depthIsNotComplexity = "That is a count of nested loops, not a complexity:
 // here means a confirmed I/O call in a loop or a route handler.
 const structuralSeverity = "medium"
 
-// deepEstimateDepth is the nesting beyond which a cross-call-graph worst-case estimate
-// (compounded / call-in-loop, whose depth comes from effective nesting across the call
-// graph) is no longer trustworthy as a precise exponent.
+// deepEstimateDepth is the nesting beyond which the exact count of an estimated
+// depth (compounded, call-in-loop) is not worth stating or ranking on.
 const deepEstimateDepth = 4
-
-// bigOEstimate renders an estimate-based Big-O, collapsing depth >= deepEstimateDepth into
-// one honest "O(n³+)" bucket instead of a false-precision O(n^7). Returns deep=true when
-// the cap applied. Used only for compounded / call-in-loop; nested-loop uses the exact
-// bigOForDepth of its local (lexical) scaling depth, which is reliable.
-func bigOEstimate(d int) (label string, deep bool) {
-	if d >= deepEstimateDepth {
-		return "O(n³+)", true
-	}
-	return bigOForDepth(d), false
-}
 
 // expensiveMethods flags call targets that are likely I/O / DB / network work by
 // their METHOD NAME — matched against the method segment (the part of the target
@@ -2228,15 +2219,30 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 			if depth < 1 {
 				depth = 1
 			}
-			bigO, _ := bigOEstimate(depth)
-			findings = append(findings, Finding{
+			// In one loop the claim is O(n): the call is made once per element, and
+			// that is something a reader can check against the loop. In a nest it
+			// is not a claim this can make. The loops around the call are counted,
+			// and whether they multiply is exactly what the count does not say: of
+			// 55 hand-read findings that printed O(n²) or more for a call in a nest,
+			// one was right. The rest were a parent-then-children walk, a batch
+			// being drained, or a loop over a fixed list around the real one. So a
+			// nest is reported as the depth it is, as nested-loop and compounded
+			// findings are.
+			finding := Finding{
 				Symbol: f.Name, File: f.File, Line: f.Line, Repo: f.Repo, Package: f.Package,
-				Kind: "call-in-loop", BigO: bigO, Severity: sev,
+				Kind: "call-in-loop", Severity: sev,
 				Confidence: confidenceFor("call-in-loop", confirmedIO, depth, f.loopDiscounted()),
 				Why:        callInLoopWhy(expensive),
 				Evidence:   evidence,
 				Calls:      calls,
-			})
+			}
+			if depth == 1 {
+				finding.BigO = bigOForDepth(1)
+			} else {
+				finding.Depth = depth
+				finding.Why += fmt.Sprintf(" The call sits inside %d nested loops. %s", depth, depthIsNotComplexity)
+			}
+			findings = append(findings, finding)
 		}
 	}
 
@@ -2314,7 +2320,9 @@ func findingWeight(f Finding) float64 {
 	if f.BigO != "" {
 		return complexityWeight(f.BigO)
 	}
-	if f.Kind == "compounded" && f.Depth >= deepEstimateDepth {
+	// Capped where the Big-O label for the same depth was: past three levels the
+	// exact count of an estimate is not worth ranking on.
+	if (f.Kind == "compounded" || f.Kind == "call-in-loop") && f.Depth >= deepEstimateDepth {
 		return 4
 	}
 	return float64(f.Depth)
@@ -2482,9 +2490,10 @@ type response struct {
 
 const toolDescription = "Ranked performance risks per function: I/O or database calls inside loops (a likely N+1), recursion, " +
 	"nested loops, and nesting that continues across the call graph. Each finding has symbol (file:line), kind, severity " +
-	"(high, medium, low) and a plain-English why. A call-in-loop or recursion finding has big_o, the estimated worst case. " +
-	"A nested-loop or compounded finding has depth instead: a count of nested loops, which is a fact about the code's shape " +
-	"and NOT a complexity, since nested loops multiply only when each walks an independent collection. Parser-derived and " +
+	"(high, medium, low) and a plain-English why. A recursion finding, and a call-in-loop finding whose call sits in one loop, " +
+	"has big_o, the estimated worst case. A nested-loop or compounded finding, and a call-in-loop finding whose call sits in " +
+	"a nest, has depth instead: a count of nested loops, which is a fact about the code's shape and NOT a complexity, since " +
+	"nested loops multiply only when each walks an independent collection. Parser-derived and " +
 	"deterministic: an estimate, not a proof. " +
 	"A query-loop finding is one the query-loops explainer made (Rails): a database query per iteration, read from the " +
 	"receiver's type. All of them are returned here, including those that explainer counts in its rollup and does not list. " +
@@ -2542,8 +2551,8 @@ func Register(srv *mcp.Server, store func() *facts.Store) {
 				Findings: shown,
 				Summary:  sum,
 				Returned: len(shown),
-				Note: "big_o (call-in-loop, recursion) is a deterministic estimate of worst case from parser facts, not a proof. " +
-					"depth (nested-loop, compounded) is a count of nested loops and NOT a complexity: nested loops multiply only when each walks an independent collection. Supports Go, Python, Ruby, Swift, Kotlin, Scala, Dart, TypeScript, Java, C++, and C#. " +
+				Note: "big_o (recursion, and a call-in-loop whose call sits in one loop) is a deterministic estimate of worst case from parser facts, not a proof. " +
+					"depth (nested-loop, compounded, and a call-in-loop whose call sits in a nest) is a count of nested loops and NOT a complexity: nested loops multiply only when each walks an independent collection. Supports Go, Python, Ruby, Swift, Kotlin, Scala, Dart, TypeScript, Java, C++, and C#. " +
 					"SCALA: a `for … yield` comprehension and flatMap/fold are monadic binds as often as iteration, so they raise loop_depth but NOT scaling depth — a finding over one is downgraded rather than claimed; a combinator applied to an Option is discounted the same way. " +
 					strings.ReplaceAll(strings.TrimSpace(kindLegend(shown)), "\n", " "),
 			}, in.MaxTokens)
