@@ -2486,8 +2486,11 @@ const toolDescription = "Ranked performance risks per function: I/O or database 
 	"A nested-loop or compounded finding has depth instead: a count of nested loops, which is a fact about the code's shape " +
 	"and NOT a complexity, since nested loops multiply only when each walks an independent collection. Parser-derived and " +
 	"deterministic: an estimate, not a proof. " +
+	"A query-loop finding is one the query-loops explainer made (Rails): a database query per iteration, read from the " +
+	"receiver's type. All of them are returned here, including those that explainer counts in its rollup and does not list. " +
 	"Supports Go, Python, Ruby, Swift, Kotlin, Scala, Dart, TypeScript, Java, C++ and C#. " +
-	"Findings of medium severity and up also appear in query_insights(explainer=\"performance\")."
+	"Findings of medium severity and up also appear in query_insights(explainer=\"performance\"); query-loop findings " +
+	"appear in query_insights(explainer=\"query-loops\")."
 
 // Register adds the analyze_performance tool to the given MCP server. Calls are
 // recorded by the OSS value middleware, which is registered once on this shared
@@ -2503,6 +2506,10 @@ func Register(srv *mcp.Server, store func() *facts.Store) {
 
 		funcs, storage, routeHandlers, assoc := collect(store())
 		all := analyze(funcs, storage, routeHandlers, assoc)
+		// And the query-loops explainer's findings, every one of them: see
+		// queryLoopFindings.
+		all = append(all, queryLoopFindings(store(), routeHandlers)...)
+		sortFindings(all)
 
 		// Filter FIRST, then summarize. The summary must be computed from the same
 		// set the caller is shown; building it beforehand is how a filtered query came
@@ -2550,12 +2557,91 @@ func Register(srv *mcp.Server, store func() *facts.Store) {
 	})
 }
 
+// kindQueryLoop is a finding the query-loops explainer made, listed here.
+const kindQueryLoop = "query-loop"
+
+// basisTypedReceiver is what a query-loop finding's call rests on: the receiver
+// is a model the graph knows, or a record whose type a block binding states.
+const basisTypedReceiver = "typed-receiver"
+
+// queryLoopFindings lists the query-loops explainer's findings as findings of
+// this tool.
+//
+// The analyzer stays silent on a symbol that explainer reports, and leaves a lazy
+// association read to it altogether, because it answers the question from the
+// receiver's type where this analyzer has a name. But the explainer names a fixed
+// number of findings per repository and counts the rest in one line, so a query
+// per iteration that ranked past that number was named nowhere. This tool has no
+// such limit and is the surface that returns every finding, so they are returned
+// here: all of them, the listed ones too, so that the answer to "what does this
+// function do in its loops" is in one place.
+//
+// They are added for the tool only. The explainer publishes its own insights, and
+// publishing them again under this one would report each loop twice.
+func queryLoopFindings(store *facts.Store, routeHandlers map[string]bool) []Finding {
+	found := queryloops.All(store)
+	if len(found) == 0 {
+		return nil
+	}
+	type key struct{ repo, name string }
+	lines := make(map[key]int)
+	for _, f := range store.ByKind(facts.KindSymbol) {
+		lines[key{f.Repo, f.Name}] = f.Line
+	}
+	out := make([]Finding, 0, len(found))
+	for _, q := range found {
+		depth := q.Depth
+		if depth < 1 {
+			depth = 1
+		}
+		f := Finding{
+			Symbol: q.Symbol, File: q.File, Line: lines[key{q.Repo, q.Symbol}], Repo: q.Repo,
+			Kind: kindQueryLoop, Confidence: q.Confidence,
+			Evidence: []string{"query_in_loop=" + q.Call},
+			Calls:    []CallEvidence{{Callee: q.Call, Basis: basisTypedReceiver, Depth: depth}},
+		}
+		// One query per element is a claim this can make. A product of the
+		// enclosing loops is not, so deeper nesting is stated as a depth.
+		if depth == 1 {
+			f.BigO = bigOForDepth(1)
+		} else {
+			f.Depth = depth
+		}
+		switch {
+		case q.Write:
+			f.Why = fmt.Sprintf("Writes with %s once per iteration, on a %s. A write per element cannot be eager-loaded away; replace it with one bulk update or insert.", q.Call, q.Element)
+		case q.Element != "":
+			f.Why = fmt.Sprintf("Reads %s once per iteration: the loop's element is a %s, and each read loads its %s. Eager-load the association on the collection.", q.Call, q.Element, q.Target)
+		default:
+			f.Why = fmt.Sprintf("Calls %s once per iteration. The receiver is a model and the method reaches the database; read the set once outside the loop.", q.Call)
+		}
+		if !q.Listed {
+			f.Why += " Counted in the query-loops rollup, not listed there individually."
+		}
+		// Graded as the explainer grades it: a typed receiver is evidence, a
+		// one-shot surface is not a production risk, and an element typed by a
+		// parameter's name alone is a candidate.
+		switch {
+		case q.OneOff:
+			f.Severity = "low"
+		case q.Confidence >= 0.8:
+			f.Severity = "high"
+		default:
+			f.Severity = "medium"
+		}
+		f.RiskScore = riskScore(f, routeHandlers)
+		out = append(out, f)
+	}
+	return out
+}
+
 // kindMeanings define the finding kinds, for the legend a response carries.
 var kindMeanings = []struct{ kind, meaning string }{
 	{"nested-loop", "loops nested inside one function; the depth is a count, not a complexity"},
 	{"compounded", "nesting that continues across the call graph, as a loop calls a function that loops; a count, not a complexity"},
 	{"call-in-loop", "an I/O, database or network call inside a loop, a likely N+1"},
 	{"recursion", "a function that calls itself"},
+	{"query-loop", "a database query issued once per iteration, read from the receiver's type by the query-loops explainer"},
 }
 
 // kindLegend defines the kinds that occur in findings, one line each, or "" for none.

@@ -2385,3 +2385,40 @@ func TestGoFunctionsDoNotFeedTheIOMethodIndex(t *testing.T) {
 		t.Errorf("a TypeScript call matched a Go function's name: %+v", f)
 	}
 }
+
+// The query-loops explainer's findings are findings of this tool too, the ones it
+// counts in its rollup included. A one-shot surface ranks low, as it does there.
+func TestQueryLoopFindingsAreListedByTheTool(t *testing.T) {
+	store := facts.NewStore()
+	store.Add(facts.Fact{Kind: facts.KindStorage, Name: "Account", Repo: "app",
+		Props: map[string]any{"storage_kind": "model", "language": "ruby"}})
+	add := func(name, file string, depth int) {
+		store.Add(facts.Fact{Kind: facts.KindSymbol, Name: name, Repo: "app", File: file, Line: 12,
+			Props: map[string]any{"language": "ruby", "symbol_kind": "method", "loop_depth": depth,
+				"calls_in_loop": []string{"Account.find_by"}}})
+	}
+	add("MoveWorker#carry_over!", "app/workers/move_worker.rb", 1)
+	add("Report#matrix", "app/models/report.rb", 2)
+	add("Backfill#up", "db/migrate/20240101000000_backfill.rb", 1)
+
+	got := queryLoopFindings(store, nil)
+	byName := map[string]Finding{}
+	for _, f := range got {
+		byName[f.Symbol] = f
+	}
+	w, ok := byName["MoveWorker#carry_over!"]
+	if !ok {
+		t.Fatalf("no finding for the worker; got %+v", got)
+	}
+	if w.Kind != kindQueryLoop || w.Severity != "high" || w.BigO != "O(n)" || w.Line != 12 ||
+		len(w.Calls) != 1 || w.Calls[0] != (CallEvidence{Callee: "Account.find_by", Basis: basisTypedReceiver, Depth: 1}) {
+		t.Errorf("worker finding = %+v, want a high O(n) query-loop on Account.find_by", w)
+	}
+	// Nested two deep it states a depth, not a product it cannot vouch for.
+	if m := byName["Report#matrix"]; m.BigO != "" || m.Depth != 2 {
+		t.Errorf("matrix: big_o %q depth %d, want a depth of 2 and no Big-O", m.BigO, m.Depth)
+	}
+	if b, ok := byName["Backfill#up"]; ok && b.Severity != "low" {
+		t.Errorf("a migration's finding is ranked %q, want low", b.Severity)
+	}
+}
