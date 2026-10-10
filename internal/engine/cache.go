@@ -20,6 +20,13 @@ import (
 	"github.com/enola-labs/enola/pkg/plugin"
 )
 
+// v310: Python. The in-loop call lists are resolved with the calls relations: they
+// were left dotted, so a callee under a source root or behind a re-export never
+// matched a symbol. A call on `self.x` resolves by what the class declares it
+// holds there (an annotation, the constructor or the typed parameter it is
+// assigned from, the return annotation of a property of that name). And the
+// object-store client methods of boto3 and google-cloud-storage are io_direct by
+// name, since they are called on a client no receiver type describes.
 // v309: Kotlin calls on a receiver of declared type are calls edges, as in Java
 // (v307) and C# (v308): a constructor property, a property, a parameter, a typed
 // local, a local constructed with `Type(…)`, an object named by its type. And a
@@ -2714,7 +2721,7 @@ import (
 // v270: SvelteKit reads literal kit.alias fallbacks before generated config exists,
 // keeps tsconfig paths authoritative, and classifies $app/$env/$service-worker imports
 // as framework-provided rather than unresolved third-party dependencies.
-const cacheVersion = "v309"
+const cacheVersion = "v310"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

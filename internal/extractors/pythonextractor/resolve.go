@@ -119,8 +119,33 @@ func resolveCallTargets(allFacts []facts.Fact, fileModules map[string]bool, pkgD
 			out = append(out, rel)
 		}
 		f.Relations = out
+
+		// The in-loop lists repeat the call targets, and have to be resolved with
+		// them. They were left in dotted form, so the performance analyzer, which
+		// looks a callee up by its canonical name, found one only where the dotted
+		// path and the file path happened to coincide: not under a source root
+		// (`providers/amazon/src/airflow/…`), and not through a re-export. A target
+		// of another distribution keeps its dotted form, which is how it is told
+		// from one of this repository.
+		for _, key := range inLoopCallProps {
+			list, ok := f.PropAny(key).([]string)
+			if !ok {
+				continue
+			}
+			for j, c := range list {
+				if !isDottedCallTarget(c) {
+					continue
+				}
+				if resolved, keep := resolveDottedTarget(c, fileIdx, topPkgs, importerDir, reexports, symbols); keep && resolved != "" {
+					list[j] = resolved
+				}
+			}
+		}
 	}
 }
+
+// inLoopCallProps are the props that repeat a function's call targets.
+var inLoopCallProps = []string{"calls_in_loop", "calls_in_scaling_loop", "calls_on_loop_element"}
 
 func resolveImplementsTargets(allFacts []facts.Fact, fileModules map[string]bool, pkgDirs map[string]bool) {
 	fileIdx := buildSuffixIndex(fileModules, pkgDirs)
