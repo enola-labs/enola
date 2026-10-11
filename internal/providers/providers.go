@@ -43,34 +43,16 @@ import (
 	"sync"
 
 	"github.com/enola-labs/enola/internal/facts"
+	"github.com/enola-labs/enola/internal/providerspec"
 )
 
-// Provider is one configured fact source: the census name its facts are
-// stamped with, the command (argv) the seam runs, and the version the
-// operator expects the installed build to report. An entry with no command
-// names a provider the binary carries itself (see builtin.go), run
-// in-process under the same validation and census. A reported version that
-// disagrees with the expected one is a skip, not a merge — facts from a build
-// the config did not pin would drift the graph for reasons no code change made.
-type Provider struct {
-	Name            string   `yaml:"name"`
-	Command         []string `yaml:"command"`
-	ExpectedVersion string   `yaml:"expected_version"`
-	// Files declares how the provider's output partitions. Empty means the
-	// provider reads the whole tree on every run. FilesPerFile means every
-	// fact it emits names the file it came from and nothing else influenced
-	// it, so the seam may hand it only the files whose content has no cache
-	// entry and reuse the rest; a provider that reads across files must not
-	// declare it, because the cache would then serve facts computed against
-	// a tree that has since changed.
-	Files string `yaml:"files,omitempty"`
-	// Extensions names the file suffixes a per-file provider reads, so the
-	// seam keys and lists only those; required with FilesPerFile.
-	Extensions []string `yaml:"extensions,omitempty"`
-}
+// Provider is one configured fact source. The declaration and its validation
+// live in internal/providerspec, which the config loads without reaching this
+// package and the engines behind it.
+type Provider = providerspec.Spec
 
 // FilesPerFile is the one value Provider.Files accepts.
-const FilesPerFile = "per-file"
+const FilesPerFile = providerspec.FilesPerFile
 
 // FilesFlag is the argument a per-file provider receives after the repository
 // path: the path of a file listing, one repo-relative path per line, the files
@@ -181,43 +163,6 @@ var allowedRelationKinds = map[string]bool{
 	facts.RelInjects:      true,
 	facts.RelHasMethod:    true,
 	facts.RelHandledBy:    true,
-}
-
-// Validate checks the configured provider list's shape at config load, with
-// the same contract every other vocabulary gets: named errors, nothing silent.
-func Validate(providers []Provider) error {
-	seen := map[string]bool{}
-	for i, p := range providers {
-		if strings.TrimSpace(p.Name) == "" {
-			return fmt.Errorf("providers[%d]: missing name", i)
-		}
-		if seen[p.Name] {
-			return fmt.Errorf("providers[%d]: name %q is declared twice", i, p.Name)
-		}
-		seen[p.Name] = true
-		if p.Files != "" && p.Files != FilesPerFile {
-			return fmt.Errorf("providers[%d] (%s): files must be %q or absent, got %q", i, p.Name, FilesPerFile, p.Files)
-		}
-		if p.Files == FilesPerFile && len(p.Extensions) == 0 {
-			return fmt.Errorf("providers[%d] (%s): files: %s needs the extensions the provider reads", i, p.Name, FilesPerFile)
-		}
-		if p.Files == "" && len(p.Extensions) > 0 {
-			return fmt.Errorf("providers[%d] (%s): extensions only mean something with files: %s", i, p.Name, FilesPerFile)
-		}
-		if len(p.Command) == 0 {
-			if _, builtIn := builtIns[p.Name]; !builtIn {
-				return fmt.Errorf("providers[%d] (%s): missing command, and no built-in provider has that name (built-ins: %s)", i, p.Name, strings.Join(BuiltInNames(), ", "))
-			}
-			if p.Files != "" {
-				return fmt.Errorf("providers[%d] (%s): a built-in provider decides its own caching; files: is for commands", i, p.Name)
-			}
-			continue
-		}
-		if strings.TrimSpace(p.Command[0]) == "" {
-			return fmt.Errorf("providers[%d] (%s): missing command", i, p.Name)
-		}
-	}
-	return nil
 }
 
 // Run executes every configured provider against repoPath and returns the

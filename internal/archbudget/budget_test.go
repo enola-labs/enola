@@ -54,17 +54,14 @@ var hubBudgets = map[string]int{
 
 // maxChainBudget is the number of packages on the longest import chain. Today:
 // cmd/enola -> pkg/command -> pkg/dashboard -> pkg/bootstrap -> internal/server ->
-// internal/drift -> internal/engine -> internal/config -> internal/providers ->
-// internal/providers/rubydex -> internal/facts -> internal/factpath.
+// internal/drift -> internal/engine -> internal/diff -> internal/explainers/constraints ->
+// internal/explainers/common -> internal/facts -> internal/factpath.
 const maxChainBudget = 12
 
 type edge struct{ from, to string }
 
 // pendingCuts exist today and are scheduled to be removed.
 var pendingCuts = []edge{
-	// The config package reaches a concrete provider through this, which puts
-	// providers and rubydex on every chain that passes through config.
-	{"internal/config", "internal/providers"},
 	// A view and a report importing the composition root, and with it every
 	// extractor the binary carries.
 	{"pkg/dashboard", "pkg/bootstrap"},
@@ -72,7 +69,12 @@ var pendingCuts = []edge{
 }
 
 // forbiddenEdges were cut and must not return.
-var forbiddenEdges = []edge{}
+var forbiddenEdges = []edge{
+	// The config validates a provider list against internal/providerspec. Reaching
+	// the package that runs providers put it, and the rubydex engine behind it, on
+	// every chain that passes through config.
+	{"internal/config", "internal/providers"},
+}
 
 // importGraph returns, for every package in the module, the module packages it
 // imports, both as paths relative to the module root.

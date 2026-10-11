@@ -2,22 +2,27 @@ package providers
 
 import (
 	"context"
+	"reflect"
+	"sort"
 	"strings"
 	"testing"
 
 	"github.com/enola-labs/enola/internal/providers/rubydex"
+	"github.com/enola-labs/enola/internal/providerspec"
 )
 
-// An entry without a command is valid only when the binary carries a
-// provider of that name; anything else is a config error that names the
-// built-ins, not a silent skip at snapshot time.
-func TestValidate_NoCommandNamesABuiltIn(t *testing.T) {
-	if err := Validate([]Provider{{Name: "rubydex"}}); err != nil {
-		t.Fatalf("a built-in needs no command: %v", err)
+// The names a config may use without a command are declared in providerspec,
+// where the config validates against them, and implemented here. A name
+// declared with no runner would validate and then fail at snapshot time; a
+// runner with no declared name could never be configured.
+func TestBuiltIns_ImplementExactlyTheDeclaredNames(t *testing.T) {
+	implemented := make([]string, 0, len(builtIns))
+	for name := range builtIns {
+		implemented = append(implemented, name)
 	}
-	err := Validate([]Provider{{Name: "nope"}})
-	if err == nil || !strings.Contains(err.Error(), "built-ins: rubydex") {
-		t.Fatalf("an unknown name without a command must be refused and the built-ins named, got %v", err)
+	sort.Strings(implemented)
+	if declared := providerspec.BuiltInNames(); !reflect.DeepEqual(implemented, declared) {
+		t.Errorf("runners exist for %v, providerspec declares %v", implemented, declared)
 	}
 }
 

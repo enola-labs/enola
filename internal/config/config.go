@@ -12,7 +12,7 @@ import (
 	"github.com/enola-labs/enola/internal/clientspec"
 	"github.com/enola-labs/enola/internal/intent"
 	"github.com/enola-labs/enola/internal/linkers/vocab"
-	"github.com/enola-labs/enola/internal/providers"
+	"github.com/enola-labs/enola/internal/providerspec"
 )
 
 // Config represents the mcp-arch.yaml configuration.
@@ -72,7 +72,7 @@ type Config struct {
 	// internal/providers for the exchange contract; changing this list changes
 	// emitted facts, so it is folded into the snapshot's config hash and the
 	// ran-provider set is compared between snapshots like the extractor set.
-	Providers []providers.Provider `yaml:"providers"`
+	Providers []providerspec.Spec `yaml:"providers"`
 
 	// Linking overlays the cross-repo linker's tuning vocabulary — the word lists that
 	// decide which names are too generic to link on, and the numeric thresholds. It is
@@ -637,7 +637,7 @@ func (c *Config) Normalize() error {
 	}
 	c.Output.Dir = dir
 
-	if err := providers.Validate(c.Providers); err != nil {
+	if err := providerspec.Validate(c.Providers); err != nil {
 		return err
 	}
 
