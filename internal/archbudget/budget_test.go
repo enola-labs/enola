@@ -43,7 +43,7 @@ const modulePath = "github.com/enola-labs/enola/"
 // language added and says nothing about coupling.
 var hubBudgets = map[string]int{
 	"internal/engine": 18,
-	"internal/server": 24,
+	"internal/server": 23,
 	"pkg/command":     33,
 	"pkg/check":       10,
 	"internal/config": 4,
@@ -53,10 +53,10 @@ var hubBudgets = map[string]int{
 }
 
 // maxChainBudget is the number of packages on the longest import chain. Today:
-// cmd/enola -> pkg/command -> pkg/bootstrap -> internal/server -> internal/drift ->
-// internal/engine -> internal/diff -> internal/explainers/constraints ->
+// cmd/enola -> pkg/command -> pkg/bootstrap -> internal/server ->
+// internal/conformance -> internal/diff -> internal/explainers/constraints ->
 // internal/explainers/common -> internal/facts -> internal/factpath.
-const maxChainBudget = 11
+const maxChainBudget = 10
 
 type edge struct{ from, to string }
 

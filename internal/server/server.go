@@ -20,7 +20,6 @@ import (
 	"github.com/enola-labs/enola/internal/config"
 	"github.com/enola-labs/enola/internal/conformance"
 	"github.com/enola-labs/enola/internal/diff"
-	"github.com/enola-labs/enola/internal/drift"
 	"github.com/enola-labs/enola/internal/endpoint"
 	"github.com/enola-labs/enola/internal/engine"
 	"github.com/enola-labs/enola/internal/explainers/constraints"
@@ -2340,7 +2339,7 @@ func (s *Server) registerTools() {
 		// because it re-hashes the repo — affordable at a deliberate decision point,
 		// not on every tool call. Focused() preserves Comparability, so this is added
 		// after narrowing and still renders above the delta.
-		drift.AddWarning(d, s.eng, repoPath, "diff_snapshot")
+		addDriftWarning(d, s.eng, repoPath, "diff_snapshot")
 		if note != "" {
 			d.AddWarningKind(diff.WarnOtherSession, note)
 		}
