@@ -1,0 +1,21 @@
+$ enola --generate .
+exit: 0
+--- stdout
+--- stderr
+enola: no mcp-arch.yaml in <TMP>/services, using built-in defaults
+
+Detected 2 git repositories in <TMP>/services: api, consumer
+Indexing them as a cluster, so each one becomes a service and the calls between them are linked.
+  Using the cluster config already there: <TMP>/services/cluster.yaml
+  To index <TMP>/services as one repository instead: enola --generate --no-cluster <TMP>/services
+
+
+Snapshot complete:
+  Repositories: 2
+    - <TMP>/services/api
+    - <TMP>/services/consumer
+  Facts:       22
+  Insights:    6
+  Artifacts:   1
+  Duration:    <DURATION>
+  Output:      <TMP>/services/consumer/.enola

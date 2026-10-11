@@ -1,0 +1,13 @@
+Found **1** insight(s).
+
+### 1. Cyclic dependency detected (2 modules)
+- explainer: cycles · confidence: 1.00
+- The following modules form a dependency cycle: pkg/a -> pkg/b -> pkg/a. This can cause initialization issues, make refactoring harder, and indicates tight coupling.
+- evidence (2):
+    - pkg/a — module "pkg/a" is part of the cycle
+    - pkg/b — module "pkg/b" is part of the cycle
+- suggested actions:
+    - Introduce an interface to break the cycle
+    - Extract shared types to a separate package
+    - Consider merging tightly coupled modules
+

@@ -104,6 +104,9 @@ layers:
       - "internal/updatecheck/**"
       - "internal/upgrade/**"
       - "internal/cachecov/**"
+      # internal/archbudget is the same kind of package: a guard test and no code,
+      # importing nothing of enola's.
+      - "internal/archbudget/**"
       - "internal/estateref/**"
       # internal/workspace is core, and depends on nothing of enola's: it finds the git
       # repositories under a folder for the CLI, the subcommands and the MCP server.

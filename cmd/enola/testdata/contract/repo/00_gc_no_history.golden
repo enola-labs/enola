@@ -1,0 +1,7 @@
+$ enola gc --dry-run .
+exit: 0
+--- stdout
+<TMP>/.enola/graphs/go_sample-<KEY>/history
+
+No revisions recorded.
+--- stderr

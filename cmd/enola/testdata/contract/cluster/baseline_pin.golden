@@ -1,0 +1,15 @@
+$ enola baseline pin cluster.yaml
+exit: 0
+--- stdout
+Baseline pinned for <TMP>/services/api
+  Generated: <TIME>
+  Repo:      <TMP>/services/api
+  Facts:     22 · Insights: 6
+  Snapshot:  sha256:<HASH>
+
+Now make your changes, then run:
+    enola check <TMP>/services/api
+--- stderr
+enola: using config <TMP>/services/cluster.yaml
+enola baseline: config <TMP>/services/cluster.yaml
+enola baseline: regenerating, consumer's snapshot is not comparable with this build: different_repo

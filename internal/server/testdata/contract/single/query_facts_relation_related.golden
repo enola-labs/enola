@@ -1,0 +1,357 @@
+{
+  "filters": "Filters applied: relation=calls",
+  "facts": [
+    {
+      "kind": "symbol",
+      "name": "..main",
+      "file": "main.go",
+      "line": 10,
+      "repo": "go_sample",
+      "props": {
+        "cyclomatic": 1,
+        "exported": false,
+        "language": "go",
+        "symbol_kind": "function"
+      },
+      "relations": [
+        {
+          "kind": "declares",
+          "target": "."
+        },
+        {
+          "kind": "calls",
+          "target": "pkg/a.Alpha"
+        },
+        {
+          "kind": "calls",
+          "target": "pkg/b.Beta"
+        }
+      ],
+      "related_facts": [
+        {
+          "kind": "module",
+          "name": ".",
+          "file": ".",
+          "repo": "go_sample",
+          "props": {
+            "language": "go",
+            "modulePath": "example.com/gosample",
+            "package": "main"
+          }
+        },
+        {
+          "kind": "symbol",
+          "name": "pkg/a.Alpha",
+          "file": "pkg/a/a.go",
+          "line": 7,
+          "repo": "go_sample",
+          "props": {
+            "cyclomatic": 1,
+            "exported": true,
+            "language": "go",
+            "symbol_kind": "function"
+          },
+          "relations": [
+            {
+              "kind": "declares",
+              "target": "pkg/a"
+            },
+            {
+              "kind": "calls",
+              "target": "pkg/b.Beta"
+            }
+          ]
+        },
+        {
+          "kind": "symbol",
+          "name": "pkg/b.Beta",
+          "file": "pkg/b/b.go",
+          "line": 6,
+          "repo": "go_sample",
+          "props": {
+            "cyclomatic": 1,
+            "exported": true,
+            "language": "go",
+            "symbol_kind": "function"
+          },
+          "relations": [
+            {
+              "kind": "declares",
+              "target": "pkg/b"
+            },
+            {
+              "kind": "calls",
+              "target": "pkg/a.Alpha"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "symbol",
+      "name": "pkg/a.Alpha",
+      "file": "pkg/a/a.go",
+      "line": 7,
+      "repo": "go_sample",
+      "props": {
+        "cyclomatic": 1,
+        "exported": true,
+        "language": "go",
+        "symbol_kind": "function"
+      },
+      "relations": [
+        {
+          "kind": "declares",
+          "target": "pkg/a"
+        },
+        {
+          "kind": "calls",
+          "target": "pkg/b.Beta"
+        }
+      ],
+      "related_facts": [
+        {
+          "kind": "module",
+          "name": "pkg/a",
+          "file": "pkg/a",
+          "repo": "go_sample",
+          "props": {
+            "language": "go",
+            "package": "a"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "symbol",
+      "name": "pkg/a.GetPath",
+      "file": "pkg/a/a.go",
+      "line": 15,
+      "repo": "go_sample",
+      "props": {
+        "calls_in_loop": [
+          "pkg/a.getByID"
+        ],
+        "calls_in_scaling_loop": [
+          "pkg/a.getByID"
+        ],
+        "calls_in_scaling_loop_depth": [
+          0
+        ],
+        "calls_on_loop_element": [],
+        "cyclomatic": 2,
+        "exported": true,
+        "language": "go",
+        "loop_count": 1,
+        "loop_depth": 1,
+        "orphan_class": "unreferenced",
+        "scaling_loop_depth": 0,
+        "symbol_kind": "function"
+      },
+      "relations": [
+        {
+          "kind": "declares",
+          "target": "pkg/a"
+        },
+        {
+          "kind": "calls",
+          "target": "pkg/a.getByID"
+        }
+      ],
+      "related_facts": [
+        {
+          "kind": "symbol",
+          "name": "pkg/a.getByID",
+          "file": "pkg/a/a.go",
+          "line": 30,
+          "repo": "go_sample",
+          "props": {
+            "cyclomatic": 1,
+            "exported": false,
+            "language": "go",
+            "symbol_kind": "function"
+          },
+          "relations": [
+            {
+              "kind": "declares",
+              "target": "pkg/a"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "symbol",
+      "name": "pkg/a.Seed",
+      "file": "pkg/a/a.go",
+      "line": 24,
+      "repo": "go_sample",
+      "props": {
+        "calls_in_loop": [
+          "pkg/a.setup"
+        ],
+        "calls_in_scaling_loop": [],
+        "calls_in_scaling_loop_depth": [],
+        "calls_on_loop_element": [],
+        "cyclomatic": 2,
+        "exported": true,
+        "language": "go",
+        "loop_count": 1,
+        "loop_depth": 1,
+        "orphan_class": "unreferenced",
+        "scaling_loop_depth": 0,
+        "symbol_kind": "function"
+      },
+      "relations": [
+        {
+          "kind": "declares",
+          "target": "pkg/a"
+        },
+        {
+          "kind": "calls",
+          "target": "pkg/a.setup"
+        }
+      ],
+      "related_facts": [
+        {
+          "kind": "symbol",
+          "name": "pkg/a.setup",
+          "file": "pkg/a/a.go",
+          "line": 31,
+          "repo": "go_sample",
+          "props": {
+            "cyclomatic": 1,
+            "exported": false,
+            "language": "go",
+            "symbol_kind": "function"
+          },
+          "relations": [
+            {
+              "kind": "declares",
+              "target": "pkg/a"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "symbol",
+      "name": "pkg/b.Beta",
+      "file": "pkg/b/b.go",
+      "line": 6,
+      "repo": "go_sample",
+      "props": {
+        "cyclomatic": 1,
+        "exported": true,
+        "language": "go",
+        "symbol_kind": "function"
+      },
+      "relations": [
+        {
+          "kind": "declares",
+          "target": "pkg/b"
+        },
+        {
+          "kind": "calls",
+          "target": "pkg/a.Alpha"
+        }
+      ],
+      "related_facts": [
+        {
+          "kind": "module",
+          "name": "pkg/b",
+          "file": "pkg/b",
+          "repo": "go_sample",
+          "props": {
+            "language": "go",
+            "package": "b"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "test_ref",
+      "name": "pkg/a/a_ext_test.go",
+      "file": "pkg/a/a_ext_test.go",
+      "repo": "go_sample",
+      "props": {
+        "language": "go"
+      },
+      "relations": [
+        {
+          "kind": "calls",
+          "target": "pkg/a.Gamma"
+        },
+        {
+          "kind": "calls",
+          "target": "t.Log"
+        }
+      ],
+      "related_facts": [
+        {
+          "kind": "symbol",
+          "name": "pkg/a.Gamma",
+          "file": "pkg/a/a.go",
+          "line": 43,
+          "repo": "go_sample",
+          "props": {
+            "cyclomatic": 1,
+            "exported": true,
+            "language": "go",
+            "symbol_kind": "function"
+          },
+          "relations": [
+            {
+              "kind": "declares",
+              "target": "pkg/a"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "test_ref",
+      "name": "pkg/a/a_test.go",
+      "file": "pkg/a/a_test.go",
+      "repo": "go_sample",
+      "props": {
+        "language": "go"
+      },
+      "relations": [
+        {
+          "kind": "calls",
+          "target": "pkg/a.helper"
+        },
+        {
+          "kind": "calls",
+          "target": "t.Fatalf"
+        }
+      ],
+      "related_facts": [
+        {
+          "kind": "symbol",
+          "name": "pkg/a.helper",
+          "file": "pkg/a/a.go",
+          "line": 37,
+          "repo": "go_sample",
+          "props": {
+            "cyclomatic": 1,
+            "exported": false,
+            "language": "go",
+            "symbol_kind": "function"
+          },
+          "relations": [
+            {
+              "kind": "declares",
+              "target": "pkg/a"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "total": 7,
+  "offset": 0,
+  "limit": 100,
+  "has_more": false
+}

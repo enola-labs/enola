@@ -1,0 +1,15 @@
+$ enola baseline pin .
+exit: 0
+--- stdout
+Baseline pinned for <TMP>/go_sample
+  Generated: <TIME>
+  Repo:      <TMP>/go_sample
+  Facts:     21 · Insights: 5
+  Snapshot:  sha256:<HASH>
+
+Now make your changes, then run:
+    enola check <TMP>/go_sample
+--- stderr
+enola: no mcp-arch.yaml in <TMP>/go_sample, using built-in defaults
+enola baseline: repo <TMP>/go_sample (built-in default config)
+enola baseline: the snapshot written <TIME> matches every working tree under this build and config; pinned without regenerating

@@ -1,0 +1,7 @@
+$ enola log --backfill --dry-run .
+exit: 0
+--- stdout
+--- stderr
+2 commit(s) selected, 0 already recorded, 2 to snapshot.
+  01b246396b27  <TIME>  first
+  9522ef6c8541  <TIME>  second

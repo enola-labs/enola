@@ -1,0 +1,5 @@
+$ enola diff nonsense .
+exit: 2
+--- stdout
+--- stderr
+enola diff: "nonsense" is not a range — use <revA>..<revB> (either side may be empty)

@@ -1,0 +1,216 @@
+$ enola check --json .
+exit: 0
+--- stdout
+{
+  "status": "clean",
+  "policy": {
+    "fail_explainers": null,
+    "min_confidence": 1,
+    "warn_only": false
+  },
+  "census": {
+    "recorded": true,
+    "files_excluded_by_ignore": 2,
+    "dirs_excluded_by_ignore": 0,
+    "dead_exemptions": 0,
+    "unused_suppressions": 0,
+    "dynamic_feature_classes": 0
+  },
+  "law": {
+    "rules": 1,
+    "by_mode": {
+      "ratchet": 1
+    },
+    "breaches": 1,
+    "suppressed": 0,
+    "exempted": 0,
+    "excused": 0
+  },
+  "advisories": [
+    {
+      "title": "Dead code candidate: function pkg/b.UsesGamma",
+      "source": "dead-code",
+      "description": "function \"pkg/b.UsesGamma\" is unreferenced — nothing in the snapshot graph references it (high confidence). References are matched by short name and biased conservative, so verify against dynamic/reflective dispatch and consumers outside the snapshot before removing.",
+      "confidence": 0.8,
+      "evidence": [
+        {
+          "file": "pkg/b/gamma.go",
+          "symbol": "pkg/b.UsesGamma",
+          "detail": "function · unreferenced · pkg/b/gamma.go:6",
+          "line": 6
+        },
+        {
+          "symbol": "pkg/b.UsesGamma",
+          "detail": "exported — may be used outside this snapshot; verify before removal"
+        }
+      ],
+      "suggested_actions": [
+        "Confirm no dynamic/reflective or out-of-snapshot callers, then remove the symbol"
+      ]
+    }
+  ],
+  "package_metrics": {
+    "before": {
+      "analyzed": 0,
+      "avg_instability": 0,
+      "avg_distance": 0,
+      "off_main_sequence": 0
+    },
+    "after": {
+      "analyzed": 0,
+      "avg_instability": 0,
+      "avg_distance": 0,
+      "off_main_sequence": 0
+    },
+    "worsened": 0,
+    "improved": 0
+  },
+  "edges_added": 4,
+  "edges_removed": 0,
+  "facts_added": 4,
+  "facts_removed": 0,
+  "facts_changed": 0,
+  "added_by_kind": {
+    "dependency": 1,
+    "module": 1,
+    "symbol": 2
+  },
+  "edge_kinds_added": {
+    "calls": 1,
+    "declares": 2,
+    "imports": 1
+  },
+  "diff": {
+    "baseline_repo": "<TMP>/go_sample",
+    "current_repo": "<TMP>/go_sample",
+    "baseline_generated_at": "<TIME>",
+    "current_generated_at": "<TIME>",
+    "comparability": {
+      "comparable": true
+    },
+    "facts_added": [
+      {
+        "kind": "dependency",
+        "name": "pkg/b -\u003e example.com/gosample/pkg/c",
+        "file": "pkg/b/gamma.go",
+        "line": 3,
+        "repo": "go_sample",
+        "props": {
+          "language": "go",
+          "source": "internal"
+        },
+        "relations": [
+          {
+            "kind": "imports",
+            "target": "pkg/c"
+          }
+        ]
+      },
+      {
+        "kind": "module",
+        "name": "pkg/c",
+        "file": "pkg/c",
+        "repo": "go_sample",
+        "props": {
+          "language": "go",
+          "package": "c"
+        }
+      },
+      {
+        "kind": "symbol",
+        "name": "pkg/b.UsesGamma",
+        "file": "pkg/b/gamma.go",
+        "line": 6,
+        "repo": "go_sample",
+        "props": {
+          "cyclomatic": 1,
+          "exported": true,
+          "language": "go",
+          "orphan_class": "unreferenced",
+          "symbol_kind": "function"
+        },
+        "relations": [
+          {
+            "kind": "declares",
+            "target": "pkg/b"
+          },
+          {
+            "kind": "calls",
+            "target": "pkg/c.Gamma"
+          }
+        ]
+      },
+      {
+        "kind": "symbol",
+        "name": "pkg/c.Gamma",
+        "file": "pkg/c/c.go",
+        "line": 4,
+        "repo": "go_sample",
+        "props": {
+          "cyclomatic": 1,
+          "exported": true,
+          "language": "go",
+          "symbol_kind": "function"
+        },
+        "relations": [
+          {
+            "kind": "declares",
+            "target": "pkg/c"
+          }
+        ]
+      }
+    ],
+    "edges_added": [
+      {
+        "source": "pkg/b -\u003e example.com/gosample/pkg/c",
+        "kind": "imports",
+        "target": "pkg/c",
+        "repo": "go_sample"
+      },
+      {
+        "source": "pkg/b.UsesGamma",
+        "kind": "calls",
+        "target": "pkg/c.Gamma",
+        "repo": "go_sample"
+      },
+      {
+        "source": "pkg/b.UsesGamma",
+        "kind": "declares",
+        "target": "pkg/b",
+        "repo": "go_sample"
+      },
+      {
+        "source": "pkg/c.Gamma",
+        "kind": "declares",
+        "target": "pkg/c",
+        "repo": "go_sample"
+      }
+    ],
+    "findings_new": [
+      {
+        "title": "Dead code candidate: function pkg/b.UsesGamma",
+        "source": "dead-code",
+        "description": "function \"pkg/b.UsesGamma\" is unreferenced — nothing in the snapshot graph references it (high confidence). References are matched by short name and biased conservative, so verify against dynamic/reflective dispatch and consumers outside the snapshot before removing.",
+        "confidence": 0.8,
+        "evidence": [
+          {
+            "file": "pkg/b/gamma.go",
+            "symbol": "pkg/b.UsesGamma",
+            "detail": "function · unreferenced · pkg/b/gamma.go:6",
+            "line": 6
+          },
+          {
+            "symbol": "pkg/b.UsesGamma",
+            "detail": "exported — may be used outside this snapshot; verify before removal"
+          }
+        ],
+        "suggested_actions": [
+          "Confirm no dynamic/reflective or out-of-snapshot callers, then remove the symbol"
+        ]
+      }
+    ]
+  }
+}
+--- stderr
+enola: no mcp-arch.yaml in <TMP>/go_sample, using built-in defaults
+enola check: repo <TMP>/go_sample (built-in default config)

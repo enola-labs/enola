@@ -1,0 +1,31 @@
+$ enola --status
+exit: 0
+--- stdout
+--- stderr
+
+=== enola MCP Status ===
+Servers running: 1
+
+  pid  repos  uptime  calls  dashboard
+  <PID>  go_sample  <DURATION>  6  (none)
+Tracking since: <TIME>
+Repos tracked: 1
+
+Tool Usage:
+  tool  running  total
+  explore  1  1
+  generate_snapshot  1  1
+  impact_analysis  1  1
+  query_facts  2  2
+  show_symbol  1  1
+
+Value Estimate (approximate):
+  tool  calls  ~time saved  ~tokens saved
+  explore  1  <DURATION>  <TOKENS>
+  generate_snapshot  1  <DURATION>  <TOKENS>
+  impact_analysis  1  <DURATION>  <TOKENS>
+  query_facts  2  <DURATION>  <TOKENS>
+  show_symbol  1  <DURATION>  <TOKENS>
+  TOTAL  6  <DURATION>  <TOKENS>
+  running now  6  <DURATION>  <TOKENS>
+

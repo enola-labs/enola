@@ -1,0 +1,18 @@
+$ enola impact pkg/a.Alpha .
+exit: 0
+--- stdout
+2 total dependents — depth 1: 2 symbols
+
+by kind:
+  symbol                                   2
+
+by depth:
+  1                                        2
+
+modules with the most dependents:
+  .                                        1
+  pkg/b                                    1
+--- stderr
+enola: no mcp-arch.yaml in <TMP>/go_sample, using built-in defaults
+enola impact: repo <TMP>/go_sample (built-in default config)
+enola impact: reading the snapshot written <TIME>, which matches the working tree

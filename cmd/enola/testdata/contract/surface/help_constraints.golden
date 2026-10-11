@@ -1,0 +1,30 @@
+$ enola constraints --help
+exit: 2
+--- stdout
+--- stderr
+Usage: enola constraints <lint|mine|init|explain|ledger> [repo_path|config_path]
+
+lint validates the declared constraint vocabulary — inline in enola-intent.yaml
+and per-domain files under enola/constraints/ — and resolves each component
+against the current snapshot, if one exists (else validation only).
+
+mine searches the current snapshot's fact store for near-invariants and
+reports them as candidate constraint declarations — proposals for operator
+review, never self-adopting law. Run `enola constraints mine --help`.
+init writes a first declaration binding every shipped recipe whose roles
+resolve to directories the repository has. Run `enola constraints init --help`.
+explain names the components a file's facts belong to, the selector that
+admitted each, and the edges the file makes. Run `enola constraints explain --help`.
+ledger reports how much of the declared law is being EXCUSED rather than
+obeyed — every rule's breaches beside the suppressions and exemptions that
+signed them away, with each excuse's owner and age. Run `enola constraints ledger --help`.
+
+Exit codes (lint):
+  0  every declaration is valid
+  1  validation problems were reported
+  2  the command could not run
+
+Exit codes (mine, init, explain, ledger):
+  0  a report was produced
+  2  the command could not run — no snapshot to read, or a declaration
+     init would have had to overwrite

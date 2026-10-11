@@ -1,0 +1,5 @@
+$ enola blame --all --first pkg/b -> pkg/c .
+exit: 0
+--- stdout
+Nothing matching "pkg/b -> pkg/c" in 2 searched revisions.
+--- stderr

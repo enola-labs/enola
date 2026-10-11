@@ -1,0 +1,9 @@
+$ enola chekc
+exit: 1
+--- stdout
+--- stderr
+unknown command "chekc" — did you mean "check"?
+
+    enola check --help
+
+Run `enola --help` for all commands.

@@ -1,0 +1,15 @@
+$ enola doctor --help
+exit: 2
+--- stdout
+--- stderr
+Usage: enola doctor [flags] [repo_path]
+
+Report whether enola's agent hooks are actually firing in this repository.
+
+`install --hooks` can write a configuration the agent ignores — it reports
+success either way. This asks the only question that settles it: when did the
+hooks last run?
+
+Flags:
+  -json
+    	machine-readable output

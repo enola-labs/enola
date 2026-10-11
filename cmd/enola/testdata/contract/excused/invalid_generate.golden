@@ -1,0 +1,6 @@
+$ enola --generate .
+exit: 1
+--- stdout
+--- stderr
+enola: no mcp-arch.yaml in <TMP>/go_sample, using built-in defaults
+snapshot generation failed for <TMP>/go_sample: <TMP>/go_sample/enola-intent.yaml: invalid intent declaration: components[0] (pkg-a): needs at least one match pattern, a service, or a where predicate; rules[0] (broken): forbid "nowhere" names no declared component; rules[0] (broken): via "" is not a rule edge kind (allowed: calls, depends_on, implements, imports); rules[0] (broken): needs a because — a rule with no stated rationale cannot surface one in its findings

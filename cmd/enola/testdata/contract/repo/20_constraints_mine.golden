@@ -1,0 +1,17 @@
+$ enola constraints mine .
+exit: 0
+--- stdout
+Snapshot: <TMP>/go_sample/.enola
+Mined 0 candidate constraints over 18 facts — proposals for operator review, never self-adopting law.
+Thresholds: support >= 10, confidence >= 0.90, exceptions <= 20 per candidate. Ranked by confidence x support.
+
+Suppressed below the floors (counted, never silent):
+  allow-only:       4 would-be candidates under the support floor of 10; 0 over the exception ceiling of 20; 0 tautological
+  forbid-edge:      0 would-be candidates under the support floor of 10; 0 over the exception ceiling of 20; 0 tautological
+  method-presence:  0 would-be candidates under the support floor of 10; 0 over the exception ceiling of 20; 0 tautological
+  naming:           1 would-be candidates under the support floor of 10; 0 over the exception ceiling of 20; 4 tautological
+  prop-implication: 5 would-be candidates under the support floor of 10; 0 over the exception ceiling of 20; 0 tautological
+4 tautological candidate(s) suppressed — the statement holds by construction; --include-tautologies prints them
+--- stderr
+enola: no mcp-arch.yaml in <TMP>/go_sample, using built-in defaults
+enola constraints mine: repo <TMP>/go_sample (built-in default config)

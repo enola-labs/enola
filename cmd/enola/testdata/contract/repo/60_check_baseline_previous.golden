@@ -1,0 +1,10 @@
+$ enola check --baseline previous .
+exit: 2
+--- stdout
+--- stderr
+enola: no mcp-arch.yaml in <TMP>/go_sample, using built-in defaults
+enola check: repo <TMP>/go_sample (built-in default config)
+enola check: no previous snapshot at <TMP>/go_sample/.enola/previous — that requires at least two snapshots written with `enola --generate` (note `enola check` is read-only by default and does not rotate it).
+
+For a stable baseline across several rounds of edits, prefer:
+    enola baseline pin <TMP>/go_sample

@@ -1,0 +1,42 @@
+$ enola diff --store ../store HEAD~1..HEAD .
+exit: 0
+--- stdout
+# 17e9d63..da3eac9 · <TIME> → <TIME> · left from local, right from local
+
+# Architecture diff
+
+_Baseline <TIME> → current <TIME>._
+
+## Regressions introduced (1)
+
+### 1. Dead code candidate: function pkg/b.UsesGamma
+- explainer: dead-code · confidence: 0.80
+- function "pkg/b.UsesGamma" is unreferenced — nothing in the snapshot graph references it (high confidence). References are matched by short name and biased conservative, so verify against dynamic/reflective dispatch and consumers outside the snapshot before removing.
+- evidence (2):
+    - pkg/b.UsesGamma pkg/b/gamma.go — function · unreferenced · pkg/b/gamma.go:6
+    - pkg/b.UsesGamma — exported — may be used outside this snapshot; verify before removal
+- suggested actions:
+    - Confirm no dynamic/reflective or out-of-snapshot callers, then remove the symbol
+
+## Structural changes
+
+- dependency: +1 / -0
+- module: +1 / -0
+- symbol: +2 / -0
+- edges: +4 / -0
+
+## New coupling — edges added (4)
+
+- pkg/b -> example.com/gosample/pkg/c --imports--> pkg/c
+- pkg/b.UsesGamma --calls--> pkg/c.Gamma
+- pkg/b.UsesGamma --declares--> pkg/b
+- pkg/c.Gamma --declares--> pkg/c
+
+## Facts added (4)
+
+- dependency pkg/b -> example.com/gosample/pkg/c (pkg/b/gamma.go:3)
+- module pkg/c (pkg/c:0)
+- symbol pkg/b.UsesGamma (pkg/b/gamma.go:6)
+- symbol pkg/c.Gamma (pkg/c/c.go:4)
+
+--- stderr

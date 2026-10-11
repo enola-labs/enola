@@ -1,0 +1,17 @@
+$ enola coverage --unresolved cluster.yaml
+exit: 0
+--- stdout
+Cross-repo edge coverage
+
+  service   classification  detected  resolved  unresolved
+  consumer  connected             4         1           1
+
+Unresolved outbound call sites (1 across 1 service):
+  consumer                     http_client ×1
+
+Each is a call enola detected but could not point at a loaded service — either a
+repository you have not snapshotted, a third-party endpoint, or a blind spot in
+enola's extraction. Load the missing repository and re-run to tell them apart.
+--- stderr
+enola: using config <TMP>/services/cluster.yaml
+enola coverage: config <TMP>/services/cluster.yaml

@@ -1,0 +1,33 @@
+$ enola plan --help
+exit: 2
+--- stdout
+--- stderr
+Usage: enola plan [flags] [path...] [repo_path|config_path]
+
+The pre-edit contract: which declared constraints govern an intended change,
+its blast radius over the current snapshot, the verdicts that would appear or
+vanish if each path left every part (one re-evaluation over the loaded
+snapshot), and, for a --patch, the constraint verdicts that WOULD appear,
+evaluated over a scratch copy BEFORE any edit lands in the tree. The working tree and its snapshot are never
+written; a report, never a gate.
+
+Positional arguments naming an existing directory or a .yaml/.yml file pick
+the repository or config (first match wins); every other positional is a
+path target. Use --paths for a target that is itself a directory.
+
+Exit codes:
+  0  the report was produced (its verdicts are for the caller to weigh)
+  2  the command could not run (bad patch, missing snapshot for --symbols,
+     invalid declaration)
+
+Flags:
+  -json
+    	emit the report as JSON instead of text
+  -no-radius
+    	skip the re-evaluation that names the verdicts a move of each path would change
+  -patch string
+    	a unified diff file to evaluate counterfactually over a scratch copy
+  -paths string
+    	comma-separated repo-relative paths the intended change touches
+  -symbols string
+    	comma-separated exact fact names the intended change touches

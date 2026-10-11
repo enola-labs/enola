@@ -1,0 +1,7 @@
+$ enola endpoint /v1/things .
+exit: 0
+--- stdout
+No server route matches "/v1/things".
+--- stderr
+enola: no mcp-arch.yaml in <TMP>/go_sample, using built-in defaults
+enola endpoint: repo <TMP>/go_sample (built-in default config)

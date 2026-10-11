@@ -1,0 +1,22 @@
+$ enola endpoint --help
+exit: 2
+--- stdout
+--- stderr
+Usage: enola endpoint [flags] <endpoint> [repo_path|config_path]
+
+Report what changing an HTTP endpoint reaches: the controller serving it, the
+models that controller touches, the models associated with those, the tables
+behind them, and the callers — including the frontend screen a calling route
+module implements.
+
+The endpoint is matched as a substring of the path, optionally prefixed with a
+verb: 'GET /v1/candidates' or just '/v1/candidates'.
+
+Client call sites and mock-server routes are excluded: this answers about what
+the application serves.
+
+Flags:
+  -json
+    	emit the result as JSON
+  -max-routes int
+    	how many matched endpoints to follow (default 25)

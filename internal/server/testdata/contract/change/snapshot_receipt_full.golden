@@ -1,0 +1,74 @@
+{
+  "snapshot_id": "sha256:<HASH>",
+  "format_version": 1,
+  "enola_version": "dev",
+  "extractor_version": "<VERSION>",
+  "generated_at": "<TIME>",
+  "duration": "<DURATION>",
+  "repo_path": "<TMP>/go_sample",
+  "extractors": [
+    "go",
+    "manifests"
+  ],
+  "explainers": [
+    "cycles",
+    "layers",
+    "crossrepo",
+    "coverage",
+    "unused-routes",
+    "domain",
+    "query-loops",
+    "dead-methods",
+    "entry-points",
+    "messaging-coverage",
+    "god-class",
+    "hotspots",
+    "dependency-depth",
+    "exported-surface",
+    "complexity-outliers",
+    "intent",
+    "constraints",
+    "vendored-candidates",
+    "import-closure",
+    "package-metrics",
+    "dead-code",
+    "performance"
+  ],
+  "renderers": [
+    "llm_context"
+  ],
+  "config_hash": "sha256:<HASH>",
+  "ignore_glob_hash": "sha256:<HASH>",
+  "output_hashes": {
+    "facts.jsonl": "sha256:<HASH>",
+    "insights.json": "sha256:<HASH>",
+    "llm_context.md": "sha256:<HASH>"
+  },
+  "fact_count": 22,
+  "insight_count": 4,
+  "quality": {
+    "files_seen": 6,
+    "files_parsed": 5,
+    "files_skipped": 2,
+    "dirs_skipped": 0,
+    "skipped_sample": [
+      "pkg/a/a_ext_test.go (glob: **/*_test.go)",
+      "pkg/a/a_test.go (glob: **/*_test.go)"
+    ],
+    "parse_errors": 0,
+    "heuristic_insights": 3,
+    "census": {
+      "files_walked": 8,
+      "parsed": 5,
+      "excluded_by_ignore": 2,
+      "excluded_by_kind": 0,
+      "skipped_with_cause": 1,
+      "top_skip_causes": [
+        {
+          "cause": "claimed by go, manifests, no facts emitted",
+          "count": 1
+        }
+      ]
+    }
+  }
+}

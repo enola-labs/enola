@@ -1,0 +1,20 @@
+$ enola constraints explain --no-radius pkg/b/b.go .
+exit: 0
+--- stdout
+pkg/b/b.go
+  read from: the snapshot generated <TIME>
+
+  measured facts:
+    dependency pkg/b -> example.com/gosample/pkg/a
+    symbol pkg/b.Beta
+  components:
+    pkg-b: match pkg/b/** (declared in enola-intent.yaml)
+      pkg/b.Beta
+  outgoing edges:
+       3  pkg/b -> example.com/gosample/pkg/a --imports--> pkg/a
+       6  pkg/b.Beta --calls--> pkg/a.Alpha
+  incoming edges (by kind and the part the source belongs to):
+    calls        from (no part)                     1  e.g. ..main
+    calls        from pkg-a                         1  e.g. pkg/a.Alpha
+--- stderr
+enola: no mcp-arch.yaml in <TMP>/go_sample, using built-in defaults

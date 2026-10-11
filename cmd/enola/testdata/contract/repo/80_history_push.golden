@@ -1,0 +1,7 @@
+$ enola history push ../store .
+exit: 0
+--- stdout
+<TMP>/store (source <HOST>)
+  pushed        0 revision(s), 0 payload file(s) new
+  skipped       2 working revision(s) (uncommitted trees; --all pushes them)
+--- stderr

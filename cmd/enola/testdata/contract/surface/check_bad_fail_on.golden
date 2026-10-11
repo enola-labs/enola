@@ -1,0 +1,7 @@
+$ enola check --fail-on no-such-explainer
+exit: 2
+--- stdout
+--- stderr
+enola check: --fail-on names what no explainer is called: no-such-explainer
+The 22 names it accepts are: cycles, layers, crossrepo, coverage, unused-routes, messaging-coverage, god-class, hotspots, dependency-depth, exported-surface, complexity-outliers, intent, constraints, domain, query-loops, entry-points, dead-methods, vendored-candidates, import-closure, package-metrics, dead-code, performance
+Refusing to run: a policy that enforces nothing must not look like a passing one.

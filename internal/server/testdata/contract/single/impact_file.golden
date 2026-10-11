@@ -1,0 +1,29 @@
+# Impact summary: pkg/a/a.go
+
+> pkg/a/a.go is a file, not a node: this is the impact of the 7 symbols it declares.
+
+4 total dependents — depth 1: 2 symbols, 2 test_refs
+
+**4** total transitive dependents within max_depth 1.
+
+## Dependents by kind
+
+- symbol: 2
+- test_ref: 2
+
+## By depth
+
+- depth 1: 4
+
+## Hotspot modules
+
+- pkg/a (2 dependents)
+- . (1 dependents)
+- pkg/b (1 dependents)
+
+## Architectural insights touching this target (2)
+
+- **Dead code candidate: function pkg/a.GetPath** — function "pkg/a.GetPath" is unreferenced — nothing in the snapshot graph references it (high confidence). References are matched by short name and biased conservative, so verify against dynamic/reflective dispatch and consumers outside the snapshot before removing.
+- **Dead code candidate: function pkg/a.Seed** — function "pkg/a.Seed" is unreferenced — nothing in the snapshot graph references it (high confidence). References are matched by short name and biased conservative, so verify against dynamic/reflective dispatch and consumers outside the snapshot before removing.
+
+_Use output_mode=compact for the per-depth dependent list, output_mode=full for the raw graph._

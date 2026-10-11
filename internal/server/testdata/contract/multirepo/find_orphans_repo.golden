@@ -1,0 +1,7 @@
+Orphan symbols — 3 (mode=both):
+
+| Kind | Name | Class | Conf | Location |
+|------|------|-------|------|----------|
+| struct | ..Client | unreferenced | medium | consumer/client.go:35 |
+| method | ..Client.run | unreferenced | low | consumer/client.go:40 |
+| function | ..NewZepto | unreferenced | high | consumer/client.go:20 |

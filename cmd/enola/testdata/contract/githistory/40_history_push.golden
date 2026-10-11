@@ -1,0 +1,6 @@
+$ enola history push ../store .
+exit: 0
+--- stdout
+<TMP>/store (source <HOST>)
+  pushed        2 revision(s), 2 payload file(s) new
+--- stderr

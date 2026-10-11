@@ -1,0 +1,9 @@
+$ enola log .
+exit: 0
+--- stdout
+--- stderr
+No architecture history for <TMP>/go_sample.
+
+Recording is on — nothing has been snapshotted yet.
+Run `enola --generate` and the first revision lands in
+<TMP>/.enola/graphs/go_sample-<KEY>/history

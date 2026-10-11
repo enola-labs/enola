@@ -1,0 +1,7 @@
+$ enola baseline show .
+exit: 2
+--- stdout
+No baseline pinned (<TMP>/go_sample/.enola/baseline does not hold a snapshot).
+Run `enola --generate` then `enola baseline pin`.
+--- stderr
+enola: no mcp-arch.yaml in <TMP>/go_sample, using built-in defaults

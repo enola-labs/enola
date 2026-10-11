@@ -1,0 +1,16 @@
+$ enola constraints init .
+exit: 0
+--- stdout
+clean                not bound: no directory for frameworks, interface-adapters, use-cases, entities
+cqrs                 not bound: no directory for commands, queries, read-models
+event-driven         not bound: no directory for publishers, events, handlers
+layered              not bound: no directory for presentation, application, domain, infrastructure
+modular-monolith     not bound: no directory for module-public, module-internal, other-modules
+ports-and-adapters   not bound: no directory for core, ports, adapters
+rails-conventions    not bound: no directory for controllers, jobs, models, mailers, policies, serializers, view-components
+rails-strict         not bound: no directory for controllers, jobs, models, mailers, policies, serializers, view-components
+ruby-conventions     not bound: no directory for code
+supply-chain         no role resolves to a directory here; not bound
+vanilla-rails        not bound: no directory for models, controllers, services, forms, policies, decorators, presenters
+nothing to bind: no shipped recipe's roles resolve to a directory here
+--- stderr

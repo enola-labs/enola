@@ -1,0 +1,6 @@
+{
+  "query": "/v1/things",
+  "routes": null,
+  "stopped_at": "route",
+  "summary": "No server route matches \"/v1/things\"."
+}

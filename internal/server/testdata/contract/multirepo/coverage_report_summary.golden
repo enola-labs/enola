@@ -1,0 +1,10 @@
+# Coverage Report
+
+Distinguishes genuinely isolated services from those whose outbound edges could not be resolved.
+
+| Service | Classification | Outbound edges | Detected | Resolved | Unresolved | External |
+|---|---|---|---|---|---|---|
+| api | isolated | 0 | 0 | 0 | 0 | 0 |
+| consumer | connected | 1 | 4 | 1 | 1 | 2 |
+
+`isolated` means no outbound edges and no detected call sites either: a genuine leaf, not a gap in enola's resolution.

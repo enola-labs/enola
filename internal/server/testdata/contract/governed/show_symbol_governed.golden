@@ -1,0 +1,51 @@
+### pkg/a.Alpha
+File: pkg/a/a.go  Line: 7
+Governed by: decision.md (decision, accepted)
+
+```go
+   1│ package a
+   2│ 
+   3│ import "example.com/gosample/pkg/b"
+   4│ 
+   5│ // Alpha calls into package b, forming one side of a deliberate a<->b import
+   6│ // cycle so the cycles explainer (Tarjan SCC) has something to detect.
+   7│ func Alpha() {
+   8│ 	b.Beta()
+   9│ }
+  10│ 
+  11│ // GetPath walks a parent chain, one lookup per level. The bare `for {}` adds no factor
+  12│ // of n to Big-O, but it repeats — so getByID must stay in calls_in_scaling_loop, the N+1
+  13│ // candidate set. Modelled on golf's OrganizationRepository.GetOrganizationPath, whose
+  14│ // high-severity finding an earlier draft of v99 deleted. (v99)
+  15│ func GetPath(id int) {
+  16│ 	for {
+  17│ 		getByID(id)
+  18│ 	}
+  19│ }
+  20│ 
+  21│ // Seed's only in-loop call sits inside a constant loop, so calls_in_scaling_loop is
+  22│ // emitted EMPTY rather than omitted — an omitted key would make the consumer fall back
+  23│ // to the unfiltered calls_in_loop. (v99)
+  24│ func Seed() {
+  25│ 	for _, c := range []string{"a", "b"} {
+  26│ 		setup(c)
+  27│ 	}
+  28│ }
+  29│ 
+  30│ func getByID(id int) {}
+  31│ func setup(c string) {}
+  32│ 
+  33│ // helper has no production caller. Its only reference is from a_test.go, which is
+  34│ // ignored for indexing and recovered as a test_ref fact — so the graph must still
+  35│ // carry an incoming edge for it. Before v100 no such fact existed for Go and the
+  36│ // symbol looked dead. Pins GAP-GO-06 for the in-package test idiom. (v100)
+  37│ func helper(n int) int { return n * 2 }
+  38│ 
+  39│ // Gamma is the same case for the OTHER Go test idiom: its only reference is from
+  40│ // a_ext_test.go (`package a_test`), which reaches it through an import alias rather
+  41│ // than unqualified. Deliberately not Alpha — Alpha's dependent count is asserted by
+  42│ // TestE2E_ImpactAnalysis, and a test_ref counts as a dependent (see GAP-XL-15). (v100)
+  43│ func Gamma() {}
+  44│ 
+
+```

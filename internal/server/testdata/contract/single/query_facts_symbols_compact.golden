@@ -1,0 +1,15 @@
+Filters applied: kind=symbol
+
+Found 9 results (showing 9):
+
+| Kind | Name | File | Line |
+|------|------|------|------|
+| symbol | ..main | main.go | 10 |
+| symbol | pkg/a.Alpha | pkg/a/a.go | 7 |
+| symbol | pkg/a.GetPath | pkg/a/a.go | 15 |
+| symbol | pkg/a.Seed | pkg/a/a.go | 24 |
+| symbol | pkg/a.getByID | pkg/a/a.go | 30 |
+| symbol | pkg/a.setup | pkg/a/a.go | 31 |
+| symbol | pkg/a.helper | pkg/a/a.go | 37 |
+| symbol | pkg/a.Gamma | pkg/a/a.go | 43 |
+| symbol | pkg/b.Beta | pkg/b/b.go | 6 |

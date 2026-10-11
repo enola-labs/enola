@@ -1,0 +1,33 @@
+$ enola show --focus pkg/c .
+exit: 0
+--- stdout
+# revision 5367aea · <TIME>
+
+# Architecture diff
+
+_Baseline <TIME> → current <TIME>._
+
+## Regressions introduced (0)
+
+None — the change introduced no new findings.
+
+## Structural changes
+
+- dependency: +1 / -0
+- module: +1 / -0
+- symbol: +1 / -0
+- edges: +3 / -0
+
+## New coupling — edges added (3)
+
+- pkg/b -> example.com/gosample/pkg/c --imports--> pkg/c
+- pkg/b.UsesGamma --calls--> pkg/c.Gamma
+- pkg/c.Gamma --declares--> pkg/c
+
+## Facts added (3)
+
+- dependency pkg/b -> example.com/gosample/pkg/c (pkg/b/gamma.go:3)
+- module pkg/c (pkg/c:0)
+- symbol pkg/c.Gamma (pkg/c/c.go:4)
+
+--- stderr

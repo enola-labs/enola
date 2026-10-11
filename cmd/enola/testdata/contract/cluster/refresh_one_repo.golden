@@ -1,0 +1,12 @@
+$ enola --generate --refresh api cluster.yaml
+exit: 0
+--- stdout
+--- stderr
+enola: using config <TMP>/services/cluster.yaml
+
+Refresh complete:
+  Repository:  <TMP>/services/api (re-read into a union of 2)
+  Facts:       22
+  Insights:    6
+  Duration:    <DURATION>
+  Output:      <TMP>/services/consumer/.enola

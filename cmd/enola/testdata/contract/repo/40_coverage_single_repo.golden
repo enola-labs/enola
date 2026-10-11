@@ -1,0 +1,13 @@
+$ enola coverage .
+exit: 0
+--- stdout
+No services in this graph, so there are no cross-repo edges to report on.
+
+Coverage compares repositories against each other, so it needs at least two loaded
+in one graph. Index a cluster and re-run:
+
+    enola --generate ci/cluster.yaml   # a config listing several repos under `repos:`
+    enola coverage ci/cluster.yaml
+--- stderr
+enola: no mcp-arch.yaml in <TMP>/go_sample, using built-in defaults
+enola coverage: repo <TMP>/go_sample (built-in default config)

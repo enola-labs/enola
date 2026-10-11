@@ -1,0 +1,6 @@
+$ enola --status
+exit: 0
+--- stdout
+--- stderr
+No usage recorded yet.
+Start the MCP server, then run with --status (or --status --all).

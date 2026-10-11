@@ -1,0 +1,23 @@
+$ enola gc --help
+exit: 2
+--- stdout
+--- stderr
+Usage: enola gc [flags] [repo_path|config_path]
+
+Report what this repository's architecture history holds, and remove what it no
+longer needs.
+
+With no flags it removes only garbage — segment directories no revision refers
+to. Thinning and pruning discard things a reader could still reach, so each
+needs asking for.
+
+Revisions whose contents are dropped keep their summary line: the timeline stays
+complete, and only replay is lost. `log --backfill` can rebuild them.
+
+Flags:
+  -dry-run
+    	report what would be removed and change nothing
+  -prune-working
+    	remove working revisions (snapshots of uncommitted trees) from the log entirely
+  -thin-older-than string
+    	drop the stored contents of revisions older than this (e.g. 90d, 720h); their summary lines stay

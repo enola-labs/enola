@@ -1,0 +1,14 @@
+$ enola log --backfill .
+exit: 0
+--- stdout
+--- stderr
+2 commit(s) selected, 0 already recorded, 2 to snapshot.
+enola: no mcp-arch.yaml in <TMP>/go_sample, using built-in defaults
+
+[1/2] 01b246396b27                     
+
+[2/2] 9522ef6c8541                     
+
+                                                            
+Backfilled 2 revision(s) in <DURATION>.
+Run `enola log` to read it.

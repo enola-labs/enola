@@ -1,0 +1,7 @@
+$ enola history pull ../store .
+exit: 0
+--- stdout
+<TMP>/store (repo go_sample)
+  pulled        0 revision(s)
+  already local 2
+--- stderr

@@ -1,0 +1,18 @@
+# File: pkg/a/a.go
+
+Total facts: 8
+
+## Symbols (7)
+
+- **pkg/a.Alpha** (line 7) [function]
+- **pkg/a.GetPath** (line 15) [function]
+- **pkg/a.Seed** (line 24) [function]
+- **pkg/a.getByID** (line 30) [function]
+- **pkg/a.setup** (line 31) [function]
+- **pkg/a.helper** (line 37) [function]
+- **pkg/a.Gamma** (line 43) [function]
+
+## Dependencies (1)
+
+- **pkg/a -> example.com/gosample/pkg/b** (line 3)
+

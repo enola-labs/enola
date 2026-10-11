@@ -1,0 +1,8 @@
+$ enola check cluster.yaml
+exit: 0
+--- stdout
+PASS — no architectural change.
+could not see: 0 files and 1 directory excluded by ignore globs; 4 imports targets outside the graph
+--- stderr
+enola: using config <TMP>/services/cluster.yaml
+enola check: config <TMP>/services/cluster.yaml

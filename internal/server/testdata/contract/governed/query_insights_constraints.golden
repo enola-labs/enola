@@ -1,0 +1,12 @@
+Found **1** insight(s).
+
+### 1. Constraint a-avoids-b violated: pkg/a -> example.com/gosample/pkg/b -> pkg/b via imports
+- explainer: constraints · confidence: 1.00
+- pkg-a must not reach pkg-b via imports, and the graph measures exactly this edge. The rule is declared, the source names no member and rides a dependency fact of a file the component's patterns name and the target membership is exact, so this is a decided-rule breach, not a heuristic. Because: a must stay deliverable without b
+- evidence (1):
+    - pkg/b pkg/a -> example.com/gosample/pkg/b pkg/a/a.go — forbidden imports edge
+- suggested actions:
+    - No cut the graph can see: the far part declares no public surface and the offender's other edges name no part to move it to
+    - Remove or reroute the edge if the rule stands
+    - Amend the rule on its declaring page if the decision behind it changed
+

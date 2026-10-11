@@ -1,0 +1,18 @@
+{
+  "query": "GET /v1/things",
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/v1/things/{id}",
+      "handler": "getThing",
+      "file": "api/server.go"
+    }
+  ],
+  "callers": [
+    {
+      "file": "consumer/client.go"
+    }
+  ],
+  "stopped_at": "controller",
+  "summary": "1 route(s) -\u003e 0 controller(s) -\u003e 0 model(s). Called from 1 file(s). The chain stops at the controller: no class in this repository answers to the handler these routes name, so what they reach is unknown rather than nothing."
+}

@@ -1,0 +1,54 @@
+$ enola check --help
+exit: 2
+--- stdout
+--- stderr
+Usage: enola check [flags] [config_path]
+
+Grade what a change did to the architecture, against a pinned baseline.
+
+Nothing fails until you say what should: with no --fail-on and no --max-spillover
+every finding is reported and the run exits 0. The names --fail-on accepts are
+exactly these, and are case-sensitive:
+  cycles, layers, crossrepo, coverage, unused-routes, messaging-coverage, god-class, hotspots, dependency-depth, exported-surface, complexity-outliers, intent, constraints, domain, query-loops, entry-points, dead-methods, vendored-candidates, import-closure, package-metrics, dead-code, performance
+
+Exit codes:
+  0  clean      nothing the policy enforces
+  1  regression the policy was violated
+  2  error      the gate could not run (no baseline, bad flag, inverted pair)
+  3  declined   the baseline is not comparable; refusing to grade
+
+Flags:
+  -author string
+    	with --reviewers, whose change this is (default: git config user.name)
+  -baseline string
+    	what to compare against: pinned, previous, or a path to a directory holding facts.jsonl (default "pinned")
+  -detail
+    	print the full delta (changed edges and facts) under the verdict
+  -expected string
+    	comma-separated packages you expected to touch, in addition to the predicted radius
+  -fail-on string
+    	comma-separated explainer names whose new findings fail (default: none — the run reports and exits 0)
+  -focus string
+    	narrow the delta to entries referencing this module/file/symbol
+  -format string
+    	how to write the verdict: text, json, sarif, or annotations (default "text")
+  -host string
+    	with -format annotations, the CI that shows them: buildkite or github
+  -json
+    	emit the verdict as JSON instead of text (an alias of -format json)
+  -link string
+    	with -host buildkite, the pull request's files view to link each line into
+  -max-spillover int
+    	fail when more than N packages are reached outside the declared scope (default: report only, never fail) (default -1)
+  -min-confidence float
+    	confidence floor within --fail-on explainers (default: 1.00)
+  -reviewer-window int
+    	with --reviewers, how many recent commits authorship is measured over (default 500)
+  -reviewers
+    	report who owns the modules this change touched, and who should review it (reads git author names)
+  -target string
+    	the symbol, type or package you INTENDED to change; packages reached outside its predicted blast radius are reported as spillover
+  -warn-only
+    	downgrade a --fail-on / --max-spillover policy to warnings (blocking/usage errors still apply)
+  -write
+    	persist snapshot artifacts to .enola/ (default: read-only, nothing is written)

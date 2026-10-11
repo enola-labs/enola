@@ -1,0 +1,28 @@
+# Traverse: pkg/a (reverse)
+
+Reached **17** nodes
+
+## Depth 1 (11)
+
+- . (module) — .
+- . -> example.com/gosample/pkg/a (dependency) — main.go:4
+- pkg/a.Alpha (symbol) — pkg/a/a.go:7
+- pkg/a.Gamma (symbol) — pkg/a/a.go:43
+- pkg/a.GetPath (symbol) — pkg/a/a.go:15
+- pkg/a.Seed (symbol) — pkg/a/a.go:24
+- pkg/a.getByID (symbol) — pkg/a/a.go:30
+- pkg/a.helper (symbol) — pkg/a/a.go:37
+- pkg/a.setup (symbol) — pkg/a/a.go:31
+- pkg/b (module) — pkg/b
+- pkg/b -> example.com/gosample/pkg/a (dependency) — pkg/b/b.go:3
+
+## Depth 2 (6)
+
+- ..main (symbol) — main.go:10
+- pkg/b.Beta (symbol) — pkg/b/b.go:6
+- pkg/a/a_ext_test.go (test_ref) — pkg/a/a_ext_test.go
+- pkg/a/a_test.go (test_ref) — pkg/a/a_test.go
+- . -> example.com/gosample/pkg/b (dependency) — main.go:5
+- pkg/a -> example.com/gosample/pkg/b (dependency) — pkg/a/a.go:3
+
+_Edges: 25 (use output_mode=full for the raw node/edge graph). Stats: 18 visited, max depth 2._

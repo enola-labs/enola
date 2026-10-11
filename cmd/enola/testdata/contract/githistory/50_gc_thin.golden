@@ -1,0 +1,14 @@
+$ enola gc --thin-older-than 1h .
+exit: 0
+--- stdout
+<TMP>/.enola/graphs/go_sample-<KEY>/history
+
+  revisions      2
+    with contents 2  (replayable)
+  segments       1
+  stored         4 KB
+
+Removed:
+  1 segment(s) past the age cutoff; those revisions keep their summary line
+  4 KB reclaimed
+--- stderr

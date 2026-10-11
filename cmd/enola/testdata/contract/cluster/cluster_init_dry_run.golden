@@ -1,0 +1,9 @@
+$ enola cluster init --dry-run .
+exit: 0
+--- stdout
+# Written by enola for this folder of repositories. Each entry is a git repository, relative to
+# this file. Pass this file to --generate to index them as one linked graph.
+repos:
+  - api
+  - consumer
+--- stderr

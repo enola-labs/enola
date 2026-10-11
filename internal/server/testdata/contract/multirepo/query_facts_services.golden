@@ -1,0 +1,36 @@
+Filters applied: kind=service
+
+[
+  {
+    "kind": "service",
+    "name": "api",
+    "repo": "api",
+    "props": {
+      "synthetic": "crossrepo"
+    }
+  },
+  {
+    "kind": "service",
+    "name": "consumer",
+    "repo": "consumer",
+    "props": {
+      "edge_coverage": [
+        {
+          "declared": 0,
+          "detected": 4,
+          "edge_type": "http_client",
+          "external": 2,
+          "resolved": 1,
+          "unresolved": 1
+        }
+      ],
+      "synthetic": "crossrepo"
+    },
+    "relations": [
+      {
+        "kind": "depends_on",
+        "target": "api"
+      }
+    ]
+  }
+]

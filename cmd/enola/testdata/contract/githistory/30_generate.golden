@@ -1,0 +1,13 @@
+$ enola --generate .
+exit: 0
+--- stdout
+--- stderr
+enola: no mcp-arch.yaml in <TMP>/go_sample, using built-in defaults
+
+Snapshot complete:
+  Repository:  <TMP>/go_sample
+  Facts:       22
+  Insights:    4
+  Artifacts:   1
+  Duration:    <DURATION>
+  Output:      <TMP>/go_sample/.enola

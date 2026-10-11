@@ -1,0 +1,5 @@
+$ enola providers frobnicate
+exit: 2
+--- stdout
+--- stderr
+enola providers: unknown providers command "frobnicate" (list, fetch)

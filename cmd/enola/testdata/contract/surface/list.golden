@@ -1,0 +1,28 @@
+$ enola --list
+exit: 0
+--- stdout
+--- stderr
+Available tools:
+
+  generate_snapshot       Index a repository and extract its architecture as queryable facts.
+  explore                 Primary exploration tool — use this first after generate_snapshot.
+  query_facts             Precision filter over extracted facts.
+  show_symbol             Return the source code implementation of a named symbol.
+  traverse                Walk the dependency/call graph from a starting node.
+  find_path               Find the shortest path between two nodes in the architectural graph.
+  impact_analysis         Compute the blast radius of changing a target node.
+  endpoint_impact         Who calls one HTTP endpoint, and which screens sit behind them — the cross-repo question the route facts already answer.
+  governing_intent        Which knowledge pages govern this code — and which code a page governs. The reverse query, without the blast radius.
+  constraints_for         The pre-edit contract for a file or fact — its components, the rules binding them, and current violations naming it.
+  plan_check              Plan an intended change: governing constraints, blast radius, and — for a patch — the counterfactual constraint verdicts, before any edit exists.
+  coverage_report         Per-service edge coverage — tell a genuinely isolated service from one whose edges could not be resolved.
+  query_insights          Fetch the architectural findings explainers computed during generate_snapshot (cycles, god-class, unused routes, …).
+  set_baseline            Pin the current snapshot as the baseline for diff_snapshot.
+  diff_snapshot           Show what changed in the architecture between the baseline snapshot and the current one.
+  snapshot_receipt        Show the receipt for the current snapshot — a compact manifest of what the graph was generated over and how complete extraction was.
+  compare_receipts        Compare the current snapshot's receipt against a baseline's to check they are comparable before trusting a diff.
+  package_metrics         Robert C. Martin / JDepend package metrics (Ca, Ce, instability, abstractness, distance).
+  find_orphans            Find unreferenced symbols (dead code) in the codebase.
+  analyze_performance     Rank performance risks per function: calls in loops (N+1) and recursion with a Big-O, nested loops with their depth.
+  architecture_history    Show how the architecture changed over time — one entry per recorded snapshot, with what moved since the previous one.
+  architecture_blame      Find when something entered the architecture and when it left — "when did this module start importing that one?".

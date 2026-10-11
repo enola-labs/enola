@@ -1,0 +1,14 @@
+$ enola check .
+exit: 2
+--- stdout
+--- stderr
+enola: no mcp-arch.yaml in <TMP>/go_sample, using built-in defaults
+enola check: repo <TMP>/go_sample (built-in default config)
+enola check: no pinned baseline at <TMP>/go_sample/.enola/baseline
+
+The gate needs a "before" to compare against, pinned BEFORE you edit:
+    enola baseline pin <TMP>/go_sample
+    …make your change…
+    enola check <TMP>/go_sample
+
+Or compare against the immediately-preceding snapshot with --baseline=previous.

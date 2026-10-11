@@ -1,0 +1,34 @@
+$ enola doctor .
+exit: 0
+--- stdout
+enola doctor: <TMP>/go_sample
+
+Runtime
+  soft memory limit <MACHINE>
+  enola dev (extractors <EXTRACTOR_VERSION>)
+
+Providers carried by this binary
+  rubydex: not installed; run `enola providers fetch rubydex`
+
+Updates
+  not checked (disabled, or this is a dev build)
+
+Baseline
+  comparable — the gate can grade against it
+
+Session hooks
+  configured in .claude/settings.json
+  installed        <TIME> (less than a minute ago)
+  hook command     <BIN>
+
+  session-start   pins the baseline your change is graded against
+                  NEVER FIRED
+  stop            grades the change when the session ends
+                  NEVER FIRED
+
+  NEITHER HOOK HAS EVER RUN.
+  The configuration exists but nothing is invoking it. Start a session in this
+  repository and re-run; if it still says this, the agent is not reading the
+  hooks — a shape enola writes that your agent version ignores would look
+  exactly like this. Please report it.
+--- stderr

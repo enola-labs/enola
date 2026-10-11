@@ -1,0 +1,9 @@
+$ enola history verify ../store .
+exit: 0
+--- stdout
+<TMP>/store
+  sources    1 (<HOST>)
+  revisions  2 — 1 verified, 1 pruned by retention
+
+Every chain verifies: no gaps, no tampering.
+--- stderr

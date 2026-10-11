@@ -1,0 +1,6 @@
+$ enola baseline clear .
+exit: 0
+--- stdout
+Baseline cleared (<TMP>/go_sample/.enola/baseline removed).
+--- stderr
+enola: no mcp-arch.yaml in <TMP>/go_sample, using built-in defaults

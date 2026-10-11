@@ -1,0 +1,21 @@
+Found **6** insight(s).
+
+## By explainer
+
+- dead-code: 3
+- coverage: 1
+- crossrepo: 1
+- domain: 1
+
+## Insights
+
+| Explainer | Confidence | Title |
+|---|---|---|
+| crossrepo | 0.90 | Cross-repo dependencies (1 edges) |
+| coverage | 0.75 | Partial coverage: service consumer has 1 unresolved outbound call site(s) |
+| domain | 0.90 | . calls 3 outbound endpoint(s) |
+| dead-code | 0.80 | Dead code candidate: function ..NewZepto |
+| dead-code | 0.60 | Dead code candidate: struct ..Client |
+| dead-code | 0.40 | Additional dead-code candidates: 1 more (see find_orphans) |
+
+_Use output_mode='compact' for descriptions, evidence, and suggested actions, or 'full' for complete JSON._

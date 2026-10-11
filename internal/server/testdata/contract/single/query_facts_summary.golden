@@ -1,0 +1,22 @@
+Filters applied: none. No kind, name, file or prop filter was sent, so this is the whole store.
+
+Found **18** matching facts.
+
+## By kind
+
+- symbol: 9
+- dependency: 4
+- module: 3
+- test_ref: 2
+
+## Top files
+
+- pkg/a/a.go: 8
+- main.go: 3
+- pkg/b/b.go: 2
+- .: 1
+- pkg/a: 1
+- pkg/a/a_ext_test.go: 1
+- pkg/a/a_test.go: 1
+- pkg/b: 1
+

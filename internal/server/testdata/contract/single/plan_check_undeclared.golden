@@ -1,0 +1,29 @@
+{
+  "repo": "go_sample",
+  "snapshot": {
+    "generated_at": "<TIME>"
+  },
+  "constraints_declared": false,
+  "targets": [
+    {
+      "target": "pkg/a/a.go",
+      "kind": "path",
+      "measured": true,
+      "no_rule_governs": true,
+      "blast_radius": {
+        "fan_in": 4,
+        "fan_out": 2,
+        "in": [
+          "..main",
+          "pkg/a/a_ext_test.go",
+          "pkg/a/a_test.go",
+          "pkg/b.Beta"
+        ],
+        "out": [
+          "pkg/b",
+          "pkg/b.Beta"
+        ]
+      }
+    }
+  ]
+}

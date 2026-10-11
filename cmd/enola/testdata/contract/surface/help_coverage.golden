@@ -1,0 +1,19 @@
+$ enola coverage --help
+exit: 2
+--- stdout
+--- stderr
+Usage: enola coverage [flags] [repo_path|config_path]
+
+Report which cross-repo edges enola resolved and which it could not, per service.
+Tells a genuinely isolated service apart from one whose outbound edges enola simply
+failed to follow — a distinction the graph alone cannot express.
+
+Needs two or more repositories in one graph; point it at a config with `repos:`.
+
+Flags:
+  -json
+    	emit the report as JSON
+  -repo string
+    	report on one service instead of all of them
+  -unresolved
+    	list only services with unresolved outbound call sites

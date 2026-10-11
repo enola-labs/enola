@@ -1,0 +1,17 @@
+# Traverse summary: pkg/a (forward)
+
+pkg/a **depends on** 1 nodes across 1 modules
+
+## By node kind
+
+- module: 1
+
+## By relation kind
+
+- imports: 2 (100%)
+
+## Hottest modules
+
+- pkg (1 nodes)
+
+_Stats: 1 nodes matched, 2 walked, 2 edges, max depth 1. Use output_mode=compact for the per-depth node list, output_mode=full for the raw graph._

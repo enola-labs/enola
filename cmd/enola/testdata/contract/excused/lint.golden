@@ -1,0 +1,24 @@
+$ enola constraints lint .
+exit: 0
+--- stdout
+
+go_sample: declared by enola-intent.yaml.
+  <TMP>/go_sample/enola-intent.yaml: 2 component(s), 1 rule(s), 2 exemption(s)
+  enola:recipes/clean.yaml: recipe clean — roles frameworks, interface-adapters, use-cases, entities, 6 rules
+  enola:recipes/cqrs.yaml: recipe cqrs — roles commands, queries, read-models, 4 rules
+  enola:recipes/event-driven.yaml: recipe event-driven — roles publishers, events, handlers, 3 rules
+  enola:recipes/layered.yaml: recipe layered — roles presentation, application, domain, infrastructure, 5 rules
+  enola:recipes/modular-monolith.yaml: recipe modular-monolith — roles module-public, module-internal, other-modules, 3 rules
+  enola:recipes/ports-and-adapters.yaml: recipe ports-and-adapters — roles core, ports, adapters, 4 rules
+  enola:recipes/rails-conventions.yaml: recipe rails-conventions — roles controllers, jobs, models, mailers, policies, serializers, view-components, helpers, services, 12 rules
+  enola:recipes/rails-strict.yaml: recipe rails-strict — roles controllers, jobs, models, mailers, policies, serializers, view-components, helpers, services, concerns, 13 rules
+  enola:recipes/ruby-conventions.yaml: recipe ruby-conventions — roles code, 3 rules
+  enola:recipes/supply-chain.yaml: recipe supply-chain — roles unpinned-dependencies, 1 rule
+  enola:recipes/vanilla-rails.yaml: recipe vanilla-rails — roles models, controllers, services, forms, policies, decorators, presenters, 6 rules
+
+Component resolution: no snapshot at <TMP>/go_sample/.enola - validation only.
+
+OK — every declaration is valid.
+--- stderr
+enola: no mcp-arch.yaml in <TMP>/go_sample, using built-in defaults
+enola constraints lint: repo <TMP>/go_sample (built-in default config)

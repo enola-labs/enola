@@ -1,0 +1,38 @@
+$ enola check --fail-on dead-code .
+exit: 0
+--- stdout
+PASS — no structural regression.
+could not see: 2 files and 0 directories excluded by ignore globs
+law: 1 rule · 1 breach · none excused
+
+New findings (advisory — below the failure policy):
+  - [dead-code] 0.80 — Dead code candidate: function pkg/b.UsesGamma
+      function · unreferenced · pkg/b/gamma.go:6
+      pkg/b/gamma.go:6
+      func UsesGamma() string { return c.Gamma() }
+
+Confidence < 1.00 is a candidate to verify, not a verdict.
+
+What changed
+  modules      +1
+  symbols      +2
+  dependencies +1
+  edges        +4  (imports +1, calls +1, declares +2)
+
+Added (4):
+  module     pkg/c                                        pkg/c
+  symbol     pkg/b.UsesGamma                              pkg/b/gamma.go:6
+  symbol     pkg/c.Gamma                                  pkg/c/c.go:4
+  dependency pkg/b -> example.com/gosample/pkg/c          pkg/b/gamma.go:3
+
+New coupling (4):
+  pkg/b                                        --imports--> pkg/c
+  pkg/b.UsesGamma                              --calls--> pkg/c.Gamma
+  pkg/b.UsesGamma                              --declares--> pkg/b
+  pkg/c.Gamma                                  --declares--> pkg/c
+
+New coupling is reported, not failed: an added call edge is what ordinary work
+looks like. Inspect the list above if it is more than you expected.
+--- stderr
+enola: no mcp-arch.yaml in <TMP>/go_sample, using built-in defaults
+enola check: repo <TMP>/go_sample (built-in default config)

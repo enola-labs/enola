@@ -1,0 +1,8 @@
+Found **1** insight(s).
+
+### 1. Cross-repo dependencies (1 edges)
+- explainer: crossrepo · confidence: 0.90
+- These service-to-service dependencies span repositories: consumer -> api (via http-client, 1 endpoint(s)). Traverse from a repo label (service node) to follow requests across repos.
+- evidence (1):
+    - consumer -> api — via http-client, 1 endpoint(s)
+

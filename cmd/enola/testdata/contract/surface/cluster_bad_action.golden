@@ -1,0 +1,8 @@
+$ enola cluster frobnicate
+exit: 2
+--- stdout
+--- stderr
+Usage: enola cluster init [--dry-run] [dir]
+
+init writes a cluster config for a folder that holds several git repositories.
+Run `enola cluster init --help`.

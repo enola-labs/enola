@@ -1,0 +1,21 @@
+**Indexed 2 repositories in one call (api, consumer).** Each one is a service node and the calls between them are linked.
+
+---
+
+Snapshot generated successfully.
+
+- Repositories (2): api (<TMP>/go_httpclient_multirepo/api), consumer (<TMP>/go_httpclient_multirepo/consumer)
+- Facts: 22
+- Insights: 6
+- Artifacts: 1
+- Duration: <DURATION>
+- Extractors: [go manifests]
+- Explainers: [cycles layers crossrepo coverage unused-routes domain query-loops dead-methods entry-points messaging-coverage god-class hotspots dependency-depth exported-surface complexity-outliers intent constraints vendored-candidates import-closure package-metrics dead-code performance]
+
+Fetch the computed findings with query_insights (e.g. query_insights(explainer='unused-routes') for HTTP routes no loaded client calls); use query_facts or explore to inspect the raw facts.
+
+**Multi-repo mode active.** Repo labels: api, consumer
+- Filter by repo: query_facts(repo="api")
+- File paths are prefixed: e.g. api/src/...
+- Add more repos with generate_snapshot(repo_paths=[...], append=true), all in one call.
+- **Cross-repo graph:** 2 service node(s), 1 cross-repo dependency edge(s). Traverse between repos with traverse(start="api") / find_path, list edges with query_facts(kind="service") or query_facts(prop="type", prop_value="cross_repo").

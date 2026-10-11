@@ -1,0 +1,14 @@
+$ enola --status --all
+exit: 0
+--- stdout
+--- stderr
+
+=== enola MCP Status — all repos ===
+Repos:  1
+Tracking since: <TIME>
+
+Value Estimate (approximate):
+  repo  calls  ~time saved  ~tokens saved
+  <TMP>/go_sample  6  <DURATION>  <TOKENS>
+  TOTAL  6  <DURATION>  <TOKENS>
+

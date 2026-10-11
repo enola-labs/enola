@@ -1,0 +1,5 @@
+$ enola history verify .
+exit: 2
+--- stdout
+--- stderr
+enola history: no shared history store at <TMP>/go_sample (no format marker — `history push` creates one)

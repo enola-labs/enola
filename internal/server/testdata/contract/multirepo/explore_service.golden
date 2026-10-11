@@ -1,0 +1,24 @@
+# Directory: api
+
+Total facts: 7
+
+## Summary
+
+- Files: 2
+- Modules: 1
+- Symbols: 3
+- Dependencies: 2
+- Routes: 1
+
+## Modules (1)
+
+- .
+
+## Key Symbols (showing up to 30)
+
+| Name | Kind | File | Line |
+|------|------|------|------|
+| ..main | function | api/server.go | 14 |
+| ..registerThings | function | api/server.go | 23 |
+| ..getThing | function | api/server.go | 27 |
+

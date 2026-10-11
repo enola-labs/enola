@@ -1,0 +1,748 @@
+[
+  {
+    "name": "analyze_performance",
+    "description": "Ranked performance risks per function: I/O or database calls inside loops (a likely N+1), recursion, nested loops, and nesting that continues across the call graph. Each finding has symbol (file:line), kind, severity (high, medium, low) and a plain-English why. A recursion finding, and a call-in-loop finding whose call sits in one loop, has big_o, the estimated worst case. A nested-loop or compounded finding, and a call-in-loop finding whose call sits in a nest, has depth instead: a count of nested loops, which is a fact about the code's shape and NOT a complexity, since nested loops multiply only when each walks an independent collection. Parser-derived and deterministic: an estimate, not a proof. A query-loop finding is one the query-loops explainer made (Rails): a database query per iteration, read from the receiver's type. All of them are returned here, including those that explainer counts in its rollup and does not list. Supports Go, Python, Ruby, Swift, Kotlin, Scala, Dart, TypeScript, Java, C++ and C#. kind narrows the result to one or more kinds. A call returns at most 1000 findings; a full result says where the next page starts (next_offset), and offset reads it. Findings of medium severity and up also appear in query_insights(explainer=\"performance\"); query-loop findings appear in query_insights(explainer=\"query-loops\").",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "description": "Finding kind: call-in-loop, query-loop, recursion, nested-loop or compounded. Several are comma-separated. Default: all.",
+          "type": "string"
+        },
+        "limit": {
+          "description": "Maximum findings (1-1000). Default 100.",
+          "type": "integer"
+        },
+        "max_tokens": {
+          "description": "Approximate token cap; output is truncated with a notice. Default: no cap.",
+          "type": "integer"
+        },
+        "min_severity": {
+          "description": "'low' (default), 'medium', or 'high'.",
+          "type": "string"
+        },
+        "offset": {
+          "description": "Findings to skip, for paging past limit. Default 0.",
+          "type": "integer"
+        },
+        "output_mode": {
+          "description": "'summary' (DEFAULT, counts by severity and kind plus the top findings), 'compact' (markdown table), or 'full' (complete JSON with the summary).",
+          "type": "string"
+        },
+        "package": {
+          "description": "Package or function name substring, e.g. 'internal/app'.",
+          "type": "string"
+        },
+        "repo": {
+          "description": "Repository label (multi-repo snapshots), e.g. 'go-service'.",
+          "type": "string"
+        },
+        "symbol": {
+          "description": "Symbol name substring.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "architecture_blame",
+    "description": "WHEN something entered or left the architecture: \"when did this module start importing that one?\", \"which snapshot introduced this cycle?\". It reads what the graph held at each recorded point instead of inferring it from source history.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "findings": {
+          "description": "Search recorded FINDINGS instead of facts, e.g. when a cycle first appeared. Default false.",
+          "type": "boolean"
+        },
+        "first": {
+          "description": "Stop at the first appearance, for 'when was this introduced'. Default false.",
+          "type": "boolean"
+        },
+        "pattern": {
+          "description": "A module or symbol name, a file path, or both endpoints of an edge (e.g. 'internal/server -\u003e internal/facts'). Case-insensitive.",
+          "type": "string"
+        },
+        "repo_path": {
+          "description": "Repository whose history to search. Defaults to the snapshot's repo.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "pattern"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "architecture_history",
+    "description": "How the architecture CHANGED OVER TIME: one entry per recorded snapshot, oldest first, with what moved since the one before (revision id, time taken, git commit and branch, counts of facts, edges and findings that moved). Every other tool describes the tree as it is now; this one answers about the past, so prefer it over reading git log and guessing. generate_snapshot records history automatically, so a repository never snapshotted has none yet.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "all": {
+          "description": "Include working revisions (snapshots of uncommitted trees). Default false.",
+          "type": "boolean"
+        },
+        "limit": {
+          "description": "Maximum revisions to return, newest kept. Default 20; 0 for all.",
+          "type": "integer"
+        },
+        "repo_path": {
+          "description": "Repository whose history to read. Defaults to the snapshot's repo.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "compare_receipts",
+    "description": "Check that the current snapshot and a baseline are comparable BEFORE trusting a diff between them. Returns a comparability verdict (same repo, enola version, extractor set, ignore globs; a mismatch means diff_snapshot would report spurious churn) and metric deltas (files parsed, parse errors, coverage gaps, unresolved edges, fact and insight counts) that flag regressions in enola's own extraction. Also the signal to poll when improving enola's coverage.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "baseline": {
+          "description": "'pinned' (DEFAULT, the snapshot frozen by set_baseline), 'previous' (the run before), or a directory containing receipt.json or snapshot.meta.json.",
+          "type": "string"
+        },
+        "max_tokens": {
+          "description": "Approximate token cap; output is truncated with a notice. Default: no cap.",
+          "type": "integer"
+        },
+        "output_mode": {
+          "description": "'summary' (DEFAULT, markdown: verdict, metric deltas, quality regressions) or 'full' (complete JSON).",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "constraints_for",
+    "description": "The pre-edit contract for a file or fact; ask BEFORE editing. Returns the constraint components that contain it, every rule binding those components (in words, with its declared rationale and enforcement mode), and the current violations whose evidence names it. Guidance rules (steering, not law) come with their advice, mode, and prior-art exemplars marked present, absent or unmeasured in this snapshot. The file may not exist yet: it is matched against component patterns, so the answer covers code about to be written. Matching is exact and fail-closed, like the constraints explainer's. Returns JSON.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "max_tokens": {
+          "description": "Approximate token cap; output is truncated with a notice. Default: no cap.",
+          "type": "integer"
+        },
+        "target": {
+          "description": "A repo-relative file path (it may not exist yet) or an exact fact name.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "target"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "coverage_report",
+    "description": "Tells a genuinely isolated service from one whose edges enola could not resolve; use it before concluding a service is isolated. Per service: resolved outbound dependencies and, per edge type (currently http_client), outbound call sites detected, resolved and unresolved, classified connected, coverage_gap (likely NOT isolated, verify against source) or isolated. Multi-repo snapshots only; a single-repo snapshot has no service nodes.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "output_mode": {
+          "description": "'summary' (DEFAULT, markdown table) or 'full' (JSON).",
+          "type": "string"
+        },
+        "repo": {
+          "description": "One service (repo label). Default: all services.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "diff_snapshot",
+    "description": "What a change did to the architecture: the deterministic answer that replaces re-reading files. A DELTA, not a linter: findings that appeared or were resolved, coupling edges added or removed, symbols, modules and routes added or removed. Anything present both before and after stays silent. Loop: generate_snapshot, set_baseline, edit, generate_snapshot, diff_snapshot. New findings keep their original confidence and caveats; below 1 is a candidate to verify, not a verdict.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "baseline": {
+          "description": "'pinned' (DEFAULT, the snapshot frozen by set_baseline), 'previous' (the run before, rotated automatically), or a directory containing facts.jsonl.",
+          "type": "string"
+        },
+        "expected_packages": {
+          "description": "Packages you expected to touch beyond the predicted radius. Touched packages that are neither expected nor predicted are spillover.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        },
+        "focus": {
+          "description": "Only entries referencing this module, file or symbol (substring match). Use it to verify just what you touched.",
+          "type": "string"
+        },
+        "max_depth": {
+          "description": "Depth of the predicted radius (1-10). Default 3. Only with target or expected_packages.",
+          "type": "integer"
+        },
+        "max_nodes": {
+          "description": "Nodes per impact traversal (1-500). Default 200. Only with target or expected_packages.",
+          "type": "integer"
+        },
+        "max_tokens": {
+          "description": "Approximate token cap; output is truncated with a notice. Default: no cap.",
+          "type": "integer"
+        },
+        "output_mode": {
+          "description": "'summary' (DEFAULT, headline regressions and improvements plus a structural tally), 'compact' (adds finding descriptions, evidence, changed edges and facts), or 'full' (complete JSON).",
+          "type": "string"
+        },
+        "target": {
+          "description": "The symbol, type or package you INTENDED to change. Turns the diff into a conformance check: impact analysis on the PRE-change graph predicts the radius, and any package the change reached outside it is reported as spillover. Omit for a plain delta.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "endpoint_impact",
+    "description": "What changing an HTTP endpoint reaches: the route, the controller serving it, the models that controller touches, the models associated with those, and the tables behind them. Use this when you have a URL, impact_analysis when you have a symbol. It answers about what the application serves: client call sites and mock-server routes are excluded.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "endpoint": {
+          "description": "Path substring, optionally prefixed with a verb: 'GET /v1/candidates' or '/v1/candidates'.",
+          "type": "string"
+        },
+        "max_routes": {
+          "description": "Matched endpoints to follow (1-200); a bare prefix can match hundreds. Default 25.",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "endpoint"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "explore",
+    "description": "Primary exploration tool, the first call after generate_snapshot. For a module, file path, directory prefix or symbol it returns markdown: symbols (kinds, line numbers), direct dependencies and reverse dependents. A module is a package-level grouping (a Go package, a TypeScript file group), not a repo. Absolute paths are accepted. Use query_facts for precise filtering, traverse for multi-hop walks.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "depth": {
+          "description": "1 for direct relations (default), 2 to include relations of relations. Max 2.",
+          "type": "integer"
+        },
+        "focus": {
+          "description": "Module name, file path, directory prefix or symbol name.",
+          "type": "string"
+        },
+        "max_tokens": {
+          "description": "Approximate token cap; output is truncated with a notice. Default: no cap.",
+          "type": "integer"
+        },
+        "output_mode": {
+          "description": "Only at depth=2. 'summary' (default) returns aggregated insights (dependency hotspots, cycle and layer warnings, size metrics): what is architecturally significant. 'compact' or 'full' list per-symbol relations instead.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "focus"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "find_orphans",
+    "description": "Dead-code candidates: symbols nothing references, read from the loaded snapshot without re-indexing. class=isolated when the symbol references nothing either, class=unreferenced when it still calls others. Confidence: functions are high (TypeScript/JavaScript functions medium, operator overloads low); structs, classes and interfaces medium; the rest low. Treat medium and low as leads to verify, not safe deletions; the response says why, for the languages in the graph. Exported symbols are included but flagged, since they may be used outside this snapshot; confidence=high with visibility=unexported is the safest cleanup list. Tests and entry points (main, init) are excluded by default. For one symbol's blast radius use impact_analysis; for package-level health, package_metrics. High-confidence orphans also appear in query_insights(explainer=\"dead-code\").",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "confidence": {
+          "description": "'high' (functions outside TypeScript/JavaScript), 'medium' (structs, classes, interfaces; TypeScript/JavaScript functions), 'low' (everything else), or empty for all (default).",
+          "type": "string"
+        },
+        "include_entrypoints": {
+          "description": "Include main and init, which have no callers by nature. Default false.",
+          "type": "boolean"
+        },
+        "include_tests": {
+          "description": "Include *_test files, Test/Benchmark/Example/Fuzz functions and test-support packages (mocks, testutils, fixtures). Off by default: Go _test.go files are not in the snapshot, so test-support code would look dead. Default false.",
+          "type": "boolean"
+        },
+        "kind": {
+          "description": "function, method, struct, interface, type, class, constant, or variable. Default: all.",
+          "type": "string"
+        },
+        "limit": {
+          "description": "Maximum symbols in compact or full output (1-2000). Default 200. Ignored for summary.",
+          "type": "integer"
+        },
+        "max_tokens": {
+          "description": "Approximate token cap; output is truncated with a notice. Default: no cap.",
+          "type": "integer"
+        },
+        "mode": {
+          "description": "'both' (default), 'isolated' (no references in or out), or 'unreferenced' (referenced by nobody, still references others).",
+          "type": "string"
+        },
+        "output_mode": {
+          "description": "'summary' (DEFAULT, counts per symbol kind with isolated, unreferenced, exported and high-confidence splits), 'compact' (markdown table), or 'full' (per-symbol JSON with file:line).",
+          "type": "string"
+        },
+        "package": {
+          "description": "Declaring package substring, e.g. 'internal/app'.",
+          "type": "string"
+        },
+        "repo": {
+          "description": "Repository label (multi-repo snapshots), e.g. 'go-service'.",
+          "type": "string"
+        },
+        "visibility": {
+          "description": "'all' (default), 'exported', or 'unexported' (the safer set to delete).",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "find_path",
+    "description": "Shortest path, by hop count, between two nodes: \"how does X reach Y?\", \"what is the call chain from A to B?\". An ambiguous endpoint is not an error: the top candidates are tried (for a type, its methods and constructor too) and the first path found is returned, with the ranked candidates. With no path, found=false and a note says whether the endpoints were ambiguous (listing the candidates tried) or resolved but unreachable within max_depth.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "from": {
+          "description": "Source node, substring match. Disambiguate with repo:, kind:, file: prefixes or a package-qualified name, e.g. 'repo:go-auth Login' or 'ticket.Repository'.",
+          "type": "string"
+        },
+        "max_depth": {
+          "description": "Maximum path length (1-20). Default 10.",
+          "type": "integer"
+        },
+        "relation_kinds": {
+          "description": "Relations to follow. Default: all.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        },
+        "to": {
+          "description": "Target node, matched like from, e.g. 'kind:struct AuthMiddleware' or 'repo:golf domain/cart.CartService'.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "from",
+        "to"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "generate_snapshot",
+    "description": "Index a repository into queryable architecture facts (module, symbol, route, storage, dependency, service). Run it first, and again after code changes. Supports Go, TypeScript/JavaScript (incl. Vue, Svelte, Ember), Python, Java, Kotlin, Scala, Dart/Flutter, Ruby, PHP, Swift, Rust, C/C++, .NET (C#/VB.NET/F#/Razor/XAML), Terraform/HCL, Ansible, gRPC/Protobuf, OpenAPI, AsyncAPI and GraphQL. To verify a change, call set_baseline after this first snapshot, BEFORE editing. A folder holding several git repositories is indexed as a linked cluster (no_cluster=true for one repository). Several repositories go in ONE call as repo_paths. append=true adds a repository to what is loaded, and is enabled automatically when you switch repos; fresh=true discards what is loaded when you have moved to a different project.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "append": {
+          "description": "Keep the loaded facts and add this repository, with repo-prefixed file paths. Default false.",
+          "type": "boolean"
+        },
+        "fresh": {
+          "description": "Discard everything loaded and index only repo_path as a single repository, overriding auto-append. Not combined with append.",
+          "type": "boolean"
+        },
+        "no_cluster": {
+          "description": "Index a folder holding several git repositories as ONE repository instead of a cluster. Default false.",
+          "type": "boolean"
+        },
+        "repo_path": {
+          "description": "Repository to index. Defaults to the configured repo path.",
+          "type": "string"
+        },
+        "repo_paths": {
+          "description": "Several repositories indexed in one call as one linked set, each a service node with the calls between them linked. Resets the store unless append=true. Not combined with repo_path or fresh.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "governing_intent",
+    "description": "Knowledge to code and back. For a fact or file: the knowledge pages whose anchors cover its file, each with type, status and outgoing relations, so the trail continues past the first hop. For a compiled page path: its anchors with measured coverage (files and facts under each). Cheaper than impact_analysis when the question is governance, not blast radius.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "max_tokens": {
+          "description": "Approximate token cap; output is truncated with a notice. Default: no cap.",
+          "type": "integer"
+        },
+        "repo": {
+          "description": "Repo label, when the file path is measured in more than one repo.",
+          "type": "string"
+        },
+        "target": {
+          "description": "An exact fact name, a file path (repo-relative or label-prefixed), or a compiled page path.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "target"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "impact_analysis",
+    "description": "Blast radius of changing a node: everything that transitively depends on it, grouped by hop depth. For refactoring plans and change risk. include_forward=true adds what the target itself depends on. When knowledge pages declare anchors (enola_intent), it also lists the pages anchored to the target's file: the decisions governing the code you are about to change. Output grows fast: start with output_mode=summary and keep max_depth and max_nodes bounded.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "include_forward": {
+          "description": "Also show what the target depends on, i.e. what could break it. Default false.",
+          "type": "boolean"
+        },
+        "max_depth": {
+          "description": "Hops of impact (1-10). Default 3.",
+          "type": "integer"
+        },
+        "max_nodes": {
+          "description": "Maximum impacted nodes (1-500). Default 200.",
+          "type": "integer"
+        },
+        "max_tokens": {
+          "description": "Approximate token cap; output is truncated with a notice. Default: no cap.",
+          "type": "integer"
+        },
+        "output_mode": {
+          "description": "'summary' (DEFAULT, exact dependent count, breakdown by kind and depth, hotspot modules, cross-repo reach, cycle and layer insights touching the target), 'compact' (dependents by depth), or 'full' (raw JSON graph; can be VERY large). Escalate only when you need specific nodes.",
+          "type": "string"
+        },
+        "target": {
+          "description": "The node being changed, substring match. Disambiguate with repo:, kind:, file: prefixes.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "target"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "package_metrics",
+    "description": "Robert C. Martin (JDepend) package metrics, to assess responsibility, extensibility and stability. Per package: classes_interfaces (N), concrete and abstract classes plus interfaces; afferent_couplings (Ca), how many OTHER packages depend on it; efferent_couplings (Ce), how many OTHER packages it depends on; instability I = Ce/(Ca+Ce), 0 stable to 1 unstable; abstractness A = abstract types / N, 0 concrete to 1 abstract; distance D = |A+I-1| from the main sequence, where high D means rigid (stable and concrete) or useless (unstable and abstract). Ca and Ce count packages, not classes, from the internal import graph (class-to-class edges are not extracted for most languages); for class-level blast radius use impact_analysis. Abstract types are interfaces and abstract classes; the response says how that is read for the languages in the result. Off-main-sequence packages also appear in query_insights(explainer=\"package-metrics\").",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "limit": {
+          "description": "Maximum packages in compact or full output (1-1000). Default 100.",
+          "type": "integer"
+        },
+        "max_tokens": {
+          "description": "Approximate token cap; output is truncated with a notice. Default: no cap.",
+          "type": "integer"
+        },
+        "output_mode": {
+          "description": "'summary' (DEFAULT, average instability and distance, off-main-sequence count, most depended-upon package), 'compact' (markdown table), or 'full' (complete JSON).",
+          "type": "string"
+        },
+        "package": {
+          "description": "Package name substring, e.g. 'internal/app'.",
+          "type": "string"
+        },
+        "repo": {
+          "description": "Repository label (multi-repo snapshots), e.g. 'go-service'.",
+          "type": "string"
+        },
+        "sort_by": {
+          "description": "'ca' (default, most depended-upon first), 'ce', 'classes', 'instability', 'distance', or 'name'.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "plan_check",
+    "description": "Plan a change BEFORE editing. For each target (paths that may not exist yet, or exact fact names): the constraint components and rules governing it, with mode and declared because:, plus its blast radius (fan-in and fan-out, capped samples with exact counts). With patch, the counterfactual: the diff is applied to a scratch copy (the working tree and its .enola are never touched), facts are regenerated there, and the constraint verdicts that WOULD appear are reported as new, resolved or unchanged, each naming the rule, the would-be witness and its because:. Components and rules are read from the working tree (enola-intent.yaml, enola/constraints/), so an edit to them counts without regenerating. A report, not a gate: like enola check, the verdict is the caller's to weigh. Returns JSON.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "max_tokens": {
+          "description": "Approximate token cap; output is truncated with a notice. Default: no cap.",
+          "type": "integer"
+        },
+        "patch": {
+          "description": "A unified diff to evaluate on a scratch copy; the working tree is never touched.",
+          "type": "string"
+        },
+        "paths": {
+          "description": "Repo-relative file paths the change touches; they may not exist yet.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        },
+        "repo": {
+          "description": "Repo label, in a multi-repo snapshot. Inferred from label-prefixed paths and fact names when omitted; needed for a patch, whose paths are relative to one repository.",
+          "type": "string"
+        },
+        "symbols": {
+          "description": "Exact fact names the change touches.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "query_facts",
+    "description": "Precision filter over extracted facts, for subsets explore does not give you: all symbols in a file, all external dependencies, all routes. Filters are OR within a dimension (name with names; file with files and file_prefix; kind with kinds) and AND across dimensions. Size an unfamiliar result set with output_mode=summary first. For dependencies, prop=source with prop_value internal, external, stdlib or framework cuts the noise.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "file": {
+          "description": "File path.",
+          "type": "string"
+        },
+        "file_prefix": {
+          "description": "File path prefix, e.g. internal/server for every file under it.",
+          "type": "string"
+        },
+        "files": {
+          "description": "File paths, OR. Use instead of file for batch lookups.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        },
+        "include_related": {
+          "description": "Inline each relation target's full fact instead of just its name.",
+          "type": "boolean"
+        },
+        "kind": {
+          "description": "module, symbol, route, storage, dependency, or service (a whole repo, a node in the cross-repo graph).",
+          "type": "string"
+        },
+        "kinds": {
+          "description": "Kinds, OR. Use instead of kind for batch lookups.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        },
+        "limit": {
+          "description": "Maximum results (1-500). Default 100.",
+          "type": "integer"
+        },
+        "max_tokens": {
+          "description": "Approximate token cap; output is truncated with a notice. Default: no cap.",
+          "type": "integer"
+        },
+        "name": {
+          "description": "Name substring, case-insensitive.",
+          "type": "string"
+        },
+        "names": {
+          "description": "Exact fact names, which are package-qualified (e.g. internal/server.Server, not Server). OR with each other and with name.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        },
+        "offset": {
+          "description": "Results to skip. Default 0.",
+          "type": "integer"
+        },
+        "output_mode": {
+          "description": "'full' (DEFAULT, JSON facts), 'compact' (markdown table), 'names' (names and files), or 'summary' (total plus breakdown by kind and top files; cheapest).",
+          "type": "string"
+        },
+        "prop": {
+          "description": "Property name, e.g. source, symbol_kind, exported, framework, storage_kind, role, method, unmatched_by_clients. output_mode=summary lists the notable boolean flags present in the result.",
+          "type": "string"
+        },
+        "prop_value": {
+          "description": "Property value; requires prop.",
+          "type": "string"
+        },
+        "relation": {
+          "description": "Relation kind: declares, imports, calls, implements, or depends_on.",
+          "type": "string"
+        },
+        "repo": {
+          "description": "Repository label (multi-repo snapshots), e.g. 'go-service'.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "query_insights",
+    "description": "Findings the explainers computed during generate_snapshot: the direct answer to \"which routes are unused?\", \"where are the dependency cycles?\", \"which modules are god-classes?\". Prefer it to hand-diffing query_facts results. Each insight has a title, its explainer, a description, a confidence (below 1 is a candidate to verify, not a verdict), evidence (files, symbols, routes) and suggested actions. Route and cross-repo findings (unused-routes, crossrepo, coverage) appear only in multi-repo snapshots of a backend plus its clients. Explainers whose name is not self-explanatory: unused-routes (dead/uncalled HTTP routes), messaging-coverage (undeclared messaging calls and AsyncAPI operations with no detected implementation), intent (declared architecture verdicted against the measured graph), constraints (declared component rules, and the edges that breach them), domain (what a framework's declarations say about its data and API), query-loops (a database query issued once per loop iteration), entry-points (the symbols a framework invokes directly).",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "explainer": {
+          "description": "Filter to insights produced by this explainer. One of: cycles, layers, crossrepo, coverage, unused-routes, messaging-coverage, god-class, hotspots, dependency-depth, exported-surface, complexity-outliers, intent, constraints, domain, query-loops, entry-points, dead-methods, vendored-candidates, import-closure, package-metrics, dead-code, performance. Empty = all.",
+          "type": "string"
+        },
+        "max_tokens": {
+          "description": "Approximate token cap; output is truncated with a notice. Default: no cap.",
+          "type": "integer"
+        },
+        "min_confidence": {
+          "description": "Minimum confidence (0.0-1.0). Default 0. unused-routes findings are emitted at 0.6, as review candidates.",
+          "type": "number"
+        },
+        "output_mode": {
+          "description": "'summary' (DEFAULT, one row per insight: explainer, confidence, title), 'compact' (adds description, evidence sample, actions), or 'full' (complete JSON).",
+          "type": "string"
+        },
+        "repo": {
+          "description": "Repo label. In multi-repo snapshots it matches the repo path segment of each insight's evidence ('golf' matches golf/... but not golf-ui/...); in single-repo snapshots it is a substring match. Empty = all.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "set_baseline",
+    "description": "Pin the current snapshot as the baseline diff_snapshot compares against. Call it once at the START of a task, after generate_snapshot. It survives later generate_snapshot runs, so it holds across several edit rounds, unlike 'previous', which only ever holds the run before.",
+    "input_schema": {
+      "additionalProperties": false,
+      "type": "object"
+    }
+  },
+  {
+    "name": "show_symbol",
+    "description": "Source code of a named symbol: an exact name match if there is one, otherwise up to 5 substring matches. Works in multi-repo snapshots too.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "context_lines": {
+          "description": "Source lines to show around the declaration. Default 60: about 15 before, 45 after.",
+          "type": "integer"
+        },
+        "name": {
+          "description": "Symbol name, exact or substring.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "snapshot_receipt",
+    "description": "Proof of WHAT the current snapshot was generated over (enola version, git state, extractors, a content fingerprint) and how complete extraction was (files parsed and skipped, parse errors, unresolved cross-repo edges). Read it before trusting an impact_analysis or a diff, and to spot thin extraction (a missed detection, a bad ignore glob, a failing extractor).",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "max_tokens": {
+          "description": "Approximate token cap; output is truncated with a notice. Default: no cap.",
+          "type": "integer"
+        },
+        "output_mode": {
+          "description": "'summary' (DEFAULT, headline provenance and quality metrics) or 'full' (complete JSON receipt).",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "traverse",
+    "description": "Multi-hop walk of the dependency and call graph from one node: forward answers \"what does X depend on?\", reverse answers \"what depends on X?\". Use it instead of repeated explore calls. From a struct or interface, forward follows its methods and their calls; reverse also starts from its methods and constructor, so callers that reach the type only through a method (cross-repo too) appear, as in impact_analysis. Interface method calls cannot be bound to an implementation statically, so those edges may be missing or show as unresolved nodes. Output grows fast: start with output_mode=summary and keep max_depth and max_nodes bounded.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "direction": {
+          "description": "'forward' (default) follows outgoing relations, 'reverse' incoming ones.",
+          "type": "string"
+        },
+        "max_depth": {
+          "description": "Maximum depth (1-20). Default 5.",
+          "type": "integer"
+        },
+        "max_nodes": {
+          "description": "Maximum nodes (1-500); the walk stops there. Default 100.",
+          "type": "integer"
+        },
+        "max_tokens": {
+          "description": "Approximate token cap; output is truncated with a notice. Default: no cap.",
+          "type": "integer"
+        },
+        "node_kinds": {
+          "description": "Filters the output, not the walk: module, symbol, dependency, route, storage. Default: all.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        },
+        "output_mode": {
+          "description": "'summary' (DEFAULT, counts by node and relation kind, internal/external split, hottest modules), 'compact' (nodes grouped by depth), or 'full' (raw JSON node/edge graph; can be VERY large). Escalate only when you need specific nodes.",
+          "type": "string"
+        },
+        "relation_kinds": {
+          "description": "Relations to follow: imports, calls, declares, implements, depends_on, has_method. Default: all.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        },
+        "start": {
+          "description": "Starting node (fact, module or symbol name), substring match. Disambiguate with repo:, kind:, file: prefixes or a package-qualified name, e.g. 'repo:go-auth kind:struct AuthHandler' or 'domain/cart.CartService'. An ambiguous name returns ranked candidates with confidence.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "start"
+      ],
+      "type": "object"
+    }
+  }
+]

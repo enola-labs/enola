@@ -1,0 +1,18 @@
+$ enola doctor --json .
+exit: 0
+--- stdout
+{
+  "baseline_unusable": "",
+  "hooks_configured": true,
+  "memory_limit": "<MACHINE>",
+  "memory_limit_from": "<MACHINE>",
+  "repo": "<TMP>/go_sample",
+  "state": {
+    "installed_at": "<TIME>",
+    "hook_command": "<BIN>"
+  },
+  "update": {
+    "available": false
+  }
+}
+--- stderr

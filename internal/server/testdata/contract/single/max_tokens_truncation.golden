@@ -1,0 +1,8 @@
+Filters applied: none. No kind, name, file or prop filter was sent, so this is the whole store.
+
+[
+  {
+    "kind": "dependency",
+    "name": ". -\u003e example.com/gosample/pkg/a",
+
+[truncated: JSON output exceeded max_tokens=50 and is no longer valid JSON. Narrow the query (tighter filters, a lower limit or depth, or a smaller output_mode where the tool has one) or raise max_tokens.]

@@ -1,0 +1,41 @@
+{
+  "packages": [
+    {
+      "package": "pkg/a",
+      "repo": "go_sample",
+      "classes_interfaces": 0,
+      "afferent_couplings": 2,
+      "efferent_couplings": 1,
+      "instability": 0.333,
+      "abstractness": 0,
+      "distance": 0.667,
+      "data_holder_ratio": 0
+    },
+    {
+      "package": "pkg/b",
+      "repo": "go_sample",
+      "classes_interfaces": 0,
+      "afferent_couplings": 2,
+      "efferent_couplings": 1,
+      "instability": 0.333,
+      "abstractness": 0,
+      "distance": 0.667,
+      "data_holder_ratio": 0
+    },
+    {
+      "package": ".",
+      "repo": "go_sample",
+      "classes_interfaces": 0,
+      "afferent_couplings": 0,
+      "efferent_couplings": 2,
+      "instability": 1,
+      "abstractness": 0,
+      "distance": 0,
+      "data_holder_ratio": 0
+    }
+  ],
+  "total": 3,
+  "repo_wide_packages": 3,
+  "returned": 3,
+  "note": "Ca/Ce are package-granular (counts of other packages) from the internal import graph; N is the exact class+interface count per package."
+}

@@ -1,0 +1,24 @@
+$ enola install --yes --hooks --targets=claude .
+exit: 0
+--- stdout
+Install
+Target:     .   (from the path you gave)
+Hooks:      yes
+            · at the start of a session the architecture is frozen as a
+              baseline, in the background — session start is never delayed,
+              and a baseline you pinned yourself is never replaced
+            · at the end of a turn, the architectural delta is reported only if
+              the change introduced a regression or a finding no policy
+              enforces, or that the baseline was not comparable so nothing could
+              be graded at all. Said once per distinct report per session, never
+              repeated at every stop
+            Never blocks, and never interrupts on failure.
+
+  updated   .claude/rules/enola.md
+  created   .claude/settings.json
+
+Written — 2 files as previewed.
+
+Restart your agent session for the hooks to take effect.
+Then `enola doctor` will tell you whether they are actually firing.
+--- stderr

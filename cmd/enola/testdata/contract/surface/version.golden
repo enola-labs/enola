@@ -1,0 +1,5 @@
+$ enola --version
+exit: 0
+--- stdout
+--- stderr
+enola version dev

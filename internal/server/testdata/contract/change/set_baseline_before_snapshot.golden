@@ -1,0 +1,2 @@
+[tool error]
+could not set baseline: no snapshot to pin as baseline (run generate_snapshot first): stat <CWD>/.enola/facts.jsonl: no such file or directory

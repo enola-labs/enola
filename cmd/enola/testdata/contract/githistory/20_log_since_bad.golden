@@ -1,0 +1,5 @@
+$ enola log --since yesterday .
+exit: 2
+--- stdout
+--- stderr
+enola log: --since "yesterday" is neither a time (<TIME>) nor a duration (72h)

@@ -1,0 +1,11 @@
+$ enola blame --all pkg/c .
+exit: 0
+--- stdout
+5367aea  <TIME>  
+    + dependency  pkg/b -> example.com/gosample/pkg/c  (pkg/b/gamma.go:3)
+    + module      pkg/c  (pkg/c)
+    + symbol      pkg/b.UsesGamma  (pkg/b/gamma.go:6)
+    + symbol      pkg/c.Gamma  (pkg/c/c.go:4)
+
+1 event across 2 searched revisions.
+--- stderr

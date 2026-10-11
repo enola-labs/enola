@@ -1,0 +1,17 @@
+# Architecture diff
+
+_Baseline <TIME> → current <TIME>._
+
+## Regressions introduced (1)
+
+- [dead-code] 0.80 — Dead code candidate: function pkg/a.UsesGamma
+
+_Confidence < 1.0 is a candidate to verify, not a verdict. Use output_mode='compact' for descriptions, evidence, and caveats._
+
+## Structural changes
+
+- dependency: +1 / -0
+- module: +1 / -0
+- symbol: +2 / -0
+- edges: +4 / -0
+

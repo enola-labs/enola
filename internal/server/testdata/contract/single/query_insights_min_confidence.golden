@@ -1,0 +1,13 @@
+Found **1** insight(s).
+
+## By explainer
+
+- cycles: 1
+
+## Insights
+
+| Explainer | Confidence | Title |
+|---|---|---|
+| cycles | 1.00 | Cyclic dependency detected (2 modules) |
+
+_Use output_mode='compact' for descriptions, evidence, and suggested actions, or 'full' for complete JSON._
