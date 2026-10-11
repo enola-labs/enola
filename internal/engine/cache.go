@@ -2783,7 +2783,10 @@ import (
 // documentation symbols no longer enter the dead-code candidate population.
 // Fallback, metadata and literal reflection uses carry names edges, not calls;
 // orphan detection sees them while call coupling excludes them.
-const cacheVersion = "v319"
+// v320: the Swift, Scala (Play routes), Dart (pubspec), Kotlin and JVM line readers have no
+// line-length limit. A line over the old limit (1 MB, or bufio's 64 KB default) ended the
+// scan silently and dropped everything after it in that file.
+const cacheVersion = "v320"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

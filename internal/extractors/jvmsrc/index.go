@@ -6,7 +6,6 @@
 package jvmsrc
 
 import (
-	"bufio"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -14,6 +13,7 @@ import (
 
 	"github.com/enola-labs/enola/internal/factpath"
 	"github.com/enola-labs/enola/internal/facts"
+	"github.com/enola-labs/enola/internal/linescan"
 )
 
 // ModuleRole classifies a JVM module directory as production or test/tooling for
@@ -211,7 +211,7 @@ func readPackage(absFile string) (string, bool) {
 	defer func() { _ = f.Close() }()
 
 	var parts []string
-	scanner := bufio.NewScanner(f)
+	scanner := linescan.New(f)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" || isCommentLine(line) {

@@ -1,7 +1,6 @@
 package kotlinextractor
 
 import (
-	"bufio"
 	"context"
 	"log"
 	"os"
@@ -14,6 +13,7 @@ import (
 	"github.com/enola-labs/enola/internal/extractors/jvmsrc"
 	"github.com/enola-labs/enola/internal/factpath"
 	"github.com/enola-labs/enola/internal/facts"
+	"github.com/enola-labs/enola/internal/linescan"
 	"github.com/enola-labs/enola/internal/parallel"
 )
 
@@ -453,7 +453,7 @@ func kotlinFileSourceRoot(repoPath, relFile string) (string, bool) {
 		return "", false
 	}
 	defer func() { _ = f.Close() }()
-	scanner := bufio.NewScanner(f)
+	scanner := linescan.New(f)
 	for scanner.Scan() {
 		m := packageRe.FindStringSubmatch(scanner.Text())
 		if m == nil {
@@ -465,6 +465,9 @@ func kotlinFileSourceRoot(repoPath, relFile string) (string, bool) {
 			return strings.TrimSuffix(dir, pkgPath), true
 		}
 		return "", true // package found but dir doesn't mirror it — root is ""
+	}
+	if err := scanner.Err(); err != nil {
+		log.Printf("[kotlin-extractor] error reading %s: %v", relFile, err)
 	}
 	return "", false
 }

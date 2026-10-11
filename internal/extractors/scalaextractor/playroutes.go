@@ -1,13 +1,14 @@
 package scalaextractor
 
 import (
-	"bufio"
+	"log"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 
 	"github.com/enola-labs/enola/internal/facts"
+	"github.com/enola-labs/enola/internal/linescan"
 )
 
 // Play's routes file is a DSL of its own — not Scala, and not reachable through the
@@ -170,10 +171,8 @@ func parsePlayRoutesFile(absPath, rel string) *playRoutesFile {
 	defer func() { _ = f.Close() }()
 
 	out := &playRoutesFile{rel: rel}
-	scanner := bufio.NewScanner(f)
-	// Play routes files are line-oriented but a handler list can be long; raise the
-	// limit above bufio's 64 KB default so a wide line cannot truncate a file.
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	// A handler list can make a line long; linescan has no limit to truncate the file at.
+	scanner := linescan.New(f)
 	lineNo := 0
 	for scanner.Scan() {
 		lineNo++
@@ -190,6 +189,9 @@ func parsePlayRoutesFile(absPath, rel string) *playRoutesFile {
 				method: m[1], path: m[2], handler: strings.TrimSpace(m[3]), line: lineNo,
 			})
 		}
+	}
+	if err := scanner.Err(); err != nil {
+		log.Printf("[scala-extractor] error reading %s: %v", rel, err)
 	}
 	return out
 }
