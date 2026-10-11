@@ -43,8 +43,8 @@ const modulePath = "github.com/enola-labs/enola/"
 // language added and says nothing about coupling.
 var hubBudgets = map[string]int{
 	"internal/engine": 18,
-	"internal/server": 23,
-	"pkg/command":     33,
+	"internal/server": 18,
+	"pkg/command":     31,
 	"pkg/check":       10,
 	"internal/config": 4,
 	"pkg/dashboard":   6,

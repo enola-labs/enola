@@ -542,6 +542,16 @@ func NewServer(eng *Engine, cfg *config.Config) (*Server, error) {
 		return nil, err
 	}
 	srv.SetPlanEngineFactory(PlanEngineFactory(cfg))
+	// The three analyzers that own a tool as well as an explainer. They register on
+	// the server's own MCP server, so its value middleware observes their calls like
+	// any other tool's and prices them once; a plugin reporting its own calls could
+	// forget to, or remember twice. Each takes the accessor rather than a store,
+	// because a handler must read whatever the latest snapshot published. Wired here,
+	// beside their explainers, so the server does not have to know which analyzers
+	// the binary carries.
+	metrics.Register(srv.MCPServer(), eng.eng.Store)
+	orphans.Register(srv.MCPServer(), eng.eng.Store)
+	perf.Register(srv.MCPServer(), eng.eng.Store)
 	// A server's parent is the agent session it serves, and it outlives an MCP
 	// restart; its receipts are keyed by it so a restart restores this session's graph.
 	eng.eng.SetSessionClient(os.Getppid())

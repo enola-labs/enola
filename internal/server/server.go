@@ -20,16 +20,11 @@ import (
 	"github.com/enola-labs/enola/internal/config"
 	"github.com/enola-labs/enola/internal/conformance"
 	"github.com/enola-labs/enola/internal/diff"
-	"github.com/enola-labs/enola/internal/endpoint"
 	"github.com/enola-labs/enola/internal/engine"
 	"github.com/enola-labs/enola/internal/explainers/constraints"
 	"github.com/enola-labs/enola/internal/facts"
 	"github.com/enola-labs/enola/internal/impact"
-	"github.com/enola-labs/enola/internal/linkers/crossrepo/routeindex"
 	httpsignal "github.com/enola-labs/enola/internal/linkers/crossrepo/signals/http"
-	"github.com/enola-labs/enola/internal/metrics"
-	"github.com/enola-labs/enola/internal/orphans"
-	"github.com/enola-labs/enola/internal/perf"
 	"github.com/enola-labs/enola/internal/resolve"
 	"github.com/enola-labs/enola/internal/updatecheck"
 	"github.com/enola-labs/enola/internal/version"
@@ -1324,15 +1319,6 @@ func (s *Server) registerTools() {
 	// as it is now, and those answer about the past.
 	s.registerHistoryTools()
 
-	// The three analyzers that own a tool as well as an explainer. They register on
-	// THIS server, so internal/server's value middleware observes their calls like
-	// any other tool's and prices them once; a plugin reporting its own calls could
-	// forget to, or remember twice. Each takes the accessor rather than a store,
-	// because a handler must read whatever the latest snapshot published.
-	metrics.Register(s.mcp, s.eng.Store)
-	orphans.Register(s.mcp, s.eng.Store)
-	perf.Register(s.mcp, s.eng.Store)
-
 	// Tool: generate_snapshot
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name: "generate_snapshot",
@@ -1985,8 +1971,7 @@ func (s *Server) registerTools() {
 		if err != nil {
 			return errorResult(fmt.Sprintf("invalid linking vocabulary: %v", err)), nil, nil
 		}
-		return jsonResult(endpoint.Analyze(store, args.Endpoint, args.MaxRoutes,
-			httpsignal.NewCallerFinder(routeindex.New(linkVocab), store.All())))
+		return jsonResult(httpsignal.AnalyzeEndpoint(store, linkVocab, args.Endpoint, args.MaxRoutes))
 	})
 
 	// Tool: impact_analysis
