@@ -1,0 +1,5 @@
+$ enola history gc ../store --keep-last 1 .
+exit: 2
+--- stdout
+--- stderr
+enola history: shared gc needs a retention policy: --keep-last or --keep-since

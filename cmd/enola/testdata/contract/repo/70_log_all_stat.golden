@@ -1,0 +1,9 @@
+$ enola log --all --stat .
+exit: 0
+--- stdout
+adeae2f  <TIME>  initial: 21 facts, 4 findings
+5367aea  <TIME>  1 new finding · +4 facts · +4 edges
+         dependency   +1
+         module       +1
+         symbol       +2
+--- stderr

@@ -1,0 +1,5 @@
+$ enola --version --json
+exit: 0
+--- stdout
+{"version":"dev","extractor_version":"<EXTRACTOR_VERSION>"}
+--- stderr

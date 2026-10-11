@@ -1,0 +1,15 @@
+$ enola --generate cluster.yaml
+exit: 0
+--- stdout
+--- stderr
+enola: using config <TMP>/services/cluster.yaml
+
+Snapshot complete:
+  Repositories: 2
+    - <TMP>/services/api
+    - <TMP>/services/consumer
+  Facts:       22
+  Insights:    6
+  Artifacts:   1
+  Duration:    <DURATION>
+  Output:      <TMP>/services/consumer/.enola

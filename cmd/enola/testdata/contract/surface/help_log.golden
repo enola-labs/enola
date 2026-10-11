@@ -1,0 +1,45 @@
+$ enola log --help
+exit: 2
+--- stdout
+--- stderr
+Usage: enola log [flags] [repo_path|config_path]
+
+Show what this repository's architecture has done over time: one line per
+snapshot enola recorded, with what changed since the one before it.
+
+Read-only. It reports what was observed and never snapshots to fill a gap.
+
+Oldest first, which is the opposite of `git log`: a changelog answers "what
+landed recently", and this answers "how did it get like this", which runs
+forward. With --graph, lines therefore diverge downward at a branch and
+converge downward at a merge.
+
+With --backfill it instead BUILDS that timeline from the repository's own
+commit history, snapshotting past commits so a repo enola has never seen still
+has a past to read. It only reads the repository — trees are extracted to a
+temp dir — and re-running resumes rather than repeating.
+
+EXPERIMENTAL. Every snapshot is recorded as a revision; turn that off with
+`history:` / `enabled: false` in your config.
+
+Flags:
+  -all
+    	include working revisions (uncommitted trees)
+  -backfill
+    	build the timeline from the repository's own commit history
+  -dry-run
+    	with --backfill, list what would be snapshotted and stop
+  -graph
+    	draw the branch topology beside the revisions
+  -json
+    	emit the entries as JSON
+  -n int
+    	show at most this many revisions (0 for all) (default 20)
+  -oneline
+    	one line per revision (default true)
+  -sample string
+    	which commits to backfill: all, merges, tags or daily (default "all")
+  -since string
+    	only revisions taken after this time (RFC3339, or a duration like 72h)
+  -stat
+    	break each revision's delta down by fact kind

@@ -1,0 +1,8 @@
+$ enola chekc
+exit: 1
+--- stdout
+--- stderr
+
+    enola check --help
+
+Run `enola --help` for all commands.

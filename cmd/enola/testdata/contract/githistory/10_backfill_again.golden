@@ -1,0 +1,5 @@
+$ enola log --backfill .
+exit: 0
+--- stdout
+--- stderr
+2 commit(s) selected, 2 already recorded, 0 to snapshot.

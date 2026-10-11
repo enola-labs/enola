@@ -1,0 +1,24 @@
+$ enola install --help
+exit: 2
+--- stdout
+--- stderr
+Usage: enola install [flags] [repo_path]
+
+Write enola's instructions into the files your coding agents read.
+
+By default this writes INSTRUCTIONS ONLY — inert context telling the agent the
+tools exist. Pass --hooks to also run the loop automatically: a baseline pinned
+at session start, and the architectural delta reported at the end if the change
+introduced a regression. Hooks run commands, so they are opt-in.
+
+Flags:
+  -dry-run
+    	show what would change, write nothing
+  -global
+    	configure this user (all projects) instead of this repository
+  -hooks
+    	also install the session-start and stop hooks (install only)
+  -targets string
+    	comma-separated subset of: claude, cursor, agents, codex, copilot, pi, opencode
+  -yes
+    	skip the confirmation prompt

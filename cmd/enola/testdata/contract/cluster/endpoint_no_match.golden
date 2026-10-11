@@ -1,0 +1,7 @@
+$ enola endpoint /no/such/route cluster.yaml
+exit: 0
+--- stdout
+No server route matches "/no/such/route".
+--- stderr
+enola: using config <TMP>/services/cluster.yaml
+enola endpoint: config <TMP>/services/cluster.yaml

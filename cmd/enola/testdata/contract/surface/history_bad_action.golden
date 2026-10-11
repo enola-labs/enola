@@ -1,0 +1,17 @@
+$ enola history frobnicate
+exit: 2
+--- stdout
+--- stderr
+Usage: enola history <push|pull|verify|gc> [store_dir] [flags] [repo_path|config_path]
+
+Share the architecture history through a directory store — a git repository, a
+shared mount, an S3-synced folder. Plain files, no daemon, no database.
+
+  push    copy local revisions into the store, and record them on this
+          machine's chain
+  pull    import revisions other machines pushed into the local history
+  verify  walk every chain and report gaps and tampering by name
+  gc      apply a retention policy to the store; prints what it would remove
+          and deletes nothing without --apply
+
+The store directory is the first argument, or `history.shared_dir` in the config.

@@ -1,0 +1,65 @@
+$ enola --explain .
+exit: 0
+--- stdout
+════════════════════════════════════════════════════════════
+ Repository explanation: <TMP>/go_sample
+════════════════════════════════════════════════════════════
+
+Overview
+  Generated:           <TIME>
+  Analysis time:       <DURATION>
+  Languages:           go
+  Total facts:         21
+
+Architectural kinds
+  module                      3
+  symbol                      9
+  dependency                  4
+
+Relations
+  declares                    9
+  imports                     4
+  calls                      10
+
+Symbol breakdown
+  function                    9
+
+API & data surface
+  routes                      0
+  storage                     0
+
+Dependencies
+  internal                    4
+
+Architecture
+  Pattern:             (none detected)
+  cyclic dependencies         1
+  layer violations            0
+
+Impact analysis (hotspots)
+  coupled modules             0
+    high criticality          0
+    medium criticality        0
+  Top hotspots (by coupling):
+    module                            fan-in  fan-out crit     blast radius
+    pkg/a                                  2        1 low      2
+    pkg/b                                  2        1 low      2
+    .                                      0        2 low      0
+
+Dead code
+  potential dead code         2  (of 8 symbols)
+    high confidence           2   (functions — incoming calls tracked; safest to remove first)
+    medium confidence         0   (structs/classes/interfaces — usage tracked via instantiate/inject/implements)
+    low confidence            0   (methods & types — dispatch/reflection & type usage not edge-tracked; verify each)
+    isolated                  0   (breakdown: no references in or out)
+    unreferenced              2   (breakdown: unreferenced, but references others)
+    exported                  2   (breakdown: public API — may be used outside this snapshot)
+  (heuristic — references matched by short name; verify before removal)
+
+Performance
+  functions analyzed            9
+  performance findings          0   (high 0 / medium 0 / low 0)
+
+--- stderr
+enola: no mcp-arch.yaml in <TMP>/go_sample, using built-in defaults
+Analyzing <TMP>/go_sample …

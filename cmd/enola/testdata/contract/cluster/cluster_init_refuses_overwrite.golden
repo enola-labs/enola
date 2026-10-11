@@ -1,0 +1,5 @@
+$ enola cluster init .
+exit: 2
+--- stdout
+--- stderr
+cluster init: <TMP>/services/cluster.yaml exists; this command never overwrites a config

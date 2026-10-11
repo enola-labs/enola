@@ -1,0 +1,13 @@
+$ enola gc --prune-working .
+exit: 0
+--- stdout
+<TMP>/.enola/graphs/go_sample-<KEY>/history
+
+  revisions      2
+    with contents 0  (replayable)
+    header only  2  (contents dropped; `log --backfill` can rebuild them)
+  segments       0
+  stored         0 B
+
+Nothing to remove.
+--- stderr

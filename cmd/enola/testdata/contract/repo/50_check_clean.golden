@@ -1,0 +1,9 @@
+$ enola check .
+exit: 0
+--- stdout
+PASS — no architectural change.
+could not see: 2 files and 0 directories excluded by ignore globs
+law: 1 rule · 1 breach · none excused
+--- stderr
+enola: no mcp-arch.yaml in <TMP>/go_sample, using built-in defaults
+enola check: repo <TMP>/go_sample (built-in default config)

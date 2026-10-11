@@ -1,0 +1,492 @@
+package main
+
+// Contract goldens for the command line.
+//
+// The subcommands print to the process's own stdout and exit with a code a script
+// acts on, so the only place the whole contract exists is the built binary. These
+// tests run it over fixture repos and pin, per invocation, the exit code, stdout
+// and stderr against a committed golden. The unit tests in pkg/command assert
+// pieces of that from inside the package; they move when the code moves. These do
+// not: nothing here names a Go symbol, so a command can be split, merged or
+// relocated and the goldens still say whether a user would notice.
+//
+// Regenerate with:
+//
+//	go test ./cmd/enola -run TestCLIContract -update
+//
+// Machine and run specifics (temp paths, timestamps, durations, content hashes,
+// the engine's progress log) are normalized away.
+//
+// Set ENOLA_CONTRACT_COVERDIR to a directory to build the binary with coverage
+// instrumentation and collect what these invocations execute there, since a
+// subprocess never shows up in `go test -cover`:
+//
+//	ENOLA_CONTRACT_COVERDIR=/tmp/cov go test ./cmd/enola -run TestCLIContract
+//	go tool covdata percent -i=/tmp/cov
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"flag"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"regexp"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+)
+
+var update = flag.Bool("update", false, "regenerate golden files in testdata/contract")
+
+const contractCoverDirEnv = "ENOLA_CONTRACT_COVERDIR"
+
+var (
+	coverBuildOnce sync.Once
+	coverBin       string
+	coverBuildErr  error
+)
+
+// contractBinary is the binary the goldens run: the shared build, or an
+// instrumented one when coverage was asked for.
+func contractBinary(t *testing.T) string {
+	t.Helper()
+	if os.Getenv(contractCoverDirEnv) == "" {
+		return enolaBinary(t)
+	}
+	coverBuildOnce.Do(func() {
+		dir, err := os.MkdirTemp("", "enola-contract-bin-")
+		if err != nil {
+			coverBuildErr = err
+			return
+		}
+		coverBin = filepath.Join(dir, "enola")
+		cmd := exec.Command(goTool(), "build", "-cover", "-coverpkg=github.com/enola-labs/enola/...", "-o", coverBin, ".")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			coverBuildErr = fmt.Errorf("building instrumented enola: %v\n%s", err, out)
+		}
+	})
+	if coverBuildErr != nil {
+		t.Fatal(coverBuildErr)
+	}
+	return coverBin
+}
+
+// cliCase is one invocation whose exit code and output are pinned.
+type cliCase struct {
+	name string
+	args []string
+}
+
+// cliSession runs the binary in one sandbox: a home directory nothing else
+// shares and a working directory the relative arguments resolve against.
+type cliSession struct {
+	scenario string
+	bin      string
+	home     string
+	dir      string
+	roots    []string
+}
+
+var cliNormalizers = []struct {
+	re   *regexp.Regexp
+	with string
+}{
+	{regexp.MustCompile(`\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2})?(\.\d+)?(Z|[+-]\d{2}:\d{2})?`), "<TIME>"},
+	{regexp.MustCompile(`sha256:[0-9a-f]{64}`), "sha256:<HASH>"},
+	{regexp.MustCompile(`\b\d+(\.\d+)?(ns|µs|ms|s)\b`), "<DURATION>"},
+	// Bumped on every extractor change; pinning it would re-record goldens for
+	// changes that leave every answer alone.
+	{regexp.MustCompile(`\bv\d{3,}\b`), "<EXTRACTOR_VERSION>"},
+	// The per-workspace directory is keyed on a hash of the repository's absolute path.
+	{regexp.MustCompile(`(\.enola/graphs/[\w.]+)-[0-9a-f]{8}\b`), "$1-<KEY>"},
+	// doctor reports the machine's memory.
+	{regexp.MustCompile(`soft memory limit .*`), "soft memory limit <MACHINE>"},
+	{regexp.MustCompile(`"memory_limit": \d+`), `"memory_limit": "<MACHINE>"`},
+	{regexp.MustCompile(`"memory_limit_from": "[^"]*"`), `"memory_limit_from": "<MACHINE>"`},
+	// The history epoch fingerprints the extractor version among other things.
+	{regexp.MustCompile(`"epoch": "[0-9a-f]+"`), `"epoch": "<EPOCH>"`},
+}
+
+// engineLogLine matches the standard logger's lines: the engine's progress
+// report, timestamped and ordered by goroutine scheduling. It is diagnostics, not
+// something a caller reads, so it is dropped rather than pinned.
+var engineLogLine = regexp.MustCompile(`(?m)^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} .*\n`)
+
+// engineLogTail is the same line when it lands after a progress indicator that
+// did not end its own line, as backfill's does.
+var engineLogTail = regexp.MustCompile(`(?m)\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} \[.*$`)
+
+func (s *cliSession) normalize(out string) string {
+	// A progress indicator redraws its line with a carriage return.
+	out = strings.ReplaceAll(out, "\r", "\n")
+	out = engineLogLine.ReplaceAllString(out, "")
+	out = engineLogTail.ReplaceAllString(out, "")
+	// A history source is named after the host, with a per-machine suffix.
+	if host, err := os.Hostname(); err == nil && host != "" {
+		out = regexp.MustCompile(regexp.QuoteMeta(host)+`-[0-9a-f]{8}`).ReplaceAllString(out, "<HOST>")
+	}
+	for _, root := range s.roots {
+		if resolved, err := filepath.EvalSymlinks(root); err == nil && resolved != root {
+			out = strings.ReplaceAll(out, resolved, "<TMP>")
+		}
+		out = strings.ReplaceAll(out, root, "<TMP>")
+	}
+	for _, n := range cliNormalizers {
+		out = n.re.ReplaceAllString(out, n.with)
+	}
+	return out
+}
+
+// run executes one invocation and renders it the way its golden stores it.
+func (s *cliSession) run(t *testing.T, args ...string) string {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, s.bin, args...)
+	cmd.Dir = s.dir
+	// CI is cleared so the answers do not depend on where the suite runs.
+	cmd.Env = append(sandboxEnv(s.home), "ENOLA_NO_PROMPTS=1", "CI=", "NO_COLOR=1")
+	if dir := os.Getenv(contractCoverDirEnv); dir != "" {
+		cmd.Env = append(cmd.Env, "GOCOVERDIR="+dir)
+	}
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+
+	code := 0
+	if err := cmd.Run(); err != nil {
+		var exit *exec.ExitError
+		if !errors.As(err, &exit) {
+			t.Fatalf("enola %s: %v", strings.Join(args, " "), err)
+		}
+		code = exit.ExitCode()
+	}
+	return fmt.Sprintf("$ enola %s\nexit: %d\n--- stdout\n%s--- stderr\n%s",
+		s.normalize(strings.Join(args, " ")), code, s.normalize(stdout.String()), s.normalize(stderr.String()))
+}
+
+func (s *cliSession) pin(t *testing.T, cases []cliCase) {
+	t.Helper()
+	for _, c := range cases {
+		assertCLIGolden(t, filepath.Join(s.scenario, c.name+".golden"), s.run(t, c.args...))
+	}
+}
+
+func assertCLIGolden(t *testing.T, rel, got string) {
+	t.Helper()
+	path := filepath.Join("testdata", "contract", rel)
+	if *update {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(got), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+	want, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read golden %s: %v (run with -update to create it)", path, err)
+	}
+	if got != string(want) {
+		t.Errorf("%s differs from its golden (run with -update if intended).\n--- want\n%s\n--- got\n%s", rel, want, got)
+	}
+}
+
+func newCLISession(t *testing.T, scenario string) *cliSession {
+	t.Helper()
+	if testing.Short() {
+		t.Skip("builds and runs the binary")
+	}
+	if os.Getenv(contractCoverDirEnv) != "" {
+		if err := os.MkdirAll(os.Getenv(contractCoverDirEnv), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	home, work := t.TempDir(), t.TempDir()
+	return &cliSession{scenario: scenario, bin: contractBinary(t), home: home, dir: work, roots: []string{home, work}}
+}
+
+func writeFiles(t *testing.T, dir string, files map[string]string) {
+	t.Helper()
+	for path, body := range files {
+		full := filepath.Join(dir, path)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+const contractIntent = "components:\n" +
+	"  - {name: pkg-a, match: [pkg/a/**]}\n" +
+	"  - {name: pkg-b, match: [pkg/b/**]}\n" +
+	"rules:\n" +
+	"  - {id: a-avoids-b, forbid: pkg-a, to: pkg-b, via: imports,\n" +
+	"     because: a must stay deliverable without b}\n"
+
+// TestCLIContract_Surface pins what the binary says about itself and how it
+// answers arguments it cannot act on. Nothing here needs a repository.
+func TestCLIContract_Surface(t *testing.T) {
+	s := newCLISession(t, "surface")
+
+	cases := []cliCase{
+		{"help", []string{"--help"}},
+		{"version", []string{"--version"}},
+		{"version_json", []string{"--version", "--json"}},
+		{"list", []string{"--list"}},
+		{"status", []string{"--status"}},
+		{"status_all", []string{"--status", "--all"}},
+		{"typo_subcommand", []string{"chekc"}},
+		{"unknown_word", []string{"frobnicate"}},
+		{"unknown_flag", []string{"--no-such-flag"}},
+		{"bad_path", []string{"./no/such/path"}},
+		{"baseline_no_action", []string{"baseline"}},
+		{"baseline_bad_action", []string{"baseline", "frobnicate"}},
+		{"constraints_bad_action", []string{"constraints", "frobnicate"}},
+		{"history_bad_action", []string{"history", "frobnicate"}},
+		{"providers_bad_action", []string{"providers", "frobnicate"}},
+		{"providers_list", []string{"providers", "list"}},
+		{"cluster_bad_action", []string{"cluster", "frobnicate"}},
+		{"impact_no_target", []string{"impact"}},
+		{"endpoint_no_endpoint", []string{"endpoint"}},
+		{"blame_no_pattern", []string{"blame"}},
+		{"diff_no_range", []string{"diff"}},
+		{"check_bad_flag", []string{"check", "--no-such-flag"}},
+		{"check_bad_fail_on", []string{"check", "--fail-on", "no-such-explainer"}},
+	}
+	for _, sub := range []string{
+		"check", "cluster", "constraints", "plan", "coverage", "endpoint", "impact", "doctor",
+		"dashboard", "baseline", "log", "show", "diff", "blame", "gc", "history", "install", "uninstall",
+	} {
+		cases = append(cases, cliCase{"help_" + sub, []string{sub, "--help"}})
+	}
+	s.pin(t, cases)
+}
+
+// TestCLIContract_Repo pins the commands over one repository through the life of
+// a change: no snapshot, a snapshot, a pinned baseline, an edit, the verdict.
+// The repository is go_sample with a declared rule its own import cycle breaks.
+func TestCLIContract_Repo(t *testing.T) {
+	s := newCLISession(t, "repo")
+	repo := copyFixture(t, "go_sample", filepath.Join(s.dir, "go_sample"))
+	writeFiles(t, repo, map[string]string{"enola-intent.yaml": contractIntent})
+	s.dir = repo
+
+	s.pin(t, []cliCase{
+		// Before any snapshot exists.
+		{"00_baseline_show_none", []string{"baseline", "show", "."}},
+		{"00_check_no_baseline", []string{"check", "."}},
+		{"00_constraints_lint_no_snapshot", []string{"constraints", "lint", "."}},
+		{"00_constraints_mine_no_snapshot", []string{"constraints", "mine", "."}},
+		{"00_constraints_ledger_no_snapshot", []string{"constraints", "ledger", "."}},
+		{"00_constraints_explain_no_snapshot", []string{"constraints", "explain", "pkg/a/a.go", "."}},
+		{"00_log_no_history", []string{"log", "."}},
+		{"00_show_no_history", []string{"show", "."}},
+		{"00_gc_no_history", []string{"gc", "--dry-run", "."}},
+		{"00_doctor", []string{"doctor", "."}},
+		{"00_doctor_json", []string{"doctor", "--json", "."}},
+
+		{"10_generate", []string{"--generate", "."}},
+		{"10_explain", []string{"--explain", "."}},
+
+		{"20_constraints_lint", []string{"constraints", "lint", "."}},
+		{"20_constraints_mine", []string{"constraints", "mine", "."}},
+		{"20_constraints_ledger", []string{"constraints", "ledger", "."}},
+		{"20_constraints_explain_bound", []string{"constraints", "explain", "pkg/a/a.go", "."}},
+		{"20_constraints_explain_unbound", []string{"constraints", "explain", "main.go", "."}},
+		{"20_constraints_init_exists", []string{"constraints", "init", "."}},
+
+		{"30_plan_path", []string{"plan", "pkg/a/new_file.go", "."}},
+		{"30_plan_paths_json", []string{"plan", "--json", "--paths", "pkg/a/a.go,pkg/b/b.go", "."}},
+		{"30_plan_symbols", []string{"plan", "--symbols", "pkg/b.Beta", "."}},
+		{"30_plan_no_radius", []string{"plan", "--no-radius", "pkg/a/a.go", "."}},
+		{"30_plan_nothing", []string{"plan", "."}},
+
+		{"40_impact", []string{"impact", "pkg/a.Alpha", "."}},
+		{"40_impact_list", []string{"impact", "--list", "--include-forward", "pkg/a.Alpha", "."}},
+		{"40_impact_json", []string{"impact", "--json", "pkg/a.Alpha", "."}},
+		{"40_impact_file", []string{"impact", "pkg/a/a.go", "."}},
+		{"40_impact_ambiguous", []string{"impact", "a", "."}},
+		{"40_impact_no_match", []string{"impact", "no-such-thing", "."}},
+		{"40_endpoint_no_routes", []string{"endpoint", "/v1/things", "."}},
+		{"40_coverage_single_repo", []string{"coverage", "."}},
+
+		{"50_baseline_pin", []string{"baseline", "pin", "."}},
+		{"50_baseline_show", []string{"baseline", "show", "."}},
+		{"50_check_clean", []string{"check", "."}},
+		{"50_check_clean_json", []string{"check", "--json", "."}},
+	})
+
+	// A new package that pkg/b starts importing, and a second import from pkg/a
+	// into pkg/b that the declared rule forbids.
+	writeFiles(t, repo, map[string]string{
+		"pkg/c/c.go":     "package c\n\n// Gamma is new since the baseline.\nfunc Gamma() string { return \"gamma\" }\n",
+		"pkg/b/gamma.go": "package b\n\nimport \"example.com/gosample/pkg/c\"\n\n// UsesGamma couples pkg/b to the new package.\nfunc UsesGamma() string { return c.Gamma() }\n",
+	})
+
+	// Revisions are stamped to the second, and the history union orders two that
+	// share one by id rather than by the order they were recorded in, so blame can
+	// read the second snapshot as the first. Until that is fixed, keep the two
+	// snapshots in different seconds so the goldens pin the ordered case.
+	time.Sleep(1100 * time.Millisecond)
+
+	s.pin(t, []cliCase{
+		{"60_check_after_edit", []string{"check", "."}},
+		{"60_check_detail", []string{"check", "--detail", "."}},
+		{"60_check_json", []string{"check", "--json", "."}},
+		{"60_check_fail_on_dead_code", []string{"check", "--fail-on", "dead-code", "."}},
+		{"60_check_fail_on_cycles", []string{"check", "--fail-on", "cycles", "."}},
+		{"60_check_target", []string{"check", "--target", "pkg/b.Beta", "--max-spillover", "0", "."}},
+		{"60_check_target_expected", []string{"check", "--target", "pkg/b.Beta", "--expected", "pkg/c", "--max-spillover", "0", "."}},
+		{"60_check_baseline_previous", []string{"check", "--baseline", "previous", "."}},
+
+		{"70_generate_after_edit", []string{"--generate", "."}},
+		{"70_log", []string{"log", "."}},
+		{"70_log_all", []string{"log", "--all", "."}},
+		{"70_log_all_oneline", []string{"log", "--all", "--oneline", "."}},
+		{"70_log_all_stat", []string{"log", "--all", "--stat", "."}},
+		{"70_log_all_graph", []string{"log", "--all", "--graph", "."}},
+		{"70_log_all_json", []string{"log", "--all", "--json", "."}},
+		{"70_log_all_n1", []string{"log", "--all", "-n", "1", "."}},
+		{"70_show_latest", []string{"show", "."}},
+		{"70_show_latest_json", []string{"show", "--json", "."}},
+		{"70_show_seq", []string{"show", "@1", "."}},
+		{"70_show_focus", []string{"show", "--focus", "pkg/c", "."}},
+		{"70_show_no_such_revision", []string{"show", "deadbeef", "."}},
+		{"70_diff_range", []string{"diff", "@1..@2", "."}},
+		{"70_diff_open_range", []string{"diff", "..", "."}},
+		{"70_diff_json", []string{"diff", "--json", "@1..@2", "."}},
+		{"70_diff_bad_range", []string{"diff", "nonsense", "."}},
+		{"70_blame", []string{"blame", "--all", "pkg/c", "."}},
+		{"70_blame_edge_first", []string{"blame", "--all", "--first", "pkg/b -> pkg/c", "."}},
+		{"70_blame_findings", []string{"blame", "--all", "--findings", "cycle", "."}},
+		{"70_blame_json", []string{"blame", "--all", "--json", "pkg/c", "."}},
+		{"70_blame_no_match", []string{"blame", "--all", "no-such-thing", "."}},
+		{"70_gc_dry_run", []string{"gc", "--dry-run", "."}},
+
+		{"80_history_verify_no_store", []string{"history", "verify", "."}},
+		{"80_history_push", []string{"history", "push", "../store", "."}},
+		{"80_history_verify", []string{"history", "verify", "../store", "."}},
+		{"80_history_pull", []string{"history", "pull", "../store", "."}},
+
+		{"90_baseline_clear", []string{"baseline", "clear", "."}},
+		{"90_baseline_show_cleared", []string{"baseline", "show", "."}},
+		{"90_install_dry_run", []string{"install", "--dry-run", "--targets=claude", "."}},
+		{"90_install_bad_target", []string{"install", "--dry-run", "--targets=no-such-agent", "."}},
+		{"90_uninstall_dry_run", []string{"uninstall", "--dry-run", "--targets=claude", "."}},
+	})
+}
+
+// TestCLIContract_Cluster pins the cross-repo commands over a folder holding an
+// api service and the consumer that calls its one route.
+func TestCLIContract_Cluster(t *testing.T) {
+	s := newCLISession(t, "cluster")
+	cluster := filepath.Join(s.dir, "services")
+	for _, name := range []string{"api", "consumer"} {
+		repo := copyFixture(t, "go_httpclient_multirepo/"+name, filepath.Join(cluster, name))
+		// cluster init lists the subfolders that are git repositories.
+		cmd := exec.Command("git", "-C", repo, "init", "-q")
+		cmd.Env = sandboxEnv(s.home)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git init: %v\n%s", err, out)
+		}
+	}
+	s.dir = cluster
+
+	s.pin(t, []cliCase{
+		{"cluster_init_dry_run", []string{"cluster", "init", "--dry-run", "."}},
+		{"cluster_init", []string{"cluster", "init", "."}},
+		{"cluster_init_refuses_overwrite", []string{"cluster", "init", "."}},
+		{"coverage_no_snapshot", []string{"coverage", "cluster.yaml"}},
+		{"generate", []string{"--generate", "cluster.yaml"}},
+		{"explain", []string{"--explain", "cluster.yaml"}},
+		{"coverage", []string{"coverage", "cluster.yaml"}},
+		{"coverage_json", []string{"coverage", "--json", "cluster.yaml"}},
+		{"coverage_unresolved", []string{"coverage", "--unresolved", "cluster.yaml"}},
+		{"coverage_repo", []string{"coverage", "--repo", "consumer", "cluster.yaml"}},
+		{"endpoint", []string{"endpoint", "GET /v1/things", "cluster.yaml"}},
+		{"endpoint_json", []string{"endpoint", "--json", "/v1/things", "cluster.yaml"}},
+		{"endpoint_no_match", []string{"endpoint", "/no/such/route", "cluster.yaml"}},
+		{"impact_cross_repo", []string{"impact", "--list", "getThing", "cluster.yaml"}},
+		{"refresh_one_repo", []string{"--generate", "--refresh", "api", "cluster.yaml"}},
+		{"baseline_pin", []string{"baseline", "pin", "cluster.yaml"}},
+		{"check_clean", []string{"check", "cluster.yaml"}},
+		{"constraints_lint_undeclared", []string{"constraints", "lint", "cluster.yaml"}},
+		{"folder_autocluster_generate", []string{"--generate", "."}},
+	})
+}
+
+// TestCLIContract_GitHistory pins the history commands over a repository with
+// commits: the timeline is backfilled from git, then read, shared and thinned.
+// Author, committer and dates are fixed so the commit ids are the same everywhere.
+func TestCLIContract_GitHistory(t *testing.T) {
+	s := newCLISession(t, "githistory")
+	repo := copyFixture(t, "go_sample", filepath.Join(s.dir, "go_sample"))
+	s.dir = repo
+
+	git := func(date string, args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", repo, "-c", "commit.gpgsign=false", "-c", "core.autocrlf=false"}, args...)...)
+		cmd.Env = append(sandboxEnv(s.home),
+			"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@example.com", "GIT_AUTHOR_DATE="+date,
+			"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@example.com", "GIT_COMMITTER_DATE="+date,
+			"GIT_CONFIG_NOSYSTEM=1")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	git("2024-01-01T10:00:00Z", "init", "-q", "-b", "main")
+	git("2024-01-01T10:00:00Z", "add", "-A")
+	git("2024-01-01T10:00:00Z", "commit", "-q", "-m", "first")
+	writeFiles(t, repo, map[string]string{
+		"pkg/c/c.go":     "package c\n\n// Gamma arrives in the second commit.\nfunc Gamma() string { return \"gamma\" }\n",
+		"pkg/b/gamma.go": "package b\n\nimport \"example.com/gosample/pkg/c\"\n\n// UsesGamma couples pkg/b to the new package.\nfunc UsesGamma() string { return c.Gamma() }\n",
+	})
+	git("2024-01-02T10:00:00Z", "add", "-A")
+	git("2024-01-02T10:00:00Z", "commit", "-q", "-m", "second")
+
+	s.pin(t, []cliCase{
+		{"00_log_empty", []string{"log", "."}},
+		{"10_backfill_dry_run", []string{"log", "--backfill", "--dry-run", "."}},
+		{"10_backfill", []string{"log", "--backfill", "."}},
+		{"10_backfill_again", []string{"log", "--backfill", "."}},
+		{"20_log", []string{"log", "."}},
+		{"20_log_stat", []string{"log", "--stat", "."}},
+		{"20_log_graph", []string{"log", "--graph", "."}},
+		{"20_log_json", []string{"log", "--json", "."}},
+		{"20_log_since", []string{"log", "--since", "2024-01-02T00:00:00Z", "."}},
+		{"20_log_since_bad", []string{"log", "--since", "yesterday", "."}},
+		{"20_show_head", []string{"show", "HEAD", "."}},
+		{"20_show_head_parent", []string{"show", "HEAD~1", "."}},
+		{"20_diff_commits", []string{"diff", "HEAD~1..HEAD", "."}},
+		{"20_blame_edge", []string{"blame", "pkg/b -> pkg/c", "."}},
+		{"20_blame_first_full", []string{"blame", "--first", "--full", "pkg/c", "."}},
+		{"30_generate", []string{"--generate", "."}},
+		{"30_log_after_generate", []string{"log", "."}},
+		{"40_history_push", []string{"history", "push", "../store", "."}},
+		{"40_history_push_again", []string{"history", "push", "../store", "."}},
+		{"40_history_verify", []string{"history", "verify", "../store", "."}},
+		{"40_blame_store", []string{"blame", "--store", "../store", "pkg/c", "."}},
+		{"40_diff_store", []string{"diff", "--store", "../store", "HEAD~1..HEAD", "."}},
+		{"40_history_gc_no_policy", []string{"history", "gc", "../store", "."}},
+		// The usage line puts flags after the store directory; the parser stops at
+		// the first positional, so this form is read as having no policy.
+		{"40_history_gc_flags_after_store", []string{"history", "gc", "../store", "--keep-last", "1", "."}},
+		{"40_history_gc_plan", []string{"history", "gc", "--keep-last", "1", "../store", "."}},
+		{"40_history_gc_apply", []string{"history", "gc", "--keep-last", "1", "--apply", "../store", "."}},
+		{"40_history_verify_after_gc", []string{"history", "verify", "../store", "."}},
+		{"40_history_pull", []string{"history", "pull", "../store", "."}},
+		{"50_gc_dry_run", []string{"gc", "--dry-run", "."}},
+		{"50_gc_thin", []string{"gc", "--thin-older-than", "1h", "."}},
+		{"50_gc_prune_working", []string{"gc", "--prune-working", "."}},
+		{"50_log_after_gc", []string{"log", "--all", "."}},
+		{"60_doctor", []string{"doctor", "."}},
+	})
+}

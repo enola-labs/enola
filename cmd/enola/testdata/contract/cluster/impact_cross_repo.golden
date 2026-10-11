@@ -1,0 +1,15 @@
+$ enola impact --list getThing cluster.yaml
+exit: 0
+--- stdout
+3 total dependents — depth 1: 1 route, 1 symbol; depth 2: 1 symbol
+
+depth 1 (2):
+  ..registerThings (symbol)  api/server.go:23
+  /v1/things/{id} (route)  api/server.go:24
+
+depth 2 (1):
+  ..main (symbol)  api/server.go:14
+--- stderr
+enola: using config <TMP>/services/cluster.yaml
+enola impact: config <TMP>/services/cluster.yaml
+enola impact: reading the snapshot written <TIME>, which matches the working tree

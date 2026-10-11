@@ -1,0 +1,8 @@
+$ enola --status --all
+exit: 0
+--- stdout
+--- stderr
+
+=== enola MCP Status — all repos ===
+  (no usage recorded yet)
+

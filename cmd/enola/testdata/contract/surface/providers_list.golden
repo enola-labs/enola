@@ -1,0 +1,5 @@
+$ enola providers list
+exit: 0
+--- stdout
+  rubydex  not installed; run `enola providers fetch rubydex`
+--- stderr

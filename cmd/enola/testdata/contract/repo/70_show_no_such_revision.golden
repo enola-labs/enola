@@ -1,0 +1,5 @@
+$ enola show deadbeef .
+exit: 2
+--- stdout
+--- stderr
+enola show: no revision matches "deadbeef"

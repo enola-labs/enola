@@ -1,0 +1,4 @@
+$ enola --no-such-flag
+exit: 1
+--- stdout
+--- stderr

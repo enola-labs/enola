@@ -1,0 +1,5 @@
+$ enola blame --all no-such-thing .
+exit: 0
+--- stdout
+Nothing matching "no-such-thing" in 2 searched revisions.
+--- stderr

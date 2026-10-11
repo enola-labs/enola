@@ -1,0 +1,11 @@
+$ enola install --dry-run --targets=claude .
+exit: 0
+--- stdout
+Install
+Target:     .   (from the path you gave)
+Hooks:      no — instructions only. Re-run with --hooks to automate the loop.
+
+  created   .claude/rules/enola.md
+
+Dry run — nothing was written.
+--- stderr

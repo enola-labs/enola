@@ -1,0 +1,9 @@
+$ enola log --all --graph .
+exit: 0
+--- stdout
+* adeae2f  <TIME>  initial: 21 facts, 4 findings
+* 5367aea  <TIME>  1 new finding · +4 facts · +4 edges
+--- stderr
+note: no commit ancestry is available, so the revisions below are strung together
+in the order they were taken. This is a timeline, not a history: it says what
+happened next, never which revision descends out of which.

@@ -1,0 +1,78 @@
+$ enola check --detail .
+exit: 0
+--- stdout
+PASS — 1 new finding reported, nothing enforced: no policy set.
+could not see: 2 files and 0 directories excluded by ignore globs
+law: 1 rule · 1 breach · none excused
+
+New findings (reported — no failure policy set):
+  - [dead-code] 0.80 — Dead code candidate: function pkg/b.UsesGamma
+      function · unreferenced · pkg/b/gamma.go:6
+      pkg/b/gamma.go:6
+      func UsesGamma() string { return c.Gamma() }
+
+No --fail-on policy is set, so nothing in this run could fail the build. These are
+reported for you to judge. Enforce the ones you want enforced: --fail-on=layers
+(`enola check --help` lists all 22).
+
+What changed
+  modules      +1
+  symbols      +2
+  dependencies +1
+  edges        +4  (imports +1, calls +1, declares +2)
+
+Added (4):
+  module     pkg/c                                        pkg/c
+  symbol     pkg/b.UsesGamma                              pkg/b/gamma.go:6
+  symbol     pkg/c.Gamma                                  pkg/c/c.go:4
+  dependency pkg/b -> example.com/gosample/pkg/c          pkg/b/gamma.go:3
+
+New coupling (4):
+  pkg/b                                        --imports--> pkg/c
+  pkg/b.UsesGamma                              --calls--> pkg/c.Gamma
+  pkg/b.UsesGamma                              --declares--> pkg/b
+  pkg/c.Gamma                                  --declares--> pkg/c
+
+New coupling is reported, not failed: an added call edge is what ordinary work
+looks like. Inspect the list above if it is more than you expected.
+
+# Architecture diff
+
+_Baseline <TIME> → current <TIME>._
+
+## Regressions introduced (1)
+
+### 1. Dead code candidate: function pkg/b.UsesGamma
+- explainer: dead-code · confidence: 0.80
+- function "pkg/b.UsesGamma" is unreferenced — nothing in the snapshot graph references it (high confidence). References are matched by short name and biased conservative, so verify against dynamic/reflective dispatch and consumers outside the snapshot before removing.
+- evidence (2):
+    - pkg/b.UsesGamma pkg/b/gamma.go — function · unreferenced · pkg/b/gamma.go:6
+    - pkg/b.UsesGamma — exported — may be used outside this snapshot; verify before removal
+- suggested actions:
+    - Confirm no dynamic/reflective or out-of-snapshot callers, then remove the symbol
+
+## Structural changes
+
+- dependency: +1 / -0
+- module: +1 / -0
+- symbol: +2 / -0
+- edges: +4 / -0
+
+## New coupling — edges added (4)
+
+- pkg/b -> example.com/gosample/pkg/c --imports--> pkg/c
+- pkg/b.UsesGamma --calls--> pkg/c.Gamma
+- pkg/b.UsesGamma --declares--> pkg/b
+- pkg/c.Gamma --declares--> pkg/c
+
+## Facts added (4)
+
+- dependency pkg/b -> example.com/gosample/pkg/c (pkg/b/gamma.go:3)
+- module pkg/c (pkg/c:0)
+- symbol pkg/b.UsesGamma (pkg/b/gamma.go:6)
+- symbol pkg/c.Gamma (pkg/c/c.go:4)
+
+
+--- stderr
+enola: no mcp-arch.yaml in <TMP>/go_sample, using built-in defaults
+enola check: repo <TMP>/go_sample (built-in default config)

@@ -1,0 +1,22 @@
+$ enola diff --help
+exit: 2
+--- stdout
+--- stderr
+Usage: enola diff [flags] <revA>..<revB> [repo_path|config_path]
+
+Show the architecture delta between two recorded revisions.
+
+Each side is a snapshot id or its prefix, a git commit, HEAD~N, @<seq>, a ref
+name, or `latest`. An omitted side means the oldest (left) or newest (right).
+
+With a shared store (--store, or history.shared_dir) both sides resolve over
+the union of the local history and the store, and the header names where
+each side came from.
+
+Flags:
+  -focus string
+    	narrow the delta to entries referencing this module, file or symbol
+  -json
+    	emit the delta as JSON
+  -store string
+    	also resolve revisions from a shared history store (default: history.shared_dir)

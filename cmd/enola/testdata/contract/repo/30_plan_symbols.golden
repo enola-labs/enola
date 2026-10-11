@@ -1,0 +1,19 @@
+$ enola plan --symbols pkg/b.Beta .
+exit: 0
+--- stdout
+Plan report for go_sample
+Snapshot: generated <TIME>, matches the working tree
+
+
+Target pkg/b.Beta (symbol)
+  Component pkg-b (declared in enola-intent.yaml)
+    rule a-avoids-b [ratchet]: pkg-a must not reach pkg-b via imports
+      because: a must stay deliverable without b
+  Blast radius: fan-in 2, fan-out 1
+    in:  ..main, pkg/a.Alpha
+    out: pkg/a.Alpha
+
+A report, never a gate: these verdicts are for the caller to weigh before editing.
+--- stderr
+enola: no mcp-arch.yaml in <TMP>/go_sample, using built-in defaults
+enola plan: repo <TMP>/go_sample (built-in default config)

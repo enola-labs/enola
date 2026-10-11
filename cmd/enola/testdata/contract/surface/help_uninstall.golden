@@ -1,0 +1,19 @@
+$ enola uninstall --help
+exit: 2
+--- stdout
+--- stderr
+Usage: enola uninstall [flags] [repo_path]
+
+Remove everything `enola install` wrote, leaving the rest of each file untouched.
+
+Flags:
+  -dry-run
+    	show what would change, write nothing
+  -global
+    	configure this user (all projects) instead of this repository
+  -hooks
+    	also install the session-start and stop hooks (install only)
+  -targets string
+    	comma-separated subset of: claude, cursor, agents, codex, copilot, pi, opencode
+  -yes
+    	skip the confirmation prompt

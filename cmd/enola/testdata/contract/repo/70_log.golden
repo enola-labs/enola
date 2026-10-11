@@ -1,0 +1,5 @@
+$ enola log .
+exit: 0
+--- stdout
+--- stderr
+No committed revisions recorded yet (2 revisions hidden by the filters — try --all).

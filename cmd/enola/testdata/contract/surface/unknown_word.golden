@@ -1,0 +1,6 @@
+$ enola frobnicate
+exit: 1
+--- stdout
+--- stderr
+
+Run `enola --help`.

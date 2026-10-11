@@ -1,0 +1,11 @@
+$ enola uninstall --dry-run --targets=claude .
+exit: 0
+--- stdout
+Uninstall
+Target:     .   (from the path you gave)
+
+  unchanged .claude/rules/enola.md
+  unchanged .claude/settings.json
+
+Dry run — nothing was written.
+--- stderr

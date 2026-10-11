@@ -1,0 +1,47 @@
+$ enola check --target pkg/b.Beta --expected pkg/c --max-spillover 0 .
+exit: 0
+--- stdout
+
+## Scope
+
+Stayed within the declared scope. 2 of 2 package(s) touched were predicted or declared, match ratio 1.
+
+Predicted but not touched (usually fine — the change was narrower than its blast radius):
+  - pkg/a
+PASS — no structural regression.
+could not see: 2 files and 0 directories excluded by ignore globs
+law: 1 rule · 1 breach · none excused
+
+New findings (reported — no failure policy set):
+  - [dead-code] 0.80 — Dead code candidate: function pkg/b.UsesGamma
+      function · unreferenced · pkg/b/gamma.go:6
+      pkg/b/gamma.go:6
+      func UsesGamma() string { return c.Gamma() }
+
+No --fail-on policy is set, so no FINDING could fail this run — only the threshold
+above grades it. These are reported for you to judge; enforce the ones you want
+enforced: --fail-on=layers (`enola check --help` lists all 22).
+
+What changed
+  modules      +1
+  symbols      +2
+  dependencies +1
+  edges        +4  (imports +1, calls +1, declares +2)
+
+Added (4):
+  module     pkg/c                                        pkg/c
+  symbol     pkg/b.UsesGamma                              pkg/b/gamma.go:6
+  symbol     pkg/c.Gamma                                  pkg/c/c.go:4
+  dependency pkg/b -> example.com/gosample/pkg/c          pkg/b/gamma.go:3
+
+New coupling (4):
+  pkg/b                                        --imports--> pkg/c
+  pkg/b.UsesGamma                              --calls--> pkg/c.Gamma
+  pkg/b.UsesGamma                              --declares--> pkg/b
+  pkg/c.Gamma                                  --declares--> pkg/c
+
+New coupling is reported, not failed: an added call edge is what ordinary work
+looks like. Inspect the list above if it is more than you expected.
+--- stderr
+enola: no mcp-arch.yaml in <TMP>/go_sample, using built-in defaults
+enola check: repo <TMP>/go_sample (built-in default config)

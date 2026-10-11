@@ -1,0 +1,82 @@
+$ enola --explain cluster.yaml
+exit: 0
+--- stdout
+════════════════════════════════════════════════════════════
+ Repository explanation: <TMP>/services/consumer
+════════════════════════════════════════════════════════════
+
+Overview
+  Generated:           <TIME>
+  Analysis time:       <DURATION>
+  Languages:           go
+  Total facts:         22
+
+Architectural kinds
+  module                      2
+  symbol                      8
+  route                       5
+  dependency                  5
+  service                     2
+
+Relations
+  declares                   13
+  imports                     4
+  calls                       9
+  depends_on                  1
+  instantiates                3
+
+Symbol breakdown
+  function                    4
+  struct                      3
+  method                      1
+
+API & data surface
+  routes                      5
+    served                    1
+    outbound calls            4
+    GET                       4
+    POST                      1
+  storage                     0
+
+Dependencies
+  stdlib                      3
+  external                    1
+  unclassified                1
+
+Architecture
+  Pattern:             (none detected)
+  cyclic dependencies         0
+  layer violations            0
+  cross-repo edges            1
+
+Impact analysis (hotspots)
+  coupled modules             0
+    high criticality          0
+    medium criticality        0
+  Note: coupling could not be resolved from the import graph
+        (imports did not match any module).
+
+Package metrics
+  packages analyzed             1
+  avg instability (I)        0.00
+  avg distance (D)           1.00
+  off main sequence             0  (D > 0.7, N >= 3, rigid needs Ca >= 5)
+
+Dead code
+  potential dead code         3  (of 7 symbols)
+    high confidence           1   (functions — incoming calls tracked; safest to remove first)
+    medium confidence         1   (structs/classes/interfaces — usage tracked via instantiate/inject/implements)
+    low confidence            1   (methods & types — dispatch/reflection & type usage not edge-tracked; verify each)
+    isolated                  0   (breakdown: no references in or out)
+    unreferenced              3   (breakdown: unreferenced, but references others)
+    exported                  2   (breakdown: public API — may be used outside this snapshot)
+  (heuristic — references matched by short name; verify before removal)
+
+Performance
+  functions analyzed            5
+  performance findings          0   (high 0 / medium 0 / low 0)
+
+--- stderr
+enola: using config <TMP>/services/cluster.yaml
+Analyzing <TMP>/services/api …
+Analyzing <TMP>/services/consumer …

@@ -1,0 +1,21 @@
+$ enola impact pkg/a/a.go .
+exit: 0
+--- stdout
+pkg/a/a.go is a file, not a node; this is the impact of the 7 symbols it declares
+4 total dependents — depth 1: 2 symbols, 2 test_refs
+
+by kind:
+  symbol                                   2
+  test_ref                                 2
+
+by depth:
+  1                                        4
+
+modules with the most dependents:
+  pkg/a                                    2
+  .                                        1
+  pkg/b                                    1
+--- stderr
+enola: no mcp-arch.yaml in <TMP>/go_sample, using built-in defaults
+enola impact: repo <TMP>/go_sample (built-in default config)
+enola impact: reading the snapshot written <TIME>, which matches the working tree

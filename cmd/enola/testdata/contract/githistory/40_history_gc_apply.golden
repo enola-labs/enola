@@ -1,0 +1,11 @@
+$ enola history gc --keep-last 1 --apply ../store .
+exit: 0
+--- stdout
+<TMP>/store
+  revisions  2 — 1 kept under policy keep-last 1
+
+Removed 1 revision(s) (2 KB):
+  17e9d63  <TIME>  go_sample  (pushed by <HOST>)
+
+The prune is recorded in the chain: readers see these as pruned, never as missing.
+--- stderr

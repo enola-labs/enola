@@ -1,0 +1,13 @@
+$ enola endpoint GET /v1/things cluster.yaml
+exit: 0
+--- stdout
+1 route(s) -> 0 controller(s) -> 0 model(s). Called from 1 file(s). The chain stops at the controller: no class in this repository answers to the handler these routes name, so what they reach is unknown rather than nothing.
+
+routes:
+  GET /v1/things/{id}  -> getThing
+
+callers:
+  consumer/client.go
+--- stderr
+enola: using config <TMP>/services/cluster.yaml
+enola endpoint: config <TMP>/services/cluster.yaml

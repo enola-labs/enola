@@ -1,0 +1,45 @@
+$ enola log --all --json .
+exit: 0
+--- stdout
+[
+  {
+    "id": "sha256:<HASH>",
+    "repo": "go_sample",
+    "seq": 1,
+    "at": "<TIME>",
+    "epoch": "<EPOCH>",
+    "summary": {
+      "fact_count": 21,
+      "insight_count": 4,
+      "initial": true
+    },
+    "blob": {
+      "segment": 1,
+      "member": 1
+    }
+  },
+  {
+    "id": "sha256:<HASH>",
+    "repo": "go_sample",
+    "seq": 2,
+    "at": "<TIME>",
+    "epoch": "<EPOCH>",
+    "summary": {
+      "facts_added": 4,
+      "edges_added": 4,
+      "findings_new": 1,
+      "by_kind": {
+        "dependency": 1,
+        "module": 1,
+        "symbol": 2
+      },
+      "fact_count": 25,
+      "insight_count": 5
+    },
+    "blob": {
+      "segment": 1,
+      "member": 2
+    }
+  }
+]
+--- stderr

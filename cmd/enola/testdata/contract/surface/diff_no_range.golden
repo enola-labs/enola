@@ -1,0 +1,5 @@
+$ enola diff
+exit: 2
+--- stdout
+--- stderr
+enola diff: needs a revision range, e.g. `enola diff HEAD~5..HEAD`

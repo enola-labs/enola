@@ -1,0 +1,36 @@
+$ enola impact --help
+exit: 2
+--- stdout
+--- stderr
+Usage: enola impact [flags] <target> [repo_path|config_path]
+
+Report the blast radius of changing a node: everything that transitively
+depends on it, by hop depth. With no flags it prints a summary - the exact
+dependent count, the breakdown by kind and depth, and the modules holding the
+most dependents.
+
+The target is matched as a substring of a fact name. Narrow it with a scope
+prefix, quoted as one argument: 'kind:symbol Alpha', 'file:pkg/a Alpha',
+'repo:backend Alpha'. A target
+matching too many nodes to choose between is not guessed at: the candidates
+are printed and nothing is traversed. A target matching a few is resolved to
+the best of them, and the report says which.
+
+Use endpoint when what you have is a URL; use this when you have a symbol.
+
+Exit codes:
+  0  the report was produced
+  2  the command could not run, or nothing was traversed because the target
+     matched nothing, or too many nodes to pick from
+
+Flags:
+  -include-forward
+    	also report what the target itself depends on
+  -json
+    	emit the raw graph as JSON: every dependent with its file, line and depth, and the edges between them
+  -list
+    	list the dependents by depth instead of summarising them
+  -max-depth int
+    	hops of impact to follow (1-10) (default 3)
+  -max-nodes int
+    	cap on the nodes listed (1-500); the total reported stays exact (default 200)

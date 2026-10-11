@@ -1,0 +1,62 @@
+$ enola check --json .
+exit: 0
+--- stdout
+{
+  "status": "clean",
+  "policy": {
+    "fail_explainers": null,
+    "min_confidence": 1,
+    "warn_only": false
+  },
+  "census": {
+    "recorded": true,
+    "files_excluded_by_ignore": 2,
+    "dirs_excluded_by_ignore": 0,
+    "dead_exemptions": 0,
+    "unused_suppressions": 0,
+    "dynamic_feature_classes": 0
+  },
+  "law": {
+    "rules": 1,
+    "by_mode": {
+      "ratchet": 1
+    },
+    "breaches": 1,
+    "suppressed": 0,
+    "exempted": 0,
+    "excused": 0
+  },
+  "package_metrics": {
+    "before": {
+      "analyzed": 0,
+      "avg_instability": 0,
+      "avg_distance": 0,
+      "off_main_sequence": 0
+    },
+    "after": {
+      "analyzed": 0,
+      "avg_instability": 0,
+      "avg_distance": 0,
+      "off_main_sequence": 0
+    },
+    "worsened": 0,
+    "improved": 0
+  },
+  "edges_added": 0,
+  "edges_removed": 0,
+  "facts_added": 0,
+  "facts_removed": 0,
+  "facts_changed": 0,
+  "diff": {
+    "baseline_repo": "<TMP>/go_sample",
+    "current_repo": "<TMP>/go_sample",
+    "baseline_generated_at": "<TIME>",
+    "current_generated_at": "<TIME>",
+    "comparability": {
+      "comparable": true
+    }
+  }
+}
+--- stderr
+enola: no mcp-arch.yaml in <TMP>/go_sample, using built-in defaults
+enola check: repo <TMP>/go_sample (built-in default config)

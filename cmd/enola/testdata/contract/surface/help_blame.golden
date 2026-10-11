@@ -1,0 +1,32 @@
+$ enola blame --help
+exit: 2
+--- stdout
+--- stderr
+Usage: enola blame [flags] <pattern> [repo_path|config_path]
+
+Show when something entered the architecture and when it left.
+
+The pattern is matched, case-insensitively, against the recorded facts — a
+module or symbol name, a file path, or both endpoints of an edge. With
+--findings it is matched against recorded findings instead.
+
+With a shared store (--store, or history.shared_dir) the search runs over the
+union of the local history and the store, and every event names where its
+revision came from.
+
+Only revisions whose contents are still stored can be searched; older ones
+keep their summary line and are reported as unread rather than as absent.
+
+Flags:
+  -all
+    	include working revisions (uncommitted trees)
+  -findings
+    	search the recorded findings instead of the facts
+  -first
+    	stop at the first appearance
+  -full
+    	print the whole matching line rather than its head
+  -json
+    	emit the events as JSON
+  -store string
+    	also search a shared history store (default: history.shared_dir)

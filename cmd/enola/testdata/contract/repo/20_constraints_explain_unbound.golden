@@ -1,0 +1,22 @@
+$ enola constraints explain main.go .
+exit: 0
+--- stdout
+main.go
+  read from: the snapshot generated <TIME>
+
+  measured facts:
+    dependency . -> example.com/gosample/pkg/a
+    dependency . -> example.com/gosample/pkg/b
+    symbol ..main
+  components: none; no declared selector admits a fact in this file
+  outgoing edges:
+       4  . -> example.com/gosample/pkg/a --imports--> pkg/a
+       5  . -> example.com/gosample/pkg/b --imports--> pkg/b
+      10  ..main --calls--> pkg/a.Alpha
+      10  ..main --calls--> pkg/b.Beta
+  incoming edges: none
+  if main.go left every part (1 rule(s) re-run over the loaded snapshot):
+    would start failing: nothing
+    would stop being checked: nothing
+--- stderr
+enola: no mcp-arch.yaml in <TMP>/go_sample, using built-in defaults

@@ -1,0 +1,6 @@
+$ enola constraints explain pkg/a/a.go .
+exit: 2
+--- stdout
+--- stderr
+enola: no mcp-arch.yaml in <TMP>/go_sample, using built-in defaults
+constraints explain: no snapshot for <TMP>/go_sample; generate one first

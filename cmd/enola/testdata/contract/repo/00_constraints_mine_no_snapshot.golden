@@ -1,0 +1,7 @@
+$ enola constraints mine .
+exit: 2
+--- stdout
+--- stderr
+enola: no mcp-arch.yaml in <TMP>/go_sample, using built-in defaults
+enola constraints mine: repo <TMP>/go_sample (built-in default config)
+enola constraints: no snapshot at <TMP>/go_sample/.enola — mining reads an existing snapshot and never generates one; run `enola --generate` first (no snapshot at <TMP>/go_sample/.enola: stat <TMP>/go_sample/.enola/facts.jsonl: no such file or directory)

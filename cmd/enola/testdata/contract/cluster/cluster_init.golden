@@ -1,0 +1,6 @@
+$ enola cluster init .
+exit: 0
+--- stdout
+wrote <TMP>/services/cluster.yaml with 2 repositories: api, consumer
+next: enola --generate <TMP>/services/cluster.yaml
+--- stderr

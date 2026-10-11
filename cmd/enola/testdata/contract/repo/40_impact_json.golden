@@ -1,0 +1,60 @@
+$ enola impact --json pkg/a.Alpha .
+exit: 0
+--- stdout
+{
+  "target": "pkg/a.Alpha",
+  "by_depth": {
+    "1": [
+      {
+        "name": "..main",
+        "kind": "symbol",
+        "file": "main.go",
+        "line": 10,
+        "repo": "go_sample",
+        "depth": 1
+      },
+      {
+        "name": "pkg/b.Beta",
+        "kind": "symbol",
+        "file": "pkg/b/b.go",
+        "line": 6,
+        "repo": "go_sample",
+        "depth": 1
+      }
+    ]
+  },
+  "edges": [
+    {
+      "source": "..main",
+      "target": "pkg/a.Alpha",
+      "kind": "calls"
+    },
+    {
+      "source": "pkg/b.Beta",
+      "target": "pkg/a.Alpha",
+      "kind": "calls"
+    },
+    {
+      "source": "..main",
+      "target": "pkg/b.Beta",
+      "kind": "calls"
+    },
+    {
+      "source": "pkg/a.Alpha",
+      "target": "pkg/b.Beta",
+      "kind": "calls"
+    }
+  ],
+  "total_dependents": 2,
+  "summary": "2 total dependents — depth 1: 2 symbols",
+  "stats": {
+    "nodes_visited": 3,
+    "edges_traversed": 4,
+    "max_depth_reached": 1,
+    "truncated": false
+  }
+}
+--- stderr
+enola: no mcp-arch.yaml in <TMP>/go_sample, using built-in defaults
+enola impact: repo <TMP>/go_sample (built-in default config)
+enola impact: reading the snapshot written <TIME>, which matches the working tree

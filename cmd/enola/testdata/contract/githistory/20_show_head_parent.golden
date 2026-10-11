@@ -1,0 +1,16 @@
+$ enola show HEAD~1 .
+exit: 0
+--- stdout
+# revision 17e9d63 · <TIME> · (01b246396b27, backfill)
+
+This is the FIRST recorded revision, so there is nothing before it to compare
+against. What follows is what the graph held at this point, not what changed.
+
+  facts     18
+    dependency   4
+    module       3
+    symbol       9
+    test_ref     2
+  findings  3
+  built by  enola dev · extractors go, manifests
+--- stderr

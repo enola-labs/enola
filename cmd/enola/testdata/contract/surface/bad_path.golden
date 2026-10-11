@@ -1,0 +1,6 @@
+$ enola ./no/such/path
+exit: 1
+--- stdout
+--- stderr
+
+A path naming a DIRECTORY is treated as a repository; one naming a FILE is treated as a config.

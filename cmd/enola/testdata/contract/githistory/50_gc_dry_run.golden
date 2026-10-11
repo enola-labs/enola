@@ -1,0 +1,12 @@
+$ enola gc --dry-run .
+exit: 0
+--- stdout
+<TMP>/.enola/graphs/go_sample-<KEY>/history
+
+  revisions      2
+    with contents 2  (replayable)
+  segments       1
+  stored         4 KB
+
+Nothing to remove.
+--- stderr

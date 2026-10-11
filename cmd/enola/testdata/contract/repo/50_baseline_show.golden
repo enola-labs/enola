@@ -1,0 +1,10 @@
+$ enola baseline show .
+exit: 0
+--- stdout
+Baseline at <TMP>/go_sample/.enola/baseline
+  Generated: <TIME>
+  Repo:      <TMP>/go_sample
+  Facts:     21 · Insights: 4
+  Snapshot:  sha256:<HASH>
+--- stderr
+enola: no mcp-arch.yaml in <TMP>/go_sample, using built-in defaults

@@ -1,0 +1,5 @@
+$ enola blame
+exit: 2
+--- stdout
+--- stderr
+enola blame: needs something to look for, e.g. `enola blame internal/server`

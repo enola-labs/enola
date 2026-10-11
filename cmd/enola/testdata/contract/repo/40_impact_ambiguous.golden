@@ -1,0 +1,12 @@
+$ enola impact a .
+exit: 2
+--- stdout
+"a" matches several nodes; none was picked. Candidates:
+  pkg/a (module)  pkg/a
+  . -> example.com/gosample/pkg/a (dependency)  main.go
+  pkg/b -> example.com/gosample/pkg/a (dependency)  pkg/b/b.go
+--- stderr
+enola: no mcp-arch.yaml in <TMP>/go_sample, using built-in defaults
+enola impact: repo <TMP>/go_sample (built-in default config)
+enola impact: reading the snapshot written <TIME>, which matches the working tree
+enola impact: "a" matches too many nodes to pick one, so nothing was traversed; pass an exact name or scope it with repo:, kind: or file:
