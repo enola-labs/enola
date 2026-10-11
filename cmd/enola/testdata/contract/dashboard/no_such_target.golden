@@ -1,0 +1,5 @@
+$ enola dashboard ./no/such/path
+exit: 2
+--- stdout
+--- stderr
+enola dashboard: cannot use target "./no/such/path": stat ./no/such/path: no such file or directory

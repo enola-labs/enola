@@ -1,0 +1,9 @@
+$ enola dashboard .
+exit: 0
+--- stderr
+enola: no mcp-arch.yaml in <TMP>/go_sample, using built-in defaults
+Loading dashboard snapshot from <TMP>/go_sample/.enola...
+Dashboard running
+Snapshot: <TMP>/go_sample/.enola
+Open: http://127.0.0.1:<PORT>
+Press Ctrl-C to stop.

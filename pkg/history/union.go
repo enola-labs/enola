@@ -59,7 +59,7 @@ func BuildUnion(local []Entry, sh *Share, repo string) []UnionRevision {
 			out = append(out, UnionRevision{Entry: sh.EntryFor(rec), Origins: []string{origin}, Record: &rec})
 		}
 	}
-	sort.SliceStable(out, func(i, j int) bool { return entryBefore(out[i].Entry, out[j].Entry) })
+	sort.SliceStable(out, func(i, j int) bool { return unionBefore(out[i], out[j]) })
 	return out
 }
 
@@ -87,16 +87,60 @@ func UnionRepo(local []Entry, sh *Share, requested string) (string, error) {
 		len(repos), strings.Join(repos, ", "))
 }
 
-func entryBefore(a, b Entry) bool {
-	ta, erra := time.Parse(time.RFC3339, a.At)
-	tb, errb := time.Parse(time.RFC3339, b.At)
+// compareInstant orders two timestamps: negative when a is earlier, positive when
+// later, zero when they are the same instant. Compared as instants where both parse
+// (see SortedByTime for why text is not enough), and as text otherwise, so an
+// unparseable timestamp is placed where its text says rather than dropped.
+func compareInstant(a, b string) int {
+	ta, erra := time.Parse(time.RFC3339, a)
+	tb, errb := time.Parse(time.RFC3339, b)
 	switch {
-	case erra == nil && errb == nil && !ta.Equal(tb):
-		return ta.Before(tb)
-	case (erra != nil || errb != nil) && a.At != b.At:
-		return a.At < b.At
+	case erra == nil && errb == nil:
+		return ta.Compare(tb)
+	case a != b:
+		return strings.Compare(a, b)
 	}
-	return a.ID < b.ID
+	return 0
+}
+
+// unionBefore orders two revisions on the union's timeline.
+//
+// Time decides, and a revision is stamped to the second, so an agent loop lands
+// several in one. Those ties are broken by the order the revisions were RECORDED in,
+// which is the only evidence of which came first: within a local history that is
+// the sequence number, and within one source's chain in a store it is the line.
+// Breaking them by id instead put two snapshots taken within a second in hash order,
+// and blame then read the later one first and reported its facts as removed.
+//
+// Recorded order only exists within one source, so a tie between revisions from
+// different sources is broken by the source's name: there is no truth to recover
+// there, only a need for the same answer every time. Within a source, the revisions
+// held locally come before the ones only the store holds, since those are the ones
+// that were pulled, or written, first. The id is last, for whatever is left.
+func unionBefore(a, b UnionRevision) bool {
+	if c := compareInstant(a.Entry.At, b.Entry.At); c != 0 {
+		return c < 0
+	}
+	// Entry.Origin is empty for this machine's own revisions, and names the source
+	// for a pulled revision and for one read from the store.
+	if a.Entry.Origin != b.Entry.Origin {
+		return a.Entry.Origin < b.Entry.Origin
+	}
+	if a.Local != b.Local {
+		return a.Local
+	}
+	if pa, pb := recordedPosition(a), recordedPosition(b); pa != pb {
+		return pa < pb
+	}
+	return a.Entry.ID < b.Entry.ID
+}
+
+// recordedPosition is where a revision sits in the order its source recorded it.
+func recordedPosition(u UnionRevision) int {
+	if !u.Local && u.Record != nil {
+		return u.Record.Line
+	}
+	return u.Entry.Seq
 }
 
 func UnionEntries(revs []UnionRevision) []Entry {

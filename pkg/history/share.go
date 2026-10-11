@@ -318,8 +318,20 @@ func (s *Share) RevisionsFor(repo string) []ShareRecord {
 	return out
 }
 
+// recordBefore orders two store records by time, and records sharing a second by
+// their source and then by their line in that source's chain, which is the order
+// they were pushed in. See unionBefore for why the id is only the last resort.
 func recordBefore(a, b ShareRecord) bool {
-	return entryBefore(Entry{At: a.At, ID: a.ID}, Entry{At: b.At, ID: b.ID})
+	if c := compareInstant(a.At, b.At); c != 0 {
+		return c < 0
+	}
+	if a.Source != b.Source {
+		return a.Source < b.Source
+	}
+	if a.Line != b.Line {
+		return a.Line < b.Line
+	}
+	return a.ID < b.ID
 }
 
 func (s *Share) Repos() []string {

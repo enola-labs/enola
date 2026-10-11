@@ -25,11 +25,14 @@ package main
 //	go tool covdata percent -i=/tmp/cov
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"errors"
 	"flag"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -358,12 +361,6 @@ func TestCLIContract_Repo(t *testing.T) {
 		"pkg/b/gamma.go": "package b\n\nimport \"example.com/gosample/pkg/c\"\n\n// UsesGamma couples pkg/b to the new package.\nfunc UsesGamma() string { return c.Gamma() }\n",
 	})
 
-	// Revisions are stamped to the second, and the history union orders two that
-	// share one by id rather than by the order they were recorded in, so blame can
-	// read the second snapshot as the first. Until that is fixed, keep the two
-	// snapshots in different seconds so the goldens pin the ordered case.
-	time.Sleep(1100 * time.Millisecond)
-
 	s.pin(t, []cliCase{
 		{"60_check_after_edit", []string{"check", "."}},
 		{"60_check_detail", []string{"check", "--detail", "."}},
@@ -511,9 +508,8 @@ func TestCLIContract_GitHistory(t *testing.T) {
 		{"40_blame_store", []string{"blame", "--store", "../store", "pkg/c", "."}},
 		{"40_diff_store", []string{"diff", "--store", "../store", "HEAD~1..HEAD", "."}},
 		{"40_history_gc_no_policy", []string{"history", "gc", "../store", "."}},
-		// The usage line puts flags after the store directory; the parser stops at
-		// the first positional, so this form is read as having no policy.
-		{"40_history_gc_flags_after_store", []string{"history", "gc", "../store", "--keep-last", "1", "."}},
+		// The store first and the flags after it, the order the documentation shows.
+		{"40_history_gc_store_first", []string{"history", "gc", "../store", "--keep-last", "1", "."}},
 		{"40_history_gc_plan", []string{"history", "gc", "--keep-last", "1", "../store", "."}},
 		{"40_history_gc_apply", []string{"history", "gc", "--keep-last", "1", "--apply", "../store", "."}},
 		{"40_history_verify_after_gc", []string{"history", "verify", "../store", "."}},
@@ -632,4 +628,110 @@ func TestCLIContract_Status(t *testing.T) {
 
 	pin("stopped", "--status")
 	pin("stopped_all", "--status", "--all")
+}
+
+// TestCLIContract_Dashboard pins the dashboard command: what it refuses, and, for a
+// repository with a snapshot, that it serves a page until it is interrupted and then
+// exits cleanly.
+//
+// ENOLA_DASHBOARD_PORT=off turns the shared, bookmarkable port off, so the process
+// binds only an ephemeral one and cannot collide with a dashboard already running
+// on this machine.
+func TestCLIContract_Dashboard(t *testing.T) {
+	s := newCLISession(t, "dashboard")
+	repo := copyFixture(t, "go_sample", filepath.Join(s.dir, "go_sample"))
+	s.dir = repo
+
+	s.pin(t, []cliCase{
+		{"too_many_targets", []string{"dashboard", ".", "."}},
+		{"no_such_target", []string{"dashboard", "./no/such/path"}},
+		{"bad_flag", []string{"dashboard", "--no-such-flag"}},
+		{"generate", []string{"--generate", "."}},
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, s.bin, "dashboard", ".")
+	cmd.Dir = repo
+	cmd.Env = append(sandboxEnv(s.home), "ENOLA_NO_PROMPTS=1", "CI=", "ENOLA_DASHBOARD_PORT=off")
+	if dir := os.Getenv(contractCoverDirEnv); dir != "" {
+		cmd.Env = append(cmd.Env, "GOCOVERDIR="+dir)
+	}
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("starting the dashboard: %v", err)
+	}
+	stopped := false
+	defer func() {
+		if !stopped {
+			_ = cmd.Process.Kill()
+			_ = cmd.Wait()
+		}
+	}()
+
+	// Read the startup report up to the line that says it is serving.
+	var report strings.Builder
+	openURL := regexp.MustCompile(`Open: (http://127\.0\.0\.1:\d+)`)
+	url := ""
+	reader := bufio.NewReader(stderr)
+	for {
+		line, err := reader.ReadString('\n')
+		report.WriteString(line)
+		if m := openURL.FindStringSubmatch(line); m != nil {
+			url = m[1]
+		}
+		if strings.Contains(line, "Press Ctrl-C to stop.") {
+			break
+		}
+		if err != nil {
+			t.Fatalf("the dashboard stopped before it reported serving: %v\n%s", err, report.String())
+		}
+	}
+	if url == "" {
+		t.Fatalf("the startup report names no URL:\n%s", report.String())
+	}
+
+	res, err := http.Get(url)
+	if err != nil {
+		t.Fatalf("GET %s: %v", url, err)
+	}
+	page, err := io.ReadAll(res.Body)
+	_ = res.Body.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.StatusCode != http.StatusOK {
+		t.Errorf("GET %s = %d, want 200", url, res.StatusCode)
+	}
+	// The page is the dashboard package's to test; here it only has to be the
+	// dashboard of this repository's snapshot.
+	for _, want := range []string{"<html", "go_sample"} {
+		if !strings.Contains(string(page), want) {
+			t.Errorf("the served page does not contain %q", want)
+		}
+	}
+
+	// Ctrl-C stops it, and stopping is a clean exit.
+	if err := cmd.Process.Signal(os.Interrupt); err != nil {
+		t.Fatalf("interrupting the dashboard: %v", err)
+	}
+	rest, _ := io.ReadAll(reader)
+	report.Write(rest)
+	waitErr := cmd.Wait()
+	stopped = true
+	code := 0
+	if waitErr != nil {
+		var exit *exec.ExitError
+		if !errors.As(waitErr, &exit) {
+			t.Fatalf("waiting for the dashboard: %v", waitErr)
+		}
+		code = exit.ExitCode()
+	}
+
+	port := regexp.MustCompile(`127\.0\.0\.1:\d+`)
+	got := fmt.Sprintf("$ enola dashboard .\nexit: %d\n--- stderr\n%s", code, port.ReplaceAllString(s.normalize(report.String()), "127.0.0.1:<PORT>"))
+	assertCLIGolden(t, filepath.Join(s.scenario, "serve.golden"), got)
 }

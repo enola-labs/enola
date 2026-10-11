@@ -1,0 +1,5 @@
+$ enola dashboard . .
+exit: 2
+--- stdout
+--- stderr
+enola dashboard: dashboard accepts at most one repository or config path
