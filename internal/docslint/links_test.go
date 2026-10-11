@@ -92,14 +92,15 @@ var repoPathRe = regexp.MustCompile("`((?:internal|pkg|cmd|examples|docs|\\.gith
 // rest, and it keeps each exception visible rather than encoding a blanket rule like
 // "ignore anything under internal/" that would quietly stop checking the real ones.
 var foreignPaths = map[string]string{
-	"internal/auth":                              "the worked example for --target and --max-spillover, in docs/GATING.md, ARCHITECTURE.md and docs/CLI.md",
-	"internal/auth/handler.go":                   "the same worked example, in ARCHITECTURE.md",
-	"internal/session":                           "the second package in the --max-spillover example in docs/CLI.md",
-	"internal/engine.cacheVersion":               "a Go selector written as a path, naming the cacheVersion constant, in docs/CLI.md",
-	"pkg/analyzer":                               "the Dart SDK's own package, quoted in docs/extraction/dart.md",
-	"pkg/front_end":                              "the Dart SDK's own package, quoted in docs/extraction/dart.md and ARCHITECTURE.md",
-	"pkg/facts":                                  "a package that no longer exists, named by the CHANGELOG.md entry that trimmed its re-exports",
-	".github/instructions":                       "Copilot's instructions directory in the repository enola installs INTO — written by pkg/install, never present here",
+	"internal/auth":                "the worked example for --target and --max-spillover, in docs/GATING.md, ARCHITECTURE.md and docs/CLI.md",
+	"internal/auth/handler.go":     "the same worked example, in ARCHITECTURE.md",
+	"internal/session":             "the second package in the --max-spillover example in docs/CLI.md",
+	"internal/engine.cacheVersion": "a Go selector written as a path, naming the cacheVersion constant, in docs/CLI.md",
+	"pkg/analyzer":                 "the Dart SDK's own package, quoted in docs/extraction/dart.md",
+	"pkg/front_end":                "the Dart SDK's own package, quoted in docs/extraction/dart.md and ARCHITECTURE.md",
+	"pkg/diff":                     "a package that no longer exists, named by the CHANGELOG.md entry that removed it",
+	"pkg/facts":                    "a package that no longer exists, named by the CHANGELOG.md entry that trimmed its re-exports",
+	".github/instructions":         "Copilot's instructions directory in the repository enola installs INTO — written by pkg/install, never present here",
 	".github/instructions/enola.instructions.md": "the file pkg/install writes into that repository, listed in the install target table",
 }
 
