@@ -1,7 +1,6 @@
 package swiftextractor
 
 import (
-	"bufio"
 	"context"
 	"log"
 	"os"
@@ -12,6 +11,7 @@ import (
 	"github.com/enola-labs/enola/internal/extractors/detectnames"
 	"github.com/enola-labs/enola/internal/factpath"
 	"github.com/enola-labs/enola/internal/facts"
+	"github.com/enola-labs/enola/internal/linescan"
 	"github.com/enola-labs/enola/internal/parallel"
 )
 
@@ -653,8 +653,7 @@ func extractTypeReferences(absFile string) []string {
 	seen := make(map[string]bool)
 	var refs []string
 
-	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 0, 256*1024), 1024*1024)
+	scanner := linescan.New(f)
 
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -677,6 +676,9 @@ func extractTypeReferences(absFile string) []string {
 				refs = append(refs, typeName)
 			}
 		}
+	}
+	if err := scanner.Err(); err != nil {
+		log.Printf("[swift-extractor] error reading %s: %v", absFile, err)
 	}
 
 	return refs

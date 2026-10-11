@@ -2783,7 +2783,18 @@ import (
 // documentation symbols no longer enter the dead-code candidate population.
 // Fallback, metadata and literal reflection uses carry names edges, not calls;
 // orphan detection sees them while call coupling excludes them.
-const cacheVersion = "v319"
+// v320: the Swift, Scala (Play routes), Dart (pubspec), Kotlin and JVM line readers have no
+// line-length limit. A line over the old limit (1 MB, or bufio's 64 KB default) ended the
+// scan silently and dropped everything after it in that file.
+// v321: a repository whose leading language is plain JavaScript is detected by the
+// TypeScript extractor without a tsconfig, a framework dependency or a package.json.
+// v322: JavaScript declarations inside a function the file calls at once (the wrapper a
+// script for a <script> tag is written in, and a universal-module factory) are the
+// file's symbols; they were read as that function's locals and emitted nothing.
+// v323: a wrapper function's plain variables are not symbols, and a function passed to a
+// wrapper (a universal-module factory) is no longer read; a variable whose value is a
+// function expression is a function, in a wrapper or a module.
+const cacheVersion = "v323"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

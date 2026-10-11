@@ -1,9 +1,10 @@
 package dartextractor
 
 import (
-	"bufio"
 	"github.com/enola-labs/enola/internal/factpath"
+	"github.com/enola-labs/enola/internal/linescan"
 	"io/fs"
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -162,8 +163,7 @@ func parsePubspec(path string) *pubPackage {
 
 	p := &pubPackage{Deps: map[string]bool{}}
 	section := ""
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	sc := linescan.New(f)
 	for sc.Scan() {
 		line := sc.Text()
 		if i := strings.IndexByte(line, '#'); i >= 0 {
@@ -204,6 +204,9 @@ func parsePubspec(path string) *pubPackage {
 				p.IsFlutter = true
 			}
 		}
+	}
+	if err := sc.Err(); err != nil {
+		log.Printf("[dart-extractor] error reading %s: %v", path, err)
 	}
 	return p
 }

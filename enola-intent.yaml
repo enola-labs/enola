@@ -94,6 +94,9 @@ layers:
       - "internal/filelock/**"
       - "internal/parallel/**"
       - "internal/litfold/**"
+      # internal/linescan is core, and depends on nothing: the line reader with no
+      # line-length limit that the extractors read source files with.
+      - "internal/linescan/**"
       # internal/clientspec is core, and depends on nothing: it is the declared
       # client vocabulary that internal/config loads and the extractors read.
       - "internal/clientspec/**"

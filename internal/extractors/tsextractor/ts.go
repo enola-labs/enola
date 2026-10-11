@@ -72,6 +72,9 @@ var unambiguousTSExts = map[string]bool{
 // roslyn, both of them TypeScript tooling parked deep inside a repository written in
 // something else.
 //
+// Last comes the repository written in plain JavaScript, which has none of the above;
+// see javaScriptLeads for why that is decided by count and not by a file's presence.
+//
 // Detecting without a root is already a state this extractor handles: a GraphQL-docs
 // repository has reached Extract with findTSRoot returning no root since that arm was
 // added, and every consumer of it pairs tsRoot with a repoPath fallback.
@@ -90,7 +93,7 @@ func (e *TSExtractor) DetectFiles(repoPath string, files []string) (bool, error)
 			return true, nil
 		}
 	}
-	return false, nil
+	return javaScriptLeads(files), nil
 }
 
 // findTSRoot returns the directory that is the TypeScript project root, along
@@ -877,9 +880,24 @@ func (e *TSExtractor) extractImports(kinds *tsutil.KindTable, root *sitter.Node,
 }
 
 func (e *TSExtractor) extractDeclarations(kinds *tsutil.KindTable, root *sitter.Node, ctx *extractCtx) []facts.Fact {
+	return e.extractStatements(kinds, root, ctx, wrapperDepth)
+}
+
+// extractStatements emits the declarations among a block's statements. A statement
+// that is a wrapper function called at once contributes the declarations in its body
+// as the file's own (see wrapperBody), none of them exported, and without its plain
+// variables (see withoutPlainVariables).
+func (e *TSExtractor) extractStatements(kinds *tsutil.KindTable, block *sitter.Node, ctx *extractCtx, wrappers int) []facts.Fact {
 	var result []facts.Fact
-	for i := range root.ChildCount() {
-		result = append(result, e.extractNode(kinds, root.Child(i), ctx, false, "")...)
+	for i := range block.ChildCount() {
+		stmt := block.Child(i)
+		result = append(result, e.extractNode(kinds, stmt, ctx, false, "")...)
+		if wrappers == 0 {
+			continue
+		}
+		if body := wrapperBody(kinds, stmt); body != nil {
+			result = append(result, withoutPlainVariables(e.extractStatements(kinds, body, ctx, wrappers-1))...)
+		}
 	}
 	return result
 }
@@ -1171,12 +1189,14 @@ func (e *TSExtractor) extractNode(kinds *tsutil.KindTable, node *sitter.Node, ct
 			}
 			symbolName := nodeText(name, src)
 
-			// Determine the value node and the symbol kind. Arrow functions and
-			// memo/forwardRef-wrapped values are functions/components; everything
-			// else is a plain variable.
+			// Determine the value node and the symbol kind. A function written as
+			// the value (an arrow, or `var f = function () {}`, which is how a script
+			// older than arrows declares most of its functions) and a
+			// memo/forwardRef-wrapped value are functions/components; everything else
+			// is a plain variable.
 			symbolKind := facts.SymbolVariable
 			var body *sitter.Node
-			if v := findChildByKind(kinds, decl, "arrow_function"); v != nil {
+			if v := functionValue(kinds, decl); v != nil {
 				symbolKind = facts.SymbolFunc
 				body = v
 			} else if call := findChildByKind(kinds, decl, "call_expression"); call != nil && isComponentWrapper(kinds, call, src) {
