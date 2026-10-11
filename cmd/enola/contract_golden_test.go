@@ -442,7 +442,7 @@ func TestCLIContract_Cluster(t *testing.T) {
 		{"coverage_no_snapshot", []string{"coverage", "cluster.yaml"}},
 		{"generate", []string{"--generate", "cluster.yaml"}},
 		{"explain", []string{"--explain", "cluster.yaml"}},
-		{"coverage", []string{"coverage", "cluster.yaml"}},
+		{"coverage_summary", []string{"coverage", "cluster.yaml"}},
 		{"coverage_json", []string{"coverage", "--json", "cluster.yaml"}},
 		{"coverage_unresolved", []string{"coverage", "--unresolved", "cluster.yaml"}},
 		{"coverage_repo", []string{"coverage", "--repo", "consumer", "cluster.yaml"}},
