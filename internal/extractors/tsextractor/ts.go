@@ -885,8 +885,9 @@ func (e *TSExtractor) extractDeclarations(kinds *tsutil.KindTable, root *sitter.
 
 // extractStatements emits the declarations among a block's statements. A statement
 // that is a wrapper function called at once contributes the declarations in its body
-// as the file's own (see wrapperBody), none of them exported, and without its plain
-// variables (see withoutPlainVariables).
+// as the file's own (see wrapperBody): exported when the wrapper hands them out (see
+// wrapperExposes), and without the plain variables it keeps to itself (see
+// withoutPlainVariables).
 func (e *TSExtractor) extractStatements(kinds *tsutil.KindTable, block *sitter.Node, ctx *extractCtx, wrappers int) []facts.Fact {
 	var result []facts.Fact
 	for i := range block.ChildCount() {
@@ -896,7 +897,9 @@ func (e *TSExtractor) extractStatements(kinds *tsutil.KindTable, block *sitter.N
 			continue
 		}
 		if body := wrapperBody(kinds, stmt); body != nil {
-			result = append(result, withoutPlainVariables(e.extractStatements(kinds, body, ctx, wrappers-1))...)
+			inner := e.extractStatements(kinds, body, ctx, wrappers-1)
+			markExposed(inner, ctx.dir, wrapperExposes(kinds, stmt, body, ctx.src))
+			result = append(result, withoutPlainVariables(inner)...)
 		}
 	}
 	return result
