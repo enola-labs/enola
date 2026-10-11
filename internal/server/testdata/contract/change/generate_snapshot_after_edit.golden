@@ -1,0 +1,13 @@
+Snapshot generated successfully.
+
+- Repository: <TMP>/go_sample
+- Facts: 22
+- Insights: 4
+- Artifacts: 1
+- Duration: <DURATION>
+- Extractors: [go manifests]
+- Explainers: [cycles layers crossrepo coverage unused-routes domain query-loops dead-methods entry-points messaging-coverage god-class hotspots dependency-depth exported-surface complexity-outliers intent constraints vendored-candidates import-closure package-metrics dead-code performance]
+
+Fetch the computed findings with query_insights (e.g. query_insights(explainer='unused-routes') for HTTP routes no loaded client calls); use query_facts or explore to inspect the raw facts.
+
+**Verify your change:** a baseline is pinned — call diff_snapshot to see exactly what changed since set_baseline (new/resolved findings, new coupling, added/removed symbols). Re-pin from here with set_baseline if you're starting a new change.

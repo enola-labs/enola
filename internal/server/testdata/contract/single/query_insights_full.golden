@@ -1,0 +1,65 @@
+[
+  {
+    "title": "Cyclic dependency detected (2 modules)",
+    "source": "cycles",
+    "description": "The following modules form a dependency cycle: pkg/a -\u003e pkg/b -\u003e pkg/a. This can cause initialization issues, make refactoring harder, and indicates tight coupling.",
+    "confidence": 1,
+    "evidence": [
+      {
+        "fact": "pkg/a",
+        "detail": "module \"pkg/a\" is part of the cycle"
+      },
+      {
+        "fact": "pkg/b",
+        "detail": "module \"pkg/b\" is part of the cycle"
+      }
+    ],
+    "suggested_actions": [
+      "Introduce an interface to break the cycle",
+      "Extract shared types to a separate package",
+      "Consider merging tightly coupled modules"
+    ]
+  },
+  {
+    "title": "Dead code candidate: function pkg/a.GetPath",
+    "source": "dead-code",
+    "description": "function \"pkg/a.GetPath\" is unreferenced — nothing in the snapshot graph references it (high confidence). References are matched by short name and biased conservative, so verify against dynamic/reflective dispatch and consumers outside the snapshot before removing.",
+    "confidence": 0.8,
+    "evidence": [
+      {
+        "file": "pkg/a/a.go",
+        "symbol": "pkg/a.GetPath",
+        "detail": "function · unreferenced · pkg/a/a.go:15",
+        "line": 15
+      },
+      {
+        "symbol": "pkg/a.GetPath",
+        "detail": "exported — may be used outside this snapshot; verify before removal"
+      }
+    ],
+    "suggested_actions": [
+      "Confirm no dynamic/reflective or out-of-snapshot callers, then remove the symbol"
+    ]
+  },
+  {
+    "title": "Dead code candidate: function pkg/a.Seed",
+    "source": "dead-code",
+    "description": "function \"pkg/a.Seed\" is unreferenced — nothing in the snapshot graph references it (high confidence). References are matched by short name and biased conservative, so verify against dynamic/reflective dispatch and consumers outside the snapshot before removing.",
+    "confidence": 0.8,
+    "evidence": [
+      {
+        "file": "pkg/a/a.go",
+        "symbol": "pkg/a.Seed",
+        "detail": "function · unreferenced · pkg/a/a.go:24",
+        "line": 24
+      },
+      {
+        "symbol": "pkg/a.Seed",
+        "detail": "exported — may be used outside this snapshot; verify before removal"
+      }
+    ],
+    "suggested_actions": [
+      "Confirm no dynamic/reflective or out-of-snapshot callers, then remove the symbol"
+    ]
+  }
+]

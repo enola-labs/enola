@@ -1,0 +1,56 @@
+# Module: pkg/a
+
+- Language: go
+- Package: a
+
+## Symbols (7)
+
+| Name | Kind | File | Line | Exported |
+|------|------|------|------|----------|
+| pkg/a.Alpha | function | pkg/a/a.go | 7 | yes |
+| pkg/a.GetPath | function | pkg/a/a.go | 15 | yes |
+| pkg/a.Seed | function | pkg/a/a.go | 24 | yes |
+| pkg/a.getByID | function | pkg/a/a.go | 30 | no |
+| pkg/a.setup | function | pkg/a/a.go | 31 | no |
+| pkg/a.helper | function | pkg/a/a.go | 37 | no |
+| pkg/a.Gamma | function | pkg/a/a.go | 43 | yes |
+
+## Dependencies (1)
+
+### Imports (1)
+
+- pkg/b
+
+## Dependents (4)
+
+- .
+- . -> example.com/gosample/pkg/a
+- pkg/b
+- pkg/b -> example.com/gosample/pkg/a
+
+## Insights
+
+### Depends most on
+
+- pkg (1)
+
+### Most depended on by
+
+- . (1)
+- . -> example.com/gosample/pkg (1)
+- pkg (1)
+- pkg/b -> example.com/gosample/pkg (1)
+
+## Architectural warnings (3)
+
+- **Cyclic dependency detected (2 modules)** — The following modules form a dependency cycle: pkg/a -> pkg/b -> pkg/a. This can cause initialization issues, make refactoring harder, and indicates tight coupling.
+- **Dead code candidate: function pkg/a.GetPath** — function "pkg/a.GetPath" is unreferenced — nothing in the snapshot graph references it (high confidence). References are matched by short name and biased conservative, so verify against dynamic/reflective dispatch and consumers outside the snapshot before removing.
+- **Dead code candidate: function pkg/a.Seed** — function "pkg/a.Seed" is unreferenced — nothing in the snapshot graph references it (high confidence). References are matched by short name and biased conservative, so verify against dynamic/reflective dispatch and consumers outside the snapshot before removing.
+
+### Size metrics
+
+- Declared symbols: 7
+- Outgoing dependencies: 1
+- Dependents: 4
+
+_Use output_mode=compact or full for the per-symbol relation list._

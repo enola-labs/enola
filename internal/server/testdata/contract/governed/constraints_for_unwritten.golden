@@ -1,0 +1,18 @@
+{
+  "target": "pkg/a/new_file.go",
+  "components": [
+    {
+      "component": "pkg-a",
+      "source": "enola-intent.yaml",
+      "rules": [
+        {
+          "rule": "a-avoids-b",
+          "statement": "pkg-a must not reach pkg-b via imports",
+          "because": "a must stay deliverable without b",
+          "mode": "ratchet",
+          "source": "enola-intent.yaml"
+        }
+      ]
+    }
+  ]
+}

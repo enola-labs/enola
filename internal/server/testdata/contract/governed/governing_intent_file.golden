@@ -1,0 +1,9 @@
+### pkg/a/a.go (go_sample)
+
+## Governing intent
+
+Knowledge pages anchored to the target's file:
+
+- decision.md (decision, accepted)
+  - part-of epic.md (epic, living)
+

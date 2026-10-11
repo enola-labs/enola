@@ -1,0 +1,17 @@
+Filters applied: repo=consumer. No kind, name, file or prop filter was sent, so this is every fact in repo consumer.
+
+Found **14** matching facts.
+
+## By kind
+
+- symbol: 5
+- route: 4
+- dependency: 3
+- module: 1
+- service: 1
+
+## Top files
+
+- consumer/client.go: 11
+- consumer/.: 1
+

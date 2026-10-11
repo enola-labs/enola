@@ -1,0 +1,11 @@
+### pkg/a.Alpha
+File: pkg/a/a.go  Line: 7
+
+```go
+   6│ // cycle so the cycles explainer (Tarjan SCC) has something to detect.
+   7│ func Alpha() {
+   8│ 	b.Beta()
+   9│ }
+  10│ 
+
+```

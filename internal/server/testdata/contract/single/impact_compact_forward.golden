@@ -1,0 +1,21 @@
+# Impact: pkg/a.Alpha
+
+2 total dependents — depth 1: 2 symbols
+
+## Depth 1 (2)
+
+- ..main (symbol) — main.go:10
+- pkg/b.Beta (symbol) — pkg/b/b.go:6
+
+# Forward dependencies of pkg/a.Alpha (what it depends on)
+
+## Depth 1 (2)
+
+- pkg/a (module) — pkg/a
+- pkg/b.Beta (symbol) — pkg/b/b.go:6
+
+## Depth 2 (1)
+
+- pkg/b (module) — pkg/b
+
+_Stats: 3 visited, max depth 1._

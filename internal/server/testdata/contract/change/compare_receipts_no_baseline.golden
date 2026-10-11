@@ -1,0 +1,2 @@
+[tool error]
+No pinned baseline found. Call set_baseline after your first generate_snapshot, then compare_receipts again. (Or pass baseline='previous'.)

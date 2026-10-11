@@ -1,0 +1,11 @@
+Filters applied: kind=route
+
+Found 5 results (showing 5):
+
+| Kind | Name | File | Line |
+|------|------|------|------|
+| route | /v1/things/{id} | api/server.go | 24 |
+| route | /v1/widgets | consumer/client.go | 41 |
+| route | /v1/things/{id} | consumer/client.go | 42 |
+| route | /v3/messages | consumer/client.go | 43 |
+| route | /v1/internal | consumer/client.go | 44 |

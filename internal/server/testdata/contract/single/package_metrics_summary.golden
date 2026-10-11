@@ -1,0 +1,7 @@
+Package metrics — 0 package(s) analyzed (3 type-less excluded):
+  avg instability (I): 0.00
+  avg distance (D):    0.00
+  off main sequence:   0  (D > 0.7, N ≥ 3, rigid needs Ca ≥ 5 — rigid or useless)
+  most depended-upon:  pkg/a (Ca=2)
+
+Use output_mode=compact for the per-package table, or full for JSON.

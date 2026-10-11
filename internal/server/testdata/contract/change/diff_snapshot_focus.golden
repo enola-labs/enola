@@ -1,0 +1,27 @@
+# Architecture diff
+
+_Baseline <TIME> → current <TIME>._
+
+## Regressions introduced (0)
+
+None — the change introduced no new findings.
+
+## Structural changes
+
+- dependency: +1 / -0
+- module: +1 / -0
+- symbol: +1 / -0
+- edges: +3 / -0
+
+## New coupling — edges added (3)
+
+- pkg/a -> example.com/gosample/pkg/c --imports--> pkg/c
+- pkg/a.UsesGamma --calls--> pkg/c.Gamma
+- pkg/c.Gamma --declares--> pkg/c
+
+## Facts added (3)
+
+- dependency pkg/a -> example.com/gosample/pkg/c (pkg/a/gamma.go:3)
+- module pkg/c (pkg/c:0)
+- symbol pkg/c.Gamma (pkg/c/c.go:4)
+

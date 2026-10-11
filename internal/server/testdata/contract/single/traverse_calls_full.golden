@@ -1,0 +1,56 @@
+{
+  "nodes": [
+    {
+      "name": "..main",
+      "kind": "symbol",
+      "file": "main.go",
+      "line": 10,
+      "repo": "go_sample",
+      "depth": 0
+    },
+    {
+      "name": "pkg/a.Alpha",
+      "kind": "symbol",
+      "file": "pkg/a/a.go",
+      "line": 7,
+      "repo": "go_sample",
+      "depth": 1
+    },
+    {
+      "name": "pkg/b.Beta",
+      "kind": "symbol",
+      "file": "pkg/b/b.go",
+      "line": 6,
+      "repo": "go_sample",
+      "depth": 1
+    }
+  ],
+  "edges": [
+    {
+      "source": "..main",
+      "target": "pkg/a.Alpha",
+      "kind": "calls"
+    },
+    {
+      "source": "..main",
+      "target": "pkg/b.Beta",
+      "kind": "calls"
+    },
+    {
+      "source": "pkg/a.Alpha",
+      "target": "pkg/b.Beta",
+      "kind": "calls"
+    },
+    {
+      "source": "pkg/b.Beta",
+      "target": "pkg/a.Alpha",
+      "kind": "calls"
+    }
+  ],
+  "stats": {
+    "nodes_visited": 3,
+    "edges_traversed": 4,
+    "max_depth_reached": 1,
+    "truncated": false
+  }
+}

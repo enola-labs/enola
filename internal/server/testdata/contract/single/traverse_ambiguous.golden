@@ -1,0 +1,7 @@
+# Traverse summary: a (forward)
+
+> ⚠ Ambiguous "a" — refine with an exact name or a repo:/kind:/file: scope. Candidates:
+> - pkg/a (module) — pkg/a
+> - . -> example.com/gosample/pkg/a (dependency) — main.go
+> - pkg/b -> example.com/gosample/pkg/a (dependency) — pkg/b/b.go
+

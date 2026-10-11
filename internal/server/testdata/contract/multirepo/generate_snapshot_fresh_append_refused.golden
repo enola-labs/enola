@@ -1,0 +1,2 @@
+[tool error]
+fresh and append are mutually exclusive: fresh forces a single-repo reset; append adds to the existing store. Pick one.

@@ -1,0 +1,24 @@
+# File: consumer/client.go
+
+Total facts: 11
+
+## Symbols (5)
+
+- **..Zepto** (line 18) [struct]
+- **..NewZepto** (line 20) [function]
+- **..Options** (line 33) [struct]
+- **..Client** (line 35) [struct]
+- **..Client.run** (line 40) [method]
+
+## Dependencies (2)
+
+- **. -> context** (line 4)
+- **. -> net/http** (line 5)
+
+## Routes (4)
+
+- **/v1/widgets** (line 41)
+- **/v1/things/{id}** (line 42)
+- **/v3/messages** (line 43)
+- **/v1/internal** (line 44)
+

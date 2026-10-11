@@ -1,0 +1,19 @@
+# Receipt comparison
+
+_Baseline and current were generated over equivalent inputs — the deltas below are real._
+
+## Metric deltas
+
+| Metric | Baseline | Current | Δ |
+|---|---:|---:|---:|
+| files_seen | 4 | 6 | +2 |
+| files_parsed | 3 | 5 | +2 |
+| files_skipped | 2 | 2 | +0 |
+| dirs_skipped | 0 | 0 | +0 |
+| parse_errors | 0 | 0 | +0 |
+| coverage_gaps | 0 | 0 | +0 |
+| unresolved_edges | 0 | 0 | +0 |
+| fact_count | 18 | 22 | +4 |
+| insight_count | 3 | 4 | +1 |
+
+_No extraction-quality regressions detected._

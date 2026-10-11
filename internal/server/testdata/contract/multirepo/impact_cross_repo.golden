@@ -1,0 +1,14 @@
+# Impact: ..getThing
+
+3 total dependents — depth 1: 1 route, 1 symbol; depth 2: 1 symbol
+
+## Depth 1 (2)
+
+- ..registerThings (symbol) — api/server.go:23
+- /v1/things/{id} (route) — api/server.go:24
+
+## Depth 2 (1)
+
+- ..main (symbol) — api/server.go:14
+
+_Stats: 4 visited, max depth 2._

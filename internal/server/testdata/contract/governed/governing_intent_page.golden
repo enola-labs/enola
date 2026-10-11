@@ -1,0 +1,5 @@
+### decision.md
+
+Declared anchors and measured coverage:
+
+- go_sample pkg/a — 11 measured fact(s) in 4 file(s)

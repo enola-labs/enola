@@ -1,0 +1,7 @@
+# Coverage Report
+
+Distinguishes genuinely isolated services from those whose outbound edges could not be resolved.
+
+| Service | Classification | Outbound edges | Detected | Resolved | Unresolved | External |
+|---|---|---|---|---|---|---|
+| consumer | connected | 1 | 4 | 1 | 1 | 2 |

@@ -1,0 +1,15 @@
+{
+  "repo": "go_sample",
+  "snapshot": {
+    "generated_at": "<TIME>"
+  },
+  "constraints_declared": true,
+  "targets": [
+    {
+      "target": "elsewhere/free.go",
+      "kind": "path",
+      "measured": false,
+      "no_rule_governs": true
+    }
+  ]
+}

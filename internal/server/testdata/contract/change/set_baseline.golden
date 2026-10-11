@@ -1,0 +1,3 @@
+Baseline pinned from the current snapshot.
+
+Now make your changes, re-run generate_snapshot, then call diff_snapshot to see what changed (new findings, new coupling, added/removed symbols). The baseline persists across re-snapshots until you pin a new one.

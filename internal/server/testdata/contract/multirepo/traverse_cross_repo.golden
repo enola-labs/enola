@@ -1,0 +1,9 @@
+# Traverse: consumer (forward)
+
+Reached **1** nodes
+
+## Depth 1 (1)
+
+- api (service)
+
+_Edges: 1 (use output_mode=full for the raw node/edge graph). Stats: 2 visited, max depth 1._

@@ -1,0 +1,6 @@
+Orphan symbols — 2 (mode=both):
+
+| Kind | Name | Class | Conf | Location |
+|------|------|-------|------|----------|
+| function | pkg/a.GetPath | unreferenced | high | pkg/a/a.go:15 |
+| function | pkg/a.Seed | unreferenced | high | pkg/a/a.go:24 |

@@ -1,0 +1,12 @@
+{
+  "note": "both endpoints resolved uniquely, but no path connects them within 10 hops",
+  "from_tried": [
+    "pkg/b.Beta"
+  ],
+  "to_tried": [
+    "..main"
+  ],
+  "from": "pkg/b.Beta",
+  "to": "..main",
+  "found": false
+}

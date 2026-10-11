@@ -1,0 +1,1 @@
+No knowledge pages are compiled into this snapshot — the reverse query was not asked. Pages opt in with an enola_intent page declaration and compile at snapshot time; see docs/INTENT.md.

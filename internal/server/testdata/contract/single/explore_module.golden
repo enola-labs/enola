@@ -1,0 +1,30 @@
+# Module: pkg/a
+
+- Language: go
+- Package: a
+
+## Symbols (7)
+
+| Name | Kind | File | Line | Exported |
+|------|------|------|------|----------|
+| pkg/a.Alpha | function | pkg/a/a.go | 7 | yes |
+| pkg/a.GetPath | function | pkg/a/a.go | 15 | yes |
+| pkg/a.Seed | function | pkg/a/a.go | 24 | yes |
+| pkg/a.getByID | function | pkg/a/a.go | 30 | no |
+| pkg/a.setup | function | pkg/a/a.go | 31 | no |
+| pkg/a.helper | function | pkg/a/a.go | 37 | no |
+| pkg/a.Gamma | function | pkg/a/a.go | 43 | yes |
+
+## Dependencies (1)
+
+### Imports (1)
+
+- pkg/b
+
+## Dependents (4)
+
+- .
+- . -> example.com/gosample/pkg/a
+- pkg/b
+- pkg/b -> example.com/gosample/pkg/a
+

@@ -1,0 +1,24 @@
+[
+  {
+    "service": "api",
+    "classification": "isolated",
+    "outbound_edges": 0,
+    "unresolved_total": 0
+  },
+  {
+    "service": "consumer",
+    "classification": "connected",
+    "outbound_edges": 1,
+    "edge_coverage": [
+      {
+        "edge_type": "http_client",
+        "detected": 4,
+        "resolved": 1,
+        "unresolved": 1,
+        "external": 2
+      }
+    ],
+    "unresolved_total": 1,
+    "external_total": 2
+  }
+]

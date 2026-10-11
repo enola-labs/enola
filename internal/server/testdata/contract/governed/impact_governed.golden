@@ -1,0 +1,27 @@
+# Impact summary: pkg/a.Alpha
+
+2 total dependents — depth 1: 2 symbols — governed by 1 intent page(s)
+
+**2** total transitive dependents within max_depth 1.
+
+## Dependents by kind
+
+- symbol: 2
+
+## By depth
+
+- depth 1: 2
+
+## Hotspot modules
+
+- . (1 dependents)
+- pkg/b (1 dependents)
+
+## Governing intent
+
+Knowledge pages anchored to the target's file:
+
+- decision.md (decision, accepted)
+  - part-of epic.md (epic, living)
+
+_Use output_mode=compact for the per-depth dependent list, output_mode=full for the raw graph._

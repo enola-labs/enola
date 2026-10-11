@@ -1,0 +1,2 @@
+[tool error]
+No pinned baseline found. Call set_baseline after your first generate_snapshot, then make changes, re-run generate_snapshot, and diff_snapshot again. (Or pass baseline='previous' to compare against the immediately-preceding snapshot.)
