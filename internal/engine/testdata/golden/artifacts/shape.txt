@@ -1,0 +1,147 @@
+## home/graphs/engine-<KEY>.json
+
+.cross_repo_edge_count number
+.enola_version string
+.fact_count number
+.generated_at string
+.insight_count number
+.repos[].added_at string
+.repos[].fact_count number
+.repos[].in_graph_for string
+.repos[].label string
+.repos[].path string
+.repos[].source_bytes number
+.service_count number
+.snapshot_id string
+.writer.client_pid number
+.writer.pid number
+
+## home/graphs/sessions/engine-<KEY>.4242.json
+
+.cross_repo_edge_count number
+.enola_version string
+.fact_count number
+.generated_at string
+.insight_count number
+.repos[].added_at string
+.repos[].fact_count number
+.repos[].in_graph_for string
+.repos[].label string
+.repos[].path string
+.repos[].source_bytes number
+.service_count number
+.snapshot_id string
+.writer.client_pid number
+.writer.pid number
+
+## home/receipt.json
+
+.cross_repo_edge_count number
+.enola_version string
+.fact_count number
+.generated_at string
+.insight_count number
+.repos[].added_at string
+.repos[].fact_count number
+.repos[].in_graph_for string
+.repos[].label string
+.repos[].path string
+.repos[].source_bytes number
+.service_count number
+.snapshot_id string
+.writer.client_pid number
+.writer.pid number
+
+## output/insights.json
+
+[].confidence number
+[].description string
+[].evidence[].detail string
+[].evidence[].fact string
+[].evidence[].fact_id string
+[].evidence[].file string
+[].evidence[].line number
+[].evidence[].symbol string
+[].source string
+[].suggested_actions[] string
+[].title string
+
+## output/receipt.json
+
+.config_hash string
+.duration string
+.enola_version string
+.explainers[] string
+.extractor_version string
+.extractors[] string
+.fact_count number
+.format_version number
+.generated_at string
+.ignore_glob_hash string
+.insight_count number
+.output_hashes.facts.jsonl string
+.output_hashes.insights.json string
+.output_hashes.llm_context.md string
+.quality.census.excluded_by_ignore number
+.quality.census.excluded_by_kind number
+.quality.census.files_walked number
+.quality.census.parsed number
+.quality.census.skipped_with_cause number
+.quality.census.top_skip_causes[].cause string
+.quality.census.top_skip_causes[].count number
+.quality.dirs_skipped number
+.quality.files_parsed number
+.quality.files_seen number
+.quality.files_skipped number
+.quality.heuristic_insights number
+.quality.parse_errors number
+.quality.skipped_sample[] string
+.renderers[] string
+.repo_path string
+.snapshot_id string
+
+## output/run.json
+
+.agent_pid number
+.at string
+
+## output/snapshot.meta.json
+
+.census.excluded_by_ignore number
+.census.excluded_by_kind number
+.census.files_walked number
+.census.parsed number
+.census.skipped_with_cause number
+.census.top_skip_causes[].cause string
+.census.top_skip_causes[].count number
+.config_hash string
+.duration string
+.enola_version string
+.explainers[] string
+.extractor_version string
+.extractors[] string
+.fact_count number
+.file_hashes[].hash string
+.file_hashes[].mod_time string
+.file_hashes[].path string
+.files_parsed number
+.files_seen number
+.files_skipped number
+.generated_at string
+.heuristic_insights number
+.ignore_glob_hash string
+.insight_count number
+.output_hashes.facts.jsonl string
+.output_hashes.insights.json string
+.output_hashes.llm_context.md string
+.renderers[] string
+.repo_label string
+.repo_path string
+.skipped_sample[] string
+.snapshot_id string
+.source_bytes number
+.unseen.dead_exemptions number
+.unseen.dirs_excluded_by_ignore number
+.unseen.dynamic_feature_classes number
+.unseen.files_excluded_by_ignore number
+

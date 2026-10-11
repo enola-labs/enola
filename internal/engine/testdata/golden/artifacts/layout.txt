@@ -1,0 +1,103 @@
+## first snapshot
+
+output dir:
+  extractor_cache.json
+  facts.jsonl
+  insights.json
+  llm_context.md
+  receipt.json
+  run.json
+  snapshot.meta.json
+home:
+  graphs/engine-<KEY>.json
+  graphs/go_sample-<KEY>/history/format
+  graphs/go_sample-<KEY>/history/log.jsonl
+  graphs/go_sample-<KEY>/history/log.jsonl.lock
+  graphs/go_sample-<KEY>/history/seg/000001/0001.rev.gz
+  graphs/sessions/engine-<KEY>.4242.json
+  receipt.json
+
+## second snapshot
+
+output dir:
+  extractor_cache.json
+  facts.jsonl
+  insights.json
+  llm_context.md
+  previous/facts.jsonl
+  previous/insights.json
+  previous/receipt.json
+  previous/run.json
+  previous/snapshot.meta.json
+  receipt.json
+  run.json
+  snapshot.meta.json
+home:
+  graphs/engine-<KEY>.json
+  graphs/go_sample-<KEY>/history/format
+  graphs/go_sample-<KEY>/history/log.jsonl
+  graphs/go_sample-<KEY>/history/log.jsonl.lock
+  graphs/go_sample-<KEY>/history/seg/000001/0001.rev.gz
+  graphs/sessions/engine-<KEY>.4242.json
+  receipt.json
+
+## baseline pinned
+
+output dir:
+  baseline/facts.jsonl
+  baseline/insights.json
+  baseline/pin.json
+  baseline/receipt.json
+  baseline/run.json
+  baseline/snapshot.meta.json
+  extractor_cache.json
+  facts.jsonl
+  insights.json
+  llm_context.md
+  previous/facts.jsonl
+  previous/insights.json
+  previous/receipt.json
+  previous/run.json
+  previous/snapshot.meta.json
+  receipt.json
+  run.json
+  snapshot.meta.json
+home:
+  graphs/engine-<KEY>.json
+  graphs/go_sample-<KEY>/history/format
+  graphs/go_sample-<KEY>/history/log.jsonl
+  graphs/go_sample-<KEY>/history/log.jsonl.lock
+  graphs/go_sample-<KEY>/history/seg/000001/0001.rev.gz
+  graphs/sessions/engine-<KEY>.4242.json
+  receipt.json
+
+## snapshot after the pin
+
+output dir:
+  baseline/facts.jsonl
+  baseline/insights.json
+  baseline/pin.json
+  baseline/receipt.json
+  baseline/run.json
+  baseline/snapshot.meta.json
+  extractor_cache.json
+  facts.jsonl
+  insights.json
+  llm_context.md
+  previous/facts.jsonl
+  previous/insights.json
+  previous/receipt.json
+  previous/run.json
+  previous/snapshot.meta.json
+  receipt.json
+  run.json
+  snapshot.meta.json
+home:
+  graphs/engine-<KEY>.json
+  graphs/go_sample-<KEY>/history/format
+  graphs/go_sample-<KEY>/history/log.jsonl
+  graphs/go_sample-<KEY>/history/log.jsonl.lock
+  graphs/go_sample-<KEY>/history/seg/000001/0001.rev.gz
+  graphs/sessions/engine-<KEY>.4242.json
+  receipt.json
+
