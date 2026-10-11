@@ -1,9 +1,12 @@
 package tsextractor
 
 import (
+	"strings"
+
 	sitter "github.com/tree-sitter/go-tree-sitter"
 
 	"github.com/enola-labs/enola/internal/extractors/tsutil"
+	"github.com/enola-labs/enola/internal/facts"
 )
 
 // wrapperDepth bounds how far a wrapper inside a wrapper is followed. One level is
@@ -39,8 +42,8 @@ func unwrapExpression(kinds *tsutil.KindTable, n *sitter.Node) *sitter.Node {
 	return nil
 }
 
-// wrapperBodies returns the bodies of the functions a statement runs as the file
-// loads, which are where a file that is not a module keeps its declarations:
+// wrapperBody returns the body of the function a statement calls where it is written,
+// which is where a file that is not a module keeps its declarations:
 //
 //	(function (global) { function roll() {} ... })(window);
 //
@@ -50,10 +53,12 @@ func unwrapExpression(kinds *tsutil.KindTable, n *sitter.Node) *sitter.Node {
 // file they are its top level, and reading them as locals leaves the file with no
 // symbols at all.
 //
-// The function called is one body. A function passed to it is another: in the
-// "universal module" form the wrapper only decides how to export, and the
-// declarations are in the factory handed to it.
-func wrapperBodies(kinds *tsutil.KindTable, stmt *sitter.Node) []*sitter.Node {
+// A function PASSED to the wrapper is not read, though the "universal module" form
+// keeps its declarations in one. That form is what a library is distributed in, and
+// across the benchmark corpus it was found almost only in checked-in builds of other
+// people's code: 3,304 of the symbols it yielded in one application were from five
+// such files, against 3 symbols in the two repositories whose own code is wrapped.
+func wrapperBody(kinds *tsutil.KindTable, stmt *sitter.Node) *sitter.Node {
 	if kindOf(kinds, stmt) != "expression_statement" || stmt.NamedChildCount() == 0 {
 		return nil
 	}
@@ -65,19 +70,44 @@ func wrapperBodies(kinds *tsutil.KindTable, stmt *sitter.Node) []*sitter.Node {
 	if !isFunctionValue(kinds, callee) {
 		return nil
 	}
-	fns := []*sitter.Node{callee}
-	if args := call.ChildByFieldName("arguments"); args != nil {
-		for i := range args.NamedChildCount() {
-			if arg := unwrapExpression(kinds, args.NamedChild(i)); isFunctionValue(kinds, arg) {
-				fns = append(fns, arg)
-			}
+	if body := callee.ChildByFieldName("body"); kindOf(kinds, body) == "statement_block" {
+		return body
+	}
+	return nil
+}
+
+// functionValue returns the function a variable is declared as, when its value is one
+// written out as an expression.
+func functionValue(kinds *tsutil.KindTable, declarator *sitter.Node) *sitter.Node {
+	for _, kind := range []string{"arrow_function", "function_expression", "generator_function"} {
+		if v := findChildByKind(kinds, declarator, kind); v != nil {
+			return v
 		}
 	}
-	var bodies []*sitter.Node
-	for _, fn := range fns {
-		if body := fn.ChildByFieldName("body"); kindOf(kinds, body) == "statement_block" {
-			bodies = append(bodies, body)
+	return nil
+}
+
+// withoutPlainVariables drops the variables a wrapper declares that are neither
+// functions nor objects with members of their own.
+//
+// A module's top-level variable can be imported by another file, which is why it is a
+// symbol. A wrapper's cannot: the wrapper exists to keep them private, and most are
+// names it gives to globals for its own use (`var $ = jQuery`, `var __ = wp.i18n.__`).
+// Every file that does so declares the same short name, and they would all be one
+// symbol. In one corpus application they were 320 of the 440 symbols wrappers added.
+func withoutPlainVariables(ff []facts.Fact) []facts.Fact {
+	hasMembers := make(map[string]bool)
+	for _, f := range ff {
+		if i := strings.LastIndex(f.Name, "."); i > 0 {
+			hasMembers[f.Name[:i]] = true
 		}
 	}
-	return bodies
+	kept := ff[:0]
+	for _, f := range ff {
+		plain := f.Kind == facts.KindSymbol && f.Props["symbol_kind"] == facts.SymbolVariable && !hasMembers[f.Name]
+		if !plain {
+			kept = append(kept, f)
+		}
+	}
+	return kept
 }

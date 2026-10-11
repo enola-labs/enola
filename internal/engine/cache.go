@@ -2791,7 +2791,10 @@ import (
 // v322: JavaScript declarations inside a function the file calls at once (the wrapper a
 // script for a <script> tag is written in, and a universal-module factory) are the
 // file's symbols; they were read as that function's locals and emitted nothing.
-const cacheVersion = "v322"
+// v323: a wrapper function's plain variables are not symbols, and a function passed to a
+// wrapper (a universal-module factory) is no longer read; a variable whose value is a
+// function expression is a function, in a wrapper or a module.
+const cacheVersion = "v323"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

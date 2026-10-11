@@ -21,7 +21,8 @@ func symbolsIn(ff []facts.Fact, file string) []string {
 }
 
 // A script written for a <script> tag keeps its declarations in a function it calls
-// at once. Read as that function's locals, the file had no symbols at all.
+// at once. Read as that function's locals, the file had no symbols at all. SIDES is a
+// plain variable of the wrapper and is not one of them.
 func TestWrapperFunctionDeclarationsAreFileLevel(t *testing.T) {
 	cases := map[string]string{
 		"called through parentheses": `(function (global) {
@@ -50,17 +51,8 @@ func TestWrapperFunctionDeclarationsAreFileLevel(t *testing.T) {
   class Game { start() { return roll(); } }
   const pick = (xs) => xs[0];
 })();`,
-		"a factory handed to a universal-module wrapper": `(function (root, factory) {
-  if (typeof module === 'object') { module.exports = factory(); } else { root.Game = factory(); }
-})(this, function () {
-  const SIDES = 6;
-  function roll() { return SIDES; }
-  class Game { start() { return roll(); } }
-  const pick = (xs) => xs[0];
-  return Game;
-});`,
 	}
-	want := "js.Game,js.Game.start,js.SIDES,js.pick,js.roll"
+	want := "js.Game,js.Game.start,js.pick,js.roll"
 	for name, src := range cases {
 		ff := extractTSRepo(t, map[string]string{"js/engine.js": src, "js/keep.ts": "export const x = 1\n"})
 		if got := strings.Join(symbolsIn(ff, "js/engine.js"), ","); got != want {
@@ -75,6 +67,8 @@ func TestWrapperFunctionDeclarationsAreFileLevel(t *testing.T) {
 
 // Only a function that is called where it is written is a file's top level. A function
 // handed to something else runs later, if at all, and a function's own locals stay local.
+// That includes the factory a universal-module wrapper is handed, which is the form
+// checked-in library builds come in.
 func TestOnlyImmediatelyCalledFunctionsAreWrappers(t *testing.T) {
 	ff := extractTSRepo(t, map[string]string{"js/app.js": `document.addEventListener('DOMContentLoaded', function () {
   function onReady() {}
@@ -88,6 +82,13 @@ function outer() {
 }
 
 setup(function () { function later() {} });
+
+(function (root, factory) {
+  root.Lib = factory();
+})(this, function () {
+  function insideFactory() {}
+  return insideFactory;
+});
 `, "js/keep.ts": "export const x = 1\n"})
 	if got := strings.Join(symbolsIn(ff, "js/app.js"), ","); got != "js.outer" {
 		t.Errorf("symbols = %q, want only js.outer", got)
@@ -109,5 +110,36 @@ func TestWrapperNestingAndModulesUnchanged(t *testing.T) {
 	}
 	if got := strings.Join(symbolsIn(ff, "src/mod.ts"), ","); got != "src.C,src.a,src.b" {
 		t.Errorf("module symbols = %q, want src.C,src.a,src.b", got)
+	}
+}
+
+// A wrapper's variables are its own business unless they are code: a function written
+// as a value, or an object carrying functions. The names it gives to globals are not.
+func TestWrapperKeepsCodeAndDropsPlainVariables(t *testing.T) {
+	ff := extractTSRepo(t, map[string]string{"js/admin.js": `(function ($) {
+  var __ = wp.i18n.__;
+  var $doc = $(document), count = 0;
+  var legacy = function () { return count; };
+  var api = { init: function () { legacy(); }, reset() {} };
+  window.adminApi = api;
+})(jQuery);`, "js/keep.ts": "export const x = 1\n"})
+	got := strings.Join(symbolsIn(ff, "js/admin.js"), ",")
+	if got != "js.api,js.api.init,js.api.reset,js.legacy" {
+		t.Errorf("symbols = %q, want the function, and the object with its members", got)
+	}
+	if kind := tsSym(t, ff, "js.legacy").Props["symbol_kind"]; kind != facts.SymbolFunc {
+		t.Errorf("legacy is a %v, want a function: its value is one", kind)
+	}
+}
+
+// Outside a wrapper nothing is dropped, and a function written as a variable's value is
+// a function there too.
+func TestModuleVariablesAreKept(t *testing.T) {
+	ff := extractTSRepo(t, map[string]string{"src/mod.ts": "export const LIMIT = 3\nconst helper = function () { return LIMIT }\n"})
+	if got := strings.Join(symbolsIn(ff, "src/mod.ts"), ","); got != "src.LIMIT,src.helper" {
+		t.Errorf("symbols = %q, want src.LIMIT,src.helper", got)
+	}
+	if kind := tsSym(t, ff, "src.helper").Props["symbol_kind"]; kind != facts.SymbolFunc {
+		t.Errorf("helper is a %v, want a function", kind)
 	}
 }

@@ -885,7 +885,8 @@ func (e *TSExtractor) extractDeclarations(kinds *tsutil.KindTable, root *sitter.
 
 // extractStatements emits the declarations among a block's statements. A statement
 // that is a wrapper function called at once contributes the declarations in its body
-// as the file's own (see wrapperBodies), none of them exported.
+// as the file's own (see wrapperBody), none of them exported, and without its plain
+// variables (see withoutPlainVariables).
 func (e *TSExtractor) extractStatements(kinds *tsutil.KindTable, block *sitter.Node, ctx *extractCtx, wrappers int) []facts.Fact {
 	var result []facts.Fact
 	for i := range block.ChildCount() {
@@ -894,8 +895,8 @@ func (e *TSExtractor) extractStatements(kinds *tsutil.KindTable, block *sitter.N
 		if wrappers == 0 {
 			continue
 		}
-		for _, body := range wrapperBodies(kinds, stmt) {
-			result = append(result, e.extractStatements(kinds, body, ctx, wrappers-1)...)
+		if body := wrapperBody(kinds, stmt); body != nil {
+			result = append(result, withoutPlainVariables(e.extractStatements(kinds, body, ctx, wrappers-1))...)
 		}
 	}
 	return result
@@ -1188,12 +1189,14 @@ func (e *TSExtractor) extractNode(kinds *tsutil.KindTable, node *sitter.Node, ct
 			}
 			symbolName := nodeText(name, src)
 
-			// Determine the value node and the symbol kind. Arrow functions and
-			// memo/forwardRef-wrapped values are functions/components; everything
-			// else is a plain variable.
+			// Determine the value node and the symbol kind. A function written as
+			// the value (an arrow, or `var f = function () {}`, which is how a script
+			// older than arrows declares most of its functions) and a
+			// memo/forwardRef-wrapped value are functions/components; everything else
+			// is a plain variable.
 			symbolKind := facts.SymbolVariable
 			var body *sitter.Node
-			if v := findChildByKind(kinds, decl, "arrow_function"); v != nil {
+			if v := functionValue(kinds, decl); v != nil {
 				symbolKind = facts.SymbolFunc
 				body = v
 			} else if call := findChildByKind(kinds, decl, "call_expression"); call != nil && isComponentWrapper(kinds, call, src) {
