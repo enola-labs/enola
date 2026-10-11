@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/enola-labs/enola/pkg/facts"
+	"github.com/enola-labs/enola/internal/facts"
 	"github.com/enola-labs/enola/pkg/status"
 )
 

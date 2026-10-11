@@ -7,7 +7,6 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/enola-labs/enola/internal/factpath"
 	"github.com/enola-labs/enola/internal/facts"
 )
 
@@ -47,16 +46,6 @@ var nonAPIExtensions = map[string]bool{
 	".mov": true, ".mp4": true, ".m4v": true, ".mp3": true, ".wav": true,
 	".pdf": true, ".png": true, ".jpg": true, ".jpeg": true, ".heic": true,
 	".gif": true, ".zip": true, ".plist": true, ".sqlite": true, ".bundle": true,
-}
-
-// extractURLSessionFacts emits a client-route fact for every URLSession request
-// in a Swift source file. The path comes from baseURL.appendingPathComponent("…")
-// and the HTTP method from a nearby `.httpMethod = "…"` assignment (defaulting
-// to GET when none is found within methodWindow lines). Paths are base-relative
-// (no /api prefix); the cross-repo linker's suffix matching reconciles that
-// against the backend's full path.
-func extractURLSessionFacts(src []byte, relFile string) []facts.Fact {
-	return extractURLSessionFactsWithDir(src, relFile, factpath.Dir(relFile))
 }
 
 // extractURLSessionFactsWithDir is extractURLSessionFacts with an explicit module

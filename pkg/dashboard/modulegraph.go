@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/enola-labs/enola/internal/explainers/common"
-	"github.com/enola-labs/enola/pkg/facts"
+	"github.com/enola-labs/enola/internal/facts"
 )
 
 const (
@@ -60,13 +60,6 @@ type moduleRaw struct {
 	name, file, repo string
 	out              map[string]bool
 	in               int
-}
-
-// buildModuleGraph produces a deliberately bounded architecture map. It ranks
-// production modules by connectedness, keeps the most structurally relevant
-// ones, and renders only imports whose endpoints are both visible.
-func buildModuleGraph(store *facts.Store) *moduleGraphView {
-	return buildModuleGraphFocused(store, "")
 }
 
 func buildModuleGraphFocused(store *facts.Store, focus string) *moduleGraphView {

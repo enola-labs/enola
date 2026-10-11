@@ -138,25 +138,3 @@ func TestRunWith_PerFileDropsFactsOutsideTheListing(t *testing.T) {
 		t.Fatalf("warm run facts = %d: the reused elsewhere entry plus the recomputed a.rb, never the out-of-scope duplicate: %+v", len(second), second)
 	}
 }
-
-func TestValidate_PerFileNeedsExtensionsAndACommand(t *testing.T) {
-	cases := []struct {
-		name string
-		p    Provider
-		want string
-	}{
-		{"unknown files value", Provider{Name: "x", Command: []string{"x"}, Files: "sometimes"}, "files must be"},
-		{"per-file without extensions", Provider{Name: "x", Command: []string{"x"}, Files: FilesPerFile}, "needs the extensions"},
-		{"extensions without per-file", Provider{Name: "x", Command: []string{"x"}, Extensions: []string{".rb"}}, "only mean something"},
-		{"built-in with files", Provider{Name: "rubydex", Files: FilesPerFile, Extensions: []string{".rb"}}, "decides its own caching"},
-	}
-	for _, c := range cases {
-		err := Validate([]Provider{c.p})
-		if err == nil || !strings.Contains(err.Error(), c.want) {
-			t.Errorf("%s: Validate = %v, want an error naming %q", c.name, err, c.want)
-		}
-	}
-	if err := Validate([]Provider{{Name: "x", Command: []string{"x"}, Files: FilesPerFile, Extensions: []string{".rb"}}}); err != nil {
-		t.Errorf("a per-file provider with extensions is valid, got %v", err)
-	}
-}

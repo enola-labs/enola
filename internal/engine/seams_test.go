@@ -316,3 +316,65 @@ func TestLoadSnapshotDir_MissingIsAnError(t *testing.T) {
 		t.Error("loading a directory that holds no snapshot must be an error")
 	}
 }
+
+// The snapshot recorder is the engine's only connection to the architecture
+// history. It is called once per WriteArtifacts, after the artifacts it names are
+// on disk, and it is handed the metadata as written.
+func TestSnapshotRecorder_IsCalledAfterTheArtifactsAreWritten(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	repo := driftRepo(t)
+	eng := seamEngine(t, repo, 0)
+
+	var records []engine.SnapshotRecord
+	var factsOnDisk []bool
+	eng.SetSnapshotRecorder(func(rec engine.SnapshotRecord) {
+		records = append(records, rec)
+		_, err := os.Stat(rec.FactsPath)
+		factsOnDisk = append(factsOnDisk, err == nil)
+	})
+
+	if err := eng.WriteArtifacts(repo); err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("one write produced %d records, want 1", len(records))
+	}
+	rec := records[0]
+	if !factsOnDisk[0] {
+		t.Error("the recorder ran before facts.jsonl was written")
+	}
+	if rec.Snapshot == nil || rec.Meta.SnapshotID == "" || rec.Meta.SnapshotID != eng.Snapshot().Meta.SnapshotID {
+		t.Errorf("record names snapshot %q, the engine holds %q", rec.Meta.SnapshotID, eng.Snapshot().Meta.SnapshotID)
+	}
+	if rec.Meta.OutputHashes["facts.jsonl"] == "" {
+		t.Error("the record's meta must carry the output hashes of what was written")
+	}
+	if want := filepath.Join(eng.OutputDir(repo), engine.PreviousSubdir); rec.PreviousDir != want {
+		t.Errorf("PreviousDir = %s, want %s", rec.PreviousDir, want)
+	}
+	// A single repository has no vector of repo states; its own git info says it all.
+	if got := rec.Repos(); got != nil {
+		t.Errorf("single-repo Repos() = %v, want nil", got)
+	}
+
+	if err := eng.WriteArtifacts(repo); err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 2 {
+		t.Errorf("a second write produced %d records in total, want 2: deduplication is the recorder's job", len(records))
+	}
+}
+
+// An engine nobody wired a recorder to writes its artifacts and records nothing.
+func TestSnapshotRecorder_IsOptional(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	repo := driftRepo(t)
+	eng := seamEngine(t, repo, 0)
+	if err := eng.WriteArtifacts(repo); err != nil {
+		t.Fatalf("WriteArtifacts without a recorder: %v", err)
+	}
+	if entries, _ := filepath.Glob(filepath.Join(home, ".enola", "graphs", "*", "history")); len(entries) != 0 {
+		t.Errorf("a bare engine recorded a history at %v", entries)
+	}
+}

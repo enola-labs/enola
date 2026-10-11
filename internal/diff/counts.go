@@ -15,7 +15,7 @@ import (
 // building the whole delta first — every added, removed and changed fact, and both
 // sides' edge sets — which for a summary is the entire cost and none of the value.
 //
-// Measured on a warm dotnet/runtime snapshot before this existed: recordHistory held
+// Measured on a warm dotnet/runtime snapshot before this existed: history recording held
 // 647 MiB at the peak, 66% of the live heap, of which 386 MiB was loading the previous
 // snapshot into a Store and 261 MiB was Compute's group indexes. On the kernel the same
 // two steps account for most of a 3.9 GiB gap between the cold and warm peaks.
@@ -205,46 +205,10 @@ func sortDedup(hs []uint64) []uint64 {
 	return out
 }
 
-// CountAgainstJSONL computes the delta between a baseline snapshot stored as JSONL and
-// the current facts, without materialising the baseline.
-//
-// # Why hashes
-//
-// Every string that identifies a fact — its key, its props — is reduced to a 64-bit
-// FNV-1a hash, because holding the strings is the thing being avoided: factKey alone
-// averages ~60 bytes and a kernel-sized snapshot has 1.9M of them per side.
-//
-// A collision would miscount by one. For 1.9M keys in a 64-bit space the expected
-// number of collisions is n²/2^65 ≈ 1e-7, and the blast radius is one integer in a log
-// line, not a fact in a graph. Compute — which diff_snapshot uses, and which must NAME
-// the facts rather than count them — keeps the exact strings throughout.
-//
-// # Two passes
-//
-// Pass 1 reduces every fact; pass 2 revisits only the facts whose key is shared, to
-// recover the exact intraGroupOrder that decides how group members pair up. A source
-// backed by a file is therefore read twice. That is deliberate: the alternative is
-// keeping an ordering string for every fact, which is the memory this exists to avoid,
-// and pass 2 is skipped altogether when no key is shared.
-func CountAgainstJSONL(open func() (io.ReadCloser, error), current []facts.Fact) (*Counts, error) {
-	return count(JSONLSource(open), SliceSource(current))
-}
-
 // CountFacts is the general form: any FactSource for the baseline against the current
 // facts in memory.
 func CountFacts(baseline FactSource, current []facts.Fact) (*Counts, error) {
 	return count(baseline, SliceSource(current))
-}
-
-// CountSnapshots is the in-memory form, for callers that already hold both sides (and
-// for the differential test that grades this against Compute).
-func CountSnapshots(baseline, current []facts.Fact) *Counts {
-	c, err := count(SliceSource(baseline), SliceSource(current))
-	if err != nil {
-		// A slice source cannot fail; only a reader can.
-		return &Counts{AddedByKind: map[string]int{}, RemovedByKind: map[string]int{}}
-	}
-	return c
 }
 
 func count(baseSrc, curSrc FactSource) (*Counts, error) {

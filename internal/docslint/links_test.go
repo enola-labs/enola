@@ -98,6 +98,7 @@ var foreignPaths = map[string]string{
 	"internal/engine.cacheVersion":               "a Go selector written as a path, naming the cacheVersion constant, in docs/CLI.md",
 	"pkg/analyzer":                               "the Dart SDK's own package, quoted in docs/extraction/dart.md",
 	"pkg/front_end":                              "the Dart SDK's own package, quoted in docs/extraction/dart.md and ARCHITECTURE.md",
+	"pkg/facts":                                  "a package that no longer exists, named by the CHANGELOG.md entry that trimmed its re-exports",
 	".github/instructions":                       "Copilot's instructions directory in the repository enola installs INTO — written by pkg/install, never present here",
 	".github/instructions/enola.instructions.md": "the file pkg/install writes into that repository, listed in the install target table",
 }

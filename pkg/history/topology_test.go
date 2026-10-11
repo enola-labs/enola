@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/enola-labs/enola/pkg/facts"
+	"github.com/enola-labs/enola/internal/facts"
 )
 
 func rev(id, commit string) Entry {

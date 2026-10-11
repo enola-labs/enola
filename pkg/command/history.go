@@ -94,7 +94,7 @@ func (r *Runner) historyPush(args []string) {
 				"content-addressed, so the same snapshot is the same file everywhere.\n\nFlags:\n")
 		fs.PrintDefaults()
 	}
-	if err := fs.Parse(args); err != nil {
+	if err := fs.Parse(flagsFirst(fs, args)); err != nil {
 		os.Exit(2)
 	}
 	store, repoPath, cfg := r.historyTarget(fs.Args())
@@ -139,7 +139,7 @@ func (r *Runner) historyPull(args []string) {
 				"Imported revisions carry the machine that observed them as their origin.\n\nFlags:\n")
 		fs.PrintDefaults()
 	}
-	if err := fs.Parse(args); err != nil {
+	if err := fs.Parse(flagsFirst(fs, args)); err != nil {
 		os.Exit(2)
 	}
 	store, repoPath, cfg := r.historyTarget(fs.Args())
@@ -182,7 +182,7 @@ func (r *Runner) historyVerify(args []string) {
 				"A missing payload covered by a prune record is retention; one that is not\n"+
 				"is a gap. Exits 1 when anything is broken, naming each problem.\n")
 	}
-	if err := fs.Parse(args); err != nil {
+	if err := fs.Parse(flagsFirst(fs, args)); err != nil {
 		os.Exit(2)
 	}
 	store, _, _ := r.historyTarget(fs.Args())
@@ -245,7 +245,7 @@ func (r *Runner) historyGC(args []string) {
 				"are kept.\n\nFlags:\n")
 		fs.PrintDefaults()
 	}
-	if err := fs.Parse(args); err != nil {
+	if err := fs.Parse(flagsFirst(fs, args)); err != nil {
 		os.Exit(2)
 	}
 	store, _, _ := r.historyTarget(fs.Args())
@@ -301,3 +301,48 @@ func renderSharedGC(rep inthistory.SharedGCReport) string {
 }
 
 func (r *Runner) historyFatal(format string, args ...any) { r.cmdFatal("history", format, args...) }
+
+// flagsFirst reorders args so every flag precedes every positional argument.
+//
+// The standard flag package stops at the first positional, so `history gc
+// /mnt/store --keep-last 500` read --keep-last as a second positional and then
+// refused the command for having no retention policy. That is the order the
+// documentation shows and the natural one to type, with the store as the object of
+// the verb, so both orders are accepted. A flag's value travels with it; everything
+// after a bare "--" is positional, as usual.
+func flagsFirst(fs *flag.FlagSet, args []string) []string {
+	var flags, positional []string
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--" {
+			positional = append(positional, args[i+1:]...)
+			break
+		}
+		if len(arg) < 2 || arg[0] != '-' {
+			positional = append(positional, arg)
+			continue
+		}
+		flags = append(flags, arg)
+		name := strings.TrimLeft(arg, "-")
+		if strings.Contains(name, "=") {
+			continue
+		}
+		// A flag that is not boolean takes the next argument as its value. An
+		// unknown flag is left for Parse to report.
+		f := fs.Lookup(name)
+		if f == nil {
+			continue
+		}
+		if b, ok := f.Value.(interface{ IsBoolFlag() bool }); ok && b.IsBoolFlag() {
+			continue
+		}
+		if i+1 < len(args) {
+			i++
+			flags = append(flags, args[i])
+		}
+	}
+	if len(positional) == 0 {
+		return flags
+	}
+	return append(append(flags, "--"), positional...)
+}

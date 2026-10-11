@@ -8,7 +8,7 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/enola-labs/enola/pkg/facts"
+	"github.com/enola-labs/enola/internal/facts"
 	pkghistory "github.com/enola-labs/enola/pkg/history"
 )
 

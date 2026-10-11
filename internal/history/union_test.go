@@ -71,27 +71,109 @@ func TestUnion_UnparseableTimestampFallsBackToText(t *testing.T) {
 	}
 }
 
-// KNOWN HAZARD, pinned so that changing it is a decision. Revisions are stamped
-// to the second, and two that share one are ordered by id, not by the order they
-// were recorded in. SortedByTime keeps recorded order for the same input; the
-// union does not, so blame over two snapshots taken within a second can read the
-// later one first and report its facts as removed. The id tie-break is what makes
-// every machine agree on one order for revisions from different sources, so the
-// fix is not to drop it but to give ties a real order (a finer timestamp, or the
-// recorded sequence within one source).
-func TestUnion_SameSecondTieIsBrokenByIDNotByRecordedOrder(t *testing.T) {
+// Revisions are stamped to the second, and an agent loop lands several in one. The
+// order they were recorded in is the only evidence of which came first, so a tie is
+// broken by it and never by id. The ids here are chosen to sort the wrong way round.
+func TestUnion_SameSecondTieKeepsRecordedOrder(t *testing.T) {
 	first := entry("ffff", "2026-08-01T10:00:00Z")
 	first.Seq = 1
 	second := entry("aaaa", "2026-08-01T10:00:00Z")
 	second.Seq = 2
-	recorded := []pkghistory.Entry{first, second}
 
-	if got, want := pkghistory.SortedByTime(recorded), recorded; !reflect.DeepEqual(got, want) {
-		t.Errorf("SortedByTime must keep recorded order on a tie; got %v", got)
+	for name, recorded := range map[string][]pkghistory.Entry{
+		"in order":     {first, second},
+		"out of order": {second, first},
+	} {
+		revs := pkghistory.BuildUnion(recorded, nil, "")
+		if got, want := unionIDs(revs), []string{"ffff", "aaaa"}; !reflect.DeepEqual(got, want) {
+			t.Errorf("%s: union order on a tie = %v, want %v (by sequence)", name, got, want)
+		}
 	}
-	revs := pkghistory.BuildUnion(recorded, nil, "")
-	if got, want := unionIDs(revs), []string{"aaaa", "ffff"}; !reflect.DeepEqual(got, want) {
-		t.Errorf("union order on a tie = %v, want %v (by id)", got, want)
+}
+
+// The bug the tie-break caused: two snapshots within one second, the second adding
+// a fact. Read in id order, the later snapshot came first and blame reported the
+// fact as added and then removed.
+func TestBlame_TwoSnapshotsInOneSecondAreReadInTheOrderTheyWereTaken(t *testing.T) {
+	root := t.TempDir()
+	at := "2026-08-01T10:00:00Z"
+	appendShareRevision(t, root, "ffff0001", "c1", at, []string{factLine("Alpha", 1)})
+	appendShareRevision(t, root, "aaaa0002", "c2", at, []string{factLine("Alpha", 1), factLine("Beta", 2)})
+	local, err := pkghistory.Read(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	b, err := pkghistory.BlameUnion(root, pkghistory.BuildUnion(local, nil, "github.com/org/repo"), nil, "Beta", pkghistory.BlameOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(b.Events) != 1 || len(b.Events[0].Added) != 1 || len(b.Events[0].Removed) != 0 {
+		t.Fatalf("blame events = %+v, want one event that adds Beta and removes nothing", b.Events)
+	}
+	if b.Events[0].Entry.ID != "sha256:aaaa0002" || !b.Present() {
+		t.Errorf("Beta was introduced by %s and present=%v; want the second snapshot, still present", b.Events[0].Entry.ID, b.Present())
+	}
+}
+
+// The same holds for a machine that has only the store: one source's revisions in
+// one second follow the order that source pushed them in.
+func TestUnion_SameSecondTieInAStoreFollowsTheChain(t *testing.T) {
+	root, store := t.TempDir(), t.TempDir()
+	at := "2026-08-01T10:00:00Z"
+	appendShareRevision(t, root, "ffff0001", "c1", at, []string{factLine("Alpha", 1)})
+	appendShareRevision(t, root, "aaaa0002", "c2", at, []string{factLine("Alpha", 1), factLine("Beta", 2)})
+	appendShareRevision(t, root, "cccc0003", "c3", at, []string{factLine("Alpha", 1)})
+	mustPush(t, root, store, "machine-a")
+	sh, err := pkghistory.OpenShare(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := []string{"ffff0001", "aaaa0002", "cccc0003"}
+	var listed []string
+	for _, rec := range sh.RevisionsFor("github.com/org/repo") {
+		listed = append(listed, strings.TrimPrefix(rec.ID, "sha256:"))
+	}
+	if !reflect.DeepEqual(listed, want) {
+		t.Errorf("RevisionsFor on a tie = %v, want %v (chain order)", listed, want)
+	}
+	revs := pkghistory.BuildUnion(nil, sh, "github.com/org/repo")
+	if got := unionIDs(revs); !reflect.DeepEqual(got, want) {
+		t.Errorf("store-only union on a tie = %v, want %v (chain order)", got, want)
+	}
+
+	// Retention counts from the newest: with a tie it must keep the one pushed last.
+	rep, err := SharedGC(store, SharedGCOptions{KeepLast: 1, Source: "machine-a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var removed []string
+	for _, r := range rep.Remove {
+		removed = append(removed, strings.TrimPrefix(r.ID, "sha256:"))
+	}
+	if !reflect.DeepEqual(removed, []string{"ffff0001", "aaaa0002"}) {
+		t.Errorf("keep-last 1 on a tie would remove %v, want the two pushed first", removed)
+	}
+}
+
+// A tie between revisions from different sources has no recorded order to recover,
+// so it only has to be the same every time: by source, own revisions first.
+func TestUnion_SameSecondTieAcrossSourcesIsStable(t *testing.T) {
+	at := "2026-08-01T10:00:00Z"
+	own := entry("zzzz", at)
+	own.Seq = 9
+	pulled := entry("mmmm", at)
+	pulled.Seq = 1
+	pulled.Origin = "machine-b"
+
+	revs := pkghistory.BuildUnion([]pkghistory.Entry{pulled, own}, nil, "")
+	if got, want := unionIDs(revs), []string{"zzzz", "mmmm"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("own and pulled on a tie = %v, want %v (own first)", got, want)
+	}
+	again := pkghistory.BuildUnion([]pkghistory.Entry{own, pulled}, nil, "")
+	if !reflect.DeepEqual(unionIDs(again), unionIDs(revs)) {
+		t.Errorf("the order depends on the order of the input: %v then %v", unionIDs(revs), unionIDs(again))
 	}
 }
 

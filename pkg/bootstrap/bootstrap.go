@@ -55,6 +55,7 @@ import (
 	"github.com/enola-labs/enola/internal/extractors/swiftextractor"
 	"github.com/enola-labs/enola/internal/extractors/tsextractor"
 	"github.com/enola-labs/enola/internal/facts"
+	"github.com/enola-labs/enola/internal/history"
 	"github.com/enola-labs/enola/internal/linkers/binders/clientseam"
 	"github.com/enola-labs/enola/internal/linkers/binders/emberresolver"
 	"github.com/enola-labs/enola/internal/linkers/binders/frameworkroots"
@@ -83,6 +84,7 @@ import (
 	"github.com/enola-labs/enola/internal/workspace"
 	"github.com/enola-labs/enola/pkg/plan"
 
+	pkghistory "github.com/enola-labs/enola/pkg/history"
 	"github.com/enola-labs/enola/pkg/plugin"
 	"github.com/enola-labs/enola/pkg/status"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -279,13 +281,6 @@ func (s *Server) RestoreInBackground(eng *Engine, cfg *config.Config) {
 	})
 }
 
-// SeedCorpus publishes the corpus of a graph restored from disk, so queries are
-// priced against it before this process takes a snapshot of its own. Pass the map
-// returned by AutoLoadSnapshot, and call it before Run.
-func (s *Server) SeedCorpus(byRepo map[string]int) {
-	s.srv.SeedCorpus(byRepo)
-}
-
 // SetToolCallback sets a callback invoked once per completed tool call, with the
 // tool name, the absolute repo path the call operated on, whether it succeeded,
 // its response size and any snapshot detail — everything the value model needs
@@ -295,6 +290,13 @@ func (s *Server) SeedCorpus(byRepo map[string]int) {
 // construction.
 func (s *Server) SetToolCallback(cb func(status.ToolCall)) {
 	s.srv.SetToolCallback(cb)
+}
+
+// SeedCorpus publishes the corpus of a graph restored from disk, so queries are
+// priced against it before this process takes a snapshot of its own. Pass the map
+// returned by AutoLoadSnapshot, and call it before Run.
+func (s *Server) SeedCorpus(byRepo map[string]int) {
+	s.srv.SeedCorpus(byRepo)
 }
 
 // MCP returns the underlying MCP server. It is the handle the end-to-end tests use
@@ -450,7 +452,48 @@ func NewEngineFromConfig(cfg *config.Config) (*Engine, error) {
 	return &Engine{eng: eng}, nil
 }
 
+// RecordHistory wires the architecture history to an engine: every snapshot the engine
+// writes is appended as a revision, unless the config turns recording off. The engine
+// knows nothing about the history; this adapter is the whole connection, which is why
+// it sits in the composition root. Exported for the tests that build a bare engine and
+// still need a history to assert on.
+func RecordHistory(eng *engine.Engine, cfg *config.Config) {
+	if !cfg.HistoryEnabled() {
+		return
+	}
+	recorder := history.NewRecorder(history.RecorderOptions{
+		Dir:          cfg.History.Dir,
+		Blobs:        cfg.HistoryBlobsEnabled(),
+		WorkingKeep:  cfg.History.WorkingKeep,
+		RevisionKeep: cfg.History.RevisionKeep,
+		BlobKeep:     cfg.History.BlobKeep,
+	})
+	eng.SetSnapshotRecorder(func(rec engine.SnapshotRecord) {
+		recorder.Record(history.Record{
+			RepoPath:    rec.RepoPath,
+			Meta:        rec.Meta,
+			Snapshot:    rec.Snapshot,
+			FactsPath:   rec.FactsPath,
+			PreviousDir: rec.PreviousDir,
+			Parents:     rec.Parents,
+			Repos: func() []pkghistory.RepoRef {
+				states := rec.Repos()
+				if len(states) == 0 {
+					return nil
+				}
+				refs := make([]pkghistory.RepoRef, 0, len(states))
+				for _, st := range states {
+					refs = append(refs, pkghistory.RepoRef{Label: st.Label, Commit: st.Commit, Dirty: st.Dirty})
+				}
+				return refs
+			},
+		})
+	})
+}
+
 func registerOSSPlugins(eng *engine.Engine, cfg *config.Config) {
+	RecordHistory(eng, cfg)
+
 	// Register all OSS extractors
 	eng.RegisterExtractor(cppextractor.New())
 	eng.RegisterExtractor(asyncapiextractor.New())
@@ -542,6 +585,16 @@ func NewServer(eng *Engine, cfg *config.Config) (*Server, error) {
 		return nil, err
 	}
 	srv.SetPlanEngineFactory(PlanEngineFactory(cfg))
+	// The three analyzers that own a tool as well as an explainer. They register on
+	// the server's own MCP server, so its value middleware observes their calls like
+	// any other tool's and prices them once; a plugin reporting its own calls could
+	// forget to, or remember twice. Each takes the accessor rather than a store,
+	// because a handler must read whatever the latest snapshot published. Wired here,
+	// beside their explainers, so the server does not have to know which analyzers
+	// the binary carries.
+	metrics.Register(srv.MCPServer(), eng.eng.Store)
+	orphans.Register(srv.MCPServer(), eng.eng.Store)
+	perf.Register(srv.MCPServer(), eng.eng.Store)
 	// A server's parent is the agent session it serves, and it outlives an MCP
 	// restart; its receipts are keyed by it so a restart restores this session's graph.
 	eng.eng.SetSessionClient(os.Getppid())

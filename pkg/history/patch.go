@@ -12,7 +12,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/enola-labs/enola/pkg/facts"
+	"github.com/enola-labs/enola/internal/facts"
 )
 
 // A revision's stored form is a PATCH OVER CANONICAL LINES, and the reason is a property

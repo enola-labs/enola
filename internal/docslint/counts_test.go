@@ -54,11 +54,6 @@ var countWaivers = []struct{ Doc, Phrase, Reason string }{
 		Phrase: "enola's eighteen explainers produced",
 		Reason: "a measurement from a specific corpus run, not a claim about the live inventory: the finding count was produced by the eighteen that existed then, and re-pointing the number at today's inventory would make the sentence describe a run that never happened.",
 	},
-	{
-		Doc:    "ARCHITECTURE.md",
-		Phrase: "since two tools disagreeing about what \"stale\" means",
-		Reason: "'two tools' here is any two programs, not the MCP tool inventory.",
-	},
 }
 
 var claimRe = func() *regexp.Regexp {

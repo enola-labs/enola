@@ -1,0 +1,17 @@
+$ enola dashboard --no-such-flag
+exit: 2
+--- stdout
+--- stderr
+flag provided but not defined: -no-such-flag
+Usage: enola dashboard [--open] [repo_path|config_path]
+
+Start a local dashboard for this repository. An MCP server is not required.
+Use Refresh to load a newer snapshot written by Enola; the dashboard never regenerates source itself.
+
+Options:
+  --open         launch the dashboard in the default browser
+
+The server binds to 127.0.0.1 and stays attached until Ctrl-C.
+Run `enola --status` in another terminal to recover its URL.
+If Safari blocks local HTTP in HTTPS-Only mode, allow this local address or use another browser.
+enola dashboard: dashboard: flag provided but not defined: -no-such-flag

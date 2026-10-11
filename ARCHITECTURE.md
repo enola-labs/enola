@@ -240,7 +240,7 @@ The value estimate `--status` and the dashboard render lives in [`pkg/status/val
 
 **The shared URL.** Each server binds its own ephemeral port, then competes for a fixed one (`DefaultStablePort`, overridable via `ENOLA_DASHBOARD_PORT` or `dashboard.port`; see `ResolveStablePort`). The winner serves the same mux from both and flags itself `FrontDoor` in the registry; the losers retry every few seconds, so when the holder exits another picks the port up and the bookmark survives. There is no coordination beyond the OS refusing the second bind.
 
-The page reads receipts into the engine's own `facts.Receipt` / `facts.GraphReceipt` types, re-exported from `pkg/facts` precisely so a consumer never hand-writes a JSON mirror that drifts.
+The page reads receipts into the engine's own `facts.Receipt` / `facts.GraphReceipt` types, so nothing hand-writes a JSON mirror that drifts.
 
 **The insight allowlist.** `insightLabels` in [`pkg/dashboard/insights.go`](pkg/dashboard/insights.go) maps explainer id → display label, one entry per explainer `bootstrap.NewEngine` registers, and it doubles as an admission list: `insightDetails` drops any insight whose `Source` is absent from it, and excludes it from the structural/candidate counts. This matters because both binaries share a repo's `.enola/insights.json` — without the filter, a file written by a build with extra explainers would surface findings this engine cannot produce. For the same reason the clickable insight counters render the *filtered* total rather than the receipt's raw `insight_count`, so the number you click always matches the list you get.
 
@@ -411,7 +411,7 @@ One rule matters here: **the credit is persisted alongside the count**, not repr
 
 ## The tools
 
-enola is a stdio [MCP](https://modelcontextprotocol.io/) server. It exposes **twenty-two tools** and no MCP resources — everything flows through tool calls. The tools defined in [`internal/server/server.go`](internal/server/server.go) are listed below, each leading with the question it answers.
+enola is a stdio [MCP](https://modelcontextprotocol.io/) server. It exposes **twenty-two tools** and no MCP resources — everything flows through tool calls. The tools defined in [`internal/server`](internal/server/), one `tools_*.go` file per family, are listed below, each leading with the question it answers.
 
 > Most read tools share a **token-cost ladder** via `output_mode`: `summary` (smallest, aggregated counts) → `compact` (markdown, grouped) → `full` (raw JSON, can be large). Start with `summary` and escalate only when you need node-level detail. Most also accept `max_tokens` to hard-cap a response.
 
@@ -625,9 +625,9 @@ Two refinements keep the finding delta honest, both learned from dogfooding on a
 - **Stable finding identity.** A finding is keyed by its explainer plus its number-normalized title (the stable subject), so a god-class whose fan-in merely ticked up — or a whole-codebase summary finding like the `layers` pattern, whose evidence enumerates every module — does not churn as resolve+introduce on an unrelated edit. Cycles are the exception: their title carries only a member count, so they are keyed on their sorted member modules.
 - **Structural-cause classification.** A new/resolved finding is reported as a real **regression introduced** / **improvement** only when the change actually touched one of the entities it cites (a fact added/removed/changed, or an edge endpoint — so a finding that flips because a *new caller* changed a symbol's fan-in still counts). Findings that appear or clear with no structural cause — a moving `mean+2σ` threshold, or a top-N list re-ranking after a worse offender left the window — are routed to a separate **incidental finding shifts** section so they never masquerade as something the change caused.
 
-**Working-tree drift (`internal/drift`).** A delta computed from a snapshot that no longer matches the tree describes neither the snapshot's state nor the tree's, and that is the one caveat which invalidates it outright. `drift.AddWarning` re-walks and re-hashes the repository and attaches a comparability warning when it has moved; a snapshot with no recorded hashes reports "cannot verify" rather than staying silent, because an unanswerable check must not read as a clean bill of health.
+**Working-tree drift (`internal/server`).** A delta computed from a snapshot that no longer matches the tree describes neither the snapshot's state nor the tree's, and that is the one caveat which invalidates it outright. `addDriftWarning` re-walks and re-hashes the repository and attaches a comparability warning when it has moved; a snapshot with no recorded hashes reports "cannot verify" rather than staying silent, because an unanswerable check must not read as a clean bill of health.
 
-It is its own package because `internal/server` cannot import `pkg/bootstrap`, which imports the server. A leaf depending on `engine` and `diff`, depended on by both, is the only shape with no cycle — and one implementation is the point, since two tools disagreeing about what "stale" means is itself a kind of drift. It re-hashes the repo, so it belongs at a deliberate decision point rather than on every tool call.
+It lives beside its one caller, the `diff_snapshot` tool. It re-hashes the repo, so it belongs at a deliberate decision point rather than on every tool call.
 
 **Conformance (`target` / `expected_packages`, `internal/conformance`).** Optional, and the one question the delta itself cannot answer. `diff.Compute` is a function of two snapshots, so it can report what changed and nothing about what the caller *meant* to change. Declaring a target adds that third input: reverse-dependency impact analysis runs over the **pre-change** graph, and any package the change reached outside the predicted radius is reported as **spillover** — a package altered by something the declaration did not describe.
 
@@ -644,7 +644,7 @@ The typical loop is `generate_snapshot → set_baseline → edit → generate_sn
 | `output_mode` | `summary` (default — headline regressions/improvements + structural tally) → `compact` (adds finding descriptions, evidence, and the changed edges/facts) → `full` (complete JSON). |
 | `max_tokens` | Optional hard cap on output size. |
 
-The engine lives in [`internal/diff`](internal/diff/diff.go) (pure `Compute` + deterministic renderers) and is re-exported for out-of-module use via [`pkg/diff`](pkg/diff/diff.go); baseline persistence, the on-disk loader and the shared selector resolution (`ResolveBaselineDir`) live in [`internal/engine/baseline.go`](internal/engine/baseline.go). `diff_snapshot` also runs the **comparability guard** (`diff.CompareMeta`): it reads the receipt fields on both snapshots' metadata and warns, above the delta, when they were not generated over equivalent inputs.
+The engine lives in [`internal/diff`](internal/diff/diff.go) (pure `Compute` + deterministic renderers); baseline persistence, the on-disk loader and the shared selector resolution (`ResolveBaselineDir`) live in [`internal/engine/baseline.go`](internal/engine/baseline.go). `diff_snapshot` also runs the **comparability guard** (`diff.CompareMeta`): it reads the receipt fields on both snapshots' metadata and warns, above the delta, when they were not generated over equivalent inputs.
 
 #### Comparability is a spectrum, not a boolean
 
@@ -663,7 +663,7 @@ The engine lives in [`internal/diff`](internal/diff/diff.go) (pure `Compute` + d
 | `stale_baseline` | the baseline is ≥ 3 days older | **advisory** — warn and still grade |
 | `pre_receipt` | the baseline predates snapshot receipts | advisory |
 
-`Kinds` is a **set**, not a per-message list, so `Warnings` keeps its type and JSON shape for every existing consumer (the dashboard, `output_mode='full'`, and out-of-module readers via `pkg/diff`). Callers that know their category should use `AddWarningKind` rather than `AddWarning`.
+`Kinds` is a **set**, not a per-message list, so `Warnings` keeps its type and JSON shape for every existing consumer (the dashboard and `output_mode='full'`). Callers that know their category should use `AddWarningKind` rather than `AddWarning`.
 
 > Note on timestamps: `GeneratedAt` is RFC3339, i.e. **second** resolution, so a baseline pinned and then diffed inside the same second yields a zero gap. Zero is *simultaneous*, not inverted — `inverted_pair` requires a strictly negative gap. Treating zero as inverted made a no-op check on an untouched repository report "the current snapshot does not contain your change".
 

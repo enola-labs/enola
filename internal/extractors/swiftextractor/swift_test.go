@@ -57,30 +57,6 @@ func hasRelation(f facts.Fact, relKind, target string) bool {
 
 // --- Unit tests for parsing helpers ---
 
-func TestExtractSupertypes(t *testing.T) {
-	tests := []struct {
-		name  string
-		input string
-		want  string
-	}{
-		{"simple supertypes", ": Foo, Bar {", "Foo, Bar"},
-		{"generic constraint colon skipped", "<T: Equatable>: View {", "View"},
-		{"param colon skipped", "(param: Int): Observable {", "Observable"},
-		{"no colon", "SomeName {", ""},
-		{"with where clause", ": Foo where T: Bar {", "Foo"},
-		{"nested generics", "<T>(x: Int): A, B {", "A, B"},
-		{"empty after colon", ": {", ""},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := extractSupertypesFromText(tt.input)
-			if got != tt.want {
-				t.Errorf("extractSupertypesFromText(%q) = %q, want %q", tt.input, got, tt.want)
-			}
-		})
-	}
-}
-
 func TestParseSupertypes(t *testing.T) {
 	tests := []struct {
 		name  string

@@ -8,8 +8,6 @@ import (
 	"os"
 	"strings"
 
-	"github.com/enola-labs/enola/internal/endpoint"
-	"github.com/enola-labs/enola/internal/linkers/crossrepo/routeindex"
 	httpsignal "github.com/enola-labs/enola/internal/linkers/crossrepo/signals/http"
 )
 
@@ -73,8 +71,7 @@ func (r *Runner) Endpoint(ctx context.Context, args []string) {
 		fmt.Fprintf(os.Stderr, "invalid linking vocabulary: %v\n", err)
 		os.Exit(2)
 	}
-	store := tgt.engine.Store()
-	result := endpoint.Analyze(store, query, *maxRoutes, httpsignal.NewCallerFinder(routeindex.New(linkVocab), store.All()))
+	result := httpsignal.AnalyzeEndpoint(tgt.engine.Store(), linkVocab, query, *maxRoutes)
 	if *asJSON {
 		out, err := json.MarshalIndent(result, "", "  ")
 		if err != nil {

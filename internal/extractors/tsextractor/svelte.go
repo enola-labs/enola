@@ -69,11 +69,6 @@ func extractSvelteScriptBlocks(src []byte) []*svelteScriptBlock {
 	return blocks
 }
 
-func detectSvelte(repoPath string) bool {
-	tsRoot, _ := findTSRoot(repoPath)
-	return hasPkgDependency(tsRoot, "svelte") || (tsRoot != repoPath && hasPkgDependency(repoPath, "svelte"))
-}
-
 func detectSvelteKit(repoPath string) bool {
 	tsRoot, _ := findTSRoot(repoPath)
 	return detectSvelteKitAt(tsRoot) || (tsRoot != repoPath && detectSvelteKitAt(repoPath))

@@ -6,36 +6,9 @@ import (
 
 	swift "github.com/enola-labs/enola/internal/extractors/swiftextractor/grammar"
 	"github.com/enola-labs/enola/internal/extractors/tsutil"
-	"github.com/enola-labs/enola/internal/factpath"
 	"github.com/enola-labs/enola/internal/facts"
 	sitter "github.com/tree-sitter/go-tree-sitter"
 )
-
-// extractFileAST parses a Swift file with tree-sitter and emits architectural
-// facts. It is a superset of the legacy regex extractor: every declaration /
-// import / iOS-classification fact is preserved, and call-graph relations
-// (RelCalls / RelInstantiates / RelInjects) plus View->ViewModel RelDependsOn
-// edges are attached to symbol facts when call sites, initializer parameters or
-// dependency-injection property wrappers are observed.
-//
-// Edge targets are emitted as bare simple type names here (e.g. "AppComposition")
-// and canonicalised to "<dir>.<Type>" by the post-pass in Extract, which has the
-// project-wide type index needed to resolve them.
-func extractFileAST(src []byte, relFile string, isiOS bool) []facts.Fact {
-	return extractFileASTWithDir(src, relFile, isiOS, factpath.Dir(relFile))
-}
-
-// extractFileASTWithDir is extractFileAST with an explicit module identity dir.
-// Extract passes the file's resolved target module (from moduleResolver) so
-// symbols are named "<targetDir>.<Type>" and declare into the target module
-// rather than the file's leaf directory.
-func extractFileASTWithDir(src []byte, relFile string, isiOS bool, dir string) []facts.Fact {
-	var out []facts.Fact
-	withTree(src, relFile, isiOS, dir, func(_ *sitter.Node, walked []facts.Fact) {
-		out = walked
-	})
-	return out
-}
 
 // withTree parses and walks one file and hands the walk's facts to use while the
 // tree is still open. use is not called when the file cannot be parsed.

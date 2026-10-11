@@ -14,8 +14,6 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"runtime"
-	"runtime/debug"
 	"sort"
 	"strings"
 	"sync"
@@ -35,8 +33,6 @@ import (
 	"github.com/enola-labs/enola/internal/pathglob"
 	"github.com/enola-labs/enola/internal/providers"
 	"github.com/enola-labs/enola/internal/renderers"
-	"github.com/enola-labs/enola/internal/version"
-	pkghistory "github.com/enola-labs/enola/pkg/history"
 	"github.com/enola-labs/enola/pkg/plugin"
 )
 
@@ -91,12 +87,8 @@ type Engine struct {
 	// lastFacts remembers the facts.jsonl this run last serialized, so the next
 	// output dir that receives the same bundle copies the bytes instead.
 	lastFacts lastFactsWrite
-	// historyRecorded remembers which snapshot id this run recorded into which
-	// history root, so a cluster that writes one union to many repo dirs sharing
-	// a history store appends the revision once.
-	historyRecorded map[string]string
-	// summaries remembers this run's previous/ deltas; see summarizeOnce.
-	summaries map[string]pkghistory.Summary
+	// recordSnapshot is called at the end of WriteArtifacts; see SetSnapshotRecorder.
+	recordSnapshot func(SnapshotRecord)
 	// sessionClient is the PID of the agent process this server serves; zero for a
 	// CLI run. See SetSessionClient.
 	sessionClient atomic.Int64
@@ -342,436 +334,35 @@ func (e *Engine) GenerateSnapshot(ctx context.Context, repoPath string, appendMo
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	start := time.Now()
-
-	if repoPath == "" {
-		repoPath = e.cfg.Repo
-	}
-
-	absRepo, err := filepath.Abs(repoPath)
-	if err != nil {
-		return nil, fmt.Errorf("resolving repo path: %w", err)
-	}
-
-	// Captured ONCE, here, because two things need it and they must agree: the repo
-	// label every fact is tagged with (below) and the snapshot's own git provenance
-	// (Meta.Git, further down). Deriving the label from a second `git remote` read
-	// would let the two drift apart on a repository whose remote changed mid-run.
-	git := gitInfo(absRepo, e.cfg.Output.Dir)
-	var remote string
-	if git != nil {
-		remote = git.Remote
-	}
-	// The repository NAME, not the directory it happens to sit in — see facts.RepoLabel.
-	repoLabel := repoLabelFor(absRepo, remote)
-	// A cluster can hold two repositories whose NAMES agree and whose owners do not
-	// (acme/web and other-org/web). Labels are how facts from different repos stay
-	// apart, and graph nodes are name-keyed, so a collision would silently MERGE two
-	// repositories into one — worse than the directory-derived label this replaced,
-	// which at least differed whenever the checkouts did. Fall back to the directory
-	// for the second arrival: it keeps them separate and it is what enola labelled
-	// them before.
-	if appendMode {
-		if prev := e.current.Load(); prev != nil {
-			if taken, ok := prev.repoPaths[repoLabel]; ok && taken != absRepo {
-				repoLabel = filepath.Base(absRepo)
-				log.Printf("[engine] repo label from remote collides with %q; using directory name %q", taken, repoLabel)
-			}
-		}
-	}
-
-	// Resolve this repo's declared intent: its own enola-intent.yaml, the
-	// cluster config's entry, or the cluster entry overriding the file
-	// wholesale (reported — an override must never be only implicit). An
-	// invalid declaration fails the snapshot: a declaration that cannot be
-	// trusted is worse than none, and silent skips are how vocabulary drift
-	// would creep back in.
-	fromFile, err := intent.LoadRepoFile(absRepo)
+	r, err := e.beginRun(ctx, repoPath, appendMode)
 	if err != nil {
 		return nil, err
 	}
-	resolved := intent.Resolve(fromFile, e.cfg.Intent[repoLabel])
-	if resolved != nil && resolved.Overridden {
-		log.Printf("[engine] intent for %q: cluster config overrides %s (wholesale)", repoLabel, intent.RepoFileName)
-	}
+	e.prepareStore(r)
 
-	// Build into a BRAND-NEW store off to the side. The currently-published bundle
-	// (prev) is never mutated, so any in-flight reader keeps iterating a consistent,
-	// frozen snapshot while we regenerate. We publish the new store atomically at the
-	// end (see e.current.Store below), which is the single linearization point.
-	prev := e.current.Load()
-	work := facts.NewStore()
-	var workRepoPaths map[string]string
-	// Declarations accumulate exactly like repoPaths: carried forward from the
-	// published bundle in append mode, replaced wholesale otherwise, and handed
-	// to the swap at the end. Nothing is written into the published map.
-	workIntent := map[string]*intent.Declaration{}
-
-	// A prior state produced by a different extraction behaviour cannot be
-	// carried: its facts may be unlabeled (or labeled under different rules),
-	// and the retroactive-tagging migration below would bulk-claim a stale
-	// multi-repo union under one repo's label — manufacturing facts no repo's
-	// source states. Discarding is the missing-edge-beats-wrong-one rule
-	// applied to append mode; the discarded repos re-extract on their next
-	// generate with the current behaviour.
-	if appendMode && prev.snapshot != nil &&
-		prev.snapshot.Meta.ExtractorVersion != cacheVersion {
-		log.Printf("[engine] discarding prior state (extractor version %q != %q) — append would mislabel carried facts",
-			prev.snapshot.Meta.ExtractorVersion, cacheVersion)
-		appendMode = false
-	}
-
-	if appendMode {
-		// Carry prior repos forward. All() returns an independent COPY, so mutating
-		// `work` (TagUntagged/TagRange/SetRepoRange) can never touch prev.store, which
-		// stays published and readable until we swap. This is the transient ~1x
-		// fact-set memory cost of lock-free reads in append mode.
-		workRepoPaths = make(map[string]string, len(prev.repoPaths)+1)
-		for k, v := range prev.repoPaths {
-			workRepoPaths[k] = v
-		}
-		for k, v := range prev.intent {
-			workIntent[k] = v
-		}
-		if prev.store != nil {
-			work.Add(prev.store.All()...)
-		}
-
-		// A repository the union already holds is replaced, not doubled. Its
-		// prior slice goes before extraction, so what this turn adds is the only
-		// account of it; the linkers then rebuild every cross-repo edge into it
-		// from scratch, as they do on every append. This is what lets one repo
-		// be re-read into an existing union without re-reading the other twenty.
-		if _, present := prev.repoPaths[repoLabel]; present {
-			if dropped := work.RemoveWhere(func(f facts.Fact) bool { return f.Repo == repoLabel }); dropped > 0 {
-				log.Printf("[engine] replacing %q in the union: dropped its %d prior facts", repoLabel, dropped)
-			}
-		}
-
-		// Track repo label -> absolute path for multi-repo resolution.
-		workRepoPaths[repoLabel] = absRepo
-	}
-	if resolved != nil {
-		workIntent[repoLabel] = resolved
-	} else {
-		// A repo that stopped declaring must stop being declared, including when
-		// its entry was carried forward from the previous bundle.
-		delete(workIntent, repoLabel)
-	}
-	if appendMode {
-
-		// Retroactively tag facts from a prior single-repo snapshot so they
-		// are filterable by repo alongside the newly appended facts.
-		if prev.snapshot != nil && work.Count() > 0 {
-			// The label those facts actually carry, which since RepoLabel came from the
-			// remote is no longer the directory name. Older snapshots recorded none, and
-			// for them the directory IS what tagged the facts.
-			prevLabel := prev.snapshot.Meta.RepoLabel
-			if prevLabel == "" {
-				prevLabel = filepath.Base(prev.snapshot.Meta.RepoPath)
-			}
-			if _, alreadyTracked := workRepoPaths[prevLabel]; !alreadyTracked {
-				tagged := work.TagUntagged(prevLabel, prevLabel+"/")
-				if tagged > 0 {
-					workRepoPaths[prevLabel] = prev.snapshot.Meta.RepoPath
-					log.Printf("[engine] retroactively tagged %d existing facts with repo label %q", tagged, prevLabel)
-				}
-			}
-		}
-	}
-	// Non-append: `work` stays empty and workRepoPaths stays nil — the prior bundle
-	// is left intact for in-flight readers until the swap (no in-place Clear()).
-
-	// Point the build-scratch store at `work` so the pipeline helpers (which read
-	// e.store under e.mu) operate on the new store with no signature changes.
-	e.store = work
-
-	// Per-stage timing breakdown (logged at the end). Snapshotting is
-	// extraction-dominated, so this makes it obvious where time goes.
-	var tWalk, tHash, tExtract, tLink, tGraph, tExplain, tRender time.Duration
-
-	// 1. Walk repository and collect files
-	tStage := time.Now()
-	files, testFiles, allNames, skips, err := e.walkRepo(ctx, absRepo)
-	if err != nil {
-		return nil, fmt.Errorf("walking repo: %w", err)
-	}
-	tWalk = time.Since(tStage)
-	log.Printf("[engine] found %d files (%d test files, %d skipped) in %s", len(files), len(testFiles), skips.count, absRepo)
-
-	// 2. Compute file hashes (for snapshot metadata)
-	tStage = time.Now()
-	currentHashes := e.computeFileHashes(ctx, absRepo, files)
-	tHash = time.Since(tStage)
-	if err := ctx.Err(); err != nil {
+	if err := e.walk(r); err != nil {
 		return nil, err
 	}
-
-	// 3. Detect and run extractors (with optional per-extractor caching).
-	tStage = time.Now()
-	var cache *extractorCache
-	cachePath := extractorCachePath(filepath.Join(absRepo, e.cfg.Output.Dir))
-	if e.cfg.IncrementalEnabled() {
-		cache = loadExtractorCache(cachePath, e.persistCache)
-		// The cache now holds an open temp file from the moment it is created, so
-		// every path out of this function has to close it. discard is a no-op after
-		// a successful save; without it, a snapshot that fails during extraction
-		// leaves the spool behind.
-		defer cache.discard()
+	if err := e.extract(r); err != nil {
+		return nil, err
 	}
-	preCount := e.store.Count()
-	usedExtractors, shadowedExtractors, parseErrs, err := e.runExtractors(ctx, absRepo, files, allNames, currentHashes, cache)
-	if err != nil {
-		return nil, fmt.Errorf("extraction: %w", err)
-	}
-	e.reportShadowed(absRepo, shadowedExtractors)
-	// Reference-only extraction over test/spec files. Runs every snapshot (not
-	// cached with the main extractors) and adds only KindTestRef facts, so a
-	// production symbol exercised solely by a test is not mis-reported as dead.
-	e.runTestRefExtractors(ctx, absRepo, testFiles, files, allNames)
-
-	// Compile this repo's resolved intent declaration into intent facts, inside
-	// the extraction window so SetRepoRange/TagRange treat declared facts
-	// exactly as measured ones — snapshots carry them, diffs track them, and
-	// the intent explainer reads them with no side channel.
-	if resolved != nil {
-		e.store.Add(intent.CompileFacts(resolved)...)
-	}
-
-	// Run configured external providers, still inside the extraction window so
-	// their facts are repo-labeled (and prefixed, in append mode) exactly as
-	// measured ones — and before linking, so a provider's edges participate in
-	// the graph every explainer walks. Providers merge additively: an identity
-	// an extractor already owns is never overwritten, so the census can say a
-	// provider contributed less than it emitted but the graph cannot silently
-	// change authorship.
-	provRecords := e.runProviders(ctx, absRepo, preCount, providerInput(files, testFiles, currentHashes, e.computeFileHashes(ctx, absRepo, testFiles), cache))
-	if cache != nil {
-		log.Printf("[engine] extractor cache: %d reused", cache.hits)
-		// Saved after the providers, whose entries share the spool. save is a no-op
-		// when this cache was opened non-persisting, and it creates its own
-		// directory, so neither condition is repeated here.
-		if err := cache.save(); err != nil {
-			log.Printf("[engine] could not write extractor cache: %v", err)
-		}
-	}
-
-	tExtract = time.Since(tStage)
-	newCount := e.store.Count()
-	log.Printf("[engine] extracted %d facts using %d extractors", newCount, len(usedExtractors))
-
-	// Flag facts from codegen output before the file paths are repo-prefixed below,
-	// while f.File is still resolvable against repoPath.
-	e.markGeneratedFacts(absRepo, preCount)
-
-	// Always set Repo on newly extracted facts so the repo filter works
-	// even in single-repo mode.
-	e.store.SetRepoRange(preCount, repoLabel)
-
-	// In append mode, additionally prefix file paths so facts from
-	// different repos are distinguishable by file path.
-	if appendMode {
-		e.store.TagRange(preCount, repoLabel, repoLabel+"/")
-		log.Printf("[engine] prefixed %d facts with repo label %q", newCount-preCount, repoLabel)
-	}
-
-	// A cluster's intermediate turns stop here. Linking, the graph and the
-	// explainers are recomputed from scratch on every append and only the last
-	// turn's result is kept, so running them after each of twenty-two
-	// repositories was twenty-one full passes over a growing union for nothing
-	// anyone read. The caller that walks a cluster sets deferLinking for every
-	// turn but the last; that turn runs the full pipeline once over the whole
-	// union. The bundle published here carries the store, the repo paths and
-	// the intent the next turn needs, and a meta that says what was extracted.
 	if e.deferLinking {
-		work.Freeze()
-		duration := time.Since(start)
-		deferredPrefix := ""
-		if appendMode {
-			deferredPrefix = repoLabel + "/"
-		}
-		snapshot := &facts.Snapshot{
-			Meta: facts.SnapshotMeta{
-				RepoPath:           absRepo,
-				GeneratedAt:        time.Now().UTC().Format(time.RFC3339),
-				Duration:           duration.String(),
-				Extractors:         usedExtractors,
-				Renderers:          []string{},
-				FileHashes:         fileHashesOf(absRepo, currentHashes),
-				FactCount:          e.store.Count(),
-				EnolaVersion:       version.Version,
-				ExtractorVersion:   cacheVersion,
-				Git:                git,
-				RepoLabel:          repoLabel,
-				Providers:          provRecords,
-				FilesSeen:          len(files),
-				FilesParsed:        e.store.CountFilesWithFacts(files, deferredPrefix),
-				SourceBytes:        e.store.SourceBytesWithFacts(files, deferredPrefix, absRepo),
-				FilesSkipped:       skips.count,
-				DirsSkipped:        skips.dirCount,
-				SkippedSample:      skips.sample,
-				ShadowedExtractors: shadowedExtractors,
-				ParseErrors:        len(parseErrs),
-				ParseErrorSample:   capParseErrors(parseErrs),
-				Census:             e.fileCensus(files, deferredPrefix, skips, usedExtractors, parseErrs),
-			},
-			Facts: e.store.FactsRef(),
-		}
-		e.current.Store(&snapshotBundle{store: work, snapshot: snapshot, repoPaths: workRepoPaths, intent: workIntent,
-			members: memberMetas(prev, appendMode, absRepo, snapshot.Meta)})
-		log.Printf("[engine] %s extracted into the union in %s (%d facts so far); linking and explaining deferred to the cluster's last turn",
-			repoLabel, duration.Round(time.Millisecond), e.store.Count())
-		log.Printf("[engine] timings: walk=%s hash=%s extract=%s", tWalk.Round(time.Millisecond), tHash.Round(time.Millisecond), tExtract.Round(time.Millisecond))
-		return snapshot, nil
+		return e.publishDeferred(r), nil
 	}
 
-	// 3b. Link repos into a cross-repo "graph of graphs": derive service-level
-	// nodes and consumer→provider edges from HTTP route role matching and
-	// import/shared-lib references. Recomputed from scratch each run (prior
-	// synthetic facts are dropped first) so it stays idempotent across appends.
-	tStage = time.Now()
-	e.runBinders(ctx, plugin.StagePreLink)
-	e.linkCrossRepo(workRepoPaths)
-	e.runBinders(ctx, plugin.StagePostLink)
-	tLink = time.Since(tStage)
-
-	// 3c. Build graph index for traversal queries
-	tStage = time.Now()
-	e.store.BuildGraph()
-	tGraph = time.Since(tStage)
-	log.Printf("[engine] built graph index (%d nodes, %d edges)", e.store.Graph().NodeCount(), e.store.Graph().EdgeCount())
-
-	// 4. Run explainers
-	tStage = time.Now()
-	allInsights, usedExplainers, err := e.runExplainers(ctx, allNames)
+	e.link(r)
+	insights, usedExplainers, err := e.explain(r)
 	if err != nil {
-		return nil, fmt.Errorf("explanation: %w", err)
+		return nil, err
 	}
-	positionInsights(allInsights, e.store)
-	tExplain = time.Since(tStage)
-	log.Printf("[engine] produced %d insights using %d explainers", len(allInsights), len(usedExplainers))
-
-	// 5. Build file hashes for the snapshot meta
-	fileHashes := fileHashesOf(absRepo, currentHashes)
-
-	// 6. Build snapshot.
-	//
-	// Receipt fields: the snapshot ID is a content fingerprint over the same
-	// byte-stable serialization that becomes facts.jsonl, so it is stable across
-	// reruns on identical inputs and keys snapshot equivalence. The extraction
-	// -quality fields (files seen/parsed/skipped, parse errors, coverage) let a
-	// consumer judge how complete this extraction was before trusting it.
-	duration := time.Since(start)
-	ignoreGlobHash := computeIgnoreGlobHash(e.cfg)
-	configHash := computeConfigHash(e.cfg)
-	// In append mode this run's facts were path-prefixed with the repo label, so
-	// match the walked files against that same prefix to count parsing coverage.
-	parsedPrefix := ""
-	if appendMode {
-		parsedPrefix = repoLabel + "/"
-	}
-	// Stream the serialization straight into the hash. The ID is the only thing this
-	// pass produces, so buffering the bytes to fingerprint and then discard them cost
-	// 792 MiB on a kernel-sized graph for nothing. The digest is identical either way.
-	idHasher := newSnapshotIDHasher()
-	if err := e.store.WriteJSONL(idHasher); err != nil {
-		return nil, fmt.Errorf("serializing facts for snapshot id: %w", err)
-	}
-	snapshot := &facts.Snapshot{
-		Meta: facts.SnapshotMeta{
-			RepoPath:     absRepo,
-			GeneratedAt:  time.Now().UTC().Format(time.RFC3339),
-			Duration:     duration.String(),
-			Extractors:   usedExtractors,
-			Explainers:   usedExplainers,
-			Renderers:    []string{},
-			FileHashes:   fileHashes,
-			FactCount:    e.store.Count(),
-			InsightCount: len(allInsights),
-
-			EnolaVersion: version.Version,
-			// What this build EXTRACTS LIKE, which for a local build the version cannot
-			// say — see facts.SnapshotMeta.ExtractorVersion.
-			ExtractorVersion: cacheVersion,
-			SnapshotID:       finishSnapshotID(idHasher, version.Version, configHash),
-			Git:              git,
-			ConfigHash:       configHash,
-			// The label the facts in this snapshot actually carry. Recorded rather than
-			// re-derived on read: a baseline outlives the build that wrote it, and a
-			// reader that recomputed the label would apply TODAY's rule to YESTERDAY's
-			// facts and conclude they match when their keys do not.
-			RepoLabel: repoLabel,
-
-			Providers: provRecords,
-
-			FilesSeen:          len(files),
-			FilesParsed:        e.store.CountFilesWithFacts(files, parsedPrefix),
-			SourceBytes:        e.store.SourceBytesWithFacts(files, parsedPrefix, absRepo),
-			FilesSkipped:       skips.count,
-			DirsSkipped:        skips.dirCount,
-			SkippedSample:      skips.sample,
-			IgnoreGlobHash:     ignoreGlobHash,
-			ShadowedExtractors: shadowedExtractors,
-			ParseErrors:        len(parseErrs),
-			ParseErrorSample:   capParseErrors(parseErrs),
-			HeuristicInsights:  countHeuristicInsights(allInsights),
-			Coverage:           coverageSummary(e.store),
-			Census:             e.fileCensus(files, parsedPrefix, skips, usedExtractors, parseErrs),
-			Unseen:             e.unseenCensus(skips, provRecords, allInsights),
-		},
-		// FactsRef aliases the store's slice rather than copying it. This is safe:
-		// `work` is published (below) and then NEVER mutated again — the next
-		// regeneration builds a different store — so a reader iterating snapshot.Facts
-		// iterates a frozen backing array. Copying every fact would just double
-		// steady-state RSS for a large repo. Baselines, which must stay immutable as
-		// the store regenerates, still use the copying All().
-		Facts:    e.store.FactsRef(),
-		Insights: allInsights,
-	}
-
-	// 7. Run renderers
-	tStage = time.Now()
-	usedRenderers, err := e.runRenderers(ctx, snapshot)
+	snapshot, err := e.buildSnapshot(r, insights, usedExplainers)
 	if err != nil {
-		return nil, fmt.Errorf("rendering: %w", err)
+		return nil, err
 	}
-	tRender = time.Since(tStage)
-	snapshot.Meta.Renderers = usedRenderers
-	log.Printf("[engine] produced %d artifacts using %d renderers", len(snapshot.Artifacts), len(usedRenderers))
-
-	// Every writer has now run: extraction, linking, binders, explainers, renderers.
-	// Collapse the structurally identical Props maps and Relations slices the
-	// extractors emitted independently onto shared instances before the store becomes
-	// visible. This must happen HERE — after the last mutation and before the
-	// publication below — because sharing is sound exactly for a store nothing writes
-	// again. Append mode carries these facts into a future mutable store via
-	// Store.All, which copies them back apart.
-	tStage = time.Now()
-	work.Freeze()
-	log.Printf("[engine] froze fact store in %s", time.Since(tStage).Round(time.Millisecond))
-
-	// Publish atomically. This single Store() is the linearization point: before it
-	// readers see the prior bundle, after it the new one — never a half-built store.
-	e.current.Store(&snapshotBundle{store: work, snapshot: snapshot, repoPaths: workRepoPaths, intent: workIntent,
-		members: memberMetas(prev, appendMode, absRepo, snapshot.Meta)})
-	log.Printf("[engine] snapshot generated in %s", duration)
-	log.Printf("[engine] timings: walk=%s hash=%s extract=%s link=%s graph=%s explain=%s render=%s",
-		tWalk.Round(time.Millisecond), tHash.Round(time.Millisecond), tExtract.Round(time.Millisecond),
-		tLink.Round(time.Millisecond), tGraph.Round(time.Millisecond), tExplain.Round(time.Millisecond),
-		tRender.Round(time.Millisecond))
-
-	// Generation allocates large transient buffers (per-file fact slices, the
-	// pre-dedup fact list, parser scratch) that the GC frees but Go's scavenger
-	// returns to the OS only lazily. For a long-running server that loads a big
-	// repo and then idles, hand that memory back now so idle RSS settles at the
-	// live set instead of the extraction peak. Once per load, so the cost is
-	// negligible. The MemStats line reports the retained footprint for visibility.
-	debug.FreeOSMemory()
-	var ms runtime.MemStats
-	runtime.ReadMemStats(&ms)
-	log.Printf("[engine] memory after snapshot: heap=%d MiB sys=%d MiB (%d facts)",
-		ms.HeapAlloc>>20, ms.Sys>>20, snapshot.Meta.FactCount)
-
+	if err := e.render(r, snapshot); err != nil {
+		return nil, err
+	}
+	e.publish(r, snapshot)
 	return snapshot, nil
 }
 
@@ -1092,25 +683,6 @@ func (e *Engine) detect(ext extractors.Extractor, repoPath string, allNames []st
 		return fd.DetectFiles(repoPath, allNames)
 	}
 	return ext.Detect(repoPath)
-}
-
-// matchAnyGlob and matchGlob are thin aliases onto the shared matcher, which lives
-// in internal/facts alongside the other path predicates (IsTestPath). The performance
-// analyzer's ENOLA_PERF_EXCLUDE globs documented `**` support that path.Match cannot
-// give them; rather than grow a second glob implementation, it uses this one.
-func matchAnyGlob(relPath string, patterns []string) bool {
-	return pathglob.MatchAny(relPath, patterns)
-}
-
-func matchGlob(relPath string, patterns []string) (string, bool) {
-	return pathglob.Match(relPath, patterns)
-}
-
-// isIgnored checks whether a path matches any ignore pattern. isDir is unused: the
-// patterns discriminate on shape, not on file type, and a directory that matches is
-// pruned by the caller.
-func (e *Engine) isIgnored(relPath string, isDir bool) bool {
-	return matchAnyGlob(filepath.ToSlash(relPath), e.cfg.Ignore)
 }
 
 // runExtractors detects applicable extractors and runs them. When cache is
@@ -1508,7 +1080,17 @@ func (e *Engine) WriteArtifacts(repoPath string) error {
 	// same requirement, satisfied by the strongest possible evidence, since the bytes
 	// come from the artifact itself. It also costs nothing when history blobs are off,
 	// which the previous arrangement could not manage.
-	e.recordHistory(repoPath, meta, b, factsPath)
+	if e.recordSnapshot != nil && b.snapshot != nil {
+		e.recordSnapshot(SnapshotRecord{
+			RepoPath:    repoPath,
+			Meta:        meta,
+			Snapshot:    b.snapshot,
+			FactsPath:   factsPath,
+			PreviousDir: filepath.Join(outDir, PreviousSubdir),
+			Parents:     func() []string { return gitParents(repoPath) },
+			Repos:       func() []RepoState { return repoStates(e, b) },
+		})
+	}
 
 	// Say which agent session wrote this run. Rotated into previous/ with the rest by
 	// the next write, where it tells a diff whose run it is comparing against.

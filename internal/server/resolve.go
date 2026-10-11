@@ -33,12 +33,6 @@ func (s *Server) rankedCandidatesFor(store *facts.Store, input string) []scoredC
 	return s.resolver(store).RankedCandidates(input)
 }
 
-// Both ask the facts which labels and file shapes the loaded graph has, so they
-// need the store even though they resolve no name.
-func (s *Server) maybePrefixRepoLabel(input string) string {
-	return s.resolver(s.loadedStore()).PrefixRepoLabel(input)
-}
-
 func (s *Server) normalizeToRelative(p string) string {
 	return s.resolver(s.loadedStore()).NormalizeToRelative(p)
 }

@@ -3,7 +3,7 @@
 // in pkg/history.
 //
 // The split is not ceremony. pkg/history must stay importable by anything that only
-// wants to LOOK at a history, which means importing nothing but pkg/facts and the
+// wants to LOOK at a history, which means importing nothing but internal/facts and the
 // standard library and building with CGO_ENABLED=0. Writing needs the file lock and the
 // engine's notion of when a snapshot happened, so it lives here, inside.
 package history

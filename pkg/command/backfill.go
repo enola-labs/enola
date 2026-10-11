@@ -10,9 +10,9 @@ import (
 	"time"
 
 	"github.com/enola-labs/enola/internal/diff"
+	"github.com/enola-labs/enola/internal/facts"
 	inthistory "github.com/enola-labs/enola/internal/history"
 	"github.com/enola-labs/enola/pkg/bootstrap"
-	"github.com/enola-labs/enola/pkg/facts"
 	"github.com/enola-labs/enola/pkg/history"
 )
 

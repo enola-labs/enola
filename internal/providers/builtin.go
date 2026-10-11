@@ -11,6 +11,7 @@ import (
 
 	"github.com/enola-labs/enola/internal/facts"
 	"github.com/enola-labs/enola/internal/providers/rubydex"
+	"github.com/enola-labs/enola/internal/providerspec"
 )
 
 // builtIns are the providers the binary carries itself, keyed by the name a
@@ -21,15 +22,10 @@ var builtIns = map[string]func(ctx context.Context, repoPath string, ignored fun
 	"rubydex": runRubydex,
 }
 
-// BuiltInNames lists the providers a config may name without a command.
-func BuiltInNames() []string {
-	names := make([]string, 0, len(builtIns))
-	for name := range builtIns {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return names
-}
+// BuiltInNames lists the providers a config may name without a command. The
+// names are declared in internal/providerspec, where the config validates
+// against them; builtIns must implement exactly those, which a test checks.
+func BuiltInNames() []string { return providerspec.BuiltInNames() }
 
 func runBuiltIn(ctx context.Context, p Provider, in Input) ([]facts.Fact, facts.ProviderRecord) {
 	repoPath := in.RepoPath

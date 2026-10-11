@@ -521,17 +521,6 @@ func isHTTPMethod(s string) bool {
 	return false
 }
 
-// extractDSLRoutes runs the Scala-source route and storage passes over one file,
-// parsing it itself. The extractor goes through extractFileFacts instead, which
-// shares the declaration walk's parse; this entry point remains for tests that
-// exercise the DSL passes alone.
-func extractDSLRoutes(src []byte, relFile string) []facts.Fact {
-	ff, _ := withScalaTree(src, func(root *sitter.Node) ([]facts.Fact, string) {
-		return dslFactsFrom(root, src, relFile), ""
-	})
-	return ff
-}
-
 // dslFactsFrom runs those passes over a tree the caller already parsed. Each one
 // descends a combinator tree carrying state the declaration walk has no use for,
 // which is why they are separate walks; they no longer need a separate parse.

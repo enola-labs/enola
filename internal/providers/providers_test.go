@@ -132,23 +132,6 @@ func TestRun_ProvidersRunInNameOrder(t *testing.T) {
 	}
 }
 
-func TestValidate_NamesAndCommandsAreRequired(t *testing.T) {
-	for name, bad := range map[string][]Provider{
-		"missing name":    {{Command: []string{"x"}}},
-		"missing command": {{Name: "p"}},
-		"duplicate name":  {{Name: "p", Command: []string{"x"}}, {Name: "p", Command: []string{"y"}}},
-	} {
-		t.Run(name, func(t *testing.T) {
-			if err := Validate(bad); err == nil {
-				t.Fatal("an ill-formed provider config must be a validation error")
-			}
-		})
-	}
-	if err := Validate([]Provider{{Name: "p", Command: []string{"x", "--flag"}, ExpectedVersion: "1.0.0"}}); err != nil {
-		t.Fatalf("a well-formed provider config must validate, got %v", err)
-	}
-}
-
 // Providers run concurrently; the merge is still in name order and the facts
 // still stamped per provider, however the processes happen to finish. A slow
 // "a" and an instant "b" must produce a's facts first, twice over.

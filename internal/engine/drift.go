@@ -110,7 +110,7 @@ func (d Drift) Summary(maxPaths int) string {
 // ABOUT to make a claim about the change — diff_snapshot, and anything else computing
 // its own delta — rather than part of the per-tool-call freshness banner: the banner is
 // a cheap proactive nudge, this is an exact answer at a decision point. See
-// internal/drift for the shared caller.
+// addDriftWarning in internal/server for the caller.
 //
 // The snapshot's recorded hashes cover the repo that snapshot indexed. In multi-repo
 // (append) mode that is the most recently indexed repo, so a caller asking about a

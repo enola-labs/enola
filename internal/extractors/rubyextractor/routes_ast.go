@@ -10,14 +10,6 @@ import (
 	ruby "github.com/tree-sitter/tree-sitter-ruby/bindings/go"
 )
 
-// parseRouteFileAST parses a Rails route file with tree-sitter and emits KindRoute
-// facts. Block boundaries come from the grammar (do_block) rather than counting
-// `do`/`end`, so nested namespaces/resources/scopes are tracked precisely.
-func parseRouteFileAST(src []byte, relFile string) []facts.Fact {
-	ff, _ := parseRouteFile(src, relFile, "", jsonapiContext{format: jsonapiRouteDasherized})
-	return ff
-}
-
 // routeMount records a `mount SomeEngine, at: '/x'` site: the constant that was
 // mounted and the full URL prefix it was mounted under (including any enclosing
 // scope/namespace). extractAllRoutes resolves the constant to the engine directory

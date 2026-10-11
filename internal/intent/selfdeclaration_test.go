@@ -13,7 +13,7 @@ import (
 // one way a layer declaration fails silently.
 //
 // A package no declared path matches is not a violation — it is UNCLASSIFIED, and an
-// unclassified package produces no findings at all. So moving internal/drift somewhere
+// unclassified package produces no findings at all. So moving internal/perf somewhere
 // else, or adding internal/newthing, does not fail the gate: it quietly removes that code
 // from the declaration's reach while every CI job stays green. Nothing in the output
 // changes, which is precisely what makes it worth a test rather than a review habit.

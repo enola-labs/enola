@@ -4,7 +4,7 @@ import (
 	"math"
 	"sort"
 
-	"github.com/enola-labs/enola/pkg/facts"
+	"github.com/enola-labs/enola/internal/facts"
 )
 
 // insightGroupPreviewCap bounds how many of a group's items the overview shows

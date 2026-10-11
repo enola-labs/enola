@@ -658,6 +658,14 @@ func NewCallerFinder(m *routeindex.Matcher, all []facts.Fact) endpoint.CallerFin
 	return func(servers []facts.Fact) []facts.Fact { return CallersOf(m, all, servers) }
 }
 
+// AnalyzeEndpoint is endpoint.Analyze with its callers found by this signal's own
+// matching, under the given linking vocabulary, so a call the linker linked is a
+// caller here too. The tool and the command both answer through it, which is what
+// keeps them from composing the finder two ways.
+func AnalyzeEndpoint(store *facts.Store, v *vocab.Set, query string, maxRoutes int) endpoint.Impact {
+	return endpoint.Analyze(store, query, maxRoutes, NewCallerFinder(routeindex.New(v), store.All()))
+}
+
 // The Reason* constants are the exhaustive set of values written to a client route's
 // "unmatched_reason" prop by UnmatchedClientRouteKeys (surfaced via
 // query_facts(kind=route, prop=unmatched_reason)). They are the string source of

@@ -66,9 +66,6 @@ func Join(elem ...string) string {
 	return path.Join(slashed...)
 }
 
-// Split is path.Split.
-func Split(p string) (dir, file string) { return path.Split(Slash(p)) }
-
 // Match is path.Match: glob matching where "/" is the separator on every host.
 // filepath.Match would treat "\" as the separator on Windows, so `src/*` would
 // match across a directory boundary there and nowhere else.

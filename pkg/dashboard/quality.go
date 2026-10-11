@@ -3,7 +3,7 @@ package dashboard
 import (
 	"sort"
 
-	"github.com/enola-labs/enola/pkg/facts"
+	"github.com/enola-labs/enola/internal/facts"
 )
 
 // coverageRow is one service's cross-repo coverage, backing the Services / Coverage

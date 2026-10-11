@@ -3,7 +3,7 @@ package dashboard
 import (
 	"sort"
 
-	"github.com/enola-labs/enola/pkg/facts"
+	"github.com/enola-labs/enola/internal/facts"
 )
 
 // serviceRow is one entry in the Services modal: a service node (a whole repo in

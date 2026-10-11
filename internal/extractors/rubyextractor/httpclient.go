@@ -89,17 +89,6 @@ var rubyDefLine = regexp.MustCompile(`^\s*def\s+([a-z_][\w!?]*)\s*\(([^)]*)\)`)
 // capturing kwarg name and literal.
 var rubyPathKwarg = regexp.MustCompile(`([a-z_][\w]*):\s*"(/[^"]*)"`)
 
-// extractRubyHTTPClientFacts emits a client-route fact for every hand-written
-// HTTP-client call (Faraday / Net::HTTP / wrapper clients) in a Ruby source
-// file. These represent outbound calls the app makes, so the cross-repo linker
-// can match them (by method + path suffix) to the service route that serves
-// them. Paths are emitted as written; the linker's suffix matching reconciles
-// base-path/prefix differences.
-func extractRubyHTTPClientFacts(src []byte, relFile string) []facts.Fact {
-	out, _, _ := extractRubyHTTPClientFactsCounted(src, relFile)
-	return out
-}
-
 // extractRubyHTTPClientFactsCounted also reports how many client paths were
 // derived through a parameter and the derivations that could not be made,
 // so the repository's extraction fact carries them.

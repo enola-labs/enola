@@ -39,7 +39,7 @@
 //
 // # Boundary
 //
-// This package is READ-ONLY and imports only pkg/facts and the standard library. It must
+// This package is READ-ONLY and imports only internal/facts and the standard library. It must
 // stay buildable with CGO_ENABLED=0: a viewer that reads a history has no business
 // linking ten tree-sitter grammars, and importing pkg/bootstrap or pkg/dashboard (which
 // do) turns a ~4 MB static binary into a ~39 MB cgo one. Writing lives in
@@ -53,7 +53,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/enola-labs/enola/pkg/facts"
+	"github.com/enola-labs/enola/internal/facts"
 )
 
 // LogFileName is the append-only entry log inside a history root.

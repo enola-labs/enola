@@ -283,14 +283,6 @@ func Compile(patterns []string) *Set {
 	return g
 }
 
-// Len reports how many patterns the set holds.
-func (g *Set) Len() int {
-	if g == nil {
-		return 0
-	}
-	return len(g.pats)
-}
-
 // Match returns the first pattern in the set that matches relPath, which must be in
 // fact-path (forward-slash) form. It is Match's answer, reached without redoing
 // the shape analysis.
