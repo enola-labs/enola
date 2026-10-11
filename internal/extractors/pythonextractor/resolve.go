@@ -144,7 +144,18 @@ func resolveCallTargetsWith(allFacts []facts.Fact, fileModules map[string]bool, 
 		var lib pyLibraryCalls
 		out := f.Relations[:0]
 		for _, rel := range f.Relations {
-			if (rel.Kind == facts.RelCalls || rel.Kind == facts.RelInstantiates) && isDottedCallTarget(rel.Target) {
+			if rel.Kind == facts.RelCalls && strings.ContainsRune(rel.Target, ':') {
+				path := configuredPythonSymbol(rel.Target)
+				if path == "" {
+					continue
+				}
+				resolved, keep := resolveDottedTarget(path, fileIdx, topPkgs, importerDir, reexports, symbols)
+				if !keep || !symbols[resolved] {
+					continue // factory strings must name a declared symbol
+				}
+				rel.Target = resolved
+			}
+			if (rel.Kind == facts.RelCalls || rel.Kind == facts.RelInstantiates || rel.Kind == facts.RelNames) && isDottedCallTarget(rel.Target) {
 				resolved, keep := resolve(rel.Target)
 				if !keep {
 					if rel.Kind == facts.RelCalls {

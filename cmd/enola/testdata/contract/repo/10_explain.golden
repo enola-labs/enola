@@ -48,7 +48,7 @@ Impact analysis (hotspots)
 
 Dead code
   potential dead code         2  (of 8 symbols)
-    high confidence           2   (functions — incoming calls tracked; safest to remove first)
+    high confidence           2   (functions — incoming calls tracked; verify dynamic use and compatibility before removal)
     medium confidence         0   (structs/classes/interfaces — usage tracked via instantiate/inject/implements)
     low confidence            0   (methods & types — dispatch/reflection & type usage not edge-tracked; verify each)
     isolated                  0   (breakdown: no references in or out)

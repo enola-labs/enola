@@ -13,8 +13,8 @@ import (
 
 // ExtractTestRefs implements plugin.TestRefExtractor. It parses pytest files for
 // the SOLE purpose of capturing their outbound references into production code,
-// emitting one facts.KindTestRef fact per file carrying only RelCalls/
-// RelInstantiates edges — no symbols, modules or routes.
+// emitting one facts.KindTestRef fact per file carrying call and named-reference
+// edges — no symbols, modules or routes.
 //
 // Emitting nothing but references is what makes this safe to re-enable over files
 // the ignore globs deliberately exclude. The FastAPI router-topology pass runs in
@@ -69,7 +69,36 @@ func (e *PythonExtractor) ExtractTestRefs(ctx context.Context, repoPath string, 
 			fileModules[strings.TrimSuffix(f, ".py")] = true
 		}
 	}
-	resolveCallTargets(out, fileModules, packageDirs(prodFiles))
+	// Package-level definitions and re-exports live in __init__.py. The test
+	// walker deliberately has no production index, so supply just these package
+	// facts to the resolver rather than parsing the whole production tree twice.
+	var initFiles []string
+	for _, f := range prodFiles {
+		if isInitFile(f) {
+			initFiles = append(initFiles, f)
+		}
+	}
+	resolved := append([]facts.Fact(nil), out...)
+	for _, ff := range parallel.MapFiles(ctx, initFiles, func(rel string) []facts.Fact {
+		src, err := os.ReadFile(filepath.Join(repoPath, rel))
+		if err != nil {
+			return nil
+		}
+		ff, _ := extractFileAST(src, rel, false, false, false, nil)
+		return ff
+	}) {
+		resolved = append(resolved, ff...)
+	}
+	modules := make(map[string]bool)
+	for _, file := range prodFiles {
+		if isPythonFile(file) {
+			modules[fileDir(file)] = true
+		}
+	}
+	pkgDirs := packageDirs(prodFiles)
+	resolveImports(resolved, modules, fileModules, pkgDirs)
+	resolveCallTargets(resolved, fileModules, pkgDirs)
+	out = resolved[:len(out)]
 
 	// Keep only targets that resolved to a canonical symbol name. resolveCallTargets
 	// rewrites internal dotted paths to slash form and drops external ones, so a
@@ -130,17 +159,22 @@ func refsFromPyTest(src []byte, relFile string) []facts.Fact {
 	var rels []facts.Relation
 	for _, f := range ff {
 		for _, rel := range f.Relations {
-			if rel.Kind != facts.RelCalls && rel.Kind != facts.RelInstantiates {
+			if rel.Kind != facts.RelCalls && rel.Kind != facts.RelInstantiates && rel.Kind != facts.RelNames {
 				continue
 			}
 			// Self-references inside the test file resolve to the test's own module,
 			// which has no symbol facts — a helper calling another helper marks
 			// nothing live. Drop them so the fact carries only outbound edges.
-			if rel.Target == "" || seen[rel.Target] || strings.HasPrefix(rel.Target, strings.TrimSuffix(relFile, ".py")+".") {
+			kind := facts.RelCalls
+			if rel.Kind == facts.RelNames {
+				kind = facts.RelNames
+			}
+			key := kind + "\x00" + rel.Target
+			if rel.Target == "" || seen[key] || strings.HasPrefix(rel.Target, strings.TrimSuffix(relFile, ".py")+".") {
 				continue
 			}
-			seen[rel.Target] = true
-			rels = append(rels, facts.Relation{Kind: facts.RelCalls, Target: rel.Target})
+			seen[key] = true
+			rels = append(rels, facts.Relation{Kind: kind, Target: rel.Target})
 		}
 	}
 	if len(rels) == 0 {
