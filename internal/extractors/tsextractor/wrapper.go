@@ -59,21 +59,31 @@ func unwrapExpression(kinds *tsutil.KindTable, n *sitter.Node) *sitter.Node {
 // people's code: 3,304 of the symbols it yielded in one application were from five
 // such files, against 3 symbols in the two repositories whose own code is wrapped.
 func wrapperBody(kinds *tsutil.KindTable, stmt *sitter.Node) *sitter.Node {
-	if kindOf(kinds, stmt) != "expression_statement" || stmt.NamedChildCount() == 0 {
-		return nil
-	}
-	call := unwrapExpression(kinds, stmt.NamedChild(0))
-	if kindOf(kinds, call) != "call_expression" {
-		return nil
-	}
-	callee := unwrapExpression(kinds, call.ChildByFieldName("function"))
-	if !isFunctionValue(kinds, callee) {
+	_, callee := wrapperCall(kinds, stmt)
+	if callee == nil {
 		return nil
 	}
 	if body := callee.ChildByFieldName("body"); kindOf(kinds, body) == "statement_block" {
 		return body
 	}
 	return nil
+}
+
+// wrapperCall returns the call a statement makes to a function written where it is
+// called, and that function. Both are nil for any other statement.
+func wrapperCall(kinds *tsutil.KindTable, stmt *sitter.Node) (call, callee *sitter.Node) {
+	if kindOf(kinds, stmt) != "expression_statement" || stmt.NamedChildCount() == 0 {
+		return nil, nil
+	}
+	call = unwrapExpression(kinds, stmt.NamedChild(0))
+	if kindOf(kinds, call) != "call_expression" {
+		return nil, nil
+	}
+	callee = unwrapExpression(kinds, call.ChildByFieldName("function"))
+	if !isFunctionValue(kinds, callee) {
+		return nil, nil
+	}
+	return call, callee
 }
 
 // functionValue returns the function a variable is declared as, when its value is one
@@ -88,7 +98,8 @@ func functionValue(kinds *tsutil.KindTable, declarator *sitter.Node) *sitter.Nod
 }
 
 // withoutPlainVariables drops the variables a wrapper declares that are neither
-// functions nor objects with members of their own.
+// functions nor objects with members of their own, and that it does not hand out
+// (see wrapperExposes): one it hands out can be used from outside after all.
 //
 // A module's top-level variable can be imported by another file, which is why it is a
 // symbol. A wrapper's cannot: the wrapper exists to keep them private, and most are
@@ -104,7 +115,8 @@ func withoutPlainVariables(ff []facts.Fact) []facts.Fact {
 	}
 	kept := ff[:0]
 	for _, f := range ff {
-		plain := f.Kind == facts.KindSymbol && f.Props["symbol_kind"] == facts.SymbolVariable && !hasMembers[f.Name]
+		plain := f.Kind == facts.KindSymbol && f.Props["symbol_kind"] == facts.SymbolVariable &&
+			!hasMembers[f.Name] && f.Props["exported"] != true
 		if !plain {
 			kept = append(kept, f)
 		}

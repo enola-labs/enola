@@ -2794,7 +2794,10 @@ import (
 // v323: a wrapper function's plain variables are not symbols, and a function passed to a
 // wrapper (a universal-module factory) is no longer read; a variable whose value is a
 // function expression is a function, in a wrapper or a module.
-const cacheVersion = "v323"
+// v324: a declaration a JavaScript wrapper hands out (the object or value it returns, a
+// property of the global object or of the CommonJS module) is exported; a plain variable
+// handed out that way is kept.
+const cacheVersion = "v324"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
