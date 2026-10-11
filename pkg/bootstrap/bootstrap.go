@@ -55,6 +55,7 @@ import (
 	"github.com/enola-labs/enola/internal/extractors/swiftextractor"
 	"github.com/enola-labs/enola/internal/extractors/tsextractor"
 	"github.com/enola-labs/enola/internal/facts"
+	"github.com/enola-labs/enola/internal/history"
 	"github.com/enola-labs/enola/internal/linkers/binders/clientseam"
 	"github.com/enola-labs/enola/internal/linkers/binders/emberresolver"
 	"github.com/enola-labs/enola/internal/linkers/binders/frameworkroots"
@@ -83,6 +84,7 @@ import (
 	"github.com/enola-labs/enola/internal/workspace"
 	"github.com/enola-labs/enola/pkg/plan"
 
+	pkghistory "github.com/enola-labs/enola/pkg/history"
 	"github.com/enola-labs/enola/pkg/plugin"
 	"github.com/enola-labs/enola/pkg/status"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -450,7 +452,48 @@ func NewEngineFromConfig(cfg *config.Config) (*Engine, error) {
 	return &Engine{eng: eng}, nil
 }
 
+// RecordHistory wires the architecture history to an engine: every snapshot the engine
+// writes is appended as a revision, unless the config turns recording off. The engine
+// knows nothing about the history; this adapter is the whole connection, which is why
+// it sits in the composition root. Exported for the tests that build a bare engine and
+// still need a history to assert on.
+func RecordHistory(eng *engine.Engine, cfg *config.Config) {
+	if !cfg.HistoryEnabled() {
+		return
+	}
+	recorder := history.NewRecorder(history.RecorderOptions{
+		Dir:          cfg.History.Dir,
+		Blobs:        cfg.HistoryBlobsEnabled(),
+		WorkingKeep:  cfg.History.WorkingKeep,
+		RevisionKeep: cfg.History.RevisionKeep,
+		BlobKeep:     cfg.History.BlobKeep,
+	})
+	eng.SetSnapshotRecorder(func(rec engine.SnapshotRecord) {
+		recorder.Record(history.Record{
+			RepoPath:    rec.RepoPath,
+			Meta:        rec.Meta,
+			Snapshot:    rec.Snapshot,
+			FactsPath:   rec.FactsPath,
+			PreviousDir: rec.PreviousDir,
+			Parents:     rec.Parents,
+			Repos: func() []pkghistory.RepoRef {
+				states := rec.Repos()
+				if len(states) == 0 {
+					return nil
+				}
+				refs := make([]pkghistory.RepoRef, 0, len(states))
+				for _, st := range states {
+					refs = append(refs, pkghistory.RepoRef{Label: st.Label, Commit: st.Commit, Dirty: st.Dirty})
+				}
+				return refs
+			},
+		})
+	})
+}
+
 func registerOSSPlugins(eng *engine.Engine, cfg *config.Config) {
+	RecordHistory(eng, cfg)
+
 	// Register all OSS extractors
 	eng.RegisterExtractor(cppextractor.New())
 	eng.RegisterExtractor(asyncapiextractor.New())

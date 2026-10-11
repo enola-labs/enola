@@ -1,4 +1,4 @@
-package engine
+package history
 
 import (
 	"io"
@@ -9,7 +9,7 @@ import (
 	"github.com/enola-labs/enola/internal/facts"
 )
 
-// A cluster rerun hands recordHistory the same previous/ side once per repository
+// A cluster rerun hands the recorder the same previous/ side once per repository
 // dir; the delta is streamed from the previous facts file once and reused after.
 func TestSummarizeOnce_ReusesTheDeltaForAnIdenticalPair(t *testing.T) {
 	opens := 0
@@ -25,7 +25,7 @@ func TestSummarizeOnce_ReusesTheDeltaForAnIdenticalPair(t *testing.T) {
 		OutputHashes: map[string]string{"facts.jsonl": "sha256:a", "insights.json": "sha256:b"},
 	}}
 
-	e := &Engine{}
+	e := NewRecorder(RecorderOptions{})
 	first := e.summarizeOnce(current, previous)
 	if opens == 0 {
 		t.Fatal("first summary did not read the previous side")

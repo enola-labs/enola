@@ -208,7 +208,7 @@ func LoadSnapshotDir(dir string) (*facts.Snapshot, error) {
 	// scope at the return — the returned slice is the only thing that keeps it alive —
 	// so there is nothing for a copy to protect against.
 	//
-	// It mattered because this runs at the END of every snapshot: recordHistory loads
+	// It mattered because this runs at the END of every snapshot: the history recorder loads
 	// the previous snapshot to summarize the delta, and on a 1.9M-fact graph All's deep
 	// copy of every fact, Props map and Relations slice cost as much again as the load
 	// itself. Measured on the kernel, the history step took footprint from 8.5 GB to

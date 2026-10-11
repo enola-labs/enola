@@ -15,7 +15,7 @@ import (
 // building the whole delta first — every added, removed and changed fact, and both
 // sides' edge sets — which for a summary is the entire cost and none of the value.
 //
-// Measured on a warm dotnet/runtime snapshot before this existed: recordHistory held
+// Measured on a warm dotnet/runtime snapshot before this existed: history recording held
 // 647 MiB at the peak, 66% of the live heap, of which 386 MiB was loading the previous
 // snapshot into a Store and 261 MiB was Compute's group indexes. On the kernel the same
 // two steps account for most of a 3.9 GiB gap between the cold and warm peaks.

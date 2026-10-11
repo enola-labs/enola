@@ -11,6 +11,7 @@ import (
 	"github.com/enola-labs/enola/internal/engine"
 	"github.com/enola-labs/enola/internal/explainers/cycles"
 	"github.com/enola-labs/enola/internal/extractors/goextractor"
+	"github.com/enola-labs/enola/pkg/bootstrap"
 	"github.com/enola-labs/enola/pkg/history"
 )
 
@@ -41,6 +42,8 @@ func historyRepo(t *testing.T) (repo string, hist string, eng *engine.Engine) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The engine records nothing by itself; the composition root wires the history.
+	bootstrap.RecordHistory(eng, cfg)
 	eng.RegisterExtractor(goextractor.New())
 	eng.RegisterExplainer(cycles.New())
 	return repo, hist, eng
@@ -116,6 +119,8 @@ func defaultConfigRepo(t *testing.T, cfg *config.Config) (repo, home string, eng
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The engine records nothing by itself; the composition root wires the history.
+	bootstrap.RecordHistory(eng, cfg)
 	eng.RegisterExtractor(goextractor.New())
 	return repo, home, eng
 }

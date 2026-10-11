@@ -36,7 +36,6 @@ import (
 	"github.com/enola-labs/enola/internal/providers"
 	"github.com/enola-labs/enola/internal/renderers"
 	"github.com/enola-labs/enola/internal/version"
-	pkghistory "github.com/enola-labs/enola/pkg/history"
 	"github.com/enola-labs/enola/pkg/plugin"
 )
 
@@ -91,12 +90,8 @@ type Engine struct {
 	// lastFacts remembers the facts.jsonl this run last serialized, so the next
 	// output dir that receives the same bundle copies the bytes instead.
 	lastFacts lastFactsWrite
-	// historyRecorded remembers which snapshot id this run recorded into which
-	// history root, so a cluster that writes one union to many repo dirs sharing
-	// a history store appends the revision once.
-	historyRecorded map[string]string
-	// summaries remembers this run's previous/ deltas; see summarizeOnce.
-	summaries map[string]pkghistory.Summary
+	// recordSnapshot is called at the end of WriteArtifacts; see SetSnapshotRecorder.
+	recordSnapshot func(SnapshotRecord)
 	// sessionClient is the PID of the agent process this server serves; zero for a
 	// CLI run. See SetSessionClient.
 	sessionClient atomic.Int64
@@ -1508,7 +1503,17 @@ func (e *Engine) WriteArtifacts(repoPath string) error {
 	// same requirement, satisfied by the strongest possible evidence, since the bytes
 	// come from the artifact itself. It also costs nothing when history blobs are off,
 	// which the previous arrangement could not manage.
-	e.recordHistory(repoPath, meta, b, factsPath)
+	if e.recordSnapshot != nil && b.snapshot != nil {
+		e.recordSnapshot(SnapshotRecord{
+			RepoPath:    repoPath,
+			Meta:        meta,
+			Snapshot:    b.snapshot,
+			FactsPath:   factsPath,
+			PreviousDir: filepath.Join(outDir, PreviousSubdir),
+			Parents:     func() []string { return gitParents(repoPath) },
+			Repos:       func() []RepoState { return repoStates(e, b) },
+		})
+	}
 
 	// Say which agent session wrote this run. Rotated into previous/ with the rest by
 	// the next write, where it tells a diff whose run it is comparing against.

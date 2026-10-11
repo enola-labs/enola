@@ -41,8 +41,13 @@ const modulePath = "github.com/enola-labs/enola/"
 // pkg/bootstrap is the composition root and is deliberately absent: it imports
 // every extractor, explainer and binder by design, so its count rises with each
 // language added and says nothing about coupling.
+//
+// pkg/command is the same kind of package for the command line: its count is the
+// union of what its commands need. It keeps a budget anyway, as a ceiling on that
+// union, because splitting it into family packages would put one more layer
+// between every command and the engine.
 var hubBudgets = map[string]int{
-	"internal/engine": 18,
+	"internal/engine": 15,
 	"internal/server": 18,
 	"pkg/command":     31,
 	"pkg/check":       10,
@@ -74,6 +79,11 @@ var forbiddenEdges = []edge{
 	// behind both of them.
 	{"pkg/dashboard", "pkg/bootstrap"},
 	{"pkg/explain", "pkg/bootstrap"},
+	// The engine hands a written snapshot to whoever is wired to it; recording it
+	// as a revision, and the diff that summarizes it, belong to the history.
+	{"internal/engine", "internal/history"},
+	{"internal/engine", "pkg/history"},
+	{"internal/engine", "internal/diff"},
 }
 
 // importGraph returns, for every package in the module, the module packages it

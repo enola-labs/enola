@@ -11,6 +11,7 @@ import (
 	"github.com/enola-labs/enola/internal/engine"
 	"github.com/enola-labs/enola/internal/explainers/cycles"
 	"github.com/enola-labs/enola/internal/extractors/goextractor"
+	"github.com/enola-labs/enola/pkg/bootstrap"
 	pkghistory "github.com/enola-labs/enola/pkg/history"
 )
 
@@ -68,6 +69,7 @@ func TestWriteArtifacts_SameBundleToManyDirsWritesOnceAndRecordsOnce(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
+	bootstrap.RecordHistory(eng, cfg)
 	eng.RegisterExtractor(goextractor.New())
 	eng.RegisterExplainer(cycles.New())
 
