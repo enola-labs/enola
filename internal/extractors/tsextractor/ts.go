@@ -72,6 +72,9 @@ var unambiguousTSExts = map[string]bool{
 // roslyn, both of them TypeScript tooling parked deep inside a repository written in
 // something else.
 //
+// Last comes the repository written in plain JavaScript, which has none of the above;
+// see javaScriptLeads for why that is decided by count and not by a file's presence.
+//
 // Detecting without a root is already a state this extractor handles: a GraphQL-docs
 // repository has reached Extract with findTSRoot returning no root since that arm was
 // added, and every consumer of it pairs tsRoot with a repoPath fallback.
@@ -90,7 +93,7 @@ func (e *TSExtractor) DetectFiles(repoPath string, files []string) (bool, error)
 			return true, nil
 		}
 	}
-	return false, nil
+	return javaScriptLeads(files), nil
 }
 
 // findTSRoot returns the directory that is the TypeScript project root, along

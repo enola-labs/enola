@@ -2786,7 +2786,9 @@ import (
 // v320: the Swift, Scala (Play routes), Dart (pubspec), Kotlin and JVM line readers have no
 // line-length limit. A line over the old limit (1 MB, or bufio's 64 KB default) ended the
 // scan silently and dropped everything after it in that file.
-const cacheVersion = "v320"
+// v321: a repository whose leading language is plain JavaScript is detected by the
+// TypeScript extractor without a tsconfig, a framework dependency or a package.json.
+const cacheVersion = "v321"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
