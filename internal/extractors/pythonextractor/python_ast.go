@@ -2847,19 +2847,6 @@ type pySymbolIndex struct {
 	globals map[string]string
 }
 
-// buildFileIndex scans src for class declarations and populates idx.
-// It does not emit any facts — it is read-only over the AST.
-func buildFileIndex(src []byte, relFile string, idx *pySymbolIndex) {
-	parser := sitter.NewParser()
-	defer parser.Close()
-	if err := parser.SetLanguage(sitter.NewLanguage(python.Language())); err != nil {
-		return
-	}
-	tree := parser.Parse(src, nil)
-	defer tree.Close()
-	indexTree(tree.RootNode(), src, relFile, idx)
-}
-
 // indexTree is buildFileIndex over a tree the caller already parsed, so the
 // extractor contributes to the index from the same parse that emits the facts.
 func indexTree(root *sitter.Node, src []byte, relFile string, idx *pySymbolIndex) {

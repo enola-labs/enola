@@ -166,12 +166,3 @@ func (w *MemWatch) Report(out io.Writer, factCount int) {
 			w.profilePath, w.profilePath)
 	}
 }
-
-// PeakHeap reports the highest HeapAlloc seen so far, for a caller that wants the
-// figure without ending the watch. Zero when not instrumented.
-func (w *MemWatch) PeakHeap() uint64 {
-	if w == nil {
-		return 0
-	}
-	return w.peak.Load()
-}

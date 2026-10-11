@@ -15,7 +15,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/enola-labs/enola/pkg/facts"
+	"github.com/enola-labs/enola/internal/facts"
 )
 
 const (

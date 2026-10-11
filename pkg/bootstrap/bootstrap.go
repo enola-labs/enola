@@ -281,13 +281,6 @@ func (s *Server) RestoreInBackground(eng *Engine, cfg *config.Config) {
 	})
 }
 
-// SeedCorpus publishes the corpus of a graph restored from disk, so queries are
-// priced against it before this process takes a snapshot of its own. Pass the map
-// returned by AutoLoadSnapshot, and call it before Run.
-func (s *Server) SeedCorpus(byRepo map[string]int) {
-	s.srv.SeedCorpus(byRepo)
-}
-
 // SetToolCallback sets a callback invoked once per completed tool call, with the
 // tool name, the absolute repo path the call operated on, whether it succeeded,
 // its response size and any snapshot detail — everything the value model needs
@@ -297,6 +290,13 @@ func (s *Server) SeedCorpus(byRepo map[string]int) {
 // construction.
 func (s *Server) SetToolCallback(cb func(status.ToolCall)) {
 	s.srv.SetToolCallback(cb)
+}
+
+// SeedCorpus publishes the corpus of a graph restored from disk, so queries are
+// priced against it before this process takes a snapshot of its own. Pass the map
+// returned by AutoLoadSnapshot, and call it before Run.
+func (s *Server) SeedCorpus(byRepo map[string]int) {
+	s.srv.SeedCorpus(byRepo)
 }
 
 // MCP returns the underlying MCP server. It is the handle the end-to-end tests use

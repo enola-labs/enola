@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/enola-labs/enola/pkg/facts"
+	"github.com/enola-labs/enola/internal/facts"
 )
 
 // The epoch's whole job is to notice when the graph changed because ENOLA changed rather

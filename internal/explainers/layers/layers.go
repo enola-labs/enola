@@ -1508,11 +1508,6 @@ func resolveLayerModuleFor(dep facts.Fact, modules map[string]string) (string, b
 	return "", false
 }
 
-// matchesLayer checks if a module path contains any of the given patterns.
-func matchesLayer(modulePath string, patterns []string) bool {
-	return matchesLayerIn(modulePath, patterns, false)
-}
-
 // matchesLayerIn compares whole path segments, and with dotted=true each
 // dot-separated component of a segment as well.
 func matchesLayerIn(modulePath string, patterns []string, dotted bool) bool {

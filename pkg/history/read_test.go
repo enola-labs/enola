@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/enola-labs/enola/pkg/facts"
+	"github.com/enola-labs/enola/internal/facts"
 )
 
 // entry builds a minimal committed entry for a test.

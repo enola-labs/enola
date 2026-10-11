@@ -218,14 +218,6 @@ func renderNamesOnly(results []facts.Fact, total int) string {
 // flags (e.g. dead routes) without already knowing the prop name exists.
 var notableBoolProps = []string{"unmatched_by_clients"}
 
-func renderQuerySummary(results []facts.Fact, total int) string {
-	q := newQuerySummary()
-	for i := range results {
-		q.add(&results[i])
-	}
-	return q.render(total)
-}
-
 // querySummary aggregates query_facts' summary one fact at a time, so summary mode
 // can count straight off the store. It used to page through every match 500 at a
 // time, and each page re-ran the whole query and copied every match to skip to its

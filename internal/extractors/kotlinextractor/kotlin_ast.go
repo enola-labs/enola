@@ -11,19 +11,6 @@ import (
 	sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
-// extractFileAST parses a Kotlin file using tree-sitter and emits architectural facts.
-// Output is intended to be a superset of the legacy regex extractor's output: every
-// declaration / import / Room-storage fact is preserved, and new RelInstantiates /
-// RelInjects relations are attached to symbol facts when call sites or @Inject
-// constructor parameters are observed.
-func extractFileAST(src []byte, relFile string, isAndroid bool, sourceRoot, basePackage string, packageIndex map[string]string) []facts.Fact {
-	var out []facts.Fact
-	withTree(src, relFile, isAndroid, sourceRoot, basePackage, packageIndex, func(_ *sitter.Node, walked []facts.Fact) {
-		out = walked
-	})
-	return out
-}
-
 // withTree parses and walks one file and hands the walk's facts to use while the
 // tree is still open. use is not called when the grammar cannot be loaded.
 func withTree(src []byte, relFile string, isAndroid bool, sourceRoot, basePackage string, packageIndex map[string]string,

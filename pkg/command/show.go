@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"github.com/enola-labs/enola/internal/diff"
-	"github.com/enola-labs/enola/pkg/facts"
+	"github.com/enola-labs/enola/internal/facts"
 	"github.com/enola-labs/enola/pkg/history"
 )
 

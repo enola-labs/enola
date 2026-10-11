@@ -3,7 +3,6 @@ package swiftextractor
 import (
 	"bufio"
 	"context"
-	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -636,16 +635,6 @@ func computePerformsIO(allFacts []facts.Fact, methodIndex, funcIndex map[string]
 	}
 }
 
-// extractFile reads a Swift file and delegates to the tree-sitter walker. It
-// preserves the legacy signature used by the test helper extractFromString.
-func extractFile(f *os.File, relFile string, isiOS bool) []facts.Fact {
-	src, err := io.ReadAll(f)
-	if err != nil {
-		return nil
-	}
-	return extractFileAST(src, relFile, isiOS)
-}
-
 // importRe matches a Swift import statement and captures the module name. Used by
 // the AST walker to render import dependency facts.
 var importRe = regexp.MustCompile(`^\s*import\s+(\w+)`)
@@ -726,36 +715,6 @@ func lastDotComponent(name string) string {
 		return name[idx+1:]
 	}
 	return name
-}
-
-// extractSupertypesFromText finds the supertype clause after ":" in text that may
-// contain generic parameters. It skips content inside balanced parentheses and angle brackets.
-//
-// It is retained for direct unit testing of the supertype-clause parsing logic;
-// the AST walker reads supertypes structurally from inheritance_specifier nodes.
-func extractSupertypesFromText(text string) string {
-	depth := 0
-	for i, ch := range text {
-		switch ch {
-		case '(', '<':
-			depth++
-		case ')', '>':
-			depth--
-		case ':':
-			if depth <= 0 {
-				rest := text[i+1:]
-				if braceIdx := strings.Index(rest, "{"); braceIdx >= 0 {
-					rest = rest[:braceIdx]
-				}
-				// Stop at "where" clause.
-				if whereIdx := strings.Index(rest, " where "); whereIdx >= 0 {
-					rest = rest[:whereIdx]
-				}
-				return strings.TrimSpace(rest)
-			}
-		}
-	}
-	return ""
 }
 
 // --- iOS detection helpers ---

@@ -209,13 +209,6 @@ func (t *Tracker) PersistStartup() {
 	t.startHeartbeat()
 }
 
-// OnToolCall records a completed call by name only, crediting it as a successful
-// query. It is retained for callers that cannot describe the outcome; the server
-// uses Record, which prices the call properly.
-func (t *Tracker) OnToolCall(toolName, repo string) {
-	t.Record(ToolCall{Tool: toolName, Repo: repo, OK: true})
-}
-
 // Record accounts for one completed tool call: it increments the call count and
 // accumulates the token credit the call earned. repo is the absolute path of the
 // repo the call operated on; an empty repo falls back to the tracker's fallback
@@ -381,15 +374,6 @@ func (t *Tracker) Self() Instance {
 // failed write only makes this instance briefly invisible to other dashboards.
 func (t *Tracker) persistInstance() {
 	_ = writeInstance(t.Self())
-}
-
-// GetStatus returns the current status snapshot for a single repo. Caller need
-// not hold the lock.
-func (t *Tracker) GetStatus(repo string) StatusInfo {
-	repo = canonicalRepoPath(repo)
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	return t.infoLocked(t.stateLocked(repo))
 }
 
 // stateLocked returns the repoState for repo, lazily creating it and loading

@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/enola-labs/enola/internal/config"
-	"github.com/enola-labs/enola/pkg/facts"
+	"github.com/enola-labs/enola/internal/facts"
 	"github.com/enola-labs/enola/pkg/history"
 )
 

@@ -55,7 +55,7 @@ func Root(repoPath, override string) (string, error) {
 // This mirrors the scheme internal/engine uses for ~/.enola/graphs/<key>.json (and
 // pkg/status for its usage files) so a workspace's history sits beside its receipt under
 // one recognizable name. It is deliberately a separate implementation rather than a
-// shared one: this package must import nothing but pkg/facts and the standard library
+// shared one: this package must import nothing but internal/facts and the standard library
 // (see the package doc), and the engine's copy exists so the engine depends on nothing
 // outside itself. The two agreeing is cosmetic — they name different files, and a
 // divergence would be untidy rather than wrong.

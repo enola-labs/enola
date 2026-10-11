@@ -27,9 +27,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/enola-labs/enola/internal/diff"
+	"github.com/enola-labs/enola/internal/facts"
 	"github.com/enola-labs/enola/internal/metrics"
-	"github.com/enola-labs/enola/pkg/diff"
-	"github.com/enola-labs/enola/pkg/facts"
 	"github.com/enola-labs/enola/pkg/history"
 	"github.com/enola-labs/enola/pkg/status"
 )

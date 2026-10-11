@@ -46,7 +46,6 @@ layers:
       - "pkg/explain/**"
       - "pkg/dashboard/**"
       - "pkg/check/**"
-      - "pkg/diff/**"
   - name: orchestration
     paths:
       - "pkg/bootstrap/**"
@@ -113,7 +112,6 @@ layers:
       # internal/workspace is core, and depends on nothing of enola's: it finds the git
       # repositories under a folder for the CLI, the subcommands and the MCP server.
       - "internal/workspace/**"
-      - "pkg/facts/**"
       - "pkg/plugin/**"
       - "pkg/history/**"
       - "pkg/coverage/**"

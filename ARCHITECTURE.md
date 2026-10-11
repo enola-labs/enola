@@ -240,7 +240,7 @@ The value estimate `--status` and the dashboard render lives in [`pkg/status/val
 
 **The shared URL.** Each server binds its own ephemeral port, then competes for a fixed one (`DefaultStablePort`, overridable via `ENOLA_DASHBOARD_PORT` or `dashboard.port`; see `ResolveStablePort`). The winner serves the same mux from both and flags itself `FrontDoor` in the registry; the losers retry every few seconds, so when the holder exits another picks the port up and the bookmark survives. There is no coordination beyond the OS refusing the second bind.
 
-The page reads receipts into the engine's own `facts.Receipt` / `facts.GraphReceipt` types, re-exported from `pkg/facts` precisely so a consumer never hand-writes a JSON mirror that drifts.
+The page reads receipts into the engine's own `facts.Receipt` / `facts.GraphReceipt` types, so nothing hand-writes a JSON mirror that drifts.
 
 **The insight allowlist.** `insightLabels` in [`pkg/dashboard/insights.go`](pkg/dashboard/insights.go) maps explainer id → display label, one entry per explainer `bootstrap.NewEngine` registers, and it doubles as an admission list: `insightDetails` drops any insight whose `Source` is absent from it, and excludes it from the structural/candidate counts. This matters because both binaries share a repo's `.enola/insights.json` — without the filter, a file written by a build with extra explainers would surface findings this engine cannot produce. For the same reason the clickable insight counters render the *filtered* total rather than the receipt's raw `insight_count`, so the number you click always matches the list you get.
 
@@ -644,7 +644,7 @@ The typical loop is `generate_snapshot → set_baseline → edit → generate_sn
 | `output_mode` | `summary` (default — headline regressions/improvements + structural tally) → `compact` (adds finding descriptions, evidence, and the changed edges/facts) → `full` (complete JSON). |
 | `max_tokens` | Optional hard cap on output size. |
 
-The engine lives in [`internal/diff`](internal/diff/diff.go) (pure `Compute` + deterministic renderers) and is re-exported for out-of-module use via [`pkg/diff`](pkg/diff/diff.go); baseline persistence, the on-disk loader and the shared selector resolution (`ResolveBaselineDir`) live in [`internal/engine/baseline.go`](internal/engine/baseline.go). `diff_snapshot` also runs the **comparability guard** (`diff.CompareMeta`): it reads the receipt fields on both snapshots' metadata and warns, above the delta, when they were not generated over equivalent inputs.
+The engine lives in [`internal/diff`](internal/diff/diff.go) (pure `Compute` + deterministic renderers); baseline persistence, the on-disk loader and the shared selector resolution (`ResolveBaselineDir`) live in [`internal/engine/baseline.go`](internal/engine/baseline.go). `diff_snapshot` also runs the **comparability guard** (`diff.CompareMeta`): it reads the receipt fields on both snapshots' metadata and warns, above the delta, when they were not generated over equivalent inputs.
 
 #### Comparability is a spectrum, not a boolean
 
@@ -663,7 +663,7 @@ The engine lives in [`internal/diff`](internal/diff/diff.go) (pure `Compute` + d
 | `stale_baseline` | the baseline is ≥ 3 days older | **advisory** — warn and still grade |
 | `pre_receipt` | the baseline predates snapshot receipts | advisory |
 
-`Kinds` is a **set**, not a per-message list, so `Warnings` keeps its type and JSON shape for every existing consumer (the dashboard, `output_mode='full'`, and out-of-module readers via `pkg/diff`). Callers that know their category should use `AddWarningKind` rather than `AddWarning`.
+`Kinds` is a **set**, not a per-message list, so `Warnings` keeps its type and JSON shape for every existing consumer (the dashboard and `output_mode='full'`). Callers that know their category should use `AddWarningKind` rather than `AddWarning`.
 
 > Note on timestamps: `GeneratedAt` is RFC3339, i.e. **second** resolution, so a baseline pinned and then diffed inside the same second yields a zero gap. Zero is *simultaneous*, not inverted — `inverted_pair` requires a strictly negative gap. Treating zero as inverted made a no-op check on an untouched repository report "the current snapshot does not contain your change".
 
