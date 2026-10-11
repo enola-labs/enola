@@ -2,8 +2,8 @@
 // architectural snapshot — the data behind `enola --explain <repository>`.
 //
 // Report is exported data and Render turns it into text. Compute works purely off
-// the exported bootstrap.Engine API, so it sees whatever the engine currently
-// holds: run GenerateSnapshot (or auto-load a snapshot) first.
+// the Source it is handed, so it sees whatever the engine currently holds: run
+// GenerateSnapshot (or auto-load a snapshot) first.
 package explain
 
 import (
@@ -17,7 +17,6 @@ import (
 	"github.com/enola-labs/enola/internal/metrics"
 	"github.com/enola-labs/enola/internal/orphans"
 	"github.com/enola-labs/enola/internal/perf"
-	"github.com/enola-labs/enola/pkg/bootstrap"
 )
 
 // Criticality thresholds for a module hotspot, scored by fan-in + fan-out.
@@ -168,9 +167,18 @@ type Report struct {
 	Performance    *perf.Summary    `json:"performance,omitempty"`
 }
 
+// Source is what a report is computed from: the published fact store and the
+// snapshot that describes it. *bootstrap.Engine satisfies it. An interface, so
+// this package does not import the composition root and, through it, every
+// extractor the binary carries.
+type Source interface {
+	Store() *facts.Store
+	Snapshot() *facts.Snapshot
+}
+
 // Compute reads the engine's current fact store and snapshot and builds a Report.
 // It does not generate a snapshot — callers do that first.
-func Compute(eng *bootstrap.Engine) *Report {
+func Compute(eng Source) *Report {
 	store := eng.Store()
 	snap := eng.Snapshot()
 

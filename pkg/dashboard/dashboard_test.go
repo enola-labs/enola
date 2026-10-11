@@ -145,7 +145,7 @@ func TestNewFindingsCardLinksToDrillDown(t *testing.T) {
 	}
 }
 
-// fakeArtifacts is a stub engineView for handler tests. activeRepo/outputDir
+// fakeArtifacts is a stub Engine for handler tests. activeRepo/outputDir
 // drive the on-disk receipt fallback (empty by default → no fallback). store is
 // nil by default, so graphDetails yields empty lists and the counters render as
 // plain (non-clickable) numbers.
@@ -182,7 +182,7 @@ func (f fakeArtifacts) DashboardState() (*facts.Store, *facts.Snapshot, *facts.G
 // merged insight labels included — but without binding a port. Constructing the
 // struct literally instead would leave those nil, so a handler test would panic
 // rather than exercise what the real server renders.
-func newTestServer(port int, eng engineView, opts ...Options) *Server {
+func newTestServer(port int, eng Engine, opts ...Options) *Server {
 	var o Options
 	if len(opts) > 0 {
 		o = opts[0]

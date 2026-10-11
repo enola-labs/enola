@@ -28,7 +28,6 @@ import (
 	"time"
 
 	"github.com/enola-labs/enola/internal/metrics"
-	"github.com/enola-labs/enola/pkg/bootstrap"
 	"github.com/enola-labs/enola/pkg/diff"
 	"github.com/enola-labs/enola/pkg/facts"
 	"github.com/enola-labs/enola/pkg/history"
@@ -76,16 +75,17 @@ type Options struct {
 // defaultTitle is the product name shown when Options.Title is empty.
 const defaultTitle = "enola"
 
-// engineView is the slice of the engine the dashboard depends on. Narrowing to
-// an interface keeps the handler testable without constructing a full engine.
-// *bootstrap.Engine satisfies it.
+// Engine is the slice of the engine the dashboard depends on. Narrowing to an
+// interface keeps the handler testable without constructing a full engine, and
+// keeps this package from importing the composition root and, through it, every
+// extractor the binary carries. *bootstrap.Engine satisfies it.
 //
 //   - GetArtifact fetches the live in-memory receipt ("receipt.json").
 //   - ActiveRepo + OutputDir locate the last-written receipt on disk, used as a
 //     fallback: AutoLoadSnapshot restores a snapshot's facts with an near-empty
 //     Meta, so after a server restart the in-memory receipt is blank while a full
 //     one persists at <repo>/.enola/receipt.json.
-type engineView interface {
+type Engine interface {
 	GetArtifact(name string) ([]byte, error)
 	ActiveRepo() string
 	OutputDir(repoPath string) string
@@ -98,7 +98,7 @@ type engineView interface {
 // Server is a running dashboard HTTP server bound to a loopback port.
 type Server struct {
 	port int
-	eng  engineView
+	eng  Engine
 	opts Options
 	tmpl *template.Template
 	mux  *http.ServeMux
@@ -119,7 +119,7 @@ type Server struct {
 // Start binds a free ephemeral port on 127.0.0.1, serves the dashboard from a
 // background goroutine, and returns immediately. A serve error after startup is
 // logged to stderr and never propagated — the MCP server must keep running.
-func Start(eng *bootstrap.Engine, opts Options) (*Server, error) {
+func Start(eng Engine, opts Options) (*Server, error) {
 	tmpl, err := buildTemplate()
 	if err != nil {
 		return nil, err
