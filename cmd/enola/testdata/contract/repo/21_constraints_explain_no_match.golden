@@ -1,0 +1,9 @@
+$ enola constraints explain no/such/file.go .
+exit: 0
+--- stdout
+no/such/file.go
+  read from: the snapshot generated <TIME>
+
+  no measured fact lives in this file
+--- stderr
+enola: no mcp-arch.yaml in <TMP>/go_sample, using built-in defaults

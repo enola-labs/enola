@@ -1,0 +1,11 @@
+$ enola uninstall --yes --targets=claude .
+exit: 0
+--- stdout
+Uninstall
+Target:     .   (from the path you gave)
+
+  removed   .claude/rules/enola.md
+  removed   .claude/settings.json
+
+Removed — 2 files as previewed.
+--- stderr

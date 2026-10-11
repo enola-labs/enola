@@ -2,5 +2,6 @@ $ enola ./no/such/path
 exit: 1
 --- stdout
 --- stderr
+"./no/such/path" is neither a directory (a repository) nor an existing file (a config).
 
 A path naming a DIRECTORY is treated as a repository; one naming a FILE is treated as a config.

@@ -1,0 +1,107 @@
+$ enola constraints mine --min-support 1 --min-confidence 0.5 --top 5 .
+exit: 0
+--- stdout
+Snapshot: <TMP>/go_sample/.enola
+Mined 9 candidate constraints over 18 facts — proposals for operator review, never self-adopting law.
+Thresholds: support >= 1, confidence >= 0.50, exceptions <= 20 per candidate. Ranked by confidence x support.
+
+  1. 1.000 x 9      [prop-implication symbol] 9/9 symbol facts have language containing go
+     exceptions: none in the mined snapshot
+     would-be rule (adopt by hand: copy into enola/constraints/, rewrite because:, review mode):
+       components:
+         - name: "mined-symbol"
+           kind: "symbol"
+           match:
+             - "main.go"
+             - "pkg/**"
+       rules:
+         - id: "mined-symbol-all-language-go"
+           require: "mined-symbol"
+           must_prop_contain:
+             prop: "language"
+             value: "go"
+           mode: "advisory"
+           because: "Mined regularity: 9/9 symbol facts have language containing go. No exceptions in the mined snapshot. Rewrite this rationale before adopting."
+
+  2. 1.000 x 9      [prop-implication symbol] 9/9 symbol facts have symbol_kind containing function
+     exceptions: none in the mined snapshot
+     would-be rule (adopt by hand: copy into enola/constraints/, rewrite because:, review mode):
+       components:
+         - name: "mined-symbol"
+           kind: "symbol"
+           match:
+             - "main.go"
+             - "pkg/**"
+       rules:
+         - id: "mined-symbol-all-symbol-kind-function"
+           require: "mined-symbol"
+           must_prop_contain:
+             prop: "symbol_kind"
+             value: "function"
+           mode: "advisory"
+           because: "Mined regularity: 9/9 symbol facts have symbol_kind containing function. No exceptions in the mined snapshot. Rewrite this rationale before adopting."
+
+  3. 0.875 x 8      [naming symbol] 7/8 symbol facts under pkg/ are named pkg/a.*
+     exceptions (1): pkg/b.Beta (pkg/b/b.go)
+     would-be rule (adopt by hand: copy into enola/constraints/, rewrite because:, review mode):
+       components:
+         - name: "mined-pkg"
+           kind: "symbol"
+           match:
+             - "pkg/**"
+       rules:
+         - id: "mined-pkg-symbol-named-pkg-a"
+           require_name: "mined-pkg"
+           pattern: "pkg/a.*"
+           mode: "advisory"
+           because: "Mined regularity: 7/8 symbol facts under pkg/ are named pkg/a.*. Exceptions: pkg/b.Beta (pkg/b/b.go). Rewrite this rationale before adopting."
+
+  4. 1.000 x 3      [prop-implication module] 3/3 module facts have language containing go
+     exceptions: none in the mined snapshot
+     would-be rule (adopt by hand: copy into enola/constraints/, rewrite because:, review mode):
+       components:
+         - name: "mined-module"
+           kind: "module"
+           match:
+             - "."
+             - "pkg/**"
+       rules:
+         - id: "mined-module-all-language-go"
+           require: "mined-module"
+           must_prop_contain:
+             prop: "language"
+             value: "go"
+           mode: "advisory"
+           because: "Mined regularity: 3/3 module facts have language containing go. No exceptions in the mined snapshot. Rewrite this rationale before adopting."
+
+  5. 1.000 x 1      [allow-only] 1/1 calls edges leaving pkg/a/ land in pkg/b
+     exceptions: none in the mined snapshot
+     would-be rule (adopt by hand: copy into enola/constraints/, rewrite because:, review mode):
+       components:
+         - name: "mined-pkg-a"
+           match:
+             - "pkg/a/**"
+         - name: "mined-pkg-b"
+           match:
+             - "pkg/b/**"
+       rules:
+         - id: "mined-allow-pkg-a-calls"
+           allow: "mined-pkg-a"
+           only:
+             - "mined-pkg-b"
+           via: "calls"
+           mode: "advisory"
+           because: "Mined regularity: 1/1 calls edges leaving pkg/a/ land in pkg/b. No exceptions in the mined snapshot. Rewrite this rationale before adopting."
+
+... and 4 more candidates below rank 5 — raise --top or read the --jsonl artifact.
+
+Suppressed below the floors (counted, never silent):
+  allow-only:       0 would-be candidates under the support floor of 1; 0 over the exception ceiling of 20; 0 tautological
+  forbid-edge:      0 would-be candidates under the support floor of 1; 0 over the exception ceiling of 20; 0 tautological
+  method-presence:  0 would-be candidates under the support floor of 1; 0 over the exception ceiling of 20; 0 tautological
+  naming:           0 would-be candidates under the support floor of 1; 0 over the exception ceiling of 20; 5 tautological
+  prop-implication: 0 would-be candidates under the support floor of 1; 0 over the exception ceiling of 20; 1 tautological
+6 tautological candidate(s) suppressed — the statement holds by construction; --include-tautologies prints them
+--- stderr
+enola: no mcp-arch.yaml in <TMP>/go_sample, using built-in defaults
+enola constraints mine: repo <TMP>/go_sample (built-in default config)

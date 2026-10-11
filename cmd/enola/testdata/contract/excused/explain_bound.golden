@@ -1,0 +1,37 @@
+$ enola constraints explain pkg/a/a.go .
+exit: 0
+--- stdout
+pkg/a/a.go
+  read from: the snapshot generated <TIME>
+
+  measured facts:
+    dependency pkg/a -> example.com/gosample/pkg/b
+    symbol pkg/a.Alpha
+    symbol pkg/a.Gamma
+    symbol pkg/a.GetPath
+    symbol pkg/a.Seed
+    symbol pkg/a.getByID
+    symbol pkg/a.helper
+    symbol pkg/a.setup
+  components:
+    pkg-a: match pkg/a/** (declared in enola-intent.yaml)
+      pkg/a.Alpha
+      pkg/a.Gamma
+      pkg/a.GetPath
+      pkg/a.Seed
+      pkg/a.getByID
+      pkg/a.helper
+      pkg/a.setup
+  outgoing edges:
+       3  pkg/a -> example.com/gosample/pkg/b --imports--> pkg/b
+       7  pkg/a.Alpha --calls--> pkg/b.Beta
+      15  pkg/a.GetPath --calls--> pkg/a.getByID
+      24  pkg/a.Seed --calls--> pkg/a.setup
+  incoming edges (by kind and the part the source belongs to):
+    calls        from (no part)                     3  e.g. ..main, pkg/a/a_ext_test.go, pkg/a/a_test.go
+    calls        from pkg-b                         1  e.g. pkg/b.Beta
+  if pkg/a/a.go left every part (1 rule(s) re-run over the loaded snapshot):
+    would start failing: nothing
+    would stop being checked: nothing
+--- stderr
+enola: no mcp-arch.yaml in <TMP>/go_sample, using built-in defaults

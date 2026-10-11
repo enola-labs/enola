@@ -1,0 +1,5 @@
+$ enola constraints mine --min-confidence 7 .
+exit: 2
+--- stdout
+--- stderr
+enola constraints: --min-confidence 7 is outside (0..1] — a floor of nothing admits everything, and one above 1 admits nothing

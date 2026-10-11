@@ -1,0 +1,52 @@
+$ enola constraints ledger --json .
+exit: 0
+--- stdout
+{
+  "summary": {
+    "rules": 1,
+    "by_mode": {
+      "ratchet": 1
+    },
+    "breaches": 0,
+    "suppressed": 0,
+    "exempted": 1,
+    "excused": 1,
+    "oldest_excuse_days": "<N>",
+    "idle_excuses": 1
+  },
+  "rules": [
+    {
+      "id": "a-avoids-b",
+      "mode": "ratchet",
+      "source": "enola-intent.yaml",
+      "repo": "go_sample",
+      "because": "a must stay deliverable without b",
+      "breaches": 0,
+      "suppressed": 0,
+      "exempted": 1,
+      "excuses": [
+        {
+          "kind": "exemption",
+          "owner": "dana",
+          "reason": "the cycle is scheduled for removal",
+          "date": "2026-08-01",
+          "age_days": "<N>",
+          "witness": "pkg/a -\u003e example.com/gosample/pkg/b -\u003e pkg/b via imports",
+          "matched": true
+        },
+        {
+          "kind": "exemption",
+          "owner": "dana",
+          "reason": "excuses an edge that does not exist",
+          "date": "2026-08-01",
+          "age_days": "<N>",
+          "witness": "pkg/a -\u003e example.com/gosample/pkg/z -\u003e pkg/z via imports",
+          "matched": false
+        }
+      ]
+    }
+  ],
+  "generated_at": "<TIME>"
+}
+--- stderr
+enola: no mcp-arch.yaml in <TMP>/go_sample, using built-in defaults

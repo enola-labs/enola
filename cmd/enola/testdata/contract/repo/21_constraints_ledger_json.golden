@@ -1,0 +1,30 @@
+$ enola constraints ledger --json .
+exit: 0
+--- stdout
+{
+  "summary": {
+    "rules": 1,
+    "by_mode": {
+      "ratchet": 1
+    },
+    "breaches": 1,
+    "suppressed": 0,
+    "exempted": 0,
+    "excused": 0
+  },
+  "rules": [
+    {
+      "id": "a-avoids-b",
+      "mode": "ratchet",
+      "source": "enola-intent.yaml",
+      "repo": "go_sample",
+      "because": "a must stay deliverable without b",
+      "breaches": 1,
+      "suppressed": 0,
+      "exempted": 0
+    }
+  ],
+  "generated_at": "<TIME>"
+}
+--- stderr
+enola: no mcp-arch.yaml in <TMP>/go_sample, using built-in defaults

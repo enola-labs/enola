@@ -1,0 +1,5 @@
+$ enola gc --thin-older-than soon .
+exit: 2
+--- stdout
+--- stderr
+enola gc: --thin-older-than "soon" is neither a day count (90d) nor a duration (720h)

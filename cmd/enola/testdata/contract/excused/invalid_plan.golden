@@ -1,0 +1,7 @@
+$ enola plan pkg/a/a.go .
+exit: 2
+--- stdout
+--- stderr
+enola: no mcp-arch.yaml in <TMP>/go_sample, using built-in defaults
+enola plan: repo <TMP>/go_sample (built-in default config)
+enola plan: the working tree's declaration is invalid — fix it or run `enola constraints lint`: <TMP>/go_sample/enola-intent.yaml: invalid intent declaration: components[0] (pkg-a): needs at least one match pattern, a service, or a where predicate; rules[0] (broken): forbid "nowhere" names no declared component; rules[0] (broken): via "" is not a rule edge kind (allowed: calls, depends_on, implements, imports); rules[0] (broken): needs a because — a rule with no stated rationale cannot surface one in its findings

@@ -1,0 +1,11 @@
+$ enola install --yes --targets=claude .
+exit: 0
+--- stdout
+Install
+Target:     .   (from the path you gave)
+Hooks:      no — instructions only. Re-run with --hooks to automate the loop.
+
+  created   .claude/rules/enola.md
+
+Written — 1 file as previewed.
+--- stderr

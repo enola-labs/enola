@@ -2,3 +2,4 @@ $ enola --no-such-flag
 exit: 1
 --- stdout
 --- stderr
+unknown flag "--no-such-flag" — run `enola --help` for the supported flags.

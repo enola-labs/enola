@@ -1,0 +1,179 @@
+$ enola constraints mine --min-support 1 --scaffold-eslint ../eslint .
+exit: 0
+--- stdout
+Snapshot: <TMP>/go_sample/.enola
+Mined 8 candidate constraints over 18 facts — proposals for operator review, never self-adopting law.
+Thresholds: support >= 1, confidence >= 0.90, exceptions <= 20 per candidate. Ranked by confidence x support.
+
+  1. 1.000 x 9      [prop-implication symbol] 9/9 symbol facts have language containing go
+     exceptions: none in the mined snapshot
+     would-be rule (adopt by hand: copy into enola/constraints/, rewrite because:, review mode):
+       components:
+         - name: "mined-symbol"
+           kind: "symbol"
+           match:
+             - "main.go"
+             - "pkg/**"
+       rules:
+         - id: "mined-symbol-all-language-go"
+           require: "mined-symbol"
+           must_prop_contain:
+             prop: "language"
+             value: "go"
+           mode: "advisory"
+           because: "Mined regularity: 9/9 symbol facts have language containing go. No exceptions in the mined snapshot. Rewrite this rationale before adopting."
+
+  2. 1.000 x 9      [prop-implication symbol] 9/9 symbol facts have symbol_kind containing function
+     exceptions: none in the mined snapshot
+     would-be rule (adopt by hand: copy into enola/constraints/, rewrite because:, review mode):
+       components:
+         - name: "mined-symbol"
+           kind: "symbol"
+           match:
+             - "main.go"
+             - "pkg/**"
+       rules:
+         - id: "mined-symbol-all-symbol-kind-function"
+           require: "mined-symbol"
+           must_prop_contain:
+             prop: "symbol_kind"
+             value: "function"
+           mode: "advisory"
+           because: "Mined regularity: 9/9 symbol facts have symbol_kind containing function. No exceptions in the mined snapshot. Rewrite this rationale before adopting."
+
+  3. 1.000 x 3      [prop-implication module] 3/3 module facts have language containing go
+     exceptions: none in the mined snapshot
+     would-be rule (adopt by hand: copy into enola/constraints/, rewrite because:, review mode):
+       components:
+         - name: "mined-module"
+           kind: "module"
+           match:
+             - "."
+             - "pkg/**"
+       rules:
+         - id: "mined-module-all-language-go"
+           require: "mined-module"
+           must_prop_contain:
+             prop: "language"
+             value: "go"
+           mode: "advisory"
+           because: "Mined regularity: 3/3 module facts have language containing go. No exceptions in the mined snapshot. Rewrite this rationale before adopting."
+
+  4. 1.000 x 1      [allow-only] 1/1 calls edges leaving pkg/a/ land in pkg/b
+     exceptions: none in the mined snapshot
+     would-be rule (adopt by hand: copy into enola/constraints/, rewrite because:, review mode):
+       components:
+         - name: "mined-pkg-a"
+           match:
+             - "pkg/a/**"
+         - name: "mined-pkg-b"
+           match:
+             - "pkg/b/**"
+       rules:
+         - id: "mined-allow-pkg-a-calls"
+           allow: "mined-pkg-a"
+           only:
+             - "mined-pkg-b"
+           via: "calls"
+           mode: "advisory"
+           because: "Mined regularity: 1/1 calls edges leaving pkg/a/ land in pkg/b. No exceptions in the mined snapshot. Rewrite this rationale before adopting."
+
+  5. 1.000 x 1      [allow-only] 1/1 calls edges leaving pkg/b/ land in pkg/a
+     exceptions: none in the mined snapshot
+     would-be rule (adopt by hand: copy into enola/constraints/, rewrite because:, review mode):
+       components:
+         - name: "mined-pkg-b"
+           match:
+             - "pkg/b/**"
+         - name: "mined-pkg-a"
+           match:
+             - "pkg/a/**"
+       rules:
+         - id: "mined-allow-pkg-b-calls"
+           allow: "mined-pkg-b"
+           only:
+             - "mined-pkg-a"
+           via: "calls"
+           mode: "advisory"
+           because: "Mined regularity: 1/1 calls edges leaving pkg/b/ land in pkg/a. No exceptions in the mined snapshot. Rewrite this rationale before adopting."
+
+  6. 1.000 x 1      [allow-only] 1/1 imports edges leaving pkg/a/ land in pkg
+     exceptions: none in the mined snapshot
+     would-be rule (adopt by hand: copy into enola/constraints/, rewrite because:, review mode):
+       components:
+         - name: "mined-pkg-a"
+           match:
+             - "pkg/a/**"
+         - name: "mined-pkg"
+           match:
+             - "pkg/**"
+       rules:
+         - id: "mined-allow-pkg-a-imports"
+           allow: "mined-pkg-a"
+           only:
+             - "mined-pkg"
+           via: "imports"
+           mode: "advisory"
+           because: "Mined regularity: 1/1 imports edges leaving pkg/a/ land in pkg. No exceptions in the mined snapshot. Rewrite this rationale before adopting."
+
+  7. 1.000 x 1      [allow-only] 1/1 imports edges leaving pkg/b/ land in pkg
+     exceptions: none in the mined snapshot
+     would-be rule (adopt by hand: copy into enola/constraints/, rewrite because:, review mode):
+       components:
+         - name: "mined-pkg-b"
+           match:
+             - "pkg/b/**"
+         - name: "mined-pkg"
+           match:
+             - "pkg/**"
+       rules:
+         - id: "mined-allow-pkg-b-imports"
+           allow: "mined-pkg-b"
+           only:
+             - "mined-pkg"
+           via: "imports"
+           mode: "advisory"
+           because: "Mined regularity: 1/1 imports edges leaving pkg/b/ land in pkg. No exceptions in the mined snapshot. Rewrite this rationale before adopting."
+
+  8. 1.000 x 1      [prop-implication module] 1/1 module facts whose modulePath contains example.com/gosample also have package containing main
+     exceptions: none in the mined snapshot
+     would-be rule (adopt by hand: copy into enola/constraints/, rewrite because:, review mode):
+       components:
+         - name: "mined-module"
+           kind: "module"
+           match:
+             - "."
+             - "pkg/**"
+       rules:
+         - id: "mined-module-modulepath-example-com-gosample-implies-package-main"
+           require: "mined-module"
+           when_prop_contains:
+             prop: "modulePath"
+             value: "example.com/gosample"
+           must_prop_contain:
+             prop: "package"
+             value: "main"
+           mode: "advisory"
+           because: "Mined regularity: 1/1 module facts whose modulePath contains example.com/gosample also have package containing main. No exceptions in the mined snapshot. Rewrite this rationale before adopting."
+
+Suppressed below the floors (counted, never silent):
+  allow-only:       0 would-be candidates under the support floor of 1; 0 over the exception ceiling of 20; 0 tautological
+  forbid-edge:      0 would-be candidates under the support floor of 1; 0 over the exception ceiling of 20; 0 tautological
+  method-presence:  0 would-be candidates under the support floor of 1; 0 over the exception ceiling of 20; 0 tautological
+  naming:           0 would-be candidates under the support floor of 1; 0 over the exception ceiling of 20; 5 tautological
+  prop-implication: 0 would-be candidates under the support floor of 1; 0 over the exception ceiling of 20; 1 tautological
+6 tautological candidate(s) suppressed — the statement holds by construction; --include-tautologies prints them
+
+ESLint scaffolds: 0 rule(s) under ../eslint (0 files)
+Left as constraint proposals: 8
+  prop-implication||symbol|all|language|go: the prop-implication family needs the graph
+  prop-implication||symbol|all|symbol_kind|function: the prop-implication family needs the graph
+  prop-implication||module|all|language|go: the prop-implication family needs the graph
+  allow-only||pkg/a|calls: the allow-only family needs the graph
+  allow-only||pkg/b|calls: the allow-only family needs the graph
+  allow-only||pkg/a|imports: the allow-only family needs the graph
+  allow-only||pkg/b|imports: the allow-only family needs the graph
+  prop-implication||module|when|modulePath|example.com/gosample|then|package|main: the prop-implication family needs the graph
+--- stderr
+enola: no mcp-arch.yaml in <TMP>/go_sample, using built-in defaults
+enola constraints mine: repo <TMP>/go_sample (built-in default config)

@@ -1,0 +1,108 @@
+$ enola constraints explain --json pkg/a/a.go .
+exit: 0
+--- stdout
+{
+  "file": "pkg/a/a.go",
+  "origin": {
+    "dirty": false,
+    "generated_at": "<TIME>"
+  },
+  "facts": [
+    "dependency pkg/a -\u003e example.com/gosample/pkg/b",
+    "symbol pkg/a.Alpha",
+    "symbol pkg/a.Gamma",
+    "symbol pkg/a.GetPath",
+    "symbol pkg/a.Seed",
+    "symbol pkg/a.getByID",
+    "symbol pkg/a.helper",
+    "symbol pkg/a.setup"
+  ],
+  "memberships": [
+    {
+      "component": "pkg-a",
+      "selector": "match pkg/a/**",
+      "source": "enola-intent.yaml",
+      "members": [
+        "pkg/a.Alpha",
+        "pkg/a.Gamma",
+        "pkg/a.GetPath",
+        "pkg/a.Seed",
+        "pkg/a.getByID",
+        "pkg/a.helper",
+        "pkg/a.setup"
+      ]
+    }
+  ],
+  "outgoing": [
+    {
+      "from": "pkg/a -\u003e example.com/gosample/pkg/b",
+      "kind": "imports",
+      "target": "pkg/b",
+      "line": 3
+    },
+    {
+      "from": "pkg/a.Alpha",
+      "kind": "calls",
+      "target": "pkg/b.Beta",
+      "line": 7
+    },
+    {
+      "from": "pkg/a.GetPath",
+      "kind": "calls",
+      "target": "pkg/a.getByID",
+      "line": 15
+    },
+    {
+      "from": "pkg/a.Seed",
+      "kind": "calls",
+      "target": "pkg/a.setup",
+      "line": 24
+    }
+  ],
+  "incoming": [
+    {
+      "kind": "calls",
+      "component": "(no part)",
+      "count": 3,
+      "sources": [
+        "..main",
+        "pkg/a/a_ext_test.go",
+        "pkg/a/a_test.go"
+      ]
+    },
+    {
+      "kind": "calls",
+      "component": "pkg-b",
+      "count": 1,
+      "sources": [
+        "pkg/b.Beta"
+      ]
+    }
+  ],
+  "radius": {
+    "files": [
+      "pkg/a/a.go"
+    ],
+    "rules_run": 1,
+    "appear": [],
+    "vanish": [
+      {
+        "rule": "a-avoids-b",
+        "title": "Constraint a-avoids-b violated: pkg/a -\u003e example.com/gosample/pkg/b -\u003e pkg/b via imports",
+        "because": "a must stay deliverable without b",
+        "cut": "No cut the graph can see: the far part declares no public surface and the offender's other edges name no part to move it to",
+        "evidence": [
+          {
+            "file": "pkg/a/a.go",
+            "symbol": "pkg/a -\u003e example.com/gosample/pkg/b",
+            "fact": "pkg/b",
+            "detail": "forbidden imports edge",
+            "line": 3
+          }
+        ]
+      }
+    ]
+  }
+}
+--- stderr
+enola: no mcp-arch.yaml in <TMP>/go_sample, using built-in defaults

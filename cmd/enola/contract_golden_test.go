@@ -38,6 +38,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 var update = flag.Bool("update", false, "regenerate golden files in testdata/contract")
@@ -107,14 +109,21 @@ var cliNormalizers = []struct {
 	{regexp.MustCompile(`soft memory limit .*`), "soft memory limit <MACHINE>"},
 	{regexp.MustCompile(`"memory_limit": \d+`), `"memory_limit": "<MACHINE>"`},
 	{regexp.MustCompile(`"memory_limit_from": "[^"]*"`), `"memory_limit_from": "<MACHINE>"`},
+	// An excuse's age is counted from today.
+	{regexp.MustCompile(`\b\d+ days?\b`), "<N> days"},
+	{regexp.MustCompile(`"(age_days|oldest_excuse_days)": \d+`), `"$1": "<N>"`},
 	// The history epoch fingerprints the extractor version among other things.
 	{regexp.MustCompile(`"epoch": "[0-9a-f]+"`), `"epoch": "<EPOCH>"`},
 }
 
-// engineLogLine matches the standard logger's lines: the engine's progress
-// report, timestamped and ordered by goroutine scheduling. It is diagnostics, not
-// something a caller reads, so it is dropped rather than pinned.
-var engineLogLine = regexp.MustCompile(`(?m)^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} .*\n`)
+// engineLogLine matches the tagged lines of the standard logger ("[engine] ..."):
+// the progress report, timestamped and ordered by goroutine scheduling. It is
+// diagnostics, not something a caller reads, so it is dropped rather than pinned.
+var engineLogLine = regexp.MustCompile(`(?m)^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} \[.*\n`)
+
+// logStamp is the logger's prefix on an untagged line. Those are the fatal
+// errors, which a caller does read, so the line is kept and only the time goes.
+var logStamp = regexp.MustCompile(`(?m)^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} `)
 
 // engineLogTail is the same line when it lands after a progress indicator that
 // did not end its own line, as backfill's does.
@@ -125,10 +134,16 @@ func (s *cliSession) normalize(out string) string {
 	out = strings.ReplaceAll(out, "\r", "\n")
 	out = engineLogLine.ReplaceAllString(out, "")
 	out = engineLogTail.ReplaceAllString(out, "")
+	out = logStamp.ReplaceAllString(out, "")
 	// A history source is named after the host, with a per-machine suffix.
 	if host, err := os.Hostname(); err == nil && host != "" {
 		out = regexp.MustCompile(regexp.QuoteMeta(host)+`-[0-9a-f]{8}`).ReplaceAllString(out, "<HOST>")
 	}
+	// install writes the running binary's own path into the hook configuration.
+	if resolved, err := filepath.EvalSymlinks(s.bin); err == nil && resolved != s.bin {
+		out = strings.ReplaceAll(out, resolved, "<BIN>")
+	}
+	out = strings.ReplaceAll(out, s.bin, "<BIN>")
 	for _, root := range s.roots {
 		if resolved, err := filepath.EvalSymlinks(root); err == nil && resolved != root {
 			out = strings.ReplaceAll(out, resolved, "<TMP>")
@@ -302,6 +317,18 @@ func TestCLIContract_Repo(t *testing.T) {
 		{"20_constraints_explain_bound", []string{"constraints", "explain", "pkg/a/a.go", "."}},
 		{"20_constraints_explain_unbound", []string{"constraints", "explain", "main.go", "."}},
 		{"20_constraints_init_exists", []string{"constraints", "init", "."}},
+		{"21_constraints_explain_part", []string{"constraints", "explain", "pkg-a", "."}},
+		{"21_constraints_explain_json", []string{"constraints", "explain", "--json", "pkg/a/a.go", "."}},
+		{"21_constraints_explain_no_radius", []string{"constraints", "explain", "--no-radius", "pkg/b/b.go", "."}},
+		{"21_constraints_explain_no_match", []string{"constraints", "explain", "no/such/file.go", "."}},
+		{"21_constraints_mine_low_floor", []string{"constraints", "mine", "--min-support", "1", "--min-confidence", "0.5", "--top", "5", "."}},
+		{"21_constraints_mine_tautologies", []string{"constraints", "mine", "--min-support", "1", "--include-tautologies", "--top", "0", "."}},
+		{"21_constraints_mine_jsonl", []string{"constraints", "mine", "--min-support", "1", "--jsonl", "../mined.jsonl", "."}},
+		{"21_constraints_mine_scaffold", []string{"constraints", "mine", "--min-support", "1", "--scaffold-eslint", "../eslint", "."}},
+		{"21_constraints_mine_bad_flag", []string{"constraints", "mine", "--min-confidence", "7", "."}},
+		{"21_constraints_ledger_json", []string{"constraints", "ledger", "--json", "."}},
+		{"21_providers_fetch_unknown", []string{"providers", "fetch", "no-such-provider"}},
+		{"21_gc_bad_age", []string{"gc", "--thin-older-than", "soon", "."}},
 
 		{"30_plan_path", []string{"plan", "pkg/a/new_file.go", "."}},
 		{"30_plan_paths_json", []string{"plan", "--json", "--paths", "pkg/a/a.go,pkg/b/b.go", "."}},
@@ -381,6 +408,14 @@ func TestCLIContract_Repo(t *testing.T) {
 		{"90_install_dry_run", []string{"install", "--dry-run", "--targets=claude", "."}},
 		{"90_install_bad_target", []string{"install", "--dry-run", "--targets=no-such-agent", "."}},
 		{"90_uninstall_dry_run", []string{"uninstall", "--dry-run", "--targets=claude", "."}},
+		{"91_uninstall_nothing_installed", []string{"uninstall", "--yes", "--targets=claude", "."}},
+		{"92_install", []string{"install", "--yes", "--targets=claude", "."}},
+		{"92_install_again", []string{"install", "--yes", "--targets=claude", "."}},
+		{"93_install_hooks", []string{"install", "--yes", "--hooks", "--targets=claude", "."}},
+		{"93_doctor_hooks_configured", []string{"doctor", "."}},
+		{"93_doctor_hooks_configured_json", []string{"doctor", "--json", "."}},
+		{"94_uninstall", []string{"uninstall", "--yes", "--targets=claude", "."}},
+		{"94_doctor_after_uninstall", []string{"doctor", "."}},
 	})
 }
 
@@ -489,4 +524,112 @@ func TestCLIContract_GitHistory(t *testing.T) {
 		{"50_log_after_gc", []string{"log", "--all", "."}},
 		{"60_doctor", []string{"doctor", "."}},
 	})
+}
+
+// TestCLIContract_Excused pins the ledger and the gate over a rule whose one
+// breach is signed away by an exemption, and over an exemption that excuses
+// nothing.
+func TestCLIContract_Excused(t *testing.T) {
+	s := newCLISession(t, "excused")
+	repo := copyFixture(t, "go_sample", filepath.Join(s.dir, "go_sample"))
+	writeFiles(t, repo, map[string]string{"enola-intent.yaml": "components:\n" +
+		"  - {name: pkg-a, match: [pkg/a/**]}\n" +
+		"  - {name: pkg-b, match: [pkg/b/**]}\n" +
+		"rules:\n" +
+		"  - id: a-avoids-b\n" +
+		"    forbid: pkg-a\n" +
+		"    to: pkg-b\n" +
+		"    via: imports\n" +
+		"    because: a must stay deliverable without b\n" +
+		"    exempt:\n" +
+		"      - witness: \"pkg/a -> example.com/gosample/pkg/b -> pkg/b via imports\"\n" +
+		"        owner: dana\n" +
+		"        because: the cycle is scheduled for removal\n" +
+		"        since: \"2026-08-01\"\n" +
+		"      - witness: \"pkg/a -> example.com/gosample/pkg/z -> pkg/z via imports\"\n" +
+		"        owner: dana\n" +
+		"        because: excuses an edge that does not exist\n" +
+		"        since: \"2026-08-01\"\n"})
+	s.dir = repo
+
+	s.pin(t, []cliCase{
+		{"lint", []string{"constraints", "lint", "."}},
+		{"generate", []string{"--generate", "."}},
+		{"lint_resolved", []string{"constraints", "lint", "."}},
+		{"ledger", []string{"constraints", "ledger", "."}},
+		{"ledger_json", []string{"constraints", "ledger", "--json", "."}},
+		{"explain_bound", []string{"constraints", "explain", "pkg/a/a.go", "."}},
+		{"plan", []string{"plan", "pkg/a/a.go", "."}},
+		{"baseline_pin", []string{"baseline", "pin", "."}},
+		{"check_fail_on_constraints", []string{"check", "--fail-on", "constraints", "."}},
+	})
+
+	// A declaration that does not parse is refused by every command that reads it.
+	writeFiles(t, repo, map[string]string{"enola-intent.yaml": "components:\n  - {name: pkg-a}\nrules:\n  - {id: broken, forbid: nowhere, to: pkg-a}\n"})
+	s.pin(t, []cliCase{
+		{"invalid_lint", []string{"constraints", "lint", "."}},
+		{"invalid_generate", []string{"--generate", "."}},
+		{"invalid_check", []string{"check", "."}},
+		{"invalid_plan", []string{"plan", "pkg/a/a.go", "."}},
+	})
+}
+
+// TestCLIContract_Status pins `--status` over usage a real server recorded: the
+// binary serves MCP, answers a few calls, and the report is read while it runs
+// and after it has stopped.
+func TestCLIContract_Status(t *testing.T) {
+	s := newCLISession(t, "status")
+	repo := copyFixture(t, "go_sample", filepath.Join(s.dir, "go_sample"))
+	s.dir = repo
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	server := exec.Command(s.bin, "--no-dashboard", repo)
+	server.Dir = repo
+	server.Env = append(sandboxEnv(s.home), "ENOLA_NO_PROMPTS=1", "CI=")
+	client := mcp.NewClient(&mcp.Implementation{Name: "enola-contract-test", Version: "0"}, nil)
+	cs, err := client.Connect(ctx, &mcp.CommandTransport{Command: server}, nil)
+	if err != nil {
+		t.Fatalf("client Connect: %v", err)
+	}
+	closed := false
+	defer func() {
+		if !closed {
+			_ = cs.Close()
+		}
+	}()
+	// The server's pid is in every report; it is the one number that is its own.
+	pid := regexp.MustCompile(`\b` + fmt.Sprint(server.Process.Pid) + `\b`)
+	// Columns are padded to the longest repository path, and the token estimate is
+	// derived from response sizes, which include that path. Both follow the temp
+	// directory's length, so padding is collapsed and the estimate left unpinned.
+	padding := regexp.MustCompile(` {2,}`)
+	tokens := regexp.MustCompile(`(?m) \d+ ?$`)
+	pin := func(name string, args ...string) {
+		t.Helper()
+		out := pid.ReplaceAllString(s.run(t, args...), "<PID>")
+		out = padding.ReplaceAllString(out, "  ")
+		if head, estimate, ok := strings.Cut(out, "Value Estimate (approximate):"); ok {
+			out = head + "Value Estimate (approximate):" + tokens.ReplaceAllString(estimate, " <TOKENS>")
+		}
+		assertCLIGolden(t, filepath.Join(s.scenario, name+".golden"), out)
+	}
+
+	callTool(t, cs, "generate_snapshot", map[string]any{"repo_path": repo})
+	callTool(t, cs, "query_facts", map[string]any{"kind": "module"})
+	callTool(t, cs, "query_facts", map[string]any{"kind": "symbol"})
+	callTool(t, cs, "explore", map[string]any{"focus": "pkg/a"})
+	callTool(t, cs, "impact_analysis", map[string]any{"target": "pkg/a.Alpha"})
+	callTool(t, cs, "show_symbol", map[string]any{"name": "no-such-symbol"})
+
+	pin("running", "--status")
+	pin("running_all", "--status", "--all")
+
+	if err := cs.Close(); err != nil {
+		t.Logf("closing the session: %v", err)
+	}
+	closed = true
+
+	pin("stopped", "--status")
+	pin("stopped_all", "--status", "--all")
 }

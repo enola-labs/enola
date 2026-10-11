@@ -1,0 +1,5 @@
+$ enola providers fetch no-such-provider
+exit: 2
+--- stdout
+--- stderr
+enola providers: "no-such-provider" is not a provider this enola carries (built-ins: rubydex)

@@ -1,0 +1,17 @@
+$ enola constraints ledger .
+exit: 0
+--- stdout
+law: 1 rule · 1 breach · 1 excused (100%) · oldest excuse <N> days · 1 excuse matched nothing
+read from the snapshot generated <TIME> — a rule declared since then is not counted here
+
+a-avoids-b [ratchet] — 0 breaches reported, 1 excused · declared in enola-intent.yaml
+    because: a must stay deliverable without b
+    exemption by dana (2026-08-01, <N> days ago) — pkg/a -> example.com/gosample/pkg/b -> pkg/b via imports
+        "the cycle is scheduled for removal"
+    exemption by dana (2026-08-01, <N> days ago) — pkg/a -> example.com/gosample/pkg/z -> pkg/z via imports [matched nothing in this snapshot]
+        "excuses an edge that does not exist"
+
+A rule whose breaches are mostly excused is a rule to reconsider, not a
+team to chase: the excuse rate is what makes that judgement available.
+--- stderr
+enola: no mcp-arch.yaml in <TMP>/go_sample, using built-in defaults

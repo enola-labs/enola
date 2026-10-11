@@ -1,0 +1,13 @@
+$ enola check --fail-on constraints .
+exit: 0
+--- stdout
+PASS — no structural regression.
+could not see: 2 files and 0 directories excluded by ignore globs; 1 exemption matching nothing
+law: 1 rule · 1 breach · 1 excused (100%) · oldest excuse <N> days · 1 excuse matched nothing
+
+Exempted by declaration (1) — carve-outs the rules themselves declare, never failed:
+  - [constraints] 0.90 — Exempted from constraint a-avoids-b: pkg/a -> example.com/gosample/pkg/b -> pkg/b via imports
+      exempted by dana since 2026-08-01 — the cycle is scheduled for removal
+--- stderr
+enola: no mcp-arch.yaml in <TMP>/go_sample, using built-in defaults
+enola check: repo <TMP>/go_sample (built-in default config)
