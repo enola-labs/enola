@@ -7,6 +7,90 @@ The full per-release change lists — every Added, Changed and Fixed line — ar
 [enola.tech/changelog](https://enola.tech/changelog). This file is the same history at
 the resolution a reader of the repository needs.
 
+## v0.4.28 — 2026-10-11
+
+**Performance findings rest on facts about the callee, and a loop nest states its depth instead of a Big-O**
+
+- `analyze_performance`: a call-in-loop finding is confirmed only by a storage fact or a
+  resolved callee marked `performs_io`. A method name, a receiver token or an
+  association name still reports the call, at medium. Each callee in a finding carries
+  the basis it rests on.
+- `performs_io` is computed by one closure for every language, now including Go, Java
+  and Kotlin. A bodiless interface or abstract method continues to its implementers; a
+  concrete base method does not inherit an override's I/O. Go symbols gain `io_direct`
+  and `io_calls`.
+- Nested-loop and compounded findings state a depth. `big_o` is set only for a call in
+  a single loop and for recursion, and is absent from the other kinds in JSON output.
+  The implied complexity was right for 8 of 181 hand-read findings.
+- A call's scaling depth is the loops around the call, not the function's deepest nest.
+  Loops that add no factor are not counted: a loop over what the outer element holds, a
+  loop fixed by name, a batch or paging loop, a poll, a retry, a cursor walk. A call
+  made once per batch is not per element.
+- A `for` loop is fixed-count only when both ends are constant. Java, C/C++, C# and PHP
+  read a descending loop to a literal as constant and dropped it. This adds findings.
+- Recursion is flagged only from a call form that can reach the function (Rust, Kotlin,
+  PHP, C#, Python), and never in a branch-free function.
+- Findings deeper than O(n²) are held at medium for now: 2 of 291 hand-read ones were
+  correct.
+- One-shot code is recognised in more places: Rails `db/` migrations and rake tasks,
+  `cli` and `docs` directories, CI actions. `zz_generated.*` is generated code.
+- `analyze_performance` takes `kind` (comma-separated finding kinds) and `offset`. The
+  1000 cap made a large repository's result a ranked window; pages are now stable. It
+  lists every query-loops finding, not the explainer's fixed number per repository.
+- Java, C# and Kotlin: a call on a receiver of declared type is a `calls` edge to the
+  declaration in this repository. Kotlin supertypes written by simple name become
+  `implements` edges to the type they name.
+- TypeScript: a default import binds for direct calls, and a call on a same-file
+  function's result resolves by its declared return type. Python: receivers are typed
+  by return annotations, module globals and `self` attributes.
+- Go client routes: a URL built by concatenation is read left to right, each value
+  after the path starts written as a `{}` parameter. It was read as its rightmost
+  absolute literal.
+- Cross-repo HTTP: a suffix join is refused when both dropped prefixes state a version
+  and the versions differ. `/api/v1/orders/{}` matched `/api/v2/orders/{}`. The call is
+  reported with `unmatched_reason: version_mismatch`.
+- Ruby HTTP clients: a client read off a constant (`Billing.client.post(...)`) is a
+  receiver, and constant paths resolve repository-wide (`PATH`, `Foo::PATH`,
+  `self.class::PATH`), one route per subclass that assigns it. Coverage is reported as
+  `ruby:http-client-constants`.
+- OpenAPI: `$ref` path items are followed, so split specs extract their routes. Specs
+  under `openapi/clients/` are client specs; read as server routes they made a
+  repository the provider of every API it calls.
+- Rails: a canonical action declared by symbol (`get :index`) inside a member or
+  collection scope, or with `on:`, is served at the scope's own path.
+- Ruby: an association inside `with_options` takes its `class_name`. It was dropped,
+  along with every `through:` over it.
+- C++: a type name declared in several directories resolves per reference: the only
+  copy with the member, else the caller's directory, else the one copy its includes
+  reach, else unresolved. Every reference used to bind to the last directory indexed.
+- C++: definitions displaced by parse-error recovery are extracted in the enclosing
+  scope. A function the parser could not close swallowed every later definition.
+- Go: struct field edges name every declared type the field mentions, and no longer
+  `pkg.string` for a builtin or `pkg.` for a map, slice, chan or func type. A call
+  through a parameter or a local closure emits no edge.
+- Rust: functions local to test modules stay out of production facts. ABI, framework,
+  `ctor`, `divan` and `starlark` registrations are marked as runtime entrypoints, and
+  calls evaluated by `tracing::instrument` are recorded. A function declared inside a
+  `const` or `static` initializer carries `compile_time_context` and ranks as a
+  low-confidence orphan. Foreign declarations are excluded.
+- Fixed: `enola check --fail-on=intent` exited `0` on a failed claim. The diff filed
+  intent findings as incidental; they never are now, like constraint findings.
+- Fixed: `enola check` printed a warning and exited `0` against a union baseline that
+  lost a member, and `compare_receipts` reported the pair as equivalent inputs.
+- Fixed: history revisions sharing a timestamp were ordered by id, so blame could read
+  two snapshots taken within a second in reverse and `--keep-last` could keep the wrong
+  one. `history gc <store> --keep-last N`, the documented form, failed to parse.
+- `pkg/diff` and `pkg/facts` are removed. They re-exported internal packages.
+- Contract goldens pin every MCP tool's answer and every command's output and exit
+  code, byte for byte. Architecture tests ratchet hub import counts and the longest
+  import chain.
+- README restructured around what a reader wants to do.
+- Built with Go 1.26.9, for the standard library fixes `govulncheck` reports.
+- `cacheVersion` moves to `v318`: every repository re-extracts once.
+
+Thanks to [Gert Lõhmus](https://github.com/GertL) for the Rust work and
+[Vasilije](https://github.com/Vasilije1990) for the README.
+
 ## v0.4.27 — 2026-10-05
 
 **`enola impact` answers "what breaks if I change this?" from the command line, and a name resolves the same however the graph was loaded**
