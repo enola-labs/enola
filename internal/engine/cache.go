@@ -2788,7 +2788,10 @@ import (
 // scan silently and dropped everything after it in that file.
 // v321: a repository whose leading language is plain JavaScript is detected by the
 // TypeScript extractor without a tsconfig, a framework dependency or a package.json.
-const cacheVersion = "v321"
+// v322: JavaScript declarations inside a function the file calls at once (the wrapper a
+// script for a <script> tag is written in, and a universal-module factory) are the
+// file's symbols; they were read as that function's locals and emitted nothing.
+const cacheVersion = "v322"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

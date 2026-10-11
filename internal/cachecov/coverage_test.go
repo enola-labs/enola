@@ -33,6 +33,11 @@ import (
 // test functions that assert the behavior that version introduced. v1 is the
 // implicit baseline (no changelog line), so coverage starts at v2.
 var versionCoverage = map[int][]string{
+	322: {
+		"TestWrapperFunctionDeclarationsAreFileLevel",
+		"TestOnlyImmediatelyCalledFunctionsAreWrappers",
+		"TestWrapperNestingAndModulesUnchanged",
+	},
 	321: {
 		"TestJavaScriptLeads",
 		"TestDetectPlainJavaScriptProject",

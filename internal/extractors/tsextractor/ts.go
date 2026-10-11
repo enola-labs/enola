@@ -880,9 +880,23 @@ func (e *TSExtractor) extractImports(kinds *tsutil.KindTable, root *sitter.Node,
 }
 
 func (e *TSExtractor) extractDeclarations(kinds *tsutil.KindTable, root *sitter.Node, ctx *extractCtx) []facts.Fact {
+	return e.extractStatements(kinds, root, ctx, wrapperDepth)
+}
+
+// extractStatements emits the declarations among a block's statements. A statement
+// that is a wrapper function called at once contributes the declarations in its body
+// as the file's own (see wrapperBodies), none of them exported.
+func (e *TSExtractor) extractStatements(kinds *tsutil.KindTable, block *sitter.Node, ctx *extractCtx, wrappers int) []facts.Fact {
 	var result []facts.Fact
-	for i := range root.ChildCount() {
-		result = append(result, e.extractNode(kinds, root.Child(i), ctx, false, "")...)
+	for i := range block.ChildCount() {
+		stmt := block.Child(i)
+		result = append(result, e.extractNode(kinds, stmt, ctx, false, "")...)
+		if wrappers == 0 {
+			continue
+		}
+		for _, body := range wrapperBodies(kinds, stmt) {
+			result = append(result, e.extractStatements(kinds, body, ctx, wrappers-1)...)
+		}
 	}
 	return result
 }
