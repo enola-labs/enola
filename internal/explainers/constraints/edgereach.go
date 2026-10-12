@@ -107,7 +107,7 @@ func newEdgeSight(store *facts.Store, vias map[string]bool, ground *grounding) *
 			if !pathTargetEdge(rel, f) {
 				continue
 			}
-			if path, ok := ground.resolve(rel.Target, f.Repo); ok {
+			if path, ok := ground.resolve(rel.Target, f.Repo, f.File); ok {
 				s.grounded[rel.Kind][path] = true
 			}
 		}

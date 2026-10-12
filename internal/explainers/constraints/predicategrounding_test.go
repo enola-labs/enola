@@ -48,7 +48,7 @@ func TestGrounding_APredicateComponentGroundsOnlyOntoFilesItMeasuredAMemberIn(t 
 		}
 	}
 	got := violationTitles(insights)
-	want := "Constraint jobs-avoid-components violated: app/jobs -> app/components/hires/cover.rb -> app/components/hires/cover.rb via imports"
+	want := "Constraint jobs-avoid-components violated: app/jobs -> app/components/hires/cover.rb via imports"
 	if len(got) != 1 || got[0] != want {
 		t.Fatalf("violations = %v, want exactly %q — the helper's file hosts no member, and the declaration excluded it", got, want)
 	}

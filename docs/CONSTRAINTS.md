@@ -106,7 +106,7 @@ law: 1 rule · 1 breach · none excused
 
 Regressions (fail):
   - [constraints] 1.00 — Constraint storage-sends-nothing violated: storage -> notify via imports
-      forbidden imports edge
+      forbidden imports edge: storage must not reach notify
       storage/storage.go:3
       import "layersgate/notify"
 ```
