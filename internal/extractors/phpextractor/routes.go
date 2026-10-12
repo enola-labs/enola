@@ -32,7 +32,10 @@ type phpRouteScope struct {
 // (Route::get/post/…), Route::match / Route::any, Route::resource / apiResource
 // expansion, fluent and array-based route groups with prefix accumulation, and the
 // ->name(…) modifier.
-func extractLaravelRoutes(src []byte, relFile string) []facts.Fact {
+//
+// stacks are the group scopes the file is loaded under, one per place that loads it
+// (see routeMount); none means the file is registered as written.
+func extractLaravelRoutes(src []byte, relFile string, stacks ...[]phpRouteScope) []facts.Fact {
 	parser := sitter.NewParser()
 	defer parser.Close()
 	if err := parser.SetLanguage(sitter.NewLanguage(php.LanguagePHP())); err != nil {
@@ -43,7 +46,12 @@ func extractLaravelRoutes(src []byte, relFile string) []facts.Fact {
 
 	w := &laravelRouteWalker{src: src, relFile: relFile, dir: factpath.Dir(relFile), uses: map[string]string{}}
 	collectUses(tree.RootNode(), src, w.uses)
-	w.walk(tree.RootNode(), nil)
+	if len(stacks) == 0 {
+		stacks = [][]phpRouteScope{nil}
+	}
+	for _, stack := range stacks {
+		w.walk(tree.RootNode(), stack)
+	}
 	return w.out
 }
 
@@ -55,6 +63,10 @@ type laravelRouteWalker struct {
 	// file's own `use` statements.
 	uses map[string]string
 	out  []facts.Fact
+	// mountsOnly reads a file for the routes files it loads and emits no route;
+	// mounts is what it found (mounts.go).
+	mountsOnly bool
+	mounts     []routeMount
 }
 
 // collectUses records every `use Foo\Bar;`, `use Foo\Bar as Baz;` and grouped
@@ -142,10 +154,19 @@ func (w *laravelRouteWalker) walk(node *sitter.Node, stack []phpRouteScope) {
 	if node == nil {
 		return
 	}
-	if kindOf(node) == "scoped_call_expression" || kindOf(node) == "member_call_expression" {
+	switch kindOf(node) {
+	case "scoped_call_expression", "member_call_expression":
 		if calls, ok := linearizeRouteChain(node, w.src); ok {
 			w.handleChain(node, calls, stack)
 			return
+		}
+		if kindOf(node) == "member_call_expression" && phpText(node.ChildByFieldName("name"), w.src) == "withRouting" {
+			w.handleWithRouting(node, stack)
+		}
+	case "require_expression", "require_once_expression", "include_expression", "include_once_expression":
+		// A routes file required inside a group's closure is registered under it.
+		if node.NamedChildCount() > 0 {
+			w.addMount(w.routeFilePath(node.NamedChild(0)), stack)
 		}
 	}
 	for i := uint(0); i < node.ChildCount(); i++ {
@@ -229,6 +250,14 @@ func (w *laravelRouteWalker) handleChain(node *sitter.Node, calls []chainCall, s
 			phpRouteScope{prefix: prefix, name: name, controller: controller, namespace: namespace})
 		if body := groupClosureBody(calls[groupIdx].args); body != nil {
 			w.walk(body, newStack)
+			return
+		}
+		// A group handed a file instead of a closure registers that file's routes.
+		for i := 0; i < 2; i++ {
+			if target := w.routeFilePath(positionalArg(calls[groupIdx].args, i)); target != "" {
+				w.addMount(target, newStack)
+				break
+			}
 		}
 		return
 	}
@@ -248,47 +277,18 @@ func (w *laravelRouteWalker) handleChain(node *sitter.Node, calls []chainCall, s
 				w.emitRoute(c.node, stack, strings.ToUpper(v), path, handler, routeName, "")
 			}
 		case c.method == "resource" || c.method == "apiResource":
-			w.emitResource(c.node, stack, c.args, c.method == "apiResource")
+			w.emitResource(c.node, stack, calls, positionalString(c.args, 0, w.src),
+				w.classArg(positionalArg(c.args, 1)), positionalArg(c.args, 2), c.method == "apiResource")
+		case c.method == "resources" || c.method == "apiResources":
+			w.emitResources(c.node, stack, calls, c.args, c.method == "apiResources")
 		}
-	}
-}
-
-// emitResource expands a Route::resource / apiResource declaration into its REST
-// actions, mirroring Laravel's resource controller conventions.
-func (w *laravelRouteWalker) emitResource(node *sitter.Node, stack []phpRouteScope, args *sitter.Node, apiOnly bool) {
-	base := positionalString(args, 0, w.src)
-	if base == "" {
-		return
-	}
-	controller := w.classArg(positionalArg(args, 1))
-	type action struct {
-		name, method, suffix string
-	}
-	actions := []action{
-		{"index", "GET", ""},
-		{"create", "GET", "/create"},
-		{"store", "POST", ""},
-		{"show", "GET", "/{id}"},
-		{"edit", "GET", "/{id}/edit"},
-		{"update", "PUT", "/{id}"},
-		{"destroy", "DELETE", "/{id}"},
-	}
-	for _, a := range actions {
-		if apiOnly && (a.name == "create" || a.name == "edit") {
-			continue // apiResource omits the HTML form endpoints
-		}
-		handler := ""
-		if controller != "" {
-			handler = controller + "::" + a.name
-		}
-		w.emitRoute(node, stack, a.method, "/"+strings.Trim(base, "/")+a.suffix, handler, "", a.name)
 	}
 }
 
 // emitRoute appends one server-route fact, joining the active group prefixes with the
 // route path.
 func (w *laravelRouteWalker) emitRoute(node *sitter.Node, stack []phpRouteScope, method, rawPath, handler, name, action string) {
-	if method == "" {
+	if method == "" || w.mountsOnly {
 		return
 	}
 	path := buildLaravelPath(stack, rawPath)

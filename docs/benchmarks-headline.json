@@ -4,11 +4,11 @@
     {
       "id": "reproducibility",
       "question": "Does the same commit produce the same graph?",
-      "figure": "91/91",
+      "figure": "95/95",
       "label": "public repositories produced byte-identical graphs across a cold run and two warm ones",
       "anchor": "1-reproducibility",
       "evidence": [
-        "91 of 91 repositories in this sweep produced a byte-identical"
+        "95 of 95 repositories in this sweep produced a byte-identical"
       ]
     },
     {
@@ -48,7 +48,7 @@
       "label": "parse errors across the whole corpus, the Linux kernel included",
       "anchor": "4-scale",
       "evidence": [
-        "| Parse errors, all 91 repositories | **0** |"
+        "| Parse errors, all 95 repositories | **0** |"
       ]
     },
     {
