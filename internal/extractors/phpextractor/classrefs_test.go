@@ -118,3 +118,66 @@ class Plain {}
 		`App\Repositories\OrderRepository`, `App\Services\PartnerGateway`)
 	wantTargets(t, "injects", relationsOf(t, ff, `App\Services\Plain`, facts.RelInjects))
 }
+
+// TestNamedClassesAreReferences: a class named without being called is a reference
+// from the method, from the class for what its body states outside a method, and
+// from the file for what no declaration owns.
+func TestNamedClassesAreReferences(t *testing.T) {
+	src := `<?php
+namespace App\Providers;
+
+use App\Contracts\Storage;
+use App\Enums\Status;
+use App\Services\SftpStorage;
+
+return_early();
+$drivers = ['sftp' => SftpStorage::class, 'local' => \App\Services\LocalStorage::class];
+
+class StorageProvider
+{
+    protected $listen = [Booted::class => [WarmCache::class]];
+    const DEFAULT = Status::Active;
+
+    public function register($app, $dynamic)
+    {
+        $app->bind(Storage::class, SftpStorage::class);
+        if ($app->status === Status::Active || Config::$debug) {
+            return self::class . static::class . $dynamic::class . StorageProvider::DEFAULT;
+        }
+    }
+}
+`
+	ff := extractFileAST([]byte(src), "app/Providers/StorageProvider.php")
+	const class = `App\Providers\StorageProvider`
+	wantTargets(t, "method names", relationsOf(t, ff, class+"::register", facts.RelNames),
+		`App\Contracts\Storage`, `App\Services\SftpStorage`, `App\Enums\Status`, `App\Providers\Config`)
+	wantTargets(t, "class names", relationsOf(t, ff, class, facts.RelNames),
+		`App\Providers\Booted`, `App\Providers\WarmCache`, `App\Enums\Status`)
+
+	var fileRefs []string
+	for _, f := range ff {
+		if f.Kind != facts.KindFileRef {
+			continue
+		}
+		if f.Name != "app/Providers/StorageProvider.php" {
+			t.Errorf("file reference fact is named %q, want the file", f.Name)
+		}
+		for _, rel := range f.Relations {
+			if rel.Kind == facts.RelNames {
+				fileRefs = append(fileRefs, rel.Target)
+			}
+		}
+	}
+	sort.Strings(fileRefs)
+	wantTargets(t, "file names", fileRefs, `App\Services\SftpStorage`, `App\Services\LocalStorage`)
+}
+
+// TestFileWithoutFileScopeNamesEmitsNoFileReference: most files are one class.
+func TestFileWithoutFileScopeNamesEmitsNoFileReference(t *testing.T) {
+	ff := extractFileAST([]byte("<?php\nnamespace App;\nclass A { public function f() { return B::class; } }\n"), "app/A.php")
+	for _, f := range ff {
+		if f.Kind == facts.KindFileRef {
+			t.Errorf("unexpected file reference fact: %+v", f)
+		}
+	}
+}

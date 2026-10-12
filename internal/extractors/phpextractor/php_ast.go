@@ -32,6 +32,7 @@ func extractFileAST(src []byte, relFile string) []facts.Fact {
 		importMap: map[string]string{},
 	}
 	w.walkProgram(tree.RootNode())
+	w.emitFileScopeNames(tree.RootNode())
 	return w.out
 }
 
@@ -238,6 +239,7 @@ func (w *phpWalker) handleClassLike(node *sitter.Node, kind string) {
 		Relations: rels,
 	})
 
+	classIdx := len(w.out) - 1
 	w.typeStack = append(w.typeStack, fqn)
 	// A class-typed constructor parameter is how PHP states a dependency: the
 	// container, or the caller, hands the class an instance of that type.
@@ -250,6 +252,7 @@ func (w *phpWalker) handleClassLike(node *sitter.Node, kind string) {
 	outer := w.propTypes
 	w.propTypes = w.classPropertyTypes(node.ChildByFieldName("body"))
 	w.walkProgram(node.ChildByFieldName("body"))
+	w.nameClassesInBody(classIdx, node.ChildByFieldName("body"))
 	w.propTypes = outer
 	w.typeStack = w.typeStack[:len(w.typeStack)-1]
 }
@@ -533,6 +536,11 @@ func (w *phpWalker) walkForCalls(node *sitter.Node, ownerIdx int, seen map[strin
 		}
 		w.walkChildrenExcept(node, ownerIdx, seen, method)
 		return
+	case "class_constant_access_expression", "scoped_property_access_expression":
+		// A class naming its own constant is not a use of the class.
+		if class := w.namedClass(node); class != "" && ownerIdx >= 0 && !w.isEnclosingType(class) {
+			w.addRel(ownerIdx, seen, facts.RelNames, class)
+		}
 	case "object_creation_expression":
 		if cls := w.creationClass(node); cls != "" {
 			target := w.classRef(cls)
@@ -976,6 +984,11 @@ func (w *phpWalker) scopeRef(scope *sitter.Node) string {
 		return w.classRef(phpText(scope, w.src))
 	}
 	return w.resolveRef(phpText(scope, w.src))
+}
+
+// isEnclosingType reports whether class is the type whose body is being walked.
+func (w *phpWalker) isEnclosingType(class string) bool {
+	return len(w.typeStack) > 0 && w.typeStack[len(w.typeStack)-1] == class
 }
 
 // typeFactIndex returns the index into w.out of the innermost enclosing type's
