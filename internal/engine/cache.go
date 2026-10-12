@@ -2797,7 +2797,22 @@ import (
 // v324: a declaration a JavaScript wrapper hands out (the object or value it returns, a
 // property of the global object or of the CommonJS module) is exported; a plain variable
 // handed out that way is kept.
-const cacheVersion = "v324"
+// v325: a Laravel route's handler names its controller by fully-qualified class, through
+// the routes file's imports, Route::namespace and Route::controller groups, and the
+// controller namespace; invokable controllers are handlers; the route carries
+// handled_by to the method's declaration, on a parent class or trait when inherited.
+// v326: PHP emits a model storage fact for each concrete Eloquent model (a class that
+// reaches an Eloquent base class through its parents), with the table it declares or the
+// one Eloquent derives, and an association fact per relation method.
+// v327: a PHP instance call whose receiver type the source declares ($this, a typed or
+// constructor-assigned property of $this, a typed parameter) gains a calls edge to the
+// declared method, beside its bare name; an interface receiver also reaches its only
+// implementer.
+// v328: every PHP file under a routes directory is read for Laravel routes, not only the
+// skeleton's four names; the action array ['uses' => 'Ctrl@method', 'as' => 'name'] names
+// the handler and the route; a call on an object created in place ((new A)->run()) gains
+// its resolved calls edge, and so does a framework method called on an Eloquent model.
+const cacheVersion = "v328"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

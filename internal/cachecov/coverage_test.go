@@ -33,6 +33,29 @@ import (
 // test functions that assert the behavior that version introduced. v1 is the
 // implicit baseline (no changelog line), so coverage starts at v2.
 var versionCoverage = map[int][]string{
+	328: {
+		"TestLaravelRoutes_ActionArray",
+		"TestReceiverCalls_ObjectCreatedInPlace",
+		"TestReceiverCalls_FrameworkMethodOnAModel",
+		"TestIsLaravelRouteFile",
+	},
+	327: {
+		"TestReceiverCalls_PropertyTypes",
+		"TestReceiverCalls_ParameterThisAndInheritedMethod",
+		"TestReceiverCalls_SameNamespaceTypeNeedsNoImport",
+		"TestReceiverCalls_InterfaceReachesItsOnlyImplementer",
+	},
+	326: {
+		"TestEloquentModels_TableIsDeclaredOrDerived",
+		"TestEloquentModels_ThroughABaseClassInAnotherFile",
+		"TestEloquentAssociations",
+	},
+	325: {
+		"TestLaravelRoutes_HandlerClassIsExpandedThroughImports",
+		"TestLaravelRoutes_ControllerAndNamespaceGroups",
+		"TestBindLaravelHandlers_ResolvesTheControllerClass",
+		"TestBindLaravelHandlers_InheritedActionBindsToItsDeclaration",
+	},
 	324: {
 		"TestWrapperExposedDeclarationsAreExported",
 		"TestWrapperKeepsPrivateWhatItDoesNotHandOut",

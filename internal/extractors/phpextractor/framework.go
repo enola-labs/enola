@@ -77,17 +77,16 @@ func fileExists(repoPath, rel string) bool {
 	return err == nil
 }
 
-// isLaravelRouteFile reports whether relFile is one of Laravel's conventional route
-// definition files (routes/web.php, routes/api.php, routes/console.php,
-// routes/channels.php), where the Route::… DSL lives.
+// isLaravelRouteFile reports whether relFile lives under a routes directory, where
+// the Route::… DSL lives. The file names are the application's to choose: web.php
+// and api.php are the skeleton's, and an application splits them (api.base.php,
+// routes/api/v1.php) or keeps a routes directory per module. A file there that
+// registers nothing yields nothing.
 func isLaravelRouteFile(relFile string) bool {
-	dir := factpath.Dir(relFile)
-	if filepath.Base(dir) != "routes" {
-		return false
-	}
-	switch filepath.Base(relFile) {
-	case "web.php", "api.php", "console.php", "channels.php":
-		return true
+	for _, seg := range strings.Split(factpath.Dir(relFile), "/") {
+		if seg == "routes" {
+			return true
+		}
 	}
 	return false
 }

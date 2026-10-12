@@ -174,20 +174,57 @@ func Analyze(s *facts.Store, query string, maxRoutes int, findCallers CallerFind
 
 	// Hop 2: the controller class each handler names.
 	classes := map[string]string{}
+	declared := map[string]bool{}
+	// nonMethods are the symbols that are not methods, for the model hop below.
+	nonMethods := map[string]bool{}
 	for _, fact := range s.ByKind(facts.KindSymbol) {
-		if kind, _ := fact.PropAny("symbol_kind").(string); kind != facts.SymbolClass {
+		kind, _ := fact.PropAny("symbol_kind").(string)
+		if kind != facts.SymbolMethod {
+			nonMethods[fact.Name] = true
+		}
+		if kind != facts.SymbolClass {
 			continue
 		}
 		classes[ControllerKey(fact.Name)] = fact.Name
+		declared[fact.Name] = true
 	}
 	controllers := map[string]bool{}
-	for _, route := range out.Routes {
-		controller, _, found := strings.Cut(route.Handler, "#")
-		if !found || controller == "" {
+	// handlers are the methods the routes are bound to, and the walk below starts
+	// from them: a sibling action's models are not this endpoint's. One a controller
+	// inherits is declared on a parent class or a trait.
+	handlers := map[string]bool{}
+	// wholeClass are the controllers walked from every method they declare, because
+	// a route names the class and nothing says which method serves it.
+	wholeClass := map[string]bool{}
+	for _, m := range matched {
+		if controller, _, found := strings.Cut(m.route.Handler, "#"); found {
+			if resolved, ok := classes[ControllerKey(controller)]; ok && controller != "" {
+				controllers[resolved] = true
+				wholeClass[resolved] = true
+			}
 			continue
 		}
-		if resolved, ok := classes[ControllerKey(controller)]; ok {
-			controllers[resolved] = true
+		// `Namespace\Class::method` names its class outright, so it is matched
+		// exactly: the Rails spelling rules above do not apply to it.
+		named := ownerOf(m.route.Handler)
+		bound := false
+		for _, rel := range m.fact.Relations {
+			if rel.Kind != facts.RelHandledBy {
+				continue
+			}
+			if class := ownerOf(rel.Target); declared[class] {
+				handlers[rel.Target] = true
+				bound = true
+				if !declared[named] {
+					controllers[class] = true
+				}
+			}
+		}
+		if declared[named] {
+			controllers[named] = true
+			if !bound {
+				wholeClass[named] = true
+			}
 		}
 	}
 	out.Controllers = sortedKeys(controllers)
@@ -220,10 +257,14 @@ func Analyze(s *facts.Store, query string, maxRoutes int, findCallers CallerFind
 		// `Controller#index` carries everything it calls. Walking from the class
 		// alone found nothing on the monolith.
 		seen := map[string]bool{}
-		frontier := append([]string{}, out.Controllers...)
+		var frontier []string
 		for _, controller := range out.Controllers {
-			frontier = append(frontier, methodsOf(s, controller)...)
+			if wholeClass[controller] {
+				frontier = append(frontier, controller)
+				frontier = append(frontier, methodsOf(s, controller)...)
+			}
 		}
+		frontier = append(frontier, sortedKeys(handlers)...)
 		// A JSONAPI controller declares no methods at all — it inherits them — and
 		// its model is reached through the resource class. The class is located by
 		// name and only used when it exists, so this is a convention checked
@@ -243,6 +284,15 @@ func Analyze(s *facts.Store, query string, maxRoutes int, findCallers CallerFind
 					if _, isModel := models[edge.Target]; isModel {
 						reached[edge.Target] = true
 						continue
+					}
+					// A call to a model's method reaches the model, declared or not:
+					// `Order::where` is the framework's, and no symbol answers to it.
+					// A class or constant nested in a model is its own thing.
+					if owner := ownerOf(edge.Target); !nonMethods[edge.Target] {
+						if _, isModel := models[owner]; isModel {
+							reached[owner] = true
+							continue
+						}
 					}
 					next = append(next, edge.Target)
 				}
@@ -437,12 +487,29 @@ func singularCandidates(plural string) []string {
 	return out
 }
 
-// methodsOf returns the `Class#method` symbols declared on a class.
+// ownerOf returns the class of a `Class::method` or `Class#method` name, "" when it
+// is neither.
+func ownerOf(name string) string {
+	if class, _, found := strings.Cut(name, "#"); found {
+		return class
+	}
+	if i := strings.LastIndex(name, "::"); i > 0 {
+		return name[:i]
+	}
+	return ""
+}
+
+// methodsOf returns the method symbols declared on a class: `Class#method` as Ruby
+// names them, `Class::method` as PHP does. The second form is held to method symbols
+// because `Class::` also prefixes every constant and class nested in a Ruby class.
 func methodsOf(s *facts.Store, class string) []string {
-	prefix := class + "#"
+	prefix, scoped := class+"#", class+"::"
 	var out []string
 	for _, fact := range s.ByKind(facts.KindSymbol) {
-		if strings.HasPrefix(fact.Name, prefix) {
+		switch {
+		case strings.HasPrefix(fact.Name, prefix):
+			out = append(out, fact.Name)
+		case strings.HasPrefix(fact.Name, scoped) && fact.PropString("symbol_kind") == facts.SymbolMethod:
 			out = append(out, fact.Name)
 		}
 	}

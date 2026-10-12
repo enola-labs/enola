@@ -169,3 +169,149 @@ func TestAnalyzeAsksForCallersOfTheFollowedRoutes(t *testing.T) {
 		t.Errorf("no finder must report no callers, got %+v", none.Callers)
 	}
 }
+
+// phpStore is a Laravel-shaped graph: handlers and methods are `Class::method`, and
+// one action is inherited from a base controller.
+func phpStore() *facts.Store {
+	const (
+		orders = `App\Http\Controllers\OrderController`
+		base   = `App\Http\Controllers\Controller`
+	)
+	class := func(name string) facts.Fact {
+		return facts.Fact{Kind: facts.KindSymbol, Name: name, Props: map[string]any{"symbol_kind": facts.SymbolClass}}
+	}
+	method := func(name string, calls ...string) facts.Fact {
+		f := facts.Fact{Kind: facts.KindSymbol, Name: name, Props: map[string]any{"symbol_kind": facts.SymbolMethod}}
+		for _, c := range calls {
+			f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelCalls, Target: c})
+		}
+		return f
+	}
+	route := func(path, handler, handledBy string) facts.Fact {
+		f := facts.Fact{Kind: facts.KindRoute, Name: path, Props: map[string]any{"method": "GET", "handler": handler}}
+		if handledBy != "" {
+			f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelHandledBy, Target: handledBy})
+		}
+		return f
+	}
+	st := facts.NewStore()
+	st.Add(
+		route("/v2/orders/{id}", orders+"::show", orders+"::show"),
+		route("/v2/orders/{id}/audit", orders+"::audit", base+"::audit"),
+		route("/v2/short", "OrderController::show", ""),
+		route("/v2/unbound", orders+"::missing", ""),
+		class(orders),
+		method(orders+"::show", `App\Models\Order`),
+		method(orders+"::export", `App\Models\Report`),
+		class(`App\Models\Report`),
+		facts.Fact{Kind: facts.KindStorage, Name: `App\Models\Report`, Props: map[string]any{
+			"storage_kind": "model", "table": "reports"}},
+		class(base),
+		method(base+"::audit", `App\Models\AuditEntry`),
+		class(`App\Models\Order`),
+		class(`App\Models\AuditEntry`),
+		facts.Fact{Kind: facts.KindStorage, Name: `App\Models\Order`, Props: map[string]any{
+			"storage_kind": "model", "table": "orders"}},
+		facts.Fact{Kind: facts.KindStorage, Name: `App\Models\AuditEntry`, Props: map[string]any{
+			"storage_kind": "model", "table": "audit_entries"}},
+	)
+	st.BuildGraph()
+	return st
+}
+
+func TestAnalyzeFollowsAScopedHandler(t *testing.T) {
+	got := Analyze(phpStore(), "GET /v2/orders/{id}", 1, nil)
+	if len(got.Controllers) != 1 || got.Controllers[0] != `App\Http\Controllers\OrderController` {
+		t.Fatalf("controllers = %v, want the class `Class::method` names", got.Controllers)
+	}
+	if len(got.Models) != 1 || got.Models[0] != `App\Models\Order` {
+		t.Errorf("models = %v, want the one the controller's method calls", got.Models)
+	}
+	if got.StoppedAt != "" {
+		t.Errorf("the chain completed, so nothing stopped it: %q", got.StoppedAt)
+	}
+}
+
+// TestAnalyzeFollowsAnInheritedHandler: the route names OrderController, the action
+// is declared on its parent, and what it reaches is the parent method's.
+func TestAnalyzeFollowsAnInheritedHandler(t *testing.T) {
+	got := Analyze(phpStore(), "/audit", 25, nil)
+	if len(got.Controllers) != 1 || got.Controllers[0] != `App\Http\Controllers\OrderController` {
+		t.Fatalf("controllers = %v, want the class the route names", got.Controllers)
+	}
+	found := false
+	for _, m := range got.Models {
+		found = found || m == `App\Models\AuditEntry`
+	}
+	if !found {
+		t.Errorf("models = %v, want the one the inherited action reaches", got.Models)
+	}
+}
+
+// TestAnalyzeDoesNotGuessAScopedController: a short class name is not matched by
+// spelling the way a Rails controller path is.
+func TestAnalyzeDoesNotGuessAScopedController(t *testing.T) {
+	got := Analyze(phpStore(), "/v2/short", 25, nil)
+	if len(got.Controllers) != 0 || got.StoppedAt != "controller" {
+		t.Errorf("controllers = %v, stopped at %q; want an unresolved handler to stop at the controller",
+			got.Controllers, got.StoppedAt)
+	}
+}
+
+// TestAnalyzeReachesAModelThroughItsMethod: `Order::where` is the framework's query
+// builder, so no symbol answers to it, and calling it still reaches Order. A class
+// nested under a model's name does not.
+func TestAnalyzeReachesAModelThroughItsMethod(t *testing.T) {
+	const controller = `App\Http\Controllers\InvoiceController`
+	st := facts.NewStore()
+	st.Add(
+		facts.Fact{Kind: facts.KindRoute, Name: "/invoices", Props: map[string]any{
+			"method": "GET", "handler": controller + "::index"}},
+		facts.Fact{Kind: facts.KindSymbol, Name: controller, Props: map[string]any{"symbol_kind": facts.SymbolClass}},
+		facts.Fact{Kind: facts.KindSymbol, Name: controller + "::index", Props: map[string]any{
+			"symbol_kind": facts.SymbolMethod},
+			Relations: []facts.Relation{{Kind: facts.RelCalls, Target: `App\Models\Order::where`}}},
+		facts.Fact{Kind: facts.KindSymbol, Name: `App\Models\Order`, Props: map[string]any{"symbol_kind": facts.SymbolClass}},
+		facts.Fact{Kind: facts.KindStorage, Name: `App\Models\Order`, Props: map[string]any{
+			"storage_kind": "model", "table": "orders"}},
+	)
+	st.BuildGraph()
+	got := Analyze(st, "/invoices", 25, nil)
+	if len(got.Models) != 1 || got.Models[0] != `App\Models\Order` {
+		t.Errorf("models = %v, want the model whose method the controller calls", got.Models)
+	}
+	if len(got.Tables) != 1 || got.Tables[0] != "orders" {
+		t.Errorf("tables = %v", got.Tables)
+	}
+
+	nested := facts.NewStore()
+	nested.Add(
+		facts.Fact{Kind: facts.KindRoute, Name: "/settings", Props: map[string]any{
+			"method": "GET", "handler": "settings#show"}},
+		facts.Fact{Kind: facts.KindSymbol, Name: "SettingsController", Props: map[string]any{
+			"symbol_kind": facts.SymbolClass},
+			Relations: []facts.Relation{{Kind: facts.RelCalls, Target: "Company::Setting"}}},
+		facts.Fact{Kind: facts.KindSymbol, Name: "Company::Setting", Props: map[string]any{"symbol_kind": facts.SymbolClass}},
+		facts.Fact{Kind: facts.KindStorage, Name: "Company", Props: map[string]any{
+			"storage_kind": "model", "table": "companies"}},
+	)
+	nested.BuildGraph()
+	if got := Analyze(nested, "/settings", 25, nil); len(got.Models) != 0 {
+		t.Errorf("models = %v, want none: a class nested under a model's name is not the model", got.Models)
+	}
+}
+
+// TestAnalyzeWalksFromTheHandlerNotItsSiblings: the route is bound to show, so what
+// export reaches is another endpoint's. A route that names the class without a bound
+// method is walked from all of them, because nothing says which one serves it.
+func TestAnalyzeWalksFromTheHandlerNotItsSiblings(t *testing.T) {
+	got := Analyze(phpStore(), "GET /v2/orders/{id}", 1, nil)
+	if len(got.Models) != 1 || got.Models[0] != `App\Models\Order` {
+		t.Errorf("models = %v, want only what the bound method reaches", got.Models)
+	}
+	unbound := Analyze(phpStore(), "/v2/unbound", 25, nil)
+	if len(unbound.Controllers) != 1 || len(unbound.Models) != 2 {
+		t.Errorf("controllers = %v, models = %v; want the whole class walked when no method is bound",
+			unbound.Controllers, unbound.Models)
+	}
+}
