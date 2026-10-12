@@ -63,6 +63,10 @@ type phpWalker struct {
 	repeatDepth  int
 	// loopScopes are the enclosing loops' variables, for the rule in hierarchy.go.
 	loopScopes []phpLoopScope
+	// propTypes is the declared class of each property of the enclosing class, and
+	// paramTypes of each parameter of the enclosing callable (receivers.go).
+	propTypes  map[string]string
+	paramTypes map[string]string
 	selfName   string // enclosing callable's qualified name (for recursion detection)
 	selfShort  string // enclosing callable's short name
 }
@@ -235,7 +239,10 @@ func (w *phpWalker) handleClassLike(node *sitter.Node, kind string) {
 	})
 
 	w.typeStack = append(w.typeStack, fqn)
+	outer := w.propTypes
+	w.propTypes = w.classPropertyTypes(node.ChildByFieldName("body"))
 	w.walkProgram(node.ChildByFieldName("body"))
+	w.propTypes = outer
 	w.typeStack = w.typeStack[:len(w.typeStack)-1]
 }
 
@@ -344,7 +351,9 @@ func (w *phpWalker) handleCallable(node *sitter.Node, isMethod bool) {
 	w.loopScopes = nil
 	w.selfName = fullName
 	w.selfShort = name
+	w.paramTypes = w.parameterTypes(node.ChildByFieldName("parameters"), nil)
 	w.walkForCalls(node.ChildByFieldName("body"), ownerIdx, seen)
+	w.paramTypes = nil
 	props["cyclomatic"] = 1 + w.metrics.decisions
 	if w.metrics.loopDepth > 0 {
 		props["loop_depth"] = w.metrics.loopDepth
@@ -499,6 +508,7 @@ func (w *phpWalker) walkForCalls(node *sitter.Node, ownerIdx int, seen map[strin
 			target := phpText(method, w.src)
 			w.addCall(ownerIdx, seen, target)
 			w.recordEloquentRelation(node, ownerIdx, target)
+			w.recordReceiverCall(node, ownerIdx, target)
 			// The edge is the bare method name, because the receiver's type is
 			// unknown. Only `$this->m()` is known to be this class's m: a
 			// decorator's `$this->inner->handle()` or `$container->extend()` inside

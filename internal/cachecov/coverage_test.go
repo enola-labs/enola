@@ -33,6 +33,12 @@ import (
 // test functions that assert the behavior that version introduced. v1 is the
 // implicit baseline (no changelog line), so coverage starts at v2.
 var versionCoverage = map[int][]string{
+	327: {
+		"TestReceiverCalls_PropertyTypes",
+		"TestReceiverCalls_ParameterThisAndInheritedMethod",
+		"TestReceiverCalls_SameNamespaceTypeNeedsNoImport",
+		"TestReceiverCalls_InterfaceReachesItsOnlyImplementer",
+	},
 	326: {
 		"TestEloquentModels_TableIsDeclaredOrDerived",
 		"TestEloquentModels_ThroughABaseClassInAnotherFile",

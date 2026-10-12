@@ -60,6 +60,10 @@ type classIndex struct {
 	// byShort lists the controllers sharing a last namespace segment.
 	byShort map[string][]string
 	methods map[string]bool
+	// interfaces are the declared interfaces, and implementers the classes naming
+	// each one in their own implements list.
+	interfaces   map[string]bool
+	implementers map[string][]string
 }
 
 func newClassIndex(allFacts []facts.Fact) *classIndex {
@@ -68,6 +72,9 @@ func newClassIndex(allFacts []facts.Fact) *classIndex {
 		controllers: map[string]bool{},
 		byShort:     map[string][]string{},
 		methods:     map[string]bool{},
+
+		interfaces:   map[string]bool{},
+		implementers: map[string][]string{},
 	}
 	for i := range allFacts {
 		f := &allFacts[i]
@@ -77,6 +84,8 @@ func newClassIndex(allFacts []facts.Fact) *classIndex {
 		switch f.PropString("symbol_kind") {
 		case facts.SymbolMethod:
 			ix.methods[f.Name] = true
+		case facts.SymbolInterface:
+			ix.interfaces[f.Name] = true
 		case facts.SymbolClass:
 			for _, rel := range f.Relations {
 				if rel.Kind == facts.RelImplements {
@@ -92,6 +101,20 @@ func newClassIndex(allFacts []facts.Fact) *classIndex {
 			ix.controllers[f.Name] = true
 			short := lastNsSegment(f.Name)
 			ix.byShort[short] = append(ix.byShort[short], f.Name)
+		}
+	}
+	for class, refs := range ix.parents {
+		if !ix.controllers[class] {
+			continue
+		}
+		for _, ref := range refs {
+			iface := ref
+			if !ix.interfaces[iface] {
+				iface = class[:strings.LastIndex(class, `\`)+1] + ref
+			}
+			if ix.interfaces[iface] {
+				ix.implementers[iface] = append(ix.implementers[iface], class)
+			}
 		}
 	}
 	return ix

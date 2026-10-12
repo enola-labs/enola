@@ -169,6 +169,10 @@ func (e *PHPExtractor) Extract(ctx context.Context, repoPath string, files []str
 	// their relations are emitted here too.
 	allFacts = append(allFacts, eloquentFacts(allFacts)...)
 
+	// An instance call names its method only once the receiver's class is known, and
+	// that class is declared in another file.
+	bindReceiverCalls(allFacts)
+
 	// Resolve `use` imports and namespaced references (inheritance, calls,
 	// instantiations) into internal module-coupling edges. Without this, PHP
 	// imports never match module Names downstream and coupling collapses to zero.

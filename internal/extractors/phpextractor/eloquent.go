@@ -71,13 +71,12 @@ func (w *phpWalker) recordEloquentRelation(call *sitter.Node, ownerIdx int, meth
 	if arg == nil {
 		return
 	}
-	target := ""
+	// A class constant is resolved as PHP resolves it; a string names its class in full.
+	target := strings.TrimLeft(stringLiteral(arg, w.src), `\`)
 	if kindOf(arg) == "class_constant_access_expression" {
-		target = classConstClass(arg, w.src)
-	} else {
-		target = stringLiteral(arg, w.src)
+		target = w.className(classConstClass(arg, w.src))
 	}
-	if target = w.resolveRef(target); target == "" || target == "static" || target == "self" {
+	if target == "" {
 		return
 	}
 	owner.Props[propEloquentRelation] = method
@@ -140,9 +139,6 @@ func eloquentFacts(allFacts []facts.Fact) []facts.Fact {
 			continue
 		}
 		model, target := f.Name[:sep], f.PropString(propEloquentTarget)
-		if resolved := ix.resolve(model, target); resolved != "" {
-			target = resolved
-		}
 		out = append(out, facts.Fact{
 			Kind: facts.KindAssociation,
 			Name: f.Name,

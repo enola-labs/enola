@@ -2804,7 +2804,11 @@ import (
 // v326: PHP emits a model storage fact for each concrete Eloquent model (a class that
 // reaches an Eloquent base class through its parents), with the table it declares or the
 // one Eloquent derives, and an association fact per relation method.
-const cacheVersion = "v326"
+// v327: a PHP instance call whose receiver type the source declares ($this, a typed or
+// constructor-assigned property of $this, a typed parameter) gains a calls edge to the
+// declared method, beside its bare name; an interface receiver also reaches its only
+// implementer.
+const cacheVersion = "v327"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
