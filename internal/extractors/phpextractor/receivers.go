@@ -47,6 +47,34 @@ func (w *phpWalker) classPropertyTypes(body *sitter.Node) map[string]string {
 	return props
 }
 
+// constructorTypes returns the classes a class body's constructor takes as
+// parameters, in declaration order, each once.
+func (w *phpWalker) constructorTypes(body *sitter.Node) []string {
+	if body == nil {
+		return nil
+	}
+	var out []string
+	seen := map[string]bool{}
+	for i := uint(0); i < body.NamedChildCount(); i++ {
+		member := body.NamedChild(i)
+		if kindOf(member) != "method_declaration" || phpText(member.ChildByFieldName("name"), w.src) != "__construct" {
+			continue
+		}
+		params := member.ChildByFieldName("parameters")
+		if params == nil {
+			continue
+		}
+		for j := uint(0); j < params.NamedChildCount(); j++ {
+			typ := w.declaredType(params.NamedChild(j).ChildByFieldName("type"))
+			if typ != "" && !seen[typ] {
+				seen[typ] = true
+				out = append(out, typ)
+			}
+		}
+	}
+	return out
+}
+
 // parameterTypes reads the declared type of each parameter. A promoted constructor
 // parameter is a property too, and is recorded in promoted when it is given.
 func (w *phpWalker) parameterTypes(params *sitter.Node, promoted map[string]string) map[string]string {
