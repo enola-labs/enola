@@ -132,13 +132,17 @@ func (e *DepthExplainer) Explain(ctx context.Context, store *facts.Store) ([]fac
 		module string
 		depth  int
 		chain  []string
+		path   string
 	}
 	var results []result
 	for i, scc := range sccs {
 		if depth[i] < minDepth {
 			continue
 		}
-		results = append(results, result{module: scc[0], depth: depth[i], chain: chainFor(i, sccs, bestSucc)})
+		results = append(results, result{
+			module: scc[0], depth: depth[i],
+			chain: chainFor(i, sccs, bestSucc), path: chainPath(i, sccs, bestSucc),
+		})
 	}
 
 	// Deepest first; break ties by module name for determinism.
@@ -164,9 +168,9 @@ func (e *DepthExplainer) Explain(ctx context.Context, store *facts.Store) ([]fac
 			Title: fmt.Sprintf("Deep dependency chain: %s (depth %d)", r.module, r.depth),
 			Description: fmt.Sprintf(
 				"Module %q has a longest dependency chain of %d modules: %s. "+
-					"Deep chains slow comprehension and widen rebuild/retest impact when a "+
+					"%sDeep chains slow comprehension and widen rebuild/retest impact when a "+
 					"module near the bottom changes.",
-				r.module, r.depth, strings.Join(r.chain, " -> "),
+				r.module, r.depth, r.path, groupNote(r.path),
 			),
 			Confidence: 0.7,
 			Evidence:   evidence,
@@ -179,6 +183,36 @@ func (e *DepthExplainer) Explain(ctx context.Context, store *facts.Store) ([]fac
 	}
 
 	return insights, nil
+}
+
+// chainPath renders the chain chainFor reconstructs so that every arrow is a
+// dependency the graph holds. The chain runs over components, and an edge between two
+// components is real; an order among the members of one component is not, because
+// they reach each other in a cycle and no single path through them is the chain. So
+// a component of several modules is printed as one braced group, and an arrow into
+// or out of it means some member of the group has that dependency.
+func chainPath(i int, sccs [][]string, bestSucc []int) string {
+	var hops []string
+	for i != -1 {
+		if len(sccs[i]) > common.OversizedClusterModules {
+			break // weight-0 sink; not part of the reported chain
+		}
+		if len(sccs[i]) == 1 {
+			hops = append(hops, sccs[i][0])
+		} else {
+			hops = append(hops, "{"+strings.Join(sccs[i], ", ")+"}")
+		}
+		i = bestSucc[i]
+	}
+	return strings.Join(hops, " -> ")
+}
+
+// groupNote explains the braces, on the chains that have them.
+func groupNote(path string) string {
+	if !strings.Contains(path, "{") {
+		return ""
+	}
+	return "Modules in braces depend on each other in a cycle and count together. "
 }
 
 // componentWeight is how much a strongly-connected component contributes to a

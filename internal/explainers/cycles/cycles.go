@@ -3,6 +3,7 @@ package cycles
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/enola-labs/enola/internal/explainers/common"
@@ -98,7 +99,7 @@ func (e *CycleExplainer) Explain(ctx context.Context, store *facts.Store) ([]fac
 			continue
 		}
 
-		cyclePath := strings.Join(scc, " -> ") + " -> " + scc[0]
+		cyclePath := describeCycle(scc, graph)
 		evidence := make([]facts.Evidence, 0, len(scc))
 		for _, mod := range scc {
 			evidence = append(evidence, facts.Evidence{
@@ -107,7 +108,7 @@ func (e *CycleExplainer) Explain(ctx context.Context, store *facts.Store) ([]fac
 			})
 		}
 
-		description := fmt.Sprintf("The following modules form a dependency cycle: %s. This can cause initialization issues, make refactoring harder, and indicates tight coupling.", cyclePath)
+		description := fmt.Sprintf("%s. This can cause initialization issues, make refactoring harder, and indicates tight coupling.", cyclePath)
 		actions := []string{
 			"Introduce an interface to break the cycle",
 			"Extract shared types to a separate package",
@@ -115,7 +116,7 @@ func (e *CycleExplainer) Explain(ctx context.Context, store *facts.Store) ([]fac
 		}
 		if unit, ok := sharedUnit(scc, unitOf); ok {
 			description = fmt.Sprintf(
-				"The following modules form a dependency cycle: %s. All of them compile into %q, "+
+				"%s. All of them compile into %q, "+
 					"so this is NOT a build-order problem — mutual references between namespaces or "+
 					"submodules inside one assembly/crate are legal and ordinary, and the build system "+
 					"forbids cycles between units anyway. Read it as a coupling signal: the cycle means "+
@@ -144,6 +145,73 @@ func (e *CycleExplainer) Explain(ctx context.Context, store *facts.Store) ([]fac
 	}
 
 	return insights, nil
+}
+
+// describeCycle states a cyclic component as a sentence whose arrows are all edges
+// of the graph.
+//
+// The component's members come back sorted, and joining them with arrows printed a
+// path through modules that do not import each other: whoever followed it to break
+// the cycle started from an edge that is not in the code. A component is a set of
+// modules that all reach each other, and it usually holds several cycles, so what
+// is printed is one of them, walked along real edges, and the members beside it
+// when that cycle does not pass through all of them.
+func describeCycle(scc []string, graph map[string][]string) string {
+	cycle := cycleThrough(scc, graph)
+	path := strings.Join(cycle, " -> ")
+	if len(cycle) == len(scc)+1 {
+		return "The following modules form a dependency cycle: " + path
+	}
+	return fmt.Sprintf("The %d modules %s depend on each other through more than one cycle. One of them: %s",
+		len(scc), strings.Join(scc, ", "), path)
+}
+
+// cycleThrough returns a shortest cycle through the component's first member, as the
+// modules in import order with the first repeated at the end. Neighbours are taken
+// in sorted order, so the same graph always prints the same cycle.
+func cycleThrough(scc []string, graph map[string][]string) []string {
+	start := scc[0]
+	member := make(map[string]bool, len(scc))
+	for _, m := range scc {
+		member[m] = true
+	}
+	next := func(mod string) []string {
+		var out []string
+		for _, n := range graph[mod] {
+			if member[n] && n != mod {
+				out = append(out, n)
+			}
+		}
+		sort.Strings(out)
+		return out
+	}
+	// Breadth-first from start: the first module found that imports start closes a
+	// shortest cycle.
+	parent := map[string]string{start: ""}
+	queue := []string{start}
+	for len(queue) > 0 {
+		mod := queue[0]
+		queue = queue[1:]
+		for _, n := range next(mod) {
+			if n == start {
+				// Back from mod to start, then reversed: start ... mod start.
+				cycle := []string{start}
+				for at := mod; at != ""; at = parent[at] {
+					cycle = append(cycle, at)
+				}
+				for i, j := 0, len(cycle)-1; i < j; i, j = i+1, j-1 {
+					cycle[i], cycle[j] = cycle[j], cycle[i]
+				}
+				return cycle
+			}
+			if _, seen := parent[n]; !seen {
+				parent[n] = mod
+				queue = append(queue, n)
+			}
+		}
+	}
+	// Unreachable for a strongly connected component of two or more modules.
+	return append(append([]string{}, scc...), start)
 }
 
 // sharedUnit reports the build unit every module in the cycle compiles into, when
