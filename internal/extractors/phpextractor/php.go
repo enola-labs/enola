@@ -105,6 +105,26 @@ func (e *PHPExtractor) Extract(ctx context.Context, repoPath string, files []str
 		}
 	}
 
+	// A Laravel routes file is registered under whatever loads it, so the loads are
+	// read first, from every file, and handed to the route walk below.
+	var routeStacks map[string][][]phpRouteScope
+	if fw == frameworkLaravel {
+		found := parallel.MapFiles(ctx, phpFiles, func(relFile string) []routeMount {
+			src, err := os.ReadFile(filepath.Join(repoPath, relFile))
+			if err != nil || !mentionsRouteMount(src) {
+				return nil
+			}
+			return extractLaravelMounts(src, relFile)
+		})
+		mounts := map[string][]routeMount{}
+		for i, m := range found {
+			if len(m) > 0 {
+				mounts[phpFiles[i]] = m
+			}
+		}
+		routeStacks = laravelMountStacks(phpFiles, mounts)
+	}
+
 	// Per-file parsing is independent. Parse in parallel and merge in file order
 	// for deterministic output.
 	perFileFacts := parallel.MapFiles(ctx, phpFiles, func(relFile string) []facts.Fact {
@@ -123,7 +143,7 @@ func (e *PHPExtractor) Extract(ctx context.Context, repoPath string, files []str
 			ff = append(ff, extractHooks(src, relFile)...)
 		case frameworkLaravel:
 			if isLaravelRouteFile(relFile) {
-				ff = append(ff, extractLaravelRoutes(src, relFile)...)
+				ff = append(ff, extractLaravelRoutes(src, relFile, routeStacks[relFile]...)...)
 			}
 		case frameworkSymfony:
 			ff = append(ff, bindSymfonyHandlers(extractSymfonyRoutes(src, relFile), ff)...)

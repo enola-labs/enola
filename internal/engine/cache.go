@@ -2822,7 +2822,10 @@ import (
 // each parameter after the singular of its segment, nests on a dot and takes a path
 // prefix on a slash; update answers to PUT and PATCH; Route::resources and apiResources
 // are read.
-const cacheVersion = "v331"
+// v332: a Laravel routes file is registered under the scopes of whatever loads it: a
+// group handed the file, withRouting (the api file under apiPrefix), or a require inside
+// a group's closure. Its routes carry that prefix, once per place that loads it.
+const cacheVersion = "v332"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

@@ -83,6 +83,41 @@ was written with. Beyond the plain form:
 
 `->name()` is preserved as `name` so a `route('users.index')` reference resolves.
 
+### Where a routes file is served
+
+A routes file does not say which prefix it lives under. Whatever loads it does:
+
+```php
+// bootstrap/app.php
+->withRouting(
+    then: function () {
+        Route::prefix('internal')->group(base_path('routes/internal.php'));
+    },
+)
+```
+
+```php
+// routes/internal.php
+Route::get('/profiles/{id}', ProfileController::class);
+```
+
+```
+GET  /internal/profiles/{id}   routes/internal.php:6
+```
+
+The route keeps the file and line it is written on and takes the path it is served at.
+Three ways of loading a file are read, from any PHP file in the repository:
+
+| You write | The file's routes get |
+|---|---|
+| `Route::prefix('api')->group(base_path('routes/api.php'))` | the group's prefix, namespace and controller |
+| `->withRouting(web: …, api: …, apiPrefix: 'api/v1')` | nothing for `web`, `apiPrefix` for `api` (`api` when not given) |
+| `require __DIR__.'/auth.php';` inside a group's closure | that group's scopes |
+
+A file loaded from two places is served twice, so its routes are stored once per place. A
+file loaded by another routes file inherits what that file was loaded under. A file
+nothing loads keeps its paths as written.
+
 ## Models and relations — Eloquent
 
 ```php
@@ -201,6 +236,9 @@ not loaded.
 
 - **Routes registered in a loop** over a config array, or by a plugin discovery pass at
   runtime.
+- **A routes file loaded by a computed name** (`base_path(sprintf('routes/%s.php', $type))`),
+  or under a prefix that is not a literal. Its routes keep the paths they are written
+  with: no prefix is guessed.
 - **Non-literal paths and URLs.** `$client->get($endpoint)` with no literal binding is
   not guessed.
 - **`__call` / `__callStatic` magic methods** — a call through them resolves to nothing

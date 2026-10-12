@@ -154,8 +154,11 @@ func TestExtractionDocs_ComposedPathsStillHold(t *testing.T) {
 			// record addressed by the singular of the resource
 			want: []string{
 				"/api/photos", "/api/photos/create", "/api/photos/{photo}", "/api/photos/{photo}/edit",
+				// routes/internal.php declares "/profiles/{id}"; bootstrap/app.php
+				// loads it under the "internal" prefix
+				"/internal/profiles/{id}",
 			},
-			absent: []string{"/api/photos/{id}"},
+			absent: []string{"/api/photos/{id}", "/profiles/{id}"},
 		},
 	}
 
