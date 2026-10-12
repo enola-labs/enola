@@ -189,30 +189,41 @@ func Analyze(s *facts.Store, query string, maxRoutes int, findCallers CallerFind
 		declared[fact.Name] = true
 	}
 	controllers := map[string]bool{}
-	// handlers are the methods the routes are bound to. One a controller inherits is
-	// declared on a parent class or a trait, where methodsOf never looks.
+	// handlers are the methods the routes are bound to, and the walk below starts
+	// from them: a sibling action's models are not this endpoint's. One a controller
+	// inherits is declared on a parent class or a trait.
 	handlers := map[string]bool{}
+	// wholeClass are the controllers walked from every method they declare, because
+	// a route names the class and nothing says which method serves it.
+	wholeClass := map[string]bool{}
 	for _, m := range matched {
 		if controller, _, found := strings.Cut(m.route.Handler, "#"); found {
 			if resolved, ok := classes[ControllerKey(controller)]; ok && controller != "" {
 				controllers[resolved] = true
+				wholeClass[resolved] = true
 			}
 			continue
 		}
 		// `Namespace\Class::method` names its class outright, so it is matched
 		// exactly: the Rails spelling rules above do not apply to it.
-		if class := ownerOf(m.route.Handler); declared[class] {
-			controllers[class] = true
-		}
+		named := ownerOf(m.route.Handler)
+		bound := false
 		for _, rel := range m.fact.Relations {
 			if rel.Kind != facts.RelHandledBy {
 				continue
 			}
 			if class := ownerOf(rel.Target); declared[class] {
 				handlers[rel.Target] = true
-				if !declared[ownerOf(m.route.Handler)] {
+				bound = true
+				if !declared[named] {
 					controllers[class] = true
 				}
+			}
+		}
+		if declared[named] {
+			controllers[named] = true
+			if !bound {
+				wholeClass[named] = true
 			}
 		}
 	}
@@ -246,9 +257,12 @@ func Analyze(s *facts.Store, query string, maxRoutes int, findCallers CallerFind
 		// `Controller#index` carries everything it calls. Walking from the class
 		// alone found nothing on the monolith.
 		seen := map[string]bool{}
-		frontier := append([]string{}, out.Controllers...)
+		var frontier []string
 		for _, controller := range out.Controllers {
-			frontier = append(frontier, methodsOf(s, controller)...)
+			if wholeClass[controller] {
+				frontier = append(frontier, controller)
+				frontier = append(frontier, methodsOf(s, controller)...)
+			}
 		}
 		frontier = append(frontier, sortedKeys(handlers)...)
 		// A JSONAPI controller declares no methods at all — it inherits them — and

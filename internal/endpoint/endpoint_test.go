@@ -199,8 +199,13 @@ func phpStore() *facts.Store {
 		route("/v2/orders/{id}", orders+"::show", orders+"::show"),
 		route("/v2/orders/{id}/audit", orders+"::audit", base+"::audit"),
 		route("/v2/short", "OrderController::show", ""),
+		route("/v2/unbound", orders+"::missing", ""),
 		class(orders),
 		method(orders+"::show", `App\Models\Order`),
+		method(orders+"::export", `App\Models\Report`),
+		class(`App\Models\Report`),
+		facts.Fact{Kind: facts.KindStorage, Name: `App\Models\Report`, Props: map[string]any{
+			"storage_kind": "model", "table": "reports"}},
 		class(base),
 		method(base+"::audit", `App\Models\AuditEntry`),
 		class(`App\Models\Order`),
@@ -293,5 +298,20 @@ func TestAnalyzeReachesAModelThroughItsMethod(t *testing.T) {
 	nested.BuildGraph()
 	if got := Analyze(nested, "/settings", 25, nil); len(got.Models) != 0 {
 		t.Errorf("models = %v, want none: a class nested under a model's name is not the model", got.Models)
+	}
+}
+
+// TestAnalyzeWalksFromTheHandlerNotItsSiblings: the route is bound to show, so what
+// export reaches is another endpoint's. A route that names the class without a bound
+// method is walked from all of them, because nothing says which one serves it.
+func TestAnalyzeWalksFromTheHandlerNotItsSiblings(t *testing.T) {
+	got := Analyze(phpStore(), "GET /v2/orders/{id}", 1, nil)
+	if len(got.Models) != 1 || got.Models[0] != `App\Models\Order` {
+		t.Errorf("models = %v, want only what the bound method reaches", got.Models)
+	}
+	unbound := Analyze(phpStore(), "/v2/unbound", 25, nil)
+	if len(unbound.Controllers) != 1 || len(unbound.Models) != 2 {
+		t.Errorf("controllers = %v, models = %v; want the whole class walked when no method is bound",
+			unbound.Controllers, unbound.Models)
 	}
 }
