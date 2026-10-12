@@ -2808,7 +2808,11 @@ import (
 // constructor-assigned property of $this, a typed parameter) gains a calls edge to the
 // declared method, beside its bare name; an interface receiver also reaches its only
 // implementer.
-const cacheVersion = "v327"
+// v328: every PHP file under a routes directory is read for Laravel routes, not only the
+// skeleton's four names; the action array ['uses' => 'Ctrl@method', 'as' => 'name'] names
+// the handler and the route; a call on an object created in place ((new A)->run()) gains
+// its resolved calls edge, and so does a framework method called on an Eloquent model.
+const cacheVersion = "v328"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

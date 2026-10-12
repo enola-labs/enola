@@ -148,3 +148,47 @@ class Checkout {
 		// Two classes implement Payments, so only the interface's method is named.
 		`App\Contracts\Payments::charge`)
 }
+
+// TestReceiverCalls_ObjectCreatedInPlace: `(new Action)->execute()` states its
+// receiver's class in the expression itself.
+func TestReceiverCalls_ObjectCreatedInPlace(t *testing.T) {
+	src := `<?php
+namespace App\Http\Controllers;
+use App\Services\OrderService;
+class C {
+    public function destroy() {
+        (new OrderService)->create();
+        (new OrderService())->find(1);
+        (new \Vendor\Mailer)->send();
+        return (new $dynamic)->run();
+    }
+}`
+	wantCalls(t, boundCalls(t, `App\Http\Controllers\C::destroy`, src, receiverService),
+		"create", "find", "send", "run",
+		`App\Services\OrderService::create`,
+		`App\Services\OrderService::find`)
+}
+
+// TestReceiverCalls_FrameworkMethodOnAModel: a route-bound model is touched through
+// methods Eloquent declares, not the repository. The same call on a plain class of
+// the repository names nothing.
+func TestReceiverCalls_FrameworkMethodOnAModel(t *testing.T) {
+	models := `<?php
+namespace App\Models;
+use Illuminate\Database\Eloquent\Model;
+class Order extends Model { public function total() {} }
+`
+	src := `<?php
+namespace App\Http\Controllers;
+use App\Models\Order;
+use App\Services\OrderService;
+class C {
+    public function destroy(Order $order, OrderService $orders) {
+        $order->total();
+        $order->delete();
+        $orders->delete();
+    }
+}`
+	wantCalls(t, boundCalls(t, `App\Http\Controllers\C::destroy`, src, models, receiverService),
+		"total", "delete", `App\Models\Order::total`, `App\Models\Order::delete`)
+}

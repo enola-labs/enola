@@ -237,9 +237,9 @@ func (w *laravelRouteWalker) handleChain(node *sitter.Node, calls []chainCall, s
 	for _, c := range calls {
 		switch {
 		case laravelVerbs[c.method] != "":
-			w.emitRoute(c.node, stack, laravelVerbs[c.method], pathArg(c.args, w.src), w.handler(positionalArg(c.args, 1), stack), routeName, "")
+			w.emitRoute(c.node, stack, laravelVerbs[c.method], pathArg(c.args, w.src), w.handler(positionalArg(c.args, 1), stack), w.actionName(routeName, positionalArg(c.args, 1)), "")
 		case c.method == "any":
-			w.emitRoute(c.node, stack, "ANY", pathArg(c.args, w.src), w.handler(positionalArg(c.args, 1), stack), routeName, "")
+			w.emitRoute(c.node, stack, "ANY", pathArg(c.args, w.src), w.handler(positionalArg(c.args, 1), stack), w.actionName(routeName, positionalArg(c.args, 1)), "")
 		case c.method == "match":
 			verbs := arrayStringElements(positionalArg(c.args, 0), w.src)
 			path := positionalString(c.args, 1, w.src)
@@ -362,22 +362,16 @@ func (w *laravelRouteWalker) handler(arg *sitter.Node, stack []phpRouteScope) st
 	}
 	switch kindOf(arg) {
 	case "string", "encapsed_string":
-		s := stringLiteral(arg, w.src)
-		if i := strings.IndexByte(s, '@'); i >= 0 {
-			if s[:i] == "" || s[i+1:] == "" {
-				return ""
-			}
-			return w.namespaced(s[:i], stack) + "::" + s[i+1:]
-		}
-		if ctrl := groupController(stack); ctrl != "" && s != "" {
-			return ctrl + "::" + s
-		}
-		return ""
+		return w.stringHandler(stringLiteral(arg, w.src), stack)
 	case "class_constant_access_expression":
 		if ctrl := classConstClass(arg, w.src); ctrl != "" {
 			return w.resolveClass(ctrl) + "::__invoke"
 		}
 	case "array_creation_expression":
+		// The action array: ['uses' => 'Ctrl@method', 'as' => 'name', ...].
+		if uses := arrayValue(arg, "uses", w.src); uses != nil {
+			return w.handler(uses, stack)
+		}
 		var ctrl, method string
 		for i := uint(0); i < arg.ChildCount(); i++ {
 			el := arg.Child(i)
@@ -400,8 +394,24 @@ func (w *laravelRouteWalker) handler(arg *sitter.Node, stack []phpRouteScope) st
 	return ""
 }
 
+// stringHandler renders a string action: 'Ctrl@method', or a bare 'method' inside a
+// Route::controller group.
+func (w *laravelRouteWalker) stringHandler(s string, stack []phpRouteScope) string {
+	if i := strings.IndexByte(s, '@'); i >= 0 {
+		if s[:i] == "" || s[i+1:] == "" {
+			return ""
+		}
+		return w.namespaced(s[:i], stack) + "::" + s[i+1:]
+	}
+	if ctrl := groupController(stack); ctrl != "" && s != "" {
+		return ctrl + "::" + s
+	}
+	return ""
+}
+
 // namespaced places a string handler's class under the enclosing Route::namespace
-// groups. A leading backslash names the class outright.
+// groups, as Laravel does: a leading backslash names the class outright, and so does
+// a class already written under the group's namespace.
 func (w *laravelRouteWalker) namespaced(class string, stack []phpRouteScope) string {
 	if strings.HasPrefix(class, "\\") {
 		return strings.TrimLeft(class, "\\")
@@ -412,7 +422,19 @@ func (w *laravelRouteWalker) namespaced(class string, stack []phpRouteScope) str
 			parts = append(parts, ns)
 		}
 	}
+	if ns := strings.Join(parts, "\\"); ns == "" || strings.HasPrefix(class, ns+"\\") {
+		return class
+	}
 	return strings.Join(append(parts, class), "\\")
+}
+
+// actionName returns a route's name: the ->name(...) modifier, else the action
+// array's 'as' entry.
+func (w *laravelRouteWalker) actionName(fluent string, action *sitter.Node) string {
+	if fluent != "" || action == nil || kindOf(action) != "array_creation_expression" {
+		return fluent
+	}
+	return arrayKeyValues(action, w.src)["as"]
 }
 
 // groupController returns the innermost Route::controller group's class.

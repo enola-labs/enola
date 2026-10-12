@@ -204,3 +204,33 @@ Route::get('/view', 'welcome');
 		t.Errorf("a bare string outside a controller group names no handler, got %v", h)
 	}
 }
+
+// TestLaravelRoutes_ActionArray: the action array names its handler under 'uses' and
+// its route name under 'as'. A class already written under the group's namespace is
+// not placed under it a second time.
+func TestLaravelRoutes_ActionArray(t *testing.T) {
+	src := `<?php
+Route::group(['namespace' => 'Acme\Http\Controllers', 'prefix' => 'profile'], static function (): void {
+    Route::get('/', ['uses' => 'ProfileController@index', 'as' => 'profile.index']);
+    Route::post('/tokens', ['uses' => 'Acme\Http\Controllers\Profile\TokenController@store', 'as' => 'tokens.store']);
+    Route::get('/passport', ['uses' => '\Vendor\Passport\TokenController@show']);
+    Route::get('/inline', ['as' => 'inline', function () { return 1; }]);
+});
+`
+	ff := extractLaravelRoutes([]byte(src), "routes/web.php")
+	for route, want := range map[[2]string]string{
+		{"GET", "/profile"}:          `Acme\Http\Controllers\ProfileController::index`,
+		{"POST", "/profile/tokens"}:  `Acme\Http\Controllers\Profile\TokenController::store`,
+		{"GET", "/profile/passport"}: `Vendor\Passport\TokenController::show`,
+	} {
+		if got := routeByMethodPath(t, ff, route[0], route[1]).Props["handler"]; got != want {
+			t.Errorf("%s %s handler = %v, want %s", route[0], route[1], got, want)
+		}
+	}
+	if got := routeByMethodPath(t, ff, "GET", "/profile").Props["name"]; got != "profile.index" {
+		t.Errorf("route name = %v, want the action array's 'as'", got)
+	}
+	if h, ok := routeByMethodPath(t, ff, "GET", "/profile/inline").Props["handler"]; ok {
+		t.Errorf("an action array holding a closure names no handler, got %v", h)
+	}
+}

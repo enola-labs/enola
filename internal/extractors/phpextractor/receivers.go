@@ -146,7 +146,8 @@ func (w *phpWalker) className(raw string) string {
 }
 
 // recordReceiverCall notes an instance call whose receiver type is declared: `$this`,
-// a typed property of `$this`, or a typed parameter. The call keeps its bare-name
+// a typed property of `$this`, a typed parameter, or an object created in place
+// (`(new Action)->execute()`). The call keeps its bare-name
 // edge; bindReceiverCalls adds the resolved one once every file is read.
 func (w *phpWalker) recordReceiverCall(call *sitter.Node, ownerIdx int, method string) {
 	if ownerIdx < 0 {
@@ -163,6 +164,14 @@ func (w *phpWalker) recordReceiverCall(call *sitter.Node, ownerIdx int, method s
 		}
 	case "member_access_expression":
 		typ = w.propTypes[thisProperty(obj, w.src)]
+	case "parenthesized_expression", "object_creation_expression":
+		created := obj
+		if kindOf(obj) == "parenthesized_expression" && obj.NamedChildCount() == 1 {
+			created = obj.NamedChild(0)
+		}
+		if kindOf(created) == "object_creation_expression" {
+			typ = w.className(w.creationClass(created))
+		}
 	}
 	if typ == "" {
 		return
@@ -208,8 +217,21 @@ func thisProperty(node *sitter.Node, src []byte) string {
 // repository declares: on the receiver's class, or on the parent class or trait it
 // inherits it from. A receiver typed by an interface reaches the interface's method,
 // and the implementing method when exactly one class implements the interface.
+//
+// The one call named without a declaration is a framework method on an Eloquent model
+// (`$order->delete()` on a route-bound Order): the model is this repository's, and the
+// call is how the code touches it.
 func bindReceiverCalls(allFacts []facts.Fact) {
 	ix := newClassIndex(allFacts)
+	models := map[string]bool{}
+	isModel := func(class string) bool {
+		known, seen := models[class]
+		if !seen {
+			known = ix.hasClass(class) && ix.extendsEloquent(class, map[string]bool{})
+			models[class] = known
+		}
+		return known
+	}
 	for i := range allFacts {
 		f := &allFacts[i]
 		if f.Kind != facts.KindSymbol || f.Props == nil {
@@ -222,7 +244,12 @@ func bindReceiverCalls(allFacts []facts.Fact) {
 			if sep <= 0 {
 				continue
 			}
-			for _, target := range ix.callTargets(call[:sep], call[sep+2:]) {
+			targets := ix.callTargets(call[:sep], call[sep+2:])
+			// A model calling a framework method on itself says nothing new.
+			if len(targets) == 0 && !strings.HasPrefix(f.Name, call[:sep]+"::") && isModel(call[:sep]) {
+				targets = []string{call}
+			}
+			for _, target := range targets {
 				if target != f.Name && !f.HasRelation(facts.RelCalls, target) {
 					f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelCalls, Target: target})
 				}

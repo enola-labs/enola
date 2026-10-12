@@ -71,8 +71,11 @@ func TestDetectPHPFramework(t *testing.T) {
 }
 
 func TestIsLaravelRouteFile(t *testing.T) {
-	yes := []string{"routes/web.php", "routes/api.php", "routes/console.php", "routes/channels.php"}
-	no := []string{"app/Http/Controllers/UserController.php", "routes/helpers.php", "config/routes.php", "web.php"}
+	yes := []string{
+		"routes/web.php", "routes/api.php", "routes/console.php", "routes/channels.php",
+		"routes/api.base.php", "routes/api/v1.php", "modules/Blog/routes/web.php",
+	}
+	no := []string{"app/Http/Controllers/UserController.php", "config/routes.php", "web.php", "app/routes.php"}
 	for _, f := range yes {
 		if !isLaravelRouteFile(f) {
 			t.Errorf("isLaravelRouteFile(%q) = false, want true", f)

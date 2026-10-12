@@ -33,6 +33,12 @@ import (
 // test functions that assert the behavior that version introduced. v1 is the
 // implicit baseline (no changelog line), so coverage starts at v2.
 var versionCoverage = map[int][]string{
+	328: {
+		"TestLaravelRoutes_ActionArray",
+		"TestReceiverCalls_ObjectCreatedInPlace",
+		"TestReceiverCalls_FrameworkMethodOnAModel",
+		"TestIsLaravelRouteFile",
+	},
 	327: {
 		"TestReceiverCalls_PropertyTypes",
 		"TestReceiverCalls_ParameterThisAndInheritedMethod",
