@@ -2818,7 +2818,11 @@ import (
 // v330: a PHP class named without being called (Foo::class, a class constant or enum
 // case, a static property) is a names reference: from the method, from the class for
 // what its body states outside a method, and from a file-reference fact for file scope.
-const cacheVersion = "v330"
+// v331: a Laravel resource registers only the actions ->only / ->except leave it, names
+// each parameter after the singular of its segment, nests on a dot and takes a path
+// prefix on a slash; update answers to PUT and PATCH; Route::resources and apiResources
+// are read.
+const cacheVersion = "v331"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

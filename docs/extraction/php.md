@@ -17,36 +17,124 @@ Fixtures: [`php_sample`](../../internal/engine/testdata/repos/php_sample/) (Word
 | `class`, `interface`, `trait`, `function` | a symbol with `symbol_kind` | `symbol` |
 | `use App\Other\Thing;` | a dependency | `dependency` |
 | `Route::get('/x', …)` (Laravel) | a server route | `route` |
-| `Route::apiResource('photos', …)` | **seven** routes, one per RESTful action | `route` |
+| `Route::resource('photos', …)` | one route per action the resource registers | `route` |
 | `#[Route('/x')]` (Symfony attribute) | a server route with its route name | `route` |
 | `config/routes.yaml` | a server route per configured method | `route` |
 | `add_action` / `add_filter` (WordPress) | a pseudo-route on the hook name | `route` |
 | Guzzle / Laravel `Http::` / Symfony HttpClient | a client route with `role: client` | `route` |
-| Eloquent / Doctrine models | an entity | `storage` |
+| a class extending an Eloquent model | a model with its table | `storage` |
+| `$this->hasMany(Photo::class)` in a model | a relation to the model it names | `association` |
 
 ## Routes — Laravel, including resource expansion
 
 ```php
-Route::get('/api/users',  [UserController::class, 'index'])->name('users.index');
-Route::post('/api/users', [UserController::class, 'store']);
-Route::apiResource('photos', PhotoController::class);
+Route::prefix('api')->group(function () {
+    Route::get('/users', [UserController::class, 'index'])->name('users.index');
+    Route::post('/users', [UserController::class, 'store']);
+    Route::resource('photos', PhotoController::class);
+    Route::get('/profiles/{id}', ProfileController::class);
+});
 ```
 
-Line 9 is one call. It becomes seven facts:
+Every PHP file under a `routes` directory is read, whatever it is called. Groups compose:
+a `prefix` lands on the path, and a `namespace` or a `controller` group on the handler.
+
+The handler is the class as PHP resolves it, through the file's `use` statements:
 
 ```
-GET    /api/photos              action=index     handler=PhotoController::index
-POST   /api/photos              action=store     handler=PhotoController::store
-GET    /api/photos/create       action=create    handler=PhotoController::create
-GET    /api/photos/{id}         action=show      handler=PhotoController::show
-PUT    /api/photos/{id}         action=update    handler=PhotoController::update
-DELETE /api/photos/{id}         action=destroy   handler=PhotoController::destroy
-GET    /api/photos/{id}/edit    action=edit      handler=PhotoController::edit
+GET  /api/users          handler=App\Http\Controllers\UserController::index     name=users.index
+GET  /api/profiles/{id}  handler=App\Http\Controllers\ProfileController::__invoke
 ```
 
-All seven keep `routes/api.php:9` as their location, because that is the line you edit to
-change any of them. Route groups and prefixes compose onto these paths, and `->name()`
-is preserved as `name` so a `route('users.index')` reference resolves.
+A controller named alone is invokable, so its handler is `__invoke`. A string action
+(`'UserController@index'`, or `['uses' => …]`) is placed under the controller namespace.
+When the class and method exist in the repository, the route also carries a `handled_by`
+edge to the method. For an action the controller inherits, the edge points at the parent
+class or trait that declares it. A class that resolves to nothing, or to two classes,
+keeps the handler as written and gets no edge.
+
+Line 10 is one call. It becomes eight facts:
+
+```
+GET    /api/photos                action=index     handler=PhotoController::index
+POST   /api/photos                action=store     handler=PhotoController::store
+GET    /api/photos/create         action=create    handler=PhotoController::create
+GET    /api/photos/{photo}        action=show      handler=PhotoController::show
+PUT    /api/photos/{photo}        action=update    handler=PhotoController::update
+PATCH  /api/photos/{photo}        action=update    handler=PhotoController::update
+DELETE /api/photos/{photo}        action=destroy   handler=PhotoController::destroy
+GET    /api/photos/{photo}/edit   action=edit      handler=PhotoController::edit
+```
+
+All eight keep `routes/api.php:10` as their location, because that is the line you edit to
+change any of them. `update` is one action that answers to two verbs. The parameter is
+the singular of the resource, as Laravel names it; an irregular plural keeps the name it
+was written with. Beyond the plain form:
+
+| You write | enola stores |
+|---|---|
+| `->only(['index', 'show'])`, `->except(…)`, or the same keys in the options array | only the actions left |
+| `Route::apiResource(…)` | no `create` and no `edit` |
+| `'albums.songs'` | `/albums/{album}/songs/{song}` |
+| `'admin/photos'` | `/admin/photos/{photo}` |
+| `->shallow()` on a nested resource | member routes without the parent |
+| `->parameters(['users' => 'member'])` | `/users/{member}` |
+| `Route::resources([…])`, `Route::apiResources([…])` | each entry, expanded the same way |
+
+`->name()` is preserved as `name` so a `route('users.index')` reference resolves.
+
+## Models and relations — Eloquent
+
+```php
+class User extends Model
+{
+    protected $table = 'accounts';
+
+    public function photos()
+    {
+        return $this->hasMany(Photo::class);
+    }
+}
+```
+
+```
+storage      App\Models\User    props: storage_kind=model, table=accounts, table_source=declared
+storage      App\Models\Photo   props: storage_kind=model, table=photos,   table_source=derived
+association  App\Models\User::photos   props: macro=hasMany, target=App\Models\Photo
+```
+
+A model is a concrete class that reaches an Eloquent base class through its parents,
+including base classes of your own in other files. Its table is the `$table` it or an
+ancestor declares, else the plural Eloquent derives, and `table_source` says which. The
+derived form applies the regular English plural only. `morphTo()` names no model, so it
+declares no association.
+
+This is what `enola endpoint` walks: from a route to its handler, through the calls the
+handler makes, to the models and tables behind them.
+
+## Calls and references
+
+A call on `$this`, on a property whose type the class declares (a typed property, a
+promoted constructor parameter, or one the constructor assigns), on a typed parameter, or
+on an object created in place resolves to the method it runs:
+
+```
+App\Http\Controllers\ProfileController::__invoke --calls--> App\Services\UserDirectory::find
+```
+
+The bare method name stays beside it. A receiver typed by an interface reaches the
+interface's method, and the implementing method when exactly one class implements it.
+
+Three more edges say that a class is used without calling it:
+
+| You write | Edge |
+|---|---|
+| a class-typed constructor parameter | `injects`, from the class |
+| `Foo::class`, an enum case, a class constant, a static property | `names`, from the method or class that writes it |
+| the same at file scope, in a config or bootstrap file | `names`, on a file reference |
+
+Class names resolve as PHP resolves them: through the imports, else relative to the
+file's namespace.
 
 ## Routes — Symfony, from two sources
 

@@ -248,40 +248,11 @@ func (w *laravelRouteWalker) handleChain(node *sitter.Node, calls []chainCall, s
 				w.emitRoute(c.node, stack, strings.ToUpper(v), path, handler, routeName, "")
 			}
 		case c.method == "resource" || c.method == "apiResource":
-			w.emitResource(c.node, stack, c.args, c.method == "apiResource")
+			w.emitResource(c.node, stack, calls, positionalString(c.args, 0, w.src),
+				w.classArg(positionalArg(c.args, 1)), positionalArg(c.args, 2), c.method == "apiResource")
+		case c.method == "resources" || c.method == "apiResources":
+			w.emitResources(c.node, stack, calls, c.args, c.method == "apiResources")
 		}
-	}
-}
-
-// emitResource expands a Route::resource / apiResource declaration into its REST
-// actions, mirroring Laravel's resource controller conventions.
-func (w *laravelRouteWalker) emitResource(node *sitter.Node, stack []phpRouteScope, args *sitter.Node, apiOnly bool) {
-	base := positionalString(args, 0, w.src)
-	if base == "" {
-		return
-	}
-	controller := w.classArg(positionalArg(args, 1))
-	type action struct {
-		name, method, suffix string
-	}
-	actions := []action{
-		{"index", "GET", ""},
-		{"create", "GET", "/create"},
-		{"store", "POST", ""},
-		{"show", "GET", "/{id}"},
-		{"edit", "GET", "/{id}/edit"},
-		{"update", "PUT", "/{id}"},
-		{"destroy", "DELETE", "/{id}"},
-	}
-	for _, a := range actions {
-		if apiOnly && (a.name == "create" || a.name == "edit") {
-			continue // apiResource omits the HTML form endpoints
-		}
-		handler := ""
-		if controller != "" {
-			handler = controller + "::" + a.name
-		}
-		w.emitRoute(node, stack, a.method, "/"+strings.Trim(base, "/")+a.suffix, handler, "", a.name)
 	}
 }
 
