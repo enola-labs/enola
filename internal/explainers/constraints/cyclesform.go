@@ -72,23 +72,23 @@ func (e *Explainer) verdictForbidCycles(r rule, store *facts.Store, memberFacts 
 			continue
 		}
 		sort.Strings(scc)
+		// Every ordered pair, not the sorted members read as a ring: the parts are in
+		// name order, and the edges that close the circle are wherever they are.
 		var evidence []facts.Evidence
-		for i, a := range scc {
-			b := scc[(i+1)%len(scc)]
-			for _, w := range witnesses[a+"\x00"+b] {
-				evidence = append(evidence, facts.Evidence{Fact: w, Detail: fmt.Sprintf("%s reaches %s", a, b)})
-			}
-			for _, w := range witnesses[b+"\x00"+a] {
-				evidence = append(evidence, facts.Evidence{Fact: w, Detail: fmt.Sprintf("%s reaches %s", b, a)})
+		for _, a := range scc {
+			for _, b := range scc {
+				for _, w := range witnesses[a+"\x00"+b] {
+					evidence = append(evidence, facts.Evidence{Fact: w, Detail: fmt.Sprintf("%s reaches %s", a, b)})
+				}
 			}
 		}
 		out = append(out, facts.Insight{
 			Title:       r.titled(fmt.Sprintf("%s depend on each other in a circle", strings.Join(scc, ", "))),
-			Description: fmt.Sprintf("The parts %s form a dependency cycle: each reaches the next through module edges the graph holds, so none can be taken out or reasoned about without the others. The rule is declared and membership is exact, so this is a decided-rule breach, not a heuristic. Because: %s", strings.Join(scc, ", "), r.because),
+			Description: fmt.Sprintf("The parts %s form a dependency cycle: each reaches the others through module edges the graph holds, so none can be taken out or reasoned about without the others. The rule is declared and membership is exact, so this is a decided-rule breach, not a heuristic. Because: %s", strings.Join(scc, ", "), r.because),
 			Confidence:  r.confidence(),
 			Evidence:    evidence,
 			Actions: []string{
-				cutForCycle(ringEdges(scc, edgeCount)),
+				cutForCycle(componentEdges(scc, edgeCount)),
 				"Break one edge of the circle so the parts order again",
 				"Amend the rule on its declaring page if the decision behind it changed",
 			},
@@ -173,15 +173,15 @@ func stronglyConnected(adjacency map[string][]string, order []string) [][]string
 	return out
 }
 
-func ringEdges(scc []string, edgeCount map[string]int) []weightedEdge {
+// componentEdges lists the edges between the parts of one circle, wherever in the
+// name order their ends fall.
+func componentEdges(scc []string, edgeCount map[string]int) []weightedEdge {
 	var out []weightedEdge
-	for i, a := range scc {
-		b := scc[(i+1)%len(scc)]
-		if n := edgeCount[a+"\x00"+b]; n > 0 {
-			out = append(out, weightedEdge{from: a, to: b, weight: n})
-		}
-		if n := edgeCount[b+"\x00"+a]; n > 0 {
-			out = append(out, weightedEdge{from: b, to: a, weight: n})
+	for _, a := range scc {
+		for _, b := range scc {
+			if n := edgeCount[a+"\x00"+b]; a != b && n > 0 {
+				out = append(out, weightedEdge{from: a, to: b, weight: n})
+			}
 		}
 	}
 	return out

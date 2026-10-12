@@ -348,3 +348,111 @@ func TestExplain_Deterministic(t *testing.T) {
 		}
 	}
 }
+
+// TestExplain_ChainArrowsAreDependencies: routes imports only the controllers, and
+// the five modules below it are one cycle. Their names in order are not a path, so
+// they are printed as a group and the depth still counts each of them.
+func TestExplain_ChainArrowsAreDependencies(t *testing.T) {
+	deps := map[string][]string{
+		"app/routes":           {"app/Http/Controllers"},
+		"app/Http/Controllers": {"app/Services"},
+		"app/Services":         {"app/Repositories", "app/Gateways"},
+		"app/Repositories":     {"app/Http/Controllers"},
+		"app/Gateways":         {"app/Models"},
+		"app/Models":           {"app/Services"},
+	}
+	modules := []string{"app/routes", "app/Gateways", "app/Http/Controllers", "app/Models", "app/Repositories", "app/Services"}
+	insights, err := New().Explain(context.Background(), makeStore(modules, deps))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got *facts.Insight
+	for i := range insights {
+		if insights[i].Title == "Deep dependency chain: app/routes (depth 6)" {
+			got = &insights[i]
+		}
+	}
+	if got == nil {
+		t.Fatalf("no finding for app/routes at depth 6: %v", titles(insights))
+	}
+	const want = "app/routes -> {app/Gateways, app/Http/Controllers, app/Models, app/Repositories, app/Services}. " +
+		"Modules in braces depend on each other in a cycle and count together."
+	if !strings.Contains(got.Description, want) {
+		t.Errorf("description = %q, want it to contain %q", got.Description, want)
+	}
+	if strings.Contains(got.Description, "app/routes -> app/Gateways") {
+		t.Errorf("description prints app/routes -> app/Gateways, and no such import exists: %s", got.Description)
+	}
+	if len(got.Evidence) != 6 {
+		t.Errorf("evidence rows = %d, want every module of the chain", len(got.Evidence))
+	}
+}
+
+// TestExplain_AcyclicChainHasNoGroups: a plain chain reads as it did.
+func TestExplain_AcyclicChainHasNoGroups(t *testing.T) {
+	mods, deps := chain(6)
+	insights, err := New().Explain(context.Background(), makeStore(mods, deps))
+	if err != nil || len(insights) == 0 {
+		t.Fatalf("insights = %v, err = %v", insights, err)
+	}
+	const want = "a/m0 -> a/m1 -> a/m2 -> a/m3 -> a/m4 -> a/m5. Deep chains"
+	if !strings.Contains(insights[0].Description, want) {
+		t.Errorf("description = %q, want it to contain %q", insights[0].Description, want)
+	}
+}
+
+// TestExplain_EveryPrintedArrowIsADependency runs random graphs through the explainer
+// and checks each arrow of each chain: between two modules it is an import, and into
+// or out of a braced group some member of the group has it.
+func TestExplain_EveryPrintedArrowIsADependency(t *testing.T) {
+	seed := uint32(11)
+	next := func(n int) int {
+		seed = seed*1664525 + 1013904223
+		return int(seed>>16) % n
+	}
+	members := func(hop string) []string {
+		return strings.Split(strings.Trim(hop, "{}"), ", ")
+	}
+	checked := 0
+	for round := 0; round < 200; round++ {
+		size := 6 + next(8)
+		modules := make([]string, size)
+		for i := range modules {
+			modules[i] = fmt.Sprintf("p/m%02d", i)
+		}
+		edge := map[string]bool{}
+		deps := map[string][]string{}
+		for e := 0; e < size+next(size); e++ {
+			from, to := modules[next(size)], modules[next(size)]
+			if from != to && !edge[from+">"+to] {
+				edge[from+">"+to] = true
+				deps[from] = append(deps[from], to)
+			}
+		}
+		insights, err := New().Explain(context.Background(), makeStore(modules, deps))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, in := range insights {
+			const marker = " modules: "
+			path := in.Description[strings.Index(in.Description, marker)+len(marker):]
+			path = path[:strings.Index(path, ". ")]
+			hops := strings.Split(path, " -> ")
+			for i := 0; i+1 < len(hops); i++ {
+				found := false
+				for _, from := range members(hops[i]) {
+					for _, to := range members(hops[i+1]) {
+						found = found || edge[from+">"+to]
+					}
+				}
+				if !found {
+					t.Fatalf("%q prints %s -> %s, and no module of the first imports one of the second", path, hops[i], hops[i+1])
+				}
+				checked++
+			}
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no chain was long enough to report, so nothing was checked")
+	}
+}

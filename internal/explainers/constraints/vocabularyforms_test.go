@@ -205,3 +205,47 @@ func TestForbidToName_BareMethodMatchesTheChainedCall(t *testing.T) {
 		t.Fatal("the method must match whole, not as a prefix")
 	}
 }
+
+// The parts of a circle are listed in name order, and the edges that close it need
+// not join neighbours in that order: here the circle runs alpha -> gamma -> beta ->
+// delta -> alpha, and its lightest edge, alpha -> gamma, joins the first and third.
+func TestForbidCycles_CutIsAnEdgeOfTheCircle(t *testing.T) {
+	store := facts.NewStore()
+	store.Add(
+		componentIntent("alpha", "app/alpha/**"),
+		componentIntent("beta", "app/beta/**"),
+		componentIntent("gamma", "app/gamma/**"),
+		componentIntent("delta", "app/delta/**"),
+		cyclesRuleIntent("parts-never-cycle", "alpha", []string{"beta", "gamma", "delta"}),
+		rubyModule("app/alpha"), rubyModule("app/beta"), rubyModule("app/gamma"), rubyModule("app/gamma/x"),
+		rubyModule("app/delta"), rubyModule("app/delta/x"),
+		moduleEdge("app/alpha", "app/gamma", 1),
+		moduleEdge("app/gamma", "app/beta", 1),
+		moduleEdge("app/gamma/x", "app/beta", 1),
+		moduleEdge("app/beta", "app/delta", 1),
+		moduleEdge("app/beta", "app/delta/x", 1),
+		moduleEdge("app/delta", "app/alpha", 1),
+		moduleEdge("app/delta/x", "app/alpha", 1),
+	)
+	got, err := New().Explain(context.Background(), store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, i := range got {
+		if !strings.Contains(i.Title, "parts-never-cycle") {
+			continue
+		}
+		if len(i.Actions) == 0 || !strings.Contains(i.Actions[0], "alpha -> gamma") {
+			t.Errorf("cut = %v, want the lightest edge of the circle, alpha -> gamma", i.Actions)
+		}
+		reaches := false
+		for _, e := range i.Evidence {
+			reaches = reaches || e.Detail == "alpha reaches gamma"
+		}
+		if !reaches {
+			t.Errorf("evidence = %v, want the alpha -> gamma edge among it", i.Evidence)
+		}
+		return
+	}
+	t.Fatal("the circle was not reported")
+}

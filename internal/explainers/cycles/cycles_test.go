@@ -555,3 +555,112 @@ func TestExplain_ClusterConfidenceIsMonotone(t *testing.T) {
 			maxCycleModules, maxCycleModules+2, small.Confidence, grown.Confidence)
 	}
 }
+
+// assertArrowsAreEdges fails when a printed `a -> b` is not an edge of deps.
+func assertArrowsAreEdges(t *testing.T, path string, deps map[string][]string) {
+	t.Helper()
+	hops := strings.Split(path, " -> ")
+	if len(hops) < 3 || hops[0] != hops[len(hops)-1] {
+		t.Fatalf("%q is not a closed cycle", path)
+	}
+	for i := 0; i+1 < len(hops); i++ {
+		found := false
+		for _, to := range deps[hops[i]] {
+			found = found || to == hops[i+1]
+		}
+		if !found {
+			t.Errorf("%q prints %s -> %s, and no such import exists", path, hops[i], hops[i+1])
+		}
+	}
+}
+
+// TestExplain_CyclePathFollowsEdges: five modules joined by two loops are one
+// component, and their names in order are not a path through it.
+func TestExplain_CyclePathFollowsEdges(t *testing.T) {
+	deps := map[string][]string{
+		"app/Http/Controllers": {"app/Services"},
+		"app/Services":         {"app/Repositories", "app/Gateways"},
+		"app/Repositories":     {"app/Http/Controllers"},
+		"app/Gateways":         {"app/Models"},
+		"app/Models":           {"app/Services"},
+	}
+	modules := []string{"app/Gateways", "app/Http/Controllers", "app/Models", "app/Repositories", "app/Services"}
+	insights, err := New().Explain(context.Background(), makeStore(modules, deps))
+	if err != nil || len(insights) != 1 {
+		t.Fatalf("insights = %v, err = %v; want the one component", insights, err)
+	}
+	got := insights[0]
+	if got.Title != "Cyclic dependency detected (5 modules)" || len(got.Evidence) != 5 {
+		t.Errorf("title = %q with %d evidence rows; membership and title must not change", got.Title, len(got.Evidence))
+	}
+	const marker = "One of them: "
+	at := strings.Index(got.Description, marker)
+	if at < 0 {
+		t.Fatalf("description names no cycle: %s", got.Description)
+	}
+	path := got.Description[at+len(marker):]
+	path = path[:strings.Index(path, ". ")]
+	assertArrowsAreEdges(t, path, deps)
+	if path != "app/Gateways -> app/Models -> app/Services -> app/Gateways" {
+		t.Errorf("cycle = %q, want the shortest one through the first member", path)
+	}
+	for _, m := range modules {
+		if !strings.Contains(got.Description[:at], m) {
+			t.Errorf("description does not list member %s: %s", m, got.Description)
+		}
+	}
+}
+
+// TestExplain_SingleCycleIsPrintedInImportOrder: c imports b imports a imports c, so
+// the names in order run against every edge.
+func TestExplain_SingleCycleIsPrintedInImportOrder(t *testing.T) {
+	deps := map[string][]string{"x/a": {"x/c"}, "x/c": {"x/b"}, "x/b": {"x/a"}}
+	insights, err := New().Explain(context.Background(), makeStore([]string{"x/a", "x/b", "x/c"}, deps))
+	if err != nil || len(insights) != 1 {
+		t.Fatalf("insights = %v, err = %v", insights, err)
+	}
+	const want = "The following modules form a dependency cycle: x/a -> x/c -> x/b -> x/a."
+	if !strings.HasPrefix(insights[0].Description, want) {
+		t.Errorf("description = %q, want it to start %q", insights[0].Description, want)
+	}
+}
+
+// TestExplain_EveryPrintedArrowIsAnEdge runs random graphs through the explainer and
+// checks each cycle it prints against the edges it was given.
+func TestExplain_EveryPrintedArrowIsAnEdge(t *testing.T) {
+	seed := uint32(7)
+	next := func(n int) int {
+		seed = seed*1664525 + 1013904223
+		return int(seed>>16) % n
+	}
+	for round := 0; round < 200; round++ {
+		size := 3 + next(8)
+		modules := make([]string, size)
+		for i := range modules {
+			modules[i] = fmt.Sprintf("p/m%02d", i)
+		}
+		deps := map[string][]string{}
+		for e := 0; e < size+next(size*2); e++ {
+			from, to := modules[next(size)], modules[next(size)]
+			if from != to {
+				deps[from] = append(deps[from], to)
+			}
+		}
+		insights, err := New().Explain(context.Background(), makeStore(modules, deps))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, in := range insights {
+			if !strings.HasPrefix(in.Title, "Cyclic dependency") {
+				continue
+			}
+			path := in.Description
+			for _, marker := range []string{"One of them: ", "form a dependency cycle: "} {
+				if at := strings.Index(path, marker); at >= 0 {
+					path = path[at+len(marker):]
+				}
+			}
+			assertArrowsAreEdges(t, path[:strings.Index(path, ". ")], deps)
+		}
+	}
+}
