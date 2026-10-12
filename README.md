@@ -44,6 +44,8 @@
 - **See several repositories as one system.** A frontend's call to `/api/orders` is linked to the Go handler that serves it. One service's Kafka producer is linked to the service that consumes the topic. [Across repositories](#across-repositories).
 - **Build your own tools on the graph.** A snapshot is a set of plain files with a documented format. Load them wherever you need them. [Build on the graph](#build-on-the-graph).
 
+That difference shows up in ordinary work. Across 238 real Claude Code and OpenCode sessions, 4,375 enola calls put 4.1 million tokens into context. Opening only the files named in those answers was estimated at 5.4× to 7.7× as much; reading the full source represented by each session, 450× to 623×. In 205 of 210 sessions that took a snapshot, that source was larger than the agent's median active context. [Measured latency, token costs, method and limits](docs/BENCHMARKS.md#real-session-usage).
+
 ## Choose your starting point
 
 | I want to… | Start here |

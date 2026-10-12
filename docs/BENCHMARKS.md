@@ -1,20 +1,57 @@
 # Benchmarks
 
-Everything here was measured on 2026-09-21, at extractor version v271, on 91 public
-open-source repositories, with one binary, by scripts you can re-run. This page
-carries the latest sweep rather than a released version's, so it moves when the
-extractors do. Where a number is unflattering it is still here.
+This page carries two kinds of evidence: a field measurement from real coding-agent
+sessions, and a repeatable fixed-corpus benchmark of enola's structural verdicts.
 
-Timings are the engine's own snapshot `duration` rather than wall-clock. The sweep
-passes `--memstats`, which forces a full GC before reporting its figures, and on a
-kernel-sized heap that is a few hundred milliseconds of process time no user pays.
+The fixed corpus was measured on 2026-09-21, at extractor version v271, on 91 public
+open-source repositories, with one binary, by scripts you can re-run. It carries the
+latest sweep rather than a released version's, so it moves when the extractors do.
+Where a number is unflattering it is still here.
+
+## Real-session usage
+
+Between February and October 2026, the logs written by Claude Code and OpenCode
+recorded 4,375 enola calls across 238 sessions of ordinary development. Nothing was
+staged or re-run.
+
+Claude Code used the latest Claude Opus version available at the time throughout.
+OpenCode ran local 27B-class Qwen models throughout: Qwen 3.8 27B at the end of the
+measurement period, Qwen 3.6 27B before it, and Qwen Coder earlier.
+
+| | Claude Code | OpenCode | Total |
+|---|---:|---:|---:|
+| Sessions | 32 | 206 | **238** |
+| enola calls | 774 | 3,601 | **4,375** |
+| Tokens enola put into context | 389k | 3.7M | **4.1M** |
+| Opening only the files named in each answer | 5.4× as much | 7.7× as much | — |
+| Reading the full source represented by each session | 450× as much | 623× as much | — |
+| Snapshot sessions whose source exceeded median active context | 27 / 27 | 178 / 183 | **205 / 210** |
+
+The median call was about 220 to 250 tokens. Most graph lookups completed in tens of
+milliseconds; generating a snapshot took a median of 1.3 to 3.1 seconds. The full-source
+comparison applies to questions that need repository-wide structure. The named-file
+comparison is the narrower floor: it assumes the agent already knew which files to open,
+and prices only those files.
+
+The payload and latency come from the agents' own logs. No harness records tokens per
+tool call, so tokens are estimated as characters sent and returned divided by four. The
+two source-reading columns use repository source sizes and each harness's observed
+behaviour when reading files. They describe this workload; another developer's repositories,
+models and working style will produce different numbers under the same accounting.
+
+The [full field report](https://enola.tech/blog/what-enola-saves-in-real-agent-sessions)
+breaks the result down by tool and by one- versus multi-repository sessions.
 
 ## What is measured, and why these five things
 
 A code graph for agents is usually benchmarked on retrieval: how few tool calls,
-how few tokens, how fast the agent finds the right file. Those are real questions,
-and enola is not benchmarked on them here. They measure how quickly an agent
-reaches code it was going to read anyway.
+how few tokens, how fast the agent finds the right file. The field measurement above
+answers those questions for the workload that occurred. The fixed corpus below asks
+whether the structural verdict an agent receives can be believed.
+
+Its timings are the engine's own snapshot `duration` rather than wall-clock. The sweep
+passes `--memstats`, which forces a full GC before reporting its figures, and on a
+kernel-sized heap that is a few hundred milliseconds of process time no user pays.
 
 The questions below are the ones that decide whether a *structural verdict* about
 your change can be believed:
@@ -932,10 +969,10 @@ $0.31, which bought a tree with a dependency cycle already in it.
 
 Stated so the numbers above are not read as more than they are.
 
-- **Retrieval speed, token counts and cost per query.** Deliberately absent. It is
-  the axis where every tool in this space competes, and enola has no evidence to offer
-  on it. The A/B's cost column is not that evidence: it compares checking against not
-  checking, not one retrieval path against another.
+- **A task-level retrieval A/B.** The real-session measurement above records the
+  workload that occurred; it does not run the same retrieval tasks with and without
+  enola. Section 6's A/B cost column is a third figure: it compares checking against
+  not checking, not one retrieval path against another.
 - **The session hooks in interactive use.** Section 6 exercises them headlessly, under
   `claude -p`. The configuration is the same either way, but interactive sessions were
   not measured.
