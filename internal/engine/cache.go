@@ -2801,7 +2801,10 @@ import (
 // the routes file's imports, Route::namespace and Route::controller groups, and the
 // controller namespace; invokable controllers are handlers; the route carries
 // handled_by to the method's declaration, on a parent class or trait when inherited.
-const cacheVersion = "v325"
+// v326: PHP emits a model storage fact for each concrete Eloquent model (a class that
+// reaches an Eloquent base class through its parents), with the table it declares or the
+// one Eloquent derives, and an association fact per relation method.
+const cacheVersion = "v326"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

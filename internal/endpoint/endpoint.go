@@ -175,8 +175,14 @@ func Analyze(s *facts.Store, query string, maxRoutes int, findCallers CallerFind
 	// Hop 2: the controller class each handler names.
 	classes := map[string]string{}
 	declared := map[string]bool{}
+	// nonMethods are the symbols that are not methods, for the model hop below.
+	nonMethods := map[string]bool{}
 	for _, fact := range s.ByKind(facts.KindSymbol) {
-		if kind, _ := fact.PropAny("symbol_kind").(string); kind != facts.SymbolClass {
+		kind, _ := fact.PropAny("symbol_kind").(string)
+		if kind != facts.SymbolMethod {
+			nonMethods[fact.Name] = true
+		}
+		if kind != facts.SymbolClass {
 			continue
 		}
 		classes[ControllerKey(fact.Name)] = fact.Name
@@ -264,6 +270,15 @@ func Analyze(s *facts.Store, query string, maxRoutes int, findCallers CallerFind
 					if _, isModel := models[edge.Target]; isModel {
 						reached[edge.Target] = true
 						continue
+					}
+					// A call to a model's method reaches the model, declared or not:
+					// `Order::where` is the framework's, and no symbol answers to it.
+					// A class or constant nested in a model is its own thing.
+					if owner := ownerOf(edge.Target); !nonMethods[edge.Target] {
+						if _, isModel := models[owner]; isModel {
+							reached[owner] = true
+							continue
+						}
 					}
 					next = append(next, edge.Target)
 				}

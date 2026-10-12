@@ -252,3 +252,46 @@ func TestAnalyzeDoesNotGuessAScopedController(t *testing.T) {
 			got.Controllers, got.StoppedAt)
 	}
 }
+
+// TestAnalyzeReachesAModelThroughItsMethod: `Order::where` is the framework's query
+// builder, so no symbol answers to it, and calling it still reaches Order. A class
+// nested under a model's name does not.
+func TestAnalyzeReachesAModelThroughItsMethod(t *testing.T) {
+	const controller = `App\Http\Controllers\InvoiceController`
+	st := facts.NewStore()
+	st.Add(
+		facts.Fact{Kind: facts.KindRoute, Name: "/invoices", Props: map[string]any{
+			"method": "GET", "handler": controller + "::index"}},
+		facts.Fact{Kind: facts.KindSymbol, Name: controller, Props: map[string]any{"symbol_kind": facts.SymbolClass}},
+		facts.Fact{Kind: facts.KindSymbol, Name: controller + "::index", Props: map[string]any{
+			"symbol_kind": facts.SymbolMethod},
+			Relations: []facts.Relation{{Kind: facts.RelCalls, Target: `App\Models\Order::where`}}},
+		facts.Fact{Kind: facts.KindSymbol, Name: `App\Models\Order`, Props: map[string]any{"symbol_kind": facts.SymbolClass}},
+		facts.Fact{Kind: facts.KindStorage, Name: `App\Models\Order`, Props: map[string]any{
+			"storage_kind": "model", "table": "orders"}},
+	)
+	st.BuildGraph()
+	got := Analyze(st, "/invoices", 25, nil)
+	if len(got.Models) != 1 || got.Models[0] != `App\Models\Order` {
+		t.Errorf("models = %v, want the model whose method the controller calls", got.Models)
+	}
+	if len(got.Tables) != 1 || got.Tables[0] != "orders" {
+		t.Errorf("tables = %v", got.Tables)
+	}
+
+	nested := facts.NewStore()
+	nested.Add(
+		facts.Fact{Kind: facts.KindRoute, Name: "/settings", Props: map[string]any{
+			"method": "GET", "handler": "settings#show"}},
+		facts.Fact{Kind: facts.KindSymbol, Name: "SettingsController", Props: map[string]any{
+			"symbol_kind": facts.SymbolClass},
+			Relations: []facts.Relation{{Kind: facts.RelCalls, Target: "Company::Setting"}}},
+		facts.Fact{Kind: facts.KindSymbol, Name: "Company::Setting", Props: map[string]any{"symbol_kind": facts.SymbolClass}},
+		facts.Fact{Kind: facts.KindStorage, Name: "Company", Props: map[string]any{
+			"storage_kind": "model", "table": "companies"}},
+	)
+	nested.BuildGraph()
+	if got := Analyze(nested, "/settings", 25, nil); len(got.Models) != 0 {
+		t.Errorf("models = %v, want none: a class nested under a model's name is not the model", got.Models)
+	}
+}

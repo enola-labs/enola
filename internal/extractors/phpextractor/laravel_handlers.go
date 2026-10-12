@@ -28,7 +28,7 @@ const maxHandlerAncestors = 8
 // The edge targets the method's declaration, which for an inherited action is on a
 // parent class or a trait, while the handler prop keeps the class the route names.
 func bindLaravelHandlers(allFacts []facts.Fact) {
-	ix := newLaravelClassIndex(allFacts)
+	ix := newClassIndex(allFacts)
 	for i := range allFacts {
 		f := &allFacts[i]
 		if f.Kind != facts.KindRoute || f.PropString("framework") != "laravel" {
@@ -51,8 +51,8 @@ func bindLaravelHandlers(allFacts []facts.Fact) {
 	}
 }
 
-// laravelClassIndex is the declared classes and methods of one repository.
-type laravelClassIndex struct {
+// classIndex is the declared classes and methods of one repository.
+type classIndex struct {
 	// parents is each class's extends/implements/trait references, as written.
 	parents map[string][]string
 	// controllers are the classes a route can name: every class that is not a trait.
@@ -62,8 +62,8 @@ type laravelClassIndex struct {
 	methods map[string]bool
 }
 
-func newLaravelClassIndex(allFacts []facts.Fact) *laravelClassIndex {
-	ix := &laravelClassIndex{
+func newClassIndex(allFacts []facts.Fact) *classIndex {
+	ix := &classIndex{
 		parents:     map[string][]string{},
 		controllers: map[string]bool{},
 		byShort:     map[string][]string{},
@@ -100,7 +100,7 @@ func newLaravelClassIndex(allFacts []facts.Fact) *laravelClassIndex {
 // controller resolves a class reference from a routes file to a declared class: the
 // name as written, then under Laravel's controller namespace, then the one declared
 // class the reference is a namespace suffix of. "" when none or several answer.
-func (ix *laravelClassIndex) controller(ref string) string {
+func (ix *classIndex) controller(ref string) string {
 	ref = strings.Trim(ref, `\`)
 	if ix.controllers[ref] {
 		return ref
@@ -124,7 +124,7 @@ func (ix *laravelClassIndex) controller(ref string) string {
 // declaringMethod returns the symbol declaring a class's method: on the class, else
 // on the nearest parent class or trait that declares it. "" when none in this
 // repository does, which is every action a framework base class provides.
-func (ix *laravelClassIndex) declaringMethod(class, method string) string {
+func (ix *classIndex) declaringMethod(class, method string) string {
 	seen := map[string]bool{class: true}
 	frontier := []string{class}
 	for depth := 0; depth <= maxHandlerAncestors && len(frontier) > 0; depth++ {
@@ -134,7 +134,7 @@ func (ix *laravelClassIndex) declaringMethod(class, method string) string {
 				return name
 			}
 			for _, ref := range ix.parents[c] {
-				if parent := ix.parent(c, ref); parent != "" && !seen[parent] {
+				if parent := ix.resolve(c, ref); parent != "" && !seen[parent] {
 					seen[parent] = true
 					next = append(next, parent)
 				}
@@ -145,10 +145,10 @@ func (ix *laravelClassIndex) declaringMethod(class, method string) string {
 	return ""
 }
 
-// parent resolves a class's parent reference. The symbol walk expands imported
-// names and leaves a same-namespace name bare, so the child's namespace is tried
-// second.
-func (ix *laravelClassIndex) parent(child, ref string) string {
+// resolve places a class reference written inside another class: a parent, or a
+// related model. The symbol walk expands imported names and leaves a same-namespace
+// name bare, so the referring class's namespace is tried second.
+func (ix *classIndex) resolve(child, ref string) string {
 	if _, ok := ix.parents[ref]; ok {
 		return ref
 	}
@@ -160,7 +160,7 @@ func (ix *laravelClassIndex) parent(child, ref string) string {
 	return ""
 }
 
-func (ix *laravelClassIndex) hasClass(name string) bool {
+func (ix *classIndex) hasClass(name string) bool {
 	_, ok := ix.parents[name]
 	return ok
 }

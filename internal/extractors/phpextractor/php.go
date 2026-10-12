@@ -165,6 +165,10 @@ func (e *PHPExtractor) Extract(ctx context.Context, repoPath string, files []str
 		bindLaravelHandlers(allFacts)
 	}
 
+	// A model's base class may be declared in another file, so Eloquent models and
+	// their relations are emitted here too.
+	allFacts = append(allFacts, eloquentFacts(allFacts)...)
+
 	// Resolve `use` imports and namespaced references (inheritance, calls,
 	// instantiations) into internal module-coupling edges. Without this, PHP
 	// imports never match module Names downstream and coupling collapses to zero.

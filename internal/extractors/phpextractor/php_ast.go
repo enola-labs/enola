@@ -498,6 +498,7 @@ func (w *phpWalker) walkForCalls(node *sitter.Node, ownerIdx int, seen map[strin
 		if method != nil && kindOf(method) == "name" {
 			target := phpText(method, w.src)
 			w.addCall(ownerIdx, seen, target)
+			w.recordEloquentRelation(node, ownerIdx, target)
 			// The edge is the bare method name, because the receiver's type is
 			// unknown. Only `$this->m()` is known to be this class's m: a
 			// decorator's `$this->inner->handle()` or `$container->extend()` inside
@@ -878,6 +879,9 @@ func (w *phpWalker) handleProperty(node *sitter.Node) {
 		name := strings.TrimPrefix(phpText(vn, w.src), "$")
 		if name == "" {
 			continue
+		}
+		if name == "table" {
+			w.recordEloquentTable(el)
 		}
 		w.out = append(w.out, facts.Fact{
 			Kind: facts.KindSymbol,
