@@ -410,6 +410,25 @@ func isRubyImplicitHook(file, bareName string) bool {
 	return strings.HasSuffix(file, ".rb") && (rubyImplicitHooks[bareName] || rubyFrameworkHooks[bareName])
 }
 
+// phpMagicMethods are the methods PHP itself calls.
+var phpMagicMethods = map[string]bool{
+	"__construct": true, "__destruct": true, "__call": true, "__callStatic": true,
+	"__get": true, "__set": true, "__isset": true, "__unset": true,
+	"__sleep": true, "__wakeup": true, "__serialize": true, "__unserialize": true,
+	"__toString": true, "__invoke": true, "__set_state": true, "__clone": true,
+	"__debugInfo": true,
+}
+
+// isPHPMagicMethod reports whether a PHP symbol named "Class::method" is a magic
+// method. Gated on the file extension, as isRubyImplicitHook is.
+func isPHPMagicMethod(file, name string) bool {
+	if !strings.HasSuffix(file, ".php") {
+		return false
+	}
+	i := strings.LastIndex(name, "::")
+	return i >= 0 && phpMagicMethods[name[i+2:]]
+}
+
 // constReceiverRefs returns the constant-receiver short forms implied by a
 // "Recv.method" usage target. Extractors record a call on a constant as
 // "Foo.bar" / "Ns::Class.method"; the receiver constant ("Foo", "Ns::Class") is
@@ -420,8 +439,15 @@ func isRubyImplicitHook(file, bareName string) bool {
 // receivers and package qualifiers (Go `json.NewDecoder`) are not mistaken for a
 // class reference. This only ever ADDS references, so it can never turn live code
 // into a false orphan — consistent with the package's conservative bias.
+//
+// PHP and C++ write the same call as "Ns\Class::method", with no "." at all, and
+// the method is as often the framework's as the class's own (`Order::query()` is
+// Eloquent's), so the receiver is the only part of it that names anything declared.
 func constReceiverRefs(target string) []string {
 	i := strings.LastIndex(target, ".")
+	if i <= 0 {
+		i = strings.LastIndex(target, "::")
+	}
 	if i <= 0 {
 		return nil
 	}
@@ -507,6 +533,11 @@ func isExcluded(sym symInput, opts options) bool {
 	// Ruby lifecycle hooks (inherited/included/method_missing/initialize/…) are
 	// invoked by the runtime, never by name — always noise, like dunders.
 	if isRubyImplicitHook(sym.File, bn) {
+		return true
+	}
+	// PHP magic methods (__construct, __invoke, __get, …) likewise: `new`, the
+	// container, a call on the object or a property read runs them.
+	if isPHPMagicMethod(sym.File, sym.Name) {
 		return true
 	}
 	// Data members have no edge-tracked usage, so they are pure noise in the
@@ -1068,6 +1099,19 @@ func collect(store *facts.Store) ([]symInput, refIndex) {
 		addRef(refSources, h, f.Name)
 		if seg := lastSeg(h); seg != h {
 			addRef(refSources, seg, f.Name)
+		}
+		// A handler named "Ns\Controller::action" uses the controller class too:
+		// the framework instantiates it to serve the route.
+		for _, recv := range constReceiverRefs(h) {
+			addRef(refSources, recv, f.Name)
+		}
+		// The resolved handler, where the route is bound to one. For an inherited
+		// action it is declared on a parent class or a trait, which the handler
+		// prop does not name.
+		for _, r := range f.Relations {
+			if r.Kind == facts.RelHandledBy {
+				addRef(refSources, r.Target, f.Name)
+			}
 		}
 	}
 
