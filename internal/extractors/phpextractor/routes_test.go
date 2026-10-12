@@ -143,3 +143,64 @@ Route::match(['get', 'post'], '/contact', 'ContactController@handle');
 	routeByMethodPath(t, ff, "GET", "/contact")
 	routeByMethodPath(t, ff, "POST", "/contact")
 }
+
+func TestLaravelRoutes_HandlerClassIsExpandedThroughImports(t *testing.T) {
+	src := `<?php
+use App\Http\Controllers\OrderController;
+use App\Http\Controllers\{PingController, ReportController as Reports};
+
+Route::get('/orders/{id}', [OrderController::class, 'show']);
+Route::get('/ping', PingController::class);
+Route::get('/reports', [Reports::class, 'index']);
+Route::get('/absolute', [\Vendor\ThingController::class, 'go']);
+Route::get('/closure', function () { return 1; });
+`
+	ff := extractLaravelRoutes([]byte(src), "routes/api.php")
+	for path, want := range map[string]string{
+		"/orders/{id}": `App\Http\Controllers\OrderController::show`,
+		"/ping":        `App\Http\Controllers\PingController::__invoke`,
+		"/reports":     `App\Http\Controllers\ReportController::index`,
+		"/absolute":    `Vendor\ThingController::go`,
+	} {
+		if got := routeByMethodPath(t, ff, "GET", path).Props["handler"]; got != want {
+			t.Errorf("GET %s handler = %v, want %s", path, got, want)
+		}
+	}
+	if h, ok := routeByMethodPath(t, ff, "GET", "/closure").Props["handler"]; ok {
+		t.Errorf("a closure route names no handler, got %v", h)
+	}
+}
+
+func TestLaravelRoutes_ControllerAndNamespaceGroups(t *testing.T) {
+	src := `<?php
+use App\Http\Controllers\OrderController;
+
+Route::controller(OrderController::class)->prefix('orders')->group(function () {
+    Route::get('/', 'index');
+    Route::post('/', 'store');
+});
+Route::group(['controller' => OrderController::class], function () {
+    Route::get('/latest', 'latest');
+});
+Route::namespace('Admin')->group(function () {
+    Route::get('/users', 'UserController@index');
+    Route::get('/root', '\App\RootController@index');
+});
+Route::get('/view', 'welcome');
+`
+	ff := extractLaravelRoutes([]byte(src), "routes/web.php")
+	for route, want := range map[[2]string]string{
+		{"GET", "/orders"}:  `App\Http\Controllers\OrderController::index`,
+		{"POST", "/orders"}: `App\Http\Controllers\OrderController::store`,
+		{"GET", "/latest"}:  `App\Http\Controllers\OrderController::latest`,
+		{"GET", "/users"}:   `Admin\UserController::index`,
+		{"GET", "/root"}:    `App\RootController::index`,
+	} {
+		if got := routeByMethodPath(t, ff, route[0], route[1]).Props["handler"]; got != want {
+			t.Errorf("%s %s handler = %v, want %s", route[0], route[1], got, want)
+		}
+	}
+	if h, ok := routeByMethodPath(t, ff, "GET", "/view").Props["handler"]; ok {
+		t.Errorf("a bare string outside a controller group names no handler, got %v", h)
+	}
+}

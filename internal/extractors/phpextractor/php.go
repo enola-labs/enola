@@ -159,6 +159,12 @@ func (e *PHPExtractor) Extract(ctx context.Context, repoPath string, files []str
 		})
 	}
 
+	// A Laravel route names a controller declared in another file, so its handler is
+	// resolved here, once every file's symbols are known.
+	if fw == frameworkLaravel {
+		bindLaravelHandlers(allFacts)
+	}
+
 	// Resolve `use` imports and namespaced references (inheritance, calls,
 	// instantiations) into internal module-coupling edges. Without this, PHP
 	// imports never match module Names downstream and coupling collapses to zero.

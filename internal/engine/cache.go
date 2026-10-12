@@ -2797,7 +2797,11 @@ import (
 // v324: a declaration a JavaScript wrapper hands out (the object or value it returns, a
 // property of the global object or of the CommonJS module) is exported; a plain variable
 // handed out that way is kept.
-const cacheVersion = "v324"
+// v325: a Laravel route's handler names its controller by fully-qualified class, through
+// the routes file's imports, Route::namespace and Route::controller groups, and the
+// controller namespace; invokable controllers are handlers; the route carries
+// handled_by to the method's declaration, on a parent class or trait when inherited.
+const cacheVersion = "v325"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

@@ -169,3 +169,86 @@ func TestAnalyzeAsksForCallersOfTheFollowedRoutes(t *testing.T) {
 		t.Errorf("no finder must report no callers, got %+v", none.Callers)
 	}
 }
+
+// phpStore is a Laravel-shaped graph: handlers and methods are `Class::method`, and
+// one action is inherited from a base controller.
+func phpStore() *facts.Store {
+	const (
+		orders = `App\Http\Controllers\OrderController`
+		base   = `App\Http\Controllers\Controller`
+	)
+	class := func(name string) facts.Fact {
+		return facts.Fact{Kind: facts.KindSymbol, Name: name, Props: map[string]any{"symbol_kind": facts.SymbolClass}}
+	}
+	method := func(name string, calls ...string) facts.Fact {
+		f := facts.Fact{Kind: facts.KindSymbol, Name: name, Props: map[string]any{"symbol_kind": facts.SymbolMethod}}
+		for _, c := range calls {
+			f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelCalls, Target: c})
+		}
+		return f
+	}
+	route := func(path, handler, handledBy string) facts.Fact {
+		f := facts.Fact{Kind: facts.KindRoute, Name: path, Props: map[string]any{"method": "GET", "handler": handler}}
+		if handledBy != "" {
+			f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelHandledBy, Target: handledBy})
+		}
+		return f
+	}
+	st := facts.NewStore()
+	st.Add(
+		route("/v2/orders/{id}", orders+"::show", orders+"::show"),
+		route("/v2/orders/{id}/audit", orders+"::audit", base+"::audit"),
+		route("/v2/short", "OrderController::show", ""),
+		class(orders),
+		method(orders+"::show", `App\Models\Order`),
+		class(base),
+		method(base+"::audit", `App\Models\AuditEntry`),
+		class(`App\Models\Order`),
+		class(`App\Models\AuditEntry`),
+		facts.Fact{Kind: facts.KindStorage, Name: `App\Models\Order`, Props: map[string]any{
+			"storage_kind": "model", "table": "orders"}},
+		facts.Fact{Kind: facts.KindStorage, Name: `App\Models\AuditEntry`, Props: map[string]any{
+			"storage_kind": "model", "table": "audit_entries"}},
+	)
+	st.BuildGraph()
+	return st
+}
+
+func TestAnalyzeFollowsAScopedHandler(t *testing.T) {
+	got := Analyze(phpStore(), "GET /v2/orders/{id}", 1, nil)
+	if len(got.Controllers) != 1 || got.Controllers[0] != `App\Http\Controllers\OrderController` {
+		t.Fatalf("controllers = %v, want the class `Class::method` names", got.Controllers)
+	}
+	if len(got.Models) != 1 || got.Models[0] != `App\Models\Order` {
+		t.Errorf("models = %v, want the one the controller's method calls", got.Models)
+	}
+	if got.StoppedAt != "" {
+		t.Errorf("the chain completed, so nothing stopped it: %q", got.StoppedAt)
+	}
+}
+
+// TestAnalyzeFollowsAnInheritedHandler: the route names OrderController, the action
+// is declared on its parent, and what it reaches is the parent method's.
+func TestAnalyzeFollowsAnInheritedHandler(t *testing.T) {
+	got := Analyze(phpStore(), "/audit", 25, nil)
+	if len(got.Controllers) != 1 || got.Controllers[0] != `App\Http\Controllers\OrderController` {
+		t.Fatalf("controllers = %v, want the class the route names", got.Controllers)
+	}
+	found := false
+	for _, m := range got.Models {
+		found = found || m == `App\Models\AuditEntry`
+	}
+	if !found {
+		t.Errorf("models = %v, want the one the inherited action reaches", got.Models)
+	}
+}
+
+// TestAnalyzeDoesNotGuessAScopedController: a short class name is not matched by
+// spelling the way a Rails controller path is.
+func TestAnalyzeDoesNotGuessAScopedController(t *testing.T) {
+	got := Analyze(phpStore(), "/v2/short", 25, nil)
+	if len(got.Controllers) != 0 || got.StoppedAt != "controller" {
+		t.Errorf("controllers = %v, stopped at %q; want an unresolved handler to stop at the controller",
+			got.Controllers, got.StoppedAt)
+	}
+}

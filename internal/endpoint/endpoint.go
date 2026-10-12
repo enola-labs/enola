@@ -174,20 +174,40 @@ func Analyze(s *facts.Store, query string, maxRoutes int, findCallers CallerFind
 
 	// Hop 2: the controller class each handler names.
 	classes := map[string]string{}
+	declared := map[string]bool{}
 	for _, fact := range s.ByKind(facts.KindSymbol) {
 		if kind, _ := fact.PropAny("symbol_kind").(string); kind != facts.SymbolClass {
 			continue
 		}
 		classes[ControllerKey(fact.Name)] = fact.Name
+		declared[fact.Name] = true
 	}
 	controllers := map[string]bool{}
-	for _, route := range out.Routes {
-		controller, _, found := strings.Cut(route.Handler, "#")
-		if !found || controller == "" {
+	// handlers are the methods the routes are bound to. One a controller inherits is
+	// declared on a parent class or a trait, where methodsOf never looks.
+	handlers := map[string]bool{}
+	for _, m := range matched {
+		if controller, _, found := strings.Cut(m.route.Handler, "#"); found {
+			if resolved, ok := classes[ControllerKey(controller)]; ok && controller != "" {
+				controllers[resolved] = true
+			}
 			continue
 		}
-		if resolved, ok := classes[ControllerKey(controller)]; ok {
-			controllers[resolved] = true
+		// `Namespace\Class::method` names its class outright, so it is matched
+		// exactly: the Rails spelling rules above do not apply to it.
+		if class := ownerOf(m.route.Handler); declared[class] {
+			controllers[class] = true
+		}
+		for _, rel := range m.fact.Relations {
+			if rel.Kind != facts.RelHandledBy {
+				continue
+			}
+			if class := ownerOf(rel.Target); declared[class] {
+				handlers[rel.Target] = true
+				if !declared[ownerOf(m.route.Handler)] {
+					controllers[class] = true
+				}
+			}
 		}
 	}
 	out.Controllers = sortedKeys(controllers)
@@ -224,6 +244,7 @@ func Analyze(s *facts.Store, query string, maxRoutes int, findCallers CallerFind
 		for _, controller := range out.Controllers {
 			frontier = append(frontier, methodsOf(s, controller)...)
 		}
+		frontier = append(frontier, sortedKeys(handlers)...)
 		// A JSONAPI controller declares no methods at all — it inherits them — and
 		// its model is reached through the resource class. The class is located by
 		// name and only used when it exists, so this is a convention checked
@@ -437,12 +458,29 @@ func singularCandidates(plural string) []string {
 	return out
 }
 
-// methodsOf returns the `Class#method` symbols declared on a class.
+// ownerOf returns the class of a `Class::method` or `Class#method` name, "" when it
+// is neither.
+func ownerOf(name string) string {
+	if class, _, found := strings.Cut(name, "#"); found {
+		return class
+	}
+	if i := strings.LastIndex(name, "::"); i > 0 {
+		return name[:i]
+	}
+	return ""
+}
+
+// methodsOf returns the method symbols declared on a class: `Class#method` as Ruby
+// names them, `Class::method` as PHP does. The second form is held to method symbols
+// because `Class::` also prefixes every constant and class nested in a Ruby class.
 func methodsOf(s *facts.Store, class string) []string {
-	prefix := class + "#"
+	prefix, scoped := class+"#", class+"::"
 	var out []string
 	for _, fact := range s.ByKind(facts.KindSymbol) {
-		if strings.HasPrefix(fact.Name, prefix) {
+		switch {
+		case strings.HasPrefix(fact.Name, prefix):
+			out = append(out, fact.Name)
+		case strings.HasPrefix(fact.Name, scoped) && fact.PropString("symbol_kind") == facts.SymbolMethod:
 			out = append(out, fact.Name)
 		}
 	}
