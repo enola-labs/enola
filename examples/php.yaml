@@ -2,13 +2,18 @@
 #
 # Detection: The PHP extractor activates when a composer.json, a WordPress
 #            bootstrap file (wp-load.php / wp-settings.php / wp-config.php), or any
-#            .php source (within 3 directory levels) is present.
+#            .php source is present.
 # Features:  Classes, interfaces, traits, enums (and cases), functions, methods,
 #            class constants and properties (namespace-qualified "Ns\Class::member"
 #            naming; global symbols keep their bare name). Inheritance and trait-use
 #            (implements edges), a call graph (calls / instantiations), `use` import
 #            dependencies resolved into internal module-coupling edges, and per-
-#            function complexity.
+#            function complexity. Instance calls resolve to the method they run
+#            where the receiver's type is declared ($this, a typed property or
+#            parameter). A class a constructor takes is an injects edge, and one
+#            written as Foo::class a names edge.
+#            Eloquent models become storage facts with their table, and their
+#            relation methods associations.
 #            Outbound HTTP-client calls become client routes: Guzzle, the Laravel
 #            Http facade, Symfony HttpClient, cURL (CURLOPT_URL), and
 #            file_get_contents (relative paths only; absolute URLs skipped).
@@ -16,7 +21,10 @@
 #              - WordPress: add_action / add_filter (with their callback),
 #                do_action / apply_filters, register_rest_route.
 #              - Laravel:   Route::get/post/… , match / any, resource / apiResource
-#                (expanded), nested group prefixes, and ->name(...) — in routes/*.php.
+#                (expanded as Laravel registers them, honoring only / except),
+#                group prefixes, controller and namespace groups, and ->name(...),
+#                in every PHP file under a routes directory. A routes file takes
+#                the prefix of whatever loads it (a provider, bootstrap/app.php).
 #              - Symfony:   #[Route(...)] attributes / @Route annotations on
 #                controllers, plus YAML/XML config (config/routes.yaml, config/routes/).
 

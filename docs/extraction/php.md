@@ -1,8 +1,8 @@
 # PHP — what enola extracts
 
 Parsed with tree-sitter. Detected by `composer.json`, a WordPress bootstrap file
-(`wp-load.php` / `wp-settings.php` / `wp-config.php`), or any `.php` source within three
-directory levels — so a legacy tree with no package manager is still indexed.
+(`wp-load.php` / `wp-settings.php` / `wp-config.php`), or any `.php` source at any
+depth, so a legacy tree with no package manager is still indexed.
 
 Fixtures: [`php_sample`](../../internal/engine/testdata/repos/php_sample/) (WordPress) ·
 [`php_laravel_sample`](../../internal/engine/testdata/repos/php_laravel_sample/) ·

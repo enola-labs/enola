@@ -7,6 +7,66 @@ The full per-release change lists — every Added, Changed and Fixed line — ar
 [enola.tech/changelog](https://enola.tech/changelog). This file is the same history at
 the resolution a reader of the repository needs.
 
+## v0.4.29 — 2026-10-12
+
+**A Laravel endpoint walks from its URL to its tables, and dead-code and impact follow PHP's wiring**
+
+- `enola endpoint` and `endpoint_impact` work on Laravel: route, controller, models,
+  associated models, tables. Every PHP route used to stop at the controller.
+- The endpoint walk starts from the method a route is bound to, not from every method
+  of its controller. Rails routes are walked as before.
+- Laravel routes: every PHP file under a `routes` directory is read, not four fixed
+  names. The handler is the fully-qualified `Class::method`, with a `handled_by` edge
+  to the method, on the parent class or trait for an inherited action. Action arrays
+  (`['uses' => 'Ctrl@method']`), invokable controllers, and `Route::controller` and
+  `Route::namespace` groups are read.
+- A Laravel routes file is registered under whatever loads it: a group handed the
+  file, `withRouting` (the api file under `apiPrefix`), or a `require` inside a group's
+  closure. Its routes carry that prefix. `routes/api.php` was stored without `/api`.
+- Laravel resources register only the actions `->only` and `->except` leave, name each
+  parameter after the singular of its segment, and nest on a dot
+  (`/albums/{album}/songs/{song}`). `update` answers to PUT and PATCH.
+  `Route::resources` and `apiResources` are read.
+- Eloquent: a concrete class that reaches an Eloquent base class is a model, with the
+  table it declares or the one Eloquent derives. Relation methods are associations.
+- PHP calls on `$this`, on a property or parameter of declared type, and on an object
+  created in place resolve to the method they run. The edge is added beside the bare
+  method name. A receiver typed by an interface reaches its implementer when exactly
+  one class implements it.
+- PHP class names resolve through the imports, then the namespace. `extends Controller`
+  in the same namespace matched no symbol.
+- PHP: a class gains an `injects` edge to each class its constructor takes, and a
+  `names` edge from whatever writes `Foo::class`, an enum case, a class constant or a
+  static property, file scope included.
+- `Class::method` belongs to its class in the graph, so `impact` on a PHP or C++ class
+  reaches the callers of its methods. C++ method fan-in rises by one.
+- dead-code: the receiver of a `Class::method` call is a use of the class, a route
+  handler is a use of its controller, and PHP magic methods are not candidates. A Ruby
+  class referenced as `Foo::CONST` is credited too. Candidates on six PHP repositories
+  fell by 32% to 56%.
+- Cycle and dependency-depth findings print paths along real edges. The members of a
+  cyclic component were joined in name order, which named imports that do not exist.
+  A cycle finding prints one cycle walked along edges, with the members beside it when
+  the component holds more than that cycle. A depth chain prints a cyclic component as
+  one braced group. Titles are unchanged; a pinned baseline shows these findings as
+  altered once.
+- The `forbid_cycles` rule picks the edge to cut from every edge of the circle, not
+  only between neighbours in name order.
+- Python: references from configuration files (YAML, INI, Dockerfile) mark configured
+  entry points as used, and test references include names passed without a call.
+- JavaScript: a repository of plain JavaScript with no `package.json` or tsconfig is
+  detected. Declarations inside a wrapper function (a script's immediately called
+  function, a universal-module factory) are extracted, and what the wrapper returns or
+  assigns to the global object or the CommonJS module is exported.
+- Fixed: the Swift, Scala (Play routes), Dart (pubspec), Kotlin and JVM line readers
+  stopped at a line over their length limit and dropped the rest of the file.
+- Benchmarks: the corpus is 95 repositories, with four Laravel applications added, and
+  95 of 95 reproduce. `BENCHMARKS.md` gains a measurement from real agent sessions.
+- `cacheVersion` moves to `v332`: every repository re-extracts once.
+
+Thanks to [Kairo-blei](https://github.com/Kairo-blei) for the four reports behind the
+PHP and cycle work.
+
 ## v0.4.28 — 2026-10-11
 
 **Performance findings rest on facts about the callee, and a loop nest states its depth instead of a Big-O**

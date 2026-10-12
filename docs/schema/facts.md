@@ -95,7 +95,7 @@ fact's name exactly as that fact carries it.
 | `service` | repository label | yes (`depends_on`) | A whole repo — multi-repo (append) mode only |
 | `intent` | the declared entry's name | yes | Architecture declared in `enola-intent.yaml`, not measured from source |
 | `extraction` | `<extractor>:<account>` (e.g. `ruby:calls`) | no | An extractor's own coverage account for one repo |
-| `association` | `Model#macro` (e.g. `Order#items`) or `Child<Parent` for an STI chain | no | A framework model relationship (Rails belongs_to/has_many, ...) |
+| `association` | `Model#macro` (e.g. `Order#items`), `Model::method` in PHP, or `Child<Parent` for an STI chain | no | A framework model relationship (Rails belongs_to/has_many, Eloquent belongsTo/hasMany, ...) |
 | `test_ref` | test file path | yes (`calls`, `instantiates`) | Reference-only: which production symbols a test exercises. Test files are otherwise excluded from indexing |
 | `file_ref` | source file path | yes (`calls`, `instantiates`) | Reference-only: call edges made in file-scope (top-level) code with no enclosing symbol |
 | `lint` | the linter finding's id | no | A finding an external linter reported through the provider seam |
@@ -239,7 +239,7 @@ The remaining `messaging_*` props (`messaging_contract_bound`,
 
 ### association
 
-- `model`, `macro` (e.g. `has_many`), `target`; `through` when set.
+- `model`, `macro` (e.g. `has_many`, or Eloquent's `hasMany`), `target`; `through` when set.
 - STI chains are emitted as associations with `macro: inherits`.
 
 ### lint
@@ -266,9 +266,9 @@ adding them to coupling metrics.
 | `instantiates` | Source constructs an instance of target via a constructor call |
 | `injects` | Source declares target as a DI-injected constructor parameter |
 | `has_method` | Owner type (struct/interface/class) declares target as a method. Synthesized, not read from source |
-| `handled_by` | A route/endpoint is served by target, its handler symbol. Written at extraction where the route sits on its handler (decorator and annotation frameworks, .NET, Rails routes) and by post-link binders elsewhere: a Go handler that is a package function or has the `func(http.ResponseWriter, *http.Request)` signature, a routes-file handler named `<type fqn>.<method>` (Play), and gRPC implementations. Emitted only when the target is a symbol the snapshot declares under that exact name |
+| `handled_by` | A route/endpoint is served by target, its handler symbol. Written at extraction where the route sits on its handler (decorator and annotation frameworks, .NET, Rails routes, Laravel routes) and by post-link binders elsewhere: a Go handler that is a package function or has the `func(http.ResponseWriter, *http.Request)` signature, a routes-file handler named `<type fqn>.<method>` (Play), and gRPC implementations. Emitted only when the target is a symbol the snapshot declares under that exact name |
 | `implemented_by` | A declared contract operation is implemented by a code symbol. Added post-extraction |
-| `names` | Source names target by symbol literal without calling it — a method name passed as data for something else to dispatch. A reference, not a call |
+| `names` | Source names target by symbol literal without calling it — a method name passed as data for something else to dispatch, or a PHP class written as `Foo::class`, an enum case, a class constant or a static property. A reference, not a call |
 
 ## Route sources
 
