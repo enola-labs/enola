@@ -1688,3 +1688,58 @@ func TestGraph_FollowsTargetAliases(t *testing.T) {
 		t.Fatalf("the aliased package import is not a module edge: %+v", imp)
 	}
 }
+
+// TestNewGraph_ScopedMethodEdges: PHP names a method `Namespace\Class::method`, so the
+// class owns it. `::` also joins the segments of a path that is not a method's, and
+// those get no owner: a constant or a property of the class, a method whose prefix
+// is a module, and a Ruby method, whose owner `#` or `.` already names.
+func TestNewGraph_ScopedMethodEdges(t *testing.T) {
+	php := func(kind string) map[string]any { return map[string]any{"symbol_kind": kind, "language": "php"} }
+	s := NewStore()
+	s.Add(
+		Fact{Kind: KindSymbol, Name: `App\Repositories\OrderRepository`, File: "app/Repositories/OrderRepository.php", Props: php(SymbolClass)},
+		Fact{Kind: KindSymbol, Name: `App\Repositories\OrderRepository::create`, File: "app/Repositories/OrderRepository.php", Props: php(SymbolMethod)},
+		Fact{Kind: KindSymbol, Name: `App\Repositories\OrderRepository::LIMIT`, File: "app/Repositories/OrderRepository.php", Props: php(SymbolConstant)},
+		Fact{Kind: KindSymbol, Name: `App\Repositories\OrderRepository::$table`, File: "app/Repositories/OrderRepository.php", Props: php(SymbolVariable)},
+		Fact{Kind: KindSymbol, Name: `App\Contracts\Orders`, File: "app/Contracts/Orders.php", Props: php(SymbolInterface)},
+		Fact{Kind: KindSymbol, Name: `App\Contracts\Orders::byId`, File: "app/Contracts/Orders.php", Props: php(SymbolMethod)},
+		Fact{Kind: KindSymbol, Name: "helpers", File: "lib/helpers.rb", Props: map[string]any{"symbol_kind": SymbolVariable}},
+		Fact{Kind: KindSymbol, Name: "helpers::format", File: "lib/helpers.rb", Props: map[string]any{"symbol_kind": SymbolFunc}},
+		Fact{Kind: KindSymbol, Name: "Billing::Invoice", File: "app/models/billing/invoice.rb", Props: map[string]any{"symbol_kind": SymbolClass}},
+		Fact{Kind: KindSymbol, Name: "Billing::Invoice#total", File: "app/models/billing/invoice.rb", Props: map[string]any{"symbol_kind": SymbolMethod}},
+		Fact{Kind: KindSymbol, Name: "Billing", File: "app/models/billing.rb", Props: map[string]any{"symbol_kind": SymbolClass}},
+	)
+	s.BuildGraph()
+	g := s.Graph()
+
+	if !hasMethodEdge(g, `App\Repositories\OrderRepository`, `App\Repositories\OrderRepository::create`) {
+		t.Errorf("a PHP class owns its method, got %+v", g.ForwardEdges(`App\Repositories\OrderRepository`))
+	}
+	if !hasMethodEdge(g, `App\Contracts\Orders`, `App\Contracts\Orders::byId`) {
+		t.Errorf("a PHP interface owns its method, got %+v", g.ForwardEdges(`App\Contracts\Orders`))
+	}
+	for _, member := range []string{`App\Repositories\OrderRepository::LIMIT`, `App\Repositories\OrderRepository::$table`} {
+		if owners := ownedBy(g, member); len(owners) != 0 {
+			t.Errorf("%s is not a method and has no owner, got %v", member, owners)
+		}
+	}
+	if owners := ownedBy(g, "helpers::format"); len(owners) != 0 {
+		t.Errorf("a function under a name that is not a type has no owner, got %v", owners)
+	}
+	if owners := ownedBy(g, "Billing::Invoice#total"); len(owners) != 1 || owners[0] != "Billing::Invoice" {
+		t.Errorf("a Ruby method is owned by the class `#` names, got %v", owners)
+	}
+	if hasMethodEdge(g, "Billing", "Billing::Invoice#total") {
+		t.Error("a class does not own the methods of a class nested under its name")
+	}
+
+	// The reason the edge matters: changing a class reaches what calls its methods.
+	seeds := g.impactSeeds(`App\Repositories\OrderRepository`)
+	found := false
+	for _, seed := range seeds {
+		found = found || seed == `App\Repositories\OrderRepository::create`
+	}
+	if !found {
+		t.Errorf("impact on the class does not start from its methods: %v", seeds)
+	}
+}

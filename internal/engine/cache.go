@@ -2812,7 +2812,13 @@ import (
 // skeleton's four names; the action array ['uses' => 'Ctrl@method', 'as' => 'name'] names
 // the handler and the route; a call on an object created in place ((new A)->run()) gains
 // its resolved calls edge, and so does a framework method called on an Eloquent model.
-const cacheVersion = "v328"
+// v329: a PHP class name no import covers resolves relative to its namespace, for a
+// parent, an interface, a trait, a static call and a `new`; a class gains an injects
+// edge to each class its constructor takes.
+// v330: a PHP class named without being called (Foo::class, a class constant or enum
+// case, a static property) is a names reference: from the method, from the class for
+// what its body states outside a method, and from a file-reference fact for file scope.
+const cacheVersion = "v330"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

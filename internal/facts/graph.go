@@ -612,7 +612,7 @@ func (g *Graph) factIdxsOf(id uint32) []int32 {
 }
 
 // methodOwner returns the owner type name for a method fact name of the form
-// "<owner>.<method>" or "<owner>#<method>", but only when <owner> is itself a
+// "<owner>.<method>", "<owner>#<method>" or "<owner>::<method>", but only when <owner> is itself a
 // known symbol fact whose symbol_kind is a type (struct/interface/class/type).
 // Returns "" otherwise.
 //
@@ -637,11 +637,19 @@ func (g *Graph) methodOwner(name string) string {
 			return owner
 		}
 	}
-	dot := strings.LastIndex(name, ".")
-	if dot <= 0 {
-		return ""
+	if dot := strings.LastIndex(name, "."); dot > 0 {
+		if owner := g.declaredTypeNamed(name[:dot]); owner != "" {
+			return owner
+		}
 	}
-	return g.declaredTypeNamed(name[:dot])
+	// PHP and C++ name a method "Namespace\\Class::method". "::" also separates
+	// the segments of a Ruby or Rust path, where what precedes the last one is a
+	// module, so it is tried last and under the same guard: an owner no fact
+	// declares as a type yields no edge.
+	if scope := strings.LastIndex(name, "::"); scope > 0 {
+		return g.declaredTypeNamed(name[:scope])
+	}
+	return ""
 }
 
 // declaredTypeNamed returns name when a symbol fact declares it with a type
