@@ -33,6 +33,13 @@ import (
 // test functions that assert the behavior that version introduced. v1 is the
 // implicit baseline (no changelog line), so coverage starts at v2.
 var versionCoverage = map[int][]string{
+	337: {
+		"TestRouteBinding_EngineIsolatedNamespace",
+		"TestRouteBinding_UndeclaredHandlerIsNotBound",
+		"TestRouteBinding_InheritedAction",
+		"TestRouteBinding_AcronymNamespace",
+		"TestRouteBinding_SingularResourceBoundWhenDeclared",
+	},
 	336: {
 		"TestExtractRoutes_OwnRouterPackage",
 		"TestExtractRoutes_ComboChain",

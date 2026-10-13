@@ -2839,7 +2839,12 @@ import (
 // Combo("/p").Get(h).Post(mw, h) is one route per verb; a router one function builds
 // and another attaches with Mount("/api/v1", pkg.Routes()) is served under that path;
 // a chi verb with a path and no handler is not a route.
-const cacheVersion = "v336"
+// v337: a Rails route's handled_by names a declared symbol or is not emitted. The
+// handler is looked for inside the namespace its engine isolates, on the ancestors
+// of its controller when the action is inherited, and under the one class whose name
+// differs only in casing (an acronym inflection). A singular resource is bound to the
+// pluralized controller when that controller is declared.
+const cacheVersion = "v337"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
