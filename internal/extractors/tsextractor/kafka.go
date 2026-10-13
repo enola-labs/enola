@@ -1,6 +1,7 @@
 package tsextractor
 
 import (
+	"bytes"
 	"strconv"
 	"strings"
 
@@ -82,6 +83,9 @@ func extractTSKafkaFacts(kinds *tsutil.KindTable, root *sitter.Node, src []byte,
 }
 
 func importsTSKafka(kinds *tsutil.KindTable, root *sitter.Node, src []byte) bool {
+	if !bytes.Contains(src, kafkaWord) {
+		return false
+	}
 	found := false
 	var walk func(*sitter.Node)
 	walk = func(node *sitter.Node) {

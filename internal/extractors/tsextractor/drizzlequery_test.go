@@ -123,3 +123,24 @@ func TestDeclaredImplementers_AmbiguousNameResolvesToNothing(t *testing.T) {
 		t.Errorf("c.Store implementers = %v, want [d.Impl]", got["c.Store"])
 	}
 }
+
+func TestImportPhaseSyntaxIsADependency(t *testing.T) {
+	ff := extractRepoAllFiles(t, map[string]string{
+		"package.json":  `{"name": "app"}`,
+		"src/dyn.js":    "const m = await import.defer('./x.js');\n",
+		"src/static.js": "import defer * as ns from './y.js';\nconsole.log(ns);\n",
+		"src/x.js":      "export const x = 1;\n",
+		"src/y.js":      "export const y = 1;\n",
+	})
+	for _, file := range []string{"src/dyn.js", "src/static.js"} {
+		found := false
+		for _, f := range findFactsByKind(ff, facts.KindDependency) {
+			if f.File == file {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("%s: no dependency fact", file)
+		}
+	}
+}

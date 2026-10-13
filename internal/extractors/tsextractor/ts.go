@@ -603,7 +603,9 @@ func (e *TSExtractor) extractImports(kinds *tsutil.KindTable, root *sitter.Node,
 			walkDeps(n.Child(i))
 		}
 	}
-	walkDeps(root)
+	if mayCallRequireOrImport(src) {
+		walkDeps(root)
+	}
 
 	return result
 }
@@ -1192,11 +1194,10 @@ func detectRoute(relFile string) *facts.Fact {
 	return nil
 }
 
-// detectNextJS checks if the repository is a Next.js project.
+// detectNextJSRoot checks if the repository is a Next.js project.
 // It searches the TypeScript root directory (which may be a subdirectory in a
 // monorepo) for next.config.* files or a package.json with a "next" dependency.
-func detectNextJS(repoPath string) bool {
-	tsRoot, _ := findTSRoot(repoPath)
+func detectNextJSRoot(repoPath, tsRoot string) bool {
 	return detectNextJSAt(tsRoot) || (tsRoot != repoPath && detectNextJSAt(repoPath))
 }
 

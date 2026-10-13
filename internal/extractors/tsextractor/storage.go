@@ -2,8 +2,8 @@ package tsextractor
 
 import (
 	"github.com/enola-labs/enola/internal/extractors/tsutil"
-	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -42,8 +42,7 @@ var drizzleTableFns = map[string]bool{
 
 // detectORMs reports which ORMs the repo declares, reusing the same package.json
 // primitive (and the same tsRoot + repo-root fallback) that Vue/Nuxt detection uses.
-func detectORMs(repoPath string) (typeorm, drizzle, prisma bool) {
-	tsRoot, _ := findTSRoot(repoPath)
+func detectORMs(repoPath, tsRoot string, files []string) (typeorm, drizzle, prisma bool) {
 	has := func(pkg string) bool {
 		return hasPkgDependency(tsRoot, pkg) || (tsRoot != repoPath && hasPkgDependency(repoPath, pkg))
 	}
@@ -51,7 +50,7 @@ func detectORMs(repoPath string) (typeorm, drizzle, prisma bool) {
 	if typeorm && drizzle && prisma {
 		return typeorm, drizzle, prisma
 	}
-	for _, dir := range workspacePackageDirs(repoPath) {
+	for _, dir := range workspacePackageDirs(repoPath, files) {
 		typeorm = typeorm || hasPkgDependency(dir, depTypeORM)
 		drizzle = drizzle || hasPkgDependency(dir, depDrizzle)
 		prisma = prisma || hasPkgDependency(dir, depPrisma)
@@ -62,24 +61,13 @@ func detectORMs(repoPath string) (typeorm, drizzle, prisma bool) {
 	return typeorm, drizzle, prisma
 }
 
-func workspacePackageDirs(repoPath string) []string {
+func workspacePackageDirs(repoPath string, files []string) []string {
 	var out []string
-	_ = filepath.WalkDir(repoPath, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return nil
+	for _, f := range files {
+		if f = filepath.ToSlash(f); path.Base(f) == "package.json" {
+			out = append(out, filepath.Join(repoPath, path.Dir(f))) //factpath:host
 		}
-		if d.IsDir() {
-			name := d.Name()
-			if path != repoPath && (strings.HasPrefix(name, ".") || tsSkipDirs[name] || name == "testdata") {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if d.Name() == "package.json" {
-			out = append(out, filepath.Dir(path)) //factpath:host
-		}
-		return nil
-	})
+	}
 	return out
 }
 
@@ -238,8 +226,7 @@ var prismaSchemaFiles = []string{
 // package.json for framework detection and tsconfig.json for path aliases. This is the
 // same mechanism, plus a block-header match. (`datasource`/`generator` blocks are not
 // models and are ignored by construction.)
-func extractPrismaStorage(repoPath string) []facts.Fact {
-	tsRoot, _ := findTSRoot(repoPath)
+func extractPrismaStorage(repoPath, tsRoot string) []facts.Fact {
 	roots := []string{tsRoot}
 	if tsRoot != repoPath {
 		roots = append(roots, repoPath)

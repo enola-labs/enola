@@ -211,7 +211,7 @@ func collectRouterFile(src []byte, relFile string, aliases map[string]tsAlias, k
 	}
 
 	// Routes registered on those unmounted routers, held until a prefix is known.
-	for _, m := range serverVerbCall.FindAllSubmatchIndex(src, -1) {
+	for _, m := range routerVerbCalls(src, f.routers) {
 		recv := string(src[m[2]:m[3]])
 		if !f.routers[recv] {
 			continue // an app root or a locally-mounted router: serverroutes.go owns it
@@ -229,7 +229,8 @@ func collectRouterFile(src []byte, relFile string, aliases map[string]tsAlias, k
 		})
 	}
 
-	for _, m := range mountCall.FindAllSubmatch(src, -1) {
+	hasUse := hasMemberAccess(src, useMember)
+	for _, m := range findAllSubmatchIf(hasUse, mountCall, src) {
 		f.mounts = append(f.mounts, routerMountEdge{
 			file:   relFile,
 			parent: string(m[1]),
@@ -237,7 +238,7 @@ func collectRouterFile(src []byte, relFile string, aliases map[string]tsAlias, k
 			child:  string(m[5]),
 		})
 	}
-	for _, m := range mountCallConcat.FindAllSubmatch(src, -1) {
+	for _, m := range findAllSubmatchIf(hasUse, mountCallConcat, src) {
 		f.mounts = append(f.mounts, routerMountEdge{
 			file:        relFile,
 			parent:      string(m[1]),
@@ -246,7 +247,7 @@ func collectRouterFile(src []byte, relFile string, aliases map[string]tsAlias, k
 			child:       string(m[5]),
 		})
 	}
-	for _, m := range mountCallFactory.FindAllSubmatch(src, -1) {
+	for _, m := range findAllSubmatchIf(hasUse, mountCallFactory, src) {
 		f.mounts = append(f.mounts, routerMountEdge{
 			file:      relFile,
 			parent:    string(m[1]),
@@ -289,7 +290,7 @@ func collectRouterExports(src []byte, f *routerFile) {
 			f.exports[exported] = local
 		}
 	}
-	for _, m := range moduleExportsNamed.FindAllSubmatch(src, -1) {
+	for _, m := range findAllSubmatchIf(bytes.Contains(src, exportsWord), moduleExportsNamed, src) {
 		f.exports[string(m[1])] = string(m[2])
 	}
 }
@@ -411,14 +412,15 @@ func collectRouterImports(src []byte, resolve func(spec string) (string, bool)) 
 			out[local] = importRef{file: file, export: exported}
 		}
 	}
-	for _, m := range requireWhole.FindAllSubmatch(src, -1) {
+	hasRequire := bytes.Contains(src, requireCall)
+	for _, m := range findAllSubmatchIf(hasRequire, requireWhole, src) {
 		file, ok := resolve(string(m[2]))
 		if !ok {
 			continue
 		}
 		out[string(m[1])] = importRef{file: file, export: defaultExport}
 	}
-	for _, m := range requireNamed.FindAllSubmatch(src, -1) {
+	for _, m := range findAllSubmatchIf(hasRequire, requireNamed, src) {
 		file, ok := resolve(string(m[2]))
 		if !ok {
 			continue

@@ -15,7 +15,8 @@ import (
 
 // Extract parses TypeScript/TSX files and emits architectural facts.
 func (e *TSExtractor) Extract(ctx context.Context, repoPath string, files []string) ([]facts.Fact, error) {
-	fw, isPrisma := detectTSFrameworks(repoPath)
+	tsRoot, _ := findTSRoot(repoPath)
+	fw, isPrisma := detectTSFrameworks(repoPath, tsRoot, files)
 
 	// Parse tsconfig.json path aliases, one root per package for monorepos.
 	aliasRoots := collectTSAliasRoots(repoPath)
@@ -43,24 +44,24 @@ func (e *TSExtractor) Extract(ctx context.Context, repoPath string, files []stri
 	// Prisma models live in schema.prisma — a separate DSL, so tree-sitter never sees it.
 	// Read it off-glob, the same way package.json and tsconfig.json already are.
 	if isPrisma {
-		a.facts = append(a.facts, extractPrismaStorage(repoPath)...)
+		a.facts = append(a.facts, extractPrismaStorage(repoPath, tsRoot)...)
 	}
 	a.facts = append(a.facts, moduleFacts(repoPath, a.modules, fw.isAngular)...)
 	return a.facts, nil
 }
 
-func detectTSFrameworks(repoPath string) (tsFrameworks, bool) {
+func detectTSFrameworks(repoPath, tsRoot string, files []string) (tsFrameworks, bool) {
 	// ORM detection is gated on the package.json dependency, exactly as Vue/Nuxt are, so
 	// a class coincidentally decorated @Entity models nothing in a repo without TypeORM.
-	isTypeORM, isDrizzle, isPrisma := detectORMs(repoPath)
+	isTypeORM, isDrizzle, isPrisma := detectORMs(repoPath, tsRoot, files)
 	return tsFrameworks{
-		isNextJS:    detectNextJS(repoPath),
-		isVue:       detectVue(repoPath),
-		isNuxt:      detectNuxt(repoPath),
-		isSvelteKit: detectSvelteKit(repoPath),
-		isEmber:     detectEmber(repoPath),
-		isReactNav:  detectReactNavigation(repoPath),
-		isAngular:   detectAngular(repoPath),
+		isNextJS:    detectNextJSRoot(repoPath, tsRoot),
+		isVue:       detectVueRoot(repoPath, tsRoot),
+		isNuxt:      detectNuxtRoot(repoPath, tsRoot),
+		isSvelteKit: detectSvelteKitRoot(repoPath, tsRoot),
+		isEmber:     detectEmberRoot(repoPath, tsRoot),
+		isReactNav:  detectReactNavigationRoot(repoPath, tsRoot),
+		isAngular:   detectAngularRoot(repoPath, tsRoot),
 		orms:        ormFlags{typeORM: isTypeORM, drizzle: isDrizzle},
 	}, isPrisma
 }

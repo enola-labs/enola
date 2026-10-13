@@ -92,6 +92,10 @@ func indexCaseInsensitive(src, needle []byte) int {
 
 func detectVue(repoPath string) bool {
 	tsRoot, _ := findTSRoot(repoPath)
+	return detectVueRoot(repoPath, tsRoot)
+}
+
+func detectVueRoot(repoPath, tsRoot string) bool {
 	return detectVueAt(tsRoot) || (tsRoot != repoPath && detectVueAt(repoPath))
 }
 
@@ -101,6 +105,10 @@ func detectVueAt(dir string) bool {
 
 func detectNuxt(repoPath string) bool {
 	tsRoot, _ := findTSRoot(repoPath)
+	return detectNuxtRoot(repoPath, tsRoot)
+}
+
+func detectNuxtRoot(repoPath, tsRoot string) bool {
 	return detectNuxtAt(tsRoot) || (tsRoot != repoPath && detectNuxtAt(repoPath))
 }
 

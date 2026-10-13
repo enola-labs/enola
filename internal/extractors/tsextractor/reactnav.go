@@ -33,6 +33,10 @@ const (
 
 func detectReactNavigation(repoPath string) bool {
 	tsRoot, _ := findTSRoot(repoPath)
+	return detectReactNavigationRoot(repoPath, tsRoot)
+}
+
+func detectReactNavigationRoot(repoPath, tsRoot string) bool {
 	if hasPkgDependency(tsRoot, "@react-navigation/native") ||
 		(tsRoot != repoPath && hasPkgDependency(repoPath, "@react-navigation/native")) {
 		return true

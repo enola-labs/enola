@@ -217,21 +217,13 @@ const objectScanCap = 4096
 func extractHTTPClientFacts(src []byte, relFile string) []facts.Fact {
 	dir := factpath.Dir(relFile)
 	api := tsAPIHint(relFile)
-	bases := fileBaseLiterals(src)
-
-	folds := litfold.NewAssignments()
-	declared := map[int]bool{}
-	for _, m := range urlAssignDecl.FindAllSubmatchIndex(src, -1) {
-		folds.Add(string(src[m[2]:m[3]]), firstNonEmptyGroup(src, m, 2, 3, 4))
-		declared[m[2]] = true
-	}
-	for _, m := range bareAssign.FindAllSubmatchIndex(src, -1) {
-		name := string(src[m[2]:m[3]])
-		if declared[m[2]] || name == "const" || name == "let" || name == "var" ||
-			name == "return" || name == "typeof" || name == "await" {
-			continue
+	var bases map[string]string
+	var folds *litfold.Assignments
+	resolveFold := func(name string) (string, bool) {
+		if folds == nil {
+			folds = fileAssignments(src)
 		}
-		folds.Add(name, "")
+		return folds.Resolve(name)
 	}
 
 	var out []facts.Fact
@@ -241,6 +233,9 @@ func extractHTTPClientFacts(src []byte, relFile string) []facts.Fact {
 	// names the litfold derivation form that produced the raw path, so a reader
 	// can tell a derived literal from an inline one.
 	add := func(rawPath, method, framework string, off int, derived string) {
+		if bases == nil {
+			bases = fileBaseLiterals(src)
+		}
 		path, ok := cleanTSPath(rawPath, bases)
 		if !ok {
 			return
@@ -290,7 +285,8 @@ func extractHTTPClientFacts(src []byte, relFile string) []facts.Fact {
 	// Group 1 is the verb, so the URL literal is in groups 2-4 and the reported
 	// offset is the verb start (m[2]) — not m[0], which now includes the leading
 	// word-boundary char and would mis-count the line when that char is a newline.
-	for _, m := range httpClientCall.FindAllSubmatchIndex(src, -1) {
+	hasFetch := containsAny(src, fetchNames)
+	for _, m := range findAllSubmatchIndexIf(hasFetch, httpClientCall, src) {
 		raw := firstNonEmptyGroup(src, m, 2, 3, 4)
 		method := "GET"
 		if opts := optionsObjectAfter(src, m[1]); opts != nil {
@@ -306,8 +302,8 @@ func extractHTTPClientFacts(src []byte, relFile string) []facts.Fact {
 	// single-assignment rule). The resolved literal flows through cleanTSPath
 	// exactly as an inline argument would, so `const url = ` + "`${config.HOST}/mcp`" + `;
 	// fetch(url)` models identically to the inline form.
-	for _, m := range identArgCall.FindAllSubmatchIndex(src, -1) {
-		raw, ok := folds.Resolve(string(src[m[4]:m[5]]))
+	for _, m := range findAllSubmatchIndexIf(hasFetch, identArgCall, src) {
+		raw, ok := resolveFold(string(src[m[4]:m[5]]))
 		if !ok {
 			continue
 		}
@@ -337,9 +333,15 @@ func extractHTTPClientFacts(src []byte, relFile string) []facts.Fact {
 	// extractServerRouteFacts owns those, so skip them here or the call site would be
 	// emitted twice, once in each direction. Only known server receivers are skipped:
 	// an unknown one stays a client call, exactly as before this pass existed.
-	serverRecv := serverBindings(src)
+	var serverRecv map[string]serverBinding
+	isServer := func(recv string) bool {
+		if serverRecv == nil {
+			serverRecv = serverBindings(src)
+		}
+		return isServerReceiver(serverRecv, recv)
+	}
 	for _, m := range lowerVerbCall.FindAllSubmatchIndex(src, -1) {
-		if isServerReceiver(serverRecv, identifierEndingAt(src, m[0])) {
+		if isServer(identifierEndingAt(src, m[0])) {
 			continue
 		}
 		method := strings.ToUpper(string(src[m[2]:m[3]]))
@@ -351,7 +353,7 @@ func extractHTTPClientFacts(src []byte, relFile string) []facts.Fact {
 	// template with a "/"-rooted literal tail (litfold's template-tail rule).
 	// cleanTSPath resolves or strips the base; the tail is the path.
 	for _, m := range lowerVerbTemplateCall.FindAllSubmatchIndex(src, -1) {
-		if isServerReceiver(serverRecv, identifierEndingAt(src, m[0])) {
+		if isServer(identifierEndingAt(src, m[0])) {
 			continue
 		}
 		raw := string(src[m[4]:m[5]])
@@ -366,7 +368,8 @@ func extractHTTPClientFacts(src []byte, relFile string) []facts.Fact {
 	// that also carries a request-descriptor key, with the verb from a sibling
 	// `type:`/`method:` (default GET). The scan is scoped to the enclosing object so
 	// a neighbouring object's verb cannot bleed in.
-	for _, m := range urlProperty.FindAllSubmatchIndex(src, -1) {
+	hasURL := bytes.Contains(src, urlWord)
+	for _, m := range findAllSubmatchIndexIf(hasURL, urlProperty, src) {
 		window := enclosingObject(src, m[0], m[1])
 		if window == nil {
 			continue // no enclosing object literal
@@ -393,8 +396,8 @@ func extractHTTPClientFacts(src []byte, relFile string) []facts.Fact {
 	// Pass 3b — a `url:` property whose value is a bare identifier, resolved
 	// through the single-assignment store; the enclosing-object discipline is
 	// pass 3's, unchanged.
-	for _, m := range urlPropertyIdent.FindAllSubmatchIndex(src, -1) {
-		raw, ok := folds.Resolve(string(src[m[2]:m[3]]))
+	for _, m := range findAllSubmatchIndexIf(hasURL, urlPropertyIdent, src) {
+		raw, ok := resolveFold(string(src[m[2]:m[3]]))
 		if !ok {
 			continue
 		}
