@@ -14,6 +14,10 @@ the walk there, and the unresolved column counts how often that happened.
 Entries that reach the same symbols are folded into one flow, and a flow that
 sits almost wholly inside a larger one says which.
 
+The program's flows are listed first. A flow whose entry is an example, a
+script, a migration or build tooling is marked side and listed after them,
+however much it reaches.
+
 Exit codes:
   0  the report was produced, including one that found no flows
   2  the command could not run, or --show or --through named nothing it

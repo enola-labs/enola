@@ -382,3 +382,88 @@ func TestAnalyze_MainIsSpelledPerLanguage(t *testing.T) {
 		t.Errorf("flows = %v, want only the .NET Main", got)
 	}
 }
+
+// An example that reaches more than the product does is still an example. The
+// program's flows come first, whatever their size.
+func TestAnalyze_SideProgramsRankBelowTheProgram(t *testing.T) {
+	big := []string{}
+	ff := []facts.Fact{}
+	for _, n := range []string{"a", "b", "c", "d", "e", "f"} {
+		ff = append(ff, sym("lib/x."+n, "lib/x.py"))
+		big = append(big, "lib/x."+n)
+	}
+	ff = append(ff,
+		sym("examples/demo.main", "examples/demo.py", big...),
+		sym("tools/gen.main", "tools/gen.py", big[:4]...),
+		sym("db/migrate/001.main", "db/migrate/001.py", big[:3]...),
+		sym("cmd/app.main", "cmd/app.py", big[:2]...),
+		// tools/ below the top of the repository is a feature, not tooling.
+		sym("app/modules/tools/run.main", "app/modules/tools/run.py", big[:1]...),
+	)
+	a := analyze(ff...)
+	got := []string{}
+	for _, f := range a.Flows {
+		mark := ""
+		if f.Side {
+			mark = " side"
+		}
+		got = append(got, f.Name+mark)
+	}
+	want := []string{
+		"cmd/app.main", "app/modules/tools/run.main",
+		"examples/demo.main side", "tools/gen.main side", "db/migrate/001.main side",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("ranking = %q\nwant      %q", got, want)
+	}
+}
+
+func TestAnalyze_AModulesRoleMakesItsEntriesSide(t *testing.T) {
+	a := analyze(
+		facts.Fact{Kind: facts.KindModule, Name: "internal/gen", Repo: "shop", Props: map[string]any{facts.PropModuleRole: facts.ModuleRoleTooling}},
+		sym("internal/gen.main", "internal/gen/gen.py", "internal/gen.write"),
+		sym("internal/gen.write", "internal/gen/gen.py"),
+	)
+	if len(a.Flows) != 1 || !a.Flows[0].Side {
+		t.Errorf("flows = %+v", a.Flows)
+	}
+}
+
+// Every C program in a directory declares a symbol with the same name. They
+// are separate programs: one flow each, named apart, each reaching only what
+// its own file calls.
+func TestAnalyze_SameNamedEntriesAreOneFlowPerFile(t *testing.T) {
+	a := analyze(
+		sym("cmd/perf.main", "cmd/perf/record.c", "cmd/perf.record"),
+		sym("cmd/perf.main", "cmd/perf/report.c", "cmd/perf.report", "cmd/perf.format"),
+		sym("cmd/perf.record", "cmd/perf/record.c"),
+		sym("cmd/perf.report", "cmd/perf/report.c"),
+		sym("cmd/perf.format", "cmd/perf/report.c"),
+	)
+	got := map[string]int{}
+	for _, f := range a.Flows {
+		got[f.Name] = f.Metrics.Reach
+	}
+	want := map[string]int{"cmd/perf.main (record.c)": 2, "cmd/perf.main (report.c)": 3}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("flows = %v, want %v", got, want)
+	}
+	if a.Flows[0].ID == a.Flows[1].ID {
+		t.Errorf("two flows share the id %s", a.Flows[0].ID)
+	}
+	if through, known := a.Through("cmd/perf.main"); !known || len(through) != 2 {
+		t.Errorf("through the shared entry name = %v, known %v", through, known)
+	}
+}
+
+// A before_action runs inside a request a route already entered. Counting it as
+// a way in put seventeen thousand of them ahead of the routes they belong to.
+func TestAnalyze_ACallbackIsNotAnEntry(t *testing.T) {
+	callback := sym("PostsController#load_post", "app/controllers/posts_controller.rb", "Post#find")
+	callback.Props["root"] = "callback"
+	callback.Props["symbol_kind"] = facts.SymbolMethod
+	a := analyze(callback, sym("Post#find", "app/models/post.rb"))
+	if len(a.Flows) != 0 || len(a.Roots) != 0 {
+		t.Errorf("flows = %v, roots = %v", names(a), a.Roots)
+	}
+}

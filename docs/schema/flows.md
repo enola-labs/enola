@@ -29,10 +29,11 @@ covering the whole linked graph; each flow names its repository.
 | Field | Type | Present when | Meaning |
 |---|---|---|---|
 | `id` | string, 32 lowercase hex chars | always | Flow identity: `sha256(repo \0 "flow" \0 entry name \0 entry file)`, truncated like a fact ID. Stable while the entry symbol keeps its name and file |
-| `name` | string | always | The entry's route, as `METHOD path`, or the entry symbol's name when no route reaches it |
+| `name` | string | always | The entry's route, as `METHOD path`, or the entry symbol's name when no route reaches it. When several files declare an entry under one name (each program in a C directory declares a `main`), each is its own flow and the name ends with its file: `tools/perf.main (perf.c)` |
 | `rank` | int | always | 1-based position in the ranking. Not stable across snapshots |
 | `repo` | string | always | Repository label of the entry |
 | `mechanism` | string | always | How the entry is reached: [Mechanisms](#mechanisms) |
+| `side` | bool | when true | The entry is not the program: an example, a script, a migration, build or docs tooling. Decided by the `module_role` of the entry's module (`test` or `tooling`) when an extractor recorded one, by the entry's path otherwise |
 | `routes` | array of Ref | the entry is a route handler | Every served route the entry handles. `name` uses the first |
 | `entry` | Ref | always | The entry symbol |
 | `summary` | string | always | One paragraph of presentation text built from the fields below. Not a stable identifier |
@@ -42,7 +43,8 @@ covering the whole linked graph; each flow names its repository.
 | `same_reach_as` | array of string | another entry reaches the same symbols | Names of the flows folded into this one |
 | `nested_in` | array of string | a larger flow contains at least 90% of this one | Names of those flows |
 
-Flows are ranked by `metrics.reach`, then `metrics.modules`, then `name`.
+Flows are ranked with the program's own first and `side` flows after them, then
+by `metrics.reach`, `metrics.modules` and `name`.
 
 ## Ref object
 
@@ -94,6 +96,8 @@ share is at least 5% of the flow.
 | `route` | the handler a served route's `handled_by` relation names |
 | `main` | a function named `main` |
 | `registered` | a function or method an extractor marked `framework_registered` |
-| `job`, `mailer`, `hook`, `task`, `callback` | a method a framework invokes, as the `root` prop records it |
+| `job`, `mailer`, `hook`, `task` | a method a framework invokes, as the `root` prop records it |
 
-Symbols in test code are never entries. New mechanisms are additive vocabulary.
+A `root` of `callback` is not an entry: a callback runs inside a request a route
+already entered, so it is a step of that flow. Symbols in test code are never
+entries. New mechanisms are additive vocabulary.

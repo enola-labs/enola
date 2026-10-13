@@ -26,6 +26,9 @@ const (
 	MechanismRoute      = "route"
 	MechanismMain       = "main"
 	MechanismRegistered = "registered"
+
+	// mechanismCallback is the framework-roots mechanism that is not an entry.
+	mechanismCallback = "callback"
 )
 
 const (
@@ -93,17 +96,20 @@ type Stage struct {
 
 // Flow is one entry and what it reaches.
 type Flow struct {
-	ID        string        `json:"id"`
-	Name      string        `json:"name"`
-	Rank      int           `json:"rank"`
-	Repo      string        `json:"repo,omitempty"`
-	Mechanism string        `json:"mechanism"`
-	Routes    []Ref         `json:"routes,omitempty"`
-	Entry     Ref           `json:"entry"`
-	Summary   string        `json:"summary,omitempty"`
-	Metrics   Metrics       `json:"metrics"`
-	Modules   []ModuleShare `json:"modules,omitempty"`
-	Stages    []Stage       `json:"stages,omitempty"`
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Rank      int    `json:"rank"`
+	Repo      string `json:"repo,omitempty"`
+	Mechanism string `json:"mechanism"`
+	// Side marks a flow whose entry is not the program: an example, a build or
+	// docs script, a migration. Side flows rank below every other flow.
+	Side    bool          `json:"side,omitempty"`
+	Routes  []Ref         `json:"routes,omitempty"`
+	Entry   Ref           `json:"entry"`
+	Summary string        `json:"summary,omitempty"`
+	Metrics Metrics       `json:"metrics"`
+	Modules []ModuleShare `json:"modules,omitempty"`
+	Stages  []Stage       `json:"stages,omitempty"`
 	// SameReachAs names the flows folded into this one because they reach the
 	// same symbols from a different entry.
 	SameReachAs []string `json:"same_reach_as,omitempty"`
@@ -200,8 +206,15 @@ func Analyze(src Source, opts Options) *Analysis {
 		a.Flows = append(a.Flows, f)
 	}
 
+	a.nameApart()
+	a.markNested()
 	sort.SliceStable(a.Flows, func(i, j int) bool {
 		x, y := a.Flows[i], a.Flows[j]
+		// The program first. An example that reaches more than the product does
+		// is still an example.
+		if x.Side != y.Side {
+			return !x.Side
+		}
 		if x.Metrics.Reach != y.Metrics.Reach {
 			return x.Metrics.Reach > y.Metrics.Reach
 		}
@@ -216,7 +229,6 @@ func Analyze(src Source, opts Options) *Analysis {
 	for i := range a.Flows {
 		a.Flows[i].Rank = i + 1
 	}
-	a.markNested()
 	return a
 }
 
@@ -269,6 +281,11 @@ func (a *Analysis) Through(symbol string) ([]int, bool) {
 	}
 	var out []int
 	for i := range a.Flows {
+		// An entry declared in several files has a node per file, under no name.
+		if names[a.Flows[i].Entry.Name] {
+			out = append(out, i)
+			continue
+		}
 		for id := range want {
 			if contains(a.Flows[i].reach, id) {
 				out = append(out, i)
@@ -415,9 +432,43 @@ func (a *Analysis) findRoots() map[int32]*root {
 		}
 	}
 	// After the routes, so a handler that is also a main is the route's entry.
+	//
+	// A call names its target and nothing else, so same-named symbols are one
+	// node. For an entry that is wrong: ten programs in one directory each
+	// declare a main, and merged they are one flow reaching what all ten reach.
+	// An entry name declared in several files is an entry per file.
+	files := map[[2]string]map[string]bool{}
 	for _, f := range named {
-		id, ok := a.nodeFor(f.Repo, f.Name)
-		if !ok || roots[id] != nil || !a.eligible(id) {
+		key := [2]string{f.Repo, f.Name}
+		if files[key] == nil {
+			files[key] = map[string]bool{}
+		}
+		files[key][f.File] = true
+	}
+	perFile := map[[3]string]int32{}
+	for _, f := range named {
+		var id int32
+		if len(files[[2]string{f.Repo, f.Name}]) > 1 {
+			key := [3]string{f.Repo, f.Name, f.File}
+			existing, ok := perFile[key]
+			if !ok {
+				existing = int32(len(a.nodes))
+				perFile[key] = existing
+				a.nodes = append(a.nodes, node{fact: f, module: moduleOf(f)})
+			}
+			id = existing
+			n := &a.nodes[id]
+			n.pending = append(n.pending, f)
+			if f.Line < n.fact.Line {
+				n.fact = f
+			}
+		} else {
+			var ok bool
+			if id, ok = a.nodeFor(f.Repo, f.Name); !ok {
+				continue
+			}
+		}
+		if roots[id] != nil || !a.eligible(id) {
 			continue
 		}
 		roots[id] = &root{mechanism: entryMechanism(f)}
@@ -436,9 +487,13 @@ func entryMechanism(f facts.Fact) string {
 	default:
 		return ""
 	}
-	switch {
-	case f.PropString(facts.PropFrameworkRoot) != "":
-		return f.PropString(facts.PropFrameworkRoot)
+	switch root := f.PropString(facts.PropFrameworkRoot); {
+	case root == mechanismCallback:
+		// A callback runs inside a request some route already entered. It is a
+		// step of that flow, not a way into the program.
+		return ""
+	case root != "":
+		return root
 	case isMain(f):
 		return MechanismMain
 	case f.PropBool("framework_registered"):
@@ -499,6 +554,7 @@ func (a *Analysis) newFlow(id int32, r *root, reach []int32, depth int, truncate
 		Name:      entry.Name,
 		Repo:      entry.Repo,
 		Mechanism: r.mechanism,
+		Side:      a.isSide(id),
 		Entry:     a.ref(id),
 		Metrics:   Metrics{Reach: len(reach), MaxDepth: depth, Truncated: truncated},
 		entry:     id,
@@ -544,18 +600,30 @@ func (a *Analysis) newFlow(id int32, r *root, reach []int32, depth int, truncate
 	return f
 }
 
-// markNested names, for each flow near the head of the ranking, the larger
-// flows that contain nearly all of it. The flows are already ranked largest
-// first, so a container always sits earlier than what it contains.
+// markNested names, for each of the largest flows, the larger flows that
+// contain nearly all of it.
 func (a *Analysis) markNested() {
-	window := len(a.Flows)
-	if window > nestWindow {
-		window = nestWindow
+	byReach := make([]int, len(a.Flows))
+	for i := range byReach {
+		byReach[i] = i
 	}
-	for i := 1; i < window; i++ {
-		inner := &a.Flows[i]
+	sort.SliceStable(byReach, func(i, j int) bool {
+		x, y := a.Flows[byReach[i]], a.Flows[byReach[j]]
+		if len(x.reach) != len(y.reach) {
+			return len(x.reach) > len(y.reach)
+		}
+		if x.Name != y.Name {
+			return x.Name < y.Name
+		}
+		return x.Repo < y.Repo
+	})
+	if len(byReach) > nestWindow {
+		byReach = byReach[:nestWindow]
+	}
+	for i := 1; i < len(byReach); i++ {
+		inner := &a.Flows[byReach[i]]
 		for j := 0; j < i; j++ {
-			outer := a.Flows[j]
+			outer := a.Flows[byReach[j]]
 			if len(outer.reach) <= len(inner.reach) {
 				continue
 			}
@@ -564,6 +632,85 @@ func (a *Analysis) markNested() {
 			}
 		}
 	}
+}
+
+// nameApart gives flows that share a name the file of their entry, so the mains
+// of one directory read as the separate programs they are. Route flows keep
+// their name: two handlers behind one path is a fact about the routes.
+func (a *Analysis) nameApart() {
+	count := map[[2]string]int{}
+	for _, f := range a.Flows {
+		if len(f.Routes) == 0 {
+			count[[2]string{f.Repo, f.Name}]++
+		}
+	}
+	for i := range a.Flows {
+		f := &a.Flows[i]
+		if len(f.Routes) == 0 && count[[2]string{f.Repo, f.Name}] > 1 && f.Entry.File != "" {
+			f.Name += " (" + path.Base(f.Entry.File) + ")"
+		}
+	}
+}
+
+// sideAnywhere are directory names that mean "not the program" wherever they
+// sit in a path. sideAtRoot mean it only as the first segment: `tools/` at the
+// top of a repository is build tooling, and `app/modules/tools/` is a feature.
+var (
+	sideAnywhere = map[string]bool{
+		"example": true, "examples": true, "sample": true, "samples": true,
+		"demo": true, "demos": true, "benchmark": true, "benchmarks": true,
+		"bench": true, "benches": true, "fixtures": true, "testdata": true,
+		"script": true, "scripts": true, "tool": true,
+		"migrate": true, "migrations": true,
+	}
+	sideAtRoot = map[string]bool{
+		"tools": true, "doc": true, "docs": true, "dev": true, "contrib": true,
+		"hack": true, "eng": true, "build": true, "ci": true, "packaging": true,
+	}
+)
+
+// isSide reports whether an entry is something other than the program: an
+// example, a script, a migration, a tool that builds or documents it. The
+// module's own role decides when an extractor recorded one; the path decides
+// otherwise.
+func (a *Analysis) isSide(id int32) bool {
+	n := a.nodes[id]
+	for _, m := range a.src.LookupByExactName(n.module) {
+		if m.Kind != facts.KindModule || m.Repo != n.fact.Repo {
+			continue
+		}
+		switch m.PropString(facts.PropModuleRole) {
+		case facts.ModuleRoleTest, facts.ModuleRoleTooling:
+			return true
+		}
+	}
+	return sidePath(n.fact.File)
+}
+
+func sidePath(file string) bool {
+	segments := strings.Split(file, "/")
+	if len(segments) < 2 {
+		return false
+	}
+	// A dot directory at the top holds configuration and automation.
+	if strings.HasPrefix(segments[0], ".") || sideAtRoot[segments[0]] {
+		return true
+	}
+	for _, seg := range segments[:len(segments)-1] {
+		if sideAnywhere[seg] {
+			return true
+		}
+		// A compound name such as `dubbo-demo` or `my_examples` says the same.
+		for _, tok := range strings.FieldsFunc(seg, func(r rune) bool { return r == '-' || r == '_' }) {
+			switch tok {
+			case "example", "examples", "sample", "samples", "demo", "demos":
+				if tok != seg {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 func (a *Analysis) ref(id int32) Ref {

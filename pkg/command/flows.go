@@ -45,6 +45,9 @@ func (r *Runner) runFlows(ctx context.Context, args []string, stdout, stderr io.
 				"the walk there, and the unresolved column counts how often that happened.\n"+
 				"Entries that reach the same symbols are folded into one flow, and a flow that\n"+
 				"sits almost wholly inside a larger one says which.\n\n"+
+				"The program's flows are listed first. A flow whose entry is an example, a\n"+
+				"script, a migration or build tooling is marked side and listed after them,\n"+
+				"however much it reaches.\n\n"+
 				"Exit codes:\n"+
 				"  0  the report was produced, including one that found no flows\n"+
 				"  2  the command could not run, or --show or --through named nothing it\n"+
@@ -277,6 +280,9 @@ func writeFlowTable(w *strings.Builder, listed []flows.Flow, multiRepo bool) {
 // and the larger flow it sits inside.
 func flowNote(f flows.Flow) string {
 	var notes []string
+	if f.Side {
+		notes = append(notes, "side")
+	}
 	if n := len(f.SameReachAs); n > 0 {
 		shown := f.SameReachAs
 		more := ""
@@ -307,6 +313,9 @@ func writeFlowDetail(w *strings.Builder, f flows.Flow) {
 		fmt.Fprintf(w, "  %-8s "+format+"\n", append([]any{label}, args...)...)
 	}
 	row("rank", "%d", f.Rank)
+	if f.Side {
+		row("side", "%s", "the entry is not the program: an example, a script, a migration or tooling")
+	}
 	row("entry", "%s  %s", f.Entry.Name, where)
 	for _, route := range f.Routes[min(1, len(f.Routes)):] {
 		row("also", "%s", strings.TrimSpace(route.Method+" "+route.Name))
