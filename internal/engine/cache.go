@@ -2830,7 +2830,11 @@ import (
 // v334: a Go route registered through a verb that takes middleware before its handler
 // (`m.Post("/login", bind(form), SignInPost)`) names the last argument as the handler,
 // not the first.
-const cacheVersion = "v334"
+// v335: a Go route registered inside a mount's function literal carries the mount's
+// path: chi's Route("/api", func(r chi.Router) {...}), and a Group("/user", func() {...})
+// whose literal registers on the receiver. A local closure that registers routes
+// registers them where it is called, under each mount it is called in.
+const cacheVersion = "v335"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

@@ -338,14 +338,28 @@ func analyzeRouterFunc(rf routerFunc, seed string, index map[string]routerFunc, 
 	ctx.localTypes = collectLocalTypes(rf.fn.Body, ctx)
 	var edges []routerEdge
 
-	ast.Inspect(rf.fn.Body, func(n ast.Node) bool {
+	// A mount's function literal is walked on its own, with the prefix it mounts
+	// under in force, and skipped when the outer walk reaches it.
+	scoped := map[*ast.FuncLit]bool{}
+	var visit func(n ast.Node) bool
+	visit = func(n ast.Node) bool {
 		switch node := n.(type) {
+		case *ast.FuncLit:
+			if scoped[node] {
+				return false
+			}
 		case *ast.AssignStmt:
 			if v := newRouterLocalVar(node, rf.aliases); v != "" {
 				prefixes[v] = ""
 			}
 			applySubrouterAssign(node, prefixes)
 		case *ast.CallExpr:
+			if lit, scope := funcLitMount(node, prefixes); lit != nil {
+				scoped[lit] = true
+				restore := scope.apply(prefixes)
+				ast.Inspect(lit.Body, visit)
+				restore()
+			}
 			key := resolveCalleeKey(node, ctx)
 			if key == "" {
 				return true
@@ -359,7 +373,8 @@ func analyzeRouterFunc(rf routerFunc, seed string, index map[string]routerFunc, 
 			}
 		}
 		return true
-	})
+	}
+	ast.Inspect(rf.fn.Body, visit)
 	return edges
 }
 

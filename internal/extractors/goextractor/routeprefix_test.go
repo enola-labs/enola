@@ -346,3 +346,186 @@ func h() {}
 		}
 	}
 }
+
+// chi mounts a subrouter with Route and hands it to a function literal. The
+// routes inside it are served under the mount, however deep it nests.
+func TestExtractRoutes_FuncLitMount_ChiRoute(t *testing.T) {
+	ff := extractAll(t, map[string]string{
+		"internal/server/routes.go": `package server
+
+import "github.com/go-chi/chi/v5"
+
+func Setup() {
+	r := chi.NewRouter()
+	r.Get("/health", health)
+	r.Route("/api", func(r chi.Router) {
+		r.Get("/users", listUsers)
+		r.Route("/admin", func(sub chi.Router) {
+			sub.Post("/keys", createKey)
+		})
+		r.Group(func(guarded chi.Router) {
+			guarded.Delete("/users/{id}", deleteUser)
+		})
+	})
+	r.Get("/after", after)
+}
+
+func health()     {}
+func listUsers()  {}
+func createKey()  {}
+func deleteUser() {}
+func after()      {}
+`,
+	})
+	for _, want := range [][2]string{
+		{"/health", "GET"}, {"/api/users", "GET"}, {"/api/admin/keys", "POST"},
+		{"/api/users/{id}", "DELETE"}, {"/after", "GET"},
+	} {
+		if !hasRoute(ff, want[0], want[1]) {
+			t.Errorf("want %s %s; GET %v POST %v DELETE %v", want[1], want[0],
+				routeNames(ff, "GET"), routeNames(ff, "POST"), routeNames(ff, "DELETE"))
+		}
+	}
+	// The mount ends with its literal: a route after it is not under /api.
+	if hasRoute(ff, "/api/after", "GET") {
+		t.Errorf("the /api prefix leaked past the end of its Route")
+	}
+}
+
+// A router whose Group takes a path and a literal with no parameter registers
+// on the receiver itself, so the receiver carries the prefix inside the literal.
+func TestExtractRoutes_FuncLitMount_GroupOnTheReceiver(t *testing.T) {
+	ff := extractAll(t, map[string]string{
+		"internal/server/routes.go": `package server
+
+import "github.com/go-chi/chi/v5"
+
+type router struct{ chi.Router }
+
+func (r *router) Group(pattern string, fn func(), mw ...any) {}
+func (r *router) Post(pattern string, h ...any)             {}
+func (r *router) Get(pattern string, h ...any)              {}
+
+func Setup(m *router) {
+	m.Group("/user", func() {
+		m.Post("/login", bind(), signIn)
+		m.Group("/settings", func() {
+			m.Get("", settings)
+		}, reqSignIn)
+		m.Group("", func() {
+			m.Get("/logout", signOut)
+		})
+	}, reqSignOut)
+	m.Get("/explore", explore)
+}
+
+func bind() any   { return nil }
+func reqSignIn()  {}
+func reqSignOut() {}
+func signIn()     {}
+func signOut()    {}
+func settings()   {}
+func explore()    {}
+`,
+	})
+	for _, want := range [][2]string{
+		{"/user/login", "POST"}, {"/user/settings", "GET"}, {"/user/logout", "GET"}, {"/explore", "GET"},
+	} {
+		if !hasRoute(ff, want[0], want[1]) {
+			t.Errorf("want %s %s; GET %v POST %v", want[1], want[0], routeNames(ff, "GET"), routeNames(ff, "POST"))
+		}
+	}
+}
+
+// A closure that registers routes registers them where it is called. Called
+// under two mounts, its routes exist under both; never called, under neither.
+func TestExtractRoutes_FuncLitMount_LocalClosureCalledUnderEachMount(t *testing.T) {
+	ff := extractAll(t, map[string]string{
+		"internal/server/routes.go": `package server
+
+import "github.com/go-chi/chi/v5"
+
+type router struct{ chi.Router }
+
+func (r *router) Group(pattern string, fn func(), mw ...any) {}
+func (r *router) Get(pattern string, h ...any)              {}
+
+func Setup(m *router) {
+	addSecrets := func() {
+		m.Get("/secrets", listSecrets)
+	}
+	neverCalled := func() {
+		m.Get("/ghost", listSecrets)
+	}
+	m.Group("/org", func() {
+		addSecrets()
+	})
+	m.Group("/repo", func() {
+		addSecrets()
+	})
+	_ = neverCalled
+}
+
+func listSecrets() {}
+`,
+	})
+	got := routeNames(ff, "GET")
+	if !hasRoute(ff, "/org/secrets", "GET") || !hasRoute(ff, "/repo/secrets", "GET") {
+		t.Errorf("want /org/secrets and /repo/secrets; got %v", got)
+	}
+	for _, name := range []string{"/secrets", "/ghost", "/org/ghost", "/repo/ghost"} {
+		if got[name] {
+			t.Errorf("%s was registered by a closure where it was defined, not where it was called; got %v", name, got)
+		}
+	}
+}
+
+// A registration function called inside a mount's literal receives the mounted
+// router, so its routes are under the mount too.
+func TestExtractRoutes_FuncLitMount_ReachesACalledFunction(t *testing.T) {
+	ff := extractAll(t, map[string]string{
+		"internal/server/routes.go": `package server
+
+import "github.com/go-chi/chi/v5"
+
+func Setup() {
+	router := chi.NewRouter()
+	router.Route("/api", func(r chi.Router) {
+		registerWidgets(r)
+	})
+}
+
+func registerWidgets(r chi.Router) {
+	r.Get("/widgets", listWidgets)
+}
+
+func listWidgets() {}
+`,
+	})
+	if !hasRoute(ff, "/api/widgets", "GET") {
+		t.Errorf("want /api/widgets GET; routes = %v", routeNames(ff, "GET"))
+	}
+}
+
+// A Route whose path is not a literal mounts under something that cannot be
+// read. Its routes keep their own path rather than gaining a guessed one.
+func TestExtractRoutes_FuncLitMount_DynamicPathIsNotGuessed(t *testing.T) {
+	ff := extractAll(t, map[string]string{
+		"internal/server/routes.go": `package server
+
+import "github.com/go-chi/chi/v5"
+
+func Setup(base string) {
+	r := chi.NewRouter()
+	r.Route(base, func(r chi.Router) {
+		r.Get("/users", listUsers)
+	})
+}
+
+func listUsers() {}
+`,
+	})
+	if !hasRoute(ff, "/users", "GET") {
+		t.Errorf("want the bare /users GET; routes = %v", routeNames(ff, "GET"))
+	}
+}
