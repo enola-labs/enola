@@ -390,3 +390,57 @@ func Dyn(w http.ResponseWriter, r *http.Request) {}
 		}
 	}
 }
+
+// A router with chi's verb names that takes middleware before the handler puts
+// the handler last. Read from the second argument, POST /login was served by
+// the form binder.
+func TestExtractRoutes_ChiVerbWithMiddlewareTakesTheLastArgument(t *testing.T) {
+	ff := extractAll(t, map[string]string{
+		"internal/server/routes.go": `package server
+
+import (
+	"net/http"
+	"github.com/go-chi/chi/v5"
+)
+
+type router struct{ chi.Router }
+
+func (r *router) Post(pattern string, h ...any) {}
+func (r *router) Get(pattern string, h ...any)  {}
+
+func SetupRoutes(m *router) {
+	m.Post("/login", Bind(Form{}), SignInPost)
+	m.Get("/repo", RequireSignIn, RepoAssignment, Home)
+	m.Get("/plain", Plain)
+}
+
+type Form struct{}
+
+func Bind(v any) func(http.Handler) http.Handler                  { return nil }
+func RequireSignIn(next http.Handler) http.Handler                { return next }
+func RepoAssignment(next http.Handler) http.Handler               { return next }
+func SignInPost(w http.ResponseWriter, r *http.Request)           {}
+func Home(w http.ResponseWriter, r *http.Request)                 {}
+func Plain(w http.ResponseWriter, r *http.Request)                {}
+`,
+	})
+	want := map[string]string{"/login": "SignInPost", "/repo": "Home", "/plain": "Plain"}
+	seen := 0
+	for _, r := range findFactsByKind(ff, facts.KindRoute) {
+		handler, ok := want[r.Name]
+		if !ok {
+			continue
+		}
+		seen++
+		if got := r.PropString("handler"); got != handler {
+			t.Errorf("%s: handler = %q, want %q", r.Name, got, handler)
+		}
+		// The post-link binder turns this into the route's handled_by edge.
+		if got := r.PropString(facts.PropHandlerTarget); got != "internal/server."+handler {
+			t.Errorf("%s: handler target = %q, want internal/server.%s", r.Name, got, handler)
+		}
+	}
+	if seen != len(want) {
+		t.Errorf("saw %d of %d routes", seen, len(want))
+	}
+}

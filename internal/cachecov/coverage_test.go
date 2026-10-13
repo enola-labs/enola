@@ -33,6 +33,9 @@ import (
 // test functions that assert the behavior that version introduced. v1 is the
 // implicit baseline (no changelog line), so coverage starts at v2.
 var versionCoverage = map[int][]string{
+	334: {
+		"TestExtractRoutes_ChiVerbWithMiddlewareTakesTheLastArgument",
+	},
 	333: {
 		"TestGoDoc_FunctionsMethodsAndTypes",
 		"TestPythonDoc_FunctionsMethodsAndClasses",

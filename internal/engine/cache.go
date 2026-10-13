@@ -2827,7 +2827,10 @@ import (
 // a group's closure. Its routes carry that prefix, once per place that loads it.
 // v333: a Go function, method or type and a Python function, method or class carry a
 // doc prop, the first paragraph of the comment or docstring written on it.
-const cacheVersion = "v333"
+// v334: a Go route registered through a verb that takes middleware before its handler
+// (`m.Post("/login", bind(form), SignInPost)`) names the last argument as the handler,
+// not the first.
+const cacheVersion = "v334"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

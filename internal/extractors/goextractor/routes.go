@@ -269,7 +269,11 @@ func extractChiRoutes(fset *token.FileSet, call *ast.CallExpr, prefixes map[stri
 
 	handler := ""
 	if len(call.Args) >= 2 {
-		handler = exprToString(call.Args[1])
+		// chi's verbs take one handler, so it is both the second argument and the
+		// last. A router with chi's verb names that takes middleware before the
+		// handler (`m.Post("/login", bind(form), SignInPost)`) puts it last, and
+		// reading the second argument there names a middleware as the handler.
+		handler = exprToString(call.Args[len(call.Args)-1])
 	}
 
 	return []routeInfo{{
