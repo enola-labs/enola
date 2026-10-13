@@ -192,9 +192,12 @@ func summarize(f *Flow) string {
 		}
 		parts := make([]string, len(shown))
 		for i, m := range shown {
-			if i == 0 {
+			switch {
+			case i == 0 && m.Symbols == 1:
+				parts[i] = fmt.Sprintf("%s (1 symbol)", m.Name)
+			case i == 0:
 				parts[i] = fmt.Sprintf("%s (%d symbols)", m.Name, m.Symbols)
-			} else {
+			default:
 				parts[i] = fmt.Sprintf("%s (%d)", m.Name, m.Symbols)
 			}
 		}

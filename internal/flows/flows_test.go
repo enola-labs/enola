@@ -270,14 +270,18 @@ func TestDescribe_SummaryReadsFromTheFlowAlone(t *testing.T) {
 
 func TestThrough_ListsTheFlowsThatReachASymbol(t *testing.T) {
 	a := analyze(shop()...)
-	if got := a.Through("db/orders.load"); !reflect.DeepEqual(got, []int{1}) {
-		t.Errorf("through db/orders.load = %v", got)
+	if got, known := a.Through("db/orders.load"); !known || !reflect.DeepEqual(got, []int{1}) {
+		t.Errorf("through db/orders.load = %v, known %v", got, known)
 	}
-	if got := a.Through("charge.sign"); !reflect.DeepEqual(got, []int{0}) {
-		t.Errorf("through the short name charge.sign = %v", got)
+	if got, known := a.Through("charge.sign"); !known || !reflect.DeepEqual(got, []int{0}) {
+		t.Errorf("through the short name charge.sign = %v, known %v", got, known)
 	}
-	if got := a.Through("nothing.here"); got != nil {
-		t.Errorf("through an unknown symbol = %v", got)
+	// main is a symbol no flow reaches; nothing.here is no symbol.
+	if got, known := a.Through("cmd/server.main"); !known || got != nil {
+		t.Errorf("through a symbol outside every flow = %v, known %v", got, known)
+	}
+	if got, known := a.Through("nothing.here"); known || got != nil {
+		t.Errorf("through an unknown symbol = %v, known %v", got, known)
 	}
 }
 

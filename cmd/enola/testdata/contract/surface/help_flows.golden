@@ -1,0 +1,30 @@
+$ enola flows --help
+exit: 2
+--- stdout
+--- stderr
+Usage: enola flows [flags] [repo_path|config_path]
+
+Rank the ways into a program by what each reaches. An entry is a served
+route's handler, a program's main, or a symbol a framework invokes; its flow
+is every symbol the calls from it reach. With no flags it prints the largest
+flows, one line each.
+
+A flow is a floor, not a measurement: a call the graph could not resolve ends
+the walk there, and the unresolved column counts how often that happened.
+Entries that reach the same symbols are folded into one flow, and a flow that
+sits almost wholly inside a larger one says which.
+
+Exit codes:
+  0  the report was produced, including one that found no flows
+  2  the command could not run, or --show or --through named nothing it
+     could pick
+
+Flags:
+  -json
+    	emit the report as JSON, every listed flow with its stages and summary
+  -show string
+    	describe one flow: its stages, what it reaches and a summary. Takes a flow's name or a part of it that only one has
+  -through string
+    	list only the flows that reach this symbol
+  -top int
+    	how many flows to list (1-500) (default 10)

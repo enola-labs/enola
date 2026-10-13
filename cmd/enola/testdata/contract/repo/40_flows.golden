@@ -1,0 +1,14 @@
+$ enola flows .
+exit: 0
+--- stdout
+1 flow from 1 entry (1 main)
+
+   #  flow     reach  modules  unresolved  note
+   1  ..main       3        3           0
+
+reach: symbols the calls from the entry reach. unresolved: calls inside the
+flow the graph could not follow.
+--- stderr
+enola: no mcp-arch.yaml in <TMP>/go_sample, using built-in defaults
+enola flows: repo <TMP>/go_sample (built-in default config)
+enola flows: reading the snapshot written <TIME>, which matches the working tree

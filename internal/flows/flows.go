@@ -225,10 +225,11 @@ func (a *Analysis) DescribeFlow(i int) {
 	f.Summary = summarize(f)
 }
 
-// Through returns the indexes of the flows whose walk reaches a symbol, ranked.
-// A name is matched exactly first and as a suffix otherwise, so the short name
-// a listing prints can be passed back.
-func (a *Analysis) Through(symbol string) []int {
+// Through returns the indexes of the flows whose walk reaches a symbol, ranked,
+// and whether any symbol carries the name at all: no flow reaching a symbol and
+// no such symbol are different answers. A name is matched exactly first and as
+// a suffix otherwise, so the short name a listing prints can be passed back.
+func (a *Analysis) Through(symbol string) ([]int, bool) {
 	want := map[int32]bool{}
 	for id := range a.nodes {
 		if a.nodes[id].fact.Name == symbol {
@@ -251,7 +252,7 @@ func (a *Analysis) Through(symbol string) []int {
 			}
 		}
 	}
-	return out
+	return out, len(want) > 0
 }
 
 // Find returns the index of the flow with this name, or of the one flow whose

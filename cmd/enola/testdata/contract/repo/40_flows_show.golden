@@ -1,0 +1,25 @@
+$ enola flows --show main .
+exit: 0
+--- stdout
+..main
+  rank     1
+  entry    ..main  main.go:10
+  reach    3 symbols, 3 modules, depth 1
+  blind    0 calls not followed
+
+Summary
+  The program starts at ..main. It hands off to a.Alpha, which calls b.Beta.
+  Most of its 3 symbols sit in . (1 symbol), pkg/a (1) and pkg/b (1).
+
+Stages
+  a.Alpha       2
+    b.Beta      1
+
+Modules
+  .                                        1
+  pkg/a                                    1
+  pkg/b                                    1
+--- stderr
+enola: no mcp-arch.yaml in <TMP>/go_sample, using built-in defaults
+enola flows: repo <TMP>/go_sample (built-in default config)
+enola flows: reading the snapshot written <TIME>, which matches the working tree

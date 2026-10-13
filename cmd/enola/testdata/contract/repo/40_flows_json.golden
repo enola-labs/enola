@@ -1,0 +1,71 @@
+$ enola flows --json --top 1 .
+exit: 0
+--- stdout
+{
+  "roots": {
+    "main": 1
+  },
+  "leaves": 0,
+  "total": 1,
+  "flows": [
+    {
+      "id": "57cf2fc2c11a93e5059bbeb64c041d29",
+      "name": "..main",
+      "rank": 1,
+      "repo": "go_sample",
+      "mechanism": "main",
+      "entry": {
+        "name": "..main",
+        "id": "65909eca24b9a1eb579e2a7173394085",
+        "file": "main.go",
+        "line": 10
+      },
+      "summary": "The program starts at ..main. It hands off to a.Alpha, which calls b.Beta. Most of its 3 symbols sit in . (1 symbol), pkg/a (1) and pkg/b (1).",
+      "metrics": {
+        "reach": 3,
+        "modules": 3,
+        "max_depth": 1,
+        "unresolved_calls": 0
+      },
+      "modules": [
+        {
+          "name": ".",
+          "symbols": 1
+        },
+        {
+          "name": "pkg/a",
+          "symbols": 1
+        },
+        {
+          "name": "pkg/b",
+          "symbols": 1
+        }
+      ],
+      "stages": [
+        {
+          "order": 1,
+          "depth": 1,
+          "name": "pkg/a.Alpha",
+          "id": "c8f7c0664a0a2ca73e2dc23371b834a4",
+          "file": "pkg/a/a.go",
+          "line": 7,
+          "reach": 2
+        },
+        {
+          "order": 2,
+          "depth": 2,
+          "parent": "c8f7c0664a0a2ca73e2dc23371b834a4",
+          "name": "pkg/b.Beta",
+          "id": "3f1faaa09ae8f76f7026f67e3c3f4754",
+          "file": "pkg/b/b.go",
+          "line": 6,
+          "reach": 1
+        }
+      ]
+    }
+  ]
+}
+--- stderr
+enola: no mcp-arch.yaml in <TMP>/go_sample, using built-in defaults
+enola flows: repo <TMP>/go_sample (built-in default config)
+enola flows: reading the snapshot written <TIME>, which matches the working tree
