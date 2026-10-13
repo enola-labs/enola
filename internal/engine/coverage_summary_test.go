@@ -69,9 +69,9 @@ func TestCoverageSummary_PartiallyCoveredServiceIsNotAGap(t *testing.T) {
 func TestCoverageSummary_ExternalBucket(t *testing.T) {
 	st := facts.NewStore()
 	st.Add(
-		svcCoverage("a", 5, 2, 0), // 2 internal unresolved -> a coverage gap
+		svcCoverage("a", 0, 2, 0), // 2 internal unresolved -> a coverage gap
 		svcCoverage("b", 4, 0, 3), // only external -> NOT a gap
-		svcCoverage("c", 1, 1, 4), // both -> gap, external counted separately
+		svcCoverage("c", 0, 1, 4), // both -> gap, external counted separately
 	)
 
 	sum := coverageSummary(st)

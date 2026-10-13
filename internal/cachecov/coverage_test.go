@@ -33,6 +33,16 @@ import (
 // test functions that assert the behavior that version introduced. v1 is the
 // implicit baseline (no changelog line), so coverage starts at v2.
 var versionCoverage = map[int][]string{
+	352: {
+		"TestDrizzle_BuilderChainsAreQueries",
+		"TestDrizzle_NotWithoutTheDependency",
+		"TestDrizzle_UseCaseReachesQueryThroughPort",
+		"TestPropagate_InterfaceMemberWithoutAFact",
+		"TestPropagate_BodilessMembersAreOptIn",
+		"TestNestGlobalPrefix_LiteralIsApplied",
+		"TestNestGlobalPrefix_NotAppliedUnlessCertain",
+		"TestRetrofitMethodIsIO",
+	},
 	351: {
 		"TestDocSummary_InvalidUTF8",
 	},

@@ -16,4 +16,4 @@ Flags:
   -repo string
     	report on one service instead of all of them
   -unresolved
-    	list only services with unresolved outbound call sites
+    	list only services with unresolved outbound call sites, and name each call site

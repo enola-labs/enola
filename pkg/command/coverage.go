@@ -28,7 +28,7 @@ func (r *Runner) Coverage(ctx context.Context, args []string) {
 	fs.SetOutput(os.Stderr)
 	var (
 		service    = fs.String("repo", "", "report on one service instead of all of them")
-		unresolved = fs.Bool("unresolved", false, "list only services with unresolved outbound call sites")
+		unresolved = fs.Bool("unresolved", false, "list only services with unresolved outbound call sites, and name each call site")
 		asJSON     = fs.Bool("json", false, "emit the report as JSON")
 	)
 	fs.Usage = func() {
@@ -66,6 +66,7 @@ func (r *Runner) Coverage(ctx context.Context, args []string) {
 	}
 	if *unresolved {
 		report = onlyUnresolved(report)
+		report.AttachUnresolvedSites(tgt.engine.Store())
 	}
 
 	if *asJSON {
@@ -77,6 +78,9 @@ func (r *Runner) Coverage(ctx context.Context, args []string) {
 		return
 	}
 	fmt.Print(report.RenderText())
+	if *unresolved {
+		fmt.Print(report.RenderUnresolvedSites())
+	}
 	// What each declared in-house client found. Shown with the full report only: a view
 	// narrowed to one service or to its misses is asking about that, not about config.
 	if *service == "" && !*unresolved {

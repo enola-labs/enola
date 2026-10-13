@@ -60,6 +60,7 @@ const (
 	propIOCalls             = "io_calls"           // extractor: the calls in this body that are I/O entry points
 	propPureCalls           = "pure_calls"         // extractor: the calls in this body into a library it describes that perform no I/O
 	propPerformsIO          = "performs_io"        // extractor: method transitively performs network/file I/O
+	propIOMembers           = "io_members"         // ioclosure: an interface's members that reach I/O through an implementer
 	propScalingLoopDepth    = "scaling_loop_depth" // extractor: loop nesting counting only unbounded loops
 	propAssociation         = "association"        // Rails association name on a dependency fact
 )
@@ -67,6 +68,7 @@ const (
 // funcInfo is the per-function input to the pure analysis. It is populated from
 // the snapshot and contains no facts.* types (module boundary).
 type funcInfo struct {
+	Port       bool
 	Name       string
 	File       string
 	Line       int
@@ -768,6 +770,11 @@ func collect(store *facts.Store) (funcs []funcInfo, storage, routeHandlers, asso
 	}
 
 	for _, f := range store.ByKind(facts.KindSymbol) {
+		for _, m := range stringSliceProp(f.Props, propIOMembers) {
+			if !isTestPath(f.File) {
+				funcs = append(funcs, funcInfo{Port: true, Name: f.Name + "." + m, File: f.File, Line: f.Line, Repo: f.Repo, PerformsIO: true})
+			}
+		}
 		sk, _ := f.PropAny(propSymbolKind).(string)
 		// Analyze functions and methods, plus any other symbol that carries
 		// complexity metrics — a Swift computed-property getter or willSet/didSet
@@ -1157,6 +1164,25 @@ var jvmExpensivePrefixes = []string{"db.", "sql."}
 // set). Without this, every list/map `.get(...)` inside a loop reads as a false N+1.
 // These names are never a real per-iteration network/DB call; the exact-fact performs_io
 // path (byName) is unaffected — only the short-name index is gated.
+var jsBuiltinMethods = map[string]bool{
+	"append": true, "join": true, "cancel": true, "push": true, "pop": true,
+	"shift": true, "unshift": true, "keys": true, "values": true, "entries": true,
+	"forEach": true, "map": true, "filter": true, "reduce": true, "slice": true,
+	"splice": true, "concat": true, "includes": true, "indexOf": true, "sort": true,
+	"toString": true,
+}
+
+var nodeNonIOModules = []string{"node:path.", "node:url.", "node:util.", "node:os.", "node:assert."}
+
+func isNodeNonIO(callee string) bool {
+	for _, p := range nodeNonIOModules {
+		if strings.HasPrefix(callee, p) {
+			return true
+		}
+	}
+	return false
+}
+
 var jvmIONameDenylist = map[string]bool{
 	"get": true, "set": true, "put": true, "add": true, "remove": true,
 	"getValue": true, "getOrNull": true, "getOrDefault": true, "getOrElse": true,
@@ -1958,7 +1984,7 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 	loose := make(map[string]bool)
 	for _, f := range funcs {
 		lang := langFamily(f.File)
-		if lang == ".go" {
+		if lang == ".go" || f.Port {
 			continue
 		}
 		m := methodSegment(f.Name)
@@ -1990,6 +2016,9 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 
 	var findings []Finding
 	for _, f := range funcs {
+		if f.Port {
+			continue
+		}
 		// Compute this fact's own compounded depth from its own loop_depth and
 		// in-loop callees, rather than reading eff[f.Name]: with overloads, byName
 		// (and thus eff) collapses to one representative per name, which would
@@ -2126,6 +2155,9 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 				// often than it is anything else, and an unresolved `find()` is a
 				// regex matcher's.
 				if strings.HasSuffix(f.File, ".java") && javaNotByIndex(methodSegment(callee)) {
+					ioMethods = nil
+				}
+				if ts && (jsBuiltinMethods[methodSegment(callee)] || isNodeNonIO(callee)) {
 					ioMethods = nil
 				}
 			}

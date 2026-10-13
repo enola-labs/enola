@@ -615,14 +615,13 @@ func (e *TSExtractor) extractVueScriptBlock(kinds *tsutil.KindTable, block *vueS
 	}
 
 	ctx := &extractCtx{
-		src:       block.Content,
-		relFile:   relFile,
-		dir:       factpath.Dir(relFile),
-		isTSX:     isTSX,
-		isVue:     true,
-		isNuxt:    isNuxt,
-		importMap: buildImportSymbols(kinds, root, block.Content, relFile, aliases, files),
-		imports:   buildEmberImportBindings(kinds, root, block.Content, relFile, aliases),
+		src:          block.Content,
+		relFile:      relFile,
+		dir:          factpath.Dir(relFile),
+		isTSX:        isTSX,
+		tsFrameworks: tsFrameworks{isVue: true, isNuxt: isNuxt},
+		importMap:    buildImportSymbols(kinds, root, block.Content, relFile, aliases, files),
+		imports:      buildEmberImportBindings(kinds, root, block.Content, relFile, aliases),
 	}
 	decls := e.extractDeclarations(kinds, root, ctx)
 

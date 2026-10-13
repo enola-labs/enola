@@ -58,7 +58,8 @@ type tsFileResult struct {
 	angularHTTP *angularHTTPFile
 	// clients is what each declared in-house client found in this file, summed into one
 	// account per client for the repository.
-	clients clientCounts
+	clients        clientCounts
+	globalPrefixes []string
 }
 
 // --- what one file contributes ---

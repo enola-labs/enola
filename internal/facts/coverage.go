@@ -26,10 +26,10 @@ const (
 // equalled the number of services and could not signal ill health.
 //
 // outbound is the count of resolved outbound cross-repo dependencies (see
-// DependsOnCount); detected and unresolved are summed across the service's
-// edge_coverage entries.
-func ClassifyService(outbound, detected, unresolved int) string {
-	if outbound > 0 {
+// DependsOnCount); detected, resolved and unresolved are summed across the
+// service's edge_coverage entries.
+func ClassifyService(outbound, detected, resolved, unresolved int) string {
+	if outbound > 0 || resolved > 0 {
 		return ServiceConnected
 	}
 	// external-only call sites are expected, not a blind spot, so a service with no
