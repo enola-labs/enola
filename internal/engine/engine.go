@@ -918,7 +918,14 @@ func (e *Engine) runRenderers(ctx context.Context, snapshot *facts.Snapshot) ([]
 		}
 
 		log.Printf("[engine] running renderer: %s", rnd.Name())
-		artifacts, err := rnd.Render(ctx, snapshot)
+		// A renderer that follows edges reads the store; see plugin.StoreRenderer.
+		var artifacts []facts.Artifact
+		var err error
+		if sr, ok := rnd.(plugin.StoreRenderer); ok {
+			artifacts, err = sr.RenderStore(ctx, snapshot, e.store)
+		} else {
+			artifacts, err = rnd.Render(ctx, snapshot)
+		}
 		if err != nil {
 			log.Printf("[engine] renderer %s error: %v", rnd.Name(), err)
 			continue

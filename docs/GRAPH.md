@@ -122,6 +122,7 @@ Why the graph is a value computed on demand rather than a store kept up to date:
 | `facts.jsonl` | The graph: every fact and its relations, one JSON object per line. There is no separate graph file. | yes, [schema/facts.md](schema/facts.md) |
 | `insights.json` | The findings the checks produced, with confidence and evidence | yes, [schema/insights.md](schema/insights.md) |
 | `receipt.json` | How the snapshot was built: format version, snapshot ID, enola version, git commit and dirty state, extractors, config hashes, extraction quality | yes, [schema/receipt.md](schema/receipt.md) |
+| `flows.json` | The ways into the program, ranked by what each reaches, with the steps each takes | yes, [schema/flows.md](schema/flows.md) |
 | `snapshot.meta.json` | The receipt fields plus per-file content hashes, for incremental runs | no |
 | `llm_context.md` | A compact written summary for an agent to read directly | no |
 | `extractor_cache.json` | Parsed results per file, so unchanged files are not re-parsed | no; keep it between runs |

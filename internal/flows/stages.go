@@ -49,6 +49,7 @@ func (a *Analysis) stages(f *Flow) []Stage {
 			reach []int32
 		}
 		var candidates []candidate
+		a.expand(parent)
 		for _, callee := range a.nodes[parent].callees {
 			if placed[callee] || !share[callee] {
 				continue

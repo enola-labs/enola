@@ -3,7 +3,7 @@ Snapshot generated successfully.
 - Repository: <TMP>/go_sample
 - Facts: 18
 - Insights: 3
-- Artifacts: 1
+- Artifacts: 2
 - Duration: <DURATION>
 - Extractors: [go manifests]
 - Explainers: [cycles layers crossrepo coverage unused-routes domain query-loops dead-methods entry-points messaging-coverage god-class hotspots dependency-depth exported-surface complexity-outliers intent constraints vendored-candidates import-closure package-metrics dead-code performance]

@@ -357,7 +357,7 @@ func writeFlowDetail(w *strings.Builder, f flows.Flow) {
 		for _, m := range shown {
 			fmt.Fprintf(w, "  %-40s %d\n", m.Name, m.Symbols)
 		}
-		if rest := len(f.Modules) - len(shown); rest > 0 {
+		if rest := f.Metrics.Modules - len(shown); rest > 0 {
 			fmt.Fprintf(w, "  and %d more\n", rest)
 		}
 	}

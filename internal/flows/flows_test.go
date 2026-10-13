@@ -320,3 +320,49 @@ func TestAnalyze_IsIndependentOfFactOrder(t *testing.T) {
 		}
 	}
 }
+
+// Only what an entry reaches is ever turned into a node. A symbol no flow
+// arrives at costs nothing, which is what keeps a large graph affordable.
+func TestAnalyze_LooksOnlyAtWhatTheEntriesReach(t *testing.T) {
+	ff := shop()
+	for _, n := range []string{"a", "b", "c", "d", "e"} {
+		ff = append(ff, sym("lib/unused."+n, "lib/unused.py", "lib/unused.a"))
+	}
+	a := analyze(ff...)
+	for _, n := range a.nodes {
+		if strings.HasPrefix(n.fact.Name, "lib/unused.") {
+			t.Errorf("%s is reached by no entry and was given a node", n.fact.Name)
+		}
+	}
+	if _, known := a.Through("lib/unused.c"); !known {
+		t.Errorf("a symbol outside every flow must still be known to --through")
+	}
+}
+
+// A call resolves inside the caller's repository first, and into another only
+// when one other repository declares the name.
+func TestAnalyze_ResolvesACallAcrossRepositoriesOnlyWhenUnambiguous(t *testing.T) {
+	in := func(repo string, f facts.Fact) facts.Fact { f.Repo = repo; return f }
+	a := analyze(
+		in("web", sym("cmd/web.main", "cmd/web.py", "lib/auth.check", "lib/log.write", "lib/own.helper")),
+		in("web", sym("lib/own.helper", "lib/own.py")),
+		in("auth", sym("lib/own.helper", "lib/own.py")),
+		in("auth", sym("lib/auth.check", "lib/auth.py")),
+		in("a", sym("lib/log.write", "lib/log.py")),
+		in("b", sym("lib/log.write", "lib/log.py")),
+	)
+	if len(a.Flows) != 1 {
+		t.Fatalf("flows = %v", names(a))
+	}
+	got := map[string]bool{}
+	for _, id := range a.Flows[0].reach {
+		got[a.nodes[id].fact.Repo+":"+a.nodes[id].fact.Name] = true
+	}
+	want := map[string]bool{"web:cmd/web.main": true, "web:lib/own.helper": true, "auth:lib/auth.check": true}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("reach = %v, want %v", got, want)
+	}
+	if a.Flows[0].Metrics.UnresolvedCalls != 1 {
+		t.Errorf("unresolved = %d, want 1 (lib/log.write is declared by two other repositories)", a.Flows[0].Metrics.UnresolvedCalls)
+	}
+}

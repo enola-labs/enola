@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -266,6 +267,91 @@ func assertInsightsContract(t *testing.T, snap consumerSnapshot) (factIDs int) {
 	return factIDs
 }
 
+// assertFlowsContract checks flows.json against the facts it points at, and
+// returns how many flows it holds. Every id in it is a fact id a reader joins
+// on, so one that names no fact is a broken edge in the reader's graph.
+func assertFlowsContract(t *testing.T, snap consumerSnapshot) int {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(snap.dir, "flows.json"))
+	if err != nil {
+		t.Fatalf("contract artifact missing after a successful run: %v", err)
+	}
+	hashes, _ := snap.receipt["output_hashes"].(map[string]any)
+	sum := sha256.Sum256(data)
+	if want := "sha256:" + hex.EncodeToString(sum[:]); hashes["flows.json"] != want {
+		t.Errorf("receipt output_hashes[\"flows.json\"] = %#v, the file on disk hashes to %s", hashes["flows.json"], want)
+	}
+
+	var doc map[string]any
+	decodeJSON(t, data, &doc)
+	if _, ok := doc["roots"].(map[string]any); !ok {
+		t.Errorf("flows.json roots must be an object, got %#v", doc["roots"])
+	}
+	// A reader iterates flows; `null` for "no flows" would be a type error.
+	flows, ok := doc["flows"].([]any)
+	if !ok {
+		t.Fatalf("flows.json flows must be an array, got %#v", doc["flows"])
+	}
+	if total, ok := wholeNumber(doc["total"]); !ok || int(total) < len(flows) {
+		t.Errorf("flows.json total = %#v, with %d flows listed", doc["total"], len(flows))
+	}
+
+	names := func(id any) bool { return isFactID(id) && snap.ids[id.(string)] != nil }
+	seen := map[string]bool{}
+	for i, entry := range flows {
+		flow, _ := entry.(map[string]any)
+		where := fmt.Sprintf("flow %d (%v)", i+1, flow["name"])
+		if !isFactID(flow["id"]) || seen[flow["id"].(string)] {
+			t.Errorf("%s: id %#v must be 32 hex characters and unique", where, flow["id"])
+			continue
+		}
+		seen[flow["id"].(string)] = true
+		if rank, ok := wholeNumber(flow["rank"]); !ok || int(rank) != i+1 {
+			t.Errorf("%s: rank = %#v at position %d", where, flow["rank"], i+1)
+		}
+		for _, key := range []string{"name", "mechanism", "summary"} {
+			if !nonEmptyString(flow[key]) {
+				t.Errorf("%s: %q must be a non-empty string, got %#v", where, key, flow[key])
+			}
+		}
+		entryRef, _ := flow["entry"].(map[string]any)
+		if !names(entryRef["id"]) || snap.ids[entryRef["id"].(string)]["kind"] != "symbol" {
+			t.Errorf("%s: entry id %#v names no symbol in the snapshot", where, entryRef["id"])
+		}
+		routes, _ := flow["routes"].([]any)
+		for _, r := range routes {
+			route, _ := r.(map[string]any)
+			if !names(route["id"]) || snap.ids[route["id"].(string)]["kind"] != "route" {
+				t.Errorf("%s: route id %#v names no route in the snapshot", where, route["id"])
+			}
+		}
+		metrics, _ := flow["metrics"].(map[string]any)
+		for _, key := range []string{"reach", "modules", "max_depth", "unresolved_calls"} {
+			if _, ok := wholeNumber(metrics[key]); !ok {
+				t.Errorf("%s: metrics.%s must be an integer, got %#v", where, key, metrics[key])
+			}
+		}
+		placed := map[string]bool{}
+		stages, _ := flow["stages"].([]any)
+		for j, st := range stages {
+			stage, _ := st.(map[string]any)
+			if order, ok := wholeNumber(stage["order"]); !ok || int(order) != j+1 {
+				t.Errorf("%s: stage %d has order %#v", where, j+1, stage["order"])
+			}
+			if !names(stage["id"]) {
+				t.Errorf("%s: stage %v carries id %#v, which names no fact in the snapshot", where, stage["name"], stage["id"])
+				continue
+			}
+			// A stage sits under the entry (no parent) or under an earlier stage.
+			if parent, present := stage["parent"]; present && !placed[fmt.Sprint(parent)] {
+				t.Errorf("%s: stage %v names parent %#v, which is no earlier stage", where, stage["name"], parent)
+			}
+			placed[stage["id"].(string)] = true
+		}
+	}
+	return len(flows)
+}
+
 func propsOf(fact map[string]any) map[string]any {
 	props, _ := fact["props"].(map[string]any)
 	return props
@@ -300,6 +386,9 @@ func TestConsumerContract_SingleRepository(t *testing.T) {
 	if n := assertInsightsContract(t, snap); n == 0 {
 		t.Error("no insight evidence carries a fact_id; the reference checks ran on nothing")
 	}
+	if n := assertFlowsContract(t, snap); n == 0 {
+		t.Error("flows.json lists no flow; the reference checks ran on nothing")
+	}
 
 	// Every fact of a single-repository snapshot carries the same label, and
 	// without a git remote that label is the checkout directory name.
@@ -322,9 +411,17 @@ func TestConsumerContract_SingleRepository(t *testing.T) {
 
 	// snapshot_id is what a consumer keys "nothing changed, skip the load" on.
 	generateAsConsumer(t, bin, home, repo, repo)
-	if again := readConsumerSnapshot(t, repo); again.receipt["snapshot_id"] != snap.receipt["snapshot_id"] {
+	again := readConsumerSnapshot(t, repo)
+	if again.receipt["snapshot_id"] != snap.receipt["snapshot_id"] {
 		t.Errorf("snapshot_id changed across two runs over an unchanged tree: %v then %v",
 			snap.receipt["snapshot_id"], again.receipt["snapshot_id"])
+	}
+	// flows.json is byte-stable over an unchanged tree, as facts.jsonl is.
+	firstHashes, _ := snap.receipt["output_hashes"].(map[string]any)
+	againHashes, _ := again.receipt["output_hashes"].(map[string]any)
+	if firstHashes["flows.json"] != againHashes["flows.json"] {
+		t.Errorf("flows.json changed across two runs over an unchanged tree: %v then %v",
+			firstHashes["flows.json"], againHashes["flows.json"])
 	}
 }
 
@@ -345,6 +442,11 @@ func TestConsumerContract_NoFindingsIsAnEmptyArray(t *testing.T) {
 	}
 	assertReceiptContract(t, snap)
 	assertFactsContract(t, snap)
+	// A main that calls nothing is an entry and not a flow: the file is written
+	// with an empty list, never left out and never null.
+	if n := assertFlowsContract(t, snap); n != 0 {
+		t.Errorf("a program that calls nothing has no flow, got %d", n)
+	}
 }
 
 // A cluster config in the form a consumer generates: absolute, JSON-quoted

@@ -52,6 +52,38 @@
 .writer.client_pid number
 .writer.pid number
 
+## output/flows.json
+
+.flows[].entry.doc string
+.flows[].entry.file string
+.flows[].entry.id string
+.flows[].entry.line number
+.flows[].entry.name string
+.flows[].id string
+.flows[].mechanism string
+.flows[].metrics.max_depth number
+.flows[].metrics.modules number
+.flows[].metrics.reach number
+.flows[].metrics.unresolved_calls number
+.flows[].modules[].name string
+.flows[].modules[].symbols number
+.flows[].name string
+.flows[].rank number
+.flows[].repo string
+.flows[].stages[].depth number
+.flows[].stages[].doc string
+.flows[].stages[].file string
+.flows[].stages[].id string
+.flows[].stages[].line number
+.flows[].stages[].name string
+.flows[].stages[].order number
+.flows[].stages[].parent string
+.flows[].stages[].reach number
+.flows[].summary string
+.leaves number
+.roots.main number
+.total number
+
 ## output/insights.json
 
 [].confidence number
@@ -80,6 +112,7 @@
 .ignore_glob_hash string
 .insight_count number
 .output_hashes.facts.jsonl string
+.output_hashes.flows.json string
 .output_hashes.insights.json string
 .output_hashes.llm_context.md string
 .quality.census.excluded_by_ignore number
@@ -132,6 +165,7 @@
 .ignore_glob_hash string
 .insight_count number
 .output_hashes.facts.jsonl string
+.output_hashes.flows.json string
 .output_hashes.insights.json string
 .output_hashes.llm_context.md string
 .renderers[] string

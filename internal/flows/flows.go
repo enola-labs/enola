@@ -18,7 +18,6 @@ import (
 	"strings"
 
 	"github.com/enola-labs/enola/internal/facts"
-	"github.com/enola-labs/enola/internal/linkers/binders/frameworkroots"
 )
 
 // Mechanisms an entry is reached through, beside the framework-roots ones
@@ -42,6 +41,8 @@ const (
 	// nestShare is the share of a flow that must lie inside a larger one for
 	// it to be reported as a stage of it rather than a path of its own.
 	nestShare = 0.9
+	// moduleList is how many of a flow's modules are listed, largest first.
+	moduleList = 10
 )
 
 // Options bounds the walk; a zero field means its default.
@@ -114,6 +115,14 @@ type Flow struct {
 	reach []int32
 }
 
+// Source is what the analysis reads a graph through: every fact once, to find
+// the entries, and then symbols by name as the walk reaches them. A fact store
+// is one.
+type Source interface {
+	FactsRef() []facts.Fact
+	LookupByExactName(name string) []facts.Fact
+}
+
 // Analysis is the ranked flows of one store, with the call graph kept so a
 // flow's stages can be built when it is asked for.
 type Analysis struct {
@@ -124,19 +133,28 @@ type Analysis struct {
 	Leaves int    `json:"leaves"`
 	Flows  []Flow `json:"flows"`
 
+	src   Source
 	nodes []node
+	index map[[2]string]int32
 	opts  Options
 }
 
 // node is one symbol of the call graph. Same-named symbols of one repository
 // are one node, as they are in the fact graph, because a call names its target
 // and nothing else.
+//
+// A node exists once something names it and is expanded, its calls resolved,
+// once the walk arrives at it. A repository of a million symbols has entries
+// that reach a few thousand of them, and the rest are never looked at.
 type node struct {
 	fact       facts.Fact
 	module     string
 	callees    []int32
 	unresolved int
 	io         bool
+	// pending holds the node's facts until it is expanded.
+	pending  []facts.Fact
+	expanded bool
 }
 
 type root struct {
@@ -144,17 +162,16 @@ type root struct {
 	routes    []facts.Fact
 }
 
-// Analyze finds the entries of a store, walks each, and ranks what it found.
-func Analyze(store *facts.Store, opts Options) *Analysis {
+// Analyze finds the entries of a graph, walks each, and ranks what it found.
+func Analyze(src Source, opts Options) *Analysis {
 	if opts.MaxDepth <= 0 {
 		opts.MaxDepth = defaultMaxDepth
 	}
 	if opts.MaxReach <= 0 {
 		opts.MaxReach = defaultMaxReach
 	}
-	a := &Analysis{Roots: map[string]int{}, opts: opts}
-	index := a.buildNodes(store)
-	roots := a.findRoots(store, index)
+	a := &Analysis{Roots: map[string]int{}, src: src, index: map[[2]string]int32{}, opts: opts}
+	roots := a.findRoots()
 
 	entries := make([]int32, 0, len(roots))
 	for id := range roots {
@@ -230,17 +247,24 @@ func (a *Analysis) DescribeFlow(i int) {
 // no such symbol are different answers. A name is matched exactly first and as
 // a suffix otherwise, so the short name a listing prints can be passed back.
 func (a *Analysis) Through(symbol string) ([]int, bool) {
-	want := map[int32]bool{}
-	for id := range a.nodes {
-		if a.nodes[id].fact.Name == symbol {
-			want[int32(id)] = true
+	names := map[string]bool{}
+	for _, f := range a.src.LookupByExactName(symbol) {
+		if f.Kind == facts.KindSymbol {
+			names[symbol] = true
 		}
 	}
-	if len(want) == 0 {
-		for id := range a.nodes {
-			if name := a.nodes[id].fact.Name; strings.HasSuffix(name, symbol) {
-				want[int32(id)] = true
+	if len(names) == 0 {
+		for _, f := range a.src.FactsRef() {
+			if f.Kind == facts.KindSymbol && strings.HasSuffix(f.Name, symbol) {
+				names[f.Name] = true
 			}
+		}
+	}
+	// Only a symbol some walk arrived at has a node; the rest are in no flow.
+	want := map[int32]bool{}
+	for key, id := range a.index {
+		if names[key[1]] {
+			want[id] = true
 		}
 	}
 	var out []int
@@ -252,7 +276,7 @@ func (a *Analysis) Through(symbol string) ([]int, bool) {
 			}
 		}
 	}
-	return out, len(want) > 0
+	return out, len(names) > 0
 }
 
 // Find returns the index of the flow with this name, or of the one flow whose
@@ -277,102 +301,150 @@ func (a *Analysis) Find(name string) (int, []string) {
 	return -1, names
 }
 
-func (a *Analysis) buildNodes(store *facts.Store) map[[2]string]int32 {
-	index := map[[2]string]int32{}
-	byName := map[string][]int32{}
-	symbols := store.ByKind(facts.KindSymbol)
-	owner := make([]int32, len(symbols))
-	for i, f := range symbols {
-		key := [2]string{f.Repo, f.Name}
-		id, ok := index[key]
-		if !ok {
-			id = int32(len(a.nodes))
-			index[key] = id
-			byName[f.Name] = append(byName[f.Name], id)
-			a.nodes = append(a.nodes, node{fact: f, module: moduleOf(f)})
+// nodeFor returns the node of the symbol a name refers to from inside a
+// repository: that repository's own, or another's when exactly one repository
+// declares the name.
+func (a *Analysis) nodeFor(repo, name string) (int32, bool) {
+	if id, ok := a.index[[2]string{repo, name}]; ok {
+		return id, id >= 0
+	}
+	var own, other []facts.Fact
+	foreign := ""
+	ambiguous := false
+	for _, f := range a.src.LookupByExactName(name) {
+		if f.Kind != facts.KindSymbol {
+			continue
 		}
-		owner[i] = id
-		if f.PropBool("performs_io") {
-			a.nodes[id].io = true
+		switch {
+		case f.Repo == repo:
+			own = append(own, f)
+		case foreign == "" || foreign == f.Repo:
+			foreign = f.Repo
+			other = append(other, f)
+		default:
+			ambiguous = true
 		}
 	}
-	for i, f := range symbols {
-		n := &a.nodes[owner[i]]
+	if len(own) == 0 {
+		if len(other) == 0 || ambiguous {
+			a.index[[2]string{repo, name}] = -1
+			return -1, false
+		}
+		// The caller's spelling resolves to the other repository's node.
+		id, ok := a.nodeFor(foreign, name)
+		a.index[[2]string{repo, name}] = id
+		return id, ok
+	}
+	// The fact that describes the node is the first by file, so it does not
+	// depend on the order the facts were read in.
+	first := own[0]
+	for _, f := range own[1:] {
+		if f.File < first.File || (f.File == first.File && f.Line < first.Line) {
+			first = f
+		}
+	}
+	id := int32(len(a.nodes))
+	a.index[[2]string{repo, name}] = id
+	a.nodes = append(a.nodes, node{fact: first, module: moduleOf(first), pending: own})
+	return id, true
+}
+
+// expand resolves a node's calls, once.
+func (a *Analysis) expand(id int32) {
+	if a.nodes[id].expanded {
+		return
+	}
+	pending := a.nodes[id].pending
+	a.nodes[id].pending, a.nodes[id].expanded = nil, true
+	var callees []int32
+	unresolved, io := 0, false
+	for _, f := range pending {
+		if f.PropBool("performs_io") {
+			io = true
+		}
 		for _, rel := range f.Relations {
 			if rel.Kind != facts.RelCalls {
 				continue
 			}
-			target, ok := index[[2]string{f.Repo, rel.Target}]
+			// nodeFor may grow a.nodes, so nothing holds a pointer into it here.
+			target, ok := a.nodeFor(f.Repo, rel.Target)
 			if !ok {
-				// Another repository's symbol, when exactly one carries the name.
-				if ids := byName[rel.Target]; len(ids) == 1 {
-					target, ok = ids[0], true
-				}
-			}
-			if !ok {
-				n.unresolved++
+				unresolved++
 				continue
 			}
-			if target != owner[i] && !containsUnsorted(n.callees, target) {
-				n.callees = append(n.callees, target)
+			if target != id && !containsUnsorted(callees, target) {
+				callees = append(callees, target)
 			}
 		}
 	}
-	for id := range a.nodes {
-		callees := a.nodes[id].callees
-		sort.Slice(callees, func(i, j int) bool { return a.less(callees[i], callees[j]) })
-	}
-	return index
+	sort.Slice(callees, func(i, j int) bool { return a.less(callees[i], callees[j]) })
+	n := &a.nodes[id]
+	n.callees, n.unresolved, n.io = callees, unresolved, io
 }
 
 // findRoots collects the entries: a served route's handler, a symbol a
 // framework invokes, and a program's main. A handler is one entry however many
 // routes it serves. Test code is never an entry, since a test is a way into the
 // code under test and not into the program.
-func (a *Analysis) findRoots(store *facts.Store, index map[[2]string]int32) map[int32]*root {
+func (a *Analysis) findRoots() map[int32]*root {
 	roots := map[int32]*root{}
-	for _, route := range store.ByKind(facts.KindRoute) {
-		if route.PropString("role") == "client" {
-			continue
-		}
-		for _, rel := range route.Relations {
-			if rel.Kind != facts.RelHandledBy {
+	var named []facts.Fact
+	for _, f := range a.src.FactsRef() {
+		switch f.Kind {
+		case facts.KindRoute:
+			if f.PropString("role") == "client" {
 				continue
 			}
-			id, ok := index[[2]string{route.Repo, rel.Target}]
-			if !ok || !a.eligible(id) {
-				continue
+			for _, rel := range f.Relations {
+				if rel.Kind != facts.RelHandledBy {
+					continue
+				}
+				id, ok := a.nodeFor(f.Repo, rel.Target)
+				if !ok || !a.eligible(id) {
+					continue
+				}
+				if roots[id] == nil {
+					roots[id] = &root{mechanism: MechanismRoute}
+				}
+				roots[id].routes = append(roots[id].routes, f)
 			}
-			if roots[id] == nil {
-				roots[id] = &root{mechanism: MechanismRoute}
+		case facts.KindSymbol:
+			if entryMechanism(f) != "" && !facts.IsTestPath(f.File) {
+				named = append(named, f)
 			}
-			roots[id].routes = append(roots[id].routes, route)
 		}
 	}
-	for id := range a.nodes {
-		id := int32(id)
-		if roots[id] != nil || !a.eligible(id) {
+	// After the routes, so a handler that is also a main is the route's entry.
+	for _, f := range named {
+		id, ok := a.nodeFor(f.Repo, f.Name)
+		if !ok || roots[id] != nil || !a.eligible(id) {
 			continue
 		}
-		f := a.nodes[id].fact
-		switch f.PropString("symbol_kind") {
-		case facts.SymbolFunc, facts.SymbolMethod:
-		default:
-			continue
-		}
-		switch {
-		case f.PropString(frameworkroots.RootProp) != "":
-			roots[id] = &root{mechanism: f.PropString(frameworkroots.RootProp)}
-		case isMain(f.Name):
-			roots[id] = &root{mechanism: MechanismMain}
-		case f.PropBool("framework_registered"):
-			roots[id] = &root{mechanism: MechanismRegistered}
-		}
+		roots[id] = &root{mechanism: entryMechanism(f)}
 	}
 	for _, r := range roots {
 		sort.Slice(r.routes, func(i, j int) bool { return routeLabel(r.routes[i]) < routeLabel(r.routes[j]) })
 	}
 	return roots
+}
+
+// entryMechanism is how a symbol is entered from outside the code, or "" when
+// nothing says it is.
+func entryMechanism(f facts.Fact) string {
+	switch f.PropString("symbol_kind") {
+	case facts.SymbolFunc, facts.SymbolMethod:
+	default:
+		return ""
+	}
+	switch {
+	case f.PropString(facts.PropFrameworkRoot) != "":
+		return f.PropString(facts.PropFrameworkRoot)
+	case isMain(f.Name):
+		return MechanismMain
+	case f.PropBool("framework_registered"):
+		return MechanismRegistered
+	}
+	return ""
 }
 
 func (a *Analysis) eligible(id int32) bool {
@@ -393,6 +465,7 @@ func (a *Analysis) walk(start int32, blocked map[int32]bool) ([]int32, int, bool
 		if depth >= a.opts.MaxDepth {
 			continue
 		}
+		a.expand(id)
 		for _, callee := range a.nodes[id].callees {
 			if _, ok := seen[callee]; ok || blocked[callee] {
 				continue
@@ -445,6 +518,8 @@ func (a *Analysis) newFlow(id int32, r *root, reach []int32, depth int, truncate
 	}
 	perModule := map[string]int{}
 	for _, member := range reach {
+		// A symbol at the walk's last hop was reached and never walked from.
+		a.expand(member)
 		n := a.nodes[member]
 		perModule[n.module]++
 		f.Metrics.UnresolvedCalls += n.unresolved
@@ -462,6 +537,10 @@ func (a *Analysis) newFlow(id int32, r *root, reach []int32, depth int, truncate
 		}
 		return f.Modules[i].Name < f.Modules[j].Name
 	})
+	// The count is in the metrics; the list is for reading.
+	if len(f.Modules) > moduleList {
+		f.Modules = f.Modules[:moduleList]
+	}
 	return f
 }
 

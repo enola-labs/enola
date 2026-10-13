@@ -46,3 +46,9 @@ func DocSummary(text string) string {
 	}
 	return strings.TrimRight(doc[:cut], " ") + "..."
 }
+
+// PropFrameworkRoot names the mechanism through which a framework invokes a
+// symbol: route, job, mailer, hook, task or callback. The framework-roots binder
+// writes it and the flow ranking reads it, so it lives here beside the fact
+// model rather than in either.
+const PropFrameworkRoot = "root"
