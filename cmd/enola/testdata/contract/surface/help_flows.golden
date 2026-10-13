@@ -9,8 +9,14 @@ route's handler, a program's main, or a symbol a framework invokes; its flow
 is every symbol the calls from it reach. With no flags it prints the largest
 flows, one line each.
 
-A flow is a floor, not a measurement: a call the graph could not resolve ends
-the walk there, and the unresolved column counts how often that happened.
+A program reached through one main is one flow. Its subcommands are steps of
+that flow, shown by --show, and so is a handler written as a function literal,
+which has no symbol of its own. A library has no entry and lists nothing.
+
+A flow is a floor, not a measurement: the walk ends at any call whose target
+is no symbol in the graph. The unresolved column counts those calls. Most of
+them leave the repository, for the standard library or an imported package;
+the rest are calls on a value whose type the extractor could not name.
 Entries that reach the same symbols are folded into one flow, and a flow that
 sits almost wholly inside a larger one says which.
 

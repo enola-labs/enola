@@ -6,8 +6,9 @@ exit: 0
    #  flow     reach  modules  unresolved  note
    1  ..main       3        3           0
 
-reach: symbols the calls from the entry reach. unresolved: calls inside the
-flow the graph could not follow.
+reach: symbols the calls from the entry reach. unresolved: calls whose target
+is no symbol in the graph, most of them into the standard library or an
+imported package.
 --- stderr
 enola: no mcp-arch.yaml in <TMP>/go_sample, using built-in defaults
 enola flows: repo <TMP>/go_sample (built-in default config)
