@@ -8,12 +8,14 @@ exit: 0
   blind    0 calls not followed
 
 Summary
-  The program starts at ..main. It hands off to a.Alpha, which calls b.Beta.
-  Most of its 3 symbols sit in . (1 symbol), pkg/a (1) and pkg/b (1).
+  The program starts at ..main ("main is the entry point; it exercises both
+  packages so the snapshot has a clear root with outgoing imports and
+  calls."). It hands off to a.Alpha, which calls b.Beta. Most of its 3 symbols
+  sit in . (1 symbol), pkg/a (1) and pkg/b (1).
 
 Stages
-  a.Alpha       2
-    b.Beta      1
+  a.Alpha       2  Alpha calls into package b, forming one side of a deliberate a<->b ...
+    b.Beta      1  Beta calls back into package a, closing the a<->b import cycle.
 
 Modules
   .                                        1

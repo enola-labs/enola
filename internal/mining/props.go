@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/enola-labs/enola/internal/facts"
 	"github.com/enola-labs/enola/internal/intent"
 )
 
@@ -197,9 +198,15 @@ func exceptionClause(exceptions []Exception) string {
 	return "Exceptions: " + strings.Join(names, ", ") + "."
 }
 
+// sortedStringProps are the props a rule can be mined over. The doc prop is not
+// one: it is a comment's words, and a word two symbols' comments share is not a
+// regularity of the code.
 func sortedStringProps(props map[string]any) []string {
 	var keys []string
 	for k, v := range props {
+		if k == facts.PropDoc {
+			continue
+		}
 		if sv, ok := v.(string); ok && sv != "" {
 			keys = append(keys, k)
 		}

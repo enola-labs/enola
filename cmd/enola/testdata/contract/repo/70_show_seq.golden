@@ -1,7 +1,7 @@
 $ enola show @1 .
 exit: 0
 --- stdout
-# revision adeae2f · <TIME>
+# revision a1ea4b1 · <TIME>
 
 This is the FIRST recorded revision, so there is nothing before it to compare
 against. What follows is what the graph held at this point, not what changed.

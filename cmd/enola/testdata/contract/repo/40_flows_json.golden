@@ -18,9 +18,10 @@ exit: 0
         "name": "..main",
         "id": "65909eca24b9a1eb579e2a7173394085",
         "file": "main.go",
-        "line": 10
+        "line": 10,
+        "doc": "main is the entry point; it exercises both packages so the snapshot has a clear root with outgoing imports and calls."
       },
-      "summary": "The program starts at ..main. It hands off to a.Alpha, which calls b.Beta. Most of its 3 symbols sit in . (1 symbol), pkg/a (1) and pkg/b (1).",
+      "summary": "The program starts at ..main (\"main is the entry point; it exercises both packages so the snapshot has a clear root with outgoing imports and calls.\"). It hands off to a.Alpha, which calls b.Beta. Most of its 3 symbols sit in . (1 symbol), pkg/a (1) and pkg/b (1).",
       "metrics": {
         "reach": 3,
         "modules": 3,
@@ -49,6 +50,7 @@ exit: 0
           "id": "c8f7c0664a0a2ca73e2dc23371b834a4",
           "file": "pkg/a/a.go",
           "line": 7,
+          "doc": "Alpha calls into package b, forming one side of a deliberate a\u003c-\u003eb import cycle so the cycles explainer (Tarjan SCC) has something to detect.",
           "reach": 2
         },
         {
@@ -59,6 +61,7 @@ exit: 0
           "id": "3f1faaa09ae8f76f7026f67e3c3f4754",
           "file": "pkg/b/b.go",
           "line": 6,
+          "doc": "Beta calls back into package a, closing the a\u003c-\u003eb import cycle.",
           "reach": 1
         }
       ]

@@ -9,6 +9,7 @@
       "repo": "go_sample",
       "props": {
         "cyclomatic": 1,
+        "doc": "main is the entry point; it exercises both packages so the snapshot has a clear root with outgoing imports and calls.",
         "exported": false,
         "language": "go",
         "symbol_kind": "function"
@@ -47,6 +48,7 @@
           "repo": "go_sample",
           "props": {
             "cyclomatic": 1,
+            "doc": "Alpha calls into package b, forming one side of a deliberate a\u003c-\u003eb import cycle so the cycles explainer (Tarjan SCC) has something to detect.",
             "exported": true,
             "language": "go",
             "symbol_kind": "function"
@@ -70,6 +72,7 @@
           "repo": "go_sample",
           "props": {
             "cyclomatic": 1,
+            "doc": "Beta calls back into package a, closing the a\u003c-\u003eb import cycle.",
             "exported": true,
             "language": "go",
             "symbol_kind": "function"
@@ -95,6 +98,7 @@
       "repo": "go_sample",
       "props": {
         "cyclomatic": 1,
+        "doc": "Alpha calls into package b, forming one side of a deliberate a\u003c-\u003eb import cycle so the cycles explainer (Tarjan SCC) has something to detect.",
         "exported": true,
         "language": "go",
         "symbol_kind": "function"
@@ -140,6 +144,7 @@
         ],
         "calls_on_loop_element": [],
         "cyclomatic": 2,
+        "doc": "GetPath walks a parent chain, one lookup per level. The bare `for {}` adds no factor of n to Big-O, but it repeats — so getByID must stay in calls_in_scaling_loop, the N+1 candidate set. Modelled on golf's OrganizationRepository.GetOrganizationPath, whose high-severity finding an earlier draft of...",
         "exported": true,
         "language": "go",
         "loop_count": 1,
@@ -194,6 +199,7 @@
         "calls_in_scaling_loop_depth": [],
         "calls_on_loop_element": [],
         "cyclomatic": 2,
+        "doc": "Seed's only in-loop call sits inside a constant loop, so calls_in_scaling_loop is emitted EMPTY rather than omitted — an omitted key would make the consumer fall back to the unfiltered calls_in_loop. (v99)",
         "exported": true,
         "language": "go",
         "loop_count": 1,
@@ -242,6 +248,7 @@
       "repo": "go_sample",
       "props": {
         "cyclomatic": 1,
+        "doc": "Beta calls back into package a, closing the a\u003c-\u003eb import cycle.",
         "exported": true,
         "language": "go",
         "symbol_kind": "function"
@@ -296,6 +303,7 @@
           "repo": "go_sample",
           "props": {
             "cyclomatic": 1,
+            "doc": "Gamma is the same case for the OTHER Go test idiom: its only reference is from a_ext_test.go (`package a_test`), which reaches it through an import alias rather than unqualified. Deliberately not Alpha — Alpha's dependent count is asserted by TestE2E_ImpactAnalysis, and a test_ref counts as a...",
             "exported": true,
             "language": "go",
             "symbol_kind": "function"
@@ -336,6 +344,7 @@
           "repo": "go_sample",
           "props": {
             "cyclomatic": 1,
+            "doc": "helper has no production caller. Its only reference is from a_test.go, which is ignored for indexing and recovered as a test_ref fact — so the graph must still carry an incoming edge for it. Before v100 no such fact existed for Go and the symbol looked dead. Pins GAP-GO-06 for the in-package test...",
             "exported": false,
             "language": "go",
             "symbol_kind": "function"

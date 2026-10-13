@@ -158,6 +158,10 @@ func changedProps(c FactChange) []string {
 
 	var out []string
 	for _, k := range names {
+		// Not compared, so not listed: see propsChanged.
+		if k == facts.PropDoc {
+			continue
+		}
 		before, hadBefore := c.Before.Prop(k)
 		after, hadAfter := c.After.Prop(k)
 		switch {

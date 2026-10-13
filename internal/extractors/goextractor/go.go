@@ -410,6 +410,9 @@ func (e *GoExtractor) extractFunc(fset *token.FileSet, fn *ast.FuncDecl, relFile
 	if receiver != "" {
 		symbolFact.SetProp("receiver", receiver)
 	}
+	if doc := facts.DocSummary(fn.Doc.Text()); doc != "" {
+		symbolFact.SetProp(facts.PropDoc, doc)
+	}
 
 	// An HTTP handler is exactly func(http.ResponseWriter, *http.Request). Tag it, so a
 	// route can be bound to the symbol that actually serves it.
@@ -654,6 +657,17 @@ func (e *GoExtractor) extractTypeSpec(fset *token.FileSet, gd *ast.GenDecl, ts *
 			Target: impl,
 		})
 	}
+
+	// A type declared alone carries its comment on the declaration, a type in a
+	// group on its own spec.
+	typeDoc := ts.Doc
+	if typeDoc == nil && !gd.Lparen.IsValid() {
+		typeDoc = gd.Doc
+	}
+	if doc := facts.DocSummary(typeDoc.Text()); doc != "" {
+		symbolFact.SetProp(facts.PropDoc, doc)
+	}
+
 	for _, inst := range instantiates {
 		symbolFact.Relations = append(symbolFact.Relations, facts.Relation{
 			Kind:   facts.RelInstantiates,

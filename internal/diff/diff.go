@@ -1130,11 +1130,28 @@ func edgeSet(ff []facts.Fact) map[string]Edge {
 
 // propsChanged reports whether two facts sharing an identity differ in their
 // props. encoding/json sorts map keys, so the marshaled form is order-stable.
+//
+// The doc prop is left out of the comparison. It is the comment on a symbol, and
+// a reworded comment is not something a change did to the architecture.
 func propsChanged(a, b facts.Fact) bool {
 	if a.PropCount() == 0 && b.PropCount() == 0 {
 		return false
 	}
-	return propsJSON(a.Props) != propsJSON(b.Props)
+	if propsJSON(a.Props) == propsJSON(b.Props) {
+		return false
+	}
+	_, aDoc := a.Prop(facts.PropDoc)
+	_, bDoc := b.Prop(facts.PropDoc)
+	if !aDoc && !bDoc {
+		return true
+	}
+	return propsJSON(withoutDoc(a)) != propsJSON(withoutDoc(b))
+}
+
+func withoutDoc(f facts.Fact) map[string]any {
+	props := f.CloneProps()
+	delete(props, facts.PropDoc)
+	return props
 }
 
 func propsJSON(p map[string]any) string {

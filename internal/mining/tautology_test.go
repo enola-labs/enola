@@ -163,3 +163,19 @@ func TestWriteTextCountsTautologicalSuppression(t *testing.T) {
 		t.Errorf("report text does not name the escape flag:\n%s", text.String())
 	}
 }
+
+// A comment is prose. Twelve symbols whose comments share their words must not
+// be read as twelve symbols obeying a rule.
+func TestMineDoesNotMineTheDocProp(t *testing.T) {
+	var ff []facts.Fact
+	for i := 0; i < 12; i++ {
+		ff = append(ff, symbolPropFact(fmt.Sprintf("Handler%02d", i), fmt.Sprintf("src/h%02d.rb", i),
+			map[string]any{"framework": "rails", facts.PropDoc: "Handles the request and returns it."}))
+	}
+	report := Mine(storeOf(ff), DefaultConfig())
+	for _, c := range report.Candidates {
+		if strings.Contains(c.Statement, "doc") || strings.Contains(c.Statement, "Handles") {
+			t.Errorf("a rule was mined out of a comment: %s", c.Statement)
+		}
+	}
+}

@@ -1,7 +1,7 @@
 $ enola blame --all pkg/c .
 exit: 0
 --- stdout
-5367aea  <TIME>  
+c6475c0  <TIME>  
     + dependency  pkg/b -> example.com/gosample/pkg/c  (pkg/b/gamma.go:3)
     + module      pkg/c  (pkg/c)
     + symbol      pkg/b.UsesGamma  (pkg/b/gamma.go:6)

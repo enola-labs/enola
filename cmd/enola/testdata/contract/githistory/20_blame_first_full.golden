@@ -1,11 +1,11 @@
 $ enola blame --first --full pkg/c .
 exit: 0
 --- stdout
-da3eac9  <TIME>  (9522ef6c8541, backfill)
+28d1902  <TIME>  (9522ef6c8541, backfill)
     + {"kind":"dependency","name":"pkg/b -\u003e example.com/gosample/pkg/c","file":"pkg/b/gamma.go","line":3,"repo":"go_sample","props":{"language":"go","source":"internal"},"relations":[{"kind":"imports","target":"pkg/c","target_id":"87fcfb3c0cd59d843ef2c6eceb0253db"}],"id":"1fc7918fe3bcf9863f34b2dcd769618f"}
     + {"kind":"module","name":"pkg/c","file":"pkg/c","repo":"go_sample","props":{"language":"go","package":"c"},"id":"87fcfb3c0cd59d843ef2c6eceb0253db"}
-    + {"kind":"symbol","name":"pkg/b.UsesGamma","file":"pkg/b/gamma.go","line":6,"repo":"go_sample","props":{"cyclomatic":1,"exported":true,"language":"go","orphan_class":"unreferenced","symbol_kind":"function"},"relations":[{"kind":"calls","target":"pkg/c.Gamma","target_id":"91884015a1f78bd1a4c441f37f33ccee"},{"kind":"declares","target":"pkg/b","target_id":"f07756ebde06ae602cc665efd2c1cb80"}],"id":"1708772fc2e7ba2f73b764f57303a548"}
-    + {"kind":"symbol","name":"pkg/c.Gamma","file":"pkg/c/c.go","line":4,"repo":"go_sample","props":{"cyclomatic":1,"exported":true,"language":"go","symbol_kind":"function"},"relations":[{"kind":"declares","target":"pkg/c","target_id":"87fcfb3c0cd59d843ef2c6eceb0253db"}],"id":"91884015a1f78bd1a4c441f37f33ccee"}
+    + {"kind":"symbol","name":"pkg/b.UsesGamma","file":"pkg/b/gamma.go","line":6,"repo":"go_sample","props":{"cyclomatic":1,"doc":"UsesGamma couples pkg/b to the new package.","exported":true,"language":"go","orphan_class":"unreferenced","symbol_kind":"function"},"relations":[{"kind":"calls","target":"pkg/c.Gamma","target_id":"91884015a1f78bd1a4c441f37f33ccee"},{"kind":"declares","target":"pkg/b","target_id":"f07756ebde06ae602cc665efd2c1cb80"}],"id":"1708772fc2e7ba2f73b764f57303a548"}
+    + {"kind":"symbol","name":"pkg/c.Gamma","file":"pkg/c/c.go","line":4,"repo":"go_sample","props":{"cyclomatic":1,"doc":"Gamma arrives in the second commit.","exported":true,"language":"go","symbol_kind":"function"},"relations":[{"kind":"declares","target":"pkg/c","target_id":"87fcfb3c0cd59d843ef2c6eceb0253db"}],"id":"91884015a1f78bd1a4c441f37f33ccee"}
 
 1 event across 2 searched revisions.
 --- stderr

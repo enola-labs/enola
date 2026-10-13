@@ -2825,7 +2825,9 @@ import (
 // v332: a Laravel routes file is registered under the scopes of whatever loads it: a
 // group handed the file, withRouting (the api file under apiPrefix), or a require inside
 // a group's closure. Its routes carry that prefix, once per place that loads it.
-const cacheVersion = "v332"
+// v333: a Go function, method or type and a Python function, method or class carry a
+// doc prop, the first paragraph of the comment or docstring written on it.
+const cacheVersion = "v333"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

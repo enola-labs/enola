@@ -1154,6 +1154,9 @@ func (w *pyWalker) handleClass(node *sitter.Node, decorators []string) {
 		// a name as private/internal. Lets the dead-code visibility filter work.
 		"exported": !strings.HasPrefix(name, "_"),
 	}
+	if doc := pyDocstring(node, w.src); doc != "" {
+		props[facts.PropDoc] = doc
+	}
 	rels := []facts.Relation{{Kind: facts.RelDeclares, Target: w.dir}}
 
 	// Superclasses.
@@ -1339,6 +1342,9 @@ func (w *pyWalker) handleFunction(node *sitter.Node, decorators []string) {
 
 	for _, dec := range decorators {
 		applyDecoratorProps(props, dec, w.importsModal)
+	}
+	if doc := pyDocstring(node, w.src); doc != "" {
+		props[facts.PropDoc] = doc
 	}
 
 	rels := []facts.Relation{{Kind: facts.RelDeclares, Target: w.dir}}
@@ -2733,6 +2739,39 @@ func stmtIsDocstring(stmt *sitter.Node) bool {
 	return kindOf(stmt.Child(0)) == "string"
 }
 
+// pyDocstring returns the first paragraph of a function's or class's docstring:
+// the bare string literal that opens its body. Comments before it are skipped,
+// as the interpreter skips them; anything else first means there is none.
+func pyDocstring(def *sitter.Node, src []byte) string {
+	body := def.ChildByFieldName("body")
+	if body == nil {
+		return ""
+	}
+	for i := uint(0); i < uint(body.NamedChildCount()); i++ {
+		stmt := body.NamedChild(i)
+		if kindOf(stmt) == "comment" {
+			continue
+		}
+		if kindOf(stmt) != "expression_statement" || !stmtIsDocstring(stmt) {
+			return ""
+		}
+		return facts.DocSummary(pyStringBody(pyText(stmt.Child(0), src)))
+	}
+	return ""
+}
+
+// pyStringBody strips a string literal's prefix letters and quotes, leaving its
+// text as written. Escapes are left alone: a docstring is read, not evaluated.
+func pyStringBody(literal string) string {
+	literal = strings.TrimLeft(literal, "rRuUbBfF")
+	for _, quote := range []string{`"""`, "'''", `"`, "'"} {
+		if len(literal) >= 2*len(quote) && strings.HasPrefix(literal, quote) && strings.HasSuffix(literal, quote) {
+			return literal[len(quote) : len(literal)-len(quote)]
+		}
+	}
+	return literal
+}
+
 // hasDecorator reports whether any name in decorators has last as its
 // last dot-separated component (e.g. "overload" matches both "overload"
 // and "typing.overload").
@@ -3189,6 +3228,9 @@ func (w *pyWalker) emitNestedRouteHandler(def *sitter.Node, routes []int) int {
 	}
 	if strings.HasPrefix(strings.TrimSpace(pyText(def, w.src)), "async ") {
 		props["async"] = true
+	}
+	if doc := pyDocstring(def, w.src); doc != "" {
+		props[facts.PropDoc] = doc
 	}
 	w.out = append(w.out, facts.Fact{
 		Kind:      facts.KindSymbol,

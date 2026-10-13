@@ -6,9 +6,9 @@ exit: 0
   revisions      2
     with contents 2  (replayable)
   segments       1
-  stored         4 KB
+  stored         5 KB
 
 Removed:
   1 segment(s) past the age cutoff; those revisions keep their summary line
-  4 KB reclaimed
+  5 KB reclaimed
 --- stderr

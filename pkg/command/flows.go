@@ -343,7 +343,7 @@ func writeFlowDetail(w *strings.Builder, f flows.Flow) {
 			}
 		}
 		for i, s := range f.Stages {
-			line := fmt.Sprintf("  %-*s  %5d  %s", width, labels[i], s.Reach, s.Doc)
+			line := fmt.Sprintf("  %-*s  %5d  %s", width, labels[i], s.Reach, clip(s.Doc, 72))
 			fmt.Fprintln(w, strings.TrimRight(line, " "))
 		}
 	}
@@ -361,4 +361,16 @@ func writeFlowDetail(w *strings.Builder, f flows.Flow) {
 			fmt.Fprintf(w, "  and %d more\n", rest)
 		}
 	}
+}
+
+// clip shortens a line of prose to fit a column, at a word.
+func clip(text string, width int) string {
+	if len(text) <= width {
+		return text
+	}
+	cut := strings.LastIndexByte(text[:width], ' ')
+	if cut <= 0 {
+		return text
+	}
+	return text[:cut] + " ..."
 }
