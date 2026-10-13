@@ -363,19 +363,36 @@ func soleDeclaredHTTPTargets(all []facts.Fact) map[string]string {
 // serves none of the matches there is no provider at all, even with one other
 // candidate, because that edge would contradict what the user stated.
 //
+// A repo that only documents the path in a specification gives way to one that
+// registers it.
+//
 // The hint picks deterministically. An exact label match wins; failing that, a single
 // substring match; anything else is ambiguous. Taking the first substring match in map
 // order made one snapshot link the same call to different repos from run to run.
 func pickProvider(m *routeindex.Matcher, client facts.Fact, matches []routeindex.RouteRef) (string, bool) {
+	// providers maps each candidate repo to whether a program in it registers the
+	// path, as opposed to a specification in it declaring the path.
 	providers := map[string]bool{}
+	implemented := false
 	for _, ref := range matches {
 		if ref.Repo == client.Repo {
 			return client.Repo, true
 		}
-		providers[ref.Repo] = true
+		providers[ref.Repo] = providers[ref.Repo] || !ref.Spec
+		implemented = implemented || !ref.Spec
 	}
 	if len(providers) == 0 {
 		return "", false
+	}
+	// A specification describes a server. When one repository registers the path and
+	// another only documents it, they are not two candidates: the first serves the
+	// call and the second is its description.
+	if implemented {
+		for p, registers := range providers {
+			if !registers {
+				delete(providers, p)
+			}
+		}
 	}
 	candidates := make([]string, 0, len(providers))
 	for p := range providers {
@@ -593,7 +610,7 @@ func servableIndex(m *routeindex.Matcher, all []facts.Fact, requireRepo bool) (m
 		method := routeindex.NormalizeMethod(f.PropString("method"))
 		identities[routeindex.RouteIdentityKey(f.Repo, method, f.Name)] = true
 		for _, p := range m.ServerPaths(f) {
-			m.IndexServerRef(server, routeindex.RouteRef{Repo: f.Repo, Method: method, Path: f.Name, FullPath: p})
+			m.IndexServerRef(server, routeindex.RouteRef{Repo: f.Repo, Method: method, Path: f.Name, FullPath: p, Spec: routeindex.IsSpecRoute(f)})
 		}
 	}
 	return server, identities

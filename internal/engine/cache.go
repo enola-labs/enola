@@ -2844,7 +2844,12 @@ import (
 // of its controller when the action is inherited, and under the one class whose name
 // differs only in casing (an acronym inflection). A singular resource is bound to the
 // pluralized controller when that controller is declared.
-const cacheVersion = "v337"
+// v338: a call-registered server route (Express, Fastify, Hono, Koa) names its
+// handler, the last argument or the function a wrapper around it is given, and is
+// bound to it when it is a function the file declares or imports. A router that
+// reaches its mount through a barrel (`export * from`, `export { r } from`) composes,
+// and so does a mount whose prefix appends a string constant.
+const cacheVersion = "v338"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

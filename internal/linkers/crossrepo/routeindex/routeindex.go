@@ -49,7 +49,13 @@ type RouteRef struct {
 	Method   string
 	Path     string
 	FullPath string // the complete normalized server path this ref was indexed from
+	// Spec marks a route a specification declares (an OpenAPI document), as opposed
+	// to one a program registers.
+	Spec bool
 }
+
+// IsSpecRoute reports whether a route fact comes from a specification document.
+func IsSpecRoute(f facts.Fact) bool { return f.PropString("source") == "openapi" }
 
 // IndexServerRoutes builds the suffix+method -> server route index the HTTP linker
 // matches client calls against: every trailing-segment suffix of every server
@@ -65,7 +71,7 @@ func (m *Matcher) IndexServerRoutes(all []facts.Fact) map[string][]RouteRef {
 		}
 		method := NormalizeMethod(f.PropString("method"))
 		for _, p := range m.ServerPaths(f) {
-			m.IndexServerRef(server, RouteRef{Repo: f.Repo, Method: method, Path: f.Name, FullPath: p})
+			m.IndexServerRef(server, RouteRef{Repo: f.Repo, Method: method, Path: f.Name, FullPath: p, Spec: IsSpecRoute(f)})
 		}
 	}
 	return server

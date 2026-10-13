@@ -78,6 +78,7 @@ type pendingRoute struct {
 	path      string
 	line      int
 	framework string
+	handler   string
 }
 
 // routerMountEdge is one `<parent>.use('<prefix>', <child>)`, where child is either
@@ -88,6 +89,10 @@ type routerMountEdge struct {
 	prefix    string
 	child     string
 	childCall bool
+	// prefixConst is the constant appended to the literal prefix, for a mount written
+	// `app.use('/api/' + API_VERSION, router)`. The mount resolves only when the
+	// constant is a string literal.
+	prefixConst string
 }
 
 // importRef is a resolved import: the file it points at and the export name taken
@@ -112,10 +117,15 @@ type routerFile struct {
 	exports   map[string]string // export name -> local identifier
 	imports   map[string]importRef
 	factories map[string]string // function name -> the router identifier it returns
+	// reexports is what the file passes on from other files without binding it:
+	// `export { a as b } from './x'` by export name, and `export * from './x'`.
+	reexports    map[string]importRef
+	reexportsAll []string
 }
 
 func (f *routerFile) empty() bool {
-	return len(f.pending) == 0 && len(f.mounts) == 0 && len(f.exports) == 0 && len(f.factories) == 0
+	return len(f.pending) == 0 && len(f.mounts) == 0 && len(f.exports) == 0 && len(f.factories) == 0 &&
+		len(f.roots) == 0 && len(f.reexports) == 0 && len(f.reexportsAll) == 0
 }
 
 // --- per-file collection ---
@@ -125,6 +135,16 @@ func (f *routerFile) empty() bool {
 // middleware factory as often as a router factory, and guessing is how a wrong prefix
 // gets invented.
 var mountCallFactory = regexp.MustCompile("([A-Za-z_$][\\w$]*)\\s*\\.\\s*use\\s*\\(\\s*(?:\"([^\"]*)\"|'([^']*)'|`([^`]*)`)\\s*,\\s*([A-Za-z_$][\\w$]*)\\s*\\(\\s*\\)")
+
+// mountCallConcat matches `app.use('/api/' + API_VERSION, router)`: a literal prefix
+// with one constant appended.
+var mountCallConcat = regexp.MustCompile("([A-Za-z_$][\\w$]*)\\s*\\.\\s*use\\s*\\(\\s*(?:\"([^\"]*)\"|'([^']*)')\\s*\\+\\s*([A-Za-z_$][\\w$]*)\\s*,\\s*([A-Za-z_$][\\w$]*)\\s*[,)]")
+
+// The re-export forms: a file that passes a name on without binding it.
+var (
+	reexportNamed = regexp.MustCompile(`export\s*\{([^}]*)\}\s*from\s*['"]([^'"]+)['"]`)
+	reexportAll   = regexp.MustCompile(`export\s*\*\s*from\s*['"]([^'"]+)['"]`)
+)
 
 // The export forms, ESM and CommonJS. Both are first-class here for the same reason
 // serverroutes.go binds both `express()` and `require('express')()`: a Node service is
@@ -159,18 +179,22 @@ var (
 // Returns nil when the file has nothing to contribute, which is almost every file.
 func collectRouterFile(src []byte, relFile string, aliases map[string]tsAlias, knownFiles map[string]bool) *routerFile {
 	bindings := serverBindings(src)
-	imports := collectRouterImports(src, relFile, aliases, knownFiles)
-	if len(bindings) == 0 && len(imports) == 0 {
+	resolve := importResolver(relFile, aliases, knownFiles)
+	imports := collectRouterImports(src, resolve)
+	reexports, reexportsAll := collectRouterReexports(src, resolve)
+	if len(bindings) == 0 && len(imports) == 0 && len(reexports) == 0 && len(reexportsAll) == 0 {
 		return nil
 	}
 
 	f := &routerFile{
-		relFile: relFile,
-		roots:   map[string]bool{},
-		routers: map[string]bool{},
-		pending: map[string][]pendingRoute{},
-		exports: map[string]string{},
-		imports: imports,
+		relFile:      relFile,
+		roots:        map[string]bool{},
+		routers:      map[string]bool{},
+		pending:      map[string][]pendingRoute{},
+		exports:      map[string]string{},
+		imports:      imports,
+		reexports:    reexports,
+		reexportsAll: reexportsAll,
 	}
 
 	for name, b := range bindings {
@@ -200,6 +224,7 @@ func collectRouterFile(src []byte, relFile string, aliases map[string]tsAlias, k
 			path:      path,
 			line:      1 + bytes.Count(src[:m[0]], []byte("\n")),
 			framework: bindings[recv].framework,
+			handler:   routeHandlerName(lastCallArgument(src, m[1])),
 		})
 	}
 
@@ -209,6 +234,15 @@ func collectRouterFile(src []byte, relFile string, aliases map[string]tsAlias, k
 			parent: string(m[1]),
 			prefix: firstNonEmpty(m[2], m[3], m[4]),
 			child:  string(m[5]),
+		})
+	}
+	for _, m := range mountCallConcat.FindAllSubmatch(src, -1) {
+		f.mounts = append(f.mounts, routerMountEdge{
+			file:        relFile,
+			parent:      string(m[1]),
+			prefix:      firstNonEmpty(m[2], m[3]),
+			prefixConst: string(m[4]),
+			child:       string(m[5]),
 		})
 	}
 	for _, m := range mountCallFactory.FindAllSubmatch(src, -1) {
@@ -259,15 +293,12 @@ func collectRouterExports(src []byte, f *routerFile) {
 	}
 }
 
-// collectRouterImports resolves each import to (file, export name), so a mount written
-// against an imported identifier can find the declaration it names. Only imports that
-// resolve to a file in this snapshot are kept: an external package is not a router
-// this repository declares.
-func collectRouterImports(src []byte, relFile string, aliases map[string]tsAlias, knownFiles map[string]bool) map[string]importRef {
+// importResolver returns the function that resolves an import specifier written in
+// relFile to a file of this snapshot. An external package resolves to nothing.
+func importResolver(relFile string, aliases map[string]tsAlias, knownFiles map[string]bool) func(spec string) (string, bool) {
 	fileDir := factpath.Dir(relFile)
-	out := map[string]importRef{}
+	return func(spec string) (string, bool) {
 
-	resolve := func(spec string) (string, bool) {
 		resolved, external := resolveImportPath(spec, fileDir, aliases)
 		if external {
 			return "", false
@@ -287,6 +318,76 @@ func collectRouterImports(src []byte, relFile string, aliases map[string]tsAlias
 		file, _, ok := resolveModuleFile(resolved, knownFiles)
 		return file, ok
 	}
+}
+
+// collectRouterReexports reads what a file passes on from others: the names of
+// `export { a as b } from './x'`, and the files of `export * from './x'`.
+func collectRouterReexports(src []byte, resolve func(spec string) (string, bool)) (map[string]importRef, []string) {
+	var named map[string]importRef
+	for _, m := range reexportNamed.FindAllSubmatch(src, -1) {
+		file, ok := resolve(string(m[2]))
+		if !ok {
+			continue
+		}
+		if named == nil {
+			named = map[string]importRef{}
+		}
+		for source, exported := range parseSpecifierList(string(m[1])) {
+			named[exported] = importRef{file: file, export: source}
+		}
+	}
+	var all []string
+	for _, m := range reexportAll.FindAllSubmatch(src, -1) {
+		if file, ok := resolve(string(m[1])); ok {
+			all = append(all, file)
+		}
+	}
+	sort.Strings(all)
+	return named, all
+}
+
+// maxReexportDepth bounds the walk through files that pass a name on. A chain longer
+// than this is a cycle of barrels.
+const maxReexportDepth = 8
+
+// resolveExported follows the name a file exports to the file that declares it and
+// the identifier it has there, through re-exports and through an import the file
+// exports again. declares answers for a file that binds the name itself, or that this
+// pass holds nothing about.
+func resolveExported(byFile map[string]*routerFile, file, export string, depth int, declares func(file, name string) bool) (string, string, bool) {
+	if depth > maxReexportDepth {
+		return "", "", false
+	}
+	if g := byFile[file]; g != nil {
+		if local, ok := g.exports[export]; ok {
+			if imp, imported := g.imports[local]; imported {
+				return resolveExported(byFile, imp.file, imp.export, depth+1, declares)
+			}
+			if declares(file, local) {
+				return file, local, true
+			}
+		}
+		if r, ok := g.reexports[export]; ok {
+			return resolveExported(byFile, r.file, r.export, depth+1, declares)
+		}
+		for _, next := range g.reexportsAll {
+			if f, name, ok := resolveExported(byFile, next, export, depth+1, declares); ok {
+				return f, name, true
+			}
+		}
+	}
+	if declares(file, export) {
+		return file, export, true
+	}
+	return "", "", false
+}
+
+// collectRouterImports resolves each import to (file, export name), so a mount written
+// against an imported identifier can find the declaration it names. Only imports that
+// resolve to a file in this snapshot are kept: an external package is not a router
+// this repository declares.
+func collectRouterImports(src []byte, resolve func(spec string) (string, bool)) map[string]importRef {
+	out := map[string]importRef{}
 
 	for _, m := range importDefault.FindAllSubmatch(src, -1) {
 		file, ok := resolve(string(m[3]))
@@ -424,7 +525,10 @@ func collectRouterFactories(src []byte, routers map[string]bool) map[string]stri
 // composeRouterMounts emits the routes that per-file extraction had to hold back:
 // those on routers mounted from another file. Files are keyed by their path; the
 // result is deterministic (files, then units, then prefixes, all sorted).
-func composeRouterMounts(files []*routerFile) []facts.Fact {
+//
+// constOf returns the string a constant of a file is bound to, for a mount prefix
+// that appends one.
+func composeRouterMounts(files []*routerFile, constOf func(file, name string) (string, bool)) []facts.Fact {
 	byFile := map[string]*routerFile{}
 	pendingCount := 0
 	for _, f := range files {
@@ -466,7 +570,19 @@ func composeRouterMounts(files []*routerFile) []facts.Fact {
 				// serverroutes.go, so treating this as a root would double-count.
 				continue
 			}
-			edges = append(edges, edge{parent: parent, child: child, prefix: m.prefix})
+			prefix := m.prefix
+			if m.prefixConst != "" {
+				from, name := f.relFile, m.prefixConst
+				if imp, ok := f.imports[name]; ok {
+					from, name = imp.file, imp.export
+				}
+				value, ok := constOf(from, name)
+				if !ok {
+					continue
+				}
+				prefix += value
+			}
+			edges = append(edges, edge{parent: parent, child: child, prefix: prefix})
 		}
 	}
 	if len(edges) == 0 {
@@ -518,21 +634,25 @@ func composeRouterMounts(files []*routerFile) []facts.Fact {
 						continue
 					}
 					seen[key] = true
+					props := map[string]any{
+						facts.PropRole: facts.RoleServer,
+						"method":       r.verb,
+						"framework":    r.framework,
+						"language":     "typescript",
+						// The mount that produced this path lives in another file,
+						// so the fact records that it was composed rather than read
+						// off one line — the same courtesy the Go extractor pays.
+						"mount_composed": true,
+					}
+					if r.handler != "" {
+						props["handler"] = r.handler
+					}
 					out = append(out, facts.Fact{
-						Kind: facts.KindRoute,
-						Name: full,
-						File: f.relFile,
-						Line: r.line,
-						Props: map[string]any{
-							facts.PropRole: facts.RoleServer,
-							"method":       r.verb,
-							"framework":    r.framework,
-							"language":     "typescript",
-							// The mount that produced this path lives in another file,
-							// so the fact records that it was composed rather than read
-							// off one line — the same courtesy the Go extractor pays.
-							"mount_composed": true,
-						},
+						Kind:      facts.KindRoute,
+						Name:      full,
+						File:      f.relFile,
+						Line:      r.line,
+						Props:     props,
 						Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: dir}},
 					})
 				}
@@ -570,18 +690,20 @@ func resolveMountChild(byFile map[string]*routerFile, f *routerFile, m routerMou
 	if f.routers[m.child] {
 		return routerRef{file: f.relFile, name: m.child}, true
 	}
-	g, exported, ok := followImport(byFile, f, m.child)
+	imp, ok := f.imports[m.child]
 	if !ok {
 		return routerRef{}, false
 	}
-	local, ok := g.exports[exported]
+	// The router may reach this file through a barrel, so the import is followed to
+	// the file that declares it.
+	file, local, ok := resolveExported(byFile, imp.file, imp.export, 0, func(file, name string) bool {
+		g := byFile[file]
+		return g != nil && g.routers[name]
+	})
 	if !ok {
 		return routerRef{}, false
 	}
-	if g.routers[local] {
-		return routerRef{file: g.relFile, name: local}, true
-	}
-	return routerRef{}, false
+	return routerRef{file: file, name: local}, true
 }
 
 // followImport resolves a local identifier to the file it was imported from and the
