@@ -108,7 +108,7 @@ COMMANDS
                       invokes; its flow is every symbol the calls from it reach. --show
                       describes one flow with its stages, --through lists the flows that
                       reach a symbol, --json emits the report. A flow is a floor: each one
-                      counts the calls the graph could not follow.
+                      counts the calls whose target is no symbol in the graph.
                       Run "enola flows --help" for the flags.
   log                 EXPERIMENTAL. Show what this repository's architecture has done over
                       time — one line per recorded snapshot, with what changed since the

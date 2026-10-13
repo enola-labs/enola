@@ -41,8 +41,13 @@ func (r *Runner) runFlows(ctx context.Context, args []string, stdout, stderr io.
 				"route's handler, a program's main, or a symbol a framework invokes; its flow\n"+
 				"is every symbol the calls from it reach. With no flags it prints the largest\n"+
 				"flows, one line each.\n\n"+
-				"A flow is a floor, not a measurement: a call the graph could not resolve ends\n"+
-				"the walk there, and the unresolved column counts how often that happened.\n"+
+				"A program reached through one main is one flow. Its subcommands are steps of\n"+
+				"that flow, shown by --show, and so is a handler written as a function literal,\n"+
+				"which has no symbol of its own. A library has no entry and lists nothing.\n\n"+
+				"A flow is a floor, not a measurement: the walk ends at any call whose target\n"+
+				"is no symbol in the graph. The unresolved column counts those calls. Most of\n"+
+				"them leave the repository, for the standard library or an imported package;\n"+
+				"the rest are calls on a value whose type the extractor could not name.\n"+
 				"Entries that reach the same symbols are folded into one flow, and a flow that\n"+
 				"sits almost wholly inside a larger one says which.\n\n"+
 				"The program's flows are listed first. A flow whose entry is an example, a\n"+
@@ -176,7 +181,7 @@ func (r *Runner) runFlows(ctx context.Context, args []string, stdout, stderr io.
 				fmt.Fprintln(&out)
 				writeFlowTable(&out, listed, multiRepo)
 				writeFlowsCut(&out, len(listed), len(analysis.Flows))
-				fmt.Fprint(&out, "\nreach: symbols the calls from the entry reach. unresolved: calls inside the\nflow the graph could not follow.\n")
+				fmt.Fprint(&out, "\nreach: symbols the calls from the entry reach. unresolved: calls whose target\nis no symbol in the graph, most of them into the standard library or an\nimported package.\n")
 			}
 		}
 	}

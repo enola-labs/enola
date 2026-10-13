@@ -81,6 +81,18 @@ detect outbound call sites it could not resolve. Reported separately from `isola
 precisely because "depends on nothing" and "enola could not tell" look identical in a
 graph, and only one of them is good news.
 
+**Entry** - a symbol something outside the code invokes: the handler of a served
+route, a program's `main`, or a symbol a framework calls. It is where a flow starts.
+A subcommand, a callback, and a handler written as a function literal are not entries.
+
+**Flow** - one entry and every symbol the calls from it reach. `enola flows` ranks
+them and `flows.json` holds the largest. A flow is a floor: the walk ends at any call
+whose target is no symbol in the graph, which is most often a call into the standard
+library or an imported package.
+
+**Stage** - one of the steps that account for most of a flow, shown as a tree under
+its entry with each step's share of the flow.
+
 ## What enola keeps
 
 **Snapshot** — the published result of one analysis run: the facts, the findings, the

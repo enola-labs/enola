@@ -68,12 +68,35 @@ Join a flow to the graph on these IDs: `entry.id` and each stage `id` name a
 | `modules` | int | Distinct modules those symbols are declared in |
 | `max_depth` | int | The deepest hop the walk took, at most 8 |
 | `performs_io` | int, when above zero | Reached symbols an extractor marked as performing I/O |
-| `unresolved_calls` | int | Calls made inside the flow whose target is no symbol in the graph: a library, or a callee the extractor could not name |
+| `unresolved_calls` | int | Calls made inside the flow whose target is no symbol in the graph. See [What unresolved_calls counts](#what-unresolved_calls-counts) |
 | `truncated` | bool, when true | The walk stopped at 5000 symbols; the flow is larger |
 
 A flow is a floor, not a measurement. The walk follows `calls` relations that
 resolve to a symbol and stops where one does not, so `reach` undercounts by
 whatever sits behind `unresolved_calls`.
+
+### What unresolved_calls counts
+
+Every call inside the flow whose target names no symbol in the snapshot. That is
+two different things under one number, and the first is by far the larger:
+
+- **Calls that leave the repository.** `fmt.Sprintf`, `strings.Join`, a method
+  of an imported package. The graph holds this repository's symbols, so the walk
+  ends at its edge by design.
+- **Calls the extractor could not name.** A method called on a local variable or
+  a field whose type was not resolved, such as `f.PropString` where `f` is a
+  parameter. A symbol for it may exist in the repository; the call does not say
+  which.
+
+On enola's own repository the flow entered at the binary's `main` reports 3,894. Of
+those 3,422 are calls into the standard library and imported packages, 57 into
+third-party packages, and 415 are calls on a value of unresolved type. Only the
+last group is a gap in the graph.
+
+A large number is therefore not a defect. Read it against `reach`: a flow that
+reaches 6 symbols with 23 unresolved calls is one the graph could barely follow,
+and a flow that reaches 2,000 with 3,900 is a large program that uses its
+standard library.
 
 ## Stage object
 
@@ -101,3 +124,25 @@ share is at least 5% of the flow.
 A `root` of `callback` is not an entry: a callback runs inside a request a route
 already entered, so it is a step of that flow. Symbols in test code are never
 entries. New mechanisms are additive vocabulary.
+
+## What is not an entry
+
+The list above is the whole of it, which decides what a repository's flows look
+like:
+
+- **A command-line program is one flow.** Its subcommands are reached by a
+  dispatcher that `main` calls, so they are stages of the `main` flow and not
+  flows of their own. enola itself lists one flow for its binary, with `Dispatch`
+  and the largest commands as its stages.
+- **A handler written as a function literal is not a symbol.** A tool or a route
+  registered as `Register(name, func(...) {...})` has no symbol to enter at. Its
+  calls belong to the function that registers it.
+- **A served route with no bound handler is not an entry.** The route exists as
+  a fact; without a `handled_by` relation naming a declared symbol there is
+  nowhere to start the walk. Which frameworks bind their routes varies by
+  language.
+- **A library has no entry.** Nothing in it is a program or a served route, so
+  `flows` is empty and `roots` is `{}`.
+
+`roots` counts the entries that were found and `leaves` those among them that
+reach nothing, so a short list can be told apart from an empty search.

@@ -485,7 +485,7 @@ Every path argument follows the same rule: **a directory is a repository, a file
 | `constraints <lint\|mine\|init\|explain\|ledger> [repo\|config]` | **The authoring loop.** `lint` validates the declared vocabulary and resolves each component against the current snapshot; `mine` proposes candidate rules out of the snapshot's own regularities; `init` writes a first declaration binding every shipped recipe whose required roles resolve to directories the repository has, refusing to overwrite and guessing nothing; `explain <path>` names the components a file's facts belong to, the selector that admitted each, and the edges the file makes; `ledger` reports how much of the declared law is being EXCUSED rather than obeyed — each rule's breaches beside the suppressions and exemptions that signed them away, with every excuse's owner, reason and age, and the ones that now match nothing. `lint` exits `0` when every declaration is valid, `1` when it reported validation problems; `mine`, `init`, `explain` and `ledger` exit `0` whenever they produced a report, and `2` when they could not run — no snapshot to read, or a declaration `init` would have had to overwrite. See [CONSTRAINTS.md](CONSTRAINTS.md). |
 | `endpoint [flags] <endpoint> [repo\|config]` | **What changing an HTTP endpoint reaches.** The controller serving it, the models that controller touches, the models associated with those, the tables behind them, and the callers - including the frontend screen a calling route module implements. The endpoint is matched as a substring of the path, optionally prefixed with a verb (`GET /v1/candidates`, or just `/v1/candidates`). Client call sites and mock-server routes are excluded: this answers about what the application serves. `--json` emits the report; `--max-routes` bounds how many matched endpoints are followed. The `endpoint_impact` MCP tool answers the same question in a session. The callers are the client call sites the cross-repo linker matches to the route, under the same config, parameter matching and service aliases included. |
 | `impact [flags] <target> [repo\|config]` | **What changing a symbol reaches.** Everything that transitively depends on a symbol, type or module, grouped by hop depth: depth 1 is its direct callers, depth 2 theirs. The target is matched as a substring of a fact name and narrowed with a scope prefix, quoted as one argument (`'kind:symbol Alpha'`, `'file:pkg/a Alpha'`, `'repo:backend Alpha'`). With no flags it prints the summary: the exact dependent count, the breakdown by kind and depth, and the modules holding the most dependents. `--list` names the dependents by depth; `--json` emits the raw graph, every dependent with its file, line and depth and the edges between them. `--max-depth` (1-10, default 3) and `--max-nodes` (1-500, default 200) bound the walk and what is listed; the total stays exact, and `stats.truncated` says when the list is short of it. `--include-forward` adds what the target itself depends on. The `impact_analysis` MCP tool answers the same question in a session, through the same code: `--json` is its `output_mode=full` document. Read-only: it reads the snapshot on disk when that one matches the working tree under this build and config, and otherwise takes one in memory for the run, so a script asking about many symbols pays for a snapshot once by running `--generate` first, and is never answered from a stale one. A target matching a few nodes is resolved to the best of them, as the tool resolves it: the report names the node it is about (`resolution.matched` in the JSON) and stderr says a pick was made. Exits `0` on a report, and `2` when it could not run or nothing was traversed - the target matched nothing, or too many nodes to pick from, in which case the candidates are printed. An empty list that exited `0` would read as "nothing depends on this". |
-| `flows [flags] [repo\|config]` | **The ways into a program, ranked by what each reaches.** An entry is a served route's handler, a program's `main`, or a symbol a framework invokes; its flow is every symbol the calls from it reach. With no flags it lists the largest flows, one line each, with the symbols and modules each reaches. `--show <flow>` describes one: its stages (the steps that account for most of it, each with its share), the modules it passes through and a summary sentence. `--through <symbol>` lists only the flows that reach a symbol. `--top` (1-500, default 10) bounds a listing and `--json` emits the report. A flow is a floor, not a measurement: a call the graph could not resolve ends the walk there, and each flow counts how often that happened. Entries that reach the same symbols are folded into one flow, and a flow that sits almost wholly inside a larger one names it. The program's flows are listed first; a flow whose entry is an example, a script, a migration or build tooling is marked `side` and listed after them. Test code is never an entry. `enola --generate` writes the same ranking to `.enola/flows.json` ([schema](schema/flows.md)). Read-only. Exits `0` on any produced report, `2` when it could not run or `--show` or `--through` named nothing it could pick. |
+| `flows [flags] [repo\|config]` | **The ways into a program, ranked by what each reaches.** An entry is a served route's handler, a program's `main`, or a symbol a framework invokes; its flow is every symbol the calls from it reach. With no flags it lists the largest flows, one line each, with the symbols and modules each reaches. `--show <flow>` describes one: its stages (the steps that account for most of it, each with its share), the modules it passes through and a summary sentence. `--through <symbol>` lists only the flows that reach a symbol. `--top` (1-500, default 10) bounds a listing and `--json` emits the report. A flow is a floor, not a measurement: the walk ends at any call whose target is no symbol in the graph, and each flow counts those. See [The ways in](#the-ways-in---enola-flows) for how to read the listing. Entries that reach the same symbols are folded into one flow, and a flow that sits almost wholly inside a larger one names it. The program's flows are listed first; a flow whose entry is an example, a script, a migration or build tooling is marked `side` and listed after them. Test code is never an entry. `enola --generate` writes the same ranking to `.enola/flows.json` ([schema](schema/flows.md)). Read-only. Exits `0` on any produced report, `2` when it could not run or `--show` or `--through` named nothing it could pick. |
 | `plan [flags] [path...] [repo\|config]` | **The pre-edit contract.** Which declared constraints govern an intended change (`--paths`, `--symbols`), its blast radius over the current snapshot, and — for a `--patch` — the constraint verdicts that WOULD appear, evaluated over a scratch copy before any edit lands in the tree. Nothing is written; a report, never a gate. Exits `0` on any produced report, `2` when it could not run. See [CONSTRAINTS.md](CONSTRAINTS.md). |
 | `log [flags] [repo\|config]` | **What has this architecture done over time?** One line per snapshot enola recorded, oldest first, with what changed since the one before it - `--graph` draws the branch topology, `--stat` breaks each delta down by fact kind, `-n` and `--since` bound the window. Read-only: it reports what was observed and never snapshots to fill a gap. `--backfill` instead BUILDS the timeline from the repository's own commit history, so a repository enola has never seen still has a past to read. **Experimental.** See [HISTORY.md](HISTORY.md). |
 | `show [rev] [repo\|config]` | **What did THIS revision do?** `log` says a revision added twelve facts; this says which twelve. Reconstructs the revision and its predecessor out of the stored history and compares them, so a past change is described in the words it was described in at the time. A revision is a snapshot id or prefix, a git commit, `HEAD~3`, `@7`, a ref name, or `latest` (the default). **Experimental.** |
@@ -826,6 +826,60 @@ Lists cap at 12 entries with a `--detail` pointer, and `declares` edges - the me
 **Baselines are portable.** A baseline is identified by the repository's normalized git remote (falling back to the checkout directory name), not by the absolute path it was pinned at - so one pinned on a CI runner grades against a checkout anywhere else. That's what makes the CI shape cheap: the default branch publishes `.enola/baseline/` once, every PR restores it and diffs against it, and no job ever indexes the base a second time.
 
 Ready-made wiring: [`examples/hooks/pre-commit`](../examples/hooks/pre-commit) (blocks only on exit `1`; a missing or incomparable baseline skips the gate rather than blocking someone over setup they haven't done) and [`examples/ci/architecture-gate.yml`](../examples/ci/architecture-gate.yml) (publish-on-main, restore-on-PR).
+
+### The ways in - `enola flows`
+
+`enola flows` lists the ways into a program, largest first. This is enola's own
+repository:
+
+```
+4 flows from 8 entries (5 route, 3 main); 4 reach nothing the graph follows
+
+   #  flow                              reach  modules  unresolved  note
+   1  cmd/enola.main                     2134      110        3900
+   2  ALL /                               162        9         236
+   3  packaging/pypi/build_wheel.main       6        1           0  side
+   4  examples/cross-repo/api.main          4        1           4  side
+```
+
+**Why so few.** A flow needs an entry: the handler of a served route, a
+program's `main`, or a symbol a framework invokes. enola is one binary, so it is
+one flow. Its subcommands are reached through a dispatcher that `main` calls,
+which makes them steps of that flow:
+
+```bash
+enola flows --show cmd/enola.main   # the stages under main, each with its share
+```
+
+The MCP tools do not appear for a different reason. Each is registered as a
+function literal, and a literal has no symbol to enter at, so its calls are
+counted under the function that registers it. The same holds in any repository:
+a web application lists a flow per bound route, a command-line tool lists one,
+and a library lists none.
+
+**The first line** says how many entries were found and how many of them reach
+nothing. Here four of the eight are example route handlers that call nothing
+the graph follows. They are entries and not flows.
+
+**`unresolved`** counts the calls inside the flow whose target is no symbol in
+the graph. Most of them are not a gap. Of the 3,900 above, about 3,400 are calls
+into the standard library and imported packages, where the walk ends by design.
+About 400 are calls on a value whose type the extractor could not name, and only
+those hide code the flow may reach. Read the number against `reach`: a flow
+reaching a handful of symbols with many unresolved calls is one the graph could
+barely follow.
+
+**`side`** marks a flow whose entry is not the program: an example, a script, a
+migration, build or docs tooling. Side flows are listed after the rest however
+much they reach.
+
+**In the note column,** `also X` names entries folded into this flow because
+they reach the same symbols, and `inside X` names a larger flow that contains
+at least 90% of this one.
+
+`enola --generate` writes the 50 largest flows, with their stages and a summary
+sentence each, to `.enola/flows.json`. [schema/flows.md](schema/flows.md) is its
+contract.
 
 ### What it saved you - `--status`
 
