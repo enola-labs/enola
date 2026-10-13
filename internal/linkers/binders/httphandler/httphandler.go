@@ -163,6 +163,7 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 	if bound > 0 {
 		log.Printf("[binder:http-handler] bound %d HTTP route(s) to their handler", bound)
 	}
+	settleTargets(store)
 	return nil
 }
 
