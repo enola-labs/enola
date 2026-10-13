@@ -72,6 +72,9 @@ layers:
       # Name resolution and symbol impact, shared by the graph tools and `enola impact`.
       - "internal/resolve/**"
       - "internal/impact/**"
+      # Flow ranking: the entries of a program and what each reaches, read off
+      # the store like impact.
+      - "internal/flows/**"
       - "internal/renderers/**"
       - "internal/diff/**"
       - "internal/conformance/**"

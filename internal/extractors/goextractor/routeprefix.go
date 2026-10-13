@@ -48,6 +48,13 @@ type routePrefixEntry struct {
 // back to today's behavior (empty seed), which is the graceful-degradation path.
 type routePrefixIndex map[string]*routePrefixEntry
 
+// routeIndex is what the module-wide passes hand to per-file route extraction:
+// the mount prefixes, and the module's own router packages.
+type routeIndex struct {
+	prefixes routePrefixIndex
+	wrappers map[string]string
+}
+
 // funcKeyFor returns the package-qualified identity of a FuncDecl, matching how
 // extractFunc names symbols (go.go): pkgDir + "." + [receiverType + "."] + name.
 func funcKeyFor(fn *ast.FuncDecl, pkgDir string) string {
@@ -64,7 +71,22 @@ func funcKeyFor(fn *ast.FuncDecl, pkgDir string) string {
 // router package imported by f, so router-typed parameters and NewRouter() calls
 // can be recognized regardless of import aliasing. Matching mirrors
 // detectRouterFramework.
-func routerAliases(f *ast.File) map[string]string {
+func routerAliases(f *ast.File, fileImports, wrappers map[string]string) map[string]string {
+	aliases := importedRouterAliases(f)
+	// The module's own router packages are router packages to the files that
+	// import them.
+	for alias, pkgDir := range fileImports {
+		if fw := wrappers[pkgDir]; fw != "" {
+			if _, taken := aliases[alias]; !taken {
+				aliases[alias] = fw
+			}
+		}
+	}
+	return aliases
+}
+
+// importedRouterAliases is routerAliases for the frameworks a file imports by name.
+func importedRouterAliases(f *ast.File) map[string]string {
 	aliases := map[string]string{}
 	for _, imp := range f.Imports {
 		path := strings.Trim(imp.Path.Value, `"`)
@@ -84,6 +106,55 @@ func routerAliases(f *ast.File) map[string]string {
 		aliases[alias] = fw
 	}
 	return aliases
+}
+
+// routerWrapperPackages finds the module's own router packages: a package that
+// imports a router framework and declares a type with that framework's
+// registration verbs. An application that wraps its router (to bind forms, to
+// take middleware before the handler) registers every route through the wrapper,
+// from files that never import the framework. The result maps the wrapper's
+// package directory to the framework it wraps.
+//
+// The verbs are the evidence. A package that merely imports chi to build a
+// handler declares no `Get(pattern string, ...)` method and is not one.
+func routerWrapperPackages(pkgs map[string]*parsedPkg) map[string]string {
+	wrappers := map[string]string{}
+	for pkgDir, pp := range pkgs {
+		framework := ""
+		verbs := false
+		for _, f := range pp.parsedFiles {
+			for _, fw := range importedRouterAliases(f) {
+				// Sorted so two frameworks in one package always resolve the same way.
+				if framework == "" || fw < framework {
+					framework = fw
+				}
+			}
+			for _, decl := range f.Decls {
+				if fn, ok := decl.(*ast.FuncDecl); ok && isRegistrationVerb(fn) {
+					verbs = true
+				}
+			}
+		}
+		if framework != "" && verbs {
+			wrappers[pkgDir] = framework
+		}
+	}
+	return wrappers
+}
+
+// isRegistrationVerb reports whether fn is a method that registers a route by
+// verb: `func (r *Router) Get(pattern string, h ...any)`.
+func isRegistrationVerb(fn *ast.FuncDecl) bool {
+	if fn.Recv == nil || fn.Type.Params == nil || len(fn.Type.Params.List) == 0 {
+		return false
+	}
+	switch fn.Name.Name {
+	case "Get", "Post", "HandleFunc":
+	default:
+		return false
+	}
+	first, ok := fn.Type.Params.List[0].Type.(*ast.Ident)
+	return ok && first.Name == "string"
 }
 
 // importAlias returns the local name an import is referenced by: its explicit
@@ -124,7 +195,8 @@ func isRouterType(expr ast.Expr, aliases map[string]string) bool {
 				return true
 			}
 		case "chi":
-			if isQualifiedType(expr, alias, "Router") || isPointerToQualifiedType(expr, alias, "Mux") {
+			// *alias.Router is how a wrapper package's own router type is taken.
+			if isQualifiedType(expr, alias, "Router") || isPointerToQualifiedType(expr, alias, "Mux") || isPointerToQualifiedType(expr, alias, "Router") {
 				return true
 			}
 		}
@@ -242,6 +314,7 @@ type routerFunc struct {
 	paramIndex int
 	hasParam   bool
 	hasRoot    bool
+	rootVar    string            // the first root router the body creates, else ""
 	recvVar    string            // receiver var name if fn is a method, else ""
 	recvType   string            // receiver type (star stripped), else ""
 	imports    map[string]string // alias → target pkgDir
@@ -253,11 +326,14 @@ type routerFunc struct {
 type routerEdge struct {
 	callee string
 	prefix string
+	// mounted marks a prefix carried by the router the callee BUILDS and returns,
+	// attached by the caller with Mount, rather than by a router it is passed.
+	mounted bool
 }
 
 // buildRouterFuncIndex indexes every function in the module by funcKey, recording
 // its router parameter, whether it roots a router, and its file's import/alias maps.
-func buildRouterFuncIndex(pkgs map[string]*parsedPkg, modulePath string, pkgNames map[string]string) map[string]routerFunc {
+func buildRouterFuncIndex(pkgs map[string]*parsedPkg, modulePath string, pkgNames map[string]string, wrappers map[string]string) map[string]routerFunc {
 	index := map[string]routerFunc{}
 	pkgDirs := make([]string, 0, len(pkgs))
 	for pkgDir := range pkgs {
@@ -267,11 +343,11 @@ func buildRouterFuncIndex(pkgs map[string]*parsedPkg, modulePath string, pkgName
 
 	for _, pkgDir := range pkgDirs {
 		for _, f := range pkgs[pkgDir].parsedFiles {
-			aliases := routerAliases(f)
+			imports := buildFileImports(f, modulePath, pkgNames)
+			aliases := routerAliases(f, imports, wrappers)
 			if len(aliases) == 0 {
 				continue // no router package imported → no registration functions here
 			}
-			imports := buildFileImports(f, modulePath, pkgNames)
 			for _, decl := range f.Decls {
 				fn, ok := decl.(*ast.FuncDecl)
 				if !ok || fn.Body == nil {
@@ -285,7 +361,8 @@ func buildRouterFuncIndex(pkgs map[string]*parsedPkg, modulePath string, pkgName
 					paramName:  name,
 					paramIndex: idx,
 					hasParam:   hasParam,
-					hasRoot:    bodyRootsRouter(fn.Body, aliases),
+					hasRoot:    bodyRootVar(fn.Body, aliases) != "",
+					rootVar:    bodyRootVar(fn.Body, aliases),
 					recvVar:    recvVar,
 					recvType:   recvType,
 					imports:    imports,
@@ -297,20 +374,40 @@ func buildRouterFuncIndex(pkgs map[string]*parsedPkg, modulePath string, pkgName
 	return index
 }
 
-// bodyRootsRouter reports whether body assigns a freshly-created root router.
-func bodyRootsRouter(body *ast.BlockStmt, aliases map[string]string) bool {
-	found := false
+// bodyRootVar returns the variable body assigns its first freshly-created root
+// router to, or "" when it creates none.
+func bodyRootVar(body *ast.BlockStmt, aliases map[string]string) string {
+	found := ""
 	ast.Inspect(body, func(n ast.Node) bool {
-		if found {
+		if found != "" {
 			return false
 		}
-		if as, ok := n.(*ast.AssignStmt); ok && newRouterLocalVar(as, aliases) != "" {
-			found = true
-			return false
+		if as, ok := n.(*ast.AssignStmt); ok {
+			found = newRouterLocalVar(as, aliases)
 		}
-		return true
+		return found == ""
 	})
 	return found
+}
+
+// mountedRouterCall recognizes a router built by one function and attached by
+// another under a path:
+//
+//	r.Mount("/api/v1", apiv1.Routes())
+//
+// It returns the call that builds the router and the path it is attached at. The
+// path must be a literal; a router mounted under a variable is mounted under
+// something this cannot read.
+func mountedRouterCall(call *ast.CallExpr) (builder *ast.CallExpr, recv, path string, ok bool) {
+	sel, isSel := call.Fun.(*ast.SelectorExpr)
+	if !isSel || sel.Sel.Name != "Mount" || len(call.Args) != 2 || !isStaticStringArg(call.Args[0]) {
+		return nil, "", "", false
+	}
+	builder, isCall := call.Args[1].(*ast.CallExpr)
+	if !isCall {
+		return nil, "", "", false
+	}
+	return builder, identName(sel.X), extractStringArg(call, 0), true
 }
 
 // analyzeRouterFunc walks rf's body in source order, tracking the prefix of every
@@ -319,9 +416,9 @@ func bodyRootsRouter(body *ast.BlockStmt, aliases map[string]string) bool {
 // other registration functions it calls with a router argument. This is the
 // interprocedural counterpart of the intra-function walk in extractRoutesFromStmt,
 // and it reuses the same applySubrouterAssign composition so the two never drift.
-func analyzeRouterFunc(rf routerFunc, seed string, index map[string]routerFunc, modulePath string, fieldTypes map[string]string) []routerEdge {
+func analyzeRouterFunc(rf routerFunc, seed string, mounted bool, index map[string]routerFunc, modulePath string, fieldTypes map[string]string) []routerEdge {
 	prefixes := map[string]string{}
-	if rf.hasParam {
+	if rf.hasParam && !mounted {
 		prefixes[rf.paramName] = seed
 	}
 	// Build the same resolution context the call-graph extractor uses, so a
@@ -338,14 +435,38 @@ func analyzeRouterFunc(rf routerFunc, seed string, index map[string]routerFunc, 
 	ctx.localTypes = collectLocalTypes(rf.fn.Body, ctx)
 	var edges []routerEdge
 
-	ast.Inspect(rf.fn.Body, func(n ast.Node) bool {
+	// A mount's function literal is walked on its own, with the prefix it mounts
+	// under in force, and skipped when the outer walk reaches it.
+	scoped := map[*ast.FuncLit]bool{}
+	var visit func(n ast.Node) bool
+	visit = func(n ast.Node) bool {
 		switch node := n.(type) {
+		case *ast.FuncLit:
+			if scoped[node] {
+				return false
+			}
 		case *ast.AssignStmt:
 			if v := newRouterLocalVar(node, rf.aliases); v != "" {
 				prefixes[v] = ""
+				// The router this function builds is the one its caller mounted.
+				if mounted && v == rf.rootVar {
+					prefixes[v] = seed
+				}
 			}
 			applySubrouterAssign(node, prefixes)
 		case *ast.CallExpr:
+			if builder, recv, path, ok := mountedRouterCall(node); ok {
+				if key := resolveCalleeKey(builder, ctx); key != "" && index[key].rootVar != "" {
+					prefix := strings.TrimSuffix(joinRoutePath(prefixes[recv], path), "/")
+					edges = append(edges, routerEdge{callee: key, prefix: prefix, mounted: true})
+				}
+			}
+			if lit, scope := funcLitMount(node, prefixes); lit != nil {
+				scoped[lit] = true
+				restore := scope.apply(prefixes)
+				ast.Inspect(lit.Body, visit)
+				restore()
+			}
 			key := resolveCalleeKey(node, ctx)
 			if key == "" {
 				return true
@@ -359,7 +480,8 @@ func analyzeRouterFunc(rf routerFunc, seed string, index map[string]routerFunc, 
 			}
 		}
 		return true
-	})
+	}
+	ast.Inspect(rf.fn.Body, visit)
 	return edges
 }
 
@@ -368,11 +490,15 @@ func analyzeRouterFunc(rf routerFunc, seed string, index map[string]routerFunc, 
 // router parameter, accumulating the distinct prefix set per registration
 // function. The result seeds extractRoutes. Deterministic: roots and edges are
 // processed in sorted order and the emitted seed sets are sorted.
-func buildRoutePrefixIndex(pkgs map[string]*parsedPkg, modulePath string, pkgNames map[string]string, fieldTypes map[string]string) routePrefixIndex {
-	index := buildRouterFuncIndex(pkgs, modulePath, pkgNames)
+func buildRoutePrefixIndex(pkgs map[string]*parsedPkg, modulePath string, pkgNames map[string]string, fieldTypes map[string]string, wrappers map[string]string) routePrefixIndex {
+	index := buildRouterFuncIndex(pkgs, modulePath, pkgNames, wrappers)
 
-	type work struct{ key, seed string }
-	seeds := map[string]map[string]bool{} // funcKey → set of prefixes (callees only)
+	type work struct {
+		key, seed string
+		mounted   bool
+	}
+	seeds := map[string]map[string]bool{}  // funcKey → prefixes its router parameter carries
+	mounts := map[string]map[string]bool{} // funcKey → prefixes the router it builds is mounted under
 	seen := map[work]bool{}
 	var queue []work
 	enqueue := func(w work) {
@@ -382,15 +508,34 @@ func buildRoutePrefixIndex(pkgs map[string]*parsedPkg, modulePath string, pkgNam
 		}
 	}
 
+	// A function whose router some other function mounts is not a root: its
+	// routes are served under the mount, and analysing it at "" as well would
+	// hand every function it calls a second, bare prefix. Found before the
+	// fixpoint, by name alone, because the fixpoint needs it to pick its roots.
+	isMounted := map[string]bool{}
+	for _, rf := range index {
+		ctx := resolveCtx{pkgDir: rf.pkgDir, modulePath: modulePath, imports: rf.imports, recvVar: rf.recvVar, recvType: rf.recvType, fieldTypes: fieldTypes}
+		ast.Inspect(rf.fn.Body, func(n ast.Node) bool {
+			if call, ok := n.(*ast.CallExpr); ok {
+				if builder, _, _, ok := mountedRouterCall(call); ok {
+					if key := resolveCalleeKey(builder, ctx); key != "" && index[key].rootVar != "" {
+						isMounted[key] = true
+					}
+				}
+			}
+			return true
+		})
+	}
+
 	rootKeys := make([]string, 0)
 	for k, rf := range index {
-		if rf.hasRoot {
+		if rf.hasRoot && !isMounted[k] {
 			rootKeys = append(rootKeys, k)
 		}
 	}
 	sort.Strings(rootKeys)
 	for _, k := range rootKeys {
-		enqueue(work{k, ""})
+		enqueue(work{key: k})
 	}
 
 	for len(queue) > 0 {
@@ -400,36 +545,56 @@ func buildRoutePrefixIndex(pkgs map[string]*parsedPkg, modulePath string, pkgNam
 		if !ok {
 			continue
 		}
-		edges := analyzeRouterFunc(rf, w.seed, index, modulePath, fieldTypes)
+		edges := analyzeRouterFunc(rf, w.seed, w.mounted, index, modulePath, fieldTypes)
 		sort.Slice(edges, func(i, j int) bool {
 			if edges[i].callee != edges[j].callee {
 				return edges[i].callee < edges[j].callee
 			}
-			return edges[i].prefix < edges[j].prefix
+			if edges[i].prefix != edges[j].prefix {
+				return edges[i].prefix < edges[j].prefix
+			}
+			return !edges[i].mounted && edges[j].mounted
 		})
 		for _, e := range edges {
-			if seeds[e.callee] == nil {
-				seeds[e.callee] = map[string]bool{}
+			into := seeds
+			if e.mounted {
+				into = mounts
 			}
-			if !seeds[e.callee][e.prefix] {
-				seeds[e.callee][e.prefix] = true
-				enqueue(work{e.callee, e.prefix})
+			if into[e.callee] == nil {
+				into[e.callee] = map[string]bool{}
+			}
+			if !into[e.callee][e.prefix] {
+				into[e.callee][e.prefix] = true
+				enqueue(work{key: e.callee, seed: e.prefix, mounted: e.mounted})
 			}
 		}
 	}
 
+	sorted := func(set map[string]bool) []string {
+		ps := make([]string, 0, len(set))
+		for p := range set {
+			ps = append(ps, p)
+		}
+		sort.Strings(ps)
+		return ps
+	}
 	out := routePrefixIndex{}
 	for key, set := range seeds {
 		rf, ok := index[key]
 		if !ok || !rf.hasParam {
 			continue
 		}
-		ps := make([]string, 0, len(set))
-		for p := range set {
-			ps = append(ps, p)
+		out[key] = &routePrefixEntry{paramName: rf.paramName, seeds: sorted(set)}
+	}
+	// A function that builds the router it returns carries the mount on that
+	// router's variable. One that also takes a router keeps the entry above: it
+	// has one seed slot, and the router it was handed is the commoner case.
+	for key, set := range mounts {
+		rf, ok := index[key]
+		if !ok || rf.rootVar == "" || out[key] != nil {
+			continue
 		}
-		sort.Strings(ps)
-		out[key] = &routePrefixEntry{paramName: rf.paramName, seeds: ps}
+		out[key] = &routePrefixEntry{paramName: rf.rootVar, seeds: sorted(set)}
 	}
 	return out
 }

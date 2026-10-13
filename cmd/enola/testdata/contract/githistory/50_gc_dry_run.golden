@@ -6,7 +6,7 @@ exit: 0
   revisions      2
     with contents 2  (replayable)
   segments       1
-  stored         4 KB
+  stored         5 KB
 
 Nothing to remove.
 --- stderr

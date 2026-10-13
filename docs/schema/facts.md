@@ -333,3 +333,11 @@ Props outside the contract — `language`, `exported`, `handler`, `superclass`,
 line counts, complexity metrics — are metadata. Extractors can add or remove
 them without changing `format_version`; consumers must not require them. The
 contract props are the ones documented above.
+
+One descriptive prop is prose rather than a measurement:
+
+- `doc` (symbols): the first paragraph of the comment its author wrote on the
+  symbol, on one line: a Python docstring, or the comment block above a Go
+  declaration. Cut at a word and ended with `...` when it runs past 300 bytes.
+  Absent when the symbol has no comment, and on languages whose extractor does
+  not read one. `diff_snapshot` and `enola check` do not report a change to it.

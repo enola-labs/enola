@@ -1,0 +1,8 @@
+$ enola flows --show no-such-flow .
+exit: 2
+--- stdout
+--- stderr
+enola: no mcp-arch.yaml in <TMP>/go_sample, using built-in defaults
+enola flows: repo <TMP>/go_sample (built-in default config)
+enola flows: reading the snapshot written <TIME>, which matches the working tree
+enola flows: no flow is named "no-such-flow"; run without --show to list them

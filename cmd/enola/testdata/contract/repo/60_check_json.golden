@@ -124,6 +124,7 @@ exit: 0
         "repo": "go_sample",
         "props": {
           "cyclomatic": 1,
+          "doc": "UsesGamma couples pkg/b to the new package.",
           "exported": true,
           "language": "go",
           "orphan_class": "unreferenced",
@@ -148,6 +149,7 @@ exit: 0
         "repo": "go_sample",
         "props": {
           "cyclomatic": 1,
+          "doc": "Gamma is new since the baseline.",
           "exported": true,
           "language": "go",
           "symbol_kind": "function"

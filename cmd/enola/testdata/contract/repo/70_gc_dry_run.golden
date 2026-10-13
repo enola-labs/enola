@@ -7,7 +7,7 @@ exit: 0
     with contents 2  (replayable)
     working      2  (snapshots of uncommitted trees)
   segments       1
-  stored         5 KB
+  stored         6 KB
 
 Nothing to remove.
 --- stderr

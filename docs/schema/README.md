@@ -11,6 +11,7 @@ for external snapshot consumers.
 | `facts.jsonl` | JSON Lines, one fact per line | [facts.md](facts.md) |
 | `insights.json` | JSON array of findings | [insights.md](insights.md) |
 | `receipt.json` | JSON object with provenance and extraction quality | [receipt.md](receipt.md) |
+| `flows.json` | JSON object ranking the ways into the program | [flows.md](flows.md) |
 | `snapshot.meta.json` | Internal superset of the receipt | Not stable |
 | `llm_context.md` | Rendered text | Not stable |
 
@@ -46,7 +47,7 @@ Reject unsupported versions. Treat `format_version: 0` as unknown.
 
 ## Determinism
 
-`facts.jsonl` and `insights.json` are byte-stable when the source tree,
+`facts.jsonl`, `insights.json` and `flows.json` are byte-stable when the source tree,
 effective configuration, enola build, and repository labels are unchanged.
 `snapshot_id` hashes the fact serialization, enola version, and effective
 configuration hash.

@@ -16,6 +16,7 @@ USAGE
   enola plan [flags] [path...] [repo_path|config_path]
   enola coverage [flags] [repo_path|config_path]
   enola impact [flags] <target> [repo_path|config_path]
+  enola flows [flags] [repo_path|config_path]
   enola doctor [repo_path]
   enola log [flags] [repo_path|config_path]
   enola show [<revision>] [repo_path|config_path]
@@ -102,6 +103,13 @@ COMMANDS
                       because the target matched nothing or too many nodes, so an empty
                       answer is never an unasked question.
                       Run "enola impact --help" for the flags.
+  flows               Rank the ways into a program by what each reaches. An entry is a
+                      served route's handler, a program's main, or a symbol a framework
+                      invokes; its flow is every symbol the calls from it reach. --show
+                      describes one flow with its stages, --through lists the flows that
+                      reach a symbol, --json emits the report. A flow is a floor: each one
+                      counts the calls the graph could not follow.
+                      Run "enola flows --help" for the flags.
   log                 EXPERIMENTAL. Show what this repository's architecture has done over
                       time — one line per recorded snapshot, with what changed since the
                       one before it. Read-only: it reports what was observed and never

@@ -211,3 +211,15 @@ type Renderer interface {
 	// Render produces artifacts from the given snapshot.
 	Render(ctx context.Context, snapshot *facts.Snapshot) ([]facts.Artifact, error)
 }
+
+// StoreRenderer is an optional capability of a Renderer: producing its artifacts
+// from the fact store as well as the snapshot.
+//
+// A snapshot carries its facts as a flat list. A renderer that follows edges
+// needs to find a fact by name, and building its own index over the list would
+// duplicate the one the store already holds, on every snapshot. A Renderer
+// implementing it has RenderStore called INSTEAD of Render. The store is
+// read-only here.
+type StoreRenderer interface {
+	RenderStore(ctx context.Context, snapshot *facts.Snapshot, store *facts.Store) ([]facts.Artifact, error)
+}

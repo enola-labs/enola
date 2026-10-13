@@ -209,7 +209,11 @@ func (e *GoExtractor) Extract(ctx context.Context, repoPath string, files []stri
 	// prefix a router parameter carries at its call sites, so routes registered on
 	// a subrouter passed into a per-file/per-package function are stored at their
 	// true runtime path (e.g. "/api/settings/courses", not the bare "/courses").
-	routePrefixes := buildRoutePrefixIndex(parsedPkgs, modulePath, pkgNames, globalFieldTypes)
+	routerWrappers := routerWrapperPackages(parsedPkgs)
+	routePrefixes := routeIndex{
+		prefixes: buildRoutePrefixIndex(parsedPkgs, modulePath, pkgNames, globalFieldTypes, routerWrappers),
+		wrappers: routerWrappers,
+	}
 
 	// Pass 3: extract facts per package using the global field types.
 	for _, pkgDir := range pkgDirs {
@@ -235,7 +239,7 @@ func (e *GoExtractor) Extract(ctx context.Context, repoPath string, files []stri
 	return allFacts, nil
 }
 
-func (e *GoExtractor) extractPackage(fset *token.FileSet, pkgDir string, pp *parsedPkg, modulePath string, fieldTypes map[string]string, callTypes callTypeTables, pkgNames map[string]string, grpcStubs *goGRPCStubIndex, routePrefixes routePrefixIndex) []facts.Fact {
+func (e *GoExtractor) extractPackage(fset *token.FileSet, pkgDir string, pp *parsedPkg, modulePath string, fieldTypes map[string]string, callTypes callTypeTables, pkgNames map[string]string, grpcStubs *goGRPCStubIndex, routePrefixes routeIndex) []facts.Fact {
 	var result []facts.Fact
 
 	// Package-scoped map of top-level `var x = NewXxxClient(...)` bindings, so a
@@ -300,7 +304,7 @@ func (e *GoExtractor) extractPackage(fset *token.FileSet, pkgDir string, pp *par
 	return result
 }
 
-func (e *GoExtractor) extractFile(fset *token.FileSet, f *ast.File, relFile, pkgDir, modulePath string, fieldTypes map[string]string, callTypes callTypeTables, pkgNames map[string]string, grpcStubs *goGRPCStubIndex, pkgVarClients map[string]string, baseURLLits map[string][]string, routePrefixes routePrefixIndex, pkgFuncs, pkgScope map[string]bool) []facts.Fact {
+func (e *GoExtractor) extractFile(fset *token.FileSet, f *ast.File, relFile, pkgDir, modulePath string, fieldTypes map[string]string, callTypes callTypeTables, pkgNames map[string]string, grpcStubs *goGRPCStubIndex, pkgVarClients map[string]string, baseURLLits map[string][]string, routePrefixes routeIndex, pkgFuncs, pkgScope map[string]bool) []facts.Fact {
 	var result []facts.Fact
 
 	// Build per-file import alias map for call resolution.
@@ -348,7 +352,7 @@ func (e *GoExtractor) extractFile(fset *token.FileSet, f *ast.File, relFile, pkg
 	}
 
 	// Extract route registrations
-	routes := extractRoutes(fset, f, relFile, pkgDir, routePrefixes)
+	routes := extractRoutes(fset, f, relFile, pkgDir, routePrefixes, fileImports)
 	for i := range routes {
 		if t := handlerTarget(routes[i].PropString("handler"), pkgDir, fileImports); t != "" {
 			routes[i].SetProp(facts.PropHandlerTarget, t)
@@ -409,6 +413,9 @@ func (e *GoExtractor) extractFunc(fset *token.FileSet, fn *ast.FuncDecl, relFile
 
 	if receiver != "" {
 		symbolFact.SetProp("receiver", receiver)
+	}
+	if doc := facts.DocSummary(fn.Doc.Text()); doc != "" {
+		symbolFact.SetProp(facts.PropDoc, doc)
 	}
 
 	// An HTTP handler is exactly func(http.ResponseWriter, *http.Request). Tag it, so a
@@ -654,6 +661,17 @@ func (e *GoExtractor) extractTypeSpec(fset *token.FileSet, gd *ast.GenDecl, ts *
 			Target: impl,
 		})
 	}
+
+	// A type declared alone carries its comment on the declaration, a type in a
+	// group on its own spec.
+	typeDoc := ts.Doc
+	if typeDoc == nil && !gd.Lparen.IsValid() {
+		typeDoc = gd.Doc
+	}
+	if doc := facts.DocSummary(typeDoc.Text()); doc != "" {
+		symbolFact.SetProp(facts.PropDoc, doc)
+	}
+
 	for _, inst := range instantiates {
 		symbolFact.Relations = append(symbolFact.Relations, facts.Relation{
 			Kind:   facts.RelInstantiates,

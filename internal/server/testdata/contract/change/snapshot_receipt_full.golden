@@ -35,12 +35,14 @@
     "performance"
   ],
   "renderers": [
-    "llm_context"
+    "llm_context",
+    "flows"
   ],
   "config_hash": "sha256:<HASH>",
   "ignore_glob_hash": "sha256:<HASH>",
   "output_hashes": {
     "facts.jsonl": "sha256:<HASH>",
+    "flows.json": "sha256:<HASH>",
     "insights.json": "sha256:<HASH>",
     "llm_context.md": "sha256:<HASH>"
   },

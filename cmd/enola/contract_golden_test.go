@@ -280,7 +280,7 @@ func TestCLIContract_Surface(t *testing.T) {
 		{"check_bad_fail_on", []string{"check", "--fail-on", "no-such-explainer"}},
 	}
 	for _, sub := range []string{
-		"check", "cluster", "constraints", "plan", "coverage", "endpoint", "impact", "doctor",
+		"check", "cluster", "constraints", "plan", "coverage", "endpoint", "impact", "flows", "doctor",
 		"dashboard", "baseline", "log", "show", "diff", "blame", "gc", "history", "install", "uninstall",
 	} {
 		cases = append(cases, cliCase{"help_" + sub, []string{sub, "--help"}})
@@ -345,6 +345,12 @@ func TestCLIContract_Repo(t *testing.T) {
 		{"40_impact_file", []string{"impact", "pkg/a/a.go", "."}},
 		{"40_impact_ambiguous", []string{"impact", "a", "."}},
 		{"40_impact_no_match", []string{"impact", "no-such-thing", "."}},
+		{"40_flows", []string{"flows", "."}},
+		{"40_flows_show", []string{"flows", "--show", "main", "."}},
+		{"40_flows_json", []string{"flows", "--json", "--top", "1", "."}},
+		{"40_flows_through", []string{"flows", "--through", "pkg/a.Alpha", "."}},
+		{"40_flows_through_no_symbol", []string{"flows", "--through", "no-such-thing", "."}},
+		{"40_flows_show_no_match", []string{"flows", "--show", "no-such-flow", "."}},
 		{"40_endpoint_no_routes", []string{"endpoint", "/v1/things", "."}},
 		{"40_coverage_single_repo", []string{"coverage", "."}},
 

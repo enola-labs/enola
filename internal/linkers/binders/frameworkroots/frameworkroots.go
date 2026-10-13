@@ -39,7 +39,7 @@ import (
 
 // RootProp names the mechanism through which a framework invokes a symbol:
 // route, job, mailer, hook, task or callback. A route fact carries it too.
-const RootProp = "root"
+const RootProp = facts.PropFrameworkRoot
 
 // ReachedFromProp lists, comma-separated and sorted, the root mechanisms
 // whose walk reaches a symbol that is not itself a root.
