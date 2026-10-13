@@ -18,7 +18,7 @@ func ginRoutes(t *testing.T, src string) map[string]facts.Fact {
 		t.Fatalf("parse: %v", err)
 	}
 	out := map[string]facts.Fact{}
-	for _, fact := range extractRoutes(fset, f, "main.go", "cmd/server", nil) {
+	for _, fact := range extractRoutes(fset, f, "main.go", "cmd/server", routeIndex{}, nil) {
 		out[fact.PropString("method")+" "+fact.Name] = fact
 	}
 	return out

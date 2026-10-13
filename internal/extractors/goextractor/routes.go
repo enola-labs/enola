@@ -3,6 +3,7 @@ package goextractor
 import (
 	"go/ast"
 	"go/token"
+	"sort"
 	"strings"
 
 	"github.com/enola-labs/enola/internal/facts"
@@ -18,11 +19,12 @@ type routeInfo struct {
 }
 
 // extractRoutes walks function bodies in a Go file looking for HTTP route registrations.
-func extractRoutes(fset *token.FileSet, f *ast.File, relFile, pkgDir string, index routePrefixIndex) []facts.Fact {
+func extractRoutes(fset *token.FileSet, f *ast.File, relFile, pkgDir string, routes routeIndex, fileImports map[string]string) []facts.Fact {
 	var result []facts.Fact
+	index := routes.prefixes
 
 	// Detect which router framework is imported
-	framework := detectRouterFramework(f)
+	framework := detectRouterFramework(f, fileImports, routes.wrappers)
 	if framework == "" {
 		return nil
 	}
@@ -68,7 +70,33 @@ func seedsFor(index routePrefixIndex, key string) (string, []string) {
 
 // detectRouterFramework checks imports to determine which router framework is used.
 // Specific frameworks (gorilla/mux, chi) take priority over net/http.
-func detectRouterFramework(f *ast.File) string {
+//
+// A file that imports none of them but imports one of the module's own router
+// packages (see routerWrapperPackages) registers routes in that package's
+// framework: the wrapper keeps the framework's verbs, and a file that only ever
+// touches the wrapper has no import that names the framework.
+func detectRouterFramework(f *ast.File, fileImports, wrappers map[string]string) string {
+	if fw := detectImportedRouterFramework(f); fw != "" && fw != "net/http" {
+		return fw
+	}
+	aliases := make([]string, 0, len(fileImports))
+	for alias := range fileImports {
+		aliases = append(aliases, alias)
+	}
+	sort.Strings(aliases)
+	for _, alias := range aliases {
+		switch wrappers[fileImports[alias]] {
+		case "chi":
+			return "chi"
+		case "mux":
+			return "gorilla/mux"
+		}
+	}
+	return detectImportedRouterFramework(f)
+}
+
+// detectImportedRouterFramework is the framework a file's own imports name.
+func detectImportedRouterFramework(f *ast.File) string {
 	hasNetHTTP := false
 	for _, imp := range f.Imports {
 		path := strings.Trim(imp.Path.Value, `"`)
@@ -316,6 +344,9 @@ func extractGorillaMuxRoutes(fset *token.FileSet, call *ast.CallExpr, prefixes m
 
 // extractChiRoutes handles Chi router patterns like r.Get("/path", handler).
 func extractChiRoutes(fset *token.FileSet, call *ast.CallExpr, prefixes map[string]string) []routeInfo {
+	if routes := extractComboRoutes(fset, call, prefixes); routes != nil {
+		return routes
+	}
 	sel, ok := call.Fun.(*ast.SelectorExpr)
 	if !ok {
 		return nil
@@ -361,7 +392,10 @@ func extractChiRoutes(fset *token.FileSet, call *ast.CallExpr, prefixes map[stri
 		return nil
 	}
 
-	if len(call.Args) < 1 {
+	// A registration names a path and what serves it. One argument is a lookup
+	// that happens to share the verb's name: `header.Get("Authorization")`,
+	// `query.Get("expires")`.
+	if len(call.Args) < 2 {
 		return nil
 	}
 
@@ -394,6 +428,68 @@ func extractChiRoutes(fset *token.FileSet, call *ast.CallExpr, prefixes map[stri
 		framework: "chi",
 		line:      fset.Position(call.Pos()).Line,
 	}}
+}
+
+// chiVerbs maps the verb methods of a chi-style router to their HTTP method.
+var chiVerbs = map[string]string{
+	"Get": "GET", "Post": "POST", "Put": "PUT", "Delete": "DELETE",
+	"Patch": "PATCH", "Head": "HEAD", "Options": "OPTIONS",
+}
+
+// extractComboRoutes reads a path named once with its verbs chained after it:
+//
+//	m.Combo("/new").Get(NewIssue).Post(bind(form), NewIssuePost)
+//
+// One route per verb, all at the Combo's path, each handled by its own last
+// argument. Anything in the chain that is not a verb means this is some other
+// chain, and nothing is read from it.
+func extractComboRoutes(fset *token.FileSet, call *ast.CallExpr, prefixes map[string]string) []routeInfo {
+	var verbs []*ast.CallExpr
+	for cur := call; ; {
+		sel, ok := cur.Fun.(*ast.SelectorExpr)
+		if !ok {
+			return nil
+		}
+		if sel.Sel.Name == "Combo" {
+			if len(verbs) == 0 || len(cur.Args) == 0 || !isStaticStringArg(cur.Args[0]) {
+				return nil
+			}
+			path := extractStringArg(cur, 0)
+			if prefix, ok := prefixes[identName(sel.X)]; ok {
+				path = prefix + path
+			}
+			if path == "" {
+				path = "/"
+			}
+			routes := make([]routeInfo, 0, len(verbs))
+			// Collected outermost first; emitted in the order they were written.
+			for i := len(verbs) - 1; i >= 0; i-- {
+				verb := verbs[i]
+				handler := ""
+				if len(verb.Args) > 0 {
+					handler = exprToString(verb.Args[len(verb.Args)-1])
+				}
+				name := verb.Fun.(*ast.SelectorExpr).Sel
+				routes = append(routes, routeInfo{
+					method:    chiVerbs[name.Name],
+					path:      path,
+					handler:   handler,
+					framework: "chi",
+					line:      fset.Position(name.Pos()).Line,
+				})
+			}
+			return routes
+		}
+		if _, isVerb := chiVerbs[sel.Sel.Name]; !isVerb {
+			return nil
+		}
+		inner, ok := sel.X.(*ast.CallExpr)
+		if !ok {
+			return nil
+		}
+		verbs = append(verbs, cur)
+		cur = inner
+	}
 }
 
 // ginVerbs maps gin's registration methods to their HTTP method.

@@ -529,3 +529,235 @@ func listUsers() {}
 		t.Errorf("want the bare /users GET; routes = %v", routeNames(ff, "GET"))
 	}
 }
+
+// wrapperFiles is an application that wraps its router: a package importing chi
+// that declares the verbs, and route files that only ever import the wrapper.
+func wrapperFiles(routes map[string]string) map[string]string {
+	files := map[string]string{
+		"go.mod": "module example.com/shop\n\ngo 1.21\n",
+		"modules/web/router.go": `package web
+
+import "github.com/go-chi/chi/v5"
+
+type Router struct{ chi chi.Router }
+
+type Combo struct{}
+
+func NewRouter() *Router                                     { return &Router{chi: chi.NewRouter()} }
+func (r *Router) Get(pattern string, h ...any)               {}
+func (r *Router) Post(pattern string, h ...any)              {}
+func (r *Router) Group(pattern string, fn func(), mw ...any) {}
+func (r *Router) Mount(pattern string, sub *Router)          {}
+func (r *Router) Combo(pattern string, h ...any) *Combo      { return &Combo{} }
+func (c *Combo) Get(h ...any) *Combo                         { return c }
+func (c *Combo) Post(h ...any) *Combo                        { return c }
+`,
+	}
+	for name, src := range routes {
+		files[name] = src
+	}
+	return files
+}
+
+// A file that registers through the application's own router package imports no
+// framework by name. The package's verbs are what make it a router package.
+func TestExtractRoutes_OwnRouterPackage(t *testing.T) {
+	ff := extractAll(t, wrapperFiles(map[string]string{
+		"routers/private/internal.go": `package private
+
+import "example.com/shop/modules/web"
+
+func Routes() *web.Router {
+	r := web.NewRouter()
+	r.Post("/hook/post-receive", bind(), HookPostReceive)
+	r.Group("/repo", func() {
+		r.Get("/branches", ListBranches)
+	})
+	return r
+}
+
+func bind() any        { return nil }
+func HookPostReceive() {}
+func ListBranches()    {}
+`,
+		// Imports chi to build one handler and declares no verb: not a router package.
+		"modules/metrics/metrics.go": `package metrics
+
+import "github.com/go-chi/chi/v5"
+
+func Handler() chi.Router { return chi.NewRouter() }
+`,
+		"routers/other/other.go": `package other
+
+import "example.com/shop/modules/metrics"
+
+type store struct{}
+
+func (s store) Get(key string, fallback any) any { return fallback }
+
+func Use(s store) {
+	_ = metrics.Handler()
+	s.Get("/looks/like/a/path", nil)
+}
+`,
+	}))
+	if !hasRoute(ff, "/hook/post-receive", "POST") || !hasRoute(ff, "/repo/branches", "GET") {
+		t.Errorf("want the wrapper's routes; POST %v GET %v", routeNames(ff, "POST"), routeNames(ff, "GET"))
+	}
+	if hasRoute(ff, "/looks/like/a/path", "GET") {
+		t.Errorf("a package that imports chi and declares no verb was taken for a router package")
+	}
+}
+
+// A path named once with its verbs chained after it is one route per verb.
+func TestExtractRoutes_ComboChain(t *testing.T) {
+	ff := extractAll(t, wrapperFiles(map[string]string{
+		"routers/web/web.go": `package web
+
+import "example.com/shop/modules/web"
+
+func register(m *web.Router) {
+	m.Group("/issues", func() {
+		m.Combo("/new").Get(NewIssue).
+			Post(bind(), NewIssuePost)
+		m.Combo("").Get(ListIssues)
+	})
+}
+
+func bind() any     { return nil }
+func NewIssue()     {}
+func NewIssuePost() {}
+func ListIssues()   {}
+`,
+	}))
+	want := map[[2]string]string{
+		{"/issues/new", "GET"}:  "NewIssue",
+		{"/issues/new", "POST"}: "NewIssuePost",
+		{"/issues", "GET"}:      "ListIssues",
+	}
+	seen := 0
+	for _, f := range ff {
+		if f.Kind != facts.KindRoute {
+			continue
+		}
+		method, _ := f.Props["method"].(string)
+		handler, ok := want[[2]string{f.Name, method}]
+		if !ok {
+			t.Errorf("unexpected route %s %s", method, f.Name)
+			continue
+		}
+		seen++
+		if got := f.PropString("handler"); got != handler {
+			t.Errorf("%s %s: handler = %q, want %q", method, f.Name, got, handler)
+		}
+	}
+	if seen != len(want) {
+		t.Errorf("saw %d of %d routes; GET %v POST %v", seen, len(want), routeNames(ff, "GET"), routeNames(ff, "POST"))
+	}
+}
+
+// A router built by one function and attached by another is served under the
+// path it is attached at, and so is everything the builder passes it to. It is
+// not also served bare.
+func TestExtractRoutes_MountedBuilder(t *testing.T) {
+	ff := extractAll(t, wrapperFiles(map[string]string{
+		"routers/init.go": `package routers
+
+import (
+	"example.com/shop/modules/web"
+	apiv1 "example.com/shop/routers/api/v1"
+	"example.com/shop/routers/site"
+)
+
+func NormalRoutes(prefix string) *web.Router {
+	r := web.NewRouter()
+	r.Mount("/", site.Routes())
+	r.Mount("/api/v1", apiv1.Routes())
+	r.Mount(prefix, apiv1.Dynamic())
+	return r
+}
+`,
+		"routers/api/v1/api.go": `package v1
+
+import "example.com/shop/modules/web"
+
+func Routes() *web.Router {
+	m := web.NewRouter()
+	m.Get("/version", Version)
+	m.Group("/repos", func() {
+		m.Post("/migrate", Migrate)
+	})
+	addAdmin(m)
+	return m
+}
+
+func addAdmin(m *web.Router) {
+	m.Get("/admin/users", ListUsers)
+}
+
+func Dynamic() *web.Router {
+	m := web.NewRouter()
+	m.Get("/dynamic", Version)
+	return m
+}
+
+func Version()   {}
+func Migrate()   {}
+func ListUsers() {}
+`,
+		"routers/site/site.go": `package site
+
+import "example.com/shop/modules/web"
+
+func Routes() *web.Router {
+	m := web.NewRouter()
+	m.Get("/explore", Explore)
+	return m
+}
+
+func Explore() {}
+`,
+	}))
+	get, post := routeNames(ff, "GET"), routeNames(ff, "POST")
+	for _, want := range []string{"/api/v1/version", "/api/v1/admin/users", "/explore", "/dynamic"} {
+		if !get[want] {
+			t.Errorf("want GET %s; got %v", want, get)
+		}
+	}
+	if !post["/api/v1/repos/migrate"] {
+		t.Errorf("want POST /api/v1/repos/migrate; got %v", post)
+	}
+	for _, bare := range []string{"/version", "/admin/users", "//explore"} {
+		if get[bare] {
+			t.Errorf("%s is served under its mount only; got %v", bare, get)
+		}
+	}
+}
+
+// A verb with a path and nothing to serve it is a lookup that shares the verb's
+// name, not a registration.
+func TestExtractRoutes_ChiVerbNeedsAHandler(t *testing.T) {
+	ff := extractAll(t, map[string]string{
+		"internal/server/routes.go": `package server
+
+import (
+	"net/http"
+
+	"github.com/go-chi/chi/v5"
+)
+
+func Setup(req *http.Request) {
+	r := chi.NewRouter()
+	r.Get("/users", listUsers)
+	token := req.Header.Get("Authorization")
+	req.URL.Query().Get("expires")
+	_ = token
+}
+
+func listUsers(w http.ResponseWriter, r *http.Request) {}
+`,
+	})
+	if got := routeNames(ff, "GET"); len(got) != 1 || !got["/users"] {
+		t.Errorf("want only /users; got %v", got)
+	}
+}

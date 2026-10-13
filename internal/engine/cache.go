@@ -2834,7 +2834,12 @@ import (
 // path: chi's Route("/api", func(r chi.Router) {...}), and a Group("/user", func() {...})
 // whose literal registers on the receiver. A local closure that registers routes
 // registers them where it is called, under each mount it is called in.
-const cacheVersion = "v335"
+// v336: a Go file that registers routes through the module's own router package (one
+// that imports a router framework and declares its verbs) is read in that framework;
+// Combo("/p").Get(h).Post(mw, h) is one route per verb; a router one function builds
+// and another attaches with Mount("/api/v1", pkg.Routes()) is served under that path;
+// a chi verb with a path and no handler is not a route.
+const cacheVersion = "v336"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

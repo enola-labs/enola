@@ -33,6 +33,12 @@ import (
 // test functions that assert the behavior that version introduced. v1 is the
 // implicit baseline (no changelog line), so coverage starts at v2.
 var versionCoverage = map[int][]string{
+	336: {
+		"TestExtractRoutes_OwnRouterPackage",
+		"TestExtractRoutes_ComboChain",
+		"TestExtractRoutes_MountedBuilder",
+		"TestExtractRoutes_ChiVerbNeedsAHandler",
+	},
 	335: {
 		"TestExtractRoutes_FuncLitMount_ChiRoute",
 		"TestExtractRoutes_FuncLitMount_GroupOnTheReceiver",
