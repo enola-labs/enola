@@ -2849,7 +2849,11 @@ import (
 // bound to it when it is a function the file declares or imports. A router that
 // reaches its mount through a barrel (`export * from`, `export { r } from`) composes,
 // and so does a mount whose prefix appends a string constant.
-const cacheVersion = "v338"
+// v339: an axum or utoipa route is bound to its handler: a bare name to the function
+// of the route's file, or the only one of that name in the crate, and a path to the
+// function in the module the path ends in. A router built inside a #[cfg(test)]
+// module is not a route.
+const cacheVersion = "v339"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

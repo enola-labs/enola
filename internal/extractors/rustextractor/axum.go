@@ -56,12 +56,34 @@ func extractAxumRoutes(root *sitter.Node, src []byte, relFile, dir string) []fac
 				}
 			}
 		}
+		// A router built inside a #[cfg(test)] module serves a test, at whatever path
+		// the test picked. The attribute is the sibling before the module it marks.
+		cfgTest := false
 		for i := uint(0); i < uint(node.ChildCount()); i++ {
-			walk(node.Child(i))
+			c := node.Child(i)
+			switch kindOf(c) {
+			case "attribute_item":
+				cfgTest = cfgTest || isCfgTestAttribute(nodeText(c, src))
+				continue
+			case "line_comment", "block_comment":
+				continue
+			case "mod_item":
+				if cfgTest {
+					cfgTest = false
+					continue
+				}
+			}
+			cfgTest = false
+			walk(c)
 		}
 	}
 	walk(root)
 	return out
+}
+
+// isCfgTestAttribute reports whether an attribute's text is #[cfg(test)].
+func isCfgTestAttribute(text string) bool {
+	return strings.Join(strings.Fields(text), "") == "#[cfg(test)]"
 }
 
 // axumRouteFacts converts one `.route(path, chain)` call_expression into its
