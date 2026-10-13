@@ -2864,7 +2864,9 @@ import (
 // struct field of one of its router types, a group literal's parameter, a variable
 // assigned from one. A handler written `wrap(h.M)` names h.M, and a method value on
 // the enclosing method's receiver resolves to that method.
-const cacheVersion = "v341"
+// v342: a Nuxt or SvelteKit page route is bound to the component its file declares,
+// and a SvelteKit page also to the load in the +page.server or +page file beside it.
+const cacheVersion = "v342"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

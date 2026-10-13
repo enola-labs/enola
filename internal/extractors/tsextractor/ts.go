@@ -384,6 +384,7 @@ func (e *TSExtractor) Extract(ctx context.Context, repoPath string, files []stri
 		}
 	}
 	bindServerRouteHandlers(allFacts, routerFiles)
+	bindFileRouteHandlers(allFacts)
 
 	// Serial post-pass: propagate the per-body io_direct flag transitively across the
 	// call graph into performs_io, so wrapper-hidden network/file I/O is visible to the
