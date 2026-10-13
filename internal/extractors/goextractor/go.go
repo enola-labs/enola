@@ -210,9 +210,11 @@ func (e *GoExtractor) Extract(ctx context.Context, repoPath string, files []stri
 	// a subrouter passed into a per-file/per-package function are stored at their
 	// true runtime path (e.g. "/api/settings/courses", not the bare "/courses").
 	routerWrappers := routerWrapperPackages(parsedPkgs)
+	stringConstants := buildStringConsts(parsedPkgs)
 	routePrefixes := routeIndex{
-		prefixes: buildRoutePrefixIndex(parsedPkgs, modulePath, pkgNames, globalFieldTypes, routerWrappers),
+		prefixes: buildRoutePrefixIndex(parsedPkgs, modulePath, pkgNames, globalFieldTypes, routerWrappers, stringConstants),
 		wrappers: routerWrappers,
+		consts:   stringConstants,
 	}
 
 	// Pass 3: extract facts per package using the global field types.

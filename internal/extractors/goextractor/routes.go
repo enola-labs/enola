@@ -43,8 +43,10 @@ func extractRoutes(fset *token.FileSet, f *ast.File, relFile, pkgDir string, rou
 		paramName, seeds := seedsFor(index, funcKeyFor(fn, pkgDir))
 		for _, seed := range seeds {
 			prefixes := make(map[string]string)
+			seedStrings(prefixes, fn.Body, pkgDir, fileImports, routes.consts)
 			if paramName != "" && seed != "" {
 				prefixes[paramName] = seed
+				prefixes[seedKey] = seed
 			}
 			w := &routeWalk{fset: fset, prefixes: prefixes, closures: map[string]*ast.FuncLit{}, framework: framework, relFile: relFile, pkgDir: pkgDir, result: &result}
 			for _, stmt := range fn.Body.List {
@@ -182,6 +184,7 @@ func (w *routeWalk) stmt(stmt ast.Stmt) {
 	case *ast.AssignStmt:
 		// Track subrouter assignments: apiRouter := router.PathPrefix("/api").Subrouter()
 		applySubrouterAssign(s, w.prefixes)
+		trackStringAssign(s, w.prefixes)
 		// `addRoutes := func() { m.Get(...) }` registers nothing until it is called.
 		if len(s.Lhs) == 1 && len(s.Rhs) == 1 {
 			if lit, ok := s.Rhs[0].(*ast.FuncLit); ok && lit.Body != nil && lit.Type.Params.NumFields() == 0 {
@@ -237,6 +240,7 @@ func (m mountScope) apply(prefixes map[string]string) func() {
 //	r.Route("/api", func(r chi.Router) { r.Get("/users", list) })   // /api/users
 //	m.Group("/user", func() { m.Post("/login", signIn) }, mw...)    // /user/login
 //	r.Group(func(r chi.Router) { r.Get("/users", list) })           // no new segment
+//	m.PathGroup("/compare/*", func(g *web.RouterPathGroup) { ... }) // /compare
 //
 // The literal's router parameter carries the prefix inside it. A literal that
 // takes no parameter registers on the receiver itself, so the receiver carries
@@ -244,7 +248,7 @@ func (m mountScope) apply(prefixes map[string]string) func() {
 // under something this cannot read, and is left to the caller as before.
 func funcLitMount(call *ast.CallExpr, prefixes map[string]string) (*ast.FuncLit, mountScope) {
 	sel, ok := call.Fun.(*ast.SelectorExpr)
-	if !ok || (sel.Sel.Name != "Route" && sel.Sel.Name != "Group") {
+	if !ok || (sel.Sel.Name != "Route" && sel.Sel.Name != "Group" && sel.Sel.Name != "PathGroup") {
 		return nil, mountScope{}
 	}
 	recv := identName(sel.X)
@@ -262,12 +266,17 @@ func funcLitMount(call *ast.CallExpr, prefixes map[string]string) (*ast.FuncLit,
 		return nil, mountScope{}
 	}
 	prefix := prefixes[recv]
+	path, known := pathArg(call.Args[0], prefixes)
 	switch {
-	case isStaticStringArg(call.Args[0]):
-		if path := extractStringArg(call, 0); path != "" {
+	case known:
+		if sel.Sel.Name == "PathGroup" {
+			// The group's own pattern ends in the wildcard its routes match under.
+			path = strings.TrimSuffix(strings.TrimSuffix(path, "*"), "/")
+		}
+		if path != "" {
 			prefix = joinRoutePath(prefix, path)
 		}
-	case sel.Sel.Name == "Route" || call.Args[0] != ast.Expr(lit):
+	case sel.Sel.Name != "Group" || call.Args[0] != ast.Expr(lit):
 		return nil, mountScope{}
 	}
 	name := recv
@@ -347,6 +356,9 @@ func extractChiRoutes(fset *token.FileSet, call *ast.CallExpr, prefixes map[stri
 	if routes := extractComboRoutes(fset, call, prefixes); routes != nil {
 		return routes
 	}
+	if routes := extractMatchPathRoutes(fset, call, prefixes); routes != nil {
+		return routes
+	}
 	sel, ok := call.Fun.(*ast.SelectorExpr)
 	if !ok {
 		return nil
@@ -399,15 +411,20 @@ func extractChiRoutes(fset *token.FileSet, call *ast.CallExpr, prefixes map[stri
 		return nil
 	}
 
-	path := extractStringArg(call, 0)
-	if path == "" && !isStaticStringArg(call.Args[0]) {
+	path, known := pathArg(call.Args[0], prefixes)
+	if !known {
 		return nil
 	}
-
 	receiverVar := identName(sel.X)
-	if prefix, ok := prefixes[receiverVar]; ok {
-		path = prefix + path
+	prefix := prefixes[receiverVar]
+	// A pattern with no leading slash continues the group it is written in:
+	// `m.Get(".diff", h)` under "/{index}" is "/{index}.diff". Written on the router
+	// itself, with no group around it, it is served with the slash.
+	if path != "" && !strings.HasPrefix(path, "/") && !strings.HasPrefix(path, "*") &&
+		prefix == prefixes[seedKey] {
+		path = "/" + path
 	}
+	path = prefix + path
 	if path == "" {
 		path = "/"
 	}
@@ -802,7 +819,7 @@ func extractStringExpr(expr ast.Expr) string {
 	switch e := expr.(type) {
 	case *ast.BasicLit:
 		if e.Kind == token.STRING {
-			return strings.Trim(e.Value, `"`)
+			return strings.Trim(e.Value, "\"`")
 		}
 	case *ast.BinaryExpr:
 		if e.Op == token.ADD {

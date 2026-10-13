@@ -2853,7 +2853,12 @@ import (
 // of the route's file, or the only one of that name in the crate, and a path to the
 // function in the module the path ends in. A router built inside a #[cfg(test)]
 // module is not a route.
-const cacheVersion = "v339"
+// v340: Go routes on a path group, g.MatchPath("GET,HEAD", "/<name:*>", mw, h) under
+// m.PathGroup("/p/*", func ...), are read, one per method. A group or mount path
+// held in a string constant or a local string variable is read as written there. A
+// verb's pattern with no leading slash gets one when it is written on the router
+// itself. A path written as a raw string no longer keeps its backticks.
+const cacheVersion = "v340"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
