@@ -28,6 +28,16 @@ func extractRoutes(fset *token.FileSet, f *ast.File, relFile, pkgDir string, rou
 	if framework == "" {
 		return nil
 	}
+	// The package that implements a router registers none of the application's
+	// routes: its `r.Handle("GET", pattern, h)` is the verb's own body.
+	if strings.HasPrefix(routes.wrappers[pkgDir], ownRouterMark) {
+		return nil
+	}
+	strict := importsOwnRouterOnly(f, fileImports, routes.wrappers)
+	var aliases map[string]string
+	if strict {
+		aliases = routerAliases(f, fileImports, routes.wrappers)
+	}
 
 	for _, decl := range f.Decls {
 		fn, ok := decl.(*ast.FuncDecl)
@@ -48,7 +58,17 @@ func extractRoutes(fset *token.FileSet, f *ast.File, relFile, pkgDir string, rou
 				prefixes[paramName] = seed
 				prefixes[seedKey] = seed
 			}
-			w := &routeWalk{fset: fset, prefixes: prefixes, closures: map[string]*ast.FuncLit{}, framework: framework, relFile: relFile, pkgDir: pkgDir, result: &result}
+			recvVar, recvType := receiverOf(fn)
+			if strict {
+				prefixes[strictKey] = "1"
+				if name, _, ok := routerParam(fn, aliases); ok {
+					if _, set := prefixes[name]; !set {
+						prefixes[name] = ""
+					}
+				}
+				seedReceiverRouters(prefixes, pkgDir, recvVar, recvType, routes.routerFields)
+			}
+			w := &routeWalk{fset: fset, prefixes: prefixes, closures: map[string]*ast.FuncLit{}, framework: framework, relFile: relFile, pkgDir: pkgDir, result: &result, recvVar: recvVar, recvType: recvType}
 			for _, stmt := range fn.Body.List {
 				w.stmt(stmt)
 			}
@@ -87,10 +107,10 @@ func detectRouterFramework(f *ast.File, fileImports, wrappers map[string]string)
 	}
 	sort.Strings(aliases)
 	for _, alias := range aliases {
-		switch wrappers[fileImports[alias]] {
-		case "chi":
+		switch w := wrappers[fileImports[alias]]; {
+		case w == "chi", strings.HasPrefix(w, ownRouterMark):
 			return "chi"
-		case "mux":
+		case w == "mux":
 			return "gorilla/mux"
 		}
 	}
@@ -130,11 +150,22 @@ type routeWalk struct {
 	relFile   string
 	pkgDir    string
 	result    *[]facts.Fact
+	// recvVar and recvType are the receiver of the method being walked, "" in a
+	// plain function.
+	recvVar  string
+	recvType string
 }
 
 func (w *routeWalk) emit(call *ast.CallExpr) {
 	for _, r := range extractRoutesFromCall(w.fset, call, w.prefixes, w.framework) {
-		*w.result = append(*w.result, routeToFact(r, w.relFile, w.pkgDir))
+		fact := routeToFact(r, w.relFile, w.pkgDir)
+		// A method value on the receiver, `hs.LoginPost` inside a method of
+		// HTTPServer, names that type's method.
+		if recv, method, ok := strings.Cut(r.handler, "."); ok && recv == w.recvVar && w.recvType != "" &&
+			token.IsIdentifier(method) && r.method != "USE" {
+			fact.SetProp(facts.PropHandlerTarget, w.pkgDir+"."+w.recvType+"."+method)
+		}
+		*w.result = append(*w.result, fact)
 	}
 }
 
@@ -185,6 +216,7 @@ func (w *routeWalk) stmt(stmt ast.Stmt) {
 		// Track subrouter assignments: apiRouter := router.PathPrefix("/api").Subrouter()
 		applySubrouterAssign(s, w.prefixes)
 		trackStringAssign(s, w.prefixes)
+		trackRouterAlias(s, w.prefixes)
 		// `addRoutes := func() { m.Get(...) }` registers nothing until it is called.
 		if len(s.Lhs) == 1 && len(s.Rhs) == 1 {
 			if lit, ok := s.Rhs[0].(*ast.FuncLit); ok && lit.Body != nil && lit.Type.Params.NumFields() == 0 {
@@ -251,8 +283,11 @@ func funcLitMount(call *ast.CallExpr, prefixes map[string]string) (*ast.FuncLit,
 	if !ok || (sel.Sel.Name != "Route" && sel.Sel.Name != "Group" && sel.Sel.Name != "PathGroup") {
 		return nil, mountScope{}
 	}
-	recv := identName(sel.X)
+	recv := routerVarName(sel.X)
 	if recv == "" {
+		return nil, mountScope{}
+	}
+	if _, known := prefixes[recv]; !known && prefixes[strictKey] != "" {
 		return nil, mountScope{}
 	}
 	var lit *ast.FuncLit
@@ -292,7 +327,13 @@ func extractRoutesFromCall(fset *token.FileSet, call *ast.CallExpr, prefixes map
 	case "gorilla/mux":
 		return extractGorillaMuxRoutes(fset, call, prefixes)
 	case "chi":
-		return extractChiRoutes(fset, call, prefixes)
+		routes := extractChiRoutes(fset, call, prefixes)
+		// A file that imports the application's own router package for something
+		// else may still register on net/http.
+		if routes == nil && prefixes[strictKey] != "" {
+			return extractNetHTTPRoutes(fset, call)
+		}
+		return routes
 	case "gin":
 		return extractGinRoutes(fset, call, prefixes)
 	case "net/http":
@@ -353,15 +394,21 @@ func extractGorillaMuxRoutes(fset *token.FileSet, call *ast.CallExpr, prefixes m
 
 // extractChiRoutes handles Chi router patterns like r.Get("/path", handler).
 func extractChiRoutes(fset *token.FileSet, call *ast.CallExpr, prefixes map[string]string) []routeInfo {
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok {
+		return nil
+	}
+	// Through a self-contained router package a verb counts only on a known router.
+	if prefixes[strictKey] != "" {
+		if _, known := prefixes[routerVarName(sel.X)]; !known {
+			return nil
+		}
+	}
 	if routes := extractComboRoutes(fset, call, prefixes); routes != nil {
 		return routes
 	}
 	if routes := extractMatchPathRoutes(fset, call, prefixes); routes != nil {
 		return routes
-	}
-	sel, ok := call.Fun.(*ast.SelectorExpr)
-	if !ok {
-		return nil
 	}
 
 	methodName := sel.Sel.Name
@@ -388,7 +435,7 @@ func extractChiRoutes(fset *token.FileSet, call *ast.CallExpr, prefixes map[stri
 		if len(call.Args) > 0 {
 			handler := exprToString(call.Args[0])
 			if handler != "" {
-				receiverVar := identName(sel.X)
+				receiverVar := routerVarName(sel.X)
 				prefix := prefixes[receiverVar]
 				return []routeInfo{{
 					method:    "USE",
@@ -415,7 +462,7 @@ func extractChiRoutes(fset *token.FileSet, call *ast.CallExpr, prefixes map[stri
 	if !known {
 		return nil
 	}
-	receiverVar := identName(sel.X)
+	receiverVar := routerVarName(sel.X)
 	prefix := prefixes[receiverVar]
 	// A pattern with no leading slash continues the group it is written in:
 	// `m.Get(".diff", h)` under "/{index}" is "/{index}.diff". Written on the router
@@ -435,7 +482,7 @@ func extractChiRoutes(fset *token.FileSet, call *ast.CallExpr, prefixes map[stri
 		// last. A router with chi's verb names that takes middleware before the
 		// handler (`m.Post("/login", bind(form), SignInPost)`) puts it last, and
 		// reading the second argument there names a middleware as the handler.
-		handler = exprToString(call.Args[len(call.Args)-1])
+		handler = routeHandlerExpr(call.Args[len(call.Args)-1])
 	}
 
 	return []routeInfo{{
@@ -586,7 +633,7 @@ func extractGinRoutes(fset *token.FileSet, call *ast.CallExpr, prefixes map[stri
 	if len(call.Args) > handlerArg {
 		// gin takes variadic middleware before the final handler; the LAST argument is
 		// the one that serves the request.
-		handler = exprToString(call.Args[len(call.Args)-1])
+		handler = routeHandlerExpr(call.Args[len(call.Args)-1])
 	}
 
 	return []routeInfo{{
@@ -644,7 +691,7 @@ func extractNetHTTPRoutes(fset *token.FileSet, call *ast.CallExpr) []routeInfo {
 
 	handler := ""
 	if len(call.Args) >= 2 {
-		handler = exprToString(call.Args[1])
+		handler = routeHandlerExpr(call.Args[1])
 	}
 
 	return []routeInfo{{
@@ -693,7 +740,7 @@ func extractHandleFuncCall(fset *token.FileSet, call *ast.CallExpr, prefixes map
 
 	handler := ""
 	if len(call.Args) >= 2 {
-		handler = exprToString(call.Args[1])
+		handler = routeHandlerExpr(call.Args[1])
 	}
 
 	return &routeInfo{

@@ -2858,7 +2858,13 @@ import (
 // held in a string constant or a local string variable is read as written there. A
 // verb's pattern with no leading slash gets one when it is written on the router
 // itself. A path written as a raw string no longer keeps its backticks.
-const cacheVersion = "v340"
+// v341: a module's own router package that imports no framework is recognized by its
+// verbs (three of Get/Post/Put/Delete/Patch taking a pattern and handlers), and the
+// files that import it are read chi-style, on known routers only: a parameter or a
+// struct field of one of its router types, a group literal's parameter, a variable
+// assigned from one. A handler written `wrap(h.M)` names h.M, and a method value on
+// the enclosing method's receiver resolves to that method.
+const cacheVersion = "v341"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
