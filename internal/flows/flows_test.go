@@ -366,3 +366,19 @@ func TestAnalyze_ResolvesACallAcrossRepositoriesOnlyWhenUnambiguous(t *testing.T
 		t.Errorf("unresolved = %d, want 1 (lib/log.write is declared by two other repositories)", a.Flows[0].Metrics.UnresolvedCalls)
 	}
 }
+
+// .NET spells its entry Main. The same name in Go is an exported function
+// like any other.
+func TestAnalyze_MainIsSpelledPerLanguage(t *testing.T) {
+	in := func(language string, f facts.Fact) facts.Fact { f.Props["language"] = language; return f }
+	method := func(f facts.Fact) facts.Fact { f.Props["symbol_kind"] = facts.SymbolMethod; return f }
+	a := analyze(
+		in("csharp", method(sym("Shop.Program.Main", "src/Program.cs", "Shop.Server.Run"))),
+		in("csharp", method(sym("Shop.Server.Run", "src/Server.cs"))),
+		in("go", sym("pkg/app.Main", "pkg/app.go", "pkg/app.run")),
+		in("go", sym("pkg/app.run", "pkg/app.go")),
+	)
+	if got := names(a); !reflect.DeepEqual(got, []string{"Shop.Program.Main"}) {
+		t.Errorf("flows = %v, want only the .NET Main", got)
+	}
+}

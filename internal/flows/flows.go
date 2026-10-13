@@ -439,7 +439,7 @@ func entryMechanism(f facts.Fact) string {
 	switch {
 	case f.PropString(facts.PropFrameworkRoot) != "":
 		return f.PropString(facts.PropFrameworkRoot)
-	case isMain(f.Name):
+	case isMain(f):
 		return MechanismMain
 	case f.PropBool("framework_registered"):
 		return MechanismRegistered
@@ -595,10 +595,19 @@ func moduleOf(f facts.Fact) string {
 	return ""
 }
 
-// isMain reports whether a symbol name ends in a member called main: Go's
-// `cmd/tool.main`, Python's `pkg/cli.main`.
-func isMain(name string) bool {
-	return name == "main" || strings.HasSuffix(name, ".main")
+// isMain reports whether a symbol is a program's main: a member called main, as
+// in Go's `cmd/tool.main` and Python's `pkg/cli.main`, or Main on .NET, where
+// the runtime looks for that spelling. Main elsewhere is an ordinary exported
+// name and is no entry.
+func isMain(f facts.Fact) bool {
+	if f.Name == "main" || strings.HasSuffix(f.Name, ".main") {
+		return true
+	}
+	switch f.PropString("language") {
+	case "csharp", "fsharp", "vbnet":
+		return f.Name == "Main" || strings.HasSuffix(f.Name, ".Main")
+	}
+	return false
 }
 
 func routeLabel(route facts.Fact) string {
