@@ -148,3 +148,29 @@ func TestUnmatched_AmbiguousProviderIsNotAVerbMismatch(t *testing.T) {
 		t.Errorf("wrong verb: unmatched_reason = %q, want %q", got, ReasonMethodMismatch)
 	}
 }
+
+// A repository that registers a path and one that documents it in a specification
+// are not two candidates. Two specifications still are, and so are two programs.
+func TestPickProvider_RegisteredRouteBeatsItsSpecification(t *testing.T) {
+	call := facts.Fact{Kind: facts.KindRoute, Name: "/api/v1/videos", Repo: "client",
+		Props: map[string]any{"role": "client", "method": "GET", "source": facts.RouteSourceTSHTTPClient}}
+	m := routeindex.New(vocab.Default())
+	pick := func(matches ...routeindex.RouteRef) (string, bool) { return pickProvider(m, call, matches) }
+
+	code := routeindex.RouteRef{Repo: "server", Method: "GET", Path: "/api/v1/videos"}
+	spec := routeindex.RouteRef{Repo: "api-docs", Method: "GET", Path: "/api/v1/videos", Spec: true}
+	if got, sure := pick(spec, code); got != "server" || !sure {
+		t.Errorf("picked %q (unambiguous %v), want the repository that registers the route", got, sure)
+	}
+	if got, sure := pick(spec); got != "api-docs" || !sure {
+		t.Errorf("a specification alone must still provide: got %q (unambiguous %v)", got, sure)
+	}
+	otherSpec := routeindex.RouteRef{Repo: "other-docs", Method: "GET", Path: "/api/v1/videos", Spec: true}
+	if got, _ := pick(spec, otherSpec); got != "" {
+		t.Errorf("picked %q from two specifications, want no provider", got)
+	}
+	otherCode := routeindex.RouteRef{Repo: "mirror", Method: "GET", Path: "/api/v1/videos"}
+	if got, _ := pick(spec, code, otherCode); got != "" {
+		t.Errorf("picked %q from two programs, want no provider", got)
+	}
+}

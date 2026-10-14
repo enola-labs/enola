@@ -120,6 +120,7 @@ func (e *RustExtractor) Extract(ctx context.Context, repoPath string, files []st
 	// facts interprocedurally, so a route registered on a sub-router is stored at
 	// its true runtime path for cross-repo client↔route matching.
 	allFacts = composeAxumPrefixes(allFacts, allBuilders, crates)
+	bindRustRouteHandlers(allFacts, crates)
 
 	for dir := range moduleDirs {
 		props := map[string]any{"language": "rust"}

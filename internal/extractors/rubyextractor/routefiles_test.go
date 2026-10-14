@@ -148,7 +148,7 @@ func TestExtractAllRoutes_MountedEngineGetsMountPrefix(t *testing.T) {
 		"core/lib/spree/core/engine.rb",
 		"core/config/routes.rb",
 	}
-	got := extractAllRoutes(repo, files)
+	got, _ := extractAllRoutes(repo, files)
 
 	byName := map[string]facts.Fact{}
 	for _, f := range got {
@@ -197,7 +197,8 @@ func TestExtractAllRoutes_UnmountedEngineStillContributes(t *testing.T) {
 	}
 
 	var routes []facts.Fact
-	for _, f := range extractAllRoutes(repo, []string{"plugins/chat/config/routes.rb"}) {
+	extracted, _ := extractAllRoutes(repo, []string{"plugins/chat/config/routes.rb"})
+	for _, f := range extracted {
 		// The route-macro coverage fact rides along and is not a route.
 		if f.Kind == facts.KindRoute {
 			routes = append(routes, f)

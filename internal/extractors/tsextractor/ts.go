@@ -377,12 +377,14 @@ func (e *TSExtractor) Extract(ctx context.Context, repoPath string, files []stri
 	// Express sub-routers mounted from another file. The per-file pass holds their
 	// routes back rather than emitting a fragment path; this is where both halves
 	// are visible and the true runtime path can be composed. See routermount.go.
-	if mounted := composeRouterMounts(routerFiles); len(mounted) > 0 {
+	if mounted := composeRouterMounts(routerFiles, stringConstReader(repoPath)); len(mounted) > 0 {
 		allFacts = append(allFacts, mounted...)
 		for _, f := range mounted {
 			modules[factpath.Dir(f.File)] = true
 		}
 	}
+	bindServerRouteHandlers(allFacts, routerFiles)
+	bindFileRouteHandlers(allFacts)
 
 	// Serial post-pass: propagate the per-body io_direct flag transitively across the
 	// call graph into performs_io, so wrapper-hidden network/file I/O is visible to the

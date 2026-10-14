@@ -53,6 +53,10 @@ type routePrefixIndex map[string]*routePrefixEntry
 type routeIndex struct {
 	prefixes routePrefixIndex
 	wrappers map[string]string
+	consts   stringConsts
+	// routerFields maps a struct to its fields that hold a router of a
+	// self-contained router package. See ownrouter.go.
+	routerFields map[string][]string
 }
 
 // funcKeyFor returns the package-qualified identity of a FuncDecl, matching how
@@ -135,8 +139,13 @@ func routerWrapperPackages(pkgs map[string]*parsedPkg) map[string]string {
 				}
 			}
 		}
-		if framework != "" && verbs {
+		switch {
+		case framework != "" && verbs:
 			wrappers[pkgDir] = framework
+		case framework == "":
+			if types := ownRouterTypes(pp); len(types) > 0 {
+				wrappers[pkgDir] = ownRouterMark + strings.Join(types, ",")
+			}
 		}
 	}
 	return wrappers
@@ -189,6 +198,11 @@ func isVersionSegment(s string) bool {
 // *mux.Router, chi.Router (interface), or *chi.Mux, under any of the given aliases.
 func isRouterType(expr ast.Expr, aliases map[string]string) bool {
 	for alias, fw := range aliases {
+		for _, name := range ownRouterTypeNames(fw) {
+			if isQualifiedType(expr, alias, name) || isPointerToQualifiedType(expr, alias, name) {
+				return true
+			}
+		}
 		switch fw {
 		case "mux":
 			if isPointerToQualifiedType(expr, alias, "Router") {
@@ -290,8 +304,8 @@ func resolveCalleeKey(call *ast.CallExpr, ctx resolveCtx) string {
 // argument is a recognizable router. It accepts a known router variable (present
 // in prefixes) or an inline `x.PathPrefix("/p").Subrouter()` chain.
 func routerArgPrefix(arg ast.Expr, prefixes map[string]string) (string, bool) {
-	if ident, ok := arg.(*ast.Ident); ok {
-		if p, ok := prefixes[ident.Name]; ok {
+	if name := routerVarName(arg); name != "" {
+		if p, ok := prefixes[name]; ok {
 			return p, true
 		}
 		return "", false
@@ -333,7 +347,7 @@ type routerEdge struct {
 
 // buildRouterFuncIndex indexes every function in the module by funcKey, recording
 // its router parameter, whether it roots a router, and its file's import/alias maps.
-func buildRouterFuncIndex(pkgs map[string]*parsedPkg, modulePath string, pkgNames map[string]string, wrappers map[string]string) map[string]routerFunc {
+func buildRouterFuncIndex(pkgs map[string]*parsedPkg, modulePath string, pkgNames map[string]string, wrappers map[string]string, routerFields map[string][]string) map[string]routerFunc {
 	index := map[string]routerFunc{}
 	pkgDirs := make([]string, 0, len(pkgs))
 	for pkgDir := range pkgs {
@@ -355,13 +369,16 @@ func buildRouterFuncIndex(pkgs map[string]*parsedPkg, modulePath string, pkgName
 				}
 				name, idx, hasParam := routerParam(fn, aliases)
 				recvVar, recvType := receiverOf(fn)
+				// A method whose receiver holds a router registers on a root it did
+				// not create, and its calls carry prefixes on like any root's.
+				holdsRouter := recvVar != "" && len(routerFields[pkgDir+"."+recvType]) > 0
 				index[funcKeyFor(fn, pkgDir)] = routerFunc{
 					fn:         fn,
 					pkgDir:     pkgDir,
 					paramName:  name,
 					paramIndex: idx,
 					hasParam:   hasParam,
-					hasRoot:    bodyRootVar(fn.Body, aliases) != "",
+					hasRoot:    bodyRootVar(fn.Body, aliases) != "" || holdsRouter,
 					rootVar:    bodyRootVar(fn.Body, aliases),
 					recvVar:    recvVar,
 					recvType:   recvType,
@@ -396,18 +413,25 @@ func bodyRootVar(body *ast.BlockStmt, aliases map[string]string) string {
 //	r.Mount("/api/v1", apiv1.Routes())
 //
 // It returns the call that builds the router and the path it is attached at. The
-// path must be a literal; a router mounted under a variable is mounted under
-// something this cannot read.
-func mountedRouterCall(call *ast.CallExpr) (builder *ast.CallExpr, recv, path string, ok bool) {
+// path is a literal, or a name whose string value prefixes holds; a router mounted
+// under anything else is mounted under something this cannot read. With a nil
+// prefixes the path is not resolved, for the caller that only asks which function
+// is mounted.
+func mountedRouterCall(call *ast.CallExpr, prefixes map[string]string) (builder *ast.CallExpr, recv, path string, ok bool) {
 	sel, isSel := call.Fun.(*ast.SelectorExpr)
-	if !isSel || sel.Sel.Name != "Mount" || len(call.Args) != 2 || !isStaticStringArg(call.Args[0]) {
+	if !isSel || sel.Sel.Name != "Mount" || len(call.Args) != 2 {
 		return nil, "", "", false
 	}
 	builder, isCall := call.Args[1].(*ast.CallExpr)
 	if !isCall {
 		return nil, "", "", false
 	}
-	return builder, identName(sel.X), extractStringArg(call, 0), true
+	if prefixes != nil {
+		if path, ok = pathArg(call.Args[0], prefixes); !ok {
+			return nil, "", "", false
+		}
+	}
+	return builder, routerVarName(sel.X), path, true
 }
 
 // analyzeRouterFunc walks rf's body in source order, tracking the prefix of every
@@ -416,8 +440,10 @@ func mountedRouterCall(call *ast.CallExpr) (builder *ast.CallExpr, recv, path st
 // other registration functions it calls with a router argument. This is the
 // interprocedural counterpart of the intra-function walk in extractRoutesFromStmt,
 // and it reuses the same applySubrouterAssign composition so the two never drift.
-func analyzeRouterFunc(rf routerFunc, seed string, mounted bool, index map[string]routerFunc, modulePath string, fieldTypes map[string]string) []routerEdge {
+func analyzeRouterFunc(rf routerFunc, seed string, mounted bool, index map[string]routerFunc, modulePath string, fieldTypes map[string]string, consts stringConsts, routerFields map[string][]string) []routerEdge {
 	prefixes := map[string]string{}
+	seedStrings(prefixes, rf.fn.Body, rf.pkgDir, rf.imports, consts)
+	seedReceiverRouters(prefixes, rf.pkgDir, rf.recvVar, rf.recvType, routerFields)
 	if rf.hasParam && !mounted {
 		prefixes[rf.paramName] = seed
 	}
@@ -454,8 +480,10 @@ func analyzeRouterFunc(rf routerFunc, seed string, mounted bool, index map[strin
 				}
 			}
 			applySubrouterAssign(node, prefixes)
+			trackStringAssign(node, prefixes)
+			trackRouterAlias(node, prefixes)
 		case *ast.CallExpr:
-			if builder, recv, path, ok := mountedRouterCall(node); ok {
+			if builder, recv, path, ok := mountedRouterCall(node, prefixes); ok {
 				if key := resolveCalleeKey(builder, ctx); key != "" && index[key].rootVar != "" {
 					prefix := strings.TrimSuffix(joinRoutePath(prefixes[recv], path), "/")
 					edges = append(edges, routerEdge{callee: key, prefix: prefix, mounted: true})
@@ -490,8 +518,8 @@ func analyzeRouterFunc(rf routerFunc, seed string, mounted bool, index map[strin
 // router parameter, accumulating the distinct prefix set per registration
 // function. The result seeds extractRoutes. Deterministic: roots and edges are
 // processed in sorted order and the emitted seed sets are sorted.
-func buildRoutePrefixIndex(pkgs map[string]*parsedPkg, modulePath string, pkgNames map[string]string, fieldTypes map[string]string, wrappers map[string]string) routePrefixIndex {
-	index := buildRouterFuncIndex(pkgs, modulePath, pkgNames, wrappers)
+func buildRoutePrefixIndex(pkgs map[string]*parsedPkg, modulePath string, pkgNames map[string]string, fieldTypes map[string]string, wrappers map[string]string, consts stringConsts, routerFields map[string][]string) routePrefixIndex {
+	index := buildRouterFuncIndex(pkgs, modulePath, pkgNames, wrappers, routerFields)
 
 	type work struct {
 		key, seed string
@@ -517,7 +545,7 @@ func buildRoutePrefixIndex(pkgs map[string]*parsedPkg, modulePath string, pkgNam
 		ctx := resolveCtx{pkgDir: rf.pkgDir, modulePath: modulePath, imports: rf.imports, recvVar: rf.recvVar, recvType: rf.recvType, fieldTypes: fieldTypes}
 		ast.Inspect(rf.fn.Body, func(n ast.Node) bool {
 			if call, ok := n.(*ast.CallExpr); ok {
-				if builder, _, _, ok := mountedRouterCall(call); ok {
+				if builder, _, _, ok := mountedRouterCall(call, nil); ok {
 					if key := resolveCalleeKey(builder, ctx); key != "" && index[key].rootVar != "" {
 						isMounted[key] = true
 					}
@@ -545,7 +573,7 @@ func buildRoutePrefixIndex(pkgs map[string]*parsedPkg, modulePath string, pkgNam
 		if !ok {
 			continue
 		}
-		edges := analyzeRouterFunc(rf, w.seed, w.mounted, index, modulePath, fieldTypes)
+		edges := analyzeRouterFunc(rf, w.seed, w.mounted, index, modulePath, fieldTypes, consts, routerFields)
 		sort.Slice(edges, func(i, j int) bool {
 			if edges[i].callee != edges[j].callee {
 				return edges[i].callee < edges[j].callee

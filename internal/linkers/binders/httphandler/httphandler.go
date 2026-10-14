@@ -163,6 +163,7 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 	if bound > 0 {
 		log.Printf("[binder:http-handler] bound %d HTTP route(s) to their handler", bound)
 	}
+	settleTargets(store)
 	return nil
 }
 
@@ -184,7 +185,13 @@ func resolveExactHandlers(store *facts.Store, byFQN map[string]map[string]string
 		}
 		exact[key] = ""
 		for _, s := range store.ByName(name) {
-			if s.Kind == facts.KindSymbol && s.Repo == f.Repo && s.PropString("symbol_kind") == wantKind {
+			if s.Kind != facts.KindSymbol || s.Repo != f.Repo {
+				continue
+			}
+			// A handler target the extractor resolved names a function, or the method
+			// of the receiver the registration was written in.
+			kind := s.PropString("symbol_kind")
+			if kind == wantKind || (wantKind == facts.SymbolFunc && kind == facts.SymbolMethod && f.PropString(facts.PropHandlerTarget) == name) {
 				exact[key] = name
 				break
 			}

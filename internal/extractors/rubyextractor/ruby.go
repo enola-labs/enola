@@ -198,7 +198,8 @@ func (e *RubyExtractor) Extract(ctx context.Context, repoPath string, files []st
 
 	// Parse Rails route files.
 	if isRails {
-		routeFacts := extractAllRoutes(repoPath, files)
+		routeFacts, namespaceOf := extractAllRoutes(repoPath, files)
+		bindRouteHandlers(routeFacts, allFacts, namespaceOf)
 		allFacts = append(allFacts, routeFacts...)
 
 		assocFacts, assocUnresolved := extractAssociations(repoPath, files)

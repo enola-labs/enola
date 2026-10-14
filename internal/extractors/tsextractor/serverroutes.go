@@ -139,17 +139,21 @@ func extractServerRouteFacts(src []byte, relFile string) []facts.Fact {
 			continue
 		}
 		seen[key] = true
+		props := map[string]any{
+			facts.PropRole: facts.RoleServer,
+			"method":       verb,
+			"framework":    b.framework,
+			"language":     "typescript",
+		}
+		if handler := routeHandlerName(lastCallArgument(src, m[1])); handler != "" {
+			props["handler"] = handler
+		}
 		out = append(out, facts.Fact{
-			Kind: facts.KindRoute,
-			Name: full,
-			File: relFile,
-			Line: line,
-			Props: map[string]any{
-				facts.PropRole: facts.RoleServer,
-				"method":       verb,
-				"framework":    b.framework,
-				"language":     "typescript",
-			},
+			Kind:      facts.KindRoute,
+			Name:      full,
+			File:      relFile,
+			Line:      line,
+			Props:     props,
 			Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: dir}},
 		})
 	}

@@ -1,0 +1,205 @@
+package tsextractor
+
+import (
+	"testing"
+
+	"github.com/enola-labs/enola/internal/facts"
+)
+
+// routeHandlers returns "<METHOD> <path>" -> the handled_by target of each server
+// route, "" when the route has none.
+func routeHandlers(ff []facts.Fact) map[string]string {
+	out := map[string]string{}
+	for _, f := range ff {
+		if f.Kind != facts.KindRoute || f.PropString(facts.PropRole) != facts.RoleServer {
+			continue
+		}
+		target := ""
+		for _, r := range f.Relations {
+			if r.Kind == facts.RelHandledBy {
+				target = r.Target
+			}
+		}
+		out[f.PropString("method")+" "+f.Name] = target
+	}
+	return out
+}
+
+func wantHandlers(t *testing.T, got, want map[string]string) {
+	t.Helper()
+	for key, target := range want {
+		have, ok := got[key]
+		if !ok {
+			t.Errorf("no route %q; have %v", key, got)
+			continue
+		}
+		if have != target {
+			t.Errorf("%s handled_by = %q, want %q", key, have, target)
+		}
+	}
+}
+
+// The handler is the last argument. What precedes it is middleware, and a wrapper
+// around it is looked through.
+func TestServerRouteHandler_LastArgumentThroughAWrapper(t *testing.T) {
+	got := routeHandlers(extractAll(t, map[string]string{
+		"src/server.ts": `
+import express from "express";
+import { authenticate, asyncMiddleware } from "./middlewares.js";
+
+const app = express();
+
+app.get("/plain", listThings);
+app.post(
+  "/upload",
+  authenticate,
+  validate(uploadSchema),
+  asyncMiddleware(addThing)
+);
+app.get("/inline", authenticate, (req, res) => res.send("ok"));
+app.put("/schema", authenticate, validate(uploadSchema));
+
+function listThings(req, res) {}
+async function addThing(req, res) {}
+const uploadSchema = { title: "string" };
+`,
+		"src/middlewares.ts": `
+export function authenticate(req, res, next) {}
+export function asyncMiddleware(fn) { return fn }
+`,
+	}, false))
+	wantHandlers(t, got, map[string]string{
+		"GET /plain":   "src.listThings",
+		"POST /upload": "src.addThing",
+		"GET /inline":  "",
+		"PUT /schema":  "",
+	})
+}
+
+// A handler declared in another file is bound to its declaration there, on a router
+// that is itself mounted from a third file.
+func TestServerRouteHandler_ImportedHandlerOnAMountedRouter(t *testing.T) {
+	got := routeHandlers(extractAll(t, map[string]string{
+		"src/server.ts": `
+import express from "express";
+import { ordersRouter } from "./api/orders.js";
+
+const app = express();
+app.use("/api", ordersRouter);
+`,
+		"src/api/orders.ts": `
+import express from "express";
+import { listOrders } from "../handlers/index.js";
+
+const ordersRouter = express.Router();
+ordersRouter.get("/orders", listOrders);
+ordersRouter.get("/missing", notDeclaredAnywhere);
+
+export { ordersRouter };
+`,
+		"src/handlers/index.ts": `
+export * from "./orders.js";
+`,
+		"src/handlers/orders.ts": `
+export async function listOrders(req, res) {}
+`,
+	}, false))
+	wantHandlers(t, got, map[string]string{
+		"GET /api/orders":  "src/handlers.listOrders",
+		"GET /api/missing": "",
+	})
+}
+
+// A router that reaches its mount through a barrel composes like one imported
+// directly, whichever re-export form the barrel uses.
+func TestRouterMount_RouterImportedThroughABarrel(t *testing.T) {
+	got := serverRoutes(extractAll(t, map[string]string{
+		"server.ts": `
+import express from "express";
+import { apiRouter, feedsRouter } from "./controllers/index.js";
+
+const app = express();
+app.use("/api", apiRouter);
+app.use("/", feedsRouter);
+`,
+		"controllers/index.ts": `
+export * from "./api/index.js";
+export { feedsRouter } from "./feeds.js";
+`,
+		"controllers/api/index.ts": `
+import express from "express";
+const apiRouter = express.Router();
+apiRouter.get("/jobs", listJobs);
+export { apiRouter };
+`,
+		"controllers/feeds.ts": `
+import express from "express";
+const feedsRouter = express.Router();
+feedsRouter.get("/feeds/videos", videoFeeds);
+export { feedsRouter };
+`,
+	}, false))
+	for path, want := range map[string]string{"/api/jobs": "GET", "/feeds/videos": "GET"} {
+		if got[path] != want {
+			t.Errorf("%s: want %s, got %+v", path, want, got)
+		}
+	}
+}
+
+// A mount prefix that appends a constant resolves when the constant is a string
+// literal, in this file or in the one it is imported from, and not otherwise.
+func TestRouterMount_PrefixWithAStringConstant(t *testing.T) {
+	got := serverRoutes(extractAll(t, map[string]string{
+		"server.ts": `
+import express from "express";
+import { API_VERSION, computed } from "./constants.js";
+import { apiRouter } from "./api.js";
+import { otherRouter } from "./other.js";
+
+const app = express();
+app.use("/api/" + API_VERSION, apiRouter);
+app.use("/x/" + computed, otherRouter);
+`,
+		"constants.ts": `
+export const API_VERSION = 'v1'
+export const computed = process.env.PREFIX
+`,
+		"api.ts": `
+import express from "express";
+const apiRouter = express.Router();
+apiRouter.get("/jobs", listJobs);
+export { apiRouter };
+`,
+		"other.ts": `
+import express from "express";
+const otherRouter = express.Router();
+otherRouter.get("/things", listThings);
+export { otherRouter };
+`,
+	}, false))
+	if got["/api/v1/jobs"] != "GET" {
+		t.Errorf("the constant prefix did not compose: %+v", got)
+	}
+	for path := range got {
+		if path == "/things" || path == "/x/things" || path == "/x/computed/things" {
+			t.Errorf("a prefix that is not a string literal produced %s", path)
+		}
+	}
+}
+
+func TestLastCallArgument(t *testing.T) {
+	for _, tc := range []struct{ src, want string }{
+		{`r.get('/a', h)`, "h"},
+		{`r.get('/a', mw, wrap(h))`, "wrap(h)"},
+		{`r.get('/a', mw({ a: [1, 2] }), "x,)", h) // tail`, "h"},
+		{"r.get('/a', /* c, */ mw,\n  // d, e\n  h\n)", "h"},
+		{`r.get('/a')`, ""},
+		{`r.get('/a', h`, ""},
+	} {
+		// The scan starts where the route regexp stops: after the path literal.
+		from := len(`r.get('/a'`)
+		if got := lastCallArgument([]byte(tc.src), from); got != tc.want {
+			t.Errorf("%s: last argument = %q, want %q", tc.src, got, tc.want)
+		}
+	}
+}

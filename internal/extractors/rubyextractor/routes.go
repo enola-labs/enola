@@ -32,10 +32,10 @@ import (
 // and mounts; then the files those name, seeded with the prefix they were named under;
 // then anything left over at the root prefix, so a route file that is genuinely loaded
 // by a mechanism not modelled here still contributes its routes rather than vanishing.
-func extractAllRoutes(repoPath string, files []string) []facts.Fact {
+func extractAllRoutes(repoPath string, files []string) ([]facts.Fact, map[string]string) {
 	idx := indexRouteFiles(files)
 	if len(idx.all) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	readSrc := func(relFile string) ([]byte, bool) {
@@ -63,9 +63,14 @@ func extractAllRoutes(repoPath string, files []string) []facts.Fact {
 	var allFacts []facts.Fact
 	unresolvedMacros := map[string]int{}
 	parsed := map[string]bool{}
+	// namespaceOf maps a route file to the namespace its engine isolates. A file drawn
+	// by another has no engine of its own to name and takes the one that drew it.
+	namespaces := engineNamespaces(repoPath, files)
+	namespaceOf := map[string]string{}
 	// parse reads relFile under prefix, recording it as done. Returns what it learned so
-	// the caller can follow the delegations and mounts it declares.
-	parse := func(relFile, prefix string) (draws map[string]string, mounts []routeMount) {
+	// the caller can follow the delegations and mounts it declares. drawnBy is the file
+	// that delegated to this one, or "".
+	parse := func(relFile, prefix, drawnBy string) (draws map[string]string, mounts []routeMount) {
 		if parsed[relFile] {
 			return nil, nil
 		}
@@ -77,6 +82,11 @@ func extractAllRoutes(repoPath string, files []string) []facts.Fact {
 		ff, res := parseRouteFile(src, relFile, prefix, jsonapi)
 		allFacts = append(allFacts, ff...)
 		mergeCounts(unresolvedMacros, res.unresolved)
+		if ns := namespaces[res.drawOn]; ns != "" {
+			namespaceOf[relFile] = ns
+		} else if ns := namespaceOf[drawnBy]; ns != "" {
+			namespaceOf[relFile] = ns
+		}
 		return res.draws, res.mounts
 	}
 
@@ -84,7 +94,7 @@ func extractAllRoutes(repoPath string, files []string) []facts.Fact {
 	var pendingDraws map[string]string
 	var pendingMounts []routeMount
 	if idx.appRoot != "" {
-		pendingDraws, pendingMounts = parse(idx.appRoot, "")
+		pendingDraws, pendingMounts = parse(idx.appRoot, "", "")
 	}
 
 	// Pass 2: follow draw(:pkg) delegations transitively — a delegated file may itself
@@ -97,7 +107,7 @@ func extractAllRoutes(repoPath string, files []string) []facts.Fact {
 		for _, key := range sortedDrawKeys(pendingDraws) {
 			prefix := pendingDraws[key]
 			for _, target := range idx.drawTargets[key] {
-				draws, mounts := parse(target, prefix)
+				draws, mounts := parse(target, prefix, "")
 				for k, v := range draws {
 					if _, seen := next[k]; !seen {
 						next[k] = v
@@ -121,18 +131,18 @@ func extractAllRoutes(repoPath string, files []string) []facts.Fact {
 		if !ok {
 			continue
 		}
-		draws, mounts := parse(target, m.prefix)
+		draws, mounts := parse(target, m.prefix, "")
 		// An engine may draw and mount in turn; one extra level covers the real cases
 		// (an engine mounting a sub-engine) without an unbounded fixpoint.
 		for _, key := range sortedDrawKeys(draws) {
 			for _, t := range idx.drawTargets[key] {
-				parse(t, draws[key])
+				parse(t, draws[key], target)
 			}
 		}
 		for _, sub := range mounts {
 			if d, ok := constants[normalizeConstant(sub.constant)]; ok {
 				if t, ok := idx.engineRoots[d]; ok {
-					parse(t, sub.prefix)
+					parse(t, sub.prefix, "")
 				}
 			}
 		}
@@ -142,13 +152,13 @@ func extractAllRoutes(repoPath string, files []string) []facts.Fact {
 	// site is in a file enola cannot see (a plugin loader, an initializer) still serves
 	// its routes; recording them un-prefixed is closer to the truth than recording none.
 	for _, relFile := range idx.all {
-		parse(relFile, "")
+		parse(relFile, "", "")
 	}
 
 	if fact, ok := routeCoverageFact(repoPath, len(allFacts), unresolvedMacros); ok {
 		allFacts = append(allFacts, fact)
 	}
-	return allFacts
+	return allFacts, namespaceOf
 }
 
 // sortedDrawKeys returns m's keys in sorted order, so route emission is deterministic.

@@ -31,6 +31,8 @@ type routeFileResult struct {
 	// could not expand, keyed by macro name, so the coverage fact can account for
 	// them rather than letting the absence read as "no routes here".
 	unresolved map[string]int
+	// drawOn is the engine class the file draws its routes on, or "".
+	drawOn string
 }
 
 // parseRouteFile parses a Rails route file, seeding the scope stack with
@@ -59,7 +61,7 @@ func parseRouteFile(src []byte, relFile, initialPrefix string, jsonapi jsonapiCo
 		jsonapi:   jsonapi,
 	}
 	rw.walk(tree.RootNode(), stack)
-	return rw.out, routeFileResult{draws: rw.draws, mounts: rw.mounts, unresolved: rw.unhandled}
+	return rw.out, routeFileResult{draws: rw.draws, mounts: rw.mounts, unresolved: rw.unhandled, drawOn: rw.drawOn}
 }
 
 type routeWalker struct {
@@ -88,6 +90,9 @@ type routeWalker struct {
 	// this repository formats route segments, why it could not be read when it
 	// could not, and the resolver from declaration to resource class.
 	jsonapi jsonapiContext
+	// drawOn is the constant this file's `X.routes.draw` is called on: the engine
+	// class, for an engine's route file.
+	drawOn string
 }
 
 // routeWrappers are macros that take a block and *contain* routes rather than
@@ -477,6 +482,10 @@ func (rw *routeWalker) handleCall(call *sitter.Node, stack []routeScope) {
 			}
 			if qualifiedController != "" {
 				resourceProps["handler"] = qualifiedController + "#" + a.name
+			} else if singular && !given && !jsonapi {
+				// Offered to bindRouteHandlers, which keeps it only when the
+				// controller it names is declared.
+				resourceProps[singularCandidateProp] = composeController(pluralize(name), mod, false) + "#" + a.name
 			}
 			rw.emit(routePath, line(call), resourceProps)
 		}
@@ -694,6 +703,9 @@ func (rw *routeWalker) handleCall(call *sitter.Node, stack []routeScope) {
 		// engine routers, etc.) — recurse into the block. `draw(:pkg)` with no
 		// block is a packwerk delegation — emit a DRAW route.
 		if body != nil {
+			if rw.drawOn == "" {
+				rw.drawOn = drawReceiver(call, rw.src)
+			}
 			rw.walk(body, stack)
 			return
 		}
@@ -734,8 +746,9 @@ func (rw *routeWalker) handleCall(call *sitter.Node, stack []routeScope) {
 }
 
 // emit appends a route fact with a declares relation to the file's directory, plus a
-// handled_by relation to the controller action serving it when the handler resolves to
-// one. That second edge is what makes a Rails route reachable from its controller:
+// handled_by relation to the controller action its handler names. bindRouteHandlers
+// settles that relation against the repository's symbols afterwards and removes it
+// when it names none. That second edge is what makes a Rails route reachable from its controller:
 // without it a route is an isolated node, impact analysis from a controller cannot see
 // the endpoints it serves, and a controller referenced only by the route table looks
 // like dead code.

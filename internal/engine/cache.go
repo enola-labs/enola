@@ -2839,7 +2839,34 @@ import (
 // Combo("/p").Get(h).Post(mw, h) is one route per verb; a router one function builds
 // and another attaches with Mount("/api/v1", pkg.Routes()) is served under that path;
 // a chi verb with a path and no handler is not a route.
-const cacheVersion = "v336"
+// v337: a Rails route's handled_by names a declared symbol or is not emitted. The
+// handler is looked for inside the namespace its engine isolates, on the ancestors
+// of its controller when the action is inherited, and under the one class whose name
+// differs only in casing (an acronym inflection). A singular resource is bound to the
+// pluralized controller when that controller is declared.
+// v338: a call-registered server route (Express, Fastify, Hono, Koa) names its
+// handler, the last argument or the function a wrapper around it is given, and is
+// bound to it when it is a function the file declares or imports. A router that
+// reaches its mount through a barrel (`export * from`, `export { r } from`) composes,
+// and so does a mount whose prefix appends a string constant.
+// v339: an axum or utoipa route is bound to its handler: a bare name to the function
+// of the route's file, or the only one of that name in the crate, and a path to the
+// function in the module the path ends in. A router built inside a #[cfg(test)]
+// module is not a route.
+// v340: Go routes on a path group, g.MatchPath("GET,HEAD", "/<name:*>", mw, h) under
+// m.PathGroup("/p/*", func ...), are read, one per method. A group or mount path
+// held in a string constant or a local string variable is read as written there. A
+// verb's pattern with no leading slash gets one when it is written on the router
+// itself. A path written as a raw string no longer keeps its backticks.
+// v341: a module's own router package that imports no framework is recognized by its
+// verbs (three of Get/Post/Put/Delete/Patch taking a pattern and handlers), and the
+// files that import it are read chi-style, on known routers only: a parameter or a
+// struct field of one of its router types, a group literal's parameter, a variable
+// assigned from one. A handler written `wrap(h.M)` names h.M, and a method value on
+// the enclosing method's receiver resolves to that method.
+// v342: a Nuxt or SvelteKit page route is bound to the component its file declares,
+// and a SvelteKit page also to the load in the +page.server or +page file beside it.
+const cacheVersion = "v342"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
