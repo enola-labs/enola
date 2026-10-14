@@ -2866,7 +2866,26 @@ import (
 // the enclosing method's receiver resolves to that method.
 // v342: a Nuxt or SvelteKit page route is bound to the component its file declares,
 // and a SvelteKit page also to the load in the +page.server or +page file beside it.
-const cacheVersion = "v342"
+// v343: a Ruby call is resolved to the method it reaches where one declared method
+// fits: a call on self to the caller's class or the ancestor declaring it, a constant
+// from the caller's namespace outward, and `Const.new.call` / `new(...).call` /
+// `new.call` to the instance method of the class built.
+// v344: a static call on one of a Laravel application's own facades is resolved to the
+// method of the class its key is bound to in a service provider, by bind/singleton or
+// a $bindings/$singletons array entry.
+// v345: a TypeScript call on a namespace import of this repository's module,
+// `import * as api from '$lib/api'; api.get()`, is a call of the enclosing function
+// to "<moduleDir>.get"; it was only a file-level reference.
+// v346: a TypeScript method call on a local built with `new C(...)`, or on a local or
+// parameter annotated with a class, names C's method when C is imported or declared
+// in the file.
+// v347: a function a command-line command runs carries a `command` prop, "<program>
+// <name>": Go string-keyed dispatch on an argument (nested dispatch as subcommands),
+// cobra and urfave/cli command literals, and Python click and typer `.command()`.
+// v348: an MCP tool's handler carries a `tool` prop and framework_registered. In Go a
+// handler passed to AddTool as a literal is given a symbol "<pkg>.tool:<name>" with the
+// literal's calls; in Python a function under @x.tool(...) or an imported @tool(...).
+const cacheVersion = "v348"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

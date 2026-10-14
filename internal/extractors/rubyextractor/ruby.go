@@ -274,6 +274,10 @@ func (e *RubyExtractor) Extract(ctx context.Context, repoPath string, files []st
 		allFacts = append(allFacts, ff...)
 	}
 
+	// Calls on self, on a new instance and on a namespaced constant reach the method
+	// they name only once every class is known.
+	resolveRubyCalls(allFacts)
+
 	// Resolve constant references (inheritance, mixins, associations, calls),
 	// require_relative paths, and Packwerk dependencies into internal module
 	// coupling edges. Without this, Ruby imports never match module Names

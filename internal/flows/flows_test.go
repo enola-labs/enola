@@ -467,3 +467,160 @@ func TestAnalyze_ACallbackIsNotAnEntry(t *testing.T) {
 		t.Errorf("flows = %v, roots = %v", names(a), a.Roots)
 	}
 }
+
+// method is sym for a method of a type, and iface for an interface.
+func method(name, file string, calls ...string) facts.Fact {
+	f := sym(name, file, calls...)
+	f.Props["symbol_kind"] = facts.SymbolMethod
+	return f
+}
+
+func typ(name, file, kind string, implements ...string) facts.Fact {
+	f := facts.Fact{Kind: facts.KindSymbol, Name: name, Repo: "shop", File: file, Line: 1,
+		Props: map[string]any{"symbol_kind": kind}}
+	for _, i := range implements {
+		f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelImplements, Target: i})
+	}
+	return f
+}
+
+// A call through an interface goes on into the class implementing it, and stops at
+// an interface with more implementations than one path describes.
+func TestAnalyze_CallThroughAnInterfaceReachesItsImplementation(t *testing.T) {
+	ff := []facts.Fact{
+		route("POST", "/login", "api.UserController.Login"),
+		method("api.UserController.Login", "api/user.cs", "core.ISessions.Authenticate", "core.ILog.Write"),
+		typ("core.ISessions", "core/isessions.cs", facts.SymbolInterface),
+		method("core.ISessions.Authenticate", "core/isessions.cs"),
+		typ("impl.Sessions", "impl/sessions.cs", facts.SymbolClass, "core.ISessions"),
+		method("impl.Sessions.Authenticate", "impl/sessions.cs", "impl.Sessions.Store"),
+		method("impl.Sessions.Store", "impl/sessions.cs"),
+		typ("core.ILog", "core/ilog.cs", facts.SymbolInterface),
+		method("core.ILog.Write", "core/ilog.cs"),
+	}
+	for _, n := range []string{"A", "B", "C", "D"} {
+		ff = append(ff, typ("logs."+n, "logs/"+n+".cs", facts.SymbolClass, "core.ILog"),
+			method("logs."+n+".Write", "logs/"+n+".cs"))
+	}
+	a := analyze(ff...)
+	if len(a.Flows) != 1 {
+		t.Fatalf("flows = %v", names(a))
+	}
+	if got := a.Flows[0].Metrics.Reach; got != 5 {
+		t.Errorf("reach = %d, want 5: the handler, both interface methods, the implementation and what it calls; no logger", got)
+	}
+}
+
+// A command of a command-line program is an entry named the way a user types it.
+func TestAnalyze_ACommandIsAnEntryNamedByItsCommand(t *testing.T) {
+	check := sym("pkg/command.Runner.Check", "pkg/command/check.go", "pkg/command.verdict")
+	check.Props["symbol_kind"] = facts.SymbolMethod
+	check.Props["command"] = "enola check"
+	a := analyze(
+		check,
+		sym("pkg/command.verdict", "pkg/command/check.go"),
+	)
+	if got := names(a); !reflect.DeepEqual(got, []string{"enola check"}) {
+		t.Fatalf("flows = %v, want [enola check]", got)
+	}
+	if a.Flows[0].Mechanism != MechanismCommand {
+		t.Errorf("mechanism = %q, want %q", a.Flows[0].Mechanism, MechanismCommand)
+	}
+}
+
+// In a program that serves routes, a command ranks after the routes however much it
+// reaches. In one that serves none, commands rank by reach like any entry.
+func TestAnalyze_CommandsRankAfterTheRoutesOfAServer(t *testing.T) {
+	web := sym("cmd.runWeb", "cmd/web.go", "web.a", "web.b", "web.c")
+	web.Props["command"] = "app web"
+	a := analyze(
+		web,
+		sym("web.a", "web/a.go"), sym("web.b", "web/b.go"), sym("web.c", "web/c.go"),
+		route("GET", "/items", "api.list"),
+		sym("api.list", "api/list.go", "db.query"),
+		sym("db.query", "db/query.go"),
+	)
+	if got := names(a); !reflect.DeepEqual(got, []string{"GET /items", "app web"}) {
+		t.Errorf("flows = %v, want the route before the larger command", got)
+	}
+
+	check := sym("cmd.check", "cmd/check.go", "core.a", "core.b")
+	check.Props["command"] = "tool check"
+	list := sym("cmd.list", "cmd/list.go", "core.a")
+	list.Props["command"] = "tool list"
+	a = analyze(check, list, sym("core.a", "core/a.go"), sym("core.b", "core/b.go"))
+	if got := names(a); !reflect.DeepEqual(got, []string{"tool check", "tool list"}) {
+		t.Errorf("flows = %v, want commands by reach in a program with no routes", got)
+	}
+}
+
+func widget(name, file, role string, rels ...facts.Relation) facts.Fact {
+	f := typ(name, file, facts.SymbolClass)
+	f.Props["flutter_role"] = role
+	f.Relations = append(f.Relations, rels...)
+	return f
+}
+
+func instantiates(target string) facts.Relation {
+	return facts.Relation{Kind: facts.RelInstantiates, Target: target}
+}
+
+// A page widget a route names is entered through its methods. A stateful one builds
+// its state class, and a widget built inside another is walked too; a plain class
+// that is constructed is not.
+func TestAnalyze_AWidgetPageIsWalkedThroughItsMethods(t *testing.T) {
+	build := method("lib/screens.SettingsScreen.createState", "lib/screens/settings.dart")
+	build.Relations = append(build.Relations, instantiates("lib/screens._SettingsState"))
+	stateBuild := method("lib/screens._SettingsState.build", "lib/screens/settings.dart", "lib/core.load")
+	stateBuild.Relations = append(stateBuild.Relations, instantiates("lib/widgets.Toggle"), instantiates("lib/core.Options"))
+	a := analyze(
+		route("GET", "/settings", "lib/screens.SettingsScreen"),
+		widget("lib/screens.SettingsScreen", "lib/screens/settings.dart", "widget"),
+		build,
+		widget("lib/screens._SettingsState", "lib/screens/settings.dart", "widget_state"),
+		stateBuild,
+		sym("lib/core.load", "lib/core/load.dart"),
+		widget("lib/widgets.Toggle", "lib/widgets/toggle.dart", "widget"),
+		method("lib/widgets.Toggle.build", "lib/widgets/toggle.dart"),
+		typ("lib/core.Options", "lib/core/options.dart", facts.SymbolClass),
+		method("lib/core.Options.parse", "lib/core/options.dart"),
+	)
+	if len(a.Flows) != 1 {
+		t.Fatalf("flows = %v", names(a))
+	}
+	// The page, createState, the state class, its build, load, Toggle and its build.
+	if got := a.Flows[0].Metrics.Reach; got != 7 {
+		t.Errorf("reach = %d, want 7: through the state class into Toggle, and not into Options", got)
+	}
+}
+
+// A type a platform starts is an entry, walked through its own calls and its methods.
+// A class implementing some other type is not.
+func TestAnalyze_ATypeAPlatformStartsIsAnEntry(t *testing.T) {
+	activity := typ("app.MainActivity", "app/MainActivity.kt", facts.SymbolClass, "ComponentActivity")
+	activity.Props["language"] = "kotlin"
+	onCreate := method("app.MainActivity.onCreate", "app/MainActivity.kt", "ui.render")
+	swiftApp := typ("App/iOS.IsowordsApp", "App/iOS/App.swift", facts.SymbolStruct, "App")
+	swiftApp.Props["language"] = "swift"
+	swiftApp.Relations = append(swiftApp.Relations, facts.Relation{Kind: facts.RelCalls, Target: "ui.render"})
+	other := typ("app.Repo", "app/Repo.kt", facts.SymbolClass, "Repository")
+	other.Props["language"] = "kotlin"
+	a := analyze(
+		activity, onCreate, swiftApp, other,
+		method("app.Repo.load", "app/Repo.kt", "ui.render"),
+		sym("ui.render", "ui/render.kt", "ui.draw"),
+		sym("ui.draw", "ui/draw.kt"),
+	)
+	got := map[string]string{}
+	for _, f := range a.Flows {
+		got[f.Name] = f.Mechanism
+	}
+	for _, want := range []string{"app.MainActivity", "App/iOS.IsowordsApp"} {
+		if got[want] != MechanismApp {
+			t.Errorf("flows = %v, want %s as an app entry", got, want)
+		}
+	}
+	if _, ok := got["app.Repo"]; ok {
+		t.Errorf("flows = %v: a class implementing a repository type is no entry", got)
+	}
+}

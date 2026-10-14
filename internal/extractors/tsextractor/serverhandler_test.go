@@ -1,6 +1,8 @@
 package tsextractor
 
 import (
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/enola-labs/enola/internal/facts"
@@ -200,6 +202,87 @@ func TestLastCallArgument(t *testing.T) {
 		from := len(`r.get('/a'`)
 		if got := lastCallArgument([]byte(tc.src), from); got != tc.want {
 			t.Errorf("%s: last argument = %q, want %q", tc.src, got, tc.want)
+		}
+	}
+}
+
+// A call on a namespace import names the module's export, and it is a call of the
+// function that makes it, not only a reference of the file.
+func TestNamespaceImportCall_NamesTheExport(t *testing.T) {
+	ff := extractAll(t, map[string]string{
+		"src/routes/load.ts": `import * as api from '../lib/api';
+import * as path from 'node:path';
+
+export async function load(token: string) {
+	const tags = await api.get('tags', token);
+	return path.join('a', tags);
+}
+`,
+		"src/lib/api.ts": `export function get(p: string, token?: string) { return p }
+`,
+	}, false)
+	var calls []string
+	for _, f := range ff {
+		if f.Kind == facts.KindSymbol && f.Name == "src/routes.load" {
+			for _, r := range f.Relations {
+				if r.Kind == facts.RelCalls {
+					calls = append(calls, r.Target)
+				}
+			}
+		}
+	}
+	if !slices.Contains(calls, "src/lib.get") {
+		t.Errorf("load calls %v, want src/lib.get", calls)
+	}
+	for _, c := range calls {
+		if strings.HasPrefix(c, "node:path") || strings.HasSuffix(c, ".join") {
+			t.Errorf("load calls %v: a package namespace names no fact here", calls)
+		}
+	}
+}
+
+// A method called on a local built with `new`, or on a parameter annotated with a
+// class, names that class's method. A global type names nothing.
+func TestLocalTypes_NewAndAnnotatedParameters(t *testing.T) {
+	ff := extractAll(t, map[string]string{
+		"src/upload.ts": `import { LocalVideoCreator } from './lib/creator';
+import { VideoService } from './lib/service';
+
+export async function addVideo(svc: VideoService, res: Response) {
+	const creator = new LocalVideoCreator({ path: 'x' });
+	const { video } = await creator.create();
+	await svc.publish(video);
+	return res.json(video);
+}
+`,
+		"src/lib/creator.ts": `export class LocalVideoCreator {
+	constructor(private opts: object) {}
+	async create() { return { video: 1 } }
+}
+`,
+		"src/lib/service.ts": `export class VideoService {
+	async publish(v: number) {}
+}
+`,
+	}, false)
+	var calls []string
+	for _, f := range ff {
+		if f.Kind == facts.KindSymbol && f.Name == "src.addVideo" {
+			for _, r := range f.Relations {
+				if r.Kind == facts.RelCalls {
+					calls = append(calls, r.Target)
+				}
+			}
+		}
+	}
+	for _, want := range []string{"src/lib.LocalVideoCreator.create", "src/lib.VideoService.publish"} {
+		if !slices.Contains(calls, want) {
+			t.Errorf("addVideo calls %v, want %q", calls, want)
+		}
+	}
+	for _, c := range calls {
+		if strings.Contains(c, "Response") {
+			t.Errorf("addVideo calls %v: the global Response names no fact", calls)
 		}
 	}
 }

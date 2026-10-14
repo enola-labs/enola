@@ -26,6 +26,15 @@ const (
 	MechanismRoute      = "route"
 	MechanismMain       = "main"
 	MechanismRegistered = "registered"
+	// MechanismCommand is a command of a command-line program, `enola check`: the
+	// function an extractor found it runs carries the command as a prop.
+	MechanismCommand = "command"
+	// MechanismTool is a tool an MCP server serves: the function its registration
+	// hands the call to carries the tool's name as a prop. The flow is "tool <name>".
+	MechanismTool = "tool"
+	// MechanismApp is a type a platform starts: an Android activity, a SwiftUI App,
+	// a XAML Application. Apps written this way have no main of their own.
+	MechanismApp = "app"
 
 	// mechanismCallback is the framework-roots mechanism that is not an entry.
 	mechanismCallback = "callback"
@@ -143,6 +152,11 @@ type Analysis struct {
 	nodes []node
 	index map[[2]string]int32
 	opts  Options
+	// ifaces is built the first time the walk reaches an interface method.
+	ifaces *dispatchIndex
+	// entries holds the entry nodes, so a class entered directly is walked through
+	// its methods.
+	entries map[int32]bool
 }
 
 // node is one symbol of the call graph. Same-named symbols of one repository
@@ -178,6 +192,10 @@ func Analyze(src Source, opts Options) *Analysis {
 	}
 	a := &Analysis{Roots: map[string]int{}, src: src, index: map[[2]string]int32{}, opts: opts}
 	roots := a.findRoots()
+	a.entries = make(map[int32]bool, len(roots))
+	for id := range roots {
+		a.entries[id] = true
+	}
 
 	entries := make([]int32, 0, len(roots))
 	for id := range roots {
@@ -208,12 +226,25 @@ func Analyze(src Source, opts Options) *Analysis {
 
 	a.nameApart()
 	a.markNested()
+	// In a program that serves routes, its commands are how it is run and kept, and
+	// its routes are what it does: `gitea web` starts the server every route runs in,
+	// and `superset load-examples` touches every model. They rank after its routes.
+	serves := map[string]bool{}
+	for _, f := range a.Flows {
+		if f.Mechanism == MechanismRoute {
+			serves[f.Repo] = true
+		}
+	}
+	behindRoutes := func(f Flow) bool { return f.Mechanism == MechanismCommand && serves[f.Repo] }
 	sort.SliceStable(a.Flows, func(i, j int) bool {
 		x, y := a.Flows[i], a.Flows[j]
 		// The program first. An example that reaches more than the product does
 		// is still an example.
 		if x.Side != y.Side {
 			return !x.Side
+		}
+		if bx, by := behindRoutes(x), behindRoutes(y); bx != by {
+			return !bx
 		}
 		if x.Metrics.Reach != y.Metrics.Reach {
 			return x.Metrics.Reach > y.Metrics.Reach
@@ -380,11 +411,20 @@ func (a *Analysis) expand(id int32) {
 			io = true
 		}
 		for _, rel := range f.Relations {
-			if rel.Kind != facts.RelCalls {
+			instantiates := rel.Kind == facts.RelInstantiates
+			if rel.Kind != facts.RelCalls && !instantiates {
 				continue
 			}
 			// nodeFor may grow a.nodes, so nothing holds a pointer into it here.
 			target, ok := a.nodeFor(f.Repo, rel.Target)
+			if instantiates {
+				// A constructed Flutter widget is put on screen; any other
+				// construction is not a call the walk follows.
+				if ok && a.isFlutterClass(target) && target != id && !containsUnsorted(callees, target) {
+					callees = append(callees, target)
+				}
+				continue
+			}
 			if !ok {
 				unresolved++
 				continue
@@ -392,6 +432,18 @@ func (a *Analysis) expand(id int32) {
 			if target != id && !containsUnsorted(callees, target) {
 				callees = append(callees, target)
 			}
+		}
+	}
+	// A class entered directly, or driven by Flutter, runs through its methods.
+	for _, m := range a.classMembers(id) {
+		if !containsUnsorted(callees, m) {
+			callees = append(callees, m)
+		}
+	}
+	// An interface method has no calls of its own; what runs is its implementation.
+	for _, impl := range a.implementations(id) {
+		if !containsUnsorted(callees, impl) {
+			callees = append(callees, impl)
 		}
 	}
 	sort.Slice(callees, func(i, j int) bool { return a.less(callees[i], callees[j]) })
@@ -484,10 +536,19 @@ func (a *Analysis) findRoots() map[int32]*root {
 func entryMechanism(f facts.Fact) string {
 	switch f.PropString("symbol_kind") {
 	case facts.SymbolFunc, facts.SymbolMethod:
+	case facts.SymbolClass, facts.SymbolStruct:
+		if startsApp(f) {
+			return MechanismApp
+		}
+		return ""
 	default:
 		return ""
 	}
 	switch root := f.PropString(facts.PropFrameworkRoot); {
+	case f.PropString("command") != "":
+		return MechanismCommand
+	case f.PropString("tool") != "":
+		return MechanismTool
 	case root == mechanismCallback:
 		// A callback runs inside a request some route already entered. It is a
 		// step of that flow, not a way into the program.
@@ -571,6 +632,10 @@ func (a *Analysis) newFlow(id int32, r *root, reach []int32, depth int, truncate
 	}
 	if len(r.routes) > 0 {
 		f.Name = routeLabel(r.routes[0])
+	} else if c := a.nodes[id].fact.PropString("command"); c != "" && r.mechanism == MechanismCommand {
+		f.Name = c
+	} else if t := a.nodes[id].fact.PropString("tool"); t != "" && r.mechanism == MechanismTool {
+		f.Name = "tool " + t
 	}
 	perModule := map[string]int{}
 	for _, member := range reach {

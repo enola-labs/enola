@@ -33,6 +33,30 @@ import (
 // test functions that assert the behavior that version introduced. v1 is the
 // implicit baseline (no changelog line), so coverage starts at v2.
 var versionCoverage = map[int][]string{
+	348: {
+		"TestTools_MCPAddTool",
+		"TestTools_DecoratedFunctions",
+	},
+	347: {
+		"TestCommands_StringKeyedDispatch",
+		"TestCommands_CobraAndUrfaveLiterals",
+		"TestCommands_ClickAndTyper",
+		"TestAnalyze_ACommandIsAnEntryNamedByItsCommand",
+		"TestAnalyze_CommandsRankAfterTheRoutesOfAServer",
+	},
+	346: {
+		"TestLocalTypes_NewAndAnnotatedParameters",
+	},
+	345: {
+		"TestNamespaceImportCall_NamesTheExport",
+	},
+	344: {
+		"TestFacadeCalls_ReachTheBoundClass",
+	},
+	343: {
+		"TestRubyCalls_ServiceObjectOnANewInstance",
+		"TestRubyCalls_InheritedMethodAndNamespacedConstant",
+	},
 	342: {
 		"TestFileRoutes_NuxtPageBoundToItsComponent",
 		"TestFileRoutes_SvelteKitPageBoundToComponentAndLoad",

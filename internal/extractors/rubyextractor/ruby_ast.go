@@ -2081,6 +2081,12 @@ func (w *rubyWalker) callTarget(node *sitter.Node) string {
 		return ""
 	}
 
+	// `new.call(*args)` inside a class method: `new` without parentheses parses as an
+	// identifier, and is the same new instance as `new(...).call`.
+	if kindOf(recv) == "identifier" && rubyText(recv, w.src) == "new" {
+		return "#" + methodName
+	}
+
 	switch kindOf(recv) {
 	case "constant", "scope_resolution":
 		return rubyText(recv, w.src) + "." + methodName
@@ -2099,6 +2105,19 @@ func (w *rubyWalker) callTarget(node *sitter.Node) string {
 			return rubyText(recv, w.src) + "." + methodName
 		}
 	case "call":
+		// `PostStatusService.new.call(...)` calls an instance method of the class it
+		// builds, and `new(...).call` inside a class one of its own class. The
+		// constant and the method are kept together, "PostStatusService#call" and
+		// "#call", for resolveRubyCalls to settle; written as "new.call" they name
+		// nothing.
+		if inner := recv.ChildByFieldName("method"); inner != nil && rubyText(inner, w.src) == "new" {
+			switch innerRecv := recv.ChildByFieldName("receiver"); {
+			case innerRecv == nil:
+				return "#" + methodName
+			case kindOf(innerRecv) == "constant" || kindOf(innerRecv) == "scope_resolution":
+				return stripLeadingColons(rubyText(innerRecv, w.src)) + "#" + methodName
+			}
+		}
 		// `self.class.perform_when_readonly?`: the inner call is `self.class`
 		// (receiver kind "self", method "class"). Emit the OUTER method name, bare.
 		// No args-gate: the receiver is provably the class, so the name is provably
