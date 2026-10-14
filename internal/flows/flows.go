@@ -32,6 +32,9 @@ const (
 	// MechanismTool is a tool an MCP server serves: the function its registration
 	// hands the call to carries the tool's name as a prop. The flow is "tool <name>".
 	MechanismTool = "tool"
+	// MechanismApp is a type a platform starts: an Android activity, a SwiftUI App,
+	// a XAML Application. Apps written this way have no main of their own.
+	MechanismApp = "app"
 
 	// mechanismCallback is the framework-roots mechanism that is not an entry.
 	mechanismCallback = "callback"
@@ -533,6 +536,11 @@ func (a *Analysis) findRoots() map[int32]*root {
 func entryMechanism(f facts.Fact) string {
 	switch f.PropString("symbol_kind") {
 	case facts.SymbolFunc, facts.SymbolMethod:
+	case facts.SymbolClass, facts.SymbolStruct:
+		if startsApp(f) {
+			return MechanismApp
+		}
+		return ""
 	default:
 		return ""
 	}

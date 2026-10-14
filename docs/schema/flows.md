@@ -121,6 +121,7 @@ share is at least 5% of the flow.
 | `registered` | a function or method an extractor marked `framework_registered` |
 | `command` | the function a command-line command runs, which an extractor marked with a `command` prop. The flow is named by the command, `enola check`. In a repository that serves routes, command flows rank after its route flows |
 | `tool` | the handler of a tool an MCP server registers, which an extractor marked with a `tool` prop. A handler written as a function literal is given a symbol of its own. The flow is named `tool <name>` |
+| `app` | a class or struct a platform starts, recognized by what it implements: an Android `Activity`, `Application` or `BroadcastReceiver`, a SwiftUI `App` or an application delegate, a XAML `Application`. It is walked through its own calls and its methods |
 | `job`, `mailer`, `hook`, `task` | a method a framework invokes, as the `root` prop records it |
 
 A `root` of `callback` is not an entry: a callback runs inside a request a route

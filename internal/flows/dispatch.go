@@ -118,7 +118,7 @@ var flutterRoles = map[string]bool{"widget": true, "widget_state": true}
 // an entry or a Flutter class, and nothing for anything else.
 func (a *Analysis) classMembers(id int32) []int32 {
 	f := a.nodes[id].fact
-	if f.PropString("symbol_kind") != facts.SymbolClass {
+	if k := f.PropString("symbol_kind"); k != facts.SymbolClass && k != facts.SymbolStruct {
 		return nil
 	}
 	if !a.entries[id] && !flutterRoles[f.PropString("flutter_role")] {
@@ -137,4 +137,39 @@ func (a *Analysis) classMembers(id int32) []int32 {
 func (a *Analysis) isFlutterClass(id int32) bool {
 	f := a.nodes[id].fact
 	return f.PropString("symbol_kind") == facts.SymbolClass && flutterRoles[f.PropString("flutter_role")]
+}
+
+// Apps a platform starts.
+//
+// An Android app, an iOS app and a WinUI or Avalonia app have no main: the platform
+// constructs a type and calls its lifecycle methods. That type is recognized by what
+// it implements, per language, and is an entry walked through its methods.
+
+// appBases are the types whose implementers a platform starts, by language.
+var appBases = map[string]map[string]bool{
+	// Android's Service is left out: `Service` is the name of half the interfaces of
+	// any JVM codebase, Hive's among them.
+	"kotlin": {"Activity": true, "ComponentActivity": true, "AppCompatActivity": true, "FragmentActivity": true,
+		"Application": true, "BroadcastReceiver": true},
+	"java": {"Activity": true, "ComponentActivity": true, "AppCompatActivity": true, "FragmentActivity": true,
+		"Application": true, "BroadcastReceiver": true},
+	"swift":  {"App": true, "UIApplicationDelegate": true, "NSApplicationDelegate": true},
+	"csharp": {"Application": true},
+	// A XAML application's class is declared by its App.xaml as well as its code.
+	"xaml": {"Application": true},
+}
+
+// startsApp reports whether a platform starts a type: it implements one of its
+// language's application or activity types.
+func startsApp(f facts.Fact) bool {
+	bases := appBases[f.PropString("language")]
+	if bases == nil {
+		return false
+	}
+	for _, r := range f.Relations {
+		if r.Kind == facts.RelImplements && bases[r.Target[strings.LastIndexByte(r.Target, '.')+1:]] {
+			return true
+		}
+	}
+	return false
 }

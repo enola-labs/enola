@@ -593,3 +593,34 @@ func TestAnalyze_AWidgetPageIsWalkedThroughItsMethods(t *testing.T) {
 		t.Errorf("reach = %d, want 7: through the state class into Toggle, and not into Options", got)
 	}
 }
+
+// A type a platform starts is an entry, walked through its own calls and its methods.
+// A class implementing some other type is not.
+func TestAnalyze_ATypeAPlatformStartsIsAnEntry(t *testing.T) {
+	activity := typ("app.MainActivity", "app/MainActivity.kt", facts.SymbolClass, "ComponentActivity")
+	activity.Props["language"] = "kotlin"
+	onCreate := method("app.MainActivity.onCreate", "app/MainActivity.kt", "ui.render")
+	swiftApp := typ("App/iOS.IsowordsApp", "App/iOS/App.swift", facts.SymbolStruct, "App")
+	swiftApp.Props["language"] = "swift"
+	swiftApp.Relations = append(swiftApp.Relations, facts.Relation{Kind: facts.RelCalls, Target: "ui.render"})
+	other := typ("app.Repo", "app/Repo.kt", facts.SymbolClass, "Repository")
+	other.Props["language"] = "kotlin"
+	a := analyze(
+		activity, onCreate, swiftApp, other,
+		method("app.Repo.load", "app/Repo.kt", "ui.render"),
+		sym("ui.render", "ui/render.kt", "ui.draw"),
+		sym("ui.draw", "ui/draw.kt"),
+	)
+	got := map[string]string{}
+	for _, f := range a.Flows {
+		got[f.Name] = f.Mechanism
+	}
+	for _, want := range []string{"app.MainActivity", "App/iOS.IsowordsApp"} {
+		if got[want] != MechanismApp {
+			t.Errorf("flows = %v, want %s as an app entry", got, want)
+		}
+	}
+	if _, ok := got["app.Repo"]; ok {
+		t.Errorf("flows = %v: a class implementing a repository type is no entry", got)
+	}
+}
