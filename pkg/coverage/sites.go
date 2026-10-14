@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/enola-labs/enola/internal/facts"
-	"github.com/enola-labs/enola/internal/linkers/binders/unmatchedroutes"
 )
 
 type CallSite struct {
@@ -23,7 +22,7 @@ func (r Report) AttachUnresolvedSites(store *facts.Store) {
 		if f.PropString(facts.PropRole) != facts.RoleClient {
 			continue
 		}
-		if b, _ := f.PropAny(unmatchedroutes.PropUnmatchedByServer).(bool); !b {
+		if b, _ := f.PropAny(facts.PropUnmatchedByServer).(bool); !b {
 			continue
 		}
 		if b, _ := f.PropAny("test_double").(bool); b {
@@ -34,7 +33,7 @@ func (r Report) AttachUnresolvedSites(store *facts.Store) {
 			Path:   f.Name,
 			File:   f.File,
 			Line:   f.Line,
-			Reason: f.PropString(unmatchedroutes.PropUnmatchedReason),
+			Reason: f.PropString(facts.PropUnmatchedReason),
 		})
 	}
 	for i := range r {

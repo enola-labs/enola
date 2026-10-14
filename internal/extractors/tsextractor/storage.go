@@ -55,6 +55,9 @@ func detectORMs(repoPath string) (typeorm, drizzle, prisma bool) {
 		typeorm = typeorm || hasPkgDependency(dir, depTypeORM)
 		drizzle = drizzle || hasPkgDependency(dir, depDrizzle)
 		prisma = prisma || hasPkgDependency(dir, depPrisma)
+		if typeorm && drizzle && prisma {
+			break
+		}
 	}
 	return typeorm, drizzle, prisma
 }

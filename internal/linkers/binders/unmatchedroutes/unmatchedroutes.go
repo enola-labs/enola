@@ -27,9 +27,9 @@ const (
 	// the linker declined to reason about it, so it has no verdict to publish.
 	PropMatchedByClients = "matched_by_clients"
 	// PropUnmatchedByServer marks a CLIENT call site that resolves to no loaded server.
-	PropUnmatchedByServer = "unmatched_by_server"
+	PropUnmatchedByServer = facts.PropUnmatchedByServer
 	// PropUnmatchedReason carries one of the crossrepo.Reason* values explaining why.
-	PropUnmatchedReason = "unmatched_reason"
+	PropUnmatchedReason = facts.PropUnmatchedReason
 )
 
 // Binder records the cross-repo linker's non-matches on the route facts themselves,
