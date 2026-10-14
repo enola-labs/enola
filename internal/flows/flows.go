@@ -151,6 +151,9 @@ type Analysis struct {
 	opts  Options
 	// ifaces is built the first time the walk reaches an interface method.
 	ifaces *dispatchIndex
+	// entries holds the entry nodes, so a class entered directly is walked through
+	// its methods.
+	entries map[int32]bool
 }
 
 // node is one symbol of the call graph. Same-named symbols of one repository
@@ -186,6 +189,10 @@ func Analyze(src Source, opts Options) *Analysis {
 	}
 	a := &Analysis{Roots: map[string]int{}, src: src, index: map[[2]string]int32{}, opts: opts}
 	roots := a.findRoots()
+	a.entries = make(map[int32]bool, len(roots))
+	for id := range roots {
+		a.entries[id] = true
+	}
 
 	entries := make([]int32, 0, len(roots))
 	for id := range roots {
@@ -401,11 +408,20 @@ func (a *Analysis) expand(id int32) {
 			io = true
 		}
 		for _, rel := range f.Relations {
-			if rel.Kind != facts.RelCalls {
+			instantiates := rel.Kind == facts.RelInstantiates
+			if rel.Kind != facts.RelCalls && !instantiates {
 				continue
 			}
 			// nodeFor may grow a.nodes, so nothing holds a pointer into it here.
 			target, ok := a.nodeFor(f.Repo, rel.Target)
+			if instantiates {
+				// A constructed Flutter widget is put on screen; any other
+				// construction is not a call the walk follows.
+				if ok && a.isFlutterClass(target) && target != id && !containsUnsorted(callees, target) {
+					callees = append(callees, target)
+				}
+				continue
+			}
 			if !ok {
 				unresolved++
 				continue
@@ -413,6 +429,12 @@ func (a *Analysis) expand(id int32) {
 			if target != id && !containsUnsorted(callees, target) {
 				callees = append(callees, target)
 			}
+		}
+	}
+	// A class entered directly, or driven by Flutter, runs through its methods.
+	for _, m := range a.classMembers(id) {
+		if !containsUnsorted(callees, m) {
+			callees = append(callees, m)
 		}
 	}
 	// An interface method has no calls of its own; what runs is its implementation.

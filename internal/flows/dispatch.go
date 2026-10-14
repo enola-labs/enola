@@ -22,23 +22,32 @@ import (
 // and every implementation in the flow would describe none of them.
 const maxImplementations = 3
 
-// dispatchIndex is what the walk knows about interfaces, per repository.
+// dispatchIndex is what the walk knows about types, per repository.
 type dispatchIndex struct {
 	interfaces map[[2]string]bool     // (repo, name) of every interface
 	implements map[[2]string][]string // (repo, interface) -> the types implementing it
+	methods    map[[2]string][]string // (repo, type) -> its methods
 }
 
 func (a *Analysis) dispatch() *dispatchIndex {
 	if a.ifaces != nil {
 		return a.ifaces
 	}
-	ix := &dispatchIndex{interfaces: map[[2]string]bool{}, implements: map[[2]string][]string{}}
+	ix := &dispatchIndex{interfaces: map[[2]string]bool{}, implements: map[[2]string][]string{}, methods: map[[2]string][]string{}}
 	for _, f := range a.src.FactsRef() {
 		if f.Kind != facts.KindSymbol {
 			continue
 		}
-		if f.PropString("symbol_kind") == facts.SymbolInterface {
+		switch f.PropString("symbol_kind") {
+		case facts.SymbolInterface:
 			ix.interfaces[[2]string{f.Repo, f.Name}] = true
+		case facts.SymbolMethod:
+			if dot := strings.LastIndexByte(f.Name, '.'); dot > 0 {
+				key := [2]string{f.Repo, f.Name[:dot]}
+				if !containsString(ix.methods[key], f.Name) {
+					ix.methods[key] = append(ix.methods[key], f.Name)
+				}
+			}
 		}
 		for _, r := range f.Relations {
 			if r.Kind != facts.RelImplements {
@@ -90,4 +99,42 @@ func containsString(list []string, s string) bool {
 		}
 	}
 	return false
+}
+
+// Classes.
+//
+// A class has no calls of its own; its methods do. A class reached as an entry, a
+// route served by a Flutter page widget for one, is entered through its methods. A
+// Flutter widget or state class is entered through them wherever it is reached,
+// because the framework, not the code, calls them: `build` when the widget is put on
+// screen, and `createState` for a stateful one, whose state class builds in turn. One
+// widget reaches another by constructing it, so for these classes `instantiates` is
+// followed as well as `calls`.
+
+// flutterRoles are the classes whose methods the Flutter framework calls.
+var flutterRoles = map[string]bool{"widget": true, "widget_state": true}
+
+// classMembers returns the nodes a class node continues into: its methods, when it is
+// an entry or a Flutter class, and nothing for anything else.
+func (a *Analysis) classMembers(id int32) []int32 {
+	f := a.nodes[id].fact
+	if f.PropString("symbol_kind") != facts.SymbolClass {
+		return nil
+	}
+	if !a.entries[id] && !flutterRoles[f.PropString("flutter_role")] {
+		return nil
+	}
+	var out []int32
+	for _, m := range a.dispatch().methods[[2]string{f.Repo, f.Name}] {
+		if n, ok := a.nodeFor(f.Repo, m); ok && n != id {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+// isFlutterClass reports whether a node is a class the Flutter framework drives.
+func (a *Analysis) isFlutterClass(id int32) bool {
+	f := a.nodes[id].fact
+	return f.PropString("symbol_kind") == facts.SymbolClass && flutterRoles[f.PropString("flutter_role")]
 }

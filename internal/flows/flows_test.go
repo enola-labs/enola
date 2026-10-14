@@ -553,3 +553,43 @@ func TestAnalyze_CommandsRankAfterTheRoutesOfAServer(t *testing.T) {
 		t.Errorf("flows = %v, want commands by reach in a program with no routes", got)
 	}
 }
+
+func widget(name, file, role string, rels ...facts.Relation) facts.Fact {
+	f := typ(name, file, facts.SymbolClass)
+	f.Props["flutter_role"] = role
+	f.Relations = append(f.Relations, rels...)
+	return f
+}
+
+func instantiates(target string) facts.Relation {
+	return facts.Relation{Kind: facts.RelInstantiates, Target: target}
+}
+
+// A page widget a route names is entered through its methods. A stateful one builds
+// its state class, and a widget built inside another is walked too; a plain class
+// that is constructed is not.
+func TestAnalyze_AWidgetPageIsWalkedThroughItsMethods(t *testing.T) {
+	build := method("lib/screens.SettingsScreen.createState", "lib/screens/settings.dart")
+	build.Relations = append(build.Relations, instantiates("lib/screens._SettingsState"))
+	stateBuild := method("lib/screens._SettingsState.build", "lib/screens/settings.dart", "lib/core.load")
+	stateBuild.Relations = append(stateBuild.Relations, instantiates("lib/widgets.Toggle"), instantiates("lib/core.Options"))
+	a := analyze(
+		route("GET", "/settings", "lib/screens.SettingsScreen"),
+		widget("lib/screens.SettingsScreen", "lib/screens/settings.dart", "widget"),
+		build,
+		widget("lib/screens._SettingsState", "lib/screens/settings.dart", "widget_state"),
+		stateBuild,
+		sym("lib/core.load", "lib/core/load.dart"),
+		widget("lib/widgets.Toggle", "lib/widgets/toggle.dart", "widget"),
+		method("lib/widgets.Toggle.build", "lib/widgets/toggle.dart"),
+		typ("lib/core.Options", "lib/core/options.dart", facts.SymbolClass),
+		method("lib/core.Options.parse", "lib/core/options.dart"),
+	)
+	if len(a.Flows) != 1 {
+		t.Fatalf("flows = %v", names(a))
+	}
+	// The page, createState, the state class, its build, load, Toggle and its build.
+	if got := a.Flows[0].Metrics.Reach; got != 7 {
+		t.Errorf("reach = %d, want 7: through the state class into Toggle, and not into Options", got)
+	}
+}
