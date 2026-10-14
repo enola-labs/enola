@@ -510,3 +510,46 @@ func TestAnalyze_CallThroughAnInterfaceReachesItsImplementation(t *testing.T) {
 		t.Errorf("reach = %d, want 5: the handler, both interface methods, the implementation and what it calls; no logger", got)
 	}
 }
+
+// A command of a command-line program is an entry named the way a user types it.
+func TestAnalyze_ACommandIsAnEntryNamedByItsCommand(t *testing.T) {
+	check := sym("pkg/command.Runner.Check", "pkg/command/check.go", "pkg/command.verdict")
+	check.Props["symbol_kind"] = facts.SymbolMethod
+	check.Props["command"] = "enola check"
+	a := analyze(
+		check,
+		sym("pkg/command.verdict", "pkg/command/check.go"),
+	)
+	if got := names(a); !reflect.DeepEqual(got, []string{"enola check"}) {
+		t.Fatalf("flows = %v, want [enola check]", got)
+	}
+	if a.Flows[0].Mechanism != MechanismCommand {
+		t.Errorf("mechanism = %q, want %q", a.Flows[0].Mechanism, MechanismCommand)
+	}
+}
+
+// In a program that serves routes, a command ranks after the routes however much it
+// reaches. In one that serves none, commands rank by reach like any entry.
+func TestAnalyze_CommandsRankAfterTheRoutesOfAServer(t *testing.T) {
+	web := sym("cmd.runWeb", "cmd/web.go", "web.a", "web.b", "web.c")
+	web.Props["command"] = "app web"
+	a := analyze(
+		web,
+		sym("web.a", "web/a.go"), sym("web.b", "web/b.go"), sym("web.c", "web/c.go"),
+		route("GET", "/items", "api.list"),
+		sym("api.list", "api/list.go", "db.query"),
+		sym("db.query", "db/query.go"),
+	)
+	if got := names(a); !reflect.DeepEqual(got, []string{"GET /items", "app web"}) {
+		t.Errorf("flows = %v, want the route before the larger command", got)
+	}
+
+	check := sym("cmd.check", "cmd/check.go", "core.a", "core.b")
+	check.Props["command"] = "tool check"
+	list := sym("cmd.list", "cmd/list.go", "core.a")
+	list.Props["command"] = "tool list"
+	a = analyze(check, list, sym("core.a", "core/a.go"), sym("core.b", "core/b.go"))
+	if got := names(a); !reflect.DeepEqual(got, []string{"tool check", "tool list"}) {
+		t.Errorf("flows = %v, want commands by reach in a program with no routes", got)
+	}
+}

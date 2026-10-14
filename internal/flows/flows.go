@@ -26,6 +26,9 @@ const (
 	MechanismRoute      = "route"
 	MechanismMain       = "main"
 	MechanismRegistered = "registered"
+	// MechanismCommand is a command of a command-line program, `enola check`: the
+	// function an extractor found it runs carries the command as a prop.
+	MechanismCommand = "command"
 
 	// mechanismCallback is the framework-roots mechanism that is not an entry.
 	mechanismCallback = "callback"
@@ -210,12 +213,25 @@ func Analyze(src Source, opts Options) *Analysis {
 
 	a.nameApart()
 	a.markNested()
+	// In a program that serves routes, its commands are how it is run and kept, and
+	// its routes are what it does: `gitea web` starts the server every route runs in,
+	// and `superset load-examples` touches every model. They rank after its routes.
+	serves := map[string]bool{}
+	for _, f := range a.Flows {
+		if f.Mechanism == MechanismRoute {
+			serves[f.Repo] = true
+		}
+	}
+	behindRoutes := func(f Flow) bool { return f.Mechanism == MechanismCommand && serves[f.Repo] }
 	sort.SliceStable(a.Flows, func(i, j int) bool {
 		x, y := a.Flows[i], a.Flows[j]
 		// The program first. An example that reaches more than the product does
 		// is still an example.
 		if x.Side != y.Side {
 			return !x.Side
+		}
+		if bx, by := behindRoutes(x), behindRoutes(y); bx != by {
+			return !bx
 		}
 		if x.Metrics.Reach != y.Metrics.Reach {
 			return x.Metrics.Reach > y.Metrics.Reach
@@ -496,6 +512,8 @@ func entryMechanism(f facts.Fact) string {
 		return ""
 	}
 	switch root := f.PropString(facts.PropFrameworkRoot); {
+	case f.PropString("command") != "":
+		return MechanismCommand
 	case root == mechanismCallback:
 		// A callback runs inside a request some route already entered. It is a
 		// step of that flow, not a way into the program.
@@ -579,6 +597,8 @@ func (a *Analysis) newFlow(id int32, r *root, reach []int32, depth int, truncate
 	}
 	if len(r.routes) > 0 {
 		f.Name = routeLabel(r.routes[0])
+	} else if c := a.nodes[id].fact.PropString("command"); c != "" && r.mechanism == MechanismCommand {
+		f.Name = c
 	}
 	perModule := map[string]int{}
 	for _, member := range reach {

@@ -924,12 +924,18 @@ func (w *pyWalker) handleDecoratedDefinition(node *sitter.Node) {
 	// in any form (literal, path= keyword, or computed path). The handler is
 	// dispatched by the framework, so it is tagged as an entry point.
 	var isRouteHandler bool
+	// commandDecorator is the text of a click or typer @<group>.command(...) on
+	// this definition, "" when there is none.
+	var commandDecorator string
 
 	for i := uint(0); i < uint(node.ChildCount()); i++ {
 		c := node.Child(i)
 		switch kindOf(c) {
 		case "decorator":
 			text := pyText(c, w.src)
+			if commandDecoratorRe.MatchString(text) {
+				commandDecorator = text
+			}
 			// Walk decorator-call arguments for nested calls / value refs, e.g.
 			// @router.get(dependencies=[Depends(requires_access_asset(method="GET"))]).
 			// These expressions are evaluated at import time but live inside the
@@ -975,6 +981,11 @@ func (w *pyWalker) handleDecoratedDefinition(node *sitter.Node) {
 			}
 			fnIdx := len(w.out)
 			w.handleFunction(c, decorators)
+			if commandDecorator != "" && fnIdx < len(w.out) && w.out[fnIdx].Kind == facts.KindSymbol && importsCommandLibrary(w.src) {
+				if name := commandName(commandDecorator, pyFuncName(c, w.src)); name != "" {
+					w.out[fnIdx].SetProp("command", name)
+				}
+			}
 			// Tag a route handler as an entry point (framework-dispatched, no in-code
 			// caller). Covers computed/keyword paths the route-fact regex can't parse.
 			if isRouteHandler && fnIdx < len(w.out) && w.out[fnIdx].Kind == facts.KindSymbol {

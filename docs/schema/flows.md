@@ -119,6 +119,7 @@ share is at least 5% of the flow.
 | `route` | the handler a served route's `handled_by` relation names |
 | `main` | a function named `main` |
 | `registered` | a function or method an extractor marked `framework_registered` |
+| `command` | the function a command-line command runs, which an extractor marked with a `command` prop. The flow is named by the command, `enola check`. In a repository that serves routes, command flows rank after its route flows |
 | `job`, `mailer`, `hook`, `task` | a method a framework invokes, as the `root` prop records it |
 
 A `root` of `callback` is not an entry: a callback runs inside a request a route

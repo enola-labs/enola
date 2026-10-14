@@ -236,6 +236,16 @@ func (e *GoExtractor) Extract(ctx context.Context, repoPath string, files []stri
 
 	resolvePromotedCalls(allFacts, callTypes.embeds)
 
+	// The commands a program declares, settled once every function is known.
+	var commandLits []string
+	for _, pkgDir := range pkgDirs {
+		pp := parsedPkgs[pkgDir]
+		for _, f := range pp.parsedFiles {
+			commandLits = append(commandLits, commandLiterals(f, pkgDir, buildFileImports(f, modulePath, pkgNames))...)
+		}
+	}
+	bindCommands(allFacts, commandLits, modulePath)
+
 	// Carry io_direct to every function that reaches one, across packages, and
 	// through an interface to the types asserted to implement it.
 	ioclosure.PropagateWith(allFacts, ioclosure.Options{Declared: callTypes.implementers, Opaque: goObservability})
@@ -460,6 +470,9 @@ func (e *GoExtractor) extractFunc(fset *token.FileSet, fn *ast.FuncDecl, relFile
 		}
 		typeParams := typeParamNames(fn.Recv, fn.Type)
 		ctx.localTypes = collectLocalTypesFrom(fn.Body, ctx, signatureTypes(fn.Type, ctx, typeParams), typeParams)
+		if dispatches := stringDispatches(fn.Body, ctx); len(dispatches) > 0 {
+			symbolFact.SetProp(dispatchProp, dispatches)
+		}
 		m := analyzeBody(fn.Body, ctx, qualifiedName, funcParamNames(fn))
 		for _, call := range m.calls {
 			symbolFact.Relations = append(symbolFact.Relations, facts.Relation{

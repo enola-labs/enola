@@ -2879,7 +2879,10 @@ import (
 // v346: a TypeScript method call on a local built with `new C(...)`, or on a local or
 // parameter annotated with a class, names C's method when C is imported or declared
 // in the file.
-const cacheVersion = "v346"
+// v347: a function a command-line command runs carries a `command` prop, "<program>
+// <name>": Go string-keyed dispatch on an argument (nested dispatch as subcommands),
+// cobra and urfave/cli command literals, and Python click and typer `.command()`.
+const cacheVersion = "v347"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
