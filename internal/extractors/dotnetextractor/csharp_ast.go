@@ -395,6 +395,9 @@ func (w *astWalker) handleTypeDecl(node *sitter.Node, kind string) {
 			{Kind: facts.RelDeclares, Target: w.dir},
 		},
 	}
+	if doc := csharpDoc(node, w.src); doc != "" {
+		f.SetProp(facts.PropDoc, doc)
+	}
 	if ns := w.namespace(); ns != "" {
 		f.SetProp("namespace", ns)
 	}
@@ -603,6 +606,9 @@ func (w *astWalker) handleMethod(node *sitter.Node) {
 		"symbol_kind": facts.SymbolMethod,
 		"exported":    w.exported(mods, false),
 		"language":    "csharp",
+	}
+	if doc := csharpDoc(node, w.src); doc != "" {
+		props[facts.PropDoc] = doc
 	}
 	if ns := w.namespace(); ns != "" {
 		props["namespace"] = ns

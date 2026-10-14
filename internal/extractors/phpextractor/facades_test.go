@@ -117,3 +117,51 @@ class HomeController
 		}
 	}
 }
+
+// A PHP declaration's doc is its docblock up to the first tag, or the run of line
+// comments above it.
+func TestDoc_PHPDocblock(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "app/Http/Controllers/BookController.php", `<?php
+namespace App\Http\Controllers;
+
+/**
+ * Books of the shelf.
+ */
+class BookController
+{
+    /**
+     * Store a newly created book.
+     *
+     * @throws ValidationException
+     */
+    #[Route('/books')]
+    public function store() {}
+
+    // Show the book.
+    public function show() {}
+
+    public function index() {}
+}
+`)
+	ff, err := New().Extract(context.Background(), dir, []string{"app/Http/Controllers/BookController.php"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, f := range ff {
+		if f.Kind == facts.KindSymbol {
+			got[f.Name] = f.PropString(facts.PropDoc)
+		}
+	}
+	for name, doc := range map[string]string{
+		`App\Http\Controllers\BookController`:        "Books of the shelf.",
+		`App\Http\Controllers\BookController::store`: "Store a newly created book.",
+		`App\Http\Controllers\BookController::show`:  "Show the book.",
+		`App\Http\Controllers\BookController::index`: "",
+	} {
+		if got[name] != doc {
+			t.Errorf("%s doc = %q, want %q (have %v)", name, got[name], doc, got)
+		}
+	}
+}

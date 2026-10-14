@@ -339,8 +339,9 @@ One descriptive prop is prose rather than a measurement:
 - `doc` (symbols): the first paragraph of the comment its author wrote on the
   symbol, on one line: a Python docstring, the comment block above a Go
   declaration, a JSDoc block or run of `//` lines above a TypeScript one, or a run
-  of `#` lines above a Ruby `def`, `class` or `module`. Of a JSDoc or YARD comment,
-  the text before its first tag; tool directives such as `// eslint-disable` and
+  of `#` lines above a Ruby `def`, `class` or `module`, a Javadoc or PHP docblock,
+  or the `<summary>` of a C# `///` XML comment. Of a block with tags, the text
+  before its first tag; tool directives such as `// eslint-disable` and
   `# rubocop:disable` are left out. Cut at a word and ended with `...` when it runs past 300 bytes.
   Absent when the symbol has no comment, and on languages whose extractor does
   not read one. `diff_snapshot` and `enola check` do not report a change to it.
@@ -369,4 +370,4 @@ Where it is read:
 | `diff_snapshot`, `enola check` | Ignore it, so editing a comment is not an architecture change |
 | `query_facts`, `explore`, `impact_analysis` | Do not print it. `show_symbol` prints the source, comment included |
 
-Go, Python, TypeScript and Ruby extractors fill it.
+Go, Python, TypeScript, Ruby, Java, C# and PHP extractors fill it.

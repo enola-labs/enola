@@ -2888,7 +2888,10 @@ import (
 // v349: TypeScript and Ruby symbols carry a `doc` prop: a JSDoc block or a run of `//`
 // lines above a TypeScript declaration or its export, and a run of `#` lines above a
 // Ruby def, class or module, each up to its first tag and without tool directives.
-const cacheVersion = "v349"
+// v350: Java, C# and PHP symbols carry a `doc` prop: a Javadoc or PHP docblock up
+// to its first tag, the <summary> of a C# `///` XML comment, or a run of line comments
+// above the declaration and its annotations or attributes.
+const cacheVersion = "v350"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
