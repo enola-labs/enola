@@ -467,3 +467,46 @@ func TestAnalyze_ACallbackIsNotAnEntry(t *testing.T) {
 		t.Errorf("flows = %v, roots = %v", names(a), a.Roots)
 	}
 }
+
+// method is sym for a method of a type, and iface for an interface.
+func method(name, file string, calls ...string) facts.Fact {
+	f := sym(name, file, calls...)
+	f.Props["symbol_kind"] = facts.SymbolMethod
+	return f
+}
+
+func typ(name, file, kind string, implements ...string) facts.Fact {
+	f := facts.Fact{Kind: facts.KindSymbol, Name: name, Repo: "shop", File: file, Line: 1,
+		Props: map[string]any{"symbol_kind": kind}}
+	for _, i := range implements {
+		f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelImplements, Target: i})
+	}
+	return f
+}
+
+// A call through an interface goes on into the class implementing it, and stops at
+// an interface with more implementations than one path describes.
+func TestAnalyze_CallThroughAnInterfaceReachesItsImplementation(t *testing.T) {
+	ff := []facts.Fact{
+		route("POST", "/login", "api.UserController.Login"),
+		method("api.UserController.Login", "api/user.cs", "core.ISessions.Authenticate", "core.ILog.Write"),
+		typ("core.ISessions", "core/isessions.cs", facts.SymbolInterface),
+		method("core.ISessions.Authenticate", "core/isessions.cs"),
+		typ("impl.Sessions", "impl/sessions.cs", facts.SymbolClass, "core.ISessions"),
+		method("impl.Sessions.Authenticate", "impl/sessions.cs", "impl.Sessions.Store"),
+		method("impl.Sessions.Store", "impl/sessions.cs"),
+		typ("core.ILog", "core/ilog.cs", facts.SymbolInterface),
+		method("core.ILog.Write", "core/ilog.cs"),
+	}
+	for _, n := range []string{"A", "B", "C", "D"} {
+		ff = append(ff, typ("logs."+n, "logs/"+n+".cs", facts.SymbolClass, "core.ILog"),
+			method("logs."+n+".Write", "logs/"+n+".cs"))
+	}
+	a := analyze(ff...)
+	if len(a.Flows) != 1 {
+		t.Fatalf("flows = %v", names(a))
+	}
+	if got := a.Flows[0].Metrics.Reach; got != 5 {
+		t.Errorf("reach = %d, want 5: the handler, both interface methods, the implementation and what it calls; no logger", got)
+	}
+}

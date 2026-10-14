@@ -143,6 +143,8 @@ type Analysis struct {
 	nodes []node
 	index map[[2]string]int32
 	opts  Options
+	// ifaces is built the first time the walk reaches an interface method.
+	ifaces *dispatchIndex
 }
 
 // node is one symbol of the call graph. Same-named symbols of one repository
@@ -392,6 +394,12 @@ func (a *Analysis) expand(id int32) {
 			if target != id && !containsUnsorted(callees, target) {
 				callees = append(callees, target)
 			}
+		}
+	}
+	// An interface method has no calls of its own; what runs is its implementation.
+	for _, impl := range a.implementations(id) {
+		if !containsUnsorted(callees, impl) {
+			callees = append(callees, impl)
 		}
 	}
 	sort.Slice(callees, func(i, j int) bool { return a.less(callees[i], callees[j]) })
