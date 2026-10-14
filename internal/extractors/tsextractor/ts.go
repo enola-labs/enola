@@ -3571,8 +3571,10 @@ func declaresParameters(kinds *tsutil.KindTable, member *sitter.Node) (string, b
 func collectCallsWithMetrics(kinds *tsutil.KindTable, node *sitter.Node, src []byte, dir, className string, importMap, fieldTypes, memberRoots, returnTypes map[string]string, ioBindings map[string]bool, selfName, selfShort string) ([]facts.Relation, *tsBodyMetrics) {
 	m := &tsBodyMetrics{}
 	w := &tsBodyWalker{src: src, kinds: kinds, dir: dir, className: className, importMap: importMap, fieldTypes: fieldTypes, memberRoots: memberRoots, returnTypes: returnTypes, ioBindings: ioBindings, selfName: selfName, selfShort: selfShort, metrics: m, seen: make(map[string]bool)}
-	paramScope, paramIndex := tsParamScope(kinds, tsEnclosingFunction(node), src)
+	fn := tsEnclosingFunction(node)
+	paramScope, paramIndex := tsParamScope(kinds, fn, src)
 	w.paramScope, w.paramIndex = []tsLoopScope{paramScope}, paramIndex
+	w.memberRoots = withLocalRoots(memberRoots, tsLocalTypes(kinds, fn, node, src, dir, importMap))
 	w.constLocals = tsConstLiteralLocals(kinds, node, src)
 	w.walk(node)
 	return w.rels, m

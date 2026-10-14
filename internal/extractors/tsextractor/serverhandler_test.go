@@ -240,3 +240,49 @@ export async function load(token: string) {
 		}
 	}
 }
+
+// A method called on a local built with `new`, or on a parameter annotated with a
+// class, names that class's method. A global type names nothing.
+func TestLocalTypes_NewAndAnnotatedParameters(t *testing.T) {
+	ff := extractAll(t, map[string]string{
+		"src/upload.ts": `import { LocalVideoCreator } from './lib/creator';
+import { VideoService } from './lib/service';
+
+export async function addVideo(svc: VideoService, res: Response) {
+	const creator = new LocalVideoCreator({ path: 'x' });
+	const { video } = await creator.create();
+	await svc.publish(video);
+	return res.json(video);
+}
+`,
+		"src/lib/creator.ts": `export class LocalVideoCreator {
+	constructor(private opts: object) {}
+	async create() { return { video: 1 } }
+}
+`,
+		"src/lib/service.ts": `export class VideoService {
+	async publish(v: number) {}
+}
+`,
+	}, false)
+	var calls []string
+	for _, f := range ff {
+		if f.Kind == facts.KindSymbol && f.Name == "src.addVideo" {
+			for _, r := range f.Relations {
+				if r.Kind == facts.RelCalls {
+					calls = append(calls, r.Target)
+				}
+			}
+		}
+	}
+	for _, want := range []string{"src/lib.LocalVideoCreator.create", "src/lib.VideoService.publish"} {
+		if !slices.Contains(calls, want) {
+			t.Errorf("addVideo calls %v, want %q", calls, want)
+		}
+	}
+	for _, c := range calls {
+		if strings.Contains(c, "Response") {
+			t.Errorf("addVideo calls %v: the global Response names no fact", calls)
+		}
+	}
+}

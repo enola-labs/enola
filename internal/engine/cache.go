@@ -2876,7 +2876,10 @@ import (
 // v345: a TypeScript call on a namespace import of this repository's module,
 // `import * as api from '$lib/api'; api.get()`, is a call of the enclosing function
 // to "<moduleDir>.get"; it was only a file-level reference.
-const cacheVersion = "v345"
+// v346: a TypeScript method call on a local built with `new C(...)`, or on a local or
+// parameter annotated with a class, names C's method when C is imported or declared
+// in the file.
+const cacheVersion = "v346"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
