@@ -18,7 +18,14 @@ const docLimit = 300
 // DocSummary reduces a comment's text to what PropDoc holds: its first
 // paragraph on one line, cut at a word when it runs past the cap. It returns ""
 // for a comment with no text.
+//
+// The text is made valid UTF-8 first. A comment saved in another encoding (a
+// Windows-1252 apostrophe in a C# file) holds bytes that are not, and an invalid
+// byte is written to facts.jsonl as `\ufffd` while the same text read back from the
+// extractor cache is written as the replacement character itself: one snapshot,
+// two encodings, and a cold run that does not reproduce on a warm one.
 func DocSummary(text string) string {
+	text = strings.ToValidUTF8(text, "\uFFFD")
 	var words []string
 	started := false
 	for _, line := range strings.Split(text, "\n") {

@@ -2891,7 +2891,9 @@ import (
 // v350: Java, C# and PHP symbols carry a `doc` prop: a Javadoc or PHP docblock up
 // to its first tag, the <summary> of a C# `///` XML comment, or a run of line comments
 // above the declaration and its annotations or attributes.
-const cacheVersion = "v350"
+// v351: a doc is made valid UTF-8 before it is stored, so a comment in another
+// encoding is written the same on a cold run and from the cache.
+const cacheVersion = "v351"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
