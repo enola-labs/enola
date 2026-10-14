@@ -21,8 +21,9 @@ covering the whole linked graph; each flow names its repository.
 |---|---|---|
 | `roots` | object, mechanism to int | Entries found, per mechanism, before any was dropped. Empty when none was found |
 | `leaves` | int | Entries that reach nothing the graph follows. They are entries, not flows |
-| `total` | int | Flows the entries produced. `flows` holds the first of them |
-| `flows` | array of Flow | The largest flows, ranked. Always an array |
+| `total` | int | Flows the entries produced. `flows` holds all of them |
+| `described` | int | How many of the first flows carry `summary` and `stages`, at most 50. The rest carry everything else |
+| `flows` | array of Flow | Every flow, ranked. Always an array |
 
 ## Flow object
 
@@ -43,8 +44,9 @@ covering the whole linked graph; each flow names its repository.
 | `same_reach_as` | array of string | another entry reaches the same symbols | Names of the flows folded into this one |
 | `nested_in` | array of string | a larger flow contains at least 90% of this one | Names of those flows |
 
-Flows are ranked with the program's own first and `side` flows after them, then
-by `metrics.reach`, `metrics.modules` and `name`.
+Flows are ranked with the program's own first and `side` flows after them; in a
+repository that serves routes, `command` flows after its other flows; then by
+`metrics.reach`, `metrics.modules` and `name`.
 
 ## Ref object
 
@@ -60,6 +62,55 @@ by `metrics.reach`, `metrics.modules` and `name`.
 Join a flow to the graph on these IDs: `entry.id` and each stage `id` name a
 `symbol` fact, each route `id` a `route` fact.
 
+## Example
+
+The `enola check` flow of enola's own repository, as `enola flows --show "enola
+check"` prints it:
+
+```
+Summary
+  A command enters at command.Runner.Check ("runCheck is the `enola check`
+  gate: snapshot the repo, diff it against a baseline, grade the delta, and
+  exit with a code CI can act on."). It calls command.Runner.resolveTarget,
+  check.RegradeIntersection, check.Verdict.Write and conformance.Compute. Most
+  of its 564 symbols sit in pkg/check (124 symbols), internal/facts (73) and
+  internal/diff (68).
+
+Stages
+  command.Runner.resolveTarget    161  resolveTarget turns the single positional argument into an engine ...
+    command.Runner.newEngine      134  newEngine builds an engine for a shared command. Every command that ...
+      bootstrap.NewEngine         133  NewEngine creates an Engine with every built-in plugin registered. Use ...
+  check.RegradeIntersection       125
+    diff.Compute                   98  Compute returns the delta from baseline to current. A nil snapshot is ...
+```
+
+The text in quotes and after each stage's reach is the symbol's
+[`doc`](facts.md#descriptive-props). `check.RegradeIntersection` has no comment, so
+its line ends at the number, and a flow whose symbols have none reads as names and
+counts only. The same flow in `flows.json`:
+
+```json
+{
+  "name": "enola check",
+  "mechanism": "command",
+  "entry": {
+    "name": "pkg/command.Runner.Check",
+    "file": "pkg/command/check.go",
+    "line": 141,
+    "doc": "runCheck is the `enola check` gate: snapshot the repo, diff it against a baseline, grade the delta, and exit with a code CI can act on."
+  },
+  "stages": [
+    {"order": 1, "depth": 1, "name": "pkg/command.Runner.resolveTarget", "reach": 161,
+     "doc": "resolveTarget turns the single positional argument into an engine pointed at the right repository. ..."},
+    {"order": 2, "depth": 2, "parent": "2967b9c2912b8c4836377ac83239d9c5",
+     "name": "pkg/command.Runner.newEngine", "reach": 134,
+     "doc": "newEngine builds an engine for a shared command. ..."}
+  ]
+}
+```
+
+The comment on `Check` still calls it `runCheck`: `doc` is the source as written.
+
 ## Metrics object
 
 | Field | Type | Meaning |
@@ -69,6 +120,7 @@ Join a flow to the graph on these IDs: `entry.id` and each stage `id` name a
 | `max_depth` | int | The deepest hop the walk took, at most 8 |
 | `performs_io` | int, when above zero | Reached symbols an extractor marked as performing I/O |
 | `unresolved_calls` | int | Calls made inside the flow whose target is no symbol in the graph. See [What unresolved_calls counts](#what-unresolved_calls-counts) |
+| `external_calls` | int | The part of `unresolved_calls` whose target is a package a file of the flow imports from outside the repository |
 | `truncated` | bool, when true | The walk stopped at 5000 symbols; the flow is larger |
 
 A flow is a floor, not a measurement. The walk follows `calls` relations that
@@ -92,6 +144,20 @@ On enola's own repository the flow entered at the binary's `main` reports 3,894.
 those 3,422 are calls into the standard library and imported packages, 57 into
 third-party packages, and 415 are calls on a value of unresolved type. Only the
 last group is a gap in the graph.
+
+`external_calls` counts the first group where the snapshot can show it: the call
+names a package its file imports from outside the repository, by the imported path
+(`github.com/acme/kit.Send`) or by the package's name (`json.Marshal` for
+`encoding/json`), as the file's dependency facts record the import. On enola's
+`main` it is 3,440 of 3,908. It errs one way only: a call into a package imported
+under another name, or one whose target does not spell the package, stays in
+`unresolved_calls` and is not counted here. So `unresolved_calls - external_calls`
+is an upper bound on the gap, never a lower one.
+
+The count depends on how an extractor writes a call into a library. Go and
+TypeScript name the package and are counted; on the corpus about 60% of their
+unresolved calls are external. Python, PHP, C#, Ruby and Rust call targets mostly do
+not name the imported package, and their `external_calls` is near zero.
 
 A large number is therefore not a defect. Read it against `reach`: a flow that
 reaches 6 symbols with 23 unresolved calls is one the graph could barely follow,

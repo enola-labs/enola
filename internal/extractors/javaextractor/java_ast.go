@@ -707,6 +707,9 @@ func (w *astWalker) handleClassLike(node *sitter.Node, kind string) {
 			{Kind: facts.RelDeclares, Target: w.dir},
 		},
 	}
+	if doc := javaDoc(node, w.src); doc != "" {
+		f.SetProp(facts.PropDoc, doc)
+	}
 	if strings.Contains(modifierText, "abstract") {
 		f.SetProp("abstract", true)
 	}
@@ -827,6 +830,9 @@ func (w *astWalker) handleMethod(node *sitter.Node) {
 		Relations: []facts.Relation{
 			{Kind: facts.RelDeclares, Target: w.dir},
 		},
+	}
+	if doc := javaDoc(node, w.src); doc != "" {
+		f.SetProp(facts.PropDoc, doc)
 	}
 	if t := w.enclosingType(); t != "" {
 		f.SetProp("receiver", t)

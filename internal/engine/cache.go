@@ -2885,7 +2885,15 @@ import (
 // v348: an MCP tool's handler carries a `tool` prop and framework_registered. In Go a
 // handler passed to AddTool as a literal is given a symbol "<pkg>.tool:<name>" with the
 // literal's calls; in Python a function under @x.tool(...) or an imported @tool(...).
-const cacheVersion = "v348"
+// v349: TypeScript and Ruby symbols carry a `doc` prop: a JSDoc block or a run of `//`
+// lines above a TypeScript declaration or its export, and a run of `#` lines above a
+// Ruby def, class or module, each up to its first tag and without tool directives.
+// v350: Java, C# and PHP symbols carry a `doc` prop: a Javadoc or PHP docblock up
+// to its first tag, the <summary> of a C# `///` XML comment, or a run of line comments
+// above the declaration and its annotations or attributes.
+// v351: a doc is made valid UTF-8 before it is stored, so a comment in another
+// encoding is written the same on a cold run and from the cache.
+const cacheVersion = "v351"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

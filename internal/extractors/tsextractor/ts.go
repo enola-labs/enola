@@ -980,6 +980,9 @@ func (e *TSExtractor) extractNode(kinds *tsutil.KindTable, node *sitter.Node, ct
 				{Kind: facts.RelDeclares, Target: dir},
 			},
 		}
+		if doc := tsDoc(kinds, node, src); doc != "" {
+			f.SetProp(facts.PropDoc, doc)
+		}
 
 		// A TS `abstract class` is an abstraction (has unimplemented members and
 		// cannot be instantiated) — tag it so package-metrics counts it toward
@@ -1102,6 +1105,9 @@ func (e *TSExtractor) extractNode(kinds *tsutil.KindTable, node *sitter.Node, ct
 					"exported":    isExported && !isPrivate,
 					"language":    "typescript",
 					"receiver":    symbolName,
+				}
+				if doc := tsDoc(kinds, member, src); doc != "" {
+					mProps[facts.PropDoc] = doc
 				}
 				if names := decoratorSetProp(memberDecorators); names != "" {
 					mProps["decorators"] = names
@@ -1228,6 +1234,9 @@ func (e *TSExtractor) extractNode(kinds *tsutil.KindTable, node *sitter.Node, ct
 				},
 				Relations: vRels,
 			}
+			if doc := tsDoc(kinds, decl, src); doc != "" {
+				f.SetProp(facts.PropDoc, doc)
+			}
 			if symbolKind == facts.SymbolFunc {
 				if takes, ok := declaresParameters(kinds, decl); ok {
 					f.SetProp("takes_parameters", takes)
@@ -1303,6 +1312,9 @@ func (e *TSExtractor) funcSymbol(kinds *tsutil.KindTable, declNode, body *sitter
 			"language":    "typescript",
 		},
 		Relations: rels,
+	}
+	if doc := tsDoc(kinds, declNode, ctx.src); doc != "" {
+		f.SetProp(facts.PropDoc, doc)
 	}
 	if takes, ok := declaresParameters(kinds, declNode); ok {
 		f.SetProp("takes_parameters", takes)

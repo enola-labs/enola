@@ -333,7 +333,11 @@ func writeFlowDetail(w *strings.Builder, f flows.Flow) {
 	if f.Metrics.PerformsIO > 0 {
 		row("io", "%s perform I/O", plural(f.Metrics.PerformsIO, "symbol"))
 	}
-	row("blind", "%s not followed", plural(f.Metrics.UnresolvedCalls, "call"))
+	blind := plural(f.Metrics.UnresolvedCalls, "call") + " not followed"
+	if f.Metrics.ExternalCalls > 0 {
+		blind += fmt.Sprintf(", %d of them into imported packages", f.Metrics.ExternalCalls)
+	}
+	row("blind", "%s", blind)
 	if len(f.SameReachAs) > 0 {
 		row("same", "%s", strings.Join(f.SameReachAs, ", "))
 	}

@@ -34,3 +34,15 @@ func TestDocSummary_CutsALongParagraphAtAWord(t *testing.T) {
 		t.Errorf("unbroken run: valid %v, len %d", utf8.ValidString(got), len(got))
 	}
 }
+
+// A comment holding bytes that are not UTF-8 is stored as valid UTF-8, so the doc is
+// written the same way whether or not it went through the extractor cache.
+func TestDocSummary_InvalidUTF8(t *testing.T) {
+	got := DocSummary("Sets the specified window\x92s show state.")
+	if !utf8.ValidString(got) {
+		t.Fatalf("doc %q is not valid UTF-8", got)
+	}
+	if want := "Sets the specified window�s show state."; got != want {
+		t.Errorf("doc = %q, want %q", got, want)
+	}
+}

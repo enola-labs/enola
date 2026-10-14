@@ -337,7 +337,37 @@ contract props are the ones documented above.
 One descriptive prop is prose rather than a measurement:
 
 - `doc` (symbols): the first paragraph of the comment its author wrote on the
-  symbol, on one line: a Python docstring, or the comment block above a Go
-  declaration. Cut at a word and ended with `...` when it runs past 300 bytes.
+  symbol, on one line: a Python docstring, the comment block above a Go
+  declaration, a JSDoc block or run of `//` lines above a TypeScript one, or a run
+  of `#` lines above a Ruby `def`, `class` or `module`, a Javadoc or PHP docblock,
+  or the `<summary>` of a C# `///` XML comment. Of a block with tags, the text
+  before its first tag; tool directives such as `// eslint-disable` and
+  `# rubocop:disable` are left out. Cut at a word and ended with `...` when it runs past 300 bytes.
   Absent when the symbol has no comment, and on languages whose extractor does
   not read one. `diff_snapshot` and `enola check` do not report a change to it.
+
+`doc` adds no node and no edge. The same function, from a build before `doc` and
+from one after:
+
+```json
+{"kind":"symbol","name":"internal/flows.Analyze","file":"internal/flows/flows.go","line":186,
+ "props":{"symbol_kind":"function","exported":true,"cyclomatic":17}}
+
+{"kind":"symbol","name":"internal/flows.Analyze","file":"internal/flows/flows.go","line":186,
+ "props":{"symbol_kind":"function","exported":true,"cyclomatic":17,
+          "doc":"Analyze finds the entries of a graph, walks each, and ranks what it found."}}
+```
+
+It is read as written. A comment that names an old name of the function, or
+describes what it used to do, is passed on unchanged.
+
+Where it is read:
+
+| Reader | Uses `doc` |
+|---|---|
+| `facts.jsonl` | As a prop of the symbol fact |
+| `enola flows --show` and `--json`, and `flows.json` | In a flow's summary, and on its entry and each stage. See [flows.md](flows.md#example) |
+| `diff_snapshot`, `enola check` | Ignore it, so editing a comment is not an architecture change |
+| MCP tools | Never print it, by design: `doc` on every result would spend an agent's context on prose it rarely needs. `show_symbol` prints the source, comment included, when an agent asks for it |
+
+Go, Python, TypeScript, Ruby, Java, C# and PHP extractors fill it.

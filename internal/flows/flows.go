@@ -82,6 +82,9 @@ type Metrics struct {
 	// UnresolvedCalls counts calls made inside the flow whose target is no
 	// symbol in the graph: a library, or a callee the extractor could not name.
 	UnresolvedCalls int `json:"unresolved_calls"`
+	// ExternalCalls is the part of UnresolvedCalls whose target a file of the flow
+	// imports from outside the repository: a library call, not a gap. See external.go.
+	ExternalCalls int `json:"external_calls"`
 	// Truncated is set when the walk stopped at the reach bound.
 	Truncated bool `json:"truncated,omitempty"`
 }
@@ -154,6 +157,9 @@ type Analysis struct {
 	opts  Options
 	// ifaces is built the first time the walk reaches an interface method.
 	ifaces *dispatchIndex
+	// imports is built the first time a call does not resolve: per repository and
+	// file, the packages it imports from outside the repository.
+	imports map[string][]string
 	// entries holds the entry nodes, so a class entered directly is walked through
 	// its methods.
 	entries map[int32]bool
@@ -171,6 +177,7 @@ type node struct {
 	module     string
 	callees    []int32
 	unresolved int
+	external   int
 	io         bool
 	// pending holds the node's facts until it is expanded.
 	pending  []facts.Fact
@@ -405,7 +412,7 @@ func (a *Analysis) expand(id int32) {
 	pending := a.nodes[id].pending
 	a.nodes[id].pending, a.nodes[id].expanded = nil, true
 	var callees []int32
-	unresolved, io := 0, false
+	unresolved, external, io := 0, 0, false
 	for _, f := range pending {
 		if f.PropBool("performs_io") {
 			io = true
@@ -427,6 +434,9 @@ func (a *Analysis) expand(id int32) {
 			}
 			if !ok {
 				unresolved++
+				if a.isExternalCall(f.Repo, f.File, rel.Target) {
+					external++
+				}
 				continue
 			}
 			if target != id && !containsUnsorted(callees, target) {
@@ -448,7 +458,7 @@ func (a *Analysis) expand(id int32) {
 	}
 	sort.Slice(callees, func(i, j int) bool { return a.less(callees[i], callees[j]) })
 	n := &a.nodes[id]
-	n.callees, n.unresolved, n.io = callees, unresolved, io
+	n.callees, n.unresolved, n.external, n.io = callees, unresolved, external, io
 }
 
 // findRoots collects the entries: a served route's handler, a symbol a
@@ -644,6 +654,7 @@ func (a *Analysis) newFlow(id int32, r *root, reach []int32, depth int, truncate
 		n := a.nodes[member]
 		perModule[n.module]++
 		f.Metrics.UnresolvedCalls += n.unresolved
+		f.Metrics.ExternalCalls += n.external
 		if n.io {
 			f.Metrics.PerformsIO++
 		}

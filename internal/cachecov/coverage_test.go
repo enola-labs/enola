@@ -33,6 +33,18 @@ import (
 // test functions that assert the behavior that version introduced. v1 is the
 // implicit baseline (no changelog line), so coverage starts at v2.
 var versionCoverage = map[int][]string{
+	351: {
+		"TestDocSummary_InvalidUTF8",
+	},
+	350: {
+		"TestDoc_Javadoc",
+		"TestDoc_XMLDocSummary",
+		"TestDoc_PHPDocblock",
+	},
+	349: {
+		"TestDoc_JSDocAndLineComments",
+		"TestDoc_CommentLinesAboveTheDeclaration",
+	},
 	348: {
 		"TestTools_MCPAddTool",
 		"TestTools_DecoratedFunctions",
