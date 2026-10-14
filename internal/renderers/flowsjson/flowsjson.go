@@ -15,10 +15,10 @@ const Name = "flows"
 // ArtifactName is the file the renderer writes.
 const ArtifactName = "flows.json"
 
-// Limit is how many flows the artifact holds. A repository can have a flow per
-// route, and a reader of the file wants the ones that matter, with their
-// stages; the document's total says how many there were.
-const Limit = 50
+// Described is how many of the artifact's flows carry stages and a summary. The
+// artifact holds every flow; describing one costs a walk per candidate callee, and
+// a reader reads the first few in full and looks the rest up by name.
+const Described = 50
 
 type Renderer struct{}
 
@@ -35,7 +35,7 @@ func (r *Renderer) Render(context.Context, *facts.Snapshot) ([]facts.Artifact, e
 // RenderStore produces flows.json. It is written for a snapshot with no flows
 // too, with an empty list, so a consumer can tell "none found" from "not run".
 func (r *Renderer) RenderStore(_ context.Context, _ *facts.Snapshot, store *facts.Store) ([]facts.Artifact, error) {
-	doc, err := flows.Analyze(store, flows.Options{}).Document(Limit).JSON()
+	doc, err := flows.Analyze(store, flows.Options{}).Document(Described).JSON()
 	if err != nil {
 		return nil, err
 	}

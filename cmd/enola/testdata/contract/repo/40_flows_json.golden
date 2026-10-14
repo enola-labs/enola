@@ -26,7 +26,8 @@ exit: 0
         "reach": 3,
         "modules": 3,
         "max_depth": 1,
-        "unresolved_calls": 0
+        "unresolved_calls": 0,
+        "external_calls": 0
       },
       "modules": [
         {

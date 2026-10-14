@@ -624,3 +624,42 @@ func TestAnalyze_ATypeAPlatformStartsIsAnEntry(t *testing.T) {
 		t.Errorf("flows = %v: a class implementing a repository type is no entry", got)
 	}
 }
+
+// A call into a package the calling file imports from outside the repository is
+// counted as external, inside the unresolved count. A call on a value of unknown type
+// is unresolved and not external.
+func TestAnalyze_CountsTheCallsThatLeaveTheRepository(t *testing.T) {
+	handler := sym("api.create", "api/create.go", "json.Marshal", "github.com/acme/kit.Send", "svc.Save", "db.save")
+	dep := func(target, source string) facts.Fact {
+		return facts.Fact{Kind: facts.KindDependency, Name: "api -> " + target, File: "api/create.go", Repo: "shop",
+			Props:     map[string]any{"source": source},
+			Relations: []facts.Relation{{Kind: facts.RelImports, Target: target}}}
+	}
+	a := analyze(
+		route("POST", "/orders", "api.create"),
+		handler,
+		sym("db.save", "db/save.go"),
+		dep("encoding/json", "stdlib"),
+		dep("github.com/acme/kit", "external"),
+		dep("shop/db", "internal"),
+	)
+	m := a.Flows[0].Metrics
+	if m.UnresolvedCalls != 3 || m.ExternalCalls != 2 {
+		t.Errorf("unresolved = %d, external = %d; want 3 and 2: json.Marshal and kit.Send leave, svc.Save is a gap", m.UnresolvedCalls, m.ExternalCalls)
+	}
+}
+
+// The document holds every flow, and describes only the first.
+func TestDocument_HoldsEveryFlowAndDescribesTheFirst(t *testing.T) {
+	var ff []facts.Fact
+	for _, n := range []string{"a", "b", "c"} {
+		ff = append(ff, route("GET", "/"+n, "api."+n), sym("api."+n, "api/"+n+".go", "core."+n), sym("core."+n, "core/"+n+".go"))
+	}
+	doc := analyze(ff...).Document(1)
+	if doc.Total != 3 || len(doc.Flows) != 3 || doc.Described != 1 {
+		t.Fatalf("total %d, flows %d, described %d; want 3, 3, 1", doc.Total, len(doc.Flows), doc.Described)
+	}
+	if doc.Flows[0].Summary == "" || doc.Flows[2].Summary != "" {
+		t.Errorf("summaries %q / %q: want the first described and the last not", doc.Flows[0].Summary, doc.Flows[2].Summary)
+	}
+}

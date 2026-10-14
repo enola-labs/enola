@@ -21,8 +21,9 @@ covering the whole linked graph; each flow names its repository.
 |---|---|---|
 | `roots` | object, mechanism to int | Entries found, per mechanism, before any was dropped. Empty when none was found |
 | `leaves` | int | Entries that reach nothing the graph follows. They are entries, not flows |
-| `total` | int | Flows the entries produced. `flows` holds the first of them |
-| `flows` | array of Flow | The largest flows, ranked. Always an array |
+| `total` | int | Flows the entries produced. `flows` holds all of them |
+| `described` | int | How many of the first flows carry `summary` and `stages`, at most 50. The rest carry everything else |
+| `flows` | array of Flow | Every flow, ranked. Always an array |
 
 ## Flow object
 
@@ -119,6 +120,7 @@ The comment on `Check` still calls it `runCheck`: `doc` is the source as written
 | `max_depth` | int | The deepest hop the walk took, at most 8 |
 | `performs_io` | int, when above zero | Reached symbols an extractor marked as performing I/O |
 | `unresolved_calls` | int | Calls made inside the flow whose target is no symbol in the graph. See [What unresolved_calls counts](#what-unresolved_calls-counts) |
+| `external_calls` | int | The part of `unresolved_calls` whose target is a package a file of the flow imports from outside the repository |
 | `truncated` | bool, when true | The walk stopped at 5000 symbols; the flow is larger |
 
 A flow is a floor, not a measurement. The walk follows `calls` relations that
@@ -142,6 +144,20 @@ On enola's own repository the flow entered at the binary's `main` reports 3,894.
 those 3,422 are calls into the standard library and imported packages, 57 into
 third-party packages, and 415 are calls on a value of unresolved type. Only the
 last group is a gap in the graph.
+
+`external_calls` counts the first group where the snapshot can show it: the call
+names a package its file imports from outside the repository, by the imported path
+(`github.com/acme/kit.Send`) or by the package's name (`json.Marshal` for
+`encoding/json`), as the file's dependency facts record the import. On enola's
+`main` it is 3,440 of 3,908. It errs one way only: a call into a package imported
+under another name, or one whose target does not spell the package, stays in
+`unresolved_calls` and is not counted here. So `unresolved_calls - external_calls`
+is an upper bound on the gap, never a lower one.
+
+The count depends on how an extractor writes a call into a library. Go and
+TypeScript name the package and are counted; on the corpus about 60% of their
+unresolved calls are external. Python, PHP, C#, Ruby and Rust call targets mostly do
+not name the imported package, and their `external_calls` is near zero.
 
 A large number is therefore not a defect. Read it against `reach`: a flow that
 reaches 6 symbols with 23 unresolved calls is one the graph could barely follow,

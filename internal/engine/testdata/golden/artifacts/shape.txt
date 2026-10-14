@@ -54,6 +54,7 @@
 
 ## output/flows.json
 
+.described number
 .flows[].entry.doc string
 .flows[].entry.file string
 .flows[].entry.id string
@@ -61,6 +62,7 @@
 .flows[].entry.name string
 .flows[].id string
 .flows[].mechanism string
+.flows[].metrics.external_calls number
 .flows[].metrics.max_depth number
 .flows[].metrics.modules number
 .flows[].metrics.reach number
