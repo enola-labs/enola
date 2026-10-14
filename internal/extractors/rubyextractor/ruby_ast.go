@@ -799,6 +799,9 @@ func (w *rubyWalker) handleModule(node *sitter.Node) {
 		// concrete and promote to abstract below once the body is known.
 		"abstract": false,
 	}
+	if doc := rubyDoc(node, w.src); doc != "" {
+		props[facts.PropDoc] = doc
+	}
 	if bodyHasConcern(body, w.src) {
 		props["concern"] = true
 		props["abstract"] = true // Concern = behavior mixed into includers
@@ -848,6 +851,9 @@ func (w *rubyWalker) handleClass(node *sitter.Node) {
 		"symbol_kind": facts.SymbolClass,
 		"exported":    w.exported(),
 		"language":    "ruby",
+	}
+	if doc := rubyDoc(node, w.src); doc != "" {
+		props[facts.PropDoc] = doc
 	}
 	if w.isRails {
 		props["framework"] = "rails"
@@ -991,6 +997,9 @@ func (w *rubyWalker) handleMethod(node *sitter.Node, isClassMethod bool) {
 		"symbol_kind": symbolKind,
 		"exported":    w.exported(),
 		"language":    "ruby",
+	}
+	if doc := rubyDoc(node, w.src); doc != "" {
+		props[facts.PropDoc] = doc
 	}
 	if w.isRails {
 		props["framework"] = "rails"
