@@ -7,6 +7,59 @@ The full per-release change lists — every Added, Changed and Fixed line — ar
 [enola.tech/changelog](https://enola.tech/changelog). This file is the same history at
 the resolution a reader of the repository needs.
 
+## v0.4.30 — 2026-10-14
+
+**`enola flows` lists the ways into a program and what each one reaches**
+
+- New command `enola flows`. An entry is a served route's handler, a `main`, a command,
+  an MCP tool or a symbol a framework invokes; its flow is every symbol its calls reach.
+  Flows are ranked by reach. `--show` prints one flow with its stages and a summary,
+  `--through` lists the flows that reach a symbol, `--top` limits the list, `--json`
+  emits the report.
+- Ranking: the program's own flows first, `side` flows (examples, scripts, migrations,
+  tooling) last. In a program that serves routes, commands rank after routes. Entries
+  that reach the same symbols fold into one flow (`also`), and a flow at least 90%
+  inside a larger one is marked `inside`. Each flow counts its unresolved calls.
+- `.enola/flows.json`, written by the new `flows` renderer, on by default: every flow,
+  the first 50 with stages and a summary. `external_calls` is the part of the unresolved
+  calls that go into imported packages, filled for Go and TypeScript. Schema in
+  `docs/schema/flows.md`.
+- Entries: commands, named as typed (Go string-keyed dispatch with subcommands, cobra,
+  urfave/cli, click, typer); MCP tools as `tool <name>` (Go `AddTool`, Python `.tool`);
+  Android activities, SwiftUI Apps, XAML Applications, and `Main` on .NET. Rails
+  callbacks are not entries.
+- The walk follows an interface method into its implementations when there are at most
+  three, walks an entry class through its methods, and follows the widgets a Flutter
+  widget constructs.
+- Symbols carry a `doc` prop, the first paragraph of their comment or docstring: Go,
+  Python, TypeScript, Ruby, Java, C# and PHP. `diff_snapshot` ignores a changed `doc`.
+- Go routes: the handler is the last argument after middleware; a mount's function
+  literal and a local route closure compose their path; the module's own router package
+  is recognized, with or without a framework import; `Combo` chains,
+  `Mount("/p", pkg.Routes())`, `PathGroup` with `MatchPath`, paths in constants, locals
+  and raw strings are read. A wrapped handler names the function inside the wrapper. A
+  verb with no handler is not a route.
+- Route binding: `handled_by` names a declared symbol or is not emitted.
+  - Rails: the handler is looked for in the engine's isolated namespace, on the
+    controller's ancestors and under an acronym casing; a singular resource binds to its
+    pluralized controller.
+  - Express, Fastify, Hono, Koa: the handler is bound. A router imported through a
+    barrel composes, and so does a mount prefix that appends a string constant.
+  - Axum and utoipa routes are bound. A router built in `#[cfg(test)]` is not a route.
+  - Nuxt and SvelteKit pages are bound to their component, a SvelteKit page also to its
+    `load`.
+  - Dart and Angular: a page named by a bare or package-qualified name resolves to the
+    one type that fits, or loses the relation. 239 relations named no symbol.
+  - The HTTP linker prefers a repository that registers a path over one that only
+    documents it.
+- Call resolution: Ruby calls on self, constants looked up from the caller's namespace
+  outward, and `Const.new.call`; Laravel static calls on the application's own facades
+  reach the class bound in a service provider; TypeScript calls on a namespace import of
+  the repository, and method calls on a local built with `new C()` or annotated `C`.
+- Fixed: a `doc` from a comment in another encoding is stored as valid UTF-8, the same
+  on a cold run and from the cache.
+- `cacheVersion` moves to `v351`: every repository re-extracts once.
+
 ## v0.4.29 — 2026-10-12
 
 **A Laravel endpoint walks from its URL to its tables, and dead-code and impact follow PHP's wiring**
