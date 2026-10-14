@@ -368,6 +368,6 @@ Where it is read:
 | `facts.jsonl` | As a prop of the symbol fact |
 | `enola flows --show` and `--json`, and `flows.json` | In a flow's summary, and on its entry and each stage. See [flows.md](flows.md#example) |
 | `diff_snapshot`, `enola check` | Ignore it, so editing a comment is not an architecture change |
-| `query_facts`, `explore`, `impact_analysis` | Do not print it. `show_symbol` prints the source, comment included |
+| MCP tools | Never print it, by design: `doc` on every result would spend an agent's context on prose it rarely needs. `show_symbol` prints the source, comment included, when an agent asks for it |
 
 Go, Python, TypeScript, Ruby, Java, C# and PHP extractors fill it.
