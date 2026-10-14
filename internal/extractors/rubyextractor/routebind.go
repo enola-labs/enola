@@ -187,9 +187,16 @@ func (ix *handlerIndex) resolve(target string) string {
 			return ""
 		}
 	}
+	return ix.member(class, "#", action)
+}
+
+// member returns the method name declares on class or on the nearest ancestor that
+// declares it, as "Class#name" for an instance method (sep "#") or "Class.name" for
+// a singleton one (sep "."), or "".
+func (ix *handlerIndex) member(class, sep, name string) string {
 	for range maxAncestors {
-		if ix.declared[class+"#"+action] {
-			return class + "#" + action
+		if ix.declared[class+sep+name] {
+			return class + sep + name
 		}
 		super, ok := ix.superclass[class]
 		if !ok {

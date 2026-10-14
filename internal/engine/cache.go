@@ -2866,7 +2866,11 @@ import (
 // the enclosing method's receiver resolves to that method.
 // v342: a Nuxt or SvelteKit page route is bound to the component its file declares,
 // and a SvelteKit page also to the load in the +page.server or +page file beside it.
-const cacheVersion = "v342"
+// v343: a Ruby call is resolved to the method it reaches where one declared method
+// fits: a call on self to the caller's class or the ancestor declaring it, a constant
+// from the caller's namespace outward, and `Const.new.call` / `new(...).call` /
+// `new.call` to the instance method of the class built.
+const cacheVersion = "v343"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
