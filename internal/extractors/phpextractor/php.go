@@ -196,6 +196,10 @@ func (e *PHPExtractor) Extract(ctx context.Context, repoPath string, files []str
 	// Resolve `use` imports and namespaced references (inheritance, calls,
 	// instantiations) into internal module-coupling edges. Without this, PHP
 	// imports never match module Names downstream and coupling collapses to zero.
+	// A static call on one of the application's own facades runs the method of the
+	// class the facade's key is bound to.
+	resolveFacadeCalls(allFacts, facadeTargets(repoPath, phpFiles))
+
 	allFacts = append(allFacts, resolveImports(allFacts, isWordPress)...)
 
 	// Propagate the direct-I/O signal (io_direct) transitively over the call graph

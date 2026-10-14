@@ -2870,7 +2870,10 @@ import (
 // fits: a call on self to the caller's class or the ancestor declaring it, a constant
 // from the caller's namespace outward, and `Const.new.call` / `new(...).call` /
 // `new.call` to the instance method of the class built.
-const cacheVersion = "v343"
+// v344: a static call on one of a Laravel application's own facades is resolved to the
+// method of the class its key is bound to in a service provider, by bind/singleton or
+// a $bindings/$singletons array entry.
+const cacheVersion = "v344"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
