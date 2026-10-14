@@ -341,3 +341,29 @@ One descriptive prop is prose rather than a measurement:
   declaration. Cut at a word and ended with `...` when it runs past 300 bytes.
   Absent when the symbol has no comment, and on languages whose extractor does
   not read one. `diff_snapshot` and `enola check` do not report a change to it.
+
+`doc` adds no node and no edge. The same function, from a build before `doc` and
+from one after:
+
+```json
+{"kind":"symbol","name":"internal/flows.Analyze","file":"internal/flows/flows.go","line":186,
+ "props":{"symbol_kind":"function","exported":true,"cyclomatic":17}}
+
+{"kind":"symbol","name":"internal/flows.Analyze","file":"internal/flows/flows.go","line":186,
+ "props":{"symbol_kind":"function","exported":true,"cyclomatic":17,
+          "doc":"Analyze finds the entries of a graph, walks each, and ranks what it found."}}
+```
+
+It is read as written. A comment that names an old name of the function, or
+describes what it used to do, is passed on unchanged.
+
+Where it is read:
+
+| Reader | Uses `doc` |
+|---|---|
+| `facts.jsonl` | As a prop of the symbol fact |
+| `enola flows --show` and `--json`, and `flows.json` | In a flow's summary, and on its entry and each stage. See [flows.md](flows.md#example) |
+| `diff_snapshot`, `enola check` | Ignore it, so editing a comment is not an architecture change |
+| `query_facts`, `explore`, `impact_analysis` | Do not print it. `show_symbol` prints the source, comment included |
+
+Go and Python extractors fill it.

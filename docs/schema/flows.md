@@ -43,8 +43,9 @@ covering the whole linked graph; each flow names its repository.
 | `same_reach_as` | array of string | another entry reaches the same symbols | Names of the flows folded into this one |
 | `nested_in` | array of string | a larger flow contains at least 90% of this one | Names of those flows |
 
-Flows are ranked with the program's own first and `side` flows after them, then
-by `metrics.reach`, `metrics.modules` and `name`.
+Flows are ranked with the program's own first and `side` flows after them; in a
+repository that serves routes, `command` flows after its other flows; then by
+`metrics.reach`, `metrics.modules` and `name`.
 
 ## Ref object
 
@@ -59,6 +60,55 @@ by `metrics.reach`, `metrics.modules` and `name`.
 
 Join a flow to the graph on these IDs: `entry.id` and each stage `id` name a
 `symbol` fact, each route `id` a `route` fact.
+
+## Example
+
+The `enola check` flow of enola's own repository, as `enola flows --show "enola
+check"` prints it:
+
+```
+Summary
+  A command enters at command.Runner.Check ("runCheck is the `enola check`
+  gate: snapshot the repo, diff it against a baseline, grade the delta, and
+  exit with a code CI can act on."). It calls command.Runner.resolveTarget,
+  check.RegradeIntersection, check.Verdict.Write and conformance.Compute. Most
+  of its 564 symbols sit in pkg/check (124 symbols), internal/facts (73) and
+  internal/diff (68).
+
+Stages
+  command.Runner.resolveTarget    161  resolveTarget turns the single positional argument into an engine ...
+    command.Runner.newEngine      134  newEngine builds an engine for a shared command. Every command that ...
+      bootstrap.NewEngine         133  NewEngine creates an Engine with every built-in plugin registered. Use ...
+  check.RegradeIntersection       125
+    diff.Compute                   98  Compute returns the delta from baseline to current. A nil snapshot is ...
+```
+
+The text in quotes and after each stage's reach is the symbol's
+[`doc`](facts.md#descriptive-props). `check.RegradeIntersection` has no comment, so
+its line ends at the number, and a flow whose symbols have none reads as names and
+counts only. The same flow in `flows.json`:
+
+```json
+{
+  "name": "enola check",
+  "mechanism": "command",
+  "entry": {
+    "name": "pkg/command.Runner.Check",
+    "file": "pkg/command/check.go",
+    "line": 141,
+    "doc": "runCheck is the `enola check` gate: snapshot the repo, diff it against a baseline, grade the delta, and exit with a code CI can act on."
+  },
+  "stages": [
+    {"order": 1, "depth": 1, "name": "pkg/command.Runner.resolveTarget", "reach": 161,
+     "doc": "resolveTarget turns the single positional argument into an engine pointed at the right repository. ..."},
+    {"order": 2, "depth": 2, "parent": "2967b9c2912b8c4836377ac83239d9c5",
+     "name": "pkg/command.Runner.newEngine", "reach": 134,
+     "doc": "newEngine builds an engine for a shared command. ..."}
+  ]
+}
+```
+
+The comment on `Check` still calls it `runCheck`: `doc` is the source as written.
 
 ## Metrics object
 
