@@ -70,3 +70,38 @@ func commandName(decorator, fn string) string {
 	}
 	return strings.ReplaceAll(group, "_", "-") + " " + name
 }
+
+// MCP tools declared with a decorator.
+//
+//	@mcp.tool()                 FastMCP
+//	@registry.tool(tags={...})  a project's wrapper around it
+//	@tool(...)                  a decorator imported from an MCP module
+//
+// The function is a tool of the server, and the flow analysis names its flow by the
+// tool. A `.tool` decorator counts in a file that imports an MCP library, and a bare
+// `@tool` only when it is imported from one.
+
+var (
+	toolDecoratorRe = regexp.MustCompile(`^@\s*(?:[\w.]+\.)?tool\b\s*(?:\(|$)`)
+	toolNameKwRe    = regexp.MustCompile(`\bname\s*=\s*["']([^"']+)["']`)
+	mcpImportRe     = regexp.MustCompile(`(?m)^\s*(?:from|import)\s+(?:fastmcp|[\w.]*\bmcp\b)`)
+	mcpToolImportRe = regexp.MustCompile(`(?m)^\s*from\s+[\w.]*mcp[\w.]*\s+import\s+[^\n]*\btool\b`)
+)
+
+// importsMCP reports whether a file's decorator is an MCP tool declaration: a bare
+// `@tool` imported from an MCP module, or `@x.tool` in a file importing one.
+func importsMCP(src []byte, decorator string) bool {
+	if strings.HasPrefix(strings.TrimSpace(strings.TrimPrefix(decorator, "@")), "tool") {
+		return mcpToolImportRe.Match(src)
+	}
+	return mcpImportRe.Match(src)
+}
+
+// toolName returns the tool a decorator declares on fn: the name it is given, or the
+// function's own name, as FastMCP derives it.
+func toolName(decorator, fn string) string {
+	if m := toolNameKwRe.FindStringSubmatch(decorator); m != nil {
+		return m[1]
+	}
+	return fn
+}

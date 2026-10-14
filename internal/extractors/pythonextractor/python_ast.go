@@ -927,6 +927,9 @@ func (w *pyWalker) handleDecoratedDefinition(node *sitter.Node) {
 	// commandDecorator is the text of a click or typer @<group>.command(...) on
 	// this definition, "" when there is none.
 	var commandDecorator string
+	// toolDecorator is the text of an MCP @<server>.tool(...) or @tool(...) on this
+	// definition, "" when there is none.
+	var toolDecorator string
 
 	for i := uint(0); i < uint(node.ChildCount()); i++ {
 		c := node.Child(i)
@@ -935,6 +938,9 @@ func (w *pyWalker) handleDecoratedDefinition(node *sitter.Node) {
 			text := pyText(c, w.src)
 			if commandDecoratorRe.MatchString(text) {
 				commandDecorator = text
+			}
+			if toolDecoratorRe.MatchString(text) {
+				toolDecorator = text
 			}
 			// Walk decorator-call arguments for nested calls / value refs, e.g.
 			// @router.get(dependencies=[Depends(requires_access_asset(method="GET"))]).
@@ -985,6 +991,10 @@ func (w *pyWalker) handleDecoratedDefinition(node *sitter.Node) {
 				if name := commandName(commandDecorator, pyFuncName(c, w.src)); name != "" {
 					w.out[fnIdx].SetProp("command", name)
 				}
+			}
+			if toolDecorator != "" && fnIdx < len(w.out) && w.out[fnIdx].Kind == facts.KindSymbol && importsMCP(w.src, toolDecorator) {
+				w.out[fnIdx].SetProp("tool", toolName(toolDecorator, pyFuncName(c, w.src)))
+				w.out[fnIdx].SetProp("framework_registered", true)
 			}
 			// Tag a route handler as an entry point (framework-dispatched, no in-code
 			// caller). Covers computed/keyword paths the route-fact regex can't parse.

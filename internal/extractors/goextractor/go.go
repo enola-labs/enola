@@ -245,6 +245,7 @@ func (e *GoExtractor) Extract(ctx context.Context, repoPath string, files []stri
 		}
 	}
 	bindCommands(allFacts, commandLits, modulePath)
+	bindTools(allFacts)
 
 	// Carry io_direct to every function that reaches one, across packages, and
 	// through an interface to the types asserted to implement it.
@@ -472,6 +473,11 @@ func (e *GoExtractor) extractFunc(fset *token.FileSet, fn *ast.FuncDecl, relFile
 		ctx.localTypes = collectLocalTypesFrom(fn.Body, ctx, signatureTypes(fn.Type, ctx, typeParams), typeParams)
 		if dispatches := stringDispatches(fn.Body, ctx); len(dispatches) > 0 {
 			symbolFact.SetProp(dispatchProp, dispatches)
+		}
+		toolFacts, namedTools := mcpTools(fset, fn.Body, ctx, relFile, pkgDir)
+		result = append(result, toolFacts...)
+		if len(namedTools) > 0 {
+			symbolFact.SetProp(toolsProp, namedTools)
 		}
 		m := analyzeBody(fn.Body, ctx, qualifiedName, funcParamNames(fn))
 		for _, call := range m.calls {

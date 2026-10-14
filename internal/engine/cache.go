@@ -2882,7 +2882,10 @@ import (
 // v347: a function a command-line command runs carries a `command` prop, "<program>
 // <name>": Go string-keyed dispatch on an argument (nested dispatch as subcommands),
 // cobra and urfave/cli command literals, and Python click and typer `.command()`.
-const cacheVersion = "v347"
+// v348: an MCP tool's handler carries a `tool` prop and framework_registered. In Go a
+// handler passed to AddTool as a literal is given a symbol "<pkg>.tool:<name>" with the
+// literal's calls; in Python a function under @x.tool(...) or an imported @tool(...).
+const cacheVersion = "v348"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

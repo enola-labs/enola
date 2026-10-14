@@ -67,3 +67,55 @@ def not_a_click_command():
 		t.Errorf("commands = %v, want exactly %v", got, want)
 	}
 }
+
+// An MCP tool declared with a decorator is named by its given name or its function's.
+func TestTools_DecoratedFunctions(t *testing.T) {
+	ff := extractPyRepo(t, map[string]string{
+		"server/server.py": `import fastmcp
+
+mcp = fastmcp.FastMCP("memory")
+
+@mcp.tool()
+async def remember(data: str):
+    pass
+
+@registry.tool(name="recall_memory", tags={"memory"})
+async def recall(query: str):
+    pass
+`,
+		"superset/chart/delete_chart.py": `from superset_core.mcp.decorators import tool
+
+@tool(annotations=None)
+async def delete_chart(chart_id: int):
+    pass
+`,
+		"other/plain.py": `from mylib import tool
+
+@tool()
+def not_a_tool():
+    pass
+`,
+	})
+	got := map[string]string{}
+	for _, f := range ff {
+		if f.Kind == facts.KindSymbol && f.PropString("tool") != "" {
+			got[f.Name] = f.PropString("tool")
+			if !f.PropBool("framework_registered") {
+				t.Errorf("%s is not marked framework_registered", f.Name)
+			}
+		}
+	}
+	want := map[string]string{
+		"server/server.remember":                   "remember",
+		"server/server.recall":                     "recall_memory",
+		"superset/chart/delete_chart.delete_chart": "delete_chart",
+	}
+	for fn, tool := range want {
+		if got[fn] != tool {
+			t.Errorf("%s tool = %q, want %q (have %v)", fn, got[fn], tool, got)
+		}
+	}
+	if len(got) != len(want) {
+		t.Errorf("tools = %v, want exactly %v", got, want)
+	}
+}

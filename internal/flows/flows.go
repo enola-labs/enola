@@ -29,6 +29,9 @@ const (
 	// MechanismCommand is a command of a command-line program, `enola check`: the
 	// function an extractor found it runs carries the command as a prop.
 	MechanismCommand = "command"
+	// MechanismTool is a tool an MCP server serves: the function its registration
+	// hands the call to carries the tool's name as a prop. The flow is "tool <name>".
+	MechanismTool = "tool"
 
 	// mechanismCallback is the framework-roots mechanism that is not an entry.
 	mechanismCallback = "callback"
@@ -514,6 +517,8 @@ func entryMechanism(f facts.Fact) string {
 	switch root := f.PropString(facts.PropFrameworkRoot); {
 	case f.PropString("command") != "":
 		return MechanismCommand
+	case f.PropString("tool") != "":
+		return MechanismTool
 	case root == mechanismCallback:
 		// A callback runs inside a request some route already entered. It is a
 		// step of that flow, not a way into the program.
@@ -599,6 +604,8 @@ func (a *Analysis) newFlow(id int32, r *root, reach []int32, depth int, truncate
 		f.Name = routeLabel(r.routes[0])
 	} else if c := a.nodes[id].fact.PropString("command"); c != "" && r.mechanism == MechanismCommand {
 		f.Name = c
+	} else if t := a.nodes[id].fact.PropString("tool"); t != "" && r.mechanism == MechanismTool {
+		f.Name = "tool " + t
 	}
 	perModule := map[string]int{}
 	for _, member := range reach {
