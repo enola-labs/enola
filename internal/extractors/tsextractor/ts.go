@@ -2308,9 +2308,17 @@ func buildImportBindings(kinds *tsutil.KindTable, root *sitter.Node, src []byte,
 				m[local] = qualifier + "." + local
 			}
 		}
+		// `import * as api from '$lib/api'`: a member of the namespace is the module's
+		// export of that name, so `api.get()` is "<moduleDir>.get". Only the member
+		// roots carry it; the namespace itself is no symbol to call.
+		if ns := findChildByKind(kinds, clause, "namespace_import"); ns != nil && fromRepo {
+			if id := findChildByKind(kinds, ns, "identifier"); id != nil {
+				internal[nodeText(id, src)] = qualifier
+			}
+		}
 		named := findChildByKind(kinds, clause, "named_imports")
 		if named == nil {
-			continue // default/namespace imports are not resolved
+			continue // a default import is bound above, a namespace import in internal
 		}
 		for j := range named.ChildCount() {
 			spec := named.Child(j)

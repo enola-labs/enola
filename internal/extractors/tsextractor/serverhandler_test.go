@@ -1,6 +1,8 @@
 package tsextractor
 
 import (
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/enola-labs/enola/internal/facts"
@@ -200,6 +202,41 @@ func TestLastCallArgument(t *testing.T) {
 		from := len(`r.get('/a'`)
 		if got := lastCallArgument([]byte(tc.src), from); got != tc.want {
 			t.Errorf("%s: last argument = %q, want %q", tc.src, got, tc.want)
+		}
+	}
+}
+
+// A call on a namespace import names the module's export, and it is a call of the
+// function that makes it, not only a reference of the file.
+func TestNamespaceImportCall_NamesTheExport(t *testing.T) {
+	ff := extractAll(t, map[string]string{
+		"src/routes/load.ts": `import * as api from '../lib/api';
+import * as path from 'node:path';
+
+export async function load(token: string) {
+	const tags = await api.get('tags', token);
+	return path.join('a', tags);
+}
+`,
+		"src/lib/api.ts": `export function get(p: string, token?: string) { return p }
+`,
+	}, false)
+	var calls []string
+	for _, f := range ff {
+		if f.Kind == facts.KindSymbol && f.Name == "src/routes.load" {
+			for _, r := range f.Relations {
+				if r.Kind == facts.RelCalls {
+					calls = append(calls, r.Target)
+				}
+			}
+		}
+	}
+	if !slices.Contains(calls, "src/lib.get") {
+		t.Errorf("load calls %v, want src/lib.get", calls)
+	}
+	for _, c := range calls {
+		if strings.HasPrefix(c, "node:path") || strings.HasSuffix(c, ".join") {
+			t.Errorf("load calls %v: a package namespace names no fact here", calls)
 		}
 	}
 }

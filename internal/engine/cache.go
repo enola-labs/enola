@@ -2873,7 +2873,10 @@ import (
 // v344: a static call on one of a Laravel application's own facades is resolved to the
 // method of the class its key is bound to in a service provider, by bind/singleton or
 // a $bindings/$singletons array entry.
-const cacheVersion = "v344"
+// v345: a TypeScript call on a namespace import of this repository's module,
+// `import * as api from '$lib/api'; api.get()`, is a call of the enclosing function
+// to "<moduleDir>.get"; it was only a file-level reference.
+const cacheVersion = "v345"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
