@@ -333,6 +333,12 @@ an mpsc channel is not a database write. On tokio that cut 42 high-severity find
 tree also counts as test code now, as `tests/` already did; it accounted for 11 of the
 42.
 
+**`performance` through a port.** In a layered TypeScript application a use case calls a
+repository interface and only the class behind it runs the query. The extractor follows
+the call to the implementing class, so a call to the interface inside a loop is rated
+high when an implementation reaches a database call, and medium when only its name
+suggested one. See [Queries and I/O](extraction/typescript.md#queries-and-io).
+
 **Deference is worth what it costs.** On a large Rails application, `query-loops` claims
 333 symbols and suppresses 265 of the `call-in-loop` findings this explainer would
 otherwise file — a quarter of them — and `dead-methods` claims 268 symbols, suppressing
