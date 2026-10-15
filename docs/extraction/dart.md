@@ -22,6 +22,7 @@ is copied from the golden the test suite asserts against.
 | `import` / `export` | `dependency` (`stdlib` / `internal` / `external`) |
 | `GoRoute`, `AutoRoute`, `routes:` map | `route` (`type: page`) |
 | `http`/`dio` call site, `@GET(...)` | `route` (`role: client`) |
+| a retrofit/chopper client's annotated method | a `symbol` flagged as doing network I/O, so a call to it in a loop is reported |
 | drift `Table`, isar/hive/objectbox/floor, Firestore | `storage` |
 
 ## The module model is the pub package

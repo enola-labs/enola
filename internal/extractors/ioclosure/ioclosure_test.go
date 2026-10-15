@@ -132,3 +132,42 @@ func TestPropagate_DoubleColonMembers(t *testing.T) {
 	Propagate(all)
 	assertIO(t, performsIO(t, all), []string{`App\Store::put`, `App\Job::run`}, nil)
 }
+
+func TestPropagate_InterfaceMemberWithoutAFact(t *testing.T) {
+	all := []facts.Fact{
+		sym("app.Repo", facts.SymbolInterface, nil),
+		sym("db.DrizzleRepo", facts.SymbolClass, nil),
+		sym("db.DrizzleRepo.save", facts.SymbolMethod, map[string]any{"io_direct": true}),
+		sym("db.DrizzleRepo.name", facts.SymbolMethod, nil),
+		sym("app.UseCase.run", facts.SymbolMethod, nil, calls("app.Repo.save")),
+		sym("app.UseCase.label", facts.SymbolMethod, nil, calls("app.Repo.name")),
+		sym("app.Other.run", facts.SymbolMethod, nil, calls("app.Missing.save")),
+	}
+	PropagateWith(all, Options{Declared: map[string][]string{"app.Repo": {"db.DrizzleRepo"}}, BodilessMembers: true})
+	assertIO(t, performsIO(t, all),
+		[]string{"db.DrizzleRepo.save", "app.UseCase.run"},
+		[]string{"app.UseCase.label", "app.Other.run", "app.Repo"})
+	for _, f := range all {
+		if f.Name == "app.Repo" {
+			if got, _ := f.PropAny("io_members").([]string); len(got) != 1 || got[0] != "save" {
+				t.Errorf("app.Repo io_members = %v, want [save]", got)
+			}
+		}
+	}
+}
+
+func TestPropagate_BodilessMembersAreOptIn(t *testing.T) {
+	all := []facts.Fact{
+		sym("app.Repo", facts.SymbolInterface, nil),
+		sym("db.DrizzleRepo", facts.SymbolClass, nil),
+		sym("db.DrizzleRepo.save", facts.SymbolMethod, map[string]any{"io_direct": true}),
+		sym("app.UseCase.run", facts.SymbolMethod, nil, calls("app.Repo.save")),
+	}
+	PropagateWith(all, Options{Declared: map[string][]string{"app.Repo": {"db.DrizzleRepo"}}})
+	assertIO(t, performsIO(t, all), []string{"db.DrizzleRepo.save"}, []string{"app.UseCase.run", "app.Repo"})
+	for _, f := range all {
+		if _, ok := f.PropAny("io_members").([]string); ok {
+			t.Errorf("%s carries io_members without the option", f.Name)
+		}
+	}
+}

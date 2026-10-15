@@ -30,6 +30,8 @@ Fixtures: [`ts_sample`](../../internal/engine/testdata/repos/ts_sample/) ·
 | a Nuxt auto-imported `useAuth()` | a call to its unique `composables/` declaration | `file_ref` / `symbol` |
 | `src/routes/blog/[slug]/+page.svelte` | a route derived from the file path | `route` |
 | a Prisma / TypeORM / Drizzle model | an entity with its table name | `storage` |
+| a Drizzle query: `db.select().from(t)`, `insert().values()`, `update().set()`, `delete().where()`, ``execute(sql`…`)`` | the enclosing function is flagged as doing I/O (`io_direct`) | `symbol` |
+| a call to a member of an interface that a class implements | the I/O of the implementing class, kept on the interface as `io_members` | `symbol` |
 | a `.gts`/`.gjs` Glimmer component | a component symbol with its template's references | `symbol` |
 | `this.route('book', { path: '/:book_id' })` (Ember) | a page route at the composed path | `route` |
 | an ember-data `Model` subclass | a model with its dasherized name | `storage` |
@@ -72,6 +74,22 @@ route  /v2/slots/reserve     api/src/slots/slots.controller.ts:15
 The class-level prefix is folded onto each method decorator, so the stored path is the
 one a client actually calls. InversifyJS `@controller` prefixes are handled the same way
 (`/api/orders`, `/api/orders/:id/cancel` in the same fixture).
+
+**The global prefix.** A NestJS application usually serves every controller under one
+prefix, set once at start-up:
+
+```ts
+app.setGlobalPrefix('v1');
+```
+
+enola applies it to every NestJS route, so `@Controller('me')` with a bare `@Get()` is
+stored at `/v1/me`, the path a client calls. Without it a one-segment route such as
+`/me` could never be matched to its client, because a match on a single trailing segment
+is refused as too ambiguous. The prefix is applied only when the source leaves no doubt:
+every `setGlobalPrefix` call in the repository passes the same plain string literal and
+no options (an `exclude` list would keep some routes out of the prefix). A prefix read
+from an environment variable or a constant, or two calls that disagree, leave the routes
+as written.
 
 ## Routes — Express
 
@@ -519,6 +537,51 @@ storage  src.orders    src/schema.ts:4          props: framework=drizzle, table=
 `table` is the *physical* name — `@Entity('users')` gives `users`, while an undecorated
 `Session` class keeps its class name. That distinction matters when the same database is
 reached from another repository in another language.
+
+## Queries and I/O
+
+The performance analyzer reports a call inside a loop as high severity only when the
+callee is known to do I/O, so what counts as I/O decides which N+1 queries it can see.
+
+A function is flagged `io_direct` when its body calls a network, file or database
+primitive. For Drizzle, which has no method name of its own to recognise, that is a
+builder chain and not a name:
+
+| written | counts as a query |
+|---|---|
+| `db.select().from(t)`, `selectDistinct().from(t)` | `from` on the result of a `select` |
+| `db.insert(t).values(v)` | `values` on the result of an `insert` |
+| `db.update(t).set(v)` | `set` on the result of an `update` |
+| `db.delete(t).where(c)`, `.returning()` | `where` / `returning` on the result of a `delete` |
+| ``db.execute(sql`…`)`` | `execute` with an `sql` template |
+
+Only the pair matches, so `Array.from(x)`, `Object.values(o)` and `map.set(k, v)` do not.
+It is read only in a repository that depends on `drizzle-orm`, in the root
+`package.json` or in a workspace package's.
+
+`io_direct` is then carried up the call graph into `performs_io`. A layered application
+puts a repository interface between the use case and the query, and a TypeScript
+interface member is not a fact of its own, so the closure also follows a call to an
+interface member to the methods of the classes that implement it, and keeps the answer
+on the interface as `io_members`:
+
+```
+symbol  src.DrizzleOrderRepository.save   props: io_direct=true, performs_io=true
+symbol  src.OrderRepository               props: io_members=[save]
+symbol  src.SaveAll.run                   props: performs_io=true
+```
+
+`SaveAll.run` calls `this.repo.save(id)` for each id. With the interface resolved, that
+call is confirmed I/O and the finding is high severity, where a method name alone would
+have been a guess. An interface name two types share resolves to neither, and the
+closure follows interface members only for TypeScript: another language's output does
+not change.
+
+Names do not stand in for resolution. The methods of JavaScript's built-in objects
+(`append`, `join`, `cancel`, the array methods) and of `node:path`, `node:url`,
+`node:util`, `node:os` and `node:assert` are not read as I/O by their short name, so
+`params.append(k, v)` and `path.join(a, b)` in a loop are not reported. `node:fs`, and
+verbs such as `delete` and `write`, still are.
 
 ## GraphQL — client operations and schema-first Node servers
 

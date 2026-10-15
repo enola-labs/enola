@@ -200,7 +200,7 @@ func coverageSummary(store *facts.Store) *facts.CoverageSummary {
 		unresolved := readCoverageField(svc, "unresolved")
 		sum.UnresolvedEdges += unresolved
 		sum.ExternalEdges += readCoverageField(svc, "external")
-		if facts.ClassifyService(facts.DependsOnCount(svc), detected, unresolved) == facts.ServiceCoverageGap {
+		if facts.ClassifyService(facts.DependsOnCount(svc), detected, readCoverageField(svc, "resolved"), unresolved) == facts.ServiceCoverageGap {
 			sum.CoverageGaps++
 		}
 	}

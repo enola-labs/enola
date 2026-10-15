@@ -441,3 +441,41 @@ class TodoItems extends Table { IntColumn get id => integer()(); }`
 		t.Errorf("part_of should resolve to the host file, got %q", withHost.partOf)
 	}
 }
+
+func TestRetrofitMethodIsIO(t *testing.T) {
+	src := `
+import 'package:dio/dio.dart';
+import 'package:retrofit/retrofit.dart';
+
+@RestApi()
+abstract class MeClient {
+  factory MeClient(Dio dio) = _MeClient;
+
+  @GET('/v1/me')
+  Future<String> me();
+
+  String describe();
+}
+
+class MeSource {
+  Future<String> load() => client.me();
+  String label() => client.describe();
+}
+`
+	all := resolveCallTargets(walkSource(t, "lib/api/me_client.dart", src))
+	computeDartPerformsIO(all)
+	for name, want := range map[string]bool{
+		"lib/api.MeClient.me":       true,
+		"lib/api.MeSource.load":     true,
+		"lib/api.MeClient.describe": false,
+		"lib/api.MeSource.label":    false,
+	} {
+		f := findFact(all, facts.KindSymbol, name)
+		if f == nil {
+			t.Fatalf("missing %s", name)
+		}
+		if got, _ := f.Props["performs_io"].(bool); got != want {
+			t.Errorf("%s performs_io = %v, want %v", name, got, want)
+		}
+	}
+}

@@ -8,6 +8,7 @@
 package ioclosure
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/enola-labs/enola/internal/facts"
@@ -17,6 +18,7 @@ const (
 	propIODirect   = "io_direct"
 	propPerformsIO = "performs_io"
 	propAbstract   = "abstract"
+	propIOMembers  = "io_members"
 	// propCallsOnce lists the callees a function reaches only from inside a
 	// run-once guard (Go's sync.Once). The call happens once per process, so what
 	// it does is not what the function does each time it is called.
@@ -53,6 +55,10 @@ type Options struct {
 	// writes a file, and a function is not doing file I/O per iteration for
 	// logging in its loop. An opaque function that is io_direct is still marked.
 	Opaque func(name string) bool
+	// BodilessMembers keeps a call to a member of an interface that has no fact of its
+	// own as a node of the closure, so the implementers' methods reach it. Only a
+	// language whose interface members are not facts (TypeScript) sets it.
+	BodilessMembers bool
 }
 
 // PropagateWith is Propagate with a language's additions.
@@ -74,6 +80,15 @@ func PropagateWith(all []facts.Fact, opts Options) {
 		}
 	}
 
+	interfaceMember := func(target string) bool {
+		if !opts.BodilessMembers {
+			return false
+		}
+		owner, _, _ := splitMember(target)
+		return owner != "" && bodiless[owner]
+	}
+	virtual := make(map[string]bool)
+
 	io := make(map[string]bool)
 	callers := make(map[string][]string) // callee → the names whose answer depends on it
 	implementers := make(map[string][]string)
@@ -94,8 +109,14 @@ func PropagateWith(all []facts.Fact, opts Options) {
 		for _, r := range f.Relations {
 			switch r.Kind {
 			case facts.RelCalls:
-				if r.Target == f.Name || seen[r.Target] || !exists[r.Target] {
+				if r.Target == f.Name || seen[r.Target] {
 					continue
+				}
+				if !exists[r.Target] {
+					if !interfaceMember(r.Target) {
+						continue
+					}
+					virtual[r.Target] = true
 				}
 				seen[r.Target] = true
 				callers[r.Target] = append(callers[r.Target], f.Name)
@@ -118,7 +139,14 @@ func PropagateWith(all []facts.Fact, opts Options) {
 	// A bodiless method depends on each implementer's method of the same name, the
 	// way a caller depends on its callee.
 	if len(implementers) > 0 {
+		names := make([]string, 0, len(exists)+len(virtual))
 		for name := range exists {
+			names = append(names, name)
+		}
+		for name := range virtual {
+			names = append(names, name)
+		}
+		for _, name := range names {
 			owner, sep, member := splitMember(name)
 			if owner == "" || len(implementers[owner]) == 0 || (!bodiless[owner] && !bodiless[name]) {
 				continue
@@ -150,10 +178,25 @@ func PropagateWith(all []facts.Fact, opts Options) {
 		}
 	}
 
+	ioMembers := make(map[string][]string)
+	for name := range virtual {
+		if io[name] {
+			owner, _, member := splitMember(name)
+			ioMembers[owner] = append(ioMembers[owner], member)
+		}
+	}
+
 	for i := range all {
 		f := &all[i]
-		if f.Kind == facts.KindSymbol && io[f.Name] {
+		if f.Kind != facts.KindSymbol {
+			continue
+		}
+		if io[f.Name] {
 			f.SetProp(propPerformsIO, true)
+		}
+		if members := ioMembers[f.Name]; len(members) > 0 {
+			slices.Sort(members)
+			f.SetProp(propIOMembers, members)
 		}
 	}
 }

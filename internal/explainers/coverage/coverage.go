@@ -111,9 +111,10 @@ func (e *CoverageExplainer) Explain(ctx context.Context, store *facts.Store) ([]
 	var insights []facts.Insight
 	for _, svc := range store.ByKind(facts.KindService) {
 		cov := readCoverage(svc)
-		var unresolved, detected int
+		var unresolved, detected, resolved int
 		for _, c := range cov {
 			detected += c.detected
+			resolved += c.resolved
 			unresolved += c.unresolved
 		}
 		if unresolved == 0 {
@@ -130,7 +131,7 @@ func (e *CoverageExplainer) Explain(ctx context.Context, store *facts.Store) ([]
 		evidence = append(evidence, unresolvedCallers(store, svc.Repo)...)
 
 		var insight facts.Insight
-		if facts.ClassifyService(outbound, detected, unresolved) == facts.ServiceCoverageGap {
+		if facts.ClassifyService(outbound, detected, resolved, unresolved) == facts.ServiceCoverageGap {
 			insight = facts.Insight{
 				Title: fmt.Sprintf("Coverage gap: service %s appears isolated but has %d unresolved outbound call site(s)",
 					svc.Name, unresolved),

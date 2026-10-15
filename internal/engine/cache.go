@@ -2893,7 +2893,8 @@ import (
 // above the declaration and its annotations or attributes.
 // v351: a doc is made valid UTF-8 before it is stored, so a comment in another
 // encoding is written the same on a cold run and from the cache.
-const cacheVersion = "v351"
+// v352: Drizzle queries, TS interface I/O closure (io_members), NestJS literal global prefix, Dart retrofit methods are I/O.
+const cacheVersion = "v352"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

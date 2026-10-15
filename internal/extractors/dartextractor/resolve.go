@@ -168,6 +168,38 @@ func resolveRoutePathRefs(all []facts.Fact, consts map[string]string) []facts.Fa
 	return out
 }
 
+func seedRetrofitIO(all []facts.Fact) {
+	type member struct{ file, name string }
+	declared := make(map[member]bool)
+	for i := range all {
+		f := &all[i]
+		if f.Kind != facts.KindRoute || f.PropString(facts.PropRole) != facts.RoleClient ||
+			f.PropString(facts.PropSource) != facts.RouteSourceDartHTTPClient {
+			continue
+		}
+		if h := f.PropString("handler"); h != "" {
+			declared[member{f.File, h}] = true
+		}
+	}
+	if len(declared) == 0 {
+		return
+	}
+	for i := range all {
+		f := &all[i]
+		if f.Kind != facts.KindSymbol {
+			continue
+		}
+		if abstract, _ := f.PropAny("abstract_member").(bool); !abstract {
+			continue
+		}
+		name := f.Name[strings.LastIndexByte(f.Name, '.')+1:]
+		if declared[member{f.File, name}] {
+			f.SetProp("io_direct", true)
+			f.SetProp("performs_io", true)
+		}
+	}
+}
+
 // computeDartPerformsIO propagates io_direct up the call graph into a transitive
 // performs_io prop.
 //
@@ -181,6 +213,7 @@ func resolveRoutePathRefs(all []facts.Fact, consts map[string]string) []facts.Fa
 // The fixpoint is monotone and therefore cycle-safe: a prop is only ever turned on, so
 // a mutually recursive pair converges instead of oscillating.
 func computeDartPerformsIO(all []facts.Fact) {
+	seedRetrofitIO(all)
 	idx := make(map[string]*facts.Fact, len(all))
 	for i := range all {
 		if all[i].Kind == facts.KindSymbol {

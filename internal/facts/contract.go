@@ -35,6 +35,10 @@ const (
 	PropFramework = "framework"
 	// PropRole is which side of a call a route fact represents (RoleClient/RoleServer).
 	PropRole = "role"
+	// PropUnmatchedByServer marks a CLIENT call site that resolves to no loaded server;
+	// PropUnmatchedReason says why.
+	PropUnmatchedByServer = "unmatched_by_server"
+	PropUnmatchedReason   = "unmatched_reason"
 	// PropRouteType sub-classifies a route beyond HTTP (RouteTypeGRPC,
 	// RouteTypeMiddleware). Absent means a plain HTTP route.
 	PropRouteType = "type"

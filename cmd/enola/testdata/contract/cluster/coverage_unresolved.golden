@@ -12,6 +12,10 @@ Unresolved outbound call sites (1 across 1 service):
 Each is a call enola detected but could not point at a loaded service — either a
 repository you have not snapshotted, a third-party endpoint, or a blind spot in
 enola's extraction. Load the missing repository and re-run to tell them apart.
+
+consumer — 1 unresolved call site:
+  GET /v1/internal  (path_unknown)
+      consumer/client.go:44
 --- stderr
 enola: using config <TMP>/services/cluster.yaml
 enola coverage: config <TMP>/services/cluster.yaml
