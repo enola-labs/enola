@@ -2824,11 +2824,11 @@ func pyCapitalized(s string) bool {
 // --- Type resolution helpers ---
 
 // resolveTypeNamePy converts a raw annotation string to a canonical qualified name
-// using the file's importMap. Returns "" for external/unresolvable/built-in types.
+// using the file's importMap. Returns "" for external/unresolvable/built-in types,
+// and for anything stripGenericWrapper does not reduce to a dotted name.
 func resolveTypeNamePy(typeStr, module string, importMap map[string]string) string {
-	typeStr = strings.TrimSpace(typeStr)
 	typeStr = stripGenericWrapper(typeStr)
-	if typeStr == "" || pyBuiltinTypes[typeStr] {
+	if typeStr == "" || pyBuiltinTypes[typeStr] || !isPyDottedName(typeStr) {
 		return ""
 	}
 	if strings.Contains(typeStr, ".") {
@@ -2850,33 +2850,87 @@ func resolveTypeNamePy(typeStr, module string, importMap map[string]string) stri
 	return module + "." + typeStr
 }
 
-// stripGenericWrapper strips the outermost generic wrapper from a type string.
-// Handles bracket generics (Optional[X], List[X], Union[X, None]) and PEP-604
-// union syntax (X | None, X | Y).
+// stripGenericWrapper reduces an annotation to the one type name it is read as,
+// the way pyValueType reads a return annotation. A union is its first part that
+// is not None (X | None, Union[X, None], Optional[X]), type[X] and a qualifier
+// such as Annotated[X, ...] or ClassVar[X] are X, and any other generic is its
+// base: Queue[Job] is a Queue and dict[str, X] a dict. A forward
+// reference is read without its quotes, whether the whole annotation is quoted or
+// only a name inside it.
 func stripGenericWrapper(s string) string {
-	// PEP-604 union: "X | Y" — take the first non-None part.
-	if strings.Contains(s, "|") && !strings.Contains(s, "[") {
-		for _, part := range strings.Split(s, "|") {
-			part = strings.TrimSpace(part)
-			if part != "None" && part != "" {
-				return part
+	s = firstNonNonePy(splitTopLevelPy(unquotePyType(s), '|'))
+	for {
+		base, args, ok := splitGenericPy(s)
+		if !ok {
+			return s
+		}
+		switch lastComponent(base) {
+		case "Optional", "Union", "type", "Type", "Annotated", "Final", "ClassVar",
+			"Required", "NotRequired", "ReadOnly":
+			s = firstNonNonePy(splitTopLevelPy(firstNonNonePy(args), '|'))
+		default:
+			return base
+		}
+	}
+}
+
+func unquotePyType(s string) string {
+	return strings.TrimSpace(strings.Trim(strings.TrimSpace(s), `"'`))
+}
+
+// firstNonNonePy is the first part, unquoted, that is neither empty nor None.
+func firstNonNonePy(parts []string) string {
+	for _, p := range parts {
+		if p = unquotePyType(p); p != "" && p != "None" {
+			return p
+		}
+	}
+	return ""
+}
+
+// splitTopLevelPy splits s on sep where it is outside any brackets.
+func splitTopLevelPy(s string, sep byte) []string {
+	var parts []string
+	depth, start := 0, 0
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '[', '(':
+			depth++
+		case ']', ')':
+			depth--
+		case sep:
+			if depth == 0 {
+				parts = append(parts, s[start:i])
+				start = i + 1
 			}
 		}
-		return ""
 	}
-	i := strings.Index(s, "[")
-	if i < 0 {
-		return s
+	return append(parts, s[start:])
+}
+
+// splitGenericPy splits "Base[a, b]" into its base and top-level arguments.
+func splitGenericPy(s string) (string, []string, bool) {
+	i := strings.IndexByte(s, '[')
+	if i <= 0 || !strings.HasSuffix(s, "]") {
+		return "", nil, false
 	}
-	inner := strings.TrimSpace(s[i+1 : len(s)-1])
-	if comma := strings.Index(inner, ","); comma >= 0 {
-		part := strings.TrimSpace(inner[:comma])
-		if part == "None" {
-			part = strings.TrimSpace(inner[comma+1:])
+	return unquotePyType(s[:i]), splitTopLevelPy(s[i+1:len(s)-1], ','), true
+}
+
+// isPyDottedName reports whether s is an identifier or a dotted run of them.
+func isPyDottedName(s string) bool {
+	for _, part := range strings.Split(s, ".") {
+		if part == "" {
+			return false
 		}
-		return part
+		for i, r := range part {
+			ok := r == '_' || unicode.IsLetter(r) || (i > 0 && unicode.IsDigit(r))
+			if !ok {
+				return false
+			}
+		}
 	}
-	return inner
+	return true
 }
 
 // pyBuiltinTypes is the set of Python built-in and standard-library primitive

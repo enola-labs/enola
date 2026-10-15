@@ -2900,7 +2900,10 @@ import (
 // its I/O is its own: reading the property no longer performs the setter's I/O.
 // v355: a Ruby singleton call resolved to the ancestor that declares it still couples
 // the caller's module to the module of the class the code names.
-const cacheVersion = "v355"
+// v356: a Python parameter, local or attribute annotation names one type or none: a
+// forward reference without its quotes, Optional/Union/type/Annotated unwrapped, and
+// any other generic as its base, so List[X] no longer credits X with list methods.
+const cacheVersion = "v356"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
