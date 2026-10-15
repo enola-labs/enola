@@ -2894,7 +2894,9 @@ import (
 // v351: a doc is made valid UTF-8 before it is stored, so a comment in another
 // encoding is written the same on a cold run and from the cache.
 // v352: Drizzle queries, TS interface I/O closure (io_members), NestJS literal global prefix, Dart retrofit methods are I/O.
-const cacheVersion = "v352"
+// v353: a TypeScript call that is I/O by its method name alone (findOne, findMany) and
+// resolves into a package that is not an ORM is not I/O.
+const cacheVersion = "v353"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

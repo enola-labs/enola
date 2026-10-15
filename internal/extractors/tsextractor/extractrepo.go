@@ -257,6 +257,7 @@ func (a *tsAssembly) compose(repoPath string, rc *repoCtx, templates map[string]
 	if rc.isNuxt {
 		resolveNuxtAutoComposableCalls(a.facts)
 	}
+	settleIONamedCalls(a.facts, a.modules)
 	ioclosure.PropagateWith(a.facts, ioclosure.Options{Declared: declaredImplementers(a.facts), BodilessMembers: true})
 
 	// Engine-relative routes compose onto their mount point here, where every
