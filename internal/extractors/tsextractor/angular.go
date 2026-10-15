@@ -65,6 +65,10 @@ const angularSearchDepth = 2
 // records having made once already.
 func detectAngular(repoPath string) bool {
 	tsRoot, _ := findTSRoot(repoPath)
+	return detectAngularRoot(repoPath, tsRoot)
+}
+
+func detectAngularRoot(repoPath, tsRoot string) bool {
 	if hasPkgDependency(tsRoot, "@angular/core") ||
 		(tsRoot != repoPath && hasPkgDependency(repoPath, "@angular/core")) {
 		return true

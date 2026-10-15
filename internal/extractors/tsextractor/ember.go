@@ -58,7 +58,7 @@ func isHbsFile(path string) bool {
 	return strings.ToLower(filepath.Ext(path)) == ".hbs"
 }
 
-// detectEmber reports whether this repository contains an Ember application.
+// detectEmberRoot reports whether this repository contains an Ember application.
 //
 // It used to check only the TypeScript root and the repository root, which
 // misses the shape this estate actually has: an Ember application nested inside
@@ -73,8 +73,7 @@ func isHbsFile(path string) bool {
 // The nested search is bounded and stops at the directories a JavaScript
 // project never keeps source in. A repository is Ember if any package.json it
 // contains says so.
-func detectEmber(repoPath string) bool {
-	tsRoot, _ := findTSRoot(repoPath)
+func detectEmberRoot(repoPath, tsRoot string) bool {
 	if hasPkgDependency(tsRoot, "ember-source") ||
 		(tsRoot != repoPath && hasPkgDependency(repoPath, "ember-source")) {
 		return true

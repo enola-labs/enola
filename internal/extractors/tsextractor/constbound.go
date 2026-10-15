@@ -161,7 +161,7 @@ var tsMutators = []string{".push(", ".unshift(", ".splice(", ".add(", ".set(", "
 // The mutation test is textual and so errs towards refusing: a `.push(` on a
 // different variable of the same name in a nested scope disqualifies both.
 func tsConstLiteralLocals(kinds *tsutil.KindTable, body *sitter.Node, src []byte) map[string]bool {
-	if body == nil {
+	if body == nil || !mayBindLiteral(src[body.StartByte():body.EndByte()]) {
 		return nil
 	}
 	var out map[string]bool
