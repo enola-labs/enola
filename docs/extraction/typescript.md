@@ -562,6 +562,10 @@ storage  src.orders    src/schema.ts:4          props: framework=drizzle, table=
 `Session` class keeps its class name. That distinction matters when the same database is
 reached from another repository in another language.
 
+Entities and tables declared under a test or fixture path (`test/`, `tests/`, `fixtures/`,
+`__tests__/` and the other segments enola treats as test code) emit no storage fact, so an
+ORM's own sample entities do not read as the application's tables.
+
 ## Queries and I/O
 
 The performance analyzer reports a call inside a loop as high severity only when the

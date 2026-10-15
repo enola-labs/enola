@@ -723,7 +723,7 @@ func (e *TSExtractor) classFacts(kinds *tsutil.KindTable, node *sitter.Node, ctx
 	// TypeORM: a class decorated @Entity is a table. The storage fact is a COMPANION
 	// to the symbol above, as in Kotlin/Room and Java/JPA — the class keeps its own
 	// symbol fact.
-	if ctx.orms.typeORM {
+	if ctx.orms.typeORM && !facts.IsTestPath(relFile) {
 		if sf := typeORMEntityStorage(kinds, node, src, symbolName, relFile, dir,
 			int(node.StartPosition().Row)+1); sf != nil {
 			result = append(result, *sf)
@@ -1016,7 +1016,7 @@ func (e *TSExtractor) variableFacts(kinds *tsutil.KindTable, node, decl *sitter.
 
 	// Drizzle: `export const orders = pgTable("orders", {...})` is a table. The
 	// call_expression is already in hand above — it simply fails isComponentWrapper.
-	if ctx.orms.drizzle {
+	if ctx.orms.drizzle && !facts.IsTestPath(relFile) {
 		if call := findChildByKind(kinds, decl, "call_expression"); call != nil {
 			if sf := drizzleTableStorage(kinds, call, src, symbolName, relFile, dir,
 				int(decl.StartPosition().Row)+1); sf != nil {

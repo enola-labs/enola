@@ -251,3 +251,37 @@ export function findIndexOfPost(posts: { id: number }[], id: number) {
 		t.Error("a pure in-memory helper was tagged performs_io")
 	}
 }
+
+func TestStorage_TestFixturesAreNotTables(t *testing.T) {
+	ff := extractWithPkg(t, ormPkgJSON, map[string]string{
+		"src/user.entity.ts": `import { Entity } from "typeorm";
+
+@Entity("users")
+export class User {}
+`,
+		"test/functional/user/entity/Photo.ts": `import { Entity } from "typeorm";
+
+@Entity()
+export class Photo {}
+`,
+		"src/schema.ts": `import { pgTable, serial } from "drizzle-orm/pg-core";
+
+export const orders = pgTable("orders", { id: serial("id") });
+`,
+		"tests/fixtures/schema.ts": `import { pgTable, serial } from "drizzle-orm/pg-core";
+
+export const fixtureOrders = pgTable("fixture_orders", { id: serial("id") });
+`,
+	})
+
+	for _, want := range []string{"src.User", "src.orders"} {
+		if _, ok := findStorage(ff, want); !ok {
+			t.Errorf("%s: no storage fact", want)
+		}
+	}
+	for _, f := range storageFacts(ff) {
+		if f.File != "src/user.entity.ts" && f.File != "src/schema.ts" {
+			t.Errorf("storage fact %s from a test path: %s", f.Name, f.File)
+		}
+	}
+}

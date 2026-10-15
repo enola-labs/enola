@@ -2973,7 +2973,8 @@ import (
 // definition's own doc wins over its prototype's.
 // v390: a symbol or module whose comment says more than its doc carries the whole
 // text in doc_text, which the engine moves to the store's side table.
-const cacheVersion = "v390"
+// v391: a TypeORM entity or Drizzle table under a test or fixture path emits no storage fact.
+const cacheVersion = "v391"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
