@@ -1,6 +1,7 @@
 package rubyextractor
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/enola-labs/enola/internal/facts"
@@ -41,10 +42,15 @@ func resolveRubyCalls(allFacts []facts.Fact) {
 			continue
 		}
 		seen := map[string]bool{}
+		var named []string
 		out := f.Relations[:0]
 		for _, r := range f.Relations {
 			if r.Kind == facts.RelCalls {
-				r.Target = ix.resolveCall(r.Target, owner, sep)
+				var class string
+				r.Target, class = ix.resolveCall(r.Target, owner, sep)
+				if class != "" && !slices.Contains(named, class) {
+					named = append(named, class)
+				}
 				if seen[r.Target] {
 					continue
 				}
@@ -53,8 +59,18 @@ func resolveRubyCalls(allFacts []facts.Fact) {
 			out = append(out, r)
 		}
 		f.Relations = out
+		if len(named) > 0 {
+			f.SetProp(propNamedReceivers, named)
+		}
 	}
 }
+
+// propNamedReceivers lists, on a method, the classes it calls a singleton method
+// on that an ancestor declares: `User::Action::SuspendAll.call` resolved to
+// `Service::ActionBase.call`. The call edge names the ancestor, but the code names
+// the class, and the class is what the method couples to. resolveImports reads it
+// and removes it.
+const propNamedReceivers = "named_receivers"
 
 // methodOwner splits a method's name into the class or module that declares it and
 // the separator of its kind: "#" for an instance method, "." for a singleton one. ""
@@ -70,54 +86,58 @@ func methodOwner(name string) (owner, sep string) {
 }
 
 // resolveCall returns the declared method a call target reaches from a method of
-// owner, or the target as the walker wrote it.
-func (ix *handlerIndex) resolveCall(target, owner, sep string) string {
+// owner, or the target as the walker wrote it. When a singleton method on a named
+// class resolves to an ancestor's, it also returns the class.
+func (ix *handlerIndex) resolveCall(target, owner, sep string) (resolved, named string) {
 	switch {
 	case strings.HasPrefix(target, "#"):
 		// `new(...).call` inside the class: an instance method of the class itself.
 		if m := ix.member(owner, "#", target[1:]); m != "" {
-			return m
+			return m, ""
 		}
-		return "new." + target[1:]
+		return "new." + target[1:], ""
 
 	case strings.Contains(target, "#"):
 		// `Const.new.call`: an instance method of the class the constant names.
 		recv, method, _ := strings.Cut(target, "#")
 		if class := ix.lexical(recv, owner); class != "" {
 			if m := ix.member(class, "#", method); m != "" {
-				return m
+				return m, ""
 			}
 		}
-		return "new." + method
+		return "new." + method, ""
 
 	case isBareMethodName(target):
 		// A call on self: a method of the caller's own kind first, then, for an
 		// instance method calling `self.class.name`, a singleton one.
 		if m := ix.member(owner, sep, target); m != "" {
-			return m
+			return m, ""
 		}
 		if sep == "#" {
 			if m := ix.member(owner, ".", target); m != "" {
-				return m
+				return m, ""
 			}
 		}
-		return target
+		return target, ""
 	}
 
 	// `Const.method`: the constant from the caller's namespace outward, then the
 	// singleton method on it or an ancestor.
 	dot := strings.LastIndexByte(target, '.')
 	if dot <= 0 || !startsUpper(target) {
-		return target
+		return target, ""
 	}
 	class := ix.lexical(target[:dot], owner)
 	if class == "" {
-		return target
+		return target, ""
 	}
 	if m := ix.member(class, ".", target[dot+1:]); m != "" {
-		return m
+		if declaring, _ := methodOwner(m); declaring != class {
+			return m, class
+		}
+		return m, ""
 	}
-	return target
+	return target, ""
 }
 
 // isBareMethodName reports whether a call target is a method name with no receiver:

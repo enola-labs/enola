@@ -47,6 +47,12 @@ func resolveImports(allFacts []facts.Fact, isRails bool) []facts.Fact {
 		switch f.Kind {
 		case facts.KindSymbol:
 			src := declaresTarget(f)
+			if named, ok := f.PropAny(propNamedReceivers).([]string); ok {
+				for _, c := range named {
+					add(src, ix.resolve(c, src), facts.CouplingReference)
+				}
+				delete(f.Props, propNamedReceivers)
+			}
 			for _, rel := range f.Relations {
 				switch rel.Kind {
 				case facts.RelImplements: // inheritance

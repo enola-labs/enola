@@ -141,3 +141,53 @@ end
 	wantCalls(t, got, "Admin::ReportsController#show", "Admin::BaseController#require_admin!", "Admin::Report.build")
 	wantNoCall(t, got, "Admin::ReportsController#show", "require_admin!", "Report.build")
 }
+
+// A singleton method an ancestor declares resolves to the ancestor, and the method
+// still couples to the class the code names: `User::Action::SuspendAll.call` is a
+// dependency on app/services/user/action, not only on lib/service.
+func TestRubyCalls_AncestorSingletonKeepsTheNamedClass(t *testing.T) {
+	ff := extractRepo(t, map[string]string{
+		"lib/service/action_base.rb": `class Service::ActionBase
+  def self.call(...)
+    new(...).call
+  end
+end
+`,
+		"app/services/user/action/suspend_all.rb": `class User::Action::SuspendAll < Service::ActionBase
+  def call
+    true
+  end
+end
+`,
+		"app/services/user/suspend.rb": `class User::Suspend
+  def suspend
+    User::Action::SuspendAll.call(users: [])
+  end
+end
+`,
+	})
+	edges := map[string]bool{}
+	for _, f := range ff {
+		if f.Kind == facts.KindSymbol && f.Name == "User::Suspend#suspend" {
+			if !slices.ContainsFunc(f.Relations, func(r facts.Relation) bool { return r.Target == "Service::ActionBase.call" }) {
+				t.Errorf("User::Suspend#suspend calls %v, want Service::ActionBase.call", f.Relations)
+			}
+			if _, left := f.Props[propNamedReceivers]; left {
+				t.Errorf("%s still carries %s", f.Name, propNamedReceivers)
+			}
+		}
+		if f.Kind != facts.KindDependency || f.File == "" {
+			continue
+		}
+		for _, r := range f.Relations {
+			if r.Kind == facts.RelImports {
+				edges[fileDir(f.File)+" -> "+r.Target] = true
+			}
+		}
+	}
+	for _, want := range []string{"app/services/user -> app/services/user/action", "app/services/user -> lib/service"} {
+		if !edges[want] {
+			t.Errorf("no coupling %s; have %v", want, edges)
+		}
+	}
+}

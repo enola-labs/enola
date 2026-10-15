@@ -2898,7 +2898,9 @@ import (
 // resolves into a package that is not an ORM is not I/O.
 // v354: a TypeScript setter carries accessor "set". Beside a getter of the same name
 // its I/O is its own: reading the property no longer performs the setter's I/O.
-const cacheVersion = "v354"
+// v355: a Ruby singleton call resolved to the ancestor that declares it still couples
+// the caller's module to the module of the class the code names.
+const cacheVersion = "v355"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
