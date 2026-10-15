@@ -59,6 +59,10 @@ type Options struct {
 	// own as a node of the closure, so the implementers' methods reach it. Only a
 	// language whose interface members are not facts (TypeScript) sets it.
 	BodilessMembers bool
+	// Apart reports a fact whose I/O is its own and not its name's: a setter that
+	// shares its name with a getter. Its direct I/O and its calls do not reach the
+	// facts and callers of the name; it is marked when it reaches I/O itself.
+	Apart func(f facts.Fact) bool
 }
 
 // PropagateWith is Propagate with a language's additions.
@@ -92,9 +96,14 @@ func PropagateWith(all []facts.Fact, opts Options) {
 	io := make(map[string]bool)
 	callers := make(map[string][]string) // callee → the names whose answer depends on it
 	implementers := make(map[string][]string)
+	var apart []int
 	for i := range all {
 		f := &all[i]
 		if f.Kind != facts.KindSymbol {
+			continue
+		}
+		if opts.Apart != nil && opts.Apart(*f) {
+			apart = append(apart, i)
 			continue
 		}
 		if b, _ := f.PropAny(propIODirect).(bool); b {
@@ -199,6 +208,30 @@ func PropagateWith(all []facts.Fact, opts Options) {
 			f.SetProp(propIOMembers, members)
 		}
 	}
+	for _, i := range apart {
+		if f := &all[i]; reachesIO(*f, io, opts.Opaque) {
+			f.SetProp(propPerformsIO, true)
+		}
+	}
+}
+
+// reachesIO reports whether a fact held apart is direct I/O or calls a name that
+// performs it.
+func reachesIO(f facts.Fact, io map[string]bool, opaque func(string) bool) bool {
+	if b, _ := f.PropAny(propIODirect).(bool); b {
+		return true
+	}
+	if opaque != nil && opaque(f.Name) {
+		return false
+	}
+	once, _ := f.PropAny(propCallsOnce).([]string)
+	for _, r := range f.Relations {
+		if r.Kind == facts.RelCalls && r.Target != f.Name && io[r.Target] &&
+			!slices.Contains(once, r.Target) && (opaque == nil || !opaque(r.Target)) {
+			return true
+		}
+	}
+	return false
 }
 
 // splitMember splits a method's name into its owning type, the separator the

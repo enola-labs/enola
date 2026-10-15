@@ -51,9 +51,11 @@ func decoratorSetProp(names []string) string {
 	return strings.Join(out, " ")
 }
 
-func isGetterDefinition(kinds *tsutil.KindTable, member *sitter.Node) bool {
+// accessorKind returns "get" or "set" for an accessor method definition, and ""
+// for any other member.
+func accessorKind(kinds *tsutil.KindTable, member *sitter.Node) string {
 	if kindOf(kinds, member) != "method_definition" {
-		return false
+		return ""
 	}
 	name := member.ChildByFieldName("name")
 	for i := range member.ChildCount() {
@@ -61,11 +63,11 @@ func isGetterDefinition(kinds *tsutil.KindTable, member *sitter.Node) bool {
 		if name != nil && c.StartByte() >= name.StartByte() {
 			break
 		}
-		if kindOf(kinds, c) == "get" {
-			return true
+		if k := kindOf(kinds, c); k == "get" || k == "set" {
+			return k
 		}
 	}
-	return false
+	return ""
 }
 
 func countCallRelations(rels []facts.Relation) int {

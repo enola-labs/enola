@@ -171,3 +171,25 @@ func TestPropagate_BodilessMembersAreOptIn(t *testing.T) {
 		}
 	}
 }
+
+// A fact held apart answers for itself. Its getter twin and the readers of the
+// name do not inherit its I/O, and it is still marked when it reaches I/O.
+func TestPropagate_ApartFactAnswersForItself(t *testing.T) {
+	all := []facts.Fact{
+		sym("c.Layout.load", facts.SymbolMethod, map[string]any{"io_direct": true}),
+		sym("c.Layout.ctx", facts.SymbolMethod, map[string]any{"accessor": "set"}, calls("c.Layout.load")),
+		sym("c.Layout.ctx", facts.SymbolGetter, nil, calls("c.Layout.value")),
+		sym("c.Layout.value", facts.SymbolMethod, nil),
+		sym("c.Layout.onMouseDown", facts.SymbolMethod, nil, calls("c.Layout.ctx")),
+	}
+	PropagateWith(all, Options{Apart: func(f facts.Fact) bool {
+		accessor, _ := f.PropAny("accessor").(string)
+		return accessor == "set"
+	}})
+	for i, want := range []bool{true, true, false, false, false} {
+		got, _ := all[i].PropAny("performs_io").(bool)
+		if got != want {
+			t.Errorf("%s (%v): performs_io = %v, want %v", all[i].Name, all[i].PropAny("symbol_kind"), got, want)
+		}
+	}
+}

@@ -878,9 +878,12 @@ func (e *TSExtractor) memberFact(kinds *tsutil.KindTable, member *sitter.Node, c
 	if takes, ok := declaresParameters(kinds, member); ok {
 		mProps["takes_parameters"] = takes
 	}
-	if isGetterDefinition(kinds, member) {
+	switch accessorKind(kinds, member) {
+	case "get":
 		mProps["symbol_kind"] = facts.SymbolGetter
 		mProps["getter_calls"] = countCallRelations(callRels)
+	case "set":
+		mProps[propAccessor] = "set"
 	}
 	if stimulusStaticField(kinds, member, mName, relFile) {
 		mProps["framework"] = "stimulus"
