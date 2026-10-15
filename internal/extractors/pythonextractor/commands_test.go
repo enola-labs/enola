@@ -68,6 +68,98 @@ def not_a_click_command():
 	}
 }
 
+// A command is named by the path of groups it is reached through: a group by its
+// declared name, nested groups in order, a command attached with add_command under
+// the group it is attached to, and an add_command name= over the command's own.
+func TestCommands_ComposedThroughGroups(t *testing.T) {
+	ff := extractPyRepo(t, map[string]string{
+		"breeze/__init__.py":          ``,
+		"breeze/commands/__init__.py": ``,
+		"breeze/main.py": `import click
+from breeze.commands.testing_commands import testing_group
+from breeze.commands.auth import login, auth_group
+
+@click.group()
+def main():
+    pass
+
+main.add_command(testing_group)
+main.add_command(login)
+main.add_command(auth_group, name="authn")
+`,
+		"breeze/commands/testing_commands.py": `import click
+
+@click.group(cls=BreezeGroup, name="testing", help="Run tests")
+def testing_group():
+    pass
+
+@testing_group.command(name="tests")
+def run_tests():
+    pass
+
+@testing_group.group()
+def docker_compose():
+    pass
+
+@docker_compose.command()
+def up_all():
+    pass
+`,
+		"breeze/commands/kustomize.py": `import click
+from breeze.commands.testing_commands import testing_group
+
+@testing_group.command()
+def smoke_test():
+    pass
+`,
+		"breeze/commands/auth.py": `import click
+
+@click.command()
+def login():
+    pass
+
+@click.group(name="auth")
+def auth_group():
+    pass
+
+@auth_group.command()
+def whoami():
+    pass
+
+@click.command()
+def never_attached():
+    pass
+`,
+	})
+	got := map[string]string{}
+	for _, f := range ff {
+		if f.Kind == facts.KindSymbol && f.PropString("command") != "" {
+			got[f.Name] = f.PropString("command")
+		}
+		for _, p := range []string{propCommandLeaf, propCommandParent, propCommandGroup, propCommandAttaches} {
+			if f.PropAny(p) != nil {
+				t.Errorf("%s keeps the working prop %s", f.Name, p)
+			}
+		}
+	}
+	want := map[string]string{
+		"breeze/commands/testing_commands.run_tests": "testing tests",
+		"breeze/commands/testing_commands.up_all":    "testing docker-compose up-all",
+		"breeze/commands/kustomize.smoke_test":       "testing smoke-test",
+		"breeze/commands/auth.login":                 "login",
+		"breeze/commands/auth.whoami":                "authn whoami",
+		"breeze/commands/auth.never_attached":        "never-attached",
+	}
+	for fn, cmd := range want {
+		if got[fn] != cmd {
+			t.Errorf("%s command = %q, want %q (have %v)", fn, got[fn], cmd, got)
+		}
+	}
+	if len(got) != len(want) {
+		t.Errorf("commands = %v, want exactly %v", got, want)
+	}
+}
+
 // An MCP tool declared with a decorator is named by its given name or its function's.
 func TestTools_DecoratedFunctions(t *testing.T) {
 	ff := extractPyRepo(t, map[string]string{

@@ -270,6 +270,8 @@ type pyWalker struct {
 	// emitted as a single KindFileRef fact per file, which the dead-code detector
 	// folds in so top-level/decorator use marks a production symbol used.
 	fileRefs []facts.Relation
+	// commandAttaches are the click add_command calls of the file (noteAddCommand).
+	commandAttaches []string
 }
 
 // pyBodyMetrics accumulates per-function complexity signals during the single
@@ -549,16 +551,54 @@ func (w *pyWalker) walkModule(root *sitter.Node) {
 		w.walkTopLevelCalls(child)
 	}
 	w.bindCallRouteHandlers()
-	if len(w.fileRefs) > 0 {
+	if len(w.fileRefs) > 0 || len(w.commandAttaches) > 0 {
+		props := map[string]any{"language": "python"}
+		if len(w.commandAttaches) > 0 {
+			props[propCommandAttaches] = w.commandAttaches
+		}
 		w.out = append(w.out, facts.Fact{
 			Kind:      facts.KindFileRef,
 			Name:      w.relFile,
 			File:      w.relFile,
 			Line:      1,
-			Props:     map[string]any{"language": "python"},
+			Props:     props,
 			Relations: w.fileRefs,
 		})
 	}
+}
+
+// noteAddCommand records `group.add_command(cmd)` and `group.add_command(cmd,
+// name="x")` in a click file, both names as targets, for composeCommandNames.
+func (w *pyWalker) noteAddCommand(call *sitter.Node) {
+	fn := call.ChildByFieldName("function")
+	args := call.ChildByFieldName("arguments")
+	if fn == nil || args == nil || kindOf(fn) != "attribute" || !importsCommandLibrary(w.src) {
+		return
+	}
+	obj, attr := fn.ChildByFieldName("object"), fn.ChildByFieldName("attribute")
+	if obj == nil || attr == nil || kindOf(obj) != "identifier" || pyText(attr, w.src) != "add_command" {
+		return
+	}
+	var cmd, name string
+	for i := uint(0); i < args.NamedChildCount(); i++ {
+		a := args.NamedChild(i)
+		switch kindOf(a) {
+		case "identifier":
+			if cmd == "" {
+				cmd = pyText(a, w.src)
+			}
+		case "keyword_argument":
+			k, v := a.ChildByFieldName("name"), a.ChildByFieldName("value")
+			if k != nil && v != nil && pyText(k, w.src) == "name" && kindOf(v) == "string" {
+				name = unquotePyType(pyText(v, w.src))
+			}
+		}
+	}
+	group, target := w.valueRefTarget(pyText(obj, w.src)), w.valueRefTarget(cmd)
+	if group == "" || target == "" {
+		return
+	}
+	w.commandAttaches = append(w.commandAttaches, group+"\t"+target+"\t"+name)
 }
 
 // walkTopLevelCalls scans a module-level statement subtree for call sites,
@@ -582,6 +622,7 @@ func (w *pyWalker) walkTopLevelCalls(node *sitter.Node) {
 			w.emitFileRefCall(fn)
 		}
 		w.emitCallRoute(node)
+		w.noteAddCommand(node)
 		if args := node.ChildByFieldName("arguments"); args != nil {
 			w.fileRefs = append(w.fileRefs, w.argRefRelations(args)...)
 		}
@@ -927,6 +968,8 @@ func (w *pyWalker) handleDecoratedDefinition(node *sitter.Node) {
 	// commandDecorator is the text of a click or typer @<group>.command(...) on
 	// this definition, "" when there is none.
 	var commandDecorator string
+	// groupDecorator is the text of a click @<group>.group(...) on this definition.
+	var groupDecorator string
 	// toolDecorator is the text of an MCP @<server>.tool(...) or @tool(...) on this
 	// definition, "" when there is none.
 	var toolDecorator string
@@ -938,6 +981,9 @@ func (w *pyWalker) handleDecoratedDefinition(node *sitter.Node) {
 			text := pyText(c, w.src)
 			if commandDecoratorRe.MatchString(text) {
 				commandDecorator = text
+			}
+			if groupDecoratorRe.MatchString(text) {
+				groupDecorator = text
 			}
 			if toolDecoratorRe.MatchString(text) {
 				toolDecorator = text
@@ -990,6 +1036,16 @@ func (w *pyWalker) handleDecoratedDefinition(node *sitter.Node) {
 			if commandDecorator != "" && fnIdx < len(w.out) && w.out[fnIdx].Kind == facts.KindSymbol && importsCommandLibrary(w.src) {
 				if name := commandName(commandDecorator, pyFuncName(c, w.src)); name != "" {
 					w.out[fnIdx].SetProp("command", name)
+					w.out[fnIdx].SetProp(propCommandLeaf, declaredCommandName(commandDecorator, pyFuncName(c, w.src)))
+					if t := w.valueRefTarget(decoratorGroup(commandDecorator, commandDecoratorRe)); t != "" {
+						w.out[fnIdx].SetProp(propCommandParent, t)
+					}
+				}
+			}
+			if groupDecorator != "" && fnIdx < len(w.out) && w.out[fnIdx].Kind == facts.KindSymbol && importsCommandLibrary(w.src) {
+				w.out[fnIdx].SetProp(propCommandGroup, declaredCommandName(groupDecorator, pyFuncName(c, w.src)))
+				if t := w.valueRefTarget(decoratorGroup(groupDecorator, groupDecoratorRe)); t != "" {
+					w.out[fnIdx].SetProp(propCommandParent, t)
 				}
 			}
 			if toolDecorator != "" && fnIdx < len(w.out) && w.out[fnIdx].Kind == facts.KindSymbol && importsMCP(w.src, toolDecorator) {
@@ -1811,6 +1867,7 @@ func (w *pyWalker) walkForCalls(node *sitter.Node) {
 		}
 		w.emitCallRoute(node)
 		w.emitHTTPClientRoute(node)
+		w.noteAddCommand(node)
 		if fn := node.ChildByFieldName("function"); fn != nil {
 			w.lastCallTarget = ""
 			w.emitCallEdge(fn)

@@ -2903,7 +2903,10 @@ import (
 // v356: a Python parameter, local or attribute annotation names one type or none: a
 // forward reference without its quotes, Optional/Union/type/Annotated unwrapped, and
 // any other generic as its base, so List[X] no longer credits X with list methods.
-const cacheVersion = "v356"
+// v357: a click command is named by the path of groups it is reached through: a
+// group by its declared name, nested groups and add_command attachments followed
+// across files, and add_command's name= over the command's own.
+const cacheVersion = "v357"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
