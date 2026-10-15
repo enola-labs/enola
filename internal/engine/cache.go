@@ -2896,7 +2896,9 @@ import (
 // v352: Drizzle queries, TS interface I/O closure (io_members), NestJS literal global prefix, Dart retrofit methods are I/O.
 // v353: a TypeScript call that is I/O by its method name alone (findOne, findMany) and
 // resolves into a package that is not an ORM is not I/O.
-const cacheVersion = "v353"
+// v354: a TypeScript setter carries accessor "set". Beside a getter of the same name
+// its I/O is its own: reading the property no longer performs the setter's I/O.
+const cacheVersion = "v354"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
