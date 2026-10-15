@@ -2598,6 +2598,7 @@ type tsBodyMetrics struct {
 	recursive             bool            // body directly calls the enclosing function
 	ioDirect              bool            // body directly invokes a network/file I/O primitive
 	ioCalls               []string        // the resolved calls that are themselves the round trip
+	ioNamedCalls          []string        // resolved calls that are I/O by method name alone, settled per repo
 	fieldsWritten         []string        // distinct `this.<name>` targets the body assigns to
 	writeSeen             map[string]bool // dedup set for fieldsWritten
 }
@@ -2778,8 +2779,8 @@ func tsCalleeRoot(recv string) string {
 
 // tsIsIOCall reports whether a call_expression directly performs network/file I/O:
 // a bare global primitive (fetch) or network-imported binding (request); or a member
-// call on a known I/O receiver (axios.get, fs.readFile), a network-imported binding, or
-// an I/O method name (navigator.sendBeacon).
+// call on a known I/O receiver (axios.get, fs.readFile) or a network-imported binding.
+// A call that is I/O by its method name alone is tsIsIONamedCall.
 func tsIsIOCall(kinds *tsutil.KindTable, call *sitter.Node, src []byte, ioBindings map[string]bool) bool {
 	fn := call.ChildByFieldName("function")
 	if fn == nil {
@@ -2791,9 +2792,16 @@ func tsIsIOCall(kinds *tsutil.KindTable, call *sitter.Node, src []byte, ioBindin
 	}
 	if recv, prop := tsMemberCall(kinds, call, src); prop != "" {
 		root := tsCalleeRoot(recv)
-		return tsIOReceivers[root] || ioBindings[root] || tsIOMemberMethods[prop]
+		return tsIOReceivers[root] || ioBindings[root]
 	}
 	return false
+}
+
+// tsIsIONamedCall reports whether a member call is I/O by its method name alone
+// (navigator.sendBeacon, repo.findMany).
+func tsIsIONamedCall(kinds *tsutil.KindTable, call *sitter.Node, src []byte) bool {
+	_, prop := tsMemberCall(kinds, call, src)
+	return tsIOMemberMethods[prop]
 }
 
 // tsIsFunctionLike reports whether a node introduces a function scope (a deferred
@@ -3156,8 +3164,9 @@ func (w *tsBodyWalker) leaveLoop(scales, repeats bool) {
 
 // walkCall records a call and reports whether it walked the call's children itself.
 func (w *tsBodyWalker) walkCall(n *sitter.Node) bool {
-	w.noteIOCall(n)
-	if target := w.resolve(n); target != "" {
+	target := w.resolve(n)
+	w.noteIOCall(n, target)
+	if target != "" {
 		w.recordResolvedCall(n, target)
 	} else if w.metrics != nil && w.loopDepth > 0 {
 		// Method call on an unknown receiver inside a loop (repo.findMany(),
@@ -3177,13 +3186,26 @@ func (w *tsBodyWalker) walkCall(n *sitter.Node) bool {
 // Seed the performs_io closure: flag the enclosing body when it directly
 // invokes a network/file I/O primitive. Independent of loop depth — a wrapper
 // calls its I/O sink once, and the transitive pass carries the signal upward.
-func (w *tsBodyWalker) noteIOCall(n *sitter.Node) {
+//
+// A call that is I/O by its method name alone seeds only when it did not resolve.
+// A resolved one is held for settleIONamedCalls (ionamed.go), which needs the whole
+// repository to tell svg.js's findOne from TypeORM's.
+func (w *tsBodyWalker) noteIOCall(n *sitter.Node, target string) {
 	if w.metrics == nil || w.metrics.ioDirect {
 		return
 	}
 	if tsIsIOCall(w.kinds, n, w.src, w.ioBindings) || tsPassesFetch(w.kinds, n, w.src, w.importMap) ||
 		(w.drizzle && tsIsDrizzleQuery(w.kinds, n, w.src)) {
 		w.metrics.ioDirect = true
+		return
+	}
+	if !tsIsIONamedCall(w.kinds, n, w.src) {
+		return
+	}
+	if target == "" {
+		w.metrics.ioDirect = true
+	} else if !slices.Contains(w.metrics.ioNamedCalls, target) {
+		w.metrics.ioNamedCalls = append(w.metrics.ioNamedCalls, target)
 	}
 }
 
@@ -3477,6 +3499,10 @@ func applyTSMetrics(props map[string]any, m *tsBodyMetrics) {
 	if len(m.ioCalls) > 0 {
 		sort.Strings(m.ioCalls)
 		props["io_calls"] = m.ioCalls
+	}
+	if len(m.ioNamedCalls) > 0 && !m.ioDirect {
+		sort.Strings(m.ioNamedCalls)
+		props[propIONamedCalls] = m.ioNamedCalls
 	}
 }
 
