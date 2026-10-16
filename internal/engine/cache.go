@@ -2968,7 +2968,8 @@ import (
 // v385: Kotlin symbols carry doc, their KDoc or `//` run.
 // v386: Scala symbols carry doc, their Scaladoc or `//` run.
 // v387: Swift symbols carry doc, their `///` lines or `/** */` block.
-const cacheVersion = "v387"
+// v388: Dart symbols carry doc, their `///` lines or `/** */` block.
+const cacheVersion = "v388"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

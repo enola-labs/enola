@@ -344,6 +344,7 @@ func (w *walker) classDecl(n *sitter.Node, construct string) {
 		Props:     props,
 		Relations: rels,
 	})
+	w.setDoc(n)
 }
 
 // memberInfo describes one declared member, for the abstractness and data-holder rules.
@@ -390,6 +391,7 @@ func (w *walker) memberDecls(body *sitter.Node, typeName string) []memberInfo {
 					"enum_constant": true, "exported": !strings.HasPrefix(cname, "_"),
 				},
 			})
+			w.setDoc(n)
 			out = append(out, memberInfo{name: full, isField: true})
 		}
 	}
@@ -416,6 +418,7 @@ func (w *walker) declarationMember(n *sitter.Node, typeName string, annos []stri
 				Kind: facts.KindSymbol, Name: full, File: w.relFile, Line: lineOf(c),
 				Props: props, Relations: rels,
 			})
+			w.setDoc(n)
 			out = append(out, memberInfo{name: full, isCtor: true})
 
 		case "function_signature", "getter_signature", "setter_signature":
@@ -436,6 +439,7 @@ func (w *walker) declarationMember(n *sitter.Node, typeName string, annos []stri
 				Kind: facts.KindSymbol, Name: full, File: w.relFile, Line: lineOf(c),
 				Props: props,
 			})
+			w.setDoc(n)
 			out = append(out, memberInfo{name: full, isMethod: true, isAbstract: true})
 
 		case "initialized_identifier_list", "static_final_declaration_list":
@@ -460,6 +464,7 @@ func (w *walker) declarationMember(n *sitter.Node, typeName string, annos []stri
 							"field": true, "exported": true,
 						},
 					})
+					w.setDoc(n)
 				}
 				out = append(out, memberInfo{name: full, isField: true})
 			}
@@ -525,6 +530,7 @@ func (w *walker) methodDecl(sig, body *sitter.Node, typeName string, annos []str
 		Kind: facts.KindSymbol, Name: full, File: w.relFile, Line: lineOf(sig),
 		Props: props, Relations: rels,
 	})
+	w.setDoc(sig)
 	return memberInfo{name: full, isMethod: true, hasBody: body != nil}, true
 }
 
@@ -555,6 +561,7 @@ func (w *walker) functionDecl(sig, body *sitter.Node, dir, _ string, annos []str
 		Kind: facts.KindSymbol, Name: full, File: w.relFile, Line: lineOf(sig),
 		Props: props, Relations: rels,
 	})
+	w.setDoc(sig)
 }
 
 // attributeCallers names the caller of each client call this file makes. Dart's
@@ -628,6 +635,7 @@ func (w *walker) enumDecl(n *sitter.Node) {
 		Kind: facts.KindSymbol, Name: w.qualify(name), File: w.relFile, Line: lineOf(n),
 		Props: props, Relations: rels,
 	})
+	w.setDoc(n)
 }
 
 // typeAliasDecl emits a typedef.
@@ -650,6 +658,7 @@ func (w *walker) typeAliasDecl(n *sitter.Node) {
 			"dart_construct": "typedef", "exported": !strings.HasPrefix(name, "_"),
 		},
 	})
+	w.setDoc(n)
 }
 
 // injectRelations turns constructor parameters whose type this repo declares into
