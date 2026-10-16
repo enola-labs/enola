@@ -220,3 +220,61 @@ func Pong(w http.ResponseWriter, r *http.Request) {}
 		"ALL /api/ping":  "Ping",
 	}, "POST *", "POST /*", "GET /health", "GET /hidden", "ALL /pong")
 }
+
+// A router built in a local variable and mounted under a path serves its routes
+// under that path, wherever the Mount sits in the function, and a router mounted on
+// a mounted router composes both paths.
+func TestExtractRoutes_MountOfALocalRouter(t *testing.T) {
+	got := goRoutes(t, map[string]string{
+		"routers/web.go": `package routers
+
+import (
+	"net/http"
+
+	"github.com/go-chi/chi/v5"
+)
+
+const adminPath = "/admin"
+
+func Routes() chi.Router {
+	r := chi.NewRouter()
+	api := chi.NewRouter()
+	api.Get("/users", ListUsers)
+	v2 := chi.NewRouter()
+	v2.Post("/items", CreateItem)
+	api.Mount("/v2", v2)
+	r.Mount("/api", api)
+	admin := chi.NewRouter()
+	r.Mount(adminPath, admin)
+	admin.Get("/stats", Stats)
+	r.Get("/health", Health)
+	return r
+}
+
+func Install() chi.Router {
+	base := chi.NewRouter()
+	r := chi.NewRouter()
+	r.Get("/post-install", InstallDone)
+	base.Mount("", r)
+	root := chi.NewRouter()
+	root.Get("/healthz", Health)
+	base.Mount("/", root)
+	return base
+}
+
+func InstallDone(w http.ResponseWriter, req *http.Request) {}
+func ListUsers(w http.ResponseWriter, req *http.Request)  {}
+func CreateItem(w http.ResponseWriter, req *http.Request) {}
+func Stats(w http.ResponseWriter, req *http.Request)      {}
+func Health(w http.ResponseWriter, req *http.Request)     {}
+`,
+	})
+	wantGoRoutes(t, got, map[string]string{
+		"GET /api/users":     "ListUsers",
+		"POST /api/v2/items": "CreateItem",
+		"GET /admin/stats":   "Stats",
+		"GET /health":        "Health",
+		"GET /post-install":  "InstallDone",
+		"GET /healthz":       "Health",
+	}, "GET /users", "POST /items", "GET /stats", "GET //post-install", "GET //healthz")
+}

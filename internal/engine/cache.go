@@ -2956,7 +2956,9 @@ import (
 // v377: a minimal-API handler named by a local function of the registering method
 // is given one symbol "<dir>.<Type>.<Method>.<Function>" with its calls, for every
 // route it serves.
-const cacheVersion = "v377"
+// v378: a Go router held in a local variable and mounted, r.Mount("/api", api),
+// serves its routes under the mount path wherever the Mount sits in the function.
+const cacheVersion = "v378"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
