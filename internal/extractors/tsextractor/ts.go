@@ -230,6 +230,7 @@ type extractCtx struct {
 	imports     emberImportBindings // the file's import table, read for the module a superclass identifier came from
 	ioBindings  map[string]bool     // local names bound to imports from a network module (I/O sinks)
 	knownFiles  map[string]bool     // repo-relative (slash) paths of all indexed TS/JS files
+	files       *tsFileIndex        // the same files by stem, for a specifier no tsconfig maps
 	aliases     map[string]tsAlias  // this directory's tsconfig path aliases, for resolving an import written as a bare specifier
 }
 
@@ -365,8 +366,12 @@ func astPatternFacts(kinds *tsutil.KindTable, root *sitter.Node, src []byte, rel
 func newFileCtx(kinds *tsutil.KindTable, root *sitter.Node, src []byte, relFile string, isTSX bool, rc *repoCtx, aliases map[string]tsAlias) *extractCtx {
 	dir := factpath.Dir(relFile)
 	importMap, internalImports := buildImportBindings(kinds, root, src, relFile, aliases, rc.files)
+	fw := rc.tsFrameworks
+	if !fw.isNextJS && inNextJSPackage(relFile, fw.nextDirs) {
+		fw.isNextJS = true
+	}
 	return &extractCtx{
-		tsFrameworks: rc.tsFrameworks,
+		tsFrameworks: fw,
 		src:          src,
 		relFile:      relFile,
 		dir:          dir,
@@ -377,6 +382,7 @@ func newFileCtx(kinds *tsutil.KindTable, root *sitter.Node, src []byte, relFile 
 		imports:      buildEmberImportBindings(kinds, root, src, relFile, aliases),
 		ioBindings:   buildIOImportBindings(kinds, root, src),
 		knownFiles:   rc.knownFiles,
+		files:        rc.files,
 		aliases:      aliases,
 	}
 }
@@ -387,6 +393,7 @@ func (e *TSExtractor) fileDeclarations(kinds *tsutil.KindTable, root *sitter.Nod
 	// `export default Name` statement rather than an inline `export` keyword.
 	// Mark the corresponding symbols as exported.
 	markExported(decls, collectExportedLocalNames(kinds, root, ctx.src))
+	markDefaultExportedName(kinds, root, ctx, decls)
 	return applyMCPTools(kinds, root, ctx, decls)
 }
 
@@ -409,6 +416,9 @@ func (e *TSExtractor) frameworkPasses(kinds *tsutil.KindTable, root *sitter.Node
 	src, relFile := ctx.src, ctx.relFile
 	if ctx.isNextJS {
 		if routeFact := detectRoute(relFile); routeFact != nil {
+			if file := reexportedDefaultFile(kinds, root, ctx); file != "" && routeFact.PropString("type") == "page" {
+				routeFact.SetProp(propDefaultFrom, file)
+			}
 			result = append(result, *routeFact)
 		}
 	}
@@ -685,13 +695,13 @@ func (e *TSExtractor) exportFacts(kinds *tsutil.KindTable, node *sitter.Node, ct
 	}
 	// Named/inline declaration inside the export.
 	if decl := firstDeclChild(kinds, node); decl != nil {
-		return e.extractNode(kinds, decl, ctx, true, fb)
+		return markDefaultExport(e.extractNode(kinds, decl, ctx, true, fb), isDefault)
 	}
 	// Anonymous default export of a value: name it after the file.
 	if isDefault {
 		for _, k := range []string{"function_expression", "generator_function", "class", "arrow_function", "call_expression"} {
 			if c := findChildByKind(kinds, node, k); c != nil {
-				return e.extractNode(kinds, c, ctx, true, fb)
+				return markDefaultExport(e.extractNode(kinds, c, ctx, true, fb), true)
 			}
 		}
 	}
@@ -1146,7 +1156,10 @@ func detectRoute(relFile string) *facts.Fact {
 		}
 	}
 
-	// Pages Router
+	// Pages Router. A test's page objects (tests/e2e/pages/LoginPage.ts) are no pages.
+	if facts.IsTestPath(relFile) {
+		return nil
+	}
 	for i, p := range parts {
 		if p == "pages" && i < len(parts)-1 {
 			remaining := parts[i+1:]
@@ -1283,6 +1296,48 @@ func nearestPackageName(pkgNames map[string]string, dir string) string {
 		}
 		d = d[:i]
 	}
+}
+
+// nextJSPackageDirs returns the repo-relative directories of the packages that are
+// Next.js apps. A workspace whose root package declares no next still holds one
+// (onyx's web/ beside its desktop/ and widget/), and the root-level detection,
+// which reads one directory, cannot see it. The walk skips what
+// collectPackageNames skips.
+func nextJSPackageDirs(repoPath string) []string {
+	var out []string
+	_ = filepath.WalkDir(repoPath, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			name := d.Name()
+			if path != repoPath && (strings.HasPrefix(name, ".") || tsSkipDirs[name] || name == "testdata") {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if d.Name() != "package.json" {
+			return nil
+		}
+		dir := filepath.Dir(path) //factpath:host
+		if dir != repoPath && detectNextJSAt(dir) {
+			if rel, err := filepath.Rel(repoPath, dir); err == nil {
+				out = append(out, filepath.ToSlash(rel))
+			}
+		}
+		return nil
+	})
+	return out
+}
+
+// inNextJSPackage reports whether a file belongs to one of the Next.js packages.
+func inNextJSPackage(relFile string, dirs []string) bool {
+	for _, d := range dirs {
+		if strings.HasPrefix(relFile, d+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 func detectNextJSAt(dir string) bool {

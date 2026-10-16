@@ -2930,7 +2930,12 @@ import (
 // pointing at the group or at a function that calls it.
 // v367: a capitalized bare Kotlin call is also a calls edge where the repository
 // declares a function under the name it would have (a Compose function call).
-const cacheVersion = "v367"
+// v368: a TypeScript file in a workspace package that is a Next.js app (its own
+// package.json or next.config declares it) is read as Next.js, though the
+// repository's root package is not one. A page that re-exports its screen
+// (`export { default } from "..."`) is handled by that module's default export, and a
+// test path is no Pages Router route.
+const cacheVersion = "v368"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

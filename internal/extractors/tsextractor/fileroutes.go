@@ -17,8 +17,10 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/enola-labs/enola/internal/extractors/tsutil"
 	"github.com/enola-labs/enola/internal/factpath"
 	"github.com/enola-labs/enola/internal/facts"
+	sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
 // fileRouteFrameworks are the frameworks whose page routes are named by file.
@@ -35,13 +37,14 @@ func bindFileRouteHandlers(allFacts []facts.Fact) {
 	var components map[string]string // file -> its one exported function, "" when several
 	var tagged map[string]string     // file -> its one function tagged a component
 	var loads map[string]string      // file -> the load it declares
+	var defaults map[string]string   // file -> the function it default-exports
 	for i := range allFacts {
 		f := &allFacts[i]
 		if f.Kind != facts.KindRoute || f.PropString("type") != "page" || !fileRouteFrameworks[f.PropString("framework")] {
 			continue
 		}
 		if components == nil {
-			components, tagged, loads = map[string]string{}, map[string]string{}, map[string]string{}
+			components, tagged, loads, defaults = map[string]string{}, map[string]string{}, map[string]string{}, map[string]string{}
 			for j := range allFacts {
 				s := &allFacts[j]
 				if s.Kind != facts.KindSymbol || s.PropString("symbol_kind") != facts.SymbolFunc || !s.PropBool("exported") {
@@ -62,11 +65,20 @@ func bindFileRouteHandlers(allFacts []facts.Fact) {
 				if facts.ShortName(s.Name) == "load" {
 					loads[s.File] = s.Name
 				}
+				if s.PropBool(propDefaultExport) {
+					defaults[s.File] = s.Name
+				}
 			}
 		}
 		target, ok := tagged[f.File]
 		if !ok {
 			target = components[f.File]
+		}
+		if from := f.PropString(propDefaultFrom); from != "" {
+			f.DelProp(propDefaultFrom)
+			if target == "" {
+				target = defaults[from]
+			}
 		}
 		if target != "" {
 			f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelHandledBy, Target: target})
@@ -176,4 +188,84 @@ func nextRouteVerbs(allFacts []facts.Fact) []facts.Fact {
 		}
 	}
 	return out
+}
+
+// propDefaultExport marks the symbol a file default-exports, and propDefaultFrom the
+// file a page re-exports its screen from. Both are notes to bindFileRouteHandlers
+// and leave the extractor with neither.
+const (
+	propDefaultExport = "default_export"
+	propDefaultFrom   = "default_from"
+)
+
+// markDefaultExport marks the first symbol of a default export declaration.
+func markDefaultExport(ff []facts.Fact, isDefault bool) []facts.Fact {
+	if !isDefault {
+		return ff
+	}
+	for i := range ff {
+		if ff[i].Kind == facts.KindSymbol {
+			ff[i].SetProp(propDefaultExport, true)
+			break
+		}
+	}
+	return ff
+}
+
+// markDefaultExportedName marks the symbol `export default Name;` names.
+func markDefaultExportedName(kinds *tsutil.KindTable, root *sitter.Node, ctx *extractCtx, decls []facts.Fact) {
+	for i := range root.NamedChildCount() {
+		stmt := root.NamedChild(i)
+		if kindOf(kinds, stmt) != "export_statement" || !hasChildKind(kinds, stmt, "default") {
+			continue
+		}
+		id := findChildByKind(kinds, stmt, "identifier")
+		if id == nil {
+			continue
+		}
+		name := ctx.dir + "." + nodeText(id, ctx.src)
+		for j := range decls {
+			if decls[j].Kind == facts.KindSymbol && decls[j].Name == name {
+				decls[j].SetProp(propDefaultExport, true)
+			}
+		}
+	}
+}
+
+// reexportedDefaultFile returns the file a module re-exports as its default,
+// `export { default } from "@/views/admin/AgentsPage"`: the way a Next.js page hands
+// its screen to a component that lives elsewhere. "" when it does not, or when the
+// specifier names no file of this repository.
+func reexportedDefaultFile(kinds *tsutil.KindTable, root *sitter.Node, ctx *extractCtx) string {
+	for i := range root.NamedChildCount() {
+		stmt := root.NamedChild(i)
+		if kindOf(kinds, stmt) != "export_statement" {
+			continue
+		}
+		clause, source := findChildByKind(kinds, stmt, "export_clause"), findChildByKind(kinds, stmt, "string")
+		if clause == nil || source == nil {
+			continue
+		}
+		exportsDefault := false
+		for j := range clause.NamedChildCount() {
+			spec := clause.NamedChild(j)
+			name, alias := spec.ChildByFieldName("name"), spec.ChildByFieldName("alias")
+			if name != nil && nodeText(name, ctx.src) == "default" && (alias == nil || nodeText(alias, ctx.src) == "default") {
+				exportsDefault = true
+			}
+		}
+		if !exportsDefault {
+			continue
+		}
+		spec := strings.Trim(nodeText(source, ctx.src), `"'`)
+		if resolved, external := resolveImportPath(spec, ctx.dir, ctx.aliases); !external {
+			if file, _, ok := resolveModuleFile(resolved, ctx.knownFiles); ok {
+				return file
+			}
+		}
+		if file, ok := ctx.files.resolve(spec, ctx.relFile); ok {
+			return file
+		}
+	}
+	return ""
 }

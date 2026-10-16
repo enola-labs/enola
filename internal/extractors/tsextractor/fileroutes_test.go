@@ -217,3 +217,84 @@ export async function POST(request: Request) {
 		t.Errorf("route.ts with verbs keeps its ALL route; have %v", got)
 	}
 }
+
+// In a workspace the package that depends on next is the Next.js app, wherever it
+// sits: web/'s pages are routes although the root package.json declares no next,
+// and a sibling package's app/ directory is not. A page that re-exports its screen
+// (`export { default } from "@/views/..."`) is handled by that module's default
+// export, and a test's page object under tests/e2e/pages is no route.
+func TestFileRoutes_NextJSPackageInAWorkspace(t *testing.T) {
+	ff := extractAll(t, map[string]string{
+		"package.json":     `{"name": "onyx", "private": true, "workspaces": ["web", "desktop"]}`,
+		"web/package.json": `{"name": "web", "dependencies": {"next": "16.3.3", "react": "19.0.0"}}`,
+		"web/src/app/settings/page.tsx": `export default function SettingsPage() {
+	return <div />;
+}
+`,
+		"web/src/app/api/health/route.ts": `export async function GET() {
+	return Response.json({});
+}
+`,
+		"web/src/app/admin/agents/page.tsx": `export { default } from "@/views/admin/AgentsPage";
+`,
+		"web/src/views/admin/AgentsPage.tsx": `export function AgentRow() {
+	return <tr />;
+}
+
+export default function AgentsPage() {
+	return <AgentRow />;
+}
+`,
+		"web/src/app/admin/groups/page.tsx": `export { default } from "../../../views/admin/GroupsPage";
+`,
+		"web/src/views/admin/GroupsPage.tsx": `const GroupsPage = () => {
+	return <div />;
+};
+
+export default GroupsPage;
+`,
+		"web/tests/e2e/pages/AdminAgentsPage.ts": `export class AdminAgentsPage {
+	open() {}
+}
+`,
+		"desktop/package.json": `{"name": "desktop", "dependencies": {"electron": "30.0.0"}}`,
+		"desktop/src/app/page.tsx": `export default function Shell() {
+	return <div />;
+}
+`,
+	}, false)
+	got := map[string][]string{}
+	for _, f := range ff {
+		for _, p := range []string{propDefaultExport, propDefaultFrom} {
+			if f.PropAny(p) != nil {
+				t.Errorf("%s keeps the working prop %s", f.Name, p)
+			}
+		}
+		if f.Kind != facts.KindRoute || f.PropString("framework") != "nextjs" {
+			continue
+		}
+		key := f.PropString("method") + " " + f.Name
+		for _, r := range f.Relations {
+			if r.Kind == facts.RelHandledBy {
+				got[key] = append(got[key], r.Target)
+			}
+		}
+		if _, ok := got[key]; !ok {
+			got[key] = nil
+		}
+	}
+	want := map[string][]string{
+		"GET /settings":     {"web/src/app/settings.SettingsPage"},
+		"GET /api/health":   {"web/src/app/api/health.GET"},
+		"GET /admin/agents": {"web/src/views/admin.AgentsPage"},
+		"GET /admin/groups": {"web/src/views/admin.GroupsPage"},
+	}
+	for key, targets := range want {
+		if !slices.Equal(got[key], targets) {
+			t.Errorf("%s handled_by = %v, want %v (have %v)", key, got[key], targets, got)
+		}
+	}
+	if len(got) != len(want) {
+		t.Errorf("Next.js routes = %v, want exactly %v", got, want)
+	}
+}
