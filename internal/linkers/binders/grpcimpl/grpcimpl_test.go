@@ -247,3 +247,45 @@ func TestServerBases_AreExtensible(t *testing.T) {
 		t.Errorf("handled_by = %q (ok=%v), want users.UserService.GetUser", target, ok)
 	}
 }
+
+// A Java implementation extends the generated <Service>ImplBase, of grpc-java's
+// <Service>Grpc or Dubbo Triple's Dubbo<Service>Triple, and names each rpc in lower
+// camel case: rpc Check is check().
+func TestBindGRPCHandlers_JavaImplBase(t *testing.T) {
+	store := facts.NewStore()
+	store.Add(
+		grpcServerRoute("grpc.health.v1.Health", "Check"),
+		grpcServerRoute("helloworld.Greeter", "SayHello"),
+		grpcServerRoute("org.apache.dubbo.metadata.MetadataServiceV2", "GetMetadataInfo"),
+		facts.Fact{
+			Kind: facts.KindSymbol, Name: "tri/service.TriHealthImpl",
+			Props:     map[string]any{"symbol_kind": facts.SymbolClass},
+			Relations: []facts.Relation{{Kind: facts.RelImplements, Target: "DubboHealthTriple.HealthImplBase"}},
+		},
+		facts.Fact{Kind: facts.KindSymbol, Name: "tri/service.TriHealthImpl.check", Props: map[string]any{"symbol_kind": facts.SymbolMethod}},
+		facts.Fact{
+			Kind: facts.KindSymbol, Name: "greeter.GreeterImpl",
+			Props:     map[string]any{"symbol_kind": facts.SymbolClass},
+			Relations: []facts.Relation{{Kind: facts.RelImplements, Target: "GreeterGrpc.GreeterImplBase"}},
+		},
+		facts.Fact{Kind: facts.KindSymbol, Name: "greeter.GreeterImpl.sayHello", Props: map[string]any{"symbol_kind": facts.SymbolMethod}},
+		facts.Fact{
+			Kind: facts.KindSymbol, Name: "metadata.MetadataServiceDelegationV2",
+			Props:     map[string]any{"symbol_kind": facts.SymbolClass},
+			Relations: []facts.Relation{{Kind: facts.RelImplements, Target: "dubbo-metadata/src.DubboMetadataServiceV2Triple.MetadataServiceV2ImplBase"}},
+		},
+		facts.Fact{Kind: facts.KindSymbol, Name: "metadata.MetadataServiceDelegationV2.getMetadataInfo", Props: map[string]any{"symbol_kind": facts.SymbolMethod}},
+	)
+	bind(t, store)
+	want := map[string]string{
+		"/grpc.health.v1.Health/Check":                                 "tri/service.TriHealthImpl.check",
+		"/helloworld.Greeter/SayHello":                                 "greeter.GreeterImpl.sayHello",
+		"/org.apache.dubbo.metadata.MetadataServiceV2/GetMetadataInfo": "metadata.MetadataServiceDelegationV2.getMetadataInfo",
+	}
+	for _, f := range store.ByKind(facts.KindRoute) {
+		got, _ := routeHandledBy(f)
+		if got != want[f.Name] {
+			t.Errorf("%s handled_by = %q, want %q", f.Name, got, want[f.Name])
+		}
+	}
+}
