@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/enola-labs/enola/internal/extractors/tsutil"
+	"github.com/enola-labs/enola/internal/factpath"
 	"github.com/enola-labs/enola/internal/facts"
 	sitter "github.com/tree-sitter/go-tree-sitter"
 )
@@ -88,4 +89,133 @@ func isDirective(line string) bool {
 		}
 	}
 	return false
+}
+
+// indexFiles are the file names that stand for their directory, most preferred first.
+var indexFiles = []string{"index.ts", "index.tsx", "index.mts", "index.js", "index.jsx", "index.mjs", "index.cjs"}
+
+// fileDocTags mark a JSDoc block as describing its file or package rather than the
+// declaration below it.
+var fileDocTags = []string{"@packageDocumentation", "@module", "@fileoverview", "@file", "@overview"}
+
+// packageDocs returns the doc prop of each directory that has one: the file-level
+// JSDoc block of its index file. Only the comments that open the file are read, and
+// only a block carrying one of fileDocTags counts, since a bare JSDoc block at the
+// top of an index file is as likely the first export's.
+func packageDocs(tsFiles []string, sources map[string][]byte) map[string]string {
+	rank := make(map[string]int) // dir -> rank of the index file read for it
+	docs := make(map[string]string)
+	for _, rel := range tsFiles {
+		base := rel[strings.LastIndexByte(rel, '/')+1:]
+		r := -1
+		for i, name := range indexFiles {
+			if base == name {
+				r = i
+			}
+		}
+		if r < 0 {
+			continue
+		}
+		dir := factpath.Dir(rel)
+		if prev, seen := rank[dir]; seen && prev <= r {
+			continue
+		}
+		rank[dir] = r
+		if doc := leadingFileDoc(string(sources[rel])); doc != "" {
+			docs[dir] = doc
+		} else {
+			delete(docs, dir)
+		}
+	}
+	return docs
+}
+
+// leadingFileDoc returns the summary of the first file-level JSDoc block among the
+// comments that open src, or "".
+func leadingFileDoc(src string) string {
+	src = strings.TrimPrefix(src, "\uFEFF")
+	if strings.HasPrefix(src, "#!") {
+		if nl := strings.IndexByte(src, '\n'); nl >= 0 {
+			src = src[nl+1:]
+		} else {
+			return ""
+		}
+	}
+	for {
+		src = strings.TrimLeft(src, " \t\r\n")
+		switch {
+		case strings.HasPrefix(src, "//"):
+			nl := strings.IndexByte(src, '\n')
+			if nl < 0 {
+				return ""
+			}
+			src = src[nl+1:]
+		case strings.HasPrefix(src, "/*"):
+			end := strings.Index(src[2:], "*/")
+			if end < 0 {
+				return ""
+			}
+			block := src[:end+4]
+			src = src[end+4:]
+			if strings.HasPrefix(block, "/**") && hasFileDocTag(block) {
+				return facts.DocSummary(fileDocText(block))
+			}
+		default:
+			return ""
+		}
+	}
+}
+
+func hasFileDocTag(block string) bool {
+	for _, tag := range fileDocTags {
+		rest := block
+		for {
+			i := strings.Index(rest, tag)
+			if i < 0 {
+				break
+			}
+			rest = rest[i+len(tag):]
+			if rest == "" || !isTagChar(rest[0]) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func isTagChar(c byte) bool {
+	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z'
+}
+
+// fileDocText is a file-level block's description: the text before its first tag, or
+// when there is none, the text of its @fileoverview, @file or @overview tag.
+func fileDocText(block string) string {
+	if desc := strings.TrimSpace(strings.Join(jsDocLines(block), "\n")); desc != "" {
+		return desc
+	}
+	body := strings.TrimSuffix(strings.TrimPrefix(block, "/**"), "*/")
+	var out []string
+	inTag := false
+	for _, line := range strings.Split(body, "\n") {
+		line = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "*"))
+		if strings.HasPrefix(line, "@") {
+			if inTag {
+				break
+			}
+			for _, tag := range []string{"@fileoverview", "@file", "@overview"} {
+				if rest, ok := strings.CutPrefix(line, tag); ok && (rest == "" || rest[0] == ' ' || rest[0] == '\t') {
+					inTag = true
+					line = strings.TrimSpace(rest)
+					break
+				}
+			}
+			if !inTag {
+				continue
+			}
+		}
+		if inTag {
+			out = append(out, line)
+		}
+	}
+	return strings.Join(out, "\n")
 }

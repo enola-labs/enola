@@ -2963,7 +2963,8 @@ import (
 // v380: a Go module fact carries doc, its package comment (doc.go first).
 // v381: a Python module fact carries doc, its __init__.py module docstring.
 // v382: a Java module fact carries doc, the Javadoc of its package-info.java.
-const cacheVersion = "v382"
+// v383: a TypeScript module fact carries doc, the file-level JSDoc block of its index file.
+const cacheVersion = "v383"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
