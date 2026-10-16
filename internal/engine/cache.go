@@ -2965,7 +2965,8 @@ import (
 // v382: a Java module fact carries doc, the Javadoc of its package-info.java.
 // v383: a TypeScript module fact carries doc, the file-level JSDoc block of its index file.
 // v384: Rust symbols carry doc from `///` and `/** */`, and Rust modules from `//!`.
-const cacheVersion = "v384"
+// v385: Kotlin symbols carry doc, their KDoc or `//` run.
+const cacheVersion = "v385"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
