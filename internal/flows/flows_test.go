@@ -418,6 +418,26 @@ func TestAnalyze_SideProgramsRankBelowTheProgram(t *testing.T) {
 	}
 }
 
+// Below a JVM source root the directories are a package name, not a layout: an app
+// in com.google.samples.apps or the Android default com.example is the app. Past the
+// organisation's segments the package says what the code is (spark's examples), and
+// above the root the directories mean what they always do.
+func TestSidePath_JVMPackagesAreNotDirectories(t *testing.T) {
+	for file, want := range map[string]bool{
+		"app/src/main/kotlin/com/google/samples/apps/nowinandroid/MainActivity.kt": false,
+		"app/src/main/java/com/example/app/MainActivity.java":                      false,
+		"core/src/main/scala/org/acme/tools/Runner.scala":                          false,
+		"samples/app/src/main/kotlin/com/acme/Main.kt":                             true,
+		"examples/demo/src/main/java/com/acme/Demo.java":                           true,
+		"scripts/gen.kt": true,
+		"connector/kinesis/src/main/scala/org/apache/spark/examples/streaming/WordCount.scala": true,
+	} {
+		if got := sidePath(file); got != want {
+			t.Errorf("sidePath(%q) = %v, want %v", file, got, want)
+		}
+	}
+}
+
 // Xcode keeps an app's preview apps under Previews/, and their assets under Preview
 // Content/: each is a program a platform starts, and none is the app. A module
 // that only has Preview in its name is a feature.
