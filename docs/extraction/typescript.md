@@ -253,6 +253,11 @@ Next.js page exports beside `generateMetadata`, or else its one exported functio
 App Router `route.ts` is one route per HTTP verb it exports, each handled by that
 function; one that exports none stays a single route with method `ALL`.
 
+Next.js is detected per package: a package whose own `package.json` or `next.config`
+declares it is a Next.js app, though the repository's root package is not one, unless
+it sits under a directory of examples, samples or demos (a demo app under
+`examples/`, or `example-apps/`), which demonstrates the repository rather than being one of its apps.
+
 The form actions a `+page.server` file exports in `actions` are the exception: each
 is a POST to its page, handled by the action.
 

@@ -222,7 +222,8 @@ export async function POST(request: Request) {
 // sits: web/'s pages are routes although the root package.json declares no next,
 // and a sibling package's app/ directory is not. A page that re-exports its screen
 // (`export { default } from "@/views/..."`) is handled by that module's default
-// export, and a test's page object under tests/e2e/pages is no route.
+// export, and a test's page object under tests/e2e/pages is no route. A Next.js app
+// under examples/ or example-apps/ is a demo of the repository, not one of its apps.
 func TestFileRoutes_NextJSPackageInAWorkspace(t *testing.T) {
 	ff := extractAll(t, map[string]string{
 		"package.json":     `{"name": "onyx", "private": true, "workspaces": ["web", "desktop"]}`,
@@ -255,6 +256,16 @@ export default GroupsPage;
 `,
 		"web/tests/e2e/pages/AdminAgentsPage.ts": `export class AdminAgentsPage {
 	open() {}
+}
+`,
+		"examples/with-nextjs/package.json": `{"name": "with-nextjs", "dependencies": {"next": "14.0.0"}}`,
+		"examples/with-nextjs/src/app/page.tsx": `export default function Demo() {
+	return <div />;
+}
+`,
+		"example-apps/credential-sync/package.json": `{"name": "credential-sync", "dependencies": {"next": "14.0.0"}}`,
+		"example-apps/credential-sync/app/api/sync/route.ts": `export async function POST() {
+	return Response.json({});
 }
 `,
 		"desktop/package.json": `{"name": "desktop", "dependencies": {"electron": "30.0.0"}}`,
