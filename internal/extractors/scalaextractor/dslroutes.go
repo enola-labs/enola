@@ -91,6 +91,9 @@ type dslWalker struct {
 	relFile string
 	dir     string
 	out     []facts.Fact
+	// handlers maps the start of each pekko route's handler block to the name its
+	// symbol is given (see pekkoHandlerBlocks).
+	handlers map[uint]string
 }
 
 func (w *dslWalker) text(n *sitter.Node) string {
@@ -138,8 +141,9 @@ func (w *dslWalker) walkPekko(n *sitter.Node, prefix, method string, unresolved 
 					if len(verbs) == 0 {
 						verbs = []string{facts.MethodAny}
 					}
+					handler := w.pekkoHandler(n, block)
 					for _, v := range verbs {
-						w.emitPekkoRoute(n, childPrefix, v, childUnresolved)
+						w.emitPekkoRoute(n, childPrefix, v, childUnresolved, handler)
 					}
 				}
 				if block != nil {
@@ -333,7 +337,7 @@ func (w *dslWalker) pathSegments(args *sitter.Node) (path string, ok bool) {
 	return strings.Join(parts, "/"), resolved
 }
 
-func (w *dslWalker) emitPekkoRoute(n *sitter.Node, path, method string, unresolved bool) {
+func (w *dslWalker) emitPekkoRoute(n *sitter.Node, path, method string, unresolved bool, handler string) {
 	if path == "" {
 		return
 	}
@@ -351,13 +355,18 @@ func (w *dslWalker) emitPekkoRoute(n *sitter.Node, path, method string, unresolv
 	if unresolved {
 		props["path_unresolved"] = true
 	}
+	rels := []facts.Relation{{Kind: facts.RelDeclares, Target: w.dir}}
+	if handler != "" {
+		props["handler"] = handler
+		rels = append(rels, facts.Relation{Kind: facts.RelHandledBy, Target: handler})
+	}
 	w.out = append(w.out, facts.Fact{
 		Kind:      facts.KindRoute,
 		Name:      path,
 		File:      w.relFile,
 		Line:      int(n.StartPosition().Row) + 1,
 		Props:     props,
-		Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: w.dir}},
+		Relations: rels,
 	})
 }
 
@@ -553,10 +562,58 @@ func dslFactsFrom(root *sitter.Node, src []byte, relFile string) []facts.Fact {
 // route walk binds the route to the same name: both build it from the clause, so
 // neither has to see the other's facts.
 
-// inlineHandlerName names an inline route handler.
+// inlineHandlerName names an inline route handler. A pekko handler block may serve
+// several verbs, so it is named by its line alone.
 func inlineHandlerName(dir string, types []string, method string, line int) string {
-	parts := append(slices.Clone(types), "handler:"+method+":"+strconv.Itoa(line))
-	return dir + "." + strings.Join(parts, ".")
+	short := "handler:" + strconv.Itoa(line)
+	if method != "" {
+		short = "handler:" + method + ":" + strconv.Itoa(line)
+	}
+	return dir + "." + strings.Join(append(slices.Clone(types), short), ".")
+}
+
+// A pekko route's handler is the block its path directive wraps,
+// `path("x") { get { complete(...) } }`, or in the conjoined spelling the block the
+// conjunction is applied to, `(path("x") & get) { complete(...) }`. Which blocks
+// those are is the route walk's to decide, so it records them, and the declaration
+// walk gives each the symbol the route is bound to.
+
+// pekkoHandler records the handler block of the path directive n, whose own block
+// is block (nil in the conjoined spelling), and returns its symbol name.
+func (w *dslWalker) pekkoHandler(n, block *sitter.Node) string {
+	if block == nil {
+		p := n.Parent()
+		for p != nil && (kindOf(p) == "parenthesized_expression" || kindOf(p) == "infix_expression") {
+			p = p.Parent()
+		}
+		if p != nil && kindOf(p) == "call_expression" {
+			for i := uint(0); i < p.ChildCount(); i++ {
+				if c := p.Child(i); kindOf(c) == "block" || kindOf(c) == "lambda_expression" {
+					block = c
+				}
+			}
+		}
+	}
+	if block == nil {
+		return ""
+	}
+	name := inlineHandlerName(w.dir, enclosingTypes(block, w.src), "", int(block.StartPosition().Row)+1)
+	if w.handlers == nil {
+		w.handlers = map[uint]string{}
+	}
+	w.handlers[block.StartByte()] = name
+	return name
+}
+
+// pekkoHandlerBlocks returns the handler blocks of a file's pekko routes by start
+// byte, for the declaration walk.
+func pekkoHandlerBlocks(root *sitter.Node, src []byte, relFile string) map[uint]string {
+	if !importsPekkoHTTPServer(src) {
+		return nil
+	}
+	w := &dslWalker{src: src, relFile: relFile, dir: factpath.Dir(relFile)}
+	w.walkPekko(root, "", "", false)
+	return w.handlers
 }
 
 // enclosingTypes returns the class, object, trait and enum names around a node,

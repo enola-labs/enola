@@ -15,7 +15,7 @@ import (
 // 50 MiB per file against Java's 0.5 on the same parser infrastructure.
 func extractFileFacts(src []byte, relFile string, packageIndex map[string]string) ([]facts.Fact, string) {
 	return withScalaTree(src, func(root *sitter.Node) ([]facts.Fact, string) {
-		ff, pkg := walkFileAST(root, src, relFile, packageIndex)
+		ff, pkg := walkFileAST(root, src, relFile, packageIndex, pekkoHandlerBlocks(root, src, relFile))
 		return append(ff, dslFactsFrom(root, src, relFile)...), pkg
 	})
 }
@@ -34,14 +34,15 @@ func withScalaTree(src []byte, fn func(root *sitter.Node) ([]facts.Fact, string)
 }
 
 // walkFileAST is extractFileASTFull over a tree the caller already parsed.
-func walkFileAST(root *sitter.Node, src []byte, relFile string, packageIndex map[string]string) ([]facts.Fact, string) {
+func walkFileAST(root *sitter.Node, src []byte, relFile string, packageIndex map[string]string, inlineHandlers map[uint]string) ([]facts.Fact, string) {
 	w := &astWalker{
-		src:          src,
-		relFile:      relFile,
-		dir:          factpath.Dir(relFile),
-		packageIndex: packageIndex,
-		imports:      map[string]string{},
-		ownerStack:   []int{},
+		src:            src,
+		relFile:        relFile,
+		dir:            factpath.Dir(relFile),
+		packageIndex:   packageIndex,
+		imports:        map[string]string{},
+		ownerStack:     []int{},
+		inlineHandlers: inlineHandlers,
 	}
 	w.walk(root)
 	return w.out, w.pkg
@@ -51,6 +52,10 @@ type astWalker struct {
 	src     []byte
 	relFile string
 	dir     string
+
+	// inlineHandlers are the pekko route handler blocks of the file by start byte,
+	// each with the symbol name its route is bound to.
+	inlineHandlers map[uint]string
 
 	packageIndex map[string]string
 
@@ -241,6 +246,10 @@ func (w *astWalker) line(n *sitter.Node) int {
 // declaration nested inside an unhandled expression is still found.
 func (w *astWalker) walk(n *sitter.Node) {
 	if n == nil {
+		return
+	}
+	if name, ok := w.inlineHandlers[n.StartByte()]; ok && (kindOf(n) == "block" || kindOf(n) == "lambda_expression") {
+		w.handleInlineHandler(n, name)
 		return
 	}
 	switch kindOf(n) {
@@ -1070,13 +1079,19 @@ func (w *astWalker) handleTypeLike(n *sitter.Node, symbolKind string) {
 	w.typeStack = w.typeStack[:len(w.typeStack)-1]
 }
 
-// handleInlineRoute gives an inline route handler a symbol of its own, named as the
-// route walk names it, and walks the handler with it as the owner of its calls.
+// handleInlineRoute gives an http4s route's case clause a symbol of its own, named
+// as the route walk names it.
 func (w *astWalker) handleInlineRoute(n *sitter.Node, method string) {
+	w.handleInlineHandler(n, inlineHandlerName(w.dir, w.typeStack, method, int(n.StartPosition().Row)+1))
+}
+
+// handleInlineHandler gives an inline route handler the symbol name and walks it
+// with that symbol as the owner of its calls.
+func (w *astWalker) handleInlineHandler(n *sitter.Node, name string) {
 	line := int(n.StartPosition().Row) + 1
 	w.out = append(w.out, facts.Fact{
 		Kind: facts.KindSymbol,
-		Name: inlineHandlerName(w.dir, w.typeStack, method, line),
+		Name: name,
 		File: w.relFile,
 		Line: line,
 		Props: map[string]any{

@@ -389,3 +389,61 @@ final class Routes(users: UsersDB) {
 		}
 	}
 }
+
+// A pekko route's handler is the block its path directive wraps, or the block a
+// conjoined `(path(...) & verb)` is applied to; it is given a symbol that owns the
+// block's calls. A block serving two verbs is one handler for both routes.
+func TestPekkoRouteBlockIsTheHandler(t *testing.T) {
+	src := `package demo
+
+import org.apache.pekko.http.scaladsl.server.Directives._
+
+class SchedulerServer(scheduler: Scheduler) {
+  val routes =
+    pathPrefix("queue") {
+      path("count") {
+        get {
+          complete(scheduler.queueSize())
+        }
+      } ~ (path("drain") & post) {
+        complete(scheduler.drain())
+      } ~ path("item") {
+        get {
+          complete(scheduler.peek())
+        } ~ delete {
+          complete(scheduler.pop())
+        }
+      }
+    }
+}
+`
+	ff, _ := extractFileFacts([]byte(src), "src/SchedulerServer.scala", map[string]string{})
+	want := map[string]string{
+		"GET /queue/count":   "src.SchedulerServer.handler:8",
+		"POST /queue/drain":  "src.SchedulerServer.handler:12",
+		"GET /queue/item":    "src.SchedulerServer.handler:14",
+		"DELETE /queue/item": "src.SchedulerServer.handler:14",
+	}
+	routes := routeFacts(ff)
+	for key, handler := range want {
+		route, ok := routes[key]
+		if !ok {
+			t.Errorf("missing route %s; have %v", key, routeKeys(ff))
+			continue
+		}
+		if !hasRelation(route, facts.RelHandledBy, handler) {
+			t.Errorf("%s relations = %v, want handled_by %s", key, route.Relations, handler)
+			continue
+		}
+		sym := findFact(t, ff, handler)
+		calls := 0
+		for _, r := range sym.Relations {
+			if r.Kind == facts.RelCalls {
+				calls++
+			}
+		}
+		if calls == 0 || !sym.PropBool("framework_registered") {
+			t.Errorf("%s: relations %v, props %v, want its block's calls and framework_registered", handler, sym.Relations, sym.Props)
+		}
+	}
+}

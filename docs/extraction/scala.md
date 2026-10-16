@@ -176,6 +176,11 @@ keeps descending. A path block naming two verbs emits two routes. A prefix held 
 value (`pathPrefix(collection.path)`) cannot be resolved without evaluating Scala, so
 the route keeps the resolvable half and is tagged `path_unresolved`.
 
+The route's handler is the block its `path` wraps, or the block a conjoined
+`(path(...) & post)` is applied to. It is given a symbol `<dir>.<Type>.handler:<line>`
+that owns the block's calls, and the route is `handled_by` it; a block that serves two
+verbs is one handler for both routes.
+
 ### http4s
 
 ```scala
