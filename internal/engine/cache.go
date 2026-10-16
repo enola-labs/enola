@@ -2960,7 +2960,8 @@ import (
 // serves its routes under the mount path wherever the Mount sits in the function.
 // v379: a Next.js package under a directory of examples, samples or demos
 // (examples/with-nextjs, example-apps/) is no Next.js app of the repository.
-const cacheVersion = "v379"
+// v380: a Go module fact carries doc, its package comment (doc.go first).
+const cacheVersion = "v380"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

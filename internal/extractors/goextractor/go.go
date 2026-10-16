@@ -314,9 +314,49 @@ func (e *GoExtractor) extractPackage(fset *token.FileSet, pkgDir string, pp *par
 	if pkgDir == "." && modulePath != "" {
 		moduleFact.SetProp("modulePath", modulePath)
 	}
+	if doc := packageDoc(pp); doc != "" {
+		moduleFact.SetProp(facts.PropDoc, doc)
+	}
 	result = append(result, moduleFact)
 
 	return result
+}
+
+// packageDoc returns the doc prop for a package: its package comment, from doc.go
+// when that file has one, else from the first file by name that does. Test files
+// are skipped, and so is a licence written directly above the package clause.
+func packageDoc(pp *parsedPkg) string {
+	names := make([]string, 0, len(pp.relFiles))
+	for _, rel := range pp.relFiles {
+		if !strings.HasSuffix(rel, "_test.go") {
+			names = append(names, rel)
+		}
+	}
+	sort.Slice(names, func(i, j int) bool {
+		di, dj := isDocGo(names[i]), isDocGo(names[j])
+		if di != dj {
+			return di
+		}
+		return names[i] < names[j]
+	})
+	for _, rel := range names {
+		f := pp.fileMap[rel]
+		if f == nil || f.Doc == nil {
+			continue
+		}
+		text := f.Doc.Text()
+		if strings.HasPrefix(text, "Copyright") || strings.Contains(text, "SPDX-License-Identifier") {
+			continue
+		}
+		if doc := facts.DocSummary(text); doc != "" {
+			return doc
+		}
+	}
+	return ""
+}
+
+func isDocGo(rel string) bool {
+	return rel == "doc.go" || strings.HasSuffix(rel, "/doc.go")
 }
 
 func (e *GoExtractor) extractFile(fset *token.FileSet, f *ast.File, relFile, pkgDir, modulePath string, fieldTypes map[string]string, callTypes callTypeTables, pkgNames map[string]string, grpcStubs *goGRPCStubIndex, pkgVarClients map[string]string, baseURLLits map[string][]string, routePrefixes routeIndex, pkgFuncs, pkgScope map[string]bool) []facts.Fact {
