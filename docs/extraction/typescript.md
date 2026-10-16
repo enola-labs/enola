@@ -667,6 +667,10 @@ production messaging operations.
 
 ## What is deliberately not extracted
 
+- **Binary files named `.ts`.** An MPEG transport stream, the video segment HLS streaming
+  uses, carries the `.ts` extension. A file with a NUL byte and invalid UTF-8 in its
+  first 8 KB is skipped, not parsed as TypeScript. A source file that keeps a NUL in a
+  string as a separator is valid UTF-8 and is still read.
 - **Non-literal paths.** `axios.get(url)` where `url` is a variable with no literal
   binding produces no route. A base URL resolved from a file-local literal *is* followed;
   one injected from config is not.
