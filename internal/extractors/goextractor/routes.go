@@ -154,6 +154,9 @@ type routeWalk struct {
 	// plain function.
 	recvVar  string
 	recvType string
+	// localTypes are the function's locals whose type a struct literal states,
+	// `r := artifactRoutes{...}`; "" for a name bound to two types.
+	localTypes map[string]string
 }
 
 func (w *routeWalk) emit(call *ast.CallExpr) {
@@ -161,12 +164,42 @@ func (w *routeWalk) emit(call *ast.CallExpr) {
 		fact := routeToFact(r, w.relFile, w.pkgDir)
 		// A method value on the receiver, `hs.LoginPost` inside a method of
 		// HTTPServer, names that type's method.
-		if recv, method, ok := strings.Cut(r.handler, "."); ok && recv == w.recvVar && w.recvType != "" &&
-			token.IsIdentifier(method) && r.method != "USE" {
-			fact.SetProp(facts.PropHandlerTarget, w.pkgDir+"."+w.recvType+"."+method)
+		if recv, method, ok := strings.Cut(r.handler, "."); ok && token.IsIdentifier(method) && r.method != "USE" {
+			switch {
+			case recv == w.recvVar && w.recvType != "":
+				fact.SetProp(facts.PropHandlerTarget, w.pkgDir+"."+w.recvType+"."+method)
+			case w.localTypes[recv] != "":
+				// A method value on a local of a stated type, `r.uploadArtifact`
+				// after `r := artifactRoutes{...}`, names that type's method.
+				fact.SetProp(facts.PropHandlerTarget, w.pkgDir+"."+w.localTypes[recv]+"."+method)
+			}
 		}
 		*w.result = append(*w.result, fact)
 	}
+}
+
+// noteLocalType records the type of this package that a struct literal, or its
+// address, gives a local. A name bound to two types keeps none.
+func (w *routeWalk) noteLocalType(name string, value ast.Expr) {
+	if u, ok := value.(*ast.UnaryExpr); ok && u.Op == token.AND {
+		value = u.X
+	}
+	lit, ok := value.(*ast.CompositeLit)
+	if !ok {
+		return
+	}
+	typ, ok := lit.Type.(*ast.Ident)
+	if !ok {
+		return
+	}
+	if w.localTypes == nil {
+		w.localTypes = map[string]string{}
+	}
+	if prev, seen := w.localTypes[name]; seen && prev != typ.Name {
+		w.localTypes[name] = ""
+		return
+	}
+	w.localTypes[name] = typ.Name
 }
 
 func (w *routeWalk) block(body *ast.BlockStmt) {
@@ -212,7 +245,24 @@ func (w *routeWalk) stmt(stmt ast.Stmt) {
 			w.block(fn.Body)
 		}
 
+	case *ast.DeclStmt:
+		if gen, ok := s.Decl.(*ast.GenDecl); ok && gen.Tok == token.VAR {
+			for _, spec := range gen.Specs {
+				if vs, ok := spec.(*ast.ValueSpec); ok && len(vs.Names) == len(vs.Values) {
+					for i, name := range vs.Names {
+						w.noteLocalType(name.Name, vs.Values[i])
+					}
+				}
+			}
+		}
 	case *ast.AssignStmt:
+		if len(s.Lhs) == len(s.Rhs) {
+			for i, lhs := range s.Lhs {
+				if name := identName(lhs); name != "" {
+					w.noteLocalType(name, s.Rhs[i])
+				}
+			}
+		}
 		// Track subrouter assignments: apiRouter := router.PathPrefix("/api").Subrouter()
 		applySubrouterAssign(s, w.prefixes)
 		trackStringAssign(s, w.prefixes)

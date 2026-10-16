@@ -2923,7 +2923,10 @@ import (
 // v364: Python commands declared with argparse (add_parser + set_defaults(func=)) or
 // in a command table (name= and func=, grouped by name= and subcommands=) carry a
 // `command` prop on their handler, in a file that imports argparse.
-const cacheVersion = "v364"
+// v365: a Go route handler that is a method value on a local whose type a struct
+// literal states (`r := artifactRoutes{...}`; `m.Put(p, r.upload)`) names that
+// type's method as its handler_target.
+const cacheVersion = "v365"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

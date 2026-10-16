@@ -444,3 +444,68 @@ func Plain(w http.ResponseWriter, r *http.Request)                {}
 		t.Errorf("saw %d of %d routes", seen, len(want))
 	}
 }
+
+// A method value on a local whose type its struct literal states, `r := routes{...}`
+// then `m.Put(path, r.upload)`, names that type's method. A local of no stated type,
+// or one bound to two types, names nothing.
+func TestExtractRoutes_MethodValueOnALocalStruct(t *testing.T) {
+	got := goRouteTargets(t, map[string]string{
+		"go.mod": "module example.com/app\n\ngo 1.22\n",
+		"routers/actions/artifacts.go": `package actions
+
+import (
+	"net/http"
+
+	"github.com/go-chi/chi/v5"
+)
+
+type artifactRoutes struct{ prefix string }
+
+func (r *artifactRoutes) upload(w http.ResponseWriter, req *http.Request)   {}
+func (r *artifactRoutes) download(w http.ResponseWriter, req *http.Request) {}
+
+type v4Routes struct{}
+
+func (r v4Routes) create(w http.ResponseWriter, req *http.Request) {}
+
+func Routes(prefix string) chi.Router {
+	m := chi.NewRouter()
+	r := artifactRoutes{prefix: prefix}
+	m.Put("/upload", r.upload)
+	m.Get("/download", r.download)
+	var v4 = &v4Routes{}
+	m.Post("/v4/create", v4.create)
+	h := newHandler()
+	m.Get("/other", h.serve)
+	return m
+}
+
+func Twice(flag bool) chi.Router {
+	m := chi.NewRouter()
+	x := artifactRoutes{}
+	if flag {
+		x := v4Routes{}
+		_ = x
+	}
+	m.Get("/twice", x.upload)
+	return m
+}
+
+type handler struct{}
+
+func newHandler() *handler                                         { return &handler{} }
+func (h *handler) serve(w http.ResponseWriter, req *http.Request) {}
+`,
+	})
+	want := map[string]string{
+		"PUT /upload":     "routers/actions.artifactRoutes.upload",
+		"GET /download":   "routers/actions.artifactRoutes.download",
+		"POST /v4/create": "routers/actions.v4Routes.create",
+		"GET /other":      "",
+	}
+	for key, target := range want {
+		if have, ok := got[key]; !ok || have != target {
+			t.Errorf("%s handler target = %q, want %q (have %v)", key, have, target, got)
+		}
+	}
+}
