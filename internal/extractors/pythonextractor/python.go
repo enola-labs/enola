@@ -190,8 +190,10 @@ func (e *PythonExtractor) Extract(ctx context.Context, repoPath string, files []
 	// full file set is known. Without this, functions reached via absolute imports
 	// have no incoming edge and read as dead code.
 	resolveCallTargetsWith(allFacts, fileModules, pkgDirs, idx.globals)
-	resolveImplementsTargets(allFacts, fileModules, pkgDirs)
+	// Before resolveImplementsTargets, which consumes the import bindings a console
+	// script's target may have to be followed through.
 	composeCommandNames(allFacts, fileModules, pkgDirs)
+	resolveImplementsTargets(allFacts, fileModules, pkgDirs)
 
 	// Fold FastAPI include_router mount prefixes onto the bare decorator paths, so
 	// a route reads as the path it actually serves ("/api/v1/cognify") rather than

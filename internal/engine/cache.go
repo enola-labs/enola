@@ -2937,7 +2937,9 @@ import (
 // test path is no Pages Router route.
 // v369: an inline ASP.NET Core minimal-API handler (a lambda or anonymous method) is
 // given a symbol "<dir>.<Type>.handler:<VERB>:<line>" with its calls, and handles its route.
-const cacheVersion = "v369"
+// v370: a console script whose target its module only imports is followed through
+// that import, so the root click group it runs is named by the script.
+const cacheVersion = "v370"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

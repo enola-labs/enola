@@ -206,13 +206,13 @@ func composeCommandNames(allFacts []facts.Fact, fileModules, pkgDirs map[string]
 			commands = append(commands, i)
 		}
 		if up != "" {
-			if p := resolve(up, f.File); p != "" {
+			if p := importedDefinition(allFacts, resolve(up, f.File)); p != "" {
 				parent[f.Name] = p
 			}
 		}
 		for _, c := range scripts {
 			name, target, ok := strings.Cut(c, "\t")
-			if t := resolve(target, f.File); ok && t != "" {
+			if t := importedDefinition(allFacts, resolve(target, f.File)); ok && t != "" {
 				programs[t] = name
 			}
 		}
@@ -227,7 +227,7 @@ func composeCommandNames(allFacts []facts.Fact, fileModules, pkgDirs map[string]
 			if len(parts) != 3 {
 				continue
 			}
-			g, c := resolve(parts[0], f.File), resolve(parts[1], f.File)
+			g, c := importedDefinition(allFacts, resolve(parts[0], f.File)), importedDefinition(allFacts, resolve(parts[1], f.File))
 			if g == "" || c == "" {
 				continue
 			}
@@ -542,6 +542,65 @@ func (w *pyWalker) handlerTarget(v *sitter.Node) string {
 		if path := w.firstStringArg(args); strings.Count(path, ".") >= 1 && isPyDottedName(path) {
 			return path
 		}
+	}
+	return ""
+}
+
+// importedDefinition follows a resolved "<module>.<name>" that names no symbol
+// through the module's own import of that name, and on through a module that
+// imports it in turn: breeze's console script points at airflow_breeze.breeze:main,
+// a name breeze.py only imports from main_command. It returns the target unchanged
+// when it is a symbol or no import of it is found.
+func importedDefinition(allFacts []facts.Fact, target string) string {
+	for hop := 0; hop < 4 && target != ""; hop++ {
+		next := importedOnce(allFacts, target)
+		if next == target {
+			break
+		}
+		target = next
+	}
+	return target
+}
+
+func importedOnce(allFacts []facts.Fact, target string) string {
+	i := strings.LastIndexByte(target, '.')
+	if i < 0 {
+		return target
+	}
+	module, name := target[:i], target[i+1:]
+	file := module + ".py"
+	for j := range allFacts {
+		if allFacts[j].Kind == facts.KindSymbol && allFacts[j].Name == target {
+			return target
+		}
+	}
+	for j := range allFacts {
+		d := &allFacts[j]
+		if d.Kind != facts.KindDependency || d.File != file {
+			continue
+		}
+		imported := bindingOf(d.PropAny("bindings"), name)
+		if imported == "" {
+			continue
+		}
+		for _, r := range d.Relations {
+			if r.Kind == facts.RelImports && strings.ContainsRune(r.Target, '/') {
+				return strings.TrimSuffix(r.Target, ".py") + "." + imported
+			}
+		}
+	}
+	return target
+}
+
+// bindingOf reads a dependency's local-to-imported name map, as the walk wrote it
+// or as JSON read it back.
+func bindingOf(v any, local string) string {
+	switch m := v.(type) {
+	case map[string]string:
+		return m[local]
+	case map[string]any:
+		s, _ := m[local].(string)
+		return s
 	}
 	return ""
 }
