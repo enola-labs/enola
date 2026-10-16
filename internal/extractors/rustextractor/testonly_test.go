@@ -18,6 +18,6 @@ import (
 // extractFileASTFull to also receive the file's Axum router-builder observations
 // (consumed by composeAxumPrefixes in the crate-wide pass).
 func extractFileAST(src []byte, relFile string, crates []crateInfo, moduleDirs map[string]bool) ([]facts.Fact, []implPair) {
-	ff, impls, _ := extractFileASTFull(src, relFile, crates, moduleDirs)
+	ff, impls, _, _ := extractFileASTFull(src, relFile, crates, moduleDirs)
 	return ff, impls
 }

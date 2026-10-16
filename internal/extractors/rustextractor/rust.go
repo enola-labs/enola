@@ -101,14 +101,18 @@ func (e *RustExtractor) Extract(ctx context.Context, repoPath string, files []st
 			log.Printf("[rust-extractor] error reading %s: %v", relFile, err)
 			return fileResult{}
 		}
-		ff, impls, builders := extractFileASTFull(src, relFile, crates, moduleDirs)
-		return fileResult{facts: ff, impls: impls, builders: builders}
+		ff, impls, builders, doc := extractFileASTFull(src, relFile, crates, moduleDirs)
+		return fileResult{facts: ff, impls: impls, builders: builders, doc: doc}
 	})
 
 	var allFacts []facts.Fact
 	var allImpls []implPair
 	var allBuilders []axumBuilder
-	for _, r := range perFileFacts {
+	fileDocs := make(map[string]string)
+	for i, r := range perFileFacts {
+		if r.doc != "" {
+			fileDocs[rustFiles[i]] = r.doc
+		}
 		allFacts = append(allFacts, r.facts...)
 		allImpls = append(allImpls, r.impls...)
 		allBuilders = append(allBuilders, r.builders...)
@@ -122,8 +126,12 @@ func (e *RustExtractor) Extract(ctx context.Context, repoPath string, files []st
 	allFacts = composeAxumPrefixes(allFacts, allBuilders, crates)
 	bindRustRouteHandlers(allFacts, crates)
 
+	docs := moduleDocs(moduleDirs, fileDocs)
 	for dir := range moduleDirs {
 		props := map[string]any{"language": "rust"}
+		if doc := docs[dir]; doc != "" {
+			props[facts.PropDoc] = doc
+		}
 		if crateDir := nearestCrateDir(dir, crates); crateDir != "" {
 			if name, ok := crateNameByDir(crateDir, crates); ok {
 				props["crate"] = name
@@ -146,4 +154,6 @@ type fileResult struct {
 	facts    []facts.Fact
 	impls    []implPair
 	builders []axumBuilder
+	// doc is the file's inner doc (`//!`).
+	doc string
 }

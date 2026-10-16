@@ -2964,7 +2964,8 @@ import (
 // v381: a Python module fact carries doc, its __init__.py module docstring.
 // v382: a Java module fact carries doc, the Javadoc of its package-info.java.
 // v383: a TypeScript module fact carries doc, the file-level JSDoc block of its index file.
-const cacheVersion = "v383"
+// v384: Rust symbols carry doc from `///` and `/** */`, and Rust modules from `//!`.
+const cacheVersion = "v384"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
