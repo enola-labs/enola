@@ -522,13 +522,15 @@ func (e *TSExtractor) extractSvelteScriptBlock(kinds *tsutil.KindTable, block *s
 	var result []facts.Fact
 	result = append(result, e.extractImports(kinds, root, block.Content, relFile, aliases, isSvelteKit)...)
 
+	importMap, internalImports := buildImportBindings(kinds, root, block.Content, relFile, aliases, files)
 	ctx := &extractCtx{
-		src:       block.Content,
-		relFile:   relFile,
-		dir:       factpath.Dir(relFile),
-		isTSX:     isTSX,
-		importMap: buildImportSymbols(kinds, root, block.Content, relFile, aliases, files),
-		imports:   buildEmberImportBindings(kinds, root, block.Content, relFile, aliases),
+		src:         block.Content,
+		relFile:     relFile,
+		dir:         factpath.Dir(relFile),
+		isTSX:       isTSX,
+		importMap:   importMap,
+		memberRoots: memberCallRoots(kinds, root, block.Content, factpath.Dir(relFile), internalImports),
+		imports:     buildEmberImportBindings(kinds, root, block.Content, relFile, aliases),
 	}
 	decls := e.extractDeclarations(kinds, root, ctx)
 

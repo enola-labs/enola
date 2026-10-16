@@ -2911,7 +2911,9 @@ import (
 // v359: a concatenated Go route path is known when every part is (literals, string
 // constants, local strings): "/v1"+"/items" is /v1/items, not /items, and a route
 // whose path has a part computed at run time is not emitted under the readable part.
-const cacheVersion = "v359"
+// v360: a .svelte or .vue component script resolves a call on a namespace import of
+// the repository, or on a module-level object, as an ordinary file does.
+const cacheVersion = "v360"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

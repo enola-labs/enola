@@ -206,7 +206,7 @@ func emberExpressionPosition(src []byte, start int) bool {
 // internal imports to a canonical symbol name ("<moduleDir>.<localName>"),
 // external imports to their module specifier. Default and named imports both
 // bind — Ember components are overwhelmingly default exports, which is exactly
-// the case buildImportSymbols skips for the general call-resolution path.
+// the case buildImportBindings skips for the general call-resolution path.
 //
 // modules is the third reading of the same statement, and the one a consumer
 // outside Ember asks for: the module a name came from, whichever kind of import
