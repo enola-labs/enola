@@ -87,6 +87,7 @@ func DefaultHelp(bin Binary) HelpSpec {
 		Intro:   "Give your AI agent a map of the codebase before it starts exploring.",
 		Usage: []string{
 			bin.Name + " [flags] [repo_path|config_path]",
+			bin.Name + " help [command [subcommand]]",
 			bin.Name + " dashboard [--open] [repo_path|config_path]",
 			bin.Name + " cluster init [--dry-run] [dir]",
 			bin.Name + " baseline <pin|show|clear> [repo_path|config_path]",
@@ -106,6 +107,7 @@ func DefaultHelp(bin Binary) HelpSpec {
 			bin.Name + " install [--hooks] [--global] [--targets=…] [repo_path]",
 		},
 		Commands: []FlagDoc{
+			{Flag: "help", Desc: "Show this page, or with a command, that command's own page: its\nflags, subcommands and exit codes. \"" + bin.Name + " help flows\",\n\"" + bin.Name + " --help flows\" and \"" + bin.Name + " flows --help\" are the same\npage. Subcommands work too: \"" + bin.Name + " help baseline pin\"."},
 			{Flag: "dashboard", Desc: "Explore the latest snapshot in a read-only local web dashboard,\nwithout starting an MCP server. Add --open to launch the browser.\nStays attached to the terminal; stop with Ctrl-C."},
 			{Flag: "cluster", Desc: "Write a cluster config for a folder that holds several git\nrepositories. \"init\" lists every immediate subfolder that is a\nrepository in cluster.yaml, refusing to overwrite; pass that file\nto --generate to index them as one linked graph."},
 			{Flag: "install", Desc: "Write " + bin.Name + "'s instructions into the files your coding\nagents read (Claude Code, Cursor, Copilot, Codex, Pi, opencode,\nAGENTS.md). Previews every change and asks before writing.\n  --hooks   also run the loop automatically, instead of leaving\n            the agent to remember. In Claude Code, Codex and Pi:\n            pin a baseline at session start and report the\n            architectural delta at the end, but only if the\n            change introduced a regression. In opencode, which\n            has no hooks of that shape: a plugin that points the\n            session's first searches at the index instead.\n            Opt-in, because both run code. Pi always gets its\n            extension, which serves the tools; --hooks only adds\n            the session hooks to it.\n  --targets a comma-separated subset, for narrowing a run. The\n            default is every target, and a target whose agent is\n            not installed skips itself and says so.\n  --global  configure this user rather than this repository.\n  --dry-run show what would change and write nothing."},
@@ -138,7 +140,7 @@ func DefaultHelp(bin Binary) HelpSpec {
 			{Flag: "--no-cluster", Desc: "With --generate on a folder that holds several git repositories:\nindex it as one repository instead of as a cluster"},
 			{Flag: "--version", Desc: "Print version information"},
 			{Flag: "--version --json", Desc: "Print the version and the extractor version as JSON, on stdout.\nThis is the release manifest: what a build is called, and what it\nEXTRACTS LIKE. See UPDATES."},
-			{Flag: "--help, -h", Desc: "Show this help message"},
+			{Flag: "--help, -h", Desc: "Show this help message. Followed by a command, show that\ncommand's help instead: " + bin.Name + " --help <command>"},
 		},
 		ConfigDoc: "Path to the config file (default: mcp-arch.yaml). Set `repos:` in it to\n  name a multi-repo cluster; entries resolve relative to the config file, so\n  a checked-in cluster config means the same thing wherever it is run from.",
 		Examples: []Example{
