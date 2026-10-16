@@ -2906,7 +2906,9 @@ import (
 // v357: a click command is named by the path of groups it is reached through: a
 // group by its declared name, nested groups and add_command attachments followed
 // across files, and add_command's name= over the command's own.
-const cacheVersion = "v357"
+// v358: a go_router route's handler is the screen its builder builds, read through
+// wrappers that pass it on as `child:` and through a block body with one return.
+const cacheVersion = "v358"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
