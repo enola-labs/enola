@@ -2947,7 +2947,9 @@ import (
 // v373: Scalatra routes, verb("/path")(action) statements of a class, trait or
 // object body in a repository that depends on Scalatra, each handled by a symbol
 // "<dir>.<Type>.handler:<VERB>:<line>" that owns the action's calls.
-const cacheVersion = "v373"
+// v374: a WordPress hook registration is handled by the function or Class::method
+// its string callback names.
+const cacheVersion = "v374"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

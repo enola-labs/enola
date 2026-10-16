@@ -1,6 +1,8 @@
 package phpextractor
 
 import (
+	"strings"
+
 	"github.com/enola-labs/enola/internal/factpath"
 	"github.com/enola-labs/enola/internal/facts"
 	sitter "github.com/tree-sitter/go-tree-sitter"
@@ -163,4 +165,36 @@ func stringLiteral(node *sitter.Node, src []byte) string {
 		return content // empty for "" or '' (no string_content child)
 	}
 	return ""
+}
+
+// bindWordPressHooks binds each hook registration to the function or method its
+// callback names. A PHP symbol is named by its fully qualified PHP name, so a string
+// callback ('wp_widgets_init', 'WP_Embed::autoembed', '\Acme\boot') is that name
+// with any leading backslash dropped; one that names no symbol of the repository
+// (a PHP built-in, another plugin's function) binds nothing. Runs once every file's
+// symbols are known, since a callback is usually declared in another file.
+func bindWordPressHooks(allFacts []facts.Fact) {
+	var symbols map[string]bool
+	for i := range allFacts {
+		f := &allFacts[i]
+		if f.Kind != facts.KindRoute || f.PropString("framework") != "wordpress" {
+			continue
+		}
+		cb := strings.TrimPrefix(f.PropString("callback"), `\`)
+		if cb == "" {
+			continue
+		}
+		if symbols == nil {
+			symbols = map[string]bool{}
+			for j := range allFacts {
+				if allFacts[j].Kind == facts.KindSymbol {
+					symbols[allFacts[j].Name] = true
+				}
+			}
+		}
+		if symbols[cb] && !f.HasRelation(facts.RelHandledBy, cb) {
+			f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelHandledBy, Target: cb})
+			f.SetProp("handler", cb)
+		}
+	}
 }

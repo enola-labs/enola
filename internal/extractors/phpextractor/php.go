@@ -180,9 +180,13 @@ func (e *PHPExtractor) Extract(ctx context.Context, repoPath string, files []str
 	}
 
 	// A Laravel route names a controller declared in another file, so its handler is
-	// resolved here, once every file's symbols are known.
+	// resolved here, once every file's symbols are known; so does a WordPress hook
+	// registration its callback.
 	if fw == frameworkLaravel {
 		bindLaravelHandlers(allFacts)
+	}
+	if isWordPress {
+		bindWordPressHooks(allFacts)
 	}
 
 	// A model's base class may be declared in another file, so Eloquent models and

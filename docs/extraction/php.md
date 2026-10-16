@@ -205,7 +205,10 @@ route  FILTER the_title  inc/hooks.php:7   props: framework=wordpress, hook=add_
 ```
 
 This is what stops a WordPress plugin's entire callback surface from reading as dead code:
-those functions have no PHP caller anywhere.
+those functions have no PHP caller anywhere. Once every file is read, a registration
+is also `handled_by` the symbol its callback names, since a PHP symbol is named by its
+qualified name: `'acme_setup'` is the function, `'WP_Embed::autoembed'` the method, and a
+callback that names nothing of the repository (a PHP built-in) binds nothing.
 
 ## Outbound calls and cross-repo linking
 

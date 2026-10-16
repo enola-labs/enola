@@ -1,6 +1,8 @@
 package phpextractor
 
 import (
+	"context"
+	"slices"
 	"testing"
 
 	"github.com/enola-labs/enola/internal/facts"
@@ -76,4 +78,71 @@ func keysRoutes(m map[string]facts.Fact) []string {
 		out = append(out, k)
 	}
 	return out
+}
+
+// A hook registration is handled by the function its string callback names, or the
+// method of a 'Class::method' callback; a callback naming no symbol of the
+// repository binds nothing, and a hook point (do_action, apply_filters) has no
+// handler.
+func TestWordPressHookRegistrationsAreHandled(t *testing.T) {
+	dir := t.TempDir()
+	files := map[string]string{
+		"wp-settings.php": "<?php\n",
+		"wp-includes/default-filters.php": `<?php
+add_action('init', 'wp_widgets_init');
+add_filter('the_content', 'WP_Embed::autoembed');
+add_action('shutdown', 'not_declared_here');
+do_action('init');
+`,
+		"wp-includes/widgets.php": `<?php
+function wp_widgets_init() {
+	register_sidebar_widgets();
+}
+`,
+		"wp-includes/class-wp-embed.php": `<?php
+class WP_Embed {
+	public static function autoembed($content) {
+		return $content;
+	}
+}
+`,
+	}
+	rels := make([]string, 0, len(files))
+	for rel, content := range files {
+		writeFile(t, dir, rel, content)
+		rels = append(rels, rel)
+	}
+	ff, err := New().Extract(context.Background(), dir, rels)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handled := map[string][]string{}
+	for _, f := range ff {
+		if f.Kind != facts.KindRoute || f.PropString("framework") != "wordpress" {
+			continue
+		}
+		key := f.Name + " " + f.PropString("hook")
+		handled[key] = nil
+		for _, r := range f.Relations {
+			if r.Kind == facts.RelHandledBy {
+				handled[key] = append(handled[key], r.Target)
+			}
+		}
+	}
+	want := map[string][]string{
+		"ACTION init add_action":        {"wp_widgets_init"},
+		"FILTER the_content add_filter": {"WP_Embed::autoembed"},
+		"ACTION shutdown add_action":    nil,
+		"ACTION init do_action":         nil,
+	}
+	for key, targets := range want {
+		have, ok := handled[key]
+		if !ok {
+			t.Errorf("missing hook %s; have %v", key, handled)
+			continue
+		}
+		if !slices.Equal(have, targets) {
+			t.Errorf("%s handled_by = %v, want %v", key, have, targets)
+		}
+	}
 }
