@@ -2915,7 +2915,9 @@ import (
 // the repository, or on a module-level object, as an ordinary file does.
 // v361: a SvelteKit form action is a POST route of type "action" at its page's path
 // (`?/<name>` for a named one), handled by the action.
-const cacheVersion = "v361"
+// v362: a Next.js page route is handled by its component, and an App Router route.ts
+// is one route per HTTP verb it exports, each handled by that function.
+const cacheVersion = "v362"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

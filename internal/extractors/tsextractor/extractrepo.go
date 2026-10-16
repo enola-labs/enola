@@ -245,6 +245,7 @@ func (a *tsAssembly) compose(repoPath string, rc *repoCtx, templates map[string]
 	// are visible and the true runtime path can be composed. See routermount.go.
 	a.addWithModules(composeRouterMounts(a.routerFiles, stringConstReader(repoPath)))
 	bindServerRouteHandlers(a.facts, a.routerFiles)
+	a.facts = nextRouteVerbs(a.facts)
 	bindFileRouteHandlers(a.facts)
 	a.facts = append(a.facts, svelteKitActionRoutes(a.facts)...)
 

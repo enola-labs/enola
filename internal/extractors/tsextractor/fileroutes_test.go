@@ -146,3 +146,74 @@ export const actions = {
 		}
 	}
 }
+
+// A Next.js page is served by its component, the one its file default-exports even
+// beside generateMetadata, and an App Router route.ts serves one route per verb it
+// exports, each handled by that function.
+func TestFileRoutes_NextJSPagesAndRouteHandlers(t *testing.T) {
+	ff := extractAll(t, map[string]string{
+		"src/app/waitlist/page.tsx": `export const dynamic = "force-dynamic";
+
+export default function WaitlistPage() {
+	return <div />;
+}
+`,
+		"src/app/(app)/datasets/[id]/page.tsx": `export async function generateMetadata() {
+	return { title: "Dataset" };
+}
+
+export default function DatasetPage() {
+	return <div />;
+}
+`,
+		"src/app/api/visualize/route.ts": `export async function GET(request: Request) {
+	return Response.json({});
+}
+
+export async function POST(request: Request) {
+	return Response.json({});
+}
+`,
+		"src/app/api/health/route.ts": `export const dynamic = "force-dynamic";
+`,
+		"src/pages/about.tsx": `export default function About() {
+	return <div />;
+}
+`,
+	}, true)
+	got := map[string][]string{}
+	for _, f := range ff {
+		if f.Kind != facts.KindRoute || f.PropString("framework") != "nextjs" {
+			continue
+		}
+		key := f.PropString("method") + " " + f.Name
+		targets := []string{}
+		for _, r := range f.Relations {
+			if r.Kind == facts.RelHandledBy {
+				targets = append(targets, r.Target)
+			}
+		}
+		got[key] = targets
+	}
+	want := map[string][]string{
+		"GET /waitlist":       {"src/app/waitlist.WaitlistPage"},
+		"GET /datasets/[id]":  {"src/app/(app)/datasets/[id].DatasetPage"},
+		"GET /api/visualize":  {"src/app/api/visualize.GET"},
+		"POST /api/visualize": {"src/app/api/visualize.POST"},
+		"ALL /api/health":     {},
+		"GET /about":          {"src/pages.About"},
+	}
+	for key, targets := range want {
+		have, ok := got[key]
+		if !ok {
+			t.Errorf("no route %s; have %v", key, got)
+			continue
+		}
+		if !slices.Equal(have, targets) {
+			t.Errorf("%s handled_by = %v, want %v", key, have, targets)
+		}
+	}
+	if _, ok := got["ALL /api/visualize"]; ok {
+		t.Errorf("route.ts with verbs keeps its ALL route; have %v", got)
+	}
+}
