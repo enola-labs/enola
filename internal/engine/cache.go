@@ -2958,7 +2958,9 @@ import (
 // route it serves.
 // v378: a Go router held in a local variable and mounted, r.Mount("/api", api),
 // serves its routes under the mount path wherever the Mount sits in the function.
-const cacheVersion = "v378"
+// v379: a Next.js package under a directory of examples, samples or demos
+// (examples/with-nextjs, example-apps/) is no Next.js app of the repository.
+const cacheVersion = "v379"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

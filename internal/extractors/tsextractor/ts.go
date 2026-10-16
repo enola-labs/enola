@@ -1302,7 +1302,7 @@ func nearestPackageName(pkgNames map[string]string, dir string) string {
 // Next.js apps. A workspace whose root package declares no next still holds one
 // (onyx's web/ beside its desktop/ and widget/), and the root-level detection,
 // which reads one directory, cannot see it. The walk skips what
-// collectPackageNames skips.
+// collectPackageNames skips, and directories of examples (isExampleDir).
 func nextJSPackageDirs(repoPath string) []string {
 	var out []string
 	_ = filepath.WalkDir(repoPath, func(path string, d fs.DirEntry, err error) error {
@@ -1311,7 +1311,7 @@ func nextJSPackageDirs(repoPath string) []string {
 		}
 		if d.IsDir() {
 			name := d.Name()
-			if path != repoPath && (strings.HasPrefix(name, ".") || tsSkipDirs[name] || name == "testdata") {
+			if path != repoPath && (strings.HasPrefix(name, ".") || tsSkipDirs[name] || name == "testdata" || isExampleDir(name)) {
 				return filepath.SkipDir
 			}
 			return nil
@@ -1328,6 +1328,20 @@ func nextJSPackageDirs(repoPath string) []string {
 		return nil
 	})
 	return out
+}
+
+// isExampleDir reports whether a directory holds examples, samples or demos of the
+// repository, alone or in a compound name (example-apps, with_demos). A Next.js app
+// there demonstrates the repository and is none of its apps: read as one, the demo
+// excalidraw ships in examples/with-nextjs made the repository a Next.js app.
+func isExampleDir(name string) bool {
+	for _, tok := range strings.FieldsFunc(strings.ToLower(name), func(r rune) bool { return r == '-' || r == '_' }) {
+		switch tok {
+		case "example", "examples", "sample", "samples", "demo", "demos":
+			return true
+		}
+	}
+	return false
 }
 
 // inNextJSPackage reports whether a file belongs to one of the Next.js packages.
