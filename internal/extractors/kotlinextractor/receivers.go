@@ -34,6 +34,9 @@ const (
 	// propSuperCandidates lists, for a type, the canonical name each of its
 	// supertypes would have if this repository declares it.
 	propSuperCandidates = "super_candidates"
+	// propCapitalCalls lists the canonical names a function's capitalized bare
+	// calls would have if this repository declares them (resolveCapitalCalls).
+	propCapitalCalls = "capital_calls"
 )
 
 // typedCall is one call whose receiver type is declared.
@@ -301,6 +304,32 @@ func resolveTypedCalls(all []facts.Fact) {
 						list[j] = to
 					}
 				}
+			}
+		}
+	}
+}
+
+// resolveCapitalCalls makes a capitalized bare call a calls edge where the name it
+// would have is a function this repository declares: `NiaApp(state)` calls the
+// @Composable fun NiaApp. The instantiates edge the walker wrote stays, so a class
+// constructor is read as before and gains nothing.
+func resolveCapitalCalls(all []facts.Fact) {
+	funcs := make(map[string]bool)
+	for i := range all {
+		if all[i].Kind == facts.KindSymbol && all[i].PropString("symbol_kind") == facts.SymbolFunc {
+			funcs[all[i].Name] = true
+		}
+	}
+	for i := range all {
+		f := &all[i]
+		cands, ok := f.PropAny(propCapitalCalls).([]string)
+		if !ok {
+			continue
+		}
+		f.DelProp(propCapitalCalls)
+		for _, c := range cands {
+			if funcs[c] && !f.HasRelation(facts.RelCalls, c) {
+				f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelCalls, Target: c})
 			}
 		}
 	}

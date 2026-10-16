@@ -143,6 +143,7 @@ func (e *KotlinExtractor) Extract(ctx context.Context, repoPath string, files []
 	// Calls on a receiver of declared type become edges, and supertypes written by
 	// simple name become implements edges, now that every file has been read.
 	resolveTypedCalls(allFacts)
+	resolveCapitalCalls(allFacts)
 
 	// The walker marks only the round-trip itself (a Retrofit endpoint, a Room DAO
 	// operation). A method with a calls edge to one is I/O through it.

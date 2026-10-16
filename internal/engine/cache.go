@@ -2928,7 +2928,9 @@ import (
 // type's method as its handler_target.
 // v366: a root click group is named by the pyproject console script that runs it,
 // pointing at the group or at a function that calls it.
-const cacheVersion = "v366"
+// v367: a capitalized bare Kotlin call is also a calls edge where the repository
+// declares a function under the name it would have (a Compose function call).
+const cacheVersion = "v367"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
