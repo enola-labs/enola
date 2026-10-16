@@ -162,6 +162,7 @@ func (e *ScalaExtractor) Extract(ctx context.Context, repoPath string, files []s
 	// import of a Java type in a sibling Maven module resolves to the directory
 	// that declares it instead of being written off as an external dependency.
 	packageIndex := jvmsrc.BuildPackageIndex(repoPath, files)
+	scalatra := usesScalatra(repoPath)
 
 	// extractFileFacts is a pure function of (src, relFile); parse in parallel and
 	// merge in file order so the output is deterministic regardless of scheduling.
@@ -173,7 +174,7 @@ func (e *ScalaExtractor) Extract(ctx context.Context, repoPath string, files []s
 			log.Printf("[scala-extractor] error reading %s: %v", relFile, err)
 			return fileResult{}
 		}
-		ff, pkg := extractFileFacts(src, relFile, packageIndex)
+		ff, pkg := extractFileFacts(src, relFile, packageIndex, scalatra)
 		return fileResult{facts: ff, pkg: pkg}
 	})
 

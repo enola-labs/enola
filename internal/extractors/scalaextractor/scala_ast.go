@@ -13,9 +13,18 @@ import (
 // declaration walk and the route/storage DSL walks. They used to parse the same
 // bytes twice, once each, which made Scala the corpus's allocation outlier at
 // 50 MiB per file against Java's 0.5 on the same parser infrastructure.
-func extractFileFacts(src []byte, relFile string, packageIndex map[string]string) ([]facts.Fact, string) {
+func extractFileFacts(src []byte, relFile string, packageIndex map[string]string, scalatra bool) ([]facts.Fact, string) {
 	return withScalaTree(src, func(root *sitter.Node) ([]facts.Fact, string) {
-		ff, pkg := walkFileAST(root, src, relFile, packageIndex, pekkoHandlerBlocks(root, src, relFile))
+		handlers := pekkoHandlerBlocks(root, src, relFile)
+		routes, actions := scalatraRoutes(root, src, relFile, scalatra)
+		for k, v := range actions {
+			if handlers == nil {
+				handlers = map[handlerKey]string{}
+			}
+			handlers[k] = v
+		}
+		ff, pkg := walkFileAST(root, src, relFile, packageIndex, handlers)
+		ff = append(ff, routes...)
 		return append(ff, dslFactsFrom(root, src, relFile)...), pkg
 	})
 }
@@ -34,7 +43,7 @@ func withScalaTree(src []byte, fn func(root *sitter.Node) ([]facts.Fact, string)
 }
 
 // walkFileAST is extractFileASTFull over a tree the caller already parsed.
-func walkFileAST(root *sitter.Node, src []byte, relFile string, packageIndex map[string]string, inlineHandlers map[uint]string) ([]facts.Fact, string) {
+func walkFileAST(root *sitter.Node, src []byte, relFile string, packageIndex map[string]string, inlineHandlers map[handlerKey]string) ([]facts.Fact, string) {
 	w := &astWalker{
 		src:            src,
 		relFile:        relFile,
@@ -53,9 +62,9 @@ type astWalker struct {
 	relFile string
 	dir     string
 
-	// inlineHandlers are the pekko route handler blocks of the file by start byte,
-	// each with the symbol name its route is bound to.
-	inlineHandlers map[uint]string
+	// inlineHandlers are the file's inline route handlers (pekko blocks, Scalatra
+	// actions), each with the symbol name its route is bound to.
+	inlineHandlers map[handlerKey]string
 
 	packageIndex map[string]string
 
@@ -248,7 +257,7 @@ func (w *astWalker) walk(n *sitter.Node) {
 	if n == nil {
 		return
 	}
-	if name, ok := w.inlineHandlers[n.StartByte()]; ok && (kindOf(n) == "block" || kindOf(n) == "lambda_expression") {
+	if name, ok := w.inlineHandlers[keyOf(n)]; ok {
 		w.handleInlineHandler(n, name)
 		return
 	}

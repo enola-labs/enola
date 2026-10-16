@@ -2944,7 +2944,10 @@ import (
 // v372: a pekko-http route's handler block (the block its path directive wraps, or
 // the one a conjoined (path & verb) is applied to) is given a symbol
 // "<dir>.<Type>.handler:<line>" that owns its calls, and handles the route.
-const cacheVersion = "v372"
+// v373: Scalatra routes, verb("/path")(action) statements of a class, trait or
+// object body in a repository that depends on Scalatra, each handled by a symbol
+// "<dir>.<Type>.handler:<VERB>:<line>" that owns the action's calls.
+const cacheVersion = "v373"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

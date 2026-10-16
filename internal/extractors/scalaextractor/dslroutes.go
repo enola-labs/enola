@@ -91,10 +91,19 @@ type dslWalker struct {
 	relFile string
 	dir     string
 	out     []facts.Fact
-	// handlers maps the start of each pekko route's handler block to the name its
-	// symbol is given (see pekkoHandlerBlocks).
-	handlers map[uint]string
+	// handlers maps each pekko route's handler block to the name its symbol is
+	// given (see pekkoHandlerBlocks).
+	handlers map[handlerKey]string
 }
+
+// handlerKey identifies an inline handler node within its file: nodes can share a
+// start byte, a node and its kind cannot.
+type handlerKey struct {
+	start uint
+	kind  string
+}
+
+func keyOf(n *sitter.Node) handlerKey { return handlerKey{n.StartByte(), kindOf(n)} }
 
 func (w *dslWalker) text(n *sitter.Node) string {
 	if n == nil {
@@ -599,15 +608,15 @@ func (w *dslWalker) pekkoHandler(n, block *sitter.Node) string {
 	}
 	name := inlineHandlerName(w.dir, enclosingTypes(block, w.src), "", int(block.StartPosition().Row)+1)
 	if w.handlers == nil {
-		w.handlers = map[uint]string{}
+		w.handlers = map[handlerKey]string{}
 	}
-	w.handlers[block.StartByte()] = name
+	w.handlers[keyOf(block)] = name
 	return name
 }
 
-// pekkoHandlerBlocks returns the handler blocks of a file's pekko routes by start
-// byte, for the declaration walk.
-func pekkoHandlerBlocks(root *sitter.Node, src []byte, relFile string) map[uint]string {
+// pekkoHandlerBlocks returns the handler blocks of a file's pekko routes, for the
+// declaration walk.
+func pekkoHandlerBlocks(root *sitter.Node, src []byte, relFile string) map[handlerKey]string {
 	if !importsPekkoHTTPServer(src) {
 		return nil
 	}

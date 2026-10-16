@@ -361,7 +361,7 @@ final class Routes(users: UsersDB) {
   }
 }
 `
-	ff, _ := extractFileFacts([]byte(src), "src/Routes.scala", map[string]string{})
+	ff, _ := extractFileFacts([]byte(src), "src/Routes.scala", map[string]string{}, false)
 	for key, handler := range map[string]string{
 		"GET /users/:id":    "src.Routes.handler:GET:7",
 		"POST /users/:name": "src.Routes.handler:POST:9",
@@ -417,7 +417,7 @@ class SchedulerServer(scheduler: Scheduler) {
     }
 }
 `
-	ff, _ := extractFileFacts([]byte(src), "src/SchedulerServer.scala", map[string]string{})
+	ff, _ := extractFileFacts([]byte(src), "src/SchedulerServer.scala", map[string]string{}, false)
 	want := map[string]string{
 		"GET /queue/count":   "src.SchedulerServer.handler:8",
 		"POST /queue/drain":  "src.SchedulerServer.handler:12",
@@ -445,5 +445,65 @@ class SchedulerServer(scheduler: Scheduler) {
 		if calls == 0 || !sym.PropBool("framework_registered") {
 			t.Errorf("%s: relations %v, props %v, want its block's calls and framework_registered", handler, sym.Relations, sym.Props)
 		}
+	}
+}
+
+// A Scalatra route is a body statement verb("/path")(action), its action the
+// handler; a controller trait that imports nothing of Scalatra is read when the
+// repository depends on it, and a get("key") inside a method is no route.
+func TestScalatraRoutesAndActions(t *testing.T) {
+	src := `package gitbucket.core.controller
+
+trait IssuesControllerBase extends ControllerBase {
+  self: IssuesService =>
+
+  get("/:owner/:repository/issues")(referrersOnly { repository =>
+    searchIssues(repository)
+  })
+
+  post("/:owner/:repository/issues/new", issueCreateForm)(readableUsersOnly { (form, repository) =>
+    createIssue(repository, form)
+  })
+
+  ajaxPost("/:owner/:repository/issues/edit/:id", issueEditForm) { form =>
+    updateIssue(form)
+  }
+
+  private def lookup(): Option[String] = params.get("id")
+}
+`
+	ff, _ := extractFileFacts([]byte(src), "src/IssuesController.scala", map[string]string{}, true)
+	want := map[string]string{
+		"GET /:owner/:repository/issues":           "src.IssuesControllerBase.handler:GET:6",
+		"POST /:owner/:repository/issues/new":      "src.IssuesControllerBase.handler:POST:10",
+		"POST /:owner/:repository/issues/edit/:id": "src.IssuesControllerBase.handler:POST:14",
+	}
+	routes := routeFacts(ff)
+	if len(routes) != len(want) {
+		t.Errorf("routes = %v, want exactly %d", routeKeys(ff), len(want))
+	}
+	for key, handler := range want {
+		route, ok := routes[key]
+		if !ok {
+			t.Errorf("missing route %s; have %v", key, routeKeys(ff))
+			continue
+		}
+		if !hasRelation(route, facts.RelHandledBy, handler) {
+			t.Errorf("%s relations = %v, want handled_by %s", key, route.Relations, handler)
+			continue
+		}
+		sym := findFact(t, ff, handler)
+		calls := 0
+		for _, r := range sym.Relations {
+			if r.Kind == facts.RelCalls {
+				calls++
+			}
+		}
+		if calls == 0 {
+			t.Errorf("%s relations = %v, want its action's calls", handler, sym.Relations)
+		}
+	}
+	if off, _ := extractFileFacts([]byte(src), "src/IssuesController.scala", map[string]string{}, false); len(routeFacts(off)) != 0 {
+		t.Errorf("without Scalatra in the build or the file, routes = %v", routeKeys(off))
 	}
 }
