@@ -287,6 +287,82 @@ TOOLS = [Tool(name="search", func=search, description="Search")]
 	}
 }
 
+// A root click group is named by the console script that runs it, whether the
+// script names the group or a function that calls it; a group no script runs keeps
+// its own name, or none when that name is generic.
+func TestCommands_RootGroupNamedByConsoleScript(t *testing.T) {
+	ff := extractPyRepo(t, map[string]string{
+		"pyproject.toml": `[project]
+name = "dispatch"
+
+[project.scripts]
+dispatch = "dispatch.cli:entrypoint"
+breeze = "breeze.main:main"
+`,
+		"dispatch/__init__.py": ``,
+		"dispatch/cli.py": `import click
+
+@click.group()
+def dispatch_cli():
+    pass
+
+@dispatch_cli.group("database")
+def dispatch_database():
+    pass
+
+@dispatch_database.command("upgrade")
+def upgrade_database():
+    pass
+
+def entrypoint():
+    try:
+        dispatch_cli()
+    except Exception:
+        pass
+`,
+		"breeze/__init__.py": ``,
+		"breeze/main.py": `import click
+
+@click.group()
+def main():
+    pass
+
+@main.command()
+def shell():
+    pass
+`,
+		"tools/admin.py": `import click
+
+@click.group()
+def admin():
+    pass
+
+@admin.command()
+def reset():
+    pass
+`,
+	})
+	got := map[string]string{}
+	for _, f := range ff {
+		if f.Kind == facts.KindSymbol && f.PropString("command") != "" {
+			got[f.Name] = f.PropString("command")
+		}
+		if f.PropAny(propConsoleScripts) != nil {
+			t.Errorf("%s keeps the working prop %s", f.Name, propConsoleScripts)
+		}
+	}
+	want := map[string]string{
+		"dispatch/cli.upgrade_database": "dispatch database upgrade",
+		"breeze/main.shell":             "breeze shell",
+		"tools/admin.reset":             "admin reset",
+	}
+	for fn, cmd := range want {
+		if got[fn] != cmd {
+			t.Errorf("%s command = %q, want %q (have %v)", fn, got[fn], cmd, got)
+		}
+	}
+}
+
 // An MCP tool declared with a decorator is named by its given name or its function's.
 func TestTools_DecoratedFunctions(t *testing.T) {
 	ff := extractPyRepo(t, map[string]string{

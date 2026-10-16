@@ -48,6 +48,7 @@ const (
 	propCommandParent   = "command_parent"   // the group it is declared on, as a target
 	propCommandGroup    = "command_group"    // a group's declared name
 	propCommandAttaches = "command_attaches" // "group\tcommand\tname" per add_command
+	propConsoleScripts  = "console_scripts"  // "program\ttarget" per pyproject console script
 )
 
 // commandLibraries are the receivers of a decorator that declares a command or a
@@ -184,13 +185,15 @@ func composeCommandNames(allFacts []facts.Fact, fileModules, pkgDirs map[string]
 	parent := map[string]string{}        // command or group symbol → its group
 	renamed := map[string]string{}       // symbol → the name add_command gives it
 	tableCommands := map[string]string{} // symbol → its argparse or table command
+	programs := map[string]string{}      // a console script's target symbol → the program
 	var commands []int
 	for i := range allFacts {
 		f := &allFacts[i]
 		leaf, isGroup := f.PropString(propCommandLeaf), f.PropString(propCommandGroup)
 		up, attaches := f.PropString(propCommandParent), stringSliceProp(f.Props, propCommandAttaches)
 		table := stringSliceProp(f.Props, propCommandTable)
-		if leaf == "" && isGroup == "" && up == "" && len(attaches) == 0 && len(table) == 0 {
+		scripts := stringSliceProp(f.Props, propConsoleScripts)
+		if leaf == "" && isGroup == "" && up == "" && len(attaches) == 0 && len(table) == 0 && len(scripts) == 0 {
 			continue
 		}
 		if resolve == nil {
@@ -205,6 +208,12 @@ func composeCommandNames(allFacts []facts.Fact, fileModules, pkgDirs map[string]
 		if up != "" {
 			if p := resolve(up, f.File); p != "" {
 				parent[f.Name] = p
+			}
+		}
+		for _, c := range scripts {
+			name, target, ok := strings.Cut(c, "\t")
+			if t := resolve(target, f.File); ok && t != "" {
+				programs[t] = name
 			}
 		}
 		for _, c := range table {
@@ -231,6 +240,34 @@ func composeCommandNames(allFacts []facts.Fact, fileModules, pkgDirs map[string]
 		}
 	}
 
+	// rootProgram is the console script that runs a root group: one whose target is
+	// the group, or a function that calls it (`entrypoint()` wrapping
+	// `dispatch_cli()` in error handling).
+	var callers map[string][]string // symbol → the console-script targets that call it
+	rootProgram := func(group string) string {
+		if p := programs[group]; p != "" {
+			return p
+		}
+		if callers == nil {
+			callers = map[string][]string{}
+			for i := range allFacts {
+				s := &allFacts[i]
+				if s.Kind != facts.KindSymbol || programs[s.Name] == "" {
+					continue
+				}
+				for _, r := range s.Relations {
+					if r.Kind == facts.RelCalls && !slices.Contains(callers[r.Target], s.Name) {
+						callers[r.Target] = append(callers[r.Target], s.Name)
+					}
+				}
+			}
+		}
+		if by := callers[group]; len(by) == 1 {
+			return programs[by[0]]
+		}
+		return ""
+	}
+
 	for _, i := range commands {
 		f := &allFacts[i]
 		path := []string{f.PropString(propCommandLeaf)}
@@ -249,7 +286,9 @@ func composeCommandNames(allFacts []facts.Fact, fileModules, pkgDirs map[string]
 			}
 			next, nested := parent[at]
 			if !nested {
-				if !genericGroups[name] {
+				if program := rootProgram(at); program != "" {
+					path = append(path, program)
+				} else if !genericGroups[name] {
 					path = append(path, name)
 				}
 				break
@@ -268,7 +307,7 @@ func composeCommandNames(allFacts []facts.Fact, fileModules, pkgDirs map[string]
 		if name, ok := tableCommands[f.Name]; ok && f.Kind == facts.KindSymbol {
 			f.SetProp("command", name)
 		}
-		for _, p := range []string{propCommandLeaf, propCommandParent, propCommandGroup, propCommandAttaches, propCommandTable} {
+		for _, p := range []string{propCommandLeaf, propCommandParent, propCommandGroup, propCommandAttaches, propCommandTable, propConsoleScripts} {
 			allFacts[i].DelProp(p)
 		}
 	}

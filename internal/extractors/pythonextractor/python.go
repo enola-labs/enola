@@ -282,7 +282,11 @@ var (
 	anyTOMLSectionRe = regexp.MustCompile(`^\s*\[`)
 	// entryPointValueRe matches an entry-point line `name = "module.path:attr"`,
 	// capturing the module path and the attribute (a function or Class.method).
-	entryPointValueRe = regexp.MustCompile(`^\s*[^=\[\]#]+=\s*["']([A-Za-z_][\w.]*):([A-Za-z_][\w.]*)["']`)
+	// consoleScriptsSectionRe is the table of programs a package installs, whose
+	// keys are the names a user types.
+	consoleScriptsSectionRe = regexp.MustCompile(`^\s*\[\s*project\.scripts\s*\]`)
+	consoleScriptNameRe     = regexp.MustCompile(`^\s*["']?([\w.-]+)["']?\s*=`)
+	entryPointValueRe       = regexp.MustCompile(`^\s*[^=\[\]#]+=\s*["']([A-Za-z_][\w.]*):([A-Za-z_][\w.]*)["']`)
 
 	// registrationDecorators are decorator names (matched on the last dotted segment)
 	// that REGISTER their function with a framework, which then dispatches it — so the
@@ -329,10 +333,12 @@ func extractEntryPoints(repoPath string, files []string) []facts.Fact {
 			continue
 		}
 		var rels []facts.Relation
-		inEntryPoints := false
+		var scripts []string
+		inEntryPoints, inScripts := false, false
 		for _, line := range strings.Split(string(data), "\n") {
 			if anyTOMLSectionRe.MatchString(line) {
 				inEntryPoints = entryPointSectionRe.MatchString(line)
+				inScripts = consoleScriptsSectionRe.MatchString(line)
 				continue
 			}
 			if !inEntryPoints {
@@ -340,15 +346,22 @@ func extractEntryPoints(repoPath string, files []string) []facts.Fact {
 			}
 			if m := entryPointValueRe.FindStringSubmatch(line); m != nil {
 				rels = append(rels, facts.Relation{Kind: facts.RelCalls, Target: m[1] + "." + m[2]})
+				if n := consoleScriptNameRe.FindStringSubmatch(line); inScripts && n != nil {
+					scripts = append(scripts, n[1]+"\t"+m[1]+"."+m[2])
+				}
 			}
 		}
 		if len(rels) > 0 {
+			props := map[string]any{"language": "python"}
+			if len(scripts) > 0 {
+				props[propConsoleScripts] = scripts
+			}
 			out = append(out, facts.Fact{
 				Kind:      facts.KindFileRef,
 				Name:      rel,
 				File:      rel,
 				Line:      1,
-				Props:     map[string]any{"language": "python"},
+				Props:     props,
 				Relations: rels,
 			})
 		}
