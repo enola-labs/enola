@@ -2926,7 +2926,11 @@ import (
 // v365: a Go route handler that is a method value on a local whose type a struct
 // literal states (`r := artifactRoutes{...}`; `m.Put(p, r.upload)`) names that
 // type's method as its handler_target.
-const cacheVersion = "v365"
+// v366: a root click group is named by the pyproject console script that runs it,
+// pointing at the group or at a function that calls it.
+// v367: a capitalized bare Kotlin call is also a calls edge where the repository
+// declares a function under the name it would have (a Compose function call).
+const cacheVersion = "v367"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

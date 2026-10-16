@@ -14,6 +14,7 @@ package flows
 
 import (
 	"path"
+	"slices"
 	"sort"
 	"strings"
 
@@ -747,6 +748,12 @@ var (
 	}
 )
 
+// jvmSourceDirs are the language directories of a Gradle or Maven source set.
+var jvmSourceDirs = map[string]bool{"java": true, "kotlin": true, "scala": true, "groovy": true}
+
+// jvmOrgSegments is how many leading package segments name the organisation.
+const jvmOrgSegments = 3
+
 // isSide reports whether an entry is something other than the program: an
 // example, a script, a migration, a tool that builds or documents it. The
 // module's own role decides when an extractor recorded one; the path decides
@@ -774,7 +781,19 @@ func sidePath(file string) bool {
 	if strings.HasPrefix(segments[0], ".") || sideAtRoot[segments[0]] {
 		return true
 	}
-	for _, seg := range segments[:len(segments)-1] {
+	dirs := segments[:len(segments)-1]
+	// Below a JVM source root (src/main/kotlin) the directories are a package name,
+	// whose first segments name the organisation: com.google.samples and
+	// com.example are the app, not a samples folder. What follows still says what
+	// the code is: org.apache.spark.examples is examples.
+	for i := 0; i+2 < len(dirs); i++ {
+		if dirs[i] == "src" && jvmSourceDirs[dirs[i+2]] {
+			root := i + 3
+			dirs = append(slices.Clone(dirs[:root]), dirs[min(root+jvmOrgSegments, len(dirs)):]...)
+			break
+		}
+	}
+	for _, seg := range dirs {
 		if sideAnywhere[seg] {
 			return true
 		}

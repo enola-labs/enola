@@ -34,7 +34,7 @@ covering the whole linked graph; each flow names its repository.
 | `rank` | int | always | 1-based position in the ranking. Not stable across snapshots |
 | `repo` | string | always | Repository label of the entry |
 | `mechanism` | string | always | How the entry is reached: [Mechanisms](#mechanisms) |
-| `side` | bool | when true | The entry is not the program: an example, a script, a migration, build or docs tooling, a SwiftUI preview app. Decided by the `module_role` of the entry's module (`test` or `tooling`) when an extractor recorded one, by the entry's path otherwise |
+| `side` | bool | when true | The entry is not the program: an example, a script, a migration, build or docs tooling, a SwiftUI preview app. Decided by the `module_role` of the entry's module (`test` or `tooling`) when an extractor recorded one, by the entry's path otherwise. Below a JVM source root (`src/main/kotlin`) the first three directories are the package's organisation (`com.google.samples`, `com.example`) and do not count |
 | `routes` | array of Ref | the entry is a route handler | Every served route the entry handles. `name` uses the first |
 | `entry` | Ref | always | The entry symbol |
 | `summary` | string | always | One paragraph of presentation text built from the fields below. Not a stable identifier |
@@ -69,9 +69,9 @@ check"` prints it:
 
 ```
 Summary
-  A command enters at command.Runner.Check ("runCheck is the `enola check`
-  gate: snapshot the repo, diff it against a baseline, grade the delta, and
-  exit with a code CI can act on."). It calls command.Runner.resolveTarget,
+  A command enters at command.Runner.Check ("Check is the `enola check` gate:
+  snapshot the repo, diff it against a baseline, grade the delta, and exit
+  with a code CI can act on."). It calls command.Runner.resolveTarget,
   check.RegradeIntersection, check.Verdict.Write and conformance.Compute. Most
   of its 564 symbols sit in pkg/check (124 symbols), internal/facts (73) and
   internal/diff (68).
@@ -97,7 +97,7 @@ counts only. The same flow in `flows.json`:
     "name": "pkg/command.Runner.Check",
     "file": "pkg/command/check.go",
     "line": 141,
-    "doc": "runCheck is the `enola check` gate: snapshot the repo, diff it against a baseline, grade the delta, and exit with a code CI can act on."
+    "doc": "Check is the `enola check` gate: snapshot the repo, diff it against a baseline, grade the delta, and exit with a code CI can act on."
   },
   "stages": [
     {"order": 1, "depth": 1, "name": "pkg/command.Runner.resolveTarget", "reach": 161,
@@ -108,8 +108,6 @@ counts only. The same flow in `flows.json`:
   ]
 }
 ```
-
-The comment on `Check` still calls it `runCheck`: `doc` is the source as written.
 
 ## Metrics object
 

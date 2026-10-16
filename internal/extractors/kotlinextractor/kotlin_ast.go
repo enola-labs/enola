@@ -1,6 +1,7 @@
 package kotlinextractor
 
 import (
+	"slices"
 	"strings"
 	"unicode"
 
@@ -1361,6 +1362,14 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 							Kind:   facts.RelInstantiates,
 							Target: name,
 						})
+						// In Compose it is as often a function; resolveCapitalCalls
+						// keeps the candidate where a function is declared under it.
+						if c := w.typeCandidate(name); c != "" && !isNav {
+							notes, _ := owner.PropAny(propCapitalCalls).([]string)
+							if !slices.Contains(notes, c) {
+								owner.SetProp(propCapitalCalls, append(notes, c))
+							}
+						}
 					case !isNav:
 						// Bare lowercase call: a same-class method, a same-package
 						// function, or an imported top-level function.

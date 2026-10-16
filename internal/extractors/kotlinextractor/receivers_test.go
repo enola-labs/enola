@@ -209,3 +209,57 @@ class Forms {
 		}
 	}
 }
+
+// A capitalized call is a constructor by convention, but in Compose it is nearly
+// always a function: `NiaApp(appState)` calls the @Composable fun NiaApp. Where a
+// function of that name is declared, of the same package or imported, the call is
+// a calls edge to it as well; a class's constructor stays an instantiation only.
+func TestKotlinCapitalizedCallOfAFunction(t *testing.T) {
+	ff := extractKotlinRepo(t, map[string]string{
+		"app/src/main/kotlin/com/acme/ui/NiaApp.kt": `package com.acme.ui
+
+import androidx.compose.runtime.Composable
+
+@Composable
+fun NiaApp(state: AppState) {
+    NiaBackground()
+    val gradient = GradientColors(1)
+}
+
+@Composable
+fun NiaBackground() {
+}
+
+class GradientColors(val top: Int)
+`,
+		"app/src/main/kotlin/com/acme/MainActivity.kt": `package com.acme
+
+import com.acme.ui.NiaApp
+import com.acme.ui.AppState
+
+class MainActivity {
+    fun onCreate() {
+        NiaApp(AppState())
+    }
+}
+`,
+	})
+	app := ktSym(t, ff, "ui.NiaApp")
+	if !ktRelSuffix(app, facts.RelCalls, "ui.NiaBackground") {
+		t.Errorf("NiaApp relations = %v, want a call to NiaBackground", app.Relations)
+	}
+	if ktRelSuffix(app, facts.RelCalls, "ui.GradientColors") {
+		t.Errorf("NiaApp relations = %v: a class constructor is no call", app.Relations)
+	}
+	if !app.HasRelation(facts.RelInstantiates, "GradientColors") {
+		t.Errorf("NiaApp relations = %v, want the constructor kept as an instantiation", app.Relations)
+	}
+	if create := ktSym(t, ff, "MainActivity.onCreate"); !ktRelSuffix(create, facts.RelCalls, "ui.NiaApp") {
+		t.Errorf("onCreate relations = %v, want a call to the imported NiaApp", create.Relations)
+	}
+	for _, f := range ff {
+		if _, kept := f.Prop(propCapitalCalls); kept {
+			t.Errorf("%s: the walker's note %s leaked into the facts", f.Name, propCapitalCalls)
+		}
+	}
+}
