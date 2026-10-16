@@ -269,6 +269,23 @@ func editDistance(a, b string) int {
 	return prev[len(b)]
 }
 
+// HelpRequested reports whether args ask for help: -h, -help or --help anywhere before a
+// bare "--". It exists for the commands whose arguments the flag package never sees as
+// flags, because a word comes first: `baseline pin --help` stops parsing at "pin", and the
+// --help after it arrived as a path. Those commands ran instead of describing themselves,
+// and for `baseline pin` and `upgrade` running is not harmless.
+func HelpRequested(args []string) bool {
+	for _, a := range args {
+		switch a {
+		case "--":
+			return false
+		case "-h", "-help", "--help":
+			return true
+		}
+	}
+	return false
+}
+
 // IsDirectory reports whether path names an existing directory. Used throughout to tell
 // a repository argument from a config-file argument — the distinction that makes
 // `--explain /path/to/repo` and `--explain cluster.yaml` both unambiguous.

@@ -456,7 +456,7 @@ func (r *Runner) Baseline(args []string) {
 		os.Exit(check.StatusUsageError.ExitCode())
 	}
 	rest := fs.Args()
-	if len(rest) == 0 {
+	if len(rest) == 0 || HelpRequested(rest) {
 		fs.Usage()
 		os.Exit(check.StatusUsageError.ExitCode())
 	}

@@ -82,7 +82,7 @@ func (r *Runner) Constraints(args []string) {
 		os.Exit(check.StatusUsageError.ExitCode())
 	}
 	rest := fs.Args()
-	if len(rest) == 0 || rest[0] != "lint" {
+	if len(rest) == 0 || rest[0] != "lint" || HelpRequested(rest) {
 		fs.Usage()
 		os.Exit(check.StatusUsageError.ExitCode())
 	}

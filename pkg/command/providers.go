@@ -8,6 +8,7 @@ import (
 
 	"github.com/enola-labs/enola/internal/providers"
 	"github.com/enola-labs/enola/internal/providers/rubydex"
+	"github.com/enola-labs/enola/pkg/check"
 )
 
 // Providers manages the fact providers the binary carries itself. Today that
@@ -16,6 +17,22 @@ import (
 // reports each built-in and whether it is ready. Fetching is the only time
 // a provider touches the network, never at snapshot time.
 func (r *Runner) Providers(ctx context.Context, args []string) {
+	if HelpRequested(args) {
+		fmt.Fprint(os.Stderr, "Usage: "+r.name()+" providers <list|fetch> [name]\n\n"+
+			"The fact providers this binary carries itself.\n\n"+
+			"  list         name each built-in provider and whether it is ready\n"+
+			"  fetch <name> download the pinned engine library of a built-in provider,\n"+
+			"               verify its published digest, and cache it. After\n"+
+			"               `fetch rubydex`, a `providers:` entry named rubydex with no\n"+
+			"               command runs in-process. The only network access a provider\n"+
+			"               ever makes, and never at snapshot time.\n\n"+
+			"Built-ins: "+strings.Join(providers.BuiltInNames(), ", ")+"\n\n"+
+			"Exit codes:\n"+
+			"  0  listed, fetched, or already installed\n"+
+			"  1  the download or its verification failed\n"+
+			"  2  the command could not run\n")
+		os.Exit(check.StatusUsageError.ExitCode())
+	}
 	if len(args) == 0 {
 		r.cmdFatal("providers", "usage: %s providers list | fetch <name>", r.name())
 	}

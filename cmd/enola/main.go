@@ -52,6 +52,19 @@ func main() {
 	// is still declared to the Runner (below) so a typo like `enola upgrad` is recognised
 	// as a near-miss rather than as an unknown word.
 	if len(args) > 0 && args[0] == "upgrade" {
+		// upgrade takes no arguments and used to ignore them, so `enola upgrade --help`
+		// replaced the binary instead of describing what it would do.
+		if command.HelpRequested(args[1:]) {
+			fmt.Fprint(os.Stderr, "Usage: enola upgrade\n\n"+
+				"Download and install the latest enola release, replacing the running\n"+
+				"binary in place. A dev build is always treated as out of date. An\n"+
+				"install managed by a package manager (pip, for one) is left alone, with\n"+
+				"the command that upgrades it instead.\n\n"+
+				"Exit codes:\n"+
+				"  0  upgraded, already current, or left to the package manager\n"+
+				"  1  the upgrade failed\n")
+			os.Exit(2)
+		}
 		if err := upgrade.Run(ctx, version.Version); err != nil {
 			log.Fatalf("upgrade failed: %v", err)
 		}
