@@ -2908,7 +2908,10 @@ import (
 // across files, and add_command's name= over the command's own.
 // v358: a go_router route's handler is the screen its builder builds, read through
 // wrappers that pass it on as `child:` and through a block body with one return.
-const cacheVersion = "v358"
+// v359: a concatenated Go route path is known when every part is (literals, string
+// constants, local strings): "/v1"+"/items" is /v1/items, not /items, and a route
+// whose path has a part computed at run time is not emitted under the readable part.
+const cacheVersion = "v359"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

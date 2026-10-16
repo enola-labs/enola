@@ -331,13 +331,13 @@ func extractRoutesFromCall(fset *token.FileSet, call *ast.CallExpr, prefixes map
 		// A file that imports the application's own router package for something
 		// else may still register on net/http.
 		if routes == nil && prefixes[strictKey] != "" {
-			return extractNetHTTPRoutes(fset, call)
+			return extractNetHTTPRoutes(fset, call, prefixes)
 		}
 		return routes
 	case "gin":
 		return extractGinRoutes(fset, call, prefixes)
 	case "net/http":
-		return extractNetHTTPRoutes(fset, call)
+		return extractNetHTTPRoutes(fset, call, prefixes)
 	}
 	return nil
 }
@@ -515,10 +515,13 @@ func extractComboRoutes(fset *token.FileSet, call *ast.CallExpr, prefixes map[st
 			return nil
 		}
 		if sel.Sel.Name == "Combo" {
-			if len(verbs) == 0 || len(cur.Args) == 0 || !isStaticStringArg(cur.Args[0]) {
+			if len(verbs) == 0 || len(cur.Args) == 0 {
 				return nil
 			}
-			path := extractStringArg(cur, 0)
+			path, known := pathArg(cur.Args[0], prefixes)
+			if !known {
+				return nil
+			}
 			if prefix, ok := prefixes[identName(sel.X)]; ok {
 				path = prefix + path
 			}
@@ -584,7 +587,7 @@ func extractGinRoutes(fset *token.FileSet, call *ast.CallExpr, prefixes map[stri
 
 	methodName := sel.Sel.Name
 	httpMethod, isVerb := ginVerbs[methodName]
-	pathArg, handlerArg := 0, 1
+	pathIdx, handlerArg := 0, 1
 
 	switch {
 	case isVerb:
@@ -596,7 +599,7 @@ func extractGinRoutes(fset *token.FileSet, call *ast.CallExpr, prefixes map[stri
 		if httpMethod == "" {
 			httpMethod = "ALL"
 		}
-		pathArg, handlerArg = 1, 2
+		pathIdx, handlerArg = 1, 2
 	case methodName == "Use":
 		if len(call.Args) == 0 {
 			return nil
@@ -616,11 +619,11 @@ func extractGinRoutes(fset *token.FileSet, call *ast.CallExpr, prefixes map[stri
 		return nil
 	}
 
-	if len(call.Args) <= pathArg {
+	if len(call.Args) <= pathIdx {
 		return nil
 	}
-	path := extractStringArg(call, pathArg)
-	if path == "" && !isStaticStringArg(call.Args[pathArg]) {
+	path, known := pathArg(call.Args[pathIdx], prefixes)
+	if !known {
 		// A computed path is skipped rather than published bare: gin groups mount at
 		// "/" so often that a bare path is frequently the root itself, the same reason
 		// the C# minimal-API pass is stricter here than the Go mux one.
@@ -666,7 +669,7 @@ func joinRoutePath(prefix, path string) string {
 }
 
 // extractNetHTTPRoutes handles net/http patterns like http.HandleFunc("/path", handler).
-func extractNetHTTPRoutes(fset *token.FileSet, call *ast.CallExpr) []routeInfo {
+func extractNetHTTPRoutes(fset *token.FileSet, call *ast.CallExpr, prefixes map[string]string) []routeInfo {
 	sel, ok := call.Fun.(*ast.SelectorExpr)
 	if !ok {
 		return nil
@@ -681,8 +684,8 @@ func extractNetHTTPRoutes(fset *token.FileSet, call *ast.CallExpr) []routeInfo {
 		return nil
 	}
 
-	path := extractStringArg(call, 0)
-	if path == "" && !isStaticStringArg(call.Args[0]) {
+	path, known := pathArg(call.Args[0], prefixes)
+	if !known {
 		return nil
 	}
 	if path == "" {
@@ -718,12 +721,12 @@ func extractHandleFuncCall(fset *token.FileSet, call *ast.CallExpr, prefixes map
 		return nil
 	}
 
-	path := extractStringArg(call, 0)
 	// An empty path from a static string literal ("") is an intentional
 	// collection-root registration on a subrouter (e.g. coursesRouter.HandleFunc("",
 	// list)) whose real path is the subrouter's prefix. Only drop when the path is
-	// empty because the argument is dynamic/unresolvable, not a literal.
-	if path == "" && !isStaticStringArg(call.Args[0]) {
+	// unknown because some part of the argument is dynamic.
+	path, known := pathArg(call.Args[0], prefixes)
+	if !known {
 		return nil
 	}
 
@@ -751,8 +754,8 @@ func extractHandleFuncCall(fset *token.FileSet, call *ast.CallExpr, prefixes map
 }
 
 // isStaticStringArg reports whether expr is a statically-known string path — a
-// string literal (possibly empty) or a concatenation of them — versus a dynamic
-// argument whose path can't be determined. An empty path from a static literal is
+// string literal (possibly empty) or a concatenation of nothing but them — versus a
+// dynamic argument whose path can't be determined. An empty path from a static literal is
 // an intentional collection-root registration; an empty path from a non-static
 // arg means the path is unknown and the route must be dropped.
 func isStaticStringArg(expr ast.Expr) bool {
@@ -760,7 +763,9 @@ func isStaticStringArg(expr ast.Expr) bool {
 	case *ast.BasicLit:
 		return e.Kind == token.STRING
 	case *ast.BinaryExpr:
-		return e.Op == token.ADD && (isStaticStringArg(e.X) || isStaticStringArg(e.Y))
+		return e.Op == token.ADD && isStaticStringArg(e.X) && isStaticStringArg(e.Y)
+	case *ast.ParenExpr:
+		return isStaticStringArg(e.X)
 	}
 	return false
 }
@@ -868,13 +873,17 @@ func extractStringExpr(expr ast.Expr) string {
 		if e.Kind == token.STRING {
 			return strings.Trim(e.Value, "\"`")
 		}
+	case *ast.ParenExpr:
+		return extractStringExpr(e.X)
 	case *ast.BinaryExpr:
 		if e.Op == token.ADD {
 			right := extractStringExpr(e.Y)
-			// When the right side is an absolute path ("/..."), use it directly.
-			// This correctly handles `options.BaseURL + "/api/v1/..."` where BaseURL
-			// is a runtime variable that is typically empty or a host prefix.
-			if strings.HasPrefix(right, "/") {
+			// When the right side is an absolute path ("/...") after a part that is
+			// not a literal, use it directly. This handles a client's
+			// `options.BaseURL + "/api/v1/..."` where BaseURL is a runtime variable
+			// that is typically empty or a host prefix. A literal left side is part
+			// of the path: "/v1" + "/items" is /v1/items.
+			if strings.HasPrefix(right, "/") && !isStaticStringArg(e.X) {
 				return right
 			}
 			left := extractStringExpr(e.X)

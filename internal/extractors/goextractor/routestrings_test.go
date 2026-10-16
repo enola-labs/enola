@@ -152,3 +152,71 @@ func UnknownRoutes(prefix string) chi.Router {
 		"GET /twirp/ArtifactService/{index}.diff":         "diff",
 	}, "PUT /{hash}/upload", "POST CreateArtifact", "POST /CreateArtifact")
 }
+
+// A concatenated path is known when every part of it is: literals, string
+// constants and local strings. A part computed at run time makes the whole path
+// unknown, and the route is not published under the part that was readable.
+func TestExtractRoutes_ConcatenatedPathNeedsEveryPart(t *testing.T) {
+	got := goRoutes(t, map[string]string{
+		"routers/paths.go": `package routers
+
+const apiPrefix = "/api"
+
+func prefix() string       { return "/p" }
+func artifactPath() string { return "/a" }
+`,
+		"routers/chi.go": `package routers
+
+import (
+	"net/http"
+
+	"github.com/go-chi/chi/v5"
+)
+
+func Routes(base string) chi.Router {
+	m := chi.NewRouter()
+	m.Get(apiPrefix+"/users", ListUsers)
+	m.Get("/v1"+"/items", ListItems)
+	path := artifactPath()
+	m.Post(path+"*", Upload)
+	m.Get(base+"/health", Health)
+	return m
+}
+
+func ListUsers(w http.ResponseWriter, r *http.Request) {}
+func ListItems(w http.ResponseWriter, r *http.Request) {}
+func Upload(w http.ResponseWriter, r *http.Request)    {}
+func Health(w http.ResponseWriter, r *http.Request)    {}
+`,
+		"routers/gin.go": `package routers
+
+import "github.com/gin-gonic/gin"
+
+func Gin(r *gin.Engine) {
+	r.GET(apiPrefix+"/teams", ListTeams)
+	r.GET(prefix()+"/hidden", Hidden)
+}
+
+func ListTeams(c *gin.Context) {}
+func Hidden(c *gin.Context)    {}
+`,
+		"routers/std.go": `package routers
+
+import "net/http"
+
+func Std() {
+	http.HandleFunc(apiPrefix+"/ping", Ping)
+	http.HandleFunc(prefix()+"/pong", Pong)
+}
+
+func Ping(w http.ResponseWriter, r *http.Request) {}
+func Pong(w http.ResponseWriter, r *http.Request) {}
+`,
+	})
+	wantGoRoutes(t, got, map[string]string{
+		"GET /api/users": "ListUsers",
+		"GET /v1/items":  "ListItems",
+		"GET /api/teams": "ListTeams",
+		"ALL /api/ping":  "Ping",
+	}, "POST *", "POST /*", "GET /health", "GET /hidden", "ALL /pong")
+}

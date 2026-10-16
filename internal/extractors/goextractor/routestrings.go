@@ -93,13 +93,26 @@ func seedStrings(prefixes map[string]string, body *ast.BlockStmt, pkgDir string,
 }
 
 // pathArg returns the path an argument names: a literal as the walks have always
-// read it, or the value of a string constant or local string variable. ok is false
-// when the path cannot be known.
+// read it, the value of a string constant or local string variable, or a
+// concatenation of those. ok is false when any part of the path cannot be known:
+// `path + "*"` with path computed at run time is no route at "*".
 func pathArg(expr ast.Expr, prefixes map[string]string) (string, bool) {
 	if isStaticStringArg(expr) {
 		return extractStringExpr(expr), true
 	}
 	switch e := expr.(type) {
+	case *ast.ParenExpr:
+		return pathArg(e.X, prefixes)
+	case *ast.BinaryExpr:
+		if e.Op != token.ADD {
+			return "", false
+		}
+		left, ok := pathArg(e.X, prefixes)
+		if !ok {
+			return "", false
+		}
+		right, ok := pathArg(e.Y, prefixes)
+		return left + right, ok
 	case *ast.Ident:
 		v, ok := prefixes[stringKey(e.Name)]
 		return v, ok
