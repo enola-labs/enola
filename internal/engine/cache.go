@@ -2961,7 +2961,8 @@ import (
 // v379: a Next.js package under a directory of examples, samples or demos
 // (examples/with-nextjs, example-apps/) is no Next.js app of the repository.
 // v380: a Go module fact carries doc, its package comment (doc.go first).
-const cacheVersion = "v380"
+// v381: a Python module fact carries doc, its __init__.py module docstring.
+const cacheVersion = "v381"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

@@ -98,6 +98,7 @@ func (e *PythonExtractor) Extract(ctx context.Context, repoPath string, files []
 		topo    pyRouterTopology
 		idx     *pySymbolIndex
 		pending []pyImplCall
+		pkgDoc  string
 	}
 	// The file modules are known before any file is walked, and a relative import
 	// needs them to tell `from .internal import admin` (a submodule) from a symbol.
@@ -111,13 +112,13 @@ func (e *PythonExtractor) Extract(ctx context.Context, repoPath string, files []
 			log.Printf("[python-extractor] error reading %s: %v", relFile, err)
 			return pyFileResult{}
 		}
-		ff, topo, local, pending := extractFileIndexed(src, relFile, isDjango, isFlask, isFastAPI, walkModules)
+		ff, topo, local, pending, pkgDoc := extractFileIndexed(src, relFile, isDjango, isFlask, isFastAPI, walkModules)
 		// gRPC client call sites (stub.Method(...)) become client-role routes,
 		// detected from source since generated *_pb2_grpc.py stubs are typically
 		// not committed. Names are provisional (short service) and resolved to the
 		// fully-qualified wire path by the engine before cross-repo linking.
 		ff = append(ff, extractPyGRPCClientFacts(src, relFile)...)
-		return pyFileResult{ff: ff, topo: topo, idx: local, pending: pending}
+		return pyFileResult{ff: ff, topo: topo, idx: local, pending: pending, pkgDoc: pkgDoc}
 	})
 
 	// Merge the per-file indices in file order, so duplicate-module last-write-wins
@@ -145,6 +146,7 @@ func (e *PythonExtractor) Extract(ctx context.Context, repoPath string, files []
 	var allFacts []facts.Fact
 	var routerTopos []pyRouterTopology
 	modules := make(map[string]bool)
+	pkgDocs := make(map[string]string)
 	for i, r := range perFileFacts {
 		// Route refs index into the file's own slice; rebase them onto the
 		// repo-wide one now that this file's offset is known.
@@ -158,6 +160,9 @@ func (e *PythonExtractor) Extract(ctx context.Context, repoPath string, files []
 		allFacts = append(allFacts, r.ff...)
 		routerTopos = append(routerTopos, r.topo)
 		modules[factpath.Dir(pyFiles[i])] = true
+		if r.pkgDoc != "" {
+			pkgDocs[factpath.Dir(pyFiles[i])] = r.pkgDoc
+		}
 	}
 
 	// The packages (dirs with __init__.py) let suffix matching tell a real
@@ -216,13 +221,15 @@ func (e *PythonExtractor) Extract(ctx context.Context, repoPath string, files []
 	ioclosure.Propagate(allFacts)
 
 	for dir := range modules {
+		props := map[string]any{"language": "python"}
+		if doc := pkgDocs[dir]; doc != "" {
+			props[facts.PropDoc] = doc
+		}
 		allFacts = append(allFacts, facts.Fact{
-			Kind: facts.KindModule,
-			Name: dir,
-			File: dir,
-			Props: map[string]any{
-				"language": "python",
-			},
+			Kind:  facts.KindModule,
+			Name:  dir,
+			File:  dir,
+			Props: props,
 		})
 	}
 

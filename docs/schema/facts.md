@@ -339,7 +339,7 @@ contract props are the ones documented above.
 
 One descriptive prop is prose rather than a measurement:
 
-- `doc` (symbols, and Go modules): the first paragraph of the comment its author
+- `doc` (symbols, and Go and Python modules): the first paragraph of the comment its author
   wrote on the symbol, on one line: a Python docstring, the comment block above a Go
   declaration, a JSDoc block or run of `//` lines above a TypeScript one, or a run
   of `#` lines above a Ruby `def`, `class` or `module`, a Javadoc or PHP docblock,
@@ -347,7 +347,7 @@ One descriptive prop is prose rather than a measurement:
   before its first tag; tool directives such as `// eslint-disable` and
   `# rubocop:disable` are left out. On a Go module, the package comment: from
   `doc.go` when it has one, else the first file by name that does, never a test
-  file or a licence. Cut at a word and ended with `...` when it runs past 300 bytes.
+  file or a licence. On a Python module, the docstring of its `__init__.py`. Cut at a word and ended with `...` when it runs past 300 bytes.
   Absent when the symbol has no comment, and on languages whose extractor does
   not read one. `diff_snapshot` and `enola check` do not report a change to it.
 

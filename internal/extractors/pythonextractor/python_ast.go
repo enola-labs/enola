@@ -62,11 +62,13 @@ func extractFileAST(src []byte, relFile string, isDjango, isFlask, isFastAPI boo
 //
 // extractFileAST above keeps taking a ready-made index, because a single-file test
 // supplies one directly and has no merge step to defer anything to.
-func extractFileIndexed(src []byte, relFile string, isDjango, isFlask, isFastAPI bool, fileModules map[string]bool) ([]facts.Fact, pyRouterTopology, *pySymbolIndex, []pyImplCall) {
+//
+// For an __init__.py it also returns the package's doc: its module docstring.
+func extractFileIndexed(src []byte, relFile string, isDjango, isFlask, isFastAPI bool, fileModules map[string]bool) ([]facts.Fact, pyRouterTopology, *pySymbolIndex, []pyImplCall, string) {
 	parser := sitter.NewParser()
 	defer parser.Close()
 	if err := parser.SetLanguage(sitter.NewLanguage(python.Language())); err != nil {
-		return nil, pyRouterTopology{}, nil, nil
+		return nil, pyRouterTopology{}, nil, nil, ""
 	}
 	tree := parser.Parse(src, nil)
 	defer tree.Close()
@@ -96,7 +98,11 @@ func extractFileIndexed(src []byte, relFile string, isDjango, isFlask, isFastAPI
 	topo.paths = w.pathRefs
 	topo.consts = collectConsts(root, src, module, w.importMap)
 	local.globals = collectGlobalTypes(root, src, module, w.importMap)
-	return w.out, topo, local, w.pendingImpl
+	var pkgDoc string
+	if relFile == "__init__.py" || strings.HasSuffix(relFile, "/__init__.py") {
+		pkgDoc = pyBlockDocstring(root, src)
+	}
+	return w.out, topo, local, w.pendingImpl, pkgDoc
 }
 
 type pyWalker struct {
@@ -2825,7 +2831,12 @@ func stmtIsDocstring(stmt *sitter.Node) bool {
 // the bare string literal that opens its body. Comments before it are skipped,
 // as the interpreter skips them; anything else first means there is none.
 func pyDocstring(def *sitter.Node, src []byte) string {
-	body := def.ChildByFieldName("body")
+	return pyBlockDocstring(def.ChildByFieldName("body"), src)
+}
+
+// pyBlockDocstring returns the first paragraph of the docstring opening a block:
+// a def's or class's body, or a whole module.
+func pyBlockDocstring(body *sitter.Node, src []byte) string {
 	if body == nil {
 		return ""
 	}
