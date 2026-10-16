@@ -7,6 +7,47 @@ The full per-release change lists — every Added, Changed and Fixed line — ar
 [enola.tech/changelog](https://enola.tech/changelog). This file is the same history at
 the resolution a reader of the repository needs.
 
+## v0.4.31 — 2026-10-16
+
+**More routes bind to their handlers, more entries reach `enola flows`, and TypeScript extracts twice as fast**
+
+- `--help` anywhere in the arguments prints the command's help instead of running it.
+  `baseline pin`, `constraints lint` and `upgrade` used to run. New: `enola help
+  [command]` and `enola --help <command>`. Every command's help has examples and
+  see-also; `providers` and `hook` have help.
+- TypeScript extraction is about 2x faster with the same output. tree-sitter now uses
+  its own allocator for every language.
+- Route binding:
+  - Scala: http4s case clauses and pekko-http blocks are handler symbols; Scalatra
+    routes are extracted and bound.
+  - .NET: a minimal-API lambda or local-function handler is a symbol that owns its calls.
+  - Java gRPC services extending a generated `ImplBase` (including Dubbo Triple) bind.
+  - Next.js: detected per package, pages bind to their component, re-exported pages
+    bind, `route.ts` is one route per exported verb. Apps under `examples/`, `samples/`
+    or `demos/` are skipped.
+  - SvelteKit form actions are POST routes of type `action`.
+  - Go: a local router attached with `Mount` serves under the mount path; a method
+    value on a local struct names its handler; a concatenated path is kept only when
+    every part is known.
+  - Dart go_router: the handler is the screen, not the page wrapping it.
+  - WordPress: hooks bind to string, array and REST callbacks. Hooks are route type
+    `hook` and stay out of HTTP matching and coverage.
+- Flow entries:
+  - TypeScript MCP tools (`.tool`, `.registerTool`, project wrappers).
+  - Python argparse subcommands and command tables; click commands named by their
+    group path, a root group by its console script, imported click targets followed.
+  - Kotlin: a capitalized call of a declared function is a call (Compose).
+  - Xcode preview apps are `side`. A JVM package's organisation segments no longer
+    mark an app `side`.
+- TypeScript I/O: Drizzle query chains are read, `performs_io` follows calls through
+  interfaces to implementers (`io_members`), a NestJS `setGlobalPrefix` applies to
+  controller routes, name-only I/O into non-ORM packages is dropped, and a setter's
+  I/O stays off its getter. Dart retrofit/chopper methods are I/O.
+- `coverage --unresolved` lists each unresolved call site.
+- Fixed: Python annotations with quoted forward references or nested generics named
+  bogus targets; Svelte/Vue scripts did not resolve namespace member calls.
+- `cacheVersion` moves to `v379`: every repository re-extracts once.
+
 ## v0.4.30 — 2026-10-14
 
 **`enola flows` lists the ways into a program and what each one reaches**
