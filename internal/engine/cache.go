@@ -2967,7 +2967,8 @@ import (
 // v384: Rust symbols carry doc from `///` and `/** */`, and Rust modules from `//!`.
 // v385: Kotlin symbols carry doc, their KDoc or `//` run.
 // v386: Scala symbols carry doc, their Scaladoc or `//` run.
-const cacheVersion = "v386"
+// v387: Swift symbols carry doc, their `///` lines or `/** */` block.
+const cacheVersion = "v387"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
