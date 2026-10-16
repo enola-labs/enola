@@ -3,18 +3,22 @@ package engine_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/enola-labs/enola/internal/facts"
+	"github.com/enola-labs/enola/internal/renderers/docsjsonl"
 )
 
-// A comment's full text reaches the store's side table and never facts.jsonl, on a
-// cold run, on a warm one served from the extractor cache, and for the other
-// repositories of an append.
+// A comment's full text reaches the store's side table and docs.jsonl, and never
+// facts.jsonl, on a cold run, on a warm one served from the extractor cache, and for
+// the other repositories of an append.
 func TestDocText_LeavesTheFactsForTheSideTable(t *testing.T) {
 	eng := freezeTestEngine(t)
+	eng.RegisterRenderer(docsjsonl.New())
 	repo := freezeTestRepo(t)
 	writeFile(t, filepath.Join(repo, "pkg", "c", "c.go"),
 		"package c\n\n// C places an order.\n//\n// It charges the card first.\nfunc C() {}\n")
@@ -47,6 +51,26 @@ func TestDocText_LeavesTheFactsForTheSideTable(t *testing.T) {
 		}
 		if bytes.Contains(b, []byte(facts.PropDocText)) {
 			t.Errorf("run %d: facts.jsonl carries doc_text", run)
+		}
+		docs, err := os.ReadFile(filepath.Join(repo, ".enola", docsjsonl.ArtifactName))
+		if err != nil {
+			t.Fatalf("run %d: %v", run, err)
+		}
+		if !strings.Contains(string(docs), `"doc":"C places an order.\n\nIt charges the card first."`) {
+			t.Errorf("run %d: docs.jsonl lacks the whole comment:\n%s", run, docs)
+		}
+		var receipt struct {
+			OutputHashes map[string]string `json:"output_hashes"`
+		}
+		rb, err := os.ReadFile(filepath.Join(repo, ".enola", "receipt.json"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(rb, &receipt); err != nil {
+			t.Fatal(err)
+		}
+		if receipt.OutputHashes[docsjsonl.ArtifactName] == "" {
+			t.Errorf("run %d: the receipt does not vouch for docs.jsonl: %v", run, receipt.OutputHashes)
 		}
 	}
 

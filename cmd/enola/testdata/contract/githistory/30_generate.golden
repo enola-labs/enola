@@ -8,6 +8,6 @@ Snapshot complete:
   Repository:  <TMP>/go_sample
   Facts:       22
   Insights:    4
-  Artifacts:   2
+  Artifacts:   3
   Duration:    <DURATION>
   Output:      <TMP>/go_sample/.enola

@@ -357,8 +357,9 @@ One descriptive prop is prose rather than a measurement:
   `@packageDocumentation`, `@module` or `@fileoverview`. On a Rust module, the `//!`
   lines or `/*! */` block opening its `lib.rs`, `main.rs` or `mod.rs`, else the
   `foo.rs` beside its `foo/`. Cut at a word and ended with `...` when it runs past
-  300 bytes. Absent when the symbol has no comment, and on languages whose extractor
-  does not read one. `diff_snapshot` and `enola check` do not report a change to it.
+  300 bytes; the whole comment is in [docs.jsonl](docs.md). Absent when the symbol
+  has no comment, and on languages whose extractor does not read one.
+  `diff_snapshot` and `enola check` do not report a change to it.
 
 `doc` adds no node and no edge. The same function, from a build before `doc` and
 from one after:
