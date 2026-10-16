@@ -17,7 +17,7 @@ var kotlinDirectives = []string{"noinspection", "ktlint-", "detekt", "region", "
 // the comment above them is the node's sibling.
 func kotlinDoc(n *sitter.Node, src []byte) string {
 	comments := tsutil.PrecedingComments(n, src, kindOf, func(k string) bool { return k == "line_comment" || k == "block_comment" })
-	return facts.DocSummary(tsutil.DocCommentText(comments, []string{"//"}, func(line string) bool {
+	return facts.DocText(tsutil.DocCommentText(comments, []string{"//"}, func(line string) bool {
 		for _, d := range kotlinDirectives {
 			if strings.HasPrefix(line, d) {
 				return true

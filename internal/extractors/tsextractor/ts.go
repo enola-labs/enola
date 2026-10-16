@@ -780,7 +780,7 @@ func (e *TSExtractor) classSymbol(kinds *tsutil.KindTable, node, classBody *sitt
 	}
 
 	if doc := tsDoc(kinds, node, src); doc != "" {
-		f.SetProp(facts.PropDoc, doc)
+		facts.SetDoc(&f, doc)
 	}
 	f.Relations = append(f.Relations, implementsRelations(kinds, node, src)...)
 	classifySymbol(kinds, &f, symbolName, classBody, ctx, facts.SymbolClass)
@@ -880,7 +880,7 @@ func (e *TSExtractor) memberFact(kinds *tsutil.KindTable, member *sitter.Node, c
 		"receiver":    symbolName,
 	}
 	if doc := tsDoc(kinds, member, src); doc != "" {
-		mProps[facts.PropDoc] = doc
+		facts.SetDocProp(mProps, doc)
 	}
 	if names := decoratorSetProp(decorators); names != "" {
 		mProps["decorators"] = names
@@ -1000,7 +1000,7 @@ func (e *TSExtractor) variableFacts(kinds *tsutil.KindTable, node, decl *sitter.
 		Relations: vRels,
 	}
 	if doc := tsDoc(kinds, decl, src); doc != "" {
-		f.SetProp(facts.PropDoc, doc)
+		facts.SetDoc(&f, doc)
 	}
 	if symbolKind == facts.SymbolFunc {
 		if takes, ok := declaresParameters(kinds, decl); ok {
@@ -1076,7 +1076,7 @@ func (e *TSExtractor) funcSymbol(kinds *tsutil.KindTable, declNode, body *sitter
 		Relations: rels,
 	}
 	if doc := tsDoc(kinds, declNode, ctx.src); doc != "" {
-		f.SetProp(facts.PropDoc, doc)
+		facts.SetDoc(&f, doc)
 	}
 	if takes, ok := declaresParameters(kinds, declNode); ok {
 		f.SetProp("takes_parameters", takes)

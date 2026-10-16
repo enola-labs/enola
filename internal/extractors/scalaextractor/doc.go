@@ -26,7 +26,7 @@ func scalaDoc(n *sitter.Node, src []byte) string {
 			comments = commentsAbove(p, p.PrevSibling(), src)
 		}
 	}
-	return facts.DocSummary(tsutil.DocCommentText(comments, []string{"//"}, func(line string) bool {
+	return facts.DocText(tsutil.DocCommentText(comments, []string{"//"}, func(line string) bool {
 		for _, d := range scalaDirectives {
 			if strings.HasPrefix(line, d) {
 				return true

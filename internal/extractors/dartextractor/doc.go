@@ -49,12 +49,12 @@ func dartDoc(n *sitter.Node, src []byte) string {
 		}
 		break
 	}
-	return facts.DocSummary(strings.Join(lines, "\n"))
+	return facts.DocText(strings.Join(lines, "\n"))
 }
 
 // setDoc sets the doc prop of the declaration n on the fact just appended for it.
 func (w *walker) setDoc(n *sitter.Node) {
 	if doc := dartDoc(n, w.src); doc != "" {
-		w.out[len(w.out)-1].SetProp(facts.PropDoc, doc)
+		facts.SetDoc(&w.out[len(w.out)-1], doc)
 	}
 }

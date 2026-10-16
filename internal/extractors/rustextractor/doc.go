@@ -45,7 +45,7 @@ func rustDoc(n *sitter.Node, src []byte) string {
 		}
 		break
 	}
-	return facts.DocSummary(strings.Join(lines, "\n"))
+	return facts.DocText(strings.Join(lines, "\n"))
 }
 
 // rustFileDoc returns the doc prop of the module a file opens: its leading inner doc
@@ -71,7 +71,7 @@ func rustFileDoc(root *sitter.Node, src []byte) string {
 		}
 		break
 	}
-	return facts.DocSummary(strings.Join(lines, "\n"))
+	return facts.DocText(strings.Join(lines, "\n"))
 }
 
 // outerLineDoc returns the text of a `///` comment, and false for any other.

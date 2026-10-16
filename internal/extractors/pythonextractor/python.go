@@ -223,7 +223,7 @@ func (e *PythonExtractor) Extract(ctx context.Context, repoPath string, files []
 	for dir := range modules {
 		props := map[string]any{"language": "python"}
 		if doc := pkgDocs[dir]; doc != "" {
-			props[facts.PropDoc] = doc
+			facts.SetDocProp(props, doc)
 		}
 		allFacts = append(allFacts, facts.Fact{
 			Kind:  facts.KindModule,

@@ -2971,7 +2971,9 @@ import (
 // v388: Dart symbols carry doc, their `///` lines or `/** */` block.
 // v389: C and C++ symbols carry doc, their Doxygen block or line-comment run; a
 // definition's own doc wins over its prototype's.
-const cacheVersion = "v389"
+// v390: a symbol or module whose comment says more than its doc carries the whole
+// text in doc_text, which the engine moves to the store's side table.
+const cacheVersion = "v390"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

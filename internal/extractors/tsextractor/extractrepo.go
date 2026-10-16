@@ -352,7 +352,7 @@ func moduleFacts(repoPath string, modules map[string]bool, isAngular bool, docs 
 			props["workspace_project"] = name
 		}
 		if doc := docs[dir]; doc != "" {
-			props[facts.PropDoc] = doc
+			facts.SetDocProp(props, doc)
 		}
 		out = append(out, facts.Fact{
 			Kind:  facts.KindModule,

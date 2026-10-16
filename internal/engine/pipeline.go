@@ -166,6 +166,7 @@ func (e *Engine) prepareStore(r *snapshotRun) {
 		}
 		if r.prev.store != nil {
 			r.work.Add(r.prev.store.All()...)
+			r.work.CarryDocTexts(r.prev.store, func(k facts.FactKey) bool { return k.Repo != r.repoLabel })
 		}
 
 		// A repository the union already holds is replaced, not doubled. Its
@@ -312,6 +313,10 @@ func (e *Engine) extract(r *snapshotRun) error {
 		e.store.TagRange(r.preCount, r.repoLabel, r.repoLabel+"/")
 		log.Printf("[engine] prefixed %d facts with repo label %q", newCount-r.preCount, r.repoLabel)
 	}
+
+	// The full doc texts leave the facts here, now that their keys are final. See
+	// facts.PropDocText.
+	e.store.TakeDocTexts(r.preCount)
 	return nil
 }
 

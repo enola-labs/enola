@@ -214,7 +214,7 @@ func (w *phpWalker) handleClassLike(node *sitter.Node, kind string) {
 		"language":    "php",
 	}
 	if doc := phpDoc(node, w.src); doc != "" {
-		props[facts.PropDoc] = doc
+		facts.SetDocProp(props, doc)
 	}
 	if kindOf(node) == "trait_declaration" {
 		props["trait"] = true
@@ -335,7 +335,7 @@ func (w *phpWalker) handleCallable(node *sitter.Node, isMethod bool) {
 		"language":    "php",
 	}
 	if doc := phpDoc(node, w.src); doc != "" {
-		props[facts.PropDoc] = doc
+		facts.SetDocProp(props, doc)
 	}
 	if isMethod {
 		props["visibility"] = methodVisibility(node, w.src)

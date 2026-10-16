@@ -333,9 +333,7 @@ func mergeSymbol(dst *facts.Fact, src facts.Fact) {
 	if srcHasBody && !dstHasBody {
 		dst.File = src.File
 		dst.Line = src.Line
-		if doc := src.PropString(facts.PropDoc); doc != "" {
-			dst.SetProp(facts.PropDoc, doc)
-		}
+		facts.CopyDoc(dst, src)
 	}
 
 	// Union props, preferring truthy booleans and keeping a non-empty receiver.

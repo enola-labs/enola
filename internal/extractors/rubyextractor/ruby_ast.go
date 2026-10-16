@@ -800,7 +800,7 @@ func (w *rubyWalker) handleModule(node *sitter.Node) {
 		"abstract": false,
 	}
 	if doc := rubyDoc(node, w.src); doc != "" {
-		props[facts.PropDoc] = doc
+		facts.SetDocProp(props, doc)
 	}
 	if bodyHasConcern(body, w.src) {
 		props["concern"] = true
@@ -853,7 +853,7 @@ func (w *rubyWalker) handleClass(node *sitter.Node) {
 		"language":    "ruby",
 	}
 	if doc := rubyDoc(node, w.src); doc != "" {
-		props[facts.PropDoc] = doc
+		facts.SetDocProp(props, doc)
 	}
 	if w.isRails {
 		props["framework"] = "rails"
@@ -999,7 +999,7 @@ func (w *rubyWalker) handleMethod(node *sitter.Node, isClassMethod bool) {
 		"language":    "ruby",
 	}
 	if doc := rubyDoc(node, w.src); doc != "" {
-		props[facts.PropDoc] = doc
+		facts.SetDocProp(props, doc)
 	}
 	if w.isRails {
 		props["framework"] = "rails"

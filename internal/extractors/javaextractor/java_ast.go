@@ -708,7 +708,7 @@ func (w *astWalker) handleClassLike(node *sitter.Node, kind string) {
 		},
 	}
 	if doc := javaDoc(node, w.src); doc != "" {
-		f.SetProp(facts.PropDoc, doc)
+		facts.SetDoc(&f, doc)
 	}
 	if strings.Contains(modifierText, "abstract") {
 		f.SetProp("abstract", true)
@@ -832,7 +832,7 @@ func (w *astWalker) handleMethod(node *sitter.Node) {
 		},
 	}
 	if doc := javaDoc(node, w.src); doc != "" {
-		f.SetProp(facts.PropDoc, doc)
+		facts.SetDoc(&f, doc)
 	}
 	if t := w.enclosingType(); t != "" {
 		f.SetProp("receiver", t)

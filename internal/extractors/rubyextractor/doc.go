@@ -45,7 +45,7 @@ func rubyDoc(n *sitter.Node, src []byte) string {
 			break
 		}
 	}
-	return facts.DocSummary(strings.Join(lines, "\n"))
+	return facts.DocText(strings.Join(lines, "\n"))
 }
 
 func isRubyDirective(line string) bool {

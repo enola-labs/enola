@@ -767,7 +767,7 @@ func (w *astWalker) handleClassLike(node *sitter.Node, kind string) {
 		Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: w.dir}},
 	}
 	if doc := cppDoc(w.kinds, node, w.src); doc != "" {
-		f.SetProp(facts.PropDoc, doc)
+		facts.SetDoc(&f, doc)
 	}
 	if kindOf(w.kinds, node) == "union_specifier" {
 		f.SetProp("union", true)
@@ -841,7 +841,7 @@ func (w *astWalker) handleEnum(node *sitter.Node) {
 		Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: w.dir}},
 	}
 	if doc := cppDoc(w.kinds, node, w.src); doc != "" {
-		f.SetProp(facts.PropDoc, doc)
+		facts.SetDoc(&f, doc)
 	}
 	if isScopedEnum(node, w.src) {
 		f.SetProp("scoped", true)
@@ -921,7 +921,7 @@ func (w *astWalker) handleFunctionDefinition(node *sitter.Node) {
 		Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: w.dir}},
 	}
 	if doc := cppDoc(w.kinds, node, w.src); doc != "" {
-		f.SetProp(facts.PropDoc, doc)
+		facts.SetDoc(&f, doc)
 	}
 	if receiver != "" {
 		f.SetProp("receiver", receiver)
@@ -1029,7 +1029,7 @@ func (w *astWalker) handleFieldDeclaration(node *sitter.Node) {
 			Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: w.dir}},
 		}
 		if doc := cppDoc(w.kinds, node, w.src); doc != "" {
-			f.SetProp(facts.PropDoc, doc)
+			facts.SetDoc(&f, doc)
 		}
 		w.applyFuncQualifiers(&f, node, fdecl)
 		w.out = append(w.out, f)
@@ -1219,7 +1219,7 @@ func (w *astWalker) handleDeclaration(node *sitter.Node) {
 		Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: w.dir}},
 	}
 	if doc := cppDoc(w.kinds, node, w.src); doc != "" {
-		f.SetProp(facts.PropDoc, doc)
+		facts.SetDoc(&f, doc)
 	}
 	if receiver != "" {
 		f.SetProp("receiver", receiver)
@@ -2496,6 +2496,6 @@ var cppBuiltinTypes = map[string]bool{
 // setDoc sets the doc prop of the declaration node on the fact just appended for it.
 func (w *astWalker) setDoc(node *sitter.Node) {
 	if doc := cppDoc(w.kinds, node, w.src); doc != "" {
-		w.out[len(w.out)-1].SetProp(facts.PropDoc, doc)
+		facts.SetDoc(&w.out[len(w.out)-1], doc)
 	}
 }

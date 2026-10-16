@@ -1019,7 +1019,7 @@ func (w *astWalker) handleTypeLike(n *sitter.Node, symbolKind string) {
 		props["fqn"] = fqn
 	}
 	if doc := scalaDoc(n, w.src); doc != "" {
-		props[facts.PropDoc] = doc
+		facts.SetDocProp(props, doc)
 	}
 	// A Scala `object` is a singleton — a class at the bytecode level and a value
 	// at the source level. It keeps symbol_kind=class (no new vocabulary) and says
@@ -1203,7 +1203,7 @@ func (w *astWalker) emitEnumCase(n *sitter.Node, name string) int {
 		Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: w.dir}},
 	})
 	if doc := scalaDoc(n, w.src); doc != "" {
-		w.out[idx].SetProp(facts.PropDoc, doc)
+		facts.SetDoc(&w.out[idx], doc)
 	}
 	return idx
 }
@@ -1228,7 +1228,7 @@ func (w *astWalker) handleFunction(n *sitter.Node) {
 	}
 	props["symbol_kind"] = kind
 	if doc := scalaDoc(n, w.src); doc != "" {
-		props[facts.PropDoc] = doc
+		facts.SetDocProp(props, doc)
 	}
 	if kindOf(n) == "function_declaration" {
 		// No body: an abstract member of a trait or abstract class.
@@ -1295,7 +1295,7 @@ func (w *astWalker) handleValue(n *sitter.Node, symbolKind string) {
 		"exported":    w.isExported(n),
 	}
 	if doc := scalaDoc(n, w.src); doc != "" {
-		props[facts.PropDoc] = doc
+		facts.SetDocProp(props, doc)
 	}
 	if mods := w.modifierText(n); strings.Contains(mods, "implicit") {
 		props["implicit"] = true
@@ -1332,7 +1332,7 @@ func (w *astWalker) handleTypeAlias(n *sitter.Node) {
 		"exported":    w.isExported(n),
 	}
 	if doc := scalaDoc(n, w.src); doc != "" {
-		props[facts.PropDoc] = doc
+		facts.SetDocProp(props, doc)
 	}
 	if fqn := w.fqnFor(name); fqn != "" {
 		props["fqn"] = fqn
@@ -1385,7 +1385,7 @@ func (w *astWalker) handleGiven(n *sitter.Node) {
 		"scala_given": true,
 	}
 	if doc := scalaDoc(n, w.src); doc != "" {
-		props[facts.PropDoc] = doc
+		facts.SetDocProp(props, doc)
 	}
 	if anonymous {
 		props["anonymous"] = true

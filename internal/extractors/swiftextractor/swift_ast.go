@@ -679,7 +679,7 @@ func (w *astWalker) handleClassDeclaration(node *sitter.Node) {
 		},
 	}
 	if doc := swiftDoc(node, w.src); doc != "" {
-		f.SetProp(facts.PropDoc, doc)
+		facts.SetDoc(&f, doc)
 	}
 	if keyword == "enum" {
 		f.SetProp("enum", true)
@@ -752,7 +752,7 @@ func (w *astWalker) handleProtocol(node *sitter.Node) {
 		},
 	}
 	if doc := swiftDoc(node, w.src); doc != "" {
-		f.SetProp(facts.PropDoc, doc)
+		facts.SetDoc(&f, doc)
 	}
 	for _, st := range supertypes {
 		f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelImplements, Target: st})
@@ -877,7 +877,7 @@ func (w *astWalker) handleFunction(node *sitter.Node) {
 		},
 	}
 	if doc := swiftDoc(node, w.src); doc != "" {
-		f.SetProp(facts.PropDoc, doc)
+		facts.SetDoc(&f, doc)
 	}
 	if enclosing != "" {
 		f.SetProp("receiver", enclosing)
@@ -978,7 +978,7 @@ func (w *astWalker) handleProperty(node *sitter.Node) {
 	})
 	propIdx := len(w.out) - 1
 	if doc := swiftDoc(node, w.src); doc != "" {
-		w.out[propIdx].SetProp(facts.PropDoc, doc)
+		facts.SetDoc(&w.out[propIdx], doc)
 	}
 
 	// A computed getter or a willSet/didSet observer has a real body that can hold a
@@ -1109,7 +1109,7 @@ func (w *astWalker) handleTypeAlias(node *sitter.Node) {
 		Relations: relations,
 	})
 	if doc := swiftDoc(node, w.src); doc != "" {
-		w.out[len(w.out)-1].SetProp(facts.PropDoc, doc)
+		facts.SetDoc(&w.out[len(w.out)-1], doc)
 	}
 }
 

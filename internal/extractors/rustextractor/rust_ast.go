@@ -620,7 +620,7 @@ func (w *astWalker) handleFunction(node *sitter.Node, attrs rustItemAttrs) {
 		Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: w.dir}},
 	}
 	if doc := rustDoc(node, w.src); doc != "" {
-		f.SetProp(facts.PropDoc, doc)
+		facts.SetDoc(&f, doc)
 	}
 	if len(w.typeStack) > 0 {
 		f.SetProp("receiver", w.typeStack[len(w.typeStack)-1])
@@ -793,7 +793,7 @@ func (w *astWalker) handleFunctionSignature(node *sitter.Node) {
 		Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: w.dir}},
 	}
 	if doc := rustDoc(node, w.src); doc != "" {
-		f.SetProp(facts.PropDoc, doc)
+		facts.SetDoc(&f, doc)
 	}
 	if len(w.typeStack) > 0 {
 		f.SetProp("receiver", w.typeStack[len(w.typeStack)-1])
@@ -841,7 +841,7 @@ func (w *astWalker) handleConstOrStatic(node *sitter.Node, symbolKind string) {
 		Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: w.dir}},
 	}
 	if doc := rustDoc(node, w.src); doc != "" {
-		f.SetProp(facts.PropDoc, doc)
+		facts.SetDoc(&f, doc)
 	}
 	w.out = append(w.out, f)
 	w.pushOwner(len(w.out) - 1)
@@ -1885,6 +1885,6 @@ func nodeText(node *sitter.Node, src []byte) string { return tsutil.Text(node, s
 // setDoc sets the doc prop of the item node on the fact just appended for it.
 func (w *astWalker) setDoc(node *sitter.Node) {
 	if doc := rustDoc(node, w.src); doc != "" {
-		w.out[len(w.out)-1].SetProp(facts.PropDoc, doc)
+		facts.SetDoc(&w.out[len(w.out)-1], doc)
 	}
 }

@@ -63,7 +63,7 @@ func tsDoc(kinds *tsutil.KindTable, n *sitter.Node, src []byte) string {
 		lines = append([]string{line}, lines...)
 		next = c
 	}
-	return facts.DocSummary(strings.Join(lines, "\n"))
+	return facts.DocText(strings.Join(lines, "\n"))
 }
 
 // jsDocLines returns the lines of a JSDoc block's description: without the comment
@@ -158,7 +158,7 @@ func leadingFileDoc(src string) string {
 			block := src[:end+4]
 			src = src[end+4:]
 			if strings.HasPrefix(block, "/**") && hasFileDocTag(block) {
-				return facts.DocSummary(fileDocText(block))
+				return facts.DocText(fileDocText(block))
 			}
 		default:
 			return ""

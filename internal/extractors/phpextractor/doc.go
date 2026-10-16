@@ -13,7 +13,7 @@ import (
 // declaration's node, so the comment above them is its sibling.
 func phpDoc(n *sitter.Node, src []byte) string {
 	comments := tsutil.PrecedingComments(n, src, kindOf, func(k string) bool { return k == "comment" })
-	return facts.DocSummary(tsutil.DocCommentText(comments, []string{"//", "#"}, func(line string) bool {
+	return facts.DocText(tsutil.DocCommentText(comments, []string{"//", "#"}, func(line string) bool {
 		return strings.HasPrefix(line, "phpcs:") || strings.HasPrefix(line, "@phpstan") || strings.HasPrefix(line, "@psalm") || strings.HasPrefix(line, "codeCoverageIgnore")
 	}))
 }

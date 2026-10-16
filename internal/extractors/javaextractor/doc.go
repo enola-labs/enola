@@ -14,7 +14,7 @@ import (
 // the comment above them is the node's sibling.
 func javaDoc(n *sitter.Node, src []byte) string {
 	comments := tsutil.PrecedingComments(n, src, kindOf, func(k string) bool { return k == "line_comment" || k == "block_comment" })
-	return facts.DocSummary(tsutil.DocCommentText(comments, []string{"//"}, func(line string) bool {
+	return facts.DocText(tsutil.DocCommentText(comments, []string{"//"}, func(line string) bool {
 		return strings.HasPrefix(line, "noinspection") || strings.HasPrefix(line, "NOSONAR") || strings.HasPrefix(line, "CHECKSTYLE")
 	}))
 }
@@ -40,7 +40,7 @@ func javaPackageDoc(src []byte) string {
 			continue
 		}
 		doc := javaDoc(n, src)
-		if strings.HasPrefix(doc, "Copyright") || strings.Contains(doc, "SPDX-License-Identifier") || strings.Contains(doc, "Licensed under") {
+		if first := facts.DocSummary(doc); strings.HasPrefix(first, "Copyright") || strings.Contains(first, "SPDX-License-Identifier") || strings.Contains(first, "Licensed under") {
 			return ""
 		}
 		return doc

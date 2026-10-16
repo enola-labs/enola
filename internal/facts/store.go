@@ -51,6 +51,13 @@ type Store struct {
 	// refers to in another repository, keyed by the target exactly as written. See
 	// SetTargetAliases.
 	targetAliases map[string]FactKey
+
+	// docTexts holds the whole comment of each fact whose PropDoc summarizes more
+	// than it says, keyed by the fact's identity. TakeDocTexts fills it from the
+	// facts' own PropDocText, which it removes, so the comment's full text reaches
+	// the docs renderer without riding on the fact into facts.jsonl or any tool's
+	// output.
+	docTexts map[FactKey]string
 }
 
 // FactKey is a fact's identity: the four fields its id is computed from.
@@ -1018,6 +1025,7 @@ func (s *Store) Clear() {
 	s.intern = nil
 	s.frozen = false
 	s.targetAliases = nil
+	s.docTexts = nil
 }
 
 // BuildGraph constructs the adjacency-list graph index from the current facts.
@@ -1237,4 +1245,58 @@ func (s *Store) collectByIndex(indices []int) []Fact {
 		}
 	}
 	return result
+}
+
+// TakeDocTexts moves PropDocText off every fact from startIdx on into the store's
+// side table, keyed by the fact's identity, and returns how many it moved. Call it
+// once the facts carry their final repo label and file path, since those are part
+// of the key.
+//
+// It records every text before it deletes any, because an extractor may hand two
+// facts the same Props map, and deleting from the first would hide the text from
+// the second.
+func (s *Store) TakeDocTexts(startIdx int) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := 0
+	for i := startIdx; i < len(s.facts); i++ {
+		f := &s.facts[i]
+		if text, _ := f.Props[PropDocText].(string); text != "" {
+			if s.docTexts == nil {
+				s.docTexts = make(map[FactKey]string)
+			}
+			s.docTexts[FactKey{Repo: f.Repo, Kind: f.Kind, Name: f.Name, File: f.File}] = text
+			n++
+		}
+	}
+	for i := startIdx; i < len(s.facts); i++ {
+		delete(s.facts[i].Props, PropDocText)
+	}
+	return n
+}
+
+// DocText returns the whole comment of the fact with key k, or "" when its PropDoc
+// is all there is.
+func (s *Store) DocText(k FactKey) string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.docTexts[k]
+}
+
+// CarryDocTexts copies into s the doc texts held by from whose key keep accepts.
+// Append mode uses it to carry the other repositories' texts forward with their facts.
+func (s *Store) CarryDocTexts(from *Store, keep func(FactKey) bool) {
+	from.mu.RLock()
+	defer from.mu.RUnlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for k, text := range from.docTexts {
+		if !keep(k) {
+			continue
+		}
+		if s.docTexts == nil {
+			s.docTexts = make(map[FactKey]string, len(from.docTexts))
+		}
+		s.docTexts[k] = text
+	}
 }

@@ -130,7 +130,7 @@ func (e *RustExtractor) Extract(ctx context.Context, repoPath string, files []st
 	for dir := range moduleDirs {
 		props := map[string]any{"language": "rust"}
 		if doc := docs[dir]; doc != "" {
-			props[facts.PropDoc] = doc
+			facts.SetDocProp(props, doc)
 		}
 		if crateDir := nearestCrateDir(dir, crates); crateDir != "" {
 			if name, ok := crateNameByDir(crateDir, crates); ok {

@@ -397,7 +397,7 @@ func (w *astWalker) handleTypeDecl(node *sitter.Node, kind string) {
 		},
 	}
 	if doc := csharpDoc(node, w.src); doc != "" {
-		f.SetProp(facts.PropDoc, doc)
+		facts.SetDoc(&f, doc)
 	}
 	if ns := w.namespace(); ns != "" {
 		f.SetProp("namespace", ns)
@@ -609,7 +609,7 @@ func (w *astWalker) handleMethod(node *sitter.Node) {
 		"language":    "csharp",
 	}
 	if doc := csharpDoc(node, w.src); doc != "" {
-		props[facts.PropDoc] = doc
+		facts.SetDocProp(props, doc)
 	}
 	if ns := w.namespace(); ns != "" {
 		props["namespace"] = ns

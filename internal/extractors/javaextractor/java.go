@@ -135,7 +135,7 @@ func (e *JavaExtractor) Extract(ctx context.Context, repoPath string, files []st
 			facts.PropModuleRole: jvmsrc.ModuleRole(dir),
 		}
 		if doc := pkgDocs[dir]; doc != "" {
-			props[facts.PropDoc] = doc
+			facts.SetDocProp(props, doc)
 		}
 		allFacts = append(allFacts, facts.Fact{
 			Kind:  facts.KindModule,

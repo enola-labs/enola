@@ -47,8 +47,8 @@ func cppDoc(kinds *tsutil.KindTable, n *sitter.Node, src []byte) string {
 		comments = append([]string{tsutil.Text(c, src)}, comments...)
 		next = c
 	}
-	doc := facts.DocSummary(cppCommentText(comments))
-	if strings.HasPrefix(doc, "Copyright") || strings.Contains(doc, "SPDX-License-Identifier") {
+	doc := facts.DocText(cppCommentText(comments))
+	if first := facts.DocSummary(doc); strings.HasPrefix(first, "Copyright") || strings.Contains(first, "SPDX-License-Identifier") {
 		return ""
 	}
 	return doc

@@ -1242,7 +1242,7 @@ func (w *pyWalker) handleClass(node *sitter.Node, decorators []string) {
 		"exported": !strings.HasPrefix(name, "_"),
 	}
 	if doc := pyDocstring(node, w.src); doc != "" {
-		props[facts.PropDoc] = doc
+		facts.SetDocProp(props, doc)
 	}
 	rels := []facts.Relation{{Kind: facts.RelDeclares, Target: w.dir}}
 
@@ -1431,7 +1431,7 @@ func (w *pyWalker) handleFunction(node *sitter.Node, decorators []string) {
 		applyDecoratorProps(props, dec, w.importsModal)
 	}
 	if doc := pyDocstring(node, w.src); doc != "" {
-		props[facts.PropDoc] = doc
+		facts.SetDocProp(props, doc)
 	}
 
 	rels := []facts.Relation{{Kind: facts.RelDeclares, Target: w.dir}}
@@ -2848,7 +2848,7 @@ func pyBlockDocstring(body *sitter.Node, src []byte) string {
 		if kindOf(stmt) != "expression_statement" || !stmtIsDocstring(stmt) {
 			return ""
 		}
-		return facts.DocSummary(pyStringBody(pyText(stmt.Child(0), src)))
+		return facts.DocText(pyStringBody(pyText(stmt.Child(0), src)))
 	}
 	return ""
 }
@@ -3377,7 +3377,7 @@ func (w *pyWalker) emitNestedRouteHandler(def *sitter.Node, routes []int) int {
 		props["async"] = true
 	}
 	if doc := pyDocstring(def, w.src); doc != "" {
-		props[facts.PropDoc] = doc
+		facts.SetDocProp(props, doc)
 	}
 	w.out = append(w.out, facts.Fact{
 		Kind:      facts.KindSymbol,

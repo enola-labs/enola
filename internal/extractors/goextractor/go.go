@@ -315,7 +315,7 @@ func (e *GoExtractor) extractPackage(fset *token.FileSet, pkgDir string, pp *par
 		moduleFact.SetProp("modulePath", modulePath)
 	}
 	if doc := packageDoc(pp); doc != "" {
-		moduleFact.SetProp(facts.PropDoc, doc)
+		facts.SetDoc(&moduleFact, doc)
 	}
 	result = append(result, moduleFact)
 
@@ -345,10 +345,10 @@ func packageDoc(pp *parsedPkg) string {
 			continue
 		}
 		text := f.Doc.Text()
-		if strings.HasPrefix(text, "Copyright") || strings.Contains(text, "SPDX-License-Identifier") {
+		if first := facts.DocSummary(text); strings.HasPrefix(first, "Copyright") || strings.Contains(first, "SPDX-License-Identifier") {
 			continue
 		}
-		if doc := facts.DocSummary(text); doc != "" {
+		if doc := facts.DocText(text); doc != "" {
 			return doc
 		}
 	}
@@ -469,9 +469,7 @@ func (e *GoExtractor) extractFunc(fset *token.FileSet, fn *ast.FuncDecl, relFile
 	if receiver != "" {
 		symbolFact.SetProp("receiver", receiver)
 	}
-	if doc := facts.DocSummary(fn.Doc.Text()); doc != "" {
-		symbolFact.SetProp(facts.PropDoc, doc)
-	}
+	facts.SetDoc(&symbolFact, fn.Doc.Text())
 
 	// An HTTP handler is exactly func(http.ResponseWriter, *http.Request). Tag it, so a
 	// route can be bound to the symbol that actually serves it.
@@ -731,9 +729,7 @@ func (e *GoExtractor) extractTypeSpec(fset *token.FileSet, gd *ast.GenDecl, ts *
 	if typeDoc == nil && !gd.Lparen.IsValid() {
 		typeDoc = gd.Doc
 	}
-	if doc := facts.DocSummary(typeDoc.Text()); doc != "" {
-		symbolFact.SetProp(facts.PropDoc, doc)
-	}
+	facts.SetDoc(&symbolFact, typeDoc.Text())
 
 	for _, inst := range instantiates {
 		symbolFact.Relations = append(symbolFact.Relations, facts.Relation{
