@@ -2913,7 +2913,9 @@ import (
 // whose path has a part computed at run time is not emitted under the readable part.
 // v360: a .svelte or .vue component script resolves a call on a namespace import of
 // the repository, or on a module-level object, as an ordinary file does.
-const cacheVersion = "v360"
+// v361: a SvelteKit form action is a POST route of type "action" at its page's path
+// (`?/<name>` for a named one), handled by the action.
+const cacheVersion = "v361"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

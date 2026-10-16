@@ -6,9 +6,15 @@
 // SvelteKit also the `load` beside it, in +page.server.js or +page.js, which the
 // framework calls before the component renders and which is where the page's data
 // comes from.
+//
+// A SvelteKit page also takes the form actions its +page.server file exports in
+// `actions`: each is a POST to the page, the default one at the page's path and a
+// named one at `?/<name>`, which is where most of a form-driven app's writes are.
 package tsextractor
 
 import (
+	"strings"
+
 	"github.com/enola-labs/enola/internal/factpath"
 	"github.com/enola-labs/enola/internal/facts"
 )
@@ -59,4 +65,62 @@ func bindFileRouteHandlers(allFacts []facts.Fact) {
 			}
 		}
 	}
+}
+
+// svelteKitActionFiles are the files beside a +page.svelte that may export its actions.
+var svelteKitActionFiles = []string{"+page.server.ts", "+page.server.js"}
+
+// svelteKitActionRoutes returns a POST route per form action of each SvelteKit page,
+// handled by the action. Its type is "action": the page's own form posts it, so like
+// the page it is no server route another service calls.
+func svelteKitActionRoutes(allFacts []facts.Fact) []facts.Fact {
+	var actions map[string][]facts.Fact // file -> the actions it exports
+	var out []facts.Fact
+	done := map[string]bool{} // a page directory, whose +page.svelte and +page.js are both routes
+	for i := range allFacts {
+		page := &allFacts[i]
+		if page.Kind != facts.KindRoute || page.PropString("type") != "page" ||
+			page.PropString("framework") != "sveltekit" || !strings.HasPrefix(factpath.Base(page.File), "+page.") {
+			continue
+		}
+		if actions == nil {
+			actions = map[string][]facts.Fact{}
+			for _, s := range allFacts {
+				if s.Kind != facts.KindSymbol || s.PropString("symbol_kind") != facts.SymbolFunc {
+					continue
+				}
+				if i := strings.LastIndex(s.Name, ".actions."); i >= 0 && !strings.Contains(s.Name[i+len(".actions."):], ".") {
+					actions[s.File] = append(actions[s.File], s)
+				}
+			}
+		}
+		dir := factpath.Dir(page.File)
+		if done[dir] {
+			continue
+		}
+		done[dir] = true
+		for _, file := range svelteKitActionFiles {
+			for _, action := range actions[dir+"/"+file] {
+				name := page.Name
+				if short := facts.ShortName(action.Name); short != "default" {
+					name += "?/" + short
+				}
+				out = append(out, facts.Fact{
+					Kind: facts.KindRoute,
+					Name: name,
+					File: action.File,
+					Line: action.Line,
+					Props: map[string]any{
+						"method":    "POST",
+						"type":      "action",
+						"router":    "sveltekit",
+						"language":  "typescript",
+						"framework": "sveltekit",
+					},
+					Relations: []facts.Relation{{Kind: facts.RelHandledBy, Target: action.Name}},
+				})
+			}
+		}
+	}
+	return out
 }

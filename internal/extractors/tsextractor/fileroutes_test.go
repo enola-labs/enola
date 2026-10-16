@@ -82,3 +82,67 @@ export const actions = {
 		t.Errorf("/about handled_by = %v, want its component alone", got["/about"])
 	}
 }
+
+// A SvelteKit form action is a POST to its page, served by the action: the default
+// action at the page's path, a named one at `?/<name>`, the URL its form posts to.
+// It is the page's own form that posts it, so it is no server route of the index.
+func TestFileRoutes_SvelteKitFormActionsArePostRoutes(t *testing.T) {
+	ff := extractAllSvelteKit(t, map[string]string{
+		"src/routes/editor/+page.svelte": `<form method="POST"><button>Publish</button></form>
+`,
+		"src/routes/editor/+page.js": `export const ssr = false;
+`,
+		"src/routes/editor/+page.server.js": `export async function load({ locals }) {}
+
+export const actions = {
+	default: async ({ request }) => {
+		await request.formData();
+	}
+};
+`,
+		"src/routes/(app)/article/[slug]/+page.svelte": `<form method="POST" action="?/deleteArticle"><button>Delete</button></form>
+`,
+		"src/routes/(app)/article/[slug]/+page.server.ts": `export const actions = {
+	deleteArticle: async () => {},
+	toggleFavorite: async ({ request }) => {}
+};
+`,
+		"src/routes/about/+page.svelte": `<h1>About</h1>
+`,
+	})
+	got := map[string][]string{}
+	count := map[string]int{}
+	for _, f := range ff {
+		if f.Kind != facts.KindRoute || f.PropString("type") != "action" {
+			continue
+		}
+		key := f.PropString("method") + " " + f.Name
+		for _, r := range f.Relations {
+			if r.Kind == facts.RelHandledBy {
+				got[key] = append(got[key], r.Target)
+			}
+		}
+		if _, ok := got[key]; !ok {
+			got[key] = nil
+		}
+		count[key]++
+	}
+	want := map[string][]string{
+		"POST /editor":                         {"src/routes/editor.actions.default"},
+		"POST /article/[slug]?/deleteArticle":  {"src/routes/(app)/article/[slug].actions.deleteArticle"},
+		"POST /article/[slug]?/toggleFavorite": {"src/routes/(app)/article/[slug].actions.toggleFavorite"},
+	}
+	for key, targets := range want {
+		if !slices.Equal(got[key], targets) {
+			t.Errorf("%s handled_by = %v, want %v (have %v)", key, got[key], targets, got)
+		}
+	}
+	if len(got) != len(want) {
+		t.Errorf("action routes = %v, want exactly %v", got, want)
+	}
+	for key, n := range count {
+		if n != 1 {
+			t.Errorf("%s emitted %d times, want once", key, n)
+		}
+	}
+}

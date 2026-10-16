@@ -239,6 +239,9 @@ func RoleOf(f facts.Fact) string { return f.PropString(facts.PropRole) }
 var uiRouteTypes = map[string]bool{
 	"page": true, "layout": true, "error": true, "loading": true,
 	"router_config": true, "engine_mount": true,
+	// A SvelteKit form action is a POST the page's own form makes, no contract
+	// another service calls.
+	"action": true,
 }
 
 // IsUIRoute reports whether a route fact is a client-side navigation route

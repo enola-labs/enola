@@ -242,8 +242,19 @@ src/routes/+layout.svelte                → route /               type=layout
 ```
 
 Two deliberate non-routes, both covered by tests: `+page.server.ts` is a load function
-rather than an endpoint and emits nothing, and a `.svelte` file outside `src/routes/`
-(a component in `src/lib/`) is not a route.
+rather than an endpoint and emits no route of its own, and a `.svelte` file outside
+`src/routes/` (a component in `src/lib/`) is not a route.
+
+The form actions a `+page.server` file exports in `actions` are the exception: each
+is a POST to its page, handled by the action.
+
+```
+src/routes/login/+page.server.js         actions.default        → route POST /login             type=action
+src/routes/todos/+page.server.ts         actions.create         → route POST /todos?/create     type=action
+```
+
+An `action` route is posted by the page's own form, so like a page it is excluded
+from cross-repo HTTP matching and is never an "unused route".
 
 ## Ember — template tags, classic templates, and the resolver
 
