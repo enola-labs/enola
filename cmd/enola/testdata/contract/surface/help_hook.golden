@@ -16,3 +16,12 @@ Each event reads the agent's JSON payload on stdin.
 It never breaks, delays or clutters a session: every failure, and every
 event this build does not know, exits 0 and says nothing. Run
 `enola doctor` to see whether the hooks are firing.
+
+Examples:
+  # Register the hooks with your agents
+  enola install --hooks
+
+  # See whether they are firing
+  enola doctor
+
+See also: enola help install, enola help doctor

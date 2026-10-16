@@ -17,3 +17,15 @@ Flags:
     	report on one service instead of all of them
   -unresolved
     	list only services with unresolved outbound call sites, and name each call site
+
+Examples:
+  # See which cross-repo edges resolved, and which did not
+  enola coverage cluster.yaml
+
+  # Just the blind spots, with each call site
+  enola coverage --unresolved cluster.yaml
+
+  # One service only
+  enola coverage --repo billing cluster.yaml
+
+See also: enola help cluster, enola help endpoint

@@ -46,6 +46,7 @@ func (r *Runner) Doctor(args []string) {
 				"success either way. This asks the only question that settles it: when did the\n"+
 				"hooks last run?\n\nFlags:\n")
 		fs.PrintDefaults()
+		r.writeHelpFooter(fs.Output(), args, "doctor")
 	}
 	if err := fs.Parse(args); err != nil {
 		os.Exit(2)

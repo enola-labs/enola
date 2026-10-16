@@ -30,7 +30,7 @@ USAGE
 
 COMMANDS
   help                Show this page, or with a command, that command's own page: its
-                      flags, subcommands and exit codes. "enola help flows",
+                      flags, subcommands, exit codes and examples. "enola help flows",
                       "enola --help flows" and "enola flows --help" are the same
                       page. Subcommands work too: "enola help baseline pin".
   dashboard           Explore the latest snapshot in a read-only local web dashboard,

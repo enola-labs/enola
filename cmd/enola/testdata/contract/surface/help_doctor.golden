@@ -13,3 +13,12 @@ hooks last run?
 Flags:
   -json
     	machine-readable output
+
+Examples:
+  # Are the session hooks actually firing here?
+  enola doctor
+
+  # For another repository, as JSON
+  enola doctor --json /path/to/repo
+
+See also: enola help install, enola help hook

@@ -174,6 +174,7 @@ func (r *Runner) Check(ctx context.Context, args []string) {
 			"  2  error      the gate could not run (no baseline, bad flag, inverted pair)\n"+
 			"  3  declined   the baseline is not comparable; refusing to grade\n\nFlags:\n")
 		fs.PrintDefaults()
+		r.writeHelpFooter(fs.Output(), args, "check")
 	}
 	if err := fs.Parse(args); err != nil {
 		os.Exit(check.StatusUsageError.ExitCode())
@@ -451,6 +452,7 @@ func (r *Runner) Baseline(args []string) {
 			"  pin    freeze the current .enola snapshot as the diff baseline\n"+
 			"  show   report whether a baseline exists, and what it describes\n"+
 			"  clear  remove the pinned baseline\n")
+		r.writeHelpFooter(os.Stderr, args, "baseline")
 	}
 	if err := fs.Parse(args); err != nil {
 		os.Exit(check.StatusUsageError.ExitCode())

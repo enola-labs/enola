@@ -34,3 +34,18 @@ Flags:
     	write ESLint rule scaffolds (rule, RuleTester test, index.js) for the candidates a file-local rule can express into this directory; the rest are listed with the reason they stay constraint proposals
   -top int
     	how many ranked candidates the text report prints (0 = all) (default 50)
+
+Examples:
+  # Propose rules from the current snapshot
+  enola constraints mine
+
+  # Only near-certain candidates, all of them
+  enola constraints mine --min-confidence 0.98 --top 0
+
+  # Keep the full report as JSONL
+  enola constraints mine --jsonl candidates.jsonl
+
+  # Write the file-local candidates as ESLint rules instead
+  enola constraints mine --scaffold-eslint eslint-rules
+
+See also: enola help constraints init, enola help constraints

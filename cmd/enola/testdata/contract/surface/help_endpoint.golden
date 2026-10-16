@@ -20,3 +20,15 @@ Flags:
     	emit the result as JSON
   -max-routes int
     	how many matched endpoints to follow (default 25)
+
+Examples:
+  # What changing an endpoint reaches
+  enola endpoint /v1/users
+
+  # One verb only, across a cluster
+  enola endpoint 'GET /v1/users' cluster.yaml
+
+  # The same as JSON
+  enola endpoint --json /v1/users
+
+See also: enola help impact, enola help coverage

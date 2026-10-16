@@ -70,7 +70,8 @@ func main() {
 				"the command that upgrades it instead.\n\n"+
 				"Exit codes:\n"+
 				"  0  upgraded, already current, or left to the package manager\n"+
-				"  1  the upgrade failed\n")
+				"  1  the upgrade failed\n"+
+				cmds.HelpFooter("upgrade"))
 			os.Exit(2)
 		}
 		if err := upgrade.Run(ctx, version.Version); err != nil {

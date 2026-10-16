@@ -37,6 +37,7 @@ func (r *Runner) Endpoint(ctx context.Context, args []string) {
 				"the application serves.\n\n"+
 				"Flags:\n")
 		fs.PrintDefaults()
+		r.writeHelpFooter(fs.Output(), args, "endpoint")
 	}
 	if err := fs.Parse(args); err != nil {
 		os.Exit(2)

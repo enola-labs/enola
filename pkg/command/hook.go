@@ -115,7 +115,8 @@ func (r *Runner) Hook(ctx context.Context, args []string) {
 			"                 agent\n\n"+
 			"It never breaks, delays or clutters a session: every failure, and every\n"+
 			"event this build does not know, exits 0 and says nothing. Run\n"+
-			"`"+r.name()+" doctor` to see whether the hooks are firing.\n")
+			"`"+r.name()+" doctor` to see whether the hooks are firing.\n"+
+			r.HelpFooter("hook"))
 		os.Exit(0)
 	}
 	switch args[0] {

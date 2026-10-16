@@ -12,3 +12,12 @@ the command that upgrades it instead.
 Exit codes:
   0  upgraded, already current, or left to the package manager
   1  the upgrade failed
+
+Examples:
+  # Replace this binary with the latest release
+  enola upgrade
+
+  # Which version is running
+  enola --version
+
+See also: enola help doctor

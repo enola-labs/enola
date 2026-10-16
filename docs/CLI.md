@@ -467,12 +467,13 @@ For per-module blast-radius queries with configurable depth, run `enola impact <
 
 ## Command-line reference
 
-Run `enola --help` for the full text. With no flags, enola starts the MCP server on stdio.
+Run `enola --help` for the full text, and `enola help <command>` for one command's page: its flags, exit codes and examples. With no flags, enola starts the MCP server on stdio.
 
 Every path argument follows the same rule: **a directory is a repository, a file is a config.** Anything that is neither is rejected rather than silently ignored.
 
 | Command | What it does |
 |------|--------------|
+| `help [command [subcommand]]` | **The help for one command.** `enola help flows`, `enola --help flows` and `enola flows --help` print the same page: what the command does, its flags, its exit codes, examples, and the commands next to it. Subcommands have pages too (`enola help baseline pin`). With no command it prints `enola --help`. `--help` never runs the command it describes, wherever it appears in the arguments. |
 | `install [--hooks] [--global]` | **Tell your coding agents enola is here.** Writes its instructions into the files they actually read - `.claude/rules/enola.md`, `.cursor/rules/enola.mdc`, and a marked block in `AGENTS.md` if you have one. Previews every change and asks before writing. See [Wiring it into your agents](#wiring-it-into-your-agents---enola-install). |
 | `coverage [--repo=<svc>] [--unresolved] [--json]` | **Which cross-repo edges enola resolved, and which it did not** — per service, so you can tell a genuinely isolated service from one whose outbound edges enola could not follow. The unresolved list is always shown: it is what makes the resolved count worth believing, and each entry is either a repository you have not loaded, a third-party endpoint, or a blind spot in enola. `--unresolved` narrows the report to the services that have unresolved call sites and lists each one, grouped by the path it calls, with its file and line. Needs two or more repositories in one graph. A report, not a gate — it always exits `0`. In-house clients declared under `clients:` get their own table in the text output: receivers, call sites, routes, and calls skipped by cause. |
 | `doctor [repo]` | **Are the session hooks actually firing?** `install --hooks` writes a hook configuration and reports success — but whether your agent honours that configuration is a contract owned by the agent, not by enola, and a config it ignores looks identical to one it runs. So the hooks record every time they fire, *including* the runs where they deliberately say nothing, and this reports when each last ran, what it concluded, and whether the pinned baseline can still be graded against at all. `NEVER FIRED` after a real session means the wiring is not working. A report, not a gate — it always exits `0`. |
@@ -506,7 +507,7 @@ Every path argument follows the same rule: **a directory is a repository, a file
 | `--no-dashboard` | Start the MCP server without the localhost dashboard. |
 | `--version` | Print the build version. |
 | `--version --json` | Print the build version and the extractor version as JSON, on stdout. This is the release manifest — see [Staying current](#staying-current). |
-| `--help`, `-h` | Show usage. |
+| `--help`, `-h` | Show usage. Followed by a command (`enola --help flows`), show that command's page instead. |
 
 ### Staying current
 

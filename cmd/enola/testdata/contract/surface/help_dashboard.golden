@@ -13,3 +13,10 @@ Options:
 The server binds to 127.0.0.1 and stays attached until Ctrl-C.
 Run `enola --status` in another terminal to recover its URL.
 If Safari blocks local HTTP in HTTPS-Only mode, allow this local address or use another browser.
+
+Examples:
+  # Serve the latest snapshot and open it (Ctrl-C to stop)
+  enola dashboard --open
+
+  # The same for a whole cluster
+  enola dashboard cluster.yaml

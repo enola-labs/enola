@@ -47,6 +47,7 @@ func (r *Runner) ConstraintsLedger(args []string) {
 			"away is a rule to reconsider, and that is invisible one verdict at a time.\n"+
 			"A report, never a gate — nothing here fails a build.\n")
 		fs.PrintDefaults()
+		r.writeHelpFooter(fs.Output(), args, "constraints ledger")
 	}
 	if err := fs.Parse(args); err != nil {
 		os.Exit(check.StatusUsageError.ExitCode())

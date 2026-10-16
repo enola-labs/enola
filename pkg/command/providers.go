@@ -30,7 +30,8 @@ func (r *Runner) Providers(ctx context.Context, args []string) {
 			"Exit codes:\n"+
 			"  0  listed, fetched, or already installed\n"+
 			"  1  the download or its verification failed\n"+
-			"  2  the command could not run\n")
+			"  2  the command could not run\n"+
+			r.HelpFooter("providers"))
 		os.Exit(check.StatusUsageError.ExitCode())
 	}
 	if len(args) == 0 {

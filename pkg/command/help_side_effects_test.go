@@ -32,20 +32,6 @@ func TestHelpRequested(t *testing.T) {
 	}
 }
 
-// helpPaths are the command paths below the top-level subcommands that take --help.
-// The top-level ones come from Subcommands(), so a new command is covered without
-// being listed here.
-var helpPaths = [][]string{
-	{"upgrade"},
-	{"baseline", "pin"}, {"baseline", "show"}, {"baseline", "clear"},
-	{"constraints", "lint"}, {"constraints", "mine"}, {"constraints", "init"},
-	{"constraints", "explain"}, {"constraints", "ledger"},
-	{"cluster", "init"},
-	{"history", "push"}, {"history", "pull"}, {"history", "verify"}, {"history", "gc"},
-	{"providers", "list"}, {"providers", "fetch"},
-	{"hook", "stop"}, {"hook", "session-start"},
-}
-
 // --help describes a command and does nothing else. Before this test, `baseline pin
 // --help` pinned a baseline, `constraints lint --help` linted, `upgrade --help` replaced
 // the binary, and `providers` and `hook` had no help at all, because a word before the
@@ -56,13 +42,19 @@ func TestHelpRunsNothing(t *testing.T) {
 	}
 	bin := buildEnola(t)
 	for _, p := range allHelpPaths() {
-		for _, flag := range []string{"--help", "-h"} {
-			args := append(append([]string{}, p...), flag)
+		for _, tail := range [][]string{{"--help"}, {"-h"}, {".", "--help"}} {
+			args := append(slices.Clone(p), tail...)
 			t.Run(strings.Join(args, " "), func(t *testing.T) {
 				repo, home := t.TempDir(), t.TempDir()
 				res := runEnola(t, bin, repo, home, args...)
 				if !strings.Contains(res.stderr+res.stdout, "Usage: ") {
 					t.Errorf("no usage block:\n%s%s", res.stdout, res.stderr)
+				}
+				if !strings.Contains(res.stderr+res.stdout, "\nExamples:\n") {
+					t.Errorf("no examples:\n%s%s", res.stdout, res.stderr)
+				}
+				if n := strings.Count(res.stderr+res.stdout, "Usage: "); n != 1 {
+					t.Errorf("the page is printed %d times", n)
 				}
 				for _, dir := range []string{repo, home} {
 					if entries, _ := os.ReadDir(dir); len(entries) > 0 {
@@ -74,11 +66,14 @@ func TestHelpRunsNothing(t *testing.T) {
 	}
 }
 
-// allHelpPaths is every command path: the top-level subcommands and helpPaths.
+// allHelpPaths is every command path: upgrade, the top-level subcommands, and theirs.
 func allHelpPaths() [][]string {
-	paths := append([][]string{}, helpPaths...)
+	paths := [][]string{{"upgrade"}}
 	for _, c := range Subcommands() {
 		paths = append(paths, []string{c})
+		for _, sub := range subcommandsOf[c] {
+			paths = append(paths, []string{c, sub})
+		}
 	}
 	return paths
 }
@@ -188,4 +183,82 @@ func TestHelpSpellingsAgree(t *testing.T) {
 	if entries, _ := os.ReadDir(dir); len(entries) > 0 {
 		t.Errorf("help wrote %s into the working directory", entries[0].Name())
 	}
+}
+
+// Every command has a page, and every page a See also line points at exists, so the
+// links between pages lead somewhere.
+func TestHelpPagesAreComplete(t *testing.T) {
+	for _, c := range append(Subcommands(), "upgrade") {
+		if len(helpPages[c].examples) == 0 {
+			t.Errorf("%s has no examples", c)
+		}
+	}
+	for path, page := range helpPages {
+		if len(page.examples) == 0 {
+			t.Errorf("%s has no examples", path)
+		}
+		for _, ref := range page.seeAlso {
+			if _, ok := helpPages[ref]; !ok {
+				t.Errorf("%s: see also %q, which has no page", path, ref)
+			}
+		}
+	}
+}
+
+// The footer belongs to help. A bad flag or a missing argument prints the same usage
+// block, and there the error stays as short as it was.
+func TestHelpFooterOnlyOnHelp(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds the binary")
+	}
+	bin := buildEnola(t)
+	dir, home := t.TempDir(), t.TempDir()
+	for _, args := range [][]string{{"check", "--no-such-flag"}, {"baseline"}, {"history"}, {"cluster"}, {"constraints", "explain"}} {
+		if got := runEnola(t, bin, dir, home, args...); strings.Contains(got.stdout+got.stderr, "Examples:") {
+			t.Errorf("%q printed the help footer:\n%s", args, got.stderr)
+		}
+	}
+}
+
+// Every example names flags its command accepts. Each runs with --help appended: the
+// flag package reads flags left to right, so an unknown one fails before --help stops
+// the run, and nothing executes either way. Examples of the top-level flags are left
+// out, since --generate and friends do not stop at --help.
+func TestHelpExamplesParse(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds the binary")
+	}
+	bin := buildEnola(t)
+	dir, home := t.TempDir(), t.TempDir()
+	for path, page := range helpPages {
+		for _, ex := range page.examples {
+			cmd, _, _ := strings.Cut(ex.Command, " > ")
+			args := splitExample(strings.TrimPrefix(cmd, "enola "))
+			if strings.HasPrefix(args[0], "-") {
+				continue
+			}
+			got := runEnola(t, bin, dir, home, append(args, "--help")...)
+			if strings.Contains(got.stderr, "not defined") || !strings.Contains(got.stderr+got.stdout, "Usage: ") {
+				t.Errorf("%s: example %q does not parse:\n%s", path, ex.Command, got.stderr)
+			}
+		}
+	}
+	if entries, _ := os.ReadDir(dir); len(entries) > 0 {
+		t.Errorf("an example wrote %s into the working directory", entries[0].Name())
+	}
+}
+
+// splitExample splits a command line on spaces, keeping a single-quoted argument whole.
+func splitExample(s string) []string {
+	var args []string
+	for s = strings.TrimSpace(s); s != ""; s = strings.TrimSpace(s) {
+		if rest, ok := strings.CutPrefix(s, "'"); ok {
+			arg, after, _ := strings.Cut(rest, "'")
+			args, s = append(args, arg), after
+			continue
+		}
+		arg, after, _ := strings.Cut(s, " ")
+		args, s = append(args, arg), after
+	}
+	return args
 }

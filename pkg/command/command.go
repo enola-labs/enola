@@ -143,6 +143,10 @@ func (r *Runner) Dispatch(ctx context.Context, args []string) bool {
 		SpawnUpdateRefresh()
 	}
 
+	if slices.Contains(Subcommands(), args[0]) && HelpRequested(args[1:]) {
+		args = helpPath(args)
+	}
+
 	switch args[0] {
 	case "check":
 		r.Check(ctx, args[1:]) // exits with the verdict's code

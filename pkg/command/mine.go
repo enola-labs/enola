@@ -39,6 +39,7 @@ func (r *Runner) ConstraintsMine(args []string) {
 			"  0  report produced (even with zero candidates)\n"+
 			"  2  the command could not run (no snapshot, bad flag)\n\nFlags:\n")
 		fs.PrintDefaults()
+		r.writeHelpFooter(fs.Output(), args, "constraints mine")
 	}
 	if err := fs.Parse(args); err != nil {
 		os.Exit(check.StatusUsageError.ExitCode())

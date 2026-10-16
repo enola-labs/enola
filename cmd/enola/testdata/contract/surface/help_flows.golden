@@ -38,3 +38,18 @@ Flags:
     	list only the flows that reach this symbol
   -top int
     	how many flows to list (1-500) (default 10)
+
+Examples:
+  # The ten largest flows
+  enola flows
+
+  # More of them
+  enola flows --top 50
+
+  # One flow's stages and what it reaches
+  enola flows --show main
+
+  # Only the flows that reach a symbol
+  enola flows --through SessionStore
+
+See also: enola help impact, enola help endpoint

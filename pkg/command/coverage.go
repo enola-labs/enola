@@ -40,6 +40,7 @@ func (r *Runner) Coverage(ctx context.Context, args []string) {
 				"Needs two or more repositories in one graph; point it at a config with `repos:`.\n\n"+
 				"Flags:\n")
 		fs.PrintDefaults()
+		r.writeHelpFooter(fs.Output(), args, "coverage")
 	}
 	if err := fs.Parse(args); err != nil {
 		os.Exit(2)

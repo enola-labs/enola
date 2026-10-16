@@ -14,3 +14,15 @@ Flags:
     	narrow the delta to entries referencing this module, file or symbol
   -json
     	emit the delta as JSON
+
+Examples:
+  # What the latest revision did
+  enola show
+
+  # What a past commit did
+  enola show HEAD~3
+
+  # Only what touched one module
+  enola show --focus internal/auth HEAD~3
+
+See also: enola help log, enola help diff

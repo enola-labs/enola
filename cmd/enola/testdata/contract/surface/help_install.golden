@@ -22,3 +22,18 @@ Flags:
     	comma-separated subset of: claude, cursor, agents, codex, copilot, pi, opencode
   -yes
     	skip the confirmation prompt
+
+Examples:
+  # Tell your agents enola is here (instructions only)
+  enola install
+
+  # ...and close the loop automatically with session hooks
+  enola install --hooks
+
+  # Preview what that would change, writing nothing
+  enola install --hooks --dry-run
+
+  # For every project of this user, two agents only
+  enola install --global --targets=claude,cursor
+
+See also: enola help uninstall, enola help doctor

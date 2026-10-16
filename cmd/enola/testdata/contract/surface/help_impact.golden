@@ -34,3 +34,18 @@ Flags:
     	hops of impact to follow (1-10) (default 3)
   -max-nodes int
     	cap on the nodes listed (1-500); the total reported stays exact (default 200)
+
+Examples:
+  # The blast radius of changing a symbol
+  enola impact SessionStore
+
+  # Name every dependent, two hops deep
+  enola impact --list --max-depth 2 SessionStore
+
+  # Narrow an ambiguous target with a scope prefix
+  enola impact 'file:internal/auth SessionStore'
+
+  # Also what the target itself depends on
+  enola impact --include-forward SessionStore
+
+See also: enola help endpoint, enola help flows, enola help plan

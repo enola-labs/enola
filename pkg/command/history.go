@@ -15,7 +15,7 @@ import (
 
 func (r *Runner) History(args []string) {
 	if len(args) == 0 {
-		r.historyUsage()
+		r.historyUsage(args)
 		os.Exit(2)
 	}
 	switch strings.ToLower(args[0]) {
@@ -28,12 +28,12 @@ func (r *Runner) History(args []string) {
 	case "gc":
 		r.historyGC(args[1:])
 	default:
-		r.historyUsage()
+		r.historyUsage(args)
 		os.Exit(2)
 	}
 }
 
-func (r *Runner) historyUsage() {
+func (r *Runner) historyUsage(args []string) {
 	fmt.Fprint(os.Stderr,
 		"Usage: "+r.name()+" history <push|pull|verify|gc> [store_dir] [flags] [repo_path|config_path]\n\n"+
 			"Share the architecture history through a directory store — a git repository, a\n"+
@@ -45,6 +45,7 @@ func (r *Runner) historyUsage() {
 			"  gc      apply a retention policy to the store; prints what it would remove\n"+
 			"          and deletes nothing without --apply\n\n"+
 			"The store directory is the first argument, or `history.shared_dir` in the config.\n")
+	r.writeHelpFooter(os.Stderr, args, "history")
 }
 
 func (r *Runner) historyTarget(rest []string) (string, string, *config.Config) {
@@ -93,6 +94,7 @@ func (r *Runner) historyPush(args []string) {
 				"and an entry file already in the store is never rewritten — entries are\n"+
 				"content-addressed, so the same snapshot is the same file everywhere.\n\nFlags:\n")
 		fs.PrintDefaults()
+		r.writeHelpFooter(fs.Output(), args, "history push")
 	}
 	if err := fs.Parse(flagsFirst(fs, args)); err != nil {
 		os.Exit(2)
@@ -138,6 +140,7 @@ func (r *Runner) historyPull(args []string) {
 				"Idempotent: a revision already recorded locally is never imported twice.\n"+
 				"Imported revisions carry the machine that observed them as their origin.\n\nFlags:\n")
 		fs.PrintDefaults()
+		r.writeHelpFooter(fs.Output(), args, "history pull")
 	}
 	if err := fs.Parse(flagsFirst(fs, args)); err != nil {
 		os.Exit(2)
@@ -181,6 +184,7 @@ func (r *Runner) historyVerify(args []string) {
 				"record carries, and each payload's facts must match their recorded hash.\n"+
 				"A missing payload covered by a prune record is retention; one that is not\n"+
 				"is a gap. Exits 1 when anything is broken, naming each problem.\n")
+		r.writeHelpFooter(os.Stderr, args, "history verify")
 	}
 	if err := fs.Parse(flagsFirst(fs, args)); err != nil {
 		os.Exit(2)
@@ -244,6 +248,7 @@ func (r *Runner) historyGC(args []string) {
 				"stay distinguishable forever. Revisions satisfying ANY given keep policy\n"+
 				"are kept.\n\nFlags:\n")
 		fs.PrintDefaults()
+		r.writeHelpFooter(fs.Output(), args, "history gc")
 	}
 	if err := fs.Parse(flagsFirst(fs, args)); err != nil {
 		os.Exit(2)

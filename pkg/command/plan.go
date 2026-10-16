@@ -40,6 +40,7 @@ func (r *Runner) Plan(ctx context.Context, args []string) {
 			"  2  the command could not run (bad patch, missing snapshot for --symbols,\n"+
 			"     invalid declaration)\n\nFlags:\n")
 		fs.PrintDefaults()
+		r.writeHelpFooter(fs.Output(), args, "plan")
 	}
 	if err := fs.Parse(args); err != nil {
 		os.Exit(check.StatusUsageError.ExitCode())

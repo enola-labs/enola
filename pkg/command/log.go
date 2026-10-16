@@ -59,6 +59,7 @@ func (r *Runner) Log(args []string) {
 				"`history:` / `enabled: false` in your config.\n\n"+
 				"Flags:\n")
 		fs.PrintDefaults()
+		r.writeHelpFooter(fs.Output(), args, "log")
 	}
 	if err := fs.Parse(args); err != nil {
 		os.Exit(2)

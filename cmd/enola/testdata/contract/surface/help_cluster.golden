@@ -6,3 +6,15 @@ Usage: enola cluster init [--dry-run] [dir]
 
 init writes a cluster config for a folder that holds several git repositories.
 Run `enola cluster init --help`.
+
+Examples:
+  # See the config it would write for a folder of repositories
+  enola cluster init --dry-run ~/src
+
+  # Write it
+  enola cluster init ~/src
+
+  # Index every repository in it as one linked graph
+  enola --generate ~/src/cluster.yaml
+
+See also: enola help cluster init, enola help coverage

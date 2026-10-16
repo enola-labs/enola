@@ -43,3 +43,18 @@ Flags:
     	only revisions taken after this time (RFC3339, or a duration like 72h)
   -stat
     	break each revision's delta down by fact kind
+
+Examples:
+  # The recorded revisions, oldest first
+  enola log
+
+  # With the branch topology, more of them
+  enola log --graph -n 50
+
+  # The last three days, by fact kind
+  enola log --stat --since 72h
+
+  # Build a timeline from merge commits, listing them first
+  enola log --backfill --sample merges --dry-run
+
+See also: enola help show, enola help diff, enola help blame, enola help gc

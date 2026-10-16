@@ -28,3 +28,23 @@ Exit codes (mine, init, explain, ledger):
   0  a report was produced
   2  the command could not run — no snapshot to read, or a declaration
      init would have had to overwrite
+
+Examples:
+  # Validate the declarations and resolve every component
+  enola constraints lint
+
+  # Preview a first declaration before writing it
+  enola constraints init --dry-run
+
+  # Propose rules the code already almost follows
+  enola constraints mine
+
+  # Which components a file belongs to, and why
+  enola constraints explain internal/auth/session.go
+
+  # Which rules are excused more than obeyed
+  enola constraints ledger
+
+See also: enola help constraints mine, enola help constraints init,
+          enola help constraints explain, enola help constraints ledger,
+          enola help check, enola help plan

@@ -50,6 +50,7 @@ func (r *Runner) Blame(args []string) {
 				"keep their summary line and are reported as unread rather than as absent.\n\n"+
 				"Flags:\n")
 		fs.PrintDefaults()
+		r.writeHelpFooter(fs.Output(), args, "blame")
 	}
 	if err := fs.Parse(args); err != nil {
 		os.Exit(2)
