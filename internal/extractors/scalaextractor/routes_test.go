@@ -343,3 +343,49 @@ func routeSignature(ff []facts.Fact) string {
 	}
 	return b.String()
 }
+
+// An http4s route's handler is the body of its case clause, which has no symbol of
+// its own: it is given one, "<dir>.<Type>.handler:<VERB>:<line>", that carries the
+// body's calls, and the route is handled by it.
+func TestHTTP4sCaseBodyIsTheHandler(t *testing.T) {
+	src := `package demo
+
+import org.http4s.HttpRoutes
+
+final class Routes(users: UsersDB) {
+  val routes = HttpRoutes.of[IO] {
+    case GET -> Root / "users" / UUIDVar(id) =>
+      users.get(id).flatMap(u => Ok(u.name))
+    case POST -> Root / "users" / name =>
+      Audit.record(name)
+  }
+}
+`
+	ff, _ := extractFileFacts([]byte(src), "src/Routes.scala", map[string]string{})
+	for key, handler := range map[string]string{
+		"GET /users/:id":    "src.Routes.handler:GET:7",
+		"POST /users/:name": "src.Routes.handler:POST:9",
+	} {
+		route, ok := routeFacts(ff)[key]
+		if !ok {
+			t.Errorf("missing route %s; have %v", key, routeKeys(ff))
+			continue
+		}
+		if !hasRelation(route, facts.RelHandledBy, handler) {
+			t.Errorf("%s relations = %v, want handled_by %s", key, route.Relations, handler)
+		}
+		sym := findFact(t, ff, handler)
+		if !sym.PropBool("framework_registered") {
+			t.Errorf("%s is not framework_registered", handler)
+		}
+		calls := 0
+		for _, r := range sym.Relations {
+			if r.Kind == facts.RelCalls || r.Kind == facts.RelInstantiates {
+				calls++
+			}
+		}
+		if calls == 0 {
+			t.Errorf("%s relations = %v, want the case body's calls", handler, sym.Relations)
+		}
+	}
+}

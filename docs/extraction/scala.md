@@ -190,6 +190,10 @@ route  /users/:id   method=GET    (the extractor variable becomes the canonical 
 route  /teams       method=POST
 ```
 
+A case clause's body is the route's handler, written in place. It is given a symbol
+`<dir>.<Type>.handler:<VERB>:<line>`, which owns the calls of the body and is
+`framework_registered`, and the route is `handled_by` it.
+
 ## Storage and outbound calls
 
 ```scala

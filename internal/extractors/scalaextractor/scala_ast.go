@@ -312,6 +312,11 @@ func (w *astWalker) walk(n *sitter.Node) {
 	case "if_expression":
 		w.m.decisions++
 	case "case_clause":
+		// An http4s route is a clause of HttpRoutes.of, and its body is the handler.
+		if method := http4sRouteClause(n, w.src); method != "" {
+			w.handleInlineRoute(n, method)
+			return
+		}
 		// A match arm and a catch clause are the same node; both branch.
 		w.m.decisions++
 	case "guard":
@@ -1063,6 +1068,27 @@ func (w *astWalker) handleTypeLike(n *sitter.Node, symbolKind string) {
 	popScope()
 	w.memberStack = w.memberStack[:len(w.memberStack)-1]
 	w.typeStack = w.typeStack[:len(w.typeStack)-1]
+}
+
+// handleInlineRoute gives an inline route handler a symbol of its own, named as the
+// route walk names it, and walks the handler with it as the owner of its calls.
+func (w *astWalker) handleInlineRoute(n *sitter.Node, method string) {
+	line := int(n.StartPosition().Row) + 1
+	w.out = append(w.out, facts.Fact{
+		Kind: facts.KindSymbol,
+		Name: inlineHandlerName(w.dir, w.typeStack, method, line),
+		File: w.relFile,
+		Line: line,
+		Props: map[string]any{
+			"symbol_kind":          facts.SymbolFunc,
+			"language":             "scala",
+			"framework_registered": true,
+		},
+		Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: w.dir}},
+	})
+	w.ownerStack = append(w.ownerStack, len(w.out)-1)
+	w.walkChildren(n)
+	w.ownerStack = w.ownerStack[:len(w.ownerStack)-1]
 }
 
 // walkBodyAndParams walks everything under a type declaration EXCEPT the name and
