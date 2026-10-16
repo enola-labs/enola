@@ -24,6 +24,13 @@ var hookMethods = map[string]string{
 	"register_rest_route":        "REST",
 }
 
+// hookPoints fire a hook rather than register on one: the firing side, which has
+// no handler of its own.
+var hookPoints = map[string]bool{
+	"do_action": true, "do_action_ref_array": true,
+	"apply_filters": true, "apply_filters_ref_array": true,
+}
+
 // registrationHooks fire when a handler is being attached (vs. a hook point being
 // triggered). Their first string argument is the hook name and, for the add_*
 // family, the second argument is the callback.
@@ -112,6 +119,13 @@ func (h *hookWalker) handleCall(node *sitter.Node) {
 		"framework": "wordpress",
 		"language":  "php",
 		"hook":      phpText(fn, h.src),
+	}
+	if method != "REST" {
+		// A hook is in-process dispatch, and a hook point the side that fires it.
+		props[facts.PropRouteType] = facts.RouteTypeHook
+		if hookPoints[phpText(fn, h.src)] {
+			props[facts.PropRole] = facts.RoleClient
+		}
 	}
 	// For handler registrations, capture the callback target so the dead-code /
 	// coverage explainers can connect the hook to the function it invokes.

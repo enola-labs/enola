@@ -2951,7 +2951,9 @@ import (
 // its string callback names.
 // v375: a WordPress array callback (array( $this, 'm' ), [ Foo::class, 'm' ], ...)
 // and a REST route's 'callback' option name their method, and bind to it.
-const cacheVersion = "v375"
+// v376: a WordPress hook fact is of route type "hook", and a hook point (do_action,
+// apply_filters) is role client, the firing side; hooks are kept out of HTTP matching.
+const cacheVersion = "v376"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

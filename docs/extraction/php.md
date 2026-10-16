@@ -216,6 +216,11 @@ inherited method to the parent or trait that declares it. A callable on another 
 (`array( $obj, 'm' )`) names no class and binds nothing. A `register_rest_route`'s
 `'callback'` option binds the same way.
 
+Every hook fact is of `type` `hook`, and a hook point (`do_action`, `apply_filters` and
+their `_ref_array` forms) has `role` `client`: it is the side that fires the hook, not
+one that handles it. A hook is in-process dispatch, so the cross-repo HTTP linker
+leaves hooks out of matching and out of its coverage counts.
+
 ## Outbound calls and cross-repo linking
 
 ```

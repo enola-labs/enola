@@ -48,7 +48,7 @@ func (s *Signal) Contribute(in plugin.SignalInput, out plugin.EvidenceSink) {
 	// Match client routes against the server index.
 	for _, f := range all {
 		if f.Kind != facts.KindRoute || f.Repo == "" || routeindex.RoleOf(f) != facts.RoleClient ||
-			f.PropString(facts.PropRouteType) == facts.RouteTypeGraphQL {
+			routeindex.IsNonHTTPRoute(f) {
 			continue
 		}
 		// Every client call site is a detected outbound edge. Counting here, before
@@ -136,7 +136,7 @@ func ClientRouteMatches(m *routeindex.Matcher, all []facts.Fact) map[string][]Ro
 	out := map[string][]RouteMatch{}
 	for _, f := range all {
 		if f.Kind != facts.KindRoute || f.Repo == "" || routeindex.RoleOf(f) != facts.RoleClient ||
-			f.PropString(facts.PropRouteType) == facts.RouteTypeGraphQL {
+			routeindex.IsNonHTTPRoute(f) {
 			continue
 		}
 		call := resolveCall(m, server, declaredTargets, f)
@@ -624,7 +624,7 @@ func servableIndex(m *routeindex.Matcher, all []facts.Fact, requireRepo bool) (m
 // The server-route verdicts and an endpoint's callers both read it, so "this route is
 // used" and "this call is one of its callers" cannot disagree.
 func routesCalledBy(m *routeindex.Matcher, server map[string][]routeindex.RouteRef, f facts.Fact) []routeindex.RouteRef {
-	if f.Kind != facts.KindRoute || routeindex.RoleOf(f) != facts.RoleClient {
+	if f.Kind != facts.KindRoute || routeindex.RoleOf(f) != facts.RoleClient || routeindex.IsNonHTTPRoute(f) {
 		return nil
 	}
 	method := routeindex.NormalizeMethod(f.PropString("method"))
@@ -734,9 +734,10 @@ func UnmatchedClientRouteKeys(m *routeindex.Matcher, all []facts.Fact) map[strin
 		if f.Kind != facts.KindRoute || f.Repo == "" || routeindex.RoleOf(f) != facts.RoleClient {
 			continue
 		}
-		if f.PropString(facts.PropRouteType) == facts.RouteTypeGraphQL {
-			continue // GraphQL operations are the graphql signal's domain; an HTTP
-			// verb-and-path reason stamped on one is noise, not triage
+		if routeindex.IsNonHTTPRoute(f) {
+			continue // GraphQL operations are the graphql signal's domain and a hook
+			// point is no HTTP call; an HTTP verb-and-path reason stamped on either
+			// is noise, not triage
 		}
 		call := resolveCall(m, server, declaredTargets, f)
 		switch call.bucket {

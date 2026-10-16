@@ -3,6 +3,7 @@ package phpextractor
 import (
 	"context"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/enola-labs/enola/internal/facts"
@@ -243,6 +244,33 @@ class ItemsController {
 		}
 		if have != handler {
 			t.Errorf("%s handled_by %q, want %q", route, have, handler)
+		}
+	}
+}
+
+// Every hook fact is of route type "hook", which the HTTP linker leaves alone, and a
+// hook point (do_action, apply_filters) is the firing side, role client; a
+// registration and a REST route stay the handling side.
+func TestWordPressHookPointsAreTheFiringSide(t *testing.T) {
+	src := `<?php
+add_action('init', 'my_setup');
+do_action('init');
+do_action_ref_array('save', array($post));
+$t = apply_filters('the_title', $title);
+apply_filters_ref_array('the_posts', array($posts));
+register_rest_route('ns/v1', '/items', ['methods' => 'GET']);
+`
+	for _, f := range extractHooks([]byte(src), "wp-content/plugins/acme/acme.php") {
+		fires := strings.HasPrefix(f.PropString("hook"), "do_action") || strings.HasPrefix(f.PropString("hook"), "apply_filters")
+		if got := f.PropString(facts.PropRole) == facts.RoleClient; got != fires {
+			t.Errorf("%s (%s): client = %v, want %v", f.Name, f.PropString("hook"), got, fires)
+		}
+		wantType := facts.RouteTypeHook
+		if f.PropString("hook") == "register_rest_route" {
+			wantType = ""
+		}
+		if got := f.PropString(facts.PropRouteType); got != wantType {
+			t.Errorf("%s: type = %q, want %q", f.Name, got, wantType)
 		}
 	}
 }
