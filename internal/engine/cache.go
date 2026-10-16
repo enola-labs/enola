@@ -2953,7 +2953,12 @@ import (
 // and a REST route's 'callback' option name their method, and bind to it.
 // v376: a WordPress hook fact is of route type "hook", and a hook point (do_action,
 // apply_filters) is role client, the firing side; hooks are kept out of HTTP matching.
-const cacheVersion = "v376"
+// v377: a minimal-API handler named by a local function of the registering method
+// is given one symbol "<dir>.<Type>.<Method>.<Function>" with its calls, for every
+// route it serves.
+// v378: a Go router held in a local variable and mounted, r.Mount("/api", api),
+// serves its routes under the mount path wherever the Mount sits in the function.
+const cacheVersion = "v378"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

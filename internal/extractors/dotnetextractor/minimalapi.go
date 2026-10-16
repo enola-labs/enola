@@ -53,8 +53,17 @@ type minimalAPIScan struct {
 	// typeStack qualifies a handler reference: a method-group argument names a
 	// sibling of the registering method, so it resolves against the enclosing type.
 	typeStack []string
+	// methods are the enclosing methods, innermost last: a handler named by a
+	// local function is looked for in their bodies.
+	methods []scanMethod
 
 	out []minimalRoute
+}
+
+// scanMethod is a method being scanned: its name and the node holding its body.
+type scanMethod struct {
+	name string
+	node *sitter.Node
 }
 
 // minimalRoute is one resolved registration, ready to become a route fact.
@@ -63,8 +72,11 @@ type minimalRoute struct {
 	Path    string
 	Handler string // canonical fact name of a method-group handler, "" for a lambda
 	// lambda is an inline handler, given a symbol by lambdaHandlerSymbols and then
-	// cleared: the node does not outlive the file's parse tree.
+	// cleared: the node does not outlive the file's parse tree. local names the
+	// handler when it is a local function of the registering method, which may
+	// serve several routes and is given one symbol for all of them.
 	lambda *sitter.Node
+	local  string
 	// owner is the type the registration sits in, or the file's name for top-level
 	// statements: what qualifies a lambda's symbol.
 	owner string
@@ -98,6 +110,8 @@ func (s *minimalAPIScan) walk(node *sitter.Node, groups map[string]groupPrefix) 
 		s.typeStack = s.typeStack[:len(s.typeStack)-1]
 		return
 	case "method_declaration", "constructor_declaration", "local_function_statement":
+		s.methods = append(s.methods, scanMethod{nodeText(node.ChildByFieldName("name"), s.src), node})
+		defer func() { s.methods = s.methods[:len(s.methods)-1] }()
 		scope := map[string]groupPrefix{}
 		if body := node.ChildByFieldName("body"); body != nil {
 			s.walk(body, scope)
@@ -247,7 +261,7 @@ func (s *minimalAPIScan) registration(node *sitter.Node, groups map[string]group
 		return
 	}
 
-	s.out = append(s.out, minimalRoute{
+	r := minimalRoute{
 		Method:  verb,
 		Path:    facts.JoinRoutePath(prefix.path, sub),
 		Handler: s.handlerTarget(node),
@@ -256,7 +270,11 @@ func (s *minimalAPIScan) registration(node *sitter.Node, groups map[string]group
 		File:    s.relFile,
 		Dir:     s.dir,
 		Line:    int(node.StartPosition().Row) + 1,
-	})
+	}
+	if r.lambda == nil {
+		r.lambda, r.local = s.localFunctionHandler(node)
+	}
+	s.out = append(s.out, r)
 }
 
 // handlerTarget resolves a registration's second argument when it is a method
@@ -297,6 +315,70 @@ func (s *minimalAPIScan) ownerName() string {
 	}
 	base := path.Base(s.relFile)
 	return strings.TrimSuffix(base, path.Ext(base))
+}
+
+// localFunctionHandler returns the local function a registration's handler names,
+// `router.MapGet("json", RewriteArray)` with RewriteArray declared in the method that
+// registers it, and its name with the method's: "Configure.RewriteArray". The
+// innermost enclosing method that declares one by that name wins, as C# scoping does.
+func (s *minimalAPIScan) localFunctionHandler(node *sitter.Node) (*sitter.Node, string) {
+	name := s.handlerIdentifier(node)
+	if name == "" {
+		return nil, ""
+	}
+	for i := len(s.methods) - 1; i >= 0; i-- {
+		if fn := localFunctionNamed(s.methods[i].node, name, s.src); fn != nil {
+			return fn, s.methods[i].name + "." + name
+		}
+	}
+	return nil, ""
+}
+
+// handlerIdentifier is a registration's second argument when it is a bare name.
+func (s *minimalAPIScan) handlerIdentifier(node *sitter.Node) string {
+	args := node.ChildByFieldName("arguments")
+	if args == nil {
+		return ""
+	}
+	idx := 0
+	for i := uint(0); i < uint(args.NamedChildCount()); i++ {
+		a := args.NamedChild(i)
+		if kindOf(a) != "argument" {
+			continue
+		}
+		if idx++; idx == 2 {
+			if inner := firstNamedChild(a); inner != nil && kindOf(inner) == "identifier" {
+				return nodeText(inner, s.src)
+			}
+			return ""
+		}
+	}
+	return ""
+}
+
+// localFunctionNamed finds a local function of the given name declared in a
+// method's body, not inside another local function of it.
+func localFunctionNamed(method *sitter.Node, name string, src []byte) *sitter.Node {
+	body := method.ChildByFieldName("body")
+	if body == nil {
+		return nil
+	}
+	var found *sitter.Node
+	var visit func(n *sitter.Node)
+	visit = func(n *sitter.Node) {
+		for i := uint(0); i < n.NamedChildCount() && found == nil; i++ {
+			c := n.NamedChild(i)
+			if kindOf(c) == "local_function_statement" {
+				if nodeText(c.ChildByFieldName("name"), src) == name {
+					found = c
+				}
+				continue
+			}
+			visit(c)
+		}
+	}
+	visit(body)
+	return found
 }
 
 // handlerLambda returns a registration's second argument when it is an inline
@@ -375,16 +457,26 @@ func minimalRouteFacts(routes []minimalRoute, symbols map[string]bool) []facts.F
 }
 
 // lambdaHandlerSymbols gives each inline minimal-API handler a symbol of its own,
-// "<dir>.<Type>.handler:<VERB>:<line>", carrying the calls of its body, and points the
+// "<dir>.<Type>.handler:<VERB>:<line>", or for a local function of the registering
+// method "<dir>.<Type>.<Method>.<Function>", one for every route it serves,
+// carrying the calls of its body, and points the
 // route at it. Without one the endpoint had no entry and its calls were the
 // registering method's. The framework invokes it, so it is framework_registered.
 func (w *astWalker) lambdaHandlerSymbols(routes []minimalRoute) {
+	locals := map[uint]string{} // a local function's start byte -> its symbol
 	for i := range routes {
 		r := &routes[i]
 		if r.lambda == nil {
 			continue
 		}
+		if name, seen := locals[r.lambda.StartByte()]; seen {
+			r.Handler, r.lambda = name, nil
+			continue
+		}
 		short := "handler:" + r.Method + ":" + strconv.Itoa(r.Line)
+		if r.local != "" {
+			short = r.local
+		}
 		w.out = append(w.out, facts.Fact{
 			Kind: facts.KindSymbol,
 			Name: r.Dir + "." + r.owner + "." + short,
@@ -402,6 +494,9 @@ func (w *astWalker) lambdaHandlerSymbols(routes []minimalRoute) {
 		w.walkBodyWithMetrics(r.lambda, idx, short, 0)
 		w.popOwner()
 		r.Handler = w.out[idx].Name
+		if r.local != "" {
+			locals[r.lambda.StartByte()] = r.Handler
+		}
 		r.lambda = nil
 	}
 }

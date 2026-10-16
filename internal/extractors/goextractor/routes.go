@@ -68,6 +68,7 @@ func extractRoutes(fset *token.FileSet, f *ast.File, relFile, pkgDir string, rou
 				}
 				seedReceiverRouters(prefixes, pkgDir, recvVar, recvType, routes.routerFields)
 			}
+			seedLocalMounts(prefixes, fn.Body)
 			w := &routeWalk{fset: fset, prefixes: prefixes, closures: map[string]*ast.FuncLit{}, framework: framework, relFile: relFile, pkgDir: pkgDir, result: &result, recvVar: recvVar, recvType: recvType}
 			for _, stmt := range fn.Body.List {
 				w.stmt(stmt)
@@ -1020,4 +1021,65 @@ func handlerTarget(handler, pkgDir string, fileImports map[string]string) string
 		return pkg + "." + parts[1]
 	}
 	return ""
+}
+
+// seedLocalMounts gives a router held in a local variable the path it is mounted at:
+//
+//	api := chi.NewRouter()
+//	api.Get("/users", ListUsers)   // served at /api/users
+//	r.Mount("/api", api)
+//
+// The Mount usually comes after the routes, so the walk, which reads in source
+// order, would meet them first; the mounts are read ahead of it. A router mounted on
+// a mounted router composes both paths. A mount whose path cannot be read, and a
+// variable mounted twice, seed nothing.
+func seedLocalMounts(prefixes map[string]string, body *ast.BlockStmt) {
+	type mount struct{ parent, path string }
+	mounts := map[string]mount{}
+	twice := map[string]bool{}
+	ast.Inspect(body, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		sel, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok || sel.Sel.Name != "Mount" || len(call.Args) != 2 {
+			return true
+		}
+		child, ok := call.Args[1].(*ast.Ident)
+		if !ok {
+			return true
+		}
+		path, ok := pathArg(call.Args[0], prefixes)
+		if !ok {
+			twice[child.Name] = true // unreadable: mounted somewhere this cannot name
+			return true
+		}
+		if _, seen := mounts[child.Name]; seen {
+			twice[child.Name] = true
+		}
+		mounts[child.Name] = mount{routerVarName(sel.X), path}
+		return true
+	})
+	var resolve func(name string, depth int) (string, bool)
+	resolve = func(name string, depth int) (string, bool) {
+		m, ok := mounts[name]
+		if !ok || twice[name] || depth > 8 {
+			return "", false
+		}
+		parent := prefixes[m.parent]
+		if up, ok := resolve(m.parent, depth+1); ok {
+			parent = up
+		}
+		// A mount at "" or "/" adds nothing: its routes keep their own paths.
+		return strings.TrimSuffix(joinRoutePath(parent, m.path), "/"), true
+	}
+	for name := range mounts {
+		if _, set := prefixes[name]; set {
+			continue // a parameter or field already seeded keeps its own prefix
+		}
+		if p, ok := resolve(name, 0); ok {
+			prefixes[name] = p
+		}
+	}
 }

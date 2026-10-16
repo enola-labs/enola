@@ -337,3 +337,84 @@ public static class Uploader { public static Task Save(object c) { return null; 
 		t.Errorf("GET /named handled_by %q, want the method group", handlers["GET /named"])
 	}
 }
+
+// A handler named by a local function of the registering method is that function,
+// given one symbol however many routes it serves, carrying its calls.
+func TestMinimalAPI_LocalFunctionHandler(t *testing.T) {
+	_, all := routeSet(t, map[string]string{
+		"Debugger/Startup.cs": `
+namespace Acme.Debugger;
+
+public class Startup
+{
+    public void Configure(IApplicationBuilder app)
+    {
+        app.UseRouter(router =>
+        {
+            router.MapGet("/json", RewriteArray);
+            router.MapGet("/devtools/page/{pageId}", ConnectProxy);
+            router.MapGet("/devtools/browser/{pageId}", ConnectProxy);
+        });
+
+        async Task RewriteArray(HttpContext context)
+        {
+            await Proxy.Forward(context);
+        }
+
+        async Task ConnectProxy(HttpContext context)
+        {
+            await Proxy.Connect(context);
+        }
+    }
+}
+
+public static class Proxy
+{
+    public static Task Forward(object c) { return null; }
+    public static Task Connect(object c) { return null; }
+}
+`,
+	})
+	handlers := map[string]string{}
+	symbols := map[string]facts.Fact{}
+	for _, f := range all {
+		if f.Kind == facts.KindSymbol {
+			symbols[f.Name] = f
+		}
+		if f.Kind == facts.KindRoute {
+			for _, r := range f.Relations {
+				if r.Kind == facts.RelHandledBy {
+					handlers[f.Name] = r.Target
+				}
+			}
+		}
+	}
+	for route, want := range map[string]string{
+		"/json":                      "Debugger.Startup.Configure.RewriteArray",
+		"/devtools/page/{pageId}":    "Debugger.Startup.Configure.ConnectProxy",
+		"/devtools/browser/{pageId}": "Debugger.Startup.Configure.ConnectProxy",
+	} {
+		if handlers[route] != want {
+			t.Errorf("%s handled_by %q, want %q (have %v)", route, handlers[route], want, handlers)
+			continue
+		}
+		calls := 0
+		for _, r := range symbols[want].Relations {
+			if r.Kind == facts.RelCalls {
+				calls++
+			}
+		}
+		if calls == 0 {
+			t.Errorf("%s relations = %v, want the local function's calls", want, symbols[want].Relations)
+		}
+	}
+	n := 0
+	for name := range symbols {
+		if strings.HasSuffix(name, ".ConnectProxy") {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Errorf("ConnectProxy has %d symbols, want one for the routes it serves", n)
+	}
+}
