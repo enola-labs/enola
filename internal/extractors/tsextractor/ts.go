@@ -215,10 +215,11 @@ func packageJSONDeclaresPackage(dir string) bool {
 // extractCtx bundles the per-file state threaded through declaration extraction
 // so symbols can be enriched with React/Next.js semantic classification.
 type extractCtx struct {
-	src     []byte
-	relFile string
-	dir     string
-	isTSX   bool
+	typeNames *typeNameCache
+	src       []byte
+	relFile   string
+	dir       string
+	isTSX     bool
 	tsFrameworks
 	importMap map[string]string
 	// memberRoots are the names `<name>.<member>()` resolves through (see
@@ -3193,7 +3194,7 @@ func collectCallsWithMetrics(node *sitter.Node, scope callScope, selfName, selfS
 	fn := tsEnclosingFunction(node)
 	paramScope, paramIndex := tsParamScope(kinds, fn, src)
 	w.paramScope, w.paramIndex = []tsLoopScope{paramScope}, paramIndex
-	w.memberRoots = withLocalRoots(scope.memberRoots, tsLocalTypes(kinds, fn, node, src, scope.dir, scope.importMap))
+	w.memberRoots = withLocalRoots(scope.memberRoots, tsLocalTypes(kinds, fn, node, src, scope.dir, scope.importMap, scope.typeNames))
 	w.constLocals = tsConstLiteralLocals(kinds, node, src)
 	w.walk(node)
 	return w.rels, m

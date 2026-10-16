@@ -23,10 +23,10 @@ import (
 // tsLocalTypes returns the parameters of fn and the locals of body whose class the
 // source states, each mapped to the qualified name a method call on it resolves
 // through.
-func tsLocalTypes(kinds *tsutil.KindTable, fn, body *sitter.Node, src []byte, dir string, importMap map[string]string) map[string]string {
+func tsLocalTypes(kinds *tsutil.KindTable, fn, body *sitter.Node, src []byte, dir string, importMap map[string]string, names *typeNameCache) map[string]string {
 	out := map[string]string{}
 	conflict := map[string]bool{}
-	declared := fileTypeNames(kinds, body, src)
+	declared := names.of(kinds, body, src)
 	set := func(name, typ string) {
 		if name == "" || typ == "" || conflict[name] {
 			return
@@ -110,6 +110,18 @@ func qualifyTSType(name, dir string, importMap map[string]string, declared map[s
 		return dir + "." + name
 	}
 	return ""
+}
+
+// typeNameCache holds a file's top-level type names, found on first use.
+type typeNameCache struct {
+	names map[string]bool
+}
+
+func (c *typeNameCache) of(kinds *tsutil.KindTable, n *sitter.Node, src []byte) map[string]bool {
+	if c.names == nil {
+		c.names = fileTypeNames(kinds, n, src)
+	}
+	return c.names
 }
 
 // fileTypeNames returns the classes and interfaces declared at the top level of the

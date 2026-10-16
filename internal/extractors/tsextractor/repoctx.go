@@ -31,10 +31,15 @@ type callScope struct {
 	returnTypes    map[string]string
 	ioBindings     map[string]bool
 	drizzle        bool
+	typeNames      *typeNameCache
 }
 
 func (c *extractCtx) callScope(kinds *tsutil.KindTable, className string, fieldTypes map[string]string) callScope {
+	if c.typeNames == nil {
+		c.typeNames = &typeNameCache{}
+	}
 	return callScope{
+		typeNames:   c.typeNames,
 		kinds:       kinds,
 		src:         c.src,
 		dir:         c.dir,
