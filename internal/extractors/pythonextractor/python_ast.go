@@ -551,10 +551,14 @@ func (w *pyWalker) walkModule(root *sitter.Node) {
 		w.walkTopLevelCalls(child)
 	}
 	w.bindCallRouteHandlers()
-	if len(w.fileRefs) > 0 || len(w.commandAttaches) > 0 {
+	table := w.argparseCommands(root)
+	if len(w.fileRefs) > 0 || len(w.commandAttaches) > 0 || len(table) > 0 {
 		props := map[string]any{"language": "python"}
 		if len(w.commandAttaches) > 0 {
 			props[propCommandAttaches] = w.commandAttaches
+		}
+		if len(table) > 0 {
+			props[propCommandTable] = table
 		}
 		w.out = append(w.out, facts.Fact{
 			Kind:      facts.KindFileRef,

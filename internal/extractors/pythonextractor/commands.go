@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/enola-labs/enola/internal/facts"
+	sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
 // Commands declared with click or typer.
@@ -178,15 +180,17 @@ func composeCommandNames(allFacts []facts.Fact, fileModules, pkgDirs map[string]
 		}
 	}
 
-	groups := map[string]string{}  // group symbol → declared name
-	parent := map[string]string{}  // command or group symbol → its group
-	renamed := map[string]string{} // symbol → the name add_command gives it
+	groups := map[string]string{}        // group symbol → declared name
+	parent := map[string]string{}        // command or group symbol → its group
+	renamed := map[string]string{}       // symbol → the name add_command gives it
+	tableCommands := map[string]string{} // symbol → its argparse or table command
 	var commands []int
 	for i := range allFacts {
 		f := &allFacts[i]
 		leaf, isGroup := f.PropString(propCommandLeaf), f.PropString(propCommandGroup)
 		up, attaches := f.PropString(propCommandParent), stringSliceProp(f.Props, propCommandAttaches)
-		if leaf == "" && isGroup == "" && up == "" && len(attaches) == 0 {
+		table := stringSliceProp(f.Props, propCommandTable)
+		if leaf == "" && isGroup == "" && up == "" && len(attaches) == 0 && len(table) == 0 {
 			continue
 		}
 		if resolve == nil {
@@ -201,6 +205,12 @@ func composeCommandNames(allFacts []facts.Fact, fileModules, pkgDirs map[string]
 		if up != "" {
 			if p := resolve(up, f.File); p != "" {
 				parent[f.Name] = p
+			}
+		}
+		for _, c := range table {
+			name, target, ok := strings.Cut(c, "\t")
+			if t := resolve(target, f.File); ok && t != "" {
+				tableCommands[t] = name
 			}
 		}
 		for _, a := range attaches {
@@ -254,8 +264,245 @@ func composeCommandNames(allFacts []facts.Fact, fileModules, pkgDirs map[string]
 	}
 
 	for i := range allFacts {
-		for _, p := range []string{propCommandLeaf, propCommandParent, propCommandGroup, propCommandAttaches} {
+		f := &allFacts[i]
+		if name, ok := tableCommands[f.Name]; ok && f.Kind == facts.KindSymbol {
+			f.SetProp("command", name)
+		}
+		for _, p := range []string{propCommandLeaf, propCommandParent, propCommandGroup, propCommandAttaches, propCommandTable} {
 			allFacts[i].DelProp(p)
 		}
 	}
+}
+
+// Commands declared with argparse, and command tables.
+//
+//	build = sub.add_parser("build")            build
+//	build.set_defaults(func=run_build)
+//
+//	DAGS_COMMANDS = (ActionCommand(name="list", func=lazy_load_command("app.cli.dag_command.dag_list")), ...)
+//	core_commands = [GroupCommand(name="dags", subcommands=DAGS_COMMANDS), ...]
+//	                                           dags list
+//
+// The second is how a large CLI keeps its argparse tree as data that one builder
+// walks, which leaves nothing for the argparse rule to read. Both are read only in a
+// file that imports argparse: elsewhere a call with name= and func= is as often an
+// agent's tool. A handler is a function name, or a dotted import path handed to a
+// loader as its one string argument; the walk records each command as
+// "<name>\t<target>" and composeCommandNames resolves the target.
+
+// propCommandTable carries a file's argparse and table commands to
+// composeCommandNames, which removes it.
+const propCommandTable = "command_table"
+
+var argparseImportRe = regexp.MustCompile(`(?m)^\s*(?:import argparse|from argparse import)`)
+
+// argparseCommands returns the file's argparse and command-table commands.
+func (w *pyWalker) argparseCommands(root *sitter.Node) []string {
+	if !argparseImportRe.Match(w.src) {
+		return nil
+	}
+	var out []string
+	w.commandTables(root, &out)
+	var visit func(n *sitter.Node, paths, subs map[string][]string)
+	visit = func(n *sitter.Node, paths, subs map[string][]string) {
+		for i := uint(0); i < n.NamedChildCount(); i++ {
+			c := n.NamedChild(i)
+			switch kindOf(c) {
+			case "function_definition":
+				visit(c, map[string][]string{}, map[string][]string{})
+				continue
+			case "assignment":
+				left, right := c.ChildByFieldName("left"), c.ChildByFieldName("right")
+				if left != nil && right != nil && kindOf(left) == "identifier" && kindOf(right) == "call" {
+					if recv, method, args := w.methodCall(right); recv != "" {
+						switch method {
+						case "add_parser":
+							if name := w.firstStringArg(args); name != "" {
+								paths[pyText(left, w.src)] = append(slices.Clone(subs[recv]), name)
+							}
+						case "add_subparsers":
+							subs[pyText(left, w.src)] = slices.Clone(paths[recv])
+						}
+					}
+				}
+			case "call":
+				if path, target := w.setDefaultsCommand(c, paths, subs); len(path) > 0 && target != "" {
+					out = append(out, strings.Join(path, " ")+"\t"+target)
+				}
+			}
+			visit(c, paths, subs)
+		}
+	}
+	visit(root, map[string][]string{}, map[string][]string{})
+	return out
+}
+
+// methodCall splits `recv.method(args)` with a plain-name receiver.
+func (w *pyWalker) methodCall(call *sitter.Node) (recv, method string, args *sitter.Node) {
+	fn := call.ChildByFieldName("function")
+	if fn == nil || kindOf(fn) != "attribute" {
+		return "", "", nil
+	}
+	obj, attr := fn.ChildByFieldName("object"), fn.ChildByFieldName("attribute")
+	if obj == nil || attr == nil || kindOf(obj) != "identifier" {
+		return "", "", nil
+	}
+	return pyText(obj, w.src), pyText(attr, w.src), call.ChildByFieldName("arguments")
+}
+
+// setDefaultsCommand reads `p.set_defaults(func=f)` and
+// `sub.add_parser("n").set_defaults(func=f)`: the parser's command path and f.
+func (w *pyWalker) setDefaultsCommand(call *sitter.Node, paths, subs map[string][]string) ([]string, string) {
+	fn := call.ChildByFieldName("function")
+	if fn == nil || kindOf(fn) != "attribute" {
+		return nil, ""
+	}
+	obj, attr := fn.ChildByFieldName("object"), fn.ChildByFieldName("attribute")
+	if obj == nil || attr == nil || pyText(attr, w.src) != "set_defaults" {
+		return nil, ""
+	}
+	value := w.keywordArg(call.ChildByFieldName("arguments"), "func")
+	if value == nil {
+		return nil, ""
+	}
+	var path []string
+	switch kindOf(obj) {
+	case "identifier":
+		path = paths[pyText(obj, w.src)]
+	case "call":
+		if recv, method, args := w.methodCall(obj); method == "add_parser" {
+			if name := w.firstStringArg(args); name != "" {
+				path = append(slices.Clone(subs[recv]), name)
+			}
+		}
+	}
+	return path, w.handlerTarget(value)
+}
+
+// commandTables reads the lists and tuples of command calls in the file, at module
+// level or in a function that builds or returns them (`commands = [GroupCommand(...)]`,
+// `commands.append(GroupCommand(...))`, `return [GroupCommand(...)]`).
+func (w *pyWalker) commandTables(root *sitter.Node, out *[]string) {
+	type entry struct{ name, target, sublist string }
+	lists := map[string][]entry{}
+	var order []string
+	read := func(list string, el *sitter.Node) {
+		if kindOf(el) != "call" {
+			return
+		}
+		args := el.ChildByFieldName("arguments")
+		nameNode := w.keywordArg(args, "name")
+		if nameNode == nil || kindOf(nameNode) != "string" {
+			return
+		}
+		e := entry{name: unquotePyType(pyText(nameNode, w.src))}
+		if f := w.keywordArg(args, "func"); f != nil {
+			e.target = w.handlerTarget(f)
+		} else if sub := w.keywordArg(args, "subcommands"); sub != nil && kindOf(sub) == "identifier" {
+			e.sublist = pyText(sub, w.src)
+		}
+		if e.name == "" || (e.target == "" && e.sublist == "") {
+			return
+		}
+		if _, seen := lists[list]; !seen {
+			order = append(order, list)
+		}
+		lists[list] = append(lists[list], e)
+	}
+	var visit func(n *sitter.Node)
+	visit = func(n *sitter.Node) {
+		switch kindOf(n) {
+		case "list", "tuple":
+			// A list assigned to a name is keyed by it, so a group can name it as its
+			// subcommands; any other (`return [GroupCommand(...)]`) by its position.
+			key := "@" + strconv.Itoa(int(n.StartByte()))
+			if p := n.Parent(); p != nil && kindOf(p) == "assignment" {
+				if left := p.ChildByFieldName("left"); left != nil && kindOf(left) == "identifier" {
+					key = pyText(left, w.src)
+				}
+			}
+			for j := uint(0); j < n.NamedChildCount(); j++ {
+				read(key, n.NamedChild(j))
+			}
+		case "call":
+			if recv, method, args := w.methodCall(n); method == "append" && args != nil && args.NamedChildCount() == 1 {
+				read(recv, args.NamedChild(0))
+			}
+		}
+		for i := uint(0); i < n.NamedChildCount(); i++ {
+			visit(n.NamedChild(i))
+		}
+	}
+	visit(root)
+	under := map[string]string{} // sublist -> the group name it is listed under
+	parent := map[string]string{}
+	for _, l := range order {
+		for _, e := range lists[l] {
+			if e.sublist != "" {
+				under[e.sublist], parent[e.sublist] = e.name, l
+			}
+		}
+	}
+	for _, l := range order {
+		var prefix []string
+		for at, depth := l, 0; depth < 8; depth++ {
+			g, ok := under[at]
+			if !ok {
+				break
+			}
+			prefix = append([]string{g}, prefix...)
+			at = parent[at]
+		}
+		for _, e := range lists[l] {
+			if e.target != "" {
+				*out = append(*out, strings.Join(append(slices.Clone(prefix), e.name), " ")+"\t"+e.target)
+			}
+		}
+	}
+}
+
+// keywordArg is the value of a call's keyword argument, or nil.
+func (w *pyWalker) keywordArg(args *sitter.Node, key string) *sitter.Node {
+	if args == nil {
+		return nil
+	}
+	for i := uint(0); i < args.NamedChildCount(); i++ {
+		a := args.NamedChild(i)
+		if kindOf(a) != "keyword_argument" {
+			continue
+		}
+		if k := a.ChildByFieldName("name"); k != nil && pyText(k, w.src) == key {
+			return a.ChildByFieldName("value")
+		}
+	}
+	return nil
+}
+
+// firstStringArg is a call's first positional argument when it is a string.
+func (w *pyWalker) firstStringArg(args *sitter.Node) string {
+	if args == nil || args.NamedChildCount() == 0 {
+		return ""
+	}
+	if a := args.NamedChild(0); kindOf(a) == "string" {
+		return unquotePyType(pyText(a, w.src))
+	}
+	return ""
+}
+
+// handlerTarget names the function a func= value hands over: a name, or the dotted
+// import path a loader is given as its one string argument.
+func (w *pyWalker) handlerTarget(v *sitter.Node) string {
+	switch kindOf(v) {
+	case "identifier":
+		return w.valueRefTarget(pyText(v, w.src))
+	case "call":
+		args := v.ChildByFieldName("arguments")
+		if args == nil || args.NamedChildCount() != 1 {
+			return ""
+		}
+		if path := w.firstStringArg(args); strings.Count(path, ".") >= 1 && isPyDottedName(path) {
+			return path
+		}
+	}
+	return ""
 }

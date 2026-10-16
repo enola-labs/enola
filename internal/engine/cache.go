@@ -2920,7 +2920,10 @@ import (
 // v363: a TypeScript MCP tool's handler carries a `tool` prop and framework_registered:
 // an inline handler of .tool, .registerTool or a register…Tool wrapper is given a
 // symbol "<dir>.tool:<name>" with its calls, in a file that imports an MCP library.
-const cacheVersion = "v363"
+// v364: Python commands declared with argparse (add_parser + set_defaults(func=)) or
+// in a command table (name= and func=, grouped by name= and subcommands=) carry a
+// `command` prop on their handler, in a file that imports argparse.
+const cacheVersion = "v364"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
