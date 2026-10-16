@@ -20,3 +20,15 @@ Flags:
     	emit the delta as JSON
   -store string
     	also resolve revisions from a shared history store (default: history.shared_dir)
+
+Examples:
+  # What the last ten commits did to the architecture
+  enola diff HEAD~10..HEAD
+
+  # Everything since a release, up to the newest revision
+  enola diff v1.2.0..
+
+  # Only what touched one module
+  enola diff --focus internal/auth HEAD~10..HEAD
+
+See also: enola help show, enola help log, enola help blame

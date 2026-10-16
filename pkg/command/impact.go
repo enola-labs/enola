@@ -55,6 +55,7 @@ func (r *Runner) runImpact(ctx context.Context, args []string, stdout, stderr io
 				"  2  the command could not run, or nothing was traversed because the target\n"+
 				"     matched nothing, or too many nodes to pick from\n\nFlags:\n")
 		fs.PrintDefaults()
+		r.writeHelpFooter(fs.Output(), args, "impact")
 	}
 	if err := fs.Parse(args); err != nil {
 		return usageError

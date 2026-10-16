@@ -17,6 +17,7 @@ func (r *Runner) Cluster(args []string) {
 		fmt.Fprint(os.Stderr, "Usage: "+r.name()+" cluster init [--dry-run] [dir]\n\n"+
 			"init writes a cluster config for a folder that holds several git repositories.\n"+
 			"Run `"+r.name()+" cluster init --help`.\n")
+		r.writeHelpFooter(os.Stderr, args, "cluster")
 		os.Exit(check.StatusUsageError.ExitCode())
 	}
 	r.ClusterInit(args[1:])
@@ -35,6 +36,7 @@ func (r *Runner) ClusterInit(args []string) {
 			"immediate subfolder that is a git repository. Pass the file to --generate to\n"+
 			"index them as one linked graph. Never overwrites an existing config.\n")
 		fs.PrintDefaults()
+		r.writeHelpFooter(fs.Output(), args, "cluster init")
 	}
 	if err := fs.Parse(args); err != nil {
 		os.Exit(check.StatusUsageError.ExitCode())

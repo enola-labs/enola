@@ -1,0 +1,55 @@
+$ enola --help flows
+exit: 2
+--- stdout
+--- stderr
+Usage: enola flows [flags] [repo_path|config_path]
+
+Rank the ways into a program by what each reaches. An entry is a served
+route's handler, a program's main, or a symbol a framework invokes; its flow
+is every symbol the calls from it reach. With no flags it prints the largest
+flows, one line each.
+
+A program reached through one main is one flow. Its subcommands are steps of
+that flow, shown by --show, and so is a handler written as a function literal,
+which has no symbol of its own. A library has no entry and lists nothing.
+
+A flow is a floor, not a measurement: the walk ends at any call whose target
+is no symbol in the graph. The unresolved column counts those calls. Most of
+them leave the repository, for the standard library or an imported package;
+the rest are calls on a value whose type the extractor could not name.
+Entries that reach the same symbols are folded into one flow, and a flow that
+sits almost wholly inside a larger one says which.
+
+The program's flows are listed first. A flow whose entry is an example, a
+script, a migration or build tooling is marked side and listed after them,
+however much it reaches.
+
+Exit codes:
+  0  the report was produced, including one that found no flows
+  2  the command could not run, or --show or --through named nothing it
+     could pick
+
+Flags:
+  -json
+    	emit the report as JSON, every listed flow with its stages and summary
+  -show string
+    	describe one flow: its stages, what it reaches and a summary. Takes a flow's name or a part of it that only one has
+  -through string
+    	list only the flows that reach this symbol
+  -top int
+    	how many flows to list (1-500) (default 10)
+
+Examples:
+  # The ten largest flows
+  enola flows
+
+  # More of them
+  enola flows --top 50
+
+  # One flow's stages and what it reaches, by its name as the listing shows it
+  enola flows --show cmd/server.main
+
+  # Only the flows that reach a symbol
+  enola flows --through SessionStore
+
+See also: enola help impact, enola help endpoint

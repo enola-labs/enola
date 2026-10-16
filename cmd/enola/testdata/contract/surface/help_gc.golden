@@ -21,3 +21,15 @@ Flags:
     	remove working revisions (snapshots of uncommitted trees) from the log entirely
   -thin-older-than string
     	drop the stored contents of revisions older than this (e.g. 90d, 720h); their summary lines stay
+
+Examples:
+  # What the history holds, and what would go
+  enola gc --dry-run
+
+  # Remove garbage only
+  enola gc
+
+  # Drop stored contents older than <N> days, keeping the timeline
+  enola gc --thin-older-than 90d
+
+See also: enola help log, enola help history gc

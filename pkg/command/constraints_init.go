@@ -70,6 +70,7 @@ func (r *Runner) ConstraintsInit(args []string) {
 			"whose roles resolve to directories the repository has. Nothing is guessed: a role\n"+
 			"with no directory is left unbound and named in the output.\n")
 		fs.PrintDefaults()
+		r.writeHelpFooter(fs.Output(), args, "constraints init")
 	}
 	if err := fs.Parse(args); err != nil {
 		os.Exit(check.StatusUsageError.ExitCode())

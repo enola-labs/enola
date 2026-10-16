@@ -58,6 +58,7 @@ func (r *Runner) runFlows(ctx context.Context, args []string, stdout, stderr io.
 				"  2  the command could not run, or --show or --through named nothing it\n"+
 				"     could pick\n\nFlags:\n")
 		fs.PrintDefaults()
+		r.writeHelpFooter(fs.Output(), args, "flows")
 	}
 	if err := fs.Parse(args); err != nil {
 		return usageError

@@ -2,6 +2,6 @@ $ enola frobnicate
 exit: 1
 --- stdout
 --- stderr
-unknown command "frobnicate" (expected one of: check, cluster, constraints, plan, coverage, endpoint, impact, flows, doctor, providers, dashboard, baseline, log, show, diff, blame, gc, history, install, uninstall, hook, upgrade), and it is not a path either.
+unknown command "frobnicate" (expected one of: check, cluster, constraints, plan, coverage, endpoint, impact, flows, doctor, providers, dashboard, baseline, log, show, diff, blame, gc, history, install, uninstall, hook, upgrade, help), and it is not a path either.
 
 Run `enola --help`.

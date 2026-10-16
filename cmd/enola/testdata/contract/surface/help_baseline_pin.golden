@@ -1,0 +1,24 @@
+$ enola baseline pin --help
+exit: 2
+--- stdout
+--- stderr
+Usage: enola baseline <pin|show|clear> [config_path]
+
+  pin    freeze the current .enola snapshot as the diff baseline
+  show   report whether a baseline exists, and what it describes
+  clear  remove the pinned baseline
+
+Examples:
+  # Freeze the architecture before you start editing
+  enola baseline pin
+
+  # The same for another repository
+  enola baseline pin /path/to/repo
+
+  # What the pinned baseline describes
+  enola baseline show
+
+  # Remove it
+  enola baseline clear
+
+See also: enola help check, enola help doctor

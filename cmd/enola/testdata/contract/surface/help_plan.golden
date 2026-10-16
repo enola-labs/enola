@@ -31,3 +31,15 @@ Flags:
     	comma-separated repo-relative paths the intended change touches
   -symbols string
     	comma-separated exact fact names the intended change touches
+
+Examples:
+  # Which constraints govern a change to this file, and its blast radius
+  enola plan internal/auth/session.go
+
+  # A whole directory as the target
+  enola plan --paths=internal/auth
+
+  # The verdicts a patch would produce, before it is applied
+  enola plan --patch change.diff
+
+See also: enola help constraints, enola help impact, enola help check

@@ -17,3 +17,12 @@ Flags:
     	comma-separated subset of: claude, cursor, agents, codex, copilot, pi, opencode
   -yes
     	skip the confirmation prompt
+
+Examples:
+  # Preview what would be removed
+  enola uninstall --dry-run
+
+  # Remove everything install wrote
+  enola uninstall
+
+See also: enola help install

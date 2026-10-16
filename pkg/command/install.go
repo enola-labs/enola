@@ -43,6 +43,7 @@ func (r *Runner) Install(args []string, remove bool) {
 		}
 		fmt.Fprint(os.Stderr, "Flags:\n")
 		fs.PrintDefaults()
+		r.writeHelpFooter(fs.Output(), args, name)
 	}
 	if err := fs.Parse(args); err != nil {
 		os.Exit(2)

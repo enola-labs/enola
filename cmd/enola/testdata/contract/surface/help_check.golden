@@ -52,3 +52,24 @@ Flags:
     	downgrade a --fail-on / --max-spillover policy to warnings (blocking/usage errors still apply)
   -write
     	persist snapshot artifacts to .enola/ (default: read-only, nothing is written)
+
+Examples:
+  # Grade the change against the pinned baseline: report everything, fail nothing
+  enola check
+
+  # Fail on a violation of a layer order you declared
+  enola check --fail-on=layers
+
+  # Opt into the cycle check as well, but only warn this time
+  enola check --fail-on=layers,cycles --warn-only
+
+  # Fail if the change reached outside what you meant to touch
+  enola check --target=internal/auth --max-spillover=0
+
+  # Compare against the preceding snapshot instead of the pin
+  enola check --baseline=previous
+
+  # Write the verdict as SARIF for code scanning
+  enola check --format sarif > enola.sarif
+
+See also: enola help baseline, enola help plan, enola help impact

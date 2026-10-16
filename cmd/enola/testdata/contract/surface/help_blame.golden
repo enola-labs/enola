@@ -30,3 +30,15 @@ Flags:
     	emit the events as JSON
   -store string
     	also search a shared history store (default: history.shared_dir)
+
+Examples:
+  # When did anything matching this enter or leave
+  enola blame internal/auth
+
+  # Only when it first appeared
+  enola blame --first SessionStore
+
+  # Search findings instead of facts
+  enola blame --findings cycle
+
+See also: enola help log, enola help show

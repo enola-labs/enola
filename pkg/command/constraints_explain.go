@@ -33,8 +33,14 @@ func (r *Runner) ConstraintsExplain(args []string) {
 			"For a declared part: its members by file, public face, edges in and out by\n"+
 			"part, and the laws naming it. Read from the current snapshot, never a gate.\n")
 		fs.PrintDefaults()
+		r.writeHelpFooter(fs.Output(), args, "constraints explain")
 	}
-	if err := fs.Parse(args); err != nil || fs.NArg() < 1 {
+	// Parse has already printed the usage for a bad flag or --help; printing it again
+	// here showed the page twice.
+	if err := fs.Parse(args); err != nil {
+		os.Exit(check.StatusUsageError.ExitCode())
+	}
+	if fs.NArg() < 1 {
 		fs.Usage()
 		os.Exit(check.StatusUsageError.ExitCode())
 	}

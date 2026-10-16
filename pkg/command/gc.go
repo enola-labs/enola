@@ -42,6 +42,7 @@ func (r *Runner) GC(args []string) {
 				"complete, and only replay is lost. `log --backfill` can rebuild them.\n\n"+
 				"Flags:\n")
 		fs.PrintDefaults()
+		r.writeHelpFooter(fs.Output(), args, "gc")
 	}
 	if err := fs.Parse(args); err != nil {
 		os.Exit(2)

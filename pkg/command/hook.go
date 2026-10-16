@@ -102,6 +102,23 @@ func (r *Runner) Hook(ctx context.Context, args []string) {
 	if len(args) == 0 {
 		os.Exit(0)
 	}
+	// A harness passes its payload on stdin, never --help, so this only ever answers a
+	// person. It still exits 0, like every other path through here.
+	if HelpRequested(args) {
+		fmt.Fprint(os.Stderr, "Usage: "+r.name()+" hook <session-start|stop>\n\n"+
+			"Run by your coding agent, not by you: `"+r.name()+" install --hooks` registers it.\n"+
+			"Each event reads the agent's JSON payload on stdin.\n\n"+
+			"  session-start  pin a baseline of the session's repository, in a detached\n"+
+			"                 process, so the session's start never waits on a snapshot\n"+
+			"  stop           grade what the session changed against that baseline and,\n"+
+			"                 only when it introduced a regression, report it back to the\n"+
+			"                 agent\n\n"+
+			"It never breaks, delays or clutters a session: every failure, and every\n"+
+			"event this build does not know, exits 0 and says nothing. Run\n"+
+			"`"+r.name()+" doctor` to see whether the hooks are firing.\n"+
+			r.HelpFooter("hook"))
+		os.Exit(0)
+	}
 	switch args[0] {
 	case "stop":
 		r.runStopHook(ctx)

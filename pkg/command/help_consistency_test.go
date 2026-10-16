@@ -26,6 +26,8 @@ func TestDocumentedCommandsAreDispatchable(t *testing.T) {
 	}
 	// What cmd/enola adds for itself.
 	dispatchable["upgrade"] = true
+	// Rewritten by HelpArgs into `<command> --help` before anything dispatches.
+	dispatchable["help"] = true
 
 	spec := cli.DefaultHelp(cli.Binary{Name: "enola"})
 	for _, doc := range spec.Commands {

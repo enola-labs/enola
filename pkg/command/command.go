@@ -57,10 +57,11 @@ func New(bin cli.Binary, ownSubcommands ...string) *Runner {
 	return &Runner{bin: bin, own: ownSubcommands}
 }
 
-// knownSubcommands is everything the binary accepts: what this package dispatches, plus
-// whatever the binary dispatches for itself.
+// knownSubcommands is everything the binary accepts: what this package dispatches,
+// whatever the binary dispatches for itself, and `help`, which HelpArgs rewrites away
+// before either sees it.
 func (r *Runner) knownSubcommands() []string {
-	return append(append([]string{}, Subcommands()...), r.own...)
+	return append(append(append([]string{}, Subcommands()...), r.own...), "help")
 }
 
 // name is the binary as a user types it, used in usage lines and suggested commands.
@@ -140,6 +141,10 @@ func (r *Runner) Dispatch(ctx context.Context, args []string) bool {
 	// was a typo.
 	if args[0] != "hook" && slices.Contains(Subcommands(), args[0]) {
 		SpawnUpdateRefresh()
+	}
+
+	if slices.Contains(Subcommands(), args[0]) && HelpRequested(args[1:]) {
+		args = helpPath(args)
 	}
 
 	switch args[0] {
@@ -223,6 +228,10 @@ func (r *Runner) Dispatch(ctx context.Context, args []string) bool {
 func (r *Runner) UnknownArgHelp(arg string) string {
 	if !strings.HasPrefix(arg, "-") && !strings.ContainsAny(arg, "/\\.") {
 		if near := r.closestSubcommand(arg); near != "" {
+			if near == "help" {
+				return fmt.Sprintf("unknown command %q — did you mean %q?\n\n    %s help\n    %s help <command>",
+					arg, near, r.name(), r.name())
+			}
 			return fmt.Sprintf("unknown command %q — did you mean %q?\n\n    %s %s --help\n\nRun `%s --help` for all commands.",
 				arg, near, r.name(), near, r.name())
 		}
@@ -267,6 +276,23 @@ func editDistance(a, b string) int {
 		prev, cur = cur, prev
 	}
 	return prev[len(b)]
+}
+
+// HelpRequested reports whether args ask for help: -h, -help or --help anywhere before a
+// bare "--". It exists for the commands whose arguments the flag package never sees as
+// flags, because a word comes first: `baseline pin --help` stops parsing at "pin", and the
+// --help after it arrived as a path. Those commands ran instead of describing themselves,
+// and for `baseline pin` and `upgrade` running is not harmless.
+func HelpRequested(args []string) bool {
+	for _, a := range args {
+		switch a {
+		case "--":
+			return false
+		case "-h", "-help", "--help":
+			return true
+		}
+	}
+	return false
 }
 
 // IsDirectory reports whether path names an existing directory. Used throughout to tell

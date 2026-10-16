@@ -36,6 +36,7 @@ func (r *Runner) Dashboard(ctx context.Context, args []string) {
 		fmt.Fprintln(os.Stderr, "The server binds to 127.0.0.1 and stays attached until Ctrl-C.")
 		fmt.Fprintln(os.Stderr, "Run `"+r.name()+" --status` in another terminal to recover its URL.")
 		fmt.Fprintln(os.Stderr, "If Safari blocks local HTTP in HTTPS-Only mode, allow this local address or use another browser.")
+		r.writeHelpFooter(os.Stderr, args, "dashboard")
 	}
 	if err := fs.Parse(args); err != nil {
 		if err == flag.ErrHelp {

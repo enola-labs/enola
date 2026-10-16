@@ -278,6 +278,15 @@ func TestCLIContract_Surface(t *testing.T) {
 		{"diff_no_range", []string{"diff"}},
 		{"check_bad_flag", []string{"check", "--no-such-flag"}},
 		{"check_bad_fail_on", []string{"check", "--fail-on", "no-such-explainer"}},
+		{"help_providers", []string{"providers", "--help"}},
+		{"help_hook", []string{"hook", "--help"}},
+		{"help_upgrade", []string{"upgrade", "--help"}},
+		{"help_baseline_pin", []string{"baseline", "pin", "--help"}},
+		{"help_word", []string{"help"}},
+		{"help_word_flows", []string{"help", "flows"}},
+		{"help_word_nested", []string{"help", "constraints", "mine"}},
+		{"help_flag_flows", []string{"--help", "flows"}},
+		{"help_word_typo", []string{"help", "flwos"}},
 	}
 	for _, sub := range []string{
 		"check", "cluster", "constraints", "plan", "coverage", "endpoint", "impact", "flows", "doctor",

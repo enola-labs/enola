@@ -1,0 +1,7 @@
+$ enola help flwos
+exit: 1
+--- stdout
+--- stderr
+no help for "flwos", did you mean "flows"?
+
+    enola help flows

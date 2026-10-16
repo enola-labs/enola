@@ -15,3 +15,16 @@ shared mount, an S3-synced folder. Plain files, no daemon, no database.
           and deletes nothing without --apply
 
 The store directory is the first argument, or `history.shared_dir` in the config.
+
+Examples:
+  # Share this machine's history through a directory
+  enola history push /mnt/shared/enola-history
+
+  # Import what other machines pushed
+  enola history pull /mnt/shared/enola-history
+
+  # With history.shared_dir set, the store can be left out
+  enola history verify
+
+See also: enola help history push, enola help history pull,
+          enola help history verify, enola help history gc, enola help log

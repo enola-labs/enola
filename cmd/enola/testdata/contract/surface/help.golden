@@ -8,6 +8,7 @@ Give your AI agent a map of the codebase before it starts exploring.
 
 USAGE
   enola [flags] [repo_path|config_path]
+  enola help [command [subcommand]]
   enola dashboard [--open] [repo_path|config_path]
   enola cluster init [--dry-run] [dir]
   enola baseline <pin|show|clear> [repo_path|config_path]
@@ -28,6 +29,10 @@ USAGE
   enola upgrade
 
 COMMANDS
+  help                Show this page, or with a command, that command's own page: its
+                      flags, subcommands, exit codes and examples. "enola help flows",
+                      "enola --help flows" and "enola flows --help" are the same
+                      page. Subcommands work too: "enola help baseline pin".
   dashboard           Explore the latest snapshot in a read-only local web dashboard,
                       without starting an MCP server. Add --open to launch the browser.
                       Stays attached to the terminal; stop with Ctrl-C.
@@ -179,7 +184,8 @@ FLAGS
   --version --json    Print the version and the extractor version as JSON, on stdout.
                       This is the release manifest: what a build is called, and what it
                       EXTRACTS LIKE. See UPDATES.
-  --help, -h          Show this help message
+  --help, -h          Show this help message. Followed by a command, show that
+                      command's help instead: enola --help <command>
 
 CONFIG_PATH
   Path to the config file (default: mcp-arch.yaml). Set `repos:` in it to

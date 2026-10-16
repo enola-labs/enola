@@ -1,0 +1,28 @@
+$ enola providers --help
+exit: 2
+--- stdout
+--- stderr
+Usage: enola providers <list|fetch> [name]
+
+The fact providers this binary carries itself.
+
+  list         name each built-in provider and whether it is ready
+  fetch <name> download the pinned engine library of a built-in provider,
+               verify its published digest, and cache it. After
+               `fetch rubydex`, a `providers:` entry named rubydex with no
+               command runs in-process. The only network access a provider
+               ever makes, and never at snapshot time.
+
+Built-ins: rubydex
+
+Exit codes:
+  0  listed, fetched, or already installed
+  1  the download or its verification failed
+  2  the command could not run
+
+Examples:
+  # Which built-in providers are ready
+  enola providers list
+
+  # Download and verify the Rubydex engine library
+  enola providers fetch rubydex
