@@ -1,0 +1,361 @@
+$ enola help
+exit: 0
+--- stdout
+--- stderr
+enola — MCP server for architectural snapshots
+
+Give your AI agent a map of the codebase before it starts exploring.
+
+USAGE
+  enola [flags] [repo_path|config_path]
+  enola dashboard [--open] [repo_path|config_path]
+  enola cluster init [--dry-run] [dir]
+  enola baseline <pin|show|clear> [repo_path|config_path]
+  enola check [flags] [repo_path|config_path]
+  enola constraints <lint|mine|ledger> [repo_path|config_path]
+  enola plan [flags] [path...] [repo_path|config_path]
+  enola coverage [flags] [repo_path|config_path]
+  enola impact [flags] <target> [repo_path|config_path]
+  enola flows [flags] [repo_path|config_path]
+  enola doctor [repo_path]
+  enola log [flags] [repo_path|config_path]
+  enola show [<revision>] [repo_path|config_path]
+  enola diff <revA>..<revB> [repo_path|config_path]
+  enola blame [flags] <pattern> [repo_path|config_path]
+  enola gc [flags] [repo_path|config_path]
+  enola history <push|pull|verify|gc> [store_dir] [repo_path|config_path]
+  enola install [--hooks] [--global] [--targets=…] [repo_path]
+  enola upgrade
+
+COMMANDS
+  dashboard           Explore the latest snapshot in a read-only local web dashboard,
+                      without starting an MCP server. Add --open to launch the browser.
+                      Stays attached to the terminal; stop with Ctrl-C.
+  cluster             Write a cluster config for a folder that holds several git
+                      repositories. "init" lists every immediate subfolder that is a
+                      repository in cluster.yaml, refusing to overwrite; pass that file
+                      to --generate to index them as one linked graph.
+  install             Write enola's instructions into the files your coding
+                      agents read (Claude Code, Cursor, Copilot, Codex, Pi, opencode,
+                      AGENTS.md). Previews every change and asks before writing.
+                        --hooks   also run the loop automatically, instead of leaving
+                                  the agent to remember. In Claude Code, Codex and Pi:
+                                  pin a baseline at session start and report the
+                                  architectural delta at the end, but only if the
+                                  change introduced a regression. In opencode, which
+                                  has no hooks of that shape: a plugin that points the
+                                  session's first searches at the index instead.
+                                  Opt-in, because both run code. Pi always gets its
+                                  extension, which serves the tools; --hooks only adds
+                                  the session hooks to it.
+                        --targets a comma-separated subset, for narrowing a run. The
+                                  default is every target, and a target whose agent is
+                                  not installed skips itself and says so.
+                        --global  configure this user rather than this repository.
+                        --dry-run show what would change and write nothing.
+  uninstall           Remove everything "install" wrote, leaving the rest of each
+                      file byte-for-byte as it was.
+  baseline            Manage the diff baseline — the "before" your changes are graded
+                      against. "pin" snapshots the repository and freezes it (no separate
+                      --generate needed), "show" reports what the current baseline
+                      describes, "clear" removes it. The baseline is stored per-repository,
+                      in that repo's output dir, so several repos each keep their own.
+  check               Grade what a change did to the architecture against the pinned
+                      baseline, and exit with a code CI can act on:
+                        0 clean · 1 regression · 2 error · 3 declined (not comparable)
+                      Read-only by default — nothing is written, and the baseline stays
+                      put, so it can be run as often as you like. Run
+                      "enola check --help" for the flags.
+  constraints         Author the declared constraint vocabulary. "lint" parses each repo's
+                      enola-intent.yaml (and any cluster-config intent override), reports
+                      every validation problem with its file context, and resolves each
+                      declared component against the current snapshot if one exists —
+                      so a selector that matches nothing is caught while authoring, not
+                      by a vacuously-passing rule. Exits 1 on validation problems.
+                      "mine" searches the snapshot's fact store for near-invariants and
+                      reports candidate rules with their evidence and named exceptions —
+                      proposals for review, never self-adopting law.
+                      "ledger" reports how much of the law you already declared is being
+                      EXCUSED rather than obeyed — each rule's breaches beside the
+                      suppressions and exemptions that signed them away, with every
+                      excuse's owner and age. Evidence for judging a rule, never a gate.
+  plan                The pre-edit contract: which declared constraints govern an
+                      intended change (--paths, --symbols), its blast radius over the
+                      current snapshot, and — for a --patch — the constraint verdicts
+                      that WOULD appear, evaluated over a scratch copy BEFORE any edit
+                      lands in the tree. Nothing is written; a report, never a gate.
+                      Run "enola plan --help" for the flags.
+  coverage            Report which cross-repo edges were resolved and which were not,
+                      per service — telling a genuinely isolated service apart from one
+                      whose outbound edges could not be followed. Needs two or more
+                      repositories in one graph. A report, not a gate: always exits 0.
+  endpoint            Report what changing an HTTP endpoint reaches: the controller
+                      serving it, the models that controller touches, the models
+                      associated with those, the tables behind them, and the callers,
+                      including the frontend screen a calling route module implements.
+                      Use impact when you have a symbol; use this when what you have
+                      is a URL.
+  impact              Report the blast radius of changing a symbol, type or module:
+                      everything that transitively depends on it, by hop depth, with an
+                      exact total. --list names the dependents, --json emits
+                      the raw graph with each one's file and line. The impact_analysis
+                      tool, without a session. Exits 2 when nothing was traversed
+                      because the target matched nothing or too many nodes, so an empty
+                      answer is never an unasked question.
+                      Run "enola impact --help" for the flags.
+  flows               Rank the ways into a program by what each reaches. An entry is a
+                      served route's handler, a program's main, or a symbol a framework
+                      invokes; its flow is every symbol the calls from it reach. --show
+                      describes one flow with its stages, --through lists the flows that
+                      reach a symbol, --json emits the report. A flow is a floor: each one
+                      counts the calls whose target is no symbol in the graph.
+                      Run "enola flows --help" for the flags.
+  log                 EXPERIMENTAL. Show what this repository's architecture has done over
+                      time — one line per recorded snapshot, with what changed since the
+                      one before it. Read-only: it reports what was observed and never
+                      snapshots to fill a gap. Every snapshot is recorded as a revision
+                      (~450 bytes, outside the repo); set `history.enabled: false` to stop.
+  show                EXPERIMENTAL. Show what ONE recorded revision did to the architecture
+                      — "log" says a revision added twelve facts, this says which twelve.
+                      Reconstructs the revision and its predecessor out of
+                      the stored history and compares them, so a past change is described in the same words it
+                      was described in at the time. A revision is a snapshot id or prefix, a
+                      git commit, HEAD~N, @<seq>, a ref name, or `latest` (the default).
+  diff                EXPERIMENTAL. Show the architecture delta between any two recorded
+                      revisions — the question a week of work produces, where "show" answers
+                      for a single one. Either side of the range may be empty, meaning the
+                      oldest or newest recorded revision.
+  blame               EXPERIMENTAL. Show when something entered the architecture and when
+                      it left — "when did this module start importing that one?", which a
+                      snapshot cannot answer however good it is, because it is a question
+                      about the past. Matches a name, a path, or both ends of an edge
+                      against the recorded facts; --findings searches findings instead,
+                      and --first stops at the introduction.
+  gc                  EXPERIMENTAL. Report what the architecture history holds — how many
+                      revisions, how many can still be replayed, how much disk — and remove
+                      what it no longer needs. With no flags it removes only garbage;
+                      --thin-older-than and --prune-working discard things a reader could
+                      still reach, so each has to be asked for.
+  history             EXPERIMENTAL. Share the architecture history between machines through
+                      a directory store — a git repository, a shared mount, an S3-synced
+                      folder. Plain files, content-addressed, tamper-evident. "push" copies
+                      local revisions in, "pull" imports what other machines pushed,
+                      "verify" walks every chain and names gaps and tampering, "gc" applies
+                      retention — printed first, deleted only with --apply, recorded in the
+                      chain. Point it with history.shared_dir or the first argument.
+  doctor              Report whether the session hooks are actually FIRING in this
+                      repository, not merely configured. `install --hooks` can write a
+                      configuration your agent silently ignores — it reports success
+                      either way — so this asks the only question that settles it: when
+                      did each hook last run, and what did it conclude? A report, not a
+                      gate: always exits 0.
+  providers           The fact providers this binary carries itself. `providers list`
+                      names each and whether it is ready; `providers fetch rubydex`
+                      downloads the pinned Rubydex engine library, verifies its published
+                      digest, and caches it, after which a `providers:` entry named
+                      rubydex with no command runs in-process. The only network access a
+                      provider ever makes, and never at snapshot time.
+  upgrade             Download and install the latest enola release, replacing the
+                      running binary in place.
+
+FLAGS
+  --generate          Generate a snapshot and exit (do not start MCP server)
+  --refresh           With --generate on a cluster config: re-read ONE configured repository
+                      into the union the last full generate produced, replacing its slice,
+                      and write the result to that repository and to the union's home. The
+                      other repositories are not re-read. Needs a prior full --generate.
+  --explain [path]    Print a human-readable repository statistics report and exit.
+                      A directory is a repository; a file is a config, so a `repos:`
+                      config reports over the whole cluster.
+  --list              List the MCP tools this build can serve
+  --status            Show MCP server status: uptime, tool usage and estimated value,
+                      aggregated across every repo the server has served. While the server
+                      is running this also prints the dashboard URL.
+  --status --all      Show the per-repo breakdown instead (from ~/.enola/usage/)
+  --no-dashboard      Do not start the localhost dashboard alongside the MCP server
+  --no-cluster        With --generate on a folder that holds several git repositories:
+                      index it as one repository instead of as a cluster
+  --version           Print version information
+  --version --json    Print the version and the extractor version as JSON, on stdout.
+                      This is the release manifest: what a build is called, and what it
+                      EXTRACTS LIKE. See UPDATES.
+  --help, -h          Show this help message
+
+CONFIG_PATH
+  Path to the config file (default: mcp-arch.yaml). Set `repos:` in it to
+  name a multi-repo cluster; entries resolve relative to the config file, so
+  a checked-in cluster config means the same thing wherever it is run from.
+
+EXAMPLES
+  # Start the dashboard and open it (Ctrl-C to stop)
+  enola dashboard --open
+
+  # Start MCP server with default config
+  enola
+
+  # Start MCP server with custom config
+  enola my-config.yaml
+
+  # Generate a snapshot and exit
+  enola --generate
+
+  # Index a whole cluster from one config (see CONFIG_PATH)
+  enola --generate cluster.yaml
+
+  # Re-read one repository of that cluster into the existing union
+  enola --generate --refresh ../service-a cluster.yaml
+
+  # Print a statistics report for a repository and exit
+  enola --explain /path/to/repo
+
+  # Report over a whole cluster
+  enola --explain cluster.yaml
+
+  # Generate snapshot with custom config
+  enola --generate my-config.yaml
+
+  # Freeze another repo's architecture before editing it (see THE GATE)
+  enola baseline pin /path/to/repo
+
+  # Report what your changes did to it (reports everything, fails nothing)
+  enola check /path/to/repo
+
+  # Report what the pinned baseline describes
+  enola baseline show /path/to/repo
+
+  # Tell your agents enola is here (instructions only)
+  enola install
+
+  # …and close the loop automatically at the end of a session
+  enola install --hooks
+
+  # Preview what install would change, writing nothing
+  enola install --hooks --dry-run
+
+  # Remove it all again
+  enola uninstall
+
+  # Fail on a violation of a layer order you declared
+  enola check --fail-on=layers
+
+  # Enforce a policy you set, but only warn this time
+  enola check --fail-on=layers --warn-only
+
+  # See which cross-repo edges resolved, and which did not
+  enola coverage cluster.yaml
+
+  # Just the blind spots
+  enola coverage --unresolved cluster.yaml
+
+  # Are the session hooks actually firing?
+  enola doctor
+
+  # Compare against the preceding snapshot instead of the pin
+  enola check --baseline=previous
+
+  # Fail on a layer order enola only INFERRED (never reaches 1.00)
+  enola check --fail-on=layers --min-confidence=0.8
+
+  # Opt into the cycle check as well
+  enola check --fail-on=layers,cycles
+
+  # Did the change stay where you said it would?
+  enola check --target=internal/auth
+
+  # …and fail if it reached anywhere else
+  enola check --target=internal/auth --max-spillover=0
+
+  # Check MCP server status
+  enola --status
+
+  # Show usage broken down per repo
+  enola --status --all
+
+  # Check version
+  enola --version
+
+DASHBOARD
+  Run "enola dashboard [repo_path|config_path]" to serve the latest snapshot
+  without starting an MCP server; add --open to launch the browser. It stays attached
+  to the terminal until Ctrl-C. The normal MCP
+  server also exposes the same read-only dashboard. Data refresh is explicit, so an
+  investigation is never interrupted. Run "--status" to find its URL, or pass
+  "--no-dashboard" to disable it.
+
+  In an interactive terminal, "--generate", "--refresh", and "check --write"
+  each print an "Explore this snapshot" command using "dashboard --open". CI,
+  redirected output, hooks, and ENOLA_NO_PROMPTS=1 suppress the hint.
+
+THE GATE — grading a change
+  Tests tell you whether behaviour still works. This tells you whether a change
+  altered the STRUCTURE of the system in a way nobody asked for — a layer crossed the
+  wrong way, coupling between modules that had no business knowing about each other.
+
+  It needs a "before" to compare against, so the order matters:
+
+    1.  enola baseline pin /path/to/repo     # freeze how it looks NOW, before editing
+    2.  …make your changes…
+    3.  enola check /path/to/repo            # grade what they did
+
+  Step 1 snapshots the repository and freezes it — no separate --generate needed.
+  Omit the path to act on the current directory.
+
+  The baseline lives in that repository's own output dir (.enola/baseline), so each
+  repo keeps its own and you can hold baselines for several at once. "baseline show"
+  reports what the current one describes; "baseline clear" removes it.
+
+  Step 3 is read-only: it writes nothing and leaves the baseline in place, so it can
+  be run as often as you like and re-run after a fix. It exits 0 when clean, 1 on a
+  structural regression, 2 when it could not run, and 3 when it declined to grade
+  because the baseline is not comparable — 3 is never a statement about your change.
+
+  Step 3 fails nothing on its own. It reports every finding the change introduced and
+  exits 0; "--fail-on=<explainer,…>" names the ones that should break the build, and
+  "--max-spillover=N" bounds how far outside "--target" the change may reach. A run
+  with neither says so in its output rather than printing a bare PASS.
+
+  A path that names a DIRECTORY is a repository; one that names a FILE is a config.
+
+UPDATES
+  enola checks at most once every 12 hours, in the background, whether a newer
+  release exists, and caches the answer in ~/.enola/update.json. No command ever
+  waits on the network for it: the notice you see is a read of that file. When
+  a newer release is found, "enola doctor" reports it and "enola upgrade"
+  installs it.
+
+  The notice says whether the EXTRACTORS changed, not what else did. That single
+  bit is the one that matters for your data: it means snapshots from your build
+  are missing facts a current enola would extract.
+
+  It is silent for a dev build, and disabled entirely by:
+
+    export ENOLA_NO_UPDATE_CHECK=1
+
+  It also never runs when CI is set.
+
+MCP CONFIGURATION
+  Add to your MCP client's config (e.g., Cursor mcp.json):
+
+    {
+      "mcpServers": {
+        "enola": {
+          "command": "enola",
+          "args": ["mcp-arch.yaml"]
+        }
+      }
+    }
+
+  Or if installed globally via "go install":
+
+    {
+      "mcpServers": {
+        "enola": {
+          "command": "enola"
+        }
+      }
+    }
+
+BUILD
+  Version can be set at build time with ldflags:
+
+    go build -ldflags "-X github.com/enola-labs/enola/internal/version.Version=0.1.0" -o enola ./cmd/enola

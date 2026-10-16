@@ -1,0 +1,14 @@
+$ enola upgrade --help
+exit: 2
+--- stdout
+--- stderr
+Usage: enola upgrade
+
+Download and install the latest enola release, replacing the running
+binary in place. A dev build is always treated as out of date. An
+install managed by a package manager (pip, for one) is left alone, with
+the command that upgrades it instead.
+
+Exit codes:
+  0  upgraded, already current, or left to the package manager
+  1  the upgrade failed

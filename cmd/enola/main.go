@@ -51,6 +51,14 @@ func main() {
 	// in place is cmd/enola's own business: it knows the release path it shipped from. It
 	// is still declared to the Runner (below) so a typo like `enola upgrad` is recognised
 	// as a near-miss rather than as an unknown word.
+	cmds := command.New(binary(), "upgrade")
+	// `help <cmd>` and `--help <cmd>` become `<cmd> --help` before anything dispatches,
+	// so they reach the same page as that spelling, upgrade's included.
+	args, err := cmds.HelpArgs(args)
+	if err != nil {
+		log.Fatalf("%v", err)
+	}
+
 	if len(args) > 0 && args[0] == "upgrade" {
 		// upgrade takes no arguments and used to ignore them, so `enola upgrade --help`
 		// replaced the binary instead of describing what it would do.
@@ -70,7 +78,6 @@ func main() {
 		}
 		os.Exit(0)
 	}
-	cmds := command.New(binary(), "upgrade")
 	cmds.Dispatch(ctx, args) // returns only when this was not a subcommand
 
 	generateMode := false

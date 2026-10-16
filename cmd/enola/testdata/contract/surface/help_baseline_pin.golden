@@ -1,0 +1,9 @@
+$ enola baseline pin --help
+exit: 2
+--- stdout
+--- stderr
+Usage: enola baseline <pin|show|clear> [config_path]
+
+  pin    freeze the current .enola snapshot as the diff baseline
+  show   report whether a baseline exists, and what it describes
+  clear  remove the pinned baseline

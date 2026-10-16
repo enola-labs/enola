@@ -1,0 +1,36 @@
+$ enola help constraints mine
+exit: 2
+--- stdout
+--- stderr
+Usage: enola constraints mine [flags] [repo_path|config_path]
+
+Mine the current snapshot's fact store for near-invariants — high-regularity
+properties with named exceptions — and report them as candidate constraint
+declarations. Every candidate carries its regularity as numerator/denominator,
+names every exception, and renders a would-be rule `constraints lint` accepts.
+Candidates are proposals for operator review: mining never writes a
+declaration, never touches enola/constraints/, and never feeds the check path.
+With --scaffold-eslint DIR, candidates whose statement is a file-local syntactic
+check (a naming regularity over JS/TS declarations, a forbidden import between
+two directories) are also written as ESLint rule scaffolds under DIR, so an
+AST-shaped rule starts life in the linter and a graph-shaped one in enola.
+
+Exit codes:
+  0  report produced (even with zero candidates)
+  2  the command could not run (no snapshot, bad flag)
+
+Flags:
+  -include-tautologies
+    	also print candidates whose statement holds by construction; suppressed and counted by default
+  -jsonl string
+    	also write the full report as a JSONL artifact to this path
+  -max-exceptions int
+    	most named exceptions a candidate may carry; families above it are suppressed and counted (default 20)
+  -min-confidence float
+    	smallest regularity ratio a candidate may carry (0..1] (default 0.9)
+  -min-support int
+    	smallest denominator a candidate may rest on; families below it are suppressed and counted (default 10)
+  -scaffold-eslint string
+    	write ESLint rule scaffolds (rule, RuleTester test, index.js) for the candidates a file-local rule can express into this directory; the rest are listed with the reason they stay constraint proposals
+  -top int
+    	how many ranked candidates the text report prints (0 = all) (default 50)

@@ -57,10 +57,11 @@ func New(bin cli.Binary, ownSubcommands ...string) *Runner {
 	return &Runner{bin: bin, own: ownSubcommands}
 }
 
-// knownSubcommands is everything the binary accepts: what this package dispatches, plus
-// whatever the binary dispatches for itself.
+// knownSubcommands is everything the binary accepts: what this package dispatches,
+// whatever the binary dispatches for itself, and `help`, which HelpArgs rewrites away
+// before either sees it.
 func (r *Runner) knownSubcommands() []string {
-	return append(append([]string{}, Subcommands()...), r.own...)
+	return append(append(append([]string{}, Subcommands()...), r.own...), "help")
 }
 
 // name is the binary as a user types it, used in usage lines and suggested commands.

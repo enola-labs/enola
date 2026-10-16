@@ -1,0 +1,18 @@
+$ enola hook --help
+exit: 0
+--- stdout
+--- stderr
+Usage: enola hook <session-start|stop>
+
+Run by your coding agent, not by you: `enola install --hooks` registers it.
+Each event reads the agent's JSON payload on stdin.
+
+  session-start  pin a baseline of the session's repository, in a detached
+                 process, so the session's start never waits on a snapshot
+  stop           grade what the session changed against that baseline and,
+                 only when it introduced a regression, report it back to the
+                 agent
+
+It never breaks, delays or clutters a session: every failure, and every
+event this build does not know, exits 0 and says nothing. Run
+`enola doctor` to see whether the hooks are firing.
