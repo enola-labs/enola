@@ -13,9 +13,18 @@ import (
 // declaration walk and the route/storage DSL walks. They used to parse the same
 // bytes twice, once each, which made Scala the corpus's allocation outlier at
 // 50 MiB per file against Java's 0.5 on the same parser infrastructure.
-func extractFileFacts(src []byte, relFile string, packageIndex map[string]string) ([]facts.Fact, string) {
+func extractFileFacts(src []byte, relFile string, packageIndex map[string]string, scalatra bool) ([]facts.Fact, string) {
 	return withScalaTree(src, func(root *sitter.Node) ([]facts.Fact, string) {
-		ff, pkg := walkFileAST(root, src, relFile, packageIndex)
+		handlers := pekkoHandlerBlocks(root, src, relFile)
+		routes, actions := scalatraRoutes(root, src, relFile, scalatra)
+		for k, v := range actions {
+			if handlers == nil {
+				handlers = map[handlerKey]string{}
+			}
+			handlers[k] = v
+		}
+		ff, pkg := walkFileAST(root, src, relFile, packageIndex, handlers)
+		ff = append(ff, routes...)
 		return append(ff, dslFactsFrom(root, src, relFile)...), pkg
 	})
 }
@@ -34,14 +43,15 @@ func withScalaTree(src []byte, fn func(root *sitter.Node) ([]facts.Fact, string)
 }
 
 // walkFileAST is extractFileASTFull over a tree the caller already parsed.
-func walkFileAST(root *sitter.Node, src []byte, relFile string, packageIndex map[string]string) ([]facts.Fact, string) {
+func walkFileAST(root *sitter.Node, src []byte, relFile string, packageIndex map[string]string, inlineHandlers map[handlerKey]string) ([]facts.Fact, string) {
 	w := &astWalker{
-		src:          src,
-		relFile:      relFile,
-		dir:          factpath.Dir(relFile),
-		packageIndex: packageIndex,
-		imports:      map[string]string{},
-		ownerStack:   []int{},
+		src:            src,
+		relFile:        relFile,
+		dir:            factpath.Dir(relFile),
+		packageIndex:   packageIndex,
+		imports:        map[string]string{},
+		ownerStack:     []int{},
+		inlineHandlers: inlineHandlers,
 	}
 	w.walk(root)
 	return w.out, w.pkg
@@ -51,6 +61,10 @@ type astWalker struct {
 	src     []byte
 	relFile string
 	dir     string
+
+	// inlineHandlers are the file's inline route handlers (pekko blocks, Scalatra
+	// actions), each with the symbol name its route is bound to.
+	inlineHandlers map[handlerKey]string
 
 	packageIndex map[string]string
 
@@ -243,6 +257,10 @@ func (w *astWalker) walk(n *sitter.Node) {
 	if n == nil {
 		return
 	}
+	if name, ok := w.inlineHandlers[keyOf(n)]; ok {
+		w.handleInlineHandler(n, name)
+		return
+	}
 	switch kindOf(n) {
 	case "package_clause":
 		w.handlePackage(n)
@@ -312,6 +330,11 @@ func (w *astWalker) walk(n *sitter.Node) {
 	case "if_expression":
 		w.m.decisions++
 	case "case_clause":
+		// An http4s route is a clause of HttpRoutes.of, and its body is the handler.
+		if method := http4sRouteClause(n, w.src); method != "" {
+			w.handleInlineRoute(n, method)
+			return
+		}
 		// A match arm and a catch clause are the same node; both branch.
 		w.m.decisions++
 	case "guard":
@@ -1063,6 +1086,33 @@ func (w *astWalker) handleTypeLike(n *sitter.Node, symbolKind string) {
 	popScope()
 	w.memberStack = w.memberStack[:len(w.memberStack)-1]
 	w.typeStack = w.typeStack[:len(w.typeStack)-1]
+}
+
+// handleInlineRoute gives an http4s route's case clause a symbol of its own, named
+// as the route walk names it.
+func (w *astWalker) handleInlineRoute(n *sitter.Node, method string) {
+	w.handleInlineHandler(n, inlineHandlerName(w.dir, w.typeStack, method, int(n.StartPosition().Row)+1))
+}
+
+// handleInlineHandler gives an inline route handler the symbol name and walks it
+// with that symbol as the owner of its calls.
+func (w *astWalker) handleInlineHandler(n *sitter.Node, name string) {
+	line := int(n.StartPosition().Row) + 1
+	w.out = append(w.out, facts.Fact{
+		Kind: facts.KindSymbol,
+		Name: name,
+		File: w.relFile,
+		Line: line,
+		Props: map[string]any{
+			"symbol_kind":          facts.SymbolFunc,
+			"language":             "scala",
+			"framework_registered": true,
+		},
+		Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: w.dir}},
+	})
+	w.ownerStack = append(w.ownerStack, len(w.out)-1)
+	w.walkChildren(n)
+	w.ownerStack = w.ownerStack[:len(w.ownerStack)-1]
 }
 
 // walkBodyAndParams walks everything under a type declaration EXCEPT the name and

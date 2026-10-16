@@ -36,6 +36,6 @@ func extractFileAST(src []byte, relFile string, packageIndex map[string]string) 
 // the package rather than guessing with it (see resolveTypeName).
 func extractFileASTFull(src []byte, relFile string, packageIndex map[string]string) ([]facts.Fact, string) {
 	return withScalaTree(src, func(root *sitter.Node) ([]facts.Fact, string) {
-		return walkFileAST(root, src, relFile, packageIndex)
+		return walkFileAST(root, src, relFile, packageIndex, pekkoHandlerBlocks(root, src, relFile))
 	})
 }

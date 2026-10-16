@@ -2939,7 +2939,15 @@ import (
 // given a symbol "<dir>.<Type>.handler:<VERB>:<line>" with its calls, and handles its route.
 // v370: a console script whose target its module only imports is followed through
 // that import, so the root click group it runs is named by the script.
-const cacheVersion = "v370"
+// v371: an http4s route's case clause body is given a symbol
+// "<dir>.<Type>.handler:<VERB>:<line>" that owns its calls, and handles the route.
+// v372: a pekko-http route's handler block (the block its path directive wraps, or
+// the one a conjoined (path & verb) is applied to) is given a symbol
+// "<dir>.<Type>.handler:<line>" that owns its calls, and handles the route.
+// v373: Scalatra routes, verb("/path")(action) statements of a class, trait or
+// object body in a repository that depends on Scalatra, each handled by a symbol
+// "<dir>.<Type>.handler:<VERB>:<line>" that owns the action's calls.
+const cacheVersion = "v373"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

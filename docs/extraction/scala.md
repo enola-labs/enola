@@ -176,6 +176,11 @@ keeps descending. A path block naming two verbs emits two routes. A prefix held 
 value (`pathPrefix(collection.path)`) cannot be resolved without evaluating Scala, so
 the route keeps the resolvable half and is tagged `path_unresolved`.
 
+The route's handler is the block its `path` wraps, or the block a conjoined
+`(path(...) & post)` is applied to. It is given a symbol `<dir>.<Type>.handler:<line>`
+that owns the block's calls, and the route is `handled_by` it; a block that serves two
+verbs is one handler for both routes.
+
 ### http4s
 
 ```scala
@@ -189,6 +194,32 @@ HttpRoutes.of[IO] {
 route  /users/:id   method=GET    (the extractor variable becomes the canonical :name)
 route  /teams       method=POST
 ```
+
+A case clause's body is the route's handler, written in place. It is given a symbol
+`<dir>.<Type>.handler:<VERB>:<line>`, which owns the calls of the body and is
+`framework_registered`, and the route is `handled_by` it.
+
+### Scalatra
+
+```scala
+trait IssuesControllerBase extends ControllerBase {
+  get("/:owner/:repository/issues")(referrersOnly { repository => ... })
+  post("/:owner/:repository/issues/new", issueCreateForm)(readableUsersOnly { ... })
+  ajaxPost("/:owner/:repository/issues/edit/:id", issueEditForm) { form => ... }
+}
+```
+
+```
+route  /:owner/:repository/issues            method=GET
+route  /:owner/:repository/issues/new        method=POST
+route  /:owner/:repository/issues/edit/:id   method=POST   (ajaxGet and ajaxPost are GET and POST)
+```
+
+A route is a statement of a class, trait or object body whose path is a literal
+starting with `/`, which keeps `params.get("id")` out. It is read in a repository whose
+build declares `org.scalatra`, or in a file that imports it: a controller trait
+usually imports nothing of Scalatra and inherits the verbs. The action is the handler,
+given a symbol `<dir>.<Type>.handler:<VERB>:<line>` that owns its calls.
 
 ## Storage and outbound calls
 

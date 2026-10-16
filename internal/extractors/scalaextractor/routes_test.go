@@ -343,3 +343,167 @@ func routeSignature(ff []facts.Fact) string {
 	}
 	return b.String()
 }
+
+// An http4s route's handler is the body of its case clause, which has no symbol of
+// its own: it is given one, "<dir>.<Type>.handler:<VERB>:<line>", that carries the
+// body's calls, and the route is handled by it.
+func TestHTTP4sCaseBodyIsTheHandler(t *testing.T) {
+	src := `package demo
+
+import org.http4s.HttpRoutes
+
+final class Routes(users: UsersDB) {
+  val routes = HttpRoutes.of[IO] {
+    case GET -> Root / "users" / UUIDVar(id) =>
+      users.get(id).flatMap(u => Ok(u.name))
+    case POST -> Root / "users" / name =>
+      Audit.record(name)
+  }
+}
+`
+	ff, _ := extractFileFacts([]byte(src), "src/Routes.scala", map[string]string{}, false)
+	for key, handler := range map[string]string{
+		"GET /users/:id":    "src.Routes.handler:GET:7",
+		"POST /users/:name": "src.Routes.handler:POST:9",
+	} {
+		route, ok := routeFacts(ff)[key]
+		if !ok {
+			t.Errorf("missing route %s; have %v", key, routeKeys(ff))
+			continue
+		}
+		if !hasRelation(route, facts.RelHandledBy, handler) {
+			t.Errorf("%s relations = %v, want handled_by %s", key, route.Relations, handler)
+		}
+		sym := findFact(t, ff, handler)
+		if !sym.PropBool("framework_registered") {
+			t.Errorf("%s is not framework_registered", handler)
+		}
+		calls := 0
+		for _, r := range sym.Relations {
+			if r.Kind == facts.RelCalls || r.Kind == facts.RelInstantiates {
+				calls++
+			}
+		}
+		if calls == 0 {
+			t.Errorf("%s relations = %v, want the case body's calls", handler, sym.Relations)
+		}
+	}
+}
+
+// A pekko route's handler is the block its path directive wraps, or the block a
+// conjoined `(path(...) & verb)` is applied to; it is given a symbol that owns the
+// block's calls. A block serving two verbs is one handler for both routes.
+func TestPekkoRouteBlockIsTheHandler(t *testing.T) {
+	src := `package demo
+
+import org.apache.pekko.http.scaladsl.server.Directives._
+
+class SchedulerServer(scheduler: Scheduler) {
+  val routes =
+    pathPrefix("queue") {
+      path("count") {
+        get {
+          complete(scheduler.queueSize())
+        }
+      } ~ (path("drain") & post) {
+        complete(scheduler.drain())
+      } ~ path("item") {
+        get {
+          complete(scheduler.peek())
+        } ~ delete {
+          complete(scheduler.pop())
+        }
+      }
+    }
+}
+`
+	ff, _ := extractFileFacts([]byte(src), "src/SchedulerServer.scala", map[string]string{}, false)
+	want := map[string]string{
+		"GET /queue/count":   "src.SchedulerServer.handler:8",
+		"POST /queue/drain":  "src.SchedulerServer.handler:12",
+		"GET /queue/item":    "src.SchedulerServer.handler:14",
+		"DELETE /queue/item": "src.SchedulerServer.handler:14",
+	}
+	routes := routeFacts(ff)
+	for key, handler := range want {
+		route, ok := routes[key]
+		if !ok {
+			t.Errorf("missing route %s; have %v", key, routeKeys(ff))
+			continue
+		}
+		if !hasRelation(route, facts.RelHandledBy, handler) {
+			t.Errorf("%s relations = %v, want handled_by %s", key, route.Relations, handler)
+			continue
+		}
+		sym := findFact(t, ff, handler)
+		calls := 0
+		for _, r := range sym.Relations {
+			if r.Kind == facts.RelCalls {
+				calls++
+			}
+		}
+		if calls == 0 || !sym.PropBool("framework_registered") {
+			t.Errorf("%s: relations %v, props %v, want its block's calls and framework_registered", handler, sym.Relations, sym.Props)
+		}
+	}
+}
+
+// A Scalatra route is a body statement verb("/path")(action), its action the
+// handler; a controller trait that imports nothing of Scalatra is read when the
+// repository depends on it, and a get("key") inside a method is no route.
+func TestScalatraRoutesAndActions(t *testing.T) {
+	src := `package gitbucket.core.controller
+
+trait IssuesControllerBase extends ControllerBase {
+  self: IssuesService =>
+
+  get("/:owner/:repository/issues")(referrersOnly { repository =>
+    searchIssues(repository)
+  })
+
+  post("/:owner/:repository/issues/new", issueCreateForm)(readableUsersOnly { (form, repository) =>
+    createIssue(repository, form)
+  })
+
+  ajaxPost("/:owner/:repository/issues/edit/:id", issueEditForm) { form =>
+    updateIssue(form)
+  }
+
+  private def lookup(): Option[String] = params.get("id")
+}
+`
+	ff, _ := extractFileFacts([]byte(src), "src/IssuesController.scala", map[string]string{}, true)
+	want := map[string]string{
+		"GET /:owner/:repository/issues":           "src.IssuesControllerBase.handler:GET:6",
+		"POST /:owner/:repository/issues/new":      "src.IssuesControllerBase.handler:POST:10",
+		"POST /:owner/:repository/issues/edit/:id": "src.IssuesControllerBase.handler:POST:14",
+	}
+	routes := routeFacts(ff)
+	if len(routes) != len(want) {
+		t.Errorf("routes = %v, want exactly %d", routeKeys(ff), len(want))
+	}
+	for key, handler := range want {
+		route, ok := routes[key]
+		if !ok {
+			t.Errorf("missing route %s; have %v", key, routeKeys(ff))
+			continue
+		}
+		if !hasRelation(route, facts.RelHandledBy, handler) {
+			t.Errorf("%s relations = %v, want handled_by %s", key, route.Relations, handler)
+			continue
+		}
+		sym := findFact(t, ff, handler)
+		calls := 0
+		for _, r := range sym.Relations {
+			if r.Kind == facts.RelCalls {
+				calls++
+			}
+		}
+		if calls == 0 {
+			t.Errorf("%s relations = %v, want its action's calls", handler, sym.Relations)
+		}
+	}
+	if off, _ := extractFileFacts([]byte(src), "src/IssuesController.scala", map[string]string{}, false); len(routeFacts(off)) != 0 {
+		t.Errorf("without Scalatra in the build or the file, routes = %v", routeKeys(off))
+	}
+}
