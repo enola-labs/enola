@@ -766,6 +766,9 @@ func (w *astWalker) handleClassLike(node *sitter.Node, kind string) {
 		},
 		Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: w.dir}},
 	}
+	if doc := cppDoc(w.kinds, node, w.src); doc != "" {
+		f.SetProp(facts.PropDoc, doc)
+	}
 	if kindOf(w.kinds, node) == "union_specifier" {
 		f.SetProp("union", true)
 	}
@@ -836,6 +839,9 @@ func (w *astWalker) handleEnum(node *sitter.Node) {
 			"language":    w.lang,
 		},
 		Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: w.dir}},
+	}
+	if doc := cppDoc(w.kinds, node, w.src); doc != "" {
+		f.SetProp(facts.PropDoc, doc)
 	}
 	if isScopedEnum(node, w.src) {
 		f.SetProp("scoped", true)
@@ -913,6 +919,9 @@ func (w *astWalker) handleFunctionDefinition(node *sitter.Node) {
 			"has_body":    true,
 		},
 		Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: w.dir}},
+	}
+	if doc := cppDoc(w.kinds, node, w.src); doc != "" {
+		f.SetProp(facts.PropDoc, doc)
 	}
 	if receiver != "" {
 		f.SetProp("receiver", receiver)
@@ -1019,6 +1028,9 @@ func (w *astWalker) handleFieldDeclaration(node *sitter.Node) {
 			},
 			Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: w.dir}},
 		}
+		if doc := cppDoc(w.kinds, node, w.src); doc != "" {
+			f.SetProp(facts.PropDoc, doc)
+		}
 		w.applyFuncQualifiers(&f, node, fdecl)
 		w.out = append(w.out, f)
 		return
@@ -1051,6 +1063,7 @@ func (w *astWalker) handleFieldDeclaration(node *sitter.Node) {
 			},
 			Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: w.dir}},
 		})
+		w.setDoc(node)
 	}
 }
 
@@ -1205,6 +1218,9 @@ func (w *astWalker) handleDeclaration(node *sitter.Node) {
 		},
 		Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: w.dir}},
 	}
+	if doc := cppDoc(w.kinds, node, w.src); doc != "" {
+		f.SetProp(facts.PropDoc, doc)
+	}
 	if receiver != "" {
 		f.SetProp("receiver", receiver)
 	}
@@ -1255,6 +1271,7 @@ func (w *astWalker) handleVarInitializers(node *sitter.Node) bool {
 			},
 			Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: w.dir}},
 		})
+		w.setDoc(node)
 		w.pushOwner(len(w.out) - 1)
 		w.walkInitializerRefs(value)
 		w.popOwner()
@@ -1689,6 +1706,7 @@ func (w *astWalker) emitTypeAlias(name string, node *sitter.Node) {
 		},
 		Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: w.dir}},
 	})
+	w.setDoc(node)
 }
 
 func (w *astWalker) handleInclude(node *sitter.Node) {
@@ -2473,4 +2491,11 @@ var cppBuiltins = map[string]bool{
 // builtins/macros, so they should not become RelInstantiates edges.
 var cppBuiltinTypes = map[string]bool{
 	"T": true, "U": true, "K": true, "V": true,
+}
+
+// setDoc sets the doc prop of the declaration node on the fact just appended for it.
+func (w *astWalker) setDoc(node *sitter.Node) {
+	if doc := cppDoc(w.kinds, node, w.src); doc != "" {
+		w.out[len(w.out)-1].SetProp(facts.PropDoc, doc)
+	}
 }

@@ -2969,7 +2969,9 @@ import (
 // v386: Scala symbols carry doc, their Scaladoc or `//` run.
 // v387: Swift symbols carry doc, their `///` lines or `/** */` block.
 // v388: Dart symbols carry doc, their `///` lines or `/** */` block.
-const cacheVersion = "v388"
+// v389: C and C++ symbols carry doc, their Doxygen block or line-comment run; a
+// definition's own doc wins over its prototype's.
+const cacheVersion = "v389"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
