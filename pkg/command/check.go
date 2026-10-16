@@ -133,7 +133,7 @@ func parseFailOn(spec string) (named, unknown []string) {
 	return named, unknown
 }
 
-// runCheck is the `enola check` gate: snapshot the repo, diff it against a baseline,
+// Check is the `enola check` gate: snapshot the repo, diff it against a baseline,
 // grade the delta, and exit with a code CI can act on.
 //
 // It never returns — it exits with the verdict's code. Exit codes are the contract:

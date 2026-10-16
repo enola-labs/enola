@@ -69,9 +69,9 @@ check"` prints it:
 
 ```
 Summary
-  A command enters at command.Runner.Check ("runCheck is the `enola check`
-  gate: snapshot the repo, diff it against a baseline, grade the delta, and
-  exit with a code CI can act on."). It calls command.Runner.resolveTarget,
+  A command enters at command.Runner.Check ("Check is the `enola check` gate:
+  snapshot the repo, diff it against a baseline, grade the delta, and exit
+  with a code CI can act on."). It calls command.Runner.resolveTarget,
   check.RegradeIntersection, check.Verdict.Write and conformance.Compute. Most
   of its 564 symbols sit in pkg/check (124 symbols), internal/facts (73) and
   internal/diff (68).
@@ -97,7 +97,7 @@ counts only. The same flow in `flows.json`:
     "name": "pkg/command.Runner.Check",
     "file": "pkg/command/check.go",
     "line": 141,
-    "doc": "runCheck is the `enola check` gate: snapshot the repo, diff it against a baseline, grade the delta, and exit with a code CI can act on."
+    "doc": "Check is the `enola check` gate: snapshot the repo, diff it against a baseline, grade the delta, and exit with a code CI can act on."
   },
   "stages": [
     {"order": 1, "depth": 1, "name": "pkg/command.Runner.resolveTarget", "reach": 161,
@@ -108,8 +108,6 @@ counts only. The same flow in `flows.json`:
   ]
 }
 ```
-
-The comment on `Check` still calls it `runCheck`: `doc` is the source as written.
 
 ## Metrics object
 
