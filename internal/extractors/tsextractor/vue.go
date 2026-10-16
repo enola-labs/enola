@@ -622,13 +622,15 @@ func (e *TSExtractor) extractVueScriptBlock(kinds *tsutil.KindTable, block *vueS
 		result = append(result, extractGraphQLTagFactsAST(block.Content, relFile, kinds, isTSX, root)...)
 	}
 
+	importMap, internalImports := buildImportBindings(kinds, root, block.Content, relFile, aliases, files)
 	ctx := &extractCtx{
 		src:          block.Content,
 		relFile:      relFile,
 		dir:          factpath.Dir(relFile),
 		isTSX:        isTSX,
 		tsFrameworks: tsFrameworks{isVue: true, isNuxt: isNuxt},
-		importMap:    buildImportSymbols(kinds, root, block.Content, relFile, aliases, files),
+		importMap:    importMap,
+		memberRoots:  memberCallRoots(kinds, root, block.Content, factpath.Dir(relFile), internalImports),
 		imports:      buildEmberImportBindings(kinds, root, block.Content, relFile, aliases),
 	}
 	decls := e.extractDeclarations(kinds, root, ctx)

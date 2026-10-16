@@ -33,6 +33,33 @@ import (
 // test functions that assert the behavior that version introduced. v1 is the
 // implicit baseline (no changelog line), so coverage starts at v2.
 var versionCoverage = map[int][]string{
+	364: {
+		"TestCommands_ArgparseAndCommandTables",
+	},
+	363: {
+		"TestMCPTools_RegisteredHandlers",
+	},
+	362: {
+		"TestFileRoutes_NextJSPagesAndRouteHandlers",
+	},
+	361: {
+		"TestFileRoutes_SvelteKitFormActionsArePostRoutes",
+	},
+	360: {
+		"TestNamespaceImportCall_InComponentScripts",
+	},
+	359: {
+		"TestExtractRoutes_ConcatenatedPathNeedsEveryPart",
+	},
+	358: {
+		"TestNavigationRouteHandlerIsTheScreen",
+	},
+	357: {
+		"TestCommands_ComposedThroughGroups",
+	},
+	356: {
+		"TestAST_QuotedAnnotation_AttributeCall",
+	},
 	355: {
 		"TestRubyCalls_AncestorSingletonKeepsTheNamedClass",
 	},

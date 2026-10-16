@@ -454,7 +454,7 @@ func angularResolveType(name string, ctx *extractCtx, imports map[string]string,
 // buildAngularImports maps each named import to the symbol it names, resolving the
 // import path to a FILE before naming its module.
 //
-// It does not reuse buildImportSymbols, which takes the directory of the resolved
+// It does not reuse buildImportBindings, which takes the directory of the resolved
 // path without first establishing that the path IS a file. For `from './services'`
 // — a barrel index, which Angular and Nx codebases use everywhere — that yields the
 // barrel's PARENT directory, and an edge to `<parent>.UserService` names a node that

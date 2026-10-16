@@ -571,6 +571,80 @@ def consume(q: Queue):
 	}
 }
 
+func TestAST_QuotedAnnotation_AttributeCall(t *testing.T) {
+	src := `
+from typing import Optional
+
+class Entry:
+    def answer(self):
+        pass
+
+class Store:
+    current: "Entry"
+
+    def __init__(self, e: "Entry"):
+        self.last: 'Entry' = e
+
+    def recall(self, e: "Entry", f: Optional["Entry"], g: "Optional[Entry]"):
+        local: "Entry" = e
+        e.answer()
+        f.answer()
+        g.answer()
+        local.answer()
+        self.last.answer()
+        self.current.answer()
+`
+	result := astExtract(t, "app/remember.py", src, false)
+	idx := byName(result)
+
+	fn, ok := idx["app/remember.Store.recall"]
+	if !ok {
+		t.Fatalf("missing app/remember.Store.recall; keys: %v", keys(idx))
+	}
+	calls := relsByKind(fn, facts.RelCalls)
+	found := false
+	for _, c := range calls {
+		if strings.ContainsAny(c, `"'`) {
+			t.Errorf("recall: call target %q keeps the quotes of a forward reference", c)
+		}
+		if c == "app/remember.Entry.answer" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("recall: RelCalls = %v, want app/remember.Entry.answer", calls)
+	}
+}
+
+func TestResolveTypeNamePy_NamesOneTypeOrNone(t *testing.T) {
+	cases := map[string]string{
+		`Entry`:                            "app.Entry",
+		`"Entry"`:                          "app.Entry",
+		`Optional["Entry"]`:                "app.Entry",
+		`"Optional[Entry]"`:                "app.Entry",
+		`Entry | None`:                     "app.Entry",
+		`Union[None, Entry]`:               "app.Entry",
+		`Queue[Job] | None`:                "app.Queue",
+		`Optional[Queue[Job]]`:             "app.Queue",
+		`List[Entry]`:                      "",
+		`Annotated[Entry, Depends(f)]`:     "app.Entry",
+		`ClassVar[Optional[Entry]]`:        "app.Entry",
+		`type[Validator]`:                  "app.Validator",
+		`Optional[type[Validator]]`:        "app.Validator",
+		`Optional[dict[str, Entry]]`:       "",
+		`Optional[Callable[[], Entry]]`:    "",
+		`Optional[int | str | None]`:       "",
+		`dict[str, list[Entry]] | None`:    "",
+		`QuerySet[Line] | list[OrderLine]`: "app.QuerySet",
+		"Optional[\n    Entry\n]":          "app.Entry",
+	}
+	for ann, want := range cases {
+		if got := resolveTypeNamePy(ann, "app", nil); got != want {
+			t.Errorf("resolveTypeNamePy(%q) = %q, want %q", ann, got, want)
+		}
+	}
+}
+
 func TestAST_ConstructorAssignment_AttributeCall(t *testing.T) {
 	src := `
 from .repo import UserRepo

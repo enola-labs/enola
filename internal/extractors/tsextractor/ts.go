@@ -222,7 +222,7 @@ type extractCtx struct {
 	tsFrameworks
 	importMap map[string]string
 	// memberRoots are the names `<name>.<member>()` resolves through (see
-	// memberCallRoots); nil where a component script block builds its own context.
+	// memberCallRoots), for a component's script block as for a file.
 	memberRoots map[string]string
 	// returnTypes are the file's own functions with a declared class return type
 	// (see fileReturnTypes).
@@ -387,7 +387,7 @@ func (e *TSExtractor) fileDeclarations(kinds *tsutil.KindTable, root *sitter.Nod
 	// `export default Name` statement rather than an inline `export` keyword.
 	// Mark the corresponding symbols as exported.
 	markExported(decls, collectExportedLocalNames(kinds, root, ctx.src))
-	return decls
+	return applyMCPTools(kinds, root, ctx, decls)
 }
 
 func markExported(decls []facts.Fact, exported map[string]bool) {
@@ -2002,7 +2002,7 @@ func resolveModuleFile(resolved string, knownFiles map[string]bool) (indexPath, 
 	return "", "", false
 }
 
-// buildImportSymbols returns a map of locally-bound import name → canonical symbol
+// buildImportBindings returns a map of locally-bound import name → canonical symbol
 // fact name for named imports. It lets bare calls to imported functions (e.g.
 // `formatName()`) resolve to the callee's declaration fact. Symbols declared in an
 // imported module are named "<moduleDir>.<exportName>", where moduleDir is the
@@ -2014,17 +2014,13 @@ func resolveModuleFile(resolved string, knownFiles map[string]bool) (indexPath, 
 // loaded repository, whose facts carry their own names for it; the import-aliases
 // binder resolves the one to the other. Left unmapped, the call fell through to the
 // same-directory spelling, which named a symbol of the importing file's own module.
-func buildImportSymbols(kinds *tsutil.KindTable, root *sitter.Node, src []byte, relFile string, aliases map[string]tsAlias, files *tsFileIndex) map[string]string {
-	m, _ := buildImportBindings(kinds, root, src, relFile, aliases, files)
-	return m
-}
-
-// buildImportBindings is buildImportSymbols plus the local names bound from a
-// module of this repository (a relative, aliased or baseUrl path) rather than from
-// a package, each qualified: the ones whose members can name this repository's
-// symbols. A default import is qualified by its local name, the name a default-
-// exported declaration nearly always carries; it is left out of the import map,
-// where it would change what a bare call to it resolves to.
+//
+// The second map holds the local names bound from a module of this repository (a
+// relative, aliased or baseUrl path) rather than from a package, each qualified:
+// the ones whose members can name this repository's symbols. A default import is
+// qualified by its local name, the name a default-exported declaration nearly
+// always carries; it is left out of the import map, where it would change what a
+// bare call to it resolves to.
 func buildImportBindings(kinds *tsutil.KindTable, root *sitter.Node, src []byte, relFile string, aliases map[string]tsAlias, files *tsFileIndex) (map[string]string, map[string]string) {
 	fileDir := factpath.Dir(relFile)
 	m := make(map[string]string)
@@ -2737,7 +2733,7 @@ func tsIsNetworkModule(importPath string) bool {
 // deliberately NOT bound: a network barrel/types module exports pure helpers, error
 // classes, and action-status utilities (`resolved`, `NetworkError`, `assignPaginationDefaults`)
 // alongside any request function, and binding those mislabels every caller as doing I/O.
-// Sibling to buildImportSymbols, which drops external and default imports entirely.
+// Sibling to buildImportBindings, which drops external and default imports entirely.
 func buildIOImportBindings(kinds *tsutil.KindTable, root *sitter.Node, src []byte) map[string]bool {
 	bindings := make(map[string]bool)
 	for i := range root.ChildCount() {

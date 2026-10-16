@@ -241,6 +241,52 @@ export async function load(token: string) {
 	}
 }
 
+// A component's script resolves a call on a namespace import as an ordinary file
+// does: a function of a .svelte or .vue component that calls api.get calls the
+// module's export.
+func TestNamespaceImportCall_InComponentScripts(t *testing.T) {
+	ff := extractAll(t, map[string]string{
+		"src/routes/editor/Editor.svelte": `<script lang="ts">
+	import * as api from '../../lib/api';
+
+	async function save(token: string) {
+		await api.get('articles', token);
+	}
+</script>
+
+<button on:click={() => save('t')}>Save</button>
+`,
+		"src/components/Login.vue": `<script setup lang="ts">
+import * as api from '../lib/api';
+
+async function submit(token: string) {
+	await api.get('users/login', token);
+}
+</script>
+
+<template><button @click="submit('t')">Sign in</button></template>
+`,
+		"src/lib/api.ts": `export function get(p: string, token?: string) { return p }
+`,
+	}, false)
+	callers := map[string]bool{}
+	for _, f := range ff {
+		if f.Kind != facts.KindSymbol {
+			continue
+		}
+		for _, r := range f.Relations {
+			if r.Kind == facts.RelCalls && r.Target == "src/lib.get" {
+				callers[f.Name] = true
+			}
+		}
+	}
+	for _, want := range []string{"src/routes/editor.save", "src/components.submit"} {
+		if !callers[want] {
+			t.Errorf("%s does not call src/lib.get; callers %v", want, callers)
+		}
+	}
+}
+
 // A method called on a local built with `new`, or on a parameter annotated with a
 // class, names that class's method. A global type names nothing.
 func TestLocalTypes_NewAndAnnotatedParameters(t *testing.T) {

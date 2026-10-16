@@ -2900,7 +2900,30 @@ import (
 // its I/O is its own: reading the property no longer performs the setter's I/O.
 // v355: a Ruby singleton call resolved to the ancestor that declares it still couples
 // the caller's module to the module of the class the code names.
-const cacheVersion = "v355"
+// v356: a Python parameter, local or attribute annotation names one type or none: a
+// forward reference without its quotes, Optional/Union/type/Annotated unwrapped, and
+// any other generic as its base, so List[X] no longer credits X with list methods.
+// v357: a click command is named by the path of groups it is reached through: a
+// group by its declared name, nested groups and add_command attachments followed
+// across files, and add_command's name= over the command's own.
+// v358: a go_router route's handler is the screen its builder builds, read through
+// wrappers that pass it on as `child:` and through a block body with one return.
+// v359: a concatenated Go route path is known when every part is (literals, string
+// constants, local strings): "/v1"+"/items" is /v1/items, not /items, and a route
+// whose path has a part computed at run time is not emitted under the readable part.
+// v360: a .svelte or .vue component script resolves a call on a namespace import of
+// the repository, or on a module-level object, as an ordinary file does.
+// v361: a SvelteKit form action is a POST route of type "action" at its page's path
+// (`?/<name>` for a named one), handled by the action.
+// v362: a Next.js page route is handled by its component, and an App Router route.ts
+// is one route per HTTP verb it exports, each handled by that function.
+// v363: a TypeScript MCP tool's handler carries a `tool` prop and framework_registered:
+// an inline handler of .tool, .registerTool or a register…Tool wrapper is given a
+// symbol "<dir>.tool:<name>" with its calls, in a file that imports an MCP library.
+// v364: Python commands declared with argparse (add_parser + set_defaults(func=)) or
+// in a command table (name= and func=, grouped by name= and subcommands=) carry a
+// `command` prop on their handler, in a file that imports argparse.
+const cacheVersion = "v364"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

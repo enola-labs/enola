@@ -274,10 +274,13 @@ func (w *walker) namedArgIdentifier(args *sitter.Node, label string) string {
 
 // builderTarget names the widget a route builds, when the builder body makes it plain.
 //
-// Only a builder whose body is a single constructor call yields a handler; anything
-// else (a conditional, a wrapper chain) is left unnamed rather than guessed, because a
-// handler prop is what `handled_by` binding would key on and a wrong one is worse than
-// none.
+// The body is an expression, or a block whose one return is. The widget is the
+// constructor that expression calls, read through every wrapper that hands its
+// screen on as `child:`: `MaterialExtendedPage(child: const HomeScreen())` and
+// `BlocProvider(create: ..., child: ProfileScreen())` are HomeScreen and
+// ProfileScreen. Anything else (a conditional, several returns, a child chosen at run
+// time) is left unnamed rather than guessed, because a handler prop is what
+// `handled_by` binding would key on and a wrong one is worse than none.
 func (w *walker) builderTarget(args *sitter.Node) string {
 	for _, label := range []string{"builder", "pageBuilder"} {
 		v := namedArgOf(args, w.src, label)
@@ -288,21 +291,101 @@ func (w *walker) builderTarget(args *sitter.Node) string {
 		if body == nil {
 			continue
 		}
-		for _, c := range namedChildren(body) {
-			switch kindOf(c) {
-			case "identifier", "type_identifier":
-				name := c.Utf8Text(w.src)
-				if name != "" && isUpper(name[0]) {
-					return name
-				}
-			case "const_object_expression", "new_expression":
-				if t := childOfKind(c, "type_identifier"); t != nil {
-					return t.Utf8Text(w.src)
-				}
-			}
+		expr := namedChildren(body)
+		if len(expr) == 1 && kindOf(expr[0]) == "block" {
+			expr = soleReturn(expr[0])
+		}
+		if name := w.builtWidget(expr, 0); name != "" {
+			return name
 		}
 	}
 	return ""
+}
+
+// soleReturn is the expression of a block's one return statement, or nil when the
+// block returns in more than one place or not at its top level.
+func soleReturn(block *sitter.Node) []*sitter.Node {
+	var ret *sitter.Node
+	count := 0
+	var visit func(n *sitter.Node)
+	visit = func(n *sitter.Node) {
+		for _, c := range namedChildren(n) {
+			switch kindOf(c) {
+			case "return_statement":
+				count++
+				ret = c
+			case "function_expression", "function_body", "lambda_expression":
+				continue // another function's returns
+			default:
+				visit(c)
+			}
+		}
+	}
+	visit(block)
+	if count != 1 || childOfKind(block, "return_statement") == nil {
+		return nil
+	}
+	return namedChildren(ret)
+}
+
+// builtWidget names the class an expression constructs, given as the sibling run
+// that makes it up (`Name` then its selectors, or one const/new expression), and
+// follows a `child:` argument into the widget it wraps.
+func (w *walker) builtWidget(expr []*sitter.Node, depth int) string {
+	if len(expr) == 0 || depth > 8 {
+		return ""
+	}
+	var name string
+	var args *sitter.Node
+	switch first := expr[0]; kindOf(first) {
+	case "identifier", "type_identifier":
+		name = first.Utf8Text(w.src)
+		for _, sel := range expr[1:] {
+			if kindOf(sel) != "selector" {
+				return ""
+			}
+			if args = firstOfKind(sel, "arguments"); args != nil {
+				break
+			}
+		}
+	case "const_object_expression", "new_expression":
+		if t := childOfKind(first, "type_identifier"); t != nil {
+			name = t.Utf8Text(w.src)
+		}
+		args = childOfKind(first, "arguments")
+		if len(expr) > 1 {
+			return ""
+		}
+	default:
+		return ""
+	}
+	if name == "" || !isUpper(name[0]) || inlineScreens[name] {
+		return ""
+	}
+	if child := namedArgValue(args, w.src, "child"); child != nil {
+		return w.builtWidget(child, depth+1)
+	}
+	return name
+}
+
+// inlineScreens are the framework's page layouts: a builder that constructs one
+// builds its screen inline, and the layout is no screen of the app's.
+var inlineScreens = map[string]bool{"Scaffold": true, "CupertinoPageScaffold": true}
+
+// namedArgValue is the whole value of a named argument, every node after its label.
+func namedArgValue(args *sitter.Node, src []byte, label string) []*sitter.Node {
+	for _, a := range namedChildren(args) {
+		if kindOf(a) != "named_argument" {
+			continue
+		}
+		kids := namedChildren(a)
+		if len(kids) < 2 || kindOf(kids[0]) != "label" ||
+			strings.TrimSuffix(strings.TrimSpace(kids[0].Utf8Text(src)), ":") != label {
+			continue
+		}
+		return kids[1:]
+	}
+	return nil
 }
 
 // pathRefProp / pathPrefixProp carry an unresolved constant reference through to the

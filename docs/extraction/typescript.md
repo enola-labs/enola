@@ -229,9 +229,12 @@ not read. Test files are excluded, as for every route pass.
 
 ## File-based routing
 
-Nuxt pages and SvelteKit routes have no decorator to read; the path *is* the route.
+Next.js, Nuxt and SvelteKit routes have no decorator to read; the path *is* the route.
 
 ```
+app/(app)/settings/page.tsx              → route /settings       framework=nextjs, type=page
+app/api/visualize/route.ts               → route GET /api/visualize, POST /api/visualize   type=route
+pages/about.tsx                          → route /about          framework=nextjs, type=page
 pages/about.vue                          → route /about          framework=nuxt
 src/routes/+page.svelte                  → route /               type=page
 src/routes/about/+page.svelte            → route /about          type=page
@@ -242,8 +245,24 @@ src/routes/+layout.svelte                → route /               type=layout
 ```
 
 Two deliberate non-routes, both covered by tests: `+page.server.ts` is a load function
-rather than an endpoint and emits nothing, and a `.svelte` file outside `src/routes/`
-(a component in `src/lib/`) is not a route.
+rather than an endpoint and emits no route of its own, and a `.svelte` file outside
+`src/routes/` (a component in `src/lib/`) is not a route.
+
+A page is handled by its component: the function its file tags as one, which a
+Next.js page exports beside `generateMetadata`, or else its one exported function. An
+App Router `route.ts` is one route per HTTP verb it exports, each handled by that
+function; one that exports none stays a single route with method `ALL`.
+
+The form actions a `+page.server` file exports in `actions` are the exception: each
+is a POST to its page, handled by the action.
+
+```
+src/routes/login/+page.server.js         actions.default        → route POST /login             type=action
+src/routes/todos/+page.server.ts         actions.create         → route POST /todos?/create     type=action
+```
+
+An `action` route is posted by the page's own form, so like a page it is excluded
+from cross-repo HTTP matching and is never an "unused route".
 
 ## Ember — template tags, classic templates, and the resolver
 

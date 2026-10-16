@@ -418,6 +418,24 @@ func TestAnalyze_SideProgramsRankBelowTheProgram(t *testing.T) {
 	}
 }
 
+// Xcode keeps an app's preview apps under Previews/, and their assets under Preview
+// Content/: each is a program a platform starts, and none is the app. A module
+// that only has Preview in its name is a feature.
+func TestSidePath_XcodePreviews(t *testing.T) {
+	for file, want := range map[string]bool{
+		"App/Previews/HomeFeaturePreview/HomeFeaturePreviewApp.swift":            true,
+		"App/iOS/Preview Content/Sample.swift":                                   true,
+		"Sources/CubePreview/CubePreview.swift":                                  false,
+		"web/src/previews/LinkPreview.tsx":                                       false,
+		"src/Files.App/ViewModels/UserControls/Previews/TextPreviewViewModel.cs": false,
+		"App/iOS/App.swift":                                                      false,
+	} {
+		if got := sidePath(file); got != want {
+			t.Errorf("sidePath(%q) = %v, want %v", file, got, want)
+		}
+	}
+}
+
 func TestAnalyze_AModulesRoleMakesItsEntriesSide(t *testing.T) {
 	a := analyze(
 		facts.Fact{Kind: facts.KindModule, Name: "internal/gen", Repo: "shop", Props: map[string]any{facts.PropModuleRole: facts.ModuleRoleTooling}},

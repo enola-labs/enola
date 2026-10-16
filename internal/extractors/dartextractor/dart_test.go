@@ -479,3 +479,50 @@ class MeSource {
 		}
 	}
 }
+
+// A route's handler is the screen its builder builds, through any wrapper that hands
+// it on as `child:` (a Page, a provider), and through a block body whose one return
+// builds it. A child the builder chooses at run time names nothing.
+func TestNavigationRouteHandlerIsTheScreen(t *testing.T) {
+	src := `
+import 'package:go_router/go_router.dart';
+
+final router = GoRouter(routes: [
+  GoRoute(path: '/home', pageBuilder: (c, s) => MaterialExtendedPage(child: const HomeScreen())),
+  GoRoute(path: '/members', pageBuilder: (c, s) {
+    final id = s.uri.queryParameters['id'];
+    return const MaterialExtendedPage(child: AddMembersScreen());
+  }),
+  GoRoute(path: '/users', builder: (c, s) => const UsersScreen()),
+  GoRoute(path: '/profile', builder: (c, s) => BlocProvider(create: (_) => ProfileBloc(), child: const ProfileScreen())),
+  GoRoute(path: '/picker', pageBuilder: (c, s) => MaterialExtendedPage(child: wide ? const WidePicker() : const NarrowPicker())),
+  GoRoute(path: '/inline', builder: (c, s) => Scaffold(body: const Text('hi'))),
+  GoRoute(path: '/either', builder: (c, s) {
+    if (wide) {
+      return const WidePicker();
+    }
+    return const NarrowPicker();
+  }),
+]);
+`
+	all := walkSource(t, "lib/routing/router.dart", src)
+	want := map[string]string{
+		"/home":    "HomeScreen",
+		"/members": "AddMembersScreen",
+		"/users":   "UsersScreen",
+		"/profile": "ProfileScreen",
+		"/picker":  "",
+		"/inline":  "",
+		"/either":  "",
+	}
+	for path, handler := range want {
+		r := findFact(all, facts.KindRoute, path)
+		if r == nil {
+			t.Errorf("missing route %s", path)
+			continue
+		}
+		if got := r.PropString("handler"); got != handler {
+			t.Errorf("route %s handler = %q, want %q", path, got, handler)
+		}
+	}
+}

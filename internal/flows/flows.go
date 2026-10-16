@@ -738,6 +738,8 @@ var (
 		"bench": true, "benches": true, "fixtures": true, "testdata": true,
 		"script": true, "scripts": true, "tool": true,
 		"migrate": true, "migrations": true,
+		// Xcode's directory of preview assets, spelled as Xcode spells it.
+		"Preview Content": true,
 	}
 	sideAtRoot = map[string]bool{
 		"tools": true, "doc": true, "docs": true, "dev": true, "contrib": true,
@@ -774,6 +776,11 @@ func sidePath(file string) bool {
 	}
 	for _, seg := range segments[:len(segments)-1] {
 		if sideAnywhere[seg] {
+			return true
+		}
+		// Xcode keeps an app's SwiftUI preview apps under Previews/. In another
+		// language, and in lowercase, the name is as often a product feature.
+		if seg == "Previews" && strings.HasSuffix(file, ".swift") {
 			return true
 		}
 		// A compound name such as `dubbo-demo` or `my_examples` says the same.

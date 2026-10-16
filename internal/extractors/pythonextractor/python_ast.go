@@ -270,6 +270,8 @@ type pyWalker struct {
 	// emitted as a single KindFileRef fact per file, which the dead-code detector
 	// folds in so top-level/decorator use marks a production symbol used.
 	fileRefs []facts.Relation
+	// commandAttaches are the click add_command calls of the file (noteAddCommand).
+	commandAttaches []string
 }
 
 // pyBodyMetrics accumulates per-function complexity signals during the single
@@ -549,16 +551,58 @@ func (w *pyWalker) walkModule(root *sitter.Node) {
 		w.walkTopLevelCalls(child)
 	}
 	w.bindCallRouteHandlers()
-	if len(w.fileRefs) > 0 {
+	table := w.argparseCommands(root)
+	if len(w.fileRefs) > 0 || len(w.commandAttaches) > 0 || len(table) > 0 {
+		props := map[string]any{"language": "python"}
+		if len(w.commandAttaches) > 0 {
+			props[propCommandAttaches] = w.commandAttaches
+		}
+		if len(table) > 0 {
+			props[propCommandTable] = table
+		}
 		w.out = append(w.out, facts.Fact{
 			Kind:      facts.KindFileRef,
 			Name:      w.relFile,
 			File:      w.relFile,
 			Line:      1,
-			Props:     map[string]any{"language": "python"},
+			Props:     props,
 			Relations: w.fileRefs,
 		})
 	}
+}
+
+// noteAddCommand records `group.add_command(cmd)` and `group.add_command(cmd,
+// name="x")` in a click file, both names as targets, for composeCommandNames.
+func (w *pyWalker) noteAddCommand(call *sitter.Node) {
+	fn := call.ChildByFieldName("function")
+	args := call.ChildByFieldName("arguments")
+	if fn == nil || args == nil || kindOf(fn) != "attribute" || !importsCommandLibrary(w.src) {
+		return
+	}
+	obj, attr := fn.ChildByFieldName("object"), fn.ChildByFieldName("attribute")
+	if obj == nil || attr == nil || kindOf(obj) != "identifier" || pyText(attr, w.src) != "add_command" {
+		return
+	}
+	var cmd, name string
+	for i := uint(0); i < args.NamedChildCount(); i++ {
+		a := args.NamedChild(i)
+		switch kindOf(a) {
+		case "identifier":
+			if cmd == "" {
+				cmd = pyText(a, w.src)
+			}
+		case "keyword_argument":
+			k, v := a.ChildByFieldName("name"), a.ChildByFieldName("value")
+			if k != nil && v != nil && pyText(k, w.src) == "name" && kindOf(v) == "string" {
+				name = unquotePyType(pyText(v, w.src))
+			}
+		}
+	}
+	group, target := w.valueRefTarget(pyText(obj, w.src)), w.valueRefTarget(cmd)
+	if group == "" || target == "" {
+		return
+	}
+	w.commandAttaches = append(w.commandAttaches, group+"\t"+target+"\t"+name)
 }
 
 // walkTopLevelCalls scans a module-level statement subtree for call sites,
@@ -582,6 +626,7 @@ func (w *pyWalker) walkTopLevelCalls(node *sitter.Node) {
 			w.emitFileRefCall(fn)
 		}
 		w.emitCallRoute(node)
+		w.noteAddCommand(node)
 		if args := node.ChildByFieldName("arguments"); args != nil {
 			w.fileRefs = append(w.fileRefs, w.argRefRelations(args)...)
 		}
@@ -927,6 +972,8 @@ func (w *pyWalker) handleDecoratedDefinition(node *sitter.Node) {
 	// commandDecorator is the text of a click or typer @<group>.command(...) on
 	// this definition, "" when there is none.
 	var commandDecorator string
+	// groupDecorator is the text of a click @<group>.group(...) on this definition.
+	var groupDecorator string
 	// toolDecorator is the text of an MCP @<server>.tool(...) or @tool(...) on this
 	// definition, "" when there is none.
 	var toolDecorator string
@@ -938,6 +985,9 @@ func (w *pyWalker) handleDecoratedDefinition(node *sitter.Node) {
 			text := pyText(c, w.src)
 			if commandDecoratorRe.MatchString(text) {
 				commandDecorator = text
+			}
+			if groupDecoratorRe.MatchString(text) {
+				groupDecorator = text
 			}
 			if toolDecoratorRe.MatchString(text) {
 				toolDecorator = text
@@ -990,6 +1040,16 @@ func (w *pyWalker) handleDecoratedDefinition(node *sitter.Node) {
 			if commandDecorator != "" && fnIdx < len(w.out) && w.out[fnIdx].Kind == facts.KindSymbol && importsCommandLibrary(w.src) {
 				if name := commandName(commandDecorator, pyFuncName(c, w.src)); name != "" {
 					w.out[fnIdx].SetProp("command", name)
+					w.out[fnIdx].SetProp(propCommandLeaf, declaredCommandName(commandDecorator, pyFuncName(c, w.src)))
+					if t := w.valueRefTarget(decoratorGroup(commandDecorator, commandDecoratorRe)); t != "" {
+						w.out[fnIdx].SetProp(propCommandParent, t)
+					}
+				}
+			}
+			if groupDecorator != "" && fnIdx < len(w.out) && w.out[fnIdx].Kind == facts.KindSymbol && importsCommandLibrary(w.src) {
+				w.out[fnIdx].SetProp(propCommandGroup, declaredCommandName(groupDecorator, pyFuncName(c, w.src)))
+				if t := w.valueRefTarget(decoratorGroup(groupDecorator, groupDecoratorRe)); t != "" {
+					w.out[fnIdx].SetProp(propCommandParent, t)
 				}
 			}
 			if toolDecorator != "" && fnIdx < len(w.out) && w.out[fnIdx].Kind == facts.KindSymbol && importsMCP(w.src, toolDecorator) {
@@ -1811,6 +1871,7 @@ func (w *pyWalker) walkForCalls(node *sitter.Node) {
 		}
 		w.emitCallRoute(node)
 		w.emitHTTPClientRoute(node)
+		w.noteAddCommand(node)
 		if fn := node.ChildByFieldName("function"); fn != nil {
 			w.lastCallTarget = ""
 			w.emitCallEdge(fn)
@@ -2824,11 +2885,11 @@ func pyCapitalized(s string) bool {
 // --- Type resolution helpers ---
 
 // resolveTypeNamePy converts a raw annotation string to a canonical qualified name
-// using the file's importMap. Returns "" for external/unresolvable/built-in types.
+// using the file's importMap. Returns "" for external/unresolvable/built-in types,
+// and for anything stripGenericWrapper does not reduce to a dotted name.
 func resolveTypeNamePy(typeStr, module string, importMap map[string]string) string {
-	typeStr = strings.TrimSpace(typeStr)
 	typeStr = stripGenericWrapper(typeStr)
-	if typeStr == "" || pyBuiltinTypes[typeStr] {
+	if typeStr == "" || pyBuiltinTypes[typeStr] || !isPyDottedName(typeStr) {
 		return ""
 	}
 	if strings.Contains(typeStr, ".") {
@@ -2850,33 +2911,87 @@ func resolveTypeNamePy(typeStr, module string, importMap map[string]string) stri
 	return module + "." + typeStr
 }
 
-// stripGenericWrapper strips the outermost generic wrapper from a type string.
-// Handles bracket generics (Optional[X], List[X], Union[X, None]) and PEP-604
-// union syntax (X | None, X | Y).
+// stripGenericWrapper reduces an annotation to the one type name it is read as,
+// the way pyValueType reads a return annotation. A union is its first part that
+// is not None (X | None, Union[X, None], Optional[X]), type[X] and a qualifier
+// such as Annotated[X, ...] or ClassVar[X] are X, and any other generic is its
+// base: Queue[Job] is a Queue and dict[str, X] a dict. A forward
+// reference is read without its quotes, whether the whole annotation is quoted or
+// only a name inside it.
 func stripGenericWrapper(s string) string {
-	// PEP-604 union: "X | Y" — take the first non-None part.
-	if strings.Contains(s, "|") && !strings.Contains(s, "[") {
-		for _, part := range strings.Split(s, "|") {
-			part = strings.TrimSpace(part)
-			if part != "None" && part != "" {
-				return part
+	s = firstNonNonePy(splitTopLevelPy(unquotePyType(s), '|'))
+	for {
+		base, args, ok := splitGenericPy(s)
+		if !ok {
+			return s
+		}
+		switch lastComponent(base) {
+		case "Optional", "Union", "type", "Type", "Annotated", "Final", "ClassVar",
+			"Required", "NotRequired", "ReadOnly":
+			s = firstNonNonePy(splitTopLevelPy(firstNonNonePy(args), '|'))
+		default:
+			return base
+		}
+	}
+}
+
+func unquotePyType(s string) string {
+	return strings.TrimSpace(strings.Trim(strings.TrimSpace(s), `"'`))
+}
+
+// firstNonNonePy is the first part, unquoted, that is neither empty nor None.
+func firstNonNonePy(parts []string) string {
+	for _, p := range parts {
+		if p = unquotePyType(p); p != "" && p != "None" {
+			return p
+		}
+	}
+	return ""
+}
+
+// splitTopLevelPy splits s on sep where it is outside any brackets.
+func splitTopLevelPy(s string, sep byte) []string {
+	var parts []string
+	depth, start := 0, 0
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '[', '(':
+			depth++
+		case ']', ')':
+			depth--
+		case sep:
+			if depth == 0 {
+				parts = append(parts, s[start:i])
+				start = i + 1
 			}
 		}
-		return ""
 	}
-	i := strings.Index(s, "[")
-	if i < 0 {
-		return s
+	return append(parts, s[start:])
+}
+
+// splitGenericPy splits "Base[a, b]" into its base and top-level arguments.
+func splitGenericPy(s string) (string, []string, bool) {
+	i := strings.IndexByte(s, '[')
+	if i <= 0 || !strings.HasSuffix(s, "]") {
+		return "", nil, false
 	}
-	inner := strings.TrimSpace(s[i+1 : len(s)-1])
-	if comma := strings.Index(inner, ","); comma >= 0 {
-		part := strings.TrimSpace(inner[:comma])
-		if part == "None" {
-			part = strings.TrimSpace(inner[comma+1:])
+	return unquotePyType(s[:i]), splitTopLevelPy(s[i+1:len(s)-1], ','), true
+}
+
+// isPyDottedName reports whether s is an identifier or a dotted run of them.
+func isPyDottedName(s string) bool {
+	for _, part := range strings.Split(s, ".") {
+		if part == "" {
+			return false
 		}
-		return part
+		for i, r := range part {
+			ok := r == '_' || unicode.IsLetter(r) || (i > 0 && unicode.IsDigit(r))
+			if !ok {
+				return false
+			}
+		}
 	}
-	return inner
+	return true
 }
 
 // pyBuiltinTypes is the set of Python built-in and standard-library primitive
