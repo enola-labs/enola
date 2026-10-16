@@ -2917,7 +2917,10 @@ import (
 // (`?/<name>` for a named one), handled by the action.
 // v362: a Next.js page route is handled by its component, and an App Router route.ts
 // is one route per HTTP verb it exports, each handled by that function.
-const cacheVersion = "v362"
+// v363: a TypeScript MCP tool's handler carries a `tool` prop and framework_registered:
+// an inline handler of .tool, .registerTool or a register…Tool wrapper is given a
+// symbol "<dir>.tool:<name>" with its calls, in a file that imports an MCP library.
+const cacheVersion = "v363"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

@@ -387,7 +387,7 @@ func (e *TSExtractor) fileDeclarations(kinds *tsutil.KindTable, root *sitter.Nod
 	// `export default Name` statement rather than an inline `export` keyword.
 	// Mark the corresponding symbols as exported.
 	markExported(decls, collectExportedLocalNames(kinds, root, ctx.src))
-	return decls
+	return applyMCPTools(kinds, root, ctx, decls)
 }
 
 func markExported(decls []facts.Fact, exported map[string]bool) {
