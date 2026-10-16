@@ -83,8 +83,18 @@ func (m *Matcher) IndexServerRoutes(all []facts.Fact) map[string][]RouteRef {
 // the index left out or miss one it put in.
 func IsIndexedServerRoute(f facts.Fact) bool {
 	return f.Kind == facts.KindRoute && f.Repo != "" && RoleOf(f) != facts.RoleClient && !IsUIRoute(f) &&
-		f.PropString(facts.PropRouteType) != facts.RouteTypeGraphQL &&
-		NormalizeMethod(f.PropString("method")) != ""
+		!IsNonHTTPRoute(f) && NormalizeMethod(f.PropString("method")) != ""
+}
+
+// IsNonHTTPRoute reports whether a route is no HTTP call or endpoint at all: a
+// GraphQL operation, which the graphql signal joins, or a WordPress hook, which is
+// in-process dispatch. HTTP matching and its coverage leave both alone.
+func IsNonHTTPRoute(f facts.Fact) bool {
+	switch f.PropString(facts.PropRouteType) {
+	case facts.RouteTypeGraphQL, facts.RouteTypeHook:
+		return true
+	}
+	return false
 }
 
 // IndexServerRef adds one server route reference to a server index under every key a
@@ -111,7 +121,7 @@ func (m *Matcher) IndexServerRef(server map[string][]RouteRef, ref RouteRef) {
 func (m *Matcher) IndexServerPathSuffixes(all []facts.Fact) map[string]bool {
 	set := map[string]bool{}
 	for _, f := range all {
-		if f.Kind != facts.KindRoute || f.Repo == "" || RoleOf(f) == facts.RoleClient {
+		if f.Kind != facts.KindRoute || f.Repo == "" || RoleOf(f) == facts.RoleClient || IsNonHTTPRoute(f) {
 			continue
 		}
 		if NormalizeMethod(f.PropString("method")) == "" {
@@ -208,8 +218,7 @@ func (m *Matcher) IsLinkable(f facts.Fact) bool {
 // callers in a single repository, where a frontend and its backend share one tree, do
 // not.
 func (m *Matcher) IsServableRoute(f facts.Fact) bool {
-	if f.Kind != facts.KindRoute || RoleOf(f) == facts.RoleClient ||
-		IsUIRoute(f) || f.PropString(facts.PropRouteType) == facts.RouteTypeGraphQL {
+	if f.Kind != facts.KindRoute || RoleOf(f) == facts.RoleClient || IsUIRoute(f) || IsNonHTTPRoute(f) {
 		return false
 	}
 	if NormalizeMethod(f.PropString("method")) == "" {

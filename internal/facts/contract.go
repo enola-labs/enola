@@ -210,6 +210,11 @@ const (
 	// HTTP path matching the way gRPC is; the graphql cross-repo signal owns
 	// the join.
 	RouteTypeGraphQL = "graphql"
+	// RouteTypeHook marks a WordPress hook fact: a registration on a hook
+	// (add_action, add_filter) or a hook point that fires one (do_action,
+	// apply_filters, role client). A hook is in-process dispatch, not an HTTP
+	// call, so it is kept out of HTTP matching and its coverage.
+	RouteTypeHook = "hook"
 	// RouteTypeMiddleware marks a registration that wraps other routes rather than
 	// serving one. Handler binding skips these: a middleware's "handler" is a
 	// middleware func, and binding it to a route would pollute handled_by.

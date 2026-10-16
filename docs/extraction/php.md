@@ -205,7 +205,21 @@ route  FILTER the_title  inc/hooks.php:7   props: framework=wordpress, hook=add_
 ```
 
 This is what stops a WordPress plugin's entire callback surface from reading as dead code:
-those functions have no PHP caller anywhere.
+those functions have no PHP caller anywhere. Once every file is read, a registration
+is also `handled_by` the symbol its callback names, since a PHP symbol is named by its
+qualified name: `'acme_setup'` is the function, `'WP_Embed::autoembed'` the method, and a
+callback that names nothing of the repository (a PHP built-in) binds nothing. An array
+callback names a method: `array( $this, 'm' )`, `[ self::class, 'm' ]` and
+`[ __CLASS__, 'm' ]` of the enclosing class, `[ Foo::class, 'm' ]` and `array( 'Foo', 'm' )`
+of the class named, bound when one symbol of the repository is `\Foo::m`, and an
+inherited method to the parent or trait that declares it. A callable on another object
+(`array( $obj, 'm' )`) names no class and binds nothing. A `register_rest_route`'s
+`'callback'` option binds the same way.
+
+Every hook fact is of `type` `hook`, and a hook point (`do_action`, `apply_filters` and
+their `_ref_array` forms) has `role` `client`: it is the side that fires the hook, not
+one that handles it. A hook is in-process dispatch, so the cross-repo HTTP linker
+leaves hooks out of matching and out of its coverage counts.
 
 ## Outbound calls and cross-repo linking
 

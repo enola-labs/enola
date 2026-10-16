@@ -124,7 +124,10 @@ Contract props:
   consumer must treat it as optional rather than as the route's classifier.
 - `role`: `client` | `server`. Absent means server: a route declaration found
   without a call site is a served endpoint.
-- `type`: sub-classifies beyond HTTP — `grpc` | `graphql` | `middleware`.
+- `type`: sub-classifies beyond HTTP — `grpc` | `graphql` | `middleware` | `hook`.
+  `hook` is a WordPress hook: a registration on it (`add_action`, `add_filter`) or,
+  with `role` `client`, a hook point that fires it (`do_action`, `apply_filters`). A
+  hook is in-process dispatch and is kept out of HTTP matching.
   Absent means a plain HTTP route. A gRPC route's path is the wire path
   `/pkg.Service/Method`.
 - `framework`: mostly descriptive; the value `grpc` is branched on (it labels

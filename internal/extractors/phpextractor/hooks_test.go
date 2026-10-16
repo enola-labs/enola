@@ -1,6 +1,9 @@
 package phpextractor
 
 import (
+	"context"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/enola-labs/enola/internal/facts"
@@ -76,4 +79,198 @@ func keysRoutes(m map[string]facts.Fact) []string {
 		out = append(out, k)
 	}
 	return out
+}
+
+// A hook registration is handled by the function its string callback names, or the
+// method of a 'Class::method' callback; a callback naming no symbol of the
+// repository binds nothing, and a hook point (do_action, apply_filters) has no
+// handler.
+func TestWordPressHookRegistrationsAreHandled(t *testing.T) {
+	dir := t.TempDir()
+	files := map[string]string{
+		"wp-settings.php": "<?php\n",
+		"wp-includes/default-filters.php": `<?php
+add_action('init', 'wp_widgets_init');
+add_filter('the_content', 'WP_Embed::autoembed');
+add_action('shutdown', 'not_declared_here');
+do_action('init');
+`,
+		"wp-includes/widgets.php": `<?php
+function wp_widgets_init() {
+	register_sidebar_widgets();
+}
+`,
+		"wp-includes/class-wp-embed.php": `<?php
+class WP_Embed {
+	public static function autoembed($content) {
+		return $content;
+	}
+}
+`,
+	}
+	rels := make([]string, 0, len(files))
+	for rel, content := range files {
+		writeFile(t, dir, rel, content)
+		rels = append(rels, rel)
+	}
+	ff, err := New().Extract(context.Background(), dir, rels)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handled := map[string][]string{}
+	for _, f := range ff {
+		if f.Kind != facts.KindRoute || f.PropString("framework") != "wordpress" {
+			continue
+		}
+		key := f.Name + " " + f.PropString("hook")
+		handled[key] = nil
+		for _, r := range f.Relations {
+			if r.Kind == facts.RelHandledBy {
+				handled[key] = append(handled[key], r.Target)
+			}
+		}
+	}
+	want := map[string][]string{
+		"ACTION init add_action":        {"wp_widgets_init"},
+		"FILTER the_content add_filter": {"WP_Embed::autoembed"},
+		"ACTION shutdown add_action":    nil,
+		"ACTION init do_action":         nil,
+	}
+	for key, targets := range want {
+		have, ok := handled[key]
+		if !ok {
+			t.Errorf("missing hook %s; have %v", key, handled)
+			continue
+		}
+		if !slices.Equal(have, targets) {
+			t.Errorf("%s handled_by = %v, want %v", key, have, targets)
+		}
+	}
+}
+
+// An array callback names a method: of the enclosing class for $this, self::class
+// and __CLASS__, of the named class for Foo::class or 'Foo', which binds by its
+// unique qualified name. A callable on another object names no class. A REST
+// route's 'callback' option binds the same way.
+func TestWordPressArrayAndRestCallbacks(t *testing.T) {
+	dir := t.TempDir()
+	files := map[string]string{
+		"wp-settings.php": "<?php\n",
+		"wp-includes/class-wp-customize.php": `<?php
+class WP_Customize {
+	public function __construct( $other ) {
+		add_action( 'wp_footer', array( $this, 'export_preview_data' ) );
+		add_filter( 'the_title', [ __CLASS__, 'filter_title' ] );
+		add_action( 'init', array( $other, 'setup' ) );
+	}
+	public function export_preview_data() {}
+	public static function filter_title( $t ) { return $t; }
+}
+`,
+		"wp-includes/rest-api/class-wp-rest-posts-controller.php": `<?php
+class WP_REST_Posts_Controller {
+	public function protected_title_format() { return '%s'; }
+}
+`,
+		"wp-includes/rest-api/class-wp-rest-menu-items-controller.php": `<?php
+class WP_REST_Menu_Items_Controller extends WP_REST_Posts_Controller {
+	public function prepare() {
+		add_filter( 'protected_title_format', array( $this, 'protected_title_format' ) );
+	}
+}
+`,
+		"plugins/acme/src/Plugin.php": `<?php
+namespace Acme;
+
+use Acme\Rest\ItemsController;
+
+class Plugin {
+	public function boot() {
+		add_action( 'admin_init', [ self::class, 'admin' ] );
+		add_action( 'rest_api_init', [ ItemsController::class, 'register' ] );
+		register_rest_route( 'acme/v1', '/items', array(
+			array(
+				'methods'  => 'GET',
+				'callback' => array( $this, 'list_items' ),
+			),
+		) );
+	}
+	public static function admin() {}
+	public function list_items() {}
+}
+`,
+		"plugins/acme/src/Rest/ItemsController.php": `<?php
+namespace Acme\Rest;
+
+class ItemsController {
+	public static function register() {}
+}
+`,
+	}
+	rels := make([]string, 0, len(files))
+	for rel, content := range files {
+		writeFile(t, dir, rel, content)
+		rels = append(rels, rel)
+	}
+	ff, err := New().Extract(context.Background(), dir, rels)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handled := map[string]string{}
+	for _, f := range ff {
+		if f.Kind != facts.KindRoute || f.PropString("framework") != "wordpress" {
+			continue
+		}
+		handled[f.Name] = ""
+		for _, r := range f.Relations {
+			if r.Kind == facts.RelHandledBy {
+				handled[f.Name] = r.Target
+			}
+		}
+	}
+	for route, handler := range map[string]string{
+		"ACTION wp_footer":              "WP_Customize::export_preview_data",
+		"FILTER the_title":              "WP_Customize::filter_title",
+		"ACTION init":                   "",
+		"ACTION admin_init":             `Acme\Plugin::admin`,
+		"ACTION rest_api_init":          `Acme\Rest\ItemsController::register`,
+		"REST acme/v1":                  `Acme\Plugin::list_items`,
+		"FILTER protected_title_format": "WP_REST_Posts_Controller::protected_title_format",
+	} {
+		have, ok := handled[route]
+		if !ok {
+			t.Errorf("missing hook %s; have %v", route, handled)
+			continue
+		}
+		if have != handler {
+			t.Errorf("%s handled_by %q, want %q", route, have, handler)
+		}
+	}
+}
+
+// Every hook fact is of route type "hook", which the HTTP linker leaves alone, and a
+// hook point (do_action, apply_filters) is the firing side, role client; a
+// registration and a REST route stay the handling side.
+func TestWordPressHookPointsAreTheFiringSide(t *testing.T) {
+	src := `<?php
+add_action('init', 'my_setup');
+do_action('init');
+do_action_ref_array('save', array($post));
+$t = apply_filters('the_title', $title);
+apply_filters_ref_array('the_posts', array($posts));
+register_rest_route('ns/v1', '/items', ['methods' => 'GET']);
+`
+	for _, f := range extractHooks([]byte(src), "wp-content/plugins/acme/acme.php") {
+		fires := strings.HasPrefix(f.PropString("hook"), "do_action") || strings.HasPrefix(f.PropString("hook"), "apply_filters")
+		if got := f.PropString(facts.PropRole) == facts.RoleClient; got != fires {
+			t.Errorf("%s (%s): client = %v, want %v", f.Name, f.PropString("hook"), got, fires)
+		}
+		wantType := facts.RouteTypeHook
+		if f.PropString("hook") == "register_rest_route" {
+			wantType = ""
+		}
+		if got := f.PropString(facts.PropRouteType); got != wantType {
+			t.Errorf("%s: type = %q, want %q", f.Name, got, wantType)
+		}
+	}
 }
