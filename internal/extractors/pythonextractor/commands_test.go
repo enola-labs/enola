@@ -288,8 +288,9 @@ TOOLS = [Tool(name="search", func=search, description="Search")]
 }
 
 // A root click group is named by the console script that runs it, whether the
-// script names the group or a function that calls it; a group no script runs keeps
-// its own name, or none when that name is generic.
+// script names the group, a function that calls it, or a name its module only
+// imports from where the group is defined; a group no script runs keeps its own
+// name, or none when that name is generic.
 func TestCommands_RootGroupNamedByConsoleScript(t *testing.T) {
 	ff := extractPyRepo(t, map[string]string{
 		"pyproject.toml": `[project]
@@ -298,6 +299,37 @@ name = "dispatch"
 [project.scripts]
 dispatch = "dispatch.cli:entrypoint"
 breeze = "breeze.main:main"
+ctl = "ctl.entry:main"
+`,
+		"ctl/__init__.py":          ``,
+		"ctl/commands/__init__.py": ``,
+		"ctl/entry.py": `import click
+from ctl.commands.main_command import main
+from ctl.commands.release_command import release_group
+
+main.add_command(release_group)
+`,
+		"ctl/commands/release_command.py": `from ctl.commands.release_group import release_group
+`,
+		"ctl/commands/release_group.py": `import click
+
+@click.group(name="release")
+def release_group():
+    pass
+
+@release_group.command()
+def publish():
+    pass
+`,
+		"ctl/commands/main_command.py": `import click
+
+@click.group()
+def main():
+    pass
+
+@main.command()
+def status():
+    pass
 `,
 		"dispatch/__init__.py": ``,
 		"dispatch/cli.py": `import click
@@ -352,9 +384,11 @@ def reset():
 		}
 	}
 	want := map[string]string{
-		"dispatch/cli.upgrade_database": "dispatch database upgrade",
-		"breeze/main.shell":             "breeze shell",
-		"tools/admin.reset":             "admin reset",
+		"dispatch/cli.upgrade_database":      "dispatch database upgrade",
+		"breeze/main.shell":                  "breeze shell",
+		"ctl/commands/main_command.status":   "ctl status",
+		"ctl/commands/release_group.publish": "ctl release publish",
+		"tools/admin.reset":                  "admin reset",
 	}
 	for fn, cmd := range want {
 		if got[fn] != cmd {

@@ -56,6 +56,7 @@ func detectTSFrameworks(repoPath, tsRoot string, files []string) (tsFrameworks, 
 	isTypeORM, isDrizzle, isPrisma := detectORMs(repoPath, tsRoot, files)
 	return tsFrameworks{
 		isNextJS:    detectNextJSRoot(repoPath, tsRoot),
+		nextDirs:    nextJSPackageDirs(repoPath),
 		isVue:       detectVueRoot(repoPath, tsRoot),
 		isNuxt:      detectNuxtRoot(repoPath, tsRoot),
 		isSvelteKit: detectSvelteKitRoot(repoPath, tsRoot),
@@ -247,6 +248,9 @@ func (a *tsAssembly) compose(repoPath string, rc *repoCtx, templates map[string]
 	bindServerRouteHandlers(a.facts, a.routerFiles)
 	a.facts = nextRouteVerbs(a.facts)
 	bindFileRouteHandlers(a.facts)
+	for i := range a.facts {
+		a.facts[i].DelProp(propDefaultExport)
+	}
 	a.facts = append(a.facts, svelteKitActionRoutes(a.facts)...)
 
 	if prefix := applyNestGlobalPrefix(a.facts, a.globalPrefixes); prefix != "" {

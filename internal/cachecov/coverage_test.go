@@ -33,6 +33,16 @@ import (
 // test functions that assert the behavior that version introduced. v1 is the
 // implicit baseline (no changelog line), so coverage starts at v2.
 var versionCoverage = map[int][]string{
+	370: {
+		"TestCommands_RootGroupNamedByConsoleScript",
+	},
+	369: {
+		"TestMinimalAPI_LambdaHandlerIsASymbol",
+		"TestMinimalAPI_HandlerBindingAndLambdas",
+	},
+	368: {
+		"TestFileRoutes_NextJSPackageInAWorkspace",
+	},
 	367: {
 		"TestKotlinCapitalizedCallOfAFunction",
 	},

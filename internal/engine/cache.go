@@ -2930,7 +2930,16 @@ import (
 // pointing at the group or at a function that calls it.
 // v367: a capitalized bare Kotlin call is also a calls edge where the repository
 // declares a function under the name it would have (a Compose function call).
-const cacheVersion = "v367"
+// v368: a TypeScript file in a workspace package that is a Next.js app (its own
+// package.json or next.config declares it) is read as Next.js, though the
+// repository's root package is not one. A page that re-exports its screen
+// (`export { default } from "..."`) is handled by that module's default export, and a
+// test path is no Pages Router route.
+// v369: an inline ASP.NET Core minimal-API handler (a lambda or anonymous method) is
+// given a symbol "<dir>.<Type>.handler:<VERB>:<line>" with its calls, and handles its route.
+// v370: a console script whose target its module only imports is followed through
+// that import, so the root click group it runs is named by the script.
+const cacheVersion = "v370"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

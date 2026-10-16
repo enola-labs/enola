@@ -1,6 +1,7 @@
 package dotnetextractor
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/enola-labs/enola/internal/facts"
@@ -232,15 +233,18 @@ public static class Mixed
 	if !hasRel(named, facts.RelHandledBy, want) {
 		t.Errorf("missing handled_by; got %v", named.Relations)
 	}
-	// A lambda has no symbol to point at, so the route carries no handler at all
-	// rather than a fabricated one.
-	if _, ok := inline.Props["handler"]; ok {
-		t.Errorf("lambda route should carry no handler, got %v", inline.Props["handler"])
+	// A lambda is given a symbol of its own, which the route points at; one that
+	// names no declared symbol would be fabricated, so the target must exist.
+	lambda, _ := inline.Props["handler"].(string)
+	if lambda != "Api.Mixed.handler:GET:9" || !hasRel(inline, facts.RelHandledBy, lambda) {
+		t.Errorf("lambda route handler = %q, relations %v, want its lambda symbol", lambda, inline.Relations)
 	}
-	for _, r := range inline.Relations {
-		if r.Kind == facts.RelHandledBy {
-			t.Errorf("lambda route should have no handled_by, got %v", r)
-		}
+	declared := false
+	for _, f := range all {
+		declared = declared || (f.Kind == facts.KindSymbol && f.Name == lambda)
+	}
+	if !declared {
+		t.Errorf("the lambda route's handler %q is no symbol", lambda)
 	}
 }
 
@@ -260,4 +264,76 @@ app.Run();
 `,
 	})
 	assertRoutes(t, got, []string{"GET /api/ping", "POST /echo"})
+}
+
+// A lambda handler has no declaration of its own, so it is given a symbol, named
+// by the route's verb and line, that carries the lambda's calls; the route is
+// handled by it. A method-group handler keeps its method.
+func TestMinimalAPI_LambdaHandlerIsASymbol(t *testing.T) {
+	_, all := routeSet(t, map[string]string{
+		"Host/Startup.cs": `
+namespace Acme.Host;
+
+public static class Endpoints
+{
+    public static void Map(IEndpointRouteBuilder app)
+    {
+        app.MapGet("/request-logs", () =>
+        {
+            return RequestLog.List();
+        });
+        app.MapPost("/upload/{filename}", async context =>
+        {
+            await Uploader.Save(context);
+        });
+        app.MapGet("/named", GetNamed);
+    }
+
+    public static void GetNamed() { }
+}
+
+public static class RequestLog { public static object List() { return null; } }
+public static class Uploader { public static Task Save(object c) { return null; } }
+`,
+	})
+	handlers := map[string]string{}
+	symbols := map[string]facts.Fact{}
+	for _, f := range all {
+		if f.Kind == facts.KindSymbol {
+			symbols[f.Name] = f
+		}
+		if f.Kind == facts.KindRoute {
+			for _, r := range f.Relations {
+				if r.Kind == facts.RelHandledBy {
+					handlers[f.PropString("method")+" "+f.Name] = r.Target
+				}
+			}
+		}
+	}
+	for route, call := range map[string]string{
+		"GET /request-logs":       "RequestLog.List",
+		"POST /upload/{filename}": "Uploader.Save",
+	} {
+		h := handlers[route]
+		s, ok := symbols[h]
+		if !ok {
+			t.Errorf("%s handled_by %q, want a symbol for its lambda (have %v)", route, h, handlers)
+			continue
+		}
+		if !s.PropBool("framework_registered") {
+			t.Errorf("%s: lambda symbol %s is not framework_registered", route, h)
+		}
+		found := false
+		for _, r := range s.Relations {
+			if r.Kind == facts.RelCalls && strings.HasSuffix(r.Target, call) {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("%s: lambda symbol %s relations = %v, want a call to %s", route, h, s.Relations, call)
+		}
+	}
+	if !strings.HasSuffix(handlers["GET /named"], "Endpoints.GetNamed") {
+		t.Errorf("GET /named handled_by %q, want the method group", handlers["GET /named"])
+	}
 }

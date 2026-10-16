@@ -942,9 +942,12 @@ without a whole-program pass, and equally what bounds it: a group passed across 
 function boundary is not followed. A group variable in one method never resolves a
 registration in another.
 
-A **method-group** handler (`GetOrderAsync`) binds to the sibling method it names;
-a **lambda** has no symbol to point at, so the route carries no `handler` at all
-rather than a fabricated one.
+A **method-group** handler (`GetOrderAsync`) binds to the sibling method it names.
+A **lambda** or anonymous method is given a symbol of its own,
+`<dir>.<Type>.handler:<VERB>:<line>` (the file's name standing in for the type in
+top-level statements), which carries the calls of its body and is
+`framework_registered`; the route is handled by it. A handler that is a local
+function is not a symbol and is not bound.
 
 A **string-literal first argument** is the discriminator. That is what keeps
 `MapControllers()`, `MapRazorPages()` and `MapHub<T>()` — none of which take a

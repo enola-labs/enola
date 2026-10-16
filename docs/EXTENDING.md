@@ -98,6 +98,7 @@ gRPC dependency would silently vanish.
 var DefaultServerBases = []ServerBase{
 	{Generator: "protoc-gen-go-grpc", Pattern: regexp.MustCompile(`^(?:.*\.)?Unimplemented(.+)Server$`)},
 	{Generator: "grpc_python_out",    Pattern: regexp.MustCompile(`^(?:.*\.)?(.+)Servicer$`)},
+	{Generator: "grpc-java, dubbo-triple", Pattern: regexp.MustCompile(`^(?:.*\.)?(.+)ImplBase$`)},
 }
 ```
 

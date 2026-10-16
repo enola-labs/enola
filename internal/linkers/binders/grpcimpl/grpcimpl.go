@@ -5,6 +5,7 @@ import (
 	"context"
 	"log"
 	"regexp"
+	"strings"
 
 	"github.com/enola-labs/enola/internal/facts"
 	"github.com/enola-labs/enola/pkg/plugin"
@@ -45,6 +46,13 @@ var DefaultServerBases = []ServerBase{
 		// "stt_service_pb2_grpc.SttServiceServicer" -> "SttService".
 		Generator: "grpc_python_out",
 		Pattern:   regexp.MustCompile(`^(?:.*\.)?(.+)Servicer$`),
+	},
+	{
+		// grpc-java's and Dubbo Triple's server base, extended by a Java impl and
+		// written with its outer class: "GreeterGrpc.GreeterImplBase",
+		// "DubboHealthTriple.HealthImplBase" -> "Greeter", "Health".
+		Generator: "grpc-java, dubbo-triple",
+		Pattern:   regexp.MustCompile(`^(?:.*\.)?(.+)ImplBase$`),
 	},
 }
 
@@ -133,7 +141,11 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 		}
 		target := impl + "." + method
 		if !methodSet[f.Repo][target] {
-			return
+			// grpc-java names an rpc's method in lower camel case: rpc Check is check().
+			target = impl + "." + strings.ToLower(method[:1]) + method[1:]
+			if !methodSet[f.Repo][target] {
+				return
+			}
 		}
 		if f.HasRelation(facts.RelHandledBy, target) {
 			return // idempotent across appends
