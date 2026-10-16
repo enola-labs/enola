@@ -53,14 +53,39 @@ type hookWalker struct {
 	relFile string
 	dir     string
 	out     []facts.Fact
+	// namespace and class are where the walk is, qualified as the declaration walk
+	// names a class, so `array( $this, 'm' )` names the method's symbol.
+	namespace string
+	class     []string
 }
 
 func (h *hookWalker) walk(node *sitter.Node) {
 	if node == nil {
 		return
 	}
-	if kindOf(node) == "function_call_expression" {
+	switch kindOf(node) {
+	case "function_call_expression":
 		h.handleCall(node)
+	case "namespace_definition":
+		name := phpText(node.ChildByFieldName("name"), h.src)
+		body := node.ChildByFieldName("body")
+		if body == nil {
+			h.namespace = name // `namespace Foo;`: the rest of the file
+			return
+		}
+		prev := h.namespace
+		h.namespace = name
+		h.walk(body)
+		h.namespace = prev
+		return
+	case "class_declaration", "trait_declaration", "enum_declaration", "interface_declaration":
+		if name := phpText(node.ChildByFieldName("name"), h.src); name != "" {
+			if h.namespace != "" {
+				name = h.namespace + "\\" + name
+			}
+			h.class = append(h.class, name)
+			defer func() { h.class = h.class[:len(h.class)-1] }()
+		}
 	}
 	for i := uint(0); i < node.ChildCount(); i++ {
 		h.walk(node.Child(i))
@@ -91,7 +116,12 @@ func (h *hookWalker) handleCall(node *sitter.Node) {
 	// For handler registrations, capture the callback target so the dead-code /
 	// coverage explainers can connect the hook to the function it invokes.
 	if registrationHooks[phpText(fn, h.src)] {
-		if cb := callbackName(args, h.src); cb != "" {
+		if cb := h.callbackTarget(argumentAt(args, 1)); cb != "" {
+			props["callback"] = cb
+		}
+	}
+	if method == "REST" {
+		if cb := h.callbackTarget(h.restCallback(argumentAt(args, 2))); cb != "" {
 			props["callback"] = cb
 		}
 	}
@@ -122,25 +152,6 @@ func firstStringArg(args *sitter.Node, src []byte) string {
 	return ""
 }
 
-// callbackName returns the second argument of an add_action/add_filter call as a
-// callback target: a plain string ('my_func'), or "" for array/closure callbacks
-// (their handler is better captured by the call graph).
-func callbackName(args *sitter.Node, src []byte) string {
-	if args == nil {
-		return ""
-	}
-	var argNodes []*sitter.Node
-	for i := uint(0); i < args.ChildCount(); i++ {
-		if a := args.Child(i); kindOf(a) == "argument" {
-			argNodes = append(argNodes, a)
-		}
-	}
-	if len(argNodes) < 2 {
-		return ""
-	}
-	return stringLiteral(argNodes[1].Child(0), src)
-}
-
 // stringLiteral returns the content of a PHP string node ('...' or "...") when it is
 // a plain, non-interpolated literal, or "" otherwise. An interpolated string such as
 // "prefix_{$suffix}" carries variable children and is treated as dynamic (skipped),
@@ -167,6 +178,24 @@ func stringLiteral(node *sitter.Node, src []byte) string {
 	return ""
 }
 
+// bySuffix returns the one symbol whose name ends in suffix, or "" when none or
+// several do.
+func bySuffix(symbols map[string]bool, suffix string) string {
+	if !strings.Contains(suffix, "::") {
+		return ""
+	}
+	found := ""
+	for name := range symbols {
+		if strings.HasSuffix(name, suffix) {
+			if found != "" {
+				return ""
+			}
+			found = name
+		}
+	}
+	return found
+}
+
 // bindWordPressHooks binds each hook registration to the function or method its
 // callback names. A PHP symbol is named by its fully qualified PHP name, so a string
 // callback ('wp_widgets_init', 'WP_Embed::autoembed', '\Acme\boot') is that name
@@ -175,6 +204,7 @@ func stringLiteral(node *sitter.Node, src []byte) string {
 // symbols are known, since a callback is usually declared in another file.
 func bindWordPressHooks(allFacts []facts.Fact) {
 	var symbols map[string]bool
+	var ix *classIndex
 	for i := range allFacts {
 		f := &allFacts[i]
 		if f.Kind != facts.KindRoute || f.PropString("framework") != "wordpress" {
@@ -192,9 +222,131 @@ func bindWordPressHooks(allFacts []facts.Fact) {
 				}
 			}
 		}
-		if symbols[cb] && !f.HasRelation(facts.RelHandledBy, cb) {
-			f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelHandledBy, Target: cb})
-			f.SetProp("handler", cb)
+		target := cb
+		if !symbols[target] {
+			// A class named as written ('Foo::m', Foo::class) is relative to the
+			// file's namespace and imports, which this pass does not see: it binds
+			// when exactly one symbol of the repository ends in \Foo::m.
+			target = bySuffix(symbols, "\\"+cb)
+		}
+		if class, method, ok := strings.Cut(cb, "::"); target == "" && ok {
+			// A method the class inherits is declared on a parent or a trait.
+			if ix == nil {
+				ix = newClassIndex(allFacts)
+			}
+			target = ix.declaringMethod(class, method)
+		}
+		if target != "" && !f.HasRelation(facts.RelHandledBy, target) {
+			f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelHandledBy, Target: target})
+			f.SetProp("handler", target)
 		}
 	}
+}
+
+// argumentAt returns the value of the i-th argument of a call, or nil.
+func argumentAt(args *sitter.Node, i int) *sitter.Node {
+	if args == nil {
+		return nil
+	}
+	n := 0
+	for j := uint(0); j < args.ChildCount(); j++ {
+		a := args.Child(j)
+		if kindOf(a) != "argument" {
+			continue
+		}
+		if n == i {
+			for k := uint(0); k < a.NamedChildCount(); k++ {
+				if c := a.NamedChild(k); kindOf(c) != "name" || a.NamedChildCount() == 1 {
+					return c
+				}
+			}
+			return nil
+		}
+		n++
+	}
+	return nil
+}
+
+// callbackTarget names the function or method a PHP callable value refers to, as a
+// symbol name: 'fn' and 'Class::m' as written, and the array forms
+// array( $this, 'm' ), [ self::class, 'm' ], [ __CLASS__, 'm' ] (the enclosing
+// class) and [ Foo::class, 'm' ], array( 'Foo', 'm' ) (the named class, which
+// bindWordPressHooks resolves). A callable on another object, `array( $obj, 'm' )`,
+// names no class here and yields "".
+func (h *hookWalker) callbackTarget(v *sitter.Node) string {
+	if v == nil {
+		return ""
+	}
+	switch kindOf(v) {
+	case "string", "encapsed_string":
+		return stringLiteral(v, h.src)
+	case "array_creation_expression":
+		var elems []*sitter.Node
+		for i := uint(0); i < v.NamedChildCount(); i++ {
+			if e := v.NamedChild(i); kindOf(e) == "array_element_initializer" {
+				elems = append(elems, e)
+			}
+		}
+		if len(elems) != 2 || elems[0].NamedChildCount() != 1 || elems[1].NamedChildCount() != 1 {
+			return ""
+		}
+		method := stringLiteral(elems[1].NamedChild(0), h.src)
+		class := h.callableClass(elems[0].NamedChild(0))
+		if method == "" || class == "" {
+			return ""
+		}
+		return class + "::" + method
+	}
+	return ""
+}
+
+// callableClass reads the class half of an array callable.
+func (h *hookWalker) callableClass(n *sitter.Node) string {
+	text := phpText(n, h.src)
+	switch kindOf(n) {
+	case "variable_name":
+		if text == "$this" && len(h.class) > 0 {
+			return h.class[len(h.class)-1]
+		}
+		return ""
+	case "name":
+		if text == "__CLASS__" && len(h.class) > 0 {
+			return h.class[len(h.class)-1]
+		}
+	case "string", "encapsed_string":
+		return stringLiteral(n, h.src)
+	case "class_constant_access_expression":
+		if !strings.HasSuffix(text, "::class") {
+			return ""
+		}
+		class := strings.TrimSpace(strings.TrimSuffix(text, "::class"))
+		if (class == "self" || class == "static") && len(h.class) > 0 {
+			return h.class[len(h.class)-1]
+		}
+		return class
+	}
+	return ""
+}
+
+// restCallback returns the 'callback' option of register_rest_route's options
+// array, which is either the options themselves or a list of them (one per method).
+func (h *hookWalker) restCallback(opts *sitter.Node) *sitter.Node {
+	if opts == nil || kindOf(opts) != "array_creation_expression" {
+		return nil
+	}
+	for i := uint(0); i < opts.NamedChildCount(); i++ {
+		e := opts.NamedChild(i)
+		if kindOf(e) != "array_element_initializer" {
+			continue
+		}
+		if e.NamedChildCount() == 2 && stringLiteral(e.NamedChild(0), h.src) == "callback" {
+			return e.NamedChild(1)
+		}
+		if e.NamedChildCount() == 1 {
+			if cb := h.restCallback(e.NamedChild(0)); cb != nil {
+				return cb
+			}
+		}
+	}
+	return nil
 }

@@ -208,7 +208,13 @@ This is what stops a WordPress plugin's entire callback surface from reading as 
 those functions have no PHP caller anywhere. Once every file is read, a registration
 is also `handled_by` the symbol its callback names, since a PHP symbol is named by its
 qualified name: `'acme_setup'` is the function, `'WP_Embed::autoembed'` the method, and a
-callback that names nothing of the repository (a PHP built-in) binds nothing.
+callback that names nothing of the repository (a PHP built-in) binds nothing. An array
+callback names a method: `array( $this, 'm' )`, `[ self::class, 'm' ]` and
+`[ __CLASS__, 'm' ]` of the enclosing class, `[ Foo::class, 'm' ]` and `array( 'Foo', 'm' )`
+of the class named, bound when one symbol of the repository is `\Foo::m`, and an
+inherited method to the parent or trait that declares it. A callable on another object
+(`array( $obj, 'm' )`) names no class and binds nothing. A `register_rest_route`'s
+`'callback'` option binds the same way.
 
 ## Outbound calls and cross-repo linking
 

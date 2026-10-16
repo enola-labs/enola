@@ -146,3 +146,103 @@ class WP_Embed {
 		}
 	}
 }
+
+// An array callback names a method: of the enclosing class for $this, self::class
+// and __CLASS__, of the named class for Foo::class or 'Foo', which binds by its
+// unique qualified name. A callable on another object names no class. A REST
+// route's 'callback' option binds the same way.
+func TestWordPressArrayAndRestCallbacks(t *testing.T) {
+	dir := t.TempDir()
+	files := map[string]string{
+		"wp-settings.php": "<?php\n",
+		"wp-includes/class-wp-customize.php": `<?php
+class WP_Customize {
+	public function __construct( $other ) {
+		add_action( 'wp_footer', array( $this, 'export_preview_data' ) );
+		add_filter( 'the_title', [ __CLASS__, 'filter_title' ] );
+		add_action( 'init', array( $other, 'setup' ) );
+	}
+	public function export_preview_data() {}
+	public static function filter_title( $t ) { return $t; }
+}
+`,
+		"wp-includes/rest-api/class-wp-rest-posts-controller.php": `<?php
+class WP_REST_Posts_Controller {
+	public function protected_title_format() { return '%s'; }
+}
+`,
+		"wp-includes/rest-api/class-wp-rest-menu-items-controller.php": `<?php
+class WP_REST_Menu_Items_Controller extends WP_REST_Posts_Controller {
+	public function prepare() {
+		add_filter( 'protected_title_format', array( $this, 'protected_title_format' ) );
+	}
+}
+`,
+		"plugins/acme/src/Plugin.php": `<?php
+namespace Acme;
+
+use Acme\Rest\ItemsController;
+
+class Plugin {
+	public function boot() {
+		add_action( 'admin_init', [ self::class, 'admin' ] );
+		add_action( 'rest_api_init', [ ItemsController::class, 'register' ] );
+		register_rest_route( 'acme/v1', '/items', array(
+			array(
+				'methods'  => 'GET',
+				'callback' => array( $this, 'list_items' ),
+			),
+		) );
+	}
+	public static function admin() {}
+	public function list_items() {}
+}
+`,
+		"plugins/acme/src/Rest/ItemsController.php": `<?php
+namespace Acme\Rest;
+
+class ItemsController {
+	public static function register() {}
+}
+`,
+	}
+	rels := make([]string, 0, len(files))
+	for rel, content := range files {
+		writeFile(t, dir, rel, content)
+		rels = append(rels, rel)
+	}
+	ff, err := New().Extract(context.Background(), dir, rels)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handled := map[string]string{}
+	for _, f := range ff {
+		if f.Kind != facts.KindRoute || f.PropString("framework") != "wordpress" {
+			continue
+		}
+		handled[f.Name] = ""
+		for _, r := range f.Relations {
+			if r.Kind == facts.RelHandledBy {
+				handled[f.Name] = r.Target
+			}
+		}
+	}
+	for route, handler := range map[string]string{
+		"ACTION wp_footer":              "WP_Customize::export_preview_data",
+		"FILTER the_title":              "WP_Customize::filter_title",
+		"ACTION init":                   "",
+		"ACTION admin_init":             `Acme\Plugin::admin`,
+		"ACTION rest_api_init":          `Acme\Rest\ItemsController::register`,
+		"REST acme/v1":                  `Acme\Plugin::list_items`,
+		"FILTER protected_title_format": "WP_REST_Posts_Controller::protected_title_format",
+	} {
+		have, ok := handled[route]
+		if !ok {
+			t.Errorf("missing hook %s; have %v", route, handled)
+			continue
+		}
+		if have != handler {
+			t.Errorf("%s handled_by %q, want %q", route, have, handler)
+		}
+	}
+}

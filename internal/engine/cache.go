@@ -2949,7 +2949,9 @@ import (
 // "<dir>.<Type>.handler:<VERB>:<line>" that owns the action's calls.
 // v374: a WordPress hook registration is handled by the function or Class::method
 // its string callback names.
-const cacheVersion = "v374"
+// v375: a WordPress array callback (array( $this, 'm' ), [ Foo::class, 'm' ], ...)
+// and a REST route's 'callback' option name their method, and bind to it.
+const cacheVersion = "v375"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
