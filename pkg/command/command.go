@@ -228,6 +228,10 @@ func (r *Runner) Dispatch(ctx context.Context, args []string) bool {
 func (r *Runner) UnknownArgHelp(arg string) string {
 	if !strings.HasPrefix(arg, "-") && !strings.ContainsAny(arg, "/\\.") {
 		if near := r.closestSubcommand(arg); near != "" {
+			if near == "help" {
+				return fmt.Sprintf("unknown command %q — did you mean %q?\n\n    %s help\n    %s help <command>",
+					arg, near, r.name(), r.name())
+			}
 			return fmt.Sprintf("unknown command %q — did you mean %q?\n\n    %s %s --help\n\nRun `%s --help` for all commands.",
 				arg, near, r.name(), near, r.name())
 		}

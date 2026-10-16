@@ -197,7 +197,7 @@ var helpPages = map[string]helpPage{
 		examples: []cli.Example{
 			{Comment: "The ten largest flows", Command: "enola flows"},
 			{Comment: "More of them", Command: "enola flows --top 50"},
-			{Comment: "One flow's stages and what it reaches", Command: "enola flows --show main"},
+			{Comment: "One flow's stages and what it reaches, by its name as the listing shows it", Command: "enola flows --show cmd/server.main"},
 			{Comment: "Only the flows that reach a symbol", Command: "enola flows --through SessionStore"},
 		},
 		seeAlso: []string{"impact", "endpoint"},

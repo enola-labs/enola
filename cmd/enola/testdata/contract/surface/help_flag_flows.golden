@@ -46,8 +46,8 @@ Examples:
   # More of them
   enola flows --top 50
 
-  # One flow's stages and what it reaches
-  enola flows --show main
+  # One flow's stages and what it reaches, by its name as the listing shows it
+  enola flows --show cmd/server.main
 
   # Only the flows that reach a symbol
   enola flows --through SessionStore
