@@ -63,3 +63,36 @@ public class OrderService {
 		}
 	}
 }
+
+// A package's doc is the Javadoc of its package-info.java, read above the
+// annotations on the declaration. A licence there is no description.
+func TestDoc_PackageInfo(t *testing.T) {
+	ff := extractAll(t, map[string]string{
+		"src/shop/package-info.java": "/*\n * Licensed under the Apache License.\n */\n\n/**\n * Orders and payments.\n *\n * More detail.\n * @since 1.0\n */\n@NonNullApi\npackage shop;\n",
+		"src/shop/Order.java":        "package shop;\n\n/** Not the package's doc. */\npublic class Order {}\n",
+		"src/lic/package-info.java":  "/** Copyright 2026 Someone. */\npackage lic;\n",
+		"src/bare/A.java":            "/** Only a class doc. */\npackage bare;\npublic class A {}\n",
+	})
+	for dir, want := range map[string]string{
+		"src/shop": "Orders and payments.",
+		"src/lic":  "",
+		"src/bare": "",
+	} {
+		var mod *facts.Fact
+		for i := range ff {
+			if ff[i].Kind == facts.KindModule && ff[i].Name == dir {
+				mod = &ff[i]
+			}
+		}
+		if mod == nil {
+			t.Errorf("no module fact %s", dir)
+			continue
+		}
+		if got := mod.PropString(facts.PropDoc); got != want {
+			t.Errorf("%s: doc = %q, want %q", dir, got, want)
+		}
+		if _, has := mod.Prop(facts.PropDoc); want == "" && has {
+			t.Errorf("%s: an undocumented package must carry no doc prop", dir)
+		}
+	}
+}

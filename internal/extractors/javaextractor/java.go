@@ -80,19 +80,31 @@ func (e *JavaExtractor) Extract(ctx context.Context, repoPath string, files []st
 
 	// extractFileAST is a pure function of (src, relFile); parse files in parallel
 	// and merge in file order for deterministic output.
-	perFileFacts := parallel.MapFiles(ctx, javaFiles, func(relFile string) []facts.Fact {
+	type javaFileResult struct {
+		ff     []facts.Fact
+		pkgDoc string
+	}
+	perFileFacts := parallel.MapFiles(ctx, javaFiles, func(relFile string) javaFileResult {
 		src, err := os.ReadFile(filepath.Join(repoPath, relFile))
 		if err != nil {
 			log.Printf("[java-extractor] error reading %s: %v", relFile, err)
-			return nil
+			return javaFileResult{}
 		}
-		return extractFileAST(src, relFile)
+		r := javaFileResult{ff: extractFileAST(src, relFile)}
+		if isPackageInfo(relFile) {
+			r.pkgDoc = javaPackageDoc(src)
+		}
+		return r
 	})
 
 	modules := make(map[string]bool)
-	for i, ff := range perFileFacts {
-		allFacts = append(allFacts, ff...)
+	pkgDocs := make(map[string]string)
+	for i, r := range perFileFacts {
+		allFacts = append(allFacts, r.ff...)
 		modules[factpath.Dir(javaFiles[i])] = true
+		if r.pkgDoc != "" {
+			pkgDocs[factpath.Dir(javaFiles[i])] = r.pkgDoc
+		}
 	}
 
 	// Cross-language package index (.kt AND .java) so a Java import of a Kotlin
@@ -118,14 +130,18 @@ func (e *JavaExtractor) Extract(ctx context.Context, repoPath string, files []st
 	allFacts = append(allFacts, extractSPIRefs(repoPath, files, typeIndex)...)
 
 	for dir := range modules {
+		props := map[string]any{
+			"language":           "java",
+			facts.PropModuleRole: jvmsrc.ModuleRole(dir),
+		}
+		if doc := pkgDocs[dir]; doc != "" {
+			props[facts.PropDoc] = doc
+		}
 		allFacts = append(allFacts, facts.Fact{
-			Kind: facts.KindModule,
-			Name: dir,
-			File: dir,
-			Props: map[string]any{
-				"language":           "java",
-				facts.PropModuleRole: jvmsrc.ModuleRole(dir),
-			},
+			Kind:  facts.KindModule,
+			Name:  dir,
+			File:  dir,
+			Props: props,
 		})
 	}
 
