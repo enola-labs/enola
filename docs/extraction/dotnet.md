@@ -946,8 +946,10 @@ A **method-group** handler (`GetOrderAsync`) binds to the sibling method it name
 A **lambda** or anonymous method is given a symbol of its own,
 `<dir>.<Type>.handler:<VERB>:<line>` (the file's name standing in for the type in
 top-level statements), which carries the calls of its body and is
-`framework_registered`; the route is handled by it. A handler that is a local
-function is not a symbol and is not bound.
+`framework_registered`; the route is handled by it. A handler named by a local
+function of the registering method (`router.MapGet("json", RewriteArray)`) is that
+function, given one symbol `<dir>.<Type>.<Method>.<Function>` with its calls for every
+route it serves.
 
 A **string-literal first argument** is the discriminator. That is what keeps
 `MapControllers()`, `MapRazorPages()` and `MapHub<T>()` — none of which take a
