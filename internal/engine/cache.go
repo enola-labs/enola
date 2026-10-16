@@ -2935,7 +2935,9 @@ import (
 // repository's root package is not one. A page that re-exports its screen
 // (`export { default } from "..."`) is handled by that module's default export, and a
 // test path is no Pages Router route.
-const cacheVersion = "v368"
+// v369: an inline ASP.NET Core minimal-API handler (a lambda or anonymous method) is
+// given a symbol "<dir>.<Type>.handler:<VERB>:<line>" with its calls, and handles its route.
+const cacheVersion = "v369"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

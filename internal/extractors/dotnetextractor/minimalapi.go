@@ -1,6 +1,8 @@
 package dotnetextractor
 
 import (
+	"path"
+	"strconv"
 	"strings"
 
 	"github.com/enola-labs/enola/internal/facts"
@@ -60,9 +62,15 @@ type minimalRoute struct {
 	Method  string
 	Path    string
 	Handler string // canonical fact name of a method-group handler, "" for a lambda
-	File    string
-	Dir     string
-	Line    int
+	// lambda is an inline handler, given a symbol by lambdaHandlerSymbols and then
+	// cleared: the node does not outlive the file's parse tree.
+	lambda *sitter.Node
+	// owner is the type the registration sits in, or the file's name for top-level
+	// statements: what qualifies a lambda's symbol.
+	owner string
+	File  string
+	Dir   string
+	Line  int
 }
 
 // collectMinimalAPIRoutes walks a file for minimal-API registrations. It runs its
@@ -243,6 +251,8 @@ func (s *minimalAPIScan) registration(node *sitter.Node, groups map[string]group
 		Method:  verb,
 		Path:    facts.JoinRoutePath(prefix.path, sub),
 		Handler: s.handlerTarget(node),
+		lambda:  s.handlerLambda(node),
+		owner:   s.ownerName(),
 		File:    s.relFile,
 		Dir:     s.dir,
 		Line:    int(node.StartPosition().Row) + 1,
@@ -278,6 +288,42 @@ func (s *minimalAPIScan) handlerTarget(node *sitter.Node) string {
 		return s.dir + "." + strings.Join(s.typeStack, ".") + "." + name
 	}
 	return ""
+}
+
+// ownerName is the enclosing type, or for top-level statements the file's name.
+func (s *minimalAPIScan) ownerName() string {
+	if len(s.typeStack) > 0 {
+		return strings.Join(s.typeStack, ".")
+	}
+	base := path.Base(s.relFile)
+	return strings.TrimSuffix(base, path.Ext(base))
+}
+
+// handlerLambda returns a registration's second argument when it is an inline
+// function: `() => ...`, `async context => ...`, or `delegate { ... }`.
+func (s *minimalAPIScan) handlerLambda(node *sitter.Node) *sitter.Node {
+	args := node.ChildByFieldName("arguments")
+	if args == nil {
+		return nil
+	}
+	idx := 0
+	for i := uint(0); i < uint(args.NamedChildCount()); i++ {
+		a := args.NamedChild(i)
+		if kindOf(a) != "argument" {
+			continue
+		}
+		if idx++; idx != 2 {
+			continue
+		}
+		if inner := firstNamedChild(a); inner != nil {
+			switch kindOf(inner) {
+			case "lambda_expression", "anonymous_method_expression":
+				return inner
+			}
+		}
+		return nil
+	}
+	return nil
 }
 
 // firstStringArg returns an invocation's first argument when it is a string
@@ -326,4 +372,36 @@ func minimalRouteFacts(routes []minimalRoute, symbols map[string]bool) []facts.F
 		})
 	}
 	return out
+}
+
+// lambdaHandlerSymbols gives each inline minimal-API handler a symbol of its own,
+// "<dir>.<Type>.handler:<VERB>:<line>", carrying the calls of its body, and points the
+// route at it. Without one the endpoint had no entry and its calls were the
+// registering method's. The framework invokes it, so it is framework_registered.
+func (w *astWalker) lambdaHandlerSymbols(routes []minimalRoute) {
+	for i := range routes {
+		r := &routes[i]
+		if r.lambda == nil {
+			continue
+		}
+		short := "handler:" + r.Method + ":" + strconv.Itoa(r.Line)
+		w.out = append(w.out, facts.Fact{
+			Kind: facts.KindSymbol,
+			Name: r.Dir + "." + r.owner + "." + short,
+			File: r.File,
+			Line: int(r.lambda.StartPosition().Row) + 1,
+			Props: map[string]any{
+				"symbol_kind":          facts.SymbolFunc,
+				"language":             "csharp",
+				"framework_registered": true,
+			},
+			Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: r.Dir}},
+		})
+		idx := len(w.out) - 1
+		w.pushOwner(idx)
+		w.walkBodyWithMetrics(r.lambda, idx, short, 0)
+		w.popOwner()
+		r.Handler = w.out[idx].Name
+		r.lambda = nil
+	}
 }
