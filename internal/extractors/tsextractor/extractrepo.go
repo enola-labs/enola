@@ -1,10 +1,12 @@
 package tsextractor
 
 import (
+	"bytes"
 	"context"
 	"log"
 	"os"
 	"path/filepath"
+	"unicode/utf8"
 
 	"github.com/enola-labs/enola/internal/extractors/extcoverage"
 	"github.com/enola-labs/enola/internal/extractors/ioclosure"
@@ -143,6 +145,10 @@ func (e *TSExtractor) extractFiles(ctx context.Context, tsFiles []string, source
 			// served statically). Emitting facts for its obfuscated symbols
 			// pollutes complexity/hotspot/performance analysis, so skip it.
 			log.Printf("[ts-extractor] skipping minified/bundled file %s", relFile)
+			return tsFileResult{}
+		}
+		if isBinarySource(src) {
+			log.Printf("[ts-extractor] skipping binary file %s", relFile)
 			return tsFileResult{}
 		}
 		aliases := aliasesForDir(aliasRoots, factpath.Dir(relFile))
@@ -362,4 +368,25 @@ func moduleFacts(repoPath string, modules map[string]bool, isAngular bool, docs 
 		})
 	}
 	return out
+}
+
+// Binary data is a NUL byte plus bytes that are not UTF-8, in the first 8 KB. A
+// video segment (MPEG-TS) is named .ts and is not TypeScript; a source file that
+// keeps a NUL in a string as a separator is still valid UTF-8.
+func isBinarySource(src []byte) bool {
+	head := src[:min(len(src), 8000)]
+	if bytes.IndexByte(head, 0) < 0 {
+		return false
+	}
+	invalid := 0
+	for len(head) > 0 {
+		r, n := utf8.DecodeRune(head)
+		if r == utf8.RuneError && n == 1 {
+			if invalid++; invalid >= 8 {
+				return true
+			}
+		}
+		head = head[n:]
+	}
+	return false
 }
