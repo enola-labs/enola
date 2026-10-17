@@ -21,6 +21,13 @@ The command writes these contract artifacts to `<repo>/.enola/` by default:
 | `receipt.json` | Format version, snapshot identity, provenance, counts, and extraction quality |
 | `facts.jsonl` | Graph nodes and relations, one fact per line |
 | `insights.json` | Findings and their supporting evidence |
+| `flows.json` | The ways into the program, ranked by what each reaches ([schema](schema/flows.md)) |
+| `docs.jsonl` | The whole comment of each documented symbol and module, joined to `facts.jsonl` by `id` ([schema](schema/docs.md)) |
+
+`flows.json` and `docs.jsonl` come from renderers that are on by default; a
+configuration that lists `renderers:` without them writes neither. Trust either
+file only when `receipt.json` lists it in `output_hashes`, since a run that did not
+write it leaves an earlier run's copy in place.
 
 The directory also contains internal artifacts such as `extractor_cache.json`,
 `snapshot.meta.json`, and renderer output. Keep `extractor_cache.json` between
@@ -208,7 +215,8 @@ snapshots after an upgrade.
 - **Install (step 1).** Cognee declares `enola-cli` as a core dependency pinned to the release it has validated, so the binary arrives with the cognee install and nothing is fetched at runtime. The wheel installs it into the Python environment's scripts directory - `.venv/bin/enola`, or `Scripts\enola.exe` on Windows - the same place a direct `pip install enola-cli` puts it.
 - **Binary discovery.** Cognee resolves the binary in this order: `ENOLA_PATH` (an explicit override that always wins; a path to a missing file is a loud error, not a silent fallback), then the environment's scripts directory directly, then `PATH`. The scripts-directory step is what makes it work when the venv is not on `PATH` - container entrypoints, service units and schedulers run the interpreter by path. When nothing is found, cognee raises `EnolaNotInstalledError`; its documented fix is to reinstall cognee, never to download.
 - **Run generation (step 2).** It runs `enola --generate <repo>` from the repository directory with the step-2 environment pair set - `ENOLA_NO_UPDATE_CHECK=1` and `ENOLA_NO_PROMPTS=1` - which disables enola's own update check and prompts. A repository-local configuration can still invoke an external provider with its own network behavior. The snapshot lands in `.enola/` inside the repository; cognee's `.gitignore` carries that entry, and yours should too.
-- **Artifacts (steps 3-6).** It reads the three contract artifacts - `facts.jsonl`, `insights.json` and `receipt.json` - and a receipt whose `format_version` cognee does not understand is a hard error whose message points at upgrading cognee, not at editing the receipt. A missing receipt is tolerated for compatibility with historical snapshots, while an unparseable receipt is logged and ignored. Cognee checks `fact_count` and surfaces extraction-quality signals, but does not currently verify `insight_count` or `output_hashes`.
+- **Artifacts (steps 3-6).** It reads `facts.jsonl`, `insights.json` and `receipt.json`, and `flows.json` when the receipt's `output_hashes` entry matches that file's bytes, so a copy an earlier run left behind is ignored. A receipt whose `format_version` cognee does not understand is a hard error whose message points at upgrading cognee, not at editing the receipt. A missing receipt is tolerated for compatibility with historical snapshots, while an unparseable receipt is logged and ignored. Cognee checks `fact_count` and surfaces extraction-quality signals, but does not currently verify `insight_count`, or `output_hashes` for any file other than `flows.json`.
+- **Docs.** A symbol's `doc` prop is stored on its code node, and its docstring is indexed for search: read from the source for Python, and taken from `doc` for the other languages and for any symbol whose source it cannot place. Cognee does not read `docs.jsonl` yet, so outside Python it indexes the first paragraph of each comment.
 - **Upgrade compatibility (step 7).** It stores the receipt's `snapshot_id` on its repository node and skips the load when it is unchanged; a new pinned enola release changes the id, so the pin is bumped deliberately rather than floating.
 - **How users drive it.** `cognee.remember(path, content_type="code")` runs the route in one call; `add()` accepts a repository directory or a GitHub/GitLab URL, and remote repositories are shallow-cloned under `~/.cognee/repos`. A list passed to `remember()` is processed as one enola run per repository into the same dataset; cognee does not currently create the single multi-repository snapshot described in [CLUSTERS.md](CLUSTERS.md), so it does not resolve cross-repository edges through that workflow.
 

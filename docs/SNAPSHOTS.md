@@ -144,8 +144,8 @@ not that a small edit costs less than a large one.
 ## enola persists plenty — none of it is the source of truth
 
 This is not an argument about writing zero bytes to disk, and it would be easy to check and find
-otherwise. A snapshot leaves `facts.jsonl`, `insights.json`, `snapshot.meta.json`, `receipt.json` and
-`llm_context.md` in `.enola/`, plus the rotated `previous/` and any pinned `baseline/`. There is an
+otherwise. A snapshot leaves `facts.jsonl`, `insights.json`, `snapshot.meta.json`, `receipt.json`,
+`flows.json`, `docs.jsonl` and `llm_context.md` in `.enola/`, plus the rotated `previous/` and any pinned `baseline/`. There is an
 extractor cache. There is a graph receipt under `~/.enola/graphs/` whose entire job is to let a
 restarted server restore a multi-repo graph without running an extractor
 ([ARCHITECTURE.md → Output artifacts](../ARCHITECTURE.md#output-artifacts)).

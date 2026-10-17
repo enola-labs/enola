@@ -7,6 +7,26 @@ The full per-release change lists — every Added, Changed and Fixed line — ar
 [enola.tech/changelog](https://enola.tech/changelog). This file is the same history at
 the resolution a reader of the repository needs.
 
+## v0.4.32 — 2026-10-17
+
+**Docs for more of the graph, and each comment in full in `docs.jsonl`**
+
+- Modules carry `doc`: the Go package comment (`doc.go` first), the Python
+  `__init__.py` docstring, the Java `package-info.java` Javadoc, the JSDoc block
+  opening a TypeScript or JavaScript `index` file when it is marked
+  `@packageDocumentation`, `@module` or `@fileoverview`, and Rust's `//!`.
+- Symbols carry `doc` in Rust, Kotlin, Scala, Swift, Dart and C/C++, read above their
+  attributes or annotations. Rust, Swift and Dart count only `///` and `/** */`;
+  Kotlin, Scala and C/C++ also count `//` runs. In C/C++ `@brief` opens the
+  description, and a definition's own doc wins over its prototype's.
+- New `.enola/docs.jsonl`, written by the `docs` renderer, on by default: one line per
+  documented symbol or module with its whole comment, up to 8 KiB, joined to
+  `facts.jsonl` by `id`. `receipt.json` lists it in `output_hashes`. Schema in
+  `docs/schema/docs.md`.
+- `doc` in `facts.jsonl` stays the first paragraph. The full text never reaches
+  `facts.jsonl`, the diff, the history or the MCP tools.
+- `cacheVersion` moves to `v390`: every repository re-extracts once.
+
 ## v0.4.31 — 2026-10-16
 
 **More routes bind to their handlers, more entries reach `enola flows`, and TypeScript extracts twice as fast**
