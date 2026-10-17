@@ -137,7 +137,7 @@ func extractComposed(t *testing.T, files map[string]string) []facts.Fact {
 	}
 	sort.Strings(names)
 	for _, name := range names {
-		ff, _, bs := extractFileASTFull([]byte(files[name]), name, crates, moduleDirs)
+		ff, _, bs, _ := extractFileASTFull([]byte(files[name]), name, crates, moduleDirs)
 		all = append(all, ff...)
 		builders = append(builders, bs...)
 	}

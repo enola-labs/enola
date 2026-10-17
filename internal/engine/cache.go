@@ -2960,7 +2960,20 @@ import (
 // serves its routes under the mount path wherever the Mount sits in the function.
 // v379: a Next.js package under a directory of examples, samples or demos
 // (examples/with-nextjs, example-apps/) is no Next.js app of the repository.
-const cacheVersion = "v379"
+// v380: a Go module fact carries doc, its package comment (doc.go first).
+// v381: a Python module fact carries doc, its __init__.py module docstring.
+// v382: a Java module fact carries doc, the Javadoc of its package-info.java.
+// v383: a TypeScript module fact carries doc, the file-level JSDoc block of its index file.
+// v384: Rust symbols carry doc from `///` and `/** */`, and Rust modules from `//!`.
+// v385: Kotlin symbols carry doc, their KDoc or `//` run.
+// v386: Scala symbols carry doc, their Scaladoc or `//` run.
+// v387: Swift symbols carry doc, their `///` lines or `/** */` block.
+// v388: Dart symbols carry doc, their `///` lines or `/** */` block.
+// v389: C and C++ symbols carry doc, their Doxygen block or line-comment run; a
+// definition's own doc wins over its prototype's.
+// v390: a symbol or module whose comment says more than its doc carries the whole
+// text in doc_text, which the engine moves to the store's side table.
+const cacheVersion = "v390"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

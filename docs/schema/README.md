@@ -12,6 +12,7 @@ for external snapshot consumers.
 | `insights.json` | JSON array of findings | [insights.md](insights.md) |
 | `receipt.json` | JSON object with provenance and extraction quality | [receipt.md](receipt.md) |
 | `flows.json` | JSON object ranking the ways into the program | [flows.md](flows.md) |
+| `docs.jsonl` | JSON Lines, one documented fact's whole comment per line | [docs.md](docs.md) |
 | `snapshot.meta.json` | Internal superset of the receipt | Not stable |
 | `llm_context.md` | Rendered text | Not stable |
 

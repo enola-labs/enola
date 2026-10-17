@@ -113,6 +113,7 @@
 .generated_at string
 .ignore_glob_hash string
 .insight_count number
+.output_hashes.docs.jsonl string
 .output_hashes.facts.jsonl string
 .output_hashes.flows.json string
 .output_hashes.insights.json string
@@ -166,6 +167,7 @@
 .heuristic_insights number
 .ignore_glob_hash string
 .insight_count number
+.output_hashes.docs.jsonl string
 .output_hashes.facts.jsonl string
 .output_hashes.flows.json string
 .output_hashes.insights.json string

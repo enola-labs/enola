@@ -547,7 +547,7 @@ func Default() *Config {
 		},
 		Extractors: []string{"asyncapi", "cpp", "dart", "dotnet", "go", "grpc", "java", "kotlin", "openapi", "php", "python", "typescript", "swift", "ruby", "rust", "scala", "hcl", "ansible", "mdintent", "manifests"},
 		Explainers: append([]string(nil), KnownExplainers...),
-		Renderers:  []string{"llm_context", "flows"},
+		Renderers:  []string{"llm_context", "flows", "docs"},
 		Output: OutputConfig{
 			Dir:              defaultOutputDir,
 			MaxContextTokens: 16000,

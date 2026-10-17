@@ -328,10 +328,12 @@ func mergeSymbol(dst *facts.Fact, src facts.Fact) {
 	dstHasBody, _ := dst.PropAny("has_body").(bool)
 	srcHasBody, _ := src.PropAny("has_body").(bool)
 
-	// Prefer the definition's location.
+	// Prefer the definition's location, and its doc; a prototype's doc stands in
+	// for a definition that has none, through the union below.
 	if srcHasBody && !dstHasBody {
 		dst.File = src.File
 		dst.Line = src.Line
+		facts.CopyDoc(dst, src)
 	}
 
 	// Union props, preferring truthy booleans and keeping a non-empty receiver.

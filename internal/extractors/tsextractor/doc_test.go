@@ -68,3 +68,40 @@ export class OrderService {
 		}
 	}
 }
+
+// A directory's doc is the file-level JSDoc block opening its index file: one marked
+// @packageDocumentation, @module or @fileoverview. An unmarked block there is the
+// first export's, and index.ts is read before index.js.
+func TestDoc_IndexFileBlock(t *testing.T) {
+	ff := extractTSRepo(t, map[string]string{
+		"shop/index.ts": "// SPDX-License-Identifier: MIT\n/* eslint-disable */\n/**\n * Orders and payments.\n *\n * More detail.\n * @packageDocumentation\n */\nexport const place = () => 1;\n",
+		"shop/index.js": "/** @fileoverview Not this one. */\nexport const x = 1;\n",
+		"util/index.js": "#!/usr/bin/env node\n/**\n * @fileoverview Small helpers\n * for strings.\n * @author someone\n */\nexport const trim = (s) => s;\n",
+		"lib/index.ts":  "/**\n * Places an order.\n */\nexport function place() { return 1; }\n",
+		"late/index.ts": "import { a } from './a';\n/** @packageDocumentation Too late. */\nexport const b = a;\n",
+		"late/a.ts":     "export const a = 1;\n",
+	})
+	for dir, want := range map[string]string{
+		"shop": "Orders and payments.",
+		"util": "Small helpers for strings.",
+		"lib":  "",
+		"late": "",
+	} {
+		var mod *facts.Fact
+		for i := range ff {
+			if ff[i].Kind == facts.KindModule && ff[i].Name == dir {
+				mod = &ff[i]
+			}
+		}
+		if mod == nil {
+			t.Errorf("no module fact %s", dir)
+			continue
+		}
+		if got := mod.PropString(facts.PropDoc); got != want {
+			t.Errorf("%s: doc = %q, want %q", dir, got, want)
+		}
+		if _, has := mod.Prop(facts.PropDoc); want == "" && has {
+			t.Errorf("%s: an undocumented directory must carry no doc prop", dir)
+		}
+	}
+}

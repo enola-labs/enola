@@ -46,7 +46,7 @@ func (e *TSExtractor) Extract(ctx context.Context, repoPath string, files []stri
 	if isPrisma {
 		a.facts = append(a.facts, extractPrismaStorage(repoPath, tsRoot)...)
 	}
-	a.facts = append(a.facts, moduleFacts(repoPath, a.modules, fw.isAngular)...)
+	a.facts = append(a.facts, moduleFacts(repoPath, a.modules, fw.isAngular, packageDocs(tsFiles, sources))...)
 	return a.facts, nil
 }
 
@@ -327,7 +327,7 @@ func (a *tsAssembly) coverageFacts(repoPath string) []facts.Fact {
 	return out
 }
 
-func moduleFacts(repoPath string, modules map[string]bool, isAngular bool) []facts.Fact {
+func moduleFacts(repoPath string, modules map[string]bool, isAngular bool, docs map[string]string) []facts.Fact {
 	pkgNames := collectPackageNames(repoPath)
 	// The workspace project each directory belongs to, where the repository states
 	// one. A monorepo's unit of ownership is its project, not its directory, and
@@ -350,6 +350,9 @@ func moduleFacts(repoPath string, modules map[string]bool, isAngular bool) []fac
 		}
 		if name := nearestProjectName(projects, dir); name != "" {
 			props["workspace_project"] = name
+		}
+		if doc := docs[dir]; doc != "" {
+			facts.SetDocProp(props, doc)
 		}
 		out = append(out, facts.Fact{
 			Kind:  facts.KindModule,

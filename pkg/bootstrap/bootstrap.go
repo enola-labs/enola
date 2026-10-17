@@ -78,6 +78,7 @@ import (
 	"github.com/enola-labs/enola/internal/metrics"
 	"github.com/enola-labs/enola/internal/orphans"
 	"github.com/enola-labs/enola/internal/perf"
+	"github.com/enola-labs/enola/internal/renderers/docsjsonl"
 	"github.com/enola-labs/enola/internal/renderers/flowsjson"
 	"github.com/enola-labs/enola/internal/renderers/llmcontext"
 	"github.com/enola-labs/enola/internal/resolve"
@@ -578,6 +579,7 @@ func registerOSSPlugins(eng *engine.Engine, cfg *config.Config) {
 	// Register all OSS renderers
 	eng.RegisterRenderer(llmcontext.New(cfg.Output.MaxContextTokens))
 	eng.RegisterRenderer(flowsjson.New())
+	eng.RegisterRenderer(docsjsonl.New())
 }
 
 // NewServer creates an MCP server wired to the given Engine.

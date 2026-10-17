@@ -678,6 +678,9 @@ func (w *astWalker) handleClassDeclaration(node *sitter.Node) {
 			{Kind: facts.RelDeclares, Target: w.dir},
 		},
 	}
+	if doc := swiftDoc(node, w.src); doc != "" {
+		facts.SetDoc(&f, doc)
+	}
 	if keyword == "enum" {
 		f.SetProp("enum", true)
 	}
@@ -747,6 +750,9 @@ func (w *astWalker) handleProtocol(node *sitter.Node) {
 		Relations: []facts.Relation{
 			{Kind: facts.RelDeclares, Target: w.dir},
 		},
+	}
+	if doc := swiftDoc(node, w.src); doc != "" {
+		facts.SetDoc(&f, doc)
 	}
 	for _, st := range supertypes {
 		f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelImplements, Target: st})
@@ -870,6 +876,9 @@ func (w *astWalker) handleFunction(node *sitter.Node) {
 			{Kind: facts.RelDeclares, Target: w.dir},
 		},
 	}
+	if doc := swiftDoc(node, w.src); doc != "" {
+		facts.SetDoc(&f, doc)
+	}
 	if enclosing != "" {
 		f.SetProp("receiver", enclosing)
 	}
@@ -968,6 +977,9 @@ func (w *astWalker) handleProperty(node *sitter.Node) {
 		},
 	})
 	propIdx := len(w.out) - 1
+	if doc := swiftDoc(node, w.src); doc != "" {
+		facts.SetDoc(&w.out[propIdx], doc)
+	}
 
 	// A computed getter or a willSet/didSet observer has a real body that can hold a
 	// loop or per-iteration I/O, so measure its complexity like a function's — a
@@ -1096,6 +1108,9 @@ func (w *astWalker) handleTypeAlias(node *sitter.Node) {
 		},
 		Relations: relations,
 	})
+	if doc := swiftDoc(node, w.src); doc != "" {
+		facts.SetDoc(&w.out[len(w.out)-1], doc)
+	}
 }
 
 // walkForCalls recursively scans an expression subtree for call_expression nodes

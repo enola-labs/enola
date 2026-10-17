@@ -91,3 +91,36 @@ def get_recall_router():
 		t.Errorf("doc = %q", got)
 	}
 }
+
+// A package's doc is its __init__.py module docstring. A comment may come before
+// it, as the interpreter allows; a plain module's docstring is no package's doc.
+func TestPythonDoc_PackageDocstring(t *testing.T) {
+	ff := extractPyRepo(t, map[string]string{
+		"shop/__init__.py": "# -*- coding: utf-8 -*-\n\"\"\"Orders and payments.\n\nMore detail.\n\"\"\"\nfrom .orders import place\n",
+		"shop/orders.py":   "\"\"\"Not the package's doc.\"\"\"\ndef place():\n    pass\n",
+		"late/__init__.py": "import os\n\"\"\"Too late to be a docstring.\"\"\"\n",
+		"plain/tool.py":    "\"\"\"A module with no package.\"\"\"\n",
+	})
+	for dir, want := range map[string]string{
+		"shop":  "Orders and payments.",
+		"late":  "",
+		"plain": "",
+	} {
+		var mod *facts.Fact
+		for i := range ff {
+			if ff[i].Kind == facts.KindModule && ff[i].Name == dir {
+				mod = &ff[i]
+			}
+		}
+		if mod == nil {
+			t.Errorf("no module fact %s", dir)
+			continue
+		}
+		if got := mod.PropString(facts.PropDoc); got != want {
+			t.Errorf("%s: doc = %q, want %q", dir, got, want)
+		}
+		if _, has := mod.Prop(facts.PropDoc); want == "" && has {
+			t.Errorf("%s: an undocumented package must carry no doc prop", dir)
+		}
+	}
+}

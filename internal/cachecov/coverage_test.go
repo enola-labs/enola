@@ -33,6 +33,42 @@ import (
 // test functions that assert the behavior that version introduced. v1 is the
 // implicit baseline (no changelog line), so coverage starts at v2.
 var versionCoverage = map[int][]string{
+	390: {
+		"TestDocText_LeavesTheFactsForTheSideTable",
+		"TestSetDoc",
+	},
+	389: {
+		"TestCppDoc_Declarations",
+		"TestCppDoc_PrototypeAndDefinition",
+	},
+	388: {
+		"TestDartDoc_Declarations",
+	},
+	387: {
+		"TestSwiftDoc_Declarations",
+	},
+	386: {
+		"TestScalaDoc_Definitions",
+	},
+	385: {
+		"TestKotlinDoc_Declarations",
+	},
+	384: {
+		"TestRustDoc_Items",
+		"TestRustDoc_Modules",
+	},
+	383: {
+		"TestDoc_IndexFileBlock",
+	},
+	382: {
+		"TestDoc_PackageInfo",
+	},
+	381: {
+		"TestPythonDoc_PackageDocstring",
+	},
+	380: {
+		"TestGoDoc_PackageComment",
+	},
 	379: {
 		"TestFileRoutes_NextJSPackageInAWorkspace",
 	},

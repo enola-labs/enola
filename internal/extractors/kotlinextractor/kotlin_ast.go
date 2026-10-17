@@ -699,6 +699,9 @@ func (w *astWalker) handleClassDeclaration(node *sitter.Node) {
 			{Kind: facts.RelDeclares, Target: w.dir},
 		},
 	}
+	if doc := kotlinDoc(node, w.src); doc != "" {
+		facts.SetDoc(&f, doc)
+	}
 
 	if strings.Contains(modifierText, "data") {
 		f.SetProp("data_class", true)
@@ -818,6 +821,9 @@ func (w *astWalker) handleObjectDeclaration(node *sitter.Node) {
 			{Kind: facts.RelDeclares, Target: w.dir},
 		},
 	}
+	if doc := kotlinDoc(node, w.src); doc != "" {
+		facts.SetDoc(&f, doc)
+	}
 	for _, st := range supertypes {
 		f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelImplements, Target: st})
 	}
@@ -887,6 +893,9 @@ func (w *astWalker) handleFunctionDeclaration(node *sitter.Node) {
 		Relations: []facts.Relation{
 			{Kind: facts.RelDeclares, Target: w.dir},
 		},
+	}
+	if doc := kotlinDoc(node, w.src); doc != "" {
+		facts.SetDoc(&f, doc)
 	}
 	// When declared inside a class/object, record the enclosing type as the
 	// receiver (parity with Go/TypeScript method facts).
@@ -1160,6 +1169,9 @@ func (w *astWalker) handlePropertyDeclaration(node *sitter.Node) {
 			{Kind: facts.RelDeclares, Target: w.dir},
 		},
 	}
+	if doc := kotlinDoc(node, w.src); doc != "" {
+		facts.SetDoc(&f, doc)
+	}
 
 	w.out = append(w.out, f)
 	owner := &w.out[len(w.out)-1]
@@ -1197,6 +1209,9 @@ func (w *astWalker) handleTypeAlias(node *sitter.Node) {
 			{Kind: facts.RelDeclares, Target: w.dir},
 		},
 	})
+	if doc := kotlinDoc(node, w.src); doc != "" {
+		facts.SetDoc(&w.out[len(w.out)-1], doc)
+	}
 }
 
 // handleClassParameters walks the primary_constructor's parameters and emits
