@@ -1,6 +1,7 @@
 package rustextractor
 
 import (
+	"bytes"
 	"strings"
 	"unicode"
 
@@ -73,13 +74,17 @@ func extractRustFile(src []byte, relFile string, crates []crateInfo, moduleDirs 
 	if testFile {
 		return rustFileOut{facts: w.out, testSubmods: w.testSubmods}
 	}
-	w.out = append(w.out, extractAxumRoutes(root, src, relFile, dir)...)
-	w.out = append(w.out, extractUtoipaRoutes(root, src, relFile, dir)...)
+	if bytes.Contains(src, []byte("route")) {
+		w.out = append(w.out, extractAxumRoutes(root, src, relFile, dir)...)
+	}
+	if bytes.Contains(src, []byte("utoipa")) {
+		w.out = append(w.out, extractUtoipaRoutes(root, src, relFile, dir)...)
+	}
 
 	return rustFileOut{
 		facts:       w.out,
 		impls:       w.impls,
-		builders:    collectAxumBuilders(root, src, relFile),
+		builders:    collectAxumBuilders(root, src, relFile, bytes.Contains(src, []byte("nest"))),
 		doc:         rustFileDoc(root, src),
 		testSubmods: w.testSubmods,
 	}
