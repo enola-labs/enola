@@ -2975,7 +2975,8 @@ import (
 // text in doc_text, which the engine moves to the store's side table.
 // v391: a TypeORM entity or Drizzle table under a test or fixture path emits no storage fact.
 // v392: a .ts file that is binary data (a NUL byte and invalid UTF-8 in its first 8 KB, as an MPEG-TS video segment is) is skipped.
-const cacheVersion = "v392"
+// v393: type-tests and integration-tests directories count as test paths.
+const cacheVersion = "v393"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

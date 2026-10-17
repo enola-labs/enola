@@ -21,6 +21,8 @@ func TestIsTestPath(t *testing.T) {
 		{"test-support package", "internal/testutil/helpers.go", true},
 		{"fixtures tree", "src/dashboard/fixtures/mockNativeFilters.ts", true},
 		{"camel-case integration tests", "integrationTests/node/index.mjs", true},
+		{"hyphenated type tests", "drizzle-orm/type-tests/mysql/tables.ts", true},
+		{"hyphenated integration tests", "integration-tests/tests/pg.ts", true},
 		{"python shared test support", "tests_common/pytest_plugins.py", true},
 
 		// Filename conventions — ONLY the tool-enforced ones. A compiler or runner

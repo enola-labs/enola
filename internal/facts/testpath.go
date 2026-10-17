@@ -17,8 +17,9 @@ import (
 var testSegments = map[string]bool{
 	"test": true, "tests": true, "testing": true,
 	"testutil": true, "testutils": true, "testdata": true,
-	"integrationTests": true, "integration_tests": true,
-	"mock": true, "mocks": true,
+	"integrationTests": true, "integration_tests": true, "integration-tests": true,
+	"type-tests": true,
+	"mock":       true, "mocks": true,
 	"fixture": true, "fixtures": true,
 	"spec": true, "specs": true,
 	// Xcode names a test target's tree `Tests` and its mock tree `Mocks`; Jest and

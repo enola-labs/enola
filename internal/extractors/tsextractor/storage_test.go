@@ -272,6 +272,10 @@ export const orders = pgTable("orders", { id: serial("id") });
 
 export const fixtureOrders = pgTable("fixture_orders", { id: serial("id") });
 `,
+		"type-tests/pg/tables.ts": `import { pgTable, serial } from "drizzle-orm/pg-core";
+
+export const typeCheckOrders = pgTable("type_check_orders", { id: serial("id") });
+`,
 	})
 
 	for _, want := range []string{"src.User", "src.orders"} {
