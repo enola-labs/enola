@@ -22,6 +22,11 @@ have identical fact counts and still differ.
 language, each documented with the code that produces which fact in
 [docs/extraction/](extraction/README.md).
 
+**Doc** - the first paragraph of the comment an author wrote on a symbol or a module,
+carried as the `doc` prop. It describes and never decides: no finding reads it, and
+editing a comment is not a change the diff reports. The whole comment is in
+`docs.jsonl`.
+
 **Linker** — the pass that connects facts *across* repositories: a client call site to
 the route that serves it, a gRPC call to the `.proto` service behind it. It runs after
 extraction and before any analysis.

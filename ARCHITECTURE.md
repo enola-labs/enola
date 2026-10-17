@@ -70,11 +70,11 @@ Repository
    ▼
 ┌──────────────────┐  cycles · layers · crossrepo · coverage · unused-routes ·
 │   Explainers     │  god-class · hotspots · dependency-depth ·
-└──────────────────┘  exported-surface · complexity-outliers   (facts → insights)
+└──────────────────┘  exported-surface · complexity-outliers · … 22 in all   (facts → insights)
    │
    ▼
 ┌──────────────────┐
-│    Renderer      │  llm_context.md   (snapshot → artifacts)
+│    Renderers     │  llm_context.md · flows.json · docs.jsonl   (snapshot → artifacts)
 └──────────────────┘
    │
    ▼
@@ -95,7 +95,8 @@ Stage by stage:
    The whole stage is recomputed from scratch on every append, so it always reflects exactly the repos currently loaded.
 5. **Graph index** — builds the bidirectional graph (with the synthetic edges described in [docs/GRAPH.md](docs/GRAPH.md#how-its-built)) that powers `traverse`, `find_path`, and `impact_analysis`.
 6. **Explainers** — run deterministic analyses over the facts and emit insights (next section).
-7. **Renderer** — produces `llm_context.md`, a compact, token-budgeted architecture summary an agent can read directly. The architecture statement and the feature guide beneath it are RESERVED out of the budget: the repository map grows with the repository, and on two of the benchmark corpus's larger repositories it spent all 64,000 characters before either section was reached, rendering a module list and not one word of the architecture the snapshot had recognised. No unreserved section may take more than a third of what is left, because bounding sections one at a time only moved the problem down the list — the map was fixed and Entry Points took the budget, that was fixed and Routes took it — and a section over its share is truncated rather than dropped, since half of Routes plus Storage plus the rest tells a reader more than all of Routes. Every section that listed one row per item — the map, entry points, routes, storage, the dependency edges — stops being a census above sixty rows and becomes a summary: modules by area and by size, routes by path prefix, stores by kind, modules by how far they reach. A census sorted by NAME is the least informative prefix a truncation could keep, and these were all sorted by name. Together this took a large monolith's digest from 64,000 characters holding two sections, one of them an alphabetical module list, to 28,000 holding ten and truncating nothing. The guide is derived from the recognised layer order rather than authored — layers of one level listed together because they are peers, layers with no module here left out, and each tier shown with a module from this repository — where it previously held hand-written prose for a few of the taxonomies by name and generic advice for every other repository.
+7. **Renderers** — `llm_context` produces `llm_context.md`, a compact, token-budgeted architecture summary an agent can read directly. The architecture statement and the feature guide beneath it are RESERVED out of the budget: the repository map grows with the repository, and on two of the benchmark corpus's larger repositories it spent all 64,000 characters before either section was reached, rendering a module list and not one word of the architecture the snapshot had recognised. No unreserved section may take more than a third of what is left, because bounding sections one at a time only moved the problem down the list — the map was fixed and Entry Points took the budget, that was fixed and Routes took it — and a section over its share is truncated rather than dropped, since half of Routes plus Storage plus the rest tells a reader more than all of Routes. Every section that listed one row per item — the map, entry points, routes, storage, the dependency edges — stops being a census above sixty rows and becomes a summary: modules by area and by size, routes by path prefix, stores by kind, modules by how far they reach. A census sorted by NAME is the least informative prefix a truncation could keep, and these were all sorted by name. Together this took a large monolith's digest from 64,000 characters holding two sections, one of them an alphabetical module list, to 28,000 holding ten and truncating nothing. The guide is derived from the recognised layer order rather than authored — layers of one level listed together because they are peers, layers with no module here left out, and each tier shown with a module from this repository — where it previously held hand-written prose for a few of the taxonomies by name and generic advice for every other repository.
+   The `flows` renderer writes `flows.json`, the ways into the program ranked by reach ([schema](docs/schema/flows.md)). The `docs` renderer writes `docs.jsonl`, the whole comment of every documented symbol and module, which `facts.jsonl` carries only as its first paragraph ([schema](docs/schema/docs.md)). The full text reaches it through a side table on the fact store, filled once facts are labelled, so no other output carries it.
 8. **Artifacts** — everything is written to `.enola/` (see [Output artifacts](#output-artifacts)). Content hashes enable incremental re-extraction on the next run.
 
 Five plugin roles drive the middle of the pipeline — **extractors** (source → facts), **binders** (resolve references across an assembled fact set), **cross-repo signals** (evidence that one repo depends on another), **explainers** (facts → insights), and **renderers** (snapshot → artifacts). Each is a small Go interface in [`pkg/plugin`](pkg/plugin/) with a registry, so adding a language, a connection, or an analysis is a self-contained addition rather than a change to the engine. [docs/EXTENDING.md](docs/EXTENDING.md) is the guide to the middle three, including which one a given problem calls for.
@@ -982,13 +983,27 @@ explainers:
   - crossrepo
   - coverage
   - unused-routes
+  - messaging-coverage
   - god-class
   - hotspots
   - dependency-depth
   - exported-surface
   - complexity-outliers
+  - intent
+  - constraints
+  - domain
+  - query-loops
+  - entry-points
+  - dead-methods
+  - vendored-candidates
+  - import-closure
+  - package-metrics
+  - dead-code
+  - performance
 renderers:
   - llm_context
+  - flows
+  - docs
 output:
   dir: ".enola"
   max_context_tokens: 16000
@@ -1014,8 +1029,8 @@ That derivation is load-bearing rather than tidy. A literal `.enola/**` agrees w
 | `repos` | Ordered list of repository roots forming a multi-repo cluster; supersedes `repo`. One `--generate` run indexes them all (the first fresh, the rest appended), producing the service nodes and cross-repo edges a single-repo snapshot cannot have. Entries resolve relative to the **config file's own directory**, so a checked-in cluster config means the same thing wherever it is run from. Order is semantic; duplicates are dropped | *(unset)* |
 | `ignore` | Glob patterns for files/dirs to skip | vendor, node_modules, .git, tests, build dirs, minified JS (`*.min.js`/`*.bundle.js`), docs, config data, … |
 | `extractors` | Enabled extractors | `["asyncapi", "cpp", "dart", "dotnet", "go", "grpc", "java", "kotlin", "openapi", "php", "python", "typescript", "swift", "ruby", "rust", "scala", "hcl", "ansible", "mdintent", "manifests"]` |
-| `explainers` | Enabled explainers | `["cycles", "layers", "crossrepo", "coverage", "unused-routes", "god-class", "hotspots", "dependency-depth", "exported-surface", "complexity-outliers"]` |
-| `renderers` | Enabled renderers | `["llm_context"]` |
+| `explainers` | Enabled explainers | `["cycles", "layers", "crossrepo", "coverage", "unused-routes", "messaging-coverage", "god-class", "hotspots", "dependency-depth", "exported-surface", "complexity-outliers", "intent", "constraints", "domain", "query-loops", "entry-points", "dead-methods", "vendored-candidates", "import-closure", "package-metrics", "dead-code", "performance"]` (`config.KnownExplainers`) |
+| `renderers` | Enabled renderers | `["llm_context", "flows", "docs"]` |
 | `output.dir` | Output directory for artifacts. Must name a **subdirectory of the repository** — it is joined to the repository path, so an absolute value would nest that whole path inside the repo rather than write where it says. An ignore glob is derived from it automatically (see below) | `".enola"` |
 | `output.max_context_tokens` | Token budget for `llm_context.md` | `16000` |
 | `dashboard.port` | The fixed **shared URL** port every server competes for, in addition to its own ephemeral one. A negative value serves only the ephemeral port. `ENOLA_DASHBOARD_PORT` overrides it (`off` disables). | `7171` |
