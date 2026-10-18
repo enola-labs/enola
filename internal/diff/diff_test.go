@@ -901,3 +901,35 @@ func TestMetricsDoNotDisturbTheDelta(t *testing.T) {
 		t.Error("a number changing in the description must still read as altered")
 	}
 }
+
+// TestFocused_KeepsAlteredFindingsAboutTheArea: Focused builds a fresh diff and fills
+// only the buckets it iterates, and it never iterated FindingsChanged, so a focused
+// diff_snapshot reported "No architectural changes" while the unfocused one listed a
+// finding about exactly the focused area whose evidence had moved. Matching on
+// either side mirrors FactsChanged: a finding whose new evidence no longer names the
+// area still changed in it.
+func TestFocused_KeepsAlteredFindingsAboutTheArea(t *testing.T) {
+	change := func(subject, before, after string) InsightChange {
+		return InsightChange{
+			Before: facts.Insight{Title: "Coverage gap: service " + subject, Evidence: []facts.Evidence{{Fact: before}}},
+			After:  facts.Insight{Title: "Coverage gap: service " + subject, Evidence: []facts.Evidence{{Fact: after}}},
+		}
+	}
+	d := &SnapshotDiff{FindingsChanged: []InsightChange{
+		change("web", "web/src", "web/src/api"),
+		change("billing", "billing/src", "billing/src"),
+		// The area only on the before side: the evidence moved away from it.
+		{Before: facts.Insight{Title: "Hotspot", Evidence: []facts.Evidence{{File: "web/old.go"}}},
+			After: facts.Insight{Title: "Hotspot", Evidence: []facts.Evidence{{File: "core/new.go"}}}},
+	}}
+
+	got := d.Focused("web").FindingsChanged
+	if len(got) != 2 {
+		t.Fatalf("focused on web: want the two changed findings about web, got %d: %+v", len(got), got)
+	}
+	for _, c := range got {
+		if strings.Contains(c.After.Title, "billing") {
+			t.Errorf("a finding about billing survived a focus on web: %+v", c)
+		}
+	}
+}

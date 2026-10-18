@@ -890,6 +890,14 @@ func (d *SnapshotDiff) Focused(focus string) *SnapshotDiff {
 			out.FindingsResolvedIncidental = append(out.FindingsResolvedIncidental, in)
 		}
 	}
+	// Either side, as with FactsChanged: a finding whose evidence moved away from the
+	// area still changed in it. Leaving this bucket out made a focused diff report no
+	// change while the unfocused one listed a finding about exactly that area.
+	for _, c := range d.FindingsChanged {
+		if insightMatches(c.After, focus) || insightMatches(c.Before, focus) {
+			out.FindingsChanged = append(out.FindingsChanged, c)
+		}
+	}
 	return out
 }
 
