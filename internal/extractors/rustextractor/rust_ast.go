@@ -1367,12 +1367,86 @@ func (w *astWalker) handleCallExpression(node *sitter.Node) {
 		// default) — still unambiguously a method call, so fall back.
 		w.emitEdge(facts.RelCalls, name)
 	case calleeOther:
+		// A module path names its target outright: `db::load_users()` after
+		// `use crate::db;` is src.load_users, and nothing about it needs type
+		// inference. Resolved only when the path's first segment is inside the
+		// crate; an external crate, the standard library and an unknown segment
+		// keep the bare name, as does every `recv.method()`.
+		if target := w.resolveModulePathCall(fn, name); target != "" {
+			w.emitEdge(facts.RelCalls, target)
+			break
+		}
 		// Receiver/path type is unknown without full type inference. Emitting
 		// the bare member name still lets short-name dead-code matching mark
 		// the (unqualified) target used, mirroring the Kotlin extractor's
 		// navigation_expression fallback.
 		w.emitEdge(facts.RelCalls, name)
 	}
+}
+
+// resolveModulePathCall returns the canonical target of a call written through a
+// module path inside this crate (`crate::db::f()`, `super::db::f()`, `db::f()` with
+// `db` imported or declared by `mod db;`), or "" when the path is not one. A path
+// whose segments are not all lower-case names a type (`Order::find`) or an enum,
+// and is left alone: its target is a method, which this cannot place.
+func (w *astWalker) resolveModulePathCall(fn *sitter.Node, name string) string {
+	if fn == nil || kindOf(fn) != "scoped_identifier" {
+		return ""
+	}
+	pathNode := fn.ChildByFieldName("path")
+	if pathNode == nil {
+		return ""
+	}
+	segs := strings.Split(nodeText(pathNode, w.src), "::")
+	for _, s := range segs {
+		if s == "" || !isModuleSegment(s) {
+			return ""
+		}
+	}
+	var dir string
+	switch first := segs[0]; {
+	case first == "crate" || first == "self" || first == "super":
+		target, source := classifyUsePath(segs, w.dir, w.crateDir, w.crates, w.moduleDirs)
+		if source != "internal" {
+			return ""
+		}
+		dir = target
+	case w.isKnownSubmodule(first):
+		dir = joinRustPath(w.dir, segs, w.moduleDirs)
+	default:
+		imported, ok := w.importMap[first]
+		if !ok {
+			// Not imported in this file: a sibling crate by name resolves, anything
+			// else (an external crate used by its path, `std`) does not.
+			target, source := classifyUsePath(segs, w.dir, w.crateDir, w.crates, w.moduleDirs)
+			if source != "internal" {
+				return ""
+			}
+			dir = target
+			break
+		}
+		// importMap holds "<module dir>.<name>" for an internal import and "" for an
+		// external one.
+		base, found := strings.CutSuffix(imported, "."+first)
+		if !found || base == "" {
+			return ""
+		}
+		dir = joinRustPath(base, segs[1:], w.moduleDirs)
+	}
+	if dir == "" {
+		return ""
+	}
+	return dir + "." + name
+}
+
+// isModuleSegment reports whether a path segment can name a module: a lower-case
+// identifier, or one of the path keywords.
+func isModuleSegment(s string) bool {
+	if s == "crate" || s == "self" || s == "super" {
+		return true
+	}
+	c := s[0]
+	return (c >= 'a' && c <= 'z') || c == '_'
 }
 
 // emitEdge records a relation either on the current production owner, or —
