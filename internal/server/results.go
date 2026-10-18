@@ -59,7 +59,17 @@ func capTokens(s string, maxTokens int, isJSON bool) string {
 // moduleOf returns a node's owning module: its file directory when a file is
 // known, otherwise the package-ish prefix of its dotted name. Used to aggregate
 // traversal/impact nodes by module in the summary views.
+//
+// A module node owns itself. Its File is the module's own path, so its directory is
+// the PARENT: internal/facts and internal/factpath were both filed under "internal",
+// and every extractor under "internal/extractors", a directory no fact declares.
 func moduleOf(n facts.TraversalNode) string {
+	if n.Kind == facts.KindModule {
+		if n.File != "" {
+			return n.File
+		}
+		return n.Name
+	}
 	if n.File != "" {
 		if i := strings.LastIndexByte(n.File, '/'); i > 0 {
 			return n.File[:i]
