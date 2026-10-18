@@ -41,6 +41,15 @@ type Set struct {
 	// some of these, so linking on them fabricates edges.
 	GenericPathSegments map[string]bool
 
+	// RoutingPrefixSegments are path segments that are routing detail rather than a
+	// resource name: a mount point a gateway or a server prefix adds. When a suffix
+	// join drops a prefix on BOTH sides, the segment just before the shared suffix
+	// may differ only if one of them is routing detail (or an API version); otherwise
+	// the two paths name different resources that happen to share a tail, as
+	// /users/{}/roles/{} and /courses/{}/roles/{} do, and the join is refused. A repo
+	// whose gateway mounts under another word adds it through the linking overlay.
+	RoutingPrefixSegments map[string]bool
+
 	// GenericTypeNames are unqualified type names too generic to link on by
 	// themselves. Namespaced identities (e.g. "onelab::number") bypass this list —
 	// sharing a namespace across repos is itself meaningful.
@@ -157,6 +166,7 @@ func Default() *Set {
 			"ready", "readyz", "live", "livez",
 			"version", "info", "api", "graphql",
 		),
+		RoutingPrefixSegments: set("api", "gateway"),
 		GenericTypeNames: set(
 			"config", "error", "manager", "options",
 			"result", "base", "impl", "utils", "util",
@@ -240,6 +250,7 @@ func (s *Set) Fingerprint() string {
 		sb.WriteByte('\n')
 	}
 	writeSet("generic_path_segments", s.GenericPathSegments)
+	writeSet("routing_prefix_segments", s.RoutingPrefixSegments)
 	writeSet("generic_type_names", s.GenericTypeNames)
 	writeSet("framework_conventions", s.FrameworkConventions)
 	writeSet("generic_component_names", s.GenericComponentNames)

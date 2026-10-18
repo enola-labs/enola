@@ -118,8 +118,12 @@ func (m *Matcher) IndexServerRef(server map[string][]RouteRef, ref RouteRef) {
 // method — the method-agnostic counterpart to IndexServerRoutes. It lets the
 // unmatched-client pass tell "the endpoint exists but we have the wrong verb"
 // (method_mismatch) from "no server route serves this path at all" (path_unknown).
-func (m *Matcher) IndexServerPathSuffixes(all []facts.Fact) map[string]bool {
-	set := map[string]bool{}
+//
+// Each suffix maps to the full server paths it came from, so the label can apply the
+// join's own sameResource refusal: a call whose only verb-agnostic match is a
+// different resource sharing its tail is path_unknown, not method_mismatch.
+func (m *Matcher) IndexServerPathSuffixes(all []facts.Fact) map[string][]string {
+	index := map[string][]string{}
 	for _, f := range all {
 		if f.Kind != facts.KindRoute || f.Repo == "" || RoleOf(f) == facts.RoleClient || IsNonHTTPRoute(f) {
 			continue
@@ -129,11 +133,11 @@ func (m *Matcher) IndexServerPathSuffixes(all []facts.Fact) map[string]bool {
 		}
 		for _, p := range m.ServerPaths(f) {
 			for _, suf := range m.PathMatchKeys(p) {
-				set[suf] = true
+				index[suf] = append(index[suf], p)
 			}
 		}
 	}
-	return set
+	return index
 }
 
 // ServerPaths returns the normalized paths a server route is reachable at: its
@@ -176,10 +180,12 @@ func RouteIdentityKey(repo, method, path string) string {
 // LookupClientMatches' key generation, minus the method filter — including its
 // whole-path fallback, so a single-segment client path is tested against the
 // index rather than reported path_unknown without ever being looked up).
-func (m *Matcher) ClientPathHasServer(serverSuffixes map[string]bool, clientPath string) bool {
+func (m *Matcher) ClientPathHasServer(serverSuffixes map[string][]string, clientPath string) bool {
 	for _, suf := range m.PathMatchKeys(clientPath) {
-		if serverSuffixes[suf] {
-			return true
+		for _, full := range serverSuffixes[suf] {
+			if m.sameResource(clientPath, full, suf) {
+				return true
+			}
 		}
 	}
 	return false
@@ -396,7 +402,7 @@ func (m *Matcher) exactClientMatches(server map[string][]RouteRef, clientPath, m
 // turns it off to ask whether a call missed ONLY because of that.
 func (m *Matcher) suffixClientMatches(server map[string][]RouteRef, clientPath, method string, sameVersion bool) ([]RouteRef, string) {
 	at := func(suf, verb string) []RouteRef {
-		refs := server[RouteKey(suf, verb)]
+		refs := m.sameResourceRefs(server[RouteKey(suf, verb)], clientPath, suf)
 		if !sameVersion {
 			return refs
 		}
@@ -472,6 +478,74 @@ func sameVersionRefs(refs []RouteRef, clientPath, suf string) []RouteRef {
 		out = append(out, ref)
 	}
 	return out
+}
+
+// sameResourceRefs keeps the refs a client suffix may join as the same resource.
+//
+// The other refusal the symmetric join needs. A join that dropped a prefix on both
+// sides keeps only the tail, and two unrelated resources can share one:
+// "/api/settings/users/{}/roles/{}" reached "/api/settings/courses/{id}/roles/{id}" at
+// "{}/roles/{}", and on a real cluster one status call reached seven unrelated
+// ".../status/{id}" routes. What tells them from a gateway is the word just before the
+// shared suffix: a routing word or a version there is mount detail, two different
+// resource names are two resources. See sameResource.
+func (m *Matcher) sameResourceRefs(refs []RouteRef, clientPath, suf string) []RouteRef {
+	var out []RouteRef
+	for _, ref := range refs {
+		if m.sameResource(clientPath, ref.FullPath, suf) {
+			out = append(out, ref)
+		}
+	}
+	if len(out) == len(refs) {
+		return refs
+	}
+	return out
+}
+
+// sameResource reports whether a client path and a server path joined at suf name the
+// same resource. It walks the two dropped prefixes back from the join together:
+//
+//   - an id on both sides (a parameter or a bare number) is the same position in the
+//     same shape, so the walk goes on: /tenants/1/orders still reaches /tenants/2/orders;
+//   - the same word on both sides is the same resource;
+//   - routing detail on either side, a version or a mount word the vocabulary lists
+//     ("api", "gateway"), ends the comparison in the join's favour: the rest is mount;
+//   - anything else, two different words or an id against a word, is two resources.
+//     users/{uid}/roles/{rid} (a user's role) is not users/roles/{rid} (a role).
+//
+// A side that runs out first was base-relative or bare, which the join exists for.
+func (m *Matcher) sameResource(clientPath, serverPath, suf string) bool {
+	a := splitSegments(strings.TrimSuffix(clientPath, suf))
+	b := splitSegments(strings.TrimSuffix(serverPath, suf))
+	for i, j := len(a)-1, len(b)-1; i >= 0 && j >= 0; i, j = i-1, j-1 {
+		x, y := a[i], b[j]
+		switch {
+		case isID(x) && isID(y):
+			continue
+		case strings.EqualFold(x, y), m.isRoutingDetail(x), m.isRoutingDetail(y):
+			return true
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// isID reports whether a path segment is an id rather than a name: a parameter, or a
+// bare number ("a number is an id, not a version").
+func isID(s string) bool { return s == "{}" || isNumber(s) }
+
+func isNumber(s string) bool {
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return s != ""
+}
+
+func (m *Matcher) isRoutingDetail(seg string) bool {
+	return isVersionSegment(seg) || m.v.RoutingPrefixSegments[strings.ToLower(seg)]
 }
 
 // versionIn returns the last API version segment of a path prefix ("v1", "v2.1"),

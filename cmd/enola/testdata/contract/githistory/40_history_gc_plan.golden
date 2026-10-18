@@ -5,7 +5,7 @@ exit: 0
   revisions  2 — 1 kept under policy keep-last 1
 
 Would remove 1 revision(s) (3 KB):
-  1d7f455  <TIME>  go_sample  (pushed by <HOST>)
+  4bd3f73  <TIME>  go_sample  (pushed by <HOST>)
 
 Nothing was deleted. Re-run with --apply to prune, which records the removal in the chain.
 --- stderr
