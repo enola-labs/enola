@@ -611,6 +611,16 @@ func (g *Graph) factIdxsOf(id uint32) []int32 {
 	return g.factIdxs[g.factOff[id]:g.factOff[id+1]]
 }
 
+// MethodOwner returns the type that declares the method name, by the rule the graph
+// uses to wire has_method edges (methodOwner below), or "" when no declared type
+// owns it. A reader that needs a method's class asks here rather than splitting the
+// name on one language's separator.
+func (g *Graph) MethodOwner(name string) string {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return g.methodOwner(name)
+}
+
 // methodOwner returns the owner type name for a method fact name of the form
 // "<owner>.<method>", "<owner>#<method>" or "<owner>::<method>", but only when <owner> is itself a
 // known symbol fact whose symbol_kind is a type (struct/interface/class/type).
