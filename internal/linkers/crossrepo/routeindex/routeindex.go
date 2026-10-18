@@ -524,11 +524,28 @@ func (m *Matcher) sameResource(clientPath, serverPath, suf string) bool {
 			continue
 		case strings.EqualFold(x, y), m.isRoutingDetail(x), m.isRoutingDetail(y):
 			return true
+		case allIDs(a[:i+1]) || allIDs(b[:j+1]):
+			// Nothing but parameters from here to the start of the path is an unknown
+			// base, not an id: `${BASE_VIDEO_URL}/${videoId}/captions` reads as
+			// /{}/{}/captions because the base is a value the extractor cannot read. It
+			// says no more about the resource than a missing prefix does, so it joins
+			// like one. An id after a word (users/{uid}) still refuses.
+			return true
 		default:
 			return false
 		}
 	}
 	return true
+}
+
+// allIDs reports whether every segment is an id (a parameter or a bare number).
+func allIDs(segs []string) bool {
+	for _, s := range segs {
+		if !isID(s) {
+			return false
+		}
+	}
+	return len(segs) > 0
 }
 
 // isID reports whether a path segment is an id rather than a name: a parameter, or a
