@@ -461,6 +461,11 @@ func (e *TSExtractor) frameworkPasses(kinds *tsutil.KindTable, root *sitter.Node
 		configured, out.clients = configuredClientFacts(kinds, root, ctx, e.clients)
 		result = append(result, configured...)
 	}
+	// Requests through a helper the file declares itself. See localwrapper.go.
+	if !facts.IsTestPath(relFile) {
+		wrapped, spans := localWrapperFacts(kinds, root, ctx)
+		result = append(dropWrapperBodyRequests(result, relFile, spans), wrapped...)
+	}
 
 	if ctx.isVue || ctx.isNuxt {
 		result = append(result, vueRouterFacts(kinds, root, src, relFile, aliases)...)

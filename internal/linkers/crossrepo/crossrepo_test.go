@@ -514,7 +514,7 @@ func TestComputeLinks_CoverageBlindSpot(t *testing.T) {
 func TestComputeLinks_ImportMatch(t *testing.T) {
 	in := []facts.Fact{
 		importDep("app-web-app", "@app-web/lib-api/api-client-util"),
-		facts.Fact{Kind: facts.KindModule, Name: "lib-api", Repo: "app-web"},
+		{Kind: facts.KindModule, Name: "lib-api", Repo: "app-web"},
 	}
 	out := ComputeLinks(in, nil, allSignals(), vocab.Default())
 	e := findEdge(out, "app-web-app", "app-web")
@@ -532,7 +532,7 @@ func TestComputeLinks_ImportMatch(t *testing.T) {
 func TestComputeLinks_ImportRubyStyle(t *testing.T) {
 	in := []facts.Fact{
 		importDep("svc-alpha", "lib-core/money/converter"),
-		facts.Fact{Kind: facts.KindModule, Name: "money", Repo: "lib-core"},
+		{Kind: facts.KindModule, Name: "money", Repo: "lib-core"},
 	}
 	if findEdge(ComputeLinks(in, nil, allSignals(), vocab.Default()), "svc-alpha", "lib-core") == nil {
 		t.Errorf("expected svc-alpha -> lib-core import edge")
@@ -543,7 +543,7 @@ func TestComputeLinks_ImportRelativeAndSelfIgnored(t *testing.T) {
 	in := []facts.Fact{
 		importDep("svc-alpha", "./local/thing"),   // relative — skip
 		importDep("svc-alpha", "svc-alpha/inner"), // self — skip
-		facts.Fact{Kind: facts.KindModule, Name: "x", Repo: "lib-core"},
+		{Kind: facts.KindModule, Name: "x", Repo: "lib-core"},
 	}
 	if edges := crossRepoEdges(ComputeLinks(in, nil, allSignals(), vocab.Default())); len(edges) != 0 {
 		t.Errorf("relative/self imports produced edges: %+v", edges)
@@ -639,7 +639,7 @@ func TestComputeLinks_MergedViaAndDeterministic(t *testing.T) {
 		clientRoute("svc-alpha", "/api/items/{id}", "GET", nil),
 		serverRoute("svc-beta", "/api/items/{id}", "GET"),
 		importDep("svc-alpha", "svc-beta/client"),
-		facts.Fact{Kind: facts.KindModule, Name: "client", Repo: "svc-beta"},
+		{Kind: facts.KindModule, Name: "client", Repo: "svc-beta"},
 	}
 	out1 := ComputeLinks(in, nil, allSignals(), vocab.Default())
 	e := findEdge(out1, "svc-alpha", "svc-beta")
@@ -783,10 +783,10 @@ func TestComputeLinks_PerRepoServiceNodes(t *testing.T) {
 	// depends_on relations.
 	in := []facts.Fact{
 		importDep("golf", "github.com/x/go-auth/adapters"),
-		facts.Fact{Kind: facts.KindModule, Name: "adapters", Repo: "go-auth"},
-		facts.Fact{Kind: facts.KindModule, Name: "src/ui", Repo: "golf-ui"},
-		facts.Fact{Kind: facts.KindModule, Name: "app", Repo: "android"},
-		facts.Fact{Kind: facts.KindModule, Name: "App", Repo: "ios"},
+		{Kind: facts.KindModule, Name: "adapters", Repo: "go-auth"},
+		{Kind: facts.KindModule, Name: "src/ui", Repo: "golf-ui"},
+		{Kind: facts.KindModule, Name: "app", Repo: "android"},
+		{Kind: facts.KindModule, Name: "App", Repo: "ios"},
 	}
 	out := ComputeLinks(in, nil, allSignals(), vocab.Default())
 

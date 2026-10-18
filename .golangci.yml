@@ -26,6 +26,12 @@ linters:
         - "-ST1022"
         - "-QF1012"
 
+formatters:
+  # gofmt runs as a check, so `golangci-lint run` (and CI) fails on an unformatted
+  # file. Without it a misaligned struct merged unnoticed: no linter looks at layout.
+  enable:
+    - gofmt
+
 issues:
   # Show every finding (defaults cap duplicates at 3, which hides repeated
   # issues like multiple unchecked f.Close calls).
