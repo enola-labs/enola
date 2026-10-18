@@ -94,6 +94,49 @@ app.get('/healthcheck', handler);
 	}
 }
 
+// TestServerRoutes_ChildMountedBeforeParentComposes is the same tree as the forward
+// order, written the other way round: the child is mounted on apiRouter one statement
+// before apiRouter is mounted on the app. Express resolves both at request time, so the
+// route serves "/api/orders/list" either way. Resolving mounts in one pass in source
+// order left the child unmounted and the route absent from the graph.
+func TestServerRoutes_ChildMountedBeforeParentComposes(t *testing.T) {
+	src := `
+const express = require('express');
+const app = express();
+const apiRouter = express.Router();
+const ordersRouter = express.Router();
+
+ordersRouter.get('/list', handler);
+
+apiRouter.use('/orders', ordersRouter);
+app.use('/api', apiRouter);
+`
+	ff := extractTS(t, src, "server/index.js")
+	got := serverRoutes(ff)
+	if got["/api/orders/list"] != "GET" {
+		t.Errorf("a child mounted before its parent did not compose: %+v", got)
+	}
+	for _, fragment := range []string{"/list", "/orders/list"} {
+		if _, found := got[fragment]; found {
+			t.Errorf("fragment %s emitted: %+v", fragment, got)
+		}
+	}
+	// Both mounts are in this file, so the path is read off it rather than composed
+	// across files: the same fact the forward order produces.
+	n := 0
+	for _, f := range ff {
+		if f.Kind == facts.KindRoute && f.Name == "/api/orders/list" {
+			n++
+			if f.Props["mount_composed"] == true {
+				t.Errorf("a same-file mount was marked as composed across files: %+v", f)
+			}
+		}
+	}
+	if n != 1 {
+		t.Errorf("/api/orders/list emitted %d times, want 1", n)
+	}
+}
+
 // TestServerRoutes_DoNotStealClientCalls is the sharpest risk in this change.
 // `axios.get('/x')` and `router.get('/x')` are the same text; v141 already emits the
 // former as a client call. Only a receiver BOUND to an app/router in this file may

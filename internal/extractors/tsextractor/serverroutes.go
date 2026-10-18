@@ -114,25 +114,35 @@ func serverBindings(src []byte) map[string]serverBinding {
 	if !hasRouter {
 		return out
 	}
-	// Resolve mounts declared in this file: app.use('/webhooks', router).
-	for _, m := range findAllSubmatchIf(hasMemberAccess(src, useMember), mountCall, src) {
-		prefix := firstNonEmpty(m[2], m[3], m[4])
-		child := string(m[5])
-		b, ok := out[child]
-		if !ok || !b.isRouter || b.mounted {
-			continue
-		}
-		// Only a parent whose OWN mount point is known can give one to a child.
-		// Mounting onto an unmounted sub-router — `apiRouter.use('/orders', orders)`
-		// in a file that does not itself mount apiRouter — yields the fragment
-		// "/orders", which is exactly the wrong fact this pass exists to avoid: the
-		// route really serves "/api/orders". The child stays unmounted here and
-		// routermount.go composes it once both mounts are visible.
-		if parent, ok := out[string(m[1])]; ok && parent.mounted {
-			b.prefix = facts.JoinRoutePath(parent.prefix, prefix)
-			b.mounted = true
-			b.framework = parent.framework
-			out[child] = b
+	// Resolve mounts declared in this file: app.use('/webhooks', router). Repeated
+	// until nothing changes, because Express resolves mounts at request time and the
+	// source order of the statements does not decide the tree: a child mounted on
+	// apiRouter one line before apiRouter is mounted still serves under it. Each round
+	// takes the first resolvable mount of a child in source order, so the result is
+	// deterministic, and a round that mounts nothing ends the loop.
+	mounts := findAllSubmatchIf(hasMemberAccess(src, useMember), mountCall, src)
+	for changed := true; changed; {
+		changed = false
+		for _, m := range mounts {
+			prefix := firstNonEmpty(m[2], m[3], m[4])
+			child := string(m[5])
+			b, ok := out[child]
+			if !ok || !b.isRouter || b.mounted {
+				continue
+			}
+			// Only a parent whose OWN mount point is known can give one to a child.
+			// Mounting onto an unmounted sub-router — `apiRouter.use('/orders', orders)`
+			// in a file that does not itself mount apiRouter — yields the fragment
+			// "/orders", which is exactly the wrong fact this pass exists to avoid: the
+			// route really serves "/api/orders". The child stays unmounted here and
+			// routermount.go composes it once both mounts are visible.
+			if parent, ok := out[string(m[1])]; ok && parent.mounted {
+				b.prefix = facts.JoinRoutePath(parent.prefix, prefix)
+				b.mounted = true
+				b.framework = parent.framework
+				out[child] = b
+				changed = true
+			}
 		}
 	}
 	return out

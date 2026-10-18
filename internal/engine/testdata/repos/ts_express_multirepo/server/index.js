@@ -20,6 +20,19 @@ admin.get('/users', listUsers);
 admin.post('/users/:id/ban', banUser);
 app.use('/admin', admin);
 
+// The "api router" layout: an intermediate router mounted HERE, with routers hung off
+// it. The orders router comes from another file, so its routes compose across files
+// under '/api/orders'; the reports router is local and is mounted on apiRouter
+// before apiRouter itself is mounted, which Express resolves all the same. Both
+// subtrees used to contribute nothing.
+const apiRouter = express.Router();
+const ordersRoutes = require('./routes/orders');
+const reports = express.Router();
+reports.get('/daily', dailyReport);
+apiRouter.use('/reports', reports);
+app.use('/api', apiRouter);
+apiRouter.use('/orders', ordersRoutes);
+
 // A bare catch-all is a SPA fallback, not an endpoint. Indexing it would let it match
 // any client path at all, so it is skipped.
 app.get('*', require('./controllers/default'));

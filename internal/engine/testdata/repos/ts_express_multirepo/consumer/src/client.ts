@@ -45,3 +45,9 @@ export async function pollStatus() {
 export async function metricsTail(window: string) {
   return axios.get(`${process.env.API_HOST}/admin/users`);
 }
+
+// Two mounts deep on the server: '/api' in index.js, '/orders' on its apiRouter, the
+// route itself in routes/orders.js. It resolves only if both prefixes reached it.
+export async function listOrders() {
+  return axios.get("/api/orders/list");
+}
