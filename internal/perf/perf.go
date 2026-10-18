@@ -199,7 +199,7 @@ type Finding struct {
 	Line   int    `json:"line,omitempty"`
 	Repo   string `json:"repo,omitempty"`
 	// Package is the declaring module (the `declares` target — "app/models" on Rails,
-	// "app/src/main/java/de/nebenan/app/ui" on Gradle). collect() has always had it and
+	// "app/src/main/java/com/example/app/ui" on Gradle). collect() has always had it and
 	// analyze() used to drop it, which forced the package= filter to match the symbol
 	// NAME instead. That works only where the name embeds the path (Kotlin/Swift/Go)
 	// and returns a silent, permanent zero on Ruby, whose names do not.
@@ -535,14 +535,14 @@ func hasComplexityMetrics(props map[string]any) bool {
 // analyzer and the god-class/hotspots explainers. It used to be a local copy whose
 // segment list knew nothing of the Gradle/KMP test source sets, so every function
 // under `androidTest/`, `commonTest/`, `jvmTest/` was analyzed as production code
-// (24 such files on nan/nebenan-android-app alone).
+// (24 such files on a production Android app alone).
 //
 // The old copy's Swift/Kotlin basename suffixes (`Tests.swift`, `Test.kt`, …) did
 // NOT survive the merge: they are not tool-enforced, and measured against the
 // corpus they had no true positives to contribute — 393 of the 402 files they
-// matched on nan/nebenan-iOS were already claimed by a directory segment, and every
+// matched on a production iOS app were already claimed by a directory segment, and every
 // one of the remaining 9 was a production A/B-test feature that perf was therefore
-// silently skipping (`KindnessReminderABTest.swift`, `Tracking+ShortenNameABTest.swift`,
+// silently skipping (`OnboardingABTest.swift`, `Tracking+ExperimentABTest.swift`,
 // …). Real Swift/Kotlin tests live in a test target or source set. See
 // internal/facts/testpath.go.
 func isTestPath(p string) bool { return facts.IsTestPath(p) }
@@ -696,7 +696,7 @@ func isColdPath(file string) bool {
 // ("h.weatherHandler.GetDailyWeatherRange") and for Rails it is "clients#index" — and
 // neither is a symbol name. The two key spaces are disjoint: on fairwayhub/golf, 1397
 // distinct handler props intersect 13482 symbol names in exactly TWO places (both Python,
-// where the prop happens to equal the canonical name); on nan/nebenan, zero. So no Go or
+// where the prop happens to equal the canonical name); on a production Rails app, zero. So no Go or
 // Ruby route handler had ever been escalated, and the comment promising a handler is
 // "always hot" described behaviour the code did not have.
 //
@@ -749,7 +749,7 @@ func collect(store *facts.Store) (funcs []funcInfo, storage, routeHandlers, asso
 	// ("h.weatherHandler.GetDailyWeatherRange") and for Rails it is "clients#index".
 	// Neither is a symbol name. The two key spaces are disjoint: on fairwayhub/golf, 1397
 	// distinct handler props intersect 13482 symbol names in exactly TWO places (both
-	// Python, where the prop happens to equal the canonical name), and on nan/nebenan,
+	// Python, where the prop happens to equal the canonical name), and on a production Rails app,
 	// zero. So no Go or Ruby route handler had ever been escalated, and the comment
 	// promising a handler is "always hot" described behaviour the code did not have.
 	//

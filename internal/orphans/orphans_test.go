@@ -469,7 +469,7 @@ func TestKotlinFrameworkEntryPointsExcluded(t *testing.T) {
 // constructed by app code — a View by its parent's body, a ViewModel by
 // @StateObject, a ViewController by a coordinator — and those edges ARE tracked,
 // so an unreferenced one is real dead code and must still be reported. Verified on
-// my-golf-journal-ios and nebenan-iOS: 0 of 25 viewcontroller symbols are orphans,
+// my-golf-journal-ios and a production iOS app: 0 of 25 viewcontroller symbols are orphans,
 // and each of the 6 uiview orphans is genuinely unused.
 func TestIOSFrameworkEntryPointsExcluded(t *testing.T) {
 	syms := []symInput{
@@ -1397,17 +1397,17 @@ func TestClassify_ExcludesPythonNonAppTreesAndCLI(t *testing.T) {
 // nonShippableSegments did not: Jest's `__tests__` colocation dir and Xcode's
 // default `Tests`/`Mocks` target names. Without them, an XCTest target's classes
 // and hand-written spies are offered to the user as dead code to delete — on
-// nan/nebenan-iOS that was 1959 of 5671 orphans (34.5%).
+// a production iOS app that was 1959 of 5671 orphans (34.5%).
 //
 // `__tests__` is pinned here only: no repo in any corpus tier has such a
 // directory, so this test is its sole assertion (a TestGolden fixture cannot
 // pin an analyzer).
 func TestIsTestPath_ConventionalTestDirSegments(t *testing.T) {
 	for _, p := range []string{
-		"Tests/App/TestHelper.swift",                      // Xcode test target
-		"Tests/NebenanFeed/Mocks/FeedMock.swift",          // Xcode mock target, nested
-		"Tests/Nebenan3P/Helper/SnowplowTestHelper.swift", // real path from nebenan-iOS
-		"src/__tests__/testUtils.ts",                      // Jest / CRA / Next.js colocation
+		"Tests/App/TestHelper.swift",                   // Xcode test target
+		"Tests/AcmeFeed/Mocks/FeedMock.swift",          // Xcode mock target, nested
+		"Tests/Acme3P/Helper/SnowplowTestHelper.swift", // real-world path shape
+		"src/__tests__/testUtils.ts",                   // Jest / CRA / Next.js colocation
 	} {
 		if !isTestPath(p) {
 			t.Errorf("isTestPath(%q) = false, want true (test-support code must not be a cleanup candidate)", p)
@@ -1446,7 +1446,7 @@ func TestIsTestPath_SharedWithPerf(t *testing.T) {
 		"Mocks/APIStub.swift",
 		"src/components/__tests__/Button.tsx",
 		// Long-standing coverage.
-		"app/src/androidTest/java/de/nebenan/app/ui/EspressoMocks.kt",
+		"app/src/androidTest/java/com/example/app/ui/EspressoMocks.kt",
 		"spec/models/user_spec.rb",
 		"test/models/user_test.rb",
 		"tests/unit/test_date_parser.py",
@@ -1468,13 +1468,13 @@ func TestIsTestPath_SharedWithPerf(t *testing.T) {
 	// rest. Excluding production code from dead-code analysis is a silent false
 	// negative, so these are pinned.
 	prodPaths := []string{
-		"app/jobs/hood_message/finish_kindness_reminder_ab_test.rb",
+		"app/jobs/onboarding/finish_onboarding_ab_test.rb",
 		"app/jobs/test_job.rb",
 		"app/jobs/test_fail_job.rb",
 		"superset/cli/test_db.py",
 		"superset/commands/database/test_connection.py",
-		"Sources/NebenanFoundation/Components/KindnessReminderABTest/KindnessReminderABTest.swift",
-		"api/src/main/java/de/nebenan/app/api/model/ABTest.kt",
+		"Sources/AcmeFoundation/Components/OnboardingABTest/OnboardingABTest.swift",
+		"api/src/main/java/com/example/app/api/model/ABTest.kt",
 	}
 	for _, p := range prodPaths {
 		if isTestPath(p) {
@@ -1489,7 +1489,7 @@ func TestIsTestPath_SharedWithPerf(t *testing.T) {
 // collect() returns every symbol in the repo; isExcluded (test paths, entry points,
 // framework-loaded) and passesFilters run later, inside classify. So len(syms) — what
 // the handler passed as total_symbols — counts symbols that were never orphan
-// candidates at all. The denominator was wrong even with NO filter: on nan/nebenan-iOS
+// candidates at all. The denominator was wrong even with NO filter: on a production iOS app
 // it reported 39241 where isTestPath alone removes 5491, understating the dead-code
 // rate from ≥11.0% to 9.5%.
 func TestPopulation_IsTheCandidateSet(t *testing.T) {
