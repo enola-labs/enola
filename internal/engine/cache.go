@@ -2980,7 +2980,10 @@ import (
 // file serves under both prefixes, in either statement order.
 // v395: a Rust call through a module path inside the crate (`db::load_users()`,
 // `crate::`, `self::`, `super::`, a sibling crate) names its canonical target.
-const cacheVersion = "v395"
+// v396: a TypeScript request helper declared in a file (its first parameter ends the
+// URL it hands fetch or axios, after a literal prefix) makes each call to it in that
+// file a client route.
+const cacheVersion = "v396"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

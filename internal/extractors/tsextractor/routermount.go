@@ -110,9 +110,9 @@ const defaultExport = "default"
 // parallel per-file walk, where the path aliases needed to resolve an import are in
 // scope; resolution across files happens later, serially.
 type routerFile struct {
-	relFile   string
-	roots     map[string]bool           // identifiers bound to an application (mount prefix "")
-	routers   map[string]bool           // identifiers bound to a sub-router, unmounted in this file
+	relFile string
+	roots   map[string]bool // identifiers bound to an application (mount prefix "")
+	routers map[string]bool // identifiers bound to a sub-router, unmounted in this file
 	// mountedAt is each sub-router this file mounts itself, with the prefix
 	// serverroutes.go resolved for it. Its own routes are already emitted there; the
 	// repo-wide pass needs the prefix only to hand it on to the children it mounts.
