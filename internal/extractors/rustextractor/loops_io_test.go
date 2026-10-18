@@ -211,3 +211,86 @@ fn load_row() {
 		t.Errorf("pkg.handler performs_io = %v, want true (transitive through load_row)", h.Props["performs_io"])
 	}
 }
+
+// TestRustPerformsIO_CrossesAModulePathCall is the layered-app shape: a service
+// calls the db layer through its module path, `db::load_users()`, which is how Rust
+// calls a function in another module. The call used to be emitted as the bare
+// "load_users", which names no fact, so the closure stopped there and the service
+// layer never carried performs_io. TestRustComputePerformsIO_Transitive only
+// covers a same-file bare call, which always resolved.
+func TestRustPerformsIO_CrossesAModulePathCall(t *testing.T) {
+	crates := []crateInfo{{name: "app", dir: "."}}
+	dirs := map[string]bool{"src": true}
+	db, _ := extractFileAST([]byte(`
+pub async fn load_users() -> Vec<User> {
+    let sql = "SELECT * FROM users";
+    sqlx::query(sql).fetch_all(&pool()).await.unwrap()
+}
+`), "src/db.rs", crates, dirs)
+	service, _ := extractFileAST([]byte(`
+use crate::db;
+
+pub async fn list_all() -> Vec<User> {
+    db::load_users().await
+}
+`), "src/service.rs", crates, dirs)
+	ff := append(db, service...)
+	ioclosure.Propagate(ff)
+
+	svc, ok := findFact(ff, "src.list_all")
+	if !ok {
+		t.Fatal("src.list_all not extracted")
+	}
+	if !hasRelation(svc, facts.RelCalls, "src.load_users") {
+		t.Errorf("db::load_users() must call src.load_users, got %+v", svc.Relations)
+	}
+	if b, _ := svc.Props["performs_io"].(bool); !b {
+		t.Errorf("src.list_all performs_io = %v, want true (through db::load_users)", svc.Props["performs_io"])
+	}
+	// sqlx is an external crate: its path is not resolved, so the call keeps the
+	// bare name it always had.
+	load, _ := findFact(ff, "src.load_users")
+	if !hasRelation(load, facts.RelCalls, "query") {
+		t.Errorf("sqlx::query must stay the bare \"query\", got %+v", load.Relations)
+	}
+}
+
+// TestAST_ModulePathCallResolution pins which written paths resolve. Only a path
+// that starts inside the crate does; an external crate, the standard library, a type
+// and a method on a value keep the bare name, because none of them names a function
+// this crate declares at a place the path can tell.
+func TestAST_ModulePathCallResolution(t *testing.T) {
+	crates := []crateInfo{{name: "app", dir: "."}, {name: "app_util", dir: "util"}}
+	dirs := map[string]bool{"src": true, "src/jobs": true, "util/src": true}
+	for _, tc := range []struct {
+		name, body, want string
+	}{
+		{"crate path", "crate::db::load_users()", "src.load_users"},
+		{"imported module", "db::load_users()", "src.load_users"},
+		{"self path", "self::helper()", "src/jobs.helper"},
+		{"super path", "super::db::load_users()", "src.load_users"},
+		{"directory module", "crate::jobs::run()", "src/jobs.run"},
+		{"sibling crate", "app_util::slugify(s)", "util/src.slugify"},
+		{"external crate", "sqlx::query(sql)", "query"},
+		{"standard library", "std::fs::read(path)", "read"},
+		{"method on a value", "conn.execute(sql)", "execute"},
+		{"type path", "Order::find(id)", "find"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ff, _ := extractFileAST([]byte(`
+use crate::db;
+
+pub fn caller() {
+    `+tc.body+`;
+}
+`), "src/jobs/worker.rs", crates, dirs)
+			f, ok := findFact(ff, "src/jobs.caller")
+			if !ok {
+				t.Fatal("src/jobs.caller not extracted")
+			}
+			if !hasRelation(f, facts.RelCalls, tc.want) {
+				t.Errorf("%s: want a calls edge to %q, got %+v", tc.body, tc.want, f.Relations)
+			}
+		})
+	}
+}

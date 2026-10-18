@@ -2978,7 +2978,9 @@ import (
 // v393: type-tests and integration-tests directories count as test paths.
 // v394: an Express router mounted under a router that is itself mounted in its own
 // file serves under both prefixes, in either statement order.
-const cacheVersion = "v394"
+// v395: a Rust call through a module path inside the crate (`db::load_users()`,
+// `crate::`, `self::`, `super::`, a sibling crate) names its canonical target.
+const cacheVersion = "v395"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
