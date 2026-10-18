@@ -180,3 +180,66 @@ func TestLookupClientMatches_PicksItsOwnVersion(t *testing.T) {
 		t.Fatalf("refs = %+v, want only the v2 route", refs)
 	}
 }
+
+// TestLookupClientMatches_DifferentResourcesDoNotJoin: the suffix join drops a prefix
+// on both sides on purpose (a gateway prefix on one, the server's own on the other),
+// and two paths that do that can still name different resources sharing a tail.
+// /api/settings/users/{}/roles/{} reached /api/settings/courses/{id}/roles/{id}, and on
+// a real cluster one call reached seven unrelated ".../status/{id}" routes. The
+// segment before the shared suffix decides: different words that are not routing
+// detail refuse the join, the way different versions already do.
+func TestLookupClientMatches_DifferentResourcesDoNotJoin(t *testing.T) {
+	route := func(path string) facts.Fact {
+		return facts.Fact{Kind: facts.KindRoute, Name: path, Repo: "backend",
+			Props: map[string]any{"method": "GET", "role": "server"}}
+	}
+	cases := []struct {
+		name, server, client string
+		want                 bool
+	}{
+		{"different resource, same tail", "/api/settings/courses/{course_id}/roles/{role_id}", "/api/settings/users/{}/roles/{}", false},
+		{"singular against plural", "/api/settings/members/statuses/{id}", "/api/member/statuses/{}", false},
+		{"different parent of a shared status route", "/api/settings/cart/status/{courseId}", "/api/settings/activities/status/{}", false},
+		{"gateway against the server prefix (the documented case)", "/api/v2/orders/{id}", "/gateway/orders/{}", true},
+		{"api against another mount", "/internal/orders/{id}", "/api/orders/{}", true},
+		{"base-relative client", "/api/settings/members/statuses/{id}", "/members/statuses/{}", true},
+		{"gateway-prefixed client of the full path", "/api/settings/members/statuses/{id}", "/edge/api/settings/members/statuses/{}", true},
+		{"a number is an id, not a resource", "/tenants/2/orders/{id}", "/tenants/1/orders/{}", true},
+		// The same word is not the same resource when one side has an id after it:
+		// a user's role assignment is not a role definition.
+		{"an id on one side only", "/api/settings/users/roles/{id}", "/api/settings/users/{}/roles/{}", false},
+		{"ids in step on both sides", "/api/tenants/{tid}/orders/{id}", "/gateway/tenants/{}/orders/{}", true},
+		{"two unknown mounts", "/svc/orders/{id}", "/backend/orders/{}", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := New(vocab.Default())
+			all := []facts.Fact{route(tc.server)}
+			refs, _ := m.LookupClientMatches(m.IndexServerRoutes(all), tc.client, "GET")
+			if got := len(refs) > 0; got != tc.want {
+				t.Errorf("%s against %s: matched = %v, want %v", tc.client, tc.server, got, tc.want)
+			}
+			// The method_mismatch label asks the same question with the verb set aside,
+			// so it must give the same answer: a call the join refuses is path_unknown.
+			if got := m.ClientPathHasServer(m.IndexServerPathSuffixes(all), tc.client); got != tc.want {
+				t.Errorf("%s against %s: ClientPathHasServer = %v, want %v", tc.client, tc.server, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestLookupClientMatches_RoutingPrefixOverlay: the routing words are a vocabulary,
+// because the mount a gateway uses is a deployment fact enola cannot see. A repo that
+// mounts under "backend" says so in its config and the join holds again.
+func TestLookupClientMatches_RoutingPrefixOverlay(t *testing.T) {
+	s, err := vocab.Apply(&vocab.Overlay{RoutingPrefixSegments: vocab.ListOverlay{Add: []string{"backend"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := New(s)
+	all := []facts.Fact{{Kind: facts.KindRoute, Name: "/svc/orders/{id}", Repo: "backend",
+		Props: map[string]any{"method": "GET", "role": "server"}}}
+	if refs, _ := m.LookupClientMatches(m.IndexServerRoutes(all), "/backend/orders/{}", "GET"); len(refs) == 0 {
+		t.Error("with backend declared routing detail, /backend/orders/{} must reach /svc/orders/{id}")
+	}
+}

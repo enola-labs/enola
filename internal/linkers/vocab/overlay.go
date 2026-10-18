@@ -18,6 +18,7 @@ import "fmt"
 // collision would become an edge.
 type Overlay struct {
 	GenericPathSegments   ListOverlay `yaml:"generic_path_segments"`
+	RoutingPrefixSegments ListOverlay `yaml:"routing_prefix_segments"`
 	GenericTypeNames      ListOverlay `yaml:"generic_type_names"`
 	FrameworkConventions  ListOverlay `yaml:"framework_conventions"`
 	GenericComponentNames ListOverlay `yaml:"generic_component_names"`
@@ -71,6 +72,7 @@ func Apply(o *Overlay) (*Set, error) {
 	}
 
 	applySet(s.GenericPathSegments, o.GenericPathSegments)
+	applySet(s.RoutingPrefixSegments, o.RoutingPrefixSegments)
 	applySet(s.GenericTypeNames, o.GenericTypeNames)
 	applySet(s.FrameworkConventions, o.FrameworkConventions)
 	applySet(s.GenericComponentNames, o.GenericComponentNames)
