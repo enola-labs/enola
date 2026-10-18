@@ -196,6 +196,7 @@ func Analyze(s *facts.Store, query string, maxRoutes int, findCallers CallerFind
 	// wholeClass are the controllers walked from every method they declare, because
 	// a route names the class and nothing says which method serves it.
 	wholeClass := map[string]bool{}
+	graph := s.Graph()
 	for _, m := range matched {
 		if controller, _, found := strings.Cut(m.route.Handler, "#"); found {
 			if resolved, ok := classes[ControllerKey(controller)]; ok && controller != "" {
@@ -212,7 +213,23 @@ func Analyze(s *facts.Store, query string, maxRoutes int, findCallers CallerFind
 			if rel.Kind != facts.RelHandledBy {
 				continue
 			}
-			if class := ownerOf(rel.Target); declared[class] {
+			// A Grape route is served by the API class itself: handled_by names the
+			// class and no method, so the whole class is what serves it.
+			if declared[rel.Target] {
+				if !declared[named] {
+					controllers[rel.Target] = true
+					wholeClass[rel.Target] = true
+				}
+				continue
+			}
+			// `Class#method` and `Class::method` split here; every other spelling,
+			// `<owner>.<method>` above all (TypeScript, Java, C#), is asked of the
+			// graph, which owns the rule that wires a method to its type.
+			class := ownerOf(rel.Target)
+			if !declared[class] && graph != nil {
+				class = graph.MethodOwner(rel.Target)
+			}
+			if class != "" {
 				handlers[rel.Target] = true
 				bound = true
 				if !declared[named] {
@@ -249,7 +266,6 @@ func Analyze(s *facts.Store, query string, maxRoutes int, findCallers CallerFind
 	// plain Rails controller often goes through a service or a query object. One
 	// hop found nothing at all on the monolith, which is the traversal working
 	// and the depth being wrong.
-	graph := s.Graph()
 	reached := map[string]bool{}
 	if graph != nil {
 		// The call edges hang off the controller's METHODS, not off the class: a

@@ -315,3 +315,84 @@ func TestAnalyzeWalksFromTheHandlerNotItsSiblings(t *testing.T) {
 			unbound.Controllers, unbound.Models)
 	}
 }
+
+// TestAnalyzeFollowsADottedHandler: TypeScript, Java and C# name a method
+// `<owner>.<method>`, and a NestJS route's handler prop is the bare method name, so
+// the class is only in the handled_by target. Reading only `#` and `::` reported
+// "no class in this repository answers" for a controller the graph declares.
+func TestAnalyzeFollowsADottedHandler(t *testing.T) {
+	const controller = "gateway/src/catalog.CatalogController"
+	st := facts.NewStore()
+	st.Add(
+		facts.Fact{Kind: facts.KindRoute, Name: "/v1/catalog/imports", Props: map[string]any{
+			"method": "POST", "handler": "startImport", "framework": "nestjs"},
+			Relations: []facts.Relation{{Kind: facts.RelHandledBy, Target: controller + ".startImport"}}},
+		facts.Fact{Kind: facts.KindSymbol, Name: controller, Props: map[string]any{"symbol_kind": facts.SymbolClass}},
+		facts.Fact{Kind: facts.KindSymbol, Name: controller + ".startImport", Props: map[string]any{
+			"symbol_kind": facts.SymbolMethod},
+			Relations: []facts.Relation{{Kind: facts.RelCalls, Target: "gateway/src/catalog.CatalogImport"}}},
+		facts.Fact{Kind: facts.KindSymbol, Name: controller + ".listImports", Props: map[string]any{
+			"symbol_kind": facts.SymbolMethod},
+			Relations: []facts.Relation{{Kind: facts.RelCalls, Target: "gateway/src/catalog.Report"}}},
+		facts.Fact{Kind: facts.KindSymbol, Name: "gateway/src/catalog.CatalogImport", Props: map[string]any{"symbol_kind": facts.SymbolClass}},
+		facts.Fact{Kind: facts.KindStorage, Name: "gateway/src/catalog.CatalogImport", Props: map[string]any{
+			"storage_kind": "model", "table": "catalog_imports"}},
+		facts.Fact{Kind: facts.KindStorage, Name: "gateway/src/catalog.Report", Props: map[string]any{
+			"storage_kind": "model", "table": "reports"}},
+	)
+	st.BuildGraph()
+
+	got := Analyze(st, "/v1/catalog/imports", 25, nil)
+	if len(got.Controllers) != 1 || got.Controllers[0] != controller {
+		t.Fatalf("controllers = %v, stopped at %q; want the class the handled_by method belongs to",
+			got.Controllers, got.StoppedAt)
+	}
+	// Walked from the bound method, not the whole class: listImports' model is
+	// another endpoint's.
+	if len(got.Models) != 1 || got.Models[0] != "gateway/src/catalog.CatalogImport" {
+		t.Errorf("models = %v, want only what the bound method reaches", got.Models)
+	}
+	if got.StoppedAt != "" {
+		t.Errorf("the chain completed, so nothing stopped it: %q", got.StoppedAt)
+	}
+}
+
+// TestAnalyzeTakesAHandlerThatIsTheClass: a Grape route is served by the API class
+// itself, so handled_by names the class and no method. Nothing says which part of the
+// class serves it, so the whole class is walked.
+func TestAnalyzeTakesAHandlerThatIsTheClass(t *testing.T) {
+	st := facts.NewStore()
+	st.Add(
+		facts.Fact{Kind: facts.KindRoute, Name: "/api/v1/hello", Props: map[string]any{
+			"method": "GET", "handler": "BenchAPI", "framework": "grape"},
+			Relations: []facts.Relation{{Kind: facts.RelHandledBy, Target: "BenchAPI"}}},
+		facts.Fact{Kind: facts.KindSymbol, Name: "BenchAPI", Props: map[string]any{"symbol_kind": facts.SymbolClass},
+			Relations: []facts.Relation{{Kind: facts.RelCalls, Target: "Greeting"}}},
+		facts.Fact{Kind: facts.KindSymbol, Name: "Greeting", Props: map[string]any{"symbol_kind": facts.SymbolClass}},
+		facts.Fact{Kind: facts.KindStorage, Name: "Greeting", Props: map[string]any{
+			"storage_kind": "model", "table": "greetings"}},
+	)
+	st.BuildGraph()
+
+	got := Analyze(st, "/api/v1/hello", 25, nil)
+	if len(got.Controllers) != 1 || got.Controllers[0] != "BenchAPI" {
+		t.Fatalf("controllers = %v, stopped at %q; want the class handled_by names", got.Controllers, got.StoppedAt)
+	}
+	if len(got.Models) != 1 || got.Models[0] != "Greeting" {
+		t.Errorf("models = %v, want what the class reaches", got.Models)
+	}
+
+	// A handled_by target that is neither a class nor a method of one is still not a
+	// controller: a Go handler is a package function, and no class serves it.
+	fn := facts.NewStore()
+	fn.Add(
+		facts.Fact{Kind: facts.KindRoute, Name: "/api/v2/orders/{id}", Props: map[string]any{
+			"method": "GET", "handler": "getOrder"},
+			Relations: []facts.Relation{{Kind: facts.RelHandledBy, Target: "api.getOrder"}}},
+		facts.Fact{Kind: facts.KindSymbol, Name: "api.getOrder", Props: map[string]any{"symbol_kind": facts.SymbolFunc}},
+	)
+	fn.BuildGraph()
+	if got := Analyze(fn, "/api/v2/orders", 25, nil); len(got.Controllers) != 0 || got.StoppedAt != "controller" {
+		t.Errorf("controllers = %v, stopped at %q; a function handler has no class", got.Controllers, got.StoppedAt)
+	}
+}
