@@ -2,6 +2,7 @@ package coverage
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -181,5 +182,101 @@ func TestExplain_UnresolvedCallersReadTheLinkerVerdict(t *testing.T) {
 	if len(breakdown) != 1 || breakdown[0].Fact != "web/client" ||
 		breakdown[0].Detail != "1 unresolved outbound call site(s) from here" {
 		t.Errorf("breakdown = %+v, want only web/client with the one call the linker left unresolved", breakdown)
+	}
+}
+
+// reasonStore is a two-service cluster: web makes the calls, api is loaded. apiRoutes
+// adds a server route to api; each reason adds one unresolved client call from web.
+func reasonStore(apiRoutes bool, reasons ...string) *facts.Store {
+	store := facts.NewStore()
+	store.Add(
+		facts.Fact{Kind: facts.KindService, Name: "web", Repo: "web",
+			Props: map[string]any{"edge_coverage": []map[string]any{
+				{"edge_type": "http_client", "detected": len(reasons), "resolved": 0, "unresolved": len(reasons)},
+			}}},
+		facts.Fact{Kind: facts.KindService, Name: "api", Repo: "api"},
+	)
+	if apiRoutes {
+		store.Add(facts.Fact{Kind: facts.KindRoute, Name: "/health", File: "api/server.go", Repo: "api",
+			Props: map[string]any{"method": "GET", "role": "server"}})
+	}
+	for i, reason := range reasons {
+		store.Add(facts.Fact{Kind: facts.KindRoute, Name: fmt.Sprintf("/api/v9/thing%d", i), File: "web/src/api.ts", Repo: "web",
+			Props: map[string]any{"method": "GET", "role": "client",
+				facts.PropUnmatchedByServer: true, "unmatched_reason": reason}})
+	}
+	return store
+}
+
+func actionsFor(t *testing.T, store *facts.Store) (facts.Insight, string) {
+	t.Helper()
+	insights, err := New().Explain(context.Background(), store)
+	if err != nil {
+		t.Fatalf("Explain: %v", err)
+	}
+	if len(insights) != 1 {
+		t.Fatalf("want one insight, got %d: %+v", len(insights), insights)
+	}
+	return insights[0], strings.Join(insights[0].Actions, "\n")
+}
+
+// TestExplain_ActionsFollowTheReasons: the advice used to be one fixed sentence,
+// "append its repo if missing", which is wrong when the service is loaded and its
+// routes were never extracted, and points away from a method mismatch, which is
+// likely a real defect in the caller. The linker records why each call did not
+// resolve, so the advice is chosen from that.
+func TestExplain_ActionsFollowTheReasons(t *testing.T) {
+	// api is loaded and serves nothing: it is the likely target, unextracted.
+	in, actions := actionsFor(t, reasonStore(false, "path_unknown"))
+	if !strings.Contains(actions, "api is loaded but serves no routes") {
+		t.Errorf("a loaded service with no routes must be named, got:\n%s", actions)
+	}
+	if strings.Contains(actions, "append") {
+		t.Errorf("must not say append while a loaded service could be the target, got:\n%s", actions)
+	}
+	found := false
+	for _, e := range in.Evidence {
+		found = found || (e.Fact == "web" && e.Detail == "path_unknown: 1 call site(s)")
+	}
+	if !found {
+		t.Errorf("evidence must count the calls by reason, got %+v", in.Evidence)
+	}
+
+	// api serves routes, none of them these: nothing loaded is the target.
+	_, actions = actionsFor(t, reasonStore(true, "path_unknown"))
+	if !strings.Contains(actions, "append the repository that serves them") {
+		t.Errorf("with every loaded service serving routes, the advice is to append, got:\n%s", actions)
+	}
+
+	// A method mismatch is about the caller, not about what is loaded.
+	_, actions = actionsFor(t, reasonStore(true, "method_mismatch", "method_mismatch"))
+	if !strings.Contains(actions, "2 call site(s) reach a path a loaded service serves") {
+		t.Errorf("method_mismatch needs its own action, got:\n%s", actions)
+	}
+	if strings.Contains(actions, "append") {
+		t.Errorf("a method mismatch is not a missing repository, got:\n%s", actions)
+	}
+
+	// Declined matches are enola's own limit.
+	_, actions = actionsFor(t, reasonStore(true, "generic_path"))
+	if !strings.Contains(actions, "not evidence of a missing service") {
+		t.Errorf("a declined match must say so, got:\n%s", actions)
+	}
+}
+
+// TestExplain_ClientAppIsNotACandidateServer: a mobile app serves no routes either,
+// but it makes calls of its own, so it is a client and not a backend whose routes
+// went unextracted. Naming it sent a reader to look for routes in an app.
+func TestExplain_ClientAppIsNotACandidateServer(t *testing.T) {
+	store := reasonStore(true, "path_unknown")
+	store.Add(
+		facts.Fact{Kind: facts.KindService, Name: "ios", Repo: "ios",
+			Props: map[string]any{"edge_coverage": []map[string]any{
+				{"edge_type": "http_client", "detected": 3, "resolved": 3, "unresolved": 0},
+			}}},
+	)
+	_, actions := actionsFor(t, store)
+	if strings.Contains(actions, "ios") {
+		t.Errorf("a client app must not be named as a candidate server, got:\n%s", actions)
 	}
 }

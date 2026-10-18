@@ -9,6 +9,10 @@
         "detail": "http_client 1/2 resolved (1 unresolved)"
       },
       {
+        "fact": "sdk",
+        "detail": "path_unknown: 1 call site(s)"
+      },
+      {
         "fact": "sdk/src/connectors",
         "detail": "1 unresolved outbound call site(s) from here"
       }
