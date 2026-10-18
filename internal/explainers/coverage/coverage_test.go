@@ -136,3 +136,50 @@ func TestExplain_NoServicesNoInsights(t *testing.T) {
 		t.Errorf("expected no insights for single-repo snapshot, got %d", len(insights))
 	}
 }
+
+// TestExplain_UnresolvedCallersReadTheLinkerVerdict: the per-component breakdown is
+// evidence for the count beside it, so it must count the same call sites. It used to
+// re-match client calls against server routes with its own key, which collapsed only
+// a bare "{}" or a ":"-prefixed segment, so a call the linker had matched through
+// "{id}" against ":id", or through a ".json" suffix, was listed as unresolved. On a
+// real cluster the breakdown said 799 where the count said 126.
+func TestExplain_UnresolvedCallersReadTheLinkerVerdict(t *testing.T) {
+	matched := []map[string]any{{"repo": "api", "name": "/orders/:id", "method": "GET"}}
+	store := facts.NewStore()
+	store.Add(
+		facts.Fact{Kind: facts.KindService, Name: "web", Repo: "web",
+			Relations: []facts.Relation{{Kind: facts.RelDependsOn, Target: "api"}},
+			Props: map[string]any{"edge_coverage": []map[string]any{
+				{"edge_type": "http_client", "detected": 3, "resolved": 2, "unresolved": 1},
+			}}},
+		facts.Fact{Kind: facts.KindRoute, Name: "/orders/:id", File: "api/server.go", Repo: "api",
+			Props: map[string]any{"method": "GET", "role": "server"}},
+		// Resolved by the linker through a param dialect and a format suffix.
+		facts.Fact{Kind: facts.KindRoute, Name: "/orders/{id}", File: "web/client/orders.go", Repo: "web",
+			Props: map[string]any{"method": "GET", "role": "client", facts.PropMatchedRoutes: matched}},
+		facts.Fact{Kind: facts.KindRoute, Name: "/orders/{id}.json", File: "web/client/orders.go", Repo: "web",
+			Props: map[string]any{"method": "GET", "role": "client", facts.PropMatchedRoutes: matched}},
+		// The one the linker could not place.
+		facts.Fact{Kind: facts.KindRoute, Name: "/{}/orders", File: "web/client/tenant.go", Repo: "web",
+			Props: map[string]any{"method": "GET", "role": "client",
+				facts.PropUnmatchedByServer: true, "unmatched_reason": "path_unknown"}},
+	)
+
+	insights, err := New().Explain(context.Background(), store)
+	if err != nil {
+		t.Fatalf("Explain: %v", err)
+	}
+	if len(insights) != 1 {
+		t.Fatalf("want one insight for web, got %d: %+v", len(insights), insights)
+	}
+	var breakdown []facts.Evidence
+	for _, e := range insights[0].Evidence {
+		if strings.Contains(e.Detail, "from here") {
+			breakdown = append(breakdown, e)
+		}
+	}
+	if len(breakdown) != 1 || breakdown[0].Fact != "web/client" ||
+		breakdown[0].Detail != "1 unresolved outbound call site(s) from here" {
+		t.Errorf("breakdown = %+v, want only web/client with the one call the linker left unresolved", breakdown)
+	}
+}
