@@ -30,15 +30,13 @@ const maxUnresolvedCallers = 8
 
 // unresolvedCallers names the components whose outbound calls match no route in
 // any loaded repository, most-calls-first.
+//
+// It reads the linker's verdict on each call site (unmatched_by_server) rather than
+// matching calls to routes itself. The breakdown is evidence for the unresolved
+// count beside it, which the linker produced, so it has to count the same call
+// sites; a second matcher with its own normalization listed calls the linker had
+// resolved through "{id}" against ":id", or through a ".json" suffix.
 func unresolvedCallers(store *facts.Store, repo string) []facts.Evidence {
-	served := map[string]bool{}
-	for _, fact := range store.ByKind(facts.KindRoute) {
-		if role, _ := fact.PropAny("role").(string); role == "client" {
-			continue
-		}
-		served[routeKey(fact)] = true
-	}
-
 	byComponent := map[string]int{}
 	for _, fact := range store.ByKind(facts.KindRoute) {
 		if fact.Repo != repo {
@@ -50,7 +48,7 @@ func unresolvedCallers(store *facts.Store, repo string) []facts.Evidence {
 		if isDouble, _ := fact.PropAny("test_double").(bool); isDouble {
 			continue
 		}
-		if served[routeKey(fact)] {
+		if unmatched, _ := fact.PropAny(facts.PropUnmatchedByServer).(bool); !unmatched {
 			continue
 		}
 		component := fact.File
@@ -85,18 +83,6 @@ func unresolvedCallers(store *facts.Store, repo string) []facts.Evidence {
 		})
 	}
 	return out
-}
-
-// routeKey compares a client's path dialect against a server's.
-func routeKey(fact facts.Fact) string {
-	method, _ := fact.PropAny("method").(string)
-	segments := strings.Split(fact.Name, "/")
-	for i, segment := range segments {
-		if segment == "{}" || strings.HasPrefix(segment, ":") || strings.HasPrefix(segment, "*") {
-			segments[i] = ":param"
-		}
-	}
-	return strings.ToUpper(method) + " " + strings.TrimSuffix(strings.Join(segments, "/"), "/")
 }
 
 func (e *CoverageExplainer) Name() string {
