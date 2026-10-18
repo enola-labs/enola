@@ -718,13 +718,13 @@ func TestIsTestPath(t *testing.T) {
 		// not its name. `Sources/Foo/BarTests.swift` used to be treated as a test on
 		// the strength of the `Tests.swift` basename suffix — but neither SPM nor
 		// Xcode will compile a test from a `Sources/` target, so on a real repo that
-		// shape is always production. On nan/nebenan-iOS the suffix rule uniquely
+		// shape is always production. On a production iOS app the suffix rule uniquely
 		// matched 9 files and every one was a production A/B-test feature, e.g.
 		// `Settings.ABUserTests.swift` below; the 393 genuine test files it also
 		// matched were already claimed by the `Tests/` segment. It had no true
 		// positives to contribute, so it is gone. (fixed/28 defect class.)
 		"Sources/Foo/BarTests.swift",
-		"Sources/NebenanFoundation/Components/Settings/Settings.ABUserTests.swift",
+		"Sources/AcmeFoundation/Components/Settings/Settings.ABUserTests.swift",
 	}
 	for _, p := range production {
 		if isTestPath(p) {
@@ -1338,7 +1338,7 @@ func TestBoundedFanout_SubmitOutsideJvmIsNotDispatch(t *testing.T) {
 func TestIsTestPath_SharedWithOrphans(t *testing.T) {
 	testPaths := []string{
 		// Segments perf's old switch was missing entirely (this is bug new/51).
-		"app/src/androidTest/java/de/nebenan/app/ui/EspressoMocks.kt",
+		"app/src/androidTest/java/com/example/app/ui/EspressoMocks.kt",
 		"shared/src/commonTest/kotlin/FooTest.kt",
 		"shared/src/jvmTest/kotlin/BarTest.kt",
 		"internal/testutil/helpers.go",
@@ -1361,10 +1361,10 @@ func TestIsTestPath_SharedWithOrphans(t *testing.T) {
 	// basename suffixes claimed every one of these, so their performance findings
 	// were being silently dropped.
 	prodPaths := []string{
-		"Sources/NebenanFoundation/Components/KindnessReminderABTest/KindnessReminderABTest.swift",
-		"Sources/NebenanFoundation/Components/Tracking/Tracking+ShortenNameABTest.swift",
-		"Sources/NebenanFoundation/Components/Settings/Settings.ABUserTests.swift",
-		"api/src/main/java/de/nebenan/app/api/model/ABTest.kt",
+		"Sources/AcmeFoundation/Components/OnboardingABTest/OnboardingABTest.swift",
+		"Sources/AcmeFoundation/Components/Tracking/Tracking+ExperimentABTest.swift",
+		"Sources/AcmeFoundation/Components/Settings/Settings.ABUserTests.swift",
+		"api/src/main/java/com/example/app/api/model/ABTest.kt",
 		"app/jobs/test_job.rb",
 		"superset/cli/test_db.py",
 	}
@@ -1381,10 +1381,10 @@ func TestIsTestPath_SharedWithOrphans(t *testing.T) {
 // path, and Ruby symbols whose name does not (the case package= never handled).
 func perfFindingsFixture() []Finding {
 	return []Finding{
-		{Symbol: "app/src/main/java/de/nebenan/app/ui.Feed.load", Package: "app/src/main/java/de/nebenan/app/ui",
-			File: "app/src/main/java/de/nebenan/app/ui/Feed.kt", Severity: "high", BigO: "O(n²)", Kind: "call-in-loop"},
-		{Symbol: "app/src/androidTest/java/de/nebenan/app.FeedTest.check", Package: "app/src/androidTest/java/de/nebenan/app",
-			File: "app/src/androidTest/java/de/nebenan/app/FeedTest.kt", Severity: "medium", BigO: "O(n)", Kind: "call-in-loop"},
+		{Symbol: "app/src/main/java/com/example/app/ui.Feed.load", Package: "app/src/main/java/com/example/app/ui",
+			File: "app/src/main/java/com/example/app/ui/Feed.kt", Severity: "high", BigO: "O(n²)", Kind: "call-in-loop"},
+		{Symbol: "app/src/androidTest/java/com/example/app.FeedTest.check", Package: "app/src/androidTest/java/com/example/app",
+			File: "app/src/androidTest/java/com/example/app/FeedTest.kt", Severity: "medium", BigO: "O(n)", Kind: "call-in-loop"},
 		// Ruby: the symbol name carries no path at all.
 		{Symbol: "ABResult.refresh_all", Package: "app/models",
 			File: "app/models/ab_result.rb", Severity: "medium", BigO: "O(n)", Kind: "call-in-loop"},
@@ -1443,7 +1443,7 @@ func TestSummarize_HonorsFilter(t *testing.T) {
 // Finding carried no Package field, so package= was implemented as a substring match
 // on the symbol NAME — identical to symbol=. That works by accident where the name
 // embeds the path (Kotlin/Swift/Go) and returns a silent, permanent zero on Ruby,
-// whose names carry none. On nan/nebenan, 64 symbols under app/models/ are flaggable
+// whose names carry none. On a production Rails app, 64 symbols under app/models/ are flaggable
 // and package="app/models" matched none of them.
 func TestFilterFindings_PackageMatchesPackageNotJustName(t *testing.T) {
 	all := perfFindingsFixture()

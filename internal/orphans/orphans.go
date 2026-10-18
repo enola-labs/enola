@@ -218,13 +218,13 @@ type options struct {
 //
 // The rule itself lives in the OSS module (facts.IsTestPath). It used to be a local
 // copy, one of three that had drifted apart in both directions — this one was
-// missing `Tests`/`Mocks`/`__tests__` (1959 false orphans on nan/nebenan-iOS, 34.5%
+// missing `Tests`/`Mocks`/`__tests__` (1959 false orphans on a production iOS app, 34.5%
 // of every orphan the repo reported) while perf's copy was missing the Gradle/KMP
 // source sets, and the OSS god-class/hotspots explainers had no path check at all.
 //
 // Two of this copy's own rules were fixed/28 defects and did NOT survive the merge:
 // `strings.Contains(p, "_test.")` claimed the production ActiveJob
-// `finish_kindness_reminder_ab_test.rb`, and an unqualified `test_` prefix claimed
+// `finish_onboarding_ab_test.rb`, and an unqualified `test_` prefix claimed
 // `app/jobs/test_job.rb` and superset's `superset/cli/test_db.py`. Real Ruby and
 // Python tests live in a `spec/`/`test/`/`tests/` tree, which the segment rules
 // already claim, so those two rules only ever removed production code from the
@@ -505,7 +505,7 @@ var androidEntryPointComponents = map[string]bool{
 // mirrored: app code constructs a SwiftUI View from its parent's body, a ViewModel
 // via @StateObject, and a UIViewController from a coordinator, and those edges ARE
 // tracked, so an unreferenced one is real dead code. Measured across
-// my-golf-journal-ios and nebenan-iOS: 0 of 25 viewcontroller symbols are orphans,
+// my-golf-journal-ios and a production iOS app: 0 of 25 viewcontroller symbols are orphans,
 // and each of the 6 uiview orphans is genuinely unused — rescuing either role would
 // suppress real findings to fix nothing.
 var iosEntryPointComponents = map[string]bool{

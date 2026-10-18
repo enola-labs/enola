@@ -660,8 +660,8 @@ func TestImporterOf(t *testing.T) {
 
 func metricsFixture() []PackageMetric {
 	return []PackageMetric{
-		{Package: "Sources/NebenanCore", Repo: "ios", ClassesInterfaces: 12},
-		{Package: "Sources/NebenanUI", Repo: "ios", ClassesInterfaces: 8},
+		{Package: "Sources/AcmeCore", Repo: "ios", ClassesInterfaces: 12},
+		{Package: "Sources/AcmeUI", Repo: "ios", ClassesInterfaces: 8},
 		{Package: "app/models", Repo: "rails", ClassesInterfaces: 5},
 	}
 }
@@ -713,8 +713,8 @@ func TestResponseTotal_IsTheFilteredCount(t *testing.T) {
 // populations inside one parenthesis.
 func TestRenderSummary_ExcludedIsScopedToTheFilter(t *testing.T) {
 	excludedNames := []string{
-		"Tests/NebenanCoreTests",
-		"Tests/NebenanUITests",
+		"Tests/AcmeCoreTests",
+		"Tests/AcmeUITests",
 		"spec/models",
 	}
 	// Under package="Sources", none of the excluded modules match, so the note must
