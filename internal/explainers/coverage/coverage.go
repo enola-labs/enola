@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/enola-labs/enola/internal/facts"
+	httpsignal "github.com/enola-labs/enola/internal/linkers/crossrepo/signals/http"
 )
 
 // CoverageExplainer emits insights about detected-but-unresolved outbound edges.
@@ -114,7 +115,10 @@ func (e *CoverageExplainer) Explain(ctx context.Context, store *facts.Store) ([]
 		// other means this is a third party and nothing is missing. Naming the
 		// components that make the unresolved calls answers it on sight —
 		// lib/opensearch is not a repository anyone forgot.
+		reasons := unresolvedReasons(store, svc.Repo)
+		evidence = append(evidence, reasonEvidence(svc.Name, reasons)...)
 		evidence = append(evidence, unresolvedCallers(store, svc.Repo)...)
+		actions := reasonActions(reasons, unextractedServers(store, svc.Repo))
 
 		var insight facts.Insight
 		if facts.ClassifyService(outbound, detected, resolved, unresolved) == facts.ServiceCoverageGap {
@@ -127,10 +131,7 @@ func (e *CoverageExplainer) Explain(ctx context.Context, store *facts.Store) ([]
 					detected, svc.Name, unresolved, coverageDetail(cov)),
 				Confidence: 0.9,
 				Evidence:   evidence,
-				Actions: []string{
-					"Verify the unresolved call sites against source",
-					"Check whether the called service is in the snapshot (append its repo if missing)",
-				},
+				Actions:    actions,
 			}
 		} else {
 			insight = facts.Insight{
@@ -141,11 +142,141 @@ func (e *CoverageExplainer) Explain(ctx context.Context, store *facts.Store) ([]
 					svc.Name, unresolved, detected, coverageDetail(cov)),
 				Confidence: 0.75,
 				Evidence:   evidence,
+				Actions:    actions,
 			}
 		}
 		insights = append(insights, insight)
 	}
 	return append(insights, silentClients(store)...), nil
+}
+
+// reasonOrder is the order reasons are reported in: the ones that point at a defect
+// in the caller first, then the ones about what is loaded, then enola's own limits.
+var reasonOrder = []string{
+	httpsignal.ReasonMethodMismatch,
+	httpsignal.ReasonVersionMismatch,
+	httpsignal.ReasonPathUnknown,
+	httpsignal.ReasonAliasNotServing,
+	httpsignal.ReasonAmbiguousProvider,
+	httpsignal.ReasonDeclaredTarget,
+	httpsignal.ReasonNoMethod,
+	httpsignal.ReasonGenericPath,
+}
+
+// unresolvedReasons counts a repository's unresolved client calls by the reason the
+// linker recorded for each (unmatched_reason).
+func unresolvedReasons(store *facts.Store, repo string) map[string]int {
+	out := map[string]int{}
+	for _, fact := range store.ByKind(facts.KindRoute) {
+		if fact.Repo != repo {
+			continue
+		}
+		if unmatched, _ := fact.PropAny(facts.PropUnmatchedByServer).(bool); !unmatched {
+			continue
+		}
+		if isDouble, _ := fact.PropAny("test_double").(bool); isDouble {
+			continue
+		}
+		reason, _ := fact.PropAny("unmatched_reason").(string)
+		out[reason]++
+	}
+	return out
+}
+
+func reasonEvidence(service string, reasons map[string]int) []facts.Evidence {
+	var out []facts.Evidence
+	for _, reason := range reasonOrder {
+		if n := reasons[reason]; n > 0 {
+			out = append(out, facts.Evidence{Fact: service, Detail: fmt.Sprintf("%s: %d call site(s)", reason, n)})
+		}
+	}
+	return out
+}
+
+// unextractedServers names the loaded services that serve no route and make no
+// outbound call either. When calls go unresolved by path, one of these is the likely
+// target, loaded but with its routes unextracted: a backend whose framework no
+// extractor reads looks exactly like this. A service that makes calls of its own is a
+// client (a mobile or web app) and is not named.
+func unextractedServers(store *facts.Store, self string) []string {
+	serving := map[string]bool{}
+	for _, fact := range store.ByKind(facts.KindRoute) {
+		if role, _ := fact.PropAny("role").(string); role != "client" {
+			serving[fact.Repo] = true
+		}
+	}
+	var out []string
+	for _, svc := range store.ByKind(facts.KindService) {
+		if svc.Repo == self || serving[svc.Repo] {
+			continue
+		}
+		detected := 0
+		for _, c := range readCoverage(svc) {
+			detected += c.detected
+		}
+		if detected > 0 || facts.DependsOnCount(svc) > 0 {
+			continue
+		}
+		out = append(out, svc.Name)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// reasonActions turns the reasons into what to do about them. It used to be one fixed
+// sentence telling the reader to append the called service's repository, which is the
+// wrong advice when that service is loaded with its routes unextracted, and points away
+// from a method mismatch, which is usually a defect in the caller.
+func reasonActions(reasons map[string]int, unextracted []string) []string {
+	out := []string{"Verify the unresolved call sites against source"}
+	for _, reason := range reasonOrder {
+		n := reasons[reason]
+		if n == 0 {
+			continue
+		}
+		switch reason {
+		case httpsignal.ReasonMethodMismatch:
+			// Not "likely a defect": on a real cluster the set held all three causes, a
+			// caller and server that disagree, a method the extractor read wrong, and a
+			// different route that only shares the path's ending.
+			out = append(out, fmt.Sprintf("%d call site(s) reach a path a loaded service serves, with a method it does not serve: "+
+				"compare the method on both sides (a caller and server that disagree, a method enola read wrong, "+
+				"or a different route sharing the path's ending)", n))
+		case httpsignal.ReasonVersionMismatch:
+			out = append(out, fmt.Sprintf("%d call site(s) use an API version no loaded route serves for that path and method: "+
+				"check the version the caller targets", n))
+		case httpsignal.ReasonPathUnknown:
+			if len(unextracted) > 0 {
+				out = append(out, fmt.Sprintf("%d call site(s) match no route in any loaded service, and %s %s loaded but serves no routes: "+
+					"if these calls target it, its routes are not being extracted (check that its framework is supported)",
+					n, strings.Join(unextracted, ", "), isAre(len(unextracted))))
+			} else {
+				out = append(out, fmt.Sprintf("%d call site(s) match no route in any loaded service: "+
+					"append the repository that serves them, or check that its routes are extracted", n))
+			}
+		case httpsignal.ReasonAliasNotServing:
+			out = append(out, fmt.Sprintf("%d call site(s) go through a configured service alias whose repository serves none of "+
+				"the matching routes: check the alias", n))
+		case httpsignal.ReasonAmbiguousProvider:
+			out = append(out, fmt.Sprintf("%d call site(s) are served by more than one loaded repository, and nothing says which "+
+				"one is called: declare the target", n))
+		case httpsignal.ReasonDeclaredTarget:
+			out = append(out, fmt.Sprintf("%d call site(s) are attributed to the declared http-client seam by intent, not by a "+
+				"matching route", n))
+		}
+	}
+	if declined := reasons[httpsignal.ReasonNoMethod] + reasons[httpsignal.ReasonGenericPath]; declined > 0 {
+		out = append(out, fmt.Sprintf("%d call site(s) enola declined to match (no usable method, or a path too short to match "+
+			"safely): not evidence of a missing service", declined))
+	}
+	return out
+}
+
+func isAre(n int) string {
+	if n == 1 {
+		return "is"
+	}
+	return "are"
 }
 
 // silentClients reports each in-house client the config declares (clients:) that matched
