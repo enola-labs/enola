@@ -209,6 +209,11 @@ func TestLookupClientMatches_DifferentResourcesDoNotJoin(t *testing.T) {
 		// a user's role assignment is not a role definition.
 		{"an id on one side only", "/api/settings/users/roles/{id}", "/api/settings/users/{}/roles/{}", false},
 		{"ids in step on both sides", "/api/tenants/{tid}/orders/{id}", "/gateway/tenants/{}/orders/{}", true},
+		// A client prefix that is nothing but parameters is an unknown base, not an id:
+		// `${BASE_VIDEO_URL}/${videoId}/captions` reads as /{}/{}/captions because the
+		// base is a constant enola cannot read. Refusing it lost nine correct links.
+		{"an unknown base written as a parameter", "/api/v1/videos/:videoId/captions", "/{}/{}/captions", true},
+		{"an unknown base before a shared tail", "/api/v1/server/followers/:handle", "/{}/followers/{}", true},
 		{"two unknown mounts", "/svc/orders/{id}", "/backend/orders/{}", false},
 	}
 	for _, tc := range cases {
