@@ -170,3 +170,40 @@ func TestExploreModule_Depth2_SummaryInsights(t *testing.T) {
 		t.Errorf("summary mode should not emit the raw Symbol Relations dump; got:\n%s", out)
 	}
 }
+
+// TestSummariesKeyAModuleNodeByItself: a module node's File is the module's own
+// path, so taking its directory filed internal/facts and internal/factpath under
+// "internal", and every extractor under "internal/extractors". The traverse summary
+// then counted one module where there were two, and both summaries listed directories
+// that are not modules as "hottest" or "hotspot" modules.
+func TestSummariesKeyAModuleNodeByItself(t *testing.T) {
+	nodes := []facts.TraversalNode{
+		{Name: "internal/a", Kind: facts.KindModule, File: "internal/a", Depth: 1},
+		{Name: "internal/b", Kind: facts.KindModule, File: "internal/b", Depth: 2},
+		{Name: "internal/a.Foo", Kind: facts.KindSymbol, File: "internal/a/foo.go", Depth: 1},
+	}
+	srv := &Server{}
+	traverse := srv.renderTraverseSummary(facts.NewStore(), traverseResponse{TraversalResult: facts.TraversalResult{
+		Nodes: append([]facts.TraversalNode{{Name: "start", Kind: facts.KindModule, File: "start", Depth: 0}}, nodes...),
+		Stats: facts.TraversalStats{NodesVisited: 4, MaxDepthReached: 2},
+	}}, "start", "forward")
+	impact := srv.renderImpactSummary(impactResponse{ImpactResult: facts.ImpactResult{
+		Target: "start", TotalDependents: 3, Summary: "3 total dependents",
+		ByDepth: map[int][]facts.TraversalNode{1: nodes[:1], 2: nodes[1:]},
+		Stats:   facts.TraversalStats{MaxDepthReached: 2},
+	}})
+
+	if !strings.Contains(traverse, "3 nodes across 2 modules") {
+		t.Errorf("traverse summary must count internal/a and internal/b as two modules; got:\n%s", traverse)
+	}
+	for name, out := range map[string]string{"traverse": traverse, "impact": impact} {
+		for _, want := range []string{"- internal/a (2 ", "- internal/b (1 "} {
+			if !strings.Contains(out, want) {
+				t.Errorf("%s summary missing %q; got:\n%s", name, want, out)
+			}
+		}
+		if strings.Contains(out, "- internal (") {
+			t.Errorf("%s summary lists the parent directory as a module; got:\n%s", name, out)
+		}
+	}
+}
