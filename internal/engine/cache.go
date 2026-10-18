@@ -2976,7 +2976,9 @@ import (
 // v391: a TypeORM entity or Drizzle table under a test or fixture path emits no storage fact.
 // v392: a .ts file that is binary data (a NUL byte and invalid UTF-8 in its first 8 KB, as an MPEG-TS video segment is) is skipped.
 // v393: type-tests and integration-tests directories count as test paths.
-const cacheVersion = "v393"
+// v394: an Express router mounted under a router that is itself mounted in its own
+// file serves under both prefixes, in either statement order.
+const cacheVersion = "v394"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

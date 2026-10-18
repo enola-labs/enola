@@ -150,6 +150,72 @@ export default router;
 	}
 }
 
+// The "api router" layout: an intermediate router mounted at /api in the entry file,
+// with per-domain routers from other files hung off it. The intermediate router's
+// prefix is known in its own file, so the repo-wide pass must start from it; it used to
+// accept only an app or an unmounted router as a parent and dropped the edge, so the
+// whole subtree contributed nothing. Both statement orders, since Express resolves the
+// mounts at request time.
+func TestRouterMount_ImportedChildUnderLocallyMountedParent(t *testing.T) {
+	routes := `
+const express = require('express');
+const router = express.Router();
+
+router.get('/list', listOrders);
+router.post('/create', createOrder);
+
+module.exports = router;
+`
+	for name, mounts := range map[string]string{
+		"parent mounted first": "app.use('/api', apiRouter);\napiRouter.use('/orders', ordersRoutes);",
+		"child mounted first":  "apiRouter.use('/orders', ordersRoutes);\napp.use('/api', apiRouter);",
+	} {
+		t.Run(name, func(t *testing.T) {
+			ff := extractAll(t, map[string]string{
+				"server/index.js": `
+const express = require('express');
+const app = express();
+const apiRouter = express.Router();
+const ordersRoutes = require('./routes/orders');
+
+apiRouter.get('/status', status);
+` + mounts + `
+`,
+				"server/routes/orders.js": routes,
+			}, false)
+			got := serverRoutes(ff)
+
+			for path, want := range map[string]string{
+				"/api/orders/list":   "GET",
+				"/api/orders/create": "POST",
+				"/api/status":        "GET",
+			} {
+				if got[path] != want {
+					t.Errorf("%s: want %s, got %+v", path, want, got)
+				}
+			}
+			for _, fragment := range []string{"/list", "/create", "/orders/list", "/orders/create", "/status"} {
+				if _, found := got[fragment]; found {
+					t.Errorf("fragment %s emitted: %+v", fragment, got)
+				}
+			}
+			// Seeding the parent's own prefix must not make the pass claim the
+			// parent's own routes, which serverroutes.go already emits.
+			counts := map[string]int{}
+			for _, f := range ff {
+				if f.Kind == facts.KindRoute {
+					counts[f.Name]++
+				}
+			}
+			for _, path := range []string{"/api/orders/list", "/api/orders/create", "/api/status"} {
+				if counts[path] != 1 {
+					t.Errorf("%s emitted %d times, want 1", path, counts[path])
+				}
+			}
+		})
+	}
+}
+
 // A router mounted at two prefixes really does serve both, so it emits once per
 // mount — the same rule the Go and Axum passes follow.
 func TestRouterMount_MountedTwiceEmitsBothPaths(t *testing.T) {

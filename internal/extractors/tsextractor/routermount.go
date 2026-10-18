@@ -113,6 +113,10 @@ type routerFile struct {
 	relFile   string
 	roots     map[string]bool           // identifiers bound to an application (mount prefix "")
 	routers   map[string]bool           // identifiers bound to a sub-router, unmounted in this file
+	// mountedAt is each sub-router this file mounts itself, with the prefix
+	// serverroutes.go resolved for it. Its own routes are already emitted there; the
+	// repo-wide pass needs the prefix only to hand it on to the children it mounts.
+	mountedAt map[string]string
 	pending   map[string][]pendingRoute // router identifier -> routes awaiting a prefix
 	mounts    []routerMountEdge
 	exports   map[string]string // export name -> local identifier
@@ -191,6 +195,7 @@ func collectRouterFile(src []byte, relFile string, aliases map[string]tsAlias, k
 		relFile:      relFile,
 		roots:        map[string]bool{},
 		routers:      map[string]bool{},
+		mountedAt:    map[string]string{},
 		pending:      map[string][]pendingRoute{},
 		exports:      map[string]string{},
 		imports:      imports,
@@ -207,6 +212,10 @@ func collectRouterFile(src []byte, relFile string, aliases map[string]tsAlias, k
 			// A sub-router with no mount point in this file — the case that emits
 			// nothing today and the only one this pass may claim.
 			f.routers[name] = true
+		case b.isRouter:
+			// Mounted in this file, so its prefix is known: a starting point for the
+			// routers it mounts from other files, never a claim on its own routes.
+			f.mountedAt[name] = b.prefix
 		}
 	}
 
@@ -553,7 +562,10 @@ func composeRouterMounts(files []*routerFile, constOf func(file, name string) (s
 		prefix string
 	}
 	var edges []edge
-	roots := map[routerRef]bool{}
+	// seeds are the units whose prefix is known before propagation: an application
+	// serves at "", and a router mounted in its own file at the prefix serverroutes.go
+	// resolved for it.
+	seeds := map[routerRef]string{}
 
 	for _, name := range sortedFileNames(byFile) {
 		f := byFile[name]
@@ -563,14 +575,20 @@ func composeRouterMounts(files []*routerFile, constOf func(file, name string) (s
 				continue
 			}
 			parent := routerRef{file: f.relFile, name: m.parent}
+			local, isLocal := f.mountedAt[m.parent]
 			switch {
 			case f.roots[m.parent]:
-				roots[parent] = true
+				seeds[parent] = ""
+			case isLocal:
+				// A locally-mounted router: its own routes already carry their full
+				// path through serverroutes.go, and only the pending routes of the
+				// units it reaches are emitted below, so seeding it claims nothing
+				// twice. Dropping the edge instead lost the whole subtree under an
+				// intermediate router mounted in the entry file.
+				seeds[parent] = local
 			case !f.routers[m.parent]:
 				// The receiver is neither an application nor a router this file
-				// declares (a locally-mounted router, or an unrelated identifier).
-				// Locally-mounted routers already carry their full path through
-				// serverroutes.go, so treating this as a root would double-count.
+				// declares: an unrelated identifier, with no prefix to hand on.
 				continue
 			}
 			prefix := m.prefix
@@ -592,12 +610,12 @@ func composeRouterMounts(files []*routerFile, constOf func(file, name string) (s
 		return nil
 	}
 
-	// Propagate prefixes outward from the roots to a fixpoint. Bounded by the edge
+	// Propagate prefixes outward from the seeds to a fixpoint. Bounded by the edge
 	// count: a longer chain than that implies a cycle, and a cycle in a mount graph
 	// is not a shape to follow forever.
 	prefixes := map[routerRef]map[string]bool{}
-	for r := range roots {
-		prefixes[r] = map[string]bool{"": true}
+	for r, prefix := range seeds {
+		prefixes[r] = map[string]bool{prefix: true}
 	}
 	for round := 0; round <= len(edges); round++ {
 		changed := false
