@@ -96,7 +96,7 @@ func canonicalizeTargets(allFacts []facts.Fact, crossLangIndex, filePkg map[stri
 		for j := range f.Relations {
 			r := &f.Relations[j]
 			switch r.Kind {
-			case facts.RelImplements, facts.RelInstantiates, facts.RelInjects:
+			case facts.RelImplements, facts.RelInstantiates, facts.RelInjects, facts.RelNames:
 				r.Target = resolveTypeTarget(r.Target, filePkg[f.File], typeIndex, packageDir)
 			case facts.RelCalls:
 				r.Target = resolveCallTarget(r.Target, filePkg[f.File], typeIndex)

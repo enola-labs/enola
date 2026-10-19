@@ -2999,7 +2999,12 @@ import (
 // v402: a Rust file declared as `#[cfg(test)] mod name;` is test code and emits a test
 // reference instead of symbols, as do the files it declares; e2e, cypress and playwright
 // directories, and -e2e/-cypress/-playwright projects, are test paths.
-const cacheVersion = "v402"
+// v403: a C# parameter with an ASP.NET binding attribute ([AsParameters], [FromBody],
+// [FromServices], …) injects its type into the method; a Scala type application
+// standing alone (`f[T].apply(x)`) calls f; a capitalized Scala identifier used as a
+// value names the object its file declares or imports. A Scala call through a type-applied
+// callee no longer walks that callee twice, which had emitted duplicate symbols.
+const cacheVersion = "v403"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

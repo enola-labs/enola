@@ -650,6 +650,11 @@ func (w *astWalker) handleMethod(node *sitter.Node) {
 		// A Refit attribute on an interface method declares an OUTBOUND request the
 		// same way [HttpGet] declares an inbound one.
 		w.noteRefit(node, int(node.StartPosition().Row)+1)
+		// A parameter with an ASP.NET binding attribute is built by the framework
+		// from the request or the container, never by a caller in code.
+		if params := node.ChildByFieldName("parameters"); params != nil {
+			w.injectBoundParams(params, idx)
+		}
 	}
 
 	// A constructor is where dependency injection lands in C#. Injecting from
@@ -846,6 +851,66 @@ func (w *astWalker) injectParams(params *sitter.Node, ownerIdx int) {
 			owner.Relations = append(owner.Relations, facts.Relation{Kind: facts.RelInjects, Target: t})
 		}
 	}
+}
+
+// bindingAttributes are the ASP.NET Core attributes that have the framework bind
+// a handler parameter: model binding from the request, or resolution from the
+// container. The parameter's type is constructed there, which is injection.
+var bindingAttributes = map[string]bool{
+	"AsParameters": true, "FromServices": true, "FromKeyedServices": true,
+	"FromBody": true, "FromQuery": true, "FromRoute": true, "FromForm": true, "FromHeader": true,
+}
+
+// injectBoundParams adds a RelInjects edge from the fact at ownerIdx to the type
+// of each parameter carrying a binding attribute. A parameter without one may be
+// passed by any caller, so it stays a plain parameter.
+func (w *astWalker) injectBoundParams(params *sitter.Node, ownerIdx int) {
+	if ownerIdx < 0 || ownerIdx >= len(w.out) {
+		return
+	}
+	for i := uint(0); i < uint(params.ChildCount()); i++ {
+		p := params.Child(i)
+		if kindOf(p) != "parameter" || !w.hasBindingAttribute(p) {
+			continue
+		}
+		t := w.targetForType(p.ChildByFieldName("type"))
+		if t == "" {
+			continue
+		}
+		owner := &w.out[ownerIdx]
+		if !owner.HasRelation(facts.RelInjects, t) {
+			owner.Relations = append(owner.Relations, facts.Relation{Kind: facts.RelInjects, Target: t})
+		}
+	}
+}
+
+// hasBindingAttribute reports whether a parameter carries one of bindingAttributes,
+// written with or without the Attribute suffix or a namespace.
+func (w *astWalker) hasBindingAttribute(param *sitter.Node) bool {
+	for i := uint(0); i < uint(param.ChildCount()); i++ {
+		list := param.Child(i)
+		if kindOf(list) != "attribute_list" {
+			continue
+		}
+		for j := uint(0); j < uint(list.NamedChildCount()); j++ {
+			attr := list.NamedChild(j)
+			if kindOf(attr) != "attribute" {
+				continue
+			}
+			name := attr.ChildByFieldName("name")
+			if name == nil {
+				continue
+			}
+			n := nodeText(name, w.src)
+			if k := strings.LastIndexByte(n, '.'); k >= 0 {
+				n = n[k+1:]
+			}
+			if bindingAttributes[strings.TrimSuffix(n, "Attribute")] {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // soleConstructor reports whether the enclosing type declares exactly one
