@@ -370,13 +370,47 @@ const compactPerDepthCap = 40
 // candidates so the caller can re-run with an exact name; when it was auto-picked
 // it notes the match and alternatives.
 // writeImpactResolution is writeResolutionNote for an impact report, which may be
-// about a source file: no node, so the note says what was walked back from instead.
+// about several nodes at once (a source file, a namespace, a directory): the note
+// says what was walked back from instead.
 func writeImpactResolution(sb *strings.Builder, resp impactResponse) {
-	if n := len(resp.Seeds); n > 0 {
+	n := len(resp.Seeds)
+	switch {
+	case n > 0 && resp.SeedKind == impact.SeedsNamespace:
+		writeResolutionNote(sb, resp.Resolution)
+		fmt.Fprintf(sb, "> %s is a namespace: this is the impact of it and the %d symbols nested under it.\n\n", resp.Target, n)
+	case n > 0 && resp.SeedKind == impact.SeedsDirectory:
+		if resp.Resolution != nil && resp.Resolution.Matched != resp.Target {
+			writeResolutionNote(sb, resp.Resolution)
+		}
+		fmt.Fprintf(sb, "> %s is a directory: this is the impact of the %d symbols declared beneath it (its own tests excluded).\n\n", resp.Target, n)
+	case n > 0:
 		fmt.Fprintf(sb, "> %s is a file, not a node: this is the impact of the %d symbols it declares.\n\n", resp.Resolution.Matched, n)
+	default:
+		writeResolutionNote(sb, resp.Resolution)
+	}
+}
+
+// maxImpactPackages caps the per-package dependent counts an impact summary lists.
+const maxImpactPackages = 15
+
+// writeImpactPackages lists the listed dependents per owning package, when the
+// repository declares packages.
+func writeImpactPackages(sb *strings.Builder, resp impactResponse) {
+	if len(resp.Packages) == 0 {
 		return
 	}
-	writeResolutionNote(sb, resp.Resolution)
+	sb.WriteString("## Dependents by package\n\n")
+	for i, p := range resp.Packages {
+		if i == maxImpactPackages {
+			fmt.Fprintf(sb, "- … %d more packages\n", len(resp.Packages)-maxImpactPackages)
+			break
+		}
+		fmt.Fprintf(sb, "- %s (%d dependents)\n", p.Package, p.Dependents)
+	}
+	if resp.Stats.Truncated {
+		sb.WriteString("\nCounts cover the listed dependents only; raise max_nodes for all of them.\n")
+	}
+	sb.WriteString("\n")
 }
 
 func writeResolutionNote(sb *strings.Builder, res *nameResolution) {
@@ -505,6 +539,7 @@ func renderImpactCompact(resp impactResponse) string {
 		sb.WriteString("No dependents found.\n\n")
 	}
 
+	writeImpactPackages(&sb, resp)
 	writeGoverningIntent(&sb, r.GoverningIntent)
 
 	// Flatten ByDepth into a node slice for grouped rendering.
@@ -712,6 +747,8 @@ func (s *Server) renderImpactSummary(resp impactResponse) string {
 		}
 		sb.WriteString("\n")
 	}
+
+	writeImpactPackages(&sb, resp)
 
 	if len(byModule) > 0 {
 		sb.WriteString("## Hotspot modules\n\n")

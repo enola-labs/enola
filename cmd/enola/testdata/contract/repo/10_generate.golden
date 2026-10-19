@@ -7,7 +7,7 @@ enola: no mcp-arch.yaml in <TMP>/go_sample, using built-in defaults
 Snapshot complete:
   Repository:  <TMP>/go_sample
   Facts:       21
-  Insights:    4
+  Insights:    6
   Artifacts:   3
   Duration:    <DURATION>
   Output:      <TMP>/go_sample/.enola

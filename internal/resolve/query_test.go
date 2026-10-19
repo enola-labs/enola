@@ -3,6 +3,8 @@ package resolve
 import (
 	"strings"
 	"testing"
+
+	"github.com/enola-labs/enola/internal/facts"
 )
 
 func TestParseScopedQuery(t *testing.T) {
@@ -67,5 +69,18 @@ func TestCandidateNames_RankOrderEachNameOnce(t *testing.T) {
 	}
 	if got := strings.Join(candidateNames(ranked, "pkg.Run"), ","); got != "pkg.Runner,pkg.rerun" {
 		t.Errorf("candidateNames excluding the pick = %s", got)
+	}
+}
+
+// Two declarations the term matches equally well: the generated stub is the one
+// that restates the other, so the real declaration ranks first.
+func TestScoreCandidate_GeneratedStubRanksBelowDeclaration(t *testing.T) {
+	sq := parseScopedQuery("Registry")
+	real := facts.Fact{Kind: facts.KindSymbol, Name: "Widgets::Registry", File: "app/widgets/registry.rb",
+		Props: map[string]any{"symbol_kind": facts.SymbolInterface}}
+	stub := facts.Fact{Kind: facts.KindSymbol, Name: "Gadgets::Registry", File: "config/stubs/modules.rb",
+		Props: map[string]any{"symbol_kind": facts.SymbolInterface, "generated": true}}
+	if rs, ss := scoreCandidate(real, sq), scoreCandidate(stub, sq); ss >= rs {
+		t.Fatalf("stub scored %.2f, declaration %.2f; want the stub below", ss, rs)
 	}
 }

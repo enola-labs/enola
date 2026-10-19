@@ -1,20 +1,22 @@
 {
   "total_symbols": 8,
   "repo_wide_symbols": 9,
-  "total_orphans": 2,
+  "total_orphans": 4,
   "isolated": 0,
   "unreferenced": 2,
+  "test_only": 2,
   "mode": "both",
   "by_kind": [
     {
       "kind": "function",
       "isolated": 0,
       "unreferenced": 2,
-      "exported": 2,
-      "high_confidence": 2,
+      "test_only": 2,
+      "exported": 3,
+      "high_confidence": 4,
       "medium_confidence": 0,
-      "total": 2
+      "total": 4
     }
   ],
-  "note": "References are matched by symbol short-name (the snapshot's call/implements edges are unresolved), so detection is conservative: a symbol is treated as used if its name matches any reference, avoiding false 'unused' reports at the cost of missing some orphans (common names, generated code). CONFIDENCE: 'function' findings are HIGH — plain calls are reliably tracked as edges (operator overloads, invoked through operator syntax, are LOW). 'struct'/'class'/'interface' findings are MEDIUM — these are marked used via instantiates/injects/implements edges (which ARE tracked), so an unreferenced one is a strong dead-code lead, but field/param/return type usage is not edge-tracked so verify before removing. 'method'/'type'/'const'/'var' findings are LOW — methods are often reached as method values (e.g. HTTP handler registration — partially rescued via route handler metadata), via interface dispatch, or by reflection, and plain type/const/var usage is not edge-tracked. Treat medium/low findings as leads to verify, not safe deletions. Exported symbols may be consumed outside this snapshot."
+  "note": "References are matched by symbol short-name (the snapshot's call/implements edges are unresolved), so detection is conservative: a symbol is treated as used if its name matches any reference, avoiding false 'unused' reports at the cost of missing some orphans (common names, generated code). CONFIDENCE: 'function' findings are HIGH — plain calls are reliably tracked as edges (operator overloads, invoked through operator syntax, are LOW). 'struct'/'class'/'interface' findings are MEDIUM — these are marked used via instantiates/injects/implements edges (which ARE tracked), so an unreferenced one is a strong dead-code lead, but field/param/return type usage is not edge-tracked so verify before removing. 'method'/'type'/'const'/'var' findings are LOW — methods are often reached as method values (e.g. HTTP handler registration — partially rescued via route handler metadata), via interface dispatch, or by reflection, and plain type/const/var usage is not edge-tracked. Treat medium/low findings as leads to verify, not safe deletions. Exported symbols may be consumed outside this snapshot. TEST-ONLY findings are referenced by test code alone (a test_ref from a spec or test file, or a symbol declared in a test tree): nothing in the application reaches them, but removing one means removing the tests that call it."
 }

@@ -253,6 +253,7 @@ var explainerHints = map[string]string{
 	"domain":             "what a framework's declarations say about its data and API",
 	"query-loops":        "a database query issued once per loop iteration",
 	"entry-points":       "the symbols a framework invokes directly",
+	"packwerk":           "package.yml dependencies declared but unused, or used but undeclared",
 }
 
 // explainerHintList renders the annotated explainers for the query_insights tool
@@ -334,7 +335,7 @@ func (s *Server) registerQueryInsightsTool() {
 }
 
 type queryInsightsArgs struct {
-	Explainer     string  `json:"explainer,omitempty" jsonschema:"Filter to insights produced by this explainer. One of: cycles, layers, crossrepo, coverage, unused-routes, messaging-coverage, god-class, hotspots, dependency-depth, exported-surface, complexity-outliers, intent, constraints, domain, query-loops, entry-points, dead-methods, vendored-candidates, import-closure, package-metrics, dead-code, performance. Empty = all."`
+	Explainer     string  `json:"explainer,omitempty" jsonschema:"Filter to insights produced by this explainer. One of: cycles, layers, crossrepo, coverage, unused-routes, messaging-coverage, god-class, hotspots, dependency-depth, exported-surface, complexity-outliers, intent, constraints, domain, query-loops, entry-points, dead-methods, vendored-candidates, import-closure, package-metrics, dead-code, performance, packwerk. Empty = all."`
 	Repo          string  `json:"repo,omitempty" jsonschema:"Repo label. In multi-repo snapshots it matches the repo path segment of each insight's evidence ('golf' matches golf/... but not golf-ui/...); in single-repo snapshots it is a substring match. Empty = all."`
 	MinConfidence float64 `json:"min_confidence,omitempty" jsonschema:"Minimum confidence (0.0-1.0). Default 0. unused-routes findings are emitted at 0.6, as review candidates."`
 	OutputMode    string  `json:"output_mode,omitempty" jsonschema:"'summary' (DEFAULT, one row per insight: explainer, confidence, title), 'compact' (adds description, evidence sample, actions), or 'full' (complete JSON)."`

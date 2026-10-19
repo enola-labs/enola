@@ -240,6 +240,11 @@ func scoreCandidate(f facts.Fact, sq scopedQuery) float64 {
 	if f.Kind == facts.KindModule {
 		score += 0.1
 	}
+	// A generated stub restates a declaration made elsewhere; the declaration is
+	// the node with edges.
+	if f.PropBool("generated") {
+		score -= 0.2
+	}
 	if sq.Repo != "" && strings.EqualFold(f.Repo, sq.Repo) {
 		score += 0.15
 	}

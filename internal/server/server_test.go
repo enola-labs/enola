@@ -11,6 +11,7 @@ import (
 	"github.com/enola-labs/enola/internal/config"
 	"github.com/enola-labs/enola/internal/engine"
 	"github.com/enola-labs/enola/internal/facts"
+	"github.com/enola-labs/enola/internal/impact"
 	"github.com/enola-labs/enola/internal/resolve"
 )
 
@@ -1996,5 +1997,55 @@ func TestSingleRepoServiceHint(t *testing.T) {
 	}
 	if _, ok := singleRepoServiceHint(facts.KindService, 3, single); ok {
 		t.Error("hint must not fire when results are non-empty")
+	}
+}
+
+// A rolled-up target says what it stands for, and dependents are counted per
+// declared package in both readable modes.
+func TestRenderImpact_RollupNotesAndPackages(t *testing.T) {
+	result := facts.ImpactResult{
+		Target:          "packs/orders",
+		TotalDependents: 3,
+		Summary:         "3 total dependents — depth 1: 3 symbols",
+		ByDepth: map[int][]facts.TraversalNode{1: {
+			{Name: "Billing::Invoice", Kind: "symbol", File: "packs/billing/app/billing/invoice.rb", Depth: 1},
+			{Name: "Admin::Report", Kind: "symbol", File: "packs/admin/app/admin/report.rb", Depth: 1},
+			{Name: "Admin::Export", Kind: "symbol", File: "packs/admin/app/admin/export.rb", Depth: 1},
+		}},
+	}
+	srv := newTestServer(facts.NewStore())
+	for _, tc := range []struct {
+		name string
+		resp impactResponse
+		want []string
+	}{
+		{"directory", impactResponse{
+			Resolution:   &nameResolution{Query: "packs/orders", Matched: "packs/orders"},
+			Seeds:        []string{"Orders::Facade", "Receipts::Mailer"},
+			SeedKind:     impact.SeedsDirectory,
+			Packages:     []impact.PackageCount{{Package: "packs/admin", Dependents: 2}, {Package: "packs/billing", Dependents: 1}},
+			ImpactResult: result,
+		}, []string{
+			"> packs/orders is a directory: this is the impact of the 2 symbols declared beneath it (its own tests excluded).",
+			"## Dependents by package\n\n- packs/admin (2 dependents)\n- packs/billing (1 dependents)",
+		}},
+		{"namespace", impactResponse{
+			Seeds:        []string{"Orders::Facade"},
+			SeedKind:     impact.SeedsNamespace,
+			ImpactResult: facts.ImpactResult{Target: "Orders", ByDepth: map[int][]facts.TraversalNode{}},
+		}, []string{
+			"> Orders is a namespace: this is the impact of it and the 1 symbols nested under it.",
+		}},
+	} {
+		for mode, out := range map[string]string{
+			"summary": srv.renderImpactSummary(tc.resp),
+			"compact": renderImpactCompact(tc.resp),
+		} {
+			for _, want := range tc.want {
+				if !strings.Contains(out, want) {
+					t.Errorf("%s/%s: missing %q; got:\n%s", tc.name, mode, want, out)
+				}
+			}
+		}
 	}
 }

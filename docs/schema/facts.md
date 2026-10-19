@@ -105,7 +105,10 @@ fact's name exactly as that fact carries it.
 Contract props:
 
 - `symbol_kind`: one of `function`, `method`, `getter`, `struct`,
-  `interface`, `type`, `class`, `variable`, `constant`, `enum`
+  `interface`, `type`, `class`, `variable`, `constant`, `enum`, or, for
+  Markdown, `document` (a page) and `section` (one of its headings). A
+  document or section is queryable but takes no edge in the dependency graph:
+  prose about the code is not a dependency of it.
 
 ### module
 

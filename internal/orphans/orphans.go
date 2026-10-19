@@ -121,7 +121,17 @@ const (
 const (
 	classIsolated     = "isolated"     // no references in OR out
 	classUnreferenced = "unreferenced" // no references in, but references others
+	// classTestOnly: referenced, but only by test code (a spec or test file). The
+	// application never reaches it, so it is dead in production and kept alive by its
+	// own tests: deleting it means deleting those tests too. It is a lead, not a
+	// deletion, and it is reported apart from the two dead classes above.
+	classTestOnly = "test-only"
 )
+
+// modeTestOnly is the find_orphans mode that returns only test-only symbols. The
+// class is spelled with a hyphen, the mode with an underscore like every other
+// enumerated tool argument.
+const modeTestOnly = "test_only"
 
 // Confidence tiers.
 const (
@@ -181,13 +191,17 @@ type symInput struct {
 	SpringComponent  string // Spring stereotype role (component/service/…) — container-instantiated
 	DubboActivate    bool   // Apache Dubbo @Activate SPI extension — ExtensionLoader-instantiated
 	ScannedPlugin    bool   // classpath-scanned plugin class (e.g. ThingsBoard @RuleNode)
+	// FrameworkRoot: the framework-roots binder marked the symbol, or one of a class's
+	// own members, as invoked by a framework (a routed action, a job, a registry
+	// contract, …). Its callers are the framework, so no reference is expected.
+	FrameworkRoot bool
 }
 
 // Orphan is a single reported orphan symbol.
 type Orphan struct {
 	Name       string `json:"name"`
 	Kind       string `json:"kind"`
-	Class      string `json:"class"`      // isolated | unreferenced
+	Class      string `json:"class"`      // isolated | unreferenced | test-only
 	Confidence string `json:"confidence"` // high | medium | low
 	Package    string `json:"package,omitempty"`
 	File       string `json:"file,omitempty"`
@@ -199,7 +213,7 @@ type Orphan struct {
 
 // options carries the resolved (defaulted) tool arguments into the pure core.
 type options struct {
-	Mode               string // both | isolated | unreferenced
+	Mode               string // both | isolated | unreferenced | test_only
 	Kind               string
 	Package            string
 	Repo               string
@@ -207,6 +221,11 @@ type options struct {
 	Confidence         string // "" (all) | high | low
 	IncludeTests       bool
 	IncludeEntrypoints bool
+	// deadOnly leaves test-only symbols out of mode=both. The consumers that predate
+	// the class (the orphan_class annotation and the explain summary) count dead code
+	// only: a symbol its tests still call was never in their numbers, and putting it
+	// there would move every baseline taken before the class existed.
+	deadOnly bool
 }
 
 // isTestPath reports whether a repo-relative file path is test or test-support
@@ -309,6 +328,17 @@ func bareName(name string) string { return lastSeg(name) }
 func referencedByOther(sym symInput, refSources refIndex) bool {
 	for _, cand := range candidateNames(sym.Name, sym.Kind) {
 		if refSources[cand].referenced(sym.Name) {
+			return true
+		}
+	}
+	return false
+}
+
+// referencedInProduction is referencedByOther counting production sources only:
+// a test file calling the symbol does not make it used.
+func referencedInProduction(sym symInput, refSources refIndex) bool {
+	for _, cand := range candidateNames(sym.Name, sym.Kind) {
+		if refSources[cand].referencedInProduction(sym.Name) {
 			return true
 		}
 	}
@@ -517,7 +547,7 @@ var iosEntryPointComponents = map[string]bool{
 func isExcluded(sym symInput, opts options) bool {
 	// Markdown documents and headings participate in the architectural graph,
 	// but an unlinked page is not unused executable code, even in a kind query.
-	if sym.Kind == "document" || sym.Kind == "section" {
+	if sym.Kind == facts.SymbolDocument || sym.Kind == facts.SymbolSection {
 		return true
 	}
 	bn := bareName(sym.Name)
@@ -596,7 +626,7 @@ func isExcluded(sym symInput, opts options) bool {
 		// have no incoming call edge by construction. Like main/init, they are not dead
 		// code; treat them as entry points and drop them unless the caller opts in.
 		// (An override also cannot be deleted in isolation.)
-		if sym.Override || sym.DIProvider || androidEntryPointComponents[sym.AndroidComponent] ||
+		if sym.Override || sym.DIProvider || sym.FrameworkRoot || androidEntryPointComponents[sym.AndroidComponent] ||
 			iosEntryPointComponents[sym.IOSComponent] {
 			return true
 		}
@@ -898,10 +928,11 @@ func population(syms []symInput, opts options) int {
 // Detect returns dead-code orphans in the store using the same collect+classify
 // core as the find_orphans tool, with the tool's default options (mode=both, all
 // kinds and visibility, tests and entry points excluded). It is what the package's
-// own annotate pass runs to mark orphan symbols on the store.
+// own annotate pass runs to mark orphan symbols on the store. Test-only symbols are
+// left out: see options.deadOnly.
 func Detect(store *facts.Store) []Orphan {
 	syms, refSources := collect(store)
-	orphans := classify(syms, refSources, options{Mode: "both", Visibility: "all"})
+	orphans := classify(syms, refSources, options{Mode: "both", Visibility: "all", deadOnly: true})
 	sortOrphans(orphans)
 	return orphans
 }
@@ -915,20 +946,27 @@ func classify(syms []symInput, refSources refIndex, opts options) []Orphan {
 		if !isCandidate(sym, opts) {
 			continue
 		}
-		if referencedByOther(sym, refSources) {
-			continue // referenced → not an orphan
+		if referencedInProduction(sym, refSources) {
+			continue // used by the application → not an orphan
 		}
 		class := classUnreferenced
-		if !sym.UsageOut {
+		switch {
+		case referencedByOther(sym, refSources):
+			class = classTestOnly // referenced, but by tests alone
+		case !sym.UsageOut:
 			class = classIsolated
 		}
 		switch opts.Mode {
-		case classIsolated:
-			if class != classIsolated {
+		case classIsolated, classUnreferenced:
+			if class != opts.Mode {
 				continue
 			}
-		case classUnreferenced:
-			if class != classUnreferenced {
+		case modeTestOnly:
+			if class != classTestOnly {
+				continue
+			}
+		default:
+			if class == classTestOnly && opts.deadOnly {
 				continue
 			}
 		}
@@ -943,7 +981,10 @@ func classify(syms []symInput, refSources refIndex, opts options) []Orphan {
 			Repo:       sym.Repo,
 			Exported:   sym.Exported,
 		}
-		if sym.Exported {
+		switch {
+		case class == classTestOnly:
+			o.Note = "referenced only by test code — remove it together with the tests that call it, or find the production caller they stand in for"
+		case sym.Exported:
 			o.Note = "exported — may be used outside this snapshot; verify before removal"
 		}
 		out = append(out, o)
@@ -975,6 +1016,7 @@ func collect(store *facts.Store) ([]symInput, refIndex) {
 	byName := make(map[string]*symInput, len(symbols))
 	order := make([]string, 0, len(symbols))
 	refSources := make(refIndex)
+	rootedOwners := map[string]bool{}
 
 	for _, f := range symbols {
 		if mcputil.IsGeneratedPath(f.File) {
@@ -1037,29 +1079,43 @@ func collect(store *facts.Store) ([]symInput, refIndex) {
 		if sp, ok := f.PropAny(propScannedPlugin).(bool); ok && sp {
 			si.ScannedPlugin = true
 		}
+		if f.PropString(facts.PropFrameworkRoot) != "" {
+			si.FrameworkRoot = true
+			rootedOwners[memberOwner(f.Name)] = true
+		}
+		// A symbol declared in test code (when tests are indexed at all) is a test
+		// source: what it calls is test use, not production use.
+		add := refAdder(refSources, isTestPath(f.File))
 		for _, r := range f.Relations {
 			switch {
 			case r.Kind == facts.RelDeclares && si.Package == "":
 				si.Package = r.Target
 			case isUsageKind(r.Kind):
 				si.UsageOut = true
-				addRef(refSources, r.Target, f.Name)
+				add(r.Target, f.Name)
 				if seg := lastSeg(r.Target); seg != r.Target {
-					addRef(refSources, seg, f.Name)
+					add(seg, f.Name)
 				}
 				// Fold the constant receiver of a "Foo.bar" call in as a use of Foo,
 				// so a class referenced only via a call (e.g. Ruby PostCreator.create)
 				// is not mis-reported as an unreferenced orphan.
 				for _, recv := range constReceiverRefs(r.Target) {
-					addRef(refSources, recv, f.Name)
+					add(recv, f.Name)
 				}
 				// Fold self-qualified dispatch (`self.class.foo`, `cls.foo`) down to
 				// the bare method name, so a method reached only via dynamic
 				// self-dispatch is not mis-reported as an unreferenced orphan.
 				for _, m := range selfReceiverRefs(r.Target) {
-					addRef(refSources, m, f.Name)
+					add(m, f.Name)
 				}
 			}
+		}
+	}
+
+	// A class a framework enters through one of its members is live as a whole.
+	for owner := range rootedOwners {
+		if si := byName[owner]; si != nil {
+			si.FrameworkRoot = true
 		}
 	}
 
@@ -1120,21 +1176,23 @@ func collect(store *facts.Store) ([]symInput, refIndex) {
 	// the ONLY visible evidence that a symbol is used by a test — fold them in so a
 	// production method called only from a spec is not mis-reported as dead. The
 	// fact name is the test file path (never equal to a production symbol name), so
-	// this introduces no self-reference.
+	// this introduces no self-reference. They are recorded as TEST use, which keeps
+	// the symbol out of the dead classes but leaves it test-only when nothing else
+	// calls it.
 	for _, f := range store.ByKind(facts.KindTestRef) {
 		for _, r := range f.Relations {
 			if r.Kind != facts.RelCalls && r.Kind != facts.RelNames {
 				continue
 			}
-			addRef(refSources, r.Target, f.Name)
+			refSources.addTest(r.Target, f.Name)
 			if seg := lastSeg(r.Target); seg != r.Target {
-				addRef(refSources, seg, f.Name)
+				refSources.addTest(seg, f.Name)
 			}
 			for _, recv := range constReceiverRefs(r.Target) {
-				addRef(refSources, recv, f.Name)
+				refSources.addTest(recv, f.Name)
 			}
 			for _, m := range selfReceiverRefs(r.Target) {
-				addRef(refSources, m, f.Name)
+				refSources.addTest(m, f.Name)
 			}
 		}
 	}
@@ -1145,20 +1203,25 @@ func collect(store *facts.Store) ([]symInput, refIndex) {
 	// `after_initialize do register_x ... end` blocks. Fold them in exactly like
 	// KindTestRef so those methods are not mis-reported as dead. The fact name is the
 	// source file path (never equal to a symbol name), so no self-reference arises.
+	//
+	// Always production use, even under a test-looking path: a fixtures tree holds
+	// seed data the application loads as often as test data, and calling a symbol
+	// test-only on that evidence would invent a finding.
 	for _, f := range store.ByKind(facts.KindFileRef) {
+		add := refSources.add
 		for _, r := range f.Relations {
 			if r.Kind != facts.RelCalls && r.Kind != facts.RelNames {
 				continue
 			}
-			addRef(refSources, r.Target, f.Name)
+			add(r.Target, f.Name)
 			if seg := lastSeg(r.Target); seg != r.Target {
-				addRef(refSources, seg, f.Name)
+				add(seg, f.Name)
 			}
 			for _, recv := range constReceiverRefs(r.Target) {
-				addRef(refSources, recv, f.Name)
+				add(recv, f.Name)
 			}
 			for _, m := range selfReceiverRefs(r.Target) {
-				addRef(refSources, m, f.Name)
+				add(m, f.Name)
 			}
 		}
 	}
@@ -1261,6 +1324,15 @@ func addRef(refSources refIndex, name, source string) {
 	refSources.add(name, source)
 }
 
+// refAdder returns the recorder for one source: test use when the source is test
+// code, production use otherwise.
+func refAdder(refSources refIndex, test bool) func(name, source string) {
+	if test {
+		return refSources.addTest
+	}
+	return refSources.add
+}
+
 // toStringSlice coerces a fact prop into a []string. Props deserialized from a
 // snapshot arrive as []any; in-memory facts may already be []string.
 func toStringSlice(v any) []string {
@@ -1285,6 +1357,7 @@ type kindCount struct {
 	Kind             string `json:"kind"`
 	Isolated         int    `json:"isolated"`
 	Unreferenced     int    `json:"unreferenced"`
+	TestOnly         int    `json:"test_only"`
 	Exported         int    `json:"exported"`
 	HighConfidence   int    `json:"high_confidence"`
 	MediumConfidence int    `json:"medium_confidence"`
@@ -1306,6 +1379,7 @@ type summaryResponse struct {
 	TotalOrphans    int         `json:"total_orphans"`
 	Isolated        int         `json:"isolated"`
 	Unreferenced    int         `json:"unreferenced"`
+	TestOnly        int         `json:"test_only"`
 	Mode            string      `json:"mode"`
 	ByKind          []kindCount `json:"by_kind"`
 	Note            string      `json:"note"`
@@ -1331,7 +1405,9 @@ const noteCore = "References are matched by symbol short-name (the snapshot's ca
 	"(e.g. HTTP handler registration — partially rescued via route handler metadata), via interface " +
 	"dispatch, or by reflection, and plain type/const/var usage is not edge-tracked. Treat medium/low " +
 	"findings as leads to verify, not safe deletions. Exported symbols may be consumed outside this " +
-	"snapshot."
+	"snapshot. TEST-ONLY findings are referenced by test code alone (a test_ref from a spec or test file, or " +
+	"a symbol declared in a test tree): nothing in the application reaches them, but removing one means " +
+	"removing the tests that call it."
 
 // languageNotes are the caveats specific to one extractor's languages. A response
 // carries only the ones for languages among the symbols it considered: sent whole, they
@@ -1424,9 +1500,12 @@ func summarize(orphans []Orphan, candidates, repoWide int, mode string) summaryR
 	}
 	idx := make(map[string]int)
 	for _, o := range orphans {
-		if o.Class == classIsolated {
+		switch o.Class {
+		case classIsolated:
 			resp.Isolated++
-		} else {
+		case classTestOnly:
+			resp.TestOnly++
+		default:
 			resp.Unreferenced++
 		}
 		i, ok := idx[o.Kind]
@@ -1437,9 +1516,12 @@ func summarize(orphans []Orphan, candidates, repoWide int, mode string) summaryR
 		}
 		kc := &resp.ByKind[i]
 		kc.Total++
-		if o.Class == classIsolated {
+		switch o.Class {
+		case classIsolated:
 			kc.Isolated++
-		} else {
+		case classTestOnly:
+			kc.TestOnly++
+		default:
 			kc.Unreferenced++
 		}
 		if o.Exported {
@@ -1477,7 +1559,8 @@ func renderCompact(orphans []Orphan, mode string) string {
 }
 
 const toolDescription = "Dead-code candidates: symbols nothing references, read from the loaded snapshot without re-indexing. " +
-	"class=isolated when the symbol references nothing either, class=unreferenced when it still calls others. " +
+	"class=isolated when the symbol references nothing either, class=unreferenced when it still calls others, " +
+	"class=test-only when only test code (specs, test files) references it: dead in production, kept alive by its tests. " +
 	"Confidence: functions are high (TypeScript/JavaScript functions medium, operator overloads low); structs, classes and interfaces medium; the rest low. " +
 	"Treat medium and low as leads to verify, not safe deletions; the response says why, for the languages in the graph. " +
 	"Exported symbols are included but flagged, since they may be used outside this snapshot; confidence=high with " +
@@ -1487,15 +1570,15 @@ const toolDescription = "Dead-code candidates: symbols nothing references, read 
 
 // args are the arguments for the find_orphans tool.
 type args struct {
-	Mode               string `json:"mode,omitempty" jsonschema:"'both' (default), 'isolated' (no references in or out), or 'unreferenced' (referenced by nobody, still references others)."`
+	Mode               string `json:"mode,omitempty" jsonschema:"'both' (default: every class), 'isolated' (no references in or out), 'unreferenced' (referenced by nobody, still references others), or 'test_only' (referenced only by test code)."`
 	Kind               string `json:"kind,omitempty" jsonschema:"function, method, struct, interface, type, class, constant, or variable. Default: all."`
 	Package            string `json:"package,omitempty" jsonschema:"Declaring package substring, e.g. 'internal/app'."`
 	Repo               string `json:"repo,omitempty" jsonschema:"Repository label (multi-repo snapshots), e.g. 'go-service'."`
 	Visibility         string `json:"visibility,omitempty" jsonschema:"'all' (default), 'exported', or 'unexported' (the safer set to delete)."`
 	Confidence         string `json:"confidence,omitempty" jsonschema:"'high' (functions outside TypeScript/JavaScript), 'medium' (structs, classes, interfaces; TypeScript/JavaScript functions), 'low' (everything else), or empty for all (default)."`
 	IncludeTests       bool   `json:"include_tests,omitempty" jsonschema:"Include *_test files, Test/Benchmark/Example/Fuzz functions and test-support packages (mocks, testutils, fixtures). Off by default: Go _test.go files are not in the snapshot, so test-support code would look dead. Default false."`
-	IncludeEntrypoints bool   `json:"include_entrypoints,omitempty" jsonschema:"Include main and init, which have no callers by nature. Default false."`
-	OutputMode         string `json:"output_mode,omitempty" jsonschema:"'summary' (DEFAULT, counts per symbol kind with isolated, unreferenced, exported and high-confidence splits), 'compact' (markdown table), or 'full' (per-symbol JSON with file:line)."`
+	IncludeEntrypoints bool   `json:"include_entrypoints,omitempty" jsonschema:"Include entry points, which have no callers by nature: main and init, and symbols a framework invokes (routed actions, jobs, registry contracts) with the classes entered through them. Default false."`
+	OutputMode         string `json:"output_mode,omitempty" jsonschema:"'summary' (DEFAULT, counts per symbol kind with isolated, unreferenced, test-only, exported and high-confidence splits), 'compact' (markdown table), or 'full' (per-symbol JSON with file:line)."`
 	Limit              int    `json:"limit,omitempty" jsonschema:"Maximum symbols in compact or full output (1-2000). Default 200. Ignored for summary."`
 	MaxTokens          int    `json:"max_tokens,omitempty" jsonschema:"Approximate token cap; output is truncated with a notice. Default: no cap."`
 }
@@ -1582,17 +1665,27 @@ func foldMemberUseIntoOwner(order []string, byName map[string]*symInput, refSour
 			continue
 		}
 		for _, cand := range candidateNames(m.Name, m.Kind) {
-			for _, src := range refSources.sources(cand) {
-				// External use only. A member referencing its own type, the type
-				// referencing itself, or a SIBLING member of the same type, is all
-				// internal: a class whose members only call each other is dead as a
-				// unit, and crediting the sibling would make it immortal.
-				if src == m.Name || src == owner || ownerOf(src) == owner {
-					continue
-				}
-				addRef(refSources, owner, src)
-				if seg := lastSeg(owner); seg != owner {
-					addRef(refSources, seg, src)
+			// Production use of a member is production use of the type, and test use
+			// is test use: a type whose members only specs call is test-only too.
+			for _, side := range []struct {
+				srcs []string
+				add  func(name, source string)
+			}{
+				{refSources.sources(cand), refSources.add},
+				{refSources.testSources(cand), refSources.addTest},
+			} {
+				for _, src := range side.srcs {
+					// External use only. A member referencing its own type, the type
+					// referencing itself, or a SIBLING member of the same type, is all
+					// internal: a class whose members only call each other is dead as a
+					// unit, and crediting the sibling would make it immortal.
+					if src == m.Name || src == owner || ownerOf(src) == owner {
+						continue
+					}
+					side.add(owner, src)
+					if seg := lastSeg(owner); seg != owner {
+						side.add(seg, src)
+					}
 				}
 			}
 		}
@@ -1600,6 +1693,15 @@ func foldMemberUseIntoOwner(order []string, byName map[string]*symInput, refSour
 }
 
 // ownerOf returns a symbol's declaring type, or "" when it has none.
+// memberOwner returns the type a member name belongs to, reading a Ruby instance
+// member (`Owner#name`) as well as the dotted form ownerOf reads.
+func memberOwner(name string) string {
+	if hash := strings.LastIndex(name, "#"); hash > 0 {
+		return name[:hash]
+	}
+	return ownerOf(name)
+}
+
 func ownerOf(name string) string {
 	if dot := strings.LastIndex(name, "."); dot > 0 {
 		return name[:dot]
@@ -1635,10 +1737,11 @@ type Summary struct {
 }
 
 // Summarize counts orphans over the whole store with the find_orphans tool's own
-// defaults (both classes, all kinds and visibility), so the two agree.
+// defaults (all kinds and visibility), so the two agree on dead code. Test-only
+// symbols are not counted: see options.deadOnly.
 func Summarize(store *facts.Store) Summary {
 	syms, refSources := collect(store)
-	opts := options{Mode: "both", Visibility: "all"}
+	opts := options{Mode: "both", Visibility: "all", deadOnly: true}
 
 	s := Summary{Candidates: population(syms, opts)}
 	for _, o := range classify(syms, refSources, opts) {

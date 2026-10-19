@@ -9,7 +9,7 @@ Grade what a change did to the architecture, against a pinned baseline.
 Nothing fails until you say what should: with no --fail-on and no --max-spillover
 every finding is reported and the run exits 0. The names --fail-on accepts are
 exactly these, and are case-sensitive:
-  cycles, layers, crossrepo, coverage, unused-routes, messaging-coverage, god-class, hotspots, dependency-depth, exported-surface, complexity-outliers, intent, constraints, domain, query-loops, entry-points, dead-methods, vendored-candidates, import-closure, package-metrics, dead-code, performance
+  cycles, layers, crossrepo, coverage, unused-routes, messaging-coverage, god-class, hotspots, dependency-depth, exported-surface, complexity-outliers, intent, constraints, domain, query-loops, entry-points, dead-methods, vendored-candidates, import-closure, package-metrics, dead-code, performance, packwerk
 
 Exit codes:
   0  clean      nothing the policy enforces

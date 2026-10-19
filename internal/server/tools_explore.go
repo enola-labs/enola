@@ -214,6 +214,8 @@ func (s *Server) exploreModule(store *facts.Store, focus string, depth int, mode
 		}
 	}
 
+	writePackwerkUsage(store, mod, sb)
+
 	// Reverse dependencies: who depends on or imports this module
 	dependents := sameRepo(store.ReverseLookup(mod.Name, facts.RelImports), mod.Repo)
 	revDeps := sameRepo(store.ReverseLookup(mod.Name, facts.RelDependsOn), mod.Repo)
@@ -250,6 +252,76 @@ func (s *Server) exploreModule(store *facts.Store, focus string, depth int, mode
 	}
 
 	return true
+}
+
+// writePackwerkUsage writes, for a packwerk package, what its code references next
+// to what its package.yml declares, and which packages' code references it. The
+// Dependencies section above lists the declaration alone, which is the half that
+// drifts: a declaration outlives its last reference, and a reference works
+// undeclared because Rails autoloads it.
+func writePackwerkUsage(store *facts.Store, mod *facts.Fact, sb *strings.Builder) {
+	if !mod.PropBool("packwerk") {
+		return
+	}
+	var declared []string
+	for _, r := range mod.Relations {
+		if r.Kind == facts.RelDependsOn {
+			declared = append(declared, r.Target)
+		}
+	}
+	observed := propStringList(mod.PropAny(facts.PropPackwerkObserved))
+	var users []string
+	for _, f := range store.ByKind(facts.KindModule) {
+		if f.Repo == mod.Repo && f.Name != mod.Name && f.PropBool("packwerk") &&
+			slices.Contains(propStringList(f.PropAny(facts.PropPackwerkObserved)), mod.Name) {
+			users = append(users, f.Name)
+		}
+	}
+	sort.Strings(users)
+
+	fmt.Fprintf(sb, "## Packwerk: declared vs referenced\n\n")
+	fmt.Fprintf(sb, "- Declared: %d; referenced by this package's code: %d\n", len(declared), len(observed))
+	writeList := func(label string, items []string) {
+		if len(items) > 0 {
+			fmt.Fprintf(sb, "- %s (%d): %s\n", label, len(items), strings.Join(items, ", "))
+		}
+	}
+	writeList("Referenced", observed)
+	writeList("Declared, never referenced", propStringList(mod.PropAny(facts.PropPackwerkUnused)))
+	undeclared := propStringList(mod.PropAny(facts.PropPackwerkUndeclared))
+	if len(undeclared) > 0 {
+		samples, _ := mod.PropAny(facts.PropPackwerkUndeclaredEvidence).(map[string]any)
+		fmt.Fprintf(sb, "- Referenced, not declared (%d):\n", len(undeclared))
+		for _, d := range undeclared {
+			if smp, ok := samples[d].(map[string]any); ok {
+				symbol, _ := smp["symbol"].(string)
+				file, _ := smp["file"].(string)
+				fmt.Fprintf(sb, "  - %s — first reference: %s (%s)\n", d, symbol, file)
+			} else {
+				fmt.Fprintf(sb, "  - %s\n", d)
+			}
+		}
+	}
+	writeList("Recorded in package_todo.yml", propStringList(mod.PropAny(facts.PropPackwerkTodo)))
+	writeList("Packages whose code references this one", users)
+	sb.WriteString("\n")
+}
+
+// propStringList reads a list prop, which a restored snapshot delivers as []any.
+func propStringList(v any) []string {
+	switch l := v.(type) {
+	case []string:
+		return l
+	case []any:
+		out := make([]string, 0, len(l))
+		for _, e := range l {
+			if s, ok := e.(string); ok {
+				out = append(out, s)
+			}
+		}
+		return out
+	}
+	return nil
 }
 
 // writeSymbolRelations writes the raw per-symbol relation dump (depth=2 detail

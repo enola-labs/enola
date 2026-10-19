@@ -66,6 +66,7 @@ var insightLabels = map[string]string{
 	"package-metrics":     "Package metrics",
 	"dead-code":           "Dead code",
 	"performance":         "Performance",
+	"packwerk":            "Packwerk dependencies",
 }
 
 // firstEvidence returns the most locating evidence string for an insight: the first

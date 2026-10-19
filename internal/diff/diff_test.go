@@ -51,6 +51,26 @@ func TestCompute_AddedRemovedEdges(t *testing.T) {
 	}
 }
 
+// A new page linking into the code is a fact added, not coupling: its links are
+// prose about the code, and reporting them as new edges would read as a change to
+// the architecture.
+func TestCompute_DocumentLinksAreNotCoupling(t *testing.T) {
+	base := snap([]facts.Fact{mod("a", "a/a.go"), sym("a.Run", "a/a.go", 3)}, nil)
+	page := facts.Fact{Kind: facts.KindSymbol, Name: "docs/guide.md#running", File: "docs/guide.md", Line: 1, Repo: "r",
+		Props:     map[string]any{"symbol_kind": facts.SymbolSection, "language": "markdown"},
+		Relations: []facts.Relation{{Kind: facts.RelNames, Target: "a.Run"}, {Kind: facts.RelNames, Target: "a"}}}
+	cur := snap([]facts.Fact{mod("a", "a/a.go"), sym("a.Run", "a/a.go", 3), page}, nil)
+
+	d := Compute(base, cur)
+
+	if len(d.FactsAdded) != 1 || d.FactsAdded[0].Name != page.Name {
+		t.Fatalf("expected the page added as a fact, got %+v", d.FactsAdded)
+	}
+	if len(d.EdgesAdded) != 0 {
+		t.Fatalf("a page's links are not coupling, got %+v", d.EdgesAdded)
+	}
+}
+
 func TestCompute_RemovedSymbol(t *testing.T) {
 	base := snap([]facts.Fact{sym("Foo", "x.go", 10), sym("Bar", "x.go", 20)}, nil)
 	cur := snap([]facts.Fact{sym("Foo", "x.go", 10)}, nil)

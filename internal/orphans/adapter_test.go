@@ -45,8 +45,11 @@ func TestCollectAgainstBundledSnapshot(t *testing.T) {
 	}
 	for _, o := range orphans {
 		sym := byName[o.Name]
-		if referencedByOther(sym, refSources) {
-			t.Errorf("orphan %q is actually referenced by another symbol", o.Name)
+		if referencedInProduction(sym, refSources) {
+			t.Errorf("orphan %q is actually referenced by another production symbol", o.Name)
+		}
+		if referenced := referencedByOther(sym, refSources); referenced != (o.Class == classTestOnly) {
+			t.Errorf("orphan %q is class %s but referenced-by-test is %v", o.Name, o.Class, referenced)
 		}
 		if o.Class == classIsolated && sym.UsageOut {
 			t.Errorf("isolated orphan %q has outgoing usage edges", o.Name)

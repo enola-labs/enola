@@ -4,6 +4,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/enola-labs/enola/internal/factpath"
@@ -171,6 +172,9 @@ func parsePackwerk(repoPath string) *packwerkInfo {
 				props["no_circular_dependencies"] = ncd
 			}
 		}
+		if todo := readPackageTodo(filepath.Join(repoPath, pkgDir, "package_todo.yml")); len(todo) > 0 {
+			props[facts.PropPackwerkTodo] = todo
+		}
 
 		var rels []facts.Relation
 		for _, dep := range pkgCfg.Dependencies {
@@ -199,4 +203,40 @@ func parsePackwerk(repoPath string) *packwerkInfo {
 	}
 
 	return info
+}
+
+// packageTodo is package_todo.yml: per referenced package, per constant, the
+// violations packwerk recorded and the files they occur in.
+type packageTodo map[string]map[string]struct {
+	Violations []string `yaml:"violations"`
+}
+
+// readPackageTodo returns the packages a package_todo.yml records a dependency
+// violation against, sorted, in module-fact naming ("root" for "."). A missing or
+// unreadable file records none: the file is optional, and a package without it
+// has acknowledged nothing.
+func readPackageTodo(path string) []string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	var todo packageTodo
+	if err := yaml.Unmarshal(data, &todo); err != nil {
+		log.Printf("[ruby-extractor] error parsing %s: %v", path, err)
+		return nil
+	}
+	var out []string
+	for pkg, constants := range todo {
+		for _, c := range constants {
+			if slices.Contains(c.Violations, "dependency") {
+				if pkg == "." {
+					pkg = "root"
+				}
+				out = append(out, pkg)
+				break
+			}
+		}
+	}
+	slices.Sort(out)
+	return out
 }

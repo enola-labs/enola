@@ -1,7 +1,7 @@
 $ enola show @1 .
 exit: 0
 --- stdout
-# revision 5a3bc6c · <TIME>
+# revision 8bf3454 · <TIME>
 
 This is the FIRST recorded revision, so there is nothing before it to compare
 against. What follows is what the graph held at this point, not what changed.
@@ -12,6 +12,6 @@ against. What follows is what the graph held at this point, not what changed.
     module       3
     symbol       9
     test_ref     2
-  findings  4
+  findings  6
   built by  enola dev · extractors go, manifests
 --- stderr

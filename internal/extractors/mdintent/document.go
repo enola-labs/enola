@@ -18,8 +18,8 @@ import (
 // counted under its cause and derives nothing.
 
 const (
-	SymbolDocument = "document"
-	SymbolSection  = "section"
+	SymbolDocument = facts.SymbolDocument
+	SymbolSection  = facts.SymbolSection
 
 	linksEdgeType = "file_ref"
 	linksFactName = "mdintent:links"

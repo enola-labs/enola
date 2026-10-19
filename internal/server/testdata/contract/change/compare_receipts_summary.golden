@@ -14,6 +14,6 @@ _Baseline and current were generated over equivalent inputs — the deltas below
 | coverage_gaps | 0 | 0 | +0 |
 | unresolved_edges | 0 | 0 | +0 |
 | fact_count | 18 | 22 | +4 |
-| insight_count | 3 | 4 | +1 |
+| insight_count | 5 | 5 | +0 |
 
 _No extraction-quality regressions detected._

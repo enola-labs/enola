@@ -125,6 +125,7 @@ Two separate things decide that, and confusing them is the fastest way to be sur
 - which repositories in a cluster ended up depending on which (`crossrepo`)
 - directories that look like vendored third-party code, reported so you can decide whether to ignore them (`vendored-candidates` — informational, so it can never fail a build)
 - what `import yourpackage` executes in Python, and the package `__init__.py` files responsible for most of it (`import-closure` — the summary is informational; the barrels it names are gateable)
+- packwerk packages whose code references a package they do not declare, or declare one their code never references (`packwerk`)
 
 **enola holds itself to this.** This repository declares its own layer order in [`enola-intent.yaml`](../enola-intent.yaml) - six layers, entrypoint down to the fact model - and its CI runs `enola check --fail-on=layers` against it. Not `--fail-on=cycles`: enola is written in Go, where the compiler already refuses an import cycle between packages, so gating on one would enforce a rule the toolchain enforces first. The layer order is the part the compiler cannot see. Nothing but that file stops `internal/upgrade` importing `pkg/cli` today, and the build is green either way until something says otherwise.
 
@@ -146,7 +147,7 @@ So enola states what it measured and stops there. The exception it makes for its
 | The default: report everything, fail nothing | `enola check` |
 | Fail on violations of a layer order you declared | `enola check --fail-on=layers` |
 | Also fail on a cross-repo seam nobody declared, a declared rule breached, and new cycles | `enola check --fail-on=layers,intent,cycles,constraints` |
-| Everything above, plus every explainer enola infers rather than proves | `enola check --fail-on=layers,intent,cycles,constraints,crossrepo,coverage,unused-routes,messaging-coverage,god-class,hotspots,dependency-depth,exported-surface,complexity-outliers,domain,query-loops,entry-points,dead-methods,package-metrics,dead-code,performance,import-closure --min-confidence=0.8` |
+| Everything above, plus every explainer enola infers rather than proves | `enola check --fail-on=layers,intent,cycles,constraints,crossrepo,coverage,unused-routes,messaging-coverage,god-class,hotspots,dependency-depth,exported-surface,complexity-outliers,domain,query-loops,entry-points,dead-methods,package-metrics,dead-code,performance,import-closure,packwerk --min-confidence=0.8` |
 | Fail if the change spread outside the area you named | `enola check --target=internal/auth --max-spillover=0` |
 | Enforce a policy you set, but only warn this time | `enola check --fail-on=layers --warn-only` |
 

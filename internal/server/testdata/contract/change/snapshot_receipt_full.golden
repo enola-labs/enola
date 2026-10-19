@@ -32,7 +32,8 @@
     "import-closure",
     "package-metrics",
     "dead-code",
-    "performance"
+    "performance",
+    "packwerk"
   ],
   "renderers": [
     "llm_context",
@@ -49,7 +50,7 @@
     "llm_context.md": "sha256:<HASH>"
   },
   "fact_count": 22,
-  "insight_count": 4,
+  "insight_count": 5,
   "quality": {
     "files_seen": 6,
     "files_parsed": 5,
@@ -60,7 +61,7 @@
       "pkg/a/a_test.go (glob: **/*_test.go)"
     ],
     "parse_errors": 0,
-    "heuristic_insights": 3,
+    "heuristic_insights": 4,
     "census": {
       "files_walked": 8,
       "parsed": 5,

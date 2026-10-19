@@ -286,6 +286,10 @@ func (e *GoExtractor) extractPackage(fset *token.FileSet, pkgDir string, pp *par
 		result = append(result, e.extractFile(fset, f, relFile, pkgDir, modulePath, fieldTypes, callTypes, pkgNames, grpcStubs, pkgVarClients, baseURLLits, routePrefixes, pkgFuncs, pkgScope)...)
 	}
 
+	// Kafka topics passed through a package constructor, whose declaration and
+	// callers are usually in different files of the package.
+	result = append(result, extractKafkaConstructorFacts(fset, pp, pkgDir)...)
+
 	moduleFact := facts.Fact{
 		Kind: facts.KindModule,
 		Name: pkgDir,

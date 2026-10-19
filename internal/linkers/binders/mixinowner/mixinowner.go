@@ -31,7 +31,7 @@ import (
 
 // MembersProp is the prop on an includer naming each projected member and the
 // mixin kind (include, extend, prepend) that brought it.
-const MembersProp = "mixin_members"
+const MembersProp = facts.PropMixinMembers
 
 const mixinKindProp = "mixin_kind"
 

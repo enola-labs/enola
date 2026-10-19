@@ -186,7 +186,31 @@ const (
 	SymbolVariable  = "variable"
 	SymbolConstant  = "constant"
 	SymbolEnum      = "enum"
+
+	// SymbolDocument and SymbolSection are a Markdown page and one of its headings.
+	SymbolDocument = "document"
+	SymbolSection  = "section"
 )
+
+// IsDocument reports whether f is a Markdown page or section. Prose is indexed so
+// it can be queried, but it is not code: it calls nothing, nothing calls it, and
+// the dependency graph leaves it out, or a README naming a package would read as
+// one of that package's dependents and a directory holding one as holding code.
+func IsDocument(f Fact) bool {
+	if f.Kind != KindSymbol {
+		return false
+	}
+	switch f.PropString("symbol_kind") {
+	case SymbolDocument, SymbolSection:
+		return true
+	}
+	return false
+}
+
+// PropMixinMembers is the prop on a Ruby includer naming each member it gained
+// from a mixin (a has_method edge to the mixin's own node) and the mixin kind
+// that brought it, so a reader can tell a declared member from a projected one.
+const PropMixinMembers = "mixin_members"
 
 // Coupling-kind property values annotate a synthetic module-coupling dependency
 // fact (currently emitted by the Ruby extractor) with the reference that produced

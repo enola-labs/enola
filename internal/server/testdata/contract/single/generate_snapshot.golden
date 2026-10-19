@@ -2,11 +2,11 @@ Snapshot generated successfully.
 
 - Repository: <TMP>/go_sample
 - Facts: 18
-- Insights: 3
+- Insights: 5
 - Artifacts: 3
 - Duration: <DURATION>
 - Extractors: [go manifests]
-- Explainers: [cycles layers crossrepo coverage unused-routes domain query-loops dead-methods entry-points messaging-coverage god-class hotspots dependency-depth exported-surface complexity-outliers intent constraints vendored-candidates import-closure package-metrics dead-code performance]
+- Explainers: [cycles layers crossrepo coverage unused-routes domain query-loops dead-methods entry-points messaging-coverage god-class hotspots dependency-depth exported-surface complexity-outliers intent constraints vendored-candidates import-closure package-metrics dead-code performance packwerk]
 
 Fetch the computed findings with query_insights (e.g. query_insights(explainer='unused-routes') for HTTP routes no loaded client calls); use query_facts or explore to inspect the raw facts.
 

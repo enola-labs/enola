@@ -1,8 +1,8 @@
 $ enola log --stat .
 exit: 0
 --- stdout
-4bd3f73  <TIME>  (01b246396b27, backfill)  initial: 18 facts, 3 findings
-b8e76f5  <TIME>  (9522ef6c8541, backfill)  1 new finding · +4 facts · +4 edges
+ae4e143  <TIME>  (01b246396b27, backfill)  initial: 18 facts, 5 findings
+59b5a3d  <TIME>  (9522ef6c8541, backfill)  1 new finding · +4 facts · +4 edges
          dependency   +1
          module       +1
          symbol       +2

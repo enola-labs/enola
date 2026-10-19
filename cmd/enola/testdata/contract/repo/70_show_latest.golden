@@ -1,7 +1,7 @@
 $ enola show .
 exit: 0
 --- stdout
-# revision 101ce2b · <TIME>
+# revision 4f9065f · <TIME>
 
 # Architecture diff
 
@@ -17,6 +17,12 @@ _Baseline <TIME> → current <TIME>._
     - pkg/b.UsesGamma — exported — may be used outside this snapshot; verify before removal
 - suggested actions:
     - Confirm no dynamic/reflective or out-of-snapshot callers, then remove the symbol
+
+## Incidental finding shifts (1)
+
+_Heuristic findings appeared or cleared with no structural cause in this change — a moving statistical threshold or a re-ranked top-N list. Likely NOT caused by this change; verify only if relevant._
+
+- cleared · [dead-code] Test-only code candidate: function pkg/a.Gamma
 
 ## Structural changes
 
