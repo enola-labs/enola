@@ -2,6 +2,7 @@ package rustextractor
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/enola-labs/enola/internal/facts"
@@ -59,5 +60,47 @@ func TestExtract_OutOfLineCfgTestModuleIsTestCode(t *testing.T) {
 	}
 	if !called {
 		t.Errorf("test reference from src/tests.rs does not name src.run: %+v", testRef.Relations)
+	}
+}
+
+// A cfg that excludes the test build, or also builds without it, is not test code:
+// `not(all(test, loom))` is tokio's production loom shim, and `any(feature = "x",
+// test)` is a module a feature turns on.
+func TestCfgThatDoesNotRequireTestIsProduction(t *testing.T) {
+	repo, files := writeRustRepo(t, map[string]string{
+		"Cargo.toml":     "[package]\nname = \"pkg\"\n",
+		"src/lib.rs":     "#[cfg(not(all(test, loom)))]\nmod shim;\n#[cfg(any(feature = \"builder\", test))]\nmod builder;\n#[cfg(all(test, not(miri)))]\nmod tests;\n#[cfg(not(test))]\nmod real {\n    pub fn real_fn() {}\n}\n",
+		"src/shim.rs":    "pub fn atomic() {}\n",
+		"src/builder.rs": "pub fn build() {}\n",
+		"src/tests.rs":   "fn helper() {}\n",
+	})
+	ff, err := New().Extract(context.Background(), repo, files)
+	if err != nil {
+		t.Fatal(err)
+	}
+	symbolFiles := map[string]bool{}
+	names := map[string]bool{}
+	for _, f := range ff {
+		if f.Kind == facts.KindSymbol {
+			symbolFiles[f.File] = true
+			names[f.Name] = true
+		}
+	}
+	for _, f := range []string{"src/shim.rs", "src/builder.rs"} {
+		if !symbolFiles[f] {
+			t.Errorf("%s is production code but emitted no symbol", f)
+		}
+	}
+	if symbolFiles["src/tests.rs"] {
+		t.Errorf("src/tests.rs requires a test build but emitted symbols")
+	}
+	found := false
+	for n := range names {
+		if strings.HasSuffix(n, "real_fn") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("an inline #[cfg(not(test))] module is production code; got %v", names)
 	}
 }

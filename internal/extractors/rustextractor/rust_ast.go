@@ -387,26 +387,70 @@ func isTestAttribute(path string) bool {
 	return path == "test" || strings.HasSuffix(path, "::test") || path == "wasm_bindgen_test"
 }
 
-// isCfgTest reports whether this is a cfg gate containing the test predicate.
-// Walking identifier nodes catches compound forms such as
-// `#[cfg(all(test, feature = "x"))]` without matching text in string literals.
+// isCfgTest reports whether this is a cfg gate that compiles its item only in a
+// test build. The predicate is evaluated, not searched: `test` and `all(test, x)`
+// require a test build, while `not(all(test, loom))` excludes one and
+// `any(feature = "x", test)` is also built without one, so neither is test code.
 func (a rustAttribute) isCfgTest(src []byte) bool {
-	return a.path == "cfg" && containsRustIdentifier(a.args, "test", src)
-}
-
-func containsRustIdentifier(node *sitter.Node, want string, src []byte) bool {
-	if node == nil {
+	if a.path != "cfg" || a.args == nil {
 		return false
 	}
-	if kindOf(node) == "identifier" && nodeText(node, src) == want {
-		return true
+	preds := cfgPredicates(a.args, src)
+	return len(preds) == 1 && preds[0].requiresTest()
+}
+
+// cfgPredicate is one cfg predicate: a name, and the predicates inside its
+// parentheses when it has them (`all(...)`, `any(...)`, `not(...)`).
+type cfgPredicate struct {
+	name string
+	args []cfgPredicate
+	call bool
+}
+
+func (p cfgPredicate) requiresTest() bool {
+	switch {
+	case !p.call:
+		return p.name == "test"
+	case p.name == "all":
+		for _, a := range p.args {
+			if a.requiresTest() {
+				return true
+			}
+		}
+	case p.name == "any":
+		for _, a := range p.args {
+			if !a.requiresTest() {
+				return false
+			}
+		}
+		return len(p.args) > 0
 	}
-	for i := uint(0); i < node.NamedChildCount(); i++ {
-		if containsRustIdentifier(node.NamedChild(i), want, src) {
-			return true
+	return false // not(...), and anything unknown
+}
+
+// cfgPredicates reads the comma-separated predicates of a token tree `( ... )`.
+// A `key = "value"` predicate becomes one entry named key, which requires no test.
+func cfgPredicates(tree *sitter.Node, src []byte) []cfgPredicate {
+	var out []cfgPredicate
+	var cur *cfgPredicate
+	for i := uint(0); i < tree.ChildCount(); i++ {
+		c := tree.Child(i)
+		switch kindOf(c) {
+		case "identifier":
+			if cur == nil {
+				out = append(out, cfgPredicate{name: nodeText(c, src)})
+				cur = &out[len(out)-1]
+			}
+		case "token_tree":
+			if cur != nil && !cur.call {
+				cur.call = true
+				cur.args = cfgPredicates(c, src)
+			}
+		case ",":
+			cur = nil
 		}
 	}
-	return false
+	return out
 }
 
 // enterTestMod walks a #[cfg(test)] module's body in test mode: no symbol

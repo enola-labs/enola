@@ -3004,7 +3004,9 @@ import (
 // standing alone (`f[T].apply(x)`) calls f; a capitalized Scala identifier used as a
 // value names the object its file declares or imports. A Scala call through a type-applied
 // callee no longer walks that callee twice, which had emitted duplicate symbols.
-const cacheVersion = "v403"
+// v404: a Rust cfg gate counts as test-only when its predicate requires a test build:
+// `not(all(test, loom))` and `any(feature = "x", test)` are production, inline or out of line.
+const cacheVersion = "v404"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
