@@ -2990,7 +2990,11 @@ import (
 // v399: a qualified Ruby constant reference (`A::B`) resolves only to a declaration
 // whose name ends in the whole reference, never to another namespace's constant
 // that shares its last segment.
-const cacheVersion = "v399"
+// v400: a module fact carries published when its code ships as a package: a Ruby
+// repository with a gemspec at its root, an npm package that is not private and
+// states exports, types, files, peerDependencies or publishConfig, and an SDK-style
+// C# class library that sets PackageId, IsPackable or GeneratePackageOnBuild.
+const cacheVersion = "v400"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

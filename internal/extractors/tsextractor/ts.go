@@ -1248,8 +1248,11 @@ func detectNextJSRoot(repoPath, tsRoot string) bool {
 // named here instead — tsSkipDirs (shared with the alias-root walk) plus dot-directories
 // and testdata. node_modules is the critical one: a dependency's package.json would
 // otherwise be read as if the repo published it.
-func collectPackageNames(repoPath string) map[string]string {
+//
+// The second map holds the directories whose package is published (isPublishedPackage).
+func collectPackageNames(repoPath string) (map[string]string, map[string]bool) {
 	out := map[string]string{}
+	published := map[string]bool{}
 	_ = filepath.WalkDir(repoPath, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil // unreadable subtree: skip it rather than fail extraction
@@ -1268,9 +1271,7 @@ func collectPackageNames(repoPath string) map[string]string {
 		if err != nil {
 			return nil
 		}
-		var pkg struct {
-			Name string `json:"name"`
-		}
+		var pkg npmManifest
 		if err := json.Unmarshal(data, &pkg); err != nil || pkg.Name == "" {
 			return nil
 		}
@@ -1279,23 +1280,64 @@ func collectPackageNames(repoPath string) map[string]string {
 			return nil
 		}
 		out[factpath.Slash(rel)] = pkg.Name
+		if pkg.isPublishedPackage() {
+			published[factpath.Slash(rel)] = true
+		}
 		return nil
 	})
-	return out
+	return out, published
+}
+
+// npmManifest is the part of a package.json collectPackageNames reads.
+type npmManifest struct {
+	Name             string          `json:"name"`
+	Private          bool            `json:"private"`
+	PeerDependencies json.RawMessage `json:"peerDependencies"`
+	Exports          json.RawMessage `json:"exports"`
+	Types            json.RawMessage `json:"types"`
+	Typings          json.RawMessage `json:"typings"`
+	Files            json.RawMessage `json:"files"`
+	PublishConfig    json.RawMessage `json:"publishConfig"`
+}
+
+// isPublishedPackage reports whether a package.json describes a library other
+// projects install. Leaving out "private" is not enough: most applications never
+// set it. A library also states what it hands its consumers (exports, types,
+// files), what they must bring (peerDependencies), or where it goes (publishConfig),
+// and an application states none of these.
+func (m npmManifest) isPublishedPackage() bool {
+	if m.Private {
+		return false
+	}
+	for _, f := range []json.RawMessage{m.PeerDependencies, m.Exports, m.Types, m.Typings, m.Files, m.PublishConfig} {
+		if len(f) > 0 && string(f) != "null" {
+			return true
+		}
+	}
+	return false
 }
 
 // nearestPackageName returns the package name declared by the closest ancestor
 // (or self) of dir, or "" if none — the npm resolution rule, so a file under
 // packages/api/src belongs to packages/api's package.
 func nearestPackageName(pkgNames map[string]string, dir string) string {
+	if d, ok := nearestPackageDir(pkgNames, dir); ok {
+		return pkgNames[d]
+	}
+	return ""
+}
+
+// nearestPackageDir returns the closest ancestor (or self) of dir that declares a
+// package, by the same rule as nearestPackageName.
+func nearestPackageDir(pkgNames map[string]string, dir string) (string, bool) {
 	for d := filepath.ToSlash(dir); ; {
-		if name, ok := pkgNames[d]; ok {
-			return name
+		if _, ok := pkgNames[d]; ok {
+			return d, true
 		}
 		i := strings.LastIndexByte(d, '/')
 		if i < 0 {
 			if d == "." {
-				return ""
+				return "", false
 			}
 			d = "."
 			continue

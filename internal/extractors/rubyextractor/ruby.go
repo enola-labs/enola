@@ -196,6 +196,18 @@ func (e *RubyExtractor) Extract(ctx context.Context, repoPath string, files []st
 		})
 	}
 
+	// A gemspec at the root makes the repository a gem: its public constants are
+	// written for applications outside it. One under engines/ or gems/ is a gem the
+	// repository consumes itself, whose callers are in the snapshot, so it does not
+	// count.
+	if isRootGem(repoPath) {
+		for i := range allFacts {
+			if allFacts[i].Kind == facts.KindModule {
+				allFacts[i].SetProp(facts.PropPublished, true)
+			}
+		}
+	}
+
 	// Parse Rails route files.
 	if isRails {
 		routeFacts, namespaceOf := extractAllRoutes(repoPath, files)
@@ -342,6 +354,12 @@ func detectRailsProject(repoPath string) bool {
 		}
 	}
 	return containsRailsEngine(repoPath)
+}
+
+// isRootGem reports whether a *.gemspec sits at the repository root.
+func isRootGem(repoPath string) bool {
+	matches, _ := filepath.Glob(filepath.Join(repoPath, "*.gemspec"))
+	return len(matches) > 0
 }
 
 // containsRailsEngine reports whether any immediate subdirectory of root is a Rails

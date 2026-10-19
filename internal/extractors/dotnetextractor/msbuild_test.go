@@ -306,3 +306,30 @@ EndProject
 		t.Errorf("solution = %v, want Acme", got)
 	}
 }
+
+// Only a class library that says it packs is published; an executable, a web app,
+// a test project and a library relying on the SDK's packable default are not.
+func TestMSBuild_PublishedMarksPackableClassLibraries(t *testing.T) {
+	ff := extractRepo(t, map[string]string{
+		"src/Acme.Sdk/Acme.Sdk.csproj":           `<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><PackageId>Acme.Sdk</PackageId></PropertyGroup></Project>`,
+		"src/Acme.Sdk/Client.cs":                 "public class Client { }",
+		"src/Acme.Cli/Acme.Cli.csproj":           apiProj,
+		"src/Acme.Cli/Program.cs":                "public class Program { }",
+		"src/Acme.Api/Acme.Api.csproj":           `<Project Sdk="Microsoft.NET.Sdk.Web"></Project>`,
+		"src/Acme.Api/Startup.cs":                "public class Startup { }",
+		"src/Acme.Internal/Acme.Internal.csproj": `<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net9.0</TargetFramework></PropertyGroup></Project>`,
+		"src/Acme.Internal/Util.cs":              "public class Util { }",
+		"src/Acme.Checks/Acme.Checks.csproj": `<Project Sdk="Microsoft.NET.Sdk"><ItemGroup>` +
+			`<PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" /></ItemGroup></Project>`,
+		"src/Acme.Checks/Check.cs": "public class Check { }",
+	})
+	want := map[string]bool{
+		"src/Acme.Sdk": true, "src/Acme.Cli": false, "src/Acme.Api": false,
+		"src/Acme.Internal": false, "src/Acme.Checks": false,
+	}
+	for name, published := range want {
+		if got := moduleNamed(t, ff, name).PropBool(facts.PropPublished); got != published {
+			t.Errorf("%s: published = %v, want %v", name, got, published)
+		}
+	}
+}
