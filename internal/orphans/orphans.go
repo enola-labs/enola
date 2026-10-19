@@ -383,10 +383,18 @@ var frameworkLoadedSegments = map[string]bool{
 // isFrameworkLoadedPath reports whether a repo-relative file path is in a
 // framework-loaded / non-app tree (see frameworkLoadedSegments).
 func isFrameworkLoadedPath(p string) bool {
+	generators := false
 	for _, part := range strings.Split(p, "/") {
 		if frameworkLoadedSegments[part] {
 			return true
 		}
+		// A generator's templates/ (Rails, Thor: lib/generators/<name>/templates/)
+		// holds files the generator copies into an application. They never run in
+		// the repository that holds them, so they have no caller there.
+		if generators && part == "templates" {
+			return true
+		}
+		generators = generators || part == "generators"
 	}
 	return false
 }

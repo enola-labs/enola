@@ -188,3 +188,18 @@ func TestTestOnlySkipsPublishedLibraryAPI(t *testing.T) {
 		t.Errorf("exported code in an unpublished module: want %s, got %+v", classTestOnly, got["src/App.Options"])
 	}
 }
+
+// A generator's templates are copied into applications and never run where they
+// live, so they are not orphans; a templates/ directory elsewhere is ordinary code.
+func TestGeneratorTemplatesAreNotOrphans(t *testing.T) {
+	for p, want := range map[string]bool{
+		"lib/generators/templates/controllers/sessions_controller.rb": true,
+		"lib/generators/devise/templates/devise.rb":                   true,
+		"app/views/templates/mailer.rb":                               false,
+		"lib/generators/devise/devise_generator.rb":                   false,
+	} {
+		if got := isFrameworkLoadedPath(p); got != want {
+			t.Errorf("isFrameworkLoadedPath(%q) = %v, want %v", p, got, want)
+		}
+	}
+}

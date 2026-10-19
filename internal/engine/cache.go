@@ -2996,7 +2996,10 @@ import (
 // C# class library that sets PackageId, IsPackable or GeneratePackageOnBuild.
 // v401: a Rust module carries published when its crate has a library target and a
 // manifest crates.io would take: a description and a license, and no publish = false.
-const cacheVersion = "v401"
+// v402: a Rust file declared as `#[cfg(test)] mod name;` is test code and emits a test
+// reference instead of symbols, as do the files it declares; e2e, cypress and playwright
+// directories, and -e2e/-cypress/-playwright projects, are test paths.
+const cacheVersion = "v402"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
