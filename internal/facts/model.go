@@ -247,6 +247,13 @@ const (
 	ModuleRoleUnknown    = "unknown"
 )
 
+// PropPublished marks a module fact whose code ships as a package other projects
+// install: a gem, a public npm package, a packable class library. Its exported
+// surface is written for callers outside the repository, so the absence of an
+// in-repo caller says nothing about whether it is used. Extractors set it only
+// when the manifest says so; an absent prop means not published.
+const PropPublished = "published"
+
 // ModuleRoleForPath classifies a module by its directory path segments, for use
 // when the extractor has no more authoritative signal (e.g. a leaf-directory
 // fallback module covered by no declared target/package): a test-directory segment

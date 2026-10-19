@@ -74,6 +74,24 @@ type msbuildProject struct {
 	outputType string
 	isTest     bool
 	solution   string // the solution that lists it, if any
+	sdk        string // the Sdk attribute of <Project>; empty for a legacy project
+	packs      bool   // IsPackable or GeneratePackageOnBuild true, or a PackageId set
+}
+
+// published reports whether the project builds a class library that ships as a
+// NuGet package: an SDK-style library (the plain or Razor SDK; Web, Worker and
+// Aspire build applications) that is not an executable or a test project and says
+// it packs. The SDK makes every class library packable by default, so the default
+// says nothing: a solution's own Domain and Infrastructure projects are libraries
+// its applications consume in the same repository.
+func (p *msbuildProject) published() bool {
+	if p.isTest || !p.packs {
+		return false
+	}
+	if t := strings.ToLower(p.outputType); t == "exe" || t == "winexe" {
+		return false
+	}
+	return p.sdk == "Microsoft.NET.Sdk" || p.sdk == "Microsoft.NET.Sdk.Razor"
 }
 
 // parseProjectFile reads one MSBuild project.
@@ -120,6 +138,10 @@ func parseProjectFile(repoPath, relFile string) *msbuildProject {
 		case xml.StartElement:
 			cur = t.Name.Local
 			switch cur {
+			case "Project":
+				if p.sdk == "" {
+					p.sdk = attr(t, "Sdk")
+				}
 			case "ProjectReference":
 				if inc := attr(t, "Include"); inc != "" {
 					if d := resolveProjectRef(p.dir, inc); d != "" {
@@ -150,6 +172,10 @@ func parseProjectFile(repoPath, relFile string) *msbuildProject {
 				p.outputType = v
 			case "IsTestProject":
 				p.isTest = p.isTest || strings.EqualFold(v, "true")
+			case "IsPackable", "GeneratePackageOnBuild":
+				p.packs = p.packs || strings.EqualFold(v, "true")
+			case "PackageId":
+				p.packs = true
 			case "Version":
 				// <PackageReference Include="X"><Version>1.2.3</Version></PackageReference>
 				if inPkg >= 0 && p.packages[inPkg].version == "" {
@@ -343,6 +369,9 @@ func applyMSBuild(mods map[string]*facts.Fact, projects []*msbuildProject) []fac
 		// Foo.UnitTests/ under src/ is a test project whatever its path suggests.
 		if p.isTest {
 			f.SetProp(facts.PropModuleRole, facts.ModuleRoleTest)
+		}
+		if p.published() {
+			f.SetProp(facts.PropPublished, true)
 		}
 
 		seen := make(map[string]bool, len(p.refs))

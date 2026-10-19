@@ -13,10 +13,30 @@ import (
 
 // It also returns the file's inner doc, the doc of the module the file opens.
 func extractFileASTFull(src []byte, relFile string, crates []crateInfo, moduleDirs map[string]bool) ([]facts.Fact, []implPair, []axumBuilder, string) {
+	r := extractRustFile(src, relFile, crates, moduleDirs, false)
+	return r.facts, r.impls, r.builders, r.doc
+}
+
+// rustFileOut is one file's extraction.
+type rustFileOut struct {
+	facts    []facts.Fact
+	impls    []implPair
+	builders []axumBuilder
+	doc      string
+	// testSubmods names the body-less modules the file declares under
+	// #[cfg(test)] (`#[cfg(test)] mod tests;`), and, for a file walked as test
+	// code, every body-less module it declares: their files are test code too.
+	testSubmods []string
+}
+
+// extractRustFile extracts one file. testFile walks the whole file as the body of
+// a #[cfg(test)] module, because a parent declared it as one: it emits no symbol,
+// and its calls become the file's test reference.
+func extractRustFile(src []byte, relFile string, crates []crateInfo, moduleDirs map[string]bool, testFile bool) rustFileOut {
 	parser := sitter.NewParser()
 	defer parser.Close()
 	if err := parser.SetLanguage(sitter.NewLanguage(rust.Language())); err != nil {
-		return nil, nil, nil, ""
+		return rustFileOut{}
 	}
 
 	tree := parser.Parse(src, nil)
@@ -32,6 +52,7 @@ func extractFileASTFull(src []byte, relFile string, crates []crateInfo, moduleDi
 		crates:     crates,
 		moduleDirs: moduleDirs,
 		fileRefIdx: -1,
+		inTestMod:  testFile,
 	}
 	w.walkSourceFile(root)
 
@@ -49,10 +70,19 @@ func extractFileASTFull(src []byte, relFile string, crates []crateInfo, moduleDi
 		})
 	}
 
+	if testFile {
+		return rustFileOut{facts: w.out, testSubmods: w.testSubmods}
+	}
 	w.out = append(w.out, extractAxumRoutes(root, src, relFile, dir)...)
 	w.out = append(w.out, extractUtoipaRoutes(root, src, relFile, dir)...)
 
-	return w.out, w.impls, collectAxumBuilders(root, src, relFile), rustFileDoc(root, src)
+	return rustFileOut{
+		facts:       w.out,
+		impls:       w.impls,
+		builders:    collectAxumBuilders(root, src, relFile),
+		doc:         rustFileDoc(root, src),
+		testSubmods: w.testSubmods,
+	}
 }
 
 type astWalker struct {
@@ -148,6 +178,10 @@ type astWalker struct {
 	// production symbols), and calls are redirected into testRefRels instead of
 	// the owner stack — see enterTestMod.
 	inTestMod bool
+	// testSubmods: see rustFileOut.testSubmods.
+	testSubmods []string
+	// testInlineDepth counts the inline `mod {}` bodies test mode is inside.
+	testInlineDepth int
 	// testRefRels accumulates the (deduplicated) RelCalls edges a #[cfg(test)]
 	// module makes into production code, later emitted as a single KindTestRef
 	// fact for the file. Built as a plain slice rather than a pointer held into
@@ -222,6 +256,12 @@ func (w *astWalker) currentMethods() map[string]bool {
 }
 
 func (w *astWalker) walkSourceFile(root *sitter.Node) {
+	if w.inTestMod {
+		for i := uint(0); i < uint(root.ChildCount()); i++ {
+			w.walkTestItem(root.Child(i))
+		}
+		return
+	}
 	w.modFnStack = append(w.modFnStack, collectFnNames(root, w.src))
 	w.modSubmoduleStack = append(w.modSubmoduleStack, collectSubmoduleNames(root, w.src))
 	w.walkItems(root)
@@ -323,6 +363,9 @@ func (w *astWalker) walkItems(parent *sitter.Node) {
 		}
 		switch {
 		case kindOf(c) == "mod_item" && attrs.cfgTest:
+			if c.ChildByFieldName("body") == nil {
+				w.noteTestSubmod(c)
+			}
 			w.enterTestMod(c)
 		case kindOf(c) == "function_item" && attrs.test:
 			saved := w.inTestMod
@@ -344,26 +387,71 @@ func isTestAttribute(path string) bool {
 	return path == "test" || strings.HasSuffix(path, "::test") || path == "wasm_bindgen_test"
 }
 
-// isCfgTest reports whether this is a cfg gate containing the test predicate.
-// Walking identifier nodes catches compound forms such as
-// `#[cfg(all(test, feature = "x"))]` without matching text in string literals.
+// isCfgTest reports whether this is a cfg gate that compiles its item only in a
+// test or fuzz build. The predicate is evaluated, not searched: `test` and `all(test, x)`
+// require a test build, while `not(all(test, loom))` excludes one and
+// `any(feature = "x", test)` is also built without one, so neither is test code.
 func (a rustAttribute) isCfgTest(src []byte) bool {
-	return a.path == "cfg" && containsRustIdentifier(a.args, "test", src)
-}
-
-func containsRustIdentifier(node *sitter.Node, want string, src []byte) bool {
-	if node == nil {
+	if a.path != "cfg" || a.args == nil {
 		return false
 	}
-	if kindOf(node) == "identifier" && nodeText(node, src) == want {
-		return true
+	preds := cfgPredicates(a.args, src)
+	return len(preds) == 1 && preds[0].requiresTest()
+}
+
+// cfgPredicate is one cfg predicate: a name, and the predicates inside its
+// parentheses when it has them (`all(...)`, `any(...)`, `not(...)`).
+type cfgPredicate struct {
+	name string
+	args []cfgPredicate
+	call bool
+}
+
+func (p cfgPredicate) requiresTest() bool {
+	switch {
+	case !p.call:
+		// fuzzing is the cfg cargo-fuzz sets: a fuzz build, which never ships.
+		return p.name == "test" || p.name == "fuzzing"
+	case p.name == "all":
+		for _, a := range p.args {
+			if a.requiresTest() {
+				return true
+			}
+		}
+	case p.name == "any":
+		for _, a := range p.args {
+			if !a.requiresTest() {
+				return false
+			}
+		}
+		return len(p.args) > 0
 	}
-	for i := uint(0); i < node.NamedChildCount(); i++ {
-		if containsRustIdentifier(node.NamedChild(i), want, src) {
-			return true
+	return false // not(...), and anything unknown
+}
+
+// cfgPredicates reads the comma-separated predicates of a token tree `( ... )`.
+// A `key = "value"` predicate becomes one entry named key, which requires no test.
+func cfgPredicates(tree *sitter.Node, src []byte) []cfgPredicate {
+	var out []cfgPredicate
+	var cur *cfgPredicate
+	for i := uint(0); i < tree.ChildCount(); i++ {
+		c := tree.Child(i)
+		switch kindOf(c) {
+		case "identifier":
+			if cur == nil {
+				out = append(out, cfgPredicate{name: nodeText(c, src)})
+				cur = &out[len(out)-1]
+			}
+		case "token_tree":
+			if cur != nil && !cur.call {
+				cur.call = true
+				cur.args = cfgPredicates(c, src)
+			}
+		case ",":
+			cur = nil
 		}
 	}
-	return false
+	return out
 }
 
 // enterTestMod walks a #[cfg(test)] module's body in test mode: no symbol
@@ -379,10 +467,24 @@ func (w *astWalker) enterTestMod(node *sitter.Node) {
 	}
 	saved := w.inTestMod
 	w.inTestMod = true
+	w.testInlineDepth++
 	for i := uint(0); i < uint(body.ChildCount()); i++ {
 		w.walkTestItem(body.Child(i))
 	}
+	w.testInlineDepth--
 	w.inTestMod = saved
+}
+
+// noteTestSubmod records a body-less `mod name;` reached in test mode at file
+// scope, whose file is then test code. One nested in an inline `mod {}` lives in
+// a directory of that module's name, which the caller does not resolve.
+func (w *astWalker) noteTestSubmod(c *sitter.Node) {
+	if len(w.modStack) > 0 || w.testInlineDepth > 0 {
+		return
+	}
+	if name := c.ChildByFieldName("name"); name != nil {
+		w.testSubmods = append(w.testSubmods, nodeText(name, w.src))
+	}
 }
 
 // walkTestItem dispatches one item inside a #[cfg(test)] module. Only
@@ -401,9 +503,13 @@ func (w *astWalker) walkTestItem(c *sitter.Node) {
 		}
 	case "mod_item":
 		if body := c.ChildByFieldName("body"); body != nil {
+			w.testInlineDepth++
 			for i := uint(0); i < uint(body.ChildCount()); i++ {
 				w.walkTestItem(body.Child(i))
 			}
+			w.testInlineDepth--
+		} else {
+			w.noteTestSubmod(c)
 		}
 	case "use_declaration":
 		w.handleUse(c)

@@ -7,6 +7,7 @@ import (
 	"context"
 	"log"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -91,19 +92,52 @@ func (e *RustExtractor) Extract(ctx context.Context, repoPath string, files []st
 	crates := buildCrateIndex(repoPath, cargoFiles)
 
 	moduleDirs := make(map[string]bool, len(rustFiles))
+	moduleFiles := make(map[string]bool, len(rustFiles))
 	for _, relFile := range rustFiles {
 		moduleDirs[factpath.Dir(relFile)] = true
+		moduleFiles[factpath.Slash(relFile)] = true
 	}
 
-	perFileFacts := parallel.MapFiles(ctx, rustFiles, func(relFile string) fileResult {
+	perFileFacts := parallel.MapFiles(ctx, rustFiles, func(relFile string) rustFileOut {
 		src, err := os.ReadFile(filepath.Join(repoPath, relFile))
 		if err != nil {
 			log.Printf("[rust-extractor] error reading %s: %v", relFile, err)
-			return fileResult{}
+			return rustFileOut{}
 		}
-		ff, impls, builders, doc := extractFileASTFull(src, relFile, crates, moduleDirs)
-		return fileResult{facts: ff, impls: impls, builders: builders, doc: doc}
+		return extractRustFile(src, relFile, crates, moduleDirs, false)
 	})
+
+	// A file a parent declares as `#[cfg(test)] mod name;` is test code, though
+	// nothing in its own path says so: walk it again in test mode, replacing what
+	// the production walk emitted. Its own body-less modules are test code in turn.
+	byFile := make(map[string]int, len(rustFiles))
+	for i, f := range rustFiles {
+		byFile[factpath.Slash(f)] = i
+	}
+	isTestFile := make(map[int]bool)
+	pending := make([]int, 0)
+	queue := func(parent int, names []string) {
+		for _, name := range names {
+			if i, ok := submoduleFile(rustFiles[parent], name, byFile); ok && !isTestFile[i] {
+				isTestFile[i] = true
+				pending = append(pending, i)
+			}
+		}
+	}
+	for i := range perFileFacts {
+		queue(i, perFileFacts[i].testSubmods)
+	}
+	for len(pending) > 0 {
+		i := pending[0]
+		pending = pending[1:]
+		src, err := os.ReadFile(filepath.Join(repoPath, rustFiles[i]))
+		if err != nil {
+			continue
+		}
+		r := extractRustFile(src, rustFiles[i], crates, moduleDirs, true)
+		perFileFacts[i] = rustFileOut{facts: r.facts}
+		queue(i, r.testSubmods)
+	}
 
 	var allFacts []facts.Fact
 	var allImpls []implPair
@@ -126,6 +160,15 @@ func (e *RustExtractor) Extract(ctx context.Context, repoPath string, files []st
 	allFacts = composeAxumPrefixes(allFacts, allBuilders, crates)
 	bindRustRouteHandlers(allFacts, crates)
 
+	// A crate is published when crates.io would take it and it has a library target
+	// for other crates to depend on; a binary-only crate is installed, not imported.
+	libCrates := map[string]bool{}
+	for _, c := range crates {
+		if c.publishable && moduleFiles[path.Join(c.dir, "src", "lib.rs")] {
+			libCrates[c.dir] = true
+		}
+	}
+
 	docs := moduleDocs(moduleDirs, fileDocs)
 	for dir := range moduleDirs {
 		props := map[string]any{"language": "rust"}
@@ -135,6 +178,9 @@ func (e *RustExtractor) Extract(ctx context.Context, repoPath string, files []st
 		if crateDir := nearestCrateDir(dir, crates); crateDir != "" {
 			if name, ok := crateNameByDir(crateDir, crates); ok {
 				props["crate"] = name
+			}
+			if libCrates[crateDir] {
+				props[facts.PropPublished] = true
 			}
 		}
 		allFacts = append(allFacts, facts.Fact{
@@ -148,12 +194,21 @@ func (e *RustExtractor) Extract(ctx context.Context, repoPath string, files []st
 	return allFacts, nil
 }
 
-// fileResult holds one file's extracted facts plus its impl-block
-// observations, returned together from the parallel per-file walk.
-type fileResult struct {
-	facts    []facts.Fact
-	impls    []implPair
-	builders []axumBuilder
-	// doc is the file's inner doc (`//!`).
-	doc string
+// submoduleFile resolves a body-less `mod name;` declared in parent to its file,
+// name.rs or name/mod.rs, in the directory Rust looks in: parent's own directory
+// for a lib.rs, main.rs or mod.rs, else the directory named after parent's stem.
+func submoduleFile(parent, name string, byFile map[string]int) (int, bool) {
+	parent = factpath.Slash(parent)
+	dir := path.Dir(parent)
+	switch base := path.Base(parent); base {
+	case "lib.rs", "main.rs", "mod.rs":
+	default:
+		dir = path.Join(dir, strings.TrimSuffix(base, ".rs"))
+	}
+	for _, cand := range []string{path.Join(dir, name+".rs"), path.Join(dir, name, "mod.rs")} {
+		if i, ok := byFile[cand]; ok {
+			return i, true
+		}
+	}
+	return 0, false
 }

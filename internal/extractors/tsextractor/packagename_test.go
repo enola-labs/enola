@@ -129,3 +129,27 @@ func TestExtract_ModulePackageName_WhenJSONIsIgnored(t *testing.T) {
 		}
 	}
 }
+
+// A module is published when its nearest package.json describes a library: not
+// private, and stating what it hands consumers or what they must bring. An
+// application's package.json usually omits "private" too, so that alone is not
+// enough.
+func TestExtract_ModulePublished(t *testing.T) {
+	ff := extractRepoAllFiles(t, map[string]string{
+		"package.json":                 `{"name": "acme-monorepo", "private": true}`,
+		"packages/sdk/package.json":    `{"name": "@acme/sdk", "peerDependencies": {"rxjs": "^7"}}`,
+		"packages/sdk/src/index.ts":    "export const a = 1;\n",
+		"packages/hidden/package.json": `{"name": "@acme/hidden", "private": true, "exports": "./index.js"}`,
+		"packages/hidden/src/index.ts": "export const h = 1;\n",
+		"apps/web/package.json":        `{"name": "web", "dependencies": {"react": "^18"}}`,
+		"apps/web/src/main.ts":         "export const w = 1;\n",
+		"tools/build.ts":               "export const b = 2;\n",
+	})
+	for dir, want := range map[string]bool{
+		"packages/sdk/src": true, "packages/hidden/src": false, "apps/web/src": false, "tools": false,
+	} {
+		if got := moduleProp(ff, dir, facts.PropPublished) == true; got != want {
+			t.Errorf("%s: published = %v, want %v", dir, got, want)
+		}
+	}
+}

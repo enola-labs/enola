@@ -2990,7 +2990,24 @@ import (
 // v399: a qualified Ruby constant reference (`A::B`) resolves only to a declaration
 // whose name ends in the whole reference, never to another namespace's constant
 // that shares its last segment.
-const cacheVersion = "v399"
+// v400: a module fact carries published when its code ships as a package: a Ruby
+// repository with a gemspec at its root, an npm package that is not private and
+// states exports, types, files, peerDependencies or publishConfig, and an SDK-style
+// C# class library that sets PackageId, IsPackable or GeneratePackageOnBuild.
+// v401: a Rust module carries published when its crate has a library target and a
+// manifest crates.io would take: a description and a license, and no publish = false.
+// v402: a Rust file declared as `#[cfg(test)] mod name;` is test code and emits a test
+// reference instead of symbols, as do the files it declares; e2e, cypress and playwright
+// directories, and -e2e/-cypress/-playwright projects, are test paths.
+// v403: a C# parameter with an ASP.NET binding attribute ([AsParameters], [FromBody],
+// [FromServices], …) injects its type into the method; a Scala type application
+// standing alone (`f[T].apply(x)`) calls f; a capitalized Scala identifier used as a
+// value names the object its file declares or imports. A Scala call through a type-applied
+// callee no longer walks that callee twice, which had emitted duplicate symbols.
+// v404: a Rust cfg gate counts as test-only when its predicate requires a test build:
+// `not(all(test, loom))` and `any(feature = "x", test)` are production, inline or out of line.
+// v405: a Rust cfg(fuzzing) gate, set by cargo-fuzz, counts as a test build too.
+const cacheVersion = "v405"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

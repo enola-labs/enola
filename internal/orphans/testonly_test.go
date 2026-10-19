@@ -162,3 +162,44 @@ func TestFrameworkRootsAreEntryPoints(t *testing.T) {
 		t.Error("include_entrypoints must still list a rooted symbol")
 	}
 }
+
+// A published library's exported API is written for the projects that install it,
+// so tests being its only in-repo callers is the normal state, not a lead. The
+// unexported code inside it, and the same API in an unpublished module, still are.
+func TestTestOnlySkipsPublishedLibraryAPI(t *testing.T) {
+	jsonl := `{"kind":"module","name":"src/Lib","file":"src/Lib/Lib.csproj","props":{"published":true}}
+{"kind":"module","name":"src/Lib/Protocol","file":"src/Lib/Protocol"}
+{"kind":"module","name":"src/App","file":"src/App"}
+{"kind":"symbol","name":"src/Lib/Protocol.Result","file":"src/Lib/Protocol/Result.cs","props":{"symbol_kind":"class","exported":true},"relations":[{"kind":"declares","target":"src/Lib/Protocol"}]}
+{"kind":"symbol","name":"src/Lib/Protocol.helper","file":"src/Lib/Protocol/Result.cs","props":{"symbol_kind":"function","exported":false},"relations":[{"kind":"declares","target":"src/Lib/Protocol"}]}
+{"kind":"symbol","name":"src/App.Options","file":"src/App/Options.cs","props":{"symbol_kind":"class","exported":true},"relations":[{"kind":"declares","target":"src/App"}]}
+{"kind":"test_ref","name":"tests/LibTests.cs","file":"tests/LibTests.cs","relations":[{"kind":"calls","target":"src/Lib/Protocol.Result"},{"kind":"calls","target":"src/Lib/Protocol.helper"},{"kind":"calls","target":"src/App.Options"}]}
+`
+	syms, refs := collectFromJSONL(t, jsonl)
+	got := orphansByName(classify(syms, refs, options{Mode: "both", Visibility: "all"}))
+
+	if o, reported := got["src/Lib/Protocol.Result"]; reported {
+		t.Errorf("exported API of a published module (found by walking up from a subfolder) reported as %s", o.Class)
+	}
+	if got["src/Lib/Protocol.helper"].Class != classTestOnly {
+		t.Errorf("unexported code in a published module: want %s, got %+v", classTestOnly, got["src/Lib/Protocol.helper"])
+	}
+	if got["src/App.Options"].Class != classTestOnly {
+		t.Errorf("exported code in an unpublished module: want %s, got %+v", classTestOnly, got["src/App.Options"])
+	}
+}
+
+// A generator's templates are copied into applications and never run where they
+// live, so they are not orphans; a templates/ directory elsewhere is ordinary code.
+func TestGeneratorTemplatesAreNotOrphans(t *testing.T) {
+	for p, want := range map[string]bool{
+		"lib/generators/templates/controllers/sessions_controller.rb": true,
+		"lib/generators/devise/templates/devise.rb":                   true,
+		"app/views/templates/mailer.rb":                               false,
+		"lib/generators/devise/devise_generator.rb":                   false,
+	} {
+		if got := isFrameworkLoadedPath(p); got != want {
+			t.Errorf("isFrameworkLoadedPath(%q) = %v, want %v", p, got, want)
+		}
+	}
+}

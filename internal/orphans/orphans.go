@@ -30,6 +30,7 @@ import (
 	"unicode"
 
 	"github.com/enola-labs/enola/internal/explainers/deadmethods"
+	"github.com/enola-labs/enola/internal/factpath"
 	"github.com/enola-labs/enola/internal/facts"
 	"github.com/enola-labs/enola/pkg/mcputil"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -195,6 +196,10 @@ type symInput struct {
 	// own members, as invoked by a framework (a routed action, a job, a registry
 	// contract, …). Its callers are the framework, so no reference is expected.
 	FrameworkRoot bool
+	// Published: the symbol's module, or one above it, ships as a package
+	// (facts.PropPublished). Its exported surface is written for callers outside
+	// the repository, so tests may be its only in-repo callers by design.
+	Published bool
 }
 
 // Orphan is a single reported orphan symbol.
@@ -378,10 +383,18 @@ var frameworkLoadedSegments = map[string]bool{
 // isFrameworkLoadedPath reports whether a repo-relative file path is in a
 // framework-loaded / non-app tree (see frameworkLoadedSegments).
 func isFrameworkLoadedPath(p string) bool {
+	generators := false
 	for _, part := range strings.Split(p, "/") {
 		if frameworkLoadedSegments[part] {
 			return true
 		}
+		// A generator's templates/ (Rails, Thor: lib/generators/<name>/templates/)
+		// holds files the generator copies into an application. They never run in
+		// the repository that holds them, so they have no caller there.
+		if generators && part == "templates" {
+			return true
+		}
+		generators = generators || part == "generators"
 	}
 	return false
 }
@@ -952,6 +965,9 @@ func classify(syms []symInput, refSources refIndex, opts options) []Orphan {
 		class := classUnreferenced
 		switch {
 		case referencedByOther(sym, refSources):
+			if sym.Exported && sym.Published {
+				continue // a library's public API: its callers are the projects that install it
+			}
 			class = classTestOnly // referenced, but by tests alone
 		case !sym.UsageOut:
 			class = classIsolated
@@ -1116,6 +1132,13 @@ func collect(store *facts.Store) ([]symInput, refIndex) {
 	for owner := range rootedOwners {
 		if si := byName[owner]; si != nil {
 			si.FrameworkRoot = true
+		}
+	}
+
+	published := publishedModules(store)
+	if len(published) > 0 {
+		for _, si := range byName {
+			si.Published = inPublishedModule(published, si)
 		}
 	}
 
@@ -1764,4 +1787,37 @@ func Summarize(store *facts.Store) Summary {
 		}
 	}
 	return s
+}
+
+// publishedModules returns the modules that ship as a package, keyed by repo and
+// module name.
+func publishedModules(store *facts.Store) map[[2]string]bool {
+	out := map[[2]string]bool{}
+	for _, f := range store.ByKind(facts.KindModule) {
+		if f.PropBool(facts.PropPublished) {
+			out[[2]string{f.Repo, f.Name}] = true
+		}
+	}
+	return out
+}
+
+// inPublishedModule reports whether the symbol's module, or an ancestor
+// directory module, is published. A C# project marks only its project directory,
+// so a symbol in a subfolder finds it by walking up.
+func inPublishedModule(published map[[2]string]bool, si *symInput) bool {
+	dir := si.Package
+	if dir == "" {
+		dir = factpath.Dir(si.File)
+	}
+	for dir != "" {
+		if published[[2]string{si.Repo, dir}] {
+			return true
+		}
+		i := strings.LastIndexByte(dir, '/')
+		if i < 0 {
+			return dir != "." && published[[2]string{si.Repo, "."}]
+		}
+		dir = dir[:i]
+	}
+	return false
 }

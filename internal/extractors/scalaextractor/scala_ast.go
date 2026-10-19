@@ -54,7 +54,46 @@ func walkFileAST(root *sitter.Node, src []byte, relFile string, packageIndex map
 		inlineHandlers: inlineHandlers,
 	}
 	w.walk(root)
+	w.resolveValueRefs()
 	return w.out, w.pkg
+}
+
+// valueRef is a capitalized identifier used as a value, and the symbol using it.
+type valueRef struct {
+	owner int
+	name  string
+}
+
+// resolveValueRefs turns each value reference into a names edge when the name is
+// an object or type this file declares or explicitly imports. `Everyone` in an
+// expression or a `case` pattern is a stable identifier, a reference to that
+// object. A name resolved neither way (None, Nil, Right) is left out: the walker
+// has no evidence it is this repository's, and an edge to it would be noise.
+func (w *astWalker) resolveValueRefs() {
+	if len(w.valueRefs) == 0 {
+		return
+	}
+	declared := map[string]string{}
+	for _, f := range w.out {
+		if f.Kind != facts.KindSymbol {
+			continue
+		}
+		switch f.PropAny("symbol_kind") {
+		case facts.SymbolClass, facts.SymbolInterface, facts.SymbolEnum:
+			declared[lastSegment(f.Name)] = f.Name
+		}
+	}
+	for _, ref := range w.valueRefs {
+		target := declared[ref.name]
+		if target == "" {
+			target = w.imports[ref.name]
+		}
+		owner := &w.out[ref.owner]
+		if target == "" || target == owner.Name || owner.HasRelation(facts.RelNames, target) {
+			continue
+		}
+		owner.Relations = append(owner.Relations, facts.Relation{Kind: facts.RelNames, Target: target})
+	}
 }
 
 type astWalker struct {
@@ -77,6 +116,8 @@ type astWalker struct {
 	// (`import a.b.{Helper => H}`) is keyed on the LOCAL name, because that is what
 	// the reference site writes.
 	imports map[string]string
+	// valueRefs: see resolveValueRefs.
+	valueRefs []valueRef
 
 	out []facts.Fact
 
@@ -304,6 +345,22 @@ func (w *astWalker) walk(n *sitter.Node) {
 		w.walkChildren(n)
 		w.inExtension = prev
 		return
+	case "identifier":
+		// The receiver of `Foo.bar` is already carried by that member's own edge.
+		if p := n.Parent(); p != nil && kindOf(p) == "field_expression" {
+			return
+		}
+		if name := w.text(n); isTypeName(name) && len(w.ownerStack) > 0 {
+			w.valueRefs = append(w.valueRefs, valueRef{owner: w.ownerStack[len(w.ownerStack)-1], name: name})
+		}
+		return
+	case "generic_function":
+		// Reached only outside a call's callee position (handleCall unwraps that
+		// one): `tradingFsm[IO].apply(x)` or `run(serve[IO])`. A type application
+		// with no argument list of its own still invokes the method, because a value
+		// cannot take type arguments.
+		w.handleTypeApplication(n)
+		return
 	case "instance_expression":
 		// `new Foo(...)` — the one construction form that is unambiguous without
 		// type information. Scala's dominant form, `Foo(...)` through a companion
@@ -425,6 +482,7 @@ func (w *astWalker) handleCall(n *sitter.Node) {
 		w.walkChildren(n)
 		return
 	}
+	callee := fn
 	// `f[T](x)` wraps the callee in a generic_function; unwrap to the callee.
 	if kindOf(fn) == "generic_function" {
 		if inner := firstNamedChild(fn); inner != nil {
@@ -503,10 +561,36 @@ func (w *astWalker) handleCall(n *sitter.Node) {
 	}
 	for i := uint(0); i < n.ChildCount(); i++ {
 		c := n.Child(i)
-		if !c.IsNamed() || sameNode(c, fn) {
+		if !c.IsNamed() || sameNode(c, fn) || sameNode(c, callee) {
 			continue
 		}
 		w.walk(c)
+	}
+}
+
+// handleTypeApplication emits the call a type application `f[T]` or `obj.f[T]`
+// makes when it stands alone as a receiver or an argument.
+func (w *astWalker) handleTypeApplication(n *sitter.Node) {
+	inner := firstNamedChild(n)
+	if inner == nil {
+		return
+	}
+	switch kindOf(inner) {
+	case "identifier":
+		w.emitCallEdge(nil, "", w.text(inner))
+	case "field_expression":
+		recvNode, method := w.splitFieldExpression(inner)
+		if method == "" {
+			return
+		}
+		w.emitCallEdge(recvNode, w.simpleName(recvNode), method)
+		if recvNode != nil {
+			w.walk(recvNode)
+		}
+	default:
+		// Anything else is an expression the type arguments merely follow (the
+		// grammar can attach `[T]` to a whole infix chain): walk it as before.
+		w.walk(inner)
 	}
 }
 

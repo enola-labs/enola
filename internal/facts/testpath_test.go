@@ -24,6 +24,14 @@ func TestIsTestPath(t *testing.T) {
 		{"hyphenated type tests", "drizzle-orm/type-tests/mysql/tables.ts", true},
 		{"hyphenated integration tests", "integration-tests/tests/pg.ts", true},
 		{"python shared test support", "tests_common/pytest_plugins.py", true},
+		{"cypress default folder", "modules/web/cypress/support/commands.ts", true},
+		{"playwright suite folder", "playwright/support/helpers/links.ts", true},
+		{"angular cli e2e folder", "client/e2e/src/po/login.po.ts", true},
+		{"nx e2e project", "apps/gauzy-e2e/src/app.cy.ts", true},
+		{"playwright project", "projects/demo-playwright/utils/goto.ts", true},
+		{"suffix alone is not a project", "src/-e2e/x.ts", false},
+		{"e2e inside a word", "src/pre2e/model.ts", false},
+		{"cypress inside a word", "src/cypresslike/view.ts", false},
 
 		// Filename conventions — ONLY the tool-enforced ones. A compiler or runner
 		// keys off each of these, so production code cannot adopt one by accident.

@@ -40,7 +40,18 @@ var testSegments = map[string]bool{
 	// benchmarks — a benchmark iterates by definition, so a loop there is the point
 	// rather than a finding.
 	"benches": true,
+	// Browser end-to-end suites: the directory Cypress creates and reads by default,
+	// the one the Angular CLI and Nx generate, and the one Playwright suites are kept
+	// in. Across the 95-repository corpus every directory of these three names (77)
+	// holds an end-to-end suite, its support code or its config; none is production.
+	"e2e": true, "cypress": true, "playwright": true,
 }
+
+// testProjectSuffixes end a directory name that is a whole end-to-end project, the
+// form Nx generates beside each application (`apps/shop-e2e`) and its Playwright
+// and Cypress variants (`projects/demo-playwright`, `storefrontapp-e2e-cypress`).
+// The suffix is a separate '-' token, so `pre2e` or `cypresslike` do not match.
+var testProjectSuffixes = []string{"-e2e", "-cypress", "-playwright"}
 
 // testFileSuffixes are the filename conventions safe enough to trust on their own,
 // for the languages whose tests are genuinely colocated with production source:
@@ -122,6 +133,11 @@ func IsTestPath(p string) bool {
 	for _, seg := range strings.Split(p, "/") {
 		if testSegments[seg] {
 			return true
+		}
+		for _, suf := range testProjectSuffixes {
+			if strings.HasSuffix(seg, suf) && len(seg) > len(suf) {
+				return true
+			}
 		}
 	}
 	base := p

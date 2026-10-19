@@ -334,7 +334,7 @@ func (a *tsAssembly) coverageFacts(repoPath string) []facts.Fact {
 }
 
 func moduleFacts(repoPath string, modules map[string]bool, isAngular bool, docs map[string]string) []facts.Fact {
-	pkgNames := collectPackageNames(repoPath)
+	pkgNames, publishedPkgs := collectPackageNames(repoPath)
 	// The workspace project each directory belongs to, where the repository states
 	// one. A monorepo's unit of ownership is its project, not its directory, and
 	// every reading that groups by unit was inferring the boundary from the path.
@@ -351,8 +351,11 @@ func moduleFacts(repoPath string, modules map[string]bool, isAngular bool, docs 
 		// to recognize a repo's own @scope, so an import of a sibling package the
 		// repo itself publishes is not mistaken for a dependency on another repo
 		// that happens to be labeled like the scope.
-		if name := nearestPackageName(pkgNames, dir); name != "" {
-			props["package_name"] = name
+		if pd, ok := nearestPackageDir(pkgNames, dir); ok {
+			props["package_name"] = pkgNames[pd]
+			if publishedPkgs[pd] {
+				props[facts.PropPublished] = true
+			}
 		}
 		if name := nearestProjectName(projects, dir); name != "" {
 			props["workspace_project"] = name
