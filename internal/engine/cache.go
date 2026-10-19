@@ -3006,7 +3006,8 @@ import (
 // callee no longer walks that callee twice, which had emitted duplicate symbols.
 // v404: a Rust cfg gate counts as test-only when its predicate requires a test build:
 // `not(all(test, loom))` and `any(feature = "x", test)` are production, inline or out of line.
-const cacheVersion = "v404"
+// v405: a Rust cfg(fuzzing) gate, set by cargo-fuzz, counts as a test build too.
+const cacheVersion = "v405"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

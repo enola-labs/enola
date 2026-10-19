@@ -69,10 +69,11 @@ func TestExtract_OutOfLineCfgTestModuleIsTestCode(t *testing.T) {
 func TestCfgThatDoesNotRequireTestIsProduction(t *testing.T) {
 	repo, files := writeRustRepo(t, map[string]string{
 		"Cargo.toml":     "[package]\nname = \"pkg\"\n",
-		"src/lib.rs":     "#[cfg(not(all(test, loom)))]\nmod shim;\n#[cfg(any(feature = \"builder\", test))]\nmod builder;\n#[cfg(all(test, not(miri)))]\nmod tests;\n#[cfg(not(test))]\nmod real {\n    pub fn real_fn() {}\n}\n",
+		"src/lib.rs":     "#[cfg(not(all(test, loom)))]\nmod shim;\n#[cfg(any(feature = \"builder\", test))]\nmod builder;\n#[cfg(all(test, not(miri)))]\nmod tests;\n#[cfg(any(test, fuzzing))]\nmod harness;\n#[cfg(not(test))]\nmod real {\n    pub fn real_fn() {}\n}\n",
 		"src/shim.rs":    "pub fn atomic() {}\n",
 		"src/builder.rs": "pub fn build() {}\n",
 		"src/tests.rs":   "fn helper() {}\n",
+		"src/harness.rs": "fn fuzz_helper() {}\n",
 	})
 	ff, err := New().Extract(context.Background(), repo, files)
 	if err != nil {
@@ -91,8 +92,10 @@ func TestCfgThatDoesNotRequireTestIsProduction(t *testing.T) {
 			t.Errorf("%s is production code but emitted no symbol", f)
 		}
 	}
-	if symbolFiles["src/tests.rs"] {
-		t.Errorf("src/tests.rs requires a test build but emitted symbols")
+	for _, f := range []string{"src/tests.rs", "src/harness.rs"} {
+		if symbolFiles[f] {
+			t.Errorf("%s is built only for tests or fuzzing but emitted symbols", f)
+		}
 	}
 	found := false
 	for n := range names {

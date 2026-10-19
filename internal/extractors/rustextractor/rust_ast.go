@@ -388,7 +388,7 @@ func isTestAttribute(path string) bool {
 }
 
 // isCfgTest reports whether this is a cfg gate that compiles its item only in a
-// test build. The predicate is evaluated, not searched: `test` and `all(test, x)`
+// test or fuzz build. The predicate is evaluated, not searched: `test` and `all(test, x)`
 // require a test build, while `not(all(test, loom))` excludes one and
 // `any(feature = "x", test)` is also built without one, so neither is test code.
 func (a rustAttribute) isCfgTest(src []byte) bool {
@@ -410,7 +410,8 @@ type cfgPredicate struct {
 func (p cfgPredicate) requiresTest() bool {
 	switch {
 	case !p.call:
-		return p.name == "test"
+		// fuzzing is the cfg cargo-fuzz sets: a fuzz build, which never ships.
+		return p.name == "test" || p.name == "fuzzing"
 	case p.name == "all":
 		for _, a := range p.args {
 			if a.requiresTest() {
