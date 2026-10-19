@@ -2994,7 +2994,9 @@ import (
 // repository with a gemspec at its root, an npm package that is not private and
 // states exports, types, files, peerDependencies or publishConfig, and an SDK-style
 // C# class library that sets PackageId, IsPackable or GeneratePackageOnBuild.
-const cacheVersion = "v400"
+// v401: a Rust module carries published when its crate has a library target and a
+// manifest crates.io would take: a description and a license, and no publish = false.
+const cacheVersion = "v401"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

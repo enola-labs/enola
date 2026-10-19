@@ -15,11 +15,15 @@ import (
 type crateInfo struct {
 	name string // underscore-normalized identifier, as it appears in `use` paths
 	dir  string // slash-normalized dir containing the manifest ("." for repo root)
+	// publishable: the manifest states what crates.io requires to publish (a
+	// description and a license) and does not opt out with `publish = false`.
+	publishable bool
 }
 
 var (
 	tomlSectionRe = regexp.MustCompile(`^\s*\[([^\]]+)\]`)
 	tomlNameRe    = regexp.MustCompile(`^\s*name\s*=\s*"([^"]*)"`)
+	tomlPublishRe = regexp.MustCompile(`^\s*(publish|description|license|license-file)(\.workspace)?\s*=\s*(.*)$`)
 )
 
 // buildCrateIndex reads every Cargo.toml in the repo and returns each crate's
@@ -38,7 +42,11 @@ func buildCrateIndex(repoPath string, cargoFiles []string) []crateInfo {
 			continue
 		}
 		dir := factpath.Dir(rel)
-		crates = append(crates, crateInfo{name: strings.ReplaceAll(name, "-", "_"), dir: dir})
+		crates = append(crates, crateInfo{
+			name:        strings.ReplaceAll(name, "-", "_"),
+			dir:         dir,
+			publishable: parseCargoPublishable(string(data)),
+		})
 	}
 	return crates
 }
@@ -61,6 +69,40 @@ func parseCargoPackageName(data string) string {
 		}
 	}
 	return ""
+}
+
+// parseCargoPublishable reports whether a Cargo.toml's [package] section can go to
+// crates.io: it has a description and a license (or license-file), inherited from
+// the workspace or not, and no `publish = false` or `publish = []`. Cargo makes every
+// crate publishable by default, so the default says nothing: an application's own
+// workspace crates rarely carry the metadata a registry demands.
+func parseCargoPublishable(data string) bool {
+	inPackage := false
+	var description, license bool
+	for _, line := range strings.Split(data, "\n") {
+		if m := tomlSectionRe.FindStringSubmatch(line); m != nil {
+			inPackage = strings.TrimSpace(m[1]) == "package"
+			continue
+		}
+		if !inPackage {
+			continue
+		}
+		m := tomlPublishRe.FindStringSubmatch(line)
+		if m == nil {
+			continue
+		}
+		switch m[1] {
+		case "publish":
+			if v := strings.TrimSpace(m[3]); m[2] == "" && (strings.HasPrefix(v, "false") || strings.HasPrefix(v, "[]")) {
+				return false
+			}
+		case "description":
+			description = true
+		case "license", "license-file":
+			license = true
+		}
+	}
+	return description && license
 }
 
 // nearestCrateDir returns the manifest directory of the crate that owns dir:

@@ -7,6 +7,7 @@ import (
 	"context"
 	"log"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -91,8 +92,10 @@ func (e *RustExtractor) Extract(ctx context.Context, repoPath string, files []st
 	crates := buildCrateIndex(repoPath, cargoFiles)
 
 	moduleDirs := make(map[string]bool, len(rustFiles))
+	moduleFiles := make(map[string]bool, len(rustFiles))
 	for _, relFile := range rustFiles {
 		moduleDirs[factpath.Dir(relFile)] = true
+		moduleFiles[factpath.Slash(relFile)] = true
 	}
 
 	perFileFacts := parallel.MapFiles(ctx, rustFiles, func(relFile string) fileResult {
@@ -126,6 +129,15 @@ func (e *RustExtractor) Extract(ctx context.Context, repoPath string, files []st
 	allFacts = composeAxumPrefixes(allFacts, allBuilders, crates)
 	bindRustRouteHandlers(allFacts, crates)
 
+	// A crate is published when crates.io would take it and it has a library target
+	// for other crates to depend on; a binary-only crate is installed, not imported.
+	libCrates := map[string]bool{}
+	for _, c := range crates {
+		if c.publishable && moduleFiles[path.Join(c.dir, "src", "lib.rs")] {
+			libCrates[c.dir] = true
+		}
+	}
+
 	docs := moduleDocs(moduleDirs, fileDocs)
 	for dir := range moduleDirs {
 		props := map[string]any{"language": "rust"}
@@ -135,6 +147,9 @@ func (e *RustExtractor) Extract(ctx context.Context, repoPath string, files []st
 		if crateDir := nearestCrateDir(dir, crates); crateDir != "" {
 			if name, ok := crateNameByDir(crateDir, crates); ok {
 				props["crate"] = name
+			}
+			if libCrates[crateDir] {
+				props[facts.PropPublished] = true
 			}
 		}
 		allFacts = append(allFacts, facts.Fact{
