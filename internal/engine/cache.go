@@ -3007,7 +3007,10 @@ import (
 // v404: a Rust cfg gate counts as test-only when its predicate requires a test build:
 // `not(all(test, loom))` and `any(feature = "x", test)` are production, inline or out of line.
 // v405: a Rust cfg(fuzzing) gate, set by cargo-fuzz, counts as a test build too.
-const cacheVersion = "v405"
+// v406: the C# grammar is tree-sitter-c-sharp v0.23.5 (vendored, regenerated at ABI 14)
+// instead of v0.23.1, so C# 12 body-less types and collection expressions parse; a
+// named attribute argument is never a route template.
+const cacheVersion = "v406"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

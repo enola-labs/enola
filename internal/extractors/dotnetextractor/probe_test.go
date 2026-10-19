@@ -3,8 +3,8 @@ package dotnetextractor
 import (
 	"testing"
 
+	csharp "github.com/enola-labs/enola/internal/extractors/dotnetextractor/grammar"
 	sitter "github.com/tree-sitter/go-tree-sitter"
-	csharp "github.com/tree-sitter/tree-sitter-c-sharp/bindings/go"
 )
 
 const csMainSrc = `#if DEBUG
@@ -155,12 +155,12 @@ func TestWalkerNodeKindsStillExist(t *testing.T) {
 // fact graph becomes indistinguishable from a repository containing none. That is exactly
 // how the C# grammar failed once (see dotnetextractor/csharp.go).
 //
-// tree-sitter-c-sharp is pinned at v0.23.1, the last ABI-14 release; v0.23.2 and later are
-// ABI 15. The bound is recorded in .github/dependabot.yml. This is the grammar the whole
-// policy exists because of: it is the one that actually shipped broken once.
+// The grammar is vendored in ./grammar: upstream v0.23.5 regenerated at ABI 14, because
+// every release after v0.23.1 ships at ABI 15. This is the grammar the whole policy
+// exists because of: it is the one that actually shipped broken once.
 //
-// If this fails after a dependency bump, the fix is to pin the grammar back to its last
-// ABI-14 release, not to loosen the assertion.
+// If this fails after a regeneration, the fix is to regenerate with `--abi 14` (see
+// grammar/ATTRIBUTION.md), not to loosen the assertion.
 func TestGrammarSmoke(t *testing.T) {
 	parser := sitter.NewParser()
 	defer parser.Close()

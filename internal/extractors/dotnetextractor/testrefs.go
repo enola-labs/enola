@@ -8,10 +8,10 @@ import (
 	"sort"
 	"strings"
 
+	csharp "github.com/enola-labs/enola/internal/extractors/dotnetextractor/grammar"
 	"github.com/enola-labs/enola/internal/facts"
 	"github.com/enola-labs/enola/internal/parallel"
 	sitter "github.com/tree-sitter/go-tree-sitter"
-	csharp "github.com/tree-sitter/tree-sitter-c-sharp/bindings/go"
 )
 
 // ExtractTestRefs implements plugin.TestRefExtractor. It parses test files for the

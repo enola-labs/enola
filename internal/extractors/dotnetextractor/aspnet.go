@@ -144,9 +144,9 @@ func parseAttributes(node *sitter.Node, src []byte) []csAttribute {
 // Only the first argument can be the template, and that single rule is also what
 // keeps a named argument out of the path. jellyfin writes
 // [HttpGet("{itemId}/stream", Name = "GetAudioStream")] throughout and
-// [HttpHead(Name = "HeadAudioStream")] alongside it; a named argument is an
-// `assignment_expression`, not a string literal, so the first-argument rule
-// rejects it and the route keeps the controller's own path. Scanning further
+// [HttpHead(Name = "HeadAudioStream")] alongside it; a named argument carries a
+// `name` field, so the first-argument rule rejects it and the route keeps the
+// controller's own path. Scanning further
 // arguments for "a string literal" would put a route's DISPLAY NAME into its URL —
 // which is why this stops at the first argument rather than searching.
 //
@@ -162,6 +162,11 @@ func firstStringArgument(attr *sitter.Node, src []byte) (string, bool) {
 		arg := list.NamedChild(i)
 		if kindOf(arg) != "attribute_argument" {
 			continue
+		}
+		// A named argument (`Name = "..."`) carries its label in the `name` field
+		// and is never the template, whatever its value.
+		if arg.ChildByFieldName("name") != nil {
+			return "", false
 		}
 		for j := uint(0); j < uint(arg.NamedChildCount()); j++ {
 			if s, ok := stringLiteralText(arg.NamedChild(j), src); ok {

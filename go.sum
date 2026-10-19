@@ -28,8 +28,6 @@ github.com/tree-sitter/go-tree-sitter v0.24.0 h1:kRZb6aBNfcI/u0Qh8XEt3zjNVnmxTis
 github.com/tree-sitter/go-tree-sitter v0.24.0/go.mod h1:x681iFVoLMEwOSIHA1chaLkXlroXEN7WY+VHGFaoDbk=
 github.com/tree-sitter/tree-sitter-c v0.23.6 h1:aHcghKEBgyUDUcCKFT5fELp26UBU7RBltj5MkRYxyy8=
 github.com/tree-sitter/tree-sitter-c v0.23.6/go.mod h1:MkI5dOiIpeN94LNjeCp8ljXN/953JCwAby4bClMr6bw=
-github.com/tree-sitter/tree-sitter-c-sharp v0.23.1 h1:ddG6osP34sMieVNN6lu5ZG/3N8Wn+67+43BmipqidyM=
-github.com/tree-sitter/tree-sitter-c-sharp v0.23.1/go.mod h1:H7/aFm5vR1A8Yn5VIOfLWPdlKuJsMgZ5eDmaJdv8bY0=
 github.com/tree-sitter/tree-sitter-cpp v0.23.4 h1:LaWZsiqQKvR65yHgKmnaqA+uz6tlDJTJFCyFIeZU/8w=
 github.com/tree-sitter/tree-sitter-cpp v0.23.4/go.mod h1:doqNW64BriC7WBCQ1klf0KmJpdEvfxyXtoEybnBo6v8=
 github.com/tree-sitter/tree-sitter-embedded-template v0.21.1-0.20240819044651-ffbf64942c33 h1:TwqSV3qLp3tKSqirGLRHnjFk9Tc2oy57LIl+FQ4GjI4=

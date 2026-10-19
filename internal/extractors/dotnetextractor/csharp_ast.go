@@ -5,10 +5,10 @@ import (
 	"strings"
 	"sync"
 
+	csharp "github.com/enola-labs/enola/internal/extractors/dotnetextractor/grammar"
 	"github.com/enola-labs/enola/internal/factpath"
 	"github.com/enola-labs/enola/internal/facts"
 	sitter "github.com/tree-sitter/go-tree-sitter"
-	csharp "github.com/tree-sitter/tree-sitter-c-sharp/bindings/go"
 )
 
 // grammarErrOnce keeps an unusable-grammar report to a single line rather than
