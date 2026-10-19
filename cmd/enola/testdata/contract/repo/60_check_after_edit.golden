@@ -13,7 +13,10 @@ New findings (reported — no failure policy set):
 
 No --fail-on policy is set, so nothing in this run could fail the build. These are
 reported for you to judge. Enforce the ones you want enforced: --fail-on=layers
-(`enola check --help` lists all 22).
+(`enola check --help` lists all 23).
+
+Incidental shifts (1) — findings that moved with no structural cause in this
+change (a drifting statistical threshold or a re-ranked list). Never graded.
 
 What changed
   modules      +1

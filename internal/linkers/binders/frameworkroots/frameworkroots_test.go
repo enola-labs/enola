@@ -233,3 +233,70 @@ func TestBind_HooksAndJobsAreInheritedThroughTheSuperclassChain(t *testing.T) {
 		}
 	}
 }
+
+// A mixin whose included hook hands the includer to another constant enrols it
+// in a registry, and the registry calls what the mixin declares. A base class's
+// inherited hook does the same for subclasses. Each row names a member and the
+// root it should end up with ("" for none).
+func TestBind_RegisteringHooksRootTheirContract(t *testing.T) {
+	store := facts.NewStore()
+	mixin := func(includer, module string) facts.Fact {
+		return facts.Fact{Kind: facts.KindDependency, Name: includer + " -> " + module, File: "app/x.rb", Repo: "app",
+			Props: map[string]any{"language": "ruby", "mixin_kind": "include"}, Relations: []facts.Relation{{Kind: facts.RelImplements, Target: module}}}
+	}
+	store.Add(
+		// The registering mixin: its hook calls a method on another constant.
+		symbol("Audit::Trackable", facts.SymbolInterface, "app/audit/trackable.rb", nil),
+		symbol("Audit::Trackable.included", facts.SymbolFunc, "app/audit/trackable.rb", nil, calls("Audit::Registry.register", "Audit::Registry")...),
+		symbol("Audit::Trackable.run", facts.SymbolFunc, "app/audit/trackable.rb", nil),
+		symbol("Audit::Registry", facts.SymbolClass, "app/audit/registry.rb", nil),
+		symbol("Audit::Registry.register", facts.SymbolFunc, "app/audit/registry.rb", nil),
+
+		// A singleton implementation, recorded as a function.
+		symbol("Orders::Cleanup", facts.SymbolClass, "app/orders/cleanup.rb", nil),
+		symbol("Orders::Cleanup.run", facts.SymbolFunc, "app/orders/cleanup.rb", nil),
+		symbol("Orders::Cleanup.helper", facts.SymbolFunc, "app/orders/cleanup.rb", nil),
+		mixin("Orders::Cleanup", "Audit::Trackable"),
+
+		// An instance implementation of the same contract.
+		symbol("Billing::Cleanup", facts.SymbolClass, "app/billing/cleanup.rb", nil),
+		symbol("Billing::Cleanup#run", facts.SymbolMethod, "app/billing/cleanup.rb", nil),
+		mixin("Billing::Cleanup", "Audit::Trackable"),
+
+		// A mixin whose hook only configures the class registers nothing.
+		symbol("Audit::Helpers", facts.SymbolInterface, "app/audit/helpers.rb", nil),
+		symbol("Audit::Helpers.included", facts.SymbolFunc, "app/audit/helpers.rb", nil, calls("base.extend")...),
+		symbol("Audit::Helpers.run", facts.SymbolFunc, "app/audit/helpers.rb", nil),
+		symbol("Shipping::Cleanup", facts.SymbolClass, "app/shipping/cleanup.rb", nil),
+		symbol("Shipping::Cleanup.run", facts.SymbolFunc, "app/shipping/cleanup.rb", nil),
+		mixin("Shipping::Cleanup", "Audit::Helpers"),
+
+		// A registering base class enrols its subclasses, not itself.
+		symbol("Plugins::Base", facts.SymbolClass, "app/plugins/base.rb", nil),
+		symbol("Plugins::Base.inherited", facts.SymbolFunc, "app/plugins/base.rb", nil, calls("Plugins::Catalog.add")...),
+		symbol("Plugins::Base#call", facts.SymbolMethod, "app/plugins/base.rb", nil),
+		symbol("Plugins::Export", facts.SymbolClass, "app/plugins/export.rb", map[string]any{"superclass": "Plugins::Base"}),
+		symbol("Plugins::Export#call", facts.SymbolMethod, "app/plugins/export.rb", nil),
+		symbol("Plugins::Export#format", facts.SymbolMethod, "app/plugins/export.rb", nil),
+	)
+	bind(t, store)
+
+	cases := []struct {
+		name, want string
+	}{
+		{"Orders::Cleanup.run", MechanismRegistry},
+		{"Orders::Cleanup.helper", ""},
+		{"Billing::Cleanup#run", MechanismRegistry},
+		{"Audit::Trackable.run", ""}, // the contract's declaration, not an implementation
+		{"Audit::Trackable.included", ""},
+		{"Shipping::Cleanup.run", ""},
+		{"Plugins::Export#call", MechanismRegistry},
+		{"Plugins::Export#format", ""},
+		{"Plugins::Base#call", ""},
+	}
+	for _, c := range cases {
+		if got := propOf(store, facts.KindSymbol, c.name, RootProp); got != c.want {
+			t.Errorf("%s: root = %q, want %q", c.name, got, c.want)
+		}
+	}
+}

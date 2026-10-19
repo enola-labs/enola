@@ -58,6 +58,7 @@ vocabulary you type, not internals:
 | `dead-methods` | a Ruby method whose name no call edge in the graph uses, or only spec files use |
 | `vendored-candidates` | a directory carrying its own licence under a conventional dependency parent — reported so you can decide, never excluded |
 | `import-closure` | what `import yourpackage` actually executes, and the package `__init__.py` files responsible for most of it |
+| `packwerk` | packwerk dependencies a package declares but its code never references, and packages its code references without declaring them |
 | `package-metrics` | how stable and how abstract a package is, and how far that puts it from Martin's main sequence |
 | `dead-code` | a symbol nothing in the snapshot references, in any language, reported with a confidence tier rather than a verdict |
 | `performance` | a call inside a loop or a recursion, with its estimated Big-O, or loops that nest, within a function or across calls, with their depth (a count, not a complexity) |

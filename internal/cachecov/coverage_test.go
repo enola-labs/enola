@@ -33,6 +33,16 @@ import (
 // test functions that assert the behavior that version introduced. v1 is the
 // implicit baseline (no changelog line), so coverage starts at v2.
 var versionCoverage = map[int][]string{
+	399: {
+		"TestConstIndex_QualifiedRefNeedsItsWholePath",
+	},
+	398: {
+		"TestExtractKafkaConstructorFacts",
+	},
+	397: {
+		"TestPackwerkUsage_DeclaredVsObserved",
+		"TestPackwerkUsage_NoRootPackage",
+	},
 	396: {
 		"TestLocalWrapper_CallsBecomeClientRoutesWithThePrefix",
 		"TestLocalWrapper_NotAWrapper",

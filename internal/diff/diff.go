@@ -1125,9 +1125,14 @@ func snapInsights(s *facts.Snapshot) []facts.Insight {
 }
 
 // edgeSet returns the deduplicated set of edges across all facts, keyed by edgeKey.
+// A document's links are prose, not coupling, so they are no edge here either (see
+// facts.IsDocument); the document itself still diffs as a fact.
 func edgeSet(ff []facts.Fact) map[string]Edge {
 	set := make(map[string]Edge)
 	for _, f := range ff {
+		if facts.IsDocument(f) {
+			continue
+		}
 		for _, r := range f.Relations {
 			e := Edge{Source: f.Name, Kind: r.Kind, Target: r.Target, Repo: f.Repo}
 			set[edgeKey(e)] = e

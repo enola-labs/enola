@@ -8,6 +8,12 @@ _Baseline <TIME> → current <TIME>._
 
 _Confidence < 1.0 is a candidate to verify, not a verdict. Use output_mode='compact' for descriptions, evidence, and caveats._
 
+## Incidental finding shifts (1)
+
+_Heuristic findings appeared or cleared with no structural cause in this change — a moving statistical threshold or a re-ranked top-N list. Likely NOT caused by this change; verify only if relevant._
+
+- cleared · [dead-code] Test-only code candidate: function pkg/a.Gamma
+
 ## Structural changes
 
 - dependency: +1 / -0

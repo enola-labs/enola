@@ -40,7 +40,7 @@ find*. It is **what happens to a finding after you have found it** — and that 
 entirely on the thing [SNAPSHOTS.md](SNAPSHOTS.md) describes: whether your graph is a
 value you can compare against another one, or a picture of right now.
 
-## Twenty-two explainers: three proofs and sixteen estimates
+## Twenty-three explainers: three proofs and sixteen estimates
 
 An explainer reads the fact graph and emits **findings** — a claim, a confidence, and
 the entities the claim is about. There are nineteen, and they fall into six kinds:
@@ -134,6 +134,15 @@ the entities the claim is about. There are nineteen, and they fall into six kind
   method's bare name up in every call edge the graph holds and reports the names
   nothing uses, and the names only specs use. A name-based index under-reports, so
   what it lists is a candidate to delete, never a verdict.
+
+  `packwerk` asks a packwerk repository the two-sided question `intent` asks of
+  declared dependencies: which `package.yml` dependencies the package's code never
+  references, and which packages its code references without declaring them. An
+  undeclared one is a measured reference, named with its file and line, at 0.9 rather
+  than 1.0 because a Ruby constant reaches its package by name; one already listed in
+  `package_todo.yml` is counted rather than reported. An unused one is 0.7: a constant
+  reached through `constantize`, a YAML class name or only a spec is no edge, so the
+  missing reference is evidence, not proof.
 
   `vendored-candidates` is the one that reports so it will not have to act. It names
   directories that look like in-tree copies of another project — a licence file of
@@ -246,7 +255,7 @@ Comparing findings across two snapshots gives three outcomes, not two:
 
 The third bucket prevents statistical movement from being attributed to the change.
 
-Most of the twenty-two explainers are relative to your repository. `mean + 2σ` moves when the
+Most of the twenty-three explainers are relative to your repository. `mean + 2σ` moves when the
 population moves. A ranked top-N list has fixed membership size, so when a worse
 offender is deleted the next module rises into the window — and a finding "appears" for
 a module nobody edited. Both are real effects of statistics, not of your work.

@@ -73,9 +73,10 @@ func (e *Explainer) Explain(ctx context.Context, store *facts.Store) ([]facts.In
 		})
 	}
 	return []facts.Insight{{
-		Title: fmt.Sprintf("%d entry points: %d routed actions, %d jobs, %d mailer actions, %d hooks, %d tasks, %d callbacks",
+		Title: fmt.Sprintf("%d entry points: %d routed actions, %d jobs, %d mailer actions, %d hooks, %d tasks, %d callbacks, %d registry contracts",
 			total, perMechanism[frameworkroots.MechanismRoute], perMechanism[frameworkroots.MechanismJob], perMechanism[frameworkroots.MechanismMailer],
-			perMechanism[frameworkroots.MechanismHook], perMechanism[frameworkroots.MechanismTask], perMechanism[frameworkroots.MechanismCallback]),
+			perMechanism[frameworkroots.MechanismHook], perMechanism[frameworkroots.MechanismTask], perMechanism[frameworkroots.MechanismCallback],
+			perMechanism[frameworkroots.MechanismRegistry]),
 		Description: "These symbols are invoked by a framework rather than by a call, so " +
 			"they are the roots any reachability question has to start from; each carries " +
 			"the mechanism as its root prop, and every symbol a walk from them reaches carries " +

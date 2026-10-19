@@ -684,7 +684,7 @@ Pin when you start a piece of work and the answer stays "what has this branch do
 
 **A stale baseline warns; it never blocks.** Past three days it tells you exactly how stale and what that means (the delta now also contains whatever the repo itself changed in between) - then grades anyway, because a long-lived baseline is a legitimate way to measure a multi-day refactor and only you know which you meant.
 
-**Nothing fails by default.** A bare `enola check` runs all twenty-two explainers, reports every finding the change introduced, and exits `0` - saying in its own output that no policy was in effect, because a gate that enforces nothing must never be mistaken for a gate that found nothing. What breaks the build is what you name:
+**Nothing fails by default.** A bare `enola check` runs all twenty-three explainers, reports every finding the change introduced, and exits `0` - saying in its own output that no policy was in effect, because a gate that enforces nothing must never be mistaken for a gate that found nothing. What breaks the build is what you name:
 
 ```bash
 enola check --fail-on=layers                               # fail on a declared layer order

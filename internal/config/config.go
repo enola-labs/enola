@@ -225,7 +225,7 @@ var KnownExplainers = []string{
 	"god-class", "hotspots", "dependency-depth", "exported-surface", "complexity-outliers",
 	"intent", "constraints", "domain", "query-loops", "entry-points", "dead-methods",
 	"vendored-candidates", "import-closure", "package-metrics", "dead-code",
-	"performance",
+	"performance", "packwerk",
 }
 
 // Default returns a Config with sensible defaults.

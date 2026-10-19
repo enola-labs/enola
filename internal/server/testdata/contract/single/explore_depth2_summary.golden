@@ -41,11 +41,13 @@
 - pkg (1)
 - pkg/b -> example.com/gosample/pkg (1)
 
-## Architectural warnings (3)
+## Architectural warnings (5)
 
 - **Cyclic dependency detected (2 modules)** — The following modules form a dependency cycle: pkg/a -> pkg/b -> pkg/a. This can cause initialization issues, make refactoring harder, and indicates tight coupling.
 - **Dead code candidate: function pkg/a.GetPath** — function "pkg/a.GetPath" is unreferenced — nothing in the snapshot graph references it (high confidence). References are matched by short name and biased conservative, so verify against dynamic/reflective dispatch and consumers outside the snapshot before removing.
 - **Dead code candidate: function pkg/a.Seed** — function "pkg/a.Seed" is unreferenced — nothing in the snapshot graph references it (high confidence). References are matched by short name and biased conservative, so verify against dynamic/reflective dispatch and consumers outside the snapshot before removing.
+- **Test-only code candidate: function pkg/a.helper** — function "pkg/a.helper" is referenced only by test code (high confidence): nothing in the application reaches it, so it is dead in production and kept alive by its tests. References are matched by short name, so verify against dynamic dispatch and consumers outside the snapshot first.
+- **Test-only code candidate: function pkg/a.Gamma** — function "pkg/a.Gamma" is referenced only by test code (high confidence): nothing in the application reaches it, so it is dead in production and kept alive by its tests. References are matched by short name, so verify against dynamic dispatch and consumers outside the snapshot first.
 
 ### Size metrics
 

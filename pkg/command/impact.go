@@ -165,22 +165,27 @@ func (r *Runner) runImpact(ctx context.Context, args []string, stdout, stderr io
 
 // writeImpactHead reports false when nothing was traversed.
 func writeImpactHead(w *strings.Builder, report impact.Report) bool {
-	if res := report.Resolution; res != nil {
-		if res.Matched == "" {
-			fmt.Fprintf(w, "%q matches several nodes; none was picked. Candidates:\n", res.Query)
-			for _, c := range res.Candidates {
-				fmt.Fprintf(w, "  %s (%s)  %s\n", c.Name, c.Kind, c.File)
-			}
-			return false
+	res := report.Resolution
+	if res != nil && res.Matched == "" {
+		fmt.Fprintf(w, "%q matches several nodes; none was picked. Candidates:\n", res.Query)
+		for _, c := range res.Candidates {
+			fmt.Fprintf(w, "  %s (%s)  %s\n", c.Name, c.Kind, c.File)
 		}
-		if n := len(report.Seeds); n > 0 {
-			fmt.Fprintf(w, "%s is a file, not a node; this is the impact of the %d symbols it declares\n", res.Matched, n)
-		} else {
-			fmt.Fprintf(w, "resolved %q to %s\n", res.Query, res.Matched)
-		}
-		if len(res.Alternatives) > 0 {
-			fmt.Fprintf(w, "  also matched: %s\n", strings.Join(res.Alternatives, ", "))
-		}
+		return false
+	}
+	n := len(report.Seeds)
+	switch {
+	case n > 0 && report.SeedKind == impact.SeedsNamespace:
+		fmt.Fprintf(w, "%s is a namespace; this is the impact of it and the %d symbols nested under it\n", report.Target, n)
+	case n > 0 && report.SeedKind == impact.SeedsDirectory:
+		fmt.Fprintf(w, "%s is a directory; this is the impact of the %d symbols declared beneath it\n", report.Target, n)
+	case n > 0:
+		fmt.Fprintf(w, "%s is a file, not a node; this is the impact of the %d symbols it declares\n", res.Matched, n)
+	case res != nil:
+		fmt.Fprintf(w, "resolved %q to %s\n", res.Query, res.Matched)
+	}
+	if res != nil && len(res.Alternatives) > 0 {
+		fmt.Fprintf(w, "  also matched: %s\n", strings.Join(res.Alternatives, ", "))
 	}
 	if report.Summary == "" {
 		fmt.Fprintln(w, "No dependents found.")

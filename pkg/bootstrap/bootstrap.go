@@ -30,6 +30,7 @@ import (
 	"github.com/enola-labs/enola/internal/explainers/intentcheck"
 	"github.com/enola-labs/enola/internal/explainers/layers"
 	"github.com/enola-labs/enola/internal/explainers/messagingcoverage"
+	packwerkexp "github.com/enola-labs/enola/internal/explainers/packwerk"
 	"github.com/enola-labs/enola/internal/explainers/queryloops"
 	"github.com/enola-labs/enola/internal/explainers/surface"
 	"github.com/enola-labs/enola/internal/explainers/unusedroutes"
@@ -575,6 +576,7 @@ func registerOSSPlugins(eng *engine.Engine, cfg *config.Config) {
 	eng.RegisterExplainer(metrics.NewExplainer())
 	eng.RegisterExplainer(orphans.NewExplainer())
 	eng.RegisterExplainer(perf.NewExplainer())
+	eng.RegisterExplainer(packwerkexp.New())
 
 	// Register all OSS renderers
 	eng.RegisterRenderer(llmcontext.New(cfg.Output.MaxContextTokens))

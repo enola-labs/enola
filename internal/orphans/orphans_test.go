@@ -36,9 +36,17 @@ func TestCollectNamedReferencesProtectSymbols(t *testing.T) {
 {"kind":"test_ref","name":"tests/test_code.py","relations":[{"kind":"names","target":"pkg.owner"}]}
 {"kind":"file_ref","name":"config.py","relations":[{"kind":"names","target":"pkg.callback"}]}
 `)
-	got := classify(syms, refs, options{Mode: "both", Visibility: "all"})
+	got := classify(syms, refs, options{Mode: "both", Visibility: "all", deadOnly: true})
 	if len(got) != 1 || got[0].Name != "pkg.dead" {
 		t.Fatalf("named uses must protect symbols while genuine dead code remains: %+v", got)
+	}
+	// A name only a test uses is not dead, but it is test-only.
+	all := orphansByName(classify(syms, refs, options{Mode: "both", Visibility: "all"}))
+	if o, ok := all["pkg.owner"]; !ok || o.Class != classTestOnly {
+		t.Fatalf("pkg.owner is named only by a test and must be test-only: %+v", all)
+	}
+	if _, ok := all["pkg.callback"]; ok {
+		t.Fatalf("pkg.callback is named by production code and must not be reported: %+v", all)
 	}
 }
 
@@ -1106,9 +1114,12 @@ func TestTestRefFold(t *testing.T) {
 {"kind":"test_ref","name":"spec/services/badge_granter_spec.rb","file":"spec/services/badge_granter_spec.rb","relations":[{"kind":"calls","target":"Badge.trust_level_badge_ids"}]}
 `
 	syms, refs := collectFromJSONL(t, jsonl)
-	got := orphansByName(classify(syms, refs, options{Mode: "both", Visibility: "all"}))
+	got := orphansByName(classify(syms, refs, options{Mode: "both", Visibility: "all", deadOnly: true}))
 	if _, isOrphan := got["Badge.trust_level_badge_ids"]; isOrphan {
-		t.Error("Badge.trust_level_badge_ids is referenced by a spec and must not be an orphan")
+		t.Error("Badge.trust_level_badge_ids is referenced by a spec and must not be dead code")
+	}
+	if o, ok := orphansByName(classify(syms, refs, options{Mode: modeTestOnly, Visibility: "all"}))["Badge.trust_level_badge_ids"]; !ok || o.Class != classTestOnly {
+		t.Error("Badge.trust_level_badge_ids is referenced only by a spec and must be test-only")
 	}
 	// A method with no reference at all is still reported — the fold is additive,
 	// not a blanket suppression.

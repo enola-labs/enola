@@ -32,18 +32,29 @@ func resolveImports(allFacts []facts.Fact, isRails bool) []facts.Fact {
 	// only association-ONLY edges stay tagged association and get excluded from
 	// cycle detection.
 	edges := map[[2]string]string{}
+	// samples keeps, per edge, the earliest reference behind it, so a finding about
+	// the edge can name the file and symbol a reader opens to see it. cur is the
+	// reference being resolved when add is called.
+	samples := map[[2]string]packwerkSample{}
+	var cur packwerkSample
 	add := func(src, dst, kind string) {
 		if src == "" || dst == "" || src == dst {
 			return // skip empties and self-edges
 		}
 		key := [2]string{src, dst}
-		if cur, ok := edges[key]; !ok || couplingRank(kind) > couplingRank(cur) {
+		if prev, ok := edges[key]; !ok || couplingRank(kind) > couplingRank(prev) {
 			edges[key] = kind
+		}
+		if kind != facts.CouplingPackwerk {
+			if prev, ok := samples[key]; !ok || cur.before(prev) {
+				samples[key] = cur
+			}
 		}
 	}
 
 	for i := range allFacts {
 		f := &allFacts[i]
+		cur = sampleOf(f)
 		switch f.Kind {
 		case facts.KindSymbol:
 			src := declaresTarget(f)
@@ -96,6 +107,7 @@ func resolveImports(allFacts []facts.Fact, isRails bool) []facts.Fact {
 		}
 	}
 
+	annotatePackwerkUsage(allFacts, edges, samples)
 	return emitEdges(edges, isRails)
 }
 
@@ -198,12 +210,13 @@ func couplingRank(kind string) int {
 type constIndex struct {
 	qualified map[string]string   // "Orders::Order" -> "app/models/orders"
 	bare      map[string][]string // "Order" -> ["app/models/orders", ...] (sorted, deduped)
+	names     map[string][]string // "Order" -> ["Orders::Order", ...]: the qualified names behind bare
 }
 
 // buildConstIndex indexes every class/module/constant symbol by its qualified and
 // bare names. Source dir is the declares-relation target (fallback fileDir).
 func buildConstIndex(allFacts []facts.Fact) *constIndex {
-	ix := &constIndex{qualified: map[string]string{}, bare: map[string][]string{}}
+	ix := &constIndex{qualified: map[string]string{}, bare: map[string][]string{}, names: map[string][]string{}}
 	for i := range allFacts {
 		f := &allFacts[i]
 		if f.Kind != facts.KindSymbol {
@@ -228,6 +241,7 @@ func buildConstIndex(allFacts []facts.Fact) *constIndex {
 		}
 		bare := lastSegment(qn)
 		ix.bare[bare] = append(ix.bare[bare], dir)
+		ix.names[bare] = append(ix.names[bare], qn)
 	}
 	for k, dirs := range ix.bare {
 		ix.bare[k] = sortDedupDirs(dirs)
@@ -247,6 +261,9 @@ func (ix *constIndex) resolve(ref, src string) string {
 		return dir
 	}
 	dirs := ix.bare[lastSegment(ref)]
+	if strings.Contains(ref, "::") {
+		dirs = ix.nestedDeclarers(ref)
+	}
 	switch len(dirs) {
 	case 0:
 		return ""
@@ -273,6 +290,22 @@ func (ix *constIndex) resolve(ref, src string) string {
 		return ""
 	}
 	return best
+}
+
+// nestedDeclarers returns the dirs declaring a qualified reference from inside an
+// enclosing namespace: `Orders::Order` written within `Shop` names
+// `Shop::Orders::Order`. Ruby resolves the leading segment lexically and every
+// later one inside it, so only a declaration whose name ends in the whole
+// reference can be meant; one sharing just the last segment (`Billing::Order`)
+// is another constant, and a reference to a gem's constant resolves to nothing.
+func (ix *constIndex) nestedDeclarers(ref string) []string {
+	var dirs []string
+	for _, qn := range ix.names[lastSegment(ref)] {
+		if strings.HasSuffix(qn, "::"+ref) {
+			dirs = append(dirs, ix.qualified[qn])
+		}
+	}
+	return sortDedupDirs(dirs)
 }
 
 // commonPrefixSegments counts the equal leading '/'-separated path segments of a

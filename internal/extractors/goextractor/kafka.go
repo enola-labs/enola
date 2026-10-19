@@ -309,3 +309,196 @@ func envGetTopicDefault(call *ast.CallExpr) (string, bool) {
 	}
 	return def, true
 }
+
+// kafkaTopicCtor is a function of the package that turns one of its parameters into
+// the Topic of a Kafka subscription or producer config it builds. A call to it that
+// passes a topic string at that parameter references the topic as plainly as a
+// Subscribe call does; the literal just sits one call further out.
+type kafkaTopicCtor struct {
+	param     int
+	role      string
+	operation string
+}
+
+// kafkaGroupFields mark a composite as a consumer: only a consumer joins a group.
+var kafkaGroupFields = map[string]bool{"ConsumerGroup": true, "GroupID": true, "GroupId": true, "Group": true}
+
+// kafkaProducerTypeWords mark a composite as producer config by its type name.
+var kafkaProducerTypeWords = []string{"Producer", "Publisher", "Writer"}
+
+// extractKafkaConstructorFacts emits a topic fact for every call, anywhere in the
+// package, to a package function that sets a Kafka Topic field from a parameter.
+// It runs over the whole package because the constructor and its callers usually
+// live in different files: a handler file declares NewXSubscription(..., topic, ...)
+// and a wiring file lists the subscriptions with their topic literals.
+//
+// The shape is the gate, not an import: the composite must set Topic from the
+// parameter and either set a consumer-group field (consumer) or be a type named as
+// a producer, publisher or writer (producer). A Topic field alone stays unread,
+// since an in-process bus can have one too.
+func extractKafkaConstructorFacts(fset *token.FileSet, pp *parsedPkg, pkgDir string) []facts.Fact {
+	ctors := collectKafkaTopicCtors(pp.parsedFiles)
+	if len(ctors) == 0 {
+		return nil
+	}
+	pkgBindings := map[string]string{}
+	for _, f := range pp.parsedFiles {
+		for name, value := range kafkaPackageStringBindings(f) {
+			pkgBindings[name] = value
+		}
+	}
+	var out []facts.Fact
+	for _, relFile := range pp.relFiles {
+		f, ok := pp.fileMap[relFile]
+		if !ok {
+			continue
+		}
+		seen := map[string]bool{}
+		for _, decl := range f.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok || fn.Body == nil {
+				continue
+			}
+			bindings := make(map[string]string, len(pkgBindings))
+			for name, value := range pkgBindings {
+				bindings[name] = value
+			}
+			collectKafkaStringBindings(fn.Body, bindings)
+			symbol := pkgDir + "." + fn.Name.Name
+			if fn.Recv != nil && len(fn.Recv.List) > 0 {
+				symbol = pkgDir + "." + typeExprToString(fn.Recv.List[0].Type) + "." + fn.Name.Name
+			}
+			ast.Inspect(fn.Body, func(n ast.Node) bool {
+				call, ok := n.(*ast.CallExpr)
+				if !ok {
+					return true
+				}
+				id, ok := call.Fun.(*ast.Ident)
+				if !ok {
+					return true
+				}
+				ctor, ok := ctors[id.Name]
+				if !ok || ctor.param >= len(call.Args) {
+					return true
+				}
+				topic := kafkaTopicExpr(call.Args[ctor.param], bindings)
+				if topic == "" || !plausibleKafkaTopic(topic) {
+					return true
+				}
+				line := fset.Position(call.Pos()).Line
+				key := topic + "\x00" + ctor.operation + "\x00" + strconv.Itoa(line)
+				if seen[key] {
+					return true
+				}
+				seen[key] = true
+				out = append(out, facts.Fact{
+					Kind: facts.KindStorage, Name: topic, File: relFile, Line: line,
+					Props: map[string]any{
+						"storage_kind": facts.StorageKindTopic, facts.PropMessaging: "kafka",
+						facts.PropMessagingRole: ctor.role, facts.PropMessagingOperation: ctor.operation,
+						facts.PropSource: facts.MessagingSourceGoKafkaCall,
+						"language":       "go", "code_symbol": symbol, "call": id.Name,
+					},
+					Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: pkgDir}},
+				})
+				return true
+			})
+		}
+	}
+	return out
+}
+
+// collectKafkaTopicCtors finds the package's plain functions whose parameter
+// becomes the Topic of a consumer or producer composite. A function that does so
+// with more than one parameter or role is left out: which call argument is the
+// topic would be a guess.
+func collectKafkaTopicCtors(files []*ast.File) map[string]kafkaTopicCtor {
+	out := map[string]kafkaTopicCtor{}
+	for _, f := range files {
+		for _, decl := range f.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok || fn.Body == nil || fn.Recv != nil || fn.Type.Params == nil {
+				continue
+			}
+			params := map[string]int{}
+			idx := 0
+			for _, field := range fn.Type.Params.List {
+				if len(field.Names) == 0 {
+					idx++
+					continue
+				}
+				for _, name := range field.Names {
+					params[name.Name] = idx
+					idx++
+				}
+			}
+			var found []kafkaTopicCtor
+			ast.Inspect(fn.Body, func(n ast.Node) bool {
+				lit, ok := n.(*ast.CompositeLit)
+				if !ok {
+					return true
+				}
+				if ctor, ok := kafkaTopicComposite(lit, params); ok {
+					found = append(found, ctor)
+				}
+				return true
+			})
+			if len(found) == 0 {
+				continue
+			}
+			ctor := found[0]
+			unique := true
+			for _, other := range found[1:] {
+				if other != ctor {
+					unique = false
+				}
+			}
+			if unique {
+				out[fn.Name.Name] = ctor
+			}
+		}
+	}
+	return out
+}
+
+// kafkaTopicComposite reads one composite literal: Topic set straight from a
+// parameter, and consumer or producer evidence on the same literal.
+func kafkaTopicComposite(lit *ast.CompositeLit, params map[string]int) (kafkaTopicCtor, bool) {
+	param, grouped := -1, false
+	for _, elt := range lit.Elts {
+		kv, ok := elt.(*ast.KeyValueExpr)
+		if !ok {
+			continue
+		}
+		key, ok := kv.Key.(*ast.Ident)
+		if !ok {
+			continue
+		}
+		if key.Name == "Topic" {
+			if v, ok := kv.Value.(*ast.Ident); ok {
+				if i, ok := params[v.Name]; ok {
+					param = i
+				}
+			}
+		}
+		if kafkaGroupFields[key.Name] {
+			grouped = true
+		}
+	}
+	if param < 0 {
+		return kafkaTopicCtor{}, false
+	}
+	if grouped {
+		return kafkaTopicCtor{param: param, role: facts.MessagingRoleConsumer, operation: facts.MessagingOperationSubscribe}, true
+	}
+	typeName := typeExprToString(lit.Type)
+	if i := strings.LastIndex(typeName, "."); i >= 0 {
+		typeName = typeName[i+1:]
+	}
+	for _, word := range kafkaProducerTypeWords {
+		if strings.Contains(typeName, word) {
+			return kafkaTopicCtor{param: param, role: facts.MessagingRoleProducer, operation: facts.MessagingOperationPublish}, true
+		}
+	}
+	return kafkaTopicCtor{}, false
+}

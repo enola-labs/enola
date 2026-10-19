@@ -10,7 +10,7 @@ exit: 0
     "epoch": "<EPOCH>",
     "summary": {
       "fact_count": 21,
-      "insight_count": 4,
+      "insight_count": 6,
       "initial": true
     },
     "blob": {
@@ -34,7 +34,7 @@ exit: 0
         "symbol": 2
       },
       "fact_count": 25,
-      "insight_count": 5
+      "insight_count": 6
     },
     "blob": {
       "segment": 1,

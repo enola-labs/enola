@@ -1,8 +1,8 @@
-Found **3** insight(s).
+Found **5** insight(s).
 
 ## By explainer
 
-- dead-code: 2
+- dead-code: 4
 - cycles: 1
 
 ## Insights
@@ -12,5 +12,7 @@ Found **3** insight(s).
 | cycles | 1.00 | Cyclic dependency detected (2 modules) |
 | dead-code | 0.80 | Dead code candidate: function pkg/a.GetPath |
 | dead-code | 0.80 | Dead code candidate: function pkg/a.Seed |
+| dead-code | 0.50 | Test-only code candidate: function pkg/a.helper |
+| dead-code | 0.50 | Test-only code candidate: function pkg/a.Gamma |
 
 _Use output_mode='compact' for descriptions, evidence, and suggested actions, or 'full' for complete JSON._

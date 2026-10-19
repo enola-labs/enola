@@ -131,6 +131,9 @@ func (s *side) pass1(src FactSource) error {
 			props: hash64(propsJSON(f.Props)),
 			kind:  s.kinds.id(f.Kind),
 		})
+		if facts.IsDocument(f) {
+			return nil // prose, not coupling: see edgeSet
+		}
 		for _, r := range f.Relations {
 			s.edges = append(s.edges, hash64(edgeKey(Edge{
 				Source: f.Name, Kind: r.Kind, Target: r.Target, Repo: f.Repo,
@@ -361,6 +364,9 @@ func resolveNames(c *Counts, d *movedSet, sources ...FactSource) error {
 		err := src(func(f facts.Fact) error {
 			if d.keys[hash64(factKey(f))] {
 				add(f.Name)
+			}
+			if facts.IsDocument(f) {
+				return nil
 			}
 			for _, r := range f.Relations {
 				h := hash64(edgeKey(Edge{Source: f.Name, Kind: r.Kind, Target: r.Target, Repo: f.Repo}))

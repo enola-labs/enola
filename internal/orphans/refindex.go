@@ -43,11 +43,23 @@ type refSummary struct {
 	// referenced.
 	one string
 
-	// fold holds up to foldSamples sources with DISTINCT owners, for
+	// fold holds up to foldSamples PRODUCTION sources with DISTINCT owners, for
 	// foldMemberUseIntoOwner. Sources sharing an owner are interchangeable to that
 	// consumer — it discards all of one owner's at once — so keeping a second from
 	// the same owner would cost memory and answer nothing new.
 	fold []string
+
+	// prodN and prodOne are n and one restricted to production sources: every source
+	// except a test file's reference (see addTest). They answer "is this used outside
+	// its tests", and saturate and stay exact for the same reasons n and one do.
+	prodN   int32
+	prodOne string
+
+	// testFold is fold for test sources. It is kept apart so the member-use fold can
+	// credit a type with its members' test use as TEST use: merged into one list, a
+	// type whose member only specs call would read as used in production. The bound
+	// argument above holds for each list on its own.
+	testFold []string
 }
 
 // referenced reports whether any source other than self references this name.
@@ -61,35 +73,78 @@ func (s *refSummary) referenced(self string) bool {
 	return s.one != self
 }
 
-// add records that source references name, maintaining both summaries.
-func (r refIndex) add(name, source string) {
+// referencedInProduction is referenced, counting production sources only.
+func (s *refSummary) referencedInProduction(self string) bool {
+	if s == nil || s.prodN == 0 {
+		return false
+	}
+	if s.prodN >= 2 {
+		return true
+	}
+	return s.prodOne != self
+}
+
+// add records that a production source references name, maintaining every summary.
+func (r refIndex) add(name, source string) { r.record(name, source, false) }
+
+// addTest records that a test source (a spec or test file) references name. It
+// counts toward referenced but not toward referencedInProduction, which is what
+// separates a symbol only its tests call from one the application uses.
+func (r refIndex) addTest(name, source string) { r.record(name, source, true) }
+
+func (r refIndex) record(name, source string, test bool) {
 	if name == "" {
 		return
 	}
 	s := r[name]
 	if s == nil {
-		r[name] = &refSummary{n: 1, one: source, fold: []string{source}}
-		return
-	}
-	if s.n == 1 && s.one != source {
+		s = &refSummary{n: 1, one: source}
+		r[name] = s
+	} else if s.n == 1 && s.one != source {
 		s.n = 2
 	}
-	if len(s.fold) < foldSamples {
-		owner := ownerOf(source)
-		for _, have := range s.fold {
-			if have == source || ownerOf(have) == owner {
-				return
-			}
-		}
-		s.fold = append(s.fold, source)
+	if test {
+		s.testFold = addSample(s.testFold, source)
+		return
 	}
+	switch {
+	case s.prodN == 0:
+		s.prodN, s.prodOne = 1, source
+	case s.prodN == 1 && s.prodOne != source:
+		s.prodN = 2
+	}
+	s.fold = addSample(s.fold, source)
 }
 
-// sources returns the sampled sources for the member-use fold. It is deliberately
-// NOT a complete list, and only that consumer may read it; see refSummary.fold.
+// addSample appends source unless the list is full or already holds a source
+// with the same owner.
+func addSample(list []string, source string) []string {
+	if len(list) >= foldSamples {
+		return list
+	}
+	owner := ownerOf(source)
+	for _, have := range list {
+		if have == source || ownerOf(have) == owner {
+			return list
+		}
+	}
+	return append(list, source)
+}
+
+// sources returns the sampled production sources for the member-use fold. It is
+// deliberately NOT a complete list, and only that consumer may read it; see
+// refSummary.fold.
 func (r refIndex) sources(name string) []string {
 	if s := r[name]; s != nil {
 		return s.fold
+	}
+	return nil
+}
+
+// testSources is sources for test sources; see refSummary.testFold.
+func (r refIndex) testSources(name string) []string {
+	if s := r[name]; s != nil {
+		return s.testFold
 	}
 	return nil
 }

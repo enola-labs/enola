@@ -2983,7 +2983,14 @@ import (
 // v396: a TypeScript request helper declared in a file (its first parameter ends the
 // URL it hands fetch or axios, after a literal prefix) makes each call to it in that
 // file a client route.
-const cacheVersion = "v396"
+// v397: a packwerk package's module fact carries the packages its code references,
+// and the declared ones it never does or the referenced ones it never declared.
+// v398: a Go call passing a topic to a same-package constructor that sets a consumer
+// group's or producer's Topic from that parameter emits the topic fact.
+// v399: a qualified Ruby constant reference (`A::B`) resolves only to a declaration
+// whose name ends in the whole reference, never to another namespace's constant
+// that shares its last segment.
+const cacheVersion = "v399"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

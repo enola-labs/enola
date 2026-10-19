@@ -15,7 +15,7 @@ exit: 0
     },
     "summary": {
       "fact_count": 18,
-      "insight_count": 3,
+      "insight_count": 5,
       "initial": true
     },
     "blob": {
@@ -47,7 +47,7 @@ exit: 0
         "symbol": 2
       },
       "fact_count": 22,
-      "insight_count": 4
+      "insight_count": 5
     },
     "blob": {
       "segment": 1,

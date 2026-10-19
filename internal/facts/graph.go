@@ -274,8 +274,13 @@ func NewGraphWithAliases(ff []Fact, aliases map[string]FactKey) *Graph {
 	}
 	sortDeclaringFacts(g.factOff, g.factIdxs, ff)
 
-	// Second pass: build adjacency lists
+	// Second pass: build adjacency lists. A document stays a node, so it can still be
+	// looked up, but takes no edge: its links and headings are prose about the code,
+	// not dependencies of it (see IsDocument).
 	for fi, f := range ff {
+		if IsDocument(f) {
+			continue
+		}
 		for _, rel := range f.Relations {
 			target := rel.Target
 			if !g.declares(target) {
@@ -1325,13 +1330,20 @@ func (g *Graph) impactSeeds(target string) []string {
 		return seeds
 	}
 
-	// Methods: has_method edges point from the type to each of its methods.
+	// Methods: has_method edges point from the type to each of its methods. A member
+	// projected from a mixin is the mixin's node, shared by every includer, so its
+	// callers are not this type's: seeding from it would report every other includer.
+	projected, _ := g.facts[idx].PropAny(PropMixinMembers).(map[string]any)
 	if id, ok := g.lookup(target); ok {
 		tgts, rels := g.adjOf(id, false)
 		for i, tid := range tgts {
-			if g.relName(rels[i]) == RelHasMethod {
-				seeds = append(seeds, g.names[tid])
+			if g.relName(rels[i]) != RelHasMethod {
+				continue
 			}
+			if _, mixedIn := projected[g.names[tid]]; mixedIn {
+				continue
+			}
+			seeds = append(seeds, g.names[tid])
 		}
 	}
 	// Constructor: "<pkg>.New<Type>" in the same package, when it exists.

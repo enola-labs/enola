@@ -29,7 +29,9 @@ func NewExplainer() *Explainer { return &Explainer{} }
 func (e *Explainer) Name() string { return "dead-code" }
 
 // Explain classifies orphans (mode=both, all visibility) and maps them to
-// insights, surfacing high/medium-confidence candidates individually.
+// insights, surfacing high/medium-confidence candidates individually. Test-only
+// symbols are included but labelled as such and ranked after every dead one: see
+// orphansToInsights.
 func (e *Explainer) Explain(_ context.Context, store *facts.Store) ([]facts.Insight, error) {
 	syms, refSources := collect(store)
 	orphans := classify(syms, refSources, options{Mode: "both", Visibility: "all"})
@@ -50,6 +52,12 @@ func moreActionable(a, b Orphan) bool {
 	// The tool still returns every candidate either way.
 	if va, vb := vendoredcandidates.UnderDependencyParent(a.File), vendoredcandidates.UnderDependencyParent(b.File); va != vb {
 		return !va
+	}
+	// Dead before test-only, whatever the confidence: a symbol its tests still call
+	// is a narrower finding than one nothing calls, and it must not spend the budget
+	// the dead ones need.
+	if ta, tb := a.Class == classTestOnly, b.Class == classTestOnly; ta != tb {
+		return !ta
 	}
 	if ra, rb := confidenceRank(a.Confidence), confidenceRank(b.Confidence); ra != rb {
 		return ra < rb
@@ -78,10 +86,14 @@ func confidenceRank(c string) int {
 }
 
 func classRank(c string) int {
-	if c == classIsolated {
+	switch c {
+	case classIsolated:
 		return 0
+	case classUnreferenced:
+		return 1
+	default:
+		return 2
 	}
-	return 1
 }
 
 // orphansToInsights emits one insight per high/medium-confidence orphan (capped),
@@ -117,6 +129,12 @@ func orphansToInsights(orphans []Orphan) []facts.Insight {
 			lowCount++
 			continue
 		}
+		testOnly := o.Class == classTestOnly
+		if testOnly {
+			// A lead, not a deletion: removing it means removing the tests that call
+			// it, and they may stand in for a caller outside the snapshot.
+			conf -= 0.3
+		}
 		if spent[o.Repo] >= maxIndividualInsights {
 			dropped++
 			continue
@@ -133,6 +151,19 @@ func orphansToInsights(orphans []Orphan) []facts.Insight {
 		}}
 		if o.Note != "" {
 			ev = append(ev, facts.Evidence{Symbol: o.Name, Detail: o.Note})
+		}
+		if testOnly {
+			out = append(out, facts.Insight{
+				Title: fmt.Sprintf("Test-only code candidate: %s %s", o.Kind, o.Name),
+				Description: fmt.Sprintf("%s %q is referenced only by test code (%s confidence): nothing in the "+
+					"application reaches it, so it is dead in production and kept alive by its tests. References "+
+					"are matched by short name, so verify against dynamic dispatch and consumers outside the "+
+					"snapshot first.", o.Kind, o.Name, o.Confidence),
+				Confidence: conf,
+				Evidence:   ev,
+				Actions:    []string{"Confirm no production caller exists outside the snapshot, then remove the symbol together with the tests that call it"},
+			})
+			continue
 		}
 		out = append(out, facts.Insight{
 			Title: fmt.Sprintf("Dead code candidate: %s %s", o.Kind, o.Name),

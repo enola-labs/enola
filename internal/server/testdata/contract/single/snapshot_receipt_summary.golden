@@ -9,12 +9,12 @@
 - **Git:** not a git repository
 - **Extractors:** go, manifests
 - **Config hash:** `sha256:<HASH>`
-- **Facts:** 18 · **Insights:** 3
+- **Facts:** 18 · **Insights:** 5
 
 ## Extraction quality
 
 - **Files:** 3 parsed / 4 seen · 2 file(s) + 0 directory tree(s) skipped by ignore globs
 - **Parse errors:** 0
-- **Heuristic insights:** 2 of 3 (confidence < 1.0; the rest are structural facts)
+- **Heuristic insights:** 4 of 5 (confidence < 1.0; the rest are structural facts)
 
 _Use output_mode='full' for the complete JSON receipt (output hashes, skipped-path sample, per-metric detail)._

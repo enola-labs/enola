@@ -1,7 +1,7 @@
 $ enola show HEAD~1 .
 exit: 0
 --- stdout
-# revision 4bd3f73 · <TIME> · (01b246396b27, backfill)
+# revision ae4e143 · <TIME> · (01b246396b27, backfill)
 
 This is the FIRST recorded revision, so there is nothing before it to compare
 against. What follows is what the graph held at this point, not what changed.
@@ -11,6 +11,6 @@ against. What follows is what the graph held at this point, not what changed.
     module       3
     symbol       9
     test_ref     2
-  findings  3
+  findings  5
   built by  enola dev · extractors go, manifests
 --- stderr

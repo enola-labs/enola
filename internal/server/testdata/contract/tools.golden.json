@@ -257,7 +257,7 @@
   },
   {
     "name": "find_orphans",
-    "description": "Dead-code candidates: symbols nothing references, read from the loaded snapshot without re-indexing. class=isolated when the symbol references nothing either, class=unreferenced when it still calls others. Confidence: functions are high (TypeScript/JavaScript functions medium, operator overloads low); structs, classes and interfaces medium; the rest low. Treat medium and low as leads to verify, not safe deletions; the response says why, for the languages in the graph. Exported symbols are included but flagged, since they may be used outside this snapshot; confidence=high with visibility=unexported is the safest cleanup list. Tests and entry points (main, init) are excluded by default. For one symbol's blast radius use impact_analysis; for package-level health, package_metrics. High-confidence orphans also appear in query_insights(explainer=\"dead-code\").",
+    "description": "Dead-code candidates: symbols nothing references, read from the loaded snapshot without re-indexing. class=isolated when the symbol references nothing either, class=unreferenced when it still calls others, class=test-only when only test code (specs, test files) references it: dead in production, kept alive by its tests. Confidence: functions are high (TypeScript/JavaScript functions medium, operator overloads low); structs, classes and interfaces medium; the rest low. Treat medium and low as leads to verify, not safe deletions; the response says why, for the languages in the graph. Exported symbols are included but flagged, since they may be used outside this snapshot; confidence=high with visibility=unexported is the safest cleanup list. Tests and entry points (main, init) are excluded by default. For one symbol's blast radius use impact_analysis; for package-level health, package_metrics. High-confidence orphans also appear in query_insights(explainer=\"dead-code\").",
     "input_schema": {
       "additionalProperties": false,
       "properties": {
@@ -266,7 +266,7 @@
           "type": "string"
         },
         "include_entrypoints": {
-          "description": "Include main and init, which have no callers by nature. Default false.",
+          "description": "Include entry points, which have no callers by nature: main and init, and symbols a framework invokes (routed actions, jobs, registry contracts) with the classes entered through them. Default false.",
           "type": "boolean"
         },
         "include_tests": {
@@ -286,11 +286,11 @@
           "type": "integer"
         },
         "mode": {
-          "description": "'both' (default), 'isolated' (no references in or out), or 'unreferenced' (referenced by nobody, still references others).",
+          "description": "'both' (default: every class), 'isolated' (no references in or out), 'unreferenced' (referenced by nobody, still references others), or 'test_only' (referenced only by test code).",
           "type": "string"
         },
         "output_mode": {
-          "description": "'summary' (DEFAULT, counts per symbol kind with isolated, unreferenced, exported and high-confidence splits), 'compact' (markdown table), or 'full' (per-symbol JSON with file:line).",
+          "description": "'summary' (DEFAULT, counts per symbol kind with isolated, unreferenced, test-only, exported and high-confidence splits), 'compact' (markdown table), or 'full' (per-symbol JSON with file:line).",
           "type": "string"
         },
         "package": {
@@ -613,12 +613,12 @@
   },
   {
     "name": "query_insights",
-    "description": "Findings the explainers computed during generate_snapshot: the direct answer to \"which routes are unused?\", \"where are the dependency cycles?\", \"which modules are god-classes?\". Prefer it to hand-diffing query_facts results. Each insight has a title, its explainer, a description, a confidence (below 1 is a candidate to verify, not a verdict), evidence (files, symbols, routes) and suggested actions. Route and cross-repo findings (unused-routes, crossrepo, coverage) appear only in multi-repo snapshots of a backend plus its clients. Explainers whose name is not self-explanatory: unused-routes (dead/uncalled HTTP routes), messaging-coverage (undeclared messaging calls and AsyncAPI operations with no detected implementation), intent (declared architecture verdicted against the measured graph), constraints (declared component rules, and the edges that breach them), domain (what a framework's declarations say about its data and API), query-loops (a database query issued once per loop iteration), entry-points (the symbols a framework invokes directly).",
+    "description": "Findings the explainers computed during generate_snapshot: the direct answer to \"which routes are unused?\", \"where are the dependency cycles?\", \"which modules are god-classes?\". Prefer it to hand-diffing query_facts results. Each insight has a title, its explainer, a description, a confidence (below 1 is a candidate to verify, not a verdict), evidence (files, symbols, routes) and suggested actions. Route and cross-repo findings (unused-routes, crossrepo, coverage) appear only in multi-repo snapshots of a backend plus its clients. Explainers whose name is not self-explanatory: unused-routes (dead/uncalled HTTP routes), messaging-coverage (undeclared messaging calls and AsyncAPI operations with no detected implementation), intent (declared architecture verdicted against the measured graph), constraints (declared component rules, and the edges that breach them), domain (what a framework's declarations say about its data and API), query-loops (a database query issued once per loop iteration), entry-points (the symbols a framework invokes directly), packwerk (package.yml dependencies declared but unused, or used but undeclared).",
     "input_schema": {
       "additionalProperties": false,
       "properties": {
         "explainer": {
-          "description": "Filter to insights produced by this explainer. One of: cycles, layers, crossrepo, coverage, unused-routes, messaging-coverage, god-class, hotspots, dependency-depth, exported-surface, complexity-outliers, intent, constraints, domain, query-loops, entry-points, dead-methods, vendored-candidates, import-closure, package-metrics, dead-code, performance. Empty = all.",
+          "description": "Filter to insights produced by this explainer. One of: cycles, layers, crossrepo, coverage, unused-routes, messaging-coverage, god-class, hotspots, dependency-depth, exported-surface, complexity-outliers, intent, constraints, domain, query-loops, entry-points, dead-methods, vendored-candidates, import-closure, package-metrics, dead-code, performance, packwerk. Empty = all.",
           "type": "string"
         },
         "max_tokens": {

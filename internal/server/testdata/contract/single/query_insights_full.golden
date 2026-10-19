@@ -61,5 +61,47 @@
     "suggested_actions": [
       "Confirm no dynamic/reflective or out-of-snapshot callers, then remove the symbol"
     ]
+  },
+  {
+    "title": "Test-only code candidate: function pkg/a.helper",
+    "source": "dead-code",
+    "description": "function \"pkg/a.helper\" is referenced only by test code (high confidence): nothing in the application reaches it, so it is dead in production and kept alive by its tests. References are matched by short name, so verify against dynamic dispatch and consumers outside the snapshot first.",
+    "confidence": 0.5,
+    "evidence": [
+      {
+        "file": "pkg/a/a.go",
+        "symbol": "pkg/a.helper",
+        "detail": "function · test-only · pkg/a/a.go:37",
+        "line": 37
+      },
+      {
+        "symbol": "pkg/a.helper",
+        "detail": "referenced only by test code — remove it together with the tests that call it, or find the production caller they stand in for"
+      }
+    ],
+    "suggested_actions": [
+      "Confirm no production caller exists outside the snapshot, then remove the symbol together with the tests that call it"
+    ]
+  },
+  {
+    "title": "Test-only code candidate: function pkg/a.Gamma",
+    "source": "dead-code",
+    "description": "function \"pkg/a.Gamma\" is referenced only by test code (high confidence): nothing in the application reaches it, so it is dead in production and kept alive by its tests. References are matched by short name, so verify against dynamic dispatch and consumers outside the snapshot first.",
+    "confidence": 0.5,
+    "evidence": [
+      {
+        "file": "pkg/a/a.go",
+        "symbol": "pkg/a.Gamma",
+        "detail": "function · test-only · pkg/a/a.go:43",
+        "line": 43
+      },
+      {
+        "symbol": "pkg/a.Gamma",
+        "detail": "referenced only by test code — remove it together with the tests that call it, or find the production caller they stand in for"
+      }
+    ],
+    "suggested_actions": [
+      "Confirm no production caller exists outside the snapshot, then remove the symbol together with the tests that call it"
+    ]
   }
 ]

@@ -4,7 +4,7 @@ exit: 0
 Baseline pinned for <TMP>/go_sample
   Generated: <TIME>
   Repo:      <TMP>/go_sample
-  Facts:     21 · Insights: 4
+  Facts:     21 · Insights: 6
   Snapshot:  sha256:<HASH>
 
 Now make your changes, then run:

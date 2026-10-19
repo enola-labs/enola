@@ -4,6 +4,7 @@ package impact
 import (
 	"encoding/json"
 	"errors"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -23,11 +24,29 @@ type Request struct {
 // Report is the traversal, plus how the target was resolved when not by exact name.
 type Report struct {
 	Resolution *resolve.NameResolution `json:"resolution,omitempty"`
-	// Seeds names what was walked back from when the target is a source file: the
-	// symbols it declares. A file is not a node, so its impact is theirs together.
-	Seeds []string `json:"seeds,omitempty"`
+	// Seeds names what was walked back from when the target stands for several
+	// nodes: the symbols a source file declares, the constants nested under a
+	// namespace, or the symbols declared beneath a directory. SeedKind says which.
+	Seeds    []string `json:"seeds,omitempty"`
+	SeedKind string   `json:"seed_kind,omitempty"`
+	// Packages counts the listed dependents per owning package, most first, when
+	// the repository declares packages with a manifest per directory.
+	Packages []PackageCount `json:"packages,omitempty"`
 	facts.ImpactResult
 }
+
+// PackageCount is how many listed dependents one declared package holds.
+type PackageCount struct {
+	Package    string `json:"package"`
+	Dependents int    `json:"dependents"`
+}
+
+// What a report's Seeds stand for.
+const (
+	SeedsFile      = "file"
+	SeedsNamespace = "namespace"
+	SeedsDirectory = "directory"
+)
 
 // ErrNoFacts and ErrNoGraph are values so each caller can word its own remedy.
 var (
@@ -52,13 +71,22 @@ func Analyze(r resolve.Resolver, req Request) (Report, error) {
 
 	targetName, res, err := r.NodeName(req.Target)
 	if err != nil {
-		// Nothing is named that. A path to a source file still says what was meant.
+		// Nothing is named that. A path to a source file or a directory still says what was meant.
 		if file, seeds := declaredIn(r, req.Target); len(seeds) > 0 {
-			return Report{
+			return withPackages(store, Report{
 				Resolution:   &resolve.NameResolution{Query: req.Target, Matched: file},
 				Seeds:        seeds,
+				SeedKind:     SeedsFile,
 				ImpactResult: graph.ImpactSetOf(file, seeds, req.MaxDepth, req.MaxNodes, req.IncludeForward),
-			}, nil
+			}), nil
+		}
+		if dir, seeds, beside := declaredUnder(r, req.Target, "", false); len(seeds) > 0 {
+			return withPackages(store, Report{
+				Resolution:   &resolve.NameResolution{Query: req.Target, Matched: dir},
+				Seeds:        seeds,
+				SeedKind:     SeedsDirectory,
+				ImpactResult: graph.ImpactSetOf(dir, append(seeds, beside...), req.MaxDepth, req.MaxNodes, req.IncludeForward),
+			}), nil
 		}
 		return Report{}, err
 	}
@@ -86,8 +114,30 @@ func Analyze(r resolve.Resolver, req Request) (Report, error) {
 		}, nil
 	}
 
+	// A namespace is its nested constants, and a directory holding no code of its
+	// own is the code beneath it: walked as one node, either answers "nothing".
+	if seeds := nestedUnder(store, targetName); len(seeds) > 0 {
+		return withPackages(store, Report{
+			Resolution:   res,
+			Seeds:        seeds,
+			SeedKind:     SeedsNamespace,
+			ImpactResult: graph.ImpactSetOf(targetName, append([]string{targetName}, seeds...), req.MaxDepth, req.MaxNodes, req.IncludeForward),
+		}), nil
+	}
+	if repo, ok := directoryModule(store, targetName); ok {
+		if _, seeds, beside := declaredUnder(r, targetName, repo, true); len(seeds) > 0 {
+			names := append(append([]string{targetName}, seeds...), beside...)
+			return withPackages(store, Report{
+				Resolution:   res,
+				Seeds:        seeds,
+				SeedKind:     SeedsDirectory,
+				ImpactResult: graph.ImpactSetOf(targetName, names, req.MaxDepth, req.MaxNodes, req.IncludeForward),
+			}), nil
+		}
+	}
+
 	result := graph.ImpactSet(targetName, req.MaxDepth, req.MaxNodes, req.IncludeForward)
-	return Report{Resolution: res, ImpactResult: result}, nil
+	return withPackages(store, Report{Resolution: res, ImpactResult: result}), nil
 }
 
 // Resolved reports whether a traversal ran; when false, no dependents means "not asked", not "none".
@@ -167,4 +217,148 @@ func canonicalTarget(store *facts.Store, target string) (string, *resolve.NameRe
 		return target, nil
 	}
 	return candidate, &resolve.NameResolution{Query: target, Matched: candidate, AutoPicked: true}
+}
+
+// namespaceSeparator joins a namespace to the constants nested in it.
+const namespaceSeparator = "::"
+
+// nestedUnder returns the symbols nested under name when name is a namespace:
+// every symbol it resolves to is a module or a generated stub, and other symbols
+// are named "<name>::…". A compactly nested declaration (`module A::B::C`) never
+// declares A on its own, so the only node named A may be a stub, and A's
+// dependents are its constants' dependents. Generated stubs and test code are not
+// seeds: they declare nothing anyone calls.
+func nestedUnder(store *facts.Store, name string) []string {
+	exact := store.LookupByExactName(name)
+	if len(exact) == 0 {
+		return nil
+	}
+	repo := ""
+	for _, f := range exact {
+		if f.Kind != facts.KindSymbol {
+			return nil
+		}
+		if f.PropString("symbol_kind") != facts.SymbolInterface && !f.PropBool(propGenerated) {
+			return nil
+		}
+		repo = f.Repo
+	}
+	prefix := name + namespaceSeparator
+	var names []string
+	store.QueryEach(facts.QueryOpts{Kind: facts.KindSymbol, Name: prefix, Repo: repo}, func(f *facts.Fact) {
+		if strings.HasPrefix(f.Name, prefix) && !f.PropBool(propGenerated) && !facts.IsTestPath(f.File) {
+			names = append(names, f.Name)
+		}
+	})
+	slices.Sort(names)
+	return slices.Compact(names)
+}
+
+// propGenerated marks a fact read from generated code.
+const propGenerated = "generated"
+
+// directoryModule reports whether name is a module fact, with the repo that holds
+// it. Whether it stands for the code beneath it is declaredUnder's call: a package
+// with code of its own already has edges, while a directory that holds packages
+// (or a package root whose code sits in subdirectories) has none but its
+// manifest's.
+func directoryModule(store *facts.Store, name string) (string, bool) {
+	for _, f := range store.LookupByExactName(name) {
+		if f.Kind == facts.KindModule {
+			return f.Repo, true
+		}
+	}
+	return "", false
+}
+
+// declaredUnder reads target as a directory and returns the directory as the
+// facts name it, the non-test symbols declared beneath it, and the test facts
+// beneath it. The test facts are walked from but not reported: a directory's own
+// tests are not its dependents. With onlyNested, a directory with code directly in
+// it returns nothing: that module is already a node with edges of its own.
+func declaredUnder(r resolve.Resolver, target, repo string, onlyNested bool) (string, []string, []string) {
+	rel := strings.TrimSuffix(r.NormalizeToRelative(target), "/")
+	if rel == "" || rel == "." {
+		return "", nil, nil
+	}
+	dirs := r.ExpandFilePrefix(rel)
+	if repo != "" && !strings.HasPrefix(rel, repo+"/") {
+		dirs = []string{repo + "/" + rel}
+	}
+	for _, dir := range dirs {
+		var names, beside []string
+		direct := false
+		r.Store.QueryEach(facts.QueryOpts{FilePrefix: dir + "/"}, func(f *facts.Fact) {
+			switch {
+			case f.Kind == facts.KindTestRef || facts.IsTestPath(f.File):
+				beside = append(beside, f.Name)
+			case f.Kind != facts.KindSymbol || f.PropBool(propGenerated) || facts.IsDocument(*f):
+				// A README beside a package's subdirectories is prose, not code of its
+				// own: counting it would stop the directory standing for its code.
+			default:
+				names = append(names, f.Name)
+				if path.Dir(f.File) == dir {
+					direct = true
+				}
+			}
+		})
+		if onlyNested && direct {
+			return "", nil, nil
+		}
+		if len(names) > 0 {
+			slices.Sort(names)
+			slices.Sort(beside)
+			return dir, slices.Compact(names), slices.Compact(beside)
+		}
+	}
+	return "", nil, nil
+}
+
+// withPackages fills in Packages: the listed dependents per owning package, when
+// the store declares packages (module facts marked as package manifests).
+func withPackages(store *facts.Store, report Report) Report {
+	var roots []string
+	for _, f := range store.ByKind(facts.KindModule) {
+		if f.PropBool(propPackageManifest) && f.File != "" {
+			roots = append(roots, path.Dir(f.File))
+		}
+	}
+	if len(roots) == 0 {
+		return report
+	}
+	counts := map[string]int{}
+	for depth, nodes := range report.ByDepth {
+		if depth == 0 {
+			continue
+		}
+		for _, n := range nodes {
+			if pkg := owningRoot(roots, n.File); pkg != "" {
+				counts[pkg]++
+			}
+		}
+	}
+	for pkg, n := range counts {
+		report.Packages = append(report.Packages, PackageCount{Package: pkg, Dependents: n})
+	}
+	slices.SortFunc(report.Packages, func(a, b PackageCount) int {
+		if a.Dependents != b.Dependents {
+			return b.Dependents - a.Dependents
+		}
+		return strings.Compare(a.Package, b.Package)
+	})
+	return report
+}
+
+// propPackageManifest marks a module fact read from a per-directory package manifest.
+const propPackageManifest = "packwerk"
+
+// owningRoot returns the longest root that file sits under, or "" for none.
+func owningRoot(roots []string, file string) string {
+	best := ""
+	for _, root := range roots {
+		if (root == "." || strings.HasPrefix(file, root+"/")) && len(root) > len(best) {
+			best = root
+		}
+	}
+	return best
 }

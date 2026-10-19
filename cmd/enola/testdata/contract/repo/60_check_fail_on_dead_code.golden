@@ -13,6 +13,9 @@ New findings (advisory — below the failure policy):
 
 Confidence < 1.00 is a candidate to verify, not a verdict.
 
+Incidental shifts (1) — findings that moved with no structural cause in this
+change (a drifting statistical threshold or a re-ranked list). Never graded.
+
 What changed
   modules      +1
   symbols      +2

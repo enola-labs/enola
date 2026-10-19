@@ -16,6 +16,15 @@
 // a method name alone roots nothing, so a service object's call is not a
 // root and a job's perform is.
 //
+// A library is not the only thing that calls into a class by convention. A
+// mixin whose `included` hook hands the including class to another constant
+// (`Registry.register(base)`) enrols every includer in a registry, and the
+// registry later calls the members the mixin declares as its contract. The
+// same holds for a base class whose `inherited` hook does it for each
+// subclass. Those members are roots with the mechanism registry: the hook's
+// call is the class-level evidence, and the contract is read off the
+// registering module itself rather than off a list of names.
+//
 // The second pass walks calls, handled_by and depends_on edges from every
 // root and sets ReachedFromProp on each symbol reached, naming the
 // mechanisms that reach it. A bare call name resolves only against the
@@ -52,9 +61,17 @@ const (
 	MechanismHook     = "hook"
 	MechanismTask     = "task"
 	MechanismCallback = "callback"
+	MechanismRegistry = "registry"
 )
 
-var mechanisms = []string{MechanismRoute, MechanismJob, MechanismMailer, MechanismHook, MechanismTask, MechanismCallback}
+var mechanisms = []string{MechanismRoute, MechanismJob, MechanismMailer, MechanismHook, MechanismTask, MechanismCallback, MechanismRegistry}
+
+// mixinRegistrationHooks are the singleton hooks Ruby runs when a module is
+// mixed into a class; inheritRegistrationHooks the one it runs when a class is
+// subclassed. Each receives the class, which is what a registering hook hands on.
+var mixinRegistrationHooks = map[string]bool{"included": true, "extended": true, "prepended": true}
+
+var inheritRegistrationHooks = map[string]bool{"inherited": true}
 
 var jobMixins = map[string]bool{"Sidekiq::Worker": true, "Sidekiq::Job": true}
 
@@ -210,6 +227,7 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 			roots[name] = mechanism
 		}
 	}
+	rootRegistryContracts(symbols, classes, roots)
 
 	adjacency := edges(store, symbols)
 	reached := map[string]map[string]bool{}
@@ -279,8 +297,8 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 		}
 	}
 	if len(roots) > 0 {
-		log.Printf("[framework-roots] %d root(s) (route %d, job %d, mailer %d, hook %d, task %d, callback %d); %d route handler(s) name no known action; %d symbol(s) reached, %d method(s) unreached",
-			len(roots), perMechanism[MechanismRoute], perMechanism[MechanismJob], perMechanism[MechanismMailer], perMechanism[MechanismHook], perMechanism[MechanismTask], perMechanism[MechanismCallback],
+		log.Printf("[framework-roots] %d root(s) (route %d, job %d, mailer %d, hook %d, task %d, callback %d, registry %d); %d route handler(s) name no known action; %d symbol(s) reached, %d method(s) unreached",
+			len(roots), perMechanism[MechanismRoute], perMechanism[MechanismJob], perMechanism[MechanismMailer], perMechanism[MechanismHook], perMechanism[MechanismTask], perMechanism[MechanismCallback], perMechanism[MechanismRegistry],
 			unresolvedRoutes, len(reached), unreached)
 	}
 	return nil
@@ -302,6 +320,115 @@ func mechanismFor(c *class, f facts.Fact, method string, singleton bool) string 
 		return MechanismCallback
 	}
 	return ""
+}
+
+// rootRegistryContracts roots, on every class a registering module or base
+// class enrols, the members that module declares.
+//
+// A member is matched by name across both forms, `Owner.name` (a singleton
+// method; the extractor may record it as a method or a function) and
+// `Owner#name`. Ruby does not copy a module's own `def self.run` onto an
+// includer, so a contract written that way is nominal: the module declares
+// the name to say what the registry will call, and the includer must define
+// it in whichever form the registry calls it on. Rooting only the matching
+// form would demand that the two agree, which the source does not promise.
+func rootRegistryContracts(symbols map[string]facts.Fact, classes map[string]*class, roots map[string]string) {
+	mixinContracts := map[string]map[string]bool{}
+	inheritContracts := map[string]map[string]bool{}
+	members := map[string]map[string]bool{}
+	for name, f := range symbols {
+		owner, member, singleton := splitMember(name)
+		if owner == "" {
+			continue
+		}
+		if members[owner] == nil {
+			members[owner] = map[string]bool{}
+		}
+		members[owner][member] = true
+		if !singleton || !registersCaller(owner, f) {
+			continue
+		}
+		switch {
+		case mixinRegistrationHooks[member]:
+			mixinContracts[owner] = map[string]bool{}
+		case inheritRegistrationHooks[member]:
+			inheritContracts[owner] = map[string]bool{}
+		}
+	}
+	for _, contracts := range []map[string]map[string]bool{mixinContracts, inheritContracts} {
+		for owner, contract := range contracts {
+			for member := range members[owner] {
+				if !mixinRegistrationHooks[member] && !inheritRegistrationHooks[member] {
+					contract[member] = true
+				}
+			}
+		}
+	}
+	if len(mixinContracts) == 0 && len(inheritContracts) == 0 {
+		return
+	}
+
+	for name, f := range symbols {
+		if _, already := roots[name]; already {
+			continue
+		}
+		if kind := f.PropString("symbol_kind"); kind != facts.SymbolMethod && kind != facts.SymbolFunc {
+			continue
+		}
+		owner, member, _ := splitMember(name)
+		c := classes[owner]
+		if c == nil || mixinContracts[owner] != nil || inheritContracts[owner] != nil {
+			continue // the registering module's own declaration is the contract, not an implementation
+		}
+		if enrolledFor(c, member, mixinContracts, inheritContracts) {
+			roots[name] = MechanismRegistry
+		}
+	}
+}
+
+// enrolledFor reports whether a registering module mixed into the class, or a
+// registering base class above it, declares member as part of its contract.
+func enrolledFor(c *class, member string, mixinContracts, inheritContracts map[string]map[string]bool) bool {
+	for i, a := range c.ancestry() {
+		for mixin := range a.mixins {
+			if mixinContracts[mixin][member] {
+				return true
+			}
+		}
+		// A class is enrolled by its superclasses' inherited hooks, never by its
+		// own: the hook runs when something subclasses the class that defines it.
+		if i == 0 {
+			continue
+		}
+		if inheritContracts[a.name][member] {
+			return true
+		}
+	}
+	if inheritContracts[c.superclass][member] {
+		return true // the direct superclass, also when the store does not declare it as a class
+	}
+	return false
+}
+
+// registersCaller reports whether a hook body hands its argument to another
+// constant: it calls a method whose receiver is a constant other than the
+// hook's own module (`Registry.register(base)`). A call on a lower-case
+// receiver (`base.extend(ClassMethods)`) configures the class instead and
+// registers nothing.
+func registersCaller(owner string, f facts.Fact) bool {
+	for _, r := range f.Relations {
+		if r.Kind != facts.RelCalls {
+			continue
+		}
+		receiver, _, singleton := splitMember(r.Target)
+		if !singleton || receiver == "" || receiver == owner {
+			continue
+		}
+		if first := strings.TrimPrefix(receiver, "::"); first != "" && first[0] >= 'A' && first[0] <= 'Z' {
+			return true
+		}
+	}
+	return false
 }
 
 func isMigration(file string) bool {

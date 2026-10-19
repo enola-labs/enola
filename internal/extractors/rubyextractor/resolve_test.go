@@ -79,6 +79,27 @@ func TestBuildConstIndex_QualifiedAndBare(t *testing.T) {
 	}
 }
 
+// A qualified reference names its whole path: it resolves to a declaration ending
+// in that path (written from inside an enclosing namespace), never to another
+// namespace's constant that merely shares the last segment. A library's constant
+// the repository does not declare resolves to nothing.
+func TestConstIndex_QualifiedRefNeedsItsWholePath(t *testing.T) {
+	ix := buildConstIndex([]facts.Fact{
+		symFact("Exports::Metrics", "packs/exports/app/lib/exports", facts.SymbolInterface),
+		symFact("Shop::Orders::Order", "packs/shop/app/models/shop/orders", facts.SymbolClass),
+	})
+	for _, tc := range []struct{ ref, want string }{
+		{"Toolkit::Metrics", ""},                               // a gem's constant, not Exports::Metrics
+		{"Metrics", "packs/exports/app/lib/exports"},           // a bare name still resolves by its segment
+		{"Orders::Order", "packs/shop/app/models/shop/orders"}, // nested under Shop
+		{"Billing::Order", ""},                                 // shares only the last segment
+	} {
+		if got := ix.resolve(tc.ref, "packs/other/app"); got != tc.want {
+			t.Errorf("resolve(%q) = %q, want %q", tc.ref, got, tc.want)
+		}
+	}
+}
+
 // TestConstIndex_BareCollisionDeterministic covers the qualified-map collision
 // path: two symbols with the SAME bare name resolve deterministically to the
 // shortest declaring dir (unchanged by the namespace-aware bare disambiguation,
