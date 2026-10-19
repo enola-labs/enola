@@ -300,3 +300,58 @@ func TestBind_RegisteringHooksRootTheirContract(t *testing.T) {
 		}
 	}
 }
+
+// A superclass written relative to the class's namespace (`< Base` inside
+// Grape::Validations::Validators) resolves to the innermost enclosing namespace
+// that declares it, so the registering base's contract reaches the subclass.
+func TestBind_RelativeSuperclassResolvesThroughTheNamespace(t *testing.T) {
+	store := facts.NewStore()
+	store.Add(
+		symbol("Grape::Validations::Validators::Base", facts.SymbolClass, "lib/grape/validations/validators/base.rb", nil),
+		symbol("Grape::Validations::Validators::Base.inherited", facts.SymbolFunc, "lib/grape/validations/validators/base.rb", nil, calls("Validations.register", "Validations")...),
+		symbol("Grape::Validations::Validators::Base#validate_param!", facts.SymbolMethod, "lib/grape/validations/validators/base.rb", nil),
+		symbol("Grape::Validations::Validators::PresenceValidator", facts.SymbolClass, "lib/grape/validations/validators/presence_validator.rb", map[string]any{"superclass": "Base"}),
+		symbol("Grape::Validations::Validators::PresenceValidator#validate_param!", facts.SymbolMethod, "lib/grape/validations/validators/presence_validator.rb", nil),
+		symbol("Grape::Validations::Validators::PresenceValidator#helper", facts.SymbolMethod, "lib/grape/validations/validators/presence_validator.rb", nil),
+	)
+	bind(t, store)
+
+	for name, want := range map[string]string{
+		"Grape::Validations::Validators::PresenceValidator#validate_param!": MechanismRegistry,
+		"Grape::Validations::Validators::PresenceValidator#helper":          "",
+	} {
+		if got := propOf(store, facts.KindSymbol, name, RootProp); got != want {
+			t.Errorf("%s: root = %q, want %q", name, got, want)
+		}
+	}
+}
+
+// Rails registers railties, engines and generators through their base class's
+// own inherited hook and loads or runs them from there: the subclass is a root,
+// and so is each public step of a generator. A class with an unrelated library
+// superclass is not.
+func TestBind_FrameworkLoadedSubclassesAreRoots(t *testing.T) {
+	store := facts.NewStore()
+	store.Add(
+		symbol("Devise::Engine", facts.SymbolClass, "lib/devise/rails.rb", map[string]any{"superclass": "::Rails::Engine"}),
+		symbol("Devise::Generators::InstallGenerator", facts.SymbolClass, "lib/generators/devise/install_generator.rb", map[string]any{"superclass": "Rails::Generators::Base"}),
+		symbol("Devise::Generators::InstallGenerator#copy_initializer", facts.SymbolMethod, "lib/generators/devise/install_generator.rb", nil),
+		symbol("Devise::Generators::InstallGenerator#private_step", facts.SymbolMethod, "lib/generators/devise/install_generator.rb", map[string]any{"exported": false}),
+		symbol("Devise::Generators::OrmGenerator", facts.SymbolClass, "lib/generators/devise/orm_generator.rb", map[string]any{"superclass": "Devise::Generators::InstallGenerator"}),
+		symbol("Devise::Delivery", facts.SymbolClass, "lib/devise/delivery.rb", map[string]any{"superclass": "Struct"}),
+	)
+	bind(t, store)
+
+	for name, want := range map[string]string{
+		"Devise::Engine":                                        MechanismRegistry,
+		"Devise::Generators::InstallGenerator":                  MechanismRegistry,
+		"Devise::Generators::InstallGenerator#copy_initializer": MechanismRegistry,
+		"Devise::Generators::InstallGenerator#private_step":     "",
+		"Devise::Generators::OrmGenerator":                      MechanismRegistry,
+		"Devise::Delivery":                                      "",
+	} {
+		if got := propOf(store, facts.KindSymbol, name, RootProp); got != want {
+			t.Errorf("%s: root = %q, want %q", name, got, want)
+		}
+	}
+}

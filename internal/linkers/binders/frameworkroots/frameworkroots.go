@@ -183,6 +183,7 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 	if len(symbols) == 0 {
 		return nil
 	}
+	resolveSuperclasses(classes)
 	for _, dep := range store.ByKind(facts.KindDependency) {
 		if dep.PropString("mixin_kind") == "" {
 			continue
@@ -227,6 +228,7 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 			roots[name] = mechanism
 		}
 	}
+	rootFrameworkLoaded(symbols, classes, roots)
 	rootRegistryContracts(symbols, classes, roots)
 
 	adjacency := edges(store, symbols)
@@ -320,6 +322,78 @@ func mechanismFor(c *class, f facts.Fact, method string, singleton bool) string 
 		return MechanismCallback
 	}
 	return ""
+}
+
+// resolveSuperclasses qualifies a superclass written relative to the class's own
+// namespace (`class PresenceValidator < Base` inside Grape::Validations::Validators)
+// the way Ruby's lexical lookup does: the innermost enclosing namespace that
+// declares it wins. A name the store declares as written, or one it declares
+// nowhere (a library's class), is left as written.
+func resolveSuperclasses(classes map[string]*class) {
+	for _, c := range classes {
+		super := strings.TrimPrefix(c.superclass, "::")
+		if super == "" || classes[super] != nil {
+			c.superclass = super
+			continue
+		}
+		c.superclass = super
+		parts := strings.Split(c.name, "::")
+		for i := len(parts) - 1; i >= 1; i-- {
+			if cand := strings.Join(parts[:i], "::") + "::" + super; classes[cand] != nil {
+				c.superclass = cand
+				break
+			}
+		}
+	}
+}
+
+// frameworkLoadedBases are library base classes whose own inherited hook
+// registers every subclass with the framework, which then loads or runs it: Rails
+// collects railties, engines and generators this way. A subclass is a root without
+// any call naming it. The value says whether its public instance methods are
+// roots too: Thor invokes each one of a generator's, in order, as a step.
+var frameworkLoadedBases = map[string]bool{
+	"Rails::Railtie":               false,
+	"Rails::Engine":                false,
+	"Rails::Application":           false,
+	"Rails::Generators::Base":      true,
+	"Rails::Generators::NamedBase": true,
+	"Rails::Generators::AppBase":   true,
+	"Thor::Group":                  true,
+}
+
+// rootFrameworkLoaded roots every class whose superclass chain reaches a
+// frameworkLoadedBases entry, and, where the entry says so, its public instance
+// methods.
+func rootFrameworkLoaded(symbols map[string]facts.Fact, classes map[string]*class, roots map[string]string) {
+	steps := map[string]bool{}
+	for name, c := range classes {
+		for _, a := range c.ancestry() {
+			withSteps, ok := frameworkLoadedBases[a.superclass]
+			if !ok {
+				continue
+			}
+			if _, already := roots[name]; !already {
+				roots[name] = MechanismRegistry
+			}
+			if withSteps {
+				steps[name] = true
+			}
+			break
+		}
+	}
+	if len(steps) == 0 {
+		return
+	}
+	for name, f := range symbols {
+		if _, already := roots[name]; already {
+			continue
+		}
+		owner, _, singleton := splitMember(name)
+		if !singleton && steps[owner] && f.PropString("symbol_kind") == facts.SymbolMethod && f.PropBool("exported") {
+			roots[name] = MechanismRegistry
+		}
+	}
 }
 
 // rootRegistryContracts roots, on every class a registering module or base
