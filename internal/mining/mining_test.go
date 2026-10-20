@@ -201,3 +201,32 @@ func TestMineRanksByConfidenceTimesSupport(t *testing.T) {
 		}
 	}
 }
+
+// Two files declare `app/verbs.run`, and a dependency fact carries the file its
+// target resolved into. Mining read the name's first file and attributed the
+// edge to it.
+func TestCollectEdgesReadsACarriedTargetFile(t *testing.T) {
+	sym := func(name, file string) facts.Fact {
+		return facts.Fact{Kind: facts.KindSymbol, Name: name, File: file}
+	}
+	call := func(name, targetFile string) facts.Fact {
+		return facts.Fact{Kind: facts.KindDependency, Name: name,
+			File: "app/core/drive.rs", Props: map[string]any{facts.PropTargetFile: targetFile},
+			Relations: []facts.Relation{{Kind: facts.RelCalls, Target: "app/verbs.run"}}}
+	}
+	s := newScope([]facts.Fact{
+		sym("app/core.drive", "app/core/drive.rs"),
+		sym("app/verbs.run", "app/aaa/run.rs"),
+		sym("app/verbs.run", "app/verbs/validate.rs"),
+		call("hit", "app/verbs/validate.rs"),
+		call("miss", "app/zzz/missing.rs"),
+	}, "", Config{}, nil)
+	var got []string
+	for _, e := range s.collectEdges() {
+		got = append(got, e.source+" -> "+e.tgtCluster)
+	}
+	want := []string{"hit -> app/verbs"}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("edges %v, want %v: the carried file places the target, and a file that does not declare it places nothing", got, want)
+	}
+}
