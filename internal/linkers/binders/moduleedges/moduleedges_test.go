@@ -178,6 +178,55 @@ func TestBind_InjectionDoesNotRestateAnExtractorEdge(t *testing.T) {
 	}
 }
 
+// Two repositories carrying the same symbol name must derive the same edges
+// whatever order their facts arrive in. Keyed by name alone, the last repo read
+// owned the name, so a union read in a different order (a baseline replay puts
+// its re-read member at the tail) derived different edges from identical facts
+// and diffed against its own pin.
+func TestBind_SharedSymbolNamesResolveWithinTheirOwnRepository(t *testing.T) {
+	build := func(reverse bool) map[string]int {
+		other := func(f facts.Fact) facts.Fact { f.Repo = "sibling"; return f }
+		ours := []facts.Fact{
+			module("app/services"), module("app/models"),
+			symbol("Reports::Build#call", "app/services/reports/build.rb", calls("Order#total")...),
+			symbol("Order#total", "app/models/order.rb"),
+		}
+		theirs := []facts.Fact{
+			other(module("app/services")), other(module("lib/billing")),
+			other(symbol("Invoice#issue", "app/services/invoice.rb", calls("Order#total")...)),
+			other(symbol("Order#total", "lib/billing/order.rb")),
+		}
+		store := facts.NewStore()
+		if reverse {
+			store.Add(theirs...)
+			store.Add(ours...)
+		} else {
+			store.Add(ours...)
+			store.Add(theirs...)
+		}
+		if err := New().Bind(context.Background(), store); err != nil {
+			t.Fatal(err)
+		}
+		return derivedEdges(store)
+	}
+	forward, backward := build(false), build(true)
+	if len(forward) != 2 {
+		t.Fatalf("each repository resolves Order#total in its own module: %v", forward)
+	}
+	keysF, keysB := make([]string, 0, len(forward)), make([]string, 0, len(backward))
+	for k := range forward {
+		keysF = append(keysF, k)
+	}
+	for k := range backward {
+		keysB = append(keysB, k)
+	}
+	sort.Strings(keysF)
+	sort.Strings(keysB)
+	if strings.Join(keysF, ",") != strings.Join(keysB, ",") {
+		t.Fatalf("derivation depends on fact order:\n forward  %v\n backward %v", keysF, keysB)
+	}
+}
+
 func TestClassifyUnresolvedTarget(t *testing.T) {
 	known := map[string]bool{
 		"src.Widget::run":  true,
@@ -260,5 +309,70 @@ func TestBind_EdgeFileFollowsHowTheRepositoryNamesPaths(t *testing.T) {
 	}
 	if got := files(alone); got["shop"] != "app/models" {
 		t.Errorf("a repository indexed alone: edge file = %q, want the bare module", got["shop"])
+	}
+}
+
+// A call is attributed to the module of the file that declares the caller, not
+// to whichever module won the placement of the caller's name. Two production
+// modules declaring User#save used to give the winner every call the loser
+// made, so the binder derived an edge from a directory that never made it.
+func TestBind_ACallIsAttributedToTheModuleOfItsOwnFile(t *testing.T) {
+	store := facts.NewStore()
+	store.Add(
+		module("app/models"), module("lib/ext"), module("app/services"),
+		symbol("User#save", "app/models/user.rb"),
+		symbol("User#save", "lib/ext/user.rb", calls("Mailer#deliver")...),
+		symbol("Mailer#deliver", "app/services/mailer.rb"),
+	)
+	if err := New().Bind(context.Background(), store); err != nil {
+		t.Fatal(err)
+	}
+	edges := derivedEdges(store)
+	if _, wrong := edges["app/models -> app/services"]; wrong {
+		t.Errorf("credited the call to the module that did not make it: %v", edges)
+	}
+	if got := edges["lib/ext -> app/services"]; got != 1 {
+		t.Errorf("lib/ext -> app/services = %d, want 1: %v", got, edges)
+	}
+}
+
+// The same call with the declarations read in the other order: the answer does
+// not depend on which declaration was read last.
+func TestBind_ACallIsAttributedToTheModuleOfItsOwnFileInEitherOrder(t *testing.T) {
+	store := facts.NewStore()
+	store.Add(
+		module("app/models"), module("lib/ext"), module("app/services"),
+		symbol("User#save", "lib/ext/user.rb", calls("Mailer#deliver")...),
+		symbol("User#save", "app/models/user.rb"),
+		symbol("Mailer#deliver", "app/services/mailer.rb"),
+	)
+	if err := New().Bind(context.Background(), store); err != nil {
+		t.Fatal(err)
+	}
+	edges := derivedEdges(store)
+	if _, wrong := edges["app/models -> app/services"]; wrong {
+		t.Errorf("credited the call to the module that did not make it: %v", edges)
+	}
+	if got := edges["lib/ext -> app/services"]; got != 1 {
+		t.Errorf("lib/ext -> app/services = %d, want 1: %v", got, edges)
+	}
+}
+
+// A name two production modules of one repository declare resolves to neither.
+// Nothing in the graph says which one a reference means, so no edge is derived;
+// picking the smallest was an order-free tie-break and still a guess.
+func TestBind_ANameTwoModulesDeclareIsRefusedAsATarget(t *testing.T) {
+	store := facts.NewStore()
+	store.Add(
+		module("app/models"), module("lib/ext"), module("app/services"),
+		symbol("User#save", "app/models/user.rb"),
+		symbol("User#save", "lib/ext/user.rb"),
+		symbol("Mailer#deliver", "app/services/mailer.rb", calls("User#save")...),
+	)
+	if err := New().Bind(context.Background(), store); err != nil {
+		t.Fatal(err)
+	}
+	if edges := derivedEdges(store); len(edges) != 0 {
+		t.Errorf("derived an edge to a name two modules declare: %v", edges)
 	}
 }
