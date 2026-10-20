@@ -3007,7 +3007,8 @@ import (
 // v404: a Rust cfg gate counts as test-only when its predicate requires a test build:
 // `not(all(test, loom))` and `any(feature = "x", test)` are production, inline or out of line.
 // v405: a Rust cfg(fuzzing) gate, set by cargo-fuzz, counts as a test build too.
-const cacheVersion = "v405"
+// v406: an HCL block is recorded on its keyword's line, not on a blank line above it.
+const cacheVersion = "v406"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
