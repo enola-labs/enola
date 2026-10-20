@@ -47,7 +47,7 @@ func (r *Runner) Providers(ctx context.Context, args []string) {
 		if len(args) != 2 {
 			r.cmdFatal("providers", "usage: %s providers fetch <name> (built-ins: %s)", r.name(), strings.Join(providers.BuiltInNames(), ", "))
 		}
-		if args[1] != "rubydex" {
+		if args[1] != "rubydex" && args[1] != "prism" {
 			r.cmdFatal("providers", "%q is not a provider this enola carries (built-ins: %s)", args[1], strings.Join(providers.BuiltInNames(), ", "))
 		}
 		if path, installed := rubydex.Installed(); installed {
@@ -67,7 +67,7 @@ func (r *Runner) Providers(ctx context.Context, args []string) {
 }
 
 func builtInStatus(name string) string {
-	if name != "rubydex" {
+	if name != "rubydex" && name != "prism" {
 		return "ready"
 	}
 	path, installed := rubydex.Installed()

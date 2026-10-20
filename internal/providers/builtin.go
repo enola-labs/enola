@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/enola-labs/enola/internal/facts"
 	"github.com/enola-labs/enola/internal/providers/rubydex"
@@ -17,9 +18,44 @@ import (
 // builtIns are the providers the binary carries itself, keyed by the name a
 // `providers:` entry with no command uses. Each runs in-process and answers
 // with facts that pass the same validation as JSONL from an external tool,
-// a census, and the version of the engine it read through.
-var builtIns = map[string]func(ctx context.Context, repoPath string, ignored func(file string) bool) ([]facts.Fact, string, facts.ProviderCensus, string){
+// a census, and the version of the engine it read through. prism is the
+// Rubydex engine answering under the Prism reference script's names, from the
+// same index the rubydex name reads in the same run.
+var builtIns = map[string]func(ctx context.Context, in Input) ([]facts.Fact, string, facts.ProviderCensus, string){
+	"prism":   runPrism,
 	"rubydex": runRubydex,
+}
+
+// PropEngine names the reader behind a fact written under another producer's
+// names. Pairing reads it, so one engine answering under two names is never
+// counted as two producers agreeing.
+const PropEngine = "engine"
+
+// rubydexEngine is one Rubydex index per run, shared by every built-in name
+// that reads through it: the index is the cost, and the names differ only in
+// which of its facts they write.
+type rubydexEngine struct {
+	once    sync.Once
+	result  rubydex.Result
+	refusal string
+}
+
+func (e *rubydexEngine) collect(ctx context.Context, repoPath string, ignored func(file string) bool) (rubydex.Result, string) {
+	e.once.Do(func() {
+		path, installed := rubydex.Installed()
+		if !installed {
+			e.refusal = fmt.Sprintf("the Rubydex library is not installed at %s; run `%s`", path, rubydex.FetchHint)
+			return
+		}
+		lib, err := rubydex.Open(path)
+		if err != nil {
+			e.refusal = err.Error()
+			return
+		}
+		e.result = rubydex.Collect(ctx, lib, repoPath, ignored)
+		e.refusal = e.result.Refusal
+	})
+	return e.result, e.refusal
 }
 
 // BuiltInNames lists the providers a config may name without a command. The
@@ -28,7 +64,6 @@ var builtIns = map[string]func(ctx context.Context, repoPath string, ignored fun
 func BuiltInNames() []string { return providerspec.BuiltInNames() }
 
 func runBuiltIn(ctx context.Context, p Provider, in Input) ([]facts.Fact, facts.ProviderRecord) {
-	repoPath := in.RepoPath
 	record := facts.ProviderRecord{Name: p.Name}
 	skip := func(format string, args ...any) ([]facts.Fact, facts.ProviderRecord) {
 		record.Skipped = true
@@ -39,12 +74,12 @@ func runBuiltIn(ctx context.Context, p Provider, in Input) ([]facts.Fact, facts.
 	if !ok {
 		return skip("no command and no built-in provider named %q (built-ins: %v)", p.Name, BuiltInNames())
 	}
-	if p.Name == "rubydex" && in.Cache != nil {
+	if in.Cache != nil {
 		if accepted, record, served := serveRubydexIndex(p, in, record); served {
 			return accepted, record
 		}
 	}
-	accepted, version, census, refusal := run(ctx, repoPath, in.Ignored)
+	accepted, version, census, refusal := run(ctx, in)
 	if refusal != "" {
 		return skip("%s", refusal)
 	}
@@ -60,20 +95,23 @@ func runBuiltIn(ctx context.Context, p Provider, in Input) ([]facts.Fact, facts.
 	record.Census = &census
 	stamp(accepted, p.Name, version)
 	sortFacts(accepted)
-	if p.Name == "rubydex" && in.Cache != nil {
+	if in.Cache != nil {
 		recordRubydexIndex(p, in, accepted, census, &record)
 	}
 	return accepted, record
 }
 
-// The Rubydex index is one entry per run, never patched: a reference in one
-// file resolves against declarations in another, so the facts are a function
-// of the whole Ruby file set and the locked bundle together. The key is the
-// engine library's version, the digest of the sorted Ruby paths with their
-// content digests, and the lockfile's digest; the census the index produced
-// travels beside the facts in a second entry under a stable key, so a hit can
-// report it as recorded and a miss can say which part of the key moved.
-const rubydexIndexMetaKey = "index-meta\x00rubydex"
+// The Rubydex index is one entry per run and built-in name, never patched: a
+// reference in one file resolves against declarations in another, so the
+// facts are a function of the whole Ruby file set and the locked bundle
+// together. The key is the name, the engine library's version, the digest of
+// the sorted Ruby paths with their content digests, and the lockfile's digest;
+// the census the index produced travels beside the facts in a second entry
+// under a stable key per name, so a hit can report it as recorded and a miss
+// can say which part of the key moved.
+func rubydexIndexMetaKey(name string) string {
+	return "index-meta\x00" + name
+}
 
 type rubydexIndexMeta struct {
 	Version     string               `json:"version"`
@@ -101,8 +139,8 @@ func rubydexIndexParts(in Input) (filesDigest, lockDigest string) {
 	return filesDigest, lockDigest
 }
 
-func rubydexIndexKey(version, filesDigest, lockDigest string) string {
-	return "index\x00rubydex\x00" + version + "\x00" + filesDigest + "\x00" + lockDigest
+func rubydexIndexKey(name, version, filesDigest, lockDigest string) string {
+	return "index\x00" + name + "\x00" + version + "\x00" + filesDigest + "\x00" + lockDigest
 }
 
 // serveRubydexIndex answers from the cache when the recorded index matches the
@@ -113,15 +151,15 @@ func serveRubydexIndex(p Provider, in Input, record facts.ProviderRecord) ([]fac
 		return nil, record, false
 	}
 	filesDigest, lockDigest := rubydexIndexParts(in)
-	meta, hasMeta := readRubydexMeta(in.Cache)
+	meta, hasMeta := readRubydexMeta(in.Cache, p.Name)
 	if !hasMeta || meta.Version != rubydex.Version || meta.FilesDigest != filesDigest || meta.LockDigest != lockDigest {
 		return nil, record, false
 	}
-	accepted, ok := in.Cache.Get(rubydexIndexKey(rubydex.Version, filesDigest, lockDigest))
+	accepted, ok := in.Cache.Get(rubydexIndexKey(p.Name, rubydex.Version, filesDigest, lockDigest))
 	if !ok {
 		return nil, record, false
 	}
-	in.Cache.Get(rubydexIndexMetaKey)
+	in.Cache.Get(rubydexIndexMetaKey(p.Name))
 	record.Version = rubydex.Version
 	census := meta.Census
 	record.Census = &census
@@ -132,7 +170,7 @@ func serveRubydexIndex(p Provider, in Input, record facts.ProviderRecord) ([]fac
 func recordRubydexIndex(p Provider, in Input, accepted []facts.Fact, census facts.ProviderCensus, record *facts.ProviderRecord) {
 	filesDigest, lockDigest := rubydexIndexParts(in)
 	miss := "cold"
-	if meta, ok := readRubydexMeta(in.Cache); ok {
+	if meta, ok := readRubydexMeta(in.Cache, p.Name); ok {
 		switch {
 		case meta.Version != rubydex.Version:
 			miss = "version"
@@ -143,17 +181,17 @@ func recordRubydexIndex(p Provider, in Input, accepted []facts.Fact, census fact
 		}
 	}
 	record.Reuse = &facts.ProviderReuse{Computed: len(accepted), Cache: "miss", Miss: miss}
-	in.Cache.Put(rubydexIndexKey(rubydex.Version, filesDigest, lockDigest), accepted)
+	in.Cache.Put(rubydexIndexKey(p.Name, rubydex.Version, filesDigest, lockDigest), accepted)
 	meta := rubydexIndexMeta{Version: rubydex.Version, FilesDigest: filesDigest, LockDigest: lockDigest, Census: census}
 	encoded, err := json.Marshal(meta)
 	if err != nil {
 		return
 	}
-	in.Cache.Put(rubydexIndexMetaKey, []facts.Fact{{Kind: "provider-index", Name: "rubydex", Props: map[string]any{"meta": string(encoded)}}})
+	in.Cache.Put(rubydexIndexMetaKey(p.Name), []facts.Fact{{Kind: "provider-index", Name: p.Name, Props: map[string]any{"meta": string(encoded)}}})
 }
 
-func readRubydexMeta(cache Cache) (rubydexIndexMeta, bool) {
-	entry, ok := cache.Peek(rubydexIndexMetaKey)
+func readRubydexMeta(cache Cache, name string) (rubydexIndexMeta, bool) {
+	entry, ok := cache.Peek(rubydexIndexMetaKey(name))
 	if !ok || len(entry) != 1 {
 		return rubydexIndexMeta{}, false
 	}
@@ -165,18 +203,18 @@ func readRubydexMeta(cache Cache) (rubydexIndexMeta, bool) {
 	return meta, true
 }
 
-func runRubydex(ctx context.Context, repoPath string, ignored func(file string) bool) ([]facts.Fact, string, facts.ProviderCensus, string) {
-	path, installed := rubydex.Installed()
-	if !installed {
-		return nil, "", facts.ProviderCensus{}, fmt.Sprintf("the Rubydex library is not installed at %s; run `%s`", path, rubydex.FetchHint)
-	}
-	lib, err := rubydex.Open(path)
-	if err != nil {
-		return nil, "", facts.ProviderCensus{}, err.Error()
-	}
-	result := rubydex.Collect(ctx, lib, repoPath, ignored)
-	if result.Refusal != "" {
-		return nil, "", facts.ProviderCensus{}, result.Refusal
+func runRubydex(ctx context.Context, in Input) ([]facts.Fact, string, facts.ProviderCensus, string) {
+	result, refusal := in.engine().collect(ctx, in.RepoPath, in.Ignored)
+	if refusal != "" {
+		return nil, "", facts.ProviderCensus{}, refusal
 	}
 	return result.Facts, rubydex.Version, result.Census, ""
+}
+
+func runPrism(ctx context.Context, in Input) ([]facts.Fact, string, facts.ProviderCensus, string) {
+	result, refusal := in.engine().collect(ctx, in.RepoPath, in.Ignored)
+	if refusal != "" {
+		return nil, "", facts.ProviderCensus{}, refusal
+	}
+	return result.Prism, rubydex.Version, result.PrismCensus, ""
 }

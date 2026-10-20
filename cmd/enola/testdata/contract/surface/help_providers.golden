@@ -13,7 +13,7 @@ The fact providers this binary carries itself.
                command runs in-process. The only network access a provider
                ever makes, and never at snapshot time.
 
-Built-ins: rubydex
+Built-ins: prism, rubydex
 
 Exit codes:
   0  listed, fetched, or already installed

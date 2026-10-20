@@ -1,5 +1,6 @@
 $ enola providers list
 exit: 0
 --- stdout
+  prism  not installed; run `enola providers fetch rubydex`
   rubydex  not installed; run `enola providers fetch rubydex`
 --- stderr

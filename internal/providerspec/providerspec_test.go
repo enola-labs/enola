@@ -31,7 +31,7 @@ func TestValidate_NoCommandNamesABuiltIn(t *testing.T) {
 		t.Fatalf("a built-in needs no command: %v", err)
 	}
 	err := Validate([]Spec{{Name: "nope"}})
-	if err == nil || !strings.Contains(err.Error(), "built-ins: rubydex") {
+	if err == nil || !strings.Contains(err.Error(), "built-ins: prism, rubydex") {
 		t.Fatalf("an unknown name without a command must be refused and the built-ins named, got %v", err)
 	}
 }

@@ -8,6 +8,7 @@ Runtime
   enola dev (extractors <EXTRACTOR_VERSION>)
 
 Providers carried by this binary
+  prism: not installed; run `enola providers fetch rubydex`
   rubydex: not installed; run `enola providers fetch rubydex`
 
 Updates

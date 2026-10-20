@@ -81,6 +81,17 @@ type Input struct {
 	Files     []string
 	Hashes    map[string]string
 	Cache     Cache
+
+	rubydex *rubydexEngine
+}
+
+// engine is the run's one Rubydex index, made here for a caller that runs a
+// built-in outside RunWith.
+func (in Input) engine() *rubydexEngine {
+	if in.rubydex == nil {
+		return &rubydexEngine{}
+	}
+	return in.rubydex
 }
 
 // Reserved prop keys on provider facts. The provenance pair is stamped by the
@@ -169,6 +180,9 @@ var allowedRelationKinds = map[string]bool{
 // provider runs whole-tree exactly as Run does.
 func RunWith(ctx context.Context, in Input) ([]facts.Fact, []facts.ProviderRecord) {
 	taken, ignored := in.Taken, in.Ignored
+	if in.rubydex == nil {
+		in.rubydex = &rubydexEngine{}
+	}
 	sorted := append([]Provider(nil), in.Providers...)
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Name < sorted[j].Name })
 
