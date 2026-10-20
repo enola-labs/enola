@@ -3058,7 +3058,12 @@ import (
 // v420: Rust runs the axum route, axum nest and utoipa passes only on files whose source contains route, nest or utoipa.
 // v421: a TypeScript call to a hardcoded absolute host is an external client route carrying the host as written; an interpolated host is refused and counted on a new typescript:http-client fact.
 // v422: a Cargo dependency declared with a path (inline or under its own table) carries that path as a path prop on its dependency fact, so a crate the repository may hold is told from a package fetched from elsewhere.
-const cacheVersion = "v422"
+// v423: A Ruby call on self that a subclass overrides, and a call on a constant
+// that two enclosing scopes could each name (Admin::Search and ::Search from a
+// compact `class Admin::Controller`), keep the name the walker wrote instead of
+// binding to one declaration. Calls targets move on the repositories that have
+// either shape; the benchmark's forbidden bindings are refused.
+const cacheVersion = "v423"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

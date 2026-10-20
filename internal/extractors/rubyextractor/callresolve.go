@@ -100,7 +100,7 @@ func (ix *handlerIndex) resolveCall(target, owner, sep string) (resolved, named 
 	case strings.Contains(target, "#"):
 		// `Const.new.call`: an instance method of the class the constant names.
 		recv, method, _ := strings.Cut(target, "#")
-		if class := ix.lexical(recv, owner); class != "" {
+		if class := ix.unshadowedLexical(recv, owner); class != "" {
 			if m := ix.member(class, "#", method); m != "" {
 				return m, ""
 			}
@@ -109,12 +109,20 @@ func (ix *handlerIndex) resolveCall(target, owner, sep string) (resolved, named 
 
 	case isBareMethodName(target):
 		// A call on self: a method of the caller's own kind first, then, for an
-		// instance method calling `self.class.name`, a singleton one.
+		// instance method calling `self.class.name`, a singleton one. A method a
+		// subclass overrides is not settled by the declaration the chain finds: the
+		// call may reach either, so it keeps the name it was written with.
 		if m := ix.member(owner, sep, target); m != "" {
+			if ix.overriddenBelow(owner, sep, target) {
+				return target, ""
+			}
 			return m, ""
 		}
 		if sep == "#" {
 			if m := ix.member(owner, ".", target); m != "" {
+				if ix.overriddenBelow(owner, ".", target) {
+					return target, ""
+				}
 				return m, ""
 			}
 		}
@@ -127,7 +135,7 @@ func (ix *handlerIndex) resolveCall(target, owner, sep string) (resolved, named 
 	if dot <= 0 || !startsUpper(target) {
 		return target, ""
 	}
-	class := ix.lexical(target[:dot], owner)
+	class := ix.unshadowedLexical(target[:dot], owner)
 	if class == "" {
 		return target, ""
 	}
@@ -148,4 +156,54 @@ func isBareMethodName(target string) bool {
 	}
 	c := target[0]
 	return c == '_' || (c >= 'a' && c <= 'z')
+}
+
+// overriddenBelow reports whether a class below owner declares name of the given
+// kind: a call written in owner's body then reaches the subclass's method for an
+// instance of it, so no single declaration is the callee.
+func (ix *handlerIndex) overriddenBelow(owner, sep, name string) bool {
+	if ix.below == nil {
+		ix.below = map[string][]string{}
+		for class := range ix.superclass {
+			at := class
+			for range maxAncestors {
+				super, ok := ix.superclass[at]
+				if !ok {
+					break
+				}
+				next := ix.lexical(super, at)
+				if next == "" || next == at || next == class {
+					break
+				}
+				ix.below[next] = append(ix.below[next], class)
+				at = next
+			}
+		}
+	}
+	for _, class := range ix.below[owner] {
+		if ix.declared[class+sep+name] {
+			return true
+		}
+	}
+	return false
+}
+
+// unshadowedLexical is lexical for a constant a call is made on, refusing a
+// constant two scopes could name. The walker records a class by its qualified
+// name, so `class Admin::SearchLogsController` and `module Admin; class
+// SearchLogsController` look alike, and only the second sees Admin's constants:
+// where Admin::Search and ::Search are both declared, either could be the
+// receiver, and the call keeps the name it was written with.
+func (ix *handlerIndex) unshadowedLexical(ref, from string) string {
+	found := ix.lexical(ref, from)
+	if found == "" || strings.HasPrefix(ref, "::") {
+		return found
+	}
+	scope := strings.Split(from, "::")
+	for i := len(scope) - 1; i >= 0; i-- {
+		if c := strings.Join(append(append([]string{}, scope[:i]...), ref), "::"); c != found && ix.declared[c] {
+			return ""
+		}
+	}
+	return found
 }

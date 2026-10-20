@@ -33,6 +33,8 @@ import (
 // test functions that assert the behavior that version introduced. v1 is the
 // implicit baseline (no changelog line), so coverage starts at v2.
 var versionCoverage = map[int][]string{
+	// A Ruby self call a subclass overrides, and a constant two scopes could name, keep their written names
+	423: {"TestRubyCalls_ASelfCallASubclassOverridesKeepsItsName", "TestRubyCalls_AConstantTwoScopesCouldNameKeepsItsName"},
 	422: {"TestManifests_CargoReadsBothSpellings", "TestManifests_CargoReadsTableSections"},
 	421: {
 		"TestExtractHTTPClientFacts",

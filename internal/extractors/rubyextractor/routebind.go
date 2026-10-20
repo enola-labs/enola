@@ -140,6 +140,8 @@ type handlerIndex struct {
 	// folded maps a lower-cased class name to the class declared under it, and to ""
 	// when two classes differ only in casing.
 	folded map[string]string
+	// below maps a class to the classes declared beneath it, built on first use.
+	below map[string][]string
 }
 
 func buildHandlerIndex(allFacts []facts.Fact) *handlerIndex {

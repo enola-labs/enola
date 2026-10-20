@@ -191,3 +191,60 @@ end
 		}
 	}
 }
+
+// A call on self that a subclass overrides reaches either method, so it binds to
+// neither; a method no subclass overrides still binds.
+func TestRubyCalls_ASelfCallASubclassOverridesKeepsItsName(t *testing.T) {
+	got := methodCalls(t, map[string]string{
+		"lib/report.rb": `
+class Report
+  def render
+    header
+    body
+  end
+
+  def header
+  end
+
+  def body
+  end
+end
+
+class SalesReport < Report
+  def header
+  end
+end
+`,
+	})
+	wantCalls(t, got, "Report#render", "header", "Report#body")
+	wantNoCall(t, got, "Report#render", "Report#header")
+}
+
+// Inside `class Admin::SearchLogsController` the constant Search is ::Search, while
+// inside `module Admin; class SearchLogsController` it is Admin::Search. The walker
+// cannot tell the two apart, so a constant both scopes declare binds to neither.
+func TestRubyCalls_AConstantTwoScopesCouldNameKeepsItsName(t *testing.T) {
+	got := methodCalls(t, map[string]string{
+		"lib/search.rb": `
+class Admin::SearchLogsController
+  def index
+    Search.execute
+  end
+end
+
+class Search
+  def self.execute
+  end
+end
+
+module Admin
+  class Search
+    def self.execute
+    end
+  end
+end
+`,
+	})
+	wantNoCall(t, got, "Admin::SearchLogsController#index", "Admin::Search.execute")
+	wantCalls(t, got, "Admin::SearchLogsController#index", "Search.execute")
+}
