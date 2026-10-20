@@ -33,6 +33,12 @@ import (
 // test functions that assert the behavior that version introduced. v1 is the
 // implicit baseline (no changelog line), so coverage starts at v2.
 var versionCoverage = map[int][]string{
+	410: {
+		"TestJavaWalk_MethodKeepsEdgesWhenItsBodyGrowsTheFacts",
+		"TestJavaWalk_ClassKeepsInjectsWhenItsFieldsGrowTheFacts",
+		"TestJavaWalk_ClassKeepsEdgesRecordedAfterItsNestedTypes",
+		"TestJavaWalk_EdgesDoNotDependOnWhereTheSliceGrows",
+	},
 	409: {"TestExtract_TypeNamesAndToolchainRoots", "TestExtract_TypeNamesFollowVisibility"},
 	408: {"TestActiveBranches", "TestPreprocessorPlacementsKeepTheFile"},
 	407: {"TestGrammarSmoke", "TestWalkerNodeKindsStillExist", "TestCSharp12Syntax", "TestASPNet_NamedArgumentIsNotATemplate", "TestGolden", "TestDeterminism"},
