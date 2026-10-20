@@ -199,6 +199,7 @@ type tsAssembly struct {
 	inlineTemplates map[string]*angularTemplate
 	globalPrefixes  []string
 	clients         clientCounts
+	hosts           clientHosts
 
 	angularDI, angularRoutes, angularRequests, angularTemplates angularCounts
 }
@@ -230,6 +231,7 @@ func assembleFileResults(perFile []tsFileResult, tsFiles []string) *tsAssembly {
 			a.angularHTTP = append(a.angularHTTP, res.angularHTTP)
 		}
 		a.clients.merge(res.clients)
+		a.hosts.merge(res.hosts)
 		if len(res.facts) == 0 {
 			continue
 		}
@@ -329,6 +331,10 @@ func (a *tsAssembly) coverageFacts(repoPath string) []facts.Fact {
 		if f, ok := extcoverage.Fact(repoPath, c.extractor, c.edge, c.counts.resolved, c.counts.unresolved); ok {
 			out = append(out, f)
 		}
+	}
+	if f, ok := extcoverage.Fact(repoPath, "typescript:http-client", "typescript_client_host",
+		a.hosts.kept, map[string]int{clientHostInterpolated: a.hosts.interpolated}); ok {
+		out = append(out, f)
 	}
 	return out
 }

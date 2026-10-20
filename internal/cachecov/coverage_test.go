@@ -33,6 +33,14 @@ import (
 // test functions that assert the behavior that version introduced. v1 is the
 // implicit baseline (no changelog line), so coverage starts at v2.
 var versionCoverage = map[int][]string{
+	421: {
+		"TestExtractHTTPClientFacts",
+		"TestTSExternalHost_LiteralHostKept",
+		"TestTSExternalHost_InterpolatedHostRefusedAndCounted",
+		"TestTSExternalHost_CountedOnTheExtractionRecord",
+		"TestTSExternalHost_CommentIsNotACall",
+		"TestTSExternalHost_DataObjectIsNotACall",
+	},
 	// Rust axum/utoipa passes gated on their source token: routes, nest-free mount targets and utoipa routes still extracted
 	420: {"TestAxum_SingleRoute", "TestAxum_NestComposesPrefix_CrossFile", "TestExtract_UtoipaAttributePathIsAServerRoute"},
 	// A TypeScript import's bundler query (?react, ?raw) is not part of its path

@@ -1,6 +1,9 @@
 package tsextractor
 
 import (
+	"context"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/enola-labs/enola/internal/facts"
@@ -207,7 +210,7 @@ func TestExtractHTTPClientFacts(t *testing.T) {
 		"    return this.makeRequest<any>('/api/settings/feedback/statistics');\n" + // default GET
 		"  }\n" +
 		"  async external() {\n" +
-		"    return fetch('https://third.party/v1/thing', { method: 'GET' });\n" + // skipped
+		"    return fetch('https://third.party/v1/thing', { method: 'GET' });\n" + // external
 		"  }\n" +
 		"}\n"
 
@@ -222,10 +225,20 @@ func TestExtractHTTPClientFacts(t *testing.T) {
 			t.Errorf("%s api hint = %v, want feedback", f.Name, f.Props["api"])
 		}
 		byName[f.Name] = f.Props["method"].(string)
+		external := f.Name == "/v1/thing"
+		if (f.Props["external"] == true) != external {
+			t.Errorf("%s external = %v, want %v", f.Name, f.Props["external"], external)
+		}
+		if external && f.Props["host"] != "third.party" {
+			t.Errorf("%s host = %v, want third.party", f.Name, f.Props["host"])
+		}
 	}
 
-	if len(byName) != 3 {
-		t.Fatalf("expected 3 backend client routes (external skipped), got %d: %+v", len(byName), byName)
+	if len(byName) != 4 {
+		t.Fatalf("expected 3 backend client routes and 1 external, got %d: %+v", len(byName), byName)
+	}
+	if byName["/v1/thing"] != "GET" {
+		t.Errorf("external: want GET /v1/thing, got %+v", byName)
 	}
 	if byName["/api/settings/feedback"] != "POST" {
 		t.Errorf("createFeedback: want POST, got %+v", byName)
@@ -237,8 +250,124 @@ func TestExtractHTTPClientFacts(t *testing.T) {
 		t.Errorf("stats: want default GET, got %+v", byName)
 	}
 	if _, found := byName["https://third.party/v1/thing"]; found {
-		t.Errorf("external URL should have been skipped: %+v", byName)
+		t.Errorf("an external URL is named by its path, never by the whole URL: %+v", byName)
 	}
+}
+
+func TestTSExternalHost_LiteralHostKept(t *testing.T) {
+	src := "export async function sync(id: string) {\n" +
+		"  await fetch('https://api.example.com/v1/charges', { method: 'POST' });\n" +
+		"  await fetch(`https://api.example.com/v1/charges/${id}?expand=true`);\n" +
+		"  await fetch('https://status.example.com');\n" +
+		"  await fetch('http://localhost:8080/health');\n" +
+		"  await request({ url: 'https://hooks.example.com/v2/events', method: 'PUT' });\n" +
+		"}\n"
+	ff, hosts := extractHTTPClientFactsCounted([]byte(src), "src/lib/sync.ts")
+	want := map[string]struct {
+		method, host string
+		line         int
+	}{
+		"/v1/charges":    {"POST", "api.example.com", 2},
+		"/v1/charges/{}": {"GET", "api.example.com", 3},
+		"/":              {"GET", "status.example.com", 4},
+		"/health":        {"GET", "localhost:8080", 5},
+		"/v2/events":     {"PUT", "hooks.example.com", 6},
+	}
+	if len(ff) != len(want) {
+		t.Fatalf("got %d client routes, want %d: %+v", len(ff), len(want), ff)
+	}
+	for _, f := range ff {
+		w, ok := want[f.Name]
+		if !ok {
+			t.Errorf("unexpected route %q", f.Name)
+			continue
+		}
+		if f.Props["method"] != w.method || f.Line != w.line {
+			t.Errorf("%s = %v at line %d, want %s at line %d", f.Name, f.Props["method"], f.Line, w.method, w.line)
+		}
+		if f.Props["external"] != true || f.Props["host"] != w.host {
+			t.Errorf("%s external/host = %v/%v, want true/%s", f.Name, f.Props["external"], f.Props["host"], w.host)
+		}
+		if f.Props["source"] != facts.RouteSourceTSHTTPClient || f.Props["role"] != facts.RoleClient {
+			t.Errorf("%s must stay a typescript client route: %+v", f.Name, f.Props)
+		}
+	}
+	if hosts.kept != len(want) || hosts.interpolated != 0 {
+		t.Fatalf("hosts counted = %+v, want %d kept and none refused", hosts, len(want))
+	}
+}
+
+func TestTSExternalHost_InterpolatedHostRefusedAndCounted(t *testing.T) {
+	src := "export async function sync(host: string, path: string) {\n" +
+		"  await fetch(`https://${host}/v1/charges`);\n" +
+		"  await fetch(`https://api.example.com${path}`);\n" +
+		"  await fetch('/v1/relative');\n" +
+		"}\n"
+	ff, hosts := extractHTTPClientFactsCounted([]byte(src), "src/lib/sync.ts")
+	if len(ff) != 1 || ff[0].Name != "/v1/relative" {
+		t.Fatalf("only the relative call may yield a route, got %+v", ff)
+	}
+	if hosts.interpolated != 2 || hosts.kept != 0 {
+		t.Fatalf("hosts counted = %+v, want 2 refused and none kept", hosts)
+	}
+}
+
+func TestTSExternalHost_RelativeUnchanged(t *testing.T) {
+	src := "export async function load(id: number) {\n" +
+		"  await fetch(`${API_BASE_URL}/api/user/current`);\n" +
+		"  await fetch('/api/items?page=2');\n" +
+		"  await axios.get('/api/things');\n" +
+		"}\n"
+	ff := extractHTTPClientFacts([]byte(src), "src/lib/load.ts")
+	got := byNameMethod(ff)
+	if len(got) != 3 || got["/api/user/current"] != "GET" || got["/api/items"] != "GET" || got["/api/things"] != "GET" {
+		t.Fatalf("relative routes changed: %+v", got)
+	}
+	for _, f := range ff {
+		if _, set := f.Props["external"]; set {
+			t.Errorf("%s: a relative call must not be marked external: %+v", f.Name, f.Props)
+		}
+		if _, set := f.Props["host"]; set {
+			t.Errorf("%s: a relative call names no host: %+v", f.Name, f.Props)
+		}
+	}
+}
+
+func TestTSExternalHost_CountedOnTheExtractionRecord(t *testing.T) {
+	dir := t.TempDir()
+	write := func(rel, content string) {
+		t.Helper()
+		path := filepath.Join(dir, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("package.json", `{"name":"sync"}`)
+	write("src/sync.ts", "export async function sync(host: string) {\n"+
+		"  await fetch(`https://${host}/v1/charges`);\n"+
+		"  await fetch('https://api.example.com/v1/charges');\n"+
+		"}\n")
+	ff, err := New().Extract(context.Background(), dir, []string{"package.json", "src/sync.ts"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range ff {
+		if f.Kind != facts.KindExtraction || f.Name != "typescript:http-client" {
+			continue
+		}
+		if got := f.Props["unresolved_macros"]; got != "host-interpolated=1" {
+			t.Fatalf("unresolved_macros = %v, want host-interpolated=1", got)
+		}
+		entry := f.Props["edge_coverage"].([]map[string]any)[0]
+		if entry["resolved"] != 1 || entry["unresolved"] != 1 {
+			t.Fatalf("edge_coverage = %+v, want 1 host read and 1 refused", entry)
+		}
+		return
+	}
+	t.Fatalf("no typescript:http-client extraction record: %+v", ff)
 }
 
 // TestExtractHTTPClientFacts_PrefetchNotMatched covers the left word-boundary on
@@ -534,5 +663,42 @@ func TestHTTPClient_NonProviderBasesHintNothing(t *testing.T) {
 				t.Fatalf("a base naming no provider must not hint: got %q", h)
 			}
 		})
+	}
+}
+
+func TestTSExternalHost_CommentIsNotACall(t *testing.T) {
+	src := "export async function load() {\n" +
+		"  // await fetch('https://api.example.com/v1/old');\n" +
+		"  /* fetch('https://api.example.com/v1/older') */\n" +
+		"   * fetch('https://api.example.com/v1/oldest')\n" +
+		"  await fetch('https://api.example.com/v1/current');\n" +
+		"}\n"
+	ff, hosts := extractHTTPClientFactsCounted([]byte(src), "src/lib/load.ts")
+	if len(ff) != 1 || ff[0].Name != "/v1/current" || ff[0].Line != 5 {
+		t.Fatalf("only the call on line 5 is a call, got %+v", ff)
+	}
+	if hosts.kept != 1 || hosts.interpolated != 0 {
+		t.Fatalf("hosts counted = %+v, want 1 kept", hosts)
+	}
+}
+
+func TestTSExternalHost_DataObjectIsNotACall(t *testing.T) {
+	src := "export function payload() {\n" +
+		"  return {\n" +
+		"    comments: [\n" +
+		"      {\n" +
+		"        nodeId: 'COMMENT_1',\n" +
+		"        url: 'https://example.com/pr/1#discussion_r1',\n" +
+		"        body: 'note',\n" +
+		"      },\n" +
+		"    ],\n" +
+		"  };\n" +
+		"}\n" +
+		"export async function hook() {\n" +
+		"  await request({ url: 'https://hooks.example.com/v2/events', method: 'PUT' });\n" +
+		"}\n"
+	ff, _ := extractHTTPClientFactsCounted([]byte(src), "src/lib/payload.ts")
+	if len(ff) != 1 || ff[0].Name != "/v2/events" || ff[0].Props["host"] != "hooks.example.com" {
+		t.Fatalf("only the object that states a verb is a request to a host, got %+v", ff)
 	}
 }

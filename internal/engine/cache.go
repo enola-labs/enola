@@ -3056,7 +3056,8 @@ import (
 // `@/icons/bell.svg?react` imports src/icons/bell.svg, and its dependency fact
 // names that file, where it carried the query.
 // v420: Rust runs the axum route, axum nest and utoipa passes only on files whose source contains route, nest or utoipa.
-const cacheVersion = "v420"
+// v421: a TypeScript call to a hardcoded absolute host is an external client route carrying the host as written; an interpolated host is refused and counted on a new typescript:http-client fact.
+const cacheVersion = "v421"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
