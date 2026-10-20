@@ -3019,7 +3019,8 @@ import (
 // [Generator] or a MEF [Export*] attribute is framework_registered.
 // v410: a Java method or class no longer loses relations recorded after a nested declaration.
 // v411: a Kotlin function, class or object no longer loses relations recorded after a nested declaration.
-const cacheVersion = "v411"
+// v412: a Ruby call to a hardcoded absolute host is an external client route carrying the host as written; an interpolated host is refused and counted.
+const cacheVersion = "v412"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
