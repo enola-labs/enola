@@ -2,8 +2,15 @@ package engine
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
+	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/enola-labs/enola/internal/facts"
 )
@@ -149,7 +156,7 @@ func (e *Engine) DriftFromMeta(repoPath string, meta facts.SnapshotMeta) (Drift,
 	if err != nil {
 		return Drift{}, fmt.Errorf("walking %s: %w", repoPath, err)
 	}
-	current := e.computeFileHashes(context.Background(), repoPath, files)
+	current := e.driftHashes(context.Background(), repoPath, files)
 
 	var d Drift
 	for path, curHash := range current {
@@ -172,4 +179,104 @@ func (e *Engine) DriftFromMeta(repoPath string, meta facts.SnapshotMeta) (Drift,
 	sort.Strings(d.Removed)
 	sort.Strings(d.Modified)
 	return d, nil
+}
+
+// driftRacyWindow is how recent a file's modification or change time may be before
+// its hash is not trusted to stand for it: a coarse filesystem clock can give an
+// edit made after a read the same time as the read.
+const driftRacyWindow = 2 * time.Second
+
+type hashedFile struct {
+	size  int64
+	modNs int64
+	stamp stamp
+	hash  string
+}
+
+// driftMemo remembers what the drift walk last hashed, per file, so an engine that
+// keeps running and answers many calls reads a file again only after it changed.
+// Only the drift walk uses it: a snapshot's own hashes are always read from the bytes.
+//
+// A file counts as unchanged only when its size, modification time, change time,
+// inode and device all match. The modification time and size can be set back by a
+// tool (Chtimes, touch -r, a restore); the change time cannot, because the kernel
+// sets it on any content or metadata change. Where the platform gives no change
+// time (see fileStamp) nothing is remembered and every walk hashes, so no platform
+// can answer unchanged for a file it did not check.
+type driftMemo struct {
+	mu    sync.Mutex
+	clock func() time.Time
+	files map[string]hashedFile
+	reads atomic.Int64
+}
+
+func (m *driftMemo) now() time.Time {
+	if m.clock != nil {
+		return m.clock()
+	}
+	return time.Now()
+}
+
+func (m *driftMemo) known(path string, info os.FileInfo) (string, bool) {
+	st, ok := fileStamp(info)
+	if !ok {
+		return "", false
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	h, ok := m.files[path]
+	if !ok || h.size != info.Size() || h.modNs != info.ModTime().UnixNano() || h.stamp != st {
+		return "", false
+	}
+	return h.hash, true
+}
+
+func (m *driftMemo) remember(path string, info os.FileInfo, hash string) {
+	st, ok := fileStamp(info)
+	if !ok {
+		return
+	}
+	now := m.now()
+	if now.Sub(info.ModTime()) < driftRacyWindow || now.Sub(time.Unix(0, st.ctimeNs)) < driftRacyWindow {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.files == nil {
+		m.files = make(map[string]hashedFile)
+	}
+	m.files[path] = hashedFile{size: info.Size(), modNs: info.ModTime().UnixNano(), stamp: st, hash: hash}
+}
+
+// driftHashes is the current content hash of each file named, as computeFileHashes
+// gives it, reading only the files that are not the file last hashed here: a file
+// with the size, modification time, change time, inode and device it had when it was
+// last read keeps its hash. A file modified or changed within driftRacyWindow of being
+// read is read again next time.
+func (e *Engine) driftHashes(ctx context.Context, repoPath string, files []string) map[string]string {
+	hashes := make(map[string]string, len(files))
+	for _, rel := range files {
+		if ctx.Err() != nil {
+			break
+		}
+		abs := filepath.Join(repoPath, rel)
+		info, err := os.Stat(abs)
+		if err != nil {
+			continue
+		}
+		if hash, ok := e.drift.known(abs, info); ok {
+			hashes[rel] = hash
+			continue
+		}
+		data, err := os.ReadFile(abs)
+		if err != nil {
+			continue
+		}
+		sum := sha256.Sum256(data)
+		hash := hex.EncodeToString(sum[:])
+		e.drift.reads.Add(1)
+		e.drift.remember(abs, info, hash)
+		hashes[rel] = hash
+	}
+	return hashes
 }

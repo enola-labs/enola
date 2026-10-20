@@ -81,6 +81,9 @@ type Engine struct {
 	// disk after a snapshot. The read path is always active when caching is
 	// enabled; one-shot --explain sets this false so it never touches .enola.
 	persistCache bool
+	// drift is what the drift walk last hashed, so a long-lived engine reads a file
+	// again only after it changed; see driftHashes.
+	drift driftMemo
 	// deferLinking makes an append-mode GenerateSnapshot stop after extraction;
 	// see SetDeferLinking.
 	deferLinking bool
