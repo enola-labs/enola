@@ -30,20 +30,30 @@
 # To skip in an emergency: `git push --no-verify` (CI still enforces 1, 2 and 3).
 set -e
 
-# git exports GIT_DIR (and in a worktree GIT_WORK_TREE) to every hook. The golden
-# tests read a fixture's repository identity from git, so under those variables
-# each fixture took this clone's name and every golden failed. Unset, git finds
-# the repository from the working directory, as it does in CI.
-unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
+# From a worktree git exports GIT_DIR to the hook, set to the worktree's own git
+# directory; from a plain clone it exports none of GIT_DIR, GIT_WORK_TREE and
+# GIT_INDEX_FILE, and from a worktree it still does not export the last two (both
+# observed with real pushes to a bare repository). The golden tests read a
+# fixture's repository identity from git, so under GIT_DIR each fixture
+# took this clone's name and every golden failed. Unset, git finds the repository
+# from the working directory, as it does in CI. Only the go test runs need that:
+# step 4 asks this clone's own git for the commits being pushed, so it keeps what
+# git handed the hook.
+go_test() {
+	(
+		unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
+		go test "$@"
+	)
+}
 
 echo "pre-push: cacheVersion coverage guard…"
-go test -count=1 -run TestCacheVersionCoverage ./internal/cachecov/
+go_test -count=1 -run TestCacheVersionCoverage ./internal/cachecov/
 
 echo "pre-push: documentation conformance…"
-go test -count=1 ./internal/docslint/
+go_test -count=1 ./internal/docslint/
 
 echo "pre-push: golden + determinism…"
-go test -count=1 -run 'TestGolden|TestDeterminism' ./internal/engine/...
+go_test -count=1 -run 'TestGolden|TestDeterminism' ./internal/engine/...
 
 # ── 4. agent hooks, only when the installer moved ─────────────────────────────
 # git feeds pre-push one line per ref: <local ref> <local sha> <remote ref> <remote sha>
@@ -71,7 +81,7 @@ if printf '%s' "$changed" | grep -qE '^(pkg/install/|pkg/command/hook\.go|pkg/co
 		echo "              ENOLA_E2E=1 go test -run TestStopHook_FiresInARealSession ./pkg/install/"
 	else
 		echo "pre-push: installer changed — agent hook end-to-end test (~90s, real session)…"
-		ENOLA_E2E=1 go test -count=1 -timeout 15m \
+		ENOLA_E2E=1 go_test -count=1 -timeout 15m \
 			-run TestStopHook_FiresInARealSession ./pkg/install/
 	fi
 fi
