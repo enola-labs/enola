@@ -258,8 +258,9 @@ func (e *Engine) extract(r *snapshotRun) error {
 		defer cache.discard()
 	}
 	r.preCount = e.store.Count()
+	progress := newExtractionProgress(r.ctx, r.absRepo, r.files)
 	var err error
-	r.usedExtractors, r.shadowed, r.parseErrs, err = e.runExtractors(r.ctx, r.absRepo, r.files, r.allNames, r.hashes, cache)
+	r.usedExtractors, r.shadowed, r.parseErrs, err = e.runExtractors(r.ctx, r.absRepo, r.files, r.allNames, r.hashes, cache, progress)
 	if err != nil {
 		return fmt.Errorf("extraction: %w", err)
 	}

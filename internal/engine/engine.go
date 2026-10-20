@@ -691,7 +691,7 @@ func (e *Engine) detect(ext extractors.Extractor, repoPath string, allNames []st
 //
 // It also reports the SHADOWED extractors: those registered and applicable to this
 // repository, but excluded by an explicit `extractors:` list. See reportShadowed.
-func (e *Engine) runExtractors(ctx context.Context, repoPath string, files, allNames []string, hashes map[string]string, cache *extractorCache) ([]string, []string, []facts.ParseError, error) {
+func (e *Engine) runExtractors(ctx context.Context, repoPath string, files, allNames []string, hashes map[string]string, cache *extractorCache, progress *extractionProgress) ([]string, []string, []facts.ParseError, error) {
 	var usedNames []string
 	var shadowed []string
 	var parseErrs []facts.ParseError
@@ -734,6 +734,7 @@ func (e *Engine) runExtractors(ctx context.Context, repoPath string, files, allN
 					e.store.Add(cached...)
 					usedNames = append(usedNames, ext.Name())
 					log.Printf("[engine] extractor %s: reused %d cached facts", ext.Name(), len(cached))
+					progress.finished(ext)
 					continue
 				}
 			}
@@ -766,6 +767,7 @@ func (e *Engine) runExtractors(ctx context.Context, repoPath string, files, allN
 		e.store.Add(extracted...)
 		usedNames = append(usedNames, ext.Name())
 		log.Printf("[engine] extractor %s: emitted %d facts in %s", ext.Name(), len(extracted), time.Since(tExt).Round(time.Millisecond))
+		progress.finished(ext)
 	}
 
 	return usedNames, shadowed, parseErrs, nil
