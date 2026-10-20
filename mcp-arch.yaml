@@ -19,6 +19,15 @@ ignore:
   # miniature codebases, so indexing them injects their routes and client call
   # sites into the host repo's graph. Kept in sync with config.Default().
   - "**/testdata/**"
+  # This repository's vendored tree-sitter grammars: generated parsers and upstream
+  # scanners, third-party C compiled into the binary through cgo. They are not enola's
+  # architecture, and indexed they were 521 facts and 54 of 184 findings (dead-code,
+  # complexity, exported-surface) about code nobody here edits. The Go glue beside them
+  # (binding.go) stays indexed. Anchored to this layout on purpose: a generic
+  # grammar/src pattern would hide a tree-sitter grammar repository from anyone who
+  # copies this file. See internal/extractors/*/grammar/ATTRIBUTION.md.
+  - "internal/extractors/*/grammar/src/**"
+  - "internal/extractors/*/grammar/*.c"
   # Python virtual environments, installed dependencies, and tool caches. A
   # repo-local .venv/venv holds the whole dependency tree (thousands of
   # third-party .py files) and must never be indexed — it dominates snapshot

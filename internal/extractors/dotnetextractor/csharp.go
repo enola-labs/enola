@@ -2,12 +2,12 @@
 // using tree-sitter AST parsing (see csharp_ast.go for the walker and
 // resolve.go for the project index, type resolution and partial-type merge).
 //
-// The grammar is pinned to tree-sitter-c-sharp v0.23.1, which is NOT the latest.
-// v0.23.2 and above are generated against tree-sitter ABI 15, while the vendored
-// go-tree-sitter runtime accepts at most 14, so SetLanguage rejects them. The
-// failure is silent by nature — every file parses to nothing, which looks exactly
-// like a repository containing no C# — so extractFileAST logs once when the
-// grammar is refused rather than returning an empty result unremarked.
+// The grammar is tree-sitter-c-sharp v0.23.5, vendored in ./grammar and regenerated
+// at tree-sitter ABI 14 (see grammar/ATTRIBUTION.md): upstream ships v0.23.2 and
+// later at ABI 15, which the vendored go-tree-sitter runtime refuses. That failure
+// is silent by nature (every file parses to nothing, which looks exactly like a
+// repository containing no C#), so extractFileAST logs once when the grammar is
+// refused rather than returning an empty result unremarked.
 package dotnetextractor
 
 import (

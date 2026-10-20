@@ -25,8 +25,8 @@ either of which alone is fatal:
    `LANGUAGE_VERSION 15`, while `go-tree-sitter v0.24.0` accepts at most ABI 14.
    `SetLanguage` returns an error, every file parses to nothing, and the result is
    **indistinguishable from a repository that contains no Dart**. This is the same trap
-   already documented for the C# grammar (pinned to v0.23.1) and the Scala grammar
-   (pinned to v0.24.1), and it is why `TestGrammarSmoke` in the parent package asserts
+   already documented for the C# and Scala grammars (both now vendored and regenerated
+   at ABI 14), and it is why `TestGrammarSmoke` in the parent package asserts
    the grammar still loads rather than trusting the vendored bytes to stay put.
 
 ## What is vendored, and how it was produced

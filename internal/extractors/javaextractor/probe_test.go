@@ -13,9 +13,9 @@ import (
 // generated against ABI 15 is refused by SetLanguage, and extractFileAST returns nil on
 // that error — so the rejection is SILENT: every Java file parses to nothing, and the
 // result is indistinguishable from a repository containing no Java. That is exactly how
-// the C# grammar failed once (see dotnetextractor/csharp.go), and why tree-sitter-c-sharp,
-// tree-sitter-python, tree-sitter-scala and the vendored Dart parser all carry a pin or a
-// regeneration step today.
+// the C# grammar failed once (see dotnetextractor/csharp.go), and why tree-sitter-python
+// carries a pin and the C#, Scala and Dart grammars are vendored with a regeneration
+// step today.
 //
 // tree-sitter-java v0.23.5 is both the newest release and still ABI 14, so nothing is
 // pinned back here. This test exists for the day upstream regenerates at ABI 15 and
