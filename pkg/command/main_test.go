@@ -38,7 +38,9 @@ func TestMain(m *testing.M) {
 }
 
 func keepGoCaches() {
-	keys := []string{"GOCACHE", "GOMODCACHE"}
+	// GOENV carries `go env -w` settings (GOPROXY, GOPRIVATE, GOFLAGS), which live
+	// in a file under the real home that the sandboxed HOME would hide.
+	keys := []string{"GOCACHE", "GOMODCACHE", "GOENV"}
 	out, err := exec.Command("go", append([]string{"env"}, keys...)...).Output()
 	if err != nil {
 		return
