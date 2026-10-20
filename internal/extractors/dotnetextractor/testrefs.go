@@ -87,6 +87,7 @@ func testRefsFromFile(src []byte, relFile string) []facts.Fact {
 	if err := parser.SetLanguage(sitter.NewLanguage(csharp.Language())); err != nil {
 		return nil
 	}
+	src = activeBranches(src)
 	tree := parser.Parse(src, nil)
 	if tree == nil {
 		return nil

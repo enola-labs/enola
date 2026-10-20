@@ -47,6 +47,9 @@ func extractFileASTFull(src []byte, relFile string) ([]facts.Fact, aspnetScaffol
 		})
 		return nil, aspnetScaffold{}
 	}
+	// One build configuration, as the compiler parses it (see activeBranches). The
+	// walker reads node text from the same buffer, which has src's exact layout.
+	src = activeBranches(src)
 	tree := parser.Parse(src, nil)
 	if tree == nil {
 		return nil, aspnetScaffold{}
@@ -246,9 +249,9 @@ func (w *astWalker) addEdge(kind, target string) {
 // ── Top level ───────────────────────────────────────────────────────────────
 
 // walkTopLevelChildren dispatches the direct children of a compilation unit or of
-// a namespace/preprocessor block. Preprocessor branches are descended rather than
-// skipped: code inside `#if NET8_0` is real source for some configuration, and
-// dropping it would make whole files look empty.
+// a namespace/preprocessor block. Conditional directives are resolved before the
+// parse (activeBranches keeps one configuration), so a preproc_if node is rare here;
+// one that does appear is descended rather than skipped.
 func (w *astWalker) walkTopLevelChildren(node *sitter.Node) {
 	for i := uint(0); i < uint(node.ChildCount()); i++ {
 		w.walkTopLevel(node.Child(i))

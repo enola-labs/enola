@@ -3010,7 +3010,9 @@ import (
 // v406: the C# grammar is tree-sitter-c-sharp v0.23.5 (vendored, regenerated at ABI 14)
 // instead of v0.23.1, so C# 12 body-less types and collection expressions parse; a
 // named attribute argument is never a route template.
-const cacheVersion = "v406"
+// v407: a C# file is parsed under one build configuration: every #if/#elif/#else chain
+// keeps its first branch and the conditional directives are blanked before parsing.
+const cacheVersion = "v407"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

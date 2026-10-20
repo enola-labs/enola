@@ -55,3 +55,18 @@ None differs from upstream. The grammar declares no `reserved` word set (its
 `_reserved_identifier` is an ordinary rule for contextual keywords), so nothing is lost
 at ABI 14. Upstream's test corpus gives the same result at ABI 14 and at ABI 15: 167 of
 168 pass, and the one failure ("Switch statements") is upstream's own.
+
+## Known gaps in v0.23.5
+
+Measured against v0.23.1 on the corpus, after the extractor resolves preprocessor
+directives (see `activeBranches` in the parent package). Each makes the surrounding
+type or file an ERROR node; all are upstream grammar issues, not ABI effects:
+
+- `async` used as an identifier, e.g. a variable passed as `F(servers, async, name)`.
+  It costs runtime's `DnsResolverPal.*.cs` their symbols (about 100).
+- a list pattern holding a property or positional subpattern,
+  `x is [.., SyntaxToken { Kind: K } t]` and `is [.., (kind: K)]` (roslyn).
+- C# 14 syntax: null-conditional assignment (`a?.B = c`) and `extension` blocks.
+- a pointer dereference as an argument, `F(*(IntPtr*)p)`, and other pointer and
+  ref assignments in runtime internals.
+- the withdrawn C# 11 parameter null check `string key!!`, which v0.23.1 accepted.
