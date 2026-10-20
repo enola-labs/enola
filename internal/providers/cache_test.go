@@ -149,3 +149,32 @@ func TestRunWith_PerFileDropsFactsOutsideTheListing(t *testing.T) {
 		t.Fatalf("warm run facts = %d: the reused elsewhere entry plus the recomputed a.rb, never the out-of-scope duplicate: %+v", len(second), second)
 	}
 }
+
+func TestRunWith_PerFileKeepsIdenticalFilesApart(t *testing.T) {
+	marker := filepath.Join(t.TempDir(), "runs")
+	script := writePerFileProvider(t, marker, "")
+	cache := newMemoryCache()
+	files := []string{"db/a_schema.rb", "db/b_schema.rb"}
+	hashes := map[string]string{"db/a_schema.rb": "same", "db/b_schema.rb": "same"}
+
+	cold, _ := RunWith(context.Background(), perFileInput(script, cache, files, hashes))
+	warm, records := RunWith(context.Background(), perFileInput(script, cache, files, hashes))
+
+	if runsRecorded(t, marker) != 1 {
+		t.Fatalf("warm run invoked the provider; both identical files were cached")
+	}
+	if r := records[0].Reuse; r == nil || r.FilesReused != 2 || r.Reused != 2 {
+		t.Fatalf("warm run reuse = %+v, want both files reused", records[0].Reuse)
+	}
+	if len(cold) != 2 || len(warm) != 2 {
+		t.Fatalf("cold facts = %+v, warm facts = %+v, want one per file in both", cold, warm)
+	}
+	for i := range cold {
+		if cold[i].Name != warm[i].Name || cold[i].File != warm[i].File {
+			t.Fatalf("warm fact %d = %s in %s, cold = %s in %s", i, warm[i].Name, warm[i].File, cold[i].Name, cold[i].File)
+		}
+	}
+	if warm[0].File == warm[1].File {
+		t.Fatalf("warm run gave both facts to %s", warm[0].File)
+	}
+}
