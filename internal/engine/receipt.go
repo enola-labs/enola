@@ -264,6 +264,41 @@ func finishSnapshotID(h hash.Hash, enolaVersion, configHash string) string {
 	return hashPrefix + hex.EncodeToString(h.Sum(nil))
 }
 
+// filesReadInPart is one parse error per file an extractor's extraction fact
+// names as read only in part. It is read from the facts rather than returned
+// by the extractor, so a run that reuses cached facts counts what the run that
+// computed them saw.
+func filesReadInPart(extracted []facts.Fact) []facts.ParseError {
+	var errs []facts.ParseError
+	for _, f := range extracted {
+		if f.Kind != facts.KindExtraction {
+			continue
+		}
+		extractor, _, _ := strings.Cut(f.Name, ":")
+		var files []string
+		switch v := f.PropAny(facts.PropParsedWithErrors).(type) {
+		case []string:
+			files = v
+		case []any:
+			for _, item := range v {
+				if file, ok := item.(string); ok {
+					files = append(files, file)
+				}
+			}
+		}
+		for _, file := range files {
+			errs = append(errs, facts.ParseError{Extractor: extractor, File: file, Msg: "the parser left an error node; what follows it may be unread"})
+		}
+	}
+	sort.SliceStable(errs, func(i, j int) bool {
+		if errs[i].Extractor != errs[j].Extractor {
+			return errs[i].Extractor < errs[j].Extractor
+		}
+		return errs[i].File < errs[j].File
+	})
+	return errs
+}
+
 // capParseErrors trims a parse-error slice to the sample cap for the receipt.
 func capParseErrors(errs []facts.ParseError) []facts.ParseError {
 	if len(errs) <= parseErrorSampleCap {

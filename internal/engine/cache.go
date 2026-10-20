@@ -3020,7 +3020,8 @@ import (
 // v410: a Java method or class no longer loses relations recorded after a nested declaration.
 // v411: a Kotlin function, class or object no longer loses relations recorded after a nested declaration.
 // v412: a Ruby call to a hardcoded absolute host is an external client route carrying the host as written; an interpolated host is refused and counted.
-const cacheVersion = "v412"
+// v413: the Ruby extractor emits a ruby:parse extraction fact per repository, counting the files it read whole and naming the files tree-sitter read only in part.
+const cacheVersion = "v413"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

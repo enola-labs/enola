@@ -653,6 +653,12 @@ type GitInfo struct {
 	Remote string `json:"remote,omitempty"`
 }
 
+// PropParsedWithErrors is the list an extractor's extraction fact carries of
+// the files its parser read only in part: the tree held an error node, so what
+// follows it may be unread. The engine counts each one as a parse error in the
+// receipt, from the facts, so a run that reuses cached facts counts them too.
+const PropParsedWithErrors = "parsed_with_errors"
+
 // ParseError records a non-fatal extraction failure — an extractor that could
 // not detect or parse its inputs. These are counted rather than swallowed so a
 // receipt can surface thin extraction.

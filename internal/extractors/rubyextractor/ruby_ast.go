@@ -28,10 +28,17 @@ func sortedKeys(m map[string]bool) []string {
 // regex produced is preserved here, with higher fidelity (heredocs, multi-line
 // expressions, endless methods, and nested scopes are handled by the grammar).
 func extractFileAST(src []byte, relFile string, isRails, exportedByPackwerk bool) []facts.Fact {
+	out, _ := extractFileASTReporting(src, relFile, isRails, exportedByPackwerk)
+	return out
+}
+
+// extractFileASTReporting also reports whether the tree held an error node,
+// after which tree-sitter's recovery may have dropped what the file declares.
+func extractFileASTReporting(src []byte, relFile string, isRails, exportedByPackwerk bool) ([]facts.Fact, bool) {
 	parser := sitter.NewParser()
 	defer parser.Close()
 	if err := parser.SetLanguage(sitter.NewLanguage(ruby.Language())); err != nil {
-		return nil
+		return nil, false
 	}
 	tree := parser.Parse(src, nil)
 	defer tree.Close()
@@ -65,7 +72,7 @@ func extractFileAST(src []byte, relFile string, isRails, exportedByPackwerk bool
 		w.out[w.fileRefIdx].PropAny("dynamic_send_prefixes") == nil {
 		w.out = append(w.out[:w.fileRefIdx], w.out[w.fileRefIdx+1:]...)
 	}
-	return w.out
+	return w.out, root.HasError()
 }
 
 // ensureFileRefFact returns the index of this file's lazily-created file-scope

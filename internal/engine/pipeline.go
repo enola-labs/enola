@@ -263,6 +263,7 @@ func (e *Engine) extract(r *snapshotRun) error {
 	if err != nil {
 		return fmt.Errorf("extraction: %w", err)
 	}
+	r.parseErrs = append(r.parseErrs, filesReadInPart(e.store.FactsRef()[r.preCount:])...)
 	e.reportShadowed(r.absRepo, r.shadowed)
 	// Reference-only extraction over test/spec files. Runs every snapshot (not
 	// cached with the main extractors) and adds only KindTestRef facts, so a

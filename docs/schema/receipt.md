@@ -41,7 +41,7 @@ The receipt itself is not byte-stable because `generated_at`, `duration`, and
 | `files_parsed` | Distinct files that produced at least one fact |
 | `files_skipped` / `dirs_skipped` | Ignored files visited and ignored directories pruned |
 | `skipped_sample` | Capped sample of skipped paths and their matching globs |
-| `parse_errors` | Non-fatal extractor detection or parsing failures |
+| `parse_errors` | Non-fatal extractor detection or parsing failures, and one per file an extractor read only in part (its parser left an error node; the extraction fact names the file under `parsed_with_errors`) |
 | `parse_error_sample` | Capped sample of `{extractor, file?, msg}` records |
 | `heuristic_insights` | Insights with confidence below `1.0` |
 | `coverage` | Multi-repo coverage summary: `{services_total, coverage_gaps, unresolved_edges, external_edges?, extractors_reporting?, extraction_unresolved?}` |
