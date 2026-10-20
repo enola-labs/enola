@@ -85,6 +85,7 @@ func (s *Server) registerGenerateSnapshotTool() {
 			"A folder holding several git repositories is indexed as a linked cluster (no_cluster=true for one repository). Several repositories go in ONE call as repo_paths. " +
 			"append=true adds a repository to what is loaded, and is enabled automatically when you switch repos; fresh=true discards what is loaded when you have moved to a different project.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args generateSnapshotArgs) (*mcp.CallToolResult, any, error) {
+		ctx = withProgress(ctx, req)
 		if len(args.RepoPaths) > 0 {
 			paths, err := resolveRepoPaths(args)
 			if err != nil {
