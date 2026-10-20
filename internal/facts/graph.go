@@ -988,6 +988,178 @@ func (g *Graph) FindPath(from, to string, relKinds []string, maxDepth int) PathR
 	return result
 }
 
+// SetPathResult is the shortest path between two sets of nodes. From and To
+// name the nodes the path actually joins; a name asked for that the graph
+// does not hold is listed rather than dropped, since a set that silently lost
+// a member answers a smaller question than the one asked.
+type SetPathResult struct {
+	PathResult
+	UnresolvedFrom []string `json:"unresolved_from,omitempty"`
+	UnresolvedTo   []string `json:"unresolved_to,omitempty"`
+}
+
+// FindPathBetween finds the shortest path from any node in froms to any node in
+// tos with one breadth-first search seeded at every source, over the same
+// relation filter and depth clamp as FindPath. Each target is expanded by
+// RollupSeeds, as find_path expands a single target, so a path ending at one of
+// a type's methods reaches the type. Sources are seeded in name order and each
+// node's neighbours are visited in name order, so among equally short paths the
+// first one in that order is returned and a rerun returns the same one. Names
+// are exact node names; nothing is resolved by substring.
+func (g *Graph) FindPathBetween(froms, tos []string, relKinds []string, maxDepth int) SetPathResult {
+	// RollupSeeds takes the read lock itself, so the targets are expanded before
+	// this walk takes it.
+	var held, unresolvedTo []string
+	g.mu.RLock()
+	for _, to := range sortedUnique(tos) {
+		if _, ok := g.lookup(to); ok {
+			held = append(held, to)
+		} else {
+			unresolvedTo = append(unresolvedTo, to)
+		}
+	}
+	g.mu.RUnlock()
+	targets := map[string]bool{}
+	for _, to := range held {
+		for _, seed := range g.RollupSeeds(to) {
+			targets[seed] = true
+		}
+	}
+
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+
+	if maxDepth <= 0 {
+		maxDepth = 10
+	}
+	if maxDepth > 20 {
+		maxDepth = 20
+	}
+
+	result := SetPathResult{UnresolvedTo: unresolvedTo}
+	var sources []uint32
+	seeded := map[uint32]bool{}
+	var unresolvedFrom []string
+	for _, from := range sortedUnique(froms) {
+		id, ok := g.lookup(from)
+		if !ok {
+			unresolvedFrom = append(unresolvedFrom, from)
+			continue
+		}
+		if !seeded[id] {
+			seeded[id] = true
+			sources = append(sources, id)
+		}
+	}
+	result.UnresolvedFrom = unresolvedFrom
+	targetIDs := map[uint32]bool{}
+	for name := range targets {
+		if id, ok := g.lookup(name); ok {
+			targetIDs[id] = true
+		}
+	}
+	if len(sources) == 0 || len(targetIDs) == 0 {
+		return result
+	}
+
+	for _, id := range sources {
+		if targetIDs[id] {
+			result.From, result.To, result.Found = g.names[id], g.names[id], true
+			result.Path = []TraversalNode{g.nodeForID(id, 0, "")}
+			return result
+		}
+	}
+
+	type queueItem struct {
+		id    uint32
+		depth int
+	}
+	visited := make(map[uint32]struct{}, len(sources))
+	parent := make(map[uint32]uint32)
+	parentRel := make(map[uint32]uint16)
+	queue := make([]queueItem, 0, len(sources))
+	for _, id := range sources {
+		visited[id] = struct{}{}
+		queue = append(queue, queueItem{id: id})
+	}
+	relSet := g.relIDSet(relKinds)
+	reached, found := uint32(0), false
+	for qi := 0; qi < len(queue) && !found; qi++ {
+		item := queue[qi]
+		if item.depth >= maxDepth {
+			continue
+		}
+		tgts, rels := g.adjOf(item.id, false)
+		order := make([]int, 0, len(tgts))
+		for i := range tgts {
+			if relSet != nil {
+				if _, ok := relSet[rels[i]]; !ok {
+					continue
+				}
+			}
+			order = append(order, i)
+		}
+		sort.SliceStable(order, func(a, b int) bool { return g.names[tgts[order[a]]] < g.names[tgts[order[b]]] })
+		for _, i := range order {
+			tid := tgts[i]
+			if _, seen := visited[tid]; seen {
+				continue
+			}
+			visited[tid] = struct{}{}
+			parent[tid] = item.id
+			parentRel[tid] = rels[i]
+			if targetIDs[tid] {
+				reached, found = tid, true
+				break
+			}
+			queue = append(queue, queueItem{id: tid, depth: item.depth + 1})
+		}
+	}
+	if !found {
+		return result
+	}
+
+	path := []uint32{reached}
+	for cur := reached; !seeded[cur]; cur = parent[cur] {
+		path = append(path, parent[cur])
+	}
+	for i, j := 0, len(path)-1; i < j; i, j = i+1, j-1 {
+		path[i], path[j] = path[j], path[i]
+	}
+	result.From, result.To, result.Found = g.names[path[0]], g.names[reached], true
+	for i, id := range path {
+		via := ""
+		if i > 0 {
+			via = g.relName(parentRel[id])
+		}
+		result.Path = append(result.Path, g.nodeForID(id, i, via))
+	}
+	for i := 1; i < len(path); i++ {
+		result.Edges = append(result.Edges, TraversalEdge{
+			Source: g.names[path[i-1]],
+			Target: g.names[path[i]],
+			Kind:   g.relName(parentRel[path[i]]),
+		})
+	}
+	return result
+}
+
+// sortedUnique returns names sorted with repeats removed, a fresh slice.
+func sortedUnique(names []string) []string {
+	if len(names) == 0 {
+		return nil
+	}
+	out := append([]string(nil), names...)
+	sort.Strings(out)
+	kept := out[:1]
+	for _, n := range out[1:] {
+		if n != kept[len(kept)-1] {
+			kept = append(kept, n)
+		}
+	}
+	return kept
+}
+
 // ImpactSet computes the transitive set of nodes affected by changing the target.
 // It performs a reverse BFS and groups results by depth.
 // If includeForward is true, it also includes what the target depends on.
