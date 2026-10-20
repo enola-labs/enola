@@ -261,7 +261,7 @@ thing.
 | `query_facts` | Precision filter over the extracted facts. |
 | `show_symbol` | Show me the actual source of this named symbol. |
 | `traverse` | Walk the dependency or call graph outward from here. |
-| `find_path` | How does A reach B? |
+| `find_path` | How does A reach B? With `from_nodes` and `to_nodes`, how does any of one set of nodes reach any of another, in one search? |
 | `impact_analysis` | If I change this, what breaks? |
 | `endpoint_impact` | Who calls this HTTP endpoint, and which screens sit behind them? |
 | `governing_intent` | Which knowledge pages govern this code — and which code does a page govern? |

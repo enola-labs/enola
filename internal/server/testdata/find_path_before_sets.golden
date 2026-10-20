@@ -1,0 +1,254 @@
+find_path {"from":"..main","to":"pkg/a.Alpha"}
+{
+  "from_tried": [
+    "..main"
+  ],
+  "to_tried": [
+    "pkg/a.Alpha"
+  ],
+  "from": "..main",
+  "to": "pkg/a.Alpha",
+  "found": true,
+  "path": [
+    {
+      "name": "..main",
+      "kind": "symbol",
+      "file": "main.go",
+      "line": 10,
+      "repo": "go_sample",
+      "depth": 0
+    },
+    {
+      "name": "pkg/a.Alpha",
+      "kind": "symbol",
+      "file": "pkg/a/a.go",
+      "line": 7,
+      "repo": "go_sample",
+      "depth": 1
+    }
+  ],
+  "edges": [
+    {
+      "source": "..main",
+      "target": "pkg/a.Alpha",
+      "kind": "calls"
+    }
+  ]
+}
+
+find_path {"from":"pkg/b.Beta","to":"..main"}
+{
+  "note": "both endpoints resolved uniquely, but no path connects them within 10 hops",
+  "from_tried": [
+    "pkg/b.Beta"
+  ],
+  "to_tried": [
+    "..main"
+  ],
+  "from": "pkg/b.Beta",
+  "to": "..main",
+  "found": false
+}
+
+find_path {"from":"main","to":"Beta"}
+{
+  "from_tried": [
+    "..main"
+  ],
+  "to_tried": [
+    "pkg/b.Beta"
+  ],
+  "from": "..main",
+  "to": "pkg/b.Beta",
+  "found": true,
+  "path": [
+    {
+      "name": "..main",
+      "kind": "symbol",
+      "file": "main.go",
+      "line": 10,
+      "repo": "go_sample",
+      "depth": 0
+    },
+    {
+      "name": "pkg/b.Beta",
+      "kind": "symbol",
+      "file": "pkg/b/b.go",
+      "line": 6,
+      "repo": "go_sample",
+      "depth": 1
+    }
+  ],
+  "edges": [
+    {
+      "source": "..main",
+      "target": "pkg/b.Beta",
+      "kind": "calls"
+    }
+  ]
+}
+
+find_path {"from":"a","to":"Beta"}
+{
+  "from_resolution": {
+    "query": "a",
+    "alternatives": [
+      "pkg/a",
+      ". -\u003e example.com/gosample/pkg/a",
+      "pkg/b -\u003e example.com/gosample/pkg/a",
+      "pkg/a/a_test.go",
+      "pkg/a/a_ext_test.go",
+      ". -\u003e example.com/gosample/pkg/b",
+      "pkg/a -\u003e example.com/gosample/pkg/b",
+      "..main",
+      "pkg/a.Seed",
+      "pkg/b.Beta"
+    ],
+    "candidates": [
+      {
+        "name": "pkg/a",
+        "kind": "module",
+        "repo": "go_sample",
+        "file": "pkg/a",
+        "score": 1.4000000000000001
+      },
+      {
+        "name": ". -\u003e example.com/gosample/pkg/a",
+        "kind": "dependency",
+        "repo": "go_sample",
+        "file": "main.go",
+        "score": 1.3
+      },
+      {
+        "name": "pkg/b -\u003e example.com/gosample/pkg/a",
+        "kind": "dependency",
+        "repo": "go_sample",
+        "file": "pkg/b/b.go",
+        "score": 1.3
+      }
+    ],
+    "confidence": 0.5185185185185185,
+    "ambiguous": true
+  },
+  "from_tried": [
+    "pkg/a",
+    ". -\u003e example.com/gosample/pkg/a",
+    "pkg/b -\u003e example.com/gosample/pkg/a",
+    "pkg/a/a_test.go",
+    "pkg/a/a_ext_test.go",
+    ". -\u003e example.com/gosample/pkg/b",
+    "pkg/a -\u003e example.com/gosample/pkg/b",
+    "..main"
+  ],
+  "to_tried": [
+    "pkg/b.Beta"
+  ],
+  "from": "..main",
+  "to": "pkg/b.Beta",
+  "found": true,
+  "path": [
+    {
+      "name": "..main",
+      "kind": "symbol",
+      "file": "main.go",
+      "line": 10,
+      "repo": "go_sample",
+      "depth": 0
+    },
+    {
+      "name": "pkg/b.Beta",
+      "kind": "symbol",
+      "file": "pkg/b/b.go",
+      "line": 6,
+      "repo": "go_sample",
+      "depth": 1
+    }
+  ],
+  "edges": [
+    {
+      "source": "..main",
+      "target": "pkg/b.Beta",
+      "kind": "calls"
+    }
+  ]
+}
+
+find_path {"from":"Alpha","to":"nosuchthing"}
+error: to: no facts matching "nosuchthing"
+
+find_path {"from":"..main","relation_kinds":["calls"],"to":"pkg/b.Beta"}
+{
+  "from_tried": [
+    "..main"
+  ],
+  "to_tried": [
+    "pkg/b.Beta"
+  ],
+  "from": "..main",
+  "to": "pkg/b.Beta",
+  "found": true,
+  "path": [
+    {
+      "name": "..main",
+      "kind": "symbol",
+      "file": "main.go",
+      "line": 10,
+      "repo": "go_sample",
+      "depth": 0
+    },
+    {
+      "name": "pkg/b.Beta",
+      "kind": "symbol",
+      "file": "pkg/b/b.go",
+      "line": 6,
+      "repo": "go_sample",
+      "depth": 1
+    }
+  ],
+  "edges": [
+    {
+      "source": "..main",
+      "target": "pkg/b.Beta",
+      "kind": "calls"
+    }
+  ]
+}
+
+find_path {"from":"..main","max_depth":1,"to":"pkg/b.Beta"}
+{
+  "from_tried": [
+    "..main"
+  ],
+  "to_tried": [
+    "pkg/b.Beta"
+  ],
+  "from": "..main",
+  "to": "pkg/b.Beta",
+  "found": true,
+  "path": [
+    {
+      "name": "..main",
+      "kind": "symbol",
+      "file": "main.go",
+      "line": 10,
+      "repo": "go_sample",
+      "depth": 0
+    },
+    {
+      "name": "pkg/b.Beta",
+      "kind": "symbol",
+      "file": "pkg/b/b.go",
+      "line": 6,
+      "repo": "go_sample",
+      "depth": 1
+    }
+  ],
+  "edges": [
+    {
+      "source": "..main",
+      "target": "pkg/b.Beta",
+      "kind": "calls"
+    }
+  ]
+}
+

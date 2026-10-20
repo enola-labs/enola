@@ -98,7 +98,9 @@ func (s *Server) registerFindPathTool() {
 		Name: "find_path",
 		Description: "Shortest path, by hop count, between two nodes: \"how does X reach Y?\", \"what is the call chain from A to B?\". " +
 			"An ambiguous endpoint is not an error: the top candidates are tried (for a type, its methods and constructor too) and the first path found is returned, with the ranked candidates. " +
-			"With no path, found=false and a note says whether the endpoints were ambiguous (listing the candidates tried) or resolved but unreachable within max_depth.",
+			"With no path, found=false and a note says whether the endpoints were ambiguous (listing the candidates tried) or resolved but unreachable within max_depth. " +
+			"To ask how one set of nodes reaches another (the files of one part to the files of another), pass " +
+			"from_nodes and to_nodes instead: exact names, one search, the shortest path from any of the first to any of the second.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args findPathArgs) (*mcp.CallToolResult, any, error) {
 		store := s.eng.Store()
 		if store.Count() == 0 {
@@ -107,6 +109,10 @@ func (s *Server) registerFindPathTool() {
 		graph := store.Graph()
 		if graph == nil {
 			return errorResult("No graph available. Run generate_snapshot first."), nil, nil
+		}
+
+		if len(args.FromNodes) > 0 || len(args.ToNodes) > 0 {
+			return findPathBetweenSets(graph, args)
 		}
 
 		if args.From == "" || args.To == "" {
@@ -162,6 +168,36 @@ func (s *Server) registerFindPathTool() {
 		}
 		return jsonResult(resp)
 	})
+}
+
+// findPathSetsResponse answers find_path over from_nodes and to_nodes: the
+// shortest path between the two sets and every name the graph does not hold.
+// It carries no resolution, because nothing was resolved.
+type findPathSetsResponse struct {
+	Note string `json:"note,omitempty"`
+	facts.SetPathResult
+}
+
+// findPathBetweenSets answers the set form of find_path. The sets replace from
+// and to rather than mixing with them, so a call reads as one question: an
+// endpoint that is a single name is a set of one.
+func findPathBetweenSets(graph *facts.Graph, args findPathArgs) (*mcp.CallToolResult, any, error) {
+	if args.From != "" || args.To != "" {
+		return errorResult("from_nodes and to_nodes replace from and to; pass one pair or the other"), nil, nil
+	}
+	if len(args.FromNodes) == 0 || len(args.ToNodes) == 0 {
+		return errorResult("both 'from_nodes' and 'to_nodes' are required when either is given"), nil, nil
+	}
+	result := graph.FindPathBetween(args.FromNodes, args.ToNodes, args.RelationKinds, args.MaxDepth)
+	resp := findPathSetsResponse{SetPathResult: result}
+	if !result.Found {
+		resp.Note = fmt.Sprintf("no path within %d hops from any of %d source(s) to any of %d target(s)",
+			effectiveMaxDepth(args.MaxDepth), len(args.FromNodes)-len(result.UnresolvedFrom), len(args.ToNodes)-len(result.UnresolvedTo))
+		if len(result.UnresolvedFrom)+len(result.UnresolvedTo) > 0 {
+			resp.Note += "; names the graph does not hold are listed in unresolved_from and unresolved_to"
+		}
+	}
+	return jsonResult(resp)
 }
 
 // registerEndpointImpactTool registers the endpoint_impact tool.
@@ -339,10 +375,12 @@ type traverseArgs struct {
 
 // findPathArgs are the arguments for the find_path tool.
 type findPathArgs struct {
-	From          string   `json:"from" jsonschema:"Source node, substring match. Disambiguate with repo:, kind:, file: prefixes or a package-qualified name, e.g. 'repo:go-auth Login' or 'ticket.Repository'."`
-	To            string   `json:"to" jsonschema:"Target node, matched like from, e.g. 'kind:struct AuthMiddleware' or 'repo:golf domain/cart.CartService'."`
+	From          string   `json:"from,omitempty" jsonschema:"Source node, substring match, required unless from_nodes is given. Disambiguate with repo:, kind:, file: prefixes or a package-qualified name, e.g. 'repo:go-auth Login' or 'ticket.Repository'."`
+	To            string   `json:"to,omitempty" jsonschema:"Target node, matched like from, required unless to_nodes is given, e.g. 'kind:struct AuthMiddleware' or 'repo:golf domain/cart.CartService'."`
 	RelationKinds []string `json:"relation_kinds,omitempty" jsonschema:"Relations to follow. Default: all."`
 	MaxDepth      int      `json:"max_depth,omitempty" jsonschema:"Maximum path length (1-20). Default 10."`
+	FromNodes     []string `json:"from_nodes,omitempty" jsonschema:"Exact node names to start from, used together with to_nodes instead of from and to: one breadth-first search finds the shortest path from any of them to any of to_nodes. No substring matching; a name the graph does not hold is listed in unresolved_from."`
+	ToNodes       []string `json:"to_nodes,omitempty" jsonschema:"Exact node names to reach, used together with from_nodes instead of from and to. Each is expanded to a type's methods and constructor as to is. No substring matching; a name the graph does not hold is listed in unresolved_to."`
 }
 
 // impactAnalysisArgs are the arguments for the impact_analysis tool.
