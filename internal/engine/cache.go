@@ -3012,7 +3012,11 @@ import (
 // named attribute argument is never a route template.
 // v407: a C# file is parsed under one build configuration: every #if/#elif/#else chain
 // keeps its first branch and the conditional directives are blanked before parsing.
-const cacheVersion = "v407"
+// v408: a C# attribute, typeof(T), default(T) or nameof(T) emits a names edge to the type,
+// kept only when the repository declares it and the file can see it (its namespace, an
+// enclosing one, or a using); a class with [DiagnosticAnalyzer],
+// [Generator] or a MEF [Export*] attribute is framework_registered.
+const cacheVersion = "v408"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

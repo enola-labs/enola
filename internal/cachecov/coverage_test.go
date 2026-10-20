@@ -33,6 +33,7 @@ import (
 // test functions that assert the behavior that version introduced. v1 is the
 // implicit baseline (no changelog line), so coverage starts at v2.
 var versionCoverage = map[int][]string{
+	408: {"TestExtract_TypeNamesAndToolchainRoots", "TestExtract_TypeNamesFollowVisibility"},
 	407: {"TestActiveBranches", "TestPreprocessorPlacementsKeepTheFile"},
 	406: {"TestGrammarSmoke", "TestWalkerNodeKindsStillExist", "TestCSharp12Syntax", "TestASPNet_NamedArgumentIsNotATemplate", "TestGolden", "TestDeterminism"},
 	405: {

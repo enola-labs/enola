@@ -427,6 +427,9 @@ func (w *astWalker) handleTypeDecl(node *sitter.Node, kind string) {
 	w.out = append(w.out, f)
 	idx := len(w.out) - 1
 	w.pushOwner(idx)
+	if attrs := w.noteAttributes(node); loadedByToolchain(attrs) {
+		w.out[idx].SetProp("framework_registered", true)
+	}
 
 	// ASP.NET routing evidence: recorded for every type, decided later. Whether
 	// this one serves routes depends on its methods and on a base class that is
@@ -647,6 +650,14 @@ func (w *astWalker) handleMethod(node *sitter.Node) {
 	})
 	idx := len(w.out) - 1
 	w.pushOwner(idx)
+	w.noteAttributes(node)
+	if params := node.ChildByFieldName("parameters"); params != nil {
+		for i := uint(0); i < uint(params.ChildCount()); i++ {
+			if p := params.Child(i); kindOf(p) == "parameter" {
+				w.noteAttributes(p)
+			}
+		}
+	}
 
 	if kindOf(node) == "method_declaration" && len(w.typeStack) > 0 {
 		w.noteAction(node, w.canonicalName(w.enclosingType()), w.out[idx].Name, name)
@@ -720,6 +731,7 @@ func (w *astWalker) handleProperty(node *sitter.Node) {
 	})
 	idx := len(w.out) - 1
 	w.pushOwner(idx)
+	w.noteAttributes(node)
 	w.walkBodyWithMetrics(node, idx, name, 0)
 	w.popOwner()
 }
@@ -738,6 +750,7 @@ func (w *astWalker) handleField(node *sitter.Node) {
 	if mods["const"] || mods["readonly"] {
 		kind = facts.SymbolConstant
 	}
+	w.noteAttributes(node)
 	decl := findChildByKind(node, "variable_declaration")
 	if decl == nil {
 		w.walkForCalls(node)
@@ -916,6 +929,125 @@ func (w *astWalker) hasBindingAttribute(param *sitter.Node) bool {
 	return false
 }
 
+// noteAttributes records the attributes written directly on a declaration as names
+// edges from the current owner to the attribute class, and returns their short names.
+// `[Foo]` and `[FooAttribute]` both name the class FooAttribute, the suffix every
+// attribute class carries by convention. The bare `Foo` is not offered: the compiler
+// binds it only when Foo is itself an attribute class, which the merge pass cannot
+// check, and an unrelated class named Test or Fact would catch every `[Test]`. The
+// merge pass keeps the edge only when the repository declares the class, so
+// `[HttpGet]` and the other framework attributes leave none.
+func (w *astWalker) noteAttributes(decl *sitter.Node) []string {
+	var names []string
+	for i := uint(0); i < uint(decl.ChildCount()); i++ {
+		if list := decl.Child(i); kindOf(list) == "attribute_list" {
+			names = append(names, w.noteAttributeList(list)...)
+		}
+	}
+	return names
+}
+
+// noteAttributeList records one attribute list (see noteAttributes) and walks the
+// attribute arguments, where a typeof(T) names a type too.
+func (w *astWalker) noteAttributeList(list *sitter.Node) []string {
+	var names []string
+	for j := uint(0); j < uint(list.NamedChildCount()); j++ {
+		attr := list.NamedChild(j)
+		if kindOf(attr) != "attribute" {
+			continue
+		}
+		nameNode := attr.ChildByFieldName("name")
+		if nameNode == nil {
+			continue
+		}
+		name := nodeText(nameNode, w.src)
+		if k := strings.IndexByte(name, '<'); k >= 0 {
+			name = name[:k]
+		}
+		if k := strings.LastIndexByte(name, '.'); k >= 0 {
+			name = name[k+1:]
+		}
+		if !isIdentifierPath(name) {
+			continue
+		}
+		short := strings.TrimSuffix(name, "Attribute")
+		names = append(names, short)
+		w.addEdge(facts.RelNames, short+"Attribute")
+		if args := findChildByKind(attr, "attribute_argument_list"); args != nil {
+			w.walkForCalls(args)
+		}
+	}
+	return names
+}
+
+// noteNameof records `nameof(T)` as a names edge to T when T is a type-shaped name,
+// the one form of nameof that names a type rather than a member or a local.
+func (w *astWalker) noteNameof(inv *sitter.Node) {
+	fn := inv.ChildByFieldName("function")
+	if fn == nil || kindOf(fn) != "identifier" || nodeText(fn, w.src) != "nameof" {
+		return
+	}
+	args := inv.ChildByFieldName("arguments")
+	if args == nil || args.NamedChildCount() != 1 {
+		return
+	}
+	arg := args.NamedChild(0)
+	if arg.NamedChildCount() == 1 {
+		arg = arg.NamedChild(0)
+	}
+	switch kindOf(arg) {
+	case "identifier", "generic_name", "qualified_name":
+		if isTypeParameter(arg, w.src) {
+			return
+		}
+		if t := w.targetForType(arg); t != "" {
+			if c := t[0]; c >= 'A' && c <= 'Z' {
+				w.addEdge(facts.RelNames, t)
+			}
+		}
+	}
+}
+
+// isTypeParameter reports whether a type reference is a bare name declared as a type
+// parameter by an enclosing method, type or delegate: `typeof(T)` inside `Foo<T>`
+// names no declared type.
+func isTypeParameter(ref *sitter.Node, src []byte) bool {
+	if kindOf(ref) != "identifier" {
+		return false
+	}
+	name := nodeText(ref, src)
+	for n := ref.Parent(); n != nil; n = n.Parent() {
+		list := findChildByKind(n, "type_parameter_list")
+		if list == nil {
+			continue
+		}
+		for i := uint(0); i < list.NamedChildCount(); i++ {
+			p := list.NamedChild(i)
+			if id := p.ChildByFieldName("name"); id != nil && nodeText(id, src) == name {
+				return true
+			}
+			if nodeText(p, src) == name {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// loadedByToolchain reports whether one of a type's attributes has the compiler or a
+// MEF container instantiate it: an analyzer or suppressor ([DiagnosticAnalyzer]), a
+// source generator ([Generator]), or a MEF export ([Export], [ExportCodeFixProvider],
+// [ExportLanguageService], ...). Nothing in code constructs such a class, so it is
+// framework_registered rather than dead.
+func loadedByToolchain(attrs []string) bool {
+	for _, a := range attrs {
+		if a == "DiagnosticAnalyzer" || a == "Generator" || strings.HasPrefix(a, "Export") {
+			return true
+		}
+	}
+	return false
+}
+
 // soleConstructor reports whether the enclosing type declares exactly one
 // constructor, making its parameters unambiguously injected dependencies.
 func (w *astWalker) soleConstructor() bool {
@@ -1043,6 +1175,19 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 	}
 
 	switch kind {
+	case "attribute_list":
+		// Reached for a member that is not a symbol of its own (a private field or
+		// property), whose attributes then count for the enclosing type.
+		w.noteAttributeList(node)
+		return
+	case "typeof_expression", "default_expression":
+		// `typeof(T)` and `default(T)` name a type without constructing or calling
+		// it; a bare `default` literal has no type child and names nothing.
+		if tn := node.ChildByFieldName("type"); tn != nil && !isTypeParameter(tn, w.src) {
+			if t := w.targetForType(tn); t != "" {
+				w.addEdge(facts.RelNames, t)
+			}
+		}
 	case "class_declaration":
 		w.handleTypeDecl(node, facts.SymbolClass)
 		return
@@ -1118,6 +1263,7 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 			}
 		}
 	case "invocation_expression":
+		w.noteNameof(node)
 		w.handleInvocation(node)
 		// A container registration is the only place a DI-wired implementation is
 		// named, so without this it has no inbound edge and reads as dead.

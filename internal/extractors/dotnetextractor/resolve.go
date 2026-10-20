@@ -369,6 +369,19 @@ func resolveCSharpTargets(allFacts []facts.Fact) {
 		return "", false
 	}
 
+	// The namespaces each file opens with a using directive, read before
+	// classifyUsing rewrites the import edges.
+	fileUsings := make(map[string][]string)
+	for i := range allFacts {
+		f := &allFacts[i]
+		if f.Kind != facts.KindDependency {
+			continue
+		}
+		if imp, _ := f.PropAny("import").(string); imp != "" {
+			fileUsings[f.File] = append(fileUsings[f.File], imp)
+		}
+	}
+
 	for i := range allFacts {
 		f := &allFacts[i]
 		if f.Kind == facts.KindDependency {
@@ -391,6 +404,18 @@ func resolveCSharpTargets(allFacts []facts.Fact) {
 				if canon, ok := resolve(r.Target, fromNS); ok {
 					r.Target = canon
 				}
+			case facts.RelNames:
+				// An attribute, typeof, default or nameof reference survives only when
+				// it names a type this repository declares and the file can see:
+				// the framework's own attributes and BCL types would otherwise be
+				// thousands of edges to nothing, and a repository-wide match by simple
+				// name binds NUnit's [Test] to any class the repository calls
+				// TestAttribute.
+				canon, ok := resolveVisible(r.Target, fromNS, fileUsings[f.File], byFQN)
+				if !ok {
+					continue
+				}
+				r.Target = canon
 			case facts.RelCalls:
 				// A static call written `Type.Method()`: bind it only when Type
 				// resolves to a declared type, so the edge points at a real fact.
@@ -437,6 +462,40 @@ func resolveCSharpTargets(allFacts []facts.Fact) {
 	// Once every implements target is canonical: the calls on a receiver of
 	// declared type, which need the hierarchy to find where a method is declared.
 	resolveTypedCalls(allFacts, resolve)
+}
+
+// resolveVisible binds a type name the way C# makes it visible to a file: written
+// qualified, by its full name; otherwise in the file's namespace or an enclosing one,
+// innermost first, and then in a namespace the file opens with `using`, where the
+// match must be unique. There is no repository-wide fallback by simple name.
+func resolveVisible(target, fromNS string, usings []string, byFQN map[string]string) (string, bool) {
+	if strings.Contains(target, ".") {
+		canon, ok := byFQN[target]
+		return canon, ok
+	}
+	for ns := fromNS; ns != ""; {
+		if canon, ok := byFQN[ns+"."+target]; ok {
+			return canon, true
+		}
+		i := strings.LastIndexByte(ns, '.')
+		if i < 0 {
+			break
+		}
+		ns = ns[:i]
+	}
+	if canon, ok := byFQN[target]; ok {
+		return canon, true // declared in the global namespace
+	}
+	found := ""
+	for _, u := range usings {
+		if canon, ok := byFQN[u+"."+target]; ok {
+			if found != "" && found != canon {
+				return "", false
+			}
+			found = canon
+		}
+	}
+	return found, found != ""
 }
 
 // bindMemberCall decides what to do with a bare method name from a call on an
