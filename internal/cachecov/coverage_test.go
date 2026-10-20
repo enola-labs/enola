@@ -33,6 +33,18 @@ import (
 // test functions that assert the behavior that version introduced. v1 is the
 // implicit baseline (no changelog line), so coverage starts at v2.
 var versionCoverage = map[int][]string{
+	413: {
+		"TestExtract_NamesTheFilesTheParserLeftAnErrorIn",
+		"TestGenerate_ARubyFileReadInPartIsAParseError",
+	},
+	412: {
+		"TestRubyHTTPClient_SkipsNonHTTP",
+		"TestRubyExternalHost_LiteralHostKept",
+		"TestRubyExternalHost_InterpolatedHostRefusedAndCounted",
+		"TestRubyExternalHost_ThroughAParameter",
+		"TestRubyExternalHost_CountedOnTheExtractionRecord",
+		"TestRubyExternalHost_CommentIsNotACall",
+	},
 	411: {
 		"TestKotlinWalk_FunctionKeepsEdgesWhenItsBodyGrowsTheFacts",
 		"TestKotlinWalk_ClassKeepsEdgesRecordedAfterItsMembers",

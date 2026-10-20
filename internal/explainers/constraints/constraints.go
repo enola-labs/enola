@@ -536,15 +536,18 @@ func (e *Explainer) evaluate(store *facts.Store, opts evaluation) evaluated {
 	// breach. The resolvable set is every canonical member-kind fact name,
 	// plus the service nodes: a service-to-service edge targets a repo label,
 	// and skipping it as unresolvable would blind allow-only to every
-	// cross-repo landing.
-	resolvable := map[string]bool{}
+	// cross-repo landing. A name alone is not a landing, though: in a union a
+	// call's bare name meets same-named facts of other repositories, and its
+	// own repository's service node, so each is kept with where it was
+	// measured and asked whether the edge can land on it.
+	resolvable := landings{}
 	for _, r := range rules {
 		if r.allow == "" {
 			continue
 		}
 		for _, kind := range append(append([]string{}, memberKinds...), facts.KindService) {
 			for _, f := range store.ByKind(kind) {
-				resolvable[f.Name] = true
+				resolvable.add(f)
 			}
 		}
 		break
@@ -724,7 +727,7 @@ func (e *Explainer) verdictsFor(r rule, guard bool, run func() []facts.Insight) 
 // make one rule fail and prove the radius names it instead of staying silent.
 var verdictSeam func(r rule)
 
-func (e *Explainer) verdictsOf(r rule, store *facts.Store, graphWalk []facts.Fact, resolve *resolver, ground *grounding, resolvable map[string]bool, members map[string]map[string]bool, memberFacts, carriers, carried map[string][]facts.Fact, exportedFiles, definedNames, composed map[string]bool, census map[string]map[string]bool) []facts.Insight {
+func (e *Explainer) verdictsOf(r rule, store *facts.Store, graphWalk []facts.Fact, resolve *resolver, ground *grounding, resolvable landings, members map[string]map[string]bool, memberFacts, carriers, carried map[string][]facts.Fact, exportedFiles, definedNames, composed map[string]bool, census map[string]map[string]bool) []facts.Insight {
 	if verdictSeam != nil {
 		verdictSeam(r)
 	}
@@ -1192,7 +1195,7 @@ func reachWitnesses(adjacency map[string][]string, source string, toSet map[stri
 // only: would make each rule assert something nobody decided. An edge whose
 // target resolves to nothing measured is skipped — fail closed, never guessed
 // into a breach.
-func (e *Explainer) verdictAllowOnly(r rule, resolve *resolver, resolvable map[string]bool, ground *grounding) []facts.Insight {
+func (e *Explainer) verdictAllowOnly(r rule, resolve *resolver, resolvable landings, ground *grounding) []facts.Insight {
 	// One target question, asked of the allow component and of every allowed
 	// landing in turn — exact name, then a member's method, then the measured
 	// file a path target grounds onto.
@@ -1218,7 +1221,8 @@ func (e *Explainer) verdictAllowOnly(r rule, resolve *resolver, resolvable map[s
 			if rel.Kind != r.via {
 				continue
 			}
-			if !resolvable[rel.Target] && !ground.resolves(rel, f) {
+			measured := resolvable.measured(rel, f)
+			if !measured && !ground.resolves(rel, f) {
 				if ground.ungroundable(rel, f) {
 					skipped[rel.Target] = true
 				}
@@ -1228,7 +1232,7 @@ func (e *Explainer) verdictAllowOnly(r rule, resolve *resolver, resolvable map[s
 				continue
 			}
 			onto := groundedBasis
-			if resolvable[rel.Target] {
+			if measured {
 				onto = exactBasis
 			}
 			out = append(out, facts.Insight{
@@ -1253,6 +1257,46 @@ func (e *Explainer) verdictAllowOnly(r rule, resolve *resolver, resolvable map[s
 		out = append(out, groundSkipInsight(r, skipped))
 	}
 	return out
+}
+
+// landings holds, by name, the repository and kind of every fact an edge's bare
+// target may name, each pair once: a union's 500 queues named default in one
+// repository are one place a call could land, not 500.
+type landings map[string][]landing
+
+type landing struct{ kind, repo string }
+
+func (l landings) add(f facts.Fact) {
+	at := landing{kind: f.Kind, repo: f.Repo}
+	for _, seen := range l[f.Name] {
+		if seen == at {
+			return
+		}
+	}
+	l[f.Name] = append(l[f.Name], at)
+}
+
+// measured reports whether an edge's target names a fact the edge can land
+// on, asked the way the written target_id asks it: the caller's own repository
+// first, the rest of the union only when it holds nothing of the name.
+func (l landings) measured(rel facts.Relation, from facts.Fact) bool {
+	named := l[rel.Target]
+	home := false
+	for _, at := range named {
+		if at.repo == from.Repo {
+			home = true
+			break
+		}
+	}
+	for _, at := range named {
+		if home && at.repo != from.Repo {
+			continue
+		}
+		if facts.LandsByName(from, rel, facts.Fact{Kind: at.kind, Repo: at.repo}) {
+			return true
+		}
+	}
+	return false
 }
 
 // verdictProtect emits one violation per measured via-edge landing on a member

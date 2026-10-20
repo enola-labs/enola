@@ -35,7 +35,7 @@ func referenceWriteJSONL(t *testing.T, s *Store, w io.Writer) {
 		rels := make([]wireRelation, 0, len(f.Relations))
 		for _, r := range f.Relations {
 			wr := wireRelation{Relation: r}
-			if t := s.targetFactFor(r.Target, f.Repo); t >= 0 {
+			if t := s.targetFactFor(r.Target, f.Repo); t >= 0 && LandsByName(f, r, s.FactsRef()[t]) {
 				wr.TargetID = s.FactsRef()[t].Identity()
 			}
 			rels = append(rels, wr)

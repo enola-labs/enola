@@ -132,7 +132,13 @@ func extractRubyHTTPClientFactsCounted(src []byte, relFile string) ([]facts.Fact
 		if raw == "" {
 			raw = m[4]
 		}
-		path, ok := cleanRubyPath(raw)
+		path, host, ok, refused := rubyClientURL(raw)
+		if (host != "" || refused) && rubyCommentLine(line) {
+			continue
+		}
+		if refused {
+			misses[clientHostInterpolated]++
+		}
 		if !ok {
 			continue
 		}
@@ -163,8 +169,76 @@ func extractRubyHTTPClientFactsCounted(src []byte, relFile string) ([]facts.Fact
 		if derived != "" {
 			out[len(out)-1].SetProp("derived", derived)
 		}
+		markExternal(&out[len(out)-1], host)
 	}
 	return out, derivedCount, misses
+}
+
+// clientHostInterpolated counts an absolute URL whose host is built from a value
+// the source does not state: it names no host, so it yields no route.
+const clientHostInterpolated = "host-interpolated"
+
+// An absolute URL keeps its host as written, the rule the Go, Scala, Swift and
+// Kotlin extractors already follow, so the route index, the HTTP signal and the
+// coverage summary read a Ruby call to a third party the way they read theirs.
+func rubyClientURL(raw string) (path, host string, ok, hostRefused bool) {
+	host, rest, absolute := splitAbsoluteURL(raw)
+	if !absolute {
+		path, ok = cleanRubyPath(raw)
+		return path, "", ok, false
+	}
+	if host == "" {
+		return "", "", false, false
+	}
+	if strings.Contains(host, "#{") || strings.Contains(host, "${") {
+		return "", "", false, true
+	}
+	if i := strings.IndexByte(rest, '?'); i >= 0 {
+		rest = rest[:i]
+	}
+	if rest == "" || rest == "/" {
+		return "/", host, true, false
+	}
+	path, ok = cleanRubyPath(rest)
+	return path, host, ok, false
+}
+
+// splitAbsoluteURL cuts an http(s) URL into its host and the rest. The host ends
+// at the first slash or query rather than at a '#', because in a Ruby literal a
+// '#' there opens an interpolation, and an interpolated host must stay visible to
+// be refused.
+func splitAbsoluteURL(raw string) (host, rest string, absolute bool) {
+	p := strings.TrimSpace(raw)
+	for _, scheme := range []string{"https://", "http://"} {
+		after, found := strings.CutPrefix(p, scheme)
+		if !found {
+			continue
+		}
+		end := strings.IndexAny(after, "/?")
+		if end < 0 {
+			end = len(after)
+		}
+		host = after[:end]
+		if at := strings.LastIndexByte(host, '@'); at >= 0 {
+			host = host[at+1:]
+		}
+		return host, after[end:], true
+	}
+	return "", p, false
+}
+
+// A commented-out call names a host nobody calls. The line pattern has always read
+// comments for relative paths; a host is not added to that.
+func rubyCommentLine(line string) bool {
+	return strings.HasPrefix(strings.TrimSpace(line), "#")
+}
+
+func markExternal(f *facts.Fact, host string) {
+	if host == "" {
+		return
+	}
+	f.SetProp("external", true)
+	f.SetProp("host", host)
 }
 
 // extractWrapperMethodClientFacts derives client facts through a request-wrapper

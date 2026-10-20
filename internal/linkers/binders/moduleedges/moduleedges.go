@@ -101,6 +101,10 @@ const (
 	reasonUniqueShort    = "unique_short_name_match"
 	reasonAmbiguousShort = "ambiguous_short_name_match"
 	reasonUnknown        = "no_symbol_match"
+	// reasonAmbiguousOwner: two production modules of one repository declare the
+	// name, so no edge is derived rather than one being picked. It is counted here
+	// so a refusal reads differently from an absence.
+	reasonAmbiguousOwner = "ambiguous_declaring_module"
 )
 
 func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
@@ -115,8 +119,22 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 		return nil
 	}
 
-	type placed struct{ module, repo string }
-	symbolModule := map[string]placed{}
+	// Keyed by (repo, name), never by name alone: 82 of this cluster's symbol
+	// names are carried by more than one repository, and a name-keyed map
+	// resolves each to whichever repo happened to be read last — so the same
+	// union produced different rollups depending on fact order, and a
+	// baseline replay (whose re-read member sits at the store's tail) diffed
+	// against its own pin. Within one repo a name can still collide across
+	// files; the smallest module wins, an order-free tie-break rather than a
+	// last-write win. nameRepos keeps the count of repos carrying each name,
+	// so a target that resolves only outside its caller's repo is still
+	// counted as the cross-repo landing it is rather than as unresolved.
+	type key struct{ repo, name string }
+	type placed struct{ module string }
+	symbolModule := map[key]placed{}
+	ambiguous := map[key]bool{}
+	nameRepos := map[string]int{}
+	seenNameInRepo := map[key]bool{}
 	knownSymbols := map[string]bool{}
 	shortNameCount := map[string]int{}
 	// Repositories whose files carry their label, as an appended repository's do. A
@@ -129,12 +147,28 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 		}
 		knownSymbols[f.Name] = true
 		shortNameCount[symbolShortName(f.Name)]++
-		if module := resolve(f, production, test); module != "" && production[module] {
-			symbolModule[f.Name] = placed{module: module, repo: f.Repo}
-			if f.Repo != "" && module != "." && strings.HasPrefix(f.File, f.Repo+"/"+module+"/") {
-				labelled[f.Repo] = true
+		module := resolve(f, production, test)
+		if module == "" || !production[module] {
+			continue
+		}
+		if f.Repo != "" && module != "." && strings.HasPrefix(f.File, f.Repo+"/"+module+"/") {
+			labelled[f.Repo] = true
+		}
+		k := key{repo: f.Repo, name: f.Name}
+		if !seenNameInRepo[k] {
+			seenNameInRepo[k] = true
+			nameRepos[f.Name]++
+		}
+		if prior, ok := symbolModule[k]; ok {
+			if prior.module == module {
+				continue
+			}
+			ambiguous[k] = true
+			if prior.module < module {
+				continue
 			}
 		}
+		symbolModule[k] = placed{module: module}
 	}
 	if len(symbolModule) == 0 {
 		return nil
@@ -144,48 +178,67 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 	unresolved, crossRepo := 0, 0
 	unresolvedReasons := map[string]int{}
 	unresolvedTargets := map[string]map[string]int{}
+	countUnresolved := func(reason string, f facts.Fact, r facts.Relation) {
+		unresolved++
+		language := f.PropString("language")
+		if language == "" {
+			language = "unknown"
+		}
+		unresolvedReasons[language+"/"+r.Kind+"/"+reason]++
+		if language == "cpp" && r.Kind == facts.RelCalls {
+			if unresolvedTargets[reason] == nil {
+				unresolvedTargets[reason] = map[string]int{}
+			}
+			unresolvedTargets[reason][r.Target]++
+		}
+	}
 	for _, f := range store.ByKind(facts.KindSymbol) {
-		source, ok := symbolModule[f.Name]
-		if !ok {
+		if f.File == "" {
+			continue
+		}
+		// The caller is where its own file puts it. Reading it out of the
+		// placement map answered a question about the NAME, and a name two
+		// modules declare has a winner: a call made from the losing
+		// declaration was credited to the winning module, so the binder
+		// derived an edge from a directory that never made the call and
+		// omitted the one that did.
+		sourceModule := resolve(f, production, test)
+		if sourceModule == "" || !production[sourceModule] {
 			continue
 		}
 		for _, r := range f.Relations {
 			if !rolledRelations[r.Kind] {
 				continue
 			}
-			target, known := symbolModule[r.Target]
+			// The target resolves in the caller's own repository. A directory
+			// name is repo-relative, so a rollup that crossed repositories on
+			// the strength of a shared name would merge two graphs into one
+			// and manufacture dependencies nobody wrote; a dependency that
+			// genuinely crosses a repository is the cross-repo linker's,
+			// derived from a measured seam rather than from two directories
+			// sharing a name.
+			targetKey := key{repo: f.Repo, name: r.Target}
+			target, known := symbolModule[targetKey]
 			if !known {
-				unresolved++
-				reason := classifyUnresolvedTarget(r.Target, knownSymbols, shortNameCount)
-				language := f.PropString("language")
-				if language == "" {
-					language = "unknown"
+				if nameRepos[r.Target] > 0 {
+					crossRepo++
+					continue
 				}
-				category := language + "/" + r.Kind + "/" + reason
-				unresolvedReasons[category]++
-				if language == "cpp" && r.Kind == facts.RelCalls {
-					if unresolvedTargets[reason] == nil {
-						unresolvedTargets[reason] = map[string]int{}
-					}
-					unresolvedTargets[reason][r.Target]++
-				}
+				countUnresolved(classifyUnresolvedTarget(r.Target, knownSymbols, shortNameCount), f, r)
 				continue
 			}
-			// A directory name is repo-relative, and 82 of this cluster's names
-			// are carried by more than one repository (`.` by nine of them), so
-			// a rollup keyed on the name alone merges repositories into one node
-			// and manufactures dependencies nobody wrote. A dependency that
-			// genuinely crosses a repository is the cross-repo linker's, derived
-			// from a measured seam rather than from two directories sharing a
-			// name.
-			if target.repo != source.repo {
-				crossRepo++
+			// Two production modules of this repository declare the name and
+			// nothing in the graph says which one the reference means. A
+			// missing edge is honest; a picked one is a dependency nobody
+			// wrote, stated confidently enough to breach a law.
+			if ambiguous[targetKey] {
+				countUnresolved(reasonAmbiguousOwner, f, r)
 				continue
 			}
-			if target.module == source.module {
+			if target.module == sourceModule {
 				continue
 			}
-			weights[edge{source: source.module, target: target.module, repo: source.repo}]++
+			weights[edge{source: sourceModule, target: target.module, repo: f.Repo}]++
 		}
 	}
 	if len(weights) == 0 {
@@ -230,7 +283,7 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 		len(derived), skipped, unresolved, crossRepo)
 	if unresolved > 0 {
 		log.Printf("[module-edges] unresolved symbol edge breakdown: %s", formatBreakdown(unresolvedReasons))
-		for _, reason := range []string{reasonKnownUnplaced, reasonUniqueShort, reasonAmbiguousShort, reasonUnknown} {
+		for _, reason := range []string{reasonKnownUnplaced, reasonUniqueShort, reasonAmbiguousShort, reasonUnknown, reasonAmbiguousOwner} {
 			if targets := unresolvedTargets[reason]; len(targets) > 0 {
 				log.Printf("[module-edges] top unresolved cpp/calls/%s targets: %s", reason, formatTopTargets(targets, 5))
 			}

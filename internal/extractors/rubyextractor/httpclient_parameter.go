@@ -94,7 +94,14 @@ func extractParameterClientFacts(lines []string, relFile, api, envHint string) (
 				misses[parameterNonLiteral]++
 				continue
 			}
-			path, ok := cleanRubyPath(arg[1 : len(arg)-1])
+			path, host, ok, refused := rubyClientURL(arg[1 : len(arg)-1])
+			if (host != "" || refused) && rubyCommentLine(line) {
+				continue
+			}
+			if refused {
+				misses[clientHostInterpolated]++
+				continue
+			}
 			if !ok {
 				misses[parameterNonLiteral]++
 				continue
@@ -122,6 +129,7 @@ func extractParameterClientFacts(lines []string, relFile, api, envHint string) (
 				},
 				Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: factpath.Dir(relFile)}},
 			})
+			markExternal(&out[len(out)-1], host)
 		}
 	}
 	return out, resolved, misses

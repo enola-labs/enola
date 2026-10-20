@@ -6,6 +6,15 @@ import (
 	"github.com/enola-labs/enola/internal/facts"
 )
 
+func extractionFact(ff []facts.Fact, name string) (facts.Fact, bool) {
+	for _, f := range ff {
+		if f.Kind == facts.KindExtraction && f.Name == name {
+			return f, true
+		}
+	}
+	return facts.Fact{}, false
+}
+
 // clientRoutes filters facts to the outbound HTTP-client routes.
 func clientRoutes(ff []facts.Fact) []facts.Fact {
 	var out []facts.Fact
@@ -97,8 +106,137 @@ record.posts.get(0)
 client.get('https://api.stripe.com/v1/charges')
 `
 	got := clientRoutes(extractRubyHTTPClientFacts([]byte(src), "app/models/user.rb"))
-	if len(got) != 0 {
-		t.Fatalf("got %d client routes, want 0: %+v", len(got), got)
+	if len(got) != 1 {
+		t.Fatalf("got %d client routes, want only the Stripe call: %+v", len(got), got)
+	}
+	stripe := got[0]
+	if stripe.Name != "/v1/charges" || stripe.Line != 5 {
+		t.Fatalf("Stripe call = %s at line %d, want /v1/charges at line 5", stripe.Name, stripe.Line)
+	}
+	if stripe.Props["external"] != true || stripe.Props["host"] != "api.stripe.com" {
+		t.Fatalf("Stripe call must be external to api.stripe.com, got %+v", stripe.Props)
+	}
+}
+
+func TestRubyExternalHost_LiteralHostKept(t *testing.T) {
+	src := `class MobileAuth
+  def github
+    Faraday.get("https://api.github.com/user") do |req|
+    end
+  end
+
+  def mlh(token)
+    Faraday.get("https://my.mlh.io/api/v3/user.json?access_token=#{token}")
+  end
+
+  def debug(key)
+    Faraday.post("https://api.github.com/applications/#{key}/token")
+  end
+
+  def ping
+    client.get("https://status.example.com")
+  end
+
+  def local
+    conn.get("http://localhost:3000/health")
+  end
+end
+`
+	got := clientRoutes(extractRubyHTTPClientFacts([]byte(src), "app/controllers/mobile_auth.rb"))
+	want := map[string]struct {
+		method, host string
+		line         int
+	}{
+		"/user":                  {"GET", "api.github.com", 3},
+		"/api/v3/user.json":      {"GET", "my.mlh.io", 8},
+		"/applications/{}/token": {"POST", "api.github.com", 12},
+		"/":                      {"GET", "status.example.com", 16},
+		"/health":                {"GET", "localhost:3000", 20},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %d client routes, want %d: %+v", len(got), len(want), got)
+	}
+	for _, f := range got {
+		w, ok := want[f.Name]
+		if !ok {
+			t.Errorf("unexpected route %q", f.Name)
+			continue
+		}
+		if f.Props["method"] != w.method || f.Line != w.line {
+			t.Errorf("%s = %v at line %d, want %s at line %d", f.Name, f.Props["method"], f.Line, w.method, w.line)
+		}
+		if f.Props["external"] != true || f.Props["host"] != w.host {
+			t.Errorf("%s external/host = %v/%v, want true/%s", f.Name, f.Props["external"], f.Props["host"], w.host)
+		}
+		if f.Props["source"] != facts.RouteSourceRubyHTTPClient || f.Props["role"] != facts.RoleClient {
+			t.Errorf("%s must stay a ruby-http-client client route: %+v", f.Name, f.Props)
+		}
+	}
+}
+
+func TestRubyExternalHost_InterpolatedHostRefusedAndCounted(t *testing.T) {
+	src := `class Sync
+  def fetch
+    conn.get("https://#{host}/v1/charges")
+    Faraday.post("https://api.example.com#{path}")
+    client.get("/v1/relative")
+  end
+end
+`
+	ff, _, misses := extractRubyHTTPClientFactsCounted([]byte(src), "app/services/sync.rb")
+	got := clientRoutes(ff)
+	if len(got) != 1 || got[0].Name != "/v1/relative" {
+		t.Fatalf("only the relative call may yield a route, got %+v", got)
+	}
+	if misses[clientHostInterpolated] != 2 {
+		t.Fatalf("interpolated hosts counted = %d, want 2 (misses %v)", misses[clientHostInterpolated], misses)
+	}
+}
+
+func TestRubyExternalHost_RelativeUnchanged(t *testing.T) {
+	src := `conn.get('users/123')
+client.post("/v1/charges?expand=#{x}")
+`
+	got := clientRoutes(extractRubyHTTPClientFacts([]byte(src), "app/clients/api.rb"))
+	if len(got) != 2 {
+		t.Fatalf("got %d client routes, want 2: %+v", len(got), got)
+	}
+	for _, f := range got {
+		if _, set := f.Props["external"]; set {
+			t.Errorf("%s: a relative call must not be marked external: %+v", f.Name, f.Props)
+		}
+		if _, set := f.Props["host"]; set {
+			t.Errorf("%s: a relative call names no host: %+v", f.Name, f.Props)
+		}
+	}
+	if got[0].Name != "users/123" || got[1].Name != "/v1/charges" {
+		t.Fatalf("relative names changed: %s, %s", got[0].Name, got[1].Name)
+	}
+}
+
+func TestRubyExternalHost_ThroughAParameter(t *testing.T) {
+	src := `class Webhooks
+  def deliver(url)
+    connection.post(url, body)
+  end
+
+  def run
+    deliver("https://hooks.example.com/v2/events")
+    deliver("https://#{ENV["HOOK_HOST"]}/v2/events")
+  end
+end
+`
+	ff, derived, misses := extractRubyHTTPClientFactsCounted([]byte(src), "app/services/webhooks.rb")
+	got := clientRoutes(ff)
+	if len(got) != 1 || derived != 1 {
+		t.Fatalf("one external route derived through the parameter, got %d routes, %d derived: %+v", len(got), derived, got)
+	}
+	f := got[0]
+	if f.Name != "/v2/events" || f.Props["host"] != "hooks.example.com" || f.Props["external"] != true || f.Props["derived"] != "parameter" {
+		t.Fatalf("parameter-derived external route = %+v", f)
+	}
+	if misses[clientHostInterpolated] != 1 || misses[parameterNonLiteral] != 0 {
+		t.Fatalf("the interpolated host is a host refusal, not a non-literal argument: %v", misses)
 	}
 }
 
@@ -351,5 +489,49 @@ end
 	got, derived, misses := extractRubyHTTPClientFactsCounted([]byte(src), "app/services/a.rb")
 	if len(clientRoutes(got)) != 0 || derived != 0 || misses[parameterAmbiguousMethod] != 1 {
 		t.Fatalf("ambiguous wrapper must derive nothing: %v %d %v", clientRoutes(got), derived, misses)
+	}
+}
+
+func TestRubyExternalHost_CountedOnTheExtractionRecord(t *testing.T) {
+	ff := extractRepo(t, map[string]string{
+		"app/services/sync.rb": "class Sync\n  def fetch\n    conn.get(\"https://#{host}/v1/charges\")\n  end\nend\n",
+	})
+	record, ok := extractionFact(ff, "ruby:http-client")
+	if !ok {
+		t.Fatalf("an interpolated host must reach the ruby:http-client record; facts: %+v", ff)
+	}
+	if got := record.Props["unresolved_macros"]; got != "host-interpolated=1" {
+		t.Fatalf("unresolved_macros = %v, want host-interpolated=1", got)
+	}
+}
+
+func TestRubyExternalHost_CommentIsNotACall(t *testing.T) {
+	src := `module Gitlab
+  #   Gitlab::HTTP.get('http://www.gitlab.com', allow_local_requests: true)
+  #     Typhoeus.get("https://pages.github.com/versions.json")
+  # conn.get('users/1')
+  def self.versions
+    Typhoeus.get("https://pages.github.com/versions.json")
+  end
+end
+`
+	got := clientRoutes(extractRubyHTTPClientFacts([]byte(src), "lib/gitlab/http.rb"))
+	byName := map[string]facts.Fact{}
+	for _, f := range got {
+		byName[f.Name] = f
+	}
+	if len(got) != 2 {
+		t.Fatalf("got %d client routes, want the real call and the relative comment: %+v", len(got), got)
+	}
+	if f, ok := byName["/versions.json"]; !ok || f.Line != 6 {
+		t.Fatalf("the call on line 6 is the one external route, got %+v", byName)
+	}
+	if _, ok := byName["/"]; ok {
+		t.Fatalf("a commented-out call to www.gitlab.com is not a call: %+v", byName)
+	}
+	// A relative path in a comment has always been read; this slice leaves that as
+	// it was rather than change an existing fact.
+	if _, ok := byName["users/1"]; !ok {
+		t.Fatalf("the relative comment's route was already emitted before this slice and is left alone: %+v", byName)
 	}
 }

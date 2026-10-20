@@ -1135,8 +1135,9 @@ func (s *Store) WriteJSONL(w io.Writer) error {
 		for _, r := range f.Relations {
 			wr := wireRelation{Relation: r}
 			if t := s.targetFactFor(r.Target, f.Repo); t >= 0 {
-				tf := s.facts[t]
-				wr.TargetID, idScratch = factIDInto(idScratch, tf.Repo, tf.Kind, tf.Name, tf.File)
+				if tf := s.facts[t]; LandsByName(f, r, tf) {
+					wr.TargetID, idScratch = factIDInto(idScratch, tf.Repo, tf.Kind, tf.Name, tf.File)
+				}
 			} else if k, ok := s.targetAliases[r.Target]; ok {
 				wr.TargetID, idScratch = factIDInto(idScratch, k.Repo, k.Kind, k.Name, k.File)
 			}

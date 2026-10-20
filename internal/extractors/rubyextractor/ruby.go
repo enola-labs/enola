@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 
@@ -132,6 +133,8 @@ func (e *RubyExtractor) Extract(ctx context.Context, repoPath string, files []st
 	clientMisses := map[string]int{}
 	var constAssigns []rubyConstAssign
 	var constSinks []rubyConstSink
+	readWhole := 0
+	var readInPart []string
 	perFileFacts := parallel.MapFiles(ctx, rbFiles, func(relFile string) []facts.Fact {
 		src, err := os.ReadFile(filepath.Join(repoPath, relFile))
 		if err != nil {
@@ -142,10 +145,15 @@ func (e *RubyExtractor) Extract(ctx context.Context, repoPath string, files []st
 		// extractFileAST emits symbols, imports, mixins, constants, attrs, calls,
 		// and ActiveRecord storage/associations in a single AST pass;
 		// extractRubyHTTPClientFacts adds outbound HTTP-client routes.
-		ff := extractFileAST(src, relFile, isRails, exported)
+		ff, partial := extractFileASTReporting(src, relFile, isRails, exported)
 		clientFacts, derived, misses := extractRubyHTTPClientFactsCounted(src, relFile)
 		assigns, sinks := scanRubyClientConstants(src, relFile)
 		clientMu.Lock()
+		if partial {
+			readInPart = append(readInPart, relFile)
+		} else {
+			readWhole++
+		}
 		clientDerived += derived
 		mergeCounts(clientMisses, misses)
 		constAssigns = append(constAssigns, assigns...)
@@ -236,6 +244,9 @@ func (e *RubyExtractor) Extract(ctx context.Context, repoPath string, files []st
 
 	resolvedCalls, unresolvedCalls := countResolvedCalls(allFacts)
 	if fact, ok := callCoverageFact(repoPath, resolvedCalls, unresolvedCalls); ok {
+		allFacts = append(allFacts, fact)
+	}
+	if fact, ok := partialParseFact(repoPath, readWhole, readInPart); ok {
 		allFacts = append(allFacts, fact)
 	}
 	if fact, ok := extcoverage.Fact(repoPath, "ruby:http-client", "ruby_client_path_parameter", clientDerived, clientMisses); ok {
@@ -491,4 +502,22 @@ func countResolvedCalls(all []facts.Fact) (int, map[string]int) {
 		}
 	}
 	return resolved, unresolved
+}
+
+// partialParseFact accounts for the Ruby files the parser read whole and the
+// ones whose tree held an error node, naming the latter, so a graph that lacks
+// what such a file declares says so instead of reading as complete.
+func partialParseFact(repoPath string, whole int, inPart []string) (facts.Fact, bool) {
+	unresolved := map[string]int{}
+	if len(inPart) > 0 {
+		unresolved["tree_sitter_error_node"] = len(inPart)
+	}
+	fact, ok := extcoverage.Fact(repoPath, "ruby:parse", "ruby_file", whole, unresolved)
+	if !ok || len(inPart) == 0 {
+		return fact, ok
+	}
+	sorted := append([]string(nil), inPart...)
+	sort.Strings(sorted)
+	fact.SetProp(facts.PropParsedWithErrors, sorted)
+	return fact, true
 }
