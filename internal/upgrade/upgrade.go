@@ -17,12 +17,33 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 
 	"github.com/enola-labs/enola/internal/version"
 )
+
+// SkipFetchEnv keeps an upgrade from downloading the Rubydex library. The
+// install script honours the same name.
+const SkipFetchEnv = "ENOLA_NO_RUBYDEX_FETCH"
+
+// fetchArgs is the command the new binary runs. It is spelled out here rather
+// than taken from the rubydex package because upgrade is core and providers is
+// analysis, and core never imports analysis.
+var fetchArgs = []string{"providers", "fetch", "rubydex"}
+
+// fetchLibrary asks the binary at exe to fetch the Rubydex library. It runs
+// the installed binary rather than calling rubydex.Fetch because the new
+// release pins its own library version, which the running (old) process does
+// not know. Tests replace it so none reaches the network.
+var fetchLibrary = func(ctx context.Context, exe string) error {
+	cmd := exec.CommandContext(ctx, exe, fetchArgs...)
+	cmd.Stdout = os.Stderr
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
 
 // Overridable base URLs (production defaults). Tests point these at an
 // httptest server to exercise Run without touching the network.
@@ -101,12 +122,31 @@ func Run(ctx context.Context, current string) error {
 	}
 
 	fmt.Fprintln(os.Stderr, "==> Installing ...")
-	if err := replaceExecutable(binary); err != nil {
+	exe, err := replaceExecutable(binary)
+	if err != nil {
 		return err
 	}
 
 	fmt.Fprintf(os.Stderr, "Upgraded enola v%s -> v%s\n", current, latest)
+	provisionLibrary(ctx, exe)
 	return nil
+}
+
+// provisionLibrary fetches the Rubydex library for the release just installed,
+// so Ruby support works without a second command. It never fails the upgrade:
+// the binary is already replaced, and a missing library is a named skip that the
+// providers listing and doctor report again.
+//
+// This is the install-time download that rubydex.Fetch's contract allows; a
+// snapshot still never makes it.
+func provisionLibrary(ctx context.Context, exe string) {
+	if os.Getenv(SkipFetchEnv) != "" {
+		return
+	}
+	fmt.Fprintln(os.Stderr, "==> Fetching the Rubydex library ...")
+	if err := fetchLibrary(ctx, exe); err != nil {
+		fmt.Fprintf(os.Stderr, "Skipped the Rubydex library (%v); run `enola %s` to fetch it later.\n", err, strings.Join(fetchArgs, " "))
+	}
 }
 
 // externallyManaged returns what to tell the user when something other than
@@ -272,10 +312,10 @@ func extractBinary(tarball []byte, want string) ([]byte, error) {
 
 // replaceExecutable writes the new binary next to the current executable and
 // atomically swaps it into place.
-func replaceExecutable(binary []byte) error {
+func replaceExecutable(binary []byte) (string, error) {
 	exe, err := os.Executable()
 	if err != nil {
-		return fmt.Errorf("locating current executable: %w", err)
+		return "", fmt.Errorf("locating current executable: %w", err)
 	}
 	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
 		exe = resolved
@@ -284,7 +324,7 @@ func replaceExecutable(binary []byte) error {
 	dir := filepath.Dir(exe)
 	tmp, err := os.CreateTemp(dir, ".enola-upgrade-*")
 	if err != nil {
-		return installPermError(dir, err)
+		return "", installPermError(dir, err)
 	}
 	tmpPath := tmp.Name()
 	cleanup := true
@@ -296,13 +336,13 @@ func replaceExecutable(binary []byte) error {
 
 	if _, err := tmp.Write(binary); err != nil {
 		_ = tmp.Close()
-		return err
+		return "", err
 	}
 	if err := tmp.Close(); err != nil {
-		return err
+		return "", err
 	}
 	if err := os.Chmod(tmpPath, 0o755); err != nil {
-		return err
+		return "", err
 	}
 
 	if runtime.GOOS == "windows" {
@@ -310,22 +350,22 @@ func replaceExecutable(binary []byte) error {
 		old := exe + ".old"
 		_ = os.Remove(old) // best-effort cleanup of a prior upgrade
 		if err := os.Rename(exe, old); err != nil {
-			return installPermError(dir, err)
+			return "", installPermError(dir, err)
 		}
 		if err := os.Rename(tmpPath, exe); err != nil {
 			_ = os.Rename(old, exe) // roll back
-			return installPermError(dir, err)
+			return "", installPermError(dir, err)
 		}
 		cleanup = false
 		_ = os.Remove(old) // best-effort; may fail while the old exe is still running
-		return nil
+		return exe, nil
 	}
 
 	if err := os.Rename(tmpPath, exe); err != nil {
-		return installPermError(dir, err)
+		return "", installPermError(dir, err)
 	}
 	cleanup = false
-	return nil
+	return exe, nil
 }
 
 // installPermError wraps errors that are typically permission-related with an

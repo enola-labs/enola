@@ -2,6 +2,11 @@
 # install.sh: install the latest enola release.
 # Usage: curl -fsSL https://raw.githubusercontent.com/enola-labs/enola/main/install.sh | sh
 #
+# Environment:
+#   ENOLA_INSTALL_DIR        where to put the binary (default: $HOME/.local/bin)
+#   ENOLA_NO_RUBYDEX_FETCH   set to anything to skip downloading the Rubydex library
+#                            that Ruby analysis loads (about 3.4 MB, once per release)
+#
 # POSIX sh on purpose, with no `set -o pipefail`. A piped script never honours its
 # own shebang: the `sh` on the right of the pipe runs it, and on Debian and Ubuntu
 # that is dash, which rejects pipefail before the first line of real work.
@@ -85,6 +90,17 @@ fi
 install -m 755 "$TMPDIR/$BIN_NAME" "$INSTALL_DIR/$TARGET"
 
 echo "==> enola v${VERSION} installed to $INSTALL_DIR/$TARGET"
+
+# The one download Ruby support needs, made here so it is never made while a
+# snapshot runs. The binary is already installed, so a failure of any kind
+# (offline, an unsupported platform) must not turn into a failed install.
+if [ -z "${ENOLA_NO_RUBYDEX_FETCH:-}" ]; then
+  echo "==> Fetching the Rubydex library ..."
+  if ! "$INSTALL_DIR/$TARGET" providers fetch rubydex; then
+    echo "Skipped the Rubydex library; run 'enola providers fetch rubydex' to fetch it later." >&2
+  fi
+fi
+
 echo ""
 echo "If \$HOME/.local/bin is not in your PATH, add it:"
 echo "  export PATH=\"$HOME/.local/bin:\$PATH\""

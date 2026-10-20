@@ -15,7 +15,7 @@ Grab a prebuilt binary - no Go toolchain or C compiler required:
 curl -fsSL https://raw.githubusercontent.com/enola-labs/enola/main/install.sh | sh
 ```
 
-This installs `enola` to `~/.local/bin`. If that's not on your `PATH`, add it:
+This installs `enola` to `~/.local/bin` and fetches the Rubydex library that Ruby analysis loads (about 3.4 MB, once per release); a failed fetch is reported and the install still succeeds. Set `ENOLA_NO_RUBYDEX_FETCH=1` to skip it. If `~/.local/bin` is not on your `PATH`, add it:
 
 ```bash
 export PATH="$HOME/.local/bin:$PATH"
@@ -43,7 +43,7 @@ Once installed, update to the latest release in place:
 enola upgrade
 ```
 
-This downloads the newest build for your platform, verifies its checksum, and replaces the running binary. If enola is installed somewhere your user can't write, re-run with elevated permissions or re-run the install script above.
+This downloads the newest build for your platform, verifies its checksum, and replaces the running binary. It then runs the new binary's `providers fetch rubydex`, so the Rubydex library that release pins is in place; a failed fetch is reported and the upgrade still succeeds, and `ENOLA_NO_RUBYDEX_FETCH=1` skips it. A binary from `go install`, pip or a source build has no such step: run `enola providers fetch rubydex` once. If enola is installed somewhere your user can't write, re-run with elevated permissions or re-run the install script above.
 
 Because your agent launches enola as a long-lived MCP server process, an upgrade only takes effect once that process restarts - reconnect the MCP server so it picks up the new binary:
 

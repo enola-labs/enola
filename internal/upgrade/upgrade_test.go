@@ -7,9 +7,12 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -280,4 +283,75 @@ func TestRunOnAPipInstallNeverReachesTheNetwork(t *testing.T) {
 	if err := Run(context.Background(), "0.4.12"); err != nil {
 		t.Fatalf("refusing to self-update is not an error condition, got %v", err)
 	}
+}
+
+func stubFetch(t *testing.T, fn func(ctx context.Context, exe string) error) {
+	t.Helper()
+	prev := fetchLibrary
+	fetchLibrary = fn
+	t.Cleanup(func() { fetchLibrary = prev })
+}
+
+// TestProvisionLibraryRunsTheInstalledBinary pins that the fetch goes through
+// the path the upgrade just wrote: the new release pins its own library
+// version, so asking the running process would fetch the old one.
+func TestProvisionLibraryRunsTheInstalledBinary(t *testing.T) {
+	t.Setenv(SkipFetchEnv, "")
+	var got string
+	stubFetch(t, func(_ context.Context, exe string) error {
+		got = exe
+		return nil
+	})
+
+	provisionLibrary(context.Background(), "/opt/enola/enola")
+
+	if got != "/opt/enola/enola" {
+		t.Errorf("fetch ran %q, want the installed binary", got)
+	}
+}
+
+// TestProvisionLibraryFailureIsANamedSkip pins that a failed fetch cannot fail
+// the upgrade: the binary is already replaced, so the only honest outcome is a
+// line saying what was skipped and the command that finishes the job.
+func TestProvisionLibraryFailureIsANamedSkip(t *testing.T) {
+	t.Setenv(SkipFetchEnv, "")
+	stubFetch(t, func(context.Context, string) error { return errors.New("offline") })
+
+	stderr := captureStderr(t, func() { provisionLibrary(context.Background(), "enola") })
+
+	for _, want := range []string{"Skipped the Rubydex library", "offline", "enola providers fetch rubydex"} {
+		if !strings.Contains(stderr, want) {
+			t.Errorf("skip line lacks %q:\n%s", want, stderr)
+		}
+	}
+}
+
+func TestProvisionLibraryOptOutNeverFetches(t *testing.T) {
+	t.Setenv(SkipFetchEnv, "1")
+	stubFetch(t, func(context.Context, string) error {
+		t.Error("fetch ran although the opt-out is set")
+		return nil
+	})
+
+	if stderr := captureStderr(t, func() { provisionLibrary(context.Background(), "enola") }); stderr != "" {
+		t.Errorf("opt-out should be silent, got:\n%s", stderr)
+	}
+}
+
+func captureStderr(t *testing.T, fn func()) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	prev := os.Stderr
+	os.Stderr = w
+	defer func() { os.Stderr = prev }()
+	fn()
+	_ = w.Close()
+	out, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(out)
 }

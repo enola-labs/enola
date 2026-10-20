@@ -67,7 +67,10 @@ func main() {
 				"Download and install the latest enola release, replacing the running\n"+
 				"binary in place. A dev build is always treated as out of date. An\n"+
 				"install managed by a package manager (pip, for one) is left alone, with\n"+
-				"the command that upgrades it instead.\n\n"+
+				"the command that upgrades it instead. Afterwards the new binary fetches\n"+
+				"the Rubydex library it pins (`providers fetch rubydex`); a failure there\n"+
+				"is reported and the upgrade still succeeds. ENOLA_NO_RUBYDEX_FETCH=1\n"+
+				"skips it.\n\n"+
 				"Exit codes:\n"+
 				"  0  upgraded, already current, or left to the package manager\n"+
 				"  1  the upgrade failed\n"+
