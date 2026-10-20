@@ -366,3 +366,47 @@ func TestGuidanceForFiles_ServiceScopedComponentAttributesByLabelFailClosed(t *t
 		t.Fatalf("labeled = %+v, prefixed = %+v, want the billing file matched in both forms", labeled, prefixed)
 	}
 }
+
+// Finding 0057: a part bound by a name rule or a cycle rule is told so before
+// an edit, and a forbid over literals says the literals it forbids.
+func TestContractFor_NameAndCycleRulesBindAndLiteralsAreSaid(t *testing.T) {
+	store := facts.NewStore()
+	store.Add(
+		componentIntent("queries", "app/queries/**"),
+		componentIntent("models", "app/models/**"),
+		componentIntent("jobs", "app/jobs/**"),
+		ruleIntentProps("queries-never-write", map[string]any{"forbid": "queries", "to_name": "save update!", "via": "calls", "because": "a query never writes"}),
+		ruleIntentProps("no-render", map[string]any{"forbid": "models", "to_name": "render", "receiver": "none", "via": "calls", "because": "request only"}),
+		ruleIntentProps("no-get-prefix", map[string]any{"forbid_name": "queries", "pattern": "get_*", "because": "a reader is a noun"}),
+		ruleIntentProps("no-circle", map[string]any{"forbid_cycles": "models", "among": "jobs", "because": "one unit in practice"}),
+		facts.Fact{Kind: facts.KindModule, Name: "app/queries/open", File: "app/queries/open.rb"},
+		facts.Fact{Kind: facts.KindModule, Name: "app/jobs/sweep", File: "app/jobs/sweep.rb"},
+	)
+	said := func(path string) map[string]string {
+		bindings, _ := ContractFor(store, path)
+		out := map[string]string{}
+		for _, b := range bindings {
+			for _, r := range b.Rules {
+				out[r.Rule] = r.Statement
+			}
+		}
+		return out
+	}
+	q := said("app/queries/open.rb")
+	if q["queries-never-write"] != "queries must not reach save or update! via calls" {
+		t.Errorf("a forbid over literals names them: %q", q["queries-never-write"])
+	}
+	if q["no-get-prefix"] != "members of queries must not be named like get_*" {
+		t.Errorf("a name rule binds its part: %+v", q)
+	}
+	m := said("app/models/invoice.rb")
+	if m["no-render"] != "models must not reach render via calls, called with no receiver" {
+		t.Errorf("a receiver narrowing is said: %+v", m)
+	}
+	if m["no-circle"] != "models, jobs must not depend on each other in a circle" {
+		t.Errorf("a cycle rule binds its first part: %+v", m)
+	}
+	if j := said("app/jobs/sweep.rb"); j["no-circle"] == "" {
+		t.Errorf("a cycle rule binds every part among it: %+v", j)
+	}
+}

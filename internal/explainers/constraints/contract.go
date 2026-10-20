@@ -261,10 +261,12 @@ func (r rule) names(component string) bool {
 		r.protect == component || r.private == component || r.forbidFact == component ||
 		r.cap == component || r.require == component || r.requireDefines == component ||
 		r.requireName == component || r.requireEdge == component || r.protocol == component ||
-		r.guide == component {
+		r.guide == component || r.forbidName == component || r.forbidCycles == component ||
+		r.independent == component || r.storageStaysHome == component || r.capRuntime == component ||
+		r.requireConsumer == component || r.uniqueAcross == component || r.requireGoverned == component {
 		return true
 	}
-	for _, name := range append(append(append(append([]string{}, r.only...), r.owners...), r.except...), r.steps...) {
+	for _, name := range append(append(append(append(append([]string{}, r.only...), r.owners...), r.except...), r.steps...), r.among...) {
 		if name == component {
 			return true
 		}
@@ -276,8 +278,10 @@ func (r rule) names(component string) bool {
 // reader (or an agent about to edit) needs no schema knowledge to obey it.
 func (r rule) statement() string {
 	switch {
+	case r.forbid != "" && len(r.toName) > 0 && r.receiver == "none":
+		return fmt.Sprintf("%s must not reach %s via %s, called with no receiver", r.forbid, forbidFarEnd(r), r.via)
 	case r.forbid != "":
-		return fmt.Sprintf("%s must not reach %s via %s", r.forbid, r.to, r.via)
+		return fmt.Sprintf("%s must not reach %s via %s", r.forbid, forbidFarEnd(r), r.via)
 	case r.forbidReach != "":
 		vias := r.via
 		if vias == "" {
@@ -304,6 +308,22 @@ func (r rule) statement() string {
 		return fmt.Sprintf("class members of %s must define %s", r.requireDefines, r.method)
 	case r.requireName != "":
 		return fmt.Sprintf("members of %s must be named like %s", r.requireName, r.pattern)
+	case r.forbidName != "":
+		return fmt.Sprintf("members of %s must not be named like %s", r.forbidName, r.pattern)
+	case r.forbidCycles != "":
+		return fmt.Sprintf("%s must not depend on each other in a circle", strings.Join(append([]string{r.forbidCycles}, r.among...), ", "))
+	case r.independent != "":
+		return fmt.Sprintf("%s must not reach the classes that include it", r.independent)
+	case r.storageStaysHome != "":
+		return fmt.Sprintf("%s must reach only the tables it owns", r.storageStaysHome)
+	case r.capRuntime != "":
+		return fmt.Sprintf("each frame of %s must stay within %d %s", r.capRuntime, r.max, r.metric)
+	case r.requireConsumer != "":
+		return fmt.Sprintf("every route of %s must have a client", r.requireConsumer)
+	case r.uniqueAcross != "":
+		return fmt.Sprintf("no two members of %s in different repositories may share a %s", r.uniqueAcross, r.by)
+	case r.requireGoverned != "":
+		return fmt.Sprintf("every file of %s must be governed by a compiled page", r.requireGoverned)
 	case r.requireEdge != "":
 		switch {
 		case r.direction == "inbound" && r.to != "":
