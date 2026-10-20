@@ -129,12 +129,12 @@ func New(eng *engine.Engine, cfg *config.Config) (*Server, error) {
 	// freshness one, and therefore measures the response the agent actually
 	// receives — banner included. Both are registered here rather than per tool, so
 	// they cover every tool on the server, including any added after New returns.
-	// restoreMiddleware goes first, outermost, so no tool, the freshness reload
-	// included, runs before the startup restore has published.
-	s.mcp.AddReceivingMiddleware(s.restoreMiddleware)
 	s.mcp.AddReceivingMiddleware(s.valueMiddleware)
 	s.mcp.AddReceivingMiddleware(s.freshnessMiddleware)
 	s.mcp.AddReceivingMiddleware(s.updateMiddleware)
+	// restoreMiddleware is registered last, which makes it outermost, so no tool, the
+	// freshness reload included, runs before the startup restore has published.
+	s.mcp.AddReceivingMiddleware(s.restoreMiddleware)
 
 	return s, nil
 }
