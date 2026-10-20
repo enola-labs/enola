@@ -342,7 +342,7 @@ func readCargoToml(rc *readCtx, relFile string) []pkgDep {
 	// listDev is set while inside a dependency LIST section; tableDep names the
 	// package while inside a dependency TABLE section. At most one is active.
 	inList, listDev := false, false
-	tableDep, tableDev, tableVersion := "", false, ""
+	tableDep, tableDev, tableVersion, tablePath := "", false, "", ""
 
 	// flushTable emits the table section that just ended, if there was one.
 	flushTable := func() {
@@ -352,9 +352,9 @@ func readCargoToml(rc *readCtx, relFile string) []pkgDep {
 		out = append(out, pkgDep{
 			Name: tableDep, Ecosystem: EcosystemCargo,
 			Constraint: tableVersion, Resolved: resolved[tableDep],
-			Dev: tableDev, Manifest: relFile,
+			Dev: tableDev, Manifest: relFile, Path: tablePath,
 		})
-		tableDep, tableVersion = "", ""
+		tableDep, tableVersion, tablePath = "", "", ""
 	}
 
 	for _, ln := range lines(rc.read(relFile)) {
@@ -378,6 +378,11 @@ func readCargoToml(rc *readCtx, relFile string) []pkgDep {
 					tableVersion = unquote(rest)
 				}
 			}
+			if v, ok := strings.CutPrefix(t, "path"); ok {
+				if rest, ok := strings.CutPrefix(strings.TrimSpace(v), "="); ok {
+					tablePath = unquote(rest)
+				}
+			}
 			continue
 		}
 		if !inList {
@@ -394,7 +399,7 @@ func readCargoToml(rc *readCtx, relFile string) []pkgDep {
 		out = append(out, pkgDep{
 			Name: name, Ecosystem: EcosystemCargo,
 			Constraint: tomlVersion(value), Resolved: resolved[name],
-			Dev: listDev, Manifest: relFile,
+			Dev: listDev, Manifest: relFile, Path: tomlInlineKey(value, "path"),
 		})
 	}
 	flushTable()
@@ -467,6 +472,22 @@ func tomlVersion(value string) string {
 		return ""
 	}
 	return unquote(value)
+}
+
+// tomlInlineKey reads one quoted key of an inline table, `{ path = "../x" }`,
+// and nothing from a bare string, which carries only a version.
+func tomlInlineKey(value, key string) string {
+	value = strings.TrimSpace(value)
+	if !strings.HasPrefix(value, "{") {
+		return ""
+	}
+	for _, part := range strings.Split(strings.Trim(value, "{} "), ",") {
+		k, v, ok := strings.Cut(part, "=")
+		if ok && strings.TrimSpace(k) == key {
+			return unquote(strings.TrimSpace(v))
+		}
+	}
+	return ""
 }
 
 // cargoLock reads each [[package]] block's name and version.

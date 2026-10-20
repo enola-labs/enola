@@ -360,3 +360,69 @@ func TestExplain_WithoutATargetFileTheNameStillResolvesToEveryReopening(t *testi
 	}
 	t.Fatal("a name-only edge onto a reopened module resolves by name, as before")
 }
+
+// A Rust import that resolves outside the repository is outside a law about the
+// repository's parts: the standard library and a crate a Cargo.toml declares as
+// a fetched dependency are counted apart and never make the verdict partial. A
+// path dependency, held by the repository even where no snapshot measured it,
+// and a bare root nothing declares stay counted as a verdict not reached.
+func TestExplain_RustImportsOutsideTheRepositoryAreCountedApart(t *testing.T) {
+	use := func(target, source string) facts.Fact {
+		return facts.Fact{Kind: facts.KindDependency, Name: "crates/pic/src -> " + target, File: "crates/pic/src/layout.rs",
+			Props:     map[string]any{"language": "rust", "source": source},
+			Relations: []facts.Relation{{Kind: facts.RelImports, Target: target}}}
+	}
+	cargo := func(name, path string) facts.Fact {
+		props := map[string]any{"ecosystem": facts.EcosystemCargo, "package_name": name, "manifest": "Cargo.toml"}
+		if path != "" {
+			props["path"] = path
+		}
+		return facts.Fact{Kind: facts.KindDependency, Name: "pkg:cargo/" + name, File: "Cargo.toml", Props: props}
+	}
+	store := facts.NewStore()
+	store.Add(
+		componentIntent("pic", "crates/pic/src/**"),
+		ruleIntentProps("pic-only-pic", map[string]any{"allow": "pic", "only": "pic", "via": "imports", "mode": "strict", "because": "the drawing crate knows nothing of the host"}),
+		facts.Fact{Kind: facts.KindModule, Name: "crates/pic/src", File: "crates/pic/src", Props: map[string]any{"language": "rust", "crate": "drawing_kit"}},
+		facts.Fact{Kind: facts.KindFileRef, Name: "crates/pic/src/layout.rs", File: "crates/pic/src/layout.rs"},
+		cargo("serde-json", ""), cargo("vendored", "vendor/vendored"), cargo("drawing-kit", ""),
+		use("std::cmp::Ordering", "stdlib"),
+		use("core::fmt", "stdlib"),
+		use("alloc::vec::Vec", "stdlib"),
+		use("serde_json::Map", "external"),
+		use("proc_macro::TokenStream", "stdlib"),
+		use("vendored::Thing", "external"),
+		use("helpers::shape", "external"),
+	)
+	insights, err := New().Explain(context.Background(), store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var outside, skip *facts.Insight
+	for i := range insights {
+		switch {
+		case strings.Contains(insights[i].Title, "pic-only-pic left 4 imports target(s) outside the repository"):
+			outside = &insights[i]
+		case strings.Contains(insights[i].Title, "pic-only-pic reached no verdict on 3 imports target(s)"):
+			skip = &insights[i]
+		case strings.Contains(insights[i].Title, "violated"):
+			t.Fatalf("nothing resolved, so nothing breaks: %+v", insights[i])
+		}
+	}
+	if outside == nil || skip == nil {
+		t.Fatalf("want std, core, alloc and serde_json outside, and proc_macro, the path dependency and the bare root not reached: %+v", insights)
+	}
+	for _, name := range []string{"std::cmp::Ordering", "core::fmt", "alloc::vec::Vec", "serde_json::Map"} {
+		if !strings.Contains(outside.Description, name) {
+			t.Errorf("outside names %s: %q", name, outside.Description)
+		}
+	}
+	for _, name := range []string{"proc_macro::TokenStream", "vendored::Thing", "helpers::shape"} {
+		if !strings.Contains(skip.Description, name) || strings.Contains(outside.Description, name) {
+			t.Errorf("%s stays a verdict not reached: %q", name, skip.Description)
+		}
+	}
+	if strings.Contains(outside.Title, "reached no verdict") {
+		t.Errorf("the outside count must not read as a verdict not reached: %q", outside.Title)
+	}
+}

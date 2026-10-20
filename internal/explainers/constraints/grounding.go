@@ -79,10 +79,17 @@ type grounding struct {
 	files       map[string]map[string]bool
 	names       map[string]bool
 	memberFiles map[string]map[string]bool
+	// crates and cargoDeps, by repository, are what outside reads: the Rust
+	// crates the repository holds, and the names its Cargo.toml files declare
+	// as dependencies fetched from elsewhere (a path dependency is not one).
+	crates    map[string]map[string]bool
+	cargoDeps map[string]map[string]bool
 }
 
 func newGrounding(store *facts.Store, memberFacts map[string][]facts.Fact) *grounding {
-	g := &grounding{files: map[string]map[string]bool{}, names: map[string]bool{}, memberFiles: map[string]map[string]bool{}}
+	g := &grounding{files: map[string]map[string]bool{}, names: map[string]bool{}, memberFiles: map[string]map[string]bool{},
+		crates: map[string]map[string]bool{}, cargoDeps: map[string]map[string]bool{}}
+	pathDeps := map[string]map[string]bool{}
 	for name, ff := range memberFacts {
 		set := map[string]bool{}
 		for _, f := range ff {
@@ -104,6 +111,17 @@ func newGrounding(store *facts.Store, memberFacts map[string][]facts.Fact) *grou
 		if f.Name != "" {
 			g.names[f.Name] = true
 		}
+		switch {
+		case f.Kind == facts.KindModule && f.PropString("language") == "rust" && f.PropString("crate") != "":
+			add(g.crates, f.Repo, f.PropString("crate"))
+		case f.Kind == facts.KindDependency && f.PropString("ecosystem") == facts.EcosystemCargo:
+			name := strings.ReplaceAll(f.PropString("package_name"), "-", "_")
+			if f.PropString("path") != "" {
+				add(pathDeps, f.Repo, name)
+			} else {
+				add(g.cargoDeps, f.Repo, name)
+			}
+		}
 		if f.File == "" {
 			continue
 		}
@@ -114,7 +132,48 @@ func newGrounding(store *facts.Store, memberFacts map[string][]facts.Fact) *grou
 		}
 		set[f.File] = true
 	}
+	for repo, names := range g.cargoDeps {
+		for name := range names {
+			if pathDeps[repo][name] || g.crates[repo][name] {
+				delete(names, name)
+			}
+		}
+	}
 	return g
+}
+
+func add(sets map[string]map[string]bool, key, name string) {
+	if sets[key] == nil {
+		sets[key] = map[string]bool{}
+	}
+	sets[key][name] = true
+}
+
+// rustOutsideRoots are the crates every Rust build links without a Cargo
+// dependency: the standard library, the core and the allocator.
+var rustOutsideRoots = map[string]bool{"std": true, "core": true, "alloc": true}
+
+// outside reports a Rust import that resolves outside the repository: a path
+// rooted at std, core or alloc, or at a crate a Cargo.toml of the repository
+// declares as a dependency fetched from elsewhere, which the extractor already
+// classed as no crate of this repository. A law about a repository's parts is
+// about the code in it, and Cargo already refuses an import of a crate the
+// importing crate does not declare, so such an import is outside the law's
+// reach rather than a verdict not reached. A path dependency, a crate of the
+// repository, and a root written crate, self or super stay in reach, as does
+// anything else that resolves to nothing: an extraction gap must stay counted.
+func (g *grounding) outside(rel facts.Relation, from facts.Fact) bool {
+	if rel.Kind != facts.RelImports || from.PropString("language") != "rust" {
+		return false
+	}
+	root, _, _ := strings.Cut(rel.Target, "::")
+	switch from.PropString("source") {
+	case "stdlib":
+		return rustOutsideRoots[root]
+	case "external":
+		return g.cargoDeps[from.Repo][root]
+	}
+	return false
 }
 
 // resolve returns the measured file an import target names, in the canonical
@@ -290,6 +349,28 @@ func groundSkipInsight(r rule, targets map[string]bool) facts.Insight {
 		Confidence:  groundSkipConfidence,
 		Evidence:    []facts.Evidence{{Fact: "rule: " + r.id, Detail: "declared in " + r.source}},
 		Actions:     actions,
+	}
+}
+
+// outsideInsight counts the imports a rule left outside its reach because they
+// resolve outside the repository, apart from the targets it reached no verdict
+// on, so they are seen without making the verdict partial.
+func outsideInsight(r rule, targets map[string]bool) facts.Insight {
+	named := make([]string, 0, len(targets))
+	for t := range targets {
+		named = append(named, t)
+	}
+	sort.Strings(named)
+	sample := named
+	if len(sample) > groundSkipSample {
+		sample = sample[:groundSkipSample]
+	}
+	return facts.Insight{
+		Title:       fmt.Sprintf("Constraint %s left %d %s target(s) outside the repository out of its reach", r.id, len(named), r.via),
+		Description: fmt.Sprintf("The rule walks %s edges, and %d of their targets resolve outside the repository: the standard library, or a crate a Cargo.toml here declares as a dependency fetched from elsewhere. A law about this repository's parts does not reach them, and Cargo already refuses an import the importing crate does not declare, so they are counted here and not read as a verdict not reached. Sample: %s. Because: %s", r.via, len(named), strings.Join(sample, ", "), r.because),
+		Confidence:  groundSkipConfidence,
+		Evidence:    []facts.Evidence{{Fact: "rule: " + r.id, Detail: "declared in " + r.source}},
+		Actions:     []string{"Name the package in the rule if the law should reach it"},
 	}
 }
 
