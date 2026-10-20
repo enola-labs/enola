@@ -17,9 +17,18 @@ import (
 
 var (
 	buildOnce sync.Once
+	builtDir  string
 	builtBin  string
 	buildErr  error
 )
+
+func TestMain(m *testing.M) {
+	code := m.Run()
+	if builtDir != "" {
+		_ = os.RemoveAll(builtDir)
+	}
+	os.Exit(code)
+}
 
 func enolaBinary(t *testing.T) string {
 	t.Helper()
@@ -29,6 +38,7 @@ func enolaBinary(t *testing.T) string {
 			buildErr = err
 			return
 		}
+		builtDir = dir
 		builtBin = filepath.Join(dir, "enola")
 		cmd := exec.Command(goTool(), "build", "-o", builtBin, ".")
 		if out, err := cmd.CombinedOutput(); err != nil {
