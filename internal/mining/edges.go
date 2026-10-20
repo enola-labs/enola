@@ -49,6 +49,18 @@ func (s *scope) collectEdges() []minedEdge {
 			}
 		}
 	}
+	// A name several files declare is its first file above; a fact that
+	// carries the file its target is declared in (target_file) is read by that
+	// file, and by nothing when the name is not declared there.
+	declaredIn := map[string]map[string]bool{}
+	for _, kind := range minedKindOrder {
+		for _, m := range s.allFacts[kind] {
+			if declaredIn[m.name] == nil {
+				declaredIn[m.name] = map[string]bool{}
+			}
+			declaredIn[m.name][m.file] = true
+		}
+	}
 	viaAllowed := map[string]bool{}
 	for _, via := range minedVias {
 		viaAllowed[via] = true
@@ -70,6 +82,9 @@ func (s *scope) collectEdges() []minedEdge {
 					continue
 				}
 				targetFile, ok := nameFile[rel.Target]
+				if carried, _ := m.fact.PropAny(facts.PropTargetFile).(string); carried != "" {
+					targetFile, ok = carried, declaredIn[rel.Target][carried]
+				}
 				if !ok {
 					continue
 				}

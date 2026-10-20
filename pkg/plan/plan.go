@@ -129,8 +129,16 @@ func Compute(ctx context.Context, req Request, deps Deps) (*Report, error) {
 	report := &Report{Repo: deps.RepoLabel, Snapshot: deps.Snapshot}
 	_, declared := constraints.ContractFor(deps.Store, "")
 	report.ConstraintsDeclared = declared
+	// Built on the first measured target: a plan measuring nothing needs none.
+	var index *FanIn
+	fanIn := func() *FanIn {
+		if index == nil {
+			index = IndexFanIn(deps.Store)
+		}
+		return index
+	}
 	for _, target := range pathTargets(req.Paths, patchFiles) {
-		tr := targetReport(deps.Store, deps.RepoLabel, target, TargetPath)
+		tr := targetReport(deps.Store, fanIn, deps.RepoLabel, target, TargetPath)
 		if declared && tr.Measured && len(patchFiles) == 0 && !deps.SkipRadius {
 			radius := constraints.BlastRadiusFor(deps.Store, []string{target})
 			tr.Radius = &radius
@@ -138,7 +146,7 @@ func Compute(ctx context.Context, req Request, deps Deps) (*Report, error) {
 		report.Targets = append(report.Targets, tr)
 	}
 	for _, symbol := range sortedUnique(req.Symbols) {
-		report.Targets = append(report.Targets, targetReport(deps.Store, deps.RepoLabel, symbol, TargetSymbol))
+		report.Targets = append(report.Targets, targetReport(deps.Store, fanIn, deps.RepoLabel, symbol, TargetSymbol))
 	}
 
 	if len(patchFiles) > 0 {
@@ -180,7 +188,7 @@ func sortedUnique(values []string) []string {
 	return out
 }
 
-func targetReport(store *facts.Store, label, target, kind string) TargetReport {
+func targetReport(store *facts.Store, fanIn func() *FanIn, label, target, kind string) TargetReport {
 	components, _ := constraints.ContractFor(store, target)
 	tr := TargetReport{Target: target, Kind: kind, Components: components}
 	tr.NoRuleGoverns = true
@@ -193,7 +201,7 @@ func targetReport(store *facts.Store, label, target, kind string) TargetReport {
 	members := memberNamesFor(store, label, target, kind)
 	tr.Measured = len(members) > 0
 	if tr.Measured {
-		tr.BlastRadius = blastRadius(store, label, target, kind, members)
+		tr.BlastRadius = blastRadius(store, fanIn(), label, target, kind, members)
 	}
 	return tr
 }
@@ -241,7 +249,7 @@ func fileMatchesTarget(f facts.Fact, label, target string) bool {
 	return strings.TrimPrefix(f.File, prefix+"/") == target
 }
 
-func blastRadius(store *facts.Store, label, target, kind string, members map[string]bool) *BlastRadius {
+func blastRadius(store *facts.Store, fanIn *FanIn, label, target, kind string, members map[string]bool) *BlastRadius {
 	viaSet := map[string]bool{}
 	for _, via := range blastVias {
 		viaSet[via] = true
@@ -270,16 +278,7 @@ func blastRadius(store *facts.Store, label, target, kind string, members map[str
 		}
 	}
 
-	in := map[string]bool{}
-	for name := range members {
-		for _, via := range blastVias {
-			for _, f := range store.ReverseLookup(name, via) {
-				if !members[f.Name] {
-					in[f.Name] = true
-				}
-			}
-		}
-	}
+	in := fanIn.dependents(members)
 
 	br := &BlastRadius{FanIn: len(in), FanOut: len(out)}
 	br.In = capSorted(in, BlastSampleCap)

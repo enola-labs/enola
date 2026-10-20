@@ -12,6 +12,7 @@ import (
 
 const (
 	CauseNoRuntimeCapture  = "no_runtime_capture"
+	CauseNoFrameInMembers  = "no_frame_in_members"
 	CauseNoCounterparty    = "no_counterparty"
 	CauseNoCompiledPages   = "no_compiled_pages"
 	runtimeQueriesPrefix   = "runtime-queries: "
@@ -245,6 +246,20 @@ func (e *Explainer) verdictCapRuntime(r rule, store *facts.Store, members map[st
 			}
 		}
 	}
+	// A capture keyed by spec files, which enola's own runner writes, holds
+	// frames and none of them in application code. Judging only the frames in
+	// member files then emits nothing, and a budget nobody measured reads kept.
+	reached := 0
+	for _, f := range frames {
+		if memberFiles[f.File] {
+			reached++
+		}
+	}
+	if reached == 0 {
+		return []facts.Insight{unevaluableRule(r, CauseNoFrameInMembers, "no frame in its members",
+			fmt.Sprintf("cap_runtime reads the frames a runtime capture measured inside the member files of %s, and the capture in this snapshot holds %d frame(s), none of them in a member file (%s). The rule emitted no verdict: a budget whose part the capture never reached must not read as kept. A frame is the method and file a query was attributed to, so a capture keyed by spec files or examples reaches no part of the application; produce the capture with a counter that attributes each query to the application frame that caused it, then regenerate.", r.capRuntime, len(frames), frameFiles(frames, 3)),
+			"Capture with a counter that attributes queries to application frames, or point the rule at the part the capture reaches")}
+	}
 	var out []facts.Insight
 	for _, f := range frames {
 		if !memberFiles[f.File] {
@@ -267,6 +282,24 @@ func (e *Explainer) verdictCapRuntime(r rule, store *facts.Store, members map[st
 		})
 	}
 	return out
+}
+
+// frameFiles names the distinct files of the first few frames, sorted, with
+// the count of the rest, so a refusal says where the capture did reach.
+func frameFiles(frames []facts.Fact, limit int) string {
+	seen := map[string]bool{}
+	var files []string
+	for _, f := range frames {
+		if f.File != "" && !seen[f.File] {
+			seen[f.File] = true
+			files = append(files, f.File)
+		}
+	}
+	sort.Strings(files)
+	if len(files) <= limit {
+		return strings.Join(files, ", ")
+	}
+	return fmt.Sprintf("%s and %d other file(s)", strings.Join(files[:limit], ", "), len(files)-limit)
 }
 
 // verdictRequireConsumer names every member route no client in the snapshot
