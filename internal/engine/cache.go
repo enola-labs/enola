@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/enola-labs/enola/internal/extractors"
 	"github.com/enola-labs/enola/internal/facts"
@@ -3079,6 +3080,14 @@ type extractorCache struct {
 	entries int   // entries emitted this run
 	werr    error // first write/encode failure; surfaced by save
 	closed  bool  // save or discard has run; further writes are refused
+
+	// mu serialises every entry point. Extractors reach the cache one at a time,
+	// but the provider seam runs its providers concurrently and each writes
+	// through this one spool: a per-file provider's entries and the built-in
+	// Rubydex provider's index interleaved their bytes in the buffered writer,
+	// which panicked a generate and could otherwise save a file that does not
+	// parse.
+	mu sync.Mutex
 }
 
 // buildIdentity identifies the binary that produced a cache entry: the release
@@ -3263,6 +3272,8 @@ func (c *extractorCache) decodeEntries(dec *json.Decoder) error {
 // get returns the cached facts for key (deep-copied from JSON, so the caller may
 // mutate them freely) and carries the original bytes forward to the next save.
 func (c *extractorCache) get(key string) ([]facts.Fact, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	raw, ok := c.prev[key]
 	if !ok {
 		return nil, false
@@ -3301,6 +3312,8 @@ func (c *extractorCache) get(key string) ([]facts.Fact, bool) {
 // that is about to replace the entry under the same key: carrying it forward and
 // then writing the replacement would put the key in the spool twice.
 func (c *extractorCache) peek(key string) ([]facts.Fact, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	raw, ok := c.prev[key]
 	if !ok {
 		return nil, false
@@ -3328,6 +3341,8 @@ func (p providerCache) Peek(key string) ([]facts.Fact, bool) {
 func (p providerCache) Put(key string, ff []facts.Fact) { p.c.put(p.key(key), ff) }
 
 func (c *extractorCache) put(key string, ff []facts.Fact) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	if c.noPersist || c.closed {
 		return
 	}
@@ -3450,6 +3465,8 @@ func (c *extractorCache) fail(err error) {
 // runs; it simply is not sorted. Sorting would mean holding every entry to the end,
 // which is the thing this exists to stop.
 func (c *extractorCache) save() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	if c.noPersist || c.closed {
 		return nil
 	}
@@ -3485,6 +3502,8 @@ func (c *extractorCache) save() error {
 // that does not reach save — a snapshot that fails during extraction, say — or the
 // temp file survives the process. Safe to call after save, and safe to defer.
 func (c *extractorCache) discard() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	if c.closed {
 		return
 	}
