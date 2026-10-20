@@ -70,6 +70,7 @@ func (s *Server) indexSet(ctx context.Context, repoPaths []string, appendFirst b
 		s.resetCorpus()
 	}
 	defer s.eng.SetDeferLinking(false)
+	announceArtifacts(ctx, len(repoPaths))
 	set := indexedSet{repoPaths: repoPaths}
 	start := time.Now()
 	for i, repo := range repoPaths {
@@ -85,6 +86,7 @@ func (s *Server) indexSet(ctx context.Context, repoPaths []string, appendFirst b
 		if err := s.eng.WriteArtifacts(repo); err != nil {
 			log.Printf("[server] warning: failed to write artifacts for %s: %v", repo, err)
 		}
+		artifactsWritten(ctx, repo)
 	}
 	if err := s.eng.WriteGlobalReceipt(); err != nil {
 		log.Printf("[server] warning: failed to write global receipt: %v", err)

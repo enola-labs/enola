@@ -178,6 +178,7 @@ func (s *Server) registerGenerateSnapshotTool() {
 		// refresh from one that has real work to re-derive. Disk rather than the
 		// in-memory snapshot because in append mode the loaded snapshot describes
 		// whichever repo was indexed last, not this one.
+		announceArtifacts(ctx, 1)
 		snapshot, err := s.indexRepo(ctx, absRepo, appendMode)
 		if err != nil {
 			return errorResult(fmt.Sprintf("snapshot generation failed: %v", err)), nil, nil
@@ -187,6 +188,7 @@ func (s *Server) registerGenerateSnapshotTool() {
 		if err := s.eng.WriteArtifacts(absRepo); err != nil {
 			log.Printf("[server] warning: failed to write artifacts: %v", err)
 		}
+		artifactsWritten(ctx, absRepo)
 
 		// Refresh the graph-wide receipt at ~/.enola/receipt.json (non-fatal).
 		if err := s.eng.WriteGlobalReceipt(); err != nil {

@@ -51,6 +51,7 @@ type snapshotRun struct {
 	shadowed       []string
 	parseErrs      []facts.ParseError
 	provRecords    []facts.ProviderRecord
+	progress       *extractionProgress
 
 	// Set by buildSnapshot: how long the run took up to the point its snapshot
 	// was assembled, which is the figure the snapshot records.
@@ -258,12 +259,13 @@ func (e *Engine) extract(r *snapshotRun) error {
 		defer cache.discard()
 	}
 	r.preCount = e.store.Count()
-	progress := newExtractionProgress(r.ctx, r.absRepo, r.files)
+	r.progress = newExtractionProgress(r.ctx, r.absRepo, r.files, e.stagesAfterExtraction())
 	var err error
-	r.usedExtractors, r.shadowed, r.parseErrs, err = e.runExtractors(r.ctx, r.absRepo, r.files, r.allNames, r.hashes, cache, progress)
+	r.usedExtractors, r.shadowed, r.parseErrs, err = e.runExtractors(r.ctx, r.absRepo, r.files, r.allNames, r.hashes, cache, r.progress)
 	if err != nil {
 		return fmt.Errorf("extraction: %w", err)
 	}
+	r.progress.extractionDone()
 	r.parseErrs = append(r.parseErrs, filesReadInPart(e.store.FactsRef()[r.preCount:])...)
 	e.reportShadowed(r.absRepo, r.shadowed)
 	// Reference-only extraction over test/spec files. Runs every snapshot (not
@@ -287,6 +289,7 @@ func (e *Engine) extract(r *snapshotRun) error {
 	// provider contributed less than it emitted but the graph cannot silently
 	// change authorship.
 	r.provRecords = e.runProviders(r.ctx, r.absRepo, r.preCount, providerInput(r.files, r.testFiles, r.hashes, e.computeFileHashes(r.ctx, r.absRepo, r.testFiles), cache))
+	r.progress.stage("providers")
 	if cache != nil {
 		log.Printf("[engine] extractor cache: %d reused", cache.hits)
 		// Saved after the providers, whose entries share the spool. save is a no-op
@@ -320,6 +323,17 @@ func (e *Engine) extract(r *snapshotRun) error {
 	// facts.PropDocText.
 	e.store.TakeDocTexts(r.preCount)
 	return nil
+}
+
+// stagesAfterExtraction is how many stages a run reports once extraction is
+// over: the providers, and unless linking is deferred to a later turn of the
+// cluster, linking, the explainers and the renderers. It is announced with the
+// walk so the total a client sees does not move as the run goes on.
+func (e *Engine) stagesAfterExtraction() int {
+	if e.deferLinking {
+		return 1
+	}
+	return 4
 }
 
 // publishDeferred is where a cluster's intermediate turns stop. Linking, the graph and the
@@ -389,6 +403,7 @@ func (e *Engine) link(r *snapshotRun) {
 	e.store.BuildGraph()
 	r.t.graph = time.Since(tStage)
 	log.Printf("[engine] built graph index (%d nodes, %d edges)", e.store.Graph().NodeCount(), e.store.Graph().EdgeCount())
+	r.progress.stage("linking")
 }
 
 // explain runs the explainers over the bound graph.
@@ -402,6 +417,7 @@ func (e *Engine) explain(r *snapshotRun) ([]facts.Insight, []string, error) {
 	positionInsights(allInsights, e.store)
 	r.t.explain = time.Since(tStage)
 	log.Printf("[engine] produced %d insights using %d explainers", len(allInsights), len(usedExplainers))
+	r.progress.stage("explainers")
 	return allInsights, usedExplainers, nil
 }
 
@@ -499,6 +515,7 @@ func (e *Engine) render(r *snapshotRun, snapshot *facts.Snapshot) error {
 	r.t.render = time.Since(tStage)
 	snapshot.Meta.Renderers = usedRenderers
 	log.Printf("[engine] produced %d artifacts using %d renderers", len(snapshot.Artifacts), len(usedRenderers))
+	r.progress.stage("renderers")
 	return nil
 }
 
