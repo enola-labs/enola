@@ -180,7 +180,9 @@ func (e *Extractor) Extract(ctx context.Context, repoPath string, files []string
 	return out, nil
 }
 
-// scanHCLBlocks reads a file's top-level blocks with brace-depth extents.
+// scanHCLBlocks reads a file's top-level blocks with brace-depth extents. A block
+// starts at its keyword: the patterns' leading \s* runs across line breaks, so the
+// match itself can start on a blank line above.
 func scanHCLBlocks(text, relFile string) []hclBlock {
 	var blocks []hclBlock
 	type opening struct {
@@ -195,7 +197,7 @@ func scanHCLBlocks(text, relFile string) []hclBlock {
 		if kind == "data" {
 			addr = "data." + addr
 		}
-		opens = append(opens, opening{kind: kind, address: addr, start: m[0], line: 1 + strings.Count(text[:m[0]], "\n")})
+		opens = append(opens, opening{kind: kind, address: addr, start: m[2], line: 1 + strings.Count(text[:m[2]], "\n")})
 	}
 	for _, m := range namedBlock.FindAllStringSubmatchIndex(text, -1) {
 		kind := text[m[2]:m[3]]
@@ -211,7 +213,7 @@ func scanHCLBlocks(text, relFile string) []hclBlock {
 		case "provider":
 			addr = "provider." + name
 		}
-		opens = append(opens, opening{kind: kind, address: addr, start: m[0], line: 1 + strings.Count(text[:m[0]], "\n")})
+		opens = append(opens, opening{kind: kind, address: addr, start: m[2], line: 1 + strings.Count(text[:m[2]], "\n")})
 	}
 	searchFrom := 0
 	for {
