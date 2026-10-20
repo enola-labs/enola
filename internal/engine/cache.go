@@ -3029,7 +3029,12 @@ import (
 // receiver Rubydex resolved. The seam pairs no two names of one engine. The
 // script runs only where a config names it with a command; the rubydex name's
 // facts are unchanged.
-const cacheVersion = "v414"
+// v415: The Rubydex provider no longer names a fact with the engine's id for a
+// Class.new or Module.new block, which hashes the absolute path: a call inside
+// such a block belongs to the method around it, and a fact about the anonymous
+// declaration itself is not written. Rubydex and Prism facts move on the Ruby
+// repositories that have the block.
+const cacheVersion = "v415"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

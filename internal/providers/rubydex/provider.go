@@ -64,12 +64,18 @@ type collector struct {
 	otherReceivers      int
 	unreadablePositions int
 	classTypedSelf      int
+	anonymousOwners     int
+	anonymousReceivers  int
+	anonymousCallers    int
+	anonymousReferrers  int
 	sources             map[string][]string
 	callsAt             map[string]bool
 }
 
 type span struct {
 	name        string
+	anonymous   bool
+	method      bool
 	startLine   int
 	endLine     int
 	startColumn int
@@ -214,12 +220,21 @@ func (c *collector) emitAncestry(definition cDefinition) {
 		return
 	}
 	name := c.g.declarationName(declaration.id)
+	if anonymous(name) {
+		c.anonymousOwners++
+		return
+	}
 	distance := 0
 	for _, ancestor := range c.g.ancestors(declaration.id) {
 		if c.builtIn(ancestor.id) {
 			break
 		}
 		ancestorName := c.g.declarationName(ancestor.id)
+		if anonymous(ancestorName) {
+			c.anonymousOwners++
+			distance++
+			continue
+		}
 		if distance > 0 && ancestorName != name {
 			c.facts = append(c.facts, c.fact("rubydex-ancestor: "+name+" -> "+ancestorName, location, "resolved",
 				facts.Relation{Kind: "implements", Target: ancestorName},
@@ -241,8 +256,16 @@ func (c *collector) emitCall(doc uint64, reference cMethodReference) {
 	}
 	receiverFull := c.g.declarationName(receiver.id)
 	receiverName := plainName(receiverFull)
+	if anonymous(receiverFull) {
+		c.anonymousReceivers++
+		return
+	}
 	method := c.g.methodReferenceName(reference.id)
-	enclosing := c.enclosingName(doc, location)
+	enclosing, inAnonymousMethod := c.enclosingName(doc, location)
+	if inAnonymousMethod {
+		c.anonymousCallers++
+		return
+	}
 	caller := enclosing
 	if caller == "" {
 		caller = c.relative(location.URI)
@@ -539,7 +562,12 @@ func (c *collector) writtenName(ref *constantReference) string {
 func (c *collector) emitReference(ref *constantReference, prefixes []string) {
 	referrer := ""
 	if ref.doc != 0 {
-		referrer = c.enclosingName(ref.doc, ref.location)
+		var inAnonymousMethod bool
+		referrer, inAnonymousMethod = c.enclosingName(ref.doc, ref.location)
+		if inAnonymousMethod {
+			c.anonymousReferrers++
+			return
+		}
 	}
 	if referrer == "" {
 		referrer = c.relative(ref.location.URI)
@@ -557,6 +585,10 @@ func (c *collector) emitReference(ref *constantReference, prefixes []string) {
 	if ref.target.kind == declarationAlias {
 		c.aliasedReferences++
 		c.facts = append(c.facts, c.missFact("rubydex-ref: "+referrer+" -> "+written, ref.location, "alias", prefixes))
+		return
+	}
+	if anonymous(targetFull) {
+		c.anonymousOwners++
 		return
 	}
 	targetName := plainName(targetFull)
@@ -633,9 +665,16 @@ func (c *collector) fact(name string, location Location, level string, relation 
 	}
 }
 
-// enclosingName is the innermost class, module or method whose span holds the
-// line, named the way the graph names it, or empty at the top level.
-func (c *collector) enclosingName(doc uint64, location Location) string {
+// enclosingName is the innermost named class, module or method whose span holds
+// the line, named the way the graph names it, or empty at the top level. A
+// Class.new or Module.new block is skipped: the engine names it by a hash of
+// the absolute path and an offset, so the same repository would give different
+// fact names in a clone, a worktree and CI. A call written in the block body
+// belongs to the method that contains the block. A call inside a def within
+// the block runs when the anonymous class's method is called, not when the
+// outer method runs, so there is no honest caller to name: the second result
+// is true and the caller writes nothing.
+func (c *collector) enclosingName(doc uint64, location Location) (string, bool) {
 	spans, cached := c.documentCache[doc]
 	if !cached {
 		for _, definition := range c.g.definitions(doc) {
@@ -646,7 +685,8 @@ func (c *collector) enclosingName(doc uint64, location Location) string {
 			if !ok {
 				continue
 			}
-			span := span{name: plainName(c.g.declarationName(declaration.id))}
+			name := plainName(c.g.declarationName(declaration.id))
+			span := span{name: name, anonymous: anonymous(name), method: definition.kind == definitionMethod}
 			if loc, ok := c.g.definitionLocation(definition.id); ok {
 				span.startLine, span.endLine, span.startColumn = loc.StartLine, loc.EndLine, loc.StartColumn
 			}
@@ -654,7 +694,7 @@ func (c *collector) enclosingName(doc uint64, location Location) string {
 		}
 		c.documentCache[doc] = spans
 	}
-	var innermost *span
+	var innermost, named *span
 	for i := range spans {
 		s := &spans[i]
 		if s.startLine > location.StartLine || s.endLine < location.StartLine {
@@ -663,11 +703,20 @@ func (c *collector) enclosingName(doc uint64, location Location) string {
 		if innermost == nil || s.startLine > innermost.startLine || (s.startLine == innermost.startLine && s.startColumn > innermost.startColumn) {
 			innermost = s
 		}
+		if s.anonymous {
+			continue
+		}
+		if named == nil || s.startLine > named.startLine || (s.startLine == named.startLine && s.startColumn > named.startColumn) {
+			named = s
+		}
 	}
-	if innermost == nil {
-		return ""
+	if innermost != nil && innermost.anonymous && innermost.method {
+		return "", true
 	}
-	return innermost.name
+	if named == nil {
+		return "", false
+	}
+	return named.name, false
 }
 
 func (c *collector) declaredInWorkspace(declaration uint64) bool {
@@ -701,6 +750,8 @@ func (c *collector) census(filesSeen, diagnostics int) facts.ProviderCensus {
 	add("receiver is the lexical enclosing class", c.enclosingReceivers)
 	add("receiver resolves to no constant", c.untypedReceivers)
 	add("declaration is a constant alias, not a class", c.aliasedDeclarations)
+	add("declaration is anonymous: the engine names it by an id that depends on the checkout path", c.anonymousOwners+c.anonymousReceivers)
+	add("caller is a method of an anonymous class", c.anonymousCallers+c.anonymousReferrers)
 	add("rubydex diagnostic", diagnostics)
 	add("document excluded by the repository's ignore globs", c.excludedDocuments)
 	add("reference in a file the repository's ignore globs exclude", c.excludedReferences)
@@ -734,6 +785,8 @@ func (c *collector) prismCensus(filesSeen int) facts.ProviderCensus {
 	add("receiver is another class: a rubydex-call fact", c.otherReceivers)
 	add("source position of the call could not be read", c.unreadablePositions)
 	add("implicit receiver typed as the class inside an instance method", c.classTypedSelf)
+	add("caller is a method of an anonymous class", c.anonymousCallers)
+	add("receiver is anonymous: the engine names it by an id that depends on the checkout path", c.anonymousReceivers)
 	add("document excluded by the repository's ignore globs", c.excludedDocuments)
 	skipped := 0
 	for _, cause := range causes {
@@ -753,6 +806,10 @@ func sameLexicalOwner(enclosing, receiver string) bool {
 		owner = enclosing[:i]
 	}
 	return owner == receiver
+}
+
+func anonymous(name string) bool {
+	return strings.Contains(name, "<anonymous>")
 }
 
 func singleton(name string) bool {
