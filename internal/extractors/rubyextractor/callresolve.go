@@ -30,6 +30,13 @@ func resolveRubyCalls(allFacts []facts.Fact) {
 	ix := buildHandlerIndex(allFacts)
 	for i := range allFacts {
 		f := &allFacts[i]
+		foreign := map[string]bool{}
+		if names, ok := f.PropAny(foreignCallsProp).([]string); ok {
+			for _, name := range names {
+				foreign[name] = true
+			}
+			f.DelProp(foreignCallsProp)
+		}
 		if f.Kind != facts.KindSymbol {
 			continue
 		}
@@ -47,7 +54,11 @@ func resolveRubyCalls(allFacts []facts.Fact) {
 		for _, r := range f.Relations {
 			if r.Kind == facts.RelCalls {
 				var class string
-				r.Target, class = ix.resolveCall(r.Target, owner, sep)
+				written := r.Target
+				r.Target, class = ix.resolveCall(written, owner, sep, foreign)
+				if r.Target == f.Name && written != f.Name {
+					r.Target, class = written, ""
+				}
 				if class != "" && !slices.Contains(named, class) {
 					named = append(named, class)
 				}
@@ -88,7 +99,7 @@ func methodOwner(name string) (owner, sep string) {
 // resolveCall returns the declared method a call target reaches from a method of
 // owner, or the target as the walker wrote it. When a singleton method on a named
 // class resolves to an ancestor's, it also returns the class.
-func (ix *handlerIndex) resolveCall(target, owner, sep string) (resolved, named string) {
+func (ix *handlerIndex) resolveCall(target, owner, sep string, foreign map[string]bool) (resolved, named string) {
 	switch {
 	case strings.HasPrefix(target, "#"):
 		// `new(...).call` inside the class: an instance method of the class itself.
@@ -108,6 +119,11 @@ func (ix *handlerIndex) resolveCall(target, owner, sep string) (resolved, named 
 		return "new." + method, ""
 
 	case isBareMethodName(target):
+		// `new` is Class#new unless the class overrides it, and the walker writes a
+		// bare name for a call on any receiver: neither says which method it reaches.
+		if target == "new" || foreign[target] {
+			return target, ""
+		}
 		// A call on self: a method of the caller's own kind first, then, for an
 		// instance method calling `self.class.name`, a singleton one. A method a
 		// subclass overrides is not settled by the declaration the chain finds: the

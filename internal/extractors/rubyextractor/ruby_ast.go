@@ -1,6 +1,7 @@
 package rubyextractor
 
 import (
+	"slices"
 	"sort"
 	"strings"
 
@@ -1382,7 +1383,7 @@ func (w *rubyWalker) walkForCalls(node *sitter.Node, ownerIdx int, seen, locals 
 				// name matches the enclosing method is a same-named call on a DIFFERENT
 				// object — the SimpleDelegator/decorator pattern (`@delegate.render`,
 				// `new.call`), not self-recursion.
-				w.addCall(ownerIdx, seen, name)
+				w.addForeignCall(ownerIdx, seen, name)
 				w.recordInLoopCall(name)
 			case w.loopDepth > 0:
 				// A no-arg single-level read inside a loop (the association read
@@ -1744,7 +1745,13 @@ func (w *rubyWalker) walkTestRefs(node *sitter.Node, add func(string)) {
 		method := node.ChildByFieldName("method")
 		recv := node.ChildByFieldName("receiver")
 		if target := w.callTarget(node); target != "" {
-			add(target)
+			// A call on a new instance is written "Const#name" for resolveRubyCalls to
+			// settle, which a reference fact never passes through; as written it can
+			// coincide with the name of an association, and the bare name of the
+			// method is emitted for the call's own identifier regardless.
+			if !strings.Contains(target, "#") {
+				add(target)
+			}
 		} else if recv == nil && method != nil && kindOf(method) == "identifier" {
 			if name := rubyText(method, w.src); !rubyNonCalls[name] {
 				add(name)
@@ -1825,6 +1832,24 @@ func oneShotCallOn(newCall *sitter.Node, src []byte) string {
 		return ""
 	}
 	return rubyText(method, src)
+}
+
+// foreignCallsProp lists, on a method fact and only until resolveRubyCalls has
+// run, the bare names it wrote for a call on a receiver that is not self. A bare
+// name says nothing of its receiver, so the binder refuses these.
+const foreignCallsProp = "foreign_calls"
+
+// addForeignCall records a call written on a receiver other than self as the bare
+// name it has always been, and notes the name as not a call on self.
+func (w *rubyWalker) addForeignCall(ownerIdx int, seen map[string]bool, name string) {
+	w.addCall(ownerIdx, seen, name)
+	if w.out[ownerIdx].Props == nil {
+		w.out[ownerIdx].Props = map[string]any{}
+	}
+	names, _ := w.out[ownerIdx].PropAny(foreignCallsProp).([]string)
+	if !slices.Contains(names, name) {
+		w.out[ownerIdx].SetProp(foreignCallsProp, append(names, name))
+	}
 }
 
 // addCall appends a deduplicated RelCalls edge to the owner fact.

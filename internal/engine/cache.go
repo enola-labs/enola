@@ -3063,7 +3063,13 @@ import (
 // compact `class Admin::Controller`), keep the name the walker wrote instead of
 // binding to one declaration. Calls targets move on the repositories that have
 // either shape; the benchmark's forbidden bindings are refused.
-const cacheVersion = "v423"
+// v424: A bare Ruby call binds to the caller's own class only when the method
+// wrote it as a call on self: a name written for a call on another receiver, for
+// `super` or for `self.class.name` (which would bind to the method itself), and the
+// bare `new`, keep the name the walker wrote. A Ruby test reference no longer names a
+// call on a new instance "Const#name", which coincided with the name of an
+// association. Calls targets move on Ruby repositories.
+const cacheVersion = "v424"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

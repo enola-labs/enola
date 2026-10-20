@@ -4,6 +4,7 @@ import (
 	"context"
 	"slices"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/enola-labs/enola/internal/facts"
@@ -247,4 +248,55 @@ end
 	})
 	wantNoCall(t, got, "Admin::SearchLogsController#index", "Admin::Search.execute")
 	wantCalls(t, got, "Admin::SearchLogsController#index", "Search.execute")
+}
+
+// A name written for a call on another receiver, for `super` and for `self.class.x`
+// says nothing of the method it reaches, so none binds to the caller's own class.
+func TestRubyCalls_ANameThatMayBeAnotherReceiversKeepsItsName(t *testing.T) {
+	got := methodCalls(t, map[string]string{
+		"lib/base.rb": `
+class Base
+  def self.reset!
+  end
+
+  def self.inherited(subclass)
+    subclass.reset!
+    super
+  end
+
+  def self.prototype
+    @prototype ||= new
+  end
+
+  def self.settings
+  end
+
+  def settings
+    self.class.settings
+  end
+
+  def call(env)
+    super
+  end
+end
+`,
+	})
+	wantNoCall(t, got, "Base.inherited", "Base.reset!", "Base.inherited")
+	wantNoCall(t, got, "Base.prototype", "Base.new")
+	wantNoCall(t, got, "Base#settings", "Base#settings")
+	wantNoCall(t, got, "Base#call", "Base#call")
+	wantCalls(t, got, "Base.inherited", "reset!")
+}
+
+// A reference fact names a call on a new instance by the method alone: the
+// "Const#name" spelling is for resolveRubyCalls, and a test reference never reaches it.
+func TestRubyTestRefs_ACallOnANewInstanceIsNotNamedAsConstHashName(t *testing.T) {
+	ff := extractTestRefsAST([]byte("class ProjectTest\n  def test_a\n    Project.new.trackers\n  end\nend\n"), "test/project_test.rb")
+	for _, f := range ff {
+		for _, r := range f.Relations {
+			if strings.Contains(r.Target, "#") {
+				t.Errorf("test reference %s names %q", f.Name, r.Target)
+			}
+		}
+	}
 }
