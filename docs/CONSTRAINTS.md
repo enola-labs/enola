@@ -1143,7 +1143,10 @@ never reads as compliance.
 - `cap_runtime: <component>` with `metric: queries` and `max: N` reads the
   `runtime-queries:` frames a runtime capture measured for files inside
   the component and names every frame over the budget. A snapshot with no
-  capture makes the rule unevaluable with the cause `no_runtime_capture`.
+  capture makes the rule unevaluable with the cause `no_runtime_capture`,
+  and one whose capture holds frames but none in the component's files
+  with the cause `no_frame_in_members`, since a capture keyed by spec files
+  never measured the part.
   Ruby: `billing.must_keep_budget metric: :queries, max: 20`.
 - `require_consumer: <route component>` breaches for every member route
   no loaded client calls, read from the cross-repository route match; a
