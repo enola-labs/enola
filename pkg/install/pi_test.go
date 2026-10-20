@@ -2,7 +2,9 @@ package install
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -148,5 +150,51 @@ func TestPi_TrustNoticeIsLocalOnly(t *testing.T) {
 	o.Targets = []string{"claude"}
 	if InstallsPiExtension(o) {
 		t.Error("a run without the pi target writes no extension")
+	}
+}
+
+// A server that exits before reading its input leaves the extension's first write
+// with no reader. The EPIPE on the child's stdin must not throw into Pi: the session
+// goes on with no enola tools.
+func TestPi_ExtensionSurvivesAServerThatExitsAtOnce(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the stand-in binary is a POSIX shell script")
+	}
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node not on PATH: the extension cannot be run")
+	}
+	work := t.TempDir()
+	fake := filepath.Join(work, "fake-enola")
+	writeFile(t, fake, "#!/bin/sh\nexit 0\n")
+	if err := os.Chmod(fake, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ext := filepath.Join(work, "enola.mjs")
+	writeFile(t, ext, piExtensionSource(Options{HookCommand: fake}))
+	driver := filepath.Join(work, "driver.mjs")
+	writeFile(t, driver, `
+const registered = []
+const handlers = {}
+const pi = {
+  on: (name, fn) => { (handlers[name] ??= []).push(fn) },
+  registerTool: (tool) => { registered.push(tool.name) },
+}
+;(await import(process.argv[2])).default(pi)
+const ctx = { cwd: process.argv[3], hasUI: false }
+for (const fn of handlers.session_start ?? []) await fn({ reason: "startup" }, ctx)
+await new Promise((resolve) => setTimeout(resolve, 200))
+console.log(JSON.stringify({ registered }))
+process.exit(0)
+`)
+	// The start-up timer keeps the driver alive, so it ends itself.
+	for i := 0; i < 5; i++ {
+		out, err := exec.Command(node, driver, ext, work).CombinedOutput()
+		if err != nil {
+			t.Fatalf("run %d: the extension threw when the server exited at once: %v\n%s", i, err, out)
+		}
+		if got := strings.TrimSpace(string(out)); got != `{"registered":[]}` {
+			t.Fatalf("run %d: driver printed %q, want no tools registered", i, got)
+		}
 	}
 }

@@ -87,6 +87,7 @@ class Server {
       for (const p of this.pending.values()) p.reject(new Error(why))
       this.pending.clear()
     }
+    this.proc.stdin.on("error", () => {})
     this.proc.on("error", (e) => fail(`enola could not be started: ${e.message}`))
     this.proc.on("exit", (code) => fail(`the enola server exited (code ${code})`))
   }

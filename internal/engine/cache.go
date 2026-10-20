@@ -3007,16 +3007,17 @@ import (
 // v404: a Rust cfg gate counts as test-only when its predicate requires a test build:
 // `not(all(test, loom))` and `any(feature = "x", test)` are production, inline or out of line.
 // v405: a Rust cfg(fuzzing) gate, set by cargo-fuzz, counts as a test build too.
-// v406: the C# grammar is tree-sitter-c-sharp v0.23.5 (vendored, regenerated at ABI 14)
+// v406: an HCL block is recorded on its keyword's line, not on a blank line above it.
+// v407: the C# grammar is tree-sitter-c-sharp v0.23.5 (vendored, regenerated at ABI 14)
 // instead of v0.23.1, so C# 12 body-less types and collection expressions parse; a
 // named attribute argument is never a route template.
-// v407: a C# file is parsed under one build configuration: every #if/#elif/#else chain
+// v408: a C# file is parsed under one build configuration: every #if/#elif/#else chain
 // keeps its first branch and the conditional directives are blanked before parsing.
-// v408: a C# attribute, typeof(T), default(T) or nameof(T) emits a names edge to the type,
+// v409: a C# attribute, typeof(T), default(T) or nameof(T) emits a names edge to the type,
 // kept only when the repository declares it and the file can see it (its namespace, an
 // enclosing one, or a using); a class with [DiagnosticAnalyzer],
 // [Generator] or a MEF [Export*] attribute is framework_registered.
-const cacheVersion = "v408"
+const cacheVersion = "v409"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

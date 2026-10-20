@@ -166,3 +166,22 @@ locals {
 		t.Error("a second locals block was not scanned — every locals block counts")
 	}
 }
+
+// TestHCL_BlockLineIsItsKeyword: a block's line is the line its keyword is on,
+// whatever blank lines or indentation come before it.
+func TestHCL_BlockLineIsItsKeyword(t *testing.T) {
+	src := "provider \"aws\" {\n  region = \"eu\"\n}\n\n\nresource \"aws_instance\" \"web\" {\n  ami = var.ami\n}\n\n  variable \"ami\" {\n}\n\nmodule \"vpc\" {\n  source = \"./vpc\"\n}\n"
+	data := "# zones\n\ndata \"aws_availability_zones\" \"all\" {\n}\n"
+	ff := extractHCL(t, map[string]string{"main.tf": src, "data.tf": data, "vpc/main.tf": "output \"id\" {\n  value = 1\n}\n"})
+	for _, c := range []struct {
+		name string
+		line int
+	}{{"provider.aws", 1}, {"aws_instance.web", 6}, {"var.ami", 10}, {"module.vpc", 13}, {"data.aws_availability_zones.all", 3}} {
+		if f := find(ff, facts.KindSymbol, c.name); f == nil || f.Line != c.line {
+			t.Errorf("%s line = %v, want %d", c.name, f, c.line)
+		}
+	}
+	if dep := find(ff, facts.KindDependency, ". -> vpc"); dep == nil || dep.Line != 13 {
+		t.Errorf("module dependency = %+v, want line 13", dep)
+	}
+}
