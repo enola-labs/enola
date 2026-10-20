@@ -2,6 +2,8 @@ package command
 
 import (
 	"os"
+	"os/exec"
+	"strings"
 	"testing"
 )
 
@@ -14,6 +16,10 @@ import (
 // is the backstop for any that do not. CI runs the suite under an empty HOME and fails
 // if anything lands there.
 func TestMain(m *testing.M) {
+	// The Go caches stay put, as CI keeps them: under the sandboxed HOME every
+	// run fetched the whole module cache again, and its read-only files made
+	// the RemoveAll below fail, leaving about 150 MB in the temp dir per run.
+	keepGoCaches()
 	tmp, err := os.MkdirTemp("", "enola-command-test-home-")
 	if err != nil {
 		panic(err)
@@ -29,4 +35,18 @@ func TestMain(m *testing.M) {
 	code := m.Run()
 	_ = os.RemoveAll(tmp)
 	os.Exit(code)
+}
+
+func keepGoCaches() {
+	keys := []string{"GOCACHE", "GOMODCACHE"}
+	out, err := exec.Command("go", append([]string{"env"}, keys...)...).Output()
+	if err != nil {
+		return
+	}
+	values := strings.Split(strings.TrimSpace(string(out)), "\n")
+	for i, key := range keys {
+		if os.Getenv(key) == "" && i < len(values) && values[i] != "" {
+			_ = os.Setenv(key, values[i])
+		}
+	}
 }
