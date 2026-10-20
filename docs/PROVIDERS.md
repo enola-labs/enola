@@ -117,7 +117,12 @@ runs it in-process: the engine's C-ABI library, which every platform gem
 ships prebuilt, is loaded at run time (no cgo, no Ruby interpreter, no
 gem in the measured repository's bundle) from enola's cache, where
 `enola providers fetch rubydex` puts it after downloading the pinned
-gem version from rubygems.org and verifying its published digest. A
+gem version from rubygems.org and verifying its published digest. The
+install script and `enola upgrade` run that fetch once the new binary is
+in place, so Ruby support needs no second step on those routes; a failed
+fetch there is a named skip and the install or upgrade still succeeds.
+`ENOLA_NO_RUBYDEX_FETCH=1` turns it off for both. A binary that arrived
+another way (`go install`, pip, a build from source) fetches by hand. A
 configured provider whose library is absent is a named skip in the
 census that says which command installs it; `doctor` reports the same.
 Fetching is the only network access a provider makes, never at snapshot

@@ -316,7 +316,7 @@ Read the [Code of Conduct](CODE_OF_CONDUCT.md) for the guidelines this community
 
 Apache License 2.0, see [`LICENSE`](LICENSE).
 
-This repository is the full engine, not a trial edition. Nothing is gated, metered or degraded without a key, and no snapshot, fact or usage counter ever leaves your machine. The only outbound request enola makes is to GitHub's release API: a background release check you can turn off (see [Staying current](docs/CLI.md#staying-current)), and `enola upgrade` when you run it.
+This repository is the full engine, not a trial edition. Nothing is gated, metered or degraded without a key, and no snapshot, fact or usage counter ever leaves your machine. enola makes outbound requests to two places only. GitHub's release API gets a background release check you can turn off (see [Staying current](docs/CLI.md#staying-current)), and `enola upgrade` when you run it. rubygems.org serves the pinned Rubydex library, fetched by `enola providers fetch rubydex` and by the install script and `enola upgrade` unless `ENOLA_NO_RUBYDEX_FETCH` is set.
 
 ## Acknowledgements
 

@@ -7,7 +7,10 @@ Usage: enola upgrade
 Download and install the latest enola release, replacing the running
 binary in place. A dev build is always treated as out of date. An
 install managed by a package manager (pip, for one) is left alone, with
-the command that upgrades it instead.
+the command that upgrades it instead. Afterwards the new binary fetches
+the Rubydex library it pins (`providers fetch rubydex`); a failure there
+is reported and the upgrade still succeeds. ENOLA_NO_RUBYDEX_FETCH=1
+skips it.
 
 Exit codes:
   0  upgraded, already current, or left to the package manager

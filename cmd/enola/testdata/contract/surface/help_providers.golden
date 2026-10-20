@@ -10,8 +10,10 @@ The fact providers this binary carries itself.
   fetch <name> download the pinned engine library of a built-in provider,
                verify its published digest, and cache it. After
                `fetch rubydex`, a `providers:` entry named rubydex with no
-               command runs in-process. The only network access a provider
-               ever makes, and never at snapshot time.
+               command runs in-process. The install script and `upgrade` run
+               it for you (ENOLA_NO_RUBYDEX_FETCH=1 skips that). The only
+               network access a provider ever makes, and never at snapshot
+               time.
 
 Built-ins: prism, rubydex
 

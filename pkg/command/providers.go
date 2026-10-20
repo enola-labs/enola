@@ -24,8 +24,10 @@ func (r *Runner) Providers(ctx context.Context, args []string) {
 			"  fetch <name> download the pinned engine library of a built-in provider,\n"+
 			"               verify its published digest, and cache it. After\n"+
 			"               `fetch rubydex`, a `providers:` entry named rubydex with no\n"+
-			"               command runs in-process. The only network access a provider\n"+
-			"               ever makes, and never at snapshot time.\n\n"+
+			"               command runs in-process. The install script and `upgrade` run\n"+
+			"               it for you (ENOLA_NO_RUBYDEX_FETCH=1 skips that). The only\n"+
+			"               network access a provider ever makes, and never at snapshot\n"+
+			"               time.\n\n"+
 			"Built-ins: "+strings.Join(providers.BuiltInNames(), ", ")+"\n\n"+
 			"Exit codes:\n"+
 			"  0  listed, fetched, or already installed\n"+
