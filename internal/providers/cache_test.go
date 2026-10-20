@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/enola-labs/enola/internal/facts"
@@ -12,19 +13,29 @@ import (
 
 // memoryCache is the seam's view of the engine cache, held in a map: Get and
 // Peek read, Put stores, nothing is carried forward or dropped, which is the
-// part of the engine's contract these tests do not exercise.
-type memoryCache struct{ entries map[string][]facts.Fact }
+// part of the engine's contract these tests do not exercise. It locks as the
+// engine's cache does, since RunWith runs providers concurrently.
+type memoryCache struct {
+	mu      sync.Mutex
+	entries map[string][]facts.Fact
+}
 
 func newMemoryCache() *memoryCache { return &memoryCache{entries: map[string][]facts.Fact{}} }
 
 func (m *memoryCache) Get(key string) ([]facts.Fact, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	ff, ok := m.entries[key]
 	return ff, ok
 }
 
 func (m *memoryCache) Peek(key string) ([]facts.Fact, bool) { return m.Get(key) }
 
-func (m *memoryCache) Put(key string, ff []facts.Fact) { m.entries[key] = ff }
+func (m *memoryCache) Put(key string, ff []facts.Fact) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.entries[key] = ff
+}
 
 // writePerFileProvider writes a provider that reads the listing the seam hands
 // it and emits one symbol fact per listed file, plus, when extra is set, a fact

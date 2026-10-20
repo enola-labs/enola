@@ -33,6 +33,10 @@ import (
 // test functions that assert the behavior that version introduced. v1 is the
 // implicit baseline (no changelog line), so coverage starts at v2.
 var versionCoverage = map[int][]string{
+	// prism is the Rubydex engine answering under the Prism reference script's names, from the run's one index, and never paired with itself
+	414: {"TestCollect_WritesTheEnclosingClassCallsUnderThePrismNames", "TestCollect_TheSkippedSameClassCallIsThePrismSidesFact",
+		"TestRun_PrismAndRubydexBuiltInsShareOneEngine", "TestRun_PrismBuiltInIsServedFromItsOwnIndexEntry",
+		"TestPairing_OneEngineBehindTwoNamesIsNoAgreement", "TestValidate_PrismIsABuiltInName", "TestCollect_ACallInADefaultParameterIsNotWrittenOnTheClass"},
 	413: {
 		"TestExtract_NamesTheFilesTheParserLeftAnErrorIn",
 		"TestGenerate_ARubyFileReadInPartIsAParseError",

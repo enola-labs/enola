@@ -45,7 +45,7 @@ const FilesPerFile = "per-file"
 // builtIns names the providers the binary carries itself, which an entry may
 // name without a command. A name, not an implementation: internal/providers
 // holds one runner per name, and its tests fail if the two sets differ.
-var builtIns = []string{"rubydex"}
+var builtIns = []string{"prism", "rubydex"}
 
 // BuiltInNames lists the providers a config may name without a command.
 func BuiltInNames() []string {

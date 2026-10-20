@@ -143,6 +143,27 @@ class reaches them; unresolved references and Rubydex's own diagnostics
 are counted in the census rather than guessed around. The ancestry edges
 are what the `ancestor:` component key reads.
 
+A `providers:` entry named `prism` with no `command` reads the same index
+in the same run and writes what the Prism reference script writes, under
+its names: a call whose receiver is the lexical enclosing class
+(`prism-call:`, a `calls` edge, at `lexical-self` when the source writes
+`self` or no receiver and `constant-receiver` when it writes the
+constant), and `new` on a written constant (`prism-new:`, an
+`instantiates` edge at `constant-receiver`, with `one_shot_call` naming
+the message sent to the new object in the same expression when Rubydex
+reads a call of that name exactly there). The callee is the receiver
+Rubydex resolved, so `Board.find` inside `Board` is the singleton the
+script spells `Board#find`. Each fact carries `engine: rubydex` beside
+the `provider: prism` the seam stamps, and the seam never pairs two
+names of one engine as an agreement. A call whose receiver Rubydex types
+as no constant, which the script writes name-only, is counted in the
+census and not written; a call on another class is the `rubydex-call:`
+fact. An implicit or `self` receiver that Rubydex types as the class
+inside an instance method is not written either and is counted as such:
+Rubydex 0.4.0 reads a default parameter's value before it enters the
+method, so `def route!(base = settings)` types `settings` on the class,
+where Ruby evaluates it on the instance. Its version is the library's.
+
 ## The runtime provider
 
 `examples/providers/ruby/runtime/enola_runtime_provider.rb` is the reference

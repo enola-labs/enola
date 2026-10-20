@@ -2,6 +2,7 @@ package rubydex
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -24,11 +25,22 @@ func Indexable(path string) bool {
 
 // Result is what one run of the provider produced: the facts, the census the
 // seam records, and a refusal when the workspace could not be read at all.
+// Prism and PrismCensus are what the same index says under the Prism reference
+// script's names: the calls whose receiver is the lexical enclosing class,
+// which the Rubydex facts leave out, and new on a constant as an
+// instantiation.
 type Result struct {
-	Facts   []facts.Fact
-	Census  facts.ProviderCensus
-	Refusal string
+	Facts       []facts.Fact
+	Census      facts.ProviderCensus
+	Prism       []facts.Fact
+	PrismCensus facts.ProviderCensus
+	Refusal     string
 }
+
+// Engine is the engine prop a fact this package writes under another
+// provider's names carries, so a reader and the seam's pairing can tell which
+// reader produced it.
+const Engine = "rubydex"
 
 type collector struct {
 	g                   *graph
@@ -48,6 +60,12 @@ type collector struct {
 	ignored             func(file string) bool
 	excludedDocuments   int
 	excludedReferences  int
+	prism               []facts.Fact
+	otherReceivers      int
+	unreadablePositions int
+	classTypedSelf      int
+	sources             map[string][]string
+	callsAt             map[string]bool
 }
 
 type span struct {
@@ -76,7 +94,8 @@ func Collect(ctx context.Context, lib *Library, root string, ignored func(file s
 	if _, err := os.Stat(filepath.Join(root, "Gemfile")); err != nil {
 		return Result{Census: facts.ProviderCensus{ConstructsSkipped: 1, SkipCauses: []facts.CensusCause{{Cause: "no Gemfile: not a workspace Rubydex can index", Count: 1}}}}
 	}
-	c := &collector{root: root, workspace: "file://" + root + "/", documentCache: map[uint64][]span{}, declarationNames: map[uint64]string{}, ignored: ignored}
+	c := &collector{root: root, workspace: "file://" + root + "/", documentCache: map[uint64][]span{}, declarationNames: map[uint64]string{}, ignored: ignored,
+		sources: map[string][]string{}, callsAt: map[string]bool{}}
 	paths, dependencyPaths, bundleAbsent := workspacePaths(ctx, root)
 	c.dependencyPaths = dependencyPaths
 	c.bundleAbsent = bundleAbsent
@@ -102,13 +121,29 @@ func Collect(ctx context.Context, lib *Library, root string, ignored func(file s
 		for _, definition := range c.g.definitions(doc) {
 			c.emitAncestry(definition)
 		}
-		for _, reference := range c.g.methodReferences(doc) {
+		references := c.g.methodReferences(doc)
+		for _, reference := range references {
+			if location, ok := c.g.methodReferenceLocation(reference.id); ok {
+				c.callsAt[callKey(location.URI, location.StartLine, location.StartColumn, c.g.methodReferenceName(reference.id))] = true
+			}
+		}
+		for _, reference := range references {
 			c.emitCall(doc, reference)
 		}
 	}
 	c.emitReferences(c.g.constantReferences())
 	sort.Slice(c.facts, func(i, j int) bool { return c.facts[i].Name < c.facts[j].Name })
-	return Result{Facts: c.facts, Census: c.census(len(documents), c.g.diagnosticCount())}
+	sort.SliceStable(c.prism, func(i, j int) bool { return prismOrder(c.prism[i]) < prismOrder(c.prism[j]) })
+	return Result{Facts: c.facts, Census: c.census(len(documents), c.g.diagnosticCount()),
+		Prism: c.prism, PrismCensus: c.prismCensus(len(documents))}
+}
+
+func callKey(uri string, line, column int, name string) string {
+	return uri + "\x00" + strconv.Itoa(line) + "\x00" + strconv.Itoa(column) + "\x00" + name
+}
+
+func prismOrder(f facts.Fact) string {
+	return fmt.Sprintf("%s\x00%s\x00%09d", f.Name, f.File, f.Line)
 }
 
 // workspacePaths mirrors the gem's own listing: the workspace's top-level
@@ -206,8 +241,14 @@ func (c *collector) emitCall(doc uint64, reference cMethodReference) {
 	}
 	receiverFull := c.g.declarationName(receiver.id)
 	receiverName := plainName(receiverFull)
+	method := c.g.methodReferenceName(reference.id)
 	enclosing := c.enclosingName(doc, location)
-	if enclosing != "" && sameLexicalOwner(enclosing, receiverName) {
+	caller := enclosing
+	if caller == "" {
+		caller = c.relative(location.URI)
+	}
+	instantiated := method == "new" && singleton(receiverFull) && c.emitInstantiation(caller, receiverName, location)
+	if instantiated && enclosing != "" && sameLexicalOwner(enclosing, receiverName) {
 		c.enclosingReceivers++
 		return
 	}
@@ -215,13 +256,175 @@ func (c *collector) emitCall(doc uint64, reference cMethodReference) {
 	if singleton(receiverFull) {
 		separator = "."
 	}
-	callee := receiverName + separator + c.g.methodReferenceName(reference.id)
-	caller := enclosing
-	if caller == "" {
-		caller = c.relative(location.URI)
+	callee := receiverName + separator + method
+	if enclosing != "" && sameLexicalOwner(enclosing, receiverName) {
+		c.enclosingReceivers++
+		c.emitEnclosingCall(caller, callee, location, singleton(receiverFull) && strings.Contains(enclosing, "#"))
+		return
+	}
+	if !instantiated {
+		c.otherReceivers++
 	}
 	c.facts = append(c.facts, c.fact("rubydex-call: "+caller+" -> "+callee, location, "constant-receiver",
 		facts.Relation{Kind: "calls", Target: callee}, nil))
+}
+
+// emitEnclosingCall writes a call whose receiver is the lexical enclosing
+// class the way the Prism reference script names it. The level is the
+// script's: a receiver written as a constant is constant-receiver, self or no
+// receiver is lexical-self. The callee is the receiver the engine resolved,
+// so an explicit Board.find is the singleton the script spelled Board#find.
+//
+// An implicit or self receiver typed as the class's singleton inside an
+// instance method is the engine reading a default parameter before it enters
+// the method, where Ruby evaluates it on the instance; the two readings
+// disagree, so nothing is written and the disagreement is counted.
+func (c *collector) emitEnclosingCall(caller, callee string, location Location, classInsideInstanceMethod bool) {
+	written, ok := c.writtenReceiver(location)
+	if !ok {
+		c.unreadablePositions++
+		return
+	}
+	if classInsideInstanceMethod && written != receiverConstant {
+		c.classTypedSelf++
+		return
+	}
+	level := "lexical-self"
+	if written == receiverConstant {
+		level = "constant-receiver"
+	}
+	c.prism = append(c.prism, c.prismFact("prism-call: "+caller+" -> "+callee, location, level,
+		facts.Relation{Kind: "calls", Target: callee}, nil))
+}
+
+// emitInstantiation writes new on a written constant as the script does, an
+// instantiation of the class the engine resolved, and reports whether it did.
+// A new whose receiver is self or implicit is a call, as it is to the script.
+// The message sent to the new object in the same expression is named as
+// one_shot_call only when the engine read a call of that name exactly there.
+func (c *collector) emitInstantiation(caller, class string, location Location) bool {
+	written, ok := c.writtenReceiver(location)
+	if !ok || written != receiverConstant {
+		return false
+	}
+	var extra map[string]any
+	if chained := c.chainedCall(location); chained != "" {
+		extra = map[string]any{"one_shot_call": chained}
+	}
+	c.prism = append(c.prism, c.prismFact("prism-new: "+caller+" -> "+class, location, "constant-receiver",
+		facts.Relation{Kind: "instantiates", Target: class}, extra))
+	return true
+}
+
+type writtenReceiverKind int
+
+const (
+	receiverNone writtenReceiverKind = iota
+	receiverSelf
+	receiverConstant
+)
+
+// writtenReceiver reads how the source spelled the receiver of the message at
+// location: nothing before it, self, or anything else, which for a receiver
+// the engine resolved to a declaration is a constant. The engine reports the
+// receiver's declaration and not its syntax, and the script's levels are about
+// the syntax.
+func (c *collector) writtenReceiver(location Location) (writtenReceiverKind, bool) {
+	line, ok := c.sourceLine(location.URI, location.StartLine)
+	if !ok || location.StartColumn-1 > len(line) {
+		return receiverNone, false
+	}
+	before := strings.TrimRight(line[:location.StartColumn-1], " \t")
+	var operator string
+	for _, candidate := range []string{"&.", "::", "."} {
+		if strings.HasSuffix(before, candidate) {
+			operator = candidate
+			break
+		}
+	}
+	if operator == "" {
+		return receiverNone, true
+	}
+	receiver := strings.TrimRight(strings.TrimSuffix(before, operator), " \t")
+	if strings.HasSuffix(receiver, "self") && (len(receiver) == len("self") || !identifierByte(receiver[len(receiver)-len("self")-1])) {
+		return receiverSelf, true
+	}
+	return receiverConstant, true
+}
+
+// chainedCall is the message sent to the result of the new at location in the
+// same expression, `Foo.new(...).bar`, read on its line and confirmed against
+// a call the engine reports at that column, or "" when there is none or the
+// expression does not read plainly on one line.
+func (c *collector) chainedCall(location Location) string {
+	line, ok := c.sourceLine(location.URI, location.StartLine)
+	if !ok || location.EndLine != location.StartLine || location.EndColumn-1 > len(line) {
+		return ""
+	}
+	i := location.EndColumn - 1
+	if i < len(line) && line[i] == '(' {
+		depth := 0
+		for ; i < len(line); i++ {
+			if line[i] == '(' {
+				depth++
+			} else if line[i] == ')' {
+				depth--
+				if depth == 0 {
+					i++
+					break
+				}
+			}
+		}
+		if depth != 0 {
+			return ""
+		}
+	}
+	rest := line[i:]
+	switch {
+	case strings.HasPrefix(rest, "&."):
+		i += 2
+	case strings.HasPrefix(rest, "."):
+		i++
+	default:
+		return ""
+	}
+	start := i
+	for i < len(line) && identifierByte(line[i]) {
+		i++
+	}
+	if i < len(line) && (line[i] == '?' || line[i] == '!') {
+		i++
+	}
+	name := line[start:i]
+	if name == "" || !c.callsAt[callKey(location.URI, location.StartLine, start+1, name)] {
+		return ""
+	}
+	return name
+}
+
+func identifierByte(b byte) bool {
+	return b == '_' || b >= '0' && b <= '9' || b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z' || b >= 0x80
+}
+
+func (c *collector) sourceLine(uri string, line int) (string, bool) {
+	lines, read := c.sources[uri]
+	if !read {
+		data, err := os.ReadFile(filepath.Join(c.root, filepath.FromSlash(c.relative(uri))))
+		if err == nil {
+			lines = strings.Split(string(data), "\n")
+		}
+		c.sources[uri] = lines
+	}
+	if line < 1 || line > len(lines) {
+		return "", false
+	}
+	return lines[line-1], true
+}
+
+func (c *collector) prismFact(name string, location Location, level string, relation facts.Relation, extra map[string]any) facts.Fact {
+	f := c.fact(name, location, level, relation, extra)
+	f.Props["engine"] = Engine
+	return f
 }
 
 // A constant reference the engine reports, held with what decides its fate:
@@ -511,6 +714,34 @@ func (c *collector) census(filesSeen, diagnostics int) facts.ProviderCensus {
 	return facts.ProviderCensus{
 		FilesSeen:          filesSeen,
 		DeclarationsParsed: len(c.facts),
+		ConstructsSkipped:  skipped,
+		SkipCauses:         causes,
+	}
+}
+
+// prismCensus accounts for the method references the Prism names did not
+// write: the ones whose receiver the engine typed as no constant, which the
+// script writes name-only, the ones on another class, which are the Rubydex
+// facts' rubydex-call, and the ones whose source position could not be read.
+func (c *collector) prismCensus(filesSeen int) facts.ProviderCensus {
+	var causes []facts.CensusCause
+	add := func(cause string, count int) {
+		if count > 0 {
+			causes = append(causes, facts.CensusCause{Cause: cause, Count: count})
+		}
+	}
+	add("receiver resolves to no constant", c.untypedReceivers)
+	add("receiver is another class: a rubydex-call fact", c.otherReceivers)
+	add("source position of the call could not be read", c.unreadablePositions)
+	add("implicit receiver typed as the class inside an instance method", c.classTypedSelf)
+	add("document excluded by the repository's ignore globs", c.excludedDocuments)
+	skipped := 0
+	for _, cause := range causes {
+		skipped += cause.Count
+	}
+	return facts.ProviderCensus{
+		FilesSeen:          filesSeen,
+		DeclarationsParsed: len(c.prism),
 		ConstructsSkipped:  skipped,
 		SkipCauses:         causes,
 	}

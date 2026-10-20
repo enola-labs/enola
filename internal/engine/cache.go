@@ -3022,7 +3022,14 @@ import (
 // v411: a Kotlin function, class or object no longer loses relations recorded after a nested declaration.
 // v412: a Ruby call to a hardcoded absolute host is an external client route carrying the host as written; an interpolated host is refused and counted.
 // v413: the Ruby extractor emits a ruby:parse extraction fact per repository, counting the files it read whole and naming the files tree-sitter read only in part.
-const cacheVersion = "v413"
+// v414: prism is a built-in provider name. An entry named prism with no
+// command reads the Rubydex index of the run and writes the calls whose
+// receiver is the lexical enclosing class and new on a written constant under
+// the Prism reference script's names, each carrying engine: rubydex, with the
+// receiver Rubydex resolved. The seam pairs no two names of one engine. The
+// script runs only where a config names it with a command; the rubydex name's
+// facts are unchanged.
+const cacheVersion = "v414"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
