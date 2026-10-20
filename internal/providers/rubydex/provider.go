@@ -351,7 +351,8 @@ const (
 // location: nothing before it, self, or anything else, which for a receiver
 // the engine resolved to a declaration is a constant. The engine reports the
 // receiver's declaration and not its syntax, and the script's levels are about
-// the syntax.
+// the syntax. A trailing `..` or `...` is a range operator, so the call after
+// it has no receiver, as in a beginless range `(..limit)`.
 func (c *collector) writtenReceiver(location Location) (writtenReceiverKind, bool) {
 	line, ok := c.sourceLine(location.URI, location.StartLine)
 	if !ok || location.StartColumn-1 > len(line) {
@@ -365,7 +366,7 @@ func (c *collector) writtenReceiver(location Location) (writtenReceiverKind, boo
 			break
 		}
 	}
-	if operator == "" {
+	if operator == "" || (operator == "." && strings.HasSuffix(before, "..")) {
 		return receiverNone, true
 	}
 	receiver := strings.TrimRight(strings.TrimSuffix(before, operator), " \t")
