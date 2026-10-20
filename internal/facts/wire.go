@@ -190,6 +190,27 @@ func (s *Store) targetFactFor(target, fromRepo string) int {
 	return pick
 }
 
+// LandsByName reports whether a relation whose target names to by name alone
+// can land on it. A call or an instantiation reaches a symbol or an
+// association wherever it is declared, and anything else only inside the
+// caller's own repository, where the same-named route an Ember link or a
+// navigate() names is the language's own answer. In a union the lookup reaches
+// every repository once the caller's holds nothing of the name, and there a
+// derived Rust default() meets a Ruby job queue named default, or an Ember
+// link meets another application's route: coincidences of names, never what
+// the call reaches. A service node stands for a repository, so no
+// call lands on one even in its own, while a service's depends_on onto another
+// service is what the node is for. Every other relation kind lands as before.
+func LandsByName(from Fact, rel Relation, to Fact) bool {
+	if rel.Kind != RelCalls && rel.Kind != RelInstantiates {
+		return true
+	}
+	if to.Kind == KindSymbol || to.Kind == KindAssociation {
+		return true
+	}
+	return to.Kind != KindService && to.Repo == from.Repo
+}
+
 // The wire shape of insights.json.
 //
 // Evidence cites a fact by NAME, so a consumer linking a finding to the code it
