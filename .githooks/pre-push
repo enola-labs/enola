@@ -30,6 +30,12 @@
 # To skip in an emergency: `git push --no-verify` (CI still enforces 1, 2 and 3).
 set -e
 
+# git exports GIT_DIR (and in a worktree GIT_WORK_TREE) to every hook. The golden
+# tests read a fixture's repository identity from git, so under those variables
+# each fixture took this clone's name and every golden failed. Unset, git finds
+# the repository from the working directory, as it does in CI.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
+
 echo "pre-push: cacheVersion coverage guard…"
 go test -count=1 -run TestCacheVersionCoverage ./internal/cachecov/
 
