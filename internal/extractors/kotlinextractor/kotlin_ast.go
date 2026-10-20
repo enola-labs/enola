@@ -56,10 +56,12 @@ type astWalker struct {
 	// out is the accumulating fact list.
 	out []facts.Fact
 
-	// ownerStack[len-1] points at the symbol fact currently being constructed.
-	// New RelInstantiates / RelInjects edges discovered while walking that
-	// symbol's body are appended to its Relations slice.
-	ownerStack []*facts.Fact
+	// ownerStack[len-1] is the index in out of the symbol fact currently being
+	// constructed. New RelInstantiates / RelInjects edges discovered while walking
+	// that symbol's body are appended to its Relations slice. An index rather than
+	// a pointer, because walking a body appends to out, and a pointer taken before
+	// an append that grows out names a copy nobody reads.
+	ownerStack []int
 
 	// importMap maps an imported simple name to its canonical symbol fact name
 	// (e.g. "helper" → "src/util.helper"). Internal imports map to a resolvable
@@ -565,13 +567,26 @@ func (w *astWalker) qualify(name string) string {
 	return name
 }
 
-func (w *astWalker) pushOwner(f *facts.Fact) { w.ownerStack = append(w.ownerStack, f) }
-func (w *astWalker) popOwner()               { w.ownerStack = w.ownerStack[:len(w.ownerStack)-1] }
-func (w *astWalker) currentOwner() *facts.Fact {
+func (w *astWalker) pushOwner(idx int) { w.ownerStack = append(w.ownerStack, idx) }
+func (w *astWalker) popOwner()         { w.ownerStack = w.ownerStack[:len(w.ownerStack)-1] }
+
+// noOwner is the owner index outside any declaration.
+const noOwner = -1
+
+func (w *astWalker) currentOwner() int {
 	if len(w.ownerStack) == 0 {
-		return nil
+		return noOwner
 	}
 	return w.ownerStack[len(w.ownerStack)-1]
+}
+
+// relate adds a relation to the fact at owner, addressed at the moment of the
+// append, and nothing outside a declaration.
+func (w *astWalker) relate(owner int, kind, target string) {
+	if owner == noOwner {
+		return
+	}
+	w.out[owner].Relations = append(w.out[owner].Relations, facts.Relation{Kind: kind, Target: target})
 }
 
 func (w *astWalker) walkSourceFile(root *sitter.Node) {
@@ -744,8 +759,7 @@ func (w *astWalker) handleClassDeclaration(node *sitter.Node) {
 	// Push this class as the current owner so any constructor calls / @Inject params
 	// found while walking its primary constructor + body attach back to it.
 	w.out = append(w.out, f)
-	owner := &w.out[len(w.out)-1]
-	w.pushOwner(owner)
+	w.pushOwner(len(w.out) - 1)
 
 	// Enter the type scope: nested methods/classes are named "<dir>.<Type>.<...>",
 	// and bare same-class calls resolve against this class's declared method names.
@@ -835,8 +849,7 @@ func (w *astWalker) handleObjectDeclaration(node *sitter.Node) {
 	}
 
 	w.out = append(w.out, f)
-	owner := &w.out[len(w.out)-1]
-	w.pushOwner(owner)
+	w.pushOwner(len(w.out) - 1)
 	body := findChildByKind(node, "class_body")
 	w.pushType(name, collectMethodNames(body, w.src))
 	w.bindMembers(node)
@@ -933,11 +946,10 @@ func (w *astWalker) handleFunctionDeclaration(node *sitter.Node) {
 
 	w.out = append(w.out, f)
 	ownerIdx := len(w.out) - 1
-	w.pushOwner(&w.out[ownerIdx])
+	w.pushOwner(ownerIdx)
 	// Set up per-function complexity tracking. walkForCalls is re-entrant (it
 	// dispatches nested function_declarations back here), so save and restore the
-	// outer state rather than clearing it. Props are written via the stable index
-	// (the pointer may be invalidated if the body walk grows w.out).
+	// outer state rather than clearing it.
 	savedMetrics, savedDepth := w.metrics, w.loopDepth
 	savedScaling, savedRepeat := w.scalingLoopDepth, w.repeatDepth
 	savedName, savedShort := w.selfName, w.selfShort
@@ -1174,8 +1186,7 @@ func (w *astWalker) handlePropertyDeclaration(node *sitter.Node) {
 	}
 
 	w.out = append(w.out, f)
-	owner := &w.out[len(w.out)-1]
-	w.pushOwner(owner)
+	w.pushOwner(len(w.out) - 1)
 	// Property initializer may contain a constructor call.
 	w.walkForCalls(node)
 	w.popOwner()
@@ -1226,7 +1237,7 @@ func (w *astWalker) handleClassParameters(pc *sitter.Node, classInjected bool) {
 		return
 	}
 	owner := w.currentOwner()
-	if owner == nil {
+	if owner == noOwner {
 		return
 	}
 	for i := uint(0); i < uint(cps.ChildCount()); i++ {
@@ -1244,10 +1255,7 @@ func (w *astWalker) handleClassParameters(pc *sitter.Node, classInjected bool) {
 		// look for one of its concrete child kinds.
 		typeName := lastTypeIdentifier(firstTypeChild(cp), w.src)
 		if paramInjected && typeName != "" {
-			owner.Relations = append(owner.Relations, facts.Relation{
-				Kind:   facts.RelInjects,
-				Target: typeName,
-			})
+			w.relate(owner, facts.RelInjects, typeName)
 		}
 		// Walk default expression (anything after `=`) for constructor calls.
 		w.walkForCalls(cp)
@@ -1369,30 +1377,24 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 						w.noteTypedCall(nodeText(r, w.src)+"."+name, w.receiverType(r), name)
 					}
 				}
-				if owner := w.currentOwner(); owner != nil {
+				if owner := w.currentOwner(); owner != noOwner {
 					switch {
 					case isCapitalized(name):
 						// Kotlin convention: a capitalized callee is a constructor.
-						owner.Relations = append(owner.Relations, facts.Relation{
-							Kind:   facts.RelInstantiates,
-							Target: name,
-						})
+						w.relate(owner, facts.RelInstantiates, name)
 						// In Compose it is as often a function; resolveCapitalCalls
 						// keeps the candidate where a function is declared under it.
 						if c := w.typeCandidate(name); c != "" && !isNav {
-							notes, _ := owner.PropAny(propCapitalCalls).([]string)
+							notes, _ := w.out[owner].PropAny(propCapitalCalls).([]string)
 							if !slices.Contains(notes, c) {
-								owner.SetProp(propCapitalCalls, append(notes, c))
+								w.out[owner].SetProp(propCapitalCalls, append(notes, c))
 							}
 						}
 					case !isNav:
 						// Bare lowercase call: a same-class method, a same-package
 						// function, or an imported top-level function.
 						if target := w.resolveCall(name); target != "" {
-							owner.Relations = append(owner.Relations, facts.Relation{
-								Kind:   facts.RelCalls,
-								Target: target,
-							})
+							w.relate(owner, facts.RelCalls, target)
 							w.recordCallMetrics(target, argCount)
 						}
 					case navReceiverIsThis(callee, w.src):
@@ -1401,10 +1403,7 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 						// receiver of unknown type) are left unresolved.
 						if methods := w.currentMethods(); methods[name] {
 							t := w.dir + "." + w.enclosingType() + "." + name
-							owner.Relations = append(owner.Relations, facts.Relation{
-								Kind:   facts.RelCalls,
-								Target: t,
-							})
+							w.relate(owner, facts.RelCalls, t)
 							w.recordCallMetrics(t, argCount)
 						}
 					case navReceiverIsSuper(callee, w.src):
@@ -1479,13 +1478,8 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 	// repo.getUser()) and property access (slot.uniqueId), none of which produced a
 	// usage edge before, which is why live members were reported as orphans.
 	if kind == "navigation_expression" {
-		if owner := w.currentOwner(); owner != nil {
-			if member, _ := calleeName(node, w.src); member != "" {
-				owner.Relations = append(owner.Relations, facts.Relation{
-					Kind:   facts.RelCalls,
-					Target: member,
-				})
-			}
+		if member, _ := calleeName(node, w.src); member != "" {
+			w.relate(w.currentOwner(), facts.RelCalls, member)
 		}
 	}
 
@@ -1494,20 +1488,15 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 	// only as a method reference (e.g. `onClick = ::doNothing`, `.map(::helper)`) is
 	// not mis-reported as an orphan. The trailing identifier is the callable name.
 	if kind == "callable_reference" {
-		if owner := w.currentOwner(); owner != nil {
-			var last *sitter.Node
-			for i := uint(0); i < uint(node.ChildCount()); i++ {
-				if c := node.Child(i); c.IsNamed() {
-					last = c
-				}
+		var last *sitter.Node
+		for i := uint(0); i < uint(node.ChildCount()); i++ {
+			if c := node.Child(i); c.IsNamed() {
+				last = c
 			}
-			if last != nil {
-				if name := nodeText(last, w.src); name != "" {
-					owner.Relations = append(owner.Relations, facts.Relation{
-						Kind:   facts.RelCalls,
-						Target: name,
-					})
-				}
+		}
+		if last != nil {
+			if name := nodeText(last, w.src); name != "" {
+				w.relate(w.currentOwner(), facts.RelCalls, name)
 			}
 		}
 	}

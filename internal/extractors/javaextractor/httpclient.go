@@ -68,8 +68,8 @@ func (w *astWalker) detectRestTemplateCall(node *sitter.Node, name string) {
 	}
 	// The method whose body makes the call, lambdas included: the walker's owner.
 	// A field initializer's owner is its class, which is no caller.
-	if owner := w.currentOwner(); owner != nil && isCallerKind(owner.PropString("symbol_kind")) {
-		props[facts.PropCaller] = owner.Name
+	if owner := w.currentOwner(); owner != noOwner && isCallerKind(w.out[owner].PropString("symbol_kind")) {
+		props[facts.PropCaller] = w.out[owner].Name
 	}
 	w.out = append(w.out, facts.Fact{
 		Kind:      facts.KindRoute,

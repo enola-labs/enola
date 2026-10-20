@@ -63,9 +63,11 @@ type astWalker struct {
 	typeStack   []string
 	methodStack []map[string]bool
 
-	// ownerStack[len-1] is the symbol fact currently being built; call-graph edges
-	// discovered while walking its body attach to it.
-	ownerStack []*facts.Fact
+	// ownerStack[len-1] is the index in out of the symbol fact currently being
+	// built; call-graph edges discovered while walking its body attach to it. An
+	// index rather than a pointer, because walking a body appends to out, and a
+	// pointer taken before an append that grows out names a copy nobody reads.
+	ownerStack []int
 
 	// routeStack is parallel to typeStack: each entry carries the Spring route
 	// context (whether the enclosing type is a @Controller/@RestController and its
@@ -556,13 +558,26 @@ func (w *astWalker) currentRoute() *routeScope {
 	return &w.routeStack[len(w.routeStack)-1]
 }
 
-func (w *astWalker) pushOwner(f *facts.Fact) { w.ownerStack = append(w.ownerStack, f) }
-func (w *astWalker) popOwner()               { w.ownerStack = w.ownerStack[:len(w.ownerStack)-1] }
-func (w *astWalker) currentOwner() *facts.Fact {
+func (w *astWalker) pushOwner(idx int) { w.ownerStack = append(w.ownerStack, idx) }
+func (w *astWalker) popOwner()         { w.ownerStack = w.ownerStack[:len(w.ownerStack)-1] }
+
+// noOwner is the owner index outside any declaration.
+const noOwner = -1
+
+func (w *astWalker) currentOwner() int {
 	if len(w.ownerStack) == 0 {
-		return nil
+		return noOwner
 	}
 	return w.ownerStack[len(w.ownerStack)-1]
+}
+
+// relate adds a relation to the fact at owner, addressed at the moment of the
+// append, and nothing outside a declaration.
+func (w *astWalker) relate(owner int, kind, target string) {
+	if owner == noOwner {
+		return
+	}
+	w.out[owner].Relations = append(w.out[owner].Relations, facts.Relation{Kind: kind, Target: target})
 }
 
 // canonicalName is the "<dir>.<QualifiedType>" fact name of a declaration.
@@ -738,7 +753,7 @@ func (w *astWalker) handleClassLike(node *sitter.Node, kind string) {
 	}
 
 	w.out = append(w.out, f)
-	owner := &w.out[len(w.out)-1]
+	owner := len(w.out) - 1
 	w.pushOwner(owner)
 
 	// Enter the type scope.
@@ -776,7 +791,7 @@ func (w *astWalker) handleClassLike(node *sitter.Node, kind string) {
 // walkBody iterates the direct members of a class/interface/enum body, handling
 // nested declarations, methods, and fields. Non-declaration nodes are scanned for
 // constructor calls attributed to `owner`.
-func (w *astWalker) walkBody(body *sitter.Node, owner *facts.Fact) {
+func (w *astWalker) walkBody(body *sitter.Node, owner int) {
 	for i := uint(0); i < uint(body.ChildCount()); i++ {
 		c := body.Child(i)
 		switch kindOf(c) {
@@ -857,11 +872,10 @@ func (w *astWalker) handleMethod(node *sitter.Node) {
 
 	w.out = append(w.out, f)
 	ownerIdx := len(w.out) - 1
-	w.pushOwner(&w.out[ownerIdx])
+	w.pushOwner(ownerIdx)
 	// Set up per-method complexity tracking. walkForCalls is re-entrant (it
 	// dispatches nested type declarations back through handleMethod), so save and
-	// restore the outer state. Props are written via the stable index (the pointer
-	// may be invalidated if the body walk grows w.out).
+	// restore the outer state.
 	savedMetrics, savedDepth := w.metrics, w.loopDepth
 	savedScaling, savedRepeat := w.scalingDepth, w.repeatDepth
 	savedName, savedShort := w.selfName, w.selfShort
@@ -933,7 +947,7 @@ func (w *astWalker) handleMethod(node *sitter.Node) {
 	w.popOwner()
 }
 
-func (w *astWalker) handleField(node *sitter.Node, owner *facts.Fact) {
+func (w *astWalker) handleField(node *sitter.Node, owner int) {
 	modifiers := findChildByKind(node, "modifiers")
 	modifierText := ""
 	var annotations []javaAnnotation
@@ -990,8 +1004,8 @@ func (w *astWalker) handleField(node *sitter.Node, owner *facts.Fact) {
 		})
 	}
 
-	if injected && typeTarget != "" && owner != nil {
-		owner.Relations = append(owner.Relations, facts.Relation{Kind: facts.RelInjects, Target: typeTarget})
+	if injected && typeTarget != "" {
+		w.relate(owner, facts.RelInjects, typeTarget)
 	}
 	// A field initializer may contain a constructor call (`= new Foo()`).
 	w.walkForCalls(node)
@@ -1001,7 +1015,7 @@ func (w *astWalker) handleField(node *sitter.Node, owner *facts.Fact) {
 // type of an injectable constructor: a sole constructor, a constructor annotated
 // @Autowired/@Inject, or (Lombok) when the class carries @RequiredArgsConstructor /
 // @AllArgsConstructor.
-func (w *astWalker) handleConstructorInjection(decl, body *sitter.Node, owner *facts.Fact, classAnns []javaAnnotation) {
+func (w *astWalker) handleConstructorInjection(decl, body *sitter.Node, owner int, classAnns []javaAnnotation) {
 	lombokInject := hasAnnotation(classAnns, "RequiredArgsConstructor", "AllArgsConstructor")
 
 	// record_declaration parameters are constructor parameters too.
@@ -1023,8 +1037,8 @@ func (w *astWalker) handleConstructorInjection(decl, body *sitter.Node, owner *f
 				if mods == nil || !strings.Contains(nodeText(mods, w.src), "final") {
 					continue
 				}
-				if t := w.targetForType(c.ChildByFieldName("type")); t != "" && owner != nil {
-					owner.Relations = append(owner.Relations, facts.Relation{Kind: facts.RelInjects, Target: t})
+				if t := w.targetForType(c.ChildByFieldName("type")); t != "" {
+					w.relate(owner, facts.RelInjects, t)
 				}
 			}
 		}
@@ -1053,17 +1067,14 @@ func (w *astWalker) handleConstructorInjection(decl, body *sitter.Node, owner *f
 	}
 }
 
-func (w *astWalker) injectParams(params *sitter.Node, owner *facts.Fact) {
-	if owner == nil {
-		return
-	}
+func (w *astWalker) injectParams(params *sitter.Node, owner int) {
 	for i := uint(0); i < uint(params.ChildCount()); i++ {
 		p := params.Child(i)
 		if kindOf(p) != "formal_parameter" {
 			continue
 		}
 		if t := w.targetForType(p.ChildByFieldName("type")); t != "" {
-			owner.Relations = append(owner.Relations, facts.Relation{Kind: facts.RelInjects, Target: t})
+			w.relate(owner, facts.RelInjects, t)
 		}
 	}
 }
@@ -1202,9 +1213,7 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 		return
 	case "object_creation_expression":
 		if t := w.targetForType(node.ChildByFieldName("type")); t != "" {
-			if owner := w.currentOwner(); owner != nil {
-				owner.Relations = append(owner.Relations, facts.Relation{Kind: facts.RelInstantiates, Target: t})
-			}
+			w.relate(w.currentOwner(), facts.RelInstantiates, t)
 		}
 	case "method_invocation":
 		w.handleInvocation(node)
@@ -1253,7 +1262,7 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 
 func (w *astWalker) handleInvocation(node *sitter.Node) {
 	owner := w.currentOwner()
-	if owner == nil {
+	if owner == noOwner {
 		return
 	}
 	nameNode := node.ChildByFieldName("name")
@@ -1280,10 +1289,7 @@ func (w *astWalker) handleInvocation(node *sitter.Node) {
 	if obj == nil || isThis {
 		if methods := w.currentMethods(); methods[name] {
 			target := w.dir + "." + w.enclosingType() + "." + name
-			owner.Relations = append(owner.Relations, facts.Relation{
-				Kind:   facts.RelCalls,
-				Target: target,
-			})
+			w.relate(owner, facts.RelCalls, target)
 			w.recordCallMetrics(target, javaArgCount(node))
 		} else if t := w.enclosingType(); t != "" {
 			// Not declared here: inherited, if a supertype of this repository

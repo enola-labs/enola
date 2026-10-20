@@ -3017,7 +3017,9 @@ import (
 // kept only when the repository declares it and the file can see it (its namespace, an
 // enclosing one, or a using); a class with [DiagnosticAnalyzer],
 // [Generator] or a MEF [Export*] attribute is framework_registered.
-const cacheVersion = "v409"
+// v410: a Java method or class no longer loses relations recorded after a nested declaration.
+// v411: a Kotlin function, class or object no longer loses relations recorded after a nested declaration.
+const cacheVersion = "v411"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
