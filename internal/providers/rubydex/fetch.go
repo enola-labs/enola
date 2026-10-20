@@ -19,7 +19,7 @@ import (
 // Version is the Rubydex gem release the binary is written against. Bumping
 // it means re-reading the C API the bindings depend on and refreshing the
 // pins below from rubygems.org.
-const Version = "0.4.0"
+const Version = "0.4.1"
 
 // pins are the sha256 digests rubygems.org publishes for each platform gem of
 // Version, keyed by GOOS/GOARCH. A download whose digest differs is refused:
@@ -28,10 +28,10 @@ var pins = map[string]struct {
 	platform string
 	sha256   string
 }{
-	"linux/amd64":  {"x86_64-linux", "75a4e1c6c4691ff815aee820dd26fb080f8053430a0ad248dd9b3125d621df86"},
-	"linux/arm64":  {"aarch64-linux", "fab1f9cbb3301d2f3682f29165d9714aca5456fb3d70616b3676e3302af29709"},
-	"darwin/amd64": {"x86_64-darwin", "173bfdad227f4f53aaaab5cdf75d4ebd39c4532a8e7a568b3d8530317a273c3a"},
-	"darwin/arm64": {"arm64-darwin", "badbb7d1a7cfc03f1f7ce9fdc5ee414c729812c4b2eaa2bfe7da80d9a3a8b4b6"},
+	"linux/amd64":  {"x86_64-linux", "4e2c8398c9fc585485b54edd28f5ecf76b5a02255e177b6f8402e9d2afffd51b"},
+	"linux/arm64":  {"aarch64-linux", "abc1c9eb22479f60dd015fa81373163c5a71f2700b76bced1282631686bd6271"},
+	"darwin/amd64": {"x86_64-darwin", "a9681db5bc9be6a62f226d96d6889b6b600d0b09e7576391702aafd29912145b"},
+	"darwin/arm64": {"arm64-darwin", "d23720253876d88fb98954e5d3a1ef9696a269697acf50e3ab53cdfbb2b66b96"},
 }
 
 const downloadBase = "https://rubygems.org/downloads/"
