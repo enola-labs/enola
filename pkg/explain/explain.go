@@ -17,6 +17,7 @@ import (
 	"github.com/enola-labs/enola/internal/metrics"
 	"github.com/enola-labs/enola/internal/orphans"
 	"github.com/enola-labs/enola/internal/perf"
+	"github.com/enola-labs/enola/pkg/mcputil"
 )
 
 // Criticality thresholds for a module hotspot, scored by fan-in + fan-out.
@@ -49,6 +50,10 @@ type Hotspot struct {
 	FanOut      int    `json:"fan_out"`
 	Criticality string `json:"criticality"`  // high | medium | low
 	BlastRadius int    `json:"blast_radius"` // transitive reverse-dependents within blastDepth
+	// Generated marks a module that is build, generated or vendored output. It
+	// is still ranked: the full report shows every module, and the summary is
+	// the reader that leaves these out.
+	Generated bool `json:"generated,omitempty"`
 }
 
 // RankedItem is one offender in a code-health finding group: a symbol or module
@@ -56,14 +61,22 @@ type Hotspot struct {
 type RankedItem struct {
 	Name   string `json:"name"`
 	Detail string `json:"detail"`
+	// Generated marks an offender in generated or vendored code, which nobody
+	// fixes by editing it.
+	Generated bool `json:"generated,omitempty"`
 }
 
 // FindingGroup is one code-health explainer's contribution: its total count and
 // the top offenders for display.
 type FindingGroup struct {
-	Label string       `json:"label"`
-	Count int          `json:"count"`
-	Top   []RankedItem `json:"top,omitempty"`
+	Label string `json:"label"`
+	// Source is the explainer the group came from, a stable key where Label is
+	// display text.
+	Source string `json:"source"`
+	Count  int    `json:"count"`
+	// Confidence is the highest the explainer gave any finding in the group.
+	Confidence float64      `json:"confidence,omitempty"`
+	Top        []RankedItem `json:"top,omitempty"`
 }
 
 // VendoredReport summarises the vendored-candidates finding for the statistics
@@ -286,11 +299,14 @@ func Compute(eng Source) *Report {
 		// Code-health groups, assembled in a fixed display order. Each accumulates
 		// its count and (up to topPerGroup) top offenders; insights arrive already
 		// severity-sorted within each explainer, so first-seen == top.
-		godClass := &FindingGroup{Label: "god classes (high fan-in)"}
-		hotspots := &FindingGroup{Label: "call-graph hotspots"}
-		deepChains := &FindingGroup{Label: "deep dependency chains"}
-		surfaces := &FindingGroup{Label: "large public surfaces"}
-		complexFns := &FindingGroup{Label: "complexity outliers"}
+		godClass := &FindingGroup{Label: "god classes (high fan-in)", Source: "god-class"}
+		hotspots := &FindingGroup{Label: "call-graph hotspots", Source: "hotspots"}
+		deepChains := &FindingGroup{Label: "deep dependency chains", Source: "dependency-depth"}
+		surfaces := &FindingGroup{Label: "large public surfaces", Source: "exported-surface"}
+		complexFns := &FindingGroup{Label: "complexity outliers", Source: "complexity-outliers"}
+		add := func(g *FindingGroup, name, detail string, confidence float64) {
+			addFinding(g, RankedItem{Name: name, Detail: detail, Generated: generatedName(store, name)}, confidence)
+		}
 
 		for _, in := range snap.Insights {
 			switch {
@@ -319,23 +335,23 @@ func Compute(eng Source) *Report {
 
 			case strings.HasPrefix(in.Title, "High fan-in symbol:"):
 				name := nameBetween(in.Title, "High fan-in symbol:", " (")
-				addFinding(godClass, name, fmt.Sprintf("%d dependents", firstParenInt(in.Title)))
+				add(godClass, name, fmt.Sprintf("%d dependents", firstParenInt(in.Title)), in.Confidence)
 			case strings.HasPrefix(in.Title, "Call-graph hotspot:"):
 				name := nameBetween(in.Title, "Call-graph hotspot:", " (")
 				// Scan for metrics only after "(" so digits in the symbol name
 				// (e.g. "Sha256Hash", "oauth2") aren't mistaken for fan-in/out.
-				addFinding(hotspots, name, fanDetail(metricInts(in.Title, "(")))
+				add(hotspots, name, fanDetail(metricInts(in.Title, "(")), in.Confidence)
 			case strings.HasPrefix(in.Title, "Deep dependency chain:"):
 				name := nameBetween(in.Title, "Deep dependency chain:", " (")
-				addFinding(deepChains, name, fmt.Sprintf("depth %d", firstParenInt(in.Title)))
+				add(deepChains, name, fmt.Sprintf("depth %d", firstParenInt(in.Title)), in.Confidence)
 			case strings.HasPrefix(in.Title, "Large public surface:"):
 				name := nameBetween(in.Title, "Large public surface:", " exports")
 				// Scan for metrics only after " exports" so digits in the module
 				// name (e.g. "oauth2", "utf8") aren't parsed as exported/total.
-				addFinding(surfaces, name, surfaceDetail(metricInts(in.Title, " exports")))
+				add(surfaces, name, surfaceDetail(metricInts(in.Title, " exports")), in.Confidence)
 			case strings.HasPrefix(in.Title, "High cyclomatic complexity:"):
 				name := nameBetween(in.Title, "High cyclomatic complexity:", " (")
-				addFinding(complexFns, name, fmt.Sprintf("complexity %d", firstParenInt(in.Title)))
+				add(complexFns, name, fmt.Sprintf("complexity %d", firstParenInt(in.Title)), in.Confidence)
 			}
 		}
 
@@ -433,11 +449,34 @@ func leadingInt(s string) int {
 	return n
 }
 
-func addFinding(g *FindingGroup, name, detail string) {
+func addFinding(g *FindingGroup, it RankedItem, confidence float64) {
 	g.Count++
-	if len(g.Top) < topPerGroup {
-		g.Top = append(g.Top, RankedItem{Name: name, Detail: detail})
+	if confidence > g.Confidence {
+		g.Confidence = confidence
 	}
+	if len(g.Top) < topPerGroup {
+		g.Top = append(g.Top, it)
+	}
+}
+
+// generatedName reports whether a module or symbol name is generated or vendored
+// code: by its path, or because every fact carrying the name was read from a file
+// with a codegen banner (or from a generated path). A name with no fact is judged
+// by its path alone.
+func generatedName(store *facts.Store, name string) bool {
+	if mcputil.IsGeneratedPath(name) {
+		return true
+	}
+	ff := store.LookupByExactName(name)
+	if len(ff) == 0 {
+		return false
+	}
+	for _, f := range ff {
+		if !f.PropBool("generated") && !mcputil.IsGeneratedPath(f.File) {
+			return false
+		}
+	}
+	return true
 }
 
 // fanDetail formats a hotspot's "fan-in N / out M" from the ints parsed out of
@@ -555,6 +594,7 @@ func computeHotspots(store *facts.Store, r *Report) {
 			// codebase (Rails) an all-node reverse count saturates into the tens of
 			// thousands and stops discriminating between modules.
 			BlastRadius: reverseModuleReach(revAdj, s.name, blastDepth),
+			Generated:   generatedName(store, s.name),
 		})
 	}
 }

@@ -53,7 +53,7 @@ var hubBudgets = map[string]int{
 	"pkg/check":       10,
 	"internal/config": 4,
 	"pkg/dashboard":   6,
-	"pkg/explain":     4,
+	"pkg/explain":     6,
 	"cmd/enola":       14,
 }
 
