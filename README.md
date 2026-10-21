@@ -275,10 +275,10 @@ Every number below is measured on public repositories with scripts you can rerun
 
 | Question | Result | What was measured |
 | --- | --- | --- |
-| Does the same commit produce the same graph? | **91 / 91** | public repositories produced byte-identical graphs across a cold run and two warm ones |
-| When something regresses, is exactly that reported? | **20 / 20** | injected dependency cycles caught, with none of 1,859 pre-existing findings repeated as new |
+| Does the same commit produce the same graph? | **95 / 95** | public repositories produced byte-identical graphs across a cold run and two warm ones |
+| When something regresses, is exactly that reported? | **20 / 20** | injected dependency cycles caught, with none of 3,521 pre-existing findings repeated as new |
 | Of the cross-repository calls that exist, how many are linked? | **19 / 24** | fixture calls resolved, with the 3 unresolved and 2 external ones reported, not hidden |
-| Does it finish on a real repository? | **0** | parse errors across the whole corpus, the Linux kernel included |
+| Does it finish on a real repository? | **2,068,667** | facts from the Linux kernel, the largest of 95 repositories indexed |
 | Does an agent, given the check, avoid shipping the regression? | **3 / 3 → 0 / 3** | agents shipped the injected cycle without enola, and none did with the hooks installed |
 
 ## Limitations
