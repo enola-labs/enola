@@ -14,11 +14,13 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/enola-labs/enola/internal/facts"
 )
 
 // The tests in this file run the built binary the way a consumer that loads the
 // snapshot into its own store does (docs/INTEGRATING.md): `enola --generate
-// <repo>` as a subprocess, then nothing but the three contract artifacts.
+// <repo>` as a subprocess, then nothing but the contract artifacts.
 //
 // internal/facts/wireformat_test.go pins the field NAMES by marshaling structs,
 // and the goldens pin extractor output per language. Neither runs the binary,
@@ -297,6 +299,27 @@ func assertFlowsContract(t *testing.T, snap consumerSnapshot) int {
 	}
 
 	names := func(id any) bool { return isFactID(id) && snap.ids[id.(string)] != nil }
+	// A reference carries the name and file of the fact its id names, so a reader
+	// that shows one and joins on the other shows the fact it joined.
+	agrees := func(where, what string, ref map[string]any, kind string) {
+		if !names(ref["id"]) {
+			t.Errorf("%s: %s id %#v names no fact in the snapshot", where, what, ref["id"])
+			return
+		}
+		fact := snap.ids[ref["id"].(string)]
+		if kind != "" && fact["kind"] != kind {
+			t.Errorf("%s: %s id %#v names a %v, not a %s", where, what, ref["id"], fact["kind"], kind)
+		}
+		if ref["name"] != fact["name"] || asString(ref["file"]) != asString(fact["file"]) {
+			t.Errorf("%s: %s is %v in %v, its id names %v in %v",
+				where, what, ref["name"], ref["file"], fact["name"], fact["file"])
+		}
+	}
+	flowNames := map[string]bool{}
+	for _, entry := range flows {
+		flow, _ := entry.(map[string]any)
+		flowNames[asString(flow["name"])] = true
+	}
 	seen := map[string]bool{}
 	for i, entry := range flows {
 		flow, _ := entry.(map[string]any)
@@ -315,14 +338,16 @@ func assertFlowsContract(t *testing.T, snap consumerSnapshot) int {
 			}
 		}
 		entryRef, _ := flow["entry"].(map[string]any)
-		if !names(entryRef["id"]) || snap.ids[entryRef["id"].(string)]["kind"] != "symbol" {
-			t.Errorf("%s: entry id %#v names no symbol in the snapshot", where, entryRef["id"])
-		}
+		agrees(where, "entry", entryRef, "symbol")
 		routes, _ := flow["routes"].([]any)
 		for _, r := range routes {
 			route, _ := r.(map[string]any)
-			if !names(route["id"]) || snap.ids[route["id"].(string)]["kind"] != "route" {
-				t.Errorf("%s: route id %#v names no route in the snapshot", where, route["id"])
+			agrees(where, "route", route, "route")
+		}
+		nested, _ := flow["nested_in"].([]any)
+		for _, outer := range nested {
+			if !flowNames[asString(outer)] {
+				t.Errorf("%s: nested_in names %#v, which is no flow in the file", where, outer)
 			}
 		}
 		metrics, _ := flow["metrics"].(map[string]any)
@@ -342,6 +367,7 @@ func assertFlowsContract(t *testing.T, snap consumerSnapshot) int {
 				t.Errorf("%s: stage %v carries id %#v, which names no fact in the snapshot", where, stage["name"], stage["id"])
 				continue
 			}
+			agrees(where, "stage", stage, "")
 			// A stage sits under the entry (no parent) or under an earlier stage.
 			if parent, present := stage["parent"]; present && !placed[fmt.Sprint(parent)] {
 				t.Errorf("%s: stage %v names parent %#v, which is no earlier stage", where, stage["name"], parent)
@@ -350,6 +376,78 @@ func assertFlowsContract(t *testing.T, snap consumerSnapshot) int {
 		}
 	}
 	return len(flows)
+}
+
+// assertDocsContract checks docs.jsonl against facts.jsonl, which it is joined to
+// by id, and returns how many lines it holds. Each line names a fact, agrees with
+// it on what the id is derived from, and holds the comment the fact's doc prop
+// summarizes; every fact with a doc prop has its line.
+func assertDocsContract(t *testing.T, snap consumerSnapshot) int {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(snap.dir, "docs.jsonl"))
+	if err != nil {
+		t.Fatalf("contract artifact missing after a successful run: %v", err)
+	}
+	hashes, _ := snap.receipt["output_hashes"].(map[string]any)
+	sum := sha256.Sum256(data)
+	if want := "sha256:" + hex.EncodeToString(sum[:]); hashes["docs.jsonl"] != want {
+		t.Errorf("receipt output_hashes[\"docs.jsonl\"] = %#v, the file on disk hashes to %s", hashes["docs.jsonl"], want)
+	}
+
+	// Overloads share an id and may carry different comments, so an id has a set
+	// of doc props, and a line must summarize to one of them.
+	summaries := map[string]map[string]bool{}
+	for _, fact := range snap.facts {
+		doc, _ := propsOf(fact)[facts.PropDoc].(string)
+		if doc == "" {
+			continue
+		}
+		id := fact["id"].(string)
+		if summaries[id] == nil {
+			summaries[id] = map[string]bool{}
+		}
+		summaries[id][doc] = true
+	}
+
+	covered := map[string]bool{}
+	var count int
+	for i, raw := range bytes.Split(data, []byte("\n")) {
+		if len(raw) == 0 {
+			continue
+		}
+		count++
+		where := "docs.jsonl line " + strconv.Itoa(i+1)
+		var line map[string]any
+		decodeJSON(t, raw, &line)
+		if !isFactID(line["id"]) || snap.ids[line["id"].(string)] == nil {
+			t.Errorf("%s: id %#v names no fact in facts.jsonl", where, line["id"])
+			continue
+		}
+		id := line["id"].(string)
+		fact := snap.ids[id]
+		for _, key := range []string{"repo", "kind", "name", "file"} {
+			if asString(line[key]) != asString(fact[key]) {
+				t.Errorf("%s: %s = %#v, the fact its id names has %#v", where, key, line[key], fact[key])
+			}
+		}
+		if v, present := line["line"]; present {
+			if _, ok := wholeNumber(v); !ok {
+				t.Errorf("%s: line must be an integer, got %#v", where, v)
+			}
+		}
+		doc := asString(line["doc"])
+		if !summaries[id][facts.DocSummary(doc)] {
+			t.Errorf("%s: the comment of %v summarizes to %q, which is no doc prop the fact carries (%v)",
+				where, line["name"], facts.DocSummary(doc), summaries[id])
+		}
+		covered[id] = true
+	}
+	for id := range summaries {
+		if !covered[id] {
+			t.Errorf("fact %v (%s) carries a doc prop and has no line in docs.jsonl", snap.ids[id]["name"], id)
+		}
+	}
+	return count
 }
 
 func propsOf(fact map[string]any) map[string]any {
@@ -389,6 +487,9 @@ func TestConsumerContract_SingleRepository(t *testing.T) {
 	if n := assertFlowsContract(t, snap); n == 0 {
 		t.Error("flows.json lists no flow; the reference checks ran on nothing")
 	}
+	if n := assertDocsContract(t, snap); n == 0 {
+		t.Error("docs.jsonl holds no comment; the join checks ran on nothing")
+	}
 
 	// Every fact of a single-repository snapshot carries the same label, and
 	// without a git remote that label is the checkout directory name.
@@ -419,9 +520,11 @@ func TestConsumerContract_SingleRepository(t *testing.T) {
 	// flows.json is byte-stable over an unchanged tree, as facts.jsonl is.
 	firstHashes, _ := snap.receipt["output_hashes"].(map[string]any)
 	againHashes, _ := again.receipt["output_hashes"].(map[string]any)
-	if firstHashes["flows.json"] != againHashes["flows.json"] {
-		t.Errorf("flows.json changed across two runs over an unchanged tree: %v then %v",
-			firstHashes["flows.json"], againHashes["flows.json"])
+	for _, name := range []string{"flows.json", "docs.jsonl"} {
+		if firstHashes[name] != againHashes[name] {
+			t.Errorf("%s changed across two runs over an unchanged tree: %v then %v",
+				name, firstHashes[name], againHashes[name])
+		}
 	}
 }
 
@@ -447,6 +550,10 @@ func TestConsumerContract_NoFindingsIsAnEmptyArray(t *testing.T) {
 	if n := assertFlowsContract(t, snap); n != 0 {
 		t.Errorf("a program that calls nothing has no flow, got %d", n)
 	}
+	// Nothing is documented: the file is written empty, never left out.
+	if n := assertDocsContract(t, snap); n != 0 {
+		t.Errorf("a program with no comment has no docs line, got %d", n)
+	}
 }
 
 // A cluster config in the form a consumer generates: absolute, JSON-quoted
@@ -461,6 +568,28 @@ func TestConsumerContract_Cluster(t *testing.T) {
 	checkouts := t.TempDir()
 	server := copyFixture(t, "ts_express_multirepo/server", filepath.Join(checkouts, "srv-checkout"))
 	consumer := copyFixture(t, "ts_express_multirepo/consumer", filepath.Join(checkouts, "consumer"))
+	// The fixture's handlers call nothing, so it has no flow. Two entries that call
+	// into the client, one through the other, give the cluster flows and a nested
+	// one. The inner entry sits in its own directory: two mains of one module share
+	// a symbol name, and the call between them would not resolve. They are written to the copy so the goldens that share the fixture stay
+	// as they are.
+	entries := map[string]string{
+		"report/main.ts": "import { listOrdersThroughHelper } from \"../ordersClient\";\n\n" +
+			"// main prints the orders the server holds.\n" +
+			"export async function main() {\n  console.log(await listOrdersThroughHelper());\n}\n",
+		"cli.ts": "import { createOrderThroughHelper } from \"./ordersClient\";\n" +
+			"import { main as report } from \"./report/main\";\n\n" +
+			"// main places an order, then prints what the server holds.\n" +
+			"export async function main() {\n  await createOrderThroughHelper({});\n  await report();\n}\n",
+	}
+	if err := os.MkdirAll(filepath.Join(consumer, "src", "report"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for name, src := range entries {
+		if err := os.WriteFile(filepath.Join(consumer, "src", filepath.FromSlash(name)), []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
 
 	git := func(args ...string) {
 		t.Helper()
@@ -494,16 +623,18 @@ func TestConsumerContract_Cluster(t *testing.T) {
 	// read any one of them.
 	snap := readConsumerSnapshot(t, server)
 	other := readConsumerSnapshot(t, consumer)
-	serverFacts, err := os.ReadFile(filepath.Join(snap.dir, "facts.jsonl"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	consumerFacts, err := os.ReadFile(filepath.Join(other.dir, "facts.jsonl"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(serverFacts, consumerFacts) {
-		t.Error("the cluster's members hold different facts.jsonl files")
+	for _, name := range []string{"facts.jsonl", "flows.json", "docs.jsonl"} {
+		serverData, err := os.ReadFile(filepath.Join(snap.dir, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		consumerData, err := os.ReadFile(filepath.Join(other.dir, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(serverData, consumerData) {
+			t.Errorf("the cluster's members hold different %s files", name)
+		}
 	}
 	if snap.receipt["snapshot_id"] != other.receipt["snapshot_id"] {
 		t.Errorf("the cluster's members disagree on snapshot_id: %v vs %v",
@@ -513,6 +644,15 @@ func TestConsumerContract_Cluster(t *testing.T) {
 	assertReceiptContract(t, other)
 	assertFactsContract(t, snap)
 	assertInsightsContract(t, snap)
+	if n := assertFlowsContract(t, snap); n == 0 {
+		t.Error("the cluster's flows.json lists no flow; the reference checks ran on nothing")
+	}
+	if flows, err := os.ReadFile(filepath.Join(snap.dir, "flows.json")); err != nil || !bytes.Contains(flows, []byte(`"nested_in"`)) {
+		t.Error("no flow of the cluster is nested in another; the nested_in checks ran on nothing")
+	}
+	if n := assertDocsContract(t, snap); n == 0 {
+		t.Error("the cluster's docs.jsonl holds no comment; the join checks ran on nothing")
+	}
 
 	// A member is labelled by its remote's repository name, else by its
 	// directory name. A consumer maps labels back to members with exactly that
