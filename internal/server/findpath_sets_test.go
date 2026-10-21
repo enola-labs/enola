@@ -75,3 +75,57 @@ func TestFindPath_SetsRefuseToMixWithSingleNames(t *testing.T) {
 		}
 	}
 }
+
+type setPathFiles struct {
+	setPathAnswer
+	FromFiles      map[string]int    `json:"from_files"`
+	ToFiles        map[string]int    `json:"to_files"`
+	FromCandidates map[string]string `json:"from_candidates"`
+	ToCandidates   map[string]string `json:"to_candidates"`
+}
+
+func TestFindPath_SetsTakeASourceFileAsTheSymbolsItDeclares(t *testing.T) {
+	s := startInMemory(t)
+	s.snapshot(t)
+
+	var got setPathFiles
+	res := s.call(t, "find_path", map[string]any{
+		"from_nodes": []string{"main.go"},
+		"to_nodes":   []string{"pkg/b/b.go", "pkg/b/missing.go"},
+	})
+	if err := json.Unmarshal([]byte(text(res)), &got); err != nil {
+		t.Fatal(err)
+	}
+	if !got.Found || got.To != "pkg/b.Beta" {
+		t.Fatalf("got %+v, want a path from the symbols main.go declares to pkg/b.Beta, which b.go declares", got)
+	}
+	if got.FromFiles["main.go"] == 0 || got.ToFiles["pkg/b/b.go"] == 0 {
+		t.Errorf("from_files %v, to_files %v: want each file expanded named with its symbol count", got.FromFiles, got.ToFiles)
+	}
+	if !reflect.DeepEqual(got.UnresolvedTo, []string{"pkg/b/missing.go"}) {
+		t.Errorf("unresolved_to %v, want only the file that declares nothing", got.UnresolvedTo)
+	}
+}
+
+func TestFindPath_SetsOfferTheNearestNameForAnUnresolvedOne(t *testing.T) {
+	s := startInMemory(t)
+	s.snapshot(t)
+
+	var got setPathFiles
+	res := s.call(t, "find_path", map[string]any{
+		"from_nodes": []string{"..main", "b.Beta"},
+		"to_nodes":   []string{"pkg/b.Beta", "no.such.Target"},
+	})
+	if err := json.Unmarshal([]byte(text(res)), &got); err != nil {
+		t.Fatal(err)
+	}
+	if !got.Found {
+		t.Fatalf("got %+v, want the exact names searched while the unresolved ones are listed", got)
+	}
+	if got.FromCandidates["b.Beta"] != "pkg/b.Beta" {
+		t.Errorf("from_candidates %v, want the nearest name for the misspelling", got.FromCandidates)
+	}
+	if _, guessed := got.ToCandidates["no.such.Target"]; guessed && got.ToCandidates["no.such.Target"] == "" {
+		t.Errorf("to_candidates %v holds an empty suggestion", got.ToCandidates)
+	}
+}

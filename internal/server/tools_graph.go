@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -99,8 +100,10 @@ func (s *Server) registerFindPathTool() {
 		Description: "Shortest path, by hop count, between two nodes: \"how does X reach Y?\", \"what is the call chain from A to B?\". " +
 			"An ambiguous endpoint is not an error: the top candidates are tried (for a type, its methods and constructor too) and the first path found is returned, with the ranked candidates. " +
 			"With no path, found=false and a note says whether the endpoints were ambiguous (listing the candidates tried) or resolved but unreachable within max_depth. " +
-			"To ask how one set of nodes reaches another (the files of one part to the files of another), pass " +
-			"from_nodes and to_nodes instead: exact names, one search, the shortest path from any of the first to any of the second.",
+			"To ask how one set of nodes reaches another (the symbols or modules of one part to those of another), pass " +
+			"from_nodes and to_nodes instead: exact node names, one search, the shortest path from any of the first to any of the second. " +
+			"A source file path that is not itself a node stands for the symbols the file declares, listed in from_files and to_files. " +
+			"A name the graph does not hold is listed in unresolved_from and unresolved_to with its nearest match in from_candidates and to_candidates, which is a suggestion and is never searched.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args findPathArgs) (*mcp.CallToolResult, any, error) {
 		store := s.eng.Store()
 		if store.Count() == 0 {
@@ -112,7 +115,7 @@ func (s *Server) registerFindPathTool() {
 		}
 
 		if len(args.FromNodes) > 0 || len(args.ToNodes) > 0 {
-			return findPathBetweenSets(graph, args)
+			return s.findPathBetweenSets(store, graph, args)
 		}
 
 		if args.From == "" || args.To == "" {
@@ -175,29 +178,120 @@ func (s *Server) registerFindPathTool() {
 // It carries no resolution, because nothing was resolved.
 type findPathSetsResponse struct {
 	Note string `json:"note,omitempty"`
+	// FromFiles and ToFiles name each source file a set expanded into the
+	// symbols it declares, with how many; FromCandidates and ToCandidates map
+	// an unresolved name to its nearest match.
+	FromFiles      map[string]int    `json:"from_files,omitempty"`
+	ToFiles        map[string]int    `json:"to_files,omitempty"`
+	FromCandidates map[string]string `json:"from_candidates,omitempty"`
+	ToCandidates   map[string]string `json:"to_candidates,omitempty"`
 	facts.SetPathResult
 }
+
+// maxSetSuggestions bounds how many unresolved names of one side get a nearest
+// match, each of which is a ranked search of the facts.
+const maxSetSuggestions = 20
 
 // findPathBetweenSets answers the set form of find_path. The sets replace from
 // and to rather than mixing with them, so a call reads as one question: an
 // endpoint that is a single name is a set of one.
-func findPathBetweenSets(graph *facts.Graph, args findPathArgs) (*mcp.CallToolResult, any, error) {
+func (s *Server) findPathBetweenSets(store *facts.Store, graph *facts.Graph, args findPathArgs) (*mcp.CallToolResult, any, error) {
 	if args.From != "" || args.To != "" {
 		return errorResult("from_nodes and to_nodes replace from and to; pass one pair or the other"), nil, nil
 	}
 	if len(args.FromNodes) == 0 || len(args.ToNodes) == 0 {
 		return errorResult("both 'from_nodes' and 'to_nodes' are required when either is given"), nil, nil
 	}
-	result := graph.FindPathBetween(args.FromNodes, args.ToNodes, args.RelationKinds, args.MaxDepth)
-	resp := findPathSetsResponse{SetPathResult: result}
+	froms, fromFiles := s.expandDeclaredFiles(store, args.FromNodes)
+	tos, toFiles := s.expandDeclaredFiles(store, args.ToNodes)
+	result := graph.FindPathBetween(froms, tos, args.RelationKinds, args.MaxDepth)
+	resp := findPathSetsResponse{
+		SetPathResult:  result,
+		FromFiles:      fromFiles,
+		ToFiles:        toFiles,
+		FromCandidates: s.nearestNames(store, result.UnresolvedFrom),
+		ToCandidates:   s.nearestNames(store, result.UnresolvedTo),
+	}
 	if !result.Found {
 		resp.Note = fmt.Sprintf("no path within %d hops from any of %d source(s) to any of %d target(s)",
-			effectiveMaxDepth(args.MaxDepth), len(args.FromNodes)-len(result.UnresolvedFrom), len(args.ToNodes)-len(result.UnresolvedTo))
+			effectiveMaxDepth(args.MaxDepth), len(froms)-len(result.UnresolvedFrom), len(tos)-len(result.UnresolvedTo))
 		if len(result.UnresolvedFrom)+len(result.UnresolvedTo) > 0 {
 			resp.Note += "; names the graph does not hold are listed in unresolved_from and unresolved_to"
 		}
 	}
 	return jsonResult(resp)
+}
+
+// expandDeclaredFiles replaces each name that is a source file, and no node of
+// the graph, with the symbols the file declares, since a file such as a Rails
+// controller is never a node itself and its symbols are. It returns the names
+// to search and, for each file expanded, how many symbols it stood for. A file
+// that more than one repository holds under that path is left as it is, so the
+// call names the repository or stays unresolved: guessing which was meant would
+// put an edge in the answer that the caller did not ask about.
+func (s *Server) expandDeclaredFiles(store *facts.Store, names []string) ([]string, map[string]int) {
+	r := s.resolver(store)
+	out := make([]string, 0, len(names))
+	var expanded map[string]int
+	for _, name := range names {
+		if len(store.LookupByExactName(name)) > 0 {
+			out = append(out, name)
+			continue
+		}
+		rel := r.NormalizeToRelative(name)
+		var declared []string
+		holders := 0
+		forms := slices.Compact(append([]string{rel}, r.ExpandFilePrefix(rel)...))
+		for _, file := range forms {
+			var here []string
+			for _, f := range store.ByFile(file) {
+				if f.Kind == facts.KindSymbol {
+					here = append(here, f.Name)
+				}
+			}
+			if len(here) > 0 {
+				holders++
+				declared = here
+			}
+		}
+		if holders != 1 {
+			out = append(out, name)
+			continue
+		}
+		slices.Sort(declared)
+		declared = slices.Compact(declared)
+		out = append(out, declared...)
+		if expanded == nil {
+			expanded = map[string]int{}
+		}
+		expanded[name] = len(declared)
+	}
+	return out, expanded
+}
+
+// nearestNames maps each of the first maxSetSuggestions unresolved names to the
+// fact name the single-pair form would try first for it. It only suggests: a
+// name is never searched under a guess.
+func (s *Server) nearestNames(store *facts.Store, unresolved []string) map[string]string {
+	var out map[string]string
+	for i, name := range unresolved {
+		if i == maxSetSuggestions {
+			break
+		}
+		resolved, res, err := s.resolveNodeName(store, name)
+		if err != nil {
+			continue
+		}
+		tried := s.pathCandidates(store, name, resolved, res)
+		if len(tried) == 0 {
+			continue
+		}
+		if out == nil {
+			out = map[string]string{}
+		}
+		out[name] = tried[0]
+	}
+	return out
 }
 
 // registerEndpointImpactTool registers the endpoint_impact tool.
