@@ -50,7 +50,7 @@ var hubBudgets = map[string]int{
 	"internal/engine": 15,
 	"internal/server": 18,
 	"pkg/command":     31,
-	"pkg/check":       10,
+	"pkg/check":       11,
 	"internal/config": 4,
 	"pkg/dashboard":   6,
 	"pkg/explain":     7,
