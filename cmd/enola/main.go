@@ -69,8 +69,9 @@ func main() {
 				"install managed by a package manager (pip, for one) is left alone, with\n"+
 				"the command that upgrades it instead. Afterwards the new binary fetches\n"+
 				"the Rubydex library it pins (`providers fetch rubydex`); a failure there\n"+
-				"is reported and the upgrade still succeeds. ENOLA_NO_RUBYDEX_FETCH=1\n"+
-				"skips it.\n\n"+
+				"is reported and the upgrade still succeeds. Any non-empty value of\n"+
+				"ENOLA_NO_RUBYDEX_FETCH skips it, 0 included. An up-to-date binary\n"+
+				"still fetches the library when it is missing.\n\n"+
 				"Exit codes:\n"+
 				"  0  upgraded, already current, or left to the package manager\n"+
 				"  1  the upgrade failed\n"+

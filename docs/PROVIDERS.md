@@ -121,7 +121,10 @@ gem version from rubygems.org and verifying its published digest. The
 install script and `enola upgrade` run that fetch once the new binary is
 in place, so Ruby support needs no second step on those routes; a failed
 fetch there is a named skip and the install or upgrade still succeeds.
-`ENOLA_NO_RUBYDEX_FETCH=1` turns it off for both. A binary that arrived
+Any non-empty `ENOLA_NO_RUBYDEX_FETCH` (`0` included, like the other
+`ENOLA_NO_*` switches) turns it off for both. A fetch gives up after three
+minutes. The cache keeps every version fetched, since builds that pin different
+ones share it. A binary that arrived
 another way (`go install`, pip, a build from source) fetches by hand. A
 configured provider whose library is absent is a named skip in the
 census that says which command installs it; `doctor` reports the same.

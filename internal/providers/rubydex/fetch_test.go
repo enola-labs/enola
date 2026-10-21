@@ -4,8 +4,12 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"context"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestPins_CoverEveryPublishedPlatform(t *testing.T) {
@@ -68,5 +72,51 @@ func TestExtractLibrary_ReadsTheEngineOutOfTheGem(t *testing.T) {
 	}
 	if _, err := extractLibrary(gemWith(t, map[string]string{"lib/rubydex.rb": "ruby"})); err == nil || !strings.Contains(err.Error(), "carries no lib/rubydex/") {
 		t.Fatalf("a gem without the library must be refused by name, got %v", err)
+	}
+}
+
+func fetchAgainst(t *testing.T, srv *httptest.Server) {
+	t.Helper()
+	prev := downloadBase
+	downloadBase = srv.URL + "/"
+	t.Cleanup(func() { downloadBase = prev })
+	cache := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", cache)
+	t.Setenv("HOME", cache)
+}
+
+func TestFetch_AStalledDownloadEndsAtTheTimeout(t *testing.T) {
+	if _, ok := pins[platformKey()]; !ok {
+		t.Skip("no gem is published for this platform")
+	}
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", "1000000")
+		w.WriteHeader(http.StatusOK)
+		w.(http.Flusher).Flush()
+		select {
+		case <-release:
+		case <-r.Context().Done():
+		}
+	}))
+	t.Cleanup(srv.Close)
+	t.Cleanup(func() { close(release) })
+	fetchAgainst(t, srv)
+	prev := fetchTimeout
+	fetchTimeout = 300 * time.Millisecond
+	t.Cleanup(func() { fetchTimeout = prev })
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := Fetch(context.Background(), nil)
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("a download that stalled after its headers must fail")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the fetch is still waiting on a stalled body: it has no overall timeout")
 	}
 }

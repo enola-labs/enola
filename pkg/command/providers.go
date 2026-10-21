@@ -25,9 +25,9 @@ func (r *Runner) Providers(ctx context.Context, args []string) {
 			"               verify its published digest, and cache it. After\n"+
 			"               `fetch rubydex`, a `providers:` entry named rubydex with no\n"+
 			"               command runs in-process. The install script and `upgrade` run\n"+
-			"               it for you (ENOLA_NO_RUBYDEX_FETCH=1 skips that). The only\n"+
-			"               network access a provider ever makes, and never at snapshot\n"+
-			"               time.\n\n"+
+			"               it for you (any non-empty ENOLA_NO_RUBYDEX_FETCH skips that).\n"+
+			"               The only network access a provider ever makes, and never at\n"+
+			"               snapshot time.\n\n"+
 			"Built-ins: "+strings.Join(providers.BuiltInNames(), ", ")+"\n\n"+
 			"Exit codes:\n"+
 			"  0  listed, fetched, or already installed\n"+

@@ -9,8 +9,9 @@ binary in place. A dev build is always treated as out of date. An
 install managed by a package manager (pip, for one) is left alone, with
 the command that upgrades it instead. Afterwards the new binary fetches
 the Rubydex library it pins (`providers fetch rubydex`); a failure there
-is reported and the upgrade still succeeds. ENOLA_NO_RUBYDEX_FETCH=1
-skips it.
+is reported and the upgrade still succeeds. Any non-empty value of
+ENOLA_NO_RUBYDEX_FETCH skips it, 0 included. An up-to-date binary
+still fetches the library when it is missing.
 
 Exit codes:
   0  upgraded, already current, or left to the package manager

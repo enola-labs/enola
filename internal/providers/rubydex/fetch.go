@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 )
 
 // Version is the Rubydex gem release the binary is written against. Bumping
@@ -34,7 +35,15 @@ var pins = map[string]struct {
 	"darwin/arm64": {"arm64-darwin", "d23720253876d88fb98954e5d3a1ef9696a269697acf50e3ab53cdfbb2b66b96"},
 }
 
-const downloadBase = "https://rubygems.org/downloads/"
+// downloadBase and fetchTimeout are variables so a test can point the fetch at
+// a local server and bound a stalled one in milliseconds.
+var (
+	downloadBase = "https://rubygems.org/downloads/"
+	// fetchTimeout bounds the whole download, body included. The default
+	// transport only bounds connecting and the TLS handshake, so a connection
+	// that stalls mid-body would hang an unattended `curl | sh` for good.
+	fetchTimeout = 3 * time.Minute
+)
 
 // ErrUnsupportedPlatform says no Rubydex gem is published for this GOOS/GOARCH.
 var ErrUnsupportedPlatform = errors.New("no Rubydex library is published for this platform")
@@ -95,7 +104,7 @@ func Fetch(ctx context.Context, client *http.Client) (string, error) {
 		return "", fmt.Errorf("%w (%s)", ErrUnsupportedPlatform, platformKey())
 	}
 	if client == nil {
-		client = http.DefaultClient
+		client = &http.Client{Timeout: fetchTimeout}
 	}
 	url := downloadBase + "rubydex-" + Version + "-" + pin.platform + ".gem"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)

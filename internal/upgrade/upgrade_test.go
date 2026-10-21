@@ -338,6 +338,41 @@ func TestProvisionLibraryOptOutNeverFetches(t *testing.T) {
 	}
 }
 
+func TestProvisionLibraryOptOutIsAnyNonEmptyValue(t *testing.T) {
+	t.Setenv(SkipFetchEnv, "0")
+	stubFetch(t, func(context.Context, string) error {
+		t.Error("fetch ran although the opt-out is set to 0")
+		return nil
+	})
+	provisionLibrary(context.Background(), "enola")
+}
+
+func TestRunWhenAlreadyCurrentStillProvisionsTheLibrary(t *testing.T) {
+	t.Setenv(SkipFetchEnv, "")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"tag_name":"v0.4.12"}`))
+	}))
+	t.Cleanup(srv.Close)
+	prevAPI, prevDL := apiBase, downloadBase
+	apiBase, downloadBase = srv.URL, srv.URL
+	t.Cleanup(func() { apiBase, downloadBase = prevAPI, prevDL })
+	prevMethod := version.InstallMethod
+	version.InstallMethod = "source"
+	t.Cleanup(func() { version.InstallMethod = prevMethod })
+	fetched := false
+	stubFetch(t, func(context.Context, string) error {
+		fetched = true
+		return nil
+	})
+
+	if err := Run(context.Background(), "0.4.12"); err != nil {
+		t.Fatal(err)
+	}
+	if !fetched {
+		t.Error("an up-to-date upgrade never asked for the library")
+	}
+}
+
 func captureStderr(t *testing.T, fn func()) string {
 	t.Helper()
 	r, w, err := os.Pipe()

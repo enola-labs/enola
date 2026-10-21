@@ -11,9 +11,9 @@ The fact providers this binary carries itself.
                verify its published digest, and cache it. After
                `fetch rubydex`, a `providers:` entry named rubydex with no
                command runs in-process. The install script and `upgrade` run
-               it for you (ENOLA_NO_RUBYDEX_FETCH=1 skips that). The only
-               network access a provider ever makes, and never at snapshot
-               time.
+               it for you (any non-empty ENOLA_NO_RUBYDEX_FETCH skips that).
+               The only network access a provider ever makes, and never at
+               snapshot time.
 
 Built-ins: prism, rubydex
 

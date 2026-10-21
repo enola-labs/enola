@@ -90,6 +90,14 @@ func Run(ctx context.Context, current string) error {
 
 	if current != "dev" && current == latest {
 		fmt.Fprintf(os.Stderr, "enola is already up to date (v%s)\n", current)
+		// A binary installed before the fetch existed has no library. The new
+		// binary's fetch is a no-op when it is there, so asking is cheap.
+		if exe, err := os.Executable(); err == nil {
+			if resolved, err := filepath.EvalSymlinks(exe); err == nil {
+				exe = resolved
+			}
+			provisionLibrary(ctx, exe)
+		}
 		return nil
 	}
 
