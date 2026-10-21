@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/enola-labs/enola/internal/explainers/constraints"
 	"github.com/enola-labs/enola/internal/facts"
 	"github.com/enola-labs/enola/internal/intent"
 )
@@ -349,5 +350,22 @@ func TestCompute_PathRadiusNamesVanishingVerdicts(t *testing.T) {
 	deps.SkipRadius = true
 	if computeOrFail(t, Request{Paths: []string{"app/models/user.rb"}}, deps).Targets[0].Radius != nil {
 		t.Fatal("--no-radius leaves the section out")
+	}
+}
+
+func TestRender_MarksARuleTheSnapshotCannotCheck(t *testing.T) {
+	report := &Report{Repo: "r", ConstraintsDeclared: true, Targets: []TargetReport{{
+		Target: "analytics/report.go", Kind: TargetPath,
+		Components: []constraints.ComponentBinding{{Component: "stats", Rules: []constraints.RuleBinding{
+			{Rule: "stats-runtime", Mode: "ratchet", Statement: "each frame of stats must stay within 5 queries", NotChecked: "no runtime capture in this snapshot"},
+			{Rule: "checked", Mode: "ratchet", Statement: "stats stays small"},
+		}}},
+	}}}
+	out := report.Render()
+	if !strings.Contains(out, "within 5 queries (not checked in this snapshot: no runtime capture)") {
+		t.Errorf("the unchecked rule is not marked:\n%s", out)
+	}
+	if strings.Contains(out, "stats stays small (not checked") {
+		t.Errorf("a checked rule is marked:\n%s", out)
 	}
 }

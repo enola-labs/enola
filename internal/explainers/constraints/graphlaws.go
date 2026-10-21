@@ -217,9 +217,16 @@ func ownerName(name string) string {
 	return name
 }
 
-// verdictCapRuntime reads runtime-queries facts for frames inside member
-// files and names every frame over the budget; without a capture it refuses.
-func (e *Explainer) verdictCapRuntime(r rule, store *facts.Store, members map[string]map[string]bool) []facts.Insight {
+// The reasons a rule's form cannot be evaluated over a snapshot, in the words
+// the finding and the pre-edit contract both use.
+const (
+	reasonNoRuntimeCapture   = "no runtime capture in this snapshot"
+	reasonNoFrameInMembers   = "no frame in its members"
+	reasonNoCounterparty     = "no counterparty in this snapshot"
+	reasonNoResolvedAncestry = "no resolved ancestry in this snapshot"
+)
+
+func runtimeFrames(store *facts.Store) []facts.Fact {
 	var frames []facts.Fact
 	for _, f := range store.ByKind(facts.KindRoute) {
 		if strings.HasPrefix(f.Name, runtimeQueriesPrefix) {
@@ -233,30 +240,46 @@ func (e *Explainer) verdictCapRuntime(r rule, store *facts.Store, members map[st
 			}
 		}
 	}
-	if len(frames) == 0 {
-		return []facts.Insight{unevaluableRule(r, CauseNoRuntimeCapture, "no runtime capture in this snapshot",
-			"cap_runtime reads the frames a runtime capture measured, and no runtime provider contributed any to this snapshot. The rule emitted no verdict: a budget nobody measured must not read as kept. Produce a capture with the runtime provider's spec-suite runner, configure the provider, then regenerate.",
-			"Run the capture and configure the runtime provider, then regenerate the snapshot")}
-	}
-	memberFiles := map[string]bool{}
-	for name := range members[r.capRuntime] {
+	return frames
+}
+
+func memberFilesOf(store *facts.Store, names map[string]bool) map[string]bool {
+	files := map[string]bool{}
+	for name := range names {
 		for _, f := range store.ByName(name) {
 			if f.File != "" {
-				memberFiles[f.File] = true
+				files[f.File] = true
 			}
 		}
 	}
-	// A capture keyed by spec files, which enola's own runner writes, holds
-	// frames and none of them in application code. Judging only the frames in
-	// member files then emits nothing, and a budget nobody measured reads kept.
-	reached := 0
+	return files
+}
+
+// framesReach reports whether some frame sits in a member file. A capture
+// keyed by spec files, which enola's own runner writes, holds frames and
+// none of them in application code; judging only the frames in member files
+// then emits nothing, and a budget nobody measured reads kept.
+func framesReach(frames []facts.Fact, memberFiles map[string]bool) bool {
 	for _, f := range frames {
 		if memberFiles[f.File] {
-			reached++
+			return true
 		}
 	}
-	if reached == 0 {
-		return []facts.Insight{unevaluableRule(r, CauseNoFrameInMembers, "no frame in its members",
+	return false
+}
+
+// verdictCapRuntime reads runtime-queries facts for frames inside member
+// files and names every frame over the budget; without a capture it refuses.
+func (e *Explainer) verdictCapRuntime(r rule, store *facts.Store, members map[string]map[string]bool) []facts.Insight {
+	frames := runtimeFrames(store)
+	if len(frames) == 0 {
+		return []facts.Insight{unevaluableRule(r, CauseNoRuntimeCapture, reasonNoRuntimeCapture,
+			"cap_runtime reads the frames a runtime capture measured, and no runtime provider contributed any to this snapshot. The rule emitted no verdict: a budget nobody measured must not read as kept. Produce a capture with the runtime provider's spec-suite runner, configure the provider, then regenerate.",
+			"Run the capture and configure the runtime provider, then regenerate the snapshot")}
+	}
+	memberFiles := memberFilesOf(store, members[r.capRuntime])
+	if !framesReach(frames, memberFiles) {
+		return []facts.Insight{unevaluableRule(r, CauseNoFrameInMembers, reasonNoFrameInMembers,
 			fmt.Sprintf("cap_runtime reads the frames a runtime capture measured inside the member files of %s, and the capture in this snapshot holds %d frame(s), none of them in a member file (%s). The rule emitted no verdict: a budget whose part the capture never reached must not read as kept. A frame is the method and file a query was attributed to, so a capture keyed by spec files or examples reaches no part of the application; produce the capture with a counter that attributes each query to the application frame that caused it, then regenerate.", r.capRuntime, len(frames), frameFiles(frames, 3)),
 			"Capture with a counter that attributes queries to application frames, or point the rule at the part the capture reaches")}
 	}
@@ -306,7 +329,7 @@ func frameFiles(frames []facts.Fact, limit int) string {
 // calls; in a single-repository snapshot it refuses.
 func (e *Explainer) verdictRequireConsumer(r rule, store *facts.Store, memberFacts map[string][]facts.Fact) []facts.Insight {
 	if len(store.RepoLabels()) < 2 {
-		return []facts.Insight{unevaluableRule(r, CauseNoCounterparty, "no counterparty in this snapshot",
+		return []facts.Insight{unevaluableRule(r, CauseNoCounterparty, reasonNoCounterparty,
 			"require_consumer asks whether a client elsewhere in the cluster calls each route, and this snapshot holds one repository. The rule emitted no verdict: a route with no client in a snapshot that loaded no clients must not read as unconsumed.",
 			"Generate the snapshot over the cluster that holds the route's clients")}
 	}
@@ -351,7 +374,7 @@ func (e *Explainer) verdictUniqueAcross(r rule, memberFacts map[string][]facts.F
 		repos[f.Repo] = true
 	}
 	if len(repos) < 2 {
-		return []facts.Insight{unevaluableRule(r, CauseNoCounterparty, "no counterparty in this snapshot",
+		return []facts.Insight{unevaluableRule(r, CauseNoCounterparty, reasonNoCounterparty,
 			"unique_across compares the members of different repositories, and the members of "+r.uniqueAcross+" come from one. The rule emitted no verdict: a property nobody else could share must not read as unique.",
 			"Generate the snapshot over the cluster that holds the other repositories")}
 	}

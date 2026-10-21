@@ -1,6 +1,8 @@
 package constraints
 
 import (
+	"context"
+	"strings"
 	"testing"
 
 	"github.com/enola-labs/enola/internal/facts"
@@ -408,5 +410,100 @@ func TestContractFor_NameAndCycleRulesBindAndLiteralsAreSaid(t *testing.T) {
 	}
 	if j := said("app/jobs/sweep.rb"); j["no-circle"] == "" {
 		t.Errorf("a cycle rule binds every part among it: %+v", j)
+	}
+}
+
+func policyStore(extra ...facts.Fact) *facts.Store {
+	store := facts.NewStore()
+	store.Add(
+		componentIntent("stats", "analytics/**"),
+		componentIntent("shop", "checkout/**"),
+		ruleIntentProps("stats-runtime", map[string]any{
+			"cap_runtime": "stats", "metric": "queries", "max": 5, "because": "frames of the report stay cheap"}),
+		ruleIntentProps("shop-no-debug-names", map[string]any{
+			"forbid_name": "shop", "pattern": "Debug*", "surface": "exported", "because": "no debug helpers in the public surface"}),
+		ruleIntentProps("shop-no-debug-anywhere", map[string]any{
+			"forbid_name": "shop", "pattern": "Debug*", "because": "no debug helpers at all"}),
+		facts.Fact{Kind: facts.KindSymbol, Name: "Report", File: "analytics/report.go"},
+		facts.Fact{Kind: facts.KindSymbol, Name: "Checkout", File: "checkout/checkout.go"},
+	)
+	store.Add(extra...)
+	return store
+}
+
+func bindingFor(t *testing.T, store *facts.Store, target, rule string) RuleBinding {
+	t.Helper()
+	bindings, _ := ContractFor(store, target)
+	for _, b := range bindings {
+		for _, r := range b.Rules {
+			if r.Rule == rule {
+				return r
+			}
+		}
+	}
+	t.Fatalf("no binding for rule %s at %s: %+v", rule, target, bindings)
+	return RuleBinding{}
+}
+
+func TestContractFor_ForbidNameSaysExportedWhenTheSurfaceNarrowsIt(t *testing.T) {
+	store := policyStore()
+	if got := bindingFor(t, store, "checkout/checkout.go", "shop-no-debug-names").Statement; got != "exported members of shop must not be named like Debug*" {
+		t.Errorf("statement = %q", got)
+	}
+	if got := bindingFor(t, store, "checkout/checkout.go", "shop-no-debug-anywhere").Statement; got != "members of shop must not be named like Debug*" {
+		t.Errorf("unnarrowed statement = %q", got)
+	}
+}
+
+func TestContractFor_AnUnevaluableRuleCarriesTheEvaluatorsReason(t *testing.T) {
+	store := policyStore()
+	unchecked := bindingFor(t, store, "analytics/report.go", "stats-runtime")
+	if unchecked.NotChecked != "no runtime capture in this snapshot" {
+		t.Errorf("NotChecked = %q", unchecked.NotChecked)
+	}
+	if got := bindingFor(t, store, "checkout/checkout.go", "shop-no-debug-names").NotChecked; got != "" {
+		t.Errorf("a rule the snapshot checks is marked %q", got)
+	}
+
+	var finding string
+	insights, err := New().Explain(context.Background(), store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, in := range insights {
+		if strings.Contains(in.Title, "stats-runtime") {
+			finding = in.Title
+		}
+	}
+	if !strings.HasSuffix(finding, "cannot be evaluated: "+unchecked.NotChecked) {
+		t.Errorf("the evaluator says %q, the contract says %q", finding, unchecked.NotChecked)
+	}
+}
+
+func TestContractFor_WithoutMeasuredFactsNothingIsMarked(t *testing.T) {
+	store := facts.NewStore()
+	store.Add(componentIntent("stats", "analytics/**"),
+		ruleIntentProps("stats-runtime", map[string]any{
+			"cap_runtime": "stats", "metric": "queries", "max": 5, "because": "cheap"}))
+	if got := bindingFor(t, store, "analytics/report.go", "stats-runtime").NotChecked; got != "" {
+		t.Errorf("declarations alone were marked %q", got)
+	}
+}
+
+func TestContractFor_EveryFormTheEvaluatorRefusesIsMarked(t *testing.T) {
+	store := policyStore(
+		ruleIntentProps("shop-independent", map[string]any{"independent": "shop", "because": "b"}),
+		ruleIntentProps("shop-consumed", map[string]any{"require_consumer": "shop", "because": "b"}),
+		ruleIntentProps("shop-unique", map[string]any{"unique_across": "shop", "by": "name", "because": "b"}),
+	)
+	want := map[string]string{
+		"shop-independent": "no resolved ancestry in this snapshot",
+		"shop-consumed":    "no counterparty in this snapshot",
+		"shop-unique":      "no counterparty in this snapshot",
+	}
+	for rule, reason := range want {
+		if got := bindingFor(t, store, "checkout/checkout.go", rule).NotChecked; got != reason {
+			t.Errorf("%s: NotChecked = %q, want %q", rule, got, reason)
+		}
 	}
 }
