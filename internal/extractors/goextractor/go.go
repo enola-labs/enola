@@ -1762,7 +1762,16 @@ func readModulePath(repoPath string) string {
 }
 
 // classifyImport returns "stdlib", "internal", or "external" for a Go import path.
+//
+// The module path is checked first. A module may be named without a dot
+// ("module golf"), and checked second, every one of its own packages failed the
+// stdlib test below and was labelled stdlib: one service read 5,189 stdlib
+// imports and 1 internal one.
 func classifyImport(importPath, modulePath string) string {
+	// internal: starts with the module path
+	if modulePath != "" && (importPath == modulePath || strings.HasPrefix(importPath, modulePath+"/")) {
+		return "internal"
+	}
 	// stdlib: first path segment has no dots
 	firstSegment := importPath
 	if i := strings.Index(importPath, "/"); i >= 0 {
@@ -1770,10 +1779,6 @@ func classifyImport(importPath, modulePath string) string {
 	}
 	if !strings.Contains(firstSegment, ".") {
 		return "stdlib"
-	}
-	// internal: starts with the module path
-	if modulePath != "" && (importPath == modulePath || strings.HasPrefix(importPath, modulePath+"/")) {
-		return "internal"
 	}
 	return "external"
 }

@@ -263,8 +263,8 @@ func (v Verdict) addedNames(kind string) []string {
 // It is internal when that fact's source prop says so, or when the extractor
 // resolved the path to a module of this code, pointing the edge at something
 // other than the path as written. Both are needed: TypeScript keeps an internal
-// import's path as its target, and a Go module whose path has no dot has its
-// own packages classified as stdlib while they still resolve. The facts come
+// import's path as its target, and a Swift package of the repository, imported
+// by name, is classified stdlib while it still resolves. The facts come
 // from the same side of the diff as the edges; an edge whose fact is not there
 // is left out rather than guessed at.
 func importPairs(edges []diff.Edge, deps []facts.Fact) [][2]string {

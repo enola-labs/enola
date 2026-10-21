@@ -182,8 +182,8 @@ func TestSummary_Changed(t *testing.T) {
 				dep("src/ui -> src/lib/api", "internal"),
 				dep("pkg/b -> github.com/x/y", "external"),
 				dep("pkg/b -> fmt", "stdlib"),
-				// A dotless Go module path is classified stdlib, and still resolves.
-				dep("storage -> layersgate/notify", "stdlib"),
+				// A Swift package of the repository is classified stdlib, and still resolves.
+				dep("App/Charts -> DesignSystem", "stdlib"),
 			},
 			FactsRemoved: []facts.Fact{dep("pkg/a -> example.com/app/pkg/d", "internal")},
 			EdgesAdded: []diff.Edge{
@@ -193,7 +193,7 @@ func TestSummary_Changed(t *testing.T) {
 				{Source: "src/ui -> src/lib/api", Kind: facts.RelImports, Target: "src/lib/api"},
 				{Source: "pkg/b -> github.com/x/y", Kind: facts.RelImports, Target: "github.com/x/y"},
 				{Source: "pkg/b -> fmt", Kind: facts.RelImports, Target: "fmt"},
-				{Source: "storage -> layersgate/notify", Kind: facts.RelImports, Target: "notify"},
+				{Source: "App/Charts -> DesignSystem", Kind: facts.RelImports, Target: "Packages/Sources/DesignSystem"},
 				// An edge whose dependency fact is not in the diff is not guessed at.
 				{Source: "pkg/e -> example.com/app/pkg/f", Kind: facts.RelImports, Target: "pkg/f"},
 				{Source: "pkg/b.UsesGamma", Kind: facts.RelDeclares, Target: "pkg/b"},
@@ -204,9 +204,9 @@ func TestSummary_Changed(t *testing.T) {
 	got := v.Summarize().Changed
 	want := []string{
 		"Added 1 folder of code and 2 functions and types (pkg/c).",
+		"App/Charts now uses Packages/Sources/DesignSystem.",
 		"pkg/b now uses pkg/c.",
 		"src/ui now uses src/lib/api.",
-		"storage now uses notify.",
 		"pkg/a no longer uses pkg/d.",
 	}
 	if len(got) != len(want) {

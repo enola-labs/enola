@@ -3034,7 +3034,10 @@ import (
 // such a block belongs to the method around it, and a fact about the anonymous
 // declaration itself is not written. Rubydex and Prism facts move on the Ruby
 // repositories that have the block.
-const cacheVersion = "v415"
+// v416: A Go import inside the module is internal when the module path has no
+// dot ("module golf"). It was labelled stdlib, because the stdlib test ran
+// before the module-path test. Dependency facts of such modules move.
+const cacheVersion = "v416"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
