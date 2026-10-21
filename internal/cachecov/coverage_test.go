@@ -33,6 +33,8 @@ import (
 // test functions that assert the behavior that version introduced. v1 is the
 // implicit baseline (no changelog line), so coverage starts at v2.
 var versionCoverage = map[int][]string{
+	// A Ruby constant the repository only reopens is not its own to depend on
+	418: {"TestExtract_NamespaceOnlyMarksAWrapperAndNothingElse", "TestExtract_AReopenedConstantIsNotTheRepositorysToDependOn", "TestExtract_AGemOwnsTheBuiltinConstantItDefines"},
 	// Go imports resolve through every go.mod in the file list, longest module path first, and a longer required module owns its imports
 	417: {"TestReadModules_EveryGoModInTheFileList", "TestGoModules_Resolve", "TestExtract_NestedModulesResolveAndAreInternal"},
 	// A Go module named without a dot owns its packages: they are internal, not stdlib
