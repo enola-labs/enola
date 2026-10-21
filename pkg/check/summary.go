@@ -286,7 +286,7 @@ func importPairs(edges []diff.Edge, deps []facts.Fact) [][2]string {
 			continue
 		}
 		module, path, ok := strings.Cut(e.Source, " -> ")
-		if !ok || module == e.Target || (!internal[e.Source] && path == e.Target) {
+		if !ok || module == e.Target || (!internal[e.Source] && path == e.Target) || assetExts[pathExt(e.Target)] {
 			continue
 		}
 		p := [2]string{module, e.Target}
@@ -302,6 +302,26 @@ func importPairs(edges []diff.Edge, deps []facts.Fact) [][2]string {
 		return out[i][1] < out[j][1]
 	})
 	return out
+}
+
+// assetExts are the file types an import names that are not code: an icon, a
+// stylesheet, a font. A TypeScript import of one is a real edge, and the full
+// verdict lists it, but the summary speaks of uses between modules of code.
+var assetExts = map[string]bool{
+	".svg": true, ".png": true, ".jpg": true, ".jpeg": true, ".gif": true, ".webp": true,
+	".avif": true, ".ico": true, ".bmp": true,
+	".css": true, ".scss": true, ".sass": true, ".less": true, ".styl": true,
+	".woff": true, ".woff2": true, ".ttf": true, ".otf": true, ".eot": true,
+	".mp3": true, ".mp4": true, ".webm": true, ".wav": true, ".ogg": true,
+}
+
+// pathExt is the lowercased extension of a path's last segment, or "".
+func pathExt(p string) string {
+	base := p[strings.LastIndexByte(p, '/')+1:]
+	if i := strings.LastIndexByte(base, '.'); i > 0 {
+		return strings.ToLower(base[i:])
+	}
+	return ""
 }
 
 func (v Verdict) worse() ([]plain.Item, int) {

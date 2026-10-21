@@ -180,6 +180,9 @@ func TestSummary_Changed(t *testing.T) {
 				dep("pkg/b -> example.com/app/pkg/c", "internal"),
 				// TypeScript keeps an internal import's path as its target.
 				dep("src/ui -> src/lib/api", "internal"),
+				// An icon or a stylesheet is not a module of code.
+				dep("src/ui -> src/icons/bell.svg", "internal"),
+				dep("src/ui -> src/ui/button.module.scss", "internal"),
 				dep("pkg/b -> github.com/x/y", "external"),
 				dep("pkg/b -> fmt", "stdlib"),
 				// A Swift package of the repository is classified stdlib, and still resolves.
@@ -191,6 +194,8 @@ func TestSummary_Changed(t *testing.T) {
 				// The same import from a second file of pkg/b is the same use.
 				{Source: "pkg/b -> example.com/app/pkg/c", Kind: facts.RelImports, Target: "pkg/c"},
 				{Source: "src/ui -> src/lib/api", Kind: facts.RelImports, Target: "src/lib/api"},
+				{Source: "src/ui -> src/icons/bell.svg", Kind: facts.RelImports, Target: "src/icons/bell.svg"},
+				{Source: "src/ui -> src/ui/button.module.scss", Kind: facts.RelImports, Target: "src/ui/button.module.scss"},
 				{Source: "pkg/b -> github.com/x/y", Kind: facts.RelImports, Target: "github.com/x/y"},
 				{Source: "pkg/b -> fmt", Kind: facts.RelImports, Target: "fmt"},
 				{Source: "App/Charts -> DesignSystem", Kind: facts.RelImports, Target: "Packages/Sources/DesignSystem"},
