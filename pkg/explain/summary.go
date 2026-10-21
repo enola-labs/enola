@@ -171,10 +171,13 @@ func about(r *Report) []Item {
 		surface = append(surface, "calls "+plural(r.RoutesOutbound, "outside one", "outside ones"))
 	}
 	text := strings.Join(surface, " and ") + "."
-	if r.Storage > 0 {
-		text += " Uses " + plural(r.Storage, "database table or store", "database tables or stores") + "."
-	} else {
-		text += " enola found no database tables."
+	switch {
+	case r.StorageDistinct > 0:
+		text += " Works with " + plural(r.StorageDistinct, "data store", "distinct data stores") + ", such as database tables."
+	case r.StorageReferences > 0:
+		text += " Queries a database whose tables are defined somewhere else."
+	default:
+		text += " enola found no database or other data store."
 	}
 	out = append(out, Item{Text: text, Certainty: Certain})
 
@@ -290,7 +293,7 @@ func startHere(r *Report, entries []entryPoint) []Item {
 	if core != nil && len(out) < maxItems {
 		out = append(out, Item{
 			Subject:   core.Module,
-			Text:      fmt.Sprintf("The core: imported %s across the code, so most of it builds on this.", plural(core.FanIn, "time", "times")),
+			Text:      fmt.Sprintf("The most imported module: imported %s, so a lot of the code builds on it.", plural(core.FanIn, "time", "times")),
 			Certainty: Certain,
 		})
 	}
@@ -339,10 +342,12 @@ func careful(r *Report) []Item {
 		if len(out) == maxItems {
 			break
 		}
+		// No "of N modules": the reach counts every folder an import comes from,
+		// and not every such folder is a module, so the two are not one set.
 		out = append(out, Item{
 			Subject: h.Module,
-			Text: fmt.Sprintf("A change here can reach %d of the %d modules within three import steps. Have tests in place before changing it.",
-				h.BlastRadius, r.Modules),
+			Text: fmt.Sprintf("A change here can reach %s within three import steps. Have tests in place before changing it.",
+				plural(h.BlastRadius, "other folder of code", "other folders of code")),
 			Certainty: Certain,
 			Next:      "enola impact " + h.Module,
 		})
@@ -358,9 +363,13 @@ func careful(r *Report) []Item {
 func worthALook(r *Report) ([]Item, int) {
 	var cands []Item
 	if d := r.DeadCode; d != nil && d.High > 0 {
+		check := "Check each one before deleting it"
+		if d.High == 1 {
+			check = "Check it before deleting it"
+		}
 		cands = append(cands, Item{
-			Text: plural(d.High, "function looks", "functions look") +
-				" unused. Check each one before deleting it: code outside this repository, or code called by name at runtime, may still use it.",
+			Text: plural(d.High, "function looks", "functions look") + " unused. " + check +
+				": code outside this repository, or code called by name at runtime, may still use it.",
 			Certainty: Likely,
 		})
 	}

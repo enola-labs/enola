@@ -9,7 +9,8 @@ What this is
   Written in Go.
   3 modules (folders of code), holding 9 named pieces of code such as
   functions and types.
-  Serves no HTTP endpoint enola could find. enola found no database tables.
+  Serves no HTTP endpoint enola could find. enola found no database or other
+  data store.
   enola recognised no common way of organising the folders. (likely)
 
 Structure: needs attention

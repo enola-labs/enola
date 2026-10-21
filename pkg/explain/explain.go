@@ -131,6 +131,12 @@ type Report struct {
 	// none, or it registers them in a form enola does not read.
 	RouteGapFramework string `json:"route_gap_framework,omitempty"`
 	Storage           int    `json:"storage"`
+	// Storage counts every storage fact, and most of them can be a query naming
+	// a table rather than the table: one Go service read 2,213 of which 1,903
+	// were references. StorageDistinct is the distinct names of the rest, the
+	// stores themselves; StorageReferences is the queries.
+	StorageDistinct   int `json:"storage_distinct"`
+	StorageReferences int `json:"storage_references"`
 
 	// Architecture and ArchConfidence are the STRONGEST statement, kept as scalars
 	// so the existing JSON shape does not move. Architectures holds all of them,
@@ -275,7 +281,17 @@ func Compute(eng Source) *Report {
 		}
 	}
 
-	r.Storage = len(store.ByKind(facts.KindStorage))
+	storage := store.ByKind(facts.KindStorage)
+	r.Storage = len(storage)
+	stores := map[string]bool{}
+	for _, f := range storage {
+		if f.PropString("storage_kind") == storageKindReference {
+			r.StorageReferences++
+			continue
+		}
+		stores[f.Name] = true
+	}
+	r.StorageDistinct = len(stores)
 
 	// Dependency facts grouped by their declared source (external/internal/stdlib).
 	srcCount := map[string]int{}
@@ -636,6 +652,10 @@ func criticalityLabel(score int) string {
 
 // sortedCounts converts a tally map into a slice ordered by count desc, then
 // label asc, for deterministic output.
+// storageKindReference is the storage_kind of a query that names a table, as
+// opposed to a declared table, model or bucket.
+const storageKindReference = "table_reference"
+
 // routeFrameworkDeps are the server frameworks whose routes enola extracts,
 // keyed by the dependency fact the manifests extractor emits for them. Declaring
 // one while no served route was found is worth saying out loud: a report that

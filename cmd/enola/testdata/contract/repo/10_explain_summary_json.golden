@@ -13,7 +13,7 @@ exit: 0
       "certainty": "certain"
     },
     {
-      "text": "Serves no HTTP endpoint enola could find. enola found no database tables.",
+      "text": "Serves no HTTP endpoint enola could find. enola found no database or other data store.",
       "certainty": "certain"
     },
     {

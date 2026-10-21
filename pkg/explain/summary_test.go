@@ -168,7 +168,7 @@ func TestSummary_StartHere(t *testing.T) {
 	if got[0].Subject != "cmd/app.main" || got[0].Location != "cmd/app/main.go:12" || !strings.Contains(got[0].Text, "starts here") {
 		t.Errorf("entry: got %+v", got[0])
 	}
-	if got[1].Subject != "internal/facts" || !strings.Contains(got[1].Text, "345 times") {
+	if got[1].Subject != "internal/facts" || !strings.Contains(got[1].Text, "imported 345 times") {
 		t.Errorf("core is the most imported module that is not generated: got %+v", got[1])
 	}
 
@@ -206,7 +206,7 @@ func TestSummary_About(t *testing.T) {
 	for _, want := range []string{
 		"Written mainly in Go, also C and TypeScript.",
 		"1 module (a folder of code), holding 10 named pieces of code",
-		"Serves 1 HTTP endpoint and calls 3 outside ones. enola found no database tables.",
+		"Serves 1 HTTP endpoint and calls 3 outside ones. enola found no database or other data store.",
 		"declares its own layer order",
 	} {
 		if !containsText(about, want) {
@@ -295,5 +295,46 @@ func TestSummary_NoCoreInASmallRepository(t *testing.T) {
 		if it.Subject == "pkg/a" {
 			t.Errorf("a module imported twice is not what the code builds on: %+v", it)
 		}
+	}
+}
+
+func TestCompute_StorageSeparatesStoresFromQueries(t *testing.T) {
+	eng := newTestEngine(t)
+	ref := func(name string) facts.Fact {
+		return facts.Fact{Kind: facts.KindStorage, Name: name, File: "db/q.go", Props: map[string]any{"storage_kind": "table_reference"}}
+	}
+	eng.Store().Add(
+		facts.Fact{Kind: facts.KindStorage, Name: "users", File: "db/m1.sql", Props: map[string]any{"storage_kind": "table"}},
+		// The same table created again by a later migration is still one table.
+		facts.Fact{Kind: facts.KindStorage, Name: "users", File: "db/m2.sql", Props: map[string]any{"storage_kind": "table"}},
+		facts.Fact{Kind: facts.KindStorage, Name: "uploads", File: "infra/s3.tf", Props: map[string]any{"storage_kind": "s3"}},
+		ref("users"), ref("users"), ref("AllExpenses"),
+	)
+	eng.Store().BuildGraph()
+	r := Compute(eng)
+	if r.Storage != 6 || r.StorageDistinct != 2 || r.StorageReferences != 3 {
+		t.Errorf("storage = %d, distinct = %d, references = %d; want 6, 2, 3", r.Storage, r.StorageDistinct, r.StorageReferences)
+	}
+	if about := summarize(r, nil).About; !containsText(about, "Works with 2 distinct data stores") {
+		t.Errorf("about: %+v", about)
+	}
+	if about := summarize(&Report{StorageReferences: 3}, nil).About; !containsText(about, "defined somewhere else") {
+		t.Errorf("queries without stores: %+v", about)
+	}
+}
+
+func TestSummary_OneUnusedFunctionReadsAsOne(t *testing.T) {
+	items, _ := worthALook(&Report{DeadCode: &orphans.Summary{High: 1}})
+	if !strings.HasPrefix(items[0].Text, "1 function looks unused. Check it before deleting it:") {
+		t.Errorf("got %q", items[0].Text)
+	}
+}
+
+func TestSummaryRender_LongSubjectPutsLocationOnItsOwnLine(t *testing.T) {
+	var b strings.Builder
+	long := strings.Repeat("a", summaryWidth)
+	section(&b, "Start reading here", []Item{{Subject: long, Location: "x.ts:3", Text: "t", Certainty: Certain}}, "")
+	if !strings.Contains(b.String(), "  "+long+"\n    at x.ts:3\n") {
+		t.Errorf("got:\n%s", b.String())
 	}
 }

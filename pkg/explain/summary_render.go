@@ -58,7 +58,11 @@ func section(b *strings.Builder, title string, items []Item, footer string) {
 		}
 		head := "  " + it.Subject
 		if it.Location != "" {
-			head += "  (" + it.Location + ")"
+			if loc := "  (" + it.Location + ")"; len(head)+len(loc) <= summaryWidth {
+				head += loc
+			} else {
+				head += "\n    at " + it.Location
+			}
 		}
 		b.WriteString(head + "\n")
 		wrap(b, text, "    ", "    ")

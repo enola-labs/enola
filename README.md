@@ -108,6 +108,12 @@ How to read it:
 - A **layer violation** is a module reaching into a layer it is not allowed to use, under a layer order the repository declared. enola declares its own in [`enola-intent.yaml`](enola-intent.yaml); 0 means nothing in the code crosses it.
 - A **hotspot** is a module many other modules depend on. `fan-in` is how many modules use it; `fan-out` is how many it uses; `blast radius` is how many modules a change to it can reach. Read the first row as: `internal/facts` is used from 253 places, and a change to it can reach 96 modules.
 
+If that is more vocabulary than you need, ask for the plain-language summary instead. It says what the repository is, whether its structure holds, where to start reading, what is risky to change and what is worth a look, and marks each statement with how sure enola is:
+
+```bash
+enola --explain --summary enola
+```
+
 **3. Keep the graph and look at it.** `--explain` only prints. To save the graph, build it with `--generate`. It is written under `.enola/` in the repository, and that saved graph is what the local dashboard shows:
 
 ```bash
@@ -124,6 +130,7 @@ enola parses each source file, turns what it finds into typed facts, links the f
 | Command | What it does | Learn more |
 | --- | --- | --- |
 | `enola --explain <repo>` | Read a repository and print a report. Writes nothing. | [CLI reference](docs/CLI.md#explain-a-repository-at-a-glance) |
+| `enola --explain --summary <repo>` | The same reading, as a short plain-language summary. | [CLI reference](docs/CLI.md#plain-language-summary) |
 | `enola --generate <repo>` | Build the graph and save it under `.enola/` as a snapshot. | [The graph](docs/GRAPH.md) |
 | `enola baseline pin` | Record the current state of the graph as the point to compare against. | [Gating a change](docs/GATING.md) |
 | `enola check` | Build the graph again and report only what changed since the pin. | [Gating a change](docs/GATING.md) |
