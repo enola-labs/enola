@@ -74,7 +74,7 @@ func (e *GoExtractor) DetectFiles(_ string, files []string) (bool, error) {
 }
 
 // OwnsFile declares the paths this extractor reads: Go source, plus the module
-// manifests whose contents steer resolution (readModulePath reads go.mod). It
+// manifests whose contents steer resolution (readModules reads go.mod). It
 // makes the extractor cacheable like the other language extractors and lets
 // the file census attribute unparsed .go files to it rather than reporting Go
 // as an extension nothing claims.
@@ -98,7 +98,7 @@ type parsedPkg struct {
 func (e *GoExtractor) Extract(ctx context.Context, repoPath string, files []string) ([]facts.Fact, error) {
 	var allFacts []facts.Fact
 	fset := token.NewFileSet()
-	modulePath := readModulePath(repoPath)
+	mods := readModules(repoPath, files)
 
 	// Pass 1: parse all Go files, grouping by package directory.
 	parsedPkgs := make(map[string]*parsedPkg)
@@ -154,7 +154,7 @@ func (e *GoExtractor) Extract(ctx context.Context, repoPath string, files []stri
 	// the alias names, and that is where its methods are.
 	aliases := make(map[string]string)
 	for _, pkgDir := range pkgDirs {
-		for k, v := range collectAliases(parsedPkgs[pkgDir].parsedFiles, pkgDir, modulePath, pkgNames) {
+		for k, v := range collectAliases(parsedPkgs[pkgDir].parsedFiles, pkgDir, mods, pkgNames) {
 			aliases[k] = v
 		}
 	}
@@ -165,7 +165,7 @@ func (e *GoExtractor) Extract(ctx context.Context, repoPath string, files []stri
 			return allFacts, ctx.Err()
 		default:
 		}
-		for k, v := range collectFieldTypes(parsedPkgs[pkgDir].parsedFiles, pkgDir, modulePath, pkgNames, aliases) {
+		for k, v := range collectFieldTypes(parsedPkgs[pkgDir].parsedFiles, pkgDir, mods, pkgNames, aliases) {
 			globalFieldTypes[k] = v
 		}
 	}
@@ -175,7 +175,7 @@ func (e *GoExtractor) Extract(ctx context.Context, repoPath string, files []stri
 	// one (`r := eng.Resolver()`) resolve to the method they reach.
 	callTypes := callTypeTables{returns: make(map[string][]string), aliases: aliases}
 	for _, pkgDir := range pkgDirs {
-		for k, v := range collectReturnTypes(parsedPkgs[pkgDir].parsedFiles, pkgDir, modulePath, pkgNames, aliases) {
+		for k, v := range collectReturnTypes(parsedPkgs[pkgDir].parsedFiles, pkgDir, mods, pkgNames, aliases) {
 			callTypes.returns[k] = v
 		}
 	}
@@ -186,10 +186,10 @@ func (e *GoExtractor) Extract(ctx context.Context, repoPath string, files []stri
 	callTypes.implementers = make(map[string][]string)
 	callTypes.embeds = make(map[string][]string)
 	for _, pkgDir := range pkgDirs {
-		for iface, impls := range collectInterfaceAssertions(parsedPkgs[pkgDir].parsedFiles, pkgDir, modulePath, pkgNames, aliases) {
+		for iface, impls := range collectInterfaceAssertions(parsedPkgs[pkgDir].parsedFiles, pkgDir, mods, pkgNames, aliases) {
 			callTypes.implementers[iface] = append(callTypes.implementers[iface], impls...)
 		}
-		for typ, embedded := range collectEmbeddedTypes(parsedPkgs[pkgDir].parsedFiles, pkgDir, modulePath, pkgNames, aliases) {
+		for typ, embedded := range collectEmbeddedTypes(parsedPkgs[pkgDir].parsedFiles, pkgDir, mods, pkgNames, aliases) {
 			callTypes.embeds[typ] = append(callTypes.embeds[typ], embedded...)
 		}
 	}
@@ -213,7 +213,7 @@ func (e *GoExtractor) Extract(ctx context.Context, repoPath string, files []stri
 	stringConstants := buildStringConsts(parsedPkgs)
 	routerFields := ownRouterFields(globalFieldTypes, routerWrappers)
 	routePrefixes := routeIndex{
-		prefixes:     buildRoutePrefixIndex(parsedPkgs, modulePath, pkgNames, globalFieldTypes, routerWrappers, stringConstants, routerFields),
+		prefixes:     buildRoutePrefixIndex(parsedPkgs, mods, pkgNames, globalFieldTypes, routerWrappers, stringConstants, routerFields),
 		wrappers:     routerWrappers,
 		consts:       stringConstants,
 		routerFields: routerFields,
@@ -230,7 +230,7 @@ func (e *GoExtractor) Extract(ctx context.Context, repoPath string, files []stri
 		if pp.pkgName == "" {
 			continue
 		}
-		pkgFacts := e.extractPackage(fset, pkgDir, pp, modulePath, globalFieldTypes, callTypes, pkgNames, grpcStubs, routePrefixes)
+		pkgFacts := e.extractPackage(fset, pkgDir, pp, mods, globalFieldTypes, callTypes, pkgNames, grpcStubs, routePrefixes)
 		allFacts = append(allFacts, pkgFacts...)
 	}
 
@@ -241,10 +241,10 @@ func (e *GoExtractor) Extract(ctx context.Context, repoPath string, files []stri
 	for _, pkgDir := range pkgDirs {
 		pp := parsedPkgs[pkgDir]
 		for _, f := range pp.parsedFiles {
-			commandLits = append(commandLits, commandLiterals(f, pkgDir, buildFileImports(f, modulePath, pkgNames))...)
+			commandLits = append(commandLits, commandLiterals(f, pkgDir, buildFileImports(f, mods, pkgNames))...)
 		}
 	}
-	bindCommands(allFacts, commandLits, modulePath)
+	bindCommands(allFacts, commandLits, mods)
 	bindTools(allFacts)
 
 	// Carry io_direct to every function that reaches one, across packages, and
@@ -254,7 +254,7 @@ func (e *GoExtractor) Extract(ctx context.Context, repoPath string, files []stri
 	return allFacts, nil
 }
 
-func (e *GoExtractor) extractPackage(fset *token.FileSet, pkgDir string, pp *parsedPkg, modulePath string, fieldTypes map[string]string, callTypes callTypeTables, pkgNames map[string]string, grpcStubs *goGRPCStubIndex, routePrefixes routeIndex) []facts.Fact {
+func (e *GoExtractor) extractPackage(fset *token.FileSet, pkgDir string, pp *parsedPkg, mods goModules, fieldTypes map[string]string, callTypes callTypeTables, pkgNames map[string]string, grpcStubs *goGRPCStubIndex, routePrefixes routeIndex) []facts.Fact {
 	var result []facts.Fact
 
 	// Package-scoped map of top-level `var x = NewXxxClient(...)` bindings, so a
@@ -283,7 +283,7 @@ func (e *GoExtractor) extractPackage(fset *token.FileSet, pkgDir string, pp *par
 		if !ok {
 			continue
 		}
-		result = append(result, e.extractFile(fset, f, relFile, pkgDir, modulePath, fieldTypes, callTypes, pkgNames, grpcStubs, pkgVarClients, baseURLLits, routePrefixes, pkgFuncs, pkgScope)...)
+		result = append(result, e.extractFile(fset, f, relFile, pkgDir, mods, fieldTypes, callTypes, pkgNames, grpcStubs, pkgVarClients, baseURLLits, routePrefixes, pkgFuncs, pkgScope)...)
 	}
 
 	// Kafka topics passed through a package constructor, whose declaration and
@@ -305,7 +305,7 @@ func (e *GoExtractor) extractPackage(fset *token.FileSet, pkgDir string, pp *par
 	// providerFunc{"rubydex": runRubydex}` is the shape, and runRubydex read as dead
 	// with it unrecorded. Package-level initialization IS the package's work, so the
 	// package is the honest source for the edge.
-	if refs := packageLevelInitRefs(pp, pkgDir, modulePath, pkgNames, pkgFuncs); len(refs) > 0 {
+	if refs := packageLevelInitRefs(pp, pkgDir, mods, pkgNames, pkgFuncs); len(refs) > 0 {
 		for _, ref := range refs {
 			moduleFact.Relations = append(moduleFact.Relations, facts.Relation{
 				Kind:   facts.RelCalls,
@@ -315,8 +315,13 @@ func (e *GoExtractor) extractPackage(fset *token.FileSet, pkgDir string, pp *par
 	}
 	// Store the full Go module path on the root package fact so that the graph
 	// layer can normalise cross-repo call targets (Bug 2).
-	if pkgDir == "." && modulePath != "" {
-		moduleFact.SetProp("modulePath", modulePath)
+	//
+	// The root module only. The readers map a stripped target to the repository
+	// root, so a nested module's path here would send its targets to the wrong
+	// directory; resolving into a nested module from another repository is not
+	// done yet.
+	if mp := mods.rootPath(); pkgDir == "." && mp != "" {
+		moduleFact.SetProp("modulePath", mp)
 	}
 	if doc := packageDoc(pp); doc != "" {
 		facts.SetDoc(&moduleFact, doc)
@@ -363,11 +368,11 @@ func isDocGo(rel string) bool {
 	return rel == "doc.go" || strings.HasSuffix(rel, "/doc.go")
 }
 
-func (e *GoExtractor) extractFile(fset *token.FileSet, f *ast.File, relFile, pkgDir, modulePath string, fieldTypes map[string]string, callTypes callTypeTables, pkgNames map[string]string, grpcStubs *goGRPCStubIndex, pkgVarClients map[string]string, baseURLLits map[string][]string, routePrefixes routeIndex, pkgFuncs, pkgScope map[string]bool) []facts.Fact {
+func (e *GoExtractor) extractFile(fset *token.FileSet, f *ast.File, relFile, pkgDir string, mods goModules, fieldTypes map[string]string, callTypes callTypeTables, pkgNames map[string]string, grpcStubs *goGRPCStubIndex, pkgVarClients map[string]string, baseURLLits map[string][]string, routePrefixes routeIndex, pkgFuncs, pkgScope map[string]bool) []facts.Fact {
 	var result []facts.Fact
 
 	// Build per-file import alias map for call resolution.
-	fileImports := buildFileImports(f, modulePath, pkgNames)
+	fileImports := buildFileImports(f, mods, pkgNames)
 
 	// Extract imports
 	for _, imp := range f.Imports {
@@ -377,12 +382,8 @@ func (e *GoExtractor) extractFile(fset *token.FileSet, f *ast.File, relFile, pkg
 		// "github.com/foo/bar/internal/pkg" → "internal/pkg") so they
 		// match the module fact names used elsewhere in the store.
 		relTarget := importPath
-		if modulePath != "" {
-			if importPath == modulePath {
-				relTarget = "."
-			} else if strings.HasPrefix(importPath, modulePath+"/") {
-				relTarget = strings.TrimPrefix(importPath, modulePath+"/")
-			}
+		if dir, ok := mods.resolve(importPath); ok {
+			relTarget = dir
 		}
 
 		result = append(result, facts.Fact{
@@ -392,7 +393,7 @@ func (e *GoExtractor) extractFile(fset *token.FileSet, f *ast.File, relFile, pkg
 			Line: fset.Position(imp.Pos()).Line,
 			Props: map[string]any{
 				"language": "go",
-				"source":   classifyImport(importPath, modulePath),
+				"source":   classifyImport(importPath, mods),
 			},
 			Relations: []facts.Relation{
 				{Kind: facts.RelImports, Target: relTarget},
@@ -404,9 +405,9 @@ func (e *GoExtractor) extractFile(fset *token.FileSet, f *ast.File, relFile, pkg
 	for _, decl := range f.Decls {
 		switch d := decl.(type) {
 		case *ast.FuncDecl:
-			result = append(result, e.extractFunc(fset, d, relFile, pkgDir, modulePath, fileImports, fieldTypes, callTypes, pkgFuncs, pkgScope)...)
+			result = append(result, e.extractFunc(fset, d, relFile, pkgDir, mods, fileImports, fieldTypes, callTypes, pkgFuncs, pkgScope)...)
 		case *ast.GenDecl:
-			result = append(result, e.extractGenDecl(fset, d, relFile, pkgDir, modulePath, fileImports, pkgScope)...)
+			result = append(result, e.extractGenDecl(fset, d, relFile, pkgDir, mods, fileImports, pkgScope)...)
 		}
 	}
 
@@ -423,7 +424,7 @@ func (e *GoExtractor) extractFile(fset *token.FileSet, f *ast.File, relFile, pkg
 	result = append(result, extractHTTPClientFacts(fset, f, relFile, pkgDir, baseURLLits)...)
 
 	// Extract outbound gRPC-client calls
-	result = append(result, extractGRPCClientFacts(fset, f, relFile, pkgDir, modulePath, fileImports, fieldTypes, pkgVarClients, grpcStubs)...)
+	result = append(result, extractGRPCClientFacts(fset, f, relFile, pkgDir, mods, fileImports, fieldTypes, pkgVarClients, grpcStubs)...)
 
 	// Extract storage patterns
 	result = append(result, extractStorage(fset, f, relFile, pkgDir)...)
@@ -434,7 +435,7 @@ func (e *GoExtractor) extractFile(fset *token.FileSet, f *ast.File, relFile, pkg
 	return result
 }
 
-func (e *GoExtractor) extractFunc(fset *token.FileSet, fn *ast.FuncDecl, relFile, pkgDir, modulePath string, fileImports map[string]string, fieldTypes map[string]string, callTypes callTypeTables, pkgFuncs, pkgScope map[string]bool) []facts.Fact {
+func (e *GoExtractor) extractFunc(fset *token.FileSet, fn *ast.FuncDecl, relFile, pkgDir string, mods goModules, fileImports map[string]string, fieldTypes map[string]string, callTypes callTypeTables, pkgFuncs, pkgScope map[string]bool) []facts.Fact {
 	var result []facts.Fact
 
 	name := fn.Name.Name
@@ -500,7 +501,7 @@ func (e *GoExtractor) extractFunc(fset *token.FileSet, fn *ast.FuncDecl, relFile
 	if fn.Body != nil {
 		ctx := resolveCtx{
 			pkgDir:     pkgDir,
-			modulePath: modulePath,
+			mods:       mods,
 			imports:    fileImports,
 			recvVar:    recvVar,
 			recvType:   receiver,
@@ -602,13 +603,13 @@ func (e *GoExtractor) extractFunc(fset *token.FileSet, fn *ast.FuncDecl, relFile
 	return result
 }
 
-func (e *GoExtractor) extractGenDecl(fset *token.FileSet, gd *ast.GenDecl, relFile, pkgDir, modulePath string, fileImports map[string]string, pkgScope map[string]bool) []facts.Fact {
+func (e *GoExtractor) extractGenDecl(fset *token.FileSet, gd *ast.GenDecl, relFile, pkgDir string, mods goModules, fileImports map[string]string, pkgScope map[string]bool) []facts.Fact {
 	var result []facts.Fact
 
 	for _, spec := range gd.Specs {
 		switch s := spec.(type) {
 		case *ast.TypeSpec:
-			result = append(result, e.extractTypeSpec(fset, gd, s, relFile, pkgDir, modulePath, fileImports, pkgScope)...)
+			result = append(result, e.extractTypeSpec(fset, gd, s, relFile, pkgDir, mods, fileImports, pkgScope)...)
 		case *ast.ValueSpec:
 			result = append(result, e.extractValueSpec(fset, gd, s, relFile, pkgDir)...)
 		}
@@ -650,13 +651,13 @@ func (e *GoExtractor) extractValueSpec(fset *token.FileSet, gd *ast.GenDecl, vs 
 	return result
 }
 
-func (e *GoExtractor) extractTypeSpec(fset *token.FileSet, gd *ast.GenDecl, ts *ast.TypeSpec, relFile, pkgDir, modulePath string, fileImports map[string]string, pkgScope map[string]bool) []facts.Fact {
+func (e *GoExtractor) extractTypeSpec(fset *token.FileSet, gd *ast.GenDecl, ts *ast.TypeSpec, relFile, pkgDir string, mods goModules, fileImports map[string]string, pkgScope map[string]bool) []facts.Fact {
 	var result []facts.Fact
 
 	name := ts.Name.Name
 	exported := ts.Name.IsExported()
 	qualifiedName := pkgDir + "." + name
-	ctx := resolveCtx{pkgDir: pkgDir, modulePath: modulePath, imports: fileImports}
+	ctx := resolveCtx{pkgDir: pkgDir, mods: mods, imports: fileImports}
 
 	var kind string
 	var implements []string
@@ -783,7 +784,7 @@ func interfaceMethodSymbols(fset *token.FileSet, iface *ast.InterfaceType, relFi
 // resolveCtx holds the context needed to resolve call targets within a function body.
 type resolveCtx struct {
 	pkgDir     string
-	modulePath string
+	mods       goModules
 	imports    map[string]string // alias → relative package path
 	recvVar    string            // receiver variable name, e.g. "h"
 	recvType   string            // receiver type (star stripped), e.g. "AuthHandler"
@@ -1322,13 +1323,14 @@ func flattenSelector(expr ast.Expr) []string {
 }
 
 // buildFileImports returns a map of import alias → relative package path for all
-// imports in f. The relative path strips the module prefix to match fact naming.
-// Exact-match self-imports (importPath == modulePath) map to "." (the root package).
+// imports in f. The relative path is the package's directory in the repository,
+// resolved through the module that owns the import, to match fact naming. An
+// import of a module root maps to that module's directory ("." at the root).
 // Blank ("_") and dot (".") imports are excluded.
 // pkgNames maps pkgDir → declared package name (from parsing); it is used to
 // resolve the implicit alias for packages whose path base is not a valid identifier
 // (e.g. "github.com/x/go-auth" has base "go-auth" but package name "auth").
-func buildFileImports(f *ast.File, modulePath string, pkgNames map[string]string) map[string]string {
+func buildFileImports(f *ast.File, mods goModules, pkgNames map[string]string) map[string]string {
 	m := make(map[string]string)
 	for _, imp := range f.Imports {
 		importPath := strings.Trim(imp.Path.Value, `"`)
@@ -1339,15 +1341,12 @@ func buildFileImports(f *ast.File, modulePath string, pkgNames map[string]string
 			}
 		}
 
+		// A package importing a module root maps to that module's directory
+		// ("." at the repository root) so that call targets resolve to the
+		// root package's fact names.
 		relTarget := importPath
-		if modulePath != "" {
-			if importPath == modulePath {
-				// Subpackage importing the module root — map to "." so that
-				// call targets resolve to root-package fact names.
-				relTarget = "."
-			} else if strings.HasPrefix(importPath, modulePath+"/") {
-				relTarget = strings.TrimPrefix(importPath, modulePath+"/")
-			}
+		if dir, ok := mods.resolve(importPath); ok {
+			relTarget = dir
 		}
 
 		alias := ""
@@ -1378,10 +1377,10 @@ func buildFileImports(f *ast.File, modulePath string, pkgNames map[string]string
 // named fields. Types are pre-qualified at collection time using each struct's
 // source-package context so they remain correct when looked up from a different
 // package (e.g. an adapters package looking up root-package struct fields).
-func collectFieldTypes(files []*ast.File, pkgDir, modulePath string, pkgNames map[string]string, aliases map[string]string) map[string]string {
+func collectFieldTypes(files []*ast.File, pkgDir string, mods goModules, pkgNames map[string]string, aliases map[string]string) map[string]string {
 	m := make(map[string]string)
 	for _, f := range files {
-		fileImports := buildFileImports(f, modulePath, pkgNames)
+		fileImports := buildFileImports(f, mods, pkgNames)
 		ctx := resolveCtx{pkgDir: pkgDir, imports: fileImports, aliases: aliases}
 		for _, decl := range f.Decls {
 			gd, ok := decl.(*ast.GenDecl)
@@ -1746,30 +1745,13 @@ func resolveTypeName(typeStr string, ctx resolveCtx) string {
 	return typeStr
 }
 
-// readModulePath reads the module path from go.mod in the given repo.
-func readModulePath(repoPath string) string {
-	data, err := os.ReadFile(filepath.Join(repoPath, "go.mod"))
-	if err != nil {
-		return ""
-	}
-	for _, line := range strings.Split(string(data), "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "module ") {
-			return strings.TrimSpace(strings.TrimPrefix(line, "module "))
-		}
-	}
-	return ""
-}
-
 // classifyImport returns "stdlib", "internal", or "external" for a Go import path.
 //
-// The module path is checked first. A module may be named without a dot
-// ("module golf"), and checked second, every one of its own packages failed the
-// stdlib test below and was labelled stdlib: one service read 5,189 stdlib
-// imports and 1 internal one.
-func classifyImport(importPath, modulePath string) string {
-	// internal: starts with the module path
-	if modulePath != "" && (importPath == modulePath || strings.HasPrefix(importPath, modulePath+"/")) {
+// Internal is checked first, and means one of the repository's modules owns the
+// path. A module may be named without a dot ("module golf"), and checked second,
+// every one of its own packages failed the stdlib test below.
+func classifyImport(importPath string, mods goModules) string {
+	if _, ok := mods.resolve(importPath); ok {
 		return "internal"
 	}
 	// stdlib: first path segment has no dots

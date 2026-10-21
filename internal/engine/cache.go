@@ -3037,7 +3037,15 @@ import (
 // v416: A Go import inside the module is internal when the module path has no
 // dot ("module golf"). It was labelled stdlib, because the stdlib test ran
 // before the module-path test. Dependency facts of such modules move.
-const cacheVersion = "v416"
+// v417: Go imports resolve through every go.mod in the repository, not the
+// root's alone. A monorepo with one module per service, or a module nested in
+// another, gets its imports between those modules as internal edges to package
+// directories, where they were external and unresolved; calls into them resolve
+// the same way. A required module whose path extends the repository's
+// ("gitea.dev/actions-proto-go" under "gitea.dev") now owns its imports, as Go
+// decides it, where they were internal and resolved to a directory the
+// repository does not have. Other repositories with one root go.mod are unchanged.
+const cacheVersion = "v417"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

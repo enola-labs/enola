@@ -147,7 +147,7 @@ func packageLevelRefs(f *ast.File, ctx resolveCtx) []string {
 // packageLevelInitRefs collects every function reference in a package's var and const
 // initializers, across all of its files. Imports are per file, so each file gets its
 // own resolveCtx even though only pkgFuncs matters to this pass today.
-func packageLevelInitRefs(pp *parsedPkg, pkgDir, modulePath string, pkgNames map[string]string, pkgFuncs map[string]bool) []string {
+func packageLevelInitRefs(pp *parsedPkg, pkgDir string, mods goModules, pkgNames map[string]string, pkgFuncs map[string]bool) []string {
 	var out []string
 	seen := make(map[string]bool)
 	for _, relFile := range pp.relFiles {
@@ -156,10 +156,10 @@ func packageLevelInitRefs(pp *parsedPkg, pkgDir, modulePath string, pkgNames map
 			continue
 		}
 		ctx := resolveCtx{
-			pkgDir:     pkgDir,
-			modulePath: modulePath,
-			imports:    buildFileImports(f, modulePath, pkgNames),
-			pkgFuncs:   pkgFuncs,
+			pkgDir:   pkgDir,
+			mods:     mods,
+			imports:  buildFileImports(f, mods, pkgNames),
+			pkgFuncs: pkgFuncs,
 		}
 		for _, ref := range packageLevelRefs(f, ctx) {
 			if !seen[ref] {

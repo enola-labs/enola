@@ -27,7 +27,11 @@ func TestClassifyImport(t *testing.T) {
 		{"github.com/x/y", "", "external"},
 	}
 	for _, c := range cases {
-		if got := classifyImport(c.path, c.module); got != c.want {
+		var mods goModules
+		if c.module != "" {
+			mods = goModules{list: []goModule{{path: c.module, dir: "."}}}
+		}
+		if got := classifyImport(c.path, mods); got != c.want {
 			t.Errorf("classifyImport(%q, %q) = %q, want %q", c.path, c.module, got, c.want)
 		}
 	}

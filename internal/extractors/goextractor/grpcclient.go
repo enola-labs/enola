@@ -172,7 +172,7 @@ func collectPackageVarClients(files []*ast.File, idx *goGRPCStubIndex) map[strin
 // receiver — then looks the resolved client interface up in the stub index.
 // pkgVarClients supplies package-level var receivers, which resolveChain cannot
 // resolve (they live in no function body).
-func extractGRPCClientFacts(fset *token.FileSet, f *ast.File, relFile, pkgDir, modulePath string, fileImports, fieldTypes, pkgVarClients map[string]string, idx *goGRPCStubIndex) []facts.Fact {
+func extractGRPCClientFacts(fset *token.FileSet, f *ast.File, relFile, pkgDir string, mods goModules, fileImports, fieldTypes, pkgVarClients map[string]string, idx *goGRPCStubIndex) []facts.Fact {
 	if idx.empty() {
 		return nil
 	}
@@ -220,7 +220,7 @@ func extractGRPCClientFacts(fset *token.FileSet, f *ast.File, relFile, pkgDir, m
 		}
 		ctx := resolveCtx{
 			pkgDir:     pkgDir,
-			modulePath: modulePath,
+			mods:       mods,
 			imports:    fileImports,
 			fieldTypes: fieldTypes,
 		}

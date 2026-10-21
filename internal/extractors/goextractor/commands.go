@@ -265,7 +265,7 @@ func functionValueKey(v ast.Expr, pkgDir string, fileImports map[string]string) 
 // bindCommands gives each function a command runs its command prop. found holds the
 // command literals of every file, and each dispatching function carries its own in
 // dispatchProp. A command whose candidates name no declared function is dropped.
-func bindCommands(allFacts []facts.Fact, found []string, modulePath string) {
+func bindCommands(allFacts []facts.Fact, found []string, mods goModules) {
 	declared := map[string]bool{}
 	for i := range allFacts {
 		if allFacts[i].Kind == facts.KindSymbol {
@@ -339,7 +339,7 @@ func bindCommands(allFacts []facts.Fact, found []string, modulePath string) {
 	}
 	// The program is the module's last path element, without a domain: `gitea.dev`
 	// is gitea.
-	program := path.Base(modulePath)
+	program := path.Base(mods.rootPath())
 	if i := strings.IndexByte(program, '.'); i > 0 {
 		program = program[:i]
 	}
