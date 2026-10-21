@@ -15,20 +15,20 @@
       "id": "isolation",
       "question": "When something regresses, is exactly that reported?",
       "figure": "20/20",
-      "label": "injected cycles caught, with none of 1,859 pre-existing findings repeated as new",
+      "label": "injected cycles caught, with none of 3,521 pre-existing findings repeated as new",
       "anchor": "2-delta-precision--the-ratchet",
       "evidence": [
         "all twenty repositories, 20 of 20",
-        "**1,859 pre-existing"
+        "**3,521 pre-existing"
       ]
     },
     {
       "id": "isolation-worst",
-      "figure": "239",
+      "figure": "329",
       "label": "pre-existing findings in one benchmark repository, and the injected cycle was the only one reported",
       "anchor": "2-delta-precision--the-ratchet",
       "evidence": [
-        "up to 239 in a single one"
+        "up to 329 in a single one"
       ]
     },
     {
@@ -44,11 +44,11 @@
     {
       "id": "scale",
       "question": "Does it finish on a real repository?",
-      "figure": "0",
-      "label": "parse errors across the whole corpus, the Linux kernel included",
+      "figure": "2,068,667",
+      "label": "facts from the Linux kernel, the largest of 95 repositories indexed",
       "anchor": "4-scale",
       "evidence": [
-        "| Parse errors, all 95 repositories | **0** |"
+        "**2,068,667 facts**"
       ]
     },
     {
