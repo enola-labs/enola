@@ -1090,18 +1090,14 @@ func (g *Graph) FindPathBetween(froms, tos []string, relKinds []string, maxDepth
 			continue
 		}
 		tgts, rels := g.adjOf(item.id, false)
-		order := make([]int, 0, len(tgts))
-		for i := range tgts {
+		// The adjacency is already in neighbour-name order (sortAdjacency), so
+		// walking it as stored is the order the breadth-first tie-break needs.
+		for i, tid := range tgts {
 			if relSet != nil {
 				if _, ok := relSet[rels[i]]; !ok {
 					continue
 				}
 			}
-			order = append(order, i)
-		}
-		sort.SliceStable(order, func(a, b int) bool { return g.names[tgts[order[a]]] < g.names[tgts[order[b]]] })
-		for _, i := range order {
-			tid := tgts[i]
 			if _, seen := visited[tid]; seen {
 				continue
 			}
