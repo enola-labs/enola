@@ -82,6 +82,10 @@ type pkgDep struct {
 	Resolved   string
 	Dev        bool
 	Manifest   string
+	// Path is where a Cargo path dependency lives, relative to its manifest: a
+	// crate the repository may hold, so its name is never read as a package
+	// from elsewhere.
+	Path string
 	// LockUnread names a lockfile that sits beside the manifest and that enola
 	// cannot read. It is the difference between "this dependency resolves to no
 	// version" and "something resolved it and we did not look" — and only the
@@ -177,6 +181,9 @@ func factsFor(deps []pkgDep) []facts.Fact {
 		if !d.Dev {
 			prev.Dev = false
 		}
+		if prev.Path == "" && d.Path != "" {
+			prev.Path = d.Path
+		}
 		if prev.Resolved == "" && d.Resolved != "" {
 			prev.Resolved = d.Resolved
 			prev.Manifest = d.Manifest
@@ -219,6 +226,9 @@ func props(d pkgDep) map[string]any {
 		"resolved_version": d.Resolved,
 		"dev":              d.Dev,
 		"manifest":         d.Manifest,
+	}
+	if d.Path != "" {
+		p["path"] = d.Path
 	}
 	switch {
 	case d.Resolved != "" || isExactConstraint(d.Constraint):

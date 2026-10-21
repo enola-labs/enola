@@ -3057,7 +3057,8 @@ import (
 // names that file, where it carried the query.
 // v420: Rust runs the axum route, axum nest and utoipa passes only on files whose source contains route, nest or utoipa.
 // v421: a TypeScript call to a hardcoded absolute host is an external client route carrying the host as written; an interpolated host is refused and counted on a new typescript:http-client fact.
-const cacheVersion = "v421"
+// v422: a Cargo dependency declared with a path (inline or under its own table) carries that path as a path prop on its dependency fact, so a crate the repository may hold is told from a package fetched from elsewhere.
+const cacheVersion = "v422"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

@@ -914,7 +914,7 @@ func deadExemptionInsight(r rule, ex intent.ConstraintExemption) facts.Insight {
 // component into the to component.
 func (e *Explainer) verdictForbid(r rule, resolve *resolver, ground *grounding) []facts.Insight {
 	var out []facts.Insight
-	skipped := map[string]bool{}
+	skipped, outside := map[string]bool{}, map[string]bool{}
 	for _, f := range resolve.sources(r, r.forbid) {
 		from, sourced := resolve.source(r, r.forbid, f)
 		if !sourced {
@@ -943,7 +943,11 @@ func (e *Explainer) verdictForbid(r rule, resolve *resolver, ground *grounding) 
 				onto, landed = resolve.target(r, r.to, rel, f)
 				if !landed {
 					if ground.ungroundable(rel, f) {
-						skipped[rel.Target] = true
+						if ground.outside(rel, f) {
+							outside[rel.Target] = true
+						} else {
+							skipped[rel.Target] = true
+						}
 					}
 					continue
 				}
@@ -969,6 +973,9 @@ func (e *Explainer) verdictForbid(r rule, resolve *resolver, ground *grounding) 
 	out = dedupVerdicts(out)
 	if len(skipped) > 0 {
 		out = append(out, groundSkipInsight(r, skipped))
+	}
+	if len(outside) > 0 {
+		out = append(out, outsideInsight(r, outside))
 	}
 	return out
 }
@@ -1211,7 +1218,7 @@ func (e *Explainer) verdictAllowOnly(r rule, resolve *resolver, resolvable landi
 		return false
 	}
 	var out []facts.Insight
-	skipped := map[string]bool{}
+	skipped, outside := map[string]bool{}, map[string]bool{}
 	for _, f := range resolve.sources(r, r.allow) {
 		from, sourced := resolve.source(r, r.allow, f)
 		if !sourced {
@@ -1224,7 +1231,11 @@ func (e *Explainer) verdictAllowOnly(r rule, resolve *resolver, resolvable landi
 			measured := resolvable.measured(rel, f)
 			if !measured && !ground.resolves(rel, f) {
 				if ground.ungroundable(rel, f) {
-					skipped[rel.Target] = true
+					if ground.outside(rel, f) {
+						outside[rel.Target] = true
+					} else {
+						skipped[rel.Target] = true
+					}
 				}
 				continue
 			}
@@ -1255,6 +1266,9 @@ func (e *Explainer) verdictAllowOnly(r rule, resolve *resolver, resolvable landi
 	out = dedupVerdicts(out)
 	if len(skipped) > 0 {
 		out = append(out, groundSkipInsight(r, skipped))
+	}
+	if len(outside) > 0 {
+		out = append(out, outsideInsight(r, outside))
 	}
 	return out
 }

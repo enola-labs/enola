@@ -164,6 +164,7 @@ name = "app"
 [dependencies]
 serde = "1.0"
 axum = { version = "0.7.4", features = ["macros"] }
+pic = { path = "crates/pic", version = "0.1", features = ["a", "b"] }
 
 [dev-dependencies]
 proptest = "1"
@@ -178,6 +179,12 @@ version = "1.0.197"
 	}
 	if f := mustHave(t, got, "pkg:cargo/axum"); f.PropString("constraint") != "0.7.4" {
 		t.Fatalf("the table spelling carries a version too: %+v", f.Props)
+	}
+	if f := mustHave(t, got, "pkg:cargo/pic"); f.PropString("path") != "crates/pic" || f.PropString("constraint") != "0.1" {
+		t.Fatalf("an inline path dependency names where it lives beside its version: %+v", f.Props)
+	}
+	if f := mustHave(t, got, "pkg:cargo/axum"); f.PropString("path") != "" {
+		t.Fatalf("an inline table with no path names none: %+v", f.Props)
 	}
 	if f := mustHave(t, got, "pkg:cargo/proptest"); !f.PropBool("dev") {
 		t.Fatalf("proptest: %+v", f.Props)
@@ -222,10 +229,12 @@ default = []
 	if f := mustHave(t, got, "pkg:cargo/windows-helper"); !f.PropBool("dev") {
 		t.Fatalf("a target dev-dependency table is a dev dependency: %+v", f.Props)
 	}
-	if f := mustHave(t, got, "pkg:cargo/local-crate"); f.PropBool("pinned") {
-		t.Fatalf("a path dependency names no version: %+v", f.Props)
+	if f := mustHave(t, got, "pkg:cargo/local-crate"); f.PropBool("pinned") || f.PropString("path") != "../local" {
+		t.Fatalf("a path dependency names no version, and names where it lives: %+v", f.Props)
 	}
-	mustHave(t, got, "pkg:cargo/serde")
+	if f := mustHave(t, got, "pkg:cargo/serde"); f.PropString("path") != "" {
+		t.Fatalf("a registry dependency names no path: %+v", f.Props)
+	}
 	// [features] is not a dependency section, and its keys are not packages.
 	if _, feature := got["pkg:cargo/default"]; feature {
 		t.Fatal("a [features] key is not a dependency")
