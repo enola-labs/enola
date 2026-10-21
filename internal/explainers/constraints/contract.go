@@ -14,11 +14,15 @@ import (
 // something: the id joins back to the declaring page, the statement is the
 // rule in words, and because carries the rationale the rule was declared with.
 type RuleBinding struct {
-	Rule       string             `json:"rule"`
-	Statement  string             `json:"statement"`
-	Because    string             `json:"because"`
-	Mode       string             `json:"mode"`
-	Source     string             `json:"source,omitempty"`
+	Rule      string `json:"rule"`
+	Statement string `json:"statement"`
+	Because   string `json:"because"`
+	Mode      string `json:"mode"`
+	Source    string `json:"source,omitempty"`
+	// NotChecked is why the loaded snapshot cannot evaluate the rule, in the
+	// evaluator's own words. A rule listed without it is checked; one listed
+	// with it enforces nothing here.
+	NotChecked string             `json:"not_checked,omitempty"`
 	Exemptions []ExemptionBinding `json:"exemptions,omitempty"`
 }
 
@@ -97,6 +101,13 @@ func ContractFor(store *facts.Store, target string) ([]ComponentBinding, bool) {
 		names = append(names, name)
 	}
 	sort.Strings(names)
+	var measuredKnown, measuredValue bool
+	measured := func() bool {
+		if !measuredKnown {
+			measuredKnown, measuredValue = true, storeMeasured(store)
+		}
+		return measuredValue
+	}
 
 	var out []ComponentBinding
 	for _, name := range names {
@@ -123,6 +134,7 @@ func ContractFor(store *facts.Store, target string) ([]ComponentBinding, bool) {
 			binding.Rules = append(binding.Rules, RuleBinding{
 				Rule:       r.id,
 				Statement:  r.statement(),
+				NotChecked: notChecked(r, store, components, measured),
 				Because:    r.because,
 				Mode:       r.mode,
 				Source:     r.source,
@@ -132,6 +144,45 @@ func ContractFor(store *facts.Store, target string) ([]ComponentBinding, bool) {
 		out = append(out, binding)
 	}
 	return out, true
+}
+
+// notChecked is the reason a rule's form cannot be evaluated over the loaded
+// snapshot, "" when it can. Without measured facts every form is unchecked for
+// the same reason, which the plan's snapshot note already says, so none is
+// marked then. The reasons are the ones the evaluator's own finding gives.
+func notChecked(r rule, store *facts.Store, components map[string]component, measured func() bool) string {
+	if r.capRuntime == "" && r.independent == "" && r.requireConsumer == "" && r.uniqueAcross == "" || !measured() {
+		return ""
+	}
+	switch {
+	case r.capRuntime != "":
+		frames := runtimeFrames(store)
+		if len(frames) == 0 {
+			return reasonNoRuntimeCapture
+		}
+		names, _ := resolveMembership(store, components[r.capRuntime])
+		if !framesReach(frames, memberFilesOf(store, names)) {
+			return reasonNoFrameInMembers
+		}
+	case r.independent != "":
+		if !newResolvedAncestry(store).any() {
+			return reasonNoResolvedAncestry
+		}
+	case r.requireConsumer != "":
+		if len(store.RepoLabels()) < 2 {
+			return reasonNoCounterparty
+		}
+	case r.uniqueAcross != "":
+		_, members := resolveMembership(store, components[r.uniqueAcross])
+		repos := map[string]bool{}
+		for _, f := range members {
+			repos[f.Repo] = true
+		}
+		if len(repos) < 2 {
+			return reasonNoCounterparty
+		}
+	}
+	return ""
 }
 
 func exemptionBindings(exempt []intent.ConstraintExemption) []ExemptionBinding {
@@ -309,7 +360,11 @@ func (r rule) statement() string {
 	case r.requireName != "":
 		return fmt.Sprintf("members of %s must be named like %s", r.requireName, r.pattern)
 	case r.forbidName != "":
-		return fmt.Sprintf("members of %s must not be named like %s", r.forbidName, r.pattern)
+		scope := "members"
+		if r.surface == "exported" {
+			scope = "exported members"
+		}
+		return fmt.Sprintf("%s of %s must not be named like %s", scope, r.forbidName, r.pattern)
 	case r.forbidCycles != "":
 		return fmt.Sprintf("%s must not depend on each other in a circle", strings.Join(append([]string{r.forbidCycles}, r.among...), ", "))
 	case r.independent != "":

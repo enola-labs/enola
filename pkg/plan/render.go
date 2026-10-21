@@ -62,7 +62,11 @@ func renderTarget(sb *strings.Builder, t TargetReport, declared bool) {
 			}
 			fmt.Fprintf(sb, "  Component %s%s\n", c.Component, source)
 			for _, rule := range c.Rules {
-				fmt.Fprintf(sb, "    rule %s [%s]: %s\n      because: %s\n", rule.Rule, rule.Mode, rule.Statement, rule.Because)
+				unchecked := ""
+				if rule.NotChecked != "" {
+					unchecked = " (not checked in this snapshot: " + strings.TrimSuffix(rule.NotChecked, " in this snapshot") + ")"
+				}
+				fmt.Fprintf(sb, "    rule %s [%s]: %s%s\n      because: %s\n", rule.Rule, rule.Mode, rule.Statement, unchecked, rule.Because)
 				for _, ex := range rule.Exemptions {
 					fmt.Fprintf(sb, "      exempt: %s (by %s since %s — %s)\n", ex.Witness, ex.Owner, ex.Since, ex.Because)
 				}

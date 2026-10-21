@@ -19,7 +19,7 @@ func (e *Explainer) verdictIndependent(r rule, store *facts.Store, memberFacts m
 	ancestry := newResolvedAncestry(store)
 	if !ancestry.any() {
 		return []facts.Insight{{
-			Title:       fmt.Sprintf("Constraint rule %s cannot be evaluated: no resolved ancestry in this snapshot", r.id),
+			Title:       fmt.Sprintf("Constraint rule %s cannot be evaluated: %s", r.id, reasonNoResolvedAncestry),
 			Description: fmt.Sprintf("independent reads who includes each member off the ancestry a resolving provider emitted, and no provider contributed any to this snapshot. The rule emitted no verdict: a mixin that looks independent because nobody resolved its includers must not read as compliance. Configure a resolving provider such as rubydex, then regenerate. Because: %s", r.because),
 			Confidence:  unmeasuredPropConfidence,
 			Evidence:    []facts.Evidence{{Fact: "rule: " + r.id, Detail: "declared in " + r.source}},
