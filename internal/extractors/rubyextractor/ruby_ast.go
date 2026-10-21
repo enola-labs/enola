@@ -813,6 +813,9 @@ func (w *rubyWalker) handleModule(node *sitter.Node) {
 		props["concern"] = true
 		props["abstract"] = true // Concern = behavior mixed into includers
 	}
+	if namespaceOnly(body) {
+		props[propNamespaceOnly] = true
+	}
 	if w.isRails {
 		props["framework"] = "rails"
 	}
@@ -867,6 +870,9 @@ func (w *rubyWalker) handleClass(node *sitter.Node) {
 	}
 	if superclassBase != "" {
 		props["superclass"] = superclassBase
+	}
+	if superclassBase == "" && namespaceOnly(node.ChildByFieldName("body")) {
+		props[propNamespaceOnly] = true
 	}
 	// What KIND of Rails thing this is — job, mailer, channel, policy, controller,
 	// component. Derived from the superclass first and the path only as a fallback,
@@ -2548,6 +2554,31 @@ func bodyHasConcern(body *sitter.Node, src []byte) bool {
 		}
 	}
 	return false
+}
+
+// propNamespaceOnly marks a module, or a class with no superclass, whose body
+// declares nothing but the modules and classes nested in it.
+const propNamespaceOnly = "namespace_only"
+
+// namespaceOnly reports whether body holds nested module and class declarations
+// and nothing else: `module Rails; module EngineExtensions`. Such a body names
+// the constant to reach the ones inside it and defines none of it, so a
+// reference to the constant itself is a reference to whoever does define it.
+func namespaceOnly(body *sitter.Node) bool {
+	if body == nil {
+		return false
+	}
+	nested := false
+	for i := uint(0); i < body.NamedChildCount(); i++ {
+		switch kindOf(body.NamedChild(i)) {
+		case "module", "class":
+			nested = true
+		case "comment":
+		default:
+			return false
+		}
+	}
+	return nested
 }
 
 // firstStringArg returns the content of the first string in an argument_list (or

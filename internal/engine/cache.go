@@ -3045,7 +3045,17 @@ import (
 // ("gitea.dev/actions-proto-go" under "gitea.dev") now owns its imports, as Go
 // decides it, where they were internal and resolved to a directory the
 // repository does not have. Other repositories with one root go.mod are unchanged.
-const cacheVersion = "v417"
+// v418: A Ruby constant the repository only reopens is not indexed as its own:
+// a module, or a class with no superclass, whose body holds nothing but nested
+// modules and classes (`module Rails; module EngineExtensions`), and a core or
+// framework constant in a repository that is not a gem. A reference to such a
+// constant made a coupling edge to the reopening's folder; those edges are gone,
+// and the nested constants resolve as before. Symbols of such bodies carry
+// namespace_only.
+// v419: A TypeScript import's bundler query is cut before the path resolves:
+// `@/icons/bell.svg?react` imports src/icons/bell.svg, and its dependency fact
+// names that file, where it carried the query.
+const cacheVersion = "v419"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

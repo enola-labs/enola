@@ -463,3 +463,59 @@ func moduleKeys(m map[string]bool) []string {
 	}
 	return out
 }
+
+func TestExtract_NamespaceOnlyMarksAWrapperAndNothingElse(t *testing.T) {
+	ff := extractRepo(t, map[string]string{
+		"lib/rails/engine_extensions.rb": "module Rails\n  # patched\n  module EngineExtensions\n  end\nend\n",
+		"lib/shop/base.rb":               "class Shop\n  class Base\n  end\nend\n",
+		"app/models/item.rb":             "class Item < Base\n  class Inner\n  end\nend\n",
+		"app/models/concern.rb":          "module Concern\n  def x\n  end\nend\n",
+		"config/initializers/blank.rb":   "class String\n  alias blank? empty?\nend\n",
+		"lib/empty.rb":                   "module Empty\nend\n",
+	})
+	want := map[string]bool{"Rails": true, "Shop": true}
+	for _, f := range ff {
+		if f.Kind != facts.KindSymbol {
+			continue
+		}
+		ns, _ := f.PropAny(propNamespaceOnly).(bool)
+		if ns != want[f.Name] {
+			t.Errorf("%s namespace_only = %v, want %v", f.Name, ns, want[f.Name])
+		}
+	}
+}
+
+func TestExtract_AReopenedConstantIsNotTheRepositorysToDependOn(t *testing.T) {
+	ff := extractRepo(t, map[string]string{
+		"Gemfile":                                  "source 'https://rubygems.org'\ngem 'rails'\n",
+		"lib/rails/engine_extensions.rb":           "module Rails\n  module EngineExtensions\n  end\nend\n",
+		"lib/paperclip/blurhash_transcoder.rb":     "module Paperclip\n  class BlurhashTranscoder\n  end\nend\n",
+		"config/initializers/blank.rb":             "class String\n  alias blank? empty?\nend\n",
+		"app/controllers/admin/base_controller.rb": "class Admin::BaseController\n  def index\n    Rails.configuration\n    Paperclip.options\n    String.new\n    Paperclip::BlurhashTranscoder.new\n  end\nend\n",
+	})
+	out := ff[:0:0]
+	for _, f := range ff {
+		if sc, _ := f.PropAny("synthetic_coupling").(bool); sc {
+			out = append(out, f)
+		}
+	}
+	for _, dst := range []string{"lib/rails", "config/initializers"} {
+		if hasEdge(out, "app/controllers/admin", dst) {
+			t.Errorf("app/controllers/admin -> %s: a reopened constant resolved to the reopening", dst)
+		}
+	}
+	if !hasEdge(out, "app/controllers/admin", "lib/paperclip") {
+		t.Errorf("missing the edge to a constant the repository declares inside a reopened namespace; got %+v", out)
+	}
+}
+
+func TestExtract_AGemOwnsTheBuiltinConstantItDefines(t *testing.T) {
+	ff := extractRepo(t, map[string]string{
+		"rails.gemspec":      "Gem::Specification.new do |s|\n  s.name = 'rails'\nend\n",
+		"lib/rails.rb":       "module Rails\n  def self.env\n  end\nend\n",
+		"lib/tasks/setup.rb": "class Setup\n  def run\n    Rails.env\n  end\nend\n",
+	})
+	if !hasEdge(ff, "lib/tasks", "lib") {
+		t.Error("missing lib/tasks -> lib: a gem defining Rails owns it")
+	}
+}

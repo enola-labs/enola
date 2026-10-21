@@ -215,8 +215,31 @@ type constIndex struct {
 
 // buildConstIndex indexes every class/module/constant symbol by its qualified and
 // bare names. Source dir is the declares-relation target (fallback fileDir).
+//
+// A constant the repository only reopens is not indexed, because the repository
+// does not own it: `module Rails; module EngineExtensions` in lib/rails names
+// Rails to reach the module inside, and every `Rails.configuration` in the
+// application would otherwise resolve to lib/rails. That is a constant every one
+// of whose declarations is namespace-only, or a core or framework constant
+// (rubyBuiltinConsts) in a repository that is not itself a gem. Its nested
+// constants are indexed as usual.
 func buildConstIndex(allFacts []facts.Fact) *constIndex {
 	ix := &constIndex{qualified: map[string]string{}, bare: map[string][]string{}, names: map[string][]string{}}
+	owned := map[string]bool{}
+	gem := false
+	for i := range allFacts {
+		f := &allFacts[i]
+		switch f.Kind {
+		case facts.KindModule:
+			if p, _ := f.PropAny(facts.PropPublished).(bool); p {
+				gem = true
+			}
+		case facts.KindSymbol:
+			if ns, _ := f.PropAny(propNamespaceOnly).(bool); !ns {
+				owned[stripLeadingColons(f.Name)] = true
+			}
+		}
+	}
 	for i := range allFacts {
 		f := &allFacts[i]
 		if f.Kind != facts.KindSymbol {
@@ -232,7 +255,7 @@ func buildConstIndex(allFacts []facts.Fact) *constIndex {
 			continue
 		}
 		qn := stripLeadingColons(f.Name)
-		if qn == "" {
+		if qn == "" || !owned[qn] || (rubyBuiltinConsts[qn] && !gem) {
 			continue
 		}
 		// Qualified: prefer the shortest declaring dir on collision (nearest root).
