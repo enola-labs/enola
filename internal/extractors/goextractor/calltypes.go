@@ -29,7 +29,7 @@ type callTypeTables struct {
 // it has that type's methods, and those are declared, and named in the graph, under
 // the type itself. A defined type (`type Store facts.Store`, no `=`) is a new type
 // with none of them, and is not collected.
-func collectAliases(files []*ast.File, pkgDir, modulePath string, pkgNames map[string]string) map[string]string {
+func collectAliases(files []*ast.File, pkgDir string, mods goModules, pkgNames map[string]string) map[string]string {
 	m := make(map[string]string)
 	// A name the package also declares as a type of its own is not followed. Files
 	// are read without evaluating build constraints, so `type Signature =
@@ -38,7 +38,7 @@ func collectAliases(files []*ast.File, pkgDir, modulePath string, pkgNames map[s
 	// named in the graph, under the package's own name.
 	defined := make(map[string]bool)
 	for _, f := range files {
-		ctx := resolveCtx{pkgDir: pkgDir, imports: buildFileImports(f, modulePath, pkgNames)}
+		ctx := resolveCtx{pkgDir: pkgDir, imports: buildFileImports(f, mods, pkgNames)}
 		for _, decl := range f.Decls {
 			gd, ok := decl.(*ast.GenDecl)
 			if !ok || gd.Tok != token.TYPE {
@@ -181,10 +181,10 @@ func resultTypes(ft *ast.FuncType, ctx resolveCtx, typeParams map[string]bool) [
 // declares, by the name its fact carries, to its result types. Built for the whole
 // module before any package is extracted, the way field types are, so a call into
 // another package knows what it gets back.
-func collectReturnTypes(files []*ast.File, pkgDir, modulePath string, pkgNames map[string]string, aliases map[string]string) map[string][]string {
+func collectReturnTypes(files []*ast.File, pkgDir string, mods goModules, pkgNames map[string]string, aliases map[string]string) map[string][]string {
 	m := make(map[string][]string)
 	for _, f := range files {
-		ctx := resolveCtx{pkgDir: pkgDir, imports: buildFileImports(f, modulePath, pkgNames), aliases: aliases}
+		ctx := resolveCtx{pkgDir: pkgDir, imports: buildFileImports(f, mods, pkgNames), aliases: aliases}
 		for _, decl := range f.Decls {
 			switch d := decl.(type) {
 			case *ast.FuncDecl:

@@ -34,10 +34,10 @@ func isGoTestFile(relFile string) bool { return strings.HasSuffix(relFile, "_tes
 // enable Go caching and pull .go files out of computeExtractorKeys' shared
 // partition, changing the shared hash that keys EVERY other extractor. So the
 // filter lives here instead — Ruby's ExtractTestRefs filters internally too.
-// prodFiles is unused: Go call targets resolve lexically through the module path
-// and each file's own imports, so this pass needs no view of which production
-// files exist.
-func (e *GoExtractor) ExtractTestRefs(ctx context.Context, repoPath string, testFiles, _ []string) ([]facts.Fact, error) {
+// prodFiles is read for its go.mod files only: Go call targets resolve
+// lexically through the repository's modules and each file's own imports, so
+// this pass needs no other view of which production files exist.
+func (e *GoExtractor) ExtractTestRefs(ctx context.Context, repoPath string, testFiles, prodFiles []string) ([]facts.Fact, error) {
 	var goFiles []string
 	for _, relFile := range testFiles {
 		if isGoTestFile(relFile) {
@@ -48,14 +48,15 @@ func (e *GoExtractor) ExtractTestRefs(ctx context.Context, repoPath string, test
 		return nil, nil
 	}
 
-	modulePath := readModulePath(repoPath)
+	// The go.mod files are production files: the modules come from there.
+	mods := readModules(repoPath, prodFiles)
 	perFile := parallel.MapFiles(ctx, goFiles, func(relFile string) []facts.Fact {
 		src, err := os.ReadFile(filepath.Join(repoPath, relFile))
 		if err != nil {
 			log.Printf("[go-extractor] error reading test file %s: %v", relFile, err)
 			return nil
 		}
-		return refsFromGoTest(src, relFile, modulePath)
+		return refsFromGoTest(src, relFile, mods)
 	})
 
 	var out []facts.Fact
@@ -78,7 +79,7 @@ func (e *GoExtractor) ExtractTestRefs(ctx context.Context, repoPath string, test
 // ignores composite literals. A type constructed only as `Foo{}` from a test is
 // therefore still reported dead, but so is one constructed only that way from
 // production code: that blind spot is pre-existing and not specific to tests.
-func refsFromGoTest(src []byte, relFile, modulePath string) []facts.Fact {
+func refsFromGoTest(src []byte, relFile string, mods goModules) []facts.Fact {
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, relFile, src, parser.SkipObjectResolution)
 	if err != nil {
@@ -87,8 +88,8 @@ func refsFromGoTest(src []byte, relFile, modulePath string) []facts.Fact {
 	}
 
 	base := resolveCtx{
-		pkgDir:     factpath.Dir(relFile),
-		modulePath: modulePath,
+		pkgDir: factpath.Dir(relFile),
+		mods:   mods,
 		// pkgNames is deliberately nil. It exists to recover a declared package name
 		// that differs from its directory base ("go-auth" → package auth), which
 		// needs a view of every parsed package — and this pass sees only test files.
@@ -97,7 +98,7 @@ func refsFromGoTest(src []byte, relFile, modulePath string) []facts.Fact {
 		// test as "svc_test" and break the very idiom this exists to resolve.
 		// buildFileImports then falls back to the import path's base, exactly as the
 		// production pass does for any package it did not parse.
-		imports: buildFileImports(f, modulePath, nil),
+		imports: buildFileImports(f, mods, nil),
 	}
 
 	seen := make(map[string]bool)

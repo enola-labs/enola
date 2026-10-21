@@ -20,10 +20,10 @@ import (
 //
 // Both names are canonical: `pkgDir.Name` for a type of this module, the import
 // path and name for another's.
-func collectInterfaceAssertions(files []*ast.File, pkgDir, modulePath string, pkgNames, aliases map[string]string) map[string][]string {
+func collectInterfaceAssertions(files []*ast.File, pkgDir string, mods goModules, pkgNames, aliases map[string]string) map[string][]string {
 	out := make(map[string][]string)
 	for _, f := range files {
-		ctx := resolveCtx{pkgDir: pkgDir, imports: buildFileImports(f, modulePath, pkgNames), aliases: aliases}
+		ctx := resolveCtx{pkgDir: pkgDir, imports: buildFileImports(f, mods, pkgNames), aliases: aliases}
 		for _, decl := range f.Decls {
 			gd, ok := decl.(*ast.GenDecl)
 			if !ok || gd.Tok != token.VAR {
@@ -113,10 +113,10 @@ func typeExprName(e ast.Expr) string {
 // An embedded type's methods are promoted, so `sess.Exec(…)` on a DBSession is
 // `xorm.Session.Exec`, and call resolution names it `DBSession.Exec`, a method
 // that is declared nowhere in the module.
-func collectEmbeddedTypes(files []*ast.File, pkgDir, modulePath string, pkgNames, aliases map[string]string) map[string][]string {
+func collectEmbeddedTypes(files []*ast.File, pkgDir string, mods goModules, pkgNames, aliases map[string]string) map[string][]string {
 	out := make(map[string][]string)
 	for _, f := range files {
-		ctx := resolveCtx{pkgDir: pkgDir, imports: buildFileImports(f, modulePath, pkgNames), aliases: aliases}
+		ctx := resolveCtx{pkgDir: pkgDir, imports: buildFileImports(f, mods, pkgNames), aliases: aliases}
 		for _, decl := range f.Decls {
 			gd, ok := decl.(*ast.GenDecl)
 			if !ok || gd.Tok != token.TYPE {
