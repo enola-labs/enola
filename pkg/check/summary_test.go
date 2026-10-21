@@ -91,7 +91,7 @@ func TestSummary_WorseIsFailuresFirstThenMostCertain(t *testing.T) {
 		Advisories: []facts.Insight{deadCode("pkg/b.Low", 0.5), deadCode("pkg/b.High", 0.8), deadCode("pkg/b.Mid", 0.7)},
 	}
 	s := v.Summarize()
-	if !strings.Contains(s.Worse[0].Text, "3 modules now depend on each other") || !strings.HasSuffix(s.Worse[0].Text, "This fails the build.") {
+	if !strings.HasPrefix(s.Worse[0].Text, "Fails the build. Creates a loop: 3 modules now depend on each other") {
 		t.Errorf("first: %+v", s.Worse[0])
 	}
 	if s.Worse[1].Subject != "pkg/b.High" || s.Worse[2].Subject != "pkg/b.Mid" {
@@ -212,10 +212,16 @@ func TestSummary_Changed(t *testing.T) {
 }
 
 func TestSummary_CouldNotSee(t *testing.T) {
-	v := Verdict{Status: StatusClean, Census: &Census{Recorded: true, FilesExcludedByIgnore: 2}}
+	v := Verdict{Status: StatusClean, Census: &Census{Recorded: true, FilesExcludedByIgnore: 2, DeadExemptions: 1, UnusedSuppressions: 2}}
 	got := v.Summarize().CouldNotSee
-	if got[0].Text != "2 files left out by your ignore settings, so a change there is not seen." {
-		t.Errorf("got %+v", got)
+	for i, want := range []string{
+		"2 files left out by your ignore settings, so a change there is not seen.",
+		"1 exemption in your rules matches nothing, so it excuses nothing.",
+		"2 excuses in " + SuppressionsFileName + " match no finding any more.",
+	} {
+		if got[i].Text != want {
+			t.Errorf("item %d: got %q, want %q", i, got[i].Text, want)
+		}
 	}
 	if last := got[len(got)-1]; !strings.Contains(last.Text, "does not run it or its tests") {
 		t.Errorf("last: %+v", last)
@@ -258,4 +264,31 @@ func containsText(items []plain.Item, s string) bool {
 		}
 	}
 	return false
+}
+
+func TestSummaryRender_SectionsInFixedOrder(t *testing.T) {
+	out := Verdict{Status: StatusClean, Diff: &diff.SnapshotDiff{CurrentRepo: "/repo/x"}}.Summarize().Render()
+	last := -1
+	for _, h := range []string{
+		"Change summary: /repo/x", "Result: passes", "What you changed", "Got worse",
+		"Got better", "Neither better nor worse", "Could not see", "Next",
+	} {
+		i := strings.Index(out, h)
+		if i <= last {
+			t.Fatalf("heading %q missing or out of order in:\n%s", h, out)
+		}
+		last = i
+	}
+}
+
+func TestWrite_SummaryFormats(t *testing.T) {
+	v := Verdict{Status: StatusClean}
+	text, err := v.Write(Output{Format: FormatSummary})
+	if err != nil || !strings.Contains(string(text), "Result: passes") {
+		t.Errorf("summary: %v %s", err, text)
+	}
+	js, err := v.Write(Output{Format: FormatSummaryJSON})
+	if err != nil || !strings.Contains(string(js), `"outcome": "passes"`) {
+		t.Errorf("summary-json: %v %s", err, js)
+	}
 }

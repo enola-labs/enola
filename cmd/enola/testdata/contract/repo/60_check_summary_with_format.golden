@@ -1,0 +1,5 @@
+$ enola check --summary -format sarif .
+exit: 2
+--- stdout
+--- stderr
+enola check: --summary is -format summary; it does not go with -format sarif

@@ -260,7 +260,7 @@ func (v Verdict) worse() ([]plain.Item, int) {
 	for _, in := range v.Failures {
 		it := plainFinding(in)
 		if v.Status == StatusRegression || v.Status == StatusPartialRegression {
-			it.Text += " This fails the build."
+			it.Text = "Fails the build. " + it.Text
 		}
 		out = append(out, it)
 	}
@@ -345,6 +345,18 @@ func (v Verdict) couldNotSee() []plain.Item {
 			}
 			out = append(out, plain.Item{
 				Text:      plain.AndList(what) + " left out by your ignore settings, so a change there is not seen.",
+				Certainty: plain.Certain,
+			})
+		}
+		if c.DeadExemptions > 0 {
+			out = append(out, plain.Item{
+				Text:      plain.Plural(c.DeadExemptions, "exemption in your rules matches", "exemptions in your rules match") + " nothing, so it excuses nothing.",
+				Certainty: plain.Certain,
+			})
+		}
+		if c.UnusedSuppressions > 0 {
+			out = append(out, plain.Item{
+				Text:      plain.Plural(c.UnusedSuppressions, "excuse in "+SuppressionsFileName+" matches", "excuses in "+SuppressionsFileName+" match") + " no finding any more.",
 				Certainty: plain.Certain,
 			})
 		}
