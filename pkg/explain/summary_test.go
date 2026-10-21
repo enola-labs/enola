@@ -156,6 +156,7 @@ func TestSummary_SkipsGeneratedOffenders(t *testing.T) {
 func TestSummary_StartHere(t *testing.T) {
 	r := &Report{Hotspots: []Hotspot{
 		{Module: "pkg/glue", FanIn: 1, FanOut: 90},
+		{Module: "pkg/rare", FanIn: careFloor - 1},
 		{Module: "internal/facts", FanIn: 345, FanOut: 1},
 		{Module: "vendor/big", FanIn: 900, Generated: true},
 	}}
@@ -238,4 +239,61 @@ func containsText(items []Item, s string) bool {
 		}
 	}
 	return false
+}
+
+func TestSummaryRender_SectionsInFixedOrder(t *testing.T) {
+	out := summarize(&Report{RepoPath: "/repo/x"}, nil).Render()
+	last := -1
+	for _, h := range []string{
+		"Repository summary: /repo/x", "What this is", "Structure: healthy", "Start reading here",
+		"Careful when changing", "Worth a look (most certain first)", "Take with a grain of salt", "Next",
+	} {
+		i := strings.Index(out, h)
+		if i <= last {
+			t.Fatalf("heading %q missing or out of order in:\n%s", h, out)
+		}
+		last = i
+	}
+}
+
+func TestSummaryRender_OnlyHedgesAreLabelled(t *testing.T) {
+	out := summarize(summaryReport(), nil).Render()
+	if strings.Contains(out, "(certain)") {
+		t.Errorf("certain statements are printed as they are:\n%s", out)
+	}
+	for _, want := range []string{"(likely)", "1 more kind of finding is in the full report."} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in:\n%s", want, out)
+		}
+	}
+	guess := summarize(&Report{Performance: &perf.Summary{High: 2}}, nil).Render()
+	if !strings.Contains(strings.Join(strings.Fields(guess), " "), "grows large. (a guess)") {
+		t.Errorf("a guess is labelled as one:\n%s", guess)
+	}
+}
+
+func TestSummaryRender_WrapsAtWidth(t *testing.T) {
+	var b strings.Builder
+	wrap(&b, strings.Repeat("word ", 40), "  ", "    ")
+	lines := strings.Split(strings.TrimSuffix(b.String(), "\n"), "\n")
+	if len(lines) < 2 {
+		t.Fatalf("expected wrapping, got %q", b.String())
+	}
+	for i, l := range lines {
+		if len(l) > summaryWidth {
+			t.Errorf("line %d is %d wide: %q", i, len(l), l)
+		}
+	}
+	if !strings.HasPrefix(lines[1], "    word") {
+		t.Errorf("continuation indent: %q", lines[1])
+	}
+}
+
+func TestSummary_NoCoreInASmallRepository(t *testing.T) {
+	r := &Report{Hotspots: []Hotspot{{Module: "pkg/a", FanIn: 2}}}
+	for _, it := range summarize(r, nil).StartHere {
+		if it.Subject == "pkg/a" {
+			t.Errorf("a module imported twice is not what the code builds on: %+v", it)
+		}
+	}
 }

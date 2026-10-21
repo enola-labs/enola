@@ -87,6 +87,7 @@ func main() {
 	generateMode := false
 	refreshMode := false
 	explainMode := false
+	summaryMode := false
 	statusMode := false
 	statusAll := false
 	noDashboard := false
@@ -141,6 +142,8 @@ func main() {
 			refreshMode = true
 		case "--explain":
 			explainMode = true
+		case "--summary":
+			summaryMode = true
 		case "--status":
 			statusMode = true
 		case "--all":
@@ -176,6 +179,12 @@ func main() {
 				log.Fatalf("%s", cmds.UnknownArgHelp(arg))
 			}
 		}
+	}
+
+	// --summary changes what --explain prints and means nothing on its own. Refused
+	// rather than ignored: ignored, `enola --summary .` would start an MCP server.
+	if summaryMode && !explainMode {
+		log.Fatalf("--summary goes with --explain: %s --explain --summary [path]", binary().Name)
 	}
 
 	// --status reads only the recorded usage under ~/.enola/usage/, so it runs
@@ -240,7 +249,7 @@ func main() {
 	}
 
 	if explainMode {
-		runExplain(ctx, eng, cfg)
+		runExplain(ctx, eng, cfg, summaryMode, jsonMode)
 		// Explicit rather than deferred: this path exits, and a deferred Report
 		// would never run. Same at every os.Exit below.
 		memWatch.Report(os.Stderr, factCount(eng))
@@ -488,8 +497,9 @@ func helpSpec() cli.HelpSpec {
 }
 
 // runExplain indexes the configured repository (or repositories) and prints a
-// human-readable statistical summary to stdout.
-func runExplain(ctx context.Context, eng *bootstrap.Engine, cfg *config.Config) {
+// human-readable statistical summary to stdout, or with summary the
+// plain-language one, as JSON when asJSON is set.
+func runExplain(ctx context.Context, eng *bootstrap.Engine, cfg *config.Config, summary, asJSON bool) {
 	repoPaths, err := cfg.RepoPaths()
 	if err != nil {
 		log.Fatalf("failed to resolve repo path: %v", err)
@@ -507,7 +517,20 @@ func runExplain(ctx context.Context, eng *bootstrap.Engine, cfg *config.Config) 
 	}
 
 	report := explain.Compute(eng)
-	fmt.Print(report.Render())
+	if !summary {
+		fmt.Print(report.Render())
+		return
+	}
+	s := explain.Summarize(eng, report)
+	if !asJSON {
+		fmt.Print(s.Render())
+		return
+	}
+	out, err := json.MarshalIndent(s, "", "  ")
+	if err != nil {
+		log.Fatalf("failed to encode summary: %v", err)
+	}
+	fmt.Println(string(out))
 }
 
 // runRefresh re-reads ONE member of a configured cluster into the union the last

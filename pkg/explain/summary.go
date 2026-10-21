@@ -107,7 +107,9 @@ func entryPoints(a *flows.Analysis) []entryPoint {
 			continue
 		}
 		e := entryPoint{
-			name: f.Entry.Name, file: f.Entry.File, line: f.Entry.Line,
+			// A symbol of the root package is named after module ".", "..main";
+			// the file beside it says where it is.
+			name: strings.TrimPrefix(f.Entry.Name, ".."), file: f.Entry.File, line: f.Entry.Line,
 			mechanism: f.Mechanism, reach: f.Metrics.Reach, modules: f.Metrics.Modules,
 		}
 		if f.Mechanism == flows.MechanismRoute {
@@ -273,11 +275,12 @@ func startHere(r *Report, entries []entryPoint) []Item {
 		})
 	}
 
-	// The module the most others import is what the rest of the code builds on.
+	// The module the most others import is what the rest of the code builds on,
+	// once it is imported often enough for that to be true.
 	var core *Hotspot
 	for i := range r.Hotspots {
 		h := &r.Hotspots[i]
-		if h.Generated || h.FanIn == 0 {
+		if h.Generated || h.FanIn < careFloor {
 			continue
 		}
 		if core == nil || h.FanIn > core.FanIn || (h.FanIn == core.FanIn && h.Module < core.Module) {

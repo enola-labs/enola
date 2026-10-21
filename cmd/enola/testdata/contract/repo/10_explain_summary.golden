@@ -1,0 +1,47 @@
+$ enola --explain --summary .
+exit: 0
+--- stdout
+════════════════════════════════════════════════════════════
+ Repository summary: <TMP>/go_sample
+════════════════════════════════════════════════════════════
+
+What this is
+  Written in Go.
+  3 modules (folders of code), holding 9 named pieces of code such as
+  functions and types.
+  Serves no HTTP endpoint enola could find. enola found no database tables.
+  enola recognised no common way of organising the folders. (likely)
+
+Structure: needs attention
+  1 circular dependency: modules that depend on each other in a loop, so none
+  of them can be changed or tested on its own.
+
+Start reading here
+  main  (main.go:10)
+    The program starts here. From here the code reaches 3 functions in 3
+    modules.
+
+Careful when changing
+  No module stands out: a change in one part of the code stays fairly local.
+  (likely)
+
+Worth a look (most certain first)
+  2 functions look unused. Check each one before deleting it: code outside
+  this repository, or code called by name at runtime, may still use it.
+  (likely)
+
+Take with a grain of salt
+  Unused code is found by matching names. Code reached through reflection,
+  configuration or another repository can look unused when it is not.
+  enola reads the code and never runs it: it reports structure, not behaviour
+  or speed.
+
+Next
+  enola --explain <TMP>/go_sample
+    Every number behind this summary.
+  enola flows <TMP>/go_sample
+    All the ways into the program, and how much of it each one reaches.
+
+--- stderr
+enola: no mcp-arch.yaml in <TMP>/go_sample, using built-in defaults
+Analyzing <TMP>/go_sample …

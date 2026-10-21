@@ -322,6 +322,9 @@ func TestCLIContract_Repo(t *testing.T) {
 
 		{"10_generate", []string{"--generate", "."}},
 		{"10_explain", []string{"--explain", "."}},
+		{"10_explain_summary", []string{"--explain", "--summary", "."}},
+		{"10_explain_summary_json", []string{"--explain", "--summary", "--json", "."}},
+		{"10_summary_without_explain", []string{"--summary", "."}},
 
 		{"20_constraints_lint", []string{"constraints", "lint", "."}},
 		{"20_constraints_mine", []string{"constraints", "mine", "."}},

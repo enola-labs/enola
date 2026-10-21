@@ -133,6 +133,7 @@ func DefaultHelp(bin Binary) HelpSpec {
 			{Flag: "--generate", Desc: "Generate a snapshot and exit (do not start MCP server)"},
 			{Flag: "--refresh", Desc: "With --generate on a cluster config: re-read ONE configured repository\ninto the union the last full generate produced, replacing its slice,\nand write the result to that repository and to the union's home. The\nother repositories are not re-read. Needs a prior full --generate."},
 			{Flag: "--explain [path]", Desc: "Print a human-readable repository statistics report and exit.\nA directory is a repository; a file is a config, so a `repos:`\nconfig reports over the whole cluster."},
+			{Flag: "--summary", Desc: "With --explain: print a short, plain-language summary instead.\nWhat the repository is, whether its structure holds, where to\nstart reading, what is risky to change and what is worth a look,\neach marked with how sure enola is. --json prints it as JSON."},
 			{Flag: "--list", Desc: "List the MCP tools this build can serve"},
 			{Flag: "--status", Desc: "Show MCP server status: uptime, tool usage and estimated value,\naggregated across every repo the server has served. While the server\nis running this also prints the dashboard URL."},
 			{Flag: "--status --all", Desc: "Show the per-repo breakdown instead (from ~/.enola/usage/)"},

@@ -172,6 +172,10 @@ FLAGS
   --explain [path]    Print a human-readable repository statistics report and exit.
                       A directory is a repository; a file is a config, so a `repos:`
                       config reports over the whole cluster.
+  --summary           With --explain: print a short, plain-language summary instead.
+                      What the repository is, whether its structure holds, where to
+                      start reading, what is risky to change and what is worth a look,
+                      each marked with how sure enola is. --json prints it as JSON.
   --list              List the MCP tools this build can serve
   --status            Show MCP server status: uptime, tool usage and estimated value,
                       aggregated across every repo the server has served. While the server
