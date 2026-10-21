@@ -265,7 +265,7 @@ func (b axumBuilder) key() string { return b.relFile + "\x00" + b.fnName }
 // `.nest(...)` mounts it declares, so the crate-wide pass can attribute routes
 // and resolve mounts. Every function is recorded (not just those with nests):
 // a mount callee that only registers routes still needs a span+key entry.
-func collectAxumBuilders(root *sitter.Node, src []byte, relFile string) []axumBuilder {
+func collectAxumBuilders(root *sitter.Node, src []byte, relFile string, mayNest bool) []axumBuilder {
 	var out []axumBuilder
 	var walk func(n *sitter.Node)
 	walk = func(n *sitter.Node) {
@@ -280,7 +280,9 @@ func collectAxumBuilders(root *sitter.Node, src []byte, relFile string) []axumBu
 					startRow: n.StartPosition().Row,
 					endRow:   n.EndPosition().Row,
 				}
-				collectNests(n, n, src, &b.nests)
+				if mayNest {
+					collectNests(n, n, src, &b.nests)
+				}
 				out = append(out, b)
 			}
 		}

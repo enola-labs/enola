@@ -3055,7 +3055,8 @@ import (
 // v419: A TypeScript import's bundler query is cut before the path resolves:
 // `@/icons/bell.svg?react` imports src/icons/bell.svg, and its dependency fact
 // names that file, where it carried the query.
-const cacheVersion = "v419"
+// v420: Rust runs the axum route, axum nest and utoipa passes only on files whose source contains route, nest or utoipa.
+const cacheVersion = "v420"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
