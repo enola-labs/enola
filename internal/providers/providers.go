@@ -326,7 +326,7 @@ func runPerFile(ctx context.Context, p Provider, in Input, version string, recor
 			missing = append(missing, file)
 			continue
 		}
-		key := perFileKey(p.Name, version, digest)
+		key := perFileKey(p.Name, version, file, digest)
 		keys[file] = key
 		if ff, ok := in.Cache.Get(key); ok {
 			reused = append(reused, ff...)
@@ -395,8 +395,10 @@ func perFileCandidates(p Provider, files []string) []string {
 	return out
 }
 
-func perFileKey(name, version, digest string) string {
-	return "file\x00" + name + "\x00" + version + "\x00" + digest
+// perFileKey carries the path as well as the digest: a fact names its file, so
+// two files with the same bytes have different facts and must not share an entry.
+func perFileKey(name, version, file, digest string) string {
+	return "file\x00" + name + "\x00" + version + "\x00" + file + "\x00" + digest
 }
 
 func writeFileListing(files []string) (string, error) {

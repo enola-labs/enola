@@ -3058,7 +3058,11 @@ import (
 // v420: Rust runs the axum route, axum nest and utoipa passes only on files whose source contains route, nest or utoipa.
 // v421: a TypeScript call to a hardcoded absolute host is an external client route carrying the host as written; an interpolated host is refused and counted on a new typescript:http-client fact.
 // v422: a Cargo dependency declared with a path (inline or under its own table) carries that path as a path prop on its dependency fact, so a crate the repository may hold is told from a package fetched from elsewhere.
-const cacheVersion = "v422"
+// v423: A per-file provider's cached facts are keyed by path as well as content
+// digest. Two files with the same bytes shared one entry, so a warm run gave both
+// files the second one's facts and lost the first's. Provider facts on repositories
+// with identical files (generated schemas, seeds, empty files) move.
+const cacheVersion = "v423"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

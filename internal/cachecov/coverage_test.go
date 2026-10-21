@@ -33,6 +33,8 @@ import (
 // test functions that assert the behavior that version introduced. v1 is the
 // implicit baseline (no changelog line), so coverage starts at v2.
 var versionCoverage = map[int][]string{
+	// A per-file provider caches each file under its path as well as its digest, so identical files keep their own facts
+	423: {"TestRunWith_PerFileKeepsIdenticalFilesApart"},
 	422: {"TestManifests_CargoReadsBothSpellings", "TestManifests_CargoReadsTableSections"},
 	421: {
 		"TestExtractHTTPClientFacts",
