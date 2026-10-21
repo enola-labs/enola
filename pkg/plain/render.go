@@ -23,7 +23,8 @@ func Header(b *strings.Builder, title, subject string) {
 
 // Section writes a heading, its items and an optional closing line. An item
 // about a named module or symbol puts the name on its own line and the
-// statement under it; an item with no subject is the statement alone.
+// statement under it; an item with no subject is the statement alone, with
+// its location under it when it has one.
 //
 // A statement enola is certain of is printed as it is. One it is less sure of
 // carries its certainty, "(likely)" or "(a guess)", so the hedges stand out
@@ -37,6 +38,9 @@ func Section(b *strings.Builder, title string, items []Item, footer string) {
 		}
 		if it.Subject == "" {
 			Wrap(b, text, "  ", "  ")
+			if it.Location != "" {
+				b.WriteString("    at " + it.Location + "\n")
+			}
 			continue
 		}
 		head := "  " + it.Subject

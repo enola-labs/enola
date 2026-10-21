@@ -82,6 +82,52 @@ reported for you to judge. Enforce the ones you want enforced: --fail-on=layers
 
 A gate that enforces nothing has to *say* it enforces nothing. Silence there is indistinguishable from an all-clear, and that is the one failure mode a green exit code cannot report on its own.
 
+### The same verdict, in plain words
+
+`enola check --summary` writes the same verdict for a reader who does not know the vocabulary above: whether the change passes, what it changed, what got worse, what got better, what counts as neither, what the run could not see, and what to do next. `--summary --json` writes it as JSON. It grades nothing of its own, so the exit code is the verdict's whichever writer printed it. The storage change, enforcing the declared layers:
+
+```
+════════════════════════════════════════════════════════════
+ Change summary: layers-gate
+════════════════════════════════════════════════════════════
+
+Result: fails
+  Fails the build (layers).
+
+What you changed
+  Added 1 function or type.
+  Changed the shape of 1 existing piece of code, such as a signature.
+  storage now uses notify.
+
+Got worse
+  Fails the build. Code in the "storage" layer now depends on the "delivery"
+  layer, which the layer rules forbid.
+    at storage/storage.go
+  storage.LoadPrice  (storage/storage.go:11)
+    This function looks unused. Check it before deleting it: something may
+    call it by name at runtime. (likely)
+
+Got better
+  Clears 1 piece of code that looked unused.
+
+Neither better nor worse
+  Nothing: everything that appeared or went away is counted above.
+
+Could not see
+  enola compares the structure of the code. It does not run it or its tests.
+
+Next
+  enola check
+    Run it again once the problems above are fixed. Without --summary it shows
+    every finding and every change.
+```
+
+Three rules keep it honest:
+
+- **What was not fixed is not better.** A finding that was excused, exempted, or stopped being reported because a rule changed or its code moved out of what the rule covers goes under "Neither better nor worse", never under "Got better". A dependency chain that disappears because the same change made a loop is said to be the loop's doing.
+- **What was not graded is not shown as graded.** On a declined run every section says "Not graded", and the reason is given in plain words: the enola version, the languages read or the ignore settings differed.
+- **A hedge is printed.** A statement enola is less than sure of ends in `(likely)` or `(a guess)`, from the finding's own confidence.
+
 ## The loop
 
 **Before a change**, your agent has the real structure of the codebase: a deterministic graph of modules, symbols, routes and storage, and how they depend on each other, extracted from source rather than inferred. It can look up what actually depends on the thing it's about to touch, instead of guessing from a grep.

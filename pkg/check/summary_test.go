@@ -57,7 +57,7 @@ func TestSummary_Result(t *testing.T) {
 		{"enforced and clean", Verdict{Status: StatusClean, Policy: enforcing, FactsAdded: 1}, OutcomePasses, "breaks what the build enforces (cycles and layers)"},
 		{"warn-only", Verdict{Status: StatusClean, Policy: Policy{FailExplainers: []string{"cycles"}, WarnOnly: true}, Failures: []facts.Insight{cycle("2")}}, OutcomePasses, "only because --warn-only"},
 		{"fails", Verdict{Status: StatusRegression, Policy: enforcing}, OutcomeFails, "Fails the build (cycles and layers)."},
-		{"declined", Verdict{Status: StatusIncomparable, ComparabilityWarnings: []string{"extractor set differs", "config differs"}}, OutcomeNotGraded, "says nothing about your change"},
+		{"declined", Verdict{Status: StatusIncomparable, ComparabilityWarnings: []string{"extractor set differs", "config differs"}}, OutcomeNotGraded, "rather than your change"},
 		{"could not run", Verdict{Status: StatusUsageError}, OutcomeCouldNotRun, "could not run"},
 	}
 	for _, c := range cases {
@@ -67,9 +67,16 @@ func TestSummary_Result(t *testing.T) {
 		}
 	}
 
-	declined := Verdict{Status: StatusIncomparable, ComparabilityWarnings: []string{"extractor set differs", "config differs"}}.Summarize().Result
-	if !containsText(declined.Items, "Why: extractor set differs (1 more reason in the full verdict.)") {
-		t.Errorf("declined gives its first reason and counts the rest: %+v", declined.Items)
+	declined := Verdict{Status: StatusIncomparable,
+		BlockingKinds:         []diff.WarningKind{diff.WarnIgnoreGlobs, diff.WarnVersionMismatch},
+		ComparabilityWarnings: []string{"ignore globs differ between baseline and current", "version differs"}}.Summarize().Result
+	if !containsText(declined.Items, "Why: Your ignore settings changed, so a different set of files was read. 1 more reason is in the full verdict.") {
+		t.Errorf("declined gives its first reason in plain words and counts the rest: %+v", declined.Items)
+	}
+	unknown := Verdict{Status: StatusIncomparable, BlockingKinds: []diff.WarningKind{diff.WarnUnclassified},
+		ComparabilityWarnings: []string{"working tree moved since the snapshot"}}.Summarize().Result
+	if !containsText(unknown.Items, "Why: Working tree moved since the snapshot.") {
+		t.Errorf("an unknown kind is given in the verdict's words: %+v", unknown.Items)
 	}
 	breach := Verdict{Status: StatusRegression, Breaches: []Breach{
 		{Measurement: Measurement{Label: "packages reached outside the declared scope", Count: 4}, Fatal: true},
@@ -175,6 +182,8 @@ func TestSummary_Changed(t *testing.T) {
 				dep("src/ui -> src/lib/api", "internal"),
 				dep("pkg/b -> github.com/x/y", "external"),
 				dep("pkg/b -> fmt", "stdlib"),
+				// A dotless Go module path is classified stdlib, and still resolves.
+				dep("storage -> layersgate/notify", "stdlib"),
 			},
 			FactsRemoved: []facts.Fact{dep("pkg/a -> example.com/app/pkg/d", "internal")},
 			EdgesAdded: []diff.Edge{
@@ -184,6 +193,7 @@ func TestSummary_Changed(t *testing.T) {
 				{Source: "src/ui -> src/lib/api", Kind: facts.RelImports, Target: "src/lib/api"},
 				{Source: "pkg/b -> github.com/x/y", Kind: facts.RelImports, Target: "github.com/x/y"},
 				{Source: "pkg/b -> fmt", Kind: facts.RelImports, Target: "fmt"},
+				{Source: "storage -> layersgate/notify", Kind: facts.RelImports, Target: "notify"},
 				// An edge whose dependency fact is not in the diff is not guessed at.
 				{Source: "pkg/e -> example.com/app/pkg/f", Kind: facts.RelImports, Target: "pkg/f"},
 				{Source: "pkg/b.UsesGamma", Kind: facts.RelDeclares, Target: "pkg/b"},
@@ -196,6 +206,7 @@ func TestSummary_Changed(t *testing.T) {
 		"Added 1 folder of code and 2 functions and types (pkg/c).",
 		"pkg/b now uses pkg/c.",
 		"src/ui now uses src/lib/api.",
+		"storage now uses notify.",
 		"pkg/a no longer uses pkg/d.",
 	}
 	if len(got) != len(want) {
@@ -225,6 +236,10 @@ func TestSummary_CouldNotSee(t *testing.T) {
 	}
 	if last := got[len(got)-1]; !strings.Contains(last.Text, "does not run it or its tests") {
 		t.Errorf("last: %+v", last)
+	}
+	stale := Verdict{Status: StatusClean, AdvisoryKinds: []diff.WarningKind{diff.WarnStaleBaseline}}.Summarize().CouldNotSee
+	if !containsText(stale, "other people's work") {
+		t.Errorf("a stale baseline is said: %+v", stale)
 	}
 	if old := (Verdict{Status: StatusClean, Census: &Census{}}).Summarize().CouldNotSee; !strings.HasPrefix(old[0].Text, "Not recorded") {
 		t.Errorf("unrecorded census: %+v", old)
@@ -290,5 +305,51 @@ func TestWrite_SummaryFormats(t *testing.T) {
 	js, err := v.Write(Output{Format: FormatSummaryJSON})
 	if err != nil || !strings.Contains(string(js), `"outcome": "passes"`) {
 		t.Errorf("summary-json: %v %s", err, js)
+	}
+}
+
+func TestSummary_ChainsAbsorbedByANewLoopAreNotBetter(t *testing.T) {
+	depth := facts.Insight{Source: "dependency-depth", Title: "Deep dependency chain: pkg/a (depth 7)"}
+	v := Verdict{Status: StatusRegression, Failures: []facts.Insight{cycle("12")}, Resolved: []facts.Insight{depth, depth}}
+	b := v.Summarize().Better
+	if !strings.Contains(b[0].Text, "the new loop absorbed them") || b[0].Certainty != plain.Likely {
+		t.Errorf("got %+v", b)
+	}
+	if b := (Verdict{Status: StatusClean, Resolved: []facts.Insight{depth}}).Summarize().Better; b[0].Text != "Clears 1 long dependency chain." {
+		t.Errorf("without a new loop it is an improvement: %+v", b)
+	}
+}
+
+func TestPlainFinding_CycleNamesItsModules(t *testing.T) {
+	in := cycle("12")
+	in.Evidence = []facts.Evidence{{Fact: "a"}, {Fact: "b"}, {Fact: "a"}, {Fact: "c"}, {Fact: "d"}}
+	if got := plainFinding(in).Text; !strings.HasSuffix(got, "They include a, b, c and 9 others.") {
+		t.Errorf("got %q", got)
+	}
+}
+
+func TestSummary_DeclinedGradesNothingAnywhere(t *testing.T) {
+	s := Verdict{Status: StatusIncomparable,
+		Failures: []facts.Insight{cycle("4")}, Advisories: []facts.Insight{deadCode("a", 0.8)},
+		Resolved: []facts.Insight{cycle("2")}, Suppressed: []facts.Insight{cycle("3")}}.Summarize()
+	for name, items := range map[string][]plain.Item{"worse": s.Worse, "better": s.Better, "neither": s.Neither} {
+		if len(items) != 1 || items[0].Text != "Not graded." {
+			t.Errorf("%s: %+v", name, items)
+		}
+	}
+}
+
+func TestSummary_AGrownLoopIsWorse(t *testing.T) {
+	v := Verdict{Status: StatusClean, FindingsChanged: []diff.InsightChange{
+		{Before: cycle("5"), After: cycle("8")},
+		{Before: cycle("6"), After: cycle("4")},
+		{Before: deadCode("a", 0.8), After: deadCode("a", 0.9)},
+	}}
+	s := v.Summarize()
+	if len(s.Worse) != 1 || s.Worse[0].Text != "Makes an existing loop bigger: 8 modules now depend on each other, up from 5." {
+		t.Errorf("worse: %+v", s.Worse)
+	}
+	if !containsText(s.Neither, "2 existing findings moved a little") {
+		t.Errorf("the other altered findings are counted, not graded: %+v", s.Neither)
 	}
 }

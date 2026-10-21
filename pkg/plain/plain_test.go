@@ -31,6 +31,14 @@ func TestSection_LongSubjectPutsLocationOnItsOwnLine(t *testing.T) {
 	}
 }
 
+func TestSection_LocationWithoutSubject(t *testing.T) {
+	var b strings.Builder
+	Section(&b, "S", []Item{{Text: "t.", Location: "a/b.go", Certainty: Certain}}, "")
+	if b.String() != "S\n  t.\n    at a/b.go\n\n" {
+		t.Errorf("got %q", b.String())
+	}
+}
+
 func TestSection_OnlyHedgesAreLabelled(t *testing.T) {
 	var b strings.Builder
 	Section(&b, "S", []Item{

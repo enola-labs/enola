@@ -99,13 +99,9 @@ func (v Verdict) result() Result {
 	case StatusIncomparable:
 		outcome = OutcomeNotGraded
 		items = append(items, fact("Not graded. The before and after were not produced the same way, "+
-			"so comparing them would describe that, not your change. This says nothing about your change."))
-		if len(v.ComparabilityWarnings) > 0 {
-			text := "Why: " + v.ComparabilityWarnings[0]
-			if n := len(v.ComparabilityWarnings) - 1; n > 0 {
-				text += " (" + plain.Plural(n, "more reason", "more reasons") + " in the full verdict.)"
-			}
-			items = append(items, fact(text))
+			"so a comparison would describe that difference rather than your change."))
+		if why := v.declinedBecause(); why != "" {
+			items = append(items, fact(why))
 		}
 	default:
 		outcome = OutcomeCouldNotRun
@@ -116,6 +112,51 @@ func (v Verdict) result() Result {
 			"enola read some languages differently before and after."))
 	}
 	return Result{Outcome: outcome, Items: items}
+}
+
+// blockingReasons says, per comparability kind that stops the gate grading,
+// what differed between the two snapshots. A kind not listed is given in the
+// verdict's own words.
+var blockingReasons = map[diff.WarningKind]string{
+	diff.WarnDifferentRepo:   "the \"before\" was taken of a different repository",
+	diff.WarnRepoLabel:       "the before and after name the repository differently, so nothing in them lines up",
+	diff.WarnVersionMismatch: "the \"before\" was taken with a different version of enola, which reads code differently",
+	diff.WarnExtractorSet:    "enola read a different set of languages before and after",
+	diff.WarnProviderSet:     "a different set of extra fact sources ran before and after",
+	diff.WarnIgnoreGlobs:     "your ignore settings changed, so a different set of files was read",
+	diff.WarnUnionMembership: "a repository that was part of the \"before\" is missing now",
+}
+
+// declinedBecause is the first reason the gate declined, in plain words, and
+// how many more there are.
+func (v Verdict) declinedBecause() string {
+	var reasons []string
+	for _, k := range v.BlockingKinds {
+		if r, ok := blockingReasons[k]; ok {
+			reasons = append(reasons, r)
+		}
+	}
+	if len(reasons) == 0 && len(v.ComparabilityWarnings) > 0 {
+		reasons = append(reasons, v.ComparabilityWarnings[0])
+	}
+	if len(reasons) == 0 {
+		return ""
+	}
+	r := reasons[0]
+	text := "Why: " + strings.ToUpper(r[:1]) + r[1:] + "."
+	if n := len(reasons) - 1; n > 0 {
+		text += " " + plain.Plural(n, "more reason is", "more reasons are") + " in the full verdict."
+	}
+	return text
+}
+
+// advisoryReasons says, per comparability kind that is graded through, what
+// the reader should know about the "before".
+var advisoryReasons = map[diff.WarningKind]string{
+	diff.WarnStaleBaseline: "The \"before\" is old, so what changed since then may include other people's work, not only yours.",
+	diff.WarnPreReceipt:    "The \"before\" is older than enola's record of how snapshots are made, so enola cannot confirm both were made the same way.",
+	diff.WarnExplainerSet:  "Different checks ran before and after, so some findings may be new to enola rather than to the code.",
+	diff.WarnOtherSession:  "The \"before\" was taken by another session still working in this repository, so what changed may include its edits.",
 }
 
 // enforcedClause names what the policy enforces, as the end of a sentence.
@@ -218,26 +259,34 @@ func (v Verdict) addedNames(kind string) []string {
 // bookkeeping, one per new symbol, and an import of the standard library or of
 // another project is not one part of this code using another.
 //
-// An import edge belongs to a dependency fact named "<module> -> <import path>",
-// and that fact's source prop says whether the import is internal. The facts
-// come from the same side of the diff as the edges; an edge whose fact is not
-// there is left out rather than guessed at, because whether a target is a
-// module of this code is not something its spelling says in every language.
+// An import edge belongs to a dependency fact named "<module> -> <import path>".
+// It is internal when that fact's source prop says so, or when the extractor
+// resolved the path to a module of this code, pointing the edge at something
+// other than the path as written. Both are needed: TypeScript keeps an internal
+// import's path as its target, and a Go module whose path has no dot has its
+// own packages classified as stdlib while they still resolve. The facts come
+// from the same side of the diff as the edges; an edge whose fact is not there
+// is left out rather than guessed at.
 func importPairs(edges []diff.Edge, deps []facts.Fact) [][2]string {
 	internal := map[string]bool{}
+	known := map[string]bool{}
 	for _, f := range deps {
-		if f.Kind == facts.KindDependency && f.PropString("source") == "internal" {
+		if f.Kind != facts.KindDependency {
+			continue
+		}
+		known[f.Name] = true
+		if f.PropString("source") == "internal" {
 			internal[f.Name] = true
 		}
 	}
 	seen := map[[2]string]bool{}
 	var out [][2]string
 	for _, e := range edges {
-		if e.Kind != facts.RelImports || !internal[e.Source] {
+		if e.Kind != facts.RelImports || !known[e.Source] {
 			continue
 		}
-		module, _, ok := strings.Cut(e.Source, " -> ")
-		if !ok || module == e.Target {
+		module, path, ok := strings.Cut(e.Source, " -> ")
+		if !ok || module == e.Target || (!internal[e.Source] && path == e.Target) {
 			continue
 		}
 		p := [2]string{module, e.Target}
@@ -256,6 +305,12 @@ func importPairs(edges []diff.Edge, deps []facts.Fact) [][2]string {
 }
 
 func (v Verdict) worse() ([]plain.Item, int) {
+	// A declined or failed run carries the findings of a delta it refused to
+	// trust; the full verdict prints them under "NOT graded". Listing them here
+	// as worse would be the grade the gate declined to give.
+	if v.Status == StatusIncomparable || v.Status == StatusUsageError {
+		return []plain.Item{{Text: "Not graded.", Certainty: plain.Certain}}, 0
+	}
 	var out []plain.Item
 	for _, in := range v.Failures {
 		it := plainFinding(in)
@@ -264,15 +319,22 @@ func (v Verdict) worse() ([]plain.Item, int) {
 		}
 		out = append(out, it)
 	}
+	// A loop that took in more modules is the same finding with a larger
+	// count, so the verdict carries it as altered rather than new. It is worse
+	// all the same, and the one altered finding a reader must not miss.
+	for _, c := range v.grownLoops() {
+		it := plainFinding(c.After)
+		it.Text = fmt.Sprintf("Makes an existing loop bigger: %d modules now depend on each other, up from %d.",
+			firstNumber(c.After.Title), firstNumber(c.Before.Title))
+		it.Certainty = plain.CertaintyOf(c.After.Confidence)
+		out = append(out, it)
+	}
 	advisories := append([]facts.Insight(nil), v.Advisories...)
 	sort.SliceStable(advisories, func(i, j int) bool { return advisories[i].Confidence > advisories[j].Confidence })
 	for _, in := range advisories {
 		out = append(out, plainFinding(in))
 	}
 	if len(out) == 0 {
-		if v.Status == StatusIncomparable || v.Status == StatusUsageError {
-			return []plain.Item{{Text: "Not graded.", Certainty: plain.Certain}}, 0
-		}
 		return []plain.Item{{Text: "Nothing.", Certainty: plain.Certain}}, 0
 	}
 	if len(out) > plain.MaxItems {
@@ -282,6 +344,9 @@ func (v Verdict) worse() ([]plain.Item, int) {
 }
 
 func (v Verdict) better() []plain.Item {
+	if v.Status == StatusIncomparable || v.Status == StatusUsageError {
+		return []plain.Item{{Text: "Not graded.", Certainty: plain.Certain}}
+	}
 	if len(v.Resolved) == 0 {
 		return []plain.Item{{Text: "Nothing.", Certainty: plain.Certain}}
 	}
@@ -294,15 +359,32 @@ func (v Verdict) better() []plain.Item {
 		}
 		counts[key]++
 	}
+	// A dependency chain stops being measured when the modules on it join a
+	// loop: depth is not defined inside one. Cleared in the same change that
+	// creates a loop, it is the loop's doing, not an improvement.
+	newLoop := false
+	for _, in := range append(append([]facts.Insight(nil), v.Failures...), v.Advisories...) {
+		if in.Source == "cycles" {
+			newLoop = true
+		}
+	}
 	var out []plain.Item
 	for _, k := range order {
 		w := nounFor(k)
-		out = append(out, plain.Item{Text: "Clears " + plain.Plural(counts[k], w.one, w.many) + ".", Certainty: plain.Certain})
+		it := plain.Item{Text: "Clears " + plain.Plural(counts[k], w.one, w.many) + ".", Certainty: plain.Certain}
+		if k == "dependency-depth" && newLoop {
+			it.Text = "Clears " + plain.Plural(counts[k], w.one, w.many) + ", because the new loop absorbed them, not because the code got simpler."
+			it.Certainty = plain.Likely
+		}
+		out = append(out, it)
 	}
 	return out
 }
 
 func (v Verdict) neither() []plain.Item {
+	if v.Status == StatusIncomparable || v.Status == StatusUsageError {
+		return []plain.Item{{Text: "Not graded.", Certainty: plain.Certain}}
+	}
 	var out []plain.Item
 	add := func(n int, text string) {
 		if n > 0 {
@@ -319,10 +401,25 @@ func (v Verdict) neither() []plain.Item {
 		" being reported because the rule was changed or removed. The code is the same.")
 	add(len(v.Unattributed), plain.Plural(len(v.Unattributed), "rule break", "rule breaks")+
 		" could not be compared: the code they name is not in this snapshot.")
+	if n := len(v.FindingsChanged) - len(v.grownLoops()); n > 0 {
+		add(n, plain.Plural(n, "existing finding", "existing findings")+
+			" moved a little, such as a count going up or down. The full verdict lists them.")
+	}
 	add(len(v.Declared), "A rule this change adds already finds "+
 		plain.Plural(len(v.Declared), "break", "breaks")+" in code you did not touch. That is where the rule starts, not something you broke.")
 	if len(out) == 0 {
 		out = append(out, plain.Item{Text: "Nothing: everything that appeared or went away is counted above.", Certainty: plain.Certain})
+	}
+	return out
+}
+
+// grownLoops are the altered cycle findings whose loop now spans more modules.
+func (v Verdict) grownLoops() []diff.InsightChange {
+	var out []diff.InsightChange
+	for _, c := range v.FindingsChanged {
+		if c.After.Source == "cycles" && firstNumber(c.After.Title) > firstNumber(c.Before.Title) {
+			out = append(out, c)
+		}
 	}
 	return out
 }
@@ -365,6 +462,11 @@ func (v Verdict) couldNotSee() []plain.Item {
 				Text:      plain.Plural(n, "extra source of facts was", "extra sources of facts were") + " skipped this run; the full verdict says why.",
 				Certainty: plain.Certain,
 			})
+		}
+	}
+	for _, k := range v.AdvisoryKinds {
+		if r, ok := advisoryReasons[k]; ok {
+			out = append(out, plain.Item{Text: r, Certainty: plain.Certain})
 		}
 	}
 	out = append(out, plain.Item{Text: "enola compares the structure of the code. It does not run it or its tests.", Certainty: plain.Certain})
@@ -447,6 +549,12 @@ func plainFinding(in facts.Insight) plain.Item {
 	switch in.Source {
 	case "cycles":
 		it.Text = fmt.Sprintf("Creates a loop: %d modules now depend on each other, so none of them can be changed or tested on its own.", firstNumber(t))
+		if mods := evidenceFacts(in, plain.MaxItems); len(mods) > 0 {
+			if n := firstNumber(t) - len(mods); n > 0 {
+				mods = append(mods, plain.Plural(n, "other", "others"))
+			}
+			it.Text += " They include " + plain.AndList(mods) + "."
+		}
 	case "layers":
 		if from, to, ok := strings.Cut(between(t, "Layer violation:", " ("), " -> "); ok {
 			it.Text = fmt.Sprintf("Code in the %q layer now depends on the %q layer, which the layer rules forbid.", from, to)
@@ -492,6 +600,23 @@ func plainFinding(in facts.Insight) plain.Item {
 		}
 	}
 	return it
+}
+
+// evidenceFacts is the first n distinct fact names a finding cites.
+func evidenceFacts(in facts.Insight, n int) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, e := range in.Evidence {
+		if e.Fact == "" || seen[e.Fact] {
+			continue
+		}
+		seen[e.Fact] = true
+		out = append(out, e.Fact)
+		if len(out) == n {
+			break
+		}
+	}
+	return out
 }
 
 // between is the text after prefix up to stop, trimmed; "" when prefix is absent.
