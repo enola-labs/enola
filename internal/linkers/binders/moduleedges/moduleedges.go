@@ -107,6 +107,10 @@ const (
 	reasonAmbiguousOwner = "ambiguous_declaring_module"
 )
 
+// namespaceOnlyProp is the Ruby extractor's mark on a module or class whose body
+// only nests other declarations.
+const namespaceOnlyProp = "namespace_only"
+
 func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 	// Binders run again on every append, over the whole union, so the edges derived
 	// last time go first, as the cross-repo linker drops its own. Left in place, each
@@ -133,6 +137,21 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 	type placed struct{ module string }
 	symbolModule := map[key]placed{}
 	ambiguous := map[key]bool{}
+	loadedFrom := map[key]map[string]bool{}
+	namespaceModule := map[key]placed{}
+	namespaceAmbiguous := map[key]bool{}
+	place := func(into map[key]placed, ambiguousInto map[key]bool, k key, module string) {
+		if prior, ok := into[k]; ok {
+			if prior.module == module {
+				return
+			}
+			ambiguousInto[k] = true
+			if prior.module < module {
+				return
+			}
+		}
+		into[k] = placed{module: module}
+	}
 	nameRepos := map[string]int{}
 	seenNameInRepo := map[key]bool{}
 	knownSymbols := map[string]bool{}
@@ -159,16 +178,42 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 			seenNameInRepo[k] = true
 			nameRepos[f.Name]++
 		}
-		if prior, ok := symbolModule[k]; ok {
-			if prior.module == module {
-				continue
-			}
-			ambiguous[k] = true
-			if prior.module < module {
-				continue
-			}
+		// A namespace opening (`module Spree` wrapping `class Order`) places
+		// nothing: the name belongs to whichever file declares it, and a name that
+		// only ever appears as an opening is placed from the openings alone below.
+		if f.PropBool(namespaceOnlyProp) {
+			place(namespaceModule, namespaceAmbiguous, k, module)
+			continue
 		}
-		symbolModule[k] = placed{module: module}
+		place(symbolModule, ambiguous, k, module)
+		if zeitwerkPath(f) {
+			if loadedFrom[k] == nil {
+				loadedFrom[k] = map[string]bool{}
+			}
+			loadedFrom[k][module] = true
+		}
+	}
+	// Zeitwerk loads a constant from the one file its name spells, so when several
+	// modules reopen a name and exactly one of them holds that file, the others
+	// are reopenings of it and the reference means the owner. Two modules that
+	// each hold such a file (an engine's own app/models/work_package.rb beside the
+	// host's) are two owners, and the name stays refused.
+	for k := range ambiguous {
+		if owners := loadedFrom[k]; len(owners) == 1 {
+			for module := range owners {
+				symbolModule[k] = placed{module: module}
+			}
+			delete(ambiguous, k)
+		}
+	}
+	for k, p := range namespaceModule {
+		if _, declared := symbolModule[k]; declared {
+			continue
+		}
+		symbolModule[k] = p
+		if namespaceAmbiguous[k] {
+			ambiguous[k] = true
+		}
 	}
 	if len(symbolModule) == 0 {
 		return nil
@@ -415,4 +460,54 @@ func extractorEdges(store *facts.Store, production, test map[string]bool) map[[2
 		}
 	}
 	return out
+}
+
+// zeitwerkPath reports a Ruby declaration of a constant sitting in the file
+// Zeitwerk would load for that name, `spree.rb` for Spree and `active_support/
+// cache.rb` for ActiveSupport::Cache. A name whose inflection the loader
+// overrides spells no such file here, and so is never tied-broken: that errs
+// toward refusing.
+func zeitwerkPath(f facts.Fact) bool {
+	if f.PropString("language") != "ruby" || !strings.HasSuffix(f.File, ".rb") {
+		return false
+	}
+	parts := strings.Split(f.Name, "::")
+	for _, part := range parts {
+		if part == "" || part[0] < 'A' || part[0] > 'Z' {
+			return false
+		}
+		for _, c := range part {
+			if c != '_' && (c < '0' || c > '9') && (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') {
+				return false
+			}
+		}
+	}
+	for i, part := range parts {
+		parts[i] = underscore(part)
+	}
+	want := strings.Join(parts, "/") + ".rb"
+	return f.File == want || strings.HasSuffix(f.File, "/"+want)
+}
+
+// underscore is ActiveSupport's String#underscore for one constant segment.
+func underscore(name string) string {
+	var out []rune
+	runes := []rune(name)
+	for i, r := range runes {
+		upper := r >= 'A' && r <= 'Z'
+		if upper && i > 0 {
+			prev := runes[i-1]
+			prevLowerOrDigit := prev >= 'a' && prev <= 'z' || prev >= '0' && prev <= '9'
+			prevUpper := prev >= 'A' && prev <= 'Z'
+			nextLower := i+1 < len(runes) && runes[i+1] >= 'a' && runes[i+1] <= 'z'
+			if prevLowerOrDigit || prevUpper && nextLower {
+				out = append(out, '_')
+			}
+		}
+		if upper {
+			r += 'a' - 'A'
+		}
+		out = append(out, r)
+	}
+	return string(out)
 }

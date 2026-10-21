@@ -376,3 +376,116 @@ func TestBind_ANameTwoModulesDeclareIsRefusedAsATarget(t *testing.T) {
 		t.Errorf("derived an edge to a name two modules declare: %v", edges)
 	}
 }
+
+func openingSymbol(name, file string, relations ...facts.Relation) facts.Fact {
+	f := symbol(name, file, relations...)
+	f.Props["namespace_only"] = true
+	return f
+}
+
+// A namespace opening wraps other declarations and adds nothing to the name, so
+// the many files that open `Spree` do not make Spree ambiguous: the one file
+// that declares it owns it, and a reference to it is an edge into that module.
+func TestBind_NamespaceOpeningsDoNotMakeAnOwnedNameAmbiguous(t *testing.T) {
+	store := facts.NewStore()
+	store.Add(
+		module("core/lib"), module("api/app"), module("admin/app"),
+		symbol("Spree", "core/lib/spree.rb"),
+		openingSymbol("Spree", "api/app/spree/api.rb"),
+		openingSymbol("Spree", "admin/app/spree/admin.rb"),
+		symbol("Spree::Admin::Run#call", "admin/app/spree/admin/run.rb", calls("Spree")...),
+	)
+	if err := New().Bind(context.Background(), store); err != nil {
+		t.Fatal(err)
+	}
+	if got := derivedEdges(store); got["admin/app -> core/lib"] != 1 {
+		t.Errorf("a reference to a namespace one file declares should land there: %v", got)
+	}
+}
+
+// A reopening that adds methods is a declaration, so two of them still leave the
+// name unplaceable, whatever number of bare openings sit beside them.
+func TestBind_AReopeningThatAddsMembersStaysAmbiguousBesideOpenings(t *testing.T) {
+	store := facts.NewStore()
+	store.Add(
+		module("app/models"), module("modules/costs"), module("app/services"), module("api/app"),
+		symbol("WorkPackage", "app/models/work_package.rb"),
+		symbol("WorkPackage", "modules/costs/patches/work_package.rb"),
+		openingSymbol("WorkPackage", "api/app/work_package.rb"),
+		symbol("Mailer#deliver", "app/services/mailer.rb", calls("WorkPackage")...),
+	)
+	if err := New().Bind(context.Background(), store); err != nil {
+		t.Fatal(err)
+	}
+	if got := derivedEdges(store); len(got) != 0 {
+		t.Errorf("derived an edge to a name two modules declare: %v", got)
+	}
+}
+
+// A name seen only as openings in several modules is still not placed on a guess.
+func TestBind_ANameOnlyOpenedInTwoModulesIsStillRefused(t *testing.T) {
+	store := facts.NewStore()
+	store.Add(
+		module("a/lib"), module("b/lib"), module("c/lib"),
+		openingSymbol("Shared", "a/lib/shared/x.rb"),
+		openingSymbol("Shared", "b/lib/shared/y.rb"),
+		symbol("Use#call", "c/lib/use.rb", calls("Shared")...),
+	)
+	if err := New().Bind(context.Background(), store); err != nil {
+		t.Fatal(err)
+	}
+	if got := derivedEdges(store); len(got) != 0 {
+		t.Errorf("derived an edge to a name only opened in two modules: %v", got)
+	}
+}
+
+func rubyClass(name, file string, relations ...facts.Relation) facts.Fact {
+	f := symbol(name, file, relations...)
+	f.Props["symbol_kind"] = "class"
+	return f
+}
+
+// Zeitwerk loads a constant from the file its name spells, so of several
+// modules reopening a name the one holding that file owns it. A reopening in a
+// plugin's lib with a different file name does not make it ambiguous again.
+func TestBind_TheFileZeitwerkLoadsOwnsAReopenedName(t *testing.T) {
+	store := facts.NewStore()
+	store.Add(
+		module("actionpack/lib"), module("actionpack/lib/abstract_controller"), module("app/services"),
+		rubyClass("AbstractController", "actionpack/lib/abstract_controller.rb"),
+		rubyClass("AbstractController", "actionpack/lib/abstract_controller/deprecator.rb"),
+		symbol("Run#call", "app/services/run.rb", calls("AbstractController")...),
+	)
+	if err := New().Bind(context.Background(), store); err != nil {
+		t.Fatal(err)
+	}
+	if got := derivedEdges(store); got["app/services -> actionpack/lib"] != 1 {
+		t.Errorf("the reference should land on the file Zeitwerk loads: %v", got)
+	}
+}
+
+// Two modules each holding the file the name spells are two owners: an engine's
+// own app/models/work_package.rb beside the host's. Nothing says which is meant.
+func TestBind_TwoFilesZeitwerkWouldLoadLeaveTheNameRefused(t *testing.T) {
+	store := facts.NewStore()
+	store.Add(
+		module("app/models"), module("modules/costs"), module("app/services"),
+		rubyClass("WorkPackage", "app/models/work_package.rb"),
+		rubyClass("WorkPackage", "modules/costs/app/models/work_package.rb"),
+		symbol("Run#call", "app/services/run.rb", calls("WorkPackage")...),
+	)
+	if err := New().Bind(context.Background(), store); err != nil {
+		t.Fatal(err)
+	}
+	if got := derivedEdges(store); len(got) != 0 {
+		t.Errorf("derived an edge to a name two owners hold: %v", got)
+	}
+}
+
+func TestUnderscore(t *testing.T) {
+	for in, want := range map[string]string{"ActiveSupport": "active_support", "OpenProject": "open_project", "HTMLHelper": "html_helper", "Spree": "spree", "Oauth2Token": "oauth2_token"} {
+		if got := underscore(in); got != want {
+			t.Errorf("underscore(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
