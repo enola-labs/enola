@@ -4,7 +4,7 @@
 #
 # Environment:
 #   ENOLA_INSTALL_DIR        where to put the binary (default: $HOME/.local/bin)
-#   ENOLA_NO_RUBYDEX_FETCH   set to anything to skip downloading the Rubydex library
+#   ENOLA_NO_RUBYDEX_FETCH   set to any non-empty value (0 and false included) to skip downloading the Rubydex library
 #                            that Ruby analysis loads (about 3.4 MB, once per release)
 #
 # POSIX sh on purpose, with no `set -o pipefail`. A piped script never honours its
