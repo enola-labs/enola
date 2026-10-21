@@ -33,6 +33,8 @@ import (
 // test functions that assert the behavior that version introduced. v1 is the
 // implicit baseline (no changelog line), so coverage starts at v2.
 var versionCoverage = map[int][]string{
+	// A call in a Class.new or Module.new block is named for the method around it, never by the engine's path-dependent id
+	415: {"TestCollect_ACallInAnAnonymousBlockBelongsToTheMethodAroundIt"},
 	// prism is the Rubydex engine answering under the Prism reference script's names, from the run's one index, and never paired with itself
 	414: {"TestCollect_WritesTheEnclosingClassCallsUnderThePrismNames", "TestCollect_TheSkippedSameClassCallIsThePrismSidesFact",
 		"TestRun_PrismAndRubydexBuiltInsShareOneEngine", "TestRun_PrismBuiltInIsServedFromItsOwnIndexEntry",
