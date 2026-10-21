@@ -461,6 +461,89 @@ No artifacts are written; `.enola/` is not touched. For a persistent snapshot wi
 
 For per-module blast-radius queries with configurable depth, run `enola impact <target>` (see the [command table](#command-line-reference)), or see the `impact_analysis` tool reference in **[ARCHITECTURE.md → The tools](../ARCHITECTURE.md#the-tools)**.
 
+### Plain-language summary
+
+`enola --explain --summary [repo_path]` reads the repository the same way and prints a short summary for a reader who does not know the vocabulary above. Add `--json` for the same summary as JSON.
+
+It is derived from the report by fixed rules, with no model involved, so the same repository always reads the same. The sections come in the same order every time, and a section with nothing to say says so rather than disappearing:
+
+- **What this is** - languages, size, endpoints, data stores, and how the folders are organised
+- **Structure** - a verdict, `healthy`, `needs attention` or `unknown`, with the cycles and layer violations behind it. `unknown` means enola could not follow the imports, which is not the same as finding nothing
+- **Start reading here** - the program's main entry points, from the same ranking as `enola flows`, and the module most of the code imports
+- **Careful when changing** - modules a change travels furthest from, with the `enola impact` command for each. The bar scales with the size of the repository
+- **Worth a look** - at most three findings, the most certain first
+- **Take with a grain of salt** - what the summary left out (generated and vendored code is never ranked) and what enola cannot see
+- **Next** - the commands that show the detail
+
+A statement enola is certain of is printed as it is. One it is less sure of ends in `(likely)` or `(a guess)`. The summary of enola itself:
+
+```
+════════════════════════════════════════════════════════════
+ Repository summary: /path/to/enola
+════════════════════════════════════════════════════════════
+
+What this is
+  Written mainly in Go, also TypeScript, Ruby and Python.
+  158 modules (folders of code), holding 7864 named pieces of code such as
+  functions and types.
+  Serves 5 HTTP endpoints and calls 3 outside ones. enola found no database or
+  other data store.
+  The project writes down which parts of its code may use which (6 layers, in
+  enola-intent.yaml), and enola checks every import against it.
+
+Structure: healthy
+  No circular dependencies, and no layer rule broken.
+
+Start reading here
+  cmd/enola.main  (cmd/enola/main.go:30)
+    The program starts here. From here the code reaches 2232 functions in 112
+    modules.
+  internal/server.tool:plan_check  (internal/server/tools_intent.go:136)
+    Answers one of the tools the program offers to AI agents. From here the
+    code reaches 390 functions in 11 modules.
+  internal/facts
+    The most imported module: imported 346 times, so a lot of the code builds
+    on it.
+
+Careful when changing
+  internal/factpath
+    A change here can reach 104 other folders of code within three import
+    steps. Have tests in place before changing it.
+    See: enola impact internal/factpath
+  internal/facts
+    A change here can reach 102 other folders of code within three import
+    steps. Have tests in place before changing it.
+    See: enola impact internal/facts
+  internal/extractors/tsutil
+    A change here can reach 15 other folders of code within three import
+    steps. Have tests in place before changing it.
+    See: enola impact internal/extractors/tsutil
+
+Worth a look (most certain first)
+  internal/extractors/tsextractor.kindOf
+    Used from 180 places. A bug or a change here shows up in many places at
+    once.
+  7 functions look unused. Check each one before deleting it: code outside
+  this repository, or code called by name at runtime, may still use it.
+  (likely)
+  internal/intent.ruleFormProblems
+    Has 146 separate paths through it, far more than the rest of the code, so
+    it is hard to test every one. (likely)
+  1 more kind of finding is in the full report.
+
+Take with a grain of salt
+  Unused code is found by matching names. Code reached through reflection,
+  configuration or another repository can look unused when it is not.
+  enola reads the code and never runs it: it reports structure, not behaviour
+  or speed.
+
+Next
+  enola --explain /path/to/enola
+    Every number behind this summary.
+  enola flows /path/to/enola
+    All the ways into the program, and how much of it each one reaches.
+```
+
 ---
 
 ---
@@ -501,6 +584,7 @@ Every path argument follows the same rule: **a directory is a repository, a file
 | `--generate [repo_path\|config_path]` | Generate a snapshot and exit - no MCP server. Artifacts go to `output.dir` (default `.enola/`). With `repos:` in the config, indexes the whole cluster in one run. A directory whose immediate subfolders include two or more git repositories is indexed as a cluster: enola says it detected them, writes `cluster.yaml` there (see `cluster init`) or uses the one already there, and keeps the other settings of the config in force. A directory that is itself a git repository is indexed as one repository, with a warning. |
 | `--no-cluster` | With `--generate` on a directory holding several git repositories, index it as one repository instead of as a cluster. |
 | `--explain [repo_path\|config_path]` | Print the statistics report above and exit. Read-only: nothing is written to `.enola/`. A directory is a repository; a file is a config, so a `repos:` config reports over the whole cluster. |
+| `--summary` | With `--explain`, print the [plain-language summary](#plain-language-summary) instead of the report. With `--json` as well, print it as JSON. Refused on its own. |
 | `--list` | List the MCP tools this build serves, with one-line summaries. |
 | `--status` | List every enola server running right now - PID, repos, uptime, calls, dashboard URL - plus per-tool call counts and an estimate of the reconstruction those calls saved, in time and tokens. |
 | `--status --all` | The same usage, broken down per repository. |

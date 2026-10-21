@@ -1,0 +1,5 @@
+$ enola --summary .
+exit: 1
+--- stdout
+--- stderr
+--summary goes with --explain: enola --explain --summary [path]

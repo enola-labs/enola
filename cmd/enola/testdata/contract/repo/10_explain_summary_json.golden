@@ -1,0 +1,76 @@
+$ enola --explain --summary --json .
+exit: 0
+--- stdout
+{
+  "repo_path": "<TMP>/go_sample",
+  "about": [
+    {
+      "text": "Written in Go.",
+      "certainty": "certain"
+    },
+    {
+      "text": "3 modules (folders of code), holding 9 named pieces of code such as functions and types.",
+      "certainty": "certain"
+    },
+    {
+      "text": "Serves no HTTP endpoint enola could find. enola found no database or other data store.",
+      "certainty": "certain"
+    },
+    {
+      "text": "enola recognised no common way of organising the folders.",
+      "certainty": "likely"
+    }
+  ],
+  "health": {
+    "verdict": "needs attention",
+    "items": [
+      {
+        "text": "1 circular dependency: modules that depend on each other in a loop, so none of them can be changed or tested on its own.",
+        "certainty": "certain"
+      }
+    ]
+  },
+  "start_here": [
+    {
+      "subject": "main",
+      "location": "main.go:10",
+      "text": "The program starts here. From here the code reaches 3 functions in 3 modules.",
+      "certainty": "certain"
+    }
+  ],
+  "careful": [
+    {
+      "text": "No module stands out: a change in one part of the code stays fairly local.",
+      "certainty": "likely"
+    }
+  ],
+  "worth_a_look": [
+    {
+      "text": "2 functions look unused. Check each one before deleting it: code outside this repository, or code called by name at runtime, may still use it.",
+      "certainty": "likely"
+    }
+  ],
+  "caveats": [
+    {
+      "text": "Unused code is found by matching names. Code reached through reflection, configuration or another repository can look unused when it is not.",
+      "certainty": "certain"
+    },
+    {
+      "text": "enola reads the code and never runs it: it reports structure, not behaviour or speed.",
+      "certainty": "certain"
+    }
+  ],
+  "next": [
+    {
+      "subject": "enola --explain <TMP>/go_sample",
+      "text": "Every number behind this summary."
+    },
+    {
+      "subject": "enola flows <TMP>/go_sample",
+      "text": "All the ways into the program, and how much of it each one reaches."
+    }
+  ]
+}
+--- stderr
+enola: no mcp-arch.yaml in <TMP>/go_sample, using built-in defaults
+Analyzing <TMP>/go_sample …
