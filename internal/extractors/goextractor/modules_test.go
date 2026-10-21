@@ -63,9 +63,9 @@ func TestReadModules_EveryGoModInTheFileList(t *testing.T) {
 	if len(got.required) != len(wantReq) {
 		t.Fatalf("required: got %v, want %v", got.required, wantReq)
 	}
-	for i := range wantReq {
-		if got.required[i] != wantReq[i] {
-			t.Errorf("required %d: got %q, want %q", i, got.required[i], wantReq[i])
+	for _, r := range wantReq {
+		if !got.required[r] {
+			t.Errorf("required: %q missing from %v", r, got.required)
 		}
 	}
 	if got.rootPath() != "example.com/app" {
@@ -89,7 +89,7 @@ func TestGoModules_Resolve(t *testing.T) {
 		},
 		// sdk is a separate module under the root's path; tools is required and
 		// also in the repository, the shape of a local replace.
-		required: []string{"example.com/app/sdk", "example.com/app/tools"},
+		required: map[string]bool{"example.com/app/sdk": true, "example.com/app/tools": true},
 	}
 	cases := []struct {
 		in, want string

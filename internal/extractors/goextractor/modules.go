@@ -33,9 +33,13 @@ type goModule struct {
 // required module gitea.dev/actions-proto-go, not to the repository's module
 // gitea.dev. Matched on the repository's path alone, it was resolved to a
 // directory "actions-proto-go/runner/v1" the repository does not have.
+//
+// required is a set because resolve asks it once per import: a repository with
+// many go.mod files repeats most of its requirements in each, and scanning the
+// whole list for every import cost more than the rest of the extraction.
 type goModules struct {
 	list     []goModule
-	required []string
+	required map[string]bool
 }
 
 // readModules finds the go.mod files among the files the extractor was given,
@@ -45,14 +49,16 @@ type goModules struct {
 //
 // A root go.mod the file list does not carry is still read, as it always was.
 func readModules(repoPath string, files []string) goModules {
-	var mods goModules
+	mods := goModules{required: map[string]bool{}}
 	add := func(goMod, dir string) bool {
 		p, req := readGoMod(goMod)
 		if p == "" {
 			return false
 		}
 		mods.list = append(mods.list, goModule{path: p, dir: dir})
-		mods.required = append(mods.required, req...)
+		for _, r := range req {
+			mods.required[r] = true
+		}
 		return true
 	}
 	root := false
@@ -75,7 +81,6 @@ func readModules(repoPath string, files []string) goModules {
 		}
 		return a.dir < b.dir
 	})
-	sort.Strings(mods.required)
 	return mods
 }
 
@@ -98,10 +103,8 @@ func (m goModules) resolve(importPath string) (string, bool) {
 		if !underModule(importPath, mod.path) {
 			continue
 		}
-		for _, r := range m.required {
-			if len(r) > len(mod.path) && underModule(importPath, r) {
-				return "", false
-			}
+		if m.requiredUnder(importPath, len(mod.path)) {
+			return "", false
 		}
 		if importPath == mod.path {
 			return mod.dir, true
@@ -113,6 +116,21 @@ func (m goModules) resolve(importPath string) (string, bool) {
 		return path.Join(mod.dir, rest), true
 	}
 	return "", false
+}
+
+// requiredUnder reports whether a required module whose path is longer than the
+// first n bytes of importPath owns importPath. The only paths that can are
+// importPath itself and its prefixes that end at a slash, so those are looked up.
+func (m goModules) requiredUnder(importPath string, n int) bool {
+	if len(importPath) > n && m.required[importPath] {
+		return true
+	}
+	for i := len(importPath) - 1; i > n; i-- {
+		if importPath[i] == '/' && m.required[importPath[:i]] {
+			return true
+		}
+	}
+	return false
 }
 
 // underModule reports whether importPath is modulePath or a package inside it.
