@@ -157,11 +157,9 @@ constant), and `new` on a written constant (`prism-new:`, an
 `instantiates` edge at `constant-receiver`, with `one_shot_call` naming
 the message sent to the new object in the same expression when Rubydex
 reads a call of that name exactly there). It is close to the script, not
-the same: on the Ruby repositories it was compared on it recovers 88 to
-96% of the script's comparable facts, it also writes the calls a class
-body makes (`validates`, `before_action`; about a fifth of its output),
-which the script writes name-only, and where the source writes a
-constant it writes the constant Rubydex resolved
+the same: it writes the calls a class body makes (`validates`,
+`before_action`), which the script writes name-only, and where the source
+writes a constant it writes the constant Rubydex resolved
 (`AbstractController::ActionNotFound`) rather than the one in the source
 (`ActionNotFound`). The callee is the receiver
 Rubydex resolved, so `Board.find` inside `Board` is the singleton the
