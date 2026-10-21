@@ -7,6 +7,83 @@ The full per-release change lists — every Added, Changed and Fixed line — ar
 [enola.tech/changelog](https://enola.tech/changelog). This file is the same history at
 the resolution a reader of the repository needs.
 
+## v0.4.33 — 2026-10-21
+
+**Plain-language summaries of a repository and of a change, and Go monorepos linked across their modules**
+
+- New `enola --explain --summary`: what the repository is, whether its structure
+  holds, where to start reading, what is risky to change and what is worth a look,
+  each statement marked with how sure enola is. The sections are fixed and derived by
+  rules from the report, so the same repository always reads the same. Generated and
+  vendored code is never ranked. `--json` prints it as JSON.
+- New `enola check --summary` (`-format summary`, or `summary-json` with `--json`): the
+  verdict in plain words. A finding that was excused, exempted or stopped being checked
+  is counted as neither better nor worse, and a declined run grades nothing in any
+  section. The exit code is the verdict's.
+- Go:
+  - Imports resolve through every `go.mod` in the repository, not the root's alone. A
+    monorepo with one module per service, or a module nested in another, gets its
+    imports between them as internal edges to package directories; they were external
+    and unresolved. A required module whose path extends the repository's owns its
+    imports, as Go decides it.
+  - A module named without a dot has its own imports labelled internal, not stdlib.
+  - A topic passed to a same-package constructor that sets a consumer group's or
+    producer's `Topic` is a topic fact.
+- `find_path` takes sets: `from_nodes` and `to_nodes` are answered by one search, and a
+  name the graph does not hold is listed. A source file stands for the symbols it
+  declares, and an unresolved name gets a suggested candidate.
+- `generate_snapshot` sends MCP progress when the request carries a progress token: files
+  found, extractors, providers, linking, explainers, renderers and artifacts.
+- Ruby and packwerk:
+  - New `packwerk` explainer: undeclared (0.9) and unused (0.7) pack dependencies.
+    `explore` shows a pack's declared dependencies beside the ones its code references.
+  - `impact` on a namespace, directory or pack rolls up the symbols under it, with a
+    "Dependents by package" section.
+  - A `providers:` entry named `prism` with no command is a built-in answered from the
+    Rubydex index, with no Ruby on the machine. Rubydex is fetched at 0.4.1, and
+    `install.sh` and `enola upgrade` fetch it once the binary is in place
+    (`ENOLA_NO_RUBYDEX_FETCH` opts out).
+  - A call in a `Class.new` or `Module.new` block belongs to the method around it, so
+    fact names no longer depend on where the repository is checked out.
+  - A call to a hardcoded host is an external client route. Files tree-sitter read only
+    in part are named and counted as parse errors. A qualified constant resolves only
+    to a declaration ending in the whole path.
+- Test-only and dead code: a published library's exported API is not test-only (a root
+  gemspec, a public npm package, a packable C# library, a publishable Rust crate).
+  Out-of-line Rust test modules, `cfg` gates that require a test build, `cfg(fuzzing)`,
+  and e2e, cypress and playwright trees are test code. Rails railties, engines and
+  generators are roots, and an ASP.NET-bound parameter is a use of its type.
+- C#: tree-sitter-c-sharp v0.23.5, so C# 12 body-less types and collection expressions
+  parse. Each file is read under one build configuration (an `#if` chain keeps its first
+  branch). Attributes, `typeof`, `default` and `nameof` reference the repository's own
+  types.
+- TypeScript: Express routers nested under a locally mounted router compose their
+  prefixes, calls through a request helper declared in the file are client routes,
+  binary `.ts` files (MPEG-TS video segments) are skipped, and ORM entities under test
+  paths are not storage.
+- Rust: a call through a module path inside the crate names its target, so
+  `performs_io` crosses modules.
+- Fixed:
+  - Java and Kotlin lost the relations recorded after a nested declaration.
+  - HCL blocks were recorded on the blank line above their keyword.
+  - In a multi-repository graph, a bare call name could land on a same-named fact of
+    another kind in another repository, and module-edge rollups depended on fact order.
+  - Two providers writing the extractor cache at once could panic the engine.
+  - `cap_runtime` reported a budget as kept when its capture never reached the part.
+    `plan` says when a rule cannot be checked, and its blast radius went from 931 ms to
+    9.7 ms on 200,000 facts.
+  - `coverage` counted calls the linker had resolved as unresolved: 799 where there
+    were 126.
+  - `diff_snapshot` with `focus` dropped altered findings.
+  - The linker no longer joins different resources that share a path tail, or reads an
+    all-parameter prefix as an id.
+  - `endpoint` finds the controller for dotted methods, Go handler structs and Grape
+    classes.
+  - `traverse` and `impact` summaries filed a module under its parent directory.
+  - Pi: a server that exits at once no longer throws EPIPE into the session.
+- Go 1.26.10.
+- `cacheVersion` moves to `v417`: every repository re-extracts once.
+
 ## v0.4.32 — 2026-10-17
 
 **Docs for more of the graph, and each comment in full in `docs.jsonl`**
