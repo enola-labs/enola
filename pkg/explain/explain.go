@@ -143,12 +143,16 @@ type Report struct {
 	// which on a polyglot repository is more than one: a Rails monolith shipping an
 	// Ember front end is named as both, over disjoint sets of modules, and
 	// reporting only the higher-confidence half silently drops the other.
-	Architecture    string                  `json:"architecture,omitempty"`
-	ArchConfidence  float64                 `json:"architecture_confidence,omitempty"`
-	Architectures   []ArchitectureStatement `json:"architectures,omitempty"`
-	Cycles          int                     `json:"cyclic_dependencies"`
-	LayerViolations int                     `json:"layer_violations"`
-	CrossRepoEdges  int                     `json:"cross_repo_edges"`
+	Architecture   string                  `json:"architecture,omitempty"`
+	ArchConfidence float64                 `json:"architecture_confidence,omitempty"`
+	Architectures  []ArchitectureStatement `json:"architectures,omitempty"`
+	// DeclaredLayers is how many layers the repository declares, and
+	// LayerFiles the files that declare them, so a reader can be told where.
+	DeclaredLayers  int      `json:"declared_layers,omitempty"`
+	LayerFiles      []string `json:"layer_files,omitempty"`
+	Cycles          int      `json:"cyclic_dependencies"`
+	LayerViolations int      `json:"layer_violations"`
+	CrossRepoEdges  int      `json:"cross_repo_edges"`
 
 	Modules           int       `json:"modules"`
 	HighCriticality   int       `json:"high_criticality"`
@@ -307,6 +311,21 @@ func Compute(eng Source) *Report {
 	}
 
 	r.Modules = len(store.ByKind(facts.KindModule))
+
+	layerFiles := map[string]bool{}
+	for _, f := range store.ByKind(facts.KindIntent) {
+		if f.PropString("intent_kind") != "layer" {
+			continue
+		}
+		r.DeclaredLayers++
+		if f.File != "" {
+			layerFiles[f.File] = true
+		}
+	}
+	for f := range layerFiles {
+		r.LayerFiles = append(r.LayerFiles, f)
+	}
+	sort.Strings(r.LayerFiles)
 
 	// Insight-derived numbers: architecture pattern, cycles, layer violations,
 	// cross-repo edges, plus the code-health explainer groups. Titles are matched

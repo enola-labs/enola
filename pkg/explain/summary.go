@@ -196,7 +196,20 @@ func about(r *Report) []Item {
 // such: it is the project's own rule, not enola's reading of its folders.
 func layout(r *Report) Item {
 	if declared(r) {
-		return Item{Text: "The project declares its own layer order, and enola checks the code against it.", Certainty: Certain}
+		where := ""
+		if len(r.LayerFiles) > 0 {
+			where = ", in " + andList(r.LayerFiles)
+		}
+		layers := ""
+		if r.DeclaredLayers > 0 {
+			layers = " (" + plural(r.DeclaredLayers, "layer", "layers") + where + ")"
+		} else if where != "" {
+			layers = " (" + strings.TrimPrefix(where, ", ") + ")"
+		}
+		return Item{
+			Text:      "The project writes down which parts of its code may use which" + layers + ", and enola checks every import against it.",
+			Certainty: Certain,
+		}
 	}
 	best, conf := r.Architecture, r.ArchConfidence
 	if best == "" {

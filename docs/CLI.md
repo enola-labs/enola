@@ -488,8 +488,8 @@ What this is
   functions and types.
   Serves 5 HTTP endpoints and calls 3 outside ones. enola found no database or
   other data store.
-  The project declares its own layer order, and enola checks the code against
-  it.
+  The project writes down which parts of its code may use which (6 layers, in
+  enola-intent.yaml), and enola checks every import against it.
 
 Structure: healthy
   No circular dependencies, and no layer rule broken.

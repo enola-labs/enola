@@ -200,14 +200,15 @@ func TestSummary_About(t *testing.T) {
 		Languages: []string{"go", "c", "typescript"}, Modules: 1,
 		SymbolKinds:  []LabelCount{{Label: "function", Count: 10}, {Label: "section", Count: 99}},
 		RoutesServed: 1, RoutesOutbound: 3,
-		Architectures: []ArchitectureStatement{{Pattern: "declared (repo)", Confidence: 1}},
+		Architectures:  []ArchitectureStatement{{Pattern: "declared (repo)", Confidence: 1}},
+		DeclaredLayers: 6, LayerFiles: []string{"enola-intent.yaml"},
 	}
 	about := summarize(r, nil).About
 	for _, want := range []string{
 		"Written mainly in Go, also C and TypeScript.",
 		"1 module (a folder of code), holding 10 named pieces of code",
 		"Serves 1 HTTP endpoint and calls 3 outside ones. enola found no database or other data store.",
-		"declares its own layer order",
+		"writes down which parts of its code may use which (6 layers, in enola-intent.yaml), and enola checks every import against it.",
 	} {
 		if !containsText(about, want) {
 			t.Errorf("about is missing %q: %+v", want, about)
@@ -336,5 +337,20 @@ func TestSummaryRender_LongSubjectPutsLocationOnItsOwnLine(t *testing.T) {
 	section(&b, "Start reading here", []Item{{Subject: long, Location: "x.ts:3", Text: "t", Certainty: Certain}}, "")
 	if !strings.Contains(b.String(), "  "+long+"\n    at x.ts:3\n") {
 		t.Errorf("got:\n%s", b.String())
+	}
+}
+
+func TestCompute_DeclaredLayersAndWhere(t *testing.T) {
+	eng := newTestEngine(t)
+	layer := func(name, file string) facts.Fact {
+		return facts.Fact{Kind: facts.KindIntent, Name: "layer " + name, File: file,
+			Props: map[string]any{"intent_kind": "layer", "layer_name": name}}
+	}
+	eng.Store().Add(layer("app", "enola-intent.yaml"), layer("core", "enola-intent.yaml"),
+		facts.Fact{Kind: facts.KindIntent, Name: "rule", File: "enola-intent.yaml", Props: map[string]any{"intent_kind": "constraint"}})
+	eng.Store().BuildGraph()
+	r := Compute(eng)
+	if r.DeclaredLayers != 2 || !reflect.DeepEqual(r.LayerFiles, []string{"enola-intent.yaml"}) {
+		t.Errorf("layers = %d in %v, want 2 in [enola-intent.yaml]", r.DeclaredLayers, r.LayerFiles)
 	}
 }
