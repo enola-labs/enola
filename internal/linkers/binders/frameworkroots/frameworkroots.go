@@ -25,12 +25,20 @@
 // call is the class-level evidence, and the contract is read off the
 // registering module itself rather than off a list of names.
 //
-// The second pass walks calls, handled_by and depends_on edges from every
-// root and sets ReachedFromProp on each symbol reached, naming the
-// mechanisms that reach it. A bare call name resolves only against the
-// caller's own class, which is what Ruby does with an implicit receiver;
-// anything else the walk cannot follow stays unreached and is counted, so a
-// reader can tell a dead symbol from one behind an untyped receiver.
+// A class a library loads by its base class roots what the library calls on
+// it: a maintenance task's collection and process, an admin resource's fields,
+// an MCP tool's singleton call. A module's callbacks root on the classes a
+// framework drives that include it.
+//
+// The second pass walks calls, handled_by, depends_on and instantiates edges
+// from every root and sets ReachedFromProp on each symbol reached, naming the
+// mechanisms that reach it. A bare call name resolves the way Ruby looks up a
+// method on an implicit receiver: the caller's own class, then each
+// superclass and the modules each includes. Building an instance reaches its
+// initialize, and building a view component reaches the lifecycle its render
+// runs. Anything else the walk cannot follow stays unreached and is counted,
+// so a reader can tell a dead symbol from one behind an untyped receiver or a
+// class named only as a value.
 //
 // Both passes live in one binder because the second depends on the first,
 // and binders may not depend on the order they were registered in.
@@ -86,14 +94,39 @@ var mixinHooks = map[string]map[string]bool{
 	"Pundit":                 {"pundit_user": true, "pundit_params_for": true, "policy_scope": true, "authorize": true},
 }
 
-var walkedRelations = map[string]bool{facts.RelCalls: true, facts.RelHandledBy: true, facts.RelDependsOn: true}
+var walkedRelations = map[string]bool{facts.RelCalls: true, facts.RelHandledBy: true, facts.RelDependsOn: true, facts.RelInstantiates: true}
 
 // superclassHooks names, per library base class, the methods the library
 // calls on a subclass. A row applies through the superclass chain.
 var superclassHooks = map[string]map[string]bool{
 	"Scimitar::ResourcesController":                   {"storage_class": true, "storage_scope": true},
 	"Scimitar::ActiveRecordBackedResourcesController": {"storage_class": true, "storage_scope": true},
+	"Avo::BaseResource":                               {"fields": true, "actions": true, "filters": true, "scopes": true, "cards": true},
+	"Avo::BaseAction":                                 {"handle": true, "fields": true},
+	"Avo::Filters::SelectFilter":                      {"apply": true, "options": true, "default": true},
+	"Avo::Filters::MultipleSelectFilter":              {"apply": true, "options": true, "default": true},
+	"Avo::Filters::BooleanFilter":                     {"apply": true, "options": true, "default": true},
+	"Avo::Filters::TextFilter":                        {"apply": true, "default": true},
+	"Avo::Filters::DateTimeFilter":                    {"apply": true, "default": true},
 }
+
+// taskSuperclasses names, per library base class, the methods its runner
+// calls on a subclass when an operator starts the task.
+var taskSuperclasses = map[string]map[string]bool{
+	"MaintenanceTasks::Task": {"collection": true, "process": true, "count": true, "csv_collection": true},
+}
+
+// singletonHooks names, per library base class, the class methods the library
+// calls on a subclass: an MCP server calls a registered tool's call.
+var singletonHooks = map[string]map[string]bool{
+	"MCP::Tool": {"call": true},
+}
+
+var componentBases = map[string]bool{"ViewComponent::Base": true}
+
+// renderLifecycle is what building and rendering a view component runs, in
+// order; a plain instance runs only the first.
+var renderLifecycle = []string{"initialize", "before_render", "render?", "call"}
 
 type class struct {
 	name       string
@@ -101,7 +134,28 @@ type class struct {
 	superclass string
 	mixins     map[string]bool
 	names      map[string]bool
+	includers  []*class
 	classes    map[string]*class
+}
+
+// lookup finds the class a constant written inside `from` names, the way Ruby
+// resolves it: an absolute name as written, else each enclosing namespace of
+// `from` outward, then the top level.
+func lookup(classes map[string]*class, ref, from string) *class {
+	if strings.HasPrefix(ref, "::") {
+		return classes[strings.TrimPrefix(ref, "::")]
+	}
+	for scope := from; scope != ""; {
+		i := strings.LastIndex(scope, "::")
+		if i < 0 {
+			break
+		}
+		scope = scope[:i]
+		if c := classes[scope+"::"+ref]; c != nil {
+			return c
+		}
+	}
+	return classes[ref]
 }
 
 // ancestry is the class and its superclasses as far as the store declares
@@ -121,13 +175,58 @@ func (c *class) ancestry() []*class {
 	return out
 }
 
+func base(superclass string) string {
+	return strings.TrimPrefix(superclass, "::")
+}
+
+func (c *class) taskRunBy(method string) bool {
+	for _, a := range c.ancestry() {
+		if taskSuperclasses[base(a.superclass)][method] {
+			return true
+		}
+	}
+	return false
+}
+
+func (c *class) singletonHookedBy(method string) bool {
+	for _, a := range c.ancestry() {
+		if singletonHooks[base(a.superclass)][method] {
+			return true
+		}
+	}
+	return false
+}
+
+func (c *class) isComponent() bool {
+	for _, a := range c.ancestry() {
+		if a.component == "component" || componentBases[base(a.superclass)] {
+			return true
+		}
+	}
+	return false
+}
+
+// includedIntoFramework says a module is mixed into a class a framework drives
+// by its kind or its base class, so the callbacks its included block registers
+// run on that class.
+func (c *class) includedIntoFramework() bool {
+	for _, includer := range c.includers {
+		for _, a := range includer.ancestry() {
+			if a.component != "" || a.superclass != "" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func (c *class) frameworkBound() bool {
 	return c.component != "" || c.superclass != "" || len(c.mixins) > 0
 }
 
 func (c *class) hookedBy(method string) bool {
 	for _, a := range c.ancestry() {
-		if superclassHooks[a.superclass][method] {
+		if superclassHooks[base(a.superclass)][method] {
 			return true
 		}
 		for mixin := range a.mixins {
@@ -191,6 +290,9 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 		includer, module, ok := strings.Cut(dep.Name, " -> ")
 		if c := classes[includer]; ok && c != nil {
 			c.mixins[module] = true
+			if m := lookup(classes, module, includer); m != nil {
+				m.includers = append(m.includers, c)
+			}
 		}
 	}
 
@@ -213,7 +315,8 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 		routeTargets[routeKey(route)] = target
 	}
 	for name, f := range symbols {
-		if f.PropString("symbol_kind") != facts.SymbolMethod {
+		kind := f.PropString("symbol_kind")
+		if kind != facts.SymbolMethod && kind != facts.SymbolFunc {
 			continue
 		}
 		if _, already := roots[name]; already {
@@ -224,6 +327,12 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 		if c == nil {
 			continue
 		}
+		if kind == facts.SymbolFunc {
+			if singleton && c.singletonHookedBy(method) {
+				roots[name] = MechanismHook
+			}
+			continue
+		}
 		if mechanism := mechanismFor(c, f, method, singleton); mechanism != "" {
 			roots[name] = mechanism
 		}
@@ -231,7 +340,7 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 	rootFrameworkLoaded(symbols, classes, roots)
 	rootRegistryContracts(symbols, classes, roots)
 
-	adjacency := edges(store, symbols)
+	adjacency := edges(store, symbols, classes)
 	reached := map[string]map[string]bool{}
 	for _, mechanism := range mechanisms {
 		frontier := []string{}
@@ -318,7 +427,9 @@ func mechanismFor(c *class, f facts.Fact, method string, singleton bool) string 
 		return MechanismHook
 	case !singleton && isMigration(f.File) && (method == "change" || method == "up" || method == "down"):
 		return MechanismTask
-	case c.frameworkBound() && c.names[method]:
+	case !singleton && c.taskRunBy(method):
+		return MechanismTask
+	case (c.frameworkBound() || c.includedIntoFramework()) && c.names[method]:
 		return MechanismCallback
 	}
 	return ""
@@ -545,12 +656,47 @@ func splitMember(name string) (owner, method string, singleton bool) {
 
 // edges collects, per symbol, the symbols its walked relations resolve to. A
 // target that is already a symbol name resolves as written; a bare name
-// resolves against the caller's own class and nowhere else.
-func edges(store *facts.Store, symbols map[string]facts.Fact) map[string][]string {
+// resolves the way Ruby looks up a method on an implicit receiver: the
+// caller's own class, the modules it includes and its superclasses, and
+// nowhere else. Building an instance runs its initialize, and building a view
+// component runs the lifecycle its render calls.
+func edges(store *facts.Store, symbols map[string]facts.Fact, classes map[string]*class) map[string][]string {
 	out := map[string][]string{}
 	add := func(source, target string) {
-		if resolved := resolve(source, target, symbols); resolved != "" && resolved != source {
+		if resolved := resolve(source, target, symbols, classes); resolved != "" && resolved != source {
 			out[source] = append(out[source], resolved)
+		}
+	}
+	walk := func(source string, r facts.Relation) {
+		if !walkedRelations[r.Kind] {
+			return
+		}
+		add(source, r.Target)
+		if r.Kind != facts.RelInstantiates {
+			return
+		}
+		owner, _, _ := splitMember(source)
+		if owner == "" {
+			owner = source
+		}
+		built := classes[r.Target]
+		if built == nil {
+			built = lookup(classes, r.Target, owner)
+		}
+		if built == nil {
+			return
+		}
+		hooks := renderLifecycle[:1]
+		if built.isComponent() {
+			hooks = renderLifecycle
+		}
+		for _, hook := range hooks {
+			for _, a := range built.ancestry() {
+				if _, ok := symbols[a.name+"#"+hook]; ok {
+					out[source] = append(out[source], a.name+"#"+hook)
+					break
+				}
+			}
 		}
 	}
 	for _, f := range store.ByKind(facts.KindSymbol) {
@@ -558,9 +704,7 @@ func edges(store *facts.Store, symbols map[string]facts.Fact) map[string][]strin
 			continue
 		}
 		for _, r := range f.Relations {
-			if walkedRelations[r.Kind] {
-				add(f.Name, r.Target)
-			}
+			walk(f.Name, r)
 		}
 	}
 	for _, f := range store.ByKind(facts.KindDependency) {
@@ -575,31 +719,67 @@ func edges(store *facts.Store, symbols map[string]facts.Fact) map[string][]strin
 			continue
 		}
 		for _, r := range f.Relations {
-			if walkedRelations[r.Kind] {
-				add(source, r.Target)
-			}
+			walk(source, r)
 		}
 	}
 	return out
 }
 
-func resolve(source, target string, symbols map[string]facts.Fact) string {
+func resolve(source, target string, symbols map[string]facts.Fact, classes map[string]*class) string {
+	owner, _, _ := splitMember(source)
+	if owner == "" {
+		owner = source
+	}
+	if namespaced := lexical(owner, target, symbols); namespaced != "" {
+		return namespaced
+	}
 	if _, ok := symbols[target]; ok {
 		return target
 	}
 	if strings.ContainsAny(target, "#.:") {
 		return ""
 	}
-	owner, _, _ := splitMember(source)
-	if owner == "" {
-		owner = source
-	}
 	for _, candidate := range []string{owner + "#" + target, owner + "." + target} {
 		if _, ok := symbols[candidate]; ok {
 			return candidate
 		}
 	}
+	c := classes[owner]
+	if c == nil {
+		return ""
+	}
+	for _, a := range c.ancestry() {
+		if _, ok := symbols[a.name+"#"+target]; ok && a != c {
+			return a.name + "#" + target
+		}
+		for _, module := range sortedKeys(a.mixins) {
+			if m := lookup(classes, module, a.name); m != nil {
+				if _, ok := symbols[m.name+"#"+target]; ok {
+					return m.name + "#" + target
+				}
+			}
+		}
+	}
 	return ""
+}
+
+// lexical finds a constant-led target the way Ruby finds a constant written
+// inside owner: each enclosing namespace of owner outward, before the name as
+// written. A target starting with :: or naming a method on self is left alone.
+func lexical(owner, target string, symbols map[string]facts.Fact) string {
+	if strings.HasPrefix(target, "::") || strings.Contains(target, "#") || target == "" || target[0] < 'A' || target[0] > 'Z' {
+		return ""
+	}
+	for scope := owner; ; {
+		if _, ok := symbols[scope+"::"+target]; ok {
+			return scope + "::" + target
+		}
+		i := strings.LastIndex(scope, "::")
+		if i < 0 {
+			return ""
+		}
+		scope = scope[:i]
+	}
 }
 
 func setProp(f *facts.Fact, key, value string) {
@@ -607,6 +787,15 @@ func setProp(f *facts.Fact, key, value string) {
 		f.Props = map[string]any{}
 	}
 	f.SetProp(key, value)
+}
+
+func sortedKeys(set map[string]bool) []string {
+	keys := make([]string, 0, len(set))
+	for key := range set {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 func joinSorted(set map[string]bool) string {
