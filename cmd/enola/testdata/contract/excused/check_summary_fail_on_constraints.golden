@@ -1,0 +1,33 @@
+$ enola check --summary --fail-on constraints .
+exit: 0
+--- stdout
+════════════════════════════════════════════════════════════
+ Change summary: <TMP>/go_sample
+════════════════════════════════════════════════════════════
+
+Result: passes
+  Passes. The change did not alter the structure of the code.
+
+What you changed
+  Nothing in the structure of the code changed.
+
+Got worse
+  Nothing.
+
+Got better
+  Nothing.
+
+Neither better nor worse
+  1 problem is exempted by the project's own rules.
+
+Could not see
+  2 files left out by your ignore settings, so a change there is not seen.
+  1 exemption in your rules matches nothing, so it excuses nothing.
+  enola compares the structure of the code. It does not run it or its tests.
+
+Next
+  enola check
+    The full verdict, with every finding and every change.
+--- stderr
+enola: no mcp-arch.yaml in <TMP>/go_sample, using built-in defaults
+enola check: repo <TMP>/go_sample (built-in default config)

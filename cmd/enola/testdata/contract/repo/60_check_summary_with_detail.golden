@@ -1,0 +1,5 @@
+$ enola check --summary --detail .
+exit: 2
+--- stdout
+--- stderr
+enola check: --detail prints the full delta; it does not go with --summary

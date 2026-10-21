@@ -1,6 +1,7 @@
 package check
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -22,6 +23,10 @@ const (
 	FormatJSON        Format = "json"
 	FormatSARIF       Format = "sarif"
 	FormatAnnotations Format = "annotations"
+	// FormatSummary and FormatSummaryJSON are the plain-language summary, as
+	// text and as JSON. See Summarize.
+	FormatSummary     Format = "summary"
+	FormatSummaryJSON Format = "summary-json"
 )
 
 // Host names the CI the annotations writer renders for. It is a flag, never
@@ -36,7 +41,7 @@ const (
 )
 
 // Formats is every format `check -format` accepts, in the order --help lists them.
-var Formats = []Format{FormatText, FormatJSON, FormatSARIF, FormatAnnotations}
+var Formats = []Format{FormatText, FormatJSON, FormatSARIF, FormatAnnotations, FormatSummary, FormatSummaryJSON}
 
 // ParseFormat accepts the names in Formats and nothing else.
 func ParseFormat(s string) (Format, error) {
@@ -91,6 +96,10 @@ func (v Verdict) Write(o Output) ([]byte, error) {
 			return nil, fmt.Errorf("-format annotations needs -host buildkite or -host github")
 		}
 		return v.Annotations(o.Host, o.Link)
+	case FormatSummary:
+		return []byte(v.Summarize().Render()), nil
+	case FormatSummaryJSON:
+		return json.MarshalIndent(v.Summarize(), "", "  ")
 	}
 	return nil, fmt.Errorf("unknown format %q", o.Format)
 }

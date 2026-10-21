@@ -8,6 +8,7 @@ import (
 	"github.com/enola-labs/enola/internal/facts"
 	"github.com/enola-labs/enola/internal/orphans"
 	"github.com/enola-labs/enola/internal/perf"
+	"github.com/enola-labs/enola/pkg/plain"
 )
 
 func TestCompute_MarksGeneratedOffenders(t *testing.T) {
@@ -49,7 +50,7 @@ func TestCompute_MarksGeneratedOffenders(t *testing.T) {
 
 func TestSummary_EverySectionIsFilled(t *testing.T) {
 	s := summarize(&Report{}, nil)
-	sections := map[string][]Item{
+	sections := map[string][]plain.Item{
 		"about": s.About, "health": s.Health.Items, "start here": s.StartHere,
 		"careful": s.Careful, "worth a look": s.WorthALook, "caveats": s.Caveats, "next": s.Next,
 	}
@@ -75,16 +76,16 @@ func TestSummary_HealthVerdict(t *testing.T) {
 		name    string
 		r       Report
 		verdict string
-		certain Certainty
+		certain plain.Certainty
 		says    string
 	}{
-		{"clean", Report{Architecture: "go-standard", ArchConfidence: 0.85}, VerdictHealthy, Certain, "no layer rule broken"},
-		{"no layout to check against", Report{}, VerdictHealthy, Certain, "could not be checked"},
-		{"cycles", Report{Cycles: 2}, VerdictAttention, Certain, "2 circular dependencies"},
-		{"guessed layers", Report{LayerViolations: 1, Architecture: "hexagonal", ArchConfidence: 0.8}, VerdictAttention, Likely, "1 place where"},
-		{"declared layers", Report{LayerViolations: 3, Architecture: "declared (repo)", ArchConfidence: 1}, VerdictAttention, Certain, "3 places where"},
+		{"clean", Report{Architecture: "go-standard", ArchConfidence: 0.85}, VerdictHealthy, plain.Certain, "no layer rule broken"},
+		{"no layout to check against", Report{}, VerdictHealthy, plain.Certain, "could not be checked"},
+		{"cycles", Report{Cycles: 2}, VerdictAttention, plain.Certain, "2 circular dependencies"},
+		{"guessed layers", Report{LayerViolations: 1, Architecture: "hexagonal", ArchConfidence: 0.8}, VerdictAttention, plain.Likely, "1 place where"},
+		{"declared layers", Report{LayerViolations: 3, Architecture: "declared (repo)", ArchConfidence: 1}, VerdictAttention, plain.Certain, "3 places where"},
 		// Zero findings over imports nobody could follow is not good news.
-		{"blind", Report{CouplingUnresolved: true}, VerdictUnknown, Certain, "cannot judge"},
+		{"blind", Report{CouplingUnresolved: true}, VerdictUnknown, plain.Certain, "cannot judge"},
 	}
 	for _, c := range cases {
 		h := summarize(&c.r, nil).Health
@@ -129,7 +130,7 @@ func TestSummary_WorthALookIsMostCertainFirst(t *testing.T) {
 			t.Errorf("item %d: subject %q, want %q (%+v)", i, it.Subject, want[i], it)
 		}
 	}
-	if s.WorthALook[0].Certainty != Certain {
+	if s.WorthALook[0].Certainty != plain.Certain {
 		t.Errorf("first item should be certain, got %q", s.WorthALook[0].Certainty)
 	}
 	// The performance finding, a guess, did not fit and is counted.
@@ -233,7 +234,7 @@ func summaryReport() *Report {
 	}
 }
 
-func containsText(items []Item, s string) bool {
+func containsText(items []plain.Item, s string) bool {
 	for _, it := range items {
 		if strings.Contains(it.Text, s) {
 			return true
@@ -270,23 +271,6 @@ func TestSummaryRender_OnlyHedgesAreLabelled(t *testing.T) {
 	guess := summarize(&Report{Performance: &perf.Summary{High: 2}}, nil).Render()
 	if !strings.Contains(strings.Join(strings.Fields(guess), " "), "grows large. (a guess)") {
 		t.Errorf("a guess is labelled as one:\n%s", guess)
-	}
-}
-
-func TestSummaryRender_WrapsAtWidth(t *testing.T) {
-	var b strings.Builder
-	wrap(&b, strings.Repeat("word ", 40), "  ", "    ")
-	lines := strings.Split(strings.TrimSuffix(b.String(), "\n"), "\n")
-	if len(lines) < 2 {
-		t.Fatalf("expected wrapping, got %q", b.String())
-	}
-	for i, l := range lines {
-		if len(l) > summaryWidth {
-			t.Errorf("line %d is %d wide: %q", i, len(l), l)
-		}
-	}
-	if !strings.HasPrefix(lines[1], "    word") {
-		t.Errorf("continuation indent: %q", lines[1])
 	}
 }
 
@@ -328,15 +312,6 @@ func TestSummary_OneUnusedFunctionReadsAsOne(t *testing.T) {
 	items, _ := worthALook(&Report{DeadCode: &orphans.Summary{High: 1}})
 	if !strings.HasPrefix(items[0].Text, "1 function looks unused. Check it before deleting it:") {
 		t.Errorf("got %q", items[0].Text)
-	}
-}
-
-func TestSummaryRender_LongSubjectPutsLocationOnItsOwnLine(t *testing.T) {
-	var b strings.Builder
-	long := strings.Repeat("a", summaryWidth)
-	section(&b, "Start reading here", []Item{{Subject: long, Location: "x.ts:3", Text: "t", Certainty: Certain}}, "")
-	if !strings.Contains(b.String(), "  "+long+"\n    at x.ts:3\n") {
-		t.Errorf("got:\n%s", b.String())
 	}
 }
 

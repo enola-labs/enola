@@ -1,0 +1,68 @@
+$ enola check --summary --json .
+exit: 0
+--- stdout
+{
+  "repo": "<TMP>/go_sample",
+  "result": {
+    "outcome": "passes",
+    "items": [
+      {
+        "text": "Passes. Nothing is enforced yet, so this run could not fail the build.",
+        "certainty": "certain"
+      }
+    ]
+  },
+  "changed": [
+    {
+      "text": "Added 1 folder of code and 2 functions and types (pkg/c).",
+      "certainty": "certain"
+    },
+    {
+      "text": "pkg/b now uses pkg/c.",
+      "certainty": "certain"
+    }
+  ],
+  "worse": [
+    {
+      "subject": "pkg/b.UsesGamma",
+      "location": "pkg/b/gamma.go:6",
+      "text": "This function looks unused. Check it before deleting it: something may call it by name at runtime.",
+      "certainty": "likely"
+    }
+  ],
+  "better": [
+    {
+      "text": "Nothing.",
+      "certainty": "certain"
+    }
+  ],
+  "neither": [
+    {
+      "text": "Nothing: everything that appeared or went away is counted above.",
+      "certainty": "certain"
+    }
+  ],
+  "could_not_see": [
+    {
+      "text": "2 files left out by your ignore settings, so a change there is not seen.",
+      "certainty": "certain"
+    },
+    {
+      "text": "enola compares the structure of the code. It does not run it or its tests.",
+      "certainty": "certain"
+    }
+  ],
+  "next": [
+    {
+      "subject": "enola check --fail-on dead-code",
+      "text": "Make findings like these fail the build."
+    },
+    {
+      "subject": "enola check",
+      "text": "The full verdict, with every finding and every change."
+    }
+  ]
+}
+--- stderr
+enola: no mcp-arch.yaml in <TMP>/go_sample, using built-in defaults
+enola check: repo <TMP>/go_sample (built-in default config)

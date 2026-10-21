@@ -32,7 +32,7 @@ Flags:
   -focus string
     	narrow the delta to entries referencing this module/file/symbol
   -format string
-    	how to write the verdict: text, json, sarif, or annotations (default "text")
+    	how to write the verdict: text, json, sarif, annotations, summary, or summary-json (default "text")
   -host string
     	with -format annotations, the CI that shows them: buildkite or github
   -json
@@ -47,6 +47,8 @@ Flags:
     	with --reviewers, how many recent commits authorship is measured over (default 500)
   -reviewers
     	report who owns the modules this change touched, and who should review it (reads git author names)
+  -summary
+    	print a short plain-language summary instead (an alias of -format summary; with --json, -format summary-json)
   -target string
     	the symbol, type or package you INTENDED to change; packages reached outside its predicted blast radius are reported as spillover
   -warn-only

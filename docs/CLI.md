@@ -777,6 +777,7 @@ enola check --fail-on=layers,cycles,intent                 # …and cycles, and 
 enola check --fail-on=god-class --min-confidence=0.8       # an inferred one needs a lower floor
 enola check --fail-on=layers --warn-only                   # enforce, but only warn this time
 enola check --json                                         # machine-readable verdict
+enola check --summary                                      # the verdict in plain words (--json too: as JSON)
 enola check --format=sarif > enola.sarif                   # SARIF 2.1.0, one result per finding in every bucket
 enola check --format=annotations --host=buildkite          # one entry per positioned finding, for buildkite-agent annotate
 enola check --format=annotations --host=github             # the same as workflow commands, for Actions

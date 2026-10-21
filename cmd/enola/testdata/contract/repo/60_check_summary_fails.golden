@@ -1,0 +1,36 @@
+$ enola check --summary --fail-on dead-code --min-confidence 0.5 .
+exit: 1
+--- stdout
+════════════════════════════════════════════════════════════
+ Change summary: <TMP>/go_sample
+════════════════════════════════════════════════════════════
+
+Result: fails
+  Fails the build (dead-code).
+
+What you changed
+  Added 1 folder of code and 2 functions and types (pkg/c).
+  pkg/b now uses pkg/c.
+
+Got worse
+  pkg/b.UsesGamma  (pkg/b/gamma.go:6)
+    Fails the build. This function looks unused. Check it before deleting it:
+    something may call it by name at runtime. (likely)
+
+Got better
+  Nothing.
+
+Neither better nor worse
+  Nothing: everything that appeared or went away is counted above.
+
+Could not see
+  2 files left out by your ignore settings, so a change there is not seen.
+  enola compares the structure of the code. It does not run it or its tests.
+
+Next
+  enola check
+    Run it again once the problems above are fixed. Without --summary it shows
+    every finding and every change.
+--- stderr
+enola: no mcp-arch.yaml in <TMP>/go_sample, using built-in defaults
+enola check: repo <TMP>/go_sample (built-in default config)

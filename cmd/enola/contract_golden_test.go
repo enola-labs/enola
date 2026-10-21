@@ -370,6 +370,7 @@ func TestCLIContract_Repo(t *testing.T) {
 		{"50_baseline_show", []string{"baseline", "show", "."}},
 		{"50_check_clean", []string{"check", "."}},
 		{"50_check_clean_json", []string{"check", "--json", "."}},
+		{"50_check_clean_summary", []string{"check", "--summary", "."}},
 	})
 
 	// A new package that pkg/b starts importing, and a second import from pkg/a
@@ -385,6 +386,11 @@ func TestCLIContract_Repo(t *testing.T) {
 		{"60_check_json", []string{"check", "--json", "."}},
 		{"60_check_fail_on_dead_code", []string{"check", "--fail-on", "dead-code", "."}},
 		{"60_check_fail_on_cycles", []string{"check", "--fail-on", "cycles", "."}},
+		{"60_check_summary", []string{"check", "--summary", "."}},
+		{"60_check_summary_json", []string{"check", "--summary", "--json", "."}},
+		{"60_check_summary_fails", []string{"check", "--summary", "--fail-on", "dead-code", "--min-confidence", "0.5", "."}},
+		{"60_check_summary_with_format", []string{"check", "--summary", "-format", "sarif", "."}},
+		{"60_check_summary_with_detail", []string{"check", "--summary", "--detail", "."}},
 		{"60_check_target", []string{"check", "--target", "pkg/b.Beta", "--max-spillover", "0", "."}},
 		{"60_check_target_expected", []string{"check", "--target", "pkg/b.Beta", "--expected", "pkg/c", "--max-spillover", "0", "."}},
 		{"60_check_baseline_previous", []string{"check", "--baseline", "previous", "."}},
@@ -576,6 +582,7 @@ func TestCLIContract_Excused(t *testing.T) {
 		{"plan", []string{"plan", "pkg/a/a.go", "."}},
 		{"baseline_pin", []string{"baseline", "pin", "."}},
 		{"check_fail_on_constraints", []string{"check", "--fail-on", "constraints", "."}},
+		{"check_summary_fail_on_constraints", []string{"check", "--summary", "--fail-on", "constraints", "."}},
 	})
 
 	// A declaration that does not parse is refused by every command that reads it.

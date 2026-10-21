@@ -147,7 +147,8 @@ func (r *Runner) Check(ctx context.Context, args []string) {
 		minConfidence = fs.Float64("min-confidence", 0, "confidence floor within --fail-on explainers (default: 1.00)")
 		warnOnly      = fs.Bool("warn-only", false, "downgrade a --fail-on / --max-spillover policy to warnings (blocking/usage errors still apply)")
 		asJSON        = fs.Bool("json", false, "emit the verdict as JSON instead of text (an alias of -format json)")
-		format        = fs.String("format", "text", "how to write the verdict: text, json, sarif, or annotations")
+		format        = fs.String("format", "text", "how to write the verdict: text, json, sarif, annotations, summary, or summary-json")
+		summary       = fs.Bool("summary", false, "print a short plain-language summary instead (an alias of -format summary; with --json, -format summary-json)")
 		host          = fs.String("host", "", "with -format annotations, the CI that shows them: buildkite or github")
 		link          = fs.String("link", "", "with -host buildkite, the pull request's files view to link each line into")
 		focus         = fs.String("focus", "", "narrow the delta to entries referencing this module/file/symbol")
@@ -179,7 +180,22 @@ func (r *Runner) Check(ctx context.Context, args []string) {
 	if err := fs.Parse(args); err != nil {
 		os.Exit(check.StatusUsageError.ExitCode())
 	}
-	if *asJSON {
+	// --summary names a format, like --json, and refuses a second one rather
+	// than choosing between them: `--summary -format sarif` has no answer a
+	// reader would expect. --detail prints the full delta under the text
+	// verdict, which is the opposite of asking for a summary.
+	if *summary {
+		if *format != string(check.FormatText) {
+			r.checkFatal("--summary is -format summary; it does not go with -format %s", *format)
+		}
+		if *detail {
+			r.checkFatal("--detail prints the full delta; it does not go with --summary")
+		}
+		*format = string(check.FormatSummary)
+		if *asJSON {
+			*format = string(check.FormatSummaryJSON)
+		}
+	} else if *asJSON {
 		*format = string(check.FormatJSON)
 	}
 	outFormat, err := check.ParseFormat(*format)
