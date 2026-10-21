@@ -2051,7 +2051,13 @@ func parseTSConfigAliases(config tsConfigAliasFile, declaringPath, originDir str
 //
 // Ties are broken on the prefix string so the result is a total order, not merely a
 // less-arbitrary one.
+//
+// A bundler query is not part of the path: Vite's `./icon.svg?react` and `?raw`,
+// webpack's `?inline`, all name the file before the `?`, so it is cut first.
 func resolveImportPath(importPath, fileDir string, aliases map[string]tsAlias) (string, bool) {
+	if i := strings.IndexByte(importPath, '?'); i > 0 {
+		importPath = importPath[:i]
+	}
 	// An exact entry wins outright. tsconfig resolves most-specific-first and a pattern
 	// with no `*` matches the whole specifier and nothing else, so it cannot be ranked
 	// against prefixes by length — `@acme/common` (exact) and `@acme/` (prefix) both

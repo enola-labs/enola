@@ -3052,7 +3052,10 @@ import (
 // constant made a coupling edge to the reopening's folder; those edges are gone,
 // and the nested constants resolve as before. Symbols of such bodies carry
 // namespace_only.
-const cacheVersion = "v418"
+// v419: A TypeScript import's bundler query is cut before the path resolves:
+// `@/icons/bell.svg?react` imports src/icons/bell.svg, and its dependency fact
+// names that file, where it carried the query.
+const cacheVersion = "v419"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

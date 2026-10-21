@@ -1232,6 +1232,24 @@ func TestResolveImportPath_NonAliasPathsUnchanged(t *testing.T) {
 	}
 }
 
+func TestResolveImportPath_ABundlerQueryIsNotPartOfThePath(t *testing.T) {
+	aliases := map[string]tsAlias{"@/": {replacement: "src/"}}
+	for _, tc := range []struct {
+		importPath, want string
+		external         bool
+	}{
+		{"@/icons/bell.svg?react", "src/icons/bell.svg", false},
+		{"./shader.glsl?raw", "src/app/shader.glsl", false},
+		{"../worker?worker&inline", "src/worker", false},
+		{"lodash?x", "lodash", true},
+	} {
+		got, ext := resolveImportPath(tc.importPath, "src/app", aliases)
+		if got != tc.want || ext != tc.external {
+			t.Errorf("%s = %q external=%v, want %q external=%v", tc.importPath, got, ext, tc.want, tc.external)
+		}
+	}
+}
+
 func TestDetect_HotwireStimulusApp(t *testing.T) {
 	dir := t.TempDir()
 	pkg := `{"dependencies": {"@hotwired/stimulus": "^3.2.0", "@hotwired/turbo-rails": "^8.0.0"}}`
