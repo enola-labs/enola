@@ -256,7 +256,7 @@ func (e *TSExtractor) extractFile(src []byte, relFile string, rc *repoCtx, alias
 		src, emberSegments = blankEmberTemplates(src)
 	}
 
-	result := sourcePatternFacts(src, relFile, rc)
+	result, hosts := sourcePatternFacts(src, relFile, rc)
 
 	lang := typescript.LanguageTypescript()
 	if isTSX {
@@ -285,7 +285,9 @@ func (e *TSExtractor) extractFile(src []byte, relFile string, rc *repoCtx, alias
 	// not leave used code mis-reported as dead.
 	result = append(result, e.collectTSFileRefs(kinds, root, ctx, aliases, facts.KindFileRef)...)
 
-	return e.frameworkPasses(kinds, root, ctx, aliases, result, isEmberFile, emberSegments)
+	res := e.frameworkPasses(kinds, root, ctx, aliases, result, isEmberFile, emberSegments)
+	res.hosts = hosts
+	return res
 }
 
 func (e *TSExtractor) extractNonScript(kinds *tsutil.KindTable, src []byte, relFile string, rc *repoCtx, aliases map[string]tsAlias) ([]facts.Fact, bool) {
@@ -315,8 +317,9 @@ func (e *TSExtractor) extractNonScript(kinds *tsutil.KindTable, src []byte, relF
 	return nil, false
 }
 
-func sourcePatternFacts(src []byte, relFile string, rc *repoCtx) []facts.Fact {
+func sourcePatternFacts(src []byte, relFile string, rc *repoCtx) ([]facts.Fact, clientHosts) {
 	var result []facts.Fact
+	var hosts clientHosts
 	// Parse openapi-typescript generated files for backend API route dependencies.
 	// These are client-role route facts showing which backend routes the TS code calls.
 	result = append(result, extractOpenAPITypescriptFacts(src, relFile)...)
@@ -335,7 +338,9 @@ func sourcePatternFacts(src []byte, relFile string, rc *repoCtx) []facts.Fact {
 		if rc.graphqlServer.enabled {
 			result = append(result, extractGraphQLServerSDL(src, relFile)...)
 		}
-		result = append(result, extractHTTPClientFacts(src, relFile)...)
+		var clientFacts []facts.Fact
+		clientFacts, hosts = extractHTTPClientFactsCounted(src, relFile)
+		result = append(result, clientFacts...)
 		// Call-registered server routes (Express/Fastify/Hono/Koa). Same test-path
 		// gate: an e2e suite that spins up its own app would otherwise contribute
 		// server routes no production client calls.
@@ -343,7 +348,7 @@ func sourcePatternFacts(src []byte, relFile string, rc *repoCtx) []facts.Fact {
 	}
 
 	// gRPC-web client call sites become client-role routes to "/pkg.Service/Method".
-	return append(result, extractGRPCClientFacts(src, relFile, rc.grpcStubs)...)
+	return append(result, extractGRPCClientFacts(src, relFile, rc.grpcStubs)...), hosts
 }
 
 func astPatternFacts(kinds *tsutil.KindTable, root *sitter.Node, src []byte, relFile string, isTSX bool, graphqlServer graphqlServerContext) []facts.Fact {
