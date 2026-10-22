@@ -347,6 +347,16 @@ func TestAnalyze_PackageListsImportersNotItsOwnSymbols(t *testing.T) {
 	if want := []string{"services/migrations:1", "routers/web:2"}; !slices.Equal(got, want) {
 		t.Errorf("Modules = %v, want %v", got, want)
 	}
+
+	// max_depth bounds the symbol walk, not the package list: a depth of 1 still
+	// names the importer two hops away.
+	shallow, err := Analyze(resolve.Resolver{Store: store}, Request{Target: "modules/uri", MaxDepth: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(shallow.Modules) != 2 {
+		t.Errorf("max_depth 1 cut the package list: %v", shallow.Modules)
+	}
 	if report.SeedKind != SeedsPackage || !slices.Equal(report.Seeds, []string{"modules/uri.Open"}) {
 		t.Errorf("the package's own symbol should be a seed: kind=%q seeds=%v", report.SeedKind, report.Seeds)
 	}

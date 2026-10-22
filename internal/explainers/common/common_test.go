@@ -343,7 +343,9 @@ func TestBuildModuleGraph_UntaggedTestModuleExcluded(t *testing.T) {
 	s.Add(facts.Fact{Kind: facts.KindModule, Name: "tests/unit_tests/dao"})
 	s.Add(facts.Fact{Kind: facts.KindDependency, File: "tests/unit_tests/dao/f.py",
 		Relations: []facts.Relation{{Kind: facts.RelImports, Target: "superset/dao"}}})
-	s.Add(facts.Fact{Kind: facts.KindDependency, File: "superset/dao/f.py",
+	// From a test file beside the code: an import from production code would make
+	// the module production (see TestModuleNameSets_ProductionImportPromotesAGuessedTestModule).
+	s.Add(facts.Fact{Kind: facts.KindDependency, File: "superset/dao/f_test.py",
 		Relations: []facts.Relation{{Kind: facts.RelImports, Target: "tests/unit_tests/dao"}}})
 
 	graph := BuildModuleGraph(s)
@@ -474,5 +476,41 @@ func TestSymbolModuleIn(t *testing.T) {
 		if got := SymbolModuleIn(tt.name, declared); got != tt.want {
 			t.Errorf("SymbolModuleIn(%q) = %q, want %q", tt.name, got, tt.want)
 		}
+	}
+}
+
+// A module judged test code by its path alone is production once production code
+// imports it: the import is evidence, the name is a guess. A real cycle through a
+// `mocks` folder a store imports was cut in two by the exclusion. An import from a
+// test file promotes nothing, a promoted module's own imports promote in turn, and
+// a role the build file stated is never overridden.
+func TestModuleNameSets_ProductionImportPromotesAGuessedTestModule(t *testing.T) {
+	s := facts.NewStore()
+	for _, m := range []string{"src/stores", "src/lib/mocks", "src/lib/fixtures", "src/testutils"} {
+		s.Add(facts.Fact{Kind: facts.KindModule, Name: m})
+	}
+	s.Add(facts.Fact{Kind: facts.KindModule, Name: "app/src/test/java/a/mocks", Props: map[string]any{facts.PropModuleRole: facts.ModuleRoleTest}})
+	dep := func(file, target string) facts.Fact {
+		return facts.Fact{Kind: facts.KindDependency, File: file, Relations: []facts.Relation{{Kind: facts.RelImports, Target: target}}}
+	}
+	s.Add(
+		dep("src/stores/discoverStore.ts", "src/lib/mocks/discoverMocks"),
+		dep("src/lib/mocks/discoverMocks.ts", "src/lib/fixtures/data"),
+		dep("src/stores/discoverStore.test.ts", "src/testutils/render"),
+		dep("src/stores/discoverStore.ts", "app/src/test/java/a/mocks"),
+	)
+	prod, test := ModuleNameSets(s)
+	for _, m := range []string{"src/lib/mocks", "src/lib/fixtures"} {
+		if !prod[m] || test[m] {
+			t.Errorf("%s is imported by production code and should be production", m)
+		}
+	}
+	for _, m := range []string{"src/testutils", "app/src/test/java/a/mocks"} {
+		if prod[m] || !test[m] {
+			t.Errorf("%s should stay test code", m)
+		}
+	}
+	if graph := BuildModuleGraph(s); len(graph["src/stores"]) != 1 || graph["src/stores"][0] != "src/lib/mocks" {
+		t.Errorf("src/stores edges = %v, want [src/lib/mocks]", graph["src/stores"])
 	}
 }

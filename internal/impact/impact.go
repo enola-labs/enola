@@ -174,7 +174,7 @@ func Analyze(r resolve.Resolver, req Request) (Report, error) {
 		if len(own) > 0 {
 			report.Seeds, report.SeedKind = own, SeedsPackage
 		}
-		report.Modules = moduleDependents(graph, targetName, req.MaxDepth)
+		report.Modules = moduleDependents(graph, targetName)
 		return withPackages(store, report), nil
 	}
 
@@ -186,18 +186,17 @@ func Analyze(r resolve.Resolver, req Request) (Report, error) {
 // importer count, so the list is complete in practice.
 const maxModuleDependents = 2000
 
-// maxModuleDepth is the module walk's depth when none is asked for, and its cap:
-// the symbol walk's (10). A module graph is small, and the question it answers is
-// transitive, so the symbol walk's default of 3 would cut it short.
-const maxModuleDepth = 10
+// maxModuleDepth is the module walk's depth, the traversal's own ceiling. It does
+// not follow the request's max_depth: that bounds the symbol walk, whose size
+// grows with it, while "which packages depend on this one" is transitive and
+// cheap. Bounded by the symbol walk's default of 3, a package four imports away
+// was silently missing from a list that read as complete.
+const maxModuleDepth = 20
 
 // moduleDependents lists the modules that import module, directly or transitively.
-func moduleDependents(graph *facts.Graph, module string, maxDepth int) []ModuleDependent {
-	if maxDepth <= 0 || maxDepth > maxModuleDepth {
-		maxDepth = maxModuleDepth
-	}
+func moduleDependents(graph *facts.Graph, module string) []ModuleDependent {
 	walk := graph.TraverseFrom([]string{module}, "reverse",
-		[]string{facts.RelImports, facts.RelDependsOn}, []string{facts.KindModule}, maxDepth, maxModuleDependents)
+		[]string{facts.RelImports, facts.RelDependsOn}, []string{facts.KindModule}, maxModuleDepth, maxModuleDependents)
 	var out []ModuleDependent
 	for _, n := range walk.Nodes {
 		if n.Depth == 0 || n.Name == module {

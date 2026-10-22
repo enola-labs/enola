@@ -116,7 +116,7 @@ func (e *Explainer) Explain(ctx context.Context, store *facts.Store) ([]facts.In
 		byRepo[repo] = append(byRepo[repo], route{name: f.Name, file: f.File, label: routeLabel(f)})
 	}
 	if len(byRepo) == 0 {
-		return nil, nil
+		return duplicates, nil
 	}
 
 	repos := make([]string, 0, len(byRepo))
@@ -192,7 +192,7 @@ func (e *Explainer) Explain(ctx context.Context, store *facts.Store) ([]facts.In
 			},
 		})
 	}
-	return insights, nil
+	return append(insights, duplicates...), nil
 }
 
 // route carries the three things an unmatched route contributes downstream: the fact
@@ -287,6 +287,13 @@ func coverageByFile(routes []route, served map[string]int) []facts.Evidence {
 // `/items/{id}`, `/items/{id:[0-9]+}` and `/items/:id` compare equal.
 var pathParam = regexp.MustCompile(`\{[^}]*\}|/:[A-Za-z_][A-Za-z0-9_]*`)
 
+// wrapsEndpoints are the route types that sit on a path beside its endpoint
+// rather than competing with it.
+var wrapsEndpoints = map[string]bool{
+	"middleware": true, "layout": true, "loading": true, "error": true,
+	"template": true, "not-found": true, "default": true,
+}
+
 // duplicateRoutes reports a server route — one method on one path — registered in
 // more than one file of a repository. A router serves one registration of a path
 // and the other handler never runs, or refuses to start; which one wins depends on
@@ -307,6 +314,12 @@ func duplicateRoutes(store *facts.Store) []facts.Insight {
 		}
 		method, _ := f.PropAny("method").(string)
 		if method == "" || f.File == "" {
+			continue
+		}
+		// Middleware mounted on a prefix is not an endpoint: two files may each
+		// guard the same prefix, and neither shadows the other. Nor is a Next.js
+		// layout, loading or error file, which wraps the page on its path.
+		if kind, _ := f.PropAny("type").(string); wrapsEndpoints[kind] || strings.EqualFold(method, "USE") {
 			continue
 		}
 		key := strings.ToUpper(method) + " " + pathParam.ReplaceAllStringFunc(f.Name, func(m string) string {

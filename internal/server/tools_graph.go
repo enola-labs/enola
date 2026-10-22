@@ -500,7 +500,7 @@ type endpointImpactArgs struct {
 
 type impactAnalysisArgs struct {
 	Target         string `json:"target" jsonschema:"The node being changed, substring match. Disambiguate with repo:, kind:, file: prefixes."`
-	MaxDepth       int    `json:"max_depth,omitempty" jsonschema:"Hops of impact (1-10). Default 3."`
+	MaxDepth       int    `json:"max_depth,omitempty" jsonschema:"Hops of impact (1-10). Default 3. It bounds the symbol walk only: a package target lists every package that imports it, at any depth."`
 	MaxNodes       int    `json:"max_nodes,omitempty" jsonschema:"Maximum impacted nodes (1-500). Default 200."`
 	IncludeForward bool   `json:"include_forward,omitempty" jsonschema:"Also show what the target depends on, i.e. what could break it. Default false."`
 	OutputMode     string `json:"output_mode,omitempty" jsonschema:"'summary' (DEFAULT, exact dependent count, breakdown by kind and depth, hotspot modules, cross-repo reach, cycle and layer insights touching the target), 'compact' (dependents by depth), or 'full' (raw JSON graph; can be VERY large). Escalate only when you need specific nodes."`

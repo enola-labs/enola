@@ -520,7 +520,7 @@ func (e *TSExtractor) extractSvelteScriptBlock(kinds *tsutil.KindTable, block *s
 	root := tree.RootNode()
 
 	var result []facts.Fact
-	result = append(result, e.extractImports(kinds, root, block.Content, relFile, aliases, isSvelteKit)...)
+	result = append(result, e.extractImports(kinds, root, block.Content, relFile, aliases, isSvelteKit, files)...)
 
 	importMap, internalImports := buildImportBindings(kinds, root, block.Content, relFile, aliases, files)
 	ctx := &extractCtx{

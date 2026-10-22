@@ -127,7 +127,8 @@ func (e *CycleExplainer) Explain(ctx context.Context, store *facts.Store) ([]fac
 		if large {
 			description = fmt.Sprintf(
 				"%s. Their imports are loaded, not resolved lazily, so this is a real cycle and not "+
-					"autoload coupling. It is too large to break in one step; the evidence lists %d of the %d modules.",
+					"autoload coupling. It is too large to break in one step; the evidence lists %d of the %d modules, "+
+					"and metrics.members in the full output names every one.",
 				describeLargeCycle(scc, graph), len(listed), len(scc),
 			)
 			actions = []string{
@@ -163,6 +164,7 @@ func (e *CycleExplainer) Explain(ctx context.Context, store *facts.Store) ([]fac
 			Confidence:  1.0, // Deterministic
 			Evidence:    evidence,
 			Actions:     actions,
+			Metrics:     membersMetric(scc, large),
 		})
 	}
 
@@ -266,6 +268,23 @@ func sharedUnit(scc []string, unitOf map[string]string) (string, bool) {
 	return unit, unit != ""
 }
 
+// MetricMembers is every module of a component too large to list as evidence.
+// The evidence stops at maxClusterMembers so a summary or compact read stays
+// small; a caller that has to name each member asks for the full output, where
+// this list is, rather than rebuilding the component from the import graph.
+const MetricMembers = "members"
+
+// membersMetric carries a large component's whole membership, sorted, and nothing
+// for one whose evidence already lists it.
+func membersMetric(scc []string, large bool) map[string]any {
+	if !large {
+		return nil
+	}
+	members := append([]string(nil), scc...)
+	sort.Strings(members)
+	return map[string]any{MetricMembers: members}
+}
+
 // coupledClusterInsight reports an oversized SCC as a soft coupling signal rather
 // than a discrete cycle. The title deliberately does NOT start with "Cyclic
 // dependency" so pkg/explain does not fold it into the cycle count.
@@ -287,13 +306,15 @@ func coupledClusterInsight(scc []string) facts.Insight {
 			"%d modules in an autoloaded language depend on each other through inheritance, "+
 				"mixins, require or declared package dependencies. In an autoloaded codebase "+
 				"(e.g. Rails) a component this size is common, and it is better read as an "+
-				"overall coupling-density signal than as one cycle to break.",
+				"overall coupling-density signal than as one cycle to break. metrics.members "+
+				"in the full output names every module.",
 			len(scc),
 		),
 		// Deterministic and certain, exactly like the cycle it grew out of.
 		// Lowering it here is what let a growing cycle drop under the gate.
 		Confidence: 1.0,
 		Evidence:   evidence,
+		Metrics:    membersMetric(scc, true),
 		Actions: []string{
 			"Look for a few high-traffic modules whose extraction would thin the cluster",
 			"Prefer narrowing individual module responsibilities over a single big refactor",

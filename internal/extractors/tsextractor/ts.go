@@ -274,7 +274,7 @@ func (e *TSExtractor) extractFile(src []byte, relFile string, rc *repoCtx, alias
 	if !facts.IsTestPath(relFile) {
 		result = append(result, astPatternFacts(kinds, root, src, relFile, isTSX, rc.graphqlServer)...)
 	}
-	result = append(result, e.extractImports(kinds, root, src, relFile, aliases, rc.isSvelteKit)...)
+	result = append(result, e.extractImports(kinds, root, src, relFile, aliases, rc.isSvelteKit, rc.files)...)
 
 	ctx := newFileCtx(kinds, root, src, relFile, isTSX, rc, aliases)
 	result = append(result, e.fileDeclarations(kinds, root, ctx)...)
@@ -519,7 +519,7 @@ func vueRouterFacts(kinds *tsutil.KindTable, root *sitter.Node, src []byte, relF
 	return append([]facts.Fact{config}, extractVueRouterRoutes(kinds, root, src, relFile, aliases)...)
 }
 
-func (e *TSExtractor) extractImports(kinds *tsutil.KindTable, root *sitter.Node, src []byte, relFile string, aliases map[string]tsAlias, isSvelteKit bool) []facts.Fact {
+func (e *TSExtractor) extractImports(kinds *tsutil.KindTable, root *sitter.Node, src []byte, relFile string, aliases map[string]tsAlias, isSvelteKit bool, files *tsFileIndex) []facts.Fact {
 	var result []facts.Fact
 	dir := factpath.Dir(relFile)
 
@@ -551,6 +551,8 @@ func (e *TSExtractor) extractImports(kinds *tsutil.KindTable, root *sitter.Node,
 		importSource := "internal"
 		if isExternal {
 			importSource = "external"
+		} else if file, ok := files.fileBesideDir(resolved); ok {
+			resolved = file
 		}
 		if isSvelteKit && isSvelteKitVirtualImport(importPath) {
 			importSource = facts.DepSourceFramework
@@ -597,6 +599,9 @@ func (e *TSExtractor) extractImports(kinds *tsutil.KindTable, root *sitter.Node,
 					if strArg := findChildByKind(kinds, n.ChildByFieldName("arguments"), "string"); strArg != nil {
 						importPath := strings.Trim(nodeText(strArg, src), `"'`)
 						resolved, isExternal := resolveImportPath(importPath, dir, aliases)
+						if file, ok := files.fileBesideDir(resolved); ok && !isExternal {
+							resolved = file
+						}
 						name := dir + " -> " + resolved
 						if !seenDep[name] {
 							seenDep[name] = true

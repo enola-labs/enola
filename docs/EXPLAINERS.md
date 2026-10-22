@@ -46,7 +46,11 @@ An explainer reads the fact graph and emits **findings** — a claim, a confiden
 the entities the claim is about. There are nineteen, and they fall into six kinds:
 
 - **The proofs.** `cycles` runs Tarjan's SCC over the resolved import edges — a cycle
-  either exists or it does not. `intent` diffs DECLARED architecture (a repo's
+  either exists or it does not. Test modules are left out of that graph; a module
+  judged test code only by its path (`src/lib/mocks`) is production once production
+  code imports it. A component too large to list keeps 12 members as evidence, and
+  `metrics.members` carries every one, so only a full read pays for the whole list.
+  `intent` diffs DECLARED architecture (a repo's
   enola-intent.yaml, or a cluster config's intent block) against the measured
   cross-repo edges: an unexpected or mis-mechanism seam is set difference between
   stated and measured, which either holds or it does not. Its estimating findings — a
@@ -118,7 +122,8 @@ the entities the claim is about. There are nineteen, and they fall into six kind
   says the client set is incomplete instead of listing endpoints to delete. That finding
   still says where the unmatched routes are, per route file. In any snapshot, one
   method on one path registered in two or more files is reported as well: a router
-  serves one registration, so the other handler never runs.
+  serves one registration, so the other handler never runs. Middleware on a prefix and
+  a Next.js layout, loading or error file beside its page do not count.
 - **The declaration-shaped ones.** Every explainer above keys off symbols, modules and
   their dependency edges, which left the route, storage and association facts the
   extractors emit feeding nothing. `domain` asks the questions those facts answer —

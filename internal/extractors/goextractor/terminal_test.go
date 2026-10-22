@@ -144,3 +144,40 @@ func search(string) (string, error) { return "", nil }
 		t.Errorf("search runs once per principal until one matches, and was dropped: %v", calls)
 	}
 }
+
+// A continue before the call does not make the call repeat: what follows the last
+// statement that can go round again runs once, on the way out. Searching for the
+// pending entry, skipping the ones it cannot settle, then settling it and
+// breaking, is one settle per call.
+func TestGoCallAfterTheLastContinueLeavesTheLoop(t *testing.T) {
+	syms := extractGoModule(t, map[string]string{
+		"api/api.go": `package api
+
+func Settle(entries []int, ok bool) error {
+	for _, e := range entries {
+		if e > 0 {
+			check(e)
+			if !ok {
+				continue
+			}
+			if err := settle(e); err != nil {
+				return err
+			}
+			break
+		}
+	}
+	return nil
+}
+
+func check(int)        {}
+func settle(int) error { return nil }
+`,
+	})
+	calls := goScalingCalls(syms["api.Settle"])
+	if slices.Contains(calls, "api.settle") {
+		t.Errorf("settle runs once, after the last continue, and was counted per element: %v", calls)
+	}
+	if !slices.Contains(calls, "api.check") {
+		t.Errorf("check runs before the continue, once per positive entry, and was dropped: %v", calls)
+	}
+}

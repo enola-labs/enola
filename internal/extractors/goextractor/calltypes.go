@@ -336,9 +336,6 @@ func callTarget(fun ast.Expr, ctx resolveCtx) string {
 // callResultTypes returns the declared result types of the function call calls,
 // nil when that function is not one this module declares.
 func callResultTypes(call *ast.CallExpr, ctx resolveCtx) []string {
-	if ctx.returnTypes == nil {
-		return nil
-	}
 	target := callTarget(call.Fun, ctx)
 	if target == "" {
 		return nil
@@ -349,7 +346,7 @@ func callResultTypes(call *ast.CallExpr, ctx resolveCtx) []string {
 	if t := goFluentResult(target); t != "" {
 		return []string{t}
 	}
-	return nil
+	return goLibraryResults[target]
 }
 
 // callResultType is the type of a call used as a single value. A declared result

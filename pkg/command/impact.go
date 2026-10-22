@@ -179,7 +179,11 @@ func writeImpactHead(w *strings.Builder, report impact.Report) bool {
 		fmt.Fprintf(w, "%s is a namespace; this is the impact of it and the %d symbols nested under it\n", report.Target, n)
 	case n > 0 && report.SeedKind == impact.SeedsDirectory:
 		fmt.Fprintf(w, "%s is a directory; this is the impact of the %d symbols declared beneath it\n", report.Target, n)
-	case n > 0:
+	case n > 0 && report.SeedKind == impact.SeedsPackage:
+		fmt.Fprintf(w, "%s is a package; its %d own symbols are walked from as part of it, not listed as its dependents\n", report.Target, n)
+	case n > 0 && report.SeedKind == impact.SeedsFamily:
+		fmt.Fprintf(w, "%s has %d owners (an interface's method and its implementations); this is the impact of all of them\n", report.Target, n)
+	case n > 0 && res != nil:
 		fmt.Fprintf(w, "%s is a file, not a node; this is the impact of the %d symbols it declares\n", res.Matched, n)
 	case res != nil:
 		fmt.Fprintf(w, "resolved %q to %s\n", res.Query, res.Matched)
@@ -192,7 +196,33 @@ func writeImpactHead(w *strings.Builder, report impact.Report) bool {
 	} else {
 		fmt.Fprintln(w, report.Summary)
 	}
+	writeImpactModules(w, report)
 	return true
+}
+
+// writeImpactModules lists the packages that depend on a package target, by hop.
+// It comes before the symbol walk: for a package, that list is the answer.
+func writeImpactModules(w *strings.Builder, report impact.Report) {
+	if len(report.Modules) == 0 {
+		return
+	}
+	byDepth := map[int][]string{}
+	for _, m := range report.Modules {
+		name := m.Module
+		if m.Repo != "" {
+			name = m.Repo + ":" + name
+		}
+		byDepth[m.Depth] = append(byDepth[m.Depth], name)
+	}
+	fmt.Fprintf(w, "\ndependent packages (%d; %d direct):\n", len(report.Modules), len(byDepth[1]))
+	depths := make([]int, 0, len(byDepth))
+	for d := range byDepth {
+		depths = append(depths, d)
+	}
+	sort.Ints(depths)
+	for _, d := range depths {
+		fmt.Fprintf(w, "  %d: %s\n", d, strings.Join(byDepth[d], ", "))
+	}
 }
 
 func writeImpactSummary(w *strings.Builder, report impact.Report) {

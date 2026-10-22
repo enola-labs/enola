@@ -6,6 +6,7 @@ package common
 
 import (
 	"math"
+	"path"
 	"sort"
 	"strings"
 
@@ -158,14 +159,72 @@ func resolveModuleDir(f facts.Fact, prod, test map[string]bool) string {
 // modules by path alone would disagree with every explainer in this package.
 func ModuleNameSets(store *facts.Store) (prod, test map[string]bool) {
 	prod, test = map[string]bool{}, map[string]bool{}
+	guessed := map[string]bool{}
 	for _, m := range store.ByKind(facts.KindModule) {
 		if IsTestModule(m) {
 			test[m.Name] = true
+			if !hasAuthoritativeRole(m) {
+				guessed[m.Name] = true
+			}
 			continue
 		}
 		prod[m.Name] = true
 	}
+	if len(guessed) > 0 {
+		promoteImportedByProduction(store, prod, test, guessed)
+	}
 	return prod, test
+}
+
+// hasAuthoritativeRole reports whether a module's role came from a build file
+// rather than from its path. See IsTestModule.
+func hasAuthoritativeRole(m facts.Fact) bool {
+	switch role, _ := m.PropAny(facts.PropModuleRole).(string); role {
+	case facts.ModuleRoleTest, facts.ModuleRoleProduction, facts.ModuleRoleTooling:
+		return true
+	}
+	return false
+}
+
+// promoteImportedByProduction moves a module judged test code by its path alone
+// into the production set when production code imports it. The path is a guess
+// and the import is not: `src/lib/mocks` imported by a store ships with the
+// application, and dropped from the graph it took a real cycle's member with it.
+// An import from a test file, or from a module still judged test code, promotes
+// nothing; a promoted module's own imports are then production imports too.
+func promoteImportedByProduction(store *facts.Store, prod, test, guessed map[string]bool) {
+	type edge struct{ from, to string }
+	var edges []edge
+	for _, dep := range store.ByKind(facts.KindDependency) {
+		from := resolveModuleDir(dep, prod, test)
+		// A file in a guessed module is test code by that same guess, so only its
+		// own name can rule it out; the fixpoint below decides the rest.
+		if facts.IsTestPath(path.Base(dep.File)) || (facts.IsTestPath(dep.File) && !guessed[from]) {
+			continue
+		}
+		for _, rel := range dep.Relations {
+			if rel.Kind != facts.RelImports {
+				continue
+			}
+			target := rel.Target
+			if strings.HasPrefix(target, ".") {
+				target = ResolveRelativeImport(from, target)
+			}
+			if to := nearestModule(target, prod, test); guessed[to] && to != from {
+				edges = append(edges, edge{from, to})
+			}
+		}
+	}
+	for changed := true; changed; {
+		changed = false
+		for _, e := range edges {
+			if prod[e.from] && test[e.to] {
+				delete(test, e.to)
+				prod[e.to] = true
+				changed = true
+			}
+		}
+	}
 }
 
 // ResolveModule reports which module a fact's file belongs to, resolving against the

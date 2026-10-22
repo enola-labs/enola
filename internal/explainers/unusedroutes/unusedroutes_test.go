@@ -359,3 +359,43 @@ func TestExplain_RouteRegisteredInTwoFiles(t *testing.T) {
 		t.Errorf("finding = %+v", in)
 	}
 }
+
+// A multi-repository snapshot reports a duplicate registration too: it used to be
+// found only when no client was loaded, which is exactly when nobody asks this
+// explainer about routes. Middleware guarding one prefix from two files is not a
+// duplicate, and neither is a Next.js layout beside its page: neither serves an
+// endpoint of its own.
+func TestExplain_RouteRegisteredInTwoFilesWithClientsLoaded(t *testing.T) {
+	store := facts.NewStore()
+	route := func(method, name, file string, line int, props map[string]any) facts.Fact {
+		p := map[string]any{"method": method, "role": "server"}
+		for k, v := range props {
+			p[k] = v
+		}
+		return facts.Fact{Kind: facts.KindRoute, Name: name, File: file, Line: line, Repo: "api", Props: p}
+	}
+	store.Add(
+		facts.Fact{Kind: facts.KindService, Name: "api", Repo: "api"},
+		facts.Fact{Kind: facts.KindService, Name: "web", Repo: "web"},
+		route("GET", "/api/settings/maintenance-activities", "settings_routes.go", 163, nil),
+		route("GET", "/api/settings/maintenance-activities", "inventory_routes.go", 98, nil),
+		route("USE", "/api/settings/maintenance-activities", "settings_routes.go", 161, map[string]any{"type": "middleware"}),
+		route("USE", "/api/settings/maintenance-activities", "inventory_routes.go", 93, map[string]any{"type": "middleware"}),
+		route("GET", "/login", "src/app/login/layout.tsx", 1, map[string]any{"type": "layout"}),
+		route("GET", "/login", "src/app/login/page.tsx", 1, map[string]any{"type": "page"}),
+	)
+	insights, err := New().Explain(context.Background(), store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var dup []facts.Insight
+	for _, in := range insights {
+		if strings.Contains(in.Title, "more than one file") {
+			dup = append(dup, in)
+		}
+	}
+	if len(dup) != 1 || len(dup[0].Evidence) != 1 ||
+		dup[0].Evidence[0].Detail != "GET /api/settings/maintenance-activities is registered at inventory_routes.go:98, settings_routes.go:163" {
+		t.Errorf("want one duplicate, the GET and not the middleware or the layout; got %+v", dup)
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -260,6 +261,9 @@ func TestExplain_OversizedClusterSoftened(t *testing.T) {
 	}
 	if len(in.Evidence) > maxClusterMembers {
 		t.Errorf("cluster evidence not capped: got %d, want <= %d", len(in.Evidence), maxClusterMembers)
+	}
+	if got := in.MetricStrings(MetricMembers); len(got) != len(modules) {
+		t.Errorf("metrics.members = %d modules, want all %d", len(got), len(modules))
 	}
 }
 
@@ -719,6 +723,11 @@ func TestExplain_LargeCycleOutsideAutoloadIsACycle(t *testing.T) {
 			}
 			if len(in.Evidence) != maxClusterMembers {
 				t.Errorf("evidence = %d entries, want capped at %d", len(in.Evidence), maxClusterMembers)
+			}
+			// The evidence is a sample; the full membership travels as a metric, so a
+			// caller naming every member need not rebuild the component.
+			if got := in.MetricStrings(MetricMembers); len(got) != n || !slices.IsSorted(got) {
+				t.Errorf("metrics.members = %v, want all %d modules, sorted", got, n)
 			}
 			at := strings.Index(in.Description, "One of them: ")
 			if at < 0 {

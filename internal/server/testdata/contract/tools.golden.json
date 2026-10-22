@@ -433,7 +433,7 @@
           "type": "boolean"
         },
         "max_depth": {
-          "description": "Hops of impact (1-10). Default 3.",
+          "description": "Hops of impact (1-10). Default 3. It bounds the symbol walk only: a package target lists every package that imports it, at any depth.",
           "type": "integer"
         },
         "max_nodes": {
@@ -650,7 +650,7 @@
           "type": "string"
         },
         "repo": {
-          "description": "Repo label. In multi-repo snapshots it matches the repo path segment of each insight's evidence ('golf' matches golf/... but not golf-ui/...); in single-repo snapshots it is a substring match. Empty = all.",
+          "description": "Repo label. In multi-repo snapshots it matches the repo path segment of each insight's evidence ('golf' matches golf/... but not golf-ui/...), or a finding whose evidence names only that repo's modules (a cycle); in single-repo snapshots it is a substring match. Empty = all.",
           "type": "string"
         }
       },

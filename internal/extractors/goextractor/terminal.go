@@ -24,9 +24,10 @@ import (
 // the innermost loop is considered. A return leaves the outer loops as well, and
 // that is not claimed.
 //
-// And nothing in the block may go round again first. A body that ends in a return
-// is the "first match" loop, and its opening call runs on every element that does
-// not match:
+// And nothing may go round again first. A body that ends in a return is the
+// "first match" loop, and its opening call runs on every element that does not
+// match, so the run that leaves the loop starts after the last statement that can
+// continue it:
 //
 //	for _, p := range principals {
 //	    key, err := search(ctx, p)   // once per principal
@@ -49,8 +50,18 @@ func terminalBlocks(body *ast.BlockStmt) []posSpan {
 	var out []posSpan
 	var walk func(list []ast.Stmt, inSwitch bool)
 	walk = func(list []ast.Stmt, inSwitch bool) {
-		if n := len(list); n > 0 && leavesLoop(list[n-1], inSwitch) && !continuesLoop(list) {
-			out = append(out, posSpan{list[0].Pos(), list[n-1].End()})
+		if n := len(list); n > 0 && leavesLoop(list[n-1], inSwitch) {
+			// Only what follows the last statement that can go round again is
+			// past every chance to: `if other { continue }; process(t); break`
+			// processes once, while a call before that continue still repeats.
+			from := 0
+			for i := n - 2; i >= 0; i-- {
+				if continuesLoop(list[i : i+1]) {
+					from = i + 1
+					break
+				}
+			}
+			out = append(out, posSpan{list[from].Pos(), list[n-1].End()})
 		}
 		for _, st := range list {
 			for st != nil {

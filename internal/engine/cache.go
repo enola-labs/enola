@@ -3082,7 +3082,18 @@ import (
 // database round trip is marked db_direct with its db_calls, and a cursor's Next and
 // Scan are pure_calls. performs_io grows on every Go service written against
 // interfaces.
-const cacheVersion = "v427"
+// v428: A TypeScript import whose stem is both a file and a folder holding code
+// (Footer.tsx beside Footer/) targets the file, as TypeScript resolves it, instead of
+// the folder whose module name the bare stem matched.
+// v429: Go: a call through an embedded field named outright (`r.Base.Query()`)
+// resolves through the field's type, as the promoted `r.Query()` did; and a
+// `for { select { … } }` event loop no longer makes its calls per-iteration
+// candidates, since it runs per tick or message rather than per element.
+// v430: Go: database/sql handles are typed by the call that returns them, so a
+// prepared statement's Exec in a loop is a database call and a cursor's Next and
+// Scan are pure_calls; a call after a loop body's last continue, in a run that
+// leaves the loop, runs once; and a ping is I/O but not a database call.
+const cacheVersion = "v430"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
