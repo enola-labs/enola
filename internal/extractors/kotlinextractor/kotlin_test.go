@@ -138,3 +138,22 @@ func TestResolveKotlinImport_InternalVsExternal(t *testing.T) {
 		t.Error("third-party import should stay external (external=true)")
 	}
 }
+
+// TestResolveKotlinImport_GeneratedClassIsNotAnEdge: `import ….ui.R` in a feature
+// module must not fall through to the base-package heuristic, which rebuilt it as a
+// path under the application's source root and joined the module to the app.
+func TestResolveKotlinImport_GeneratedClassIsNotAnEdge(t *testing.T) {
+	const root, base = "app/src/main/java/", "com.example.app"
+	idx := map[string]string{
+		"com.example.app":         "app/src/main/java/com/example/app",
+		"com.example.app.ui.home": "ui/src/main/java/com/example/app/ui/home",
+	}
+	for _, imp := range []string{"com.example.app.ui.R", "com.example.app.BuildConfig", "com.example.app.databinding.HomeBinding"} {
+		if got, ext := resolveKotlinImport(imp, idx, root, base); !ext {
+			t.Errorf("resolveKotlinImport(%q) = %q internal, want it left external", imp, got)
+		}
+	}
+	if got, ext := resolveKotlinImport("com.example.app.ui.home.HomeScreen", idx, root, base); ext || got != "ui/src/main/java/com/example/app/ui/home/HomeScreen" {
+		t.Errorf("an ordinary import must still resolve: got %q external=%v", got, ext)
+	}
+}

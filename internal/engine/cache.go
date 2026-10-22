@@ -3067,7 +3067,11 @@ import (
 // (`(a..b)`, `where(at: ..limit)`) is lexical-self instead of
 // constant-receiver. Prism facts' levels move on the Ruby repositories that
 // write a range with a call at an end.
-const cacheVersion = "v424"
+// v425: A Kotlin or Java import of generated code (R, BuildConfig, or an undeclared
+// lowercase sub-package such as View Binding's) is no edge to the longest declared
+// package prefix; it stays external. Android feature modules lose the imports that
+// joined them to the application package.
+const cacheVersion = "v425"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

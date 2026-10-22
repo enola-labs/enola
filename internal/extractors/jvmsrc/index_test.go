@@ -260,3 +260,41 @@ func TestBuildModule(t *testing.T) {
 		}
 	}
 }
+
+// TestGeneratedImport: R and BuildConfig live in a Gradle module's namespace, which
+// often no source file declares, and View Binding generates a lowercase
+// sub-package. Resolving any of them to the longest declared prefix attached a
+// feature module to the application package. Nested types and top-level functions
+// are ordinary imports and must still resolve.
+func TestGeneratedImport(t *testing.T) {
+	idx := map[string]string{
+		"com.example.app":           "app/src/main/java/com/example/app",
+		"com.example.app.ui.home":   "ui/src/main/java/com/example/app/ui/home",
+		"com.example.app.data":      "data/src/main/java/com/example/app/data",
+		"com.example.app.data.util": "data/src/main/java/com/example/app/data/util",
+	}
+	cases := []struct {
+		imp  string
+		want bool
+	}{
+		{"com.example.app.ui.R", true},
+		{"com.example.app.ui.R.string", true},
+		{"com.example.app.data.BuildConfig", true},
+		{"com.example.app.databinding.ActivityMainBinding", true},
+		{"com.example.app.ui.home.HomeScreen", false},
+		{"com.example.app.data.util.formatScore", false},
+		{"com.example.app.data.Outer.Inner", false},
+		{"com.example.app.ui.home.*", false},
+		{"retrofit2.Retrofit", false},
+	}
+	for _, c := range cases {
+		if got := GeneratedImport(c.imp, idx); got != c.want {
+			t.Errorf("GeneratedImport(%q) = %v, want %v", c.imp, got, c.want)
+		}
+		if c.want {
+			if dir, ok := ResolveImport(c.imp, idx); ok {
+				t.Errorf("ResolveImport(%q) = %q, want no directory for generated code", c.imp, dir)
+			}
+		}
+	}
+}

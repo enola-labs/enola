@@ -116,6 +116,8 @@ class-level prefix composed onto each method, the same shape as
 - **Non-literal paths.** A `@RequestMapping` built from a constant expression is not
   evaluated.
 - **Interface dispatch** resolves to the interface method, not to every implementation.
+- **Imports of generated code** (`R`, `BuildConfig`) stay external dependencies rather than
+  resolving to the package around them.
 
 ---
 

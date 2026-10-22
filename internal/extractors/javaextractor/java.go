@@ -280,6 +280,11 @@ func resolveImport(f *facts.Fact, typeDir, packageDir map[string]string) {
 	if imp == "" {
 		return
 	}
+	// `import com.example.app.BuildConfig` names a class the build generates; the
+	// parent-package fallback below would otherwise attach it to the app's package.
+	if jvmsrc.GeneratedImport(imp, packageDir) {
+		return
+	}
 	var dir string
 	var ok bool
 	if dir, ok = typeDir[imp]; !ok {
