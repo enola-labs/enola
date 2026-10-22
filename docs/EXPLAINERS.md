@@ -118,7 +118,8 @@ the entities the claim is about. There are nineteen, and they fall into six kind
   says the client set is incomplete instead of listing endpoints to delete. That finding
   still says where the unmatched routes are, per route file. In any snapshot, one
   method on one path registered in two or more files is reported as well: a router
-  serves one registration, so the other handler never runs.
+  serves one registration, so the other handler never runs. Middleware on a prefix and
+  a Next.js layout, loading or error file beside its page do not count.
 - **The declaration-shaped ones.** Every explainer above keys off symbols, modules and
   their dependency edges, which left the route, storage and association facts the
   extractors emit feeding nothing. `domain` asks the questions those facts answer —
