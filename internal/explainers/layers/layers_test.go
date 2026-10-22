@@ -1494,3 +1494,22 @@ func TestDetectViolations_AndroidMinorityDirectionIsReported(t *testing.T) {
 		t.Fatalf("expected only the domain -> data violation, got %v", titles)
 	}
 }
+
+// TestDetectViolations_AndroidDomainRepositoryIsDomain: a clean-architecture
+// domain module declares its repository interfaces in `domain/…/repository`. That
+// package is domain; matching the data layer's `repository` pattern first made
+// every use case's import of it a domain -> data violation.
+func TestDetectViolations_AndroidDomainRepositoryIsDomain(t *testing.T) {
+	s := facts.NewStore()
+	s.Add(makeModulesLang("kotlin",
+		"domain/src/main/java/x/domain/usecase", "domain/src/main/java/x/domain/repository",
+		"data/src/main/java/x/data/repository", "ui/src/main/java/x/ui")...)
+	s.Add(frameworkFact("android"))
+	addDep(s, "domain/src/main/java/x/domain/usecase/GetRounds.kt", "domain/src/main/java/x/domain/repository")
+	addDep(s, "data/src/main/java/x/data/repository/RoundsRepositoryImpl.kt", "domain/src/main/java/x/domain/repository")
+	addDep(s, "ui/src/main/java/x/ui/RoundsScreen.kt", "domain/src/main/java/x/domain/usecase")
+
+	if titles := violationTitles(t, s); len(titles) != 0 {
+		t.Fatalf("expected no violation, got %v", titles)
+	}
+}

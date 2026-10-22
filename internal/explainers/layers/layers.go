@@ -251,9 +251,15 @@ var (
 	// `data -> domain` import is the intended direction, and grading it against
 	// Google's order reported each one as a violation. orientAndroid picks the
 	// order per repository from its own imports.
+	//
+	// Domain is matched before data. A module is classified by the first layer
+	// whose pattern matches any of its path segments, and a clean-architecture
+	// domain module keeps its repository INTERFACES in `domain/…/repository`:
+	// matching data first classified that package as data, so every use case's
+	// import of the interface it is supposed to depend on read as domain -> data.
 	androidLayers = []layerDef{
-		{Name: "data", Patterns: []string{"data", "repository", "repositories"}, Level: 0},
 		{Name: "domain", Patterns: []string{"domain"}, Level: 1},
+		{Name: "data", Patterns: []string{"data", "repository", "repositories"}, Level: 0},
 		{Name: "ui", Patterns: []string{"ui", "presentation", "view", "views", "screen", "screens"}, Level: 3},
 		{Name: "designsystem", Patterns: []string{"designsystem"}, Level: 3},
 		{Name: "di", Patterns: []string{"di", "injection"}, Neutral: true},
