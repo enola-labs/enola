@@ -34,7 +34,14 @@ already here. If anyone asks whether a project that already has linters, tests o
 needs enola, do not answer from category: run the tools and show what they report about
 THIS repository.
 
-Before changing code whose blast radius is not obvious:
+Use them for any question about structure, before searching files: which files or
+packages depend on X, call X, or would break if X changes; how A reaches B, or how a
+feature is wired across layers or repositories; what nothing uses, or where a query runs
+once per loop iteration. A text search finds where a name is written. It misses a
+package that reaches X only through another package, a call through an interface, and a
+function passed as a value.
+
+Before changing code:
 
 - ` + "`impact_analysis`" + ` — what transitively depends on this, before you touch it.
 - ` + "`explore`" + ` / ` + "`traverse`" + ` / ` + "`find_path`" + ` — how something is wired, instead of
@@ -80,10 +87,22 @@ func block(content string) string {
 	return beginMarker + "\n" + strings.TrimSpace(content) + "\n" + endMarker
 }
 
+// ClaudeToolsNote is the paragraph only Claude Code needs. It lists an MCP server's
+// tools as deferred, by name only, and an agent loads a schema through ToolSearch
+// before the first call. With grep one step closer, an agent given the rule above
+// still grepped a question the rule names, because nothing said how to reach the
+// tools. It names the load call exactly.
+const ClaudeToolsNote = `
+
+In Claude Code, enola's tools may be listed as deferred: names only, schemas not loaded.
+Load the core ones in one call before the first structural question: ToolSearch with the
+query ` + "`select:mcp__enola__generate_snapshot,mcp__enola__impact_analysis,mcp__enola__traverse,mcp__enola__query_facts,mcp__enola__explore,mcp__enola__query_insights`" + `.
+If the server is registered under another name than ` + "`enola`" + `, use that name in the prefix.`
+
 // claudeRule is the body of the Claude Code rule file. No `paths` frontmatter, so it
 // loads at launch with the same priority as a project CLAUDE.md.
 func claudeRule(o Options) string {
-	return header() + body(o) + "\n"
+	return header() + body(o) + ClaudeToolsNote + "\n"
 }
 
 // cursorRule carries Cursor's frontmatter. alwaysApply keeps it in context rather than

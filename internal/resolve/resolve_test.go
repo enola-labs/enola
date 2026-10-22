@@ -219,3 +219,33 @@ func TestSuggestNames_PathSuggestsFromTheBaseName(t *testing.T) {
 		t.Errorf("suggestNames(%q) = %v, want %v", term, got, want)
 	}
 }
+
+// One method under several owners — an interface's and its implementations' — is
+// a family and resolves to all of them, where it used to be refused. A mixed set of
+// names, or the same method across repositories, still refuses.
+func TestNodeName_SameNamedMethodsResolveAsAFamily(t *testing.T) {
+	method := func(name, file, repo string) facts.Fact {
+		return facts.Fact{Kind: facts.KindSymbol, Name: name, File: file, Repo: repo, Props: map[string]any{"symbol_kind": facts.SymbolMethod}}
+	}
+	family := storeWith(
+		method("internal/domain/user.Service.GetUserStatistics", "internal/domain/user/model.go", "app"),
+		method("internal/domain/user.UserService.GetUserStatistics", "internal/domain/user/service.go", "app"),
+		method("internal/adapters/db.UserRepository.GetUserStatistics", "internal/adapters/db/user_repository.go", "app"),
+	)
+	got, res, err := Resolver{Store: family}.NodeName("GetUserStatistics")
+	if err != nil || got == "" || res == nil || len(res.Family) != 3 {
+		t.Fatalf("NodeName = %q, %+v, %v; want a pick with a family of three", got, res, err)
+	}
+	if !slices.Contains(res.Family, got) {
+		t.Errorf("the pick %q should be one of the family %v", got, res.Family)
+	}
+
+	split := storeWith(
+		method("a/user.Service.GetUserStatistics", "a/user/model.go", "one"),
+		method("a/user.UserService.GetUserStatistics", "a/user/service.go", "one"),
+		method("a/user.UserService.GetUserStatistics", "a/user/service.go", "two"),
+	)
+	if _, res, _ := (Resolver{Store: split}).NodeName("GetUserStatistics"); res != nil && len(res.Family) > 0 {
+		t.Errorf("the same method in two repositories is not one family: %v", res.Family)
+	}
+}

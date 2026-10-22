@@ -3067,7 +3067,22 @@ import (
 // (`(a..b)`, `where(at: ..limit)`) is lexical-self instead of
 // constant-receiver. Prism facts' levels move on the Ruby repositories that
 // write a range with a call at an end.
-const cacheVersion = "v424"
+// v425: A Kotlin or Java import of generated code (R, BuildConfig, or an undeclared
+// lowercase sub-package such as View Binding's) is no edge to the longest declared
+// package prefix; it stays external. Android feature modules lose the imports that
+// joined them to the application package.
+// v426: A Go function of another package in the repository handed over as a value
+// (`mustInit(svg.Init)`, a handler passed to a router) is a calls edge to it, and so
+// is a call in a package-level initializer. Registration-style codebases gain the
+// edges that kept their registered functions out of the orphan list.
+// v427: Go interface implementers come from constructors that return the interface
+// and from method sets matched by parameter and result types, not only from
+// assertions, and are recorded on the interface (implementers,
+// implementers_inferred). I/O crosses an interface to the repository behind it, a
+// database round trip is marked db_direct with its db_calls, and a cursor's Next and
+// Scan are pure_calls. performs_io grows on every Go service written against
+// interfaces.
+const cacheVersion = "v427"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

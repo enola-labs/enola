@@ -619,3 +619,40 @@ func TestInstall_HooksNoteOnlyWhenHooksInstalled(t *testing.T) {
 		t.Error("the rule does not mention the hooks that were installed")
 	}
 }
+
+// Only Claude Code lists an MCP server's tools as deferred and loads them through
+// ToolSearch, so only its rule says how. Every other instruction file the installer
+// writes is the shared text alone.
+func TestInstall_ToolSearchNoteOnlyForClaude(t *testing.T) {
+	o := opts(t, false)
+	results, err := Install(o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := read(t, filepath.Join(o.RepoDir, ".claude", "rules", "enola.md")); !strings.Contains(got, "select:mcp__enola__") {
+		t.Error("the Claude rule should say how to load enola's deferred tools")
+	}
+	for _, r := range results {
+		if strings.HasSuffix(r.Path, filepath.Join(".claude", "rules", "enola.md")) || !strings.HasSuffix(r.Path, ".md") && !strings.HasSuffix(r.Path, ".mdc") {
+			continue
+		}
+		if b, err := os.ReadFile(r.Path); err == nil && strings.Contains(string(b), "ToolSearch") {
+			t.Errorf("%s names Claude Code's ToolSearch, which its agent does not have", r.Path)
+		}
+	}
+}
+
+// Claude Code gets the gate's two hooks beside the session hooks, and its session
+// start runs with the flag that hands the session the note about deferred tools.
+func TestInstall_ClaudeGetsTheToolGate(t *testing.T) {
+	o := opts(t, true)
+	if _, err := Install(o); err != nil {
+		t.Fatal(err)
+	}
+	settings := read(t, filepath.Join(o.RepoDir, ".claude", "settings.json"))
+	for _, want := range []string{`"PreToolUse"`, `"PostToolUse"`, "hook pre-tool", "hook post-tool", "hook session-start --agent=claude", `"Grep|Glob|Bash"`} {
+		if !strings.Contains(settings, want) {
+			t.Errorf("settings.json lacks %s:\n%s", want, settings)
+		}
+	}
+}

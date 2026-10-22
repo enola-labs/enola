@@ -22,6 +22,10 @@ type callTypeTables struct {
 	implementers map[string][]string
 	// embeds maps a struct type to the types it embeds, whose methods it promotes.
 	embeds map[string][]string
+	// funcs holds "pkgDir.Func" for every top-level function in the module, so a
+	// function handed to another package as a value (`mustInit(svg.Init)`) can be
+	// told from a variable, constant or type of the same name. See funcvalues.go.
+	funcs map[string]bool
 }
 
 // collectAliases maps each alias a package declares (`type Store = facts.Store`) to

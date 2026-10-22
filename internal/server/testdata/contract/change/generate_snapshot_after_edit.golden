@@ -2,7 +2,7 @@ Snapshot generated successfully.
 
 - Repository: <TMP>/go_sample
 - Facts: 22
-- Insights: 5
+- Insights: 6
 - Artifacts: 3
 - Duration: <DURATION>
 - Extractors: [go manifests]

@@ -115,7 +115,10 @@ the entities the claim is about. There are nineteen, and they fall into six kind
   rather than over the code. It only means anything over a snapshot holding the backend
   AND its clients: a single-repo snapshot has no service nodes, so it reports nothing at
   all rather than reporting every route as unused, and past 80% unmatched the finding
-  says the client set is incomplete instead of listing endpoints to delete.
+  says the client set is incomplete instead of listing endpoints to delete. That finding
+  still says where the unmatched routes are, per route file. In any snapshot, one
+  method on one path registered in two or more files is reported as well: a router
+  serves one registration, so the other handler never runs.
 - **The declaration-shaped ones.** Every explainer above keys off symbols, modules and
   their dependency edges, which left the route, storage and association facts the
   extractors emit feeding nothing. `domain` asks the questions those facts answer —
@@ -124,7 +127,13 @@ the entities the claim is about. There are nineteen, and they fall into six kind
   iteration of a data-sized loop, and deliberately reports only the shape it can prove:
   the detector everyone asks for — `record.association` inside a loop — funnels to zero
   true positives on a large monolith, because the graph has no receiver type inference
-  for Ruby and `candidate.posts` and `client.post` are the same string to it.
+  for Ruby and `candidate.posts` and `client.post` are the same string to it. In Go it
+  follows a loop's call through repository and service methods, and through an
+  interface to the type a constructor or a method-set match says is behind it, to the
+  database call it ends at, and prints that path; a cursor's `Next` and `Scan` are one
+  query, not one per row. A hop through an interface lowers the confidence (0.7 stated,
+  0.6 inferred), and a call that does not use the loop's element is reported at 0.5 as
+  a repeated query to hoist.
   `entry-points` marks the symbols a framework invokes directly — a routed controller
   action, a job a queue drains, a mailer, a rake task — so that reachability has roots
   at all. It stops at marking them: reachability *from* them reports 86% of a

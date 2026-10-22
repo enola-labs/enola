@@ -11,9 +11,13 @@ import (
 )
 
 // maxCycleModules is the largest SCC still reported as a discrete, actionable
-// "Cyclic dependency". Larger components are reported as a coupling cluster
-// instead, because advice like "introduce an interface" cannot meaningfully be
-// applied to a 99-node component. Shared with the depth explainer via
+// "Cyclic dependency" with every member listed. A larger component in an
+// autoloaded language is reported as a coupling cluster instead, because there
+// mutual references are the expected topology and advice like "introduce an
+// interface" cannot meaningfully be applied to a 99-node component. A larger
+// component anywhere else is still reported as a cycle, with its evidence capped:
+// a TypeScript or Kotlin import is a load instruction, so a 60-folder tangle there
+// is a real cycle, only a large one. Shared with the depth explainer via
 // common.OversizedClusterModules.
 //
 // The distinction is about ACTIONABILITY and must never touch confidence. A
@@ -83,6 +87,7 @@ func (e *CycleExplainer) Explain(ctx context.Context, store *facts.Store) ([]fac
 			unitOf[m.Name] = u
 		}
 	}
+	langOf := common.ModuleLanguages(store)
 
 	// Run Tarjan's SCC
 	sccs := tarjanSCC(graph)
@@ -94,25 +99,42 @@ func (e *CycleExplainer) Explain(ctx context.Context, store *facts.Store) ([]fac
 			continue
 		}
 
-		if len(scc) > maxCycleModules {
+		large := len(scc) > maxCycleModules
+		if large && common.AutoloadedComponent(scc, langOf) {
 			insights = append(insights, coupledClusterInsight(scc))
 			continue
 		}
 
-		cyclePath := describeCycle(scc, graph)
-		evidence := make([]facts.Evidence, 0, len(scc))
-		for _, mod := range scc {
+		listed := scc
+		if large {
+			listed = scc[:maxClusterMembers]
+		}
+		evidence := make([]facts.Evidence, 0, len(listed))
+		for _, mod := range listed {
 			evidence = append(evidence, facts.Evidence{
 				Fact:   mod,
 				Detail: fmt.Sprintf("module %q is part of the cycle", mod),
 			})
 		}
 
+		cyclePath := describeCycle(scc, graph)
 		description := fmt.Sprintf("%s. This can cause initialization issues, make refactoring harder, and indicates tight coupling.", cyclePath)
 		actions := []string{
 			"Introduce an interface to break the cycle",
 			"Extract shared types to a separate package",
 			"Consider merging tightly coupled modules",
+		}
+		if large {
+			description = fmt.Sprintf(
+				"%s. Their imports are loaded, not resolved lazily, so this is a real cycle and not "+
+					"autoload coupling. It is too large to break in one step; the evidence lists %d of the %d modules.",
+				describeLargeCycle(scc, graph), len(listed), len(scc),
+			)
+			actions = []string{
+				"Break the cycle printed above first: it is the shortest one through the component",
+				"Look for a few high-traffic modules whose extraction would split the component",
+				"Extract the shared types many members import into a module that imports none of them",
+			}
 		}
 		if unit, ok := sharedUnit(scc, unitOf); ok {
 			description = fmt.Sprintf(
@@ -164,6 +186,13 @@ func describeCycle(scc []string, graph map[string][]string) string {
 	}
 	return fmt.Sprintf("The %d modules %s depend on each other through more than one cycle. One of them: %s",
 		len(scc), strings.Join(scc, ", "), path)
+}
+
+// describeLargeCycle states an oversized component without naming every member,
+// which for a 60-module component would bury the one cycle worth reading.
+func describeLargeCycle(scc []string, graph map[string][]string) string {
+	return fmt.Sprintf("%d modules depend on each other through more than one cycle. One of them: %s",
+		len(scc), strings.Join(cycleThrough(scc, graph), " -> "))
 }
 
 // cycleThrough returns a shortest cycle through the component's first member, as the
@@ -255,10 +284,10 @@ func coupledClusterInsight(scc []string) facts.Insight {
 	return facts.Insight{
 		Title: fmt.Sprintf("Highly coupled module cluster (%d modules)", len(scc)),
 		Description: fmt.Sprintf(
-			"%d modules reference each other mutually. In an autoloaded codebase "+
-				"(e.g. Rails) this is expected — constant references between directories "+
-				"resolve lazily, so this is not a load-order cycle. Treat it as an overall "+
-				"coupling-density signal, not a defect to break.",
+			"%d modules in an autoloaded language depend on each other through inheritance, "+
+				"mixins, require or declared package dependencies. In an autoloaded codebase "+
+				"(e.g. Rails) a component this size is common, and it is better read as an "+
+				"overall coupling-density signal than as one cycle to break.",
 			len(scc),
 		),
 		// Deterministic and certain, exactly like the cycle it grew out of.

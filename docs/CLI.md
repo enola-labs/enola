@@ -686,6 +686,16 @@ In Claude Code, Codex and Pi that means two session hooks (in Pi they run from t
 - **`SessionStart`** freezes the architecture as a baseline when a session begins - the "before".
 - **`Stop`** grades what the session changed when your agent finishes a turn, and hands the verdict back **only if** there is something to say: a structural regression under the policy you set, or - since the default policy is empty - a finding enola measured exactly and did not enforce.
 
+Claude Code gets three more things, because it lists an MCP server's tools as deferred -
+names only, loaded through its ToolSearch tool - and a file search is always one step
+closer. Told by the rule to use enola, an agent still grepped a question the rule names.
+
+- **`SessionStart`** also tells the session how to load enola's tools, in one ToolSearch call.
+- **`PreToolUse`** refuses the first two file searches of a session (`Grep`, `Glob`, or a `grep`, `rg` or `find` in `Bash`) with a pointer to the enola tool that answers a structural question. It is bounded twice, as the opencode plugin is: a search run again after two refusals goes through, and the refusals end the moment any enola tool is used.
+- **`PostToolUse`** records that use.
+
+Newer Claude Code (2.1.287 and later) can load a server's tools up front instead: `"alwaysLoad": true` on the server's entry in `.mcp.json`, or `ENABLE_TOOL_SEARCH=false` for every server. With that set the refusals rarely fire, because the tools are already in reach.
+
 **In opencode it means something different**, because opencode has no hook configuration
 of that shape. There `--hooks` installs `.opencode/plugin/enola.js`, which works on the
 other end of the session: rather than grading the change afterwards, it pushes the first

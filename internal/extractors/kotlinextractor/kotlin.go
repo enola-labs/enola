@@ -521,6 +521,12 @@ func detectKotlinBasePackage(repoPath string) string {
 // single-source-root heuristic, so behaviour degrades gracefully instead of
 // dropping an otherwise-internal edge.
 func resolveKotlinImport(importPath string, packageIndex map[string]string, sourceRoot, basePackage string) (string, bool) {
+	// Generated code is checked first: the base-package fallback below would
+	// otherwise rebuild the same wrong path (`….ui.R` under the app's source root)
+	// that the package index just refused.
+	if jvmsrc.GeneratedImport(importPath, packageIndex) {
+		return importPath, true
+	}
 	if resolved, ok := jvmsrc.ResolveImport(importPath, packageIndex); ok {
 		return resolved, false
 	}

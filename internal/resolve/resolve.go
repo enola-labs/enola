@@ -74,6 +74,66 @@ type NameResolution struct {
 	Confidence   float64           `json:"confidence,omitempty"`
 	AutoPicked   bool              `json:"auto_picked,omitempty"`
 	Ambiguous    bool              `json:"ambiguous"`
+	// Family is set instead of a refusal when every match is a function or method
+	// of the same name in one repository: an interface's method and the types that
+	// implement it, which a call through the interface may reach any of. A caller
+	// walks all of them; Matched is the top-ranked one.
+	Family []string `json:"family,omitempty"`
+	// Total is how many distinct names matched, when that is more than the
+	// candidates and alternatives list. It is for the text a tool renders; the JSON
+	// shape of a resolution is a published contract and stays as it was.
+	Total int `json:"-"`
+}
+
+// maxFamily bounds a same-name method family walked as one: an interface with a
+// dozen implementations is a family, a name every handler uses is not.
+const maxFamily = 12
+
+// methodFamily returns the distinct names of results when all of them are a
+// function or method whose last segment is term, in a single repository, and
+// there are between two and maxFamily of them.
+func methodFamily(results []facts.Fact, term string) []string {
+	repo := ""
+	var names []string
+	for i, f := range results {
+		if f.Kind != facts.KindSymbol {
+			return nil
+		}
+		switch f.PropString("symbol_kind") {
+		case facts.SymbolMethod, facts.SymbolFunc:
+		default:
+			return nil
+		}
+		last := f.Name
+		if dot := strings.LastIndexAny(last, ".#"); dot >= 0 {
+			last = last[dot+1:]
+		}
+		if last != term {
+			return nil
+		}
+		if i == 0 {
+			repo = f.Repo
+		} else if f.Repo != repo {
+			return nil
+		}
+		if !slices.Contains(names, f.Name) {
+			names = append(names, f.Name)
+		}
+	}
+	if len(names) < 2 || len(names) > maxFamily {
+		return nil
+	}
+	slices.Sort(names)
+	return names
+}
+
+// distinctNames counts the distinct fact names among results.
+func distinctNames(results []facts.Fact) int {
+	seen := make(map[string]bool, len(results))
+	for _, f := range results {
+		seen[f.Name] = true
+	}
+	return len(seen)
 }
 
 // resolveNodeName resolves a user-provided name to an exact fact name.
@@ -203,6 +263,22 @@ func (r Resolver) resolveNodeName(store *facts.Store, input string) (string, *Na
 		}, nil
 	}
 
+	// One method under several owners: an interface's method and its
+	// implementations. Which one a call reaches is decided at run time, so the
+	// question is about all of them, and refusing would only send the caller to
+	// guess one.
+	if family := methodFamily(results, sq.Term); family != nil {
+		return top, &NameResolution{
+			Query:        query,
+			Matched:      top,
+			Family:       family,
+			Alternatives: candidateNames(ranked, top),
+			Candidates:   topCandidates(ranked),
+			Confidence:   confidence,
+			Ambiguous:    true,
+		}, nil
+	}
+
 	// Too ambiguous to guess: surface ranked candidates and refuse to pick.
 	return "", &NameResolution{
 		Query:        query,
@@ -210,6 +286,7 @@ func (r Resolver) resolveNodeName(store *facts.Store, input string) (string, *Na
 		Candidates:   topCandidates(ranked),
 		Confidence:   confidence,
 		Ambiguous:    true,
+		Total:        distinctNames(results),
 	}, nil
 }
 

@@ -75,10 +75,25 @@ func (s *Server) registerTraverseTool() {
 		// reference those, not the bare type), matching impact_analysis — otherwise
 		// cross-repo and same-repo dependents are missed. Forward already follows
 		// has_method edges from the type, so it needs no rollup.
+		//
+		// A name that is one method under several owners — an interface's method and
+		// its implementations — is walked from all of them: a call on the interface
+		// may reach any, and the implementations are where the calls are.
+		starts := []string{startName}
+		if res != nil && len(res.Family) > 1 {
+			starts = res.Family
+		}
 		var result facts.TraversalResult
-		if direction == "reverse" {
-			result = graph.TraverseFrom(graph.RollupSeeds(startName), direction, args.RelationKinds, args.NodeKinds, args.MaxDepth, args.MaxNodes)
-		} else {
+		switch {
+		case direction == "reverse":
+			var seeds []string
+			for _, start := range starts {
+				seeds = append(seeds, graph.RollupSeeds(start)...)
+			}
+			result = graph.TraverseFrom(seeds, direction, args.RelationKinds, args.NodeKinds, args.MaxDepth, args.MaxNodes)
+		case len(starts) > 1:
+			result = graph.TraverseFrom(starts, direction, args.RelationKinds, args.NodeKinds, args.MaxDepth, args.MaxNodes)
+		default:
 			result = graph.Traverse(startName, direction, args.RelationKinds, args.NodeKinds, args.MaxDepth, args.MaxNodes)
 		}
 
@@ -510,6 +525,11 @@ func writeImpactResolution(sb *strings.Builder, resp impactResponse) {
 	case n > 0 && resp.SeedKind == impact.SeedsNamespace:
 		writeResolutionNote(sb, resp.Resolution)
 		fmt.Fprintf(sb, "> %s is a namespace: this is the impact of it and the %d symbols nested under it.\n\n", resp.Target, n)
+	case n > 0 && resp.SeedKind == impact.SeedsFamily:
+		writeResolutionNote(sb, resp.Resolution)
+	case n > 0 && resp.SeedKind == impact.SeedsPackage:
+		writeResolutionNote(sb, resp.Resolution)
+		fmt.Fprintf(sb, "> %s is a package: its %d own symbols are walked from as part of it, not listed as its dependents.\n\n", resp.Target, n)
 	case n > 0 && resp.SeedKind == impact.SeedsDirectory:
 		if resp.Resolution != nil && resp.Resolution.Matched != resp.Target {
 			writeResolutionNote(sb, resp.Resolution)
@@ -524,6 +544,45 @@ func writeImpactResolution(sb *strings.Builder, resp impactResponse) {
 
 // maxImpactPackages caps the per-package dependent counts an impact summary lists.
 const maxImpactPackages = 15
+
+// maxImpactModulesPerDepth caps how many dependent modules one hop lists.
+const maxImpactModulesPerDepth = 60
+
+// writeImpactModules lists the modules that depend on a module target, by hop. It
+// comes first: for a package, which packages depend on it is the answer, and the
+// symbol walk below it is the detail.
+func writeImpactModules(sb *strings.Builder, resp impactResponse) {
+	if len(resp.Modules) == 0 {
+		return
+	}
+	byDepth := map[int][]string{}
+	var depths []int
+	for _, m := range resp.Modules {
+		if _, ok := byDepth[m.Depth]; !ok {
+			depths = append(depths, m.Depth)
+		}
+		name := m.Module
+		if m.Repo != "" {
+			name = m.Repo + ":" + name
+		}
+		byDepth[m.Depth] = append(byDepth[m.Depth], name)
+	}
+	sort.Ints(depths)
+	fmt.Fprintf(sb, "## Dependent packages (%d; %d direct)\n\n", len(resp.Modules), len(byDepth[1]))
+	for _, d := range depths {
+		names := byDepth[d]
+		shown := names
+		if len(shown) > maxImpactModulesPerDepth {
+			shown = shown[:maxImpactModulesPerDepth]
+		}
+		fmt.Fprintf(sb, "- %d hop%s: %s", d, map[bool]string{true: "", false: "s"}[d == 1], strings.Join(shown, ", "))
+		if len(names) > len(shown) {
+			fmt.Fprintf(sb, ", … %d more", len(names)-len(shown))
+		}
+		sb.WriteString("\n")
+	}
+	sb.WriteString("\n")
+}
 
 // writeImpactPackages lists the listed dependents per owning package, when the
 // repository declares packages.
@@ -555,6 +614,14 @@ func writeResolutionNote(sb *strings.Builder, res *nameResolution) {
 		sb.WriteString("\n")
 		return
 	}
+	if len(res.Family) > 1 {
+		fmt.Fprintf(sb, "> %q names %d methods of the same name; walked all of them:\n", res.Query, len(res.Family))
+		for _, name := range res.Family {
+			sb.WriteString("> - " + name + "\n")
+		}
+		sb.WriteString("\n")
+		return
+	}
 	fmt.Fprintf(sb, "> Resolved %q → %s", res.Query, res.Matched)
 	if res.Confidence > 0 {
 		fmt.Fprintf(sb, " (confidence %.2f)", res.Confidence)
@@ -570,7 +637,9 @@ func writeResolutionNote(sb *strings.Builder, res *nameResolution) {
 // plain alternative names when no scored candidates are present).
 func writeCandidateList(sb *strings.Builder, res *nameResolution) {
 	if len(res.Candidates) > 0 {
+		listed := map[string]bool{}
 		for _, c := range res.Candidates {
+			listed[c.Name] = true
 			line := "> - " + c.Name
 			if c.Kind != "" {
 				line += " (" + c.Kind + ")"
@@ -579,6 +648,20 @@ func writeCandidateList(sb *strings.Builder, res *nameResolution) {
 				line += " — " + c.File
 			}
 			sb.WriteString(line + "\n")
+		}
+		// The scored candidates are the top three; the rest are named too, so a
+		// caller does not take three for all there are.
+		var more []string
+		for _, a := range res.Alternatives {
+			if !listed[a] {
+				more = append(more, a)
+			}
+		}
+		if len(more) > 0 {
+			sb.WriteString("> - also: " + strings.Join(more, ", ") + "\n")
+		}
+		if shown := len(res.Candidates) + len(more); res.Total > shown {
+			fmt.Fprintf(sb, "> (%d names match; %d shown)\n", res.Total, shown)
 		}
 		return
 	}
@@ -665,6 +748,7 @@ func renderImpactCompact(resp impactResponse) string {
 		return sb.String()
 	}
 
+	writeImpactModules(&sb, resp)
 	if r.Summary != "" {
 		sb.WriteString(r.Summary + "\n\n")
 	} else {
@@ -845,10 +929,12 @@ func (s *Server) renderImpactSummary(resp impactResponse) string {
 		return sb.String()
 	}
 
+	writeImpactModules(&sb, resp)
 	if r.Summary != "" {
 		sb.WriteString(r.Summary + "\n\n")
 	}
-	fmt.Fprintf(&sb, "**%d** total transitive dependents within max_depth %d.\n\n", r.TotalDependents, r.Stats.MaxDepthReached)
+	fmt.Fprintf(&sb, "**%d** total transitive dependents, the farthest %d %s away.\n\n", r.TotalDependents, r.Stats.MaxDepthReached,
+		map[bool]string{true: "hop", false: "hops"}[r.Stats.MaxDepthReached == 1])
 
 	byKind := map[string]int{}
 	byModule := map[string]int{}

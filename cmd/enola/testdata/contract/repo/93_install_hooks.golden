@@ -6,7 +6,13 @@ Target:     .   (from the path you gave)
 Hooks:      yes
             · at the start of a session the architecture is frozen as a
               baseline, in the background — session start is never delayed,
-              and a baseline you pinned yourself is never replaced
+              and a baseline you pinned yourself is never replaced. Claude Code
+              is also told how to load enola's tools, which it lists as deferred
+            · in Claude Code, the first two file searches of a session are
+              refused with a pointer to enola's tools until one of them is used;
+              a search run again goes through
+            · in Claude Code, a use of an enola tool is recorded, which ends
+              those refusals
             · at the end of a turn, the architectural delta is reported only if
               the change introduced a regression or a finding no policy
               enforces, or that the baseline was not comparable so nothing could

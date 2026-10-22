@@ -173,10 +173,13 @@ func (e *GoExtractor) Extract(ctx context.Context, repoPath string, files []stri
 	// Pass 2a: what every function in the module is declared to return, so a call
 	// on a call's result (`eng.Resolver().NodeName(x)`) and a variable assigned from
 	// one (`r := eng.Resolver()`) resolve to the method they reach.
-	callTypes := callTypeTables{returns: make(map[string][]string), aliases: aliases}
+	callTypes := callTypeTables{returns: make(map[string][]string), aliases: aliases, funcs: make(map[string]bool)}
 	for _, pkgDir := range pkgDirs {
 		for k, v := range collectReturnTypes(parsedPkgs[pkgDir].parsedFiles, pkgDir, mods, pkgNames, aliases) {
 			callTypes.returns[k] = v
+		}
+		for name := range collectPackageFuncs(parsedPkgs[pkgDir].parsedFiles) {
+			callTypes.funcs[pkgDir+"."+name] = true
 		}
 	}
 
@@ -191,6 +194,26 @@ func (e *GoExtractor) Extract(ctx context.Context, repoPath string, files []stri
 		}
 		for typ, embedded := range collectEmbeddedTypes(parsedPkgs[pkgDir].parsedFiles, pkgDir, mods, pkgNames, aliases) {
 			callTypes.embeds[typ] = append(callTypes.embeds[typ], embedded...)
+		}
+	}
+
+	// Pass 2a'': the implementers the source states without an assertion — a
+	// constructor returning the interface — and the ones the method sets infer. See
+	// ifaceimpl.go. Both are fed to the closure and recorded on the interface facts;
+	// the recorded stated set includes the assertions and, like the inferred one, no
+	// mock.
+	decls := newTypeDecls()
+	for _, pkgDir := range pkgDirs {
+		collectTypeDecls(decls, parsedPkgs[pkgDir], pkgDir, mods, pkgNames, aliases)
+	}
+	stated, inferred := implementersFrom(decls, callTypes.embeds, callTypes.implementers)
+	for _, found := range []map[string][]string{stated, inferred} {
+		for iface, impls := range found {
+			for _, t := range impls {
+				if !contains(callTypes.implementers[iface], t) {
+					callTypes.implementers[iface] = append(callTypes.implementers[iface], t)
+				}
+			}
 		}
 	}
 
@@ -246,6 +269,7 @@ func (e *GoExtractor) Extract(ctx context.Context, repoPath string, files []stri
 	}
 	bindCommands(allFacts, commandLits, mods)
 	bindTools(allFacts)
+	annotateImplementers(allFacts, stated, inferred)
 
 	// Carry io_direct to every function that reaches one, across packages, and
 	// through an interface to the types asserted to implement it.
@@ -305,7 +329,7 @@ func (e *GoExtractor) extractPackage(fset *token.FileSet, pkgDir string, pp *par
 	// providerFunc{"rubydex": runRubydex}` is the shape, and runRubydex read as dead
 	// with it unrecorded. Package-level initialization IS the package's work, so the
 	// package is the honest source for the edge.
-	if refs := packageLevelInitRefs(pp, pkgDir, mods, pkgNames, pkgFuncs); len(refs) > 0 {
+	if refs := packageLevelInitRefs(pp, pkgDir, mods, pkgNames, pkgFuncs, callTypes.funcs); len(refs) > 0 {
 		for _, ref := range refs {
 			moduleFact.Relations = append(moduleFact.Relations, facts.Relation{
 				Kind:   facts.RelCalls,
@@ -511,6 +535,7 @@ func (e *GoExtractor) extractFunc(fset *token.FileSet, fn *ast.FuncDecl, relFile
 
 			returnTypes: callTypes.returns,
 			aliases:     callTypes.aliases,
+			moduleFuncs: callTypes.funcs,
 		}
 		typeParams := typeParamNames(fn.Recv, fn.Type)
 		ctx.localTypes = collectLocalTypesFrom(fn.Body, ctx, signatureTypes(fn.Type, ctx, typeParams), typeParams)
@@ -795,6 +820,9 @@ type resolveCtx struct {
 	// "pkgDir.Alias" → the type `type Alias = T` names, module-wide. See calltypes.go.
 	aliases  map[string]string
 	pkgFuncs map[string]bool // this package's top-level function names
+	// "pkgDir.Func" for every top-level function in the module. nil where a pass
+	// does not resolve function values across packages.
+	moduleFuncs map[string]bool
 	// Every name this package declares at top level: functions, types, variables
 	// and constants. nil where a pass does not collect it.
 	pkgScope map[string]bool

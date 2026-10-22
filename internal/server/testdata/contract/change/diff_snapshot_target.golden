@@ -26,12 +26,6 @@ _Baseline <TIME> → current <TIME>._
 - suggested actions:
     - Confirm no dynamic/reflective or out-of-snapshot callers, then remove the symbol
 
-## Incidental finding shifts (1)
-
-_Heuristic findings appeared or cleared with no structural cause in this change — a moving statistical threshold or a re-ranked top-N list. Likely NOT caused by this change; verify only if relevant._
-
-- cleared · [dead-code] Test-only code candidate: function pkg/a.Gamma
-
 ## Structural changes
 
 - dependency: +1 / -0

@@ -50,7 +50,7 @@
     "llm_context.md": "sha256:<HASH>"
   },
   "fact_count": 22,
-  "insight_count": 5,
+  "insight_count": 6,
   "quality": {
     "files_seen": 6,
     "files_parsed": 5,
@@ -61,7 +61,7 @@
       "pkg/a/a_test.go (glob: **/*_test.go)"
     ],
     "parse_errors": 0,
-    "heuristic_insights": 4,
+    "heuristic_insights": 5,
     "census": {
       "files_walked": 8,
       "parsed": 5,

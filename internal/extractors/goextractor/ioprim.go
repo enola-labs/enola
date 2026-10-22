@@ -209,8 +209,52 @@ func splitGoTarget(target string) (pkg, member string) {
 	return target[:dot], target[dot+1:]
 }
 
-// goIOCall reports whether a resolved call target performs I/O in itself: it is
-// an entry point, or it is one reached under another type's name. There are two
+// goDBPackages are the packages whose I/O members are a round trip to a database:
+// a query, a statement, a transaction boundary. They are what a query-per-iteration
+// question is about, as opposed to I/O at large: a loop that writes a log file or
+// calls a service is its own question.
+var goDBPackages = map[string]bool{
+	"database/sql":                      true,
+	"xorm.io/xorm":                      true,
+	"gorm.io/gorm":                      true,
+	"github.com/jmoiron/sqlx":           true,
+	"github.com/jackc/pgx":              true,
+	"github.com/jackc/pgx/pgxpool":      true,
+	"go.mongodb.org/mongo-driver/mongo": true,
+}
+
+// goPureMembers are the members of database packages that read a result already
+// fetched and send nothing: a cursor's Next and Scan. `for rows.Next() { rows.Scan(…) }`
+// is ONE query, iterated; matching the package name read every such loop as a query
+// per row.
+var goPureMembers = map[string]map[string]bool{
+	"database/sql": {
+		"Rows.Next": true, "Rows.Scan": true, "Rows.Close": true, "Rows.Err": true, "Rows.Columns": true,
+		"Rows.ColumnTypes": true, "Rows.NextResultSet": true, "Row.Scan": true, "Row.Err": true,
+	},
+	"github.com/jmoiron/sqlx": {
+		"Rows.Next": true, "Rows.Scan": true, "Rows.Close": true, "Rows.Err": true,
+		"Rows.StructScan": true, "Rows.MapScan": true, "Rows.SliceScan": true,
+		"Row.Scan": true, "Row.Err": true, "Row.StructScan": true, "Row.MapScan": true, "Row.SliceScan": true,
+	},
+	"github.com/jackc/pgx": {
+		"Rows.Next": true, "Rows.Scan": true, "Rows.Values": true, "Rows.Close": true, "Rows.Err": true, "Row.Scan": true,
+	},
+}
+
+// goPureCall reports whether a resolved call target is a database cursor member.
+func goPureCall(target string) bool {
+	pkg, member := splitGoTarget(target)
+	if member == "" {
+		return false
+	}
+	pkg = strings.TrimSuffix(goMajorVersion.ReplaceAllString(pkg, "$1"), "/")
+	return goPureMembers[pkg][member]
+}
+
+// goIOMatch reports whether a resolved call target performs I/O in itself, and
+// the entry point it reaches, which names the package whose I/O it is: it is an
+// entry point, or it is one reached under another type's name. There are two
 // ways a project gives an entry point its own name, and both are statements in
 // the source, not guesses:
 //
@@ -223,50 +267,77 @@ func splitGoTarget(target string) (pkg, member string) {
 //	type DBSession struct { *xorm.Session }
 //
 // promotes the session's methods, so `DBSession.Exec` is `xorm.Session.Exec`.
-func goIOCall(target string, types callTypeTables) bool {
+// A constructor's or a method set's implementers (see ifaceimpl.go) join the
+// assertions in types.implementers.
+func goIOMatch(target string, types callTypeTables) (string, bool) {
 	if goIOPrimitive(target) {
-		return true
+		return target, true
 	}
 	dot := strings.LastIndexByte(target, '.')
 	if dot < 0 {
-		return false
+		return "", false
 	}
 	owner, member := target[:dot], target[dot:]
 	for _, t := range types.implementers[owner] {
 		if goIOPrimitive(t + member) {
-			return true
+			return t + member, true
 		}
 	}
 	for _, t := range types.embeds[owner] {
 		if goIOPrimitive(t + member) {
-			return true
+			return t + member, true
 		}
 	}
-	return false
+	return "", false
+}
+
+// goDBPrimitive reports whether an I/O entry point is a database round trip.
+func goDBPrimitive(prim string) bool {
+	pkg, _ := splitGoTarget(prim)
+	return goDBPackages[strings.TrimSuffix(goMajorVersion.ReplaceAllString(pkg, "$1"), "/")]
 }
 
 // markGoDirectIO records on a function's fact the I/O calls its body makes.
 // io_calls names them, so a consumer can tell the call that is the I/O from the
-// others in the same loop.
+// others in the same loop. db_calls names the ones that are database round trips,
+// and pure_calls the database cursor reads that are not.
 func markGoDirectIO(f *facts.Fact, types callTypeTables, calls ...[]string) {
-	seen := make(map[string]bool)
+	seen, db, pure := make(map[string]bool), make(map[string]bool), make(map[string]bool)
 	for _, list := range calls {
 		for _, c := range list {
-			if goIOCall(c, types) {
+			if goPureCall(c) {
+				pure[c] = true
+				continue
+			}
+			if prim, ok := goIOMatch(c, types); ok {
 				seen[c] = true
+				if goDBPrimitive(prim) {
+					db[c] = true
+				}
 			}
 		}
+	}
+	if len(pure) > 0 {
+		f.SetProp("pure_calls", sortedSet(pure))
 	}
 	if len(seen) == 0 {
 		return
 	}
-	prims := make([]string, 0, len(seen))
-	for c := range seen {
-		prims = append(prims, c)
-	}
-	sort.Strings(prims)
 	f.SetProp("io_direct", true)
-	f.SetProp("io_calls", prims)
+	f.SetProp("io_calls", sortedSet(seen))
+	if len(db) > 0 {
+		f.SetProp("db_direct", true)
+		f.SetProp("db_calls", sortedSet(db))
+	}
+}
+
+func sortedSet(set map[string]bool) []string {
+	out := make([]string, 0, len(set))
+	for c := range set {
+		out = append(out, c)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // goObservabilityPackages are the package names whose functions report on the

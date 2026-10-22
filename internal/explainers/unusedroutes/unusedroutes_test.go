@@ -306,3 +306,56 @@ func TestExplain_RuntimeObservationsStayOutOfEveryCensus(t *testing.T) {
 		t.Errorf("an observation leaked into the candidate list: %q", in.Description)
 	}
 }
+
+// Withheld as a list, the unmatched routes are still located: per route file, how
+// many of the routes assessed there match no client. No route is named.
+func TestExplain_ThinCoverageSaysWhereTheUnmatchedAre(t *testing.T) {
+	store := facts.NewStore()
+	store.Add(facts.Fact{Kind: facts.KindService, Name: "api", Repo: "api"})
+	add := func(file string, n, called int) {
+		for i := 0; i < n; i++ {
+			r := flaggedRoute("api", fmt.Sprintf("/%s/ep%02d", file, i), "GET")
+			r.File = file + ".go"
+			if i < called {
+				delete(r.Props, "unmatched_by_clients")
+				r.Props["matched_by_clients"] = true
+			}
+			store.Add(r)
+		}
+	}
+	add("shop", 60, 5)
+	add("social", 40, 0)
+	insights, err := New().Explain(context.Background(), store)
+	if err != nil || len(insights) != 1 || !strings.Contains(insights[0].Title, "too thin") {
+		t.Fatalf("want the thin-coverage finding, got %+v (%v)", insights, err)
+	}
+	ev := insights[0].Evidence
+	if len(ev) != 2 || ev[0].File != "shop.go" || ev[0].Detail != "55 of 60 assessed route(s) in this file match no client call site" ||
+		ev[1].File != "social.go" {
+		t.Errorf("evidence = %+v, want shop.go (55 of 60) then social.go", ev)
+	}
+}
+
+// One method on one path registered in two files: one of the two handlers is not
+// served. Path parameters compare equal however they are spelled.
+func TestExplain_RouteRegisteredInTwoFiles(t *testing.T) {
+	store := facts.NewStore()
+	route := func(name, file string, line int) facts.Fact {
+		return facts.Fact{Kind: facts.KindRoute, Name: name, File: file, Line: line, Repo: "api",
+			Props: map[string]any{"method": "GET", "role": "server"}}
+	}
+	store.Add(
+		route("/api/settings/maintenance-activities/{id:[0-9]+}", "settings_routes.go", 166),
+		route("/api/settings/maintenance-activities/{id}", "inventory_routes.go", 95),
+		route("/api/settings/brands/{id}", "inventory_routes.go", 40),
+	)
+	insights, err := New().Explain(context.Background(), store)
+	if err != nil || len(insights) != 1 {
+		t.Fatalf("want one duplicate-route finding in a single-repo snapshot, got %+v (%v)", insights, err)
+	}
+	in := insights[0]
+	if !strings.Contains(in.Title, "more than one file") || len(in.Evidence) != 1 ||
+		in.Evidence[0].Detail != "GET /api/settings/maintenance-activities/{} is registered at inventory_routes.go:95, settings_routes.go:166" {
+		t.Errorf("finding = %+v", in)
+	}
+}

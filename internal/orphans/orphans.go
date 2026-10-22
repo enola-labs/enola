@@ -9,17 +9,18 @@
 // once, straight after a snapshot. Keeping the engine out is what lets this code
 // live either side of the module boundary.
 //
-// Detection caveat: the snapshot graph stores call/implements edges as
-// UNRESOLVED short names (e.g. "handleError", "json.NewDecoder",
-// "HandlerV2.Create") while symbol facts carry canonical names (e.g.
-// "internal/app/user.HandlerV2.Create"). Exact-name reverse lookups therefore
-// match almost nothing. We instead match references by short name with a
-// deliberately conservative bias: a symbol counts as USED if any reference
-// matches one of its short forms. This errs toward not flagging, so we never
-// recommend deleting live code (cost: some real orphans with common names are
-// missed). Type usage (a struct used only as a field/param/return type) is not
-// an edge in the snapshot at all, so struct/type findings are tagged
-// lower-confidence.
+// Detection caveat: many extractors store call/implements edges as UNRESOLVED
+// short names (e.g. "handleError", "json.NewDecoder", "HandlerV2.Create") while
+// symbol facts carry canonical names (e.g. "internal/app/user.HandlerV2.Create").
+// Exact-name reverse lookups therefore match almost nothing. We instead match
+// references by short name with a deliberately conservative bias: a symbol counts
+// as USED if any reference matches one of its short forms. This errs toward not
+// flagging, so we never recommend deleting live code (cost: some real orphans with
+// common names are missed). The exception is a Go package-level function, whose
+// calls and function values the Go extractor resolves through imports; it is
+// matched by package path (see refCandidates). Type usage (a struct used only as a
+// field/param/return type) is not an edge in the snapshot at all, so struct/type
+// findings are tagged lower-confidence.
 package orphans
 
 import (
@@ -327,11 +328,46 @@ func candidateNames(name, kind string) []string {
 // bareName returns a symbol's unqualified name (its final '.'-segment).
 func bareName(name string) string { return lastSeg(name) }
 
+// refCandidates returns the forms a reference to sym may take. It is candidateNames
+// for every symbol but one kind: a Go package-level function, which is matched by its
+// full name and by its package-qualified form (`git.CreateBranch` for
+// `modules/git.CreateBranch`), never by its bare name.
+//
+// The Go extractor resolves a call through the file's import table, so a call to
+// that function arrives as its full name, and a handler registered by its package
+// (`repo.CreateBranch` in a route) arrives package-qualified. The bare name joined
+// it to every same-named thing in the repository instead: two route handlers called
+// CreateBranch in other packages, and seven calls to a Repository method called
+// GetBranchCommitID, kept two package-level functions alive that nothing calls. Go
+// functions handed over as values are recorded as edges too (see
+// goextractor/funcvalues.go), which is what makes the narrower match safe.
+func refCandidates(sym symInput) []string {
+	if sym.Kind != facts.SymbolFunc || !strings.HasSuffix(sym.File, ".go") {
+		return candidateNames(sym.Name, sym.Kind)
+	}
+	out := []string{sym.Name}
+	if q := pkgQualified(sym.Name); q != sym.Name && !strings.HasPrefix(q, ".") {
+		out = append(out, q)
+	}
+	return out
+}
+
+// pkgQualified drops the directory of a Go-style name, keeping the package's own
+// segment: `routers/web/repo.CreateBranch` becomes `repo.CreateBranch`, which is how
+// a reference written in source names it. A name with no directory is returned
+// unchanged.
+func pkgQualified(name string) string {
+	if i := strings.LastIndex(name, "/"); i >= 0 {
+		return name[i+1:]
+	}
+	return name
+}
+
 // referencedByOther reports whether any source other than the symbol itself
 // references one of the symbol's short forms. Self-references (e.g. recursion)
 // do not count as use.
 func referencedByOther(sym symInput, refSources refIndex) bool {
-	for _, cand := range candidateNames(sym.Name, sym.Kind) {
+	for _, cand := range refCandidates(sym) {
 		if refSources[cand].referenced(sym.Name) {
 			return true
 		}
@@ -342,7 +378,7 @@ func referencedByOther(sym symInput, refSources refIndex) bool {
 // referencedInProduction is referencedByOther counting production sources only:
 // a test file calling the symbol does not make it used.
 func referencedInProduction(sym symInput, refSources refIndex) bool {
-	for _, cand := range candidateNames(sym.Name, sym.Kind) {
+	for _, cand := range refCandidates(sym) {
 		if refSources[cand].referencedInProduction(sym.Name) {
 			return true
 		}
@@ -1112,6 +1148,9 @@ func collect(store *facts.Store) ([]symInput, refIndex) {
 				if seg := lastSeg(r.Target); seg != r.Target {
 					add(seg, f.Name)
 				}
+				if q := pkgQualified(r.Target); q != r.Target {
+					add(q, f.Name)
+				}
 				// Fold the constant receiver of a "Foo.bar" call in as a use of Foo,
 				// so a class referenced only via a call (e.g. Ruby PostCreator.create)
 				// is not mis-reported as an unreferenced orphan.
@@ -1162,6 +1201,9 @@ func collect(store *facts.Store) ([]symInput, refIndex) {
 			if seg := lastSeg(r.Target); seg != r.Target {
 				addRef(refSources, seg, f.Name)
 			}
+			if q := pkgQualified(r.Target); q != r.Target {
+				addRef(refSources, q, f.Name)
+			}
 		}
 	}
 
@@ -1178,6 +1220,9 @@ func collect(store *facts.Store) ([]symInput, refIndex) {
 		addRef(refSources, h, f.Name)
 		if seg := lastSeg(h); seg != h {
 			addRef(refSources, seg, f.Name)
+		}
+		if t := f.PropString(facts.PropHandlerTarget); t != "" {
+			addRef(refSources, t, f.Name)
 		}
 		// A handler named "Ns\Controller::action" uses the controller class too:
 		// the framework instantiates it to serve the route.
@@ -1211,6 +1256,9 @@ func collect(store *facts.Store) ([]symInput, refIndex) {
 			if seg := lastSeg(r.Target); seg != r.Target {
 				refSources.addTest(seg, f.Name)
 			}
+			if q := pkgQualified(r.Target); q != r.Target {
+				refSources.addTest(q, f.Name)
+			}
 			for _, recv := range constReceiverRefs(r.Target) {
 				refSources.addTest(recv, f.Name)
 			}
@@ -1240,6 +1288,9 @@ func collect(store *facts.Store) ([]symInput, refIndex) {
 			if seg := lastSeg(r.Target); seg != r.Target {
 				add(seg, f.Name)
 			}
+			if q := pkgQualified(r.Target); q != r.Target {
+				add(q, f.Name)
+			}
 			for _, recv := range constReceiverRefs(r.Target) {
 				add(recv, f.Name)
 			}
@@ -1263,6 +1314,9 @@ func collect(store *facts.Store) ([]symInput, refIndex) {
 			addRef(refSources, r.Target, f.Name)
 			if seg := lastSeg(r.Target); seg != r.Target {
 				addRef(refSources, seg, f.Name)
+			}
+			if q := pkgQualified(r.Target); q != r.Target {
+				addRef(refSources, q, f.Name)
 			}
 			for _, recv := range constReceiverRefs(r.Target) {
 				addRef(refSources, recv, f.Name)
@@ -1308,6 +1362,9 @@ func collect(store *facts.Store) ([]symInput, refIndex) {
 			addRef(refSources, r.Target, f.Name)
 			if seg := lastSeg(r.Target); seg != r.Target {
 				addRef(refSources, seg, f.Name)
+			}
+			if q := pkgQualified(r.Target); q != r.Target {
+				addRef(refSources, q, f.Name)
 			}
 		}
 	}
@@ -1417,10 +1474,11 @@ type fullResponse struct {
 }
 
 // noteCore is the part of the response note true of every language.
-const noteCore = "References are matched by symbol short-name (the snapshot's call/implements edges are " +
-	"unresolved), so detection is conservative: a symbol is treated as used if its name matches any " +
-	"reference, avoiding false 'unused' reports at the cost of missing some orphans (common names, " +
-	"generated code). CONFIDENCE: 'function' findings are HIGH — plain calls are reliably tracked as " +
+const noteCore = "References are matched by symbol short-name, so detection is conservative: a symbol is " +
+	"treated as used if its name matches any reference, avoiding false 'unused' reports at the cost of " +
+	"missing some orphans (common names, generated code). A Go package-level function is the exception: " +
+	"its calls and function values are resolved through imports, so it is matched by package path and a " +
+	"same-named function or method elsewhere does not keep it alive. CONFIDENCE: 'function' findings are HIGH — plain calls are reliably tracked as " +
 	"edges (operator overloads, invoked through operator syntax, are LOW). 'struct'/'class'/'interface' findings are MEDIUM — these are marked used via " +
 	"instantiates/injects/implements edges (which ARE tracked), so an unreferenced one is a strong " +
 	"dead-code lead, but field/param/return type usage is not edge-tracked so verify before removing. " +

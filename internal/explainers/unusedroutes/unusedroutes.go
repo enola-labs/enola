@@ -14,7 +14,9 @@ package unusedroutes
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"sort"
+	"strings"
 
 	"github.com/enola-labs/enola/internal/facts"
 	"github.com/enola-labs/enola/internal/providers"
@@ -47,8 +49,11 @@ func (e *Explainer) Name() string { return "unused-routes" }
 // repo, each carrying the mandatory out-of-snapshot caveat. It returns nothing for
 // single-repo snapshots (no service nodes, so the cross-repo flagging never ran).
 func (e *Explainer) Explain(ctx context.Context, store *facts.Store) ([]facts.Insight, error) {
+	// A route registered twice needs no client to be found, so it is reported in
+	// a single-repo snapshot as well.
+	duplicates := duplicateRoutes(store)
 	if len(store.ByKind(facts.KindService)) == 0 {
-		return nil, nil
+		return duplicates, nil
 	}
 
 	// Served counts every server route per repo, so an unmatched count can be
@@ -56,6 +61,9 @@ func (e *Explainer) Explain(ctx context.Context, store *facts.Store) ([]facts.In
 	// caller" and reads as 3,392 dead endpoints, when what it actually means is
 	// that the client set is incomplete.
 	served, declined := map[string]int{}, map[string]int{}
+	// The assessed routes per file, so a finding too broad to list can still say
+	// where the unmatched ones are.
+	servedIn := map[string]map[string]int{}
 	for _, f := range store.ByKind(facts.KindRoute) {
 		if f.Props == nil {
 			continue
@@ -87,6 +95,10 @@ func (e *Explainer) Explain(ctx context.Context, store *facts.Store) ([]facts.In
 			continue
 		}
 		served[repo]++
+		if servedIn[repo] == nil {
+			servedIn[repo] = map[string]int{}
+		}
+		servedIn[repo][f.File]++
 	}
 
 	byRepo := map[string][]route{}
@@ -151,8 +163,14 @@ func (e *Explainer) Explain(ctx context.Context, store *facts.Store) ([]facts.In
 						"any of these as dead.%s",
 					len(routes), repo, total, share*100, unexamined),
 				Confidence: 0.9,
+				// Where the unmatched routes are, by route file, most first. The list
+				// is withheld because it is not a list of dead endpoints; how it
+				// spreads across the API is still worth reading, and it is how a
+				// question about one area of the API is answered from here.
+				Evidence: coverageByFile(routes, servedIn[repo]),
 				Actions: []string{
 					"Add the repositories that call this API and regenerate; the list is not meaningful until then",
+					"List one file's unmatched routes: query_facts(kind=route, prop=unmatched_by_clients, prop_value=true, file=<file>)",
 				},
 			})
 			continue
@@ -229,6 +247,140 @@ func evidenceFor(routes []route) []facts.Evidence {
 			detail = r.label + " — " + detail
 		}
 		out = append(out, facts.Evidence{Fact: r.name, File: r.file, Detail: detail})
+	}
+	return out
+}
+
+// coverageByFile states, for the route files holding the most unmatched routes, how
+// many of the routes assessed there match no client.
+func coverageByFile(routes []route, served map[string]int) []facts.Evidence {
+	unmatched := map[string]int{}
+	for _, r := range routes {
+		if r.file != "" { // a route with no file has nowhere to point
+			unmatched[r.file]++
+		}
+	}
+	files := make([]string, 0, len(unmatched))
+	for f := range unmatched {
+		files = append(files, f)
+	}
+	sort.Slice(files, func(i, j int) bool {
+		if unmatched[files[i]] != unmatched[files[j]] {
+			return unmatched[files[i]] > unmatched[files[j]]
+		}
+		return files[i] < files[j]
+	})
+	if len(files) > maxSamples {
+		files = files[:maxSamples]
+	}
+	out := make([]facts.Evidence, 0, len(files))
+	for _, f := range files {
+		out = append(out, facts.Evidence{
+			File:   f,
+			Detail: fmt.Sprintf("%d of %d assessed route(s) in this file match no client call site", unmatched[f], served[f]),
+		})
+	}
+	return out
+}
+
+// pathParam matches a path parameter in either spelling a router accepts, so
+// `/items/{id}`, `/items/{id:[0-9]+}` and `/items/:id` compare equal.
+var pathParam = regexp.MustCompile(`\{[^}]*\}|/:[A-Za-z_][A-Za-z0-9_]*`)
+
+// duplicateRoutes reports a server route — one method on one path — registered in
+// more than one file of a repository. A router serves one registration of a path
+// and the other handler never runs, or refuses to start; which one wins depends on
+// registration order, which a snapshot does not see. Either way two places claim
+// one endpoint, and a change made in the wrong one changes nothing.
+func duplicateRoutes(store *facts.Store) []facts.Insight {
+	type site struct {
+		file string
+		line int
+	}
+	byKey := map[string]map[string][]site{} // repo → "METHOD path" → registrations
+	for _, f := range store.ByKind(facts.KindRoute) {
+		if f.Props == nil {
+			continue
+		}
+		if role, _ := f.PropAny("role").(string); role == "client" {
+			continue
+		}
+		method, _ := f.PropAny("method").(string)
+		if method == "" || f.File == "" {
+			continue
+		}
+		key := strings.ToUpper(method) + " " + pathParam.ReplaceAllStringFunc(f.Name, func(m string) string {
+			if strings.HasPrefix(m, "/") {
+				return "/{}"
+			}
+			return "{}"
+		})
+		if byKey[f.Repo] == nil {
+			byKey[f.Repo] = map[string][]site{}
+		}
+		byKey[f.Repo][key] = append(byKey[f.Repo][key], site{f.File, f.Line})
+	}
+	repos := make([]string, 0, len(byKey))
+	for r := range byKey {
+		repos = append(repos, r)
+	}
+	sort.Strings(repos)
+
+	var out []facts.Insight
+	for _, repo := range repos {
+		var keys []string
+		for key, sites := range byKey[repo] {
+			files := map[string]bool{}
+			for _, s := range sites {
+				files[s.file] = true
+			}
+			if len(files) > 1 {
+				keys = append(keys, key)
+			}
+		}
+		if len(keys) == 0 {
+			continue
+		}
+		sort.Strings(keys)
+		var evidence []facts.Evidence
+		for _, key := range keys {
+			if len(evidence) >= maxSamples {
+				break
+			}
+			sites := byKey[repo][key]
+			sort.Slice(sites, func(i, j int) bool {
+				if sites[i].file != sites[j].file {
+					return sites[i].file < sites[j].file
+				}
+				return sites[i].line < sites[j].line
+			})
+			where := make([]string, 0, len(sites))
+			for _, s := range sites {
+				where = append(where, fmt.Sprintf("%s:%d", s.file, s.line))
+			}
+			evidence = append(evidence, facts.Evidence{
+				File:   sites[0].file,
+				Line:   sites[0].line,
+				Detail: fmt.Sprintf("%s is registered at %s", key, strings.Join(where, ", ")),
+			})
+		}
+		label := repo
+		if label == "" {
+			label = "this repository"
+		}
+		out = append(out, facts.Insight{
+			Title: fmt.Sprintf("Routes registered in more than one file of %s: %d", label, len(keys)),
+			Description: fmt.Sprintf(
+				"%d method and path pair(s) in %s are registered in two or more files. A router serves one "+
+					"registration of a path, so one of the handlers never runs (or the router refuses to start), "+
+					"and which one depends on the order the files register in, which the snapshot does not see. "+
+					"A change made to the handler that is not served changes nothing.", len(keys), label),
+			Confidence: 0.6,
+			Evidence:   evidence,
+			Actions: []string{
+				"Keep one registration of each pair and delete the other, with its handler if nothing else uses it",
+			},
+		})
 	}
 	return out
 }

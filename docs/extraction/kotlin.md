@@ -112,6 +112,11 @@ answered by filtering rather than by guessing from file paths.
 - **KSP / kapt generated sources.** `**/generated/**` and `build/` are ignored by default;
   a Room DAO implementation or a Hilt component generated at build time is not indexed.
   The annotated declaration is what carries the meaning.
+- **Imports of generated code.** `import ….R`, `import ….BuildConfig` and an import from
+  an undeclared lowercase sub-package (View Binding's `….databinding.HomeBinding`) stay
+  external dependencies. They name a Gradle module's namespace, which often no source file
+  declares, and resolving them to the nearest declared package made every feature module
+  import the application package.
 - **Non-literal Retrofit paths.** `@GET(pathConstant)` is not resolved.
 - **Kotlin multiplatform expect/actual pairing** across source sets.
 - **Extension-function dispatch** resolves to the declared extension, not to receivers.

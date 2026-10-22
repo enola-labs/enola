@@ -242,6 +242,51 @@ func isCommentLine(line string) bool {
 		strings.HasPrefix(line, "*")
 }
 
+// generatedClasses are the classes the Android Gradle plugin writes into a module's
+// namespace at build time. No source file declares them.
+var generatedClasses = map[string]bool{"R": true, "BuildConfig": true}
+
+// GeneratedImport reports whether a JVM import names code the build generates
+// rather than a source file the repository holds, so it must not become an edge to
+// any of its directories. Two shapes:
+//
+//   - A generated class: `R` or `BuildConfig` (and R's nested `R.string`, …)
+//     directly under a package. They live in the Gradle module's NAMESPACE, which
+//     often no source file declares as a package (`com.example.app.ui.R` in a
+//     module whose code is all under `com.example.app.ui.home`).
+//   - An undeclared sub-package of a declared one, named by two or more further
+//     segments of which the first is lowercase: `com.example.app.databinding.
+//     ActivityMainBinding`, which View Binding generates.
+//
+// Both used to resolve to the longest declared prefix. For a namespace no file
+// declares, that is usually the app's root package, so every `import ….ui.R` in a
+// feature module became an edge into the application module — edges Gradle forbids
+// between modules, which fused whole apps into one dependency cycle. A nested type
+// (`com.example.Outer.Inner`, uppercase) and a top-level function
+// (`com.example.util.someFunction`, one segment) still resolve.
+func GeneratedImport(importPath string, index map[string]string) bool {
+	segs := strings.Split(strings.TrimSuffix(importPath, ".*"), ".")
+	for i, seg := range segs {
+		if generatedClasses[seg] && i > 0 {
+			return true
+		}
+		if seg == "" || seg[0] < 'a' || seg[0] > 'z' {
+			break // past the package part: a type name, not a package segment
+		}
+	}
+	// The longest declared prefix decides, the whole path included: a wildcard
+	// import of a declared package (`….ui.home.*`) names that package, not an
+	// undeclared one below a shorter prefix.
+	for i := len(segs); i > 0; i-- {
+		if _, ok := index[strings.Join(segs[:i], ".")]; !ok {
+			continue
+		}
+		rest := segs[i:]
+		return len(rest) >= 2 && rest[0] != "" && rest[0][0] >= 'a' && rest[0][0] <= 'z'
+	}
+	return false
+}
+
 // ResolveImport maps a JVM import FQN to the directory of the package that holds
 // it, using a package index from BuildPackageIndex. It walks from the longest
 // dotted prefix down to the shortest, so that `de.foo.bar.Baz` resolves via the
@@ -250,8 +295,12 @@ func isCommentLine(line string) bool {
 // type / nested-type name) are appended as path components so the caller's
 // module-resolution still lands on the package directory and the produced fact
 // name matches the "<dir>.<Type>" symbol convention. Returns ok=false when no
-// prefix is a known package (i.e. an external dependency).
+// prefix is a known package (i.e. an external dependency), and for an import of
+// generated code (see GeneratedImport).
 func ResolveImport(importPath string, index map[string]string) (string, bool) {
+	if GeneratedImport(importPath, index) {
+		return "", false
+	}
 	p := strings.TrimSuffix(importPath, ".*")
 	segs := strings.Split(p, ".")
 	for i := len(segs); i > 0; i-- {

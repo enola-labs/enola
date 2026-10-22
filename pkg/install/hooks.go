@@ -2,6 +2,7 @@ package install
 
 import (
 	"path/filepath"
+	"slices"
 )
 
 // hookTimeoutSeconds bounds each hook. Both hooks are designed to return promptly —
@@ -30,7 +31,16 @@ type hookSpec struct {
 	// simply omits the key. See writeHooks.
 	Matcher     string
 	Description string
+	// ClaudeArgs are appended to the subcommand in Claude Code's entry only, for
+	// behaviour another harness's contract does not take.
+	ClaudeArgs string
+	// ClaudeOnly marks a hook only Claude Code gets: one about how Claude Code lists
+	// an MCP server's tools, which Codex and pi do not do.
+	ClaudeOnly bool
 }
+
+// agentClaude names the Claude Code writer, for the specs that differ by harness.
+const agentClaude = "claude"
 
 // installedHooks is the single source of truth for what --hooks configures. Adding an
 // event here updates the writer, the CLI's summary and the instruction text together.
@@ -38,9 +48,24 @@ var installedHooks = []hookSpec{{
 	Event:      "SessionStart",
 	Matcher:    "startup|resume",
 	Subcommand: "hook session-start",
+	ClaudeArgs: "--agent=claude",
 	Description: "at the start of a session the architecture is frozen as a baseline, in the " +
 		"background — session start is never delayed, and a baseline you pinned yourself is " +
-		"never replaced",
+		"never replaced. Claude Code is also told how to load enola's tools, which it lists " +
+		"as deferred",
+}, {
+	Event:      "PreToolUse",
+	Matcher:    "Grep|Glob|Bash",
+	Subcommand: "hook pre-tool",
+	ClaudeOnly: true,
+	Description: "in Claude Code, the first two file searches of a session are refused with a " +
+		"pointer to enola's tools until one of them is used; a search run again goes through",
+}, {
+	Event:       "PostToolUse",
+	Matcher:     "mcp__enola__.*|mcp__plugin_enola_.*",
+	Subcommand:  "hook post-tool",
+	ClaudeOnly:  true,
+	Description: "in Claude Code, a use of an enola tool is recorded, which ends those refusals",
 }, {
 	Event:      "Stop",
 	Subcommand: "hook stop",
@@ -63,7 +88,11 @@ func HookSummary(o Options) []string {
 	}
 	var out []string
 	if InstallsSessionHooks(o) {
+		claude := slices.Contains(o.selectedTargets(), agentClaude)
 		for _, h := range installedHooks {
+			if h.ClaudeOnly && !claude {
+				continue
+			}
 			out = append(out, h.Description)
 		}
 	}
@@ -83,14 +112,14 @@ func InstallsSessionHooks(o Options) bool {
 
 // writeHooks merges enola's hooks into Claude Code's settings.json, or removes them.
 func writeHooks(o Options, remove bool) ([]Result, error) {
-	return writeHooksAt(filepath.Join(claudeDir(o), "settings.json"), pruneStop(o), o, remove, claudeHookEntry)
+	return writeHooksAt(filepath.Join(claudeDir(o), "settings.json"), pruneStop(o), o, remove, claudeHookEntry, agentClaude)
 }
 
 // writeCodexHooks merges hooks into Codex's hooks.json. Codex uses the same matcher-group
 // envelope as Claude, but its command handler contract differs: async is required and the
 // timeout field is named timeoutSec.
 func writeCodexHooks(path, stop string, o Options, remove bool) ([]Result, error) {
-	return writeHooksAt(path, stop, o, remove, codexHookEntry)
+	return writeHooksAt(path, stop, o, remove, codexHookEntry, "codex")
 }
 
 type hookEntry func(command string) map[string]any
@@ -117,7 +146,17 @@ func codexHookEntry(command string) map[string]any {
 // writeHooksAt shares the matcher-group merge mechanics while allowing each agent to
 // encode command handlers according to its own schema. Only entries carrying
 // enolaHookMarker are ever replaced or removed.
-func writeHooksAt(path, stop string, o Options, remove bool, makeEntry hookEntry) ([]Result, error) {
+func writeHooksAt(path, stop string, o Options, remove bool, makeEntry hookEntry, agent string) ([]Result, error) {
+	var specs []hookSpec
+	for _, h := range installedHooks {
+		if h.ClaudeOnly && agent != agentClaude {
+			continue
+		}
+		if agent == agentClaude && h.ClaudeArgs != "" {
+			h.Subcommand += " " + h.ClaudeArgs
+		}
+		specs = append(specs, h)
+	}
 	r, err := mutateJSON(path, stop, func(doc map[string]any) {
 		hooks, _ := doc["hooks"].(map[string]any)
 		if hooks == nil {
@@ -137,12 +176,12 @@ func writeHooksAt(path, stop string, o Options, remove bool, makeEntry hookEntry
 		// `Stop` silently graded nothing, which is the worst of the three possible
 		// states: everything looks configured and the half that produces the value is
 		// absent. Verified against a real session, both shapes, one variable.
-		for _, h := range installedHooks {
+		for _, h := range specs {
 			entry := makeEntry(o.hookCommand() + " " + h.Subcommand)
 			hooks[h.Event] = mergeMatcher(hooks[h.Event], h.Matcher, entry, remove)
 		}
 
-		for _, h := range installedHooks {
+		for _, h := range specs {
 			if lst, ok := hooks[h.Event].([]any); ok && len(lst) == 0 {
 				delete(hooks, h.Event)
 			}
