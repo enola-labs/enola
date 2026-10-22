@@ -3082,7 +3082,10 @@ import (
 // database round trip is marked db_direct with its db_calls, and a cursor's Next and
 // Scan are pure_calls. performs_io grows on every Go service written against
 // interfaces.
-const cacheVersion = "v427"
+// v428: A TypeScript import whose stem is both a file and a folder holding code
+// (Footer.tsx beside Footer/) targets the file, as TypeScript resolves it, instead of
+// the folder whose module name the bare stem matched.
+const cacheVersion = "v428"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

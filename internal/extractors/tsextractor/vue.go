@@ -613,7 +613,7 @@ func (e *TSExtractor) extractVueScriptBlock(kinds *tsutil.KindTable, block *vueS
 	declaredTypes := vueMacroDeclaredTypes(kinds, calls, block.Content)
 
 	var result []facts.Fact
-	result = append(result, e.extractImports(kinds, root, block.Content, relFile, aliases, false)...)
+	result = append(result, e.extractImports(kinds, root, block.Content, relFile, aliases, false, files)...)
 	// Vue/Nuxt script blocks are parsed independently from ordinary .ts files,
 	// so run the shared GraphQL tag extractor over their AST as well. This covers
 	// Nuxt Apollo composables such as useAsyncQuery(gql`...`) and useMutation,

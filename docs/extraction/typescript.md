@@ -19,6 +19,7 @@ Fixtures: [`ts_sample`](../../internal/engine/testdata/repos/ts_sample/) ·
 | a source directory | one module per directory | `module` |
 | `function`, `class`, `interface`, `const fn = …` | a symbol with `symbol_kind` | `symbol` |
 | `import … from` | a dependency, `internal` / `external` | `dependency` |
+| `import Footer from './Footer'` with `Footer.tsx` beside a `Footer/` folder | a dependency on the file, which TypeScript picks before the folder's index | `dependency` |
 | `app.get("/x", h)` (Express) | a server route | `route` |
 | `@Get()` on a `@Controller("v2/slots")` | a server route at the **composed** path | `route` |
 | `@controller(…)` (InversifyJS) | a server route | `route` |

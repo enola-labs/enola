@@ -15,13 +15,15 @@ import (
 type tsFileIndex struct {
 	byBase map[string][]string // last path segment -> file stems (paths without extension) ending in it
 	stems  map[string]string   // file stem -> file path
+	dirs   map[string]bool     // directories holding a known file directly
 }
 
 func newTSFileIndex(knownFiles map[string]bool) *tsFileIndex {
-	ix := &tsFileIndex{byBase: map[string][]string{}, stems: map[string]string{}}
+	ix := &tsFileIndex{byBase: map[string][]string{}, stems: map[string]string{}, dirs: map[string]bool{}}
 	for file := range knownFiles {
 		stem := strings.TrimSuffix(file, path.Ext(file))
 		ix.stems[stem] = file
+		ix.dirs[path.Dir(file)] = true
 		ix.byBase[path.Base(stem)] = append(ix.byBase[path.Base(stem)], stem)
 		if path.Base(stem) == "index" {
 			// `import … from "x/y"` names y/index.ts as much as y.ts.
@@ -94,4 +96,17 @@ func sharedDirs(a, b string) int {
 		n++
 	}
 	return n
+}
+
+// fileBesideDir returns the file a resolved import stem names when a directory of
+// the same name holds code too: `@/components/Footer` with both Footer.tsx and
+// Footer/ present. TypeScript resolves the stem to the file before the folder's
+// index, but the stem is also the folder's module name, so as an import target it
+// read as an edge to the folder. The file path keeps it on the file's own module.
+func (ix *tsFileIndex) fileBesideDir(stem string) (string, bool) {
+	if ix == nil || !ix.dirs[stem] {
+		return "", false
+	}
+	file, ok := ix.stems[stem]
+	return file, ok
 }
