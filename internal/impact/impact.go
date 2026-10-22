@@ -60,6 +60,7 @@ const (
 	SeedsNamespace = "namespace"
 	SeedsDirectory = "directory"
 	SeedsPackage   = "package"
+	SeedsFamily    = "family"
 )
 
 // ErrNoFacts and ErrNoGraph are values so each caller can word its own remedy.
@@ -126,6 +127,17 @@ func Analyze(r resolve.Resolver, req Request) (Report, error) {
 				Edges:   []facts.TraversalEdge{},
 			},
 		}, nil
+	}
+
+	// One method under several owners, an interface's and its implementations':
+	// the impact of any of them is the impact of the call that may reach each.
+	if res != nil && len(res.Family) > 1 {
+		return withPackages(store, Report{
+			Resolution:   res,
+			Seeds:        res.Family,
+			SeedKind:     SeedsFamily,
+			ImpactResult: graph.ImpactSetOf(targetName, res.Family, req.MaxDepth, req.MaxNodes, req.IncludeForward),
+		}), nil
 	}
 
 	// A namespace is its nested constants, and a directory holding no code of its
