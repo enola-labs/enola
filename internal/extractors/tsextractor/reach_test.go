@@ -8,9 +8,9 @@ import (
 
 // reachApp is a Next.js application whose page renders a component that reaches a
 // client through a facade on an object a hook returns, the way no call graph binds:
-// `const api = useApi(); api.getItem(id)`. The facade has a method nothing calls,
-// the client a method only an interface declares, and a store an action no one
-// uses; each holds a request the application never sends.
+// `const api = useApi(); api.getItem(id)`. The facade has a method nothing calls and
+// the client a method only an interface declares; each holds a request the
+// application never sends.
 func reachApp(withReact bool) map[string]string {
 	pkg := `{"dependencies": {"next": "14.0.0", "react": "18.2.0"}}`
 	if !withReact {
@@ -54,11 +54,6 @@ class ShopClient implements Shop {
 }
 export const shopClient = new ShopClient();
 `,
-		"src/stores/cart.ts": `
-export const useCart = {
-  clear: async () => fetch('/api/cart', { method: 'DELETE' }),
-};
-`,
 	}
 }
 
@@ -83,7 +78,6 @@ func TestClientReachability_ReachedFromThePageThroughAHookAndAFacade(t *testing.
 		"GET /api/items/{}/details": true,  // page → ShopTab → api.getItem → shopClient.getItem
 		"GET /api/items/archive":    false, // the facade's getArchive: nothing calls it
 		"PUT /api/items/{}/reorder": false, // declared by an interface, invoked by no one
-		"DELETE /api/cart":          false, // a store nothing imports
 	}
 	for k, v := range want {
 		if got[k] != v {
@@ -119,6 +113,83 @@ func TestClientReachability_NoVerdictWithoutAnApplication(t *testing.T) {
 	for k, v := range clientReach(t, extractTSRepo(t, reachApp(false))) {
 		if v != "absent" {
 			t.Errorf("%s: client_reachable = %v, want no verdict outside a React application", k, v)
+		}
+	}
+}
+
+// In a workspace the application is a package, not the repository: a Next.js app
+// under apps/ gets verdicts, and a React library beside it does not, because whoever
+// consumes the library makes its calls.
+func TestClientReachability_PerApplicationPackage(t *testing.T) {
+	files := map[string]string{
+		"package.json":          `{"private": true, "workspaces": ["apps/*", "packages/*"]}`,
+		"apps/web/package.json": `{"dependencies": {"next": "14.0.0", "react": "18.2.0"}}`,
+		"apps/web/src/app/page.tsx": `
+import { list } from '../lib/items';
+export default function Page() { return <button onClick={() => list()}>go</button>; }
+`,
+		"apps/web/src/lib/items.ts": `
+export async function list() { return fetch('/api/items/list'); }
+export async function archive() { return fetch('/api/items/archive'); }
+`,
+		"packages/ui/package.json": `{"dependencies": {"react": "18.2.0"}}`,
+		"packages/ui/src/client.ts": `
+export async function loadWidget() { return fetch('/api/widgets/load'); }
+`,
+	}
+	got := clientReach(t, extractTSRepo(t, files))
+	want := map[string]any{
+		"GET /api/items/list":    true,
+		"GET /api/items/archive": false,
+		"GET /api/widgets/load":  "absent",
+	}
+	for k, v := range want {
+		if got[k] != v {
+			t.Errorf("%s: client_reachable = %v, want %v (all: %v)", k, got[k], v, got)
+		}
+	}
+}
+
+// Module edges that carry no name a use could match still reach: a component
+// default-imported under a name of its own, a page that re-exports its view's
+// default, and a component loaded by dynamic(() => import(...)). A file nothing
+// imports, a script or a worker, is taken as an entry.
+func TestClientReachability_DefaultImportsReexportsAndDynamicImports(t *testing.T) {
+	files := map[string]string{
+		"package.json": `{"dependencies": {"next": "14.0.0", "react": "18.2.0"}}`,
+		"src/app/page.tsx": `
+import Modal from '../components/DisableModal';
+export default function Page() { return <Modal />; }
+`,
+		"src/components/DisableModal.tsx": `
+export default function DisableTwoFactorModal() {
+  return <button onClick={() => fetch('/api/two-factor/disable', { method: 'POST' })}>off</button>;
+}
+`,
+		"src/app/video/page.tsx": `export { default } from '../../views/VideoView';`,
+		"src/views/VideoView.tsx": `
+function Overlay() { return <button onClick={() => fetch('/api/video/guest-session', { method: 'POST' })}>join</button>; }
+export default function VideoView() { return <Overlay />; }
+`,
+		"src/app/setup/page.tsx": `
+import dynamic from 'next/dynamic';
+const Setup = dynamic(() => import('../../integrations/Setup'));
+export default function Page() { return <Setup />; }
+`,
+		"src/integrations/Setup.tsx": `
+export default function CalendarSetup() {
+  return <button onClick={() => fetch('/api/integrations/calendar/add', { method: 'POST' })}>add</button>;
+}
+`,
+		"scripts/cron.ts": `
+async function tick() { return fetch('/api/cron/tick'); }
+tick();
+`,
+	}
+	got := clientReach(t, extractTSRepo(t, files))
+	for _, k := range []string{"POST /api/two-factor/disable", "POST /api/video/guest-session", "POST /api/integrations/calendar/add", "GET /api/cron/tick"} {
+		if got[k] != true {
+			t.Errorf("%s: client_reachable = %v, want true (all: %v)", k, got[k], got)
 		}
 	}
 }

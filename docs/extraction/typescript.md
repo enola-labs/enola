@@ -115,7 +115,10 @@ one invokes. In a Next.js or React application each hand-written client route ca
 `client_reachable`: `true` when its caller is reached from the pages and entry files,
 `false` when it is not. Reachability is read by name (a name used in reached code
 reaches every symbol that has it), so `const api = useApi(); api.getItem(id)` counts
-though no call graph binds it, and a shared name errs toward reached.
+though no call graph binds it, and a shared name errs toward reached. The module edges
+that carry no matching name count too: a default import under a name of its own, a
+page's `export { default } from '...'`, and `dynamic(() => import('...'))`. A file
+nothing imports, a script or a worker, is taken as an entry of its own.
 
 ```
 route  /api/settings/items/{}/with-images  src/lib/api/shop.ts:161
@@ -126,8 +129,15 @@ route  /api/settings/proshops/{}           src/lib/api/proshops.ts:40
 
 A server route every one of whose client calls is `client_reachable=false` gets
 `unreached_by_clients=true` beside `matched_by_clients=true`: called in the source,
-never sent. Vue, Nuxt, Svelte, Angular and Ember applications use their code from
-templates, so their routes carry no `client_reachable` and no such verdict.
+never sent. The verdict is given per application: the repository root or a workspace
+package that is a Next.js app, or a React app with an entry file (`src/main.tsx`,
+`src/index.tsx`, ...). A library package gets none, since whoever consumes it makes its
+calls, and neither do Vue, Nuxt, Svelte, Angular and Ember applications, which use
+their code from templates.
+
+A request helper sends the method its own request sets: `fetchPost(url, body)`, which
+calls fetch with `method: 'POST'`, is a POST unless the call passes a method of its
+own.
 
 ### Mounts across files
 

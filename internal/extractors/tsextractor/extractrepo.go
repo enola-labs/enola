@@ -56,7 +56,7 @@ func detectTSFrameworks(repoPath, tsRoot string, files []string) (tsFrameworks, 
 	// ORM detection is gated on the package.json dependency, exactly as Vue/Nuxt are, so
 	// a class coincidentally decorated @Entity models nothing in a repo without TypeORM.
 	isTypeORM, isDrizzle, isPrisma := detectORMs(repoPath, tsRoot, files)
-	return tsFrameworks{
+	fw := tsFrameworks{
 		isNextJS:    detectNextJSRoot(repoPath, tsRoot),
 		nextDirs:    nextJSPackageDirs(repoPath),
 		isVue:       detectVueRoot(repoPath, tsRoot),
@@ -67,7 +67,9 @@ func detectTSFrameworks(repoPath, tsRoot string, files []string) (tsFrameworks, 
 		isAngular:   detectAngularRoot(repoPath, tsRoot),
 		isReact:     hasPkgDependency(tsRoot, "react") || (tsRoot != repoPath && hasPkgDependency(repoPath, "react")),
 		orms:        ormFlags{typeORM: isTypeORM, drizzle: isDrizzle},
-	}, isPrisma
+	}
+	fw.appDirs = reachAppDirs(repoPath, fw)
+	return fw, isPrisma
 }
 
 // Restrict to TypeScript files once, then parse them in parallel. The

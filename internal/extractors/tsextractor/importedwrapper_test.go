@@ -168,3 +168,45 @@ export const itemsClient = new ItemsClient();
 		}
 	}
 }
+
+// A helper that sets the method on its own request sends that method, whatever the
+// call passes or leaves out: `fetchPost(url, body)` is a POST. A helper that passes
+// the caller's options through takes the method from the call.
+func TestImportedWrapper_AHelperSendsItsOwnMethod(t *testing.T) {
+	ff := extractTSRepo(t, map[string]string{
+		"src/data/fetchers.ts": `
+export async function fetchPost<T>(url: string, data: unknown): Promise<T> {
+  const response = await fetch(url, { method: 'POST', body: JSON.stringify(data) });
+  return response.json();
+}
+export async function fetchAny<T>(url: string, options?: RequestInit): Promise<T> {
+  const response = await fetch(url, options);
+  return response.json();
+}
+`,
+		"src/data/policy.ts": `
+import { fetchPost, fetchAny } from './fetchers';
+const BASE_PATH = process.env.BASE;
+export async function suggestPolicy(sql: string) {
+  return fetchPost(` + "`${BASE_PATH}/api/ai/sql/policy`" + `, { sql });
+}
+export async function removePolicy(id: string) {
+  return fetchAny(` + "`/api/policies/${id}`" + `, { method: 'DELETE' });
+}
+`,
+	})
+	got := map[string]bool{}
+	for _, f := range ff {
+		if f.Kind == facts.KindRoute && f.PropString(facts.PropRole) == facts.RoleClient && f.File == "src/data/policy.ts" {
+			got[f.PropString("method")+" "+f.Name] = true
+		}
+	}
+	for _, want := range []string{"POST /api/ai/sql/policy", "DELETE /api/policies/{}"} {
+		if !got[want] {
+			t.Errorf("want %s among %v", want, got)
+		}
+	}
+	if got["GET /api/ai/sql/policy"] {
+		t.Errorf("a call through fetchPost was read as a GET: %v", got)
+	}
+}

@@ -3108,7 +3108,12 @@ import (
 // helper that puts an unresolved base before the path is a request to the path; and a
 // function whose parameter fills a segment or a query value is no helper, so its own
 // request is no longer dropped as one.
-const cacheVersion = "v433"
+// v434: TypeScript: a request helper carries the method its own request sets, so a
+// call through fetchPost is a POST; client_reachable is given per application
+// package, Next.js or a React app with an entry file, never in a library package;
+// and it follows default imports under another name, default re-exports, import()
+// and files nothing imports, which run on their own.
+const cacheVersion = "v434"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

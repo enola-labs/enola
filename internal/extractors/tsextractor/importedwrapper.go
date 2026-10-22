@@ -167,23 +167,23 @@ func (ix *requestHelperIndex) addFile(rel string, src []byte) {
 	// An exported function that makes its request through a helper method of an
 	// instance this file declares: `deduplicatedFetch(url)` handing url to
 	// `requestCache.fetch(url)`, whose body calls fetch.
-	inner := func(call *sitter.Node) (string, string, bool) {
+	inner := func(call *sitter.Node) (localWrapper, bool) {
 		fn := calleeOf(kinds, call)
 		if fn == nil || kindOf(kinds, fn) != "member_expression" {
-			return "", "", false
+			return localWrapper{}, false
 		}
 		obj, prop := fn.ChildByFieldName("object"), fn.ChildByFieldName("property")
 		if obj == nil || prop == nil || kindOf(kinds, obj) != "identifier" {
-			return "", "", false
+			return localWrapper{}, false
 		}
 		for _, in := range instances {
 			if in.name == nodeText(obj, src) {
 				if w, ok := classes[in.class][nodeText(prop, src)]; ok {
-					return w.prefix, w.framework, true
+					return w, true
 				}
 			}
 		}
-		return "", "", false
+		return localWrapper{}, false
 	}
 	for _, p := range pending {
 		if w, ok := wrapperThrough(kinds, p.node, src, module, inner); ok {
@@ -301,13 +301,13 @@ func importedWrapperFacts(kinds *tsutil.KindTable, root *sitter.Node, ctx *extra
 	// Keyed by where the class starts: a tree-sitter node is a value, and two walks
 	// reaching one class hand back different pointers to it.
 	own := map[uint]map[string]localWrapper{} // class start byte → method → helper
-	inner := func(call *sitter.Node) (string, string, bool) {
+	inner := func(call *sitter.Node) (localWrapper, bool) {
 		fn := calleeOf(kinds, call)
 		if fn == nil {
-			return "", "", false
+			return localWrapper{}, false
 		}
 		w, _, ok := imported(fn)
-		return w.prefix, w.framework, ok
+		return w, ok
 	}
 	walkClasses(kinds, root, func(class *sitter.Node) {
 		body := class.ChildByFieldName("body")
@@ -496,17 +496,17 @@ func classHelpers(kinds *tsutil.KindTable, body *sitter.Node, src []byte, module
 			methods[name] = w
 		}
 	}
-	inner := func(call *sitter.Node) (string, string, bool) {
+	inner := func(call *sitter.Node) (localWrapper, bool) {
 		fn := calleeOf(kinds, call)
 		if fn == nil || kindOf(kinds, fn) != "member_expression" {
-			return "", "", false
+			return localWrapper{}, false
 		}
 		obj, prop := fn.ChildByFieldName("object"), fn.ChildByFieldName("property")
 		if obj == nil || prop == nil || kindOf(kinds, obj) != "this" {
-			return "", "", false
+			return localWrapper{}, false
 		}
 		w, ok := methods[nodeText(prop, src)]
-		return w.prefix, w.framework, ok
+		return w, ok
 	}
 	for changed := true; changed; {
 		changed = false
