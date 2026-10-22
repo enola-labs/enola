@@ -84,7 +84,7 @@ func TestParamMatch_VerdictsAgreeWithTheEdge(t *testing.T) {
 	m := routeindex.New(paramVocab(true))
 	all := []facts.Fact{call, server}
 
-	evaluated, unused := ServerRouteVerdicts(m, all)
+	evaluated, unused, _ := ServerRouteVerdicts(m, all)
 	if id := routeindex.RouteIdentity(server); !evaluated[id] || unused[id] {
 		t.Errorf("the parameter route an edge reached is not counted as called (evaluated=%v unused=%v)", evaluated[id], unused[id])
 	}

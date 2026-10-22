@@ -128,7 +128,7 @@ func TestVersionMismatch_CallIsUnresolvedAndSaysWhy(t *testing.T) {
 		t.Errorf("the call to a route still served at its version must resolve")
 	}
 
-	_, unmatched := ServerRouteVerdicts(m, all)
+	_, unmatched, _ := ServerRouteVerdicts(m, all)
 	if !unmatched[routeindex.RouteIdentity(served)] {
 		t.Errorf("the v2 route has no v2 caller and must be reported unused")
 	}

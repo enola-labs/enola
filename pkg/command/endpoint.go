@@ -113,6 +113,9 @@ func (r *Runner) Endpoint(ctx context.Context, args []string) {
 		if caller.Screen != "" {
 			line += "  (screen " + caller.Screen + ")"
 		}
+		if caller.NeverRuns {
+			line += "  (never runs: no page or component reaches it)"
+		}
 		callers = append(callers, line)
 	}
 	section("callers", callers)

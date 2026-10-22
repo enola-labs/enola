@@ -1405,7 +1405,7 @@ func TestServerRouteVerdicts_BasicSetDifference(t *testing.T) {
 		serverRoute("golf", "/api/items/{id}", "GET"),      // called → matched
 		serverRoute("golf", "/api/secret/cleanup", "POST"), // no caller → unmatched
 	}
-	_, keys := httpsignal.ServerRouteVerdicts(routeindex.New(vocab.Default()), in)
+	_, keys, _ := httpsignal.ServerRouteVerdicts(routeindex.New(vocab.Default()), in)
 
 	if hasRouteKey(keys, "golf", "GET", "/api/items/{id}") {
 		t.Errorf("route called by a client must not be flagged unused; keys=%v", keys)
@@ -1428,7 +1428,7 @@ func TestServerRouteVerdicts_PrefixDifferenceIsMatched(t *testing.T) {
 		serverRoute("golf", "/api/settings/feedback", "POST"),
 		serverRoute("golf", "/api/settings/ai-coach/insight", "POST"),
 	}
-	_, keys := httpsignal.ServerRouteVerdicts(routeindex.New(vocab.Default()), in)
+	_, keys, _ := httpsignal.ServerRouteVerdicts(routeindex.New(vocab.Default()), in)
 	if len(keys) != 0 {
 		t.Errorf("prefix/base-relative client calls should match their server routes; "+
 			"none should be flagged unused, got %v", keys)
@@ -1446,7 +1446,7 @@ func TestServerRouteVerdicts_ConsumerOwnRoutesNotFlagged(t *testing.T) {
 		serverRoute("golf", "/api/items/{id}", "GET"),        // called by golf-ui
 		serverRoute("golf", "/api/secret/cleanup", "POST"),   // no caller
 	}
-	_, keys := httpsignal.ServerRouteVerdicts(routeindex.New(vocab.Default()), in)
+	_, keys, _ := httpsignal.ServerRouteVerdicts(routeindex.New(vocab.Default()), in)
 	if hasRouteKey(keys, "golf-ui", "GET", "/dashboard/settings") {
 		t.Errorf("a pure-consumer repo's own routes must not be flagged; keys=%v", keys)
 	}
@@ -1475,7 +1475,7 @@ func TestServerRouteVerdicts_DeclinedRoutesAreInNeitherSet(t *testing.T) {
 		uiRoute,
 		verbless,
 	}
-	evaluated, unmatched := httpsignal.ServerRouteVerdicts(routeindex.New(vocab.Default()), in)
+	evaluated, unmatched, _ := httpsignal.ServerRouteVerdicts(routeindex.New(vocab.Default()), in)
 
 	for _, want := range []struct{ repo, method, path string }{
 		{"golf", "GET", "/api/items/{id}"},
@@ -1506,7 +1506,7 @@ func TestServerRouteVerdicts_SingleRepoReturnsNil(t *testing.T) {
 		serverRoute("golf", "/api/items/{id}", "GET"),
 		serverRoute("golf", "/api/secret/cleanup", "POST"),
 	}
-	if _, keys := httpsignal.ServerRouteVerdicts(routeindex.New(vocab.Default()), in); keys != nil {
+	if _, keys, _ := httpsignal.ServerRouteVerdicts(routeindex.New(vocab.Default()), in); keys != nil {
 		t.Errorf("single-repo snapshot has no clients to be unused by; want nil, got %v", keys)
 	}
 }

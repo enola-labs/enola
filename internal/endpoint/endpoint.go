@@ -67,6 +67,10 @@ type Caller struct {
 	// a route module and a router declaration matches its name. Empty for a
 	// component or a service, which many screens may share.
 	Screen string `json:"screen,omitempty"`
+	// NeverRuns is set when every call this file makes to the endpoint sits in code
+	// the application cannot run (facts.PropClientReachable false): an API method no
+	// page reaches. The call is in the source and is never sent.
+	NeverRuns bool `json:"never_runs,omitempty"`
 }
 
 // Route is one matched endpoint.
@@ -381,7 +385,7 @@ func callersFrom(s *facts.Store, clients []facts.Fact) []Caller {
 		screens[strings.ReplaceAll(name, ".", "/")] = fact.Name
 	}
 
-	seen := map[string]bool{}
+	at := map[string]int{}
 	var out []Caller
 	for _, fact := range clients {
 		if role, _ := fact.PropAny("role").(string); role != "client" {
@@ -390,11 +394,14 @@ func callersFrom(s *facts.Store, clients []facts.Fact) []Caller {
 		if isDouble, _ := fact.PropAny("test_double").(bool); isDouble {
 			continue
 		}
-		if seen[fact.File] {
+		runs := fact.PropAny(facts.PropClientReachable) != false
+		if i, ok := at[fact.File]; ok {
+			// One call in the file that runs is enough for the file to call it.
+			out[i].NeverRuns = out[i].NeverRuns && !runs
 			continue
 		}
-		seen[fact.File] = true
-		out = append(out, Caller{File: fact.File, Screen: screenFor(fact.File, screens)})
+		at[fact.File] = len(out)
+		out = append(out, Caller{File: fact.File, Screen: screenFor(fact.File, screens), NeverRuns: !runs})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].File < out[j].File })
 	return out
@@ -446,6 +453,17 @@ func summarize(out Impact, truncated bool) string {
 			fmt.Fprintf(&b, ", %d of them a frontend screen", screens)
 		}
 		b.WriteString(".")
+		never := 0
+		for _, caller := range out.Callers {
+			if caller.NeverRuns {
+				never++
+			}
+		}
+		if never == len(out.Callers) {
+			b.WriteString(" None of those calls runs: each sits in client code no page or component reaches.")
+		} else if never > 0 {
+			fmt.Fprintf(&b, " In %d of those files the call sits in client code no page or component reaches.", never)
+		}
 	}
 	if out.AssociatedTotal > maxAssociated {
 		b.WriteString(" That association count is dominated by a hub model that most of the schema points" +

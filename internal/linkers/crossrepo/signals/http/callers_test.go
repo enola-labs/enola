@@ -113,7 +113,7 @@ func TestCallersOf_AgreesWithTheServerRouteVerdicts(t *testing.T) {
 
 	for _, v := range []*vocab.Set{vocab.Default(), paramVocab(true), withAliases(map[string]string{"resource-api": "gateway"})} {
 		m := routeindex.New(v)
-		evaluated, unused := ServerRouteVerdicts(m, all)
+		evaluated, unused, _ := ServerRouteVerdicts(m, all)
 		for _, s := range servers {
 			id := routeindex.RouteIdentity(s)
 			if !evaluated[id] {

@@ -396,3 +396,45 @@ func TestAnalyzeTakesAHandlerThatIsTheClass(t *testing.T) {
 		t.Errorf("controllers = %v, stopped at %q; a function handler has no class", got.Controllers, got.StoppedAt)
 	}
 }
+
+// A caller whose every call to the endpoint sits in client code no page reaches is
+// listed and marked as never running; one call in the file that runs is enough for it
+// to count as calling, and a call with no verdict counts as running.
+func TestAnalyzeMarksCallersThatNeverRun(t *testing.T) {
+	st := facts.NewStore()
+	client := func(file string, reach any) facts.Fact {
+		p := map[string]any{"method": "GET", "role": "client"}
+		if reach != nil {
+			p[facts.PropClientReachable] = reach
+		}
+		return facts.Fact{Kind: facts.KindRoute, Name: "/api/items/{id}", File: file, Props: p}
+	}
+	st.Add(
+		facts.Fact{Kind: facts.KindRoute, Name: "/api/items/{id}", Props: map[string]any{"method": "GET", "handler": "items#show"}},
+		client("web/src/lib/api/items.ts", false),
+		client("web/src/lib/api/legacy.ts", false),
+		client("web/src/lib/api/legacy.ts", true),
+		client("web/src/lib/api/plain.ts", nil),
+	)
+	st.BuildGraph()
+	all := func([]facts.Fact) []facts.Fact {
+		var out []facts.Fact
+		for _, f := range st.ByKind(facts.KindRoute) {
+			if f.Props["role"] == "client" {
+				out = append(out, f)
+			}
+		}
+		return out
+	}
+	got := Analyze(st, "GET /api/items/{id}", 25, all)
+	never := map[string]bool{}
+	for _, c := range got.Callers {
+		never[c.File] = c.NeverRuns
+	}
+	want := map[string]bool{"web/src/lib/api/items.ts": true, "web/src/lib/api/legacy.ts": false, "web/src/lib/api/plain.ts": false}
+	for f, w := range want {
+		if v, ok := never[f]; !ok || v != w {
+			t.Errorf("%s: never runs = %v (listed %v), want %v", f, v, ok, w)
+		}
+	}
+}
