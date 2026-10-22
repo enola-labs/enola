@@ -252,3 +252,22 @@ func TestImpact_FilePathReportsItsSymbols(t *testing.T) {
 		}
 	}
 }
+
+// A package target is seeded with its own symbols, and the walk resolves no single
+// node: the summary used to dereference that missing resolution and panic. It now
+// says what was walked and lists the importing packages first, at every depth the
+// import chain reaches, whatever --max-depth bounds the symbol walk to.
+func TestImpact_PackageListsItsImporters(t *testing.T) {
+	repo := impactRepo(t)
+	for _, mode := range [][]string{nil, {"--list"}, {"--max-depth", "1"}} {
+		stdout, stderr, code := runImpactIn(t, repo, append(mode, "pkg/a")...)
+		if code != 0 {
+			t.Fatalf("%v: exit = %d, want 0; stderr:\n%s", mode, code, stderr)
+		}
+		for _, want := range []string{"pkg/a is a package; its 1 own symbols", "dependent packages (2; 2 direct):", "pkg/b"} {
+			if !strings.Contains(stdout, want) {
+				t.Errorf("%v: impact on a package should contain %q; got:\n%s", mode, want, stdout)
+			}
+		}
+	}
+}

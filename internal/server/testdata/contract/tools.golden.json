@@ -433,7 +433,7 @@
           "type": "boolean"
         },
         "max_depth": {
-          "description": "Hops of impact (1-10). Default 3.",
+          "description": "Hops of impact (1-10). Default 3. It bounds the symbol walk only: a package target lists every package that imports it, at any depth.",
           "type": "integer"
         },
         "max_nodes": {
