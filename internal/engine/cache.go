@@ -3098,7 +3098,11 @@ import (
 // the file declares already was; a class method that hands its URL to such a helper
 // is one too, so `this.makeRequest(url)` resolves; a URL built by a conditional whose
 // branches differ only in the query string is that path; and `await f<T>(…)` calls f.
-const cacheVersion = "v431"
+// v432: TypeScript: in a Next.js or React application, each hand-written client route
+// carries client_reachable, whether its caller is reached by name from the pages and
+// entry files. A request written in client code nothing runs is no longer
+// indistinguishable from one the application sends.
+const cacheVersion = "v432"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

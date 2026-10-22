@@ -62,6 +62,8 @@ type tsFileResult struct {
 	// hosts is what the hand-written client pass read of absolute URLs in this file.
 	hosts          clientHosts
 	globalPrefixes []string
+	// reach is what this file's code uses, for the reachability pass (reach.go).
+	reach *fileReach
 }
 
 // --- what one file contributes ---

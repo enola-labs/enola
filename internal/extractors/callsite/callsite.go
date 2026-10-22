@@ -32,6 +32,9 @@ type Grammar struct {
 type Span struct {
 	Start, End uint
 	Symbol     string
+	// StartByte is where the function node begins in the source, which identifies the
+	// node itself for a caller walking the same tree.
+	StartByte uint
 }
 
 // Attribute sets facts.PropCaller on every hand-written client route in result: the
@@ -60,6 +63,15 @@ func Attribute(g Grammar, root *sitter.Node, result []facts.Fact) {
 		return
 	}
 	AttributeSpans(treeSpans(g, root, result), result)
+}
+
+// Spans pairs the function nodes of a tree with the symbols in result, by the rule
+// Attribute uses, for an extractor that needs to know which symbol a node belongs to.
+func Spans(g Grammar, root *sitter.Node, result []facts.Fact) []Span {
+	if root == nil {
+		return nil
+	}
+	return treeSpans(g, root, result)
 }
 
 // treeSpans pairs the function nodes of a tree with the symbols in result.
@@ -93,7 +105,7 @@ func treeSpans(g Grammar, root *sitter.Node, result []facts.Fact) []Span {
 		stack = stack[:len(stack)-1]
 		if g.Functions[g.KindOf(n)] {
 			if sym := symbolAt(n); sym != "" {
-				spans = append(spans, Span{Start: n.StartPosition().Row, End: n.EndPosition().Row, Symbol: sym})
+				spans = append(spans, Span{Start: n.StartPosition().Row, End: n.EndPosition().Row, Symbol: sym, StartByte: n.StartByte()})
 			}
 		}
 		for i := range n.ChildCount() {

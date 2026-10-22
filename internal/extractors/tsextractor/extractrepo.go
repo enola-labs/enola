@@ -65,6 +65,7 @@ func detectTSFrameworks(repoPath, tsRoot string, files []string) (tsFrameworks, 
 		isEmber:     detectEmberRoot(repoPath, tsRoot),
 		isReactNav:  detectReactNavigationRoot(repoPath, tsRoot),
 		isAngular:   detectAngularRoot(repoPath, tsRoot),
+		isReact:     hasPkgDependency(tsRoot, "react") || (tsRoot != repoPath && hasPkgDependency(repoPath, "react")),
 		orms:        ormFlags{typeORM: isTypeORM, drizzle: isDrizzle},
 	}, isPrisma
 }
@@ -195,6 +196,7 @@ func scanAngularTemplates(ctx context.Context, repoPath string, htmlFiles []stri
 
 type tsAssembly struct {
 	facts           []facts.Fact
+	reach           []*fileReach // what each file uses; see reach.go
 	modules         map[string]bool
 	routerFiles     []*routerFile
 	angularRouters  []*angularRouterFile
@@ -235,6 +237,9 @@ func assembleFileResults(perFile []tsFileResult, tsFiles []string) *tsAssembly {
 		}
 		a.clients.merge(res.clients)
 		a.hosts.merge(res.hosts)
+		if res.reach != nil {
+			a.reach = append(a.reach, res.reach)
+		}
 		if len(res.facts) == 0 {
 			continue
 		}
@@ -311,6 +316,10 @@ func (a *tsAssembly) compose(repoPath string, rc *repoCtx, templates map[string]
 		a.angularDI.merge(reconcileAngularInjects(a.facts))
 		a.angularRoutes.merge(resolveAngularLazyComponents(a.facts))
 	}
+
+	// Which client calls the application can run, now that every file's uses and
+	// every page route are in hand. See reach.go.
+	markClientReachability(a.facts, a.reach, rc.tsFrameworks, rc.knownFiles)
 }
 
 // What each pass could name, and what it could not, by cause. Emitted only when
