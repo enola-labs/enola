@@ -120,10 +120,13 @@ the entities the claim is about. There are nineteen, and they fall into six kind
   AND its clients: a single-repo snapshot has no service nodes, so it reports nothing at
   all rather than reporting every route as unused, and past 80% unmatched the finding
   says the client set is incomplete instead of listing endpoints to delete. That finding
-  still says where the unmatched routes are, per route file. In any snapshot, one
-  method on one path registered in two or more files is reported as well: a router
-  serves one registration, so the other handler never runs. Middleware on a prefix and
-  a Next.js layout, loading or error file beside its page do not count.
+  still says where the unmatched routes are, per route file. Routes a client calls only
+  from code the application cannot run, an API method no page reaches, are a finding of
+  their own (`unreached_by_clients`, from a Next.js or React client's
+  `client_reachable`): called in the source, never sent. In any snapshot, one method on
+  one path registered in two or more files is reported as well: a router serves one
+  registration, so the other handler never runs. Middleware on a prefix and a Next.js
+  layout, loading or error file beside its page do not count.
 - **The declaration-shaped ones.** Every explainer above keys off symbols, modules and
   their dependency edges, which left the route, storage and association facts the
   extractors emit feeding nothing. `domain` asks the questions those facts answer —

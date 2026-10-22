@@ -107,6 +107,28 @@ route  /admin/users/:id/ban server/index.js:20  props: framework=express, method
 this repository serves that no loaded client calls. It is a *candidate* at confidence
 `0.6`, not a verdict — the client may simply not be in the graph.
 
+### Client calls that never run
+
+A frontend keeps client code nothing reaches: an API method only a facade method of the
+same name calls, a facade method no page calls, a method an interface declares and no
+one invokes. In a Next.js or React application each hand-written client route carries
+`client_reachable`: `true` when its caller is reached from the pages and entry files,
+`false` when it is not. Reachability is read by name (a name used in reached code
+reaches every symbol that has it), so `const api = useApi(); api.getItem(id)` counts
+though no call graph binds it, and a shared name errs toward reached.
+
+```
+route  /api/settings/items/{}/with-images  src/lib/api/shop.ts:161
+       props: role=client, caller=src/lib/api.ShopApiClient.getItemWithImages, client_reachable=true
+route  /api/settings/proshops/{}           src/lib/api/proshops.ts:40
+       props: role=client, caller=src/lib/api.ProShopsApiClient.getProShop,     client_reachable=false
+```
+
+A server route every one of whose client calls is `client_reachable=false` gets
+`unreached_by_clients=true` beside `matched_by_clients=true`: called in the source,
+never sent. Vue, Nuxt, Svelte, Angular and Ember applications use their code from
+templates, so their routes carry no `client_reachable` and no such verdict.
+
 ### Mounts across files
 
 A sub-router is almost never mounted in the file that declares it. The paths written

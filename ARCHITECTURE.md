@@ -924,7 +924,9 @@ which returns the per-service rollup with the out-of-snapshot caveat and suggest
 query_facts(kind=route, prop=unmatched_by_clients, prop_value=true, repo="<service>")
 ```
 
-(`query_facts(kind=route, output_mode=summary)` also reports the `unmatched_by_clients` count under a `## Flags` heading, so the signal is visible while sizing a route query.) Swap the prop for `matched_by_clients` to get the confirmed-in-use set; routes in neither answer are the ones nothing assessed.
+(`query_facts(kind=route, output_mode=summary)` also reports the `unmatched_by_clients` and `unreached_by_clients` counts under a `## Flags` heading, so the signal is visible while sizing a route query.)
+
+**A matched route can still be dead in practice.** A client call written in code the application cannot run (an API method no page, component or store reaches) is in the source and never sent. The TypeScript extractor marks each hand-written client call in a Next.js or React application with `client_reachable`, read by name from the pages and entry files, and a server route all of whose matching calls are `client_reachable: false` carries `unreached_by_clients: true` beside `matched_by_clients: true`. The `unused-routes` explainer reports those as their own finding, naming the call that never runs; `endpoint_impact` marks such callers `never_runs`. Swap the prop for `matched_by_clients` to get the confirmed-in-use set; routes in neither answer are the ones nothing assessed.
 
 This is the candidate set for dead-endpoint cleanup, computed deterministically rather than grepped-and-guessed — the matching reuses the linker's exact path normalization (so a backend's `/api/settings/x` correctly counts as called by a client's base-relative `settings/x`), and it discriminates by method, so a read endpoint that clients hit stays clean while the `POST`/`PUT`/`DELETE` on the same path can still be flagged. Two guards keep it honest: only repos that actually serve a cross-repo client are considered (a frontend's own page routes are never flagged), and matching errs toward *use* — any path+method hit, at any confidence, counts — so the set is biased toward false negatives.
 
