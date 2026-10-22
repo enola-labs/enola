@@ -958,15 +958,18 @@ func analyzeBody(body ast.Node, ctx resolveCtx, selfName string, params map[stri
 					m.scalingLoopDepth = len(scalingEnds)
 				}
 			}
-			// A `for {}` is infinite, not constant: it repeats.
-			if !constBounded {
+			// A `for {}` is infinite, not constant: it repeats. An event loop does
+			// not, in the sense that matters here: it runs once per tick or message,
+			// so a query in it is not one per element.
+			repeats := !constBounded && !goForEventLoop(x)
+			if repeats {
 				repeatEnds = append(repeatEnds, x.End())
 			}
 			var init ast.Node
 			if x.Init != nil {
 				init = x.Init
 			}
-			head := newLoopHead(init, forScales, !constBounded)
+			head := newLoopHead(init, forScales, repeats)
 			head.once = terminalBlocks(x.Body)
 			loopHeads = append(loopHeads, head)
 			scope := loopScope{end: x.End(), vars: forLoopVars(x), cursor: forCursor(x), amortizes: forScales}
@@ -1289,6 +1292,18 @@ func goForBounded(x *ast.ForStmt) bool {
 	return x.Cond == nil && x.Init == nil && x.Post == nil
 }
 
+// goForEventLoop reports a `for { select { … } }`: a bare loop whose whole body is
+// one select, waiting on a ticker, a context or a channel. Each round handles one
+// event, so its trip count is time or traffic, never the size of a collection. A
+// bare loop with anything else in its body (a paging loop's fetch) still repeats.
+func goForEventLoop(x *ast.ForStmt) bool {
+	if !goForBounded(x) || x.Body == nil || len(x.Body.List) != 1 {
+		return false
+	}
+	_, ok := x.Body.List[0].(*ast.SelectStmt)
+	return ok
+}
+
 // goRangeBounded reports whether a range loop iterates a fixed-size composite literal
 // (`for _, x := range []T{a, b, c}` / a map literal) — a genuinely constant count. Unlike
 // goForBounded, this bounds the trip count itself, so calls inside such a loop are not
@@ -1437,11 +1452,32 @@ func collectFieldTypes(files []*ast.File, pkgDir string, mods goModules, pkgName
 						key := pkgDir + "." + typeName + "." + fname.Name
 						m[key] = qualifiedType
 					}
+					// An embedded field is named by its type: `db.BaseRepository`
+					// is the field BaseRepository, so `r.BaseRepository.QueryContext()`
+					// walks through it as a promoted `r.QueryContext()` already does.
+					if len(field.Names) == 0 {
+						if name := embeddedFieldName(typeStr); name != "" {
+							m[pkgDir+"."+typeName+"."+name] = qualifiedType
+						}
+					}
 				}
 			}
 		}
 	}
 	return m
+}
+
+// embeddedFieldName is the name Go gives an embedded field: its type's own
+// identifier, without the pointer, the package qualifier or type arguments.
+func embeddedFieldName(typeStr string) string {
+	name := strings.TrimPrefix(typeStr, "*")
+	if i := strings.IndexByte(name, '['); i >= 0 {
+		name = name[:i]
+	}
+	if i := strings.LastIndexByte(name, '.'); i >= 0 {
+		name = name[i+1:]
+	}
+	return name
 }
 
 // resolveChain resolves a flattened call chain to a graph fact name.

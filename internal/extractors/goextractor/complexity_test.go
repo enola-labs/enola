@@ -276,6 +276,55 @@ func getByID(id int) {}
 	}
 }
 
+// A bare loop whose whole body is one select is an event loop: it handles one tick
+// or message per round, so the trip count is time or traffic, not a collection's
+// size, and a query in it is not one per element. A scheduler's `case <-ticker.C:
+// s.sync()` read as an N+1. Anything else in the body keeps the loop repeating.
+func TestExtract_CallsInScalingLoop_EventLoopIsNotRepeated(t *testing.T) {
+	ff := extractAll(t, map[string]string{
+		"pkg/proc.go": `package pkg
+
+import "time"
+
+func Start(t *time.Ticker, done chan struct{}) {
+	for {
+		select {
+		case <-t.C:
+			sync()
+		case <-done:
+			return
+		}
+	}
+}
+
+func Page() {
+	for {
+		fetch()
+		select {
+		case <-time.After(time.Second):
+		}
+	}
+}
+
+func sync()  {}
+func fetch() {}
+`,
+	})
+	start, _ := findFact(ff, "pkg.Start")
+	if containsStr(strSliceProp(start, "calls_in_scaling_loop"), "pkg.sync") {
+		t.Errorf("calls_in_scaling_loop = %v, want sync left out: an event loop runs per tick",
+			start.Props["calls_in_scaling_loop"])
+	}
+	if !containsStr(strSliceProp(start, "calls_in_loop"), "pkg.sync") {
+		t.Errorf("calls_in_loop = %v, want sync: it is still inside a loop", start.Props["calls_in_loop"])
+	}
+	page, _ := findFact(ff, "pkg.Page")
+	if !containsStr(strSliceProp(page, "calls_in_scaling_loop"), "pkg.fetch") {
+		t.Errorf("calls_in_scaling_loop = %v, want fetch: a loop doing more than select repeats",
+			page.Props["calls_in_scaling_loop"])
+	}
+}
+
 // calls_in_scaling_loop must be PRESENT (and empty) whenever calls_in_loop is, or
 // perf.scalingLoopCalls() reads its absence as "extractor never computed the subset"
 // and falls back to the unfiltered calls_in_loop — defeating the discount in exactly

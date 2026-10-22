@@ -3085,7 +3085,11 @@ import (
 // v428: A TypeScript import whose stem is both a file and a folder holding code
 // (Footer.tsx beside Footer/) targets the file, as TypeScript resolves it, instead of
 // the folder whose module name the bare stem matched.
-const cacheVersion = "v428"
+// v429: Go: a call through an embedded field named outright (`r.Base.Query()`)
+// resolves through the field's type, as the promoted `r.Query()` did; and a
+// `for { select { … } }` event loop no longer makes its calls per-iteration
+// candidates, since it runs per tick or message rather than per element.
+const cacheVersion = "v429"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
