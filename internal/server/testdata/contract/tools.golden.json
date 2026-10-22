@@ -608,7 +608,7 @@
           "type": "string"
         },
         "prop": {
-          "description": "Property name, e.g. source, symbol_kind, exported, framework, storage_kind, role, method, unmatched_by_clients. output_mode=summary lists the notable boolean flags present in the result.",
+          "description": "Property name, e.g. source, symbol_kind, exported, framework, storage_kind, role, method, unmatched_by_clients, unreached_by_clients. output_mode=summary lists the notable boolean flags present in the result.",
           "type": "string"
         },
         "prop_value": {
@@ -629,7 +629,7 @@
   },
   {
     "name": "query_insights",
-    "description": "Findings the explainers computed during generate_snapshot: the direct answer to \"which routes are unused?\", \"where are the dependency cycles?\", \"which modules are god-classes?\". Prefer it to hand-diffing query_facts results. Each insight has a title, its explainer, a description, a confidence (below 1 is a candidate to verify, not a verdict), evidence (files, symbols, routes) and suggested actions. Route and cross-repo findings (unused-routes, crossrepo, coverage) appear only in multi-repo snapshots of a backend plus its clients. Explainers whose name is not self-explanatory: unused-routes (dead/uncalled HTTP routes, and a route registered in two files), messaging-coverage (undeclared messaging calls and AsyncAPI operations with no detected implementation), intent (declared architecture verdicted against the measured graph), constraints (declared component rules, and the edges that breach them), domain (what a framework's declarations say about its data and API), query-loops (a database query issued once per loop iteration), entry-points (the symbols a framework invokes directly), packwerk (package.yml dependencies declared but unused, or used but undeclared).",
+    "description": "Findings the explainers computed during generate_snapshot: the direct answer to \"which routes are unused?\", \"where are the dependency cycles?\", \"which modules are god-classes?\". Prefer it to hand-diffing query_facts results. Each insight has a title, its explainer, a description, a confidence (below 1 is a candidate to verify, not a verdict), evidence (files, symbols, routes) and suggested actions. Route and cross-repo findings (unused-routes, crossrepo, coverage) appear only in multi-repo snapshots of a backend plus its clients. Explainers whose name is not self-explanatory: unused-routes (dead/uncalled HTTP routes, routes called only from client code that never runs, and a route registered in two files), messaging-coverage (undeclared messaging calls and AsyncAPI operations with no detected implementation), intent (declared architecture verdicted against the measured graph), constraints (declared component rules, and the edges that breach them), domain (what a framework's declarations say about its data and API), query-loops (a database query issued once per loop iteration), entry-points (the symbols a framework invokes directly), packwerk (package.yml dependencies declared but unused, or used but undeclared).",
     "input_schema": {
       "additionalProperties": false,
       "properties": {
