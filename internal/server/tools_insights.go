@@ -20,8 +20,10 @@ import (
 // the repo-prefix path segment of each insight's evidence files (insights have
 // no structured repo field) — see insightBelongsToRepo; minConfidence keeps
 // insights at or above the bar. multiRepo reports whether the snapshot spans
-// more than one repo, which selects strict vs. legacy repo matching.
-func filterInsights(insights []facts.Insight, explainer, repo string, minConfidence float64, multiRepo bool) []facts.Insight {
+// more than one repo, which selects strict vs. legacy repo matching. moduleRepos
+// names the repos declaring each module, for evidence that cites a module by its
+// bare name (see insightBelongsToRepo); nil when no repo filter is asked for.
+func filterInsights(insights []facts.Insight, explainer, repo string, minConfidence float64, multiRepo bool, moduleRepos map[string]map[string]bool) []facts.Insight {
 	repoLC := strings.ToLower(strings.TrimSpace(repo))
 	var out []facts.Insight
 	for _, in := range insights {
@@ -31,7 +33,7 @@ func filterInsights(insights []facts.Insight, explainer, repo string, minConfide
 		if in.Confidence < minConfidence {
 			continue
 		}
-		if repoLC != "" && !insightBelongsToRepo(in, repoLC, multiRepo) {
+		if repoLC != "" && !insightBelongsToRepo(in, repoLC, multiRepo, moduleRepos) {
 			continue
 		}
 		out = append(out, in)
@@ -124,14 +126,14 @@ func pathInRepo(path, repoLC string) bool {
 // and over-match shared tokens (e.g. "golf" in "golf-ui"). Single-repo snapshots
 // don't prefix evidence paths, so there we keep the legacy substring heuristic —
 // it can't leak across repos because there are no siblings.
-func insightBelongsToRepo(in facts.Insight, repoLC string, multiRepo bool) bool {
+func insightBelongsToRepo(in facts.Insight, repoLC string, multiRepo bool, moduleRepos map[string]map[string]bool) bool {
 	for _, ev := range in.Evidence {
 		if pathInRepo(ev.File, repoLC) || pathInRepo(ev.Fact, repoLC) {
 			return true
 		}
 	}
 	if multiRepo {
-		return false
+		return citesOnlyModulesOf(in, repoLC, moduleRepos)
 	}
 	// Single-repo legacy fallback (unchanged behavior).
 	if strings.Contains(strings.ToLower(in.Title), repoLC) {
@@ -144,6 +146,37 @@ func insightBelongsToRepo(in facts.Insight, repoLC string, multiRepo bool) bool 
 		}
 	}
 	return false
+}
+
+// citesOnlyModulesOf reports whether every piece of an insight's evidence names a
+// module the repo declares. A cycle's evidence cites its modules by their bare
+// names (`src/components`), which carry no repo prefix, so a repo filter on a
+// multi-repo snapshot used to drop every cycle. All of them must belong to the
+// repo, not one: two repositories may each have a `src/components`, and a cycle
+// never spans repositories.
+func citesOnlyModulesOf(in facts.Insight, repoLC string, moduleRepos map[string]map[string]bool) bool {
+	if len(in.Evidence) == 0 || moduleRepos == nil {
+		return false
+	}
+	for _, ev := range in.Evidence {
+		if ev.File != "" || !moduleRepos[ev.Fact][repoLC] {
+			return false
+		}
+	}
+	return true
+}
+
+// moduleReposOf maps each module name to the lowercased labels of the repos that
+// declare it.
+func moduleReposOf(store *facts.Store) map[string]map[string]bool {
+	out := map[string]map[string]bool{}
+	for _, m := range store.ByKind(facts.KindModule) {
+		if out[m.Name] == nil {
+			out[m.Name] = map[string]bool{}
+		}
+		out[m.Name][strings.ToLower(m.Repo)] = true
+	}
+	return out
 }
 
 // renderInsightsSummary lists one row per insight (explainer, confidence, title)
@@ -318,7 +351,11 @@ func (s *Server) registerQueryInsightsTool() {
 		for _, repo := range s.eng.Store().RepoLabels() {
 			repos[strings.ToLower(repo)] = struct{}{}
 		}
-		matched := filterInsights(snap.Insights, args.Explainer, args.Repo, args.MinConfidence, len(repos) > 1)
+		var moduleRepos map[string]map[string]bool
+		if strings.TrimSpace(args.Repo) != "" && len(repos) > 1 {
+			moduleRepos = moduleReposOf(s.eng.Store())
+		}
+		matched := filterInsights(snap.Insights, args.Explainer, args.Repo, args.MinConfidence, len(repos) > 1, moduleRepos)
 		if len(matched) == 0 {
 			return textResult(noMatchInsightsMessage(args.Explainer, args.Repo, args.MinConfidence, snap, s.eng.Store())), nil, nil
 		}
@@ -336,7 +373,7 @@ func (s *Server) registerQueryInsightsTool() {
 
 type queryInsightsArgs struct {
 	Explainer     string  `json:"explainer,omitempty" jsonschema:"Filter to insights produced by this explainer. One of: cycles, layers, crossrepo, coverage, unused-routes, messaging-coverage, god-class, hotspots, dependency-depth, exported-surface, complexity-outliers, intent, constraints, domain, query-loops, entry-points, dead-methods, vendored-candidates, import-closure, package-metrics, dead-code, performance, packwerk. Empty = all."`
-	Repo          string  `json:"repo,omitempty" jsonschema:"Repo label. In multi-repo snapshots it matches the repo path segment of each insight's evidence ('golf' matches golf/... but not golf-ui/...); in single-repo snapshots it is a substring match. Empty = all."`
+	Repo          string  `json:"repo,omitempty" jsonschema:"Repo label. In multi-repo snapshots it matches the repo path segment of each insight's evidence ('golf' matches golf/... but not golf-ui/...), or a finding whose evidence names only that repo's modules (a cycle); in single-repo snapshots it is a substring match. Empty = all."`
 	MinConfidence float64 `json:"min_confidence,omitempty" jsonschema:"Minimum confidence (0.0-1.0). Default 0. unused-routes findings are emitted at 0.6, as review candidates."`
 	OutputMode    string  `json:"output_mode,omitempty" jsonschema:"'summary' (DEFAULT, one row per insight: explainer, confidence, title), 'compact' (adds description, evidence sample, actions), or 'full' (complete JSON)."`
 	MaxTokens     int     `json:"max_tokens,omitempty" jsonschema:"Approximate token cap; output is truncated with a notice. Default: no cap."`

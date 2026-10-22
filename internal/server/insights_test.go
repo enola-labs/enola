@@ -36,23 +36,23 @@ func sampleInsights() []facts.Insight {
 func TestFilterInsights(t *testing.T) {
 	all := sampleInsights()
 
-	if got := filterInsights(all, "unused-routes", "", 0, true); len(got) != 1 || got[0].Source != "unused-routes" {
+	if got := filterInsights(all, "unused-routes", "", 0, true, nil); len(got) != 1 || got[0].Source != "unused-routes" {
 		t.Errorf("explainer filter: want 1 unused-routes insight, got %+v", got)
 	}
-	if got := filterInsights(all, "UNUSED-ROUTES", "", 0, true); len(got) != 1 {
+	if got := filterInsights(all, "UNUSED-ROUTES", "", 0, true, nil); len(got) != 1 {
 		t.Errorf("explainer filter should be case-insensitive; got %d", len(got))
 	}
-	if got := filterInsights(all, "", "", 0.8, true); len(got) != 1 || got[0].Source != "cycles" {
+	if got := filterInsights(all, "", "", 0.8, true, nil); len(got) != 1 || got[0].Source != "cycles" {
 		t.Errorf("min_confidence filter: want only the 0.9 cycles insight, got %+v", got)
 	}
 	// repo matches the cycles insight via its evidence path segment (golf-ui/src/a).
-	if got := filterInsights(all, "", "golf-ui", 0, true); len(got) != 1 || got[0].Source != "cycles" {
+	if got := filterInsights(all, "", "golf-ui", 0, true, nil); len(got) != 1 || got[0].Source != "cycles" {
 		t.Errorf("repo filter golf-ui: want the cycles insight, got %+v", got)
 	}
-	if got := filterInsights(all, "", "nonexistent", 0, true); got != nil {
+	if got := filterInsights(all, "", "nonexistent", 0, true, nil); got != nil {
 		t.Errorf("repo filter with no match should be empty; got %+v", got)
 	}
-	if got := filterInsights(all, "", "", 0, true); len(got) != 3 {
+	if got := filterInsights(all, "", "", 0, true, nil); len(got) != 3 {
 		t.Errorf("no filters should return all; got %d", len(got))
 	}
 }
@@ -81,7 +81,7 @@ func TestFilterInsightsNoCrossRepoLeak(t *testing.T) {
 		},
 	}
 
-	got := filterInsights(all, "", "golf", 0, true)
+	got := filterInsights(all, "", "golf", 0, true, nil)
 	if len(got) != 1 || got[0].Source != "unused-routes" {
 		t.Fatalf("repo filter golf should return only the golf insight, got %+v", got)
 	}
@@ -99,10 +99,10 @@ func TestFilterInsightsSingleRepoFallback(t *testing.T) {
 		},
 	}
 
-	if got := filterInsights(all, "", "golf", 0, false); len(got) != 1 {
+	if got := filterInsights(all, "", "golf", 0, false, nil); len(got) != 1 {
 		t.Errorf("single-repo fallback: want the golf insight via title match, got %+v", got)
 	}
-	if got := filterInsights(all, "", "golf", 0, true); got != nil {
+	if got := filterInsights(all, "", "golf", 0, true, nil); got != nil {
 		t.Errorf("multi-repo strict match should not match unprefixed evidence; got %+v", got)
 	}
 }
@@ -117,7 +117,7 @@ func TestRenderInsightsSummary(t *testing.T) {
 }
 
 func TestRenderInsightsCompact(t *testing.T) {
-	out := renderInsightsCompact(filterInsights(sampleInsights(), "unused-routes", "", 0, true))
+	out := renderInsightsCompact(filterInsights(sampleInsights(), "unused-routes", "", 0, true, nil))
 	for _, want := range []string{"explainer: unused-routes", "confidence: 0.60", "no loaded client calls this route", "suggested actions"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("compact missing %q; got:\n%s", want, out)
@@ -165,7 +165,7 @@ func TestRenderInsightsSummary_HeadlineReflectsTheFilter(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			matched := filterInsights(all, tt.explainer, "", tt.minConf, false)
+			matched := filterInsights(all, tt.explainer, "", tt.minConf, false, nil)
 			out := renderInsightsSummary(matched)
 
 			if !strings.Contains(out, tt.wantHeadline) {
@@ -233,5 +233,26 @@ func TestRenderInsightsCompact_LeavesTheMemberListToFull(t *testing.T) {
 	}
 	if out := renderInsightsCompact([]facts.Insight{in}); strings.Contains(out, "src/only-in-metrics") {
 		t.Errorf("compact output printed the member list:\n%s", out)
+	}
+}
+
+// A cycle cites its modules by their bare names, with no repo prefix, so on a
+// multi-repo snapshot the repo filter matched no cycle at all. Evidence that names
+// only modules of one repo belongs to it; a module name another repo also has does
+// not make the cycle that repo's too.
+func TestFilterInsights_BareModuleEvidenceBelongsToItsRepo(t *testing.T) {
+	cycle := facts.Insight{Source: "cycles", Title: "Cyclic dependency detected (2 modules)", Confidence: 1,
+		Evidence: []facts.Evidence{{Fact: "src/components"}, {Fact: "src/lib"}}}
+	moduleRepos := map[string]map[string]bool{
+		"src/components": {"web": true, "admin": true},
+		"src/lib":        {"web": true},
+	}
+	if got := filterInsights([]facts.Insight{cycle}, "cycles", "web", 0, true, moduleRepos); len(got) != 1 {
+		t.Errorf("repo web: want the cycle, got %+v", got)
+	}
+	for _, repo := range []string{"admin", "api"} {
+		if got := filterInsights([]facts.Insight{cycle}, "cycles", repo, 0, true, moduleRepos); got != nil {
+			t.Errorf("repo %s: the cycle is not in it, got %+v", repo, got)
+		}
 	}
 }
