@@ -26,8 +26,8 @@ constraint rather than an optimisation.
 That makes a finding reproducible. It does not make every finding certain or enforceable;
 the rest of this document explains that distinction.
 
-Across the 91 public repositories in the current [benchmark sweep](BENCHMARKS.md),
-enola's eighteen explainers produced **12,027 findings**. The volume is the problem: a
+Across the 95 public repositories in the current [benchmark sweep](BENCHMARKS.md),
+enola's explainers produced **20,228 findings**. The volume is the problem: a
 repository-wide report is useful for investigation, but too broad to describe one
 change.
 
@@ -377,7 +377,7 @@ so — but the mechanism is the argument, and the mechanism is the delta.
 - **It will not tell you what to fix first.** Confidence is comparable *within* an
   explainer, not across them. A coverage gap at `0.9` and a layer violation at `0.8` are
   not ranked against each other, and enola does not pretend to a severity model.
-- **89.2% of findings can never stop anything.** Only proven findings reach the `1.00`
+- **91.6% of findings can never stop anything.** Only proven findings reach the `1.00`
   confidence floor a policy gates at, and if you want one to fail your build you have to
   name its explainer explicitly. The default is deliberately narrow, and narrow means
   most of what enola finds is advisory.
@@ -388,8 +388,8 @@ so — but the mechanism is the argument, and the mechanism is the delta.
 - **The heuristics are repo-relative.** A uniformly complex codebase reports nothing
   remarkable, because nothing in it is remarkable *for that codebase*. Findings compare
   you to yourself, never to an industry baseline.
-- **The bulk of the volume is one explainer.** 23,775 of the 29,633 findings were
-  hotspots, measured before that explainer was capped; it now reports at most its 20
+- **The bulk of the volume was once one explainer.** 23,775 of the 29,633 findings at
+  v197 were hotspots, measured before that explainer was capped; it now reports at most its 20
   highest-scoring pinch points, like its siblings. "No new findings" is a statement
   about your change, never a certificate that a repository is clean.
 
