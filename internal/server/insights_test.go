@@ -222,3 +222,16 @@ func TestQuerySummary_CountsEveryMatch(t *testing.T) {
 		t.Errorf("from offset 1000: visited %d of %d, want 200 of 1200", visited, total)
 	}
 }
+
+// A large cycle's whole membership rides in metrics.members for the full output.
+// Compact stays a sample: it prints the capped evidence and never the list.
+func TestRenderInsightsCompact_LeavesTheMemberListToFull(t *testing.T) {
+	in := facts.Insight{
+		Source: "cycles", Title: "Cyclic dependency detected (3 modules)", Confidence: 1,
+		Evidence: []facts.Evidence{{Fact: "src/a", Detail: `module "src/a" is part of the cycle`}},
+		Metrics:  map[string]any{"members": []string{"src/a", "src/b", "src/only-in-metrics"}},
+	}
+	if out := renderInsightsCompact([]facts.Insight{in}); strings.Contains(out, "src/only-in-metrics") {
+		t.Errorf("compact output printed the member list:\n%s", out)
+	}
+}

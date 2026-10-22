@@ -48,7 +48,9 @@ the entities the claim is about. There are nineteen, and they fall into six kind
 - **The proofs.** `cycles` runs Tarjan's SCC over the resolved import edges — a cycle
   either exists or it does not. Test modules are left out of that graph; a module
   judged test code only by its path (`src/lib/mocks`) is production once production
-  code imports it. `intent` diffs DECLARED architecture (a repo's
+  code imports it. A component too large to list keeps 12 members as evidence, and
+  `metrics.members` carries every one, so only a full read pays for the whole list.
+  `intent` diffs DECLARED architecture (a repo's
   enola-intent.yaml, or a cluster config's intent block) against the measured
   cross-repo edges: an unexpected or mis-mechanism seam is set difference between
   stated and measured, which either holds or it does not. Its estimating findings — a
