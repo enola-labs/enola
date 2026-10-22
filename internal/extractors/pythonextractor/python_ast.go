@@ -582,11 +582,15 @@ func (w *pyWalker) walkModule(root *sitter.Node) {
 func (w *pyWalker) noteAddCommand(call *sitter.Node) {
 	fn := call.ChildByFieldName("function")
 	args := call.ChildByFieldName("arguments")
-	if fn == nil || args == nil || kindOf(fn) != "attribute" || !importsCommandLibrary(w.src) {
+	if fn == nil || args == nil || kindOf(fn) != "attribute" {
 		return
 	}
 	obj, attr := fn.ChildByFieldName("object"), fn.ChildByFieldName("attribute")
 	if obj == nil || attr == nil || kindOf(obj) != "identifier" || pyText(attr, w.src) != "add_command" {
+		return
+	}
+	// Last: it scans the whole file, and this runs for every attribute call.
+	if !importsCommandLibrary(w.src) {
 		return
 	}
 	var cmd, name string

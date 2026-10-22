@@ -287,7 +287,16 @@ func summarize(current *facts.Snapshot, previous *previousSide) pkghistory.Summa
 		return s
 	}
 
-	counts, err := diff.CountFacts(previous.facts, current.Facts)
+	// Facts the receipts say are byte-identical moved nowhere, which is all CountFacts
+	// would find after streaming the whole previous file: on a warm run of an untouched
+	// tree that stream was most of the time spent after the snapshot itself.
+	var counts *diff.Counts
+	var err error
+	if h := current.Meta.OutputHashes["facts.jsonl"]; h != "" && h == previous.meta.OutputHashes["facts.jsonl"] {
+		counts = &diff.Counts{}
+	} else {
+		counts, err = diff.CountFacts(previous.facts, current.Facts)
+	}
 	if err != nil {
 		// The previous snapshot is unreadable. Record the revision with absolute
 		// counts rather than dropping it: a history with a gap is worse than one

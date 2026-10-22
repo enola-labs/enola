@@ -45,3 +45,37 @@ func TestSummarizeOnce_ReusesTheDeltaForAnIdenticalPair(t *testing.T) {
 		t.Fatal("a previous side without receipt hashes was served from the cache")
 	}
 }
+
+// A rerun whose facts.jsonl is byte-identical to previous/ has nothing to count: the
+// delta is zero without the previous facts being read, and it is still a delta, not
+// an initial revision. A changed facts.jsonl is counted as before.
+func TestSummarize_IdenticalFactsAreNotStreamed(t *testing.T) {
+	opens := 0
+	previous := &previousSide{
+		facts: diff.JSONLSource(func() (io.ReadCloser, error) {
+			opens++
+			return io.NopCloser(strings.NewReader("")), nil
+		}),
+		meta: facts.SnapshotMeta{OutputHashes: map[string]string{"facts.jsonl": "sha256:same", "insights.json": "sha256:q"}},
+	}
+	current := &facts.Snapshot{
+		Facts: []facts.Fact{{Kind: facts.KindSymbol, Name: "a", File: "a.go"}},
+		Meta:  facts.SnapshotMeta{OutputHashes: map[string]string{"facts.jsonl": "sha256:same", "insights.json": "sha256:q"}},
+	}
+	s := summarize(current, previous)
+	if opens != 0 {
+		t.Fatalf("identical facts were streamed (%d opens)", opens)
+	}
+	if s.Initial || s.FactsAdded != 0 || s.FactsRemoved != 0 || s.FactsChanged != 0 || s.EdgesAdded != 0 || s.EdgesRemoved != 0 || s.ByKind != nil {
+		t.Fatalf("identical facts gave a non-zero or initial summary: %+v", s)
+	}
+
+	current.Meta.OutputHashes["facts.jsonl"] = "sha256:other"
+	s = summarize(current, previous)
+	if opens == 0 {
+		t.Fatal("changed facts were not read")
+	}
+	if s.FactsAdded != 1 {
+		t.Fatalf("changed facts: added = %d, want 1", s.FactsAdded)
+	}
+}
