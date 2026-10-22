@@ -90,6 +90,14 @@ type finding struct {
 	// weak marks an element typed by nothing but a parameter's name matching an
 	// association: whether the caller preloaded it is not visible here.
 	weak bool
+	// goPath is set only for the Go shape: the call in the loop, then each hop to
+	// the database call it reaches, the last being that call. goBasis is the
+	// weakest way a hop is known (see golang.go), and invariant marks a call whose
+	// arguments do not depend on the loop's element: it repeats one query, and is
+	// hoisted rather than batched.
+	goPath    []string
+	goBasis   int
+	invariant bool
 }
 
 // surface is where a file runs, read from the Rails layout. It decides how a
@@ -140,6 +148,9 @@ var sharedSurface = surface{name: "shared", phrase: "runs wherever it is called 
 // starts at a Rails root (app/, lib/, db/, spec/, test/); a path that never
 // does, or that matches no entry, is shared.
 func surfaceOf(file string) surface {
+	if strings.HasSuffix(file, ".go") {
+		return goSurfaceOf(file)
+	}
 	path := file
 	for !startsAtRoot(path) {
 		i := strings.Index(path, "/")
@@ -341,7 +352,23 @@ func (i associationIndex) on(model, method string) string {
 	return ""
 }
 
+// candidates returns every finding in the store, the Ruby shapes and the Go one,
+// deepest loop first.
 func candidates(store *facts.Store) []finding {
+	found := append(rubyCandidates(store), goCandidates(store)...)
+	sort.SliceStable(found, func(i, j int) bool {
+		if found[i].depth != found[j].depth {
+			return found[i].depth > found[j].depth
+		}
+		if found[i].symbol != found[j].symbol {
+			return found[i].symbol < found[j].symbol
+		}
+		return found[i].call < found[j].call
+	})
+	return found
+}
+
+func rubyCandidates(store *facts.Store) []finding {
 	// Two shapes, two prerequisites. The class-level shape needs the model
 	// classes; the association-read shape needs association facts and block
 	// bindings. Gating both on models would have silenced the association shape
@@ -569,6 +596,8 @@ func (e *Explainer) Explain(_ context.Context, store *facts.Store) ([]facts.Insi
 				"replace the per-element write with update_all or insert_all",
 				"confirm with a query-count test that fails against the current code",
 			}
+		} else if f.goPath != nil {
+			description, actions = goDescription(f)
 		} else if f.element != "" {
 			// The association-read shape names its own fix, because eager loading
 			// is exactly what solves it — unlike the class-level shape, where
@@ -689,6 +718,20 @@ func All(store *facts.Store) []Finding {
 func confidenceOf(f finding, where surface) float64 {
 	if where.oneOff || f.weak {
 		return 0.5
+	}
+	if f.goPath != nil {
+		// A hop through an interface is a statement about which type is behind it,
+		// which a constructor makes and a method-set match only suggests. A call
+		// that does not depend on the element repeats one query: real, but a
+		// smaller problem than a query per element.
+		switch {
+		case f.invariant:
+			return 0.5
+		case f.goBasis == basisInferred:
+			return 0.6
+		case f.goBasis == basisStated:
+			return 0.7
+		}
 	}
 	return 0.8
 }
