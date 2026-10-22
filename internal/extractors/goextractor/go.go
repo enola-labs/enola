@@ -197,6 +197,26 @@ func (e *GoExtractor) Extract(ctx context.Context, repoPath string, files []stri
 		}
 	}
 
+	// Pass 2a'': the implementers the source states without an assertion — a
+	// constructor returning the interface — and the ones the method sets infer. See
+	// ifaceimpl.go. Both are fed to the closure and recorded on the interface facts;
+	// the recorded stated set includes the assertions and, like the inferred one, no
+	// mock.
+	decls := newTypeDecls()
+	for _, pkgDir := range pkgDirs {
+		collectTypeDecls(decls, parsedPkgs[pkgDir], pkgDir, mods, pkgNames, aliases)
+	}
+	stated, inferred := implementersFrom(decls, callTypes.embeds, callTypes.implementers)
+	for _, found := range []map[string][]string{stated, inferred} {
+		for iface, impls := range found {
+			for _, t := range impls {
+				if !contains(callTypes.implementers[iface], t) {
+					callTypes.implementers[iface] = append(callTypes.implementers[iface], t)
+				}
+			}
+		}
+	}
+
 	promoteReturnTypes(callTypes.returns, callTypes.embeds)
 
 	// Pass 2b: build the gRPC client stub index (generated concrete clients →
@@ -249,6 +269,7 @@ func (e *GoExtractor) Extract(ctx context.Context, repoPath string, files []stri
 	}
 	bindCommands(allFacts, commandLits, mods)
 	bindTools(allFacts)
+	annotateImplementers(allFacts, stated, inferred)
 
 	// Carry io_direct to every function that reaches one, across packages, and
 	// through an interface to the types asserted to implement it.

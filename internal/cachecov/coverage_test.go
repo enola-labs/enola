@@ -33,6 +33,8 @@ import (
 // test functions that assert the behavior that version introduced. v1 is the
 // implicit baseline (no changelog line), so coverage starts at v2.
 var versionCoverage = map[int][]string{
+	// Go implementers from constructors and typed method sets; database calls and cursor reads marked
+	427: {"TestImplementers_StatedByAConstructor", "TestImplementers_InferredByMethodSet", "TestImplementers_InferredByTypesNotArity", "TestCursorReadsArePureCalls"},
 	// A Go function of another in-repo package used as a value is a calls edge to it
 	426: {"TestImportedFuncValueIsReferenced"},
 	// A JVM import of generated code (R, BuildConfig, View Binding) stays external instead of joining the app package

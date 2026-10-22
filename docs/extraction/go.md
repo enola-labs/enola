@@ -293,7 +293,11 @@ event bus with methods named `Publish` or `Subscribe` from being mistaken for Ka
 - **Absolute URLs to hosts you have not loaded.** These are tagged `external` with the
   host recorded, never invented as an internal edge.
 - **Reflection and `interface{}` dispatch.** A call through an interface resolves to the
-  interface method, not to every implementation.
+  interface method, not to every implementation. The implementers are recorded on the
+  interface itself (`implementers` where a constructor or an assertion states them,
+  `implementers_inferred` where the method set matches by name and type), and I/O is
+  carried through them, so a service calling a repository interface does the
+  repository's I/O.
 
 Every one of these shows up as an unresolved count in
 [`enola coverage`](../CLI.md), never as a confident wrong edge.

@@ -3075,7 +3075,14 @@ import (
 // (`mustInit(svg.Init)`, a handler passed to a router) is a calls edge to it, and so
 // is a call in a package-level initializer. Registration-style codebases gain the
 // edges that kept their registered functions out of the orphan list.
-const cacheVersion = "v426"
+// v427: Go interface implementers come from constructors that return the interface
+// and from method sets matched by parameter and result types, not only from
+// assertions, and are recorded on the interface (implementers,
+// implementers_inferred). I/O crosses an interface to the repository behind it, a
+// database round trip is marked db_direct with its db_calls, and a cursor's Next and
+// Scan are pure_calls. performs_io grows on every Go service written against
+// interfaces.
+const cacheVersion = "v427"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
