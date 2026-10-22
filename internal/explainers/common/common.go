@@ -13,13 +13,47 @@ import (
 )
 
 // OversizedClusterModules is the module-count above which a strongly-connected
-// component is treated as a coupling *cluster* rather than a discrete, actionable
-// tangle. In an autoloaded language (Ruby/Rails) mutual constant references across
-// many directories are the expected topology, so a large SCC is a coupling-density
-// signal, not a fixable cycle or a genuine deep layering. Shared by the cycles
-// explainer (softens such SCCs into a cluster note) and the depth explainer (counts
-// such an SCC as one logical layer instead of its full size).
+// component is no longer a discrete, actionable tangle. The depth explainer counts
+// such an SCC as one logical layer instead of its full size, in every language: a
+// large tangle is not deep layering wherever it occurs. The cycles explainer softens
+// it into a coupling-cluster note only when every member is autoloaded (see
+// AutoloadedComponent); in a language whose imports are load instructions it is
+// still a cycle, just a large one.
 const OversizedClusterModules = 8
+
+// autoloadedLanguages are the languages where a reference between directories
+// resolves on first use rather than at load time: Ruby under Zeitwerk or classic
+// autoload, and PHP under Composer's PSR-4 autoloader, where `use` is an alias.
+// Mutual references across many directories are the expected topology there.
+var autoloadedLanguages = map[string]bool{"ruby": true, "php": true}
+
+// ModuleLanguages maps each module to the language its extractor recorded.
+func ModuleLanguages(store *facts.Store) map[string]string {
+	out := make(map[string]string)
+	for _, m := range store.ByKind(facts.KindModule) {
+		if lang, _ := m.Props["language"].(string); lang != "" {
+			out[m.Name] = lang
+		}
+	}
+	return out
+}
+
+// AutoloadedComponent reports whether every module of a strongly-connected
+// component is in an autoloaded language. A module of unknown language counts as
+// not autoloaded, and so does a component that mixes languages: in either case at
+// least one of its edges may be an import a file executes when it loads, and calling
+// the component "not a load-order cycle" would be a claim enola cannot back.
+func AutoloadedComponent(scc []string, langOf map[string]string) bool {
+	if len(scc) == 0 {
+		return false
+	}
+	for _, mod := range scc {
+		if !autoloadedLanguages[langOf[mod]] {
+			return false
+		}
+	}
+	return true
+}
 
 // MaxHeuristicConfidence is the ceiling for any finding that is inferred rather than
 // proven, and it exists to keep one published promise true: confidence `1.0` means a

@@ -32,6 +32,33 @@ func makeStore(modules []string, deps map[string][]string) *facts.Store {
 	return s
 }
 
+// makeStoreLang is makeStore with every module tagged with the language its
+// extractor would record. langOf overrides the language per module.
+func makeStoreLang(lang string, langOf map[string]string, modules []string, deps map[string][]string) *facts.Store {
+	s := makeStore(nil, deps)
+	for _, m := range modules {
+		l := lang
+		if o, ok := langOf[m]; ok {
+			l = o
+		}
+		s.Add(facts.Fact{Kind: facts.KindModule, Name: m, Props: map[string]any{"language": l}})
+	}
+	return s
+}
+
+// ring returns n modules joined into one cycle m0 -> m1 -> ... -> m0.
+func ring(prefix string, n int) ([]string, map[string][]string) {
+	modules := make([]string, n)
+	deps := map[string][]string{}
+	for i := 0; i < n; i++ {
+		modules[i] = fmt.Sprintf("%s/m%02d", prefix, i)
+	}
+	for i := 0; i < n; i++ {
+		deps[modules[i]] = []string{modules[(i+1)%n]}
+	}
+	return modules, deps
+}
+
 // --- Tarjan's SCC tests ---
 
 func TestTarjanSCC_KnownGraphs(t *testing.T) {
@@ -203,25 +230,16 @@ func TestExplain_WithCycle(t *testing.T) {
 	}
 }
 
-// TestExplain_OversizedClusterSoftened: an SCC larger than maxCycleModules is
-// reported as a coupling cluster rather than a fixable cycle — the advice
-// differs, because "introduce an interface" means nothing for a 99-node
-// component. The *title* carries that distinction so pkg/explain does not count
-// it as a cycle.
+// TestExplain_OversizedClusterSoftened: an SCC of autoloaded modules larger than
+// maxCycleModules is reported as a coupling cluster rather than a fixable cycle —
+// the advice differs, because "introduce an interface" means nothing for a
+// 99-node component. The *title* carries that distinction so pkg/explain does not
+// count it as a cycle.
 //
 // Confidence deliberately does NOT carry it. See TestExplain_ClusterConfidenceIsMonotone.
 func TestExplain_OversizedClusterSoftened(t *testing.T) {
-	n := maxCycleModules + 3
-	modules := make([]string, n)
-	deps := map[string][]string{}
-	for i := 0; i < n; i++ {
-		modules[i] = fmt.Sprintf("app/m%02d", i)
-	}
-	// One big ring: m0 -> m1 -> ... -> m(n-1) -> m0, so all n form a single SCC.
-	for i := 0; i < n; i++ {
-		deps[modules[i]] = []string{modules[(i+1)%n]}
-	}
-	store := makeStore(modules, deps)
+	modules, deps := ring("app", maxCycleModules+3)
+	store := makeStoreLang("ruby", nil, modules, deps)
 
 	insights, err := New().Explain(context.Background(), store)
 	if err != nil {
@@ -662,5 +680,55 @@ func TestExplain_EveryPrintedArrowIsAnEdge(t *testing.T) {
 			}
 			assertArrowsAreEdges(t, path[:strings.Index(path, ". ")], deps)
 		}
+	}
+}
+
+// TestExplain_LargeCycleOutsideAutoloadIsACycle: a TypeScript or Kotlin import is a
+// load instruction, so a component of a dozen folders in either is a real cycle. It
+// keeps the cycle title, so pkg/explain counts it, names one walkable cycle, and caps
+// its evidence; it must not borrow the autoload note.
+func TestExplain_LargeCycleOutsideAutoloadIsACycle(t *testing.T) {
+	n := maxClusterMembers + 3
+	mixed, _ := ring("src", n)
+	cases := []struct {
+		name   string
+		lang   string
+		langOf map[string]string
+	}{
+		{"typescript", "typescript", nil},
+		{"kotlin", "kotlin", nil},
+		{"ruby with one typescript module", "ruby", map[string]string{mixed[0]: "typescript"}},
+		{"unknown language", "", nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			modules, deps := ring("src", n)
+			insights, err := New().Explain(context.Background(), makeStoreLang(tc.lang, tc.langOf, modules, deps))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(insights) != 1 {
+				t.Fatalf("want one insight, got %d: %+v", len(insights), insights)
+			}
+			in := insights[0]
+			if want := fmt.Sprintf("Cyclic dependency detected (%d modules)", n); in.Title != want {
+				t.Errorf("title = %q, want %q", in.Title, want)
+			}
+			if !strings.Contains(in.Description, "real cycle") || strings.Contains(in.Description, "resolve lazily") {
+				t.Errorf("description should say this is a real cycle, not autoload coupling: %q", in.Description)
+			}
+			if len(in.Evidence) != maxClusterMembers {
+				t.Errorf("evidence = %d entries, want capped at %d", len(in.Evidence), maxClusterMembers)
+			}
+			at := strings.Index(in.Description, "One of them: ")
+			if at < 0 {
+				t.Fatalf("no example cycle in %q", in.Description)
+			}
+			path := in.Description[at+len("One of them: "):]
+			assertArrowsAreEdges(t, path[:strings.Index(path, ". ")], deps)
+			if in.Confidence != 1.0 {
+				t.Errorf("confidence = %v, want 1.0", in.Confidence)
+			}
+		})
 	}
 }
