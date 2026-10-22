@@ -46,7 +46,9 @@ An explainer reads the fact graph and emits **findings** — a claim, a confiden
 the entities the claim is about. There are nineteen, and they fall into six kinds:
 
 - **The proofs.** `cycles` runs Tarjan's SCC over the resolved import edges — a cycle
-  either exists or it does not. `intent` diffs DECLARED architecture (a repo's
+  either exists or it does not. Test modules are left out of that graph; a module
+  judged test code only by its path (`src/lib/mocks`) is production once production
+  code imports it. `intent` diffs DECLARED architecture (a repo's
   enola-intent.yaml, or a cluster config's intent block) against the measured
   cross-repo edges: an unexpected or mis-mechanism seam is set difference between
   stated and measured, which either holds or it does not. Its estimating findings — a
