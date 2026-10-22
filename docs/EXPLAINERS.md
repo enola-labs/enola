@@ -388,8 +388,8 @@ so — but the mechanism is the argument, and the mechanism is the delta.
 - **The heuristics are repo-relative.** A uniformly complex codebase reports nothing
   remarkable, because nothing in it is remarkable *for that codebase*. Findings compare
   you to yourself, never to an industry baseline.
-- **The bulk of the volume is one explainer.** 23,775 of the 29,633 findings were
-  hotspots, measured before that explainer was capped; it now reports at most its 20
+- **The bulk of the volume was once one explainer.** 23,775 of the 29,633 findings at
+  v197 were hotspots, measured before that explainer was capped; it now reports at most its 20
   highest-scoring pinch points, like its siblings. "No new findings" is a statement
   about your change, never a certificate that a repository is clean.
 
