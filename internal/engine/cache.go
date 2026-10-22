@@ -3071,7 +3071,11 @@ import (
 // lowercase sub-package such as View Binding's) is no edge to the longest declared
 // package prefix; it stays external. Android feature modules lose the imports that
 // joined them to the application package.
-const cacheVersion = "v425"
+// v426: A Go function of another package in the repository handed over as a value
+// (`mustInit(svg.Init)`, a handler passed to a router) is a calls edge to it, and so
+// is a call in a package-level initializer. Registration-style codebases gain the
+// edges that kept their registered functions out of the orphan list.
+const cacheVersion = "v426"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

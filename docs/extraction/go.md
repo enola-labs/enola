@@ -51,6 +51,14 @@ dependency  pkg/a -> example.com/gosample/pkg/b   pkg/a/a.go:3   props: source=i
 and `stdlib`. Only `internal` edges take part in cycle detection — a package that
 imports `net/http` is not coupled to anything you own.
 
+A function used as a value is a `calls` edge too, the same edge a call to it gets:
+`register(repo.CreateBranch)` and `mustInit(svg.Init)` reach `<dir>.CreateBranch` and
+`<dir>.Init` through the file's imports, and a call in a package-level `var`
+initializer hangs on the package. Only top-level functions of a package in your own
+module count; a method value, a variable, and anything from another module do not.
+`find_orphans` matches a Go package-level function by its package path for that reason,
+so a same-named function or method elsewhere does not keep it alive.
+
 ### Cycles
 
 `go_sample` closes an `a` → `b` → `a` import loop on purpose. Tarjan's SCC over the

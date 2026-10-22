@@ -15,10 +15,15 @@ import "go/ast"
 // identifier shadowing in resolveChain: a missing edge does not merely lose a fact, it
 // manufactures a confident wrong answer about the symbol on the other end.
 //
-// Resolution is deliberately narrow — a bare identifier naming one of THIS package's
-// top-level functions. A cross-package function value (`install.Foo` handed to a
-// callback) needs import resolution this pass does not attempt, so it stays missing.
-// A missing edge beats a wrong one.
+// Resolution is deliberately narrow. A bare identifier must name one of THIS
+// package's top-level functions. A selector `alias.Foo` counts only when `alias` is
+// an import of the file that nothing in scope shadows, and `Foo` is a top-level
+// function of the in-repository package that import names: `mustInit(svg.Init)` and
+// a handler registered as `m.Post("/cancel", repo.CancelStopwatch)` are references to
+// those functions, and without them an orphan check that matches functions by package
+// path reports both as dead. A variable, constant or type of the same name, a method
+// value, and anything in a package outside the repository stay unrecorded. A missing
+// edge beats a wrong one.
 
 // funcValueRefs returns qualified names for this package's top-level functions that
 // appear in n as a value rather than as the thing being called. Calls are already
@@ -35,7 +40,7 @@ func packageLevelFuncRefs(n ast.Node, ctx resolveCtx) []string {
 }
 
 func packageFuncRefs(n ast.Node, ctx resolveCtx, valueOnly bool) []string {
-	if n == nil || len(ctx.pkgFuncs) == 0 {
+	if n == nil || (len(ctx.pkgFuncs) == 0 && len(ctx.moduleFuncs) == 0) {
 		return nil
 	}
 
@@ -43,6 +48,9 @@ func packageFuncRefs(n ast.Node, ctx resolveCtx, valueOnly bool) []string {
 	// reference to it, and names that something in n redeclares.
 	skip := make(map[*ast.Ident]bool)
 	shadowed := make(map[string]bool)
+	// Selectors that are the callee of a call. A call is already an edge, so in
+	// value-only mode it is not counted again.
+	called := make(map[*ast.SelectorExpr]bool)
 
 	note := func(id *ast.Ident) {
 		if id != nil {
@@ -57,8 +65,11 @@ func packageFuncRefs(n ast.Node, ctx resolveCtx, valueOnly bool) []string {
 			// The callee itself, when only values are wanted. Arguments are still
 			// walked: `rc.lock(relFile, "yarn.lock", yarnLock)` is the whole point.
 			if valueOnly {
-				if id, ok := e.Fun.(*ast.Ident); ok {
-					skip[id] = true
+				switch fun := e.Fun.(type) {
+				case *ast.Ident:
+					skip[fun] = true
+				case *ast.SelectorExpr:
+					called[fun] = true
 				}
 			}
 		case *ast.KeyValueExpr:
@@ -71,8 +82,14 @@ func packageFuncRefs(n ast.Node, ctx resolveCtx, valueOnly bool) []string {
 			}
 		case *ast.SelectorExpr:
 			// x.Foo is a field or method on some other value, never a bare reference
-			// to this package's top-level Foo.
+			// to this package's top-level Foo. The import alias in `pkg.Foo` is not a
+			// reference to a same-named local function either.
 			skip[e.Sel] = true
+			if id, ok := e.X.(*ast.Ident); ok {
+				if _, isImport := ctx.imports[id.Name]; isImport {
+					skip[id] = true
+				}
+			}
 		case *ast.AssignStmt:
 			for _, lhs := range e.Lhs {
 				if id, ok := lhs.(*ast.Ident); ok {
@@ -97,21 +114,51 @@ func packageFuncRefs(n ast.Node, ctx resolveCtx, valueOnly bool) []string {
 
 	var out []string
 	seen := make(map[string]bool)
+	add := func(q string) {
+		if !seen[q] {
+			seen[q] = true
+			out = append(out, q)
+		}
+	}
 	ast.Inspect(n, func(node ast.Node) bool {
+		if sel, ok := node.(*ast.SelectorExpr); ok {
+			if q, ok := importedFuncRef(sel, ctx, shadowed); ok && (!valueOnly || !called[sel]) {
+				add(q)
+			}
+			return true
+		}
 		id, ok := node.(*ast.Ident)
 		if !ok || skip[id] || shadowed[id.Name] || !ctx.pkgFuncs[id.Name] {
 			return true
 		}
 		// Same qualification resolveChain gives a bare same-package call, so a value
 		// reference and a call to one function land on the same node.
-		q := ctx.pkgDir + "." + id.Name
-		if !seen[q] {
-			seen[q] = true
-			out = append(out, q)
-		}
+		add(ctx.pkgDir + "." + id.Name)
 		return true
 	})
 	return out
+}
+
+// importedFuncRef resolves `alias.Foo` to the top-level function it names in another
+// package of the repository, with the same qualification resolveChain gives a call to
+// it (`dir.Foo`), so a value reference and a call land on one node. It refuses a
+// shadowed alias (a local or parameter of that name holds some other value), an alias
+// that is not an import of this file, and a name that is not a function of that
+// package — a variable, constant, type or a package outside the repository.
+func importedFuncRef(sel *ast.SelectorExpr, ctx resolveCtx, shadowed map[string]bool) (string, bool) {
+	if ctx.moduleFuncs == nil {
+		return "", false
+	}
+	id, ok := sel.X.(*ast.Ident)
+	if !ok || shadowed[id.Name] {
+		return "", false
+	}
+	dir, ok := ctx.imports[id.Name]
+	if !ok {
+		return "", false
+	}
+	q := dir + "." + sel.Sel.Name
+	return q, ctx.moduleFuncs[q]
 }
 
 // packageLevelRefs collects the function references in a file's package-level var and
@@ -146,8 +193,8 @@ func packageLevelRefs(f *ast.File, ctx resolveCtx) []string {
 
 // packageLevelInitRefs collects every function reference in a package's var and const
 // initializers, across all of its files. Imports are per file, so each file gets its
-// own resolveCtx even though only pkgFuncs matters to this pass today.
-func packageLevelInitRefs(pp *parsedPkg, pkgDir string, mods goModules, pkgNames map[string]string, pkgFuncs map[string]bool) []string {
+// own resolveCtx.
+func packageLevelInitRefs(pp *parsedPkg, pkgDir string, mods goModules, pkgNames map[string]string, pkgFuncs, moduleFuncs map[string]bool) []string {
 	var out []string
 	seen := make(map[string]bool)
 	for _, relFile := range pp.relFiles {
@@ -156,10 +203,11 @@ func packageLevelInitRefs(pp *parsedPkg, pkgDir string, mods goModules, pkgNames
 			continue
 		}
 		ctx := resolveCtx{
-			pkgDir:   pkgDir,
-			mods:     mods,
-			imports:  buildFileImports(f, mods, pkgNames),
-			pkgFuncs: pkgFuncs,
+			pkgDir:      pkgDir,
+			mods:        mods,
+			imports:     buildFileImports(f, mods, pkgNames),
+			pkgFuncs:    pkgFuncs,
+			moduleFuncs: moduleFuncs,
 		}
 		for _, ref := range packageLevelRefs(f, ctx) {
 			if !seen[ref] {

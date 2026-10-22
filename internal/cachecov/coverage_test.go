@@ -33,6 +33,8 @@ import (
 // test functions that assert the behavior that version introduced. v1 is the
 // implicit baseline (no changelog line), so coverage starts at v2.
 var versionCoverage = map[int][]string{
+	// A Go function of another in-repo package used as a value is a calls edge to it
+	426: {"TestImportedFuncValueIsReferenced"},
 	// A JVM import of generated code (R, BuildConfig, View Binding) stays external instead of joining the app package
 	425: {"TestGeneratedImport", "TestResolveKotlinImport_GeneratedClassIsNotAnEdge"},
 	// A bare Ruby call after a range operator is lexical-self, not a call on a receiver

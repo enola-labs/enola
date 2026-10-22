@@ -22,9 +22,6 @@ No --fail-on policy is set, so no FINDING could fail this run — only the thres
 above grades it. These are reported for you to judge; enforce the ones you want
 enforced: --fail-on=layers (`enola check --help` lists all 23).
 
-Incidental shifts (1) — findings that moved with no structural cause in this
-change (a drifting statistical threshold or a re-ranked list). Never graded.
-
 What changed
   modules      +1
   symbols      +2

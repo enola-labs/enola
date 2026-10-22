@@ -1650,3 +1650,33 @@ func TestConfidence_ObjectMemberIsLow(t *testing.T) {
 		t.Errorf("plain TS function confidence = %q, want %q", got, confMedium)
 	}
 }
+
+// TestGoPackageFuncMatchedByPackagePath: a Go package-level function is matched by
+// its full and package-qualified names, not its bare one. In a repository where a
+// route handler in another package is also called CreateBranch, and a Repository
+// method is called GetBranchCommitID, the bare names kept two functions alive that
+// only tests reach. The handler and the method stay used; another language keeps
+// bare-name matching.
+func TestGoPackageFuncMatchedByPackagePath(t *testing.T) {
+	syms, refs := collectFromJSONL(t, `
+{"kind":"symbol","name":"a/git.CreateBranch","file":"a/git/branch.go","props":{"symbol_kind":"function","exported":true},"relations":[{"kind":"declares","target":"a/git"}]}
+{"kind":"symbol","name":"a/git.GetBranchCommitID","file":"a/git/branch.go","props":{"symbol_kind":"function","exported":true},"relations":[{"kind":"declares","target":"a/git"}]}
+{"kind":"symbol","name":"a/git.Repository.GetBranchCommitID","file":"a/git/repo.go","props":{"symbol_kind":"method","exported":true},"relations":[{"kind":"declares","target":"a/git"}]}
+{"kind":"symbol","name":"b/repo.CreateBranch","file":"b/repo/branch.go","props":{"symbol_kind":"function","exported":true},"relations":[{"kind":"declares","target":"b/repo"}]}
+{"kind":"symbol","name":"c/web.Handle","file":"c/web/web.go","props":{"symbol_kind":"function","exported":true},"relations":[{"kind":"declares","target":"c/web"},{"kind":"calls","target":"a/git.Repository.GetBranchCommitID"},{"kind":"calls","target":"gitRepo.GetBranchCommitID"}]}
+{"kind":"route","name":"POST /branch","file":"c/web/routes.go","props":{"handler":"repo.CreateBranch","handler_target":"b/repo.CreateBranch"}}
+{"kind":"test_ref","name":"tests/branch_test.go","relations":[{"kind":"calls","target":"a/git.CreateBranch"},{"kind":"calls","target":"a/git.GetBranchCommitID"}]}
+{"kind":"symbol","name":"py/git.CreateBranch","file":"py/git/branch.py","props":{"symbol_kind":"function"},"relations":[{"kind":"declares","target":"py/git"}]}
+`)
+	got := orphansByName(classify(syms, refs, options{Mode: "both", Visibility: "all"}))
+	for _, name := range []string{"a/git.CreateBranch", "a/git.GetBranchCommitID"} {
+		if o, ok := got[name]; !ok || o.Class != classTestOnly {
+			t.Errorf("%s is reached only by a test: want test-only, got %+v (found %v)", name, o, ok)
+		}
+	}
+	for _, name := range []string{"b/repo.CreateBranch", "a/git.Repository.GetBranchCommitID", "py/git.CreateBranch"} {
+		if o, ok := got[name]; ok {
+			t.Errorf("%s is used and must not be an orphan, got %+v", name, o)
+		}
+	}
+}

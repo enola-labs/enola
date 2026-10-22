@@ -208,8 +208,8 @@ func helper()      {}
 	}
 }
 
-// A cross-package function value is deliberately NOT resolved: it needs import
-// resolution this pass does not attempt, and a missing edge beats a wrong one. This
+// A function value from a package OUTSIDE the repository is not resolved: there is no
+// function of it in the graph to credit, and a missing edge beats a wrong one. This
 // pins the limit so a later change to it is a decision rather than an accident.
 func TestCrossPackageFuncValueIsNotResolved(t *testing.T) {
 	ff := extractAll(t, map[string]string{"pkg/cross.go": `package cross
@@ -225,5 +225,80 @@ func use(f func()) {}
 		if strings.HasSuffix(tgt, ".Entry") {
 			t.Errorf("cross-package func value should stay unresolved, got %q", tgt)
 		}
+	}
+}
+
+// A function of another package in the repository, handed over as a value, is a
+// reference to it: `register(repo.CreateBranch)` keeps repo.CreateBranch alive. It
+// resolves through the file's import table to that package only, so a same-named
+// function in a different package, a method of the same name, a shadowed alias and
+// a variable of the package stay unrecorded.
+func TestImportedFuncValueIsReferenced(t *testing.T) {
+	ff := extractAll(t, map[string]string{
+		"git/git.go": `package git
+
+func CreateBranch() {}
+`,
+		"repo/repo.go": `package repo
+
+var Default = 1
+
+func CreateBranch() {}
+`,
+		"web/web.go": `package web
+
+import (
+	"testmod/git"
+	"testmod/repo"
+)
+
+type Repo struct{}
+
+func (r *Repo) CreateBranch() {}
+
+func register(f func()) {}
+
+func routes() {
+	register(repo.CreateBranch)
+	git.CreateBranch()
+}
+
+func shadowed() {
+	repo := &Repo{}
+	register(repo.CreateBranch)
+}
+
+func variable() { use(repo.Default) }
+
+func use(v int) {}
+
+var table = []func(){git.CreateBranch}
+`,
+	})
+
+	routes := callTargetsOf(ff, "web.routes")
+	if !hasTarget(routes, "repo.CreateBranch") {
+		t.Errorf("web.routes should reference repo.CreateBranch as a value, got %v", routes)
+	}
+	if !hasTarget(routes, "git.CreateBranch") {
+		t.Errorf("web.routes should call git.CreateBranch, got %v", routes)
+	}
+	n := 0
+	for _, tgt := range routes {
+		if tgt == "git.CreateBranch" {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Errorf("a call must not be counted again as a value: git.CreateBranch %d times", n)
+	}
+	if got := callTargetsOf(ff, "web.shadowed"); hasTarget(got, "repo.CreateBranch") {
+		t.Errorf("a local named like the import holds a method value, not the package function: %v", got)
+	}
+	if got := callTargetsOf(ff, "web.variable"); hasTarget(got, "repo.Default") {
+		t.Errorf("a package variable is not a function reference: %v", got)
+	}
+	if got := moduleCallTargets(ff, "web"); !hasTarget(got, "git.CreateBranch") {
+		t.Errorf("a package-level table holding git.CreateBranch should reference it, got %v", got)
 	}
 }
