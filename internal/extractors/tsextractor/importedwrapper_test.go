@@ -98,3 +98,73 @@ export class ShopApiClient {
 		}
 	}
 }
+
+// A helper can make its request through a helper method of an instance its own file
+// declares: `deduplicatedFetch(url)` hands url to `requestCache.fetch(url)`, which
+// hands it to `this.makeRequest(url)`, which calls fetch. A call to it that puts an unresolved base before the path,
+// `${API_BASE_URL}/api/...`, is a request to the path, the way the helper's own
+// `${API_BASE_URL}${url}` is read.
+func TestImportedWrapper_AHelperThroughASameFileInstance(t *testing.T) {
+	ff := extractTSRepo(t, map[string]string{
+		"src/lib/requestCache.ts": `
+class RequestCache {
+  async fetch<T>(url: string, options: RequestInit = {}): Promise<T> {
+    const promise = this.makeRequest<T>(url, options);
+    return promise;
+  }
+  private async makeRequest<T>(url: string, options?: RequestInit): Promise<T> {
+    const response = await fetch(url, options);
+    return response.json();
+  }
+}
+export const requestCache = new RequestCache();
+
+export function deduplicatedFetch<T>(url: string, options?: RequestInit): Promise<T> {
+  return requestCache.fetch<T>(url, options);
+}
+`,
+		"src/stores/inventory.ts": `
+import { deduplicatedFetch } from '../lib/requestCache';
+const API_BASE_URL = process.env.API;
+export async function loadStatuses() {
+  return deduplicatedFetch<string[]>(` + "`${API_BASE_URL}/api/settings/transactions/statuses`" + `, { method: 'GET' });
+}
+`,
+	})
+	found := false
+	for _, f := range ff {
+		if f.Kind == facts.KindRoute && f.PropString(facts.PropRole) == facts.RoleClient && f.File == "src/stores/inventory.ts" &&
+			f.Name == "/api/settings/transactions/statuses" && f.PropString("method") == "GET" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("the call through deduplicatedFetch should be a client route to GET /api/settings/transactions/statuses")
+	}
+}
+
+// A method whose parameter fills a segment after a slash, or a query value, takes an id
+// or a filter, not a path: it is an endpoint function, and its own request stays a
+// route rather than being read as a helper's request to its caller's URL.
+func TestImportedWrapper_AnIdTakingMethodIsNoHelper(t *testing.T) {
+	ff := extractTSRepo(t, map[string]string{
+		"src/lib/items.ts": `
+class ItemsClient {
+  async getItem(id: number) { return fetch(` + "`/api/items/${id}`" + `); }
+  async getRange(date: string) { return fetch(` + "`/api/weather/range?date=${date}`" + `); }
+}
+export const itemsClient = new ItemsClient();
+`,
+	})
+	got := map[string]bool{}
+	for _, f := range ff {
+		if f.Kind == facts.KindRoute && f.PropString(facts.PropRole) == facts.RoleClient && f.File == "src/lib/items.ts" {
+			got[f.Name] = true
+		}
+	}
+	for _, want := range []string{"/api/items/{}", "/api/weather/range"} {
+		if !got[want] {
+			t.Errorf("the request to %s was dropped as a helper's own request: %v", want, got)
+		}
+	}
+}

@@ -103,6 +103,9 @@ func wrapperCallFact(kinds *tsutil.KindTable, call *sitter.Node, ctx *extractCtx
 		return facts.Fact{}, false
 	}
 	raw, ok := r.text(args[0])
+	if !ok {
+		raw, ok = afterBase(r, args[0])
+	}
 	if !ok || !strings.HasPrefix(raw, "/") {
 		return facts.Fact{}, false
 	}
@@ -490,4 +493,28 @@ func urlOperands(kinds *tsutil.KindTable, n *sitter.Node, src []byte) []urlOpera
 		return append(urlOperands(kinds, left, src), urlOperands(kinds, right, src)...)
 	}
 	return []urlOperand{{text: strings.TrimSpace(nodeText(n, src))}}
+}
+
+// afterBase reads a URL whose leading operands are a base this pass cannot resolve,
+// `${API_BASE_URL}/api/items/${id}`, as the path after them, the way a helper's own
+// URL is read (urlPrefix). A base the file binds to an absolute URL resolves, and is
+// then no path at all.
+func afterBase(r pathResolver, n *sitter.Node) (string, bool) {
+	parts := r.parts(n, 0)
+	i := 0
+	for i < len(parts) && !parts[i].known {
+		i++
+	}
+	if i == 0 || i == len(parts) || !strings.HasPrefix(parts[i].text, "/") {
+		return "", false
+	}
+	var b strings.Builder
+	for _, p := range parts[i:] {
+		if p.known {
+			b.WriteString(p.text)
+		} else {
+			b.WriteString("{}")
+		}
+	}
+	return b.String(), true
 }

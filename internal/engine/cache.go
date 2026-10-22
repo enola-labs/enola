@@ -3102,7 +3102,13 @@ import (
 // carries client_reachable, whether its caller is reached by name from the pages and
 // entry files. A request written in client code nothing runs is no longer
 // indistinguishable from one the application sends.
-const cacheVersion = "v432"
+// v433: TypeScript: an exported function that makes its request through a helper
+// method of an instance its own file declares is a request helper too, as is a class
+// method handing its URL to another of its class's helpers through this; a call to a
+// helper that puts an unresolved base before the path is a request to the path; and a
+// function whose parameter fills a segment or a query value is no helper, so its own
+// request is no longer dropped as one.
+const cacheVersion = "v433"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
