@@ -578,36 +578,49 @@ which is exactly the property that makes the no-change column worth reading.
 
 ### What is eligible to fail at all
 
-Across the corpus enola produced **12,027 findings**. Broken down:
+Across the corpus enola produced **20,228 findings**. Broken down:
 
 | Explainer | Findings | Class |
 |---|---|---|
-| dead-methods | 2,847 | candidate |
-| god-class | 1,649 | statistical outlier |
-| hotspots | 1,327 | statistical outlier |
-| **cycles** | **1,227** | **structural fact + heuristic — see below** |
-| exported-surface | 1,102 | candidate |
-| layers | 1,078 | heuristic |
-| complexity-outliers | 1,062 | statistical outlier |
-| query-loops | 769 | heuristic |
-| dependency-depth | 603 | statistical outlier |
-| domain | 351 | heuristic |
-| entry-points | 12 | candidate |
+| dead-code | 4,223 | candidate |
+| performance | 3,955 | heuristic |
+| god-class | 2,028 | statistical outlier |
+| hotspots | 1,626 | statistical outlier |
+| **cycles** | **1,535** | **structural fact + heuristic, see below** |
+| exported-surface | 1,320 | candidate |
+| complexity-outliers | 1,236 | statistical outlier |
+| package-metrics | 1,136 | exact metric, judged by a threshold |
+| layers | 837 | heuristic |
+| dead-methods | 833 | candidate |
+| dependency-depth | 714 | statistical outlier |
+| domain | 394 | heuristic |
+| query-loops | 292 | heuristic |
+| import-closure | 78 | measured cost |
+| entry-points | 13 | candidate |
+| vendored-candidates | 5 | candidate |
+| intent | 3 | declared-intent verdict |
 
-**The total fell from 29,633 at v197, and 23,194 of that drop is one explainer.**
-hotspots was roughly 80% of every finding enola produced, which meant the ranking of
-one explainer decided what a reader saw first, and the other nine were buried
-underneath it. It now reports at most its top 20 per repository, highest score first,
-ties broken by name so the cut is deterministic. The outlier threshold already kept
-the set small on most repositories, so the cap only bites where the volume was noise.
+**Most of it comes from `dead-code`, `performance` and `package-metrics`,** which ask
+about the whole repository. They became defaults at v268 and produce 9,314 of the
+20,228. None of them reaches the `1.00` floor: a candidate, an estimate
+and a threshold over an exact metric are all opinions about the code, however exact
+the numbers under them.
+
+**At v224 the total was 12,027, down from 29,633 at v197, and 23,194 of that drop was
+one explainer.** hotspots was roughly 80% of every finding enola produced, which meant
+the ranking of one explainer decided what a reader saw first, and the other nine were
+buried underneath it. It reports at most its top 20 per repository, highest score
+first, ties broken by name so the cut is deterministic. The outlier threshold already
+kept the set small on most repositories, so the cap only bites where the volume was
+noise.
 
 Two smaller corrections travelled with it. hotspots scores fan-in × fan-out, and
-`has_method` edges — a type to the methods it declares — were being counted as calls
+`has_method` edges (a type to the methods it declares) were being counted as calls
 *out of* the type, so a large class read as a pinch point for being large: one
 449-line importer whose body is 102 one-line delegations and exactly one call out
-ranked in a monolith's top 20 as "it calls out to 104 others". And `dead-methods` is the newest
-explainer and immediately the largest row at 2,847 — every entry a candidate, never a
-verdict, scoped to surfaces whose callers the graph can see.
+ranked in a monolith's top 20 as "it calls out to 104 others". And `dead-methods`
+arrived at v224 as the largest row, 2,847 entries; it is 833 here. Every entry is a
+candidate, never a verdict, scoped to surfaces whose callers the graph can see.
 
 **None of these fail anything by default** — `enola check` names no explainer unless
 you do. The number worth reading is how much of the corpus is even *eligible* to fail
@@ -621,18 +634,19 @@ autoloaded codebase (Rails, say), where constants resolve lazily and there is no
 load-order defect to break. Both carry `source: cycles`, so counting the explainer
 overstates what `--fail-on=cycles` would do.
 
-Counting the corpus by confidence rather than by explainer: **1,301 of the 12,027
+Counting the corpus by confidence rather than by explainer: **1,702 of the 20,228
 findings sit at the `certain` level**, the only one that reaches the `1.00` floor.
-So **10.8% could fail a build even with every explainer named**, and the other 89.2%
+So **8.4% could fail a build even with every explainer named**, and the other 91.6%
 are reported and let you through however you configure it.
 
-That share was 3.16% at v197 and 14.3% one extractor version ago, and it moves in
-both directions for the same reason: it is a denominator. Capping hotspots removed
-23,194 findings that could never have failed anything, which raised it; `dead-methods`
-then added 2,847 candidates, which lowered it again. **The count that can fail is
-1,301 either way** — it has not moved. The ratio is the design — the confidence floor keeps an estimate from
-breaking a build even when someone asks it to, and the empty default keeps enola from
-asking on your behalf.
+That share was 3.16% at v197, 14.3% at v217, 10.8% at v224, and has stayed between
+8.3% and 8.6% since v264. It moves in both directions for the same reason: it is a denominator. Capping
+hotspots removed 23,194 findings that could never have failed anything, which raised
+it; `dead-methods`, then `dead-code`, `performance` and `package-metrics` added
+candidates and estimates, which lowered it. The count that can fail has moved far less, from 1,301 at
+v224 to 1,702 here. The ratio is the design: the confidence floor keeps an estimate
+from breaking a build even when someone asks it to, and the empty default keeps enola
+from asking on your behalf.
 
 ## 3. Cross-repo resolution, misses included
 

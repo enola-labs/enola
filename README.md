@@ -285,7 +285,7 @@ Every number below is measured on public repositories with scripts you can rerun
 
 - enola models structure, not runtime behaviour. It knows a service calls another; it knows nothing about timeouts, retries or whether a message can be lost.
 - Calls it cannot resolve, such as URLs built at runtime, are reported as unresolved rather than guessed. Per-language limits are in [docs/extraction/](docs/extraction/) and the gaps found so far in [docs/BLIND-SPOTS.md](docs/BLIND-SPOTS.md).
-- Most findings are advisory. Across the benchmark corpus, 89.2% of them could not fail a build even with every check named.
+- Most findings are advisory. Across the benchmark corpus, 91.6% of them could not fail a build even with every check named.
 - A clean `enola check` means the change introduced nothing new, not that the repository is clean.
 
 With a coding agent, most of these stop being dead ends. enola says exactly where its knowledge stops: which call it could not resolve, which finding is only advisory. The agent can open that file, read the retry settings or the URL being built, and judge whether a finding matters for this change. The graph shows the agent where to look; the agent reads what the graph cannot hold. What the agent concludes is still the agent's judgement, not a measurement, and enola keeps the two apart.
