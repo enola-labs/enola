@@ -3089,7 +3089,11 @@ import (
 // resolves through the field's type, as the promoted `r.Query()` did; and a
 // `for { select { … } }` event loop no longer makes its calls per-iteration
 // candidates, since it runs per tick or message rather than per element.
-const cacheVersion = "v429"
+// v430: Go: database/sql handles are typed by the call that returns them, so a
+// prepared statement's Exec in a loop is a database call and a cursor's Next and
+// Scan are pure_calls; a call after a loop body's last continue, in a run that
+// leaves the loop, runs once; and a ping is I/O but not a database call.
+const cacheVersion = "v430"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

@@ -18,6 +18,7 @@ Fixtures: [`go_sample`](../../internal/engine/testdata/repos/go_sample/) ·
 | `import "..."` | a dependency tagged `internal` / `external` / `stdlib` | `dependency` |
 | a call inside a function | a `calls` relation on the calling symbol | relation |
 | `r.Base.Query()` through an embedded field | a `calls` relation to the field type's method, as `r.Query()` gets | relation |
+| `stmt, err := tx.PrepareContext(…)` then `stmt.ExecContext(…)` | a call to `database/sql.Stmt.ExecContext`, a database call; `rows.Next` and `rows.Scan` resolve as cursor reads | relation |
 | a call inside a `for` | the callee also in `calls_in_loop` / `calls_in_scaling_loop` | props |
 | `r.HandleFunc("/x", h)` | a server route, **at its composed runtime path** | `route` |
 | `http.Get(base + "/x")` | a client route with `role: client` and a resolved `host` | `route` |
@@ -100,6 +101,11 @@ would make a consumer fall back to the unfiltered list and re-report the bounded
 
 `calls_in_scaling_loop_depth` runs parallel to it: the deepest scaling loop each of those
 calls sits in. `getByID` is at 0 because a bare `for {}` adds no depth.
+
+A call in a run of the body that leaves the loop (a `return` or the loop's own `break`)
+runs once, as long as it comes after the run's last statement that can `continue`: a
+call before that `continue` still repeats. A `Ping` is I/O but not a database call, so a
+connect-retry loop around one is no query per iteration.
 
 A bare loop whose whole body is one `select` is an event loop, not a walk: `for {
 select { case <-ticker.C: s.sync() } }` runs once per tick or message, so its calls stay

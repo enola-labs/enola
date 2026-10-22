@@ -292,8 +292,13 @@ func goIOMatch(target string, types callTypeTables) (string, bool) {
 }
 
 // goDBPrimitive reports whether an I/O entry point is a database round trip.
+// A ping is I/O but asks nothing of the data: in a loop it is a connect retry or a
+// health check, not a query per element.
 func goDBPrimitive(prim string) bool {
-	pkg, _ := splitGoTarget(prim)
+	pkg, member := splitGoTarget(prim)
+	if strings.HasSuffix(member, ".Ping") || strings.HasSuffix(member, ".PingContext") {
+		return false
+	}
 	return goDBPackages[strings.TrimSuffix(goMajorVersion.ReplaceAllString(pkg, "$1"), "/")]
 }
 
@@ -413,6 +418,35 @@ var goFluentTypes = map[string]string{
 	"xorm.io/xorm.Engine":  "xorm.io/xorm.Session",
 	"gorm.io/gorm.DB":      "gorm.io/gorm.DB",
 }
+
+// goLibraryResults are the declared results of the database/sql calls that hand
+// back another handle. A library is not parsed here, so `stmt, err :=
+// tx.PrepareContext(…)` left stmt untyped, and the stmt.ExecContext a loop runs
+// once per row resolved to nothing: a prepared insert per element read as no
+// query at all. Rows and Row type the cursor, whose reads are pure_calls.
+var goLibraryResults = func() map[string][]string {
+	out := map[string][]string{}
+	add := func(result string, owners []string, methods ...string) {
+		for _, o := range owners {
+			for _, m := range methods {
+				out["database/sql."+o+"."+m] = []string{"database/sql." + result, "error"}
+			}
+		}
+	}
+	add("Stmt", []string{"DB", "Tx", "Conn"}, "Prepare", "PrepareContext")
+	add("Tx", []string{"DB", "Conn"}, "Begin", "BeginTx")
+	add("Conn", []string{"DB"}, "Conn")
+	add("Rows", []string{"DB", "Tx", "Conn", "Stmt"}, "Query", "QueryContext")
+	for _, o := range []string{"DB", "Tx", "Conn", "Stmt"} {
+		for _, m := range []string{"QueryRow", "QueryRowContext"} {
+			out["database/sql."+o+"."+m] = []string{"database/sql.Row"}
+		}
+	}
+	for _, m := range []string{"Stmt", "StmtContext"} {
+		out["database/sql.Tx."+m] = []string{"database/sql.Stmt"}
+	}
+	return out
+}()
 
 // goFluentResult returns the type a builder method of a fluent type returns, or
 // "" when target is not one. A method that runs the query is not a builder.
