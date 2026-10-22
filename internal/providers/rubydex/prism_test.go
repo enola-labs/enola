@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"testing"
 
 	"github.com/enola-labs/enola/internal/facts"
@@ -148,5 +149,43 @@ func TestCollect_ACallInADefaultParameterIsNotWrittenOnTheClass(t *testing.T) {
 	}
 	if causes["implicit receiver typed as the class inside an instance method"] != 1 {
 		t.Errorf("prism census = %+v, want the default parameter's call counted", result.PrismCensus)
+	}
+}
+
+// A range operator ends in a dot but sends nothing: the call after `..` or
+// `...` is a bare call, so it is lexical-self like any other.
+func TestCollect_ACallAfterARangeOperatorHasNoReceiver(t *testing.T) {
+	lib := requireLibrary(t)
+	repo := writeFiles(t, map[string]string{
+		"Gemfile": "source \"https://rubygems.org\"\n",
+		"app/lib/source.rb": "class Source\n" +
+			"  def span\n" +
+			"    (low..high)\n" +
+			"    where(at: ..limit)\n" +
+			"    where(at: [nil, ...limit])\n" +
+			"    self.limit\n" +
+			"  end\n" +
+			"  def where(*); end\n" +
+			"  def low; end\n" +
+			"  def high; end\n" +
+			"  def limit; end\n" +
+			"end\n",
+	})
+	result := Collect(context.Background(), lib, repo, nil)
+	levels := map[string]string{}
+	for _, f := range result.Prism {
+		levels[f.Name+":"+strconv.Itoa(f.Line)] = f.Props["resolution_level"].(string)
+	}
+	want := map[string]string{
+		"prism-call: Source#span -> Source#low:3":   "lexical-self",
+		"prism-call: Source#span -> Source#high:3":  "lexical-self",
+		"prism-call: Source#span -> Source#where:4": "lexical-self",
+		"prism-call: Source#span -> Source#limit:4": "lexical-self",
+		"prism-call: Source#span -> Source#where:5": "lexical-self",
+		"prism-call: Source#span -> Source#limit:5": "lexical-self",
+		"prism-call: Source#span -> Source#limit:6": "lexical-self",
+	}
+	if !reflect.DeepEqual(levels, want) {
+		t.Errorf("levels differ\n got: %v\nwant: %v", levels, want)
 	}
 }

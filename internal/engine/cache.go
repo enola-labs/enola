@@ -3062,7 +3062,12 @@ import (
 // digest. Two files with the same bytes shared one entry, so a warm run gave both
 // files the second one's facts and lost the first's. Provider facts on repositories
 // with identical files (generated schemas, seeds, empty files) move.
-const cacheVersion = "v423"
+// v424: The Rubydex provider reads a trailing `..` or `...` before a call as a
+// range operator and not a call operator, so a bare call written after one
+// (`(a..b)`, `where(at: ..limit)`) is lexical-self instead of
+// constant-receiver. Prism facts' levels move on the Ruby repositories that
+// write a range with a call at an end.
+const cacheVersion = "v424"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
