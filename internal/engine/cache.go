@@ -3093,7 +3093,12 @@ import (
 // prepared statement's Exec in a loop is a database call and a cursor's Next and
 // Scan are pure_calls; a call after a loop body's last continue, in a run that
 // leaves the loop, runs once; and a ping is I/O but not a database call.
-const cacheVersion = "v430"
+// v431: TypeScript: a call to a request helper another file exports (a function, or a
+// method of a class whose instance it exports) is a client route, as a call to one
+// the file declares already was; a class method that hands its URL to such a helper
+// is one too, so `this.makeRequest(url)` resolves; a URL built by a conditional whose
+// branches differ only in the query string is that path; and `await f<T>(…)` calls f.
+const cacheVersion = "v431"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

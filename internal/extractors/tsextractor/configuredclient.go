@@ -368,6 +368,24 @@ type pathResolver struct {
 	locals    map[string]*sitter.Node
 }
 
+// branchPath is one branch of a conditional URL as text, its query string cut.
+func (r pathResolver) branchPath(n *sitter.Node, depth int) (string, bool) {
+	parts := r.parts(n, depth+1)
+	if len(parts) == 0 || !parts[0].known {
+		return "", false
+	}
+	var b strings.Builder
+	for _, p := range parts {
+		if p.known {
+			b.WriteString(p.text)
+		} else {
+			b.WriteString("{}")
+		}
+	}
+	path, _, _ := strings.Cut(b.String(), "?")
+	return path, true
+}
+
 // text reduces an argument to text, writing an unknown operand as the {} path
 // parameter. It fails when the LEADING operand is unknown: then the prefix is unknown,
 // and there is no honest way to write the path.
@@ -423,6 +441,17 @@ func (r pathResolver) parts(n *sitter.Node, depth int) []pathPart {
 			return unknown
 		}
 		return append(r.parts(left, depth), r.parts(right, depth)...)
+
+	case "ternary_expression":
+		// `params ? `/x?${params}` : '/x'`: one path either way once the query string
+		// is cut, which is all a route is. Branches that name different paths are two
+		// requests, and neither can be written for both.
+		a, aok := r.branchPath(n.ChildByFieldName("consequence"), depth)
+		b, bok := r.branchPath(n.ChildByFieldName("alternative"), depth)
+		if aok && bok && a == b {
+			return []pathPart{{text: a, known: true}}
+		}
+		return unknown
 
 	case "parenthesized_expression", "as_expression", "non_null_expression", "satisfies_expression":
 		for i := range n.ChildCount() {

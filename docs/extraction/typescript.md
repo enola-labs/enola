@@ -24,6 +24,7 @@ Fixtures: [`ts_sample`](../../internal/engine/testdata/repos/ts_sample/) ·
 | `@Get()` on a `@Controller("v2/slots")` | a server route at the **composed** path | `route` |
 | `@controller(…)` (InversifyJS) | a server route | `route` |
 | `fetch("/x")`, `axios.post("/y")` | a client route with `role: client` | `route` |
+| `authApiClient.handleAuthenticatedRequest('/x', { method })` through a client another file exports, or `this.makeRequest(url)` over one | a client route at the call, `client_wrapper` naming the helper | `route` |
 | `pages/about.vue` (Nuxt) | a route derived from the file path | `route` |
 | a Vue template's `<UserCard @submit="save" />` | resolved component and handler edges | `symbol` |
 | Vue `defineProps` / `defineEmits` / `defineSlots` macros | component public-surface markers | `symbol` |

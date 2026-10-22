@@ -19,6 +19,7 @@ type repoCtx struct {
 	files              *tsFileIndex
 	nuxtAutoComponents map[string]string
 	grpcStubs          *grpcStubIndex
+	requestHelpers     *requestHelperIndex // exported request helpers, by file; see importedwrapper.go
 }
 
 type callScope struct {

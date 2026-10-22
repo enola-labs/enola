@@ -232,6 +232,7 @@ type extractCtx struct {
 	ioBindings  map[string]bool     // local names bound to imports from a network module (I/O sinks)
 	knownFiles  map[string]bool     // repo-relative (slash) paths of all indexed TS/JS files
 	files       *tsFileIndex        // the same files by stem, for a specifier no tsconfig maps
+	helpers     *requestHelperIndex // the repository's exported request helpers
 	aliases     map[string]tsAlias  // this directory's tsconfig path aliases, for resolving an import written as a bare specifier
 }
 
@@ -389,6 +390,7 @@ func newFileCtx(kinds *tsutil.KindTable, root *sitter.Node, src []byte, relFile 
 		ioBindings:   buildIOImportBindings(kinds, root, src),
 		knownFiles:   rc.knownFiles,
 		files:        rc.files,
+		helpers:      rc.requestHelpers,
 		aliases:      aliases,
 	}
 }
@@ -466,9 +468,16 @@ func (e *TSExtractor) frameworkPasses(kinds *tsutil.KindTable, root *sitter.Node
 		configured, out.clients = configuredClientFacts(kinds, root, ctx, e.clients)
 		result = append(result, configured...)
 	}
-	// Requests through a helper the file declares itself. See localwrapper.go.
+	// Requests through a helper the file declares itself, or imports. See
+	// localwrapper.go and importedwrapper.go. An exported helper's own requests go to
+	// its callers' URLs, wherever the callers are.
 	if !facts.IsTestPath(relFile) {
 		wrapped, spans := localWrapperFacts(kinds, root, ctx)
+		if ctx.helpers != nil {
+			spans = append(spans, ctx.helpers.bodies[relFile]...)
+			imported, calls := importedWrapperFacts(kinds, root, ctx, ctx.helpers)
+			wrapped, spans = append(wrapped, imported...), append(spans, calls...)
+		}
 		result = append(dropWrapperBodyRequests(result, relFile, spans), wrapped...)
 	}
 

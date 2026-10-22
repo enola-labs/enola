@@ -127,6 +127,9 @@ func newRepoCtx(fw tsFrameworks, tsFiles []string, sources map[string][]byte, kn
 		// in different files.
 		grpcStubs:     buildGRPCStubIndex(tsFiles, sources),
 		graphqlServer: detectGraphQLServerUsage(tsFiles, sources),
+		// Exported request helpers, read before the parallel pass for the same reason:
+		// a helper and the calls to it live in different files.
+		requestHelpers: buildRequestHelperIndex(tsFiles, sources),
 	}
 	if fw.isNuxt {
 		rc.nuxtAutoComponents = nuxtAutoComponentIndex(knownFiles)
