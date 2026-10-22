@@ -246,7 +246,7 @@ func oneLine(s string) string {
 // explainerHints annotates the explainer names whose purpose is not obvious from the
 // name alone. Names without an entry are rendered bare.
 var explainerHints = map[string]string{
-	"unused-routes":      "dead/uncalled HTTP routes",
+	"unused-routes":      "dead/uncalled HTTP routes, and a route registered in two files",
 	"messaging-coverage": "undeclared messaging calls and AsyncAPI operations with no detected implementation",
 	"intent":             "declared architecture verdicted against the measured graph",
 	"constraints":        "declared component rules, and the edges that breach them",
