@@ -315,3 +315,46 @@ func TestAnalyze_ClassIgnoresMixedInMembers(t *testing.T) {
 		t.Errorf("dependents = %v; another includer of the same mixin is not one", got)
 	}
 }
+
+// A Go package is a module with code in its own directory. Its functions are the
+// package, not its dependents: they used to come back at depth 1 and bury the
+// importers. The importing modules are listed by hop from a walk over imports.
+func TestAnalyze_PackageListsImportersNotItsOwnSymbols(t *testing.T) {
+	store := facts.NewStore()
+	store.Add(
+		facts.Fact{Kind: facts.KindModule, Name: "modules/uri", File: "modules/uri", Props: map[string]any{"language": "go"}},
+		facts.Fact{Kind: facts.KindModule, Name: "services/migrations", File: "services/migrations", Props: map[string]any{"language": "go"}},
+		facts.Fact{Kind: facts.KindModule, Name: "routers/web", File: "routers/web", Props: map[string]any{"language": "go"}},
+		facts.Fact{Kind: facts.KindSymbol, Name: "modules/uri.Open", File: "modules/uri/uri.go",
+			Props: map[string]any{"symbol_kind": "function"}, Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: "modules/uri"}}},
+		facts.Fact{Kind: facts.KindSymbol, Name: "services/migrations.Migrate", File: "services/migrations/m.go",
+			Props: map[string]any{"symbol_kind": "function"}, Relations: []facts.Relation{
+				{Kind: facts.RelDeclares, Target: "services/migrations"}, {Kind: facts.RelCalls, Target: "modules/uri.Open"}}},
+		facts.Fact{Kind: facts.KindDependency, Name: "services/migrations -> modules/uri", File: "services/migrations/m.go",
+			Relations: []facts.Relation{{Kind: facts.RelImports, Target: "modules/uri"}}},
+		facts.Fact{Kind: facts.KindDependency, Name: "routers/web -> services/migrations", File: "routers/web/w.go",
+			Relations: []facts.Relation{{Kind: facts.RelImports, Target: "services/migrations"}}},
+	)
+	store.BuildGraph()
+	report, err := Analyze(resolve.Resolver{Store: store}, Request{Target: "modules/uri"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := []string{}
+	for _, m := range report.Modules {
+		got = append(got, m.Module+":"+strconv.Itoa(m.Depth))
+	}
+	if want := []string{"services/migrations:1", "routers/web:2"}; !slices.Equal(got, want) {
+		t.Errorf("Modules = %v, want %v", got, want)
+	}
+	if report.SeedKind != SeedsPackage || !slices.Equal(report.Seeds, []string{"modules/uri.Open"}) {
+		t.Errorf("the package's own symbol should be a seed: kind=%q seeds=%v", report.SeedKind, report.Seeds)
+	}
+	for depth, nodes := range report.ByDepth {
+		for _, n := range nodes {
+			if depth > 0 && n.Name == "modules/uri.Open" {
+				t.Errorf("the package's own function is listed as its dependent at depth %d", depth)
+			}
+		}
+	}
+}

@@ -32,7 +32,20 @@ type Report struct {
 	// Packages counts the listed dependents per owning package, most first, when
 	// the repository declares packages with a manifest per directory.
 	Packages []PackageCount `json:"packages,omitempty"`
+	// Modules lists the modules that import the target module, directly or through
+	// others, nearest first, when the target is a module. It is its own walk, over
+	// imports alone, so it is complete where the symbol walk is cut at max_nodes:
+	// "which packages depend on this one" is the question, and three thousand
+	// symbols are not its answer.
+	Modules []ModuleDependent `json:"modules,omitempty"`
 	facts.ImpactResult
+}
+
+// ModuleDependent is a module that depends on the target and how many hops away.
+type ModuleDependent struct {
+	Module string `json:"module"`
+	Repo   string `json:"repo,omitempty"`
+	Depth  int    `json:"depth"`
 }
 
 // PackageCount is how many listed dependents one declared package holds.
@@ -46,6 +59,7 @@ const (
 	SeedsFile      = "file"
 	SeedsNamespace = "namespace"
 	SeedsDirectory = "directory"
+	SeedsPackage   = "package"
 )
 
 // ErrNoFacts and ErrNoGraph are values so each caller can word its own remedy.
@@ -136,8 +150,83 @@ func Analyze(r resolve.Resolver, req Request) (Report, error) {
 		}
 	}
 
+	// A module with code of its own. Its symbols are the module, not its
+	// dependents: walked from the module alone they came back at depth 1, so a Go
+	// package answered "who depends on me" with its own functions, and its importers
+	// were lost among their symbols. They are seeds instead, and the importing
+	// modules are listed by a walk of their own.
+	if repo, ok := directoryModule(store, targetName); ok {
+		own, beside := ownSymbols(store, targetName, repo)
+		names := append(append([]string{targetName}, own...), beside...)
+		report := Report{Resolution: res, ImpactResult: graph.ImpactSetOf(targetName, names, req.MaxDepth, req.MaxNodes, req.IncludeForward)}
+		if len(own) > 0 {
+			report.Seeds, report.SeedKind = own, SeedsPackage
+		}
+		report.Modules = moduleDependents(graph, targetName, req.MaxDepth)
+		return withPackages(store, report), nil
+	}
+
 	result := graph.ImpactSet(targetName, req.MaxDepth, req.MaxNodes, req.IncludeForward)
 	return withPackages(store, Report{Resolution: res, ImpactResult: result}), nil
+}
+
+// maxModuleDependents bounds the module walk; it is far above any package's real
+// importer count, so the list is complete in practice.
+const maxModuleDependents = 2000
+
+// maxModuleDepth is the module walk's depth when none is asked for, and its cap:
+// the symbol walk's (10). A module graph is small, and the question it answers is
+// transitive, so the symbol walk's default of 3 would cut it short.
+const maxModuleDepth = 10
+
+// moduleDependents lists the modules that import module, directly or transitively.
+func moduleDependents(graph *facts.Graph, module string, maxDepth int) []ModuleDependent {
+	if maxDepth <= 0 || maxDepth > maxModuleDepth {
+		maxDepth = maxModuleDepth
+	}
+	walk := graph.TraverseFrom([]string{module}, "reverse",
+		[]string{facts.RelImports, facts.RelDependsOn}, []string{facts.KindModule}, maxDepth, maxModuleDependents)
+	var out []ModuleDependent
+	for _, n := range walk.Nodes {
+		if n.Depth == 0 || n.Name == module {
+			continue
+		}
+		out = append(out, ModuleDependent{Module: n.Name, Repo: n.Repo, Depth: n.Depth})
+	}
+	slices.SortFunc(out, func(a, b ModuleDependent) int {
+		if a.Depth != b.Depth {
+			return a.Depth - b.Depth
+		}
+		return strings.Compare(a.Module, b.Module)
+	})
+	return out
+}
+
+// ownSymbols returns the non-test symbols a module declares in its own directory,
+// not in directories beneath it (in Go those are other packages), and the test
+// facts there, which are walked from but not reported.
+func ownSymbols(store *facts.Store, module, repo string) ([]string, []string) {
+	var own, beside []string
+	for _, m := range store.LookupByExactName(module) {
+		if m.Kind != facts.KindModule || m.Repo != repo {
+			continue
+		}
+		dir := strings.TrimSuffix(m.File, "/")
+		store.QueryEach(facts.QueryOpts{FilePrefix: dir + "/"}, func(f *facts.Fact) {
+			if path.Dir(f.File) != dir || f.Repo != repo {
+				return
+			}
+			switch {
+			case f.Kind == facts.KindTestRef || facts.IsTestPath(f.File):
+				beside = append(beside, f.Name)
+			case f.Kind == facts.KindSymbol && !f.PropBool(propGenerated) && !facts.IsDocument(*f):
+				own = append(own, f.Name)
+			}
+		})
+	}
+	slices.Sort(own)
+	slices.Sort(beside)
+	return slices.Compact(own), slices.Compact(beside)
 }
 
 // Resolved reports whether a traversal ran; when false, no dependents means "not asked", not "none".

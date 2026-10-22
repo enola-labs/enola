@@ -510,6 +510,9 @@ func writeImpactResolution(sb *strings.Builder, resp impactResponse) {
 	case n > 0 && resp.SeedKind == impact.SeedsNamespace:
 		writeResolutionNote(sb, resp.Resolution)
 		fmt.Fprintf(sb, "> %s is a namespace: this is the impact of it and the %d symbols nested under it.\n\n", resp.Target, n)
+	case n > 0 && resp.SeedKind == impact.SeedsPackage:
+		writeResolutionNote(sb, resp.Resolution)
+		fmt.Fprintf(sb, "> %s is a package: its %d own symbols are walked from as part of it, not listed as its dependents.\n\n", resp.Target, n)
 	case n > 0 && resp.SeedKind == impact.SeedsDirectory:
 		if resp.Resolution != nil && resp.Resolution.Matched != resp.Target {
 			writeResolutionNote(sb, resp.Resolution)
@@ -524,6 +527,45 @@ func writeImpactResolution(sb *strings.Builder, resp impactResponse) {
 
 // maxImpactPackages caps the per-package dependent counts an impact summary lists.
 const maxImpactPackages = 15
+
+// maxImpactModulesPerDepth caps how many dependent modules one hop lists.
+const maxImpactModulesPerDepth = 60
+
+// writeImpactModules lists the modules that depend on a module target, by hop. It
+// comes first: for a package, which packages depend on it is the answer, and the
+// symbol walk below it is the detail.
+func writeImpactModules(sb *strings.Builder, resp impactResponse) {
+	if len(resp.Modules) == 0 {
+		return
+	}
+	byDepth := map[int][]string{}
+	var depths []int
+	for _, m := range resp.Modules {
+		if _, ok := byDepth[m.Depth]; !ok {
+			depths = append(depths, m.Depth)
+		}
+		name := m.Module
+		if m.Repo != "" {
+			name = m.Repo + ":" + name
+		}
+		byDepth[m.Depth] = append(byDepth[m.Depth], name)
+	}
+	sort.Ints(depths)
+	fmt.Fprintf(sb, "## Dependent packages (%d; %d direct)\n\n", len(resp.Modules), len(byDepth[1]))
+	for _, d := range depths {
+		names := byDepth[d]
+		shown := names
+		if len(shown) > maxImpactModulesPerDepth {
+			shown = shown[:maxImpactModulesPerDepth]
+		}
+		fmt.Fprintf(sb, "- %d hop%s: %s", d, map[bool]string{true: "", false: "s"}[d == 1], strings.Join(shown, ", "))
+		if len(names) > len(shown) {
+			fmt.Fprintf(sb, ", … %d more", len(names)-len(shown))
+		}
+		sb.WriteString("\n")
+	}
+	sb.WriteString("\n")
+}
 
 // writeImpactPackages lists the listed dependents per owning package, when the
 // repository declares packages.
@@ -665,6 +707,7 @@ func renderImpactCompact(resp impactResponse) string {
 		return sb.String()
 	}
 
+	writeImpactModules(&sb, resp)
 	if r.Summary != "" {
 		sb.WriteString(r.Summary + "\n\n")
 	} else {
@@ -845,10 +888,12 @@ func (s *Server) renderImpactSummary(resp impactResponse) string {
 		return sb.String()
 	}
 
+	writeImpactModules(&sb, resp)
 	if r.Summary != "" {
 		sb.WriteString(r.Summary + "\n\n")
 	}
-	fmt.Fprintf(&sb, "**%d** total transitive dependents within max_depth %d.\n\n", r.TotalDependents, r.Stats.MaxDepthReached)
+	fmt.Fprintf(&sb, "**%d** total transitive dependents, the farthest %d %s away.\n\n", r.TotalDependents, r.Stats.MaxDepthReached,
+		map[bool]string{true: "hop", false: "hops"}[r.Stats.MaxDepthReached == 1])
 
 	byKind := map[string]int{}
 	byModule := map[string]int{}

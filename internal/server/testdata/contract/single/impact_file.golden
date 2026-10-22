@@ -4,7 +4,7 @@
 
 4 total dependents — depth 1: 2 symbols, 2 test_refs
 
-**4** total transitive dependents within max_depth 1.
+**4** total transitive dependents, the farthest 1 hop away.
 
 ## Dependents by kind
 
