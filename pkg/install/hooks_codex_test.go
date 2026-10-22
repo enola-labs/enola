@@ -51,6 +51,13 @@ func TestInstall_CodexHooksWrittenLocally(t *testing.T) {
 
 	for _, h := range installedHooks {
 		list, ok := hooks[h.Event].([]any)
+		if h.ClaudeOnly {
+			// A hook about how Claude Code lists MCP tools has no place in Codex's file.
+			if ok {
+				t.Errorf("%s: a Claude-only hook was written for Codex:\n%#v", h.Event, hooks)
+			}
+			continue
+		}
 		if !ok || len(list) == 0 {
 			t.Errorf("%s: not written:\n%#v", h.Event, hooks)
 			continue

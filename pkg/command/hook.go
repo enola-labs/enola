@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -28,6 +30,11 @@ import (
 // ignored, so the payload growing does not break the hook.
 type hookInput struct {
 	CWD string `json:"cwd"`
+
+	// ToolName and ToolInput are what a PreToolUse or PostToolUse payload calls and
+	// passes; see hook_gate.go.
+	ToolName  string         `json:"tool_name"`
+	ToolInput map[string]any `json:"tool_input"`
 
 	// StopHookActive is the harness's loop breaker, set on every Stop that is itself
 	// the continuation of a previous Stop hook's output. Reading it is not optional:
@@ -105,25 +112,39 @@ func (r *Runner) Hook(ctx context.Context, args []string) {
 	// A harness passes its payload on stdin, never --help, so this only ever answers a
 	// person. It still exits 0, like every other path through here.
 	if HelpRequested(args) {
-		fmt.Fprint(os.Stderr, "Usage: "+r.name()+" hook <session-start|stop>\n\n"+
+		fmt.Fprint(os.Stderr, "Usage: "+r.name()+" hook <session-start|stop|pre-tool|post-tool>\n\n"+
 			"Run by your coding agent, not by you: `"+r.name()+" install --hooks` registers it.\n"+
 			"Each event reads the agent's JSON payload on stdin.\n\n"+
 			"  session-start  pin a baseline of the session's repository, in a detached\n"+
 			"                 process, so the session's start never waits on a snapshot\n"+
 			"  stop           grade what the session changed against that baseline and,\n"+
 			"                 only when it introduced a regression, report it back to the\n"+
-			"                 agent\n\n"+
+			"                 agent\n"+
+			"  pre-tool       Claude Code only: refuse a session's first two file searches\n"+
+			"                 with a pointer to enola's tools, until one of them is used\n"+
+			"  post-tool      Claude Code only: record that an enola tool was used\n\n"+
 			"It never breaks, delays or clutters a session: every failure, and every\n"+
 			"event this build does not know, exits 0 and says nothing. Run\n"+
 			"`"+r.name()+" doctor` to see whether the hooks are firing.\n"+
 			r.HelpFooter("hook"))
 		os.Exit(0)
 	}
+	// Nothing but a hook's own output reaches the session. The engine logs its progress
+	// and the config loader says which file it read, both on stderr, and a harness that
+	// captures a hook's stderr put those lines in front of the agent.
+	log.SetOutput(io.Discard)
+	if devNull, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0); err == nil {
+		os.Stderr = devNull
+	}
 	switch args[0] {
 	case "stop":
 		r.runStopHook(ctx)
 	case "session-start":
 		r.runSessionStartHook(ctx, args[1:])
+	case "pre-tool":
+		r.runPreToolHook()
+	case "post-tool":
+		r.runPostToolHook()
 	case updateRefreshEvent:
 		// The detached child SpawnUpdateRefresh starts. Nothing else: no engine, no
 		// repository, no output. It is a hook event only to inherit this dispatcher's
@@ -302,6 +323,11 @@ func (r *Runner) runSessionStartHook(ctx context.Context, args []string) {
 	in, err := readHookInput()
 	if err != nil || in.CWD == "" || !isDirectory(in.CWD) {
 		return
+	}
+	// Claude Code is told how to reach enola's tools, which it lists as deferred. Codex
+	// and pi run this hook too and are not: see hook_gate.go.
+	if slices.Contains(args, "--agent=claude") {
+		writeSessionStartNote()
 	}
 	// Decided here, not in the detached child, so a folder of repositories costs one
 	// directory read and no process at all.
