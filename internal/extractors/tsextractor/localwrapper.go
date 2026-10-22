@@ -29,8 +29,8 @@ import (
 // It is held narrow on purpose. The parameter must be the last operand of the URL, so
 // a helper that builds `${base}/${id}/details` is not one; a URL local must agree in
 // every declaration and never be reassigned; only a helper declared at the top of the
-// file is read, and only calls in that file. A helper imported from elsewhere stays
-// unread: following it is a cross-file pass, and guessing it is how a path is invented.
+// file is read, and only calls in that file. A helper imported from elsewhere is
+// importedwrapper.go's.
 
 // localWrapper is a request helper declared at the top of a file.
 type localWrapper struct {
@@ -58,7 +58,7 @@ func localWrapperFacts(kinds *tsutil.KindTable, root *sitter.Node, ctx *extractC
 	var out []facts.Fact
 	seen := map[string]bool{}
 	walkCalls(kinds, root, func(call *sitter.Node) {
-		fn := call.ChildByFieldName("function")
+		fn := calleeOf(kinds, call)
 		if fn == nil || kindOf(kinds, fn) != "identifier" {
 			return
 		}
@@ -67,51 +67,21 @@ func localWrapperFacts(kinds *tsutil.KindTable, root *sitter.Node, ctx *extractC
 		if !ok {
 			return
 		}
-		args := callArguments(kinds, call)
-		if len(args) == 0 {
-			return
+		if args := callArguments(kinds, call); len(args) > 0 {
+			if raw, ok := r.text(args[0]); ok && strings.HasPrefix(raw, "/") {
+				called[name] = true
+			}
 		}
-		raw, ok := r.text(args[0])
-		if !ok || !strings.HasPrefix(raw, "/") {
-			return
-		}
-		called[name] = true
-		path, ok := rootRequestPath(w.prefix + raw)
+		f, ok := wrapperCallFact(kinds, call, ctx, r, w, name)
 		if !ok {
 			return
 		}
-		verb := "GET" // what fetch and axios do when nothing says otherwise
-		if len(args) > 1 {
-			if v := objectVerb(kinds, args[1], ctx.src, "method"); v != "" {
-				verb = v
-			}
-		}
-		line := int(call.StartPosition().Row) + 1
-		key := verb + "\x00" + path + "\x00" + strconv.Itoa(line)
+		key := f.PropString("method") + "\x00" + f.Name + "\x00" + strconv.Itoa(f.Line)
 		if seen[key] {
 			return
 		}
 		seen[key] = true
-		props := map[string]any{
-			facts.PropRole:   facts.RoleClient,
-			"method":         verb,
-			"framework":      w.framework,
-			"language":       "typescript",
-			facts.PropSource: facts.RouteSourceTSHTTPClient,
-			"api":            tsAPIHint(ctx.relFile),
-			"client_wrapper": name,
-		}
-		if testDoublePath(ctx.relFile) {
-			props["test_double"] = true
-		}
-		out = append(out, facts.Fact{
-			Kind:      facts.KindRoute,
-			Name:      path,
-			File:      ctx.relFile,
-			Line:      line,
-			Props:     props,
-			Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: ctx.dir}},
-		})
+		out = append(out, f)
 	})
 	var spans [][2]int
 	for name, w := range wrappers {
@@ -123,6 +93,49 @@ func localWrapperFacts(kinds *tsutil.KindTable, root *sitter.Node, ctx *extractC
 		}
 	}
 	return out, spans
+}
+
+// wrapperCallFact is the client route a call to a request helper makes: the helper's
+// prefix followed by the path the call hands it, with the verb its options name.
+func wrapperCallFact(kinds *tsutil.KindTable, call *sitter.Node, ctx *extractCtx, r pathResolver, w localWrapper, name string) (facts.Fact, bool) {
+	args := callArguments(kinds, call)
+	if len(args) == 0 {
+		return facts.Fact{}, false
+	}
+	raw, ok := r.text(args[0])
+	if !ok || !strings.HasPrefix(raw, "/") {
+		return facts.Fact{}, false
+	}
+	path, ok := rootRequestPath(w.prefix + raw)
+	if !ok {
+		return facts.Fact{}, false
+	}
+	verb := "GET" // what fetch and axios do when nothing says otherwise
+	if len(args) > 1 {
+		if v := objectVerb(kinds, args[1], ctx.src, "method"); v != "" {
+			verb = v
+		}
+	}
+	props := map[string]any{
+		facts.PropRole:   facts.RoleClient,
+		"method":         verb,
+		"framework":      w.framework,
+		"language":       "typescript",
+		facts.PropSource: facts.RouteSourceTSHTTPClient,
+		"api":            tsAPIHint(ctx.relFile),
+		"client_wrapper": name,
+	}
+	if testDoublePath(ctx.relFile) {
+		props["test_double"] = true
+	}
+	return facts.Fact{
+		Kind:      facts.KindRoute,
+		Name:      path,
+		File:      ctx.relFile,
+		Line:      int(call.StartPosition().Row) + 1,
+		Props:     props,
+		Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: ctx.dir}},
+	}, true
 }
 
 // dropWrapperBodyRequests removes the client routes another pass read off a helper's
@@ -201,6 +214,17 @@ func localRequestWrappers(kinds *tsutil.KindTable, root *sitter.Node, src []byte
 // in the body must give the same prefix; a request whose URL does not involve the
 // parameter is an ordinary request and is left to the other passes.
 func wrapperOf(kinds *tsutil.KindTable, fn *sitter.Node, src []byte, module map[string]*sitter.Node) (localWrapper, bool) {
+	return wrapperThrough(kinds, fn, src, module, nil)
+}
+
+// innerHelper reports that a call is to another request helper, with the prefix it
+// puts before what it is handed and the library it ends in.
+type innerHelper func(call *sitter.Node) (prefix, framework string, ok bool)
+
+// wrapperThrough is wrapperOf for a function that may make its request through
+// another helper rather than fetch or axios itself: then its prefix is the inner
+// helper's followed by its own.
+func wrapperThrough(kinds *tsutil.KindTable, fn *sitter.Node, src []byte, module map[string]*sitter.Node, inner innerHelper) (localWrapper, bool) {
 	param := firstParameter(kinds, fn, src)
 	body := fn.ChildByFieldName("body")
 	if param == "" || body == nil {
@@ -210,7 +234,12 @@ func wrapperOf(kinds *tsutil.KindTable, fn *sitter.Node, src []byte, module map[
 	var found *localWrapper
 	agree := true
 	walkCalls(kinds, body, func(call *sitter.Node) {
-		framework := requestLibrary(kinds, call, src)
+		framework, through := requestLibrary(kinds, call, src), ""
+		if framework == "" && inner != nil {
+			if p, fw, ok := inner(call); ok {
+				framework, through = fw, p
+			}
+		}
 		if framework == "" {
 			return
 		}
@@ -226,9 +255,10 @@ func wrapperOf(kinds *tsutil.KindTable, fn *sitter.Node, src []byte, module map[
 			agree = false // it does use the parameter, in a form this cannot read
 			return
 		}
+		full := through + *prefix
 		if found == nil {
-			found = &localWrapper{prefix: *prefix, framework: framework}
-		} else if found.prefix != *prefix {
+			found = &localWrapper{prefix: full, framework: framework}
+		} else if found.prefix != full {
 			agree = false
 		}
 		found.lines = append(found.lines, int(call.StartPosition().Row)+1)
