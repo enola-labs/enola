@@ -237,14 +237,20 @@ var (
 
 	// Android clean architecture / MVVM layout.
 	//
-	// The order is DATA at the bottom, then domain, then UI — Android's own
-	// guidance, not the Uncle-Bob orientation the iOS layout below uses. The
-	// difference is real rather than an oversight: Android's domain layer holds
-	// use cases that call repositories, so `domain -> data` is the documented
-	// direction of flow. nowinandroid's own architecture guide states it as
-	// "with the data layer at the bottom", and every use case in it imports a
-	// repository. Ranking domain innermost reported three of those imports as
-	// violations on Google's reference application.
+	// The default order is DATA at the bottom, then domain, then UI — Android's
+	// own guidance, not the Uncle-Bob orientation the iOS layout below uses.
+	// Android's domain layer holds use cases that call repositories, so
+	// `domain -> data` is the documented direction of flow: nowinandroid's own
+	// architecture guide states it as "with the data layer at the bottom", and
+	// every use case in it imports a repository. Ranking domain innermost
+	// reported three of those imports as violations on Google's reference
+	// application.
+	//
+	// It is only the default. An Android app built the clean-architecture way
+	// has its repositories implement interfaces the domain declares, so every
+	// `data -> domain` import is the intended direction, and grading it against
+	// Google's order reported each one as a violation. orientAndroid picks the
+	// order per repository from its own imports.
 	androidLayers = []layerDef{
 		{Name: "data", Patterns: []string{"data", "repository", "repositories"}, Level: 0},
 		{Name: "domain", Patterns: []string{"domain"}, Level: 1},
@@ -252,6 +258,9 @@ var (
 		{Name: "designsystem", Patterns: []string{"designsystem"}, Level: 3},
 		{Name: "di", Patterns: []string{"di", "injection"}, Neutral: true},
 	}
+
+	// androidPatternName is the taxonomy whose order is chosen per repository.
+	androidPatternName = "android-clean"
 
 	// iOS clean architecture / MVVM layout
 	iosLayers = []layerDef{
@@ -463,7 +472,7 @@ var patternDefs = []patternDef{
 	{name: "nextjs", layers: nextjsLayers, frameworks: []string{"nextjs"}, appliesTo: []string{"typescript"}},
 	{name: "rails-mvc", layers: railsLayers, frameworks: []string{"rails"}, appliesTo: []string{"ruby"},
 		autoloadRoot: "app", autoloadLevel: 1},
-	{name: "android-clean", layers: androidLayers, frameworks: []string{"android"}, appliesTo: []string{"kotlin", "java"}},
+	{name: androidPatternName, layers: androidLayers, frameworks: []string{"android"}, appliesTo: []string{"kotlin", "java"}},
 	{name: "ios-clean", layers: iosLayers, frameworks: []string{"swiftui", "uikit"}, appliesTo: []string{"swift"}},
 	{name: "spring-layered", layers: springLayers, frameworks: []string{"spring"}, appliesTo: []string{"java", "kotlin"}},
 	{name: "django", layers: djangoLayers, frameworks: []string{"django"}, appliesTo: []string{"python"}},
@@ -594,6 +603,11 @@ type archPattern struct {
 	// cohorts are disjoint describe different halves of a polyglot repository and
 	// both are true.
 	Languages map[string]bool
+
+	// Orientation names which of two defensible orders a pattern was graded
+	// against, when its taxonomy admits both, and the measured imports that chose
+	// it. Empty for every pattern whose order is fixed. See orientAndroid.
+	Orientation string
 }
 
 // label is the short name a finding cites the pattern by. A declared order is
@@ -762,6 +776,10 @@ func (e *LayerExplainer) explainRepo(store *facts.Store, repo string) []facts.In
 			})
 		}
 
+		if best.Name == androidPatternName {
+			orientAndroid(scoped, best)
+		}
+
 		// The violations are computed BEFORE the statement is written, because the
 		// statement quotes their denominator: how many imports obeyed the order is
 		// not knowable until the same walk that found the ones that did not.
@@ -819,6 +837,7 @@ const (
 	MetricLayerExamples     = "layer_examples"
 	MetricLayerLevels       = "layer_levels"
 	MetricCohortLanguages   = "cohort_languages"
+	MetricLayerOrientation  = "layer_orientation"
 )
 
 // patternMetrics is the machine-readable copy of what describePattern says in
@@ -850,6 +869,9 @@ func patternMetrics(p *archPattern, conf conformance) map[string]any {
 	}
 	if langs := sortedKeys(p.Languages); len(langs) > 0 {
 		m[MetricCohortLanguages] = langs
+	}
+	if p.Orientation != "" {
+		m[MetricLayerOrientation] = p.Orientation
 	}
 	return m
 }
@@ -943,6 +965,9 @@ func describePattern(p *archPattern, conf conformance, repoModules int) string {
 		fmt.Fprintf(&sb, ", %d of them in layers that carry a direction (the rest are wiring, which is named but not ordered)", p.Graded)
 	}
 	sb.WriteString(". ")
+	if p.Orientation != "" {
+		sb.WriteString("Graded with " + p.Orientation + ". ")
+	}
 
 	share, applies := conf.obeys()
 	switch {
@@ -1283,6 +1308,74 @@ func presentFrameworks(ff []facts.Fact) map[string]bool {
 //
 // The facts passed in are one repository's, so an import can only ever be
 // verdicted against the taxonomy of the repository it was measured in.
+// orientAndroid grades an Android repository against the order its own imports
+// follow. Android's guide puts data at the bottom and lets domain use cases import
+// repositories; clean architecture puts domain innermost and has data implement
+// domain's interfaces. Both are documented and both occur, and a fixed choice
+// reports every import of the other kind as a violation. So the imports between
+// the two layers vote: when more of them run data -> domain than domain -> data,
+// domain moves innermost, and only the minority direction is left to be reported.
+// A tie, or no import between them, keeps Android's own order.
+//
+// The edges are resolved exactly as detectViolations resolves them, so the vote
+// and the verdict that follows it count the same imports.
+func orientAndroid(scoped []facts.Fact, pattern *archPattern) {
+	dataToDomain, domainToData := 0, 0
+	for _, dep := range scoped {
+		if dep.Kind != facts.KindDependency || facts.IsTestPath(dep.File) {
+			continue
+		}
+		sourceModule, ok := resolveLayerModuleFor(dep, pattern.Modules)
+		if !ok {
+			continue
+		}
+		sourceLayer := pattern.Modules[sourceModule]
+		for _, rel := range dep.Relations {
+			if rel.Kind != facts.RelImports {
+				continue
+			}
+			target := rel.Target
+			if strings.HasPrefix(target, ".") {
+				target = common.ResolveRelativeImport(sourceModule, target)
+			}
+			targetModule, ok := resolveLayerModule(target, pattern.Modules)
+			if !ok {
+				continue
+			}
+			switch targetLayer := pattern.Modules[targetModule]; {
+			case sourceLayer == "data" && targetLayer == "domain":
+				dataToDomain++
+			case sourceLayer == "domain" && targetLayer == "data":
+				domainToData++
+			}
+		}
+	}
+	if dataToDomain == 0 && domainToData == 0 {
+		return
+	}
+	if dataToDomain <= domainToData {
+		pattern.Orientation = fmt.Sprintf("data at the bottom, as Android's guide orders it: %d imports run domain -> data and %d data -> domain",
+			domainToData, dataToDomain)
+		return
+	}
+	// The layer definitions are shared by every repository the explainer sees, so
+	// the reordered pair is a copy.
+	layers := make(map[string]*layerDef, len(pattern.Layers))
+	for name, def := range pattern.Layers {
+		layers[name] = def
+	}
+	for name, level := range map[string]int{"domain": 0, "data": 1} {
+		if def := layers[name]; def != nil {
+			swapped := *def
+			swapped.Level = level
+			layers[name] = &swapped
+		}
+	}
+	pattern.Layers = layers
+	pattern.Orientation = fmt.Sprintf("domain innermost, as clean architecture orders it: %d imports run data -> domain and %d domain -> data",
+		dataToDomain, domainToData)
+}
+
 func (e *LayerExplainer) detectViolations(scoped []facts.Fact, pattern *archPattern) ([]facts.Insight, conformance) {
 	projectOf := moduleProjects(scoped)
 	type violation struct {

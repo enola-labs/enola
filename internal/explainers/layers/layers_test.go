@@ -1437,3 +1437,60 @@ func TestPatternMetrics_DeclaredOrder(t *testing.T) {
 		t.Errorf("modules_classified = %d, want 2", got)
 	}
 }
+
+// TestDetectViolations_AndroidDataMayImportDomain: an Android app built the
+// clean-architecture way has its repositories implement interfaces the domain
+// declares, so `data -> domain` is the intended direction. Graded against
+// Android's own order, every such import was a violation; the imports between the
+// two layers now choose the order, and only the real smell is left.
+func TestDetectViolations_AndroidDataMayImportDomain(t *testing.T) {
+	s := facts.NewStore()
+	s.Add(makeModulesLang("kotlin",
+		"core/data/repository", "core/domain", "feature/ui", "core/designsystem")...)
+	s.Add(frameworkFact("android"))
+	addDep(s, "core/data/repository/TopicsRepositoryImpl.kt", "core/domain")
+	addDep(s, "core/data/repository/NewsRepositoryImpl.kt", "core/domain")
+	addDep(s, "feature/ui/TopicsScreen.kt", "core/domain")
+	addDep(s, "core/data/repository/TopicsRepositoryImpl.kt", "feature/ui")
+
+	titles := violationTitles(t, s)
+	if len(titles) != 1 || !strings.Contains(titles[0], "data -> ui") {
+		t.Fatalf("expected only the data -> ui violation, got %v", titles)
+	}
+
+	insights, err := New().Explain(context.Background(), s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, in := range insights {
+		if in.Title != "Architecture pattern: android-clean" {
+			continue
+		}
+		got, _ := in.Metrics[MetricLayerOrientation].(string)
+		if !strings.HasPrefix(got, "domain innermost") {
+			t.Errorf("%s = %q, want the clean orientation", MetricLayerOrientation, got)
+		}
+		if !strings.Contains(in.Description, got) {
+			t.Errorf("the statement should name the orientation it graded with: %q", in.Description)
+		}
+		return
+	}
+	t.Fatal("no android-clean pattern insight")
+}
+
+// TestDetectViolations_AndroidMinorityDirectionIsReported: once the majority has
+// chosen the clean order, the import that runs the other way is the finding.
+func TestDetectViolations_AndroidMinorityDirectionIsReported(t *testing.T) {
+	s := facts.NewStore()
+	s.Add(makeModulesLang("kotlin", "core/data/repository", "core/domain", "feature/ui")...)
+	s.Add(frameworkFact("android"))
+	addDep(s, "core/data/repository/A.kt", "core/domain")
+	addDep(s, "core/data/repository/B.kt", "core/domain")
+	addDep(s, "core/domain/UseCase.kt", "core/data/repository")
+	addDep(s, "feature/ui/Screen.kt", "core/domain")
+
+	titles := violationTitles(t, s)
+	if len(titles) != 1 || !strings.Contains(titles[0], "domain -> data") {
+		t.Fatalf("expected only the domain -> data violation, got %v", titles)
+	}
+}
