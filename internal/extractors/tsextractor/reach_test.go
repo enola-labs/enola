@@ -193,3 +193,102 @@ tick();
 		}
 	}
 }
+
+// A function a component or hook declares by name runs only when that name is used:
+// a handler no element is given, or a closure nothing calls, holds a request that is
+// never sent. One handed to an effect or a timer runs without its name being read.
+func TestClientReachability_LocalFunctionsRunWhenTheirNameIsUsed(t *testing.T) {
+	files := map[string]string{
+		"package.json": `{"dependencies": {"next": "14.0.0", "react": "18.2.0"}}`,
+		"src/app/page.tsx": `
+import { useCallback, useEffect } from 'react';
+export default function Page() {
+  const save = async () => { await fetch('/api/items/save', { method: 'POST' }); };
+  const purge = async () => { await fetch('/api/items/purge', { method: 'DELETE' }); };
+  const refresh = useCallback(async () => { await fetch('/api/items/refresh'); }, []);
+  const rebuild = useCallback(async () => { await fetch('/api/items/rebuild', { method: 'POST' }); }, []);
+  function exportAll() { return fetch('/api/items/export'); }
+  function importAll() { return fetch('/api/items/import', { method: 'POST' }); }
+  useEffect(() => { fetch('/api/items/visit', { method: 'POST' }); }, []);
+  setTimeout(async () => { await fetch('/api/items/ping'); }, 1000);
+  return <div><button onClick={save}>save</button><button onClick={() => refresh()}>r</button><a onClick={exportAll}>x</a></div>;
+}
+`,
+	}
+	got := clientReach(t, extractTSRepo(t, files))
+	want := map[string]any{
+		"POST /api/items/save":    true,
+		"DELETE /api/items/purge": false,
+		"GET /api/items/refresh":  true,
+		"POST /api/items/rebuild": false,
+		"GET /api/items/export":   true,
+		"POST /api/items/import":  false,
+		"POST /api/items/visit":   true,
+		"GET /api/items/ping":     true,
+	}
+	for k, v := range want {
+		if got[k] != v {
+			t.Errorf("%s: client_reachable = %v, want %v (all: %v)", k, got[k], v, got)
+		}
+	}
+}
+
+// A hook that returns a closure passes it on; the page that destructures it and never
+// calls it never sends the closure's request. Reading the name, destructured or as a
+// property of what the hook returned, is what uses it. A shorthand handed to a call,
+// `useQuery({ queryFn })`, counts as used: the library calls it by key.
+func TestClientReachability_BindingANameIsNotUsingIt(t *testing.T) {
+	files := map[string]string{
+		"package.json": `{"dependencies": {"next": "14.0.0", "react": "18.2.0"}}`,
+		"src/app/page.tsx": `
+import { useBridge } from '@/hooks/useBridge';
+import { useOrders } from '@/hooks/useOrders';
+export default function Page() {
+  const { updateStatus, loadItems } = useBridge();
+  const orders = useOrders();
+  return <div><button onClick={() => loadItems()}>load</button><button onClick={() => orders.cancel(1)}>x</button></div>;
+}
+`,
+		"src/hooks/useBridge.ts": `
+import { api } from '@/lib/api';
+export const useBridge = () => {
+  const updateStatus = async (id: number) => { const t = await api.getTransaction(id); await api.updateTransaction(id, t); };
+  const loadItems = async () => api.listItems();
+  return { updateStatus, loadItems };
+};
+`,
+		"src/hooks/useOrders.ts": `
+import { useMemo } from 'react';
+import { useQuery } from '@tanstack/react-query';
+export function useOrders() {
+  const cancel = async (id: number) => fetch(` + "`/api/orders/${id}/cancel`" + `, { method: 'POST' });
+  const archive = async (id: number) => fetch(` + "`/api/orders/${id}/archive`" + `, { method: 'POST' });
+  const queryFn = async () => fetch('/api/orders/recent');
+  useQuery({ queryKey: ['recent'], queryFn });
+  return useMemo(() => ({ cancel, archive }), []);
+}
+`,
+		"src/lib/api.ts": `
+class Api {
+  async getTransaction(id: number) { return fetch(` + "`/api/transactions/${id}`" + `); }
+  async updateTransaction(id: number, t: unknown) { return fetch(` + "`/api/transactions/${id}`" + `, { method: 'PUT' }); }
+  async listItems() { return fetch('/api/items'); }
+}
+export const api = new Api();
+`,
+	}
+	got := clientReach(t, extractTSRepo(t, files))
+	want := map[string]any{
+		"GET /api/transactions/{}":    false,
+		"PUT /api/transactions/{}":    false,
+		"GET /api/items":              true,
+		"POST /api/orders/{}/cancel":  true,
+		"POST /api/orders/{}/archive": false,
+		"GET /api/orders/recent":      true,
+	}
+	for k, v := range want {
+		if got[k] != v {
+			t.Errorf("%s: client_reachable = %v, want %v (all: %v)", k, got[k], v, got)
+		}
+	}
+}

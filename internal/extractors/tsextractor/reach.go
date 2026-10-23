@@ -26,7 +26,13 @@ import (
 // graph cannot bind: `const api = useApi(); api.getItem(id)` reaches the client
 // through a React context. A function or method is reached when its name is used in
 // code already reached; everything an entry file declares is reached; and a file's
-// top-level code runs once anything in it is reached. A name two symbols share
+// top-level code runs once anything in it is reached. A function a symbol declares
+// by name in its body, a handler or a closure a hook builds, is a scope of its own,
+// reached the same way: by its name being used. Inside a symbol, binding a name is not
+// using it: `const { save } = useShop()` and a hook's `return { save }` pass save on,
+// and only a later read of save or shop.save uses it. A shorthand in any other object,
+// `useQuery({ queryFn })`, still counts, since a library calls it by key. A name two
+// symbols share
 // reaches both, so the pass errs toward reached, which is the safe direction for a
 // verdict that may drive an endpoint's removal.
 //
@@ -42,7 +48,9 @@ import (
 type fileReach struct {
 	file    string
 	symbols []string
-	uses    map[string]map[string]bool // symbol → names used in its body
+	locals  map[string]string          // local scope → the name it is called by
+	spans   []localSpan                // where each local scope's function is written
+	uses    map[string]map[string]bool // symbol or local scope → names used in its body
 	top     map[string]bool
 	// The module edges that carry no name a use could match: a default import read
 	// under a local name of its own, a default re-exported from another file, and a
@@ -84,7 +92,7 @@ func collectReach(kinds *tsutil.KindTable, root *sitter.Node, src []byte, relFil
 	for _, s := range callsite.Spans(g, root, result) {
 		owner[s.StartByte] = s.Symbol
 	}
-	r := &fileReach{file: relFile, uses: map[string]map[string]bool{}, top: map[string]bool{},
+	r := &fileReach{file: relFile, locals: map[string]string{}, uses: map[string]map[string]bool{}, top: map[string]bool{},
 		defaultAliases: map[string][]string{}, dynamic: map[string][]string{}}
 	for _, f := range result {
 		if f.Kind == facts.KindSymbol && f.File == relFile {
@@ -101,6 +109,10 @@ func collectReach(kinds *tsutil.KindTable, root *sitter.Node, src []byte, relFil
 		if tsFunctionKinds[k] {
 			if sym, ok := owner[n.StartByte()]; ok {
 				current = sym
+			} else if name := localFunctionName(kinds, n, src); name != "" && current != "" {
+				current += localScopeSep + name
+				r.locals[current] = name
+				r.spans = append(r.spans, localSpan{current, int(n.StartPosition().Row) + 1, int(n.EndPosition().Row) + 1})
 			}
 		}
 		if k == "call_expression" {
@@ -116,7 +128,7 @@ func collectReach(kinds *tsutil.KindTable, root *sitter.Node, src []byte, relFil
 		switch k {
 		case "identifier", "property_identifier", "shorthand_property_identifier",
 			"shorthand_property_identifier_pattern", "type_identifier":
-			if !isDeclaredName(kinds, n) {
+			if !isDeclaredName(kinds, n) && !bindsWithoutUse(kinds, n, src, current, owner) {
 				name := nodeText(n, src)
 				if current == "" {
 					r.top[name] = true
@@ -134,6 +146,122 @@ func collectReach(kinds *tsutil.KindTable, root *sitter.Node, src []byte, relFil
 	}
 	walk(root, "")
 	return r
+}
+
+// localSpan is the lines a local scope's function covers, 1-based and inclusive.
+type localSpan struct {
+	scope      string
+	start, end int
+}
+
+// localScopeSep joins a local function's name to the scope that declares it. No
+// symbol name contains it.
+const localScopeSep = "\x00"
+
+// localFunctionName is the name a function inside a symbol's body is declared under,
+// when it is called only by that name: `function f() {}`, `const f = () => …` and
+// `const f = useCallback(() => …, deps)`. A function handed to anything else, an
+// effect, a timer, a library, runs without its name being used, so it stays part of
+// the enclosing scope.
+func localFunctionName(kinds *tsutil.KindTable, fn *sitter.Node, src []byte) string {
+	k := kindOf(kinds, fn)
+	if k == "function_declaration" || k == "generator_function_declaration" {
+		if name := fn.ChildByFieldName("name"); name != nil {
+			return nodeText(name, src)
+		}
+		return ""
+	}
+	value := fn
+	if p := fn.Parent(); p != nil && kindOf(kinds, p) == "arguments" {
+		call := p.Parent()
+		if call == nil || kindOf(kinds, call) != "call_expression" || p.NamedChildCount() == 0 || p.NamedChild(0).StartByte() != fn.StartByte() {
+			return ""
+		}
+		callee := call.ChildByFieldName("function")
+		if callee == nil || nodeText(callee, src) != "useCallback" && nodeText(callee, src) != "React.useCallback" {
+			return ""
+		}
+		value = call
+	}
+	decl := value.Parent()
+	if decl == nil || kindOf(kinds, decl) != "variable_declarator" {
+		return ""
+	}
+	if v := decl.ChildByFieldName("value"); v == nil || v.StartByte() != value.StartByte() {
+		return ""
+	}
+	if name := decl.ChildByFieldName("name"); name != nil && kindOf(kinds, name) == "identifier" {
+		return nodeText(name, src)
+	}
+	return ""
+}
+
+// bindsWithoutUse reports a name inside a symbol that is bound or passed on rather than
+// read: a destructured name, `const { save } = …`, and a shorthand in the object a hook
+// returns, `return { save }`, directly or through `useMemo(() => ({ save }), deps)`.
+func bindsWithoutUse(kinds *tsutil.KindTable, n *sitter.Node, src []byte, current string, owner map[uint]string) bool {
+	if current == "" {
+		return false
+	}
+	switch kindOf(kinds, n) {
+	case "shorthand_property_identifier_pattern":
+		return true
+	case "shorthand_property_identifier":
+	default:
+		return false
+	}
+	if strings.Contains(current, localScopeSep) || !isHookName(shortName(current)) {
+		return false
+	}
+	obj := n.Parent()
+	if obj == nil || kindOf(kinds, obj) != "object" || obj.Parent() == nil {
+		return false
+	}
+	var fn *sitter.Node
+	switch p := obj.Parent(); kindOf(kinds, p) {
+	case "return_statement":
+		fn = enclosingFunction(kinds, p)
+	case "parenthesized_expression":
+		if a := p.Parent(); a != nil && kindOf(kinds, a) == "arrow_function" {
+			if body := a.ChildByFieldName("body"); body != nil && body.StartByte() == p.StartByte() {
+				fn = a
+			}
+		}
+	}
+	if fn == nil {
+		return false
+	}
+	if owner[fn.StartByte()] == current {
+		return true
+	}
+	args := fn.Parent()
+	if args == nil || kindOf(kinds, args) != "arguments" {
+		return false
+	}
+	call := args.Parent()
+	if call == nil || kindOf(kinds, call) != "call_expression" {
+		return false
+	}
+	callee := call.ChildByFieldName("function")
+	if callee == nil || (nodeText(callee, src) != "useMemo" && nodeText(callee, src) != "React.useMemo") {
+		return false
+	}
+	ret := call.Parent()
+	if ret == nil || kindOf(kinds, ret) != "return_statement" {
+		return false
+	}
+	outer := enclosingFunction(kinds, ret)
+	return outer != nil && owner[outer.StartByte()] == current
+}
+
+// enclosingFunction is the nearest function around n.
+func enclosingFunction(kinds *tsutil.KindTable, n *sitter.Node) *sitter.Node {
+	for p := n.Parent(); p != nil; p = p.Parent() {
+		if tsFunctionKinds[kindOf(kinds, p)] {
+			return p
+		}
+	}
+	return nil
 }
 
 // importsOf records a file's static imports and re-exports: every file it imports, the
@@ -336,6 +464,10 @@ func markClientReachability(ff []facts.Fact, files []*fileReach, fw tsFrameworks
 			symbolFile[s] = r
 			byName[shortName(s)] = append(byName[shortName(s)], s)
 		}
+		for scope, name := range r.locals {
+			symbolFile[scope] = r
+			byName[name] = append(byName[name], scope)
+		}
 		for name, targets := range r.defaultAliases {
 			aliases[name] = append(aliases[name], targets...)
 		}
@@ -453,11 +585,26 @@ func markClientReachability(ff []facts.Fact, files []*fileReach, fw tsFrameworks
 			continue // library code: its calls are made by whoever consumes it
 		}
 		ok := fileRun[f.File]
-		if caller := f.PropString(facts.PropCaller); caller != "" {
+		if scope := innermostLocal(byFile[f.File], f.Line); scope != "" {
+			ok = reached[scope]
+		} else if caller := f.PropString(facts.PropCaller); caller != "" {
 			ok = reached[caller]
 		}
 		f.SetProp(facts.PropClientReachable, ok)
 	}
+}
+
+// innermostLocal is the narrowest local scope written around a line, or "" when the
+// line is in no local function. A call's caller names the enclosing symbol, which a
+// closure inside it does not change.
+func innermostLocal(r *fileReach, line int) string {
+	best, width := "", 0
+	for _, sp := range r.spans {
+		if sp.start <= line && line <= sp.end && (best == "" || sp.end-sp.start < width) {
+			best, width = sp.scope, sp.end-sp.start
+		}
+	}
+	return best
 }
 
 // reachApplies reports a repository with an application whose every use is in code

@@ -120,6 +120,16 @@ that carry no matching name count too: a default import under a name of its own,
 page's `export { default } from '...'`, and `dynamic(() => import('...'))`. A file
 nothing imports, a script or a worker, is taken as an entry of its own.
 
+A function a component or hook declares by name (`const save = () => ...`,
+`const save = useCallback(...)`, `function save() {}`) is reached only when its name is
+used, and a call inside it is judged by it rather than by the component. Binding a name
+is not using it: `const { save } = useShop()` and a hook's `return { save }` (or
+`useMemo(() => ({ save }), deps)`) pass `save` on, and only a read of `save` or
+`shop.save` uses it. So a closure a hook returns and the page destructures without
+calling never runs. A shorthand handed to a call, `useQuery({ queryFn })`, still counts:
+a library calls it by key. A function passed to an effect or a timer runs without its
+name being read, so it stays part of the component.
+
 ```
 route  /api/settings/items/{}/with-images  src/lib/api/shop.ts:161
        props: role=client, caller=src/lib/api.ShopApiClient.getItemWithImages, client_reachable=true
