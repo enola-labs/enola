@@ -347,10 +347,17 @@ func (e *SwiftExtractor) Extract(ctx context.Context, repoPath string, files []s
 			}
 			seenEdges[e] = true
 
+			// The edge is told by the file that makes the reference, so its evidence
+			// names a file that uses the type. slashDir(File) must still be the source
+			// module, so a file in a subdirectory of it falls back to the anchor.
+			file := relFile
+			if slashDir(file) != sourceModule {
+				file = moduleAnchorFile(sourceModule, dirToFile)
+			}
 			allFacts = append(allFacts, facts.Fact{
 				Kind: facts.KindDependency,
 				Name: sourceModule + " -> " + targetModule,
-				File: moduleAnchorFile(sourceModule, dirToFile),
+				File: file,
 				Props: map[string]any{
 					"language": "swift",
 					"internal": true,

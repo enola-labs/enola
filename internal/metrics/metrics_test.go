@@ -204,6 +204,29 @@ func TestRenderSummary_ReportsTypeless(t *testing.T) {
 	}
 }
 
+// When most packages declare no counted type (a TypeScript application counts classes
+// only), the averages describe a corner of the repository; the summary says so. When
+// most packages have types it adds nothing.
+func TestRenderSummary_SaysWhenAveragesCoverFewPackages(t *testing.T) {
+	few := []PackageMetric{
+		{Package: "src/types", ClassesInterfaces: 3, Ca: 40, Ce: 0, Instability: 0, Distance: 1},
+		{Package: "src/components", ClassesInterfaces: 0, Ca: 30, Ce: 5, Instability: 0.14, Distance: 0.86},
+		{Package: "src/hooks", ClassesInterfaces: 0, Ca: 12, Ce: 8, Instability: 0.4, Distance: 0.6},
+	}
+	out := renderSummary(few, few, nil, "", "")
+	if !strings.Contains(out, "these averages cover 1 of 3 packages; the other 2 declare no counted type") {
+		t.Errorf("summary should say the averages cover 1 of 3 packages, got:\n%s", out)
+	}
+	most := []PackageMetric{
+		{Package: "a", ClassesInterfaces: 4, Ca: 2, Ce: 2, Instability: 0.5, Distance: 0.2},
+		{Package: "b", ClassesInterfaces: 2, Ca: 1, Ce: 1, Instability: 0.5, Distance: 0.3},
+		{Package: "c", ClassesInterfaces: 0, Ca: 3, Ce: 0, Instability: 0, Distance: 1},
+	}
+	if out := renderSummary(most, most, nil, "", ""); strings.Contains(out, "these averages cover") {
+		t.Errorf("most packages have types, so no coverage line, got:\n%s", out)
+	}
+}
+
 // TestCollectResolvesFromSideToModule verifies the importing side of a
 // dependency fact is resolved to its enclosing module. Python emits a file-stem
 // importer ("pkg/a/file"); Go emits a module dir ("gopkg"). Both must yield an
