@@ -1,6 +1,8 @@
 package tsextractor
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/enola-labs/enola/internal/facts"
@@ -289,6 +291,128 @@ export const api = new Api();
 	for k, v := range want {
 		if got[k] != v {
 			t.Errorf("%s: client_reachable = %v, want %v (all: %v)", k, got[k], v, got)
+		}
+	}
+}
+
+// clientTriggers is each client route's trigger props: "trigger every_page poll_ms".
+func clientTriggers(t *testing.T, ff []facts.Fact) map[string]string {
+	t.Helper()
+	out := map[string]string{}
+	for _, f := range ff {
+		if f.Kind == facts.KindRoute && f.PropAny(facts.PropRole) == facts.RoleClient {
+			v := f.PropString(facts.PropClientTrigger)
+			if f.PropAny(facts.PropClientEveryPage) == true {
+				v += " every-page"
+			}
+			if ms, ok := f.Props[facts.PropClientPollMs]; ok {
+				v += fmt.Sprintf(" %vms", ms)
+			}
+			out[f.PropString("method")+" "+f.Name] = v
+		}
+	}
+	return out
+}
+
+// How each call is triggered, read from the code that runs it: a timer in a provider
+// the root layout renders polls on every page; a constant interval is stated; a
+// react-query fetcher with a refetch interval polls; a page's mount effect loads; an
+// event handler, inline or named, acts; a function both mounted and polled is polled.
+func TestClientTriggers(t *testing.T) {
+	files := map[string]string{
+		"package.json": `{"dependencies": {"next": "14.0.0", "react": "18.2.0"}}`,
+		"src/app/layout.tsx": `
+import { NotificationProvider } from '@/contexts/notifications';
+export default function RootLayout({ children }) { return <NotificationProvider>{children}</NotificationProvider>; }
+`,
+		"src/contexts/notifications.tsx": `
+import { useEffect, useCallback } from 'react';
+const UNREAD_POLL = 60 * 1000;
+export function NotificationProvider({ children }) {
+  const fetchUnread = useCallback(async () => { await fetch('/api/messages/unread-count'); }, []);
+  useEffect(() => {
+    const id = setInterval(() => { fetch('/api/notifications'); }, 60000);
+    const id2 = setInterval(fetchUnread, UNREAD_POLL);
+    return () => { clearInterval(id); clearInterval(id2); };
+  }, []);
+  return children;
+}
+`,
+		"src/stores/feed.ts": `
+export async function loadFeed() { return fetch('/api/feed'); }
+export async function loadStats() { return fetch('/api/stats'); }
+`,
+		"src/app/feed/page.tsx": `
+import { useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { loadFeed, loadStats } from '@/stores/feed';
+export default function Page() {
+  useEffect(() => { loadFeed(); }, []);
+  useQuery({ queryKey: ['stats'], queryFn: loadStats, refetchInterval: 30_000 });
+  const save = async () => { await fetch('/api/feed/save', { method: 'POST' }); };
+  return <div>
+    <button onClick={() => fetch('/api/feed/export', { method: 'POST' })}>export</button>
+    <button onClick={save}>save</button>
+  </div>;
+}
+`,
+		"src/app/stats/page.tsx": `
+import { useEffect } from 'react';
+import { loadStats } from '@/stores/feed';
+export default function Page() { useEffect(() => { loadStats(); }, []); return null; }
+`,
+	}
+	// A store's wait-loop polls zustand's get, a parameter: it names no function of
+	// the module, though an API client declares a get of its own.
+	files["src/stores/cache.ts"] = `
+import { create } from 'zustand';
+export const useCache = create((set, get) => ({
+  waitForTypes: () => new Promise((resolve) => {
+    const id = setInterval(() => { if (get().types) { clearInterval(id); resolve(get().types); } }, 100);
+  }),
+}));
+`
+	files["src/lib/http.ts"] = `
+export class Http {
+  async get(path: string) { return fetch('/api/everything'); }
+}
+`
+	files["src/app/cache/page.tsx"] = `
+import { useEffect } from 'react';
+import { useCache } from '@/stores/cache';
+import { Http } from '@/lib/http';
+export default function Page() { useEffect(() => { useCache.getState().waitForTypes(); new Http().get('/x'); }, []); return null; }
+`
+	// The provider polls its own fetchNotifications; another file's store method of the
+	// same name is not polled by it.
+	files["src/contexts/notifications.tsx"] = strings.Replace(files["src/contexts/notifications.tsx"],
+		"const fetchUnread =", "const fetchNotifications = async () => { await fetch('/api/notifications/mine'); };\n  const fetchUnread =", 1)
+	files["src/contexts/notifications.tsx"] = strings.Replace(files["src/contexts/notifications.tsx"],
+		"const id2 =", "const id3 = setInterval(() => { fetchNotifications(); }, 60000);\n    const id2 =", 1)
+	files["src/stores/reception.ts"] = `
+export const reception = {
+  async fetchNotifications() { return fetch('/api/reception/orders'); },
+};
+`
+	files["src/app/reception/page.tsx"] = `
+import { reception } from '@/stores/reception';
+export default function Page() { return <button onClick={() => reception.fetchNotifications()}>load</button>; }
+`
+	got := clientTriggers(t, extractTSRepo(t, files))
+	want := map[string]string{
+		"GET /api/everything":            "mount",
+		"GET /api/notifications/mine":    "poll every-page 60000ms",
+		"GET /api/reception/orders":      "action",
+		"GET /api/notifications":         "poll every-page 60000ms",
+		"GET /api/messages/unread-count": "poll every-page 60000ms",
+		"GET /api/feed":                  "mount",
+		"GET /api/stats":                 "poll 30000ms",
+		"POST /api/feed/export":          "action",
+		"POST /api/feed/save":            "action",
+	}
+	for k, v := range want {
+		if got[k] != v {
+			t.Errorf("%s: trigger %q, want %q (all: %v)", k, got[k], v, got)
 		}
 	}
 }

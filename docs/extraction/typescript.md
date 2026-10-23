@@ -130,6 +130,19 @@ calling never runs. A shorthand handed to a call, `useQuery({ queryFn })`, still
 a library calls it by key. A function passed to an effect or a timer runs without its
 name being read, so it stays part of the component.
 
+A reachable call also carries how it is triggered, read from the code that runs it:
+`client_trigger` is `poll` (a `setInterval` or `useInterval` callback, a react-query
+`queryFn` beside `refetchInterval`, an SWR fetcher with `refreshInterval`), `mount` (a
+page or the app runs it as it loads) or `action` (a JSX `on*` handler or an
+`addEventListener` listener). `client_every_page` is true when it starts from the root
+layout, the pages router's `_app`, an entry file or middleware, so it runs whichever
+page is open, and `client_poll_ms` is a poll's interval when the code states it (a
+number, a product or sum of numbers, or a constant the file declares). A trigger
+travels only along a use that calls a function or hands it over to be run, of a name
+that is not a parameter (zustand's `get`) and is declared in at most two files, with a
+bare call resolved in its own file first; a call reached only by name otherwise is
+`client_reachable` with no trigger, rather than a guessed one.
+
 ```
 route  /api/settings/items/{}/with-images  src/lib/api/shop.ts:161
        props: role=client, caller=src/lib/api.ShopApiClient.getItemWithImages, client_reachable=true

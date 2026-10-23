@@ -68,6 +68,23 @@ const (
 // tell, which is not a verdict either way.
 const PropClientReachable = "client_reachable"
 
+// How a reachable client call is triggered, read from the code that runs it, on a
+// client route and, for a server route, the strongest among the client calls that
+// match it. PropClientTrigger is ClientTriggerPoll (a timer or a query's refetch
+// interval runs it), ClientTriggerMount (a page or the app runs it as it loads) or
+// ClientTriggerAction (an event handler runs it). PropClientEveryPage is true when it
+// runs whichever page is open: from the root layout, the app shell or an entry file.
+// PropClientPollMs is a poll's interval in milliseconds, when the code states it.
+const (
+	PropClientTrigger   = "client_trigger"
+	PropClientEveryPage = "client_every_page"
+	PropClientPollMs    = "client_poll_ms"
+
+	ClientTriggerPoll   = "poll"
+	ClientTriggerMount  = "mount"
+	ClientTriggerAction = "action"
+)
+
 // withFactRefIDs returns a route's props with the ids of the facts they name: an
 // "id" on every entry of PropMatchedRoutes, computed from the entry's repo, name and
 // file, and PropCallerID for PropCaller, computed from the route's own repo and file.
