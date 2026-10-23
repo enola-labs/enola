@@ -536,9 +536,12 @@ var abstractnessNotes = []struct {
 // abstractnessNote returns the abstractness readings for the languages declared in
 // the given packages, or "" when none of them needs one.
 func abstractnessNote(store *facts.Store, pkgs []PackageMetric) string {
+	// A package is its repository and its name: in a multi-repo snapshot two
+	// repositories can both have one named "adapters" or ".", and a TypeScript one must
+	// not lend its note to a Go one.
 	want := make(map[string]struct{}, len(pkgs))
 	for _, m := range pkgs {
-		want[m.Package] = struct{}{}
+		want[m.Repo+"\x00"+m.Package] = struct{}{}
 	}
 	moduleSet := make(map[string]struct{})
 	for _, f := range store.ByKind(facts.KindModule) {
@@ -550,7 +553,7 @@ func abstractnessNote(store *facts.Store, pkgs []PackageMetric) string {
 		if lang == "" || present[lang] {
 			continue
 		}
-		if _, ok := want[declaringModule(f, moduleSet)]; ok {
+		if _, ok := want[f.Repo+"\x00"+declaringModule(f, moduleSet)]; ok {
 			present[lang] = true
 		}
 	}
