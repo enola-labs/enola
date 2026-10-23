@@ -79,6 +79,9 @@ const (
 	PropClientTrigger   = "client_trigger"
 	PropClientEveryPage = "client_every_page"
 	PropClientPollMs    = "client_poll_ms"
+	// PropClientTriggerFrom names, on a server route, the client function whose call
+	// gives the route its trigger.
+	PropClientTriggerFrom = "client_trigger_from"
 
 	ClientTriggerPoll   = "poll"
 	ClientTriggerMount  = "mount"

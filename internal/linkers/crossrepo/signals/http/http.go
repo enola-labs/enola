@@ -543,8 +543,71 @@ func serviceHint(f facts.Fact) string {
 // method no page reaches. Such a route is called in the source and never in practice.
 // It is a subset of the matched routes, reported beside them rather than instead.
 func ServerRouteVerdicts(m *routeindex.Matcher, all []facts.Fact) (evaluated, unmatched, unreached map[string]bool) {
+	v := ServerRouteVerdictsWithTraffic(m, all)
+	return v.Evaluated, v.Unmatched, v.Unreached
+}
+
+// ClientTraffic is the strongest trigger among the client calls that match a server
+// route: how the client runs the call (facts.ClientTriggerPoll, Mount or Action),
+// whether on every page, a poll's stated interval, and the client function that makes
+// that call.
+type ClientTraffic struct {
+	Trigger   string
+	EveryPage bool
+	PollMs    int
+	Caller    string
+}
+
+// trafficRank orders triggers as the extractor does: poll, mount, action.
+var trafficRank = map[string]int{facts.ClientTriggerPoll: 3, facts.ClientTriggerMount: 2, facts.ClientTriggerAction: 1}
+
+// stronger reports whether a means more traffic than b: a stronger trigger, then on
+// every page, then a stated, shorter interval, then the caller's name for a fixed order.
+func (a ClientTraffic) stronger(b ClientTraffic) bool {
+	if ra, rb := trafficRank[a.Trigger], trafficRank[b.Trigger]; ra != rb {
+		return ra > rb
+	}
+	if a.EveryPage != b.EveryPage {
+		return a.EveryPage
+	}
+	if a.PollMs != b.PollMs {
+		if a.PollMs == 0 || b.PollMs == 0 {
+			return b.PollMs == 0
+		}
+		return a.PollMs < b.PollMs
+	}
+	return a.Caller < b.Caller
+}
+
+// clientTraffic is how a client call is triggered, when the extractor said.
+func clientTraffic(f facts.Fact) (ClientTraffic, bool) {
+	t := f.PropString(facts.PropClientTrigger)
+	if trafficRank[t] == 0 {
+		return ClientTraffic{}, false
+	}
+	ms, _ := f.PropAny(facts.PropClientPollMs).(int)
+	if fl, ok := f.PropAny(facts.PropClientPollMs).(float64); ok {
+		ms = int(fl)
+	}
+	return ClientTraffic{
+		Trigger:   t,
+		EveryPage: f.PropAny(facts.PropClientEveryPage) == true,
+		PollMs:    ms,
+		Caller:    f.PropString(facts.PropCaller),
+	}, true
+}
+
+// RouteVerdicts is ServerRouteVerdicts with the traffic each matched route receives.
+type RouteVerdicts struct {
+	Evaluated, Unmatched, Unreached map[string]bool
+	Traffic                         map[string]ClientTraffic
+}
+
+// ServerRouteVerdictsWithTraffic is ServerRouteVerdicts, and for each matched server
+// route the strongest trigger among the client calls that match it.
+func ServerRouteVerdictsWithTraffic(m *routeindex.Matcher, all []facts.Fact) RouteVerdicts {
 	if len(reposOf(all)) < 2 {
-		return nil, nil, nil
+		return RouteVerdicts{}
 	}
 
 	// Index server routes by normalized path-suffix + method, exactly as linkHTTP
@@ -561,17 +624,24 @@ func ServerRouteVerdicts(m *routeindex.Matcher, all []facts.Fact) (evaluated, un
 	// alias is the exception. The config states which repository the call reaches, so
 	// the others serving the same path were not called by it.
 	matched, reached := map[string]bool{}, map[string]bool{}
+	traffic := map[string]ClientTraffic{}
 	providerRepos := map[string]bool{}
 	for _, f := range all {
 		if f.Repo == "" {
 			continue
 		}
 		runs := f.PropAny(facts.PropClientReachable) != false
+		tr, hasTraffic := clientTraffic(f)
 		for _, ref := range routesCalledBy(m, server, f) {
 			key := routeindex.RouteIdentityKey(ref.Repo, ref.Method, ref.Path)
 			matched[key] = true
 			if runs {
 				reached[key] = true
+			}
+			if hasTraffic && runs {
+				if prev, ok := traffic[key]; !ok || tr.stronger(prev) {
+					traffic[key] = tr
+				}
 			}
 			if ref.Repo != f.Repo {
 				providerRepos[ref.Repo] = true
@@ -584,21 +654,24 @@ func ServerRouteVerdicts(m *routeindex.Matcher, all []facts.Fact) (evaluated, un
 	// frontend's own page routes, a mobile app) has no clients among the loaded
 	// repos, so flagging its routes would be vacuous noise — skip it, the same way
 	// a single-repo snapshot is skipped, applied per repo.
-	evaluated, unmatched, unreached = map[string]bool{}, map[string]bool{}, map[string]bool{}
+	v := RouteVerdicts{Evaluated: map[string]bool{}, Unmatched: map[string]bool{}, Unreached: map[string]bool{}, Traffic: map[string]ClientTraffic{}}
 	for id := range identities {
 		if !providerRepos[routeindex.RepoFromIdentity(id)] {
 			continue
 		}
-		evaluated[id] = true
+		v.Evaluated[id] = true
 		if matched[id] {
 			if !reached[id] {
-				unreached[id] = true
+				v.Unreached[id] = true
+			}
+			if t, ok := traffic[id]; ok {
+				v.Traffic[id] = t
 			}
 			continue
 		}
-		unmatched[id] = true
+		v.Unmatched[id] = true
 	}
-	return evaluated, unmatched, unreached
+	return v
 }
 
 // servableIndex indexes the server routes client calls are matched against, by

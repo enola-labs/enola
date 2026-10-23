@@ -419,3 +419,54 @@ func TestFlagUnmatchedRoutes_CalledOnlyFromCodeThatNeverRuns(t *testing.T) {
 		t.Errorf("after the call became reachable: (matched, unreached) = %v, want the marker cleared", got)
 	}
 }
+
+// A server route carries the strongest trigger among the client calls that match it:
+// a poll on every page beats a page's mount, which beats a click; a call that never
+// runs gives none. Unmatched, it carries none, and a stale one is cleared.
+func TestServerRouteCarriesTheStrongestClientTrigger(t *testing.T) {
+	call := func(name, method, caller, trigger string, every bool, ms int, runs bool) facts.Fact {
+		f := clientRouteFact("app", name, method)
+		f.Props[facts.PropCaller] = caller
+		f.Props[facts.PropClientReachable] = runs
+		if trigger != "" {
+			f.Props[facts.PropClientTrigger] = trigger
+		}
+		if every {
+			f.Props[facts.PropClientEveryPage] = true
+		}
+		if ms > 0 {
+			f.Props[facts.PropClientPollMs] = ms
+		}
+		return f
+	}
+	stale := serverRouteFact("backend", "/api/export", "POST")
+	stale.Props[facts.PropClientTrigger] = facts.ClientTriggerPoll
+	store := facts.NewStore()
+	store.Add(
+		call("/api/notifications/{id}", "GET", "src/contexts.NotificationProvider", facts.ClientTriggerPoll, true, 60000, true),
+		call("/api/notifications/{id}", "GET", "src/app/inbox.Page", facts.ClientTriggerMount, false, 0, true),
+		call("/api/feed", "GET", "src/app/feed.Page", facts.ClientTriggerMount, false, 0, true),
+		call("/api/feed", "GET", "src/lib/dead.poller", facts.ClientTriggerPoll, true, 1000, false),
+		serverRouteFact("backend", "/api/notifications/{userId}", "GET"),
+		serverRouteFact("backend", "/api/feed", "GET"),
+		stale,
+	)
+	bind(t, store)
+	got := map[string]map[string]any{}
+	for _, f := range store.All() {
+		if f.Kind == facts.KindRoute && f.Repo == "backend" {
+			got[f.Name] = f.Props
+		}
+	}
+	n := got["/api/notifications/{userId}"]
+	if n[facts.PropClientTrigger] != facts.ClientTriggerPoll || n[facts.PropClientEveryPage] != true || n[facts.PropClientPollMs] != 60000 ||
+		n[facts.PropClientTriggerFrom] != "src/contexts.NotificationProvider" {
+		t.Errorf("notifications: want poll every page 60000 from the provider, got %+v", n)
+	}
+	if f := got["/api/feed"]; f[facts.PropClientTrigger] != facts.ClientTriggerMount || f[facts.PropClientEveryPage] != nil {
+		t.Errorf("feed: the poll never runs, so the page's mount is the trigger, got %+v", f)
+	}
+	if e := got["/api/export"]; e[facts.PropClientTrigger] != nil {
+		t.Errorf("export: no client calls it, the stale trigger must be cleared, got %+v", e)
+	}
+}
