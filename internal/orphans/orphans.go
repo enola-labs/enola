@@ -163,14 +163,18 @@ func isUsageKind(kind string) bool {
 
 // symInput is the per-symbol input to the pure classifier.
 type symInput struct {
-	Name     string
-	Kind     string // symbol_kind: function, method, struct, interface, type, class, constant, variable
-	File     string
-	Line     int
-	Repo     string
-	Package  string // declaring module (the declares-relation target)
-	Exported bool
-	UsageOut bool // has at least one outgoing usage edge
+	Name    string
+	Kind    string // symbol_kind: function, method, struct, interface, type, class, constant, variable
+	File    string
+	Line    int
+	Repo    string
+	Package string // declaring module (the declares-relation target)
+	// ImportName is a Go symbol's name as code in another repository writes it,
+	// under its module path ("github.com/acme/auth.DefaultConfig" for "..DefaultConfig").
+	// Empty unless the repository's root package carries its module path.
+	ImportName string
+	Exported   bool
+	UsageOut   bool // has at least one outgoing usage edge
 	// Claimed records that the dead-methods explainer already reports this method.
 	// That explainer asks the narrower question it can answer on Ruby, scoped to the
 	// surfaces whose callers the graph can actually see, and leaves out the ones
@@ -343,13 +347,37 @@ func bareName(name string) string { return lastSeg(name) }
 // goextractor/funcvalues.go), which is what makes the narrower match safe.
 func refCandidates(sym symInput) []string {
 	if sym.Kind != facts.SymbolFunc || !strings.HasSuffix(sym.File, ".go") {
-		return candidateNames(sym.Name, sym.Kind)
+		out := candidateNames(sym.Name, sym.Kind)
+		if sym.ImportName != "" {
+			out = append(out, sym.ImportName)
+		}
+		return out
 	}
 	out := []string{sym.Name}
 	if q := pkgQualified(sym.Name); q != sym.Name && !strings.HasPrefix(q, ".") {
 		out = append(out, q)
 	}
+	if sym.ImportName != "" {
+		out = append(out, sym.ImportName)
+	}
 	return out
+}
+
+// goImportName is a Go symbol's name under its module path, the inverse of the
+// graph's normalizeExternalTarget: a consumer in another repository keeps the import
+// path in its call targets and route handlers, while the library's own facts name the
+// package by its directory, "." for the root ("..DefaultConfig").
+func goImportName(name, modulePath string) string {
+	if rest, ok := strings.CutPrefix(name, ".."); ok {
+		return modulePath + "." + rest
+	}
+	slash := strings.LastIndex(name, "/")
+	dot := strings.Index(name[slash+1:], ".")
+	if dot <= 0 {
+		return ""
+	}
+	dot += slash + 1
+	return modulePath + "/" + name[:dot] + "." + name[dot+1:]
 }
 
 // pkgQualified drops the directory of a Go-style name, keeping the package's own
@@ -1069,6 +1097,16 @@ func collect(store *facts.Store) ([]symInput, refIndex) {
 	order := make([]string, 0, len(symbols))
 	refSources := make(refIndex)
 	rootedOwners := map[string]bool{}
+	// A Go repository's module path, from its root package, so a symbol can be matched
+	// under the import path another repository's code uses for it.
+	modulePaths := map[string]string{}
+	for _, f := range store.ByKind(facts.KindModule) {
+		if f.Name == "." && f.Repo != "" {
+			if mp := f.PropString("modulePath"); mp != "" {
+				modulePaths[f.Repo] = mp
+			}
+		}
+	}
 
 	for _, f := range symbols {
 		if mcputil.IsGeneratedPath(f.File) {
@@ -1078,6 +1116,9 @@ func collect(store *facts.Store) ([]symInput, refIndex) {
 		if si == nil {
 			_, isClaimed := claimed[f.Name]
 			si = &symInput{Name: f.Name, File: f.File, Line: f.Line, Repo: f.Repo, Claimed: isClaimed}
+			if mp := modulePaths[f.Repo]; mp != "" && strings.HasSuffix(f.File, ".go") {
+				si.ImportName = goImportName(f.Name, mp)
+			}
 			byName[f.Name] = si
 			order = append(order, f.Name)
 		}

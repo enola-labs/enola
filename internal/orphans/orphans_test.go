@@ -1680,3 +1680,29 @@ func TestGoPackageFuncMatchedByPackagePath(t *testing.T) {
 		}
 	}
 }
+
+// TestGoLibraryUsedFromAnotherRepository: a consumer in another repository names a
+// library's symbols by import path, in a call target ("github.com/acme/auth.DefaultConfig")
+// and in a route's handler target, while the library's own facts name its root package
+// "." ("..DefaultConfig") and a subpackage by directory. Both reach the library's symbol;
+// one nothing calls stays dead.
+func TestGoLibraryUsedFromAnotherRepository(t *testing.T) {
+	syms, refs := collectFromJSONL(t, `
+{"kind":"module","name":".","file":"auth/auth.go","repo":"auth","props":{"modulePath":"github.com/acme/auth"}}
+{"kind":"symbol","name":"..DefaultConfig","file":"auth/auth.go","repo":"auth","props":{"symbol_kind":"function","exported":true},"relations":[{"kind":"declares","target":"."}]}
+{"kind":"symbol","name":"..SecurityHeaders","file":"auth/middleware.go","repo":"auth","props":{"symbol_kind":"function","exported":true},"relations":[{"kind":"declares","target":"."}]}
+{"kind":"symbol","name":"..Sanitize","file":"auth/middleware.go","repo":"auth","props":{"symbol_kind":"function","exported":true},"relations":[{"kind":"declares","target":"."}]}
+{"kind":"symbol","name":"adapters.AuthHandler.Login","file":"auth/adapters/handler.go","repo":"auth","props":{"symbol_kind":"method","exported":true},"relations":[{"kind":"declares","target":"adapters"}]}
+{"kind":"symbol","name":"internal/app.Setup","file":"app/internal/app/setup.go","repo":"app","props":{"symbol_kind":"function","exported":true},"relations":[{"kind":"declares","target":"internal/app"},{"kind":"calls","target":"github.com/acme/auth.DefaultConfig"},{"kind":"calls","target":"github.com/acme/auth/adapters.AuthHandler.Login"}]}
+{"kind":"route","name":"","file":"app/internal/server.go","repo":"app","props":{"method":"USE","type":"middleware","handler":"authlib.SecurityHeaders","handler_target":"github.com/acme/auth.SecurityHeaders"}}
+`)
+	got := orphansByName(classify(syms, refs, options{Mode: "both", Visibility: "all"}))
+	for _, name := range []string{"..DefaultConfig", "..SecurityHeaders", "adapters.AuthHandler.Login"} {
+		if o, ok := got[name]; ok {
+			t.Errorf("%s is used from the other repository and must not be an orphan, got %+v", name, o)
+		}
+	}
+	if _, ok := got["..Sanitize"]; !ok {
+		t.Error("..Sanitize is used by nothing and should stay an orphan")
+	}
+}
