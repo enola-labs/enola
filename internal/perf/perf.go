@@ -240,6 +240,11 @@ type Finding struct {
 	// every expensive call in the loop, and they are not equally well founded: one
 	// can be a storage fact and the next a verb in a helper's name.
 	Calls []CallEvidence `json:"calls,omitempty"`
+	// Routes names, sorted, up to five of the server routes whose handlers reach this
+	// function through calls (see reach.go); RoutesTotal counts them all. Empty when no
+	// route reaches it: a job, a CLI command, or code nothing calls.
+	Routes      []string `json:"routes,omitempty"`
+	RoutesTotal int      `json:"routes_total,omitempty"`
 }
 
 // CallEvidence is one call a call-in-loop finding names, and why it is there.
@@ -725,7 +730,9 @@ func collectRouteHandlers(routes []facts.Fact) map[string]bool {
 // own annotate pass runs to mark findings on the store.
 func Analyze(store *facts.Store) []Finding {
 	funcs, storage, routeHandlers, assoc := collect(store)
-	return analyze(funcs, storage, routeHandlers, assoc)
+	findings := analyze(funcs, storage, routeHandlers, assoc)
+	attachRoutes(store, findings)
+	return findings
 }
 
 func claimedHas(claimed map[string]struct{}, name string) bool {
@@ -2678,6 +2685,7 @@ func Register(srv *mcp.Server, store func() *facts.Store) {
 		// And the query-loops explainer's findings, every one of them: see
 		// queryLoopFindings.
 		all = append(all, queryLoopFindings(store(), routeHandlers)...)
+		attachRoutes(store(), all)
 		sortFindings(all)
 
 		// Filter FIRST, then summarize. The summary must be computed from the same

@@ -3,6 +3,7 @@ package perf
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/enola-labs/enola/internal/explainers/common"
 	"github.com/enola-labs/enola/internal/facts"
@@ -37,7 +38,9 @@ const maxIndividualInsights = common.MaxIndividualInsights
 // Explain produces one insight per medium-or-higher-severity finding, capped.
 func (e *Explainer) Explain(_ context.Context, store *facts.Store) ([]facts.Insight, error) {
 	funcs, storage, routeHandlers, assoc := collect(store)
-	return findingsToInsights(analyze(funcs, storage, routeHandlers, assoc)), nil
+	findings := analyze(funcs, storage, routeHandlers, assoc)
+	attachRoutes(store, findings)
+	return findingsToInsights(findings), nil
 }
 
 // findingsToInsights maps ranked performance findings to insights. Low-severity
@@ -77,7 +80,7 @@ func findingsToInsights(findings []Finding) []facts.Insight {
 		}
 		out = append(out, facts.Insight{
 			Title:       fmt.Sprintf("Performance risk (%s, %s): %s", f.Kind, f.Label(), f.Symbol),
-			Description: f.Why + caveatFor(f),
+			Description: f.Why + caveatFor(f) + routesSentence(f),
 			Confidence:  conf,
 			Evidence:    ev,
 			Actions: []string{
@@ -98,6 +101,18 @@ func findingsToInsights(findings []Finding) []facts.Insight {
 		})
 	}
 	return out
+}
+
+// routesSentence names the routes that reach a finding, or nothing when none does.
+func routesSentence(f Finding) string {
+	if f.RoutesTotal == 0 {
+		return ""
+	}
+	more := ""
+	if f.RoutesTotal > len(f.Routes) {
+		more = fmt.Sprintf(" and %d more", f.RoutesTotal-len(f.Routes))
+	}
+	return fmt.Sprintf(" Reached from %d route(s): %s%s.", f.RoutesTotal, strings.Join(f.Routes, ", "), more)
 }
 
 // caveatFor is the sentence an insight ends on. A finding that states a Big-O says
