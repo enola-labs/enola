@@ -7,6 +7,87 @@ The full per-release change lists — every Added, Changed and Fixed line — ar
 [enola.tech/changelog](https://enola.tech/changelog). This file is the same history at
 the resolution a reader of the repository needs.
 
+## v0.4.34 — 2026-10-23
+
+**Client calls that never run, performance findings ranked by client traffic, and Go libraries linked to their consumers**
+
+- TypeScript client reachability, for Next.js and React apps:
+  - Each client call is marked as reachable or not, read by name from the pages and
+    entry files, so a call through a hook or a facade counts. Default imports,
+    re-exports and `import()` are followed per app.
+  - A route called only from code that never runs is `unreached_by_clients`. It stays
+    `matched_by_clients`, `unused-routes` reports it as its own finding, and `endpoint`
+    callers say which calls never run.
+  - A reachable call carries its trigger: poll (with its interval), mount or action, on
+    every page or one. A server route carries the strongest trigger among the calls
+    that match it.
+  - A store's methods run when called and a module's top level runs on load, so a store
+    loaded by the root layout no longer spreads its polls to every method.
+  - Calls through a request helper exported by another file are client routes,
+    including class methods that forward their URL to one (`this.makeRequest(url)`).
+- Performance findings name the routes whose handlers reach them, crossing interfaces
+  to their implementations, and sort by client traffic within their severity. Severity
+  is unchanged.
+- Go:
+  - Function values across packages (registered handlers, migrations) and package-level
+    initializer calls are `calls` edges. `find_orphans` matches a package function by
+    its path, so a same-named function elsewhere no longer keeps it alive.
+  - Interface implementers are recorded from constructors and method sets, mocks
+    excluded. I/O crosses an interface to the repository behind it, and `db_calls` and
+    `pure_calls` tell a query from a cursor read. Prepared statements are database
+    calls; a ping is not.
+  - `query-loops` finds loops that reach a database call through repositories and
+    interfaces and prints the path.
+  - Event loops (`for`/`select`) and retry loops bounded by a configured limit are not
+    per-element loops.
+  - In a multi-repo snapshot, another module's type used through an import is a usage
+    edge, and a library's symbols are used when a consumer calls them by import path.
+  - The module's package list decides whether a type is its own: `net/http.Server` no
+    longer marks a local `Server` used.
+- Android and JVM:
+  - `android-clean` takes its data and domain order from the repository's imports. A
+    repository package inside the domain module is domain.
+  - Imports of generated code (`R`, `BuildConfig`) stay external, so feature modules no
+    longer fuse with the app package into one cycle.
+- Ruby:
+  - Framework roots resolve bare calls through superclasses and included modules, and
+    constants through enclosing namespaces. MaintenanceTasks, Avo and `MCP::Tool`
+    entry points are roots.
+  - A namespace opening is not a declaration of its name, so real package edges (for
+    example actioncable to activesupport) are no longer refused.
+- Rust: a `forbid` or `allow-only` rule counts imports of std, core, alloc and external
+  crates apart from verdicts not reached.
+- Cycles: a large component is a cycle unless every member is autoloaded, and its full
+  membership is in `metrics.members`. A test-looking module that production code imports
+  is production.
+- `impact_analysis` on a package lists every importer and walks imports separately from
+  symbols. `traverse` and `impact_analysis` walk one method under several owners as a
+  family instead of refusing it as ambiguous.
+- `unused-routes` reports a route registered in two files in any snapshot, and says per
+  route file how many routes match no client when the list is withheld.
+- `query_insights` with a repo filter matches findings that cite that repo's modules.
+- `install` for Claude Code tells the session how to load enola's deferred tools, and a
+  bounded hook refuses the first two file searches until an enola tool is used.
+- Faster: Go required-module lookup, the Python click check, and a warm run with an
+  unchanged `facts.jsonl` skips the history delta. A long-running server rehashes a file
+  only when its size, times, inode or device changed.
+- Fixed:
+  - A per-file provider cache keyed by content alone gave two identical files one set
+    of facts.
+  - `impact` dropped package importers more than three hops away, and the CLI could
+    panic on one.
+  - A TypeScript import matched a same-named folder before the file.
+  - In a multi-repo snapshot, `find_path` found no path between modules a cycle put
+    together.
+  - Swift type-reference edges named the directory's first file, not the referencing
+    one.
+  - Package metrics matched a note to another repository's same-named package, and now
+    say when the averages cover few packages.
+  - The Rubydex fetch could hang on a stalled download, and `enola upgrade` skipped it
+    when the release was already current.
+  - A bare Ruby call after `..` or `...` was read as having a receiver.
+- `cacheVersion` moves to `v441`: every repository re-extracts once.
+
 ## v0.4.33 — 2026-10-21
 
 **Plain-language summaries of a repository and of a change, and Go monorepos linked across their modules**
