@@ -3117,7 +3117,10 @@ import (
 // hook builds, is reached only when its name is used, and a call inside it is judged
 // by it; a destructured name and a shorthand in the object a hook returns are not
 // uses, so a hook closure a page destructures and never calls never runs.
-const cacheVersion = "v435"
+// v436: Swift: a directory-to-directory edge synthesized from a type reference names
+// the file that makes the reference, not another file of the source directory, so a
+// layer finding on it points at code that uses the type.
+const cacheVersion = "v436"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

@@ -234,3 +234,39 @@ func depEdges(ff []facts.Fact) []string {
 	}
 	return out
 }
+
+// The synthesized edge names the file that makes the reference, not another file of
+// the source directory: a layer finding built on it points at code that uses the type.
+func TestSubdivide_IntraTargetEdgeNamesTheReferencingFile(t *testing.T) {
+	repo := t.TempDir()
+	mustWrite(t, repo, "project.yml", `
+name: app
+targets:
+  App:
+    type: application
+    sources:
+      - App
+`)
+	files := []string{}
+	add := func(rel, content string) {
+		mustWrite(t, repo, rel, content)
+		files = append(files, rel)
+	}
+	add("App/Data/Models/SummaryRequest.swift", "public struct SummaryRequest { public init() {} }\n")
+	add("App/Domain/UseCases/AEntitlementUseCase.swift", "final class AEntitlementUseCase {\n    func run(id: Int) -> Bool { true }\n}\n")
+	add("App/Domain/UseCases/GetSummaryUseCase.swift", "final class GetSummaryUseCase {\n    let request: SummaryRequest\n}\n")
+
+	ff, err := New().Extract(context.Background(), repo, files)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	for _, f := range ff {
+		if f.Kind == facts.KindDependency && importTargetOf(f) == "App/Data/Models" && slashDir(f.File) == "App/Domain/UseCases" {
+			if f.File != "App/Domain/UseCases/GetSummaryUseCase.swift" {
+				t.Errorf("edge App/Domain/UseCases -> App/Data/Models names %s, want the file that references SummaryRequest", f.File)
+			}
+			return
+		}
+	}
+	t.Fatalf("missing edge App/Domain/UseCases -> App/Data/Models; deps: %v", depEdges(ff))
+}
