@@ -3113,7 +3113,11 @@ import (
 // package, Next.js or a React app with an entry file, never in a library package;
 // and it follows default imports under another name, default re-exports, import()
 // and files nothing imports, which run on their own.
-const cacheVersion = "v434"
+// v435: TypeScript: a function a symbol declares by name, a handler or a closure a
+// hook builds, is reached only when its name is used, and a call inside it is judged
+// by it; a destructured name and a shorthand in the object a hook returns are not
+// uses, so a hook closure a page destructures and never calls never runs.
+const cacheVersion = "v435"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
