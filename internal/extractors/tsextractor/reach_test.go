@@ -193,3 +193,42 @@ tick();
 		}
 	}
 }
+
+// A function a component or hook declares by name runs only when that name is used:
+// a handler no element is given, or a closure nothing calls, holds a request that is
+// never sent. One handed to an effect or a timer runs without its name being read.
+func TestClientReachability_LocalFunctionsRunWhenTheirNameIsUsed(t *testing.T) {
+	files := map[string]string{
+		"package.json": `{"dependencies": {"next": "14.0.0", "react": "18.2.0"}}`,
+		"src/app/page.tsx": `
+import { useCallback, useEffect } from 'react';
+export default function Page() {
+  const save = async () => { await fetch('/api/items/save', { method: 'POST' }); };
+  const purge = async () => { await fetch('/api/items/purge', { method: 'DELETE' }); };
+  const refresh = useCallback(async () => { await fetch('/api/items/refresh'); }, []);
+  const rebuild = useCallback(async () => { await fetch('/api/items/rebuild', { method: 'POST' }); }, []);
+  function exportAll() { return fetch('/api/items/export'); }
+  function importAll() { return fetch('/api/items/import', { method: 'POST' }); }
+  useEffect(() => { fetch('/api/items/visit', { method: 'POST' }); }, []);
+  setTimeout(async () => { await fetch('/api/items/ping'); }, 1000);
+  return <div><button onClick={save}>save</button><button onClick={() => refresh()}>r</button><a onClick={exportAll}>x</a></div>;
+}
+`,
+	}
+	got := clientReach(t, extractTSRepo(t, files))
+	want := map[string]any{
+		"POST /api/items/save":    true,
+		"DELETE /api/items/purge": false,
+		"GET /api/items/refresh":  true,
+		"POST /api/items/rebuild": false,
+		"GET /api/items/export":   true,
+		"POST /api/items/import":  false,
+		"POST /api/items/visit":   true,
+		"GET /api/items/ping":     true,
+	}
+	for k, v := range want {
+		if got[k] != v {
+			t.Errorf("%s: client_reachable = %v, want %v (all: %v)", k, got[k], v, got)
+		}
+	}
+}
