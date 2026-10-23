@@ -305,7 +305,7 @@ func NewGraphWithAliases(ff []Fact, aliases map[string]FactKey) *Graph {
 		// handling cases where import paths point to files within a module directory
 		// (e.g., "src/types/tournament" resolves to module "src/types").
 		if f.Kind == KindDependency && f.File != "" {
-			modName := fileDirectory(f.File)
+			modName := dependencyModule(f, moduleNames)
 			if moduleNames[modName] {
 				for _, rel := range f.Relations {
 					if rel.Kind == RelImports {
@@ -1562,6 +1562,24 @@ func resolveToModule(target string, moduleNames map[string]bool) string {
 		cur = parent
 	}
 	return ""
+}
+
+// dependencyModule is the module a dependency fact is declared in: its file's
+// directory. In a multi-repo snapshot a file carries its repository's label
+// ("app/data/api/X.kt") and a module name does not ("data/api"), so a directory that
+// names no module is tried again without the label. The labelled form is tried first,
+// so a single repository whose top directory shares its label reads as before.
+func dependencyModule(f Fact, moduleNames map[string]bool) string {
+	dir := fileDirectory(f.File)
+	if moduleNames[dir] || f.Repo == "" {
+		return dir
+	}
+	if rel, ok := strings.CutPrefix(f.File, f.Repo+"/"); ok {
+		if d := fileDirectory(rel); moduleNames[d] {
+			return d
+		}
+	}
+	return dir
 }
 
 func fileDirectory(file string) string {

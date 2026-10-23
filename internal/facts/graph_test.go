@@ -1743,3 +1743,30 @@ func TestNewGraph_ScopedMethodEdges(t *testing.T) {
 		t.Errorf("impact on the class does not start from its methods: %v", seeds)
 	}
 }
+
+// In a multi-repo snapshot a dependency fact's file carries the repository label and the
+// module names do not. The module's import edge must still exist, or a path from one
+// module to another is not found although a cycle finding reads the same import.
+func TestNewGraph_ModuleImportEdgeInAMultiRepoSnapshot(t *testing.T) {
+	s := NewStore()
+	s.Add(
+		Fact{Kind: KindModule, Name: "data/api", File: "app/data/api/Interceptor.kt", Repo: "app"},
+		Fact{Kind: KindModule, Name: "data/repository", File: "app/data/repository/TokenManager.kt", Repo: "app"},
+		Fact{Kind: KindDependency, Name: "data/api -> data/repository", File: "app/data/api/Interceptor.kt", Repo: "app",
+			Relations: []Relation{{Kind: RelImports, Target: "data/repository"}}},
+		// A single repository whose top directory shares its label: the labelled
+		// directory is the module and is kept.
+		Fact{Kind: KindModule, Name: "web/ui", File: "web/ui/a.ts", Repo: "web"},
+		Fact{Kind: KindModule, Name: "web/core", File: "web/core/b.ts", Repo: "web"},
+		Fact{Kind: KindDependency, Name: "web/ui -> web/core", File: "web/ui/a.ts", Repo: "web",
+			Relations: []Relation{{Kind: RelImports, Target: "web/core"}}},
+	)
+	s.BuildGraph()
+	g := s.Graph()
+	if r := g.FindPath("data/api", "data/repository", nil, 5); !r.Found {
+		t.Error("data/api imports data/repository in a multi-repo snapshot: want a path")
+	}
+	if r := g.FindPath("web/ui", "web/core", nil, 5); !r.Found {
+		t.Error("web/ui imports web/core: want a path")
+	}
+}

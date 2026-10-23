@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/enola-labs/enola/internal/facts"
@@ -899,6 +900,100 @@ func build() Config {
 	for _, r := range sym.Relations {
 		if r.Kind == facts.RelInstantiates && r.Target == "bytes.Buffer" {
 			t.Errorf("must not emit instantiates edge to external type bytes.Buffer")
+		}
+	}
+}
+
+// Another module's type, used as a composite literal or a field type through an import
+// alias, gets an edge under its import path: a snapshot that loads that module as
+// another repository resolves it to the declaration there. A stdlib type still gets none.
+func TestExtract_StructUsage_AnotherModulesType(t *testing.T) {
+	ff := extractAll(t, map[string]string{
+		"pkg/auth/setup.go": `package auth
+
+import (
+	"bytes"
+
+	goauth "github.com/acme/go-auth"
+)
+
+type Holder struct {
+	deps goauth.Dependencies
+}
+
+func Setup() {
+	_ = goauth.LibraryConfig{Name: "x"}
+	_ = bytes.Buffer{}
+}
+`,
+	})
+	setup, ok := findFact(ff, "pkg/auth.Setup")
+	if !ok {
+		t.Fatal("missing symbol pkg/auth.Setup")
+	}
+	if !hasRelation(setup, facts.RelInstantiates, "github.com/acme/go-auth.LibraryConfig") {
+		t.Errorf("want RelInstantiates github.com/acme/go-auth.LibraryConfig on Setup; relations = %v", setup.Relations)
+	}
+	for _, r := range setup.Relations {
+		if r.Kind == facts.RelInstantiates && strings.HasSuffix(r.Target, "Buffer") {
+			t.Errorf("must not emit an instantiates edge to the stdlib type %s", r.Target)
+		}
+	}
+	holder, ok := findFact(ff, "pkg/auth.Holder")
+	if !ok {
+		t.Fatal("missing symbol pkg/auth.Holder")
+	}
+	if !hasRelation(holder, facts.RelInstantiates, "github.com/acme/go-auth.Dependencies") {
+		t.Errorf("want RelInstantiates github.com/acme/go-auth.Dependencies on Holder; relations = %v", holder.Relations)
+	}
+}
+
+// The module's own packages and the standard library are both written as plain paths
+// ("config", "net/http"). The module's package list tells them apart: a type from the
+// standard library gets no edge, however its path looks, and one from a package at the
+// repository root does.
+func TestExtract_StructUsage_StdlibAndRootPackages(t *testing.T) {
+	ff := extractAll(t, map[string]string{
+		"config/config.go": `package config
+
+type Settings struct{ Name string }
+`,
+		"internal/app/app.go": `package app
+
+import (
+	"encoding/json"
+	"net/http"
+
+	"testmod/config"
+)
+
+type Server struct {
+	dec  json.Decoder
+	conf config.Settings
+}
+
+func run() {
+	_ = http.Server{}
+	_ = config.Settings{}
+}
+`,
+	})
+	run, ok := findFact(ff, "internal/app.run")
+	if !ok {
+		t.Fatal("missing symbol internal/app.run")
+	}
+	if !hasRelation(run, facts.RelInstantiates, "config.Settings") {
+		t.Errorf("want RelInstantiates config.Settings on run; relations = %v", run.Relations)
+	}
+	server, ok := findFact(ff, "internal/app.Server")
+	if !ok {
+		t.Fatal("missing symbol internal/app.Server")
+	}
+	for _, sym := range []facts.Fact{run, server} {
+		for _, r := range sym.Relations {
+			if r.Kind == facts.RelInstantiates && (r.Target == "net/http.Server" || r.Target == "encoding/json.Decoder") {
+				t.Errorf("%s: must not emit an instantiates edge to the stdlib type %s", sym.Name, r.Target)
+			}
 		}
 	}
 }

@@ -429,9 +429,9 @@ func (e *GoExtractor) extractFile(fset *token.FileSet, f *ast.File, relFile, pkg
 	for _, decl := range f.Decls {
 		switch d := decl.(type) {
 		case *ast.FuncDecl:
-			result = append(result, e.extractFunc(fset, d, relFile, pkgDir, mods, fileImports, fieldTypes, callTypes, pkgFuncs, pkgScope)...)
+			result = append(result, e.extractFunc(fset, d, relFile, pkgDir, mods, fileImports, fieldTypes, callTypes, pkgFuncs, pkgScope, pkgNames)...)
 		case *ast.GenDecl:
-			result = append(result, e.extractGenDecl(fset, d, relFile, pkgDir, mods, fileImports, pkgScope)...)
+			result = append(result, e.extractGenDecl(fset, d, relFile, pkgDir, mods, fileImports, pkgScope, pkgNames)...)
 		}
 	}
 
@@ -459,7 +459,7 @@ func (e *GoExtractor) extractFile(fset *token.FileSet, f *ast.File, relFile, pkg
 	return result
 }
 
-func (e *GoExtractor) extractFunc(fset *token.FileSet, fn *ast.FuncDecl, relFile, pkgDir string, mods goModules, fileImports map[string]string, fieldTypes map[string]string, callTypes callTypeTables, pkgFuncs, pkgScope map[string]bool) []facts.Fact {
+func (e *GoExtractor) extractFunc(fset *token.FileSet, fn *ast.FuncDecl, relFile, pkgDir string, mods goModules, fileImports map[string]string, fieldTypes map[string]string, callTypes callTypeTables, pkgFuncs, pkgScope map[string]bool, pkgNames map[string]string) []facts.Fact {
 	var result []facts.Fact
 
 	name := fn.Name.Name
@@ -532,6 +532,7 @@ func (e *GoExtractor) extractFunc(fset *token.FileSet, fn *ast.FuncDecl, relFile
 			fieldTypes: fieldTypes,
 			pkgFuncs:   pkgFuncs,
 			pkgScope:   pkgScope,
+			localPkgs:  pkgNames,
 
 			returnTypes: callTypes.returns,
 			aliases:     callTypes.aliases,
@@ -628,13 +629,13 @@ func (e *GoExtractor) extractFunc(fset *token.FileSet, fn *ast.FuncDecl, relFile
 	return result
 }
 
-func (e *GoExtractor) extractGenDecl(fset *token.FileSet, gd *ast.GenDecl, relFile, pkgDir string, mods goModules, fileImports map[string]string, pkgScope map[string]bool) []facts.Fact {
+func (e *GoExtractor) extractGenDecl(fset *token.FileSet, gd *ast.GenDecl, relFile, pkgDir string, mods goModules, fileImports map[string]string, pkgScope map[string]bool, pkgNames map[string]string) []facts.Fact {
 	var result []facts.Fact
 
 	for _, spec := range gd.Specs {
 		switch s := spec.(type) {
 		case *ast.TypeSpec:
-			result = append(result, e.extractTypeSpec(fset, gd, s, relFile, pkgDir, mods, fileImports, pkgScope)...)
+			result = append(result, e.extractTypeSpec(fset, gd, s, relFile, pkgDir, mods, fileImports, pkgScope, pkgNames)...)
 		case *ast.ValueSpec:
 			result = append(result, e.extractValueSpec(fset, gd, s, relFile, pkgDir)...)
 		}
@@ -676,13 +677,13 @@ func (e *GoExtractor) extractValueSpec(fset *token.FileSet, gd *ast.GenDecl, vs 
 	return result
 }
 
-func (e *GoExtractor) extractTypeSpec(fset *token.FileSet, gd *ast.GenDecl, ts *ast.TypeSpec, relFile, pkgDir string, mods goModules, fileImports map[string]string, pkgScope map[string]bool) []facts.Fact {
+func (e *GoExtractor) extractTypeSpec(fset *token.FileSet, gd *ast.GenDecl, ts *ast.TypeSpec, relFile, pkgDir string, mods goModules, fileImports map[string]string, pkgScope map[string]bool, pkgNames map[string]string) []facts.Fact {
 	var result []facts.Fact
 
 	name := ts.Name.Name
 	exported := ts.Name.IsExported()
 	qualifiedName := pkgDir + "." + name
-	ctx := resolveCtx{pkgDir: pkgDir, mods: mods, imports: fileImports}
+	ctx := resolveCtx{pkgDir: pkgDir, mods: mods, imports: fileImports, localPkgs: pkgNames}
 
 	var kind string
 	var implements []string
@@ -718,7 +719,7 @@ func (e *GoExtractor) extractTypeSpec(fset *token.FileSet, gd *ast.GenDecl, ts *
 						continue // predeclared, or a type parameter: nothing declared
 					}
 					target := resolveTypeName(typeStr, ctx)
-					if isInternalTypeTarget(target, pkgDir) && !slices.Contains(instantiates, target) {
+					if isTrackedTypeTarget(target, ctx) && !slices.Contains(instantiates, target) {
 						instantiates = append(instantiates, target)
 					}
 				}
@@ -826,6 +827,10 @@ type resolveCtx struct {
 	// Every name this package declares at top level: functions, types, variables
 	// and constants. nil where a pass does not collect it.
 	pkgScope map[string]bool
+	// This module's package directories (pkgDir → package name), which tell its own
+	// packages from the standard library's: both are written as plain paths
+	// ("internal/app", "net/http"). nil where a pass does not need it.
+	localPkgs map[string]string
 }
 
 // bodyMetrics holds the call list and the per-function complexity signals
@@ -1133,9 +1138,10 @@ func analyzeBody(body ast.Node, ctx resolveCtx, selfName string, params map[stri
 			// A composite literal `T{...}` / `&T{...}` uses (instantiates) type T.
 			// Type usage is otherwise not edge-tracked, so an internal struct used
 			// only as a literal reads as a dead-code false positive. Emit a usage
-			// edge, guarded to module-internal types so we never point at stdlib or
-			// third-party types (which would create phantom "used" marks).
-			if t := compositeLitType(x, ctx); t != "" && isInternalTypeTarget(t, ctx.pkgDir) && !instSeen[t] {
+			// edge to a module-internal type, or to another module's type under its
+			// import path, which is how a library loaded beside it is reached; never
+			// to a stdlib type.
+			if t := compositeLitType(x, ctx); t != "" && isTrackedTypeTarget(t, ctx) && !instSeen[t] {
 				instSeen[t] = true
 				m.instantiates = append(m.instantiates, t)
 			}
@@ -1262,20 +1268,44 @@ func referencesLoopVar(expr ast.Expr, scopes []loopScope) bool {
 	return found
 }
 
-// isInternalTypeTarget reports whether a resolved type target (pkg.Type) names a
-// module-internal type — either the same package, or an internal subpackage whose
-// path segment contains "/" but no domain "." (excluding stdlib single-segment
-// packages like "bytes" and third-party paths like "github.com/x/y"). Conservative:
-// it may miss an internal package located at a single-segment repo-root dir, which
-// only forgoes an edge (never creates a wrong one).
-func isInternalTypeTarget(resolved, pkgDir string) bool {
+// isTrackedTypeTarget reports a type a usage edge may point at: one of this module's,
+// or one under another module's import path ("github.com/acme/auth.Config"), which a
+// snapshot holding that module as another repository resolves to its declaration. A
+// standard library type gets none.
+func isTrackedTypeTarget(resolved string, ctx resolveCtx) bool {
+	return isInternalTypeTarget(resolved, ctx) || isOtherModuleType(resolved)
+}
+
+// isOtherModuleType reports a type named under another Go module's import path: its
+// package path starts with a host ("github.com/…").
+func isOtherModuleType(resolved string) bool {
 	i := strings.LastIndex(resolved, ".")
 	if i < 0 {
 		return false
 	}
 	pkg := resolved[:i]
-	if pkg == pkgDir {
+	host, _, ok := strings.Cut(pkg, "/")
+	return ok && strings.Contains(host, ".")
+}
+
+// isInternalTypeTarget reports whether a resolved type target (pkg.Type) names a type
+// of this module: the same package, or a package the module declares. A module's own
+// package and a standard library one are both written as plain paths ("internal/app",
+// "net/http"), so the module's package list decides. Without it, a path with a "/" and
+// no domain "." is taken as the module's, which misreads "net/http" and misses a
+// single-segment package at the repository root.
+func isInternalTypeTarget(resolved string, ctx resolveCtx) bool {
+	i := strings.LastIndex(resolved, ".")
+	if i < 0 {
+		return false
+	}
+	pkg := resolved[:i]
+	if pkg == ctx.pkgDir {
 		return true
+	}
+	if ctx.localPkgs != nil {
+		_, ok := ctx.localPkgs[pkg]
+		return ok
 	}
 	return strings.Contains(pkg, "/") && !strings.Contains(pkg, ".")
 }

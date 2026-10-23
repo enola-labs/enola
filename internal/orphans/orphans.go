@@ -363,6 +363,13 @@ func refCandidates(sym symInput) []string {
 	return out
 }
 
+// isForeignGoType reports a Go type target under another module's import path, the
+// form the Go extractor gives a type it does not declare ("github.com/acme/auth.Config").
+func isForeignGoType(target string) bool {
+	host, _, ok := strings.Cut(target, "/")
+	return ok && strings.Contains(host, ".")
+}
+
 // goImportName is a Go symbol's name under its module path, the inverse of the
 // graph's normalizeExternalTarget: a consumer in another repository keeps the import
 // path in its call targets and route handlers, while the library's own facts name the
@@ -1186,6 +1193,12 @@ func collect(store *facts.Store) ([]symInput, refIndex) {
 			case isUsageKind(r.Kind):
 				si.UsageOut = true
 				add(r.Target, f.Name)
+				// A Go type another module declares is matched by its import path
+				// only: its bare name would mark every same-named type in this
+				// repository used ("aws.Config{}" and a local Config).
+				if r.Kind == facts.RelInstantiates && strings.HasSuffix(f.File, ".go") && isForeignGoType(r.Target) {
+					continue
+				}
 				if seg := lastSeg(r.Target); seg != r.Target {
 					add(seg, f.Name)
 				}
