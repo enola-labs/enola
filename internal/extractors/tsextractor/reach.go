@@ -28,7 +28,11 @@ import (
 // code already reached; everything an entry file declares is reached; and a file's
 // top-level code runs once anything in it is reached. A function a symbol declares
 // by name in its body, a handler or a closure a hook builds, is a scope of its own,
-// reached the same way: by its name being used. A name two symbols share
+// reached the same way: by its name being used. Inside a symbol, binding a name is not
+// using it: `const { save } = useShop()` and a hook's `return { save }` pass save on,
+// and only a later read of save or shop.save uses it. A shorthand in any other object,
+// `useQuery({ queryFn })`, still counts, since a library calls it by key. A name two
+// symbols share
 // reaches both, so the pass errs toward reached, which is the safe direction for a
 // verdict that may drive an endpoint's removal.
 //
@@ -124,7 +128,7 @@ func collectReach(kinds *tsutil.KindTable, root *sitter.Node, src []byte, relFil
 		switch k {
 		case "identifier", "property_identifier", "shorthand_property_identifier",
 			"shorthand_property_identifier_pattern", "type_identifier":
-			if !isDeclaredName(kinds, n) {
+			if !isDeclaredName(kinds, n) && !bindsWithoutUse(kinds, n, src, current, owner) {
 				name := nodeText(n, src)
 				if current == "" {
 					r.top[name] = true
@@ -190,6 +194,74 @@ func localFunctionName(kinds *tsutil.KindTable, fn *sitter.Node, src []byte) str
 		return nodeText(name, src)
 	}
 	return ""
+}
+
+// bindsWithoutUse reports a name inside a symbol that is bound or passed on rather than
+// read: a destructured name, `const { save } = …`, and a shorthand in the object a hook
+// returns, `return { save }`, directly or through `useMemo(() => ({ save }), deps)`.
+func bindsWithoutUse(kinds *tsutil.KindTable, n *sitter.Node, src []byte, current string, owner map[uint]string) bool {
+	if current == "" {
+		return false
+	}
+	switch kindOf(kinds, n) {
+	case "shorthand_property_identifier_pattern":
+		return true
+	case "shorthand_property_identifier":
+	default:
+		return false
+	}
+	if strings.Contains(current, localScopeSep) || !isHookName(shortName(current)) {
+		return false
+	}
+	obj := n.Parent()
+	if obj == nil || kindOf(kinds, obj) != "object" || obj.Parent() == nil {
+		return false
+	}
+	var fn *sitter.Node
+	switch p := obj.Parent(); kindOf(kinds, p) {
+	case "return_statement":
+		fn = enclosingFunction(kinds, p)
+	case "parenthesized_expression":
+		if a := p.Parent(); a != nil && kindOf(kinds, a) == "arrow_function" {
+			if body := a.ChildByFieldName("body"); body != nil && body.StartByte() == p.StartByte() {
+				fn = a
+			}
+		}
+	}
+	if fn == nil {
+		return false
+	}
+	if owner[fn.StartByte()] == current {
+		return true
+	}
+	args := fn.Parent()
+	if args == nil || kindOf(kinds, args) != "arguments" {
+		return false
+	}
+	call := args.Parent()
+	if call == nil || kindOf(kinds, call) != "call_expression" {
+		return false
+	}
+	callee := call.ChildByFieldName("function")
+	if callee == nil || (nodeText(callee, src) != "useMemo" && nodeText(callee, src) != "React.useMemo") {
+		return false
+	}
+	ret := call.Parent()
+	if ret == nil || kindOf(kinds, ret) != "return_statement" {
+		return false
+	}
+	outer := enclosingFunction(kinds, ret)
+	return outer != nil && owner[outer.StartByte()] == current
+}
+
+// enclosingFunction is the nearest function around n.
+func enclosingFunction(kinds *tsutil.KindTable, n *sitter.Node) *sitter.Node {
+	for p := n.Parent(); p != nil; p = p.Parent() {
+		if tsFunctionKinds[kindOf(kinds, p)] {
+			return p
+		}
+	}
+	return nil
 }
 
 // importsOf records a file's static imports and re-exports: every file it imports, the
