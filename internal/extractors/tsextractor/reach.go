@@ -154,8 +154,12 @@ func collectReach(kinds *tsutil.KindTable, root *sitter.Node, src []byte, relFil
 				if sym != current {
 					current, mode = sym, plainUse
 				}
-			} else if name := localFunctionName(kinds, n, src); name != "" && current != "" {
-				current += localScopeSep + name
+			} else if name := localFunctionName(kinds, n, src); name != "" && (current != "" || isDefinedMethod(kinds, n, src)) {
+				base := current
+				if base == "" {
+					base = relFile // a method an object at the top of the file defines
+				}
+				current = base + localScopeSep + name
 				mode = plainUse
 				r.locals[current] = name
 				r.spans = append(r.spans, localSpan{current, int(n.StartPosition().Row) + 1, int(n.EndPosition().Row) + 1})
@@ -247,6 +251,9 @@ func localFunctionName(kinds *tsutil.KindTable, fn *sitter.Node, src []byte) str
 		}
 		return ""
 	}
+	if name := definedMethodName(kinds, fn, src); name != "" {
+		return name
+	}
 	value := fn
 	if p := fn.Parent(); p != nil && kindOf(kinds, p) == "arguments" {
 		call := p.Parent()
@@ -270,6 +277,67 @@ func localFunctionName(kinds *tsutil.KindTable, fn *sitter.Node, src []byte) str
 		return nodeText(name, src)
 	}
 	return ""
+}
+
+// definedMethodName is the key a function is defined under in an object that is
+// returned or assigned, not handed to a call: a store's methods
+// (create((set, get) => ({ load: async () => … }))), an API object's. Such a function
+// runs when its name is called, not when the object is built. A wrapper call around
+// it (withAsyncWrapper('key', async () => …, set)) is part of the definition. An object passed to
+// a call is a library's options, whose functions the library calls by key, and is left
+// to the code around it.
+func definedMethodName(kinds *tsutil.KindTable, fn *sitter.Node, src []byte) string {
+	if kindOf(kinds, fn) == "method_definition" {
+		if obj := fn.Parent(); obj != nil && kindOf(kinds, obj) == "object" && objectDefines(kinds, obj) {
+			if name := fn.ChildByFieldName("name"); name != nil {
+				return nodeText(name, src)
+			}
+		}
+		return ""
+	}
+	value := fn
+	if p := fn.Parent(); p != nil && kindOf(kinds, p) == "arguments" {
+		if call := p.Parent(); call != nil && kindOf(kinds, call) == "call_expression" {
+			value = call
+		}
+	}
+	pair := value.Parent()
+	if pair == nil || kindOf(kinds, pair) != "pair" {
+		return ""
+	}
+	if v := pair.ChildByFieldName("value"); v == nil || v.StartByte() != value.StartByte() || v.EndByte() != value.EndByte() {
+		return ""
+	}
+	obj := pair.Parent()
+	if obj == nil || kindOf(kinds, obj) != "object" || !objectDefines(kinds, obj) {
+		return ""
+	}
+	if k := pair.ChildByFieldName("key"); k != nil && kindOf(kinds, k) != "computed_property_name" {
+		return strings.Trim(nodeText(k, src), `"'`)
+	}
+	return ""
+}
+
+// objectDefines reports an object that is returned from a function or assigned to a
+// name, rather than handed to a call.
+func objectDefines(kinds *tsutil.KindTable, obj *sitter.Node) bool {
+	p := obj.Parent()
+	if p == nil {
+		return false
+	}
+	switch kindOf(kinds, p) {
+	case "return_statement", "variable_declarator":
+		return true
+	case "parenthesized_expression":
+		a := p.Parent()
+		return a != nil && kindOf(kinds, a) == "arrow_function"
+	}
+	return false
+}
+
+// isDefinedMethod reports a function definedMethodName names.
+func isDefinedMethod(kinds *tsutil.KindTable, fn *sitter.Node, src []byte) bool {
+	return definedMethodName(kinds, fn, src) != ""
 }
 
 // bindsWithoutUse reports a name inside a symbol that is bound or passed on rather than
@@ -692,6 +760,11 @@ func markClientReachability(ff []facts.Fact, files []*fileReach, fw tsFrameworks
 		}
 	}
 	runFile = func(r *fileReach, t trigger) {
+		// A module's top level runs once, as it loads: whatever reached something in it,
+		// a poll or a click, it runs on load, on every page if that reached it there.
+		if t.rank >= rankAction {
+			t = trigger{rank: rankMount, everyPage: t.everyPage}
+		}
 		if r == nil || !t.better(fileVal[r.file]) {
 			return
 		}

@@ -416,3 +416,41 @@ export default function Page() { return <button onClick={() => reception.fetchNo
 		}
 	}
 }
+
+// A store's methods are defined in the object its creator returns, often through a
+// wrapper (withAsyncWrapper('key', async () => …, set)). Defining a method does not
+// run it: one nothing calls by name never sends its request, and a poll that reaches
+// one method of the store polls that method, not every request the store file holds.
+func TestStoreMethodsRunWhenCalled(t *testing.T) {
+	files := map[string]string{
+		"package.json": `{"dependencies": {"next": "14.0.0", "react": "18.2.0"}}`,
+		"src/app/layout.tsx": `
+import { useEffect } from 'react';
+import { useTickets } from '@/stores/tickets';
+export default function RootLayout({ children }) {
+  useEffect(() => { const id = setInterval(() => useTickets.getState().loadMine(), 60000); return () => clearInterval(id); }, []);
+  return children;
+}
+`,
+		"src/stores/tickets.ts": `
+import { create } from 'zustand';
+const withAsyncWrapper = (key, fn, set) => fn;
+export const useTickets = create((set, get) => ({
+  loadMine: withAsyncWrapper('tickets', async () => { await fetch('/api/tickets/mine'); }, set),
+  loadByStatus: withAsyncWrapper('tickets', async (s) => { await fetch(` + "`/api/tickets/status/${s}`" + `); }, set),
+  removeAll: async () => { await fetch('/api/tickets', { method: 'DELETE' }); },
+}));
+`,
+	}
+	ff := extractTSRepo(t, files)
+	reach := clientReach(t, ff)
+	triggers := clientTriggers(t, ff)
+	if reach["GET /api/tickets/mine"] != true || triggers["GET /api/tickets/mine"] != "poll every-page 60000ms" {
+		t.Errorf("loadMine is polled from the root layout: reachable %v, trigger %q", reach["GET /api/tickets/mine"], triggers["GET /api/tickets/mine"])
+	}
+	for _, k := range []string{"GET /api/tickets/status/{}", "DELETE /api/tickets"} {
+		if reach[k] != false {
+			t.Errorf("%s: a store method nothing calls never runs, client_reachable = %v (triggers %v)", k, reach[k], triggers)
+		}
+	}
+}

@@ -143,6 +143,14 @@ that is not a parameter (zustand's `get`) and is declared in at most two files, 
 bare call resolved in its own file first; a call reached only by name otherwise is
 `client_reachable` with no trigger, rather than a guessed one.
 
+A function defined as a property of an object that is returned or assigned, a store's
+methods (`create((set, get) => ({ load: withAsyncWrapper('k', async () => …, set) }))`),
+runs when its name is called, as a local function does, not when the object is built:
+a store method nothing calls never sends its request. An object handed to a call keeps
+its functions with the code around them, since a library calls them by key. A module's
+top level runs once as it loads, so it passes on `mount`, never the poll or action that
+reached something in the module.
+
 ```
 route  /api/settings/items/{}/with-images  src/lib/api/shop.ts:161
        props: role=client, caller=src/lib/api.ShopApiClient.getItemWithImages, client_reachable=true
