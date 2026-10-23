@@ -3133,7 +3133,10 @@ import (
 // assigned (a store's methods, also through a wrapper call) runs when its name is
 // called, not when the object is built; a module's top level runs on load, so it
 // passes on mount, never the poll or action that reached something in it.
-const cacheVersion = "v440"
+// v441: Go: a retry loop (a counter bounded by a literal, a constant or a configured
+// field, never picking out an item, leaving once the call succeeds) is no scaling
+// loop: a call in it repeats one request, not one per element.
+const cacheVersion = "v441"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
