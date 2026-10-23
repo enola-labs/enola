@@ -40,6 +40,7 @@ func (e *Explainer) Explain(_ context.Context, store *facts.Store) ([]facts.Insi
 	funcs, storage, routeHandlers, assoc := collect(store)
 	findings := analyze(funcs, storage, routeHandlers, assoc)
 	attachRoutes(store, findings)
+	sortFindings(findings)
 	return findingsToInsights(findings), nil
 }
 
@@ -112,7 +113,11 @@ func routesSentence(f Finding) string {
 	if f.RoutesTotal > len(f.Routes) {
 		more = fmt.Sprintf(" and %d more", f.RoutesTotal-len(f.Routes))
 	}
-	return fmt.Sprintf(" Reached from %d route(s): %s%s.", f.RoutesTotal, strings.Join(f.Routes, ", "), more)
+	s := fmt.Sprintf(" Reached from %d route(s): %s%s.", f.RoutesTotal, strings.Join(f.Routes, ", "), more)
+	if f.Traffic != "" {
+		s += " Client traffic: " + f.Traffic + "."
+	}
+	return s
 }
 
 // caveatFor is the sentence an insight ends on. A finding that states a Big-O says

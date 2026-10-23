@@ -1,6 +1,7 @@
 package perf
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 
@@ -39,6 +40,73 @@ type reachIndex struct {
 	graph         *facts.Graph
 	handlerRoutes map[string][]string // handler symbol → "METHOD /path" of the routes it serves
 	viaInterface  map[string][]string // "Impl.Method" → "Iface.Method" calls on which reach it
+	routeTraffic  map[string]traffic  // "METHOD /path" → the strongest client trigger it receives
+}
+
+// traffic is how clients run a route: the strongest trigger among the client calls
+// that match it, as the linker recorded it on the route.
+type traffic struct {
+	trigger   string
+	everyPage bool
+	ms        int
+	from      string // the client function behind the trigger
+	route     string
+}
+
+var trafficRank = map[string]int{facts.ClientTriggerPoll: 3, facts.ClientTriggerMount: 2, facts.ClientTriggerAction: 1}
+
+// order is a sort key: higher means more traffic. A trigger, then every page, then a
+// stated, shorter poll interval.
+func (t traffic) order() int {
+	o := trafficRank[t.trigger] << 40
+	if t.everyPage {
+		o |= 1 << 39
+	}
+	if t.ms > 0 && t.ms < 1<<38 {
+		o |= 1<<38 - t.ms
+	}
+	return o
+}
+
+// describe is the traffic in words, for a finding's label.
+func (t traffic) describe() string {
+	var what string
+	switch t.trigger {
+	case facts.ClientTriggerPoll:
+		what = "polled"
+		if t.ms > 0 {
+			what += " every " + interval(t.ms)
+		}
+	case facts.ClientTriggerMount:
+		what = "loaded with a page"
+	case facts.ClientTriggerAction:
+		what = "sent on a user action"
+	default:
+		return ""
+	}
+	if t.everyPage {
+		if t.trigger == facts.ClientTriggerMount {
+			what = "loaded on every page"
+		} else {
+			what += " on every page"
+		}
+	}
+	from := t.route
+	if t.from != "" {
+		from = t.from + ", " + t.route
+	}
+	return what + " (" + from + ")"
+}
+
+// interval renders a poll interval in the largest whole unit.
+func interval(ms int) string {
+	switch {
+	case ms%60000 == 0:
+		return fmt.Sprintf("%d min", ms/60000)
+	case ms%1000 == 0:
+		return fmt.Sprintf("%d s", ms/1000)
+	}
+	return fmt.Sprintf("%d ms", ms)
 }
 
 func newReachIndex(store *facts.Store) *reachIndex {
@@ -46,6 +114,7 @@ func newReachIndex(store *facts.Store) *reachIndex {
 		graph:         store.Graph(),
 		handlerRoutes: map[string][]string{},
 		viaInterface:  map[string][]string{},
+		routeTraffic:  map[string]traffic{},
 	}
 	for _, f := range store.ByKind(facts.KindRoute) {
 		if f.PropAny(facts.PropRole) == facts.RoleClient || f.Name == "" {
@@ -56,6 +125,17 @@ func newReachIndex(store *facts.Store) *reachIndex {
 			continue // middleware: no single route
 		}
 		label := strings.TrimSpace(method + " " + f.Name)
+		if t := f.PropString(facts.PropClientTrigger); trafficRank[t] > 0 {
+			ms, _ := f.PropAny(facts.PropClientPollMs).(int)
+			if fl, ok := f.PropAny(facts.PropClientPollMs).(float64); ok {
+				ms = int(fl)
+			}
+			tr := traffic{trigger: t, everyPage: f.PropAny(facts.PropClientEveryPage) == true, ms: ms,
+				from: f.PropString(facts.PropClientTriggerFrom), route: label}
+			if prev, ok := x.routeTraffic[label]; !ok || tr.order() > prev.order() {
+				x.routeTraffic[label] = tr
+			}
+		}
 		for _, r := range f.Relations {
 			if r.Kind == facts.RelHandledBy && r.Target != "" {
 				x.handlerRoutes[r.Target] = append(x.handlerRoutes[r.Target], label)
@@ -99,8 +179,9 @@ func newReachIndex(store *facts.Store) *reachIndex {
 }
 
 // routesReaching returns the routes whose handlers reach sym through calls, sorted,
-// at most maxRoutesShown of them, and how many there are in all.
-func (x *reachIndex) routesReaching(sym string) ([]string, int) {
+// at most maxRoutesShown of them, how many there are in all, and the strongest client
+// traffic among them.
+func (x *reachIndex) routesReaching(sym string) ([]string, int, traffic) {
 	seen := map[string]bool{sym: true}
 	frontier := []string{sym}
 	routes := map[string]bool{}
@@ -127,15 +208,19 @@ func (x *reachIndex) routesReaching(sym string) ([]string, int) {
 		frontier = next
 	}
 	out := make([]string, 0, len(routes))
+	var best traffic
 	for r := range routes {
 		out = append(out, r)
+		if t, ok := x.routeTraffic[r]; ok && (t.order() > best.order() || t.order() == best.order() && t.route < best.route) {
+			best = t
+		}
 	}
 	sort.Strings(out)
 	total := len(out)
 	if len(out) > maxRoutesShown {
 		out = out[:maxRoutesShown]
 	}
-	return out, total
+	return out, total, best
 }
 
 // attachRoutes sets Routes and RoutesTotal on every finding.
@@ -145,16 +230,18 @@ func attachRoutes(store *facts.Store, findings []Finding) {
 	}
 	x := newReachIndex(store)
 	cache := map[string]struct {
-		routes []string
-		total  int
+		routes  []string
+		total   int
+		traffic traffic
 	}{}
 	for i := range findings {
 		sym := findings[i].Symbol
 		c, ok := cache[sym]
 		if !ok {
-			c.routes, c.total = x.routesReaching(sym)
+			c.routes, c.total, c.traffic = x.routesReaching(sym)
 			cache[sym] = c
 		}
 		findings[i].Routes, findings[i].RoutesTotal = c.routes, c.total
+		findings[i].Traffic, findings[i].trafficOrder = c.traffic.describe(), c.traffic.order()
 	}
 }

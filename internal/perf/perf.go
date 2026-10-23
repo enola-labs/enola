@@ -245,6 +245,13 @@ type Finding struct {
 	// route reaches it: a job, a CLI command, or code nothing calls.
 	Routes      []string `json:"routes,omitempty"`
 	RoutesTotal int      `json:"routes_total,omitempty"`
+	// Traffic is, in words, the strongest way a client runs one of those routes:
+	// polled every minute on every page, loaded with a page, sent on a user action,
+	// with the client function and the route. Empty when no client trigger is known.
+	// Within a severity, findings sort by it first. It labels and orders; it never
+	// changes Severity.
+	Traffic      string `json:"traffic,omitempty"`
+	trafficOrder int
 }
 
 // CallEvidence is one call a call-in-loop finding names, and why it is there.
@@ -732,6 +739,7 @@ func Analyze(store *facts.Store) []Finding {
 	funcs, storage, routeHandlers, assoc := collect(store)
 	findings := analyze(funcs, storage, routeHandlers, assoc)
 	attachRoutes(store, findings)
+	sortFindings(findings)
 	return findings
 }
 
@@ -2588,6 +2596,9 @@ func sortFindings(f []Finding) {
 		if ri != rj {
 			return ri > rj
 		}
+		if f[i].trafficOrder != f[j].trafficOrder {
+			return f[i].trafficOrder > f[j].trafficOrder
+		}
 		if f[i].RiskScore != f[j].RiskScore {
 			return f[i].RiskScore > f[j].RiskScore
 		}
@@ -2992,6 +3003,9 @@ func renderPerfSummary(sum summary, findings []Finding, in args) string {
 				loc = fmt.Sprintf("%s (%s:%d)", f.Symbol, f.File, f.Line)
 			}
 			fmt.Fprintf(&b, "  [%s] %s %s — %s\n", f.Severity, f.Label(), loc, f.Kind)
+			if f.Traffic != "" {
+				fmt.Fprintf(&b, "      traffic: %s\n", f.Traffic)
+			}
 		}
 	}
 	return b.String()
@@ -3001,14 +3015,14 @@ func renderPerfSummary(sum summary, findings []Finding, in args) string {
 func renderPerfCompact(findings []Finding) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Performance findings — %d:\n\n", len(findings))
-	b.WriteString("| Severity | Risk | Estimate | Kind | Symbol | Location |\n")
-	b.WriteString("|----------|------|----------|------|--------|----------|\n")
+	b.WriteString("| Severity | Risk | Estimate | Kind | Symbol | Location | Traffic |\n")
+	b.WriteString("|----------|------|----------|------|--------|----------|---------|\n")
 	for _, f := range findings {
 		loc := f.File
 		if f.Line > 0 {
 			loc = fmt.Sprintf("%s:%d", f.File, f.Line)
 		}
-		fmt.Fprintf(&b, "| %s | %.2f | %s | %s | %s | %s |\n", f.Severity, f.RiskScore, f.Label(), f.Kind, f.Symbol, loc)
+		fmt.Fprintf(&b, "| %s | %.2f | %s | %s | %s | %s | %s |\n", f.Severity, f.RiskScore, f.Label(), f.Kind, f.Symbol, loc, f.Traffic)
 	}
 	return b.String()
 }
