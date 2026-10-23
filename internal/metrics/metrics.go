@@ -742,6 +742,19 @@ func ExcludedNote(typeless, excludedTestTooling int) string {
 	return fmt.Sprintf(" (%s excluded)", strings.Join(parts, ", "))
 }
 
+// CoverageNote says when the averages describe few of the packages: when more packages
+// declare no counted type than declare one, as in a TypeScript application, where only
+// classes count and most packages hold none. avg I and avg D are then numbers about a
+// small corner of the repository and read as if they were about all of it. Empty
+// otherwise, so a repository whose packages mostly have types reads as before.
+func CoverageNote(analyzed, typeless int) string {
+	if typeless <= analyzed {
+		return ""
+	}
+	return fmt.Sprintf("these averages cover %d of %d packages; the other %d declare no counted type, so A and D say nothing about them",
+		analyzed, analyzed+typeless, typeless)
+}
+
 // renderSummary is the default (token-light) view: aggregate package-health numbers
 // over the filtered set, mirroring the ExplainSection framing.
 //
@@ -769,6 +782,9 @@ func renderSummary(population, results []PackageMetric, excluded []string, pkg, 
 	b.WriteString(":\n")
 	fmt.Fprintf(&b, "  avg instability (I): %.2f\n", agg.avgI)
 	fmt.Fprintf(&b, "  avg distance (D):    %.2f\n", agg.avgD)
+	if note := CoverageNote(agg.analyzed, agg.typeless); note != "" {
+		fmt.Fprintf(&b, "  (%s)\n", note)
+	}
 	fmt.Fprintf(&b, "  off main sequence:   %d  (D > %.1f, N ≥ %d, rigid needs Ca ≥ %d — rigid or useless)\n", agg.offMain, painfulDistance, minPainfulTypes, agg.rigidCaFloor)
 	if agg.mostCoupled.Package != "" {
 		fmt.Fprintf(&b, "  most depended-upon:  %s (Ca=%d)\n", agg.mostCoupled.Package, agg.mostCoupled.Ca)

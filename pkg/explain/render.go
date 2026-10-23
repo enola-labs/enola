@@ -146,6 +146,9 @@ func (r *Report) Render() string {
 		fmt.Fprintf(&b, "  %-24s %6d%s\n", "packages analyzed", m.Analyzed, metrics.ExcludedNote(m.Typeless, m.ExcludedTestTooling))
 		fmt.Fprintf(&b, "  %-24s %6.2f\n", "avg instability (I)", m.AvgI)
 		fmt.Fprintf(&b, "  %-24s %6.2f\n", "avg distance (D)", m.AvgD)
+		if note := metrics.CoverageNote(m.Analyzed, m.Typeless); note != "" {
+			fmt.Fprintf(&b, "  (%s)\n", note)
+		}
 		// State the rigid corner's coupling bar rather than "coupled": it is now the
 		// threshold that decides most of this count, and it varies with the repository.
 		fmt.Fprintf(&b, "  %-24s %6d  (D > %.1f, N >= %d, rigid needs Ca >= %d)\n",
