@@ -1706,3 +1706,25 @@ func TestGoLibraryUsedFromAnotherRepository(t *testing.T) {
 		t.Error("..Sanitize is used by nothing and should stay an orphan")
 	}
 }
+
+// A Go struct another repository uses as a type ("goauth.LibraryConfig{…}") is used, the
+// edge arriving under the library's import path. That edge does not mark a same-named
+// struct of the consumer used.
+func TestGoLibraryTypeUsedFromAnotherRepository(t *testing.T) {
+	syms, refs := collectFromJSONL(t, `
+{"kind":"module","name":".","file":"auth/auth.go","repo":"auth","props":{"modulePath":"github.com/acme/auth"}}
+{"kind":"symbol","name":"..LibraryConfig","file":"auth/auth.go","repo":"auth","props":{"symbol_kind":"struct","exported":true},"relations":[{"kind":"declares","target":"."}]}
+{"kind":"symbol","name":"..RoleEntity","file":"auth/auth.go","repo":"auth","props":{"symbol_kind":"struct","exported":true},"relations":[{"kind":"declares","target":"."}]}
+{"kind":"symbol","name":"internal/cfg.LibraryConfig","file":"app/internal/cfg/cfg.go","repo":"app","props":{"symbol_kind":"struct","exported":true},"relations":[{"kind":"declares","target":"internal/cfg"}]}
+{"kind":"symbol","name":"pkg/auth.Setup","file":"app/pkg/auth/setup.go","repo":"app","props":{"symbol_kind":"function","exported":true},"relations":[{"kind":"declares","target":"pkg/auth"},{"kind":"instantiates","target":"github.com/acme/auth.LibraryConfig"}]}
+`)
+	got := orphansByName(classify(syms, refs, options{Mode: "both", Visibility: "all"}))
+	if o, ok := got["..LibraryConfig"]; ok {
+		t.Errorf("..LibraryConfig is instantiated from the other repository and must not be an orphan, got %+v", o)
+	}
+	for _, name := range []string{"..RoleEntity", "internal/cfg.LibraryConfig"} {
+		if _, ok := got[name]; !ok {
+			t.Errorf("%s is used by nothing and should stay an orphan", name)
+		}
+	}
+}

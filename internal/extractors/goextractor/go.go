@@ -718,7 +718,7 @@ func (e *GoExtractor) extractTypeSpec(fset *token.FileSet, gd *ast.GenDecl, ts *
 						continue // predeclared, or a type parameter: nothing declared
 					}
 					target := resolveTypeName(typeStr, ctx)
-					if isInternalTypeTarget(target, pkgDir) && !slices.Contains(instantiates, target) {
+					if isTrackedTypeTarget(target, pkgDir) && !slices.Contains(instantiates, target) {
 						instantiates = append(instantiates, target)
 					}
 				}
@@ -1133,9 +1133,10 @@ func analyzeBody(body ast.Node, ctx resolveCtx, selfName string, params map[stri
 			// A composite literal `T{...}` / `&T{...}` uses (instantiates) type T.
 			// Type usage is otherwise not edge-tracked, so an internal struct used
 			// only as a literal reads as a dead-code false positive. Emit a usage
-			// edge, guarded to module-internal types so we never point at stdlib or
-			// third-party types (which would create phantom "used" marks).
-			if t := compositeLitType(x, ctx); t != "" && isInternalTypeTarget(t, ctx.pkgDir) && !instSeen[t] {
+			// edge to a module-internal type, or to another module's type under its
+			// import path, which is how a library loaded beside it is reached; never
+			// to a stdlib type.
+			if t := compositeLitType(x, ctx); t != "" && isTrackedTypeTarget(t, ctx.pkgDir) && !instSeen[t] {
 				instSeen[t] = true
 				m.instantiates = append(m.instantiates, t)
 			}
@@ -1268,6 +1269,26 @@ func referencesLoopVar(expr ast.Expr, scopes []loopScope) bool {
 // packages like "bytes" and third-party paths like "github.com/x/y"). Conservative:
 // it may miss an internal package located at a single-segment repo-root dir, which
 // only forgoes an edge (never creates a wrong one).
+// isTrackedTypeTarget reports a type a usage edge may point at: one of this module's,
+// or one under another module's import path ("github.com/acme/auth.Config"), which a
+// snapshot holding that module as another repository resolves to its declaration.
+// A stdlib type has no dot in its first path segment and is left out.
+func isTrackedTypeTarget(resolved, pkgDir string) bool {
+	return isInternalTypeTarget(resolved, pkgDir) || isOtherModuleType(resolved)
+}
+
+// isOtherModuleType reports a type named under another Go module's import path: its
+// package path starts with a host ("github.com/…").
+func isOtherModuleType(resolved string) bool {
+	i := strings.LastIndex(resolved, ".")
+	if i < 0 {
+		return false
+	}
+	pkg := resolved[:i]
+	host, _, ok := strings.Cut(pkg, "/")
+	return ok && strings.Contains(host, ".")
+}
+
 func isInternalTypeTarget(resolved, pkgDir string) bool {
 	i := strings.LastIndex(resolved, ".")
 	if i < 0 {

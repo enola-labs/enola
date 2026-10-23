@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/enola-labs/enola/internal/facts"
@@ -900,6 +901,50 @@ func build() Config {
 		if r.Kind == facts.RelInstantiates && r.Target == "bytes.Buffer" {
 			t.Errorf("must not emit instantiates edge to external type bytes.Buffer")
 		}
+	}
+}
+
+// Another module's type, used as a composite literal or a field type through an import
+// alias, gets an edge under its import path: a snapshot that loads that module as
+// another repository resolves it to the declaration there. A stdlib type still gets none.
+func TestExtract_StructUsage_AnotherModulesType(t *testing.T) {
+	ff := extractAll(t, map[string]string{
+		"pkg/auth/setup.go": `package auth
+
+import (
+	"bytes"
+
+	goauth "github.com/acme/go-auth"
+)
+
+type Holder struct {
+	deps goauth.Dependencies
+}
+
+func Setup() {
+	_ = goauth.LibraryConfig{Name: "x"}
+	_ = bytes.Buffer{}
+}
+`,
+	})
+	setup, ok := findFact(ff, "pkg/auth.Setup")
+	if !ok {
+		t.Fatal("missing symbol pkg/auth.Setup")
+	}
+	if !hasRelation(setup, facts.RelInstantiates, "github.com/acme/go-auth.LibraryConfig") {
+		t.Errorf("want RelInstantiates github.com/acme/go-auth.LibraryConfig on Setup; relations = %v", setup.Relations)
+	}
+	for _, r := range setup.Relations {
+		if r.Kind == facts.RelInstantiates && strings.HasSuffix(r.Target, "Buffer") {
+			t.Errorf("must not emit an instantiates edge to the stdlib type %s", r.Target)
+		}
+	}
+	holder, ok := findFact(ff, "pkg/auth.Holder")
+	if !ok {
+		t.Fatal("missing symbol pkg/auth.Holder")
+	}
+	if !hasRelation(holder, facts.RelInstantiates, "github.com/acme/go-auth.Dependencies") {
+		t.Errorf("want RelInstantiates github.com/acme/go-auth.Dependencies on Holder; relations = %v", holder.Relations)
 	}
 }
 

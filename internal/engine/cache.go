@@ -3120,7 +3120,10 @@ import (
 // v436: Swift: a directory-to-directory edge synthesized from a type reference names
 // the file that makes the reference, not another file of the source directory, so a
 // layer finding on it points at code that uses the type.
-const cacheVersion = "v436"
+// v437: Go: a composite literal or field type of another module's type, named through
+// an import ("goauth.LibraryConfig{}"), gets an instantiates edge under its import
+// path, so a library loaded beside its consumer sees its types used.
+const cacheVersion = "v437"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
