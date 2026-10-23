@@ -3126,7 +3126,14 @@ import (
 // v438: Go: whether a type is the module's own is read from its package list, so a
 // standard library type with a slash in its path ("net/http.Server") gets no usage
 // edge, and a type in a single-directory package at the repository root gets one.
-const cacheVersion = "v438"
+// v439: TypeScript: a reachable client call carries how it is triggered: client_trigger
+// poll, mount or action, client_every_page, and client_poll_ms when the code states the
+// interval; read from timers, refetch intervals, event handlers and the root layout.
+// v440: TypeScript: a function defined as a property of an object that is returned or
+// assigned (a store's methods, also through a wrapper call) runs when its name is
+// called, not when the object is built; a module's top level runs on load, so it
+// passes on mount, never the poll or action that reached something in it.
+const cacheVersion = "v440"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

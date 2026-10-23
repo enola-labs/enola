@@ -77,7 +77,8 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 	// including, since Freeze made sharing load-bearing, every Props map and Relations
 	// slice — during linking, on every snapshot.
 	all := store.FactsRef()
-	evaluatedKeys, serverKeys, unreachedKeys := httpsignal.ServerRouteVerdicts(b.m, all)
+	verdicts := httpsignal.ServerRouteVerdictsWithTraffic(b.m, all)
+	evaluatedKeys, serverKeys, unreachedKeys := verdicts.Evaluated, verdicts.Unmatched, verdicts.Unreached
 	// GraphQL is a second seam with its own join, and until now its verdict was
 	// computed and discarded — the signal kept per-client coverage counters and
 	// recorded nothing about whether a DECLARED operation is consumed. The
@@ -147,6 +148,7 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 				f.DelProp(PropMatchedByClients)
 				f.DelProp(PropUnmatchedByClients)
 				f.DelProp(PropUnreachedByClients)
+				setTraffic(f, httpsignal.ClientTraffic{})
 			}
 			return
 		}
@@ -163,6 +165,7 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 			// unmatched once the next append changed the index carried both
 			// verdicts at once, on 3,433 routes of the estate.
 			f.DelProp(PropMatchedByClients)
+			setTraffic(f, httpsignal.ClientTraffic{})
 			flaggedServer++
 			return
 		}
@@ -179,6 +182,7 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 			f.DelProp(PropMatchedByClients)
 			f.DelProp(PropUnmatchedByClients)
 			f.DelProp(PropUnreachedByClients)
+			setTraffic(f, httpsignal.ClientTraffic{})
 			return
 		}
 		// A matched route says so, rather than merely stopping saying the
@@ -195,6 +199,7 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 		} else {
 			f.DelProp(PropUnreachedByClients)
 		}
+		setTraffic(f, verdicts.Traffic[identity])
 	})
 	if flaggedServer > 0 || flaggedClient > 0 || linkedClient > 0 {
 		log.Printf("[binder:unmatched-routes] flagged %d server route(s) unused by clients, %d called only from client code that never runs, %d client call(s) unresolved to a server; linked %d client call(s) to their server routes",
@@ -206,6 +211,28 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 // matchedRoutesProp renders a call's matches as the prop value: a []any of
 // map[string]any, the shape the value has after a round trip through facts.jsonl, so
 // a fact built here and one read back from disk are the same to every reader.
+// setTraffic writes, on a server route, the strongest trigger among the client calls
+// that match it, and clears what an earlier pass wrote when there is none, so the binder
+// stays idempotent across appends.
+func setTraffic(f *facts.Fact, t httpsignal.ClientTraffic) {
+	for _, p := range []string{facts.PropClientTrigger, facts.PropClientEveryPage, facts.PropClientPollMs, facts.PropClientTriggerFrom} {
+		f.DelProp(p)
+	}
+	if t.Trigger == "" {
+		return
+	}
+	f.SetProp(facts.PropClientTrigger, t.Trigger)
+	if t.EveryPage {
+		f.SetProp(facts.PropClientEveryPage, true)
+	}
+	if t.PollMs > 0 {
+		f.SetProp(facts.PropClientPollMs, t.PollMs)
+	}
+	if t.Caller != "" {
+		f.SetProp(facts.PropClientTriggerFrom, t.Caller)
+	}
+}
+
 func matchedRoutesProp(matches []httpsignal.RouteMatch) []any {
 	out := make([]any, 0, len(matches))
 	for _, m := range matches {

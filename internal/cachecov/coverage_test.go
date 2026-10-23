@@ -34,6 +34,8 @@ import (
 // implicit baseline (no changelog line), so coverage starts at v2.
 var versionCoverage = map[int][]string{
 	// Go implementers from constructors and typed method sets; database calls and cursor reads marked
+	440: {"TestStoreMethodsRunWhenCalled"},
+	439: {"TestClientTriggers"},
 	438: {"TestExtract_StructUsage_StdlibAndRootPackages"},
 	437: {"TestExtract_StructUsage_AnotherModulesType"},
 	436: {"TestSubdivide_IntraTargetEdgeNamesTheReferencingFile"},
