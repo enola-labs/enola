@@ -948,6 +948,56 @@ func Setup() {
 	}
 }
 
+// The module's own packages and the standard library are both written as plain paths
+// ("config", "net/http"). The module's package list tells them apart: a type from the
+// standard library gets no edge, however its path looks, and one from a package at the
+// repository root does.
+func TestExtract_StructUsage_StdlibAndRootPackages(t *testing.T) {
+	ff := extractAll(t, map[string]string{
+		"config/config.go": `package config
+
+type Settings struct{ Name string }
+`,
+		"internal/app/app.go": `package app
+
+import (
+	"encoding/json"
+	"net/http"
+
+	"testmod/config"
+)
+
+type Server struct {
+	dec  json.Decoder
+	conf config.Settings
+}
+
+func run() {
+	_ = http.Server{}
+	_ = config.Settings{}
+}
+`,
+	})
+	run, ok := findFact(ff, "internal/app.run")
+	if !ok {
+		t.Fatal("missing symbol internal/app.run")
+	}
+	if !hasRelation(run, facts.RelInstantiates, "config.Settings") {
+		t.Errorf("want RelInstantiates config.Settings on run; relations = %v", run.Relations)
+	}
+	server, ok := findFact(ff, "internal/app.Server")
+	if !ok {
+		t.Fatal("missing symbol internal/app.Server")
+	}
+	for _, sym := range []facts.Fact{run, server} {
+		for _, r := range sym.Relations {
+			if r.Kind == facts.RelInstantiates && (r.Target == "net/http.Server" || r.Target == "encoding/json.Decoder") {
+				t.Errorf("%s: must not emit an instantiates edge to the stdlib type %s", sym.Name, r.Target)
+			}
+		}
+	}
+}
+
 // A pure-data struct referenced only as another struct's field type must get a
 // RelInstantiates edge from the owning struct.
 func TestExtract_StructUsage_FieldType(t *testing.T) {

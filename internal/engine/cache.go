@@ -3123,7 +3123,10 @@ import (
 // v437: Go: a composite literal or field type of another module's type, named through
 // an import ("goauth.LibraryConfig{}"), gets an instantiates edge under its import
 // path, so a library loaded beside its consumer sees its types used.
-const cacheVersion = "v437"
+// v438: Go: whether a type is the module's own is read from its package list, so a
+// standard library type with a slash in its path ("net/http.Server") gets no usage
+// edge, and a type in a single-directory package at the repository root gets one.
+const cacheVersion = "v438"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
