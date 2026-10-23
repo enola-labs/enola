@@ -301,13 +301,14 @@ func (e *GoExtractor) extractPackage(fset *token.FileSet, pkgDir string, pp *par
 	// part of it.
 	pkgFuncs := collectPackageFuncs(pp.parsedFiles)
 	pkgScope := collectPackageScope(pp.parsedFiles)
+	pkgConsts := collectPackageConsts(pp.parsedFiles)
 
 	for _, relFile := range pp.relFiles {
 		f, ok := pp.fileMap[relFile]
 		if !ok {
 			continue
 		}
-		result = append(result, e.extractFile(fset, f, relFile, pkgDir, mods, fieldTypes, callTypes, pkgNames, grpcStubs, pkgVarClients, baseURLLits, routePrefixes, pkgFuncs, pkgScope)...)
+		result = append(result, e.extractFile(fset, f, relFile, pkgDir, mods, fieldTypes, callTypes, pkgNames, grpcStubs, pkgVarClients, baseURLLits, routePrefixes, pkgFuncs, pkgScope, pkgConsts)...)
 	}
 
 	// Kafka topics passed through a package constructor, whose declaration and
@@ -392,7 +393,7 @@ func isDocGo(rel string) bool {
 	return rel == "doc.go" || strings.HasSuffix(rel, "/doc.go")
 }
 
-func (e *GoExtractor) extractFile(fset *token.FileSet, f *ast.File, relFile, pkgDir string, mods goModules, fieldTypes map[string]string, callTypes callTypeTables, pkgNames map[string]string, grpcStubs *goGRPCStubIndex, pkgVarClients map[string]string, baseURLLits map[string][]string, routePrefixes routeIndex, pkgFuncs, pkgScope map[string]bool) []facts.Fact {
+func (e *GoExtractor) extractFile(fset *token.FileSet, f *ast.File, relFile, pkgDir string, mods goModules, fieldTypes map[string]string, callTypes callTypeTables, pkgNames map[string]string, grpcStubs *goGRPCStubIndex, pkgVarClients map[string]string, baseURLLits map[string][]string, routePrefixes routeIndex, pkgFuncs, pkgScope, pkgConsts map[string]bool) []facts.Fact {
 	var result []facts.Fact
 
 	// Build per-file import alias map for call resolution.
@@ -429,7 +430,7 @@ func (e *GoExtractor) extractFile(fset *token.FileSet, f *ast.File, relFile, pkg
 	for _, decl := range f.Decls {
 		switch d := decl.(type) {
 		case *ast.FuncDecl:
-			result = append(result, e.extractFunc(fset, d, relFile, pkgDir, mods, fileImports, fieldTypes, callTypes, pkgFuncs, pkgScope, pkgNames)...)
+			result = append(result, e.extractFunc(fset, d, relFile, pkgDir, mods, fileImports, fieldTypes, callTypes, pkgFuncs, pkgScope, pkgConsts, pkgNames)...)
 		case *ast.GenDecl:
 			result = append(result, e.extractGenDecl(fset, d, relFile, pkgDir, mods, fileImports, pkgScope, pkgNames)...)
 		}
@@ -459,7 +460,7 @@ func (e *GoExtractor) extractFile(fset *token.FileSet, f *ast.File, relFile, pkg
 	return result
 }
 
-func (e *GoExtractor) extractFunc(fset *token.FileSet, fn *ast.FuncDecl, relFile, pkgDir string, mods goModules, fileImports map[string]string, fieldTypes map[string]string, callTypes callTypeTables, pkgFuncs, pkgScope map[string]bool, pkgNames map[string]string) []facts.Fact {
+func (e *GoExtractor) extractFunc(fset *token.FileSet, fn *ast.FuncDecl, relFile, pkgDir string, mods goModules, fileImports map[string]string, fieldTypes map[string]string, callTypes callTypeTables, pkgFuncs, pkgScope, pkgConsts map[string]bool, pkgNames map[string]string) []facts.Fact {
 	var result []facts.Fact
 
 	name := fn.Name.Name
@@ -532,6 +533,7 @@ func (e *GoExtractor) extractFunc(fset *token.FileSet, fn *ast.FuncDecl, relFile
 			fieldTypes: fieldTypes,
 			pkgFuncs:   pkgFuncs,
 			pkgScope:   pkgScope,
+			pkgConsts:  pkgConsts,
 			localPkgs:  pkgNames,
 
 			returnTypes: callTypes.returns,
@@ -827,6 +829,9 @@ type resolveCtx struct {
 	// Every name this package declares at top level: functions, types, variables
 	// and constants. nil where a pass does not collect it.
 	pkgScope map[string]bool
+	// The constants this package declares, which bound a retry loop where a variable
+	// holding a collection's size would not. nil where a pass does not collect it.
+	pkgConsts map[string]bool
 	// This module's package directories (pkgDir → package name), which tell its own
 	// packages from the standard library's: both are written as plain paths
 	// ("internal/app", "net/http"). nil where a pass does not need it.
@@ -947,7 +952,7 @@ func analyzeBody(body ast.Node, ctx resolveCtx, selfName string, params map[stri
 			// loop runs a constant number of times, so a query inside it is not an
 			// N+1 candidate, while a shared-cursor loop runs as many times as the
 			// scan it is part of and stays one.
-			constBounded := goForConstBounded(x)
+			constBounded := goForConstBounded(x) || goForRetryLoop(x, ctx.pkgConsts, ctx.imports)
 			sharesCursor := goForSharesOuterCursor(x, loopScopes)
 			// A loop draining what an enclosing batch loop fetched this round is
 			// that loop's hierarchical inner loop (batchloop.go).
@@ -1988,6 +1993,27 @@ func namedTypesIn(expr ast.Expr, out []string) []string {
 
 // collectPackageScope returns every name a package declares at top level:
 // functions (methods excluded), types, variables and constants.
+// collectPackageConsts returns the names of the constants a package declares.
+func collectPackageConsts(files []*ast.File) map[string]bool {
+	out := map[string]bool{}
+	for _, f := range files {
+		for _, decl := range f.Decls {
+			gd, ok := decl.(*ast.GenDecl)
+			if !ok || gd.Tok != token.CONST {
+				continue
+			}
+			for _, spec := range gd.Specs {
+				if vs, ok := spec.(*ast.ValueSpec); ok {
+					for _, n := range vs.Names {
+						out[n.Name] = true
+					}
+				}
+			}
+		}
+	}
+	return out
+}
+
 func collectPackageScope(files []*ast.File) map[string]bool {
 	out := collectPackageFuncs(files)
 	for _, f := range files {
@@ -2049,6 +2075,244 @@ func collectPackageFuncs(files []*ast.File) map[string]bool {
 // identifier here cannot be told from a variable without type information, and
 // reading `for i := 0; i < n; i++` as bounded would discount the commonest real
 // loop there is.
+// goForRetryLoop reports a retry loop: `for attempt := 0; attempt <= max; attempt++`
+// whose body leaves the loop once the operation succeeds, and whose counter picks
+// out no item: it is never an index, and never an argument to a call other than a
+// numeric conversion (the backoff's time.Duration(1<<uint(attempt))). Such a loop
+// repeats one operation until it works, at most a configured number of times; it does
+// not do one per element, so a call in it is no N+1 candidate. A paging loop passes
+// its counter to the fetch (fetch(page)), and a loop over a slice indexes with it, so
+// both stay what they were.
+func goForRetryLoop(x *ast.ForStmt, consts map[string]bool, imports map[string]string) bool {
+	if x.Init == nil || x.Cond == nil || x.Post == nil || x.Body == nil {
+		return false
+	}
+	// The bound is a configured limit: a number, a field or another package's constant
+	// (c.config.MaxRetries), or a constant of this package (claimConflictRetries). A
+	// length, a computed value or a compound condition bounds a walk over input.
+	cmp, ok := x.Cond.(*ast.BinaryExpr)
+	if !ok || (cmp.Op != token.LSS && cmp.Op != token.LEQ) {
+		return false
+	}
+	// A field of a variable (c.config.MaxRetries) may be a configured limit or input
+	// (opts.LineStart); the loop must then also leave on success, as a retry does and a
+	// walk over input, which leaves on its end or an error, does not.
+	needsSuccessExit := false
+	switch b := cmp.Y.(type) {
+	case *ast.BasicLit:
+		if b.Kind != token.INT {
+			return false
+		}
+	case *ast.SelectorExpr:
+		imported := false
+		if root, ok := b.X.(*ast.Ident); ok {
+			_, imported = imports[root.Name]
+		}
+		needsSuccessExit = !imported
+	case *ast.Ident:
+		if !consts[b.Name] {
+			return false
+		}
+	default:
+		return false
+	}
+	as, ok := x.Init.(*ast.AssignStmt)
+	if !ok || as.Tok != token.DEFINE || len(as.Lhs) != 1 || len(as.Rhs) != 1 || !isIntLiteral(as.Rhs[0]) {
+		return false
+	}
+	name, ok := identNameOf(as.Lhs[0])
+	if !ok {
+		return false
+	}
+	if n, ok := identNameOf(cmp.X); !ok || n != name {
+		return false
+	}
+	if inc, ok := x.Post.(*ast.IncDecStmt); !ok || inc.Tok != token.INC {
+		return false
+	} else if n, ok := identNameOf(inc.X); !ok || n != name {
+		return false
+	}
+	exits, picksItem, successExit := false, false, false
+	var visit func(n ast.Node, inIf bool) bool
+	visit = func(n ast.Node, inIf bool) bool {
+		ast.Inspect(n, func(c ast.Node) bool {
+			switch v := c.(type) {
+			case *ast.FuncLit:
+				return false // a closure's statements do not leave this loop
+			case *ast.IfStmt:
+				if v != n {
+					if comparesToNil(v.Cond, token.EQL) && leaves(v.Body) {
+						successExit = true
+					}
+					if v.Init != nil {
+						visit(v.Init, inIf)
+					}
+					visit(v.Cond, inIf)
+					visit(v.Body, true)
+					if v.Else != nil {
+						visit(v.Else, true)
+					}
+					return false
+				}
+			case *ast.ReturnStmt:
+				if inIf {
+					exits = true
+				}
+			case *ast.BranchStmt:
+				if inIf && v.Tok == token.BREAK && v.Label == nil {
+					exits = true
+				}
+			case *ast.ForStmt, *ast.RangeStmt, *ast.SwitchStmt, *ast.TypeSwitchStmt, *ast.SelectStmt:
+				// A break in a nested loop or switch leaves that, not this loop; a
+				// return still leaves it, which the walk below the nested node finds.
+				if c != n {
+					visitNoBreak(c, func(found bool) { exits = exits || found && inIf }, &picksItem, name)
+					return false
+				}
+			case *ast.IndexExpr:
+				if usesIdent(v.Index, name) {
+					picksItem = true
+				}
+			case *ast.SliceExpr:
+				if usesIdent(v.Low, name) || usesIdent(v.High, name) || usesIdent(v.Max, name) {
+					picksItem = true
+				}
+			case *ast.CallExpr:
+				if !isNumericConversion(v) {
+					for _, a := range v.Args {
+						if usesIdentOutsideConversions(a, name) {
+							picksItem = true
+						}
+					}
+				}
+			case *ast.AssignStmt:
+				for _, l := range v.Lhs {
+					if usesIdent(l, name) {
+						picksItem = true // the counter is moved in the body: not a plain count
+					}
+				}
+			}
+			return true
+		})
+		return true
+	}
+	visit(x.Body, false)
+	return exits && !picksItem && (!needsSuccessExit || successExit)
+}
+
+// comparesToNil reports a condition with a comparison to nil by op: err == nil.
+func comparesToNil(cond ast.Expr, op token.Token) bool {
+	found := false
+	ast.Inspect(cond, func(c ast.Node) bool {
+		if b, ok := c.(*ast.BinaryExpr); ok && b.Op == op {
+			if id, ok := b.Y.(*ast.Ident); ok && id.Name == "nil" {
+				found = true
+			}
+		}
+		return !found
+	})
+	return found
+}
+
+// leaves reports a block that returns or breaks out of the loop directly.
+func leaves(b *ast.BlockStmt) bool {
+	for _, st := range b.List {
+		switch v := st.(type) {
+		case *ast.ReturnStmt:
+			return true
+		case *ast.BranchStmt:
+			if v.Tok == token.BREAK && v.Label == nil {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// visitNoBreak walks a nested loop, switch or select inside a retry loop's body: a
+// return there still leaves the retry loop, a break does not, and the counter's uses
+// count the same.
+func visitNoBreak(n ast.Node, returned func(bool), picksItem *bool, name string) {
+	ast.Inspect(n, func(c ast.Node) bool {
+		switch v := c.(type) {
+		case *ast.FuncLit:
+			return false
+		case *ast.ReturnStmt:
+			returned(true)
+		case *ast.IndexExpr:
+			if usesIdent(v.Index, name) {
+				*picksItem = true
+			}
+		case *ast.CallExpr:
+			if !isNumericConversion(v) {
+				for _, a := range v.Args {
+					if usesIdentOutsideConversions(a, name) {
+						*picksItem = true
+					}
+				}
+			}
+		}
+		return true
+	})
+}
+
+// usesIdent reports whether an expression mentions the identifier name.
+func usesIdent(e ast.Node, name string) bool {
+	if e == nil {
+		return false
+	}
+	found := false
+	ast.Inspect(e, func(c ast.Node) bool {
+		if id, ok := c.(*ast.Ident); ok && id.Name == name {
+			found = true
+		}
+		return !found
+	})
+	return found
+}
+
+// usesIdentOutsideConversions is usesIdent, not counting a mention inside a numeric
+// conversion: time.Sleep(d * time.Duration(1<<uint(attempt))) computes a delay from the
+// counter, it does not hand the counter over.
+func usesIdentOutsideConversions(e ast.Node, name string) bool {
+	if e == nil {
+		return false
+	}
+	found := false
+	ast.Inspect(e, func(c ast.Node) bool {
+		if call, ok := c.(*ast.CallExpr); ok && isNumericConversion(call) {
+			return false
+		}
+		if id, ok := c.(*ast.Ident); ok && id.Name == name {
+			found = true
+		}
+		return !found
+	})
+	return found
+}
+
+// numericTypes are the conversions a backoff computes a delay with.
+var numericTypes = map[string]bool{
+	"int": true, "int8": true, "int16": true, "int32": true, "int64": true,
+	"uint": true, "uint8": true, "uint16": true, "uint32": true, "uint64": true,
+	"float32": true, "float64": true, "Duration": true,
+}
+
+// isNumericConversion reports a call that converts one value to a numeric type:
+// uint(attempt), time.Duration(n).
+func isNumericConversion(c *ast.CallExpr) bool {
+	if len(c.Args) != 1 {
+		return false
+	}
+	switch f := c.Fun.(type) {
+	case *ast.Ident:
+		return numericTypes[f.Name]
+	case *ast.SelectorExpr:
+		return numericTypes[f.Sel.Name]
+	}
+	return false
+}
+
 func goForConstBounded(x *ast.ForStmt) bool {
 	if x.Init == nil || x.Cond == nil || x.Post == nil {
 		return false

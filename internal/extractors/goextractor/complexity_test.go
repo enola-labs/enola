@@ -682,3 +682,156 @@ func (h *Holder) Walk() int {
 		t.Errorf("pkg.OverGlobal: loops_over_param = true, want false")
 	}
 }
+
+// A retry loop repeats one request until it succeeds, at most a configured number of
+// times: its counter picks out no item and its body leaves once the call works. A call
+// in it is not one per element. A paging loop passes its counter to the fetch and a
+// counted loop over a slice indexes with it; both stay N+1 candidates.
+func TestExtract_CallsInScalingLoop_RetryLoopExcluded(t *testing.T) {
+	ff := extractAll(t, map[string]string{
+		"pkg/client.go": `package pkg
+
+import (
+	"net/http"
+	"time"
+)
+
+type Client struct {
+	hc         *http.Client
+	maxRetries int
+	delay      time.Duration
+}
+
+func (c *Client) doWithRetry(req *http.Request) (*http.Response, error) {
+	var resp *http.Response
+	var err error
+	for attempt := 0; attempt <= c.maxRetries; attempt++ {
+		if attempt > 0 {
+			time.Sleep(c.delay * time.Duration(1<<uint(attempt-1)))
+		}
+		resp, err = c.hc.Do(req)
+		if err == nil && resp.StatusCode < 500 {
+			return resp, nil
+		}
+	}
+	return resp, err
+}
+
+func (c *Client) FetchAll(pages int) {
+	for page := 0; page < pages; page++ {
+		rows := fetchPage(page)
+		if len(rows) == 0 {
+			break
+		}
+	}
+}
+
+func (c *Client) SaveEach(ids []int) {
+	for i := 0; i < len(ids); i++ {
+		save(ids[i])
+		if ids[i] < 0 {
+			return
+		}
+	}
+}
+
+func fetchPage(page int) []int { return nil }
+func save(id int)               {}
+`,
+	})
+	retry, _ := findFact(ff, "pkg.Client.doWithRetry")
+	if got := strSliceProp(retry, "calls_in_scaling_loop"); len(got) != 0 {
+		t.Errorf("doWithRetry: calls_in_scaling_loop = %v, want none (a retry loop)", got)
+	}
+	paging, _ := findFact(ff, "pkg.Client.FetchAll")
+	if got := strSliceProp(paging, "calls_in_scaling_loop"); !containsStr(got, "pkg.fetchPage") {
+		t.Errorf("FetchAll: calls_in_scaling_loop = %v, want fetchPage (the counter is the page)", got)
+	}
+	each, _ := findFact(ff, "pkg.Client.SaveEach")
+	if got := strSliceProp(each, "calls_in_scaling_loop"); !containsStr(got, "pkg.save") {
+		t.Errorf("SaveEach: calls_in_scaling_loop = %v, want save (the counter indexes ids)", got)
+	}
+}
+
+// A loop that leaves early is not a retry loop unless its bound is a configured limit:
+// a package constant is one; a length, a converted value, a sum or a parameter bound a
+// walk over input, and a call in such a walk stays an N+1 candidate.
+func TestExtract_CallsInScalingLoop_RetryNeedsAConfiguredBound(t *testing.T) {
+	ff := extractAll(t, map[string]string{
+		"pkg/walks.go": `package pkg
+
+const claimRetries = 3
+
+func Claim() {
+	for attempt := 0; attempt < claimRetries; attempt++ {
+		if tryClaim() == nil {
+			return
+		}
+	}
+}
+
+func Streams(r []byte, streamCount uint32) {
+	for i := 0; i < int(streamCount); i++ {
+		if readStream(r) {
+			return
+		}
+	}
+}
+
+func Lines(idx, chunk int) {
+	for line := 0; line < idx+chunk; line++ {
+		if readLine() {
+			break
+		}
+	}
+}
+
+func Statuses(statuses []int) {
+	for i := 0; i < len(statuses); i++ {
+		if resolveOnce() {
+			break
+		}
+	}
+}
+
+type previewOpts struct{ LineStart int }
+
+func SkipLines(opts previewOpts) {
+	for i := 1; i < opts.LineStart; i++ {
+		if err := readLineErr(); err != nil {
+			return
+		}
+	}
+}
+
+func readLineErr() error { return nil }
+
+func Bytes(length int) {
+	for c := 0; c < length; c++ {
+		if writeByte() {
+			return
+		}
+	}
+}
+
+func tryClaim() error          { return nil }
+func readStream(r []byte) bool { return false }
+func readLine() bool           { return false }
+func resolveOnce() bool        { return false }
+func writeByte() bool          { return false }
+`,
+	})
+	claim, _ := findFact(ff, "pkg.Claim")
+	if got := strSliceProp(claim, "calls_in_scaling_loop"); len(got) != 0 {
+		t.Errorf("Claim: calls_in_scaling_loop = %v, want none (bounded by a constant, a retry)", got)
+	}
+	for fn, call := range map[string]string{
+		"pkg.Streams": "pkg.readStream", "pkg.Lines": "pkg.readLine",
+		"pkg.Statuses": "pkg.resolveOnce", "pkg.Bytes": "pkg.writeByte", "pkg.SkipLines": "pkg.readLineErr",
+	} {
+		f, _ := findFact(ff, fn)
+		if got := strSliceProp(f, "calls_in_scaling_loop"); !containsStr(got, call) {
+			t.Errorf("%s: calls_in_scaling_loop = %v, want %s (a walk over input)", fn, got, call)
+		}
+	}
+}
