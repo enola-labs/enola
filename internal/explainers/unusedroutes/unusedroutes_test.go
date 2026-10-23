@@ -399,3 +399,37 @@ func TestExplain_RouteRegisteredInTwoFilesWithClientsLoaded(t *testing.T) {
 		t.Errorf("want one duplicate, the GET and not the middleware or the layout; got %+v", dup)
 	}
 }
+
+// Routes a loaded client calls only from code the application cannot run are their
+// own finding, naming the client call that never runs, and appear even when no route
+// is unmatched at all.
+func TestExplain_RoutesCalledOnlyFromCodeThatNeverRuns(t *testing.T) {
+	store := facts.NewStore()
+	store.Add(
+		facts.Fact{Kind: facts.KindService, Name: "api", Repo: "api"},
+		facts.Fact{Kind: facts.KindService, Name: "web", Repo: "web"},
+		facts.Fact{Kind: facts.KindRoute, Name: "/api/items/{id}", File: "items.go", Repo: "api", Props: map[string]any{
+			"method": "GET", "role": "server", "matched_by_clients": true, "unreached_by_clients": true}},
+		facts.Fact{Kind: facts.KindRoute, Name: "/api/orders", File: "orders.go", Repo: "api", Props: map[string]any{
+			"method": "GET", "role": "server", "matched_by_clients": true}},
+		facts.Fact{Kind: facts.KindRoute, Name: "/api/items/{}", File: "src/lib/api/items.ts", Line: 12, Repo: "web", Props: map[string]any{
+			"method": "GET", "role": "client", facts.PropClientReachable: false, facts.PropCaller: "src/lib/api.ItemsApi.getItem",
+			facts.PropMatchedRoutes: []any{map[string]any{"repo": "api", "method": "GET", "name": "/api/items/{id}"}}}},
+	)
+	insights, err := New().Explain(context.Background(), store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found *facts.Insight
+	for i := range insights {
+		if strings.Contains(insights[i].Title, "never runs") {
+			found = &insights[i]
+		}
+	}
+	if found == nil || len(found.Evidence) != 1 {
+		t.Fatalf("want one never-runs finding with one route, got %+v", insights)
+	}
+	if d := found.Evidence[0].Detail; !strings.Contains(d, "src/lib/api/items.ts:12 (src/lib/api.ItemsApi.getItem)") {
+		t.Errorf("evidence should name the call that never runs, got %q", d)
+	}
+}

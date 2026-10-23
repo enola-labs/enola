@@ -288,6 +288,11 @@ func (e *TSExtractor) extractFile(src []byte, relFile string, rc *repoCtx, alias
 
 	res := e.frameworkPasses(kinds, root, ctx, aliases, result, isEmberFile, emberSegments)
 	res.hosts = hosts
+	// What this file's code uses, for the repo-wide pass that marks which client calls
+	// the application can run. Read only where that pass gives a verdict; see reach.go.
+	if reachApplies(rc.tsFrameworks) && !facts.IsTestPath(relFile) {
+		res.reach = collectReach(kinds, root, src, relFile, res.facts, func(spec string) (string, bool) { return importedFile(spec, ctx) })
+	}
 	return res
 }
 

@@ -6,7 +6,14 @@ import (
 
 type tsFrameworks struct {
 	isNextJS, isVue, isNuxt, isSvelteKit, isEmber, isReactNav, isAngular bool
-	orms                                                                 ormFlags
+	// isReact is a React dependency in package.json, Next.js or not.
+	isReact bool
+	// appDirs are the packages that are applications whose every use this extractor
+	// reads, repo-relative, "" for the repository root: Next.js apps, and React apps
+	// with an entry file. The reachability pass gives a verdict only inside them; a
+	// library's code is called by whoever consumes it. See reach.go.
+	appDirs []string
+	orms    ormFlags
 	// nextDirs are the packages of a workspace that are Next.js apps, repo-relative,
 	// where the repository's own root is not one (see nextJSPackageDirs).
 	nextDirs []string

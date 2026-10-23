@@ -27,7 +27,7 @@ func TestServerRouteVerdicts_AliasNamesWhoWasCalled(t *testing.T) {
 	gateway := routeindex.RouteIdentity(gatewayImports)
 	replica := routeindex.RouteIdentity(replicaImports)
 
-	evaluated, unused := ServerRouteVerdicts(routeindex.New(withAliases(map[string]string{"resource-api": "gateway"})), all)
+	evaluated, unused, _ := ServerRouteVerdicts(routeindex.New(withAliases(map[string]string{"resource-api": "gateway"})), all)
 	if !evaluated[gateway] || unused[gateway] {
 		t.Errorf("the route the alias sends the call to is not counted as called (evaluated=%v unused=%v)",
 			evaluated[gateway], unused[gateway])
@@ -37,12 +37,12 @@ func TestServerRouteVerdicts_AliasNamesWhoWasCalled(t *testing.T) {
 			evaluated[replica], unused[replica])
 	}
 
-	_, unused = ServerRouteVerdicts(routeindex.New(vocab.Default()), all)
+	_, unused, _ = ServerRouteVerdicts(routeindex.New(vocab.Default()), all)
 	if unused[gateway] || unused[replica] {
 		t.Errorf("with no alias, a candidate was flagged unused (gateway=%v replica=%v)", unused[gateway], unused[replica])
 	}
 
-	_, unused = ServerRouteVerdicts(routeindex.New(withAliases(map[string]string{"resource-api": "billing"})), all)
+	_, unused, _ = ServerRouteVerdicts(routeindex.New(withAliases(map[string]string{"resource-api": "billing"})), all)
 	if unused[gateway] || unused[replica] {
 		t.Errorf("an alias naming neither repository narrowed the verdict (gateway=%v replica=%v)", unused[gateway], unused[replica])
 	}
@@ -61,7 +61,7 @@ func TestServerRouteVerdicts_HintAloneDoesNotNarrow(t *testing.T) {
 	all := []facts.Fact{call, servedBy("gateway", "/v1/catalog/imports", "POST"), replicaImports,
 		web, servedBy("replica", "/v1/replica/health-report", "GET")}
 
-	evaluated, unused := ServerRouteVerdicts(routeindex.New(vocab.Default()), all)
+	evaluated, unused, _ := ServerRouteVerdicts(routeindex.New(vocab.Default()), all)
 	if id := routeindex.RouteIdentity(replicaImports); !evaluated[id] || unused[id] {
 		t.Errorf("a hint with no alias narrowed the verdict: replica flagged unused (evaluated=%v unused=%v)", evaluated[id], unused[id])
 	}

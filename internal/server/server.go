@@ -116,7 +116,8 @@ func New(eng *engine.Engine, cfg *config.Config) (*Server, error) {
 		"query_insights for the findings explainers already computed (cycles, layer violations, unused routes, god-classes, hotspots and more) instead of re-deriving them; " +
 		"governing_intent, when knowledge pages are compiled in (enola_intent), for which pages govern which code. " +
 		"To verify a change: generate_snapshot, set_baseline, edit, generate_snapshot, diff_snapshot. diff_snapshot reports only what changed, never pre-existing state, so prefer it over re-reading files. " +
-		"Backend routes no client calls need a multi-repo snapshot of the backend plus its clients, then query_insights(explainer='unused-routes') or query_facts(kind=route, prop=unmatched_by_clients, prop_value=true)."
+		"Backend routes no client calls need a multi-repo snapshot of the backend plus its clients, then query_insights(explainer='unused-routes') or query_facts(kind=route, prop=unmatched_by_clients, prop_value=true). " +
+		"A route clients call only from client code that never runs (an API method no page reaches) carries unreached_by_clients instead."
 	mcpServer := mcp.NewServer(&mcp.Implementation{
 		Name:    "enola",
 		Version: version.Version,

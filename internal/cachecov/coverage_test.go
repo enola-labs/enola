@@ -34,6 +34,9 @@ import (
 // implicit baseline (no changelog line), so coverage starts at v2.
 var versionCoverage = map[int][]string{
 	// Go implementers from constructors and typed method sets; database calls and cursor reads marked
+	434: {"TestImportedWrapper_AHelperSendsItsOwnMethod", "TestClientReachability_PerApplicationPackage", "TestClientReachability_DefaultImportsReexportsAndDynamicImports"},
+	433: {"TestImportedWrapper_AHelperThroughASameFileInstance"},
+	432: {"TestClientReachability_ReachedFromThePageThroughAHookAndAFacade", "TestClientReachability_ASharedNameReachesBoth", "TestClientReachability_NoVerdictWithoutAnApplication"},
 	431: {"TestImportedWrapper_CallsThroughAnExportedClientAreRoutes"},
 	430: {"TestPreparedStatementInALoopIsADatabaseCall", "TestGoCallAfterTheLastContinueLeavesTheLoop", "TestPingIsIONotADatabaseCall"},
 	429: {"TestEmbeddedFieldCallResolvesThroughItsType", "TestExtract_CallsInScalingLoop_EventLoopIsNotRepeated"},

@@ -91,6 +91,11 @@ func (ix *requestHelperIndex) addFile(rel string, src []byte) {
 	exportedFuncs := map[string]localWrapper{}
 	type instance struct{ name, class string }
 	var instances []instance
+	type pendingFunc struct {
+		name string
+		node *sitter.Node
+	}
+	var pending []pendingFunc
 	note := func(w localWrapper) {
 		for _, l := range w.lines {
 			ix.bodies[rel] = append(ix.bodies[rel], [2]int{l, l})
@@ -112,27 +117,19 @@ func (ix *requestHelperIndex) addFile(rel string, src []byte) {
 			if name == nil || body == nil {
 				continue
 			}
-			methods := map[string]localWrapper{}
-			for j := range body.ChildCount() {
-				m := body.Child(j)
-				if kindOf(kinds, m) != "method_definition" {
-					continue
-				}
-				mn := m.ChildByFieldName("name")
-				if mn == nil || nodeText(mn, src) == "makeRequest" {
-					continue // the regex client pass reads makeRequest by name
-				}
-				if w, ok := wrapperOf(kinds, m, src, module); ok {
-					methods[nodeText(mn, src)] = w
-				}
-			}
+			methods := classHelpers(kinds, body, src, module)
+			// The regex client pass reads makeRequest by name; it is a helper here only
+			// for the methods of its own class that go through it.
+			delete(methods, "makeRequest")
 			if len(methods) > 0 {
 				classes[nodeText(name, src)] = methods
 			}
 		case "function_declaration":
-			if n := stmt.ChildByFieldName("name"); n != nil && exported {
-				if w, ok := wrapperOf(kinds, stmt, src, module); ok && nodeText(n, src) != "fetch" && nodeText(n, src) != "makeRequest" {
+			if n := stmt.ChildByFieldName("name"); n != nil && exported && nodeText(n, src) != "fetch" && nodeText(n, src) != "makeRequest" {
+				if w, ok := wrapperOf(kinds, stmt, src, module); ok {
 					exportedFuncs[nodeText(n, src)] = w
+				} else {
+					pending = append(pending, pendingFunc{nodeText(n, src), stmt})
 				}
 			}
 		case "lexical_declaration", "variable_declaration":
@@ -151,14 +148,59 @@ func (ix *requestHelperIndex) addFile(rel string, src []byte) {
 				name := nodeText(n, src)
 				switch kindOf(kinds, v) {
 				case "arrow_function", "function_expression", "function":
-					if w, ok := wrapperOf(kinds, v, src, module); ok && name != "fetch" && name != "makeRequest" {
+					if name == "fetch" || name == "makeRequest" {
+						continue
+					}
+					if w, ok := wrapperOf(kinds, v, src, module); ok {
 						exportedFuncs[name] = w
+					} else {
+						pending = append(pending, pendingFunc{name, v})
 					}
 				case "new_expression":
 					if c := v.ChildByFieldName("constructor"); c != nil && kindOf(kinds, c) == "identifier" {
 						instances = append(instances, instance{name, nodeText(c, src)})
 					}
 				}
+			}
+		}
+	}
+	// An exported function that makes its request through a helper method of an
+	// instance this file declares: `deduplicatedFetch(url)` handing url to
+	// `requestCache.fetch(url)`, whose body calls fetch.
+	inner := func(call *sitter.Node) (localWrapper, bool) {
+		fn := calleeOf(kinds, call)
+		if fn == nil || kindOf(kinds, fn) != "member_expression" {
+			return localWrapper{}, false
+		}
+		obj, prop := fn.ChildByFieldName("object"), fn.ChildByFieldName("property")
+		if obj == nil || prop == nil || kindOf(kinds, obj) != "identifier" {
+			return localWrapper{}, false
+		}
+		for _, in := range instances {
+			if in.name == nodeText(obj, src) {
+				if w, ok := classes[in.class][nodeText(prop, src)]; ok {
+					return w, true
+				}
+			}
+		}
+		return localWrapper{}, false
+	}
+	for _, p := range pending {
+		if w, ok := wrapperThrough(kinds, p.node, src, module, inner); ok {
+			exportedFuncs[p.name] = w
+		}
+	}
+	// A helper is handed a path; see takesPath. Nothing here sees a call that would
+	// confirm one, so the URL's shape decides.
+	for name, w := range exportedFuncs {
+		if !takesPath(w) {
+			delete(exportedFuncs, name)
+		}
+	}
+	for _, methods := range classes {
+		for name, w := range methods {
+			if !takesPath(w) {
+				delete(methods, name)
 			}
 		}
 	}
@@ -259,13 +301,13 @@ func importedWrapperFacts(kinds *tsutil.KindTable, root *sitter.Node, ctx *extra
 	// Keyed by where the class starts: a tree-sitter node is a value, and two walks
 	// reaching one class hand back different pointers to it.
 	own := map[uint]map[string]localWrapper{} // class start byte → method → helper
-	inner := func(call *sitter.Node) (string, string, bool) {
+	inner := func(call *sitter.Node) (localWrapper, bool) {
 		fn := calleeOf(kinds, call)
 		if fn == nil {
-			return "", "", false
+			return localWrapper{}, false
 		}
 		w, _, ok := imported(fn)
-		return w.prefix, w.framework, ok
+		return w, ok
 	}
 	walkClasses(kinds, root, func(class *sitter.Node) {
 		body := class.ChildByFieldName("body")
@@ -431,4 +473,60 @@ func importedFile(spec string, ctx *extractCtx) (string, bool) {
 		return file, ok
 	}
 	return ctx.files.resolve(spec, ctx.relFile)
+}
+
+// classHelpers finds a class's request helper methods: the ones whose body hands
+// their first parameter to fetch or axios, and then, until nothing changes, the ones
+// that hand it to such a method of the same class through this: `fetch(url)` that
+// calls `this.makeRequest(url)`, which calls fetch.
+func classHelpers(kinds *tsutil.KindTable, body *sitter.Node, src []byte, module map[string]*sitter.Node) map[string]localWrapper {
+	nodes := map[string]*sitter.Node{}
+	for j := range body.ChildCount() {
+		m := body.Child(j)
+		if kindOf(kinds, m) != "method_definition" {
+			continue
+		}
+		if mn := m.ChildByFieldName("name"); mn != nil {
+			nodes[nodeText(mn, src)] = m
+		}
+	}
+	methods := map[string]localWrapper{}
+	for name, m := range nodes {
+		if w, ok := wrapperOf(kinds, m, src, module); ok && takesPath(w) {
+			methods[name] = w
+		}
+	}
+	inner := func(call *sitter.Node) (localWrapper, bool) {
+		fn := calleeOf(kinds, call)
+		if fn == nil || kindOf(kinds, fn) != "member_expression" {
+			return localWrapper{}, false
+		}
+		obj, prop := fn.ChildByFieldName("object"), fn.ChildByFieldName("property")
+		if obj == nil || prop == nil || kindOf(kinds, obj) != "this" {
+			return localWrapper{}, false
+		}
+		w, ok := methods[nodeText(prop, src)]
+		return w, ok
+	}
+	for changed := true; changed; {
+		changed = false
+		for name, m := range nodes {
+			if _, done := methods[name]; done {
+				continue
+			}
+			if w, ok := wrapperThrough(kinds, m, src, module, inner); ok && takesPath(w) {
+				methods[name] = w
+				changed = true
+			}
+		}
+	}
+	return methods
+}
+
+// takesPath reports a helper whose parameter is a path: it brings its own leading
+// slash, so the prefix before it is "" or "/api", never "/items/", and it is never a
+// query value, "/range?date=". A function whose parameter fills a segment or a query
+// value is an endpoint function taking an id or a filter, and its request is its own.
+func takesPath(w localWrapper) bool {
+	return !strings.HasSuffix(w.prefix, "/") && !strings.ContainsAny(w.prefix, "?=&#")
 }

@@ -61,6 +61,13 @@ const (
 	PropCallerID = "caller_id"
 )
 
+// PropClientReachable is the prop on a client route saying whether the application
+// can run the code that makes the call: true when its caller is reached from the
+// application's entry points, false when nothing that runs reaches it (a client
+// method no page, component or store calls). Absent when the extractor could not
+// tell, which is not a verdict either way.
+const PropClientReachable = "client_reachable"
+
 // withFactRefIDs returns a route's props with the ids of the facts they name: an
 // "id" on every entry of PropMatchedRoutes, computed from the entry's repo, name and
 // file, and PropCallerID for PropCaller, computed from the route's own repo and file.

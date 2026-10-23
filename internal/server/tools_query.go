@@ -19,7 +19,7 @@ type queryFactsArgs struct {
 	File      string `json:"file,omitempty" jsonschema:"File path."`
 	Name      string `json:"name,omitempty" jsonschema:"Name substring, case-insensitive."`
 	Relation  string `json:"relation,omitempty" jsonschema:"Relation kind: declares, imports, calls, implements, or depends_on."`
-	Prop      string `json:"prop,omitempty" jsonschema:"Property name, e.g. source, symbol_kind, exported, framework, storage_kind, role, method, unmatched_by_clients. output_mode=summary lists the notable boolean flags present in the result."`
+	Prop      string `json:"prop,omitempty" jsonschema:"Property name, e.g. source, symbol_kind, exported, framework, storage_kind, role, method, unmatched_by_clients, unreached_by_clients. output_mode=summary lists the notable boolean flags present in the result."`
 	PropValue string `json:"prop_value,omitempty" jsonschema:"Property value; requires prop."`
 
 	// Batch filters — OR within dimension, AND across dimensions
@@ -216,7 +216,7 @@ func renderNamesOnly(results []facts.Fact, total int) string {
 // notableBoolProps are high-signal boolean fact properties surfaced in the
 // query_facts summary so a caller sizing a result set discovers actionable
 // flags (e.g. dead routes) without already knowing the prop name exists.
-var notableBoolProps = []string{"unmatched_by_clients"}
+var notableBoolProps = []string{"unmatched_by_clients", "unreached_by_clients"}
 
 // querySummary aggregates query_facts' summary one fact at a time, so summary mode
 // can count straight off the store. It used to page through every match 500 at a

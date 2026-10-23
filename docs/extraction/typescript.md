@@ -107,6 +107,38 @@ route  /admin/users/:id/ban server/index.js:20  props: framework=express, method
 this repository serves that no loaded client calls. It is a *candidate* at confidence
 `0.6`, not a verdict — the client may simply not be in the graph.
 
+### Client calls that never run
+
+A frontend keeps client code nothing reaches: an API method only a facade method of the
+same name calls, a facade method no page calls, a method an interface declares and no
+one invokes. In a Next.js or React application each hand-written client route carries
+`client_reachable`: `true` when its caller is reached from the pages and entry files,
+`false` when it is not. Reachability is read by name (a name used in reached code
+reaches every symbol that has it), so `const api = useApi(); api.getItem(id)` counts
+though no call graph binds it, and a shared name errs toward reached. The module edges
+that carry no matching name count too: a default import under a name of its own, a
+page's `export { default } from '...'`, and `dynamic(() => import('...'))`. A file
+nothing imports, a script or a worker, is taken as an entry of its own.
+
+```
+route  /api/settings/items/{}/with-images  src/lib/api/shop.ts:161
+       props: role=client, caller=src/lib/api.ShopApiClient.getItemWithImages, client_reachable=true
+route  /api/settings/proshops/{}           src/lib/api/proshops.ts:40
+       props: role=client, caller=src/lib/api.ProShopsApiClient.getProShop,     client_reachable=false
+```
+
+A server route every one of whose client calls is `client_reachable=false` gets
+`unreached_by_clients=true` beside `matched_by_clients=true`: called in the source,
+never sent. The verdict is given per application: the repository root or a workspace
+package that is a Next.js app, or a React app with an entry file (`src/main.tsx`,
+`src/index.tsx`, ...). A library package gets none, since whoever consumes it makes its
+calls, and neither do Vue, Nuxt, Svelte, Angular and Ember applications, which use
+their code from templates.
+
+A request helper sends the method its own request sets: `fetchPost(url, body)`, which
+calls fetch with `method: 'POST'`, is a POST unless the call passes a method of its
+own.
+
 ### Mounts across files
 
 A sub-router is almost never mounted in the file that declares it. The paths written

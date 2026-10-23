@@ -3098,7 +3098,22 @@ import (
 // the file declares already was; a class method that hands its URL to such a helper
 // is one too, so `this.makeRequest(url)` resolves; a URL built by a conditional whose
 // branches differ only in the query string is that path; and `await f<T>(…)` calls f.
-const cacheVersion = "v431"
+// v432: TypeScript: in a Next.js or React application, each hand-written client route
+// carries client_reachable, whether its caller is reached by name from the pages and
+// entry files. A request written in client code nothing runs is no longer
+// indistinguishable from one the application sends.
+// v433: TypeScript: an exported function that makes its request through a helper
+// method of an instance its own file declares is a request helper too, as is a class
+// method handing its URL to another of its class's helpers through this; a call to a
+// helper that puts an unresolved base before the path is a request to the path; and a
+// function whose parameter fills a segment or a query value is no helper, so its own
+// request is no longer dropped as one.
+// v434: TypeScript: a request helper carries the method its own request sets, so a
+// call through fetchPost is a POST; client_reachable is given per application
+// package, Next.js or a React app with an entry file, never in a library package;
+// and it follows default imports under another name, default re-exports, import()
+// and files nothing imports, which run on their own.
+const cacheVersion = "v434"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

@@ -37,6 +37,10 @@ type localWrapper struct {
 	prefix    string // literal text the helper puts before its argument ("/api")
 	framework string // the library it calls: fetch or axios
 	lines     []int  // the lines of the helper's own requests to its argument, 1-based
+	// method is the verb the helper's own request sends whatever the caller passes,
+	// `fetchPost(url)` calling fetch with method POST; "" when the caller's options
+	// decide it.
+	method string
 }
 
 // localWrapperFacts emits a client route for every call in this file to a request
@@ -103,6 +107,9 @@ func wrapperCallFact(kinds *tsutil.KindTable, call *sitter.Node, ctx *extractCtx
 		return facts.Fact{}, false
 	}
 	raw, ok := r.text(args[0])
+	if !ok {
+		raw, ok = afterBase(r, args[0])
+	}
 	if !ok || !strings.HasPrefix(raw, "/") {
 		return facts.Fact{}, false
 	}
@@ -111,6 +118,9 @@ func wrapperCallFact(kinds *tsutil.KindTable, call *sitter.Node, ctx *extractCtx
 		return facts.Fact{}, false
 	}
 	verb := "GET" // what fetch and axios do when nothing says otherwise
+	if w.method != "" {
+		verb = w.method // the helper's own request sends this
+	}
 	if len(args) > 1 {
 		if v := objectVerb(kinds, args[1], ctx.src, "method"); v != "" {
 			verb = v
@@ -217,9 +227,8 @@ func wrapperOf(kinds *tsutil.KindTable, fn *sitter.Node, src []byte, module map[
 	return wrapperThrough(kinds, fn, src, module, nil)
 }
 
-// innerHelper reports that a call is to another request helper, with the prefix it
-// puts before what it is handed and the library it ends in.
-type innerHelper func(call *sitter.Node) (prefix, framework string, ok bool)
+// innerHelper reports that a call is to another request helper, and which.
+type innerHelper func(call *sitter.Node) (localWrapper, bool)
 
 // wrapperThrough is wrapperOf for a function that may make its request through
 // another helper rather than fetch or axios itself: then its prefix is the inner
@@ -234,17 +243,21 @@ func wrapperThrough(kinds *tsutil.KindTable, fn *sitter.Node, src []byte, module
 	var found *localWrapper
 	agree := true
 	walkCalls(kinds, body, func(call *sitter.Node) {
-		framework, through := requestLibrary(kinds, call, src), ""
-		if framework == "" && inner != nil {
-			if p, fw, ok := inner(call); ok {
-				framework, through = fw, p
+		framework, through, method := requestLibrary(kinds, call, src), "", ""
+		args := callArguments(kinds, call)
+		if framework != "" {
+			method = requestVerb(kinds, call, args, src)
+		} else if inner != nil {
+			if w, ok := inner(call); ok {
+				framework, through, method = w.framework, w.prefix, w.method
+				if len(args) > 1 {
+					if v := objectVerb(kinds, args[1], src, "method"); v != "" {
+						method = v
+					}
+				}
 			}
 		}
-		if framework == "" {
-			return
-		}
-		args := callArguments(kinds, call)
-		if len(args) == 0 {
+		if framework == "" || len(args) == 0 {
 			return
 		}
 		prefix, uses := urlPrefix(kinds, args[0], src, param, decls, reassigned, module)
@@ -257,9 +270,11 @@ func wrapperThrough(kinds *tsutil.KindTable, fn *sitter.Node, src []byte, module
 		}
 		full := through + *prefix
 		if found == nil {
-			found = &localWrapper{prefix: full, framework: framework}
+			found = &localWrapper{prefix: full, framework: framework, method: method}
 		} else if found.prefix != full {
 			agree = false
+		} else if found.method != method {
+			found.method = "" // its requests differ: the caller's options decide
 		}
 		found.lines = append(found.lines, int(call.StartPosition().Row)+1)
 	})
@@ -490,4 +505,46 @@ func urlOperands(kinds *tsutil.KindTable, n *sitter.Node, src []byte) []urlOpera
 		return append(urlOperands(kinds, left, src), urlOperands(kinds, right, src)...)
 	}
 	return []urlOperand{{text: strings.TrimSpace(nodeText(n, src))}}
+}
+
+// afterBase reads a URL whose leading operands are a base this pass cannot resolve,
+// `${API_BASE_URL}/api/items/${id}`, as the path after them, the way a helper's own
+// URL is read (urlPrefix). A base the file binds to an absolute URL resolves, and is
+// then no path at all.
+func afterBase(r pathResolver, n *sitter.Node) (string, bool) {
+	parts := r.parts(n, 0)
+	i := 0
+	for i < len(parts) && !parts[i].known {
+		i++
+	}
+	if i == 0 || i == len(parts) || !strings.HasPrefix(parts[i].text, "/") {
+		return "", false
+	}
+	var b strings.Builder
+	for _, p := range parts[i:] {
+		if p.known {
+			b.WriteString(p.text)
+		} else {
+			b.WriteString("{}")
+		}
+	}
+	return b.String(), true
+}
+
+// requestVerb is the verb a direct request sends when the request itself says so:
+// `axios.post(…)`, or a literal method in fetch's options. "" when it does not, and
+// the options a helper passes through decide.
+func requestVerb(kinds *tsutil.KindTable, call *sitter.Node, args []*sitter.Node, src []byte) string {
+	if fn := call.ChildByFieldName("function"); fn != nil && kindOf(kinds, fn) == "member_expression" {
+		if prop := fn.ChildByFieldName("property"); prop != nil {
+			switch v := strings.ToUpper(nodeText(prop, src)); v {
+			case "GET", "POST", "PUT", "PATCH", "DELETE":
+				return v
+			}
+		}
+	}
+	if len(args) > 1 {
+		return objectVerb(kinds, args[1], src, "method")
+	}
+	return ""
 }

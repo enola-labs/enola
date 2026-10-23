@@ -26,6 +26,11 @@ const (
 	// third case, and it is written by leaving both off rather than by a value:
 	// the linker declined to reason about it, so it has no verdict to publish.
 	PropMatchedByClients = "matched_by_clients"
+	// PropUnreachedByClients marks a SERVER route that loaded clients call only from
+	// code the application cannot run: every matching call site carries
+	// facts.PropClientReachable false. It sits beside PropMatchedByClients, which
+	// still holds, because the call is in the source; this says it is never sent.
+	PropUnreachedByClients = "unreached_by_clients"
 	// PropUnmatchedByServer marks a CLIENT call site that resolves to no loaded server.
 	PropUnmatchedByServer = facts.PropUnmatchedByServer
 	// PropUnmatchedReason carries one of the crossrepo.Reason* values explaining why.
@@ -72,7 +77,7 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 	// including, since Freeze made sharing load-bearing, every Props map and Relations
 	// slice — during linking, on every snapshot.
 	all := store.FactsRef()
-	evaluatedKeys, serverKeys := httpsignal.ServerRouteVerdicts(b.m, all)
+	evaluatedKeys, serverKeys, unreachedKeys := httpsignal.ServerRouteVerdicts(b.m, all)
 	// GraphQL is a second seam with its own join, and until now its verdict was
 	// computed and discarded — the signal kept per-client coverage counters and
 	// recorded nothing about whether a DECLARED operation is consumed. The
@@ -82,7 +87,7 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 	clientKeys := httpsignal.UnmatchedClientRouteKeys(b.m, all)
 	clientMatches := httpsignal.ClientRouteMatches(b.m, all)
 
-	flaggedServer, flaggedClient, linkedClient := 0, 0, 0
+	flaggedServer, flaggedClient, linkedClient, unreachedServer := 0, 0, 0, 0
 	store.UpdateWhere(func(f *facts.Fact) {
 		if f.Kind != facts.KindRoute {
 			return
@@ -90,6 +95,7 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 		if f.PropString(providers.PropResolutionLevel) == providers.LevelRuntimeObserved {
 			f.DelProp(PropMatchedByClients)
 			f.DelProp(PropUnmatchedByClients)
+			f.DelProp(PropUnreachedByClients)
 			f.DelProp(facts.PropMatchedRoutes)
 			return
 		}
@@ -97,6 +103,7 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 		// reverse (unmatched_by_server) verdict, never unmatched_by_clients.
 		if f.Props != nil && f.PropAny(facts.PropRole) == facts.RoleClient {
 			f.DelProp(PropUnmatchedByClients)
+			f.DelProp(PropUnreachedByClients)
 			// The positive verdict, and the half a consumer walks: which server
 			// routes this call reaches. Cleared when the call no longer resolves,
 			// for the same idempotency across appends as the markers.
@@ -139,6 +146,7 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 			if f.Props != nil {
 				f.DelProp(PropMatchedByClients)
 				f.DelProp(PropUnmatchedByClients)
+				f.DelProp(PropUnreachedByClients)
 			}
 			return
 		}
@@ -148,6 +156,7 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 				f.Props = map[string]any{}
 			}
 			f.SetProp(PropUnmatchedByClients, true)
+			f.DelProp(PropUnreachedByClients)
 			// Clearing the opposite marker is what keeps the binder idempotent
 			// across appends, and the positive marker had to join the rule the
 			// moment it existed: a route matched while one repo was loaded and
@@ -169,6 +178,7 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 			// coverage is too thin" proportion was measured against.
 			f.DelProp(PropMatchedByClients)
 			f.DelProp(PropUnmatchedByClients)
+			f.DelProp(PropUnreachedByClients)
 			return
 		}
 		// A matched route says so, rather than merely stopping saying the
@@ -179,10 +189,16 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 		// same shape as a coverage zero from an extractor that examined nothing.
 		f.SetProp(PropMatchedByClients, true)
 		f.DelProp(PropUnmatchedByClients)
+		if unreachedKeys[identity] {
+			f.SetProp(PropUnreachedByClients, true)
+			unreachedServer++
+		} else {
+			f.DelProp(PropUnreachedByClients)
+		}
 	})
 	if flaggedServer > 0 || flaggedClient > 0 || linkedClient > 0 {
-		log.Printf("[binder:unmatched-routes] flagged %d server route(s) unused by clients, %d client call(s) unresolved to a server; linked %d client call(s) to their server routes",
-			flaggedServer, flaggedClient, linkedClient)
+		log.Printf("[binder:unmatched-routes] flagged %d server route(s) unused by clients, %d called only from client code that never runs, %d client call(s) unresolved to a server; linked %d client call(s) to their server routes",
+			flaggedServer, unreachedServer, flaggedClient, linkedClient)
 	}
 	return nil
 }

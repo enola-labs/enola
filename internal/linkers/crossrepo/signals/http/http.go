@@ -537,9 +537,14 @@ func serviceHint(f facts.Fact) string {
 // and every route in a repo that serves no cross-repo client — is absent from
 // BOTH, because "no caller found" and "never looked" are different verdicts and a
 // caller that cannot tell them apart will publish the second as the first.
-func ServerRouteVerdicts(m *routeindex.Matcher, all []facts.Fact) (evaluated, unmatched map[string]bool) {
+//
+// unreached holds the matched routes every one of whose calls the client's extractor
+// marked as code the application cannot run (facts.PropClientReachable false): an API
+// method no page reaches. Such a route is called in the source and never in practice.
+// It is a subset of the matched routes, reported beside them rather than instead.
+func ServerRouteVerdicts(m *routeindex.Matcher, all []facts.Fact) (evaluated, unmatched, unreached map[string]bool) {
 	if len(reposOf(all)) < 2 {
-		return nil, nil
+		return nil, nil, nil
 	}
 
 	// Index server routes by normalized path-suffix + method, exactly as linkHTTP
@@ -555,14 +560,19 @@ func ServerRouteVerdicts(m *routeindex.Matcher, all []facts.Fact) (evaluated, un
 	// in use is the unsafe direction for a verdict that may drive its removal. A service
 	// alias is the exception. The config states which repository the call reaches, so
 	// the others serving the same path were not called by it.
-	matched := map[string]bool{}
+	matched, reached := map[string]bool{}, map[string]bool{}
 	providerRepos := map[string]bool{}
 	for _, f := range all {
 		if f.Repo == "" {
 			continue
 		}
+		runs := f.PropAny(facts.PropClientReachable) != false
 		for _, ref := range routesCalledBy(m, server, f) {
-			matched[routeindex.RouteIdentityKey(ref.Repo, ref.Method, ref.Path)] = true
+			key := routeindex.RouteIdentityKey(ref.Repo, ref.Method, ref.Path)
+			matched[key] = true
+			if runs {
+				reached[key] = true
+			}
 			if ref.Repo != f.Repo {
 				providerRepos[ref.Repo] = true
 			}
@@ -574,18 +584,21 @@ func ServerRouteVerdicts(m *routeindex.Matcher, all []facts.Fact) (evaluated, un
 	// frontend's own page routes, a mobile app) has no clients among the loaded
 	// repos, so flagging its routes would be vacuous noise — skip it, the same way
 	// a single-repo snapshot is skipped, applied per repo.
-	evaluated, unmatched = map[string]bool{}, map[string]bool{}
+	evaluated, unmatched, unreached = map[string]bool{}, map[string]bool{}, map[string]bool{}
 	for id := range identities {
 		if !providerRepos[routeindex.RepoFromIdentity(id)] {
 			continue
 		}
 		evaluated[id] = true
 		if matched[id] {
+			if !reached[id] {
+				unreached[id] = true
+			}
 			continue
 		}
 		unmatched[id] = true
 	}
-	return evaluated, unmatched
+	return evaluated, unmatched, unreached
 }
 
 // servableIndex indexes the server routes client calls are matched against, by

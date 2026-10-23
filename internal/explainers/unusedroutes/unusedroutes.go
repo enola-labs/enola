@@ -115,8 +115,9 @@ func (e *Explainer) Explain(ctx context.Context, store *facts.Store) ([]facts.In
 		}
 		byRepo[repo] = append(byRepo[repo], route{name: f.Name, file: f.File, label: routeLabel(f)})
 	}
+	unreached := unreachedFindings(store)
 	if len(byRepo) == 0 {
-		return duplicates, nil
+		return append(unreached, duplicates...), nil
 	}
 
 	repos := make([]string, 0, len(byRepo))
@@ -192,7 +193,97 @@ func (e *Explainer) Explain(ctx context.Context, store *facts.Store) ([]facts.In
 			},
 		})
 	}
-	return append(insights, duplicates...), nil
+	return append(append(insights, unreached...), duplicates...), nil
+}
+
+// unreachedFindings reports, per repository, the routes loaded clients call only from
+// code the application cannot run (unreached_by_clients): an API method no page,
+// component or store reaches. The call is in the source and is never sent. It is its
+// own finding rather than part of the unmatched one, because the claim differs: the
+// unmatched routes have no call at all, these have calls that never run, and the
+// remedy removes the client code with them.
+func unreachedFindings(store *facts.Store) []facts.Insight {
+	byRepo := map[string][]route{}
+	for _, f := range store.ByKind(facts.KindRoute) {
+		if f.Props == nil || f.PropAny("unreached_by_clients") != true {
+			continue
+		}
+		repo := f.Repo
+		if repo == "" {
+			repo = "(unlabeled)"
+		}
+		byRepo[repo] = append(byRepo[repo], route{name: f.Name, file: f.File, label: routeLabel(f)})
+	}
+	if len(byRepo) == 0 {
+		return nil
+	}
+	// Which never-running client calls name each route, for the evidence.
+	callers := map[string][]string{} // repo \x00 METHOD path → "file:line (caller)"
+	for _, f := range store.ByKind(facts.KindRoute) {
+		if f.PropAny(facts.PropRole) != facts.RoleClient || f.PropAny(facts.PropClientReachable) != false {
+			continue
+		}
+		refs, _ := f.PropAny(facts.PropMatchedRoutes).([]any)
+		for _, r := range refs {
+			m, _ := r.(map[string]any)
+			repo, _ := m["repo"].(string)
+			method, _ := m["method"].(string)
+			name, _ := m["name"].(string)
+			site := fmt.Sprintf("%s:%d", f.File, f.Line)
+			if caller := f.PropString(facts.PropCaller); caller != "" {
+				site += " (" + caller + ")"
+			}
+			key := repo + "\x00" + strings.ToUpper(method) + " " + name
+			callers[key] = append(callers[key], site)
+		}
+	}
+
+	repos := make([]string, 0, len(byRepo))
+	for r := range byRepo {
+		repos = append(repos, r)
+	}
+	sort.Strings(repos)
+	var out []facts.Insight
+	for _, repo := range repos {
+		routes := byRepo[repo]
+		sort.Slice(routes, func(i, j int) bool { return routes[i].label < routes[j].label })
+		listed := routes
+		if len(listed) > maxActionableCandidates {
+			listed = listed[:maxActionableCandidates]
+		}
+		evidence := make([]facts.Evidence, 0, len(listed))
+		for _, r := range listed {
+			detail := r.label + " is called only from client code that never runs"
+			if sites := callers[repo+"\x00"+upperMethod(r.label)]; len(sites) > 0 {
+				sort.Strings(sites)
+				detail += ": " + sites[0]
+				if len(sites) > 1 {
+					detail += fmt.Sprintf(" and %d more", len(sites)-1)
+				}
+			}
+			evidence = append(evidence, facts.Evidence{Fact: r.name, File: r.file, Detail: detail})
+		}
+		more := ""
+		if len(routes) > len(listed) {
+			more = fmt.Sprintf(" The evidence lists %d of them; query_facts(kind=route, prop=unreached_by_clients, prop_value=true) lists all.", len(listed))
+		}
+		out = append(out, facts.Insight{
+			Title: fmt.Sprintf("Endpoints called only from client code that never runs: %d in %s", len(routes), repo),
+			Description: fmt.Sprintf(
+				"%d of %s's route(s) are called by a loaded client, but every such call sits in client code "+
+					"nothing the application runs reaches: an API method no page, component or store calls. "+
+					"The call is in the source and the request is never sent, so these are dead in practice "+
+					"though not unmatched. Confirm against consumers outside the snapshot, and remove the "+
+					"client code that names them with them.%s", len(routes), repo, more),
+			Confidence: 0.6,
+			Evidence:   evidence,
+			Actions: []string{
+				"Check each route's client caller: if nothing should call it, remove the endpoint and the client method together",
+				"If the client method should be called, the feature that would call it is missing",
+			},
+		})
+	}
+	return out
 }
 
 // route carries the three things an unmatched route contributes downstream: the fact
@@ -396,4 +487,13 @@ func duplicateRoutes(store *facts.Store) []facts.Insight {
 		})
 	}
 	return out
+}
+
+// upperMethod upper-cases the method of a "METHOD path" label, the spelling the
+// linker's matched routes carry.
+func upperMethod(label string) string {
+	if method, path, ok := strings.Cut(label, " "); ok {
+		return strings.ToUpper(method) + " " + path
+	}
+	return label
 }

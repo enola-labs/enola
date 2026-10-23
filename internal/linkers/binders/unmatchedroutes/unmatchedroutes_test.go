@@ -370,3 +370,52 @@ func TestFlagUnmatchedRoutes_MatchedRoutesFollowTheLinker(t *testing.T) {
 		t.Fatalf("stale matched_routes survived a re-link that made the call ambiguous: %v", refs)
 	}
 }
+
+// A route called only from client code the application cannot run is matched, since
+// the call is in the source, and unreached, since it is never sent. One reachable
+// call, or one the client's extractor gave no verdict, makes it plain matched. The
+// marker clears when that changes, like every other verdict here.
+func TestFlagUnmatchedRoutes_CalledOnlyFromCodeThatNeverRuns(t *testing.T) {
+	unreachable := func(f facts.Fact) facts.Fact { f.Props[facts.PropClientReachable] = false; return f }
+	reachable := func(f facts.Fact) facts.Fact { f.Props[facts.PropClientReachable] = true; return f }
+	store := facts.NewStore()
+	store.Add(
+		serverRouteFact("backend", "/api/items/{itemId}", "GET"),
+		serverRouteFact("backend", "/api/orders/{orderId}", "GET"),
+		serverRouteFact("backend", "/api/users/{userId}", "GET"),
+		unreachable(clientRouteFact("app", "/api/items/{id}", "GET")),
+		unreachable(clientRouteFact("app", "/api/orders/{id}", "GET")),
+		reachable(clientRouteFact("app", "/api/orders/{id}", "GET")),
+		clientRouteFact("app", "/api/users/{id}", "GET"), // no verdict: counts as sent
+	)
+	bind(t, store)
+	verdict := func() map[string][2]any {
+		out := map[string][2]any{}
+		for _, f := range store.All() {
+			if f.Kind == facts.KindRoute && f.PropAny(facts.PropRole) == facts.RoleServer {
+				out[f.Name] = [2]any{f.Props[PropMatchedByClients], f.Props[PropUnreachedByClients]}
+			}
+		}
+		return out
+	}
+	got := verdict()
+	for name, want := range map[string][2]any{
+		"/api/items/{itemId}":   {true, true},
+		"/api/orders/{orderId}": {true, nil},
+		"/api/users/{userId}":   {true, nil},
+	} {
+		if got[name] != want {
+			t.Errorf("%s: (matched, unreached) = %v, want %v", name, got[name], want)
+		}
+	}
+
+	store.UpdateWhere(func(f *facts.Fact) {
+		if f.Name == "/api/items/{id}" {
+			f.SetProp(facts.PropClientReachable, true)
+		}
+	})
+	bind(t, store)
+	if got := verdict()["/api/items/{itemId}"]; got != [2]any{true, nil} {
+		t.Errorf("after the call became reachable: (matched, unreached) = %v, want the marker cleared", got)
+	}
+}
