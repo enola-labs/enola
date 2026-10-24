@@ -46,6 +46,8 @@
 
 That difference shows up in ordinary work. Across 238 real Claude Code and OpenCode sessions, 4,375 enola calls put 4.1 million tokens into context. Opening only the files named in those answers was estimated at 5.4× to 7.7× as much; reading the full source represented by each session, 450× to 623×. In 205 of 210 sessions that took a snapshot, that source was larger than the agent's median active context. [Measured latency, token costs, method and limits](docs/BENCHMARKS.md#real-session-usage).
 
+It also changes answers. Asked the same questions across a backend and its web and mobile clients, code the model had never seen, Opus 5.5 gave an exact final answer in 4 of 20 trials on its own and in 18 of 20 with enola, whose own analysis was right in all 20. On the three endpoint questions it also cut median cost by 29 to 52% and median time by more than half. Where a grep or a short script already answers the question, both were right. [The A/B, question by question](docs/BENCHMARKS.md#agent-ab-on-code-the-model-has-not-seen).
+
 ## Choose your starting point
 
 | I want to… | Start here |
@@ -271,10 +273,11 @@ Each example is a small repository plus a `run.sh` that reproduces the output sh
 
 ## Benchmarks
 
-Every number below is measured on public repositories with scripts you can rerun. Method, corpus and limits: [docs/BENCHMARKS.md](docs/BENCHMARKS.md).
+Every number below but the first is measured on public repositories with scripts you can rerun. The first is an A/B on code the model had never seen, run with [graph-bench](https://github.com/dejo1307/graph-bench), which you can point at your own. Method, corpus and limits: [docs/BENCHMARKS.md](docs/BENCHMARKS.md).
 
 | Question | Result | What was measured |
 | --- | --- | --- |
+| On questions across a backend and its clients, is the agent's final answer exact? | **4 / 20 → 18 / 20** | Opus 5.5 without enola, then with it, five trials per question; enola's own analysis was right in all 20 |
 | Does the same commit produce the same graph? | **95 / 95** | public repositories produced byte-identical graphs across a cold run and two warm ones |
 | When something regresses, is exactly that reported? | **20 / 20** | injected dependency cycles caught, with none of 3,521 pre-existing findings repeated as new |
 | Of the cross-repository calls that exist, how many are linked? | **19 / 24** | fixture calls resolved, with the 3 unresolved and 2 external ones reported, not hidden |
@@ -287,6 +290,7 @@ Every number below is measured on public repositories with scripts you can rerun
 - Calls it cannot resolve, such as URLs built at runtime, are reported as unresolved rather than guessed. Per-language limits are in [docs/extraction/](docs/extraction/) and the gaps found so far in [docs/BLIND-SPOTS.md](docs/BLIND-SPOTS.md).
 - Most findings are advisory. Across the benchmark corpus, 91.6% of them could not fail a build even with every check named.
 - A clean `enola check` means the change introduced nothing new, not that the repository is clean.
+- A correct analysis does not guarantee a correct answer. In the [agent A/B](https://enola.tech/blog/benchmarking-enola-on-code-the-model-never-saw) the agent occasionally mistyped, dropped or recomputed a result enola had right.
 
 With a coding agent, most of these stop being dead ends. enola says exactly where its knowledge stops: which call it could not resolve, which finding is only advisory. The agent can open that file, read the retry settings or the URL being built, and judge whether a finding matters for this change. The graph shows the agent where to look; the agent reads what the graph cannot hold. What the agent concludes is still the agent's judgement, not a measurement, and enola keeps the two apart.
 

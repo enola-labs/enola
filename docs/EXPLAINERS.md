@@ -141,7 +141,8 @@ the entities the claim is about. There are nineteen, and they fall into six kind
   database call it ends at, and prints that path; a cursor's `Next` and `Scan` are one
   query, not one per row. A hop through an interface lowers the confidence (0.7 stated,
   0.6 inferred), and a call that does not use the loop's element is reported at 0.5 as
-  a repeated query to hoist.
+  a repeated query to hoist. A query that runs once per request outside any loop, such
+  as one in middleware whose result is already cached, is not reported.
   `entry-points` marks the symbols a framework invokes directly — a routed controller
   action, a job a queue drains, a mailer, a rake task — so that reachability has roots
   at all. It stops at marking them: reachability *from* them reports 86% of a

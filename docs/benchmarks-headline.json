@@ -52,6 +52,17 @@
       ]
     },
     {
+      "id": "agent-unseen",
+      "question": "On questions across a backend and its clients, is the agent's final answer exact?",
+      "figure": "4/20 → 18/20",
+      "label": "exact final answers without Enola versus with it, on code the model had not seen; Enola's own analysis was right in all 20",
+      "anchor": "agent-ab-on-code-the-model-has-not-seen",
+      "evidence": [
+        "| **Total** | **4 / 20** | **18 / 20** | | | |",
+        "enola's analysis was\ncorrect in all 20 enola trials"
+      ]
+    },
+    {
       "id": "agent",
       "question": "Does an agent, given the check, avoid shipping the regression?",
       "figure": "3/3 → 0/3",
