@@ -4,6 +4,7 @@ import (
 	"go/ast"
 	"go/token"
 	"go/types"
+	"strings"
 )
 
 // This file is the part of call resolution that needs to know what TYPE a value
@@ -26,6 +27,88 @@ type callTypeTables struct {
 	// function handed to another package as a value (`mustInit(svg.Init)`) can be
 	// told from a variable, constant or type of the same name. See funcvalues.go.
 	funcs map[string]bool
+	// elems is what indexing a collection yields. See collectElemTypes.
+	elems elemTypes
+}
+
+// elemTypes holds the element type of the collections the source declares, so an
+// index expression (`t[i].root`, `byID[id]`) has a type. byType is keyed by a named
+// collection type ("pkgDir.methodTrees" from `type methodTrees []methodTree`),
+// byField by a struct field declared as a collection ("pkgDir.Engine.handlers").
+// Only an element of a named type is recorded.
+type elemTypes struct {
+	byType  map[string]string
+	byField map[string]string
+}
+
+// collectElemTypes records the element type of every slice, array and map a
+// package declares as a named type or as a struct field. A map yields its value.
+func collectElemTypes(files []*ast.File, pkgDir string, mods goModules, pkgNames, aliases map[string]string, into elemTypes) {
+	for _, f := range files {
+		ctx := resolveCtx{pkgDir: pkgDir, imports: buildFileImports(f, mods, pkgNames), aliases: aliases}
+		for _, decl := range f.Decls {
+			gd, ok := decl.(*ast.GenDecl)
+			if !ok || gd.Tok != token.TYPE {
+				continue
+			}
+			for _, spec := range gd.Specs {
+				ts, ok := spec.(*ast.TypeSpec)
+				if !ok || ts.TypeParams != nil {
+					continue
+				}
+				if elem := collectionElem(ts.Type, ctx); elem != "" {
+					into.byType[pkgDir+"."+ts.Name.Name] = elem
+					continue
+				}
+				st, ok := ts.Type.(*ast.StructType)
+				if !ok || st.Fields == nil {
+					continue
+				}
+				for _, field := range st.Fields.List {
+					elem := collectionElem(field.Type, ctx)
+					if elem == "" {
+						continue
+					}
+					for _, name := range field.Names {
+						into.byField[pkgDir+"."+ts.Name.Name+"."+name.Name] = elem
+					}
+				}
+			}
+		}
+	}
+}
+
+// collectionElem is the named element type of a slice, array or map type
+// expression, or "".
+func collectionElem(expr ast.Expr, ctx resolveCtx) string {
+	switch t := expr.(type) {
+	case *ast.ArrayType:
+		return declaredType(t.Elt, ctx, nil)
+	case *ast.MapType:
+		return declaredType(t.Value, ctx, nil)
+	}
+	return ""
+}
+
+// indexType is the type of x[i]. See elemOf.
+func indexType(e *ast.IndexExpr, ctx resolveCtx) string {
+	return elemOf(e.X, ctx)
+}
+
+// elemOf is the element type of the collection x: of x's declared collection type,
+// or of the struct field x selects when that field is declared as a collection.
+func elemOf(x ast.Expr, ctx resolveCtx) string {
+	if sel, ok := x.(*ast.SelectorExpr); ok {
+		if owner := exprType(sel.X, ctx); owner != "" {
+			if elem, ok := ctx.elemTypes.byField[owner+"."+sel.Sel.Name]; ok {
+				return elem
+			}
+		}
+	}
+	if owner := exprType(x, ctx); owner != "" {
+		return ctx.elemTypes.byType[owner]
+	}
+	return ""
 }
 
 // collectAliases maps each alias a package declares (`type Store = facts.Store`) to
@@ -299,6 +382,8 @@ func exprType(expr ast.Expr, ctx resolveCtx) string {
 		}
 	case *ast.CallExpr:
 		return callResultType(e, ctx)
+	case *ast.IndexExpr:
+		return indexType(e, ctx)
 	case *ast.Ident:
 		if e.Name == ctx.recvVar && ctx.recvType != "" {
 			return ctx.pkgDir + "." + ctx.recvType
@@ -307,12 +392,26 @@ func exprType(expr ast.Expr, ctx resolveCtx) string {
 	case *ast.SelectorExpr:
 		// A field: the type of what it is selected from, then the field's own.
 		if owner := exprType(e.X, ctx); owner != "" {
-			if ft, ok := ctx.fieldTypes[owner+"."+e.Sel.Name]; ok {
-				return resolveTypeName(ft, ctx)
+			if ft, ok := fieldType(owner, e.Sel.Name, ctx); ok {
+				return ft
 			}
 		}
 	}
 	return ""
+}
+
+// fieldType is the qualified type of field name on owner. The field table keeps
+// `Query string` or `Err error` qualified as the package's own "string" and
+// "error"; a predeclared type has no methods of the package's, so it is not known.
+func fieldType(owner, name string, ctx resolveCtx) (string, bool) {
+	ft, ok := ctx.fieldTypes[owner+"."+name]
+	if !ok {
+		return "", false
+	}
+	if bare := ft[strings.LastIndexByte(ft, '.')+1:]; types.Universe.Lookup(bare) != nil {
+		return "", false
+	}
+	return resolveTypeName(ft, ctx), true
 }
 
 // callTarget resolves the function a call expression calls to its fact name, or "".
@@ -320,6 +419,15 @@ func exprType(expr ast.Expr, ctx resolveCtx) string {
 // a chain that passes over a call or an assertion: `s.resolver(store).NodeName(x)`
 // is NodeName on whatever resolver is declared to return.
 func callTarget(fun ast.Expr, ctx resolveCtx) string {
+	// `r.byName[k].Resolve()`: flattenSelector drops the index, so the element's
+	// declared type is read first.
+	if sel, ok := fun.(*ast.SelectorExpr); ok {
+		if ix, ok := sel.X.(*ast.IndexExpr); ok {
+			if owner := indexType(ix, ctx); owner != "" {
+				return owner + "." + sel.Sel.Name
+			}
+		}
+	}
 	if chain := flattenSelector(fun); chain != nil {
 		return resolveChain(chain, ctx)
 	}

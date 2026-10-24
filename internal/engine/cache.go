@@ -3136,7 +3136,13 @@ import (
 // v441: Go: a retry loop (a counter bounded by a literal, a constant or a configured
 // field, never picking out an item, leaving once the call succeeds) is no scaling
 // loop: a call in it repeats one request, not one per element.
-const cacheVersion = "v441"
+// v442: Go: a local is typed by a type assertion (also `v, ok := x.(*T)`), by the
+// field it is assigned from, and by indexing a collection whose element type is
+// declared (a named slice, array or map type, or a struct field declared as one),
+// so a method called on it resolves; `x.items[i].M()` resolves the same way, and a
+// range over such a collection types its value. A field of a predeclared type
+// (`Err error`) no longer gives a call through it a package-qualified "error.Error".
+const cacheVersion = "v442"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
