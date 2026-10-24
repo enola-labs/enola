@@ -290,16 +290,16 @@ class Loader:
 func TestSelfReturningMethodTypesItsCaller(t *testing.T) {
 	ff := extractPyRepo(t, map[string]string{"shop/store.py": `
 class Ledger:
-    def _clone(self):
+    def _copy(self):
         c = self.__class__(rows=self.rows)
         c.frozen = self.frozen
         return c
 
-    def _chain(self):
+    def _derive(self):
         if self.frozen:
             obj = self
         else:
-            obj = self._clone()
+            obj = self._copy()
         return obj
 
     def peek(self):
@@ -314,7 +314,7 @@ class Ledger:
         return len(self.rows)
 
     def filter(self, kw):
-        clone = self._chain()
+        clone = self._derive()
         clone._apply(kw)
         self.peek().total()
         return clone
@@ -347,7 +347,7 @@ func TestSelfAttrFallsBackToAConstructor(t *testing.T) {
 		"shop/__init__.py": "",
 		"shop/sql.py": `
 class Query:
-    def add_q(self, q):
+    def add_filter(self, q):
         pass
 `,
 		"shop/store.py": `
@@ -358,10 +358,10 @@ class Ledger:
         self._query = query or sql.Query()
 
     def narrow(self, q):
-        self._query.add_q(q)
+        self._query.add_filter(q)
 `})
-	if narrow := pySym(t, ff, "Ledger.narrow"); !pyCallsTo(narrow, "sql.Query.add_q") {
-		t.Errorf("narrow relations = %v, want a call to Query.add_q", narrow.Relations)
+	if narrow := pySym(t, ff, "Ledger.narrow"); !pyCallsTo(narrow, "sql.Query.add_filter") {
+		t.Errorf("narrow relations = %v, want a call to Query.add_filter", narrow.Relations)
 	}
 }
 
@@ -370,20 +370,20 @@ class Ledger:
 func TestPyConstantInAValuePositionIsNamed(t *testing.T) {
 	ff := extractPyRepo(t, map[string]string{
 		"shop/__init__.py":  "",
-		"shop/constants.py": "MULTI = 'multi'\nCHUNK_SIZE = 100\n",
+		"shop/constants.py": "MODE_ALL = 'all'\nCHUNK_SIZE = 100\n",
 		"shop/run.py": `
-from shop.constants import MULTI, CHUNK_SIZE
+from shop.constants import MODE_ALL, CHUNK_SIZE
 
-def execute(result_type=MULTI, size=CHUNK_SIZE):
+def execute(result_type=MODE_ALL, size=CHUNK_SIZE):
     register(LOCAL_LIMIT, Handler)
 `})
 	exec := pySym(t, ff, "run.execute")
 	for _, r := range exec.Relations {
-		if r.Kind == facts.RelInstantiates && (r.Target == "MULTI" || r.Target == "CHUNK_SIZE" || r.Target == "LOCAL_LIMIT") {
+		if r.Kind == facts.RelInstantiates && (r.Target == "MODE_ALL" || r.Target == "CHUNK_SIZE" || r.Target == "LOCAL_LIMIT") {
 			t.Errorf("execute instantiates the constant %s", r.Target)
 		}
 	}
-	for _, want := range []string{"shop/constants.MULTI", "shop/constants.CHUNK_SIZE"} {
+	for _, want := range []string{"shop/constants.MODE_ALL", "shop/constants.CHUNK_SIZE"} {
 		if !exec.HasRelation(facts.RelNames, want) {
 			t.Errorf("execute relations = %v, want names %s", exec.Relations, want)
 		}

@@ -11,13 +11,13 @@ import (
 // Calls on a receiver whose type the source states.
 //
 //	impl Handle {
-//	    fn bind_new_task(me: &Arc<Self>, …) {
-//	        me.schedule_option_task_without_yield(n);   // Handle's, through the Arc
-//	        me.shared.owned.bind(…);                     // a field chain: OwnedTasks's
+//	    fn enqueue(me: &Arc<Self>, …) {
+//	        me.schedule(n);                     // Handle's, through the Arc
+//	        me.shared.registry.register(…);     // a field chain: Registry's
 //	    }
 //	}
-//	let harness = Harness::<T, S>::from_raw(ptr);      // what from_raw returns
-//	harness.poll();
+//	let frame = Frame::<T, S>::from_raw(ptr);   // what from_raw returns
+//	frame.poll();
 //
 // A method call was recorded by its bare name, which says a method of that name is
 // used and nothing about whose. Where the receiver's type is written down there is

@@ -38,32 +38,32 @@ func TestRustCallOnAStatedReceiverResolves(t *testing.T) {
 		"Cargo.toml": "[package]\nname = \"rt\"\n",
 		"src/lib.rs": "mod tasks;\nmod sched;\n",
 		"src/tasks.rs": `
-pub struct OwnedTasks;
-impl OwnedTasks {
-    pub fn bind(&self) {}
+pub struct Registry;
+impl Registry {
+    pub fn register(&self) {}
 }
-pub struct Harness<T> { cell: T }
-impl<T> Harness<T> {
-    pub fn from_raw(ptr: usize) -> Harness<T> { todo!() }
+pub struct Frame<T> { cell: T }
+impl<T> Frame<T> {
+    pub fn from_raw(ptr: usize) -> Frame<T> { todo!() }
     pub fn poll(self) {}
 }
 `,
 		"src/sched.rs": `
 use std::sync::Arc;
-use crate::tasks::{Harness, OwnedTasks};
+use crate::tasks::{Frame, Registry};
 
-pub struct Shared { owned: OwnedTasks }
+pub struct Shared { registry: Registry }
 pub struct Handle { shared: Shared }
 
 impl Handle {
-    fn bind_new_task(me: &Arc<Self>, other: Thing) {
+    fn enqueue(me: &Arc<Self>, other: Thing) {
         me.schedule();
-        me.shared.owned.bind();
-        let harness = Harness::<u8>::from_raw(0);
-        harness.poll();
-        let tasks: &OwnedTasks = &me.shared.owned;
-        tasks.bind();
-        other.bind();
+        me.shared.registry.register();
+        let frame = Frame::<u8>::from_raw(0);
+        frame.poll();
+        let reg: &Registry = &me.shared.registry;
+        reg.register();
+        other.register();
         let value = Default::default();
     }
 }
@@ -79,20 +79,20 @@ impl Handle {
 }
 `,
 	})
-	bind := rustSym(t, ff, "src.Handle.bind_new_task")
+	bind := rustSym(t, ff, "src.Handle.enqueue")
 	calls := rustCalls(bind)
 	for _, want := range []string{
-		"src.Handle.schedule",  // &Arc<Self>
-		"src.OwnedTasks.bind",  // field chain, and a let's written type
-		"src.Harness.from_raw", // an associated function through a turbofish
-		"src.Harness.poll",     // what from_raw returns
+		"src.Handle.schedule",   // &Arc<Self>
+		"src.Registry.register", // field chain, and a let's written type
+		"src.Frame.from_raw",    // an associated function through a turbofish
+		"src.Frame.poll",        // what from_raw returns
 	} {
 		if !slices.Contains(calls, want) {
-			t.Errorf("bind_new_task calls %v, want %s", calls, want)
+			t.Errorf("enqueue calls %v, want %s", calls, want)
 		}
 	}
-	if !slices.Contains(calls, "bind") {
-		t.Errorf("bind_new_task calls %v, want other.bind kept by its bare name", calls)
+	if !slices.Contains(calls, "register") {
+		t.Errorf("enqueue calls %v, want other.register kept by its bare name", calls)
 	}
 	if bind.HasRelation(facts.RelInstantiates, "Default") {
 		t.Errorf("Default::default() instantiates the trait: %v", bind.Relations)

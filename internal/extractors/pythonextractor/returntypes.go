@@ -124,12 +124,12 @@ func collectMethodReturnTypes(body *sitter.Node, src []byte, importMap map[strin
 // `self.__class__(…)`, `type(self)(…)`, a call of a method of the class that
 // returns one, or a local every assignment of which binds one of those.
 //
-//	def _clone(self):
+//	def _copy(self):
 //	    c = self.__class__(model=self.model)
 //	    return c
 //
-//	def _chain(self):
-//	    obj = self._clone()        # a method of the class that returns one
+//	def _derive(self):
+//	    obj = self._copy()        # a method of the class that returns one
 //	    return obj
 //
 // A copy or builder method is how such a class hands itself on, and a local bound

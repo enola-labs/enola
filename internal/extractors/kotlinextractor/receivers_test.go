@@ -271,18 +271,18 @@ class MainActivity {
 
 // A package declared in two modules: the library's multiplatform source set and a
 // testing-support module's src/main. An import resolves per package, to the
-// support module's directory, and only the library declares Chain and withLock.
+// support module's directory, and only the library declares Pipeline and guarded.
 // Every name that import produced is re-homed to the directory that declares it.
 func TestKotlinImportIntoASplitPackage(t *testing.T) {
 	const lib = "lib/src/commonJvmAndroid/kotlin/com/acme/internal/concurrent"
 	ff := extractKotlinRepo(t, map[string]string{
-		lib + "/Chain.kt": `package com.acme.internal.concurrent
+		lib + "/Pipeline.kt": `package com.acme.internal.concurrent
 
-class Chain {
-    fun proceed() {}
+class Pipeline {
+    fun advance() {}
 }
 
-fun withLock(action: () -> Unit) { action() }
+fun guarded(action: () -> Unit) { action() }
 `,
 		"support/src/main/kotlin/com/acme/internal/concurrent/FakeClock.kt": `package com.acme.internal.concurrent
 
@@ -307,23 +307,23 @@ class CallTest {
 `,
 		"lib/src/commonJvmAndroid/kotlin/com/acme/call/Call.kt": `package com.acme.call
 
-import com.acme.internal.concurrent.Chain
-import com.acme.internal.concurrent.withLock
+import com.acme.internal.concurrent.Pipeline
+import com.acme.internal.concurrent.guarded
 
 class Call {
     fun execute() {
-        val chain = Chain()
-        chain.proceed()
-        withLock { }
+        val pipeline = Pipeline()
+        pipeline.advance()
+        guarded { }
     }
 }
 `,
 	})
 	exec := ktSym(t, ff, "Call.execute")
 	for _, want := range []struct{ kind, target string }{
-		{facts.RelCalls, lib + ".Chain.proceed"},
-		{facts.RelCalls, lib + ".withLock"},
-		{facts.RelInstantiates, lib + ".Chain"},
+		{facts.RelCalls, lib + ".Pipeline.advance"},
+		{facts.RelCalls, lib + ".guarded"},
+		{facts.RelInstantiates, lib + ".Pipeline"},
 	} {
 		if !exec.HasRelation(want.kind, want.target) {
 			t.Errorf("execute relations = %v, want %s %s", exec.Relations, want.kind, want.target)

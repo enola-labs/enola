@@ -325,18 +325,18 @@ func TestSplitTarget(t *testing.T) {
 	dirs := map[string][]string{"com.acme.c": {"support/src/main/kotlin/com/acme/c", "lib/src/common/kotlin/com/acme/c", "lib/src/jvm/kotlin/com/acme/c"}}
 	siblings := SplitSiblings(dirs)
 	declared := map[string]bool{
-		"lib/src/common/kotlin/com/acme/c.withLock": true,
-		"lib/src/common/kotlin/com/acme/c.Twice":    true,
-		"lib/src/jvm/kotlin/com/acme/c.Twice":       true,
+		"lib/src/common/kotlin/com/acme/c.guarded": true,
+		"lib/src/common/kotlin/com/acme/c.Twice":   true,
+		"lib/src/jvm/kotlin/com/acme/c.Twice":      true,
 	}
 	exists := func(n string) bool { return declared[n] }
 	for in, want := range map[string]string{
-		"support/src/main/kotlin/com/acme/c.withLock":        "lib/src/common/kotlin/com/acme/c.withLock",
-		"support/src/main/kotlin/com/acme/c.Twice":           "support/src/main/kotlin/com/acme/c.Twice",
-		"support/src/main/kotlin/com/acme/c.Nowhere":         "support/src/main/kotlin/com/acme/c.Nowhere",
-		"lib/src/common/kotlin/com/acme/c.withLock":          "lib/src/common/kotlin/com/acme/c.withLock",
-		"elsewhere/x.withLock":                               "elsewhere/x.withLock",
-		"support/src/main/kotlin/com/acme/c.withLock.nested": "support/src/main/kotlin/com/acme/c.withLock.nested",
+		"support/src/main/kotlin/com/acme/c.guarded":        "lib/src/common/kotlin/com/acme/c.guarded",
+		"support/src/main/kotlin/com/acme/c.Twice":          "support/src/main/kotlin/com/acme/c.Twice",
+		"support/src/main/kotlin/com/acme/c.Nowhere":        "support/src/main/kotlin/com/acme/c.Nowhere",
+		"lib/src/common/kotlin/com/acme/c.guarded":          "lib/src/common/kotlin/com/acme/c.guarded",
+		"elsewhere/x.guarded":                               "elsewhere/x.guarded",
+		"support/src/main/kotlin/com/acme/c.guarded.nested": "support/src/main/kotlin/com/acme/c.guarded.nested",
 	} {
 		if got := SplitTarget(in, siblings, exists); got != want {
 			t.Errorf("SplitTarget(%q) = %q, want %q", in, got, want)

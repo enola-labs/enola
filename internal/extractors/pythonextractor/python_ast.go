@@ -1616,7 +1616,7 @@ func (w *pyWalker) valueRefRelation(node *sitter.Node) (facts.Relation, bool) {
 		if pyBuiltins[name] {
 			return facts.Relation{}, false
 		}
-		// MULTI, GET_ITERATOR_CHUNK_SIZE: by convention a constant, which a value
+		// MAX_RETRIES, DEFAULT_PAGE_SIZE: by convention a constant, which a value
 		// position reads and nothing constructs.
 		if pyConstantName(name) {
 			if target := w.valueRefTarget(name); target != "" {

@@ -373,7 +373,7 @@ func resolveSplitPackages(all []facts.Fact, siblings map[string][]string) {
 			r := &f.Relations[j]
 			switch r.Kind {
 			case facts.RelImports:
-				// "dir/withLock": the path form of "dir.withLock".
+				// "dir/guarded": the path form of "dir.guarded".
 				slash := strings.LastIndexByte(r.Target, '/')
 				if slash < 0 {
 					continue

@@ -10,12 +10,12 @@ import (
 
 // Calls on a receiver whose type the source states.
 //
-//	func didCreateURLRequest(_ urlRequest: URLRequest, for request: Request) {
-//	    request.didCreateURLRequest(urlRequest)   // Request's, not Session's
+//	func didPrepare(_ urlRequest: URLRequest, for request: Request) {
+//	    request.didPrepare(urlRequest)            // Request's, not Session's
 //	    let task = request.task(for: urlRequest, using: session)
 //	}
-//	let initialRequest: URLRequest = …
-//	try initialRequest.validate()                 // an extension of URLRequest
+//	let prepared: URLRequest = …
+//	try prepared.validate()                       // an extension of URLRequest
 //
 // A member call is bound in resolveMethodCalls by its name alone, which works while
 // one type in the project declares a method of that name and leaves the call bare
