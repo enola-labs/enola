@@ -3142,7 +3142,17 @@ import (
 // so a method called on it resolves; `x.items[i].M()` resolves the same way, and a
 // range over such a collection types its value. A field of a predeclared type
 // (`Err error`) no longer gives a call through it a package-qualified "error.Error".
-const cacheVersion = "v442"
+// v443: Kotlin: a package declared in several directories (a module and its testing
+// support, multiplatform source sets) no longer sends every import of it to the
+// directory the package index prefers: a call, receiver type, constructor or import
+// edge naming something only a sibling directory declares is re-homed there. A
+// multiplatform test source set (src/jvmTest, src/commonTest) is kept out of the
+// JVM package index like src/test; a test file's import still resolves into a
+// package only test sources declare, and a test's bare call to a function of its
+// package reaches the one its main source set declares. A constructor call of a
+// class the repository declares is an instantiates edge to the class's name, not
+// its simple name.
+const cacheVersion = "v443"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

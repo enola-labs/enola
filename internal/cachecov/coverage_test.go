@@ -36,6 +36,7 @@ var versionCoverage = map[int][]string{
 	// Go implementers from constructors and typed method sets; database calls and cursor reads marked
 	441: {"TestExtract_CallsInScalingLoop_RetryLoopExcluded", "TestExtract_CallsInScalingLoop_RetryNeedsAConfiguredBound"},
 	442: {"TestLocalTypedByAssertionFieldOrIndex"},
+	443: {"TestKotlinImportIntoASplitPackage", "TestIsTestSourceKnowsMultiplatformTestSets", "TestSplitTarget", "TestKotlinCapitalizedCallOfAFunction"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},
 	438: {"TestExtract_StructUsage_StdlibAndRootPackages"},

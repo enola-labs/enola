@@ -298,3 +298,48 @@ func TestGeneratedImport(t *testing.T) {
 		}
 	}
 }
+
+// A Kotlin Multiplatform test source set is named for its target, and is kept out
+// of the index like src/test. A package segment that merely ends in "Test" is not.
+func TestIsTestSourceKnowsMultiplatformTestSets(t *testing.T) {
+	for path, want := range map[string]bool{
+		"lib/src/test/kotlin/a/B.kt":             true,
+		"lib/src/jvmTest/kotlin/a/B.kt":          true,
+		"lib/src/commonTest/kotlin/a/B.kt":       true,
+		"lib/src/androidUnitTest/kotlin/a/B.kt":  true,
+		"src/androidTest/java/a/B.java":          true,
+		"lib/src/commonJvmAndroid/kotlin/a/B.kt": false,
+		"lib/src/main/kotlin/a/loadTest/B.kt":    false,
+		"lib/src/jvmMain/kotlin/a/B.kt":          false,
+		"loadTest/src/main/kotlin/a/B.kt":        false,
+	} {
+		if got := isTestSource(path); got != want {
+			t.Errorf("isTestSource(%q) = %v, want %v", path, got, want)
+		}
+	}
+}
+
+// A name an import resolved into a package's preferred directory moves to the one
+// sibling that declares it, and stays where it is when none or two do.
+func TestSplitTarget(t *testing.T) {
+	dirs := map[string][]string{"com.acme.c": {"support/src/main/kotlin/com/acme/c", "lib/src/common/kotlin/com/acme/c", "lib/src/jvm/kotlin/com/acme/c"}}
+	siblings := SplitSiblings(dirs)
+	declared := map[string]bool{
+		"lib/src/common/kotlin/com/acme/c.withLock": true,
+		"lib/src/common/kotlin/com/acme/c.Twice":    true,
+		"lib/src/jvm/kotlin/com/acme/c.Twice":       true,
+	}
+	exists := func(n string) bool { return declared[n] }
+	for in, want := range map[string]string{
+		"support/src/main/kotlin/com/acme/c.withLock":        "lib/src/common/kotlin/com/acme/c.withLock",
+		"support/src/main/kotlin/com/acme/c.Twice":           "support/src/main/kotlin/com/acme/c.Twice",
+		"support/src/main/kotlin/com/acme/c.Nowhere":         "support/src/main/kotlin/com/acme/c.Nowhere",
+		"lib/src/common/kotlin/com/acme/c.withLock":          "lib/src/common/kotlin/com/acme/c.withLock",
+		"elsewhere/x.withLock":                               "elsewhere/x.withLock",
+		"support/src/main/kotlin/com/acme/c.withLock.nested": "support/src/main/kotlin/com/acme/c.withLock.nested",
+	} {
+		if got := SplitTarget(in, siblings, exists); got != want {
+			t.Errorf("SplitTarget(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
