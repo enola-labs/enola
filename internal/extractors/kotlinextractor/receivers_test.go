@@ -340,3 +340,35 @@ class Call {
 		}
 	}
 }
+
+// The grammar binds a prefix operator tighter than a call, so `!canRetry(e)` is a
+// call whose callee is `!canRetry`, and `!pending.isEmpty()` puts the `!` on the
+// receiver. Both are calls of the function and the method all the same.
+func TestKotlinNegatedCallIsACall(t *testing.T) {
+	ff := extractKotlinRepo(t, map[string]string{
+		"lib/src/main/kotlin/com/acme/Plan.kt": `package com.acme
+
+fun canRetry(e: Exception): Boolean = true
+
+class Queue {
+    fun isEmpty(): Boolean = true
+}
+
+class Plan(private val pending: Queue) {
+    fun next(e: Exception): Int? {
+        if (!canRetry(e)) return null
+        if (!pending.isEmpty()) return 1
+        return -size(e)
+    }
+
+    fun size(e: Exception): Int = 0
+}
+`,
+	})
+	next := ktSym(t, ff, "Plan.next")
+	for _, want := range []string{"com/acme.canRetry", "com/acme.Queue.isEmpty", "com/acme.Plan.size"} {
+		if !ktRelSuffix(next, facts.RelCalls, want) {
+			t.Errorf("next relations = %v, want a call to %s", next.Relations, want)
+		}
+	}
+}

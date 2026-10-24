@@ -3176,7 +3176,10 @@ import (
 // call on `this.method()`.
 // v448: TypeScript: a class declared inside a wrapper function keeps its fields; the
 // wrapper's plain-variable filter dropped them once they were variables (v447).
-const cacheVersion = "v448"
+// v449: Kotlin: a call under a prefix operator (`!canRetry(e)`, `-size()`,
+// `!queue.isEmpty()`) is a call. The grammar binds the operator tighter than the
+// call, so the callee or the receiver was a unary expression and nothing was recorded.
+const cacheVersion = "v449"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

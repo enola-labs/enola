@@ -108,7 +108,7 @@ func kotlinReachedThroughElement(n *sitter.Node, src []byte, scopes []kotlinLoop
 		}
 		// `config.dependencies.filter { … }`, `node.children()`: a view or an
 		// accessor of the element.
-		if kotlinReachedThroughElement(firstNamedChild(callee), src, scopes) {
+		if kotlinReachedThroughElement(kotlinUnprefixed(firstNamedChild(callee)), src, scopes) {
 			name, _ := calleeName(callee, src)
 			return kotlinCallArgCount(n) == 0 || kotlinViewMethods[name]
 		}

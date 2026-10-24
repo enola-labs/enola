@@ -42,6 +42,7 @@ var versionCoverage = map[int][]string{
 	446: {"TestSwiftCallOnAStatedReceiverResolves"},
 	447: {"TestTSClassFieldsAndConstructors"},
 	448: {"TestWrapperKeepsClassFields"},
+	449: {"TestKotlinNegatedCallIsACall"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},
 	438: {"TestExtract_StructUsage_StdlibAndRootPackages"},
