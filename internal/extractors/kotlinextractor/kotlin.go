@@ -155,6 +155,7 @@ func (e *KotlinExtractor) Extract(ctx context.Context, repoPath string, files []
 	resolveSplitPackages(allFacts, jvmsrc.SplitSiblings(packageDirs))
 	resolveTypedCalls(allFacts)
 	resolveCapitalCalls(allFacts)
+	resolveValueRefs(allFacts)
 
 	// The walker marks only the round-trip itself (a Retrofit endpoint, a Room DAO
 	// operation). A method with a calls edge to one is I/O through it.

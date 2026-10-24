@@ -1273,6 +1273,7 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 	if kind == "property_declaration" && w.localTypes != nil {
 		w.bindProperty(w.localTypes, node)
 	}
+	w.noteValueRef(node)
 
 	// A lambda is a deferred scope: its body runs when the lambda is invoked, NOT
 	// per-iteration of the enclosing loops — so reset the loop depth for its

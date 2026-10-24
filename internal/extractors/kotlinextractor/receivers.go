@@ -399,5 +399,12 @@ func resolveSplitPackages(all []facts.Fact, siblings map[string][]string) {
 				cands[k] = split(cands[k])
 			}
 		}
+		if refs, ok := f.PropAny(propValueRefs).([][]string); ok {
+			for _, cands := range refs {
+				for k := range cands {
+					cands[k] = split(cands[k])
+				}
+			}
+		}
 	}
 }

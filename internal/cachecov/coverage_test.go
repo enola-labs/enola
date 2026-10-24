@@ -43,6 +43,7 @@ var versionCoverage = map[int][]string{
 	447: {"TestTSClassFieldsAndConstructors"},
 	448: {"TestWrapperKeepsClassFields"},
 	449: {"TestKotlinNegatedCallIsACall"},
+	450: {"TestKotlinTypeUsedAsAValueIsNamed"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},
 	438: {"TestExtract_StructUsage_StdlibAndRootPackages"},

@@ -3179,7 +3179,11 @@ import (
 // v449: Kotlin: a call under a prefix operator (`!canRetry(e)`, `-size()`,
 // `!queue.isEmpty()`) is a call. The grammar binds the operator tighter than the
 // call, so the callee or the receiver was a unary expression and nothing was recorded.
-const cacheVersion = "v449"
+// v450: Kotlin: a class, object or enum of the repository used as a value (a when
+// condition, an argument, an initializer, an assignment, a return, an enum entry
+// through its enum) or in a type test is a names edge to it, also when imported by
+// its nested name. Before, only a call or a constructor recorded a use.
+const cacheVersion = "v450"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
