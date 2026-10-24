@@ -3174,7 +3174,9 @@ import (
 // T(…)` of a class the file imports or declares is an instantiates edge. A local
 // assigned `this.method()` takes the method's annotated return type, as does a
 // call on `this.method()`.
-const cacheVersion = "v447"
+// v448: TypeScript: a class declared inside a wrapper function keeps its fields; the
+// wrapper's plain-variable filter dropped them once they were variables (v447).
+const cacheVersion = "v448"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

@@ -41,6 +41,7 @@ var versionCoverage = map[int][]string{
 	445: {"TestRustCallOnAStatedReceiverResolves", "TestRustFieldTypedThroughAFileModule"},
 	446: {"TestSwiftCallOnAStatedReceiverResolves"},
 	447: {"TestTSClassFieldsAndConstructors"},
+	448: {"TestWrapperKeepsClassFields"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},
 	438: {"TestExtract_StructUsage_StdlibAndRootPackages"},
