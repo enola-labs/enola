@@ -1,0 +1,101 @@
+package tsextractor
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/enola-labs/enola/internal/facts"
+)
+
+func extractTSFiles(t *testing.T, files map[string]string) []facts.Fact {
+	t.Helper()
+	dir := t.TempDir()
+	for rel, content := range files {
+		p := filepath.Join(dir, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return extractDir(t, dir)
+}
+
+const tsLedgerFixture = `import { Channel } from './channel';
+import { Store } from './store';
+
+export class Ledger {
+	private _channel: Channel | null;
+	private count = 0;
+	readonly onDone = () => this.finish();
+
+	constructor(private readonly store: Store) {
+		this._channel = null;
+	}
+
+	open(): void {
+		this._channel = new Channel(this.count);
+		const local = new Map<string, number>();
+		const host = this.hostFor('a');
+		host.start();
+		this.hostFor('b').stop();
+		this.store.save();
+	}
+
+	private hostFor(id: string): Channel {
+		return new Channel(1);
+	}
+
+	finish(): void {}
+}
+`
+
+// A field that holds a value is a data member, and reading it is a reference, not
+// a call; a field holding an arrow function stays a method. A constructor call of a
+// class the file imports is an instantiation, a global's is not. A local assigned
+// what a method of the class returns has the method's annotated return type.
+func TestTSClassFieldsAndConstructors(t *testing.T) {
+	ff := extractTSFiles(t, map[string]string{
+		"src/channel.ts": "export class Channel {\n\tconstructor(n: number) {}\n\tstart(): void {}\n\tstop(): void {}\n}\n",
+		"src/store.ts":   "export class Store {\n\tsave(): void {}\n}\n",
+		"src/ledger.ts":  tsLedgerFixture,
+	})
+	for name, want := range map[string]string{
+		"src.Ledger._channel": facts.SymbolVariable,
+		"src.Ledger.count":    facts.SymbolVariable,
+		"src.Ledger.onDone":   facts.SymbolMethod,
+		"src.Ledger.open":     facts.SymbolMethod,
+	} {
+		if got := symbolNamed(t, ff, name).PropString("symbol_kind"); got != want {
+			t.Errorf("%s symbol_kind = %q, want %q", name, got, want)
+		}
+	}
+	open := symbolNamed(t, ff, "src.Ledger.open")
+	for _, want := range []struct{ kind, target string }{
+		{facts.RelNames, "src.Ledger._channel"},
+		{facts.RelNames, "src.Ledger.count"},
+		{facts.RelNames, "src.Ledger.store"},
+		{facts.RelInstantiates, "src.Channel"},
+		{facts.RelCalls, "src.Channel.start"},
+		{facts.RelCalls, "src.Channel.stop"},
+		{facts.RelCalls, "src.Store.save"},
+		{facts.RelCalls, "src.Ledger.hostFor"},
+	} {
+		if !open.HasRelation(want.kind, want.target) {
+			t.Errorf("open relations = %v, want %s %s", open.Relations, want.kind, want.target)
+		}
+	}
+	for _, r := range open.Relations {
+		if r.Kind == facts.RelCalls && (r.Target == "src.Ledger._channel" || r.Target == "src.Ledger.count" || r.Target == "src.Ledger.store") {
+			t.Errorf("open calls the field %s", r.Target)
+		}
+		if r.Kind == facts.RelInstantiates && r.Target != "src.Channel" {
+			t.Errorf("open instantiates %s, which the repository does not declare", r.Target)
+		}
+	}
+	if done := symbolNamed(t, ff, "src.Ledger.onDone"); !done.HasRelation(facts.RelCalls, "src.Ledger.finish") {
+		t.Errorf("onDone relations = %v, want a call to finish", done.Relations)
+	}
+}

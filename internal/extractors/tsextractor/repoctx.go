@@ -40,6 +40,12 @@ type callScope struct {
 	ioBindings     map[string]bool
 	drizzle        bool
 	typeNames      *typeNameCache
+	// dataFields are the class's fields that hold a value, not a function: a
+	// reference to one is a read, not a call (classDataFields).
+	dataFields map[string]bool
+	// methodReturns are the class's methods' annotated return types, qualified
+	// (classMethodReturnTypes).
+	methodReturns map[string]string
 }
 
 func (c *extractCtx) callScope(kinds *tsutil.KindTable, className string, fieldTypes map[string]string) callScope {

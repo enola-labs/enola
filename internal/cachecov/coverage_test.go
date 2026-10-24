@@ -40,6 +40,7 @@ var versionCoverage = map[int][]string{
 	444: {"TestPyConstantInAValuePositionIsNamed", "TestSelfReturningMethodTypesItsCaller", "TestSelfAttrFallsBackToAConstructor"},
 	445: {"TestRustCallOnAStatedReceiverResolves", "TestRustFieldTypedThroughAFileModule"},
 	446: {"TestSwiftCallOnAStatedReceiverResolves"},
+	447: {"TestTSClassFieldsAndConstructors"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},
 	438: {"TestExtract_StructUsage_StdlibAndRootPackages"},

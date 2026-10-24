@@ -3168,7 +3168,13 @@ import (
 // typed parameter, a let or var with a type annotation or constructed from a type)
 // binds to the method that type, one of its extensions or its nearest supertype
 // declares, where the name alone was ambiguous and left the call bare.
-const cacheVersion = "v446"
+// v447: TypeScript: a class field that holds a value (no initializer, or one that
+// is not a function) is a variable, not a method, and reading `this.<field>` is a
+// names edge, not a call; a field holding an arrow function stays a method. `new
+// T(…)` of a class the file imports or declares is an instantiates edge. A local
+// assigned `this.method()` takes the method's annotated return type, as does a
+// call on `this.method()`.
+const cacheVersion = "v447"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

@@ -130,3 +130,94 @@ func initializerTypeName(kinds *tsutil.KindTable, field *sitter.Node, src []byte
 	}
 	return ""
 }
+
+// classDataFields returns the instance fields of a class that hold a value rather
+// than a function: a field with no initializer or one that is not a function
+// (`private _proxy: Proxy | null`, `count = 0`, `x = new T()`), and a constructor
+// parameter property. A field initialised with an arrow or function expression is
+// a method in all but syntax, and is left out.
+func classDataFields(kinds *tsutil.KindTable, classBody *sitter.Node, src []byte) map[string]bool {
+	if classBody == nil {
+		return nil
+	}
+	out := map[string]bool{}
+	for i := range classBody.ChildCount() {
+		member := classBody.Child(i)
+		switch kindOf(kinds, member) {
+		case "public_field_definition":
+			if name := findChildByKind(kinds, member, "property_identifier"); name != nil && tsFieldHoldsData(kinds, member) {
+				out[nodeText(name, src)] = true
+			}
+		case "method_definition":
+			n := member.ChildByFieldName("name")
+			params := member.ChildByFieldName("parameters")
+			if n == nil || nodeText(n, src) != "constructor" || params == nil {
+				continue
+			}
+			for j := range params.ChildCount() {
+				p := params.Child(j)
+				if k := kindOf(kinds, p); (k == "required_parameter" || k == "optional_parameter") && isParameterProperty(kinds, p, src) {
+					if id := findChildByKind(kinds, p, "identifier"); id != nil {
+						out[nodeText(id, src)] = true
+					}
+				}
+			}
+		}
+	}
+	return out
+}
+
+// tsFieldHoldsData reports whether a public_field_definition holds a value: it has
+// no initializer, or one that is not a function.
+func tsFieldHoldsData(kinds *tsutil.KindTable, member *sitter.Node) bool {
+	value := member.ChildByFieldName("value")
+	if value == nil {
+		return true
+	}
+	switch kindOf(kinds, value) {
+	case "arrow_function", "function_expression", "function", "generator_function":
+		return false
+	}
+	return true
+}
+
+// classMethodReturnTypes returns, for one class, the class each method's return
+// annotation names, qualified as a local's type is (qualifyTSType): a method that
+// returns a global or ambient type, a union or a primitive is left out. A local
+// assigned `this.method()` has that type.
+func classMethodReturnTypes(kinds *tsutil.KindTable, classBody *sitter.Node, src []byte, dir string, importMap map[string]string, declared map[string]bool) map[string]string {
+	if classBody == nil {
+		return nil
+	}
+	out := map[string]string{}
+	for i := range classBody.ChildCount() {
+		member := classBody.Child(i)
+		if kindOf(kinds, member) != "method_definition" {
+			continue
+		}
+		name := member.ChildByFieldName("name")
+		if name == nil {
+			continue
+		}
+		if q := qualifyTSType(annotatedTypeName(kinds, member.ChildByFieldName("return_type"), src), dir, importMap, declared); q != "" {
+			out[nodeText(name, src)] = q
+		}
+	}
+	return out
+}
+
+// thisMethodCall returns m for `this.m(…)`, and "" for anything else.
+func thisMethodCall(kinds *tsutil.KindTable, call *sitter.Node, src []byte) string {
+	if call == nil || kindOf(kinds, call) != "call_expression" {
+		return ""
+	}
+	fn := call.ChildByFieldName("function")
+	if fn == nil || kindOf(kinds, fn) != "member_expression" {
+		return ""
+	}
+	obj, prop := fn.ChildByFieldName("object"), fn.ChildByFieldName("property")
+	if obj == nil || prop == nil || kindOf(kinds, obj) != "this" {
+		return ""
+	}
+	return nodeText(prop, src)
+}
