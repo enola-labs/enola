@@ -123,3 +123,24 @@ func TestIsTestSourceSet(t *testing.T) {
 		t.Errorf("ModuleRoleForPath(androidHostTest) = %q, want %q", got, ModuleRoleTest)
 	}
 }
+
+// A module named for test support, by a test word and a support word, is test code;
+// a test word alone, or a support word alone, is not enough for IsTestPath.
+func TestIsTestSupportModule(t *testing.T) {
+	for path, want := range map[string]bool{
+		"okhttp-testing-support/src/main/kotlin/A.kt": true,
+		"packages/core-test-utils/src/a.ts":           true,
+		"dubbo-test/dubbo-test-common/src/A.java":     true,
+		"crates/crates_io_test_utils/src/lib.rs":      true,
+		"features/ab-testing/src/A.kt":                false,
+		"libs/shared-utils/src/a.ts":                  false,
+		"tools/latest-common/a.go":                    false,
+	} {
+		if got := IsTestPath(path); got != want {
+			t.Errorf("IsTestPath(%q) = %v, want %v", path, got, want)
+		}
+	}
+	if got := ModuleRoleForPath("okhttp-testing-support/src/main/kotlin/okhttp3"); got != ModuleRoleTest {
+		t.Errorf("ModuleRoleForPath(okhttp-testing-support) = %q, want %q", got, ModuleRoleTest)
+	}
+}

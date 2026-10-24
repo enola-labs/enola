@@ -262,7 +262,7 @@ const PropPublished = "published"
 func ModuleRoleForPath(dir string) string {
 	segs := strings.Split(filepath.ToSlash(dir), "/")
 	for i, seg := range segs {
-		if IsTestSourceSet(segs, i) {
+		if IsTestSourceSet(segs, i) || IsTestSupportModule(seg) {
 			return ModuleRoleTest
 		}
 		switch seg {

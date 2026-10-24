@@ -3188,7 +3188,10 @@ import (
 // v452: a Gradle test source set (`src/<target>Test`: androidHostTest,
 // androidDeviceTest, jsTest, linuxX64Test) is test code for every analysis and
 // carries the test module role, not only the five per-target sets listed before.
-const cacheVersion = "v452"
+// v453: a module named for test support, by a test word and a support word in its
+// '-'/'_' tokens (okhttp-testing-support, core-test-utils, dubbo-test-common), is
+// test code and carries the test module role.
+const cacheVersion = "v453"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
