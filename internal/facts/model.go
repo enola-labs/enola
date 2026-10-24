@@ -260,7 +260,11 @@ const PropPublished = "published"
 // → test, a build-tooling segment → tooling, otherwise unknown. Segment names cover
 // the common conventions across languages (Swift Tests/, Ruby spec//bin/, fastlane).
 func ModuleRoleForPath(dir string) string {
-	for _, seg := range strings.Split(filepath.ToSlash(dir), "/") {
+	segs := strings.Split(filepath.ToSlash(dir), "/")
+	for i, seg := range segs {
+		if IsTestSourceSet(segs, i) {
+			return ModuleRoleTest
+		}
 		switch seg {
 		case "Tests", "Test", "tests", "test", "spec", "specs",
 			"androidTest", "androidUnitTest", "testFixtures":

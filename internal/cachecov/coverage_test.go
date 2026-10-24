@@ -45,6 +45,7 @@ var versionCoverage = map[int][]string{
 	449: {"TestKotlinNegatedCallIsACall"},
 	450: {"TestKotlinTypeUsedAsAValueIsNamed"},
 	451: {"TestSwiftMetatypeIsNamed"},
+	452: {"TestIsTestSourceSet"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},
 	438: {"TestExtract_StructUsage_StdlibAndRootPackages"},

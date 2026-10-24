@@ -97,3 +97,29 @@ func TestIsTestPath(t *testing.T) {
 		})
 	}
 }
+
+// A Gradle test source set is named `<target>Test` directly under src/, for every
+// Kotlin Multiplatform target and the Android plugin's host and device tests. A
+// production directory that only ends in Test, or a Test directory elsewhere, is not
+// one.
+func TestIsTestSourceSet(t *testing.T) {
+	for path, want := range map[string]bool{
+		"okhttp/src/androidHostTest/kotlin/okhttp3/A.kt": true,
+		"lib/src/androidDeviceTest/kotlin/A.kt":          true,
+		"lib/src/jsTest/kotlin/A.kt":                     true,
+		"lib/src/linuxX64Test/kotlin/A.kt":               true,
+		"lib/src/commonMain/kotlin/A.kt":                 false,
+		"lib/src/main/kotlin/com/acme/abTest/A.kt":       false,
+		"lib/src/main/kotlin/com/acme/loadTest/A.kt":     false,
+		"lib/src/Test/A.kt":                              false,
+		"lib/src/my-Test/A.kt":                           false,
+		"loadTest/src/main/kotlin/A.kt":                  false,
+	} {
+		if got := IsTestPath(path); got != want {
+			t.Errorf("IsTestPath(%q) = %v, want %v", path, got, want)
+		}
+	}
+	if got := ModuleRoleForPath("okhttp/src/androidHostTest/kotlin/okhttp3"); got != ModuleRoleTest {
+		t.Errorf("ModuleRoleForPath(androidHostTest) = %q, want %q", got, ModuleRoleTest)
+	}
+}

@@ -3185,7 +3185,10 @@ import (
 // its nested name. Before, only a call or a constructor recorded a use.
 // v451: Swift: `Type.self`, a type handed on as a value, is a names edge to the type
 // where the project declares it.
-const cacheVersion = "v451"
+// v452: a Gradle test source set (`src/<target>Test`: androidHostTest,
+// androidDeviceTest, jsTest, linuxX64Test) is test code for every analysis and
+// carries the test module role, not only the five per-target sets listed before.
+const cacheVersion = "v452"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
