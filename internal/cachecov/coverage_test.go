@@ -39,6 +39,7 @@ var versionCoverage = map[int][]string{
 	443: {"TestKotlinImportIntoASplitPackage", "TestIsTestSourceKnowsMultiplatformTestSets", "TestSplitTarget", "TestKotlinCapitalizedCallOfAFunction"},
 	444: {"TestPyConstantInAValuePositionIsNamed", "TestSelfReturningMethodTypesItsCaller", "TestSelfAttrFallsBackToAConstructor"},
 	445: {"TestRustCallOnAStatedReceiverResolves", "TestRustFieldTypedThroughAFileModule"},
+	446: {"TestSwiftCallOnAStatedReceiverResolves"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},
 	438: {"TestExtract_StructUsage_StdlibAndRootPackages"},

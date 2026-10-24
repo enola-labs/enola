@@ -3164,7 +3164,11 @@ import (
 // crate is declared to return, evaluated across files. `Type::f()` resolves the
 // same way. `Default::default()` and the other conversion traits called through
 // their own name no longer instantiate the trait.
-const cacheVersion = "v445"
+// v446: Swift: a member call on a receiver whose type the source states (self, a
+// typed parameter, a let or var with a type annotation or constructed from a type)
+// binds to the method that type, one of its extensions or its nearest supertype
+// declares, where the name alone was ambiguous and left the call bare.
+const cacheVersion = "v446"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
