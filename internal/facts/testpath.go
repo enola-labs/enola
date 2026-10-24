@@ -146,20 +146,38 @@ var testSupportTokens = map[string]bool{
 // way, 30 of them, serves tests; a test word alone is left to ModuleRoleForPath,
 // since `ab-testing` can be a production feature.
 func IsTestSupportModule(seg string) bool {
-	toks := strings.FieldsFunc(strings.ToLower(seg), func(r rune) bool { return r == '-' || r == '_' })
-	if len(toks) < 2 {
+	// IsTestPath runs this on every segment of every path it is asked about, so
+	// it allocates nothing: most segments have no separator and return at once,
+	// and the tokens are compared in place.
+	if !strings.ContainsAny(seg, "-_") {
 		return false
 	}
 	var test, support bool
-	for _, t := range toks {
+	for rest := seg; rest != ""; {
+		tok := rest
+		if i := strings.IndexAny(rest, "-_"); i >= 0 {
+			tok, rest = rest[:i], rest[i+1:]
+		} else {
+			rest = ""
+		}
 		switch {
-		case t == "test" || t == "tests" || t == "testing":
+		case strings.EqualFold(tok, "test") || strings.EqualFold(tok, "tests") || strings.EqualFold(tok, "testing"):
 			test = true
-		case testSupportTokens[t]:
+		case isTestSupportToken(tok):
 			support = true
 		}
 	}
 	return test && support
+}
+
+// isTestSupportToken reports whether tok, in any case, is one of testSupportTokens.
+func isTestSupportToken(tok string) bool {
+	for t := range testSupportTokens {
+		if strings.EqualFold(tok, t) {
+			return true
+		}
+	}
+	return false
 }
 
 // IsTestPath reports whether a repo-relative path is test or test-support code.
