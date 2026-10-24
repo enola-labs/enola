@@ -3157,7 +3157,14 @@ import (
 // An unannotated method returning an instance of its own class (`self.__class__(…)`,
 // `type(self)(…)`, self, or such a method's result) types what it returns, and an
 // attribute assigned `param or Ctor()` (also `mod.Ctor()`) has the constructor's type.
-const cacheVersion = "v444"
+// v445: Rust: a method called on a receiver whose type the source states resolves
+// to that type's method (or a default of a trait it implements) instead of the bare
+// name: self, a parameter's or let's written type seen through &, Arc, Rc and Box,
+// a struct literal, a struct field's declared type, and what a function of the
+// crate is declared to return, evaluated across files. `Type::f()` resolves the
+// same way. `Default::default()` and the other conversion traits called through
+// their own name no longer instantiate the trait.
+const cacheVersion = "v445"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

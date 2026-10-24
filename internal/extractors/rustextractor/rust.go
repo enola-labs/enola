@@ -153,6 +153,7 @@ func (e *RustExtractor) Extract(ctx context.Context, repoPath string, files []st
 	}
 
 	applyImplements(allFacts, allImpls)
+	resolveTypedCalls(allFacts)
 	ioclosure.Propagate(allFacts)
 	// Compose `.nest(prefix, module::router())` mount prefixes onto Axum route
 	// facts interprocedurally, so a route registered on a sub-router is stored at

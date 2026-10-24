@@ -178,6 +178,10 @@ type astWalker struct {
 	// Populated by emitDependency; consulted by resolveCall.
 	importMap map[string]string
 
+	// localTypes holds the stated types of the current function's parameters and
+	// lets (receivers.go).
+	localTypes map[string]rustTypeExpr
+
 	// inTestMod is true while walking inside a #[cfg(test)] module's subtree.
 	// No symbol facts are emitted there (test functions/fixtures never become
 	// production symbols), and calls are redirected into testRefRels instead of
@@ -621,6 +625,7 @@ func (w *astWalker) handleStruct(node *sitter.Node) {
 	})
 	w.setDoc(node)
 	ownerIdx := len(w.out) - 1
+	w.recordFieldTypes(&w.out[ownerIdx], node.ChildByFieldName("body"))
 	w.pushOwner(ownerIdx)
 	w.scanAttributeFnRefs(node.ChildByFieldName("body"))
 	w.popOwner()
@@ -748,10 +753,16 @@ func (w *astWalker) handleFunction(node *sitter.Node, attrs rustItemAttrs) {
 	if w.compileTimeDepth > 0 {
 		f.SetProp("compile_time_context", true)
 	}
+	if t := w.typeOf(node.ChildByFieldName("return_type")); t != "" {
+		f.SetProp(propReturns, t)
+	}
 
 	w.out = append(w.out, f)
 	ownerIdx := len(w.out) - 1
 	w.pushOwner(ownerIdx)
+	savedLocals := w.localTypes
+	w.localTypes = make(map[string]rustTypeExpr)
+	w.bindParameters(node.ChildByFieldName("parameters"))
 
 	// Save/zero the cyclomatic + loop/IO state around this body so a nested
 	// `fn` item does not leak its metrics into the enclosing function.
@@ -814,6 +825,7 @@ func (w *astWalker) handleFunction(node *sitter.Node, attrs rustItemAttrs) {
 	w.fnScalingCallDepth = savedCallDepth
 	w.fnIODirect, w.fnRecursive, w.fnSelfName = savedIO, savedRec, savedSelf
 	w.loopScopes = savedScopes
+	w.localTypes = savedLocals
 
 	w.popOwner()
 }
@@ -1109,6 +1121,22 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 		// `let frames = trace.frames();` puts `frames` one step from `trace`.
 		if len(w.loopScopes) > 0 && rustReachedThroughElement(node.ChildByFieldName("value"), w.src, w.loopScopes) {
 			rustBindPattern(node.ChildByFieldName("pattern"), w.src, &w.loopScopes[len(w.loopScopes)-1])
+		}
+		// The name is bound after its value is walked: `let x = x.next()` calls
+		// next on the earlier x.
+		if w.localTypes != nil {
+			name, t, ok := w.letType(node)
+			for i := uint(0); i < uint(node.ChildCount()); i++ {
+				w.walkChild(node.Child(i))
+			}
+			if name != "" {
+				if ok {
+					w.localTypes[name] = t
+				} else {
+					delete(w.localTypes, name)
+				}
+			}
+			return
 		}
 	case "if_expression", "match_arm", "try_expression":
 		w.decisions++
@@ -1475,8 +1503,12 @@ func (w *astWalker) handleCallExpression(node *sitter.Node) {
 			break
 		}
 		// Not a sibling of this impl block (another impl block, a trait
-		// default) — still unambiguously a method call, so fall back.
+		// default) — still unambiguously a method call, so fall back, and let
+		// resolveTypedCalls find it on the type.
 		w.emitEdge(facts.RelCalls, name)
+		if t := w.implType(); t != "" {
+			w.noteTypedCall(rustTypeExpr{base: t}, name)
+		}
 	case calleeOther:
 		// A module path names its target outright: `db::load_users()` after
 		// `use crate::db;` is src.load_users, and nothing about it needs type
@@ -1487,11 +1519,13 @@ func (w *astWalker) handleCallExpression(node *sitter.Node) {
 			w.emitEdge(facts.RelCalls, target)
 			break
 		}
-		// Receiver/path type is unknown without full type inference. Emitting
-		// the bare member name still lets short-name dead-code matching mark
-		// the (unqualified) target used, mirroring the Kotlin extractor's
-		// navigation_expression fallback.
+		// The bare member name lets short-name dead-code matching mark the
+		// target used. Where the receiver's or path's type is stated,
+		// resolveTypedCalls replaces it with the method (receivers.go).
 		w.emitEdge(facts.RelCalls, name)
+		if recv, ok := w.calleeReceiverType(fn); ok {
+			w.noteTypedCall(recv, name)
+		}
 	}
 }
 
@@ -1508,7 +1542,16 @@ func (w *astWalker) resolveModulePathCall(fn *sitter.Node, name string) string {
 	if pathNode == nil {
 		return ""
 	}
-	segs := strings.Split(nodeText(pathNode, w.src), "::")
+	dir := w.modulePathDir(strings.Split(nodeText(pathNode, w.src), "::"))
+	if dir == "" {
+		return ""
+	}
+	return dir + "." + name
+}
+
+// modulePathDir is the directory a module path inside this crate names
+// (`crate::db`, `super::db`, `db` imported or declared by `mod db;`), or "".
+func (w *astWalker) modulePathDir(segs []string) string {
 	for _, s := range segs {
 		if s == "" || !isModuleSegment(s) {
 			return ""
@@ -1544,10 +1587,7 @@ func (w *astWalker) resolveModulePathCall(fn *sitter.Node, name string) string {
 		}
 		dir = joinRustPath(base, segs[1:], w.moduleDirs)
 	}
-	if dir == "" {
-		return ""
-	}
-	return dir + "." + name
+	return dir
 }
 
 // isModuleSegment reports whether a path segment can name a module: a lower-case
@@ -2020,10 +2060,18 @@ func scopedCalleeTypePrefix(fn *sitter.Node, src []byte) string {
 		return ""
 	}
 	seg := simpleTypeName(fn.ChildByFieldName("path"), src)
-	if seg == "" || seg == "Self" || !isCapitalized(seg) {
+	if seg == "" || seg == "Self" || !isCapitalized(seg) || rustConversionTraits[seg] {
 		return ""
 	}
 	return seg
+}
+
+// rustConversionTraits are standard traits called through their own name
+// (`Default::default()`, `From::from(x)`), which construct the type the context
+// asks for, never the trait.
+var rustConversionTraits = map[string]bool{
+	"Default": true, "From": true, "Into": true, "TryFrom": true, "TryInto": true,
+	"FromStr": true, "Clone": true, "ToOwned": true, "ToString": true, "FromIterator": true,
 }
 
 // scanScopedVariantReference: Type::Variant (capitalized trailing segment)
