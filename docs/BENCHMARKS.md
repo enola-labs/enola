@@ -1,7 +1,8 @@
 # Benchmarks
 
-This page carries two kinds of evidence: a field measurement from real coding-agent
-sessions, and a repeatable fixed-corpus benchmark of enola's structural verdicts.
+This page carries three kinds of evidence: a field measurement from real coding-agent
+sessions, an A/B of the same agent with and without enola on code it has never seen, and
+a repeatable fixed-corpus benchmark of enola's structural verdicts.
 
 The fixed corpus was measured on 2026-10-12, at extractor version v332, on 95 public
 open-source repositories, with one binary, by scripts you can re-run. It carries the
@@ -41,6 +42,147 @@ models and working style will produce different numbers under the same accountin
 
 The [full field report](https://enola.tech/blog/what-enola-saves-in-real-agent-sessions)
 breaks the result down by tool and by one- versus multi-repository sessions.
+
+## Agent A/B on code the model has not seen
+
+The field measurement records work that happened once. This one asks the same question
+twice, through Claude Code headless (`claude -p`, Opus 5.5), on 2026-10-22 and
+2026-10-23:
+
+- **bare**: no MCP servers, no enola instructions, only the shell and file reading.
+- **enola**: enola over MCP, installed with `enola install --hooks` the way a user
+  installs it, and the prompt line "Use enola to answer this." Nothing else differs.
+
+Each graded question ran five trials per arm. The final runs used extractor v441, the
+build released as v0.4.34.
+
+**The code.** Five repositories built for one real product: a Go backend, a Next.js web
+frontend, an iOS app, an Android app, and a Go authentication library all four use. It is
+the kind of code these tools are used on most: built for a product someone works on every
+day, and never in a model's training data. That is what matters. On the public
+repositories in the corpus below, Opus 5.5 already knows the code, and a question about
+gitea measured its memory of gitea more than its investigation. The harness is public: see
+[Reproducing](#reproducing).
+
+**The keys.** Every graded question has an answer key built from the code before any
+session runs, never from enola: a type-checking Go program, `go list`, import resolvers
+for TypeScript and Kotlin, and reading. Where an arm disagreed with a key, the code was
+read again. Every session is priced as if its prompt cache started empty, so run order
+cannot make an arm cheaper. A session offered a tool or an instruction its arm should not
+have is recorded and not scored.
+
+### Where enola changed the answer
+
+Questions that span the backend and its clients, asked the way someone responsible for
+the whole system asks them. Exact final answers out of five trials per arm; cost, time
+and steps are medians per session.
+
+| Question | Exact, bare | Exact, enola | Cold $, bare / enola | Time, bare / enola | Steps, bare / enola |
+|---|---|---|---|---|---|
+| Community endpoints no client calls | 0 / 5 | 5 / 5 | 1.03 / 0.71 | 137 s / 58 s | 22 / 12 |
+| Pro shop endpoints no client calls | 2 / 5 | 4 / 5 | 1.00 / 0.71 | 134 s / 63 s | 20 / 11 |
+| Pro shop endpoints no client ever sends | 2 / 5 | 4 / 5 | 1.93 / 0.93 | 265 s / 102 s | 49 / 16 |
+| What a merged feature did to the structure | 0 / 5 | 5 / 5 | 0.77 / 0.90 | 139 s / 161 s | 20 / 26 |
+| **Total** | **4 / 20** | **18 / 20** | | | |
+
+The scores are the agent's final answers, not enola's output. enola's analysis was
+correct in all 20 enola trials, and both misses happened after it reached the agent. In
+one, the agent wrote `PUT` for an endpoint enola reported as `DELETE`. In the other, it
+decided that three dead inventory endpoints enola had reported were outside the
+question's scope.
+
+- **Dead endpoints across clients.** About 105 community and 121 pro shop routes, each
+  matched by path and method against the web app and both mobile apps. Many calls have
+  no literal to search for: a URL built in a conditional or from a base field
+  (`` `${this.baseUrl}/${id}` ``), called with a query string, split over two lines, or
+  sent through a client instance another file exports. The bare arm found every dead
+  community endpoint and named four to six live ones dead in every trial, mostly the same
+  ones. Its trials agreed with each other at 0.95 and were wrong in all five. Agreement
+  is not correctness.
+- **Never sent.** The harder form counts a call only if code a page or component reaches
+  sends it. The bare arm used the right method, following each client method through the
+  facade, stores and hooks to a page by hand, and one of its five sessions hit the 60-turn
+  limit before answering. The enola arm read the `unreached_by_clients` finding and
+  checked it in a few files.
+- **A merged feature.** The backend and frontend at the commits before and after a
+  feature merge of about 16,000 lines. The key holds 80 items: endpoints added, added
+  endpoints the frontend does not call, new dependencies between backend packages, and
+  frontend folders that joined an import cycle. The enola arm snapshotted both commits,
+  read `diff_snapshot`, and was exact every time. The bare arm was one or two items off
+  every time, each time naming an endpoint uncalled that the frontend calls, exactly the
+  kind of mistake someone might act on. The enola arm's sessions ran 13 cents and 22
+  seconds longer, and were the only exact answers.
+
+### Where both arms were right
+
+Where one search, one toolchain command or one script the agent writes can answer the
+question, Opus with a shell is already right, so these questions compare cost and time.
+enola was cheaper and faster on the first two. On package metrics it returned the right
+numbers and the agent recomputed them anyway; the database question is outside what
+enola detects.
+
+| Question | Exact, bare / enola | Cold $, bare / enola | Time, bare / enola |
+|---|---|---|---|
+| Import cycles in web and Android | 5 / 5, 5 / 5 | 0.56 / 0.40 | 94 s / 49 s |
+| Screens an endpoint change breaks | 5 / 5, 5 / 5 | 0.88 / 0.83 | 146 s / 100 s |
+| Packages in the zone of pain | 5 / 5, 5 / 5 | 0.28 / 0.34 | 27 s / 35 s |
+| The most important wasted database work | 5 / 5, 5 / 5 | 0.60 / 0.91 | 55 s / 99 s |
+
+- **Cycles.** Both arms were exact every time. The bare arm wrote and ran its own import
+  resolvers for TypeScript and Kotlin; with enola the same answer cost about 30% less and
+  took half the time.
+- **Screens an endpoint change breaks.** The chain from the handler to its screens is
+  short and named the same way in every app, so both arms followed it. enola gave the
+  endpoints and their client files at once, which took about a third off the time.
+- **Package metrics.** With every definition spelled out, the question became one Go
+  program over `go list` and `go/parser`. The enola arm called `package_metrics`,
+  received the correct numbers, then wrote that program anyway and answered from its own
+  output.
+- **Wasted database work.** The answer is one uncached query that middleware runs on
+  every request. enola's performance analysis looks for queries inside loops, so it had
+  nothing to report, and the agent used it only to navigate.
+- **Lookups, change plans, questions with a literal to search for, and questions a
+  toolchain answers** (callers of a function, a package's dependents through `go list`,
+  unused names through a grep loop), at one trial per arm in an earlier round: both arms
+  were right, and bare was usually cheaper.
+
+The screens and package-metrics questions were narrowed until they could be keyed
+exactly: one handler with a short chain, one metric over one Go module. What was left was
+the size of a script, so those runs measure whether the agent can write that script.
+
+### Two open questions, asked as typed
+
+Asked across all five repositories with no answer format and no key, three trials per
+arm, and judged by tracing every claim in every reply to the code. Medians per session.
+
+| Question | Cold $, bare / enola | Time, bare / enola | Steps, bare / enola |
+|---|---|---|---|
+| The most important performance issue for the whole system | 0.53 / 0.58 | 68 s / 60 s | 13 / 10 |
+| The most important thing to do in each repository, from package metrics | 1.00 / 0.56 | 194 s / 59 s | 24 / 7 |
+
+Every performance claim in both arms held. The bare arm gave the same answer three times,
+the per-request query above. The enola arm gave two different real issues, ranked by the
+client traffic enola reports, and neither arm found the other's. On package metrics the
+enola arm's pick per repository barely moved while the bare arm's varied, but the bare
+arm, reading source, found true things no tool reports. In two of three trials the enola
+arm explained an import cycle by a barrel file that does not exist.
+
+### What this shows, and what it does not
+
+- **One system.** Go, Next.js, Swift and Kotlin. A Rails monolith or a Python backend
+  with a Vue frontend exercises other extractors, of other maturity, and a missed idiom
+  becomes a wrong answer.
+- **One model.** Opus 5.5, chosen as the strongest model in daily use rather than one
+  that would flatter enola. Smaller models are not measured yet.
+- **The enola arm was told to use enola.** Whether an agent reaches for it unprompted is
+  not measured here.
+- **A deterministic analysis does not make a deterministic agent.** enola returned the
+  same result in every trial, and the agent still mistyped, omitted or recomputed parts
+  of it.
+
+About 150 sessions and $125 of model usage, priced cold. The full write-up, with each
+question's wording: [Claude Code benchmark: Enola on code the model had never
+seen](https://enola.tech/blog/benchmarking-enola-on-code-the-model-never-saw).
 
 ## What is measured, and why these five things
 
@@ -288,9 +430,8 @@ every gap above was in extraction logic.
 ### Dart / Flutter
 
 Ten repositories, 40,166 files, 1,065,310 facts of which **792,041 are Dart**. All ten
-reproduce, and **all ten parse with zero errors** — see the corpus notes in
-[`enola-benchmarks`](https://github.com/enola-labs/enola-benchmarks) for the
-up-front parse-coverage measurement that preceded the extractor.
+reproduce, and **all ten parse with zero errors**, measured for parse coverage before the
+extractor was written.
 
 | Repository | Files parsed | Facts | Dart facts | Cold | Warm |
 |---|---|---|---|---|---|
@@ -1003,7 +1144,11 @@ closed by guessing — see [dotnet.md](extraction/dotnet.md).
 > real agent sessions rather than a script, so its numbers are carried forward from
 > the earlier run. The fixture and the finding are unchanged; only the date differs.
 
-The one A/B worth running is against **no tool**, on a task where the obvious
+This is the regression gate end to end, on a fixture built to trip it. Whether enola
+changes an agent's answers on a real system is the
+[agent A/B on code the model has not seen](#agent-ab-on-code-the-model-has-not-seen).
+
+The one A/B worth running here is against **no tool**, on a task where the obvious
 implementation is structurally wrong.
 
 **Setup.** A small TypeScript service with three modules: `src/domain`, `src/store`
@@ -1070,10 +1215,12 @@ $0.31, which bought a tree with a dependency cycle already in it.
 
 Stated so the numbers above are not read as more than they are.
 
-- **A task-level retrieval A/B.** The real-session measurement above records the
-  workload that occurred; it does not run the same retrieval tasks with and without
-  enola. Section 6's A/B cost column is a third figure: it compares checking against
-  not checking, not one retrieval path against another.
+- **A task-level A/B beyond one system.** The
+  [agent A/B](#agent-ab-on-code-the-model-has-not-seen) runs the same tasks with and
+  without enola on one system of five repositories, with one model, and the agent told
+  to use enola. The real-session measurement runs nothing twice. Section 6's cost column
+  is a third figure: it compares checking against not checking, not one path to an
+  answer against another.
 - **The session hooks in interactive use.** Section 6 exercises them headlessly, under
   `claude -p`. The configuration is the same either way, but interactive sessions were
   not measured.
@@ -1095,7 +1242,10 @@ Stated so the numbers above are not read as more than they are.
 - **Recall of cross-repo edges.** Section 3 reports what enola detected and what it
   resolved. It does not report edges enola never detected at all: that would need a
   hand-labelled ground truth for each cluster, which does not exist here.
-- **Comparisons with other tools.** Not measured, not estimated, not implied.
+- **A ranking against other tools.** The harness has adapters for graphify, codegraph
+  and codebase-memory-mcp, and they ran on the same questions, each measured against
+  its own claims beside the same bare arm. Nothing on this page ranks enola against
+  them.
 
 ## Reproducing
 
@@ -1114,6 +1264,11 @@ enola check --fail-on=cycles .   # exit 1 on a NEW cycle; a bare `check` reports
 # cross-repo coverage, misses included
 enola coverage cluster.yaml
 ```
+
+The agent A/B runs on [graph-bench](https://github.com/dejo1307/graph-bench): the same
+question through headless Claude Code, bare and with a tool installed the way its docs
+say, scored against a key you build from your own code. It holds the method and the
+tooling; your questions, keys and results stay with you.
 
 > **Read the `enola: using config …` line each command prints, and check it is the
 > config you meant.** A config's `extractors:` list *replaces* the built-in default
