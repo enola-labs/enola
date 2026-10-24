@@ -383,18 +383,22 @@ func (e *SwiftExtractor) Extract(ctx context.Context, repoPath string, files []s
 // (external) type are left unchanged.
 func canonicalizeTargets(allFacts []facts.Fact, typeIndex map[string]string) {
 	for i := range allFacts {
-		for j := range allFacts[i].Relations {
-			r := &allFacts[i].Relations[j]
+		rels := allFacts[i].Relations[:0]
+		for _, r := range allFacts[i].Relations {
 			switch r.Kind {
-			case facts.RelInstantiates, facts.RelInjects, facts.RelCalls, facts.RelDependsOn:
+			case facts.RelInstantiates, facts.RelInjects, facts.RelCalls, facts.RelDependsOn, facts.RelNames:
 				if strings.Contains(r.Target, ".") {
-					continue
+					break
 				}
 				if dir, ok := typeIndex[r.Target]; ok {
 					r.Target = dir + "." + r.Target
+				} else if r.Kind == facts.RelNames {
+					continue // a metatype of a type the project does not declare
 				}
 			}
+			rels = append(rels, r)
 		}
+		allFacts[i].Relations = rels
 	}
 }
 

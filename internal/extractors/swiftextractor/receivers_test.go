@@ -88,3 +88,35 @@ extension Session {
 		}
 	}
 }
+
+// A type handed on as `Type.self` is named by the code that hands it on; a system
+// type and a type the project does not declare add nothing.
+func TestSwiftMetatypeIsNamed(t *testing.T) {
+	ff := extractRepo(t, map[string]string{
+		"Sources/App/Payload.swift": "struct Payload: Decodable {\n    let id: Int\n}\n",
+		"Sources/App/Loader.swift": `
+class Loader {
+    func load() {
+        decode(Payload.self)
+        decode(String.self)
+        decode(Outside.self)
+    }
+    func decode<T>(_ type: T.Type) {}
+}
+`,
+	})
+	var load facts.Fact
+	for _, f := range ff {
+		if f.Kind == facts.KindSymbol && f.Name == "Sources/App.Loader.load" {
+			load = f
+		}
+	}
+	if !load.HasRelation(facts.RelNames, "Sources/App.Payload") {
+		t.Errorf("load relations = %v, want names Sources/App.Payload", load.Relations)
+	}
+	for _, r := range load.Relations {
+		if r.Kind == facts.RelNames && r.Target != "Sources/App.Payload" {
+			t.Errorf("load names %s, which the project does not declare", r.Target)
+		}
+	}
+}

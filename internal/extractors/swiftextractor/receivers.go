@@ -157,3 +157,21 @@ func resolveTypedCalls(allFacts []facts.Fact) {
 		}
 	}
 }
+
+// noteMetatype records `Type.self`, a type handed on as a value
+// (`responseDecodable(of: Payload.self)`, `register(Cell.self)`), as a names edge to
+// the type. Nothing is called or constructed, so a type used only this way read as
+// unused. canonicalizeTargets keeps it where the project declares the type.
+func (w *astWalker) noteMetatype(nav *sitter.Node) {
+	suffix := nav.ChildByFieldName("suffix")
+	target := nav.ChildByFieldName("target")
+	if suffix == nil || target == nil || kindOf(target) != "simple_identifier" {
+		return
+	}
+	if id := findFirstIdentifier(suffix, w.src); id == nil || nodeText(id, w.src) != "self" {
+		return
+	}
+	if name := nodeText(target, w.src); isTypeName(name) && !isSystemType(name) {
+		w.addOwnerEdge(facts.RelNames, name)
+	}
+}

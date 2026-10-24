@@ -3183,7 +3183,9 @@ import (
 // condition, an argument, an initializer, an assignment, a return, an enum entry
 // through its enum) or in a type test is a names edge to it, also when imported by
 // its nested name. Before, only a call or a constructor recorded a use.
-const cacheVersion = "v450"
+// v451: Swift: `Type.self`, a type handed on as a value, is a names edge to the type
+// where the project declares it.
+const cacheVersion = "v451"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

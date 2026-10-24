@@ -1134,6 +1134,9 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 	if kind == "property_declaration" && w.localTypes != nil {
 		w.bindLocal(node)
 	}
+	if kind == "navigation_expression" {
+		w.noteMetatype(node)
+	}
 
 	// A closure is a deferred scope: its body runs when the closure is called, NOT
 	// per-iteration of the enclosing loops — so reset the loop depth for its
