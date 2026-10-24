@@ -3152,7 +3152,12 @@ import (
 // package reaches the one its main source set declares. A constructor call of a
 // class the repository declares is an instantiates edge to the class's name, not
 // its simple name.
-const cacheVersion = "v443"
+// v444: Python: an ALL_CAPS name in a value position (a default, an argument, a
+// collection element) is a constant the function names, not a class it constructs.
+// An unannotated method returning an instance of its own class (`self.__class__(…)`,
+// `type(self)(…)`, self, or such a method's result) types what it returns, and an
+// attribute assigned `param or Ctor()` (also `mod.Ctor()`) has the constructor's type.
+const cacheVersion = "v444"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

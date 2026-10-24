@@ -37,6 +37,7 @@ var versionCoverage = map[int][]string{
 	441: {"TestExtract_CallsInScalingLoop_RetryLoopExcluded", "TestExtract_CallsInScalingLoop_RetryNeedsAConfiguredBound"},
 	442: {"TestLocalTypedByAssertionFieldOrIndex"},
 	443: {"TestKotlinImportIntoASplitPackage", "TestIsTestSourceKnowsMultiplatformTestSets", "TestSplitTarget", "TestKotlinCapitalizedCallOfAFunction"},
+	444: {"TestPyConstantInAValuePositionIsNamed", "TestSelfReturningMethodTypesItsCaller", "TestSelfAttrFallsBackToAConstructor"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},
 	438: {"TestExtract_StructUsage_StdlibAndRootPackages"},

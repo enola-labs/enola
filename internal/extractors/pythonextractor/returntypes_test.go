@@ -3,6 +3,8 @@ package pythonextractor
 import (
 	"slices"
 	"testing"
+
+	"github.com/enola-labs/enola/internal/facts"
 )
 
 func TestPyValueType(t *testing.T) {
@@ -279,5 +281,114 @@ class Loader:
 	}
 	if len(drain) != 1 {
 		t.Errorf("drain calls_in_loop = %v: a call on a call's result has no name to record", drain)
+	}
+}
+
+// A copy method that builds its own class hands the class on: a local bound to
+// what it returns, through another method that returns its result or self, has the
+// class's type, and a call on it resolves. A method that may return None does not.
+func TestSelfReturningMethodTypesItsCaller(t *testing.T) {
+	ff := extractPyRepo(t, map[string]string{"shop/store.py": `
+class Ledger:
+    def _clone(self):
+        c = self.__class__(rows=self.rows)
+        c.frozen = self.frozen
+        return c
+
+    def _chain(self):
+        if self.frozen:
+            obj = self
+        else:
+            obj = self._clone()
+        return obj
+
+    def peek(self):
+        return type(self)()
+
+    def maybe(self):
+        if self.frozen:
+            return self
+        return None
+
+    def total(self):
+        return len(self.rows)
+
+    def filter(self, kw):
+        clone = self._chain()
+        clone._apply(kw)
+        self.peek().total()
+        return clone
+
+    def guess(self):
+        found = self.maybe()
+        found.settle()
+
+    def _apply(self, kw):
+        pass
+
+    def settle(self):
+        pass
+`})
+	filter := pySym(t, ff, "Ledger.filter")
+	for _, want := range []string{"Ledger._apply", "Ledger.total"} {
+		if !pyCallsTo(filter, want) {
+			t.Errorf("filter relations = %v, want a call to %s", filter.Relations, want)
+		}
+	}
+	if guess := pySym(t, ff, "Ledger.guess"); pyCallsTo(guess, "Ledger.settle") {
+		t.Errorf("guess relations = %v: maybe() can return None", guess.Relations)
+	}
+}
+
+// An attribute assigned a parameter or, when it is not passed, a constructor has
+// the constructor's type, written bare or through the module that declares it.
+func TestSelfAttrFallsBackToAConstructor(t *testing.T) {
+	ff := extractPyRepo(t, map[string]string{
+		"shop/__init__.py": "",
+		"shop/sql.py": `
+class Query:
+    def add_q(self, q):
+        pass
+`,
+		"shop/store.py": `
+from shop import sql
+
+class Ledger:
+    def __init__(self, query=None):
+        self._query = query or sql.Query()
+
+    def narrow(self, q):
+        self._query.add_q(q)
+`})
+	if narrow := pySym(t, ff, "Ledger.narrow"); !pyCallsTo(narrow, "sql.Query.add_q") {
+		t.Errorf("narrow relations = %v, want a call to Query.add_q", narrow.Relations)
+	}
+}
+
+// A constant read in a value position, as a default or an argument, is named, not
+// constructed; a capitalized class passed as a value is still an instantiation.
+func TestPyConstantInAValuePositionIsNamed(t *testing.T) {
+	ff := extractPyRepo(t, map[string]string{
+		"shop/__init__.py":  "",
+		"shop/constants.py": "MULTI = 'multi'\nCHUNK_SIZE = 100\n",
+		"shop/run.py": `
+from shop.constants import MULTI, CHUNK_SIZE
+
+def execute(result_type=MULTI, size=CHUNK_SIZE):
+    register(LOCAL_LIMIT, Handler)
+`})
+	exec := pySym(t, ff, "run.execute")
+	for _, r := range exec.Relations {
+		if r.Kind == facts.RelInstantiates && (r.Target == "MULTI" || r.Target == "CHUNK_SIZE" || r.Target == "LOCAL_LIMIT") {
+			t.Errorf("execute instantiates the constant %s", r.Target)
+		}
+	}
+	for _, want := range []string{"shop/constants.MULTI", "shop/constants.CHUNK_SIZE"} {
+		if !exec.HasRelation(facts.RelNames, want) {
+			t.Errorf("execute relations = %v, want names %s", exec.Relations, want)
+		}
+	}
+	if !exec.HasRelation(facts.RelInstantiates, "Handler") {
+		t.Errorf("execute relations = %v, want the class Handler still instantiated", exec.Relations)
 	}
 }
