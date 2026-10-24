@@ -5,6 +5,7 @@ import (
 
 	sitter "github.com/tree-sitter/go-tree-sitter"
 
+	"github.com/enola-labs/enola/internal/extractors/jvmsrc"
 	"github.com/enola-labs/enola/internal/facts"
 )
 
@@ -311,13 +312,20 @@ func resolveTypedCalls(all []facts.Fact) {
 
 // resolveCapitalCalls makes a capitalized bare call a calls edge where the name it
 // would have is a function this repository declares: `NiaApp(state)` calls the
-// @Composable fun NiaApp. The instantiates edge the walker wrote stays, so a class
-// constructor is read as before and gains nothing.
+// @Composable fun NiaApp. Where it is a class this repository declares, the
+// instantiates edge the walker wrote by simple name is given the class's name.
 func resolveCapitalCalls(all []facts.Fact) {
 	funcs := make(map[string]bool)
+	classes := make(map[string]bool)
 	for i := range all {
-		if all[i].Kind == facts.KindSymbol && all[i].PropString("symbol_kind") == facts.SymbolFunc {
+		if all[i].Kind != facts.KindSymbol {
+			continue
+		}
+		switch all[i].PropString("symbol_kind") {
+		case facts.SymbolFunc:
 			funcs[all[i].Name] = true
+		case facts.SymbolClass:
+			classes[all[i].Name] = true
 		}
 	}
 	for i := range all {
@@ -330,6 +338,65 @@ func resolveCapitalCalls(all []facts.Fact) {
 		for _, c := range cands {
 			if funcs[c] && !f.HasRelation(facts.RelCalls, c) {
 				f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelCalls, Target: c})
+			}
+			if classes[c] {
+				simple := c[strings.LastIndexByte(c, '.')+1:]
+				for j := range f.Relations {
+					if r := &f.Relations[j]; r.Kind == facts.RelInstantiates && r.Target == simple {
+						r.Target = c
+					}
+				}
+			}
+		}
+	}
+}
+
+// resolveSplitPackages re-homes the names an import resolved into the wrong
+// directory of a package declared in several (see jvmsrc.SplitTarget): a call to
+// an imported function, a receiver's type, a constructor candidate, and the
+// import's own dependency edge.
+func resolveSplitPackages(all []facts.Fact, siblings map[string][]string) {
+	if len(siblings) == 0 {
+		return
+	}
+	names := make(map[string]bool, len(all))
+	for i := range all {
+		if all[i].Kind == facts.KindSymbol {
+			names[all[i].Name] = true
+		}
+	}
+	exists := func(name string) bool { return names[name] }
+	split := func(target string) string { return jvmsrc.SplitTarget(target, siblings, exists) }
+	for i := range all {
+		f := &all[i]
+		for j := range f.Relations {
+			r := &f.Relations[j]
+			switch r.Kind {
+			case facts.RelImports:
+				// "dir/guarded": the path form of "dir.guarded".
+				slash := strings.LastIndexByte(r.Target, '/')
+				if slash < 0 {
+					continue
+				}
+				dotted := r.Target[:slash] + "." + r.Target[slash+1:]
+				if to := split(dotted); to != dotted {
+					dot := strings.LastIndexByte(to, '.')
+					moved := to[:dot] + "/" + to[dot+1:]
+					f.Name = strings.Replace(f.Name, " -> "+r.Target, " -> "+moved, 1)
+					r.Target = moved
+				}
+			default:
+				r.Target = split(r.Target)
+			}
+		}
+		if calls, ok := f.PropAny(propTypedCalls).([]typedCall); ok {
+			for k := range calls {
+				calls[k].typ = split(calls[k].typ)
+			}
+		}
+		if cands, ok := f.PropAny(propCapitalCalls).([]string); ok {
+			for k := range cands {
+				cands[k] = split(cands[k])
 			}
 		}
 	}

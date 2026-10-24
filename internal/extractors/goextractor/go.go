@@ -173,8 +173,12 @@ func (e *GoExtractor) Extract(ctx context.Context, repoPath string, files []stri
 	// Pass 2a: what every function in the module is declared to return, so a call
 	// on a call's result (`eng.Resolver().NodeName(x)`) and a variable assigned from
 	// one (`r := eng.Resolver()`) resolve to the method they reach.
-	callTypes := callTypeTables{returns: make(map[string][]string), aliases: aliases, funcs: make(map[string]bool)}
+	callTypes := callTypeTables{
+		returns: make(map[string][]string), aliases: aliases, funcs: make(map[string]bool),
+		elems: elemTypes{byType: make(map[string]string), byField: make(map[string]string)},
+	}
 	for _, pkgDir := range pkgDirs {
+		collectElemTypes(parsedPkgs[pkgDir].parsedFiles, pkgDir, mods, pkgNames, aliases, callTypes.elems)
 		for k, v := range collectReturnTypes(parsedPkgs[pkgDir].parsedFiles, pkgDir, mods, pkgNames, aliases) {
 			callTypes.returns[k] = v
 		}
@@ -539,6 +543,7 @@ func (e *GoExtractor) extractFunc(fset *token.FileSet, fn *ast.FuncDecl, relFile
 			returnTypes: callTypes.returns,
 			aliases:     callTypes.aliases,
 			moduleFuncs: callTypes.funcs,
+			elemTypes:   callTypes.elems,
 		}
 		typeParams := typeParamNames(fn.Recv, fn.Type)
 		ctx.localTypes = collectLocalTypesFrom(fn.Body, ctx, signatureTypes(fn.Type, ctx, typeParams), typeParams)
@@ -821,8 +826,10 @@ type resolveCtx struct {
 	// "pkgDir.Func" / "pkgDir.Type.Method" → declared result types, module-wide. See calltypes.go.
 	returnTypes map[string][]string
 	// "pkgDir.Alias" → the type `type Alias = T` names, module-wide. See calltypes.go.
-	aliases  map[string]string
-	pkgFuncs map[string]bool // this package's top-level function names
+	aliases map[string]string
+	// What indexing a declared collection yields, module-wide. See calltypes.go.
+	elemTypes elemTypes
+	pkgFuncs  map[string]bool // this package's top-level function names
 	// "pkgDir.Func" for every top-level function in the module. nil where a pass
 	// does not resolve function values across packages.
 	moduleFuncs map[string]bool
@@ -1590,12 +1597,11 @@ func resolveChain(chain []string, ctx resolveCtx) string {
 		}
 
 		for _, fieldName := range chain[fieldStart : len(chain)-1] {
-			key := qualType + "." + fieldName
-			nextType, ok := ctx.fieldTypes[key]
+			nextType, ok := fieldType(qualType, fieldName, ctx)
 			if !ok {
 				return strings.Join(chain, ".")
 			}
-			qualType = resolveTypeName(nextType, ctx)
+			qualType = nextType
 		}
 
 		return qualType + "." + chain[len(chain)-1]
@@ -1687,12 +1693,14 @@ func collectLocalTypesFrom(body ast.Node, ctx resolveCtx, declared map[string]st
 		case *ast.FuncLit:
 			declare(stmt.Type)
 		case *ast.RangeStmt:
-			// What a range yields is never stated in the source.
+			// A range's key is never typed here. Its value is the element of a
+			// collection whose element type is declared, and unknown otherwise.
 			if stmt.Tok == token.DEFINE {
-				for _, e := range []ast.Expr{stmt.Key, stmt.Value} {
-					if id, ok := e.(*ast.Ident); ok {
-						set(id.Name, "")
-					}
+				if id, ok := stmt.Key.(*ast.Ident); ok {
+					set(id.Name, "")
+				}
+				if id, ok := stmt.Value.(*ast.Ident); ok {
+					set(id.Name, elemOf(stmt.X, ctx))
 				}
 			}
 		case *ast.DeclStmt:
@@ -1737,6 +1745,15 @@ func collectLocalTypesFrom(body ast.Node, ctx resolveCtx, declared map[string]st
 						results = rt
 					}
 				}
+				// `v, ok := x.(*T)` and `v, ok := m[k]`: the value, then a bool.
+				if results == nil && len(stmt.Rhs) == 1 && len(stmt.Lhs) == 2 {
+					switch stmt.Rhs[0].(type) {
+					case *ast.TypeAssertExpr, *ast.IndexExpr:
+						if t := exprType(stmt.Rhs[0], ctx); t != "" {
+							results = []string{t, ""}
+						}
+					}
+				}
 				for i, lhs := range stmt.Lhs {
 					if ident, ok := lhs.(*ast.Ident); ok {
 						qual := ""
@@ -1777,6 +1794,9 @@ func inferRHSType(expr ast.Expr, ctx resolveCtx) string {
 	case *ast.CallExpr:
 		// What the callee is declared to return, or NewFoo(...) / pkg.NewFoo(...).
 		return callResultType(e, ctx)
+	case *ast.TypeAssertExpr, *ast.SelectorExpr, *ast.IndexExpr, *ast.ParenExpr:
+		// `c := pool.Get().(*Context)`, `root := t[i].root`: what the source states.
+		return exprType(e, ctx)
 	}
 	return ""
 }

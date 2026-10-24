@@ -113,7 +113,13 @@ func (e *KotlinExtractor) Extract(ctx context.Context, repoPath string, files []
 	// that actually holds the package, instead of collapsing onto the single most
 	// common source root. sourceRoot is retained only as a graceful fallback for
 	// internal imports whose package we somehow did not index.
-	packageIndex := jvmsrc.BuildPackageIndex(repoPath, files)
+	packageDirs := jvmsrc.BuildPackageDirs(repoPath, files)
+	packageIndex := jvmsrc.IndexOf(packageDirs)
+	// Test code also reaches the packages only test sources declare.
+	testIndex := jvmsrc.TestOnlyIndex(packageDirs)
+	for pkg, dir := range packageIndex {
+		testIndex[pkg] = dir
+	}
 
 	var kotlinFiles []string
 	for _, relFile := range files {
@@ -131,7 +137,11 @@ func (e *KotlinExtractor) Extract(ctx context.Context, repoPath string, files []
 			return nil
 		}
 		clients := append(extractRetrofitFacts(src, relFile), extractServletRouteFacts(src, relFile)...)
-		return extractFileWithClients(src, relFile, isAndroid, sourceRoot, basePackage, packageIndex, clients)
+		index := packageIndex
+		if jvmsrc.IsTestSource(relFile) {
+			index = testIndex
+		}
+		return extractFileWithClients(src, relFile, isAndroid, sourceRoot, basePackage, index, clients)
 	})
 
 	modules := make(map[string]bool)
@@ -142,6 +152,7 @@ func (e *KotlinExtractor) Extract(ctx context.Context, repoPath string, files []
 
 	// Calls on a receiver of declared type become edges, and supertypes written by
 	// simple name become implements edges, now that every file has been read.
+	resolveSplitPackages(allFacts, jvmsrc.SplitSiblings(packageDirs))
 	resolveTypedCalls(allFacts)
 	resolveCapitalCalls(allFacts)
 

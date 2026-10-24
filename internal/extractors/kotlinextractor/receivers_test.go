@@ -213,7 +213,8 @@ class Forms {
 // A capitalized call is a constructor by convention, but in Compose it is nearly
 // always a function: `NiaApp(appState)` calls the @Composable fun NiaApp. Where a
 // function of that name is declared, of the same package or imported, the call is
-// a calls edge to it as well; a class's constructor stays an instantiation only.
+// a calls edge to it as well; a class's constructor stays an instantiation only,
+// of the class by its name.
 func TestKotlinCapitalizedCallOfAFunction(t *testing.T) {
 	ff := extractKotlinRepo(t, map[string]string{
 		"app/src/main/kotlin/com/acme/ui/NiaApp.kt": `package com.acme.ui
@@ -251,8 +252,12 @@ class MainActivity {
 	if ktRelSuffix(app, facts.RelCalls, "ui.GradientColors") {
 		t.Errorf("NiaApp relations = %v: a class constructor is no call", app.Relations)
 	}
-	if !app.HasRelation(facts.RelInstantiates, "GradientColors") {
-		t.Errorf("NiaApp relations = %v, want the constructor kept as an instantiation", app.Relations)
+	if !ktRelSuffix(app, facts.RelInstantiates, "ui.GradientColors") {
+		t.Errorf("NiaApp relations = %v, want the constructor kept as an instantiation of the class", app.Relations)
+	}
+	// A class the repository does not declare keeps the name it was written by.
+	if create := ktSym(t, ff, "MainActivity.onCreate"); !create.HasRelation(facts.RelInstantiates, "AppState") {
+		t.Errorf("onCreate relations = %v, want the undeclared AppState instantiated by its simple name", create.Relations)
 	}
 	if create := ktSym(t, ff, "MainActivity.onCreate"); !ktRelSuffix(create, facts.RelCalls, "ui.NiaApp") {
 		t.Errorf("onCreate relations = %v, want a call to the imported NiaApp", create.Relations)
@@ -260,6 +265,78 @@ class MainActivity {
 	for _, f := range ff {
 		if _, kept := f.Prop(propCapitalCalls); kept {
 			t.Errorf("%s: the walker's note %s leaked into the facts", f.Name, propCapitalCalls)
+		}
+	}
+}
+
+// A package declared in two modules: the library's multiplatform source set and a
+// testing-support module's src/main. An import resolves per package, to the
+// support module's directory, and only the library declares Pipeline and guarded.
+// Every name that import produced is re-homed to the directory that declares it.
+func TestKotlinImportIntoASplitPackage(t *testing.T) {
+	const lib = "lib/src/commonJvmAndroid/kotlin/com/acme/internal/concurrent"
+	ff := extractKotlinRepo(t, map[string]string{
+		lib + "/Pipeline.kt": `package com.acme.internal.concurrent
+
+class Pipeline {
+    fun advance() {}
+}
+
+fun guarded(action: () -> Unit) { action() }
+`,
+		"support/src/main/kotlin/com/acme/internal/concurrent/FakeClock.kt": `package com.acme.internal.concurrent
+
+class FakeClock
+`,
+		"lib/src/jvmTest/kotlin/com/acme/internal/concurrent/FaultyLock.kt": `package com.acme.internal.concurrent
+
+class FaultyLock {
+    fun trip() {}
+}
+`,
+		"lib/src/jvmTest/kotlin/com/acme/call/CallTest.kt": `package com.acme.call
+
+import com.acme.internal.concurrent.FaultyLock
+
+class CallTest {
+    fun trips() {
+        val lock = FaultyLock()
+        lock.trip()
+    }
+}
+`,
+		"lib/src/commonJvmAndroid/kotlin/com/acme/call/Call.kt": `package com.acme.call
+
+import com.acme.internal.concurrent.Pipeline
+import com.acme.internal.concurrent.guarded
+
+class Call {
+    fun execute() {
+        val pipeline = Pipeline()
+        pipeline.advance()
+        guarded { }
+    }
+}
+`,
+	})
+	exec := ktSym(t, ff, "Call.execute")
+	for _, want := range []struct{ kind, target string }{
+		{facts.RelCalls, lib + ".Pipeline.advance"},
+		{facts.RelCalls, lib + ".guarded"},
+		{facts.RelInstantiates, lib + ".Pipeline"},
+	} {
+		if !exec.HasRelation(want.kind, want.target) {
+			t.Errorf("execute relations = %v, want %s %s", exec.Relations, want.kind, want.target)
+		}
+	}
+	// A test helper only the test source set declares is still reached from a test.
+	trips := ktSym(t, ff, "CallTest.trips")
+	if want := "lib/src/jvmTest/kotlin/com/acme/internal/concurrent.FaultyLock.trip"; !trips.HasRelation(facts.RelCalls, want) {
+		t.Errorf("trips relations = %v, want calls %s", trips.Relations, want)
+	}
+	for _, f := range ff {
+		if f.Kind == facts.KindDependency && strings.Contains(f.Name, "support/") {
+			t.Errorf("import resolved into the module that does not declare it: %s", f.Name)
 		}
 	}
 }

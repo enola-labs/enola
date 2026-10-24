@@ -87,24 +87,145 @@ func pyDefinition(n *sitter.Node) *sitter.Node {
 }
 
 // collectMethodReturnTypes maps the methods a class body defines to the types
-// their return annotations name.
-func collectMethodReturnTypes(body *sitter.Node, src []byte, importMap map[string]string, module string) map[string]string {
+// their return annotations name. An unannotated method that returns an instance
+// of the class itself (see selfReturning) maps to self, the class's name.
+func collectMethodReturnTypes(body *sitter.Node, src []byte, importMap map[string]string, module, self string) map[string]string {
 	out := make(map[string]string)
 	if body == nil {
 		return out
 	}
+	unannotated := make(map[string]*sitter.Node)
 	for i := uint(0); i < body.NamedChildCount(); i++ {
 		member := pyDefinition(body.NamedChild(i))
 		if member == nil || kindOf(member) != "function_definition" {
 			continue
 		}
-		if t := pyValueType(pyReturnAnnotation(member, src)); t != "" {
+		ann := pyReturnAnnotation(member, src)
+		if t := pyValueType(ann); t != "" {
 			if resolved := resolveTypeNamePy(t, module, importMap); resolved != "" {
 				out[pyFuncName(member, src)] = resolved
 			}
+			continue
+		}
+		if ann == "" {
+			unannotated[pyFuncName(member, src)] = member
+		}
+	}
+	if self != "" {
+		for name := range selfReturning(unannotated, out, self, src) {
+			out[name] = self
 		}
 	}
 	return out
+}
+
+// selfReturning finds the unannotated methods that return an instance of their
+// own class: every return statement returns a value, and each is `self`,
+// `self.__class__(…)`, `type(self)(…)`, a call of a method of the class that
+// returns one, or a local every assignment of which binds one of those.
+//
+//	def _copy(self):
+//	    c = self.__class__(model=self.model)
+//	    return c
+//
+//	def _derive(self):
+//	    obj = self._copy()        # a method of the class that returns one
+//	    return obj
+//
+// A copy or builder method is how such a class hands itself on, and a local bound
+// to its result held nothing a call could resolve on. Methods are decided
+// together, until no more are found, since they return one another.
+func selfReturning(methods map[string]*sitter.Node, declared map[string]string, self string, src []byte) map[string]bool {
+	found := make(map[string]bool)
+	isSelfCall := func(n *sitter.Node) bool {
+		n = pyUnwrapValue(n)
+		if n == nil || kindOf(n) != "call" {
+			return false
+		}
+		fn := n.ChildByFieldName("function")
+		switch {
+		case fn == nil:
+			return false
+		case kindOf(fn) == "attribute" && pyText(fn, src) == "self.__class__":
+			return true
+		case kindOf(fn) == "call" && pyText(fn, src) == "type(self)":
+			return true
+		}
+		if name := selfAttrName(fn, src); name != "" {
+			return found[name] || declared[name] == self
+		}
+		return false
+	}
+	returnsSelf := func(fn *sitter.Node) bool {
+		body := fn.ChildByFieldName("body")
+		var returns []*sitter.Node
+		bound := make(map[string][]*sitter.Node)
+		ok := true
+		var walk func(n *sitter.Node)
+		walk = func(n *sitter.Node) {
+			if n == nil || !ok {
+				return
+			}
+			switch kindOf(n) {
+			case "function_definition", "class_definition", "lambda":
+				return
+			case "return_statement":
+				v := n.NamedChild(0)
+				if v == nil {
+					ok = false
+					return
+				}
+				returns = append(returns, v)
+			case "assignment":
+				if left := n.ChildByFieldName("left"); left != nil && kindOf(left) == "identifier" {
+					bound[pyText(left, src)] = append(bound[pyText(left, src)], n.ChildByFieldName("right"))
+				}
+			}
+			for i := uint(0); i < n.NamedChildCount(); i++ {
+				walk(n.NamedChild(i))
+			}
+		}
+		walk(body)
+		if !ok || len(returns) == 0 {
+			return false
+		}
+		for _, v := range returns {
+			v = pyUnwrapValue(v)
+			if v == nil {
+				return false
+			}
+			if kindOf(v) == "identifier" {
+				name := pyText(v, src)
+				if name == "self" {
+					continue
+				}
+				values := bound[name]
+				if len(values) == 0 {
+					return false
+				}
+				for _, bv := range values {
+					if bv = pyUnwrapValue(bv); bv == nil || (pyText(bv, src) != "self" && !isSelfCall(bv)) {
+						return false
+					}
+				}
+				continue
+			}
+			if !isSelfCall(v) {
+				return false
+			}
+		}
+		return true
+	}
+	for changed := true; changed; {
+		changed = false
+		for name, fn := range methods {
+			if !found[name] && returnsSelf(fn) {
+				found[name] = true
+				changed = true
+			}
+		}
+	}
+	return found
 }
 
 // collectFuncReturnAnnotations maps a file's top-level functions to their return

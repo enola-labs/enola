@@ -3136,7 +3136,47 @@ import (
 // v441: Go: a retry loop (a counter bounded by a literal, a constant or a configured
 // field, never picking out an item, leaving once the call succeeds) is no scaling
 // loop: a call in it repeats one request, not one per element.
-const cacheVersion = "v441"
+// v442: Go: a local is typed by a type assertion (also `v, ok := x.(*T)`), by the
+// field it is assigned from, and by indexing a collection whose element type is
+// declared (a named slice, array or map type, or a struct field declared as one),
+// so a method called on it resolves; `x.items[i].M()` resolves the same way, and a
+// range over such a collection types its value. A field of a predeclared type
+// (`Err error`) no longer gives a call through it a package-qualified "error.Error".
+// v443: Kotlin: a package declared in several directories (a module and its testing
+// support, multiplatform source sets) no longer sends every import of it to the
+// directory the package index prefers: a call, receiver type, constructor or import
+// edge naming something only a sibling directory declares is re-homed there. A
+// multiplatform test source set (src/jvmTest, src/commonTest) is kept out of the
+// JVM package index like src/test; a test file's import still resolves into a
+// package only test sources declare, and a test's bare call to a function of its
+// package reaches the one its main source set declares. A constructor call of a
+// class the repository declares is an instantiates edge to the class's name, not
+// its simple name.
+// v444: Python: an ALL_CAPS name in a value position (a default, an argument, a
+// collection element) is a constant the function names, not a class it constructs.
+// An unannotated method returning an instance of its own class (`self.__class__(…)`,
+// `type(self)(…)`, self, or such a method's result) types what it returns, and an
+// attribute assigned `param or Ctor()` (also `mod.Ctor()`) has the constructor's type.
+// v445: Rust: a method called on a receiver whose type the source states resolves
+// to that type's method (or a default of a trait it implements) instead of the bare
+// name: self, a parameter's or let's written type seen through &, Arc, Rc and Box,
+// a struct literal, a struct field's declared type, and what a function of the
+// crate is declared to return, evaluated across files. `Type::f()` resolves the
+// same way. `Default::default()` and the other conversion traits called through
+// their own name no longer instantiate the trait.
+// v446: Swift: a member call on a receiver whose type the source states (self, a
+// typed parameter, a let or var with a type annotation or constructed from a type)
+// binds to the method that type, one of its extensions or its nearest supertype
+// declares, where the name alone was ambiguous and left the call bare.
+// v447: TypeScript: a class field that holds a value (no initializer, or one that
+// is not a function) is a variable, not a method, and reading `this.<field>` is a
+// names edge, not a call; a field holding an arrow function stays a method. `new
+// T(…)` of a class the file imports or declares is an instantiates edge. A local
+// assigned `this.method()` takes the method's annotated return type, as does a
+// call on `this.method()`.
+// v448: TypeScript: a class declared inside a wrapper function keeps its fields; the
+// wrapper's plain-variable filter dropped them once they were variables (v447).
+const cacheVersion = "v448"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

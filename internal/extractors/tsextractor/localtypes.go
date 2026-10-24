@@ -23,7 +23,7 @@ import (
 // tsLocalTypes returns the parameters of fn and the locals of body whose class the
 // source states, each mapped to the qualified name a method call on it resolves
 // through.
-func tsLocalTypes(kinds *tsutil.KindTable, fn, body *sitter.Node, src []byte, dir string, importMap map[string]string, names *typeNameCache) map[string]string {
+func tsLocalTypes(kinds *tsutil.KindTable, fn, body *sitter.Node, src []byte, dir string, importMap map[string]string, names *typeNameCache, methodReturns map[string]string) map[string]string {
 	out := map[string]string{}
 	conflict := map[string]bool{}
 	declared := names.of(kinds, body, src)
@@ -71,6 +71,18 @@ func tsLocalTypes(kinds *tsutil.KindTable, fn, body *sitter.Node, src []byte, di
 						if v != nil && kindOf(kinds, v) == "new_expression" {
 							if ctor := v.ChildByFieldName("constructor"); ctor != nil && kindOf(kinds, ctor) == "identifier" {
 								typ = nodeText(ctor, src)
+							}
+						}
+						// `const host = this.getHost(id)`: the method's return type,
+						// already qualified.
+						if m := thisMethodCall(kinds, v, src); m != "" {
+							if q, ok := methodReturns[m]; ok {
+								if prior, seen := out[nodeText(name, src)]; seen && prior != q {
+									delete(out, nodeText(name, src))
+									conflict[nodeText(name, src)] = true
+								} else if !conflict[nodeText(name, src)] {
+									out[nodeText(name, src)] = q
+								}
 							}
 						}
 					}

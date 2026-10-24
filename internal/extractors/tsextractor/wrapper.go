@@ -115,8 +115,10 @@ func withoutPlainVariables(ff []facts.Fact) []facts.Fact {
 	}
 	kept := ff[:0]
 	for _, f := range ff {
+		// A class's field is a variable too, and is the class's, not the wrapper's.
+		_, member := f.Props["receiver"]
 		plain := f.Kind == facts.KindSymbol && f.Props["symbol_kind"] == facts.SymbolVariable &&
-			!hasMembers[f.Name] && f.Props["exported"] != true
+			!member && !hasMembers[f.Name] && f.Props["exported"] != true
 		if !plain {
 			kept = append(kept, f)
 		}

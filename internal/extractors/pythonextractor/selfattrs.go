@@ -128,21 +128,49 @@ func collectSelfAssignments(node *sitter.Node, src []byte, importMap map[string]
 		if right == nil {
 			return
 		}
+		// `self.query = query or sql.Query(model)`: a fallback to a constructor
+		// when the parameter is not passed.
+		if kindOf(right) == "boolean_operator" && pyText(right.ChildByFieldName("operator"), src) == "or" {
+			if l := right.ChildByFieldName("left"); l != nil && kindOf(l) == "identifier" {
+				if t := params[pyText(l, src)]; t != "" {
+					set(name, t)
+					return
+				}
+				right = right.ChildByFieldName("right")
+			}
+		}
 		switch kindOf(right) {
 		case "identifier":
 			set(name, params[pyText(right, src)])
 		case "call":
-			if fn := right.ChildByFieldName("function"); fn != nil && kindOf(fn) == "identifier" {
-				if ctor := pyText(fn, src); pyCapitalized(ctor) && !pyBuiltins[ctor] {
-					set(name, resolveTypeNamePy(ctor, module, importMap))
-				}
-			}
+			set(name, pyConstructedType(right, src, importMap, module))
 		}
 		return
 	}
 	for i := uint(0); i < node.NamedChildCount(); i++ {
 		collectSelfAssignments(node.NamedChild(i), src, importMap, module, params, set)
 	}
+}
+
+// pyConstructedType is the type a constructor call builds, `Store()` or
+// `sql.Query()`, written with a capitalized name; "" for any other call.
+func pyConstructedType(call *sitter.Node, src []byte, importMap map[string]string, module string) string {
+	fn := call.ChildByFieldName("function")
+	if fn == nil {
+		return ""
+	}
+	switch kindOf(fn) {
+	case "identifier":
+		if ctor := pyText(fn, src); pyCapitalized(ctor) && !pyBuiltins[ctor] {
+			return resolveTypeNamePy(ctor, module, importMap)
+		}
+	case "attribute":
+		obj, attr := fn.ChildByFieldName("object"), fn.ChildByFieldName("attribute")
+		if obj != nil && attr != nil && kindOf(obj) == "identifier" && pyCapitalized(pyText(attr, src)) {
+			return resolveTypeNamePy(pyText(fn, src), module, importMap)
+		}
+	}
+	return ""
 }
 
 // selfAttrName returns x for the expression `self.x`, and "" for anything else.

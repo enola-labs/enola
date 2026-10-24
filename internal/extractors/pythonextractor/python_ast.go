@@ -1375,7 +1375,7 @@ func (w *pyWalker) handleClass(node *sitter.Node, decorators []string) {
 	bodyNode := node.ChildByFieldName("body")
 	w.pushType(name, collectPyMethodNames(bodyNode, w.src))
 	w.attrTypes = append(w.attrTypes, collectSelfAttrTypes(bodyNode, w.src, w.importMap, w.module))
-	w.returnTypes = append(w.returnTypes, collectMethodReturnTypes(bodyNode, w.src, w.importMap, w.module))
+	w.returnTypes = append(w.returnTypes, collectMethodReturnTypes(bodyNode, w.src, w.importMap, w.module, qualName))
 	if bodyNode != nil {
 		w.walkBody(bodyNode)
 		// Walk class-body statements for call / value-reference edges (attrs/pydantic/
@@ -1614,6 +1614,14 @@ func (w *pyWalker) valueRefRelation(node *sitter.Node) (facts.Relation, bool) {
 	case "identifier":
 		name := pyText(node, w.src)
 		if pyBuiltins[name] {
+			return facts.Relation{}, false
+		}
+		// MAX_RETRIES, DEFAULT_PAGE_SIZE: by convention a constant, which a value
+		// position reads and nothing constructs.
+		if pyConstantName(name) {
+			if target := w.valueRefTarget(name); target != "" {
+				return facts.Relation{Kind: facts.RelNames, Target: target}, true
+			}
 			return facts.Relation{}, false
 		}
 		if pyCapitalized(name) {
@@ -2889,6 +2897,21 @@ func pyFuncName(node *sitter.Node, src []byte) string {
 }
 
 func pyText(node *sitter.Node, src []byte) string { return tsutil.Text(node, src) }
+
+// pyConstantName reports whether a name follows the constant convention: two or
+// more characters, an uppercase letter first and no lowercase letter (MAX_SIZE,
+// HTTP2). A single capital (`Q`) is as often a class.
+func pyConstantName(s string) bool {
+	if len(s) < 2 || !pyCapitalized(s) {
+		return false
+	}
+	for _, r := range s {
+		if unicode.IsLower(r) {
+			return false
+		}
+	}
+	return true
+}
 
 func pyCapitalized(s string) bool {
 	if s == "" {

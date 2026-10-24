@@ -244,6 +244,7 @@ func (e *SwiftExtractor) Extract(ctx context.Context, repoPath string, files []s
 	// Bind the walker's tentative bare-short-name member-call edges to concrete
 	// project methods (or drop stdlib/framework calls). Runs after
 	// canonicalizeTargets so type-target rewrites are already settled.
+	resolveTypedCalls(allFacts)
 	resolveMethodCalls(allFacts, methodIndex, funcIndex)
 
 	// Resolve dangling inherited-method calls (a subclass calling a base-class or
@@ -458,61 +459,7 @@ func resolveMethodCalls(allFacts []facts.Fact, methodIndex, funcIndex map[string
 // need not here — both put their methods in facts under `dir.Ancestor.method`, so the
 // ancestry walk treats them uniformly. Nearest-first BFS matches Swift override order.
 func resolveInheritedCalls(allFacts []facts.Fact) {
-	factNames := make(map[string]bool, len(allFacts))
-	typeSupers := make(map[string][]string)            // simple type -> supertype simple names
-	methodByType := make(map[string]map[string]string) // simple type -> (method short -> qualified name)
-
-	for i := range allFacts {
-		f := &allFacts[i]
-		if f.Kind != facts.KindSymbol {
-			continue
-		}
-		factNames[f.Name] = true
-		sk, _ := f.PropAny("symbol_kind").(string)
-		switch sk {
-		case facts.SymbolClass, facts.SymbolStruct, facts.SymbolInterface:
-			simple := lastDotComponent(f.Name)
-			for _, r := range f.Relations {
-				if r.Kind == facts.RelImplements {
-					typeSupers[simple] = append(typeSupers[simple], r.Target)
-				}
-			}
-		case facts.SymbolMethod:
-			recv, _ := f.PropAny("receiver").(string)
-			if recv == "" {
-				continue
-			}
-			t := lastDotComponent(recv)
-			if methodByType[t] == nil {
-				methodByType[t] = make(map[string]string)
-			}
-			// First declaration wins; overloads share a name and one target suffices.
-			if _, ok := methodByType[t][lastDotComponent(f.Name)]; !ok {
-				methodByType[t][lastDotComponent(f.Name)] = f.Name
-			}
-		}
-	}
-
-	// resolveInAncestry returns the qualified method fact for `short` declared by the
-	// nearest ancestor of `callerType` (inclusive), or "" if none declares it.
-	resolveInAncestry := func(callerType, short string) string {
-		visited := map[string]bool{}
-		queue := []string{callerType}
-		for len(queue) > 0 {
-			t := queue[0]
-			queue = queue[1:]
-			if visited[t] {
-				continue
-			}
-			visited[t] = true
-			if q, ok := methodByType[t][short]; ok {
-				return q
-			}
-			queue = append(queue, typeSupers[t]...)
-		}
-		return ""
-	}
-
+	h := newSwiftHierarchy(allFacts)
 	for i := range allFacts {
 		f := &allFacts[i]
 		if f.Kind != facts.KindSymbol {
@@ -523,15 +470,15 @@ func resolveInheritedCalls(allFacts []facts.Fact) {
 		}
 		recv, _ := f.PropAny("receiver").(string)
 		callerType := lastDotComponent(recv)
-		if callerType == "" || len(typeSupers[callerType]) == 0 {
+		if callerType == "" || len(h.typeSupers[callerType]) == 0 {
 			continue // no supertypes → nothing to inherit; skip the common leaf case
 		}
 		for j := range f.Relations {
 			r := &f.Relations[j]
-			if r.Kind != facts.RelCalls || factNames[r.Target] {
+			if r.Kind != facts.RelCalls || h.factNames[r.Target] {
 				continue // not a call, or already resolved to a real fact
 			}
-			if q := resolveInAncestry(callerType, lastDotComponent(r.Target)); q != "" && q != f.Name {
+			if q := h.resolve(callerType, lastDotComponent(r.Target)); q != "" && q != f.Name {
 				r.Target = q
 			}
 		}
@@ -942,4 +889,72 @@ func (e *SwiftExtractor) OwnsFile(relFile string) bool { return isSwiftFile(relF
 
 func matchesXcodeProject(name string) bool {
 	return strings.HasSuffix(name, ".xcodeproj") || strings.HasSuffix(name, ".xcworkspace")
+}
+
+// swiftHierarchy indexes the methods each type declares, its extensions' included,
+// and the supertypes it names, by simple type name.
+type swiftHierarchy struct {
+	factNames    map[string]bool
+	typeSupers   map[string][]string          // simple type -> supertype simple names
+	methodByType map[string]map[string]string // simple type -> (method short -> qualified name)
+}
+
+func newSwiftHierarchy(allFacts []facts.Fact) *swiftHierarchy {
+	h := &swiftHierarchy{
+		factNames:    make(map[string]bool, len(allFacts)),
+		typeSupers:   make(map[string][]string),
+		methodByType: make(map[string]map[string]string),
+	}
+	for i := range allFacts {
+		f := &allFacts[i]
+		if f.Kind != facts.KindSymbol {
+			continue
+		}
+		h.factNames[f.Name] = true
+		sk, _ := f.PropAny("symbol_kind").(string)
+		switch sk {
+		case facts.SymbolClass, facts.SymbolStruct, facts.SymbolInterface:
+			simple := lastDotComponent(f.Name)
+			for _, r := range f.Relations {
+				if r.Kind == facts.RelImplements {
+					h.typeSupers[simple] = append(h.typeSupers[simple], r.Target)
+				}
+			}
+		case facts.SymbolMethod:
+			recv, _ := f.PropAny("receiver").(string)
+			if recv == "" {
+				continue
+			}
+			t := lastDotComponent(recv)
+			if h.methodByType[t] == nil {
+				h.methodByType[t] = make(map[string]string)
+			}
+			// First declaration wins; overloads share a name and one target suffices.
+			if _, ok := h.methodByType[t][lastDotComponent(f.Name)]; !ok {
+				h.methodByType[t][lastDotComponent(f.Name)] = f.Name
+			}
+		}
+	}
+	return h
+}
+
+// resolve returns the qualified method fact for short declared by the nearest
+// ancestor of typ (inclusive), or "" if none declares it. Nearest-first BFS
+// matches Swift override order.
+func (h *swiftHierarchy) resolve(typ, short string) string {
+	visited := map[string]bool{}
+	queue := []string{typ}
+	for len(queue) > 0 {
+		t := queue[0]
+		queue = queue[1:]
+		if visited[t] {
+			continue
+		}
+		visited[t] = true
+		if q, ok := h.methodByType[t][short]; ok {
+			return q
+		}
+		queue = append(queue, h.typeSupers[t]...)
+	}
+	return ""
 }

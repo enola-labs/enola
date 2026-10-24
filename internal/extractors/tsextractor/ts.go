@@ -849,6 +849,8 @@ func (e *TSExtractor) classMemberFacts(kinds *tsutil.KindTable, classBody *sitte
 	}
 	src := ctx.src
 	scope := ctx.callScope(kinds, symbolName, classFieldTypes(kinds, classBody, src, ctx.dir, ctx.importMap))
+	scope.dataFields = classDataFields(kinds, classBody, src)
+	scope.methodReturns = classMethodReturnTypes(kinds, classBody, src, ctx.dir, ctx.importMap, scope.typeNames.of(kinds, classBody, src))
 	var result []facts.Fact
 	var pendingDecorators []string
 	for j := range classBody.ChildCount() {
@@ -908,6 +910,10 @@ func (e *TSExtractor) memberFact(kinds *tsutil.KindTable, member *sitter.Node, c
 		"exported":    isExported && !isPrivate,
 		"language":    "typescript",
 		"receiver":    symbolName,
+	}
+	// A field that holds a value is a data member, as a Java or C++ field is.
+	if kindOf(kinds, member) == "public_field_definition" && tsFieldHoldsData(kinds, member) {
+		mProps["symbol_kind"] = facts.SymbolVariable
 	}
 	if doc := tsDoc(kinds, member, src); doc != "" {
 		facts.SetDocProp(mProps, doc)
@@ -2887,6 +2893,7 @@ func (w *tsBodyWalker) walk(n *sitter.Node) {
 		}
 	case "new_expression":
 		w.noteIOConstructor(n)
+		w.noteInstantiation(n)
 	case "member_expression":
 		w.noteThisMember(n)
 	}
@@ -3134,6 +3141,22 @@ func (w *tsBodyWalker) walkIteratorCall(n *sitter.Node) bool {
 
 // `new WebSocket(...)` / `new XMLHttpRequest()` opens a network/stream resource —
 // tag the enclosing body io_direct (constructors are new_expression, not call_expression).
+// noteInstantiation records `new T(…)` as an instantiates edge to T, where T is a
+// class the file imports or declares; a global (`new Map()`, `new Error()`) names
+// nothing of the repository.
+func (w *tsBodyWalker) noteInstantiation(n *sitter.Node) {
+	ctor := n.ChildByFieldName("constructor")
+	if ctor == nil || kindOf(w.kinds, ctor) != "identifier" || w.typeNames == nil {
+		return
+	}
+	target := qualifyTSType(nodeText(ctor, w.src), w.dir, w.importMap, w.typeNames.of(w.kinds, n, w.src))
+	if target == "" || w.seen["new:"+target] {
+		return
+	}
+	w.seen["new:"+target] = true
+	w.rels = append(w.rels, facts.Relation{Kind: facts.RelInstantiates, Target: target})
+}
+
 func (w *tsBodyWalker) noteIOConstructor(n *sitter.Node) {
 	if w.metrics == nil || w.metrics.ioDirect {
 		return
@@ -3156,8 +3179,20 @@ func (w *tsBodyWalker) noteThisMember(n *sitter.Node) {
 	if obj == nil || kindOf(w.kinds, obj) != "this" {
 		return
 	}
-	if prop := n.ChildByFieldName("property"); prop != nil {
-		w.addCallRel(w.dir + "." + w.className + "." + nodeText(prop, w.src))
+	prop := n.ChildByFieldName("property")
+	if prop == nil {
+		return
+	}
+	name := nodeText(prop, w.src)
+	target := w.dir + "." + w.className + "." + name
+	if !w.dataFields[name] {
+		w.addCallRel(target)
+		return
+	}
+	// A field is read, not called.
+	if !w.seen["names:"+target] {
+		w.seen["names:"+target] = true
+		w.rels = append(w.rels, facts.Relation{Kind: facts.RelNames, Target: target})
 	}
 }
 
@@ -3271,7 +3306,7 @@ func collectCallsWithMetrics(node *sitter.Node, scope callScope, selfName, selfS
 	fn := tsEnclosingFunction(node)
 	paramScope, paramIndex := tsParamScope(kinds, fn, src)
 	w.paramScope, w.paramIndex = []tsLoopScope{paramScope}, paramIndex
-	w.memberRoots = withLocalRoots(scope.memberRoots, tsLocalTypes(kinds, fn, node, src, scope.dir, scope.importMap, scope.typeNames))
+	w.memberRoots = withLocalRoots(scope.memberRoots, tsLocalTypes(kinds, fn, node, src, scope.dir, scope.importMap, scope.typeNames, scope.methodReturns))
 	w.constLocals = tsConstLiteralLocals(kinds, node, src)
 	w.walk(node)
 	return w.rels, m
@@ -3484,6 +3519,12 @@ func (s callScope) resolve(call *sitter.Node) string {
 		if kindOf(kinds, object) == "identifier" && kindOf(kinds, property) == "property_identifier" {
 			if root, ok := memberRoots[nodeText(object, src)]; ok {
 				return root + "." + nodeText(property, src)
+			}
+		}
+		// `this.make().method()`: a call on the result of a method of the class.
+		if m := thisMethodCall(kinds, object, src); m != "" && kindOf(kinds, property) == "property_identifier" {
+			if typ, ok := s.methodReturns[m]; ok {
+				return typ + "." + nodeText(property, src)
 			}
 		}
 		// `make().method()`: a call on the result of one of this file's functions,

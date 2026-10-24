@@ -58,6 +58,10 @@ type astWalker struct {
 	typeStack   []string
 	methodStack []map[string]bool
 
+	// localTypes holds the stated types of the current function's parameters and
+	// locals (receivers.go); nil outside a function body.
+	localTypes map[string]string
+
 	// Per-function complexity state, set up by handleFunction around walkForCalls.
 	// metrics is nil outside a function body walk. loopDepth is the current loop
 	// nesting depth; selfName/selfShort are the enclosing function's full and short
@@ -913,7 +917,10 @@ func (w *astWalker) handleFunction(node *sitter.Node) {
 	w.selfName = f.Name
 	w.selfShort = name
 	w.selfParamLabels = parameterLabels(node, w.src)
+	savedLocals := w.localTypes
+	w.bindParameters(node)
 	w.walkForCalls(body)
+	w.localTypes = savedLocals
 	w.finishMetrics(w.out[ownerIdx].Props)
 	w.popOwner()
 }
@@ -1124,6 +1131,9 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 		return
 	}
 	kind := kindOf(node)
+	if kind == "property_declaration" && w.localTypes != nil {
+		w.bindLocal(node)
+	}
 
 	// A closure is a deferred scope: its body runs when the closure is called, NOT
 	// per-iteration of the enclosing loops — so reset the loop depth for its
@@ -1229,6 +1239,7 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 					w.recordCallMetrics(t, node)
 				} else {
 					w.addTentativeMethodCall(name)
+					w.noteTypedCall(lastDotComponent(w.enclosingType()), name)
 				}
 			case isNav && isCapitalized(root) && !isSystemType(root):
 				// e.g. AppComposition.shared.makeRepo() — depend on the root type,
@@ -1242,6 +1253,7 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 				// tentative bare short-name edge, resolved or dropped in the
 				// post-pass. Preserve the existing in-loop perf metric.
 				w.addTentativeMethodCall(name)
+				w.noteTypedCall(w.receiverType(callee), name)
 				if w.loopDepth > 0 && !swiftCheapMethods[name] {
 					tgt := name
 					if root != "" {

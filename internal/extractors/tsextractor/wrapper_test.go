@@ -132,6 +132,24 @@ func TestWrapperKeepsCodeAndDropsPlainVariables(t *testing.T) {
 	}
 }
 
+// A class declared in a wrapper keeps its fields: they are the class's variables, not
+// the wrapper's.
+func TestWrapperKeepsClassFields(t *testing.T) {
+	ff := extractTSRepo(t, map[string]string{"js/serve.js": `(function () {
+  var limit = 3;
+  class Context {
+    closed;
+    listener = null;
+    close() { this.closed = true; }
+  }
+  new Context().close();
+})();`})
+	got := strings.Join(symbolsIn(ff, "js/serve.js"), ",")
+	if got != "js.Context,js.Context.close,js.Context.closed,js.Context.listener" {
+		t.Errorf("symbols = %q, want the class with its method and both fields", got)
+	}
+}
+
 // Outside a wrapper nothing is dropped, and a function written as a variable's value is
 // a function there too.
 func TestModuleVariablesAreKept(t *testing.T) {

@@ -230,3 +230,79 @@ func Open(p string) (*Engine, error) { return resolve.Open(p) }
 		}
 	}
 }
+
+// A local holding an asserted value, a field, or an element of a declared
+// collection has that type. These calls were left unresolved: the local was typed
+// only from a literal or a call.
+func TestLocalTypedByAssertionFieldOrIndex(t *testing.T) {
+	ff := extractAll(t, shopModule(`
+type tree struct {
+	method string
+	root   *resolve.Resolver
+}
+
+type trees []tree
+
+type result struct{ Err error }
+
+type router struct {
+	last   result
+	trees  trees
+	byName map[string]*resolve.Engine
+	pool   []resolve.Resolver
+}
+
+func (r *router) serve(v any, name string) {
+	c := v.(*resolve.Engine)
+	c.Names()
+	if e, ok := v.(*resolve.Engine); ok {
+		e.Pair()
+	}
+	t := r.trees
+	for i := 0; i < len(t); i++ {
+		root := t[i].root
+		root.Reset()
+	}
+	r.byName[name].Resolver()
+	if got, ok := r.byName[name]; ok {
+		got.Names()
+	}
+	r.pool[0].NodeName(name)
+	r.last.Err.Error()
+}
+
+func (r *router) walk() {
+	for _, tr := range r.trees {
+		tr.root.Reset()
+	}
+	for _, e := range r.byName {
+		e.Names()
+	}
+}
+`))
+	targets := callTargetsOf(ff, "app.router.serve")
+	for _, want := range []string{
+		"resolve.Engine.Names",      // c := v.(*T), and got, ok := m[k]
+		"resolve.Engine.Pair",       // e, ok := v.(*T)
+		"resolve.Resolver.Reset",    // root := t[i].root over a named slice type
+		"resolve.Engine.Resolver",   // m[k] on a map field
+		"resolve.Resolver.NodeName", // s[i] on a slice field
+	} {
+		if !hasTarget(targets, want) {
+			t.Errorf("serve missing %q; has %v", want, targets)
+		}
+	}
+	// A field of a predeclared type is no type of the package's.
+	for _, got := range targets {
+		if got == "app.error.Error" {
+			t.Errorf("serve resolved a predeclared field type to %q", got)
+		}
+	}
+	// The value of a range over a named slice type and over a map field.
+	walk := callTargetsOf(ff, "app.router.walk")
+	for _, want := range []string{"resolve.Resolver.Reset", "resolve.Engine.Names"} {
+		if !hasTarget(walk, want) {
+			t.Errorf("walk missing %q; has %v", want, walk)
+		}
+	}
+}

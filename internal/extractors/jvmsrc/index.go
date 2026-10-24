@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/enola-labs/enola/internal/factpath"
@@ -135,16 +136,30 @@ func isJVMSource(path string) bool {
 // (src/test, src/androidTest). Test sources are kept OUT of the package index so
 // an import never resolves into a test directory — package-metrics and other
 // analyses exclude test modules, and a main package can share its name with a
-// test helper in the same package.
+// test helper in the same package. A package's test directories rank below its
+// others in BuildPackageDirs.
+//
+// A Kotlin Multiplatform test source set is named for its target (src/jvmTest,
+// src/commonTest, src/androidUnitTest) and is a test set the same way.
 func isTestSource(relFile string) bool {
-	p := filepath.ToSlash(relFile)
-	return strings.Contains(p, "/src/test/") || strings.HasPrefix(p, "src/test/") ||
-		strings.Contains(p, "/src/androidTest/") || strings.HasPrefix(p, "src/androidTest/")
+	p := "/" + filepath.ToSlash(relFile)
+	for {
+		i := strings.Index(p, "/src/")
+		if i < 0 {
+			return false
+		}
+		p = p[i+len("/src/"):]
+		set, _, _ := strings.Cut(p, "/")
+		if set == "test" || strings.HasSuffix(set, "Test") {
+			return true
+		}
+		p = "/" + p
+	}
 }
 
 // BuildPackageIndex maps a declared JVM package FQN (e.g. "com.example.app.api")
-// to the on-disk directory that declares it, scanning every non-test .kt/.java
-// file in files. It is the reliable, multi-module replacement for assuming a
+// to the on-disk directory that declares it, scanning every .kt/.java/.scala file
+// in files. It is the reliable, multi-module replacement for assuming a
 // single global source root: an import of com.example.app.api.model.search.Foo
 // resolves to whichever module's directory actually contains that package, not
 // to whichever module happens to hold the most files.
@@ -156,9 +171,21 @@ func isTestSource(relFile string) bool {
 // variant. Among equally-primary candidates the lexicographically smallest
 // directory wins so the result is deterministic across runs.
 func BuildPackageIndex(repoPath string, files []string) map[string]string {
-	index := make(map[string]string)
+	return IndexOf(BuildPackageDirs(repoPath, files))
+}
+
+// BuildPackageDirs maps a declared JVM package FQN to every directory that
+// declares it, the one BuildPackageIndex resolves to first and test source sets
+// last. A package is split across directories in a multi-module build (a library
+// and its testing support both declaring com.example.internal), in a Kotlin
+// Multiplatform module (src/commonMain and src/jvmMain), and between a module's
+// main and test sets, and only one of them declares a given name. See
+// SplitSiblings.
+func BuildPackageDirs(repoPath string, files []string) map[string][]string {
+	byPkg := make(map[string][]string)
+	seen := make(map[string]bool)
 	for _, relFile := range files {
-		if !isJVMSource(relFile) || isTestSource(relFile) {
+		if !isJVMSource(relFile) {
 			continue
 		}
 		pkg, ok := readPackage(filepath.Join(repoPath, relFile))
@@ -166,11 +193,94 @@ func BuildPackageIndex(repoPath string, files []string) map[string]string {
 			continue
 		}
 		dir := factpath.Dir(relFile)
-		if existing, seen := index[pkg]; !seen || preferDir(dir, existing) {
-			index[pkg] = dir
+		if seen[pkg+"\x00"+dir] {
+			continue
+		}
+		seen[pkg+"\x00"+dir] = true
+		byPkg[pkg] = append(byPkg[pkg], dir)
+	}
+	for _, dirs := range byPkg {
+		sort.Slice(dirs, func(i, j int) bool { return preferDir(dirs[i], dirs[j]) })
+	}
+	return byPkg
+}
+
+// IndexOf is the package index BuildPackageDirs implies: each package to the
+// directory it prefers. A package only test sources declare is left out; see
+// TestOnlyIndex.
+func IndexOf(dirs map[string][]string) map[string]string {
+	index := make(map[string]string, len(dirs))
+	for pkg, ds := range dirs {
+		if !isTestSource(ds[0]) {
+			index[pkg] = ds[0]
 		}
 	}
 	return index
+}
+
+// TestOnlyIndex maps each package only test sources declare to the directory it
+// prefers, for resolving an import made by test code: a test helper in a package
+// of its own is reachable from the tests that import it and from nothing else.
+func TestOnlyIndex(dirs map[string][]string) map[string]string {
+	index := make(map[string]string)
+	for pkg, ds := range dirs {
+		if isTestSource(ds[0]) {
+			index[pkg] = ds[0]
+		}
+	}
+	return index
+}
+
+// IsTestSource reports whether a file lives in a test source set. See isTestSource.
+func IsTestSource(relFile string) bool { return isTestSource(relFile) }
+
+// SplitSiblings maps each directory of a package declared in more than one to the
+// others, for SplitTarget.
+func SplitSiblings(dirs map[string][]string) map[string][]string {
+	out := make(map[string][]string)
+	for _, ds := range dirs {
+		if len(ds) < 2 {
+			continue
+		}
+		for _, d := range ds {
+			for _, other := range ds {
+				if other != d {
+					out[d] = append(out[d], other)
+				}
+			}
+		}
+	}
+	return out
+}
+
+// SplitTarget re-homes a fact name "<dir>.<Name>…" that resolved into the wrong
+// directory of a split package: when no fact of that name exists and exactly one
+// sibling directory declares <Name>, the name in that directory. An import is
+// resolved per package, before any file has been read, so it can only name the
+// package's preferred directory. It returns target unchanged otherwise.
+func SplitTarget(target string, siblings map[string][]string, exists func(string) bool) string {
+	if len(siblings) == 0 || exists(target) {
+		return target
+	}
+	slash := strings.LastIndexByte(target, '/')
+	dot := strings.IndexByte(target[slash+1:], '.')
+	if dot < 0 {
+		return target
+	}
+	dir, rest := target[:slash+1+dot], target[slash+1+dot:]
+	found := ""
+	for _, other := range siblings[dir] {
+		if exists(other + rest) {
+			if found != "" {
+				return target // declared in two: no way to tell which
+			}
+			found = other + rest
+		}
+	}
+	if found == "" {
+		return target
+	}
+	return found
 }
 
 // preferDir reports whether candidate should replace existing as the directory
@@ -178,6 +288,9 @@ func BuildPackageIndex(repoPath string, files []string) map[string]string {
 // is preferred over a build-variant source set; otherwise the lexicographically
 // smaller path wins (deterministic).
 func preferDir(candidate, existing string) bool {
+	if cTest, eTest := isTestSource(candidate), isTestSource(existing); cTest != eTest {
+		return eTest // a test source set is never the package's directory
+	}
 	cMain, eMain := isMainSourceSet(candidate), isMainSourceSet(existing)
 	if cMain != eMain {
 		return cMain // promote a main source set over a variant one
