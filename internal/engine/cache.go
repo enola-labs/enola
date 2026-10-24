@@ -3176,7 +3176,22 @@ import (
 // call on `this.method()`.
 // v448: TypeScript: a class declared inside a wrapper function keeps its fields; the
 // wrapper's plain-variable filter dropped them once they were variables (v447).
-const cacheVersion = "v448"
+// v449: Kotlin: a call under a prefix operator (`!canRetry(e)`, `-size()`,
+// `!queue.isEmpty()`) is a call. The grammar binds the operator tighter than the
+// call, so the callee or the receiver was a unary expression and nothing was recorded.
+// v450: Kotlin: a class, object or enum of the repository used as a value (a when
+// condition, an argument, an initializer, an assignment, a return, an enum entry
+// through its enum) or in a type test is a names edge to it, also when imported by
+// its nested name. Before, only a call or a constructor recorded a use.
+// v451: Swift: `Type.self`, a type handed on as a value, is a names edge to the type
+// where the project declares it.
+// v452: a Gradle test source set (`src/<target>Test`: androidHostTest,
+// androidDeviceTest, jsTest, linuxX64Test) is test code for every analysis and
+// carries the test module role, not only the five per-target sets listed before.
+// v453: a module named for test support, by a test word and a support word in its
+// '-'/'_' tokens (okhttp-testing-support, core-test-utils, dubbo-test-common), is
+// test code and carries the test module role.
+const cacheVersion = "v453"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

@@ -112,6 +112,56 @@ var testFileSuffixes = []string{
 	".e2e-spec.ts", ".e2e-spec.tsx", ".e2e.ts", ".e2e.tsx",
 }
 
+// IsTestSourceSet reports whether segs[i] names a Gradle test source set: a
+// directory directly under `src/` whose name is a lowercase identifier ending in
+// `Test` (src/androidHostTest, src/androidDeviceTest, src/jsTest, src/linuxX64Test).
+// Kotlin Multiplatform names a target's test set `<target>Test`, and the Android
+// plugin names its host and device tests the same way, so the list of targets need
+// not be kept here.
+func IsTestSourceSet(segs []string, i int) bool {
+	if i == 0 || segs[i-1] != "src" {
+		return false
+	}
+	seg := segs[i]
+	name, ok := strings.CutSuffix(seg, "Test")
+	if !ok || name == "" || seg[0] < 'a' || seg[0] > 'z' {
+		return false
+	}
+	return !strings.ContainsFunc(name, func(r rune) bool {
+		return (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9')
+	})
+}
+
+// testSupportTokens name what a test-support module holds. IsTestSupportModule pairs
+// one of them with a test token.
+var testSupportTokens = map[string]bool{
+	"support": true, "utils": true, "util": true, "helpers": true, "helper": true,
+	"fixtures": true, "fixture": true, "common": true, "shared": true, "lib": true,
+	"kit": true, "tools": true,
+}
+
+// IsTestSupportModule reports whether a directory name is a test-support module:
+// its '-'/'_' tokens include a test word and a support word (okhttp-testing-support,
+// core-test-utils, dubbo-test-common). Across the corpus every directory named this
+// way, 30 of them, serves tests; a test word alone is left to ModuleRoleForPath,
+// since `ab-testing` can be a production feature.
+func IsTestSupportModule(seg string) bool {
+	toks := strings.FieldsFunc(strings.ToLower(seg), func(r rune) bool { return r == '-' || r == '_' })
+	if len(toks) < 2 {
+		return false
+	}
+	var test, support bool
+	for _, t := range toks {
+		switch {
+		case t == "test" || t == "tests" || t == "testing":
+			test = true
+		case testSupportTokens[t]:
+			support = true
+		}
+	}
+	return test && support
+}
+
 // IsTestPath reports whether a repo-relative path is test or test-support code.
 //
 // This is the single definition. The dead-code detector (which must not offer an
@@ -130,8 +180,9 @@ func IsTestPath(p string) bool {
 		return false
 	}
 	p = filepath.ToSlash(p)
-	for _, seg := range strings.Split(p, "/") {
-		if testSegments[seg] {
+	segs := strings.Split(p, "/")
+	for i, seg := range segs {
+		if testSegments[seg] || IsTestSourceSet(segs, i) || IsTestSupportModule(seg) {
 			return true
 		}
 		for _, suf := range testProjectSuffixes {

@@ -1273,6 +1273,7 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 	if kind == "property_declaration" && w.localTypes != nil {
 		w.bindProperty(w.localTypes, node)
 	}
+	w.noteValueRef(node)
 
 	// A lambda is a deferred scope: its body runs when the lambda is invoked, NOT
 	// per-iteration of the enclosing loops — so reset the loop depth for its
@@ -1369,11 +1370,11 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 			argCount = kotlinNotSelfCall
 		}
 		// First named child is the callee expression.
-		if callee := firstNamedChild(node); callee != nil {
+		if callee := kotlinUnprefixed(firstNamedChild(node)); callee != nil {
 			if name, isNav := calleeName(callee, w.src); name != "" {
 				// A receiver whose type is declared: receivers.go.
 				if isNav && !isCapitalized(name) {
-					if r := firstNamedChild(callee); r != nil {
+					if r := kotlinUnprefixed(firstNamedChild(callee)); r != nil {
 						w.noteTypedCall(nodeText(r, w.src)+"."+name, w.receiverType(r), name)
 					}
 				}
@@ -1420,7 +1421,7 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 						// repo.getAll). No graph edge today, but its name feeds the perf
 						// metric so the performance analyzer can flag per-iteration I/O.
 						tgt := name
-						if r := firstNamedChild(callee); r != nil {
+						if r := kotlinUnprefixed(firstNamedChild(callee)); r != nil {
 							if recv := nodeText(r, w.src); recv != "" {
 								tgt = recv + "." + name
 							}
@@ -1666,6 +1667,22 @@ func (w *astWalker) resolveCall(name string) string {
 	return w.dir + "." + name
 }
 
+// kotlinUnprefixed returns n without a prefix operator. The grammar binds a prefix
+// operator tighter than a call: `!canRetry(e)` parses as a call whose callee is
+// the unary `!canRetry`, and `!a.b(c)` puts the `!` on the receiver `a`. Kotlin
+// reads both as the operator applied to the call's result, so the callee and the
+// receiver are what the operator wraps.
+func kotlinUnprefixed(n *sitter.Node) *sitter.Node {
+	for n != nil && kindOf(n) == "unary_expression" {
+		arg := n.ChildByFieldName("argument")
+		if arg == nil || n.ChildCount() == 0 || n.Child(0).IsNamed() {
+			return n // a postfix form: the operand comes first
+		}
+		n = arg
+	}
+	return n
+}
+
 // navReceiverIsThis reports whether a navigation_expression callee's receiver is
 // the bare `this` keyword (e.g. `this.foo()`), so the call can be resolved against
 // the enclosing class's methods.
@@ -1673,7 +1690,7 @@ func navReceiverIsThis(callee *sitter.Node, src []byte) bool {
 	if kindOf(callee) != "navigation_expression" {
 		return false
 	}
-	first := firstNamedChild(callee)
+	first := kotlinUnprefixed(firstNamedChild(callee))
 	return first != nil && nodeText(first, src) == "this"
 }
 
@@ -1683,7 +1700,7 @@ func navReceiverIsSuper(callee *sitter.Node, src []byte) bool {
 	if kindOf(callee) != "navigation_expression" {
 		return false
 	}
-	first := firstNamedChild(callee)
+	first := kotlinUnprefixed(firstNamedChild(callee))
 	return first != nil && nodeText(first, src) == "super"
 }
 
