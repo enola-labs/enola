@@ -32,8 +32,8 @@ const enolaToolsQuery = "select:mcp__enola__generate_snapshot,mcp__enola__impact
 	"mcp__enola__query_facts,mcp__enola__explore,mcp__enola__query_insights"
 
 // sessionStartNote is what a Claude Code session is told when it starts.
-const sessionStartNote = "enola is connected for this project. Its tools may be listed as deferred: load the core " +
-	"ones with ToolSearch, query " + enolaToolsQuery + ". Use them for questions about structure — which " +
+const sessionStartNote = "enola is connected for this project. If its tools are listed by name only (deferred), load " +
+	"the core ones with ToolSearch, query " + enolaToolsQuery + "; if they are already callable, call them directly. Use them for questions about structure — which " +
 	"files or packages depend on, call, or would break if X changes; how A reaches B; what nothing uses — " +
 	"before searching files: a text search misses a package that reaches X only through another, a call " +
 	"through an interface, and a function passed as a value."

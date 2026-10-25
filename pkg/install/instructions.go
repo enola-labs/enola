@@ -95,9 +95,10 @@ func block(content string) string {
 const ClaudeToolsNote = `
 
 In Claude Code, enola's tools may be listed as deferred: names only, schemas not loaded.
-Load the core ones in one call before the first structural question: ToolSearch with the
+Only then, load the core ones in one call before the first structural question: ToolSearch with the
 query ` + "`select:mcp__enola__generate_snapshot,mcp__enola__impact_analysis,mcp__enola__traverse,mcp__enola__query_facts,mcp__enola__explore,mcp__enola__query_insights`" + `.
-If the server is registered under another name than ` + "`enola`" + `, use that name in the prefix.`
+If the server is registered under another name than ` + "`enola`" + `, use that name in the prefix.
+When the tools are already loaded (registered with ` + "`alwaysLoad`" + `), call them directly.`
 
 // claudeRule is the body of the Claude Code rule file. No `paths` frontmatter, so it
 // loads at launch with the same priority as a project CLAUDE.md.
