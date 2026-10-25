@@ -607,6 +607,8 @@ func (w *astWalker) walkSourceFile(root *sitter.Node) {
 			w.handlePropertyDeclaration(child)
 		case "type_alias":
 			w.handleTypeAlias(child)
+		case "annotated_expression":
+			w.handleMisparsedAnnotationClass(child)
 		}
 	}
 }
@@ -760,6 +762,7 @@ func (w *astWalker) handleClassDeclaration(node *sitter.Node) {
 	// found while walking its primary constructor + body attach back to it.
 	w.out = append(w.out, f)
 	w.pushOwner(len(w.out) - 1)
+	w.noteAnnotationRefs(modifiers)
 
 	// Enter the type scope: nested methods/classes are named "<dir>.<Type>.<...>",
 	// and bare same-class calls resolve against this class's declared method names.
@@ -947,6 +950,7 @@ func (w *astWalker) handleFunctionDeclaration(node *sitter.Node) {
 	w.out = append(w.out, f)
 	ownerIdx := len(w.out) - 1
 	w.pushOwner(ownerIdx)
+	w.noteAnnotationRefs(modifiers)
 	// Set up per-function complexity tracking. walkForCalls is re-entrant (it
 	// dispatches nested function_declarations back here), so save and restore the
 	// outer state rather than clearing it.

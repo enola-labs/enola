@@ -3191,7 +3191,11 @@ import (
 // v453: a module named for test support, by a test word and a support word in its
 // '-'/'_' tokens (okhttp-testing-support, core-test-utils, dubbo-test-common), is
 // test code and carries the test module role.
-const cacheVersion = "v453"
+// v454: Kotlin: a body-less annotation class under annotations (`@Qualifier
+// annotation class AppScope`), which the grammar reads as an expression, is declared;
+// and the types an annotation's arguments name (`@ExtendWith(Ext::class)`,
+// `@RunWith(Runner::class)`) are names edges of the class or function it annotates.
+const cacheVersion = "v454"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
