@@ -7,6 +7,74 @@ The full per-release change lists — every Added, Changed and Fixed line — ar
 [enola.tech/changelog](https://enola.tech/changelog). This file is the same history at
 the resolution a reader of the repository needs.
 
+## v0.4.35 — 2026-10-25
+
+**Calls resolved by receiver type in six languages, the screens behind an endpoint, and lighter agent sessions**
+
+- Receiver typing: a call on a receiver whose type the source states names that type's
+  method.
+  - Go: locals typed by type assertion, field and collection index, and range values
+    over such collections. A field of a predeclared type (`Err error`) is no longer
+    qualified into the package.
+  - Rust: calls on `self`, typed parameters and `let`s (through `&`, `Arc`, `Rc`, `Box`),
+    struct literals, field types and declared return types name the type's method or a
+    trait default. `Type::f()` resolves the same way. `Default::default()` and the
+    conversion traits no longer instantiate the trait.
+  - Swift: calls on `self`, typed parameters and annotated or constructed locals bind to
+    the type, its extensions or its nearest supertype. Calls on stored properties bind
+    through the property's type; a protocol-typed property binds to its one non-test
+    conformer.
+  - TypeScript: interface members are declared, so a call through an injected service
+    reaches it. Destructured parameters and members of typed locals are typed. A class
+    field holding a value is a variable, not a method. `new T()` of a declared or
+    imported class is an `instantiates` edge, and `this.method()` takes the method's
+    return type.
+  - Python: an ALL_CAPS name in a value position is a names edge, not a construction. A
+    method that returns its own class types its result, so builder chains resolve.
+  - Kotlin: invoking a value calls its `operator invoke`. A bare call in an extension
+    function is on the receiver unless the package declares it. An import into a package
+    split across directories resolves to the directory that declares the name.
+- Kotlin:
+  - A call under a prefix operator (`!canRetry(e)`) is recorded.
+  - A type used as a value, a `when` condition or an `is` test is a names edge.
+  - A class literal (`Foo::class`, `Foo::class.java`) records no call. About a thousand
+    edges to undeclared names are gone on the corpus.
+  - Top-level declarations with stacked annotations, which the grammar misreads, are
+    recovered with their members and annotations.
+  - Body-less annotation classes are declared, and types named in annotation arguments
+    are names edges.
+  - Hilt `@InstallIn` modules are framework-registered.
+- Swift: `Type.self` is a names edge. A request's method is read from the request built
+  from its path, not from a neighbouring function.
+- Test code: Gradle `<target>Test` source sets, Multiplatform test sets and modules named
+  for test support (`core-test-utils`, `okhttp-testing-support`) are test code.
+- `endpoint_impact` lists the screens that depend on an endpoint: web pages from the new
+  `client_pages` on TypeScript client calls, elsewhere the call graph walked up to the
+  nearest screen. An action no component takes is no longer counted as sent.
+- A graph node that stands for several declarations (overloads, build-tag variants, a
+  property and a method of one name) lists each of them, and `traverse`, `find_path`,
+  `impact_analysis` and `show_symbol` say its edges are merged. Facts and edges are
+  unchanged.
+- Performance: a loop over a registry of handlers filled only by constructors,
+  providers, registration hooks or `init` is bounded. This was two thirds of the
+  call-in-loop findings typed receivers surfaced.
+- Agent tools:
+  - `show_symbol` takes `names=[...]`, up to 10.
+  - Names resolve as code writes them: a Go package by its package clause, a dotted
+    module path by its slashed one.
+  - `query_facts` in names mode folds a type's members under it.
+  - Tool definitions are shorter; a test caps the catalogue size.
+- Steering:
+  - Claude Code registration uses `alwaysLoad`, and the notes ask for ToolSearch only
+    when the tools are deferred.
+  - The search gate lets a grep of named files through and refuses only tree searches.
+  - `install` in a folder of repositories sets up the session note and the search gate;
+    baseline and grading hooks stay per repository. `doctor` reports the folder as
+    steered.
+  - The server drops the snapshot-first hint when a graph is saved, and says a graph is
+    loaded only when its snapshot is on disk.
+- Benchmarks regenerated: 100 repositories, 8,983,474 facts, 100/100 reproducing.
+
 ## v0.4.34 — 2026-10-23
 
 **Client calls that never run, performance findings ranked by client traffic, and Go libraries linked to their consumers**
