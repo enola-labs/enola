@@ -3195,7 +3195,11 @@ import (
 // annotation class AppScope`), which the grammar reads as an expression, is declared;
 // and the types an annotation's arguments name (`@ExtendWith(Ext::class)`,
 // `@RunWith(Runner::class)`) are names edges of the class or function it annotates.
-const cacheVersion = "v454"
+// v455: TypeScript: an interface's members are declared (`<dir>.<Interface>.<member>`,
+// abstract): a method signature or function-typed property is a method, another
+// property a variable. A call through a value of the interface's type lands on one,
+// and the member carries performs_io when an implementer's method does.
+const cacheVersion = "v455"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

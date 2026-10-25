@@ -99,3 +99,57 @@ func TestTSClassFieldsAndConstructors(t *testing.T) {
 		t.Errorf("onDone relations = %v, want a call to finish", done.Relations)
 	}
 }
+
+// An interface's members are declared, so a call through a value of its type lands
+// on one: a method signature and a function-typed property are methods, any other
+// property a variable, all abstract. An overload is declared once; a computed key
+// is not declared.
+func TestTSInterfaceMembersAreDeclared(t *testing.T) {
+	ff := extractTSFiles(t, map[string]string{
+		"src/starter.ts": `export interface IStarter {
+	readonly brand: undefined;
+	start(id: string): Promise<void>;
+	start(id: string, opts: object): Promise<void>;
+	onExit: (code: number) => void;
+	kill?(id: string): void;
+	['computed']: number;
+}
+`,
+		"src/host.ts": `import { IStarter } from './starter';
+
+export class Host {
+	constructor(private readonly starter: IStarter) {}
+
+	launch(): void {
+		this.starter.start('a');
+	}
+}
+`,
+	})
+	for name, want := range map[string]string{
+		"src.IStarter.start":  facts.SymbolMethod,
+		"src.IStarter.onExit": facts.SymbolMethod,
+		"src.IStarter.kill":   facts.SymbolMethod,
+		"src.IStarter.brand":  facts.SymbolVariable,
+	} {
+		f := symbolNamed(t, ff, name)
+		if got := f.PropString("symbol_kind"); got != want {
+			t.Errorf("%s symbol_kind = %q, want %q", name, got, want)
+		}
+		if b, _ := f.PropAny("abstract").(bool); !b {
+			t.Errorf("%s: not abstract", name)
+		}
+	}
+	n := 0
+	for _, f := range ff {
+		if f.Kind == facts.KindSymbol && f.Name == "src.IStarter.start" {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Errorf("src.IStarter.start declared %d times, want once", n)
+	}
+	if launch := symbolNamed(t, ff, "src.Host.launch"); !launch.HasRelation(facts.RelCalls, "src.IStarter.start") {
+		t.Errorf("launch relations = %v, want a call to IStarter.start", launch.Relations)
+	}
+}

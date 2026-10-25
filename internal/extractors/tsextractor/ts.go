@@ -987,10 +987,59 @@ func (e *TSExtractor) namedDeclarationFacts(kinds *tsutil.KindTable, node *sitte
 	d := namedDeclarations[kindOf(kinds, node)]
 	for _, k := range d.nameKinds {
 		if name := findChildByKind(kinds, node, k); name != nil {
-			return []facts.Fact{e.simpleSymbol(node, ctx, nodeText(name, ctx.src), d.symbolKind, isExported)}
+			out := []facts.Fact{e.simpleSymbol(node, ctx, nodeText(name, ctx.src), d.symbolKind, isExported)}
+			if d.symbolKind == facts.SymbolInterface {
+				out = append(out, e.interfaceMemberFacts(kinds, node, ctx, nodeText(name, ctx.src), isExported)...)
+			}
+			return out
 		}
 	}
 	return nil
+}
+
+// interfaceMemberFacts declares the members of an interface: a method signature,
+// or a property whose type is a function, is a method; any other property a
+// variable. A call through a value of the interface's type (`this.starter.start()`,
+// resolved by the field's or local's declared type) names "<dir>.<Interface>.<member>",
+// which had no symbol, so a service's callers reached nothing. Members are marked
+// abstract: the interface declares them and its implementations define them. An
+// overload is declared once.
+func (e *TSExtractor) interfaceMemberFacts(kinds *tsutil.KindTable, decl *sitter.Node, ctx *extractCtx, iface string, exported bool) []facts.Fact {
+	body := decl.ChildByFieldName("body")
+	if body == nil {
+		return nil
+	}
+	var out []facts.Fact
+	seen := map[string]bool{}
+	for i := range body.NamedChildCount() {
+		member := body.NamedChild(i)
+		kind := ""
+		switch kindOf(kinds, member) {
+		case "method_signature":
+			kind = facts.SymbolMethod
+		case "property_signature":
+			kind = facts.SymbolVariable
+			if t := member.ChildByFieldName("type"); t != nil && findChildByKind(kinds, t, "function_type") != nil {
+				kind = facts.SymbolMethod
+			}
+		default:
+			continue
+		}
+		nameNode := member.ChildByFieldName("name")
+		if nameNode == nil || kindOf(kinds, nameNode) != "property_identifier" {
+			continue // a computed or string-literal key
+		}
+		name := nodeText(nameNode, ctx.src)
+		if seen[name] {
+			continue
+		}
+		seen[name] = true
+		f := e.simpleSymbol(member, ctx, iface+"."+name, kind, exported)
+		f.SetProp("receiver", iface)
+		f.SetProp("abstract", true)
+		out = append(out, f)
+	}
+	return out
 }
 
 func (e *TSExtractor) variableFacts(kinds *tsutil.KindTable, node, decl *sitter.Node, ctx *extractCtx, isExported bool) []facts.Fact {

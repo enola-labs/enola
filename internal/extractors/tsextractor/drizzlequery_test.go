@@ -101,9 +101,13 @@ func TestDrizzle_UseCaseReachesQueryThroughPort(t *testing.T) {
 	if b, _ := symbolProp(t, ff, "libs/orders/src.SaveAll.names", "performs_io").(bool); b {
 		t.Errorf("SaveAll.names: performs_io through a member no implementer queries in")
 	}
-	members, _ := symbolProp(t, ff, "libs/orders/src.OrderRepository", "io_members").([]string)
-	if !slices.Contains(members, "save") || slices.Contains(members, "label") {
-		t.Errorf("OrderRepository io_members = %v, want save and not label", members)
+	// The interface's members are facts: the I/O is on the member an implementer
+	// queries in, and not on the one none does.
+	if b, _ := symbolProp(t, ff, "libs/orders/src.OrderRepository.save", "performs_io").(bool); !b {
+		t.Errorf("OrderRepository.save: no performs_io through its implementer")
+	}
+	if b, _ := symbolProp(t, ff, "libs/orders/src.OrderRepository.label", "performs_io").(bool); b {
+		t.Errorf("OrderRepository.label: performs_io, though no implementer queries in it")
 	}
 }
 
