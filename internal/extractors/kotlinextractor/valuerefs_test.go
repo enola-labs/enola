@@ -108,3 +108,35 @@ class Suite {
 		t.Errorf("run relations = %v, want names Runner", run.Relations)
 	}
 }
+
+// A class literal names its type, never a member called `class`, and what is read
+// off it (`.java`, `.simpleName`) is reflection, not a member of the repository. A
+// call on a class literal (a KClass extension) and an ordinary property read still
+// reference their member by name.
+func TestKotlinClassLiteralIsNoCall(t *testing.T) {
+	ff := extractAST(t, `package pkg
+class A {
+    fun f(user: User) {
+        val m = ctx.getSystemService(Manager::class.java)
+        val c = Foo::class
+        val n = Foo::class.simpleName
+        val u = user.name
+        val d = Foo::class.delegatedData()
+    }
+}
+`, false)
+	f, ok := findFact(ff, "pkg.A.f")
+	if !ok {
+		t.Fatal("no pkg.A.f")
+	}
+	for _, r := range f.Relations {
+		if r.Kind == facts.RelCalls && (r.Target == "class" || r.Target == "java" || r.Target == "simpleName") {
+			t.Errorf("f calls %q, a class literal's reflection", r.Target)
+		}
+	}
+	for _, want := range []string{"getSystemService", "name", "delegatedData"} {
+		if !f.HasRelation(facts.RelCalls, want) {
+			t.Errorf("f relations = %v, want %s kept", f.Relations, want)
+		}
+	}
+}

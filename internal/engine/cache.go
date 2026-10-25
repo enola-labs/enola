@@ -3215,7 +3215,10 @@ import (
 // members, and annotations split off a declaration the grammar kept are its again.
 // Body-less classes under stacked annotations, chained into one expression, are each
 // declared with their own annotations.
-const cacheVersion = "v459"
+// v460: Kotlin: a class literal (`Foo::class`) and what is read off one (`.java`,
+// `.simpleName`) no longer record calls to members named `class`, `java` or
+// `simpleName`; the literal still names its type.
+const cacheVersion = "v460"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
