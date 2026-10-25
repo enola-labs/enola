@@ -901,6 +901,9 @@ type swiftHierarchy struct {
 	factNames    map[string]bool
 	typeSupers   map[string][]string          // simple type -> supertype simple names
 	methodByType map[string]map[string]string // simple type -> (method short -> qualified name)
+	// conformers lists, per protocol or class, the types outside test sources that
+	// name it as a supertype.
+	conformers map[string][]string
 }
 
 func newSwiftHierarchy(allFacts []facts.Fact) *swiftHierarchy {
@@ -908,6 +911,7 @@ func newSwiftHierarchy(allFacts []facts.Fact) *swiftHierarchy {
 		factNames:    make(map[string]bool, len(allFacts)),
 		typeSupers:   make(map[string][]string),
 		methodByType: make(map[string]map[string]string),
+		conformers:   make(map[string][]string),
 	}
 	for i := range allFacts {
 		f := &allFacts[i]
@@ -922,6 +926,9 @@ func newSwiftHierarchy(allFacts []facts.Fact) *swiftHierarchy {
 			for _, r := range f.Relations {
 				if r.Kind == facts.RelImplements {
 					h.typeSupers[simple] = append(h.typeSupers[simple], r.Target)
+					if !isSwiftTestFile(f.File) && !facts.IsTestPath(f.File) {
+						h.conformers[r.Target] = append(h.conformers[r.Target], simple)
+					}
 				}
 			}
 		case facts.SymbolMethod:
@@ -944,8 +951,29 @@ func newSwiftHierarchy(allFacts []facts.Fact) *swiftHierarchy {
 
 // resolve returns the qualified method fact for short declared by the nearest
 // ancestor of typ (inclusive), or "" if none declares it. Nearest-first BFS
-// matches Swift override order.
+// matches Swift override order. A protocol records no facts for its requirements,
+// so a call through a value typed as one binds to the method its conforming type
+// declares, when one type outside the tests conforms and declares it: the
+// `apiService: EntitlementAPIServiceInterface` a repository holds is the one
+// EntitlementAPIService, whatever mocks the tests add.
 func (h *swiftHierarchy) resolve(typ, short string) string {
+	if q := h.resolveUp(typ, short); q != "" {
+		return q
+	}
+	found := ""
+	for _, c := range h.conformers[typ] {
+		if q := h.resolveUp(c, short); q != "" && q != found {
+			if found != "" {
+				return ""
+			}
+			found = q
+		}
+	}
+	return found
+}
+
+// resolveUp is resolve over typ and its supertypes alone.
+func (h *swiftHierarchy) resolveUp(typ, short string) string {
 	visited := map[string]bool{}
 	queue := []string{typ}
 	for len(queue) > 0 {

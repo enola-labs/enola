@@ -3229,7 +3229,10 @@ import (
 // v463: TypeScript: a reached client call names the pages whose code reaches it
 // (client_pages), and a store selector's `{ save: state.save }` hands save on without
 // using it, so an action no component takes is never sent.
-const cacheVersion = "v463"
+// v464: Swift: a call on a stored property of the enclosing type binds to the type it
+// states, bare or through self; a property typed as a protocol binds to the one type
+// outside the tests that conforms and declares the method.
+const cacheVersion = "v464"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

@@ -132,11 +132,15 @@ func screensAbove(s *facts.Store, g *facts.Graph, start string) []facts.Fact {
 	return out
 }
 
-// screenFact returns the symbol fact name declares when it is a screen.
+// screenFact returns the screen name declares, or the screen whose member it is: a
+// SwiftUI view runs its state's methods from its body and its modifiers' closures,
+// so the walk arrives at View.body, not at View.
 func screenFact(s *facts.Store, name string) (facts.Fact, bool) {
-	for _, f := range s.LookupByExactName(name) {
-		if f.Kind == facts.KindSymbol && isScreen(f) {
-			return f, true
+	for _, n := range []string{name, name[:max(strings.LastIndexByte(name, '.'), 0)]} {
+		for _, f := range s.LookupByExactName(n) {
+			if f.Kind == facts.KindSymbol && isScreen(f) {
+				return f, true
+			}
 		}
 	}
 	return facts.Fact{}, false

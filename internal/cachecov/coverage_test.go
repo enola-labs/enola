@@ -57,6 +57,7 @@ var versionCoverage = map[int][]string{
 	461: {"TestRangeOverRegistryIsBounded"},
 	462: {"TestMethodNear_FollowsTheRequestBuiltFromThePath"},
 	463: {"TestClientPages_ThePagesThatReachACall"},
+	464: {"TestSwiftCallOnAStoredPropertyResolves"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},
 	438: {"TestExtract_StructUsage_StdlibAndRootPackages"},

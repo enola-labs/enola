@@ -69,15 +69,13 @@ func (w *astWalker) bindParameters(fn *sitter.Node) {
 	}
 }
 
-// bindLocal records the type a local let or var states: its annotation, or the
-// type it is constructed from (`let cache = Cache()`). A local of no stated type
-// shadows a typed name.
-func (w *astWalker) bindLocal(prop *sitter.Node) {
+// propertyType returns a let or var's name and the type it states: its annotation, or
+// the type it is constructed from (`let cache = Cache()`); "" for none.
+func (w *astWalker) propertyType(prop *sitter.Node) (string, string) {
 	nameNode := propertyNameNode(prop, w.src)
 	if nameNode == nil {
-		return
+		return "", ""
 	}
-	name := nodeText(nameNode, w.src)
 	t := ""
 	if ta := findChildByKind(prop, "type_annotation"); ta != nil {
 		t = statedType(firstTypeNode(ta), w.src)
@@ -88,15 +86,35 @@ func (w *astWalker) bindLocal(prop *sitter.Node) {
 			}
 		}
 	}
-	if t != "" {
+	return nodeText(nameNode, w.src), t
+}
+
+// bindLocal records the type a local let or var states. A local of no stated type
+// shadows a typed name, the enclosing type's stored property among them.
+func (w *astWalker) bindLocal(prop *sitter.Node) {
+	if name, t := w.propertyType(prop); name != "" {
 		w.localTypes[name] = t
-	} else {
-		delete(w.localTypes, name)
 	}
 }
 
+// memberTypesOf maps the stored properties a type body declares to the types they
+// state, for calls the type's methods make on them: `useCase.execute()`, or
+// `self.useCase.execute()`, inside a closure as anywhere else.
+func (w *astWalker) memberTypesOf(body *sitter.Node) map[string]string {
+	out := map[string]string{}
+	for i := uint(0); i < body.ChildCount(); i++ {
+		if c := body.Child(i); kindOf(c) == "property_declaration" {
+			if name, t := w.propertyType(c); name != "" && t != "" {
+				out[name] = t
+			}
+		}
+	}
+	return out
+}
+
 // receiverType is the simple type name of a navigation callee's direct receiver
-// when the source states it: a typed parameter or local.
+// when the source states it: a typed parameter or local, or a stored property of the
+// enclosing type, named bare or through self.
 func (w *astWalker) receiverType(callee *sitter.Node) string {
 	if w.localTypes == nil || callee == nil || kindOf(callee) != "navigation_expression" {
 		return ""
@@ -105,10 +123,29 @@ func (w *astWalker) receiverType(callee *sitter.Node) string {
 	if target == nil {
 		target = firstNamedChild(callee)
 	}
-	if target == nil || kindOf(target) != "simple_identifier" {
+	if target == nil {
 		return ""
 	}
-	return w.localTypes[nodeText(target, w.src)]
+	switch kindOf(target) {
+	case "simple_identifier":
+		name := nodeText(target, w.src)
+		if t, ok := w.localTypes[name]; ok {
+			return t
+		}
+		return w.memberTypes[name]
+	case "navigation_expression":
+		// self.useCase.execute(): the receiver is self's stored property.
+		inner := target.ChildByFieldName("target")
+		if inner == nil {
+			inner = firstNamedChild(target)
+		}
+		if inner == nil || kindOf(inner) != "self_expression" && nodeText(inner, w.src) != "self" {
+			return ""
+		}
+		text := nodeText(target, w.src)
+		return w.memberTypes[text[strings.LastIndexByte(text, '.')+1:]]
+	}
+	return ""
 }
 
 // noteTypedCall records a member call on a receiver of stated type against the
