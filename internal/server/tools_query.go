@@ -479,6 +479,15 @@ func (s *Server) registerShowSymbolTool() {
 			}
 		}
 		results = symbolResults
+		if len(results) == 0 {
+			for _, n := range s.resolver(store).Spellings(store, args.Name) {
+				for _, r := range store.LookupByExactName(n) {
+					if r.Kind == facts.KindSymbol {
+						results = append(results, r)
+					}
+				}
+			}
+		}
 		exact := len(results) > 0
 		if len(results) == 0 {
 			results = store.Query("symbol", "", args.Name, "")

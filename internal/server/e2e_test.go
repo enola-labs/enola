@@ -215,6 +215,22 @@ func TestE2E_ShowSymbol(t *testing.T) {
 	}
 }
 
+// The root package's main, written as code writes it, is the fact enola stores as
+// "..main"; traverse and show_symbol both reach it.
+func TestE2E_NameAsCodeWritesIt(t *testing.T) {
+	s := startInMemory(t)
+	s.snapshot(t)
+
+	res := s.call(t, "show_symbol", map[string]any{"name": "main.main", "context_lines": 6})
+	if out := text(res); res.IsError || !strings.Contains(out, "### ..main") || !strings.Contains(out, "main.go") {
+		t.Errorf("show_symbol(main.main) should show the root package's main; got:\n%s", out)
+	}
+	res = s.call(t, "traverse", map[string]any{"start": "main.main", "max_depth": 1, "output_mode": "compact"})
+	if out := text(res); res.IsError || !strings.Contains(out, "Alpha") {
+		t.Errorf("traverse(main.main) should reach Alpha; got:\n%s", out)
+	}
+}
+
 func TestE2E_Explore(t *testing.T) {
 	s := startInMemory(t)
 	s.snapshot(t)
