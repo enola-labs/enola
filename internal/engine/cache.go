@@ -3209,7 +3209,13 @@ import (
 // function that does not exist.
 // v458: Kotlin: a Hilt @Module with @InstallIn is framework_registered: Hilt installs
 // it and nothing names it. A plain Dagger @Module is referenced by its component.
-const cacheVersion = "v458"
+// v459: Kotlin: a top-level declaration the grammar misreads as an expression
+// (two or more stacked annotations with another top-level declaration after it) is
+// recovered: a class or interface read as an infix expression is declared with its
+// members, and annotations split off a declaration the grammar kept are its again.
+// Body-less classes under stacked annotations, chained into one expression, are each
+// declared with their own annotations.
+const cacheVersion = "v459"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

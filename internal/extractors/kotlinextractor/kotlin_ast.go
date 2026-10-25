@@ -113,6 +113,9 @@ type astWalker struct {
 	// type name, "" when it is not the repository's (receivers.go).
 	extReceiver string
 	inExtension bool
+	// pending holds annotations the grammar split off the next top-level
+	// declaration (misparsed.go).
+	pending *pendingAnnotations
 	// reactiveContext is true when the enclosing function is an RxJava / coroutine
 	// Flow chain, so the ambiguous operators (map/flatMap/filter/…) are reactive
 	// stream transforms — NOT per-element collection loops — and must not inflate
@@ -612,7 +615,12 @@ func (w *astWalker) walkSourceFile(root *sitter.Node) {
 		case "type_alias":
 			w.handleTypeAlias(child)
 		case "annotated_expression":
-			w.handleMisparsedAnnotationClass(child)
+			w.handleMisparsedDeclaration(child)
+			continue
+		}
+		// Split-off annotations belong to the declaration right after them.
+		if k := kindOf(child); k != "line_comment" && k != "block_comment" {
+			w.pending = nil
 		}
 	}
 }
@@ -686,6 +694,10 @@ func (w *astWalker) handleClassDeclaration(node *sitter.Node) {
 	if modifiers != nil {
 		modifierText = nodeText(modifiers, w.src)
 		annotations = annotationNames(modifiers, w.src)
+	}
+	split := w.takePendingAnnotations()
+	if split != nil {
+		annotations = append(annotations, split.names...)
 	}
 
 	// `class` vs `interface` — keyword sits as an anonymous child between modifiers and name.
@@ -767,6 +779,7 @@ func (w *astWalker) handleClassDeclaration(node *sitter.Node) {
 	w.out = append(w.out, f)
 	w.pushOwner(len(w.out) - 1)
 	w.noteAnnotationRefs(modifiers)
+	w.noteSplitAnnotations(split)
 
 	// Enter the type scope: nested methods/classes are named "<dir>.<Type>.<...>",
 	// and bare same-class calls resolve against this class's declared method names.
@@ -823,6 +836,10 @@ func (w *astWalker) handleObjectDeclaration(node *sitter.Node) {
 		modifierText = nodeText(modifiers, w.src)
 		annotations = annotationNames(modifiers, w.src)
 	}
+	split := w.takePendingAnnotations()
+	if split != nil {
+		annotations = append(annotations, split.names...)
+	}
 
 	supertypes := supertypeNamesFromDelegationSpecifiers(node, w.src)
 	exported := !privateOrInternalRe.MatchString(modifierText)
@@ -857,6 +874,8 @@ func (w *astWalker) handleObjectDeclaration(node *sitter.Node) {
 
 	w.out = append(w.out, f)
 	w.pushOwner(len(w.out) - 1)
+	w.noteAnnotationRefs(modifiers)
+	w.noteSplitAnnotations(split)
 	body := findChildByKind(node, "class_body")
 	w.pushType(name, collectMethodNames(body, w.src))
 	w.bindMembers(node)
@@ -886,6 +905,10 @@ func (w *astWalker) handleFunctionDeclaration(node *sitter.Node) {
 	if modifiers != nil {
 		modifierText = nodeText(modifiers, w.src)
 		annotations = annotationNames(modifiers, w.src)
+	}
+	split := w.takePendingAnnotations()
+	if split != nil {
+		annotations = append(annotations, split.names...)
 	}
 	exported := !privateOrInternalRe.MatchString(modifierText)
 
@@ -955,6 +978,7 @@ func (w *astWalker) handleFunctionDeclaration(node *sitter.Node) {
 	ownerIdx := len(w.out) - 1
 	w.pushOwner(ownerIdx)
 	w.noteAnnotationRefs(modifiers)
+	w.noteSplitAnnotations(split)
 	// Set up per-function complexity tracking. walkForCalls is re-entrant (it
 	// dispatches nested function_declarations back here), so save and restore the
 	// outer state rather than clearing it.
