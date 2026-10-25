@@ -106,24 +106,76 @@ func extractURLSessionFactsWithDir(src []byte, relFile, dir string) []facts.Fact
 	return out
 }
 
+// declaresFunc reports whether a line starts a function declaration.
+func declaresFunc(line string) bool {
+	return strings.Contains(" "+strings.TrimSpace(line), " func ")
+}
+
+// requestReach is how far below a path methodOfRequest follows the request built from
+// it: past a multipart body or headers, never past the enclosing function.
+const requestReach = 60
+
+// swiftRequestDecl matches the declaration of a URLRequest variable, capturing its name.
+var swiftRequestDecl = regexp.MustCompile(`\b(?:var|let)\s+(\w+)\s*(?::\s*URLRequest\s*)?=\s*URLRequest\(`)
+
+// methodOfRequest returns the verb set on the first URLRequest declared at or below the
+// path at idx, in the same function:
+//
+//	var components = URLComponents(url: baseURL.appendingPathComponent("x/analyze"), …)
+//	… a multipart body, twenty lines …
+//	var request = URLRequest(url: url)
+//	request.httpMethod = "POST"
+//
+// or "" when there is none. methodNear's window misses it there, and the URLSession
+// default it falls back to is GET.
+func methodOfRequest(lines []string, idx int) string {
+	var assign *regexp.Regexp
+	for j := idx; j < len(lines) && j <= idx+requestReach; j++ {
+		if j > idx && declaresFunc(lines[j]) {
+			return ""
+		}
+		if assign == nil {
+			if m := swiftRequestDecl.FindStringSubmatch(lines[j]); m != nil {
+				assign = regexp.MustCompile(`\b` + regexp.QuoteMeta(m[1]) + `\.(?:httpMethod|method)\s*=`)
+			}
+			continue
+		}
+		if assign.MatchString(lines[j]) {
+			return methodInLine(lines[j])
+		}
+	}
+	return ""
+}
+
 // methodNear returns the HTTP method assigned within methodWindow lines of idx,
-// scanning outward (nearest line wins, forward preferred on ties), or "GET" when no
-// valid verb is found — the URLSession default.
+// scanning outward (nearest line wins, forward preferred on ties), else the one set
+// on the request built from the path further down, or "GET" when no valid verb is
+// found — the URLSession default.
 func methodNear(lines []string, idx int) string {
 	if v := methodInLine(lines[idx]); v != "" {
 		return v
 	}
+	// The window stops at a function declaration either way: a verb set in another
+	// function is another request's.
+	down, up := true, true
 	for d := 1; d <= methodWindow; d++ {
-		if j := idx + d; j < len(lines) {
-			if v := methodInLine(lines[j]); v != "" {
-				return v
+		if j := idx + d; down && j < len(lines) {
+			if down = !declaresFunc(lines[j]); down {
+				if v := methodInLine(lines[j]); v != "" {
+					return v
+				}
 			}
 		}
-		if j := idx - d; j >= 0 {
-			if v := methodInLine(lines[j]); v != "" {
-				return v
+		if j := idx - d; up && j >= 0 {
+			if up = !declaresFunc(lines[j]); up {
+				if v := methodInLine(lines[j]); v != "" {
+					return v
+				}
 			}
 		}
+	}
+	if v := methodOfRequest(lines, idx); v != "" {
+		return v
 	}
 	return "GET"
 }

@@ -418,6 +418,60 @@ final class OrdersAPIService {
 	}
 }
 
+// A verb set on the request well below its path, past a multipart body, is still the
+// request's: the request built from the path is followed to its assignment. A verb on
+// another function's request is not borrowed, and with none set the default stays GET.
+func TestMethodNear_FollowsTheRequestBuiltFromThePath(t *testing.T) {
+	src := `import Foundation
+
+final class CoachAPIService {
+    func analyze(images: [Data], prompt: String) async throws {
+        var components = URLComponents(url: baseURL.appendingPathComponent("settings/coach/analyze"), resolvingAgainstBaseURL: false)
+        components?.queryItems = [URLQueryItem(name: "feature", value: "swing")]
+        guard let url = components?.url else { throw CoachError.invalidURL }
+
+        let boundary = "Boundary-\(UUID().uuidString)"
+        var body = Data()
+        for image in images {
+            body.append("--\(boundary)\r\n")
+            body.append(image)
+            body.append("\r\n")
+        }
+        body.append("--\(boundary)--\r\n")
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        _ = try await session.upload(for: request, from: body)
+    }
+    func status() async throws {
+        let url = baseURL.appendingPathComponent("settings/coach/status")
+        let other = 1
+        let more = 2
+        let evenMore = 3
+        let stillMore = 4
+        let andMore = 5
+        let request = URLRequest(url: url)
+        _ = try await session.data(for: request)
+    }
+    func reset() async throws {
+        var request = URLRequest(url: baseURL)
+        request.httpMethod = "DELETE"
+        _ = try await session.data(for: request)
+    }
+}
+`
+	byName := map[string]string{}
+	for _, f := range extractURLSessionFacts([]byte(src), "Data/Network/CoachAPIService.swift") {
+		byName[f.Name] = f.Props["method"].(string)
+	}
+	if byName["settings/coach/analyze"] != "POST" {
+		t.Errorf("analyze: want POST from the request built from the path, got %q (%+v)", byName["settings/coach/analyze"], byName)
+	}
+	if byName["settings/coach/status"] != "GET" {
+		t.Errorf("status: want GET, not the next function's verb, got %q (%+v)", byName["settings/coach/status"], byName)
+	}
+}
+
 // TestExtractEndpointFacts_ExternalHost verifies that a client whose base URL is a
 // hardcoded absolute host (the APIService.Jira idiom) is tagged external + host, so
 // the linker buckets it out of the internal unresolved count.
