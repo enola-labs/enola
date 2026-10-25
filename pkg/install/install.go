@@ -31,10 +31,21 @@ type Options struct {
 	Hooks bool
 	// HookCommand is the binary the hook config invokes. Defaults to "enola".
 	HookCommand string
+	// FolderOfRepos marks a target that is a folder of repositories rather than one. Its
+	// hooks steer the agent to enola (the session-start note, the search gate) and do not
+	// grade: a baseline and its grading need one repository, and the hooks that do them
+	// only skip in a folder, so they are not installed there.
+	FolderOfRepos bool
 	// DryRun reports what would change without writing anything.
 	DryRun bool
 	// Targets restricts the run to named targets; empty means every applicable one.
 	Targets []string
+}
+
+// grades reports whether this run installs the hooks that pin a baseline and grade a
+// change against it.
+func (o Options) grades() bool {
+	return o.Hooks && !o.FolderOfRepos
 }
 
 func (o Options) hookCommand() string {
@@ -165,7 +176,8 @@ func codexTarget(o Options, remove bool) ([]Result, error) {
 			}), nil
 		}
 	}
-	if !remove && !o.Hooks {
+	// Codex's hooks pin and grade, and do nothing else: a folder of repositories gets none.
+	if !remove && !o.grades() {
 		return out, nil
 	}
 	hr, err := writeCodexHooks(path, codexPruneStop(o), o, remove)

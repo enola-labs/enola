@@ -14,6 +14,7 @@ import (
 	"github.com/enola-labs/enola/internal/hookstate"
 	"github.com/enola-labs/enola/internal/providers"
 	"github.com/enola-labs/enola/internal/updatecheck"
+	"github.com/enola-labs/enola/internal/workspace"
 	"github.com/enola-labs/enola/pkg/bootstrap"
 	"github.com/enola-labs/enola/pkg/check"
 	"github.com/enola-labs/enola/pkg/install"
@@ -143,8 +144,13 @@ func (r *Runner) Doctor(args []string) {
 	// Asked and answered BEFORE a session ends, which is the difference between this
 	// and reading the last outcome below: an unusable baseline makes the hooks decline
 	// to grade, and they decline quietly. Knowing now beats finding out afterwards.
+	// A folder of repositories is never graded, so there is no baseline to judge.
+	folder := workspace.IsFolderOfRepos(repoDir)
 	fmt.Println("Baseline")
-	if baselineIssue == "" {
+	if folder {
+		fmt.Println("  none — a folder of repositories is not graded; each repository is, by hooks")
+		fmt.Println("  installed inside it")
+	} else if baselineIssue == "" {
 		fmt.Println("  comparable — the gate can grade against it")
 	} else {
 		fmt.Printf("  NOT COMPARABLE: %s\n", baselineIssue)
@@ -170,6 +176,23 @@ func (r *Runner) Doctor(args []string) {
 		fmt.Printf("  hook command     %s\n", state.HookCommand)
 	}
 	fmt.Println()
+
+	if folder {
+		// Only the hooks that steer the agent are installed in a folder of repositories.
+		st := state.Get(hookstate.EventSessionStart)
+		fmt.Printf("  %-15s %s\n", "session-start", "tells the agent how to reach enola's tools")
+		if st == nil || st.Count == 0 {
+			fmt.Printf("  %-15s NEVER FIRED\n", "")
+		} else {
+			fmt.Printf("  %-15s last ran %s ago · %d run(s)\n", "", humanSince(st.LastFired), st.Count)
+		}
+		fmt.Printf("  %-15s %s\n", "pre-tool", "refuses a session's first searches until an enola tool is used")
+		fmt.Println()
+		fmt.Println("  This is a folder of repositories: these hooks point the agent at enola and grade")
+		fmt.Println("  nothing, because a baseline needs one repository. To have a change graded,")
+		fmt.Printf("  run `%s install --hooks` inside each repository.\n", r.name())
+		return
+	}
 
 	for _, e := range []struct {
 		event hookstate.Event

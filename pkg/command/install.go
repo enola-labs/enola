@@ -75,15 +75,18 @@ func (r *Runner) Install(args []string, remove bool) {
 	if *global {
 		opts.Scope = install.ScopeGlobal
 	}
-	// The session hooks snapshot the directory they run in as one repository, so in a
-	// folder of repositories they could only ever skip. Installing them there would
-	// configure a mechanism that does nothing, and hide that until `doctor` is read.
-	hooksRefused := opts.Hooks && opts.Scope == install.ScopeLocal && workspace.IsFolderOfRepos(repoDir)
-	if hooksRefused {
-		opts.Hooks = false
-		fmt.Printf("Not installing hooks: %s is a folder of repositories, not a repository, and\n", repoDir)
-		fmt.Println("the hooks would snapshot all of them as one. Run `install --hooks` inside each")
-		fmt.Println("repository you want graded. Instructions and the MCP setup are still installed.")
+	// A baseline and its grading snapshot the directory they run in as one repository,
+	// so in a folder of repositories those hooks could only ever skip, and installing
+	// them would configure a mechanism that does nothing. The hooks that steer the agent
+	// to enola need no repository, and a folder of repositories is where an agent most
+	// needs them: they are installed, and only they.
+	folder := opts.Hooks && opts.Scope == install.ScopeLocal && workspace.IsFolderOfRepos(repoDir)
+	if folder {
+		opts.FolderOfRepos = true
+		fmt.Printf("%s is a folder of repositories, not a repository: installing the hooks that\n", repoDir)
+		fmt.Println("point the agent at enola, not the ones that pin a baseline and grade a change,")
+		fmt.Println("which need one repository. Run `install --hooks` inside each repository you")
+		fmt.Println("want graded.")
 		fmt.Println()
 	}
 	if *targets != "" {
@@ -125,7 +128,11 @@ func (r *Runner) Install(args []string, remove bool) {
 		if opts.Hooks {
 			// Described by the installer itself, so this can never announce a hook that
 			// is not actually configured.
-			fmt.Println("Hooks:      yes")
+			if opts.FolderOfRepos {
+				fmt.Println("Hooks:      the ones that steer the agent (a folder of repositories, see above)")
+			} else {
+				fmt.Println("Hooks:      yes")
+			}
 			for _, d := range install.HookSummary(opts) {
 				for i, line := range wrap(d, 66) {
 					prefix := "            · "
@@ -144,8 +151,6 @@ func (r *Runner) Install(args []string, remove bool) {
 			fmt.Println("Hooks:      no — instructions only, which an agent is free to ignore.")
 			fmt.Println("            Re-run with --hooks for opencode's plugin, which points a")
 			fmt.Println("            session's first searches at the index instead.")
-		} else if hooksRefused {
-			fmt.Println("Hooks:      no — a folder of repositories (see above).")
 		} else {
 			fmt.Println("Hooks:      no — instructions only. Re-run with --hooks to automate the loop.")
 		}

@@ -79,7 +79,7 @@ func piRoot(o Options) (root, stop string) {
 func piExtensionSource(o Options) string {
 	cmd, _ := json.Marshal(strings.Trim(o.hookCommand(), `"`))
 	src := strings.Replace(piExtension, "__ENOLA_COMMAND__", string(cmd), 1)
-	return strings.Replace(src, "__ENOLA_HOOKS__", strconv.FormatBool(o.Hooks), 1)
+	return strings.Replace(src, "__ENOLA_HOOKS__", strconv.FormatBool(o.grades()), 1)
 }
 
 // InstallsPiExtension reports whether this run writes Pi's extension into the
