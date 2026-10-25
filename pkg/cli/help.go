@@ -291,7 +291,11 @@ func mcpConfigSection(bin Binary) Section {
         }
       }
     }
-`, bin.Name, bin.Name),
+
+  Claude Code, with its tools loaded at session start rather than deferred:
+
+    claude mcp add-json enola '{"command":"%s","alwaysLoad":true}'
+`, bin.Name, bin.Name, bin.Name),
 	}
 }
 

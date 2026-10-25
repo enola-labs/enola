@@ -47,7 +47,7 @@ This downloads the newest build for your platform, verifies its checksum, and re
 
 Because your agent launches enola as a long-lived MCP server process, an upgrade only takes effect once that process restarts - reconnect the MCP server so it picks up the new binary:
 
-- **Claude Code** - restart the session, or re-register with `claude mcp remove enola && claude mcp add enola enola`.
+- **Claude Code** - restart the session, or re-register with `claude mcp remove enola` and the `add-json` command below.
 - **Cursor** - toggle the enola server off and back on in **Settings → MCP** (or reload the window).
 - **GitHub Copilot (VS Code)** - restart the server from the `.vscode/mcp.json` editor (the **Restart** CodeLens above the server entry), or reload the window.
 - **opencode** - quit and restart it; it loads its configuration once at startup and never reloads it.
@@ -85,13 +85,15 @@ The [`examples/`](../examples/) directory has ready-made per-language and multi-
 **Claude Code** - register enola as an MCP server with one command. This assumes the `enola` binary is on your `PATH` (the install script above puts it in `~/.local/bin`):
 
 ```bash
-claude mcp add enola enola
+claude mcp add-json enola '{"command":"enola","alwaysLoad":true}'
 ```
 
-The shape is `claude mcp add <name> <command> [args…]`: the first `enola` names the server, the second is the binary. The trailing config path is **optional** - omit it (as above) to run on built-in defaults, or pass one to override them:
+`alwaysLoad` makes Claude Code load enola's tools when the session starts. Without it they are listed as deferred, names only, and the agent spends a turn loading them through ToolSearch before its first enola call, while a file search is already in reach (see [Closing the loop automatically](#closing-the-loop-automatically-----hooks)). It needs Claude Code 2.1.287 or later; on an older one, register with `claude mcp add enola enola`.
+
+A config path is **optional** - omit it (as above) to run on built-in defaults, or pass one in `args` to override them:
 
 ```bash
-claude mcp add enola enola /path/to/enola/mcp-arch.yaml
+claude mcp add-json enola '{"command":"enola","args":["/path/to/enola/mcp-arch.yaml"],"alwaysLoad":true}'
 ```
 
 When you do pass a config, its `repo:` is only the *default* repository - you can still snapshot any repo by passing `repo_path` to `generate_snapshot`. Verify it registered with `claude mcp list`, then start Claude Code and ask it to generate a snapshot.

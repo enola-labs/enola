@@ -199,7 +199,7 @@ Then give the agent the graph over **MCP** (Model Context Protocol: the standard
 
 | Client | Do this |
 |---|---|
-| **Claude Code** | `claude mcp add enola enola` |
+| **Claude Code** | `claude mcp add-json enola '{"command":"enola","alwaysLoad":true}'` |
 | **Codex** | `codex mcp add enola -- enola` |
 | **Copilot (VS Code)** | `code --add-mcp '{"name":"enola","command":"enola"}'` |
 | **Cursor** | add the block below to `.cursor/mcp.json` (or `~/.cursor/mcp.json` for every project) |
