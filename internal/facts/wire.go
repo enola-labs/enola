@@ -82,6 +82,11 @@ const (
 	// PropClientTriggerFrom names, on a server route, the client function whose call
 	// gives the route its trigger.
 	PropClientTriggerFrom = "client_trigger_from"
+	// PropClientPages lists, on a reachable client route, the page files whose code
+	// reaches the call: the screens a change to the endpoint it calls is felt on. A call
+	// reached only from code every page runs (the root layout, an entry file) names no
+	// page; PropClientEveryPage says so instead.
+	PropClientPages = "client_pages"
 
 	ClientTriggerPoll   = "poll"
 	ClientTriggerMount  = "mount"

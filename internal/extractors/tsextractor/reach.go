@@ -4,6 +4,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	sitter "github.com/tree-sitter/go-tree-sitter"
@@ -341,8 +342,10 @@ func isDefinedMethod(kinds *tsutil.KindTable, fn *sitter.Node, src []byte) bool 
 }
 
 // bindsWithoutUse reports a name inside a symbol that is bound or passed on rather than
-// read: a destructured name, `const { save } = …`, and a shorthand in the object a hook
-// returns, `return { save }`, directly or through `useMemo(() => ({ save }), deps)`.
+// read: a destructured name, `const { save } = …`, a shorthand in the object a hook
+// returns, `return { save }`, directly or through `useMemo(() => ({ save }), deps)`, and
+// a store selector's copy of a member under its own name, `useStore((s) => ({ save:
+// s.save }))`, which hands save to whoever destructures it and runs nothing itself.
 func bindsWithoutUse(kinds *tsutil.KindTable, n *sitter.Node, src []byte, current string, owner map[uint]string) bool {
 	if current == "" {
 		return false
@@ -351,6 +354,8 @@ func bindsWithoutUse(kinds *tsutil.KindTable, n *sitter.Node, src []byte, curren
 	case "shorthand_property_identifier_pattern":
 		return true
 	case "shorthand_property_identifier":
+	case "property_identifier":
+		return selectorCopy(kinds, n, src, current)
 	default:
 		return false
 	}
@@ -396,6 +401,43 @@ func bindsWithoutUse(kinds *tsutil.KindTable, n *sitter.Node, src []byte, curren
 	}
 	outer := enclosingFunction(kinds, ret)
 	return outer != nil && owner[outer.StartByte()] == current
+}
+
+// selectorCopy reports the member n of `key: x.key` in the object a hook's arrow
+// function returns to a call, the shape of a store selector.
+func selectorCopy(kinds *tsutil.KindTable, n *sitter.Node, src []byte, current string) bool {
+	if strings.Contains(current, localScopeSep) || !isHookName(shortName(current)) {
+		return false
+	}
+	member := n.Parent()
+	if member == nil || kindOf(kinds, member) != "member_expression" {
+		return false
+	}
+	if prop := member.ChildByFieldName("property"); prop == nil || prop.StartByte() != n.StartByte() {
+		return false
+	}
+	pair := member.Parent()
+	if pair == nil || kindOf(kinds, pair) != "pair" {
+		return false
+	}
+	key, value := pair.ChildByFieldName("key"), pair.ChildByFieldName("value")
+	if key == nil || value == nil || value.StartByte() != member.StartByte() || nodeText(key, src) != nodeText(n, src) {
+		return false
+	}
+	obj := pair.Parent()
+	if obj == nil || kindOf(kinds, obj) != "object" {
+		return false
+	}
+	body := obj.Parent()
+	if body == nil || kindOf(kinds, body) != "parenthesized_expression" {
+		return false
+	}
+	arrow := body.Parent()
+	if arrow == nil || kindOf(kinds, arrow) != "arrow_function" {
+		return false
+	}
+	args := arrow.Parent()
+	return args != nil && kindOf(kinds, args) == "arguments"
 }
 
 // enclosingFunction is the nearest function around n.
@@ -802,6 +844,20 @@ func markClientReachability(ff []facts.Fact, files []*fileReach, fw tsFrameworks
 		}
 	}
 
+	classMember := map[string]bool{}
+	classes := map[string]bool{}
+	for _, f := range ff {
+		if f.Kind == facts.KindSymbol && f.PropString("symbol_kind") == facts.SymbolClass {
+			classes[f.Name] = true
+		}
+	}
+	for _, f := range ff {
+		if i := strings.LastIndexByte(f.Name, '.'); f.Kind == facts.KindSymbol && i > 0 && classes[f.Name[:i]] {
+			classMember[f.Name] = true
+		}
+	}
+	pages, pageOf, pageFile := reachingPages(roots, files, byFile, byName, symbolFile, aliases, declaredIn, importsOf, classMember)
+
 	for i := range ff {
 		f := &ff[i]
 		if f.Kind != facts.KindRoute || f.PropAny(facts.PropRole) != facts.RoleClient ||
@@ -825,6 +881,15 @@ func markClientReachability(ff []facts.Fact, files []*fileReach, fw tsFrameworks
 		if t.rank == rankNone {
 			continue
 		}
+		set := pageFile[f.File]
+		if scope := innermostLocal(r, f.Line); scope != "" {
+			set = pageOf[scope]
+		} else if caller := f.PropString(facts.PropCaller); caller != "" {
+			set = pageOf[caller]
+		}
+		if names := pages.names(set); len(names) > 0 {
+			f.SetProp(facts.PropClientPages, names)
+		}
 		// A request written inside an inline handler or timer callback runs under it.
 		if m, ok := innermostMode(r.modes, f.Line); ok {
 			t = t.through(m)
@@ -840,6 +905,189 @@ func markClientReachability(ff []facts.Fact, files []*fileReach, fw tsFrameworks
 			f.SetProp(facts.PropClientPollMs, t.ms)
 		}
 	}
+}
+
+// pageSet is a set of pages, one bit per page in pageIndex order.
+type pageSet []uint64
+
+// with returns s joined with o, and whether that added anything.
+func (s pageSet) with(o pageSet) (pageSet, bool) {
+	grew := false
+	for i, w := range o {
+		if w == 0 {
+			continue
+		}
+		for len(s) <= i {
+			s = append(s, 0)
+		}
+		if s[i]|w != s[i] {
+			s[i] |= w
+			grew = true
+		}
+	}
+	return s, grew
+}
+
+// pageIndex names the pages a pageSet's bits stand for.
+type pageIndex []string
+
+func (p pageIndex) names(s pageSet) []string {
+	var out []string
+	for i, w := range s {
+		for b := 0; b < 64; b++ {
+			if w&(1<<b) != 0 {
+				out = append(out, p[i*64+b])
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// isPageFile reports whether a root is one page rather than code every page runs: a
+// Next.js page under app/, or a file under the pages router other than its _app,
+// _document or an API route.
+func isPageFile(file string) bool {
+	base := file[strings.LastIndex(file, "/")+1:]
+	stem := strings.TrimSuffix(base, filepath.Ext(base))
+	if stem == "page" && (strings.HasPrefix(file, "app/") || strings.Contains(file, "/app/")) {
+		return true
+	}
+	i := strings.Index("/"+file, "/pages/")
+	if i < 0 || strings.HasPrefix(stem, "_") {
+		return false
+	}
+	return !strings.HasPrefix(file[i:], "pages/api/")
+}
+
+// reachingPages is the trigger pass again, carrying which pages reach each symbol,
+// local scope and file instead of how. It follows the same uses, more strictly: a
+// name declared in more than two files reaches none of them here, called or not, so
+// that a page is named only where its code can be told apart; the trigger pass, which
+// decides only whether a call runs at all, lets such a name reach them all.
+func reachingPages(roots map[string]bool, files []*fileReach, byFile map[string]*fileReach, byName map[string][]string,
+	symbolFile map[string]*fileReach, aliases map[string][]string, declaredIn map[string]map[string]bool,
+	importsOf map[string]map[string]bool, classMember map[string]bool) (pageIndex, map[string]pageSet, map[string]pageSet) {
+	var index pageIndex
+	for f := range roots {
+		if isPageFile(f) {
+			index = append(index, f)
+		}
+	}
+	sort.Strings(index)
+	of, fileOf, nameOf := map[string]pageSet{}, map[string]pageSet{}, map[string]pageSet{}
+	var queue []string
+	raise := func(s string, b pageSet) {
+		var grew bool
+		if of[s], grew = of[s].with(b); grew {
+			queue = append(queue, s)
+		}
+	}
+	var runFile func(r *fileReach, b pageSet)
+	reachDefault := func(file string, orAll bool, b pageSet) {
+		r := byFile[file]
+		if r == nil {
+			return
+		}
+		runFile(r, b)
+		targets := r.defaults
+		if len(targets) == 0 && orAll {
+			targets = r.symbols
+		}
+		for _, s := range targets {
+			raise(s, b)
+		}
+	}
+	propagate := func(key string, targets, defaults []string, b pageSet) {
+		var grew bool
+		if nameOf[key], grew = nameOf[key].with(b); !grew {
+			return
+		}
+		for _, s := range targets {
+			raise(s, b)
+		}
+		for _, f := range defaults {
+			reachDefault(f, true, b)
+		}
+	}
+	use := func(r *fileReach, scope string, b pageSet) {
+		names, lex := r.top, r.lexical[scope]
+		if scope != "" {
+			names = r.uses[scope]
+		}
+		for n := range names {
+			if lex[n] {
+				var local []string
+				for _, s := range byName[n] {
+					if sf := symbolFile[s]; sf != nil && importsOf[r.file][sf.file] && !classMember[s] {
+						local = append(local, s)
+					}
+				}
+				if len(local) > 0 || len(r.defaultAliases[n]) > 0 {
+					propagate(r.file+"\x00"+n, local, r.defaultAliases[n], b)
+					continue
+				}
+				// A bare name re-exported through a barrel is a function, a local scope
+				// or an object's member handed out by a hook. Here and above, it is
+				// never a member of a class: zustand's create(…) is not
+				// OrdersApi.create, even in a file that imports OrdersApi.
+				if len(declaredIn[n]) <= 2 {
+					var free []string
+					for _, s := range byName[n] {
+						if !classMember[s] {
+							free = append(free, s)
+						}
+					}
+					propagate("\x00bare\x00"+n, free, aliases[n], b)
+				}
+				continue
+			}
+			if len(declaredIn[n]) <= 2 {
+				propagate(n, byName[n], aliases[n], b)
+			}
+		}
+	}
+	runFile = func(r *fileReach, b pageSet) {
+		if r == nil {
+			return
+		}
+		var grew bool
+		if fileOf[r.file], grew = fileOf[r.file].with(b); !grew {
+			return
+		}
+		use(r, "", b)
+		for _, f := range r.reexports {
+			reachDefault(f, true, b)
+		}
+		for _, f := range r.dynamic[""] {
+			reachDefault(f, false, b)
+		}
+	}
+	for i, file := range index {
+		b := make(pageSet, i/64+1)
+		b[i/64] = 1 << (i % 64)
+		r := byFile[file]
+		runFile(r, b)
+		if r != nil {
+			for _, s := range r.symbols {
+				raise(s, b)
+			}
+		}
+	}
+	for len(queue) > 0 {
+		s := queue[0]
+		queue = queue[1:]
+		b := of[s]
+		r := symbolFile[s]
+		runFile(r, b)
+		if r != nil {
+			use(r, s, b)
+			for _, f := range r.dynamic[s] {
+				reachDefault(f, false, b)
+			}
+		}
+	}
+	return index, of, fileOf
 }
 
 // innermostLocal is the narrowest local scope written around a line, or "" when the

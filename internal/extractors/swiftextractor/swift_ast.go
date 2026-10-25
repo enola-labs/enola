@@ -58,6 +58,8 @@ type astWalker struct {
 	typeStack   []string
 	methodStack []map[string]bool
 
+	// memberTypes holds the stated types of the enclosing type's stored properties.
+	memberTypes map[string]string
 	// localTypes holds the stated types of the current function's parameters and
 	// locals (receivers.go); nil outside a function body.
 	localTypes map[string]string
@@ -816,6 +818,9 @@ func (w *astWalker) walkTypeBody(body *sitter.Node, iosComponent string) {
 	if body == nil {
 		return
 	}
+	saved := w.memberTypes
+	w.memberTypes = w.memberTypesOf(body)
+	defer func() { w.memberTypes = saved }()
 	for i := uint(0); i < uint(body.ChildCount()); i++ {
 		c := body.Child(i)
 		if w.applyDirective(c) {

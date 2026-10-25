@@ -120,3 +120,64 @@ class Loader {
 		}
 	}
 }
+
+// A type's stored property states its type for the calls the type's methods make on
+// it, bare or through self, inside a closure as well; a local of no stated type
+// shadows it. A property typed as a protocol, whose requirements are no facts, binds
+// to the one type outside the tests that conforms and declares the method, whatever
+// mocks the tests add.
+func TestSwiftCallOnAStoredPropertyResolves(t *testing.T) {
+	ff := extractRepo(t, map[string]string{
+		"Sources/App/UseCases.swift": `
+final class LoadOrders {
+    func execute(id: Int) async {}
+}
+final class SaveOrder {
+    func execute(id: Int) async {}
+}
+protocol OrdersService {
+    func list() async
+}
+final class OrdersAPI: OrdersService {
+    func list() async {}
+}
+`,
+		"Tests/AppTests/Mocks.swift": `
+final class MockOrdersAPI: OrdersService {
+    func list() async {}
+}
+`,
+		"Sources/App/OrdersState.swift": `
+final class OrdersState {
+    private let loadOrders: LoadOrders
+    private let service: OrdersService
+    init(loadOrders: LoadOrders, service: OrdersService) {
+        self.loadOrders = loadOrders
+        self.service = service
+    }
+    func refresh() {
+        Task {
+            await loadOrders.execute(id: 1)
+            await self.service.list()
+        }
+    }
+    func shadowed() {
+        let loadOrders = makeSomething()
+        loadOrders.execute(id: 2)
+    }
+}
+`,
+	})
+	refresh := swCalls(t, ff, "Sources/App.OrdersState.refresh")
+	for _, want := range []string{"Sources/App.LoadOrders.execute", "Sources/App.OrdersAPI.list"} {
+		if !slices.Contains(refresh, want) {
+			t.Errorf("refresh calls %v, want %s", refresh, want)
+		}
+	}
+	if slices.Contains(refresh, "Sources/App.SaveOrder.execute") {
+		t.Errorf("refresh calls %v: the property is a LoadOrders", refresh)
+	}
+	if shadowed := swCalls(t, ff, "Sources/App.OrdersState.shadowed"); slices.Contains(shadowed, "Sources/App.LoadOrders.execute") {
+		t.Errorf("shadowed calls %v: the untyped local shadows the property", shadowed)
+	}
+}

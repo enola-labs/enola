@@ -54,6 +54,10 @@ type Impact struct {
 	// screens they belong to. This is the other half of the blast radius: the
 	// models say what the endpoint writes, the callers say who notices.
 	Callers []Caller `json:"callers,omitempty"`
+	// Screens are the screens of the client applications whose code can send a
+	// request to the followed routes, each with the endpoints it depends on: the
+	// pages that reach a web call, the nearest screen above a mobile one.
+	Screens []Screen `json:"screens,omitempty"`
 	// StoppedAt names the first hop that produced nothing, so an empty result
 	// reads as a boundary rather than as an answer.
 	StoppedAt string `json:"stopped_at,omitempty"`
@@ -173,7 +177,9 @@ func Analyze(s *facts.Store, query string, maxRoutes int, findCallers CallerFind
 	// resolve reported no callers at all — an answer about the frontend withheld
 	// because of a gap in the backend walk.
 	if findCallers != nil {
-		out.Callers = callersFrom(s, findCallers(servers))
+		clients := findCallers(servers)
+		out.Callers = callersFrom(s, clients)
+		out.Screens = screensFrom(s, clients, servers)
 	}
 
 	// Hop 2: the controller class each handler names.
@@ -458,6 +464,9 @@ func summarize(out Impact, truncated bool) string {
 			if caller.NeverRuns {
 				never++
 			}
+		}
+		if len(out.Screens) > 0 {
+			fmt.Fprintf(&b, " Felt on %d screen(s) of the client applications, listed under screens with the endpoints each depends on.", len(out.Screens))
 		}
 		if never == len(out.Callers) {
 			b.WriteString(" None of those calls runs: each sits in client code no page or component reaches.")
