@@ -130,9 +130,8 @@ func (s *Server) registerPlanCheckTool() {
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name: "plan_check",
 		Description: "Plan a change BEFORE editing. For each target (paths that may not exist yet, or exact fact names): the constraint components and rules governing it, with mode and declared because:, plus its blast radius (fan-in and fan-out, capped samples with exact counts). " +
-			"With patch, the counterfactual: the diff is applied to a scratch copy (the working tree and its .enola are never touched), facts are regenerated there, and the constraint verdicts that WOULD appear are reported as new, resolved or unchanged, each naming the rule, the would-be witness and its because:. " +
-			"Components and rules are read from the working tree (enola-intent.yaml, enola/constraints/), so an edit to them counts without regenerating. " +
-			"A report, not a gate: like enola check, the verdict is the caller's to weigh. Returns JSON.",
+			"With patch, the counterfactual: the diff is applied to a scratch copy (the working tree is never touched) and the constraint verdicts that WOULD appear are reported as new, resolved or unchanged. " +
+			"Rules are read from the working tree, so an edit to them counts without regenerating. A report, not a gate. Returns JSON.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args planCheckArgs) (*mcp.CallToolResult, any, error) {
 		store := s.eng.Store()
 		if store.Count() == 0 {
@@ -286,13 +285,13 @@ func (s *Server) planTarget(store *facts.Store, args planCheckArgs) (planScope, 
 type governingIntentArgs struct {
 	Target    string `json:"target" jsonschema:"An exact fact name, a file path (repo-relative or label-prefixed), or a compiled page path."`
 	Repo      string `json:"repo,omitempty" jsonschema:"Repo label, when the file path is measured in more than one repo."`
-	MaxTokens int    `json:"max_tokens,omitempty" jsonschema:"Approximate token cap; output is truncated with a notice. Default: no cap."`
+	MaxTokens int    `json:"max_tokens,omitempty" jsonschema:"Approximate token cap on the output. Default: none."`
 }
 
 // constraintsForArgs are the arguments for the constraints_for tool.
 type constraintsForArgs struct {
 	Target    string `json:"target" jsonschema:"A repo-relative file path (it may not exist yet) or an exact fact name."`
-	MaxTokens int    `json:"max_tokens,omitempty" jsonschema:"Approximate token cap; output is truncated with a notice. Default: no cap."`
+	MaxTokens int    `json:"max_tokens,omitempty" jsonschema:"Approximate token cap on the output. Default: none."`
 }
 
 type planCheckArgs struct {
@@ -300,7 +299,7 @@ type planCheckArgs struct {
 	Symbols   []string `json:"symbols,omitempty" jsonschema:"Exact fact names the change touches."`
 	Patch     string   `json:"patch,omitempty" jsonschema:"A unified diff to evaluate on a scratch copy; the working tree is never touched."`
 	Repo      string   `json:"repo,omitempty" jsonschema:"Repo label, in a multi-repo snapshot. Inferred from label-prefixed paths and fact names when omitted; needed for a patch, whose paths are relative to one repository."`
-	MaxTokens int      `json:"max_tokens,omitempty" jsonschema:"Approximate token cap; output is truncated with a notice. Default: no cap."`
+	MaxTokens int      `json:"max_tokens,omitempty" jsonschema:"Approximate token cap on the output. Default: none."`
 }
 
 // constraintsForResponse is the constraints_for tool's JSON shape: the

@@ -39,7 +39,7 @@ type queryFactsArgs struct {
 
 	// Output format
 	OutputMode string `json:"output_mode,omitempty" jsonschema:"'full' (DEFAULT, JSON facts), 'compact' (markdown table), 'names' (names and files), or 'summary' (total plus breakdown by kind and top files; cheapest)."`
-	MaxTokens  int    `json:"max_tokens,omitempty" jsonschema:"Approximate token cap; output is truncated with a notice. Default: no cap."`
+	MaxTokens  int    `json:"max_tokens,omitempty" jsonschema:"Approximate token cap on the output. Default: none."`
 }
 
 // enrichedFact wraps a Fact with resolved relation targets.

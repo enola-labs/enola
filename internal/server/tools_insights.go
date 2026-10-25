@@ -279,14 +279,14 @@ func oneLine(s string) string {
 // explainerHints annotates the explainer names whose purpose is not obvious from the
 // name alone. Names without an entry are rendered bare.
 var explainerHints = map[string]string{
-	"unused-routes":      "dead/uncalled HTTP routes, routes called only from client code that never runs, and a route registered in two files",
-	"messaging-coverage": "undeclared messaging calls and AsyncAPI operations with no detected implementation",
-	"intent":             "declared architecture verdicted against the measured graph",
-	"constraints":        "declared component rules, and the edges that breach them",
-	"domain":             "what a framework's declarations say about its data and API",
-	"query-loops":        "a database query issued once per loop iteration",
-	"entry-points":       "the symbols a framework invokes directly",
-	"packwerk":           "package.yml dependencies declared but unused, or used but undeclared",
+	"unused-routes":      "HTTP routes no client calls or reaches",
+	"messaging-coverage": "unmatched messaging and AsyncAPI operations",
+	"intent":             "declared architecture against the graph",
+	"constraints":        "edges breaching component rules",
+	"domain":             "a framework's data and API declarations",
+	"query-loops":        "a database query per loop iteration, N+1",
+	"entry-points":       "symbols a framework invokes",
+	"packwerk":           "package.yml dependency drift",
 }
 
 // explainerHintList renders the annotated explainers for the query_insights tool
@@ -338,9 +338,9 @@ func (s *Server) registerQueryInsightsTool() {
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name: "query_insights",
 		Description: "Findings the explainers computed during generate_snapshot: the direct answer to \"which routes are unused?\", \"where are the dependency cycles?\", \"which modules are god-classes?\". Prefer it to hand-diffing query_facts results. " +
-			"Each insight has a title, its explainer, a description, a confidence (below 1 is a candidate to verify, not a verdict), evidence (files, symbols, routes) and suggested actions. " +
+			"Each insight has its explainer, a confidence (below 1 is a candidate to verify, not a verdict), evidence and suggested actions. " +
 			"Route and cross-repo findings (unused-routes, crossrepo, coverage) appear only in multi-repo snapshots of a backend plus its clients. " +
-			"Explainers whose name is not self-explanatory: " + explainerHintList() + ".",
+			"Less obvious explainers: " + explainerHintList() + ".",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args queryInsightsArgs) (*mcp.CallToolResult, any, error) {
 		snap := s.eng.Snapshot()
 		if snap == nil {
@@ -373,10 +373,10 @@ func (s *Server) registerQueryInsightsTool() {
 
 type queryInsightsArgs struct {
 	Explainer     string  `json:"explainer,omitempty" jsonschema:"Filter to insights produced by this explainer. One of: cycles, layers, crossrepo, coverage, unused-routes, messaging-coverage, god-class, hotspots, dependency-depth, exported-surface, complexity-outliers, intent, constraints, domain, query-loops, entry-points, dead-methods, vendored-candidates, import-closure, package-metrics, dead-code, performance, packwerk. Empty = all."`
-	Repo          string  `json:"repo,omitempty" jsonschema:"Repo label. In multi-repo snapshots it matches the repo path segment of each insight's evidence ('golf' matches golf/... but not golf-ui/...), or a finding whose evidence names only that repo's modules (a cycle); in single-repo snapshots it is a substring match. Empty = all."`
+	Repo          string  `json:"repo,omitempty" jsonschema:"Repo label: in multi-repo snapshots, the repository the evidence belongs to; in single-repo snapshots, a substring. Empty = all."`
 	MinConfidence float64 `json:"min_confidence,omitempty" jsonschema:"Minimum confidence (0.0-1.0). Default 0. unused-routes findings are emitted at 0.6, as review candidates."`
 	OutputMode    string  `json:"output_mode,omitempty" jsonschema:"'summary' (DEFAULT, one row per insight: explainer, confidence, title), 'compact' (adds description, evidence sample, actions), or 'full' (complete JSON)."`
-	MaxTokens     int     `json:"max_tokens,omitempty" jsonschema:"Approximate token cap; output is truncated with a notice. Default: no cap."`
+	MaxTokens     int     `json:"max_tokens,omitempty" jsonschema:"Approximate token cap on the output. Default: none."`
 }
 
 type coverageReportArgs struct {

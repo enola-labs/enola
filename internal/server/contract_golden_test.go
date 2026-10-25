@@ -391,3 +391,29 @@ func TestContract_EveryToolIsPinned(t *testing.T) {
 		}
 	}
 }
+
+// toolCatalogueBudget caps the bytes of every tool's name, description and input
+// schema together. An agent whose client loads the tools up front (alwaysLoad) pays
+// for all of them in every session, before its first question; a description that
+// grows past this has to earn the room from another.
+const toolCatalogueBudget = 29_500
+
+func TestToolCatalogue_SizeBudget(t *testing.T) {
+	s := startInMemory(t)
+	res, err := s.cs.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("ListTools: %v", err)
+	}
+	total := 0
+	for _, tool := range res.Tools {
+		schema, err := json.Marshal(tool.InputSchema)
+		if err != nil {
+			t.Fatal(err)
+		}
+		total += len(tool.Name) + len(tool.Description) + len(schema)
+	}
+	if total > toolCatalogueBudget {
+		t.Errorf("tool definitions are %d bytes, over the budget of %d", total, toolCatalogueBudget)
+	}
+	t.Logf("tool definitions: %d bytes of %d", total, toolCatalogueBudget)
+}

@@ -114,11 +114,9 @@ func (s *Server) registerFindPathTool() {
 		Name: "find_path",
 		Description: "Shortest path, by hop count, between two nodes: \"how does X reach Y?\", \"what is the call chain from A to B?\". " +
 			"An ambiguous endpoint is not an error: the top candidates are tried (for a type, its methods and constructor too) and the first path found is returned, with the ranked candidates. " +
-			"With no path, found=false and a note says whether the endpoints were ambiguous (listing the candidates tried) or resolved but unreachable within max_depth. " +
-			"To ask how one set of nodes reaches another (the symbols or modules of one part to those of another), pass " +
-			"from_nodes and to_nodes instead: exact node names, one search, the shortest path from any of the first to any of the second. " +
-			"A source file path that is not itself a node stands for the symbols the file declares, listed in from_files and to_files. " +
-			"A name the graph does not hold is listed in unresolved_from and unresolved_to with its nearest match in from_candidates and to_candidates, which is a suggestion and is never searched.",
+			"With no path, found=false and a note says why. " +
+			"To ask how one part reaches another, pass from_nodes and to_nodes instead: exact node names, one search " +
+			"from any of the first to any of the second. A file path stands for the symbols the file declares.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args findPathArgs) (*mcp.CallToolResult, any, error) {
 		store := s.eng.Store()
 		if store.Count() == 0 {
@@ -479,7 +477,7 @@ type traverseArgs struct {
 	MaxNodes      int      `json:"max_nodes,omitempty" jsonschema:"Maximum nodes (1-500); the walk stops there. Default 100."`
 	NodeKinds     []string `json:"node_kinds,omitempty" jsonschema:"Filters the output, not the walk: module, symbol, dependency, route, storage. Default: all."`
 	OutputMode    string   `json:"output_mode,omitempty" jsonschema:"'summary' (DEFAULT, counts by node and relation kind, internal/external split, hottest modules), 'compact' (nodes grouped by depth), or 'full' (raw JSON node/edge graph; can be VERY large). Escalate only when you need specific nodes."`
-	MaxTokens     int      `json:"max_tokens,omitempty" jsonschema:"Approximate token cap; output is truncated with a notice. Default: no cap."`
+	MaxTokens     int      `json:"max_tokens,omitempty" jsonschema:"Approximate token cap on the output. Default: none."`
 }
 
 // findPathArgs are the arguments for the find_path tool.
@@ -488,8 +486,8 @@ type findPathArgs struct {
 	To            string   `json:"to,omitempty" jsonschema:"Target node, matched like from, required unless to_nodes is given, e.g. 'kind:struct AuthMiddleware' or 'repo:golf domain/cart.CartService'."`
 	RelationKinds []string `json:"relation_kinds,omitempty" jsonschema:"Relations to follow. Default: all."`
 	MaxDepth      int      `json:"max_depth,omitempty" jsonschema:"Maximum path length (1-20). Default 10."`
-	FromNodes     []string `json:"from_nodes,omitempty" jsonschema:"Exact node names to start from, used together with to_nodes instead of from and to: one breadth-first search finds the shortest path from any of them to any of to_nodes. No substring matching; a name the graph does not hold is listed in unresolved_from."`
-	ToNodes       []string `json:"to_nodes,omitempty" jsonschema:"Exact node names to reach, used together with from_nodes instead of from and to. Each is expanded to a type's methods and constructor as to is. No substring matching; a name the graph does not hold is listed in unresolved_to."`
+	FromNodes     []string `json:"from_nodes,omitempty" jsonschema:"Exact node names to start from, with to_nodes instead of from and to. No substring matching; an unknown name is listed in unresolved_from."`
+	ToNodes       []string `json:"to_nodes,omitempty" jsonschema:"Exact node names to reach, with from_nodes. A type is expanded to its methods and constructor. No substring matching; an unknown name is listed in unresolved_to."`
 }
 
 // impactAnalysisArgs are the arguments for the impact_analysis tool.
@@ -504,7 +502,7 @@ type impactAnalysisArgs struct {
 	MaxNodes       int    `json:"max_nodes,omitempty" jsonschema:"Maximum impacted nodes (1-500). Default 200."`
 	IncludeForward bool   `json:"include_forward,omitempty" jsonschema:"Also show what the target depends on, i.e. what could break it. Default false."`
 	OutputMode     string `json:"output_mode,omitempty" jsonschema:"'summary' (DEFAULT, exact dependent count, breakdown by kind and depth, hotspot modules, cross-repo reach, cycle and layer insights touching the target), 'compact' (dependents by depth), or 'full' (raw JSON graph; can be VERY large). Escalate only when you need specific nodes."`
-	MaxTokens      int    `json:"max_tokens,omitempty" jsonschema:"Approximate token cap; output is truncated with a notice. Default: no cap."`
+	MaxTokens      int    `json:"max_tokens,omitempty" jsonschema:"Approximate token cap on the output. Default: none."`
 }
 
 // compactPerDepthCap bounds how many nodes are listed per depth bucket in the
