@@ -3226,7 +3226,10 @@ import (
 // v462: Swift: a URLSession request's method is the one set on the request built from
 // its path, followed within the function past a multipart body, and no longer one
 // borrowed from a neighbouring function's request.
-const cacheVersion = "v462"
+// v463: TypeScript: a reached client call names the pages whose code reaches it
+// (client_pages), and a store selector's `{ save: state.save }` hands save on without
+// using it, so an action no component takes is never sent.
+const cacheVersion = "v463"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
