@@ -77,7 +77,7 @@ type exploreArgs struct {
 	Focus      string `json:"focus" jsonschema:"Module name, file path, directory prefix or symbol name."`
 	Depth      int    `json:"depth,omitempty" jsonschema:"1 for direct relations (default), 2 to include relations of relations. Max 2."`
 	OutputMode string `json:"output_mode,omitempty" jsonschema:"Only at depth=2. 'summary' (default) returns aggregated insights (dependency hotspots, cycle and layer warnings, size metrics): what is architecturally significant. 'compact' or 'full' list per-symbol relations instead."`
-	MaxTokens  int    `json:"max_tokens,omitempty" jsonschema:"Approximate token cap; output is truncated with a notice. Default: no cap."`
+	MaxTokens  int    `json:"max_tokens,omitempty" jsonschema:"Approximate token cap on the output. Default: none."`
 }
 
 // exploreModule renders a module exploration if the focus matches a module name.

@@ -2628,7 +2628,7 @@ type args struct {
 	Limit       int    `json:"limit,omitempty" jsonschema:"Maximum findings (1-1000). Default 100."`
 	Offset      int    `json:"offset,omitempty" jsonschema:"Findings to skip, for paging past limit. Default 0."`
 	OutputMode  string `json:"output_mode,omitempty" jsonschema:"'summary' (DEFAULT, counts by severity and kind plus the top findings), 'compact' (markdown table), or 'full' (complete JSON with the summary)."`
-	MaxTokens   int    `json:"max_tokens,omitempty" jsonschema:"Approximate token cap; output is truncated with a notice. Default: no cap."`
+	MaxTokens   int    `json:"max_tokens,omitempty" jsonschema:"Approximate token cap on the output. Default: none."`
 }
 
 // summary holds the aggregate counts. Every field except RepoWideFindings is
@@ -2660,19 +2660,10 @@ type response struct {
 }
 
 const toolDescription = "Ranked performance risks per function: I/O or database calls inside loops (a likely N+1), recursion, " +
-	"nested loops, and nesting that continues across the call graph. Each finding has symbol (file:line), kind, severity " +
-	"(high, medium, low) and a plain-English why. A recursion finding, and a call-in-loop finding whose call sits in one loop, " +
-	"has big_o, the estimated worst case. A nested-loop or compounded finding, and a call-in-loop finding whose call sits in " +
-	"a nest, has depth instead: a count of nested loops, which is a fact about the code's shape and NOT a complexity, since " +
-	"nested loops multiply only when each walks an independent collection. Parser-derived and " +
-	"deterministic: an estimate, not a proof. " +
-	"A query-loop finding is one the query-loops explainer made (Rails): a database query per iteration, read from the " +
-	"receiver's type. All of them are returned here, including those that explainer counts in its rollup and does not list. " +
-	"Supports Go, Python, Ruby, Swift, Kotlin, Scala, Dart, TypeScript, Java, C++ and C#. " +
-	"kind narrows the result to one or more kinds. A call returns at most 1000 findings; a full result says where the " +
-	"next page starts (next_offset), and offset reads it. " +
-	"Findings of medium severity and up also appear in query_insights(explainer=\"performance\"); query-loop findings " +
-	"appear in query_insights(explainer=\"query-loops\")."
+	"nested loops, and nesting that continues across the call graph, plus Rails query-loop findings (a database query per iteration). " +
+	"Each finding has symbol (file:line), kind, severity and a plain-English why; big_o where a worst case can be " +
+	"estimated, otherwise depth, a count of nested loops that is NOT a complexity. " +
+	"Parser-derived and deterministic: an estimate, not a proof. A full result pages with next_offset and offset."
 
 // Register adds the analyze_performance tool to the given MCP server. Calls are
 // recorded by the OSS value middleware, which is registered once on this shared

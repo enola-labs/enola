@@ -80,10 +80,10 @@ func (s *Server) registerGenerateSnapshotTool() {
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name: "generate_snapshot",
 		Description: "Index a repository into queryable architecture facts (module, symbol, route, storage, dependency, service). Run it first, and again after code changes. " +
-			"Supports Go, TypeScript/JavaScript (incl. Vue, Svelte, Ember), Python, Java, Kotlin, Scala, Dart/Flutter, Ruby, PHP, Swift, Rust, C/C++, .NET (C#/VB.NET/F#/Razor/XAML), Terraform/HCL, Ansible, gRPC/Protobuf, OpenAPI, AsyncAPI and GraphQL. " +
+			"Supports Go, TypeScript/JavaScript, Python, Java, Kotlin, Swift, Rust, C/C++, .NET, Ruby, PHP, Dart and more, plus Terraform and API specs. " +
 			"To verify a change, call set_baseline after this first snapshot, BEFORE editing. " +
 			"A folder holding several git repositories is indexed as a linked cluster (no_cluster=true for one repository). Several repositories go in ONE call as repo_paths. " +
-			"append=true adds a repository to what is loaded, and is enabled automatically when you switch repos; fresh=true discards what is loaded when you have moved to a different project.",
+			"append=true adds a repository to what is loaded (automatic when you switch repos); fresh=true starts over for a different project.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args generateSnapshotArgs) (*mcp.CallToolResult, any, error) {
 		ctx = withProgress(ctx, req)
 		if len(args.RepoPaths) > 0 {
@@ -599,7 +599,7 @@ type diffSnapshotArgs struct {
 	Baseline         string   `json:"baseline,omitempty" jsonschema:"'pinned' (DEFAULT, the snapshot frozen by set_baseline), 'previous' (the run before, rotated automatically), or a directory containing facts.jsonl."`
 	Focus            string   `json:"focus,omitempty" jsonschema:"Only entries referencing this module, file or symbol (substring match). Use it to verify just what you touched."`
 	OutputMode       string   `json:"output_mode,omitempty" jsonschema:"'summary' (DEFAULT, headline regressions and improvements plus a structural tally), 'compact' (adds finding descriptions, evidence, changed edges and facts), or 'full' (complete JSON)."`
-	MaxTokens        int      `json:"max_tokens,omitempty" jsonschema:"Approximate token cap; output is truncated with a notice. Default: no cap."`
+	MaxTokens        int      `json:"max_tokens,omitempty" jsonschema:"Approximate token cap on the output. Default: none."`
 	Target           string   `json:"target,omitempty" jsonschema:"The symbol, type or package you INTENDED to change. Turns the diff into a conformance check: impact analysis on the PRE-change graph predicts the radius, and any package the change reached outside it is reported as spillover. Omit for a plain delta."`
 	ExpectedPackages []string `json:"expected_packages,omitempty" jsonschema:"Packages you expected to touch beyond the predicted radius. Touched packages that are neither expected nor predicted are spillover."`
 	MaxDepth         int      `json:"max_depth,omitempty" jsonschema:"Depth of the predicted radius (1-10). Default 3. Only with target or expected_packages."`
@@ -608,11 +608,11 @@ type diffSnapshotArgs struct {
 
 type snapshotReceiptArgs struct {
 	OutputMode string `json:"output_mode,omitempty" jsonschema:"'summary' (DEFAULT, headline provenance and quality metrics) or 'full' (complete JSON receipt)."`
-	MaxTokens  int    `json:"max_tokens,omitempty" jsonschema:"Approximate token cap; output is truncated with a notice. Default: no cap."`
+	MaxTokens  int    `json:"max_tokens,omitempty" jsonschema:"Approximate token cap on the output. Default: none."`
 }
 
 type compareReceiptsArgs struct {
 	Baseline   string `json:"baseline,omitempty" jsonschema:"'pinned' (DEFAULT, the snapshot frozen by set_baseline), 'previous' (the run before), or a directory containing receipt.json or snapshot.meta.json."`
 	OutputMode string `json:"output_mode,omitempty" jsonschema:"'summary' (DEFAULT, markdown: verdict, metric deltas, quality regressions) or 'full' (complete JSON)."`
-	MaxTokens  int    `json:"max_tokens,omitempty" jsonschema:"Approximate token cap; output is truncated with a notice. Default: no cap."`
+	MaxTokens  int    `json:"max_tokens,omitempty" jsonschema:"Approximate token cap on the output. Default: none."`
 }

@@ -1,7 +1,7 @@
 [
   {
     "name": "analyze_performance",
-    "description": "Ranked performance risks per function: I/O or database calls inside loops (a likely N+1), recursion, nested loops, and nesting that continues across the call graph. Each finding has symbol (file:line), kind, severity (high, medium, low) and a plain-English why. A recursion finding, and a call-in-loop finding whose call sits in one loop, has big_o, the estimated worst case. A nested-loop or compounded finding, and a call-in-loop finding whose call sits in a nest, has depth instead: a count of nested loops, which is a fact about the code's shape and NOT a complexity, since nested loops multiply only when each walks an independent collection. Parser-derived and deterministic: an estimate, not a proof. A query-loop finding is one the query-loops explainer made (Rails): a database query per iteration, read from the receiver's type. All of them are returned here, including those that explainer counts in its rollup and does not list. Supports Go, Python, Ruby, Swift, Kotlin, Scala, Dart, TypeScript, Java, C++ and C#. kind narrows the result to one or more kinds. A call returns at most 1000 findings; a full result says where the next page starts (next_offset), and offset reads it. Findings of medium severity and up also appear in query_insights(explainer=\"performance\"); query-loop findings appear in query_insights(explainer=\"query-loops\").",
+    "description": "Ranked performance risks per function: I/O or database calls inside loops (a likely N+1), recursion, nested loops, and nesting that continues across the call graph, plus Rails query-loop findings (a database query per iteration). Each finding has symbol (file:line), kind, severity and a plain-English why; big_o where a worst case can be estimated, otherwise depth, a count of nested loops that is NOT a complexity. Parser-derived and deterministic: an estimate, not a proof. A full result pages with next_offset and offset.",
     "input_schema": {
       "additionalProperties": false,
       "properties": {
@@ -14,7 +14,7 @@
           "type": "integer"
         },
         "max_tokens": {
-          "description": "Approximate token cap; output is truncated with a notice. Default: no cap.",
+          "description": "Approximate token cap on the output. Default: none.",
           "type": "integer"
         },
         "min_severity": {
@@ -107,7 +107,7 @@
           "type": "string"
         },
         "max_tokens": {
-          "description": "Approximate token cap; output is truncated with a notice. Default: no cap.",
+          "description": "Approximate token cap on the output. Default: none.",
           "type": "integer"
         },
         "output_mode": {
@@ -125,7 +125,7 @@
       "additionalProperties": false,
       "properties": {
         "max_tokens": {
-          "description": "Approximate token cap; output is truncated with a notice. Default: no cap.",
+          "description": "Approximate token cap on the output. Default: none.",
           "type": "integer"
         },
         "target": {
@@ -190,7 +190,7 @@
           "type": "integer"
         },
         "max_tokens": {
-          "description": "Approximate token cap; output is truncated with a notice. Default: no cap.",
+          "description": "Approximate token cap on the output. Default: none.",
           "type": "integer"
         },
         "output_mode": {
@@ -241,7 +241,7 @@
           "type": "string"
         },
         "max_tokens": {
-          "description": "Approximate token cap; output is truncated with a notice. Default: no cap.",
+          "description": "Approximate token cap on the output. Default: none.",
           "type": "integer"
         },
         "output_mode": {
@@ -257,7 +257,7 @@
   },
   {
     "name": "find_orphans",
-    "description": "Dead-code candidates: symbols nothing references, read from the loaded snapshot without re-indexing. class=isolated when the symbol references nothing either, class=unreferenced when it still calls others, class=test-only when only test code (specs, test files) references it: dead in production, kept alive by its tests. Confidence: functions are high (TypeScript/JavaScript functions medium, operator overloads low); structs, classes and interfaces medium; the rest low. Treat medium and low as leads to verify, not safe deletions; the response says why, for the languages in the graph. Exported symbols are included but flagged, since they may be used outside this snapshot; confidence=high with visibility=unexported is the safest cleanup list. Tests and entry points (main, init) are excluded by default. For one symbol's blast radius use impact_analysis; for package-level health, package_metrics. High-confidence orphans also appear in query_insights(explainer=\"dead-code\").",
+    "description": "Dead-code candidates: symbols nothing references, read from the loaded snapshot without re-indexing. class=isolated (references nothing either), unreferenced (still calls others) or test-only (only tests reference it: dead in production). Confidence is high for most functions, medium for types, low for the rest; treat medium and low as leads to verify, not safe deletions. Exported symbols are flagged, since they may be used outside this snapshot; confidence=high with visibility=unexported is the safest cleanup list. Tests and entry points are excluded by default. For one symbol's blast radius use impact_analysis; for package-level health, package_metrics.",
     "input_schema": {
       "additionalProperties": false,
       "properties": {
@@ -266,11 +266,11 @@
           "type": "string"
         },
         "include_entrypoints": {
-          "description": "Include entry points, which have no callers by nature: main and init, and symbols a framework invokes (routed actions, jobs, registry contracts) with the classes entered through them. Default false.",
+          "description": "Include entry points, which have no callers by nature: main, init, and symbols a framework invokes (routed actions, jobs). Default false.",
           "type": "boolean"
         },
         "include_tests": {
-          "description": "Include *_test files, Test/Benchmark/Example/Fuzz functions and test-support packages (mocks, testutils, fixtures). Off by default: Go _test.go files are not in the snapshot, so test-support code would look dead. Default false.",
+          "description": "Include test files, test functions and test-support packages (mocks, fixtures). Off by default: Go _test.go files are not in the snapshot, so test-support code would look dead.",
           "type": "boolean"
         },
         "kind": {
@@ -282,7 +282,7 @@
           "type": "integer"
         },
         "max_tokens": {
-          "description": "Approximate token cap; output is truncated with a notice. Default: no cap.",
+          "description": "Approximate token cap on the output. Default: none.",
           "type": "integer"
         },
         "mode": {
@@ -311,7 +311,7 @@
   },
   {
     "name": "find_path",
-    "description": "Shortest path, by hop count, between two nodes: \"how does X reach Y?\", \"what is the call chain from A to B?\". An ambiguous endpoint is not an error: the top candidates are tried (for a type, its methods and constructor too) and the first path found is returned, with the ranked candidates. With no path, found=false and a note says whether the endpoints were ambiguous (listing the candidates tried) or resolved but unreachable within max_depth. To ask how one set of nodes reaches another (the symbols or modules of one part to those of another), pass from_nodes and to_nodes instead: exact node names, one search, the shortest path from any of the first to any of the second. A source file path that is not itself a node stands for the symbols the file declares, listed in from_files and to_files. A name the graph does not hold is listed in unresolved_from and unresolved_to with its nearest match in from_candidates and to_candidates, which is a suggestion and is never searched.",
+    "description": "Shortest path, by hop count, between two nodes: \"how does X reach Y?\", \"what is the call chain from A to B?\". An ambiguous endpoint is not an error: the top candidates are tried (for a type, its methods and constructor too) and the first path found is returned, with the ranked candidates. With no path, found=false and a note says why. To ask how one part reaches another, pass from_nodes and to_nodes instead: exact node names, one search from any of the first to any of the second. A file path stands for the symbols the file declares.",
     "input_schema": {
       "additionalProperties": false,
       "properties": {
@@ -320,7 +320,7 @@
           "type": "string"
         },
         "from_nodes": {
-          "description": "Exact node names to start from, used together with to_nodes instead of from and to: one breadth-first search finds the shortest path from any of them to any of to_nodes. No substring matching; a name the graph does not hold is listed in unresolved_from.",
+          "description": "Exact node names to start from, with to_nodes instead of from and to. No substring matching; an unknown name is listed in unresolved_from.",
           "items": {
             "type": "string"
           },
@@ -348,7 +348,7 @@
           "type": "string"
         },
         "to_nodes": {
-          "description": "Exact node names to reach, used together with from_nodes instead of from and to. Each is expanded to a type's methods and constructor as to is. No substring matching; a name the graph does not hold is listed in unresolved_to.",
+          "description": "Exact node names to reach, with from_nodes. A type is expanded to its methods and constructor. No substring matching; an unknown name is listed in unresolved_to.",
           "items": {
             "type": "string"
           },
@@ -363,7 +363,7 @@
   },
   {
     "name": "generate_snapshot",
-    "description": "Index a repository into queryable architecture facts (module, symbol, route, storage, dependency, service). Run it first, and again after code changes. Supports Go, TypeScript/JavaScript (incl. Vue, Svelte, Ember), Python, Java, Kotlin, Scala, Dart/Flutter, Ruby, PHP, Swift, Rust, C/C++, .NET (C#/VB.NET/F#/Razor/XAML), Terraform/HCL, Ansible, gRPC/Protobuf, OpenAPI, AsyncAPI and GraphQL. To verify a change, call set_baseline after this first snapshot, BEFORE editing. A folder holding several git repositories is indexed as a linked cluster (no_cluster=true for one repository). Several repositories go in ONE call as repo_paths. append=true adds a repository to what is loaded, and is enabled automatically when you switch repos; fresh=true discards what is loaded when you have moved to a different project.",
+    "description": "Index a repository into queryable architecture facts (module, symbol, route, storage, dependency, service). Run it first, and again after code changes. Supports Go, TypeScript/JavaScript, Python, Java, Kotlin, Swift, Rust, C/C++, .NET, Ruby, PHP, Dart and more, plus Terraform and API specs. To verify a change, call set_baseline after this first snapshot, BEFORE editing. A folder holding several git repositories is indexed as a linked cluster (no_cluster=true for one repository). Several repositories go in ONE call as repo_paths. append=true adds a repository to what is loaded (automatic when you switch repos); fresh=true starts over for a different project.",
     "input_schema": {
       "additionalProperties": false,
       "properties": {
@@ -404,7 +404,7 @@
       "additionalProperties": false,
       "properties": {
         "max_tokens": {
-          "description": "Approximate token cap; output is truncated with a notice. Default: no cap.",
+          "description": "Approximate token cap on the output. Default: none.",
           "type": "integer"
         },
         "repo": {
@@ -441,7 +441,7 @@
           "type": "integer"
         },
         "max_tokens": {
-          "description": "Approximate token cap; output is truncated with a notice. Default: no cap.",
+          "description": "Approximate token cap on the output. Default: none.",
           "type": "integer"
         },
         "output_mode": {
@@ -461,7 +461,7 @@
   },
   {
     "name": "package_metrics",
-    "description": "Robert C. Martin (JDepend) package metrics, to assess responsibility, extensibility and stability. Per package: classes_interfaces (N), concrete and abstract classes plus interfaces; afferent_couplings (Ca), how many OTHER packages depend on it; efferent_couplings (Ce), how many OTHER packages it depends on; instability I = Ce/(Ca+Ce), 0 stable to 1 unstable; abstractness A = abstract types / N, 0 concrete to 1 abstract; distance D = |A+I-1| from the main sequence, where high D means rigid (stable and concrete) or useless (unstable and abstract). Ca and Ce count packages, not classes, from the internal import graph (class-to-class edges are not extracted for most languages); for class-level blast radius use impact_analysis. Abstract types are interfaces and abstract classes; the response says how that is read for the languages in the result. Off-main-sequence packages also appear in query_insights(explainer=\"package-metrics\").",
+    "description": "Robert C. Martin (JDepend) package metrics, to assess responsibility, extensibility and stability. Per package: classes_interfaces (N), concrete and abstract classes plus interfaces; afferent_couplings (Ca), how many OTHER packages depend on it; efferent_couplings (Ce), how many OTHER packages it depends on; instability I = Ce/(Ca+Ce), 0 stable to 1 unstable; abstractness A = abstract types / N, 0 concrete to 1 abstract; distance D = |A+I-1| from the main sequence, where high D means rigid (stable and concrete) or useless (unstable and abstract). Ca and Ce count packages, not classes, from the internal import graph; for class-level blast radius use impact_analysis.",
     "input_schema": {
       "additionalProperties": false,
       "properties": {
@@ -470,7 +470,7 @@
           "type": "integer"
         },
         "max_tokens": {
-          "description": "Approximate token cap; output is truncated with a notice. Default: no cap.",
+          "description": "Approximate token cap on the output. Default: none.",
           "type": "integer"
         },
         "output_mode": {
@@ -495,12 +495,12 @@
   },
   {
     "name": "plan_check",
-    "description": "Plan a change BEFORE editing. For each target (paths that may not exist yet, or exact fact names): the constraint components and rules governing it, with mode and declared because:, plus its blast radius (fan-in and fan-out, capped samples with exact counts). With patch, the counterfactual: the diff is applied to a scratch copy (the working tree and its .enola are never touched), facts are regenerated there, and the constraint verdicts that WOULD appear are reported as new, resolved or unchanged, each naming the rule, the would-be witness and its because:. Components and rules are read from the working tree (enola-intent.yaml, enola/constraints/), so an edit to them counts without regenerating. A report, not a gate: like enola check, the verdict is the caller's to weigh. Returns JSON.",
+    "description": "Plan a change BEFORE editing. For each target (paths that may not exist yet, or exact fact names): the constraint components and rules governing it, with mode and declared because:, plus its blast radius (fan-in and fan-out, capped samples with exact counts). With patch, the counterfactual: the diff is applied to a scratch copy (the working tree is never touched) and the constraint verdicts that WOULD appear are reported as new, resolved or unchanged. Rules are read from the working tree, so an edit to them counts without regenerating. A report, not a gate. Returns JSON.",
     "input_schema": {
       "additionalProperties": false,
       "properties": {
         "max_tokens": {
-          "description": "Approximate token cap; output is truncated with a notice. Default: no cap.",
+          "description": "Approximate token cap on the output. Default: none.",
           "type": "integer"
         },
         "patch": {
@@ -582,7 +582,7 @@
           "type": "integer"
         },
         "max_tokens": {
-          "description": "Approximate token cap; output is truncated with a notice. Default: no cap.",
+          "description": "Approximate token cap on the output. Default: none.",
           "type": "integer"
         },
         "name": {
@@ -629,7 +629,7 @@
   },
   {
     "name": "query_insights",
-    "description": "Findings the explainers computed during generate_snapshot: the direct answer to \"which routes are unused?\", \"where are the dependency cycles?\", \"which modules are god-classes?\". Prefer it to hand-diffing query_facts results. Each insight has a title, its explainer, a description, a confidence (below 1 is a candidate to verify, not a verdict), evidence (files, symbols, routes) and suggested actions. Route and cross-repo findings (unused-routes, crossrepo, coverage) appear only in multi-repo snapshots of a backend plus its clients. Explainers whose name is not self-explanatory: unused-routes (dead/uncalled HTTP routes, routes called only from client code that never runs, and a route registered in two files), messaging-coverage (undeclared messaging calls and AsyncAPI operations with no detected implementation), intent (declared architecture verdicted against the measured graph), constraints (declared component rules, and the edges that breach them), domain (what a framework's declarations say about its data and API), query-loops (a database query issued once per loop iteration), entry-points (the symbols a framework invokes directly), packwerk (package.yml dependencies declared but unused, or used but undeclared).",
+    "description": "Findings the explainers computed during generate_snapshot: the direct answer to \"which routes are unused?\", \"where are the dependency cycles?\", \"which modules are god-classes?\". Prefer it to hand-diffing query_facts results. Each insight has its explainer, a confidence (below 1 is a candidate to verify, not a verdict), evidence and suggested actions. Route and cross-repo findings (unused-routes, crossrepo, coverage) appear only in multi-repo snapshots of a backend plus its clients. Less obvious explainers: unused-routes (HTTP routes no client calls or reaches), messaging-coverage (unmatched messaging and AsyncAPI operations), intent (declared architecture against the graph), constraints (edges breaching component rules), domain (a framework's data and API declarations), query-loops (a database query per loop iteration, N+1), entry-points (symbols a framework invokes), packwerk (package.yml dependency drift).",
     "input_schema": {
       "additionalProperties": false,
       "properties": {
@@ -638,7 +638,7 @@
           "type": "string"
         },
         "max_tokens": {
-          "description": "Approximate token cap; output is truncated with a notice. Default: no cap.",
+          "description": "Approximate token cap on the output. Default: none.",
           "type": "integer"
         },
         "min_confidence": {
@@ -650,7 +650,7 @@
           "type": "string"
         },
         "repo": {
-          "description": "Repo label. In multi-repo snapshots it matches the repo path segment of each insight's evidence ('golf' matches golf/... but not golf-ui/...), or a finding whose evidence names only that repo's modules (a cycle); in single-repo snapshots it is a substring match. Empty = all.",
+          "description": "Repo label: in multi-repo snapshots, the repository the evidence belongs to; in single-repo snapshots, a substring. Empty = all.",
           "type": "string"
         }
       },
@@ -700,7 +700,7 @@
       "additionalProperties": false,
       "properties": {
         "max_tokens": {
-          "description": "Approximate token cap; output is truncated with a notice. Default: no cap.",
+          "description": "Approximate token cap on the output. Default: none.",
           "type": "integer"
         },
         "output_mode": {
@@ -730,7 +730,7 @@
           "type": "integer"
         },
         "max_tokens": {
-          "description": "Approximate token cap; output is truncated with a notice. Default: no cap.",
+          "description": "Approximate token cap on the output. Default: none.",
           "type": "integer"
         },
         "node_kinds": {

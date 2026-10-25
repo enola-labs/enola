@@ -460,7 +460,7 @@ type args struct {
 	SortBy     string `json:"sort_by,omitempty" jsonschema:"'ca' (default, most depended-upon first), 'ce', 'classes', 'instability', 'distance', or 'name'."`
 	Limit      int    `json:"limit,omitempty" jsonschema:"Maximum packages in compact or full output (1-1000). Default 100."`
 	OutputMode string `json:"output_mode,omitempty" jsonschema:"'summary' (DEFAULT, average instability and distance, off-main-sequence count, most depended-upon package), 'compact' (markdown table), or 'full' (complete JSON)."`
-	MaxTokens  int    `json:"max_tokens,omitempty" jsonschema:"Approximate token cap; output is truncated with a notice. Default: no cap."`
+	MaxTokens  int    `json:"max_tokens,omitempty" jsonschema:"Approximate token cap on the output. Default: none."`
 }
 
 type response struct {
@@ -516,9 +516,7 @@ const toolDescription = "Robert C. Martin (JDepend) package metrics, to assess r
 	"classes_interfaces (N), concrete and abstract classes plus interfaces; afferent_couplings (Ca), how many OTHER packages depend on it; efferent_couplings (Ce), how many OTHER packages it depends on; " +
 	"instability I = Ce/(Ca+Ce), 0 stable to 1 unstable; abstractness A = abstract types / N, 0 concrete to 1 abstract; " +
 	"distance D = |A+I-1| from the main sequence, where high D means rigid (stable and concrete) or useless (unstable and abstract). " +
-	"Ca and Ce count packages, not classes, from the internal import graph (class-to-class edges are not extracted for most languages); for class-level blast radius use impact_analysis. " +
-	"Abstract types are interfaces and abstract classes; the response says how that is read for the languages in the result. " +
-	"Off-main-sequence packages also appear in query_insights(explainer=\"package-metrics\")."
+	"Ca and Ce count packages, not classes, from the internal import graph; for class-level blast radius use impact_analysis."
 
 // abstractnessNotes say how "abstract type" is read for a language whose reading is not
 // the obvious one. A response carries only those for languages among its packages.

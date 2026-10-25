@@ -1694,14 +1694,11 @@ func renderCompact(orphans []Orphan, mode string) string {
 }
 
 const toolDescription = "Dead-code candidates: symbols nothing references, read from the loaded snapshot without re-indexing. " +
-	"class=isolated when the symbol references nothing either, class=unreferenced when it still calls others, " +
-	"class=test-only when only test code (specs, test files) references it: dead in production, kept alive by its tests. " +
-	"Confidence: functions are high (TypeScript/JavaScript functions medium, operator overloads low); structs, classes and interfaces medium; the rest low. " +
-	"Treat medium and low as leads to verify, not safe deletions; the response says why, for the languages in the graph. " +
-	"Exported symbols are included but flagged, since they may be used outside this snapshot; confidence=high with " +
-	"visibility=unexported is the safest cleanup list. Tests and entry points (main, init) are excluded by default. " +
-	"For one symbol's blast radius use impact_analysis; for package-level health, package_metrics. " +
-	"High-confidence orphans also appear in query_insights(explainer=\"dead-code\")."
+	"class=isolated (references nothing either), unreferenced (still calls others) or test-only (only tests reference it: dead in production). " +
+	"Confidence is high for most functions, medium for types, low for the rest; treat medium and low as leads to verify, not safe deletions. " +
+	"Exported symbols are flagged, since they may be used outside this snapshot; confidence=high with " +
+	"visibility=unexported is the safest cleanup list. Tests and entry points are excluded by default. " +
+	"For one symbol's blast radius use impact_analysis; for package-level health, package_metrics."
 
 // args are the arguments for the find_orphans tool.
 type args struct {
@@ -1711,11 +1708,11 @@ type args struct {
 	Repo               string `json:"repo,omitempty" jsonschema:"Repository label (multi-repo snapshots), e.g. 'go-service'."`
 	Visibility         string `json:"visibility,omitempty" jsonschema:"'all' (default), 'exported', or 'unexported' (the safer set to delete)."`
 	Confidence         string `json:"confidence,omitempty" jsonschema:"'high' (functions outside TypeScript/JavaScript), 'medium' (structs, classes, interfaces; TypeScript/JavaScript functions), 'low' (everything else), or empty for all (default)."`
-	IncludeTests       bool   `json:"include_tests,omitempty" jsonschema:"Include *_test files, Test/Benchmark/Example/Fuzz functions and test-support packages (mocks, testutils, fixtures). Off by default: Go _test.go files are not in the snapshot, so test-support code would look dead. Default false."`
-	IncludeEntrypoints bool   `json:"include_entrypoints,omitempty" jsonschema:"Include entry points, which have no callers by nature: main and init, and symbols a framework invokes (routed actions, jobs, registry contracts) with the classes entered through them. Default false."`
+	IncludeTests       bool   `json:"include_tests,omitempty" jsonschema:"Include test files, test functions and test-support packages (mocks, fixtures). Off by default: Go _test.go files are not in the snapshot, so test-support code would look dead."`
+	IncludeEntrypoints bool   `json:"include_entrypoints,omitempty" jsonschema:"Include entry points, which have no callers by nature: main, init, and symbols a framework invokes (routed actions, jobs). Default false."`
 	OutputMode         string `json:"output_mode,omitempty" jsonschema:"'summary' (DEFAULT, counts per symbol kind with isolated, unreferenced, test-only, exported and high-confidence splits), 'compact' (markdown table), or 'full' (per-symbol JSON with file:line)."`
 	Limit              int    `json:"limit,omitempty" jsonschema:"Maximum symbols in compact or full output (1-2000). Default 200. Ignored for summary."`
-	MaxTokens          int    `json:"max_tokens,omitempty" jsonschema:"Approximate token cap; output is truncated with a notice. Default: no cap."`
+	MaxTokens          int    `json:"max_tokens,omitempty" jsonschema:"Approximate token cap on the output. Default: none."`
 }
 
 func norm(v, def string) string {
