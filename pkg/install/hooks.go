@@ -37,6 +37,11 @@ type hookSpec struct {
 	// ClaudeOnly marks a hook only Claude Code gets: one about how Claude Code lists
 	// an MCP server's tools, which Codex and pi do not do.
 	ClaudeOnly bool
+	// GradesOnly marks a hook whose whole job is grading, left out of a folder of
+	// repositories; FolderDescription is what a hook that stays does there, when that
+	// is less than Description says.
+	GradesOnly        bool
+	FolderDescription string
 }
 
 // agentClaude names the Claude Code writer, for the specs that differ by harness.
@@ -53,6 +58,8 @@ var installedHooks = []hookSpec{{
 		"background — session start is never delayed, and a baseline you pinned yourself is " +
 		"never replaced. Claude Code is also told how to load enola's tools, which it lists " +
 		"as deferred",
+	FolderDescription: "at the start of a session Claude Code is told how to load enola's tools, " +
+		"which it lists as deferred. No baseline is frozen: that needs one repository",
 }, {
 	Event:      "PreToolUse",
 	Matcher:    "Grep|Glob|Bash",
@@ -69,6 +76,7 @@ var installedHooks = []hookSpec{{
 }, {
 	Event:      "Stop",
 	Subcommand: "hook stop",
+	GradesOnly: true,
 	Description: "at the end of a turn, the architectural delta is reported only if the " +
 		"change introduced a regression or a finding no policy enforces, or that the baseline " +
 		"was not comparable so nothing could be graded at all. Said once per distinct report " +
@@ -92,6 +100,16 @@ func HookSummary(o Options) []string {
 		for _, h := range installedHooks {
 			if h.ClaudeOnly && !claude {
 				continue
+			}
+			if o.FolderOfRepos {
+				// Only Claude Code's hooks steer; the rest only grade.
+				if !claude || h.GradesOnly {
+					continue
+				}
+				if h.FolderDescription != "" {
+					out = append(out, h.FolderDescription)
+					continue
+				}
 			}
 			out = append(out, h.Description)
 		}
@@ -150,6 +168,10 @@ func writeHooksAt(path, stop string, o Options, remove bool, makeEntry hookEntry
 	var specs []hookSpec
 	for _, h := range installedHooks {
 		if h.ClaudeOnly && agent != agentClaude {
+			continue
+		}
+		// Uninstall removes every hook enola owns, whatever kind of target it was.
+		if h.GradesOnly && o.FolderOfRepos && !remove {
 			continue
 		}
 		if agent == agentClaude && h.ClaudeArgs != "" {

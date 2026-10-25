@@ -131,7 +131,7 @@ func header() string {
 // when hooks are installed.
 func body(o Options) string {
 	out := Instructions
-	if o.Hooks {
+	if o.grades() {
 		out += HooksNote
 	}
 	return out
