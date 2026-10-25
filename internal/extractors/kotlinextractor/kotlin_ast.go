@@ -789,6 +789,7 @@ func (w *astWalker) handleClassDeclaration(node *sitter.Node) {
 	}
 	w.pushType(name, collectMethodNames(body, w.src))
 	w.bindMembers(node)
+	w.recordMemberTypes()
 
 	// Primary constructor parameters → RelInjects when @Inject is on the class,
 	// on the primary constructor itself (e.g., `class Foo @Inject constructor(...)`),
@@ -879,6 +880,7 @@ func (w *astWalker) handleObjectDeclaration(node *sitter.Node) {
 	body := findChildByKind(node, "class_body")
 	w.pushType(name, collectMethodNames(body, w.src))
 	w.bindMembers(node)
+	w.recordMemberTypes()
 	if body != nil {
 		w.walkForCalls(body)
 	}
@@ -1409,8 +1411,14 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 				// A receiver whose type is declared: receivers.go.
 				if isNav && !isCapitalized(name) {
 					if r := kotlinUnprefixed(firstNamedChild(callee)); r != nil {
-						w.noteTypedCall(nodeText(r, w.src)+"."+name, w.receiverType(r), name)
+						if t := w.receiverType(r); t != "" {
+							w.noteTypedCall(nodeText(r, w.src)+"."+name, t, name)
+						} else {
+							w.noteExtensionMemberCall(r, name)
+						}
 					}
+				} else if !isNav && !isCapitalized(name) {
+					w.noteInvokedValue(name)
 				}
 				if owner := w.currentOwner(); owner != noOwner {
 					switch {

@@ -424,3 +424,44 @@ fun UiDevice.waitFor() {
 		t.Errorf("waitFor relations = %v, want the package function helper kept", wait.Relations)
 	}
 }
+
+// A use case is called by invoking the property or parameter that holds it, which is a
+// call of its operator invoke: in the class that holds it, through a bundle, and from
+// an extension function in another file, where the receiver's properties are typed by
+// the receiver's own file.
+func TestKotlinInvokingAValueCallsItsInvoke(t *testing.T) {
+	ff := extractKotlinRepo(t, map[string]string{
+		"app/src/main/java/com/ex/domain/LoadOrders.kt": `package com.ex.domain
+class LoadOrders {
+    suspend operator fun invoke(id: Int): Int = id
+}
+`,
+		"app/src/main/java/com/ex/ui/OrdersBundle.kt": `package com.ex.ui
+import com.ex.domain.LoadOrders
+data class OrdersBundle(val loadOrders: LoadOrders)
+`,
+		"app/src/main/java/com/ex/ui/OrdersViewModel.kt": `package com.ex.ui
+import com.ex.domain.LoadOrders
+class OrdersViewModel(private val loadOrders: LoadOrders, private val bundle: OrdersBundle) {
+    suspend fun refresh() { loadOrders(1) }
+    suspend fun reload() { bundle.loadOrders(2) }
+}
+`,
+		"app/src/main/java/com/ex/ui/OrdersActions.kt": `package com.ex.ui
+internal suspend fun OrdersViewModel.sync() {
+    bundle.loadOrders(3)
+}
+`,
+	})
+	invoke := "domain.LoadOrders.invoke"
+	for _, fn := range []string{"ui.OrdersViewModel.refresh", "ui.OrdersViewModel.reload", "ui.sync"} {
+		if f := ktSym(t, ff, fn); !ktRelSuffix(f, facts.RelCalls, invoke) {
+			t.Errorf("%s: no call of LoadOrders.invoke: %v", fn, f.Relations)
+		}
+	}
+	for _, f := range ff {
+		if _, kept := f.Prop(propMemberTypes); kept {
+			t.Errorf("%s: the walker's member types leaked into the facts", f.Name)
+		}
+	}
+}

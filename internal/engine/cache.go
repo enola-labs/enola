@@ -3232,7 +3232,11 @@ import (
 // v464: Swift: a call on a stored property of the enclosing type binds to the type it
 // states, bare or through self; a property typed as a protocol binds to the one type
 // outside the tests that conforms and declares the method.
-const cacheVersion = "v464"
+// v465: Kotlin: invoking a value of declared type calls its operator invoke (a use
+// case held by a property or a parameter, or reached through another property), and
+// an extension function's calls on the receiver's properties use the types the
+// receiver's own file declares.
+const cacheVersion = "v465"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

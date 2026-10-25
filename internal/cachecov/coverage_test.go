@@ -58,6 +58,7 @@ var versionCoverage = map[int][]string{
 	462: {"TestMethodNear_FollowsTheRequestBuiltFromThePath"},
 	463: {"TestClientPages_ThePagesThatReachACall"},
 	464: {"TestSwiftCallOnAStoredPropertyResolves"},
+	465: {"TestKotlinInvokingAValueCallsItsInvoke"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},
 	438: {"TestExtract_StructUsage_StdlibAndRootPackages"},

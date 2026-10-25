@@ -41,6 +41,9 @@ const (
 	// propReceiverCalls lists an extension function's bare calls that fell back to a
 	// same-package function, with the receiver they may be called on.
 	propReceiverCalls = "receiver_calls"
+	// propMemberTypes holds, on a class, the canonical names its constructor
+	// properties' and properties' declared types would have.
+	propMemberTypes = "member_types"
 )
 
 // receiverCall is a bare call inside an extension function: `wait(…)` in
@@ -99,6 +102,10 @@ type typedCall struct {
 	written string // as the in-loop metric records it: `dao.insert`
 	typ     string // the canonical name the receiver's type would have
 	method  string
+	// via names a property of typ the call goes through when the walker could not
+	// type the receiver itself: inside `fun ProfileViewModel.sync()`, `bundle.load()`
+	// is a call on ProfileViewModel's bundle, whose type another file declares.
+	via string
 }
 
 // typeCandidate returns the canonical name a simple type name would have as a
@@ -262,7 +269,59 @@ func (w *astWalker) noteTypedCall(written, typ, method string) {
 	if w.metrics == nil || typ == "" {
 		return
 	}
-	w.metrics.typedCalls = append(w.metrics.typedCalls, typedCall{written, typ, method})
+	w.metrics.typedCalls = append(w.metrics.typedCalls, typedCall{written, typ, method, ""})
+}
+
+// recordMemberTypes writes the innermost type scope's declared member types onto the
+// class being walked, for calls other files make through them.
+func (w *astWalker) recordMemberTypes() {
+	owner := w.currentOwner()
+	if owner == noOwner || len(w.memberTypes) == 0 || len(w.memberTypes[len(w.memberTypes)-1]) == 0 {
+		return
+	}
+	m := make(map[string]string, len(w.memberTypes[len(w.memberTypes)-1]))
+	for k, v := range w.memberTypes[len(w.memberTypes)-1] {
+		m[k] = v
+	}
+	w.out[owner].SetProp(propMemberTypes, m)
+}
+
+// noteExtensionMemberCall notes `bundle.load()` inside an extension function, where
+// bundle is no local: it is the receiver's property, typed in the receiver's file.
+func (w *astWalker) noteExtensionMemberCall(recv *sitter.Node, method string) {
+	if !w.inExtension || w.extReceiver == "" || w.metrics == nil || !kotlinIsIdentifier(recv) {
+		return
+	}
+	name := nodeText(recv, w.src)
+	if _, local := w.localTypes[name]; local {
+		return
+	}
+	w.metrics.typedCalls = append(w.metrics.typedCalls, typedCall{name + "." + method, w.extReceiver, method, name})
+}
+
+// noteInvokedValue notes a bare call on a value of declared type, `loadOrders(id)`
+// for a property or parameter holding a use case: a call of the type's operator
+// invoke. Inside an extension function a name of no local type may be the
+// receiver's property.
+func (w *astWalker) noteInvokedValue(name string) {
+	if w.metrics == nil {
+		return
+	}
+	if t, ok := w.localTypes[name]; ok {
+		if t != "" {
+			w.noteTypedCall(name, t, "invoke")
+		}
+		return
+	}
+	for i := len(w.memberTypes) - 1; i >= 0; i-- {
+		if t, ok := w.memberTypes[i][name]; ok {
+			w.noteTypedCall(name, t, "invoke")
+			return
+		}
+	}
+	if w.inExtension && w.extReceiver != "" {
+		w.metrics.typedCalls = append(w.metrics.typedCalls, typedCall{name, w.extReceiver, name, ""})
+	}
 }
 
 // superCandidates returns the canonical names a type's supertypes would have.
@@ -331,6 +390,26 @@ func resolveTypedCalls(all []facts.Fact) {
 		return ""
 	}
 
+	memberTypes := map[string]map[string]string{}
+	for i := range all {
+		if m, ok := all[i].PropAny(propMemberTypes).(map[string]string); ok {
+			memberTypes[all[i].Name] = m
+			all[i].DelProp(propMemberTypes)
+		}
+	}
+	// target is the method a call of method on a typ reaches: one the type declares,
+	// or, where method names a property of the type, that property's operator
+	// invoke: `bundle.loadOrders(id)` on a bundle whose loadOrders is a use case.
+	target := func(typ, method string) string {
+		if t := declaring(typ, method); t != "" {
+			return t
+		}
+		if pt := memberTypes[typ][method]; pt != "" && exists[pt] {
+			return declaring(pt, "invoke")
+		}
+		return ""
+	}
+
 	for i := range all {
 		resolveReceiverCalls(&all[i], exists, declaring)
 	}
@@ -344,10 +423,13 @@ func resolveTypedCalls(all []facts.Fact) {
 		f.DelProp(propTypedCalls)
 		rename := make(map[string]string)
 		for _, c := range calls {
+			if c.via != "" {
+				c.typ = memberTypes[c.typ][c.via]
+			}
 			if !exists[c.typ] {
 				continue
 			}
-			target := declaring(c.typ, c.method)
+			target := target(c.typ, c.method)
 			if target == "" || target == f.Name {
 				continue
 			}
