@@ -53,6 +53,7 @@ var versionCoverage = map[int][]string{
 	457: {"TestKotlinExtensionBareCallIsOnTheReceiver"},
 	458: {"TestAST_HiltInstallInModuleIsFrameworkRegistered"},
 	459: {"TestKotlinMisparsedDeclarationsAreRecovered", "TestKotlinMisparsedChainIsRecovered"},
+	460: {"TestKotlinClassLiteralIsNoCall"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},
 	438: {"TestExtract_StructUsage_StdlibAndRootPackages"},

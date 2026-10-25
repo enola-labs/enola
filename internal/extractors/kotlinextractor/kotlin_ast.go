@@ -1515,7 +1515,13 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 	// member used. This covers the dominant Kotlin/Android call form (viewModel.load(),
 	// repo.getUser()) and property access (slot.uniqueId), none of which produced a
 	// usage edge before, which is why live members were reported as orphans.
-	if kind == "navigation_expression" {
+	//
+	// A class literal is the exception: `Foo::class` names the keyword `class`, and
+	// a property read off one (`Foo::class.java`, `.simpleName`) is reflection on
+	// KClass, never a member of the repository. A call on one is kept: it can be
+	// the repository's own extension (`Worker::class.delegatedData()`).
+	readOffLiteral := kotlinIsClassLiteral(firstNamedChild(node), w.src) && !kotlinIsCallee(node)
+	if kind == "navigation_expression" && !kotlinIsClassLiteral(node, w.src) && !readOffLiteral {
 		if member, _ := calleeName(node, w.src); member != "" {
 			w.relate(w.currentOwner(), facts.RelCalls, member)
 		}
@@ -1542,6 +1548,30 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 	for i := uint(0); i < uint(node.ChildCount()); i++ {
 		w.walkChild(node.Child(i))
 	}
+}
+
+// kotlinIsClassLiteral reports whether n is `Type::class`: the grammar reads it as a
+// navigation whose operator is `::` and whose member is the keyword.
+func kotlinIsClassLiteral(n *sitter.Node, src []byte) bool {
+	if n == nil || kindOf(n) != "navigation_expression" {
+		return false
+	}
+	last := lastNamedChild(n)
+	if last == nil || nodeText(last, src) != "class" {
+		return false
+	}
+	for i := uint(0); i < n.ChildCount(); i++ {
+		if c := n.Child(i); !c.IsNamed() && nodeText(c, src) == "::" {
+			return true
+		}
+	}
+	return false
+}
+
+// kotlinIsCallee reports whether n is the callee of the call it stands in.
+func kotlinIsCallee(n *sitter.Node) bool {
+	p := n.Parent()
+	return p != nil && kindOf(p) == "call_expression" && firstNamedChild(p) != nil && firstNamedChild(p).Id() == n.Id()
 }
 
 // walkChild recurses into a child, dispatching nested declarations to their own
