@@ -144,3 +144,19 @@ func TestIsTestSupportModule(t *testing.T) {
 		t.Errorf("ModuleRoleForPath(okhttp-testing-support) = %q, want %q", got, ModuleRoleTest)
 	}
 }
+
+// IsTestPath runs the test-support check on every segment of every path, so the
+// check itself allocates nothing.
+func TestIsTestSupportModuleAllocatesNothing(t *testing.T) {
+	segs := []string{"okhttp-testing-support", "drivers", "net_device_utils", "Core-Test-Utils"}
+	if n := testing.AllocsPerRun(100, func() {
+		for _, s := range segs {
+			IsTestSupportModule(s)
+		}
+	}); n != 0 {
+		t.Errorf("IsTestSupportModule allocates %v times per run, want 0", n)
+	}
+	if !IsTestSupportModule("Core-Test-Utils") || IsTestSupportModule("net_device_utils") {
+		t.Error("case-insensitive match lost")
+	}
+}
