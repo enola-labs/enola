@@ -112,20 +112,28 @@ func startHint(cfg *config.Config) string {
 		"call generate_snapshot only to refresh it after edits or to load another repository."
 }
 
-// hasSavedGraph reports whether a graph for the workspace is on disk to be restored:
-// its graph receipt, or a snapshot in its output directory.
+// hasSavedGraph reports whether a graph for the workspace is on disk to be restored: a
+// snapshot in its output directory, or in that of a repository its graph receipt
+// names. The receipt alone is not enough: it outlives the snapshots it points at
+// (a clean checkout, a deleted .enola), and then nothing is restored.
 func hasSavedGraph(cfg *config.Config) bool {
-	if path, err := engine.WorkspaceReceiptPath(cfg.Repo); err == nil {
-		if _, err := os.Stat(path); err == nil {
-			return true
-		}
+	hasFacts := func(repo string) bool {
+		_, err := os.Stat(filepath.Join(repo, cfg.Output.Dir, "facts.jsonl"))
+		return err == nil
 	}
-	repo, err := filepath.Abs(cfg.Repo)
+	if repo, err := filepath.Abs(cfg.Repo); err == nil && hasFacts(repo) {
+		return true
+	}
+	gr, err := engine.LoadWorkspaceReceipt(cfg.Repo)
 	if err != nil {
 		return false
 	}
-	_, err = os.Stat(filepath.Join(repo, cfg.Output.Dir, "facts.jsonl"))
-	return err == nil
+	for _, r := range gr.Repos {
+		if r.Path != "" && hasFacts(r.Path) {
+			return true
+		}
+	}
+	return false
 }
 
 // New creates a new MCP server wired to the given engine.
