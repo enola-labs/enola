@@ -91,22 +91,29 @@ func saveGate(session string, st gateState) {
 	_ = os.WriteFile(p, raw, 0o600)
 }
 
-// searchCommands are the shell programs that search a tree for text or names.
-var searchCommands = map[string]bool{"grep": true, "egrep": true, "fgrep": true, "rg": true, "ag": true, "ack": true, "find": true, "fd": true}
-
-// shellSeparators splits a command line into the commands it runs.
-var shellSeparators = regexp.MustCompile(`&&|\|\||;|\||\n`)
+// treeSearches are the shell programs that search a tree for names or text whatever
+// their operands; textSearches search the files they are given, and a tree only when
+// told to recurse (grep) or given a directory or nothing at all (rg, ag, ack).
+var (
+	treeSearches = map[string]bool{"find": true, "fd": true}
+	textSearches = map[string]bool{"grep": true, "egrep": true, "fgrep": true, "rg": true, "ag": true, "ack": true}
+	// recursesByDefault are the text searches that walk the working directory when
+	// given no path.
+	recursesByDefault = map[string]bool{"rg": true, "ag": true, "ack": true}
+)
 
 // isSearch reports whether a tool call searches files: the Grep and Glob tools, or a
-// shell command whose program, in any part of a pipeline, is a search.
+// shell command that, in any part of a pipeline, searches a tree. A grep of files
+// named on the command line, or of the output piped into it, reads what the agent
+// already found; refusing it sends the agent nowhere enola can help.
 func isSearch(tool string, input map[string]any) bool {
 	switch tool {
 	case "Grep", "Glob":
 		return true
 	case "Bash":
 		cmd, _ := input["command"].(string)
-		for _, seg := range shellSeparators.Split(cmd, -1) {
-			words := strings.Fields(seg)
+		for _, c := range shellCommands(cmd) {
+			words := c.words
 			for len(words) > 0 && (strings.Contains(words[0], "=") || words[0] == "cd" || words[0] == "sudo") {
 				if words[0] == "cd" && len(words) > 1 {
 					words = words[2:]
@@ -118,12 +125,159 @@ func isSearch(tool string, input map[string]any) bool {
 				continue
 			}
 			prog := filepath.Base(words[0])
-			if searchCommands[prog] || (prog == "git" && len(words) > 1 && words[1] == "grep") {
+			switch {
+			case treeSearches[prog], prog == "git" && len(words) > 1 && words[1] == "grep":
+				return true
+			case textSearches[prog] && searchesTree(prog, words[1:], c.piped):
 				return true
 			}
 		}
 	}
 	return false
+}
+
+// valueFlags are the grep, rg, ag and ack options whose value is the next word.
+var valueFlags = map[string]bool{
+	"-e": true, "-f": true, "-A": true, "-B": true, "-C": true, "-m": true, "-d": true, "-D": true,
+	"-g": true, "-t": true, "-T": true, "-M": true,
+	"--regexp": true, "--file": true, "--include": true, "--exclude": true, "--exclude-dir": true,
+	"--context": true, "--after-context": true, "--before-context": true, "--max-count": true,
+	"--glob": true, "--type": true, "--type-not": true,
+}
+
+// searchesTree reports whether a text search walks a tree rather than reading the
+// files it names or its piped input. A path operand that names no file, a "." or a
+// directory, counts as a tree.
+func searchesTree(prog string, args []string, piped bool) bool {
+	var operands []string
+	pattern := true // the first operand is the pattern, unless -e or -f gave it
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "--":
+			operands = append(operands, args[i+1:]...)
+			i = len(args)
+		case strings.HasPrefix(a, "--"):
+			if a == "--recursive" || a == "--dereference-recursive" {
+				return true
+			}
+			if a == "--regexp" || a == "--file" || strings.HasPrefix(a, "--regexp=") || strings.HasPrefix(a, "--file=") {
+				pattern = false
+			}
+			if valueFlags[a] {
+				i++
+			}
+		case strings.HasPrefix(a, "-") && len(a) > 1:
+			flags := a[1:]
+			if prog != "rg" && strings.ContainsAny(flags, "rR") {
+				return true
+			}
+			if strings.ContainsAny(flags, "ef") {
+				pattern = false
+			}
+			// A value flag last in a cluster ("-nA" "3") takes the next word.
+			if valueFlags["-"+flags[len(flags)-1:]] {
+				i++
+			}
+		default:
+			operands = append(operands, a)
+		}
+	}
+	if pattern && len(operands) > 0 {
+		operands = operands[1:]
+	}
+	if len(operands) == 0 {
+		return recursesByDefault[prog] && !piped
+	}
+	for _, o := range operands {
+		if !looksLikeFile(o) {
+			return true
+		}
+	}
+	return false
+}
+
+// looksLikeFile reports whether a path operand names a file rather than a directory:
+// its last element carries an extension. The hook cannot stat it reliably, since the
+// command may cd first.
+func looksLikeFile(p string) bool {
+	base := filepath.Base(p)
+	dot := strings.LastIndexByte(base, '.')
+	return dot > 0 && dot < len(base)-1 && !strings.ContainsAny(base, "*?[")
+}
+
+// shellCommand is one command of a command line: its words with quotes removed, and
+// whether its input is piped from the command before it.
+type shellCommand struct {
+	words []string
+	piped bool
+}
+
+// shellCommands splits a command line into the commands it runs, honouring quotes,
+// so a pattern such as "a\|b" stays one word of one command.
+func shellCommands(line string) []shellCommand {
+	var (
+		out    []shellCommand
+		cur    shellCommand
+		word   strings.Builder
+		inWord bool
+		quote  byte
+	)
+	endWord := func() {
+		if inWord {
+			cur.words = append(cur.words, word.String())
+			word.Reset()
+			inWord = false
+		}
+	}
+	endCommand := func(piped bool) {
+		endWord()
+		if len(cur.words) > 0 {
+			out = append(out, cur)
+		}
+		cur = shellCommand{piped: piped}
+	}
+	for i := 0; i < len(line); i++ {
+		c := line[i]
+		switch {
+		case quote != 0:
+			if c == quote {
+				quote = 0
+			} else if c == '\\' && quote == '"' && i+1 < len(line) {
+				i++
+				word.WriteByte(line[i])
+			} else {
+				word.WriteByte(c)
+			}
+		case c == '\'' || c == '"':
+			quote, inWord = c, true
+		case c == '\\' && i+1 < len(line):
+			i++
+			word.WriteByte(line[i])
+			inWord = true
+		case c == ' ' || c == '\t':
+			endWord()
+		case c == ';' || c == '\n':
+			endCommand(false)
+		case c == '&':
+			if i+1 < len(line) && line[i+1] == '&' {
+				i++
+			}
+			endCommand(false)
+		case c == '|':
+			if i+1 < len(line) && line[i+1] == '|' {
+				i++
+				endCommand(false)
+			} else {
+				endCommand(true)
+			}
+		default:
+			word.WriteByte(c)
+			inWord = true
+		}
+	}
+	endCommand(false)
+	return out
 }
 
 // isEnolaTool reports whether a tool name is one of enola's MCP tools, registered

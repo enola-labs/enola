@@ -693,7 +693,7 @@ names only, loaded through its ToolSearch tool - and a file search is always one
 closer. Told by the rule to use enola, an agent still grepped a question the rule names.
 
 - **`SessionStart`** also tells the session how to load enola's tools, in one ToolSearch call.
-- **`PreToolUse`** refuses the first two file searches of a session (`Grep`, `Glob`, or a `grep`, `rg` or `find` in `Bash`) with a pointer to the enola tool that answers a structural question. It is bounded twice, as the opencode plugin is: a search run again after two refusals goes through, and the refusals end the moment any enola tool is used.
+- **`PreToolUse`** refuses the first two file searches of a session (`Grep`, `Glob`, or a `find`, a recursive `grep` or an `rg` over a directory in `Bash`; a `grep` of files it names, or of piped output, is a read and goes through) with a pointer to the enola tool that answers a structural question. It is bounded twice, as the opencode plugin is: a search run again after two refusals goes through, and the refusals end the moment any enola tool is used.
 - **`PostToolUse`** records that use.
 
 Newer Claude Code (2.1.287 and later) can load a server's tools up front instead: `"alwaysLoad": true` on the server's entry in `.mcp.json`, or `ENABLE_TOOL_SEARCH=false` for every server. With that set the refusals rarely fire, because the tools are already in reach.
