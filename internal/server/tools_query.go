@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/enola-labs/enola/internal/facts"
@@ -199,12 +200,55 @@ func renderCompact(results []facts.Fact, total int) string {
 	return sb.String()
 }
 
-// renderNamesOnly returns just names and files, one per line.
+// renderNamesOnly returns just names and files, one per line. A symbol whose owner
+// is listed too is folded under its owner by its last name and line, so a type and
+// its members read as one entry, not as a page of lines repeating the type's name.
 func renderNamesOnly(results []facts.Fact, total int) string {
+	owners := map[string]bool{}
+	for _, f := range results {
+		if f.Kind == facts.KindSymbol {
+			owners[f.Name] = true
+		}
+	}
+	ownerFile := map[string]string{}
+	for _, f := range results {
+		if _, ok := ownerFile[f.Name]; !ok && owners[f.Name] {
+			ownerFile[f.Name] = f.File
+		}
+	}
+	members := map[string][]string{}
+	folded := make([]bool, len(results))
+	for i, f := range results {
+		if f.Kind != facts.KindSymbol {
+			continue
+		}
+		dot := strings.LastIndexByte(f.Name, '.')
+		if dot <= 0 || !owners[f.Name[:dot]] {
+			continue
+		}
+		owner := f.Name[:dot]
+		m := fmt.Sprintf("%s:%d", f.Name[dot+1:], f.Line)
+		if f.File != ownerFile[owner] {
+			m = fmt.Sprintf("%s (%s:%d)", f.Name[dot+1:], f.File, f.Line)
+		}
+		if !slices.Contains(members[owner], m) {
+			members[owner] = append(members[owner], m)
+		}
+		folded[i] = true
+	}
+
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("Found %d results (showing %d):\n\n", total, len(results)))
-	for _, f := range results {
+	listed := map[string]bool{}
+	for i, f := range results {
+		if folded[i] {
+			continue
+		}
 		sb.WriteString(fmt.Sprintf("%s  %s:%d\n", f.Name, f.File, f.Line))
+		if m := members[f.Name]; len(m) > 0 && !listed[f.Name] {
+			listed[f.Name] = true
+			sb.WriteString(fmt.Sprintf("    members (%d): %s\n", len(m), strings.Join(m, ", ")))
+		}
 	}
 	return sb.String()
 }
@@ -453,7 +497,7 @@ func (s *Server) registerShowSymbolTool() {
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name: "show_symbol",
 		Description: "Source code of a named symbol: an exact name match if there is one, otherwise up to 5 substring matches. " +
-			"Works in multi-repo snapshots too.",
+			"Pass names=[...] to read several symbols in one call. Works in multi-repo snapshots too.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args showSymbolArgs) (*mcp.CallToolResult, any, error) {
 		snapshot := s.eng.Snapshot()
 		if snapshot == nil {
@@ -465,111 +509,151 @@ func (s *Server) registerShowSymbolTool() {
 			return errorResult("No facts available. Run generate_snapshot first."), nil, nil
 		}
 
-		if args.Name == "" {
-			return errorResult("name is required"), nil, nil
+		names := args.Names
+		if args.Name != "" {
+			names = append([]string{args.Name}, names...)
 		}
-
-		// Prefer exact match to avoid substring noise (e.g. "Transaction" matching "AutoTransactionsTogglePatch").
-		results := store.LookupByExactName(args.Name)
-		// Filter to symbols only
-		symbolResults := results[:0]
-		for _, r := range results {
-			if r.Kind == facts.KindSymbol {
-				symbolResults = append(symbolResults, r)
-			}
+		if len(names) == 0 {
+			return errorResult("name or names is required"), nil, nil
 		}
-		results = symbolResults
-		exact := len(results) > 0
-		if len(results) == 0 {
-			results = store.Query("symbol", "", args.Name, "")
+		if len(names) > maxShowSymbolNames {
+			return errorResult(fmt.Sprintf("at most %d names per call, got %d", maxShowSymbolNames, len(names))), nil, nil
 		}
-		if len(results) == 0 {
-			return errorResult(fmt.Sprintf("No symbols matching %q", args.Name)), nil, nil
-		}
-
 		contextLines := args.ContextLines
 		if contextLines <= 0 {
 			contextLines = 60
 		}
 
+		if len(names) == 1 {
+			text, ok := s.showSymbol(store, names[0], contextLines)
+			if !ok {
+				return errorResult(text), nil, nil
+			}
+			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}}, nil, nil
+		}
+		// Several names: each one's source in turn, a miss said in its place.
 		var sb strings.Builder
-		// Several symbols declaring the exact name are one graph node, with their
-		// edges merged: say so, and say when the list below is cut.
-		sameName := len(results) > 1
-		for _, r := range results {
-			sameName = sameName && r.Name == results[0].Name
-		}
-		if (exact && len(results) > 1) || sameName {
-			sb.WriteString(fmt.Sprintf("_%d declarations share the name %s; the graph holds them as one node with their edges merged._", len(results), results[0].Name))
-			if len(results) > 5 {
-				sb.WriteString(" _Showing 5._")
-			}
-			sb.WriteString("\n\n")
-		}
-
-		// Limit to 5 results
-		if len(results) > 5 {
-			results = results[:5]
-		}
-
-		for i, fact := range results {
+		for i, name := range names {
 			if i > 0 {
-				sb.WriteString("\n---\n\n")
+				sb.WriteString("\n\n===\n\n")
 			}
+			text, ok := s.showSymbol(store, name, contextLines)
+			if !ok {
+				text = "_" + text + "._\n"
+			}
+			sb.WriteString(text)
+		}
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: sb.String()}}}, nil, nil
+	})
+}
 
-			// Header
-			sb.WriteString(fmt.Sprintf("### %s\n", fact.Name))
-			if sk := fact.PropString("symbol_kind"); sk != "" {
-				sb.WriteString(fmt.Sprintf("Kind: %s  ", sk))
-			}
-			sb.WriteString(fmt.Sprintf("File: %s  Line: %d\n", fact.File, fact.Line))
+// maxShowSymbolNames caps one show_symbol call, so a list cannot read a package whole.
+const maxShowSymbolNames = 10
 
-			// Show props summary
-			if sig, ok := fact.PropAny("signature").(string); ok {
-				sb.WriteString(fmt.Sprintf("Signature:\n```\n%s\n```\n", sig))
-			}
-			if comp, ok := fact.PropAny("ios_component").(string); ok {
-				sb.WriteString(fmt.Sprintf("iOS Component: %s\n", comp))
-			}
-			if g := store.Graph(); g != nil {
-				if pages := g.GoverningIntentForFile(fact.Repo, fact.File); len(pages) > 0 {
-					var refs []string
-					for _, p := range pages {
-						refs = append(refs, p.Page+pageMeta(p.Type, p.Status))
-					}
-					sb.WriteString("Governed by: " + strings.Join(refs, "; ") + "\n")
+// showSymbol renders the source of the symbols name matches, or says that none
+// does (false).
+func (s *Server) showSymbol(store *facts.Store, name string, contextLines int) (string, bool) {
+	// Prefer exact match to avoid substring noise (e.g. "Transaction" matching "AutoTransactionsTogglePatch").
+	results := store.LookupByExactName(name)
+	// Filter to symbols only
+	symbolResults := results[:0]
+	for _, r := range results {
+		if r.Kind == facts.KindSymbol {
+			symbolResults = append(symbolResults, r)
+		}
+	}
+	results = symbolResults
+	if len(results) == 0 {
+		for _, n := range s.resolver(store).Spellings(store, name) {
+			for _, r := range store.LookupByExactName(n) {
+				if r.Kind == facts.KindSymbol {
+					results = append(results, r)
 				}
 			}
+		}
+	}
+	exact := len(results) > 0
+	if len(results) == 0 {
+		results = store.Query("symbol", "", name, "")
+	}
+	if len(results) == 0 {
+		return fmt.Sprintf("No symbols matching %q", name), false
+	}
 
-			sb.WriteString("\n")
+	var sb strings.Builder
+	// Several symbols declaring the exact name are one graph node, with their
+	// edges merged: say so, and say when the list below is cut.
+	sameName := len(results) > 1
+	for _, r := range results {
+		sameName = sameName && r.Name == results[0].Name
+	}
+	if (exact && len(results) > 1) || sameName {
+		sb.WriteString(fmt.Sprintf("_%d declarations share the name %s; the graph holds them as one node with their edges merged._", len(results), results[0].Name))
+		if len(results) > 5 {
+			sb.WriteString(" _Showing 5._")
+		}
+		sb.WriteString("\n\n")
+	}
 
-			// Read source file (handles both single-repo and multi-repo paths)
-			absFile := s.eng.ResolveFactFile(&fact)
-			source, err := readSourceWindow(absFile, fact.Line, contextLines)
-			if err != nil {
-				sb.WriteString(fmt.Sprintf("_Could not read source: %v_\n", err))
-				continue
-			}
+	// Limit to 5 results
+	if len(results) > 5 {
+		results = results[:5]
+	}
 
-			lang := "go"
-			if l, ok := fact.PropAny("language").(string); ok && l != "" {
-				lang = l
-			}
-			sb.WriteString(fmt.Sprintf("```%s\n%s\n```\n", lang, source))
+	for i, fact := range results {
+		if i > 0 {
+			sb.WriteString("\n---\n\n")
 		}
 
-		return &mcp.CallToolResult{
-			Content: []mcp.Content{
-				&mcp.TextContent{Text: sb.String()},
-			},
-		}, nil, nil
-	})
+		// Header
+		sb.WriteString(fmt.Sprintf("### %s\n", fact.Name))
+		if sk := fact.PropString("symbol_kind"); sk != "" {
+			sb.WriteString(fmt.Sprintf("Kind: %s  ", sk))
+		}
+		sb.WriteString(fmt.Sprintf("File: %s  Line: %d\n", fact.File, fact.Line))
+
+		// Show props summary
+		if sig, ok := fact.PropAny("signature").(string); ok {
+			sb.WriteString(fmt.Sprintf("Signature:\n```\n%s\n```\n", sig))
+		}
+		if comp, ok := fact.PropAny("ios_component").(string); ok {
+			sb.WriteString(fmt.Sprintf("iOS Component: %s\n", comp))
+		}
+		if g := store.Graph(); g != nil {
+			if pages := g.GoverningIntentForFile(fact.Repo, fact.File); len(pages) > 0 {
+				var refs []string
+				for _, p := range pages {
+					refs = append(refs, p.Page+pageMeta(p.Type, p.Status))
+				}
+				sb.WriteString("Governed by: " + strings.Join(refs, "; ") + "\n")
+			}
+		}
+
+		sb.WriteString("\n")
+
+		// Read source file (handles both single-repo and multi-repo paths)
+		absFile := s.eng.ResolveFactFile(&fact)
+		source, err := readSourceWindow(absFile, fact.Line, contextLines)
+		if err != nil {
+			sb.WriteString(fmt.Sprintf("_Could not read source: %v_\n", err))
+			continue
+		}
+
+		lang := "go"
+		if l, ok := fact.PropAny("language").(string); ok && l != "" {
+			lang = l
+		}
+		sb.WriteString(fmt.Sprintf("```%s\n%s\n```\n", lang, source))
+	}
+
+	return sb.String(), true
 }
 
 // showSymbolArgs are the arguments for the show_symbol tool.
 type showSymbolArgs struct {
-	Name         string `json:"name" jsonschema:"Symbol name, exact or substring."`
-	ContextLines int    `json:"context_lines,omitempty" jsonschema:"Source lines to show around the declaration. Default 60: about 15 before, 45 after."`
+	Name         string   `json:"name,omitempty" jsonschema:"Symbol name, exact or substring."`
+	Names        []string `json:"names,omitempty" jsonschema:"Several symbol names, each shown as name would be, in one call (at most 10)."`
+	ContextLines int      `json:"context_lines,omitempty" jsonschema:"Source lines to show around the declaration. Default 60: about 15 before, 45 after."`
 }
 
 // readSourceWindow reads lines from a file around the given line number.

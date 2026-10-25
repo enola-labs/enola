@@ -215,6 +215,43 @@ func TestE2E_ShowSymbol(t *testing.T) {
 	}
 }
 
+// The root package's main, written as code writes it, is the fact enola stores as
+// "..main"; traverse and show_symbol both reach it.
+func TestE2E_NameAsCodeWritesIt(t *testing.T) {
+	s := startInMemory(t)
+	s.snapshot(t)
+
+	res := s.call(t, "show_symbol", map[string]any{"name": "main.main", "context_lines": 6})
+	if out := text(res); res.IsError || !strings.Contains(out, "### ..main") || !strings.Contains(out, "main.go") {
+		t.Errorf("show_symbol(main.main) should show the root package's main; got:\n%s", out)
+	}
+	res = s.call(t, "traverse", map[string]any{"start": "main.main", "max_depth": 1, "output_mode": "compact"})
+	if out := text(res); res.IsError || !strings.Contains(out, "Alpha") {
+		t.Errorf("traverse(main.main) should reach Alpha; got:\n%s", out)
+	}
+}
+
+// Several names in one call: each one's source, and a miss said in its place
+// rather than failing the call.
+func TestE2E_ShowSymbolNames(t *testing.T) {
+	s := startInMemory(t)
+	s.snapshot(t)
+
+	res := s.call(t, "show_symbol", map[string]any{"names": []string{"Alpha", "Beta", "NoSuchThing"}, "context_lines": 4})
+	out := text(res)
+	if res.IsError {
+		t.Fatalf("show_symbol(names) errored: %s", out)
+	}
+	for _, want := range []string{"### pkg/a.Alpha", "### pkg/b.Beta", `No symbols matching "NoSuchThing"`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("show_symbol(names) missing %q; got:\n%s", want, out)
+		}
+	}
+	if res := s.call(t, "show_symbol", map[string]any{}); !res.IsError {
+		t.Errorf("show_symbol with no name should be an error; got:\n%s", text(res))
+	}
+}
+
 func TestE2E_Explore(t *testing.T) {
 	s := startInMemory(t)
 	s.snapshot(t)

@@ -23,6 +23,23 @@ func TestIsSearch(t *testing.T) {
 		{"Bash", `go test ./...`, false},
 		{"Bash", `git status`, false},
 		{"Bash", `cat main.go`, false},
+		// A grep over the files it names, or over piped input, reads; it does not search.
+		{"Bash", `grep -n "func (engine \*Engine) \(ServeHTTP\|Use\)\|abortIndex" gin.go routergroup.go context.go`, false},
+		{"Bash", `grep -n "fn \|lifo" scheduler/multi_thread/worker.rs | head -150`, false},
+		{"Bash", `sed -n 1,120p task/mod.rs | grep -v "^$" | head -120; grep -n "const\|fn " task/state.rs | head -60`, false},
+		{"Bash", `grep -nA 3 -e Foo -e Bar a.go b.go`, false},
+		{"Bash", `rg -n Foo main.go`, false},
+		{"Bash", `git log --oneline | rg fix`, false},
+		// A tree: recursion, a directory, or nothing named (rg, ag and ack walk the cwd).
+		{"Bash", `ls packages/a packages/b | head; grep -n "renderScene\|throttle" -r packages/excalidraw --include=*.ts -l`, true},
+		{"Bash", `grep -n "getResponse" -A 40 -r okhttp/src | head -60`, true},
+		{"Bash", `grep -n Foo internal`, true},
+		{"Bash", `grep -n Foo .`, true},
+		{"Bash", `grep -n Foo src/*.go`, true},
+		{"Bash", `rg Foo`, true},
+		{"Bash", `ag -l Foo`, true},
+		{"Bash", `find . -name "RealCall.kt" -print | grep -v test`, true},
+		{"Bash", `echo "a; grep -r Foo ." && go vet`, false},
 	} {
 		in := map[string]any{"command": c.cmd}
 		if got := isSearch(c.tool, in); got != c.want {

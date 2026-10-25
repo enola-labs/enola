@@ -3,6 +3,8 @@ package server
 import (
 	"context"
 	"log"
+	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -99,6 +101,33 @@ type Server struct {
 	updateSaid atomic.Bool
 }
 
+// startHint is the instructions' first step. A workspace snapshotted before has its
+// graph restored as the server starts, so the tools answer at once and a session that
+// opens with generate_snapshot spends a turn re-taking what is already loaded.
+func startHint(cfg *config.Config) string {
+	if cfg == nil || !hasSavedGraph(cfg) {
+		return "Start with generate_snapshot."
+	}
+	return "This workspace's last snapshot is loaded as the server starts, so the tools answer at once: " +
+		"call generate_snapshot only to refresh it after edits or to load another repository."
+}
+
+// hasSavedGraph reports whether a graph for the workspace is on disk to be restored:
+// its graph receipt, or a snapshot in its output directory.
+func hasSavedGraph(cfg *config.Config) bool {
+	if path, err := engine.WorkspaceReceiptPath(cfg.Repo); err == nil {
+		if _, err := os.Stat(path); err == nil {
+			return true
+		}
+	}
+	repo, err := filepath.Abs(cfg.Repo)
+	if err != nil {
+		return false
+	}
+	_, err = os.Stat(filepath.Join(repo, cfg.Output.Dir, "facts.jsonl"))
+	return err == nil
+}
+
 // New creates a new MCP server wired to the given engine.
 func New(eng *engine.Engine, cfg *config.Config) (*Server, error) {
 	s := &Server{
@@ -112,7 +141,7 @@ func New(eng *engine.Engine, cfg *config.Config) (*Server, error) {
 		"Use these tools, not a text search, for questions about structure: which packages or files depend on X (impact_analysis(target=X)), who calls X (traverse(start=X, direction=reverse)), how A reaches B (find_path), what nothing uses (find_orphans, query_insights(explainer='dead-code')), where a query runs once per loop iteration (query_insights(explainer='query-loops')). " +
 		"A text search finds where a name is written and misses a package that reaches X through another, a call through an interface, and a function passed as a value. " +
 		"If your client lists these tools as deferred (Claude Code: names only until loaded), load them before answering such a question, for example with ToolSearch select:mcp__enola__generate_snapshot,mcp__enola__impact_analysis,mcp__enola__traverse,mcp__enola__query_facts,mcp__enola__explore,mcp__enola__query_insights. " +
-		"Start with generate_snapshot. Then use explore, query_facts, show_symbol, traverse, find_path and impact_analysis for structure and change impact; " +
+		startHint(cfg) + " Then use explore, query_facts, show_symbol, traverse, find_path and impact_analysis for structure and change impact; " +
 		"query_insights for the findings explainers already computed (cycles, layer violations, unused routes, god-classes, hotspots and more) instead of re-deriving them; " +
 		"governing_intent, when knowledge pages are compiled in (enola_intent), for which pages govern which code. " +
 		"To verify a change: generate_snapshot, set_baseline, edit, generate_snapshot, diff_snapshot. diff_snapshot reports only what changed, never pre-existing state, so prefer it over re-reading files. " +

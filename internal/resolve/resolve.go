@@ -159,6 +159,7 @@ func (r Resolver) resolveNodeName(store *facts.Store, input string) (string, *Na
 	scoped := sq.Repo != "" || len(sq.Kinds) > 0 || sq.FilePrefix != "" || sq.SymbolKind != ""
 
 	term := r.normalizeToRelative(sq.Term)
+	var respelled []facts.Fact
 
 	// Try exact match first (unscoped only — a scope filter signals the caller
 	// wants the candidate set narrowed, not bypassed).
@@ -166,9 +167,21 @@ func (r Resolver) resolveNodeName(store *facts.Store, input string) (string, *Na
 		if exact := store.LookupByExactName(term); len(exact) > 0 {
 			return exact[0].Name, nil, nil
 		}
+		// The name as code spells it, which a substring search cannot find when
+		// enola's own spelling differs before the first dot. One is the answer;
+		// several are ranked like any other candidates below.
+		for _, n := range r.Spellings(store, term) {
+			respelled = append(respelled, store.LookupByExactName(n)...)
+		}
+		if distinctNames(respelled) == 1 {
+			return respelled[0].Name, nil, nil
+		}
 	}
 
 	results := r.gatherCandidates(store, sq, term)
+	if len(results) == 0 {
+		results = respelled
+	}
 	if len(results) == 0 {
 		// Fallback 1: exact name match on KindService facts (service nodes are
 		// named after repo labels and are often missed by substring search).

@@ -47,7 +47,7 @@ This downloads the newest build for your platform, verifies its checksum, and re
 
 Because your agent launches enola as a long-lived MCP server process, an upgrade only takes effect once that process restarts - reconnect the MCP server so it picks up the new binary:
 
-- **Claude Code** - restart the session, or re-register with `claude mcp remove enola && claude mcp add enola enola`.
+- **Claude Code** - restart the session, or re-register with `claude mcp remove enola` and the `add-json` command below.
 - **Cursor** - toggle the enola server off and back on in **Settings → MCP** (or reload the window).
 - **GitHub Copilot (VS Code)** - restart the server from the `.vscode/mcp.json` editor (the **Restart** CodeLens above the server entry), or reload the window.
 - **opencode** - quit and restart it; it loads its configuration once at startup and never reloads it.
@@ -85,13 +85,15 @@ The [`examples/`](../examples/) directory has ready-made per-language and multi-
 **Claude Code** - register enola as an MCP server with one command. This assumes the `enola` binary is on your `PATH` (the install script above puts it in `~/.local/bin`):
 
 ```bash
-claude mcp add enola enola
+claude mcp add-json enola '{"command":"enola","alwaysLoad":true}'
 ```
 
-The shape is `claude mcp add <name> <command> [args…]`: the first `enola` names the server, the second is the binary. The trailing config path is **optional** - omit it (as above) to run on built-in defaults, or pass one to override them:
+`alwaysLoad` makes Claude Code load enola's tools when the session starts. Without it they are listed as deferred, names only, and the agent spends a turn loading them through ToolSearch before its first enola call, while a file search is already in reach (see [Closing the loop automatically](#closing-the-loop-automatically-----hooks)). It needs Claude Code 2.1.287 or later; on an older one, register with `claude mcp add enola enola`.
+
+A config path is **optional** - omit it (as above) to run on built-in defaults, or pass one in `args` to override them:
 
 ```bash
-claude mcp add enola enola /path/to/enola/mcp-arch.yaml
+claude mcp add-json enola '{"command":"enola","args":["/path/to/enola/mcp-arch.yaml"],"alwaysLoad":true}'
 ```
 
 When you do pass a config, its `repo:` is only the *default* repository - you can still snapshot any repo by passing `repo_path` to `generate_snapshot`. Verify it registered with `claude mcp list`, then start Claude Code and ask it to generate a snapshot.
@@ -259,7 +261,7 @@ thing.
 | `generate_snapshot` | Index a repository and extract its architecture as queryable facts. |
 | `explore` | What is in here, and what touches it? The one to reach for first. |
 | `query_facts` | Precision filter over the extracted facts. |
-| `show_symbol` | Show me the actual source of this named symbol. |
+| `show_symbol` | Show me the actual source of this named symbol, or of several in one call. |
 | `traverse` | Walk the dependency or call graph outward from here. |
 | `find_path` | How does A reach B? With `from_nodes` and `to_nodes`, how does any of one set of nodes reach any of another, in one search? |
 | `impact_analysis` | If I change this, what breaks? |
@@ -691,7 +693,7 @@ names only, loaded through its ToolSearch tool - and a file search is always one
 closer. Told by the rule to use enola, an agent still grepped a question the rule names.
 
 - **`SessionStart`** also tells the session how to load enola's tools, in one ToolSearch call.
-- **`PreToolUse`** refuses the first two file searches of a session (`Grep`, `Glob`, or a `grep`, `rg` or `find` in `Bash`) with a pointer to the enola tool that answers a structural question. It is bounded twice, as the opencode plugin is: a search run again after two refusals goes through, and the refusals end the moment any enola tool is used.
+- **`PreToolUse`** refuses the first two file searches of a session (`Grep`, `Glob`, or a `find`, a recursive `grep` or an `rg` over a directory in `Bash`; a `grep` of files it names, or of piped output, is a read and goes through) with a pointer to the enola tool that answers a structural question. It is bounded twice, as the opencode plugin is: a search run again after two refusals goes through, and the refusals end the moment any enola tool is used.
 - **`PostToolUse`** records that use.
 
 Newer Claude Code (2.1.287 and later) can load a server's tools up front instead: `"alwaysLoad": true` on the server's entry in `.mcp.json`, or `ENABLE_TOOL_SEARCH=false` for every server. With that set the refusals rarely fire, because the tools are already in reach.

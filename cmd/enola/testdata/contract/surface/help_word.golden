@@ -365,6 +365,10 @@ MCP CONFIGURATION
       }
     }
 
+  Claude Code, with its tools loaded at session start rather than deferred:
+
+    claude mcp add-json enola '{"command":"enola","alwaysLoad":true}'
+
 BUILD
   Version can be set at build time with ldflags:
 
