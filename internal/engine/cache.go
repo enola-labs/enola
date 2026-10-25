@@ -3203,7 +3203,11 @@ import (
 // or the first parameter of the function-type alias its variable is annotated with)
 // and a member read through a typed local (`app.scene.m()`) take the type their
 // declaration states, also in another file, so a call on them resolves.
-const cacheVersion = "v456"
+// v457: Kotlin: a bare call inside an extension function is a call on the receiver
+// unless the package declares that function: it goes to the receiver type's method,
+// and on a type the repository does not declare it no longer names a package
+// function that does not exist.
+const cacheVersion = "v457"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

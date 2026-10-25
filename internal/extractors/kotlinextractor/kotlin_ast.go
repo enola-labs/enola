@@ -109,6 +109,10 @@ type astWalker struct {
 	// function's parameters and locals (nil outside one). See receivers.go.
 	memberTypes []map[string]string
 	localTypes  map[string]string
+	// extReceiver is set inside an extension function: the receiver's canonical
+	// type name, "" when it is not the repository's (receivers.go).
+	extReceiver string
+	inExtension bool
 	// reactiveContext is true when the enclosing function is an RxJava / coroutine
 	// Flow chain, so the ambiguous operators (map/flatMap/filter/…) are reactive
 	// stream transforms — NOT per-element collection loops — and must not inflate
@@ -963,7 +967,9 @@ func (w *astWalker) handleFunctionDeclaration(node *sitter.Node) {
 	w.metrics = &kotlinBodyMetrics{}
 	savedLocals := w.localTypes
 	w.localTypes = make(map[string]string)
-	defer func() { w.localTypes = savedLocals }()
+	savedExt, savedInExt := w.extReceiver, w.inExtension
+	defer func() { w.localTypes, w.extReceiver, w.inExtension = savedLocals, savedExt, savedInExt }()
+	w.extReceiver, w.inExtension = w.extensionReceiver(node)
 	w.bindParameters(node)
 	w.loopDepth = 0
 	w.scalingLoopDepth, w.repeatDepth = 0, 0
@@ -1401,6 +1407,9 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 						if target := w.resolveCall(name); target != "" {
 							w.relate(owner, facts.RelCalls, target)
 							w.recordCallMetrics(target, argCount)
+							if w.inExtension && target == w.dir+"."+name {
+								w.noteReceiverCall(owner, target, name)
+							}
 						}
 					case navReceiverIsThis(callee, w.src):
 						// `this.method()` resolves to a sibling method of the
