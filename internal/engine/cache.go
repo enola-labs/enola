@@ -3223,7 +3223,10 @@ import (
 // its package only by constructors, providers, registration hooks, init or a
 // composite literal. Its trip count is the wiring, so a call in it is no call per
 // element of anything that grows.
-const cacheVersion = "v461"
+// v462: Swift: a URLSession request's method is the one set on the request built from
+// its path, followed within the function past a multipart body, and no longer one
+// borrowed from a neighbouring function's request.
+const cacheVersion = "v462"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
