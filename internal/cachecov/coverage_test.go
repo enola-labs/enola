@@ -54,6 +54,7 @@ var versionCoverage = map[int][]string{
 	458: {"TestAST_HiltInstallInModuleIsFrameworkRegistered"},
 	459: {"TestKotlinMisparsedDeclarationsAreRecovered", "TestKotlinMisparsedChainIsRecovered"},
 	460: {"TestKotlinClassLiteralIsNoCall"},
+	461: {"TestRangeOverRegistryIsBounded"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},
 	438: {"TestExtract_StructUsage_StdlibAndRootPackages"},

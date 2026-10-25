@@ -29,6 +29,8 @@ type callTypeTables struct {
 	funcs map[string]bool
 	// elems is what indexing a collection yields. See collectElemTypes.
 	elems elemTypes
+	// registries holds "pkgDir.Type.field" for the registry fields. See registry.go.
+	registries map[string]bool
 }
 
 // elemTypes holds the element type of the collections the source declares, so an

@@ -3218,7 +3218,12 @@ import (
 // v460: Kotlin: a class literal (`Foo::class`) and what is read off one (`.java`,
 // `.simpleName`) no longer record calls to members named `class`, `java` or
 // `simpleName`; the literal still names its type.
-const cacheVersion = "v460"
+// v461: Go: a range over a registry of handlers is bounded: an unexported field of
+// the method's receiver holding an interface or function slice or map, written in
+// its package only by constructors, providers, registration hooks, init or a
+// composite literal. Its trip count is the wiring, so a call in it is no call per
+// element of anything that grows.
+const cacheVersion = "v461"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

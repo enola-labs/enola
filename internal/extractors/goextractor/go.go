@@ -223,6 +223,19 @@ func (e *GoExtractor) Extract(ctx context.Context, repoPath string, files []stri
 
 	promoteReturnTypes(callTypes.returns, callTypes.embeds)
 
+	// Pass 2a, registries: the registry fields of every package (registry.go), which
+	// need the module's interfaces.
+	ifaces := make(map[string]bool, len(decls.ifaceMethods))
+	for name := range decls.ifaceMethods {
+		ifaces[name] = true
+	}
+	callTypes.registries = make(map[string]bool)
+	for _, pkgDir := range pkgDirs {
+		for k := range collectRegistryFields(parsedPkgs[pkgDir].parsedFiles, pkgDir, mods, pkgNames, aliases, ifaces) {
+			callTypes.registries[k] = true
+		}
+	}
+
 	// Pass 2b: build the gRPC client stub index (generated concrete clients →
 	// method wire paths) so consumer call sites in any package resolve to the
 	// "/pkg.Service/Method" they invoke.
@@ -544,6 +557,8 @@ func (e *GoExtractor) extractFunc(fset *token.FileSet, fn *ast.FuncDecl, relFile
 			aliases:     callTypes.aliases,
 			moduleFuncs: callTypes.funcs,
 			elemTypes:   callTypes.elems,
+
+			registryFields: callTypes.registries,
 		}
 		typeParams := typeParamNames(fn.Recv, fn.Type)
 		ctx.localTypes = collectLocalTypesFrom(fn.Body, ctx, signatureTypes(fn.Type, ctx, typeParams), typeParams)
@@ -829,7 +844,9 @@ type resolveCtx struct {
 	aliases map[string]string
 	// What indexing a declared collection yields, module-wide. See calltypes.go.
 	elemTypes elemTypes
-	pkgFuncs  map[string]bool // this package's top-level function names
+	// "pkgDir.Type.field" for the registry fields, module-wide. See registry.go.
+	registryFields map[string]bool
+	pkgFuncs       map[string]bool // this package's top-level function names
 	// "pkgDir.Func" for every top-level function in the module. nil where a pass
 	// does not resolve function values across packages.
 	moduleFuncs map[string]bool
@@ -1010,7 +1027,7 @@ func analyzeBody(body ast.Node, ctx resolveCtx, selfName string, params map[stri
 			// loops whether or not it scales itself; see loopScope.amortizes.
 			rangeAmortizes := false
 			rangeScales := false
-			if !goRangeBounded(x) && !goRangeBoundedLocal(x, boundedVars) {
+			if !goRangeBounded(x) && !goRangeBoundedLocal(x, boundedVars) && !goRangeOverRegistry(x, ctx) {
 				rangeAmortizes = true
 				// A hierarchical loop — one whose ranged collection is reached THROUGH
 				// an enclosing loop variable (`range pkg.Files`, `range pkgs[pkgDir]…`)
