@@ -38,7 +38,61 @@ const (
 	// propCapitalCalls lists the canonical names a function's capitalized bare
 	// calls would have if this repository declares them (resolveCapitalCalls).
 	propCapitalCalls = "capital_calls"
+	// propReceiverCalls lists an extension function's bare calls that fell back to a
+	// same-package function, with the receiver they may be called on.
+	propReceiverCalls = "receiver_calls"
 )
+
+// receiverCall is a bare call inside an extension function: `wait(…)` in
+// `fun UiDevice.waitFor()` is `this.wait(…)` unless the package declares a wait.
+type receiverCall struct {
+	target string // the same-package name the walker wrote
+	typ    string // the receiver's canonical type, "" when not the repository's
+	method string
+}
+
+// extensionReceiver returns the receiver type of an extension function, and
+// whether the function is one.
+func (w *astWalker) extensionReceiver(fn *sitter.Node) (string, bool) {
+	name := fn.ChildByFieldName("name")
+	for i := uint(0); i < fn.NamedChildCount(); i++ {
+		c := fn.NamedChild(i)
+		if name != nil && c.Id() == name.Id() {
+			break
+		}
+		switch kindOf(c) {
+		case "nullable_type":
+			if ut := findChildByKind(c, "user_type"); ut != nil {
+				c = ut
+			}
+			fallthrough
+		case "user_type":
+			// `DiskLruCache.Snapshot` is the nested type, rooted where its first
+			// segment resolves.
+			var ids []string
+			for j := uint(0); j < c.NamedChildCount(); j++ {
+				if id := c.NamedChild(j); kotlinIsIdentifier(id) {
+					ids = append(ids, nodeText(id, w.src))
+				}
+			}
+			if len(ids) == 0 {
+				return "", true
+			}
+			base := w.typeCandidate(ids[0])
+			if base == "" {
+				return "", true
+			}
+			return strings.Join(append([]string{base}, ids[1:]...), "."), true
+		}
+	}
+	return "", false
+}
+
+// noteReceiverCall records a bare call inside an extension function.
+func (w *astWalker) noteReceiverCall(owner int, target, method string) {
+	notes, _ := w.out[owner].PropAny(propReceiverCalls).([]receiverCall)
+	w.out[owner].SetProp(propReceiverCalls, append(notes, receiverCall{target, w.extReceiver, method}))
+}
 
 // typedCall is one call whose receiver type is declared.
 type typedCall struct {
@@ -278,6 +332,10 @@ func resolveTypedCalls(all []facts.Fact) {
 	}
 
 	for i := range all {
+		resolveReceiverCalls(&all[i], exists, declaring)
+	}
+
+	for i := range all {
 		f := &all[i]
 		calls, ok := f.PropAny(propTypedCalls).([]typedCall)
 		if !ok {
@@ -399,10 +457,62 @@ func resolveSplitPackages(all []facts.Fact, siblings map[string][]string) {
 				cands[k] = split(cands[k])
 			}
 		}
+		if notes, ok := f.PropAny(propReceiverCalls).([]receiverCall); ok {
+			for k := range notes {
+				notes[k].typ = split(notes[k].typ)
+			}
+		}
 		if refs, ok := f.PropAny(propValueRefs).([][]string); ok {
 			for _, cands := range refs {
 				for k := range cands {
 					cands[k] = split(cands[k])
+				}
+			}
+		}
+	}
+}
+
+// resolveReceiverCalls settles an extension function's bare calls: a function the
+// package declares keeps the edge; otherwise the call is on the receiver, and goes
+// to the receiver type's method, or, on a type that is not the repository's (a
+// library's `UiDevice.wait`), is dropped rather than left naming a package function
+// that does not exist.
+func resolveReceiverCalls(f *facts.Fact, exists map[string]bool, declaring func(typ, method string) string) {
+	notes, ok := f.PropAny(propReceiverCalls).([]receiverCall)
+	if !ok {
+		return
+	}
+	f.DelProp(propReceiverCalls)
+	rename := make(map[string]string)
+	for _, n := range notes {
+		if exists[n.target] {
+			continue
+		}
+		to := ""
+		if n.typ != "" && exists[n.typ] {
+			to = declaring(n.typ, n.method)
+		}
+		kept := f.Relations[:0]
+		for _, r := range f.Relations {
+			if r.Kind == facts.RelCalls && r.Target == n.target {
+				if to == "" || f.HasRelation(facts.RelCalls, to) {
+					continue
+				}
+				r.Target = to
+			}
+			kept = append(kept, r)
+		}
+		f.Relations = kept
+		if to == "" {
+			to = n.method
+		}
+		rename[n.target] = to
+	}
+	for _, key := range []string{"calls_in_loop", "calls_in_scaling_loop"} {
+		if list, ok := f.PropAny(key).([]string); ok {
+			for j, c := range list {
+				if to, ok := rename[c]; ok {
+					list[j] = to
 				}
 			}
 		}

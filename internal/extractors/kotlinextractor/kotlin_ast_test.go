@@ -71,6 +71,33 @@ interface FeatureComponent
 	}
 }
 
+// A Hilt module with @InstallIn is installed by Hilt and named by nothing, so it is
+// framework-registered; a plain Dagger @Module is listed by its component and is not.
+func TestAST_HiltInstallInModuleIsFrameworkRegistered(t *testing.T) {
+	hilt := extractAST(t, `
+package pkg
+import dagger.Module
+import dagger.hilt.InstallIn
+@Module
+@InstallIn(SingletonComponent::class)
+abstract class DataModule {
+}
+`, true)
+	if mod, ok := findFact(hilt, "pkg.DataModule"); !ok || mod.Props["framework_registered"] != true {
+		t.Errorf("DataModule should be framework_registered, got %v", mod.Props)
+	}
+	dagger := extractAST(t, `
+package pkg
+import dagger.Module
+@Module
+class NetModule {
+}
+`, true)
+	if mod, ok := findFact(dagger, "pkg.NetModule"); !ok || mod.Props["framework_registered"] == true {
+		t.Errorf("NetModule has no @InstallIn and should not be framework_registered, got %v", mod.Props)
+	}
+}
+
 func TestAST_DataClass(t *testing.T) {
 	ff := extractAST(t, `
 package pkg

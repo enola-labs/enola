@@ -179,3 +179,94 @@ func resolveValueRefs(all []facts.Fact) {
 		}
 	}
 }
+
+// noteAnnotationRefs records the types an annotation's arguments name, against the
+// current owner: `@ExtendWith(StartStopExtension::class)` registers the extension,
+// `@RunWith(Parameterized::class)` the runner. The grammar reads `X::class` as a
+// path, so the value positions inside the arguments are all there is to read.
+func (w *astWalker) noteAnnotationRefs(holder *sitter.Node) {
+	if holder == nil {
+		return
+	}
+	for i := uint(0); i < holder.ChildCount(); i++ {
+		if ann := holder.Child(i); kindOf(ann) == "annotation" {
+			w.noteAnnotationArgs(ann)
+		}
+	}
+}
+
+// noteAnnotationArgs records the types one annotation's arguments name.
+func (w *astWalker) noteAnnotationArgs(ann *sitter.Node) {
+	inv := findChildByKind(ann, "constructor_invocation")
+	if inv == nil {
+		return
+	}
+	args := findChildByKind(inv, "value_arguments")
+	if args == nil {
+		return
+	}
+	var walk func(n *sitter.Node)
+	walk = func(n *sitter.Node) {
+		w.noteValueRef(n)
+		for j := uint(0); j < n.ChildCount(); j++ {
+			walk(n.Child(j))
+		}
+	}
+	walk(args)
+}
+
+// handleMisparsedAnnotationClass recovers a body-less annotation class with
+// annotations above it and no other modifier:
+//
+//	@Retention(AnnotationRetention.RUNTIME)
+//	@Qualifier
+//	annotation class ApplicationScope
+//
+// The grammar reads it as annotated expressions around the infix expression
+// `annotation class ApplicationScope`, so it was never declared, and neither a
+// qualifier nor what its own annotations register had a symbol. The class is
+// emitted as handleClassDeclaration would emit it, and its annotations' arguments
+// are read as references of it.
+func (w *astWalker) handleMisparsedAnnotationClass(node *sitter.Node) {
+	var annotations []*sitter.Node
+	cur := node
+	for cur != nil && kindOf(cur) == "annotated_expression" {
+		var next *sitter.Node
+		for i := uint(0); i < cur.NamedChildCount(); i++ {
+			switch c := cur.NamedChild(i); kindOf(c) {
+			case "annotation":
+				annotations = append(annotations, c)
+			case "annotated_expression", "infix_expression":
+				next = c
+			}
+		}
+		cur = next
+	}
+	if cur == nil || kindOf(cur) != "infix_expression" || cur.NamedChildCount() != 3 {
+		return
+	}
+	kw, cls, nameNode := cur.NamedChild(0), cur.NamedChild(1), cur.NamedChild(2)
+	if nodeText(kw, w.src) != "annotation" || nodeText(cls, w.src) != "class" || !kotlinIsIdentifier(nameNode) {
+		return
+	}
+	name := nodeText(nameNode, w.src)
+	f := facts.Fact{
+		Kind: facts.KindSymbol,
+		Name: w.dir + "." + w.qualify(name),
+		File: w.relFile,
+		Line: int(cur.StartPosition().Row) + 1,
+		Props: map[string]any{
+			"symbol_kind":      facts.SymbolClass,
+			"exported":         true,
+			"language":         "kotlin",
+			"annotation_class": true,
+		},
+		Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: w.dir}},
+	}
+	w.out = append(w.out, f)
+	w.pushOwner(len(w.out) - 1)
+	for _, ann := range annotations {
+		w.noteAnnotationArgs(ann)
+	}
+	w.popOwner()
+}

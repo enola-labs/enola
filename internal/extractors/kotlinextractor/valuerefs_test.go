@@ -71,3 +71,40 @@ class Server {
 		}
 	}
 }
+
+// A body-less annotation class under annotations parses as an expression; it is
+// declared all the same, and what its annotations name, a class literal included,
+// is referenced by it. An annotation on a function names its argument types too.
+func TestKotlinAnnotationClassAndArguments(t *testing.T) {
+	const dir = "lib/src/main/kotlin/com/acme"
+	ff := extractKotlinRepo(t, map[string]string{
+		dir + "/StartStop.kt": `package com.acme
+
+import org.junit.jupiter.api.extension.ExtendWith
+
+@Target(AnnotationTarget.FIELD)
+@Retention(AnnotationRetention.RUNTIME)
+@ExtendWith(StartStopExtension::class)
+annotation class StartStop
+
+class StartStopExtension
+
+class Runner
+
+class Suite {
+    @RunWith(Runner::class)
+    fun run() {}
+}
+`,
+	})
+	ann := ktSym(t, ff, "com/acme.StartStop")
+	if ann.PropString("symbol_kind") != facts.SymbolClass {
+		t.Errorf("StartStop symbol_kind = %v, want class", ann.PropString("symbol_kind"))
+	}
+	if !ann.HasRelation(facts.RelNames, dir+".StartStopExtension") {
+		t.Errorf("StartStop relations = %v, want names StartStopExtension", ann.Relations)
+	}
+	if run := ktSym(t, ff, "Suite.run"); !run.HasRelation(facts.RelNames, dir+".Runner") {
+		t.Errorf("run relations = %v, want names Runner", run.Relations)
+	}
+}

@@ -95,6 +95,12 @@ func tsLocalTypes(kinds *tsutil.KindTable, fn, body *sitter.Node, src []byte, di
 		}
 	}
 	walk(body)
+	// A name bound by destructuring a typed parameter, deferred (membertypes.go).
+	for name, t := range destructuredParamTypes(kinds, fn, src, dir, importMap, declared) {
+		if _, typed := out[name]; !typed && !conflict[name] {
+			out[name] = t
+		}
+	}
 	return out
 }
 

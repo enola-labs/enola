@@ -372,3 +372,55 @@ class Plan(private val pending: Queue) {
 		}
 	}
 }
+
+// A bare call inside an extension function is a call on the receiver unless the
+// package declares a function of that name: it goes to the receiver type's method,
+// stays on the package function, or, on a library type, adds no edge.
+func TestKotlinExtensionBareCallIsOnTheReceiver(t *testing.T) {
+	ff := extractKotlinRepo(t, map[string]string{
+		"lib/src/main/kotlin/com/acme/Device.kt": `package com.acme
+
+import androidx.test.uiautomator.UiDevice
+
+class Screen {
+    fun refresh() {}
+
+    class Panel {
+        fun redraw() {}
+    }
+}
+
+fun Screen.Panel.repaint() {
+    redraw()
+}
+
+fun helper() {}
+
+fun Screen.reload() {
+    refresh()
+    helper()
+}
+
+fun UiDevice.waitFor() {
+    wait(1)
+    helper()
+}
+`,
+	})
+	reload := ktSym(t, ff, "com/acme.reload")
+	for _, want := range []string{"com/acme.Screen.refresh", "com/acme.helper"} {
+		if !ktRelSuffix(reload, facts.RelCalls, want) {
+			t.Errorf("reload relations = %v, want a call to %s", reload.Relations, want)
+		}
+	}
+	if repaint := ktSym(t, ff, "com/acme.repaint"); !ktRelSuffix(repaint, facts.RelCalls, "com/acme.Screen.Panel.redraw") {
+		t.Errorf("repaint relations = %v, want a call to the nested receiver's redraw", repaint.Relations)
+	}
+	wait := ktSym(t, ff, "com/acme.waitFor")
+	if ktRelSuffix(wait, facts.RelCalls, "com/acme.wait") {
+		t.Errorf("waitFor relations = %v: wait is the library receiver's, not a package function", wait.Relations)
+	}
+	if !ktRelSuffix(wait, facts.RelCalls, "com/acme.helper") {
+		t.Errorf("waitFor relations = %v, want the package function helper kept", wait.Relations)
+	}
+}

@@ -3191,7 +3191,25 @@ import (
 // v453: a module named for test support, by a test word and a support word in its
 // '-'/'_' tokens (okhttp-testing-support, core-test-utils, dubbo-test-common), is
 // test code and carries the test module role.
-const cacheVersion = "v453"
+// v454: Kotlin: a body-less annotation class under annotations (`@Qualifier
+// annotation class AppScope`), which the grammar reads as an expression, is declared;
+// and the types an annotation's arguments name (`@ExtendWith(Ext::class)`,
+// `@RunWith(Runner::class)`) are names edges of the class or function it annotates.
+// v455: TypeScript: an interface's members are declared (`<dir>.<Interface>.<member>`,
+// abstract): a method signature or function-typed property is a method, another
+// property a variable. A call through a value of the interface's type lands on one,
+// and the member carries performs_io when an implementer's method does.
+// v456: TypeScript: a name destructured from a typed parameter (its own annotation,
+// or the first parameter of the function-type alias its variable is annotated with)
+// and a member read through a typed local (`app.scene.m()`) take the type their
+// declaration states, also in another file, so a call on them resolves.
+// v457: Kotlin: a bare call inside an extension function is a call on the receiver
+// unless the package declares that function: it goes to the receiver type's method,
+// and on a type the repository does not declare it no longer names a package
+// function that does not exist.
+// v458: Kotlin: a Hilt @Module with @InstallIn is framework_registered: Hilt installs
+// it and nothing names it. A plain Dagger @Module is referenced by its component.
+const cacheVersion = "v458"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
