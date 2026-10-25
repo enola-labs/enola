@@ -51,8 +51,8 @@ looking at?"* from a matter of trust into an equality check — which is what le
 treat a matching ID as proof rather than as a coincidence.
 
 Determinism is the precondition for that, not the payoff. Measured:
-[95 of 95 repositories produced a byte-identical `snapshot_id` and a byte-identical `facts.jsonl`
-across three runs each — 285 runs, 8,372,731 facts, zero drift](BENCHMARKS.md#1-reproducibility).
+[100 of 100 repositories produced a byte-identical `snapshot_id` and a byte-identical `facts.jsonl`
+across three runs each — 300 runs, 8,983,474 facts, zero drift](BENCHMARKS.md#1-reproducibility).
 Cold first and then warm, deliberately, because the thing worth testing is that a cached run and a
 from-scratch run agree rather than that one code path repeats itself.
 
