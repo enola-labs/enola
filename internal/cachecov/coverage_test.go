@@ -49,6 +49,7 @@ var versionCoverage = map[int][]string{
 	453: {"TestIsTestSupportModule"},
 	454: {"TestKotlinAnnotationClassAndArguments"},
 	455: {"TestTSInterfaceMembersAreDeclared", "TestDrizzle_UseCaseReachesQueryThroughPort"},
+	456: {"TestTSDestructuredAndMemberTypedCalls"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},
 	438: {"TestExtract_StructUsage_StdlibAndRootPackages"},

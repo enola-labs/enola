@@ -988,6 +988,7 @@ func (e *TSExtractor) namedDeclarationFacts(kinds *tsutil.KindTable, node *sitte
 	for _, k := range d.nameKinds {
 		if name := findChildByKind(kinds, node, k); name != nil {
 			out := []facts.Fact{e.simpleSymbol(node, ctx, nodeText(name, ctx.src), d.symbolKind, isExported)}
+			recordMemberTypes(&out[0], kinds, node, ctx)
 			if d.symbolKind == facts.SymbolInterface {
 				out = append(out, e.interfaceMemberFacts(kinds, node, ctx, nodeText(name, ctx.src), isExported)...)
 			}
@@ -3591,6 +3592,13 @@ func (s callScope) resolve(call *sitter.Node) string {
 			if recv != nil && field != nil && kindOf(kinds, recv) == "this" {
 				if typ, ok := fieldTypes[nodeText(field, src)]; ok {
 					return typ + "." + nodeText(property, src)
+				}
+			}
+			// `app.scene.method()` on a typed local: the member's type is declared on
+			// app's type, maybe in another file (membertypes.go).
+			if recv != nil && field != nil && kindOf(kinds, recv) == "identifier" && kindOf(kinds, field) == "property_identifier" {
+				if root, ok := memberRoots[nodeText(recv, src)]; ok {
+					return root + memberSep + nodeText(field, src) + "." + nodeText(property, src)
 				}
 			}
 		}

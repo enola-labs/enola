@@ -3,6 +3,7 @@ package tsextractor
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/enola-labs/enola/internal/facts"
@@ -151,5 +152,59 @@ export class Host {
 	}
 	if launch := symbolNamed(t, ff, "src.Host.launch"); !launch.HasRelation(facts.RelCalls, "src.IStarter.start") {
 		t.Errorf("launch relations = %v, want a call to IStarter.start", launch.Relations)
+	}
+}
+
+// A name destructured from a typed parameter, and a member read through a typed
+// local, have the type their declaration states, in another file too: the first
+// parameter of a function-type alias, an interface parameter (with a rename), and
+// `app.scene`. A member nothing declares adds no edge, and no deferred name leaks.
+func TestTSDestructuredAndMemberTypedCalls(t *testing.T) {
+	ff := extractTSFiles(t, map[string]string{
+		"src/scene.ts": "export class Scene {\n\ttriggerUpdate(): void {}\n\tmutate(): void {}\n}\n",
+		"src/types.ts": `import { Scene } from './scene';
+
+export type DragCallback = (props: { scene: Scene; count: number }) => void;
+
+export interface AppProps {
+	scene: Scene;
+}
+`,
+		"src/stats.ts": `import type { DragCallback, AppProps } from './types';
+
+export const onDrag: DragCallback = ({ scene, count }) => {
+	scene.triggerUpdate();
+};
+
+export function open(app: AppProps): void {
+	app.scene.mutate();
+	app.missing.mutate();
+}
+
+export function refresh({ scene: s }: AppProps): void {
+	s.triggerUpdate();
+}
+`,
+	})
+	for from, want := range map[string]string{
+		"src.onDrag":  "src.Scene.triggerUpdate",
+		"src.open":    "src.Scene.mutate",
+		"src.refresh": "src.Scene.triggerUpdate",
+	} {
+		if f := symbolNamed(t, ff, from); !f.HasRelation(facts.RelCalls, want) {
+			t.Errorf("%s relations = %v, want a call to %s", from, f.Relations, want)
+		}
+	}
+	for _, f := range ff {
+		for _, r := range f.Relations {
+			if strings.Contains(r.Target, memberSep) {
+				t.Errorf("%s: deferred target %q leaked", f.Name, r.Target)
+			}
+		}
+		for _, p := range []string{propMemberTypes, propParam0Members, propParam0Type} {
+			if _, kept := f.Prop(p); kept {
+				t.Errorf("%s: note %s leaked", f.Name, p)
+			}
+		}
 	}
 }

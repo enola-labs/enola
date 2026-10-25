@@ -3199,7 +3199,11 @@ import (
 // abstract): a method signature or function-typed property is a method, another
 // property a variable. A call through a value of the interface's type lands on one,
 // and the member carries performs_io when an implementer's method does.
-const cacheVersion = "v455"
+// v456: TypeScript: a name destructured from a typed parameter (its own annotation,
+// or the first parameter of the function-type alias its variable is annotated with)
+// and a member read through a typed local (`app.scene.m()`) take the type their
+// declaration states, also in another file, so a call on them resolves.
+const cacheVersion = "v456"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
