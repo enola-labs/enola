@@ -479,6 +479,7 @@ func (s *Server) registerShowSymbolTool() {
 			}
 		}
 		results = symbolResults
+		exact := len(results) > 0
 		if len(results) == 0 {
 			results = store.Query("symbol", "", args.Name, "")
 		}
@@ -491,12 +492,25 @@ func (s *Server) registerShowSymbolTool() {
 			contextLines = 60
 		}
 
+		var sb strings.Builder
+		// Several symbols declaring the exact name are one graph node, with their
+		// edges merged: say so, and say when the list below is cut.
+		sameName := len(results) > 1
+		for _, r := range results {
+			sameName = sameName && r.Name == results[0].Name
+		}
+		if (exact && len(results) > 1) || sameName {
+			sb.WriteString(fmt.Sprintf("_%d declarations share the name %s; the graph holds them as one node with their edges merged._", len(results), results[0].Name))
+			if len(results) > 5 {
+				sb.WriteString(" _Showing 5._")
+			}
+			sb.WriteString("\n\n")
+		}
+
 		// Limit to 5 results
 		if len(results) > 5 {
 			results = results[:5]
 		}
-
-		var sb strings.Builder
 
 		for i, fact := range results {
 			if i > 0 {
@@ -505,6 +519,9 @@ func (s *Server) registerShowSymbolTool() {
 
 			// Header
 			sb.WriteString(fmt.Sprintf("### %s\n", fact.Name))
+			if sk := fact.PropString("symbol_kind"); sk != "" {
+				sb.WriteString(fmt.Sprintf("Kind: %s  ", sk))
+			}
 			sb.WriteString(fmt.Sprintf("File: %s  Line: %d\n", fact.File, fact.Line))
 
 			// Show props summary

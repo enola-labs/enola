@@ -702,7 +702,45 @@ func compactNodeLine(n facts.TraversalNode) string {
 			s += fmt.Sprintf(":%d", n.Line)
 		}
 	}
-	return s
+	return s + sharedNameNote(n)
+}
+
+// sharedNameNote says, for a node whose name several symbols declare, how many and
+// where the others are, so the one file and line above is not read as the only
+// declaration and the edges as belonging to it alone.
+func sharedNameNote(n facts.TraversalNode) string {
+	if len(n.Declarations) < 2 {
+		return ""
+	}
+	total := len(n.Declarations)
+	if n.DeclarationsTotal > total {
+		total = n.DeclarationsTotal
+	}
+	var others []string
+	for _, d := range n.Declarations {
+		if d.File == n.File && d.Line == n.Line {
+			continue
+		}
+		loc := d.File
+		if d.Line > 0 {
+			loc += fmt.Sprintf(":%d", d.Line)
+		}
+		if d.SymbolKind != "" {
+			loc = d.SymbolKind + " " + loc
+		}
+		others = append(others, loc)
+		if len(others) == 3 {
+			break
+		}
+	}
+	note := fmt.Sprintf(" [%d declarations share this name, edges merged", total)
+	if len(others) > 0 {
+		note += "; also " + strings.Join(others, ", ")
+		if rest := total - 1 - len(others); rest > 0 {
+			note += fmt.Sprintf(", +%d more", rest)
+		}
+	}
+	return note + "]"
 }
 
 // writeNodesByDepth groups nodes by their depth (skipping depth 0, the origin)
@@ -736,11 +774,29 @@ func writeNodesByDepth(sb *strings.Builder, nodes []facts.TraversalNode) {
 	}
 }
 
+// writeTargetDeclarations says, for a target several symbols declare, that the
+// dependents below are those of all of them.
+func writeTargetDeclarations(sb *strings.Builder, decls []facts.Declaration) {
+	if len(decls) < 2 {
+		return
+	}
+	var locs []string
+	for _, d := range decls {
+		loc := fmt.Sprintf("%s:%d", d.File, d.Line)
+		if d.SymbolKind != "" {
+			loc = d.SymbolKind + " " + loc
+		}
+		locs = append(locs, loc)
+	}
+	fmt.Fprintf(sb, "_%d declarations share this name (%s); the graph holds them as one node, so the dependents below are those of all of them._\n\n", len(decls), strings.Join(locs, ", "))
+}
+
 func renderImpactCompact(resp impactResponse) string {
 	var sb strings.Builder
 	r := resp.ImpactResult
 	fmt.Fprintf(&sb, "# Impact: %s\n\n", r.Target)
 	writeImpactResolution(&sb, resp)
+	writeTargetDeclarations(&sb, r.TargetDeclarations)
 
 	// Ambiguous-and-refused: no traversal was run; the candidate list above is
 	// the actionable content.
@@ -925,6 +981,7 @@ func (s *Server) renderImpactSummary(resp impactResponse) string {
 	r := resp.ImpactResult
 	fmt.Fprintf(&sb, "# Impact summary: %s\n\n", r.Target)
 	writeImpactResolution(&sb, resp)
+	writeTargetDeclarations(&sb, r.TargetDeclarations)
 	if resp.Resolution != nil && resp.Resolution.Matched == "" {
 		return sb.String()
 	}

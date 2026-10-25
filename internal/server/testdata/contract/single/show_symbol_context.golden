@@ -1,5 +1,5 @@
 ### pkg/a.Alpha
-File: pkg/a/a.go  Line: 7
+Kind: function  File: pkg/a/a.go  Line: 7
 
 ```go
    6│ // cycle so the cycles explainer (Tarjan SCC) has something to detect.

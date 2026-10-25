@@ -1770,3 +1770,58 @@ func TestNewGraph_ModuleImportEdgeInAMultiRepoSnapshot(t *testing.T) {
 		t.Error("web/ui imports web/core: want a path")
 	}
 }
+
+// A name several symbols declare is one node; it lists each distinct declaration,
+// once, with its symbol kind, and caps a long overload list while keeping the total.
+func TestNodeFor_DeclarationsOfASharedName(t *testing.T) {
+	sym := func(name, kind, file string, line int) Fact {
+		return Fact{Kind: KindSymbol, Name: name, File: file, Line: line, Repo: "r",
+			Props: map[string]any{"symbol_kind": kind}}
+	}
+	ff := []Fact{
+		sym("pkg.Request.task", "variable", "Request.swift", 239),
+		sym("pkg.Request.task", "method", "Request.swift", 700),
+		sym("pkg.Request.task", "method", "Request.swift", 700), // the same declaration twice
+		sym("pkg.Single", "function", "s.go", 1),
+		{Kind: KindSymbol, Name: "pkg.Caller", File: "c.go", Line: 1, Repo: "r",
+			Relations: []Relation{{Kind: RelCalls, Target: "pkg.Request.task"}}},
+	}
+	for i := 0; i < maxDeclarations+3; i++ {
+		ff = append(ff, sym("pkg.over", "method", "o.java", 10+i))
+	}
+	s := NewStore()
+	s.Add(ff...)
+	s.BuildGraph()
+	g := s.Graph()
+
+	task := g.nodeFor("pkg.Request.task", 1, RelCalls)
+	want := []Declaration{
+		{SymbolKind: "variable", File: "Request.swift", Line: 239, Repo: "r"},
+		{SymbolKind: "method", File: "Request.swift", Line: 700, Repo: "r"},
+	}
+	if !reflect.DeepEqual(task.Declarations, want) || task.DeclarationsTotal != 0 {
+		t.Errorf("task Declarations = %+v (total %d), want %+v", task.Declarations, task.DeclarationsTotal, want)
+	}
+	if task.Line != 700 {
+		t.Errorf("reached by a call, task shows line %d, want the method's 700", task.Line)
+	}
+	if named := g.nodeFor("pkg.Request.task", 1, RelNames); named.Line != 239 {
+		t.Errorf("reached by a name, task shows line %d, want the property's 239", named.Line)
+	}
+	if imp := g.ImpactSet("pkg.Request.task", 2, 50, false); len(imp.TargetDeclarations) != 2 {
+		t.Errorf("impact target declarations = %+v, want both", imp.TargetDeclarations)
+	}
+	if single := g.nodeFor("pkg.Single", 1, RelCalls); single.Declarations != nil {
+		t.Errorf("a single declaration lists %+v, want none", single.Declarations)
+	}
+	over := g.nodeFor("pkg.over", 1, RelCalls)
+	if len(over.Declarations) != maxDeclarations || over.DeclarationsTotal != maxDeclarations+3 {
+		t.Errorf("overloads: %d listed, total %d; want %d listed, total %d", len(over.Declarations), over.DeclarationsTotal, maxDeclarations, maxDeclarations+3)
+	}
+	res := g.Traverse("pkg.Caller", "forward", nil, nil, 1, 10)
+	for _, n := range res.Nodes {
+		if n.Name == "pkg.Request.task" && len(n.Declarations) != 2 {
+			t.Errorf("traverse node for task carries %d declarations, want 2", len(n.Declarations))
+		}
+	}
+}

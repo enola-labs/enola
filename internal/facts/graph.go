@@ -131,7 +131,26 @@ type TraversalNode struct {
 	// node also stands for others, so a walk through it is not read as more precise
 	// than it is.
 	Conflated []string `json:"conflated,omitempty"`
+	// Declarations lists every symbol declaring this node's name, when more than
+	// one does: overloads, the variants of a function under different build tags,
+	// a property and a method of the same name. Kind/File/Line above are one of
+	// them; the node's edges are those of all of them. Capped at maxDeclarations,
+	// with DeclarationsTotal giving the full count when the list is cut.
+	Declarations      []Declaration `json:"declarations,omitempty"`
+	DeclarationsTotal int           `json:"declarations_total,omitempty"`
 }
+
+// Declaration is one symbol among several sharing a graph node's name.
+type Declaration struct {
+	SymbolKind string `json:"symbol_kind,omitempty"`
+	File       string `json:"file,omitempty"`
+	Line       int    `json:"line,omitempty"`
+	Repo       string `json:"repo,omitempty"`
+}
+
+// maxDeclarations caps Declarations on one node: a name overloaded thirty times
+// says what it needs to in eight.
+const maxDeclarations = 8
 
 // TraversalEdge is an edge traversed during traversal.
 type TraversalEdge struct {
@@ -158,7 +177,10 @@ type ImpactResult struct {
 	Stats           TraversalStats          `json:"stats"`
 	Forward         *TraversalResult        `json:"forward_dependencies,omitempty"`
 	CrossRepoImpact []string                `json:"cross_repo_impact,omitempty"` // other repos with a dependent on the target
-	GoverningIntent []GoverningPage         `json:"governing_intent,omitempty"`  // knowledge pages anchored to the target's file
+	// TargetDeclarations lists the symbols sharing the target's name, when more than
+	// one does: the dependents are those of all of them.
+	TargetDeclarations []Declaration   `json:"target_declarations,omitempty"`
+	GoverningIntent    []GoverningPage `json:"governing_intent,omitempty"` // knowledge pages anchored to the target's file
 }
 
 // GoverningPage is a knowledge page whose declared anchors cover the file a
@@ -1218,6 +1240,9 @@ func (g *Graph) impactFrom(target string, seeds, forwardFrom []string, maxDepth,
 		TotalDependents: totalDependents,
 		Stats:           rev.Stats,
 	}
+	if id, ok := g.lookup(target); ok {
+		result.TargetDeclarations, _ = g.declarationsOf(id)
+	}
 
 	// Bucket nodes by depth (skip depth 0, which holds the target entity's own
 	// seed nodes) and roll up which other repos contain a dependent.
@@ -1911,6 +1936,13 @@ func (g *Graph) factIndexForID(id uint32, viaRel string) (int, bool) {
 	}
 
 	want := kindForRel[viaRel]
+	// Several symbols under one name (a property and a method, overloads): the
+	// relation says which kind of symbol it reached, a call a function or method.
+	if want == KindSymbol {
+		if idx, ok := g.symbolForRel(idxs, viaRel); ok {
+			return idx, true
+		}
+	}
 	best, found := 0, false
 	for _, i32 := range idxs {
 		idx := int(i32)
@@ -1925,6 +1957,29 @@ func (g *Graph) factIndexForID(id uint32, viaRel string) (int, bool) {
 		}
 	}
 	return best, found
+}
+
+// symbolKindsForRel are the symbol kinds a relation reaches first when several
+// symbols share a name.
+var symbolKindsForRel = map[string][]string{
+	RelCalls:        {SymbolMethod, SymbolFunc, SymbolGetter},
+	RelInstantiates: {SymbolClass, SymbolStruct},
+	RelImplements:   {SymbolInterface, SymbolClass},
+	RelNames:        {SymbolVariable, SymbolConstant, SymbolClass, SymbolStruct, SymbolEnum, SymbolInterface},
+}
+
+// symbolForRel picks, among the facts sharing a name, the first symbol whose kind the
+// relation reaches, in that kind order, or reports none.
+func (g *Graph) symbolForRel(idxs []int32, viaRel string) (int, bool) {
+	for _, kind := range symbolKindsForRel[viaRel] {
+		for _, i32 := range idxs {
+			idx := int(i32)
+			if idx < len(g.facts) && g.facts[idx].Kind == KindSymbol && g.facts[idx].PropString("symbol_kind") == kind {
+				return idx, true
+			}
+		}
+	}
+	return 0, false
 }
 
 // conflatedKinds returns the distinct kinds sharing name, sorted, when more than one
@@ -1952,6 +2007,38 @@ func (g *Graph) conflatedKindsOf(id uint32) []string {
 	return kinds
 }
 
+// declarationsOf returns the symbol declarations sharing node id's name, in fact
+// order, when there are two or more distinct ones (by kind, file and line), and the
+// total when the list is capped. Two facts at the same place are one declaration.
+func (g *Graph) declarationsOf(id uint32) ([]Declaration, int) {
+	idxs := g.factIdxsOf(id)
+	if len(idxs) < 2 {
+		return nil, 0
+	}
+	var out []Declaration
+	seen := map[Declaration]bool{}
+	for _, i32 := range idxs {
+		idx := int(i32)
+		if idx >= len(g.facts) || g.facts[idx].Kind != KindSymbol {
+			continue
+		}
+		f := &g.facts[idx]
+		d := Declaration{SymbolKind: f.PropString("symbol_kind"), File: f.File, Line: f.Line, Repo: f.Repo}
+		if seen[d] {
+			continue
+		}
+		seen[d] = true
+		out = append(out, d)
+	}
+	if len(out) < 2 {
+		return nil, 0
+	}
+	if total := len(out); total > maxDeclarations {
+		return out[:maxDeclarations], total
+	}
+	return out, 0
+}
+
 // nodeFor builds the traversal node for name. viaRel is the relation kind that reached
 // it, or "" for a traversal/path origin; it disambiguates which fact the node means
 // when a name is shared.
@@ -1972,6 +2059,7 @@ func (g *Graph) nodeForID(id uint32, depth int, viaRel string) TraversalNode {
 		node.Line = f.Line
 		node.Repo = f.Repo
 		node.Conflated = g.conflatedKindsOf(id)
+		node.Declarations, node.DeclarationsTotal = g.declarationsOf(id)
 	} else {
 		// No backing fact: this is a dangling edge target (e.g. an inferred call
 		// into an unanalyzed package or an interface method). Mark it honestly

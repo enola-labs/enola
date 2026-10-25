@@ -1,5 +1,5 @@
 ### pkg/a.Alpha
-File: pkg/a/a.go  Line: 7
+Kind: function  File: pkg/a/a.go  Line: 7
 
 ```go
    1│ package a
