@@ -259,7 +259,7 @@ thing.
 | `generate_snapshot` | Index a repository and extract its architecture as queryable facts. |
 | `explore` | What is in here, and what touches it? The one to reach for first. |
 | `query_facts` | Precision filter over the extracted facts. |
-| `show_symbol` | Show me the actual source of this named symbol. |
+| `show_symbol` | Show me the actual source of this named symbol, or of several in one call. |
 | `traverse` | Walk the dependency or call graph outward from here. |
 | `find_path` | How does A reach B? With `from_nodes` and `to_nodes`, how does any of one set of nodes reach any of another, in one search? |
 | `impact_analysis` | If I change this, what breaks? |

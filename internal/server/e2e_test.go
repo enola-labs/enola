@@ -231,6 +231,27 @@ func TestE2E_NameAsCodeWritesIt(t *testing.T) {
 	}
 }
 
+// Several names in one call: each one's source, and a miss said in its place
+// rather than failing the call.
+func TestE2E_ShowSymbolNames(t *testing.T) {
+	s := startInMemory(t)
+	s.snapshot(t)
+
+	res := s.call(t, "show_symbol", map[string]any{"names": []string{"Alpha", "Beta", "NoSuchThing"}, "context_lines": 4})
+	out := text(res)
+	if res.IsError {
+		t.Fatalf("show_symbol(names) errored: %s", out)
+	}
+	for _, want := range []string{"### pkg/a.Alpha", "### pkg/b.Beta", `No symbols matching "NoSuchThing"`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("show_symbol(names) missing %q; got:\n%s", want, out)
+		}
+	}
+	if res := s.call(t, "show_symbol", map[string]any{}); !res.IsError {
+		t.Errorf("show_symbol with no name should be an error; got:\n%s", text(res))
+	}
+}
+
 func TestE2E_Explore(t *testing.T) {
 	s := startInMemory(t)
 	s.snapshot(t)

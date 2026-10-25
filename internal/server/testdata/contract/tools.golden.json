@@ -667,7 +667,7 @@
   },
   {
     "name": "show_symbol",
-    "description": "Source code of a named symbol: an exact name match if there is one, otherwise up to 5 substring matches. Works in multi-repo snapshots too.",
+    "description": "Source code of a named symbol: an exact name match if there is one, otherwise up to 5 substring matches. Pass names=[...] to read several symbols in one call. Works in multi-repo snapshots too.",
     "input_schema": {
       "additionalProperties": false,
       "properties": {
@@ -678,11 +678,18 @@
         "name": {
           "description": "Symbol name, exact or substring.",
           "type": "string"
+        },
+        "names": {
+          "description": "Several symbol names, each shown as name would be, in one call (at most 10).",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
         }
       },
-      "required": [
-        "name"
-      ],
       "type": "object"
     }
   },
