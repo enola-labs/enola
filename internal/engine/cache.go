@@ -3207,7 +3207,9 @@ import (
 // unless the package declares that function: it goes to the receiver type's method,
 // and on a type the repository does not declare it no longer names a package
 // function that does not exist.
-const cacheVersion = "v457"
+// v458: Kotlin: a Hilt @Module with @InstallIn is framework_registered: Hilt installs
+// it and nothing names it. A plain Dagger @Module is referenced by its component.
+const cacheVersion = "v458"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

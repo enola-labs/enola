@@ -255,6 +255,12 @@ func addAndroidProps(f *facts.Fact, name string, annotations []string, supertype
 		f.SetProp("android_component", "di_module")
 		f.SetProp("di_module", true)
 		f.SetProp("framework", "android")
+		// Hilt installs every @InstallIn module itself; nothing names one. A plain
+		// Dagger module is listed in its component (`@Component(modules = [M::class])`),
+		// which is a reference, so it stays reportable when no component lists it.
+		if containsAnnotation(annotations, "InstallIn") {
+			f.SetProp("framework_registered", true)
+		}
 		return
 	}
 
