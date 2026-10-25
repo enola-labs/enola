@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/enola-labs/enola/internal/facts"
@@ -199,12 +200,55 @@ func renderCompact(results []facts.Fact, total int) string {
 	return sb.String()
 }
 
-// renderNamesOnly returns just names and files, one per line.
+// renderNamesOnly returns just names and files, one per line. A symbol whose owner
+// is listed too is folded under its owner by its last name and line, so a type and
+// its members read as one entry, not as a page of lines repeating the type's name.
 func renderNamesOnly(results []facts.Fact, total int) string {
+	owners := map[string]bool{}
+	for _, f := range results {
+		if f.Kind == facts.KindSymbol {
+			owners[f.Name] = true
+		}
+	}
+	ownerFile := map[string]string{}
+	for _, f := range results {
+		if _, ok := ownerFile[f.Name]; !ok && owners[f.Name] {
+			ownerFile[f.Name] = f.File
+		}
+	}
+	members := map[string][]string{}
+	folded := make([]bool, len(results))
+	for i, f := range results {
+		if f.Kind != facts.KindSymbol {
+			continue
+		}
+		dot := strings.LastIndexByte(f.Name, '.')
+		if dot <= 0 || !owners[f.Name[:dot]] {
+			continue
+		}
+		owner := f.Name[:dot]
+		m := fmt.Sprintf("%s:%d", f.Name[dot+1:], f.Line)
+		if f.File != ownerFile[owner] {
+			m = fmt.Sprintf("%s (%s:%d)", f.Name[dot+1:], f.File, f.Line)
+		}
+		if !slices.Contains(members[owner], m) {
+			members[owner] = append(members[owner], m)
+		}
+		folded[i] = true
+	}
+
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("Found %d results (showing %d):\n\n", total, len(results)))
-	for _, f := range results {
+	listed := map[string]bool{}
+	for i, f := range results {
+		if folded[i] {
+			continue
+		}
 		sb.WriteString(fmt.Sprintf("%s  %s:%d\n", f.Name, f.File, f.Line))
+		if m := members[f.Name]; len(m) > 0 && !listed[f.Name] {
+			listed[f.Name] = true
+			sb.WriteString(fmt.Sprintf("    members (%d): %s\n", len(m), strings.Join(m, ", ")))
+		}
 	}
 	return sb.String()
 }
