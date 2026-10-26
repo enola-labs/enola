@@ -68,6 +68,7 @@ import (
 	"github.com/enola-labs/enola/internal/linkers/binders/mixinowner"
 	"github.com/enola-labs/enola/internal/linkers/binders/moduleedges"
 	"github.com/enola-labs/enola/internal/linkers/binders/stimulusresolver"
+	"github.com/enola-labs/enola/internal/linkers/binders/testexercises"
 	"github.com/enola-labs/enola/internal/linkers/binders/unmatchedroutes"
 	"github.com/enola-labs/enola/internal/linkers/binders/vendoredspecs"
 	graphqlsignal "github.com/enola-labs/enola/internal/linkers/crossrepo/signals/graphqlsig"
@@ -543,6 +544,7 @@ func registerOSSPlugins(eng *engine.Engine, cfg *config.Config) {
 	eng.RegisterBinder(vendoredspecs.New())
 	eng.RegisterBinder(messagingcontract.New())
 	eng.RegisterBinder(unmatchedroutes.New(linkVocab))
+	eng.RegisterBinder(testexercises.New(linkVocab))
 	eng.RegisterBinder(importaliases.New())
 
 	// Register all OSS cross-repo signals. Phase() decides when each runs, so the

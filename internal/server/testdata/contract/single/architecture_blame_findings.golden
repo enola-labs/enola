@@ -1,6 +1,6 @@
-First appeared in revision ae4e143 (<TIME>).
+First appeared in revision abd939e (<TIME>).
 
-ae4e143  <TIME>  
+abd939e  <TIME>  
   + {"title":"Cyclic dependency detected (2 modules)","source":"cycles","description":"The following modules form a dependency cycle: pkg/a -\u003e pkg/b -\u003e pkg/a. This can cause initialization issues, make refactoring harder, and indicates tight coupling.","confidence":1,"evidence":[{"fact":"pkg/a","detail":"module \"pkg/a\" is part of the cycle"},{"fact":"pkg/b","detail":"module \"pkg/b\" is part of the cycle"}],"suggested_actions":["Introduce an interface to break the cycle","Extract shared types to a separate package","Consider merging tightly coupled modules"]}
 
 Searched 1 revision(s).

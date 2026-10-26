@@ -2431,7 +2431,7 @@ func memberCallRoots(kinds *tsutil.KindTable, root *sitter.Node, src []byte, dir
 // tsTestSuffixes are the co-located TypeScript test/spec suffixes that
 // config.Default().TestGlobs matches. Kept in one place so isTSTestFile and any
 // future glob check agree.
-var tsTestSuffixes = []string{".test.ts", ".test.tsx", ".spec.ts", ".spec.tsx"}
+var tsTestSuffixes = []string{".test.ts", ".test.tsx", ".spec.ts", ".spec.tsx", ".cy.ts", ".cy.tsx", ".cy.js", ".cy.jsx"}
 
 // emberTestSuffixes are Ember's hyphenated test suffixes, valid ONLY under a
 // tests/ directory segment — ember-cli generates and qunit discovers
@@ -2543,7 +2543,8 @@ func (e *TSExtractor) testRefsFromFile(src []byte, relFile string, aliases map[s
 		dir:     factpath.Dir(relFile),
 		isTSX:   isTSX,
 	}
-	return e.collectTSFileRefs(kinds, tree.RootNode(), ctx, aliases, facts.KindTestRef)
+	out := e.collectTSFileRefs(kinds, tree.RootNode(), ctx, aliases, facts.KindTestRef)
+	return applyTestCalls(out, relFile, collectTestCalls(kinds, tree.RootNode(), src))
 }
 
 // resolveLocalOrImport resolves a bare name used in a value/call position to its

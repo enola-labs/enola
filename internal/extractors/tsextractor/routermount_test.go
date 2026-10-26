@@ -419,3 +419,43 @@ module.exports = apiRouter;
 		t.Errorf("a mount onto an unmounted parent must emit nothing, got %+v", got)
 	}
 }
+
+// A router's "/" is its mount point, and a router mounted with no path serves its
+// routes at the parent's root.
+func TestRouterMount_RootRouteAndBareMount(t *testing.T) {
+	got := serverRoutes(extractAll(t, map[string]string{
+		"src/server.ts": `
+import express from "express";
+import widgets from "./widgets";
+import auth from "./auth";
+
+const app = express();
+app.use(express.json());
+app.use(auth);
+app.use("/widgets", widgets);
+app.get("*", spaFallback);
+`,
+		"src/widgets.ts": `
+import express from "express";
+const router = express.Router();
+router.get("/", listWidgets);
+router.post("/", createWidget);
+router.get("/:id", getWidget);
+export default router;
+`,
+		"src/auth.ts": `
+import express from "express";
+const router = express.Router();
+router.post("/login", login);
+export default router;
+`,
+	}, false))
+	for path, want := range map[string]string{"/widgets": "POST", "/widgets/:id": "GET", "/login": "POST"} {
+		if got[path] == "" {
+			t.Errorf("missing %s %s; got %v", want, path, got)
+		}
+	}
+	if _, ok := got["*"]; ok {
+		t.Error("a bare catch-all became a route")
+	}
+}

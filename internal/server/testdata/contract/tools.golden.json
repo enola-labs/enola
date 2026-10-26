@@ -748,7 +748,7 @@
           "type": "string"
         },
         "relation_kinds": {
-          "description": "Relations to follow: imports, calls, declares, implements, depends_on, has_method. Default: all.",
+          "description": "Relations to follow: imports, calls, declares, implements, depends_on, has_method, handled_by (route to its handler or resolver), exercises (test to the route or operation it hits). Default: all.",
           "items": {
             "type": "string"
           },

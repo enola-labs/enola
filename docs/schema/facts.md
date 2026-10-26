@@ -154,6 +154,18 @@ Contract props:
   symbol of its own. Written by the TypeScript, Kotlin, Swift,
   Java, Dart and Python extractors; a Retrofit or Feign route's caller is the interface
   method it annotates.
+- `code_symbol` (GraphQL routes, TypeScript): the symbol the operation or field is
+  written in. On a client operation it is the variable, function or method holding
+  the document, which `calls` the operation; on a code-first field it is the
+  decorated resolver method, which the field is `handled_by`.
+- `operation` (GraphQL client routes): the operation name the document declares
+  (`query ListUsers`), what a test intercepting by `operationName` matches.
+- `unresolved_reason` (GraphQL client routes): why no loaded schema declares the
+  operation's root field. `no-server-schema-in-repo`: nothing in the operation's
+  package (nearest `package.json`) uses a schema of this repository. `field-not-found`:
+  the package does, and no field enola read from it answers. It states what was
+  read, not that the field is absent. Written after linking and cleared when a loaded
+  repository serves the field. Not `unmatched_by_server`, which is the HTTP verdict.
 
 ### dependency
 
@@ -171,6 +183,12 @@ Contract props:
   not compose across hops.
 - `ecosystem`: the packaging system a declared package was declared in — `go` |
   `npm` | `rubygems` | `cargo` | `pub` | `pypi`.
+- `resolved_via` (TypeScript imports): what resolved an aliased import —
+  `vite-alias` | `nuxt-alias` | `tsconfig-paths`. Absent on a relative import.
+- `unresolved_reason` (TypeScript imports): why an import matching an alias was not
+  resolved — `custom-resolver` (the alias has a `customResolver`) or `dynamic-alias`
+  (its replacement is computed at runtime). The import stays external, unguessed.
+- `html_entry`: the import is a Vite HTML entry's `<script type="module" src>`.
 - `target_file`: repo-relative file the producer reports the target to be
   defined in; disambiguates a name several files declare. Absent, the target
   resolves by name alone.
@@ -260,6 +278,14 @@ production symbols they exercise; nothing counts them as coupling. A consumer
 that builds a call graph should treat their targets as "referenced" without
 adding them to coupling metrics.
 
+A browser or API test's `test_ref` also records what the test hits, for the
+post-link binder that writes its `exercises` relations: `test_http_calls`
+(`METHOD /path`, `*` when the test states no verb, a computed segment as
+`:param`), `test_page_visits`, `test_graphql` (root fields sent inline) and
+`test_graphql_ops` (operation names intercepted by). `test_calls_unmatched` lists
+those no loaded route answers; a bare `/` is never matched, since a test's root is
+the base URL it was given.
+
 ## Relation kinds
 
 | Kind | Meaning |
@@ -274,6 +300,7 @@ adding them to coupling metrics.
 | `has_method` | Owner type (struct/interface/class) declares target as a method. Synthesized, not read from source |
 | `handled_by` | A route/endpoint is served by target, its handler symbol. Written at extraction where the route sits on its handler (decorator and annotation frameworks, .NET, Rails routes, Laravel routes) and by post-link binders elsewhere: a Go handler that is a package function or has the `func(http.ResponseWriter, *http.Request)` signature, a routes-file handler named `<type fqn>.<method>` (Play), and gRPC implementations. For a Rails route the handler is the method that serves it: looked for inside the namespace the route's engine isolates, and on the controller's ancestors when the action is inherited. Emitted only when the target is a symbol the snapshot declares under that exact name |
 | `implemented_by` | A declared contract operation is implemented by a code symbol. Added post-extraction |
+| `exercises` | A test file (`test_ref`) hits target: a server route it requests or intercepts, a page route it visits, a GraphQL operation it sends. Added post-link, matching the test's calls against every loaded route the way the HTTP linker matches a client call. Never coupling: fan-in, hotspots and package metrics ignore it, `impact_analysis` and `traverse` follow it |
 | `names` | Source names target by symbol literal without calling it — a method name passed as data for something else to dispatch, or a PHP class written as `Foo::class`, an enum case, a class constant or a static property. A reference, not a call |
 
 ## Route sources

@@ -145,6 +145,11 @@ func (f *routerFile) empty() bool {
 // gets invented.
 var mountCallFactory = regexp.MustCompile("([A-Za-z_$][\\w$]*)\\s*\\.\\s*use\\s*\\(\\s*(?:\"([^\"]*)\"|'([^']*)'|`([^`]*)`)\\s*,\\s*([A-Za-z_$][\\w$]*)\\s*\\(\\s*\\)")
 
+// mountCallBare matches `app.use(router)`: a router mounted at its parent's own path.
+// Middleware is written the same way (`app.use(cors)`); such an edge resolves to no
+// router declaration and contributes nothing.
+var mountCallBare = regexp.MustCompile(`([A-Za-z_$][\w$]*)\s*\.\s*use\s*\(\s*([A-Za-z_$][\w$]*)\s*\)`)
+
 // mountCallConcat matches `app.use('/api/' + API_VERSION, router)`: a literal prefix
 // with one constant appended.
 var mountCallConcat = regexp.MustCompile("([A-Za-z_$][\\w$]*)\\s*\\.\\s*use\\s*\\(\\s*(?:\"([^\"]*)\"|'([^']*)')\\s*\\+\\s*([A-Za-z_$][\\w$]*)\\s*,\\s*([A-Za-z_$][\\w$]*)\\s*[,)]")
@@ -258,6 +263,13 @@ func collectRouterFile(src []byte, relFile string, aliases map[string]tsAlias, k
 			prefix:      firstNonEmpty(m[2], m[3]),
 			prefixConst: string(m[4]),
 			child:       string(m[5]),
+		})
+	}
+	for _, m := range findAllSubmatchIf(hasUse, mountCallBare, src) {
+		f.mounts = append(f.mounts, routerMountEdge{
+			file:   relFile,
+			parent: string(m[1]),
+			child:  string(m[2]),
 		})
 	}
 	for _, m := range findAllSubmatchIf(hasUse, mountCallFactory, src) {
