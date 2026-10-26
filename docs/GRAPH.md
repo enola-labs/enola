@@ -51,6 +51,8 @@ Most kinds are **measured** from source. `intent` is **declared**: it is what yo
 | `depends_on` | one repository depends on another |
 | `handled_by` | a route is served by a handler symbol (added after extraction) |
 | `implemented_by` | a declared contract operation is implemented by a code symbol (added after extraction) |
+| `publishes` | code emits, sends or enqueues an in-process event or job queue (never coupling) |
+| `subscribes` | code handles an in-process event or job queue (never coupling) |
 | `exercises` | a test file requests, visits or sends a route or GraphQL operation (added after linking; never coupling) |
 | `has_method` | a type owns a method (added when the graph is built) |
 

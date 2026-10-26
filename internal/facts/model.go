@@ -139,6 +139,8 @@ const (
 	RelHasMethod     = "has_method"     // Owner type (struct/interface/class) declares target as a method. Synthesized in NewGraph.
 	RelHandledBy     = "handled_by"     // A route/endpoint is served by target, its handler symbol. Written at extraction where the route sits on its handler, and by post-link binders elsewhere.
 	RelImplementedBy = "implemented_by" // A declared contract operation is implemented by a code symbol. Added post-extraction.
+	RelPublishes     = "publishes"      // Source code emits, sends or enqueues the target event or job queue (a storage fact, storage_kind=topic). Never coupling.
+	RelSubscribes    = "subscribes"     // Source code handles the target event or job queue. Never coupling.
 	RelExercises     = "exercises"      // A test file requests, visits or sends target: a server route, a page route or a GraphQL operation. Written by the post-link test-exercises binder; never coupling.
 	RelNames         = "names"          // Source names target by symbol literal without calling it: a method name passed as data (`perform_async(id, :on_done)`) for something else to dispatch. A reference, not a call; read by dead-code questions, ignored by call metrics.
 )

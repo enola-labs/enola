@@ -3253,7 +3253,12 @@ import (
 // mounts at the parent's root; Cypress *.cy.* files are tests; a test file records
 // the requests, page visits and GraphQL operations it hits; a client operation
 // records its operation name.
-const cacheVersion = "v469"
+// v470: TypeScript: in-process events and job queues (Medusa subscribers and
+// emits, Directus emitter and hooks, a file's EventEmitter, BullMQ) are topics the
+// code on each side publishes or subscribes to, a Node event under its emitter;
+// event names written as exported constants are resolved. __fixtures__ is a test
+// segment.
+const cacheVersion = "v470"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

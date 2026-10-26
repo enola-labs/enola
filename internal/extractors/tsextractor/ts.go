@@ -373,7 +373,8 @@ func astPatternFacts(kinds *tsutil.KindTable, root *sitter.Node, src []byte, rel
 	if graphqlServer.enabled {
 		result = append(result, extractGraphQLCodeFirstAST(src, relFile, kinds, root, graphqlBindings)...)
 	}
-	return append(result, extractTSKafkaFacts(kinds, root, src, relFile)...)
+	result = append(result, extractTSKafkaFacts(kinds, root, src, relFile)...)
+	return append(result, extractTSEventFacts(kinds, root, src, relFile)...)
 }
 
 func newFileCtx(kinds *tsutil.KindTable, root *sitter.Node, src []byte, relFile string, isTSX bool, rc *repoCtx, aliases map[string]tsAlias) *extractCtx {

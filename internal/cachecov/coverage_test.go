@@ -63,6 +63,7 @@ var versionCoverage = map[int][]string{
 	467: {"TestViteAliases", "TestNuxtAliases", "TestViteHTMLModuleScripts", "TestBarrelExports", "TestVueImportOfAFolderModule"},
 	468: {"TestGraphQLFieldBindsToItsResolver", "TestGraphQLDocumentOperationIsSentByItsImporter", "TestGraphQLCodeFirstFieldBindsToItsMethod"},
 	469: {"TestRouterMount_RootRouteAndBareMount", "TestTestCalls_CypressRequestsVisitsAndOperations", "TestTestCalls_PlaywrightGotoAndRequest"},
+	470: {"TestEvents_SubscriberAndConstantNamedProducers", "TestEvents_DirectusNodeAndBullMQ", "TestEvents_NodeEventsBelongToTheirEmitter"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},
 	438: {"TestExtract_StructUsage_StdlibAndRootPackages"},
