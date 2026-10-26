@@ -197,15 +197,15 @@ func TestViteHTMLModuleScripts(t *testing.T) {
 
 func TestVueImportOfAFolderModule(t *testing.T) {
 	ff := extractVue(t, map[string]string{
-		"src/views/private/index.ts": `import PrivateView from './private-view/private-view.vue'
-export { PrivateView }`,
-		"src/views/private/private-view/private-view.vue": `<template><div /></template>`,
+		"src/views/shell/index.ts": `import WidgetShell from './widget-shell/widget-shell.vue'
+export { WidgetShell }`,
+		"src/views/shell/widget-shell/widget-shell.vue": `<template><div /></template>`,
 		"src/pages/home.vue": `<script setup lang="ts">
-import { PrivateView } from '../views/private'
-</script><template><PrivateView /></template>`,
+import { WidgetShell } from '../views/shell'
+</script><template><WidgetShell /></template>`,
 	}, false)
 	home, _ := findFact(ff, "src/pages.Home")
-	if !hasRelation(home, facts.RelCalls, "src/views/private/private-view.PrivateView") {
+	if !hasRelation(home, facts.RelCalls, "src/views/shell/widget-shell.WidgetShell") {
 		t.Errorf("import through a barrel did not reach the component: %v", home.Relations)
 	}
 }

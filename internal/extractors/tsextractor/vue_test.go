@@ -822,9 +822,9 @@ func TestIsTypeScriptFile_Vue(t *testing.T) {
 
 func TestExtract_VueSetupReferencesHangOffTheComponent(t *testing.T) {
 	ff := extractVue(t, map[string]string{
-		"app/composables/paginator.ts": `export function usePaginator() { return {} }`,
+		"app/composables/ledger.ts": `export function useLedger() { return {} }`,
 		"app/components/Pager.vue": `<script setup lang="ts">
-const p = usePaginator()
+const p = useLedger()
 </script><template><div /></template>`,
 		"app/pages/index.vue": `<template><Pager /></template>`,
 	}, true)
@@ -832,7 +832,7 @@ const p = usePaginator()
 	if !ok {
 		t.Fatal("no component symbol for Pager.vue")
 	}
-	if !hasRelation(comp, facts.RelCalls, "app/composables.usePaginator") {
+	if !hasRelation(comp, facts.RelCalls, "app/composables.useLedger") {
 		t.Errorf("component does not reach the composable its setup calls: %v", comp.Relations)
 	}
 	page, _ := findFact(ff, "app/pages.PagesIndex")
@@ -840,7 +840,7 @@ const p = usePaginator()
 		t.Errorf("page does not reach the component it renders: %v", page.Relations)
 	}
 	// The file_ref stays: the dead-code detector reads top-level references from it.
-	if !hasTarget(fileRefTargets(ff, "app/components/Pager.vue"), "app/composables.usePaginator") {
+	if !hasTarget(fileRefTargets(ff, "app/components/Pager.vue"), "app/composables.useLedger") {
 		t.Error("file_ref lost its reference")
 	}
 }

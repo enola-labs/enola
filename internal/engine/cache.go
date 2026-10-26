@@ -3245,7 +3245,11 @@ import (
 // for a customResolver or a computed replacement); a Vite HTML entry's module
 // scripts are read; an import of a folder module binds to the folder, and a call
 // through a barrel index reaches the symbol it re-exports.
-const cacheVersion = "v467"
+// v468: TypeScript GraphQL: a schema loaded by path is read as server SDL, a field is
+// handled_by its resolver (the decorated method, or the one resolver-map member named
+// Root.field), and the code an operation is written in, or the code importing its
+// .graphql document, calls it.
+const cacheVersion = "v468"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
