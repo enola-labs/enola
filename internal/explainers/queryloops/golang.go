@@ -97,6 +97,17 @@ func goCandidates(store *facts.Store) []finding {
 		}
 	}
 
+	// callers was filled ranging over a map; of two equally short ways to a query,
+	// the one named must not depend on that order.
+	for _, es := range callers {
+		sort.Slice(es, func(i, j int) bool {
+			if es[i].from != es[j].from {
+				return es[i].from.repo < es[j].from.repo || es[i].from.repo == es[j].from.repo && es[i].from.name < es[j].from.name
+			}
+			return es[i].basis < es[j].basis
+		})
+	}
+
 	// Breadth first from every function whose body calls the database, so each
 	// reaching function records its shortest way there.
 	reach := make(map[goKey]goReach)
