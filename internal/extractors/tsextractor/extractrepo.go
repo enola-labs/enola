@@ -137,6 +137,16 @@ func newRepoCtx(fw tsFrameworks, tsFiles []string, sources map[string][]byte, kn
 	if fw.isNuxt {
 		rc.nuxtAutoComponents = nuxtAutoComponentIndex(knownFiles)
 	}
+	if fw.isVue || fw.isNuxt {
+		// An explicit registration names its component exactly, so it wins over
+		// the convention-derived name.
+		for name, target := range vueGlobalComponentIndex(tsFiles, sources, knownFiles, rc.files) {
+			if rc.nuxtAutoComponents == nil {
+				rc.nuxtAutoComponents = make(map[string]string)
+			}
+			rc.nuxtAutoComponents[name] = target
+		}
+	}
 	return rc
 }
 

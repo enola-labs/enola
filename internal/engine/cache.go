@@ -3236,7 +3236,11 @@ import (
 // case held by a property or a parameter, or reached through another property), and
 // an extension function's calls on the receiver's properties use the types the
 // receiver's own file declares.
-const cacheVersion = "v465"
+// v466: Vue: what <script setup> references the component references, a Pinia
+// defineStore is a store whose setup or actions are walked, Nuxt auto-imports stores/
+// like composables/, an app.component() registration resolves template tags, and a
+// template is read to its balancing </template>, past nested slot templates.
+const cacheVersion = "v466"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

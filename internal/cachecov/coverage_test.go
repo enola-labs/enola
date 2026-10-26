@@ -59,6 +59,7 @@ var versionCoverage = map[int][]string{
 	463: {"TestClientPages_ThePagesThatReachACall"},
 	464: {"TestSwiftCallOnAStoredPropertyResolves"},
 	465: {"TestKotlinInvokingAValueCallsItsInvoke"},
+	466: {"TestExtract_VueSetupReferencesHangOffTheComponent", "TestExtract_PiniaStores", "TestExtract_VueGlobalComponentRegistration", "TestVueTemplateContent_NestedTemplates"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},
 	438: {"TestExtract_StructUsage_StdlibAndRootPackages"},

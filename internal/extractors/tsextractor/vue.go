@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"github.com/enola-labs/enola/internal/extractors/tsutil"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -311,6 +312,62 @@ func nuxtAutoComponentIndex(knownFiles map[string]bool) map[string]string {
 	return index
 }
 
+var (
+	vueGlobalRegisterRe = regexp.MustCompile(`\.component\(\s*['"]([A-Za-z][\w-]*)['"]\s*,\s*([A-Za-z_$][\w$]*)\s*[,)]`)
+	vueDefaultImportRe  = regexp.MustCompile(`import\s+([A-Za-z_$][\w$]*)\s+from\s+['"]([^'"]+\.vue)['"]`)
+)
+
+// vueGlobalComponentIndex reads `app.component('VTable', VTable)` registrations:
+// a component registered that way is used from any template with no import. Only
+// a registered binding imported from a .vue file in this repository counts, and a
+// name registered to two different components is dropped.
+func vueGlobalComponentIndex(tsFiles []string, sources map[string][]byte, knownFiles map[string]bool, files *tsFileIndex) map[string]string {
+	candidates := make(map[string]map[string]bool)
+	for _, file := range tsFiles {
+		src := sources[file]
+		if isVueFile(file) || facts.IsTestPath(file) || !bytes.Contains(src, []byte(".component(")) {
+			continue
+		}
+		imports := make(map[string]string)
+		for _, m := range vueDefaultImportRe.FindAllSubmatch(src, -1) {
+			imports[string(m[1])] = string(m[2])
+		}
+		for _, m := range vueGlobalRegisterRe.FindAllSubmatch(src, -1) {
+			spec := imports[string(m[2])]
+			if spec == "" {
+				continue
+			}
+			target := ""
+			if strings.HasPrefix(spec, ".") {
+				if p := path.Join(path.Dir(file), spec); knownFiles[p] {
+					target = p
+				}
+			} else if p, ok := files.resolve(spec, file); ok && isVueFile(p) {
+				target = p
+			}
+			if target == "" {
+				continue
+			}
+			sym := factpath.Dir(target) + "." + fileSymbolName(target)
+			for _, name := range []string{string(m[1]), toPascal(string(m[1]))} {
+				if candidates[name] == nil {
+					candidates[name] = make(map[string]bool)
+				}
+				candidates[name][sym] = true
+			}
+		}
+	}
+	index := make(map[string]string)
+	for name, targets := range candidates {
+		if len(targets) == 1 {
+			for target := range targets {
+				index[name] = target
+			}
+		}
+	}
+	return index
+}
+
 // vueTemplateContent returns the first SFC template body. Vue permits at most one
 // top-level template block; malformed/unclosed blocks deliberately produce no refs.
 func vueTemplateContent(src []byte) []byte {
@@ -323,12 +380,78 @@ func vueTemplateContent(src []byte) []byte {
 		return nil
 	}
 	openEnd += start
-	closeStart := indexCaseInsensitive(src[openEnd+1:], []byte("</template>"))
-	if closeStart < 0 {
-		return nil
+	// <template v-if> and <template #slot> nest inside the root template, so the
+	// root closes at the </template> that balances it, not at the first one.
+	lower := asciiLower(src)
+	depth := 1
+	for pos := openEnd + 1; pos < len(src); {
+		next := bytes.Index(lower[pos:], []byte("<template"))
+		closeAt := bytes.Index(lower[pos:], []byte("</template>"))
+		if closeAt < 0 {
+			return nil
+		}
+		if next >= 0 && next < closeAt {
+			tagAt := pos + next + len("<template")
+			if isTemplateTagEnd(src, tagAt) && !tagSelfCloses(src, tagAt) {
+				depth++
+			}
+			pos = tagAt
+			continue
+		}
+		depth--
+		if depth == 0 {
+			return src[openEnd+1 : pos+closeAt]
+		}
+		pos += closeAt + len("</template>")
 	}
-	closeStart += openEnd + 1
-	return src[openEnd+1 : closeStart]
+	return nil
+}
+
+// asciiLower lowercases A-Z only, so every offset into the result is the same
+// offset into src.
+func asciiLower(src []byte) []byte {
+	out := make([]byte, len(src))
+	for i, c := range src {
+		if 'A' <= c && c <= 'Z' {
+			c += 'a' - 'A'
+		}
+		out[i] = c
+	}
+	return out
+}
+
+// isTemplateTagEnd reports whether the byte after "<template" ends the tag name,
+// so <templateFoo> is not counted as a nested template.
+func isTemplateTagEnd(src []byte, i int) bool {
+	if i >= len(src) {
+		return false
+	}
+	switch src[i] {
+	case '>', ' ', '\t', '\n', '\r', '/':
+		return true
+	}
+	return false
+}
+
+// tagSelfCloses reports whether the tag whose attributes start at i ends in "/>",
+// as `<template v-if="pending" />` does. A '>' inside a quoted attribute value
+// (v-if="a > b") does not end the tag.
+func tagSelfCloses(src []byte, i int) bool {
+	var quote byte
+	for ; i < len(src); i++ {
+		c := src[i]
+		switch {
+		case quote != 0:
+			if c == quote {
+				quote = 0
+			}
+		case c == '"' || c == '\'':
+			quote = c
+		case c == '>':
+			return i > 0 && src[i-1] == '/'
+		}
+	}
+	return false
 }
 
 // vueTemplateRefs resolves names used by a Vue template against declarations and
@@ -440,7 +563,9 @@ func containsCreateRouterCall(kinds *tsutil.KindTable, node *sitter.Node, src []
 }
 
 // extractVueSFC extracts architectural facts from a Vue Single File Component.
-func (e *TSExtractor) extractVueSFC(kinds *tsutil.KindTable, rawSrc []byte, relFile string, isNuxt bool, aliases map[string]tsAlias, files *tsFileIndex, nuxtAutoComponents map[string]string) []facts.Fact {
+// autoComponents holds the components a template may use without importing them:
+// Nuxt's components/ convention and app.component() registrations.
+func (e *TSExtractor) extractVueSFC(kinds *tsutil.KindTable, rawSrc []byte, relFile string, isNuxt bool, aliases map[string]tsAlias, files *tsFileIndex, autoComponents map[string]string) []facts.Fact {
 	var result []facts.Fact
 	blocks := extractVueScriptBlocks(rawSrc)
 	allBindings := emberImportBindings{internal: map[string]string{}, external: map[string]string{}, modules: map[string]string{}}
@@ -449,6 +574,7 @@ func (e *TSExtractor) extractVueSFC(kinds *tsutil.KindTable, rawSrc []byte, relF
 	macroTypes := make(map[string]string)
 
 	isSetup := false
+	var setupRefs []string
 	for _, block := range blocks {
 		if block.IsSetup {
 			isSetup = true
@@ -459,6 +585,16 @@ func (e *TSExtractor) extractVueSFC(kinds *tsutil.KindTable, rawSrc []byte, relF
 			allBindings.internal[name] = target
 		}
 		if block.IsSetup {
+			// The top level of <script setup> is the component's setup body, so what
+			// it references the component references. The file-scope pass folds those
+			// into a file_ref, which no impact walk continues from.
+			for _, f := range blockFacts {
+				if f.Kind == facts.KindFileRef {
+					for _, r := range f.Relations {
+						setupRefs = append(setupRefs, r.Target)
+					}
+				}
+			}
 			for _, macro := range macros {
 				macroSet[macro] = true
 			}
@@ -555,11 +691,7 @@ func (e *TSExtractor) extractVueSFC(kinds *tsutil.KindTable, rawSrc []byte, relF
 
 	// A binding used only from the template is still a real architectural use.
 	// Attach those exact, scope-resolved references to the component itself.
-	autoComponents := map[string]string(nil)
-	if isNuxt {
-		autoComponents = nuxtAutoComponents
-	}
-	templateTargets := vueTemplateRefs(rawSrc, relFile, result, allBindings, autoComponents)
+	templateTargets := append(setupRefs, vueTemplateRefs(rawSrc, relFile, result, allBindings, autoComponents)...)
 	if len(templateTargets) > 0 {
 		for i := range result {
 			if result[i].Kind != facts.KindSymbol || result[i].Name != factName {

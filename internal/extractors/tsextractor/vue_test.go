@@ -817,3 +817,171 @@ func TestIsTypeScriptFile_Vue(t *testing.T) {
 		t.Error("isTypeScriptFile should return true for .vue files")
 	}
 }
+
+// --- what a component references reaches the component ---
+
+func TestExtract_VueSetupReferencesHangOffTheComponent(t *testing.T) {
+	ff := extractVue(t, map[string]string{
+		"app/composables/paginator.ts": `export function usePaginator() { return {} }`,
+		"app/components/Pager.vue": `<script setup lang="ts">
+const p = usePaginator()
+</script><template><div /></template>`,
+		"app/pages/index.vue": `<template><Pager /></template>`,
+	}, true)
+	comp, ok := findFact(ff, "app/components.Pager")
+	if !ok {
+		t.Fatal("no component symbol for Pager.vue")
+	}
+	if !hasRelation(comp, facts.RelCalls, "app/composables.usePaginator") {
+		t.Errorf("component does not reach the composable its setup calls: %v", comp.Relations)
+	}
+	page, _ := findFact(ff, "app/pages.PagesIndex")
+	if !hasRelation(page, facts.RelCalls, "app/components.Pager") {
+		t.Errorf("page does not reach the component it renders: %v", page.Relations)
+	}
+	// The file_ref stays: the dead-code detector reads top-level references from it.
+	if !hasTarget(fileRefTargets(ff, "app/components/Pager.vue"), "app/composables.usePaginator") {
+		t.Error("file_ref lost its reference")
+	}
+}
+
+func TestExtract_VueOptionsScriptReferencesStayOffTheComponent(t *testing.T) {
+	ff := extractVue(t, map[string]string{
+		"src/util.ts":  `export function helper() {}`,
+		"src/Card.vue": "<script lang=\"ts\">\nimport { helper } from './util'\nhelper()\nexport default {}\n</script><template><div /></template>",
+	}, false)
+	comp, ok := findFact(ff, "src.Card")
+	if !ok {
+		t.Fatal("no component symbol for Card.vue")
+	}
+	if hasRelation(comp, facts.RelCalls, "src.helper") {
+		t.Error("module scope of a plain <script> block was attributed to the component")
+	}
+}
+
+// --- Pinia ---
+
+func TestExtract_PiniaStores(t *testing.T) {
+	ff := extractVue(t, map[string]string{
+		"src/stores/user.ts": `import { defineStore } from 'pinia'
+import { useApi } from '../composables/api'
+export const useUserStore = defineStore('user', () => {
+  const api = useApi()
+  return { api }
+})`,
+		"src/stores/requests.ts": `import { defineStore } from 'pinia'
+export const useRequestsStore = defineStore({
+  id: 'requests',
+  state: () => ({ queue: [] }),
+  actions: { push(id: string) { this.queue.push(id) } },
+})`,
+		"src/composables/api.ts": `export function useApi() { return {} }`,
+		"src/composables/session.ts": `import { useUserStore } from '../stores/user'
+export function useSession() { return useUserStore() }`,
+	}, false)
+	for _, name := range []string{"src/stores.useUserStore", "src/stores.useRequestsStore"} {
+		f, ok := findFact(ff, name)
+		if !ok {
+			t.Fatalf("no symbol %s", name)
+		}
+		if f.Props["web_component"] != "store" || f.Props["framework"] != "pinia" {
+			t.Errorf("%s: web_component=%v framework=%v, want store/pinia", name, f.Props["web_component"], f.Props["framework"])
+		}
+		if f.Props["symbol_kind"] != facts.SymbolVariable {
+			t.Errorf("%s: symbol_kind=%v, want it left a variable", name, f.Props["symbol_kind"])
+		}
+	}
+	user, _ := findFact(ff, "src/stores.useUserStore")
+	if !hasRelation(user, facts.RelCalls, "src/composables.useApi") {
+		t.Errorf("setup store does not reach what its setup function calls: %v", user.Relations)
+	}
+	if _, ok := findFact(ff, "src/stores.useRequestsStore.actions.push"); !ok {
+		t.Error("options store lost its action member symbol")
+	}
+	session, _ := findFact(ff, "src/composables.useSession")
+	if session.Props["web_component"] == "store" {
+		t.Error("a composable that returns a store was classified as a store")
+	}
+}
+
+func TestExtract_NuxtAutoImportedStore(t *testing.T) {
+	ff := extractVue(t, map[string]string{
+		"app/stores/cart.ts":      `export const useCartStore = defineStore('cart', () => ({}))`,
+		"app/components/Cart.vue": `<script setup lang="ts">const cart = useCartStore()</script><template><div /></template>`,
+	}, true)
+	comp, _ := findFact(ff, "app/components.Cart")
+	if !hasRelation(comp, facts.RelCalls, "app/stores.useCartStore") {
+		t.Errorf("auto-imported store under stores/ was not resolved: %v", comp.Relations)
+	}
+}
+
+// --- app.component() registrations ---
+
+func TestExtract_VueGlobalComponentRegistration(t *testing.T) {
+	ff := extractVue(t, map[string]string{
+		"src/components/register.ts": `import VTable from './v-table/v-table.vue'
+import VIcon from './v-icon.vue'
+export function registerComponents(app) {
+  app.component('VTable', VTable)
+  app.component('v-icon', VIcon)
+}`,
+		"src/components/v-table/v-table.vue": `<template><table /></template>`,
+		"src/components/v-icon.vue":          `<template><i /></template>`,
+		"src/layouts/tabular.vue":            `<template><VTable /><v-icon /></template>`,
+	}, false)
+	layout, ok := findFact(ff, "src/layouts.Tabular")
+	if !ok {
+		t.Fatal("no component symbol for tabular.vue")
+	}
+	for _, want := range []string{"src/components/v-table.VTable", "src/components.VIcon"} {
+		if !hasRelation(layout, facts.RelCalls, want) {
+			t.Errorf("template does not reach globally registered %s: %v", want, layout.Relations)
+		}
+	}
+}
+
+func TestExtract_VueGlobalComponentRegistrationIsNotGuessed(t *testing.T) {
+	ff := extractVue(t, map[string]string{
+		"src/a/register.ts": `import Btn from './btn.vue'
+app.component('VButton', Btn)`,
+		"src/b/register.ts": `import Btn from './btn.vue'
+app.component('VButton', Btn)
+const Other = make()
+app.component('VOther', Other)`,
+		"src/a/btn.vue": `<template><button /></template>`,
+		"src/b/btn.vue": `<template><button /></template>`,
+		"src/page.vue":  `<template><VButton /><VOther /></template>`,
+	}, false)
+	page, _ := findFact(ff, "src.SrcPage")
+	for _, r := range page.Relations {
+		if r.Kind == facts.RelCalls {
+			t.Errorf("ambiguous or non-.vue registration was guessed: %s", r.Target)
+		}
+	}
+}
+
+func TestVueTemplateContent_NestedTemplates(t *testing.T) {
+	src := []byte(`<script setup>const a = 1</script>
+<template>
+  <List>
+    <template #header><Head /></template>
+    <template v-if="a"><template v-for="x in xs"><Row /></template></template>
+    <template v-if="pending" />
+    <template v-else-if="n > 0"><Count /></template>
+  </List>
+  <Pager />
+</template>
+<style>.x{}</style>`)
+	got := string(vueTemplateContent(src))
+	for _, want := range []string{"<Head />", "<Row />", "<Count />", "<Pager />"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("root template lost %s after a nested <template>: %q", want, got)
+		}
+	}
+	if strings.Contains(got, "<style>") {
+		t.Errorf("root template ran past its own close: %q", got)
+	}
+	if vueTemplateContent([]byte(`<template><div><template v-if="a"></div>`)) != nil {
+		t.Error("an unbalanced template should produce nothing")
+	}
+}
