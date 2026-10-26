@@ -3266,7 +3266,9 @@ import (
 // Angular component its template, use.
 // v473: TypeScript: a Tailwind class belongs to the declaration it is written in (a
 // component, a variants constant), found by line, not to the whole file.
-const cacheVersion = "v473"
+// v474: TypeScript: a bundler alias built from a module-scope const of the config
+// (const root = path.resolve(__dirname, 'src'); '@/': `${root}/`) resolves.
+const cacheVersion = "v474"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

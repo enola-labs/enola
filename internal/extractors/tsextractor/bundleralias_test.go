@@ -102,6 +102,27 @@ func TestViteAliasOverridesTSConfigPaths(t *testing.T) {
 	}
 }
 
+func TestViteAliasThroughModuleConst(t *testing.T) {
+	ff := extractAll(t, map[string]string{
+		"app/vite.config.mts": `import path from 'node:path'
+const root = path.resolve(__dirname, 'app/js')
+export const loop = loop
+export default defineConfig({
+  resolve: { alias: { '@/': ` + "`${root}/`" + `, '~/': loop } },
+})`,
+		"app/app/js/a.ts": `export const a = 1`,
+		"app/app/js/b.ts": `import { a } from '@/a'
+import { z } from '~/z'`,
+	}, false)
+	f := depAt(t, ff, "app/app/js/b.ts", 1)
+	if depTarget(f) != "app/app/js/a" || f.Props["resolved_via"] != aliasViaVite {
+		t.Errorf("const-built alias: target %q via %v", depTarget(f), f.Props["resolved_via"])
+	}
+	if f := depAt(t, ff, "app/app/js/b.ts", 2); f.Props["unresolved_reason"] != aliasUnresolvedDynamic {
+		t.Errorf("self-bound const: reason %v, want %s", f.Props["unresolved_reason"], aliasUnresolvedDynamic)
+	}
+}
+
 func TestTSConfigPathsProvenance(t *testing.T) {
 	ff := extractAll(t, map[string]string{
 		"pkg/tsconfig.app.json": `{"compilerOptions": {"paths": {"~lib/*": ["./src/lib/*"]}}}`,
