@@ -269,7 +269,7 @@ func extractVueRouterRoutes(kinds *tsutil.KindTable, root *sitter.Node, src []by
 		}
 	}
 	indexArrays(root)
-	bindings := buildVueImportBindings(kinds, root, src, relFile, aliases)
+	bindings := buildVueImportBindings(kinds, root, src, relFile, aliases, nil)
 	var out []facts.Fact
 	seen := make(map[string]bool)
 	var walkArray func(*sitter.Node, string)

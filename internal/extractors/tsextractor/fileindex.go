@@ -16,10 +16,11 @@ type tsFileIndex struct {
 	byBase map[string][]string // last path segment -> file stems (paths without extension) ending in it
 	stems  map[string]string   // file stem -> file path
 	dirs   map[string]bool     // directories holding a known file directly
+	known  map[string]bool     // the known files themselves
 }
 
 func newTSFileIndex(knownFiles map[string]bool) *tsFileIndex {
-	ix := &tsFileIndex{byBase: map[string][]string{}, stems: map[string]string{}, dirs: map[string]bool{}}
+	ix := &tsFileIndex{byBase: map[string][]string{}, stems: map[string]string{}, dirs: map[string]bool{}, known: knownFiles}
 	for file := range knownFiles {
 		stem := strings.TrimSuffix(file, path.Ext(file))
 		ix.stems[stem] = file
@@ -109,4 +110,12 @@ func (ix *tsFileIndex) fileBesideDir(stem string) (string, bool) {
 	}
 	file, ok := ix.stems[stem]
 	return file, ok
+}
+
+// knownFiles is the set the index was built from, nil for a nil index.
+func (ix *tsFileIndex) knownFiles() map[string]bool {
+	if ix == nil {
+		return nil
+	}
+	return ix.known
 }

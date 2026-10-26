@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -560,7 +561,7 @@ func (e *TSExtractor) extractImports(kinds *tsutil.KindTable, root *sitter.Node,
 		importPath := strings.Trim(nodeText(source, src), `"'`)
 
 		// Resolve path aliases and relative imports to filesystem-relative paths
-		resolved, isExternal := resolveImportPath(importPath, dir, aliases)
+		resolved, isExternal, alias := resolveImportPathVia(importPath, dir, aliases)
 
 		importSource := "internal"
 		if isExternal {
@@ -579,6 +580,7 @@ func (e *TSExtractor) extractImports(kinds *tsutil.KindTable, root *sitter.Node,
 		if isReexport {
 			props["reexport"] = true
 		}
+		setAliasProvenance(props, alias)
 
 		result = append(result, facts.Fact{
 			Kind:  facts.KindDependency,
@@ -612,7 +614,7 @@ func (e *TSExtractor) extractImports(kinds *tsutil.KindTable, root *sitter.Node,
 				if isRequire || isDynImport {
 					if strArg := findChildByKind(kinds, n.ChildByFieldName("arguments"), "string"); strArg != nil {
 						importPath := strings.Trim(nodeText(strArg, src), `"'`)
-						resolved, isExternal := resolveImportPath(importPath, dir, aliases)
+						resolved, isExternal, alias := resolveImportPathVia(importPath, dir, aliases)
 						if file, ok := files.fileBesideDir(resolved); ok && !isExternal {
 							resolved = file
 						}
@@ -631,7 +633,7 @@ func (e *TSExtractor) extractImports(kinds *tsutil.KindTable, root *sitter.Node,
 								Name:      name,
 								File:      relFile,
 								Line:      int(n.StartPosition().Row) + 1,
-								Props:     map[string]any{"language": "typescript", "source": source, "dynamic": true},
+								Props:     setAliasProvenance(map[string]any{"language": "typescript", "source": source, "dynamic": true}, alias),
 								Relations: []facts.Relation{{Kind: facts.RelImports, Target: resolved}},
 							})
 						}
@@ -1872,6 +1874,18 @@ type tsAlias struct {
 	// `packages/ui/forms`. Empty for the ordinary `["./src/*"]` shape.
 	suffix string
 	exact  bool
+	// via says where the alias was declared (aliasVia*); empty for an alias a
+	// framework implies without configuration, such as SvelteKit's $lib.
+	via string
+	// external marks an alias that renames one package to another
+	// (`'vue': 'vue/dist/vue.esm-bundler.js'`): the import stays external.
+	external bool
+	// unresolved says why an import matching this alias cannot be resolved
+	// (aliasUnresolved*): a customResolver, or a replacement computed at runtime.
+	unresolved string
+	// re is a regex find, applied in declaration order (order) before any prefix.
+	re    *regexp.Regexp
+	order int
 }
 
 type tsAliasRoot struct {
@@ -1893,7 +1907,9 @@ func collectTSAliasRoots(repoPath string) []tsAliasRoot {
 }
 
 func walkTSAliasRoots(repoPath, dir string, depth, maxDepth int, out *[]tsAliasRoot) {
-	if aliases, ok := aliasesAtDir(dir); ok {
+	aliases, ok := aliasesAtDir(dir)
+	bundler := bundlerAliasesAtDir(repoPath, dir)
+	if ok || len(bundler) > 0 {
 		rel, err := filepath.Rel(repoPath, dir)
 		if err != nil || rel == "." {
 			rel = ""
@@ -1906,11 +1922,21 @@ func walkTSAliasRoots(repoPath, dir string, depth, maxDepth int, out *[]tsAliasR
 		// Exact entries are qualified the same way: packages/tsconfig.base.json declares
 		// "@excalidraw/common": ["./common/src/index.ts"], which means
 		// packages/common/src/index.ts. Skipping this resolved one directory too high.
-		qualified := make(map[string]tsAlias, len(aliases))
+		qualified := make(map[string]tsAlias, len(aliases)+len(bundler))
+		if !ok {
+			// A bundler config with no tsconfig paths beside it still compiles
+			// under the nearest tsconfig above it.
+			for prefix, a := range aliasesForDir(*out, rel) {
+				qualified[prefix] = a
+			}
+		}
 		for prefix, a := range aliases {
 			if rel != "" {
 				a.replacement = rel + "/" + a.replacement
 			}
+			qualified[prefix] = a
+		}
+		for prefix, a := range bundler {
 			qualified[prefix] = a
 		}
 		*out = append(*out, tsAliasRoot{dir: rel, aliases: qualified})
@@ -1933,7 +1959,7 @@ func walkTSAliasRoots(repoPath, dir string, depth, maxDepth int, out *[]tsAliasR
 // aliasesAtDir tries tsconfig.json then tsconfig.base.json at dir, returning
 // the first one that declares a non-empty paths map.
 func aliasesAtDir(dir string) (map[string]tsAlias, bool) {
-	for _, name := range []string{"tsconfig.json", "tsconfig.base.json"} {
+	for _, name := range []string{"tsconfig.json", "tsconfig.base.json", "tsconfig.app.json"} {
 		if aliases, ok := tryParseTSConfigAliases(filepath.Join(dir, name)); ok {
 			return aliases, true
 		}
@@ -2098,13 +2124,11 @@ func parseTSConfigAliases(config tsConfigAliasFile, declaringPath, originDir str
 		base = "."
 	}
 	absoluteBase := filepath.Clean(filepath.Join(declaringDir, filepath.FromSlash(base))) //factpath:host
+	// Every paths target, ./ and ../ ones included, is relative to baseUrl when one
+	// is set; without one, base is "." and that is the declaring file's directory.
 	toOrigin := func(target string) string {
 		target = strings.TrimSpace(target)
-		root := absoluteBase
-		if strings.HasPrefix(target, "./") || strings.HasPrefix(target, "../") {
-			root = declaringDir
-		}
-		abs := filepath.Clean(filepath.Join(root, filepath.FromSlash(target))) //factpath:host
+		abs := filepath.Clean(filepath.Join(absoluteBase, filepath.FromSlash(target))) //factpath:host
 		rel, err := filepath.Rel(originDir, abs)
 		if err != nil {
 			return filepath.ToSlash(abs)
@@ -2122,9 +2146,9 @@ func parseTSConfigAliases(config tsConfigAliasFile, declaringPath, originDir str
 		case strings.HasSuffix(pattern, "*") && strings.Contains(target, "*"):
 			prefix := strings.TrimSuffix(pattern, "*")
 			head, tail, _ := strings.Cut(target, "*")
-			aliases[prefix] = tsAlias{replacement: head, suffix: tail}
+			aliases[prefix] = tsAlias{replacement: head, suffix: tail, via: aliasViaTSConfig}
 		case !strings.HasSuffix(pattern, "*") && !strings.HasSuffix(target, "*"):
-			aliases[pattern] = tsAlias{replacement: target, exact: true}
+			aliases[pattern] = tsAlias{replacement: target, exact: true, via: aliasViaTSConfig}
 		}
 	}
 	return aliases, len(aliases) > 0
@@ -2153,20 +2177,50 @@ func parseTSConfigAliases(config tsConfigAliasFile, declaringPath, originDir str
 // A bundler query is not part of the path: Vite's `./icon.svg?react` and `?raw`,
 // webpack's `?inline`, all name the file before the `?`, so it is cut first.
 func resolveImportPath(importPath, fileDir string, aliases map[string]tsAlias) (string, bool) {
+	resolved, external, _ := resolveImportPathVia(importPath, fileDir, aliases)
+	return resolved, external
+}
+
+// resolveImportPathVia is resolveImportPath that also returns the alias the
+// specifier matched (zero when none did), so an import can say how it resolved or
+// why it did not. An alias marked unresolved leaves the specifier external rather
+// than guessed.
+func resolveImportPathVia(importPath, fileDir string, aliases map[string]tsAlias) (string, bool, tsAlias) {
 	if i := strings.IndexByte(importPath, '?'); i > 0 {
 		importPath = importPath[:i]
+	}
+	apply := func(a tsAlias, resolved string) (string, bool, tsAlias) {
+		switch {
+		case a.unresolved != "":
+			return importPath, true, a
+		case a.external:
+			return resolved, true, a
+		}
+		return factpath.Clean(resolved), false, a
 	}
 	// An exact entry wins outright. tsconfig resolves most-specific-first and a pattern
 	// with no `*` matches the whole specifier and nothing else, so it cannot be ranked
 	// against prefixes by length — `@acme/common` (exact) and `@acme/` (prefix) both
 	// match `@acme/common`, and the exact one is the answer.
 	if a, ok := aliases[importPath]; ok && a.exact {
-		return factpath.Clean(a.replacement), false
+		return apply(a, a.replacement)
+	}
+
+	// A regex alias applies in the order the config declares it, as Vite applies it.
+	var regexHit *tsAlias
+	for _, a := range aliases {
+		if a.re != nil && a.re.MatchString(importPath) && (regexHit == nil || a.order < regexHit.order) {
+			hit := a
+			regexHit = &hit
+		}
+	}
+	if regexHit != nil {
+		return apply(*regexHit, regexHit.re.ReplaceAllString(importPath, regexHit.replacement))
 	}
 
 	bestPrefix, bestAlias := "", tsAlias{}
 	for prefix, a := range aliases {
-		if a.exact || !strings.HasPrefix(importPath, prefix) {
+		if a.exact || a.re != nil || !strings.HasPrefix(importPath, prefix) {
 			continue
 		}
 		if len(prefix) > len(bestPrefix) || (len(prefix) == len(bestPrefix) && prefix < bestPrefix) {
@@ -2175,17 +2229,29 @@ func resolveImportPath(importPath, fileDir string, aliases map[string]tsAlias) (
 	}
 	if bestPrefix != "" {
 		rest := strings.TrimPrefix(importPath, bestPrefix)
-		return factpath.Clean(bestAlias.replacement + rest + bestAlias.suffix), false
+		return apply(bestAlias, bestAlias.replacement+rest+bestAlias.suffix)
 	}
 
 	// Relative imports
 	if strings.HasPrefix(importPath, ".") {
 		resolved := factpath.Clean(factpath.Join(fileDir, importPath))
-		return resolved, false
+		return resolved, false, tsAlias{}
 	}
 
 	// Everything else is external (react, next/image, @tanstack/react-query, etc.)
-	return importPath, true
+	return importPath, true, tsAlias{}
+}
+
+// setAliasProvenance records on an import's props which alias resolved it
+// (resolved_via) or why it could not be (unresolved_reason).
+func setAliasProvenance(props map[string]any, a tsAlias) map[string]any {
+	switch {
+	case a.unresolved != "":
+		props["unresolved_reason"] = a.unresolved
+	case a.via != "":
+		props["resolved_via"] = a.via
+	}
+	return props
 }
 
 // tsModuleExts are the source extensions a bare import path may resolve to, tried in
@@ -2258,6 +2324,11 @@ func buildImportBindings(kinds *tsutil.KindTable, root *sitter.Node, src []byte,
 		importPath := strings.Trim(nodeText(source, src), `"'`)
 		resolved, isExternal := resolveImportPath(importPath, fileDir, aliases)
 		qualifier := factpath.Dir(resolved)
+		if _, dir, ok := resolveModuleFile(resolved, files.knownFiles()); ok && !isExternal {
+			// A folder module (`../lib` -> lib/index.ts) owns its symbols under the
+			// folder itself, not under its parent.
+			qualifier = dir
+		}
 		fromRepo := !isExternal
 		if isExternal {
 			// A framework alias or a baseUrl path is a file of this repository that
