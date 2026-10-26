@@ -3260,7 +3260,11 @@ import (
 // segment.
 // v471: TypeScript: the code an event or GraphQL operation sits in is the nearest
 // declaration that is a symbol; a variable local to a function no longer stands for it.
-const cacheVersion = "v471"
+// v472: TypeScript: Tailwind design tokens (tailwind.config.*, presets and plugins
+// with spreads and imports followed, v4 @theme) are constant symbols, and the
+// components of a Tailwind project name the tokens their class strings, and an
+// Angular component its template, use.
+const cacheVersion = "v472"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

@@ -119,6 +119,19 @@ Contract props:
   into. Several modules may share one value; that is what makes a cycle between
   them legal or not.
 
+### Tailwind design tokens
+
+A token a repository's Tailwind theme declares is a `symbol` with `symbol_kind`
+`constant`, named `tailwind/<section>.<token>` (`tailwind/colors.ui-bg-highlight`):
+`token` (the class-facing name: nested keys joined with `-`, `DEFAULT` naming its
+parent), `token_section` (`colors`, `spacing`, `fontSize`, `borderRadius`, …),
+`token_source` `tailwind`, `value`. Read from `tailwind.config.*`, preset and plugin
+modules (`theme` and `theme.extend`, spreads and relative imports followed) and v4
+`@theme` blocks. A component (or, when a file declares several or none, the file's
+`file_ref`) `names` every token its class strings use (`hover:bg-ui-bg-highlight/50`);
+only files of a project that styles with Tailwind are read, a config's `prefix`
+(`tw-`) is part of the class, and Tailwind's built-in palette is not a token.
+
 ### route
 
 - `source`: which pass or contract format produced the route —
