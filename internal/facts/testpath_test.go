@@ -30,6 +30,7 @@ func TestIsTestPath(t *testing.T) {
 		{"nx e2e project", "apps/gauzy-e2e/src/app.cy.ts", true},
 		{"cypress component spec beside its component", "src/components/Button.cy.tsx", true},
 		{"cypress config at the root", "cypress.config.ts", true},
+		{"jest dunder fixtures", "packages/core/src/subscribers/__fixtures__/subscribers/notifier.ts", true},
 		{"playwright config in a package", "apps/web/playwright.config.ts", true},
 		{"a production module named like a config", "src/config/cypress.ts", false},
 		{"playwright project", "projects/demo-playwright/utils/goto.ts", true},

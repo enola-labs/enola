@@ -216,6 +216,22 @@ Contract props:
   reference was seen; the direction is then inferred from the topic name's
   owning-service prefix.
 - `messaging_operation`: `publish` | `subscribe`.
+- `messaging`: the protocol. Beside the broker protocols (`kafka`, the AsyncAPI ones),
+  the TypeScript extractor reads in-process events and job queues as topics of their
+  own protocol: `medusa-event` (a subscriber's `config.event`, `eventBus.emit`,
+  `emitEventStep`), `directus-event` (`emitter.emitAction`/`onAction`, `defineHook`
+  handlers), `node-event` (an `EventEmitter` declared in the file, or a class extending
+  one; a stream's `error`/`close`/`data` and the like are not read; named
+  `<emitter>:<event>`, the emitter being the class or module binding, because two
+  emitters' same-named events are unrelated) and `bullmq`
+  (`new Queue(name)`, `new Worker(name, …)`). Their `source` is
+  `typescript-event-call`; neither the AsyncAPI contract binder nor the Kafka
+  cross-repository signal reads them. The code on each side `publishes` or
+  `subscribes` to the topic; `code_symbol` names it.
+- `event_ref`: the constant an event name was written as (`OrderEvents.PLACED`),
+  resolved through the repository's exported enums and flat object constants.
+  A name that cannot be read statically creates no topic: the symbol that wrote it
+  carries `unresolved_reason` `dynamic-event-name` instead.
 - `source` on a topic fact: a third vocabulary on the `source` key, again
   discriminated by kind — `asyncapi` (read from an AsyncAPI spec),
   `go-kafka-call` or `typescript-kafka-call` (a call site).
@@ -300,6 +316,8 @@ the base URL it was given.
 | `has_method` | Owner type (struct/interface/class) declares target as a method. Synthesized, not read from source |
 | `handled_by` | A route/endpoint is served by target, its handler symbol. Written at extraction where the route sits on its handler (decorator and annotation frameworks, .NET, Rails routes, Laravel routes) and by post-link binders elsewhere: a Go handler that is a package function or has the `func(http.ResponseWriter, *http.Request)` signature, a routes-file handler named `<type fqn>.<method>` (Play), and gRPC implementations. For a Rails route the handler is the method that serves it: looked for inside the namespace the route's engine isolates, and on the controller's ancestors when the action is inherited. Emitted only when the target is a symbol the snapshot declares under that exact name |
 | `implemented_by` | A declared contract operation is implemented by a code symbol. Added post-extraction |
+| `publishes` | Source code emits, sends or enqueues the target event or job queue (a `storage` fact, `storage_kind` `topic`). Never coupling; `impact_analysis` and `traverse` follow it |
+| `subscribes` | Source code handles the target event or job queue. Never coupling; `impact_analysis` and `traverse` follow it |
 | `exercises` | A test file (`test_ref`) hits target: a server route it requests or intercepts, a page route it visits, a GraphQL operation it sends. Added post-link, matching the test's calls against every loaded route the way the HTTP linker matches a client call. Never coupling: fan-in, hotspots and package metrics ignore it, `impact_analysis` and `traverse` follow it |
 | `names` | Source names target by symbol literal without calling it — a method name passed as data for something else to dispatch, or a PHP class written as `Foo::class`, an enum case, a class constant or a static property. A reference, not a call |
 

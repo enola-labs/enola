@@ -135,6 +135,7 @@ func newRepoCtx(fw tsFrameworks, tsFiles []string, sources map[string][]byte, kn
 		// a helper and the calls to it live in different files.
 		requestHelpers: buildRequestHelperIndex(tsFiles, sources),
 		barrels:        barrelExports(tsFiles, sources, knownFiles),
+		eventConsts:    eventConstIndex(tsFiles, sources),
 	}
 	if fw.isNuxt {
 		rc.nuxtAutoComponents = nuxtAutoComponentIndex(knownFiles)
@@ -295,6 +296,7 @@ func (a *tsAssembly) compose(repoPath string, rc *repoCtx, templates map[string]
 	}
 	resolveBarrelCalls(a.facts, rc.barrels)
 	bindGraphQL(a.facts)
+	a.facts = bindEvents(a.facts, rc.eventConsts)
 	resolveMemberTypedCalls(a.facts)
 	settleIONamedCalls(a.facts, a.modules)
 	ioclosure.PropagateWith(a.facts, ioclosure.Options{

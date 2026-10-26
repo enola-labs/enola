@@ -26,7 +26,11 @@ var testSegments = map[string]bool{
 	// Next.js colocate specs in `__tests__`. The match is case-sensitive, so the
 	// lowercase entries above do not cover them.
 	"__tests__": true,
-	"Tests":     true, "Mocks": true,
+	// Jest's dunder form of fixtures. Across the corpus all 69 such directories hold
+	// test data (integration-test apps, mocks, *.fixture.ts), and the one repository
+	// with most of them excludes `**/__fixtures__` from every package it publishes.
+	"__fixtures__": true,
+	"Tests":        true, "Mocks": true,
 	// Gradle instrumented tests and the Kotlin-Multiplatform per-target test trees.
 	// The plain `test` segment above already covers local JVM unit tests.
 	"androidTest": true, "commonTest": true, "jvmTest": true,

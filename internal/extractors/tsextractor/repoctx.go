@@ -26,6 +26,7 @@ type repoCtx struct {
 	files              *tsFileIndex
 	nuxtAutoComponents map[string]string
 	barrels            map[string]string // "<folder>.<Name>" -> the symbol its index re-exports; see barrel.go
+	eventConsts        map[string]string // "Holder.KEY" -> the event name it holds; see events.go
 	grpcStubs          *grpcStubIndex
 	requestHelpers     *requestHelperIndex // exported request helpers, by file; see importedwrapper.go
 }

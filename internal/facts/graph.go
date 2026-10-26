@@ -1829,7 +1829,7 @@ func (g *Graph) ArchitecturalFanOut(name string) int {
 // its relation kind. Callers hold the lock.
 func (g *Graph) isArchitecturalForwardEdge(relID uint16) bool {
 	rk := g.relName(relID)
-	return rk != RelHasMethod && rk != RelNames && rk != RelExercises
+	return rk != RelHasMethod && rk != RelNames && rk != RelExercises && rk != RelPublishes && rk != RelSubscribes
 }
 
 // isArchitecturalEdge applies the coupling filter to one incoming edge, given its
@@ -1843,7 +1843,9 @@ func (g *Graph) isArchitecturalEdge(srcID uint32, relID uint16) bool {
 	// class or a call-graph hotspot. Exclude it from fan-in / centrality (and the
 	// outlier distribution). Traversal, impact_analysis, find_path and orphans read
 	// the unfiltered index and still see it.
-	if rk == RelInstantiates || rk == RelImplementedBy || rk == RelNames {
+	// An event or job queue couples its two sides through a name, not a call; impact
+	// and traversal follow publishes/subscribes, coupling metrics do not.
+	if rk == RelInstantiates || rk == RelImplementedBy || rk == RelNames || rk == RelPublishes || rk == RelSubscribes {
 		return false
 	}
 	if idx, ok := g.factIndexForID(srcID, rk); ok && isReferenceOnlyKind(g.facts[idx].Kind) {
@@ -1888,6 +1890,8 @@ var kindForRel = map[string]string{
 	RelHandledBy:     KindRoute,
 	RelImplementedBy: KindSymbol,
 	RelExercises:     KindRoute,
+	RelPublishes:     KindStorage,
+	RelSubscribes:    KindStorage,
 }
 
 // kindRank orders fact kinds for picking among same-named facts when there is no edge
