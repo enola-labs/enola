@@ -132,3 +132,34 @@ func TestTailwind_AngularTemplateBelongsToItsComponent(t *testing.T) {
 		t.Errorf("template classes not on the component: %v", users)
 	}
 }
+
+// A class belongs to the declaration it is written in: each component its own, and a
+// variants constant the constant, so impact goes on to whoever uses it.
+func TestTailwind_ClassBelongsToItsDeclaration(t *testing.T) {
+	ff := extractAll(t, map[string]string{
+		"package.json":       `{"dependencies": {"tailwindcss": "3"}}`,
+		"tailwind.config.js": `module.exports = { theme: { extend: { colors: { paper: "#fff", ink: "#000", accent: "#06c" } } } }`,
+		"src/cards.tsx": `import { cva } from "class-variance-authority"
+const cardVariants = cva("rounded", { variants: { tone: { accent: "bg-accent" } } })
+export function Card() { return <div className={cardVariants({ tone: "accent" })} /> }
+export function Sheet() { return <div className="bg-paper" /> }
+export function Label() { return <span className="text-ink" /> }`,
+	}, false)
+	for holder, token := range map[string]string{
+		"src.cardVariants": "tailwind/colors.accent",
+		"src.Sheet":        "tailwind/colors.paper",
+		"src.Label":        "tailwind/colors.ink",
+	} {
+		f, ok := findFact(ff, holder)
+		if !ok {
+			t.Fatalf("no symbol %s", holder)
+		}
+		if !hasRelation(f, facts.RelNames, token) {
+			t.Errorf("%s does not name %s: %v", holder, token, f.Relations)
+		}
+	}
+	card, _ := findFact(ff, "src.Card")
+	if !hasRelation(card, facts.RelCalls, "src.cardVariants") {
+		t.Errorf("the component using the variants does not reach them: %v", card.Relations)
+	}
+}

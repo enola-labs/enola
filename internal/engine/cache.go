@@ -3264,7 +3264,9 @@ import (
 // with spreads and imports followed, v4 @theme) are constant symbols, and the
 // components of a Tailwind project name the tokens their class strings, and an
 // Angular component its template, use.
-const cacheVersion = "v472"
+// v473: TypeScript: a Tailwind class belongs to the declaration it is written in (a
+// component, a variants constant), found by line, not to the whole file.
+const cacheVersion = "v473"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
