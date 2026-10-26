@@ -3258,7 +3258,9 @@ import (
 // code on each side publishes or subscribes to, a Node event under its emitter;
 // event names written as exported constants are resolved. __fixtures__ is a test
 // segment.
-const cacheVersion = "v470"
+// v471: TypeScript: the code an event or GraphQL operation sits in is the nearest
+// declaration that is a symbol; a variable local to a function no longer stands for it.
+const cacheVersion = "v471"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
