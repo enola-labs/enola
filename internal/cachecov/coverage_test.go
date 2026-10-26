@@ -64,6 +64,8 @@ var versionCoverage = map[int][]string{
 	468: {"TestGraphQLFieldBindsToItsResolver", "TestGraphQLDocumentOperationIsSentByItsImporter", "TestGraphQLCodeFirstFieldBindsToItsMethod"},
 	469: {"TestRouterMount_RootRouteAndBareMount", "TestTestCalls_CypressRequestsVisitsAndOperations", "TestTestCalls_PlaywrightGotoAndRequest"},
 	470: {"TestEvents_SubscriberAndConstantNamedProducers", "TestEvents_DirectusNodeAndBullMQ", "TestEvents_NodeEventsBelongToTheirEmitter"},
+	471: {"TestEvents_LocalVariableClimbsToItsFunction", "TestEvents_NestedFunctionAndModuleLevelCode"},
+	472: {"TestTailwind_PresetTokensAndTheComponentsUsingThem", "TestTailwind_V4ThemeAndNoTailwind", "TestTailwind_PrefixAndCustomProperties", "TestTailwind_AngularTemplateBelongsToItsComponent"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},
 	438: {"TestExtract_StructUsage_StdlibAndRootPackages"},

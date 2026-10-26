@@ -18,13 +18,26 @@ const propCodeSymbol = "code_symbol"
 
 var graphqlRoots = map[string]bool{"Query": true, "Mutation": true, "Subscription": true}
 
-// graphqlEnclosingSymbol names the declaration n sits in, innermost first: a
-// variable (`const listQuery = gql\`...\“), a function, or a class method.
+// graphqlEnclosingSymbol names the declaration n sits in that is a symbol, innermost
+// first: a module-scope variable (const listQuery = gql`...`), a function, or a class
+// method. A variable local to a function is no symbol, so the walk goes on to the
+// declaration holding it.
 func graphqlEnclosingSymbol(kinds *tsutil.KindTable, n *sitter.Node, src []byte, relFile string) string {
 	dir := factpath.Dir(relFile)
 	for p := n.Parent(); p != nil; p = p.Parent() {
 		switch kindOf(kinds, p) {
-		case "variable_declarator", "function_declaration", "generator_function_declaration":
+		case "variable_declarator":
+			if !isModuleScopeDeclarator(kinds, p) {
+				continue
+			}
+			if name := p.ChildByFieldName("name"); name != nil && kindOf(kinds, name) == "identifier" {
+				return dir + "." + nodeText(name, src)
+			}
+		case "function_declaration", "generator_function_declaration":
+			// A function declared inside another is, like a local variable, no symbol.
+			if !isModuleScopeStatement(kinds, p) {
+				continue
+			}
 			if name := p.ChildByFieldName("name"); name != nil && kindOf(kinds, name) == "identifier" {
 				return dir + "." + nodeText(name, src)
 			}
@@ -185,4 +198,24 @@ func bindGraphQL(all []facts.Fact) {
 		}
 		delete(sends, f.Name)
 	}
+}
+
+// isModuleScopeDeclarator reports whether a variable_declarator is declared at the
+// top of the module, directly or exported.
+func isModuleScopeDeclarator(kinds *tsutil.KindTable, d *sitter.Node) bool {
+	return d.Parent() != nil && isModuleScopeStatement(kinds, d.Parent())
+}
+
+// isModuleScopeStatement reports whether a declaration statement sits at the top of
+// the module, directly or exported.
+func isModuleScopeStatement(kinds *tsutil.KindTable, stmt *sitter.Node) bool {
+	switch outer := stmt.Parent(); {
+	case outer == nil:
+		return false
+	case kindOf(kinds, outer) == "program":
+		return true
+	case kindOf(kinds, outer) == "export_statement":
+		return outer.Parent() != nil && kindOf(kinds, outer.Parent()) == "program"
+	}
+	return false
 }

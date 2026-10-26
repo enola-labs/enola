@@ -397,6 +397,11 @@ func bindEvents(all []facts.Fact, consts map[string]string) []facts.Fact {
 			}
 			f.Name = v
 		}
+		if sym == "" {
+			// Module-level code (a route callback, an exported defineHook): the file
+			// is what holds it.
+			sym = f.File
+		}
 		if sym != "" {
 			kind := facts.RelSubscribes
 			if f.PropString(facts.PropMessagingRole) == facts.MessagingRoleProducer {
@@ -408,7 +413,7 @@ func bindEvents(all []facts.Fact, consts map[string]string) []facts.Fact {
 	}
 	for i := range kept {
 		f := &kept[i]
-		if f.Kind != facts.KindSymbol {
+		if f.Kind != facts.KindSymbol && f.Kind != facts.KindFileRef {
 			continue
 		}
 		for _, r := range rels[f.Name] {

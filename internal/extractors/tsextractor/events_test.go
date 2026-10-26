@@ -148,3 +148,47 @@ export class Search extends EventEmitter {
 		t.Error("a bare event name merges unrelated emitters")
 	}
 }
+
+// An emit inside a local variable of a workflow is published by the workflow.
+func TestEvents_LocalVariableClimbsToItsFunction(t *testing.T) {
+	ff := extractAll(t, map[string]string{
+		"flows/complete.ts": `import { emitEventStep } from "@medusajs/framework/workflows-sdk"
+export const completeWorkflow = createWorkflow("complete", function (input) {
+  const order = transform({ input }, () => {
+    emitEventStep({ eventName: "widget.placed", data: {} })
+  })
+  return order
+})`,
+	}, false)
+	wf, _ := findFact(ff, "flows.completeWorkflow")
+	if !hasRelation(wf, facts.RelPublishes, "widget.placed") {
+		t.Errorf("the workflow holding the emit does not publish: %v", wf.Relations)
+	}
+}
+
+// A nested function is no symbol, and module-level code is held by its file.
+func TestEvents_NestedFunctionAndModuleLevelCode(t *testing.T) {
+	ff := extractAll(t, map[string]string{
+		"api/server.ts": `import emitter from "./emitter"
+import { helper } from "./helper"
+export async function startServer() {
+  async function onShutdown() { emitter.emitAction("server.stop", {}) }
+  helper(onShutdown)
+}
+router.post("/hook", async (req) => { emitter.emitAction("hook.received", {}) })`,
+		"api/helper.ts": `export function helper(f) { return f }`,
+	}, false)
+	start, _ := findFact(ff, "api.startServer")
+	if !hasRelation(start, facts.RelPublishes, "server.stop") {
+		t.Errorf("the function holding the nested one does not publish: %v", start.Relations)
+	}
+	held := false
+	for _, f := range ff {
+		if f.Kind == facts.KindFileRef && f.File == "api/server.ts" && hasRelation(f, facts.RelPublishes, "hook.received") {
+			held = true
+		}
+	}
+	if !held {
+		t.Error("module-level code's emit is not held by its file")
+	}
+}
