@@ -24,6 +24,7 @@ type vueScriptBlock struct {
 	IsSetup   bool
 	Lang      string // "ts", "tsx", "js", or ""
 	StartLine int    // 0-based line number where the script content begins
+	Attrs     string // the opening tag, attributes included
 }
 
 // extractVueScriptBlocks extracts all <script> blocks from a Vue SFC file.
@@ -63,6 +64,7 @@ func extractVueScriptBlocks(src []byte) []*vueScriptBlock {
 			IsSetup:   isSetup,
 			Lang:      lang,
 			StartLine: startLine,
+			Attrs:     attrs,
 		})
 
 		pos = closeIdx + len("</script>")
@@ -211,7 +213,7 @@ var vueCompilerMacroNames = map[string]bool{
 // buildVueImportBindings maps a template's local import spelling to the symbol
 // the imported file actually declares. Default imports may be freely renamed,
 // while a named import may have a different local alias.
-func buildVueImportBindings(kinds *tsutil.KindTable, root *sitter.Node, src []byte, relFile string, aliases map[string]tsAlias) emberImportBindings {
+func buildVueImportBindings(kinds *tsutil.KindTable, root *sitter.Node, src []byte, relFile string, aliases map[string]tsAlias, knownFiles map[string]bool) emberImportBindings {
 	b := emberImportBindings{internal: map[string]string{}, external: map[string]string{}, modules: map[string]string{}}
 	fileDir := factpath.Dir(relFile)
 	for i := range root.ChildCount() {
@@ -227,6 +229,13 @@ func buildVueImportBindings(kinds *tsutil.KindTable, root *sitter.Node, src []by
 		importPath := strings.Trim(nodeText(source, src), `"'`)
 		resolved, external := resolveImportPath(importPath, fileDir, aliases)
 		moduleDir := factpath.Dir(resolved)
+		if !external {
+			// A folder module (`~/composables/settings` -> settings/index.ts) owns
+			// its symbols under the folder itself, not under its parent.
+			if _, dir, ok := resolveModuleFile(resolved, knownFiles); ok {
+				moduleDir = dir
+			}
+		}
 		bind := func(local, target string) {
 			if local == "" {
 				return
@@ -734,7 +743,7 @@ func (e *TSExtractor) extractVueScriptBlock(kinds *tsutil.KindTable, block *vueS
 	defer tree.Close()
 
 	root := tree.RootNode()
-	bindings := buildVueImportBindings(kinds, root, block.Content, relFile, aliases)
+	bindings := buildVueImportBindings(kinds, root, block.Content, relFile, aliases, files.knownFiles())
 	// All three passes below look for the same thing — the compiler-macro call sites
 	// — so the tree is matched ONCE and the results shared. Each used to walk the
 	// whole script block in Go, which costs a heap allocation per node visited
@@ -764,6 +773,7 @@ func (e *TSExtractor) extractVueScriptBlock(kinds *tsutil.KindTable, block *vueS
 		importMap:    importMap,
 		memberRoots:  memberCallRoots(kinds, root, block.Content, factpath.Dir(relFile), internalImports),
 		imports:      buildEmberImportBindings(kinds, root, block.Content, relFile, aliases),
+		knownFiles:   files.knownFiles(),
 	}
 	decls := e.extractDeclarations(kinds, root, ctx)
 

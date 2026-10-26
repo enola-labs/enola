@@ -60,6 +60,7 @@ var versionCoverage = map[int][]string{
 	464: {"TestSwiftCallOnAStoredPropertyResolves"},
 	465: {"TestKotlinInvokingAValueCallsItsInvoke"},
 	466: {"TestExtract_VueSetupReferencesHangOffTheComponent", "TestExtract_PiniaStores", "TestExtract_VueGlobalComponentRegistration", "TestVueTemplateContent_NestedTemplates"},
+	467: {"TestViteAliases", "TestNuxtAliases", "TestViteHTMLModuleScripts", "TestBarrelExports", "TestVueImportOfAFolderModule"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},
 	438: {"TestExtract_StructUsage_StdlibAndRootPackages"},

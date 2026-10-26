@@ -36,6 +36,7 @@ func (e *TSExtractor) Extract(ctx context.Context, repoPath string, files []stri
 
 	a := assembleFileResults(perFile, tsFiles)
 	a.compose(repoPath, rc, templates)
+	a.facts = append(a.facts, e.viteHTMLFacts(ctx, repoPath, files, aliasRoots, rc)...)
 	a.facts = append(a.facts, a.coverageFacts(repoPath)...)
 
 	// One account per declared client in this repository, including a client that found
@@ -133,6 +134,7 @@ func newRepoCtx(fw tsFrameworks, tsFiles []string, sources map[string][]byte, kn
 		// Exported request helpers, read before the parallel pass for the same reason:
 		// a helper and the calls to it live in different files.
 		requestHelpers: buildRequestHelperIndex(tsFiles, sources),
+		barrels:        barrelExports(tsFiles, sources, knownFiles),
 	}
 	if fw.isNuxt {
 		rc.nuxtAutoComponents = nuxtAutoComponentIndex(knownFiles)
@@ -291,6 +293,7 @@ func (a *tsAssembly) compose(repoPath string, rc *repoCtx, templates map[string]
 	if rc.isNuxt {
 		resolveNuxtAutoComposableCalls(a.facts)
 	}
+	resolveBarrelCalls(a.facts, rc.barrels)
 	resolveMemberTypedCalls(a.facts)
 	settleIONamedCalls(a.facts, a.modules)
 	ioclosure.PropagateWith(a.facts, ioclosure.Options{

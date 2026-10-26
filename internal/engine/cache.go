@@ -3240,7 +3240,12 @@ import (
 // defineStore is a store whose setup or actions are walked, Nuxt auto-imports stores/
 // like composables/, an app.component() registration resolves template tags, and a
 // template is read to its balancing </template>, past nested slot templates.
-const cacheVersion = "v466"
+// v467: TypeScript: Vite resolve.alias, Nuxt built-in and configured aliases and
+// tsconfig.app.json resolve imports, recorded as resolved_via (or unresolved_reason
+// for a customResolver or a computed replacement); a Vite HTML entry's module
+// scripts are read; an import of a folder module binds to the folder, and a call
+// through a barrel index reaches the symbol it re-exports.
+const cacheVersion = "v467"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
