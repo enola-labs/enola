@@ -294,6 +294,7 @@ func (a *tsAssembly) compose(repoPath string, rc *repoCtx, templates map[string]
 		resolveNuxtAutoComposableCalls(a.facts)
 	}
 	resolveBarrelCalls(a.facts, rc.barrels)
+	bindGraphQL(a.facts)
 	resolveMemberTypedCalls(a.facts)
 	settleIONamedCalls(a.facts, a.modules)
 	ioclosure.PropagateWith(a.facts, ioclosure.Options{

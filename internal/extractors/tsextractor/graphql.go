@@ -354,7 +354,7 @@ func extractGraphQLCodeFirstAST(src []byte, relFile string, kinds *tsutil.KindTa
 
 	seen := map[string]bool{}
 	var out []facts.Fact
-	add := func(kind, name string, line int, source string) {
+	add := func(kind, name string, line int, source, codeSymbol string) {
 		if name == "" {
 			return
 		}
@@ -363,15 +363,19 @@ func extractGraphQLCodeFirstAST(src []byte, relFile string, kinds *tsutil.KindTa
 			return
 		}
 		seen[full] = true
-		out = append(out, facts.Fact{Kind: facts.KindRoute, Name: full, File: relFile, Line: line, Props: map[string]any{
+		f := facts.Fact{Kind: facts.KindRoute, Name: full, File: relFile, Line: line, Props: map[string]any{
 			"language": "typescript", "framework": "graphql-code-first",
 			facts.PropRole: facts.RoleServer, facts.PropRouteType: facts.RouteTypeGraphQL,
 			facts.PropSource: source,
-		}})
+		}}
+		if codeSymbol != "" {
+			f.SetProp(propCodeSymbol, codeSymbol)
+		}
+		out = append(out, f)
 	}
 
 	var walk func(*sitter.Node)
-	emitDecoratedMember := func(member *sitter.Node, decorators []*sitter.Node) {
+	emitDecoratedMember := func(member *sitter.Node, decorators []*sitter.Node, className string) {
 		if !decoratorEnabled {
 			return
 		}
@@ -399,7 +403,12 @@ func extractGraphQLCodeFirstAST(src []byte, relFile string, kinds *tsutil.KindTa
 				}
 				field = explicit
 			}
-			add(root, field, int(d.StartPosition().Row)+1, facts.RouteSourceGraphQLDecorator)
+			codeSymbol := ""
+			if className != "" {
+				// The decorated method is the resolver, whatever name the field has.
+				codeSymbol = factpath.Dir(relFile) + "." + className + "." + nodeText(method, src)
+			}
+			add(root, field, int(d.StartPosition().Row)+1, facts.RouteSourceGraphQLDecorator, codeSymbol)
 		}
 	}
 	walk = func(n *sitter.Node) {
@@ -408,6 +417,12 @@ func extractGraphQLCodeFirstAST(src []byte, relFile string, kinds *tsutil.KindTa
 		}
 		switch kindOf(kinds, n) {
 		case "class_body":
+			className := ""
+			if cls := n.Parent(); cls != nil {
+				if name := cls.ChildByFieldName("name"); name != nil {
+					className = nodeText(name, src)
+				}
+			}
 			var pending []*sitter.Node
 			for i := range n.ChildCount() {
 				member := n.Child(i)
@@ -419,7 +434,7 @@ func extractGraphQLCodeFirstAST(src []byte, relFile string, kinds *tsutil.KindTa
 					continue
 				}
 				if kindOf(kinds, member) == "method_definition" || kindOf(kinds, member) == "public_field_definition" {
-					emitDecoratedMember(member, pending)
+					emitDecoratedMember(member, pending, className)
 				}
 				pending = nil
 			}
@@ -432,12 +447,12 @@ func extractGraphQLCodeFirstAST(src []byte, relFile string, kinds *tsutil.KindTa
 				pothosCall := importedReceiverCall(kinds, fn, src, pothosBuilders)
 				switch {
 				case pothosEnabled && graphqlRootByFieldCall[pothosCall] != "":
-					add(graphqlRootByFieldCall[pothosCall], field, int(n.StartPosition().Row)+1, facts.RouteSourceGraphQLPothos)
+					add(graphqlRootByFieldCall[pothosCall], field, int(n.StartPosition().Row)+1, facts.RouteSourceGraphQLPothos, "")
 				case nexusEnabled && graphqlRootByFieldCall[nexusCall] != "":
 					root := graphqlRootByFieldCall[nexusCall]
-					add(root, field, int(n.StartPosition().Row)+1, facts.RouteSourceGraphQLNexus)
+					add(root, field, int(n.StartPosition().Row)+1, facts.RouteSourceGraphQLNexus, "")
 					for _, f := range nexusCallbackFields(kinds, args, src) {
-						add(root, f.name, f.line, facts.RouteSourceGraphQLNexus)
+						add(root, f.name, f.line, facts.RouteSourceGraphQLNexus, "")
 					}
 				case nexusEnabled && (nexusCall == "queryType" || nexusCall == "mutationType" || nexusCall == "subscriptionType" || nexusCall == "extendType"):
 					root := graphqlRootByDeclaration[nexusCall]
@@ -450,7 +465,7 @@ func extractGraphQLCodeFirstAST(src []byte, relFile string, kinds *tsutil.KindTa
 					}
 					if root != "" {
 						for _, f := range nexusDefinitionFields(kinds, obj, src) {
-							add(root, f.name, f.line, facts.RouteSourceGraphQLNexus)
+							add(root, f.name, f.line, facts.RouteSourceGraphQLNexus, "")
 						}
 					}
 				}
@@ -681,6 +696,14 @@ func graphQLServerASTSignals(src []byte, relFile string) (bool, []string) {
 				if name == "buildSchema" || name == "makeExecutableSchema" || name == "graphqlHTTP" {
 					server = true
 				}
+			}
+		case "string":
+			// A schema loaded by path: loadSchemaSync(join(__dirname, './schema.graphql')),
+			// readFileSync(path.resolve(__dirname, 'schema.graphql')). Relative to the
+			// file either way; a glob is not expanded.
+			path := strings.Trim(nodeText(n, src), `"'`)
+			if isGraphQLDocFile(path) && !strings.ContainsAny(path, "*?{") && !strings.HasPrefix(path, "/") && insideCallArguments(kinds, n) {
+				gqlImports = append(gqlImports, factpath.Clean(factpath.Join(factpath.Dir(relFile), path)))
 			}
 		}
 		for i := range n.ChildCount() {
@@ -1058,8 +1081,12 @@ func extractGraphQLTagFactsAST(src []byte, relFile string, kinds *tsutil.KindTab
 						body := nodeText(n, src)
 						if len(body) >= 2 {
 							body = body[1 : len(body)-1]
+							codeSymbol := graphqlEnclosingSymbol(kinds, parent, src, relFile)
 							for _, f := range extractGraphQLClientOps(body, relFile, facts.RouteSourceGraphQLTag) {
 								f.Line += int(n.StartPosition().Row)
+								if codeSymbol != "" {
+									f.SetProp(propCodeSymbol, codeSymbol)
+								}
 								out = append(out, f)
 							}
 						}

@@ -4,6 +4,8 @@ package unmatchedroutes
 import (
 	"context"
 	"log"
+	"path"
+	"strings"
 
 	"github.com/enola-labs/enola/internal/facts"
 	"github.com/enola-labs/enola/internal/linkers/crossrepo/routeindex"
@@ -85,6 +87,7 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 	// markers are the same two, because "no client calls this endpoint" is the
 	// same claim whether the endpoint is a path or a root field.
 	evaluatedOps, unmatchedOps := graphqlsig.ServerOperationVerdicts(all)
+	gqlReasons := graphqlUnresolvedReasons(all)
 	clientKeys := httpsignal.UnmatchedClientRouteKeys(b.m, all)
 	clientMatches := httpsignal.ClientRouteMatches(b.m, all)
 
@@ -105,6 +108,13 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 		if f.Props != nil && f.PropAny(facts.PropRole) == facts.RoleClient {
 			f.DelProp(PropUnmatchedByClients)
 			f.DelProp(PropUnreachedByClients)
+			if f.PropString(facts.PropRouteType) == facts.RouteTypeGraphQL {
+				if reason := gqlReasons[graphqlsig.OperationIdentity(*f)+"\x00"+f.Repo+"\x00"+f.File]; reason != "" {
+					f.SetProp(PropGraphQLUnresolvedReason, reason)
+				} else {
+					f.DelProp(PropGraphQLUnresolvedReason)
+				}
+			}
 			// The positive verdict, and the half a consumer walks: which server
 			// routes this call reaches. Cleared when the call no longer resolves,
 			// for the same idempotency across appends as the markers.
@@ -245,4 +255,72 @@ func matchedRoutesProp(matches []httpsignal.RouteMatch) []any {
 		})
 	}
 	return out
+}
+
+// PropGraphQLUnresolvedReason says why no loaded schema answers a GraphQL client
+// operation. It is not unmatched_by_server: that verdict, and the coverage counts
+// read from it, belong to the HTTP linker.
+const PropGraphQLUnresolvedReason = "unresolved_reason"
+
+// Reasons for PropGraphQLUnresolvedReason.
+const (
+	// GraphQLNoSchemaInRepo: nothing in the operation's package talks to a schema of
+	// this repository; its server is elsewhere (a hosted API, a repository not loaded).
+	GraphQLNoSchemaInRepo = "no-server-schema-in-repo"
+	// GraphQLFieldNotFound: the package does use a schema of this repository, and
+	// no root field enola read from it answers the operation. It says what was read,
+	// not that the field is absent: a schema declared in a form no extractor reads
+	// (graphql-ruby's mount_mutation, a stitched remote) lands here too.
+	GraphQLFieldNotFound = "field-not-found"
+)
+
+// graphqlUnresolvedReasons decides, for every client operation no loaded schema
+// declares, why. Its server is the one its package talks to: if the package
+// declares fields itself, or another of its operations is answered by this
+// repository, no field read from that schema answers it; otherwise that schema is
+// not in this repository. A package is the nearest directory with a package.json. Keyed
+// by operation identity, repo and file.
+func graphqlUnresolvedReasons(all []facts.Fact) map[string]string {
+	served := map[string]bool{}
+	pkgDirs := map[string][]string{}
+	for _, f := range all {
+		if path.Base(f.File) == "package.json" {
+			pkgDirs[f.Repo] = append(pkgDirs[f.Repo], path.Dir(f.File))
+		}
+		if isGraphQLRole(f, facts.RoleServer) {
+			served[f.Name] = true
+		}
+	}
+	packageOf := func(repo, file string) string {
+		best := ""
+		for _, d := range pkgDirs[repo] {
+			if d != "." && strings.HasPrefix(file, d+"/") && len(d) > len(best) {
+				best = d
+			}
+		}
+		return repo + "\x00" + best
+	}
+	serving := map[string]bool{}
+	for _, f := range all {
+		if isGraphQLRole(f, facts.RoleServer) || (isGraphQLRole(f, facts.RoleClient) && served[f.Name]) {
+			serving[packageOf(f.Repo, f.File)] = true
+		}
+	}
+	out := map[string]string{}
+	for _, f := range all {
+		if !isGraphQLRole(f, facts.RoleClient) || served[f.Name] {
+			continue
+		}
+		reason := GraphQLNoSchemaInRepo
+		if serving[packageOf(f.Repo, f.File)] {
+			reason = GraphQLFieldNotFound
+		}
+		out[graphqlsig.OperationIdentity(f)+"\x00"+f.Repo+"\x00"+f.File] = reason
+	}
+	return out
+}
+
+func isGraphQLRole(f facts.Fact, role string) bool {
+	return f.Kind == facts.KindRoute && f.PropString(facts.PropRouteType) == facts.RouteTypeGraphQL &&
+		f.PropString(facts.PropRole) == role
 }

@@ -470,3 +470,51 @@ func TestServerRouteCarriesTheStrongestClientTrigger(t *testing.T) {
 		t.Errorf("export: no client calls it, the stale trigger must be cleared, got %+v", e)
 	}
 }
+
+func graphqlOp(repo, file, name, role string) facts.Fact {
+	f := graphqlRouteFact(repo, name, role)
+	f.File = file
+	return f
+}
+
+// An operation no loaded schema answers says why, from where its package's server is:
+// the dashboard talks to a hosted API, so the schema is not in the repository, even
+// though another package of it serves GraphQL; the app's other operation is answered
+// here, so no field read from that schema answers its missing one; an operation another loaded
+// repository answers carries no reason at all.
+func TestGraphQLUnresolvedReasons(t *testing.T) {
+	store := facts.NewStore()
+	store.Add(
+		facts.Fact{Kind: facts.KindDependency, Name: "dashboard -> react", File: "dashboard/package.json", Repo: "mono"},
+		facts.Fact{Kind: facts.KindDependency, Name: "functions -> graphql", File: "functions/package.json", Repo: "mono"},
+		graphqlOp("mono", "functions/schema.ts", "Query.hello", facts.RoleServer),
+		graphqlOp("mono", "dashboard/src/gql/widget.graphql", "Mutation.retireWidget", facts.RoleClient),
+		graphqlOp("mono", "web/src/q.ts", "Query.hello", facts.RoleClient),
+		graphqlOp("mono", "web/src/q.ts", "Query.helo", facts.RoleClient),
+		graphqlOp("client", "src/stats.js", "Query.pageViews", facts.RoleClient),
+		graphqlOp("api", "schema.graphql", "Query.pageViews", facts.RoleServer),
+	)
+	store.UpdateWhere(func(f *facts.Fact) {
+		if f.Name == "Query.pageViews" && f.Repo == "client" {
+			f.SetProp(PropGraphQLUnresolvedReason, "stale")
+		}
+	})
+	bind(t, store)
+	want := map[string]string{
+		"Mutation.retireWidget": GraphQLNoSchemaInRepo,
+		"Query.helo":            GraphQLFieldNotFound,
+		"Query.hello":           "",
+		"Query.pageViews":       "",
+	}
+	for _, f := range store.All() {
+		if f.Kind != facts.KindRoute || f.PropString(facts.PropRole) != facts.RoleClient {
+			continue
+		}
+		if got := f.PropString(PropGraphQLUnresolvedReason); got != want[f.Name] {
+			t.Errorf("%s (%s): unresolved_reason %q, want %q", f.Name, f.Repo, got, want[f.Name])
+		}
+		if f.PropBool(PropUnmatchedByServer) {
+			t.Errorf("%s: a GraphQL operation must not carry the HTTP verdict", f.Name)
+		}
+	}
+}
