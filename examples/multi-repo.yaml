@@ -48,6 +48,10 @@ ignore:
   - "**/*.test.tsx"
   - "**/*.spec.ts"
   - "**/*.spec.tsx"
+  - "**/*.cy.ts"
+  - "**/*.cy.tsx"
+  - "**/*.cy.js"
+  - "**/*.cy.jsx"
   # Kotlin / Android build and cache
   - "build/**"
   - "**/build/**"

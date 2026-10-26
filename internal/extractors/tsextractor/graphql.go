@@ -59,6 +59,11 @@ func hasGraphQLBuildSegment(path string) bool {
 
 // extractGraphQLClientOps scans text (a gql template body or a .graphql file)
 // for operations and returns one client route per root field.
+// propGraphQLOperation is the name a client operation declares (`query ListUsers`).
+const propGraphQLOperation = "operation"
+
+var graphqlOperationNameRe = regexp.MustCompile(`[_A-Za-z][_0-9A-Za-z]*`)
+
 func extractGraphQLClientOps(text, relFile, source string) []facts.Fact {
 	var out []facts.Fact
 	seen := map[string]bool{}
@@ -66,13 +71,15 @@ func extractGraphQLClientOps(text, relFile, source string) []facts.Fact {
 	for _, m := range heads {
 		kind := text[m[2]:m[3]]
 		kindName := strings.ToUpper(kind[:1]) + kind[1:]
+		// The operation name is what a test intercepting by operationName matches.
+		operation := graphqlOperationNameRe.FindString(text[m[3]:m[1]])
 		for _, field := range gqlscan.RootFields(text[m[1]:]) {
 			full := kindName + "." + field
 			if seen[full] {
 				continue
 			}
 			seen[full] = true
-			out = append(out, facts.Fact{
+			f := facts.Fact{
 				Kind: facts.KindRoute,
 				Name: full,
 				File: relFile,
@@ -84,7 +91,11 @@ func extractGraphQLClientOps(text, relFile, source string) []facts.Fact {
 					facts.PropRouteType: facts.RouteTypeGraphQL,
 					facts.PropSource:    source,
 				},
-			})
+			}
+			if operation != "" {
+				f.SetProp(propGraphQLOperation, operation)
+			}
+			out = append(out, f)
 		}
 	}
 	// GraphQL's query shorthand omits the `query` keyword and operation name.

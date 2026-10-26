@@ -263,6 +263,12 @@ func Default() *Config {
 			"**/*.test.tsx",
 			"**/*.spec.ts",
 			"**/*.spec.tsx",
+			// Cypress specs: *.cy.{ts,tsx,js,jsx} is the suffix the runner itself
+			// discovers, so, like *.spec.ts, no production file uses it.
+			"**/*.cy.ts",
+			"**/*.cy.tsx",
+			"**/*.cy.js",
+			"**/*.cy.jsx",
 			// Ember's test convention is a HYPHENATED suffix under tests/ —
 			// ember-cli generates and qunit discovers tests/**/*-test.{js,ts,gjs,gts}.
 			// The directory is demanded for the same reason Ruby's is below: a bare
@@ -501,6 +507,7 @@ func Default() *Config {
 		TestGlobs: []string{
 			"**/*_test.go",
 			"**/*.test.ts", "**/*.test.tsx", "**/*.spec.ts", "**/*.spec.tsx",
+			"**/*.cy.ts", "**/*.cy.tsx", "**/*.cy.js", "**/*.cy.jsx",
 			"**/tests/**/*-test.js", "**/tests/**/*-test.ts",
 			"**/tests/**/*-test.gjs", "**/tests/**/*-test.gts",
 			"**/spec/**/*_spec.rb", "**/test/**/*_test.rb",

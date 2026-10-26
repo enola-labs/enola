@@ -5,7 +5,7 @@ exit: 0
   revisions  2 — 1 kept under policy keep-last 1
 
 Removed 1 revision(s) (3 KB):
-  ae4e143  <TIME>  go_sample  (pushed by <HOST>)
+  abd939e  <TIME>  go_sample  (pushed by <HOST>)
 
 The prune is recorded in the chain: readers see these as pruned, never as missing.
 --- stderr

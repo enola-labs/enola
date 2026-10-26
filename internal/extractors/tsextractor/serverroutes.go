@@ -208,13 +208,14 @@ func extractServerRouteFacts(src []byte, relFile string) []facts.Fact {
 // cleanServerPath accepts a declared route path, rejecting the ones that carry no
 // architectural signal: a non-rooted literal, and a bare catch-all. `app.get('*')` is
 // a SPA fallback rather than an endpoint, and indexing it would let it match any
-// client path at all.
+// client path at all. A plain "/" is kept: on a router it is the mount point itself
+// (`router.get('/')` under `app.use('/accounts', router)` serves GET /accounts).
 func cleanServerPath(raw string) (string, bool) {
 	p := strings.TrimSpace(raw)
 	if !strings.HasPrefix(p, "/") {
 		return "", false
 	}
-	if trimmed := strings.Trim(p, "/*"); trimmed == "" {
+	if strings.Contains(p, "*") && strings.Trim(p, "/*") == "" {
 		return "", false
 	}
 	return p, true

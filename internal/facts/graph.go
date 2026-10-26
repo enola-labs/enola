@@ -1829,7 +1829,7 @@ func (g *Graph) ArchitecturalFanOut(name string) int {
 // its relation kind. Callers hold the lock.
 func (g *Graph) isArchitecturalForwardEdge(relID uint16) bool {
 	rk := g.relName(relID)
-	return rk != RelHasMethod && rk != RelNames
+	return rk != RelHasMethod && rk != RelNames && rk != RelExercises
 }
 
 // isArchitecturalEdge applies the coupling filter to one incoming edge, given its
@@ -1887,6 +1887,7 @@ var kindForRel = map[string]string{
 	RelDeclares:      KindSymbol,
 	RelHandledBy:     KindRoute,
 	RelImplementedBy: KindSymbol,
+	RelExercises:     KindRoute,
 }
 
 // kindRank orders fact kinds for picking among same-named facts when there is no edge

@@ -62,6 +62,7 @@ var versionCoverage = map[int][]string{
 	466: {"TestExtract_VueSetupReferencesHangOffTheComponent", "TestExtract_PiniaStores", "TestExtract_VueGlobalComponentRegistration", "TestVueTemplateContent_NestedTemplates"},
 	467: {"TestViteAliases", "TestNuxtAliases", "TestViteHTMLModuleScripts", "TestBarrelExports", "TestVueImportOfAFolderModule"},
 	468: {"TestGraphQLFieldBindsToItsResolver", "TestGraphQLDocumentOperationIsSentByItsImporter", "TestGraphQLCodeFirstFieldBindsToItsMethod"},
+	469: {"TestRouterMount_RootRouteAndBareMount", "TestTestCalls_CypressRequestsVisitsAndOperations", "TestTestCalls_PlaywrightGotoAndRequest"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},
 	438: {"TestExtract_StructUsage_StdlibAndRootPackages"},

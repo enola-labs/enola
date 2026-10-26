@@ -472,7 +472,7 @@ func effectiveMaxDepth(maxDepth int) int {
 type traverseArgs struct {
 	Start         string   `json:"start" jsonschema:"Starting node (fact, module or symbol name), substring match. Disambiguate with repo:, kind:, file: prefixes or a package-qualified name, e.g. 'repo:go-auth kind:struct AuthHandler' or 'domain/cart.CartService'. An ambiguous name returns ranked candidates with confidence."`
 	Direction     string   `json:"direction,omitempty" jsonschema:"'forward' (default) follows outgoing relations, 'reverse' incoming ones."`
-	RelationKinds []string `json:"relation_kinds,omitempty" jsonschema:"Relations to follow: imports, calls, declares, implements, depends_on, has_method. Default: all."`
+	RelationKinds []string `json:"relation_kinds,omitempty" jsonschema:"Relations to follow: imports, calls, declares, implements, depends_on, has_method, handled_by (route to its handler or resolver), exercises (test to the route or operation it hits). Default: all."`
 	MaxDepth      int      `json:"max_depth,omitempty" jsonschema:"Maximum depth (1-20). Default 5."`
 	MaxNodes      int      `json:"max_nodes,omitempty" jsonschema:"Maximum nodes (1-500); the walk stops there. Default 100."`
 	NodeKinds     []string `json:"node_kinds,omitempty" jsonschema:"Filters the output, not the walk: module, symbol, dependency, route, storage. Default: all."`

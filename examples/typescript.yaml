@@ -16,6 +16,10 @@ ignore:
   - "**/*.test.tsx"
   - "**/*.spec.ts"
   - "**/*.spec.tsx"
+  - "**/*.cy.ts"
+  - "**/*.cy.tsx"
+  - "**/*.cy.js"
+  - "**/*.cy.jsx"
   # Next.js / build and cache
   - ".next/**"
   - "out/**"

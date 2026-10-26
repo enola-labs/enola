@@ -3249,7 +3249,11 @@ import (
 // handled_by its resolver (the decorated method, or the one resolver-map member named
 // Root.field), and the code an operation is written in, or the code importing its
 // .graphql document, calls it.
-const cacheVersion = "v468"
+// v469: TypeScript: an Express router's "/" is its mount point and app.use(router)
+// mounts at the parent's root; Cypress *.cy.* files are tests; a test file records
+// the requests, page visits and GraphQL operations it hits; a client operation
+// records its operation name.
+const cacheVersion = "v469"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

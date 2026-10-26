@@ -110,6 +110,17 @@ var testFileSuffixes = []string{
 	// on one real NestJS API that was 500+ supertest calls turned into client routes,
 	// which fabricated a cross-repo dependency edge out of test traffic.
 	".e2e-spec.ts", ".e2e-spec.tsx", ".e2e.ts", ".e2e.tsx",
+	// Cypress specs, end-to-end and component (`Button.cy.tsx` beside Button.tsx):
+	// the suffix the runner discovers, so, like `.e2e.ts`, tool-enforced.
+	".cy.ts", ".cy.tsx", ".cy.js", ".cy.jsx",
+}
+
+// testRunnerConfigs are the config files a browser-test runner loads. Cypress runs
+// its node events (seeding, tasks, plugins) from cypress.config.*, so an HTTP call
+// written there is test setup, not a request the application makes.
+var testRunnerConfigs = map[string]bool{
+	"cypress.config.ts": true, "cypress.config.js": true, "cypress.config.mjs": true, "cypress.config.cjs": true,
+	"playwright.config.ts": true, "playwright.config.js": true, "playwright.config.mjs": true,
 }
 
 // IsTestSourceSet reports whether segs[i] names a Gradle test source set: a
@@ -221,5 +232,5 @@ func IsTestPath(p string) bool {
 	// conftest.py is pytest's plugin/config file: the name is exact and reserved by
 	// the runner, so unlike the `test_*.py` discovery prefix it cannot collide with
 	// a production module.
-	return base == "conftest.py"
+	return base == "conftest.py" || testRunnerConfigs[base]
 }
