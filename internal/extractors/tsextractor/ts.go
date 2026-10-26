@@ -1058,11 +1058,17 @@ func (e *TSExtractor) variableFacts(kinds *tsutil.KindTable, node, decl *sitter.
 	// is a plain variable.
 	symbolKind := facts.SymbolVariable
 	var body *sitter.Node
+	piniaStore := false
 	if v := functionValue(kinds, decl); v != nil {
 		symbolKind = facts.SymbolFunc
 		body = v
 	} else if call := findChildByKind(kinds, decl, "call_expression"); call != nil && isComponentWrapper(kinds, call, src) {
 		symbolKind = facts.SymbolFunc
+		body = call
+	} else if call != nil && isPiniaDefineStore(kinds, call, src) {
+		// A store stays a variable, but what its setup function or actions call is
+		// what the store depends on, so the call is walked like a body.
+		piniaStore = true
 		body = call
 	}
 
@@ -1095,6 +1101,10 @@ func (e *TSExtractor) variableFacts(kinds *tsutil.KindTable, node, decl *sitter.
 		applyTSMetrics(f.Props, vMetrics)
 	}
 	classifySymbol(kinds, &f, symbolName, body, ctx, symbolKind)
+	if piniaStore {
+		f.SetProp("web_component", "store")
+		f.SetProp("framework", "pinia")
+	}
 	result := []facts.Fact{f}
 	if symbolKind == facts.SymbolVariable {
 		result = append(result, objectMemberSymbols(kinds, decl.ChildByFieldName("value"), ctx, symbolName, isExported)...)
@@ -1822,6 +1832,14 @@ func isComponentWrapper(kinds *tsutil.KindTable, call *sitter.Node, src []byte) 
 		}
 	}
 	return name == "memo" || name == "forwardRef"
+}
+
+// isPiniaDefineStore reports a `defineStore(...)` call, in either the options
+// form (`defineStore('id', { state, actions })`, `defineStore({ id, … })`) or the
+// setup form (`defineStore('id', () => { … })`).
+func isPiniaDefineStore(kinds *tsutil.KindTable, call *sitter.Node, src []byte) bool {
+	fn := call.ChildByFieldName("function")
+	return fn != nil && kindOf(kinds, fn) == "identifier" && nodeText(fn, src) == "defineStore"
 }
 
 func findChildByKind(kinds *tsutil.KindTable, node *sitter.Node, kind string) *sitter.Node {

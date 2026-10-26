@@ -388,7 +388,8 @@ func vueRouterComponentTarget(kinds *tsutil.KindTable, value *sitter.Node, src [
 }
 
 // resolveNuxtAutoComposableCalls rewrites only dangling useXxx targets to one
-// unambiguous exported declaration under a composables directory.
+// unambiguous exported declaration under a composables directory, or under a
+// stores directory, which @pinia/nuxt auto-imports the same way.
 func resolveNuxtAutoComposableCalls(all []facts.Fact) {
 	exists := make(map[string]bool)
 	candidates := make(map[string]map[string]bool)
@@ -400,7 +401,7 @@ func resolveNuxtAutoComposableCalls(all []facts.Fact) {
 		parts := strings.Split(filepath.ToSlash(f.File), "/")
 		underComposables := false
 		for _, part := range parts[:max(0, len(parts)-1)] {
-			if part == "composables" {
+			if part == "composables" || part == "stores" {
 				underComposables = true
 				break
 			}
