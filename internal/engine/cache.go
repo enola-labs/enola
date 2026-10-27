@@ -3277,7 +3277,9 @@ import (
 // v478: C#: symbols carry their span (end_line), a minimal-API lambda handler its lambda,
 // a Razor component and a XAML view their whole file. F# and VB.NET carry none yet.
 // v479: PHP and Rust: symbols carry their span (end_line).
-const cacheVersion = "v479"
+// v480: Swift and Dart: symbols carry their span (end_line), a Dart method or function
+// to the end of its body, which the grammar parses as a sibling of the signature.
+const cacheVersion = "v480"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
