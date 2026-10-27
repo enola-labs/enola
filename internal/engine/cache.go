@@ -3274,7 +3274,9 @@ import (
 // its declaration, an exported var or const its spec, an interface method its signature.
 // v477: Java, Kotlin and Scala: symbols carry their span (end_line), a recovered Kotlin
 // declaration to the end of its body.
-const cacheVersion = "v477"
+// v478: C#: symbols carry their span (end_line), a minimal-API lambda handler its lambda,
+// a Razor component and a XAML view their whole file. F# and VB.NET carry none yet.
+const cacheVersion = "v478"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

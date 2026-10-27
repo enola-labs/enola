@@ -71,6 +71,7 @@ var versionCoverage = map[int][]string{
 	475: {"TestSymbolSpans"},
 	476: {"TestSymbolSpans"},
 	477: {"TestSymbolSpans", "TestSymbolSpans_RecoveredDeclarations"},
+	478: {"TestSymbolSpans"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},
 	438: {"TestExtract_StructUsage_StdlibAndRootPackages"},
