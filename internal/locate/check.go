@@ -1,6 +1,10 @@
 package locate
 
-import "sort"
+import (
+	"sort"
+
+	"github.com/enola-labs/enola/internal/facts"
+)
 
 // Stamp is a symbol as something remembered it: its id and the version of its body at
 // the time. Name and SymbolKind are optional; without them a symbol that moved to
@@ -11,6 +15,10 @@ type Stamp struct {
 	BodyHash   string `json:"body_hash,omitempty"`
 	Name       string `json:"name,omitempty"`
 	SymbolKind string `json:"symbol_kind,omitempty"`
+	// CitedHash and CitedLines are the version of the lines the remembered location
+	// cited, as locate reported them (LocationResult). Optional.
+	CitedHash  string `json:"cited_hash,omitempty"`
+	CitedLines int    `json:"cited_lines,omitempty"`
 }
 
 // What became of a stamped symbol.
@@ -31,11 +39,24 @@ const (
 	StatusGone = "gone"
 )
 
+// What became of the lines a stamp cited, beside what became of its function.
+const (
+	// CitedIntact is the cited lines still inside the function's body, wherever in it:
+	// whatever changed in the function, it was not them.
+	CitedIntact = "intact"
+	// CitedChanged is the cited lines no longer found in the function's body.
+	CitedChanged = "changed"
+)
+
 // CheckResult is what became of one stamp.
 type CheckResult struct {
-	Stamp      Stamp    `json:"stamp"`
-	Status     string   `json:"status"`
-	Symbol     *Symbol  `json:"symbol,omitempty"`
+	Stamp  Stamp   `json:"stamp"`
+	Status string  `json:"status"`
+	Symbol *Symbol `json:"symbol,omitempty"`
+	// Cited is what became of the cited lines, when the stamp carries their version and
+	// the symbol is still there: CitedIntact or CitedChanged. Empty when that cannot be
+	// told (no cited version, no source to read, a symbol with no span, or gone).
+	Cited      string   `json:"cited,omitempty"`
 	Candidates []Symbol `json:"candidates,omitempty"`
 }
 
@@ -52,6 +73,45 @@ func (ix *Index) Check(stamps []Stamp) []CheckResult {
 }
 
 func (ix *Index) check(st Stamp) CheckResult {
+	r := ix.checkSymbol(st)
+	r.Cited = ix.cited(st, r)
+	return r
+}
+
+// cited reports whether the stamp's cited lines are still in the symbol it resolved to.
+//
+// A function's version changes with any edit to it, and a note about three lines of a
+// four-hundred-line handler is not made wrong by an edit two hundred lines away. The
+// cited lines are looked for as a run anywhere in the current body, so code inserted
+// above them, or the function moving, leaves them intact.
+func (ix *Index) cited(st Stamp, r CheckResult) string {
+	if st.CitedHash == "" || st.CitedLines <= 0 || r.Symbol == nil {
+		return ""
+	}
+	switch r.Status {
+	case StatusCurrent, StatusMoved:
+		return CitedIntact // the same body holds the same lines
+	case StatusRewritten:
+	default:
+		return ""
+	}
+	content, ok := ix.read(r.Symbol.File)
+	if !ok || !r.Symbol.spanned() {
+		return ""
+	}
+	body, inside := facts.NormalizedLines(content, r.Symbol.Line, r.Symbol.EndLine)
+	if !inside {
+		return ""
+	}
+	for i := 0; i+st.CitedLines <= len(body); i++ {
+		if facts.HashLines(body[i:i+st.CitedLines]) == st.CitedHash {
+			return CitedIntact
+		}
+	}
+	return CitedChanged
+}
+
+func (ix *Index) checkSymbol(st Stamp) CheckResult {
 	r := CheckResult{Stamp: st}
 	if same := ix.byID[st.ID]; len(same) > 0 {
 		// An id can cover several facts (the same declaration recorded twice); the one

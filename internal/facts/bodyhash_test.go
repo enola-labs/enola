@@ -31,3 +31,21 @@ func TestBodyHash(t *testing.T) {
 		}
 	}
 }
+
+// The lines a caller hashes itself are the lines BodyHash hashes, so a run of them found
+// inside a body compares equal to a version taken from that body.
+func TestNormalizedLinesHashLikeBodyHash(t *testing.T) {
+	src := []byte("a\n\n  b  \n\tc\n\n")
+	for _, span := range [][2]int{{1, 4}, {2, 3}, {2, 2}, {1, 1}, {4, 9}} {
+		lines, ok := NormalizedLines(src, span[0], span[1])
+		if !ok {
+			t.Fatalf("span %v: not inside src", span)
+		}
+		if got, want := HashLines(lines), BodyHash(src, span[0], span[1]); got != want {
+			t.Errorf("span %v: HashLines %q, BodyHash %q", span, got, want)
+		}
+	}
+	if _, ok := NormalizedLines(src, 9, 12); ok {
+		t.Error("a span past the end is not inside src")
+	}
+}

@@ -3,9 +3,11 @@ package server
 import (
 	"context"
 	"fmt"
+	"os"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/enola-labs/enola/internal/facts"
 	"github.com/enola-labs/enola/internal/locate"
 )
 
@@ -24,9 +26,8 @@ const maxLocateInputs = 500
 // something that survives the code moving.
 func (s *Server) registerLocateTool() {
 	mcp.AddTool(s.mcp, &mcp.Tool{
-		Name: "locate",
-		Description: "Source places to symbols and back. locations (file:line) or a git diff give the innermost symbols with fact id and body_hash, the version of their code. " +
-			"stamps [{id, body_hash, name}] come back current, rewritten, moved or gone.",
+		Name:        "locate",
+		Description: "file:line or diff to innermost symbols: fact id, body_hash (code version), cited_hash (cited lines). Stamps: current, rewritten, moved, gone; cited intact or changed.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args locateArgs) (*mcp.CallToolResult, any, error) {
 		if len(args.Locations) == 0 && args.Diff == "" && len(args.Stamps) == 0 {
 			return errorResult("locate needs locations, a diff or stamps"), nil, nil
@@ -41,6 +42,10 @@ func (s *Server) registerLocateTool() {
 		// FactsRef: NewIndex copies the few fields it keeps and neither retains nor
 		// mutates the slice.
 		ix := locate.NewIndex(store.FactsRef())
+		ix.SetSource(func(repo, file string) ([]byte, bool) {
+			content, err := os.ReadFile(s.eng.ResolveFactFile(&facts.Fact{Repo: repo, File: file}))
+			return content, err == nil
+		})
 
 		var out struct {
 			Locations []locate.LocationResult `json:"locations,omitempty"`

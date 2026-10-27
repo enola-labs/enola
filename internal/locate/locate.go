@@ -58,6 +58,42 @@ type Index struct {
 	// measures spans, so a line no span holds is genuinely outside every symbol rather
 	// than unmeasured.
 	spans map[string]bool
+	// source reads a graph file's current content; nil when there is no source to read
+	// (a stored snapshot, a recorded revision). See SetSource.
+	source  Source
+	sources map[string][]byte
+}
+
+// Source reads the current content of a file the graph names, given the repository
+// label its facts carry. ok is false when it cannot be read.
+type Source func(repo, file string) (content []byte, ok bool)
+
+// SetSource lets the index read files, which is what the cited-lines version needs: the
+// facts hold a body's hash but not its lines. Without a source the index answers from
+// the facts alone and reports no cited version.
+func (ix *Index) SetSource(src Source) {
+	ix.source = src
+	ix.sources = map[string][]byte{}
+}
+
+// read returns a graph file's content through the source, once per file per index.
+func (ix *Index) read(file string) ([]byte, bool) {
+	if ix.source == nil {
+		return nil, false
+	}
+	if content, seen := ix.sources[file]; seen {
+		return content, content != nil
+	}
+	repo := ""
+	if ss := ix.byFile[file]; len(ss) > 0 {
+		repo = ss[0].Repo
+	}
+	content, ok := ix.source(repo, file)
+	if !ok {
+		content = nil
+	}
+	ix.sources[file] = content
+	return content, ok
 }
 
 // NewIndex indexes the symbol facts among ff. It keeps only the fields a lookup reports,

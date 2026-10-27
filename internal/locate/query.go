@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/enola-labs/enola/internal/facts"
 )
 
 // maxRange caps the lines one location range may span, so a typo such as `a.ts:1-999999`
@@ -22,7 +24,14 @@ type LocationResult struct {
 	Symbols []Symbol `json:"symbols,omitempty"`
 	// Candidates are the graph files a path matched when it matched more than one.
 	Candidates []string `json:"candidates,omitempty"`
-	Error      string   `json:"error,omitempty"`
+	// CitedHash is the version of the cited lines themselves, normalized as a body is
+	// (facts.HashLines), and CitedLines how many non-blank lines it covers. A stamp that
+	// keeps both can later be told apart from its function: the function rewritten, the
+	// lines it cites still there. Set only when the index can read the source, and the
+	// location cites at least one non-blank line.
+	CitedHash  string `json:"cited_hash,omitempty"`
+	CitedLines int    `json:"cited_lines,omitempty"`
+	Error      string `json:"error,omitempty"`
 }
 
 // Locations resolves each `file:line` or `file:start-end`.
@@ -47,6 +56,12 @@ func (ix *Index) location(loc string) LocationResult {
 		return r
 	}
 	r.File = resolved
+	if content, ok := ix.read(resolved); ok {
+		from, to := citedRange(start, end)
+		if lines, inside := facts.NormalizedLines(content, from, to); inside && len(lines) > 0 {
+			r.CitedHash, r.CitedLines = facts.HashLines(lines), len(lines)
+		}
+	}
 	r.Match = MatchNone
 	seen := map[string]bool{}
 	for line := start; line <= end; line++ {
@@ -61,6 +76,20 @@ func (ix *Index) location(loc string) LocationResult {
 		}
 	}
 	return r
+}
+
+// citedRange is the lines a location's cited version covers. A range is taken as given.
+// A single line is taken with the line before and after it: one line alone is often
+// generic (`if (`, `return;`), found anywhere in a large body, and a fix that adds a
+// guard beside it leaves it untouched. Measured on the 18 notes an agent re-checked
+// against later code (memory-keying workshop, excalidraw): the line alone agreed with
+// the agent on 14, the line with one either side on 16, three either side on 16 but
+// losing a note the agent kept.
+func citedRange(start, end int) (int, int) {
+	if start != end {
+		return start, end
+	}
+	return max(1, start-1), end + 1
 }
 
 // ParseLocation splits `file:line` or `file:start-end`.

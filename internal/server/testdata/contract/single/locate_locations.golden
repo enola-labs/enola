@@ -13,12 +13,16 @@
           "file": "pkg/a/a.go",
           "line": 7
         }
-      ]
+      ],
+      "cited_hash": "25fbdae7e04eba84",
+      "cited_lines": 3
     },
     {
       "location": "a.go:1",
       "file": "pkg/a/a.go",
-      "match": "none"
+      "match": "none",
+      "cited_hash": "7663fa2eaf2e6846",
+      "cited_lines": 1
     },
     {
       "location": "nope.go:3",

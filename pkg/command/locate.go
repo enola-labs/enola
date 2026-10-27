@@ -111,12 +111,15 @@ func (r *Runner) runLocate(ctx context.Context, args []string, stdin io.Reader, 
 		}
 	}
 
-	ff, err := r.locateFacts(ctx, repoArg, *at, *factsPath, say)
+	ff, source, err := r.locateFacts(ctx, repoArg, *at, *factsPath, say)
 	if err != nil {
 		say("%v", err)
 		return usageError
 	}
 	ix := locate.NewIndex(ff)
+	if source != nil {
+		ix.SetSource(source)
+	}
 
 	var out struct {
 		Locations []locate.LocationResult `json:"locations,omitempty"`
@@ -163,46 +166,47 @@ func (r *Runner) runLocate(ctx context.Context, args []string, stdin io.Reader, 
 
 // locateFacts returns the facts a lookup answers against: a stored snapshot's with
 // factsPath, a recorded revision's with at, otherwise the current snapshot's, taken first
-// when the one on disk is stale.
-func (r *Runner) locateFacts(ctx context.Context, repoArg, at, factsPath string, say func(string, ...any)) ([]facts.Fact, error) {
+// when the one on disk is stale. Only the last comes with a source to read the cited
+// lines from: a stored snapshot or a past revision has no tree that matches it.
+func (r *Runner) locateFacts(ctx context.Context, repoArg, at, factsPath string, say func(string, ...any)) ([]facts.Fact, locate.Source, error) {
 	if factsPath != "" {
 		dir := factsPath
 		if info, err := os.Stat(factsPath); err == nil && !info.IsDir() {
 			dir = filepath.Dir(factsPath)
 			if filepath.Base(factsPath) != "facts.jsonl" {
-				return nil, fmt.Errorf("--facts takes an output directory or its facts.jsonl, not %s", factsPath)
+				return nil, nil, fmt.Errorf("--facts takes an output directory or its facts.jsonl, not %s", factsPath)
 			}
 		}
 		snap, err := bootstrap.LoadSnapshotDir(dir)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		say("answering from the snapshot in %s", dir)
-		return snap.Facts, nil
+		return snap.Facts, nil, nil
 	}
 	if at != "" {
 		repoPath, cfg := r.logTarget(repoArg)
 		root, err := history.Root(repoPath, cfg.History.Dir)
 		if err != nil {
-			return nil, fmt.Errorf("cannot locate the history: %w", err)
+			return nil, nil, fmt.Errorf("cannot locate the history: %w", err)
 		}
 		entries, err := history.Read(root)
 		if err != nil {
 			if errors.Is(err, history.ErrNoHistory) {
-				return nil, fmt.Errorf("--at needs a recorded history, and %s has none", repoPath)
+				return nil, nil, fmt.Errorf("--at needs a recorded history, and %s has none", repoPath)
 			}
-			return nil, err
+			return nil, nil, err
 		}
 		e, err := history.Resolve(history.SortedByTime(entries), at)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		snap, err := history.Load(root, e)
 		if err != nil {
-			return nil, fmt.Errorf("revision %s: %w", e.Short(), err)
+			return nil, nil, fmt.Errorf("revision %s: %w", e.Short(), err)
 		}
 		say("answering against revision %s (%s)", e.Short(), shortDate(e.At))
-		return snap.Facts, nil
+		return snap.Facts, nil, nil
 	}
 
 	tgt := r.resolveTarget(repoArg)
@@ -221,11 +225,16 @@ func (r *Runner) locateFacts(ctx context.Context, repoArg, at, factsPath string,
 		for i, repoPath := range tgt.repoPaths {
 			tgt.engine.SetDeferLinking(i < len(tgt.repoPaths)-1)
 			if _, err := tgt.engine.GenerateSnapshot(ctx, repoPath, i > 0); err != nil {
-				return nil, fmt.Errorf("snapshot generation failed for %s: %w", repoPath, err)
+				return nil, nil, fmt.Errorf("snapshot generation failed for %s: %w", repoPath, err)
 			}
 		}
 	}
-	return tgt.engine.Store().FactsRef(), nil
+	eng := tgt.engine
+	source := func(repo, file string) ([]byte, bool) {
+		content, err := os.ReadFile(eng.ResolveFactFile(&facts.Fact{Repo: repo, File: file}))
+		return content, err == nil
+	}
+	return eng.Store().FactsRef(), source, nil
 }
 
 // splitLocationsAndRepo separates the locations from an optional trailing repository or
@@ -285,6 +294,9 @@ func writeLocation(w *strings.Builder, l locate.LocationResult) {
 			fmt.Fprintf(w, "    %s\n", symbolLine(s))
 		}
 	}
+	if l.CitedHash != "" {
+		fmt.Fprintf(w, "    cited %s (%d line%s)\n", l.CitedHash, l.CitedLines, pluralS(l.CitedLines))
+	}
 }
 
 func writeLocateDiff(w *strings.Builder, d locate.DiffResult) {
@@ -313,7 +325,11 @@ func writeStampCheck(w *strings.Builder, c locate.CheckResult) {
 	if name == "" {
 		name = c.Stamp.ID
 	}
-	fmt.Fprintf(w, "%-9s  %s\n", c.Status, name)
+	status := c.Status
+	if c.Cited != "" {
+		status += ", cited lines " + c.Cited
+	}
+	fmt.Fprintf(w, "%-9s  %s\n", status, name)
 	if c.Symbol != nil {
 		fmt.Fprintf(w, "           now %s\n", symbolLine(*c.Symbol))
 	}

@@ -54,6 +54,42 @@ func BodyHash(src []byte, start, end int) string {
 	return hex.EncodeToString(h.Sum(nil)[:8])
 }
 
+// NormalizedLines returns lines start..end (1-based, inclusive) of src the way BodyHash
+// reads them: trimmed, blank lines dropped. ok is false when the span is not inside src.
+//
+// It is BodyHash's reading, not a second one: HashLines(NormalizedLines(src, a, b)) is
+// BodyHash(src, a, b). BodyHash streams instead of building the slice because it runs
+// for every symbol of every snapshot; this is for the few callers that need the lines
+// themselves, to look for a run of them inside a body.
+func NormalizedLines(src []byte, start, end int) (lines []string, ok bool) {
+	if start <= 0 || end < start {
+		return nil, false
+	}
+	line := 1
+	for len(src) > 0 && line <= end {
+		next := bytes.IndexByte(src, '\n')
+		cur := src
+		if next >= 0 {
+			cur, src = src[:next], src[next+1:]
+		} else {
+			src = nil
+		}
+		if line >= start {
+			if t := bytes.TrimSpace(cur); len(t) > 0 {
+				lines = append(lines, string(t))
+			}
+		}
+		line++
+	}
+	return lines, line > start
+}
+
+// HashLines hashes normalized lines the way BodyHash hashes a span.
+func HashLines(lines []string) string {
+	sum := sha256.Sum256([]byte(strings.Join(lines, "\n")))
+	return hex.EncodeToString(sum[:8])
+}
+
 // DeclaredName is a symbol's name without its module: `ElementStore.add` for
 // `packages/element/src.ElementStore.add`. A module is a path, and the symbol starts
 // after the first dot past its last slash.
