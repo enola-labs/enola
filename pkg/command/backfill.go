@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/enola-labs/enola/internal/config"
 	"github.com/enola-labs/enola/internal/diff"
 	"github.com/enola-labs/enola/internal/facts"
 	inthistory "github.com/enola-labs/enola/internal/history"
@@ -144,15 +145,11 @@ func (r *Runner) runBackfill(args backfillArgs) {
 		if err != nil {
 			r.logFatal("encoding findings for %s: %v", c.SHA[:12], err)
 		}
-		if _, err := inthistory.Append(root, entry, inthistory.Options{
-			WorkingKeep: cfg.History.WorkingKeep,
-			BlobKeep:    cfg.History.BlobKeep,
-			Contents: &inthistory.Contents{
-				FactLines:    factLines,
-				InsightLines: insightLines,
-				Receipt:      meta.Receipt(),
-			},
-		}); err != nil {
+		if _, err := inthistory.Append(root, entry, backfillOptions(cfg.History, &inthistory.Contents{
+			FactLines:    factLines,
+			InsightLines: insightLines,
+			Receipt:      meta.Receipt(),
+		})); err != nil {
 			r.logFatal("recording %s: %v", c.SHA[:12], err)
 		}
 		recorded++
@@ -531,4 +528,16 @@ func firstLine(s string) string {
 		return s[:i]
 	}
 	return s
+}
+
+// backfillOptions appends under the retention a live snapshot is recorded with. The total
+// cap was once left out here, so a backfill of more than 200 commits kept only the newest
+// 200 while reporting every one of them as backfilled.
+func backfillOptions(h config.HistoryConfig, c *inthistory.Contents) inthistory.Options {
+	return inthistory.Options{
+		WorkingKeep:  h.WorkingKeep,
+		RevisionKeep: h.RevisionKeep,
+		BlobKeep:     h.BlobKeep,
+		Contents:     c,
+	}
 }

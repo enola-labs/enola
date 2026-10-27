@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/enola-labs/enola/internal/config"
 	"github.com/enola-labs/enola/internal/facts"
 	"github.com/enola-labs/enola/pkg/history"
 )
@@ -176,5 +177,14 @@ func TestLastTodoIndex_StopsAfterTheFinalOutstandingCommit(t *testing.T) {
 	all := map[string]bool{"a": true, "b": true, "c": true, "d": true}
 	if got := lastTodoIndex(selected, all); got != -1 {
 		t.Errorf("lastTodoIndex = %d, want -1 (nothing to do)", got)
+	}
+}
+
+// A backfill keeps what the configured retention says to keep, the total cap included.
+func TestBackfillOptions_CarryTheRetention(t *testing.T) {
+	h := config.HistoryConfig{WorkingKeep: 3, RevisionKeep: -1, BlobKeep: 7}
+	o := backfillOptions(h, nil)
+	if o.WorkingKeep != 3 || o.RevisionKeep != -1 || o.BlobKeep != 7 {
+		t.Errorf("options %+v do not carry the retention %+v", o, h)
 	}
 }
