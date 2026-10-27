@@ -3268,7 +3268,9 @@ import (
 // component, a variants constant), found by line, not to the whole file.
 // v474: TypeScript: a bundler alias built from a module-scope const of the config
 // (const root = path.resolve(__dirname, 'src'); '@/': `${root}/`) resolves.
-const cacheVersion = "v474"
+// v475: TypeScript and Python: symbols carry their span (end_line), and a symbol that
+// stands for its whole file (a synthesized Vue, Svelte or Ember component) spans it.
+const cacheVersion = "v475"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

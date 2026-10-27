@@ -57,6 +57,7 @@ func objectMemberSymbols(kinds *tsutil.KindTable, value *sitter.Node, ctx *extra
 			Name:      name,
 			File:      ctx.relFile,
 			Line:      int(at.StartPosition().Row) + 1,
+			EndLine:   tsutil.EndLine(fn),
 			Props:     props,
 			Relations: rels,
 		})

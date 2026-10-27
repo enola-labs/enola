@@ -798,6 +798,9 @@ func (e *TSExtractor) extractVueScriptBlock(kinds *tsutil.KindTable, block *vueS
 			if result[i].Line > 0 {
 				result[i].Line += block.StartLine
 			}
+			if result[i].EndLine > 0 {
+				result[i].EndLine += block.StartLine
+			}
 		}
 	}
 

@@ -379,7 +379,7 @@ func bindTailwind(all []facts.Fact, tokens []tailwindToken, repoPath string, fil
 			continue
 		}
 		seen[key] = true
-		all = append(all, facts.Fact{Kind: facts.KindSymbol, Name: node, File: t.file, Line: t.line, Props: map[string]any{
+		all = append(all, facts.Fact{Kind: facts.KindSymbol, Name: node, File: t.file, Line: t.line, EndLine: t.line, Props: map[string]any{
 			"symbol_kind": facts.SymbolConstant, "language": "typescript", propToken: t.name,
 			propTokenSection: t.section, propTokenSource: tokenSourceTW, "value": t.value,
 		}, Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: factpath.Dir(t.file)}}})

@@ -89,6 +89,7 @@ func mcpToolSymbols(kinds *tsutil.KindTable, root *sitter.Node, ctx *extractCtx)
 				Name:      symbol,
 				File:      ctx.relFile,
 				Line:      int(handler.StartPosition().Row) + 1,
+				EndLine:   tsutil.EndLine(handler),
 				Props:     props,
 				Relations: append(rels, callRels...),
 			})

@@ -785,10 +785,11 @@ func (e *TSExtractor) classFacts(kinds *tsutil.KindTable, node *sitter.Node, ctx
 func (e *TSExtractor) classSymbol(kinds *tsutil.KindTable, node, classBody *sitter.Node, ctx *extractCtx, symbolName string, isExported bool) facts.Fact {
 	src, dir := ctx.src, ctx.dir
 	f := facts.Fact{
-		Kind: facts.KindSymbol,
-		Name: dir + "." + symbolName,
-		File: ctx.relFile,
-		Line: int(node.StartPosition().Row) + 1,
+		Kind:    facts.KindSymbol,
+		Name:    dir + "." + symbolName,
+		File:    ctx.relFile,
+		Line:    int(node.StartPosition().Row) + 1,
+		EndLine: tsutil.EndLine(node),
 		Props: map[string]any{
 			"symbol_kind": facts.SymbolClass,
 			"exported":    isExported,
@@ -951,6 +952,7 @@ func (e *TSExtractor) memberFact(kinds *tsutil.KindTable, member *sitter.Node, c
 		Name:      dir + "." + symbolName + "." + mName,
 		File:      relFile,
 		Line:      int(member.StartPosition().Row) + 1,
+		EndLine:   tsutil.EndLine(member),
 		Props:     mProps,
 		Relations: mRels,
 	}, true
@@ -1090,10 +1092,11 @@ func (e *TSExtractor) variableFacts(kinds *tsutil.KindTable, node, decl *sitter.
 		vMetrics = m
 	}
 	f := facts.Fact{
-		Kind: facts.KindSymbol,
-		Name: dir + "." + symbolName,
-		File: relFile,
-		Line: int(node.StartPosition().Row) + 1,
+		Kind:    facts.KindSymbol,
+		Name:    dir + "." + symbolName,
+		File:    relFile,
+		Line:    int(node.StartPosition().Row) + 1,
+		EndLine: tsutil.EndLine(decl),
 		Props: map[string]any{
 			"symbol_kind": symbolKind,
 			"exported":    isExported,
@@ -1170,10 +1173,11 @@ func (e *TSExtractor) funcSymbol(kinds *tsutil.KindTable, declNode, body *sitter
 	callRels, m := collectCallsWithMetrics(body, ctx.callScope(kinds, "", nil), ctx.dir+"."+name, name)
 	rels = append(rels, callRels...)
 	f := facts.Fact{
-		Kind: facts.KindSymbol,
-		Name: ctx.dir + "." + name,
-		File: ctx.relFile,
-		Line: int(declNode.StartPosition().Row) + 1,
+		Kind:    facts.KindSymbol,
+		Name:    ctx.dir + "." + name,
+		File:    ctx.relFile,
+		Line:    int(declNode.StartPosition().Row) + 1,
+		EndLine: tsutil.EndLine(declNode),
 		Props: map[string]any{
 			"symbol_kind": facts.SymbolFunc,
 			"exported":    exported,
@@ -1195,10 +1199,11 @@ func (e *TSExtractor) funcSymbol(kinds *tsutil.KindTable, declNode, body *sitter
 // simpleSymbol builds a declaration-only symbol fact (interface, type, enum, namespace).
 func (e *TSExtractor) simpleSymbol(node *sitter.Node, ctx *extractCtx, name, kind string, exported bool) facts.Fact {
 	f := facts.Fact{
-		Kind: facts.KindSymbol,
-		Name: ctx.dir + "." + name,
-		File: ctx.relFile,
-		Line: int(node.StartPosition().Row) + 1,
+		Kind:    facts.KindSymbol,
+		Name:    ctx.dir + "." + name,
+		File:    ctx.relFile,
+		Line:    int(node.StartPosition().Row) + 1,
+		EndLine: tsutil.EndLine(node),
 		Props: map[string]any{
 			"symbol_kind": kind,
 			"exported":    exported,
