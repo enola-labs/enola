@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/enola-labs/enola/internal/facts"
@@ -26,6 +27,8 @@ import (
 // symbols it changed, and later ask whether those symbols still hold the same code. --at
 // answers against a recorded revision instead of the working tree, so a finding made at an
 // old commit is stamped against the code as it was, without checking that commit out.
+// --facts answers from a stored snapshot alone: no working tree and no snapshot taken, so
+// a service that keeps the facts.jsonl it ingested resolves against exactly that graph.
 func (r *Runner) Locate(ctx context.Context, args []string) {
 	os.Exit(r.runLocate(ctx, args, os.Stdin, os.Stdout, os.Stderr))
 }
@@ -43,6 +46,7 @@ func (r *Runner) runLocate(ctx context.Context, args []string, stdin io.Reader, 
 		side       = fs.String("side", locate.SideNew, "which side of the diff the graph is of: new (the tree with the change) or old (its parent)")
 		stampsPath = fs.String("stamps", "", "a JSONL file of stamps ({id, body_hash, name}), or - for stdin: report each as current, rewritten, moved or gone")
 		at         = fs.String("at", "", "answer against this recorded revision instead of the working tree (a snapshot id, git commit, HEAD~N, @<seq> or ref)")
+		factsPath  = fs.String("facts", "", "answer from a stored snapshot instead of the working tree: an output directory holding facts.jsonl, or the file itself")
 		asJSON     = fs.Bool("json", false, "emit the result as JSON")
 	)
 	fs.Usage = func() {
@@ -55,6 +59,9 @@ func (r *Runner) runLocate(ctx context.Context, args []string, stdin io.Reader, 
 				"its fact id (the id in facts.jsonl) and its body_hash, the version of its code.\n"+
 				"A language whose extractor measures no spans gets the nearest declaration\n"+
 				"above, and says so.\n\n"+
+				"By default it answers against the working tree, taking a snapshot when the one\n"+
+				"on disk is stale. --at answers against a recorded revision, and --facts against\n"+
+				"a stored snapshot, with no working tree needed.\n\n"+
 				"Exit codes:\n"+
 				"  0  the lookup ran\n"+
 				"  2  the command could not run\n\nFlags:\n")
@@ -67,6 +74,10 @@ func (r *Runner) runLocate(ctx context.Context, args []string, stdin io.Reader, 
 	locs, repoArg := splitLocationsAndRepo(fs.Args())
 	if len(locs) == 0 && *diffPath == "" && *stampsPath == "" {
 		fs.Usage()
+		return usageError
+	}
+	if *factsPath != "" && (*at != "" || repoArg != "") {
+		say("--facts names the snapshot to answer from; it takes no --at and no repository")
 		return usageError
 	}
 	if *diffPath == "-" && *stampsPath == "-" {
@@ -100,7 +111,7 @@ func (r *Runner) runLocate(ctx context.Context, args []string, stdin io.Reader, 
 		}
 	}
 
-	ff, err := r.locateFacts(ctx, repoArg, *at, say)
+	ff, err := r.locateFacts(ctx, repoArg, *at, *factsPath, say)
 	if err != nil {
 		say("%v", err)
 		return usageError
@@ -150,9 +161,25 @@ func (r *Runner) runLocate(ctx context.Context, args []string, stdin io.Reader, 
 	return 0
 }
 
-// locateFacts returns the facts a lookup answers against: a recorded revision's with
-// at, otherwise the current snapshot's, taken first when the one on disk is stale.
-func (r *Runner) locateFacts(ctx context.Context, repoArg, at string, say func(string, ...any)) ([]facts.Fact, error) {
+// locateFacts returns the facts a lookup answers against: a stored snapshot's with
+// factsPath, a recorded revision's with at, otherwise the current snapshot's, taken first
+// when the one on disk is stale.
+func (r *Runner) locateFacts(ctx context.Context, repoArg, at, factsPath string, say func(string, ...any)) ([]facts.Fact, error) {
+	if factsPath != "" {
+		dir := factsPath
+		if info, err := os.Stat(factsPath); err == nil && !info.IsDir() {
+			dir = filepath.Dir(factsPath)
+			if filepath.Base(factsPath) != "facts.jsonl" {
+				return nil, fmt.Errorf("--facts takes an output directory or its facts.jsonl, not %s", factsPath)
+			}
+		}
+		snap, err := bootstrap.LoadSnapshotDir(dir)
+		if err != nil {
+			return nil, err
+		}
+		say("answering from the snapshot in %s", dir)
+		return snap.Facts, nil
+	}
 	if at != "" {
 		repoPath, cfg := r.logTarget(repoArg)
 		root, err := history.Root(repoPath, cfg.History.Dir)

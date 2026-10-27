@@ -251,6 +251,7 @@ var helpPages = map[string]helpPage{
 			{Comment: "The symbol a finding points into", Command: "enola locate src/app.ts:120"},
 			{Comment: "The symbols a fix changed, against its parent's graph", Command: "enola locate --at abc123~1 --side old --diff fix.diff"},
 			{Comment: "Which remembered symbols still hold the same code", Command: "enola locate --stamps findings.jsonl"},
+			{Comment: "From a stored snapshot, without the source", Command: "enola locate --facts .enola src/app.ts:120"},
 		},
 		seeAlso: []string{"impact", "blame"},
 	},
