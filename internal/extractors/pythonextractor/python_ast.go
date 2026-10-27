@@ -1365,6 +1365,7 @@ func (w *pyWalker) handleClass(node *sitter.Node, decorators []string) {
 		Name:      qualName,
 		File:      w.relFile,
 		Line:      int(node.StartPosition().Row) + 1,
+		EndLine:   tsutil.EndLine(node),
 		Props:     props,
 		Relations: rels,
 	}
@@ -1445,6 +1446,7 @@ func (w *pyWalker) handleFunction(node *sitter.Node, decorators []string) {
 		Name:      qualName,
 		File:      w.relFile,
 		Line:      int(node.StartPosition().Row) + 1,
+		EndLine:   tsutil.EndLine(node),
 		Props:     props,
 		Relations: rels,
 	}
@@ -3411,6 +3413,7 @@ func (w *pyWalker) emitNestedRouteHandler(def *sitter.Node, routes []int) int {
 		Name:      qualName,
 		File:      w.relFile,
 		Line:      int(def.StartPosition().Row) + 1,
+		EndLine:   tsutil.EndLine(def),
 		Props:     props,
 		Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: w.dir}},
 	})

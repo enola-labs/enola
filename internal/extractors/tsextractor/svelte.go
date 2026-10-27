@@ -552,6 +552,9 @@ func (e *TSExtractor) extractSvelteScriptBlock(kinds *tsutil.KindTable, block *s
 			if result[i].Line > 0 {
 				result[i].Line += block.StartLine
 			}
+			if result[i].EndLine > 0 {
+				result[i].EndLine += block.StartLine
+			}
 		}
 	}
 

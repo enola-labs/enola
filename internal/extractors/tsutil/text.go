@@ -13,3 +13,17 @@ func Text(node *sitter.Node, src []byte) string {
 	}
 	return string(src[node.StartByte():node.EndByte()])
 }
+
+// EndLine is the 1-based last line a node covers, or 0 for a nil node. Tree-sitter's
+// end point is one past the last byte, so a node whose text ends with a newline ends
+// at column 0 of the following row; that row holds none of it.
+func EndLine(node *sitter.Node) int {
+	if node == nil {
+		return 0
+	}
+	start, end := node.StartPosition(), node.EndPosition()
+	if end.Column == 0 && end.Row > start.Row {
+		return int(end.Row)
+	}
+	return int(end.Row) + 1
+}

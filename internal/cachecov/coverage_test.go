@@ -68,6 +68,7 @@ var versionCoverage = map[int][]string{
 	472: {"TestTailwind_PresetTokensAndTheComponentsUsingThem", "TestTailwind_V4ThemeAndNoTailwind", "TestTailwind_PrefixAndCustomProperties", "TestTailwind_AngularTemplateBelongsToItsComponent"},
 	473: {"TestTailwind_ClassBelongsToItsDeclaration"},
 	474: {"TestViteAliasThroughModuleConst"},
+	475: {"TestSymbolSpans"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},
 	438: {"TestExtract_StructUsage_StdlibAndRootPackages"},

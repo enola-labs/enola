@@ -172,6 +172,7 @@ func (e *TSExtractor) extractFiles(ctx context.Context, tsFiles []string, source
 		}
 		aliases := aliasesForDir(aliasRoots, factpath.Dir(relFile))
 		res := e.extractFile(src, relFile, rc, aliases)
+		spanFileSymbols(res.facts, relFile, src)
 		// Routers, mounts and held-back routes for the repo-wide mount pass below.
 		// Collected here because resolving an import needs this file's path aliases,
 		// which are in scope only during the per-file walk. Same test-path gate as
@@ -431,4 +432,19 @@ func isBinarySource(src []byte) bool {
 		head = head[n:]
 	}
 	return false
+}
+
+// spanFileSymbols gives the symbols that stand for their whole file (a Vue, Svelte or
+// Ember component synthesized at line 1, with no declaration node) the file as their
+// span. A declaration's own span is set where it is built; only these are left at 0.
+func spanFileSymbols(ff []facts.Fact, relFile string, src []byte) {
+	last := bytes.Count(src, []byte("\n"))
+	if len(src) > 0 && src[len(src)-1] != '\n' {
+		last++
+	}
+	for i := range ff {
+		if ff[i].Kind == facts.KindSymbol && ff[i].File == relFile && ff[i].Line == 1 && ff[i].EndLine == 0 {
+			ff[i].EndLine = max(last, 1)
+		}
+	}
 }
