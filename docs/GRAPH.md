@@ -143,7 +143,7 @@ Outside the repository, `~/.enola/graphs/` holds the **architecture history**: o
 The graph is infrastructure: the same snapshot serves every consumer, and none of them needs an AI model.
 
 - **The CLI.** `enola --explain`, `enola check`, `enola coverage`, `enola dashboard` and the history commands all read it. See [CLI.md](CLI.md).
-- **MCP.** The 22 tools give an agent queries over the graph: look up facts, traverse edges, find the path between two symbols, measure the impact of changing one. See [ARCHITECTURE.md → The tools](../ARCHITECTURE.md#the-tools).
+- **MCP.** The 23 tools give an agent queries over the graph: look up facts, traverse edges, find the path between two symbols, measure the impact of changing one. See [ARCHITECTURE.md → The tools](../ARCHITECTURE.md#the-tools).
 - **The files.** Run enola as a subprocess and load `facts.jsonl`, `insights.json` and `receipt.json` into your own store. [Cognee](https://github.com/topoteretes/cognee) does this for its code-graph search. See [INTEGRATING.md](INTEGRATING.md).
 
 To add facts from your own tooling, see [PROVIDERS.md](PROVIDERS.md); to teach the linker a connection it does not know, see [EXTENDING.md](EXTENDING.md).

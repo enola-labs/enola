@@ -47,7 +47,7 @@
   },
   {
     "name": "architecture_blame",
-    "description": "WHEN something entered or left the architecture: \"when did this module start importing that one?\", \"which snapshot introduced this cycle?\". It reads what the graph held at each recorded point instead of inferring it from source history. A symbol that shifted lines, had its body rewritten, or moved to another file is reported as one changed symbol, not as removed and re-added.",
+    "description": "WHEN something entered or left the architecture: \"when did this module start importing that one?\", \"which snapshot introduced this cycle?\". It reads what the graph held at each recorded point instead of inferring it from source history. A symbol that shifted, was rewritten or moved is one change, not a removal and an addition.",
     "input_schema": {
       "additionalProperties": false,
       "properties": {
@@ -456,6 +456,61 @@
       "required": [
         "target"
       ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "locate",
+    "description": "Source places to symbols and back. locations (file:line) or a git diff give the innermost symbols with fact id and body_hash, the version of their code. stamps [{id, body_hash, name}] come back current, rewritten, moved or gone.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "diff": {
+          "description": "unified diff",
+          "type": "string"
+        },
+        "locations": {
+          "description": "file:line or file:a-b",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        },
+        "side": {
+          "description": "diff side the snapshot is of: new (default) or old",
+          "type": "string"
+        },
+        "stamps": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "body_hash": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "symbol_kind": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "type": "object"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        }
+      },
       "type": "object"
     }
   },

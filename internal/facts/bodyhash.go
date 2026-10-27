@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"strings"
 )
 
 // PropBodyHash is the version of a symbol: a hash of the source its span covers.
@@ -51,4 +52,23 @@ func BodyHash(src []byte, start, end int) string {
 		return ""
 	}
 	return hex.EncodeToString(h.Sum(nil)[:8])
+}
+
+// DeclaredName is a symbol's name without its module: `ElementStore.add` for
+// `packages/element/src.ElementStore.add`. A module is a path, and the symbol starts
+// after the first dot past its last slash.
+//
+// It is what a symbol keeps when it moves to another file or package, and with its
+// body hash what pairs the old id with the new one. The whole declared name, not the
+// last segment, because one-line members are where bodies collide most: two props
+// interfaces each declaring `title?: string;` are two members named `title`, and only
+// their parents tell them apart.
+func DeclaredName(name string) string {
+	if i := strings.LastIndexByte(name, '/'); i >= 0 {
+		name = name[i+1:]
+	}
+	if i := strings.IndexByte(name, '.'); i >= 0 {
+		return name[i+1:]
+	}
+	return name
 }

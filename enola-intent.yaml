@@ -75,6 +75,8 @@ layers:
       # Flow ranking: the entries of a program and what each reaches, read off
       # the store like impact.
       - "internal/flows/**"
+      # Location to symbol and back, shared by the locate tool and `enola locate`.
+      - "internal/locate/**"
       - "internal/renderers/**"
       - "internal/diff/**"
       - "internal/conformance/**"

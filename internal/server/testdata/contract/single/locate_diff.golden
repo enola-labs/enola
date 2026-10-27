@@ -1,0 +1,24 @@
+{
+  "diff": {
+    "side": "new",
+    "files": [
+      {
+        "path": "pkg/a/a.go",
+        "file": "pkg/a/a.go",
+        "match": "nearest",
+        "symbols": [
+          {
+            "id": "c8f7c0664a0a2ca73e2dc23371b834a4",
+            "repo": "go_sample",
+            "name": "pkg/a.Alpha",
+            "symbol_kind": "function",
+            "file": "pkg/a/a.go",
+            "line": 7,
+            "lines": 1
+          }
+        ]
+      }
+    ],
+    "symbols": 1
+  }
+}

@@ -243,6 +243,7 @@ func (s *Server) registerTools() {
 	s.registerGenerateSnapshotTool()
 	s.registerQueryFactsTool()
 	s.registerShowSymbolTool()
+	s.registerLocateTool()
 	s.registerExploreTool()
 	s.registerTraverseTool()
 	s.registerFindPathTool()

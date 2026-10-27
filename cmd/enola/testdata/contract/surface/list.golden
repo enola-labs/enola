@@ -8,6 +8,7 @@ Available tools:
   explore                 Primary exploration tool — use this first after generate_snapshot.
   query_facts             Precision filter over extracted facts.
   show_symbol             Return the source code implementation of a named symbol.
+  locate                  Map file:line or a diff to symbol ids and body versions, and check whether remembered symbols changed or moved.
   traverse                Walk the dependency/call graph from a starting node.
   find_path               Find the shortest path between two nodes in the architectural graph.
   impact_analysis         Compute the blast radius of changing a target node.

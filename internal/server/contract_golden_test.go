@@ -182,6 +182,11 @@ func TestContract_SingleRepo(t *testing.T) {
 		{"show_symbol_context", "show_symbol", map[string]any{"name": "Alpha", "context_lines": 4}},
 		{"show_symbol_no_match", "show_symbol", map[string]any{"name": "no-such-thing"}},
 
+		{"locate_locations", "locate", map[string]any{"locations": []string{"pkg/a/a.go:8", "a.go:1", "nope.go:3"}}},
+		{"locate_diff", "locate", map[string]any{"diff": "--- a/pkg/a/a.go\n+++ b/pkg/a/a.go\n@@ -8,1 +8,1 @@\n-\tx()\n+\ty()\n"}},
+		{"locate_stamps", "locate", map[string]any{"stamps": []map[string]any{{"id": "00000000000000000000000000000000", "name": "pkg/a.Alpha"}}}},
+		{"locate_nothing", "locate", map[string]any{}},
+
 		{"explore_module", "explore", map[string]any{"focus": "pkg/a"}},
 		{"explore_file", "explore", map[string]any{"focus": "pkg/a/a.go"}},
 		{"explore_symbol", "explore", map[string]any{"focus": "pkg/b.Beta"}},
@@ -396,7 +401,10 @@ func TestContract_EveryToolIsPinned(t *testing.T) {
 // schema together. An agent whose client loads the tools up front (alwaysLoad) pays
 // for all of them in every session, before its first question; a description that
 // grows past this has to earn the room from another.
-const toolCatalogueBudget = 29_500
+//
+// Raised from 29,500 for locate, the one tool that turns a location into a fact id;
+// its own text was cut first.
+const toolCatalogueBudget = 29_900
 
 func TestToolCatalogue_SizeBudget(t *testing.T) {
 	s := startInMemory(t)

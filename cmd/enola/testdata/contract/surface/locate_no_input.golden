@@ -1,0 +1,30 @@
+$ enola locate
+exit: 2
+--- stdout
+--- stderr
+Usage: enola locate [flags] [<file:line>...] [repo_path|config_path]
+
+Map places in source to the symbols the graph holds there, and remembered
+symbols to where they are now.
+
+A location is file:line or file:start-end, with the file as the graph names
+it or any path ending in it. Each resolves to the innermost symbol holding it:
+its fact id (the id in facts.jsonl) and its body_hash, the version of its code.
+A language whose extractor measures no spans gets the nearest declaration
+above, and says so.
+
+Exit codes:
+  0  the lookup ran
+  2  the command could not run
+
+Flags:
+  -at string
+    	answer against this recorded revision instead of the working tree (a snapshot id, git commit, HEAD~N, @<seq> or ref)
+  -diff string
+    	a unified diff file, or - for stdin: report the symbols its changed lines fall in
+  -json
+    	emit the result as JSON
+  -side string
+    	which side of the diff the graph is of: new (the tree with the change) or old (its parent) (default "new")
+  -stamps string
+    	a JSONL file of stamps ({id, body_hash, name}), or - for stdin: report each as current, rewritten, moved or gone

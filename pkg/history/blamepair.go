@@ -191,23 +191,7 @@ func (f factLine) movable() bool { return f.ok && !f.paired && f.body != "" }
 
 // moveKey is what a moved symbol keeps: its kind, its name inside its module and its
 // body. The name is required as well as the body, because a short body is shared by
-// unrelated symbols, and pairing those would invent a move. The whole declared name, not
-// the last segment, because one-line members are where bodies collide most: two props
-// interfaces each declaring `title?: string;` are two members named `title`, and only
-// their parents tell them apart.
+// unrelated symbols, and pairing those would invent a move. See facts.DeclaredName.
 func (f factLine) moveKey() string {
-	return f.kind + "\x00" + declaredName(f.name) + "\x00" + f.body
-}
-
-// declaredName is a symbol's name without its module: `ElementStore.add` for
-// `packages/element/src.ElementStore.add`. A module is a path, and the symbol starts
-// after the first dot past its last slash.
-func declaredName(name string) string {
-	if i := strings.LastIndexByte(name, '/'); i >= 0 {
-		name = name[i+1:]
-	}
-	if i := strings.IndexByte(name, '.'); i >= 0 {
-		return name[i+1:]
-	}
-	return name
+	return f.kind + "\x00" + facts.DeclaredName(f.name) + "\x00" + f.body
 }

@@ -48,7 +48,9 @@ var countSubjects = []struct {
 // whose phrase has disappeared from the page fails as loudly as a wrong count: a
 // stale waiver is a rule nobody is following, and it would silently un-check
 // whatever sentence replaced it.
-var countWaivers = []struct{ Doc, Phrase, Reason string }{}
+var countWaivers = []struct{ Doc, Phrase, Reason string }{
+	{"CHANGELOG.md", "twenty-two MCP tools", "the v0.4.21 release note: the count when it shipped"},
+}
 
 var claimRe = func() *regexp.Regexp {
 	words := make([]string, 0, len(numberWords))

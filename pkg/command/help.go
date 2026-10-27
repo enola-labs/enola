@@ -246,6 +246,14 @@ var helpPages = map[string]helpPage{
 		},
 		seeAlso: []string{"show", "log", "blame"},
 	},
+	"locate": {
+		examples: []cli.Example{
+			{Comment: "The symbol a finding points into", Command: "enola locate src/app.ts:120"},
+			{Comment: "The symbols a fix changed, against its parent's graph", Command: "enola locate --at abc123~1 --side old --diff fix.diff"},
+			{Comment: "Which remembered symbols still hold the same code", Command: "enola locate --stamps findings.jsonl"},
+		},
+		seeAlso: []string{"impact", "blame"},
+	},
 	"blame": {
 		examples: []cli.Example{
 			{Comment: "When did anything matching this enter or leave", Command: "enola blame internal/auth"},
