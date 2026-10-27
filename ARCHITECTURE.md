@@ -494,7 +494,7 @@ Converts between places in source and fact ids, for anything that remembers fact
 | `side` | `new` (default): the snapshot is of the tree with the diff applied. `old`: the snapshot is of its parent, and the removed lines are read. |
 | `stamps` | `[{id, body_hash, name, symbol_kind}]`. Each comes back `current` (same id, same body), `rewritten`, `moved` (a new id with the same declared name and body, after a file or package move), `gone` (with same-name symbols as candidates), or `present` (no body version to compare). |
 
-`enola locate` is the same lookup on the command line, and `--at <revision>` answers against a recorded revision instead of the working tree.
+`enola locate` is the same lookup on the command line. `--at <revision>` answers against a recorded revision instead of the working tree, and `--facts` against a stored snapshot (an output directory or its `facts.jsonl`) with no working tree at all.
 
 ### `traverse` — "walk the graph from here"
 
