@@ -489,7 +489,7 @@ Converts between places in source and fact ids, for anything that remembers fact
 
 | Parameter | Description |
 |-----------|-------------|
-| `locations` | `file:line` or `file:start-end`. Each resolves to the innermost symbol whose span holds it (`match: span`), or for a language with no spans the nearest declaration above (`match: nearest`). A path may be any suffix of the graph's path; two candidates are listed, not guessed between. |
+| `locations` | `file:line` or `file:start-end`. Each resolves to the innermost symbol whose span holds it (`match: span`), or for a language with no spans the nearest declaration above (`match: nearest`). A path may be any suffix of the graph's path; two candidates are listed, not guessed between. When the source can be read, each also carries `cited_hash` and `cited_lines`: a version of the cited lines themselves, normalized like `body_hash`. A single line is cited with the line before and after it, since one line alone is often generic and a fix beside it would leave it untouched. |
 | `diff` | A unified diff. Reports the symbols its changed lines fall in, with a line count each, and the lines outside every symbol. A pure deletion counts only when it sat inside one body. |
 | `side` | `new` (default): the snapshot is of the tree with the diff applied. `old`: the snapshot is of its parent, and the removed lines are read. |
 | `stamps` | `[{id, body_hash, name, symbol_kind}]`. Each comes back `current` (same id, same body), `rewritten`, `moved` (a new id with the same declared name and body, after a file or package move), `gone` (with same-name symbols as candidates), or `present` (no body version to compare). |

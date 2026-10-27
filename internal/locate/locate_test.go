@@ -1,6 +1,7 @@
 package locate
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/enola-labs/enola/internal/facts"
@@ -210,5 +211,66 @@ func TestCheck(t *testing.T) {
 	r := after.Check([]Stamp{stamp("src.f", "src/app.ts", "f9")})[0]
 	if r.Status != StatusGone || len(r.Candidates) != 2 {
 		t.Errorf("moved and rewritten: %s with %v, want gone with both f's", r.Status, names(r.Candidates))
+	}
+}
+
+// A stamp names a function and the lines it cited. When the function is rewritten, the
+// cited lines are looked for in its new body, wherever they now sit.
+func TestCitedLines(t *testing.T) {
+	before := "function f() {\n  setup();\n  if (x >= index) {\n    fail();\n  }\n}\n"
+	ix := NewIndex([]facts.Fact{sym("src.f", "src/a.ts", 1, 6, facts.BodyHash([]byte(before), 1, 6))})
+	ix.SetSource(func(repo, file string) ([]byte, bool) { return []byte(before), repo == "r" && file == "src/a.ts" })
+	loc := ix.Locations([]string{"src/a.ts:3-4"})[0]
+	if loc.CitedHash == "" || loc.CitedLines != 2 {
+		t.Fatalf("a located range carries its cited version: %+v", loc)
+	}
+	stamp := Stamp{ID: loc.Symbols[0].ID, BodyHash: loc.Symbols[0].BodyHash, Name: "src.f",
+		CitedHash: loc.CitedHash, CitedLines: loc.CitedLines}
+
+	for name, tc := range map[string]struct {
+		after  string
+		status string
+		cited  string
+	}{
+		"unchanged":                  {before, StatusCurrent, CitedIntact},
+		"edited above the cited":     {"function f() {\n  setup();\n  log();\n\n  if (x >= index) {\n    fail();\n  }\n}\n", StatusRewritten, CitedIntact},
+		"re-indented and moved down": {"\n\nfunction f() {\n  setup();\n    if (x >= index) {\n        fail();\n    }\n  done();\n}\n", StatusRewritten, CitedIntact},
+		"the cited line fixed":       {"function f() {\n  setup();\n  if (x > index) {\n    fail();\n  }\n}\n", StatusRewritten, CitedChanged},
+	} {
+		lines := strings.Count(tc.after, "\n")
+		start := 1 + strings.Count(tc.after[:strings.Index(tc.after, "function")], "\n")
+		after := NewIndex([]facts.Fact{sym("src.f", "src/a.ts", start, lines, facts.BodyHash([]byte(tc.after), start, lines))})
+		after.SetSource(func(string, string) ([]byte, bool) { return []byte(tc.after), true })
+		r := after.Check([]Stamp{stamp})[0]
+		if r.Status != tc.status || r.Cited != tc.cited {
+			t.Errorf("%s: %s, cited %q; want %s, cited %q", name, r.Status, r.Cited, tc.status, tc.cited)
+		}
+	}
+
+	// No source: the function's version is still checked, the cited lines are not.
+	plain := NewIndex([]facts.Fact{sym("src.f", "src/a.ts", 1, 6, "other")})
+	if r := plain.Check([]Stamp{stamp})[0]; r.Status != StatusRewritten || r.Cited != "" {
+		t.Errorf("without a source: %s, cited %q; want rewritten, no cited version", r.Status, r.Cited)
+	}
+	if loc := plain.Locations([]string{"src/a.ts:3"})[0]; loc.CitedHash != "" {
+		t.Errorf("without a source a location carries no cited version: %+v", loc)
+	}
+	// A cited range of blank lines has no version to keep.
+	blank := NewIndex([]facts.Fact{sym("src.f", "src/a.ts", 1, 4, "x")})
+	blank.SetSource(func(string, string) ([]byte, bool) { return []byte("function f() {\n\n\n}\n"), true })
+	if loc := blank.Locations([]string{"src/a.ts:2-3"})[0]; loc.CitedHash != "" {
+		t.Errorf("a blank cited range carries no version: %+v", loc)
+	}
+	// A single line is cited with its neighbours, so a guard added beside it counts.
+	one := ix.Locations([]string{"src/a.ts:4"})[0]
+	if one.CitedLines != 3 {
+		t.Errorf("a single cited line covers itself and one line either side, got %d lines", one.CitedLines)
+	}
+	guarded := "function f() {\n  setup();\n  if (x >= index) {\n    if (ok) {\n    fail();\n    }\n  }\n}\n"
+	g := NewIndex([]facts.Fact{sym("src.f", "src/a.ts", 1, 8, facts.BodyHash([]byte(guarded), 1, 8))})
+	g.SetSource(func(string, string) ([]byte, bool) { return []byte(guarded), true })
+	single := Stamp{ID: stamp.ID, BodyHash: stamp.BodyHash, CitedHash: one.CitedHash, CitedLines: one.CitedLines}
+	if r := g.Check([]Stamp{single})[0]; r.Cited != CitedChanged {
+		t.Errorf("a guard added beside a single cited line: cited %q, want changed", r.Cited)
 	}
 }

@@ -461,7 +461,7 @@
   },
   {
     "name": "locate",
-    "description": "Source places to symbols and back. locations (file:line) or a git diff give the innermost symbols with fact id and body_hash, the version of their code. stamps [{id, body_hash, name}] come back current, rewritten, moved or gone.",
+    "description": "file:line or diff to innermost symbols: fact id, body_hash (code version), cited_hash (cited lines). Stamps: current, rewritten, moved, gone; cited intact or changed.",
     "input_schema": {
       "additionalProperties": false,
       "properties": {
@@ -489,6 +489,12 @@
             "properties": {
               "body_hash": {
                 "type": "string"
+              },
+              "cited_hash": {
+                "type": "string"
+              },
+              "cited_lines": {
+                "type": "integer"
               },
               "id": {
                 "type": "string"
