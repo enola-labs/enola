@@ -755,10 +755,11 @@ func (w *astWalker) handleClassLike(node *sitter.Node, kind string) {
 	}
 
 	f := facts.Fact{
-		Kind: facts.KindSymbol,
-		Name: w.factName(name),
-		File: w.relFile,
-		Line: int(node.StartPosition().Row) + 1,
+		Kind:    facts.KindSymbol,
+		Name:    w.factName(name),
+		File:    w.relFile,
+		Line:    int(node.StartPosition().Row) + 1,
+		EndLine: tsutil.EndLine(node),
 		Props: map[string]any{
 			"symbol_kind": kind,
 			"exported":    true, // C++ has no file-private types; visibility is via access specifiers
@@ -829,10 +830,11 @@ func (w *astWalker) handleEnum(node *sitter.Node) {
 		return
 	}
 	f := facts.Fact{
-		Kind: facts.KindSymbol,
-		Name: w.factName(name),
-		File: w.relFile,
-		Line: int(node.StartPosition().Row) + 1,
+		Kind:    facts.KindSymbol,
+		Name:    w.factName(name),
+		File:    w.relFile,
+		Line:    int(node.StartPosition().Row) + 1,
+		EndLine: tsutil.EndLine(node),
 		Props: map[string]any{
 			"symbol_kind": facts.SymbolEnum,
 			"exported":    true,
@@ -908,10 +910,11 @@ func (w *astWalker) handleFunctionDefinition(node *sitter.Node) {
 		sk = facts.SymbolMethod
 	}
 	f := facts.Fact{
-		Kind: facts.KindSymbol,
-		Name: symbolName,
-		File: w.relFile,
-		Line: int(node.StartPosition().Row) + 1,
+		Kind:    facts.KindSymbol,
+		Name:    symbolName,
+		File:    w.relFile,
+		Line:    int(node.StartPosition().Row) + 1,
+		EndLine: tsutil.EndLine(node),
 		Props: map[string]any{
 			"symbol_kind": sk,
 			"exported":    true,
@@ -1016,10 +1019,11 @@ func (w *astWalker) handleFieldDeclaration(node *sitter.Node) {
 			return
 		}
 		f := facts.Fact{
-			Kind: facts.KindSymbol,
-			Name: w.factName(leaf),
-			File: w.relFile,
-			Line: int(node.StartPosition().Row) + 1,
+			Kind:    facts.KindSymbol,
+			Name:    w.factName(leaf),
+			File:    w.relFile,
+			Line:    int(node.StartPosition().Row) + 1,
+			EndLine: tsutil.EndLine(node),
 			Props: map[string]any{
 				"symbol_kind": facts.SymbolMethod,
 				"exported":    true,
@@ -1051,10 +1055,11 @@ func (w *astWalker) handleFieldDeclaration(node *sitter.Node) {
 			kind = facts.SymbolConstant
 		}
 		w.out = append(w.out, facts.Fact{
-			Kind: facts.KindSymbol,
-			Name: w.factName(leaf),
-			File: w.relFile,
-			Line: int(node.StartPosition().Row) + 1,
+			Kind:    facts.KindSymbol,
+			Name:    w.factName(leaf),
+			File:    w.relFile,
+			Line:    int(node.StartPosition().Row) + 1,
+			EndLine: tsutil.EndLine(node),
 			Props: map[string]any{
 				"symbol_kind": kind,
 				"exported":    true,
@@ -1207,10 +1212,11 @@ func (w *astWalker) handleDeclaration(node *sitter.Node) {
 		sk = facts.SymbolMethod
 	}
 	f := facts.Fact{
-		Kind: facts.KindSymbol,
-		Name: symbolName,
-		File: w.relFile,
-		Line: int(node.StartPosition().Row) + 1,
+		Kind:    facts.KindSymbol,
+		Name:    symbolName,
+		File:    w.relFile,
+		Line:    int(node.StartPosition().Row) + 1,
+		EndLine: tsutil.EndLine(node),
 		Props: map[string]any{
 			"symbol_kind": sk,
 			"exported":    true,
@@ -1260,10 +1266,11 @@ func (w *astWalker) handleVarInitializers(node *sitter.Node) bool {
 			kind = facts.SymbolConstant
 		}
 		w.out = append(w.out, facts.Fact{
-			Kind: facts.KindSymbol,
-			Name: w.factName(leaf),
-			File: w.relFile,
-			Line: int(node.StartPosition().Row) + 1,
+			Kind:    facts.KindSymbol,
+			Name:    w.factName(leaf),
+			File:    w.relFile,
+			Line:    int(node.StartPosition().Row) + 1,
+			EndLine: tsutil.EndLine(node),
 			Props: map[string]any{
 				"symbol_kind": kind,
 				"exported":    true,
@@ -1695,10 +1702,11 @@ func (w *astWalker) handleUsing(node *sitter.Node) {
 
 func (w *astWalker) emitTypeAlias(name string, node *sitter.Node) {
 	w.out = append(w.out, facts.Fact{
-		Kind: facts.KindSymbol,
-		Name: w.factName(name),
-		File: w.relFile,
-		Line: int(node.StartPosition().Row) + 1,
+		Kind:    facts.KindSymbol,
+		Name:    w.factName(name),
+		File:    w.relFile,
+		Line:    int(node.StartPosition().Row) + 1,
+		EndLine: tsutil.EndLine(node),
 		Props: map[string]any{
 			"symbol_kind": facts.SymbolType,
 			"exported":    true,

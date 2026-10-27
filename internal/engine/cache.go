@@ -3279,7 +3279,9 @@ import (
 // v479: PHP and Rust: symbols carry their span (end_line).
 // v480: Swift and Dart: symbols carry their span (end_line), a Dart method or function
 // to the end of its body, which the grammar parses as a sibling of the signature.
-const cacheVersion = "v480"
+// v481: C and C++: symbols carry their span (end_line); a prototype merged with its
+// definition takes the definition's span with its file and line.
+const cacheVersion = "v481"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
