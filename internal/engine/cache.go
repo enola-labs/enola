@@ -3272,7 +3272,9 @@ import (
 // stands for its whole file (a synthesized Vue, Svelte or Ember component) spans it.
 // v476: Go: symbols carry their span (end_line): a function or method its body, a type
 // its declaration, an exported var or const its spec, an interface method its signature.
-const cacheVersion = "v476"
+// v477: Java, Kotlin and Scala: symbols carry their span (end_line), a recovered Kotlin
+// declaration to the end of its body.
+const cacheVersion = "v477"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

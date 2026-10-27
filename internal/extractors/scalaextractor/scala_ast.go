@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	scala "github.com/enola-labs/enola/internal/extractors/scalaextractor/grammar"
+	"github.com/enola-labs/enola/internal/extractors/tsutil"
 	"github.com/enola-labs/enola/internal/factpath"
 	"github.com/enola-labs/enola/internal/facts"
 	sitter "github.com/tree-sitter/go-tree-sitter"
@@ -1158,6 +1159,7 @@ func (w *astWalker) handleTypeLike(n *sitter.Node, symbolKind string) {
 		Name:      w.qualify(name),
 		File:      w.relFile,
 		Line:      w.line(n),
+		EndLine:   tsutil.EndLine(n),
 		Props:     props,
 		Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: w.dir}},
 	})
@@ -1186,10 +1188,11 @@ func (w *astWalker) handleInlineRoute(n *sitter.Node, method string) {
 func (w *astWalker) handleInlineHandler(n *sitter.Node, name string) {
 	line := int(n.StartPosition().Row) + 1
 	w.out = append(w.out, facts.Fact{
-		Kind: facts.KindSymbol,
-		Name: name,
-		File: w.relFile,
-		Line: line,
+		Kind:    facts.KindSymbol,
+		Name:    name,
+		File:    w.relFile,
+		Line:    line,
+		EndLine: tsutil.EndLine(n),
 		Props: map[string]any{
 			"symbol_kind":          facts.SymbolFunc,
 			"language":             "scala",
@@ -1274,10 +1277,11 @@ func (w *astWalker) emitEnumCase(n *sitter.Node, name string) int {
 	}
 	idx := len(w.out)
 	w.out = append(w.out, facts.Fact{
-		Kind: facts.KindSymbol,
-		Name: w.qualify(name),
-		File: w.relFile,
-		Line: w.line(n),
+		Kind:    facts.KindSymbol,
+		Name:    w.qualify(name),
+		File:    w.relFile,
+		Line:    w.line(n),
+		EndLine: tsutil.EndLine(n),
 		Props: map[string]any{
 			"language":    "scala",
 			"symbol_kind": facts.SymbolConstant,
@@ -1331,6 +1335,7 @@ func (w *astWalker) handleFunction(n *sitter.Node) {
 		Name:      w.qualify(name),
 		File:      w.relFile,
 		Line:      w.line(n),
+		EndLine:   tsutil.EndLine(n),
 		Props:     props,
 		Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: w.dir}},
 	})
@@ -1394,6 +1399,7 @@ func (w *astWalker) handleValue(n *sitter.Node, symbolKind string) {
 		Name:      w.qualify(name),
 		File:      w.relFile,
 		Line:      w.line(n),
+		EndLine:   tsutil.EndLine(n),
 		Props:     props,
 		Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: w.dir}},
 	})
@@ -1426,6 +1432,7 @@ func (w *astWalker) handleTypeAlias(n *sitter.Node) {
 		Name:      w.qualify(name),
 		File:      w.relFile,
 		Line:      w.line(n),
+		EndLine:   tsutil.EndLine(n),
 		Props:     props,
 		Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: w.dir}},
 	})
@@ -1481,6 +1488,7 @@ func (w *astWalker) handleGiven(n *sitter.Node) {
 		Name:      w.qualify(name),
 		File:      w.relFile,
 		Line:      w.line(n),
+		EndLine:   tsutil.EndLine(n),
 		Props:     props,
 		Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: w.dir}},
 	})

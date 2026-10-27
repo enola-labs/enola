@@ -70,6 +70,7 @@ var versionCoverage = map[int][]string{
 	474: {"TestViteAliasThroughModuleConst"},
 	475: {"TestSymbolSpans"},
 	476: {"TestSymbolSpans"},
+	477: {"TestSymbolSpans", "TestSymbolSpans_RecoveredDeclarations"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},
 	438: {"TestExtract_StructUsage_StdlibAndRootPackages"},

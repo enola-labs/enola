@@ -5,6 +5,7 @@ import (
 
 	sitter "github.com/tree-sitter/go-tree-sitter"
 
+	"github.com/enola-labs/enola/internal/extractors/tsutil"
 	"github.com/enola-labs/enola/internal/facts"
 )
 
@@ -146,10 +147,11 @@ func (w *astWalker) emitRecoveredClass(at *sitter.Node, keyword, name, modifiers
 		kind = facts.SymbolInterface
 	}
 	f := facts.Fact{
-		Kind: facts.KindSymbol,
-		Name: w.dir + "." + w.qualify(name),
-		File: w.relFile,
-		Line: int(at.StartPosition().Row) + 1,
+		Kind:    facts.KindSymbol,
+		Name:    w.dir + "." + w.qualify(name),
+		File:    w.relFile,
+		Line:    int(at.StartPosition().Row) + 1,
+		EndLine: max(tsutil.EndLine(at), tsutil.EndLine(body)),
 		Props: map[string]any{
 			"symbol_kind": kind,
 			"exported":    !privateOrInternalRe.MatchString(modifiers),

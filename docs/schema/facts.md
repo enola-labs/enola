@@ -11,7 +11,7 @@ serialization.
 | `name` | string | always | Canonical name. For path-shaped kinds (`module`, `test_ref`, `file_ref`), this is a repo-relative path |
 | `file` | string | when set | Source file, relative to the repo root; prefixed `<repo>/` in multi-repo mode |
 | `line` | int | when measured | 1-based start line |
-| `end_line` | int | when measured | 1-based end line of the span. Symbols from the TypeScript, Python, Ruby and Go extractors carry it: the declaration's last line, or the file's for a symbol that stands for its whole file (a Vue, Svelte or Ember component) |
+| `end_line` | int | when measured | 1-based end line of the span. Symbols from the TypeScript, Python, Ruby, Go, Java, Kotlin and Scala extractors carry it: the declaration's last line, or the file's for a symbol that stands for its whole file (a Vue, Svelte or Ember component) |
 | `column` | int | when measured | 1-based start column |
 | `end_column` | int | when measured | 1-based column one past the span's end |
 | `repo` | string | always | Repository label: the repository's own name taken from its git remote, or its directory name when there is no usable remote. A single-repo snapshot carries it too, with the same value on every fact — a snapshot is multi-repo when more than one distinct value appears, not when the field is present |

@@ -719,10 +719,11 @@ func (w *astWalker) handleClassDeclaration(node *sitter.Node) {
 	exported := !privateOrInternalRe.MatchString(modifierText)
 
 	f := facts.Fact{
-		Kind: facts.KindSymbol,
-		Name: w.dir + "." + w.qualify(name),
-		File: w.relFile,
-		Line: int(node.StartPosition().Row) + 1,
+		Kind:    facts.KindSymbol,
+		Name:    w.dir + "." + w.qualify(name),
+		File:    w.relFile,
+		Line:    int(node.StartPosition().Row) + 1,
+		EndLine: tsutil.EndLine(node),
 		Props: map[string]any{
 			"symbol_kind": symbolKind,
 			"exported":    exported,
@@ -846,10 +847,11 @@ func (w *astWalker) handleObjectDeclaration(node *sitter.Node) {
 	exported := !privateOrInternalRe.MatchString(modifierText)
 
 	f := facts.Fact{
-		Kind: facts.KindSymbol,
-		Name: w.dir + "." + w.qualify(name),
-		File: w.relFile,
-		Line: int(node.StartPosition().Row) + 1,
+		Kind:    facts.KindSymbol,
+		Name:    w.dir + "." + w.qualify(name),
+		File:    w.relFile,
+		Line:    int(node.StartPosition().Row) + 1,
+		EndLine: tsutil.EndLine(node),
 		Props: map[string]any{
 			"symbol_kind": facts.SymbolClass,
 			"exported":    exported,
@@ -926,10 +928,11 @@ func (w *astWalker) handleFunctionDeclaration(node *sitter.Node) {
 	}
 
 	f := facts.Fact{
-		Kind: facts.KindSymbol,
-		Name: w.dir + "." + w.qualify(name),
-		File: w.relFile,
-		Line: int(node.StartPosition().Row) + 1,
+		Kind:    facts.KindSymbol,
+		Name:    w.dir + "." + w.qualify(name),
+		File:    w.relFile,
+		Line:    int(node.StartPosition().Row) + 1,
+		EndLine: tsutil.EndLine(node),
 		Props: map[string]any{
 			"symbol_kind": symbolKind,
 			"exported":    exported,
@@ -1204,10 +1207,11 @@ func (w *astWalker) handlePropertyDeclaration(node *sitter.Node) {
 	}
 
 	f := facts.Fact{
-		Kind: facts.KindSymbol,
-		Name: w.dir + "." + name,
-		File: w.relFile,
-		Line: int(node.StartPosition().Row) + 1,
+		Kind:    facts.KindSymbol,
+		Name:    w.dir + "." + name,
+		File:    w.relFile,
+		Line:    int(node.StartPosition().Row) + 1,
+		EndLine: tsutil.EndLine(node),
 		Props: map[string]any{
 			"symbol_kind": symbolKind,
 			"exported":    exported,
@@ -1243,10 +1247,11 @@ func (w *astWalker) handleTypeAlias(node *sitter.Node) {
 	exported := !privateOrInternalRe.MatchString(modifierText)
 
 	w.out = append(w.out, facts.Fact{
-		Kind: facts.KindSymbol,
-		Name: w.dir + "." + name,
-		File: w.relFile,
-		Line: int(node.StartPosition().Row) + 1,
+		Kind:    facts.KindSymbol,
+		Name:    w.dir + "." + name,
+		File:    w.relFile,
+		Line:    int(node.StartPosition().Row) + 1,
+		EndLine: tsutil.EndLine(node),
 		Props: map[string]any{
 			"symbol_kind": facts.SymbolType,
 			"exported":    exported,
