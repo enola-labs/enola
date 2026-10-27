@@ -47,7 +47,7 @@
   },
   {
     "name": "architecture_blame",
-    "description": "WHEN something entered or left the architecture: \"when did this module start importing that one?\", \"which snapshot introduced this cycle?\". It reads what the graph held at each recorded point instead of inferring it from source history.",
+    "description": "WHEN something entered or left the architecture: \"when did this module start importing that one?\", \"which snapshot introduced this cycle?\". It reads what the graph held at each recorded point instead of inferring it from source history. A symbol that shifted lines, had its body rewritten, or moved to another file is reported as one changed symbol, not as removed and re-added.",
     "input_schema": {
       "additionalProperties": false,
       "properties": {

@@ -36,8 +36,40 @@ type BlameEvent struct {
 	// edge's endpoints — and paraphrasing it would lose the detail the question was about.
 	Added   []string
 	Removed []string
+	// Changed pairs a line that left with the line that replaced it, when both are the
+	// same symbol: one that only shifted, one whose body was rewritten, or one that moved
+	// to another file. A paired line is in neither Added nor Removed, because nothing
+	// came or went; a symbol changed.
+	Changed []BlamePair `json:"changed,omitempty"`
 
 	Origins []string `json:"origins,omitempty"`
+}
+
+// Kinds of BlamePair.
+const (
+	// PairShifted is one symbol whose body is the same: it moved within its file, or
+	// something about it other than its code changed.
+	PairShifted = "shifted"
+	// PairRewritten is one symbol whose body changed.
+	PairRewritten = "rewritten"
+	// PairChanged is one symbol whose line changed where either side carries no body
+	// version, so a shift cannot be told from a rewrite.
+	PairChanged = "changed"
+	// PairMoved is a symbol that left one file or name and arrived in another with the
+	// same body and the same bare name. The id is keyed on the file, so it is a new id;
+	// the pair is what lets a reader follow the function across it.
+	PairMoved = "moved"
+)
+
+// BlamePair is a removed and an added line that are the same symbol.
+type BlamePair struct {
+	Kind string `json:"kind"`
+	From string `json:"from"`
+	To   string `json:"to"`
+
+	// net is what the pair changes about Present: a move whose other end the pattern
+	// does not match brought the symbol into the matched set, or took it out.
+	net int
 }
 
 // BlameOptions narrows a blame.
@@ -95,12 +127,16 @@ func BlameUnion(localRoot string, revs []UnionRevision, sh *Share, pattern strin
 			cur = insightLines
 		}
 		added, removed := matchDelta(prev, cur, needle)
+		var changed []BlamePair
+		if !opts.Findings {
+			added, removed, changed = pairDelta(added, removed, prev, cur, needle)
+		}
 		prev = cur
 
-		if len(added) == 0 && len(removed) == 0 {
+		if len(added) == 0 && len(removed) == 0 && len(changed) == 0 {
 			continue
 		}
-		b.Events = append(b.Events, BlameEvent{Entry: u.Entry, Added: added, Removed: removed, Origins: u.Origins})
+		b.Events = append(b.Events, BlameEvent{Entry: u.Entry, Added: added, Removed: removed, Changed: changed, Origins: u.Origins})
 		if opts.FirstOnly && len(added) > 0 {
 			break
 		}
@@ -184,6 +220,9 @@ func (b *Blame) Present() bool {
 	present := 0
 	for _, ev := range b.Events {
 		present += len(ev.Added) - len(ev.Removed)
+		for _, p := range ev.Changed {
+			present += p.net
+		}
 	}
 	return present > 0
 }
