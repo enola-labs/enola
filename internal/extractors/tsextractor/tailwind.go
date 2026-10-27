@@ -1,6 +1,7 @@
 package tsextractor
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path"
@@ -15,6 +16,7 @@ import (
 	"github.com/enola-labs/enola/internal/extractors/tsutil"
 	"github.com/enola-labs/enola/internal/factpath"
 	"github.com/enola-labs/enola/internal/facts"
+	"github.com/enola-labs/enola/internal/parallel"
 )
 
 // Tailwind design tokens: the colors, spacing, radii and the rest a project's
@@ -432,25 +434,33 @@ func bindTailwind(all []facts.Fact, tokens []tailwindToken, repoPath string, fil
 		fileRefs[file] = len(all) - 1
 		return len(all) - 1
 	}
+	// A theme is no user of its own tokens, and code outside a Tailwind project (the
+	// framework's own compiler, a codemod's data) names classes it does not style
+	// anything with.
+	var users []string
 	for _, file := range scan {
-		// A theme is no user of its own tokens, and code outside a Tailwind project
-		// (the framework's own compiler, a codemod's data) names classes it does not
-		// style anything with.
-		if facts.IsTestPath(file) || tokenFiles[file] || tailwindConfigRe.MatchString(file) || !usesTailwind(file) {
-			continue
+		if !facts.IsTestPath(file) && !tokenFiles[file] && !tailwindConfigRe.MatchString(file) && usesTailwind(file) {
+			users = append(users, file)
 		}
+	}
+	// Reading a file's classes parses it to blank its comments, so it runs per file in
+	// parallel; who uses them is decided below, in file order.
+	usedBy := parallel.MapFiles(context.Background(), users, func(file string) []tokenUse {
 		src, ok := html[file]
 		if !ok {
 			src = sources[file]
 		}
 		if len(src) == 0 {
-			continue
+			return nil
 		}
 		text := string(src)
 		if !isAngularTemplateFile(file) {
 			text = string(blankTSComments(src, file))
 		}
-		used := tailwindClassTokens(text, prefixes, byPrefix, bySection)
+		return tailwindClassTokens(text, prefixes, byPrefix, bySection)
+	})
+	for fi, file := range users {
+		used := usedBy[fi]
 		if len(used) == 0 {
 			continue
 		}

@@ -245,7 +245,11 @@ func (e *TSExtractor) extractFile(src []byte, relFile string, rc *repoCtx, alias
 	kinds := tsKindsFor(isTSX)
 
 	if out, ok := e.extractNonScript(kinds, src, relFile, rc, aliases); ok {
-		return tsFileResult{facts: out}
+		res := tsFileResult{facts: out}
+		if mayDeclareEventConsts(relFile, src) {
+			res.eventConsts = eventConstFile(blankTSComments(src, relFile))
+		}
+		return res
 	}
 	// A Glimmer template-tag file is TypeScript/JavaScript with embedded
 	// <template> blocks: blank the blocks in place (newlines preserved, so every
@@ -289,6 +293,9 @@ func (e *TSExtractor) extractFile(src []byte, relFile string, rc *repoCtx, alias
 
 	res := e.frameworkPasses(kinds, root, ctx, aliases, result, isEmberFile, emberSegments)
 	res.hosts = hosts
+	if mayDeclareEventConsts(relFile, src) {
+		res.eventConsts = eventConstFile(blankCommentsIn(root, src))
+	}
 	// What this file's code uses, for the repo-wide pass that marks which client calls
 	// the application can run. Read only where that pass gives a verdict; see reach.go.
 	if reachApplies(rc.tsFrameworks) && !facts.IsTestPath(relFile) {
