@@ -63,6 +63,16 @@
       ]
     },
     {
+      "id": "framework",
+      "question": "Does a framework question get the right answer, and does a miss say why?",
+      "figure": "75/76",
+      "label": "framework answers found against a key read in source, up from 15 at v465, with the one miss stated",
+      "anchor": "7-framework-questions-are-the-answers-right",
+      "evidence": [
+        "**75 of 76 rows** are found now, against 15 of 76 then"
+      ]
+    },
+    {
       "id": "agent",
       "question": "Does an agent, given the check, avoid shipping the regression?",
       "figure": "3/3 → 0/3",
