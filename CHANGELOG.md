@@ -7,6 +7,51 @@ The full per-release change lists — every Added, Changed and Fixed line — ar
 [enola.tech/changelog](https://enola.tech/changelog). This file is the same history at
 the resolution a reader of the repository needs.
 
+## v0.4.36 — 2026-10-27
+
+**Framework answers: GraphQL resolvers, Vue stores, the tests behind a route, bundler aliases, Tailwind tokens and in-process events**
+
+- GraphQL: a schema the server loads by path is read as SDL. A field is `handled_by` its
+  decorated method or resolver-map member, and the code that writes an operation, or
+  imports its `.graphql` document, calls it, so a resolver's dependents reach the
+  sending code. An operation no loaded schema answers says why in `unresolved_reason`
+  (`no-server-schema-in-repo`, `field-not-found`), cleared when another loaded
+  repository serves it.
+- Vue, Nuxt, Pinia: what `<script setup>` references is a calls edge on the component,
+  so impact runs from a composable or store to the components and pages that render
+  its users. A Pinia `defineStore` is a store whose setup function or actions are
+  walked. Nuxt auto-imports `stores/`, and `app.component()` registrations resolve
+  template tags. A template is read to the `</template>` that balances its root, not
+  the first nested one.
+- Tests: a test file records the requests, page visits and GraphQL operations it makes
+  (Cypress, Playwright, inline queries, intercepted operations), resolved against every
+  loaded route as `exercises` relations, never counted as coupling. `*.cy.*` files,
+  runner configs and `__fixtures__` are test code.
+- Aliases: Vite `resolve.alias` and Nuxt's aliases resolve imports ahead of tsconfig
+  `paths`, and each import records `resolved_via`. An alias behind a `customResolver` or
+  a computed replacement records `unresolved_reason` instead of a guess; one built from
+  a module-scope const of the config is evaluated. A Vite `index.html`'s module scripts
+  are read. An import of a folder module binds to the folder, a call through a barrel
+  reaches the symbol it re-exports, and tsconfig `paths` are relative to `baseUrl`.
+- Tailwind: a token a theme declares (config, preset, plugin, or a v4 `@theme` block) is
+  a constant symbol, and each class string names the tokens it uses from the
+  declaration it is written in: a component, or a variants constant the components
+  reach. Only projects that style with Tailwind are read, a config prefix is honoured,
+  and the built-in palette is not a token.
+- Events: Medusa subscribers and emits, Directus emitters and hooks, an `EventEmitter`
+  declared in the file and BullMQ queues are topic facts. The code on each side
+  publishes or subscribes, followed by impact and never counted as coupling. A Node
+  event is named for its emitter. Event names in exported constants resolve; a name
+  computed at runtime leaves `unresolved_reason`.
+- Express: a router's `/` is its mount point, and `app.use(router)` mounts at the
+  parent's root.
+- `query-loops` names the same path to a query on every run of the same commit.
+- Performance: event constants and Tailwind classes are read off the serial path, which
+  had doubled cold time on the largest TypeScript repositories.
+- Benchmarks regenerated: 107 repositories, 9,210,440 facts, 107/107 reproducing. A new
+  section grades six framework questions against a key read in source: 75 of 76 rows
+  found, up from 15 at v465.
+
 ## v0.4.35 — 2026-10-25
 
 **Calls resolved by receiver type in six languages, the screens behind an endpoint, and lighter agent sessions**
