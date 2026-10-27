@@ -1295,7 +1295,7 @@ and the honest answer names that rather than guessing one.
 
 Before this work, at v465, the same key read Q1 0/8, Q2 14/22, Q3 0/13, Q4 1/12, Q5 0/10
 and Q6 0/11. For four of the six questions the node a question starts from did not
-exist.
+exist. Across the six, **75 of 76 rows** are found now, against 15 of 76 then.
 
 **Precision counts every claim, not a sample.** Q1 to Q3 make tens to a hundred claims
 per repository, and each was read in source. Q4 and Q5 make thousands, so each is
