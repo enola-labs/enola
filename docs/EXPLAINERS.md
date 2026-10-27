@@ -220,15 +220,15 @@ computes a saturating score — a fan-in ratio, a coverage share — clamps stri
 Here is the shape of the problem in the current delta corpus. Twenty repositories,
 before anyone changed a line:
 
-> **3,560 pre-existing findings.** Up to 330 in a single repository.
+> **3,586 pre-existing findings.** Up to 330 in a single repository.
 
 Now make a change. Add a feature, fix a bug, let an agent refactor a package. Two
 questions look similar and are not:
 
-1. *What is wrong with this repository?* — 3,560 answers, none of them yours.
+1. *What is wrong with this repository?* — 3,586 answers, none of them yours.
 2. *What did my change do to it?* — the question you can actually act on.
 
-Almost every one of those 3,560 findings was there before you opened the editor. You did
+Almost every one of those 3,586 findings was there before you opened the editor. You did
 not write them, you are not going to fix them today, and a tool that reports them
 alongside your change has buried the one thing you needed in existing findings. That
 signal-to-noise ratio is why broad analysis is often disabled in CI.
@@ -248,13 +248,13 @@ time. And because every finding carries the entities it is about — the modules
 cycle, the symbol with the fan-in, the dependency edge that crossed a layer — a finding
 can be checked against what your change actually touched.
 
-Put those together and the report inverts. Instead of *3,560 findings, one of which might
+Put those together and the report inverts. Instead of *3,586 findings, one of which might
 be new*, you get:
 
 > **FAIL — 1 structural regression introduced.**
 
 Measured on those same twenty repositories: an injected dependency cycle was reported
-as **exactly one regression, and not one of the 3,560 pre-existing findings was repeated**
+as **exactly one regression, and not one of the 3,586 pre-existing findings was repeated**
 ([BENCHMARKS.md § 2](BENCHMARKS.md#2-delta-precision--the-ratchet)). Revert the change
 and it goes quiet again. The verdict is a function of the tree, not of history.
 

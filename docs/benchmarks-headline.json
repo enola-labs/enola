@@ -15,11 +15,11 @@
       "id": "isolation",
       "question": "When something regresses, is exactly that reported?",
       "figure": "20/20",
-      "label": "injected cycles caught, with none of 3,560 pre-existing findings repeated as new",
+      "label": "injected cycles caught, with none of 3,586 pre-existing findings repeated as new",
       "anchor": "2-delta-precision--the-ratchet",
       "evidence": [
         "all twenty repositories, 20 of 20",
-        "**3,560 pre-existing"
+        "**3,586 pre-existing"
       ]
     },
     {

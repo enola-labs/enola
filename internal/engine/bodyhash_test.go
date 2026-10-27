@@ -39,3 +39,23 @@ func TestSymbolBodyHash(t *testing.T) {
 		t.Errorf("unspanned or non-symbol facts hashed: module %q, x.c %q", got["x"], got["x.c"])
 	}
 }
+
+// Hashing from a line's offset is the same as hashing the whole file, at every span,
+// with and without a trailing newline and past the end of the file.
+func TestSymbolBodyHashMatchesWholeFile(t *testing.T) {
+	for _, src := range []string{"a\n\n b\nc\n", "a\n\n b\nc", "", "\n\n"} {
+		starts := lineStarts([]byte(src))
+		for start := 1; start <= 6; start++ {
+			for end := start; end <= 6; end++ {
+				want := facts.BodyHash([]byte(src), start, end)
+				got := ""
+				if start <= len(starts) {
+					got = facts.BodyHash([]byte(src)[starts[start-1]:], 1, end-start+1)
+				}
+				if got != want {
+					t.Errorf("%q %d-%d: got %q, want %q", src, start, end, got, want)
+				}
+			}
+		}
+	}
+}
