@@ -1144,8 +1144,10 @@ func edgeSet(ff []facts.Fact) map[string]Edge {
 // propsChanged reports whether two facts sharing an identity differ in their
 // props. encoding/json sorts map keys, so the marshaled form is order-stable.
 //
-// The doc prop is left out of the comparison. It is the comment on a symbol, and
-// a reworded comment is not something a change did to the architecture.
+// The doc and body_hash props are left out of the comparison. One is the comment
+// on a symbol and the other the version of its body, and neither a reworded
+// comment nor an edited function body is something a change did to the
+// architecture.
 func propsChanged(a, b facts.Fact) bool {
 	if a.PropCount() == 0 && b.PropCount() == 0 {
 		return false
@@ -1153,17 +1155,22 @@ func propsChanged(a, b facts.Fact) bool {
 	if propsJSON(a.Props) == propsJSON(b.Props) {
 		return false
 	}
-	_, aDoc := a.Prop(facts.PropDoc)
-	_, bDoc := b.Prop(facts.PropDoc)
-	if !aDoc && !bDoc {
+	if !hasNonArchitectural(a) && !hasNonArchitectural(b) {
 		return true
 	}
-	return propsJSON(withoutDoc(a)) != propsJSON(withoutDoc(b))
+	return propsJSON(architecturalProps(a)) != propsJSON(architecturalProps(b))
 }
 
-func withoutDoc(f facts.Fact) map[string]any {
+func hasNonArchitectural(f facts.Fact) bool {
+	_, doc := f.Prop(facts.PropDoc)
+	_, body := f.Prop(facts.PropBodyHash)
+	return doc || body
+}
+
+func architecturalProps(f facts.Fact) map[string]any {
 	props := f.CloneProps()
 	delete(props, facts.PropDoc)
+	delete(props, facts.PropBodyHash)
 	return props
 }
 

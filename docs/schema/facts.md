@@ -450,3 +450,23 @@ Where it is read:
 Go, Python, TypeScript, Ruby, Java, C#, PHP, Rust, Kotlin, Scala, Swift, Dart and
 C/C++ extractors fill it on symbols; Go, Python, Java, TypeScript and Rust on
 modules.
+
+### body_hash
+
+`body_hash` (symbols with an `end_line`) is the version of a symbol: 16 hex
+characters of SHA-256 over the lines its span covers, each line trimmed and blank
+lines dropped. The id names the declaration and stays the same while its body is
+rewritten, and `line` moves whenever anything above it changes; `body_hash`
+changes exactly when the code inside the span does. Re-indenting a function,
+padding it with blank lines or moving it leaves it unchanged; editing one token
+changes it. A class's span holds its methods, so a class's version changes with
+any of them.
+
+It is computed after extraction from the span alone, so every symbol that has a
+span has one, and a symbol without a span has none.
+
+| Reader | Uses `body_hash` |
+|---|---|
+| `facts.jsonl` | As a prop of the symbol fact |
+| `diff_snapshot`, `enola check` | Ignore it, so editing a function's body is not an architecture change |
+| `enola blame`, `architecture_blame` | Pair a symbol that left and came back in one revision: `shifted` when the body is the same (only its line moved), `rewritten` when it changed, `changed` when either side has no version (a revision recorded before `body_hash`). A symbol that left one file and arrived in another with the same kind, name inside its module and body is reported as `moved`, so a reader can follow it across the new id |

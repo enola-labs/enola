@@ -307,6 +307,7 @@ func (e *Engine) extract(r *snapshotRun) error {
 	// Flag facts from codegen output before the file paths are repo-prefixed below,
 	// while f.File is still resolvable against repoPath.
 	e.markGeneratedFacts(r.absRepo, r.preCount)
+	e.hashSymbolBodies(r.absRepo, r.preCount)
 
 	// Always set Repo on newly extracted facts so the repo filter works
 	// even in single-repo mode.

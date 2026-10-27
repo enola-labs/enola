@@ -191,6 +191,9 @@ func renderBlame(b *history.Blame, full, withOrigins bool) string {
 		for _, l := range ev.Removed {
 			fmt.Fprintf(&out, "    - %s\n", blameLine(l, full))
 		}
+		for _, p := range ev.Changed {
+			fmt.Fprintf(&out, "    ~ %-9s  %s\n", p.Kind, blamePair(p, full))
+		}
 	}
 
 	fmt.Fprintf(&out, "\n%d event%s across %d searched revision%s.\n",
@@ -248,6 +251,27 @@ func blameLine(line string, full bool) string {
 		return fmt.Sprintf("%-11s %s", f.Kind, f.Name)
 	}
 	return fmt.Sprintf("%-11s %s  (%s)", f.Kind, f.Name, where)
+}
+
+// blamePair renders a changed symbol as its new line and where it was before, which is
+// the part of the old line a reader needs once the pair says it is the same symbol.
+func blamePair(p history.BlamePair, full bool) string {
+	if full {
+		return p.To + "\n                 was " + p.From
+	}
+	var from struct {
+		File string `json:"file"`
+		Line int    `json:"line"`
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal([]byte(p.From), &from); err != nil {
+		return blameLine(p.To, false)
+	}
+	was := fmt.Sprintf("%s:%d", from.File, from.Line)
+	if p.Kind == history.PairMoved {
+		was = from.Name + "  (" + was + ")"
+	}
+	return blameLine(p.To, false) + "  was " + was
 }
 
 func truncateLine(s string, n int) string {
