@@ -1,6 +1,7 @@
 package tsextractor
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path"
@@ -15,6 +16,7 @@ import (
 	"github.com/enola-labs/enola/internal/extractors/tsutil"
 	"github.com/enola-labs/enola/internal/factpath"
 	"github.com/enola-labs/enola/internal/facts"
+	"github.com/enola-labs/enola/internal/parallel"
 )
 
 // Tailwind design tokens: the colors, spacing, radii and the rest a project's
@@ -394,6 +396,7 @@ func bindTailwind(all []facts.Fact, tokens []tailwindToken, repoPath string, fil
 	components := map[string][]int{}
 	fileRefs := map[string]int{}
 	templates := map[string]int{} // an Angular component's templateUrl -> the component
+	decls := map[string][]int{}   // file -> the declarations a class string can sit in, by line
 	for i, f := range all {
 		switch {
 		case f.Kind == facts.KindFileRef:
@@ -401,9 +404,15 @@ func bindTailwind(all []facts.Fact, tokens []tailwindToken, repoPath string, fil
 		case f.Kind == facts.KindSymbol && f.Props["web_component"] == "component":
 			components[f.File] = append(components[f.File], i)
 		}
+		if f.Kind == facts.KindSymbol && isClassHolder(f) {
+			decls[f.File] = append(decls[f.File], i)
+		}
 		if url, _ := f.Props["angular_template_url"].(string); url != "" && f.Kind == facts.KindSymbol {
 			templates[url] = i
 		}
+	}
+	for file := range decls {
+		sort.SliceStable(decls[file], func(a, b int) bool { return all[decls[file][a]].Line < all[decls[file][b]].Line })
 	}
 	// HTML is read only from disk: an Angular template is where most of an Angular
 	// application's classes are, and it belongs to the component that names it.
@@ -417,69 +426,119 @@ func bindTailwind(all []facts.Fact, tokens []tailwindToken, repoPath string, fil
 			}
 		}
 	}
-	for _, file := range scan {
-		// A theme is no user of its own tokens, and code outside a Tailwind project
-		// (the framework's own compiler, a codemod's data) names classes it does not
-		// style anything with.
-		if facts.IsTestPath(file) || tokenFiles[file] || tailwindConfigRe.MatchString(file) || !usesTailwind(file) {
-			continue
+	fileRef := func(file string) int {
+		if i, ok := fileRefs[file]; ok {
+			return i
 		}
+		all = append(all, facts.Fact{Kind: facts.KindFileRef, Name: file, File: file, Line: 1, Props: map[string]any{"language": "typescript"}})
+		fileRefs[file] = len(all) - 1
+		return len(all) - 1
+	}
+	// A theme is no user of its own tokens, and code outside a Tailwind project (the
+	// framework's own compiler, a codemod's data) names classes it does not style
+	// anything with.
+	var users []string
+	for _, file := range scan {
+		if !facts.IsTestPath(file) && !tokenFiles[file] && !tailwindConfigRe.MatchString(file) && usesTailwind(file) {
+			users = append(users, file)
+		}
+	}
+	// Reading a file's classes parses it to blank its comments, so it runs per file in
+	// parallel; who uses them is decided below, in file order.
+	usedBy := parallel.MapFiles(context.Background(), users, func(file string) []tokenUse {
 		src, ok := html[file]
 		if !ok {
 			src = sources[file]
 		}
 		if len(src) == 0 {
-			continue
+			return nil
 		}
 		text := string(src)
 		if !isAngularTemplateFile(file) {
 			text = string(blankTSComments(src, file))
 		}
-		used := tailwindClassTokens(text, prefixes, byPrefix, bySection)
+		return tailwindClassTokens(text, prefixes, byPrefix, bySection)
+	})
+	for fi, file := range users {
+		used := usedBy[fi]
 		if len(used) == 0 {
 			continue
 		}
-		var idx int
-		if c, ok := templates[file]; ok {
-			idx = c
-		} else if c := components[file]; len(c) == 1 {
-			idx = c[0]
-		} else if i, ok := fileRefs[file]; ok {
-			idx = i
-		} else {
-			all = append(all, facts.Fact{Kind: facts.KindFileRef, Name: file, File: file, Line: 1, Props: map[string]any{"language": "typescript"}})
-			idx = len(all) - 1
-			fileRefs[file] = idx
+		// Who uses a class: the component an Angular template or a .vue file is;
+		// otherwise the declaration the string is written in, by line (a component's
+		// JSX, a variants constant), or the file for a string above every declaration.
+		holder := func(line int) int {
+			if c, ok := templates[file]; ok {
+				return c
+			}
+			if c := components[file]; len(c) == 1 && isVueFile(file) {
+				return c[0]
+			}
+			best := -1
+			for _, i := range decls[file] {
+				if all[i].Line > line {
+					break
+				}
+				best = i
+			}
+			if best < 0 {
+				return fileRef(file)
+			}
+			return best
 		}
-		for _, node := range used {
-			if !all[idx].HasRelation(facts.RelNames, node) {
-				all[idx].Relations = append(all[idx].Relations, facts.Relation{Kind: facts.RelNames, Target: node})
+		for _, u := range used {
+			idx := holder(u.line)
+			if !all[idx].HasRelation(facts.RelNames, u.node) {
+				all[idx].Relations = append(all[idx].Relations, facts.Relation{Kind: facts.RelNames, Target: u.node})
 			}
 		}
 	}
 	return all
 }
 
-// tailwindClassTokens returns the token nodes the class names in a file's string
-// literals use, sorted.
-func tailwindClassTokens(src string, prefixes []string, byPrefix map[string][]string, bySection map[string]map[string]string) []string {
-	used := map[string]bool{}
-	for _, m := range classStringRe.FindAllStringSubmatch(src, -1) {
-		s := m[1] + m[2] + m[3]
+// isClassHolder reports whether a symbol is a declaration a class string can be
+// written in: not an object member (its declaration holds it), not a type.
+func isClassHolder(f facts.Fact) bool {
+	if b, _ := f.Props["object_member"].(bool); b {
+		return false
+	}
+	switch f.Props["symbol_kind"] {
+	case facts.SymbolInterface, "type", "type_alias", "enum":
+		return false
+	}
+	return f.Props[propToken] == nil
+}
+
+type tokenUse struct {
+	node string
+	line int
+}
+
+// tailwindClassTokens returns each token a file's class strings use, once per line
+// it is used on.
+func tailwindClassTokens(src string, prefixes []string, byPrefix map[string][]string, bySection map[string]map[string]string) []tokenUse {
+	seen := map[tokenUse]bool{}
+	var out []tokenUse
+	for _, m := range classStringRe.FindAllStringSubmatchIndex(src, -1) {
+		var s string
+		for g := 1; g <= 3; g++ {
+			if m[2*g] >= 0 {
+				s = src[m[2*g]:m[2*g+1]]
+			}
+		}
 		if !strings.Contains(s, "-") {
 			continue
 		}
+		line := 1 + strings.Count(src[:m[0]], "\n")
 		for _, cls := range strings.Fields(s) {
 			if node := tailwindClassToken(cls, prefixes, byPrefix, bySection); node != "" {
-				used[node] = true
+				if u := (tokenUse{node, line}); !seen[u] {
+					seen[u] = true
+					out = append(out, u)
+				}
 			}
 		}
 	}
-	out := make([]string, 0, len(used))
-	for n := range used {
-		out = append(out, n)
-	}
-	sort.Strings(out)
 	return out
 }
 

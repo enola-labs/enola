@@ -177,3 +177,50 @@ func keysOf(m map[string]Finding) []string {
 	sort.Strings(out)
 	return out
 }
+
+// Two equally short ways to the query: the path named is the same on every run,
+// whatever order the store hands the callers over in.
+func TestGoQueryLoops_TiedPathsAreStable(t *testing.T) {
+	src := map[string]string{
+		"app/app.go": `package app
+
+import "database/sql"
+
+type Ctl struct{ db *sql.DB }
+
+func (c *Ctl) Each(ids []int) {
+	for _, id := range ids {
+		c.build(id)
+	}
+}
+
+func (c *Ctl) build(id int) {
+	if id > 0 {
+		c.zeta(id)
+	} else {
+		c.alpha(id)
+	}
+}
+
+func (c *Ctl) alpha(id int) { c.read(id) }
+func (c *Ctl) zeta(id int)  { c.read(id) }
+func (c *Ctl) read(id int)  { c.db.QueryRow("select 1", id) }
+`,
+	}
+	var want string
+	for range 20 {
+		ff := goCandidates(goStore(t, map[string]string{"app/app.go": src["app/app.go"]}))
+		if len(ff) != 1 {
+			t.Fatalf("findings: %d, want 1", len(ff))
+		}
+		got := strings.Join(ff[0].goPath, " -> ")
+		if want == "" {
+			want = got
+		} else if got != want {
+			t.Fatalf("path changed between runs:\n%s\n%s", want, got)
+		}
+	}
+	if !strings.Contains(want, "app.Ctl.alpha") {
+		t.Errorf("path %q: the first of the tied callers by name is named", want)
+	}
+}

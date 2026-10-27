@@ -64,6 +64,8 @@ type tsFileResult struct {
 	globalPrefixes []string
 	// reach is what this file's code uses, for the reachability pass (reach.go).
 	reach *fileReach
+	// eventConsts is the event names this file declares as constants (events.go).
+	eventConsts [][2]string
 }
 
 // --- what one file contributes ---

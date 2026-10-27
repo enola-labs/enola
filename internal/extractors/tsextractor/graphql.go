@@ -774,6 +774,11 @@ func blankTSComments(src []byte, relFile string) []byte {
 	}
 	tree := parser.Parse(src, nil)
 	defer tree.Close()
+	return blankCommentsIn(tree.RootNode(), src)
+}
+
+// blankCommentsIn is blankTSComments over a tree already parsed from src.
+func blankCommentsIn(root *sitter.Node, src []byte) []byte {
 	out := append([]byte(nil), src...)
 	var walk func(*sitter.Node)
 	walk = func(n *sitter.Node) {
@@ -792,7 +797,7 @@ func blankTSComments(src []byte, relFile string) []byte {
 			walk(n.Child(i))
 		}
 	}
-	walk(tree.RootNode())
+	walk(root)
 	return out
 }
 

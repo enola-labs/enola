@@ -144,13 +144,15 @@ func extractTSEventFacts(kinds *tsutil.KindTable, root *sitter.Node, src []byte,
 			if fn == nil || len(args) == 0 {
 				break
 			}
-			sym := graphqlEnclosingSymbol(kinds, n, src, relFile)
+			// The enclosing symbol is a walk to the root, so it is found only for a call
+			// that is an event.
+			symOf := func() string { return graphqlEnclosingSymbol(kinds, n, src, relFile) }
 			switch kindOf(kinds, fn) {
 			case "identifier":
 				switch name := nodeText(fn, src); {
 				case medusa && name == "emitEventStep" && kindOf(kinds, args[0]) == "object":
 					if ev := objField(args[0], "eventName"); ev != nil {
-						add(ev, messagingMedusaEvent, facts.MessagingRoleProducer, sym)
+						add(ev, messagingMedusaEvent, facts.MessagingRoleProducer, symOf())
 					}
 				case directus && name == "defineHook":
 					for i := range n.NamedChildCount() {
@@ -158,7 +160,7 @@ func extractTSEventFacts(kinds *tsutil.KindTable, root *sitter.Node, src []byte,
 					}
 					return
 				case directus && inHook && (name == "action" || name == "filter" || name == "init"):
-					add(args[0], messagingDirectusEvent, facts.MessagingRoleConsumer, sym)
+					add(args[0], messagingDirectusEvent, facts.MessagingRoleConsumer, symOf())
 				}
 			case "member_expression":
 				obj, prop := fn.ChildByFieldName("object"), fn.ChildByFieldName("property")
@@ -174,21 +176,21 @@ func extractTSEventFacts(kinds *tsutil.KindTable, root *sitter.Node, src []byte,
 						for i := range target.NamedChildCount() {
 							if el := target.NamedChild(i); kindOf(kinds, el) == "object" {
 								if ev := objField(el, "name"); ev != nil {
-									add(ev, messagingMedusaEvent, facts.MessagingRoleProducer, sym)
+									add(ev, messagingMedusaEvent, facts.MessagingRoleProducer, symOf())
 								}
 							}
 						}
 					} else if kindOf(kinds, target) == "object" {
 						if ev := objField(target, "name"); ev != nil {
-							add(ev, messagingMedusaEvent, facts.MessagingRoleProducer, sym)
+							add(ev, messagingMedusaEvent, facts.MessagingRoleProducer, symOf())
 						}
 					} else {
-						add(target, messagingMedusaEvent, facts.MessagingRoleProducer, sym)
+						add(target, messagingMedusaEvent, facts.MessagingRoleProducer, symOf())
 					}
 				case directus && recv == "emitter" && (method == "emitAction" || method == "emitFilter" || method == "emitInit"):
-					add(args[0], messagingDirectusEvent, facts.MessagingRoleProducer, sym)
+					add(args[0], messagingDirectusEvent, facts.MessagingRoleProducer, symOf())
 				case directus && recv == "emitter" && (method == "onAction" || method == "onFilter" || method == "onInit"):
-					add(args[0], messagingDirectusEvent, facts.MessagingRoleConsumer, sym)
+					add(args[0], messagingDirectusEvent, facts.MessagingRoleConsumer, symOf())
 				case nodeEmitter && emitters[recv] && (method == "emit" || method == "on" || method == "once" || method == "addListener" || method == "prependListener"):
 					ev := strings.Trim(nodeText(args[0], src), `"'`)
 					if kindOf(kinds, args[0]) != "string" || nodeStreamEvents[ev] {
@@ -201,7 +203,7 @@ func extractTSEventFacts(kinds *tsutil.KindTable, root *sitter.Node, src []byte,
 					// A Node event belongs to its emitter: two emitters' 'result' events
 					// are unrelated, so the topic is named for the emitter it is on.
 					calls = append(calls, eventCall{name: nodeEmitterOwner(kinds, n, src, dir, recv) + ":" + ev,
-						messaging: messagingNodeEvent, role: role, symbol: sym, line: int(args[0].StartPosition().Row) + 1})
+						messaging: messagingNodeEvent, role: role, symbol: symOf(), line: int(args[0].StartPosition().Row) + 1})
 				}
 			}
 		case "new_expression":
@@ -309,56 +311,62 @@ var (
 	eventObjMemberRe = regexp.MustCompile(`(?m)^\s*([A-Za-z_$][\w$]*|"[^"]+"|'[^']+')\s*:\s*["'` + "`" + `]([^"'` + "`" + `\n]+)["'` + "`" + `]`)
 )
 
-// eventConstIndex maps "Holder.KEY" to the string an exported enum member or flat
-// object constant holds, the way event names are usually declared
-// (`export const OrderEvents = { PLACED: "order.placed" }`). A name two files give
-// different values is dropped rather than guessed.
-func eventConstIndex(tsFiles []string, sources map[string][]byte) map[string]string {
-	vals := map[string]map[string]bool{}
-	put := func(k, v string) {
-		if vals[k] == nil {
-			vals[k] = map[string]bool{}
+// eventConstFile is what one file declares toward the event-name index: "Holder.KEY"
+// and the string an exported enum member or flat object constant holds, the way event
+// names are usually declared (`export const OrderEvents = { PLACED: "order.placed" }`).
+// blanked is the file with its comments blanked, since event tables document each
+// payload in JSDoc, braces included; it is called only for a file that may hold one.
+func eventConstFile(blanked []byte) [][2]string {
+	src := string(blanked)
+	var out [][2]string
+	for _, m := range eventEnumRe.FindAllStringSubmatch(src, -1) {
+		for _, mm := range eventEnumMember.FindAllStringSubmatch(m[2], -1) {
+			out = append(out, [2]string{m[1] + "." + mm[1], mm[2]})
 		}
-		vals[k][v] = true
 	}
-	for _, f := range tsFiles {
-		if facts.IsTestPath(f) || isVueFile(f) {
-			continue
-		}
-		raw := sources[f]
-		if !bytes.Contains(raw, []byte("enum ")) && !bytes.Contains(raw, []byte("const ")) {
-			continue
-		}
-		// Event tables document each payload in JSDoc, braces included.
-		src := string(blankTSComments(raw, f))
-		for _, m := range eventEnumRe.FindAllStringSubmatch(src, -1) {
-			for _, mm := range eventEnumMember.FindAllStringSubmatch(m[2], -1) {
-				put(m[1]+"."+mm[1], mm[2])
+	for _, loc := range eventObjConstRe.FindAllStringSubmatchIndex(src, -1) {
+		holder := src[loc[2]:loc[3]]
+		body := src[loc[1]:]
+		// Only the object's own top level: stop at its closing brace.
+		depth := 1
+		for i, ch := range body {
+			switch ch {
+			case '{':
+				depth++
+			case '}':
+				depth--
+			}
+			if depth == 0 {
+				body = body[:i]
+				break
 			}
 		}
-		for _, loc := range eventObjConstRe.FindAllStringSubmatchIndex(src, -1) {
-			holder := src[loc[2]:loc[3]]
-			body := src[loc[1]:]
-			// Only the object's own top level: stop at its closing brace.
-			depth := 1
-			for i, ch := range body {
-				switch ch {
-				case '{':
-					depth++
-				case '}':
-					depth--
-				}
-				if depth == 0 {
-					body = body[:i]
-					break
-				}
+		if strings.Count(body, "{") > 0 {
+			continue // nested: not a flat name table
+		}
+		for _, mm := range eventObjMemberRe.FindAllStringSubmatch(body, -1) {
+			out = append(out, [2]string{holder + "." + strings.Trim(mm[1], `"'`), mm[2]})
+		}
+	}
+	return out
+}
+
+// mayDeclareEventConsts reports whether a file is read for the event-name index.
+func mayDeclareEventConsts(relFile string, src []byte) bool {
+	return !facts.IsTestPath(relFile) && !isVueFile(relFile) &&
+		(bytes.Contains(src, []byte("enum ")) || bytes.Contains(src, []byte("const ")))
+}
+
+// eventConstIndex merges what every file declares. A name two files give different
+// values is dropped rather than guessed.
+func eventConstIndex(perFile []tsFileResult) map[string]string {
+	vals := map[string]map[string]bool{}
+	for _, res := range perFile {
+		for _, kv := range res.eventConsts {
+			if vals[kv[0]] == nil {
+				vals[kv[0]] = map[string]bool{}
 			}
-			if strings.Count(body, "{") > 0 {
-				continue // nested: not a flat name table
-			}
-			for _, mm := range eventObjMemberRe.FindAllStringSubmatch(body, -1) {
-				put(holder+"."+strings.Trim(mm[1], `"'`), mm[2])
-			}
+			vals[kv[0]][kv[1]] = true
 		}
 	}
 	out := map[string]string{}

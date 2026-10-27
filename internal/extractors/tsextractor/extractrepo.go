@@ -136,7 +136,6 @@ func newRepoCtx(fw tsFrameworks, tsFiles []string, sources map[string][]byte, kn
 		// a helper and the calls to it live in different files.
 		requestHelpers: buildRequestHelperIndex(tsFiles, sources),
 		barrels:        barrelExports(tsFiles, sources, knownFiles),
-		eventConsts:    eventConstIndex(tsFiles, sources),
 	}
 	if fw.isNuxt {
 		rc.nuxtAutoComponents = nuxtAutoComponentIndex(knownFiles)
@@ -223,6 +222,7 @@ type tsAssembly struct {
 	hosts           clientHosts
 
 	angularDI, angularRoutes, angularRequests, angularTemplates angularCounts
+	eventConsts                                                 map[string]string // see events.go
 }
 
 // Group files by directory for module detection. Files that produced no
@@ -236,6 +236,7 @@ func assembleFileResults(perFile []tsFileResult, tsFiles []string) *tsAssembly {
 		inlineTemplates: map[string]*angularTemplate{},
 		clients:         clientCounts{},
 	}
+	a.eventConsts = eventConstIndex(perFile)
 	for i, res := range perFile {
 		if res.routers != nil {
 			a.routerFiles = append(a.routerFiles, res.routers)
@@ -297,7 +298,7 @@ func (a *tsAssembly) compose(repoPath string, rc *repoCtx, templates map[string]
 	}
 	resolveBarrelCalls(a.facts, rc.barrels)
 	bindGraphQL(a.facts)
-	a.facts = bindEvents(a.facts, rc.eventConsts)
+	a.facts = bindEvents(a.facts, a.eventConsts)
 	resolveMemberTypedCalls(a.facts)
 	settleIONamedCalls(a.facts, a.modules)
 	ioclosure.PropagateWith(a.facts, ioclosure.Options{

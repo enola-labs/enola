@@ -4,11 +4,11 @@
     {
       "id": "reproducibility",
       "question": "Does the same commit produce the same graph?",
-      "figure": "100/100",
+      "figure": "107/107",
       "label": "public repositories produced byte-identical graphs across a cold run and two warm ones",
       "anchor": "1-reproducibility",
       "evidence": [
-        "100 of 100 repositories in this sweep produced a byte-identical"
+        "107 of 107 repositories in this sweep produced a byte-identical"
       ]
     },
     {
@@ -45,7 +45,7 @@
       "id": "scale",
       "question": "Does it finish on a real repository?",
       "figure": "2,068,665",
-      "label": "facts from the Linux kernel, the largest of 100 repositories indexed",
+      "label": "facts from the Linux kernel, the largest of 107 repositories indexed",
       "anchor": "4-scale",
       "evidence": [
         "**2,068,665 facts**"

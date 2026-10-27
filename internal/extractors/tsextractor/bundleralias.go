@@ -141,6 +141,7 @@ func readConfigAliases(out map[string]tsAlias, src []byte, rel, via string, topL
 	tree := parser.Parse(src, nil)
 	defer tree.Close()
 	r := &configReader{kinds: tsKindsFor(false), src: src, rel: rel, via: via}
+	r.readConsts(tree.RootNode())
 	order := 0
 	var walk func(n *sitter.Node, parentKey string, depth int)
 	walk = func(n *sitter.Node, parentKey string, depth int) {
@@ -165,10 +166,33 @@ func readConfigAliases(out map[string]tsAlias, src []byte, rel, via string, topL
 }
 
 type configReader struct {
-	kinds *tsutil.KindTable
-	src   []byte
-	rel   string // the config's directory, repository-relative
-	via   string
+	kinds  *tsutil.KindTable
+	src    []byte
+	rel    string // the config's directory, repository-relative
+	via    string
+	consts map[string]*sitter.Node // module-scope const name -> its value
+}
+
+// readConsts indexes the config's module-scope `const x = ...` bindings, so a path
+// built once (const root = path.resolve(__dirname, 'src')) evaluates where it is used.
+func (r *configReader) readConsts(root *sitter.Node) {
+	r.consts = map[string]*sitter.Node{}
+	for i := range root.NamedChildCount() {
+		stmt := root.NamedChild(i)
+		if kindOf(r.kinds, stmt) == "export_statement" {
+			stmt = stmt.ChildByFieldName("declaration")
+		}
+		if stmt == nil || kindOf(r.kinds, stmt) != "lexical_declaration" || !strings.HasPrefix(nodeText(stmt, r.src), "const") {
+			continue
+		}
+		for j := range stmt.NamedChildCount() {
+			d := stmt.NamedChild(j)
+			name, val := d.ChildByFieldName("name"), d.ChildByFieldName("value")
+			if kindOf(r.kinds, d) == "variable_declarator" && name != nil && val != nil && kindOf(r.kinds, name) == "identifier" {
+				r.consts[nodeText(name, r.src)] = val
+			}
+		}
+	}
 }
 
 func (r *configReader) keyOf(pair *sitter.Node) string {
@@ -293,6 +317,13 @@ func (r *configReader) pathOf(n *sitter.Node) (string, bool) {
 	case "identifier":
 		if text == "__dirname" {
 			return r.rel, true
+		}
+		if v, ok := r.consts[text]; ok {
+			// Unbound while it is read, so a const defined through itself ends.
+			delete(r.consts, text)
+			p, ok := r.pathOf(v)
+			r.consts[text] = v
+			return p, ok
 		}
 	case "member_expression":
 		if text == "import.meta.dirname" {
