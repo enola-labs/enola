@@ -413,7 +413,7 @@ One rule matters here: **the credit is persisted alongside the count**, not repr
 
 ## The tools
 
-enola is a stdio [MCP](https://modelcontextprotocol.io/) server. It exposes **twenty-two tools** and no MCP resources — everything flows through tool calls. The tools defined in [`internal/server`](internal/server/), one `tools_*.go` file per family, are listed below, each leading with the question it answers.
+enola is a stdio [MCP](https://modelcontextprotocol.io/) server. It exposes **twenty-three tools** and no MCP resources — everything flows through tool calls. The tools defined in [`internal/server`](internal/server/), one `tools_*.go` file per family, are listed below, each leading with the question it answers.
 
 > Most read tools share a **token-cost ladder** via `output_mode`: `summary` (smallest, aggregated counts) → `compact` (markdown, grouped) → `full` (raw JSON, can be large). Start with `summary` and escalate only when you need node-level detail. Most also accept `max_tokens` to hard-cap a response.
 
@@ -482,6 +482,19 @@ Returns the source for a named symbol. Prefers an exact name match; falls back t
 |-----------|-------------|
 | `name` *(required)* | Symbol name (substring match). |
 | `context_lines` | Source lines around the symbol. Default 60 (≈15 before the declaration, ≈45 after). |
+
+### `locate`: "which symbol is this line in, and is it still the same?"
+
+Converts between places in source and fact ids, for anything that remembers facts about code: a finding, a review comment, an agent's note. Each answer carries the symbol's fact id (the `id` in facts.jsonl) and its `body_hash`, the version of its code, so a caller can key what it keeps on the symbol rather than on a line number that moves.
+
+| Parameter | Description |
+|-----------|-------------|
+| `locations` | `file:line` or `file:start-end`. Each resolves to the innermost symbol whose span holds it (`match: span`), or for a language with no spans the nearest declaration above (`match: nearest`). A path may be any suffix of the graph's path; two candidates are listed, not guessed between. |
+| `diff` | A unified diff. Reports the symbols its changed lines fall in, with a line count each, and the lines outside every symbol. A pure deletion counts only when it sat inside one body. |
+| `side` | `new` (default): the snapshot is of the tree with the diff applied. `old`: the snapshot is of its parent, and the removed lines are read. |
+| `stamps` | `[{id, body_hash, name, symbol_kind}]`. Each comes back `current` (same id, same body), `rewritten`, `moved` (a new id with the same declared name and body, after a file or package move), `gone` (with same-name symbols as candidates), or `present` (no body version to compare). |
+
+`enola locate` is the same lookup on the command line, and `--at <revision>` answers against a recorded revision instead of the working tree.
 
 ### `traverse` — "walk the graph from here"
 

@@ -273,6 +273,7 @@ func TestCLIContract_Surface(t *testing.T) {
 		{"providers_list", []string{"providers", "list"}},
 		{"cluster_bad_action", []string{"cluster", "frobnicate"}},
 		{"impact_no_target", []string{"impact"}},
+		{"locate_no_input", []string{"locate"}},
 		{"endpoint_no_endpoint", []string{"endpoint"}},
 		{"blame_no_pattern", []string{"blame"}},
 		{"diff_no_range", []string{"diff"}},

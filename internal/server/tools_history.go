@@ -65,7 +65,7 @@ func (s *Server) registerHistoryTools() {
 		Name: "architecture_blame",
 		Description: "WHEN something entered or left the architecture: \"when did this module start importing that one?\", \"which snapshot introduced this cycle?\". " +
 			"It reads what the graph held at each recorded point instead of inferring it from source history. " +
-			"A symbol that shifted lines, had its body rewritten, or moved to another file is reported as one changed symbol, not as removed and re-added.",
+			"A symbol that shifted, was rewritten or moved is one change, not a removal and an addition.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args blameArgs) (*mcp.CallToolResult, any, error) {
 		if strings.TrimSpace(args.Pattern) == "" {
 			return errorResult("architecture_blame needs a pattern — a module or symbol name, a file path, or an edge."), nil, nil

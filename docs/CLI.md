@@ -148,7 +148,7 @@ Everything below is a prompt you type at your agent in plain English. enola pick
 
 > "Generate an architectural snapshot of /path/to/my/project"
 
-The snapshot gives your agent all 22 tools (`enola --list`) plus a summary at
+The snapshot gives your agent all 23 tools (`enola --list`) plus a summary at
 `.enola/llm_context.md`. Measured cold and warm times across the public corpus are in
 [BENCHMARKS.md](BENCHMARKS.md#4-scale).
 
@@ -249,7 +249,7 @@ to interpret the result:
 
 ---
 
-## The twenty-two tools
+## The twenty-three tools
 
 `enola --list` prints this catalogue from the running binary; it is reproduced here so
 you can read it without one installed. You never call these by name — you ask in plain
@@ -262,6 +262,7 @@ thing.
 | `explore` | What is in here, and what touches it? The one to reach for first. |
 | `query_facts` | Precision filter over the extracted facts. |
 | `show_symbol` | Show me the actual source of this named symbol, or of several in one call. |
+| `locate` | Which symbol is this line or diff in, by fact id and code version, and has a remembered symbol changed or moved since? |
 | `traverse` | Walk the dependency or call graph outward from here. |
 | `find_path` | How does A reach B? With `from_nodes` and `to_nodes`, how does any of one set of nodes reach any of another, in one search? |
 | `impact_analysis` | If I change this, what breaks? |
@@ -576,6 +577,7 @@ Every path argument follows the same rule: **a directory is a repository, a file
 | `log [flags] [repo\|config]` | **What has this architecture done over time?** One line per snapshot enola recorded, oldest first, with what changed since the one before it - `--graph` draws the branch topology, `--stat` breaks each delta down by fact kind, `-n` and `--since` bound the window. Read-only: it reports what was observed and never snapshots to fill a gap. `--backfill` instead BUILDS the timeline from the repository's own commit history, so a repository enola has never seen still has a past to read. **Experimental.** See [HISTORY.md](HISTORY.md). |
 | `show [rev] [repo\|config]` | **What did THIS revision do?** `log` says a revision added twelve facts; this says which twelve. Reconstructs the revision and its predecessor out of the stored history and compares them, so a past change is described in the words it was described in at the time. A revision is a snapshot id or prefix, a git commit, `HEAD~3`, `@7`, a ref name, or `latest` (the default). **Experimental.** |
 | `diff <a>..<b> [repo\|config]` | **What happened between these two points?** The architecture delta across a range - the question a week of work produces, where `show` answers for a single revision. Either side of the range may be empty, meaning the oldest or the newest recorded revision. **Experimental.** |
+| `locate [flags] [<file:line>...] [repo\|config]` | **Which symbol is this line in, and is it still the same?** Each `file:line` or `file:start-end` resolves to the innermost symbol holding it, with its fact id (the `id` in facts.jsonl) and its `body_hash`, the version of its code; a language with no spans gets the nearest declaration above, and says so. `--diff <file>` (or `-` for stdin) reports the symbols a unified diff touched; `--side old` reads the removed lines, against the graph of the tree before the change. `--stamps <file>` reads JSONL stamps (`{"id", "body_hash", "name"}`) and reports each as `current`, `rewritten`, `moved` (new id, same declared name and body) or `gone`. `--at <revision>` answers against a recorded revision instead of the working tree, so a finding made at an old commit is stamped against the code as it was. `--json` emits the result. The `locate` MCP tool answers the same question in a session. |
 | `blame [flags] <pattern> [repo\|config]` | **When did this enter the architecture, and when did it leave?** A question a snapshot cannot answer however good it is, because it is about the past. The pattern matches a module or symbol name, a file path, or both endpoints of an edge; `--findings` searches recorded findings instead ("which snapshot introduced this cycle?"), and `--first` stops at the introduction. Revisions whose stored contents have aged out are reported as `unsearched`, never as absent. **Experimental.** |
 | `gc [flags] [repo\|config]` | **What is stored, and what can go?** Reports how many revisions the history holds, how many can still be replayed, and how much disk they cost. With no flags it removes only garbage - segment directories no revision refers to. `--thin-older-than=90d` drops old contents while keeping the timeline complete, and `--prune-working` discards uncommitted-tree snapshots; each has to be asked for, because both lose something a reader could still reach. **Experimental.** |
 | `history <push\|pull\|verify\|gc> [store] [repo\|config]` | **Share a history between machines** through a directory store - a git repository, a shared mount, an S3-synced folder. Plain files, content-addressed, tamper-evident. `push` copies local revisions in, `pull` imports what other machines pushed, `verify` walks every chain and names gaps and tampering (exits `1` when it finds a problem), and `gc` applies retention - printed first, deleted only with `--apply`, and recorded in the chain. Point it with `history.shared_dir` or the first argument. **Experimental.** |

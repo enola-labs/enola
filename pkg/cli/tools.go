@@ -30,6 +30,7 @@ func OSSTools() []ToolEntry {
 		{Name: "explore", Description: "Primary exploration tool — use this first after generate_snapshot."},
 		{Name: "query_facts", Description: "Precision filter over extracted facts."},
 		{Name: "show_symbol", Description: "Return the source code implementation of a named symbol."},
+		{Name: "locate", Description: "Map file:line or a diff to symbol ids and body versions, and check whether remembered symbols changed or moved."},
 		{Name: "traverse", Description: "Walk the dependency/call graph from a starting node."},
 		{Name: "find_path", Description: "Find the shortest path between two nodes in the architectural graph."},
 		{Name: "impact_analysis", Description: "Compute the blast radius of changing a target node."},

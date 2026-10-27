@@ -1,0 +1,21 @@
+{
+  "stamps": [
+    {
+      "stamp": {
+        "id": "00000000000000000000000000000000",
+        "name": "pkg/a.Alpha"
+      },
+      "status": "gone",
+      "candidates": [
+        {
+          "id": "c8f7c0664a0a2ca73e2dc23371b834a4",
+          "repo": "go_sample",
+          "name": "pkg/a.Alpha",
+          "symbol_kind": "function",
+          "file": "pkg/a/a.go",
+          "line": 7
+        }
+      ]
+    }
+  ]
+}

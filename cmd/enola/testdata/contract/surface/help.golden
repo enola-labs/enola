@@ -17,6 +17,7 @@ USAGE
   enola plan [flags] [path...] [repo_path|config_path]
   enola coverage [flags] [repo_path|config_path]
   enola impact [flags] <target> [repo_path|config_path]
+  enola locate [flags] [<file:line>...] [repo_path|config_path]
   enola flows [flags] [repo_path|config_path]
   enola doctor [repo_path]
   enola log [flags] [repo_path|config_path]
@@ -108,6 +109,12 @@ COMMANDS
                       because the target matched nothing or too many nodes, so an empty
                       answer is never an unasked question.
                       Run "enola impact --help" for the flags.
+  locate              Map file:line locations, or a diff with --diff, to the symbols the
+                      graph holds there: each one's fact id and body_hash, the version of
+                      its code. --stamps checks remembered symbols: current, rewritten,
+                      moved or gone. --at answers against a recorded revision. The locate
+                      tool, without a session.
+                      Run "enola locate --help" for the flags.
   flows               Rank the ways into a program by what each reaches. An entry is a
                       served route's handler, a program's main, or a symbol a framework
                       invokes; its flow is every symbol the calls from it reach. --show
