@@ -55,6 +55,28 @@ The pattern matches a module or symbol name, a file path, or both endpoints of a
 searches recorded findings instead ("which snapshot introduced this cycle?"); `--first` stops at the
 introduction.
 
+A symbol that changed between two revisions is reported as one change, not as a removal and an
+addition, and its body version (`body_hash`, see [the facts schema](schema/facts.md#body_hash)) says
+which kind:
+
+```
+$ enola blame App.onPointerMoveFromPointerDownHandler
+fefa0b2  2025-07-24 17:02
+    ~ rewritten  symbol  …components.App.onPointerMoveFromPointerDownHandler  (App.tsx:8037)  was App.tsx:8041
+b8924d7  2025-08-11 11:52
+    ~ shifted    symbol  …components.App.onPointerMoveFromPointerDownHandler  (App.tsx:8038)  was App.tsx:8037
+```
+
+- **shifted**: same code, a new line, because something above it changed.
+- **rewritten**: its code changed.
+- **moved**: it left one file or package and arrived in another with the same body and the same
+  name inside its module. Its id changed with the file; the pair is how you follow it.
+- **changed**: one side has no body version (a revision recorded before versions existed, or a
+  language with no spans), so a shift cannot be told from a rewrite.
+
+On fifteen months of one repository's daily history this was the bulk of what blame used to print as removed
+and re-added: 43,783 shifts against 3,412 rewrites and 138 moves.
+
 Revisions whose stored contents have aged out are reported as **unsearched**, never as absent —
 "not found" and "not found in what I could read" are different answers, and the second means look
 further back.

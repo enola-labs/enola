@@ -147,6 +147,13 @@ falls back to the checkout directory name when no usable remote exists. Two
 remote-less checkouts under different directory names therefore produce
 different IDs.
 
+Symbols carry their span, `line` to `end_line`, from every code extractor but F# and
+VB.NET, and with it a `body_hash` prop: a version of the code the span covers. The id
+stays the same while a function is rewritten and `line` moves whenever anything above
+it changes; `body_hash` changes exactly when the function's own code does. Keep both
+when you keep a fact: the id says which symbol, the hash says which version of it. See
+[body_hash](schema/facts.md#body_hash).
+
 Accept unknown fact kinds and properties for a supported format version. New
 vocabulary is additive and does not bump `format_version`; either retain unknown
 data or report that it was intentionally dropped.
@@ -207,6 +214,49 @@ artifacts from its pinned writer can validate the current required fields.
 Upgrading the enola binary changes `snapshot_id` even when source code has not
 changed because the enola version is part of the fingerprint. Plan to re-ingest
 snapshots after an upgrade.
+
+## 8. Key your own records to the graph
+
+A system that keeps its own facts about code (an agent's memory, review comments,
+incident notes) usually holds them as locations: the `file:line` a finding pointed at,
+the lines a fix changed. A line moves when anything above it changes, and two notes
+about one function rarely name it the same way. Key such records on the fact id and the
+body version instead. `enola locate` does the conversion; agents reach it as the
+`locate` MCP tool.
+
+When a record is written, resolve its location:
+
+```bash
+enola locate --json src/app.ts:120              # or file:start-end, several at once
+git diff | enola locate --json --diff -         # the symbols a change touched
+```
+
+Each location comes back as the innermost symbol holding it, with its `id`, `name`,
+`body_hash` and span, and a `cited_hash` / `cited_lines` pair: a version of the cited
+lines themselves (a single line is taken with the line before and after it). Store the
+id, the body hash and the name with the record, and the cited pair when the record is
+about specific lines. `match` says how the symbol was found: `span` is exact,
+`nearest` (F# and VB.NET) is the declaration above the line.
+
+When a record is read, check it against the current graph:
+
+```bash
+enola locate --json --stamps records.jsonl      # one {"id", "body_hash", "name", "cited_hash", "cited_lines"} per line
+```
+
+Each stamp comes back `current` (same symbol, same code), `rewritten`, `moved` (a new id
+with the same name and code, after a file or package move), or `gone` (with symbols of
+the same name as candidates). A rewritten stamp with a cited version also gets `cited:
+intact` when those lines are still in the function, wherever they now sit, or `changed`.
+A function edited far from the lines a record cites leaves the record accurate; treat
+`rewritten` as a reason to re-check, not to delete.
+
+Recurrence is then a count: how many records share an id, with no clustering of their
+wording.
+
+`--facts <dir or facts.jsonl>` answers from a stored snapshot without a working tree,
+so a service resolves against exactly the graph it ingested. It cannot read source, so
+it reports no cited version. `--at <revision>` answers against a recorded revision.
 
 ## Cognee
 
