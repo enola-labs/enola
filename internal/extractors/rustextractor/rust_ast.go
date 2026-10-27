@@ -612,10 +612,11 @@ func (w *astWalker) handleStruct(node *sitter.Node) {
 	}
 	name := nodeText(nameNode, w.src)
 	w.out = append(w.out, facts.Fact{
-		Kind: facts.KindSymbol,
-		Name: w.dir + "." + w.qualify(name),
-		File: w.relFile,
-		Line: int(node.StartPosition().Row) + 1,
+		Kind:    facts.KindSymbol,
+		Name:    w.dir + "." + w.qualify(name),
+		File:    w.relFile,
+		Line:    int(node.StartPosition().Row) + 1,
+		EndLine: tsutil.EndLine(node),
 		Props: map[string]any{
 			"symbol_kind": facts.SymbolStruct,
 			"exported":    isExported(node),
@@ -638,10 +639,11 @@ func (w *astWalker) handleEnum(node *sitter.Node) {
 	}
 	name := nodeText(nameNode, w.src)
 	w.out = append(w.out, facts.Fact{
-		Kind: facts.KindSymbol,
-		Name: w.dir + "." + w.qualify(name),
-		File: w.relFile,
-		Line: int(node.StartPosition().Row) + 1,
+		Kind:    facts.KindSymbol,
+		Name:    w.dir + "." + w.qualify(name),
+		File:    w.relFile,
+		Line:    int(node.StartPosition().Row) + 1,
+		EndLine: tsutil.EndLine(node),
 		Props: map[string]any{
 			"symbol_kind": facts.SymbolEnum,
 			"exported":    isExported(node),
@@ -663,10 +665,11 @@ func (w *astWalker) handleTrait(node *sitter.Node) {
 	}
 	name := nodeText(nameNode, w.src)
 	w.out = append(w.out, facts.Fact{
-		Kind: facts.KindSymbol,
-		Name: w.dir + "." + w.qualify(name),
-		File: w.relFile,
-		Line: int(node.StartPosition().Row) + 1,
+		Kind:    facts.KindSymbol,
+		Name:    w.dir + "." + w.qualify(name),
+		File:    w.relFile,
+		Line:    int(node.StartPosition().Row) + 1,
+		EndLine: tsutil.EndLine(node),
 		Props: map[string]any{
 			"symbol_kind": facts.SymbolInterface,
 			"exported":    isExported(node),
@@ -724,10 +727,11 @@ func (w *astWalker) handleFunction(node *sitter.Node, attrs rustItemAttrs) {
 	}
 
 	f := facts.Fact{
-		Kind: facts.KindSymbol,
-		Name: w.dir + "." + w.qualify(name),
-		File: w.relFile,
-		Line: int(node.StartPosition().Row) + 1,
+		Kind:    facts.KindSymbol,
+		Name:    w.dir + "." + w.qualify(name),
+		File:    w.relFile,
+		Line:    int(node.StartPosition().Row) + 1,
+		EndLine: tsutil.EndLine(node),
 		Props: map[string]any{
 			"symbol_kind": symbolKind,
 			"exported":    isExported(node),
@@ -903,10 +907,11 @@ func (w *astWalker) handleFunctionSignature(node *sitter.Node) {
 		symbolKind = facts.SymbolMethod
 	}
 	f := facts.Fact{
-		Kind: facts.KindSymbol,
-		Name: w.dir + "." + w.qualify(name),
-		File: w.relFile,
-		Line: int(node.StartPosition().Row) + 1,
+		Kind:    facts.KindSymbol,
+		Name:    w.dir + "." + w.qualify(name),
+		File:    w.relFile,
+		Line:    int(node.StartPosition().Row) + 1,
+		EndLine: tsutil.EndLine(node),
 		Props: map[string]any{
 			"symbol_kind": symbolKind,
 			"exported":    isExported(node),
@@ -931,10 +936,11 @@ func (w *astWalker) handleTypeAlias(node *sitter.Node) {
 	}
 	name := nodeText(nameNode, w.src)
 	w.out = append(w.out, facts.Fact{
-		Kind: facts.KindSymbol,
-		Name: w.dir + "." + w.qualify(name),
-		File: w.relFile,
-		Line: int(node.StartPosition().Row) + 1,
+		Kind:    facts.KindSymbol,
+		Name:    w.dir + "." + w.qualify(name),
+		File:    w.relFile,
+		Line:    int(node.StartPosition().Row) + 1,
+		EndLine: tsutil.EndLine(node),
 		Props: map[string]any{
 			"symbol_kind": facts.SymbolType,
 			"exported":    isExported(node),
@@ -952,10 +958,11 @@ func (w *astWalker) handleConstOrStatic(node *sitter.Node, symbolKind string) {
 	}
 	name := nodeText(nameNode, w.src)
 	f := facts.Fact{
-		Kind: facts.KindSymbol,
-		Name: w.dir + "." + w.qualify(name),
-		File: w.relFile,
-		Line: int(node.StartPosition().Row) + 1,
+		Kind:    facts.KindSymbol,
+		Name:    w.dir + "." + w.qualify(name),
+		File:    w.relFile,
+		Line:    int(node.StartPosition().Row) + 1,
+		EndLine: tsutil.EndLine(node),
 		Props: map[string]any{
 			"symbol_kind": symbolKind,
 			"exported":    isExported(node),

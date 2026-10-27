@@ -179,3 +179,19 @@ func TestMineDoesNotMineTheDocProp(t *testing.T) {
 		}
 	}
 }
+
+// A body version is one symbol's fingerprint. Twelve symbols sharing one (twelve
+// identical stubs) are not twelve symbols obeying a rule either.
+func TestMineDoesNotMineTheBodyHash(t *testing.T) {
+	var ff []facts.Fact
+	for i := 0; i < 12; i++ {
+		ff = append(ff, symbolPropFact(fmt.Sprintf("Stub%02d", i), fmt.Sprintf("src/s%02d.go", i),
+			map[string]any{"framework": "gin", facts.PropBodyHash: "4db0a590fce4a66b"}))
+	}
+	report := Mine(storeOf(ff), DefaultConfig())
+	for _, c := range report.Candidates {
+		if strings.Contains(c.Statement, facts.PropBodyHash) {
+			t.Errorf("a rule was mined out of a body version: %s", c.Statement)
+		}
+	}
+}

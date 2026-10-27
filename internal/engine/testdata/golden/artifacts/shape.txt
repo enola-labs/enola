@@ -91,6 +91,7 @@
 [].confidence number
 [].description string
 [].evidence[].detail string
+[].evidence[].end_line number
 [].evidence[].fact string
 [].evidence[].fact_id string
 [].evidence[].file string

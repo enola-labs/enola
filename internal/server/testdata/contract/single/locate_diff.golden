@@ -5,7 +5,7 @@
       {
         "path": "pkg/a/a.go",
         "file": "pkg/a/a.go",
-        "match": "nearest",
+        "match": "span",
         "symbols": [
           {
             "id": "c8f7c0664a0a2ca73e2dc23371b834a4",
@@ -14,6 +14,8 @@
             "symbol_kind": "function",
             "file": "pkg/a/a.go",
             "line": 7,
+            "end_line": 9,
+            "body_hash": "25fbdae7e04eba84",
             "lines": 1
           }
         ]

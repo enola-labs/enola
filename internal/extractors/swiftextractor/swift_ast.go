@@ -671,10 +671,11 @@ func (w *astWalker) handleClassDeclaration(node *sitter.Node) {
 	}
 
 	f := facts.Fact{
-		Kind: facts.KindSymbol,
-		Name: w.dir + "." + w.qualify(name),
-		File: w.relFile,
-		Line: int(node.StartPosition().Row) + 1,
+		Kind:    facts.KindSymbol,
+		Name:    w.dir + "." + w.qualify(name),
+		File:    w.relFile,
+		Line:    int(node.StartPosition().Row) + 1,
+		EndLine: tsutil.EndLine(node),
 		Props: map[string]any{
 			"symbol_kind": symbolKind,
 			"exported":    !isPrivateAccess(modifierText),
@@ -744,10 +745,11 @@ func (w *astWalker) handleProtocol(node *sitter.Node) {
 	supertypes := inheritanceNames(node, w.src)
 
 	f := facts.Fact{
-		Kind: facts.KindSymbol,
-		Name: w.dir + "." + w.qualify(name),
-		File: w.relFile,
-		Line: int(node.StartPosition().Row) + 1,
+		Kind:    facts.KindSymbol,
+		Name:    w.dir + "." + w.qualify(name),
+		File:    w.relFile,
+		Line:    int(node.StartPosition().Row) + 1,
+		EndLine: tsutil.EndLine(node),
 		Props: map[string]any{
 			"symbol_kind": facts.SymbolInterface,
 			"exported":    !isPrivateAccess(modifierText),
@@ -788,10 +790,11 @@ func (w *astWalker) handleExtension(node *sitter.Node) {
 	}
 	for _, proto := range inheritanceNames(node, w.src) {
 		w.out = append(w.out, facts.Fact{
-			Kind: facts.KindSymbol,
-			Name: w.dir + "." + base + "+" + proto,
-			File: w.relFile,
-			Line: int(node.StartPosition().Row) + 1,
+			Kind:    facts.KindSymbol,
+			Name:    w.dir + "." + base + "+" + proto,
+			File:    w.relFile,
+			Line:    int(node.StartPosition().Row) + 1,
+			EndLine: tsutil.EndLine(node),
 			Props: map[string]any{
 				"symbol_kind": "extension",
 				"exported":    true,
@@ -872,10 +875,11 @@ func (w *astWalker) handleFunction(node *sitter.Node) {
 	}
 
 	f := facts.Fact{
-		Kind: facts.KindSymbol,
-		Name: w.dir + "." + w.qualify(name),
-		File: w.relFile,
-		Line: int(node.StartPosition().Row) + 1,
+		Kind:    facts.KindSymbol,
+		Name:    w.dir + "." + w.qualify(name),
+		File:    w.relFile,
+		Line:    int(node.StartPosition().Row) + 1,
+		EndLine: tsutil.EndLine(node),
 		Props: map[string]any{
 			"symbol_kind": symbolKind,
 			"exported":    !isPrivateAccess(modifierText),
@@ -975,10 +979,11 @@ func (w *astWalker) handleProperty(node *sitter.Node) {
 	}
 
 	w.out = append(w.out, facts.Fact{
-		Kind: facts.KindSymbol,
-		Name: w.dir + "." + w.qualify(name),
-		File: w.relFile,
-		Line: int(node.StartPosition().Row) + 1,
+		Kind:    facts.KindSymbol,
+		Name:    w.dir + "." + w.qualify(name),
+		File:    w.relFile,
+		Line:    int(node.StartPosition().Row) + 1,
+		EndLine: tsutil.EndLine(node),
 		Props: map[string]any{
 			"symbol_kind": symbolKind,
 			"exported":    !isPrivateAccess(modifierText),
@@ -1109,10 +1114,11 @@ func (w *astWalker) handleTypeAlias(node *sitter.Node) {
 		}
 	}
 	w.out = append(w.out, facts.Fact{
-		Kind: facts.KindSymbol,
-		Name: w.dir + "." + w.qualify(name),
-		File: w.relFile,
-		Line: int(node.StartPosition().Row) + 1,
+		Kind:    facts.KindSymbol,
+		Name:    w.dir + "." + w.qualify(name),
+		File:    w.relFile,
+		Line:    int(node.StartPosition().Row) + 1,
+		EndLine: tsutil.EndLine(node),
 		Props: map[string]any{
 			"symbol_kind": facts.SymbolType,
 			"exported":    !isPrivateAccess(nodeText(modifiers, w.src)),

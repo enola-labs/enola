@@ -30,7 +30,8 @@
         "file": "pkg/a/a.go",
         "symbol": "pkg/a.GetPath",
         "detail": "function · unreferenced · pkg/a/a.go:15",
-        "line": 15
+        "line": 15,
+        "end_line": 19
       },
       {
         "symbol": "pkg/a.GetPath",
@@ -51,7 +52,8 @@
         "file": "pkg/a/a.go",
         "symbol": "pkg/a.Seed",
         "detail": "function · unreferenced · pkg/a/a.go:24",
-        "line": 24
+        "line": 24,
+        "end_line": 28
       },
       {
         "symbol": "pkg/a.Seed",
@@ -72,7 +74,8 @@
         "file": "pkg/a/a.go",
         "symbol": "pkg/a.helper",
         "detail": "function · test-only · pkg/a/a.go:37",
-        "line": 37
+        "line": 37,
+        "end_line": 37
       },
       {
         "symbol": "pkg/a.helper",
@@ -93,7 +96,8 @@
         "file": "pkg/a/a.go",
         "symbol": "pkg/a.Gamma",
         "detail": "function · test-only · pkg/a/a.go:43",
-        "line": 43
+        "line": 43,
+        "end_line": 43
       },
       {
         "symbol": "pkg/a.Gamma",

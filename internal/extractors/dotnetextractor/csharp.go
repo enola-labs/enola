@@ -20,6 +20,7 @@ import (
 
 	"github.com/enola-labs/enola/internal/extractors/detectnames"
 	"github.com/enola-labs/enola/internal/extractors/ioclosure"
+	"github.com/enola-labs/enola/internal/extractors/tsutil"
 	"github.com/enola-labs/enola/internal/factpath"
 	"github.com/enola-labs/enola/internal/facts"
 	"github.com/enola-labs/enola/internal/parallel"
@@ -192,10 +193,14 @@ func (e *CSharpExtractor) Extract(ctx context.Context, repoPath string, files []
 	// resolveCSharpTargets builds below.
 	for _, pass := range []langPass{
 		{lang: "razor", files: razorFiles, scan: func(rel string, src []byte) ([]facts.Fact, bool) {
-			return razorFacts(string(src), rel), true
+			ff := razorFacts(string(src), rel)
+			tsutil.SpanFileSymbols(ff, rel, src) // a component is its file
+			return ff, true
 		}},
 		{lang: "xaml", files: xamlFiles, scan: func(rel string, src []byte) ([]facts.Fact, bool) {
-			return xamlFacts(string(src), rel), true
+			ff := xamlFacts(string(src), rel)
+			tsutil.SpanFileSymbols(ff, rel, src) // a view is its file
+			return ff, true
 		}},
 		{lang: "vbnet", files: vbFiles, scan: func(rel string, src []byte) ([]facts.Fact, bool) {
 			if isGeneratedVB(rel, string(src)) {

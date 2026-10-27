@@ -499,10 +499,11 @@ func (e *GoExtractor) extractFunc(fset *token.FileSet, fn *ast.FuncDecl, relFile
 	qualifiedName := pkgDir + "." + name
 
 	symbolFact := facts.Fact{
-		Kind: facts.KindSymbol,
-		Name: qualifiedName,
-		File: relFile,
-		Line: fset.Position(fn.Pos()).Line,
+		Kind:    facts.KindSymbol,
+		Name:    qualifiedName,
+		File:    relFile,
+		Line:    fset.Position(fn.Pos()).Line,
+		EndLine: fset.Position(fn.End()).Line,
 		Props: map[string]any{
 			"symbol_kind": kind,
 			"exported":    exported,
@@ -685,10 +686,11 @@ func (e *GoExtractor) extractValueSpec(fset *token.FileSet, gd *ast.GenDecl, vs 
 			continue
 		}
 		result = append(result, facts.Fact{
-			Kind: facts.KindSymbol,
-			Name: pkgDir + "." + ident.Name,
-			File: relFile,
-			Line: fset.Position(ident.Pos()).Line,
+			Kind:    facts.KindSymbol,
+			Name:    pkgDir + "." + ident.Name,
+			File:    relFile,
+			Line:    fset.Position(ident.Pos()).Line,
+			EndLine: fset.Position(vs.End()).Line,
 			Props: map[string]any{
 				"symbol_kind": kind,
 				"exported":    true,
@@ -755,10 +757,11 @@ func (e *GoExtractor) extractTypeSpec(fset *token.FileSet, gd *ast.GenDecl, ts *
 	}
 
 	symbolFact := facts.Fact{
-		Kind: facts.KindSymbol,
-		Name: qualifiedName,
-		File: relFile,
-		Line: fset.Position(ts.Pos()).Line,
+		Kind:    facts.KindSymbol,
+		Name:    qualifiedName,
+		File:    relFile,
+		Line:    fset.Position(ts.Pos()).Line,
+		EndLine: fset.Position(ts.End()).Line,
 		Props: map[string]any{
 			"symbol_kind": kind,
 			"exported":    exported,
@@ -810,10 +813,11 @@ func interfaceMethodSymbols(fset *token.FileSet, iface *ast.InterfaceType, relFi
 	for _, field := range iface.Methods.List {
 		for _, methodIdent := range field.Names {
 			result = append(result, facts.Fact{
-				Kind: facts.KindSymbol,
-				Name: pkgDir + "." + ifaceName + "." + methodIdent.Name,
-				File: relFile,
-				Line: fset.Position(methodIdent.Pos()).Line,
+				Kind:    facts.KindSymbol,
+				Name:    pkgDir + "." + ifaceName + "." + methodIdent.Name,
+				File:    relFile,
+				Line:    fset.Position(methodIdent.Pos()).Line,
+				EndLine: fset.Position(field.End()).Line,
 				Props: map[string]any{
 					"symbol_kind": facts.SymbolMethod,
 					"exported":    methodIdent.IsExported(),

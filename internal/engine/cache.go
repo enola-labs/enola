@@ -3270,7 +3270,18 @@ import (
 // (const root = path.resolve(__dirname, 'src'); '@/': `${root}/`) resolves.
 // v475: TypeScript and Python: symbols carry their span (end_line), and a symbol that
 // stands for its whole file (a synthesized Vue, Svelte or Ember component) spans it.
-const cacheVersion = "v475"
+// v476: Go: symbols carry their span (end_line): a function or method its body, a type
+// its declaration, an exported var or const its spec, an interface method its signature.
+// v477: Java, Kotlin and Scala: symbols carry their span (end_line), a recovered Kotlin
+// declaration to the end of its body.
+// v478: C#: symbols carry their span (end_line), a minimal-API lambda handler its lambda,
+// a Razor component and a XAML view their whole file. F# and VB.NET carry none yet.
+// v479: PHP and Rust: symbols carry their span (end_line).
+// v480: Swift and Dart: symbols carry their span (end_line), a Dart method or function
+// to the end of its body, which the grammar parses as a sibling of the signature.
+// v481: C and C++: symbols carry their span (end_line); a prototype merged with its
+// definition takes the definition's span with its file and line.
+const cacheVersion = "v481"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

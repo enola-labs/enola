@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/enola-labs/enola/internal/extractors/tsutil"
 	"github.com/enola-labs/enola/internal/facts"
 	sitter "github.com/tree-sitter/go-tree-sitter"
 )
@@ -478,10 +479,11 @@ func (w *astWalker) lambdaHandlerSymbols(routes []minimalRoute) {
 			short = r.local
 		}
 		w.out = append(w.out, facts.Fact{
-			Kind: facts.KindSymbol,
-			Name: r.Dir + "." + r.owner + "." + short,
-			File: r.File,
-			Line: int(r.lambda.StartPosition().Row) + 1,
+			Kind:    facts.KindSymbol,
+			Name:    r.Dir + "." + r.owner + "." + short,
+			File:    r.File,
+			Line:    int(r.lambda.StartPosition().Row) + 1,
+			EndLine: tsutil.EndLine(r.lambda),
 			Props: map[string]any{
 				"symbol_kind":          facts.SymbolFunc,
 				"language":             "csharp",

@@ -6,8 +6,10 @@
       "name": "..main",
       "file": "main.go",
       "line": 10,
+      "end_line": 13,
       "repo": "go_sample",
       "props": {
+        "body_hash": "f2151f78a7606f57",
         "cyclomatic": 1,
         "doc": "main is the entry point; it exercises both packages so the snapshot has a clear root with outgoing imports and calls.",
         "exported": false,
@@ -45,8 +47,10 @@
           "name": "pkg/a.Alpha",
           "file": "pkg/a/a.go",
           "line": 7,
+          "end_line": 9,
           "repo": "go_sample",
           "props": {
+            "body_hash": "25fbdae7e04eba84",
             "cyclomatic": 1,
             "doc": "Alpha calls into package b, forming one side of a deliberate a\u003c-\u003eb import cycle so the cycles explainer (Tarjan SCC) has something to detect.",
             "exported": true,
@@ -69,8 +73,10 @@
           "name": "pkg/b.Beta",
           "file": "pkg/b/b.go",
           "line": 6,
+          "end_line": 8,
           "repo": "go_sample",
           "props": {
+            "body_hash": "3f5f2bdaec23239f",
             "cyclomatic": 1,
             "doc": "Beta calls back into package a, closing the a\u003c-\u003eb import cycle.",
             "exported": true,
@@ -95,8 +101,10 @@
       "name": "pkg/a.Alpha",
       "file": "pkg/a/a.go",
       "line": 7,
+      "end_line": 9,
       "repo": "go_sample",
       "props": {
+        "body_hash": "25fbdae7e04eba84",
         "cyclomatic": 1,
         "doc": "Alpha calls into package b, forming one side of a deliberate a\u003c-\u003eb import cycle so the cycles explainer (Tarjan SCC) has something to detect.",
         "exported": true,
@@ -131,8 +139,10 @@
       "name": "pkg/a.GetPath",
       "file": "pkg/a/a.go",
       "line": 15,
+      "end_line": 19,
       "repo": "go_sample",
       "props": {
+        "body_hash": "4f11210da4184dd2",
         "calls_in_loop": [
           "pkg/a.getByID"
         ],
@@ -169,8 +179,10 @@
           "name": "pkg/a.getByID",
           "file": "pkg/a/a.go",
           "line": 30,
+          "end_line": 30,
           "repo": "go_sample",
           "props": {
+            "body_hash": "b24a8aac47fa2ab3",
             "cyclomatic": 1,
             "exported": false,
             "language": "go",
@@ -190,8 +202,10 @@
       "name": "pkg/a.Seed",
       "file": "pkg/a/a.go",
       "line": 24,
+      "end_line": 28,
       "repo": "go_sample",
       "props": {
+        "body_hash": "28ed7fea27090db9",
         "calls_in_loop": [
           "pkg/a.setup"
         ],
@@ -224,8 +238,10 @@
           "name": "pkg/a.setup",
           "file": "pkg/a/a.go",
           "line": 31,
+          "end_line": 31,
           "repo": "go_sample",
           "props": {
+            "body_hash": "b4f7378b8992a495",
             "cyclomatic": 1,
             "exported": false,
             "language": "go",
@@ -245,8 +261,10 @@
       "name": "pkg/b.Beta",
       "file": "pkg/b/b.go",
       "line": 6,
+      "end_line": 8,
       "repo": "go_sample",
       "props": {
+        "body_hash": "3f5f2bdaec23239f",
         "cyclomatic": 1,
         "doc": "Beta calls back into package a, closing the a\u003c-\u003eb import cycle.",
         "exported": true,
@@ -300,8 +318,10 @@
           "name": "pkg/a.Gamma",
           "file": "pkg/a/a.go",
           "line": 43,
+          "end_line": 43,
           "repo": "go_sample",
           "props": {
+            "body_hash": "3298c2090ca1d7e0",
             "cyclomatic": 1,
             "doc": "Gamma is the same case for the OTHER Go test idiom: its only reference is from a_ext_test.go (`package a_test`), which reaches it through an import alias rather than unqualified. Deliberately not Alpha — Alpha's dependent count is asserted by TestE2E_ImpactAnalysis, and a test_ref counts as a...",
             "exported": true,
@@ -341,8 +361,10 @@
           "name": "pkg/a.helper",
           "file": "pkg/a/a.go",
           "line": 37,
+          "end_line": 37,
           "repo": "go_sample",
           "props": {
+            "body_hash": "87d03cf0b3bfd1bf",
             "cyclomatic": 1,
             "doc": "helper has no production caller. Its only reference is from a_test.go, which is ignored for indexing and recovered as a test_ref fact — so the graph must still carry an incoming edge for it. Before v100 no such fact existed for Go and the symbol looked dead. Pins GAP-GO-06 for the in-package test...",
             "exported": false,

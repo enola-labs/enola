@@ -8,6 +8,7 @@ import (
 
 	"github.com/enola-labs/enola/internal/extractors/callsite"
 	"github.com/enola-labs/enola/internal/extractors/dartextractor/grammar"
+	"github.com/enola-labs/enola/internal/extractors/tsutil"
 	"github.com/enola-labs/enola/internal/factpath"
 	"github.com/enola-labs/enola/internal/facts"
 )
@@ -341,6 +342,7 @@ func (w *walker) classDecl(n *sitter.Node, construct string) {
 		Name:      qualified,
 		File:      w.relFile,
 		Line:      lineOf(n),
+		EndLine:   tsutil.EndLine(n),
 		Props:     props,
 		Relations: rels,
 	})
@@ -385,7 +387,7 @@ func (w *walker) memberDecls(body *sitter.Node, typeName string) []memberInfo {
 			}
 			full := w.qualify(typeName + "." + cname)
 			w.out = append(w.out, facts.Fact{
-				Kind: facts.KindSymbol, Name: full, File: w.relFile, Line: lineOf(n),
+				Kind: facts.KindSymbol, Name: full, File: w.relFile, Line: lineOf(n), EndLine: tsutil.EndLine(n),
 				Props: map[string]any{
 					"language": "dart", "symbol_kind": facts.SymbolConstant,
 					"enum_constant": true, "exported": !strings.HasPrefix(cname, "_"),
@@ -415,7 +417,7 @@ func (w *walker) declarationMember(n *sitter.Node, typeName string, annos []stri
 			}
 			rels := w.injectRelations(c)
 			w.out = append(w.out, facts.Fact{
-				Kind: facts.KindSymbol, Name: full, File: w.relFile, Line: lineOf(c),
+				Kind: facts.KindSymbol, Name: full, File: w.relFile, Line: lineOf(c), EndLine: tsutil.EndLine(c),
 				Props: props, Relations: rels,
 			})
 			w.setDoc(n)
@@ -436,7 +438,7 @@ func (w *walker) declarationMember(n *sitter.Node, typeName string, annos []stri
 				props["annotations"] = annos
 			}
 			w.out = append(w.out, facts.Fact{
-				Kind: facts.KindSymbol, Name: full, File: w.relFile, Line: lineOf(c),
+				Kind: facts.KindSymbol, Name: full, File: w.relFile, Line: lineOf(c), EndLine: tsutil.EndLine(c),
 				Props: props,
 			})
 			w.setDoc(n)
@@ -458,7 +460,7 @@ func (w *walker) declarationMember(n *sitter.Node, typeName string, annos []stri
 				// private half is syntactically obvious and very common.
 				if !strings.HasPrefix(fieldName, "_") {
 					w.out = append(w.out, facts.Fact{
-						Kind: facts.KindSymbol, Name: full, File: w.relFile, Line: lineOf(c),
+						Kind: facts.KindSymbol, Name: full, File: w.relFile, Line: lineOf(c), EndLine: tsutil.EndLine(c),
 						Props: map[string]any{
 							"language": "dart", "symbol_kind": facts.SymbolVariable,
 							"field": true, "exported": true,
@@ -527,7 +529,7 @@ func (w *walker) methodDecl(sig, body *sitter.Node, typeName string, annos []str
 	}
 
 	w.out = append(w.out, facts.Fact{
-		Kind: facts.KindSymbol, Name: full, File: w.relFile, Line: lineOf(sig),
+		Kind: facts.KindSymbol, Name: full, File: w.relFile, Line: lineOf(sig), EndLine: max(tsutil.EndLine(sig), tsutil.EndLine(body)),
 		Props: props, Relations: rels,
 	})
 	w.setDoc(sig)
@@ -558,7 +560,7 @@ func (w *walker) functionDecl(sig, body *sitter.Node, dir, _ string, annos []str
 		bw.applyTo(props)
 	}
 	w.out = append(w.out, facts.Fact{
-		Kind: facts.KindSymbol, Name: full, File: w.relFile, Line: lineOf(sig),
+		Kind: facts.KindSymbol, Name: full, File: w.relFile, Line: lineOf(sig), EndLine: max(tsutil.EndLine(sig), tsutil.EndLine(body)),
 		Props: props, Relations: rels,
 	})
 	w.setDoc(sig)
@@ -632,7 +634,7 @@ func (w *walker) enumDecl(n *sitter.Node) {
 		rels = append(rels, facts.Relation{Kind: facts.RelDeclares, Target: m.name})
 	}
 	w.out = append(w.out, facts.Fact{
-		Kind: facts.KindSymbol, Name: w.qualify(name), File: w.relFile, Line: lineOf(n),
+		Kind: facts.KindSymbol, Name: w.qualify(name), File: w.relFile, Line: lineOf(n), EndLine: tsutil.EndLine(n),
 		Props: props, Relations: rels,
 	})
 	w.setDoc(n)
@@ -652,7 +654,7 @@ func (w *walker) typeAliasDecl(n *sitter.Node) {
 	}
 	w.typeNames = append(w.typeNames, name)
 	w.out = append(w.out, facts.Fact{
-		Kind: facts.KindSymbol, Name: w.qualify(name), File: w.relFile, Line: lineOf(n),
+		Kind: facts.KindSymbol, Name: w.qualify(name), File: w.relFile, Line: lineOf(n), EndLine: tsutil.EndLine(n),
 		Props: map[string]any{
 			"language": "dart", "symbol_kind": facts.SymbolType,
 			"dart_construct": "typedef", "exported": !strings.HasPrefix(name, "_"),

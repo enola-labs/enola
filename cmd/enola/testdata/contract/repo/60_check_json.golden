@@ -37,7 +37,8 @@ exit: 0
           "file": "pkg/b/gamma.go",
           "symbol": "pkg/b.UsesGamma",
           "detail": "function · unreferenced · pkg/b/gamma.go:6",
-          "line": 6
+          "line": 6,
+          "end_line": 6
         },
         {
           "symbol": "pkg/b.UsesGamma",
@@ -121,8 +122,10 @@ exit: 0
         "name": "pkg/b.UsesGamma",
         "file": "pkg/b/gamma.go",
         "line": 6,
+        "end_line": 6,
         "repo": "go_sample",
         "props": {
+          "body_hash": "17ff5fbcd7d1c52d",
           "cyclomatic": 1,
           "doc": "UsesGamma couples pkg/b to the new package.",
           "exported": true,
@@ -146,8 +149,10 @@ exit: 0
         "name": "pkg/c.Gamma",
         "file": "pkg/c/c.go",
         "line": 4,
+        "end_line": 4,
         "repo": "go_sample",
         "props": {
+          "body_hash": "04ab778c2f52c1ed",
           "cyclomatic": 1,
           "doc": "Gamma is new since the baseline.",
           "exported": true,
@@ -199,7 +204,8 @@ exit: 0
             "file": "pkg/b/gamma.go",
             "symbol": "pkg/b.UsesGamma",
             "detail": "function · unreferenced · pkg/b/gamma.go:6",
-            "line": 6
+            "line": 6,
+            "end_line": 6
           },
           {
             "symbol": "pkg/b.UsesGamma",

@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	csharp "github.com/enola-labs/enola/internal/extractors/dotnetextractor/grammar"
+	"github.com/enola-labs/enola/internal/extractors/tsutil"
 	"github.com/enola-labs/enola/internal/factpath"
 	"github.com/enola-labs/enola/internal/facts"
 	sitter "github.com/tree-sitter/go-tree-sitter"
@@ -385,10 +386,11 @@ func (w *astWalker) handleTypeDecl(node *sitter.Node, kind string) {
 	qualified := w.qualify(name)
 
 	f := facts.Fact{
-		Kind: facts.KindSymbol,
-		Name: w.canonicalName(qualified),
-		File: w.relFile,
-		Line: int(node.StartPosition().Row) + 1,
+		Kind:    facts.KindSymbol,
+		Name:    w.canonicalName(qualified),
+		File:    w.relFile,
+		Line:    int(node.StartPosition().Row) + 1,
+		EndLine: tsutil.EndLine(node),
 		Props: map[string]any{
 			"symbol_kind": kind,
 			"exported":    w.exported(mods, true),
@@ -481,10 +483,11 @@ func (w *astWalker) handleEnum(node *sitter.Node) {
 	exported := w.exported(mods, true)
 
 	f := facts.Fact{
-		Kind: facts.KindSymbol,
-		Name: w.canonicalName(qualified),
-		File: w.relFile,
-		Line: int(node.StartPosition().Row) + 1,
+		Kind:    facts.KindSymbol,
+		Name:    w.canonicalName(qualified),
+		File:    w.relFile,
+		Line:    int(node.StartPosition().Row) + 1,
+		EndLine: tsutil.EndLine(node),
 		Props: map[string]any{
 			"symbol_kind": facts.SymbolEnum,
 			"exported":    exported,
@@ -524,11 +527,12 @@ func (w *astWalker) handleEnum(node *sitter.Node) {
 			props["namespace"] = ns
 		}
 		w.out = append(w.out, facts.Fact{
-			Kind:  facts.KindSymbol,
-			Name:  w.canonicalName(qualified + "." + member),
-			File:  w.relFile,
-			Line:  int(c.StartPosition().Row) + 1,
-			Props: props,
+			Kind:    facts.KindSymbol,
+			Name:    w.canonicalName(qualified + "." + member),
+			File:    w.relFile,
+			Line:    int(c.StartPosition().Row) + 1,
+			EndLine: tsutil.EndLine(c),
+			Props:   props,
 			Relations: []facts.Relation{
 				{Kind: facts.RelDeclares, Target: w.dir},
 			},
@@ -555,11 +559,12 @@ func (w *astWalker) handleDelegate(node *sitter.Node) {
 		props["namespace"] = ns
 	}
 	w.out = append(w.out, facts.Fact{
-		Kind:  facts.KindSymbol,
-		Name:  w.canonicalName(qualified),
-		File:  w.relFile,
-		Line:  int(node.StartPosition().Row) + 1,
-		Props: props,
+		Kind:    facts.KindSymbol,
+		Name:    w.canonicalName(qualified),
+		File:    w.relFile,
+		Line:    int(node.StartPosition().Row) + 1,
+		EndLine: tsutil.EndLine(node),
+		Props:   props,
 		Relations: []facts.Relation{
 			{Kind: facts.RelDeclares, Target: w.dir},
 		},
@@ -639,11 +644,12 @@ func (w *astWalker) handleMethod(node *sitter.Node) {
 	}
 
 	w.out = append(w.out, facts.Fact{
-		Kind:  facts.KindSymbol,
-		Name:  w.canonicalName(qualified),
-		File:  w.relFile,
-		Line:  int(node.StartPosition().Row) + 1,
-		Props: props,
+		Kind:    facts.KindSymbol,
+		Name:    w.canonicalName(qualified),
+		File:    w.relFile,
+		Line:    int(node.StartPosition().Row) + 1,
+		EndLine: tsutil.EndLine(node),
+		Props:   props,
 		Relations: []facts.Relation{
 			{Kind: facts.RelDeclares, Target: w.dir},
 		},
@@ -720,11 +726,12 @@ func (w *astWalker) handleProperty(node *sitter.Node) {
 		}
 	}
 	w.out = append(w.out, facts.Fact{
-		Kind:  facts.KindSymbol,
-		Name:  w.canonicalName(qualified),
-		File:  w.relFile,
-		Line:  int(node.StartPosition().Row) + 1,
-		Props: props,
+		Kind:    facts.KindSymbol,
+		Name:    w.canonicalName(qualified),
+		File:    w.relFile,
+		Line:    int(node.StartPosition().Row) + 1,
+		EndLine: tsutil.EndLine(node),
+		Props:   props,
 		Relations: []facts.Relation{
 			{Kind: facts.RelDeclares, Target: w.dir},
 		},
@@ -784,11 +791,12 @@ func (w *astWalker) handleField(node *sitter.Node) {
 			props["event"] = true
 		}
 		w.out = append(w.out, facts.Fact{
-			Kind:  facts.KindSymbol,
-			Name:  w.canonicalName(w.qualify(name)),
-			File:  w.relFile,
-			Line:  int(c.StartPosition().Row) + 1,
-			Props: props,
+			Kind:    facts.KindSymbol,
+			Name:    w.canonicalName(w.qualify(name)),
+			File:    w.relFile,
+			Line:    int(c.StartPosition().Row) + 1,
+			EndLine: tsutil.EndLine(c),
+			Props:   props,
 			Relations: []facts.Relation{
 				{Kind: facts.RelDeclares, Target: w.dir},
 			},
@@ -825,11 +833,12 @@ func (w *astWalker) recordPositionalProperties(params *sitter.Node) {
 			props["receiver"] = t
 		}
 		w.out = append(w.out, facts.Fact{
-			Kind:  facts.KindSymbol,
-			Name:  w.canonicalName(w.qualify(name)),
-			File:  w.relFile,
-			Line:  int(p.StartPosition().Row) + 1,
-			Props: props,
+			Kind:    facts.KindSymbol,
+			Name:    w.canonicalName(w.qualify(name)),
+			File:    w.relFile,
+			Line:    int(p.StartPosition().Row) + 1,
+			EndLine: tsutil.EndLine(p),
+			Props:   props,
 			Relations: []facts.Relation{
 				{Kind: facts.RelDeclares, Target: w.dir},
 			},

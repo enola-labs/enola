@@ -268,7 +268,7 @@ func (e *CppExtractor) Extract(ctx context.Context, repoPath string, files []str
 
 // dedupeSymbols merges duplicate symbol facts that share a canonical name — most
 // importantly a class's header method prototype and its out-of-line source
-// definition. The definition (has_body=true) is authoritative for File/Line and
+// definition. The definition (has_body=true) is authoritative for File/Line/EndLine and
 // carries the call-graph relations; props and relations are unioned.
 // resolveFuncPtrRefs finalizes the provisional relFuncPtrCandidate edges emitted
 // for identifiers used as function pointers (initializer values, call arguments).
@@ -328,11 +328,14 @@ func mergeSymbol(dst *facts.Fact, src facts.Fact) {
 	dstHasBody, _ := dst.PropAny("has_body").(bool)
 	srcHasBody, _ := src.PropAny("has_body").(bool)
 
-	// Prefer the definition's location, and its doc; a prototype's doc stands in
-	// for a definition that has none, through the union below.
+	// Prefer the definition's location, span and doc; a prototype's doc stands in
+	// for a definition that has none, through the union below. The span moves with the
+	// location: a header prototype's one line, kept against the definition's file and
+	// start, would describe neither.
 	if srcHasBody && !dstHasBody {
 		dst.File = src.File
 		dst.Line = src.Line
+		dst.EndLine = src.EndLine
 		facts.CopyDoc(dst, src)
 	}
 

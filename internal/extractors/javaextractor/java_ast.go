@@ -708,10 +708,11 @@ func (w *astWalker) handleClassLike(node *sitter.Node, kind string) {
 		(!strings.Contains(modifierText, "private") && len(w.typeStack) > 0)
 
 	f := facts.Fact{
-		Kind: facts.KindSymbol,
-		Name: w.canonicalName(w.qualify(name)),
-		File: w.relFile,
-		Line: int(node.StartPosition().Row) + 1,
+		Kind:    facts.KindSymbol,
+		Name:    w.canonicalName(w.qualify(name)),
+		File:    w.relFile,
+		Line:    int(node.StartPosition().Row) + 1,
+		EndLine: tsutil.EndLine(node),
 		Props: map[string]any{
 			"symbol_kind": kind,
 			"exported":    exported,
@@ -833,10 +834,11 @@ func (w *astWalker) handleMethod(node *sitter.Node) {
 	exported := strings.Contains(modifierText, "public")
 
 	f := facts.Fact{
-		Kind: facts.KindSymbol,
-		Name: w.canonicalName(w.qualify(name)),
-		File: w.relFile,
-		Line: int(node.StartPosition().Row) + 1,
+		Kind:    facts.KindSymbol,
+		Name:    w.canonicalName(w.qualify(name)),
+		File:    w.relFile,
+		Line:    int(node.StartPosition().Row) + 1,
+		EndLine: tsutil.EndLine(node),
 		Props: map[string]any{
 			"symbol_kind": facts.SymbolMethod,
 			"exported":    exported,
@@ -993,11 +995,12 @@ func (w *astWalker) handleField(node *sitter.Node, owner int) {
 			}
 		}
 		w.out = append(w.out, facts.Fact{
-			Kind:  facts.KindSymbol,
-			Name:  w.canonicalName(w.qualify(name)),
-			File:  w.relFile,
-			Line:  int(c.StartPosition().Row) + 1,
-			Props: props,
+			Kind:    facts.KindSymbol,
+			Name:    w.canonicalName(w.qualify(name)),
+			File:    w.relFile,
+			Line:    int(c.StartPosition().Row) + 1,
+			EndLine: tsutil.EndLine(c),
+			Props:   props,
 			Relations: []facts.Relation{
 				{Kind: facts.RelDeclares, Target: w.dir},
 			},
