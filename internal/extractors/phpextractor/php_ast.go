@@ -238,6 +238,7 @@ func (w *phpWalker) handleClassLike(node *sitter.Node, kind string) {
 		Name:      fqn,
 		File:      w.relFile,
 		Line:      line(node),
+		EndLine:   tsutil.EndLine(node),
 		Props:     props,
 		Relations: rels,
 	})
@@ -352,6 +353,7 @@ func (w *phpWalker) handleCallable(node *sitter.Node, isMethod bool) {
 		Name:      fullName,
 		File:      w.relFile,
 		Line:      line(node),
+		EndLine:   tsutil.EndLine(node),
 		Props:     props,
 		Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: w.dir}},
 	})
@@ -855,10 +857,11 @@ func (w *phpWalker) handleConst(node *sitter.Node) {
 			full = owner + "::" + name
 		}
 		w.out = append(w.out, facts.Fact{
-			Kind: facts.KindSymbol,
-			Name: full,
-			File: w.relFile,
-			Line: line(el),
+			Kind:    facts.KindSymbol,
+			Name:    full,
+			File:    w.relFile,
+			Line:    line(el),
+			EndLine: tsutil.EndLine(el),
 			Props: map[string]any{
 				"symbol_kind": facts.SymbolConstant,
 				"exported":    exported,
@@ -879,10 +882,11 @@ func (w *phpWalker) handleEnumCase(node *sitter.Node) {
 	}
 	owner := w.typeStack[len(w.typeStack)-1]
 	w.out = append(w.out, facts.Fact{
-		Kind: facts.KindSymbol,
-		Name: owner + "::" + name,
-		File: w.relFile,
-		Line: line(node),
+		Kind:    facts.KindSymbol,
+		Name:    owner + "::" + name,
+		File:    w.relFile,
+		Line:    line(node),
+		EndLine: tsutil.EndLine(node),
 		Props: map[string]any{
 			"symbol_kind": facts.SymbolConstant,
 			"exported":    true,
@@ -916,10 +920,11 @@ func (w *phpWalker) handleProperty(node *sitter.Node) {
 			w.recordEloquentTable(el)
 		}
 		w.out = append(w.out, facts.Fact{
-			Kind: facts.KindSymbol,
-			Name: owner + "::$" + name,
-			File: w.relFile,
-			Line: line(el),
+			Kind:    facts.KindSymbol,
+			Name:    owner + "::$" + name,
+			File:    w.relFile,
+			Line:    line(el),
+			EndLine: tsutil.EndLine(el),
 			Props: map[string]any{
 				"symbol_kind": facts.SymbolVariable,
 				"exported":    exported,
