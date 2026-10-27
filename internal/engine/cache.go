@@ -3270,7 +3270,9 @@ import (
 // (const root = path.resolve(__dirname, 'src'); '@/': `${root}/`) resolves.
 // v475: TypeScript and Python: symbols carry their span (end_line), and a symbol that
 // stands for its whole file (a synthesized Vue, Svelte or Ember component) spans it.
-const cacheVersion = "v475"
+// v476: Go: symbols carry their span (end_line): a function or method its body, a type
+// its declaration, an exported var or const its spec, an interface method its signature.
+const cacheVersion = "v476"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

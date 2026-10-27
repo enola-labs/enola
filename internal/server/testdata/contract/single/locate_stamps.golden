@@ -13,7 +13,9 @@
           "name": "pkg/a.Alpha",
           "symbol_kind": "function",
           "file": "pkg/a/a.go",
-          "line": 7
+          "line": 7,
+          "end_line": 9,
+          "body_hash": "25fbdae7e04eba84"
         }
       ]
     }

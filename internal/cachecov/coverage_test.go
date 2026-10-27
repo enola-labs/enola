@@ -69,6 +69,7 @@ var versionCoverage = map[int][]string{
 	473: {"TestTailwind_ClassBelongsToItsDeclaration"},
 	474: {"TestViteAliasThroughModuleConst"},
 	475: {"TestSymbolSpans"},
+	476: {"TestSymbolSpans"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},
 	438: {"TestExtract_StructUsage_StdlibAndRootPackages"},

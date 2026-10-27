@@ -1,7 +1,7 @@
 $ enola show .
 exit: 0
 --- stdout
-# revision a1d2524 · <TIME>
+# revision eb82f43 · <TIME>
 
 # Architecture diff
 

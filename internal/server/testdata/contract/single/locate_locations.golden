@@ -3,7 +3,7 @@
     {
       "location": "pkg/a/a.go:8",
       "file": "pkg/a/a.go",
-      "match": "nearest",
+      "match": "span",
       "symbols": [
         {
           "id": "c8f7c0664a0a2ca73e2dc23371b834a4",
@@ -11,7 +11,9 @@
           "name": "pkg/a.Alpha",
           "symbol_kind": "function",
           "file": "pkg/a/a.go",
-          "line": 7
+          "line": 7,
+          "end_line": 9,
+          "body_hash": "25fbdae7e04eba84"
         }
       ],
       "cited_hash": "25fbdae7e04eba84",
