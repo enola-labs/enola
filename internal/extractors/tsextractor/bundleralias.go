@@ -26,7 +26,25 @@ const (
 const (
 	aliasUnresolvedCustomResolver = "custom-resolver"
 	aliasUnresolvedDynamic        = "dynamic-alias"
+	// The alias resolved, but to a path that names no module of the repository. The
+	// import keeps its target and source=internal: it is a repository path, wrong.
+	aliasUnresolvedMissingTarget = "missing-target"
 )
+
+// missingAliasTarget reports whether an import an alias resolved names nothing in
+// the repository: no indexed file, folder index or directory holds the path, and
+// nothing exists there on disk either (an ignored or generated file is not missing). Only a
+// module specifier is judged (the indexed set lists no stylesheets or images), and
+// only a path inside the repository, since a target outside it was never indexed.
+func missingAliasTarget(importPath, resolved string, a tsAlias, isExternal bool, files *tsFileIndex) bool {
+	if a.via == "" || a.unresolved != "" || isExternal || files == nil || !isModuleSpecifier(importPath) {
+		return false
+	}
+	if strings.HasPrefix(resolved, "..") || strings.Contains(resolved, "node_modules/") {
+		return false
+	}
+	return !moduleIndexed(resolved, files.knownFiles()) && !files.dirs[resolved] && !files.onDisk(resolved)
+}
 
 var (
 	viteConfigNames = []string{"vite.config.ts", "vite.config.mts", "vite.config.js", "vite.config.mjs", "vite.config.cts", "vite.config.cjs"}

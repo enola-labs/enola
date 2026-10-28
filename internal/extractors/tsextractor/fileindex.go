@@ -1,7 +1,9 @@
 package tsextractor
 
 import (
+	"os"
 	"path"
+	"path/filepath"
 	"strings"
 )
 
@@ -17,6 +19,40 @@ type tsFileIndex struct {
 	stems  map[string]string   // file stem -> file path
 	dirs   map[string]bool     // directories holding a known file directly
 	known  map[string]bool     // the known files themselves
+	root   string              // the repository on disk, for a path no indexed file holds (onDisk)
+}
+
+// diskModuleExts are the extensions a module on disk may carry: the indexed ones and
+// those of declaration files and module-format variants.
+var diskModuleExts = append(append([]string(nil), tsModuleExts...), ".d.ts", ".mts", ".cts", ".cjs")
+
+// onDisk reports whether anything exists at a resolved import path in the working
+// tree, as a file, a directory, or a file with a module extension (a .d.ts among
+// them), the .ts behind a .js spelling included. It is asked only of paths no
+// indexed file holds: an ignored folder (vendor/), a stylesheet directory, or a
+// generated file that is present.
+func (ix *tsFileIndex) onDisk(resolved string) bool {
+	if ix == nil || ix.root == "" {
+		return false
+	}
+	base := filepath.Join(ix.root, filepath.FromSlash(resolved))
+	stems := []string{base}
+	for _, js := range []string{".js", ".jsx", ".mjs", ".cjs"} {
+		if stem, ok := strings.CutSuffix(base, js); ok {
+			stems = append(stems, stem)
+		}
+	}
+	if _, err := os.Stat(base); err == nil {
+		return true
+	}
+	for _, stem := range stems {
+		for _, ext := range diskModuleExts {
+			if _, err := os.Stat(stem + ext); err == nil {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func newTSFileIndex(knownFiles map[string]bool) *tsFileIndex {
