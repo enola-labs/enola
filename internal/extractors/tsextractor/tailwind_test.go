@@ -2,6 +2,7 @@ package tsextractor
 
 import (
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/enola-labs/enola/internal/facts"
@@ -161,5 +162,45 @@ export function Label() { return <span className="text-ink" /> }`,
 	card, _ := findFact(ff, "src.Card")
 	if !hasRelation(card, facts.RelCalls, "src.cardVariants") {
 		t.Errorf("the component using the variants does not reach them: %v", card.Relations)
+	}
+}
+
+// A stylesheet uses the tokens its @apply lists name; a quoted string or a comment
+// in CSS names none.
+func TestTailwind_ApplyInStylesheets(t *testing.T) {
+	ff := extractAll(t, map[string]string{
+		"app/package.json":       `{"devDependencies": {"tailwindcss": "3"}}`,
+		"app/tailwind.config.js": `module.exports = { theme: { extend: { colors: { paper: "hsl(var(--paper))", ink: "#000", mist: "#eee" } } } }`,
+		"app/src/main.css": `@tailwind base;
+/* @apply bg-mist; */
+.card { @apply bg-paper hover:text-ink/50 !important; font-family: "bg-mist"; }`,
+		"app/src/x.scss": `.a { @apply text-ink; }`,
+	}, false)
+	_, users := tokenUsers(ff)
+	for token, want := range map[string][]string{
+		"paper": {"app/src/main.css"},
+		"ink":   {"app/src/main.css", "app/src/x.scss"},
+	} {
+		if strings.Join(users[token], ",") != strings.Join(want, ",") {
+			t.Errorf("%s used by %v, want %v", token, users[token], want)
+		}
+	}
+	if len(users["mist"]) != 0 {
+		t.Errorf("mist is named only in a comment and a string: %v", users["mist"])
+	}
+}
+
+// Tailwind's own package declares the default palette; those tokens are no project's.
+func TestTailwind_FrameworkPackageDeclaresNoTokens(t *testing.T) {
+	ff := extractAll(t, map[string]string{
+		"packages/tailwindcss/package.json": `{"name": "tailwindcss"}`,
+		"packages/tailwindcss/theme.css":    `@theme { --color-red-500: oklch(0.6 0.2 25); }`,
+		"packages/site/package.json":        `{"name": "site", "devDependencies": {"tailwindcss": "4"}}`,
+		"packages/site/app.css":             `@theme { --color-brand: #f00; }`,
+		"packages/site/Page.tsx":            `export const Page = () => <div className="bg-brand bg-red-500" />`,
+	}, false)
+	tokens, _ := tokenUsers(ff)
+	if !tokens["brand"] || tokens["red-500"] {
+		t.Errorf("tokens %v: want the site's brand, not the framework's red-500", tokens)
 	}
 }

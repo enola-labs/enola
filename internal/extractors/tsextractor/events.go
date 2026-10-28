@@ -51,8 +51,20 @@ var (
 
 type eventCall struct {
 	name, ref, messaging, role, symbol string
-	line                               int
+	// owner is the emitter a Node event written as a constant is on; the topic is
+	// named owner:value once the constant resolves.
+	owner string
+	// pending marks a Node event on an emitter imported from another file: it is kept
+	// only if that file exports an emitter of the name (bindEvents).
+	pending bool
+	line    int
 }
+
+// Props a Node event carries until bindEvents settles it.
+const (
+	propEventOwner     = "event_owner"
+	propEmitterPending = "emitter_pending"
+)
 
 // extractTSEventFacts reads one production file's event emits and handlers.
 func extractTSEventFacts(kinds *tsutil.KindTable, root *sitter.Node, src []byte, relFile string) []facts.Fact {
@@ -62,7 +74,7 @@ func extractTSEventFacts(kinds *tsutil.KindTable, root *sitter.Node, src []byte,
 	text := string(src)
 	medusa := strings.Contains(text, "@medusajs/") || strings.Contains(relFile, "/subscribers/")
 	directus := strings.Contains(text, "emitter.") || strings.Contains(text, "defineHook")
-	nodeEmitter := strings.Contains(text, "EventEmitter")
+	nodeEmitter := strings.Contains(text, "EventEmitter") && nodeEventEmitterImport(text)
 	bull := strings.Contains(text, "bullmq") || strings.Contains(text, "'bull'") || strings.Contains(text, `"bull"`)
 	if !medusa && !directus && !nodeEmitter && !bull {
 		return nil
@@ -191,19 +203,10 @@ func extractTSEventFacts(kinds *tsutil.KindTable, root *sitter.Node, src []byte,
 					add(args[0], messagingDirectusEvent, facts.MessagingRoleProducer, symOf())
 				case directus && recv == "emitter" && (method == "onAction" || method == "onFilter" || method == "onInit"):
 					add(args[0], messagingDirectusEvent, facts.MessagingRoleConsumer, symOf())
-				case nodeEmitter && emitters[recv] && (method == "emit" || method == "on" || method == "once" || method == "addListener" || method == "prependListener"):
-					ev := strings.Trim(nodeText(args[0], src), `"'`)
-					if kindOf(kinds, args[0]) != "string" || nodeStreamEvents[ev] {
-						break
-					}
-					role := facts.MessagingRoleConsumer
-					if method == "emit" {
-						role = facts.MessagingRoleProducer
-					}
+				case nodeEmitter && emitters[recv] && nodeEventMethods[method]:
 					// A Node event belongs to its emitter: two emitters' 'result' events
 					// are unrelated, so the topic is named for the emitter it is on.
-					calls = append(calls, eventCall{name: nodeEmitterOwner(kinds, n, src, dir, recv) + ":" + ev,
-						messaging: messagingNodeEvent, role: role, symbol: symOf(), line: int(args[0].StartPosition().Row) + 1})
+					calls = nodeEventCalls(kinds, src, args[0], nodeEmitterOwner(kinds, n, src, dir, recv), method, symOf, false, calls, unresolved)
 				}
 			}
 		case "new_expression":
@@ -227,29 +230,7 @@ func extractTSEventFacts(kinds *tsutil.KindTable, root *sitter.Node, src []byte,
 	}
 	walk(root, false)
 
-	var out []facts.Fact
-	for _, c := range calls {
-		props := map[string]any{
-			"storage_kind": facts.StorageKindTopic, facts.PropMessaging: c.messaging,
-			facts.PropMessagingRole: c.role, facts.PropSource: messagingSourceTSEventCall,
-			"language": "typescript",
-		}
-		if c.role == facts.MessagingRoleProducer {
-			props[facts.PropMessagingOperation] = facts.MessagingOperationPublish
-		} else {
-			props[facts.PropMessagingOperation] = facts.MessagingOperationSubscribe
-		}
-		if c.symbol != "" {
-			props[propCodeSymbol] = c.symbol
-		}
-		name := c.name
-		if c.ref != "" {
-			props[propEventRef] = c.ref
-			name = c.ref
-		}
-		out = append(out, facts.Fact{Kind: facts.KindStorage, Name: name, File: relFile, Line: c.line, Props: props,
-			Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: dir}}})
-	}
+	out := eventCallFacts(calls, relFile, dir)
 	syms := make([]string, 0, len(unresolved))
 	for s := range unresolved {
 		syms = append(syms, s)
@@ -263,6 +244,42 @@ func extractTSEventFacts(kinds *tsutil.KindTable, root *sitter.Node, src []byte,
 		}})
 	}
 	return out
+}
+
+var nodeEventMethods = map[string]bool{"emit": true, "on": true, "once": true, "addListener": true, "prependListener": true}
+
+// nodeEventCalls reads the event a Node emitter call names: a string, a constant
+// (`DistributedTransactionEvent.TIMEOUT`, resolved repo-wide), or either branch of a
+// conditional. Any other expression is a name that cannot be read statically.
+func nodeEventCalls(kinds *tsutil.KindTable, src []byte, arg *sitter.Node, owner, method string, symOf func() string, pending bool, calls []eventCall, unresolved map[string]bool) []eventCall {
+	role := facts.MessagingRoleConsumer
+	if method == "emit" {
+		role = facts.MessagingRoleProducer
+	}
+	line := int(arg.StartPosition().Row) + 1
+	switch kindOf(kinds, arg) {
+	case "string":
+		if ev := strings.Trim(nodeText(arg, src), `"'`); !nodeStreamEvents[ev] {
+			calls = append(calls, eventCall{name: owner + ":" + ev, messaging: messagingNodeEvent, role: role, symbol: symOf(), pending: pending, line: line})
+		}
+	case "member_expression":
+		calls = append(calls, eventCall{ref: nodeText(arg, src), owner: owner, messaging: messagingNodeEvent, role: role, symbol: symOf(), pending: pending, line: line})
+	case "ternary_expression":
+		for _, f := range []string{"consequence", "alternative"} {
+			if b := arg.ChildByFieldName(f); b != nil {
+				calls = nodeEventCalls(kinds, src, b, owner, method, symOf, pending, calls, unresolved)
+			}
+		}
+	case "parenthesized_expression":
+		if arg.NamedChildCount() > 0 {
+			calls = nodeEventCalls(kinds, src, arg.NamedChild(0), owner, method, symOf, pending, calls, unresolved)
+		}
+	default:
+		if !pending {
+			unresolved[symOf()] = true
+		}
+	}
+	return calls
 }
 
 // unresolvedTo moves an unresolved mark from the handler to the config that names
@@ -383,7 +400,7 @@ func eventConstIndex(perFile []tsFileResult) map[string]string {
 // bindEvents resolves event names written as constants, connects the code on each
 // side to the event (publishes / subscribes), and turns a name that cannot be read
 // statically into unresolved_reason on the code that wrote it.
-func bindEvents(all []facts.Fact, consts map[string]string) []facts.Fact {
+func bindEvents(all []facts.Fact, consts map[string]string, emitters map[string]bool) []facts.Fact {
 	unresolved := map[string]bool{}
 	rels := map[string][]facts.Relation{}
 	kept := all[:0]
@@ -397,6 +414,15 @@ func bindEvents(all []facts.Fact, consts map[string]string) []facts.Fact {
 			unresolved[sym] = true
 			continue
 		}
+		if owner := f.PropString(propEmitterPending); owner != "" {
+			// An emitter imported from another file: an event only if that file
+			// exports an emitter of the name. A socket, a Vue app or a stream someone
+			// imported is not one.
+			if !emitters[owner] {
+				continue
+			}
+			f.DelProp(propEmitterPending)
+		}
 		if ref := f.PropString(propEventRef); ref != "" {
 			v, ok := consts[ref]
 			if !ok {
@@ -404,6 +430,12 @@ func bindEvents(all []facts.Fact, consts map[string]string) []facts.Fact {
 				continue
 			}
 			f.Name = v
+			if owner := f.PropString(propEventOwner); owner != "" {
+				// Not filtered as a stream's own event: a name an event table declares
+				// (`TIMEOUT = "timeout"`) is the application's contract.
+				f.Name = owner + ":" + v
+				f.DelProp(propEventOwner)
+			}
 		}
 		if sym == "" {
 			// Module-level code (a route callback, an exported defineHook): the file
@@ -449,4 +481,170 @@ func nodeEmitterOwner(kinds *tsutil.KindTable, n *sitter.Node, src []byte, dir, 
 		}
 	}
 	return dir + "." + recv
+}
+
+// mayCallNodeEvents reports whether a file's text holds an emitter call at all.
+func mayCallNodeEvents(src []byte) bool {
+	for _, m := range []string{".on(", ".once(", ".emit(", ".addListener("} {
+		if bytes.Contains(src, []byte(m)) {
+			return true
+		}
+	}
+	return false
+}
+
+// nodeEventEmitterLibs are the modules whose EventEmitter is Node's (or a drop-in
+// for it). Angular's EventEmitter (@angular/core) is a component output: its emit
+// takes a payload, not an event name.
+var nodeEventEmitterLibs = map[string]bool{
+	"events": true, "node:events": true, "eventemitter2": true, "eventemitter3": true, "stream": true, "node:stream": true,
+}
+
+var eventEmitterImportRe = regexp.MustCompile(`import\s*\{[^}]*\bEventEmitter\d?\b[^}]*\}\s*from\s*["']([^"']+)["']`)
+
+// nodeEventEmitterImport reports whether a file's EventEmitter is Node's: imported
+// from an event library, or not imported by name at all (required, or a global).
+func nodeEventEmitterImport(text string) bool {
+	m := eventEmitterImportRe.FindStringSubmatch(text)
+	return m == nil || nodeEventEmitterLibs[m[1]]
+}
+
+// exportedEmitters names the Node event emitters a file exports, as another file
+// imports them: `export class Migrations extends EventEmitter` is "<dir>.Migrations",
+// `export const bus = new EventEmitter()` is "<dir>.bus". The names match what
+// nodeEmitterOwner calls the same emitter inside the file.
+func exportedEmitters(kinds *tsutil.KindTable, root *sitter.Node, src []byte, dir string) []string {
+	var out []string
+	for i := range root.NamedChildCount() {
+		stmt := root.NamedChild(i)
+		if kindOf(kinds, stmt) != "export_statement" {
+			continue
+		}
+		decl := stmt.ChildByFieldName("declaration")
+		if decl == nil {
+			continue
+		}
+		switch kindOf(kinds, decl) {
+		case "class_declaration", "abstract_class_declaration":
+			if h := findChildByKind(kinds, decl, "class_heritage"); h != nil && strings.Contains(nodeText(h, src), "EventEmitter") {
+				if name := decl.ChildByFieldName("name"); name != nil {
+					out = append(out, dir+"."+nodeText(name, src))
+				}
+			}
+		case "lexical_declaration", "variable_declaration":
+			for j := range decl.NamedChildCount() {
+				d := decl.NamedChild(j)
+				name, val := d.ChildByFieldName("name"), d.ChildByFieldName("value")
+				if name == nil || val == nil || kindOf(kinds, val) != "new_expression" {
+					continue
+				}
+				if c := val.ChildByFieldName("constructor"); c != nil && strings.HasPrefix(nodeText(c, src), "EventEmitter") {
+					out = append(out, dir+"."+nodeText(name, src))
+				}
+			}
+		}
+	}
+	return out
+}
+
+// importedEmitterEventFacts reads the Node events a file emits or handles on an
+// emitter another file of the repository exports: an imported instance
+// (`import { bus } from './bus'; bus.on('ready')`), or one built here from an
+// imported emitter class (`const migrations = new Migrations(orm);
+// migrations.on('migrated')`). Each is a candidate until bindEvents confirms the
+// other file exports an emitter of the name.
+func importedEmitterEventFacts(kinds *tsutil.KindTable, root *sitter.Node, ctx *extractCtx) []facts.Fact {
+	src := ctx.src
+	if len(ctx.values) == 0 || !mayCallNodeEvents(src) {
+		return nil
+	}
+	// The receivers that may be an imported emitter: an import from this repository,
+	// or a local built with `new` from one.
+	owners := map[string]string{}
+	for local, target := range ctx.values {
+		if _, imported := ctx.importMap[local]; imported {
+			owners[local] = target
+		}
+	}
+	var bind func(n *sitter.Node)
+	bind = func(n *sitter.Node) {
+		if kindOf(kinds, n) == "variable_declarator" {
+			name, val := n.ChildByFieldName("name"), n.ChildByFieldName("value")
+			if name != nil && val != nil && kindOf(kinds, name) == "identifier" && kindOf(kinds, val) == "new_expression" {
+				if c := val.ChildByFieldName("constructor"); c != nil {
+					if target, ok := owners[nodeText(c, src)]; ok {
+						owners[nodeText(name, src)] = target
+					}
+				}
+			}
+		}
+		for i := range n.NamedChildCount() {
+			bind(n.NamedChild(i))
+		}
+	}
+	bind(root)
+	if len(owners) == 0 {
+		return nil
+	}
+	var calls []eventCall
+	unresolved := map[string]bool{}
+	var walk func(n *sitter.Node)
+	walk = func(n *sitter.Node) {
+		if kindOf(kinds, n) == "call_expression" {
+			fn := n.ChildByFieldName("function")
+			args := namedArgs(kinds, n.ChildByFieldName("arguments"))
+			if fn != nil && len(args) > 0 && kindOf(kinds, fn) == "member_expression" {
+				obj, prop := fn.ChildByFieldName("object"), fn.ChildByFieldName("property")
+				if obj != nil && prop != nil && kindOf(kinds, obj) == "identifier" && nodeEventMethods[nodeText(prop, src)] {
+					if owner, ok := owners[nodeText(obj, src)]; ok {
+						symOf := func() string { return graphqlEnclosingSymbol(kinds, n, src, ctx.relFile) }
+						calls = nodeEventCalls(kinds, src, args[0], owner, nodeText(prop, src), symOf, true, calls, unresolved)
+					}
+				}
+			}
+		}
+		for i := range n.NamedChildCount() {
+			walk(n.NamedChild(i))
+		}
+	}
+	walk(root)
+	return eventCallFacts(calls, ctx.relFile, ctx.dir)
+}
+
+// eventCallFacts turns the event calls a file makes into topic facts, carrying what
+// bindEvents still has to settle: a constant to resolve (event_ref, with the Node
+// emitter it is on), and an imported emitter to confirm (emitter_pending).
+func eventCallFacts(calls []eventCall, relFile, dir string) []facts.Fact {
+	var out []facts.Fact
+	for _, c := range calls {
+		props := map[string]any{
+			"storage_kind": facts.StorageKindTopic, facts.PropMessaging: c.messaging,
+			facts.PropMessagingRole: c.role, facts.PropSource: messagingSourceTSEventCall,
+			"language": "typescript",
+		}
+		if c.role == facts.MessagingRoleProducer {
+			props[facts.PropMessagingOperation] = facts.MessagingOperationPublish
+		} else {
+			props[facts.PropMessagingOperation] = facts.MessagingOperationSubscribe
+		}
+		if c.symbol != "" {
+			props[propCodeSymbol] = c.symbol
+		}
+		name, owner := c.name, c.owner
+		if c.ref != "" {
+			props[propEventRef] = c.ref
+			name = c.ref
+			if c.owner != "" {
+				props[propEventOwner] = c.owner
+			}
+		} else if c.pending {
+			owner, _, _ = strings.Cut(c.name, ":")
+		}
+		if c.pending {
+			props[propEmitterPending] = owner
+		}
+		out = append(out, facts.Fact{Kind: facts.KindStorage, Name: name, File: relFile, Line: c.line, Props: props,
+			Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: dir}}})
+	}
+	return out
 }

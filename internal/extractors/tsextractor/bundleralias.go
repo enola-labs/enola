@@ -73,13 +73,13 @@ func bundlerAliasesAtDir(repoPath, dir string) map[string]tsAlias {
 	for _, name := range nuxtConfigNames {
 		if src, err := os.ReadFile(filepath.Join(dir, name)); err == nil { //factpath:host
 			addNuxtBuiltinAliases(out, dir, rel, src)
-			readConfigAliases(out, src, rel, aliasViaNuxt, true)
+			readConfigAliases(out, src, dir, rel, aliasViaNuxt, true)
 			break
 		}
 	}
 	for _, name := range viteConfigNames {
 		if src, err := os.ReadFile(filepath.Join(dir, name)); err == nil { //factpath:host
-			readConfigAliases(out, src, rel, aliasViaVite, false)
+			readConfigAliases(out, src, dir, rel, aliasViaVite, false)
 			break
 		}
 	}
@@ -150,7 +150,7 @@ func addStringAlias(out map[string]tsAlias, find string, a tsAlias) {
 // it to application code: under `resolve` (Vite, or Nuxt's `vite:` block), and for
 // Nuxt at the top level of defineNuxtConfig. `nitro.alias` and `test.alias` apply to
 // other code and are left out.
-func readConfigAliases(out map[string]tsAlias, src []byte, rel, via string, topLevel bool) {
+func readConfigAliases(out map[string]tsAlias, src []byte, dir, rel, via string, topLevel bool) {
 	parser := sitter.NewParser()
 	defer parser.Close()
 	if err := parser.SetLanguage(sitter.NewLanguage(typescript.LanguageTypescript())); err != nil {
@@ -158,7 +158,13 @@ func readConfigAliases(out map[string]tsAlias, src []byte, rel, via string, topL
 	}
 	tree := parser.Parse(src, nil)
 	defer tree.Close()
-	r := &configReader{kinds: tsKindsFor(false), src: src, rel: rel, via: via}
+	var trees []*sitter.Tree
+	defer func() {
+		for _, t := range trees {
+			t.Close()
+		}
+	}()
+	r := &configReader{kinds: tsKindsFor(false), src: src, dir: dir, rel: rel, via: via, trees: &trees}
 	r.readConsts(tree.RootNode())
 	order := 0
 	var walk func(n *sitter.Node, parentKey string, depth int)
@@ -176,6 +182,12 @@ func readConfigAliases(out map[string]tsAlias, src []byte, rel, via string, topL
 			walk(val, key, depth+1)
 			return
 		}
+		// `resolve: { alias }`, the shorthand for a binding of that name.
+		if kindOf(r.kinds, n) == "shorthand_property_identifier" && nodeText(n, r.src) == "alias" &&
+			(parentKey == "resolve" || (topLevel && parentKey == "" && depth <= 1)) {
+			r.readAliasValue(out, n, &order)
+			return
+		}
 		for i := range n.ChildCount() {
 			walk(n.Child(i), parentKey, depth)
 		}
@@ -186,17 +198,28 @@ func readConfigAliases(out map[string]tsAlias, src []byte, rel, via string, topL
 type configReader struct {
 	kinds  *tsutil.KindTable
 	src    []byte
+	dir    string // the config's directory on disk, for a module it imports
 	rel    string // the config's directory, repository-relative
 	via    string
 	consts map[string]*sitter.Node // module-scope const name -> its value
+	// imports are the names the config imports from a relative module: local name ->
+	// the specifier and the name it exports.
+	imports map[string][2]string
+	depth   int             // how many imported modules deep this reader is
+	trees   *[]*sitter.Tree // the imported modules' trees, closed once the config is read
 }
 
 // readConsts indexes the config's module-scope `const x = ...` bindings, so a path
 // built once (const root = path.resolve(__dirname, 'src')) evaluates where it is used.
 func (r *configReader) readConsts(root *sitter.Node) {
 	r.consts = map[string]*sitter.Node{}
+	r.imports = map[string][2]string{}
 	for i := range root.NamedChildCount() {
 		stmt := root.NamedChild(i)
+		if kindOf(r.kinds, stmt) == "import_statement" {
+			r.readImport(stmt)
+			continue
+		}
 		if kindOf(r.kinds, stmt) == "export_statement" {
 			stmt = stmt.ChildByFieldName("declaration")
 		}
@@ -221,8 +244,83 @@ func (r *configReader) keyOf(pair *sitter.Node) string {
 	return strings.Trim(nodeText(k, r.src), `"'`+"`")
 }
 
+// readImport records `import { a as b } from './x'` for a name an alias value may be.
+func (r *configReader) readImport(stmt *sitter.Node) {
+	source := findChildByKind(r.kinds, stmt, "string")
+	if source == nil {
+		return
+	}
+	spec := strings.Trim(nodeText(source, r.src), `"'`)
+	if !strings.HasPrefix(spec, ".") {
+		return
+	}
+	named := findChildByKind(r.kinds, findChildByKind(r.kinds, stmt, "import_clause"), "named_imports")
+	if named == nil {
+		return
+	}
+	for j := range named.NamedChildCount() {
+		is := named.NamedChild(j)
+		name := is.ChildByFieldName("name")
+		if kindOf(r.kinds, is) != "import_specifier" || name == nil {
+			continue
+		}
+		local := nodeText(name, r.src)
+		if a := is.ChildByFieldName("alias"); a != nil {
+			local = nodeText(a, r.src)
+		}
+		r.imports[local] = [2]string{spec, nodeText(name, r.src)}
+	}
+}
+
+// imported returns a reader over the relative module a name was imported from, and
+// the value that module's const of the exported name holds. Paths in that module are
+// read against its own directory, which is where its __dirname and the usual
+// path.resolve('./x') of a config shared beside the config both point.
+func (r *configReader) imported(local string) (*configReader, *sitter.Node) {
+	imp, ok := r.imports[local]
+	if !ok || r.depth >= 3 {
+		return nil, nil
+	}
+	for _, ext := range []string{"", ".ts", ".mts", ".js", ".mjs", ".cts", ".cjs", "/index.ts", "/index.js"} {
+		file := filepath.Join(r.dir, filepath.FromSlash(imp[0])+ext) //factpath:host
+		st, err := os.Stat(file)
+		if err != nil || st.IsDir() {
+			continue
+		}
+		src, err := os.ReadFile(file)
+		if err != nil {
+			return nil, nil
+		}
+		parser := sitter.NewParser()
+		defer parser.Close()
+		if parser.SetLanguage(sitter.NewLanguage(typescript.LanguageTypescript())) != nil {
+			return nil, nil
+		}
+		tree := parser.Parse(src, nil)
+		*r.trees = append(*r.trees, tree) // its nodes are read after this returns
+		dir := filepath.Dir(file)         //factpath:host
+		sub := &configReader{kinds: r.kinds, src: src, dir: dir, rel: joinRel(r.rel, path.Dir(imp[0])), via: r.via, depth: r.depth + 1, trees: r.trees}
+		sub.readConsts(tree.RootNode())
+		return sub, sub.consts[imp[1]]
+	}
+	return nil, nil
+}
+
 func (r *configReader) readAliasValue(out map[string]tsAlias, val *sitter.Node, order *int) {
 	switch kindOf(r.kinds, val) {
+	case "identifier", "shorthand_property_identifier":
+		// A name: a const of the config, or one a module beside it exports
+		// (`import { aliases } from './vite.shared'`).
+		name := nodeText(val, r.src)
+		if v, ok := r.consts[name]; ok && v != val {
+			delete(r.consts, name) // a const defined through itself ends
+			r.readAliasValue(out, v, order)
+			r.consts[name] = v
+			return
+		}
+		if sub, v := r.imported(name); v != nil {
+			sub.readAliasValue(out, v, order)
+		}
 	case "object":
 		for i := range val.NamedChildCount() {
 			pair := val.NamedChild(i)

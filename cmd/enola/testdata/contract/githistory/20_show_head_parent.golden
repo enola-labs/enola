@@ -1,7 +1,7 @@
 $ enola show HEAD~1 .
 exit: 0
 --- stdout
-# revision fe8236e · <TIME> · (01b246396b27, backfill)
+# revision 7d7b8d0 · <TIME> · (01b246396b27, backfill)
 
 This is the FIRST recorded revision, so there is nothing before it to compare
 against. What follows is what the graph held at this point, not what changed.

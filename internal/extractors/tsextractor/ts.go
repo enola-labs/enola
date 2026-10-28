@@ -1,6 +1,7 @@
 package tsextractor
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"github.com/enola-labs/enola/internal/extractors/tsutil"
@@ -223,6 +224,9 @@ type extractCtx struct {
 	isTSX     bool
 	tsFrameworks
 	importMap map[string]string
+	// values are the names the file binds at module scope, for a value reference
+	// (moduleValues).
+	values map[string]string
 	// memberRoots are the names `<name>.<member>()` resolves through (see
 	// memberCallRoots), for a component's script block as for a file.
 	memberRoots map[string]string
@@ -291,10 +295,16 @@ func (e *TSExtractor) extractFile(src []byte, relFile string, rc *repoCtx, alias
 	// not leave used code mis-reported as dead.
 	result = append(result, e.collectTSFileRefs(kinds, root, ctx, aliases, facts.KindFileRef)...)
 
+	if !facts.IsTestPath(relFile) {
+		result = append(result, importedEmitterEventFacts(kinds, root, ctx)...)
+	}
 	res := e.frameworkPasses(kinds, root, ctx, aliases, result, isEmberFile, emberSegments)
 	res.hosts = hosts
 	if mayDeclareEventConsts(relFile, src) {
 		res.eventConsts = eventConstFile(blankCommentsIn(root, src))
+	}
+	if !facts.IsTestPath(relFile) && bytes.Contains(src, []byte("EventEmitter")) && nodeEventEmitterImport(string(src)) {
+		res.emitters = exportedEmitters(kinds, root, src, ctx.dir)
 	}
 	// What this file's code uses, for the repo-wide pass that marks which client calls
 	// the application can run. Read only where that pass gives a verdict; see reach.go.
@@ -378,7 +388,7 @@ func astPatternFacts(kinds *tsutil.KindTable, root *sitter.Node, src []byte, rel
 		result = append(result, extractGraphQLClientCallFactsAST(src, relFile, kinds, root, fetchBody, graphqlBindings)...)
 	}
 	if graphqlServer.enabled {
-		result = append(result, extractGraphQLCodeFirstAST(src, relFile, kinds, root, graphqlBindings)...)
+		result = append(result, extractGraphQLCodeFirstAST(src, relFile, kinds, root, graphqlBindings, graphqlServer)...)
 	}
 	result = append(result, extractTSKafkaFacts(kinds, root, src, relFile)...)
 	return append(result, extractTSEventFacts(kinds, root, src, relFile)...)
@@ -398,6 +408,7 @@ func newFileCtx(kinds *tsutil.KindTable, root *sitter.Node, src []byte, relFile 
 		dir:          dir,
 		isTSX:        isTSX,
 		importMap:    importMap,
+		values:       moduleValues(kinds, root, src, dir, importMap, internalImports),
 		memberRoots:  memberCallRoots(kinds, root, src, dir, internalImports),
 		returnTypes:  fileReturnTypes(kinds, root, src, dir, importMap),
 		imports:      buildEmberImportBindings(kinds, root, src, relFile, aliases),
@@ -453,6 +464,9 @@ func (e *TSExtractor) frameworkPasses(kinds *tsutil.KindTable, root *sitter.Node
 	if ctx.isReactNav && !facts.IsTestPath(relFile) {
 		result = append(result, extractReactNavScreens(kinds, root, src, relFile, aliases)...)
 		result = attachReactNavLinks(kinds, result, root, src, relFile)
+	}
+	if !facts.IsTestPath(relFile) {
+		result = append(result, extractReactRouterRoutes(kinds, root, src, relFile, aliases)...)
 	}
 	if ctx.isEmber {
 		result = append(result, emberRouteFacts(kinds, root, src, relFile)...)
@@ -1096,6 +1110,10 @@ func (e *TSExtractor) variableFacts(kinds *tsutil.KindTable, node, decl *sitter.
 		callRels, m := collectCallsWithMetrics(body, ctx.callScope(kinds, "", nil), dir+"."+symbolName, symbolName)
 		vRels = append(vRels, callRels...)
 		vMetrics = m
+	} else if value := decl.ChildByFieldName("value"); value != nil {
+		// A data value (a rule set, a route table, a config object) holds the values
+		// it lists; see dataValueRefs.
+		vRels = append(vRels, dataValueRefs(value, ctx.callScope(kinds, "", nil), dir+"."+symbolName)...)
 	}
 	f := facts.Fact{
 		Kind:    facts.KindSymbol,
@@ -1126,7 +1144,14 @@ func (e *TSExtractor) variableFacts(kinds *tsutil.KindTable, node, decl *sitter.
 	}
 	result := []facts.Fact{f}
 	if symbolKind == facts.SymbolVariable {
-		result = append(result, objectMemberSymbols(kinds, decl.ChildByFieldName("value"), ctx, symbolName, isExported)...)
+		members := objectMemberSymbols(kinds, decl.ChildByFieldName("value"), ctx, symbolName, isExported)
+		// The object holds its functions: whoever uses the object reaches them, as a
+		// class's users reach its methods. Without the edge, impact on a function an
+		// object member calls stopped at the member, which nothing calls by name.
+		for _, m := range members {
+			result[0].Relations = append(result[0].Relations, facts.Relation{Kind: facts.RelHasMethod, Target: m.Name})
+		}
+		result = append(result, members...)
 	}
 
 	// Drizzle: `export const orders = pgTable("orders", {...})` is a table. The
@@ -2545,7 +2570,9 @@ func memberCallRoots(kinds *tsutil.KindTable, root *sitter.Node, src []byte, dir
 // tsTestSuffixes are the co-located TypeScript test/spec suffixes that
 // config.Default().TestGlobs matches. Kept in one place so isTSTestFile and any
 // future glob check agree.
-var tsTestSuffixes = []string{".test.ts", ".test.tsx", ".spec.ts", ".spec.tsx", ".cy.ts", ".cy.tsx", ".cy.js", ".cy.jsx"}
+var tsTestSuffixes = []string{".test.ts", ".test.tsx", ".spec.ts", ".spec.tsx",
+	".test.js", ".test.jsx", ".spec.js", ".spec.jsx", ".test.mjs", ".spec.mjs", ".test.cjs", ".spec.cjs",
+	".cy.ts", ".cy.tsx", ".cy.js", ".cy.jsx"}
 
 // emberTestSuffixes are Ember's hyphenated test suffixes, valid ONLY under a
 // tests/ directory segment — ember-cli generates and qunit discovers
@@ -3026,8 +3053,12 @@ type tsBodyWalker struct {
 	paramIndex map[string]int
 	// constLocals are the locals proven to be literal collections (constbound.go).
 	constLocals map[string]bool
-	rels        []facts.Relation
-	seen        map[string]bool
+	// scopeRoot is the function walked, and locals the names it binds (boundNames),
+	// read the first time a module value is seen (valuerefs.go).
+	scopeRoot *sitter.Node
+	locals    map[string]bool
+	rels      []facts.Relation
+	seen      map[string]bool
 }
 
 func (w *tsBodyWalker) recordCall(target string) {
@@ -3150,6 +3181,8 @@ func (w *tsBodyWalker) walk(n *sitter.Node) {
 		w.noteInstantiation(n)
 	case "member_expression":
 		w.noteThisMember(n)
+	case "identifier", "shorthand_property_identifier":
+		w.noteValueRef(n)
 	}
 
 	for i := range n.ChildCount() {
@@ -3558,6 +3591,10 @@ func collectCallsWithMetrics(node *sitter.Node, scope callScope, selfName, selfS
 	kinds, src := scope.kinds, scope.src
 	w := &tsBodyWalker{callScope: scope, selfName: selfName, selfShort: selfShort, metrics: m, seen: make(map[string]bool)}
 	fn := tsEnclosingFunction(node)
+	w.scopeRoot = node
+	if fn != nil {
+		w.scopeRoot = fn
+	}
 	paramScope, paramIndex := tsParamScope(kinds, fn, src)
 	w.paramScope, w.paramIndex = []tsLoopScope{paramScope}, paramIndex
 	w.memberRoots = withLocalRoots(scope.memberRoots, tsLocalTypes(kinds, fn, node, src, scope.dir, scope.importMap, scope.typeNames, scope.methodReturns))

@@ -192,3 +192,91 @@ router.post("/hook", async (req) => { emitter.emitAction("hook.received", {}) })
 		t.Error("module-level code's emit is not held by its file")
 	}
 }
+
+// A Node event written as a constant resolves under its emitter; a conditional names
+// both events; a variable is a name that cannot be read.
+func TestEvents_NodeEventConstantsAndConditionals(t *testing.T) {
+	ff := extractAll(t, map[string]string{
+		"src/types.ts": `export enum TxEvent { BEGIN = "begin", DONE = "done", FAILED = "failed", TIMEOUT = "timeout" }`,
+		"src/orchestrator.ts": `import { EventEmitter } from "events"
+import { TxEvent } from "./types"
+export class Orchestrator extends EventEmitter {
+  start() { this.emit(TxEvent.BEGIN); this.emit(TxEvent.TIMEOUT); this.emit("timeout") }
+  finish(ok: boolean) { this.emit(ok ? TxEvent.DONE : TxEvent.FAILED) }
+  relay(name: string) { this.emit(name) }
+}`,
+	}, false)
+	got := eventSides(ff)
+	// The literal "timeout" is a stream's own event and is dropped; the constant one is
+	// the table's, and kept, once.
+	for _, want := range []string{"src.Orchestrator:begin", "src.Orchestrator:done", "src.Orchestrator:failed", "src.Orchestrator:timeout"} {
+		if len(got[want]) != 1 {
+			t.Errorf("%s: %v (all %v)", want, got[want], got)
+		}
+	}
+	relay, _ := findFact(ff, "src.Orchestrator.relay")
+	if relay.PropString("unresolved_reason") != eventUnresolvedDynamic {
+		t.Errorf("a variable event name is not marked: %v", relay.Props)
+	}
+}
+
+// An emitter exported from one file is the same emitter where another file imports
+// it, or builds one from its class. An imported object that is not an exported
+// emitter is no event source.
+func TestEvents_NodeEmittersAcrossFiles(t *testing.T) {
+	ff := extractAll(t, map[string]string{
+		"src/migrations/index.ts": `import { EventEmitter } from "events"
+export class Migrations extends EventEmitter {
+  run() { this.emit("migrated") }
+}`,
+		"src/bus.ts": `import { EventEmitter } from "events"` + "\n" + `export const bus = new EventEmitter()`,
+		"src/app.ts": `export const app = { on(_: string, f: () => void) {} }`,
+		"src/up.ts": `import { Migrations } from "./migrations"
+import { bus } from "./bus"
+import { app } from "./app"
+export function up() {
+  const migrations = new Migrations()
+  migrations.on("migrated", () => {})
+  bus.emit("live-ready")
+  app.on("mounted", () => {})
+}`,
+		"src/listen.ts": `import { bus } from "./bus"` + "\n" + `export function listen() { bus.on("live-ready", () => {}) }`,
+	}, false)
+	got := eventSides(ff)
+	if len(got["src/migrations.Migrations:migrated"]) != 2 {
+		t.Errorf("an instance of an imported emitter class: %v", got)
+	}
+	if len(got["src.bus:live-ready"]) != 2 {
+		t.Errorf("an imported emitter instance: %v", got)
+	}
+	for name := range got {
+		if name == "src.app:mounted" {
+			t.Errorf("an imported object that is no emitter made an event: %v", got)
+		}
+	}
+	up, _ := findFact(ff, "src.up")
+	if !hasRelation(up, facts.RelSubscribes, "src/migrations.Migrations:migrated") || !hasRelation(up, facts.RelPublishes, "src.bus:live-ready") {
+		t.Errorf("up's sides: %v", up.Relations)
+	}
+	for _, f := range ff {
+		if f.PropString(propEmitterPending) != "" || f.PropString(propEventOwner) != "" {
+			t.Errorf("a pending prop survived: %s %v", f.Name, f.Props)
+		}
+	}
+}
+
+// Angular's EventEmitter is a component output: emit takes a payload.
+func TestEvents_AngularOutputIsNoNodeEvent(t *testing.T) {
+	ff := extractAll(t, map[string]string{
+		"src/result.ts": `export enum Result { Saved = "saved" }`,
+		"src/assign.component.ts": `import { EventEmitter, Output } from "@angular/core"
+import { Result } from "./result"
+export class AssignComponent {
+  @Output() done = new EventEmitter<Result>()
+  save() { this.done.emit(Result.Saved); this.done.emit("x") }
+}`,
+	}, false)
+	if got := eventSides(ff); len(got) != 0 {
+		t.Errorf("an Angular output read as Node events: %v", got)
+	}
+}

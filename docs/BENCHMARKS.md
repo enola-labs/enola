@@ -1295,12 +1295,12 @@ questions that a framework makes hard, each against a key read in source:
 | **Q5** | Which components use this design token? | Tailwind (v3 config, presets, v4 `@theme`) |
 | **Q6** | What publishes and what subscribes to this event or job queue? | Node `EventEmitter`, Medusa, Directus, BullMQ |
 
-Seven repositories carry the key: directus, elk, cypress-realworld-app, nhost, medusa,
-vite (its alias playground) and vite-tailwind-graphql. tailwindcss is in the sweep as
+Eight repositories carry the key: directus, elk, cypress-realworld-app, nhost, medusa,
+vite (its alias playground), vite-tailwind-graphql and gitlab (graphql-ruby). tailwindcss is in the sweep as
 the control for Q5: the library that defines the utility classes must not read as their
 user. elk is a second control: it styles with UnoCSS, so it must yield no token at all.
 
-The key is 88 rows, each with its `file:line` evidence. A row is a path that must exist,
+The key is 99 rows, each with its `file:line` evidence. A row is a path that must exist,
 a path that must not, a fact, a dependency that must resolve by a stated mechanism, an
 impact set, or an **unresolved** fact that must say why. Unresolved with the right
 reason scores as correct: a Hasura GraphQL operation has no resolver in the repository,
@@ -1308,27 +1308,24 @@ and the honest answer names that rather than guessing one.
 
 | | found | unresolved, reason right | negatives held | claims | correct |
 |---|---:|---:|---:|---:|---:|
-| Q1 GraphQL | 8 / 8 | 2 / 2 | 1 / 1 | 18 | 100% |
-| Q2 Vue | 22 / 22 | | 2 / 2 | 25 | 100% |
-| Q3 tests | 12 / 13 | | 2 / 2 | 120 | 100% |
-| Q4 aliases | 12 / 12 | 1 / 1 | | 12,175 | 1 wrong |
-| Q5 Tailwind | 10 / 10 | | 2 / 2 | 8,581 | 100% |
-| Q6 events | 11 / 11 | 1 / 1 | 1 / 1 | 206 | 100% |
+| Q1 GraphQL | 13 / 13 | 2 / 2 | 1 / 1 | 656 | 100% |
+| Q2 Vue | 22 / 22 | | 2 / 2 | 64 | 100% |
+| Q3 tests | 14 / 14 | | 2 / 2 | 122 | 100% |
+| Q4 aliases | 13 / 13 | 1 / 1 | | 12,175 | 100% |
+| Q5 Tailwind | 11 / 11 | | 2 / 2 | 8,656 | 100% |
+| Q6 events | 14 / 14 | 1 / 1 | 1 / 1 | 221 | 100% |
 
 Before this work, at v465, the same key read Q1 0/8, Q2 14/22, Q3 0/13, Q4 1/12, Q5 0/10
 and Q6 0/11. For four of the six questions the node a question starts from did not
-exist. Across the six, **75 of 76 rows** are found now, against 15 of 76 then.
+exist. Across the six, **87 of 87 rows** are found now, against 15 of the first 76 then.
+The first cut of this section, at v474, found 75 of those 76 with the one miss stated.
 
 **Precision counts every claim, not a sample.** Q1 to Q3 make tens to a hundred claims
-per repository, and each was read in source. Q4 and Q5 make thousands, so each is
-checked against the file it names: an alias target must be a file or folder module of
-the repository, a token use must be a class in that file built from the section's
-utility prefix and the token. A sample of each was read by hand as well. The one wrong
-claim is a tsconfig `paths` entry with two targets, where enola takes the first and
-the file is the second.
-
-**The miss is stated.** Q3's thirteenth row is a `cy.visit` into a page that React Router
-declares in JSX. `<Route>` elements produce no page facts, so the test reaches no route.
+per repository, and each was read in source; gitlab's 638 mutation `handled_by` claims
+were each checked against the field list its own GraphQL reference documents. Q4 and Q5
+make thousands, so each is checked against the file it names: an alias target must be a
+file or folder module of the repository, a token use must be a class in that file built
+from the section's utility prefix and the token. A sample of each was read by hand as well.
 
 **Impact under a controlled change.** One change per question is applied to a scratch
 copy: rename a GraphQL field, move a composable, remove a route, change an alias, rename
@@ -1340,14 +1337,15 @@ against the dependents the key lists, then `diff_snapshot` must name the change.
 | rename a GraphQL field | 100% | 1 / 1 |
 | move a composable | 100% | 1 / 1 |
 | remove a route | 100% | 1 / 1 |
-| change an alias | **0%** | 1 / 1 |
+| change an alias | 100% | 1 / 1 |
 | rename a token | 100% | 1 / 1 |
 | rename an event | 100% | 2 / 2 |
 
-The alias row is the open one. Its only dependent is an HTML entry, which has imports
-but no symbol for impact to walk from.
+The alias change reached 0% at v474: its only dependent is an HTML entry, which then had
+imports but no symbol for impact to walk from. An HTML entry's module imports are now a
+file reference, so impact reaches the page.
 
-All seven repositories produce a byte-identical `facts.jsonl` across two snapshots. The
+All eight repositories produce a byte-identical `facts.jsonl` across two snapshots. The
 harness is `bench-semantics.sh` in the benchmarks repository, and `bench-all.sh` fails
 when a row the pin found is lost.
 

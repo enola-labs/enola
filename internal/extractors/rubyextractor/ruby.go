@@ -216,6 +216,8 @@ func (e *RubyExtractor) Extract(ctx context.Context, repoPath string, files []st
 		}
 	}
 
+	allFacts = bindGraphQLMounts(allFacts)
+
 	// Parse Rails route files.
 	if isRails {
 		routeFacts, namespaceOf := extractAllRoutes(repoPath, files)

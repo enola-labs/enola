@@ -3284,7 +3284,28 @@ import (
 // v482: TypeScript: a tsconfig `paths` entry with several targets resolves to the
 // first that names an indexed module; an aliased import naming no module of the
 // repository carries unresolved_reason missing-target, and its names bind to nothing.
-const cacheVersion = "v482"
+// v483: TypeScript: a Vite HTML entry's inline module scripts give the page a file_ref
+// naming what they use, so impact on an imported module lists the page.
+// v484: TypeScript: React Router pages (JSX <Route> of v5 and v6, nested, and route
+// objects given to createBrowserRouter and its siblings) are page routes, handled_by
+// the imported component they render.
+// v485: TypeScript: a Vite or Nuxt alias object given by name resolves: a const of the
+// config (the `{ alias }` shorthand included), or one a relative module exports.
+// v486: JavaScript *.test.js / *.spec.js (and .jsx, .mjs, .cjs) are tests, as their
+// TypeScript twins are: ignored as production code, read for their test_ref.
+// v487: TypeScript: a function that uses a module-scope value without calling it
+// (hands it on, lists it in an object, passes it) names it; an object literal's
+// declaration has_method the functions it holds.
+// v488: TypeScript: a Node event written as a constant or a conditional resolves under
+// its emitter (a variable marks dynamic-event-name), and an emitter another file
+// exports is the same emitter where it is imported or built from its class.
+// v489: TypeScript: a stylesheet's @apply lists use Tailwind tokens; Tailwind's own
+// package declares no tokens; a Pothos builder imported from another file is read,
+// and its plural queryFields/mutationFields declare a field per key.
+// v490: Ruby graphql-ruby: a root type may be a module (an edition's prepended root);
+// mount_mutation and mount_aliased_mutation declare a field named after the class's
+// graphql_name, handled_by its resolve; a class records its graphql_name.
+const cacheVersion = "v490"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

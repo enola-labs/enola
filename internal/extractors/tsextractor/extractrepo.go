@@ -40,7 +40,7 @@ func (e *TSExtractor) Extract(ctx context.Context, repoPath string, files []stri
 	a := assembleFileResults(perFile, tsFiles)
 	a.compose(repoPath, rc, templates)
 	a.facts = bindTailwind(a.facts, tailwindTokens(repoPath, files), repoPath, files, tsFiles, sources)
-	a.facts = append(a.facts, e.viteHTMLFacts(ctx, repoPath, files, aliasRoots, rc)...)
+	a.facts = mergeFileRefs(append(a.facts, e.viteHTMLFacts(ctx, repoPath, files, aliasRoots, rc)...))
 	a.facts = append(a.facts, a.coverageFacts(repoPath)...)
 
 	// One account per declared client in this repository, including a client that found
@@ -227,6 +227,7 @@ type tsAssembly struct {
 
 	angularDI, angularRoutes, angularRequests, angularTemplates angularCounts
 	eventConsts                                                 map[string]string // see events.go
+	emitters                                                    map[string]bool   // exported Node emitters, see events.go
 }
 
 // Group files by directory for module detection. Files that produced no
@@ -241,6 +242,12 @@ func assembleFileResults(perFile []tsFileResult, tsFiles []string) *tsAssembly {
 		clients:         clientCounts{},
 	}
 	a.eventConsts = eventConstIndex(perFile)
+	a.emitters = map[string]bool{}
+	for _, res := range perFile {
+		for _, e := range res.emitters {
+			a.emitters[e] = true
+		}
+	}
 	for i, res := range perFile {
 		if res.routers != nil {
 			a.routerFiles = append(a.routerFiles, res.routers)
@@ -302,7 +309,7 @@ func (a *tsAssembly) compose(repoPath string, rc *repoCtx, templates map[string]
 	}
 	resolveBarrelCalls(a.facts, rc.barrels)
 	bindGraphQL(a.facts)
-	a.facts = bindEvents(a.facts, a.eventConsts)
+	a.facts = bindEvents(a.facts, a.eventConsts, a.emitters)
 	resolveMemberTypedCalls(a.facts)
 	settleIONamedCalls(a.facts, a.modules)
 	ioclosure.PropagateWith(a.facts, ioclosure.Options{

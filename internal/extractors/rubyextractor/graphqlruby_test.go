@@ -1,6 +1,7 @@
 package rubyextractor
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/enola-labs/enola/internal/facts"
@@ -98,5 +99,97 @@ func TestGraphQLRubyRoutes_NamespaceQualifiedRootClass(t *testing.T) {
 	ff := extractGraphQLRubyRoutes(src, "app/graphql/types/query_type.rb")
 	if len(ff) != 1 || ff[0].Name != "Query.eventQuery" {
 		t.Fatalf("namespace-qualified root class = %+v, want exactly Query.eventQuery", ff)
+	}
+}
+
+// A mounted mutation is named after its class's graphql_name and handled by the
+// class's resolve; an edition's root module is a root type too.
+func TestGraphQLRubyRoutes_MountedMutationsAndModuleRoots(t *testing.T) {
+	ff := extractRepo(t, map[string]string{
+		"app/graphql/types/mutation_type.rb": `module Types
+  class MutationType < BaseObject
+    mount_mutation Mutations::Issues::Create, experiment: { milestone: '15.8' }
+    mount_mutation ::Mutations::AuditEvents::HTTPFiltersDelete
+    mount_mutation Mutations::Unnamed
+    mount_mutation Mutations::Missing
+    mount_aliased_mutation 'CreateIteration', Mutations::Iterations::Create
+    field :echo_create, mutation: Mutations::Echo
+  end
+end`,
+		"ee/app/graphql/ee/types/query_type.rb": `module EE
+  module Types
+    module QueryType
+      prepended do
+        field :duo_workflow_workflows, null: true
+      end
+    end
+  end
+end`,
+		"app/graphql/mutations/issues/create.rb": `module Mutations
+  module Issues
+    class Create < BaseMutation
+      graphql_name 'CreateIssue'
+      def resolve(project_path:); end
+    end
+  end
+end`,
+		"app/graphql/mutations/audit_events/http_filters_delete.rb": `module Mutations
+  module AuditEvents
+    class HTTPFiltersDelete < BaseMutation
+      graphql_name 'AuditEventsStreamingHTTPNamespaceFiltersDelete'
+      def resolve; end
+    end
+  end
+end`,
+		"app/graphql/types/deprecated_mutations.rb": `module Types
+  module DeprecatedMutations
+    extend ActiveSupport::Concern
+    included do
+      mount_aliased_mutation 'WorkItemExport', Mutations::Issues::Create
+      field :not_a_root_field, null: true
+    end
+  end
+end`,
+		"app/graphql/mutations/unnamed.rb":           "module Mutations\n  class Unnamed < BaseMutation\n    def resolve; end\n  end\nend",
+		"app/graphql/mutations/iterations/create.rb": "module Mutations\n  module Iterations\n    class Create < BaseMutation\n      graphql_name 'IterationCreate'\n      def resolve; end\n    end\n  end\nend",
+	})
+	got := map[string]string{}
+	for _, f := range ff {
+		if f.Kind == facts.KindRoute && f.PropString(facts.PropRouteType) == facts.RouteTypeGraphQL && f.PropString(facts.PropRole) == facts.RoleServer {
+			h := ""
+			for _, r := range f.Relations {
+				if r.Kind == facts.RelHandledBy {
+					h = r.Target
+				}
+			}
+			got[f.Name] = h
+			if f.PropString(propGraphQLMountClass) != "" || f.PropString(propGraphQLName) != "" {
+				t.Errorf("%s kept a pending prop: %v", f.Name, f.Props)
+			}
+		}
+	}
+	want := map[string]string{
+		"Mutation.createIssue": "Mutations::Issues::Create#resolve",
+		"Mutation.auditEventsStreamingHttpNamespaceFiltersDelete": "Mutations::AuditEvents::HTTPFiltersDelete#resolve",
+		"Mutation.createIteration":                                "Mutations::Iterations::Create#resolve",
+		"Mutation.echoCreate":                                     "",
+		"Mutation.workItemExport":                                 "Mutations::Issues::Create#resolve",
+		"Query.duoWorkflowWorkflows":                              "",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("routes\n got %v\nwant %v", got, want)
+	}
+}
+
+func TestRailsUnderscore(t *testing.T) {
+	for in, want := range map[string]string{
+		"CreateIssue":           "create_issue",
+		"AmazonS3Configuration": "amazon_s3_configuration",
+		"HTTPFiltersDelete":     "http_filters_delete",
+		"SavedReplyCreate":      "saved_reply_create",
+	} {
+		if got := railsUnderscore(in); got != want {
+			t.Errorf("railsUnderscore(%q) = %q, want %q", in, got, want)
+		}
 	}
 }

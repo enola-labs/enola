@@ -1,6 +1,7 @@
 package tsextractor
 
 import (
+	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -158,6 +159,106 @@ var graphqlRootByFieldCall = map[string]string{
 	"queryField": "Query", "mutationField": "Mutation", "subscriptionField": "Subscription",
 }
 
+// graphqlRootByFieldsCall are Pothos's plural forms: `builder.queryFields((t) => ({
+// a: t.field(…), b: t.field(…) }))` declares a field per key.
+var graphqlRootByFieldsCall = map[string]string{
+	"queryFields": "Query", "mutationFields": "Mutation", "subscriptionFields": "Subscription",
+}
+
+var (
+	pothosImportRe  = regexp.MustCompile(`import\s+([A-Za-z_$][\w$]*)\s+from\s+['"]@pothos/core['"]`)
+	pothosBuilderRe = regexp.MustCompile(`(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?::[^=]+)?=\s*new\s+([A-Za-z_$][\w$]*)`)
+)
+
+// pothosBuilderNames returns the bindings a file makes to `new SchemaBuilder(…)`,
+// SchemaBuilder being its default import from @pothos/core.
+func pothosBuilderNames(src []byte) []string {
+	text := string(src)
+	m := pothosImportRe.FindStringSubmatch(text)
+	if m == nil {
+		return nil
+	}
+	var out []string
+	for _, b := range pothosBuilderRe.FindAllStringSubmatch(text, -1) {
+		if b[2] == m[1] {
+			out = append(out, b[1])
+		}
+	}
+	return out
+}
+
+// importedPothosBuilders returns the local names a file binds, through a relative
+// import, to a Pothos builder another file declares.
+func importedPothosBuilders(kinds *tsutil.KindTable, root *sitter.Node, src []byte, relFile string, builders map[string]bool) map[string]bool {
+	out := map[string]bool{}
+	if len(builders) == 0 {
+		return out
+	}
+	dir := path.Dir(filepath.ToSlash(relFile))
+	for i := range root.NamedChildCount() {
+		stmt := root.NamedChild(i)
+		source := findChildByKind(kinds, stmt, "string")
+		if kindOf(kinds, stmt) != "import_statement" || source == nil {
+			continue
+		}
+		spec := strings.Trim(nodeText(source, src), `"'`)
+		if !strings.HasPrefix(spec, ".") {
+			continue
+		}
+		stem := path.Clean(path.Join(dir, spec))
+		stem = strings.TrimSuffix(stem, path.Ext(stem))
+		named := findChildByKind(kinds, findChildByKind(kinds, stmt, "import_clause"), "named_imports")
+		if named == nil {
+			continue
+		}
+		for j := range named.NamedChildCount() {
+			is := named.NamedChild(j)
+			name := is.ChildByFieldName("name")
+			if kindOf(kinds, is) != "import_specifier" || name == nil {
+				continue
+			}
+			local := nodeText(name, src)
+			if a := is.ChildByFieldName("alias"); a != nil {
+				local = nodeText(a, src)
+			}
+			if builders[stem+"#"+nodeText(name, src)] || builders[stem+"/index#"+nodeText(name, src)] {
+				out[local] = true
+			}
+		}
+	}
+	return out
+}
+
+// pothosPluralFields returns the keys of the object a plural field call's callback
+// returns.
+func pothosPluralFields(kinds *tsutil.KindTable, args *sitter.Node, src []byte) []graphqlNamedLine {
+	if args == nil || args.NamedChildCount() == 0 {
+		return nil
+	}
+	fn := args.NamedChild(0)
+	if kindOf(kinds, fn) != "arrow_function" {
+		return nil
+	}
+	body := fn.ChildByFieldName("body")
+	for body != nil && kindOf(kinds, body) == "parenthesized_expression" && body.NamedChildCount() > 0 {
+		body = body.NamedChild(0)
+	}
+	if body == nil || kindOf(kinds, body) != "object" {
+		return nil
+	}
+	var out []graphqlNamedLine
+	for i := range body.NamedChildCount() {
+		p := body.NamedChild(i)
+		if kindOf(kinds, p) != "pair" {
+			continue
+		}
+		if k := p.ChildByFieldName("key"); k != nil {
+			out = append(out, graphqlNamedLine{name: strings.Trim(nodeText(k, src), `"'`), line: int(p.StartPosition().Row) + 1})
+		}
+	}
+	return out
+}
+
 var graphqlRootNames = map[string]string{
 	"Query": "Query", "Mutation": "Mutation", "Subscription": "Subscription",
 }
@@ -302,6 +403,10 @@ func importedReceiverCall(kinds *tsutil.KindTable, fn *sitter.Node, src []byte, 
 type graphqlServerContext struct {
 	enabled      bool
 	sdlDocuments map[string]bool
+	// pothosBuilders are the Pothos SchemaBuilder bindings the repository declares,
+	// as "<file without extension>#<name>", so a file importing one is read as Pothos
+	// code without importing @pothos/core itself.
+	pothosBuilders map[string]bool
 }
 
 // detectGraphQLServerUsage establishes repository context through syntax, not
@@ -309,7 +414,7 @@ type graphqlServerContext struct {
 // It also records standalone SDL documents with direct provenance (an import by
 // a server-construction file, or Hasura's metadata convention).
 func detectGraphQLServerUsage(files []string, sources map[string][]byte) graphqlServerContext {
-	ctx := graphqlServerContext{sdlDocuments: map[string]bool{}}
+	ctx := graphqlServerContext{sdlDocuments: map[string]bool{}, pothosBuilders: map[string]bool{}}
 	for _, relFile := range files {
 		if facts.IsTestPath(relFile) {
 			continue
@@ -327,6 +432,9 @@ func detectGraphQLServerUsage(files []string, sources map[string][]byte) graphql
 		}
 		if !possibleGraphQLServerSignal(src) {
 			continue
+		}
+		for _, name := range pothosBuilderNames(src) {
+			ctx.pothosBuilders[strings.TrimSuffix(filepath.ToSlash(relFile), filepath.Ext(relFile))+"#"+name] = true
 		}
 		server, imports := graphQLServerASTSignals(src, relFile)
 		if server {
@@ -354,14 +462,18 @@ func possibleGraphQLServerSignal(src []byte) bool {
 	return false
 }
 
-func extractGraphQLCodeFirstAST(src []byte, relFile string, kinds *tsutil.KindTable, rootNode *sitter.Node, bindings graphqlImportBindings) []facts.Fact {
+func extractGraphQLCodeFirstAST(src []byte, relFile string, kinds *tsutil.KindTable, rootNode *sitter.Node, bindings graphqlImportBindings, server graphqlServerContext) []facts.Fact {
 	decoratorEnabled := bindings.hasPackage("@nestjs/graphql") || bindings.hasPackage("type-graphql")
 	nexusEnabled := bindings.hasPackage("nexus")
-	pothosEnabled := bindings.hasPackage("@pothos/core")
+	imported := importedPothosBuilders(kinds, rootNode, src, relFile, server.pothosBuilders)
+	pothosEnabled := bindings.hasPackage("@pothos/core") || len(imported) > 0
 	if !decoratorEnabled && !nexusEnabled && !pothosEnabled {
 		return nil
 	}
 	pothosBuilders := collectPothosBuilders(kinds, rootNode, src, bindings)
+	for local := range imported {
+		pothosBuilders[local] = true
+	}
 
 	seen := map[string]bool{}
 	var out []facts.Fact
@@ -459,6 +571,10 @@ func extractGraphQLCodeFirstAST(src []byte, relFile string, kinds *tsutil.KindTa
 				switch {
 				case pothosEnabled && graphqlRootByFieldCall[pothosCall] != "":
 					add(graphqlRootByFieldCall[pothosCall], field, int(n.StartPosition().Row)+1, facts.RouteSourceGraphQLPothos, "")
+				case pothosEnabled && graphqlRootByFieldsCall[pothosCall] != "":
+					for _, f := range pothosPluralFields(kinds, args, src) {
+						add(graphqlRootByFieldsCall[pothosCall], f.name, f.line, facts.RouteSourceGraphQLPothos, "")
+					}
 				case nexusEnabled && graphqlRootByFieldCall[nexusCall] != "":
 					root := graphqlRootByFieldCall[nexusCall]
 					add(root, field, int(n.StartPosition().Row)+1, facts.RouteSourceGraphQLNexus, "")

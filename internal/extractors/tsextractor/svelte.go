@@ -529,6 +529,7 @@ func (e *TSExtractor) extractSvelteScriptBlock(kinds *tsutil.KindTable, block *s
 		dir:         factpath.Dir(relFile),
 		isTSX:       isTSX,
 		importMap:   importMap,
+		values:      moduleValues(kinds, root, block.Content, factpath.Dir(relFile), importMap, internalImports),
 		memberRoots: memberCallRoots(kinds, root, block.Content, factpath.Dir(relFile), internalImports),
 		imports:     buildEmberImportBindings(kinds, root, block.Content, relFile, aliases),
 	}
