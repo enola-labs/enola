@@ -388,7 +388,7 @@ func astPatternFacts(kinds *tsutil.KindTable, root *sitter.Node, src []byte, rel
 		result = append(result, extractGraphQLClientCallFactsAST(src, relFile, kinds, root, fetchBody, graphqlBindings)...)
 	}
 	if graphqlServer.enabled {
-		result = append(result, extractGraphQLCodeFirstAST(src, relFile, kinds, root, graphqlBindings)...)
+		result = append(result, extractGraphQLCodeFirstAST(src, relFile, kinds, root, graphqlBindings, graphqlServer)...)
 	}
 	result = append(result, extractTSKafkaFacts(kinds, root, src, relFile)...)
 	return append(result, extractTSEventFacts(kinds, root, src, relFile)...)

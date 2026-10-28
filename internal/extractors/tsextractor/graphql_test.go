@@ -645,3 +645,32 @@ func TestGraphQLTag_WordInAPathIsNotATag(t *testing.T) {
 		t.Errorf("no tag here, so no facts; got %+v", got)
 	}
 }
+
+// A builder another file creates is still Pothos's, and the plural forms declare a
+// field per key of the object their callback returns.
+func TestGraphQLCodeFirst_PothosBuilderImportedAndPluralFields(t *testing.T) {
+	ff := extractAll(t, map[string]string{
+		"src/builder.ts": `import SchemaBuilder from "@pothos/core";
+const builder = new SchemaBuilder<{ Context: {} }>({});
+export { builder };`,
+		"src/schema/stripe.ts": `import { builder } from "../builder";
+builder.queryFields((t) => ({
+  stripe: t.field({ type: "Stripe", resolve: () => ({}) }),
+  "health": t.string({ resolve: () => "ok" }),
+}));
+builder.mutationFields((t) => ({ stripe: t.field({ type: "StripeMutations", resolve: () => ({}) }) }));`,
+		"src/schema/other.ts": `import { builder } from "./not-the-builder";
+builder.queryFields((t) => ({ ghost: t.field({}) }));`,
+		"src/schema/not-the-builder.ts": `export const builder = { queryFields(_: unknown) {} };`,
+	}, false)
+	got := map[string]bool{}
+	for _, f := range ff {
+		if f.Kind == facts.KindRoute && f.PropString(facts.PropSource) == facts.RouteSourceGraphQLPothos {
+			got[f.Name] = true
+		}
+	}
+	want := map[string]bool{"Query.stripe": true, "Query.health": true, "Mutation.stripe": true}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Pothos fields %v, want %v", got, want)
+	}
+}

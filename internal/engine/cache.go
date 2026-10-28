@@ -3299,7 +3299,10 @@ import (
 // v488: TypeScript: a Node event written as a constant or a conditional resolves under
 // its emitter (a variable marks dynamic-event-name), and an emitter another file
 // exports is the same emitter where it is imported or built from its class.
-const cacheVersion = "v488"
+// v489: TypeScript: a stylesheet's @apply lists use Tailwind tokens; Tailwind's own
+// package declares no tokens; a Pothos builder imported from another file is read,
+// and its plural queryFields/mutationFields declare a field per key.
+const cacheVersion = "v489"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

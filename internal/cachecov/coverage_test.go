@@ -82,6 +82,7 @@ var versionCoverage = map[int][]string{
 	486: {"TestTestCalls_JavaScriptSpecs"},
 	487: {"TestValueRefs_ModuleValuesAreNamed", "TestValueRefs_VueOptionsObject"},
 	488: {"TestEvents_NodeEventConstantsAndConditionals", "TestEvents_NodeEmittersAcrossFiles", "TestEvents_AngularOutputIsNoNodeEvent"},
+	489: {"TestTailwind_ApplyInStylesheets", "TestTailwind_FrameworkPackageDeclaresNoTokens", "TestGraphQLCodeFirst_PothosBuilderImportedAndPluralFields"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},
 	438: {"TestExtract_StructUsage_StdlibAndRootPackages"},

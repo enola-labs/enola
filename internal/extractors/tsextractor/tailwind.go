@@ -86,9 +86,15 @@ type tailwindToken struct {
 // "tailwindcss"), and every @theme block in CSS.
 func tailwindTokens(repoPath string, files []string) []tailwindToken {
 	var out []tailwindToken
+	pkgNames := map[string]string{}
 	for _, f := range files {
 		rel := filepath.ToSlash(f)
 		if facts.IsTestPath(rel) {
+			continue
+		}
+		// Tailwind's own package declares its default palette in @theme; those are
+		// the built-in tokens, which no project here chose.
+		if (path.Ext(rel) == ".css" || importsTailwindPath(rel)) && packageNameAbove(repoPath, rel, pkgNames) == "tailwindcss" {
 			continue
 		}
 		switch ext := path.Ext(rel); {
@@ -109,6 +115,46 @@ func tailwindTokens(repoPath string, files []string) []tailwindToken {
 		}
 	}
 	return out
+}
+
+// importsTailwindPath reports a script file that may be a preset or plugin module.
+func importsTailwindPath(rel string) bool {
+	switch path.Ext(rel) {
+	case ".ts", ".js", ".cjs", ".mjs":
+		return true
+	}
+	return false
+}
+
+// packageNameAbove returns the name of the package.json nearest above a file, read
+// from disk and cached per directory.
+func packageNameAbove(repoPath, rel string, cache map[string]string) string {
+	var walked []string
+	dir := path.Dir(rel)
+	name := ""
+	for {
+		if n, ok := cache[dir]; ok {
+			name = n
+			break
+		}
+		walked = append(walked, dir)
+		if raw, err := os.ReadFile(filepath.Join(repoPath, filepath.FromSlash(dir), "package.json")); err == nil { //factpath:host
+			var pkg struct {
+				Name string `json:"name"`
+			}
+			_ = json.Unmarshal(raw, &pkg)
+			name = pkg.Name
+			break
+		}
+		if dir == "." || dir == "/" || dir == "" {
+			break
+		}
+		dir = path.Dir(dir)
+	}
+	for _, d := range walked {
+		cache[d] = name
+	}
+	return name
 }
 
 func tailwindV4Tokens(src, rel string) []tailwindToken {
@@ -418,8 +464,10 @@ func bindTailwind(all []facts.Fact, tokens []tailwindToken, repoPath string, fil
 	// application's classes are, and it belongs to the component that names it.
 	scan := append([]string(nil), tsFiles...)
 	html := map[string][]byte{}
+	// A stylesheet uses tokens in its @apply lists (`@apply bg-ui-bg-subtle;`), read
+	// from disk like a template.
 	for _, f := range files {
-		if f = filepath.ToSlash(f); isAngularTemplateFile(f) && !facts.IsTestPath(f) && usesTailwind(f) {
+		if f = filepath.ToSlash(f); (isAngularTemplateFile(f) || isStylesheet(f)) && !facts.IsTestPath(f) && usesTailwind(f) {
 			if src, err := os.ReadFile(filepath.Join(repoPath, f)); err == nil { //factpath:host
 				html[f] = src
 				scan = append(scan, f)
@@ -454,6 +502,9 @@ func bindTailwind(all []facts.Fact, tokens []tailwindToken, repoPath string, fil
 			return nil
 		}
 		text := string(src)
+		if isStylesheet(file) {
+			return tailwindApplyTokens(text, prefixes, byPrefix, bySection)
+		}
 		if !isAngularTemplateFile(file) {
 			text = string(blankTSComments(src, file))
 		}
@@ -531,6 +582,43 @@ func tailwindClassTokens(src string, prefixes []string, byPrefix map[string][]st
 		}
 		line := 1 + strings.Count(src[:m[0]], "\n")
 		for _, cls := range strings.Fields(s) {
+			if node := tailwindClassToken(cls, prefixes, byPrefix, bySection); node != "" {
+				if u := (tokenUse{node, line}); !seen[u] {
+					seen[u] = true
+					out = append(out, u)
+				}
+			}
+		}
+	}
+	return out
+}
+
+var (
+	applyRe      = regexp.MustCompile(`@apply\s+([^;{}]+)`)
+	cssCommentRe = regexp.MustCompile(`(?s)/\*.*?\*/`)
+)
+
+// isStylesheet reports a file whose @apply lists name Tailwind classes.
+func isStylesheet(file string) bool {
+	switch factpath.Ext(file) {
+	case ".css", ".scss", ".pcss", ".postcss":
+		return true
+	}
+	return false
+}
+
+// tailwindApplyTokens returns each token a stylesheet's @apply lists use. Only @apply
+// is read: a quoted string in CSS is a font name or a URL, not a class.
+func tailwindApplyTokens(src string, prefixes []string, byPrefix map[string][]string, bySection map[string]map[string]string) []tokenUse {
+	src = cssCommentRe.ReplaceAllStringFunc(src, func(c string) string { return strings.Repeat("\n", strings.Count(c, "\n")) })
+	seen := map[tokenUse]bool{}
+	var out []tokenUse
+	for _, m := range applyRe.FindAllStringSubmatchIndex(src, -1) {
+		line := 1 + strings.Count(src[:m[0]], "\n")
+		for _, cls := range strings.Fields(src[m[2]:m[3]]) {
+			if cls == "!important" {
+				continue
+			}
 			if node := tailwindClassToken(cls, prefixes, byPrefix, bySection); node != "" {
 				if u := (tokenUse{node, line}); !seen[u] {
 					seen[u] = true

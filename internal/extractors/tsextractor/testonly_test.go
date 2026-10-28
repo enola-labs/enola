@@ -29,7 +29,7 @@ func extractGraphQLCodeFirst(src []byte, relFile string) []facts.Fact {
 	defer tree.Close()
 	kinds := tsKindsFor(strings.HasSuffix(relFile, ".tsx") || strings.HasSuffix(relFile, ".jsx"))
 	root := tree.RootNode()
-	return extractGraphQLCodeFirstAST(src, relFile, kinds, root, collectGraphQLImportBindings(kinds, root, src))
+	return extractGraphQLCodeFirstAST(src, relFile, kinds, root, collectGraphQLImportBindings(kinds, root, src), graphqlServerContext{})
 }
 
 // extractGraphQLTagFacts pulls client operations out of a source file's tagged
