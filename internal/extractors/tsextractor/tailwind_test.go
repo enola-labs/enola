@@ -204,3 +204,74 @@ func TestTailwind_FrameworkPackageDeclaresNoTokens(t *testing.T) {
 		t.Errorf("tokens %v: want the site's brand, not the framework's red-500", tokens)
 	}
 }
+
+// nodeUsers returns, per token node, the files whose component or file_ref names it.
+func nodeUsers(ff []facts.Fact) map[string][]string {
+	nodes := map[string]bool{}
+	for _, f := range ff {
+		if f.Props[propToken] != nil {
+			nodes[f.Name] = true
+		}
+	}
+	users := map[string][]string{}
+	for _, f := range ff {
+		for _, r := range f.Relations {
+			if r.Kind == facts.RelNames && nodes[r.Target] {
+				users[r.Target] = append(users[r.Target], f.File)
+			}
+		}
+	}
+	for n := range users {
+		sort.Strings(users[n])
+	}
+	return users
+}
+
+// Two apps declaring the same name declare two tokens. A docs app sees the base
+// config it imports by package name before the preset that config lists; a
+// stylesheet sees the theme it @imports, and a package its @source names sees that
+// stylesheet's theme. A themed project naming a token it does not reach is using
+// Tailwind's own class; a package no theme reaches names every declaration.
+func TestTailwind_TokenNamesAreScopedPerProject(t *testing.T) {
+	ff := extractAll(t, map[string]string{
+		"preset/package.json": `{"name": "@acme/preset", "dependencies": {"tailwindcss": "3"}}`,
+		"preset/src/index.ts": `import type { Config } from "tailwindcss"
+export default { theme: { extend: { colors: { brand: "#00f", ink: "#111" } } } } satisfies Config`,
+		"docs/base/package.json":       `{"name": "docs-tailwind", "devDependencies": {"tailwindcss": "3"}}`,
+		"docs/base/tailwind.config.js": `module.exports = { presets: [require("@acme/preset")], theme: { extend: { colors: { brand: "#0f0" } } } }`,
+		"docs/site/package.json":       `{"name": "site", "devDependencies": {"tailwindcss": "3"}}`,
+		"docs/site/tailwind.config.js": `import base from "docs-tailwind"
+module.exports = { ...base, theme: { ...base.theme, backgroundImage: { hero: "url(/a.svg)" } } }`,
+		"docs/site/Page.tsx":       `export const Page = () => <div className="bg-brand text-ink bg-hero" />`,
+		"admin/package.json":       `{"name": "admin", "devDependencies": {"tailwindcss": "3"}}`,
+		"admin/tailwind.config.js": `module.exports = { presets: [require("@acme/preset")], content: ["./src/**/*.tsx"] }`,
+		"admin/src/Panel.tsx":      `export const Panel = () => <div className="bg-brand bg-hero" />`,
+		"config/package.json":      `{"name": "config"}`,
+		"config/theme.css":         `@theme { --color-paper: #fff; }`,
+		"web/package.json":         `{"name": "web", "devDependencies": {"tailwindcss": "4"}}`,
+		"web/styles/globals.css": `@import 'config/theme.css';
+@source '../../ui/src/**/*.tsx';
+@theme { --color-brand: #f00; }`,
+		"web/app/Home.tsx":  `export const Home = () => <div className="bg-brand bg-paper text-ink" />`,
+		"ui/package.json":   `{"name": "ui", "devDependencies": {"tailwindcss": "3"}}`,
+		"ui/src/Button.tsx": `export const Button = () => <button className="bg-brand bg-paper" />`,
+		"lib/package.json":  `{"name": "lib", "devDependencies": {"tailwindcss": "3"}}`,
+		"lib/src/Card.tsx":  `export const Card = () => <div className="bg-brand" />`,
+	}, false)
+	users := nodeUsers(ff)
+	for node, want := range map[string][]string{
+		"tailwind/preset/src/colors.brand": {"admin/src/Panel.tsx", "lib/src/Card.tsx"},
+		"tailwind/docs/base/colors.brand":  {"docs/site/Page.tsx", "lib/src/Card.tsx"},
+		"tailwind/web/styles/colors.brand": {"lib/src/Card.tsx", "ui/src/Button.tsx", "web/app/Home.tsx"},
+		"tailwind/colors.ink":              {"docs/site/Page.tsx"},
+		"tailwind/colors.paper":            {"ui/src/Button.tsx", "web/app/Home.tsx"},
+		"tailwind/backgroundImage.hero":    {"docs/site/Page.tsx"},
+	} {
+		if strings.Join(users[node], ",") != strings.Join(want, ",") {
+			t.Errorf("%s used by %v, want %v", node, users[node], want)
+		}
+	}
+	if users["tailwind/colors.brand"] != nil {
+		t.Errorf("a name three themes declare kept the shared node")
+	}
+}
