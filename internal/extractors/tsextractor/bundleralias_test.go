@@ -1,6 +1,7 @@
 package tsextractor
 
 import (
+	"context"
 	"testing"
 
 	"github.com/enola-labs/enola/internal/facts"
@@ -242,6 +243,86 @@ func TestBarrelExports(t *testing.T) {
 	for _, want := range []string{"lib.a", "lib.b"} {
 		if !hasRelation(run, facts.RelCalls, want) {
 			t.Errorf("call through barrel not rewritten to %s: %v", want, run.Relations)
+		}
+	}
+}
+
+func TestTSConfigPathsTakeTheFirstTargetThatExists(t *testing.T) {
+	ff := extractAll(t, map[string]string{
+		"app/tsconfig.json":       `{"compilerOptions": {"paths": {"@fallback/*": ["./src/*", "./fallback/*"], "@cfg": ["./src/cfg.ts", "./fallback/cfg.ts"]}}}`,
+		"app/fallback/only.js":    `export default 1`,
+		"app/src/both.ts":         `export default 1`,
+		"app/fallback/both.ts":    `export default 2`,
+		"app/fallback/cfg.ts":     `export default 3`,
+		"app/fallback/styles.css": ``,
+		"app/main.ts": `import a from '@fallback/only'
+import b from '@fallback/both'
+import c from '@fallback/none'
+import d from '@cfg'
+import '@fallback/styles.css'`,
+	}, false)
+	for line, want := range map[int]string{
+		1: "app/fallback/only", // only the second target exists
+		2: "app/src/both",      // both exist: the first wins
+		3: "app/src/none",      // neither: the first, flagged below
+		4: "app/fallback/cfg.ts",
+		5: "app/src/styles.css", // not a module: the indexed set cannot tell, so the first
+	} {
+		if got := depTarget(depAt(t, ff, "app/main.ts", line)); got != want {
+			t.Errorf("line %d: %q, want %q", line, got, want)
+		}
+	}
+	for line, want := range map[int]string{1: "", 2: "", 3: aliasUnresolvedMissingTarget, 4: "", 5: ""} {
+		dep := depAt(t, ff, "app/main.ts", line)
+		if got, _ := dep.Props["unresolved_reason"].(string); got != want {
+			t.Errorf("line %d: unresolved_reason %q, want %q", line, got, want)
+		}
+		if dep.Props["source"] != "internal" {
+			t.Errorf("line %d: source %v, want internal", line, dep.Props["source"])
+		}
+	}
+}
+
+// An alias to a path that does not exist must not bind its names to a module that
+// happens to sit in the path's parent directory.
+func TestMissingAliasTargetBindsNothing(t *testing.T) {
+	ff := extractAll(t, map[string]string{
+		"app/vite.config.js": `import path from 'node:path'
+export default { resolve: { alias: [{ find: 'fs-dir', replacement: path.resolve(import.meta.dirname, 'dir/module') }] } }`,
+		"app/dir/module/index.js": `export function msg() {}`,
+		"app/main.ts":             `import { msg } from 'fs-dir/test'` + "\n" + `export function run() { msg() }`,
+	}, false)
+	dep := depAt(t, ff, "app/main.ts", 1)
+	if dep.Props["unresolved_reason"] != aliasUnresolvedMissingTarget {
+		t.Fatalf("props %v, want unresolved_reason %s", dep.Props, aliasUnresolvedMissingTarget)
+	}
+	for _, f := range ff {
+		for _, r := range f.Relations {
+			if r.Target == "app/dir/module.msg" {
+				t.Errorf("%s %s -> %s: an edge through a missing alias target", f.Name, r.Kind, r.Target)
+			}
+		}
+	}
+}
+
+// A target that exists but is not indexed (an ignored vendor/ folder, a directory of
+// stylesheets) is not missing.
+func TestAliasTargetOnDiskIsNotMissing(t *testing.T) {
+	files := map[string]string{
+		"tsconfig.json":      `{"compilerOptions": {"paths": {"@/*": ["./src/*"]}}}`,
+		"src/vendor/data.ts": `export const Vendor = 1`,
+		"src/css/app.css":    ``,
+		"src/gone/.keep":     ``,
+		"src/main.ts":        "import { Vendor } from '@/vendor/data'\nimport css from '@/css'\nimport g from '@/gone/x'",
+	}
+	dir := setupTSProject(t, files, false)
+	ff, err := New().Extract(context.Background(), dir, []string{"tsconfig.json", "src/main.ts"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for line, want := range map[int]string{1: "", 2: "", 3: aliasUnresolvedMissingTarget} {
+		if got, _ := depAt(t, ff, "src/main.ts", line).Props["unresolved_reason"].(string); got != want {
+			t.Errorf("line %d: unresolved_reason %q, want %q", line, got, want)
 		}
 	}
 }

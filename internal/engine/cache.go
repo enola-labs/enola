@@ -3281,7 +3281,10 @@ import (
 // to the end of its body, which the grammar parses as a sibling of the signature.
 // v481: C and C++: symbols carry their span (end_line); a prototype merged with its
 // definition takes the definition's span with its file and line.
-const cacheVersion = "v481"
+// v482: TypeScript: a tsconfig `paths` entry with several targets resolves to the
+// first that names an indexed module; an aliased import naming no module of the
+// repository carries unresolved_reason missing-target, and its names bind to nothing.
+const cacheVersion = "v482"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

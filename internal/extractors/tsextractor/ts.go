@@ -570,6 +570,9 @@ func (e *TSExtractor) extractImports(kinds *tsutil.KindTable, root *sitter.Node,
 
 		// Resolve path aliases and relative imports to filesystem-relative paths
 		resolved, isExternal, alias := resolveImportPathVia(importPath, dir, aliases)
+		if missingAliasTarget(importPath, resolved, alias, isExternal, files) {
+			alias.unresolved = aliasUnresolvedMissingTarget
+		}
 
 		importSource := "internal"
 		if isExternal {
@@ -623,6 +626,9 @@ func (e *TSExtractor) extractImports(kinds *tsutil.KindTable, root *sitter.Node,
 					if strArg := findChildByKind(kinds, n.ChildByFieldName("arguments"), "string"); strArg != nil {
 						importPath := strings.Trim(nodeText(strArg, src), `"'`)
 						resolved, isExternal, alias := resolveImportPathVia(importPath, dir, aliases)
+						if missingAliasTarget(importPath, resolved, alias, isExternal, files) {
+							alias.unresolved = aliasUnresolvedMissingTarget
+						}
 						if file, ok := files.fileBesideDir(resolved); ok && !isExternal {
 							resolved = file
 						}
@@ -1899,6 +1905,79 @@ type tsAlias struct {
 	// re is a regex find, applied in declaration order (order) before any prefix.
 	re    *regexp.Regexp
 	order int
+	// alts are a tsconfig `paths` entry's further targets, in declaration order.
+	// TypeScript tries each target in turn and takes the first that names a file:
+	// `"@fallback/*": ["./src/*", "./fallback/*"]` resolves `@fallback/x` to
+	// fallback/x.js when src/x does not exist. known is the repository's indexed
+	// files, bound once they are listed (bindAliasFiles); without it the first
+	// target is taken, as before.
+	alts  []tsAliasTarget
+	known map[string]bool
+}
+
+// tsAliasTarget is one further target of a tsconfig `paths` entry (tsAlias.alts).
+type tsAliasTarget struct {
+	replacement, suffix string
+}
+
+// bindAliasFiles gives every alias with further targets the indexed files to
+// choose among them by. It reads the indexed set, not the disk, so the choice
+// changes only when an input of the extractor cache does.
+func bindAliasFiles(roots []tsAliasRoot, known map[string]bool) {
+	for _, r := range roots {
+		for k, a := range r.aliases {
+			if len(a.alts) > 0 {
+				a.known = known
+				r.aliases[k] = a
+			}
+		}
+	}
+}
+
+// target is what the alias maps rest (the part of the specifier its prefix did not
+// match) to: the first of its targets that names an indexed module, or the first
+// target when none does or the specifier names a file that is not a module.
+func (a tsAlias) target(rest, importPath string) string {
+	first := a.replacement + rest + a.suffix
+	if len(a.alts) == 0 || a.known == nil || !isModuleSpecifier(importPath) {
+		return first
+	}
+	if moduleIndexed(factpath.Clean(first), a.known) {
+		return first
+	}
+	for _, t := range a.alts {
+		if c := t.replacement + rest + t.suffix; moduleIndexed(factpath.Clean(c), a.known) {
+			return c
+		}
+	}
+	return first
+}
+
+// isModuleSpecifier reports whether a specifier names a source module, the only
+// kind of file the indexed set can vouch for: no extension, or a script one. An
+// import of a stylesheet or an image is resolved, but never judged missing.
+func isModuleSpecifier(spec string) bool {
+	switch factpath.Ext(spec) {
+	case "", ".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs", ".vue", ".svelte", ".gts", ".gjs":
+		return true
+	}
+	return false
+}
+
+// moduleIndexed reports whether a resolved import path names an indexed module: a
+// file, a folder index, or the .ts file TypeScript ESM spells with a .js extension.
+func moduleIndexed(resolved string, known map[string]bool) bool {
+	if _, _, ok := resolveModuleFile(resolved, known); ok {
+		return true
+	}
+	for _, js := range []string{".js", ".jsx", ".mjs", ".cjs"} {
+		if stem, ok := strings.CutSuffix(resolved, js); ok {
+			if _, _, ok := resolveModuleFile(stem, known); ok {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 type tsAliasRoot struct {
@@ -1946,6 +2025,11 @@ func walkTSAliasRoots(repoPath, dir string, depth, maxDepth int, out *[]tsAliasR
 		for prefix, a := range aliases {
 			if rel != "" {
 				a.replacement = rel + "/" + a.replacement
+				alts := make([]tsAliasTarget, len(a.alts))
+				for i, t := range a.alts {
+					alts[i] = tsAliasTarget{replacement: rel + "/" + t.replacement, suffix: t.suffix}
+				}
+				a.alts = alts
 			}
 			qualified[prefix] = a
 		}
@@ -2159,9 +2243,22 @@ func parseTSConfigAliases(config tsConfigAliasFile, declaringPath, originDir str
 		case strings.HasSuffix(pattern, "*") && strings.Contains(target, "*"):
 			prefix := strings.TrimSuffix(pattern, "*")
 			head, tail, _ := strings.Cut(target, "*")
-			aliases[prefix] = tsAlias{replacement: head, suffix: tail, via: aliasViaTSConfig}
+			a := tsAlias{replacement: head, suffix: tail, via: aliasViaTSConfig}
+			for _, t := range targets[1:] {
+				if t := toOrigin(t); strings.Contains(t, "*") {
+					head, tail, _ := strings.Cut(t, "*")
+					a.alts = append(a.alts, tsAliasTarget{replacement: head, suffix: tail})
+				}
+			}
+			aliases[prefix] = a
 		case !strings.HasSuffix(pattern, "*") && !strings.HasSuffix(target, "*"):
-			aliases[pattern] = tsAlias{replacement: target, exact: true, via: aliasViaTSConfig}
+			a := tsAlias{replacement: target, exact: true, via: aliasViaTSConfig}
+			for _, t := range targets[1:] {
+				if t := toOrigin(t); !strings.HasSuffix(t, "*") {
+					a.alts = append(a.alts, tsAliasTarget{replacement: t})
+				}
+			}
+			aliases[pattern] = a
 		}
 	}
 	return aliases, len(aliases) > 0
@@ -2216,7 +2313,7 @@ func resolveImportPathVia(importPath, fileDir string, aliases map[string]tsAlias
 	// against prefixes by length — `@acme/common` (exact) and `@acme/` (prefix) both
 	// match `@acme/common`, and the exact one is the answer.
 	if a, ok := aliases[importPath]; ok && a.exact {
-		return apply(a, a.replacement)
+		return apply(a, a.target("", importPath))
 	}
 
 	// A regex alias applies in the order the config declares it, as Vite applies it.
@@ -2242,7 +2339,7 @@ func resolveImportPathVia(importPath, fileDir string, aliases map[string]tsAlias
 	}
 	if bestPrefix != "" {
 		rest := strings.TrimPrefix(importPath, bestPrefix)
-		return apply(bestAlias, bestAlias.replacement+rest+bestAlias.suffix)
+		return apply(bestAlias, bestAlias.target(rest, importPath))
 	}
 
 	// Relative imports
@@ -2335,12 +2432,16 @@ func buildImportBindings(kinds *tsutil.KindTable, root *sitter.Node, src []byte,
 			continue
 		}
 		importPath := strings.Trim(nodeText(source, src), `"'`)
-		resolved, isExternal := resolveImportPath(importPath, fileDir, aliases)
+		resolved, isExternal, alias := resolveImportPathVia(importPath, fileDir, aliases)
 		qualifier := factpath.Dir(resolved)
 		if _, dir, ok := resolveModuleFile(resolved, files.knownFiles()); ok && !isExternal {
 			// A folder module (`../lib` -> lib/index.ts) owns its symbols under the
 			// folder itself, not under its parent.
 			qualifier = dir
+		} else if missingAliasTarget(importPath, resolved, alias, isExternal, files) {
+			// The module does not exist, so its names are qualified by its own path,
+			// which declares nothing, not by a parent directory that may.
+			qualifier = resolved
 		}
 		fromRepo := !isExternal
 		if isExternal {

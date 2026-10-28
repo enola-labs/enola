@@ -117,12 +117,19 @@ func (r *fileRefs) resolveModule(node *sitter.Node) (moduleDir, indexPath string
 		return "", "", false
 	}
 	importPath := strings.Trim(nodeText(node, r.src), `"'`)
-	resolved, isExternal := resolveImportPath(importPath, r.fileDir, r.aliases)
+	resolved, isExternal, alias := resolveImportPathVia(importPath, r.fileDir, r.aliases)
 	if isExternal {
 		return "", "", false
 	}
 	if idx, dir, found := resolveModuleFile(resolved, r.ctx.knownFiles); found {
 		return dir, idx, true
+	}
+	// An alias to a path that does not exist names a module that does not exist. Its
+	// parent directory may well hold one (fs-dir/test -> dir/module/test beside
+	// dir/module/index.js), and binding there drew an edge to a symbol the import
+	// never reaches.
+	if missingAliasTarget(importPath, resolved, alias, false, r.ctx.files) {
+		return resolved, "", true
 	}
 	return factpath.Dir(resolved), "", true
 }

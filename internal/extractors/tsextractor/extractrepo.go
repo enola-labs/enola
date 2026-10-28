@@ -30,8 +30,10 @@ func (e *TSExtractor) Extract(ctx context.Context, repoPath string, files []stri
 	}
 
 	tsFiles, htmlFiles, knownFiles := partitionTSFiles(files, fw.isAngular)
+	bindAliasFiles(aliasRoots, knownFiles)
 	sources := readTSSources(ctx, repoPath, tsFiles)
 	rc := newRepoCtx(fw, tsFiles, sources, knownFiles)
+	rc.files.root = repoPath
 	perFile := e.extractFiles(ctx, tsFiles, sources, rc, aliasRoots)
 	templates := scanAngularTemplates(ctx, repoPath, htmlFiles)
 
