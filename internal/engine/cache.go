@@ -3284,7 +3284,9 @@ import (
 // v482: TypeScript: a tsconfig `paths` entry with several targets resolves to the
 // first that names an indexed module; an aliased import naming no module of the
 // repository carries unresolved_reason missing-target, and its names bind to nothing.
-const cacheVersion = "v482"
+// v483: TypeScript: a Vite HTML entry's inline module scripts give the page a file_ref
+// naming what they use, so impact on an imported module lists the page.
+const cacheVersion = "v483"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

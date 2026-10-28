@@ -194,15 +194,41 @@ func TestViteHTMLModuleScripts(t *testing.T) {
 		"site/vite.config.js": `export default { resolve: { alias: { fs: path.resolve(__dirname, 'shim.js') } } }`,
 		"site/shim.js":        `export const msg = 1`,
 		"site/src/main.ts":    `export const m = 1`,
+		"site/show.js":        `export function show() {}`,
 		"site/index.html": `<!doctype html>
 <script type="module" src="/src/main.ts"></script>
 <script type="module" src="/src/missing.ts"></script>
 <script src="/legacy.js"></script>
 <script type="module">
   import { msg } from 'fs'
+  function show(x) {}
+  show(msg)
+</script>
+<script type="module">
+  import { m } from './src/main.ts'
+  console.log(m)
 </script>`,
 		"other/index.html": `<script type="module">import a from './a.js'</script>`,
 	}, false)
+	// The page declares no symbol; its file_ref is what impact walks back to.
+	var page []facts.Fact
+	for _, f := range ff {
+		if f.Kind == facts.KindFileRef && f.Name == "site/index.html" {
+			page = append(page, f)
+		}
+	}
+	if len(page) != 1 {
+		t.Fatalf("%d file_refs for site/index.html, want one for both module scripts", len(page))
+	}
+	for _, want := range []string{"site.msg", "site/src.m"} {
+		if !hasRelation(page[0], facts.RelCalls, want) {
+			t.Errorf("page file_ref does not name %s: %v", want, page[0].Relations)
+		}
+	}
+	// show is the script's own function, not site/show.js's.
+	if hasRelation(page[0], facts.RelCalls, "site.show") {
+		t.Errorf("page file_ref names a sibling file's symbol for its own function: %v", page[0].Relations)
+	}
 	entry := depAt(t, ff, "site/index.html", 2)
 	if depTarget(entry) != "site/src/main.ts" || entry.Props["html_entry"] != true {
 		t.Errorf("module script src: %q %v", depTarget(entry), entry.Props)
