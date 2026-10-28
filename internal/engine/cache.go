@@ -3326,7 +3326,9 @@ import (
 // the declaration, since the two are overloads.
 // v500: Python, TypeScript, Rust and Dart record the decorators and attributes above a
 // declaration as span_start, so its body_hash covers them.
-const cacheVersion = "v500"
+// v501: Rust parameterized test macros (test_case, test_matrix, rstest) emit test
+// references instead of production symbols, including crate-qualified attributes.
+const cacheVersion = "v501"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
