@@ -81,3 +81,57 @@ func TestBindExercises(t *testing.T) {
 		}
 	}
 }
+
+// A test requests a record by its literal id; a literal route still wins, and a
+// segment that only looks like a word is no id.
+func TestBindExercises_LiteralIDs(t *testing.T) {
+	store := facts.NewStore()
+	store.Add(
+		route("/users/:userId", "GET", facts.RoleServer, ""),
+		route("/users/search", "GET", facts.RoleServer, ""),
+		route("/orders/:id/items", "GET", facts.RoleServer, ""),
+		route("/v2/orders", "GET", facts.RoleServer, ""),
+		route("/accounts/:id", "", "", "page"),
+		facts.Fact{Kind: facts.KindTestRef, Name: "tests/api.spec.ts", File: "tests/api.spec.ts", Repo: "app",
+			Props: map[string]any{
+				PropHTTPCalls: []string{
+					"GET /users/1234",
+					"GET /users/search",
+					"GET /orders/5f9b2c1e8a4d3b0012345678/items",
+					"GET /v2/orders",
+					"GET /teams/42",
+				},
+				PropPageVisits: []string{"/accounts/0b1e1f0c-3c1a-4c2e-9b9a-1f2e3d4c5b6a"},
+			}},
+	)
+	if err := New(vocab.Default()).Bind(context.Background(), store); err != nil {
+		t.Fatal(err)
+	}
+	got, unmatched := exercised(store)
+	want := []string{"/accounts/:id", "/orders/:id/items", "/users/:userId", "/users/search", "/v2/orders"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("exercises %v, want %v", got, want)
+	}
+	if !reflect.DeepEqual(unmatched, []string{"GET /teams/42"}) {
+		t.Errorf("unmatched %v", unmatched)
+	}
+}
+
+func TestIdsAsParams(t *testing.T) {
+	for in, want := range map[string]string{
+		"/users/1234":                 "/users/{}",
+		"/users/search":               "",
+		"/v2/orders":                  "",
+		"/a/deadbeef":                 "",
+		"/x/5f9b2c1e8a4d3b0012345678": "/x/{}",
+		"/u/42?expand=1":              "/u/{}?expand=1",
+	} {
+		got, ok := idsAsParams(in)
+		if !ok {
+			got = ""
+		}
+		if got != want {
+			t.Errorf("idsAsParams(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

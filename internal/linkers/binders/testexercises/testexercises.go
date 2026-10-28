@@ -83,7 +83,7 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 			if verb == "*" {
 				method = facts.MethodAny
 			}
-			refs, _ := b.m.LookupClientMatches(server, b.m.NormalizePath(path), method)
+			refs := b.lookup(server, path, method)
 			for _, ref := range refs {
 				targets[ref.Path] = true
 			}
@@ -92,7 +92,7 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 			}
 		}
 		for _, path := range propStrings(f, PropPageVisits) {
-			refs, _ := b.m.LookupClientMatches(pages, b.m.NormalizePath(path), "GET")
+			refs := b.lookup(pages, path, "GET")
 			for _, ref := range refs {
 				targets[ref.Path] = true
 			}
@@ -133,6 +133,82 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 	return nil
 }
 
+// lookup matches a test's path as a client's is matched, then, when that finds
+// nothing, with its id segments as parameters. A test requests a record by its id
+// (`GET /users/1234`, `cy.visit("/orders/7f3c...")`), where a client builds the path
+// from a variable the extractor already reads as a parameter. A literal route
+// (`/users/search`) is tried first, so it still wins over `/users/:id`. Only tests
+// get this: a client's literal segment is a name, a test's is usually a fixture.
+func (b *Binder) lookup(index map[string][]routeindex.RouteRef, path, method string) []routeindex.RouteRef {
+	refs, _ := b.m.LookupClientMatches(index, b.m.NormalizePath(path), method)
+	if len(refs) > 0 {
+		return refs
+	}
+	if p, ok := idsAsParams(path); ok {
+		refs, _ = b.m.LookupClientMatches(index, b.m.NormalizePath(p), method)
+	}
+	return refs
+}
+
+// idsAsParams rewrites the segments of a path that are record ids (a number, a
+// UUID, a 24-digit hex object id) to `{}`, reporting whether any was.
+func idsAsParams(path string) (string, bool) {
+	q := ""
+	if i := strings.IndexAny(path, "?#"); i >= 0 {
+		path, q = path[:i], path[i:]
+	}
+	segs := strings.Split(path, "/")
+	changed := false
+	for i, s := range segs {
+		if isRecordID(s) {
+			segs[i], changed = "{}", true
+		}
+	}
+	return strings.Join(segs, "/") + q, changed
+}
+
+func isRecordID(s string) bool {
+	if s == "" {
+		return false
+	}
+	digits, hex := true, true
+	for _, r := range s {
+		switch {
+		case r >= '0' && r <= '9':
+		case isHexDigit(r):
+			digits = false
+		default:
+			digits, hex = false, false
+		}
+	}
+	switch {
+	case digits:
+		return true
+	case hex && len(s) == 24: // a MongoDB ObjectId
+		return true
+	}
+	return isUUID(s)
+}
+
+func isUUID(s string) bool {
+	if len(s) != 36 {
+		return false
+	}
+	for i, r := range s {
+		switch i {
+		case 8, 13, 18, 23:
+			if r != '-' {
+				return false
+			}
+		default:
+			if !isHexDigit(r) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 // propStrings reads a []string prop, as written or as decoded from JSON.
 func propStrings(f *facts.Fact, key string) []string {
 	switch v := f.PropAny(key).(type) {
@@ -148,4 +224,8 @@ func propStrings(f *facts.Fact, key string) []string {
 		return out
 	}
 	return nil
+}
+
+func isHexDigit(r rune) bool {
+	return r >= '0' && r <= '9' || r >= 'a' && r <= 'f' || r >= 'A' && r <= 'F'
 }
