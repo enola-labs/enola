@@ -65,11 +65,11 @@
     {
       "id": "framework",
       "question": "Does a framework question get the right answer, and does a miss say why?",
-      "figure": "75/76",
-      "label": "framework answers found against a key read in source, up from 15 at v465, with the one miss stated",
+      "figure": "87/87",
+      "label": "framework answers found against a key read in source, up from 15 at v465",
       "anchor": "7-framework-questions-are-the-answers-right",
       "evidence": [
-        "**75 of 76 rows** are found now, against 15 of 76 then"
+        "**87 of 87 rows** are found now, against 15 of the first 76 then"
       ]
     },
     {
