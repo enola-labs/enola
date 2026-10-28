@@ -3305,7 +3305,12 @@ import (
 // v490: Ruby graphql-ruby: a root type may be a module (an edition's prepended root);
 // mount_mutation and mount_aliased_mutation declare a field named after the class's
 // graphql_name, handled_by its resolve; a class records its graphql_name.
-const cacheVersion = "v490"
+// v491: TypeScript: every script under __tests__/ is test code, whatever its name.
+// v492: React Router: *Route wrappers with a literal path, optional segments as both
+// pages, and route-object arrays in a file that imports RouteObject.
+// v493: TypeScript: the paths an alias's missing-target check looks for on disk key
+// the cached facts, so a target created or deleted later re-extracts.
+const cacheVersion = "v493"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
@@ -3606,6 +3611,60 @@ func (c *extractorCache) peek(key string) ([]facts.Fact, bool) {
 		return nil, false
 	}
 	return ff, true
+}
+
+// An extractor that looked for paths on disk outside its files (plugin.DiskProbes)
+// is cached in two entries. The probe list sits under probesKey(key); the facts sit
+// under probedKey, the key extended with whether each probed path exists. A path
+// that appears or disappears changes the facts' key, so they are extracted again;
+// an extractor that probed nothing is cached under its plain key, as before.
+
+func probesKey(key string) string { return key + "\x00probes" }
+
+// probedKey folds the existence of each probed path into key.
+func probedKey(key, repoPath string, paths []string) string {
+	if len(paths) == 0 {
+		return key
+	}
+	h := sha256.New()
+	h.Write([]byte(key + "\x00probed\x00"))
+	for _, p := range paths {
+		_, err := os.Stat(filepath.Join(repoPath, filepath.FromSlash(p)))
+		_, _ = fmt.Fprintf(h, "%s\x00%t\x00", p, err == nil)
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+// getProbed returns the cached facts for key, re-checking the paths the extractor
+// probed when it produced them.
+func (c *extractorCache) getProbed(key, repoPath string) ([]facts.Fact, bool) {
+	probes, ok := c.peek(probesKey(key))
+	if !ok {
+		return c.get(key)
+	}
+	paths := make([]string, len(probes))
+	for i, p := range probes {
+		paths[i] = p.Name
+	}
+	ff, hit := c.get(probedKey(key, repoPath, paths))
+	if hit {
+		c.get(probesKey(key)) // carry the probe list forward with the facts
+	}
+	return ff, hit
+}
+
+// putProbed stores ff for key, with the paths the extractor probed on disk.
+func (c *extractorCache) putProbed(key, repoPath string, paths []string, ff []facts.Fact) {
+	if len(paths) == 0 {
+		c.put(key, ff)
+		return
+	}
+	probes := make([]facts.Fact, len(paths))
+	for i, p := range paths {
+		probes[i] = facts.Fact{Name: p}
+	}
+	c.put(probesKey(key), probes)
+	c.put(probedKey(key, repoPath, paths), ff)
 }
 
 // providerCache is the view of the extractor cache the provider seam receives:

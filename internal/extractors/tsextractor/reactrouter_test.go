@@ -138,3 +138,94 @@ func TestReactRouter_Negatives(t *testing.T) {
 		}
 	}
 }
+
+// A *Route wrapper with a literal path is a route; an optional segment names the page
+// with and without it.
+func TestReactRouter_WrappersAndOptionalSegments(t *testing.T) {
+	ff := extractAll(t, map[string]string{
+		"src/pages/About.tsx": `export function About() { return null }`,
+		"src/pages/Terms.tsx": `export function Terms() { return null }`,
+		"src/App.tsx": `import { Switch, Route } from "react-router-dom";
+import { About } from "./pages/About";
+import { Terms } from "./pages/Terms";
+import { PrivateRoute, ProtectedRoute } from "./auth";
+export function App() {
+  return (
+    <Switch>
+      <PrivateRoute path="/about" component={About} />
+      <ProtectedRoute><div /></ProtectedRoute>
+      <Route path="/terms/:date?" component={Terms} />
+      <Route path="/@:acct/tagged/:tag?" />
+      <Route path="/(a|b)?" />
+    </Switch>
+  );
+}`,
+	}, false)
+	samePages(t, reactRouterPages(ff, "src/App.tsx"), map[string]string{
+		"/about":              "src/pages.About",
+		"/terms":              "src/pages.Terms",
+		"/terms/:date":        "src/pages.Terms",
+		"/@:acct/tagged":      "",
+		"/@:acct/tagged/:tag": "",
+	})
+}
+
+// A file that imports RouteObject builds trees a creator elsewhere is given: the arrays
+// its functions return are read, a children array is read under its parent only, and
+// a nav list of { path, label } is not a router.
+func TestReactRouter_RouteObjectTrees(t *testing.T) {
+	ff := extractAll(t, map[string]string{
+		"src/pages/Home.tsx": `export function Home() { return null }`,
+		"src/routes.tsx": `import { Outlet, RouteObject } from "react-router-dom";
+import { Home } from "./pages/Home";
+const productChildren = [
+  { path: "create", lazy: () => import("./pages/create") },
+];
+export function getRouteMap({ extra }: { extra: RouteObject[] }) {
+  return [
+    { element: <Outlet />, children: [
+      { path: "/", element: <Home /> },
+      { path: "/products", children: [
+        { path: "", lazy: () => import("./pages/list"), children: productChildren },
+        { path: ":id", lazy: () => import("./pages/detail") },
+      ]},
+      ...extra,
+    ]},
+  ];
+}
+export const nav = [
+  { path: "/orders", label: "Orders" },
+];`,
+	}, false)
+	samePages(t, reactRouterPages(ff, "src/routes.tsx"), map[string]string{
+		"/":                "src/pages.Home",
+		"/products":        "",
+		"/products/create": "",
+		"/products/:id":    "",
+	})
+}
+
+func TestOptionalExpansions(t *testing.T) {
+	cases := map[string][]string{
+		"/a/:b":            {"/a/:b"},
+		"/a/:b?":           {"/a", "/a/:b"},
+		"/:lang?":          {"/", "/:lang"},
+		"/a/?":             nil,
+		"/a/x?y":           nil,
+		"/:a?/:b?/:c?/:d?": nil,
+	}
+	for in, want := range cases {
+		got := optionalExpansions(in)
+		sort.Strings(got)
+		sort.Strings(want)
+		if len(got) != len(want) {
+			t.Errorf("optionalExpansions(%q) = %v, want %v", in, got, want)
+			continue
+		}
+		for i := range got {
+			if got[i] != want[i] {
+				t.Errorf("optionalExpansions(%q) = %v, want %v", in, got, want)
+			}
+		}
+	}
+}

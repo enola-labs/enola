@@ -15,11 +15,12 @@ import (
 // A specifier is matched by suffix against the known files, so it names a file only
 // when exactly one of them ends in it. Built once per run; read-only afterwards.
 type tsFileIndex struct {
-	byBase map[string][]string // last path segment -> file stems (paths without extension) ending in it
-	stems  map[string]string   // file stem -> file path
-	dirs   map[string]bool     // directories holding a known file directly
-	known  map[string]bool     // the known files themselves
-	root   string              // the repository on disk, for a path no indexed file holds (onDisk)
+	byBase map[string][]string  // last path segment -> file stems (paths without extension) ending in it
+	stems  map[string]string    // file stem -> file path
+	dirs   map[string]bool      // directories holding a known file directly
+	known  map[string]bool      // the known files themselves
+	root   string               // the repository on disk, for a path no indexed file holds (onDisk)
+	probe  func(relPath string) // records each path onDisk looks for, so the cache key covers it
 }
 
 // diskModuleExts are the extensions a module on disk may carry: the indexed ones and
@@ -36,18 +37,27 @@ func (ix *tsFileIndex) onDisk(resolved string) bool {
 		return false
 	}
 	base := filepath.Join(ix.root, filepath.FromSlash(resolved))
+	stat := func(abs string) bool {
+		if ix.probe != nil {
+			if rel, err := filepath.Rel(ix.root, abs); err == nil {
+				ix.probe(filepath.ToSlash(rel))
+			}
+		}
+		_, err := os.Stat(abs)
+		return err == nil
+	}
 	stems := []string{base}
 	for _, js := range []string{".js", ".jsx", ".mjs", ".cjs"} {
 		if stem, ok := strings.CutSuffix(base, js); ok {
 			stems = append(stems, stem)
 		}
 	}
-	if _, err := os.Stat(base); err == nil {
+	if stat(base) {
 		return true
 	}
 	for _, stem := range stems {
 		for _, ext := range diskModuleExts {
-			if _, err := os.Stat(stem + ext); err == nil {
+			if stat(stem + ext) {
 				return true
 			}
 		}

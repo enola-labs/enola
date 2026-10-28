@@ -733,7 +733,7 @@ func (e *Engine) runExtractors(ctx context.Context, repoPath string, files, allN
 		// Reuse cached facts when this extractor's inputs are unchanged.
 		if cache != nil {
 			if key, ok := keys[ext.Name()]; ok {
-				if cached, hit := cache.get(key); hit {
+				if cached, hit := cache.getProbed(key, repoPath); hit {
 					e.store.Add(cached...)
 					usedNames = append(usedNames, ext.Name())
 					log.Printf("[engine] extractor %s: reused %d cached facts", ext.Name(), len(cached))
@@ -745,7 +745,8 @@ func (e *Engine) runExtractors(ctx context.Context, repoPath string, files, allN
 
 		log.Printf("[engine] running extractor: %s", ext.Name())
 		tExt := time.Now()
-		extracted, err := ext.Extract(ctx, repoPath, files)
+		extCtx, probes := plugin.WithDiskProbes(ctx)
+		extracted, err := ext.Extract(extCtx, repoPath, files)
 		if err != nil {
 			// A fatal extractor error fails the snapshot rather than being recorded
 			// and stepped over. Declarations use it: an invalid one would otherwise
@@ -763,7 +764,7 @@ func (e *Engine) runExtractors(ctx context.Context, repoPath string, files, allN
 		// Cache the raw (pre-tagging) facts before the engine mutates them.
 		if cache != nil {
 			if key, ok := keys[ext.Name()]; ok {
-				cache.put(key, extracted)
+				cache.putProbed(key, repoPath, probes.Paths(), extracted)
 			}
 		}
 

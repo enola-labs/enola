@@ -279,6 +279,15 @@ func Default() *Config {
 			"**/*.cy.tsx",
 			"**/*.cy.js",
 			"**/*.cy.jsx",
+			// Jest's default testMatch runs every script under __tests__/, whatever
+			// its name, so the directory reserves the file: a helper or fixture there
+			// serves only the suite.
+			"**/__tests__/**/*.ts",
+			"**/__tests__/**/*.tsx",
+			"**/__tests__/**/*.js",
+			"**/__tests__/**/*.jsx",
+			"**/__tests__/**/*.mjs",
+			"**/__tests__/**/*.cjs",
 			// Ember's test convention is a HYPHENATED suffix under tests/ —
 			// ember-cli generates and qunit discovers tests/**/*-test.{js,ts,gjs,gts}.
 			// The directory is demanded for the same reason Ruby's is below: a bare
@@ -520,6 +529,8 @@ func Default() *Config {
 			"**/*.test.js", "**/*.test.jsx", "**/*.spec.js", "**/*.spec.jsx",
 			"**/*.test.mjs", "**/*.spec.mjs", "**/*.test.cjs", "**/*.spec.cjs",
 			"**/*.cy.ts", "**/*.cy.tsx", "**/*.cy.js", "**/*.cy.jsx",
+			"**/__tests__/**/*.ts", "**/__tests__/**/*.tsx", "**/__tests__/**/*.js",
+			"**/__tests__/**/*.jsx", "**/__tests__/**/*.mjs", "**/__tests__/**/*.cjs",
 			"**/tests/**/*-test.js", "**/tests/**/*-test.ts",
 			"**/tests/**/*-test.gjs", "**/tests/**/*-test.gts",
 			"**/spec/**/*_spec.rb", "**/test/**/*_test.rb",

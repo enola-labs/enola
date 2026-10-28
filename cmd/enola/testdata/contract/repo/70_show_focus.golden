@@ -1,7 +1,7 @@
 $ enola show --focus pkg/c .
 exit: 0
 --- stdout
-# revision c004f18 · <TIME>
+# revision 8933a18 · <TIME>
 
 # Architecture diff
 

@@ -89,7 +89,8 @@ func TestDefaultTestGlobsCoverTypeScriptAndStayIgnored(t *testing.T) {
 
 	for _, g := range []string{"**/*.test.ts", "**/*.test.tsx", "**/*.spec.ts", "**/*.spec.tsx",
 		"**/*.test.js", "**/*.test.jsx", "**/*.spec.js", "**/*.spec.jsx",
-		"**/*.test.mjs", "**/*.spec.mjs", "**/*.test.cjs", "**/*.spec.cjs"} {
+		"**/*.test.mjs", "**/*.spec.mjs", "**/*.test.cjs", "**/*.spec.cjs",
+		"**/__tests__/**/*.ts", "**/__tests__/**/*.js"} {
 		if !contains(cfg.TestGlobs, g) {
 			t.Errorf("Default().TestGlobs missing %q — TS test files are ignored but never recovered", g)
 		}

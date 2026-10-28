@@ -2584,16 +2584,23 @@ var emberTestSuffixes = []string{"-test.ts", "-test.js", "-test.gts", "-test.gjs
 // isTSTestFile reports whether a repo-relative path is a TypeScript test/spec file.
 // The dotted convention reserves its suffixes everywhere, so — like Go's
 // *_test.go — no production file can legally collide; the Ember convention is
-// reserved only inside tests/, so the directory is demanded there.
+// reserved only inside tests/, so the directory is demanded there. Jest runs
+// every script under __tests__/, so that directory reserves any name.
 func isTSTestFile(relFile string) bool {
 	for _, suffix := range tsTestSuffixes {
 		if strings.HasSuffix(relFile, suffix) {
 			return true
 		}
 	}
+	segs := strings.Split(filepath.ToSlash(relFile), "/")
+	for _, seg := range segs[:len(segs)-1] {
+		if seg == "__tests__" {
+			return true
+		}
+	}
 	for _, suffix := range emberTestSuffixes {
 		if strings.HasSuffix(relFile, suffix) {
-			for _, seg := range strings.Split(filepath.ToSlash(relFile), "/") {
+			for _, seg := range segs {
 				if seg == "tests" {
 					return true
 				}
