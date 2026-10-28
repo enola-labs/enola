@@ -1300,7 +1300,7 @@ vite (its alias playground), vite-tailwind-graphql and gitlab (graphql-ruby). ta
 the control for Q5: the library that defines the utility classes must not read as their
 user. elk is a second control: it styles with UnoCSS, so it must yield no token at all.
 
-The key is 99 rows, each with its `file:line` evidence. A row is a path that must exist,
+The key is 102 rows, each with its `file:line` evidence. A row is a path that must exist,
 a path that must not, a fact, a dependency that must resolve by a stated mechanism, an
 impact set, or an **unresolved** fact that must say why. Unresolved with the right
 reason scores as correct: a Hasura GraphQL operation has no resolver in the repository,
@@ -1310,14 +1310,14 @@ and the honest answer names that rather than guessing one.
 |---|---:|---:|---:|---:|---:|
 | Q1 GraphQL | 13 / 13 | 2 / 2 | 1 / 1 | 656 | 100% |
 | Q2 Vue | 22 / 22 | | 2 / 2 | 64 | 100% |
-| Q3 tests | 14 / 14 | | 2 / 2 | 122 | 100% |
-| Q4 aliases | 13 / 13 | 1 / 1 | | 12,175 | 100% |
+| Q3 tests | 17 / 17 | | 2 / 2 | 127 | 100% |
+| Q4 aliases | 13 / 13 | 1 / 1 | | 12,155 | 100% |
 | Q5 Tailwind | 11 / 11 | | 2 / 2 | 8,656 | 100% |
 | Q6 events | 14 / 14 | 1 / 1 | 1 / 1 | 221 | 100% |
 
 Before this work, at v465, the same key read Q1 0/8, Q2 14/22, Q3 0/13, Q4 1/12, Q5 0/10
 and Q6 0/11. For four of the six questions the node a question starts from did not
-exist. Across the six, **87 of 87 rows** are found now, against 15 of the first 76 then.
+exist. Across the six, **90 of 90 rows** are found now, against 15 of the first 76 then.
 The first cut of this section, at v474, found 75 of those 76 with the one miss stated.
 
 **Precision counts every claim, not a sample.** Q1 to Q3 make tens to a hundred claims
