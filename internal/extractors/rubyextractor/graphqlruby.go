@@ -1,6 +1,7 @@
 package rubyextractor
 
 import (
+	"log"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -18,7 +19,26 @@ import (
 // composed-path idea from NestJS applied to GraphQL's root fields. Non-root
 // types' fields are schema internals, not operations, and emit nothing.
 
-var graphqlRootClass = regexp.MustCompile(`class\s+(?:[A-Z]\w*::)*(Query|Mutation|Subscription)Type\b`)
+// A root type is a class, or a module prepended to one (`module EE; module Types;
+// module MutationType; prepended do … end`, how an edition adds root fields).
+var graphqlRootClass = regexp.MustCompile(`(?:class|module)\s+(?:[A-Z]\w*::)*(Query|Mutation|Subscription)Type\b`)
+
+// A mutation mounted by class: graphql-ruby's mount_mutation names the field after
+// the class's graphql_name, which is declared in the mutation's own file, so the
+// route is a placeholder until bindGraphQLMounts reads it. An aliased mount states
+// its name.
+var (
+	graphqlMountDecl        = regexp.MustCompile(`(?m)^\s*mount_mutation\s+((?:::)?[A-Z][\w:]*)`)
+	graphqlAliasedMountDecl = regexp.MustCompile(`(?m)^\s*mount_aliased_mutation\s+['"](\w+)['"]\s*,\s*((?:::)?[A-Z][\w:]*)`)
+	rubyNamespaceDecl       = regexp.MustCompile(`(?m)^\s*(?:module|class)\s+([A-Z][\w:]*)`)
+)
+
+// Props a mounted mutation's route carries until bindGraphQLMounts settles it.
+const (
+	propGraphQLMountClass = "graphql_mount_class"
+	propGraphQLMountScope = "graphql_mount_scope"
+	propGraphQLName       = "graphql_name"
+)
 
 // graphqlFieldDecl matches `field :name` at a plausible DSL position. The
 // symbol form is the graphql-ruby convention; a string first argument is not
@@ -35,11 +55,25 @@ func extractGraphQLRubyRoutes(src []byte, relFile string) []facts.Fact {
 	}
 	root := graphqlRootClass.FindSubmatchIndex(src)
 	if root == nil {
-		return nil
+		// A module of mounts included into the mutation type (`module Types;
+		// module DeprecatedMutations; included do mount_aliased_mutation …`): a mount
+		// only means anything on the Mutation root, so its mounts are read; its other
+		// fields are not, since the root they land on is not stated.
+		first := graphqlMountDecl.FindIndex(src)
+		if a := graphqlAliasedMountDecl.FindIndex(src); a != nil && (first == nil || a[0] < first[0]) {
+			first = a
+		}
+		if first == nil {
+			return nil
+		}
+		return graphqlMountRoutes(src, relFile, first[0])
 	}
 	kind := string(src[root[2]:root[3]])
 	var out []facts.Fact
 	seen := map[string]bool{}
+	if kind == "Mutation" {
+		out = append(out, graphqlMountRoutes(src, relFile, root[0])...)
+	}
 	for _, m := range graphqlFieldDecl.FindAllSubmatchIndex(src, -1) {
 		name := graphqlCamelize(string(src[m[2]:m[3]]))
 		full := kind + "." + name
@@ -146,6 +180,102 @@ func extractGraphQLRubyClientOps(src []byte, relFile string) []facts.Fact {
 		}
 	}
 	return out
+}
+
+// graphqlMountRoutes reads a mutation root's mount_mutation and
+// mount_aliased_mutation declarations.
+func graphqlMountRoutes(src []byte, relFile string, rootAt int) []facts.Fact {
+	// The lexical scope the mounted constant is resolved in: the modules and classes
+	// opened down to the root type, one per line, as a root type file is written.
+	var scope []string
+	for _, m := range rubyNamespaceDecl.FindAllSubmatchIndex(src, -1) {
+		if m[0] > rootAt {
+			break
+		}
+		scope = append(scope, string(src[m[2]:m[3]]))
+	}
+	props := func() map[string]any {
+		return map[string]any{
+			"language": "ruby", "framework": "graphql-ruby",
+			facts.PropRole: facts.RoleServer, facts.PropRouteType: facts.RouteTypeGraphQL,
+			facts.PropSource: facts.RouteSourceGraphQLRubyDSL,
+		}
+	}
+	var out []facts.Fact
+	for _, m := range graphqlMountDecl.FindAllSubmatchIndex(src, -1) {
+		class := string(src[m[2]:m[3]])
+		p := props()
+		p[propGraphQLMountClass], p[propGraphQLMountScope] = class, strings.Join(scope, "::")
+		out = append(out, facts.Fact{Kind: facts.KindRoute, Name: "Mutation." + class, File: relFile, Line: 1 + countNewlines(src[:m[0]]), Props: p})
+	}
+	for _, m := range graphqlAliasedMountDecl.FindAllSubmatchIndex(src, -1) {
+		p := props()
+		p[propGraphQLMountClass], p[propGraphQLMountScope] = string(src[m[4]:m[5]]), strings.Join(scope, "::")
+		p[propGraphQLName] = string(src[m[2]:m[3]])
+		out = append(out, facts.Fact{Kind: facts.KindRoute, Name: "Mutation." + string(src[m[2]:m[3]]), File: relFile, Line: 1 + countNewlines(src[:m[0]]), Props: p})
+	}
+	return out
+}
+
+// bindGraphQLMounts names each mounted mutation's field after its class's
+// graphql_name, as graphql-ruby does (`graphql_name.underscore`, camelized), and
+// binds it handled_by the class's resolve. A mount whose class or graphql_name
+// cannot be read is dropped rather than named after a guess: graphql-ruby's
+// default would be the bare class name, which the class rarely keeps.
+func bindGraphQLMounts(all []facts.Fact) []facts.Fact {
+	ix := buildHandlerIndex(all)
+	names := map[string]string{}
+	for _, f := range all {
+		if f.Kind == facts.KindSymbol {
+			if n := f.PropString(propGraphQLName); n != "" {
+				names[f.Name] = n
+			}
+		}
+	}
+	kept := all[:0]
+	dropped := 0
+	for _, f := range all {
+		class := f.PropString(propGraphQLMountClass)
+		if f.Kind != facts.KindRoute || class == "" {
+			kept = append(kept, f)
+			continue
+		}
+		resolved := ix.lexical(class, f.PropString(propGraphQLMountScope))
+		gn := f.PropString(propGraphQLName)
+		if gn == "" {
+			gn = names[resolved]
+		}
+		if resolved == "" || gn == "" {
+			dropped++
+			continue
+		}
+		f.Name = "Mutation." + graphqlCamelize(railsUnderscore(gn))
+		f.DelProp(propGraphQLMountClass)
+		f.DelProp(propGraphQLMountScope)
+		f.DelProp(propGraphQLName)
+		if h := ix.member(resolved, "#", "resolve"); h != "" {
+			f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelHandledBy, Target: h})
+		}
+		kept = append(kept, f)
+	}
+	if dropped > 0 {
+		log.Printf("[ruby-extractor] graphql-ruby: %d mounted mutation(s) whose class or graphql_name could not be read", dropped)
+	}
+	return kept
+}
+
+var (
+	underscoreAcronymRe = regexp.MustCompile(`([A-Z\d]+)([A-Z][a-z])`)
+	underscoreWordRe    = regexp.MustCompile(`([a-z\d])([A-Z])`)
+)
+
+// railsUnderscore is ActiveSupport's String#underscore without inflection
+// acronyms: "AuditEventsHTTPFilter" -> "audit_events_http_filter".
+func railsUnderscore(s string) string {
+	s = strings.ReplaceAll(s, "::", "/")
+	s = underscoreAcronymRe.ReplaceAllString(s, "${1}_${2}")
+	s = underscoreWordRe.ReplaceAllString(s, "${1}_${2}")
+	return strings.ToLower(strings.ReplaceAll(s, "-", "_"))
 }
 
 func graphqlCamelize(s string) string {

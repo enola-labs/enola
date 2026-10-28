@@ -3302,7 +3302,10 @@ import (
 // v489: TypeScript: a stylesheet's @apply lists use Tailwind tokens; Tailwind's own
 // package declares no tokens; a Pothos builder imported from another file is read,
 // and its plural queryFields/mutationFields declare a field per key.
-const cacheVersion = "v489"
+// v490: Ruby graphql-ruby: a root type may be a module (an edition's prepended root);
+// mount_mutation and mount_aliased_mutation declare a field named after the class's
+// graphql_name, handled_by its resolve; a class records its graphql_name.
+const cacheVersion = "v490"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

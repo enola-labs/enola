@@ -871,6 +871,9 @@ func (w *rubyWalker) handleClass(node *sitter.Node) {
 	if superclassBase != "" {
 		props["superclass"] = superclassBase
 	}
+	if gn := classGraphQLName(node.ChildByFieldName("body"), w.src); gn != "" {
+		props[propGraphQLName] = gn
+	}
 	if superclassBase == "" && namespaceOnly(node.ChildByFieldName("body")) {
 		props[propNamespaceOnly] = true
 	}
@@ -2794,4 +2797,30 @@ func blockParamName(block *sitter.Node, src []byte) string {
 
 func isNameRune(r rune) bool {
 	return r == '_' || r == '?' || r == '!' || (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9')
+}
+
+// classGraphQLName returns the name a graphql-ruby type or mutation class gives
+// itself (`graphql_name 'CreateIssue'` in its body), which a mounted mutation's field
+// is named after.
+func classGraphQLName(body *sitter.Node, src []byte) string {
+	if body == nil {
+		return ""
+	}
+	for i := range body.NamedChildCount() {
+		c := body.NamedChild(i)
+		if c.Kind() != "call" || c.ChildByFieldName("receiver") != nil {
+			continue
+		}
+		m := c.ChildByFieldName("method")
+		args := c.ChildByFieldName("arguments")
+		if m == nil || args == nil || rubyText(m, src) != "graphql_name" || args.NamedChildCount() != 1 {
+			continue
+		}
+		if a := args.NamedChild(0); a.Kind() == "string" {
+			if t := strings.Trim(rubyText(a, src), `"'`); t != "" && !strings.Contains(t, "#{") {
+				return t
+			}
+		}
+	}
+	return ""
 }
