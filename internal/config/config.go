@@ -263,6 +263,16 @@ func Default() *Config {
 			"**/*.test.tsx",
 			"**/*.spec.ts",
 			"**/*.spec.tsx",
+			// The JavaScript forms of the same convention: Jest, Mocha, Vitest and
+			// Playwright discover *.test.js / *.spec.js as they do the .ts ones.
+			"**/*.test.js",
+			"**/*.test.jsx",
+			"**/*.spec.js",
+			"**/*.spec.jsx",
+			"**/*.test.mjs",
+			"**/*.spec.mjs",
+			"**/*.test.cjs",
+			"**/*.spec.cjs",
 			// Cypress specs: *.cy.{ts,tsx,js,jsx} is the suffix the runner itself
 			// discovers, so, like *.spec.ts, no production file uses it.
 			"**/*.cy.ts",
@@ -507,6 +517,8 @@ func Default() *Config {
 		TestGlobs: []string{
 			"**/*_test.go",
 			"**/*.test.ts", "**/*.test.tsx", "**/*.spec.ts", "**/*.spec.tsx",
+			"**/*.test.js", "**/*.test.jsx", "**/*.spec.js", "**/*.spec.jsx",
+			"**/*.test.mjs", "**/*.spec.mjs", "**/*.test.cjs", "**/*.spec.cjs",
 			"**/*.cy.ts", "**/*.cy.tsx", "**/*.cy.js", "**/*.cy.jsx",
 			"**/tests/**/*-test.js", "**/tests/**/*-test.ts",
 			"**/tests/**/*-test.gjs", "**/tests/**/*-test.gts",

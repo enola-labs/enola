@@ -3291,7 +3291,9 @@ import (
 // the imported component they render.
 // v485: TypeScript: a Vite or Nuxt alias object given by name resolves: a const of the
 // config (the `{ alias }` shorthand included), or one a relative module exports.
-const cacheVersion = "v485"
+// v486: JavaScript *.test.js / *.spec.js (and .jsx, .mjs, .cjs) are tests, as their
+// TypeScript twins are: ignored as production code, read for their test_ref.
+const cacheVersion = "v486"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

@@ -2548,7 +2548,9 @@ func memberCallRoots(kinds *tsutil.KindTable, root *sitter.Node, src []byte, dir
 // tsTestSuffixes are the co-located TypeScript test/spec suffixes that
 // config.Default().TestGlobs matches. Kept in one place so isTSTestFile and any
 // future glob check agree.
-var tsTestSuffixes = []string{".test.ts", ".test.tsx", ".spec.ts", ".spec.tsx", ".cy.ts", ".cy.tsx", ".cy.js", ".cy.jsx"}
+var tsTestSuffixes = []string{".test.ts", ".test.tsx", ".spec.ts", ".spec.tsx",
+	".test.js", ".test.jsx", ".spec.js", ".spec.jsx", ".test.mjs", ".spec.mjs", ".test.cjs", ".spec.cjs",
+	".cy.ts", ".cy.tsx", ".cy.js", ".cy.jsx"}
 
 // emberTestSuffixes are Ember's hyphenated test suffixes, valid ONLY under a
 // tests/ directory segment — ember-cli generates and qunit discovers

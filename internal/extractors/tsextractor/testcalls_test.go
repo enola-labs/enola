@@ -87,3 +87,26 @@ test("orders", async ({ page, request }) => {
 		t.Errorf("requests %v", got)
 	}
 }
+
+// A JavaScript spec is a test as its TypeScript twin is: Cypress before v10 wrote
+// cypress/integration/*.spec.js, Jest and supertest *.test.js.
+func TestTestCalls_JavaScriptSpecs(t *testing.T) {
+	ff := extractTestRefsOf(t, map[string]string{
+		"cypress/integration/login.spec.js": `describe("login", () => {
+  it("signs in", () => {
+    cy.visit("/login");
+    cy.request("POST", "/api/session");
+  });
+});`,
+		"test/users.test.mjs": `import request from "supertest";
+test("list", async () => { await request(app).get("/users"); });`,
+	})
+	f := testRefProps(t, ff, "cypress/integration/login.spec.js")
+	if got, _ := f.Props[propTestPageVisits].([]string); !reflect.DeepEqual(got, []string{"/login"}) {
+		t.Errorf("visits %v", got)
+	}
+	if got, _ := f.Props[propTestHTTPCalls].([]string); !reflect.DeepEqual(got, []string{"POST /api/session"}) {
+		t.Errorf("requests %v", got)
+	}
+	testRefProps(t, ff, "test/users.test.mjs")
+}
