@@ -3305,7 +3305,8 @@ import (
 // v490: Ruby graphql-ruby: a root type may be a module (an edition's prepended root);
 // mount_mutation and mount_aliased_mutation declare a field named after the class's
 // graphql_name, handled_by its resolve; a class records its graphql_name.
-const cacheVersion = "v490"
+// v491: TypeScript: every script under __tests__/ is test code, whatever its name.
+const cacheVersion = "v491"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
