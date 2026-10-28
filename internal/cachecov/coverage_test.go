@@ -86,6 +86,7 @@ var versionCoverage = map[int][]string{
 	490: {"TestGraphQLRubyRoutes_MountedMutationsAndModuleRoots", "TestRailsUnderscore"},
 	491: {"TestIsTSTestFile"},
 	492: {"TestReactRouter_WrappersAndOptionalSegments", "TestReactRouter_RouteObjectTrees", "TestOptionalExpansions"},
+	493: {"TestAliasTargetDiskProbesAreRecorded", "TestExtractorCache_ProbedPathKeysTheFacts"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},
 	438: {"TestExtract_StructUsage_StdlibAndRootPackages"},

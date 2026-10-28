@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/enola-labs/enola/internal/facts"
+	"github.com/enola-labs/enola/pkg/plugin"
 )
 
 // depAt returns the dependency fact an import at file:line produced.
@@ -384,6 +385,34 @@ func TestAliasTargetOnDiskIsNotMissing(t *testing.T) {
 		if got, _ := depAt(t, ff, "src/main.ts", line).Props["unresolved_reason"].(string); got != want {
 			t.Errorf("line %d: unresolved_reason %q, want %q", line, got, want)
 		}
+	}
+}
+
+// The paths looked for on disk are recorded for the cache key: the missing target and
+// the unindexed one that was found, never an indexed file.
+func TestAliasTargetDiskProbesAreRecorded(t *testing.T) {
+	files := map[string]string{
+		"tsconfig.json":      `{"compilerOptions": {"paths": {"@/*": ["./src/*"]}}}`,
+		"src/vendor/data.ts": `export const Vendor = 1`,
+		"src/gone/.keep":     ``,
+		"src/main.ts":        "import { Vendor } from '@/vendor/data'\nimport g from '@/gone/x'",
+	}
+	dir := setupTSProject(t, files, false)
+	ctx, probes := plugin.WithDiskProbes(context.Background())
+	if _, err := New().Extract(ctx, dir, []string{"tsconfig.json", "src/main.ts"}); err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]bool{}
+	for _, p := range probes.Paths() {
+		got[p] = true
+	}
+	for _, want := range []string{"src/vendor/data", "src/gone/x", "src/gone/x.ts", "src/gone/x.d.ts"} {
+		if !got[want] {
+			t.Errorf("probe %q not recorded; got %v", want, probes.Paths())
+		}
+	}
+	if got["src/main.ts"] {
+		t.Errorf("an indexed file was probed: %v", probes.Paths())
 	}
 }
 

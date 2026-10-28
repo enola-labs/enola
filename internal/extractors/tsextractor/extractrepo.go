@@ -14,6 +14,7 @@ import (
 	"github.com/enola-labs/enola/internal/factpath"
 	"github.com/enola-labs/enola/internal/facts"
 	"github.com/enola-labs/enola/internal/parallel"
+	"github.com/enola-labs/enola/pkg/plugin"
 )
 
 // Extract parses TypeScript/TSX files and emits architectural facts.
@@ -34,6 +35,7 @@ func (e *TSExtractor) Extract(ctx context.Context, repoPath string, files []stri
 	sources := readTSSources(ctx, repoPath, tsFiles)
 	rc := newRepoCtx(fw, tsFiles, sources, knownFiles)
 	rc.files.root = repoPath
+	rc.files.probe = plugin.DiskProber(ctx)
 	perFile := e.extractFiles(ctx, tsFiles, sources, rc, aliasRoots)
 	templates := scanAngularTemplates(ctx, repoPath, htmlFiles)
 
