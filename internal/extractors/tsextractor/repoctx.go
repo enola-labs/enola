@@ -35,6 +35,7 @@ type callScope struct {
 	src            []byte
 	dir, className string
 	importMap      map[string]string
+	values         map[string]string // module-scope names, for a value reference (valuerefs.go)
 	fieldTypes     map[string]string
 	memberRoots    map[string]string
 	returnTypes    map[string]string
@@ -60,6 +61,7 @@ func (c *extractCtx) callScope(kinds *tsutil.KindTable, className string, fieldT
 		dir:         c.dir,
 		className:   className,
 		importMap:   c.importMap,
+		values:      c.values,
 		fieldTypes:  fieldTypes,
 		memberRoots: c.memberRoots,
 		returnTypes: c.returnTypes,

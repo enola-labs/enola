@@ -3293,7 +3293,10 @@ import (
 // config (the `{ alias }` shorthand included), or one a relative module exports.
 // v486: JavaScript *.test.js / *.spec.js (and .jsx, .mjs, .cjs) are tests, as their
 // TypeScript twins are: ignored as production code, read for their test_ref.
-const cacheVersion = "v486"
+// v487: TypeScript: a function that uses a module-scope value without calling it
+// (hands it on, lists it in an object, passes it) names it; an object literal's
+// declaration has_method the functions it holds.
+const cacheVersion = "v487"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

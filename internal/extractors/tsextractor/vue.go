@@ -771,6 +771,7 @@ func (e *TSExtractor) extractVueScriptBlock(kinds *tsutil.KindTable, block *vueS
 		isTSX:        isTSX,
 		tsFrameworks: tsFrameworks{isVue: true, isNuxt: isNuxt},
 		importMap:    importMap,
+		values:       moduleValues(kinds, root, block.Content, factpath.Dir(relFile), importMap, internalImports),
 		memberRoots:  memberCallRoots(kinds, root, block.Content, factpath.Dir(relFile), internalImports),
 		imports:      buildEmberImportBindings(kinds, root, block.Content, relFile, aliases),
 		knownFiles:   files.knownFiles(),
@@ -791,7 +792,17 @@ func (e *TSExtractor) extractVueScriptBlock(kinds *tsutil.KindTable, block *vueS
 	result = append(result, decls...)
 	// Script setup executes at component scope, so its top-level calls and values
 	// are real uses even though they are not inside a function declaration.
-	result = append(result, e.collectTSFileRefs(kinds, root, ctx, aliases, facts.KindFileRef)...)
+	refs := e.collectTSFileRefs(kinds, root, ctx, aliases, facts.KindFileRef)
+	// An Options API component lists values in its options object (`validations:
+	// { phone: { required, isPhoneE164OrEmpty } }`, `components: { Foo }`); the
+	// object is no symbol, so what it names is the file's.
+	if named := defaultExportValueRefs(kinds, root, ctx); len(named) > 0 {
+		if len(refs) == 0 {
+			refs = []facts.Fact{{Kind: facts.KindFileRef, Name: relFile, File: relFile, Line: 1, Props: map[string]any{"language": "typescript"}}}
+		}
+		refs[0].Relations = append(refs[0].Relations, named...)
+	}
+	result = append(result, refs...)
 
 	if block.StartLine > 0 {
 		for i := range result {
