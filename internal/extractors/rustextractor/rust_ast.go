@@ -388,12 +388,19 @@ func (w *astWalker) walkItems(parent *sitter.Node) {
 	}
 }
 
-// isTestAttribute reports whether an attribute_item marks its function as a
-// test (#[test], #[tokio::test], #[wasm_bindgen_test]) — catching a #[test]
-// fn wherever it lives (a plain tests.rs file, an un-gated mod tests {}),
-// not just inside a #[cfg(test)] module.
+// isTestAttribute recognizes test entry points, including procedural macros
+// that generate parameterized tests. Their bodies contribute test references,
+// not production symbols, even outside a #[cfg(test)] module. Match the final
+// path segment so imported and crate-qualified spellings behave alike.
 func isTestAttribute(path string) bool {
-	return path == "test" || strings.HasSuffix(path, "::test") || path == "wasm_bindgen_test"
+	if i := strings.LastIndex(path, "::"); i >= 0 {
+		path = path[i+2:]
+	}
+	switch path {
+	case "test", "wasm_bindgen_test", "test_case", "test_matrix", "rstest":
+		return true
+	}
+	return false
 }
 
 // isCfgTest reports whether this is a cfg gate that compiles its item only in a
