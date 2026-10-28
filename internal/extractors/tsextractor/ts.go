@@ -1,6 +1,7 @@
 package tsextractor
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"github.com/enola-labs/enola/internal/extractors/tsutil"
@@ -294,10 +295,16 @@ func (e *TSExtractor) extractFile(src []byte, relFile string, rc *repoCtx, alias
 	// not leave used code mis-reported as dead.
 	result = append(result, e.collectTSFileRefs(kinds, root, ctx, aliases, facts.KindFileRef)...)
 
+	if !facts.IsTestPath(relFile) {
+		result = append(result, importedEmitterEventFacts(kinds, root, ctx)...)
+	}
 	res := e.frameworkPasses(kinds, root, ctx, aliases, result, isEmberFile, emberSegments)
 	res.hosts = hosts
 	if mayDeclareEventConsts(relFile, src) {
 		res.eventConsts = eventConstFile(blankCommentsIn(root, src))
+	}
+	if !facts.IsTestPath(relFile) && bytes.Contains(src, []byte("EventEmitter")) && nodeEventEmitterImport(string(src)) {
+		res.emitters = exportedEmitters(kinds, root, src, ctx.dir)
 	}
 	// What this file's code uses, for the repo-wide pass that marks which client calls
 	// the application can run. Read only where that pass gives a verdict; see reach.go.

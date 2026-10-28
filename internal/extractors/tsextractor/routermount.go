@@ -66,6 +66,8 @@ type tsFileResult struct {
 	reach *fileReach
 	// eventConsts is the event names this file declares as constants (events.go).
 	eventConsts [][2]string
+	// emitters is the Node event emitters this file exports (events.go).
+	emitters []string
 }
 
 // --- what one file contributes ---

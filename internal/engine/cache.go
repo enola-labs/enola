@@ -3296,7 +3296,10 @@ import (
 // v487: TypeScript: a function that uses a module-scope value without calling it
 // (hands it on, lists it in an object, passes it) names it; an object literal's
 // declaration has_method the functions it holds.
-const cacheVersion = "v487"
+// v488: TypeScript: a Node event written as a constant or a conditional resolves under
+// its emitter (a variable marks dynamic-event-name), and an emitter another file
+// exports is the same emitter where it is imported or built from its class.
+const cacheVersion = "v488"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
