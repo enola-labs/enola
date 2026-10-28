@@ -3312,7 +3312,9 @@ import (
 // the cached facts, so a target created or deleted later re-extracts.
 // v494: Tailwind: a token name several themes declare is a token per declaring
 // directory, and a class names the declaration its project reaches nearest.
-const cacheVersion = "v494"
+// v495: Tailwind v4: a @theme variable belongs to the longest namespace it starts
+// with (--text-color-*, --font-weight-*), not to --text or --font.
+const cacheVersion = "v495"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

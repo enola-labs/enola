@@ -275,3 +275,31 @@ module.exports = { ...base, theme: { ...base.theme, backgroundImage: { hero: "ur
 		t.Errorf("a name three themes declare kept the shared node")
 	}
 }
+
+// A v4 variable belongs to the longest namespace it starts with.
+func TestTailwind_V4CompoundNamespaces(t *testing.T) {
+	cases := map[string][2]string{
+		"color-brand":       {"colors", "brand"},
+		"text-lg":           {"fontSize", "lg"},
+		"text-color-muted":  {"textColor", "muted"},
+		"font-weight-bold":  {"fontWeight", "bold"},
+		"border-color-soft": {"borderColor", "soft"},
+		"text-shadow-sm":    {"", ""},
+		"breakpoint-md":     {"", ""},
+		"text":              {"", ""},
+	}
+	for in, want := range cases {
+		if s, n := v4Token(in); s != want[0] || n != want[1] {
+			t.Errorf("v4Token(%q) = %q, %q, want %q, %q", in, s, n, want[0], want[1])
+		}
+	}
+	ff := extractAll(t, map[string]string{
+		"web/package.json": `{"dependencies": {"tailwindcss": "4"}}`,
+		"web/src/app.css":  "@theme {\n  --color-muted: #999;\n  --text-color-muted: #777;\n}\n",
+		"web/src/Hint.tsx": `export const Hint = () => <p className="text-muted" />`,
+	}, false)
+	users := nodeUsers(ff)
+	if strings.Join(users["tailwind/textColor.muted"], ",") != "web/src/Hint.tsx" || users["tailwind/colors.muted"] != nil {
+		t.Errorf("text-muted users %v", users)
+	}
+}

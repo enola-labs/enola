@@ -62,16 +62,37 @@ var tailwindSections = map[string][]string{
 	"transitionProperty": {"transition"},
 }
 
-// tailwindV4Namespaces maps a v4 @theme variable namespace to its v3 section.
+var tailwindSpecificSections = map[string]bool{"textColor": true, "backgroundColor": true, "borderColor": true}
+
+// tailwindV4Namespaces maps a v4 @theme variable namespace to its v3 section. The
+// longest namespace a variable starts with is its own: --text-color-muted is a
+// text color, not a font size named color-muted. An empty section is a namespace
+// no section here serves.
 var tailwindV4Namespaces = map[string]string{
 	"color": "colors", "spacing": "spacing", "font": "fontFamily", "text": "fontSize",
 	"radius": "borderRadius", "shadow": "boxShadow", "leading": "lineHeight", "tracking": "letterSpacing",
+	"text-color": "textColor", "background-color": "backgroundColor", "border-color": "borderColor",
+	"font-weight": "fontWeight", "text-shadow": "", "inset-shadow": "", "drop-shadow": "",
+}
+
+// v4Token splits a @theme variable's name into its section and token.
+func v4Token(name string) (section, token string) {
+	best := ""
+	for ns := range tailwindV4Namespaces {
+		if len(ns) > len(best) && strings.HasPrefix(name, ns+"-") && len(name) > len(ns)+1 {
+			best = ns
+		}
+	}
+	if tailwindV4Namespaces[best] == "" {
+		return "", ""
+	}
+	return tailwindV4Namespaces[best], name[len(best)+1:]
 }
 
 var (
 	tailwindConfigRe = regexp.MustCompile(`(^|/)tailwind\.config\.(js|cjs|mjs|ts|cts|mts)$`)
 	themeBlockRe     = regexp.MustCompile(`@theme(?:\s+[a-z]+)?\s*\{([^}]*)\}`)
-	themeVarRe       = regexp.MustCompile(`--([a-z]+)-([A-Za-z0-9_-]+)\s*:\s*([^;]+);`)
+	themeVarRe       = regexp.MustCompile(`--([a-z][A-Za-z0-9_-]*)\s*:\s*([^;]+);`)
 	classStringRe    = regexp.MustCompile("\"([^\"\\n]*)\"|'([^'\\n]*)'|`([^`]*)`")
 )
 
@@ -173,12 +194,12 @@ func tailwindV4Tokens(src, rel string) []tailwindToken {
 	for _, block := range themeBlockRe.FindAllStringSubmatchIndex(src, -1) {
 		body := src[block[2]:block[3]]
 		for _, m := range themeVarRe.FindAllStringSubmatchIndex(body, -1) {
-			section := tailwindV4Namespaces[body[m[2]:m[3]]]
+			section, name := v4Token(body[m[2]:m[3]])
 			if section == "" {
 				continue
 			}
 			line := 1 + strings.Count(src[:block[2]+m[0]], "\n")
-			out = append(out, tailwindToken{section: section, name: body[m[4]:m[5]], value: strings.TrimSpace(body[m[6]:m[7]]), file: rel, line: line, source: rel})
+			out = append(out, tailwindToken{section: section, name: name, value: strings.TrimSpace(body[m[4]:m[5]]), file: rel, line: line, source: rel})
 		}
 	}
 	return out
@@ -475,8 +496,15 @@ func bindTailwind(all []facts.Fact, tokens []tailwindToken, repoPath string, fil
 			byPrefix[p] = append(byPrefix[p], section)
 		}
 	}
+	// A utility tries its specific section before the shared palette, as Tailwind
+	// does: text-muted is --text-color-muted before --color-muted.
 	for _, sections := range byPrefix {
-		sort.Strings(sections)
+		sort.Slice(sections, func(i, j int) bool {
+			if a, b := tailwindSpecificSections[sections[i]], tailwindSpecificSections[sections[j]]; a != b {
+				return a
+			}
+			return sections[i] < sections[j]
+		})
 	}
 	components := map[string][]int{}
 	fileRefs := map[string]int{}
