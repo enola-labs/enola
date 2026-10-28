@@ -3286,7 +3286,10 @@ import (
 // repository carries unresolved_reason missing-target, and its names bind to nothing.
 // v483: TypeScript: a Vite HTML entry's inline module scripts give the page a file_ref
 // naming what they use, so impact on an imported module lists the page.
-const cacheVersion = "v483"
+// v484: TypeScript: React Router pages (JSX <Route> of v5 and v6, nested, and route
+// objects given to createBrowserRouter and its siblings) are page routes, handled_by
+// the imported component they render.
+const cacheVersion = "v484"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

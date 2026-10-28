@@ -454,6 +454,9 @@ func (e *TSExtractor) frameworkPasses(kinds *tsutil.KindTable, root *sitter.Node
 		result = append(result, extractReactNavScreens(kinds, root, src, relFile, aliases)...)
 		result = attachReactNavLinks(kinds, result, root, src, relFile)
 	}
+	if !facts.IsTestPath(relFile) {
+		result = append(result, extractReactRouterRoutes(kinds, root, src, relFile, aliases)...)
+	}
 	if ctx.isEmber {
 		result = append(result, emberRouteFacts(kinds, root, src, relFile)...)
 	}
