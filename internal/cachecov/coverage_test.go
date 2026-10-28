@@ -85,6 +85,7 @@ var versionCoverage = map[int][]string{
 	489: {"TestTailwind_ApplyInStylesheets", "TestTailwind_FrameworkPackageDeclaresNoTokens", "TestGraphQLCodeFirst_PothosBuilderImportedAndPluralFields"},
 	490: {"TestGraphQLRubyRoutes_MountedMutationsAndModuleRoots", "TestRailsUnderscore"},
 	491: {"TestIsTSTestFile"},
+	492: {"TestReactRouter_WrappersAndOptionalSegments", "TestReactRouter_RouteObjectTrees", "TestOptionalExpansions"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},
 	438: {"TestExtract_StructUsage_StdlibAndRootPackages"},

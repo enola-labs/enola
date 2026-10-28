@@ -3306,7 +3306,9 @@ import (
 // mount_mutation and mount_aliased_mutation declare a field named after the class's
 // graphql_name, handled_by its resolve; a class records its graphql_name.
 // v491: TypeScript: every script under __tests__/ is test code, whatever its name.
-const cacheVersion = "v491"
+// v492: React Router: *Route wrappers with a literal path, optional segments as both
+// pages, and route-object arrays in a file that imports RouteObject.
+const cacheVersion = "v492"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
