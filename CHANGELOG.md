@@ -7,6 +7,41 @@ The full per-release change lists — every Added, Changed and Fixed line — ar
 [enola.tech/changelog](https://enola.tech/changelog). This file is the same history at
 the resolution a reader of the repository needs.
 
+## v0.4.37 — 2026-10-28
+
+**Symbol versions: blame follows a function through edits and moves, and `locate` keys records to the graph**
+
+- Spans: symbols carry `line` to `end_line` from every code extractor except F# and
+  VB.NET. Added for TypeScript, Python, Go, Java, Kotlin, Scala, C#, Razor, XAML, PHP,
+  Rust, Swift, Dart, C and C++. The innermost span holding a line is the declaration it
+  sits in; a symbol that stands for its whole file spans the file. A C or C++ prototype
+  merged with its definition takes the definition's file, line and end line.
+- `body_hash`: a symbol with a span carries a version of its code. The id stays the same
+  through a rewrite and `line` moves when anything above it changes; the hash changes
+  when the symbol's own code does. It is computed from the span after extraction, so
+  cached facts get it without a re-extract. The constraints miner skips it, as it skips
+  `doc`.
+- `enola blame` reports a symbol that changed between two revisions as one change, not a
+  removal and an addition: `shifted` (same code, new line), `rewritten`, `moved` (same
+  body and same name inside its module, in another file or package) or `changed` (one
+  side has no body version). On fifteen months of one repository's daily history: 43,783
+  shifts, 3,412 rewrites, 138 moves. Backfill honours `history.revision_keep`.
+- `enola locate` and the `locate` MCP tool: a `file:line`, a range, several at once or a
+  diff (`--diff -`) resolve to the innermost symbol with its id, name, `body_hash` and
+  span, plus `cited_hash` and `cited_lines` for the cited lines themselves (a single line
+  is taken with one line either side). `match` is `span`, or `nearest` for F# and VB.NET.
+  `--stamps` checks stored records against the current graph: `current`, `rewritten`,
+  `moved` or `gone` with same-name candidates, and for a rewritten stamp whether the
+  cited lines are still `intact`. `--facts` answers from a stored `facts.jsonl` with no
+  working tree; `--at` answers against a recorded revision.
+- Performance: a symbol's hash starts from an indexed line instead of scanning from the
+  top of the file, which was quadratic on files with many methods.
+- Docs: blame's change kinds in HISTORY.md; keying your own records to the graph with
+  `locate` in INTEGRATING.md.
+- Benchmarks regenerated at v481: 107 repositories, 9,214,646 facts, byte-identical
+  across three runs. Spans and body versions are the only change; the one repository
+  with an unchanged `facts.jsonl` is giraffe, whose F# scanner measures no spans.
+
 ## v0.4.36 — 2026-10-27
 
 **Framework answers: GraphQL resolvers, Vue stores, the tests behind a route, bundler aliases, Tailwind tokens and in-process events**
