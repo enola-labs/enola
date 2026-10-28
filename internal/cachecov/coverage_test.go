@@ -78,6 +78,7 @@ var versionCoverage = map[int][]string{
 	482: {"TestTSConfigPathsTakeTheFirstTargetThatExists", "TestMissingAliasTargetBindsNothing"},
 	483: {"TestViteHTMLModuleScripts"},
 	484: {"TestReactRouter_V5ChildrenAndComponent", "TestReactRouter_V6NestingIndexAndLayout", "TestReactRouter_RouteObjects", "TestReactRouter_Negatives"},
+	485: {"TestViteAliasNamedOrImported"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},
 	438: {"TestExtract_StructUsage_StdlibAndRootPackages"},

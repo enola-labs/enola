@@ -124,6 +124,40 @@ import { z } from '~/z'`,
 	}
 }
 
+// The alias object may be a name: a const of the config written as the shorthand
+// `{ alias }`, or a const a module beside the config exports.
+func TestViteAliasNamedOrImported(t *testing.T) {
+	ff := extractAll(t, map[string]string{
+		"web/vite.shared.ts": `import path from 'path'
+export const aliases = {
+  shared: path.resolve('./app/javascript/shared'),
+  dashboard: path.resolve(__dirname, 'app/javascript/dashboard'),
+}`,
+		"web/vite.config.ts": `import { aliases as shared } from './vite.shared'
+export default defineConfig({ resolve: { alias: shared } })`,
+		"lib/vite.config.ts": `const alias = { '@lib': '/src' }
+export default defineConfig({ resolve: { alias } })`,
+		"web/app/javascript/shared/helpers/Validators.js": `export const isValid = () => true`,
+		"web/app/javascript/dashboard/Form.ts":            `import { isValid } from 'shared/helpers/Validators'` + "\n" + `import x from 'dashboard/Form'`,
+		"lib/src/a.ts":                                    `export const a = 1`,
+		"lib/src/main.ts":                                 `import { a } from '@lib/a'`,
+	}, false)
+	for _, c := range []struct {
+		file string
+		line int
+		want string
+	}{
+		{"web/app/javascript/dashboard/Form.ts", 1, "web/app/javascript/shared/helpers/Validators"},
+		{"web/app/javascript/dashboard/Form.ts", 2, "web/app/javascript/dashboard/Form"},
+		{"lib/src/main.ts", 1, "lib/src/a"},
+	} {
+		f := depAt(t, ff, c.file, c.line)
+		if depTarget(f) != c.want || f.Props["resolved_via"] != aliasViaVite {
+			t.Errorf("%s:%d: target %q via %v, want %q via vite-alias", c.file, c.line, depTarget(f), f.Props["resolved_via"], c.want)
+		}
+	}
+}
+
 func TestTSConfigPathsProvenance(t *testing.T) {
 	ff := extractAll(t, map[string]string{
 		"pkg/tsconfig.app.json": `{"compilerOptions": {"paths": {"~lib/*": ["./src/lib/*"]}}}`,

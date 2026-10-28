@@ -3289,7 +3289,9 @@ import (
 // v484: TypeScript: React Router pages (JSX <Route> of v5 and v6, nested, and route
 // objects given to createBrowserRouter and its siblings) are page routes, handled_by
 // the imported component they render.
-const cacheVersion = "v484"
+// v485: TypeScript: a Vite or Nuxt alias object given by name resolves: a const of the
+// config (the `{ alias }` shorthand included), or one a relative module exports.
+const cacheVersion = "v485"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
