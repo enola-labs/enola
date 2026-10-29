@@ -1,6 +1,7 @@
 package tsextractor
 
 import (
+	"context"
 	"sort"
 	"strings"
 	"testing"
@@ -336,5 +337,36 @@ func TestTailwind_LaterImportWins(t *testing.T) {
 		if strings.Join(users[node], ",") != strings.Join(want, ",") {
 			t.Errorf("%s used by %v, want %v", node, users[node], want)
 		}
+	}
+}
+
+// An index that ignores JSON (`**/*.json`) still binds tokens: the package.json files
+// that say which projects use Tailwind, and by what name a stylesheet imports one,
+// are read from disk.
+func TestTailwind_PackageManifestsOutsideTheIndex(t *testing.T) {
+	files := map[string]string{
+		"tokens/package.json": `{"name": "tokens"}`,
+		"tokens/theme.css":    `@theme { --radius-sm: 2px; }`,
+		"kit/package.json":    `{"name": "@acme/kit"}`,
+		"kit/src/styles.css":  `@theme { --radius-sm: 4px; }`,
+		"web/package.json":    `{"name": "web", "devDependencies": {"tailwindcss": "4"}}`,
+		"web/styles.css": `@import "../tokens/theme.css";
+@import "@acme/kit/src/styles.css";`,
+		"web/Home.tsx": `export const Home = () => <div className="rounded-sm" />`,
+	}
+	dir := setupTSProject(t, files, false)
+	var indexed []string
+	for f := range files {
+		if !strings.HasSuffix(f, ".json") {
+			indexed = append(indexed, f)
+		}
+	}
+	ff, err := New().Extract(context.Background(), dir, indexed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	users := nodeUsers(ff)
+	if strings.Join(users["tailwind/kit/src/borderRadius.sm"], ",") != "web/Home.tsx" || users["tailwind/tokens/borderRadius.sm"] != nil {
+		t.Errorf("rounded-sm users %v", users)
 	}
 }
