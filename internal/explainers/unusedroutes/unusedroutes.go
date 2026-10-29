@@ -413,6 +413,13 @@ func duplicateRoutes(store *facts.Store) []facts.Insight {
 		if kind, _ := f.PropAny("type").(string); wrapsEndpoints[kind] || strings.EqualFold(method, "USE") {
 			continue
 		}
+		// A spec documents an endpoint and registers nothing: a spec beside the route
+		// it describes, or two specs naming one health check, are not two
+		// registrations a router has to choose between.
+		switch f.PropString(facts.PropSource) {
+		case facts.RouteSourceOpenAPI, facts.RouteSourceGRPCProto, facts.RouteSourceOpenAPITypeScript:
+			continue
+		}
 		key := strings.ToUpper(method) + " " + pathParam.ReplaceAllStringFunc(f.Name, func(m string) string {
 			if strings.HasPrefix(m, "/") {
 				return "/{}"

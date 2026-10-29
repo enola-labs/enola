@@ -116,6 +116,26 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 		}
 	}
 
+	// A spec documenting routes the code registers (a Rails app writing its API
+	// down per package) is served by the code route's handler.
+	codeHandlers := map[string]string{} // repo\x00METHOD path -> handler, "" when two disagree
+	for _, f := range store.ByKind(facts.KindRoute) {
+		if f.PropString(facts.PropSource) == facts.RouteSourceOpenAPI || f.PropString(facts.PropRole) == facts.RoleClient {
+			continue
+		}
+		for _, r := range f.Relations {
+			if r.Kind != facts.RelHandledBy {
+				continue
+			}
+			k := f.Repo + "\x00" + endpointKey(f.PropString("method"), f.Name)
+			if prev, seen := codeHandlers[k]; seen && prev != r.Target {
+				codeHandlers[k] = ""
+			} else {
+				codeHandlers[k] = r.Target
+			}
+		}
+	}
+
 	bound := 0
 	store.UpdateWhere(func(f *facts.Fact) {
 		op, ok := serverOperation(*f)
@@ -123,6 +143,9 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 			return
 		}
 		target := targets[op]
+		if target == "" {
+			target = codeHandlers[f.Repo+"\x00"+endpointKey(f.PropString("method"), f.Name)]
+		}
 		if target == "" {
 			return
 		}
@@ -156,6 +179,18 @@ func serverOperation(f facts.Fact) (operation, bool) {
 		}
 	}
 	return operation{f.Repo, f.PropString("spec_file"), id}, true
+}
+
+// endpointKey spells a verb and path the same whichever router wrote them: every
+// path parameter, `{id}` or `:id`, is `{}`, and a trailing slash is dropped.
+func endpointKey(method, p string) string {
+	segs := strings.Split(strings.TrimSuffix(p, "/"), "/")
+	for i, seg := range segs {
+		if strings.HasPrefix(seg, ":") || strings.HasPrefix(seg, "{") && strings.HasSuffix(seg, "}") {
+			segs[i] = "{}"
+		}
+	}
+	return strings.ToUpper(method) + " " + strings.Join(segs, "/")
 }
 
 // pascal spells an operationId the way oapi-codegen names its method: separators
