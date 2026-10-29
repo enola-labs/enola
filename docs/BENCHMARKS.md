@@ -1312,13 +1312,18 @@ and the honest answer names that rather than guessing one.
 | Q2 Vue | 22 / 22 | | 2 / 2 | 64 | 100% |
 | Q3 tests | 17 / 17 | | 2 / 2 | 127 | 100% |
 | Q4 aliases | 13 / 13 | 1 / 1 | | 12,155 | 100% |
-| Q5 Tailwind | 11 / 11 | | 2 / 2 | 8,656 | 100% |
+| Q5 Tailwind | 11 / 11 | | 2 / 2 | 5,991 | 100% |
 | Q6 events | 14 / 14 | 1 / 1 | 1 / 1 | 221 | 100% |
 
 Before this work, at v465, the same key read Q1 0/8, Q2 14/22, Q3 0/13, Q4 1/12, Q5 0/10
 and Q6 0/11. For four of the six questions the node a question starts from did not
 exist. Across the six, **90 of 90 rows** are found now, against 15 of the first 76 then.
 The first cut of this section, at v474, found 75 of those 76 with the one miss stated.
+Q5 made 8,656 claims at v493. The 5,991 now are fewer because a token name two themes
+declare is no longer one token: a class names the declaration its own project reaches
+through its config, presets and stylesheet imports, and nothing when that project's
+theme does not declare it (Tailwind's own `p-2` in an app whose docs site redefines
+`spacing.2`).
 
 **Precision counts every claim, not a sample.** Q1 to Q3 make tens to a hundred claims
 per repository, and each was read in source; gitlab's 638 mutation `handled_by` claims

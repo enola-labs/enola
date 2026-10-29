@@ -87,6 +87,8 @@ var versionCoverage = map[int][]string{
 	491: {"TestIsTSTestFile"},
 	492: {"TestReactRouter_WrappersAndOptionalSegments", "TestReactRouter_RouteObjectTrees", "TestOptionalExpansions"},
 	493: {"TestAliasTargetDiskProbesAreRecorded", "TestExtractorCache_ProbedPathKeysTheFacts"},
+	494: {"TestTailwind_TokenNamesAreScopedPerProject"},
+	495: {"TestTailwind_V4CompoundNamespaces"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},
 	438: {"TestExtract_StructUsage_StdlibAndRootPackages"},

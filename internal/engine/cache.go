@@ -3310,7 +3310,11 @@ import (
 // pages, and route-object arrays in a file that imports RouteObject.
 // v493: TypeScript: the paths an alias's missing-target check looks for on disk key
 // the cached facts, so a target created or deleted later re-extracts.
-const cacheVersion = "v493"
+// v494: Tailwind: a token name several themes declare is a token per declaring
+// directory, and a class names the declaration its project reaches nearest.
+// v495: Tailwind v4: a @theme variable belongs to the longest namespace it starts
+// with (--text-color-*, --font-weight-*), not to --text or --font.
+const cacheVersion = "v495"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

@@ -7,6 +7,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -61,16 +62,37 @@ var tailwindSections = map[string][]string{
 	"transitionProperty": {"transition"},
 }
 
-// tailwindV4Namespaces maps a v4 @theme variable namespace to its v3 section.
+var tailwindSpecificSections = map[string]bool{"textColor": true, "backgroundColor": true, "borderColor": true}
+
+// tailwindV4Namespaces maps a v4 @theme variable namespace to its v3 section. The
+// longest namespace a variable starts with is its own: --text-color-muted is a
+// text color, not a font size named color-muted. An empty section is a namespace
+// no section here serves.
 var tailwindV4Namespaces = map[string]string{
 	"color": "colors", "spacing": "spacing", "font": "fontFamily", "text": "fontSize",
 	"radius": "borderRadius", "shadow": "boxShadow", "leading": "lineHeight", "tracking": "letterSpacing",
+	"text-color": "textColor", "background-color": "backgroundColor", "border-color": "borderColor",
+	"font-weight": "fontWeight", "text-shadow": "", "inset-shadow": "", "drop-shadow": "",
+}
+
+// v4Token splits a @theme variable's name into its section and token.
+func v4Token(name string) (section, token string) {
+	best := ""
+	for ns := range tailwindV4Namespaces {
+		if len(ns) > len(best) && strings.HasPrefix(name, ns+"-") && len(name) > len(ns)+1 {
+			best = ns
+		}
+	}
+	if tailwindV4Namespaces[best] == "" {
+		return "", ""
+	}
+	return tailwindV4Namespaces[best], name[len(best)+1:]
 }
 
 var (
 	tailwindConfigRe = regexp.MustCompile(`(^|/)tailwind\.config\.(js|cjs|mjs|ts|cts|mts)$`)
 	themeBlockRe     = regexp.MustCompile(`@theme(?:\s+[a-z]+)?\s*\{([^}]*)\}`)
-	themeVarRe       = regexp.MustCompile(`--([a-z]+)-([A-Za-z0-9_-]+)\s*:\s*([^;]+);`)
+	themeVarRe       = regexp.MustCompile(`--([a-z][A-Za-z0-9_-]*)\s*:\s*([^;]+);`)
 	classStringRe    = regexp.MustCompile("\"([^\"\\n]*)\"|'([^'\\n]*)'|`([^`]*)`")
 )
 
@@ -79,6 +101,9 @@ type tailwindToken struct {
 	line                       int
 	// prefix is set, alone, on the entry recording a config's `prefix: "tw-"`.
 	prefix string
+	// source is the theme file the token was read from: a config, a preset, a
+	// stylesheet's @theme. A token spread in from another module is written there.
+	source string
 }
 
 // tailwindTokens reads the tokens a repository's Tailwind themes declare: every
@@ -105,16 +130,23 @@ func tailwindTokens(repoPath string, files []string) []tailwindToken {
 			}
 			out = append(out, tailwindV4Tokens(string(src), rel)...)
 		case tailwindConfigRe.MatchString(rel):
-			out = append(out, readTailwindTheme(repoPath, rel)...)
+			out = append(out, withSource(readTailwindTheme(repoPath, rel), rel)...)
 		case ext == ".ts" || ext == ".js" || ext == ".cjs" || ext == ".mjs":
 			src, err := os.ReadFile(filepath.Join(repoPath, f)) //factpath:host
 			if err != nil || !importsTailwind(string(src)) {
 				continue
 			}
-			out = append(out, readTailwindTheme(repoPath, rel)...)
+			out = append(out, withSource(readTailwindTheme(repoPath, rel), rel)...)
 		}
 	}
 	return out
+}
+
+func withSource(tokens []tailwindToken, source string) []tailwindToken {
+	for i := range tokens {
+		tokens[i].source = source
+	}
+	return tokens
 }
 
 // importsTailwindPath reports a script file that may be a preset or plugin module.
@@ -162,12 +194,12 @@ func tailwindV4Tokens(src, rel string) []tailwindToken {
 	for _, block := range themeBlockRe.FindAllStringSubmatchIndex(src, -1) {
 		body := src[block[2]:block[3]]
 		for _, m := range themeVarRe.FindAllStringSubmatchIndex(body, -1) {
-			section := tailwindV4Namespaces[body[m[2]:m[3]]]
+			section, name := v4Token(body[m[2]:m[3]])
 			if section == "" {
 				continue
 			}
 			line := 1 + strings.Count(src[:block[2]+m[0]], "\n")
-			out = append(out, tailwindToken{section: section, name: body[m[4]:m[5]], value: strings.TrimSpace(body[m[6]:m[7]]), file: rel, line: line})
+			out = append(out, tailwindToken{section: section, name: name, value: strings.TrimSpace(body[m[4]:m[5]]), file: rel, line: line, source: rel})
 		}
 	}
 	return out
@@ -407,7 +439,21 @@ func bindTailwind(all []facts.Fact, tokens []tailwindToken, repoPath string, fil
 			tokenFiles[t.file] = true
 		}
 	}
-	bySection := map[string]map[string]string{} // section -> token -> node name
+	// A name declared in one file is tailwind/<section>.<name>; one declared in
+	// several is a token per declaring directory, tailwind/<dir>/<section>.<name>.
+	declDirs := map[string]map[string]bool{} // section.name -> declaring directories
+	for _, t := range tokens {
+		if t.prefix == "" {
+			key := t.section + "." + t.name
+			if declDirs[key] == nil {
+				declDirs[key] = map[string]bool{}
+			}
+			declDirs[key][factpath.Dir(t.file)] = true
+		}
+	}
+	scope := newTailwindScope(repoPath, files, tokens)
+	bySection := map[string]map[string][]*tokenDecl{} // section -> token -> declarations
+	declOf := map[string]*tokenDecl{}
 	seen := map[string]bool{}
 	var prefixes []string
 	for _, t := range tokens {
@@ -416,10 +462,21 @@ func bindTailwind(all []facts.Fact, tokens []tailwindToken, repoPath string, fil
 			continue
 		}
 		node := tailwindTokenRoot + t.section + "." + t.name
-		if bySection[t.section] == nil {
-			bySection[t.section] = map[string]string{}
+		if dir := factpath.Dir(t.file); len(declDirs[t.section+"."+t.name]) > 1 && dir != "." {
+			node = tailwindTokenRoot + dir + "/" + t.section + "." + t.name
 		}
-		bySection[t.section][t.name] = node
+		if bySection[t.section] == nil {
+			bySection[t.section] = map[string][]*tokenDecl{}
+		}
+		d := declOf[node]
+		if d == nil {
+			d = &tokenDecl{node: node}
+			declOf[node] = d
+			bySection[t.section][t.name] = append(bySection[t.section][t.name], d)
+		}
+		if owner := scope.project(t.source); !slices.Contains(d.owners, owner) {
+			d.owners = append(d.owners, owner)
+		}
 		key := node + "\x00" + t.file
 		if seen[key] {
 			continue
@@ -438,6 +495,16 @@ func bindTailwind(all []facts.Fact, tokens []tailwindToken, repoPath string, fil
 		for _, p := range prefixes {
 			byPrefix[p] = append(byPrefix[p], section)
 		}
+	}
+	// A utility tries its specific section before the shared palette, as Tailwind
+	// does: text-muted is --text-color-muted before --color-muted.
+	for _, sections := range byPrefix {
+		sort.Slice(sections, func(i, j int) bool {
+			if a, b := tailwindSpecificSections[sections[i]], tailwindSpecificSections[sections[j]]; a != b {
+				return a
+			}
+			return sections[i] < sections[j]
+		})
 	}
 	components := map[string][]int{}
 	fileRefs := map[string]int{}
@@ -491,9 +558,33 @@ func bindTailwind(all []facts.Fact, tokens []tailwindToken, repoPath string, fil
 			users = append(users, file)
 		}
 	}
+	// Which declaration a class names depends on the file's project: what it reaches
+	// is worked out here, before the files are read in parallel.
+	for f, src := range html {
+		if isStylesheet(f) {
+			scope.addImports(f, string(src))
+		}
+	}
+	reaches := map[string]map[string]int{}
+	lookups := map[string]tokenLookup{}
+	for _, file := range users {
+		p := scope.project(file)
+		if reaches[p] == nil {
+			reaches[p] = scope.reach(p)
+		}
+		reach := reaches[p]
+		themed := scope.themed(reach)
+		lookups[file] = func(section, name string) []string {
+			if ds := bySection[section][name]; len(ds) > 0 {
+				return resolveDecls(ds, reach, themed)
+			}
+			return nil
+		}
+	}
 	// Reading a file's classes parses it to blank its comments, so it runs per file in
 	// parallel; who uses them is decided below, in file order.
 	usedBy := parallel.MapFiles(context.Background(), users, func(file string) []tokenUse {
+		lookup := lookups[file]
 		src, ok := html[file]
 		if !ok {
 			src = sources[file]
@@ -503,12 +594,12 @@ func bindTailwind(all []facts.Fact, tokens []tailwindToken, repoPath string, fil
 		}
 		text := string(src)
 		if isStylesheet(file) {
-			return tailwindApplyTokens(text, prefixes, byPrefix, bySection)
+			return tailwindApplyTokens(text, prefixes, byPrefix, lookup)
 		}
 		if !isAngularTemplateFile(file) {
 			text = string(blankTSComments(src, file))
 		}
-		return tailwindClassTokens(text, prefixes, byPrefix, bySection)
+		return tailwindClassTokens(text, prefixes, byPrefix, lookup)
 	})
 	for fi, file := range users {
 		used := usedBy[fi]
@@ -560,6 +651,9 @@ func isClassHolder(f facts.Fact) bool {
 	return f.Props[propToken] == nil
 }
 
+// tokenLookup returns the token nodes a section and name resolve to for one file.
+type tokenLookup func(section, name string) []string
+
 type tokenUse struct {
 	node string
 	line int
@@ -567,7 +661,7 @@ type tokenUse struct {
 
 // tailwindClassTokens returns each token a file's class strings use, once per line
 // it is used on.
-func tailwindClassTokens(src string, prefixes []string, byPrefix map[string][]string, bySection map[string]map[string]string) []tokenUse {
+func tailwindClassTokens(src string, prefixes []string, byPrefix map[string][]string, lookup tokenLookup) []tokenUse {
 	seen := map[tokenUse]bool{}
 	var out []tokenUse
 	for _, m := range classStringRe.FindAllStringSubmatchIndex(src, -1) {
@@ -582,7 +676,7 @@ func tailwindClassTokens(src string, prefixes []string, byPrefix map[string][]st
 		}
 		line := 1 + strings.Count(src[:m[0]], "\n")
 		for _, cls := range strings.Fields(s) {
-			if node := tailwindClassToken(cls, prefixes, byPrefix, bySection); node != "" {
+			for _, node := range tailwindClassToken(cls, prefixes, byPrefix, lookup) {
 				if u := (tokenUse{node, line}); !seen[u] {
 					seen[u] = true
 					out = append(out, u)
@@ -609,7 +703,7 @@ func isStylesheet(file string) bool {
 
 // tailwindApplyTokens returns each token a stylesheet's @apply lists use. Only @apply
 // is read: a quoted string in CSS is a font name or a URL, not a class.
-func tailwindApplyTokens(src string, prefixes []string, byPrefix map[string][]string, bySection map[string]map[string]string) []tokenUse {
+func tailwindApplyTokens(src string, prefixes []string, byPrefix map[string][]string, lookup tokenLookup) []tokenUse {
 	src = cssCommentRe.ReplaceAllStringFunc(src, func(c string) string { return strings.Repeat("\n", strings.Count(c, "\n")) })
 	seen := map[tokenUse]bool{}
 	var out []tokenUse
@@ -619,7 +713,7 @@ func tailwindApplyTokens(src string, prefixes []string, byPrefix map[string][]st
 			if cls == "!important" {
 				continue
 			}
-			if node := tailwindClassToken(cls, prefixes, byPrefix, bySection); node != "" {
+			for _, node := range tailwindClassToken(cls, prefixes, byPrefix, lookup) {
 				if u := (tokenUse{node, line}); !seen[u] {
 					seen[u] = true
 					out = append(out, u)
@@ -634,7 +728,7 @@ func tailwindApplyTokens(src string, prefixes []string, byPrefix map[string][]st
 // (`hover:`, `md:`, `data-[x]:`) and `!` / `-` are stripped, then the longest
 // utility prefix is tried with the remainder as the token, an opacity modifier
 // (`/50`) dropped.
-func tailwindClassToken(cls string, prefixes []string, byPrefix map[string][]string, bySection map[string]map[string]string) string {
+func tailwindClassToken(cls string, prefixes []string, byPrefix map[string][]string, lookup tokenLookup) []string {
 	depth := 0
 	cut := -1
 	for i, ch := range cls {
@@ -651,7 +745,7 @@ func tailwindClassToken(cls string, prefixes []string, byPrefix map[string][]str
 	}
 	cls = strings.TrimPrefix(cls[cut+1:], "!")
 	if strings.HasPrefix(cls, "--") {
-		return "" // a CSS custom property (`--font-sans`), not a class
+		return nil // a CSS custom property (`--font-sans`), not a class
 	}
 	cls = strings.TrimPrefix(cls, "-") // a negative utility, -m-4
 	for _, p := range prefixes {
@@ -663,19 +757,20 @@ func tailwindClassToken(cls string, prefixes []string, byPrefix map[string][]str
 	if i := strings.IndexByte(cls, '/'); i > 0 {
 		cls = cls[:i]
 	}
-	best, bestNode := 0, ""
+	best := 0
+	var bestNodes []string
 	for i := len(cls) - 1; i > 0; i-- {
 		if cls[i] != '-' {
 			continue
 		}
 		prefix, rest := cls[:i], cls[i+1:]
 		for _, section := range byPrefix[prefix] {
-			if node := bySection[section][rest]; node != "" && len(prefix) > best {
-				best, bestNode = len(prefix), node
+			if nodes := lookup(section, rest); len(nodes) > 0 && len(prefix) > best {
+				best, bestNodes = len(prefix), nodes
 			}
 		}
 	}
-	return bestNode
+	return bestNodes
 }
 
 // tailwindProjects reports whether a file belongs to a project that styles with
