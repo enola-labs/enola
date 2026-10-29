@@ -701,12 +701,14 @@ func (w *astWalker) handleImpl(node *sitter.Node) {
 		return
 	}
 	traitName := ""
+	implIdx := -1
 	if traitNode := node.ChildByFieldName("trait"); traitNode != nil {
 		if traitName = simpleTypeName(traitNode, w.src); traitName != "" {
 			w.impls = append(w.impls, implPair{
 				typeName:  w.dir + "." + w.qualify(typeName),
 				traitName: traitName,
 			})
+			implIdx = len(w.impls) - 1
 		}
 	}
 
@@ -714,8 +716,16 @@ func (w *astWalker) handleImpl(node *sitter.Node) {
 	w.pushType(typeName, collectFnNames(body, w.src))
 	savedImplTrait := w.implTrait
 	w.implTrait = traitName
+	first := len(w.out)
 	if body != nil {
 		w.walkItems(body)
+	}
+	if implIdx >= 0 {
+		for _, f := range w.out[first:] {
+			if f.PropAny("symbol_kind") == facts.SymbolMethod && f.PropAny("receiver") == typeName {
+				w.impls[implIdx].methods = append(w.impls[implIdx].methods, f.Name)
+			}
+		}
 	}
 	w.implTrait = savedImplTrait
 	w.popType()

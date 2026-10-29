@@ -3328,7 +3328,10 @@ import (
 // declaration as span_start, so its body_hash covers them.
 // v501: Rust parameterized test macros (test_case, test_matrix, rstest) emit test
 // references instead of production symbols, including crate-qualified attributes.
-const cacheVersion = "v501"
+// v502: Rust: a method of an `impl Trait for Type` whose trait the repository does not
+// declare is dispatched by that trait's callers (poll_send, visit_str, deref_mut), not
+// by name: it is an override, not an unreferenced method.
+const cacheVersion = "v502"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
