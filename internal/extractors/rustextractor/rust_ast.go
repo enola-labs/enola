@@ -636,6 +636,7 @@ func (w *astWalker) handleStruct(node *sitter.Node) {
 	w.recordFieldTypes(&w.out[ownerIdx], node.ChildByFieldName("body"))
 	w.pushOwner(ownerIdx)
 	w.scanAttributeFnRefs(node.ChildByFieldName("body"))
+	w.scanTypeNames(node.ChildByFieldName("body"))
 	w.popOwner()
 }
 
@@ -662,6 +663,7 @@ func (w *astWalker) handleEnum(node *sitter.Node) {
 	ownerIdx := len(w.out) - 1
 	w.pushOwner(ownerIdx)
 	w.scanAttributeFnRefs(node.ChildByFieldName("body"))
+	w.scanTypeNames(node.ChildByFieldName("body"))
 	w.popOwner()
 }
 
@@ -802,6 +804,9 @@ func (w *astWalker) handleFunction(node *sitter.Node, attrs rustItemAttrs) {
 	savedLocals := w.localTypes
 	w.localTypes = make(map[string]rustTypeExpr)
 	w.bindParameters(node.ChildByFieldName("parameters"))
+	w.scanTypeNames(node.ChildByFieldName("parameters"))
+	w.scanTypeNames(node.ChildByFieldName("return_type"))
+	w.scanTypeNames(findChildByKind(node, "where_clause"))
 
 	// Save/zero the cyclomatic + loop/IO state around this body so a nested
 	// `fn` item does not leak its metrics into the enclosing function.
@@ -985,6 +990,9 @@ func (w *astWalker) handleTypeAlias(node *sitter.Node) {
 		Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: w.dir}},
 	})
 	w.setDoc(node)
+	w.pushOwner(len(w.out) - 1)
+	w.scanTypeNames(node.ChildByFieldName("type"))
+	w.popOwner()
 }
 
 func (w *astWalker) handleConstOrStatic(node *sitter.Node, symbolKind string) {
@@ -1221,10 +1229,27 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 		if name := nodeText(node, w.src); isCapitalized(name) {
 			w.emitEdge(facts.RelInstantiates, name)
 		}
+	case "type_identifier":
+		w.emitEdge(facts.RelNames, nodeText(node, w.src))
 	}
 
 	for i := uint(0); i < uint(node.ChildCount()); i++ {
 		w.walkChild(node.Child(i))
+	}
+}
+
+// scanTypeNames records a names edge for every type written in a type position
+// under node: a signature, a field, a turbofish argument, an annotation.
+func (w *astWalker) scanTypeNames(node *sitter.Node) {
+	if node == nil {
+		return
+	}
+	if kindOf(node) == "type_identifier" {
+		w.emitEdge(facts.RelNames, nodeText(node, w.src))
+		return
+	}
+	for i := uint(0); i < uint(node.ChildCount()); i++ {
+		w.scanTypeNames(node.Child(i))
 	}
 }
 
