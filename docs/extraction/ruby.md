@@ -378,6 +378,43 @@ A wrapper call's single string argument derives the path only when it is
 says a folded literal apart from an inline one. The `target_hint` falls back
 to the first base-URL environment variable read in the file.
 
+## Event publications and subscriptions
+
+A publication or subscription that names its topic becomes a topic operation, the
+shape the Go and TypeScript Kafka readers emit, so it binds to the AsyncAPI operation
+it implements and links across repositories:
+
+```ruby
+class Orders::Events::OrderPlaced
+  TOPIC = SCHEMA_SUBJECT = "shop.#{PORTAL}.orders.order_placed".freeze
+
+  def run
+    Broker.outbox.publish_event(payload, topic: TOPIC, key: id)   # publish
+  end
+end
+
+config.subscribe_event "billing.order_placed" do |s|                # subscribe,
+  s.topic   = "shop.#{PORTAL}.orders.order_placed"                   # one per handler
+  s.handler = Billing::OrderPlacedConsumer
+end
+```
+
+```
+storage  shop.{portal}.orders.order_placed   props: messaging_operation=publish,
+         source=ruby-messaging-call, code_symbol=Orders::Events::OrderPlaced#run
+storage  shop.{portal}.orders.order_placed   props: messaging_operation=subscribe,
+         source=ruby-messaging-call, code_symbol=Billing::OrderPlacedConsumer
+```
+
+A publication is a `topic:` keyword on a call to a publish/produce/deliver method, on
+any other call when the topic is a dotted name (an outbox writer's `run(topic: …)`), or
+in a message hash carrying `topic:` and `payload:` together. A subscription is a block
+assigning `topic` and `handler` or `handlers`. The topic is a literal or a constant
+resolving to one, in the file or, by its full name or a bare name no other constant
+shares, anywhere in the repository; an interpolation is a `{parameter}`. No `messaging`
+protocol is stated: the source does not name the broker. A `{parameter}` segment binds
+to a contract naming one value there, and the reverse.
+
 ## What is deliberately not extracted
 
 - **Routes drawn dynamically** — a `routes.rb` that loops over a config array is not

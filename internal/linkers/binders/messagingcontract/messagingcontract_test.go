@@ -309,3 +309,37 @@ func TestConflictingContractDeclarationIsFlaggedAndStaysAmbiguous(t *testing.T) 
 		t.Errorf("publishOrderV2 duplicate-of = %v, want [old.yaml]", seen["publishOrderV2"])
 	}
 }
+
+// A channel parameter on either side stands for one segment: code publishing to
+// "orders.{region}.created" implements the contract written for "orders.eu.created",
+// and a parameterized contract is implemented by code naming one region. Two
+// concrete contracts the parameter could stand for leave it ambiguous.
+func TestBindChannelParameters(t *testing.T) {
+	store := facts.NewStore()
+	store.Add(
+		contract("orders.eu.created", facts.MessagingOperationPublish, "created", "a.yaml"),
+		code("orders.{region}.created", facts.MessagingOperationPublish, "events.Created", 1),
+		contract("orders.{region}.paid", facts.MessagingOperationPublish, "paid", "a.yaml"),
+		code("orders.eu.paid", facts.MessagingOperationPublish, "events.Paid", 2),
+		contract("orders.eu.shipped", facts.MessagingOperationPublish, "shippedEU", "a.yaml"),
+		contract("orders.us.shipped", facts.MessagingOperationPublish, "shippedUS", "b.yaml"),
+		code("orders.{region}.shipped", facts.MessagingOperationPublish, "events.Shipped", 3),
+		code("orders.{region}.created.v2", facts.MessagingOperationPublish, "events.CreatedV2", 4),
+	)
+	if err := New().Bind(context.Background(), store); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{
+		"events.Created":   facts.MessagingContractStatusBound,
+		"events.Paid":      facts.MessagingContractStatusBound,
+		"events.Shipped":   facts.MessagingContractStatusAmbiguous,
+		"events.CreatedV2": facts.MessagingContractStatusUndeclared,
+	}
+	for _, f := range store.FactsRef() {
+		if isCodeOperation(f) {
+			if got := f.PropString(facts.PropMessagingContractStatus); got != want[f.PropString("code_symbol")] {
+				t.Errorf("%s: status %q, want %q", f.PropString("code_symbol"), got, want[f.PropString("code_symbol")])
+			}
+		}
+	}
+}

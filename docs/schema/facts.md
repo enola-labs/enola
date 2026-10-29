@@ -253,7 +253,8 @@ only files of a project that styles with Tailwind are read, a config's `prefix`
   carries `unresolved_reason` `dynamic-event-name` instead.
 - `source` on a topic fact: a third vocabulary on the `source` key, again
   discriminated by kind — `asyncapi` (read from an AsyncAPI spec),
-  `go-kafka-call` or `typescript-kafka-call` (a call site).
+  `go-kafka-call`, `typescript-kafka-call` or `ruby-messaging-call` (a call site;
+  the Ruby one states no `messaging` protocol, which the source does not name).
 - `messaging`: the protocol carried by the topic operation (e.g. `kafka`).
   Security suffixes describe the transport, not a different broker, so
   `kafka-secure` is read as the same family as `kafka`.

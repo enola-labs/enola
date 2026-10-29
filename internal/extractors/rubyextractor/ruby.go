@@ -133,6 +133,8 @@ func (e *RubyExtractor) Extract(ctx context.Context, repoPath string, files []st
 	clientMisses := map[string]int{}
 	var constAssigns []rubyConstAssign
 	var constSinks []rubyConstSink
+	var topicConsts []rubyTopicConst
+	var pendingTopics []rubyPendingTopic
 	readWhole := 0
 	var readInPart []string
 	perFileFacts := parallel.MapFiles(ctx, rbFiles, func(relFile string) []facts.Fact {
@@ -161,6 +163,12 @@ func (e *RubyExtractor) Extract(ctx context.Context, repoPath string, files []st
 		clientMu.Unlock()
 		ff = append(ff, clientFacts...)
 		ff = append(ff, extractGraphQLRubyRoutes(src, relFile)...)
+		messaging, consts, pending := extractRubyMessagingFacts(src, relFile)
+		clientMu.Lock()
+		topicConsts = append(topicConsts, consts...)
+		pendingTopics = append(pendingTopics, pending...)
+		clientMu.Unlock()
+		ff = append(ff, messaging...)
 		return append(ff, extractGraphQLRubyClientOps(src, relFile)...)
 	})
 
@@ -217,6 +225,23 @@ func (e *RubyExtractor) Extract(ctx context.Context, repoPath string, files []st
 	}
 
 	allFacts = bindGraphQLMounts(allFacts)
+
+	// Topic operations naming another file's constant. Sorted first: the per-file
+	// results arrive in completion order.
+	sort.Slice(topicConsts, func(i, j int) bool {
+		if topicConsts[i].name != topicConsts[j].name {
+			return topicConsts[i].name < topicConsts[j].name
+		}
+		return topicConsts[i].value < topicConsts[j].value
+	})
+	sort.SliceStable(pendingTopics, func(i, j int) bool {
+		a, b := pendingTopics[i].fact, pendingTopics[j].fact
+		if a.File != b.File {
+			return a.File < b.File
+		}
+		return a.Line < b.Line
+	})
+	allFacts = append(allFacts, resolveRubyPendingTopics(pendingTopics, topicConsts)...)
 
 	// Parse Rails route files.
 	if isRails {

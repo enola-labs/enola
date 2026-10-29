@@ -33,6 +33,9 @@ func (s *Signal) Contribute(in plugin.SignalInput, out plugin.EvidenceSink) {
 				continue
 			}
 			provider := importProvider(rel.Target, f.Repo, in, in.TopDirs(f.Repo), in.OwnScopes(f.Repo))
+			if provider != "" && !sameLanguageFamily(f.PropString("language"), in.PrimaryLanguage(provider)) {
+				provider = ""
+			}
 			if provider == "" {
 				if qualified == nil {
 					qualified = newQualifiedIndex(in.Facts())
@@ -105,18 +108,49 @@ func leadingSegment(target string) string {
 }
 
 // importCandidates extracts the identifier tokens an import target may name a
-// repo by, most-significant first: e.g. "@app-web/lib-api" ->
-// ["app-web", "lib-api"], "lib-core/foo" -> ["lib-core", "foo"].
+// repo by, most-significant first, from the positions a package manager puts a
+// repository's name: an npm package's scope and name ("@app-web/lib-api" ->
+// ["app-web", "lib-api"]), the repository segment of a host path
+// ("github.com/org/repo/pkg" -> ["repo"]), and a bare path's first segment
+// ("lib-core/foo" -> ["lib-core"]). A segment deeper in the path is a package
+// inside whatever the path names, so "rspec/core/rake_task" and
+// "github.com/other-org/core/errors" do not name a repository called core.
 func importCandidates(target string) []string {
-	t := strings.TrimPrefix(target, "@")
-	parts := strings.Split(t, "/")
-	out := make([]string, 0, len(parts))
-	for _, p := range parts {
+	var parts []string
+	for _, p := range strings.Split(strings.TrimPrefix(target, "@"), "/") {
 		if p != "" {
-			out = append(out, p)
+			parts = append(parts, p)
 		}
 	}
-	return out
+	switch {
+	case len(parts) == 0:
+		return nil
+	case strings.HasPrefix(target, "@"):
+		return parts[:min(2, len(parts))]
+	case strings.Contains(parts[0], ".") && len(parts) >= 3:
+		return parts[2:3]
+	}
+	return parts[:1]
+}
+
+// languageFamilies groups the languages whose imports can name one another's
+// packages.
+var languageFamilies = map[string]string{
+	"go": "go", "ruby": "ruby", "python": "python", "rust": "rust", "php": "php",
+	"swift": "swift", "dart": "dart",
+	"typescript": "js", "javascript": "js", "vue": "js", "svelte": "js", "angular": "js", "ember": "js",
+	"java": "jvm", "kotlin": "jvm", "scala": "jvm",
+	"csharp": "dotnet", "fsharp": "dotnet", "vbnet": "dotnet",
+	"c": "c", "cpp": "c",
+}
+
+// sameLanguageFamily reports whether an import written in one language can name a
+// repository whose code is mostly another: a Go import path does not name a Ruby
+// application. An unknown language on either side does not decide.
+func sameLanguageFamily(importer, provider string) bool {
+	a, okA := languageFamilies[strings.ToLower(importer)]
+	b, okB := languageFamilies[strings.ToLower(provider)]
+	return !okA || !okB || a == b
 }
 
 // qualifiedIndex maps the fully qualified type names Java, Scala and .NET record as
