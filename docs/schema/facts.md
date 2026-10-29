@@ -225,7 +225,10 @@ only files of a project that styles with Tailwind are read, a config's `prefix`
   nature and must not be read as a cycle), `require`, `packwerk`, or
   `symbol-rollup` (rolled up from resolved symbol edges, for languages with no
   import statement). Absent means unclassified — a normal edge. Where several
-  references produce one edge the hardest kind wins.
+  references produce one edge the hardest kind wins. On an import's own
+  dependency fact, `asset` marks an import of a file holding no code (a
+  stylesheet, an image, a font): coupling, but it orders no initialization, so
+  the cycles explainer leaves it out.
 
 ### storage
 
