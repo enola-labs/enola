@@ -139,3 +139,56 @@ impl Handle {
 		t.Errorf("shutdown calls %v, want src.Shared.close", rustCalls(sd))
 	}
 }
+
+func TestRustTypePositionsNameTheirTypes(t *testing.T) {
+	ff := extractRustRepo(t, map[string]string{
+		"Cargo.toml": "[package]\nname = \"rt\"\n",
+		"src/lib.rs": `
+pub struct Cfg;
+pub struct Resp;
+pub struct Local;
+pub struct Field;
+pub struct Param;
+pub struct Ret;
+pub struct Bound;
+pub struct Alias;
+pub struct Unused;
+
+pub struct Holder { f: Vec<Field> }
+pub type Shorthand = Option<Alias>;
+
+fn sig(p: &Param) -> Result<Ret, ()> where Bound: Sized { todo!() }
+
+fn body() {
+    let l: Local = todo!();
+    let r = read::<Resp>();
+    let c = x as Cfg;
+}
+`,
+	})
+	names := func(sym string) []string {
+		var out []string
+		for _, r := range rustSym(t, ff, sym).Relations {
+			if r.Kind == facts.RelNames {
+				out = append(out, r.Target)
+			}
+		}
+		return out
+	}
+	for sym, want := range map[string][]string{
+		"src.Holder":    {"Vec", "Field"},
+		"src.Shorthand": {"Option", "Alias"},
+		"src.sig":       {"Param", "Result", "Ret", "Bound"},
+		"src.body":      {"Local"},
+	} {
+		got := names(sym)
+		for _, w := range want {
+			if !slices.Contains(got, w) {
+				t.Errorf("%s names %v, want %s", sym, got, w)
+			}
+		}
+	}
+	if got := names("src.body"); !slices.Contains(got, "Resp") {
+		t.Errorf("turbofish argument not named: %v", got)
+	}
+}
