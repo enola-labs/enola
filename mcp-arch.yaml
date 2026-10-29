@@ -90,15 +90,16 @@ ignore:
   - "**/test_*.py"
   - "**/tests/**/*.py"
   - "**/test/**/*.py"
-  # Next.js / build and cache
-  - ".next/**"
+  # Next.js / build and cache. Tool-named build directories at any depth: a
+  # workspace keeps its app in a subdirectory.
+  - "**/.next/**"
   - "out/**"
-  - ".vercel/**"
-  - ".turbo/**"
+  - "**/.vercel/**"
+  - "**/.turbo/**"
   - "dist/**"
   - "coverage/**"
-  - ".nuxt/**"
-  - ".svelte-kit/**"
+  - "**/.nuxt/**"
+  - "**/.svelte-kit/**"
   # Rust / Maven / Gradle build output, at any depth.
   - "**/target/**"
   # .NET build output, at any depth (one obj/bin pair per project). obj/ holds

@@ -75,6 +75,7 @@ func detectTSFrameworks(repoPath, tsRoot string, files []string) (tsFrameworks, 
 		isReact:     hasPkgDependency(tsRoot, "react") || (tsRoot != repoPath && hasPkgDependency(repoPath, "react")),
 		orms:        ormFlags{typeORM: isTypeORM, drizzle: isDrizzle},
 	}
+	fw.nextRoots = nextJSRoots(repoPath, tsRoot, fw.nextDirs)
 	fw.appDirs = reachAppDirs(repoPath, fw)
 	return fw, isPrisma
 }

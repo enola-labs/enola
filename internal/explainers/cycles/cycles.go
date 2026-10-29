@@ -76,7 +76,10 @@ func (e *CycleExplainer) Explain(ctx context.Context, store *facts.Store) ([]fac
 	// 508-module blob (46 cycles and 3 clusters became 40 and 4). The edges
 	// stay in the store for the readings that want coupling rather than
 	// cycles: the metrics suite, impact, and the layer rules.
-	graph := common.BuildModuleGraphExcluding(store, facts.CouplingAssociation, facts.CouplingReference, facts.CouplingSymbolRollup)
+	// Asset imports (a stylesheet, an image) are excluded too: nothing in the file
+	// runs, so a page importing a stylesheet beside the barrel that re-exports the
+	// page is no load-order cycle.
+	graph := common.BuildModuleGraphExcluding(store, facts.CouplingAssociation, facts.CouplingReference, facts.CouplingSymbolRollup, facts.CouplingAsset)
 
 	// Which build unit each module compiles into, where the language models one.
 	// See facts.CompilationUnitProps: a cycle confined to a single unit is not a

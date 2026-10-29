@@ -1,6 +1,6 @@
-First appeared in revision 598305d (<TIME>).
+First appeared in revision 9d84d89 (<TIME>).
 
-598305d  <TIME>  
+9d84d89  <TIME>  
   + {"kind":"dependency","name":". -\u003e example.com/gosample/pkg/a","file":"main.go","line":4,"repo":"go_sample","props":{"language":"go","source":"internal"},"relations":[{"kind":"imports","target":"pkg/a","target_id":"20950287bf61e03171d024d6e0491aa3"}],"id":"2bfcd95784f48976f8c2823e83b127b3"}
   + {"kind":"dependency","name":"pkg/a -\u003e example.com/gosample/pkg/b","file":"pkg/a/a.go","line":3,"repo":"go_sample","props":{"language":"go","source":"internal"},"relations":[{"kind":"imports","target":"pkg/b","target_id":"f07756ebde06ae602cc665efd2c1cb80"}],"id":"267f83613a521ca5547cf53adfc83f65"}
   + {"kind":"dependency","name":"pkg/b -\u003e example.com/gosample/pkg/a","file":"pkg/b/b.go","line":3,"repo":"go_sample","props":{"language":"go","source":"internal"},"relations":[{"kind":"imports","target":"pkg/a","target_id":"20950287bf61e03171d024d6e0491aa3"}],"id":"1e26e8c48b2086afb579d3c4c500ba3e"}

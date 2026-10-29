@@ -1,9 +1,6 @@
 package swiftextractor
 
 import (
-	"bytes"
-	"os"
-	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -279,28 +276,6 @@ func topLevelSubmatch(re *regexp.Regexp, args string) []string {
 		return out
 	}
 	return nil
-}
-
-// collectRouteBases finds the repository's request base types and the verb each
-// defaults to. Repo-wide, because a base and the requests made through it live in
-// different modules; it runs before the per-file walk, which emits the requests.
-func collectRouteBases(repoPath string, files []string) map[string]string {
-	bases := map[string]string{}
-	for _, relFile := range files {
-		if !isSwiftFile(relFile) || isSwiftTestFile(relFile) {
-			continue
-		}
-		src, err := os.ReadFile(filepath.Join(repoPath, relFile))
-		if err != nil || !bytes.Contains(src, []byte("endpoint")) {
-			continue
-		}
-		for _, b := range routeBases(string(src)) {
-			if prev, ok := bases[b.name]; !ok || b.defaultVerb < prev {
-				bases[b.name] = b.defaultVerb
-			}
-		}
-	}
-	return bases
 }
 
 // routeBaseFacts emits one client route per request one source makes through a base.

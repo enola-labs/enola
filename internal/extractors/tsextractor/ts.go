@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"log"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -448,7 +449,7 @@ func markExported(decls []facts.Fact, exported map[string]bool) {
 func (e *TSExtractor) frameworkPasses(kinds *tsutil.KindTable, root *sitter.Node, ctx *extractCtx, aliases map[string]tsAlias, result []facts.Fact, isEmberFile bool, emberSegments []emberTemplateSegment) tsFileResult {
 	src, relFile := ctx.src, ctx.relFile
 	if ctx.isNextJS {
-		if routeFact := detectRoute(relFile); routeFact != nil {
+		if routeFact := detectRoute(relFile, ctx.nextRoots); routeFact != nil {
 			if file := reexportedDefaultFile(kinds, root, ctx); file != "" && routeFact.PropString("type") == "page" {
 				routeFact.SetProp(propDefaultFrom, file)
 			}
@@ -604,6 +605,9 @@ func (e *TSExtractor) extractImports(kinds *tsutil.KindTable, root *sitter.Node,
 		}
 		if isReexport {
 			props["reexport"] = true
+		}
+		if importSource == "internal" && isAssetImport(resolved) {
+			props[facts.PropCouplingKind] = facts.CouplingAsset
 		}
 		setAliasProvenance(props, alias)
 
@@ -1245,16 +1249,43 @@ func (e *TSExtractor) simpleSymbol(node *sitter.Node, ctx *extractCtx, name, kin
 	return f
 }
 
-// detectRoute checks if a file path corresponds to a Next.js route.
-func detectRoute(relFile string) *facts.Fact {
+// assetExtensions are the files a bundler lets code import that hold no code.
+var assetExtensions = map[string]bool{
+	".css": true, ".scss": true, ".sass": true, ".less": true, ".pcss": true, ".styl": true,
+	".svg": true, ".png": true, ".jpg": true, ".jpeg": true, ".gif": true, ".webp": true, ".avif": true, ".ico": true, ".bmp": true,
+	".woff": true, ".woff2": true, ".ttf": true, ".otf": true, ".eot": true,
+	".mp4": true, ".webm": true, ".mp3": true, ".wav": true,
+	".md": true, ".txt": true,
+}
+
+// isAssetImport reports an import of a file that holds no code.
+func isAssetImport(target string) bool {
+	return assetExtensions[strings.ToLower(path.Ext(target))]
+}
+
+// detectRoute checks if a file path corresponds to a Next.js route. Only the app/ and
+// pages/ directories of a Next.js app route — directly in one of roots or in its src/
+// — and nothing else that happens to be called pages: a library of a workspace keeps
+// its screens in src/pages without being an app, and read as one its constants and
+// types were routes.
+func detectRoute(relFile string, roots []string) *facts.Fact {
 	// Next.js App Router: app/**/page.tsx, app/**/route.tsx
 	// Next.js Pages Router: pages/**/*.tsx
 
 	parts := strings.Split(filepath.ToSlash(relFile), "/")
+	routerDir := func(i int) bool {
+		prefix := strings.Join(parts[:i], "/")
+		for _, r := range roots {
+			if prefix == r || prefix == path.Join(r, "src") {
+				return true
+			}
+		}
+		return false
+	}
 
 	// App Router
 	for i, p := range parts {
-		if p == "app" && i < len(parts)-1 {
+		if p == "app" && i < len(parts)-1 && routerDir(i) {
 			fileName := parts[len(parts)-1]
 			baseName := strings.TrimSuffix(strings.TrimSuffix(fileName, ".tsx"), ".ts")
 
@@ -1303,7 +1334,7 @@ func detectRoute(relFile string) *facts.Fact {
 		return nil
 	}
 	for i, p := range parts {
-		if p == "pages" && i < len(parts)-1 {
+		if p == "pages" && i < len(parts)-1 && routerDir(i) {
 			remaining := parts[i+1:]
 			fileName := remaining[len(remaining)-1]
 			baseName := strings.TrimSuffix(strings.TrimSuffix(fileName, ".tsx"), ".ts")
@@ -1350,6 +1381,22 @@ func detectRoute(relFile string) *facts.Fact {
 	}
 
 	return nil
+}
+
+// nextJSRoots returns the directories Next.js apps route from, repo-relative: the
+// repository root and the TypeScript root when either is a Next.js app, and every
+// Next.js package below.
+func nextJSRoots(repoPath, tsRoot string, nextDirs []string) []string {
+	roots := append([]string(nil), nextDirs...)
+	if detectNextJSAt(repoPath) {
+		roots = append(roots, "")
+	}
+	if tsRoot != repoPath && detectNextJSAt(tsRoot) {
+		if rel, err := filepath.Rel(repoPath, tsRoot); err == nil {
+			roots = append(roots, filepath.ToSlash(rel))
+		}
+	}
+	return roots
 }
 
 // detectNextJSRoot checks if the repository is a Next.js project.
@@ -1500,7 +1547,9 @@ func nextJSPackageDirs(repoPath string) []string {
 			}
 			return nil
 		}
-		if d.Name() != "package.json" {
+		// A Next.js app is marked by its config as much as by a package.json naming
+		// next: an app in a workspace often has no package.json of its own.
+		if !isNextMarker(d.Name()) {
 			return nil
 		}
 		dir := filepath.Dir(path) //factpath:host
@@ -1511,7 +1560,17 @@ func nextJSPackageDirs(repoPath string) []string {
 		}
 		return nil
 	})
-	return out
+	sort.Strings(out)
+	return slices.Compact(out)
+}
+
+// isNextMarker reports a file whose presence can make its directory a Next.js app.
+func isNextMarker(name string) bool {
+	switch name {
+	case "package.json", "next.config.js", "next.config.mjs", "next.config.ts", "next.config.cjs":
+		return true
+	}
+	return false
 }
 
 // isExampleDir reports whether a directory holds examples, samples or demos of the
@@ -1540,7 +1599,7 @@ func inNextJSPackage(relFile string, dirs []string) bool {
 
 func detectNextJSAt(dir string) bool {
 	// Check next.config.* at this directory level
-	for _, name := range []string{"next.config.js", "next.config.mjs", "next.config.ts"} {
+	for _, name := range []string{"next.config.js", "next.config.mjs", "next.config.ts", "next.config.cjs"} {
 		if _, err := os.Stat(filepath.Join(dir, name)); err == nil {
 			return true
 		}

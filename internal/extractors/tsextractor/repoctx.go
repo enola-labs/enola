@@ -17,6 +17,10 @@ type tsFrameworks struct {
 	// nextDirs are the packages of a workspace that are Next.js apps, repo-relative,
 	// where the repository's own root is not one (see nextJSPackageDirs).
 	nextDirs []string
+	// nextRoots are the directories a Next.js app's pages/ and app/ routers live in,
+	// repo-relative ("" for the repository root): each Next.js package, and the root
+	// or the TypeScript root when that is one.
+	nextRoots []string
 }
 
 type repoCtx struct {

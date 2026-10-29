@@ -70,6 +70,10 @@ func extractAllRoutes(repoPath string, files []string) ([]facts.Fact, map[string
 	// parse reads relFile under prefix, recording it as done. Returns what it learned so
 	// the caller can follow the delegations and mounts it declares. drawnBy is the file
 	// that delegated to this one, or "".
+	// drawModules carries, per delegated key, the controller module the draw call sat
+	// in: `namespace :admin do draw(:billing) end` serves billing's routes from
+	// admin/ controllers as well as under /admin.
+	drawModules := map[string]string{}
 	parse := func(relFile, prefix, drawnBy string) (draws map[string]string, mounts []routeMount) {
 		if parsed[relFile] {
 			return nil, nil
@@ -79,7 +83,12 @@ func extractAllRoutes(repoPath string, files []string) ([]facts.Fact, map[string
 		if !ok {
 			return nil, nil
 		}
-		ff, res := parseRouteFile(src, relFile, prefix, jsonapi)
+		ff, res := parseRouteFile(src, relFile, prefix, drawModules[routeDrawKey(relFile)], jsonapi)
+		for k, m := range res.drawModules {
+			if _, seen := drawModules[k]; !seen {
+				drawModules[k] = m
+			}
+		}
 		allFacts = append(allFacts, ff...)
 		mergeCounts(unresolvedMacros, res.unresolved)
 		if ns := namespaces[res.drawOn]; ns != "" {
@@ -244,6 +253,10 @@ type routeScope struct {
 	// no controller: routes inside such a block must decline too rather than inherit
 	// the controller of an enclosing resource, which serves different routes.
 	controllerUnknown bool
+	// candidateController is the controller an unknown-controller scope would have by
+	// Rails' pluralization (`resource :profile` -> profiles). Routes inside offer it to
+	// bindRouteHandlers, which keeps it only where that controller is declared.
+	candidateController string
 	// singularOwner marks a scope pushed by `resource` rather than `resources`.
 	// A singular resource has no member id, so `on: :member` inside it addresses
 	// the bare path — Rails serves /profile/settings, not /profile/:id/settings.
@@ -375,6 +388,31 @@ func currentController(stack []routeScope) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// routeDrawKey returns the key a draw(:key) delegation names a route file by: its
+// path below config/routes/, without the extension. "" for any other file.
+func routeDrawKey(relFile string) string {
+	slash := filepath.ToSlash(relFile)
+	i := strings.LastIndex(slash, "config/routes/")
+	if i < 0 {
+		return ""
+	}
+	return strings.TrimSuffix(slash[i+len("config/routes/"):], ".rb")
+}
+
+// candidateController returns the pluralized candidate of the scope that stops
+// currentController's search, "" when no unknown-controller scope does.
+func candidateController(stack []routeScope) string {
+	for i := len(stack) - 1; i >= 0; i-- {
+		if stack[i].controllerUnknown {
+			return stack[i].candidateController
+		}
+		if stack[i].controller != "" {
+			return ""
+		}
+	}
+	return ""
 }
 
 // controllerSymbol converts a Rails handler string ("api/v2/posts#index") into the

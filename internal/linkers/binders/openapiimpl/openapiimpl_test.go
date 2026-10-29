@@ -177,3 +177,16 @@ func TestMinorityBindsNothing(t *testing.T) {
 		}
 	}
 }
+
+// A spec documenting a route the code registers is served by that route's handler.
+func TestInheritsTheDocumentedRoutesHandler(t *testing.T) {
+	code := facts.Fact{Kind: facts.KindRoute, Name: "/api/v1/users/:id/sessions", File: "config/routes.rb",
+		Props:     map[string]any{"method": "GET", facts.PropFramework: "rails"},
+		Relations: []facts.Relation{{Kind: facts.RelHandledBy, Target: "Api::V1::SessionsController#index"}}}
+	store := facts.NewStore()
+	store.Add(code, op("/api/v1/users/{user_id}/sessions", "api/sessions.yml", "listSessions"))
+	bind(t, store)
+	if got := handledBy(t, store, "/api/v1/users/{user_id}/sessions", "api/sessions.yml"); got != "Api::V1::SessionsController#index" {
+		t.Errorf("handled_by = %q", got)
+	}
+}

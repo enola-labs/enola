@@ -236,6 +236,10 @@ const (
 	// rather than read from an import statement, for the languages that have
 	// none. It carries the count of symbol edges behind it.
 	CouplingSymbolRollup = "symbol-rollup"
+	// CouplingAsset is an import of a file that is not code: a stylesheet, an image,
+	// a font. It is coupling — the importer needs the file — but nothing in it runs,
+	// so it orders no initialization and closes no cycle.
+	CouplingAsset = "asset"
 )
 
 // Module role property values classify a module fact as production code vs.

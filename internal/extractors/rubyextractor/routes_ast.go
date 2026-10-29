@@ -25,6 +25,9 @@ type routeFileResult struct {
 	// draws maps each draw(:pkg) delegation found in this file to the URL prefix it is
 	// scoped under, so the caller can parse config/routes/<pkg>.rb with it.
 	draws map[string]string
+	// drawModules maps a delegation to the controller module the draw sat in, when
+	// it sat in one.
+	drawModules map[string]string
 	// mounts lists the engine mount sites found in this file.
 	mounts []routeMount
 	// unresolved counts the route-declaring macros this file used that the walker
@@ -38,7 +41,7 @@ type routeFileResult struct {
 // parseRouteFile parses a Rails route file, seeding the scope stack with
 // initialPrefix (the URL prefix under which a parent routes.rb delegated or mounted
 // this file), and returns what it learned about further route files.
-func parseRouteFile(src []byte, relFile, initialPrefix string, jsonapi jsonapiContext) ([]facts.Fact, routeFileResult) {
+func parseRouteFile(src []byte, relFile, initialPrefix, initialModule string, jsonapi jsonapiContext) ([]facts.Fact, routeFileResult) {
 	parser := sitter.NewParser()
 	defer parser.Close()
 	if err := parser.SetLanguage(sitter.NewLanguage(ruby.Language())); err != nil {
@@ -48,20 +51,21 @@ func parseRouteFile(src []byte, relFile, initialPrefix string, jsonapi jsonapiCo
 	defer tree.Close()
 
 	var stack []routeScope
-	if initialPrefix != "" {
-		stack = []routeScope{{pathPrefix: initialPrefix}}
+	if initialPrefix != "" || initialModule != "" {
+		stack = []routeScope{{pathPrefix: initialPrefix, module: initialModule}}
 	}
 	rw := &routeWalker{
 		src:       src,
 		relFile:   relFile,
 		dir:       factpath.Dir(relFile),
 		draws:     map[string]string{},
+		drawMods:  map[string]string{},
 		concerns:  map[string]*sitter.Node{},
 		unhandled: map[string]int{},
 		jsonapi:   jsonapi,
 	}
 	rw.walk(tree.RootNode(), stack)
-	return rw.out, routeFileResult{draws: rw.draws, mounts: rw.mounts, unresolved: rw.unhandled, drawOn: rw.drawOn}
+	return rw.out, routeFileResult{draws: rw.draws, drawModules: rw.drawMods, mounts: rw.mounts, unresolved: rw.unhandled, drawOn: rw.drawOn}
 }
 
 type routeWalker struct {
@@ -71,7 +75,8 @@ type routeWalker struct {
 	out     []facts.Fact
 	// draws maps each draw(:pkg) delegation found in this file to the URL prefix it
 	// is scoped under, so the caller can parse config/routes/<pkg>.rb with it.
-	draws map[string]string
+	draws    map[string]string
+	drawMods map[string]string // delegation -> enclosing controller module
 	// mounts collects the engine mount sites found in this file.
 	mounts []routeMount
 	// concerns maps a `concern :name do ... end` definition to its block body, so a
@@ -300,6 +305,10 @@ func (rw *routeWalker) handleCall(call *sitter.Node, stack []routeScope) {
 			}
 			if action != "" && ctrl != "" {
 				handler = composeController(ctrl, buildModule(stack), absolute) + "#" + action
+			} else if action != "" && !given {
+				if cand := candidateController(stack); cand != "" {
+					props[singularCandidateProp] = composeController(cand, buildModule(stack), false) + "#" + action
+				}
 			}
 		}
 		if handler != "" {
@@ -504,8 +513,14 @@ func (rw *routeWalker) handleCall(call *sitter.Node, stack []routeScope) {
 			controllerAbsolute: absolute,
 			controllerUnknown:  controllerName == "",
 			ownParam:           memberName,
-			singularOwner:      singular,
-			shallow:            pairBool(args, "shallow", rw.src) || inheritedShallow(stack),
+			candidateController: func() string {
+				if singular && controllerName == "" && !jsonapi {
+					return pluralize(name)
+				}
+				return ""
+			}(),
+			singularOwner: singular,
+			shallow:       pairBool(args, "shallow", rw.src) || inheritedShallow(stack),
 		}
 		if body != nil {
 			rw.walk(body, append(stack, childScope))
@@ -714,6 +729,9 @@ func (rw *routeWalker) handleCall(call *sitter.Node, stack []routeScope) {
 			// seeded with this prefix, giving its routes their real /api/vN scope.
 			if rw.draws != nil {
 				rw.draws[pkg] = prefix
+				if mod := buildModule(stack); mod != "" && rw.drawMods != nil {
+					rw.drawMods[pkg] = mod
+				}
 			}
 			// A DRAW placeholder route is still emitted (it backs route helpers); the
 			// linker treats method "DRAW" as inert, so it never matches or is flagged.

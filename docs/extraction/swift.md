@@ -41,6 +41,25 @@ project are therefore subdivided into **one module per source directory**, with
 intra-target type references contributing coupling between them. Frameworks and SPM
 packages stay whole, because there the target boundary is already the architecture.
 
+A **Tuist** project is described in Swift, usually through helpers the project writes,
+so its targets are read from the layout Xcode encourages instead: a folder beside a
+`Project.swift` is a target when its name is a module some Swift file imports
+(production, carrying `xcode_target`), ends in `Tests` (test), or ends in `Demo`,
+`DemoApp` or `DemoApplication` (tooling). Every folder of a project that is itself a
+test bundle is test code. `import Name` then resolves to the target's folder; a name two
+folders share stays unresolved. Manifests, `Tuist/` helpers and Xcode file templates are
+tooling.
+
+```
+Features/Orders/Project.swift
+Features/Orders/OrdersContract/…         module  props: xcode_target=OrdersContract, module_role=production
+Features/Orders/OrdersImplementation/…   module  props: xcode_target=OrdersImplementation, module_role=production
+Features/Orders/OrdersTests/…            module  props: module_role=test
+```
+
+An import names its module past attributes and an import kind: `@testable import X` and
+`import enum X.Route` both import X.
+
 ## Symbols
 
 ```

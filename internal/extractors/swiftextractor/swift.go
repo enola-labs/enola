@@ -119,6 +119,16 @@ func (e *SwiftExtractor) Extract(ctx context.Context, repoPath string, files []s
 		}
 	}
 	resolver := buildModuleResolver(xp, spmRoots)
+	// One read of every Swift source, for what the per-file walk needs from the whole
+	// repository: the modules sources import (which folders are targets, by layout)
+	// and the request base types.
+	pre := prescanSwift(repoPath, swiftFiles)
+	declaredTargets := make(map[string]bool, len(resolver.identities))
+	for id := range resolver.identities {
+		declaredTargets[id] = true
+	}
+	layoutTargets := conventionTargets(files, pre.imported)
+	resolver.addConventionTargets(layoutTargets)
 	moduleForFile := func(relFile string) string {
 		if id, ok := resolver.moduleFor(relFile); ok {
 			return id
@@ -136,7 +146,7 @@ func (e *SwiftExtractor) Extract(ctx context.Context, repoPath string, files []s
 
 	// Request base classes gate their pass: without a type whose initializer takes an
 	// `endpoint:` path and a defaulted `method:`, no file emits a request through one.
-	requestBases := collectRouteBases(repoPath, swiftFiles)
+	requestBases := pre.requestBases
 
 	// extractFileAST/extractURLSessionFacts are pure; parse the source files in
 	// parallel. The indices below are rebuilt by iterating the per-file results in
@@ -265,6 +275,7 @@ func (e *SwiftExtractor) Extract(ctx context.Context, repoPath string, files []s
 
 	// Emit XcodeGen target module facts + declared inter-target dependency edges.
 	allFacts = append(allFacts, emitXcodeGenFacts(resolver, xp, spmRoots, dirToFile)...)
+	allFacts = append(allFacts, conventionTargetFacts(layoutTargets, declaredTargets)...)
 
 	// Emit module facts for leaf directories not already described by an SPM target
 	// or a WHOLE XcodeGen target identity (files that fell back to leaf-directory
@@ -281,7 +292,7 @@ func (e *SwiftExtractor) Extract(ctx context.Context, repoPath string, files []s
 			File: dir,
 			Props: map[string]any{
 				"language":    "swift",
-				"module_role": facts.ModuleRoleForPath(dir),
+				"module_role": swiftLeafRole(dir),
 			},
 		})
 	}
@@ -598,9 +609,10 @@ func computePerformsIO(allFacts []facts.Fact, methodIndex, funcIndex map[string]
 	}
 }
 
-// importRe matches a Swift import statement and captures the module name. Used by
-// the AST walker to render import dependency facts.
-var importRe = regexp.MustCompile(`^\s*import\s+(\w+)`)
+// importRe matches a Swift import statement and captures the module it names, past
+// attributes (`@testable`) and an import kind (`import enum Module.Type` imports from
+// Module). Used by the AST walker to render import dependency facts.
+var importRe = regexp.MustCompile(`^\s*(?:@\w+\s+)*import\s+(?:(?:class|struct|enum|protocol|func|typealias|var|let)\s+)?(\w+)`)
 
 // typeRefRe matches type annotations like "name: TypeName" in property declarations and parameters.
 var typeRefRe = regexp.MustCompile(`:\s*([A-Z][A-Za-z0-9_]+)`)
