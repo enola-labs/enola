@@ -2,6 +2,7 @@ package generatedclients
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/enola-labs/enola/internal/facts"
@@ -16,7 +17,7 @@ func bind(t *testing.T, store *facts.Store) {
 
 func specOp(repo, specFile, path, method, id string) facts.Fact {
 	return facts.Fact{
-		Kind: facts.KindRoute, Name: path, File: specFile, Repo: repo,
+		Kind: facts.KindRoute, Name: path, File: repo + "/" + specFile, Repo: repo,
 		Props: map[string]any{
 			facts.PropSource: facts.RouteSourceOpenAPI, facts.PropRole: facts.RoleClient,
 			"method": method, "operationId": id, "spec_file": specFile,
@@ -30,7 +31,7 @@ func symbol(repo, name, file, kind string, generated bool, rels ...facts.Relatio
 	if generated {
 		props["generated"] = true
 	}
-	return facts.Fact{Kind: facts.KindSymbol, Name: name, File: file, Repo: repo, Line: 10, Props: props, Relations: rels}
+	return facts.Fact{Kind: facts.KindSymbol, Name: name, File: repo + "/" + file, Repo: repo, Line: 10, Props: props, Relations: rels}
 }
 
 func calls(target string) facts.Relation { return facts.Relation{Kind: facts.RelCalls, Target: target} }
@@ -39,7 +40,7 @@ func injects(target string) facts.Relation {
 }
 
 func dep(repo, file, target string) facts.Fact {
-	return facts.Fact{Kind: facts.KindDependency, Name: "mod -> " + target, File: file, Repo: repo}
+	return facts.Fact{Kind: facts.KindDependency, Name: "mod -> " + target, File: repo + "/" + file, Repo: repo}
 }
 
 func routesBy(store *facts.Store, source string) []facts.Fact {
@@ -60,9 +61,11 @@ func TestImportedClient(t *testing.T) {
 	store.Add(
 		specOp("app", "feature/src/main/openapi/orders-api.yaml", "/orders/{id}", "GET", "GetOrder"),
 		specOp("app", "feature/src/main/openapi/orders-api.yaml", "/orders", "POST", "createOrder"),
+		specOp("app", "feature/src/main/openapi/overlay/orders-api-edge.yaml", "/orders/{id}", "GET", "getOrder"),
 		specOp("app", "other/src/main/openapi/orders-api.yaml", "/orders/{id}", "GET", "getOrder"),
 		specOp("app", "feature/src/main/openapi/billing.yaml", "/invoices", "GET", "listInvoices"),
 		dep("app", file, "com.acme.feature.ordersapiedge.apis.OrdersApi"),
+		dep("app", file, "com.acme.feature.ordersapi.apis.OrdersBaseApi"),
 		dep("app", "feature/orders/OrdersRepositoryTest.kt", "com.acme.feature.ordersapi.apis.OrdersApi"),
 		symbol("app", "feature/orders.OrdersRepository", file, facts.SymbolClass, false),
 		symbol("app", "feature/orders.OrdersRepository.load", file, facts.SymbolMethod, false, calls("getOrder"), calls("map")),
@@ -71,18 +74,18 @@ func TestImportedClient(t *testing.T) {
 	bind(t, store)
 
 	got := routesBy(store, RouteSource)
-	if len(got) != 1 {
-		t.Fatalf("got %d call-site routes, want 1: %+v", len(got), got)
+	if len(got) != 2 {
+		t.Fatalf("got %d call-site routes, want 2: %+v", len(got), got)
 	}
 	r := got[0]
-	if r.Name != "/orders/{id}" || r.PropString("method") != "GET" || r.File != file ||
+	if r.Name != "/orders/{id}" || r.PropString("method") != "GET" || r.File != "app/"+file ||
 		r.PropString(facts.PropCaller) != "feature/orders.OrdersRepository.load" ||
-		r.PropString("spec_file") != "feature/src/main/openapi/orders-api.yaml" ||
+		r.PropString("spec_file") != "feature/src/main/openapi/orders-api.yaml" && r.PropString("spec_file") != "feature/src/main/openapi/overlay/orders-api-edge.yaml" ||
 		r.PropString("gateway_path") != "/orders/orders/{id}" {
 		t.Errorf("unexpected route %+v", r)
 	}
 	for _, f := range routesBy(store, facts.RouteSourceOpenAPI) {
-		want := f.PropString("spec_file") == "feature/src/main/openapi/orders-api.yaml"
+		want := strings.HasPrefix(f.PropString("spec_file"), "feature/") && strings.Contains(f.PropString("spec_file"), "orders-api")
 		if f.PropBool(facts.PropSpecDeclaration) != want {
 			t.Errorf("%s %s declaration = %v, want %v", f.PropString("spec_file"), f.Name, !want, want)
 		}

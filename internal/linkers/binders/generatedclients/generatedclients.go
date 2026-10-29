@@ -60,6 +60,7 @@ func (b *Binder) Stage() plugin.BindStage { return plugin.StagePreLink }
 // PascalCase spelling generators give method names.
 type spec struct {
 	file     string
+	dir      string // the spec's directory, spelled as the facts spell files
 	key      string
 	ops      map[string]facts.Fact
 	byPascal map[string]string
@@ -110,6 +111,23 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 	importedClientCalls(all, specs, emit)
 	inRepoClientCalls(all, specs, emit)
 
+	// A spec an overlay variant is generated from is consumed through the variant:
+	// "orders-api.yaml" beside "overlay/orders-api-edge.yaml".
+	for repo, ss := range specs {
+		for _, base := range sortedSpecs(ss) {
+			if used[[2]string{repo, base.file}] {
+				continue
+			}
+			for _, v := range sortedSpecs(ss) {
+				if used[[2]string{repo, v.file}] && v.key != base.key && strings.HasPrefix(v.key, base.key) &&
+					isWord(v.key[len(base.key):]) && (v.dir == base.dir || strings.HasPrefix(v.dir, base.dir+"/")) {
+					used[[2]string{repo, base.file}] = true
+					break
+				}
+			}
+		}
+	}
+
 	marked := 0
 	store.UpdateWhere(func(f *facts.Fact) {
 		if f.Kind != facts.KindRoute || f.PropString(facts.PropSource) != facts.RouteSourceOpenAPI ||
@@ -151,7 +169,7 @@ func clientSpecs(all []facts.Fact) map[string]map[string]*spec {
 		}
 		s := out[f.Repo][file]
 		if s == nil {
-			s = &spec{file: file, key: specKey(file), ops: map[string]facts.Fact{}, byPascal: map[string]string{}}
+			s = &spec{file: file, dir: path.Dir(f.File), key: specKey(file), ops: map[string]facts.Fact{}, byPascal: map[string]string{}}
 			out[f.Repo][file] = s
 		}
 		if _, dup := s.ops[id]; !dup {
@@ -262,7 +280,7 @@ func closest(ss []*spec, file string) *spec {
 	best, bestN := ss[0], -1
 	for _, s := range ss {
 		n := 0
-		a, b := strings.Split(path.Dir(s.file), "/"), strings.Split(path.Dir(file), "/")
+		a, b := strings.Split(s.dir, "/"), strings.Split(path.Dir(file), "/")
 		for n < len(a) && n < len(b) && a[n] == b[n] {
 			n++
 		}
