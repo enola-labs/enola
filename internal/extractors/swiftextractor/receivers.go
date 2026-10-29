@@ -178,7 +178,7 @@ func resolveTypedCalls(allFacts []facts.Fact) {
 			h = newSwiftHierarchy(allFacts)
 		}
 		for _, n := range notes {
-			target := h.resolve(n.typ, n.method)
+			target := h.resolve(n.typ, n.method, f.Name)
 			if target == "" || target == f.Name {
 				continue
 			}

@@ -165,8 +165,14 @@ only files of a project that styles with Tailwind are read, a config's `prefix`
   `caller_id` is that symbol's fact id; the symbol is always declared in the call
   site's own file. Absent for a call at module scope or inside a function with no
   symbol of its own. Written by the TypeScript, Kotlin, Swift,
-  Java, Dart and Python extractors; a Retrofit or Feign route's caller is the interface
+  Java, Dart and Python extractors, and by the generated-clients binder on the
+  `generated-client` routes it emits; a Retrofit or Feign route's caller is the interface
   method it annotates.
+- `spec_declaration` (OpenAPI client routes): `true` on an operation of a client spec
+  whose generated client the repository's code is seen calling. Each call is a
+  `generated-client` route of its own, so the operation is what the client could call,
+  not a call, and HTTP matching, coverage and the route verdicts leave it alone. Absent
+  on a spec no call is seen through, whose operations still stand for the calls.
 - `code_symbol` (GraphQL routes, TypeScript): the symbol the operation or field is
   written in. On a client operation it is the variable, function or method holding
   the document, which `calls` the operation; on a code-first field it is the
@@ -356,6 +362,7 @@ HTTP client call sites:
 | `scala-http-client` | sttp / Play WS / http4s client |
 | `dart-http-client` | Dart package:http / dio / chopper call site or annotated interface |
 | `configured-http-client` | call site through an in-house client declared under `clients:` in the config; carries `client_spec` (the declaring spec's name) and, when the call names a service, `target_hint` |
+| `generated-client` | call through a client generated from an OpenAPI spec, at the code making it; carries the operation's `operationId` and `spec_file`, and the spec's operations then carry `spec_declaration=true` |
 
 gRPC client call sites: `go-grpc-client`, `ts-grpc-client`,
 `python-grpc-client`.

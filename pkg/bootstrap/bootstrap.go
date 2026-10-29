@@ -60,6 +60,7 @@ import (
 	"github.com/enola-labs/enola/internal/linkers/binders/clientseam"
 	"github.com/enola-labs/enola/internal/linkers/binders/emberresolver"
 	"github.com/enola-labs/enola/internal/linkers/binders/frameworkroots"
+	"github.com/enola-labs/enola/internal/linkers/binders/generatedclients"
 	"github.com/enola-labs/enola/internal/linkers/binders/grpcclientfqn"
 	"github.com/enola-labs/enola/internal/linkers/binders/grpcimpl"
 	"github.com/enola-labs/enola/internal/linkers/binders/httphandler"
@@ -67,6 +68,7 @@ import (
 	"github.com/enola-labs/enola/internal/linkers/binders/messagingcontract"
 	"github.com/enola-labs/enola/internal/linkers/binders/mixinowner"
 	"github.com/enola-labs/enola/internal/linkers/binders/moduleedges"
+	"github.com/enola-labs/enola/internal/linkers/binders/openapiimpl"
 	"github.com/enola-labs/enola/internal/linkers/binders/stimulusresolver"
 	"github.com/enola-labs/enola/internal/linkers/binders/testexercises"
 	"github.com/enola-labs/enola/internal/linkers/binders/unmatchedroutes"
@@ -537,11 +539,13 @@ func registerOSSPlugins(eng *engine.Engine, cfg *config.Config) {
 	eng.RegisterBinder(emberresolver.New())
 	eng.RegisterBinder(grpcimpl.New())
 	eng.RegisterBinder(httphandler.New())
+	eng.RegisterBinder(openapiimpl.New())
 	eng.RegisterBinder(mixinowner.New())
 	eng.RegisterBinder(frameworkroots.New())
 	eng.RegisterBinder(moduleedges.New())
 	eng.RegisterBinder(stimulusresolver.New())
 	eng.RegisterBinder(vendoredspecs.New())
+	eng.RegisterBinder(generatedclients.New())
 	eng.RegisterBinder(messagingcontract.New())
 	eng.RegisterBinder(unmatchedroutes.New(linkVocab))
 	eng.RegisterBinder(testexercises.New(linkVocab))

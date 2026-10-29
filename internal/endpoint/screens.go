@@ -44,6 +44,7 @@ func screensFrom(s *facts.Store, clients, servers []facts.Fact) []Screen {
 	g := s.Graph()
 	byScreen := map[string]*Screen{}
 	walked := map[string][]facts.Fact{}
+	var members map[string][]string
 	for _, c := range clients {
 		if c.PropString(facts.PropRole) != facts.RoleClient || c.PropAny("test_double") == true ||
 			c.PropAny(facts.PropClientReachable) == false {
@@ -69,7 +70,10 @@ func screensFrom(s *facts.Store, clients, servers []facts.Fact) []Screen {
 			}
 		} else if caller := c.PropString(facts.PropCaller); caller != "" && g != nil {
 			if _, ok := walked[caller]; !ok {
-				walked[caller] = screensAbove(s, g, caller)
+				if members == nil {
+					members = typeMembers(s)
+				}
+				walked[caller] = screensAbove(s, g, members, caller)
 			}
 			found = walked[caller]
 		}
@@ -93,8 +97,10 @@ func screensFrom(s *facts.Store, clients, servers []facts.Fact) []Screen {
 }
 
 // screensAbove walks the call graph in reverse from a function to the nearest screen
-// on each path, and returns those screens' facts.
-func screensAbove(s *facts.Store, g *facts.Graph, start string) []facts.Fact {
+// on each path, and returns those screens' facts. A type the walk reaches, because
+// its initializer makes the call, is reached in turn by the code using its members:
+// what calls a view model's methods holds the view model, and created it.
+func screensAbove(s *facts.Store, g *facts.Graph, members map[string][]string, start string) []facts.Fact {
 	seen := map[string]bool{start: true}
 	frontier := []string{start}
 	var out []facts.Fact
@@ -116,6 +122,13 @@ func screensAbove(s *facts.Store, g *facts.Graph, start string) []facts.Fact {
 				switch e.RelKind {
 				case "calls", "instantiates", "names":
 					visit(e.Target)
+				}
+			}
+			for _, m := range members[n] {
+				for _, e := range g.ReverseEdges(m) {
+					if e.RelKind == "calls" && !strings.HasPrefix(e.Target, n+".") {
+						visit(e.Target)
+					}
 				}
 			}
 			// The interface's method is what callers call; the walk goes on from there.
@@ -148,8 +161,8 @@ func screenFact(s *facts.Store, name string) (facts.Fact, bool) {
 
 // isScreen reports a declaration a user navigates to, by the conventions of its
 // platform: a Jetpack Compose function, an activity or a fragment named for it
-// (ProfileScreen, SettingsActivity), and a SwiftUI view declared under a Screens
-// folder or named a screen. A view a screen is built from, a card or a row, is not one;
+// (ProfileScreen, SettingsActivity), a UIKit view controller, and a SwiftUI view
+// declared under a Screens folder or named a screen. A view a screen is built from, a card or a row, is not one;
 // the walk stops at the nearest screen, so a screen's own components never stand in
 // for it unless they are named as screens.
 func isScreen(f facts.Fact) bool {
@@ -166,9 +179,33 @@ func isScreen(f facts.Fact) bool {
 		if strings.HasSuffix(last, "Screen") {
 			return true
 		}
+		if f.PropString("symbol_kind") == facts.SymbolClass && strings.HasSuffix(last, "ViewController") {
+			return true
+		}
 		return strings.HasSuffix(last, "View") && strings.Contains("/"+path.Dir(f.File)+"/", "/Screens/")
 	}
 	return false
+}
+
+// typeMembers maps each class or struct to the methods declared under its name.
+func typeMembers(s *facts.Store) map[string][]string {
+	types := map[string]bool{}
+	for _, f := range s.ByKind(facts.KindSymbol) {
+		switch f.PropString("symbol_kind") {
+		case facts.SymbolClass, facts.SymbolStruct:
+			types[f.Name] = true
+		}
+	}
+	out := map[string][]string{}
+	for _, f := range s.ByKind(facts.KindSymbol) {
+		if f.PropString("symbol_kind") != facts.SymbolMethod {
+			continue
+		}
+		if dot := strings.LastIndexByte(f.Name, '.'); dot > 0 && types[f.Name[:dot]] {
+			out[f.Name[:dot]] = append(out[f.Name[:dot]], f.Name)
+		}
+	}
+	return out
 }
 
 type matchedRoute struct{ repo, method, name string }

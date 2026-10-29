@@ -264,6 +264,10 @@ const (
 	RouteSourceOpenAPI           = "openapi"            // OpenAPI/Swagger spec
 	RouteSourceOpenAPITypeScript = "openapi-typescript" // generated TS client from a spec
 
+	// RouteSourceGeneratedClient is a call made through a client generated from an
+	// OpenAPI spec, at the code making it: a call site, unlike the spec's operations.
+	RouteSourceGeneratedClient = "generated-client"
+
 	// GraphQL contract sources: the graphql-ruby field DSL (server), a
 	// schema-first Node server SDL (server), gql-tagged template
 	// literals (hand-written client operations), standalone .graphql operation
@@ -353,6 +357,7 @@ var HandWrittenClientSources = map[string]bool{
 	RouteSourceDartHTTPClient:       true,
 	RouteSourceAngularRouter:        true,
 	RouteSourceConfiguredHTTPClient: true,
+	RouteSourceGeneratedClient:      true,
 }
 
 // NativeAppClientSources is the set of RouteSource values only a native application
@@ -402,6 +407,7 @@ var AllRouteSources = map[string]bool{
 	RouteSourceGRPCProto:         true,
 	RouteSourceOpenAPI:           true,
 	RouteSourceOpenAPITypeScript: true,
+	RouteSourceGeneratedClient:   true,
 	RouteSourceSymfonyConfig:     true,
 	RouteSourcePlayRoutes:        true,
 	RouteSourcePekkoHTTP:         true,

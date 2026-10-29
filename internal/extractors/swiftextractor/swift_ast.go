@@ -1261,6 +1261,11 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 				w.addOwnerEdge(facts.RelCalls, root)
 				w.recordCallMetrics(root, node)
 				w.addTentativeMethodCall(name)
+				// Type.member(), Outer.Type.member(): a static call on a type binds to
+				// its method.
+				if typ := staticReceiver(callee.ChildByFieldName("target"), w.src); typ != "" {
+					w.noteTypedCall(typ, name)
+				}
 			case isNav:
 				// Member call on a lowercase / property-chain receiver
 				// (coordinator?.show(), delegate?.tap(), self.prop.foo()). Emit a
@@ -1684,24 +1689,70 @@ func calleeInfo(callee *sitter.Node, src []byte) (name string, isNav bool, root 
 	return "", false, "", false
 }
 
+// staticReceiver returns the type a callee's receiver names when the receiver is a
+// type written as such, `Type` or `Outer.Type`: its last component; "" otherwise.
+func staticReceiver(target *sitter.Node, src []byte) string {
+	if target == nil {
+		return ""
+	}
+	switch kindOf(target) {
+	case "simple_identifier":
+		if name := nodeText(target, src); isCapitalized(name) && !isSystemType(name) {
+			return name
+		}
+	case "navigation_expression":
+		inner := target.ChildByFieldName("target")
+		if inner == nil {
+			inner = firstNamedChild(target)
+		}
+		suffix := target.ChildByFieldName("suffix")
+		if suffix == nil {
+			suffix = findChildByKind(target, "navigation_suffix")
+		}
+		if suffix == nil || staticReceiver(inner, src) == "" {
+			return ""
+		}
+		if id := findFirstIdentifier(suffix, src); id != nil {
+			if name := nodeText(id, src); isCapitalized(name) {
+				return name
+			}
+		}
+	}
+	return ""
+}
+
 // navigationRoot drills to the leftmost receiver of a (possibly nested)
 // navigation_expression and returns its identifier text ("self" for self).
 func navigationRoot(nav *sitter.Node, src []byte) string {
 	cur := nav
-	for cur != nil && kindOf(cur) == "navigation_expression" {
-		target := cur.ChildByFieldName("target")
-		if target == nil {
-			target = firstNamedChild(cur)
+walk:
+	for cur != nil {
+		switch kindOf(cur) {
+		case "navigation_expression":
+			target := cur.ChildByFieldName("target")
+			if target == nil {
+				target = firstNamedChild(cur)
+			}
+			cur = target
+			continue
+		case "call_expression":
+			// A chain, Type.make().run(): the receiver of the outer call is the inner
+			// call, rooted where the inner callee is.
+			cur = firstNamedChild(cur)
+			continue
 		}
-		cur = target
+		break walk
 	}
 	if cur == nil {
 		return ""
 	}
-	if kindOf(cur) == "self_expression" {
+	switch kindOf(cur) {
+	case "self_expression":
 		return "self"
+	case "simple_identifier", "identifier", "type_identifier", "user_type":
+		return nodeText(cur, src)
 	}
-	return nodeText(cur, src)
+	return ""
 }
 
 func isCapitalized(s string) bool {

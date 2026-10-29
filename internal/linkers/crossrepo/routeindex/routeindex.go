@@ -87,14 +87,15 @@ func IsIndexedServerRoute(f facts.Fact) bool {
 }
 
 // IsNonHTTPRoute reports whether a route is no HTTP call or endpoint at all: a
-// GraphQL operation, which the graphql signal joins, or a WordPress hook, which is
-// in-process dispatch. HTTP matching and its coverage leave both alone.
+// GraphQL operation, which the graphql signal joins, a WordPress hook, which is
+// in-process dispatch, or a client spec's operation whose calls are routes of their
+// own (facts.PropSpecDeclaration). HTTP matching and its coverage leave them alone.
 func IsNonHTTPRoute(f facts.Fact) bool {
 	switch f.PropString(facts.PropRouteType) {
 	case facts.RouteTypeGraphQL, facts.RouteTypeHook:
 		return true
 	}
-	return false
+	return f.PropBool(facts.PropSpecDeclaration)
 }
 
 // IndexServerRef adds one server route reference to a server index under every key a

@@ -600,3 +600,33 @@ func resolveReceiverCalls(f *facts.Fact, exists map[string]bool, declaring func(
 		}
 	}
 }
+
+// scopeFunctionReceiver returns the declared type of the receiver a scope function
+// call hands its lambda as `this`: `with(x) { … }`, `x.apply { … }`, `x.run { … }`;
+// "" for any other call, or a receiver of no declared type. The grammar reads
+// `with(x) { … }` as the call `with(x)` called again with the lambda.
+func (w *astWalker) scopeFunctionReceiver(call *sitter.Node) string {
+	if findChildByKind(call, "annotated_lambda") == nil {
+		return ""
+	}
+	callee := kotlinUnprefixed(firstNamedChild(call))
+	if callee == nil {
+		return ""
+	}
+	if kindOf(callee) == "call_expression" {
+		inner := kotlinUnprefixed(firstNamedChild(callee))
+		if inner == nil || !kotlinIsIdentifier(inner) || nodeText(inner, w.src) != "with" {
+			return ""
+		}
+		if args := findChildByKind(callee, "value_arguments"); args != nil {
+			if arg := findChildByKind(args, "value_argument"); arg != nil {
+				return w.receiverType(kotlinUnprefixed(firstNamedChild(arg)))
+			}
+		}
+		return ""
+	}
+	if name, isNav := calleeName(callee, w.src); isNav && (name == "apply" || name == "run") {
+		return w.receiverType(kotlinUnprefixed(firstNamedChild(callee)))
+	}
+	return ""
+}

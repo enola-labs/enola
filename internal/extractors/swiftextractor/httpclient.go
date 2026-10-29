@@ -265,8 +265,13 @@ func swiftAPIHint(relFile string) string {
 // fixtures, not real endpoints.
 func isSwiftTestFile(relFile string) bool {
 	slash := filepath.ToSlash(relFile)
-	if strings.Contains(slash, "/Tests/") || strings.HasPrefix(slash, "Tests/") {
-		return true
+	// A test target's directory is named for it: Tests/, CoreTests/, AppUITests/. An
+	// Xcode file template is a placeholder skeleton, not code that runs.
+	dirs := strings.Split(slash, "/")
+	for _, d := range dirs[:len(dirs)-1] {
+		if strings.HasSuffix(d, "Tests") || strings.HasSuffix(d, ".xctemplate") {
+			return true
+		}
 	}
 	base := strings.TrimSuffix(filepath.Base(slash), filepath.Ext(slash))
 	return strings.HasSuffix(base, "Test") || strings.HasSuffix(base, "Tests") ||
