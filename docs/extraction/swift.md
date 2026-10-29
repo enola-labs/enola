@@ -114,6 +114,38 @@ route  feed/items   Sources/CoreKit/Networking.swift:17
 This is the iOS half of *if I change this endpoint, which screens break?* — the mobile
 client's call has to reach the backend route, and it only does if the prefix was resolved.
 
+## Routes — a request base class
+
+An app's own request type takes the path as `endpoint: String` and the verb as a
+`method:` with a default. A type whose initializer has that shape is a request base,
+whatever it is called, and every request made through it is a client route at the code
+making it:
+
+```swift
+open class Request<T> {
+    init(endpoint: String, method: HTTPMethod = .get, params: Params = [:]) { … }
+}
+
+final class Follow: Request<Empty> {
+    init(id: Int) { super.init(endpoint: "users/\(id)/follow", method: .post) }
+}
+
+static var settings: Request<Settings> { .init(endpoint: "settings") }
+
+let endpoint = Paths.normalize("/api/v1/items")      // generated client
+return Request(host: .gateway, endpoint: endpoint, gatewayEndpointPrefix: "/catalogue")
+```
+
+```
+route  users/{}/follow       POST   caller=…Follow.init
+route  settings              GET    caller=…settings
+route  catalogue/api/v1/items GET   caller=…ItemsAPI.listRoute
+```
+
+The endpoint is read from a literal, a call whose only argument is one, or a local bound
+to either earlier in the file; a literal `gatewayEndpointPrefix:` is joined in. A path
+held in a property set elsewhere stays `{}`.
+
 ## What is deliberately not extracted
 
 - **Runtime-composed URLs.** A path assembled from a computed property with no literal

@@ -121,6 +121,36 @@ service    repoB            props: edge_coverage=[{detected: 1, resolved: 1, unr
                             --depends_on--> repoA
 ```
 
+### Calls through a generated client
+
+When the code calling a client spec's generated client is in reach, each call becomes a
+client route at the code making it, with its caller, and the spec's operations become
+declarations (`spec_declaration=true`) that HTTP matching skips. A repo vendoring a
+100-operation spec to use two of them depends on those two.
+
+```
+route  /invoices   internal/billing/client.go:41   props: role=client, source=generated-client,
+                                                          operationId=listInvoices,
+                                                          caller=internal/billing.client.List
+route  /invoices   api/openapi/client/billing.yml  props: role=client, spec_declaration=true
+```
+
+Two shapes are recognised. A client generated into the checkout: the package whose
+generated methods (`generated=true`) implement most of the spec's operations, named after
+the operationId with the generator's suffixes (`ListInvoicesWithResponse`), or after verb
+and path when the spec has no operationId. And a client generated at build time: a type
+imported from a package named after the spec file (`billing.yml` → `…billing.apis.…`, or
+with an overlay variant, `…billingedge.apis.…`), with a call to an operation by name in
+the importing file. A spec with no call seen keeps its operations as calls.
+
+### Served operations and their implementation
+
+A spec-first server registers its routes in generated code, so the spec's operation and
+the hand-written method share only the operationId. Each served operation is bound
+(`handled_by`) to the method of the hand-written type implementing more than half of the
+spec's operations, spelled as the operationId or in PascalCase (`getWidget` →
+`GetWidget`). Generated wrappers and mocks are never candidates, and a tie binds nothing.
+
 ## What is deliberately not extracted
 
 - **Schema shapes.** enola records that an operation exists and who calls it, not the
