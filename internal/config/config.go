@@ -465,15 +465,19 @@ func Default() *Config {
 			// pollutes query_facts with thousands of spurious facts. The **/<dir>/**
 			// form matches the directory at ANY depth (e.g. Gradle/Android emit
 			// data/build/kspCaches/...), not just at the repo root.
-			".next/**",
+			// The framework build directories are named by their tool and are never
+			// source, so they match at any depth too: a workspace keeps its Next.js
+			// app in a subdirectory, and its .next/ held route type files importing
+			// every page.
+			"**/.next/**",
 			"dist/**",
 			"**/build/**",
 			"out/**",
-			".vercel/**",
-			".turbo/**",
+			"**/.vercel/**",
+			"**/.turbo/**",
 			"coverage/**",
-			".nuxt/**",
-			".svelte-kit/**",
+			"**/.nuxt/**",
+			"**/.svelte-kit/**",
 			"**/__pycache__/**",
 			// Python virtual environments, installed dependencies, and tool caches.
 			// A repo-local .venv/venv holds the entire dependency tree (thousands of

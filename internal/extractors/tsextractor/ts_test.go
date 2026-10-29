@@ -105,7 +105,7 @@ func TestDetectRoute_AppRouter(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := detectRoute(tt.file)
+			got := detectRoute(tt.file, []string{""})
 			if got == nil {
 				t.Fatal("expected route fact, got nil")
 			}
@@ -140,7 +140,7 @@ func TestDetectRoute_PagesRouter(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := detectRoute(tt.file)
+			got := detectRoute(tt.file, []string{""})
 			if got == nil {
 				t.Fatal("expected route fact, got nil")
 			}
@@ -159,7 +159,7 @@ func TestDetectRoute_PagesRouter(t *testing.T) {
 
 func TestDetectRoute_PagesRouter_SkipsSpecialFiles(t *testing.T) {
 	for _, file := range []string{"pages/_app.tsx", "pages/_document.tsx", "pages/_error.tsx"} {
-		got := detectRoute(file)
+		got := detectRoute(file, []string{""})
 		if got != nil {
 			t.Errorf("detectRoute(%q) should return nil for special pages, got %+v", file, got)
 		}
@@ -167,7 +167,7 @@ func TestDetectRoute_PagesRouter_SkipsSpecialFiles(t *testing.T) {
 }
 
 func TestDetectRoute_NonRoute(t *testing.T) {
-	got := detectRoute("src/components/Button.tsx")
+	got := detectRoute("src/components/Button.tsx", []string{""})
 	if got != nil {
 		t.Error("non-route file should return nil")
 	}
@@ -1638,5 +1638,23 @@ export default class Panel {
 	}
 	if _, present := compute.Props["decorators"]; present {
 		t.Errorf("undecorated method must carry no decorators prop, got %v", compute.Props["decorators"])
+	}
+}
+
+// A pages/ or app/ directory routes only where a Next.js app keeps its routers: a
+// library of the workspace with screens in src/pages is no app.
+func TestDetectRoute_OnlyAnAppsRouterDirectories(t *testing.T) {
+	roots := []string{"apps/web"}
+	for file, want := range map[string]bool{
+		"apps/web/pages/orders.tsx":                 true,
+		"apps/web/src/app/orders/page.tsx":          true,
+		"libs/orders/src/pages/OrdersPage/types.ts": false,
+		"libs/orders/src/pages/OrdersPage/index.ts": false,
+		"apps/web/src/components/pages/Header.tsx":  false,
+		"libs/orders/src/app/settings/page.tsx":     false,
+	} {
+		if got := detectRoute(file, roots) != nil; got != want {
+			t.Errorf("detectRoute(%q) route = %v, want %v", file, got, want)
+		}
 	}
 }
