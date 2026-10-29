@@ -303,3 +303,38 @@ func TestTailwind_V4CompoundNamespaces(t *testing.T) {
 		t.Errorf("text-muted users %v", users)
 	}
 }
+
+// Two themes a stylesheet @imports that both declare a name: the later import wins.
+// Projects imported in an order no one stylesheet fixes keep both declarations.
+func TestTailwind_LaterImportWins(t *testing.T) {
+	ff := extractAll(t, map[string]string{
+		"tokens/package.json": `{"name": "tokens"}`,
+		"tokens/theme.css":    `@theme { --radius-sm: 2px; --color-ink: #111; }`,
+		"kit/package.json":    `{"name": "@acme/kit"}`,
+		"kit/src/styles.css":  `@theme { --radius-sm: 4px; --color-ink: #222; }`,
+		"web/package.json":    `{"name": "web", "devDependencies": {"tailwindcss": "4"}}`,
+		"web/styles.css": `@import "tailwindcss";
+@import "../tokens/theme.css";
+@import "@acme/kit/src/styles.css";`,
+		"web/Home.tsx":       `export const Home = () => <div className="rounded-sm" />`,
+		"embed/package.json": `{"name": "embed", "devDependencies": {"tailwindcss": "4"}}`,
+		"embed/styles.css": `@import "@acme/kit/src/styles.css";
+@import "../tokens/theme.css";`,
+		"embed/Frame.tsx":    `export const Frame = () => <div className="rounded-sm" />`,
+		"split/package.json": `{"name": "split", "devDependencies": {"tailwindcss": "4"}}`,
+		"split/a.css":        `@import "../tokens/theme.css";`,
+		"split/b.css":        `@import "../kit/src/styles.css";`,
+		"split/Pane.tsx":     `export const Pane = () => <div className="text-ink" />`,
+	}, false)
+	users := nodeUsers(ff)
+	for node, want := range map[string][]string{
+		"tailwind/kit/src/borderRadius.sm": {"web/Home.tsx"},
+		"tailwind/tokens/borderRadius.sm":  {"embed/Frame.tsx"},
+		"tailwind/kit/src/colors.ink":      {"split/Pane.tsx"},
+		"tailwind/tokens/colors.ink":       {"split/Pane.tsx"},
+	} {
+		if strings.Join(users[node], ",") != strings.Join(want, ",") {
+			t.Errorf("%s used by %v, want %v", node, users[node], want)
+		}
+	}
+}

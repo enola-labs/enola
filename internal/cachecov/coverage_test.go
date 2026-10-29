@@ -89,6 +89,7 @@ var versionCoverage = map[int][]string{
 	493: {"TestAliasTargetDiskProbesAreRecorded", "TestExtractorCache_ProbedPathKeysTheFacts"},
 	494: {"TestTailwind_TokenNamesAreScopedPerProject"},
 	495: {"TestTailwind_V4CompoundNamespaces"},
+	496: {"TestTailwind_LaterImportWins"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},
 	438: {"TestExtract_StructUsage_StdlibAndRootPackages"},
