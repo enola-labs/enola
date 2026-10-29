@@ -166,3 +166,46 @@ func TestSpecKey(t *testing.T) {
 		}
 	}
 }
+
+// A spec read as served that the repo only calls, through a client generated into
+// the checkout, is a client spec; one a hand-written type implements stays served.
+func TestServedSpecTheRepoCalls(t *testing.T) {
+	served := func(specFile, path, id string) facts.Fact {
+		f := specOp("svc", specFile, path, "GET", id)
+		f.Props[facts.PropRole] = facts.RoleServer
+		return f
+	}
+	store := facts.NewStore()
+	store.Add(
+		served("api/entities.yml", "/predict", "predict"),
+		served("api/entities.yml", "/versions", "listVersions"),
+		served("api/entities.yml", "/healthz", "isLive"),
+		served("api/entities.yml", "/readyz", "isReady"),
+		served("api/service.yml", "/items", "items"),
+		served("api/service.yml", "/healthz", "isLive"),
+		symbol("svc", "internal/entities/api.ClientWithResponses.PredictWithResponse", "internal/entities/api/contract.gen.go", facts.SymbolMethod, true),
+		symbol("svc", "internal/entities.client.Predict", "internal/entities/client.go", facts.SymbolMethod, false,
+			calls("internal/entities/api.ClientWithResponses.PredictWithResponse")),
+		symbol("svc", "internal/server/api.ServerInterface.Items", "internal/server/api/server.gen.go", facts.SymbolMethod, true),
+		symbol("svc", "internal/server/api.ServerInterface.IsLive", "internal/server/api/server.gen.go", facts.SymbolMethod, true),
+		symbol("svc", "internal/server.Server.Items", "internal/server/items.go", facts.SymbolMethod, false,
+			calls("internal/server/api.ServerInterface.IsLive")),
+		symbol("svc", "internal/server.Server.IsLive", "internal/server/health.go", facts.SymbolMethod, false),
+	)
+	bind(t, store)
+	bind(t, store)
+
+	for _, f := range routesBy(store, facts.RouteSourceOpenAPI) {
+		wantClient := f.PropString("spec_file") == "api/entities.yml"
+		if got := f.PropString(facts.PropRole) == facts.RoleClient; got != wantClient {
+			t.Errorf("%s %s: client = %v, want %v", f.PropString("spec_file"), f.Name, got, wantClient)
+		}
+		if wantClient && !f.PropBool(facts.PropSpecDeclaration) {
+			t.Errorf("%s not a declaration", f.Name)
+		}
+	}
+	got := routesBy(store, RouteSource)
+	if len(got) != 1 || got[0].Name != "/predict" || got[0].PropString(facts.PropCaller) != "internal/entities.client.Predict" {
+		t.Errorf("call sites = %+v", got)
+	}
+}

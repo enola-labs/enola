@@ -41,6 +41,7 @@ import (
 	"unicode"
 
 	"github.com/enola-labs/enola/internal/facts"
+	"github.com/enola-labs/enola/internal/linkers/binders/vendoredspecs"
 	"github.com/enola-labs/enola/pkg/plugin"
 )
 
@@ -59,6 +60,10 @@ func (b *Binder) Stage() plugin.BindStage { return plugin.StagePreLink }
 // spec is one client spec of a repo: its operations by operationId, and by the
 // PascalCase spelling generators give method names.
 type spec struct {
+	// served is a spec the OpenAPI extractor read as one the repo serves; it is a
+	// client spec when the repo is seen calling its generated client and no
+	// hand-written type implements it.
+	served   bool
 	file     string
 	dir      string // the spec's directory, spelled as the facts spell files
 	key      string
@@ -71,7 +76,7 @@ var copiedProps = []string{"method", "operationId", "spec_file", "gateway_path",
 
 func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 	all := store.FactsRef()
-	specs := clientSpecs(all)
+	specs := openAPISpecs(all)
 	if len(specs) == 0 {
 		return nil
 	}
@@ -111,6 +116,17 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 	importedClientCalls(all, specs, emit)
 	inRepoClientCalls(all, specs, emit)
 
+	// A spec read as served that the repo calls through its generated client is one
+	// the repo calls: its operations become client declarations.
+	demote := map[[2]string]bool{}
+	for repo, ss := range specs {
+		for _, s := range ss {
+			if s.served && used[[2]string{repo, s.file}] {
+				demote[[2]string{repo, s.file}] = true
+			}
+		}
+	}
+
 	// A spec an overlay variant is generated from is consumed through the variant:
 	// "orders-api.yaml" beside "overlay/orders-api-edge.yaml".
 	for repo, ss := range specs {
@@ -130,8 +146,15 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 
 	marked := 0
 	store.UpdateWhere(func(f *facts.Fact) {
-		if f.Kind != facts.KindRoute || f.PropString(facts.PropSource) != facts.RouteSourceOpenAPI ||
-			f.PropString(facts.PropRole) != facts.RoleClient || !used[[2]string{f.Repo, f.PropString("spec_file")}] {
+		if f.Kind != facts.KindRoute || f.PropString(facts.PropSource) != facts.RouteSourceOpenAPI {
+			return
+		}
+		key := [2]string{f.Repo, f.PropString("spec_file")}
+		if demote[key] && f.PropString(facts.PropRole) == facts.RoleServer {
+			f.SetProp(facts.PropRole, facts.RoleClient)
+			f.SetProp(vendoredspecs.PropVendoredSpec, true)
+		}
+		if f.PropString(facts.PropRole) != facts.RoleClient || !used[key] {
 			return
 		}
 		if !f.PropBool(facts.PropSpecDeclaration) {
@@ -149,12 +172,16 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 	return nil
 }
 
-// clientSpecs returns each repo's client specs, keyed repo -> spec file.
-func clientSpecs(all []facts.Fact) map[string]map[string]*spec {
+// openAPISpecs returns each repo's OpenAPI specs, client and served, keyed repo ->
+// spec file.
+func openAPISpecs(all []facts.Fact) map[string]map[string]*spec {
 	out := map[string]map[string]*spec{}
 	for _, f := range all {
-		if f.Kind != facts.KindRoute || f.PropString(facts.PropSource) != facts.RouteSourceOpenAPI ||
-			f.PropString(facts.PropRole) != facts.RoleClient {
+		if f.Kind != facts.KindRoute || f.PropString(facts.PropSource) != facts.RouteSourceOpenAPI {
+			continue
+		}
+		role := f.PropString(facts.PropRole)
+		if role != facts.RoleClient && role != facts.RoleServer && role != "" {
 			continue
 		}
 		file, id := f.PropString("spec_file"), f.PropString("operationId")
@@ -169,7 +196,7 @@ func clientSpecs(all []facts.Fact) map[string]map[string]*spec {
 		}
 		s := out[f.Repo][file]
 		if s == nil {
-			s = &spec{file: file, dir: path.Dir(f.File), key: specKey(file), ops: map[string]facts.Fact{}, byPascal: map[string]string{}}
+			s = &spec{served: role != facts.RoleClient, file: file, dir: path.Dir(f.File), key: specKey(file), ops: map[string]facts.Fact{}, byPascal: map[string]string{}}
 			out[f.Repo][file] = s
 		}
 		if _, dup := s.ops[id]; !dup {
@@ -186,7 +213,7 @@ func importedClientCalls(all []facts.Fact, specs map[string]map[string]*spec, em
 	byKey := map[string]map[string][]*spec{}
 	for repo, ss := range specs {
 		for _, s := range sortedSpecs(ss) {
-			if s.key == "" {
+			if s.key == "" || s.served {
 				continue
 			}
 			if byKey[repo] == nil {
@@ -325,8 +352,12 @@ func inRepoClientCalls(all []facts.Fact, specs map[string]map[string]*spec, emit
 		pkgs = append(pkgs, k)
 	}
 	sort.Strings(pkgs)
+	implemented := handImplemented(all, specs)
 	for repo, ss := range specs {
 		for _, s := range sortedSpecs(ss) {
+			if s.served && implemented[s] {
+				continue // the repo serves it
+			}
 			best, bestN, tie := "", 0, false
 			for _, k := range pkgs {
 				if !strings.HasPrefix(k, repo+"\x00") {
@@ -347,6 +378,30 @@ func inRepoClientCalls(all []facts.Fact, specs map[string]map[string]*spec, emit
 			}
 			if best != "" && !tie && 2*bestN > len(s.ops) && pkgSpec[best] == nil {
 				pkgSpec[best] = s
+				continue
+			}
+			// A client generated from part of a spec implements a minority of it; its
+			// package is still the one named after the spec, when exactly one is.
+			named := ""
+			for _, k := range pkgs {
+				if !strings.HasPrefix(k, repo+"\x00") || pkgSpec[k] != nil || !pathNames(k, s.key) {
+					continue
+				}
+				covers := false
+				for p := range s.byPascal {
+					covers = covers || pkgOps[k][p]
+				}
+				if !covers {
+					continue
+				}
+				if named != "" {
+					named = ""
+					break
+				}
+				named = k
+			}
+			if named != "" {
+				pkgSpec[named] = s
 			}
 		}
 	}
@@ -372,6 +427,67 @@ func inRepoClientCalls(all []facts.Fact, specs map[string]map[string]*spec, emit
 			}
 		}
 	}
+}
+
+// handImplemented returns the served specs a hand-written type implements: one whose
+// methods name more than half of the spec's operations, as openapi-impl binds them.
+func handImplemented(all []facts.Fact, specs map[string]map[string]*spec) map[*spec]bool {
+	owners := map[string]map[string]map[string]bool{} // repo -> owner -> method names
+	for _, f := range all {
+		if f.Kind != facts.KindSymbol || f.PropBool("generated") || f.PropString("symbol_kind") != facts.SymbolMethod {
+			continue
+		}
+		if specs[f.Repo] == nil {
+			continue
+		}
+		dot := strings.LastIndexByte(f.Name, '.')
+		if dot <= 0 {
+			continue
+		}
+		if owners[f.Repo] == nil {
+			owners[f.Repo] = map[string]map[string]bool{}
+		}
+		if owners[f.Repo][f.Name[:dot]] == nil {
+			owners[f.Repo][f.Name[:dot]] = map[string]bool{}
+		}
+		owners[f.Repo][f.Name[:dot]][f.Name[dot+1:]] = true
+	}
+	out := map[*spec]bool{}
+	for repo, ss := range specs {
+		for _, s := range ss {
+			if !s.served {
+				continue
+			}
+			for _, methods := range owners[repo] {
+				n := 0
+				for p, id := range s.byPascal {
+					if methods[p] || methods[id] {
+						n++
+					}
+				}
+				if 2*n > len(s.ops) {
+					out[s] = true
+					break
+				}
+			}
+		}
+	}
+	return out
+}
+
+// pathNames reports whether a repo\x00package key has a path segment equal to a
+// spec's normalized name.
+func pathNames(key, specKey string) bool {
+	if specKey == "" {
+		return false
+	}
+	_, pkg, _ := strings.Cut(key, "\x00")
+	for _, seg := range strings.Split(pkg, "/") {
+		if strings.EqualFold(strings.NewReplacer("-", "", "_", "").Replace(seg), specKey) {
+			return true
+		}
+	}
+	return false
 }
 
 // ownerPackage returns the package of a method's owner type: "a/b.T.M" -> "a/b".
