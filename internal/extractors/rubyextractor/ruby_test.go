@@ -1010,7 +1010,7 @@ func TestRoutes_DrawPrefixSeeding(t *testing.T) {
   draw(:admin_routes)
 end
 `
-	_, res := parseRouteFile([]byte(main), "config/routes.rb", "", jsonapiContext{format: jsonapiRouteDasherized})
+	_, res := parseRouteFile([]byte(main), "config/routes.rb", "", "", jsonapiContext{format: jsonapiRouteDasherized})
 	draws := res.draws
 	if draws["api_core_v3_routes"] != "/api/core/v3" {
 		t.Errorf("api_core_v3_routes prefix = %q, want /api/core/v3", draws["api_core_v3_routes"])
@@ -1030,7 +1030,7 @@ namespace :event do
   resources :posts, only: [:create]
 end
 `
-	ff, _ := parseRouteFile([]byte(sub), "config/routes/api_v2_routes.rb", draws["api_v2_routes"], jsonapiContext{format: jsonapiRouteDasherized})
+	ff, _ := parseRouteFile([]byte(sub), "config/routes/api_v2_routes.rb", draws["api_v2_routes"], "", jsonapiContext{format: jsonapiRouteDasherized})
 	names := map[string]bool{}
 	for _, f := range ff {
 		names[f.Name] = true
@@ -2219,7 +2219,7 @@ func TestRoutes_JsonapiUnknownRouteFormatIsCounted(t *testing.T) {
   end
 end
 `
-	ff, res := parseRouteFile([]byte(src), "config/routes.rb", "", jsonapiContext{format: jsonapiRouteUnknown})
+	ff, res := parseRouteFile([]byte(src), "config/routes.rb", "", "", jsonapiContext{format: jsonapiRouteUnknown})
 	unhandled := res.unresolved
 	if len(ff) != 0 {
 		t.Errorf("an unreadable route formatter must produce no routes, got %d", len(ff))
@@ -2249,7 +2249,7 @@ end
 		modelFiles:    map[string]string{},
 		modelCache:    map[string]map[string]string{},
 	}
-	ff, _ := parseRouteFile([]byte(src), "config/routes.rb", "", jsonapiContext{format: jsonapiRouteDasherized, resolver: resolver})
+	ff, _ := parseRouteFile([]byte(src), "config/routes.rb", "", "", jsonapiContext{format: jsonapiRouteDasherized, resolver: resolver})
 	routes := routeMethods(ff)
 
 	for _, m := range []string{"POST", "PATCH", "PUT", "DELETE"} {
@@ -2372,7 +2372,7 @@ func TestParseMount_HashRocketCallKey(t *testing.T) {
   mount Coverband::Reporters::Web.new, at: "/coverage"
 end
 `)
-	ff, _ := parseRouteFile(src, "config/routes.rb", "", jsonapiContext{format: jsonapiRouteDasherized})
+	ff, _ := parseRouteFile(src, "config/routes.rb", "", "", jsonapiContext{format: jsonapiRouteDasherized})
 	got := map[string]string{}
 	for _, f := range ff {
 		if f.Kind == facts.KindRoute && f.Props["method"] == "MOUNT" {

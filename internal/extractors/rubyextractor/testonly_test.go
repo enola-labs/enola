@@ -22,6 +22,6 @@ func extractRubyHTTPClientFacts(src []byte, relFile string) []facts.Fact {
 // facts. Block boundaries come from the grammar (do_block) rather than counting
 // `do`/`end`, so nested namespaces/resources/scopes are tracked precisely.
 func parseRouteFileAST(src []byte, relFile string) []facts.Fact {
-	ff, _ := parseRouteFile(src, relFile, "", jsonapiContext{format: jsonapiRouteDasherized})
+	ff, _ := parseRouteFile(src, relFile, "", "", jsonapiContext{format: jsonapiRouteDasherized})
 	return ff
 }
