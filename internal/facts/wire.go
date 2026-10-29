@@ -68,6 +68,12 @@ const (
 // tell, which is not a verdict either way.
 const PropClientReachable = "client_reachable"
 
+// PropSpecDeclaration is true on an operation of a client spec whose generated client
+// the repo's code is seen calling. The calls are routes of their own, at the code
+// making them, so the operation is a declaration: it records what the client could
+// call, not a call, and HTTP matching leaves it alone.
+const PropSpecDeclaration = "spec_declaration"
+
 // How a reachable client call is triggered, read from the code that runs it, on a
 // client route and, for a server route, the strongest among the client calls that
 // match it. PropClientTrigger is ClientTriggerPoll (a timer or a query's refetch
