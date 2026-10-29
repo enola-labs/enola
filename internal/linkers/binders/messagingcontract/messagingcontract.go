@@ -85,6 +85,9 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 		}
 		identity := codeIdentity(f)
 		candidates := contracts[operationKey(f)]
+		if len(candidates) == 0 {
+			candidates = parameterMatches(contracts, f)
+		}
 		matches := compatibleContracts(candidates, f.PropString(facts.PropMessaging))
 		candidateCounts[identity] = len(matches)
 		switch {
@@ -190,6 +193,52 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 		log.Printf("[binder:messaging-contract] bound %d messaging call site(s) to AsyncAPI operations", bound)
 	}
 	return nil
+}
+
+// parameterMatches returns the contracts of the code operation's repo and direction
+// whose name matches it with channel parameters: a `{name}` segment on either side
+// stands for any one segment, so code publishing "orders.{region}.placed" implements
+// a contract written for one region, "orders.eu.placed", and the reverse.
+func parameterMatches(contracts map[string][]contractRef, code facts.Fact) []contractRef {
+	name := code.Name
+	segs := strings.Split(name, ".")
+	prefix := code.Repo + "\x00"
+	suffix := "\x00" + code.PropString(facts.PropMessagingOperation)
+	keys := make([]string, 0)
+	for key := range contracts {
+		if strings.HasPrefix(key, prefix) && strings.HasSuffix(key, suffix) {
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+	var out []contractRef
+	for _, key := range keys {
+		other := strings.TrimSuffix(strings.TrimPrefix(key, prefix), suffix)
+		if other != name && segmentsMatch(segs, strings.Split(other, ".")) {
+			out = append(out, contracts[key]...)
+		}
+	}
+	return out
+}
+
+func segmentsMatch(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	param := false
+	for i := range a {
+		switch {
+		case isChannelParameter(a[i]) || isChannelParameter(b[i]):
+			param = true
+		case a[i] != b[i]:
+			return false
+		}
+	}
+	return param
+}
+
+func isChannelParameter(seg string) bool {
+	return len(seg) > 2 && seg[0] == '{' && seg[len(seg)-1] == '}'
 }
 
 func compatibleContracts(candidates []contractRef, codeProtocol string) []contractRef {
