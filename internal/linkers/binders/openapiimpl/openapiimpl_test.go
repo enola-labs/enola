@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/enola-labs/enola/internal/facts"
+	"github.com/enola-labs/enola/internal/linkers/binders/vendoredspecs"
 )
 
 func bind(t *testing.T, store *facts.Store) {
@@ -188,5 +189,73 @@ func TestInheritsTheDocumentedRoutesHandler(t *testing.T) {
 	bind(t, store)
 	if got := handledBy(t, store, "/api/v1/users/{user_id}/sessions", "api/sessions.yml"); got != "Api::V1::SessionsController#index" {
 		t.Errorf("handled_by = %q", got)
+	}
+}
+
+func roleOf(store *facts.Store, path, spec string) string {
+	for _, f := range store.ByKind(facts.KindRoute) {
+		if f.Name == path && f.PropString("spec_file") == spec {
+			return f.PropString(facts.PropRole)
+		}
+	}
+	return ""
+}
+
+// A repository that implements its specs by operation does not serve a spec of which
+// it implements nothing: that spec is one it calls. A rerun, with vendored-specs
+// restoring what it finds flagged, settles in the same place.
+func TestUnimplementedSpecIsCalled(t *testing.T) {
+	store := facts.NewStore()
+	repoOp := func(path, spec, id string) facts.Fact {
+		f := op(path, spec, id)
+		f.Repo = "svc"
+		return f
+	}
+	repoMethod := func(name string) facts.Fact {
+		f := method(name, false)
+		f.Repo = "svc"
+		return f
+	}
+	store.Add(
+		repoOp("/items", "api/service.yml", "items"),
+		repoOp("/healthz", "api/service.yml", "isLive"),
+		repoOp("/v1/features", "api/feature_store.yml", "getFeatures"),
+		repoOp("/healthz", "api/feature_store.yml", "isReady"),
+		repoMethod("server.S.Items"),
+		repoMethod("server.S.IsLive"),
+		// a route the service registers by hand, which no spec documents
+		facts.Fact{Kind: facts.KindRoute, Name: "/metrics", Repo: "svc", Props: map[string]any{"method": "GET"}},
+	)
+	bind(t, store)
+	if r := roleOf(store, "/v1/features", "api/feature_store.yml"); r != facts.RoleClient {
+		t.Errorf("unimplemented spec role = %q, want client", r)
+	}
+	if r := roleOf(store, "/items", "api/service.yml"); r != facts.RoleServer {
+		t.Errorf("implemented spec role = %q, want server", r)
+	}
+
+	if err := vendoredspecs.New().Bind(context.Background(), store); err != nil {
+		t.Fatal(err)
+	}
+	bind(t, store)
+	if r := roleOf(store, "/v1/features", "api/feature_store.yml"); r != facts.RoleClient {
+		t.Errorf("after a rerun, unimplemented spec role = %q, want client", r)
+	}
+}
+
+// A repository whose specs document the routes its framework registers is not judged
+// by operation: a spec it implements none of stays served.
+func TestDocumentingRepoKeepsItsSpecs(t *testing.T) {
+	code := facts.Fact{Kind: facts.KindRoute, Name: "/api/v1/users/:id", File: "config/routes.rb",
+		Props:     map[string]any{"method": "GET"},
+		Relations: []facts.Relation{{Kind: facts.RelHandledBy, Target: "UsersController#show"}}}
+	store := facts.NewStore()
+	store.Add(code,
+		op("/api/v1/users/{id}", "api/users.yml", "getUser"),
+		op("/api/v1/orders", "api/orders.yml", "listOrders"),
+	)
+	bind(t, store)
+	if r := roleOf(store, "/api/v1/orders", "api/orders.yml"); r != facts.RoleServer {
+		t.Errorf("spec with no handler in a documenting repo: role = %q, want server", r)
 	}
 }

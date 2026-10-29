@@ -9,6 +9,7 @@ import (
 	"unicode"
 
 	"github.com/enola-labs/enola/internal/facts"
+	"github.com/enola-labs/enola/internal/linkers/binders/vendoredspecs"
 	"github.com/enola-labs/enola/pkg/plugin"
 )
 
@@ -29,15 +30,32 @@ import (
 // and are never candidates. A tie binds nothing, as in grpcimpl: a wrong handled_by
 // edge is worse than a missing one.
 //
-// It is post-link: routes and implementations are matched strictly within one repo.
+// A spec read as served that the repository does not implement is one it calls. Where
+// a repository implements its specs by operation, as it does when any of them binds
+// above, a spec of which not one operation is implemented — by a method or by a route
+// the code registers — is not served by it, and is made a client spec. A repository
+// whose specs are implemented some other way, documenting routes its framework
+// registers, is not judged by a rule it does not follow.
+//
+// It is pre-link, after vendored-specs: the roles it settles are what the cross-repo
+// linker matches on. Routes and implementations are matched strictly within one repo.
 type Binder struct{}
+
+// Values of the handler_binding prop: how an operation's handler was found.
+const (
+	PropHandlerBinding = "handler_binding"
+	// BindingOperation: a hand-written method named for the operation.
+	BindingOperation = "operation"
+	// BindingCodeRoute: the handler of the route the code registers at the path.
+	BindingCodeRoute = "code-route"
+)
 
 // New returns the binder.
 func New() *Binder { return &Binder{} }
 
 func (b *Binder) Name() string { return "openapi-impl" }
 
-func (b *Binder) Stage() plugin.BindStage { return plugin.StagePostLink }
+func (b *Binder) Stage() plugin.BindStage { return plugin.StagePreLink }
 
 type operation struct {
 	repo, spec, id string
@@ -142,21 +160,57 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 		if !ok {
 			return
 		}
-		target := targets[op]
+		target, how := targets[op], BindingOperation
 		if target == "" {
-			target = codeHandlers[f.Repo+"\x00"+endpointKey(f.PropString("method"), f.Name)]
+			target, how = codeHandlers[f.Repo+"\x00"+endpointKey(f.PropString("method"), f.Name)], BindingCodeRoute
 		}
 		if target == "" {
 			return
 		}
 		f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelHandledBy, Target: target})
 		f.SetProp("handler", target)
+		f.SetProp(PropHandlerBinding, how)
 		bound++
 	})
-	if bound > 0 {
-		log.Printf("[binder:openapi-impl] bound %d OpenAPI operation(s) to their implementation", bound)
+	demoted := demoteUnimplemented(store)
+	if bound > 0 || demoted > 0 {
+		log.Printf("[binder:openapi-impl] bound %d OpenAPI operation(s) to their implementation; %d operation(s) of unimplemented specs made client", bound, demoted)
 	}
 	return nil
+}
+
+// demoteUnimplemented makes a client spec of every served spec of which no operation
+// is implemented, in the repositories that implement their specs by operation.
+func demoteUnimplemented(store *facts.Store) int {
+	implementsByOperation := map[string]bool{}
+	specBound := map[[2]string]bool{}
+	for _, f := range store.ByKind(facts.KindRoute) {
+		if f.PropString(facts.PropSource) != facts.RouteSourceOpenAPI || f.PropString(facts.PropRole) != facts.RoleServer {
+			continue
+		}
+		if f.PropString(PropHandlerBinding) == BindingOperation {
+			implementsByOperation[f.Repo] = true
+		}
+		for _, r := range f.Relations {
+			if r.Kind == facts.RelHandledBy {
+				specBound[[2]string{f.Repo, f.PropString("spec_file")}] = true
+			}
+		}
+	}
+	demoted := 0
+	store.UpdateWhere(func(f *facts.Fact) {
+		if f.Kind != facts.KindRoute || f.PropString(facts.PropSource) != facts.RouteSourceOpenAPI ||
+			f.PropString(facts.PropRole) != facts.RoleServer || !implementsByOperation[f.Repo] {
+			return
+		}
+		if specBound[[2]string{f.Repo, f.PropString("spec_file")}] || f.PropString("spec_file") == "" {
+			return
+		}
+		f.SetProp(facts.PropRole, facts.RoleClient)
+		f.SetProp(vendoredspecs.PropVendoredSpec, true)
+		demoted++
+	})
+	return demoted
 }
 
 // serverOperation reports the operation a fact declares when it is a served OpenAPI

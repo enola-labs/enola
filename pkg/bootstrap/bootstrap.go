@@ -539,12 +539,14 @@ func registerOSSPlugins(eng *engine.Engine, cfg *config.Config) {
 	eng.RegisterBinder(emberresolver.New())
 	eng.RegisterBinder(grpcimpl.New())
 	eng.RegisterBinder(httphandler.New())
-	eng.RegisterBinder(openapiimpl.New())
 	eng.RegisterBinder(mixinowner.New())
 	eng.RegisterBinder(frameworkroots.New())
 	eng.RegisterBinder(moduleedges.New())
 	eng.RegisterBinder(stimulusresolver.New())
 	eng.RegisterBinder(vendoredspecs.New())
+	// After vendored-specs, before generated-clients: the specs it finds unimplemented
+	// are client specs whose calls generated-clients then looks for.
+	eng.RegisterBinder(openapiimpl.New())
 	eng.RegisterBinder(generatedclients.New())
 	eng.RegisterBinder(messagingcontract.New())
 	eng.RegisterBinder(unmatchedroutes.New(linkVocab))
