@@ -1,7 +1,7 @@
 $ enola blame --store ../store pkg/c .
 exit: 0
 --- stdout
-2c6e6af  <TIME>  (9522ef6c8541, backfill)  [local, store:<HOST>]
+01e8585  <TIME>  (9522ef6c8541, backfill)  [local, store:<HOST>]
     + dependency  pkg/b -> example.com/gosample/pkg/c  (pkg/b/gamma.go:3)
     + module      pkg/c  (pkg/c)
     + symbol      pkg/b.UsesGamma  (pkg/b/gamma.go:6)
