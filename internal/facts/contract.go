@@ -62,6 +62,9 @@ const (
 	MessagingSourceAsyncAPI    = "asyncapi"
 	MessagingSourceGoKafkaCall = "go-kafka-call"
 	MessagingSourceTSKafkaCall = "typescript-kafka-call"
+	// MessagingSourceRubyCall is a Ruby publication or subscription that names its
+	// topic; the broker is not stated in the source.
+	MessagingSourceRubyCall = "ruby-messaging-call"
 )
 
 // IsMessagingCodeSource is the central registry of extractor sources that may
@@ -69,7 +72,7 @@ const (
 // boundary instead of teaching every binder and explainer their source names.
 func IsMessagingCodeSource(source string) bool {
 	switch source {
-	case MessagingSourceGoKafkaCall, MessagingSourceTSKafkaCall:
+	case MessagingSourceGoKafkaCall, MessagingSourceTSKafkaCall, MessagingSourceRubyCall:
 		return true
 	default:
 		return false
