@@ -35,9 +35,6 @@ func symbol(repo, name, file, kind string, generated bool, rels ...facts.Relatio
 }
 
 func calls(target string) facts.Relation { return facts.Relation{Kind: facts.RelCalls, Target: target} }
-func injects(target string) facts.Relation {
-	return facts.Relation{Kind: facts.RelInjects, Target: target}
-}
 
 func dep(repo, file, target string) facts.Fact {
 	return facts.Fact{Kind: facts.KindDependency, Name: "mod -> " + target, File: repo + "/" + file, Repo: repo}
