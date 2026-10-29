@@ -3,6 +3,7 @@ package tsextractor
 import (
 	"context"
 	"encoding/json"
+	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
@@ -432,6 +433,7 @@ func bindTailwind(all []facts.Fact, tokens []tailwindToken, repoPath string, fil
 	if len(tokens) == 0 {
 		return all
 	}
+	files = withPackageManifests(repoPath, files)
 	usesTailwind := tailwindProjects(repoPath, files)
 	tokenFiles := map[string]bool{}
 	for _, t := range tokens {
@@ -771,6 +773,39 @@ func tailwindClassToken(cls string, prefixes []string, byPrefix map[string][]str
 		}
 	}
 	return bestNodes
+}
+
+// withPackageManifests adds the package.json files a repository holds to the
+// indexed files: which projects use Tailwind and where one ends is read from them,
+// and an index that ignores JSON (`**/*.json`) still has them on disk. The walk
+// skips what collectPackageNames skips.
+func withPackageManifests(repoPath string, files []string) []string {
+	seen := map[string]bool{}
+	for _, f := range files {
+		seen[filepath.ToSlash(f)] = true
+	}
+	out := slices.Clip(files)
+	_ = filepath.WalkDir(repoPath, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			name := d.Name()
+			if p != repoPath && (strings.HasPrefix(name, ".") || tsSkipDirs[name] || name == "testdata") {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if d.Name() != "package.json" {
+			return nil
+		}
+		rel, err := filepath.Rel(repoPath, p) //factpath:host
+		if err == nil && !seen[factpath.Slash(rel)] {
+			out = append(out, factpath.Slash(rel))
+		}
+		return nil
+	})
+	return out
 }
 
 // tailwindProjects reports whether a file belongs to a project that styles with

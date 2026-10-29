@@ -3316,7 +3316,9 @@ import (
 // with (--text-color-*, --font-weight-*), not to --text or --font.
 // v496: Tailwind: of two themes a stylesheet @imports that both declare a name, the
 // later import's declaration is the one a class names.
-const cacheVersion = "v496"
+// v497: Tailwind reads a repository's package.json files from disk, so an index that
+// ignores JSON still knows which projects use it.
+const cacheVersion = "v497"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
