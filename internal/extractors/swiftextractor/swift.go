@@ -134,6 +134,10 @@ func (e *SwiftExtractor) Extract(ctx context.Context, repoPath string, files []s
 		defaultURLPrefix = detectDefaultURLPrefix(repoPath, files)
 	}
 
+	// Request base classes gate their pass: without a type whose initializer takes an
+	// `endpoint:` path and a defaulted `method:`, no file emits a request through one.
+	requestBases := collectRouteBases(repoPath, swiftFiles)
+
 	// extractFileAST/extractURLSessionFacts are pure; parse the source files in
 	// parallel. The indices below are rebuilt by iterating the per-file results in
 	// file order, so modules, dirToFile and typeIndex match a serial run exactly.
@@ -147,6 +151,7 @@ func (e *SwiftExtractor) Extract(ctx context.Context, repoPath string, files []s
 		}
 		dir := moduleForFile(relFile)
 		clients := append(extractURLSessionFactsWithDir(src, relFile, dir), extractEndpointFacts(src, relFile, dir, defaultURLPrefix)...)
+		clients = append(clients, routeBaseFacts(string(src), relFile, dir, requestBases)...)
 		return extractFileWithClients(src, relFile, isiOS, dir, clients)
 	})
 
@@ -216,9 +221,6 @@ func (e *SwiftExtractor) Extract(ctx context.Context, repoPath string, files []s
 		allFacts = append(allFacts,
 			extractCallSiteEndpointFacts(repoPath, files, defaultURLPrefix, moduleForFile)...)
 	}
-	// A request base class gates itself: without a type whose initializer takes an
-	// `endpoint:` path and a defaulted `method:`, the pass emits nothing.
-	allFacts = append(allFacts, extractRouteBaseFacts(repoPath, files, moduleForFile)...)
 
 	// Parse Package.swift manifests: emit SPM target module facts + the inter-target
 	// dependency graph, and (by rerouting) keep the manifest's own `let package`

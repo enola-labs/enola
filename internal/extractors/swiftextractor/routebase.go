@@ -1,9 +1,11 @@
 package swiftextractor
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/enola-labs/enola/internal/facts"
@@ -279,59 +281,56 @@ func topLevelSubmatch(re *regexp.Regexp, args string) []string {
 	return nil
 }
 
-// extractRouteBaseFacts finds the repository's request base types, then emits one
-// client route per request made through them. Repo-wide, because the base and its
-// uses live in different modules.
-func extractRouteBaseFacts(repoPath string, files []string, moduleForFile func(string) string) []facts.Fact {
-	texts := map[string]string{}
+// collectRouteBases finds the repository's request base types and the verb each
+// defaults to. Repo-wide, because a base and the requests made through it live in
+// different modules; it runs before the per-file walk, which emits the requests.
+func collectRouteBases(repoPath string, files []string) map[string]string {
 	bases := map[string]string{}
 	for _, relFile := range files {
 		if !isSwiftFile(relFile) || isSwiftTestFile(relFile) {
 			continue
 		}
 		src, err := os.ReadFile(filepath.Join(repoPath, relFile))
-		if err != nil || !strings.Contains(string(src), "endpoint") {
+		if err != nil || !bytes.Contains(src, []byte("endpoint")) {
 			continue
 		}
-		texts[relFile] = string(src)
 		for _, b := range routeBases(string(src)) {
 			if prev, ok := bases[b.name]; !ok || b.defaultVerb < prev {
 				bases[b.name] = b.defaultVerb
 			}
 		}
 	}
-	if len(bases) == 0 {
+	return bases
+}
+
+// routeBaseFacts emits one client route per request one source makes through a base.
+func routeBaseFacts(text, relFile, dir string, bases map[string]string) []facts.Fact {
+	if len(bases) == 0 || isSwiftTestFile(relFile) || !strings.Contains(text, "endpoint") {
 		return nil
 	}
 	var out []facts.Fact
-	for _, relFile := range files {
-		text, ok := texts[relFile]
-		if !ok {
+	seen := map[string]bool{}
+	for _, c := range routeBaseCalls(text, bases) {
+		key := c.verb + "\x00" + c.path + "\x00" + strconv.Itoa(c.line)
+		if seen[key] {
 			continue
 		}
-		seen := map[string]bool{}
-		for _, c := range routeBaseCalls(text, bases) {
-			key := c.verb + "\x00" + c.path
-			if seen[key] {
-				continue
-			}
-			seen[key] = true
-			out = append(out, facts.Fact{
-				Kind: facts.KindRoute,
-				Name: c.path,
-				File: relFile,
-				Line: c.line,
-				Props: map[string]any{
-					facts.PropRole:   facts.RoleClient,
-					"method":         c.verb,
-					"framework":      "apiendpoint",
-					"language":       "swift",
-					facts.PropSource: facts.RouteSourceSwiftEndpoint,
-					"api":            swiftAPIHint(relFile),
-				},
-				Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: moduleForFile(relFile)}},
-			})
-		}
+		seen[key] = true
+		out = append(out, facts.Fact{
+			Kind: facts.KindRoute,
+			Name: c.path,
+			File: relFile,
+			Line: c.line,
+			Props: map[string]any{
+				facts.PropRole:   facts.RoleClient,
+				"method":         c.verb,
+				"framework":      "apiendpoint",
+				"language":       "swift",
+				facts.PropSource: facts.RouteSourceSwiftEndpoint,
+				"api":            swiftAPIHint(relFile),
+			},
+			Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: dir}},
+		})
 	}
 	return out
 }

@@ -4,7 +4,10 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
+
+	"github.com/enola-labs/enola/internal/facts"
 )
 
 const routeBaseSrc = `import Foundation
@@ -115,8 +118,12 @@ func TestRouteBaseRequests(t *testing.T) {
 	sort.Strings(rels)
 
 	got := map[string]bool{}
-	for _, f := range extractRouteBaseFacts(dir, rels, filepath.Dir) {
-		got[f.PropString("method")+" "+f.Name] = true
+	bases := collectRouteBases(dir, rels)
+	for _, rel := range rels {
+		src, _ := os.ReadFile(filepath.Join(dir, rel))
+		for _, f := range routeBaseFacts(string(src), rel, filepath.Dir(rel), bases) {
+			got[f.PropString("method")+" "+f.Name] = true
+		}
 	}
 	want := []string{
 		"GET app_version",
@@ -143,7 +150,7 @@ func TestNoRouteBaseNoRoutes(t *testing.T) {
 	if err := os.WriteFile(p, []byte(src), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if fs := extractRouteBaseFacts(dir, []string{"A.swift"}, filepath.Dir); len(fs) != 0 {
+	if fs := routeBaseFacts(src, "A.swift", ".", collectRouteBases(dir, []string{"A.swift"})); len(fs) != 0 {
 		t.Errorf("got %d routes without a base type", len(fs))
 	}
 }
@@ -160,6 +167,27 @@ func TestIsSwiftTestFile(t *testing.T) {
 	} {
 		if got := isSwiftTestFile(path); got != want {
 			t.Errorf("isSwiftTestFile(%q) = %v, want %v", path, got, want)
+		}
+	}
+}
+
+func TestRouteBaseRequests_CallerIsTheEnclosingDeclaration(t *testing.T) {
+	ff := extractRepo(t, map[string]string{
+		"Networking/Request.swift": routeBaseSrc,
+		"Feature/ItemsAPI.swift":   generatedSrc,
+	})
+	callers := map[string]string{}
+	for _, f := range ff {
+		if f.Kind == facts.KindRoute && f.PropString(facts.PropSource) == facts.RouteSourceSwiftEndpoint {
+			callers[f.Name] = f.PropString(facts.PropCaller)
+		}
+	}
+	for path, want := range map[string]string{
+		"catalogue/items":         "ItemsAPI.listRoute",
+		"/api/v1/items/{id}/mark": "ItemsAPI.markRoute",
+	} {
+		if got := callers[path]; !strings.HasSuffix(got, want) {
+			t.Errorf("caller of %s = %q, want suffix %q", path, got, want)
 		}
 	}
 }
