@@ -67,3 +67,44 @@ func TestScreens_WebPagesAndTheNearestMobileScreen(t *testing.T) {
 		t.Errorf("screens = %v, want %v", files, want)
 	}
 }
+
+func TestIsScreen_SwiftViewController(t *testing.T) {
+	for name, want := range map[string]bool{
+		"Orders/Scenes.OrdersViewController": true,
+		"Orders/Scenes.OrdersInteractor":     false,
+	} {
+		f := facts.Fact{Kind: facts.KindSymbol, Name: name, File: "Orders/Scenes/X.swift",
+			Props: map[string]any{"language": "swift", "symbol_kind": facts.SymbolClass}}
+		if got := isScreen(f); got != want {
+			t.Errorf("isScreen(%s) = %v, want %v", name, got, want)
+		}
+	}
+}
+
+// A call made from a view model's initializer reaches the screen that holds the view
+// model: the screen calls another of its methods, and nothing calls the initializer.
+func TestScreens_ThroughTheTypeAnInitializerRunsIn(t *testing.T) {
+	server := facts.Fact{Kind: facts.KindRoute, Name: "/api/appeals/{id}", Repo: "api", File: "api/routes.go",
+		Props: map[string]any{"method": "GET"}}
+	client := facts.Fact{Kind: facts.KindRoute, Name: "/api/appeals/{}", Repo: "app", File: "app/vm/AppealViewModel.kt",
+		Props: map[string]any{"role": "client", "method": "GET", facts.PropCaller: "vm.AppealViewModel.load",
+			facts.PropMatchedRoutes: []any{map[string]any{"repo": "api", "method": "GET", "name": "/api/appeals/{id}"}}}}
+	sym := func(name, kind string, rels ...facts.Relation) facts.Fact {
+		return facts.Fact{Kind: facts.KindSymbol, Name: name, File: "app/" + name + ".kt", Repo: "app",
+			Props: map[string]any{"language": "kotlin", "symbol_kind": kind}, Relations: rels}
+	}
+	calls := func(t string) facts.Relation { return facts.Relation{Kind: facts.RelCalls, Target: t} }
+	st := facts.NewStore()
+	st.Add(server, client,
+		sym("vm.AppealViewModel", facts.SymbolClass, calls("vm.AppealViewModel.load")),
+		sym("vm.AppealViewModel.load", facts.SymbolMethod),
+		sym("vm.AppealViewModel.onBack", facts.SymbolMethod),
+		sym("ui.AppealFragment", facts.SymbolClass),
+		sym("ui.AppealFragment.onStart", facts.SymbolMethod, calls("vm.AppealViewModel.onBack")),
+	)
+	st.BuildGraph()
+	got := screensFrom(st, []facts.Fact{client}, []facts.Fact{server})
+	if len(got) != 1 || got[0].Symbol != "ui.AppealFragment" {
+		t.Errorf("screens = %+v, want ui.AppealFragment", got)
+	}
+}
