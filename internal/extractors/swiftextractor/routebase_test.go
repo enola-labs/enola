@@ -191,3 +191,68 @@ func TestRouteBaseRequests_CallerIsTheEnclosingDeclaration(t *testing.T) {
 		}
 	}
 }
+
+// Each feature module generates its own copy of a client; a chained static call on it
+// binds to the copy in the caller's module, and no source text becomes a call target.
+func TestStaticChainedCall_BindsTheNearestDeclaration(t *testing.T) {
+	gen := `struct OrdersAPI {
+    static func getOrderRoute(id: Int) -> Request<Order> {
+        let endpoint = Paths.normalize("/orders/{id}")
+        return Request(host: .core, endpoint: endpoint)
+    }
+}
+`
+	ff := extractRepo(t, map[string]string{
+		"Networking/Request.swift":          routeBaseSrc,
+		"Billing/Generated/OrdersAPI.swift": gen,
+		"Orders/Generated/OrdersAPI.swift":  gen,
+		"Orders/Scenes/OrderInteractor.swift": `final class OrderInteractor {
+    func load(id: Int) {
+        OrdersAPI
+            .getOrderRoute(id: id)
+            .result(completion: { _ in })
+    }
+
+    func cancel(id: Int) {
+        Paths.Orders.cancel(id: id).result(completion: { _ in })
+    }
+}
+`,
+		"Orders/Routes/Paths+Orders.swift": `extension Paths {
+    enum Orders {
+        static func cancel(id: Int) -> Request<Empty> {
+            .init(endpoint: "orders/\\(id)/cancel", method: .post)
+        }
+    }
+}
+`,
+	})
+	var load facts.Fact
+	for _, f := range ff {
+		if f.Kind == facts.KindSymbol && strings.HasSuffix(f.Name, "OrderInteractor.load") {
+			load = f
+		}
+	}
+	got := map[string]bool{}
+	for _, r := range load.Relations {
+		if r.Kind == facts.RelCalls {
+			if strings.ContainsAny(r.Target, "\n( ") {
+				t.Errorf("source text as call target: %q", r.Target)
+			}
+			got[r.Target] = true
+		}
+	}
+	if !got["Orders/Generated.OrdersAPI.getOrderRoute"] {
+		t.Errorf("load does not call its module's OrdersAPI.getOrderRoute; calls %v", got)
+	}
+	if got["Billing/Generated.OrdersAPI.getOrderRoute"] {
+		t.Errorf("load calls another module's copy")
+	}
+	for _, f := range ff {
+		if f.Kind == facts.KindSymbol && strings.HasSuffix(f.Name, "OrderInteractor.cancel") {
+			if !f.HasRelation(facts.RelCalls, "Orders/Routes.Paths.Orders.cancel") {
+				t.Errorf("cancel does not call Paths.Orders.cancel: %v", f.Relations)
+			}
+		}
+	}
+}

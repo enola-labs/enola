@@ -487,7 +487,7 @@ func resolveInheritedCalls(allFacts []facts.Fact) {
 			if r.Kind != facts.RelCalls || h.factNames[r.Target] {
 				continue // not a call, or already resolved to a real fact
 			}
-			if q := h.resolve(callerType, lastDotComponent(r.Target)); q != "" && q != f.Name {
+			if q := h.resolve(callerType, lastDotComponent(r.Target), f.Name); q != "" && q != f.Name {
 				r.Target = q
 			}
 		}
@@ -904,8 +904,8 @@ func matchesXcodeProject(name string) bool {
 // and the supertypes it names, by simple type name.
 type swiftHierarchy struct {
 	factNames    map[string]bool
-	typeSupers   map[string][]string          // simple type -> supertype simple names
-	methodByType map[string]map[string]string // simple type -> (method short -> qualified name)
+	typeSupers   map[string][]string            // simple type -> supertype simple names
+	methodByType map[string]map[string][]string // simple type -> (method short -> qualified names)
 	// conformers lists, per protocol or class, the types outside test sources that
 	// name it as a supertype.
 	conformers map[string][]string
@@ -915,7 +915,7 @@ func newSwiftHierarchy(allFacts []facts.Fact) *swiftHierarchy {
 	h := &swiftHierarchy{
 		factNames:    make(map[string]bool, len(allFacts)),
 		typeSupers:   make(map[string][]string),
-		methodByType: make(map[string]map[string]string),
+		methodByType: make(map[string]map[string][]string),
 		conformers:   make(map[string][]string),
 	}
 	for i := range allFacts {
@@ -943,11 +943,13 @@ func newSwiftHierarchy(allFacts []facts.Fact) *swiftHierarchy {
 			}
 			t := lastDotComponent(recv)
 			if h.methodByType[t] == nil {
-				h.methodByType[t] = make(map[string]string)
+				h.methodByType[t] = make(map[string][]string)
 			}
-			// First declaration wins; overloads share a name and one target suffices.
-			if _, ok := h.methodByType[t][lastDotComponent(f.Name)]; !ok {
-				h.methodByType[t][lastDotComponent(f.Name)] = f.Name
+			// Overloads share a name and one target suffices; a type of one name
+			// declared in several modules keeps each module's declaration.
+			short := lastDotComponent(f.Name)
+			if names := h.methodByType[t][short]; len(names) == 0 || ownerOf(names[len(names)-1]) != ownerOf(f.Name) {
+				h.methodByType[t][short] = append(names, f.Name)
 			}
 		}
 	}
@@ -955,19 +957,21 @@ func newSwiftHierarchy(allFacts []facts.Fact) *swiftHierarchy {
 }
 
 // resolve returns the qualified method fact for short declared by the nearest
-// ancestor of typ (inclusive), or "" if none declares it. Nearest-first BFS
-// matches Swift override order. A protocol records no facts for its requirements,
+// ancestor of typ (inclusive), or "" if none declares it, as called from the fact
+// named from. Nearest-first BFS matches Swift override order. A type declared under
+// one name in several modules (a client generated into each feature that uses it)
+// resolves to the declaration nearest the caller. A protocol records no facts for its requirements,
 // so a call through a value typed as one binds to the method its conforming type
 // declares, when one type outside the tests conforms and declares it: the
 // `apiService: EntitlementAPIServiceInterface` a repository holds is the one
 // EntitlementAPIService, whatever mocks the tests add.
-func (h *swiftHierarchy) resolve(typ, short string) string {
-	if q := h.resolveUp(typ, short); q != "" {
+func (h *swiftHierarchy) resolve(typ, short, from string) string {
+	if q := h.resolveUp(typ, short, from); q != "" {
 		return q
 	}
 	found := ""
 	for _, c := range h.conformers[typ] {
-		if q := h.resolveUp(c, short); q != "" && q != found {
+		if q := h.resolveUp(c, short, from); q != "" && q != found {
 			if found != "" {
 				return ""
 			}
@@ -978,7 +982,7 @@ func (h *swiftHierarchy) resolve(typ, short string) string {
 }
 
 // resolveUp is resolve over typ and its supertypes alone.
-func (h *swiftHierarchy) resolveUp(typ, short string) string {
+func (h *swiftHierarchy) resolveUp(typ, short, from string) string {
 	visited := map[string]bool{}
 	queue := []string{typ}
 	for len(queue) > 0 {
@@ -988,10 +992,34 @@ func (h *swiftHierarchy) resolveUp(typ, short string) string {
 			continue
 		}
 		visited[t] = true
-		if q, ok := h.methodByType[t][short]; ok {
-			return q
+		if names := h.methodByType[t][short]; len(names) > 0 {
+			return nearestName(names, from)
 		}
 		queue = append(queue, h.typeSupers[t]...)
 	}
 	return ""
+}
+
+// ownerOf returns the qualified type a qualified method name belongs to.
+func ownerOf(method string) string {
+	if i := strings.LastIndexByte(method, '.'); i > 0 {
+		return method[:i]
+	}
+	return ""
+}
+
+// nearestName returns the name sharing the longest path prefix with from, the first
+// of them on a tie.
+func nearestName(names []string, from string) string {
+	best, bestN := names[0], -1
+	for _, n := range names {
+		i := 0
+		for i < len(n) && i < len(from) && n[i] == from[i] {
+			i++
+		}
+		if i > bestN {
+			best, bestN = n, i
+		}
+	}
+	return best
 }
