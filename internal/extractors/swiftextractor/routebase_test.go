@@ -118,7 +118,7 @@ func TestRouteBaseRequests(t *testing.T) {
 	sort.Strings(rels)
 
 	got := map[string]bool{}
-	bases := collectRouteBases(dir, rels)
+	bases := prescanSwift(dir, rels).requestBases
 	for _, rel := range rels {
 		src, _ := os.ReadFile(filepath.Join(dir, rel))
 		for _, f := range routeBaseFacts(string(src), rel, filepath.Dir(rel), bases) {
@@ -150,7 +150,7 @@ func TestNoRouteBaseNoRoutes(t *testing.T) {
 	if err := os.WriteFile(p, []byte(src), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if fs := routeBaseFacts(src, "A.swift", ".", collectRouteBases(dir, []string{"A.swift"})); len(fs) != 0 {
+	if fs := routeBaseFacts(src, "A.swift", ".", prescanSwift(dir, []string{"A.swift"}).requestBases); len(fs) != 0 {
 		t.Errorf("got %d routes without a base type", len(fs))
 	}
 }
