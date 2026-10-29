@@ -565,7 +565,7 @@ func bindTailwind(all []facts.Fact, tokens []tailwindToken, repoPath string, fil
 			scope.addImports(f, string(src))
 		}
 	}
-	reaches := map[string]map[string]int{}
+	reaches := map[string]map[string]reached{}
 	lookups := map[string]tokenLookup{}
 	for _, file := range users {
 		p := scope.project(file)

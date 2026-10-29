@@ -3314,7 +3314,9 @@ import (
 // directory, and a class names the declaration its project reaches nearest.
 // v495: Tailwind v4: a @theme variable belongs to the longest namespace it starts
 // with (--text-color-*, --font-weight-*), not to --text or --font.
-const cacheVersion = "v495"
+// v496: Tailwind: of two themes a stylesheet @imports that both declare a name, the
+// later import's declaration is the one a class names.
+const cacheVersion = "v496"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
