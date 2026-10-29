@@ -113,6 +113,9 @@ type astWalker struct {
 	// type name, "" when it is not the repository's (receivers.go).
 	extReceiver string
 	inExtension bool
+	// scopeReceivers are the implicit receivers of the scope-function lambdas being
+	// walked, innermost last: `with(viewModel) { load() }` calls viewModel's load.
+	scopeReceivers []string
 	// pending holds annotations the grammar split off the next top-level
 	// declaration (misparsed.go).
 	pending *pendingAnnotations
@@ -1424,6 +1427,9 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 					}
 				} else if !isNav && !isCapitalized(name) {
 					w.noteInvokedValue(name)
+					if n := len(w.scopeReceivers); n > 0 {
+						w.noteTypedCall(name, w.scopeReceivers[n-1], name)
+					}
 				}
 				if owner := w.currentOwner(); owner != noOwner {
 					switch {
@@ -1500,6 +1506,10 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 				}
 			}
 		}
+		if t := w.scopeFunctionReceiver(node); t != "" {
+			w.scopeReceivers = append(w.scopeReceivers, t)
+			defer func() { w.scopeReceivers = w.scopeReceivers[:len(w.scopeReceivers)-1] }()
+		}
 		if iterLambda != nil {
 			w.metrics.loopCount++
 			w.metrics.decisions++
@@ -1537,6 +1547,15 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 	if kind == "navigation_expression" && !kotlinIsClassLiteral(node, w.src) && !readOffLiteral {
 		if member, _ := calleeName(node, w.src); member != "" {
 			w.relate(w.currentOwner(), facts.RelCalls, member)
+			// `viewModel::onAction`, a bound reference handed on as a callback, is the
+			// receiver's method.
+			if kotlinIsMemberReference(node, w.src) {
+				if r := kotlinUnprefixed(firstNamedChild(node)); r != nil {
+					if t := w.receiverType(r); t != "" {
+						w.noteTypedCall(nodeText(r, w.src)+"."+member, t, member)
+					}
+				}
+			}
 		}
 	}
 
@@ -1561,6 +1580,17 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 	for i := uint(0); i < uint(node.ChildCount()); i++ {
 		w.walkChild(node.Child(i))
 	}
+}
+
+// kotlinIsMemberReference reports whether a navigation is a bound reference,
+// `receiver::member`.
+func kotlinIsMemberReference(n *sitter.Node, src []byte) bool {
+	for i := uint(0); i < n.ChildCount(); i++ {
+		if c := n.Child(i); !c.IsNamed() && nodeText(c, src) == "::" {
+			return true
+		}
+	}
+	return false
 }
 
 // kotlinIsClassLiteral reports whether n is `Type::class`: the grammar reads it as a
