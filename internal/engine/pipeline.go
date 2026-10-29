@@ -27,7 +27,10 @@ type snapshotRun struct {
 	start time.Time
 
 	// Set by beginRun: which repository this is and what it declares.
-	absRepo    string
+	absRepo string
+	// srcRoot is absRepo with a symlinked root resolved: where files are read from.
+	// absRepo stays the path as given, which receipts and cluster members are keyed on.
+	srcRoot    string
 	git        *facts.GitInfo
 	repoLabel  string
 	resolved   *intent.Declaration
@@ -120,7 +123,7 @@ func (e *Engine) beginRun(ctx context.Context, repoPath string, appendMode bool)
 
 	return &snapshotRun{
 		ctx: ctx, start: start,
-		absRepo: absRepo, git: git, repoLabel: repoLabel, resolved: resolved, appendMode: appendMode,
+		absRepo: absRepo, srcRoot: sourceRoot(absRepo), git: git, repoLabel: repoLabel, resolved: resolved, appendMode: appendMode,
 	}, nil
 }
 
@@ -234,7 +237,7 @@ func (e *Engine) walk(r *snapshotRun) error {
 
 	// 2. Compute file hashes (for snapshot metadata)
 	tStage = time.Now()
-	r.hashes = e.computeFileHashes(r.ctx, r.absRepo, r.files)
+	r.hashes = e.computeFileHashes(r.ctx, r.srcRoot, r.files)
 	r.t.hash = time.Since(tStage)
 	if err := r.ctx.Err(); err != nil {
 		return err
@@ -261,7 +264,7 @@ func (e *Engine) extract(r *snapshotRun) error {
 	r.preCount = e.store.Count()
 	r.progress = newExtractionProgress(r.ctx, r.absRepo, r.files, e.stagesAfterExtraction())
 	var err error
-	r.usedExtractors, r.shadowed, r.parseErrs, err = e.runExtractors(r.ctx, r.absRepo, r.files, r.allNames, r.hashes, cache, r.progress)
+	r.usedExtractors, r.shadowed, r.parseErrs, err = e.runExtractors(r.ctx, r.srcRoot, r.files, r.allNames, r.hashes, cache, r.progress)
 	if err != nil {
 		return fmt.Errorf("extraction: %w", err)
 	}
@@ -271,7 +274,7 @@ func (e *Engine) extract(r *snapshotRun) error {
 	// Reference-only extraction over test/spec files. Runs every snapshot (not
 	// cached with the main extractors) and adds only KindTestRef facts, so a
 	// production symbol exercised solely by a test is not mis-reported as dead.
-	e.runTestRefExtractors(r.ctx, r.absRepo, r.testFiles, r.files, r.allNames)
+	e.runTestRefExtractors(r.ctx, r.srcRoot, r.testFiles, r.files, r.allNames)
 
 	// Compile this repo's resolved intent declaration into intent facts, inside
 	// the extraction window so SetRepoRange/TagRange treat declared facts
@@ -288,7 +291,7 @@ func (e *Engine) extract(r *snapshotRun) error {
 	// an extractor already owns is never overwritten, so the census can say a
 	// provider contributed less than it emitted but the graph cannot silently
 	// change authorship.
-	r.provRecords = e.runProviders(r.ctx, r.absRepo, r.preCount, providerInput(r.files, r.testFiles, r.hashes, e.computeFileHashes(r.ctx, r.absRepo, r.testFiles), cache))
+	r.provRecords = e.runProviders(r.ctx, r.srcRoot, r.preCount, providerInput(r.files, r.testFiles, r.hashes, e.computeFileHashes(r.ctx, r.srcRoot, r.testFiles), cache))
 	r.progress.stage("providers")
 	if cache != nil {
 		log.Printf("[engine] extractor cache: %d reused", cache.hits)
@@ -306,8 +309,8 @@ func (e *Engine) extract(r *snapshotRun) error {
 
 	// Flag facts from codegen output before the file paths are repo-prefixed below,
 	// while f.File is still resolvable against repoPath.
-	e.markGeneratedFacts(r.absRepo, r.preCount)
-	e.hashSymbolBodies(r.absRepo, r.preCount)
+	e.markGeneratedFacts(r.srcRoot, r.preCount)
+	e.hashSymbolBodies(r.srcRoot, r.preCount)
 
 	// Always set Repo on newly extracted facts so the repo filter works
 	// even in single-repo mode.
@@ -368,7 +371,7 @@ func (e *Engine) publishDeferred(r *snapshotRun) *facts.Snapshot {
 			Providers:          r.provRecords,
 			FilesSeen:          len(r.files),
 			FilesParsed:        e.store.CountFilesWithFacts(r.files, deferredPrefix),
-			SourceBytes:        e.store.SourceBytesWithFacts(r.files, deferredPrefix, r.absRepo),
+			SourceBytes:        e.store.SourceBytesWithFacts(r.files, deferredPrefix, r.srcRoot),
 			FilesSkipped:       r.skips.count,
 			DirsSkipped:        r.skips.dirCount,
 			SkippedSample:      r.skips.sample,
@@ -480,7 +483,7 @@ func (e *Engine) buildSnapshot(r *snapshotRun, allInsights []facts.Insight, used
 
 			FilesSeen:          len(r.files),
 			FilesParsed:        e.store.CountFilesWithFacts(r.files, parsedPrefix),
-			SourceBytes:        e.store.SourceBytesWithFacts(r.files, parsedPrefix, r.absRepo),
+			SourceBytes:        e.store.SourceBytesWithFacts(r.files, parsedPrefix, r.srcRoot),
 			FilesSkipped:       r.skips.count,
 			DirsSkipped:        r.skips.dirCount,
 			SkippedSample:      r.skips.sample,
@@ -554,4 +557,16 @@ func (e *Engine) publish(r *snapshotRun, snapshot *facts.Snapshot) {
 	runtime.ReadMemStats(&ms)
 	log.Printf("[engine] memory after snapshot: heap=%d MiB sys=%d MiB (%d facts)",
 		ms.HeapAlloc>>20, ms.Sys>>20, snapshot.Meta.FactCount)
+}
+
+// sourceRoot returns the directory a repository's files are read from: the path as
+// given, with a symlinked root resolved. Extractors that detect or walk from the
+// root see nothing through a link, and what they then extract would be cached
+// under a key that does not include the path, for every later run of the real
+// checkout to be served.
+func sourceRoot(absRepo string) string {
+	if resolved, err := filepath.EvalSymlinks(absRepo); err == nil {
+		return resolved
+	}
+	return absRepo
 }
