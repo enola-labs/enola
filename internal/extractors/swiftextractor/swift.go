@@ -216,6 +216,9 @@ func (e *SwiftExtractor) Extract(ctx context.Context, repoPath string, files []s
 		allFacts = append(allFacts,
 			extractCallSiteEndpointFacts(repoPath, files, defaultURLPrefix, moduleForFile)...)
 	}
+	// A request base class gates itself: without a type whose initializer takes an
+	// `endpoint:` path and a defaulted `method:`, the pass emits nothing.
+	allFacts = append(allFacts, extractRouteBaseFacts(repoPath, files, moduleForFile)...)
 
 	// Parse Package.swift manifests: emit SPM target module facts + the inter-target
 	// dependency graph, and (by rerouting) keep the manifest's own `let package`
