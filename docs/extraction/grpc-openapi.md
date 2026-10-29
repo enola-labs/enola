@@ -150,6 +150,14 @@ the hand-written method share only the operationId. Each served operation is bou
 (`handled_by`) to the method of the hand-written type implementing more than half of the
 spec's operations, spelled as the operationId or in PascalCase (`getWidget` →
 `GetWidget`). Generated wrappers and mocks are never candidates, and a tie binds nothing.
+An operation with no implementation of its own that documents a route the code
+registers at the same verb and path takes that route's handler. `handler_binding` says
+which: `operation` or `code-route`.
+
+A repository that implements specs by operation does not serve a spec of which it
+implements nothing: that spec is one it calls, kept in its api/openapi beside its own,
+and it becomes a client spec (`vendored_spec=true`). A repository whose specs document
+routes its framework registers is not judged by that rule.
 
 ## What is deliberately not extracted
 
