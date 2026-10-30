@@ -74,6 +74,9 @@ b8924d7  2025-08-11 11:52
 - **changed**: one side has no body version (a revision recorded before versions existed, or a
   language with no spans), so a shift cannot be told from a rewrite.
 
+Overloads and other declarations sharing an identity pair by body, then by signature
+(`decl_hash`), so one of them rewritten is not reported against its sibling.
+
 On fifteen months of one repository's daily history this was the bulk of what blame used to print as removed
 and re-added: 43,783 shifts against 3,412 rewrites and 138 moves.
 

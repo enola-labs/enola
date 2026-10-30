@@ -16,6 +16,9 @@ for external snapshot consumers.
 | `snapshot.meta.json` | Internal superset of the receipt | Not stable |
 | `llm_context.md` | Rendered text | Not stable |
 
+The output of `enola locate --json` and the `locate` MCP tool is documented in
+[locate.md](locate.md). It is a result, not a file `--generate` writes.
+
 ## Contract scope
 
 The contract covers:

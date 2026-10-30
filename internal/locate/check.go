@@ -38,7 +38,7 @@ const (
 	// declared name and the same body.
 	StatusMoved = "moved"
 	// StatusGone is a symbol no longer in the graph. Candidates lists symbols with the
-	// same declared name, which may be it moved and rewritten at once.
+	// same declared name and another body, which may be it moved and rewritten at once.
 	StatusGone = "gone"
 	// StatusAmbiguous is a stamp that cannot be tied to one symbol: Candidates lists what it
 	// may be, and Symbol is empty. Saying so is the answer; picking one would report on the
@@ -156,7 +156,7 @@ func (ix *Index) checkSymbol(st Stamp) CheckResult {
 		if len(moved) > 1 {
 			// Two copies of one body under one name: a move cannot be told from a copy,
 			// so both are reported and neither is picked.
-			r.Candidates = moved
+			r.Status, r.Candidates = StatusAmbiguous, moved
 			return r
 		}
 	}

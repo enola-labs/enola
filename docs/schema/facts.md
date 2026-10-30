@@ -468,7 +468,8 @@ modules.
 characters of SHA-256 over the lines its span covers, each line trimmed and blank
 lines dropped. The id names the declaration and stays the same while its body is
 rewritten, and `line` moves whenever anything above it changes; `body_hash`
-changes exactly when the code inside the span does. Re-indenting a function,
+changes exactly when the code inside the span does, along with its decorators (see
+`span_start` below). Re-indenting a function,
 padding it with blank lines or moving it leaves it unchanged; editing one token
 changes it. A class's span holds its methods, so a class's version changes with
 any of them.

@@ -352,3 +352,17 @@ func TestCitedLinesReadTheStampedDeclaration(t *testing.T) {
 		t.Errorf("got %s on %+v, cited %q; want rewritten on the setter, cited intact", r.Status, r.Symbol, r.Cited)
 	}
 }
+
+// Two copies of a moved body cannot be told from each other, which is not the same answer
+// as a symbol of that name with other code.
+func TestCheckMoveTie(t *testing.T) {
+	st := Stamp{ID: facts.FactID("r", facts.KindSymbol, "src.f", "src/a.ts"), BodyHash: "f1", Name: "src.f"}
+	tie := NewIndex([]facts.Fact{sym("lib.f", "lib/a.ts", 1, 3, "f1"), sym("core.f", "core/a.ts", 1, 3, "f1")}).Check([]Stamp{st})[0]
+	if tie.Status != StatusAmbiguous || len(tie.Candidates) != 2 || tie.Symbol != nil {
+		t.Errorf("two copies: %+v, want ambiguous with both", tie)
+	}
+	other := NewIndex([]facts.Fact{sym("lib.f", "lib/a.ts", 1, 3, "other")}).Check([]Stamp{st})[0]
+	if other.Status != StatusGone || len(other.Candidates) != 1 {
+		t.Errorf("same name, other code: %+v, want gone with one candidate", other)
+	}
+}

@@ -235,18 +235,22 @@ Each location comes back as the innermost symbol holding it, with its `id`, `nam
 `body_hash` and span, and a `cited_hash` / `cited_lines` pair: a version of the cited
 lines themselves (a single line is taken with the line before and after it). Store the
 id, the body hash and the name with the record, and the cited pair when the record is
-about specific lines. `match` says how the symbol was found: `span` is exact,
+about specific lines. A symbol that shares its id with another declaration (a getter and
+its setter, overloads) also carries `decl_hash`: store it, it says which one you meant.
+`match` says how the symbol was found: `span` is exact,
 `nearest` (F# and VB.NET) is the declaration above the line.
 
 When a record is read, check it against the current graph:
 
 ```bash
-enola locate --json --stamps records.jsonl      # one {"id", "body_hash", "name", "cited_hash", "cited_lines"} per line
+enola locate --json --stamps records.jsonl      # one {"id", "body_hash", "decl_hash", "name", "symbol_kind", "cited_hash", "cited_lines"} per line
 ```
 
 Each stamp comes back `current` (same symbol, same code), `rewritten`, `moved` (a new id
-with the same name and code, after a file or package move), or `gone` (with symbols of
-the same name as candidates). A rewritten stamp with a cited version also gets `cited:
+with the same name and code, after a file or package move), `gone` (with symbols of the
+same name and other code as candidates), or `ambiguous`. `ambiguous` means enola cannot tie
+the stamp to one symbol, so it lists the `candidates` and names none: keep the record and
+show the candidates to whoever reads it. Do not choose one for them. A rewritten stamp with a cited version also gets `cited:
 intact` when those lines are still in the function, wherever they now sit, or `changed`.
 A function edited far from the lines a record cites leaves the record accurate; treat
 `rewritten` as a reason to re-check, not to delete.
@@ -257,6 +261,8 @@ wording.
 `--facts <dir or facts.jsonl>` answers from a stored snapshot without a working tree,
 so a service resolves against exactly the graph it ingested. It cannot read source, so
 it reports no cited version. `--at <revision>` answers against a recorded revision.
+
+[schema/locate.md](schema/locate.md) documents every field and status.
 
 ## Cognee
 

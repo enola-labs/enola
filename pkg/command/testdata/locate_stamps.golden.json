@@ -1,0 +1,156 @@
+{
+  "stamps": [
+    {
+      "stamp": {
+        "id": "081450302c01ba8595903c507d983f8a",
+        "body_hash": "b1",
+        "name": "src.same"
+      },
+      "status": "current",
+      "symbol": {
+        "id": "081450302c01ba8595903c507d983f8a",
+        "repo": "app",
+        "name": "src.same",
+        "symbol_kind": "function",
+        "file": "src/a.ts",
+        "line": 1,
+        "end_line": 3,
+        "body_hash": "b1"
+      }
+    },
+    {
+      "stamp": {
+        "id": "674553d230c340dd266e6ee367ee1ddd",
+        "body_hash": "b2",
+        "name": "src.edited"
+      },
+      "status": "rewritten",
+      "symbol": {
+        "id": "674553d230c340dd266e6ee367ee1ddd",
+        "repo": "app",
+        "name": "src.edited",
+        "symbol_kind": "function",
+        "file": "src/a.ts",
+        "line": 5,
+        "end_line": 8,
+        "body_hash": "b3"
+      }
+    },
+    {
+      "stamp": {
+        "id": "55c0f5a6390d151d4f3dff609aedf236",
+        "body_hash": "b4",
+        "name": "src.moved"
+      },
+      "status": "moved",
+      "symbol": {
+        "id": "c3b64992051ea54190f073b3a786c238",
+        "repo": "app",
+        "name": "lib.moved",
+        "symbol_kind": "function",
+        "file": "lib/a.ts",
+        "line": 1,
+        "end_line": 3,
+        "body_hash": "b4"
+      }
+    },
+    {
+      "stamp": {
+        "id": "19695d5e8a2ed6546633e3ddeb2fa9fa",
+        "body_hash": "old",
+        "name": "src.renamedBody"
+      },
+      "status": "gone",
+      "candidates": [
+        {
+          "id": "5d273a56813b4ec13f0c1e72decc2a64",
+          "repo": "app",
+          "name": "lib.renamedBody",
+          "symbol_kind": "function",
+          "file": "lib/b.ts",
+          "line": 1,
+          "end_line": 3,
+          "body_hash": "other"
+        }
+      ]
+    },
+    {
+      "stamp": {
+        "id": "856ce63dd7ea87d1261274b59c29b6d5",
+        "body_hash": "g1",
+        "name": "src.v"
+      },
+      "status": "ambiguous",
+      "candidates": [
+        {
+          "id": "856ce63dd7ea87d1261274b59c29b6d5",
+          "repo": "app",
+          "name": "src.v",
+          "symbol_kind": "getter",
+          "file": "src/a.ts",
+          "line": 10,
+          "end_line": 12,
+          "body_hash": "g2",
+          "decl_hash": "gd"
+        },
+        {
+          "id": "856ce63dd7ea87d1261274b59c29b6d5",
+          "repo": "app",
+          "name": "src.v",
+          "symbol_kind": "getter",
+          "file": "src/a.ts",
+          "line": 13,
+          "end_line": 15,
+          "body_hash": "s2",
+          "decl_hash": "sd"
+        }
+      ]
+    },
+    {
+      "stamp": {
+        "id": "5e62325a5dbd0e0d46b421426437a4ed",
+        "body_hash": "b5",
+        "name": "src.tied"
+      },
+      "status": "ambiguous",
+      "candidates": [
+        {
+          "id": "1e84eab5cc8fa9bc5556cba0a75fa4df",
+          "repo": "app",
+          "name": "lib.tied",
+          "symbol_kind": "function",
+          "file": "lib/c.ts",
+          "line": 1,
+          "end_line": 3,
+          "body_hash": "b5"
+        },
+        {
+          "id": "39336718a5ebc0168f4f74feb2f8bee6",
+          "repo": "app",
+          "name": "core.tied",
+          "symbol_kind": "function",
+          "file": "core/c.ts",
+          "line": 1,
+          "end_line": 3,
+          "body_hash": "b5"
+        }
+      ]
+    },
+    {
+      "stamp": {
+        "id": "cdb8bd7a96ec09d0bac2bd351e060bfb",
+        "body_hash": "b6",
+        "name": "src.unversioned"
+      },
+      "status": "present",
+      "symbol": {
+        "id": "cdb8bd7a96ec09d0bac2bd351e060bfb",
+        "repo": "app",
+        "name": "src.unversioned",
+        "symbol_kind": "function",
+        "file": "src/a.ts",
+        "line": 20
+      }
+    }
+  ]
+}

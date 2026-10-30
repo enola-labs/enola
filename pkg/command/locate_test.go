@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"flag"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -139,5 +140,99 @@ func TestSpanStart_DecoratorsAcrossLanguages(t *testing.T) {
 				t.Errorf("after the decorator changed: %+v, want rewritten", checked)
 			}
 		})
+	}
+}
+
+var updateLocateGolden = flag.Bool("update-locate", false, "regenerate testdata/locate_stamps.golden.json")
+
+// The JSON a consumer parses, one stamp per status. docs/schema/locate.md documents this.
+func TestLocate_StampStatusesGolden(t *testing.T) {
+	dir := t.TempDir()
+	sym := func(name, file string, line, end int, body, decl, kind string) facts.Fact {
+		f := facts.Fact{Kind: facts.KindSymbol, Name: name, File: file, Line: line, EndLine: end, Repo: "app",
+			Props: map[string]any{"symbol_kind": kind}}
+		if body != "" {
+			f.Props[facts.PropBodyHash] = body
+		}
+		if decl != "" {
+			f.Props[facts.PropDeclHash] = decl
+		}
+		return f
+	}
+	var lines []string
+	for _, f := range []facts.Fact{
+		sym("src.same", "src/a.ts", 1, 3, "b1", "", "function"),
+		sym("src.edited", "src/a.ts", 5, 8, "b3", "", "function"),
+		sym("lib.moved", "lib/a.ts", 1, 3, "b4", "", "function"),
+		sym("lib.renamedBody", "lib/b.ts", 1, 3, "other", "", "function"),
+		sym("src.v", "src/a.ts", 10, 12, "g2", "gd", "getter"),
+		sym("src.v", "src/a.ts", 13, 15, "s2", "sd", "getter"),
+		sym("lib.tied", "lib/c.ts", 1, 3, "b5", "", "function"),
+		sym("core.tied", "core/c.ts", 1, 3, "b5", "", "function"),
+		sym("src.unversioned", "src/a.ts", 20, 0, "", "", "function"),
+	} {
+		b, err := json.Marshal(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		lines = append(lines, string(b))
+	}
+	if err := os.WriteFile(filepath.Join(dir, "facts.jsonl"), []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	id := func(name, file string) string { return facts.FactID("app", facts.KindSymbol, name, file) }
+	var stamps []string
+	for _, st := range []locate.Stamp{
+		{ID: id("src.same", "src/a.ts"), BodyHash: "b1", Name: "src.same"},
+		{ID: id("src.edited", "src/a.ts"), BodyHash: "b2", Name: "src.edited"},
+		{ID: id("src.moved", "src/a.ts"), BodyHash: "b4", Name: "src.moved"},
+		{ID: id("src.renamedBody", "src/a.ts"), BodyHash: "old", Name: "src.renamedBody"},
+		{ID: id("src.v", "src/a.ts"), BodyHash: "g1", Name: "src.v"},
+		{ID: id("src.tied", "src/a.ts"), BodyHash: "b5", Name: "src.tied"},
+		{ID: id("src.unversioned", "src/a.ts"), BodyHash: "b6", Name: "src.unversioned"},
+	} {
+		b, err := json.Marshal(st)
+		if err != nil {
+			t.Fatal(err)
+		}
+		stamps = append(stamps, string(b))
+	}
+	stampFile := filepath.Join(t.TempDir(), "stamps.jsonl")
+	if err := os.WriteFile(stampFile, []byte(strings.Join(stamps, "\n")+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var out, errOut bytes.Buffer
+	if code := testRunner().runLocate(context.Background(), []string{"--facts", dir, "--json", "--stamps", stampFile}, nil, &out, &errOut); code != 0 {
+		t.Fatalf("exit %d: %s", code, errOut.String())
+	}
+	golden := filepath.Join("testdata", "locate_stamps.golden.json")
+	if *updateLocateGolden {
+		if err := os.MkdirAll("testdata", 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(golden, out.Bytes(), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want, err := os.ReadFile(golden)
+	if err != nil {
+		t.Fatalf("%v (run with -update-locate to create it)", err)
+	}
+	if !bytes.Equal(out.Bytes(), want) {
+		t.Errorf("locate JSON differs from %s (run with -update-locate if intended).\n--- got\n%s", golden, out.String())
+	}
+	var got struct {
+		Stamps []locate.CheckResult `json:"stamps"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	var statuses []string
+	for _, c := range got.Stamps {
+		statuses = append(statuses, c.Status)
+	}
+	if s := strings.Join(statuses, " "); s != "current rewritten moved gone ambiguous ambiguous present" {
+		t.Errorf("statuses: %s", s)
 	}
 }
