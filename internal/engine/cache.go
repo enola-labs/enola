@@ -3318,7 +3318,11 @@ import (
 // later import's declaration is the one a class names.
 // v497: Tailwind reads a repository's package.json files from disk, so an index that
 // ignores JSON still knows which projects use it.
-const cacheVersion = "v497"
+// v498: Ruby async messaging and Rails draw/module routes; Swift Tuist convention targets
+// and route-base requests; Kotlin scope-function receivers; TypeScript: Next.js routes
+// only in an app's own app/ and pages/, asset imports marked; extractors walk a symlink's
+// checkout.
+const cacheVersion = "v498"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
