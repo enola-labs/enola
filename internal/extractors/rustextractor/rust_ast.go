@@ -1035,8 +1035,13 @@ func (w *astWalker) handleUse(node *sitter.Node) {
 		return
 	}
 	line := int(node.StartPosition().Row) + 1
-	for _, segs := range collectUseItems(argNode, w.src, nil) {
-		w.emitDependency(segs, line)
+	for _, leaf := range collectUseLeaves(argNode, w.src, nil) {
+		w.emitDependency(leaf.segs, line)
+		if leaf.alias != "" && leaf.alias != "_" && len(leaf.segs) > 0 {
+			if target, ok := w.importMap[leaf.segs[len(leaf.segs)-1]]; ok {
+				w.importMap[leaf.alias] = target
+			}
+		}
 	}
 }
 
@@ -1105,28 +1110,49 @@ func (w *astWalker) recordImportMapping(segs []string, target, source string) {
 	}
 }
 
+// useLeaf is one path a `use` declaration imports and the name it is bound to
+// when the declaration renames it (`use a::f as g`).
+type useLeaf struct {
+	segs  []string
+	alias string
+}
+
 // collectUseItems expands a `use` declaration's argument tree into one
 // "::"-joined segment list per leaf path, so `use std::{fmt, collections::HashMap};`
 // yields two independent paths.
 func collectUseItems(node *sitter.Node, src []byte, prefix []string) [][]string {
+	var out [][]string
+	for _, l := range collectUseLeaves(node, src, prefix) {
+		out = append(out, l.segs)
+	}
+	return out
+}
+
+func collectUseLeaves(node *sitter.Node, src []byte, prefix []string) []useLeaf {
 	if node == nil {
 		return nil
 	}
 	switch kindOf(node) {
 	case "identifier", "self", "super", "crate", "metavariable":
-		return [][]string{appendSegs(prefix, nodeText(node, src))}
+		return []useLeaf{{segs: appendSegs(prefix, nodeText(node, src))}}
 	case "scoped_identifier":
-		return [][]string{appendSegs(prefix, strings.Split(nodeText(node, src), "::")...)}
+		return []useLeaf{{segs: appendSegs(prefix, strings.Split(nodeText(node, src), "::")...)}}
 	case "use_as_clause":
 		if p := node.ChildByFieldName("path"); p != nil {
-			return collectUseItems(p, src, prefix)
+			leaves := collectUseLeaves(p, src, prefix)
+			if a := node.ChildByFieldName("alias"); a != nil {
+				for i := range leaves {
+					leaves[i].alias = nodeText(a, src)
+				}
+			}
+			return leaves
 		}
 	case "use_wildcard":
 		for i := uint(0); i < uint(node.ChildCount()); i++ {
 			if c := node.Child(i); c.IsNamed() {
-				items := collectUseItems(c, src, prefix)
+				items := collectUseLeaves(c, src, prefix)
 				for i2 := range items {
-					items[i2] = append(items[i2], "*")
+					items[i2].segs = append(items[i2].segs, "*")
 				}
 				return items
 			}
@@ -1137,13 +1163,13 @@ func collectUseItems(node *sitter.Node, src []byte, prefix []string) [][]string 
 			newPrefix = appendSegs(prefix, strings.Split(nodeText(p, src), "::")...)
 		}
 		if l := node.ChildByFieldName("list"); l != nil {
-			return collectUseItems(l, src, newPrefix)
+			return collectUseLeaves(l, src, newPrefix)
 		}
 	case "use_list":
-		var out [][]string
+		var out []useLeaf
 		for i := uint(0); i < uint(node.ChildCount()); i++ {
 			if c := node.Child(i); c.IsNamed() {
-				out = append(out, collectUseItems(c, src, prefix)...)
+				out = append(out, collectUseLeaves(c, src, prefix)...)
 			}
 		}
 		return out

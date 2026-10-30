@@ -3322,7 +3322,9 @@ import (
 // linker exports as a runtime entry point, as #[unsafe(no_mangle)] does, also when
 // written inside #[cfg_attr(cond, ...)]. A function under #[op2], #[bench], #[lang],
 // #[panic_handler] or #[rustc_std_internal_symbol] is one the runtime calls.
-const cacheVersion = "v498"
+// v499: Rust: a call through a renamed import (`use a::f as g; g()`) reaches the function
+// the import names.
+const cacheVersion = "v499"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
