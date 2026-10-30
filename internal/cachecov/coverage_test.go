@@ -92,6 +92,7 @@ var versionCoverage = map[int][]string{
 	496: {"TestTailwind_LaterImportWins"},
 	497: {"TestTailwind_PackageManifestsOutsideTheIndex"},
 	498: {"TestRubyMessaging", "TestRailsRoutes_DrawModuleAndSingularVerbs", "TestConventionTargets_Layout", "TestRouteBaseRequests", "TestScopeFunctionReceiver", "TestDetectRoute_OnlyAnAppsRouterDirectories", "TestSymlinkedRoot_ExtractorsWalkTheCheckout"},
+	499: {"TestExtensionOverload_KeepsTheDeclaration"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},
 	438: {"TestExtract_StructUsage_StdlibAndRootPackages"},
