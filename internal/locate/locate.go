@@ -28,6 +28,8 @@ type Symbol struct {
 	Line       int    `json:"line"`
 	EndLine    int    `json:"end_line,omitempty"`
 	BodyHash   string `json:"body_hash,omitempty"`
+	// DeclHash tells this declaration from others sharing its id (facts.PropDeclHash).
+	DeclHash string `json:"decl_hash,omitempty"`
 }
 
 func (s Symbol) spanned() bool { return s.EndLine >= s.Line && s.Line > 0 }
@@ -119,6 +121,7 @@ func NewIndex(ff []facts.Fact) *Index {
 			Line:       f.Line,
 			EndLine:    f.EndLine,
 			BodyHash:   f.PropString(facts.PropBodyHash),
+			DeclHash:   f.PropString(facts.PropDeclHash),
 		}
 		ix.byFile[s.File] = append(ix.byFile[s.File], s)
 		ix.byID[s.ID] = append(ix.byID[s.ID], s)

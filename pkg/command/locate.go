@@ -44,7 +44,7 @@ func (r *Runner) runLocate(ctx context.Context, args []string, stdin io.Reader, 
 	var (
 		diffPath   = fs.String("diff", "", "a unified diff file, or - for stdin: report the symbols its changed lines fall in")
 		side       = fs.String("side", locate.SideNew, "which side of the diff the graph is of: new (the tree with the change) or old (its parent)")
-		stampsPath = fs.String("stamps", "", "a JSONL file of stamps ({id, body_hash, name}), or - for stdin: report each as current, rewritten, moved or gone")
+		stampsPath = fs.String("stamps", "", "a JSONL file of stamps ({id, body_hash, name}), or - for stdin: report each as current, rewritten, moved, gone or ambiguous")
 		at         = fs.String("at", "", "answer against this recorded revision instead of the working tree (a snapshot id, git commit, HEAD~N, @<seq> or ref)")
 		factsPath  = fs.String("facts", "", "answer from a stored snapshot instead of the working tree: an output directory holding facts.jsonl, or the file itself")
 		asJSON     = fs.Bool("json", false, "emit the result as JSON")
@@ -333,7 +333,11 @@ func writeStampCheck(w *strings.Builder, c locate.CheckResult) {
 	if c.Symbol != nil {
 		fmt.Fprintf(w, "           now %s\n", symbolLine(*c.Symbol))
 	}
+	label := "same name"
+	if c.Status == locate.StatusAmbiguous {
+		label = "may be"
+	}
 	for _, s := range c.Candidates {
-		fmt.Fprintf(w, "           same name: %s\n", symbolLine(s))
+		fmt.Fprintf(w, "           %s: %s\n", label, symbolLine(s))
 	}
 }

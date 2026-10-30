@@ -274,3 +274,81 @@ func TestCitedLines(t *testing.T) {
 		t.Errorf("a guard added beside a single cited line: cited %q, want changed", r.Cited)
 	}
 }
+
+// Declarations sharing an id: a stamp stays on the one it named through a rewrite, and when
+// nothing says which one it means, the answer says that too.
+func TestCheckSharedID(t *testing.T) {
+	decl := func(line, end int, body, declHash, kind string) facts.Fact {
+		f := sym("src.Box.value", "src/a.ts", line, end, body)
+		f.Props[facts.PropDeclHash] = declHash
+		f.Props["symbol_kind"] = kind
+		return f
+	}
+	getter := decl(3, 7, "g1", "gd", "getter")
+	setter := decl(8, 12, "s1", "sd", "method")
+	decl1 := func(line, end int, body, kind string) facts.Fact {
+		f := sym("src.Box.value", "src/a.ts", line, end, body)
+		f.Props["symbol_kind"] = kind
+		return f
+	}
+	id := getter.Identity()
+
+	for name, tc := range map[string]struct {
+		st     Stamp
+		after  []facts.Fact
+		status string
+		line   int
+		cands  int
+	}{
+		"unchanged":                {Stamp{ID: id, BodyHash: "s1", DeclHash: "sd"}, []facts.Fact{getter, setter}, StatusCurrent, 8, 0},
+		"stamped one rewritten":    {Stamp{ID: id, BodyHash: "s1", DeclHash: "sd"}, []facts.Fact{getter, decl(8, 13, "s2", "sd", "method")}, StatusRewritten, 8, 0},
+		"sibling rewritten":        {Stamp{ID: id, BodyHash: "g1", DeclHash: "gd"}, []facts.Fact{getter, decl(8, 13, "s2", "sd", "method")}, StatusCurrent, 3, 0},
+		"no decl, kind decides":    {Stamp{ID: id, BodyHash: "s1", SymbolKind: "method"}, []facts.Fact{getter, decl(8, 13, "s2", "sd", "method")}, StatusRewritten, 8, 0},
+		"nothing decides":          {Stamp{ID: id, BodyHash: "s1"}, []facts.Fact{decl(3, 7, "g2", "gd", "getter"), decl(8, 13, "s2", "sd", "method")}, StatusAmbiguous, 0, 2},
+		"no version at all":        {Stamp{ID: id}, []facts.Fact{getter, setter}, StatusAmbiguous, 0, 2},
+		"same signature twice":     {Stamp{ID: id, BodyHash: "x", DeclHash: "same"}, []facts.Fact{decl(3, 7, "a", "same", "method"), decl(8, 12, "b", "same", "method")}, StatusAmbiguous, 0, 2},
+		"signature changed":        {Stamp{ID: id, BodyHash: "s1", DeclHash: "sd"}, []facts.Fact{getter, decl(8, 13, "s2", "new", "method")}, StatusAmbiguous, 0, 2},
+		"survivor of another kind": {Stamp{ID: id, BodyHash: "s1", DeclHash: "sd", SymbolKind: "method"}, []facts.Fact{decl1(3, 7, "g1", "getter")}, StatusAmbiguous, 0, 1},
+		"alone, no source to read": {Stamp{ID: id, BodyHash: "s1", DeclHash: "sd", SymbolKind: "method"}, []facts.Fact{decl1(8, 13, "s2", "method")}, StatusRewritten, 8, 0},
+	} {
+		r := NewIndex(tc.after).Check([]Stamp{tc.st})[0]
+		if r.Status != tc.status || len(r.Candidates) != tc.cands {
+			t.Errorf("%s: %s with %d candidates, want %s with %d", name, r.Status, len(r.Candidates), tc.status, tc.cands)
+		}
+		if tc.line > 0 && (r.Symbol == nil || r.Symbol.Line != tc.line) {
+			t.Errorf("%s: resolved to %+v, want line %d", name, r.Symbol, tc.line)
+		}
+		if tc.status == StatusAmbiguous && r.Symbol != nil {
+			t.Errorf("%s: ambiguous, yet picked %+v", name, r.Symbol)
+		}
+	}
+}
+
+// The reproduction: a setter edited below the lines a stamp cites, whichever way the
+// declarations are ordered, keeps its cited lines.
+func TestCitedLinesReadTheStampedDeclaration(t *testing.T) {
+	src := func(extra string) string {
+		return "class B {\n  get v() {\n    return 1;\n  }\n  set v(n) {\n    const a = n;\n    this.v = a;\n    return;\n" + extra + "  }\n}\n"
+	}
+	ix := func(content string, setterEnd int) *Index {
+		cf := []byte(content)
+		g := sym("s.B.v", "a.ts", 2, 4, facts.BodyHash(cf, 2, 4))
+		g.Props[facts.PropDeclHash] = facts.DeclHash(cf, 2, 4)
+		st := sym("s.B.v", "a.ts", 5, setterEnd, facts.BodyHash(cf, 5, setterEnd))
+		st.Props[facts.PropDeclHash] = facts.DeclHash(cf, 5, setterEnd)
+		out := NewIndex([]facts.Fact{g, st})
+		out.SetSource(func(string, string) ([]byte, bool) { return cf, true })
+		return out
+	}
+	before := ix(src(""), 9)
+	loc := before.Locations([]string{"a.ts:7"})[0]
+	s := loc.Symbols[0]
+	if s.Line != 5 || s.DeclHash == "" {
+		t.Fatalf("located %+v, want the setter with a decl_hash", s)
+	}
+	stamp := Stamp{ID: s.ID, BodyHash: s.BodyHash, DeclHash: s.DeclHash, CitedHash: loc.CitedHash, CitedLines: loc.CitedLines}
+	r := ix(src("    log();\n"), 10).Check([]Stamp{stamp})[0]
+	if r.Status != StatusRewritten || r.Symbol == nil || r.Symbol.Line != 5 || r.Cited != CitedIntact {
+		t.Errorf("got %s on %+v, cited %q; want rewritten on the setter, cited intact", r.Status, r.Symbol, r.Cited)
+	}
+}
