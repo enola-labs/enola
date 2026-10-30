@@ -7,6 +7,65 @@ The full per-release change lists — every Added, Changed and Fixed line — ar
 [enola.tech/changelog](https://enola.tech/changelog). This file is the same history at
 the resolution a reader of the repository needs.
 
+## v0.4.38 — 2026-10-30
+
+**Generated OpenAPI clients, spec-first servers, Swift and Ruby services, and `locate` that tells declarations apart**
+
+- OpenAPI clients: a call through a generated client becomes a client route at the code
+  making it, with its caller (`source=generated-client`). The spec's operations become
+  `spec_declaration=true` and HTTP matching skips them. Covers clients generated into the
+  checkout and clients generated at build time. A spec with no call seen is unchanged.
+- OpenAPI servers: each operation of a spec-first server is `handled_by` the method of the
+  hand-written type implementing more than half of the spec. An operation documenting a
+  route the code registers takes that route's handler. `handler_binding` records which:
+  `operation` or `code-route`. A spec the repository implements nothing of, or only calls
+  through its generated client, becomes a client spec (`vendored_spec`).
+- Swift: Tuist targets are read from the project layout. Client routes come from a
+  codebase's own request base class, with the enclosing function as caller. `*ViewController`
+  classes are screens. Static calls bind to the nearest declaration of a type declared in
+  several modules, and a call bound to an extension also keeps the extended declaration.
+  `@testable import` and `import enum X.Y` record the right module.
+- Kotlin: bare calls inside `with`, `apply` and `run` are typed by the receiver, and
+  `x::member` is `x`'s method. An activity beside a Compose screen is its host.
+- Ruby and Rails: event publications and subscriptions are topic operations
+  (`ruby-messaging-call`). graphql-ruby `mount_mutation` is `handled_by` its `resolve`. A
+  drawn routes file keeps its namespace's controller module, and a verb in a singular
+  resource binds to the pluralized controller where one is declared.
+- Messaging contracts: a `{name}` segment on either side matches one segment. A parameter
+  that fits two contracts leaves the operation ambiguous.
+- Cross-repo imports: an import names a repository only by the position a package manager
+  puts that name in, and only within its own language family.
+- TypeScript: a value used without being called is recorded, and an object literal
+  `has_method` its functions. Node events resolve constants and cross files. React Router
+  pages are page routes, including route wrappers, optional segments and route-object
+  trees. A Vite or Nuxt alias object given by name resolves, including one imported from a
+  relative module. tsconfig `paths` take the first target that exists, and a target missing
+  from disk is flagged. A Vite HTML entry's module scripts give the page a `file_ref`.
+  Pothos builders are read across files. `*.test.js`, `*.spec.js` and everything under
+  `__tests__/` are test code.
+- Tailwind: a token name several themes declare is one token per theme, resolved through
+  the project's imports, presets and `@source`. A v4 `@theme` variable belongs to its
+  longest namespace. When one stylesheet `@import`s both projects, the later import's theme
+  wins. `@apply` lists use tokens. `package.json` is read from disk, so an index ignoring
+  JSON no longer loses Tailwind.
+- Next.js: `pages/` and `app/` route only directly in an app root or its `src/`.
+  `.next`, `.nuxt`, `.svelte-kit`, `.vercel` and `.turbo` are ignored at any depth.
+- Cycles: an import of a stylesheet, image or font is `coupling_kind=asset` and closes no
+  cycle.
+- Tests: a literal record id in a test's path matches the route's parameter, tried only
+  after the path as written misses.
+- `locate`: `decl_hash` tells apart declarations sharing an id (a getter and its setter,
+  overloads). A new `ambiguous` status lists the candidates and names none, where a stamp
+  used to take the first match. `gone` candidates now always mean same name, other code.
+  `span_start` extends a symbol's version over its decorators; `line` stays on the
+  declaration. JSON documented in `docs/schema/locate.md`.
+- Engine: a symlinked repository is read from its resolved checkout, which also stops
+  partial output from being cached and served to snapshots of the real path. Paths an
+  extractor probes on disk now key its cached facts. Cache version is v500, so existing
+  caches re-extract.
+- Docs and benchmarks: generated clients, served operations and Swift request bases in the
+  extraction docs. Framework answers at 90 of 90 rows, with gitlab added to the key.
+
 ## v0.4.37 — 2026-10-28
 
 **Symbol versions: blame follows a function through edits and moves, and `locate` keys records to the graph**
