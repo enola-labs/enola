@@ -476,6 +476,16 @@ any of them.
 It is computed after extraction from the span alone, so every symbol that has a
 span has one, and a symbol without a span has none.
 
+### decl_hash
+
+`decl_hash` is set only on spanned symbols whose `id` is shared with another declaration:
+a getter and its setter, the overloads of a method, a function declared once per
+platform. It is 16 hex characters of SHA-256 over the declaration's signature: the lines
+of its span after any leading annotations, up to the one that opens the body. It stays the
+same while the body is rewritten, so it says which declaration a remembered `body_hash`
+belonged to. Declarations with the same signature, such as two `#[cfg]` variants, share
+it.
+
 | Reader | Uses `body_hash` |
 |---|---|
 | `facts.jsonl` | As a prop of the symbol fact |

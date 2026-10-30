@@ -1164,13 +1164,15 @@ func propsChanged(a, b facts.Fact) bool {
 func hasNonArchitectural(f facts.Fact) bool {
 	_, doc := f.Prop(facts.PropDoc)
 	_, body := f.Prop(facts.PropBodyHash)
-	return doc || body
+	_, decl := f.Prop(facts.PropDeclHash)
+	return doc || body || decl
 }
 
 func architecturalProps(f facts.Fact) map[string]any {
 	props := f.CloneProps()
 	delete(props, facts.PropDoc)
 	delete(props, facts.PropBodyHash)
+	delete(props, facts.PropDeclHash)
 	return props
 }
 
