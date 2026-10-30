@@ -850,15 +850,61 @@ var rustRuntimeEntrypointAttrs = map[string]struct{}{
 	"tauri::command":       {},
 	"ctor::ctor":           {},
 	"divan::bench":         {},
+	"op2":                  {},
+	"deno_core::op2":       {},
+	"bench":                {},
+	"lang":                 {},
+	"panic_handler":        {},
+	"alloc_error_handler":  {},
+
+	"rustc_std_internal_symbol": {},
 }
 
 func rustRuntimeEntrypoint(attr rustAttribute, src []byte) bool {
+	if attr.path == "cfg_attr" {
+		return cfgAttrApplies(attr.args, src, rustRuntimeEntrypoint)
+	}
 	if _, ok := rustRuntimeEntrypointAttrs[attr.path]; ok {
 		return true
 	}
 	// Rust 2024 requires unsafe attributes to use #[unsafe(no_mangle)]. Match
 	// the exact nested identifier rather than arbitrary text in the arguments.
-	return attr.path == "unsafe" && tokenTreeSingleIdentifier(attr.args, "no_mangle", src)
+	return attr.path == "unsafe" && (tokenTreeSingleIdentifier(attr.args, "no_mangle", src) ||
+		tokenTreeLeadingIdentifier(attr.args, "export_name", src))
+}
+
+// cfgAttrApplies reports whether any attribute `cfg_attr(condition, a, b(..))`
+// applies when the condition holds satisfies match: the condition is the first
+// comma-separated item, the rest are attributes.
+func cfgAttrApplies(tree *sitter.Node, src []byte, match func(rustAttribute, []byte) bool) bool {
+	if tree == nil {
+		return false
+	}
+	pastCondition := false
+	for i := uint(0); i < tree.ChildCount(); i++ {
+		c := tree.Child(i)
+		switch kindOf(c) {
+		case ",":
+			pastCondition = true
+		case "identifier", "scoped_identifier", "unsafe":
+			if !pastCondition {
+				continue
+			}
+			attr := rustAttribute{path: nodeText(c, src)}
+			if next := tree.Child(i + 1); next != nil && kindOf(next) == "token_tree" {
+				attr.args = next
+			}
+			if match(attr, src) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func tokenTreeLeadingIdentifier(tree *sitter.Node, want string, src []byte) bool {
+	return tree != nil && tree.NamedChildCount() > 0 &&
+		kindOf(tree.NamedChild(0)) == "identifier" && nodeText(tree.NamedChild(0), src) == want
 }
 
 func tokenTreeSingleIdentifier(tree *sitter.Node, want string, src []byte) bool {

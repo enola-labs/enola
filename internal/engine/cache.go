@@ -3318,7 +3318,11 @@ import (
 // later import's declaration is the one a class names.
 // v497: Tailwind reads a repository's package.json files from disk, so an index that
 // ignores JSON still knows which projects use it.
-const cacheVersion = "v497"
+// v498: Rust: #[unsafe(export_name = "...")], the Rust 2024 spelling, marks a function the
+// linker exports as a runtime entry point, as #[unsafe(no_mangle)] does, also when
+// written inside #[cfg_attr(cond, ...)]. A function under #[op2], #[bench], #[lang],
+// #[panic_handler] or #[rustc_std_internal_symbol] is one the runtime calls.
+const cacheVersion = "v498"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
