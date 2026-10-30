@@ -191,6 +191,9 @@ func resolveTypedCalls(allFacts []facts.Fact) {
 			if !f.HasRelation(facts.RelCalls, target) {
 				f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelCalls, Target: target})
 			}
+			if d := h.extendedDeclaration(target, f.Name); d != "" && d != f.Name && !f.HasRelation(facts.RelCalls, d) {
+				f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelCalls, Target: d})
+			}
 		}
 	}
 }

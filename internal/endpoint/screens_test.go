@@ -108,3 +108,53 @@ func TestScreens_ThroughTheTypeAnInitializerRunsIn(t *testing.T) {
 		t.Errorf("screens = %+v, want ui.AppealFragment", got)
 	}
 }
+
+// A Compose app's one activity builds the view model's factory, so the walk reaches it
+// beside the screen that shows the data. It hosts that screen and is not one. Without a
+// Compose screen on the walk, the activity is the screen.
+func TestScreens_AnActivityHostingComposeScreensIsNotOne(t *testing.T) {
+	server := facts.Fact{Kind: facts.KindRoute, Name: "/api/plans", Repo: "api", File: "api/routes.go",
+		Props: map[string]any{"method": "GET"}}
+	client := func(caller string) facts.Fact {
+		return facts.Fact{Kind: facts.KindRoute, Name: "/api/plans", Repo: "app", File: "app/" + caller + ".kt",
+			Props: map[string]any{"role": "client", "method": "GET", facts.PropCaller: caller,
+				facts.PropMatchedRoutes: []any{map[string]any{"repo": "api", "method": "GET", "name": "/api/plans"}}}}
+	}
+	sym := func(name, kind string, rels ...facts.Relation) facts.Fact {
+		return facts.Fact{Kind: facts.KindSymbol, Name: name, File: "app/" + name + ".kt", Repo: "app",
+			Props: map[string]any{"language": "kotlin", "symbol_kind": kind}, Relations: rels}
+	}
+	calls := func(t string) facts.Relation { return facts.Relation{Kind: facts.RelCalls, Target: t} }
+	screens := func(c facts.Fact, ff ...facts.Fact) []string {
+		st := facts.NewStore()
+		st.Add(append(ff, server, c)...)
+		st.BuildGraph()
+		var got []string
+		for _, s := range screensFrom(st, []facts.Fact{c}, []facts.Fact{server}) {
+			got = append(got, s.Symbol)
+		}
+		return got
+	}
+
+	got := screens(client("vm.PlansViewModel.load"),
+		sym("vm.PlansViewModel", facts.SymbolClass),
+		sym("vm.PlansViewModel.load", facts.SymbolMethod),
+		sym("ui.PlansScreen", facts.SymbolFunc, calls("vm.PlansViewModel.load")),
+		sym("di.Factory", facts.SymbolClass),
+		sym("di.Factory.create", facts.SymbolMethod, calls("vm.PlansViewModel.load")),
+		sym("ui.MainActivity", facts.SymbolClass),
+		sym("ui.MainActivity.onCreate", facts.SymbolMethod, calls("di.Factory.create")),
+	)
+	if !slices.Equal(got, []string{"ui.PlansScreen"}) {
+		t.Errorf("screens = %v, want ui.PlansScreen alone", got)
+	}
+
+	got = screens(client("vm.PlansPresenter.load"),
+		sym("vm.PlansPresenter.load", facts.SymbolMethod),
+		sym("ui.PlansActivity", facts.SymbolClass),
+		sym("ui.PlansActivity.onCreate", facts.SymbolMethod, calls("vm.PlansPresenter.load")),
+	)
+	if !slices.Equal(got, []string{"ui.PlansActivity"}) {
+		t.Errorf("screens = %v, want ui.PlansActivity", got)
+	}
+}

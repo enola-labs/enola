@@ -1012,6 +1012,30 @@ func (h *swiftHierarchy) resolveUp(typ, short, from string) string {
 	return ""
 }
 
+// extendedDeclaration returns the method of the same name on the type that q's owner
+// extends, when q belongs to an extension of a type declared elsewhere. `extension
+// Session { func request(_ e: Endpoint) }` in a test target adds overloads to the
+// library's Session, and which of them a call means depends on its argument's type,
+// which is not read here. Both are kept: an extra edge overstates a call, and a
+// missing one hides its callers from whoever changes the declaration. A second
+// declaration of the type, as opposed to an extension, has no such link.
+func (h *swiftHierarchy) extendedDeclaration(q, from string) string {
+	owner := ownerOf(q)
+	if owner == "" || h.factNames[owner] {
+		return ""
+	}
+	var declared []string
+	for _, n := range h.methodByType[lastDotComponent(owner)][lastDotComponent(q)] {
+		if h.factNames[ownerOf(n)] {
+			declared = append(declared, n)
+		}
+	}
+	if len(declared) == 0 {
+		return ""
+	}
+	return nearestName(declared, from)
+}
+
 // ownerOf returns the qualified type a qualified method name belongs to.
 func ownerOf(method string) string {
 	if i := strings.LastIndexByte(method, '.'); i > 0 {

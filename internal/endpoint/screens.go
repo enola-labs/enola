@@ -2,6 +2,7 @@ package endpoint
 
 import (
 	"path"
+	"slices"
 	"sort"
 	"strings"
 
@@ -142,7 +143,24 @@ func screensAbove(s *facts.Store, g *facts.Graph, members map[string][]string, s
 		}
 		frontier = next
 	}
-	return out
+	return withoutComposeHosts(out)
+}
+
+// withoutComposeHosts drops the activities a walk found beside a Compose screen. An
+// app that navigates between composables has one activity hosting them all, and it
+// builds their dependencies, so a walk up through a view model's factory arrives at it
+// without its being the screen a user sees. An activity found alone is kept.
+func withoutComposeHosts(screens []facts.Fact) []facts.Fact {
+	isCompose := func(f facts.Fact) bool {
+		return f.PropString("language") == "kotlin" && f.PropString("symbol_kind") == facts.SymbolFunc
+	}
+	isActivity := func(f facts.Fact) bool {
+		return f.PropString("symbol_kind") == facts.SymbolClass && strings.HasSuffix(f.Name, "Activity")
+	}
+	if !slices.ContainsFunc(screens, isCompose) {
+		return screens
+	}
+	return slices.DeleteFunc(screens, isActivity)
 }
 
 // screenFact returns the screen name declares, or the screen whose member it is: a

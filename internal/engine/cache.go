@@ -3322,7 +3322,9 @@ import (
 // and route-base requests; Kotlin scope-function receivers; TypeScript: Next.js routes
 // only in an app's own app/ and pages/, asset imports marked; extractors walk a symlink's
 // checkout.
-const cacheVersion = "v498"
+// v499: Swift: a call bound to an extension of a type declared elsewhere also keeps
+// the declaration, since the two are overloads.
+const cacheVersion = "v499"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

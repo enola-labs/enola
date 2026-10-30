@@ -256,3 +256,63 @@ func TestStaticChainedCall_BindsTheNearestDeclaration(t *testing.T) {
 		}
 	}
 }
+
+// An extension in another target adds overloads to the type it extends, so a call
+// keeps the declaration as well as the nearer extension. A second declaration of the
+// type is not an overload set, and the nearest one alone is called.
+func TestExtensionOverload_KeepsTheDeclaration(t *testing.T) {
+	ff := extractRepo(t, map[string]string{
+		"Source/Session.swift": `open class Session {
+    open func request(_ url: String) {}
+}
+`,
+		"Tests/Helpers.swift": `extension Session {
+    func request(_ endpoint: Endpoint) {}
+}
+`,
+		"Tests/SessionTests.swift": `final class SessionTests {
+    func testRequest(session: Session) {
+        session.request("https://example.com")
+    }
+}
+`,
+		"A/Generated/Client.swift": `struct Client {
+    func fetch() {}
+}
+`,
+		"B/Generated/Client.swift": `struct Client {
+    func fetch() {}
+}
+`,
+		"B/Scenes/Loader.swift": `final class Loader {
+    func load(client: Client) {
+        client.fetch()
+    }
+}
+`,
+	})
+	calls := func(suffix string) map[string]bool {
+		got := map[string]bool{}
+		for _, f := range ff {
+			if f.Kind == facts.KindSymbol && strings.HasSuffix(f.Name, suffix) {
+				for _, r := range f.Relations {
+					if r.Kind == facts.RelCalls {
+						got[r.Target] = true
+					}
+				}
+			}
+		}
+		return got
+	}
+	got := calls("SessionTests.testRequest")
+	if !got["Tests.Session.request"] || !got["Source.Session.request"] {
+		t.Errorf("testRequest should call the extension and the declaration; calls %v", got)
+	}
+	got = calls("Loader.load")
+	if !got["B/Generated.Client.fetch"] {
+		t.Errorf("load does not call its module's Client.fetch; calls %v", got)
+	}
+	if got["A/Generated.Client.fetch"] {
+		t.Errorf("load calls another module's declaration; calls %v", got)
+	}
+}
