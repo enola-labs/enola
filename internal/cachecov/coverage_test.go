@@ -33,6 +33,7 @@ import (
 // test functions that assert the behavior that version introduced. v1 is the
 // implicit baseline (no changelog line), so coverage starts at v2.
 var versionCoverage = map[int][]string{
+	503: {"TestRustExternalTraitImplMethodsAreDispatchedByTheTrait"},
 	502: {"TestRustExternalTraitImplMethodsAreDispatchedByTheTrait"},
 	501: {"TestAST_ParameterizedTestsKeepProductionReferences"},
 	// Go implementers from constructors and typed method sets; database calls and cursor reads marked

@@ -721,9 +721,17 @@ func (w *astWalker) handleImpl(node *sitter.Node) {
 		w.walkItems(body)
 	}
 	if implIdx >= 0 {
+		prefix := w.dir + "." + w.qualify("")
 		for _, f := range w.out[first:] {
-			if f.PropAny("symbol_kind") == facts.SymbolMethod && f.PropAny("receiver") == typeName {
-				w.impls[implIdx].methods = append(w.impls[implIdx].methods, f.Name)
+			switch f.PropAny("symbol_kind") {
+			case facts.SymbolMethod:
+				if f.PropAny("receiver") == typeName {
+					w.impls[implIdx].methods = append(w.impls[implIdx].methods, f.Name)
+				}
+			case facts.SymbolType, facts.SymbolConstant:
+				if rest, ok := strings.CutPrefix(f.Name, prefix); ok && !strings.Contains(rest, ".") {
+					w.impls[implIdx].methods = append(w.impls[implIdx].methods, f.Name)
+				}
 			}
 		}
 	}
