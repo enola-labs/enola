@@ -201,11 +201,11 @@ func exceptionClause(exceptions []Exception) string {
 // sortedStringProps are the props a rule can be mined over. The doc prop is not
 // one: it is a comment's words, and a word two symbols' comments share is not a
 // regularity of the code. Nor is body_hash: it is one symbol's fingerprint, and
-// mining over it yields a rule per symbol that says nothing.
+// mining over it yields a rule per symbol that says nothing. decl_hash is the same.
 func sortedStringProps(props map[string]any) []string {
 	var keys []string
 	for k, v := range props {
-		if k == facts.PropDoc || k == facts.PropBodyHash {
+		if k == facts.PropDoc || k == facts.PropBodyHash || k == facts.PropDeclHash {
 			continue
 		}
 		if sv, ok := v.(string); ok && sv != "" {

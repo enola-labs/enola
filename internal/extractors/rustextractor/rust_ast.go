@@ -739,6 +739,7 @@ func (w *astWalker) handleFunction(node *sitter.Node, attrs rustItemAttrs) {
 		},
 		Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: w.dir}},
 	}
+	setAttributedStart(&f, node)
 	if doc := rustDoc(node, w.src); doc != "" {
 		facts.SetDoc(&f, doc)
 	}
@@ -920,6 +921,7 @@ func (w *astWalker) handleFunctionSignature(node *sitter.Node) {
 		},
 		Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: w.dir}},
 	}
+	setAttributedStart(&f, node)
 	if doc := rustDoc(node, w.src); doc != "" {
 		facts.SetDoc(&f, doc)
 	}
@@ -970,6 +972,7 @@ func (w *astWalker) handleConstOrStatic(node *sitter.Node, symbolKind string) {
 		},
 		Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: w.dir}},
 	}
+	setAttributedStart(&f, node)
 	if doc := rustDoc(node, w.src); doc != "" {
 		facts.SetDoc(&f, doc)
 	}
@@ -2124,7 +2127,23 @@ func nodeText(node *sitter.Node, src []byte) string { return tsutil.Text(node, s
 
 // setDoc sets the doc prop of the item node on the fact just appended for it.
 func (w *astWalker) setDoc(node *sitter.Node) {
+	setAttributedStart(&w.out[len(w.out)-1], node)
 	if doc := rustDoc(node, w.src); doc != "" {
 		facts.SetDoc(&w.out[len(w.out)-1], doc)
+	}
+}
+
+// setAttributedStart records the attributes above an item, which the grammar keeps as its
+// siblings. A comment may sit among them; one above the first is not part of the item.
+func setAttributedStart(f *facts.Fact, node *sitter.Node) {
+	for c := node.PrevSibling(); c != nil; c = c.PrevSibling() {
+		switch kindOf(c) {
+		case "attribute_item":
+			facts.SetSpanStart(f, int(c.StartPosition().Row)+1)
+			continue
+		case "line_comment", "block_comment":
+			continue
+		}
+		return
 	}
 }

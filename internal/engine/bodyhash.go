@@ -22,6 +22,10 @@ import (
 // A file's line starts are indexed once, so each symbol hashes its own span instead of
 // scanning from the top of the file: on a file with thousands of methods the scan was
 // quadratic, and on a large repository it made a warm snapshot 70% slower.
+//
+// A symbol whose id it shares with another also gets facts.PropDeclHash, so a reader can
+// tell which of them it means once their bodies have changed. Repo is not set yet, but
+// this range is one repository, so name and file are the whole identity here.
 func (e *Engine) hashSymbolBodies(repoPath string, startIdx int) {
 	var (
 		file   string
@@ -30,8 +34,18 @@ func (e *Engine) hashSymbolBodies(repoPath string, startIdx int) {
 		files  = map[string]bool{}
 		hashed int
 	)
+	spanned := func(f *facts.Fact) bool {
+		return f.Kind == facts.KindSymbol && f.File != "" && f.Line > 0 && f.EndLine >= f.Line
+	}
+	type identity struct{ name, file string }
+	declarations := map[identity]int{}
 	e.store.UpdateRange(startIdx, func(f *facts.Fact) {
-		if f.Kind != facts.KindSymbol || f.File == "" || f.Line <= 0 || f.EndLine < f.Line {
+		if spanned(f) {
+			declarations[identity{f.Name, f.File}]++
+		}
+	})
+	e.store.UpdateRange(startIdx, func(f *facts.Fact) {
+		if !spanned(f) {
 			return
 		}
 		if f.File != file {
@@ -40,12 +54,16 @@ func (e *Engine) hashSymbolBodies(repoPath string, startIdx int) {
 			starts = lineStarts(src)
 			files[file] = true
 		}
-		if f.Line > len(starts) {
-			return
+		if first := f.SpanStart(); first > 0 && first <= len(starts) {
+			if h := facts.BodyHash(src[starts[first-1]:], 1, f.EndLine-first+1); h != "" {
+				f.SetProp(facts.PropBodyHash, h)
+				hashed++
+			}
 		}
-		if h := facts.BodyHash(src[starts[f.Line-1]:], 1, f.EndLine-f.Line+1); h != "" {
-			f.SetProp(facts.PropBodyHash, h)
-			hashed++
+		if f.Line <= len(starts) && declarations[identity{f.Name, f.File}] > 1 {
+			if h := facts.DeclHash(src[starts[f.Line-1]:], 1, f.EndLine-f.Line+1); h != "" {
+				f.SetProp(facts.PropDeclHash, h)
+			}
 		}
 	})
 	if hashed > 0 {

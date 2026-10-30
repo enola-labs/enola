@@ -11,8 +11,11 @@ import (
 // another file cannot be found again, because the id is a hash and does not say what it
 // named.
 type Stamp struct {
-	ID         string `json:"id"`
-	BodyHash   string `json:"body_hash,omitempty"`
+	ID       string `json:"id"`
+	BodyHash string `json:"body_hash,omitempty"`
+	// DeclHash says which declaration the stamp means when several share its id. Present
+	// only if they already did when it was stamped.
+	DeclHash   string `json:"decl_hash,omitempty"`
 	Name       string `json:"name,omitempty"`
 	SymbolKind string `json:"symbol_kind,omitempty"`
 	// CitedHash and CitedLines are the version of the lines the remembered location
@@ -35,8 +38,12 @@ const (
 	// declared name and the same body.
 	StatusMoved = "moved"
 	// StatusGone is a symbol no longer in the graph. Candidates lists symbols with the
-	// same declared name, which may be it moved and rewritten at once.
+	// same declared name and another body, which may be it moved and rewritten at once.
 	StatusGone = "gone"
+	// StatusAmbiguous is a stamp that cannot be tied to one symbol: Candidates lists what it
+	// may be, and Symbol is empty. Saying so is the answer; picking one would report on the
+	// wrong code.
+	StatusAmbiguous = "ambiguous"
 )
 
 // What became of the lines a stamp cited, beside what became of its function.
@@ -99,7 +106,7 @@ func (ix *Index) cited(st Stamp, r CheckResult) string {
 	if !ok || !r.Symbol.spanned() {
 		return ""
 	}
-	body, inside := facts.NormalizedLines(content, r.Symbol.Line, r.Symbol.EndLine)
+	body, inside := facts.NormalizedLines(content, r.Symbol.first(), r.Symbol.EndLine)
 	if !inside {
 		return ""
 	}
@@ -114,16 +121,12 @@ func (ix *Index) cited(st Stamp, r CheckResult) string {
 func (ix *Index) checkSymbol(st Stamp) CheckResult {
 	r := CheckResult{Stamp: st}
 	if same := ix.byID[st.ID]; len(same) > 0 {
-		// An id can cover several facts (the same declaration recorded twice); the one
-		// with the stamped body is the stamped one if it is still there.
-		s := same[0]
-		for _, c := range same {
-			if c.BodyHash == st.BodyHash {
-				s = c
-				break
-			}
+		s, candidates := ix.resolveDeclaration(st, same)
+		if s == nil {
+			r.Status, r.Candidates = StatusAmbiguous, candidates
+			return r
 		}
-		r.Symbol = &s
+		r.Symbol = s
 		switch {
 		case st.BodyHash == "" || s.BodyHash == "":
 			r.Status = StatusPresent
@@ -153,12 +156,75 @@ func (ix *Index) checkSymbol(st Stamp) CheckResult {
 		if len(moved) > 1 {
 			// Two copies of one body under one name: a move cannot be told from a copy,
 			// so both are reported and neither is picked.
-			r.Candidates = moved
+			r.Status, r.Candidates = StatusAmbiguous, moved
 			return r
 		}
 	}
 	r.Candidates = ix.sameDeclaredName(st)
 	return r
+}
+
+// resolveDeclaration picks, among the declarations holding a stamp's id, the one it means:
+// the stamped body if it is still there, else the stamped signature, else the stamped
+// kind. It returns nil and what remains when those do not settle it.
+func (ix *Index) resolveDeclaration(st Stamp, same []Symbol) (*Symbol, []Symbol) {
+	if st.BodyHash != "" {
+		for i := range same {
+			if same[i].BodyHash == st.BodyHash {
+				return &same[i], nil
+			}
+		}
+	}
+	if len(same) == 1 {
+		if !ix.mayBeSameDeclaration(st, same[0]) {
+			return nil, same
+		}
+		return &same[0], nil
+	}
+	remaining := same
+	if byDecl := filterSymbols(remaining, func(s Symbol) bool { return st.DeclHash != "" && s.DeclHash == st.DeclHash }); len(byDecl) > 0 {
+		remaining = byDecl
+	}
+	if byKind := filterSymbols(remaining, func(s Symbol) bool { return st.SymbolKind != "" && s.SymbolKind == st.SymbolKind }); len(byKind) > 0 {
+		remaining = byKind
+	}
+	if len(remaining) == 1 {
+		return &remaining[0], nil
+	}
+	return nil, remaining
+}
+
+// mayBeSameDeclaration checks a stamp that named one of several declarations against the
+// only one left. A symbol alone under its id carries no decl_hash, so its signature is
+// read from the source when there is one; without source only the kind can object. A
+// mismatch is a sibling that survived, or the stamped one with a new signature, and the
+// two look alike.
+func (ix *Index) mayBeSameDeclaration(st Stamp, s Symbol) bool {
+	if st.DeclHash == "" {
+		return true
+	}
+	if st.SymbolKind != "" && s.SymbolKind != "" && st.SymbolKind != s.SymbolKind {
+		return false
+	}
+	if s.DeclHash != "" {
+		return s.DeclHash == st.DeclHash
+	}
+	if content, ok := ix.read(s.File); ok && s.spanned() {
+		if h := facts.DeclHash(content, s.Line, s.EndLine); h != "" {
+			return h == st.DeclHash
+		}
+	}
+	return true
+}
+
+func filterSymbols(ss []Symbol, keep func(Symbol) bool) []Symbol {
+	var out []Symbol
+	for _, s := range ss {
+		if keep(s) {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 func (ix *Index) sameDeclaredName(st Stamp) []Symbol {

@@ -33,4 +33,4 @@ Flags:
   -side string
     	which side of the diff the graph is of: new (the tree with the change) or old (its parent) (default "new")
   -stamps string
-    	a JSONL file of stamps ({id, body_hash, name}), or - for stdin: report each as current, rewritten, moved or gone
+    	a JSONL file of stamps ({id, body_hash, name}), or - for stdin: report each as current, rewritten, moved, gone or ambiguous

@@ -823,6 +823,7 @@ func (e *TSExtractor) classSymbol(kinds *tsutil.KindTable, node, classBody *sitt
 			{Kind: facts.RelDeclares, Target: dir},
 		},
 	}
+	setDecoratedStart(kinds, &f, node)
 
 	// A TS `abstract class` is an abstraction (has unimplemented members and
 	// cannot be instantiated) — tag it so package-metrics counts it toward
@@ -971,7 +972,7 @@ func (e *TSExtractor) memberFact(kinds *tsutil.KindTable, member *sitter.Node, c
 		mProps["stimulus_static"] = mName
 	}
 	applyTSMetrics(mProps, m)
-	return facts.Fact{
+	f := facts.Fact{
 		Kind:      facts.KindSymbol,
 		Name:      dir + "." + symbolName + "." + mName,
 		File:      relFile,
@@ -979,7 +980,9 @@ func (e *TSExtractor) memberFact(kinds *tsutil.KindTable, member *sitter.Node, c
 		EndLine:   tsutil.EndLine(member),
 		Props:     mProps,
 		Relations: mRels,
-	}, true
+	}
+	setDecoratedStart(kinds, &f, member)
+	return f, true
 }
 
 // CommonJS export assignment: `exports.name = function` /

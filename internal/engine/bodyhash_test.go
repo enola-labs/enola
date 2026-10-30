@@ -40,6 +40,44 @@ func TestSymbolBodyHash(t *testing.T) {
 	}
 }
 
+// Declarations sharing an id get a decl_hash that tells them apart and survives a rewrite
+// of the body; a symbol with its id to itself gets none.
+func TestSymbolDeclHash(t *testing.T) {
+	src := func(body string) string {
+		return "@Override\npublic int f(int a) {\n\treturn " + body + ";\n}\n\n" +
+			"@Override\npublic int f(\n\tString a) {\n\treturn 2;\n}\n\n" +
+			"public int g() {\n\treturn 3;\n}\n"
+	}
+	run := func(content string) map[int]string {
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, "X.java"), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		e := &Engine{store: facts.NewStore()}
+		e.store.Add(
+			facts.Fact{Kind: facts.KindSymbol, Name: "X.f", File: "X.java", Line: 1, EndLine: 4},
+			facts.Fact{Kind: facts.KindSymbol, Name: "X.f", File: "X.java", Line: 6, EndLine: 10},
+			facts.Fact{Kind: facts.KindSymbol, Name: "X.g", File: "X.java", Line: 12, EndLine: 14},
+		)
+		e.hashSymbolBodies(dir, 0)
+		got := map[int]string{}
+		for _, f := range e.store.FactsRef() {
+			got[f.Line] = f.PropString(facts.PropDeclHash)
+		}
+		return got
+	}
+	before := run(src("1"))
+	if before[1] == "" || before[6] == "" || before[1] == before[6] {
+		t.Errorf("overloads: decl_hash %q and %q, want two different ones", before[1], before[6])
+	}
+	if before[12] != "" {
+		t.Errorf("a symbol with its id to itself got decl_hash %q", before[12])
+	}
+	if after := run(src("100")); after[1] != before[1] || after[6] != before[6] {
+		t.Errorf("rewriting a body moved decl_hash: %v to %v", before, after)
+	}
+}
+
 // Hashing from a line's offset is the same as hashing the whole file, at every span,
 // with and without a trailing newline and past the end of the file.
 func TestSymbolBodyHashMatchesWholeFile(t *testing.T) {

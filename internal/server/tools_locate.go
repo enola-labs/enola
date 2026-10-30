@@ -27,7 +27,7 @@ const maxLocateInputs = 500
 func (s *Server) registerLocateTool() {
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "locate",
-		Description: "file:line or diff to innermost symbols: fact id, body_hash (code version), cited_hash (cited lines). Stamps: current, rewritten, moved, gone; cited intact or changed.",
+		Description: "file:line or diff to symbols: fact id, body_hash, cited_hash. Stamps: current, rewritten, moved, gone, ambiguous; cited intact/changed.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args locateArgs) (*mcp.CallToolResult, any, error) {
 		if len(args.Locations) == 0 && args.Diff == "" && len(args.Stamps) == 0 {
 			return errorResult("locate needs locations, a diff or stamps"), nil, nil

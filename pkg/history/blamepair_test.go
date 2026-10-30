@@ -98,3 +98,26 @@ func TestBlamePairs(t *testing.T) {
 		}
 	}
 }
+
+// Two overloads share an identity. When one is rewritten and both shift, each pairs with
+// its own earlier line, whatever order the lines arrive in.
+func TestBlamePairsSameDeclaration(t *testing.T) {
+	overload := func(line int, body, decl string) string {
+		b, err := json.Marshal(map[string]any{"kind": "symbol", "name": "p.F", "file": "a.go", "line": line,
+			"props": map[string]any{"body_hash": body, "decl_hash": decl}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+	removed := []string{overload(1, "a1", "da"), overload(5, "b1", "db")}
+	added := []string{overload(6, "b2", "db"), overload(2, "a1", "da")}
+	_, _, pairs := pairDelta(added, removed, nil, nil, "")
+	got := map[string]string{}
+	for _, p := range pairs {
+		got[p.Kind] = p.From
+	}
+	if got[PairShifted] != removed[0] || got[PairRewritten] != removed[1] {
+		t.Errorf("pairs %+v", pairs)
+	}
+}

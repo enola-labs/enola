@@ -18,6 +18,90 @@ import (
 // what it compares. It is set only on symbols whose extractor measured a span.
 const PropBodyHash = "body_hash"
 
+// PropDeclHash tells apart declarations that share an id: a getter and its setter, the
+// overloads of a method, a function declared once per platform. It is a hash of the
+// declaration's signature, so it stays put while the body under it is rewritten, which
+// is when a reader of body_hash has lost its way back to the declaration it remembered.
+//
+// It is set only on symbols whose id is shared. Like PropBodyHash it says nothing about
+// the architecture.
+const PropDeclHash = "decl_hash"
+
+// PropSpanStart is the line a symbol's code starts on when that is above Line: the
+// decorators or attributes a language writes before the declaration and its parser keeps
+// outside it. Line stays on the declaration, where a reader jumping to a symbol wants it
+// and where `def` and ast.lineno put it.
+//
+// A decorator changes what the code does, so the version covers it.
+const PropSpanStart = "span_start"
+
+// SetSpanStart records that f's code starts on line, if that is above its Line.
+func SetSpanStart(f *Fact, line int) {
+	if line > 0 && line < f.Line {
+		f.SetProp(PropSpanStart, line)
+	}
+}
+
+// SpanStart returns the line f's code starts on: PropSpanStart when set, otherwise Line.
+// A fact read back from JSON holds the number as a float.
+func (f Fact) SpanStart() int {
+	switch v := f.PropAny(PropSpanStart).(type) {
+	case int:
+		return v
+	case float64:
+		return int(v)
+	}
+	return f.Line
+}
+
+// maxSignatureLines bounds how far DeclHash reads into a span looking for the signature.
+const maxSignatureLines = 40
+
+// DeclHash hashes the signature of the declaration on lines start..end of src: the lines
+// after any leading annotations, up to the one that opens the body. It returns "" when
+// the span is not inside src.
+//
+// Annotations are skipped because they are what overloads have most in common: two Java
+// overloads both begin `@Override`, which is why the first line alone is not enough.
+// Finding the signature by its text rather than from each extractor's tree makes it a
+// heuristic, and a wrong stop still yields a stable hash of the same lines: what it can
+// cost is two declarations that do not separate, never a hash that moves by itself.
+func DeclHash(src []byte, start, end int) string {
+	if end >= start+maxSignatureLines {
+		end = start + maxSignatureLines - 1
+	}
+	lines, ok := NormalizedLines(src, start, end)
+	if !ok || len(lines) == 0 {
+		return ""
+	}
+	first := 0
+	for first < len(lines)-1 && isAnnotationLine(lines[first]) {
+		first++
+	}
+	for i := first; i < len(lines); i++ {
+		if opensBody(lines[i]) {
+			return HashLines(lines[first : i+1])
+		}
+	}
+	return HashLines(lines[first:])
+}
+
+func isAnnotationLine(line string) bool {
+	return line[0] == '@' || line[0] == '[' || strings.HasPrefix(line, "#[")
+}
+
+func opensBody(line string) bool {
+	if strings.IndexByte(line, '{') >= 0 {
+		return true
+	}
+	for _, end := range []string{":", ";", "=>", "="} {
+		if strings.HasSuffix(line, end) {
+			return true
+		}
+	}
+	return false
+}
+
 // BodyHash hashes the lines start..end (1-based, inclusive) of src.
 //
 // Each line is trimmed and blank lines are dropped, so re-indenting a function (wrapping

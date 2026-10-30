@@ -28,11 +28,23 @@ type Symbol struct {
 	Line       int    `json:"line"`
 	EndLine    int    `json:"end_line,omitempty"`
 	BodyHash   string `json:"body_hash,omitempty"`
+	// DeclHash tells this declaration from others sharing its id (facts.PropDeclHash).
+	DeclHash string `json:"decl_hash,omitempty"`
+	// SpanStart is where the code starts when that is above Line: its decorators.
+	SpanStart int `json:"span_start,omitempty"`
 }
 
 func (s Symbol) spanned() bool { return s.EndLine >= s.Line && s.Line > 0 }
 
-func (s Symbol) contains(line int) bool { return s.spanned() && s.Line <= line && line <= s.EndLine }
+// first is the first line of the symbol's code, its decorators included.
+func (s Symbol) first() int {
+	if s.SpanStart > 0 {
+		return s.SpanStart
+	}
+	return s.Line
+}
+
+func (s Symbol) contains(line int) bool { return s.spanned() && s.first() <= line && line <= s.EndLine }
 
 // How a location was matched to a symbol.
 const (
@@ -119,6 +131,10 @@ func NewIndex(ff []facts.Fact) *Index {
 			Line:       f.Line,
 			EndLine:    f.EndLine,
 			BodyHash:   f.PropString(facts.PropBodyHash),
+			DeclHash:   f.PropString(facts.PropDeclHash),
+		}
+		if first := f.SpanStart(); first != f.Line {
+			s.SpanStart = first
 		}
 		ix.byFile[s.File] = append(ix.byFile[s.File], s)
 		ix.byID[s.ID] = append(ix.byID[s.ID], s)
@@ -130,7 +146,7 @@ func NewIndex(ff []facts.Fact) *Index {
 		}
 	}
 	for file, ss := range ix.byFile {
-		sort.SliceStable(ss, func(i, j int) bool { return ss[i].Line < ss[j].Line })
+		sort.SliceStable(ss, func(i, j int) bool { return ss[i].first() < ss[j].first() })
 		ix.files = append(ix.files, file)
 	}
 	sort.Strings(ix.files)
@@ -179,7 +195,7 @@ func (ix *Index) At(file string, line int) (Symbol, string) {
 	if ix.spans[file] {
 		best, found := Symbol{}, false
 		for _, s := range ss {
-			if s.Line > line {
+			if s.first() > line {
 				break
 			}
 			if !s.contains(line) {
@@ -187,8 +203,8 @@ func (ix *Index) At(file string, line int) (Symbol, string) {
 			}
 			// Innermost: the shortest span holding the line. Spans nest, so on a tie the
 			// later start is the inner one.
-			if !found || s.EndLine-s.Line < best.EndLine-best.Line ||
-				(s.EndLine-s.Line == best.EndLine-best.Line && s.Line > best.Line) {
+			if !found || s.EndLine-s.first() < best.EndLine-best.first() ||
+				(s.EndLine-s.first() == best.EndLine-best.first() && s.first() > best.first()) {
 				best, found = s, true
 			}
 		}

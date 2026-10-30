@@ -468,13 +468,31 @@ modules.
 characters of SHA-256 over the lines its span covers, each line trimmed and blank
 lines dropped. The id names the declaration and stays the same while its body is
 rewritten, and `line` moves whenever anything above it changes; `body_hash`
-changes exactly when the code inside the span does. Re-indenting a function,
+changes exactly when the code inside the span does, along with its decorators (see
+`span_start` below). Re-indenting a function,
 padding it with blank lines or moving it leaves it unchanged; editing one token
 changes it. A class's span holds its methods, so a class's version changes with
 any of them.
 
 It is computed after extraction from the span alone, so every symbol that has a
 span has one, and a symbol without a span has none.
+
+`span_start` is set when a symbol's code starts above its `line`: the decorators,
+attributes or annotations that Python, TypeScript, Rust and Dart write before a declaration
+and their parsers keep outside it. `body_hash` covers them, so changing `@cache` to `@retry`
+is a new version, while `line` stays on the declaration. Java, Kotlin, C#, Swift, Scala, PHP
+and C++ keep annotations inside the declaration, so `line` is already the annotation there
+and `span_start` is absent. A Go `//go:` directive is a comment and is not covered.
+
+### decl_hash
+
+`decl_hash` is set only on spanned symbols whose `id` is shared with another declaration:
+a getter and its setter, the overloads of a method, a function declared once per
+platform. It is 16 hex characters of SHA-256 over the declaration's signature: the lines
+of its span after any leading annotations, up to the one that opens the body. It stays the
+same while the body is rewritten, so it says which declaration a remembered `body_hash`
+belonged to. Declarations with the same signature, such as two `#[cfg]` variants, share
+it.
 
 | Reader | Uses `body_hash` |
 |---|---|

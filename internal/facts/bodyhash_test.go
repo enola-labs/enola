@@ -49,3 +49,40 @@ func TestNormalizedLinesHashLikeBodyHash(t *testing.T) {
 		t.Error("a span past the end is not inside src")
 	}
 }
+
+func TestDeclHash(t *testing.T) {
+	hash := func(src string) string { return DeclHash([]byte(src), 1, 100) }
+	for _, tc := range []struct {
+		name string
+		a, b string
+	}{
+		{"typescript accessors", "get value(): number {\n return 1;\n}", "set value(n: number) {\n this.v = n;\n}"},
+		{"python property", "def val(self):\n    return 1", "def val(self, n):\n    self.v = n"},
+		{"java overloads behind one annotation", "@Override\nint f(int a) {\n}", "@Override\nint f(String a) {\n}"},
+		{"csharp attributes", "[HttpGet]\nint f(int a) {\n}", "[HttpGet]\nint f(string a) {\n}"},
+		{"rust attributes", "#[inline]\nfn f(a: i32) {\n}", "#[inline]\nfn f(a: i64) {\n}"},
+		{"signature over several lines", "int f(\n int a) {\n}", "int f(\n String a) {\n}"},
+	} {
+		if hash(tc.a) == hash(tc.b) {
+			t.Errorf("%s: the two declarations share a hash", tc.name)
+		}
+	}
+	for _, tc := range []struct {
+		name string
+		a, b string
+	}{
+		{"body rewritten", "int f(int a) {\n return 1;\n}", "int f(int a) {\n return 2;\n return 3;\n}"},
+		{"reindented", "int f(int a) {\n}", "\t\tint f(int a) {\n\t}"},
+		{"annotation changed", "@A\nint f(int a) {\n}", "@B\nint f(int a) {\n}"},
+	} {
+		if hash(tc.a) != hash(tc.b) {
+			t.Errorf("%s: the hash moved", tc.name)
+		}
+	}
+	if got := DeclHash([]byte("x\n"), 5, 6); got != "" {
+		t.Errorf("a span outside the source hashed to %q", got)
+	}
+	if hash("@OnlyAnAnnotation") == "" {
+		t.Error("a span of nothing but annotations has no hash")
+	}
+}

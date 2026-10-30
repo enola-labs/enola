@@ -1370,6 +1370,7 @@ func (w *pyWalker) handleClass(node *sitter.Node, decorators []string) {
 		Relations: rels,
 	}
 
+	setDecoratedStart(&f, node)
 	w.out = append(w.out, f)
 	w.pushOwner(len(w.out) - 1)
 
@@ -1451,6 +1452,7 @@ func (w *pyWalker) handleFunction(node *sitter.Node, decorators []string) {
 		Relations: rels,
 	}
 
+	setDecoratedStart(&f, node)
 	w.out = append(w.out, f)
 	w.pushOwner(len(w.out) - 1)
 	if bodyNode := node.ChildByFieldName("body"); bodyNode != nil {
@@ -3417,9 +3419,18 @@ func (w *pyWalker) emitNestedRouteHandler(def *sitter.Node, routes []int) int {
 		Props:     props,
 		Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: w.dir}},
 	})
+	setDecoratedStart(&w.out[len(w.out)-1], def)
 	for _, idx := range routes {
 		w.out[idx].SetProp("handler", qualName)
 		w.out[idx].Relations = append(w.out[idx].Relations, facts.Relation{Kind: facts.RelHandledBy, Target: qualName})
 	}
 	return len(w.out) - 1
+}
+
+// setDecoratedStart records the decorators above a definition, which the grammar keeps in
+// a wrapper around it.
+func setDecoratedStart(f *facts.Fact, def *sitter.Node) {
+	if p := def.Parent(); p != nil && kindOf(p) == "decorated_definition" {
+		facts.SetSpanStart(f, int(p.StartPosition().Row)+1)
+	}
 }

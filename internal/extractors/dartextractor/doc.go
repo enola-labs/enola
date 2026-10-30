@@ -54,7 +54,16 @@ func dartDoc(n *sitter.Node, src []byte) string {
 
 // setDoc sets the doc prop of the declaration n on the fact just appended for it.
 func (w *walker) setDoc(n *sitter.Node) {
+	setAnnotatedStart(&w.out[len(w.out)-1], n)
 	if doc := dartDoc(n, w.src); doc != "" {
 		facts.SetDoc(&w.out[len(w.out)-1], doc)
+	}
+}
+
+// setAnnotatedStart records the annotations above a member, which the grammar keeps as its
+// siblings.
+func setAnnotatedStart(f *facts.Fact, n *sitter.Node) {
+	for c := n.PrevSibling(); c != nil && kindOf(c) == "annotation"; c = c.PrevSibling() {
+		facts.SetSpanStart(f, int(c.StartPosition().Row)+1)
 	}
 }

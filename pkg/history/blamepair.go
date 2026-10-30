@@ -45,8 +45,9 @@ func pairDelta(added, removed, prev, cur []string, needle string) (outAdded, out
 		if len(cands) == 0 {
 			continue
 		}
-		j := cands[0]
-		byIdentity[a.identity()] = cands[1:]
+		pick := sameDeclaration(*a, rems, cands)
+		j := cands[pick]
+		byIdentity[a.identity()] = append(cands[:pick:pick], cands[pick+1:]...)
 		pairs = append(pairs, BlamePair{Kind: identityPairKind(rems[j], *a), From: rems[j].raw, To: a.raw})
 		a.paired, rems[j].paired = true, true
 	}
@@ -151,11 +152,28 @@ func movableOutside(lines []string, needle string) map[string][]factLine {
 	return out
 }
 
+// sameDeclaration picks among removed lines with one identity the one an added line
+// continues: overloads share an identity, and one of them rewritten must not be reported
+// against its sibling. The same body first, then the same signature.
+func sameDeclaration(a factLine, rems []factLine, cands []int) int {
+	for i, j := range cands {
+		if a.body != "" && rems[j].body == a.body {
+			return i
+		}
+	}
+	for i, j := range cands {
+		if a.decl != "" && rems[j].decl == a.decl {
+			return i
+		}
+	}
+	return 0
+}
+
 // factLine is the part of a canonical fact line that pairing reads.
 type factLine struct {
 	raw                    string
 	kind, name, file, repo string
-	body                   string
+	body, decl             string
 	ok, paired             bool
 }
 
@@ -175,12 +193,13 @@ func parseFactLine(line string) factLine {
 		Repo  string `json:"repo"`
 		Props struct {
 			Body string `json:"body_hash"`
+			Decl string `json:"decl_hash"`
 		} `json:"props"`
 	}
 	if err := json.Unmarshal([]byte(line), &f); err != nil || f.Kind == "" || f.Name == "" {
 		return factLine{raw: line}
 	}
-	return factLine{raw: line, kind: f.Kind, name: f.Name, file: f.File, repo: f.Repo, body: f.Props.Body, ok: true}
+	return factLine{raw: line, kind: f.Kind, name: f.Name, file: f.File, repo: f.Repo, body: f.Props.Body, decl: f.Props.Decl, ok: true}
 }
 
 func (f factLine) identity() string {
