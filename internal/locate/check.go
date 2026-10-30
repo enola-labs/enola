@@ -106,7 +106,7 @@ func (ix *Index) cited(st Stamp, r CheckResult) string {
 	if !ok || !r.Symbol.spanned() {
 		return ""
 	}
-	body, inside := facts.NormalizedLines(content, r.Symbol.Line, r.Symbol.EndLine)
+	body, inside := facts.NormalizedLines(content, r.Symbol.first(), r.Symbol.EndLine)
 	if !inside {
 		return ""
 	}

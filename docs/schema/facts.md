@@ -476,6 +476,13 @@ any of them.
 It is computed after extraction from the span alone, so every symbol that has a
 span has one, and a symbol without a span has none.
 
+`span_start` is set when a symbol's code starts above its `line`: the decorators,
+attributes or annotations that Python, TypeScript, Rust and Dart write before a declaration
+and their parsers keep outside it. `body_hash` covers them, so changing `@cache` to `@retry`
+is a new version, while `line` stays on the declaration. Java, Kotlin, C#, Swift, Scala, PHP
+and C++ keep annotations inside the declaration, so `line` is already the annotation there
+and `span_start` is absent. A Go `//go:` directive is a comment and is not covered.
+
 ### decl_hash
 
 `decl_hash` is set only on spanned symbols whose `id` is shared with another declaration:

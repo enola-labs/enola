@@ -54,16 +54,14 @@ func (e *Engine) hashSymbolBodies(repoPath string, startIdx int) {
 			starts = lineStarts(src)
 			files[file] = true
 		}
-		if f.Line > len(starts) {
-			return
+		if first := f.SpanStart(); first > 0 && first <= len(starts) {
+			if h := facts.BodyHash(src[starts[first-1]:], 1, f.EndLine-first+1); h != "" {
+				f.SetProp(facts.PropBodyHash, h)
+				hashed++
+			}
 		}
-		span := src[starts[f.Line-1]:]
-		if h := facts.BodyHash(span, 1, f.EndLine-f.Line+1); h != "" {
-			f.SetProp(facts.PropBodyHash, h)
-			hashed++
-		}
-		if declarations[identity{f.Name, f.File}] > 1 {
-			if h := facts.DeclHash(span, 1, f.EndLine-f.Line+1); h != "" {
+		if f.Line <= len(starts) && declarations[identity{f.Name, f.File}] > 1 {
+			if h := facts.DeclHash(src[starts[f.Line-1]:], 1, f.EndLine-f.Line+1); h != "" {
 				f.SetProp(facts.PropDeclHash, h)
 			}
 		}

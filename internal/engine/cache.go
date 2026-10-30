@@ -3324,7 +3324,9 @@ import (
 // checkout.
 // v499: Swift: a call bound to an extension of a type declared elsewhere also keeps
 // the declaration, since the two are overloads.
-const cacheVersion = "v499"
+// v500: Python, TypeScript, Rust and Dart record the decorators and attributes above a
+// declaration as span_start, so its body_hash covers them.
+const cacheVersion = "v500"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

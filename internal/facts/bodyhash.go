@@ -27,6 +27,33 @@ const PropBodyHash = "body_hash"
 // the architecture.
 const PropDeclHash = "decl_hash"
 
+// PropSpanStart is the line a symbol's code starts on when that is above Line: the
+// decorators or attributes a language writes before the declaration and its parser keeps
+// outside it. Line stays on the declaration, where a reader jumping to a symbol wants it
+// and where `def` and ast.lineno put it.
+//
+// A decorator changes what the code does, so the version covers it.
+const PropSpanStart = "span_start"
+
+// SetSpanStart records that f's code starts on line, if that is above its Line.
+func SetSpanStart(f *Fact, line int) {
+	if line > 0 && line < f.Line {
+		f.SetProp(PropSpanStart, line)
+	}
+}
+
+// SpanStart returns the line f's code starts on: PropSpanStart when set, otherwise Line.
+// A fact read back from JSON holds the number as a float.
+func (f Fact) SpanStart() int {
+	switch v := f.PropAny(PropSpanStart).(type) {
+	case int:
+		return v
+	case float64:
+		return int(v)
+	}
+	return f.Line
+}
+
 // maxSignatureLines bounds how far DeclHash reads into a span looking for the signature.
 const maxSignatureLines = 40
 

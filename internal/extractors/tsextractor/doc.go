@@ -219,3 +219,28 @@ func fileDocText(block string) string {
 	}
 	return strings.Join(out, "\n")
 }
+
+// setDecoratedStart records the decorators above a class or member. A member's are its
+// siblings, and a class's are children of the class or of the export wrapping it. A
+// comment may sit among them; one above the first is not part of the declaration.
+func setDecoratedStart(kinds *tsutil.KindTable, f *facts.Fact, n *sitter.Node) {
+	for ; n != nil; n = n.Parent() {
+		for i := uint(0); i < n.ChildCount(); i++ {
+			if c := n.Child(i); kindOf(kinds, c) == "decorator" {
+				facts.SetSpanStart(f, int(c.StartPosition().Row)+1)
+				break
+			}
+		}
+		for c := n.PrevSibling(); c != nil; c = c.PrevSibling() {
+			k := kindOf(kinds, c)
+			if k == "decorator" {
+				facts.SetSpanStart(f, int(c.StartPosition().Row)+1)
+			} else if k != "comment" {
+				break
+			}
+		}
+		if p := n.Parent(); p == nil || kindOf(kinds, p) != "export_statement" {
+			return
+		}
+	}
+}

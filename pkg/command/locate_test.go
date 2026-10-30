@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -74,5 +75,69 @@ func TestLocate_FromStoredSnapshot(t *testing.T) {
 		if code := testRunner().runLocate(context.Background(), args, nil, &out, &errOut); code != 2 {
 			t.Errorf("%s: exit %d, want 2 (%s)", name, code, errOut.String())
 		}
+	}
+}
+
+// A decorator is part of a symbol's code in every language: changing one rewrites the
+// symbol, and a citation on one lands on it, while line stays on the declaration.
+func TestSpanStart_DecoratorsAcrossLanguages(t *testing.T) {
+	for _, tc := range []struct {
+		file, before, after string
+		decorator, line     int
+	}{
+		{"a.py", "@cache\n@log(\n    1,\n)\ndef run(x):\n    return x\n", "@cache\n@log(\n    2,\n)\ndef run(x):\n    return x\n", 1, 5},
+		{"b.ts", "class S {\n  @Log()\n  // why\n  run() {\n    return 1;\n  }\n}\n", "class S {\n  @Trace()\n  // why\n  run() {\n    return 1;\n  }\n}\n", 2, 4},
+		{"c.ts", "@Injectable()\nexport class C {\n}\n", "@Other()\nexport class C {\n}\n", 1, 2},
+		{"d.rs", "// licence\n#[inline]\npub fn run() -> i32 {\n    1\n}\n", "// licence\n#[cold]\npub fn run() -> i32 {\n    1\n}\n", 2, 3},
+		{"e.dart", "class G {\n  @override\n  int run() {\n    return 1;\n  }\n}\n", "class G {\n  @deprecated\n  int run() {\n    return 1;\n  }\n}\n", 2, 3},
+	} {
+		t.Run(tc.file, func(t *testing.T) {
+			t.Setenv("HOME", t.TempDir())
+			repo := t.TempDir()
+			path := filepath.Join(repo, tc.file)
+			if err := os.WriteFile(path, []byte(tc.before), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			run := func(args ...string) (locations []locate.LocationResult, stamps []locate.CheckResult) {
+				t.Helper()
+				var out, errOut bytes.Buffer
+				if code := testRunner().runLocate(context.Background(), append([]string{"--json"}, append(args, repo)...), nil, &out, &errOut); code != 0 {
+					t.Fatalf("exit %d: %s", code, errOut.String())
+				}
+				var got struct {
+					Locations []locate.LocationResult `json:"locations"`
+					Stamps    []locate.CheckResult    `json:"stamps"`
+				}
+				if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+					t.Fatal(err)
+				}
+				return got.Locations, got.Stamps
+			}
+
+			loc, _ := run(tc.file + ":" + strconv.Itoa(tc.decorator))
+			if len(loc) != 1 || len(loc[0].Symbols) != 1 {
+				t.Fatalf("the decorator line located %+v, want its symbol", loc)
+			}
+			s := loc[0].Symbols[0]
+			if s.Line != tc.line || s.SpanStart != tc.decorator {
+				t.Errorf("line %d, span_start %d; want %d and %d", s.Line, s.SpanStart, tc.line, tc.decorator)
+			}
+
+			if err := os.WriteFile(path, []byte(tc.after), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			stampFile := filepath.Join(t.TempDir(), "stamps.jsonl")
+			line, err := json.Marshal(locate.Stamp{ID: s.ID, BodyHash: s.BodyHash, Name: s.Name})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(stampFile, line, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			_, checked := run("--stamps", stampFile)
+			if len(checked) != 1 || checked[0].Status != locate.StatusRewritten {
+				t.Errorf("after the decorator changed: %+v, want rewritten", checked)
+			}
+		})
 	}
 }
