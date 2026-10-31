@@ -139,3 +139,31 @@ impl Handle {
 		t.Errorf("shutdown calls %v, want src.Shared.close", rustCalls(sd))
 	}
 }
+
+func TestRustExternalTraitImplMethodsAreDispatchedByTheTrait(t *testing.T) {
+	ff := extractRustRepo(t, map[string]string{
+		"Cargo.toml": "[package]\nname = \"rt\"\n",
+		"src/lib.rs": `
+pub trait Local { fn run(&self); }
+pub struct Sock;
+impl quinn::AsyncUdpSocket for Sock {
+    type Outgoing = u8;
+    const LIMIT: usize = 1;
+    fn poll_send(&self) {}
+}
+impl Local for Sock {
+    type Own = u8;
+    fn run(&self) {}
+}
+impl Sock {
+    fn plain(&self) {}
+}
+`,
+	})
+	for name, want := range map[string]bool{"Sock.poll_send": true, "Sock.run": false, "Sock.plain": false, "Sock.Outgoing": true, "Sock.LIMIT": true, "Sock.Own": false} {
+		got, _ := rustSym(t, ff, "src."+name).Prop("override")
+		if (got == true) != want {
+			t.Errorf("%s override = %v, want %v", name, got, want)
+		}
+	}
+}
