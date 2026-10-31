@@ -139,3 +139,114 @@ impl Handle {
 		t.Errorf("shutdown calls %v, want src.Shared.close", rustCalls(sd))
 	}
 }
+
+func TestRustTypePositionsNameTheirTypes(t *testing.T) {
+	ff := extractRustRepo(t, map[string]string{
+		"Cargo.toml": "[package]\nname = \"rt\"\n",
+		"src/lib.rs": `
+pub struct Cfg;
+pub struct Resp;
+pub struct Local;
+pub struct Field;
+pub struct Param;
+pub struct Ret;
+pub struct Bound;
+pub struct Alias;
+pub struct Unused;
+
+pub struct Holder { f: Vec<Field> }
+pub type Shorthand = Option<Alias>;
+
+fn sig(p: &Param) -> Result<Ret, ()> where Bound: Sized { todo!() }
+
+fn body() {
+    let l: Local = todo!();
+    let r = read::<Resp>();
+    let c = x as Cfg;
+}
+`,
+	})
+	names := func(sym string) []string {
+		var out []string
+		for _, r := range rustSym(t, ff, sym).Relations {
+			if r.Kind == facts.RelNames {
+				out = append(out, r.Target)
+			}
+		}
+		return out
+	}
+	for sym, want := range map[string][]string{
+		"src.Holder":    {"Vec", "Field"},
+		"src.Shorthand": {"Option", "Alias"},
+		"src.sig":       {"Param", "Result", "Ret", "Bound"},
+		"src.body":      {"Local"},
+	} {
+		got := names(sym)
+		for _, w := range want {
+			if !slices.Contains(got, w) {
+				t.Errorf("%s names %v, want %s", sym, got, w)
+			}
+		}
+	}
+	if got := names("src.body"); !slices.Contains(got, "Resp") {
+		t.Errorf("turbofish argument not named: %v", got)
+	}
+}
+
+func TestRustTypePositionsSkipSelfAndGenericParameters(t *testing.T) {
+	ff := extractRustRepo(t, map[string]string{
+		"Cargo.toml": "[package]\nname = \"rt\"\n",
+		"src/lib.rs": `
+pub struct T;
+pub struct Item;
+
+pub struct Wrap<T> { f: T }
+
+impl<T: Clone> Wrap<T> {
+    pub fn get(&self, other: Self, x: T) -> Item { todo!() }
+}
+
+fn generic<T>(x: T) -> Vec<T> { todo!() }
+pub trait Bound {}
+fn bounded<U: Bound>(x: U) {}
+pub trait WhereS {}
+pub trait WhereE {}
+pub struct Holder<U> where U: WhereS { value: U }
+pub enum Choice<U> where U: WhereE { A(U) }
+`,
+	})
+	for sym, banned := range map[string][]string{
+		"src.Wrap":     {"T"},
+		"src.Wrap.get": {"T", "Self"},
+		"src.generic":  {"T"},
+	} {
+		for _, r := range rustSym(t, ff, sym).Relations {
+			if r.Kind == facts.RelNames && slices.Contains(banned, r.Target) {
+				t.Errorf("%s names %s", sym, r.Target)
+			}
+		}
+	}
+	found := false
+	for _, r := range rustSym(t, ff, "src.Wrap.get").Relations {
+		found = found || (r.Kind == facts.RelNames && r.Target == "Item")
+	}
+	if !found {
+		t.Error("src.Wrap.get does not name Item")
+	}
+	var bounded bool
+	for _, r := range rustSym(t, ff, "src.bounded").Relations {
+		bounded = bounded || (r.Kind == facts.RelNames && r.Target == "Bound")
+	}
+	if !bounded {
+		t.Error("src.bounded does not name its inline bound")
+	}
+	for sym, want := range map[string]string{"src.Holder": "WhereS", "src.Choice": "WhereE"} {
+		var ok bool
+		for _, r := range rustSym(t, ff, sym).Relations {
+			ok = ok || (r.Kind == facts.RelNames && r.Target == want)
+		}
+		if !ok {
+			t.Errorf("%s does not name %s from its where clause", sym, want)
+		}
+	}
+}
