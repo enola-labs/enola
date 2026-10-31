@@ -36,7 +36,7 @@ var versionCoverage = map[int][]string{
 	503: {"TestRustExternalTraitImplMethodsAreDispatchedByTheTrait", "TestRustTraitImplOverrideLandsOnTheTraitMemberOnly"},
 	502: {"TestRustExternalTraitImplMethodsAreDispatchedByTheTrait"},
 	501: {"TestAST_ParameterizedTestsKeepProductionReferences"},
-	504: {"TestRustTypePositionsNameTheirTypes"},
+	504: {"TestRustTypePositionsNameTheirTypes", "TestRustTypePositionsSkipSelfAndGenericParameters"},
 	// Go implementers from constructors and typed method sets; database calls and cursor reads marked
 	441: {"TestExtract_CallsInScalingLoop_RetryLoopExcluded", "TestExtract_CallsInScalingLoop_RetryNeedsAConfiguredBound"},
 	442: {"TestLocalTypedByAssertionFieldOrIndex"},

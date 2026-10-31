@@ -3334,7 +3334,8 @@ import (
 // v503: Rust: an associated type or const of an `impl Trait for Type` whose trait the
 // repository does not declare is the trait's, like its methods: an override.
 // v504: Rust: a type written in a type position (a signature, a field, an alias, a
-// turbofish argument, an annotation) is a names edge of the declaration it is in.
+// turbofish argument, an annotation) is a names edge of the declaration it is in;
+// `Self`, `_` and the generic parameters in scope are not.
 const cacheVersion = "v504"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
