@@ -3327,7 +3327,8 @@ import (
 // v500: Python, TypeScript, Rust and Dart record the decorators and attributes above a
 // declaration as span_start, so its body_hash covers them.
 // v501: Rust: a type written in a type position (a signature, a field, an alias, a
-// turbofish argument, an annotation) is a names edge of the declaration it is in.
+// turbofish argument, an annotation) is a names edge of the declaration it is in;
+// `Self`, `_` and the generic parameters in scope are not.
 const cacheVersion = "v501"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.

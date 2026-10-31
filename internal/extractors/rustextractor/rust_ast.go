@@ -208,6 +208,7 @@ type astWalker struct {
 	// nested function declarations into runtime-dispatched registrations (for
 	// example starlark_module).
 	registeredNestedDepth int
+	typeParams            []string
 }
 
 // calleeForm classifies how a call_expression's callee was written, so the
@@ -625,10 +626,13 @@ func (w *astWalker) handleStruct(node *sitter.Node) {
 		Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: w.dir}},
 	})
 	w.setDoc(node)
+	defer w.enterTypeParams(node)()
 	ownerIdx := len(w.out) - 1
 	w.recordFieldTypes(&w.out[ownerIdx], node.ChildByFieldName("body"))
 	w.pushOwner(ownerIdx)
 	w.scanAttributeFnRefs(node.ChildByFieldName("body"))
+	w.scanTypeNames(node.ChildByFieldName("type_parameters"))
+	w.scanTypeNames(findChildByKind(node, "where_clause"))
 	w.scanTypeNames(node.ChildByFieldName("body"))
 	w.popOwner()
 }
@@ -653,9 +657,12 @@ func (w *astWalker) handleEnum(node *sitter.Node) {
 		Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: w.dir}},
 	})
 	w.setDoc(node)
+	defer w.enterTypeParams(node)()
 	ownerIdx := len(w.out) - 1
 	w.pushOwner(ownerIdx)
 	w.scanAttributeFnRefs(node.ChildByFieldName("body"))
+	w.scanTypeNames(node.ChildByFieldName("type_parameters"))
+	w.scanTypeNames(findChildByKind(node, "where_clause"))
 	w.scanTypeNames(node.ChildByFieldName("body"))
 	w.popOwner()
 }
@@ -705,6 +712,7 @@ func (w *astWalker) handleImpl(node *sitter.Node) {
 		}
 	}
 
+	defer w.enterTypeParams(node)()
 	body := node.ChildByFieldName("body")
 	w.pushType(typeName, collectFnNames(body, w.src))
 	savedImplTrait := w.implTrait
@@ -765,11 +773,13 @@ func (w *astWalker) handleFunction(node *sitter.Node, attrs rustItemAttrs) {
 	}
 
 	w.out = append(w.out, f)
+	defer w.enterTypeParams(node)()
 	ownerIdx := len(w.out) - 1
 	w.pushOwner(ownerIdx)
 	savedLocals := w.localTypes
 	w.localTypes = make(map[string]rustTypeExpr)
 	w.bindParameters(node.ChildByFieldName("parameters"))
+	w.scanTypeNames(node.ChildByFieldName("type_parameters"))
 	w.scanTypeNames(node.ChildByFieldName("parameters"))
 	w.scanTypeNames(node.ChildByFieldName("return_type"))
 	w.scanTypeNames(findChildByKind(node, "where_clause"))
@@ -956,7 +966,10 @@ func (w *astWalker) handleTypeAlias(node *sitter.Node) {
 		Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: w.dir}},
 	})
 	w.setDoc(node)
+	defer w.enterTypeParams(node)()
 	w.pushOwner(len(w.out) - 1)
+	w.scanTypeNames(node.ChildByFieldName("type_parameters"))
+	w.scanTypeNames(findChildByKind(node, "where_clause"))
 	w.scanTypeNames(node.ChildByFieldName("type"))
 	w.popOwner()
 }
@@ -1196,12 +1209,50 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 			w.emitEdge(facts.RelInstantiates, name)
 		}
 	case "type_identifier":
-		w.emitEdge(facts.RelNames, nodeText(node, w.src))
+		w.emitTypeName(nodeText(node, w.src))
 	}
 
 	for i := uint(0); i < uint(node.ChildCount()); i++ {
 		w.walkChild(node.Child(i))
 	}
+}
+
+// emitTypeName records a names edge for a written type, skipping `Self`, the
+// inferred `_` and the generic parameters in scope, which name no declaration.
+func (w *astWalker) emitTypeName(name string) {
+	if name == "Self" || name == "_" {
+		return
+	}
+	for _, p := range w.typeParams {
+		if p == name {
+			return
+		}
+	}
+	w.emitEdge(facts.RelNames, name)
+}
+
+// enterTypeParams brings the generic parameters declared on node into scope and
+// returns a func that restores the previous scope.
+func (w *astWalker) enterTypeParams(node *sitter.Node) func() {
+	saved := len(w.typeParams)
+	if tp := node.ChildByFieldName("type_parameters"); tp != nil {
+		for i := uint(0); i < uint(tp.NamedChildCount()); i++ {
+			c := tp.NamedChild(i)
+			switch kindOf(c) {
+			case "type_identifier":
+				w.typeParams = append(w.typeParams, nodeText(c, w.src))
+			case "type_parameter", "constrained_type_parameter", "optional_type_parameter":
+				n := c.ChildByFieldName("name")
+				if n == nil {
+					n = c.ChildByFieldName("left")
+				}
+				if n != nil {
+					w.typeParams = append(w.typeParams, nodeText(n, w.src))
+				}
+			}
+		}
+	}
+	return func() { w.typeParams = w.typeParams[:saved] }
 }
 
 // scanTypeNames records a names edge for every type written in a type position
@@ -1211,7 +1262,7 @@ func (w *astWalker) scanTypeNames(node *sitter.Node) {
 		return
 	}
 	if kindOf(node) == "type_identifier" {
-		w.emitEdge(facts.RelNames, nodeText(node, w.src))
+		w.emitTypeName(nodeText(node, w.src))
 		return
 	}
 	for i := uint(0); i < uint(node.ChildCount()); i++ {

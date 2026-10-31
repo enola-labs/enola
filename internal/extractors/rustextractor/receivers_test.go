@@ -192,3 +192,61 @@ fn body() {
 		t.Errorf("turbofish argument not named: %v", got)
 	}
 }
+
+func TestRustTypePositionsSkipSelfAndGenericParameters(t *testing.T) {
+	ff := extractRustRepo(t, map[string]string{
+		"Cargo.toml": "[package]\nname = \"rt\"\n",
+		"src/lib.rs": `
+pub struct T;
+pub struct Item;
+
+pub struct Wrap<T> { f: T }
+
+impl<T: Clone> Wrap<T> {
+    pub fn get(&self, other: Self, x: T) -> Item { todo!() }
+}
+
+fn generic<T>(x: T) -> Vec<T> { todo!() }
+pub trait Bound {}
+fn bounded<U: Bound>(x: U) {}
+pub trait WhereS {}
+pub trait WhereE {}
+pub struct Holder<U> where U: WhereS { value: U }
+pub enum Choice<U> where U: WhereE { A(U) }
+`,
+	})
+	for sym, banned := range map[string][]string{
+		"src.Wrap":     {"T"},
+		"src.Wrap.get": {"T", "Self"},
+		"src.generic":  {"T"},
+	} {
+		for _, r := range rustSym(t, ff, sym).Relations {
+			if r.Kind == facts.RelNames && slices.Contains(banned, r.Target) {
+				t.Errorf("%s names %s", sym, r.Target)
+			}
+		}
+	}
+	found := false
+	for _, r := range rustSym(t, ff, "src.Wrap.get").Relations {
+		found = found || (r.Kind == facts.RelNames && r.Target == "Item")
+	}
+	if !found {
+		t.Error("src.Wrap.get does not name Item")
+	}
+	var bounded bool
+	for _, r := range rustSym(t, ff, "src.bounded").Relations {
+		bounded = bounded || (r.Kind == facts.RelNames && r.Target == "Bound")
+	}
+	if !bounded {
+		t.Error("src.bounded does not name its inline bound")
+	}
+	for sym, want := range map[string]string{"src.Holder": "WhereS", "src.Choice": "WhereE"} {
+		var ok bool
+		for _, r := range rustSym(t, ff, sym).Relations {
+			ok = ok || (r.Kind == facts.RelNames && r.Target == want)
+		}
+		if !ok {
+			t.Errorf("%s does not name %s from its where clause", sym, want)
+		}
+	}
+}
