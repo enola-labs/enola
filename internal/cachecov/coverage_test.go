@@ -99,6 +99,7 @@ var versionCoverage = map[int][]string{
 	499: {"TestExtensionOverload_KeepsTheDeclaration"},
 	500: {"TestSpanStart_DecoratorsAcrossLanguages"},
 	505: {"TestAST_RustRuntimeEntrypointsAreFrameworkRegistered"},
+	506: {"TestRustCallThroughAnImportAliasReachesTheOriginal"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},
 	438: {"TestExtract_StructUsage_StdlibAndRootPackages"},

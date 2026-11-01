@@ -486,5 +486,25 @@ pub fn build() -> Notification { Notification::Done { id: 1 } }
 	}
 	if !instantiates {
 		t.Errorf("src.build does not instantiate Notification: %v", rustSym(t, ff, "src.build").Relations)
+
+func TestRustCallThroughAnImportAliasReachesTheOriginal(t *testing.T) {
+	ff := extractRustRepo(t, map[string]string{
+		"Cargo.toml": "[package]\nname = \"rt\"\n",
+		"src/lib.rs": "mod audio;\nmod session;\n",
+		"src/audio.rs": `
+pub fn handle_audio() {}
+pub fn handle_text() {}
+`,
+		"src/session.rs": `
+use crate::audio::{handle_audio as handle_realtime_audio, handle_text};
+
+pub fn run() {
+    handle_realtime_audio();
+    handle_text();
+}
+`,
+	})
+	if got := rustCalls(rustSym(t, ff, "src.run")); !slices.Contains(got, "src.handle_audio") {
+		t.Errorf("a call through the alias must reach handle_audio, got %v", got)
 	}
 }
