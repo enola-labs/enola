@@ -1260,7 +1260,7 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 			w.emitEdge(facts.RelInstantiates, name)
 		}
 	case "type_identifier":
-		if !w.isAssociatedTypeName(node) {
+		if !w.isAssociatedTypeName(node) && !isDeclaredName(node) {
 			w.emitTypeName(nodeText(node, w.src))
 		}
 	}
@@ -1274,6 +1274,10 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 // inferred `_` and the generic parameters in scope, which name no declaration.
 func (w *astWalker) emitTypeName(name string) {
 	if name == "Self" || name == "_" {
+		return
+	}
+	// A name this file imports from outside the repository is not one it declares.
+	if target, ok := w.importMap[name]; ok && target == "" {
 		return
 	}
 	for _, p := range w.typeParams {
@@ -1308,6 +1312,17 @@ func (w *astWalker) enterTypeParams(node *sitter.Node) func() {
 	return func() { w.typeParams = w.typeParams[:saved] }
 }
 
+// isDeclaredName reports whether node is the name an associated type declares,
+// as `Item` is in `trait Has { type Item; }`: a declaration, not a use.
+func isDeclaredName(node *sitter.Node) bool {
+	p := node.Parent()
+	if p == nil || kindOf(p) != "associated_type" {
+		return false
+	}
+	name := p.ChildByFieldName("name")
+	return name != nil && name.StartByte() == node.StartByte()
+}
+
 // isAssociatedTypeName reports whether node is the last segment of a path whose
 // head is itself a type: `Item` in `T::Item`, `Self::Output` or `<T as Has>::Item`.
 func (w *astWalker) isAssociatedTypeName(node *sitter.Node) bool {
@@ -1327,7 +1342,7 @@ func (w *astWalker) isAssociatedTypeName(node *sitter.Node) bool {
 	case "type_identifier", "generic_type", "bracketed_type", "qualified_type", "scoped_type_identifier":
 		return true
 	}
-	text := nodeText(path, w.src)
+	text := strings.TrimLeft(nodeText(path, w.src), ":")
 	// A type in the standard library is not a declaration of this repository.
 	if rustStdlibCrates[text[:strings.Index(text+":", ":")]] {
 		return true
