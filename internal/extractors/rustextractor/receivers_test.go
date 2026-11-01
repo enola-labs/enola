@@ -363,3 +363,80 @@ pub enum Choice<U> where U: WhereE { A(U) }
 		}
 	}
 }
+
+func TestRustTypeNamesKeepPathContext(t *testing.T) {
+	ff := extractRustRepo(t, map[string]string{
+		"Cargo.toml": "[package]\nname = \"rt\"\n",
+		"src/lib.rs": `
+pub mod models;
+pub struct Item;
+pub struct Vec;
+pub trait Has { type Item; }
+pub trait OnlyImpl {}
+pub struct Holder<T>(T);
+
+pub fn assoc<T: Has>(x: T::Item) {}
+pub fn qualified<T: Has>(x: <T as Has>::Item) {}
+pub fn local_vec(x: Vec) {}
+pub fn std_vec(x: std::vec::Vec<u8>, y: Option<u8>) {}
+pub fn module_path(x: crate::models::Input) {}
+
+impl<T: OnlyImpl> Holder<T> {
+    pub fn get(&self) {}
+}
+`,
+		"src/models.rs": "pub struct Input;\n",
+	})
+	names := func(sym string) []string {
+		var out []string
+		for _, r := range rustSym(t, ff, sym).Relations {
+			if r.Kind == facts.RelNames {
+				out = append(out, r.Target)
+			}
+		}
+		return out
+	}
+	for _, sym := range []string{"src.assoc", "src.qualified"} {
+		if got := names(sym); slices.Contains(got, "Item") {
+			t.Errorf("%s names %v: an associated type is not a declaration called Item", sym, got)
+		}
+	}
+	if got := names("src.local_vec"); !slices.Contains(got, "Vec") {
+		t.Errorf("a repository type named Vec must be referenced, got %v", got)
+	}
+	if got := names("src.std_vec"); slices.Contains(got, "Option") {
+		t.Errorf("Option is not declared in the repository, got %v", got)
+	}
+	if got := names("src.module_path"); !slices.Contains(got, "Input") {
+		t.Errorf("a module-qualified type must still be named, got %v", got)
+	}
+	var onlyImpl bool
+	for _, f := range ff {
+		if f.Kind != facts.KindFileRef {
+			continue
+		}
+		for _, r := range f.Relations {
+			onlyImpl = onlyImpl || (r.Kind == facts.RelNames && r.Target == "OnlyImpl")
+		}
+	}
+	if !onlyImpl {
+		t.Error("a bound on an impl header is not referenced")
+	}
+}
+
+func TestRustScopedVariantLiteralStillInstantiatesTheEnum(t *testing.T) {
+	ff := extractRustRepo(t, map[string]string{
+		"Cargo.toml": "[package]\nname = \"rt\"\n",
+		"src/lib.rs": `
+pub enum Notification { Done { id: u32 } }
+pub fn build() -> Notification { Notification::Done { id: 1 } }
+`,
+	})
+	var instantiates bool
+	for _, r := range rustSym(t, ff, "src.build").Relations {
+		instantiates = instantiates || (r.Kind == facts.RelInstantiates && r.Target == "Notification")
+	}
+	if !instantiates {
+		t.Errorf("src.build does not instantiate Notification: %v", rustSym(t, ff, "src.build").Relations)
+	}
+}

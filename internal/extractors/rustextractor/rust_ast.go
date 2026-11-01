@@ -729,6 +729,8 @@ func (w *astWalker) handleImpl(node *sitter.Node) {
 	}
 
 	defer w.enterTypeParams(node)()
+	w.scanTypeNames(node.ChildByFieldName("type_parameters"))
+	w.scanTypeNames(findChildByKind(node, "where_clause"))
 	body := node.ChildByFieldName("body")
 	w.pushType(typeName, collectFnNames(body, w.src))
 	savedImplTrait := w.implTrait
@@ -1257,7 +1259,9 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 			w.emitEdge(facts.RelInstantiates, name)
 		}
 	case "type_identifier":
-		w.emitTypeName(nodeText(node, w.src))
+		if !w.isAssociatedTypeName(node) {
+			w.emitTypeName(nodeText(node, w.src))
+		}
 	}
 
 	for i := uint(0); i < uint(node.ChildCount()); i++ {
@@ -1268,7 +1272,7 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 // emitTypeName records a names edge for a written type, skipping `Self`, the
 // inferred `_` and the generic parameters in scope, which name no declaration.
 func (w *astWalker) emitTypeName(name string) {
-	if name == "Self" || name == "_" || rustPreludeTypes[name] {
+	if name == "Self" || name == "_" {
 		return
 	}
 	for _, p := range w.typeParams {
@@ -1303,14 +1307,46 @@ func (w *astWalker) enterTypeParams(node *sitter.Node) func() {
 	return func() { w.typeParams = w.typeParams[:saved] }
 }
 
+// isAssociatedTypeName reports whether node is the last segment of a path whose
+// head is itself a type: `Item` in `T::Item`, `Self::Output` or `<T as Has>::Item`.
+func (w *astWalker) isAssociatedTypeName(node *sitter.Node) bool {
+	p := node.Parent()
+	if p == nil || kindOf(p) != "scoped_type_identifier" {
+		return false
+	}
+	name := p.ChildByFieldName("name")
+	if name == nil || name.StartByte() != node.StartByte() {
+		return false
+	}
+	path := p.ChildByFieldName("path")
+	if path == nil {
+		return false
+	}
+	switch kindOf(path) {
+	case "type_identifier", "generic_type", "bracketed_type", "qualified_type", "scoped_type_identifier":
+		return true
+	}
+	text := nodeText(path, w.src)
+	return isCapitalized(text[strings.LastIndex(text, ":")+1:])
+}
+
 // scanTypeNames records a names edge for every type written in a type position
 // under node: a signature, a field, a turbofish argument, an annotation.
 func (w *astWalker) scanTypeNames(node *sitter.Node) {
 	if node == nil {
 		return
 	}
-	if kindOf(node) == "type_identifier" {
+	switch kindOf(node) {
+	case "type_identifier":
 		w.emitTypeName(nodeText(node, w.src))
+		return
+	case "scoped_type_identifier":
+		// `T::Item` and `<T as Has>::Item` name an associated type of the path, not
+		// a declaration called Item; `crate::models::Input` names Input itself.
+		w.scanTypeNames(node.ChildByFieldName("path"))
+		if name := node.ChildByFieldName("name"); name != nil && !w.isAssociatedTypeName(name) {
+			w.emitTypeName(nodeText(name, w.src))
+		}
 		return
 	}
 	for i := uint(0); i < uint(node.ChildCount()); i++ {

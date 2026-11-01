@@ -3335,8 +3335,9 @@ import (
 // repository does not declare is the trait's, like its methods: an override.
 // v504: Rust: a type written in a type position (a signature, a field, an alias, a
 // turbofish argument, an annotation) is a names edge of the declaration it is in;
-// `Self`, `_`, the generic parameters in scope and the prelude types are not; a trait's
-// header and its method signatures are scanned too.
+// `Self`, `_`, the generic parameters in scope, an associated type (`T::Item`) and a
+// prelude type the repository does not declare are not; a trait's header, its method
+// signatures and an impl's bounds are scanned too.
 const cacheVersion = "v504"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.

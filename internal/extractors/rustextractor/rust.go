@@ -157,6 +157,7 @@ func (e *RustExtractor) Extract(ctx context.Context, repoPath string, files []st
 		allBuilders = append(allBuilders, r.builders...)
 	}
 
+	dropUndeclaredPreludeNames(allFacts)
 	applyImplements(allFacts, allImpls)
 	resolveTypedCalls(allFacts)
 	ioclosure.Propagate(allFacts)
