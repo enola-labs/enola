@@ -720,17 +720,26 @@ func (w *astWalker) handleImpl(node *sitter.Node) {
 	if body != nil {
 		w.walkItems(body)
 	}
-	if implIdx >= 0 {
-		prefix := w.dir + "." + w.qualify("")
-		for _, f := range w.out[first:] {
-			switch f.PropAny("symbol_kind") {
-			case facts.SymbolMethod:
-				if f.PropAny("receiver") == typeName {
-					w.impls[implIdx].methods = append(w.impls[implIdx].methods, f.Name)
+	if implIdx >= 0 && body != nil {
+		type pos struct {
+			name string
+			line int
+		}
+		direct := map[pos]bool{}
+		for i := uint(0); i < uint(body.NamedChildCount()); i++ {
+			switch c := body.NamedChild(i); kindOf(c) {
+			case "function_item", "type_item", "const_item":
+				if n := c.ChildByFieldName("name"); n != nil {
+					direct[pos{nodeText(n, w.src), int(c.StartPosition().Row) + 1}] = true
 				}
-			case facts.SymbolType, facts.SymbolConstant:
-				if rest, ok := strings.CutPrefix(f.Name, prefix); ok && !strings.Contains(rest, ".") {
-					w.impls[implIdx].methods = append(w.impls[implIdx].methods, f.Name)
+			}
+		}
+		for i := first; i < len(w.out); i++ {
+			f := w.out[i]
+			switch f.PropAny("symbol_kind") {
+			case facts.SymbolMethod, facts.SymbolType, facts.SymbolConstant:
+				if direct[pos{f.Name[strings.LastIndex(f.Name, ".")+1:], f.Line}] {
+					w.impls[implIdx].members = append(w.impls[implIdx].members, i)
 				}
 			}
 		}

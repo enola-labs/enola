@@ -236,7 +236,7 @@ func parentRustDir(dir string) string {
 type implPair struct {
 	typeName  string
 	traitName string
-	methods   []string
+	members   []int // indexes of the impl's own items in the fact list
 }
 
 // applyImplements mutates, in place, the KindSymbol fact matching each impl
@@ -263,10 +263,8 @@ func applyImplements(allFacts []facts.Fact, impls []implPair) {
 	}
 	for _, p := range impls {
 		if !declaredTraits[p.traitName] {
-			for _, m := range p.methods {
-				if idx, ok := byName[m]; ok {
-					allFacts[idx].SetProp("override", true)
-				}
+			for _, idx := range p.members {
+				allFacts[idx].SetProp("override", true)
 			}
 		}
 		idx, ok := byName[p.typeName]

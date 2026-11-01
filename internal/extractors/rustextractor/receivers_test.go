@@ -2,6 +2,7 @@ package rustextractor
 
 import (
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/enola-labs/enola/internal/facts"
@@ -166,4 +167,68 @@ impl Sock {
 			t.Errorf("%s override = %v, want %v", name, got, want)
 		}
 	}
+}
+
+func TestRustTraitImplOverrideLandsOnTheTraitMemberOnly(t *testing.T) {
+	ff := extractRustRepo(t, map[string]string{
+		"Cargo.toml": "[package]\nname = \"rt\"\n",
+		"src/lib.rs": `
+pub struct Both;
+impl Both { pub fn fmt(&self) {} }
+impl std::fmt::Display for Both {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { Ok(()) }
+}
+
+pub struct Same;
+impl std::fmt::Display for Same { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { Ok(()) } } impl Same { pub fn fmt(&self) {} }
+
+pub struct N;
+impl Default for N { fn default() -> N { fn inner_helper() {} N } }
+`,
+	})
+	var fmts []facts.Fact
+	for _, f := range ff {
+		if f.Kind == facts.KindSymbol && f.Name == "src.Both.fmt" {
+			fmts = append(fmts, f)
+		}
+	}
+	if len(fmts) != 2 {
+		t.Fatalf("want 2 fmt facts, got %d", len(fmts))
+	}
+	for _, f := range fmts {
+		isTrait := f.Line == 5
+		if got := f.PropAny("override") == true; got != isTrait {
+			t.Errorf("fmt at line %d: override=%v", f.Line, got)
+		}
+	}
+	var same []facts.Fact
+	for _, f := range ff {
+		if f.Kind == facts.KindSymbol && f.Name == "src.Same.fmt" {
+			same = append(same, f)
+		}
+	}
+	if len(same) != 2 {
+		t.Fatalf("want 2 same-line fmt facts, got %d", len(same))
+	}
+	if n := countOverrides(same); n != 1 {
+		t.Errorf("same-line fmt: %d overrides, want exactly the trait one", n)
+	}
+	if same[0].PropAny("override") != true || same[1].PropAny("override") == true {
+		t.Error("same-line fmt: override must be on the Display impl's fmt (declared first)")
+	}
+	for _, f := range ff {
+		if f.Kind == facts.KindSymbol && strings.HasSuffix(f.Name, "inner_helper") && f.PropAny("override") == true {
+			t.Errorf("%s is a nested helper, not a trait member", f.Name)
+		}
+	}
+}
+
+func countOverrides(ff []facts.Fact) int {
+	n := 0
+	for _, f := range ff {
+		if f.PropAny("override") == true {
+			n++
+		}
+	}
+	return n
 }

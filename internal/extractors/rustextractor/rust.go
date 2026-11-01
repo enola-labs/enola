@@ -147,6 +147,11 @@ func (e *RustExtractor) Extract(ctx context.Context, repoPath string, files []st
 		if r.doc != "" {
 			fileDocs[rustFiles[i]] = r.doc
 		}
+		for j := range r.impls {
+			for k := range r.impls[j].members {
+				r.impls[j].members[k] += len(allFacts)
+			}
+		}
 		allFacts = append(allFacts, r.facts...)
 		allImpls = append(allImpls, r.impls...)
 		allBuilders = append(allBuilders, r.builders...)
