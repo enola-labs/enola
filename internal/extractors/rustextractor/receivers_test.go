@@ -379,6 +379,10 @@ pub fn assoc<T: Has>(x: T::Item) {}
 pub fn qualified<T: Has>(x: <T as Has>::Item) {}
 pub fn local_vec(x: Vec) {}
 pub fn std_vec(x: std::vec::Vec<u8>, y: Option<u8>) {}
+pub struct OnlyConst;
+pub const C: Option<OnlyConst> = None;
+pub struct OnlyStatic;
+pub static S: Option<OnlyStatic> = None;
 pub fn module_path(x: crate::models::Input) {}
 
 impl<T: OnlyImpl> Holder<T> {
@@ -403,6 +407,14 @@ impl<T: OnlyImpl> Holder<T> {
 	}
 	if got := names("src.local_vec"); !slices.Contains(got, "Vec") {
 		t.Errorf("a repository type named Vec must be referenced, got %v", got)
+	}
+	if got := names("src.std_vec"); slices.Contains(got, "Vec") {
+		t.Errorf("std::vec::Vec must not name the repository's Vec, got %v", got)
+	}
+	for sym, want := range map[string]string{"src.C": "OnlyConst", "src.S": "OnlyStatic"} {
+		if got := names(sym); !slices.Contains(got, want) {
+			t.Errorf("%s names %v, want %s from its annotation", sym, got, want)
+		}
 	}
 	if got := names("src.std_vec"); slices.Contains(got, "Option") {
 		t.Errorf("Option is not declared in the repository, got %v", got)

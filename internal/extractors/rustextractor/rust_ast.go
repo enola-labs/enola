@@ -1049,6 +1049,7 @@ func (w *astWalker) handleConstOrStatic(node *sitter.Node, symbolKind string) {
 	}
 	w.out = append(w.out, f)
 	w.pushOwner(len(w.out) - 1)
+	w.scanTypeNames(node.ChildByFieldName("type"))
 	if valueNode := node.ChildByFieldName("value"); valueNode != nil {
 		w.compileTimeDepth++
 		w.walkForCalls(valueNode)
@@ -1327,6 +1328,10 @@ func (w *astWalker) isAssociatedTypeName(node *sitter.Node) bool {
 		return true
 	}
 	text := nodeText(path, w.src)
+	// A type in the standard library is not a declaration of this repository.
+	if rustStdlibCrates[text[:strings.Index(text+":", ":")]] {
+		return true
+	}
 	return isCapitalized(text[strings.LastIndex(text, ":")+1:])
 }
 

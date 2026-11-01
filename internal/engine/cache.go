@@ -3336,8 +3336,9 @@ import (
 // v504: Rust: a type written in a type position (a signature, a field, an alias, a
 // turbofish argument, an annotation) is a names edge of the declaration it is in;
 // `Self`, `_`, the generic parameters in scope, an associated type (`T::Item`) and a
-// prelude type the repository does not declare are not; a trait's header, its method
-// signatures and an impl's bounds are scanned too.
+// prelude type the repository does not declare or that is written with a std path are
+// not; a trait's header, its method signatures, an impl's bounds and a const or static's
+// declared type are scanned too.
 const cacheVersion = "v504"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
