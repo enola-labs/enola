@@ -3341,6 +3341,10 @@ import (
 // declare, a name the same module or block imports from outside the repository (wherever
 // the `use` sits in it), and a type written with a std path. A module-qualified name is
 // always named.
+// v505: Rust: #[unsafe(export_name = "...")], the Rust 2024 spelling, marks a function the
+// linker exports as a runtime entry point, as #[unsafe(no_mangle)] does, also when
+// written inside #[cfg_attr(cond, ...)]. A function under #[op2], #[bench], #[lang],
+// #[panic_handler] or #[rustc_std_internal_symbol] is one the runtime calls.
 const cacheVersion = "v504"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.

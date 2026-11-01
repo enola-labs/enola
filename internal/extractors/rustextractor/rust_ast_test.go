@@ -744,9 +744,24 @@ pub fn wasm_start() {}
 #[unsafe(no_mangle)]
 pub extern "C" fn rust_2024_export() {}
 
+#[unsafe(export_name = "mprotect")]
+unsafe extern "C" fn shim() {}
+
+#[cfg_attr(feature = "export", unsafe(no_mangle))]
+pub unsafe extern "C" fn conditional_export() {}
+
+#[cfg_attr(all(unix, feature = "x"), allow(dead_code), export_name = "named")]
+fn conditional_named() {}
+
+#[op2(async)]
+async fn op_read() {}
+
+#[bench]
+fn bench_it() {}
+
 fn ordinary() {}
 `)
-	for _, name := range []string{"pkg.python_module", "pkg.wasm_start", "pkg.rust_2024_export"} {
+	for _, name := range []string{"pkg.python_module", "pkg.wasm_start", "pkg.rust_2024_export", "pkg.shim", "pkg.conditional_export", "pkg.conditional_named", "pkg.op_read", "pkg.bench_it"} {
 		f, ok := findFact(ff, name)
 		if !ok || f.Props["framework_registered"] != true {
 			t.Errorf("%s must be framework_registered, got %+v", name, f)
