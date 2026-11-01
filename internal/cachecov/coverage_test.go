@@ -100,7 +100,7 @@ var versionCoverage = map[int][]string{
 	500: {"TestSpanStart_DecoratorsAcrossLanguages"},
 	505: {"TestAST_RustRuntimeEntrypointsAreFrameworkRegistered"},
 	506: {"TestRustCallThroughAnImportAliasReachesTheOriginal"},
-	507: {"TestRustImportAliasesBindOnlyTheAlias", "TestRustImportedTypeThroughAFileModuleWithADirectory", "TestRustMethodsInAFileModulesSubdirectoryResolve"},
+	507: {"TestRustImportAliasesBindOnlyTheAlias", "TestRustImportedTypeThroughAFileModuleWithADirectory", "TestRustMethodsInAFileModulesSubdirectoryResolve", "TestRustTypeImportedThroughAReExportResolves"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},
 	438: {"TestExtract_StructUsage_StdlibAndRootPackages"},

@@ -324,18 +324,33 @@ const rustEitherDir = "?"
 // canonType resolves a marked type to the directory that declares it. When that
 // is the directory above the one the marker named, the named directory is
 // returned too: a file module's impl blocks can sit in its subdirectory.
-func canonType(t string, exists map[string]bool) (canon, alt string) {
+func canonType(t string, exists map[string]bool, byName map[string][]string) (canon, alt string) {
 	c, marked := strings.CutPrefix(t, rustEitherDir)
 	if !marked || exists[c] {
 		return c, ""
 	}
 	dot := strings.LastIndexByte(c, '.')
-	slash := strings.LastIndexByte(c[:max(dot, 0)], '/')
-	if dot < 0 || slash < 0 {
+	if dot < 0 {
 		return c, ""
 	}
-	if up := c[:slash] + c[dot:]; exists[up] {
-		return up, c
+	if slash := strings.LastIndexByte(c[:dot], '/'); slash >= 0 {
+		if up := c[:slash] + c[dot:]; exists[up] {
+			return up, c
+		}
+	}
+	// A `pub use` re-export names the type where it is not declared: take the
+	// only type of that name declared below the directory the import named.
+	var found string
+	for _, cand := range byName[c[dot+1:]] {
+		if strings.HasPrefix(cand, c[:dot]+"/") {
+			if found != "" {
+				return c, ""
+			}
+			found = cand
+		}
+	}
+	if found != "" {
+		return found, c
 	}
 	return c, ""
 }
@@ -349,12 +364,19 @@ func resolveTypedCalls(all []facts.Fact) {
 	fields := make(map[string]string)
 	returns := make(map[string]string)
 	traits := make(map[string][]string)
+	byName := make(map[string][]string)
 	for i := range all {
 		f := &all[i]
 		if f.Kind != facts.KindSymbol {
 			continue
 		}
 		exists[f.Name] = true
+		switch f.PropAny("symbol_kind") {
+		case facts.SymbolStruct, facts.SymbolEnum, facts.SymbolInterface, facts.SymbolType:
+			if dot := strings.LastIndexByte(f.Name, '.'); dot >= 0 && !strings.Contains(f.Name[:dot], ".") {
+				byName[f.Name[dot+1:]] = append(byName[f.Name[dot+1:]], f.Name)
+			}
+		}
 		if m, ok := f.PropAny(propFieldTypes).(map[string]string); ok {
 			for field, t := range m {
 				fields[f.Name+"."+field] = t
@@ -390,7 +412,7 @@ func resolveTypedCalls(all []facts.Fact) {
 		return ""
 	}
 	eval := func(e rustTypeExpr) (string, string) {
-		t, alt := canonType(e.base, exists)
+		t, alt := canonType(e.base, exists, byName)
 		for _, s := range e.steps {
 			if t == "" {
 				return "", ""
@@ -400,7 +422,7 @@ func resolveTypedCalls(all []facts.Fact) {
 			} else {
 				t = fields[t+"."+s.name]
 			}
-			t, alt = canonType(t, exists)
+			t, alt = canonType(t, exists, byName)
 		}
 		return t, alt
 	}

@@ -586,3 +586,17 @@ func TestRustMethodsInAFileModulesSubdirectoryResolve(t *testing.T) {
 		t.Errorf("u/src.f calls %v, want the method declared in the file module's subdirectory", got)
 	}
 }
+
+func TestRustTypeImportedThroughAReExportResolves(t *testing.T) {
+	ff := extractRustRepo(t, map[string]string{
+		"Cargo.toml":         "[workspace]\nmembers=[\"m\",\"u\"]\n",
+		"m/Cargo.toml":       "[package]\nname = \"m\"\n",
+		"m/src/lib.rs":       "pub mod value;\npub use value::Value;\n",
+		"m/src/value/mod.rs": "pub struct Value;\nimpl Value { pub fn make(&self) {} }\n",
+		"u/Cargo.toml":       "[package]\nname = \"u\"\n",
+		"u/src/lib.rs":       "use m::Value;\npub fn f(v: &Value) { v.make(); }\n",
+	})
+	if got := rustCalls(rustSym(t, ff, "u/src.f")); !slices.Contains(got, "m/src/value.Value.make") {
+		t.Errorf("u/src.f calls %v, want m/src/value.Value.make", got)
+	}
+}

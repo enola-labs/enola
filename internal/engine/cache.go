@@ -3350,7 +3350,8 @@ import (
 // v507: Rust: a `use x::{self as y}` binds no alias; an alias leaves what the original name
 // meant before; a call through an import of another file is not recursion; a type imported
 // through a file module that also has a directory resolves, and so do its methods declared
-// in that directory; `cfg_attr` matches a whole path.
+// in that directory, and so does a type re-exported by `pub use`; `cfg_attr` matches a
+// whole path.
 const cacheVersion = "v507"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
