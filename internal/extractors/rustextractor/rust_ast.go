@@ -694,6 +694,13 @@ func (w *astWalker) handleTrait(node *sitter.Node) {
 		Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: w.dir}},
 	})
 	w.setDoc(node)
+	defer w.enterTypeParams(node)()
+
+	w.pushOwner(len(w.out) - 1)
+	w.scanTypeNames(node.ChildByFieldName("type_parameters"))
+	w.scanTypeNames(node.ChildByFieldName("bounds"))
+	w.scanTypeNames(findChildByKind(node, "where_clause"))
+	w.popOwner()
 
 	body := node.ChildByFieldName("body")
 	w.pushType(name, collectFnNames(body, w.src))
@@ -978,6 +985,13 @@ func (w *astWalker) handleFunctionSignature(node *sitter.Node) {
 		f.SetProp("receiver", w.typeStack[len(w.typeStack)-1])
 	}
 	w.out = append(w.out, f)
+	defer w.enterTypeParams(node)()
+	w.pushOwner(len(w.out) - 1)
+	w.scanTypeNames(node.ChildByFieldName("type_parameters"))
+	w.scanTypeNames(node.ChildByFieldName("parameters"))
+	w.scanTypeNames(node.ChildByFieldName("return_type"))
+	w.scanTypeNames(findChildByKind(node, "where_clause"))
+	w.popOwner()
 }
 
 func (w *astWalker) handleTypeAlias(node *sitter.Node) {
@@ -1254,7 +1268,7 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 // emitTypeName records a names edge for a written type, skipping `Self`, the
 // inferred `_` and the generic parameters in scope, which name no declaration.
 func (w *astWalker) emitTypeName(name string) {
-	if name == "Self" || name == "_" {
+	if name == "Self" || name == "_" || rustPreludeTypes[name] {
 		return
 	}
 	for _, p := range w.typeParams {

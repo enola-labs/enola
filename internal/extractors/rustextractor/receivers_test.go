@@ -269,9 +269,9 @@ fn body() {
 		return out
 	}
 	for sym, want := range map[string][]string{
-		"src.Holder":    {"Vec", "Field"},
-		"src.Shorthand": {"Option", "Alias"},
-		"src.sig":       {"Param", "Result", "Ret", "Bound"},
+		"src.Holder":    {"Field"},
+		"src.Shorthand": {"Alias"},
+		"src.sig":       {"Param", "Ret", "Bound"},
 		"src.body":      {"Local"},
 	} {
 		got := names(sym)
@@ -301,6 +301,10 @@ impl<T: Clone> Wrap<T> {
 
 fn generic<T>(x: T) -> Vec<T> { todo!() }
 pub trait Bound {}
+pub trait Tp<T> { fn dflt(&self, x: T) -> T where T: Copy { x } }
+pub trait Sub: Bound {}
+pub struct Sig;
+pub trait HasSig { fn make(&self) -> Sig; }
 fn bounded<U: Bound>(x: U) {}
 pub trait WhereS {}
 pub trait WhereE {}
@@ -312,6 +316,8 @@ pub enum Choice<U> where U: WhereE { A(U) }
 		"src.Wrap":     {"T"},
 		"src.Wrap.get": {"T", "Self"},
 		"src.generic":  {"T"},
+		"src.Tp.dflt":  {"T"},
+		"src.Tp":       {"T"},
 	} {
 		for _, r := range rustSym(t, ff, sym).Relations {
 			if r.Kind == facts.RelNames && slices.Contains(banned, r.Target) {
@@ -325,6 +331,20 @@ pub enum Choice<U> where U: WhereE { A(U) }
 	}
 	if !found {
 		t.Error("src.Wrap.get does not name Item")
+	}
+	var sig bool
+	for _, r := range rustSym(t, ff, "src.HasSig.make").Relations {
+		sig = sig || (r.Kind == facts.RelNames && r.Target == "Sig")
+	}
+	if !sig {
+		t.Error("a trait method signature does not name its return type")
+	}
+	var supers bool
+	for _, r := range rustSym(t, ff, "src.Sub").Relations {
+		supers = supers || (r.Kind == facts.RelNames && r.Target == "Bound")
+	}
+	if !supers {
+		t.Error("a trait does not name its supertrait")
 	}
 	var bounded bool
 	for _, r := range rustSym(t, ff, "src.bounded").Relations {
