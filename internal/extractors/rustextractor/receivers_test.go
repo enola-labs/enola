@@ -508,3 +508,64 @@ pub fn run() {
 		t.Errorf("a call through the alias must reach handle_audio, got %v", got)
 	}
 }
+
+func TestRustImportAliasesBindOnlyTheAlias(t *testing.T) {
+	ff := extractRustRepo(t, map[string]string{
+		"Cargo.toml":     "[package]\nname = \"rt\"\n",
+		"src/lib.rs":     "mod a;\nmod b;\nmod user;\nmod foo;\nuse crate::recurse as again;\npub fn recurse() { again(); }\n",
+		"src/foo/mod.rs": "use crate::foo::recurse as again;\npub fn recurse() { again(); }\n",
+		"src/a.rs":       "pub fn go_fast() {}\npub fn run() {}\n",
+		"src/b.rs":       "pub fn run() {}\n",
+		"src/user.rs": `
+use crate::a::go_fast;
+use std::thread::go_fast as ext_fast;
+use std::io::{self as sio};
+use crate::b::run as run_b;
+
+pub fn caller() {
+    go_fast();
+    ext_fast();
+    sio::stdin();
+}
+
+pub fn run() {
+    run_b();
+}
+`,
+	})
+	caller := rustCalls(rustSym(t, ff, "src.caller"))
+	if !slices.Contains(caller, "src.go_fast") {
+		t.Errorf("a later alias must not take over the earlier import, got %v", caller)
+	}
+	for _, c := range caller {
+		if strings.HasSuffix(c, ".self") {
+			t.Errorf("`self as` produced the phantom target %s", c)
+		}
+	}
+	if rustSym(t, ff, "src.recurse").Props["recursive_self"] != true {
+		t.Error("a call through an alias of the function itself is recursion")
+	}
+	if rustSym(t, ff, "src/foo.recurse").Props["recursive_self"] != true {
+		t.Error("an alias of the function itself inside mod.rs is recursion")
+	}
+	if rustSym(t, ff, "src.run").Props["recursive_self"] == true {
+		t.Error("a call through an alias of a same-named function in another file is not recursion")
+	}
+}
+
+func TestRustImportedTypeThroughAFileModuleWithADirectory(t *testing.T) {
+	ff := extractRustRepo(t, map[string]string{
+		"Cargo.toml":           "[workspace]\nmembers=[\"a\",\"b\"]\n",
+		"a/Cargo.toml":         "[package]\nname = \"a\"\n",
+		"a/src/lib.rs":         "pub mod rustc;\n",
+		"a/src/rustc.rs":       "pub mod print;\npub struct Real { pub tcx: Ctx }\npub struct Ctx;\nimpl Ctx { pub fn dcx(&self) {} }\n",
+		"a/src/rustc/print.rs": "pub fn p() {}\n",
+		"b/Cargo.toml":         "[package]\nname = \"b\"\n",
+		"b/src/lib.rs":         "use a::rustc::{Real as Alias};\nuse a::rustc::Real;\npub fn f(cx: &Alias) { cx.tcx.dcx(); }\npub fn h(cx: &Real) { cx.tcx.dcx(); }\n",
+	})
+	for _, fn := range []string{"b/src.f", "b/src.h"} {
+		if got := rustCalls(rustSym(t, ff, fn)); !slices.Contains(got, "a/src.Ctx.dcx") {
+			t.Errorf("%s calls %v, want a/src.Ctx.dcx", fn, got)
+		}
+	}
+}

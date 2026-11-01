@@ -756,6 +756,9 @@ fn conditional_named() {}
 #[op2(async)]
 async fn op_read() {}
 
+#[cfg_attr(feature = "x", some::bench)]
+fn foreign_bench() {}
+
 #[bench]
 fn bench_it() {}
 
@@ -766,6 +769,9 @@ fn ordinary() {}
 		if !ok || f.Props["framework_registered"] != true {
 			t.Errorf("%s must be framework_registered, got %+v", name, f)
 		}
+	}
+	if f, ok := findFact(ff, "pkg.foreign_bench"); !ok || f.Props["framework_registered"] != nil {
+		t.Errorf("a path ending in bench is not the bench attribute: %+v", f)
 	}
 	ordinary, ok := findFact(ff, "pkg.ordinary")
 	if !ok {

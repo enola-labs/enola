@@ -95,7 +95,10 @@ func (w *astWalker) typeCandidate(name string) string {
 		return ""
 	}
 	if target, ok := w.importMap[name]; ok {
-		return target // "" for an import from outside the crate
+		if target == "" {
+			return "" // an import from outside the crate
+		}
+		return rustEitherDir + target
 	}
 	return w.dir + "." + w.qualifyMod(name)
 }

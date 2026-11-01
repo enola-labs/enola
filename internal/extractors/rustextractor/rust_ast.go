@@ -3,6 +3,7 @@ package rustextractor
 import (
 	"bytes"
 	"maps"
+	"path/filepath"
 	"strings"
 	"unicode"
 
@@ -178,6 +179,8 @@ type astWalker struct {
 	// (imported, but no local fact — a bare call to it must not be resolved).
 	// Populated by emitDependency; consulted by resolveCall.
 	importMap map[string]string
+	// importOtherFile holds the imported names whose path leaves this file.
+	importOtherFile map[string]bool
 
 	// localTypes holds the stated types of the current function's parameters and
 	// lets (receivers.go).
@@ -955,7 +958,16 @@ func cfgAttrApplies(tree *sitter.Node, src []byte, match func(rustAttribute, []b
 			if !pastCondition {
 				continue
 			}
-			attr := rustAttribute{path: nodeText(c, src)}
+			path := nodeText(c, src)
+			for next := tree.Child(i + 1); next != nil && kindOf(next) == "::"; next = tree.Child(i + 1) {
+				seg := tree.Child(i + 2)
+				if seg == nil || kindOf(seg) != "identifier" {
+					break
+				}
+				path += "::" + nodeText(seg, src)
+				i += 2
+			}
+			attr := rustAttribute{path: path}
 			if next := tree.Child(i + 1); next != nil && kindOf(next) == "token_tree" {
 				attr.args = next
 			}
@@ -1117,13 +1129,58 @@ func (w *astWalker) handleUse(node *sitter.Node) {
 	}
 	line := int(node.StartPosition().Row) + 1
 	for _, leaf := range collectUseLeaves(argNode, w.src, nil) {
-		w.emitDependency(leaf.segs, line)
-		if leaf.alias != "" && leaf.alias != "_" && len(leaf.segs) > 0 {
-			if target, ok := w.importMap[leaf.segs[len(leaf.segs)-1]]; ok {
-				w.importMap[leaf.alias] = target
+		if len(leaf.segs) > 0 {
+			bound := leaf.segs[len(leaf.segs)-1]
+			if leaf.alias != "" {
+				bound = leaf.alias
 			}
+			if w.importOtherFile == nil {
+				w.importOtherFile = make(map[string]bool)
+			}
+			w.importOtherFile[bound] = !w.pathStaysInFile(leaf.segs)
+		}
+		if leaf.alias == "" || len(leaf.segs) == 0 {
+			w.emitDependency(leaf.segs, line)
+			continue
+		}
+		// `use a::f as g` brings g into scope, not f: bind the alias, and leave
+		// whatever f meant before.
+		last := leaf.segs[len(leaf.segs)-1]
+		prev, had := w.importMap[last]
+		w.emitDependency(leaf.segs, line)
+		target, resolved := w.importMap[last]
+		if had {
+			w.importMap[last] = prev
+		} else {
+			delete(w.importMap, last)
+		}
+		if leaf.alias != "_" && resolved && len(leaf.segs) > 1 && last != "self" {
+			w.importMap[leaf.alias] = target
 		}
 	}
+}
+
+// pathStaysInFile reports whether a `use` path names an item of the file being
+// walked: no module between the path prefix and the item, or the file's own module.
+func (w *astWalker) pathStaysInFile(segs []string) bool {
+	if len(segs) == 0 || segs[0] == "super" {
+		return false
+	}
+	mods := segs[:len(segs)-1]
+	if len(mods) > 0 && (segs[0] == "crate" || segs[0] == "self") {
+		mods = mods[1:]
+	}
+	if len(mods) == 0 {
+		return true
+	}
+	stem := strings.TrimSuffix(filepath.Base(w.relFile), ".rs")
+	switch stem {
+	case "mod":
+		stem = filepath.Base(filepath.Dir(w.relFile))
+	case "lib", "main":
+		return false
+	}
+	return mods[len(mods)-1] == stem
 }
 
 func (w *astWalker) handleExternCrate(node *sitter.Node) {
@@ -1178,7 +1235,7 @@ func (w *astWalker) emitDependency(segs []string, line int) {
 // unresolved rather than guessing.
 func (w *astWalker) recordImportMapping(segs []string, target, source string) {
 	last := segs[len(segs)-1]
-	if last == "" || last == "*" {
+	if last == "" || last == "*" || last == "self" {
 		return
 	}
 	if w.importMap == nil {
@@ -1830,7 +1887,7 @@ func (w *astWalker) handleCallExpression(node *sitter.Node) {
 			w.emitEdge(facts.RelCalls, target)
 			// A bare `f()` never reaches a method, whatever resolveCall bound the
 			// edge to: inside `impl Drop`, `drop(x)` is the free function.
-			if !w.currentMethods()[name] {
+			if !w.importOtherFile[name] && !w.currentMethods()[name] {
 				w.noteSelfCall(target)
 			}
 		}
