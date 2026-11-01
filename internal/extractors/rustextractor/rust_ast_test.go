@@ -1437,3 +1437,42 @@ impl Foo {
 		t.Errorf("expected qualified RelCalls -> pkg.Foo.helper, got %+v", f.Relations)
 	}
 }
+
+// Test macros are invoked by the harness, not by a source-level caller. Like
+// TypeScript test files, they must emit references without production symbols.
+func TestAST_ParameterizedTestsKeepProductionReferences(t *testing.T) {
+	for _, attr := range []string{
+		`#[test_case(1; "request")] #[test_case(2; "refresh")]`,
+		`#[test_case::test_case(1)]`,
+		`#[test_matrix([1, 2])]`,
+		`#[test_case::test_matrix([1, 2])]`,
+		`#[rstest] #[case(1)]`,
+		`#[rstest::rstest] #[case(1)]`,
+		`#[test]`,
+		`#[tokio::test]`,
+		`#[wasm_bindgen_test::wasm_bindgen_test]`,
+	} {
+		t.Run(attr, func(t *testing.T) {
+			ff := extractAST(t, `
+fn production(value: u8) {}
+#[allow(unused)]
+`+attr+`
+// Comments must not detach the attributes from the function.
+fn checks_redaction(value: u8) { production(value); }
+fn test_case_helper() {}
+`)
+			if _, ok := findFact(ff, "pkg.checks_redaction"); ok {
+				t.Error("harness-invoked test must not become a production symbol")
+			}
+			for _, name := range []string{"pkg.production", "pkg.test_case_helper"} {
+				if _, ok := findFact(ff, name); !ok {
+					t.Errorf("ordinary function %s must remain a production symbol", name)
+				}
+			}
+			refs := findFactsByKind(ff, facts.KindTestRef)
+			if len(refs) != 1 || !hasRelation(refs[0], facts.RelCalls, "pkg.production") {
+				t.Errorf("test must keep its production call as a test reference, got %+v", refs)
+			}
+		})
+	}
+}

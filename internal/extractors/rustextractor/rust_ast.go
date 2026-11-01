@@ -388,12 +388,19 @@ func (w *astWalker) walkItems(parent *sitter.Node) {
 	}
 }
 
-// isTestAttribute reports whether an attribute_item marks its function as a
-// test (#[test], #[tokio::test], #[wasm_bindgen_test]) — catching a #[test]
-// fn wherever it lives (a plain tests.rs file, an un-gated mod tests {}),
-// not just inside a #[cfg(test)] module.
+// isTestAttribute recognizes test entry points, including procedural macros
+// that generate parameterized tests. Their bodies contribute test references,
+// not production symbols, even outside a #[cfg(test)] module. Match the final
+// path segment so imported and crate-qualified spellings behave alike.
 func isTestAttribute(path string) bool {
-	return path == "test" || strings.HasSuffix(path, "::test") || path == "wasm_bindgen_test"
+	if i := strings.LastIndex(path, "::"); i >= 0 {
+		path = path[i+2:]
+	}
+	switch path {
+	case "test", "wasm_bindgen_test", "test_case", "test_matrix", "rstest":
+		return true
+	}
+	return false
 }
 
 // isCfgTest reports whether this is a cfg gate that compiles its item only in a
@@ -694,12 +701,14 @@ func (w *astWalker) handleImpl(node *sitter.Node) {
 		return
 	}
 	traitName := ""
+	implIdx := -1
 	if traitNode := node.ChildByFieldName("trait"); traitNode != nil {
 		if traitName = simpleTypeName(traitNode, w.src); traitName != "" {
 			w.impls = append(w.impls, implPair{
 				typeName:  w.dir + "." + w.qualify(typeName),
 				traitName: traitName,
 			})
+			implIdx = len(w.impls) - 1
 		}
 	}
 
@@ -707,8 +716,33 @@ func (w *astWalker) handleImpl(node *sitter.Node) {
 	w.pushType(typeName, collectFnNames(body, w.src))
 	savedImplTrait := w.implTrait
 	w.implTrait = traitName
+	first := len(w.out)
 	if body != nil {
 		w.walkItems(body)
+	}
+	if implIdx >= 0 && body != nil {
+		type pos struct {
+			name string
+			line int
+		}
+		direct := map[pos]bool{}
+		for i := uint(0); i < uint(body.NamedChildCount()); i++ {
+			switch c := body.NamedChild(i); kindOf(c) {
+			case "function_item", "type_item", "const_item":
+				if n := c.ChildByFieldName("name"); n != nil {
+					direct[pos{nodeText(n, w.src), int(c.StartPosition().Row) + 1}] = true
+				}
+			}
+		}
+		for i := first; i < len(w.out); i++ {
+			f := w.out[i]
+			switch f.PropAny("symbol_kind") {
+			case facts.SymbolMethod, facts.SymbolType, facts.SymbolConstant:
+				if direct[pos{f.Name[strings.LastIndex(f.Name, ".")+1:], f.Line}] {
+					w.impls[implIdx].members = append(w.impls[implIdx].members, i)
+				}
+			}
+		}
 	}
 	w.implTrait = savedImplTrait
 	w.popType()
