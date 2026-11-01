@@ -3,7 +3,6 @@ package rustextractor
 import (
 	"bytes"
 	"maps"
-	"path/filepath"
 	"strings"
 	"unicode"
 
@@ -1147,6 +1146,7 @@ func (w *astWalker) handleUse(node *sitter.Node) {
 		// whatever f meant before.
 		last := leaf.segs[len(leaf.segs)-1]
 		prev, had := w.importMap[last]
+		prevExternal := w.externalImports[last]
 		w.emitDependency(leaf.segs, line)
 		target, resolved := w.importMap[last]
 		if had {
@@ -1154,8 +1154,19 @@ func (w *astWalker) handleUse(node *sitter.Node) {
 		} else {
 			delete(w.importMap, last)
 		}
+		if prevExternal {
+			w.externalImports[last] = true
+		} else {
+			delete(w.externalImports, last)
+		}
 		if leaf.alias != "_" && resolved && len(leaf.segs) > 1 && last != "self" {
 			w.importMap[leaf.alias] = target
+		}
+		if leaf.alias != "_" && resolved && target == "" {
+			if w.externalImports == nil {
+				w.externalImports = make(map[string]bool)
+			}
+			w.externalImports[leaf.alias] = true
 		}
 	}
 }
@@ -1173,10 +1184,10 @@ func (w *astWalker) pathStaysInFile(segs []string) bool {
 	if len(mods) == 0 {
 		return true
 	}
-	stem := strings.TrimSuffix(filepath.Base(w.relFile), ".rs")
+	stem := strings.TrimSuffix(factpath.Base(w.relFile), ".rs")
 	switch stem {
 	case "mod":
-		stem = filepath.Base(filepath.Dir(w.relFile))
+		stem = factpath.Base(factpath.Dir(w.relFile))
 	case "lib", "main":
 		return false
 	}
@@ -1258,17 +1269,6 @@ func (w *astWalker) recordImportMapping(segs []string, target, source string) {
 type useLeaf struct {
 	segs  []string
 	alias string
-}
-
-// collectUseItems expands a `use` declaration's argument tree into one
-// "::"-joined segment list per leaf path, so `use std::{fmt, collections::HashMap};`
-// yields two independent paths.
-func collectUseItems(node *sitter.Node, src []byte, prefix []string) [][]string {
-	var out [][]string
-	for _, l := range collectUseLeaves(node, src, prefix) {
-		out = append(out, l.segs)
-	}
-	return out
 }
 
 func collectUseLeaves(node *sitter.Node, src []byte, prefix []string) []useLeaf {
@@ -1482,16 +1482,33 @@ func (w *astWalker) preloadImports(container *sitter.Node) {
 		if kindOf(c) != "use_declaration" {
 			continue
 		}
-		for _, segs := range collectUseItems(c.ChildByFieldName("argument"), w.src, nil) {
-			if !w.useIsExternal(segs) {
+		for _, leaf := range collectUseLeaves(c.ChildByFieldName("argument"), w.src, nil) {
+			bound := leafBoundName(leaf)
+			if bound == "" || !w.useIsExternal(leaf.segs) {
 				continue
 			}
 			if w.externalImports == nil {
 				w.externalImports = make(map[string]bool)
 			}
-			w.externalImports[segs[len(segs)-1]] = true
+			w.externalImports[bound] = true
 		}
 	}
+}
+
+// leafBoundName is the name a `use` leaf brings into scope: its alias, or its last
+// segment (the module's own name for `self`), and "" for `as _`.
+func leafBoundName(leaf useLeaf) string {
+	if leaf.alias == "_" || len(leaf.segs) == 0 {
+		return ""
+	}
+	if leaf.alias != "" {
+		return leaf.alias
+	}
+	name := leaf.segs[len(leaf.segs)-1]
+	if name == "self" && len(leaf.segs) > 1 {
+		name = leaf.segs[len(leaf.segs)-2]
+	}
+	return name
 }
 
 // useIsExternal reports whether a `use` path leaves the repository, as emitDependency
