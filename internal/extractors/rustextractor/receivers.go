@@ -36,6 +36,7 @@ const (
 	propTypedCalls = "rust_typed_calls"
 	propFieldTypes = "rust_field_types"
 	propReturns    = "rust_returns"
+	propAliasOf    = "rust_alias_of"
 )
 
 // rustStep is one step from a type to another: a field of it, or what a method or
@@ -324,7 +325,29 @@ const rustEitherDir = "?"
 // canonType resolves a marked type to the directory that declares it. When that
 // is the directory above the one the marker named, the named directory is
 // returned too: a file module's impl blocks can sit in its subdirectory.
-func canonType(t string, exists map[string]bool, byName map[string][]string) (canon, alt string) {
+func canonType(t string, exists map[string]bool, byName map[string][]string, aliases map[string]string) []string {
+	canon, alt := canonTypeOnce(t, exists, byName)
+	out := []string{canon}
+	if alt != "" {
+		out = append(out, alt)
+	}
+	// A `type` alias names its target: the target's members are the alias's, but
+	// impl blocks written against the alias keep it first.
+	for range 4 {
+		next, ok := aliases[canon]
+		if !ok {
+			break
+		}
+		canon, alt = canonTypeOnce(next, exists, byName)
+		out = append(out, canon)
+		if alt != "" {
+			out = append(out, alt)
+		}
+	}
+	return out
+}
+
+func canonTypeOnce(t string, exists map[string]bool, byName map[string][]string) (canon, alt string) {
 	c, marked := strings.CutPrefix(t, rustEitherDir)
 	if !marked || exists[c] {
 		return c, ""
@@ -365,6 +388,7 @@ func resolveTypedCalls(all []facts.Fact) {
 	returns := make(map[string]string)
 	traits := make(map[string][]string)
 	byName := make(map[string][]string)
+	aliases := make(map[string]string)
 	for i := range all {
 		f := &all[i]
 		if f.Kind != facts.KindSymbol {
@@ -383,6 +407,10 @@ func resolveTypedCalls(all []facts.Fact) {
 			}
 			f.DelProp(propFieldTypes)
 		}
+		if t, ok := f.PropAny(propAliasOf).(string); ok {
+			aliases[f.Name] = t
+			f.DelProp(propAliasOf)
+		}
 		if t, ok := f.PropAny(propReturns).(string); ok {
 			returns[f.Name] = t
 			f.DelProp(propReturns)
@@ -395,8 +423,8 @@ func resolveTypedCalls(all []facts.Fact) {
 	}
 	// method finds what a type's method of that name is: its own, or a default
 	// of a trait it implements.
-	method := func(typ, alt, name string) string {
-		for _, t := range [...]string{typ, alt} {
+	method := func(types []string, name string) string {
+		for _, t := range types {
 			if t == "" {
 				continue
 			}
@@ -411,20 +439,25 @@ func resolveTypedCalls(all []facts.Fact) {
 		}
 		return ""
 	}
-	eval := func(e rustTypeExpr) (string, string) {
-		t, alt := canonType(e.base, exists, byName)
+	eval := func(e rustTypeExpr) []string {
+		types := canonType(e.base, exists, byName, aliases)
 		for _, s := range e.steps {
-			if t == "" {
-				return "", ""
-			}
+			var next string
 			if s.call {
-				t = returns[method(t, alt, s.name)]
+				next = returns[method(types, s.name)]
 			} else {
-				t = fields[t+"."+s.name]
+				for _, t := range types {
+					if next = fields[t+"."+s.name]; next != "" {
+						break
+					}
+				}
 			}
-			t, alt = canonType(t, exists, byName)
+			if next == "" {
+				return nil
+			}
+			types = canonType(next, exists, byName, aliases)
 		}
-		return t, alt
+		return types
 	}
 
 	for i := range all {
@@ -436,8 +469,7 @@ func resolveTypedCalls(all []facts.Fact) {
 		f.DelProp(propTypedCalls)
 		rename := make(map[string]string)
 		for _, n := range notes {
-			recv, alt := eval(n.recv)
-			target := method(recv, alt, n.method)
+			target := method(eval(n.recv), n.method)
 			if target == "" {
 				continue
 			}

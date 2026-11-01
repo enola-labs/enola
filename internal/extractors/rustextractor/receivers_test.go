@@ -600,3 +600,20 @@ func TestRustTypeImportedThroughAReExportResolves(t *testing.T) {
 		t.Errorf("u/src.f calls %v, want m/src/value.Value.make", got)
 	}
 }
+
+func TestRustTypeAliasIsFollowedToItsType(t *testing.T) {
+	ff := extractRustRepo(t, map[string]string{
+		"Cargo.toml": "[package]\nname = \"rt\"\n",
+		"src/lib.rs": "mod ct;\nmod tui;\n",
+		"src/ct.rs":  "pub struct Terminal<B> { b: B }\nimpl<B> Terminal<B> { pub fn invalidate(&mut self) {} }\n",
+		"src/tui.rs": `
+use crate::ct::Terminal as CustomTerminal;
+pub type Terminal = CustomTerminal<u8>;
+pub struct Tui { terminal: Terminal }
+impl Tui { pub fn draw(&mut self) { self.terminal.invalidate(); } }
+`,
+	})
+	if got := rustCalls(rustSym(t, ff, "src.Tui.draw")); !slices.Contains(got, "src.Terminal.invalidate") {
+		t.Errorf("src.Tui.draw calls %v, want the method of the aliased type", got)
+	}
+}

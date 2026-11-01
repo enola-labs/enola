@@ -1078,6 +1078,11 @@ func (w *astWalker) handleTypeAlias(node *sitter.Node) {
 		},
 		Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: w.dir}},
 	})
+	if len(w.typeStack) == 0 {
+		if t := w.typeOf(node.ChildByFieldName("type")); t != "" {
+			w.out[len(w.out)-1].SetProp(propAliasOf, t)
+		}
+	}
 	w.setDoc(node)
 	defer w.enterTypeParams(node)()
 	w.pushOwner(len(w.out) - 1)
