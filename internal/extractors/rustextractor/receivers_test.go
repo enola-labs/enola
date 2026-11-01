@@ -569,3 +569,20 @@ func TestRustImportedTypeThroughAFileModuleWithADirectory(t *testing.T) {
 		}
 	}
 }
+
+func TestRustMethodsInAFileModulesSubdirectoryResolve(t *testing.T) {
+	ff := extractRustRepo(t, map[string]string{
+		"Cargo.toml":                  "[workspace]\nmembers=[\"s\",\"u\"]\n",
+		"s/Cargo.toml":                "[package]\nname = \"s\"\n",
+		"s/src/lib.rs":                "pub mod ast;\n",
+		"s/src/ast/mod.rs":            "pub mod syntax_factory;\n",
+		"s/src/ast/syntax_factory.rs": "mod constructors;\npub struct SyntaxFactory;\n",
+		"s/src/ast/syntax_factory/constructors.rs": "use super::SyntaxFactory;\nimpl SyntaxFactory { pub fn expr_paren(&self) {} }\n",
+		"u/Cargo.toml": "[package]\nname = \"u\"\n",
+		"u/src/lib.rs": "use s::ast::syntax_factory::SyntaxFactory;\npub fn f(make: &SyntaxFactory) { make.expr_paren(); }\n",
+	})
+	got := rustCalls(rustSym(t, ff, "u/src.f"))
+	if !slices.Contains(got, "s/src/ast/syntax_factory.SyntaxFactory.expr_paren") {
+		t.Errorf("u/src.f calls %v, want the method declared in the file module's subdirectory", got)
+	}
+}

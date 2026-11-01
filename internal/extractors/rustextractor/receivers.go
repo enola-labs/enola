@@ -321,21 +321,23 @@ func (w *astWalker) recordFieldTypes(f *facts.Fact, body *sitter.Node) {
 // module's directory or, by a file module, in the one above it.
 const rustEitherDir = "?"
 
-// canonType resolves a marked type to the directory that declares it.
-func canonType(t string, exists map[string]bool) string {
+// canonType resolves a marked type to the directory that declares it. When that
+// is the directory above the one the marker named, the named directory is
+// returned too: a file module's impl blocks can sit in its subdirectory.
+func canonType(t string, exists map[string]bool) (canon, alt string) {
 	c, marked := strings.CutPrefix(t, rustEitherDir)
 	if !marked || exists[c] {
-		return c
+		return c, ""
 	}
 	dot := strings.LastIndexByte(c, '.')
 	slash := strings.LastIndexByte(c[:max(dot, 0)], '/')
 	if dot < 0 || slash < 0 {
-		return c
+		return c, ""
 	}
 	if up := c[:slash] + c[dot:]; exists[up] {
-		return up
+		return up, c
 	}
-	return c
+	return c, ""
 }
 
 // resolveTypedCalls evaluates the walker's notes against the struct fields and
@@ -371,31 +373,36 @@ func resolveTypedCalls(all []facts.Fact) {
 	}
 	// method finds what a type's method of that name is: its own, or a default
 	// of a trait it implements.
-	method := func(typ, name string) string {
-		if exists[typ+"."+name] {
-			return typ + "." + name
-		}
-		for _, tr := range traits[typ] {
-			if exists[tr+"."+name] {
-				return tr + "." + name
+	method := func(typ, alt, name string) string {
+		for _, t := range [...]string{typ, alt} {
+			if t == "" {
+				continue
+			}
+			if exists[t+"."+name] {
+				return t + "." + name
+			}
+			for _, tr := range traits[t] {
+				if exists[tr+"."+name] {
+					return tr + "." + name
+				}
 			}
 		}
 		return ""
 	}
-	eval := func(e rustTypeExpr) string {
-		t := canonType(e.base, exists)
+	eval := func(e rustTypeExpr) (string, string) {
+		t, alt := canonType(e.base, exists)
 		for _, s := range e.steps {
 			if t == "" {
-				return ""
+				return "", ""
 			}
 			if s.call {
-				t = returns[method(t, s.name)]
+				t = returns[method(t, alt, s.name)]
 			} else {
 				t = fields[t+"."+s.name]
 			}
-			t = canonType(t, exists)
+			t, alt = canonType(t, exists)
 		}
-		return t
+		return t, alt
 	}
 
 	for i := range all {
@@ -407,7 +414,8 @@ func resolveTypedCalls(all []facts.Fact) {
 		f.DelProp(propTypedCalls)
 		rename := make(map[string]string)
 		for _, n := range notes {
-			target := method(eval(n.recv), n.method)
+			recv, alt := eval(n.recv)
+			target := method(recv, alt, n.method)
 			if target == "" {
 				continue
 			}
