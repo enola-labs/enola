@@ -494,6 +494,15 @@ same while the body is rewritten, so it says which declaration a remembered `bod
 belonged to. Declarations with the same signature, such as two `#[cfg]` variants, share
 it.
 
+### inner_hash
+
+`inner_hash` is the version of a symbol's code after its signature: the lines `decl_hash`
+reads as the signature are left out, and the rest are hashed the way `body_hash` hashes a span.
+It is absent when nothing follows the signature. A changed `body_hash` under an unchanged
+`inner_hash` means only the signature changed: a parameter's type, a modifier, a decorator
+inside the span. The signature is found from the text, so one broken across lines by an inline
+object type ends at that brace, and a later change to it reads as a change to the body.
+
 | Reader | Uses `body_hash` |
 |---|---|
 | `facts.jsonl` | As a prop of the symbol fact |

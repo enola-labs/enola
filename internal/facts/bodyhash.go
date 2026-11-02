@@ -27,6 +27,16 @@ const PropBodyHash = "body_hash"
 // the architecture.
 const PropDeclHash = "decl_hash"
 
+// PropInnerHash is the version of what a symbol does without what it declares: a hash of
+// its span after the signature. With PropBodyHash it tells apart the two ways a symbol is
+// rewritten. A changed body_hash under an unchanged inner_hash is a change to the signature
+// alone: a parameter's type, private to public, a decorator. What a note says about what
+// the code does probably still holds, and it is worth saying so.
+//
+// It is set only on symbols with lines after their signature. Like PropBodyHash it says
+// nothing about the architecture.
+const PropInnerHash = "inner_hash"
+
 // PropSpanStart is the line a symbol's code starts on when that is above Line: the
 // decorators or attributes a language writes before the declaration and its parser keeps
 // outside it. Line stays on the declaration, where a reader jumping to a symbol wants it
@@ -84,6 +94,53 @@ func DeclHash(src []byte, start, end int) string {
 		}
 	}
 	return HashLines(lines[first:])
+}
+
+// InnerHash hashes the lines of start..end after the signature DeclHash reads, the same way
+// BodyHash hashes a span. It returns "" when nothing follows the signature, or when no line
+// within reach opens a body.
+//
+// A wrong stop moves the boundary and not the hash's stability. A signature broken across
+// lines by an inline object type stops at that brace, so the rest of the parameters count as
+// inner, which reports a change to them as a change to the body. That is the safe way to be
+// wrong: it asks for a re-check.
+func InnerHash(src []byte, start, end int) string {
+	if start <= 0 || end < start {
+		return ""
+	}
+	h := sha256.New()
+	inSignature, wrote := true, false
+	line := 1
+	for len(src) > 0 && line <= end {
+		next := bytes.IndexByte(src, '\n')
+		cur := src
+		if next >= 0 {
+			cur, src = src[:next], src[next+1:]
+		} else {
+			src = nil
+		}
+		if line >= start {
+			if t := bytes.TrimSpace(cur); len(t) > 0 {
+				switch {
+				case !inSignature:
+					if wrote {
+						h.Write([]byte{'\n'})
+					}
+					h.Write(t)
+					wrote = true
+				case line >= start+maxSignatureLines:
+					return ""
+				case !isAnnotationLine(string(t)) && opensBody(string(t)):
+					inSignature = false
+				}
+			}
+		}
+		line++
+	}
+	if !wrote {
+		return ""
+	}
+	return hex.EncodeToString(h.Sum(nil)[:8])
 }
 
 func isAnnotationLine(line string) bool {

@@ -25,7 +25,7 @@ type touchedArgs struct {
 func (s *Server) registerTouchedTool() {
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "touched",
-		Description: "Symbols a run of commits changed, ranked by how many changed each. Reads git history; long ranges take minutes.",
+		Description: "Symbols a run of commits changed, ranked by count. Reads git history; long ranges take minutes.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args touchedArgs) (*mcp.CallToolResult, any, error) {
 		repo := args.RepoPath
 		if repo == "" {

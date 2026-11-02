@@ -502,6 +502,9 @@
               "id": {
                 "type": "string"
               },
+              "inner_hash": {
+                "type": "string"
+              },
               "name": {
                 "type": "string"
               },
@@ -777,7 +780,7 @@
   },
   {
     "name": "touched",
-    "description": "Symbols a run of commits changed, ranked by how many changed each. Reads git history; long ranges take minutes.",
+    "description": "Symbols a run of commits changed, ranked by count. Reads git history; long ranges take minutes.",
     "input_schema": {
       "additionalProperties": false,
       "properties": {

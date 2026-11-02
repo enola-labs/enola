@@ -30,6 +30,8 @@ type Symbol struct {
 	BodyHash   string `json:"body_hash,omitempty"`
 	// DeclHash tells this declaration from others sharing its id (facts.PropDeclHash).
 	DeclHash string `json:"decl_hash,omitempty"`
+	// InnerHash is the version of the symbol's code after its signature (facts.PropInnerHash).
+	InnerHash string `json:"inner_hash,omitempty"`
 	// SpanStart is where the code starts when that is above Line: its decorators.
 	SpanStart int `json:"span_start,omitempty"`
 }
@@ -132,6 +134,7 @@ func NewIndex(ff []facts.Fact) *Index {
 			EndLine:    f.EndLine,
 			BodyHash:   f.PropString(facts.PropBodyHash),
 			DeclHash:   f.PropString(facts.PropDeclHash),
+			InnerHash:  f.PropString(facts.PropInnerHash),
 		}
 		if first := f.SpanStart(); first != f.Line {
 			s.SpanStart = first

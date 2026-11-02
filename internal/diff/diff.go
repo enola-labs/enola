@@ -1165,8 +1165,9 @@ func hasNonArchitectural(f facts.Fact) bool {
 	_, doc := f.Prop(facts.PropDoc)
 	_, body := f.Prop(facts.PropBodyHash)
 	_, decl := f.Prop(facts.PropDeclHash)
+	_, inner := f.Prop(facts.PropInnerHash)
 	_, start := f.Prop(facts.PropSpanStart)
-	return doc || body || decl || start
+	return doc || body || decl || inner || start
 }
 
 func architecturalProps(f facts.Fact) map[string]any {
@@ -1174,6 +1175,7 @@ func architecturalProps(f facts.Fact) map[string]any {
 	delete(props, facts.PropDoc)
 	delete(props, facts.PropBodyHash)
 	delete(props, facts.PropDeclHash)
+	delete(props, facts.PropInnerHash)
 	delete(props, facts.PropSpanStart)
 	return props
 }
