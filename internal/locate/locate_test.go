@@ -141,6 +141,15 @@ func TestDiff(t *testing.T) {
 			want:    map[string]int{},
 			outside: 2,
 		},
+		"a zero-context deletion inside a body": {
+			diff: "--- a/src/app.ts\n+++ b/src/app.ts\n@@ -10,1 +9,0 @@\n-    log();\n",
+			want: map[string]int{"src.App.b": 1},
+		},
+		"a zero-context deletion after a body's last line": {
+			diff:    "--- a/src/app.ts\n+++ b/src/app.ts\n@@ -12,1 +11,0 @@\n-\n",
+			want:    map[string]int{},
+			outside: 1,
+		},
 		"an import": {
 			diff: "--- a/src/app.ts\n+++ b/src/app.ts\n@@ -1,1 +1,2 @@\n import x\n+import y\n",
 			want: map[string]int{}, outside: 1,
