@@ -30,7 +30,7 @@ new entry.
 | `id` | string | The fact id. See [facts.md](facts.md#identity-and-ids) |
 | `name`, `symbol_kind`, `file` | string | As the first ranked commit saw it |
 | `count` | int | Ranked commits that changed it |
-| `commits` | array of strings | Those commits, oldest first |
+| `commits` | array of strings | Those commits, oldest first. The `touched` MCP tool leaves them out unless asked |
 
 ## What it reads
 
