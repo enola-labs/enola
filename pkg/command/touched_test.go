@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/enola-labs/enola/internal/touched"
@@ -70,6 +71,9 @@ func TestTouchedRanksTheSymbolsCommitsChanged(t *testing.T) {
 	var res touched.Result
 	if err := json.Unmarshal(raw, &res); err != nil {
 		t.Fatal(err)
+	}
+	if res.Symbols != 2 {
+		t.Errorf("%d symbols, want 2", res.Symbols)
 	}
 	if len(res.Commits) != 3 || res.RankedCommits != 2 {
 		t.Fatalf("%d commits, %d ranked, want 3 and 2", len(res.Commits), res.RankedCommits)
@@ -155,5 +159,58 @@ func TestTouchedGrainCreditsAFactoryOrItsParts(t *testing.T) {
 	}
 	if got := ranking("--grain", "declaration"); got["src.plugin"] != 1 || len(got) != 1 {
 		t.Errorf("declaration grain: %v", got)
+	}
+}
+
+func TestTouchedFollowsAFileThroughARename(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "app")
+	if err := os.MkdirAll(filepath.Join(dir, "old"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	git := func(args ...string) {
+		t.Helper()
+		if out, err := exec.Command("git", append([]string{"-C", dir, "-c", "user.name=t", "-c", "user.email=t@example.com"}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, out)
+		}
+	}
+	write := func(path, subject, v string) {
+		t.Helper()
+		src := "export function f() {\n  const a = 1;\n  const b = 2;\n  const c = 3;\n  const d = 4;\n  return " + v + ";\n}\n"
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, path)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, path), []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		git("add", "-A")
+		git("commit", "-q", "-m", subject)
+	}
+	git("init", "-q")
+	write("old/a.ts", "add", "0")
+	write("old/a.ts", "fix: one", "1")
+	git("mv", "old/a.ts", "mid.ts")
+	git("commit", "-q", "-m", "refactor: move")
+	write("mid.ts", "fix: two", "2")
+	if err := os.MkdirAll(filepath.Join(dir, "new"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	git("mv", "mid.ts", "new/a.ts")
+	git("commit", "-q", "-m", "refactor: move again")
+	// A new file at the first path is another file.
+	write("old/a.ts", "fix: three", "3")
+
+	var res touched.Result
+	if err := json.Unmarshal(runTouched(t, "--subject", "^fix", "--json", dir), &res); err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Ranking) != 2 || res.Symbols != 2 {
+		t.Fatalf("%d symbols, ranking %+v", res.Symbols, res.Ranking)
+	}
+	moved, other := res.Ranking[0], res.Ranking[1]
+	if moved.File != "new/a.ts" || moved.Count != 2 || !slices.Equal(moved.MovedFrom, []string{"old/a.ts", "mid.ts"}) {
+		t.Errorf("moved row %+v", moved)
+	}
+	if other.File != "old/a.ts" || other.Count != 1 || other.MovedFrom != nil {
+		t.Errorf("new file at the old path %+v", other)
 	}
 }

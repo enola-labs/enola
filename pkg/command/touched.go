@@ -111,7 +111,7 @@ func (r *Runner) runTouched(ctx context.Context, args []string, stdout, stderr i
 		}
 		return 0
 	}
-	_, _ = fmt.Fprintf(stdout, "%d commit(s), %d in the ranking.\n\n", len(res.Commits), res.RankedCommits)
+	_, _ = fmt.Fprintf(stdout, "%d commit(s), %d in the ranking, %d symbol(s) changed.\n\n", len(res.Commits), res.RankedCommits, res.Symbols)
 	for _, e := range res.Ranking {
 		_, _ = fmt.Fprintf(stdout, "%5d  %s  %s\n", e.Count, e.Name, e.File)
 	}
