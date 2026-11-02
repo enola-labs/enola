@@ -370,6 +370,10 @@ func TestRustTypeNamesKeepPathContext(t *testing.T) {
 		"src/lib.rs": `
 pub mod models;
 pub mod imp;
+pub mod ord;
+pub struct String;
+pub fn first() { use std::string::String; let _x: Option<String> = None; }
+pub fn second(x: String) {}
 pub struct Item;
 pub struct Vec;
 pub trait Has { type Item; }
@@ -391,6 +395,7 @@ impl<T: OnlyImpl> Holder<T> {
 }
 `,
 		"src/models.rs": "pub struct Input;\n",
+		"src/ord.rs":    "pub fn before(x: Vec<u8>) {}\nuse std::vec::Vec;\npub fn after(x: Vec<u8>) {}\n",
 		"src/imp.rs":    "use std::vec::Vec;\npub fn imported(x: Vec<u8>) {}\npub fn absolute(x: ::std::vec::Vec<u8>) {}\npub mod local { pub struct Vec; }\npub fn qualified(x: crate::imp::local::Vec) {}\npub mod left { use std::vec::Vec; }\npub mod right { pub struct Vec; pub fn uses(x: Vec) {} }\n",
 	})
 	names := func(sym string) []string {
@@ -418,6 +423,14 @@ impl<T: OnlyImpl> Holder<T> {
 	}
 	if got := names("src.right.uses"); !slices.Contains(got, "Vec") {
 		t.Errorf("an import in a sibling module must not hide the local Vec, got %v", got)
+	}
+	if got := names("src.second"); !slices.Contains(got, "String") {
+		t.Errorf("a use inside another function must not hide the local String, got %v", got)
+	}
+	for _, sym := range []string{"src.before", "src.after"} {
+		if got := names(sym); slices.Contains(got, "Vec") {
+			t.Errorf("%s names %v: the module imports std's Vec, whatever the order", sym, got)
+		}
 	}
 	for _, sym := range []string{"src.imported", "src.absolute"} {
 		if got := names(sym); slices.Contains(got, "Vec") {

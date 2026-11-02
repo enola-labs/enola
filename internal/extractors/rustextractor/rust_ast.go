@@ -2,6 +2,7 @@ package rustextractor
 
 import (
 	"bytes"
+	"maps"
 	"strings"
 	"unicode"
 
@@ -362,6 +363,7 @@ func parseRustAttribute(item *sitter.Node, src []byte) (rustAttribute, bool) {
 // without consuming the pending attributes. Used for file, module, impl and
 // trait bodies.
 func (w *astWalker) walkItems(parent *sitter.Node) {
+	w.preloadImports(parent)
 	var attrs rustItemAttrs
 	for i := uint(0); i < uint(parent.ChildCount()); i++ {
 		c := parent.Child(i)
@@ -1207,6 +1209,15 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 		return
 	}
 	switch kindOf(node) {
+	case "block":
+		// A `use` inside a block is visible in the whole block, before and after
+		// it, and nowhere else.
+		restore := w.enterImportScope(node)
+		for i := uint(0); i < uint(node.ChildCount()); i++ {
+			w.walkChild(node.Child(i))
+		}
+		restore()
+		return
 	case "let_declaration":
 		// A local bound from the current element is still the current element:
 		// `let frames = trace.frames();` puts `frames` one step from `trace`.
@@ -1323,6 +1334,48 @@ func (w *astWalker) enterTypeParams(node *sitter.Node) func() {
 		}
 	}
 	return func() { w.typeParams = w.typeParams[:saved] }
+}
+
+// enterImportScope starts the scope of a block: its own `use` declarations are
+// known up front, and the imports it adds are dropped when it ends.
+func (w *astWalker) enterImportScope(block *sitter.Node) func() {
+	saved := maps.Clone(w.externalImports)
+	w.preloadImports(block)
+	return func() { w.externalImports = saved }
+}
+
+// preloadImports records the names the `use` declarations directly under container
+// import from outside the repository. A `use` applies to its whole scope, not only
+// to what follows it.
+func (w *astWalker) preloadImports(container *sitter.Node) {
+	for i := uint(0); i < uint(container.NamedChildCount()); i++ {
+		c := container.NamedChild(i)
+		if kindOf(c) != "use_declaration" {
+			continue
+		}
+		for _, segs := range collectUseItems(c.ChildByFieldName("argument"), w.src, nil) {
+			if !w.useIsExternal(segs) {
+				continue
+			}
+			if w.externalImports == nil {
+				w.externalImports = make(map[string]bool)
+			}
+			w.externalImports[segs[len(segs)-1]] = true
+		}
+	}
+}
+
+// useIsExternal reports whether a `use` path leaves the repository, as emitDependency
+// classifies it.
+func (w *astWalker) useIsExternal(segs []string) bool {
+	if len(segs) == 0 || segs[len(segs)-1] == "" || segs[len(segs)-1] == "*" {
+		return false
+	}
+	if segs[0] != "self" && segs[0] != "super" && segs[0] != "crate" && w.isKnownSubmodule(segs[0]) {
+		return false
+	}
+	_, source := classifyUsePath(segs, w.dir, w.crateDir, w.crates, w.moduleDirs)
+	return source != "internal"
 }
 
 // isDeclaredName reports whether node is the name an associated type declares,

@@ -3338,8 +3338,9 @@ import (
 // names edge of the declaration it is in, and so are the headers of traits and impls and
 // the signatures of trait methods. Not named: Self, _, the generic parameters in scope,
 // an associated type (T::Item) or its declaration, a prelude type the repository does not
-// declare, a name the same module imports from outside the repository, and a type written
-// with a std path. A module-qualified name is always named.
+// declare, a name the same module or block imports from outside the repository (wherever
+// the `use` sits in it), and a type written with a std path. A module-qualified name is
+// always named.
 const cacheVersion = "v504"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
