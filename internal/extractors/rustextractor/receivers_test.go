@@ -650,3 +650,59 @@ pub fn aliased(x: StdVec<u8>) {}
 		t.Errorf("an alias of an outside import names no declaration, got %v", got)
 	}
 }
+
+func TestRustGenericParametersOfEveryKindAreNotTypes(t *testing.T) {
+	ff := extractRustRepo(t, map[string]string{
+		"Cargo.toml": "[package]\nname = \"rt\"\n",
+		"src/lib.rs": `
+use std::sync::Arc;
+
+pub struct N;
+pub struct U;
+pub struct T;
+pub struct K;
+pub struct Arr<const M: usize>;
+
+pub fn const_generic<const N: usize>(x: Arr<N>) {}
+
+pub union UU<T: Copy> { a: T }
+
+pub trait Am { type Out<U>; }
+
+pub type Wrap<K> = Arc<K>;
+impl K { pub fn k_method(&self) {} }
+pub fn through_alias(w: Wrap<u8>) { w.k_method(); }
+`,
+	})
+	names := func(sym string) []string {
+		var out []string
+		for _, r := range rustSym(t, ff, sym).Relations {
+			if r.Kind == facts.RelNames {
+				out = append(out, r.Target)
+			}
+		}
+		return out
+	}
+	if got := names("src.const_generic"); slices.Contains(got, "N") || !slices.Contains(got, "Arr") {
+		t.Errorf("a const generic is not a type: src.const_generic names %v, want Arr and not N", got)
+	}
+	if rustSym(t, ff, "src.UU").PropAny("symbol_kind") == nil {
+		t.Error("a union is a declaration")
+	}
+	if got := names("src.UU"); slices.Contains(got, "T") {
+		t.Errorf("the union's own generic parameter is not a type, got %v", got)
+	}
+	for _, f := range ff {
+		if f.Kind != facts.KindFileRef {
+			continue
+		}
+		for _, r := range f.Relations {
+			if r.Kind == facts.RelNames && (r.Target == "T" || r.Target == "UU" || r.Target == "U" || r.Target == "Copy") {
+				t.Errorf("%s names %s: a union or a generic associated type leaks onto the file", f.Name, r.Target)
+			}
+		}
+	}
+	if got := rustCalls(rustSym(t, ff, "src.through_alias")); slices.Contains(got, "src.K.k_method") {
+		t.Errorf("an alias parameter is not the local struct K, but src.through_alias calls %v", got)
+	}
+}
