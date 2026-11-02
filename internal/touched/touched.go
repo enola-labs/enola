@@ -68,8 +68,10 @@ type Ranked struct {
 type Result struct {
 	Commits []Commit `json:"commits"`
 	// RankedCommits counts the commits the ranking is over.
-	RankedCommits int      `json:"ranked_commits"`
-	Ranking       []Ranked `json:"ranking,omitempty"`
+	RankedCommits int `json:"ranked_commits"`
+	// Symbols counts the ranking's rows, before anything limits how many are returned.
+	Symbols int      `json:"symbols"`
+	Ranking []Ranked `json:"ranking,omitempty"`
 }
 
 func callable(kind string) bool {
@@ -220,6 +222,7 @@ func rank(res *Result) {
 	for _, r := range byID {
 		res.Ranking = append(res.Ranking, *r)
 	}
+	res.Symbols = len(res.Ranking)
 	sort.Slice(res.Ranking, func(i, j int) bool {
 		a, b := res.Ranking[i], res.Ranking[j]
 		if a.Count != b.Count {

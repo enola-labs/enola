@@ -6,6 +6,7 @@ The result of `enola touched --json`. Consumers must accept unknown fields.
 |---|---|---|
 | `commits` | array of [commits](#commit) | The selected commits, oldest first |
 | `ranked_commits` | int | How many of them the ranking counts |
+| `symbols` | int | How many callables they changed, however few `ranking` returns |
 | `ranking` | array of [ranked callables](#ranked-callable) | Most often changed first, limited by `--top` |
 
 ## Commit

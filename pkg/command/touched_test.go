@@ -71,6 +71,9 @@ func TestTouchedRanksTheSymbolsCommitsChanged(t *testing.T) {
 	if err := json.Unmarshal(raw, &res); err != nil {
 		t.Fatal(err)
 	}
+	if res.Symbols != 2 {
+		t.Errorf("%d symbols, want 2", res.Symbols)
+	}
 	if len(res.Commits) != 3 || res.RankedCommits != 2 {
 		t.Fatalf("%d commits, %d ranked, want 3 and 2", len(res.Commits), res.RankedCommits)
 	}

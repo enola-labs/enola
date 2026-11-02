@@ -25,14 +25,14 @@ func TestTouchedToolLeavesCommitsOutUnlessAsked(t *testing.T) {
 	}
 	git("init", "-q")
 	for _, v := range []string{"1", "2"} {
-		if err := os.WriteFile(filepath.Join(dir, "a.ts"), []byte("export function f() {\n  return "+v+";\n}\n"), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, "a.ts"), []byte("export function f() {\n  return "+v+";\n}\n\nexport function g() {\n  return "+v+";\n}\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 		git("add", "-A")
 		git("commit", "-q", "-m", "fix: "+v)
 	}
 	s := startInMemory(t)
-	call := func(args map[string]any) (ranked []map[string]any) {
+	call := func(args map[string]any) (ranked []map[string]any, symbols int) {
 		t.Helper()
 		res, err := s.cs.CallTool(context.Background(), &mcp.CallToolParams{Name: "touched", Arguments: args})
 		if err != nil {
@@ -40,19 +40,23 @@ func TestTouchedToolLeavesCommitsOutUnlessAsked(t *testing.T) {
 		}
 		text := res.Content[0].(*mcp.TextContent).Text
 		var out struct {
+			Symbols int              `json:"symbols"`
 			Ranking []map[string]any `json:"ranking"`
 		}
 		if err := json.Unmarshal([]byte(text), &out); err != nil {
 			t.Fatalf("%v: %s", err, strings.TrimSpace(text))
 		}
-		return out.Ranking
+		return out.Ranking, out.Symbols
 	}
-	plain := call(map[string]any{"repo_path": dir})
+	plain, symbols := call(map[string]any{"repo_path": dir, "top": 1})
+	if symbols != 2 {
+		t.Errorf("top 1 reported %d symbols, want all 2", symbols)
+	}
 	if len(plain) != 1 || plain[0]["count"] != float64(2) || plain[0]["commits"] != nil {
 		t.Errorf("default: %+v", plain)
 	}
-	asked := call(map[string]any{"repo_path": dir, "commits": true})
-	if len(asked) != 1 || asked[0]["commits"] == nil {
+	asked, _ := call(map[string]any{"repo_path": dir, "commits": true})
+	if len(asked) != 2 || asked[0]["commits"] == nil {
 		t.Errorf("commits asked for: %+v", asked)
 	}
 }

@@ -70,7 +70,8 @@ func (s *Server) registerTouchedTool() {
 		return jsonResult(struct {
 			Commits       int              `json:"commits"`
 			RankedCommits int              `json:"ranked_commits"`
+			Symbols       int              `json:"symbols"`
 			Ranking       []touched.Ranked `json:"ranking,omitempty"`
-		}{len(res.Commits), res.RankedCommits, res.Ranking})
+		}{len(res.Commits), res.RankedCommits, res.Symbols, res.Ranking})
 	})
 }
