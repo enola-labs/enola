@@ -833,3 +833,82 @@ func TestRustUseThroughAnImportedModuleResolves(t *testing.T) {
 		t.Errorf("src/runtime.run calls %v, want the function behind the imported module", got)
 	}
 }
+
+func TestRustUseThroughAReExportedCrateIsNotAnImportedModule(t *testing.T) {
+	ff := extractRustRepo(t, map[string]string{
+		"Cargo.toml":               "[workspace]\nmembers=[\"tokio\",\"tests-build\",\"wstore\"]\n",
+		"tokio/Cargo.toml":         "[package]\nname = \"tokio\"\n",
+		"tokio/src/lib.rs":         "pub mod runtime;\n",
+		"tokio/src/runtime/mod.rs": "pub fn spawn() {}\n",
+		"tests-build/Cargo.toml":   "[package]\nname = \"tests-build\"\n\n[dependencies]\ntokio = { path = \"../tokio\" }\n",
+		"tests-build/src/lib.rs":   "pub use tokio;\n",
+		"tests-build/tests/a.rs":   "use tests_build::tokio;\nuse tokio::runtime::spawn;\nfn t() { spawn(); }\n",
+		"wstore/Cargo.toml":        "[package]\nname = \"wstore\"\n",
+		"wstore/src/lib.rs":        "pub use rusqlite;\n",
+		"wstore/tests/b.rs":        "use wstore::rusqlite;\nuse rusqlite::types::FromSql;\n",
+	})
+	imports := func(file string) []string {
+		var out []string
+		for _, f := range ff {
+			if f.Kind == facts.KindDependency && f.File == file {
+				for _, r := range f.Relations {
+					out = append(out, r.Target)
+				}
+			}
+		}
+		return out
+	}
+	if got := imports("tests-build/tests/a.rs"); !slices.Contains(got, "tokio/src/runtime") {
+		t.Errorf("use tokio::runtime through a re-exported crate imports %v, want tokio/src/runtime", got)
+	}
+	for _, target := range imports("wstore/tests/b.rs") {
+		if strings.HasPrefix(target, "wstore") && strings.Contains(target, "types") {
+			t.Errorf("an external crate re-exported by wstore is imported as %s", target)
+		}
+	}
+}
+
+func TestRustDependencyRenamesBeatUnrelatedPackagesOfTheSameName(t *testing.T) {
+	ff := extractRustRepo(t, map[string]string{
+		"Cargo.toml":       "[workspace]\nmembers=[\"short\",\"real\",\"tbl\",\"app\"]\n",
+		"short/Cargo.toml": "[package]\nname = \"short\"\n",
+		"short/src/lib.rs": "pub fn boot() {}\n",
+		"real/Cargo.toml":  "[package]\nname = \"real-core\"\n",
+		"real/src/lib.rs":  "pub fn boot() {}\n",
+		"tbl/Cargo.toml":   "[package]\nname = \"table-core\"\n",
+		"tbl/src/lib.rs":   "pub fn spin() {}\n",
+		"app/Cargo.toml": `[package]
+name = "app"
+
+[dependencies]
+short = { path = "../real", package = "real-core" }
+
+[dependencies.viatable]
+path = "../tbl"
+package = "table-core"
+`,
+		"app/src/lib.rs": "use short::boot;\nuse viatable::spin;\npub fn run() { boot(); spin(); }\n",
+	})
+	got := rustCalls(rustSym(t, ff, "app/src.run"))
+	if !slices.Contains(got, "real/src.boot") || slices.Contains(got, "short/src.boot") {
+		t.Errorf("a rename must win over an unrelated package named short, got %v", got)
+	}
+	if !slices.Contains(got, "tbl/src.spin") {
+		t.Errorf("a [dependencies.viatable] rename is ignored, got %v", got)
+	}
+}
+
+func TestRustRenamedFacadeKeepsNamingTheRealCrate(t *testing.T) {
+	ff := extractRustRepo(t, map[string]string{
+		"Cargo.toml":        "[workspace]\nmembers=[\"core\",\"facade\",\"std\"]\n",
+		"core/Cargo.toml":   "[package]\nname = \"core\"\n",
+		"core/src/lib.rs":   "pub fn null_mut() {}\n",
+		"facade/Cargo.toml": "[package]\nname = \"workspace-core\"\n[dependencies]\ncore = { path = \"../core\" }\n",
+		"facade/src/lib.rs": "pub use core::*;\n",
+		"std/Cargo.toml":    "[package]\nname = \"std\"\n[dependencies]\ncore = { path = \"../facade\", package = \"workspace-core\" }\n",
+		"std/src/lib.rs":    "use core::null_mut;\npub fn run() { null_mut(); }\n",
+	})
+	if got := rustCalls(rustSym(t, ff, "std/src.run")); !slices.Contains(got, "core/src.null_mut") {
+		t.Errorf("std/src.run calls %v, want the function in the real core crate", got)
+	}
+}

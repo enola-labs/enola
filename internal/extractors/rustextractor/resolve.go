@@ -21,13 +21,16 @@ type crateInfo struct {
 	// renames maps a dependency's local name to the crate it is, for
 	// `alias = { package = "real-name" }`.
 	renames map[string]string
+	// deps holds the local names of every dependency the manifest declares.
+	deps map[string]bool
 }
 
 var (
-	tomlSectionRe = regexp.MustCompile(`^\s*\[([^\]]+)\]`)
-	tomlNameRe    = regexp.MustCompile(`^\s*name\s*=\s*"([^"]*)"`)
-	tomlRenameRe  = regexp.MustCompile(`^\s*([A-Za-z0-9_-]+)\s*=\s*\{[^}]*\bpackage\s*=\s*"([^"]+)"`)
-	tomlPublishRe = regexp.MustCompile(`^\s*(publish|description|license|license-file)(\.workspace)?\s*=\s*(.*)$`)
+	tomlSectionRe       = regexp.MustCompile(`^\s*\[([^\]]+)\]`)
+	tomlNameRe          = regexp.MustCompile(`^\s*name\s*=\s*"([^"]*)"`)
+	tomlDependencyKeyRe = regexp.MustCompile(`^\s*([A-Za-z0-9_-]+)(?:\.workspace)?\s*=`)
+	tomlRenameRe        = regexp.MustCompile(`^\s*([A-Za-z0-9_-]+)\s*=\s*\{[^}]*\bpackage\s*=\s*"([^"]+)"`)
+	tomlPublishRe       = regexp.MustCompile(`^\s*(publish|description|license|license-file)(\.workspace)?\s*=\s*(.*)$`)
 )
 
 // buildCrateIndex reads every Cargo.toml in the repo and returns each crate's
@@ -52,8 +55,8 @@ func buildCrateIndex(repoPath string, cargoFiles []string) []crateInfo {
 			name:        pkg,
 			dir:         dir,
 			publishable: publishable,
-			renames:     parseCargoRenames(string(data)),
 		})
+		crates[len(crates)-1].renames, crates[len(crates)-1].deps = parseCargoRenames(string(data))
 		// `use` paths name the library target, which `[lib] name` can set apart from
 		// the package.
 		if lib := strings.ReplaceAll(parseCargoLibName(string(data)), "-", "_"); lib != "" && lib != pkg {
@@ -101,27 +104,57 @@ func parseCargoLibName(data string) string {
 	return ""
 }
 
+// tomlDepTableRe matches a dependency written as its own table, `[dependencies.short]`
+// or `[target.'cfg(unix)'.dev-dependencies.short]`.
+var tomlDepTableRe = regexp.MustCompile(`(?:^|\.)(?:dev-|build-)?dependencies\.([A-Za-z0-9_-]+)$`)
+
+// tomlPackageRe matches the `package = "real-name"` line of a dependency table.
+var tomlPackageRe = regexp.MustCompile(`^\s*package\s*=\s*"([^"]+)"`)
+
 // parseCargoRenames returns the dependencies a Cargo.toml renames, local name (with
-// hyphens as underscores, as `use` paths spell it) to the real crate name.
-func parseCargoRenames(data string) map[string]string {
-	var out map[string]string
-	inDeps := false
+// hyphens as underscores, as `use` paths spell it) to the real crate name, and the
+// local names of all its dependencies.
+func parseCargoRenames(data string) (renames map[string]string, deps map[string]bool) {
+	norm := func(n string) string { return strings.ReplaceAll(n, "-", "_") }
+	addDep := func(name string) {
+		if deps == nil {
+			deps = map[string]bool{}
+		}
+		deps[norm(name)] = true
+	}
+	inDeps, table := false, ""
 	for _, line := range strings.Split(data, "\n") {
 		if m := tomlSectionRe.FindStringSubmatch(line); m != nil {
-			inDeps = strings.Contains(m[1], "dependencies")
-			continue
-		}
-		if !inDeps {
-			continue
-		}
-		if m := tomlRenameRe.FindStringSubmatch(line); m != nil {
-			if out == nil {
-				out = map[string]string{}
+			sec := strings.TrimSpace(m[1])
+			table = ""
+			if t := tomlDepTableRe.FindStringSubmatch(sec); t != nil {
+				table = t[1]
+				addDep(table)
 			}
-			out[strings.ReplaceAll(m[1], "-", "_")] = strings.ReplaceAll(m[2], "-", "_")
+			inDeps = table == "" && strings.HasSuffix(sec, "dependencies")
+			continue
+		}
+		switch {
+		case table != "":
+			if m := tomlPackageRe.FindStringSubmatch(line); m != nil {
+				if renames == nil {
+					renames = map[string]string{}
+				}
+				renames[norm(table)] = norm(m[1])
+			}
+		case inDeps:
+			if m := tomlDependencyKeyRe.FindStringSubmatch(line); m != nil {
+				addDep(m[1])
+			}
+			if m := tomlRenameRe.FindStringSubmatch(line); m != nil {
+				if renames == nil {
+					renames = map[string]string{}
+				}
+				renames[norm(m[1])] = norm(m[2])
+			}
 		}
 	}
-	return out
+	return renames, deps
 }
 
 // parseCargoPublishable reports whether a Cargo.toml's [package] section can go to
@@ -178,6 +211,20 @@ func nearestCrateDir(dir string, crates []crateInfo) string {
 	return best
 }
 
+// isReexportingFacade reports whether the crate a dependency is renamed to depends on a
+// crate of the alias's own name. That is how a workspace facade (`core` mapped to
+// `rustc-std-workspace-core`) re-exports the real crate, so the alias keeps naming it.
+func isReexportingFacade(real, alias string, crates []crateInfo) bool {
+	for _, c := range crates {
+		if c.name == real && c.deps[alias] {
+			if _, ok := crateDirByName(alias, crates); ok {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func crateDirByName(name string, crates []crateInfo) (string, bool) {
 	for _, c := range crates {
 		if c.name == name {
@@ -224,13 +271,14 @@ func classifyUsePath(segs []string, dir, crateDir string, crates []crateInfo, mo
 		return joinRustPath(crateSourceRoot(crateDir, moduleDirs), segs[1:], moduleDirs), "internal"
 	}
 	name := segs[0]
-	if _, own := crateDirByName(name, crates); !own {
-		for _, c := range crates {
-			if c.dir == crateDir && c.renames[name] != "" {
-				name = c.renames[name]
-				break
-			}
+	for _, c := range crates {
+		if c.dir != crateDir {
+			continue
 		}
+		if real := c.renames[name]; real != "" && !isReexportingFacade(real, name, crates) {
+			name = real
+		}
+		break
 	}
 	if d, ok := crateDirByName(name, crates); ok {
 		return joinRustPath(crateSourceRoot(d, moduleDirs), segs[1:], moduleDirs), "internal"

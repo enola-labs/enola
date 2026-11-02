@@ -15,7 +15,7 @@ import (
 
 // It also returns the file's inner doc, the doc of the module the file opens.
 func extractFileASTFull(src []byte, relFile string, crates []crateInfo, moduleDirs map[string]bool) ([]facts.Fact, []implPair, []axumBuilder, string) {
-	r := extractRustFile(src, relFile, crates, moduleDirs, false)
+	r := extractRustFile(src, relFile, crates, moduleDirs, nil, false)
 	return r.facts, r.impls, r.builders, r.doc
 }
 
@@ -34,7 +34,7 @@ type rustFileOut struct {
 // extractRustFile extracts one file. testFile walks the whole file as the body of
 // a #[cfg(test)] module, because a parent declared it as one: it emits no symbol,
 // and its calls become the file's test reference.
-func extractRustFile(src []byte, relFile string, crates []crateInfo, moduleDirs map[string]bool, testFile bool) rustFileOut {
+func extractRustFile(src []byte, relFile string, crates []crateInfo, moduleDirs, moduleFiles map[string]bool, testFile bool) rustFileOut {
 	parser := sitter.NewParser()
 	defer parser.Close()
 	if err := parser.SetLanguage(sitter.NewLanguage(rust.Language())); err != nil {
@@ -47,14 +47,15 @@ func extractRustFile(src []byte, relFile string, crates []crateInfo, moduleDirs 
 
 	dir := factpath.Dir(relFile)
 	w := &astWalker{
-		src:        src,
-		relFile:    relFile,
-		dir:        dir,
-		crateDir:   nearestCrateDir(dir, crates),
-		crates:     crates,
-		moduleDirs: moduleDirs,
-		fileRefIdx: -1,
-		inTestMod:  testFile,
+		src:         src,
+		relFile:     relFile,
+		dir:         dir,
+		crateDir:    nearestCrateDir(dir, crates),
+		crates:      crates,
+		moduleDirs:  moduleDirs,
+		moduleFiles: moduleFiles,
+		fileRefIdx:  -1,
+		inTestMod:   testFile,
 	}
 	w.walkSourceFile(root)
 
@@ -99,8 +100,9 @@ type astWalker struct {
 	dir      string
 	crateDir string
 
-	crates     []crateInfo
-	moduleDirs map[string]bool
+	crates      []crateInfo
+	moduleDirs  map[string]bool
+	moduleFiles map[string]bool
 
 	// out is the accumulating fact list; impls collects impl-Trait-for-Type
 	// observations resolved later by applyImplements.
@@ -1268,10 +1270,26 @@ func (w *astWalker) importedModuleDir(segs []string) string {
 		return ""
 	}
 	base, found := strings.CutSuffix(imported, "."+segs[0])
-	if !found {
+	if !found || !w.isRealModule(base, segs[0]) {
 		return ""
 	}
 	return base
+}
+
+// isRealModule reports whether name is a module of the repository: base is its
+// own directory, or base holds name/ or name.rs. A name imported
+// from inside the repository can also be a re-exported crate (`pub use dep;`).
+func (w *astWalker) isRealModule(base, name string) bool {
+	join := func(parts ...string) string {
+		if base == "" || base == "." {
+			return strings.Join(parts, "/")
+		}
+		return base + "/" + strings.Join(parts, "/")
+	}
+	if base == name || strings.HasSuffix(base, "/"+name) {
+		return w.moduleDirs[base]
+	}
+	return w.moduleDirs[join(name)] || w.moduleFiles[join(name+".rs")]
 }
 
 // recordImportMapping maps the imported item's simple name — the last "::"
