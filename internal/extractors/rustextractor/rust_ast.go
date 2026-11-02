@@ -215,6 +215,7 @@ type astWalker struct {
 	registeredNestedDepth int
 	typeParams            []string
 	externalImports       map[string]bool
+	scopeDeclared         map[string]bool
 }
 
 // calleeForm classifies how a call_expression's callee was written, so the
@@ -280,6 +281,7 @@ func (w *astWalker) walkSourceFile(root *sitter.Node) {
 	}
 	w.modFnStack = append(w.modFnStack, collectFnNames(root, w.src))
 	w.modSubmoduleStack = append(w.modSubmoduleStack, collectSubmoduleNames(root, w.src))
+	w.scopeDeclared = declaredItemNames(root, w.src)
 	w.walkItems(root)
 	w.modSubmoduleStack = w.modSubmoduleStack[:len(w.modSubmoduleStack)-1]
 	w.modFnStack = w.modFnStack[:len(w.modFnStack)-1]
@@ -610,10 +612,10 @@ func (w *astWalker) handleMod(node *sitter.Node) {
 	w.modStack = append(w.modStack, name)
 	w.modFnStack = append(w.modFnStack, collectFnNames(body, w.src))
 	w.modSubmoduleStack = append(w.modSubmoduleStack, collectSubmoduleNames(body, w.src))
-	outerExternal := w.externalImports
-	w.externalImports = nil
+	outerExternal, outerDeclared := w.externalImports, w.scopeDeclared
+	w.externalImports, w.scopeDeclared = nil, declaredItemNames(body, w.src)
 	w.walkItems(body)
-	w.externalImports = outerExternal
+	w.externalImports, w.scopeDeclared = outerExternal, outerDeclared
 	w.modSubmoduleStack = w.modSubmoduleStack[:len(w.modSubmoduleStack)-1]
 	w.modFnStack = w.modFnStack[:len(w.modFnStack)-1]
 	w.modStack = w.modStack[:len(w.modStack)-1]
@@ -1452,8 +1454,10 @@ func (w *astWalker) emitTypeName(name string) {
 	if name == "Self" || name == "_" {
 		return
 	}
-	// A name this module imports from outside the repository is not one it declares.
-	if w.externalImports[name] {
+	// A name this module imports from outside the repository is not one it declares,
+	// unless the module also declares it: feature-gated twins (`#[cfg(a)] use x::T as P;`
+	// beside `#[cfg(not(a))] type P = ();`) share one name.
+	if w.externalImports[name] && !w.scopeDeclared[name] {
 		return
 	}
 	for _, p := range w.typeParams {
@@ -1532,6 +1536,24 @@ func leafBoundName(leaf useLeaf) string {
 		name = leaf.segs[len(leaf.segs)-2]
 	}
 	return name
+}
+
+// declaredItemNames returns the names of the items declared directly in a module body.
+func declaredItemNames(container *sitter.Node, src []byte) map[string]bool {
+	var out map[string]bool
+	for i := uint(0); i < uint(container.NamedChildCount()); i++ {
+		c := container.NamedChild(i)
+		switch kindOf(c) {
+		case "struct_item", "enum_item", "union_item", "trait_item", "type_item", "function_item", "const_item", "static_item":
+			if n := c.ChildByFieldName("name"); n != nil {
+				if out == nil {
+					out = map[string]bool{}
+				}
+				out[nodeText(n, src)] = true
+			}
+		}
+	}
+	return out
 }
 
 // useIsExternal reports whether a `use` path leaves the repository, as emitDependency
