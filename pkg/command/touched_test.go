@@ -224,3 +224,64 @@ func TestTouchedExcludeDropsCommitsSubjectKept(t *testing.T) {
 		t.Errorf("commits %+v, want only fix: alpha", res.Commits)
 	}
 }
+
+func TestTouchedWalksMergedBranches(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "app")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	git := func(args ...string) {
+		t.Helper()
+		if out, err := exec.Command("git", append([]string{"-C", dir, "-c", "user.name=t", "-c", "user.email=t@example.com"}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, out)
+		}
+	}
+	write := func(path, subject, v string) {
+		t.Helper()
+		src := "export function f() {\n  const a = 1;\n  const b = 2;\n  const c = 3;\n  const d = 4;\n  return " + v + ";\n}\n"
+		if err := os.WriteFile(filepath.Join(dir, path), []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		git("add", "-A")
+		git("commit", "-q", "-m", subject)
+	}
+	git("init", "-q", "-b", "main")
+	write("a.ts", "add", "0")
+	write("a.ts", "fix: on main", "1")
+	git("checkout", "-q", "-b", "topic")
+	write("a.ts", "fix: on the branch", "2")
+	git("mv", "a.ts", "b.ts")
+	git("commit", "-q", "-m", "refactor: move on the branch")
+	write("b.ts", "fix: moved on the branch", "3")
+	git("checkout", "-q", "main")
+	write("c.ts", "add another file", "9")
+	git("merge", "-q", "--no-ff", "-m", "merge topic", "topic")
+
+	ranked := func(args ...string) touched.Result {
+		t.Helper()
+		var res touched.Result
+		if err := json.Unmarshal(runTouched(t, append(args, "--subject", "^fix", "--json", dir)...), &res); err != nil {
+			t.Fatal(err)
+		}
+		return res
+	}
+	all := ranked()
+	if len(all.Commits) != 3 || len(all.Ranking) != 1 || all.Ranking[0].File != "b.ts" || all.Ranking[0].Count != 3 {
+		t.Errorf("all history: %d commits, ranking %+v", len(all.Commits), all.Ranking)
+	}
+	line := ranked("--first-parent")
+	if len(line.Commits) != 1 || len(line.Ranking) != 1 || line.Ranking[0].File != "b.ts" || line.Ranking[0].Count != 1 {
+		t.Errorf("first parent: %d commits, ranking %+v", len(line.Commits), line.Ranking)
+	}
+	if again := ranked(); !slices.Equal(commitSHAs(all), commitSHAs(again)) {
+		t.Error("a second walk visited commits in another order")
+	}
+}
+
+func commitSHAs(r touched.Result) []string {
+	out := make([]string, len(r.Commits))
+	for i, c := range r.Commits {
+		out[i] = c.SHA
+	}
+	return out
+}
