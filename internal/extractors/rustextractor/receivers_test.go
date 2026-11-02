@@ -486,6 +486,8 @@ pub fn build() -> Notification { Notification::Done { id: 1 } }
 	}
 	if !instantiates {
 		t.Errorf("src.build does not instantiate Notification: %v", rustSym(t, ff, "src.build").Relations)
+	}
+}
 
 func TestRustCallThroughAnImportAliasReachesTheOriginal(t *testing.T) {
 	ff := extractRustRepo(t, map[string]string{
@@ -615,5 +617,36 @@ impl Tui { pub fn draw(&mut self) { self.terminal.invalidate(); } }
 	})
 	if got := rustCalls(rustSym(t, ff, "src.Tui.draw")); !slices.Contains(got, "src.Terminal.invalidate") {
 		t.Errorf("src.Tui.draw calls %v, want the method of the aliased type", got)
+	}
+}
+
+func TestRustAliasedExternalImportDoesNotHideTheLocalName(t *testing.T) {
+	ff := extractRustRepo(t, map[string]string{
+		"Cargo.toml": "[package]\nname = \"rt\"\n",
+		"src/lib.rs": `
+use std::vec::Vec as StdVec;
+use std::string::String as _;
+
+pub struct Vec;
+pub struct StdVecLocal;
+
+pub fn local(x: Vec) {}
+pub fn aliased(x: StdVec<u8>) {}
+`,
+	})
+	names := func(sym string) []string {
+		var out []string
+		for _, r := range rustSym(t, ff, sym).Relations {
+			if r.Kind == facts.RelNames {
+				out = append(out, r.Target)
+			}
+		}
+		return out
+	}
+	if got := names("src.local"); !slices.Contains(got, "Vec") {
+		t.Errorf("an aliased import of std's Vec must not hide the local Vec, got %v", got)
+	}
+	if got := names("src.aliased"); slices.Contains(got, "StdVec") {
+		t.Errorf("an alias of an outside import names no declaration, got %v", got)
 	}
 }
