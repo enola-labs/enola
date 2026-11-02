@@ -107,7 +107,7 @@ func returnedMemberSymbols(kinds *tsutil.KindTable, fn *sitter.Node, ctx *extrac
 		})
 	}
 	if kindOf(kinds, body) != "statement_block" {
-		walkObjectMembers(kinds, body, ctx.src, emit)
+		walkMembers(kinds, body, ctx.src, true, emit)
 		return out
 	}
 	var visit func(n *sitter.Node)
@@ -119,7 +119,7 @@ func returnedMemberSymbols(kinds *tsutil.KindTable, fn *sitter.Node, ctx *extrac
 				// What a nested function returns is that function's.
 			case k == "return_statement":
 				for j := range c.NamedChildCount() {
-					walkObjectMembers(kinds, c.NamedChild(j), ctx.src, emit)
+					walkMembers(kinds, c.NamedChild(j), ctx.src, true, emit)
 				}
 			default:
 				visit(c)
@@ -134,6 +134,12 @@ func returnedMemberSymbols(kinds *tsutil.KindTable, fn *sitter.Node, ctx *extrac
 // with the node to name it by, its key path, and whether the literal was reached
 // through a call's arguments. The traversal objectMemberSymbols documents.
 func walkObjectMembers(kinds *tsutil.KindTable, value *sitter.Node, src []byte, fn func(fn, at *sitter.Node, path []string, inCall bool)) {
+	walkMembers(kinds, value, src, false, fn)
+}
+
+// walkMembers is walkObjectMembers, also following what is spread into the literal when
+// spreads is set: `...(build ? { renderChunk() {} } : {})` adds members conditionally.
+func walkMembers(kinds *tsutil.KindTable, value *sitter.Node, src []byte, spreads bool, fn func(fn, at *sitter.Node, path []string, inCall bool)) {
 	var visit func(n *sitter.Node, path []string, inCall bool)
 	visit = func(n *sitter.Node, path []string, inCall bool) {
 		if n == nil || len(path) > maxObjectMemberDepth {
@@ -161,7 +167,22 @@ func walkObjectMembers(kinds *tsutil.KindTable, value *sitter.Node, src []byte, 
 						continue
 					}
 					fn(member, member, append(append([]string(nil), path...), key), inCall)
+				case "spread_element":
+					if spreads {
+						for j := range member.NamedChildCount() {
+							visit(member.NamedChild(j), path, inCall)
+						}
+					}
 				}
+			}
+		case "ternary_expression":
+			if spreads {
+				visit(n.ChildByFieldName("consequence"), path, inCall)
+				visit(n.ChildByFieldName("alternative"), path, inCall)
+			}
+		case "binary_expression":
+			if spreads {
+				visit(n.ChildByFieldName("right"), path, inCall)
 			}
 		case "call_expression":
 			visit(n.ChildByFieldName("arguments"), path, true)

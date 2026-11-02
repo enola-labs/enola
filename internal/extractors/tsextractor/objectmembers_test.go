@@ -107,6 +107,8 @@ export function plugin() {
     name: "p",
     transform() { log(); },
     load: { handler: () => { log(); } },
+    ...(Math.random() > 1 ? { spreadYes() { log(); } } : { spreadNo() { log(); } }),
+    ...(Math.random() > 1 && { spreadAnd() { log(); } }),
   };
 }
 
@@ -124,7 +126,7 @@ export const inline = () => ({ direct() { log(); } });
 			byName[f.Name] = f
 		}
 	}
-	for _, want := range []string{"src.plugin.early", "src.plugin.transform", "src.plugin.load.handler", "src.arrow.run", "src.inline.direct"} {
+	for _, want := range []string{"src.plugin.early", "src.plugin.transform", "src.plugin.load.handler", "src.arrow.run", "src.inline.direct", "src.plugin.spreadYes", "src.plugin.spreadNo", "src.plugin.spreadAnd"} {
 		f, ok := byName[want]
 		if !ok {
 			t.Errorf("%s: no symbol", want)
