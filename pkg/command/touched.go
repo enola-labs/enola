@@ -35,6 +35,7 @@ func (r *Runner) runTouched(ctx context.Context, args []string, stdout, stderr i
 		since      = fs.String("since", "", "only commits after this date, as git log --since reads it")
 		until      = fs.String("until", "", "only commits before this date, as git log --until reads it")
 		subject    = fs.String("subject", "", "only commits whose subject matches this regular expression, for example (?i)^fix\\b")
+		exclude    = fs.String("exclude", "", "drop the commits --subject kept whose subject matches this regexp")
 		maxSymbols = fs.Int("max-symbols", 0, "leave a commit changing more callables than this out of the ranking (0 keeps every commit)")
 		grain      = fs.String("grain", "member", "member credits the innermost symbol, declaration credits a function in a returned object to the function returning it")
 		top        = fs.Int("top", 30, "how many ranked callables to report (0 for all)")
@@ -73,6 +74,15 @@ func (r *Runner) runTouched(ctx context.Context, args []string, stdout, stderr i
 			return usageError
 		}
 		opts.Subject = re
+	}
+
+	if *exclude != "" {
+		re, err := regexp.Compile(*exclude)
+		if err != nil {
+			say("--exclude: %v", err)
+			return usageError
+		}
+		opts.Exclude = re
 	}
 
 	tgt := r.resolveTarget(repoArg)

@@ -16,6 +16,7 @@ type touchedArgs struct {
 	Since      string `json:"since,omitempty" jsonschema:"as git log --since"`
 	Until      string `json:"until,omitempty"`
 	Subject    string `json:"subject,omitempty" jsonschema:"regexp, e.g. (?i)^fix\\b"`
+	Exclude    string `json:"exclude,omitempty"`
 	MaxSymbols int    `json:"max_symbols,omitempty" jsonschema:"skip commits changing more"`
 	Top        int    `json:"top,omitempty" jsonschema:"default 30"`
 	Commits    bool   `json:"commits,omitempty"`
@@ -26,7 +27,7 @@ type touchedArgs struct {
 func (s *Server) registerTouchedTool() {
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "touched",
-		Description: "Symbols a run of commits changed, ranked by count. Reads git history; long ranges take minutes.",
+		Description: "Symbols commits changed, ranked by count. From git history; long ranges take minutes.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args touchedArgs) (*mcp.CallToolResult, any, error) {
 		repo := args.RepoPath
 		if repo == "" {
@@ -42,6 +43,13 @@ func (s *Server) registerTouchedTool() {
 				return errorResult("subject: " + err.Error()), nil, nil
 			}
 			opts.Subject = re
+		}
+		if args.Exclude != "" {
+			re, err := regexp.Compile(args.Exclude)
+			if err != nil {
+				return errorResult("exclude: " + err.Error()), nil, nil
+			}
+			opts.Exclude = re
 		}
 		label, err := engine.RepoLabel(repo)
 		if err != nil {

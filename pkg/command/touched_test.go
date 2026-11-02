@@ -214,3 +214,13 @@ func TestTouchedFollowsAFileThroughARename(t *testing.T) {
 		t.Errorf("new file at the old path %+v", other)
 	}
 }
+
+func TestTouchedExcludeDropsCommitsSubjectKept(t *testing.T) {
+	var res touched.Result
+	if err := json.Unmarshal(runTouched(t, "--subject", "^fix", "--exclude", "omega|remove", "--json", touchedRepo(t)), &res); err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Commits) != 1 || res.Commits[0].Subject != "fix: alpha" {
+		t.Errorf("commits %+v, want only fix: alpha", res.Commits)
+	}
+}

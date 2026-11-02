@@ -35,6 +35,8 @@ type Options struct {
 	Until string // git's --until
 	// Subject keeps the commits whose subject matches it.
 	Subject *regexp.Regexp
+	// Exclude drops the commits Subject kept whose subject matches it.
+	Exclude *regexp.Regexp
 	// MaxSymbols leaves out of the ranking a commit changing more callables than this: a
 	// sweep across a hundred functions says little about any of them. 0 keeps every commit.
 	MaxSymbols int
@@ -375,7 +377,7 @@ func selectCommits(ctx context.Context, repo string, o Options) ([]Commit, error
 		if len(p) != 3 {
 			continue
 		}
-		if o.Subject == nil || o.Subject.MatchString(p[2]) {
+		if (o.Subject == nil || o.Subject.MatchString(p[2])) && (o.Exclude == nil || !o.Exclude.MatchString(p[2])) {
 			commits = append(commits, Commit{SHA: p[0], Date: p[1], Subject: p[2]})
 		}
 	}

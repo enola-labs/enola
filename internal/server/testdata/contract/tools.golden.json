@@ -780,12 +780,15 @@
   },
   {
     "name": "touched",
-    "description": "Symbols a run of commits changed, ranked by count. Reads git history; long ranges take minutes.",
+    "description": "Symbols commits changed, ranked by count. From git history; long ranges take minutes.",
     "input_schema": {
       "additionalProperties": false,
       "properties": {
         "commits": {
           "type": "boolean"
+        },
+        "exclude": {
+          "type": "string"
         },
         "max_symbols": {
           "description": "skip commits changing more",
