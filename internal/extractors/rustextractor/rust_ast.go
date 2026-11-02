@@ -2,6 +2,7 @@ package rustextractor
 
 import (
 	"bytes"
+	"maps"
 	"strings"
 	"unicode"
 
@@ -177,6 +178,8 @@ type astWalker struct {
 	// (imported, but no local fact — a bare call to it must not be resolved).
 	// Populated by emitDependency; consulted by resolveCall.
 	importMap map[string]string
+	// importOtherFile holds the imported names whose path leaves this file.
+	importOtherFile map[string]bool
 
 	// localTypes holds the stated types of the current function's parameters and
 	// lets (receivers.go).
@@ -208,6 +211,8 @@ type astWalker struct {
 	// nested function declarations into runtime-dispatched registrations (for
 	// example starlark_module).
 	registeredNestedDepth int
+	typeParams            []string
+	externalImports       map[string]bool
 }
 
 // calleeForm classifies how a call_expression's callee was written, so the
@@ -360,6 +365,7 @@ func parseRustAttribute(item *sitter.Node, src []byte) (rustAttribute, bool) {
 // without consuming the pending attributes. Used for file, module, impl and
 // trait bodies.
 func (w *astWalker) walkItems(parent *sitter.Node) {
+	w.preloadImports(parent)
 	var attrs rustItemAttrs
 	for i := uint(0); i < uint(parent.ChildCount()); i++ {
 		c := parent.Child(i)
@@ -602,7 +608,10 @@ func (w *astWalker) handleMod(node *sitter.Node) {
 	w.modStack = append(w.modStack, name)
 	w.modFnStack = append(w.modFnStack, collectFnNames(body, w.src))
 	w.modSubmoduleStack = append(w.modSubmoduleStack, collectSubmoduleNames(body, w.src))
+	outerExternal := w.externalImports
+	w.externalImports = nil
 	w.walkItems(body)
+	w.externalImports = outerExternal
 	w.modSubmoduleStack = w.modSubmoduleStack[:len(w.modSubmoduleStack)-1]
 	w.modFnStack = w.modFnStack[:len(w.modFnStack)-1]
 	w.modStack = w.modStack[:len(w.modStack)-1]
@@ -632,10 +641,14 @@ func (w *astWalker) handleStruct(node *sitter.Node) {
 		Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: w.dir}},
 	})
 	w.setDoc(node)
+	defer w.enterTypeParams(node)()
 	ownerIdx := len(w.out) - 1
 	w.recordFieldTypes(&w.out[ownerIdx], node.ChildByFieldName("body"))
 	w.pushOwner(ownerIdx)
 	w.scanAttributeFnRefs(node.ChildByFieldName("body"))
+	w.scanTypeNames(node.ChildByFieldName("type_parameters"))
+	w.scanTypeNames(findChildByKind(node, "where_clause"))
+	w.scanTypeNames(node.ChildByFieldName("body"))
 	w.popOwner()
 }
 
@@ -659,9 +672,13 @@ func (w *astWalker) handleEnum(node *sitter.Node) {
 		Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: w.dir}},
 	})
 	w.setDoc(node)
+	defer w.enterTypeParams(node)()
 	ownerIdx := len(w.out) - 1
 	w.pushOwner(ownerIdx)
 	w.scanAttributeFnRefs(node.ChildByFieldName("body"))
+	w.scanTypeNames(node.ChildByFieldName("type_parameters"))
+	w.scanTypeNames(findChildByKind(node, "where_clause"))
+	w.scanTypeNames(node.ChildByFieldName("body"))
 	w.popOwner()
 }
 
@@ -685,6 +702,13 @@ func (w *astWalker) handleTrait(node *sitter.Node) {
 		Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: w.dir}},
 	})
 	w.setDoc(node)
+	defer w.enterTypeParams(node)()
+
+	w.pushOwner(len(w.out) - 1)
+	w.scanTypeNames(node.ChildByFieldName("type_parameters"))
+	w.scanTypeNames(node.ChildByFieldName("bounds"))
+	w.scanTypeNames(findChildByKind(node, "where_clause"))
+	w.popOwner()
 
 	body := node.ChildByFieldName("body")
 	w.pushType(name, collectFnNames(body, w.src))
@@ -712,6 +736,9 @@ func (w *astWalker) handleImpl(node *sitter.Node) {
 		}
 	}
 
+	defer w.enterTypeParams(node)()
+	w.scanTypeNames(node.ChildByFieldName("type_parameters"))
+	w.scanTypeNames(findChildByKind(node, "where_clause"))
 	body := node.ChildByFieldName("body")
 	w.pushType(typeName, collectFnNames(body, w.src))
 	savedImplTrait := w.implTrait
@@ -797,11 +824,16 @@ func (w *astWalker) handleFunction(node *sitter.Node, attrs rustItemAttrs) {
 	}
 
 	w.out = append(w.out, f)
+	defer w.enterTypeParams(node)()
 	ownerIdx := len(w.out) - 1
 	w.pushOwner(ownerIdx)
 	savedLocals := w.localTypes
 	w.localTypes = make(map[string]rustTypeExpr)
 	w.bindParameters(node.ChildByFieldName("parameters"))
+	w.scanTypeNames(node.ChildByFieldName("type_parameters"))
+	w.scanTypeNames(node.ChildByFieldName("parameters"))
+	w.scanTypeNames(node.ChildByFieldName("return_type"))
+	w.scanTypeNames(findChildByKind(node, "where_clause"))
 
 	// Save/zero the cyclomatic + loop/IO state around this body so a nested
 	// `fn` item does not leak its metrics into the enclosing function.
@@ -885,15 +917,70 @@ var rustRuntimeEntrypointAttrs = map[string]struct{}{
 	"tauri::command":       {},
 	"ctor::ctor":           {},
 	"divan::bench":         {},
+	"op2":                  {},
+	"deno_core::op2":       {},
+	"bench":                {},
+	"lang":                 {},
+	"panic_handler":        {},
+	"alloc_error_handler":  {},
+
+	"rustc_std_internal_symbol": {},
 }
 
 func rustRuntimeEntrypoint(attr rustAttribute, src []byte) bool {
+	if attr.path == "cfg_attr" {
+		return cfgAttrApplies(attr.args, src, rustRuntimeEntrypoint)
+	}
 	if _, ok := rustRuntimeEntrypointAttrs[attr.path]; ok {
 		return true
 	}
 	// Rust 2024 requires unsafe attributes to use #[unsafe(no_mangle)]. Match
 	// the exact nested identifier rather than arbitrary text in the arguments.
-	return attr.path == "unsafe" && tokenTreeSingleIdentifier(attr.args, "no_mangle", src)
+	return attr.path == "unsafe" && (tokenTreeSingleIdentifier(attr.args, "no_mangle", src) ||
+		tokenTreeLeadingIdentifier(attr.args, "export_name", src))
+}
+
+// cfgAttrApplies reports whether any attribute `cfg_attr(condition, a, b(..))`
+// applies when the condition holds satisfies match: the condition is the first
+// comma-separated item, the rest are attributes.
+func cfgAttrApplies(tree *sitter.Node, src []byte, match func(rustAttribute, []byte) bool) bool {
+	if tree == nil {
+		return false
+	}
+	pastCondition := false
+	for i := uint(0); i < tree.ChildCount(); i++ {
+		c := tree.Child(i)
+		switch kindOf(c) {
+		case ",":
+			pastCondition = true
+		case "identifier", "scoped_identifier", "unsafe":
+			if !pastCondition {
+				continue
+			}
+			path := nodeText(c, src)
+			for next := tree.Child(i + 1); next != nil && kindOf(next) == "::"; next = tree.Child(i + 1) {
+				seg := tree.Child(i + 2)
+				if seg == nil || kindOf(seg) != "identifier" {
+					break
+				}
+				path += "::" + nodeText(seg, src)
+				i += 2
+			}
+			attr := rustAttribute{path: path}
+			if next := tree.Child(i + 1); next != nil && kindOf(next) == "token_tree" {
+				attr.args = next
+			}
+			if match(attr, src) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func tokenTreeLeadingIdentifier(tree *sitter.Node, want string, src []byte) bool {
+	return tree != nil && tree.NamedChildCount() > 0 &&
+		kindOf(tree.NamedChild(0)) == "identifier" && nodeText(tree.NamedChild(0), src) == want
 }
 
 func tokenTreeSingleIdentifier(tree *sitter.Node, want string, src []byte) bool {
@@ -963,6 +1050,13 @@ func (w *astWalker) handleFunctionSignature(node *sitter.Node) {
 		f.SetProp("receiver", w.typeStack[len(w.typeStack)-1])
 	}
 	w.out = append(w.out, f)
+	defer w.enterTypeParams(node)()
+	w.pushOwner(len(w.out) - 1)
+	w.scanTypeNames(node.ChildByFieldName("type_parameters"))
+	w.scanTypeNames(node.ChildByFieldName("parameters"))
+	w.scanTypeNames(node.ChildByFieldName("return_type"))
+	w.scanTypeNames(findChildByKind(node, "where_clause"))
+	w.popOwner()
 }
 
 func (w *astWalker) handleTypeAlias(node *sitter.Node) {
@@ -984,7 +1078,18 @@ func (w *astWalker) handleTypeAlias(node *sitter.Node) {
 		},
 		Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: w.dir}},
 	})
+	if len(w.typeStack) == 0 {
+		if t := w.typeOf(node.ChildByFieldName("type")); t != "" {
+			w.out[len(w.out)-1].SetProp(propAliasOf, t)
+		}
+	}
 	w.setDoc(node)
+	defer w.enterTypeParams(node)()
+	w.pushOwner(len(w.out) - 1)
+	w.scanTypeNames(node.ChildByFieldName("type_parameters"))
+	w.scanTypeNames(findChildByKind(node, "where_clause"))
+	w.scanTypeNames(node.ChildByFieldName("type"))
+	w.popOwner()
 }
 
 func (w *astWalker) handleConstOrStatic(node *sitter.Node, symbolKind string) {
@@ -1012,6 +1117,7 @@ func (w *astWalker) handleConstOrStatic(node *sitter.Node, symbolKind string) {
 	}
 	w.out = append(w.out, f)
 	w.pushOwner(len(w.out) - 1)
+	w.scanTypeNames(node.ChildByFieldName("type"))
 	if valueNode := node.ChildByFieldName("value"); valueNode != nil {
 		w.compileTimeDepth++
 		w.walkForCalls(valueNode)
@@ -1026,9 +1132,71 @@ func (w *astWalker) handleUse(node *sitter.Node) {
 		return
 	}
 	line := int(node.StartPosition().Row) + 1
-	for _, segs := range collectUseItems(argNode, w.src, nil) {
-		w.emitDependency(segs, line)
+	for _, leaf := range collectUseLeaves(argNode, w.src, nil) {
+		if len(leaf.segs) > 0 {
+			bound := leaf.segs[len(leaf.segs)-1]
+			if leaf.alias != "" {
+				bound = leaf.alias
+			}
+			if w.importOtherFile == nil {
+				w.importOtherFile = make(map[string]bool)
+			}
+			w.importOtherFile[bound] = !w.pathStaysInFile(leaf.segs)
+		}
+		if leaf.alias == "" || len(leaf.segs) == 0 {
+			w.emitDependency(leaf.segs, line)
+			continue
+		}
+		// `use a::f as g` brings g into scope, not f: bind the alias, and leave
+		// whatever f meant before.
+		last := leaf.segs[len(leaf.segs)-1]
+		prev, had := w.importMap[last]
+		prevExternal := w.externalImports[last]
+		w.emitDependency(leaf.segs, line)
+		target, resolved := w.importMap[last]
+		if had {
+			w.importMap[last] = prev
+		} else {
+			delete(w.importMap, last)
+		}
+		if prevExternal {
+			w.externalImports[last] = true
+		} else {
+			delete(w.externalImports, last)
+		}
+		if leaf.alias != "_" && resolved && len(leaf.segs) > 1 && last != "self" {
+			w.importMap[leaf.alias] = target
+		}
+		if leaf.alias != "_" && resolved && target == "" {
+			if w.externalImports == nil {
+				w.externalImports = make(map[string]bool)
+			}
+			w.externalImports[leaf.alias] = true
+		}
 	}
+}
+
+// pathStaysInFile reports whether a `use` path names an item of the file being
+// walked: no module between the path prefix and the item, or the file's own module.
+func (w *astWalker) pathStaysInFile(segs []string) bool {
+	if len(segs) == 0 || segs[0] == "super" {
+		return false
+	}
+	mods := segs[:len(segs)-1]
+	if len(mods) > 0 && (segs[0] == "crate" || segs[0] == "self") {
+		mods = mods[1:]
+	}
+	if len(mods) == 0 {
+		return true
+	}
+	stem := strings.TrimSuffix(factpath.Base(w.relFile), ".rs")
+	switch stem {
+	case "mod":
+		stem = factpath.Base(factpath.Dir(w.relFile))
+	case "lib", "main":
+		return false
+	}
+	return mods[len(mods)-1] == stem
 }
 
 func (w *astWalker) handleExternCrate(node *sitter.Node) {
@@ -1083,7 +1251,7 @@ func (w *astWalker) emitDependency(segs []string, line int) {
 // unresolved rather than guessing.
 func (w *astWalker) recordImportMapping(segs []string, target, source string) {
 	last := segs[len(segs)-1]
-	if last == "" || last == "*" {
+	if last == "" || last == "*" || last == "self" {
 		return
 	}
 	if w.importMap == nil {
@@ -1091,33 +1259,48 @@ func (w *astWalker) recordImportMapping(segs []string, target, source string) {
 	}
 	if source == "internal" {
 		w.importMap[last] = target + "." + last
+		delete(w.externalImports, last)
 	} else {
 		w.importMap[last] = ""
+		if w.externalImports == nil {
+			w.externalImports = make(map[string]bool)
+		}
+		w.externalImports[last] = true
 	}
 }
 
-// collectUseItems expands a `use` declaration's argument tree into one
-// "::"-joined segment list per leaf path, so `use std::{fmt, collections::HashMap};`
-// yields two independent paths.
-func collectUseItems(node *sitter.Node, src []byte, prefix []string) [][]string {
+// useLeaf is one path a `use` declaration imports and the name it is bound to
+// when the declaration renames it (`use a::f as g`).
+type useLeaf struct {
+	segs  []string
+	alias string
+}
+
+func collectUseLeaves(node *sitter.Node, src []byte, prefix []string) []useLeaf {
 	if node == nil {
 		return nil
 	}
 	switch kindOf(node) {
 	case "identifier", "self", "super", "crate", "metavariable":
-		return [][]string{appendSegs(prefix, nodeText(node, src))}
+		return []useLeaf{{segs: appendSegs(prefix, nodeText(node, src))}}
 	case "scoped_identifier":
-		return [][]string{appendSegs(prefix, strings.Split(nodeText(node, src), "::")...)}
+		return []useLeaf{{segs: appendSegs(prefix, strings.Split(nodeText(node, src), "::")...)}}
 	case "use_as_clause":
 		if p := node.ChildByFieldName("path"); p != nil {
-			return collectUseItems(p, src, prefix)
+			leaves := collectUseLeaves(p, src, prefix)
+			if a := node.ChildByFieldName("alias"); a != nil {
+				for i := range leaves {
+					leaves[i].alias = nodeText(a, src)
+				}
+			}
+			return leaves
 		}
 	case "use_wildcard":
 		for i := uint(0); i < uint(node.ChildCount()); i++ {
 			if c := node.Child(i); c.IsNamed() {
-				items := collectUseItems(c, src, prefix)
+				items := collectUseLeaves(c, src, prefix)
 				for i2 := range items {
-					items[i2] = append(items[i2], "*")
+					items[i2].segs = append(items[i2].segs, "*")
 				}
 				return items
 			}
@@ -1128,13 +1311,13 @@ func collectUseItems(node *sitter.Node, src []byte, prefix []string) [][]string 
 			newPrefix = appendSegs(prefix, strings.Split(nodeText(p, src), "::")...)
 		}
 		if l := node.ChildByFieldName("list"); l != nil {
-			return collectUseItems(l, src, newPrefix)
+			return collectUseLeaves(l, src, newPrefix)
 		}
 	case "use_list":
-		var out [][]string
+		var out []useLeaf
 		for i := uint(0); i < uint(node.ChildCount()); i++ {
 			if c := node.Child(i); c.IsNamed() {
-				out = append(out, collectUseItems(c, src, prefix)...)
+				out = append(out, collectUseLeaves(c, src, prefix)...)
 			}
 		}
 		return out
@@ -1160,6 +1343,15 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 		return
 	}
 	switch kindOf(node) {
+	case "block":
+		// A `use` inside a block is visible in the whole block, before and after
+		// it, and nowhere else.
+		restore := w.enterImportScope(node)
+		for i := uint(0); i < uint(node.ChildCount()); i++ {
+			w.walkChild(node.Child(i))
+		}
+		restore()
+		return
 	case "let_declaration":
 		// A local bound from the current element is still the current element:
 		// `let frames = trace.frames();` puts `frames` one step from `trace`.
@@ -1221,10 +1413,192 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 		if name := nodeText(node, w.src); isCapitalized(name) {
 			w.emitEdge(facts.RelInstantiates, name)
 		}
+	case "type_identifier":
+		switch {
+		case w.isAssociatedTypeName(node), isDeclaredName(node):
+		case isQualifiedName(node):
+			w.emitEdge(facts.RelNames, nodeText(node, w.src))
+		default:
+			w.emitTypeName(nodeText(node, w.src))
+		}
 	}
 
 	for i := uint(0); i < uint(node.ChildCount()); i++ {
 		w.walkChild(node.Child(i))
+	}
+}
+
+// emitTypeName records a names edge for a written type, skipping `Self`, the
+// inferred `_` and the generic parameters in scope, which name no declaration.
+func (w *astWalker) emitTypeName(name string) {
+	if name == "Self" || name == "_" {
+		return
+	}
+	// A name this module imports from outside the repository is not one it declares.
+	if w.externalImports[name] {
+		return
+	}
+	for _, p := range w.typeParams {
+		if p == name {
+			return
+		}
+	}
+	w.emitEdge(facts.RelNames, name)
+}
+
+// enterTypeParams brings the generic parameters declared on node into scope and
+// returns a func that restores the previous scope.
+func (w *astWalker) enterTypeParams(node *sitter.Node) func() {
+	saved := len(w.typeParams)
+	if tp := node.ChildByFieldName("type_parameters"); tp != nil {
+		for i := uint(0); i < uint(tp.NamedChildCount()); i++ {
+			c := tp.NamedChild(i)
+			switch kindOf(c) {
+			case "type_identifier":
+				w.typeParams = append(w.typeParams, nodeText(c, w.src))
+			case "type_parameter", "constrained_type_parameter", "optional_type_parameter":
+				n := c.ChildByFieldName("name")
+				if n == nil {
+					n = c.ChildByFieldName("left")
+				}
+				if n != nil {
+					w.typeParams = append(w.typeParams, nodeText(n, w.src))
+				}
+			}
+		}
+	}
+	return func() { w.typeParams = w.typeParams[:saved] }
+}
+
+// enterImportScope starts the scope of a block: its own `use` declarations are
+// known up front, and the imports it adds are dropped when it ends.
+func (w *astWalker) enterImportScope(block *sitter.Node) func() {
+	saved := maps.Clone(w.externalImports)
+	w.preloadImports(block)
+	return func() { w.externalImports = saved }
+}
+
+// preloadImports records the names the `use` declarations directly under container
+// import from outside the repository. A `use` applies to its whole scope, not only
+// to what follows it.
+func (w *astWalker) preloadImports(container *sitter.Node) {
+	for i := uint(0); i < uint(container.NamedChildCount()); i++ {
+		c := container.NamedChild(i)
+		if kindOf(c) != "use_declaration" {
+			continue
+		}
+		for _, leaf := range collectUseLeaves(c.ChildByFieldName("argument"), w.src, nil) {
+			bound := leafBoundName(leaf)
+			if bound == "" || !w.useIsExternal(leaf.segs) {
+				continue
+			}
+			if w.externalImports == nil {
+				w.externalImports = make(map[string]bool)
+			}
+			w.externalImports[bound] = true
+		}
+	}
+}
+
+// leafBoundName is the name a `use` leaf brings into scope: its alias, or its last
+// segment (the module's own name for `self`), and "" for `as _`.
+func leafBoundName(leaf useLeaf) string {
+	if leaf.alias == "_" || len(leaf.segs) == 0 {
+		return ""
+	}
+	if leaf.alias != "" {
+		return leaf.alias
+	}
+	name := leaf.segs[len(leaf.segs)-1]
+	if name == "self" && len(leaf.segs) > 1 {
+		name = leaf.segs[len(leaf.segs)-2]
+	}
+	return name
+}
+
+// useIsExternal reports whether a `use` path leaves the repository, as emitDependency
+// classifies it.
+func (w *astWalker) useIsExternal(segs []string) bool {
+	if len(segs) == 0 || segs[len(segs)-1] == "" || segs[len(segs)-1] == "*" {
+		return false
+	}
+	if segs[0] != "self" && segs[0] != "super" && segs[0] != "crate" && w.isKnownSubmodule(segs[0]) {
+		return false
+	}
+	_, source := classifyUsePath(segs, w.dir, w.crateDir, w.crates, w.moduleDirs)
+	return source != "internal"
+}
+
+// isDeclaredName reports whether node is the name an associated type declares,
+// as `Item` is in `trait Has { type Item; }`: a declaration, not a use.
+func isDeclaredName(node *sitter.Node) bool {
+	p := node.Parent()
+	if p == nil || kindOf(p) != "associated_type" {
+		return false
+	}
+	name := p.ChildByFieldName("name")
+	return name != nil && name.StartByte() == node.StartByte()
+}
+
+// isQualifiedName reports whether node is the last segment of a module-qualified
+// type path (`Input` in `crate::models::Input`): the path says which declaration.
+func isQualifiedName(node *sitter.Node) bool {
+	p := node.Parent()
+	if p == nil || kindOf(p) != "scoped_type_identifier" {
+		return false
+	}
+	name := p.ChildByFieldName("name")
+	return name != nil && name.StartByte() == node.StartByte()
+}
+
+// isAssociatedTypeName reports whether node is the last segment of a path whose
+// head is itself a type: `Item` in `T::Item`, `Self::Output` or `<T as Has>::Item`.
+func (w *astWalker) isAssociatedTypeName(node *sitter.Node) bool {
+	p := node.Parent()
+	if p == nil || kindOf(p) != "scoped_type_identifier" {
+		return false
+	}
+	name := p.ChildByFieldName("name")
+	if name == nil || name.StartByte() != node.StartByte() {
+		return false
+	}
+	path := p.ChildByFieldName("path")
+	if path == nil {
+		return false
+	}
+	switch kindOf(path) {
+	case "type_identifier", "generic_type", "bracketed_type", "qualified_type", "scoped_type_identifier":
+		return true
+	}
+	text := strings.TrimLeft(nodeText(path, w.src), ":")
+	// A type in the standard library is not a declaration of this repository.
+	if rustStdlibCrates[text[:strings.Index(text+":", ":")]] {
+		return true
+	}
+	return isCapitalized(text[strings.LastIndex(text, ":")+1:])
+}
+
+// scanTypeNames records a names edge for every type written in a type position
+// under node: a signature, a field, a turbofish argument, an annotation.
+func (w *astWalker) scanTypeNames(node *sitter.Node) {
+	if node == nil {
+		return
+	}
+	switch kindOf(node) {
+	case "type_identifier":
+		w.emitTypeName(nodeText(node, w.src))
+		return
+	case "scoped_type_identifier":
+		// `T::Item` and `<T as Has>::Item` name an associated type of the path, not
+		// a declaration called Item; `crate::models::Input` names Input itself.
+		w.scanTypeNames(node.ChildByFieldName("path"))
+		if name := node.ChildByFieldName("name"); name != nil && !w.isAssociatedTypeName(name) {
+			w.emitEdge(facts.RelNames, nodeText(name, w.src))
+		}
+		return
+	}
+	for i := uint(0); i < uint(node.ChildCount()); i++ {
+		w.scanTypeNames(node.Child(i))
 	}
 }
 
@@ -1535,7 +1909,7 @@ func (w *astWalker) handleCallExpression(node *sitter.Node) {
 			w.emitEdge(facts.RelCalls, target)
 			// A bare `f()` never reaches a method, whatever resolveCall bound the
 			// edge to: inside `impl Drop`, `drop(x)` is the free function.
-			if !w.currentMethods()[name] {
+			if !w.importOtherFile[name] && !w.currentMethods()[name] {
 				w.noteSelfCall(target)
 			}
 		}

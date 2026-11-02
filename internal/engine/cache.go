@@ -3333,7 +3333,26 @@ import (
 // by name: it is an override, not an unreferenced method.
 // v503: Rust: an associated type or const of an `impl Trait for Type` whose trait the
 // repository does not declare is the trait's, like its methods: an override.
-const cacheVersion = "v503"
+// v504: Rust: a type written in a type position (a signature, a field, an alias, a
+// turbofish argument, an annotation, a bound, a const or static's declared type) is a
+// names edge of the declaration it is in, and so are the headers of traits and impls and
+// the signatures of trait methods. Not named: Self, _, the generic parameters in scope,
+// an associated type (T::Item) or its declaration, a prelude type the repository does not
+// declare, a name the same module or block imports from outside the repository (wherever
+// the `use` sits in it), and a type written with a std path. A module-qualified name is
+// always named.
+// v505: Rust: #[unsafe(export_name = "...")], the Rust 2024 spelling, marks a function the
+// linker exports as a runtime entry point, as #[unsafe(no_mangle)] does, also when
+// written inside #[cfg_attr(cond, ...)]. A function under #[op2], #[bench], #[lang],
+// #[panic_handler] or #[rustc_std_internal_symbol] is one the runtime calls.
+// v506: Rust: a call through a renamed import (`use a::f as g; g()`) reaches the function
+// the import names.
+// v507: Rust: a `use x::{self as y}` binds no alias; an alias leaves what the original name
+// meant before; a call through an import of another file is not recursion; a type imported
+// through a file module that also has a directory resolves, and so do its methods declared
+// in that directory, and so does a type re-exported by `pub use` or reached through a
+// `type` alias; `cfg_attr` matches a whole path.
+const cacheVersion = "v507"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

@@ -36,6 +36,7 @@ const (
 	propTypedCalls = "rust_typed_calls"
 	propFieldTypes = "rust_field_types"
 	propReturns    = "rust_returns"
+	propAliasOf    = "rust_alias_of"
 )
 
 // rustStep is one step from a type to another: a field of it, or what a method or
@@ -95,7 +96,10 @@ func (w *astWalker) typeCandidate(name string) string {
 		return ""
 	}
 	if target, ok := w.importMap[name]; ok {
-		return target // "" for an import from outside the crate
+		if target == "" {
+			return "" // an import from outside the crate
+		}
+		return rustEitherDir + target
 	}
 	return w.dir + "." + w.qualifyMod(name)
 }
@@ -318,21 +322,60 @@ func (w *astWalker) recordFieldTypes(f *facts.Fact, body *sitter.Node) {
 // module's directory or, by a file module, in the one above it.
 const rustEitherDir = "?"
 
-// canonType resolves a marked type to the directory that declares it.
-func canonType(t string, exists map[string]bool) string {
+// canonType resolves a marked type to the directory that declares it. When that
+// is the directory above the one the marker named, the named directory is
+// returned too: a file module's impl blocks can sit in its subdirectory.
+func canonType(t string, exists map[string]bool, byName map[string][]string, aliases map[string]string) []string {
+	canon, alt := canonTypeOnce(t, exists, byName)
+	out := []string{canon}
+	if alt != "" {
+		out = append(out, alt)
+	}
+	// A `type` alias names its target: the target's members are the alias's, but
+	// impl blocks written against the alias keep it first.
+	for range 4 {
+		next, ok := aliases[canon]
+		if !ok {
+			break
+		}
+		canon, alt = canonTypeOnce(next, exists, byName)
+		out = append(out, canon)
+		if alt != "" {
+			out = append(out, alt)
+		}
+	}
+	return out
+}
+
+func canonTypeOnce(t string, exists map[string]bool, byName map[string][]string) (canon, alt string) {
 	c, marked := strings.CutPrefix(t, rustEitherDir)
 	if !marked || exists[c] {
-		return c
+		return c, ""
 	}
 	dot := strings.LastIndexByte(c, '.')
-	slash := strings.LastIndexByte(c[:max(dot, 0)], '/')
-	if dot < 0 || slash < 0 {
-		return c
+	if dot < 0 {
+		return c, ""
 	}
-	if up := c[:slash] + c[dot:]; exists[up] {
-		return up
+	if slash := strings.LastIndexByte(c[:dot], '/'); slash >= 0 {
+		if up := c[:slash] + c[dot:]; exists[up] {
+			return up, c
+		}
 	}
-	return c
+	// A `pub use` re-export names the type where it is not declared: take the
+	// only type of that name declared below the directory the import named.
+	var found string
+	for _, cand := range byName[c[dot+1:]] {
+		if strings.HasPrefix(cand, c[:dot]+"/") {
+			if found != "" {
+				return c, ""
+			}
+			found = cand
+		}
+	}
+	if found != "" {
+		return found, c
+	}
+	return c, ""
 }
 
 // resolveTypedCalls evaluates the walker's notes against the struct fields and
@@ -344,17 +387,29 @@ func resolveTypedCalls(all []facts.Fact) {
 	fields := make(map[string]string)
 	returns := make(map[string]string)
 	traits := make(map[string][]string)
+	byName := make(map[string][]string)
+	aliases := make(map[string]string)
 	for i := range all {
 		f := &all[i]
 		if f.Kind != facts.KindSymbol {
 			continue
 		}
 		exists[f.Name] = true
+		switch f.PropAny("symbol_kind") {
+		case facts.SymbolStruct, facts.SymbolEnum, facts.SymbolInterface, facts.SymbolType:
+			if dot := strings.LastIndexByte(f.Name, '.'); dot >= 0 && !strings.Contains(f.Name[:dot], ".") {
+				byName[f.Name[dot+1:]] = append(byName[f.Name[dot+1:]], f.Name)
+			}
+		}
 		if m, ok := f.PropAny(propFieldTypes).(map[string]string); ok {
 			for field, t := range m {
 				fields[f.Name+"."+field] = t
 			}
 			f.DelProp(propFieldTypes)
+		}
+		if t, ok := f.PropAny(propAliasOf).(string); ok {
+			aliases[f.Name] = t
+			f.DelProp(propAliasOf)
 		}
 		if t, ok := f.PropAny(propReturns).(string); ok {
 			returns[f.Name] = t
@@ -368,31 +423,41 @@ func resolveTypedCalls(all []facts.Fact) {
 	}
 	// method finds what a type's method of that name is: its own, or a default
 	// of a trait it implements.
-	method := func(typ, name string) string {
-		if exists[typ+"."+name] {
-			return typ + "." + name
-		}
-		for _, tr := range traits[typ] {
-			if exists[tr+"."+name] {
-				return tr + "." + name
+	method := func(types []string, name string) string {
+		for _, t := range types {
+			if t == "" {
+				continue
+			}
+			if exists[t+"."+name] {
+				return t + "." + name
+			}
+			for _, tr := range traits[t] {
+				if exists[tr+"."+name] {
+					return tr + "." + name
+				}
 			}
 		}
 		return ""
 	}
-	eval := func(e rustTypeExpr) string {
-		t := canonType(e.base, exists)
+	eval := func(e rustTypeExpr) []string {
+		types := canonType(e.base, exists, byName, aliases)
 		for _, s := range e.steps {
-			if t == "" {
-				return ""
-			}
+			var next string
 			if s.call {
-				t = returns[method(t, s.name)]
+				next = returns[method(types, s.name)]
 			} else {
-				t = fields[t+"."+s.name]
+				for _, t := range types {
+					if next = fields[t+"."+s.name]; next != "" {
+						break
+					}
+				}
 			}
-			t = canonType(t, exists)
+			if next == "" {
+				return nil
+			}
+			types = canonType(next, exists, byName, aliases)
 		}
-		return t
+		return types
 	}
 
 	for i := range all {

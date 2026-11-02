@@ -277,3 +277,34 @@ func applyImplements(allFacts []facts.Fact, impls []implPair) {
 		})
 	}
 }
+
+// dropUndeclaredPreludeNames removes the references to Vec, Option and the other
+// prelude types from the facts that name them, unless the repository declares a
+// type of that name: only then can the reference be to something in it.
+func dropUndeclaredPreludeNames(allFacts []facts.Fact) {
+	declared := map[string]bool{}
+	for i := range allFacts {
+		if allFacts[i].Kind != facts.KindSymbol {
+			continue
+		}
+		n := allFacts[i].Name
+		if short := n[strings.LastIndex(n, ".")+1:]; rustPreludeTypes[short] {
+			declared[short] = true
+		}
+	}
+	for i := range allFacts {
+		f := &allFacts[i]
+		kind := facts.RelNames
+		if f.Kind == facts.KindTestRef {
+			kind = facts.RelCalls
+		}
+		kept := f.Relations[:0]
+		for _, r := range f.Relations {
+			if r.Kind == kind && rustPreludeTypes[r.Target] && !declared[r.Target] {
+				continue
+			}
+			kept = append(kept, r)
+		}
+		f.Relations = kept
+	}
+}

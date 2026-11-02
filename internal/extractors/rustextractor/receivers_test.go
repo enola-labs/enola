@@ -232,3 +232,421 @@ func countOverrides(ff []facts.Fact) int {
 	}
 	return n
 }
+
+func TestRustTypePositionsNameTheirTypes(t *testing.T) {
+	ff := extractRustRepo(t, map[string]string{
+		"Cargo.toml": "[package]\nname = \"rt\"\n",
+		"src/lib.rs": `
+pub struct Cfg;
+pub struct Resp;
+pub struct Local;
+pub struct Field;
+pub struct Param;
+pub struct Ret;
+pub struct Bound;
+pub struct Alias;
+pub struct Unused;
+
+pub struct Holder { f: Vec<Field> }
+pub type Shorthand = Option<Alias>;
+
+fn sig(p: &Param) -> Result<Ret, ()> where Bound: Sized { todo!() }
+
+fn body() {
+    let l: Local = todo!();
+    let r = read::<Resp>();
+    let c = x as Cfg;
+}
+`,
+	})
+	names := func(sym string) []string {
+		var out []string
+		for _, r := range rustSym(t, ff, sym).Relations {
+			if r.Kind == facts.RelNames {
+				out = append(out, r.Target)
+			}
+		}
+		return out
+	}
+	for sym, want := range map[string][]string{
+		"src.Holder":    {"Field"},
+		"src.Shorthand": {"Alias"},
+		"src.sig":       {"Param", "Ret", "Bound"},
+		"src.body":      {"Local"},
+	} {
+		got := names(sym)
+		for _, w := range want {
+			if !slices.Contains(got, w) {
+				t.Errorf("%s names %v, want %s", sym, got, w)
+			}
+		}
+	}
+	if got := names("src.body"); !slices.Contains(got, "Resp") {
+		t.Errorf("turbofish argument not named: %v", got)
+	}
+}
+
+func TestRustTypePositionsSkipSelfAndGenericParameters(t *testing.T) {
+	ff := extractRustRepo(t, map[string]string{
+		"Cargo.toml": "[package]\nname = \"rt\"\n",
+		"src/lib.rs": `
+pub struct T;
+pub struct Item;
+
+pub struct Wrap<T> { f: T }
+
+impl<T: Clone> Wrap<T> {
+    pub fn get(&self, other: Self, x: T) -> Item { todo!() }
+}
+
+fn generic<T>(x: T) -> Vec<T> { todo!() }
+pub trait Bound {}
+pub trait Tp<T> { fn dflt(&self, x: T) -> T where T: Copy { x } }
+pub trait Sub: Bound {}
+pub struct Sig;
+pub trait HasSig { fn make(&self) -> Sig; }
+fn bounded<U: Bound>(x: U) {}
+pub trait WhereS {}
+pub trait WhereE {}
+pub struct Holder<U> where U: WhereS { value: U }
+pub enum Choice<U> where U: WhereE { A(U) }
+`,
+	})
+	for sym, banned := range map[string][]string{
+		"src.Wrap":     {"T"},
+		"src.Wrap.get": {"T", "Self"},
+		"src.generic":  {"T"},
+		"src.Tp.dflt":  {"T"},
+		"src.Tp":       {"T"},
+	} {
+		for _, r := range rustSym(t, ff, sym).Relations {
+			if r.Kind == facts.RelNames && slices.Contains(banned, r.Target) {
+				t.Errorf("%s names %s", sym, r.Target)
+			}
+		}
+	}
+	found := false
+	for _, r := range rustSym(t, ff, "src.Wrap.get").Relations {
+		found = found || (r.Kind == facts.RelNames && r.Target == "Item")
+	}
+	if !found {
+		t.Error("src.Wrap.get does not name Item")
+	}
+	var sig bool
+	for _, r := range rustSym(t, ff, "src.HasSig.make").Relations {
+		sig = sig || (r.Kind == facts.RelNames && r.Target == "Sig")
+	}
+	if !sig {
+		t.Error("a trait method signature does not name its return type")
+	}
+	var supers bool
+	for _, r := range rustSym(t, ff, "src.Sub").Relations {
+		supers = supers || (r.Kind == facts.RelNames && r.Target == "Bound")
+	}
+	if !supers {
+		t.Error("a trait does not name its supertrait")
+	}
+	var bounded bool
+	for _, r := range rustSym(t, ff, "src.bounded").Relations {
+		bounded = bounded || (r.Kind == facts.RelNames && r.Target == "Bound")
+	}
+	if !bounded {
+		t.Error("src.bounded does not name its inline bound")
+	}
+	for sym, want := range map[string]string{"src.Holder": "WhereS", "src.Choice": "WhereE"} {
+		var ok bool
+		for _, r := range rustSym(t, ff, sym).Relations {
+			ok = ok || (r.Kind == facts.RelNames && r.Target == want)
+		}
+		if !ok {
+			t.Errorf("%s does not name %s from its where clause", sym, want)
+		}
+	}
+}
+
+func TestRustTypeNamesKeepPathContext(t *testing.T) {
+	ff := extractRustRepo(t, map[string]string{
+		"Cargo.toml": "[package]\nname = \"rt\"\n",
+		"src/lib.rs": `
+pub mod models;
+pub mod imp;
+pub mod ord;
+pub struct String;
+pub fn first() { use std::string::String; let _x: Option<String> = None; }
+pub fn second(x: String) {}
+pub struct Item;
+pub struct Vec;
+pub trait Has { type Item; }
+pub trait OnlyImpl {}
+pub struct Holder<T>(T);
+
+pub fn assoc<T: Has>(x: T::Item) {}
+pub fn qualified<T: Has>(x: <T as Has>::Item) {}
+pub fn local_vec(x: Vec) {}
+pub fn std_vec(x: std::vec::Vec<u8>, y: Option<u8>) {}
+pub struct OnlyConst;
+pub const C: Option<OnlyConst> = None;
+pub struct OnlyStatic;
+pub static S: Option<OnlyStatic> = None;
+pub fn module_path(x: crate::models::Input) {}
+
+impl<T: OnlyImpl> Holder<T> {
+    pub fn get(&self) {}
+}
+`,
+		"src/models.rs": "pub struct Input;\n",
+		"src/ord.rs":    "pub fn before(x: Vec<u8>) {}\nuse std::vec::Vec;\npub fn after(x: Vec<u8>) {}\n",
+		"src/imp.rs":    "use std::vec::Vec;\npub fn imported(x: Vec<u8>) {}\npub fn absolute(x: ::std::vec::Vec<u8>) {}\npub mod local { pub struct Vec; }\npub fn qualified(x: crate::imp::local::Vec) {}\npub mod left { use std::vec::Vec; }\npub mod right { pub struct Vec; pub fn uses(x: Vec) {} }\n",
+	})
+	names := func(sym string) []string {
+		var out []string
+		for _, r := range rustSym(t, ff, sym).Relations {
+			if r.Kind == facts.RelNames {
+				out = append(out, r.Target)
+			}
+		}
+		return out
+	}
+	for _, sym := range []string{"src.assoc", "src.qualified"} {
+		if got := names(sym); slices.Contains(got, "Item") {
+			t.Errorf("%s names %v: an associated type is not a declaration called Item", sym, got)
+		}
+	}
+	if got := names("src.local_vec"); !slices.Contains(got, "Vec") {
+		t.Errorf("a repository type named Vec must be referenced, got %v", got)
+	}
+	if got := names("src.std_vec"); slices.Contains(got, "Vec") {
+		t.Errorf("std::vec::Vec must not name the repository's Vec, got %v", got)
+	}
+	if got := names("src.qualified"); !slices.Contains(got, "Vec") {
+		t.Errorf("a module-qualified local Vec must be named despite an import of std's Vec, got %v", got)
+	}
+	if got := names("src.right.uses"); !slices.Contains(got, "Vec") {
+		t.Errorf("an import in a sibling module must not hide the local Vec, got %v", got)
+	}
+	if got := names("src.second"); !slices.Contains(got, "String") {
+		t.Errorf("a use inside another function must not hide the local String, got %v", got)
+	}
+	for _, sym := range []string{"src.before", "src.after"} {
+		if got := names(sym); slices.Contains(got, "Vec") {
+			t.Errorf("%s names %v: the module imports std's Vec, whatever the order", sym, got)
+		}
+	}
+	for _, sym := range []string{"src.imported", "src.absolute"} {
+		if got := names(sym); slices.Contains(got, "Vec") {
+			t.Errorf("%s names %v: Vec is the standard library's here", sym, got)
+		}
+	}
+	for _, f := range ff {
+		if f.Kind != facts.KindFileRef {
+			continue
+		}
+		for _, r := range f.Relations {
+			if r.Kind == facts.RelNames && r.Target == "Item" {
+				t.Errorf("%s names Item: an associated type's declaration is not a use", f.Name)
+			}
+		}
+	}
+	for sym, want := range map[string]string{"src.C": "OnlyConst", "src.S": "OnlyStatic"} {
+		if got := names(sym); !slices.Contains(got, want) {
+			t.Errorf("%s names %v, want %s from its annotation", sym, got, want)
+		}
+	}
+	if got := names("src.std_vec"); slices.Contains(got, "Option") {
+		t.Errorf("Option is not declared in the repository, got %v", got)
+	}
+	if got := names("src.module_path"); !slices.Contains(got, "Input") {
+		t.Errorf("a module-qualified type must still be named, got %v", got)
+	}
+	var onlyImpl bool
+	for _, f := range ff {
+		if f.Kind != facts.KindFileRef {
+			continue
+		}
+		for _, r := range f.Relations {
+			onlyImpl = onlyImpl || (r.Kind == facts.RelNames && r.Target == "OnlyImpl")
+		}
+	}
+	if !onlyImpl {
+		t.Error("a bound on an impl header is not referenced")
+	}
+}
+
+func TestRustScopedVariantLiteralStillInstantiatesTheEnum(t *testing.T) {
+	ff := extractRustRepo(t, map[string]string{
+		"Cargo.toml": "[package]\nname = \"rt\"\n",
+		"src/lib.rs": `
+pub enum Notification { Done { id: u32 } }
+pub fn build() -> Notification { Notification::Done { id: 1 } }
+`,
+	})
+	var instantiates bool
+	for _, r := range rustSym(t, ff, "src.build").Relations {
+		instantiates = instantiates || (r.Kind == facts.RelInstantiates && r.Target == "Notification")
+	}
+	if !instantiates {
+		t.Errorf("src.build does not instantiate Notification: %v", rustSym(t, ff, "src.build").Relations)
+	}
+}
+
+func TestRustCallThroughAnImportAliasReachesTheOriginal(t *testing.T) {
+	ff := extractRustRepo(t, map[string]string{
+		"Cargo.toml": "[package]\nname = \"rt\"\n",
+		"src/lib.rs": "mod audio;\nmod session;\n",
+		"src/audio.rs": `
+pub fn handle_audio() {}
+pub fn handle_text() {}
+`,
+		"src/session.rs": `
+use crate::audio::{handle_audio as handle_realtime_audio, handle_text};
+
+pub fn run() {
+    handle_realtime_audio();
+    handle_text();
+}
+`,
+	})
+	if got := rustCalls(rustSym(t, ff, "src.run")); !slices.Contains(got, "src.handle_audio") {
+		t.Errorf("a call through the alias must reach handle_audio, got %v", got)
+	}
+}
+
+func TestRustImportAliasesBindOnlyTheAlias(t *testing.T) {
+	ff := extractRustRepo(t, map[string]string{
+		"Cargo.toml":     "[package]\nname = \"rt\"\n",
+		"src/lib.rs":     "mod a;\nmod b;\nmod user;\nmod foo;\nuse crate::recurse as again;\npub fn recurse() { again(); }\n",
+		"src/foo/mod.rs": "use crate::foo::recurse as again;\npub fn recurse() { again(); }\n",
+		"src/a.rs":       "pub fn go_fast() {}\npub fn run() {}\n",
+		"src/b.rs":       "pub fn run() {}\n",
+		"src/user.rs": `
+use crate::a::go_fast;
+use std::thread::go_fast as ext_fast;
+use std::io::{self as sio};
+use crate::b::run as run_b;
+
+pub fn caller() {
+    go_fast();
+    ext_fast();
+    sio::stdin();
+}
+
+pub fn run() {
+    run_b();
+}
+`,
+	})
+	caller := rustCalls(rustSym(t, ff, "src.caller"))
+	if !slices.Contains(caller, "src.go_fast") {
+		t.Errorf("a later alias must not take over the earlier import, got %v", caller)
+	}
+	for _, c := range caller {
+		if strings.HasSuffix(c, ".self") {
+			t.Errorf("`self as` produced the phantom target %s", c)
+		}
+	}
+	if rustSym(t, ff, "src.recurse").Props["recursive_self"] != true {
+		t.Error("a call through an alias of the function itself is recursion")
+	}
+	if rustSym(t, ff, "src/foo.recurse").Props["recursive_self"] != true {
+		t.Error("an alias of the function itself inside mod.rs is recursion")
+	}
+	if rustSym(t, ff, "src.run").Props["recursive_self"] == true {
+		t.Error("a call through an alias of a same-named function in another file is not recursion")
+	}
+}
+
+func TestRustImportedTypeThroughAFileModuleWithADirectory(t *testing.T) {
+	ff := extractRustRepo(t, map[string]string{
+		"Cargo.toml":           "[workspace]\nmembers=[\"a\",\"b\"]\n",
+		"a/Cargo.toml":         "[package]\nname = \"a\"\n",
+		"a/src/lib.rs":         "pub mod rustc;\n",
+		"a/src/rustc.rs":       "pub mod print;\npub struct Real { pub tcx: Ctx }\npub struct Ctx;\nimpl Ctx { pub fn dcx(&self) {} }\n",
+		"a/src/rustc/print.rs": "pub fn p() {}\n",
+		"b/Cargo.toml":         "[package]\nname = \"b\"\n",
+		"b/src/lib.rs":         "use a::rustc::{Real as Alias};\nuse a::rustc::Real;\npub fn f(cx: &Alias) { cx.tcx.dcx(); }\npub fn h(cx: &Real) { cx.tcx.dcx(); }\n",
+	})
+	for _, fn := range []string{"b/src.f", "b/src.h"} {
+		if got := rustCalls(rustSym(t, ff, fn)); !slices.Contains(got, "a/src.Ctx.dcx") {
+			t.Errorf("%s calls %v, want a/src.Ctx.dcx", fn, got)
+		}
+	}
+}
+
+func TestRustMethodsInAFileModulesSubdirectoryResolve(t *testing.T) {
+	ff := extractRustRepo(t, map[string]string{
+		"Cargo.toml":                  "[workspace]\nmembers=[\"s\",\"u\"]\n",
+		"s/Cargo.toml":                "[package]\nname = \"s\"\n",
+		"s/src/lib.rs":                "pub mod ast;\n",
+		"s/src/ast/mod.rs":            "pub mod syntax_factory;\n",
+		"s/src/ast/syntax_factory.rs": "mod constructors;\npub struct SyntaxFactory;\n",
+		"s/src/ast/syntax_factory/constructors.rs": "use super::SyntaxFactory;\nimpl SyntaxFactory { pub fn expr_paren(&self) {} }\n",
+		"u/Cargo.toml": "[package]\nname = \"u\"\n",
+		"u/src/lib.rs": "use s::ast::syntax_factory::SyntaxFactory;\npub fn f(make: &SyntaxFactory) { make.expr_paren(); }\n",
+	})
+	got := rustCalls(rustSym(t, ff, "u/src.f"))
+	if !slices.Contains(got, "s/src/ast/syntax_factory.SyntaxFactory.expr_paren") {
+		t.Errorf("u/src.f calls %v, want the method declared in the file module's subdirectory", got)
+	}
+}
+
+func TestRustTypeImportedThroughAReExportResolves(t *testing.T) {
+	ff := extractRustRepo(t, map[string]string{
+		"Cargo.toml":         "[workspace]\nmembers=[\"m\",\"u\"]\n",
+		"m/Cargo.toml":       "[package]\nname = \"m\"\n",
+		"m/src/lib.rs":       "pub mod value;\npub use value::Value;\n",
+		"m/src/value/mod.rs": "pub struct Value;\nimpl Value { pub fn make(&self) {} }\n",
+		"u/Cargo.toml":       "[package]\nname = \"u\"\n",
+		"u/src/lib.rs":       "use m::Value;\npub fn f(v: &Value) { v.make(); }\n",
+	})
+	if got := rustCalls(rustSym(t, ff, "u/src.f")); !slices.Contains(got, "m/src/value.Value.make") {
+		t.Errorf("u/src.f calls %v, want m/src/value.Value.make", got)
+	}
+}
+
+func TestRustTypeAliasIsFollowedToItsType(t *testing.T) {
+	ff := extractRustRepo(t, map[string]string{
+		"Cargo.toml": "[package]\nname = \"rt\"\n",
+		"src/lib.rs": "mod ct;\nmod tui;\n",
+		"src/ct.rs":  "pub struct Terminal<B> { b: B }\nimpl<B> Terminal<B> { pub fn invalidate(&mut self) {} }\n",
+		"src/tui.rs": `
+use crate::ct::Terminal as CustomTerminal;
+pub type Terminal = CustomTerminal<u8>;
+pub struct Tui { terminal: Terminal }
+impl Tui { pub fn draw(&mut self) { self.terminal.invalidate(); } }
+`,
+	})
+	if got := rustCalls(rustSym(t, ff, "src.Tui.draw")); !slices.Contains(got, "src.Terminal.invalidate") {
+		t.Errorf("src.Tui.draw calls %v, want the method of the aliased type", got)
+	}
+}
+
+func TestRustAliasedExternalImportDoesNotHideTheLocalName(t *testing.T) {
+	ff := extractRustRepo(t, map[string]string{
+		"Cargo.toml": "[package]\nname = \"rt\"\n",
+		"src/lib.rs": `
+use std::vec::Vec as StdVec;
+use std::string::String as _;
+
+pub struct Vec;
+pub struct StdVecLocal;
+
+pub fn local(x: Vec) {}
+pub fn aliased(x: StdVec<u8>) {}
+`,
+	})
+	names := func(sym string) []string {
+		var out []string
+		for _, r := range rustSym(t, ff, sym).Relations {
+			if r.Kind == facts.RelNames {
+				out = append(out, r.Target)
+			}
+		}
+		return out
+	}
+	if got := names("src.local"); !slices.Contains(got, "Vec") {
+		t.Errorf("an aliased import of std's Vec must not hide the local Vec, got %v", got)
+	}
+	if got := names("src.aliased"); slices.Contains(got, "StdVec") {
+		t.Errorf("an alias of an outside import names no declaration, got %v", got)
+	}
+}

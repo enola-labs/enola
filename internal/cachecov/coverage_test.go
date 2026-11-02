@@ -36,6 +36,7 @@ var versionCoverage = map[int][]string{
 	503: {"TestRustExternalTraitImplMethodsAreDispatchedByTheTrait", "TestRustTraitImplOverrideLandsOnTheTraitMemberOnly"},
 	502: {"TestRustExternalTraitImplMethodsAreDispatchedByTheTrait"},
 	501: {"TestAST_ParameterizedTestsKeepProductionReferences"},
+	504: {"TestRustTypePositionsNameTheirTypes", "TestRustTypePositionsSkipSelfAndGenericParameters", "TestRustTypeNamesKeepPathContext", "TestRustScopedVariantLiteralStillInstantiatesTheEnum"},
 	// Go implementers from constructors and typed method sets; database calls and cursor reads marked
 	441: {"TestExtract_CallsInScalingLoop_RetryLoopExcluded", "TestExtract_CallsInScalingLoop_RetryNeedsAConfiguredBound"},
 	442: {"TestLocalTypedByAssertionFieldOrIndex"},
@@ -97,6 +98,9 @@ var versionCoverage = map[int][]string{
 	498: {"TestRubyMessaging", "TestRailsRoutes_DrawModuleAndSingularVerbs", "TestConventionTargets_Layout", "TestRouteBaseRequests", "TestScopeFunctionReceiver", "TestDetectRoute_OnlyAnAppsRouterDirectories", "TestSymlinkedRoot_ExtractorsWalkTheCheckout"},
 	499: {"TestExtensionOverload_KeepsTheDeclaration"},
 	500: {"TestSpanStart_DecoratorsAcrossLanguages"},
+	505: {"TestAST_RustRuntimeEntrypointsAreFrameworkRegistered"},
+	506: {"TestRustCallThroughAnImportAliasReachesTheOriginal"},
+	507: {"TestRustImportAliasesBindOnlyTheAlias", "TestRustImportedTypeThroughAFileModuleWithADirectory", "TestRustMethodsInAFileModulesSubdirectoryResolve", "TestRustTypeImportedThroughAReExportResolves", "TestRustTypeAliasIsFollowedToItsType", "TestRustAliasedExternalImportDoesNotHideTheLocalName"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},
 	438: {"TestExtract_StructUsage_StdlibAndRootPackages"},
