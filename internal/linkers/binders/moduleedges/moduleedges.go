@@ -156,9 +156,7 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 	seenNameInRepo := map[key]bool{}
 	knownSymbols := map[string]bool{}
 	shortNameCount := map[string]int{}
-	// Repositories whose files carry their label, as an appended repository's do. A
-	// module name never carries it, so a symbol whose file sits under
-	// "<label>/<module>/" is the evidence; the root module "." shows nothing either way.
+	// Repositories whose files carry their label, as an appended repository's do.
 	labelled := map[string]bool{}
 	for _, f := range store.ByKind(facts.KindSymbol) {
 		if f.File == "" {
@@ -170,7 +168,7 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 		if module == "" || !production[module] {
 			continue
 		}
-		if f.Repo != "" && module != "." && strings.HasPrefix(f.File, f.Repo+"/"+module+"/") {
+		if f.RepoPrefixed {
 			labelled[f.Repo] = true
 		}
 		k := key{repo: f.Repo, name: f.Name}
@@ -311,6 +309,8 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 			Name: fmt.Sprintf("module-edge: %s -> %s", e.source, e.target),
 			File: file,
 			Repo: e.repo,
+			// Prefixed here as the engine prefixes the rest, so its id is its id alone.
+			RepoPrefixed: labelled[e.repo],
 			Props: map[string]any{
 				facts.PropCouplingKind: facts.CouplingSymbolRollup,
 				WeightProp:             weight,

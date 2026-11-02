@@ -277,9 +277,9 @@ func TestBind_EdgeFileFollowsHowTheRepositoryNamesPaths(t *testing.T) {
 		return []facts.Fact{
 			{Kind: facts.KindModule, Name: "app/models", File: prefix + "app/models", Repo: label},
 			{Kind: facts.KindModule, Name: "app/jobs", File: prefix + "app/jobs", Repo: label},
-			{Kind: facts.KindSymbol, Name: label + "Model", File: prefix + "app/models/m.rb", Repo: label,
+			{Kind: facts.KindSymbol, Name: label + "Model", File: prefix + "app/models/m.rb", Repo: label, RepoPrefixed: prefix != "",
 				Relations: []facts.Relation{{Kind: facts.RelCalls, Target: label + "Job"}}},
-			{Kind: facts.KindSymbol, Name: label + "Job", File: prefix + "app/jobs/j.rb", Repo: label},
+			{Kind: facts.KindSymbol, Name: label + "Job", File: prefix + "app/jobs/j.rb", Repo: label, RepoPrefixed: prefix != ""},
 		}
 	}
 	files := func(store *facts.Store) map[string]string {

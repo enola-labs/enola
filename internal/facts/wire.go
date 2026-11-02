@@ -108,7 +108,7 @@ const (
 //
 // An id already present is recomputed rather than trusted, so a snapshot read back
 // from disk and written again cannot carry an id its entry no longer agrees with.
-func withFactRefIDs(props map[string]any, repo, file string, scratch []byte) (map[string]any, []byte) {
+func withFactRefIDs(props map[string]any, repo, file string, prefixed bool, scratch []byte) (map[string]any, []byte) {
 	refs, hasRefs := props[PropMatchedRoutes].([]any)
 	hasRefs = hasRefs && len(refs) > 0
 	caller, _ := props[PropCaller].(string)
@@ -122,7 +122,7 @@ func withFactRefIDs(props map[string]any, repo, file string, scratch []byte) (ma
 	}
 	delete(out, PropCallerID)
 	if caller != "" {
-		out[PropCallerID], scratch = factIDInto(scratch, repo, KindSymbol, caller, file)
+		out[PropCallerID], scratch = factIDInto(scratch, repo, KindSymbol, caller, identityFile(repo, file, prefixed))
 	}
 	if !hasRefs {
 		return out, scratch
@@ -142,7 +142,7 @@ func withFactRefIDs(props map[string]any, repo, file string, scratch []byte) (ma
 			copied[k] = v
 		}
 		if repo != "" && name != "" {
-			copied["id"], scratch = factIDInto(scratch, repo, KindRoute, name, file)
+			copied["id"], scratch = factIDInto(scratch, repo, KindRoute, name, identityFile(repo, file, prefixed))
 		} else {
 			delete(copied, "id")
 		}
@@ -313,7 +313,7 @@ func (s *Store) MarshalInsights(insights []Insight) ([]byte, error) {
 				we := wireEvidence{Evidence: e}
 				if i := s.evidenceFactFor(e); i >= 0 {
 					f := s.facts[i]
-					we.FactID, scratch = factIDInto(scratch, f.Repo, f.Kind, f.Name, f.File)
+					we.FactID, scratch = factIDInto(scratch, f.Repo, f.Kind, f.Name, f.IdentityFile())
 				}
 				ev = append(ev, we)
 			}

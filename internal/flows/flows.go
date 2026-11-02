@@ -622,7 +622,7 @@ func (a *Analysis) walk(start int32, blocked map[int32]bool) ([]int32, int, bool
 func (a *Analysis) newFlow(id int32, r *root, reach []int32, depth int, truncated bool) Flow {
 	entry := a.nodes[id].fact
 	f := Flow{
-		ID:        facts.FactID(entry.Repo, "flow", entry.Name, entry.File),
+		ID:        facts.FactID(entry.Repo, "flow", entry.Name, entry.IdentityFile()),
 		Name:      entry.Name,
 		Repo:      entry.Repo,
 		Mechanism: r.mechanism,

@@ -17,6 +17,7 @@ serialization.
 | `repo` | string | always | Repository label: the repository's own name taken from its git remote, or its directory name when there is no usable remote. A single-repo snapshot carries it too, with the same value on every fact — a snapshot is multi-repo when more than one distinct value appears, not when the field is present |
 | `props` | object | when set | Kind-specific properties — per-kind sections below |
 | `relations` | array of Relation | when set | Directed edges to other facts |
+| `repo_prefixed` | bool | optional | The snapshot put the repo label at the start of `file`, as a multi-repo snapshot does. Absent otherwise |
 | `id` | string, 32 lowercase hex chars | current writers: always; historical version-1 writers: when supported | Fact identity — [Identity and IDs](#identity-and-ids) |
 
 ## Relation object
@@ -55,6 +56,12 @@ Do not choose an arbitrary fact when `target_id` is absent.
 Current writers compute `id` as `sha256(repo \0 kind \0 name \0 file)`, truncated
 to 128 bits and written as 32 lowercase hex characters. The ID excludes source
 positions, so it remains stable when code moves within the same file.
+
+`file` in that hash is relative to the repository. A multi-repo snapshot prefixes the
+`file` field with the repo label and sets `repo_prefixed`, and the hash leaves that
+prefix out, so a declaration has one ID indexed alone and at any place in a cluster.
+A repository holding a directory of its own name is not ambiguous: only `repo_prefixed`
+says the prefix was added.
 
 The ID identifies `(repo, kind, name, file)`; it does not uniquely identify a
 JSONL record. Facts with the same four values share an ID. A consumer

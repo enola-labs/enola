@@ -79,8 +79,22 @@ func factIDInto(scratch []byte, repo, kind, name, file string) (string, []byte) 
 	return hex.EncodeToString(sum[:idBytes]), scratch
 }
 
+// identityFile is the path an id hashes: relative to the repository, whatever a multi-repo
+// snapshot prefixed for display, so a declaration has one id alone and at any place in a
+// cluster. It takes the flag rather than looking for the prefix: repository beta can hold a
+// directory beta, and beta/code.py alone is not the prefixed form of code.py.
+func identityFile(repo, file string, prefixed bool) string {
+	if prefixed && len(file) > len(repo) && file[len(repo)] == '/' && file[:len(repo)] == repo {
+		return file[len(repo)+1:]
+	}
+	return file
+}
+
+// IdentityFile returns the path this fact's id hashes.
+func (f Fact) IdentityFile() string { return identityFile(f.Repo, f.File, f.RepoPrefixed) }
+
 // Identity returns this fact's FactID.
-func (f Fact) Identity() string { return FactID(f.Repo, f.Kind, f.Name, f.File) }
+func (f Fact) Identity() string { return FactID(f.Repo, f.Kind, f.Name, f.IdentityFile()) }
 
 // sameIdentity reports whether two facts carry the same id without computing
 // either: equal inputs to FactID mean an equal id, and comparing four strings is

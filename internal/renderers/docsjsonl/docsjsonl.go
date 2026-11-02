@@ -60,7 +60,7 @@ func (r *Renderer) RenderStore(_ context.Context, _ *facts.Snapshot, store *fact
 			doc = full
 		}
 		lines = append(lines, Line{
-			ID: facts.FactID(f.Repo, f.Kind, f.Name, f.File), Repo: f.Repo, Kind: f.Kind,
+			ID: f.Identity(), Repo: f.Repo, Kind: f.Kind,
 			Name: f.Name, File: f.File, Line: f.Line, Doc: doc,
 		})
 	}
