@@ -49,7 +49,7 @@ const modulePath = "github.com/enola-labs/enola/"
 var hubBudgets = map[string]int{
 	"internal/engine": 15,
 	"internal/server": 19,
-	"pkg/command":     32,
+	"pkg/command":     33,
 	"pkg/check":       11,
 	"internal/config": 4,
 	"pkg/dashboard":   6,

@@ -255,6 +255,14 @@ var helpPages = map[string]helpPage{
 		},
 		seeAlso: []string{"impact", "blame"},
 	},
+	"touched": {
+		examples: []cli.Example{
+			{Comment: "The functions fixes changed most since a date", Command: "enola touched --since 2024-06-01 --subject '(?i)^fix\\b'"},
+			{Comment: "Leaving out sweeps across many functions", Command: "enola touched --subject '(?i)^fix\\b' --max-symbols 15"},
+			{Comment: "Every commit and its symbols", Command: "enola touched --since 2024-06-01 --json"},
+		},
+		seeAlso: []string{"locate", "blame"},
+	},
 	"blame": {
 		examples: []cli.Example{
 			{Comment: "When did anything matching this enter or leave", Command: "enola blame internal/auth"},

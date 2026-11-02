@@ -17,7 +17,8 @@ for external snapshot consumers.
 | `llm_context.md` | Rendered text | Not stable |
 
 The output of `enola locate --json` and the `locate` MCP tool is documented in
-[locate.md](locate.md). It is a result, not a file `--generate` writes.
+[locate.md](locate.md). It is a result, not a file `--generate` writes. The same goes for
+`enola touched --json`, in [touched.md](touched.md).
 
 ## Contract scope
 
