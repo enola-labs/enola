@@ -803,7 +803,7 @@
           "type": "string"
         },
         "subject": {
-          "description": "regexp, e.g. (?i)^fix\\b",
+          "description": "regexp, e.g. (?i)\\bfix",
           "type": "string"
         },
         "top": {

@@ -40,11 +40,15 @@ func TestTouchedToolLeavesCommitsOutUnlessAsked(t *testing.T) {
 		}
 		text := res.Content[0].(*mcp.TextContent).Text
 		var out struct {
+			Note    string           `json:"note"`
 			Symbols int              `json:"symbols"`
 			Ranking []map[string]any `json:"ranking"`
 		}
 		if err := json.Unmarshal([]byte(text), &out); err != nil {
 			t.Fatalf("%v: %s", err, strings.TrimSpace(text))
+		}
+		if !strings.Contains(out.Note, "nested") {
+			t.Errorf("note %q does not say how nested functions count", out.Note)
 		}
 		return out.Ranking, out.Symbols
 	}
