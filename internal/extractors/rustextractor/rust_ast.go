@@ -209,6 +209,7 @@ type astWalker struct {
 	// example starlark_module).
 	registeredNestedDepth int
 	typeParams            []string
+	externalImports       map[string]bool
 }
 
 // calleeForm classifies how a call_expression's callee was written, so the
@@ -603,7 +604,10 @@ func (w *astWalker) handleMod(node *sitter.Node) {
 	w.modStack = append(w.modStack, name)
 	w.modFnStack = append(w.modFnStack, collectFnNames(body, w.src))
 	w.modSubmoduleStack = append(w.modSubmoduleStack, collectSubmoduleNames(body, w.src))
+	outerExternal := w.externalImports
+	w.externalImports = nil
 	w.walkItems(body)
+	w.externalImports = outerExternal
 	w.modSubmoduleStack = w.modSubmoduleStack[:len(w.modSubmoduleStack)-1]
 	w.modFnStack = w.modFnStack[:len(w.modFnStack)-1]
 	w.modStack = w.modStack[:len(w.modStack)-1]
@@ -1129,8 +1133,13 @@ func (w *astWalker) recordImportMapping(segs []string, target, source string) {
 	}
 	if source == "internal" {
 		w.importMap[last] = target + "." + last
+		delete(w.externalImports, last)
 	} else {
 		w.importMap[last] = ""
+		if w.externalImports == nil {
+			w.externalImports = make(map[string]bool)
+		}
+		w.externalImports[last] = true
 	}
 }
 
@@ -1260,7 +1269,11 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 			w.emitEdge(facts.RelInstantiates, name)
 		}
 	case "type_identifier":
-		if !w.isAssociatedTypeName(node) && !isDeclaredName(node) {
+		switch {
+		case w.isAssociatedTypeName(node), isDeclaredName(node):
+		case isQualifiedName(node):
+			w.emitEdge(facts.RelNames, nodeText(node, w.src))
+		default:
 			w.emitTypeName(nodeText(node, w.src))
 		}
 	}
@@ -1276,8 +1289,8 @@ func (w *astWalker) emitTypeName(name string) {
 	if name == "Self" || name == "_" {
 		return
 	}
-	// A name this file imports from outside the repository is not one it declares.
-	if target, ok := w.importMap[name]; ok && target == "" {
+	// A name this module imports from outside the repository is not one it declares.
+	if w.externalImports[name] {
 		return
 	}
 	for _, p := range w.typeParams {
@@ -1317,6 +1330,17 @@ func (w *astWalker) enterTypeParams(node *sitter.Node) func() {
 func isDeclaredName(node *sitter.Node) bool {
 	p := node.Parent()
 	if p == nil || kindOf(p) != "associated_type" {
+		return false
+	}
+	name := p.ChildByFieldName("name")
+	return name != nil && name.StartByte() == node.StartByte()
+}
+
+// isQualifiedName reports whether node is the last segment of a module-qualified
+// type path (`Input` in `crate::models::Input`): the path says which declaration.
+func isQualifiedName(node *sitter.Node) bool {
+	p := node.Parent()
+	if p == nil || kindOf(p) != "scoped_type_identifier" {
 		return false
 	}
 	name := p.ChildByFieldName("name")
@@ -1365,7 +1389,7 @@ func (w *astWalker) scanTypeNames(node *sitter.Node) {
 		// a declaration called Item; `crate::models::Input` names Input itself.
 		w.scanTypeNames(node.ChildByFieldName("path"))
 		if name := node.ChildByFieldName("name"); name != nil && !w.isAssociatedTypeName(name) {
-			w.emitTypeName(nodeText(name, w.src))
+			w.emitEdge(facts.RelNames, nodeText(name, w.src))
 		}
 		return
 	}

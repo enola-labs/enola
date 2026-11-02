@@ -391,7 +391,7 @@ impl<T: OnlyImpl> Holder<T> {
 }
 `,
 		"src/models.rs": "pub struct Input;\n",
-		"src/imp.rs":    "use std::vec::Vec;\npub fn imported(x: Vec<u8>) {}\npub fn absolute(x: ::std::vec::Vec<u8>) {}\n",
+		"src/imp.rs":    "use std::vec::Vec;\npub fn imported(x: Vec<u8>) {}\npub fn absolute(x: ::std::vec::Vec<u8>) {}\npub mod local { pub struct Vec; }\npub fn qualified(x: crate::imp::local::Vec) {}\npub mod left { use std::vec::Vec; }\npub mod right { pub struct Vec; pub fn uses(x: Vec) {} }\n",
 	})
 	names := func(sym string) []string {
 		var out []string
@@ -412,6 +412,12 @@ impl<T: OnlyImpl> Holder<T> {
 	}
 	if got := names("src.std_vec"); slices.Contains(got, "Vec") {
 		t.Errorf("std::vec::Vec must not name the repository's Vec, got %v", got)
+	}
+	if got := names("src.qualified"); !slices.Contains(got, "Vec") {
+		t.Errorf("a module-qualified local Vec must be named despite an import of std's Vec, got %v", got)
+	}
+	if got := names("src.right.uses"); !slices.Contains(got, "Vec") {
+		t.Errorf("an import in a sibling module must not hide the local Vec, got %v", got)
 	}
 	for _, sym := range []string{"src.imported", "src.absolute"} {
 		if got := names(sym); slices.Contains(got, "Vec") {

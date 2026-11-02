@@ -3334,12 +3334,12 @@ import (
 // v503: Rust: an associated type or const of an `impl Trait for Type` whose trait the
 // repository does not declare is the trait's, like its methods: an override.
 // v504: Rust: a type written in a type position (a signature, a field, an alias, a
-// turbofish argument, an annotation) is a names edge of the declaration it is in;
-// `Self`, `_`, the generic parameters in scope, an associated type (`T::Item`) and a
-// prelude type the repository does not declare, a name imported from outside the
-// repository or written with a std path, and an associated type's own declaration are
-// not; a trait's header, its method signatures, an impl's bounds and a const or static's
-// declared type are scanned too.
+// turbofish argument, an annotation, a bound, a const or static's declared type) is a
+// names edge of the declaration it is in, and so are the headers of traits and impls and
+// the signatures of trait methods. Not named: Self, _, the generic parameters in scope,
+// an associated type (T::Item) or its declaration, a prelude type the repository does not
+// declare, a name the same module imports from outside the repository, and a type written
+// with a std path. A module-qualified name is always named.
 const cacheVersion = "v504"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
