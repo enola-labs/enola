@@ -3632,7 +3632,9 @@ import (
 // type arguments, and an enum constant's members resolve on the enum.
 // v599: Rust: a name a module imports from outside the repository is still a reference to
 // the module's own declaration of that name, as with feature-gated twins.
-const cacheVersion = "v599"
+// v600: Rust: a crate is found by its [lib] name and by a dependency's `package` rename,
+// and a `use` that starts from an imported module resolves into it.
+const cacheVersion = "v600"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
