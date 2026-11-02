@@ -784,8 +784,11 @@
     "input_schema": {
       "additionalProperties": false,
       "properties": {
+        "commits": {
+          "type": "boolean"
+        },
         "max_symbols": {
-          "description": "skip commits changing more callables",
+          "description": "skip commits changing more",
           "type": "integer"
         },
         "repo_path": {
@@ -805,7 +808,6 @@
           "type": "integer"
         },
         "until": {
-          "description": "as git log --until",
           "type": "string"
         }
       },

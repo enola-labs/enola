@@ -14,10 +14,11 @@ import (
 type touchedArgs struct {
 	RepoPath   string `json:"repo_path,omitempty" jsonschema:"default: the snapshot's"`
 	Since      string `json:"since,omitempty" jsonschema:"as git log --since"`
-	Until      string `json:"until,omitempty" jsonschema:"as git log --until"`
+	Until      string `json:"until,omitempty"`
 	Subject    string `json:"subject,omitempty" jsonschema:"regexp, e.g. (?i)^fix\\b"`
-	MaxSymbols int    `json:"max_symbols,omitempty" jsonschema:"skip commits changing more callables"`
+	MaxSymbols int    `json:"max_symbols,omitempty" jsonschema:"skip commits changing more"`
 	Top        int    `json:"top,omitempty" jsonschema:"default 30"`
+	Commits    bool   `json:"commits,omitempty"`
 }
 
 // registerTouchedTool registers touched, the question of which code a run of commits
@@ -58,6 +59,13 @@ func (s *Server) registerTouchedTool() {
 		}
 		if len(res.Ranking) > top {
 			res.Ranking = res.Ranking[:top]
+		}
+		// Every row's commits are most of the result's size, and a session pays for it again
+		// on each later turn. The ranking is the answer; the commits are for following one up.
+		if !args.Commits {
+			for i := range res.Ranking {
+				res.Ranking[i].Commits = nil
+			}
 		}
 		return jsonResult(struct {
 			Commits       int              `json:"commits"`

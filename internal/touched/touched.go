@@ -61,7 +61,7 @@ type Ranked struct {
 	SymbolKind string   `json:"symbol_kind"`
 	File       string   `json:"file"`
 	Count      int      `json:"count"`
-	Commits    []string `json:"commits"`
+	Commits    []string `json:"commits,omitempty"`
 }
 
 // Result is the walk, oldest commit first.
