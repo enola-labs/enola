@@ -3445,7 +3445,9 @@ import (
 // or enum is a reference of that type, as it already was on a variant or a field.
 // v537: Rust: a name a module imports from outside the repository is still a reference to
 // the module's own declaration of that name, as with feature-gated twins.
-const cacheVersion = "v537"
+// v538: Rust: a crate is found by its [lib] name and by a dependency's `package` rename,
+// and a `use` that starts from an imported module resolves into it.
+const cacheVersion = "v538"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

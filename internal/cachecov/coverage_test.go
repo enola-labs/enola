@@ -60,6 +60,7 @@ var versionCoverage = map[int][]string{
 	511: {"TestNestedFunctionsWithoutSymbolsAreListed", "TestNestedFuncLitsBoundToANameAreListed", "TestNestedClosuresBoundToANameAreListed"},
 	510: {"TestNestedFunctionsAreSymbolsOfTheirOwn"},
 	509: {"TestIdentity_SameAloneAndAtAnyPlaceInACluster"},
+	538: {"TestRustCratesAreFoundByLibNameAndByDependencyRename", "TestRustUseThroughAnImportedModuleResolves"},
 	503: {"TestRustExternalTraitImplMethodsAreDispatchedByTheTrait", "TestRustTraitImplOverrideLandsOnTheTraitMemberOnly"},
 	502: {"TestRustExternalTraitImplMethodsAreDispatchedByTheTrait"},
 	501: {"TestAST_ParameterizedTestsKeepProductionReferences"},

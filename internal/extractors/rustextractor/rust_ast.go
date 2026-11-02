@@ -1235,6 +1235,10 @@ func (w *astWalker) emitDependency(segs []string, line int) {
 		// own since foo.rs shares its parent's directory (no subdirectory to
 		// find in moduleDirs).
 		target, source = joinRustPath(w.dir, segs, w.moduleDirs), "internal"
+	case w.importedModuleDir(segs) != "":
+		// `use task::trace::f;` after `use crate::runtime::task;`: the path starts
+		// from a module already in scope, not from a crate.
+		target, source = joinRustPath(w.importedModuleDir(segs), segs[1:], w.moduleDirs), "internal"
 	default:
 		target, source = classifyUsePath(segs, w.dir, w.crateDir, w.crates, w.moduleDirs)
 	}
@@ -1251,6 +1255,23 @@ func (w *astWalker) emitDependency(segs []string, line int) {
 		Relations: []facts.Relation{{Kind: facts.RelImports, Target: target}},
 	})
 	w.recordImportMapping(segs, target, source)
+}
+
+// importedModuleDir is the directory of the module a path's first segment names
+// when that name was imported from inside the repository, "" otherwise.
+func (w *astWalker) importedModuleDir(segs []string) string {
+	if len(segs) < 2 || segs[0] == "self" || segs[0] == "super" || segs[0] == "crate" {
+		return ""
+	}
+	imported, ok := w.importMap[segs[0]]
+	if !ok {
+		return ""
+	}
+	base, found := strings.CutSuffix(imported, "."+segs[0])
+	if !found {
+		return ""
+	}
+	return base
 }
 
 // recordImportMapping maps the imported item's simple name — the last "::"

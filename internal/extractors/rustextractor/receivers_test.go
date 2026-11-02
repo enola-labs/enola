@@ -801,3 +801,35 @@ pub fn read(x: &PropertyValue) {}
 		}
 	}
 }
+
+func TestRustCratesAreFoundByLibNameAndByDependencyRename(t *testing.T) {
+	ff := extractRustRepo(t, map[string]string{
+		"Cargo.toml":      "[workspace]\nmembers=[\"deps\",\"core\",\"app\"]\n",
+		"deps/Cargo.toml": "[package]\nname = \"my-deps\"\n[lib]\nname = \"fs_deps\"\n",
+		"deps/src/lib.rs": "pub fn install() {}\n",
+		"core/Cargo.toml": "[package]\nname = \"real-core\"\n",
+		"core/src/lib.rs": "pub fn boot() {}\n",
+		"app/Cargo.toml":  "[package]\nname = \"app\"\n[dependencies]\nshort = { path = \"../core\", package = \"real-core\" }\n",
+		"app/src/lib.rs":  "use fs_deps::install;\nuse short::boot;\npub fn run() { install(); boot(); }\n",
+	})
+	got := rustCalls(rustSym(t, ff, "app/src.run"))
+	for _, want := range []string{"deps/src.install", "core/src.boot"} {
+		if !slices.Contains(got, want) {
+			t.Errorf("app/src.run calls %v, want %s", got, want)
+		}
+	}
+}
+
+func TestRustUseThroughAnImportedModuleResolves(t *testing.T) {
+	ff := extractRustRepo(t, map[string]string{
+		"Cargo.toml":                    "[package]\nname = \"rt\"\n",
+		"src/lib.rs":                    "mod runtime;\n",
+		"src/runtime/mod.rs":            "pub mod task;\npub mod sched;\n",
+		"src/runtime/task/mod.rs":       "pub mod trace;\n",
+		"src/runtime/task/trace/mod.rs": "pub fn trace_current_thread() {}\n",
+		"src/runtime/sched.rs":          "use crate::runtime::task;\npub fn run() {\n    use task::trace::trace_current_thread;\n    trace_current_thread();\n}\n",
+	})
+	if got := rustCalls(rustSym(t, ff, "src/runtime.run")); !slices.Contains(got, "src/runtime/task/trace.trace_current_thread") {
+		t.Errorf("src/runtime.run calls %v, want the function behind the imported module", got)
+	}
+}

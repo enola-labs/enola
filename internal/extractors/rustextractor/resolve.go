@@ -18,11 +18,15 @@ type crateInfo struct {
 	// publishable: the manifest states what crates.io requires to publish (a
 	// description and a license) and does not opt out with `publish = false`.
 	publishable bool
+	// renames maps a dependency's local name to the crate it is, for
+	// `alias = { package = "real-name" }`.
+	renames map[string]string
 }
 
 var (
 	tomlSectionRe = regexp.MustCompile(`^\s*\[([^\]]+)\]`)
 	tomlNameRe    = regexp.MustCompile(`^\s*name\s*=\s*"([^"]*)"`)
+	tomlRenameRe  = regexp.MustCompile(`^\s*([A-Za-z0-9_-]+)\s*=\s*\{[^}]*\bpackage\s*=\s*"([^"]+)"`)
 	tomlPublishRe = regexp.MustCompile(`^\s*(publish|description|license|license-file)(\.workspace)?\s*=\s*(.*)$`)
 )
 
@@ -42,11 +46,19 @@ func buildCrateIndex(repoPath string, cargoFiles []string) []crateInfo {
 			continue
 		}
 		dir := factpath.Dir(rel)
+		pkg := strings.ReplaceAll(name, "-", "_")
+		publishable := parseCargoPublishable(string(data))
 		crates = append(crates, crateInfo{
-			name:        strings.ReplaceAll(name, "-", "_"),
+			name:        pkg,
 			dir:         dir,
-			publishable: parseCargoPublishable(string(data)),
+			publishable: publishable,
+			renames:     parseCargoRenames(string(data)),
 		})
+		// `use` paths name the library target, which `[lib] name` can set apart from
+		// the package.
+		if lib := strings.ReplaceAll(parseCargoLibName(string(data)), "-", "_"); lib != "" && lib != pkg {
+			crates = append(crates, crateInfo{name: lib, dir: dir, publishable: publishable})
+		}
 	}
 	return crates
 }
@@ -69,6 +81,47 @@ func parseCargoPackageName(data string) string {
 		}
 	}
 	return ""
+}
+
+// parseCargoLibName returns the `name` of a Cargo.toml's [lib] section, "" when it has none.
+func parseCargoLibName(data string) string {
+	inLib := false
+	for _, line := range strings.Split(data, "\n") {
+		if m := tomlSectionRe.FindStringSubmatch(line); m != nil {
+			inLib = strings.TrimSpace(m[1]) == "lib"
+			continue
+		}
+		if !inLib {
+			continue
+		}
+		if m := tomlNameRe.FindStringSubmatch(line); m != nil {
+			return m[1]
+		}
+	}
+	return ""
+}
+
+// parseCargoRenames returns the dependencies a Cargo.toml renames, local name (with
+// hyphens as underscores, as `use` paths spell it) to the real crate name.
+func parseCargoRenames(data string) map[string]string {
+	var out map[string]string
+	inDeps := false
+	for _, line := range strings.Split(data, "\n") {
+		if m := tomlSectionRe.FindStringSubmatch(line); m != nil {
+			inDeps = strings.Contains(m[1], "dependencies")
+			continue
+		}
+		if !inDeps {
+			continue
+		}
+		if m := tomlRenameRe.FindStringSubmatch(line); m != nil {
+			if out == nil {
+				out = map[string]string{}
+			}
+			out[strings.ReplaceAll(m[1], "-", "_")] = strings.ReplaceAll(m[2], "-", "_")
+		}
+	}
+	return out
 }
 
 // parseCargoPublishable reports whether a Cargo.toml's [package] section can go to
@@ -170,7 +223,16 @@ func classifyUsePath(segs []string, dir, crateDir string, crates []crateInfo, mo
 	case "crate":
 		return joinRustPath(crateSourceRoot(crateDir, moduleDirs), segs[1:], moduleDirs), "internal"
 	}
-	if d, ok := crateDirByName(segs[0], crates); ok {
+	name := segs[0]
+	if _, own := crateDirByName(name, crates); !own {
+		for _, c := range crates {
+			if c.dir == crateDir && c.renames[name] != "" {
+				name = c.renames[name]
+				break
+			}
+		}
+	}
+	if d, ok := crateDirByName(name, crates); ok {
 		return joinRustPath(crateSourceRoot(d, moduleDirs), segs[1:], moduleDirs), "internal"
 	}
 	if rustStdlibCrates[segs[0]] {
