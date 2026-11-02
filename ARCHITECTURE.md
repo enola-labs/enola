@@ -413,7 +413,7 @@ One rule matters here: **the credit is persisted alongside the count**, not repr
 
 ## The tools
 
-enola is a stdio [MCP](https://modelcontextprotocol.io/) server. It exposes **twenty-three tools** and no MCP resources — everything flows through tool calls. The tools defined in [`internal/server`](internal/server/), one `tools_*.go` file per family, are listed below, each leading with the question it answers.
+enola is a stdio [MCP](https://modelcontextprotocol.io/) server. It exposes **twenty-four tools** and no MCP resources — everything flows through tool calls. The tools defined in [`internal/server`](internal/server/), one `tools_*.go` file per family, are listed below, each leading with the question it answers.
 
 > Most read tools share a **token-cost ladder** via `output_mode`: `summary` (smallest, aggregated counts) → `compact` (markdown, grouped) → `full` (raw JSON, can be large). Start with `summary` and escalate only when you need node-level detail. Most also accept `max_tokens` to hard-cap a response.
 
