@@ -49,8 +49,8 @@ credited as in [locate](locate.md#diff): only when the lines on both sides of it
 `--subject` keeps commits and `--exclude` then drops some of them. Both are RE2 regexps, which have
 no lookahead, so "fix, but not CI" takes the two together.
 
-A function nested inside another has no symbol, so its commits count for the enclosing one. A count
-that treats nested functions as their own can rank differently. The `touched` MCP tool says this in
+A nested function with no symbol of its own counts for the enclosing one, which is most of them
+outside Python. A count that treats nested functions as their own can rank differently. The `touched` MCP tool says this in
 a `note` field beside the ranking.
 
 `--grain member`, the default, credits the innermost symbol. `--grain declaration` credits a

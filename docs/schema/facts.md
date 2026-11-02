@@ -503,7 +503,7 @@ it.
 
 ### member_of
 
-`member_of` (TypeScript and JavaScript) is the declaration a symbol is a part of: a function in
+`member_of` (TypeScript, JavaScript and Python) is the declaration a symbol is a part of: in Python a function nested in another, in TypeScript and JavaScript a function in
 an object literal a top-level function returns, named by that function and the keys
 leading to it. It exists to say which part of the factory a line is in. It has a span and no edges
 beyond its module, so the calls in it stay the factory's and the factory's own `body_hash` covers

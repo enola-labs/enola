@@ -24,7 +24,7 @@ type touchedArgs struct {
 
 // touchedNote travels with the ranking because it can change who comes first, and a session
 // comparing against its own count would otherwise not know why they differ.
-const touchedNote = "A function nested inside another has no row: its commits count for the enclosing one."
+const touchedNote = "A nested function with no row of its own counts for the enclosing one."
 
 // registerTouchedTool registers touched, the question of which code a run of commits
 // changed. It reads git history and needs no snapshot of it.

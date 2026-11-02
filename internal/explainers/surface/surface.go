@@ -100,6 +100,11 @@ func (e *SurfaceExplainer) Explain(ctx context.Context, store *facts.Store) ([]f
 		if lang, _ := s.PropAny("language").(string); noSurfaceLanguages[lang] {
 			continue
 		}
+		// A member says which part of a declaration a line is in; it is not surface of
+		// the module, and counting it would dilute the ratio.
+		if s.PropString(facts.PropMemberOf) != "" {
+			continue
+		}
 		exported, ok := s.PropAny("exported").(bool)
 		if !ok {
 			// Extractor didn't record visibility; ignore so it doesn't distort the ratio.

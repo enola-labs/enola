@@ -106,6 +106,8 @@ func extractFileIndexed(src []byte, relFile string, isDjango, isFlask, isFastAPI
 }
 
 type pyWalker struct {
+	// nestedPath is the dotted path of definitions nested below the current owner.
+	nestedPath string
 	// httpClients are the names this file binds to an HTTP client instance, mapped
 	// to its library (see collectHTTPClients).
 	httpClients map[string]string
@@ -2204,8 +2206,12 @@ func (w *pyWalker) walkNestedScope(node *sitter.Node) {
 	if len(nestedRoutes) > 0 && kindOf(def) == "function_definition" {
 		handlerIdx = w.emitNestedRouteHandler(def, nestedRoutes)
 	}
+	savedPath := w.nestedPath
 	if handlerIdx >= 0 {
 		w.pushOwner(handlerIdx)
+		w.nestedPath = ""
+	} else {
+		w.enterNested(def)
 	}
 
 	// Walk the definition subtree: parameter defaults and the body. Deeper
@@ -2216,6 +2222,7 @@ func (w *pyWalker) walkNestedScope(node *sitter.Node) {
 	if handlerIdx >= 0 {
 		w.popOwner()
 	}
+	w.nestedPath = savedPath
 
 	w.metrics = savedMetrics
 	w.localBound = savedBound
@@ -3380,6 +3387,51 @@ func (w *pyWalker) bindCallRouteHandlers() {
 		}
 	}
 	w.callRouteHandlers = nil
+}
+
+// enterNested extends the path of nested definitions below the current symbol and, for a
+// function, emits the symbol that says a line is in it: "<owner>.<path>" with member_of,
+// carrying a span and no edges. Its calls stay credited to the owner, so the graph sees what
+// it saw without it. Framework-registered, because a nested function is usually reached as a
+// value (a callback, a decorator's wrapper), which the dead-code analysis cannot see.
+func (w *pyWalker) enterNested(def *sitter.Node) {
+	owner := w.currentOwner()
+	nameNode := def.ChildByFieldName("name")
+	if owner == nil || nameNode == nil {
+		return
+	}
+	// A class body is walked for its references with the class as owner, methods included;
+	// those are symbols already, and what they nest is reached again under the method.
+	if k := owner.PropString("symbol_kind"); k != facts.SymbolFunc && k != facts.SymbolMethod {
+		return
+	}
+	if w.nestedPath != "" {
+		w.nestedPath += "."
+	}
+	w.nestedPath += pyText(nameNode, w.src)
+	if kindOf(def) != "function_definition" {
+		return
+	}
+	props := map[string]any{
+		"symbol_kind":          facts.SymbolFunc,
+		"exported":             false,
+		"language":             "python",
+		"framework_registered": true,
+		facts.PropMemberOf:     owner.Name,
+	}
+	if doc := pyDocstring(def, w.src); doc != "" {
+		facts.SetDocProp(props, doc)
+	}
+	w.out = append(w.out, facts.Fact{
+		Kind:      facts.KindSymbol,
+		Name:      owner.Name + "." + w.nestedPath,
+		File:      w.relFile,
+		Line:      int(def.StartPosition().Row) + 1,
+		EndLine:   tsutil.EndLine(def),
+		Props:     props,
+		Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: w.dir}},
+	})
+	setDecoratedStart(&w.out[len(w.out)-1], def)
 }
 
 // emitNestedRouteHandler emits the symbol for a route handler defined inside a
