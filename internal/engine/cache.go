@@ -3441,7 +3441,9 @@ import (
 // v535: Ruby: a YARD `@return [T]` tag (nil aside, `self` in an instance method) naming a
 // class of the repository declares the method's return type, ahead of what its body is
 // inferred to return; a core or library type leaves the inferred one.
-const cacheVersion = "v535"
+// v536: Rust: a call written in an item-level #[error("...", f(x))] (thiserror) on a struct
+// or enum is a reference of that type, as it already was on a variant or a field.
+const cacheVersion = "v536"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

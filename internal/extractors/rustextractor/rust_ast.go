@@ -329,7 +329,7 @@ func (a *rustItemAttrs) add(item *sitter.Node, src []byte) {
 	a.test = a.test || isTestAttribute(attr.path)
 	a.runtimeEntrypoint = a.runtimeEntrypoint || rustRuntimeEntrypoint(attr, src)
 	a.registersNested = a.registersNested || attr.path == "starlark_module"
-	if attr.path == "instrument" || attr.path == "tracing::instrument" {
+	if attr.path == "instrument" || attr.path == "tracing::instrument" || attr.path == "error" {
 		if attr.args != nil {
 			a.executableTokenTree = append(a.executableTokenTree, attr.args)
 		}
@@ -576,9 +576,9 @@ func (w *astWalker) walkItem(c *sitter.Node, attrs rustItemAttrs) {
 	case "mod_item":
 		w.handleMod(c)
 	case "struct_item", "union_item":
-		w.handleStruct(c)
+		w.handleStruct(c, attrs)
 	case "enum_item":
-		w.handleEnum(c)
+		w.handleEnum(c, attrs)
 	case "trait_item":
 		w.handleTrait(c)
 	case "impl_item":
@@ -623,7 +623,7 @@ func isExported(node *sitter.Node) bool {
 	return findChildByKind(node, "visibility_modifier") != nil
 }
 
-func (w *astWalker) handleStruct(node *sitter.Node) {
+func (w *astWalker) handleStruct(node *sitter.Node, attrs rustItemAttrs) {
 	nameNode := node.ChildByFieldName("name")
 	if nameNode == nil {
 		return
@@ -650,6 +650,7 @@ func (w *astWalker) handleStruct(node *sitter.Node) {
 	ownerIdx := len(w.out) - 1
 	w.recordFieldTypes(&w.out[ownerIdx], node.ChildByFieldName("body"))
 	w.pushOwner(ownerIdx)
+	w.scanItemAttributeCalls(attrs)
 	w.scanAttributeFnRefs(node.ChildByFieldName("body"))
 	w.scanTypeNames(node.ChildByFieldName("type_parameters"))
 	w.scanTypeNames(findChildByKind(node, "where_clause"))
@@ -657,7 +658,7 @@ func (w *astWalker) handleStruct(node *sitter.Node) {
 	w.popOwner()
 }
 
-func (w *astWalker) handleEnum(node *sitter.Node) {
+func (w *astWalker) handleEnum(node *sitter.Node, attrs rustItemAttrs) {
 	nameNode := node.ChildByFieldName("name")
 	if nameNode == nil {
 		return
@@ -680,6 +681,7 @@ func (w *astWalker) handleEnum(node *sitter.Node) {
 	defer w.enterTypeParams(node)()
 	ownerIdx := len(w.out) - 1
 	w.pushOwner(ownerIdx)
+	w.scanItemAttributeCalls(attrs)
 	w.scanAttributeFnRefs(node.ChildByFieldName("body"))
 	w.scanTypeNames(node.ChildByFieldName("type_parameters"))
 	w.scanTypeNames(findChildByKind(node, "where_clause"))

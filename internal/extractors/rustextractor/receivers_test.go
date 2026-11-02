@@ -738,3 +738,37 @@ pub fn real(x: K) { x.k_method(); }
 		t.Errorf("the local struct K still resolves: src.real calls %v", got)
 	}
 }
+
+func TestRustItemLevelErrorAttributeCallsAreReferences(t *testing.T) {
+	ff := extractRustRepo(t, map[string]string{
+		"Cargo.toml": "[package]\nname = \"rt\"\n",
+		"src/lib.rs": `
+pub fn describe(x: &str) -> String { x.to_string() }
+pub fn from_message(x: &str) -> String { x.to_string() }
+pub fn never_called() {}
+
+#[derive(Debug, Error)]
+#[error(
+    "[{}] failed {}",
+    self.code(),
+    describe(&self.reason)
+)]
+pub struct StructError { reason: String }
+
+#[derive(Debug, Error)]
+#[error("{}", from_message(msg))]
+pub enum EnumError { Bad { msg: String } }
+`,
+	})
+	if got := rustCalls(rustSym(t, ff, "src.StructError")); !slices.Contains(got, "src.describe") {
+		t.Errorf("src.StructError calls %v, want src.describe from its #[error(..)]", got)
+	}
+	if got := rustCalls(rustSym(t, ff, "src.EnumError")); !slices.Contains(got, "src.from_message") {
+		t.Errorf("src.EnumError calls %v, want src.from_message from its #[error(..)]", got)
+	}
+	for _, sym := range []string{"src.StructError", "src.EnumError"} {
+		if got := rustCalls(rustSym(t, ff, sym)); slices.Contains(got, "src.never_called") {
+			t.Errorf("%s calls %v", sym, got)
+		}
+	}
+}
