@@ -114,3 +114,46 @@ func TestTouchedRefusesWhatItCannotWalk(t *testing.T) {
 		t.Errorf("a bad --subject: exit %d, want 2", code)
 	}
 }
+
+func TestTouchedGrainCreditsAFactoryOrItsParts(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "app")
+	if err := os.MkdirAll(filepath.Join(dir, "src"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	git := func(args ...string) {
+		t.Helper()
+		if out, err := exec.Command("git", append([]string{"-C", dir, "-c", "user.name=t", "-c", "user.email=t@example.com"}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, out)
+		}
+	}
+	write := func(subject, a, b string) {
+		t.Helper()
+		src := "export function plugin() {\n  return {\n    one() {\n      return " + a + ";\n    },\n    two() {\n      return " + b + ";\n    },\n  };\n}\n"
+		if err := os.WriteFile(filepath.Join(dir, "src/p.ts"), []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		git("add", "-A")
+		git("commit", "-q", "-m", subject)
+	}
+	git("init", "-q")
+	write("add", "1", "1")
+	write("change", "2", "2")
+
+	ranking := func(args ...string) map[string]int {
+		var res touched.Result
+		if err := json.Unmarshal(runTouched(t, append(args, "--subject", "^change", "--json", dir)...), &res); err != nil {
+			t.Fatal(err)
+		}
+		got := map[string]int{}
+		for _, r := range res.Ranking {
+			got[r.Name] = r.Count
+		}
+		return got
+	}
+	if got := ranking(); got["src.plugin.one"] != 1 || got["src.plugin.two"] != 1 || got["src.plugin"] != 0 {
+		t.Errorf("member grain: %v", got)
+	}
+	if got := ranking("--grain", "declaration"); got["src.plugin"] != 1 || len(got) != 1 {
+		t.Errorf("declaration grain: %v", got)
+	}
+}

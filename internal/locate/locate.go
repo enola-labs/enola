@@ -32,6 +32,8 @@ type Symbol struct {
 	DeclHash string `json:"decl_hash,omitempty"`
 	// InnerHash is the version of the symbol's code after its signature (facts.PropInnerHash).
 	InnerHash string `json:"inner_hash,omitempty"`
+	// MemberOf is the declaration this symbol is a part of (facts.PropMemberOf).
+	MemberOf string `json:"member_of,omitempty"`
 	// SpanStart is where the code starts when that is above Line: its decorators.
 	SpanStart int `json:"span_start,omitempty"`
 }
@@ -135,6 +137,7 @@ func NewIndex(ff []facts.Fact) *Index {
 			BodyHash:   f.PropString(facts.PropBodyHash),
 			DeclHash:   f.PropString(facts.PropDeclHash),
 			InnerHash:  f.PropString(facts.PropInnerHash),
+			MemberOf:   f.PropString(facts.PropMemberOf),
 		}
 		if first := f.SpanStart(); first != f.Line {
 			s.SpanStart = first
@@ -154,6 +157,15 @@ func NewIndex(ff []facts.Fact) *Index {
 	}
 	sort.Strings(ix.files)
 	return ix
+}
+
+// Symbols returns every symbol the index holds, by file and then position.
+func (ix *Index) Symbols() []Symbol {
+	var out []Symbol
+	for _, f := range ix.files {
+		out = append(out, ix.byFile[f]...)
+	}
+	return out
 }
 
 // moveKey is what a symbol keeps when it moves: its declared name and its body. The

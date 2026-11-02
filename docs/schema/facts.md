@@ -494,6 +494,14 @@ same while the body is rewritten, so it says which declaration a remembered `bod
 belonged to. Declarations with the same signature, such as two `#[cfg]` variants, share
 it.
 
+### member_of
+
+`member_of` (TypeScript and JavaScript) is the declaration a symbol is a part of: a function in
+an object literal a top-level function returns, named by that function and the keys
+leading to it. It exists to say which part of the factory a line is in. It has a span and no edges
+beyond its module, so the calls in it stay the factory's and the factory's own `body_hash` covers
+it. It is `framework_registered`, since whatever receives the object invokes it.
+
 ### inner_hash
 
 `inner_hash` is the version of a symbol's code after its signature: the lines `decl_hash`

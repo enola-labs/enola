@@ -3352,7 +3352,8 @@ import (
 // through a file module that also has a directory resolves, and so do its methods declared
 // in that directory, and so does a type re-exported by `pub use` or reached through a
 // `type` alias; `cfg_attr` matches a whole path.
-const cacheVersion = "v507"
+// v508: TypeScript: a function in an object literal a top-level function returns is a symbol, "<dir>.<fn>.<key path>" with member_of, carrying a span and no edges.
+const cacheVersion = "v508"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

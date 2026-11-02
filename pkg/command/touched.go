@@ -36,6 +36,7 @@ func (r *Runner) runTouched(ctx context.Context, args []string, stdout, stderr i
 		until      = fs.String("until", "", "only commits before this date, as git log --until reads it")
 		subject    = fs.String("subject", "", "only commits whose subject matches this regular expression, for example (?i)^fix\\b")
 		maxSymbols = fs.Int("max-symbols", 0, "leave a commit changing more callables than this out of the ranking (0 keeps every commit)")
+		grain      = fs.String("grain", "member", "member credits the innermost symbol, declaration credits a function in a returned object to the function returning it")
 		top        = fs.Int("top", 30, "how many ranked callables to report (0 for all)")
 		asJSON     = fs.Bool("json", false, "emit the result as JSON, with every selected commit")
 	)
@@ -56,7 +57,7 @@ func (r *Runner) runTouched(ctx context.Context, args []string, stdout, stderr i
 		return usageError
 	}
 	positional := fs.Args()
-	if len(positional) > 1 || *maxSymbols < 0 || *top < 0 {
+	if len(positional) > 1 || *maxSymbols < 0 || *top < 0 || (*grain != "member" && *grain != "declaration") {
 		fs.Usage()
 		return usageError
 	}
@@ -64,7 +65,7 @@ func (r *Runner) runTouched(ctx context.Context, args []string, stdout, stderr i
 	if len(positional) == 1 {
 		repoArg = positional[0]
 	}
-	opts := touched.Options{Rev: *rev, Since: *since, Until: *until, MaxSymbols: *maxSymbols}
+	opts := touched.Options{Rev: *rev, Since: *since, Until: *until, MaxSymbols: *maxSymbols, Declarations: *grain == "declaration"}
 	if *subject != "" {
 		re, err := regexp.Compile(*subject)
 		if err != nil {

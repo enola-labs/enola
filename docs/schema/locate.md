@@ -26,6 +26,7 @@ are additive. A field marked optional is left out when it has no value.
 | `body_hash` | string | optional | Version of the symbol's code. See [facts.md](facts.md#body_hash) |
 | `decl_hash` | string | optional | Which declaration, when several share the `id`. See [facts.md](facts.md#decl_hash) |
 | `inner_hash` | string | optional | Version of the code after the signature. See [facts.md](facts.md#inner_hash) |
+| `member_of` | string | optional | The declaration this symbol is a part of. See [facts.md](facts.md#member_of) |
 | `span_start` | int | optional | First line of the code when decorators start it above `line` |
 
 ## Location

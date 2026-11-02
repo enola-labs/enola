@@ -37,6 +37,8 @@ type Options struct {
 	// MaxSymbols leaves out of the ranking a commit changing more callables than this: a
 	// sweep across a hundred functions says little about any of them. 0 keeps every commit.
 	MaxSymbols int
+	// Declarations credits a symbol that is part of a declaration to the declaration.
+	Declarations bool
 }
 
 // Commit is one commit and the symbols it changed, on its new side.
@@ -139,6 +141,10 @@ func attribute(ctx context.Context, repo, tree string, c *Commit, o Options, ext
 	if err != nil {
 		return err
 	}
+	var declaration map[string]locate.Symbol
+	if o.Declarations {
+		declaration = declarations(ff)
+	}
 	callables := map[string]bool{}
 	for _, f := range d.Files {
 		// The index holds only this commit's files, so a path with no symbols can only
@@ -147,8 +153,22 @@ func attribute(ctx context.Context, repo, tree string, c *Commit, o Options, ext
 			continue
 		}
 		c.Outside += f.Outside
+		first := len(c.Symbols)
 		for _, s := range f.Symbols {
-			c.Symbols = append(c.Symbols, s)
+			if parent, ok := declaration[s.MemberOf+"\x00"+s.File]; ok {
+				s.Symbol = parent
+			}
+			merged := false
+			for i := first; i < len(c.Symbols); i++ {
+				if c.Symbols[i].ID == s.ID && c.Symbols[i].Line == s.Line {
+					c.Symbols[i].Lines += s.Lines
+					merged = true
+					break
+				}
+			}
+			if !merged {
+				c.Symbols = append(c.Symbols, s)
+			}
 			if callable(s.SymbolKind) {
 				callables[s.ID] = true
 			}
@@ -156,6 +176,23 @@ func attribute(ctx context.Context, repo, tree string, c *Commit, o Options, ext
 	}
 	c.Ranked = len(callables) > 0 && (o.MaxSymbols == 0 || len(callables) <= o.MaxSymbols)
 	return nil
+}
+
+// declarations indexes the symbols other symbols can be part of, by name and file.
+func declarations(ff []facts.Fact) map[string]locate.Symbol {
+	parents := map[string]bool{}
+	for i := range ff {
+		if p := ff[i].PropString(facts.PropMemberOf); p != "" {
+			parents[p+"\x00"+ff[i].File] = true
+		}
+	}
+	out := map[string]locate.Symbol{}
+	for _, file := range locate.NewIndex(ff).Symbols() {
+		if key := file.Name + "\x00" + file.File; parents[key] {
+			out[key] = file
+		}
+	}
+	return out
 }
 
 func rank(res *Result) {

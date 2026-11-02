@@ -37,6 +37,12 @@ const PropDeclHash = "decl_hash"
 // nothing about the architecture.
 const PropInnerHash = "inner_hash"
 
+// PropMemberOf names the declaration a symbol is a part of when the symbol exists only to
+// say which part of that declaration a line is in: a function in the object a factory
+// returns. It has a span and no edges, so the graph still sees the declaration alone, and a
+// reader asking at the declaration's grain credits the declaration.
+const PropMemberOf = "member_of"
+
 // PropSpanStart is the line a symbol's code starts on when that is above Line: the
 // decorators or attributes a language writes before the declaration and its parser keeps
 // outside it. Line stays on the declaration, where a reader jumping to a symbol wants it

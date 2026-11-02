@@ -67,6 +67,69 @@ func objectMemberSymbols(kinds *tsutil.KindTable, value *sitter.Node, ctx *extra
 	return out
 }
 
+// returnedMemberSymbols emits a symbol for each function held by an object literal that the
+// function fn returns, from its own body or as its expression: `export function plugin() {
+// return { transform() {} } }` declares "<dir>.plugin.transform". A factory like that can hold most of a module's
+// logic, and without these a line anywhere in it is credited to the factory as one block.
+//
+// They say where a line is and nothing else. The calls in them stay the factory's, so they
+// have no edges beyond the declaration and the call graph does not move. Whatever receives
+// the object invokes them, so they are framework_registered.
+func returnedMemberSymbols(kinds *tsutil.KindTable, fn *sitter.Node, ctx *extractCtx, declName string) []facts.Fact {
+	body := fn.ChildByFieldName("body")
+	if body == nil {
+		return nil
+	}
+	var out []facts.Fact
+	seen := map[string]bool{}
+	parent := ctx.dir + "." + declName
+	emit := func(member, at *sitter.Node, path []string, _ bool) {
+		name := parent + "." + strings.Join(path, ".")
+		if seen[name] {
+			return
+		}
+		seen[name] = true
+		out = append(out, facts.Fact{
+			Kind:    facts.KindSymbol,
+			Name:    name,
+			File:    ctx.relFile,
+			Line:    int(at.StartPosition().Row) + 1,
+			EndLine: tsutil.EndLine(member),
+			Props: map[string]any{
+				"symbol_kind":          facts.SymbolFunc,
+				"exported":             false,
+				"language":             "typescript",
+				"object_member":        true,
+				"framework_registered": true,
+				facts.PropMemberOf:     parent,
+			},
+			Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: ctx.dir}},
+		})
+	}
+	if kindOf(kinds, body) != "statement_block" {
+		walkObjectMembers(kinds, body, ctx.src, emit)
+		return out
+	}
+	var visit func(n *sitter.Node)
+	visit = func(n *sitter.Node) {
+		for i := range n.NamedChildCount() {
+			c := n.NamedChild(i)
+			switch k := kindOf(kinds, c); {
+			case tsFunctionKinds[k], k == "class_declaration", k == "class":
+				// What a nested function returns is that function's.
+			case k == "return_statement":
+				for j := range c.NamedChildCount() {
+					walkObjectMembers(kinds, c.NamedChild(j), ctx.src, emit)
+				}
+			default:
+				visit(c)
+			}
+		}
+	}
+	visit(body)
+	return out
+}
+
 // walkObjectMembers calls fn for each function an object literal under value holds,
 // with the node to name it by, its key path, and whether the literal was reached
 // through a call's arguments. The traversal objectMemberSymbols documents.
