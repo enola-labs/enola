@@ -15,12 +15,16 @@ type touchedArgs struct {
 	RepoPath   string `json:"repo_path,omitempty" jsonschema:"default: the snapshot's"`
 	Since      string `json:"since,omitempty" jsonschema:"as git log --since"`
 	Until      string `json:"until,omitempty"`
-	Subject    string `json:"subject,omitempty" jsonschema:"regexp, e.g. (?i)^fix\\b"`
+	Subject    string `json:"subject,omitempty" jsonschema:"regexp, e.g. (?i)\\bfix"`
 	Exclude    string `json:"exclude,omitempty"`
 	MaxSymbols int    `json:"max_symbols,omitempty" jsonschema:"skip commits changing more"`
 	Top        int    `json:"top,omitempty" jsonschema:"default 30"`
 	Commits    bool   `json:"commits,omitempty"`
 }
+
+// touchedNote travels with the ranking because it can change who comes first, and a session
+// comparing against its own count would otherwise not know why they differ.
+const touchedNote = "A function nested inside another has no row: its commits count for the enclosing one."
 
 // registerTouchedTool registers touched, the question of which code a run of commits
 // changed. It reads git history and needs no snapshot of it.
@@ -77,9 +81,10 @@ func (s *Server) registerTouchedTool() {
 		}
 		return jsonResult(struct {
 			Commits       int              `json:"commits"`
+			Note          string           `json:"note"`
 			RankedCommits int              `json:"ranked_commits"`
 			Symbols       int              `json:"symbols"`
 			Ranking       []touched.Ranked `json:"ranking,omitempty"`
-		}{len(res.Commits), res.RankedCommits, res.Symbols, res.Ranking})
+		}{len(res.Commits), touchedNote, res.RankedCommits, res.Symbols, res.Ranking})
 	})
 }
