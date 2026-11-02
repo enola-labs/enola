@@ -15,7 +15,9 @@ type Stamp struct {
 	BodyHash string `json:"body_hash,omitempty"`
 	// DeclHash says which declaration the stamp means when several share its id. Present
 	// only if they already did when it was stamped.
-	DeclHash   string `json:"decl_hash,omitempty"`
+	DeclHash string `json:"decl_hash,omitempty"`
+	// InnerHash lets a rewritten symbol say whether its signature alone changed.
+	InnerHash  string `json:"inner_hash,omitempty"`
 	Name       string `json:"name,omitempty"`
 	SymbolKind string `json:"symbol_kind,omitempty"`
 	// CitedHash and CitedLines are the version of the lines the remembered location
@@ -55,6 +57,15 @@ const (
 	CitedChanged = "changed"
 )
 
+// What kind of rewrite a rewritten symbol went through.
+const (
+	// ChangeSignature is the code after the signature unchanged: a parameter's type, a
+	// modifier, a decorator.
+	ChangeSignature = "signature"
+	// ChangeBody is the code after the signature changed.
+	ChangeBody = "body"
+)
+
 // CheckResult is what became of one stamp.
 type CheckResult struct {
 	Stamp  Stamp   `json:"stamp"`
@@ -63,7 +74,10 @@ type CheckResult struct {
 	// Cited is what became of the cited lines, when the stamp carries their version and
 	// the symbol is still there: CitedIntact or CitedChanged. Empty when that cannot be
 	// told (no cited version, no source to read, a symbol with no span, or gone).
-	Cited      string   `json:"cited,omitempty"`
+	Cited string `json:"cited,omitempty"`
+	// Change is the kind of rewrite, for StatusRewritten: ChangeSignature or ChangeBody.
+	// Empty when the stamp or the symbol has no inner version.
+	Change     string   `json:"change,omitempty"`
 	Candidates []Symbol `json:"candidates,omitempty"`
 }
 
@@ -134,6 +148,12 @@ func (ix *Index) checkSymbol(st Stamp) CheckResult {
 			r.Status = StatusCurrent
 		default:
 			r.Status = StatusRewritten
+			if st.InnerHash != "" && s.InnerHash != "" {
+				r.Change = ChangeBody
+				if st.InnerHash == s.InnerHash {
+					r.Change = ChangeSignature
+				}
+			}
 		}
 		return r
 	}

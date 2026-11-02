@@ -726,13 +726,13 @@ func (e *TSExtractor) extractNode(kinds *tsutil.KindTable, node *sitter.Node, ct
 		if symbolName == "" {
 			return nil
 		}
-		return []facts.Fact{e.funcSymbol(kinds, node, node, ctx, symbolName, isExported)}
+		return append([]facts.Fact{e.funcSymbol(kinds, node, node, ctx, symbolName, isExported)}, returnedMemberSymbols(kinds, node, ctx, symbolName)...)
 	case "arrow_function", "call_expression":
 		// A call_expression is reached for `export default memo(...)` / `forwardRef(...)`.
 		if fallbackName == "" {
 			return nil
 		}
-		return []facts.Fact{e.funcSymbol(kinds, node, node, ctx, fallbackName, isExported)}
+		return append([]facts.Fact{e.funcSymbol(kinds, node, node, ctx, fallbackName, isExported)}, returnedMemberSymbols(kinds, node, ctx, fallbackName)...)
 	case "class_declaration", "abstract_class_declaration", "class":
 		return e.classFacts(kinds, node, ctx, isExported, fallbackName)
 	case "expression_statement":
@@ -1159,6 +1159,9 @@ func (e *TSExtractor) variableFacts(kinds *tsutil.KindTable, node, decl *sitter.
 			result[0].Relations = append(result[0].Relations, facts.Relation{Kind: facts.RelHasMethod, Target: m.Name})
 		}
 		result = append(result, members...)
+	}
+	if v := functionValue(kinds, decl); v != nil {
+		result = append(result, returnedMemberSymbols(kinds, v, ctx, symbolName)...)
 	}
 
 	// Drizzle: `export const orders = pgTable("orders", {...})` is a table. The

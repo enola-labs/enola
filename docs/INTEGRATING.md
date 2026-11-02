@@ -243,7 +243,7 @@ its setter, overloads) also carries `decl_hash`: store it, it says which one you
 When a record is read, check it against the current graph:
 
 ```bash
-enola locate --json --stamps records.jsonl      # one {"id", "body_hash", "decl_hash", "name", "symbol_kind", "cited_hash", "cited_lines"} per line
+enola locate --json --stamps records.jsonl      # one {"id", "body_hash", "inner_hash", "decl_hash", "name", "symbol_kind", "cited_hash", "cited_lines"} per line
 ```
 
 Each stamp comes back `current` (same symbol, same code), `rewritten`, `moved` (a new id

@@ -141,6 +141,15 @@ func TestDiff(t *testing.T) {
 			want:    map[string]int{},
 			outside: 2,
 		},
+		"a zero-context deletion inside a body": {
+			diff: "--- a/src/app.ts\n+++ b/src/app.ts\n@@ -10,1 +9,0 @@\n-    log();\n",
+			want: map[string]int{"src.App.b": 1},
+		},
+		"a zero-context deletion after a body's last line": {
+			diff:    "--- a/src/app.ts\n+++ b/src/app.ts\n@@ -12,1 +11,0 @@\n-\n",
+			want:    map[string]int{},
+			outside: 1,
+		},
 		"an import": {
 			diff: "--- a/src/app.ts\n+++ b/src/app.ts\n@@ -1,1 +1,2 @@\n import x\n+import y\n",
 			want: map[string]int{}, outside: 1,
@@ -364,5 +373,40 @@ func TestCheckMoveTie(t *testing.T) {
 	other := NewIndex([]facts.Fact{sym("lib.f", "lib/a.ts", 1, 3, "other")}).Check([]Stamp{st})[0]
 	if other.Status != StatusGone || len(other.Candidates) != 1 {
 		t.Errorf("same name, other code: %+v, want gone with one candidate", other)
+	}
+}
+
+func TestCheckSaysWhatKindOfRewrite(t *testing.T) {
+	const stamped = "private f(x: number) {\n  return x;\n}\n"
+	version := func(src string) facts.Fact {
+		f := sym("src.f", "src/a.ts", 1, 3, facts.BodyHash([]byte(src), 1, 3))
+		f.Props[facts.PropInnerHash] = facts.InnerHash([]byte(src), 1, 3)
+		return f
+	}
+	stamp := func(inner string) Stamp {
+		return Stamp{ID: facts.FactID("r", facts.KindSymbol, "src.f", "src/a.ts"), Name: "src.f",
+			BodyHash: facts.BodyHash([]byte(stamped), 1, 3), InnerHash: inner}
+	}
+	inner := facts.InnerHash([]byte(stamped), 1, 3)
+	if inner == "" {
+		t.Fatal("no inner hash for a function with a body")
+	}
+	for name, tc := range map[string]struct {
+		after  string
+		inner  string
+		status string
+		change string
+	}{
+		"same":               {stamped, inner, StatusCurrent, ""},
+		"a modifier":         {"public f(x: number) {\n  return x;\n}\n", inner, StatusRewritten, ChangeSignature},
+		"a parameter's type": {"private f(x: string) {\n  return x;\n}\n", inner, StatusRewritten, ChangeSignature},
+		"the body":           {"private f(x: number) {\n  return x + 1;\n}\n", inner, StatusRewritten, ChangeBody},
+		"both":               {"public f(x: number) {\n  return x + 1;\n}\n", inner, StatusRewritten, ChangeBody},
+		"an old stamp":       {"public f(x: number) {\n  return x;\n}\n", "", StatusRewritten, ""},
+	} {
+		r := NewIndex([]facts.Fact{version(tc.after)}).Check([]Stamp{stamp(tc.inner)})[0]
+		if r.Status != tc.status || r.Change != tc.change {
+			t.Errorf("%s: %s %q, want %s %q", name, r.Status, r.Change, tc.status, tc.change)
+		}
 	}
 }

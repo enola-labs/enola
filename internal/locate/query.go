@@ -249,9 +249,16 @@ func (ix *Index) Diff(text, side string) (DiffResult, error) {
 				return DiffResult{}, err
 			}
 			oldLeft, newLeft = h.oldCount, h.newCount
+			count := h.newCount
 			line = h.newStart
 			if side == SideOld {
+				count = h.oldCount
 				line = h.oldStart
+			}
+			// A side with no lines in the hunk (git diff -U0) names the line before the
+			// change, not the first line of it.
+			if count == 0 {
+				line++
 			}
 		}
 	}

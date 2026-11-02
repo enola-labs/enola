@@ -244,6 +244,7 @@ func (s *Server) registerTools() {
 	s.registerQueryFactsTool()
 	s.registerShowSymbolTool()
 	s.registerLocateTool()
+	s.registerTouchedTool()
 	s.registerExploreTool()
 	s.registerTraverseTool()
 	s.registerFindPathTool()

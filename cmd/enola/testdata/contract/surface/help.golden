@@ -18,6 +18,7 @@ USAGE
   enola coverage [flags] [repo_path|config_path]
   enola impact [flags] <target> [repo_path|config_path]
   enola locate [flags] [<file:line>...] [repo_path|config_path]
+  enola touched [flags] [repo_path|config_path]
   enola flows [flags] [repo_path|config_path]
   enola doctor [repo_path]
   enola log [flags] [repo_path|config_path]
@@ -109,6 +110,9 @@ COMMANDS
                       because the target matched nothing or too many nodes, so an empty
                       answer is never an unasked question.
                       Run "enola impact --help" for the flags.
+  touched             Which symbols a run of commits changed and which callables changed most
+                      often, extracting only each commit's files instead of a snapshot per commit.
+                      Run "enola touched --help" for the flags.
   locate              Map file:line locations, or a diff with --diff, to the symbols the
                       graph holds there: each one's fact id and body_hash, the version of
                       its code. --stamps checks remembered symbols: current, rewritten,

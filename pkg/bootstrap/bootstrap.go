@@ -151,6 +151,11 @@ func (e *Engine) RestoreFromDir(dir string, repoPaths map[string]string, singleR
 	return e.eng.RestoreFromDir(dir, repoPaths, singleRepoLabel)
 }
 
+// ExtractFiles returns the facts for a few files of the tree at root, with no snapshot.
+func (e *Engine) ExtractFiles(ctx context.Context, root, repoLabel string, files []string) ([]facts.Fact, error) {
+	return e.eng.ExtractFiles(ctx, root, repoLabel, files)
+}
+
 // SetPersistCache controls whether the per-extractor cache is written to disk.
 func (e *Engine) SetPersistCache(persist bool) {
 	e.eng.SetPersistCache(persist)

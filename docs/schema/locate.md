@@ -25,6 +25,8 @@ are additive. A field marked optional is left out when it has no value.
 | `end_line` | int | optional | Last line of the span. Absent for F# and VB.NET |
 | `body_hash` | string | optional | Version of the symbol's code. See [facts.md](facts.md#body_hash) |
 | `decl_hash` | string | optional | Which declaration, when several share the `id`. See [facts.md](facts.md#decl_hash) |
+| `inner_hash` | string | optional | Version of the code after the signature. See [facts.md](facts.md#inner_hash) |
+| `member_of` | string | optional | The declaration this symbol is a part of. See [facts.md](facts.md#member_of) |
 | `span_start` | int | optional | First line of the code when decorators start it above `line` |
 
 ## Location
@@ -75,6 +77,7 @@ result.
 | `id` | symbol | Required |
 | `body_hash` | symbol | The status is `present`, or `ambiguous` if the id is shared |
 | `decl_hash` | symbol, when present | A rewritten declaration under a shared id is found by kind, or is `ambiguous` |
+| `inner_hash` | symbol, when present | A `rewritten` result has no `change` |
 | `name` | symbol | A moved symbol cannot be found: `gone` with no candidates |
 | `symbol_kind` | symbol | Same-name candidates are not narrowed by kind |
 | `cited_hash`, `cited_lines` | location | No `cited` result |
@@ -87,6 +90,7 @@ result.
 | `status` | string | always | What became of it, below |
 | `symbol` | [symbol](#symbol) | `current`, `rewritten`, `present`, `moved` | Where it is now |
 | `cited` | string | optional | `intact` or `changed`. See below |
+| `change` | string | optional | For `rewritten`: `signature` when the code after the signature is unchanged, `body` when it changed. Absent when either side has no `inner_hash` |
 | `candidates` | array of [symbols](#symbol) | `ambiguous`; optional with `gone` | What it may be |
 
 | `status` | Meaning | What to do with the record |

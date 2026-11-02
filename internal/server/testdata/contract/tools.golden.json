@@ -502,6 +502,9 @@
               "id": {
                 "type": "string"
               },
+              "inner_hash": {
+                "type": "string"
+              },
               "name": {
                 "type": "string"
               },
@@ -769,6 +772,40 @@
         },
         "output_mode": {
           "description": "'summary' (DEFAULT, headline provenance and quality metrics) or 'full' (complete JSON receipt).",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "touched",
+    "description": "Symbols a run of commits changed, ranked by count. Reads git history; long ranges take minutes.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "max_symbols": {
+          "description": "skip commits changing more callables",
+          "type": "integer"
+        },
+        "repo_path": {
+          "description": "default: the snapshot's",
+          "type": "string"
+        },
+        "since": {
+          "description": "as git log --since",
+          "type": "string"
+        },
+        "subject": {
+          "description": "regexp, e.g. (?i)^fix\\b",
+          "type": "string"
+        },
+        "top": {
+          "description": "default 30",
+          "type": "integer"
+        },
+        "until": {
+          "description": "as git log --until",
           "type": "string"
         }
       },

@@ -77,6 +77,8 @@ layers:
       - "internal/flows/**"
       # Location to symbol and back, shared by the locate tool and `enola locate`.
       - "internal/locate/**"
+      # Which symbols a run of commits changed, on top of locate.
+      - "internal/touched/**"
       - "internal/renderers/**"
       - "internal/diff/**"
       - "internal/conformance/**"

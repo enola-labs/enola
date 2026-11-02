@@ -90,3 +90,68 @@ export default TwoFactorApi;
 		t.Errorf("member call inside an object member not resolved: %+v", syms["src/api.ordersApi.remove"].Relations)
 	}
 }
+
+// A function in the object a factory returns from its body is a symbol that says where a
+// line is, with no edges, so the calls in it stay the factory's. What a nested function
+// returns is not the factory's object.
+func TestReturnedObjectMembersOnlySayWhereALineIs(t *testing.T) {
+	ff := extractAll(t, map[string]string{
+		"src/plugin.ts": `import { log } from "./log";
+
+export function plugin() {
+  const helper = () => { return { notMine() { log(); } }; };
+  if (Math.random() > 2) {
+    return { early() { log(); } };
+  }
+  return {
+    name: "p",
+    transform() { log(); },
+    load: { handler: () => { log(); } },
+    ...(Math.random() > 1 ? { spreadYes() { log(); } } : { spreadNo() { log(); } }),
+    ...(Math.random() > 1 && { spreadAnd() { log(); } }),
+  };
+}
+
+export const arrow = () => {
+  return { run() { log(); } };
+};
+
+export const inline = () => ({ direct() { log(); } });
+`,
+		"src/log.ts": "export function log() {}\n",
+	}, false)
+	byName := map[string]facts.Fact{}
+	for _, f := range ff {
+		if f.Kind == facts.KindSymbol {
+			byName[f.Name] = f
+		}
+	}
+	for _, want := range []string{"src.plugin.early", "src.plugin.transform", "src.plugin.load.handler", "src.arrow.run", "src.inline.direct", "src.plugin.spreadYes", "src.plugin.spreadNo", "src.plugin.spreadAnd"} {
+		f, ok := byName[want]
+		if !ok {
+			t.Errorf("%s: no symbol", want)
+			continue
+		}
+		if f.PropString(facts.PropMemberOf) == "" || f.EndLine < f.Line {
+			t.Errorf("%s: member_of %q, span %d-%d", want, f.PropString(facts.PropMemberOf), f.Line, f.EndLine)
+		}
+		if b, _ := f.PropAny("framework_registered").(bool); !b {
+			t.Errorf("%s: not framework_registered", want)
+		}
+		if len(f.Relations) != 1 || f.Relations[0].Kind != facts.RelDeclares {
+			t.Errorf("%s: relations %+v, want only its declaration", want, f.Relations)
+		}
+	}
+	if _, ok := byName["src.plugin.notMine"]; ok {
+		t.Error("a nested function's returned object was credited to the factory")
+	}
+	var calls int
+	for _, r := range byName["src.plugin"].Relations {
+		if r.Kind == facts.RelCalls {
+			calls++
+		}
+	}
+	if calls == 0 {
+		t.Error("the factory lost the calls inside its returned object")
+	}
+}

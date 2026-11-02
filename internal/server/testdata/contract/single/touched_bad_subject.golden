@@ -1,0 +1,2 @@
+[tool error]
+subject: error parsing regexp: missing closing ): `(`

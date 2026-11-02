@@ -105,6 +105,7 @@ var toolWeights = map[string]int{
 	"set_baseline":     4,
 	"query_facts":      8,
 	"locate":           8,
+	"touched":          8,
 	"compare_receipts": 10,
 	"traverse":         10,
 	"find_path":        12,
