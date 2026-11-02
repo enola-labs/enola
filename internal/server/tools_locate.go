@@ -18,6 +18,17 @@ type locateArgs struct {
 	Stamps    []locate.Stamp `json:"stamps,omitempty"`
 }
 
+// stampResult is a check without the stamp, which the caller sent and a session would pay for
+// again on each later turn. I is the stamp's position in the call.
+type stampResult struct {
+	I          int             `json:"i"`
+	Status     string          `json:"status"`
+	Symbol     *locate.Symbol  `json:"symbol,omitempty"`
+	Cited      string          `json:"cited,omitempty"`
+	Change     string          `json:"change,omitempty"`
+	Candidates []locate.Symbol `json:"candidates,omitempty"`
+}
+
 // maxLocateInputs caps the locations and the stamps one call may carry.
 const maxLocateInputs = 500
 
@@ -50,7 +61,7 @@ func (s *Server) registerLocateTool() {
 		var out struct {
 			Locations []locate.LocationResult `json:"locations,omitempty"`
 			Diff      *locate.DiffResult      `json:"diff,omitempty"`
-			Stamps    []locate.CheckResult    `json:"stamps,omitempty"`
+			Stamps    []stampResult           `json:"stamps,omitempty"`
 		}
 		if len(args.Locations) > 0 {
 			out.Locations = ix.Locations(args.Locations)
@@ -63,7 +74,9 @@ func (s *Server) registerLocateTool() {
 			out.Diff = &d
 		}
 		if len(args.Stamps) > 0 {
-			out.Stamps = ix.Check(args.Stamps)
+			for i, c := range ix.Check(args.Stamps) {
+				out.Stamps = append(out.Stamps, stampResult{I: i, Status: c.Status, Symbol: c.Symbol, Cited: c.Cited, Change: c.Change, Candidates: c.Candidates})
+			}
 		}
 		return jsonResult(out)
 	})
