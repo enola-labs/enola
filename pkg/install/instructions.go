@@ -51,6 +51,7 @@ Before changing code:
 - ` + "`find_orphans`" + ` — symbols nothing references, before you write more that call them.
 - ` + "`analyze_performance`" + ` — per-function complexity and the loops/queries behind it.
 - ` + "`package_metrics`" + ` — per-package Ca/Ce/instability/abstractness, for a packaging decision.
+- ` + "`touched`" + ` — which functions a run of commits changed, such as the ones bug fixes change most, instead of a script over git log.
 
 After a structural change, re-run ` + "`generate_snapshot`" + ` and ` + "`diff_snapshot`" + ` to see what
 the change actually did: findings introduced or resolved, coupling added, symbols added
