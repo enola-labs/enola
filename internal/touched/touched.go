@@ -35,6 +35,12 @@ type Options struct {
 	Until string // git's --until
 	// Subject keeps the commits whose subject matches it.
 	Subject *regexp.Regexp
+	// FirstParent walks only the first-parent line, the history of a repository that squashes
+	// as it reads to a person. Otherwise every commit reachable from Rev is walked, since a
+	// repository that merges keeps most of its commits on the branches it merged.
+	FirstParent bool
+	// Exclude drops the commits Subject kept whose subject matches it.
+	Exclude *regexp.Regexp
 	// MaxSymbols leaves out of the ranking a commit changing more callables than this: a
 	// sweep across a hundred functions says little about any of them. 0 keeps every commit.
 	MaxSymbols int
@@ -229,12 +235,20 @@ func followMoves(ctx context.Context, repo string, o Options, commits []Commit) 
 	if o.Until != "" {
 		limit = append(limit, "--until="+o.Until)
 	}
-	line, err := git(ctx, repo, append(append([]string{"rev-list", "--first-parent"}, limit...), rev, "--")...)
+	order, moved := []string{"rev-list", "--topo-order"}, []string{"log", "--topo-order"}
+	if o.FirstParent {
+		order = append(order, "--first-parent")
+		// A merge's diff against its first parent holds the moves its branch made.
+		moved = append(moved, "--first-parent", "-m")
+	} else {
+		moved = append(moved, "--no-merges")
+	}
+	line, err := git(ctx, repo, append(append(order, limit...), rev, "--")...)
 	if err != nil {
 		return nil, err
 	}
 	// The similarity and the limit are spelled out so that a user's git config cannot change the answer.
-	raw, err := git(ctx, repo, append(append([]string{"log", "--first-parent", "-m", "-M50%", "-l0", "--diff-filter=R", "--name-status", "-z", "--format=%H"}, limit...), rev, "--")...)
+	raw, err := git(ctx, repo, append(append(append(moved, "-M50%", "-l0", "--diff-filter=R", "--name-status", "-z", "--format=%H"), limit...), rev, "--")...)
 	if err != nil {
 		return nil, err
 	}
@@ -250,6 +264,9 @@ func followMoves(ctx context.Context, repo string, o Options, commits []Commit) 
 	final := map[string]string{}
 	// Newest first. A commit's own moves are already on its new side, so they apply only to
 	// older commits, and an older file that had a path a move later took is another file.
+	// Branches are read as this one line: a commit on one branch that a move on another has
+	// not reached in this order keeps its own row, which splits a function rather than
+	// merging two.
 	for _, sha := range strings.Fields(string(line)) {
 		if c, ok := selected[sha]; ok {
 			for _, s := range c.Symbols {
@@ -358,7 +375,10 @@ func selectCommits(ctx context.Context, repo string, o Options) ([]Commit, error
 	if rev == "" {
 		rev = "HEAD"
 	}
-	args := []string{"log", "--no-merges", "--first-parent", "--format=%H%x00%cI%x00%s"}
+	args := []string{"log", "--no-merges", "--topo-order", "--format=%H%x00%cI%x00%s"}
+	if o.FirstParent {
+		args = append(args, "--first-parent")
+	}
 	if o.Since != "" {
 		args = append(args, "--since="+o.Since)
 	}
@@ -375,7 +395,7 @@ func selectCommits(ctx context.Context, repo string, o Options) ([]Commit, error
 		if len(p) != 3 {
 			continue
 		}
-		if o.Subject == nil || o.Subject.MatchString(p[2]) {
+		if (o.Subject == nil || o.Subject.MatchString(p[2])) && (o.Exclude == nil || !o.Exclude.MatchString(p[2])) {
 			commits = append(commits, Commit{SHA: p[0], Date: p[1], Subject: p[2]})
 		}
 	}

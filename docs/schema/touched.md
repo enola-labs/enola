@@ -25,7 +25,8 @@ The result of `enola touched --json`. Consumers must accept unknown fields.
 
 A function, method or getter, one row per file and name. When git sees a file renamed anywhere in
 the range, commits before the rename count for the file it became. A function moved on its own to
-another file, or a file rewritten past 50% similarity in its rename, starts a new row.
+another file, or a file rewritten past 50% similarity in its rename, starts a new row. So can a
+commit on a branch that was editing the file while another branch moved it.
 
 | Field | Type | Meaning |
 |---|---|---|
@@ -38,10 +39,15 @@ another file, or a file rewritten past 50% similarity in its rename, starts a ne
 
 ## What it reads
 
-Merges are skipped and the first-parent line is followed. Each commit's files are extracted from
+Merges are skipped and every commit reachable from `--rev` is walked, including those on merged
+branches, which can include work later reverted or superseded. `--first-parent` walks only the
+first-parent line. Each commit's files are extracted from
 that commit's tree on their own, so a symbol's id, name, kind and span are what a snapshot of that
 commit holds, while nothing resolved across files or linked is there to read. A pure deletion is
 credited as in [locate](locate.md#diff): only when the lines on both sides of it are in one symbol.
+
+`--subject` keeps commits and `--exclude` then drops some of them. Both are RE2 regexps, which have
+no lookahead, so "fix, but not CI" takes the two together.
 
 `--grain member`, the default, credits the innermost symbol. `--grain declaration` credits a
 symbol with `member_of` to that declaration, so a commit changing two functions in the object a
