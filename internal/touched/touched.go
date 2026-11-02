@@ -16,6 +16,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -56,12 +57,14 @@ type Commit struct {
 
 // Ranked is one callable and the ranked commits that changed it.
 type Ranked struct {
-	ID         string   `json:"id"`
-	Name       string   `json:"name"`
-	SymbolKind string   `json:"symbol_kind"`
-	File       string   `json:"file"`
-	Count      int      `json:"count"`
-	Commits    []string `json:"commits,omitempty"`
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	SymbolKind string `json:"symbol_kind"`
+	File       string `json:"file"`
+	// MovedFrom lists the other paths its commits saw it at.
+	MovedFrom []string `json:"moved_from,omitempty"`
+	Count     int      `json:"count"`
+	Commits   []string `json:"commits,omitempty"`
 }
 
 // Result is the walk, oldest commit first.
@@ -115,7 +118,11 @@ func Run(ctx context.Context, repo string, o Options, extract Extract) (*Result,
 			return nil, fmt.Errorf("commit %s: %w", c.SHA, err)
 		}
 	}
-	rank(res)
+	moves, err := followMoves(ctx, repo, o, res.Commits)
+	if err != nil {
+		return nil, err
+	}
+	rank(res, moves)
 	return res, nil
 }
 
@@ -197,8 +204,106 @@ func declarations(ff []facts.Fact) map[string]locate.Symbol {
 	return out
 }
 
-func rank(res *Result) {
-	byID := map[string]*Ranked{}
+// localName drops the directory a symbol's name starts with, which a move changes.
+func localName(name string) string {
+	// A file at the root has an empty directory, and its names start with dots.
+	last := strings.TrimLeft(name[strings.LastIndexByte(name, '/')+1:], ".")
+	if i := strings.IndexByte(last, '.'); i >= 0 {
+		return last[i+1:]
+	}
+	return last
+}
+
+// followMoves says where the rest of the history takes each path a selected commit changed:
+// commit, then path, then the path it ends up at. Only paths that move are listed. It reads
+// every commit in the range, since a move is rarely in a commit the selection keeps.
+func followMoves(ctx context.Context, repo string, o Options, commits []Commit) (map[string]map[string]string, error) {
+	rev := o.Rev
+	if rev == "" {
+		rev = "HEAD"
+	}
+	var limit []string
+	if o.Since != "" {
+		limit = append(limit, "--since="+o.Since)
+	}
+	if o.Until != "" {
+		limit = append(limit, "--until="+o.Until)
+	}
+	line, err := git(ctx, repo, append(append([]string{"rev-list", "--first-parent"}, limit...), rev, "--")...)
+	if err != nil {
+		return nil, err
+	}
+	// The similarity and the limit are spelled out so that a user's git config cannot change the answer.
+	raw, err := git(ctx, repo, append(append([]string{"log", "--first-parent", "-m", "-M50%", "-l0", "--diff-filter=R", "--name-status", "-z", "--format=%H"}, limit...), rev, "--")...)
+	if err != nil {
+		return nil, err
+	}
+	renames, err := parseRenames(raw)
+	if err != nil {
+		return nil, err
+	}
+	selected := map[string]*Commit{}
+	for i := range commits {
+		selected[commits[i].SHA] = &commits[i]
+	}
+	out := map[string]map[string]string{}
+	final := map[string]string{}
+	// Newest first. A commit's own moves are already on its new side, so they apply only to
+	// older commits, and an older file that had a path a move later took is another file.
+	for _, sha := range strings.Fields(string(line)) {
+		if c, ok := selected[sha]; ok {
+			for _, s := range c.Symbols {
+				if to, ok := final[s.File]; ok {
+					if out[sha] == nil {
+						out[sha] = map[string]string{}
+					}
+					out[sha][s.File] = to
+				}
+			}
+		}
+		rs := renames[sha]
+		ends := make([]string, len(rs))
+		for i, r := range rs {
+			ends[i] = r.to
+			if to, ok := final[r.to]; ok {
+				ends[i] = to
+			}
+			delete(final, r.to)
+		}
+		for i, r := range rs {
+			final[r.from] = ends[i]
+		}
+	}
+	return out, nil
+}
+
+type rename struct{ from, to string }
+
+// parseRenames reads `git log --format=%H --name-status -z --diff-filter=R`: a commit name,
+// then a status, the old path and the new path per rename.
+func parseRenames(raw []byte) (map[string][]rename, error) {
+	out := map[string][]rename{}
+	sha := ""
+	fields := bytes.Split(raw, []byte{0})
+	for i := 0; i < len(fields); i++ {
+		f := strings.TrimSpace(string(fields[i]))
+		switch {
+		case f == "":
+		case f[0] == 'R':
+			if i+2 >= len(fields) {
+				return nil, fmt.Errorf("unexpected end of renames after %q", f)
+			}
+			out[sha] = append(out[sha], rename{from: string(fields[i+1]), to: string(fields[i+2])})
+			i += 2
+		default:
+			sha = f
+		}
+	}
+	return out, nil
+}
+
+func rank(res *Result, moves map[string]map[string]string) {
+	byKey := map[string]*Ranked{}
 	for _, c := range res.Commits {
 		if !c.Ranked {
 			continue
@@ -206,20 +311,33 @@ func rank(res *Result) {
 		res.RankedCommits++
 		seen := map[string]bool{}
 		for _, s := range c.Symbols {
-			if !callable(s.SymbolKind) || seen[s.ID] {
+			if !callable(s.SymbolKind) {
 				continue
 			}
-			seen[s.ID] = true
-			r, ok := byID[s.ID]
+			file := s.File
+			if to, ok := moves[c.SHA][s.File]; ok {
+				file = to
+			}
+			key := file + "\x00" + localName(s.Name)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			r, ok := byKey[key]
 			if !ok {
-				r = &Ranked{ID: s.ID, Name: s.Name, SymbolKind: s.SymbolKind, File: s.File}
-				byID[s.ID] = r
+				r = &Ranked{File: file}
+				byKey[key] = r
+			}
+			// Oldest first, so these end as the latest commit saw them.
+			r.ID, r.Name, r.SymbolKind = s.ID, s.Name, s.SymbolKind
+			if s.File != file && !slices.Contains(r.MovedFrom, s.File) {
+				r.MovedFrom = append(r.MovedFrom, s.File)
 			}
 			r.Count++
 			r.Commits = append(r.Commits, c.SHA)
 		}
 	}
-	for _, r := range byID {
+	for _, r := range byKey {
 		res.Ranking = append(res.Ranking, *r)
 	}
 	res.Symbols = len(res.Ranking)

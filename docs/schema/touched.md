@@ -23,13 +23,16 @@ The result of `enola touched --json`. Consumers must accept unknown fields.
 
 ## Ranked callable
 
-A function, method or getter, identified by its fact id, so a move to another file starts a
-new entry.
+A function, method or getter, one row per file and name. When git sees a file renamed anywhere in
+the range, commits before the rename count for the file it became. A function moved on its own to
+another file, or a file rewritten past 50% similarity in its rename, starts a new row.
 
 | Field | Type | Meaning |
 |---|---|---|
-| `id` | string | The fact id. See [facts.md](facts.md#identity-and-ids) |
-| `name`, `symbol_kind`, `file` | string | As the first ranked commit saw it |
+| `id` | string | The fact id in the latest ranked commit. See [facts.md](facts.md#identity-and-ids) |
+| `name`, `symbol_kind` | string | As the latest ranked commit saw it |
+| `file` | string | Where the range leaves it |
+| `moved_from` | array of strings | Other paths its commits saw it at, oldest first. Optional |
 | `count` | int | Ranked commits that changed it |
 | `commits` | array of strings | Those commits, oldest first. The `touched` MCP tool leaves them out unless asked |
 
