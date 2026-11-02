@@ -1,7 +1,7 @@
 # locate output
 
 The result of `enola locate --json` and of the `locate` MCP tool. Both return the same object,
-holding whichever of these the request asked for:
+except that a [stamp check](#stamp-check) from the tool leaves the stamp out, holding whichever of these the request asked for:
 
 | Field | Request | Contents |
 |---|---|---|
@@ -86,7 +86,8 @@ result.
 
 | Field | Type | Presence | Meaning |
 |---|---|---|---|
-| `stamp` | object | always | The stamp as sent |
+| `stamp` | object | CLI | The stamp as sent |
+| `i` | int | MCP tool | The stamp's position in the call, instead of `stamp` |
 | `status` | string | always | What became of it, below |
 | `symbol` | [symbol](#symbol) | `current`, `rewritten`, `present`, `moved` | Where it is now |
 | `cited` | string | optional | `intact` or `changed`. See below |

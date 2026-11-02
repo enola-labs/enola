@@ -1,10 +1,7 @@
 {
   "stamps": [
     {
-      "stamp": {
-        "id": "00000000000000000000000000000000",
-        "name": "pkg/a.Alpha"
-      },
+      "i": 0,
       "status": "gone",
       "candidates": [
         {
