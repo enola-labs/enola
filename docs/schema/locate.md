@@ -44,10 +44,29 @@ are additive. A field marked optional is left out when it has no value.
 
 | `match` | Meaning |
 |---|---|
-| `span` | The innermost span holding the line. Exact |
+| `span` | The innermost symbol whose span holds the line. Exact for symbols; see [nested functions](#nested-functions) |
 | `nearest` | The declaration above the line, for a file with no spans (F#, VB.NET). A line past a function's end is credited to it too |
 | `none` | No symbol holds the line: imports, top-level code, blank lines |
 | `no_file` | The graph has no symbols for this file, or the path matched several (`candidates`) |
+
+### Nested functions
+
+A nested function is located as itself when the graph has a symbol for it, and as the function
+around it when it has none. A `span` match does not say which: a nested symbol carries
+`member_of`, naming the declaration it is in, and a match on the enclosing function carries
+nothing extra.
+
+| Language | Nested functions with a symbol of their own |
+|---|---|
+| Python | A function or `async def` inside a function or method, at any depth and in a class declared there, named by the path to it (`Client.send.on_close`) |
+| TypeScript, JavaScript | A function in an object literal a top-level function returns. Other local functions and arrow functions have none |
+| Others | None |
+
+Lambdas, and classes declared inside a function, have no symbol in any language.
+
+`touched --grain` does not change any of this. It decides how commits are counted for a ranking:
+`member` credits the symbol `locate` returns, `declaration` credits the `member_of` declaration
+instead. The ids and spans `locate` returns are the same under either.
 
 ## Diff
 
