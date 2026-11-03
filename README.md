@@ -278,17 +278,17 @@ Every number below but the first is measured on public repositories with scripts
 | Question | Result | What was measured |
 | --- | --- | --- |
 | On questions across a backend and its clients, is the agent's final answer exact? | **4 / 20 → 18 / 20** | Opus 5.5 without enola, then with it, five trials per question; enola's own analysis was right in all 20 |
-| Does the same commit produce the same graph? | **100 / 100** | public repositories produced byte-identical graphs across a cold run and two warm ones |
-| When something regresses, is exactly that reported? | **20 / 20** | injected dependency cycles caught, with none of 3,586 pre-existing findings repeated as new |
+| Does the same commit produce the same graph? | **107 / 107** | public repositories produced byte-identical graphs across a cold run and two warm ones |
+| When something regresses, is exactly that reported? | **20 / 20** | injected dependency cycles caught, with none of 3,572 pre-existing findings repeated as new |
 | Of the cross-repository calls that exist, how many are linked? | **19 / 24** | fixture calls resolved, with the 3 unresolved and 2 external ones reported, not hidden |
-| Does it finish on a real repository? | **2,068,665** | facts from the Linux kernel, the largest of 100 repositories indexed |
+| Does it finish on a real repository? | **2,068,864** | facts from the Linux kernel, the largest of 107 repositories indexed |
 | Does an agent, given the check, avoid shipping the regression? | **3 / 3 → 0 / 3** | agents shipped the injected cycle without enola, and none did with the hooks installed |
 
 ## Limitations
 
 - enola models structure, not runtime behaviour. It knows a service calls another; it knows nothing about timeouts, retries or whether a message can be lost.
 - Calls it cannot resolve, such as URLs built at runtime, are reported as unresolved rather than guessed. Per-language limits are in [docs/extraction/](docs/extraction/) and the gaps found so far in [docs/BLIND-SPOTS.md](docs/BLIND-SPOTS.md).
-- Most findings are advisory. Across the benchmark corpus, 91.6% of them could not fail a build even with every check named.
+- Most findings are advisory. Across the benchmark corpus, 91.5% of them could not fail a build even with every check named.
 - A clean `enola check` means the change introduced nothing new, not that the repository is clean.
 - A correct analysis does not guarantee a correct answer. In the [agent A/B](https://enola.tech/blog/benchmarking-enola-on-code-the-model-never-saw) the agent occasionally mistyped, dropped or recomputed a result enola had right.
 
