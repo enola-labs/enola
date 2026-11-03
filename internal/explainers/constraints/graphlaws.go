@@ -133,7 +133,7 @@ func governedMember(governed map[string]bool, f facts.Fact) bool {
 	if f.Repo != "" && governed[f.Repo+"/"+f.File] {
 		return true
 	}
-	if i := strings.IndexByte(f.File, '/'); i > 0 && governed[f.File[i+1:]] && f.Repo != "" && strings.HasPrefix(f.File, f.Repo+"/") {
+	if f.RepoPrefixed && governed[f.IdentityFile()] {
 		return true
 	}
 	return false

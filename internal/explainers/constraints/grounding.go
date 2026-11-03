@@ -76,7 +76,10 @@ const groundSkipConfidence = 0.4
 // globs that hosts no member at all, and each one drew a 1.0 verdict on code
 // the declaration excluded.
 type grounding struct {
-	files       map[string]map[string]bool
+	files map[string]map[string]bool
+	// prefixed names the repositories whose files a multi-repo snapshot prefixed
+	// with the repository's label.
+	prefixed    map[string]bool
 	names       map[string]bool
 	memberFiles map[string]map[string]bool
 	// crates and cargoDeps, by repository, are what outside reads: the Rust
@@ -87,7 +90,7 @@ type grounding struct {
 }
 
 func newGrounding(store *facts.Store, memberFacts map[string][]facts.Fact) *grounding {
-	g := &grounding{files: map[string]map[string]bool{}, names: map[string]bool{}, memberFiles: map[string]map[string]bool{},
+	g := &grounding{files: map[string]map[string]bool{}, prefixed: map[string]bool{}, names: map[string]bool{}, memberFiles: map[string]map[string]bool{},
 		crates: map[string]map[string]bool{}, cargoDeps: map[string]map[string]bool{}}
 	pathDeps := map[string]map[string]bool{}
 	for name, ff := range memberFacts {
@@ -96,13 +99,7 @@ func newGrounding(store *facts.Store, memberFacts map[string][]facts.Fact) *grou
 			if f.File == "" {
 				continue
 			}
-			// Both forms, because resolvedPathIn applies its test to the
-			// label-prefixed path and then to the repo-relative one — the same
-			// double join matchConstraintFile makes, for the same reason.
 			set[f.File] = true
-			if f.Repo != "" {
-				set[strings.TrimPrefix(f.File, f.Repo+"/")] = true
-			}
 		}
 		g.memberFiles[name] = set
 	}
@@ -131,6 +128,9 @@ func newGrounding(store *facts.Store, memberFacts map[string][]facts.Fact) *grou
 			g.files[f.Repo] = set
 		}
 		set[f.File] = true
+		if f.RepoPrefixed {
+			g.prefixed[f.Repo] = true
+		}
 	}
 	for repo, names := range g.cargoDeps {
 		for name := range names {
@@ -177,33 +177,30 @@ func (g *grounding) outside(rel facts.Relation, from facts.Fact) bool {
 }
 
 // resolve returns the measured file an import target names, in the canonical
-// form the fact carries it. Both the bare and the repo-labelled shapes are
-// tried, because a target is written repo-relative while an append-mode
-// snapshot's files are label-prefixed.
+// form the fact carries it. A target is written repo-relative, so it is
+// prefixed with the label where the repository's files are.
 func (g *grounding) resolve(target, repo string) (string, bool) {
 	set := g.files[repo]
 	if set == nil || target == "" {
 		return "", false
 	}
-	bases := []string{target}
-	if repo != "" {
-		bases = append(bases, repo+"/"+target)
+	base := target
+	if g.prefixed[repo] {
+		base = repo + "/" + target
 	}
-	for _, base := range bases {
-		if set[base] {
-			return base, true
+	if set[base] {
+		return base, true
+	}
+	for _, ext := range importModuleExts {
+		if p := base + ext; set[p] {
+			return p, true
 		}
-		for _, ext := range importModuleExts {
-			if p := base + ext; set[p] {
-				return p, true
-			}
-		}
-		// A directory import resolves to its index file, exactly as the module
-		// resolver the extractor mirrors does.
-		for _, ext := range importModuleExts {
-			if p := base + "/index" + ext; set[p] {
-				return p, true
-			}
+	}
+	// A directory import resolves to its index file, exactly as the module
+	// resolver the extractor mirrors does.
+	for _, ext := range importModuleExts {
+		if p := base + "/index" + ext; set[p] {
+			return p, true
 		}
 	}
 	return "", false
@@ -238,9 +235,7 @@ func (g *grounding) inComponent(rel facts.Relation, from facts.Fact, name string
 }
 
 // resolvedPathIn resolves a path target to a measured file and applies the
-// caller's test to it, in both the label-prefixed and repo-relative forms — the
-// same double join matchConstraintFile uses, because a single trimmed form
-// mis-fires when a real path starts with the repo's own name.
+// caller's test to it, in the form the fact carries it.
 func (g *grounding) resolvedPathIn(rel facts.Relation, from facts.Fact, ok func(string) bool) bool {
 	if !pathTargetEdge(rel, from) {
 		return false
@@ -249,15 +244,7 @@ func (g *grounding) resolvedPathIn(rel facts.Relation, from facts.Fact, ok func(
 	if !resolved {
 		return false
 	}
-	if ok(path) {
-		return true
-	}
-	if from.Repo != "" {
-		if trimmed := strings.TrimPrefix(path, from.Repo+"/"); trimmed != path {
-			return ok(trimmed)
-		}
-	}
-	return false
+	return ok(path)
 }
 
 // resolves reports whether a path target names a measured file at all —

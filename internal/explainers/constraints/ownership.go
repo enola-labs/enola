@@ -3,7 +3,6 @@ package constraints
 import (
 	"github.com/enola-labs/enola/internal/facts"
 	"github.com/enola-labs/enola/internal/intent"
-	"strings"
 )
 
 // What a component owns is declared, never inferred, and the two declaring
@@ -243,15 +242,12 @@ func (rs *resolver) memberAtCarriedFile(name string, rel facts.Relation, from fa
 			if files[m.Name] == nil {
 				files[m.Name] = map[string]bool{}
 			}
-			files[m.Name][m.File] = true
-			if m.Repo != "" {
-				files[m.Name][strings.TrimPrefix(m.File, m.Repo+"/")] = true
-			}
+			// The carried file is repository-relative: props are never prefixed.
+			files[m.Name][m.IdentityFile()] = true
 		}
 		rs.memberFiles[name] = files
 	}
-	at := files[rel.Target]
-	return at[file] || (from.Repo != "" && at[from.Repo+"/"+file])
+	return files[rel.Target][file]
 }
 
 // memberBehind names the member a resolved target is a verdict about: the

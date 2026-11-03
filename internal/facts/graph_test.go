@@ -1531,11 +1531,11 @@ func TestImpactSet_GoverningIntent(t *testing.T) {
 		{Kind: KindSymbol, Repo: "backend", File: "app/services/formatter.rb", Name: "Formatter"},
 		{Kind: KindSymbol, Repo: "backend", File: "app/jobs/sync_job.rb", Name: "SyncJob"},
 		{Kind: KindSymbol, Repo: "backend", File: "lib/untouched.rb", Name: "Untouched"},
-		{Kind: KindIntent, Repo: "wiki", File: "wiki/adrs/fmt.md", Name: "page: wiki/adrs/fmt.md",
+		{Kind: KindIntent, Repo: "wiki", RepoPrefixed: true, File: "wiki/adrs/fmt.md", Name: "page: wiki/adrs/fmt.md",
 			Props: map[string]any{"intent_kind": "page", "page_type": "decision", "status": "accepted"}},
-		{Kind: KindIntent, Repo: "wiki", File: "wiki/adrs/fmt.md", Name: "anchor: backend app/services/formatter.rb",
+		{Kind: KindIntent, Repo: "wiki", RepoPrefixed: true, File: "wiki/adrs/fmt.md", Name: "anchor: backend app/services/formatter.rb",
 			Props: map[string]any{"intent_kind": "anchor", "intent_owner": "backend", "path": "app/services/formatter.rb", "source": "wiki/adrs/fmt.md"}},
-		{Kind: KindIntent, Repo: "wiki", File: "wiki/prds/jobs.md", Name: "anchor: backend app/jobs",
+		{Kind: KindIntent, Repo: "wiki", RepoPrefixed: true, File: "wiki/prds/jobs.md", Name: "anchor: backend app/jobs",
 			Props: map[string]any{"intent_kind": "anchor", "intent_owner": "backend", "path": "app/jobs", "source": "wiki/prds/jobs.md"}},
 	}
 	g := NewGraph(ff)
@@ -1572,15 +1572,15 @@ func TestImpactSet_GoverningIntent(t *testing.T) {
 func TestGoverningIntent_RelationTrail(t *testing.T) {
 	ff := []Fact{
 		{Kind: KindSymbol, Repo: "backend", File: "app/services/formatter.rb", Name: "Formatter"},
-		{Kind: KindIntent, Repo: "wiki", File: "wiki/adrs/fmt.md", Name: "page: wiki/adrs/fmt.md",
+		{Kind: KindIntent, Repo: "wiki", RepoPrefixed: true, File: "wiki/adrs/fmt.md", Name: "page: wiki/adrs/fmt.md",
 			Props: map[string]any{"intent_kind": "page", "page_type": "decision", "status": "accepted"}},
-		{Kind: KindIntent, Repo: "wiki", File: "wiki/adrs/fmt.md", Name: "anchor: backend app/services/formatter.rb",
+		{Kind: KindIntent, Repo: "wiki", RepoPrefixed: true, File: "wiki/adrs/fmt.md", Name: "anchor: backend app/services/formatter.rb",
 			Props: map[string]any{"intent_kind": "anchor", "intent_owner": "backend", "path": "app/services/formatter.rb", "source": "wiki/adrs/fmt.md"}},
-		{Kind: KindIntent, Repo: "wiki", File: "wiki/adrs/fmt.md", Name: "relation: part-of wiki/epics/text.md",
+		{Kind: KindIntent, Repo: "wiki", RepoPrefixed: true, File: "wiki/adrs/fmt.md", Name: "relation: part-of wiki/epics/text.md",
 			Props: map[string]any{"intent_kind": "relation", "rel": "part-of", "to": "wiki/epics/text.md", "source": "wiki/adrs/fmt.md"}},
-		{Kind: KindIntent, Repo: "wiki", File: "wiki/adrs/fmt.md", Name: "relation: depends-on wiki/prds/fmt.md",
+		{Kind: KindIntent, Repo: "wiki", RepoPrefixed: true, File: "wiki/adrs/fmt.md", Name: "relation: depends-on wiki/prds/fmt.md",
 			Props: map[string]any{"intent_kind": "relation", "rel": "depends-on", "to": "wiki/prds/fmt.md", "source": "wiki/adrs/fmt.md"}},
-		{Kind: KindIntent, Repo: "wiki", File: "wiki/epics/text.md", Name: "page: wiki/epics/text.md",
+		{Kind: KindIntent, Repo: "wiki", RepoPrefixed: true, File: "wiki/epics/text.md", Name: "page: wiki/epics/text.md",
 			Props: map[string]any{"intent_kind": "page", "page_type": "epic", "status": "living"}},
 	}
 	g := NewGraph(ff)
@@ -1602,8 +1602,8 @@ func TestGoverningIntent_RelationTrail(t *testing.T) {
 // directly, in both the repo-relative and label-prefixed forms.
 func TestGoverningIntentForFile(t *testing.T) {
 	ff := []Fact{
-		{Kind: KindSymbol, Repo: "backend", File: "backend/app/jobs/sync_job.rb", Name: "SyncJob"},
-		{Kind: KindIntent, Repo: "wiki", File: "wiki/prds/jobs.md", Name: "anchor: backend app/jobs",
+		{Kind: KindSymbol, Repo: "backend", RepoPrefixed: true, File: "backend/app/jobs/sync_job.rb", Name: "SyncJob"},
+		{Kind: KindIntent, Repo: "wiki", RepoPrefixed: true, File: "wiki/prds/jobs.md", Name: "anchor: backend app/jobs",
 			Props: map[string]any{"intent_kind": "anchor", "intent_owner": "backend", "path": "app/jobs", "source": "wiki/prds/jobs.md"}},
 	}
 	g := NewGraph(ff)
@@ -1627,11 +1627,11 @@ func TestGovernedByPage(t *testing.T) {
 		{Kind: KindSymbol, Repo: "backend", File: "app/jobs/sync_job.rb", Name: "SyncJob"},
 		{Kind: KindSymbol, Repo: "backend", File: "app/jobs/retry_job.rb", Name: "RetryJob"},
 		{Kind: KindModule, Repo: "backend", File: "app/jobs/sync_job.rb", Name: "jobs"},
-		{Kind: KindIntent, Repo: "wiki", File: "wiki/prds/jobs.md", Name: "page: wiki/prds/jobs.md",
+		{Kind: KindIntent, Repo: "wiki", RepoPrefixed: true, File: "wiki/prds/jobs.md", Name: "page: wiki/prds/jobs.md",
 			Props: map[string]any{"intent_kind": "page", "page_type": "initiative", "status": "living"}},
-		{Kind: KindIntent, Repo: "wiki", File: "wiki/prds/jobs.md", Name: "anchor: backend app/jobs",
+		{Kind: KindIntent, Repo: "wiki", RepoPrefixed: true, File: "wiki/prds/jobs.md", Name: "anchor: backend app/jobs",
 			Props: map[string]any{"intent_kind": "anchor", "intent_owner": "backend", "path": "app/jobs", "source": "wiki/prds/jobs.md"}},
-		{Kind: KindIntent, Repo: "wiki", File: "wiki/prds/jobs.md", Name: "anchor: backend docs/jobs.md",
+		{Kind: KindIntent, Repo: "wiki", RepoPrefixed: true, File: "wiki/prds/jobs.md", Name: "anchor: backend docs/jobs.md",
 			Props: map[string]any{"intent_kind": "anchor", "intent_owner": "backend", "path": "docs/jobs.md", "source": "wiki/prds/jobs.md"}},
 	}
 	g := NewGraph(ff)
@@ -1750,9 +1750,9 @@ func TestNewGraph_ScopedMethodEdges(t *testing.T) {
 func TestNewGraph_ModuleImportEdgeInAMultiRepoSnapshot(t *testing.T) {
 	s := NewStore()
 	s.Add(
-		Fact{Kind: KindModule, Name: "data/api", File: "app/data/api/Interceptor.kt", Repo: "app"},
-		Fact{Kind: KindModule, Name: "data/repository", File: "app/data/repository/TokenManager.kt", Repo: "app"},
-		Fact{Kind: KindDependency, Name: "data/api -> data/repository", File: "app/data/api/Interceptor.kt", Repo: "app",
+		Fact{Kind: KindModule, Name: "data/api", File: "app/data/api/Interceptor.kt", Repo: "app", RepoPrefixed: true},
+		Fact{Kind: KindModule, Name: "data/repository", File: "app/data/repository/TokenManager.kt", Repo: "app", RepoPrefixed: true},
+		Fact{Kind: KindDependency, Name: "data/api -> data/repository", File: "app/data/api/Interceptor.kt", Repo: "app", RepoPrefixed: true,
 			Relations: []Relation{{Kind: RelImports, Target: "data/repository"}}},
 		// A single repository whose top directory shares its label: the labelled
 		// directory is the module and is kept.

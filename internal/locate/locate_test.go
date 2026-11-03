@@ -223,6 +223,30 @@ func TestCheck(t *testing.T) {
 	}
 }
 
+// A source is asked for the path relative to the repository, whatever a multi-repo
+// snapshot prefixed, and a directory named like the repository is kept.
+func TestSourceReadsTheRepositoryRelativePath(t *testing.T) {
+	text := "def f():\n    pass\n"
+	for _, tc := range []struct {
+		fact facts.Fact
+		want string
+	}{
+		{facts.Fact{Repo: "r", File: "r/src/a.py", RepoPrefixed: true}, "src/a.py"},
+		{facts.Fact{Repo: "r", File: "r/src/a.py"}, "r/src/a.py"},
+	} {
+		f := tc.fact
+		f.Kind, f.Name, f.Line, f.EndLine = facts.KindSymbol, "f", 1, 2
+		f.Props = map[string]any{facts.PropBodyHash: facts.BodyHash([]byte(text), 1, 2)}
+		ix := NewIndex([]facts.Fact{f})
+		var asked string
+		ix.SetSource(func(repo, file string) ([]byte, bool) { asked = file; return []byte(text), true })
+		ix.Locations([]string{f.File + ":1"})
+		if asked != tc.want {
+			t.Errorf("%s (prefixed %v): source asked for %q, want %q", f.File, f.RepoPrefixed, asked, tc.want)
+		}
+	}
+}
+
 // A stamp names a function and the lines it cited. When the function is rewritten, the
 // cited lines are looked for in its new body, wherever they now sit.
 func TestCitedLines(t *testing.T) {

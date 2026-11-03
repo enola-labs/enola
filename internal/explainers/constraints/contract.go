@@ -230,7 +230,7 @@ func fileHostsMember(members []facts.Fact, target string) bool {
 		if f.File == target {
 			return true
 		}
-		if f.Repo != "" && strings.TrimPrefix(f.File, f.Repo+"/") == target {
+		if f.IdentityFile() == target {
 			return true
 		}
 	}

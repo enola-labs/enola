@@ -1355,7 +1355,7 @@ func (g *Graph) governingForFile(repo, file string) []GoverningPage {
 		case "page":
 			pageInfo[af.File] = af
 			pageByForm[af.Repo+"\x00"+af.File] = af
-			pageByForm[af.Repo+"\x00"+strings.TrimPrefix(af.File, af.Repo+"/")] = af
+			pageByForm[af.Repo+"\x00"+af.IdentityFile()] = af
 		case "relation":
 			relations[af.Repo+"\x00"+af.File] = append(relations[af.Repo+"\x00"+af.File], af)
 		}
@@ -1416,7 +1416,7 @@ func (g *Graph) GovernedByPage(page string) ([]AnchorCoverage, bool) {
 		if pf.Kind != KindIntent || pf.PropString("intent_kind") != "page" {
 			continue
 		}
-		if pf.File == page || strings.TrimPrefix(pf.File, pf.Repo+"/") == page {
+		if pf.File == page || pf.IdentityFile() == page {
 			pageFile = pf.File
 			break
 		}
@@ -1443,8 +1443,8 @@ func (g *Graph) GovernedByPage(page string) ([]AnchorCoverage, bool) {
 			continue
 		}
 		forms := []string{mf.File}
-		if trimmed := strings.TrimPrefix(mf.File, mf.Repo+"/"); trimmed != mf.File {
-			forms = append(forms, trimmed)
+		if mf.RepoPrefixed {
+			forms = append(forms, mf.IdentityFile())
 		}
 		for a := range out {
 			if out[a].Repo != mf.Repo {
@@ -1592,15 +1592,15 @@ func resolveToModule(target string, moduleNames map[string]bool) string {
 // dependencyModule is the module a dependency fact is declared in: its file's
 // directory. In a multi-repo snapshot a file carries its repository's label
 // ("app/data/api/X.kt") and a module name does not ("data/api"), so a directory that
-// names no module is tried again without the label. The labelled form is tried first,
-// so a single repository whose top directory shares its label reads as before.
+// names no module is tried again without the label. A single repository's files carry
+// no label, so a top directory sharing the repository's name is never stripped.
 func dependencyModule(f Fact, moduleNames map[string]bool) string {
 	dir := fileDirectory(f.File)
 	if moduleNames[dir] || f.Repo == "" {
 		return dir
 	}
-	if rel, ok := strings.CutPrefix(f.File, f.Repo+"/"); ok {
-		if d := fileDirectory(rel); moduleNames[d] {
+	if f.RepoPrefixed {
+		if d := fileDirectory(f.IdentityFile()); moduleNames[d] {
 			return d
 		}
 	}

@@ -177,7 +177,7 @@ func newScope(ff []facts.Fact, service string, cfg Config, suppressed map[string
 		if !mined[f.Kind] || f.Name == "" {
 			continue
 		}
-		s.allFacts[f.Kind] = append(s.allFacts[f.Kind], member{name: f.Name, file: trimRepoPrefix(f), fact: f})
+		s.allFacts[f.Kind] = append(s.allFacts[f.Kind], member{name: f.Name, file: f.IdentityFile(), fact: f})
 	}
 	for kind := range s.allFacts {
 		all := s.allFacts[kind]
@@ -247,15 +247,6 @@ func (s *scope) statement(text string) string {
 		return text
 	}
 	return "[" + s.service + "] " + text
-}
-
-func trimRepoPrefix(f facts.Fact) string {
-	if f.Repo != "" {
-		if trimmed := strings.TrimPrefix(f.File, f.Repo+"/"); trimmed != f.File {
-			return trimmed
-		}
-	}
-	return f.File
 }
 
 func ratio(num, den int) float64 {
