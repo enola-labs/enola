@@ -7,6 +7,45 @@ The full per-release change lists — every Added, Changed and Fixed line — ar
 [enola.tech/changelog](https://enola.tech/changelog). This file is the same history at
 the resolution a reader of the repository needs.
 
+## v0.4.39 — 2026-11-03
+
+**`enola touched` ranks the functions a run of commits changed, Rust dead code gets precise, and ids hold across clusters**
+
+- `enola touched`: which symbols a run of commits changed, and which change most often.
+  Walks every reachable commit, or the first-parent line with `--first-parent`, narrowed
+  by `--rev`, `--since`, `--until`, `--subject` and `--exclude`. Only each commit's changed
+  files are extracted, so a long history costs what its commits changed, not a snapshot
+  per commit. A file renamed anywhere in the range keeps its history. `--max-symbols`
+  drops sweeping commits from the ranking, `--top` limits it, and `--grain declaration`
+  credits a function in a returned object to the factory. JSON documented in
+  `docs/schema/touched.md`. The `touched` MCP tool answers the same in a session and
+  leaves each row's commits out unless asked.
+- `locate`: an `enclosing` match names the nested function a line is in, from the new
+  `nested` prop on symbols (TypeScript and JavaScript, Go, Rust), where that function has
+  no symbol of its own. A rewrite that changed only the signature reports
+  `change: signature`, from the new `inner_hash`. A zero-context pure deletion is read at
+  the right line. `repo_prefixed` says when a file path was prefixed by a multi-repo
+  snapshot, and the `locate` MCP tool no longer echoes stamps back.
+- Identity: a fact id hashes the repository-relative path, so a declaration keeps its id
+  alone and in any cluster, in any order. A repository holding a directory of its own name
+  no longer loses that directory where the prefix is stripped. Multi-repo files written
+  before the mark existed are marked on restore.
+- Python: a function nested in a function or method is a symbol of its own, `member_of`
+  its parent, with a span and no edges. A line in a callback resolves to it instead of
+  the enclosing method, and members stop counting towards exported surface.
+- TypeScript: functions in an object a function returns are symbols with no edges,
+  including members spread in conditionally.
+- Rust dead code: a type written in a type position is a `names` edge, scanned through
+  bounds, where clauses, trait headers, method signatures and const and static types,
+  skipping `Self`, `_`, generic parameters and undeclared prelude names. Imports are
+  scoped to their block and module, renamed imports reach the original, re-exports and
+  type aliases resolve to their declarations, and methods resolve through file modules.
+  Attributes the runtime or linker calls through are entry points, also under `cfg_attr`.
+  Parameterized test macros mark tests, and the members of an external trait impl are
+  overrides, not unreferenced.
+- Engine: cache version is v511, so existing caches re-extract.
+- Benchmarks: the fixed corpus re-measured at v511, with what moved since v481 by cause.
+
 ## v0.4.38 — 2026-10-30
 
 **Generated OpenAPI clients, spec-first servers, Swift and Ruby services, and `locate` that tells declarations apart**
