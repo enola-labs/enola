@@ -358,7 +358,8 @@ func TestCheckSharedID(t *testing.T) {
 		"same signature twice":     {Stamp{ID: id, BodyHash: "x", DeclHash: "same"}, []facts.Fact{decl(3, 7, "a", "same", "method"), decl(8, 12, "b", "same", "method")}, StatusAmbiguous, 0, 2},
 		"signature changed":        {Stamp{ID: id, BodyHash: "s1", DeclHash: "sd"}, []facts.Fact{getter, decl(8, 13, "s2", "new", "method")}, StatusAmbiguous, 0, 2},
 		"survivor of another kind": {Stamp{ID: id, BodyHash: "s1", DeclHash: "sd", SymbolKind: "method"}, []facts.Fact{decl1(3, 7, "g1", "getter")}, StatusAmbiguous, 0, 1},
-		"alone, no source to read": {Stamp{ID: id, BodyHash: "s1", DeclHash: "sd", SymbolKind: "method"}, []facts.Fact{decl1(8, 13, "s2", "method")}, StatusRewritten, 8, 0},
+		"alone, no source to read": {Stamp{ID: id, BodyHash: "s1", DeclHash: "sd", SymbolKind: "method"}, []facts.Fact{decl1(8, 13, "s2", "method")}, StatusAmbiguous, 0, 1},
+		"alone, never shared":      {Stamp{ID: id, BodyHash: "s1", SymbolKind: "method"}, []facts.Fact{decl1(8, 13, "s2", "method")}, StatusRewritten, 8, 0},
 	} {
 		r := NewIndex(tc.after).Check([]Stamp{tc.st})[0]
 		if r.Status != tc.status || len(r.Candidates) != tc.cands {
@@ -366,6 +367,47 @@ func TestCheckSharedID(t *testing.T) {
 		}
 		if tc.line > 0 && (r.Symbol == nil || r.Symbol.Line != tc.line) {
 			t.Errorf("%s: resolved to %+v, want line %d", name, r.Symbol, tc.line)
+		}
+		if tc.status == StatusAmbiguous && r.Symbol != nil {
+			t.Errorf("%s: ambiguous, yet picked %+v", name, r.Symbol)
+		}
+	}
+}
+
+// A stamped setter deleted, its getter rewritten: alone under the id, the getter carries no
+// decl_hash. With the source its signature is read and differs; from the facts alone the
+// survivor cannot be told from the stamped setter rewritten. Neither answer binds to it.
+// The stamped setter surviving its getter, rewritten, is found again when the source says so.
+func TestCheckSoleSurvivorOfSharedID(t *testing.T) {
+	before := []byte("class Box:\n    @property\n    def value(self):\n        return self._value\n\n    @value.setter\n    def value(self, new_value):\n        self._value = new_value\n")
+	stamp := Stamp{BodyHash: facts.BodyHash(before, 6, 8), DeclHash: facts.DeclHash(before, 7, 8), SymbolKind: "function"}
+	for name, tc := range map[string]struct {
+		after      string
+		line, end  int
+		withSource bool
+		status     string
+		resolvedTo int
+	}{
+		"setter deleted, facts only":  {"class Box:\n    @property\n    def value(self):\n        return self._value + 1\n", 3, 4, false, StatusAmbiguous, 0},
+		"setter deleted, with source": {"class Box:\n    @property\n    def value(self):\n        return self._value + 1\n", 3, 4, true, StatusAmbiguous, 0},
+		"getter deleted, with source": {"class Box:\n    @value.setter\n    def value(self, new_value):\n        self._value = new_value * 2\n", 3, 4, true, StatusRewritten, 3},
+		"getter deleted, facts only":  {"class Box:\n    @value.setter\n    def value(self, new_value):\n        self._value = new_value * 2\n", 3, 4, false, StatusAmbiguous, 0},
+	} {
+		content := []byte(tc.after)
+		f := sym("sample.Box.value", "sample.py", tc.line, tc.end, facts.BodyHash(content, tc.line-1, tc.end))
+		f.Props[facts.PropSpanStart] = tc.line - 1
+		ix := NewIndex([]facts.Fact{f})
+		if tc.withSource {
+			ix.SetSource(func(string, string) ([]byte, bool) { return content, true })
+		}
+		st := stamp
+		st.ID = f.Identity()
+		r := ix.Check([]Stamp{st})[0]
+		if r.Status != tc.status {
+			t.Errorf("%s: %s, want %s", name, r.Status, tc.status)
+		}
+		if tc.resolvedTo > 0 && (r.Symbol == nil || r.Symbol.Line != tc.resolvedTo) {
+			t.Errorf("%s: resolved to %+v, want line %d", name, r.Symbol, tc.resolvedTo)
 		}
 		if tc.status == StatusAmbiguous && r.Symbol != nil {
 			t.Errorf("%s: ambiguous, yet picked %+v", name, r.Symbol)
