@@ -33,6 +33,8 @@ import (
 // test functions that assert the behavior that version introduced. v1 is the
 // implicit baseline (no changelog line), so coverage starts at v2.
 var versionCoverage = map[int][]string{
+	510: {"TestNestedFunctionsAreSymbolsOfTheirOwn"},
+	509: {"TestIdentity_SameAloneAndAtAnyPlaceInACluster"},
 	503: {"TestRustExternalTraitImplMethodsAreDispatchedByTheTrait", "TestRustTraitImplOverrideLandsOnTheTraitMemberOnly"},
 	502: {"TestRustExternalTraitImplMethodsAreDispatchedByTheTrait"},
 	501: {"TestAST_ParameterizedTestsKeepProductionReferences"},

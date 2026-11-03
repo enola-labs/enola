@@ -105,7 +105,7 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 				props[k] = v
 			}
 		}
-		route := facts.Fact{Kind: facts.KindRoute, Name: op.Name, File: caller.File, Line: caller.Line, Repo: caller.Repo, Props: props}
+		route := facts.Fact{Kind: facts.KindRoute, Name: op.Name, File: caller.File, RepoPrefixed: caller.RepoPrefixed, Line: caller.Line, Repo: caller.Repo, Props: props}
 		used[[2]string{caller.Repo, s.file}] = true
 		if k := siteKey(route); !existing[k] {
 			existing[k] = true

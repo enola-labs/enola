@@ -9,16 +9,20 @@ import (
 
 // Fact represents a language-agnostic architectural fact extracted from source code.
 type Fact struct {
-	Kind      string         `json:"kind"`                 // e.g. "module", "symbol", "route", "storage", "dependency"
-	Name      string         `json:"name"`                 // Canonical name
-	File      string         `json:"file,omitempty"`       // Source file (relative to repo root, or repo-prefixed in multi-repo mode)
-	Line      int            `json:"line,omitempty"`       // 1-based start line in file
-	EndLine   int            `json:"end_line,omitempty"`   // 1-based end line, when the extractor measured a span
-	Column    int            `json:"column,omitempty"`     // 1-based start column, when measured
-	EndColumn int            `json:"end_column,omitempty"` // 1-based column one past the span's end, when measured
-	Repo      string         `json:"repo,omitempty"`       // Repository label; set on every fact, single-repo snapshots included (see RepoLabel)
-	Props     map[string]any `json:"props,omitempty"`      // Kind-specific properties
-	Relations []Relation     `json:"relations,omitempty"`  // Edges to other facts
+	Kind      string `json:"kind"`                 // e.g. "module", "symbol", "route", "storage", "dependency"
+	Name      string `json:"name"`                 // Canonical name
+	File      string `json:"file,omitempty"`       // Source file (relative to repo root, or repo-prefixed in multi-repo mode)
+	Line      int    `json:"line,omitempty"`       // 1-based start line in file
+	EndLine   int    `json:"end_line,omitempty"`   // 1-based end line, when the extractor measured a span
+	Column    int    `json:"column,omitempty"`     // 1-based start column, when measured
+	EndColumn int    `json:"end_column,omitempty"` // 1-based column one past the span's end, when measured
+	Repo      string `json:"repo,omitempty"`       // Repository label; set on every fact, single-repo snapshots included (see RepoLabel)
+	// RepoPrefixed says File starts with the repo label because a multi-repo snapshot put it
+	// there, not because the repository has a directory of that name. Only this can tell
+	// the two apart, and identity depends on it: see identityFile.
+	RepoPrefixed bool           `json:"repo_prefixed,omitempty"`
+	Props        map[string]any `json:"props,omitempty"`     // Kind-specific properties
+	Relations    []Relation     `json:"relations,omitempty"` // Edges to other facts
 }
 
 // Relation represents a directed edge between two facts.

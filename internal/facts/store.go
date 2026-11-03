@@ -844,6 +844,7 @@ func (s *Store) TagRange(startIdx int, repo, filePrefix string) {
 		if f.File != "" {
 			oldFile := f.File
 			f.File = filePrefix + f.File
+			f.RepoPrefixed = true
 			// Update byFile index: remove old key, add new key.
 			s.removeFromIndex(s.byFile, oldFile, i)
 			s.byFile[f.File] = append(s.byFile[f.File], i)
@@ -908,10 +909,13 @@ func (s *Store) TagUntagged(repo, filePrefix string) int {
 			s.byRepo[repo] = append(s.byRepo[repo], i)
 		}
 
-		// Prefix the file path if it doesn't already have the prefix.
-		if f.File != "" && !strings.HasPrefix(f.File, filePrefix) {
+		// Prefix the file path unless it was prefixed already. Looking for the prefix in
+		// the path would leave repository beta's own beta/code.py unprefixed here, and so
+		// different from what it becomes when beta is appended second.
+		if f.File != "" && !f.RepoPrefixed {
 			oldFile := f.File
 			f.File = filePrefix + f.File
+			f.RepoPrefixed = true
 			s.removeFromIndex(s.byFile, oldFile, i)
 			s.byFile[f.File] = append(s.byFile[f.File], i)
 			count++
@@ -1136,10 +1140,15 @@ func (s *Store) WriteJSONL(w io.Writer) error {
 			wr := wireRelation{Relation: r}
 			if t := s.targetFactFor(r.Target, f.Repo); t >= 0 {
 				if tf := s.facts[t]; LandsByName(f, r, tf) {
-					wr.TargetID, idScratch = factIDInto(idScratch, tf.Repo, tf.Kind, tf.Name, tf.File)
+					wr.TargetID, idScratch = factIDInto(idScratch, tf.Repo, tf.Kind, tf.Name, tf.IdentityFile())
 				}
 			} else if k, ok := s.targetAliases[r.Target]; ok {
-				wr.TargetID, idScratch = factIDInto(idScratch, k.Repo, k.Kind, k.Name, k.File)
+				// A repository's facts are prefixed together, so any of them answers for k.
+				prefixed := false
+				if in := s.byRepo[k.Repo]; len(in) > 0 {
+					prefixed = s.facts[in[0]].RepoPrefixed
+				}
+				wr.TargetID, idScratch = factIDInto(idScratch, k.Repo, k.Kind, k.Name, identityFile(k.Repo, k.File, prefixed))
 			}
 			rels = append(rels, wr)
 		}
@@ -1153,11 +1162,11 @@ func (s *Store) WriteJSONL(w io.Writer) error {
 		}
 		// f is a copy, and its own Relations field is shadowed by the one below,
 		// so neither the store's facts nor their relation slices are touched.
-		factID, idScratch = factIDInto(idScratch, f.Repo, f.Kind, f.Name, f.File)
+		factID, idScratch = factIDInto(idScratch, f.Repo, f.Kind, f.Name, f.IdentityFile())
 		if f.Kind == KindRoute {
 			// f is a copy, and withFactRefIDs copies before widening, so the
 			// store's shared Props map is never written.
-			f.Props, idScratch = withFactRefIDs(f.Props, f.Repo, f.File, idScratch)
+			f.Props, idScratch = withFactRefIDs(f.Props, f.Repo, f.File, f.RepoPrefixed, idScratch)
 		}
 		b, err := json.Marshal(wireFact{Fact: f, Relations: rels, ID: factID})
 		if err != nil {

@@ -345,3 +345,25 @@ func TestSurface_MarkdownDocumentsAreNotAPublicSurface(t *testing.T) {
 		}
 	}
 }
+
+// A member is a part of a declaration, not surface of its module, so many of them do not
+// bring a near-fully-exported module under the ratio.
+func TestExplain_MembersDoNotDiluteTheRatio(t *testing.T) {
+	s := facts.NewStore()
+	addModuleSymbols(s, "pkg/leaky", 20, 19)
+	for i := 0; i < 20; i++ {
+		s.Add(facts.Fact{
+			Kind:  facts.KindSymbol,
+			Name:  fmt.Sprintf("pkg/leaky.Outer.nested%d", i),
+			File:  "pkg/leaky/a.py",
+			Props: map[string]any{"exported": false, facts.PropMemberOf: "pkg/leaky.Outer"},
+		})
+	}
+	insights, err := New().Explain(context.Background(), s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(insights) != 1 {
+		t.Errorf("expected the module reported, got %+v", insights)
+	}
+}

@@ -3353,7 +3353,9 @@ import (
 // in that directory, and so does a type re-exported by `pub use` or reached through a
 // `type` alias; `cfg_attr` matches a whole path.
 // v508: TypeScript: a function in an object literal a top-level function returns is a symbol, "<dir>.<fn>.<key path>" with member_of, carrying a span and no edges.
-const cacheVersion = "v508"
+// v509: A fact in a multi-repo snapshot says its path was prefixed (repo_prefixed), and an id hashes the repository-relative path, so a declaration has one id alone and at any place in a cluster. A prior union without the mark cannot be carried.
+// v510: Python: a function nested in a function or method is a symbol, "<owner>.<path>" with member_of, carrying a span and no edges.
+const cacheVersion = "v510"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

@@ -69,11 +69,12 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 			// endpoint from several commands, and three facts for one contract
 			// would inflate every count computed over them.
 			route := facts.Fact{
-				Kind: facts.KindRoute,
-				Name: path,
-				File: f.File,
-				Line: f.Line,
-				Repo: f.Repo,
+				Kind:         facts.KindRoute,
+				Name:         path,
+				File:         f.File,
+				RepoPrefixed: f.RepoPrefixed,
+				Line:         f.Line,
+				Repo:         f.Repo,
 				Props: map[string]any{
 					facts.PropRole:   facts.RoleClient,
 					"method":         verb,

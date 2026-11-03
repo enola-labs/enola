@@ -97,8 +97,9 @@ def get_items_router() -> APIRouter:
 		if ff[i].Kind == facts.KindSymbol && ff[i].Name == handler {
 			sym = &ff[i]
 		}
-		if ff[i].Kind == facts.KindSymbol && ff[i].Name == "app/routers.get_items_router.local_helper" {
-			t.Errorf("a nested def with no route became a symbol")
+		if ff[i].Kind == facts.KindSymbol && ff[i].Name == "app/routers.get_items_router.local_helper" &&
+			(ff[i].PropString("web_component") != "" || ff[i].PropString(facts.PropMemberOf) == "") {
+			t.Errorf("a nested def with no route is not only a part of its function: %+v", ff[i].Props)
 		}
 	}
 	if sym == nil {
