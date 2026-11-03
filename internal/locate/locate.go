@@ -25,9 +25,12 @@ type Symbol struct {
 	Name       string `json:"name"`
 	SymbolKind string `json:"symbol_kind,omitempty"`
 	File       string `json:"file"`
-	Line       int    `json:"line"`
-	EndLine    int    `json:"end_line,omitempty"`
-	BodyHash   string `json:"body_hash,omitempty"`
+	// RepoPrefixed says File starts with Repo and a slash that a multi-repo snapshot added
+	// (facts.Fact.RepoPrefixed), so the repository-relative path is the rest.
+	RepoPrefixed bool   `json:"repo_prefixed,omitempty"`
+	Line         int    `json:"line"`
+	EndLine      int    `json:"end_line,omitempty"`
+	BodyHash     string `json:"body_hash,omitempty"`
 	// DeclHash tells this declaration from others sharing its id (facts.PropDeclHash).
 	DeclHash string `json:"decl_hash,omitempty"`
 	// InnerHash is the version of the symbol's code after its signature (facts.PropInnerHash).
@@ -155,19 +158,20 @@ func NewIndex(ff []facts.Fact) *Index {
 			continue
 		}
 		s := Symbol{
-			ID:         f.Identity(),
-			Repo:       f.Repo,
-			Name:       f.Name,
-			SymbolKind: f.PropString("symbol_kind"),
-			File:       f.File,
-			Line:       f.Line,
-			EndLine:    f.EndLine,
-			BodyHash:   f.PropString(facts.PropBodyHash),
-			DeclHash:   f.PropString(facts.PropDeclHash),
-			InnerHash:  f.PropString(facts.PropInnerHash),
-			MemberOf:   f.PropString(facts.PropMemberOf),
-			rel:        f.IdentityFile(),
-			nested:     facts.NestedOf(f),
+			ID:           f.Identity(),
+			Repo:         f.Repo,
+			Name:         f.Name,
+			SymbolKind:   f.PropString("symbol_kind"),
+			File:         f.File,
+			RepoPrefixed: f.RepoPrefixed,
+			Line:         f.Line,
+			EndLine:      f.EndLine,
+			BodyHash:     f.PropString(facts.PropBodyHash),
+			DeclHash:     f.PropString(facts.PropDeclHash),
+			InnerHash:    f.PropString(facts.PropInnerHash),
+			MemberOf:     f.PropString(facts.PropMemberOf),
+			rel:          f.IdentityFile(),
+			nested:       facts.NestedOf(f),
 		}
 		if first := f.SpanStart(); first != f.Line {
 			s.SpanStart = first

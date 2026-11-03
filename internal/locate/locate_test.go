@@ -248,6 +248,21 @@ func TestSourceReadsTheRepositoryRelativePath(t *testing.T) {
 	}
 }
 
+// A located symbol says whether a multi-repo snapshot prefixed its file, since the text
+// cannot: a repository may hold a directory of its own name.
+func TestSymbolSaysItsFileWasPrefixed(t *testing.T) {
+	for _, prefixed := range []bool{true, false} {
+		f := facts.Fact{Kind: facts.KindSymbol, Repo: "r", Name: "f", File: "r/src/a.py", Line: 1, EndLine: 2, RepoPrefixed: prefixed}
+		res := NewIndex([]facts.Fact{f}).Locations([]string{"r/src/a.py:1"})
+		if len(res) != 1 || len(res[0].Symbols) != 1 {
+			t.Fatalf("prefixed %v: got %+v", prefixed, res)
+		}
+		if got := res[0].Symbols[0].RepoPrefixed; got != prefixed {
+			t.Errorf("prefixed %v: symbol says %v", prefixed, got)
+		}
+	}
+}
+
 // A stamp names a function and the lines it cited. When the function is rewritten, the
 // cited lines are looked for in its new body, wherever they now sit.
 func TestCitedLines(t *testing.T) {

@@ -21,6 +21,7 @@ are additive. A field marked optional is left out when it has no value.
 | `name` | string | always | Fact name |
 | `symbol_kind` | string | optional | `function`, `method`, `getter` and so on |
 | `file` | string | always | File as the graph names it |
+| `repo_prefixed` | bool | optional | A multi-repo snapshot put `repo` and a slash at the start of `file`; the rest is the path relative to the repository. Absent otherwise. See [facts.md](facts.md#identity-and-ids) |
 | `line` | int | always | The declaration's line |
 | `end_line` | int | optional | Last line of the span. Absent for F# and VB.NET |
 | `body_hash` | string | optional | Version of the symbol's code. See [facts.md](facts.md#body_hash) |
