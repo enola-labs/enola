@@ -1,6 +1,7 @@
 package locate
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -431,6 +432,39 @@ func TestCheckSaysWhatKindOfRewrite(t *testing.T) {
 		r := NewIndex([]facts.Fact{version(tc.after)}).Check([]Stamp{stamp(tc.inner)})[0]
 		if r.Status != tc.status || r.Change != tc.change {
 			t.Errorf("%s: %s %q, want %s %q", name, r.Status, r.Change, tc.status, tc.change)
+		}
+	}
+}
+
+// A line in a named nested function without a symbol of its own is an enclosing match that
+// names the function, by the symbol and the path down to it. A line in the symbol outside
+// them stays a span match.
+func TestEnclosingMatchNamesTheNestedFunction(t *testing.T) {
+	send := sym("Client.send", "a.ts", 2, 20, "")
+	send.Props[facts.PropNested] = []string{"onClose:3-5", "onOpen:6-12", "inner:8-10"}
+	ix := NewIndex([]facts.Fact{send})
+
+	for loc, want := range map[string]struct {
+		match  string
+		nested []string
+	}{
+		"a.ts:4":     {MatchEnclosing, []string{"Client.send.onClose"}},
+		"a.ts:9":     {MatchEnclosing, []string{"Client.send.onOpen.inner"}},
+		"a.ts:7":     {MatchEnclosing, []string{"Client.send.onOpen"}},
+		"a.ts:15":    {MatchSpan, nil},
+		"a.ts:14-16": {MatchSpan, nil},
+		"a.ts:4-7":   {MatchEnclosing, []string{"Client.send.onClose", "Client.send.onOpen"}},
+	} {
+		r := ix.Locations([]string{loc})[0]
+		var got []string
+		for _, n := range r.Nested {
+			got = append(got, n.Name)
+		}
+		if r.Match != want.match || !slices.Equal(got, want.nested) {
+			t.Errorf("%s: %s %v, want %s %v", loc, r.Match, got, want.match, want.nested)
+		}
+		if len(r.Symbols) != 1 || r.Symbols[0].Name != "Client.send" {
+			t.Errorf("%s: symbols %v, want the enclosing Client.send", loc, names(r.Symbols))
 		}
 	}
 }

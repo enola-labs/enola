@@ -312,6 +312,7 @@ func (e *TSExtractor) extractFile(src []byte, relFile string, rc *repoCtx, alias
 	if reachApplies(rc.tsFrameworks) && !facts.IsTestPath(relFile) {
 		res.reach = collectReach(kinds, root, src, relFile, res.facts, func(spec string) (string, bool) { return importedFile(spec, ctx) })
 	}
+	facts.AttachNested(res.facts, relFile, nestedFunctions(kinds, root, src))
 	return res
 }
 

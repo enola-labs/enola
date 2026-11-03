@@ -474,6 +474,7 @@ func (e *GoExtractor) extractFile(fset *token.FileSet, f *ast.File, relFile, pkg
 	// Extract Kafka topic references (produced/consumed), for async cross-repo links
 	result = append(result, extractKafkaFacts(fset, f, relFile, pkgDir)...)
 
+	facts.AttachNested(result, relFile, nestedFuncs(fset, f))
 	return result
 }
 

@@ -38,6 +38,28 @@ type Symbol struct {
 	SpanStart int `json:"span_start,omitempty"`
 	// rel is File relative to the repository, the path a Source reads.
 	rel string
+	// nested is the named functions in the symbol that have no symbol of their own
+	// (facts.PropNested), in line order.
+	nested []facts.Nested
+}
+
+// nestedAt names the nested function without a symbol that holds line, by the symbol's
+// name and the path of nested functions down to it, or returns false when there is none.
+func (s Symbol) nestedAt(line int) (facts.Nested, bool) {
+	var at facts.Nested
+	found := false
+	for _, n := range s.nested {
+		if n.Line > line || n.EndLine < line {
+			continue
+		}
+		// In line order, so each holding one is inside the last.
+		if !found {
+			at, found = facts.Nested{Name: s.Name + "." + n.Name, Line: n.Line, EndLine: n.EndLine}, true
+		} else if n.EndLine <= at.EndLine {
+			at = facts.Nested{Name: at.Name + "." + n.Name, Line: n.Line, EndLine: n.EndLine}
+		}
+	}
+	return at, found
 }
 
 func (s Symbol) spanned() bool { return s.EndLine >= s.Line && s.Line > 0 }
@@ -56,6 +78,9 @@ func (s Symbol) contains(line int) bool { return s.spanned() && s.first() <= lin
 const (
 	// MatchSpan is the innermost symbol whose span holds the line: exact.
 	MatchSpan = "span"
+	// MatchEnclosing is MatchSpan for a line in a named function nested in the symbol that
+	// has no symbol of its own. The location names that function.
+	MatchEnclosing = "enclosing"
 	// MatchNearest is the nearest declaration above the line, for a file whose
 	// extractor measures no spans. Usually the enclosing declaration, but a line after a
 	// function's end is credited to it too.
@@ -142,6 +167,7 @@ func NewIndex(ff []facts.Fact) *Index {
 			InnerHash:  f.PropString(facts.PropInnerHash),
 			MemberOf:   f.PropString(facts.PropMemberOf),
 			rel:        f.IdentityFile(),
+			nested:     facts.NestedOf(f),
 		}
 		if first := f.SpanStart(); first != f.Line {
 			s.SpanStart = first

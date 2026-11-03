@@ -501,6 +501,13 @@ same while the body is rewritten, so it says which declaration a remembered `bod
 belonged to. Declarations with the same signature, such as two `#[cfg]` variants, share
 it.
 
+### nested
+
+`nested` (TypeScript, JavaScript, Go and Rust) lists the named functions inside a symbol that
+have no symbol of their own, each as `<name>:<line>-<end_line>`, on the innermost symbol holding
+them. It is what [locate](locate.md#nested-functions) reads to report an `enclosing` match. It
+says nothing about the architecture: no edges, and the calls in those functions stay the symbol's.
+
 ### member_of
 
 `member_of` (TypeScript, JavaScript and Python) is the declaration a symbol is a part of: in Python a function nested in another, in TypeScript and JavaScript a function in
