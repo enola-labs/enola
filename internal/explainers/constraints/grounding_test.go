@@ -112,8 +112,8 @@ func TestExplain_UngroundableImportTargetsAreCounted(t *testing.T) {
 func TestGrounding_ResolvesIndexAndStaysInsideTheRepo(t *testing.T) {
 	store := facts.NewStore()
 	store.Add(
-		facts.Fact{Kind: facts.KindFileRef, Repo: "a", Name: "src/widgets/index.ts", File: "a/src/widgets/index.ts"},
-		facts.Fact{Kind: facts.KindFileRef, Repo: "b", Name: "src/other.ts", File: "b/src/other.ts"},
+		facts.Fact{Kind: facts.KindFileRef, Repo: "a", RepoPrefixed: true, Name: "src/widgets/index.ts", File: "a/src/widgets/index.ts"},
+		facts.Fact{Kind: facts.KindFileRef, Repo: "b", RepoPrefixed: true, Name: "src/other.ts", File: "b/src/other.ts"},
 	)
 	g := newGrounding(store, nil)
 	if got, ok := g.resolve("src/widgets", "a"); !ok || got != "a/src/widgets/index.ts" {
@@ -124,6 +124,20 @@ func TestGrounding_ResolvesIndexAndStaysInsideTheRepo(t *testing.T) {
 	}
 	if _, ok := g.resolve("src/missing", "a"); ok {
 		t.Error("a target naming no measured file must not resolve")
+	}
+}
+
+// A repository can hold a directory of its own name. Alone its paths carry no label,
+// so a.ts under that directory is a/a.ts, and a target written a.ts names another file.
+func TestGrounding_ADirectoryNamedLikeTheRepositoryIsNotItsLabel(t *testing.T) {
+	store := facts.NewStore()
+	store.Add(facts.Fact{Kind: facts.KindFileRef, Repo: "a", Name: "a/a.ts", File: "a/a.ts"})
+	g := newGrounding(store, nil)
+	if got, ok := g.resolve("a/a", "a"); !ok || got != "a/a.ts" {
+		t.Errorf("resolve(a/a, a) = %q/%v, want a/a.ts", got, ok)
+	}
+	if got, ok := g.resolve("a", "a"); ok {
+		t.Errorf("resolve(a, a) = %q, want no file: a.ts at the root was never measured", got)
 	}
 }
 

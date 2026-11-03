@@ -160,10 +160,10 @@ func TestIntentCheck_PageOnlyGraphStillVerdicts(t *testing.T) {
 // edge in a cluster graph dangles.
 func TestIntentCheck_RelationJoinsAcrossLabelPrefix(t *testing.T) {
 	target := pageFact("wiki", "wiki/wiki/a/adrs/two.md")
-	insights := explain(t,
-		target,
-		relationFact("wiki", "wiki/wiki/a/adrs/one.md", "depends-on", "wiki/a/adrs/two.md"),
-	)
+	target.RepoPrefixed = true
+	rel := relationFact("wiki", "wiki/wiki/a/adrs/one.md", "depends-on", "wiki/a/adrs/two.md")
+	rel.RepoPrefixed = true
+	insights := explain(t, target, rel)
 	if len(insights) != 0 {
 		t.Fatalf("a label-prefixed page must satisfy its repo-relative relation, got %s", titles(insights))
 	}

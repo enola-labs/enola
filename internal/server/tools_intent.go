@@ -66,7 +66,7 @@ func (s *Server) registerGoverningIntentTool() {
 					(args.Repo != "" && f.Repo != args.Repo) {
 					continue
 				}
-				if f.File == args.Target || strings.TrimPrefix(f.File, f.Repo+"/") == args.Target {
+				if f.File == args.Target || f.IdentityFile() == args.Target {
 					add(f.Repo, f.File)
 				}
 			}

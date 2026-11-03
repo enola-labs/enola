@@ -13,7 +13,7 @@ import (
 // by its interface. A call nothing runs adds no screen, and the walk stops at the
 // nearest screen rather than going on to what contains it.
 func TestScreens_WebPagesAndTheNearestMobileScreen(t *testing.T) {
-	server := facts.Fact{Kind: facts.KindRoute, Name: "/api/orders/{id}", Repo: "api", File: "api/routes.go",
+	server := facts.Fact{Kind: facts.KindRoute, Name: "/api/orders/{id}", Repo: "api", RepoPrefixed: true, File: "api/routes.go",
 		Props: map[string]any{"method": "GET", "handler": "orders.Get"}}
 	matched := []any{map[string]any{"repo": "api", "method": "GET", "name": "/api/orders/{id}"}}
 	client := func(repo, file, caller string, extra map[string]any) facts.Fact {
@@ -21,10 +21,10 @@ func TestScreens_WebPagesAndTheNearestMobileScreen(t *testing.T) {
 		for k, v := range extra {
 			p[k] = v
 		}
-		return facts.Fact{Kind: facts.KindRoute, Name: "/api/orders/{}", Repo: repo, File: file, Props: p}
+		return facts.Fact{Kind: facts.KindRoute, Name: "/api/orders/{}", Repo: repo, RepoPrefixed: true, File: file, Props: p}
 	}
 	sym := func(name, file, lang, kind string, rels ...facts.Relation) facts.Fact {
-		return facts.Fact{Kind: facts.KindSymbol, Name: name, File: file, Repo: "app",
+		return facts.Fact{Kind: facts.KindSymbol, Name: name, File: file, Repo: "app", RepoPrefixed: true,
 			Props: map[string]any{"language": lang, "symbol_kind": kind}, Relations: rels}
 	}
 	calls := func(t string) facts.Relation { return facts.Relation{Kind: facts.RelCalls, Target: t} }

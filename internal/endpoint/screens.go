@@ -63,7 +63,7 @@ func screensFrom(s *facts.Store, clients, servers []facts.Fact) []Screen {
 		var found []facts.Fact
 		if pages := stringList(c.PropAny(facts.PropClientPages)); len(pages) > 0 {
 			prefix := ""
-			if c.Repo != "" && strings.HasPrefix(c.File, c.Repo+"/") {
+			if c.RepoPrefixed {
 				prefix = c.Repo + "/"
 			}
 			for _, p := range pages {

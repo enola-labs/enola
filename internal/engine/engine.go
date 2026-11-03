@@ -245,6 +245,8 @@ func (e *Engine) RestoreFromDir(dir string, repoPaths map[string]string, singleR
 	if singleRepoLabel != "" {
 		// Tags only facts whose Repo is empty, so a pre-tagged file is left intact.
 		work.SetRepoRange(0, singleRepoLabel)
+	} else {
+		work.MarkLegacyRepoPrefixes()
 	}
 	// Indexes a binder derives beside the facts are not in facts.jsonl; rebuild them
 	// before the graph reads them, or a restored graph would lose the cross-repo
@@ -315,11 +317,10 @@ func (e *Engine) ResolveFactFile(f *facts.Fact) string {
 	b := e.current.Load()
 
 	// Multi-repo: if the fact has a Repo label that maps to a known path,
-	// strip the repo prefix from f.File and join with the absolute root.
+	// join its repository-relative path with the absolute root.
 	if f.Repo != "" && b.repoPaths != nil {
 		if absRoot, ok := b.repoPaths[f.Repo]; ok {
-			rel := strings.TrimPrefix(f.File, f.Repo+"/")
-			return filepath.Join(absRoot, rel)
+			return filepath.Join(absRoot, f.IdentityFile())
 		}
 	}
 
@@ -480,7 +481,7 @@ func sourceReaderFor(repoPaths map[string]string) crossrepo.SourceReader {
 			missing[f.File] = true
 			return "", false
 		}
-		abs := filepath.Join(root, strings.TrimPrefix(f.File, f.Repo+"/"))
+		abs := filepath.Join(root, f.IdentityFile())
 		data, err := os.ReadFile(abs)
 		if err != nil {
 			missing[f.File] = true

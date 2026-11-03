@@ -165,7 +165,7 @@ func incomingGroups(store *facts.Store, defined map[string]bool, inFile func(fac
 }
 
 func factInFile(f facts.Fact, file string) bool {
-	return f.File != "" && (f.File == file || strings.TrimPrefix(f.File, f.Repo+"/") == file)
+	return f.File != "" && (f.File == file || f.IdentityFile() == file)
 }
 
 // PartFile is one file a part holds members in, with the member names.

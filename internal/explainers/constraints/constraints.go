@@ -2653,10 +2653,8 @@ func matchConstraintFile(f facts.Fact, patterns []string) bool {
 	if matchConstraintPath(f.File, patterns) {
 		return true
 	}
-	if f.Repo != "" {
-		if trimmed := strings.TrimPrefix(f.File, f.Repo+"/"); trimmed != f.File {
-			return matchConstraintPath(trimmed, patterns)
-		}
+	if f.RepoPrefixed {
+		return matchConstraintPath(f.IdentityFile(), patterns)
 	}
 	return false
 }

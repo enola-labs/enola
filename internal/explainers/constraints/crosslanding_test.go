@@ -26,16 +26,16 @@ func atlasUnion(picCalls ...facts.Relation) *facts.Store {
 		store.Add(f)
 	}
 	store.Add(
-		facts.Fact{Kind: facts.KindSymbol, Name: "crates/pic/src.Kind.atlas", File: "atlas/crates/pic/src/lib.rs", Repo: "atlas",
+		facts.Fact{Kind: facts.KindSymbol, Name: "crates/pic/src.Kind.atlas", File: "atlas/crates/pic/src/lib.rs", Repo: "atlas", RepoPrefixed: true,
 			Props: map[string]any{"language": "rust", "receiver": "Kind"}},
-		facts.Fact{Kind: facts.KindSymbol, Name: "crates/pic/src.write", File: "atlas/crates/pic/src/lib.rs", Repo: "atlas",
+		facts.Fact{Kind: facts.KindSymbol, Name: "crates/pic/src.write", File: "atlas/crates/pic/src/lib.rs", Repo: "atlas", RepoPrefixed: true,
 			Props: map[string]any{"language": "rust"}, Relations: picCalls},
-		facts.Fact{Kind: facts.KindSymbol, Name: "src.main", File: "atlas/src/main.rs", Repo: "atlas",
+		facts.Fact{Kind: facts.KindSymbol, Name: "src.main", File: "atlas/src/main.rs", Repo: "atlas", RepoPrefixed: true,
 			Props: map[string]any{"language": "rust"}},
-		facts.Fact{Kind: facts.KindStorage, Name: "default", File: "jobs/app/jobs/report_job.rb", Repo: "jobs",
+		facts.Fact{Kind: facts.KindStorage, Name: "default", File: "jobs/app/jobs/report_job.rb", Repo: "jobs", RepoPrefixed: true,
 			Props: map[string]any{"language": "ruby", "storage_kind": "topic"}},
-		facts.Fact{Kind: facts.KindModule, Name: "app/jobs", File: "jobs/app/jobs", Repo: "jobs"},
-		facts.Fact{Kind: facts.KindSymbol, Name: "ReportJob#perform", File: "jobs/app/jobs/report_job.rb", Repo: "jobs",
+		facts.Fact{Kind: facts.KindModule, Name: "app/jobs", File: "jobs/app/jobs", Repo: "jobs", RepoPrefixed: true},
+		facts.Fact{Kind: facts.KindSymbol, Name: "ReportJob#perform", File: "jobs/app/jobs/report_job.rb", Repo: "jobs", RepoPrefixed: true,
 			Props: map[string]any{"language": "ruby"}},
 		facts.Fact{Kind: facts.KindService, Name: "atlas", Repo: "atlas", Props: map[string]any{"synthetic": "crossrepo"}},
 		facts.Fact{Kind: facts.KindService, Name: "jobs", Repo: "jobs", Props: map[string]any{"synthetic": "crossrepo"}},
@@ -103,7 +103,7 @@ func TestExplain_AllowOnlyStillJudgesWhatACallReaches(t *testing.T) {
 // call was written in, and the rule judges it.
 func TestExplain_AllowOnlyCallMatchingItsOwnRepositorysFactStillLands(t *testing.T) {
 	store := atlasUnion(facts.Relation{Kind: facts.RelCalls, Target: "default"})
-	store.Add(facts.Fact{Kind: facts.KindStorage, Name: "default", File: "atlas/src/queue.rs", Repo: "atlas",
+	store.Add(facts.Fact{Kind: facts.KindStorage, Name: "default", File: "atlas/src/queue.rs", Repo: "atlas", RepoPrefixed: true,
 		Props: map[string]any{"language": "rust", "storage_kind": "topic"}})
 	if got := picBreaches(t, store); len(got) != 1 {
 		t.Fatalf("breaches = %+v, want the one onto the repository's own default", got)

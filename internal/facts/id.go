@@ -90,7 +90,9 @@ func identityFile(repo, file string, prefixed bool) string {
 	return file
 }
 
-// IdentityFile returns the path this fact's id hashes.
+// IdentityFile returns the path this fact's id hashes, which is File relative to its
+// repository. Use it, never a strip of Repo+"/" from File, wherever a path relative to
+// the repository is needed.
 func (f Fact) IdentityFile() string { return identityFile(f.Repo, f.File, f.RepoPrefixed) }
 
 // Identity returns this fact's FactID.

@@ -1237,6 +1237,28 @@ func (s *Store) ReadJSONL(r io.Reader) error {
 	return scanner.Err()
 }
 
+// MarkLegacyRepoPrefixes sets RepoPrefixed on a multi-repo store read from a file written
+// before facts carried it, where it is guessed from the path as those builds did. A store
+// in which any fact carries the mark already is left alone, and so is a single-repo one.
+func (s *Store) MarkLegacyRepoPrefixes() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.facts {
+		if s.facts[i].RepoPrefixed {
+			return 0
+		}
+	}
+	n := 0
+	for i := range s.facts {
+		f := &s.facts[i]
+		if f.Repo != "" && strings.HasPrefix(f.File, f.Repo+"/") {
+			f.RepoPrefixed = true
+			n++
+		}
+	}
+	return n
+}
+
 // ReadJSONLFile reads facts from a JSONL file and adds them to the store.
 func (s *Store) ReadJSONLFile(path string) error {
 	f, err := os.Open(path)

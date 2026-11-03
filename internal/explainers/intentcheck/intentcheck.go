@@ -286,7 +286,7 @@ func retiredPages(store *facts.Store) map[string]bool {
 	out := map[string]bool{}
 	mark := func(f facts.Fact) {
 		out[f.File] = true
-		out[strings.TrimPrefix(f.File, f.Repo+"/")] = true
+		out[f.IdentityFile()] = true
 	}
 	for _, f := range store.FactsRef() {
 		if f.Kind != facts.KindIntent {
@@ -414,7 +414,7 @@ func relationVerdicts(store *facts.Store) []facts.Insight {
 		switch f.PropString("intent_kind") {
 		case "page":
 			pages[f.Repo+"\x00"+f.File] = true
-			pages[f.Repo+"\x00"+strings.TrimPrefix(f.File, f.Repo+"/")] = true
+			pages[f.Repo+"\x00"+f.IdentityFile()] = true
 		case "relation":
 			relations = append(relations, f)
 		}
@@ -473,7 +473,7 @@ func anchorVerdicts(store *facts.Store, present, retired map[string]bool) []fact
 			measuredBases[f.Repo] = map[string]bool{}
 		}
 		measured[f.Repo][f.File] = true
-		measured[f.Repo][strings.TrimPrefix(f.File, f.Repo+"/")] = true
+		measured[f.Repo][f.IdentityFile()] = true
 		if ext := fileExt(f.File); ext != "" {
 			measuredExts[f.Repo][ext] = true
 		} else {

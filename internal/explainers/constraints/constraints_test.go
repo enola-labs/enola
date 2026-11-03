@@ -684,14 +684,14 @@ func serviceComponentIntent(name, service, match string) facts.Fact {
 func crossRepoStore() *facts.Store {
 	store := facts.NewStore()
 	store.Add(
-		facts.Fact{Kind: facts.KindSymbol, Name: "web.Checkout", File: "frontend/app/checkout.go", Repo: "frontend",
+		facts.Fact{Kind: facts.KindSymbol, Name: "web.Checkout", File: "frontend/app/checkout.go", Repo: "frontend", RepoPrefixed: true,
 			Relations: []facts.Relation{
 				{Kind: facts.RelCalls, Target: "billing.internal.Charge"},
 				{Kind: facts.RelCalls, Target: "web.internal.Helper"},
 			}},
-		facts.Fact{Kind: facts.KindSymbol, Name: "web.internal.Helper", File: "frontend/internal/helper.go", Repo: "frontend"},
-		facts.Fact{Kind: facts.KindSymbol, Name: "billing.internal.Charge", File: "billing/internal/charge.go", Repo: "billing"},
-		facts.Fact{Kind: facts.KindSymbol, Name: "billing.api.Invoice", File: "billing/api/invoice.go", Repo: "billing"},
+		facts.Fact{Kind: facts.KindSymbol, Name: "web.internal.Helper", File: "frontend/internal/helper.go", Repo: "frontend", RepoPrefixed: true},
+		facts.Fact{Kind: facts.KindSymbol, Name: "billing.internal.Charge", File: "billing/internal/charge.go", Repo: "billing", RepoPrefixed: true},
+		facts.Fact{Kind: facts.KindSymbol, Name: "billing.api.Invoice", File: "billing/api/invoice.go", Repo: "billing", RepoPrefixed: true},
 		facts.Fact{Kind: facts.KindService, Name: "frontend", Repo: "frontend",
 			Props:     map[string]any{"synthetic": "crossrepo"},
 			Relations: []facts.Relation{{Kind: facts.RelDependsOn, Target: "billing"}}},

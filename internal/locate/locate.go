@@ -36,6 +36,8 @@ type Symbol struct {
 	MemberOf string `json:"member_of,omitempty"`
 	// SpanStart is where the code starts when that is above Line: its decorators.
 	SpanStart int `json:"span_start,omitempty"`
+	// rel is File relative to the repository, the path a Source reads.
+	rel string
 }
 
 func (s Symbol) spanned() bool { return s.EndLine >= s.Line && s.Line > 0 }
@@ -81,7 +83,8 @@ type Index struct {
 }
 
 // Source reads the current content of a file the graph names, given the repository
-// label its facts carry. ok is false when it cannot be read.
+// label its facts carry and the file's path relative to that repository. ok is false
+// when it cannot be read.
 type Source func(repo, file string) (content []byte, ok bool)
 
 // SetSource lets the index read files, which is what the cited-lines version needs: the
@@ -100,11 +103,11 @@ func (ix *Index) read(file string) ([]byte, bool) {
 	if content, seen := ix.sources[file]; seen {
 		return content, content != nil
 	}
-	repo := ""
+	repo, rel := "", file
 	if ss := ix.byFile[file]; len(ss) > 0 {
-		repo = ss[0].Repo
+		repo, rel = ss[0].Repo, ss[0].rel
 	}
-	content, ok := ix.source(repo, file)
+	content, ok := ix.source(repo, rel)
 	if !ok {
 		content = nil
 	}
@@ -138,6 +141,7 @@ func NewIndex(ff []facts.Fact) *Index {
 			DeclHash:   f.PropString(facts.PropDeclHash),
 			InnerHash:  f.PropString(facts.PropInnerHash),
 			MemberOf:   f.PropString(facts.PropMemberOf),
+			rel:        f.IdentityFile(),
 		}
 		if first := f.SpanStart(); first != f.Line {
 			s.SpanStart = first

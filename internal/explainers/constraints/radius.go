@@ -76,7 +76,7 @@ func blastRadius(store *facts.Store, files []string, snapshot map[string][]facts
 	sort.Strings(trimmed)
 	out := BlastRadius{Files: trimmed, Appear: []RadiusVerdict{}, Vanish: []RadiusVerdict{}}
 	exclude := func(f facts.Fact) bool {
-		return set[f.File] || set[strings.TrimPrefix(f.File, f.Repo+"/")]
+		return set[f.File] || set[f.IdentityFile()]
 	}
 	e := New()
 	after := e.evaluate(store, evaluation{guard: true, exclude: exclude})

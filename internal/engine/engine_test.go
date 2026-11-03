@@ -320,13 +320,18 @@ func TestResolveFactFile_MultiRepo(t *testing.T) {
 	}{
 		{
 			"multi-repo go-service",
-			facts.Fact{File: "go-service/lib/foo.rb", Repo: "go-service"},
+			facts.Fact{File: "go-service/lib/foo.rb", Repo: "go-service", RepoPrefixed: true},
 			filepath.Join("/Users/me/development/go-service", "lib/foo.rb"),
 		},
 		{
 			"multi-repo ruby-monolith",
-			facts.Fact{File: "ruby-monolith/lib/bar.rb", Repo: "ruby-monolith"},
+			facts.Fact{File: "ruby-monolith/lib/bar.rb", Repo: "ruby-monolith", RepoPrefixed: true},
 			filepath.Join("/Users/me/development/ruby-monolith", "lib/bar.rb"),
+		},
+		{
+			"a directory named like the repository is part of the path",
+			facts.Fact{File: "go-service/lib/foo.rb", Repo: "go-service"},
+			filepath.Join("/Users/me/development/go-service", "go-service/lib/foo.rb"),
 		},
 		{
 			"no repo label falls back to snapshot",
@@ -508,11 +513,11 @@ func TestSourceReaderFor_ResolvesRepoPrefixedPaths(t *testing.T) {
 		t.Fatal("expected a reader for a non-empty repo path map")
 	}
 
-	got, ok := read(facts.Fact{Repo: "svc", File: "svc/app/widget.rb"})
+	got, ok := read(facts.Fact{Repo: "svc", RepoPrefixed: true, File: "svc/app/widget.rb"})
 	if !ok || got != want {
 		t.Errorf("read(repo-prefixed) = %q, %v; want %q, true", got, ok, want)
 	}
-	if _, ok := read(facts.Fact{Repo: "svc", File: "svc/app/missing.rb"}); ok {
+	if _, ok := read(facts.Fact{Repo: "svc", RepoPrefixed: true, File: "svc/app/missing.rb"}); ok {
 		t.Error("missing file should report not-ok, not an empty success")
 	}
 	if _, ok := read(facts.Fact{Repo: "unknown", File: "unknown/app/widget.rb"}); ok {

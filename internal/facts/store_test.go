@@ -1068,3 +1068,22 @@ func TestStore_HasFileOutside(t *testing.T) {
 		t.Error("a repo the store does not hold has no file anywhere")
 	}
 }
+
+// A multi-repo file written before facts carried RepoPrefixed is marked by its paths, as
+// those builds read them; a file that carries the mark anywhere is trusted as written.
+func TestMarkLegacyRepoPrefixes(t *testing.T) {
+	legacy := NewStore()
+	legacy.Add(Fact{Kind: KindSymbol, Name: "a", Repo: "r", File: "r/a.go"}, Fact{Kind: KindSymbol, Name: "b", Repo: "s", File: "b.go"})
+	if n := legacy.MarkLegacyRepoPrefixes(); n != 1 {
+		t.Fatalf("marked %d, want the one prefixed fact", n)
+	}
+	if ff := legacy.FactsRef(); !ff[0].RepoPrefixed || ff[1].RepoPrefixed {
+		t.Errorf("marks = %v, %v; want true, false", ff[0].RepoPrefixed, ff[1].RepoPrefixed)
+	}
+
+	current := NewStore()
+	current.Add(Fact{Kind: KindSymbol, Name: "a", Repo: "r", File: "r/a.go", RepoPrefixed: true}, Fact{Kind: KindSymbol, Name: "b", Repo: "s", File: "s/b.go"})
+	if n := current.MarkLegacyRepoPrefixes(); n != 0 || current.FactsRef()[1].RepoPrefixed {
+		t.Errorf("a marked file was re-marked (%d): s/b.go is repository s's own directory s", n)
+	}
+}
