@@ -38,31 +38,37 @@ are additive. A field marked optional is left out when it has no value.
 | `match` | string | always | How it matched, below |
 | `symbols` | array of [symbols](#symbol) | optional | Innermost symbol at a line; each distinct one in a range |
 | `candidates` | array of strings | optional | Graph files the path matched, when more than one |
+| `nested` | array | optional | For an `enclosing` match, each [nested function](#nested-functions) without a symbol the location is in: `name`, `line`, `end_line` |
 | `cited_hash` | string | optional | Version of the cited lines. Needs the source |
 | `cited_lines` | int | optional | Non-blank lines `cited_hash` covers. A single line is taken with one line either side |
 | `error` | string | optional | The location could not be read |
 
 | `match` | Meaning |
 |---|---|
-| `span` | The innermost symbol whose span holds the line. Exact for symbols; see [nested functions](#nested-functions) |
+| `span` | The innermost symbol whose span holds the line. Exact |
+| `enclosing` | As `span`, but the line is in a named function nested in that symbol that has no symbol of its own, which `nested` names. See [nested functions](#nested-functions) |
 | `nearest` | The declaration above the line, for a file with no spans (F#, VB.NET). A line past a function's end is credited to it too |
 | `none` | No symbol holds the line: imports, top-level code, blank lines |
 | `no_file` | The graph has no symbols for this file, or the path matched several (`candidates`) |
 
 ### Nested functions
 
-A nested function is located as itself when the graph has a symbol for it, and as the function
-around it when it has none. A `span` match does not say which: a nested symbol carries
-`member_of`, naming the declaration it is in, and a match on the enclosing function carries
-nothing extra.
+A nested function is located as itself when the graph has a symbol for it. When it has none and
+it is named, the match is `enclosing`: `symbols` holds the function around it and `nested` names
+the nested one by that symbol and the path down to it (`Client.send.onClose`), with its lines. A
+nested symbol of its own carries `member_of` when it is a part of a declaration.
 
-| Language | Nested functions with a symbol of their own |
-|---|---|
-| Python | A function or `async def` inside a function or method, at any depth and in a class declared there, named by the path to it (`Client.send.on_close`) |
-| TypeScript, JavaScript | A function in an object literal a top-level function returns. Other local functions and arrow functions have none |
-| Others | None |
+| Language | A symbol of its own | Named, without a symbol (`enclosing`) |
+|---|---|---|
+| Python | A function or `async def` inside a function or method, at any depth and in a class declared there | Not measured: a lambda bound to a name |
+| TypeScript, JavaScript | A function in an object literal a top-level function returns | A local function, a variable bound to a function or arrow, a named function expression, and a method or function-valued key of an object literal or local class |
+| Go | None | A function literal bound to a name (`onClose := func() {...}`, `var onClose = func() {...}`) |
+| Rust | A fn item inside a fn | A closure a `let` binds to a plain name |
+| Others | None | Not measured: a `span` match may be on an enclosing function |
 
-Lambdas, and classes declared inside a function, have no symbol in any language.
+Anonymous functions are not named and are located as the symbol around them in every language:
+callbacks, lambdas, closures passed straight to a call. So are classes declared inside a function.
+TypeScript and JavaScript inside Vue, Svelte and other component files are not measured.
 
 `touched --grain` does not change any of this. It decides how commits are counted for a ranking:
 `member` credits the symbol `locate` returns, `declaration` credits the `member_of` declaration

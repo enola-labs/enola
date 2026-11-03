@@ -24,6 +24,9 @@ type LocationResult struct {
 	Symbols []Symbol `json:"symbols,omitempty"`
 	// Candidates are the graph files a path matched when it matched more than one.
 	Candidates []string `json:"candidates,omitempty"`
+	// Nested names, for an enclosing match, each named nested function without a symbol of
+	// its own that the location is in.
+	Nested []facts.Nested `json:"nested,omitempty"`
 	// CitedHash is the version of the cited lines themselves, normalized as a body is
 	// (facts.HashLines), and CitedLines how many non-blank lines it covers. A stamp that
 	// keeps both can later be told apart from its function: the function rewritten, the
@@ -69,10 +72,19 @@ func (ix *Index) location(loc string) LocationResult {
 		if m == MatchNone {
 			continue
 		}
-		r.Match = m
+		if r.Match != MatchEnclosing {
+			r.Match = m
+		}
 		if key := s.ID + "\x00" + strconv.Itoa(s.Line); !seen[key] {
 			seen[key] = true
 			r.Symbols = append(r.Symbols, s)
+		}
+		if n, in := s.nestedAt(line); in && m == MatchSpan {
+			r.Match = MatchEnclosing
+			if key := "nested\x00" + n.Name + "\x00" + strconv.Itoa(n.Line); !seen[key] {
+				seen[key] = true
+				r.Nested = append(r.Nested, n)
+			}
 		}
 	}
 	return r

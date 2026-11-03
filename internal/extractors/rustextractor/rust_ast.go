@@ -72,6 +72,8 @@ func extractRustFile(src []byte, relFile string, crates []crateInfo, moduleDirs 
 		})
 	}
 
+	facts.AttachNested(w.out, relFile, nestedFunctions(root, src))
+
 	if testFile {
 		return rustFileOut{facts: w.out, testSubmods: w.testSubmods}
 	}
