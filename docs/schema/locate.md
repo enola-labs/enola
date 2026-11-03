@@ -134,8 +134,10 @@ result.
 - **The candidates share the stamp's `id`**, and none has its body, or its signature, or (when
   neither was stamped) one kind. Declarations with one signature, such as `#[cfg]` variants,
   end here once rewritten.
-- **One candidate shares the `id`, and it differs from the stamp's `decl_hash` or kind.** Either
-  the stamped declaration was deleted and this sibling survived, or it was given a new signature.
+- **One candidate shares the `id`, and it differs from the stamp's `decl_hash` or kind**, or,
+  with no source to read its signature, the stamp has a `decl_hash` the candidate cannot be
+  checked against. Either the stamped declaration was deleted and this sibling survived, or it
+  was given a new signature.
 - **The candidates have other ids and the stamp's `body_hash`.** Two copies of the moved symbol
   exist, and a move cannot be told from a copy.
 
@@ -146,6 +148,7 @@ stamp, no source to read, a symbol with no span, or a status with no symbol to l
 ## What needs a working tree
 
 `--facts` (a stored snapshot) and `--at` (a recorded revision) have no source that matches the
-graph, so they return no `cited_hash` or `cited_lines` and no `cited`. There, a stamp's `decl_hash`
-is compared only where the snapshot carries one, so a surviving sibling of the same kind reads as
-`rewritten` rather than `ambiguous`.
+graph, so they return no `cited_hash` or `cited_lines` and no `cited`. A snapshot carries
+`decl_hash` only on declarations that share their `id`, so a stamp with a `decl_hash` whose `id`
+is now held by one declaration with another body cannot be checked there, and reads as
+`ambiguous` where the working tree may say `rewritten`.

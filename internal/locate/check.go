@@ -216,9 +216,13 @@ func (ix *Index) resolveDeclaration(st Stamp, same []Symbol) (*Symbol, []Symbol)
 
 // mayBeSameDeclaration checks a stamp that named one of several declarations against the
 // only one left. A symbol alone under its id carries no decl_hash, so its signature is
-// read from the source when there is one; without source only the kind can object. A
-// mismatch is a sibling that survived, or the stamped one with a new signature, and the
-// two look alike.
+// read from the source when there is one. A mismatch is a sibling that survived, or the
+// stamped one with a new signature, and the two look alike.
+//
+// Without a signature to compare, from the facts alone, the survivor may be either the
+// stamped declaration or a sibling whose stamped twin was deleted, and nothing in the
+// facts tells which. That is ambiguous, not the survivor: binding to it would report a
+// deleted setter as rewritten into its getter.
 func (ix *Index) mayBeSameDeclaration(st Stamp, s Symbol) bool {
 	if st.DeclHash == "" {
 		return true
@@ -234,7 +238,7 @@ func (ix *Index) mayBeSameDeclaration(st Stamp, s Symbol) bool {
 			return h == st.DeclHash
 		}
 	}
-	return true
+	return false
 }
 
 func filterSymbols(ss []Symbol, keep func(Symbol) bool) []Symbol {
