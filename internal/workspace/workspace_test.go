@@ -156,3 +156,30 @@ func TestNames_SummarisesLongLists(t *testing.T) {
 		t.Errorf("Names = %q, want %q", got, want)
 	}
 }
+
+func TestCluster(t *testing.T) {
+	dir := t.TempDir()
+	for _, n := range []string{"api", "web"} {
+		if err := os.MkdirAll(filepath.Join(dir, n, ".git"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if path, repos := Cluster(dir); path != "" || len(repos) != 2 {
+		t.Errorf("folder of repos: got %q %v, want its two children", path, repos)
+	}
+
+	cfg := filepath.Join(dir, ClusterFileName)
+	if err := os.WriteFile(cfg, []byte("repos:\n  - api\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if path, repos := Cluster(dir); path != cfg || repos != nil {
+		t.Errorf("with a cluster config: got %q %v, want the config", path, repos)
+	}
+
+	if err := os.Mkdir(filepath.Join(dir, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if path, repos := Cluster(dir); path != "" || repos != nil {
+		t.Errorf("a repository is not a cluster: got %q %v", path, repos)
+	}
+}

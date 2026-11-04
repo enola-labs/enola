@@ -83,21 +83,22 @@ func (r *Runner) historyTargetOf(cmd, arg string) historyScope {
 // repository.
 func (r *Runner) folderScope(cmd, dir string) (historyScope, bool) {
 	abs, err := filepath.Abs(dir)
-	if err != nil || workspace.IsRepo(abs) {
+	if err != nil {
 		return historyScope{}, false
 	}
-	if path := filepath.Join(abs, workspace.ClusterFileName); fileExists(path) {
+	path, kids := workspace.Cluster(abs)
+	if path != "" {
 		cfg, err := config.Load(path)
 		if err != nil {
 			r.cmdFatal(cmd, "reading %s: %v", path, err)
 		}
-		if len(cfg.Repos) > 0 {
-			s := r.scopeOf(cmd, cfg)
-			s.cluster = path
-			return s, true
+		if len(cfg.Repos) == 0 {
+			r.cmdFatal(cmd, "%s lists no repositories under repos:", path)
 		}
+		s := r.scopeOf(cmd, cfg)
+		s.cluster = path
+		return s, true
 	}
-	kids := workspace.Clusterable(abs, "")
 	if len(kids) == 0 {
 		return historyScope{}, false
 	}
