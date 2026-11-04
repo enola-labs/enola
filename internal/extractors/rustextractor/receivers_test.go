@@ -706,3 +706,29 @@ pub fn through_alias(w: Wrap<u8>) { w.k_method(); }
 		t.Errorf("an alias parameter is not the local struct K, but src.through_alias calls %v", got)
 	}
 }
+
+func TestRustGenericParameterIsNotTheLocalTypeOfTheSameName(t *testing.T) {
+	ff := extractRustRepo(t, map[string]string{
+		"Cargo.toml": "[package]\nname = \"rt\"\n",
+		"src/lib.rs": `
+pub struct K;
+impl K { pub fn k_method(&self) {} pub fn new() -> K { K } }
+pub fn param<K>(x: K) { x.k_method(); }
+pub fn assoc<K: Default>() { K::new(); }
+pub struct Fac;
+impl Fac { pub fn make<K>() -> K { todo!() } }
+pub fn caller() { Fac::make().k_method(); }
+pub struct W<K>(K);
+impl<K> W<K> { pub fn get(&self, x: K) { x.k_method(); } }
+pub fn real(x: K) { x.k_method(); }
+`,
+	})
+	for _, sym := range []string{"src.param", "src.assoc", "src.caller", "src.W.get"} {
+		if got := rustCalls(rustSym(t, ff, sym)); slices.Contains(got, "src.K.k_method") || slices.Contains(got, "src.K.new") {
+			t.Errorf("a generic parameter K is not the local struct K, but %s calls %v", sym, got)
+		}
+	}
+	if got := rustCalls(rustSym(t, ff, "src.real")); !slices.Contains(got, "src.K.k_method") {
+		t.Errorf("the local struct K still resolves: src.real calls %v", got)
+	}
+}

@@ -215,7 +215,6 @@ type astWalker struct {
 	registeredNestedDepth int
 	typeParams            []string
 	externalImports       map[string]bool
-	inAliasTarget         bool
 }
 
 // calleeForm classifies how a call_expression's callee was written, so the
@@ -822,12 +821,12 @@ func (w *astWalker) handleFunction(node *sitter.Node, attrs rustItemAttrs) {
 	if w.compileTimeDepth > 0 {
 		f.SetProp("compile_time_context", true)
 	}
+	defer w.enterTypeParams(node)()
 	if t := w.typeOf(node.ChildByFieldName("return_type")); t != "" {
 		f.SetProp(propReturns, t)
 	}
 
 	w.out = append(w.out, f)
-	defer w.enterTypeParams(node)()
 	ownerIdx := len(w.out) - 1
 	w.pushOwner(ownerIdx)
 	savedLocals := w.localTypes
@@ -1083,10 +1082,7 @@ func (w *astWalker) handleTypeAlias(node *sitter.Node) {
 	})
 	defer w.enterTypeParams(node)()
 	if len(w.typeStack) == 0 {
-		w.inAliasTarget = true
-		t := w.typeOf(node.ChildByFieldName("type"))
-		w.inAliasTarget = false
-		if t != "" {
+		if t := w.typeOf(node.ChildByFieldName("type")); t != "" {
 			w.out[len(w.out)-1].SetProp(propAliasOf, t)
 		}
 	}

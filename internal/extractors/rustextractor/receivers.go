@@ -95,8 +95,8 @@ func (w *astWalker) typeCandidate(name string) string {
 		return w.implType()
 	case !isCapitalized(name), rustPreludeTypes[name]:
 		return ""
-	case w.inAliasTarget && slices.Contains(w.typeParams, name):
-		return "" // a type alias's parameter is not the type of the same name
+	case slices.Contains(w.typeParams, name):
+		return "" // a generic parameter in scope is not the type of the same name
 	}
 	if target, ok := w.importMap[name]; ok {
 		if target == "" {
