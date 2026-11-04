@@ -313,7 +313,7 @@ func (a *tsAssembly) compose(repoPath string, rc *repoCtx, templates map[string]
 	resolveBarrelCalls(a.facts, rc.barrels)
 	bindGraphQL(a.facts)
 	a.facts = bindEvents(a.facts, a.eventConsts, a.emitters)
-	resolveMemberTypedCalls(a.facts)
+	resolveMemberTypedCalls(a.facts, rc.barrels)
 	settleIONamedCalls(a.facts, a.modules)
 	ioclosure.PropagateWith(a.facts, ioclosure.Options{
 		Declared:        declaredImplementers(a.facts),

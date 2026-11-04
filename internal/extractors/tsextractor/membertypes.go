@@ -167,11 +167,13 @@ func assignedAliasType(kinds *tsutil.KindTable, fn *sitter.Node, src []byte, dir
 
 // resolveMemberTypedCalls evaluates the deferred calls the walker wrote and keeps the
 // ones that land on a method the repository declares.
-func resolveMemberTypedCalls(all []facts.Fact) {
+func resolveMemberTypedCalls(all []facts.Fact, barrels map[string]string) {
 	exists := make(map[string]bool, len(all))
 	members := make(map[string]map[string]string)
 	param0 := make(map[string]map[string]string)
 	param0Type := make(map[string]string)
+	returns := make(map[string]string)
+	awaited := make(map[string]string)
 	for i := range all {
 		f := &all[i]
 		if f.Kind != facts.KindSymbol {
@@ -190,6 +192,22 @@ func resolveMemberTypedCalls(all []facts.Fact) {
 			param0Type[f.Name] = t
 			f.DelProp(propParam0Type)
 		}
+		if t, ok := f.PropAny(propReturnType).(string); ok {
+			returns[f.Name] = t
+			f.DelProp(propReturnType)
+		}
+		if t, ok := f.PropAny(propAwaitedType).(string); ok {
+			awaited[f.Name] = t
+			f.DelProp(propAwaitedType)
+		}
+	}
+	// A function imported through a package's index is named there; its return
+	// types are on the symbol the index re-exports.
+	callee := func(t string) string {
+		if to, ok := barrels[t]; ok {
+			return to
+		}
+		return t
 	}
 	// resolve turns "<type>::<step>….<method>" into the method it names, or "".
 	resolve := func(target string) string {
@@ -202,6 +220,14 @@ func resolveMemberTypedCalls(all []facts.Fact) {
 		inParam0 := false
 		for _, s := range steps[1:] {
 			switch {
+			case s == returnStep:
+				t = returns[callee(t)]
+			case s == awaitStep:
+				t = awaited[callee(t)]
+			case strings.HasSuffix(s, awaitStep):
+				t = awaited[t+"."+strings.TrimSuffix(s, awaitStep)]
+			case strings.HasSuffix(s, returnStep):
+				t = returns[t+"."+strings.TrimSuffix(s, returnStep)]
 			case s == param0Step:
 				if pt, ok := param0Type[t]; ok {
 					t = pt

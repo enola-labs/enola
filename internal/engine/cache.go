@@ -3403,7 +3403,11 @@ import (
 // (`e = await get_engine()`, `Registry.default()`, `f().session()`) is typed by that
 // function's return annotation, so calls on it resolve, with the implementor calls a
 // typed receiver gets.
-const cacheVersion = "v525"
+// v526: TypeScript: a local bound to what a function or method returns, in this file or
+// another (`const e = await getEngine()`, `Registry.default()`, `make().session()`), is
+// typed by its return annotation, `Promise<T>` read as T once awaited, or by the class
+// every return constructs, so calls on it resolve.
+const cacheVersion = "v526"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
