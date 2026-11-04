@@ -106,6 +106,9 @@ func call() {
 	if f.Props["target_hint"] != "xendo" {
 		t.Errorf("target_hint = %v, want xendo", f.Props["target_hint"])
 	}
+	if f.Props[facts.PropTargetHintFrom] != facts.HintFromEnv {
+		t.Errorf("%s = %v, want %s", facts.PropTargetHintFrom, f.Props[facts.PropTargetHintFrom], facts.HintFromEnv)
+	}
 }
 
 func TestGoHTTPClient_NotServerHandler(t *testing.T) {

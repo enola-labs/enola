@@ -88,7 +88,7 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 	// same claim whether the endpoint is a path or a root field.
 	evaluatedOps, unmatchedOps := graphqlsig.ServerOperationVerdicts(all)
 	gqlReasons := graphqlUnresolvedReasons(all)
-	clientKeys := httpsignal.UnmatchedClientRouteKeys(b.m, all)
+	clientKeys := httpsignal.UnmatchedClientCallReasons(b.m, all)
 	clientMatches := httpsignal.ClientRouteMatches(b.m, all)
 
 	flaggedServer, flaggedClient, linkedClient, unreachedServer := 0, 0, 0, 0
@@ -124,7 +124,7 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 			} else {
 				f.DelProp(facts.PropMatchedRoutes)
 			}
-			if reason, ok := clientKeys[routeindex.RouteIdentity(*f)]; ok {
+			if reason, ok := clientKeys[httpsignal.ClientCallKey(*f)]; ok {
 				f.SetProp(PropUnmatchedByServer, true)
 				f.SetProp(PropUnmatchedReason, reason)
 				flaggedClient++

@@ -182,6 +182,9 @@ func (c *clientWalker) emit(node *sitter.Node, method, raw, framework string) {
 		},
 		Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: c.dir}},
 	})
+	if c.envHint != "" {
+		c.out[len(c.out)-1].SetProp(facts.PropTargetHintFrom, facts.HintFromEnv)
+	}
 }
 
 // clientFramework classifies the client library from the receiver and method. The

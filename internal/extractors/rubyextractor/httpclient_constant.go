@@ -54,6 +54,8 @@ type rubyConstSink struct {
 	recv  string
 	api   string
 	hint  string
+	// hintFrom is facts.HintFromEnv when hint came from an environment variable.
+	hintFrom string
 }
 
 // scanRubyClientConstants collects a file's string-constant assignments and its
@@ -77,13 +79,13 @@ func scanRubyClientConstants(src []byte, relFile string) ([]rubyConstAssign, []r
 		if m == nil || !isHTTPClientReceiver(m[1]) {
 			continue
 		}
-		hint := hintFromReceiver(m[1])
-		if hint == "" {
-			hint = envHint
+		hint, hintFrom := hintFromReceiver(m[1]), ""
+		if hint == "" && envHint != "" {
+			hint, hintFrom = envHint, facts.HintFromEnv
 		}
 		sinks = append(sinks, rubyConstSink{
 			file: relFile, line: i + 1, scope: m[3], name: m[4],
-			verb: m[2], recv: m[1], api: api, hint: hint,
+			verb: m[2], recv: m[1], api: api, hint: hint, hintFrom: hintFrom,
 		})
 	}
 	return assigns, sinks
@@ -273,6 +275,9 @@ func resolveRubyClientConstants(all []facts.Fact, assigns []rubyConstAssign, sin
 			"api":            s.api,
 			"target_hint":    s.hint,
 			"derived":        kind,
+		}
+		if s.hintFrom != "" {
+			props[facts.PropTargetHintFrom] = s.hintFrom
 		}
 		if viaClass != "" {
 			props["via_class"] = viaClass

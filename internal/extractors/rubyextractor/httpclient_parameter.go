@@ -106,9 +106,9 @@ func extractParameterClientFacts(lines []string, relFile, api, envHint string) (
 				misses[parameterNonLiteral]++
 				continue
 			}
-			hint := hintFromReceiver(s.recv)
-			if hint == "" {
-				hint = envHint
+			hint, hintFrom := hintFromReceiver(s.recv), ""
+			if hint == "" && envHint != "" {
+				hint, hintFrom = envHint, facts.HintFromEnv
 			}
 			resolved++
 			out = append(out, facts.Fact{
@@ -129,6 +129,9 @@ func extractParameterClientFacts(lines []string, relFile, api, envHint string) (
 				},
 				Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: factpath.Dir(relFile)}},
 			})
+			if hintFrom != "" {
+				out[len(out)-1].SetProp(facts.PropTargetHintFrom, hintFrom)
+			}
 			markExternal(&out[len(out)-1], host)
 		}
 	}

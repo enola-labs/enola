@@ -117,6 +117,7 @@ func feignClientFacts(basePath, hint string, methodAnns []javaAnnotation, relFil
 			}
 			if hint != "" {
 				props["target_hint"] = hint
+				props[facts.PropTargetHintFrom] = facts.HintFromService
 			}
 			// A Feign route is declared by an interface method, which is its caller
 			// as a Retrofit route's is: code calls the method, the method is the call.
