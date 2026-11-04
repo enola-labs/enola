@@ -107,7 +107,7 @@ var cliNormalizers = []struct {
 	// changes that leave every answer alone.
 	{regexp.MustCompile(`\bv\d{3,}\b`), "<EXTRACTOR_VERSION>"},
 	// The per-workspace directory is keyed on a hash of the repository's absolute path.
-	{regexp.MustCompile(`(\.enola/graphs/[\w.]+)-[0-9a-f]{8}\b`), "$1-<KEY>"},
+	{regexp.MustCompile(`(\.enola/graphs/[\w.-]+)-[0-9a-f]{8}\b`), "$1-<KEY>"},
 	// doctor reports the machine's memory.
 	{regexp.MustCompile(`soft memory limit .*`), "soft memory limit <MACHINE>"},
 	{regexp.MustCompile(`"memory_limit": \d+`), `"memory_limit": "<MACHINE>"`},
@@ -477,6 +477,15 @@ func TestCLIContract_Cluster(t *testing.T) {
 		{"check_clean", []string{"check", "cluster.yaml"}},
 		{"constraints_lint_undeclared", []string{"constraints", "lint", "cluster.yaml"}},
 		{"folder_autocluster_generate", []string{"--generate", "."}},
+		{"gc_cluster_config", []string{"gc", "--dry-run", "cluster.yaml"}},
+		{"gc_cluster_folder", []string{"gc", "--dry-run"}},
+		{"gc_cluster_repo", []string{"gc", "--dry-run", "--repo", "consumer", "cluster.yaml"}},
+		{"gc_cluster_repo_unknown", []string{"gc", "--repo", "nope", "cluster.yaml"}},
+		{"gc_cluster_flags_after_path", []string{"gc", "cluster.yaml", "--dry-run", "--repo", "consumer"}},
+		{"log_cluster_folder", []string{"log", "-n", "1"}},
+		{"log_cluster_backfill_refused", []string{"log", "--backfill", "--dry-run", "cluster.yaml"}},
+		{"history_push_cluster", []string{"history", "push", "--all", "../store", "cluster.yaml"}},
+		{"history_pull_cluster", []string{"history", "pull", "../store", "cluster.yaml"}},
 	})
 }
 

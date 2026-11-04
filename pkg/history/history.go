@@ -123,6 +123,26 @@ type RepoRef struct {
 	Label  string `json:"label"`
 	Commit string `json:"commit,omitempty"`
 	Dirty  bool   `json:"dirty,omitempty"`
+	// Identity is the repository's portable identity (facts.RepoIdentity), from which a
+	// cluster revision's own identity is built; see ClusterIdentity.
+	Identity string `json:"identity,omitempty"`
+}
+
+// ClusterIdentity is the portable identity of a multi-repo revision: its members'
+// identities, sorted. A cluster revision once carried the identity of whichever member
+// its meta described, which filed it under that repository in a shared store, where a
+// pull imported it into the member's own history.
+func ClusterIdentity(repos []RepoRef) string {
+	ids := make([]string, 0, len(repos))
+	for _, r := range repos {
+		id := r.Identity
+		if id == "" {
+			id = r.Label
+		}
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return "cluster:" + strings.Join(ids, "+")
 }
 
 // BlobRef locates a revision's stored snapshot within the local pack layout. Written in
@@ -168,6 +188,13 @@ type Summary struct {
 	// extractor set, edited ignore globs). The counts are real arithmetic over two fact
 	// sets and a fiction as a description of anyone's change.
 	Incomparable bool `json:"incomparable,omitempty"`
+
+	// NoBase marks a revision whose predecessor in this history could not be compared:
+	// the snapshot on disk before it was of another scope (the cluster, when this is one
+	// of its members alone, or the reverse) or newer than anything recorded. Its counts
+	// describe the whole graph. A delta against that snapshot would report the step
+	// between two scopes as an architectural change.
+	NoBase bool `json:"no_base,omitempty"`
 }
 
 // Empty reports whether a revision changed nothing structural.
@@ -186,6 +213,9 @@ func (s Summary) Empty() bool {
 func (s Summary) Headline() string {
 	if s.Initial {
 		return fmt.Sprintf("initial: %d facts, %d findings", s.FactCount, s.InsightCount)
+	}
+	if s.NoBase {
+		return fmt.Sprintf("%d facts, %d findings (no comparable predecessor)", s.FactCount, s.InsightCount)
 	}
 	var parts []string
 	if s.FindingsNew > 0 {

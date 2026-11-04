@@ -1,0 +1,7 @@
+$ enola gc --dry-run --repo consumer cluster.yaml
+exit: 0
+--- stdout
+<TMP>/.enola/graphs/consumer-<KEY>/history
+
+No revisions recorded.
+--- stderr

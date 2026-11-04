@@ -486,6 +486,8 @@ func RecordHistory(eng *engine.Engine, cfg *config.Config) {
 			Snapshot:    rec.Snapshot,
 			FactsPath:   rec.FactsPath,
 			PreviousDir: rec.PreviousDir,
+			Members:     rec.Members,
+			PriorDirs:   rec.PriorDirs,
 			Parents:     rec.Parents,
 			Repos: func() []pkghistory.RepoRef {
 				states := rec.Repos()
@@ -494,7 +496,7 @@ func RecordHistory(eng *engine.Engine, cfg *config.Config) {
 				}
 				refs := make([]pkghistory.RepoRef, 0, len(states))
 				for _, st := range states {
-					refs = append(refs, pkghistory.RepoRef{Label: st.Label, Commit: st.Commit, Dirty: st.Dirty})
+					refs = append(refs, pkghistory.RepoRef{Label: st.Label, Commit: st.Commit, Dirty: st.Dirty, Identity: st.Identity})
 				}
 				return refs
 			},

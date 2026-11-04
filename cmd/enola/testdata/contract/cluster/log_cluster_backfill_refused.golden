@@ -1,0 +1,5 @@
+$ enola log --backfill --dry-run cluster.yaml
+exit: 2
+--- stdout
+--- stderr
+enola log: --backfill walks one repository's commits, and <TMP>/services/cluster.yaml is a cluster; pass a member's path (api, consumer)

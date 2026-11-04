@@ -1,0 +1,5 @@
+$ enola gc --repo nope cluster.yaml
+exit: 2
+--- stdout
+--- stderr
+enola gc: no repository "nope" in <TMP>/services/cluster.yaml; members: api, consumer

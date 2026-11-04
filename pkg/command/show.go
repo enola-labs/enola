@@ -35,7 +35,7 @@ func (r *Runner) Show(args []string) {
 		fs.PrintDefaults()
 		r.writeHelpFooter(fs.Output(), args, "show")
 	}
-	if err := fs.Parse(args); err != nil {
+	if err := fs.Parse(flagsFirst(fs, args)); err != nil {
 		os.Exit(2)
 	}
 
@@ -97,7 +97,7 @@ func (r *Runner) Diff(args []string) {
 		fs.PrintDefaults()
 		r.writeHelpFooter(fs.Output(), args, "diff")
 	}
-	if err := fs.Parse(args); err != nil {
+	if err := fs.Parse(flagsFirst(fs, args)); err != nil {
 		os.Exit(2)
 	}
 
@@ -178,11 +178,7 @@ func (r *Runner) reconstructUnion(root string, sh *history.Share, revs []history
 // historyFor resolves the positional repo argument to the recorded entries and their root,
 // failing with the same guidance `log` gives when there is nothing to read.
 func (r *Runner) historyFor(repoArg string) ([]history.Entry, string) {
-	repoPath, cfg := r.logTarget(repoArg)
-	root, err := history.Root(repoPath, cfg.History.Dir)
-	if err != nil {
-		r.showFatal("cannot locate the history: %v", err)
-	}
+	repoPath, root, cfg := r.historyRootOf("show", repoArg)
 	entries, err := history.Read(root)
 	if err != nil {
 		if errors.Is(err, history.ErrNoHistory) {

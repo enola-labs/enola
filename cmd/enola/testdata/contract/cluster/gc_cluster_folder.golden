@@ -1,0 +1,28 @@
+$ enola gc --dry-run
+exit: 0
+--- stdout
+Cluster <TMP>/services/cluster.yaml: 2 repositories
+
+== cluster
+<TMP>/.enola/graphs/services-cluster-<KEY>/history
+
+  revisions      3
+    with contents 3  (replayable)
+    working      3  (snapshots of uncommitted trees)
+  segments       1
+  stored         7 KB
+
+Nothing to remove.
+
+== api
+<TMP>/.enola/graphs/api-<KEY>/history
+
+No revisions recorded.
+
+== consumer
+<TMP>/.enola/graphs/consumer-<KEY>/history
+
+No revisions recorded.
+
+Total: 3 revisions, 7 KB stored, 0 B would be reclaimed
+--- stderr

@@ -1,6 +1,7 @@
 package command
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -8,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/enola-labs/enola/internal/config"
 	inthistory "github.com/enola-labs/enola/internal/history"
+	"github.com/enola-labs/enola/pkg/check"
 	"github.com/enola-labs/enola/pkg/history"
 )
 
@@ -48,7 +49,11 @@ func (r *Runner) historyUsage(args []string) {
 	r.writeHelpFooter(os.Stderr, args, "history")
 }
 
-func (r *Runner) historyTarget(rest []string) (string, string, *config.Config) {
+// historyTarget resolves `history <verb> [store_dir] [repo_path|config_path]` to the
+// store and the local histories it exchanges with: one repository's, or for a cluster
+// its own history and every member's, since a cluster's snapshots and each member's
+// snapshots alone are recorded apart.
+func (r *Runner) historyTarget(rest []string) (string, []historyRoot) {
 	storeArg := ""
 	repoArg := ""
 	if len(rest) > 0 {
@@ -57,11 +62,18 @@ func (r *Runner) historyTarget(rest []string) (string, string, *config.Config) {
 	if len(rest) > 1 {
 		repoArg = rest[1]
 	}
-	repoPath, cfg := r.logTarget(repoArg)
+	scope := r.historyTargetOf("history", repoArg)
+	base := scope.repos[0]
+	if scope.cluster != "" {
+		base = scope.cluster
+		if !isDirectory(base) {
+			base = filepath.Dir(base)
+		}
+	}
 	if storeArg == "" {
-		storeArg = cfg.History.SharedDir
+		storeArg = scope.cfg.History.SharedDir
 		if storeArg != "" && !filepath.IsAbs(storeArg) {
-			storeArg = filepath.Join(repoPath, storeArg)
+			storeArg = filepath.Join(base, storeArg)
 		}
 	}
 	if storeArg == "" {
@@ -71,15 +83,39 @@ func (r *Runner) historyTarget(rest []string) (string, string, *config.Config) {
 	if err != nil {
 		r.historyFatal("resolving store path %q: %v", storeArg, err)
 	}
-	return abs, repoPath, cfg
-}
-
-func (r *Runner) localHistoryRoot(repoPath string, cfg *config.Config) string {
-	root, err := history.Root(repoPath, cfg.History.Dir)
+	roots, err := scope.roots()
 	if err != nil {
 		r.historyFatal("cannot locate the local history: %v", err)
 	}
-	return root
+	return abs, roots
+}
+
+// historyEach runs fn over every local history of a target, under a heading when there
+// is more than one. One that fails does not stop the rest.
+func (r *Runner) historyEach(roots []historyRoot, fn func(historyRoot) (string, error)) {
+	failed := 0
+	for i, hr := range roots {
+		if len(roots) > 1 {
+			if i > 0 {
+				fmt.Println()
+			}
+			name := strings.Join(hr.labels, ", ")
+			if hr.cluster {
+				name = "cluster"
+			}
+			fmt.Printf("== %s\n", name)
+		}
+		out, err := fn(hr)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%s history: %v\n", r.name(), err)
+			failed++
+			continue
+		}
+		fmt.Print(out)
+	}
+	if failed > 0 {
+		os.Exit(check.StatusUsageError.ExitCode())
+	}
 }
 
 func (r *Runner) historyPush(args []string) {
@@ -99,14 +135,17 @@ func (r *Runner) historyPush(args []string) {
 	if err := fs.Parse(flagsFirst(fs, args)); err != nil {
 		os.Exit(2)
 	}
-	store, repoPath, cfg := r.historyTarget(fs.Args())
-	root := r.localHistoryRoot(repoPath, cfg)
-
-	rep, err := inthistory.Push(root, store, inthistory.PushOptions{IncludeWorking: *all})
-	if err != nil {
-		r.historyFatal("%v", err)
-	}
-	fmt.Print(renderPush(rep))
+	store, roots := r.historyTarget(fs.Args())
+	r.historyEach(roots, func(hr historyRoot) (string, error) {
+		rep, err := inthistory.Push(hr.root, store, inthistory.PushOptions{IncludeWorking: *all})
+		if errors.Is(err, history.ErrNoHistory) {
+			return "  no local revisions to push\n", nil
+		}
+		if err != nil {
+			return "", err
+		}
+		return renderPush(rep), nil
+	})
 }
 
 func renderPush(rep inthistory.PushReport) string {
@@ -145,14 +184,25 @@ func (r *Runner) historyPull(args []string) {
 	if err := fs.Parse(flagsFirst(fs, args)); err != nil {
 		os.Exit(2)
 	}
-	store, repoPath, cfg := r.historyTarget(fs.Args())
-	root := r.localHistoryRoot(repoPath, cfg)
-
-	rep, err := inthistory.Pull(root, store, inthistory.PullOptions{Repo: *repo})
-	if err != nil {
-		r.historyFatal("%v", err)
+	store, roots := r.historyTarget(fs.Args())
+	if *repo != "" && len(roots) > 1 {
+		r.historyFatal("--repo names one repository's identity, and this is a cluster; pass the member's path instead")
 	}
-	fmt.Print(renderPull(rep))
+	r.historyEach(roots, func(hr historyRoot) (string, error) {
+		ids := []string{*repo}
+		if *repo == "" && (len(roots) > 1 || !hasRevisions(hr.root)) {
+			ids = hr.identities()
+		}
+		var out strings.Builder
+		for _, id := range ids {
+			rep, err := inthistory.Pull(hr.root, store, inthistory.PullOptions{Repo: id})
+			if err != nil {
+				return out.String(), err
+			}
+			out.WriteString(renderPull(rep))
+		}
+		return out.String(), nil
+	})
 }
 
 func renderPull(rep inthistory.PullReport) string {
@@ -189,7 +239,7 @@ func (r *Runner) historyVerify(args []string) {
 	if err := fs.Parse(flagsFirst(fs, args)); err != nil {
 		os.Exit(2)
 	}
-	store, _, _ := r.historyTarget(fs.Args())
+	store, _ := r.historyTarget(fs.Args())
 
 	rep, err := history.VerifyShare(store)
 	if err != nil {
@@ -253,7 +303,7 @@ func (r *Runner) historyGC(args []string) {
 	if err := fs.Parse(flagsFirst(fs, args)); err != nil {
 		os.Exit(2)
 	}
-	store, _, _ := r.historyTarget(fs.Args())
+	store, _ := r.historyTarget(fs.Args())
 
 	opts := inthistory.SharedGCOptions{KeepLast: *keepLast, Apply: *apply}
 	if *keepSince != "" {
@@ -350,4 +400,9 @@ func flagsFirst(fs *flag.FlagSet, args []string) []string {
 		return flags
 	}
 	return append(append(flags, "--"), positional...)
+}
+
+func hasRevisions(root string) bool {
+	entries, err := history.Read(root)
+	return err == nil && len(entries) > 0
 }

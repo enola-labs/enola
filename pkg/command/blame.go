@@ -35,6 +35,7 @@ func (r *Runner) Blame(args []string) {
 		full     = fs.Bool("full", false, "print the whole matching line rather than its head")
 		all      = fs.Bool("all", false, "include working revisions (uncommitted trees)")
 		store    = fs.String("store", "", "also search a shared history store (default: history.shared_dir)")
+		limit    = fs.Int("n", 100, "list at most this many matching facts, counting the rest (0 for all)")
 	)
 	fs.Usage = func() {
 		fmt.Fprint(os.Stderr,
@@ -52,7 +53,7 @@ func (r *Runner) Blame(args []string) {
 		fs.PrintDefaults()
 		r.writeHelpFooter(fs.Output(), args, "blame")
 	}
-	if err := fs.Parse(args); err != nil {
+	if err := fs.Parse(flagsFirst(fs, args)); err != nil {
 		os.Exit(2)
 	}
 
@@ -91,15 +92,11 @@ func (r *Runner) Blame(args []string) {
 		fmt.Println(string(out))
 		return
 	}
-	fmt.Print(renderBlame(b, *full, sh != nil))
+	fmt.Print(renderBlame(b, *full, sh != nil, *limit))
 }
 
 func (r *Runner) historyWithStore(repoArg, storeFlag string, fatal func(string, ...any)) ([]history.Entry, string, *history.Share) {
-	repoPath, cfg := r.logTarget(repoArg)
-	root, err := history.Root(repoPath, cfg.History.Dir)
-	if err != nil {
-		fatal("cannot locate the history: %v", err)
-	}
+	repoPath, root, cfg := r.historyRootOf("blame", repoArg)
 	storeDir := resolveStoreDir(storeFlag, repoPath, cfg)
 
 	entries, err := history.Read(root)
@@ -168,7 +165,7 @@ func splitPatternAndRepo(args []string) (pattern, repo string) {
 }
 
 // renderBlame prints the events oldest first, each under the revision that produced it.
-func renderBlame(b *history.Blame, full, withOrigins bool) string {
+func renderBlame(b *history.Blame, full, withOrigins bool, limit int) string {
 	var out strings.Builder
 
 	if len(b.Events) == 0 {
@@ -178,26 +175,53 @@ func renderBlame(b *history.Blame, full, withOrigins bool) string {
 		return out.String()
 	}
 
+	// A pattern as broad as a repository name matches every fact in it, and listing them
+	// all is a screenful nobody reads and a megabyte an agent pays for. Past the limit
+	// the rest are counted.
+	listed, total, restEvents := 0, 0, 0
+	capped := func() bool { return limit > 0 && listed >= limit }
+	emit := func(line string) {
+		total++
+		if !capped() {
+			out.WriteString(line)
+			listed++
+		}
+	}
 	for _, ev := range b.Events {
+		if capped() {
+			restEvents++
+			total += len(ev.Added) + len(ev.Removed) + len(ev.Changed)
+			continue
+		}
 		e := ev.Entry
 		origins := ""
 		if withOrigins {
 			origins = "  [" + strings.Join(ev.Origins, ", ") + "]"
 		}
 		fmt.Fprintf(&out, "%-7s  %s  %s%s\n", e.Short(), shortDate(e.At), strings.TrimSpace(decorations(e)), origins)
+		startListed, startTotal := listed, total
 		for _, l := range ev.Added {
-			fmt.Fprintf(&out, "    + %s\n", blameLine(l, full))
+			emit(fmt.Sprintf("    + %s\n", blameLine(l, full)))
 		}
 		for _, l := range ev.Removed {
-			fmt.Fprintf(&out, "    - %s\n", blameLine(l, full))
+			emit(fmt.Sprintf("    - %s\n", blameLine(l, full)))
 		}
 		for _, p := range ev.Changed {
-			fmt.Fprintf(&out, "    ~ %-9s  %s\n", p.Kind, blamePair(p, full))
+			emit(fmt.Sprintf("    ~ %-9s  %s\n", p.Kind, blamePair(p, full)))
 		}
+		if hidden := (total - startTotal) - (listed - startListed); hidden > 0 {
+			fmt.Fprintf(&out, "    … %d more in this revision\n", hidden)
+		}
+	}
+	if restEvents > 0 {
+		fmt.Fprintf(&out, "… and %d later event%s.\n", restEvents, pluralS(restEvents))
 	}
 
 	fmt.Fprintf(&out, "\n%d event%s across %d searched revision%s.\n",
 		len(b.Events), pluralS(len(b.Events)), b.Scanned, pluralS(b.Scanned))
+	if listed < total {
+		fmt.Fprintf(&out, "Listed %d of %d matching facts; narrow the pattern, or pass -n 0 for all.\n", listed, total)
+	}
 	out.WriteString(unreadNote(b))
 	return out.String()
 }
@@ -230,55 +254,15 @@ func blameLine(line string, full bool) string {
 	if full {
 		return line
 	}
-	var f struct {
-		Kind  string `json:"kind"`
-		Name  string `json:"name"`
-		File  string `json:"file"`
-		Line  int    `json:"line"`
-		Title string `json:"title"`
-	}
-	if err := json.Unmarshal([]byte(line), &f); err != nil {
-		return truncateLine(line, 120)
-	}
-	if f.Title != "" { // a finding
-		return f.Title
-	}
-	where := f.File
-	if where != "" && f.Line > 0 {
-		where = fmt.Sprintf("%s:%d", f.File, f.Line)
-	}
-	if where == "" {
-		return fmt.Sprintf("%-11s %s", f.Kind, f.Name)
-	}
-	return fmt.Sprintf("%-11s %s  (%s)", f.Kind, f.Name, where)
+	return history.ShortBlameLine(line)
 }
 
-// blamePair renders a changed symbol as its new line and where it was before, which is
-// the part of the old line a reader needs once the pair says it is the same symbol.
+// blamePair renders a changed symbol; see history.ShortBlamePair.
 func blamePair(p history.BlamePair, full bool) string {
 	if full {
 		return p.To + "\n                 was " + p.From
 	}
-	var from struct {
-		File string `json:"file"`
-		Line int    `json:"line"`
-		Name string `json:"name"`
-	}
-	if err := json.Unmarshal([]byte(p.From), &from); err != nil {
-		return blameLine(p.To, false)
-	}
-	was := fmt.Sprintf("%s:%d", from.File, from.Line)
-	if p.Kind == history.PairMoved {
-		was = from.Name + "  (" + was + ")"
-	}
-	return blameLine(p.To, false) + "  was " + was
-}
-
-func truncateLine(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[:n] + "…"
+	return history.ShortBlamePair(p)
 }
 
 func (r *Runner) blameFatal(format string, args ...any) { r.cmdFatal("blame", format, args...) }

@@ -1,0 +1,16 @@
+$ enola history pull ../store cluster.yaml
+exit: 0
+--- stdout
+== cluster
+<TMP>/store (repo cluster:api+consumer)
+  pulled        0 revision(s)
+  already local 2
+
+== api
+<TMP>/store (repo api)
+  pulled        0 revision(s)
+
+== consumer
+<TMP>/store (repo consumer)
+  pulled        0 revision(s)
+--- stderr

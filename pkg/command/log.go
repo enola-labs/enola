@@ -61,7 +61,7 @@ func (r *Runner) Log(args []string) {
 		fs.PrintDefaults()
 		r.writeHelpFooter(fs.Output(), args, "log")
 	}
-	if err := fs.Parse(args); err != nil {
+	if err := fs.Parse(flagsFirst(fs, args)); err != nil {
 		os.Exit(2)
 	}
 	_ = oneline // the only format in this phase; the flag exists so scripts can be explicit
@@ -92,12 +92,7 @@ func (r *Runner) Log(args []string) {
 		return
 	}
 
-	repoPath, cfg := r.logTarget(arg)
-
-	root, err := history.Root(repoPath, cfg.History.Dir)
-	if err != nil {
-		r.logFatal("cannot locate the history: %v", err)
-	}
+	repoPath, root, cfg := r.historyRootOf("log", arg)
 	entries, err := history.Read(root)
 	if err != nil {
 		if errors.Is(err, history.ErrNoHistory) {
@@ -174,46 +169,12 @@ func (r *Runner) Log(args []string) {
 // print twenty lines of text — and, worse, would make `enola log` fail on a repository
 // whose config enola cannot fully honour, which is exactly a repository whose history
 // somebody might want to look at.
+//
+// A cluster resolves to its first member; a reader that handles clusters uses
+// historyRootOf instead.
 func (r *Runner) logTarget(arg string) (string, *config.Config) {
-	cfgPath := "mcp-arch.yaml"
-	repoOverride := ""
-
-	switch {
-	case arg == "":
-	case isDirectory(arg):
-		abs, err := filepath.Abs(arg)
-		if err != nil {
-			r.logFatal("resolving repo path %q: %v", arg, err)
-		}
-		repoOverride = abs
-		if inner := filepath.Join(abs, "mcp-arch.yaml"); fileExists(inner) {
-			cfgPath = inner
-		}
-	default:
-		cfgPath = arg
-	}
-
-	cfg, err := config.Load(cfgPath)
-	if err != nil {
-		// A missing config is the ordinary case (built-in defaults); anything else is
-		// worth saying out loud, but is still not a reason to refuse to read a history.
-		cfg = config.Default()
-	}
-	if repoOverride != "" {
-		cfg.Repo = repoOverride
-		cfg.Repos = nil
-	}
-	if err := cfg.Normalize(); err != nil {
-		r.logFatal("invalid config: %v", err)
-	}
-
-	repoPaths, err := cfg.RepoPaths()
-	if err != nil || len(repoPaths) == 0 {
-		r.logFatal("failed to resolve repo path: %v", err)
-	}
-	// The FIRST repo of a cluster owns the history: it is the one a multi-repo snapshot
-	// is generated from, so it is where the graph's revisions were recorded.
-	return repoPaths[0], cfg
+	scope := r.historyTargetOf("log", arg)
+	return scope.repos[0], scope.cfg
 }
 
 // reportNoHistory explains an empty history in terms of what to do about it, and
@@ -222,6 +183,14 @@ func (r *Runner) logTarget(arg string) (string, *config.Config) {
 // snapshot, not a setting. Being told to enable something that is already enabled is how
 // a diagnostic becomes noise.
 func (r *Runner) reportNoHistory(repoPath, root string, cfg *config.Config) {
+	if len(cfg.Repos) > 1 && cfg.HistoryEnabled() {
+		fmt.Fprintf(os.Stderr, "No architecture history for the cluster in %s.\n\n"+
+			"A cluster's history holds snapshots of all its repositories together. Run\n"+
+			"`%s --generate` over the cluster and the first revision lands in\n%s\n\n"+
+			"Cluster snapshots taken before enola kept one history per cluster were recorded\n"+
+			"into each member's own history; pass a member's path to read them.\n", repoPath, r.name(), root)
+		return
+	}
 	fmt.Fprintf(os.Stderr, "No architecture history for %s.\n", repoPath)
 	if !cfg.HistoryEnabled() {
 		fmt.Fprintf(os.Stderr,

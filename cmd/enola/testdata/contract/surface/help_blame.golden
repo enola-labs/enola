@@ -28,6 +28,8 @@ Flags:
     	print the whole matching line rather than its head
   -json
     	emit the events as JSON
+  -n int
+    	list at most this many matching facts, counting the rest (0 for all) (default 100)
   -store string
     	also search a shared history store (default: history.shared_dir)
 

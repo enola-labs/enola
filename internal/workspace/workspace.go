@@ -107,6 +107,21 @@ func Clusterable(dir, configSource string) []string {
 	return Folded(dir, configSource)
 }
 
+// Cluster reports what dir stands for when it is a folder of repositories rather than a
+// repository: the cluster config beside them when there is one, otherwise the git
+// repositories directly under it, the set --generate indexes there. Both are empty for a
+// repository or an ordinary folder. Reading the config is the caller's, so this package
+// keeps depending on nothing of enola's.
+func Cluster(dir string) (configPath string, repos []string) {
+	if IsRepo(dir) {
+		return "", nil
+	}
+	if path := filepath.Join(dir, ClusterFileName); isFile(path) {
+		return path, nil
+	}
+	return "", Clusterable(dir, "")
+}
+
 // EnsureClusterConfig returns dir's cluster config, writing one that lists repos when
 // there is none. existing reports that the file was already there, in which case it is
 // the user's and is read as it is. A write failure returns the error with an empty path,
@@ -206,4 +221,9 @@ func shellArg(p string) string {
 		return strconv.Quote(p)
 	}
 	return p
+}
+
+func isFile(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir()
 }

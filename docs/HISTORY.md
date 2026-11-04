@@ -53,7 +53,8 @@ e8847af  2026-08-03 17:54  (d2293a18, main)
 
 The pattern matches a module or symbol name, a file path, or both endpoints of an edge. `--findings`
 searches recorded findings instead ("which snapshot introduced this cycle?"); `--first` stops at the
-introduction.
+introduction. `-n` lists at most that many matching facts and counts the rest (default 100, `0` for
+all), so a pattern as broad as a repository name stays readable.
 
 A symbol that changed between two revisions is reported as one change, not as a removal and an
 addition, and its body version (`body_hash`, see [the facts schema](schema/facts.md#body_hash)) says
@@ -143,6 +144,32 @@ length: a revision is stored as a patch against the previous one, with a full co
 `enola gc` reports what is there and removes what is not needed. With no flags it removes only
 garbage; `--thin-older-than=90d` drops old contents while keeping the timeline, and
 `--prune-working` discards uncommitted-tree snapshots.
+
+### Clusters
+
+A cluster has a history of its own: every snapshot of its repositories together is one revision
+in `~/.enola/graphs/<folder>-cluster-<hash>/history/`, keyed by the member set, so the same
+repositories land in one history whether they were indexed from a `cluster.yaml`, a folder of
+repositories, or a list over MCP. With `history.dir` set it is `<that dir>/clusters/<key>/`. Each
+member's history holds only the snapshots of that member alone. Cluster snapshots taken before
+this were appended to every member's history. They stay readable there through a member's path,
+`gc` counts them, and `gc --prune-cluster-copies` removes them.
+
+A revision's delta is computed against the history's own latest revision, never against
+whatever the output directory held before. A member snapshotted alone after its cluster holds
+the cluster's union there, and comparing the two reported the switch of scope as tens of thousands
+of facts appearing and vanishing. When that revision is on disk nowhere, it is rebuilt from the
+history's stored contents; a history that kept only the summary line records the revision with
+"no comparable predecessor".
+
+`log`, `show`, `diff` and `blame` on a cluster config or a folder of repositories read the
+cluster's history, and a member's path reads that member alone. `enola gc cluster.yaml`, or `enola
+gc` run from the folder, collects the cluster's history and every member's and prints a total;
+`--repo <name>` collects one member. A folder with no `cluster.yaml` stands for the git
+repositories directly under it, the same set `--generate` indexes there. `log --backfill` refuses
+a cluster: pass the member's path. `history push` and `pull` on a cluster exchange the cluster's
+history and every member's; a cluster revision is filed in the store under its own identity,
+`cluster:<member identities>`, so pulling a member never imports its cluster's snapshots.
 
 ---
 
@@ -276,9 +303,9 @@ revisions months apart are the normal shape of a timeline, not a defect.
   of your history. `--graph` closes the gaps by asking git which observed revision is the nearest
   ancestor of which — the same parent rewriting `git log --graph -- <path>` does — so the picture is
   honest about being sparse rather than pretending to be complete.
-- **A summary is measured against the PREVIOUS SNAPSHOT, not the graph parent.** Usually the same
-  revision. Switch branches between snapshots and they differ: the row reports what changed since
-  enola last looked, which can include another branch's work arriving or leaving. `--graph` says so
+- **A summary is measured against the history's PREVIOUS REVISION, not the graph parent.** Usually
+  the same revision. Switch branches between snapshots and they differ: the row reports what changed
+  since enola last looked, which can include another branch's work arriving or leaving. `--graph` says so
   when it happens, and `enola diff <a>..<b>` answers the ancestry question directly.
 - **A multi-repo graph has no single commit**, it has one per repository. The shape follows the
   primary repository and each row carries the others' positions; no DAG is invented over a vector.

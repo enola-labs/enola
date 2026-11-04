@@ -629,7 +629,7 @@ func readChangeSummary(repoPath, snapshotID, historyDir string, labels map[strin
 		EdgesAdded: s.EdgesAdded, EdgesRemoved: s.EdgesRemoved,
 		FindingsNew: s.FindingsNew, FindingsResolved: s.FindingsResolved,
 	}
-	if !s.Incomparable && !s.Initial && entryIndex > 0 && entry.Blob != nil && entries[entryIndex-1].Blob != nil {
+	if !s.Incomparable && !s.Initial && !s.NoBase && entryIndex > 0 && entry.Blob != nil && entries[entryIndex-1].Blob != nil {
 		previous, previousErr := history.Load(root, entries[entryIndex-1])
 		current, currentErr := history.Load(root, entry)
 		if previousErr == nil && currentErr == nil {

@@ -14,11 +14,18 @@ needs asking for.
 Revisions whose contents are dropped keep their summary line: the timeline stays
 complete, and only replay is lost. `log --backfill` can rebuild them.
 
+A cluster config, or a folder of repositories (the default when run from one),
+collects the cluster's own history and every member's; --repo picks one member.
+
 Flags:
   -dry-run
     	report what would be removed and change nothing
+  -prune-cluster-copies
+    	remove cluster snapshots from members' own histories, where older enola copied them; the cluster's history keeps its own
   -prune-working
     	remove working revisions (snapshots of uncommitted trees) from the log entirely
+  -repo string
+    	in a cluster, collect only this member (its folder name)
   -thin-older-than string
     	drop the stored contents of revisions older than this (e.g. 90d, 720h); their summary lines stay
 
