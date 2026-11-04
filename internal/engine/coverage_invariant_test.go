@@ -40,7 +40,7 @@ func TestGoldens_EveryUnresolvedCallCarriesAReason(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			all := readGoldenFacts(t, path)
 
-			type account struct{ unresolved, declared int }
+			type account struct{ unresolved, declared, outside int }
 			coverage := map[string]*account{}
 			for _, f := range all {
 				if f.Kind != facts.KindService {
@@ -48,7 +48,7 @@ func TestGoldens_EveryUnresolvedCallCarriesAReason(t *testing.T) {
 				}
 				for _, entry := range coverageEntries(f) {
 					if entry["edge_type"] == "http_client" {
-						coverage[f.Repo] = &account{unresolved: asInt(entry["unresolved"]), declared: asInt(entry["declared"])}
+						coverage[f.Repo] = &account{unresolved: asInt(entry["unresolved"]), declared: asInt(entry["declared"]), outside: asInt(entry["outside"])}
 					}
 				}
 			}
@@ -66,9 +66,12 @@ func TestGoldens_EveryUnresolvedCallCarriesAReason(t *testing.T) {
 				if stamped[f.Repo] == nil {
 					stamped[f.Repo] = &account{}
 				}
-				if reason == "attributed_by_intent" {
+				switch reason {
+				case "attributed_by_intent":
 					stamped[f.Repo].declared++
-				} else {
+				case "outside_snapshot":
+					stamped[f.Repo].outside++
+				default:
 					stamped[f.Repo].unresolved++
 				}
 			}
@@ -94,6 +97,10 @@ func TestGoldens_EveryUnresolvedCallCarriesAReason(t *testing.T) {
 					got = &account{}
 				}
 				checked++
+				if want.outside != got.outside {
+					t.Errorf("repo %s: edge_coverage outside=%d, but %d client call(s) carry outside_snapshot",
+						repo, want.outside, got.outside)
+				}
 				if want.unresolved != got.unresolved {
 					t.Errorf("repo %s: edge_coverage unresolved=%d, but %d client call(s) carry a reason explaining it",
 						repo, want.unresolved, got.unresolved)

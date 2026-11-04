@@ -235,6 +235,7 @@ func (c *clientHosts) merge(o clientHosts) {
 func extractHTTPClientFactsCounted(src []byte, relFile string) ([]facts.Fact, clientHosts) {
 	dir := factpath.Dir(relFile)
 	api := tsAPIHint(relFile)
+	fileFactoryHint := factoryHint(src)
 	var bases map[string]string
 	var folds *litfold.Assignments
 	resolveFold := func(name string) (string, bool) {
@@ -300,6 +301,8 @@ func extractHTTPClientFactsCounted(src []byte, relFile string) ([]facts.Fact, cl
 		}
 		if h := tsBaseHint(rawPath); h != "" {
 			props["target_hint"] = h
+		} else if fileFactoryHint != "" {
+			props["target_hint"] = fileFactoryHint
 		}
 		if host != "" {
 			props["external"] = true
@@ -746,4 +749,37 @@ func testDoublePath(relFile string) bool {
 		}
 	}
 	return false
+}
+
+// clientFactoryRe matches a client taken from a factory named for its service:
+// `const client = getBillingClient()`, `= await createLedgerApiClient(...)`.
+var clientFactoryRe = regexp.MustCompile(`(?:const|let|var)\s+\w+\s*=\s*(?:await\s+)?(?:get|create|make|new)([A-Z][A-Za-z0-9]*?)(?:Http|HTTP|Rest|REST|Api|API)*Client\s*\(`)
+
+// genericClientNames name how a client is built, not which service it calls.
+var genericClientNames = map[string]bool{
+	"default": true, "base": true, "shared": true, "common": true, "internal": true,
+	"external": true, "app": true, "main": true, "public": true, "private": true, "auth": true,
+}
+
+// factoryHint names the service a file's requests go to when it takes its client from
+// exactly one factory named for a service. A file using two such clients says nothing
+// about which call goes where, so it gives none.
+func factoryHint(src []byte) string {
+	names := map[string]bool{}
+	for _, m := range clientFactoryRe.FindAllSubmatch(src, -1) {
+		name := strings.ToLower(string(m[1]))
+		if genericClientNames[name] {
+			return "" // a generic client: which service it calls is not in its name
+		}
+		names[name] = true
+	}
+	if len(names) != 1 {
+		return ""
+	}
+	for n := range names {
+		if len(n) >= 3 {
+			return n
+		}
+	}
+	return ""
 }

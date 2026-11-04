@@ -217,7 +217,10 @@ type Coverage struct {
 	// Declared counts unmatched call sites attributed to the repo's single
 	// declared http-client seam — intent supplying the attribution measurement
 	// could not. Labeled, never resolved into an edge.
-	Declared int
+	Declared int // Outside counts unresolved call sites whose target hint names a service
+	// that is not in the snapshot: not a blind spot of resolution, but a
+	// dependency on something the snapshot does not hold.
+	Outside int
 }
 
 // EvidenceSink is the write side: what a signal reports into.

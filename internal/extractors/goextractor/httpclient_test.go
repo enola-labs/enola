@@ -403,3 +403,35 @@ func (c *C) calls(id, sku, q, name, suffix string) {
 		t.Errorf("client routes = %v, want exactly %d", names, len(want))
 	}
 }
+
+// A URL built on a variable named for its service's base URL carries that service as
+// its target hint when no environment lookup names one.
+func TestHTTPClientBaseVariableHint(t *testing.T) {
+	ff := extractAll(t, map[string]string{
+		"go.mod": "module example.com/shop\n\ngo 1.22\n",
+		"billing/client.go": `package billing
+
+import (
+	"fmt"
+	"net/http"
+)
+
+type Config struct{ LedgerBaseURL string }
+
+func Fetch(ordersURL string, cfg Config, base string) {
+	_, _ = http.Get(fmt.Sprintf("%s/api/v1/orders", ordersURL))
+	_, _ = http.Get(cfg.LedgerBaseURL + "/api/v1/entries")
+	_, _ = http.Get(base + "/api/v1/plain")
+}
+`,
+	})
+	got := map[string]string{}
+	for _, f := range ff {
+		if f.Kind == facts.KindRoute && f.PropString("role") == "client" {
+			got[f.Name] = f.PropString("target_hint")
+		}
+	}
+	if got["/api/v1/orders"] != "orders" || got["/api/v1/entries"] != "ledger" || got["/api/v1/plain"] != "" {
+		t.Errorf("target hints = %v", got)
+	}
+}

@@ -44,6 +44,11 @@ func (s *Signal) Contribute(in plugin.SignalInput, out plugin.EvidenceSink) {
 	all := in.Facts()
 	server := m.IndexServerRoutes(all)
 	declaredTargets := soleDeclaredHTTPTargets(all)
+	loaded := map[string]bool{}
+	for r := range reposOf(all) {
+		loaded[facts.NormalizeRepoLabel(r)] = true
+	}
+	var serverSuffixes map[string][]string // built on the first unresolved call
 
 	// Match client routes against the server index.
 	for _, f := range all {
@@ -81,8 +86,47 @@ func (s *Signal) Contribute(in plugin.SignalInput, out plugin.EvidenceSink) {
 			out.Coverage(f.Repo, CoverageEdgeType).External++
 		case bucketDeclared:
 			out.Coverage(f.Repo, CoverageEdgeType).Declared++
+		case bucketUnresolved:
+			if serverSuffixes == nil {
+				serverSuffixes = m.IndexServerPathSuffixes(all)
+			}
+			if servedNowhere(m, call, server, serverSuffixes) && hintOutsideSnapshot(m, f, loaded) {
+				out.Coverage(f.Repo, CoverageEdgeType).Outside++
+			}
 		}
 	}
+}
+
+// servedNowhere reports an unresolved call no loaded server serves in any form: not
+// ambiguous between providers, not at another verb or version. Only such a call can be
+// a dependency on a service outside the snapshot; one a loaded server serves is a
+// resolution question about the services that are there.
+func servedNowhere(m *routeindex.Matcher, call callResolution, server map[string][]routeindex.RouteRef, serverSuffixes map[string][]string) bool {
+	if call.reason != "" || len(call.matches) > 0 || call.clientPath == "" {
+		return false
+	}
+	return !m.ServedAtAnotherVersion(server, call.clientPath, call.method) && !m.ClientPathHasServer(serverSuffixes, call.clientPath)
+}
+
+// hintOutsideSnapshot reports an unresolved call whose target hint names a service
+// none of the loaded repositories is: `SVC_LEDGER_API_HOST` with no ledger loaded.
+// The call is still unresolved, and stays counted, but as a dependency the snapshot
+// does not hold rather than a call resolution could not follow.
+func hintOutsideSnapshot(m *routeindex.Matcher, f facts.Fact, loaded map[string]bool) bool {
+	raw := f.PropString("target_hint")
+	hint := facts.NormalizeRepoLabel(raw)
+	if len(hint) < 3 {
+		return false
+	}
+	if _, aliased := m.ServiceAlias(raw); aliased {
+		return false // the configuration says which repository it is
+	}
+	for label := range loaded {
+		if label == hint || strings.Contains(label, hint) || strings.Contains(hint, label) {
+			return false
+		}
+	}
+	return true
 }
 
 // RouteMatch is one server route a resolved client call reaches, named by the
@@ -798,8 +842,11 @@ const (
 	// repo declares exactly one http-client seam: attributed there by intent,
 	// labeled as such, never resolved into an edge.
 	ReasonDeclaredTarget = "attributed_by_intent"
-	ReasonGenericPath    = "generic_path"    // a sub-2-segment path the matcher deliberately skips
-	ReasonMethodMismatch = "method_mismatch" // a server route serves this path suffix, but not this verb
+	// ReasonOutsideSnapshot: the call's target hint names a service no loaded
+	// repository is.
+	ReasonOutsideSnapshot = "outside_snapshot"
+	ReasonGenericPath     = "generic_path"    // a sub-2-segment path the matcher deliberately skips
+	ReasonMethodMismatch  = "method_mismatch" // a server route serves this path suffix, but not this verb
 	// ReasonAmbiguousProvider marks a call more than one loaded repository serves, with
 	// nothing that chooses between them. Reporting it as a verb mismatch sent a reader
 	// looking for a wrong verb the call does not have.
@@ -832,6 +879,10 @@ func UnmatchedClientRouteKeys(m *routeindex.Matcher, all []facts.Fact) map[strin
 	server := m.IndexServerRoutes(all)
 	serverSuffixes := m.IndexServerPathSuffixes(all)
 	declaredTargets := soleDeclaredHTTPTargets(all)
+	loaded := map[string]bool{}
+	for r := range reposOf(all) {
+		loaded[facts.NormalizeRepoLabel(r)] = true
+	}
 	unmatched := map[string]string{}
 	for _, f := range all {
 		if f.Kind != facts.KindRoute || f.Repo == "" || routeindex.RoleOf(f) != facts.RoleClient {
@@ -850,6 +901,9 @@ func UnmatchedClientRouteKeys(m *routeindex.Matcher, all []facts.Fact) map[strin
 			continue
 		}
 		reason := call.reason
+		if call.bucket == bucketUnresolved && servedNowhere(m, call, server, serverSuffixes) && hintOutsideSnapshot(m, f, loaded) {
+			reason = ReasonOutsideSnapshot
+		}
 		if reason == "" {
 			// No server route matched the call's verb. Distinguish "a server serves
 			// this path but not this verb" from "no server serves this path at all",

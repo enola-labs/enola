@@ -31,9 +31,21 @@ func (fakeEdge) Unverified(plugin.Bucket, int) {}
 type fakeSink struct {
 	plugin.EvidenceSink
 	edges int
+	cov   map[string]*plugin.Coverage
 }
 
 func (s *fakeSink) Edge(_, _ string) plugin.EdgeEvidence { s.edges++; return fakeEdge{} }
+
+func (s *fakeSink) Coverage(repo, edgeType string) *plugin.Coverage {
+	if s.cov == nil {
+		s.cov = map[string]*plugin.Coverage{}
+	}
+	k := repo + "/" + edgeType
+	if s.cov[k] == nil {
+		s.cov[k] = &plugin.Coverage{}
+	}
+	return s.cov[k]
+}
 
 func topic(protocol, role string) facts.Fact {
 	return facts.Fact{Kind: facts.KindStorage, Name: "svc-orders.order_created", Repo: "svc-billing",
@@ -69,6 +81,8 @@ type recordingSink struct {
 	plugin.EvidenceSink
 	edges [][2]string
 }
+
+func (s *recordingSink) Coverage(string, string) *plugin.Coverage { return &plugin.Coverage{} }
 
 func (s *recordingSink) Edge(from, to string) plugin.EdgeEvidence {
 	s.edges = append(s.edges, [2]string{from, to})
@@ -166,5 +180,19 @@ func TestTopicsInTestCodeDrawNoEdge(t *testing.T) {
 	New(vocab.Default()).Contribute(in, sink)
 	if sink.edges != 0 {
 		t.Errorf("a test topic drew %d edge(s)", sink.edges)
+	}
+}
+
+// Each consumed topic is counted under the kafka edge type: resolved when a loaded
+// repository owns it, outside the snapshot when its owner is named but not loaded.
+func TestConsumedTopicsAreCounted(t *testing.T) {
+	owned := topic("kafka", "consumer")
+	foreign := topic("kafka", "consumer")
+	foreign.Name = "svc-ledger.entry_posted"
+	sink := &fakeSink{}
+	New(vocab.Default()).Contribute(fakeInput{facts: []facts.Fact{owned, foreign}}, sink)
+	c := sink.cov["svc-billing/"+CoverageEdgeType]
+	if c == nil || c.Detected != 2 || c.Resolved != 1 || c.Outside != 1 {
+		t.Errorf("kafka coverage = %+v, want detected 2, resolved 1, outside 1", c)
 	}
 }

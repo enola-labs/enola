@@ -20,6 +20,7 @@ Filters applied: kind=service
           "detected": 4,
           "edge_type": "http_client",
           "external": 2,
+          "outside": 0,
           "resolved": 1,
           "unresolved": 1
         }

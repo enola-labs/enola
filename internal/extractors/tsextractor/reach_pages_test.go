@@ -323,3 +323,22 @@ export const Shell = ({ children }: { children: React.ReactNode }) => <main>{chi
 		}
 	}
 }
+
+// A file that takes its client from one factory named for a service hints that
+// service on its requests; a file with two such clients hints neither.
+func TestClientFactoryHint(t *testing.T) {
+	one := []byte("const client = getLedgerClient()\nawait client.get('/accounts/{id}/entries')\n")
+	two := []byte("const a = getLedgerClient()\nconst b = createBillingApiClient()\n")
+	if got := factoryHint(one); got != "ledger" {
+		t.Errorf("one factory: hint = %q, want ledger", got)
+	}
+	if got := factoryHint(two); got != "" {
+		t.Errorf("two factories: hint = %q, want none", got)
+	}
+	if got := factoryHint([]byte("const c = getOrdersAdminHttpClient()\n")); got != "ordersadmin" {
+		t.Errorf("transport suffix: hint = %q, want ordersadmin", got)
+	}
+	if got := factoryHint([]byte("const c = getDefaultHttpClient()\n")); got != "" {
+		t.Errorf("generic factory: hint = %q, want none", got)
+	}
+}

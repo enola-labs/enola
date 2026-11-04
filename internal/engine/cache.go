@@ -3388,7 +3388,12 @@ import (
 // page, layout or other segment re-exporting a named component as its default, and a route
 // file re-exporting its verb handlers, are handled by them through barrels. OpenAPI: the path
 // the spec's servers share is recorded as server_base.
-const cacheVersion = "v521"
+// v522: Scala: Kafka topics named in a module's HOCON configuration (src/main/resources/*.conf
+// of a module that talks to Kafka), with their direction from the block they sit in. Go: a
+// fmt.Sprintf URL is read from its first slash, and a base variable named for a service
+// (ordersURL, cfg.LedgerBaseURL) is its target hint. TypeScript: a file taking its client
+// from one service-named factory (getLedgerClient()) hints that service.
+const cacheVersion = "v522"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

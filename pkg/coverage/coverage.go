@@ -31,6 +31,9 @@ type EdgeCoverage struct {
 	Resolved   int    `json:"resolved"`
 	Unresolved int    `json:"unresolved"`
 	External   int    `json:"external,omitempty"`
+	// Outside counts call sites whose target hint names a service the snapshot does
+	// not hold: a dependency on something not loaded, not a resolution gap.
+	Outside int `json:"outside,omitempty"`
 }
 
 // Service is the coverage picture for one service node.
@@ -42,6 +45,7 @@ type Service struct {
 	EdgeCoverage    []EdgeCoverage `json:"edge_coverage,omitempty"`
 	UnresolvedTotal int            `json:"unresolved_total"`
 	ExternalTotal   int            `json:"external_total,omitempty"`
+	OutsideTotal    int            `json:"outside_total,omitempty"`
 	UnresolvedSites []CallSite     `json:"unresolved_sites,omitempty"`
 }
 
@@ -89,21 +93,25 @@ func Build(store *facts.Store, service string) Report {
 		outbound := facts.DependsOnCount(svc)
 
 		cov := readEdgeCoverage(svc)
-		detected, resolved, unresolved, external := 0, 0, 0, 0
+		detected, resolved, unresolved, external, outside := 0, 0, 0, 0, 0
 		for _, c := range cov {
 			detected += c.Detected
 			resolved += c.Resolved
 			unresolved += c.Unresolved
 			external += c.External
+			outside += c.Outside
 		}
 
 		out = append(out, Service{
-			Service:         svc.Name,
-			Classification:  facts.ClassifyService(outbound, detected, resolved, unresolved),
+			Service: svc.Name,
+			// A call to a service outside the snapshot is still an outbound call: a
+			// service making only those is not an isolate.
+			Classification:  facts.ClassifyService(outbound, detected, resolved, unresolved+outside),
 			OutboundEdges:   outbound,
 			EdgeCoverage:    cov,
 			UnresolvedTotal: unresolved,
 			ExternalTotal:   external,
+			OutsideTotal:    outside,
 		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Service < out[j].Service })
@@ -139,6 +147,7 @@ func readEdgeCoverage(svc facts.Fact) []EdgeCoverage {
 			Resolved:   readInt(m["resolved"]),
 			Unresolved: readInt(m["unresolved"]),
 			External:   readInt(m["external"]),
+			Outside:    readInt(m["outside"]),
 		})
 	}
 	return out
@@ -167,11 +176,16 @@ func (r Report) RenderMarkdown() string {
 		fmt.Fprintf(&sb, "⚠️  %d service(s) classified `coverage_gap`: they look isolated but have unresolved outbound call sites — verify against source.\n\n", gaps)
 	}
 
-	sb.WriteString("| Service | Classification | Outbound edges | Detected | Resolved | Unresolved | External |\n")
-	sb.WriteString("|---|---|---|---|---|---|---|\n")
+	sb.WriteString("| Service | Classification | Outbound edges | Detected | Resolved | Unresolved | Outside snapshot | External |\n")
+	sb.WriteString("|---|---|---|---|---|---|---|---|\n")
+	outside := false
 	for _, s := range r {
-		fmt.Fprintf(&sb, "| %s | %s | %d | %d | %d | %d | %d |\n",
-			s.Service, s.Classification, s.OutboundEdges, s.Detected(), s.Resolved(), s.UnresolvedTotal, s.ExternalTotal)
+		fmt.Fprintf(&sb, "| %s | %s | %d | %d | %d | %d | %d | %d |\n",
+			s.Service, s.Classification, s.OutboundEdges, s.Detected(), s.Resolved(), s.UnresolvedTotal, s.OutsideTotal, s.ExternalTotal)
+		outside = outside || s.OutsideTotal > 0
+	}
+	if outside {
+		sb.WriteString("\n`Outside snapshot` counts calls whose target the source names (an env var, a client name) as a service that is not loaded: load it to resolve them.\n")
 	}
 	for _, s := range r {
 		if s.Classification == facts.ServiceIsolated {
