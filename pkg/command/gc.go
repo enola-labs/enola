@@ -31,6 +31,7 @@ func (r *Runner) GC(args []string) {
 		olderThan    = fs.String("thin-older-than", "", "drop the stored contents of revisions older than this (e.g. 90d, 720h); their summary lines stay")
 		pruneWorking = fs.Bool("prune-working", false, "remove working revisions (snapshots of uncommitted trees) from the log entirely")
 		only         = fs.String("repo", "", "in a cluster, collect only this member (its folder name)")
+		pruneCopies  = fs.Bool("prune-cluster-copies", false, "remove cluster snapshots from members' own histories, where older enola copied them; the cluster's history keeps its own")
 	)
 	fs.Usage = func() {
 		fmt.Fprint(os.Stderr,
@@ -80,12 +81,20 @@ func (r *Runner) GC(args []string) {
 		opts.ThinOlderThan = d
 	}
 
+	collect := func(hr historyRoot) (inthistory.GCReport, error) {
+		o := opts
+		// Every revision of a cluster's own history is multi-repo; only a repository's
+		// own history holds copies.
+		o.PruneClusterCopies = *pruneCopies && !hr.cluster
+		return inthistory.GC(hr.root, o)
+	}
+
 	if scope.cluster == "" || *only != "" {
-		rep, err := inthistory.GC(roots[0].root, opts)
+		rep, err := collect(roots[0])
 		if err != nil {
 			r.gcFatal("%v", err)
 		}
-		fmt.Print(renderGC(rep, *dryRun, roots[0].root))
+		fmt.Print(renderGC(rep, *dryRun, roots[0].root, false))
 		return
 	}
 
@@ -101,13 +110,13 @@ func (r *Runner) GC(args []string) {
 			name = "cluster"
 		}
 		fmt.Printf("\n== %s\n", name)
-		rep, err := inthistory.GC(hr.root, opts)
+		rep, err := collect(hr)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%s gc: %s: %v\n", r.name(), name, err)
 			failed++
 			continue
 		}
-		fmt.Print(renderGC(rep, *dryRun, hr.root))
+		fmt.Print(renderGC(rep, *dryRun, hr.root, hr.cluster))
 		total.Revisions += rep.Revisions
 		total.BytesBefore += rep.BytesBefore
 		total.BytesFreed += rep.BytesFreed
@@ -142,7 +151,7 @@ func parseAge(s string) (time.Duration, error) {
 // renderGC states what is there before what changed, because the report is useful on its
 // own — "how much history do I have and how much of it can I still replay" has no other
 // answer.
-func renderGC(rep inthistory.GCReport, dryRun bool, root string) string {
+func renderGC(rep inthistory.GCReport, dryRun bool, root string, cluster bool) string {
 	var b []byte
 	add := func(format string, args ...any) { b = append(b, fmt.Sprintf(format, args...)...) }
 
@@ -159,6 +168,9 @@ func renderGC(rep inthistory.GCReport, dryRun bool, root string) string {
 	}
 	if rep.Working > 0 {
 		add("    %-12s %d  (snapshots of uncommitted trees)\n", "working", rep.Working)
+	}
+	if rep.MultiRepo > 0 && !cluster {
+		add("    %-12s %d  (copies of cluster snapshots; --prune-cluster-copies removes them)\n", "cluster", rep.MultiRepo)
 	}
 	add("  %-14s %d\n", "segments", rep.Segments)
 	add("  %-14s %s\n", "stored", humanBytes(rep.BytesBefore))
@@ -180,7 +192,7 @@ func renderGC(rep inthistory.GCReport, dryRun bool, root string) string {
 		add("  %d segment(s) past the age cutoff; those revisions keep their summary line\n", n)
 	}
 	if rep.PrunedEntries > 0 {
-		add("  %d working revision(s) from the log\n", rep.PrunedEntries)
+		add("  %d revision(s) from the log\n", rep.PrunedEntries)
 	}
 	add("  %s reclaimed\n", humanBytes(rep.BytesFreed))
 	return string(b)

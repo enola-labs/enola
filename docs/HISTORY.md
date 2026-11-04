@@ -151,7 +151,8 @@ in `~/.enola/graphs/<folder>-cluster-<hash>/history/`, keyed by the member set, 
 repositories land in one history whether they were indexed from a `cluster.yaml`, a folder of
 repositories, or a list over MCP. With `history.dir` set it is `<that dir>/clusters/<key>/`. Each
 member's history holds only the snapshots of that member alone. Cluster snapshots taken before
-this were appended to every member's history, and stay readable there through a member's path.
+this were appended to every member's history. They stay readable there through a member's path,
+`gc` counts them, and `gc --prune-cluster-copies` removes them.
 
 A revision's delta is computed against the history's own latest revision, never against
 whatever the output directory held before. A member snapshotted alone after its cluster holds

@@ -20,6 +20,8 @@ collects the cluster's own history and every member's; --repo picks one member.
 Flags:
   -dry-run
     	report what would be removed and change nothing
+  -prune-cluster-copies
+    	remove cluster snapshots from members' own histories, where older enola copied them; the cluster's history keeps its own
   -prune-working
     	remove working revisions (snapshots of uncommitted trees) from the log entirely
   -repo string

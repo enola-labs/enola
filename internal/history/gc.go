@@ -25,6 +25,12 @@ type GCOptions struct {
 	// least interesting part of it afterwards.
 	PruneWorking bool
 
+	// PruneClusterCopies removes multi-repo revisions from the log. In a repository's own
+	// history those are copies: a cluster snapshot was once appended to every member's
+	// history, and a cluster now has a history of its own. Never set it for a cluster's
+	// history, where every revision is multi-repo.
+	PruneClusterCopies bool
+
 	// Now is the clock, injectable so a test can age a fixture without sleeping.
 	Now time.Time
 }
@@ -44,6 +50,7 @@ type GCReport struct {
 	Replayable int // entries whose contents can still be loaded
 	Thinned    int // entries whose contents are already gone
 	Working    int // unanchored revisions
+	MultiRepo  int // revisions of a multi-repo graph
 	Segments   int // segment directories on disk
 
 	OrphanSegments  []int // referred to by no entry — garbage from an interrupted write or a hand edit
@@ -91,6 +98,9 @@ func GC(root string, opts GCOptions) (GCReport, error) {
 		if e.Working() {
 			rep.Working++
 		}
+		if len(e.Repos) > 1 {
+			rep.MultiRepo++
+		}
 		switch {
 		case e.Blob == nil, !live[e.Blob.Segment]:
 			rep.Thinned++
@@ -102,10 +112,10 @@ func GC(root string, opts GCOptions) (GCReport, error) {
 	// 1. Pruning first: it decides which entries remain, and therefore which segments are
 	//    still referred to.
 	kept := entries
-	if opts.PruneWorking {
+	if opts.PruneWorking || opts.PruneClusterCopies {
 		kept = kept[:0:0]
 		for _, e := range entries {
-			if e.Working() {
+			if (opts.PruneWorking && e.Working()) || (opts.PruneClusterCopies && len(e.Repos) > 1) {
 				rep.PrunedEntries++
 				continue
 			}

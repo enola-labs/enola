@@ -231,3 +231,39 @@ func TestGC_ReportCountsWhatIsThere(t *testing.T) {
 		t.Error("stored bytes were not measured")
 	}
 }
+
+// A member's history once received a copy of every cluster snapshot. They are counted,
+// and removed only when asked; the member's own revisions stay.
+func TestGC_PruneClusterCopies(t *testing.T) {
+	root := t.TempDir()
+	opts := Options{WorkingKeep: -1, BlobKeep: -1}
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	own := pkghistory.Entry{ID: "sha256:a0000000", Repo: "r", At: now, Epoch: "e1", Git: gitAt("c1")}
+	cluster := pkghistory.Entry{ID: "sha256:b0000000", Repo: "r", At: now, Epoch: "e1", Git: gitAt("c2"),
+		Repos: []pkghistory.RepoRef{{Label: "r", Commit: "c2"}, {Label: "s", Commit: "d1"}}}
+	for i, e := range []pkghistory.Entry{own, cluster} {
+		if _, err := Append(root, e, withContents(opts, e.ID, 10+i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	rep, err := GC(root, GCOptions{DryRun: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.MultiRepo != 1 || rep.PrunedEntries != 0 {
+		t.Fatalf("report: multi-repo %d pruned %d, want 1 counted and none pruned without the flag", rep.MultiRepo, rep.PrunedEntries)
+	}
+
+	if rep, err = GC(root, GCOptions{PruneClusterCopies: true}); err != nil || rep.PrunedEntries != 1 {
+		t.Fatalf("prune: %+v %v, want 1 pruned", rep, err)
+	}
+	entries, err := pkghistory.Read(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].ID != own.ID {
+		t.Errorf("want only the member's own revision left, got %+v", entries)
+	}
+}
