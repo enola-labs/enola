@@ -18,7 +18,7 @@
 
 ## Extraction quality
 
-- **Files:** 1 parsed / 2 seen · 0 file(s) + 0 directory tree(s) skipped by ignore globs
+- **Files:** 2 parsed / 4 seen · 0 file(s) + 0 directory tree(s) skipped by ignore globs
 - **Parse errors:** 0
 - **Heuristic insights:** 6 of 6 (confidence < 1.0; the rest are structural facts)
 - **Cross-repo coverage:** 2 service(s), 0 coverage gap(s), 1 unresolved edge(s)

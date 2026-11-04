@@ -158,7 +158,15 @@ func copyArtifacts(srcDir, dstDir string) error {
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	for _, name := range snapshotArtifactFiles {
-		if err := copyFile(filepath.Join(srcDir, name), filepath.Join(tmpDir, name)); err != nil {
+		// facts.jsonl is the bulk of a snapshot, and every writer replaces it by
+		// renaming a new file over it, so the baseline can hold the same file rather
+		// than a copy: the next write leaves the linked one as it was. The small
+		// artifacts are written in place and are copied.
+		place := copyFile
+		if name == "facts.jsonl" {
+			place = linkOrCopyFile
+		}
+		if err := place(filepath.Join(srcDir, name), filepath.Join(tmpDir, name)); err != nil {
 			if os.IsNotExist(err) {
 				continue
 			}

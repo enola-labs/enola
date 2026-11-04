@@ -80,8 +80,20 @@ func (e *Engine) Receipt() facts.Receipt {
 		}
 		r.Members = append(r.Members, facts.MemberReceipt{
 			Repo: label, RepoPath: path, Git: m.Git, Extractors: m.Extractors,
-			FilesSeen: m.FilesSeen, FilesParsed: m.FilesParsed, FilesSkipped: m.FilesSkipped, ParseErrors: m.ParseErrors,
+			FilesSeen: m.FilesSeen, FilesParsed: m.FilesParsed, FilesSkipped: m.FilesSkipped, DirsSkipped: m.DirsSkipped, ParseErrors: m.ParseErrors,
 		})
+	}
+	// The union's extraction quality is its members' together; the samples were the
+	// last member's alone, and are each member's own receipt's to give.
+	q := &r.Quality
+	q.FilesSeen, q.FilesParsed, q.FilesSkipped, q.DirsSkipped, q.ParseErrors = 0, 0, 0, 0, 0
+	q.SkippedSample, q.ParseErrorSample = nil, nil
+	for _, m := range r.Members {
+		q.FilesSeen += m.FilesSeen
+		q.FilesParsed += m.FilesParsed
+		q.FilesSkipped += m.FilesSkipped
+		q.DirsSkipped += m.DirsSkipped
+		q.ParseErrors += m.ParseErrors
 	}
 	sort.Slice(r.Members, func(i, j int) bool { return r.Members[i].Repo < r.Members[j].Repo })
 	return r

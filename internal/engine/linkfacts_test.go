@@ -45,3 +45,34 @@ func TestLinkedFactsSurviveAWriteToOneRepository(t *testing.T) {
 		t.Error("b's write did not land")
 	}
 }
+
+// previous/ holds the snapshot it was rotated from, linked rather than copied, and
+// keeps it when the next snapshot is written.
+func TestRotatedFactsAreLinkedAndKept(t *testing.T) {
+	out := t.TempDir()
+	old := facts.NewStore()
+	old.Add(facts.Fact{Kind: facts.KindModule, Name: "old"})
+	if _, err := writeFactsJSONL(old, filepath.Join(out, "facts.jsonl")); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := os.ReadFile(filepath.Join(out, "facts.jsonl"))
+	if err := rotatePrevious(out); err != nil {
+		t.Fatal(err)
+	}
+	a, _ := os.Stat(filepath.Join(out, "facts.jsonl"))
+	b, err := os.Stat(filepath.Join(out, PreviousSubdir, "facts.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !os.SameFile(a, b) {
+		t.Log("filesystem gave a copy, not a link")
+	}
+	fresh := facts.NewStore()
+	fresh.Add(facts.Fact{Kind: facts.KindModule, Name: "new"})
+	if _, err := writeFactsJSONL(fresh, filepath.Join(out, "facts.jsonl")); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(filepath.Join(out, PreviousSubdir, "facts.jsonl")); string(got) != string(before) {
+		t.Errorf("previous/facts.jsonl changed with the new snapshot:\n%s", got)
+	}
+}

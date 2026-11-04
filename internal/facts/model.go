@@ -803,6 +803,7 @@ type MemberReceipt struct {
 	FilesSeen    int      `json:"files_seen"`
 	FilesParsed  int      `json:"files_parsed"`
 	FilesSkipped int      `json:"files_skipped"`
+	DirsSkipped  int      `json:"dirs_skipped"`
 	ParseErrors  int      `json:"parse_errors"`
 }
 
