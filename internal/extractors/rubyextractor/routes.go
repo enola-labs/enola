@@ -390,6 +390,17 @@ func currentController(stack []routeScope) (string, bool) {
 	return "", false
 }
 
+// controllerInScope reports whether any enclosing scope names a controller or owns
+// one this extractor could not name.
+func controllerInScope(stack []routeScope) bool {
+	for _, s := range stack {
+		if s.controller != "" || s.controllerUnknown {
+			return true
+		}
+	}
+	return false
+}
+
 // routeDrawKey returns the key a draw(:key) delegation names a route file by: its
 // path below config/routes/, without the extension. "" for any other file.
 func routeDrawKey(relFile string) string {

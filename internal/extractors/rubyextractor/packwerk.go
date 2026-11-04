@@ -20,10 +20,37 @@ type packwerkConfig struct {
 
 // packageConfig represents a single package.yml file.
 type packageConfig struct {
-	EnforceDependencies bool           `yaml:"enforce_dependencies"`
-	EnforcePrivacy      bool           `yaml:"enforce_privacy"`
+	EnforceDependencies enforcement    `yaml:"enforce_dependencies"`
+	EnforcePrivacy      enforcement    `yaml:"enforce_privacy"`
 	Dependencies        []string       `yaml:"dependencies"`
 	Metadata            map[string]any `yaml:"metadata"`
+}
+
+// enforcement is a package.yml enforce_* setting. Packwerk takes true, false or
+// "strict" (enforced, and recorded violations no longer allowed), so a plain bool
+// fails to unmarshal "strict" and loses the whole package.
+type enforcement struct {
+	on     bool
+	strict bool
+}
+
+func (e *enforcement) UnmarshalYAML(n *yaml.Node) error {
+	var b bool
+	if err := n.Decode(&b); err == nil {
+		e.on = b
+		return nil
+	}
+	var s string
+	if err := n.Decode(&s); err != nil {
+		return err
+	}
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "strict":
+		e.on, e.strict = true, true
+	case "true", "yes", "on":
+		e.on = true
+	}
+	return nil
 }
 
 // packwerkPackage holds parsed package info used during extraction.
@@ -151,8 +178,8 @@ func parsePackwerk(repoPath string) *packwerkInfo {
 
 		pkg := &packwerkPackage{
 			path:                pkgDir,
-			enforceDependencies: pkgCfg.EnforceDependencies,
-			enforcePrivacy:      pkgCfg.EnforcePrivacy,
+			enforceDependencies: pkgCfg.EnforceDependencies.on,
+			enforcePrivacy:      pkgCfg.EnforcePrivacy.on,
 			dependencies:        pkgCfg.Dependencies,
 		}
 		info.packages[pkgDir] = pkg
@@ -163,8 +190,14 @@ func parsePackwerk(repoPath string) *packwerkInfo {
 			"framework":            "rails",
 			"packwerk":             true,
 			"module_role":          facts.ModuleRoleProduction,
-			"enforce_dependencies": pkgCfg.EnforceDependencies,
-			"enforce_privacy":      pkgCfg.EnforcePrivacy,
+			"enforce_dependencies": pkgCfg.EnforceDependencies.on,
+			"enforce_privacy":      pkgCfg.EnforcePrivacy.on,
+		}
+		if pkgCfg.EnforceDependencies.strict {
+			props["enforce_dependencies_strict"] = true
+		}
+		if pkgCfg.EnforcePrivacy.strict {
+			props["enforce_privacy_strict"] = true
 		}
 
 		if pkgCfg.Metadata != nil {

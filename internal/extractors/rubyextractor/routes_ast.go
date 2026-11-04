@@ -206,10 +206,14 @@ func (rw *routeWalker) handleCall(call *sitter.Node, stack []routeScope) {
 		if pathGiven {
 			path = override
 		}
-		if path == "" {
+		// `delete '', to: 'baskets#bulk_destroy'` inside a collection is served at the
+		// scope's own path: an explicit empty path adds no segment, it does not
+		// declare nothing.
+		emptyPath := path == "" && !pathGiven && firstPositionalIsEmptyString(args)
+		if path == "" && !emptyPath {
 			return
 		}
-		if !strings.HasPrefix(path, "/") {
+		if !emptyPath && !strings.HasPrefix(path, "/") {
 			path = "/" + path
 		}
 		// Rails distinguishes three placements inside a `resources` block and
@@ -308,6 +312,14 @@ func (rw *routeWalker) handleCall(call *sitter.Node, stack []routeScope) {
 			} else if action != "" && !given {
 				if cand := candidateController(stack); cand != "" {
 					props[singularCandidateProp] = composeController(cand, buildModule(stack), false) + "#" + action
+				} else if mod := buildModule(stack); mod != "" && !controllerInScope(stack) {
+					// No scope names a controller, but a namespace or `scope module:`
+					// does name a module: Rails' add_controller_module then joins the
+					// module with a nil controller, so the module path IS the
+					// controller (`namespace :bins do post :connect end` ->
+					// bins#connect). Offered, like the singular candidate, so it is
+					// kept only where that controller is declared.
+					props[singularCandidateProp] = mod + "#" + action
 				}
 			}
 		}
@@ -579,7 +591,16 @@ func (rw *routeWalker) handleCall(call *sitter.Node, stack []routeScope) {
 			}
 			pathSeg = p
 		}
-		rw.walk(body, append(stack, routeScope{pathPrefix: pathSeg, module: name}))
+		// `module:` overrides the controller namespace the same way (path stays the
+		// symbol name), e.g. `namespace :drivers, module: 'admin'` routes /drivers/...
+		// to Admin::...Controller.
+		module := name
+		if m := pairSymbol(args, "module", rw.src); m != "" {
+			module = m
+		} else if m := pairString(args, "module", rw.src); m != "" {
+			module = m
+		}
+		rw.walk(body, append(stack, routeScope{pathPrefix: pathSeg, module: module}))
 
 	case "scope":
 		// module: and path: are independent — a scope may set either or both. Read a

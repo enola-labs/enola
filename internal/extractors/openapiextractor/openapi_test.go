@@ -278,3 +278,23 @@ func TestExtract_SkipsTestdataFixtures(t *testing.T) {
 		}
 	}
 }
+
+// A bundler's output, committed beside the sources it was built from, declares the
+// same operations again; it is read once. A file under a bundle directory with
+// operations of its own is a spec like any other.
+func TestBundledCopyOfASpecIsReadOnce(t *testing.T) {
+	repo := t.TempDir()
+	spec := "openapi: 3.0.0\npaths:\n  /orders:\n    get:\n      summary: list\n    post:\n      summary: create\n"
+	writeSpec(t, repo, "openapi/orders-api.yaml", spec)
+	writeSpec(t, repo, "openapi/bundled/orders-api.yaml", spec)
+	writeSpec(t, repo, "openapi/bundled/admin-api.yaml", "openapi: 3.0.0\npaths:\n  /admin/orders:\n    get:\n      summary: list\n")
+	got := map[string]int{}
+	for _, f := range extract(t, repo) {
+		if f.Kind == facts.KindRoute {
+			got[f.File]++
+		}
+	}
+	if got["openapi/orders-api.yaml"] != 2 || got["openapi/bundled/orders-api.yaml"] != 0 || got["openapi/bundled/admin-api.yaml"] != 1 {
+		t.Errorf("routes per spec file = %v", got)
+	}
+}

@@ -259,3 +259,24 @@ func TestDocumentingRepoKeepsItsSpecs(t *testing.T) {
 		t.Errorf("spec with no handler in a documenting repo: role = %q, want server", r)
 	}
 }
+
+// A spec that gives no operationIds still documents the routes the code registers:
+// it is bound by method and path, and never counted as an operation to implement.
+func TestInheritsTheDocumentedRoutesHandlerWithoutOperationID(t *testing.T) {
+	code := facts.Fact{Kind: facts.KindRoute, Name: "/accounts/:account_id/cards", File: "engines/cards/config/routes.rb",
+		Props:     map[string]any{"method": "GET", facts.PropFramework: "rails"},
+		Relations: []facts.Relation{{Kind: facts.RelHandledBy, Target: "Cards::CardsController#index"}}}
+	impl := method("api.Server.ListCards", false)
+	impl.Props["symbol_kind"] = facts.SymbolMethod
+	store := facts.NewStore()
+	store.Add(code, impl, op("/accounts/{account_id}/cards", "api/service.yaml", ""))
+	bind(t, store)
+	if got := handledBy(t, store, "/accounts/{account_id}/cards", "api/service.yaml"); got != "Cards::CardsController#index" {
+		t.Errorf("handled_by = %q", got)
+	}
+	for _, f := range store.ByKind(facts.KindRoute) {
+		if f.PropString("spec_file") == "api/service.yaml" && f.PropString(PropHandlerBinding) != BindingCodeRoute {
+			t.Errorf("handler_binding = %q, want %q", f.PropString(PropHandlerBinding), BindingCodeRoute)
+		}
+	}
+}

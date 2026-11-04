@@ -2389,3 +2389,111 @@ end
 		}
 	}
 }
+
+// Packwerk's enforce_* settings take true, false or "strict". A "strict" package
+// must still be read as a package: losing it made every reference into it look
+// like an unused declared dependency.
+func TestPackwerk_StrictEnforcementIsAPackage(t *testing.T) {
+	dir := t.TempDir()
+	write := func(rel, body string) {
+		p := filepath.Join(dir, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("packwerk.yml", "package_paths:\n  - \".\"\n  - \"packs/*\"\n")
+	write("package.yml", "enforce_dependencies: true\n")
+	write("packs/catalog/package.yml", "enforce_privacy: strict\npublic_path: app/public/\n\nenforce_dependencies: strict\ndependencies:\n  - packs/billing\n")
+	write("packs/billing/package.yml", "enforce_dependencies: false\n")
+
+	info := parsePackwerk(dir)
+	var catalog *facts.Fact
+	for i := range info.facts {
+		if info.facts[i].Name == "packs/catalog" {
+			catalog = &info.facts[i]
+		}
+	}
+	if catalog == nil {
+		t.Fatal("a package with enforce_*: strict was not read")
+		return
+	}
+	if !catalog.PropBool("packwerk") || !catalog.PropBool("enforce_dependencies") || !catalog.PropBool("enforce_privacy") {
+		t.Errorf("strict must read as enforced, got %v", catalog.Props)
+	}
+	if !catalog.PropBool("enforce_dependencies_strict") || !catalog.PropBool("enforce_privacy_strict") {
+		t.Errorf("strict must be recorded, got %v", catalog.Props)
+	}
+	declared := false
+	for _, r := range catalog.Relations {
+		if r.Kind == facts.RelDependsOn && r.Target == "packs/billing" {
+			declared = true
+		}
+	}
+	if !declared {
+		t.Error("a strict package's declared dependencies were lost")
+	}
+	if info.packages["packs/billing"] == nil || info.packages["packs/billing"].enforceDependencies {
+		t.Error("enforce_dependencies: false must still read as a package, not enforced")
+	}
+}
+
+// `namespace :x, module: 'y'` keeps the URL segment x and puts the controllers under
+// module y, as `path:` does the other way round.
+func TestRoutes_NamespaceModuleKeyword(t *testing.T) {
+	src := `Rails.application.routes.draw do
+  namespace :drivers, module: 'admin' do
+    resources :routes, only: [] do
+      member do
+        post :assign
+      end
+    end
+    get 'overview', to: 'overview#show'
+  end
+end
+`
+	handlers := map[string]string{}
+	for _, f := range parseRouteFileAST([]byte(src), "config/routes.rb") {
+		if f.Kind == facts.KindRoute {
+			handlers[f.Name] = f.PropString("handler")
+		}
+	}
+	if got := handlers["/drivers/routes/:id/assign"]; got != "admin/routes#assign" {
+		t.Errorf("member verb handler = %q, want admin/routes#assign; got %v", got, handlers)
+	}
+	if got := handlers["/drivers/overview"]; got != "admin/overview#show" {
+		t.Errorf("to: handler = %q, want admin/overview#show; got %v", got, handlers)
+	}
+}
+
+// An explicit empty path inside a collection is served at the collection's own path.
+func TestRoutes_EmptyPathInACollection(t *testing.T) {
+	src := `Rails.application.routes.draw do
+  resources :baskets, only: %i(index) do
+    collection do
+      delete '', to: 'baskets#bulk_destroy'
+      get 'inbound', to: 'baskets#inbound'
+    end
+  end
+end
+`
+	handlers := map[string]string{}
+	for _, f := range parseRouteFileAST([]byte(src), "config/routes.rb") {
+		if f.Kind == facts.KindRoute {
+			handlers[f.PropString("method")+" "+f.Name] = f.PropString("handler")
+		}
+	}
+	if got := handlers["DELETE /baskets"]; got != "baskets#bulk_destroy" {
+		t.Errorf("DELETE /baskets handler = %q; got %v", got, handlers)
+	}
+	if got := handlers["GET /baskets/inbound"]; got != "baskets#inbound" {
+		t.Errorf("GET /baskets/inbound handler = %q; got %v", got, handlers)
+	}
+	for k := range handlers {
+		if strings.HasSuffix(strings.SplitN(k, " ", 2)[1], "/") {
+			t.Errorf("route with a trailing slash: %q", k)
+		}
+	}
+}

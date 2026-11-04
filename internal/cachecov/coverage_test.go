@@ -33,6 +33,10 @@ import (
 // test functions that assert the behavior that version introduced. v1 is the
 // implicit baseline (no changelog line), so coverage starts at v2.
 var versionCoverage = map[int][]string{
+	518: {"TestRouteBinding_BareVerbInANamespaceIsServedByTheModule", "TestRoutes_EmptyPathInACollection"},
+	517: {"TestRoutes_NamespaceModuleKeyword"},
+	516: {"TestBundledCopyOfASpecIsReadOnce"},
+	515: {"TestPackwerk_StrictEnforcementIsAPackage"},
 	514: {"TestRustGenericParametersOfEveryKindAreNotTypes"},
 	513: {"TestRustGenericParameterIsNotTheLocalTypeOfTheSameName"},
 	512: {"TestRustGenericParametersOfEveryKindAreNotTypes"},

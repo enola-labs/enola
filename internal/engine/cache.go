@@ -3362,7 +3362,16 @@ import (
 // v513: Rust: a generic parameter in scope (of a function, impl, struct or alias) is never
 // the local type of the same name, in receiver, path-call and return typing.
 // v514: Rust: a union carries union: true, as a C++ union does.
-const cacheVersion = "v514"
+// v515: Ruby: a package.yml whose enforce_dependencies or enforce_privacy is "strict"
+// is a packwerk package (enforced, strict recorded), not a parse failure that drops it.
+// v516: OpenAPI: a spec under a bundle directory (bundled/, bundle/, dist/) declaring
+// exactly the operations of a spec outside one is its bundled copy, and is read once.
+// v517: Rails: `namespace :x, module: 'y'` puts its controllers under module y (the URL
+// keeps x), as `path:` overrides the URL and keeps the module.
+// v518: Rails: a bare verb inside a namespace with no controller in scope is offered the
+// module path as its controller (`namespace :bins do post :x end` -> bins#x), bound
+// only where declared; an explicit empty path (`delete ”`) is served at the scope's path.
+const cacheVersion = "v518"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

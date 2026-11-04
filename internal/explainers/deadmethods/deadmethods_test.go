@@ -135,3 +135,43 @@ func TestAClassReadByReflectionKeepsEveryMethodAlive(t *testing.T) {
 		t.Fatalf("the unreflected method was not reported:\n%s", out)
 	}
 }
+
+// An engine's controllers live in its isolated namespace, which a route's handler
+// string leaves out (`shelves#add` for `Shop::ShelvesController#add`). The route's
+// handled_by target names the action as resolved, and a routed action is never
+// reported, even where packwerk privacy reads its public methods as unexported.
+func TestARoutedEngineActionIsNotReported(t *testing.T) {
+	out := titles(t,
+		private_("Shop::ShelvesController#add", "engines/shop/app/controllers/shop/shelves_controller.rb"),
+		private_("Shop::ShelvesController#unrouted", "engines/shop/app/controllers/shop/shelves_controller.rb"),
+		method("Shop::Shelves::Add#call", "engines/shop/app/domain/shop/shelves/add.rb", "save"),
+		facts.Fact{Kind: facts.KindRoute, Name: "/shop/shelves/add", Repo: "app",
+			Props:     map[string]any{"handler": "shelves#add", "method": "POST"},
+			Relations: []facts.Relation{{Kind: facts.RelHandledBy, Target: "Shop::ShelvesController#add"}}})
+	if strings.Contains(out, "ShelvesController#add") {
+		t.Fatalf("a routed action was reported:\n%s", out)
+	}
+	if !strings.Contains(out, "Shop::ShelvesController#unrouted has no caller the graph can see") {
+		t.Fatalf("the unrouted method should still be reported:\n%s", out)
+	}
+}
+
+// In a cluster snapshot each repository's methods are judged by its own callers:
+// another repository naming the same word neither keeps a method alive nor counts as
+// the spec that tests it.
+func TestCallersAreCountedWithinTheirRepository(t *testing.T) {
+	inOther := func(f facts.Fact) facts.Fact { f.Repo = "other"; return f }
+	out := titles(t,
+		method("Jobs::Cleanup#retry_later", "app/jobs/cleanup.rb"),
+		inOther(ref(facts.KindTestRef, "spec/jobs/sync_spec.rb", "retry_later")),
+		method("Jobs::Cleanup#flush", "app/jobs/cleanup.rb"),
+		inOther(method("Worker#run", "app/services/worker.rb", "flush")))
+	for _, want := range []string{
+		"Jobs::Cleanup#retry_later has no caller the graph can see",
+		"Jobs::Cleanup#flush has no caller the graph can see",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("missing %q in:\n%s", want, out)
+		}
+	}
+}

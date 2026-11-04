@@ -2656,6 +2656,30 @@ func firstSymbolArg(args *sitter.Node, src []byte) string {
 // literal or a bare symbol — skipping keyword pairs (to:, via:, only:, ...). Unlike
 // firstStringArg it does not descend into pair values, so `get :cities_by_zip` yields
 // "cities_by_zip" and `get :x, to: 'c#a'` yields "x" (the path, not the handler).
+// firstPositionalIsEmptyString reports whether the first positional argument is the
+// literal ” (or ""): a string with no content, which firstPositionalPath cannot tell
+// from no path at all.
+func firstPositionalIsEmptyString(args *sitter.Node) bool {
+	if args == nil {
+		return false
+	}
+	for i := uint(0); i < args.ChildCount(); i++ {
+		c := args.Child(i)
+		switch kindOf(c) {
+		case "string":
+			for j := uint(0); j < c.ChildCount(); j++ {
+				if k := kindOf(c.Child(j)); k == "string_content" || k == "interpolation" {
+					return false
+				}
+			}
+			return true
+		case "simple_symbol", "pair", "identifier", "constant", "call":
+			return false
+		}
+	}
+	return false
+}
+
 func firstPositionalPath(args *sitter.Node, src []byte) string {
 	if args == nil {
 		return ""

@@ -219,3 +219,46 @@ end
 		"GET /person": "",
 	})
 }
+
+// A bare verb inside a namespace, with no controller in scope, is served by the
+// controller the module path names: `namespace :bins do post :connect end` is
+// bins#connect. It is bound only where that controller is declared.
+func TestRouteBinding_BareVerbInANamespaceIsServedByTheModule(t *testing.T) {
+	got := boundRoutes(t, map[string]string{
+		"config/application.rb": "",
+		"lib/yard/engine.rb": `
+module Yard
+  class Engine < ::Rails::Engine
+    isolate_namespace Yard
+  end
+end
+`,
+		"config/routes.rb": `
+Yard::Engine.routes.draw do
+  scope '/yard_service' do
+    namespace :v1 do
+      namespace :bins do
+        post :connect
+      end
+      namespace :ghosts do
+        post :haunt
+      end
+    end
+  end
+end
+`,
+		"app/controllers/yard/v1/bins_controller.rb": `
+module Yard
+  module V1
+    class BinsController < ApplicationController
+      def connect; end
+    end
+  end
+end
+`,
+	})
+	wantBound(t, got, map[string]string{
+		"POST /yard_service/v1/bins/connect": "Yard::V1::BinsController#connect",
+		"POST /yard_service/v1/ghosts/haunt": "",
+	})
+}

@@ -83,7 +83,7 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 	// Server operations per repo and spec.
 	specs := map[[2]string][]string{} // {repo, spec} -> operationIds
 	for _, f := range store.ByKind(facts.KindRoute) {
-		if op, ok := serverOperation(f); ok && methods[op.repo] != nil {
+		if op, ok := serverOperation(f); ok && op.id != "" && methods[op.repo] != nil {
 			key := [2]string{op.repo, op.spec}
 			specs[key] = append(specs[key], op.id)
 		}
@@ -214,7 +214,7 @@ func demoteUnimplemented(store *facts.Store) int {
 }
 
 // serverOperation reports the operation a fact declares when it is a served OpenAPI
-// route with an operationId and no handler yet. A route that already has one, from
+// route with no handler yet; its id is empty when the spec gives none. A route that already has one, from
 // another binder or from an earlier run of this one, is left as it is.
 func serverOperation(f facts.Fact) (operation, bool) {
 	if f.Kind != facts.KindRoute || f.Props == nil {
@@ -223,10 +223,10 @@ func serverOperation(f facts.Fact) (operation, bool) {
 	if f.PropString(facts.PropSource) != facts.RouteSourceOpenAPI || f.PropString(facts.PropRole) != facts.RoleServer {
 		return operation{}, false
 	}
+	// An operation without an operationId has no method to be named after, but a
+	// spec that documents routes the code registers is bound by method and path,
+	// which needs no id.
 	id := f.PropString("operationId")
-	if id == "" {
-		return operation{}, false
-	}
 	for _, r := range f.Relations {
 		if r.Kind == facts.RelHandledBy {
 			return operation{}, false

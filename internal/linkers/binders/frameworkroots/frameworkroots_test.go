@@ -82,6 +82,22 @@ func TestBind_RoutesRootTheActionsTheyResolveTo(t *testing.T) {
 	}
 }
 
+// An engine's routes name their actions without its isolated namespace; the
+// route's handled_by target, as the route extractor resolved it, is what is rooted.
+func TestBind_RoutesRootTheirHandledByTarget(t *testing.T) {
+	r := route("shelves#add")
+	r.Relations = []facts.Relation{{Kind: facts.RelHandledBy, Target: "Shop::ShelvesController#add"}}
+	store := facts.NewStore()
+	store.Add(r,
+		symbol("Shop::ShelvesController", facts.SymbolClass, "engines/shop/app/controllers/shop/shelves_controller.rb", map[string]any{"rails_component": "controller"}),
+		symbol("Shop::ShelvesController#add", facts.SymbolMethod, "engines/shop/app/controllers/shop/shelves_controller.rb", nil),
+	)
+	bind(t, store)
+	if got := propOf(store, facts.KindSymbol, "Shop::ShelvesController#add", RootProp); got != MechanismRoute {
+		t.Fatalf("engine action root = %q", got)
+	}
+}
+
 // Each table row requires class-level evidence: a perform is a job root on a
 // job component, an ActiveJob subclass or a Sidekiq includer, and nothing
 // else; a service object's call is not a root.
