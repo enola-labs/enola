@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -137,6 +138,13 @@ func clusterMembers(path string) (members []string, source, historyDir string, e
 		return nil, "", "", nil
 	}
 	cfgPath, kids := workspace.Cluster(abs)
+	if info, statErr := os.Stat(abs); statErr == nil && !info.IsDir() {
+		// A config file names its repositories itself; one without repos: is not a cluster.
+		if cfg, err := config.Load(abs); err != nil || len(cfg.Repos) == 0 {
+			return nil, "", "", nil
+		}
+		cfgPath = abs
+	}
 	if cfgPath != "" {
 		cfg, err := config.Load(cfgPath)
 		if err != nil {

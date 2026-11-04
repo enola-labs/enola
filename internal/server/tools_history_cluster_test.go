@@ -49,6 +49,17 @@ func TestReadHistory_FolderOfReposReadsAMember(t *testing.T) {
 		t.Errorf("note must name the member read and the members: %q", note)
 	}
 
+	// The cluster config itself names the same members.
+	cfg := filepath.Join(dir, "cluster.yaml")
+	if err := os.WriteFile(cfg, []byte("repos:\n  - api\n  - web\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{dir, cfg} {
+		if _, got, note, err := s.readHistory(p); err != nil || got != root || !strings.Contains(note, "Cluster "+cfg) {
+			t.Errorf("%s: read %s, note %q, err %v; want web's history via %s", p, got, note, err, cfg)
+		}
+	}
+
 	// A member path is one repository, as before.
 	if _, _, note, err := s.readHistory(filepath.Join(dir, "web")); err != nil || note != "" {
 		t.Errorf("member path: note %q err %v, want none", note, err)
