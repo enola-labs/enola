@@ -137,19 +137,32 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 	// A spec documenting routes the code registers (a Rails app writing its API
 	// down per package) is served by the code route's handler.
 	codeHandlers := map[string]string{} // repo\x00METHOD path -> handler, "" when two disagree
+	// The handler an extractor named but left to a later binder to confirm
+	// (handler_target) counts once the symbol it names exists: this binder runs
+	// before that one, and a Go route registered through a helper has nothing else.
+	declared := map[string]bool{} // repo\x00symbol
+	for _, s := range store.ByKind(facts.KindSymbol) {
+		declared[s.Repo+"\x00"+s.Name] = true
+	}
 	for _, f := range store.ByKind(facts.KindRoute) {
 		if f.PropString(facts.PropSource) == facts.RouteSourceOpenAPI || f.PropString(facts.PropRole) == facts.RoleClient {
 			continue
 		}
+		var targets []string
 		for _, r := range f.Relations {
-			if r.Kind != facts.RelHandledBy {
-				continue
+			if r.Kind == facts.RelHandledBy {
+				targets = append(targets, r.Target)
 			}
+		}
+		if t := f.PropString(facts.PropHandlerTarget); len(targets) == 0 && t != "" && declared[f.Repo+"\x00"+t] {
+			targets = append(targets, t)
+		}
+		for _, target := range targets {
 			k := f.Repo + "\x00" + endpointKey(f.PropString("method"), f.Name)
-			if prev, seen := codeHandlers[k]; seen && prev != r.Target {
+			if prev, seen := codeHandlers[k]; seen && prev != target {
 				codeHandlers[k] = ""
 			} else {
-				codeHandlers[k] = r.Target
+				codeHandlers[k] = target
 			}
 		}
 	}
@@ -162,7 +175,7 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 		}
 		target, how := targets[op], BindingOperation
 		if target == "" {
-			target, how = codeHandlers[f.Repo+"\x00"+endpointKey(f.PropString("method"), f.Name)], BindingCodeRoute
+			target, how = codeRouteHandler(*f, codeHandlers), BindingCodeRoute
 		}
 		if target == "" {
 			return
@@ -273,4 +286,43 @@ func sortedKeys(m map[string]int) []string {
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+// codeRouteHandler is the handler of the route the code registers where a spec
+// operation is served. The path the spec writes is tried as written, then under the
+// spec's server base (`servers: [{url: …/stores/v1}]`), then as the tail of exactly one
+// code route of the repo with that method: a spec written relative to a version or
+// mount prefix the code adds (/tickets for /api/v1/tickets). Two code routes ending
+// in that tail bind nothing.
+func codeRouteHandler(f facts.Fact, codeHandlers map[string]string) string {
+	method := f.PropString("method")
+	if h := codeHandlers[f.Repo+"\x00"+endpointKey(method, f.Name)]; h != "" {
+		return h
+	}
+	if base := f.PropString("server_base"); base != "" {
+		if h := codeHandlers[f.Repo+"\x00"+endpointKey(method, base+f.Name)]; h != "" {
+			return h
+		}
+	}
+	key := endpointKey(method, f.Name)
+	verb, tail, _ := strings.Cut(key, " ")
+	if strings.Count(tail, "/") < 1 || tail == "/" {
+		return ""
+	}
+	found := ""
+	prefix := f.Repo + "\x00" + verb + " "
+	for k, h := range codeHandlers {
+		if h == "" || !strings.HasPrefix(k, prefix) {
+			continue
+		}
+		path := strings.TrimPrefix(k, prefix)
+		if path == tail || !strings.HasSuffix(path, tail) {
+			continue
+		}
+		if found != "" && found != h {
+			return ""
+		}
+		found = h
+	}
+	return found
 }

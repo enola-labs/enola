@@ -154,6 +154,10 @@ type openAPISpec struct {
 	Swagger string                            `yaml:"swagger"`
 	Info    openAPIInfo                       `yaml:"info"`
 	Paths   map[string]map[string]interface{} `yaml:"paths"`
+	Servers []struct {
+		URL string `yaml:"url"`
+	} `yaml:"servers"`
+	BasePath string `yaml:"basePath"` // Swagger 2
 }
 
 // openAPIInfo captures the info block, including custom gateway config extensions.
@@ -211,6 +215,8 @@ func parseOpenAPIFile(absPath, relFile string) ([]facts.Fact, error) {
 		gatewayPrefix = strings.TrimRight(prefix, "/")
 	}
 
+	serverBase := specServerBase(spec)
+
 	specDir := factpath.Dir(relFile)
 	var result []facts.Fact
 	refs := newPathItemResolver(absPath, relFile)
@@ -244,6 +250,9 @@ func parseOpenAPIFile(absPath, relFile string) ([]facts.Fact, error) {
 			}
 			if itemFile != "" {
 				props["path_item_file"] = itemFile
+			}
+			if serverBase != "" {
+				props["server_base"] = serverBase
 			}
 
 			if opRaw != nil {
@@ -380,4 +389,45 @@ func skipDir(name string) bool {
 		return true
 	}
 	return false
+}
+
+// specServerBase is the path every server of a spec puts its paths under: the path of
+// `servers[].url` (`http://localhost:8080/stores/v1` serves /items at /stores/v1/items),
+// or Swagger 2's basePath. "" when the servers disagree or name a host alone.
+func specServerBase(spec openAPISpec) string {
+	if spec.BasePath != "" {
+		return normalizeBase(spec.BasePath)
+	}
+	base, seen := "", false
+	for _, s := range spec.Servers {
+		u := s.URL
+		if i := strings.Index(u, "://"); i >= 0 {
+			u = u[i+3:]
+			if j := strings.Index(u, "/"); j >= 0 {
+				u = u[j:]
+			} else {
+				u = ""
+			}
+		}
+		if strings.Contains(u, "{") {
+			return "" // a server variable: the base is not known
+		}
+		b := normalizeBase(u)
+		if seen && b != base {
+			return ""
+		}
+		base, seen = b, true
+	}
+	return base
+}
+
+func normalizeBase(p string) string {
+	p = strings.TrimRight(strings.TrimSpace(p), "/")
+	if p == "" {
+		return ""
+	}
+	if !strings.HasPrefix(p, "/") {
+		p = "/" + p
+	}
+	return p
 }

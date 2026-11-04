@@ -454,6 +454,21 @@ func (e *TSExtractor) frameworkPasses(kinds *tsutil.KindTable, root *sitter.Node
 			if file := reexportedDefaultFile(kinds, root, ctx); file != "" && routeFact.PropString("type") == "page" {
 				routeFact.SetProp(propDefaultFrom, file)
 			}
+			names := reexportedNames(kinds, root, ctx)
+			if e, ok := names["default"]; ok && segmentComponentTypes[routeFact.PropString("type")] {
+				routeFact.SetProp(propDefaultNamed, e[0]+"\x00"+e[1])
+			}
+			if routeFact.PropString("type") == "route" {
+				var verbs []string
+				for _, verb := range []string{"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"} {
+					if e, ok := names[verb]; ok {
+						verbs = append(verbs, verb+"\x00"+e[0]+"\x00"+e[1])
+					}
+				}
+				if len(verbs) > 0 {
+					routeFact.SetProp(propVerbsFrom, strings.Join(verbs, "\n"))
+				}
+			}
 			result = append(result, *routeFact)
 		}
 	}

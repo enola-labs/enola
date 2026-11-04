@@ -257,6 +257,7 @@ func (e *GoExtractor) Extract(ctx context.Context, repoPath string, files []stri
 		wrappers:     routerWrappers,
 		consts:       stringConstants,
 		routerFields: routerFields,
+		helpers:      registrationHelpers(parsedPkgs),
 	}
 
 	// Pass 3: extract facts per package using the global field types.

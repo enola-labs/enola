@@ -3382,7 +3382,13 @@ import (
 // JSX attribute names and type annotations are not uses. Pages are the framework's routes,
 // symbols are keyed by file, a function's returned members are reached with it, and a call
 // reached from every page of an app over 20 pages is client_every_page. e2e-tests/ is test code.
-const cacheVersion = "v520"
+// v521: Go: a call to the module's own route registration helper (a router, a method and a
+// path parameter) is a route, with its operationId argument; string constants built from
+// others are read; `x := pkg.NewT(...)` and `pkg.NewT(...).M` name T's method. Next.js: a
+// page, layout or other segment re-exporting a named component as its default, and a route
+// file re-exporting its verb handlers, are handled by them through barrels. OpenAPI: the path
+// the spec's servers share is recorded as server_base.
+const cacheVersion = "v521"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

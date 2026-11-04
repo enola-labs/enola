@@ -266,3 +266,60 @@ export default async function P() { await loadSession(); return <div />; }
 	}
 	t.Fatal("no /api/session call")
 }
+
+// A page that re-exports a named component from a feature's barrel as its default, or
+// imports it and default-exports it, is served by that component.
+func TestPageRoutesReexportingANamedComponentAreHandled(t *testing.T) {
+	files := barrelShapesPages()
+	files["src/app/notes/archive/page.tsx"] = `
+import { NotesPage } from '@/features/notes/server';
+export default NotesPage;
+`
+	files["src/app/api/notes/export/route.ts"] = `
+import { exportNotesHandler as GET } from '@/features/notes/server';
+export const dynamic = 'force-dynamic';
+export { GET };
+`
+	files["src/features/notes/server.ts"] += `export { GET as exportNotesHandler } from './api/export-route';
+`
+	files["src/features/notes/api/export-route.ts"] = `
+export async function GET() { return Response.json({}); }
+`
+	files["src/app/notes/layout.tsx"] = `
+import { NotesLayout } from '@/features/notes/server';
+export default NotesLayout;
+`
+	files["src/features/notes/server.ts"] += `export { Shell as NotesLayout } from './app/shell';
+`
+	files["src/features/notes/app/shell.tsx"] = `
+export const Shell = ({ children }: { children: React.ReactNode }) => <main>{children}</main>;
+`
+	handled := map[string]string{}
+	for _, f := range extractTSRepo(t, files) {
+		if f.Kind != facts.KindRoute || f.PropString("framework") != "nextjs" {
+			continue
+		}
+		for _, r := range f.Relations {
+			if r.Kind == facts.RelHandledBy {
+				handled[f.File] = r.Target
+			}
+		}
+		if f.PropString(propDefaultNamed) != "" || f.PropString(propVerbsFrom) != "" {
+			t.Errorf("%s still carries a binding note", f.File)
+		}
+		if f.File == "src/app/api/notes/export/route.ts" && f.PropString("method") != "GET" {
+			t.Errorf("route.ts method = %q, want GET", f.PropString("method"))
+		}
+	}
+	if got := handled["src/app/notes/layout.tsx"]; got != "src/features/notes/app.Shell" {
+		t.Errorf("layout handled_by = %q, want src/features/notes/app.Shell", got)
+	}
+	if got := handled["src/app/api/notes/export/route.ts"]; got != "src/features/notes/api.GET" {
+		t.Errorf("route.ts handled_by = %q, want src/features/notes/api.GET", got)
+	}
+	for _, page := range []string{"src/app/notes/page.tsx", "src/app/notes/edit/page.tsx", "src/app/notes/archive/page.tsx"} {
+		if handled[page] != "src/features/notes/app.Page" {
+			t.Errorf("%s handled_by = %q, want src/features/notes/app.Page", page, handled[page])
+		}
+	}
+}
