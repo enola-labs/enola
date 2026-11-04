@@ -3417,7 +3417,10 @@ import (
 // result (`var e = EngineFactory.make(); e.run()`, `make().session().commit()`), are
 // typed by the method's declared return type; in C# `await` on a `Task<T>` or
 // `ValueTask<T>` gives T.
-const cacheVersion = "v528"
+// v529: C++: `auto x = f()` is typed by the return type of the function it calls, a free
+// function, a scoped one or a method of a typed receiver, when that type is a project
+// class through a pointer or reference and no template, so calls on it resolve.
+const cacheVersion = "v529"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

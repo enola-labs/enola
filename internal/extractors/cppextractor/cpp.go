@@ -397,6 +397,7 @@ func canonicalizeTargets(allFacts []facts.Fact, types typeIndex, functions funct
 			known[allFacts[i].Name] = true
 		}
 	}
+	returns := newReturnIndex(allFacts, known, functions, types, visibility)
 	for i := range allFacts {
 		rels := allFacts[i].Relations
 		kept := rels[:0]
@@ -429,6 +430,12 @@ func canonicalizeTargets(allFacts []facts.Fact, types typeIndex, functions funct
 				}
 			case relReceiverCallCandidate:
 				stats.total++
+				if target, ok := returns.resolveMarkedCandidate(r.Target, source); ok {
+					r.Target = target
+				} else {
+					stats.receiverRejected++
+					continue
+				}
 				typ, _, ok := strings.Cut(r.Target, "::")
 				if !ok || len(types.dirs[typ]) == 0 {
 					stats.receiverRejected++
