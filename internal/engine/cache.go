@@ -3374,7 +3374,15 @@ import (
 // v519: Rails: `use_doorkeeper` draws Doorkeeper's OAuth routes (/oauth/token, revoke,
 // introspect, authorize, …), honouring skip_controllers, controllers(...) and scope:.
 // Ruby messaging: an ENV lookup in a topic is named after its variable ({shop_env}).
-const cacheVersion = "v519"
+// v520: TypeScript client pages: a name resolves in its own module first (declared, imported,
+// imported under a new name, or re-exported through barrels: `export { X as Y } from`,
+// `export { X as default } from`, `export *`), and falls back to other modules' symbols only
+// for a member, only to ones visible through the file's imports, never to a local scope, a
+// private declaration, a type, a class's data field or test code. Parameters, enum members,
+// JSX attribute names and type annotations are not uses. Pages are the framework's routes,
+// symbols are keyed by file, a function's returned members are reached with it, and a call
+// reached from every page of an app over 20 pages is client_every_page. e2e-tests/ is test code.
+const cacheVersion = "v520"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

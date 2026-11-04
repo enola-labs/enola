@@ -23,6 +23,8 @@ func TestIsTestPath(t *testing.T) {
 		{"camel-case integration tests", "integrationTests/node/index.mjs", true},
 		{"hyphenated type tests", "drizzle-orm/type-tests/mysql/tables.ts", true},
 		{"hyphenated integration tests", "integration-tests/tests/pg.ts", true},
+		{"hyphenated end-to-end tests", "e2e-tests/ui/dialogs/card-form.ts", true},
+		{"snake end-to-end tests", "web/e2e_tests/login.py", true},
 		{"python shared test support", "tests_common/pytest_plugins.py", true},
 		{"cypress default folder", "modules/web/cypress/support/commands.ts", true},
 		{"playwright suite folder", "playwright/support/helpers/links.ts", true},
