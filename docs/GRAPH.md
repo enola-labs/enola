@@ -136,7 +136,7 @@ Why the graph is a value computed on demand rather than a store kept up to date:
 
 The contract files carry `format_version` (currently `1`). Additive changes, such as a new kind or property, keep the version; renaming, removing or changing the meaning of a documented field bumps it. Consumers must accept unknown kinds and fields. Rules in full: [schema/README.md](schema/README.md).
 
-Outside the repository, `~/.enola/graphs/` holds the **architecture history**: one revision per snapshot, each stored as a patch against the previous one. It is the only thing enola keeps that the working tree cannot reproduce, so nothing that grades a change reads it; deleting it changes no verdict and no snapshot ID. See [HISTORY.md](HISTORY.md).
+Outside the repository, `~/.enola/graphs/` holds the **architecture history**: one revision per snapshot, each stored as a patch against the previous one. A cluster has a history of its own beside its members' (see [HISTORY.md](HISTORY.md#clusters)). It is the only thing enola keeps that the working tree cannot reproduce, so nothing that grades a change reads it; deleting it changes no verdict and no snapshot ID. See [HISTORY.md](HISTORY.md).
 
 ## Consuming the graph
 

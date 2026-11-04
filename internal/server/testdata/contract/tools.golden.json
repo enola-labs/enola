@@ -64,7 +64,7 @@
           "type": "string"
         },
         "repo_path": {
-          "description": "Repository whose history to search. Defaults to the snapshot's repo.",
+          "description": "Repo or cluster (config or folder) to search. Default: loaded graph.",
           "type": "string"
         }
       },
@@ -89,7 +89,7 @@
           "type": "integer"
         },
         "repo_path": {
-          "description": "Repository whose history to read. Defaults to the snapshot's repo.",
+          "description": "Repo or cluster (config or folder) to read. Default: loaded graph.",
           "type": "string"
         }
       },

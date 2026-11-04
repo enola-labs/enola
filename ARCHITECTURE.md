@@ -830,7 +830,7 @@ Compares the current snapshot's receipt against a baseline's *before* you trust 
 
 ### `architecture_history` — "how did we get here?"
 
-One entry per recorded snapshot, newest first, with what moved since the one before it.
+One entry per recorded snapshot, oldest first, with what moved since the one before it.
 Everything above describes the tree as it is now; this and `architecture_blame` are the
 only two that answer about the **past**, which is why they read the revision store
 ([`internal/history`](internal/history/)) rather than the current fact graph. Read-only:
@@ -840,7 +840,7 @@ enola over is a gap in the answer rather than an invented entry. The CLI surface
 
 | Parameter | Meaning |
 |---|---|
-| `repo_path` | Whose history to read. Defaults to the snapshot's repo. |
+| `repo_path` | Whose history to read: a repository, or a cluster config or folder of repositories, which reads the cluster's own history. Defaults to the loaded graph, a cluster's when several repositories are loaded. |
 | `limit` | Maximum revisions, newest kept. Default `20`; `0` for all. |
 | `all` | Include working revisions — snapshots of uncommitted trees. Default `false`. |
 
@@ -849,12 +849,13 @@ enola over is a gap in the answer rather than an invented entry. The CLI surface
 "When did this module start importing that one?" — a question a snapshot cannot answer
 however good it is, because it is about the past. One `pattern` matches a name, a path, or both ends of an edge, against the recorded
 facts; the answer is the revision that introduced it and, if it is gone, the one that
-removed it.
+removed it. Each fact is one line (kind, name, `file:line`), and an answer lists at most 100
+of them, counting the rest per revision and asking for a narrower pattern.
 
 | Parameter | Meaning |
 |---|---|
 | `pattern` | A module or symbol name, a file path, or **both endpoints of an edge** written `internal/server -> internal/facts`. Matched case-insensitively. |
-| `repo_path` | Whose history to search. Defaults to the snapshot's repo. |
+| `repo_path` | Whose history to search, resolved as for `architecture_history`. |
 | `findings` | Search recorded **findings** instead of facts — "when did this cycle first appear". Default `false`. |
 | `first` | Stop at the first appearance, for "when was this introduced". Default `false`. |
 

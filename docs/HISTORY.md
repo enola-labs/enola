@@ -53,7 +53,8 @@ e8847af  2026-08-03 17:54  (d2293a18, main)
 
 The pattern matches a module or symbol name, a file path, or both endpoints of an edge. `--findings`
 searches recorded findings instead ("which snapshot introduced this cycle?"); `--first` stops at the
-introduction.
+introduction. `-n` lists at most that many matching facts and counts the rest (default 100, `0` for
+all), so a pattern as broad as a repository name stays readable.
 
 A symbol that changed between two revisions is reported as one change, not as a removal and an
 addition, and its body version (`body_hash`, see [the facts schema](schema/facts.md#body_hash)) says
@@ -302,9 +303,9 @@ revisions months apart are the normal shape of a timeline, not a defect.
   of your history. `--graph` closes the gaps by asking git which observed revision is the nearest
   ancestor of which — the same parent rewriting `git log --graph -- <path>` does — so the picture is
   honest about being sparse rather than pretending to be complete.
-- **A summary is measured against the PREVIOUS SNAPSHOT, not the graph parent.** Usually the same
-  revision. Switch branches between snapshots and they differ: the row reports what changed since
-  enola last looked, which can include another branch's work arriving or leaving. `--graph` says so
+- **A summary is measured against the history's PREVIOUS REVISION, not the graph parent.** Usually
+  the same revision. Switch branches between snapshots and they differ: the row reports what changed
+  since enola last looked, which can include another branch's work arriving or leaving. `--graph` says so
   when it happens, and `enola diff <a>..<b>` answers the ancestry question directly.
 - **A multi-repo graph has no single commit**, it has one per repository. The shape follows the
   primary repository and each row carries the others' positions; no DAG is invented over a vector.

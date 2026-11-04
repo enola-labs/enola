@@ -24,14 +24,14 @@ import (
 // introduced this cycle?" are different questions, and an agent that cannot ask them
 // re-derives the answer by reading git and guessing — expensively, and without the graph.
 type historyArgs struct {
-	RepoPath string `json:"repo_path,omitempty" jsonschema:"Repository whose history to read. Defaults to the snapshot's repo."`
+	RepoPath string `json:"repo_path,omitempty" jsonschema:"Repo or cluster (config or folder) to read. Default: loaded graph."`
 	Limit    int    `json:"limit,omitempty" jsonschema:"Maximum revisions to return, newest kept. Default 20; 0 for all."`
 	All      bool   `json:"all,omitempty" jsonschema:"Include working revisions (snapshots of uncommitted trees). Default false."`
 }
 
 type blameArgs struct {
 	Pattern  string `json:"pattern" jsonschema:"A module or symbol name, a file path, or both endpoints of an edge (e.g. 'internal/server -> internal/facts'). Case-insensitive."`
-	RepoPath string `json:"repo_path,omitempty" jsonschema:"Repository whose history to search. Defaults to the snapshot's repo."`
+	RepoPath string `json:"repo_path,omitempty" jsonschema:"Repo or cluster (config or folder) to search. Default: loaded graph."`
 	Findings bool   `json:"findings,omitempty" jsonschema:"Search recorded FINDINGS instead of facts, e.g. when a cycle first appeared. Default false."`
 	First    bool   `json:"first,omitempty" jsonschema:"Stop at the first appearance, for 'when was this introduced'. Default false."`
 }
