@@ -1566,7 +1566,7 @@ func isDataMember(f facts.Fact) bool {
 const everyPageListMax = 20
 
 // collectParamNames adds the names a parameter list binds, directly or by
-// destructuring, as declaresName reads them.
+// destructuring. A default value is an expression, not a binding.
 func collectParamNames(kinds *tsutil.KindTable, n *sitter.Node, src []byte, out map[string]bool) {
 	switch kindOf(kinds, n) {
 	case "identifier", "shorthand_property_identifier_pattern":
