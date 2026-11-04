@@ -61,7 +61,7 @@ func (r *Runner) Log(args []string) {
 		fs.PrintDefaults()
 		r.writeHelpFooter(fs.Output(), args, "log")
 	}
-	if err := fs.Parse(args); err != nil {
+	if err := fs.Parse(flagsFirst(fs, args)); err != nil {
 		os.Exit(2)
 	}
 	_ = oneline // the only format in this phase; the flag exists so scripts can be explicit

@@ -49,7 +49,7 @@ func (r *Runner) GC(args []string) {
 		fs.PrintDefaults()
 		r.writeHelpFooter(fs.Output(), args, "gc")
 	}
-	if err := fs.Parse(args); err != nil {
+	if err := fs.Parse(flagsFirst(fs, args)); err != nil {
 		os.Exit(2)
 	}
 

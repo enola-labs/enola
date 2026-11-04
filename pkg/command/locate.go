@@ -68,7 +68,7 @@ func (r *Runner) runLocate(ctx context.Context, args []string, stdin io.Reader, 
 		fs.PrintDefaults()
 		r.writeHelpFooter(fs.Output(), args, "locate")
 	}
-	if err := fs.Parse(args); err != nil {
+	if err := fs.Parse(flagsFirst(fs, args)); err != nil {
 		return usageError
 	}
 	locs, repoArg := splitLocationsAndRepo(fs.Args())

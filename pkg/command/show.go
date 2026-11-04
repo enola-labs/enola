@@ -35,7 +35,7 @@ func (r *Runner) Show(args []string) {
 		fs.PrintDefaults()
 		r.writeHelpFooter(fs.Output(), args, "show")
 	}
-	if err := fs.Parse(args); err != nil {
+	if err := fs.Parse(flagsFirst(fs, args)); err != nil {
 		os.Exit(2)
 	}
 
@@ -97,7 +97,7 @@ func (r *Runner) Diff(args []string) {
 		fs.PrintDefaults()
 		r.writeHelpFooter(fs.Output(), args, "diff")
 	}
-	if err := fs.Parse(args); err != nil {
+	if err := fs.Parse(flagsFirst(fs, args)); err != nil {
 		os.Exit(2)
 	}
 

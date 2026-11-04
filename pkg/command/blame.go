@@ -52,7 +52,7 @@ func (r *Runner) Blame(args []string) {
 		fs.PrintDefaults()
 		r.writeHelpFooter(fs.Output(), args, "blame")
 	}
-	if err := fs.Parse(args); err != nil {
+	if err := fs.Parse(flagsFirst(fs, args)); err != nil {
 		os.Exit(2)
 	}
 
