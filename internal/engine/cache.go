@@ -3425,7 +3425,11 @@ import (
 // typed, `.await` passing through. PHP: a local takes the type of the object it is
 // assigned or of what a method it is assigned from declares it returns, and a call on
 // a call's result is typed the same way.
-const cacheVersion = "v530"
+// v531: Scala: a val or var in a def body is a local of the def, not a member of the
+// enclosing type, so the calls in its initializer are the def's. A local is typed by
+// its ascribed type, the class it constructs, or what the def it is assigned from
+// declares it returns, and a call on a call's result is typed the same way.
+const cacheVersion = "v531"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
