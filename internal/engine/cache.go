@@ -3413,7 +3413,11 @@ import (
 // builder's `= apply { … }` and `= this` the class it is declared in, so calls on it
 // resolve. A class reached by name (`Outer.Builder(…)`) is constructed, and a simple
 // return type names a nested class of the function's own class first.
-const cacheVersion = "v527"
+// v528: Java and C#: a `var` bound to what a method returns, and a call on a call's
+// result (`var e = EngineFactory.make(); e.run()`, `make().session().commit()`), are
+// typed by the method's declared return type; in C# `await` on a `Task<T>` or
+// `ValueTask<T>` gives T.
+const cacheVersion = "v528"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

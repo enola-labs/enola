@@ -120,6 +120,8 @@ func (w *astWalker) bindVariableDeclaration(into map[string]string, vd *sitter.N
 			t = ""
 			if created := findCreation(d); created != nil {
 				t = w.receiverTypeOf(created.ChildByFieldName("type"))
+			} else if v := initializer(d); v != nil {
+				t = w.callResultType(v) // `var e = Factory.Make()` (factoryreturns.go)
 			}
 		}
 		if t != "" {
@@ -139,6 +141,23 @@ func findCreation(declarator *sitter.Node) *sitter.Node {
 			c = c.NamedChild(0)
 		}
 		if kindOf(c) == "object_creation_expression" {
+			return c
+		}
+	}
+	return nil
+}
+
+// initializer returns the expression a declarator is initialised with.
+// The grammar puts it in an equals_value_clause, or, in the version this extractor
+// is built with, directly after the name.
+func initializer(declarator *sitter.Node) *sitter.Node {
+	for i := uint(0); i < declarator.NamedChildCount(); i++ {
+		c := declarator.NamedChild(i)
+		if kindOf(c) == "equals_value_clause" && c.NamedChildCount() == 1 {
+			return c.NamedChild(0)
+		}
+		switch kindOf(c) {
+		case "invocation_expression", "await_expression", "parenthesized_expression":
 			return c
 		}
 	}
@@ -184,6 +203,9 @@ func (w *astWalker) receiverType(recv *sitter.Node) string {
 				return t
 			}
 		}
+	case "invocation_expression", "await_expression", "parenthesized_expression":
+		// `Factory.Make().Run()`: what the call returns (factoryreturns.go).
+		return w.callResultType(recv)
 	case "member_access_expression":
 		// `this._repo.Save(x)`
 		if o := recv.ChildByFieldName("expression"); o != nil && kindOf(o) == "this_expression" && len(w.memberTypes) > 0 {
@@ -259,6 +281,8 @@ func resolveTypedCalls(all []facts.Fact, resolve func(target, fromNS string) (st
 		return ""
 	}
 
+	resolveCallMarks(all, resolve, declaring)
+
 	// Which declarations make a library I/O call, before any is marked: see
 	// overloadedWithoutIO.
 	makesIO := make(map[int]bool)
@@ -269,7 +293,7 @@ func resolveTypedCalls(all []facts.Fact, resolve func(target, fromNS string) (st
 			if c.base {
 				continue
 			}
-			if _, known := resolve(c.typ, fromNS); !known && csLibraryCall(c.typ, c.method) == csCallIO {
+			if _, written, known := boundType(c.typ, fromNS, resolve); !known && csLibraryCall(written, c.method) == csCallIO {
 				makesIO[i] = true
 				break
 			}
@@ -303,11 +327,11 @@ func resolveTypedCalls(all []facts.Fact, resolve func(target, fromNS string) (st
 				}
 				continue
 			}
-			typ, known := resolve(c.typ, fromNS)
+			typ, written, known := boundType(c.typ, fromNS, resolve)
 			if !known {
 				// A library's type: the call is what that library's member is
 				// (ioprim.go).
-				switch csLibraryCall(c.typ, c.method) {
+				switch csLibraryCall(written, c.method) {
 				case csCallIO:
 					ioCalls[c.written] = true
 				case csCallPure:
