@@ -29,3 +29,29 @@ func TestSingleSegmentPath_RejectedProviderIsExplained(t *testing.T) {
 		t.Errorf("the rejected call's unmatched_reason = %q, want %q", got, ReasonAmbiguousProvider)
 	}
 }
+
+// A thin client path ("{}/prepare", a word after an unread base) that only longer server
+// paths serve is declined as thin_path. The verb matches, so method_mismatch, which it
+// was stamped before, sent a reader looking for a wrong verb. The slash-led id form
+// ("/{}/captions") is not thin and resolves, with no reason at all.
+func TestThinPath_DeclinedWithItsOwnReason(t *testing.T) {
+	thin := facts.Fact{Kind: facts.KindRoute, Name: "{}/prepare", Repo: "mobile",
+		Props: map[string]any{"role": "client", "method": "POST"}}
+	idPath := facts.Fact{Kind: facts.KindRoute, Name: "/{}/captions", Repo: "player",
+		Props: map[string]any{"role": "client", "method": "GET",
+			"source": facts.RouteSourceTSHTTPClient, "derived": "template-tail"}}
+	all := []facts.Fact{thin, idPath,
+		{Kind: facts.KindRoute, Name: "/admin/v1/stores/requests/{id}/prepare", Repo: "stores",
+			Props: map[string]any{"role": "server", "method": "POST"}},
+		{Kind: facts.KindRoute, Name: "/api/v1/videos/{videoId}/captions", Repo: "media",
+			Props: map[string]any{"role": "server", "method": "GET"}},
+	}
+
+	reasons := UnmatchedClientRouteKeys(routeindex.New(vocab.Default()), all)
+	if got := reasons[routeindex.RouteIdentity(thin)]; got != ReasonThinPath {
+		t.Errorf("{}/prepare: unmatched_reason = %q, want %q", got, ReasonThinPath)
+	}
+	if got, ok := reasons[routeindex.RouteIdentity(idPath)]; ok {
+		t.Errorf("/{}/captions must resolve, got unmatched_reason %q", got)
+	}
+}
