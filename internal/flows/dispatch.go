@@ -17,6 +17,10 @@ import (
 // for the flow to stay a description of one path. Jellyfin has 1,867 calls to an
 // interface with one implementation, and 8 to one with more than three.
 
+// The same holds for an abstract class, and for an abstract method of any class: what
+// runs is a subclass's method. A concrete method of a concrete class is not followed
+// into its overrides, since a call resolved to a body says what runs, as in ioclosure.
+
 // maxImplementations is the most implementations an interface method is followed
 // into. Past it the interface is an extension point, a logger or a storage backend,
 // and every implementation in the flow would describe none of them.
@@ -24,7 +28,7 @@ const maxImplementations = 3
 
 // dispatchIndex is what the walk knows about types, per repository.
 type dispatchIndex struct {
-	interfaces map[[2]string]bool     // (repo, name) of every interface
+	interfaces map[[2]string]bool     // (repo, name) of every interface and abstract class
 	implements map[[2]string][]string // (repo, interface) -> the types implementing it
 	methods    map[[2]string][]string // (repo, type) -> its methods
 }
@@ -41,6 +45,10 @@ func (a *Analysis) dispatch() *dispatchIndex {
 		switch f.PropString("symbol_kind") {
 		case facts.SymbolInterface:
 			ix.interfaces[[2]string{f.Repo, f.Name}] = true
+		case facts.SymbolClass:
+			if f.PropBool("abstract") {
+				ix.interfaces[[2]string{f.Repo, f.Name}] = true
+			}
 		case facts.SymbolMethod:
 			if dot := strings.LastIndexByte(f.Name, '.'); dot > 0 {
 				key := [2]string{f.Repo, f.Name[:dot]}
@@ -76,7 +84,7 @@ func (a *Analysis) implementations(id int32) []int32 {
 	}
 	owner, method := f.Name[:dot], f.Name[dot+1:]
 	ix := a.dispatch()
-	if !ix.interfaces[[2]string{f.Repo, owner}] {
+	if !ix.interfaces[[2]string{f.Repo, owner}] && !f.PropBool("abstract") {
 		return nil
 	}
 	types := ix.implements[[2]string{f.Repo, owner}]
