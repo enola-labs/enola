@@ -377,7 +377,7 @@ func (s *Server) registerSnapshotReceiptTool() {
 		if snap == nil || s.eng.Store().Count() == 0 {
 			return errorResult("No snapshot available. Run generate_snapshot first."), nil, nil
 		}
-		receipt := snap.Meta.Receipt()
+		receipt := s.eng.Receipt()
 		if resolveOutputMode(args.OutputMode, modeSummary) == modeFull {
 			return jsonResultCapped(receipt, args.MaxTokens)
 		}
@@ -505,8 +505,14 @@ func renderReceipt(r facts.Receipt) string {
 	fmt.Fprintf(&sb, "- **Snapshot ID:** `%s`\n", orDashStr(r.SnapshotID))
 	fmt.Fprintf(&sb, "- **enola version:** %s\n", orDashStr(r.EnolaVersion))
 	fmt.Fprintf(&sb, "- **Generated:** %s (%s)\n", orDashStr(r.GeneratedAt), r.Duration)
-	fmt.Fprintf(&sb, "- **Repository:** %s\n", orDashStr(r.RepoPath))
-	if r.Git != nil {
+	if len(r.Members) > 0 {
+		fmt.Fprintf(&sb, "- **Repositories:** %d (per-repository provenance below; the facts and insights are their union)\n", len(r.Members))
+	} else {
+		fmt.Fprintf(&sb, "- **Repository:** %s\n", orDashStr(r.RepoPath))
+	}
+	if len(r.Members) > 0 {
+		// One repository's git state and extractors would misdescribe the union.
+	} else if r.Git != nil {
 		dirty := "clean"
 		if r.Git.Dirty {
 			dirty = "**dirty (uncommitted changes)**"
@@ -515,12 +521,28 @@ func renderReceipt(r facts.Receipt) string {
 	} else {
 		sb.WriteString("- **Git:** not a git repository\n")
 	}
-	fmt.Fprintf(&sb, "- **Extractors:** %s\n", strings.Join(r.Extractors, ", "))
+	if len(r.Members) == 0 {
+		fmt.Fprintf(&sb, "- **Extractors:** %s\n", strings.Join(r.Extractors, ", "))
+	}
 	if r.ConfigHash != "" {
 		fmt.Fprintf(&sb, "- **Config hash:** `%s`\n", r.ConfigHash)
 	}
 	fmt.Fprintf(&sb, "- **Facts:** %d · **Insights:** %d\n\n", r.FactCount, r.InsightCount)
 
+	if len(r.Members) > 0 {
+		sb.WriteString("## Repositories\n\n| Repository | Git | Files parsed / seen | Skipped | Parse errors | Extractors |\n|---|---|---|---|---|---|\n")
+		for _, m := range r.Members {
+			git := "not a git repository"
+			if m.Git != nil {
+				git = fmt.Sprintf("%s @ `%s`", orDashStr(m.Git.Ref), shortSHA(m.Git.Commit))
+				if m.Git.Dirty {
+					git += " (dirty)"
+				}
+			}
+			fmt.Fprintf(&sb, "| %s | %s | %d / %d | %d | %d | %s |\n", m.Repo, git, m.FilesParsed, m.FilesSeen, m.FilesSkipped, m.ParseErrors, strings.Join(m.Extractors, ", "))
+		}
+		sb.WriteString("\n")
+	}
 	q := r.Quality
 	sb.WriteString("## Extraction quality\n\n")
 	fmt.Fprintf(&sb, "- **Files:** %d parsed / %d seen · %d file(s) + %d directory tree(s) skipped by ignore globs\n",

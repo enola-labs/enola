@@ -342,3 +342,20 @@ func TestClientFactoryHint(t *testing.T) {
 		t.Errorf("generic factory: hint = %q, want none", got)
 	}
 }
+
+// A verb call is labelled axios only where axios is in use; a typed fetch wrapper's
+// `client.get` is an http-client call.
+func TestVerbClientLabel(t *testing.T) {
+	label := func(src string) string {
+		for _, f := range extractHTTPClientFacts([]byte(src), "src/data/api.ts") {
+			return f.PropString("framework")
+		}
+		return ""
+	}
+	if got := label("import axios from 'axios'\nexport const list = () => axios.get('/api/orders')\n"); got != "axios" {
+		t.Errorf("axios call labelled %q", got)
+	}
+	if got := label("const client = new HttpClient()\nexport const list = () => client.get('/api/orders')\n"); got != verbClientFramework {
+		t.Errorf("typed client call labelled %q, want %q", got, verbClientFramework)
+	}
+}

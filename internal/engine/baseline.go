@@ -181,15 +181,35 @@ func copyFile(src, dst string) error {
 		return err
 	}
 	defer func() { _ = in.Close() }()
-	out, err := os.Create(dst)
+	// Into a new file renamed over dst, never through dst: dst may be a link a
+	// cluster shares between repositories' dirs (see linkOrCopyFile).
+	tmp := dst + ".tmp"
+	out, err := os.Create(tmp)
 	if err != nil {
 		return err
 	}
 	if _, err := io.Copy(out, in); err != nil {
 		_ = out.Close()
+		_ = os.Remove(tmp)
 		return err
 	}
-	return out.Close()
+	if err := out.Close(); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return os.Rename(tmp, dst)
+}
+
+// linkOrCopyFile makes dst the same file as src: a hard link where the filesystem
+// allows one, a copy where it does not (another device, a filesystem without links).
+func linkOrCopyFile(src, dst string) error {
+	if err := os.Remove(dst); err != nil && !os.IsNotExist(err) {
+		return copyFile(src, dst)
+	}
+	if err := os.Link(src, dst); err == nil {
+		return nil
+	}
+	return copyFile(src, dst)
 }
 
 // LoadSnapshotDir reads a persisted snapshot (facts.jsonl plus, when present,

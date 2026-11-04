@@ -378,13 +378,23 @@ func extractHTTPClientFactsCounted(src []byte, relFile string) ([]facts.Fact, cl
 		}
 		return isServerReceiver(serverRecv, recv)
 	}
+	// The verb-call shape is axios's, and every hand-rolled or typed fetch wrapper's
+	// too (`client.get('/x')`): it is labelled axios only where axios is in use.
+	axios := importsAxios(src)
+	verbFramework := func(recv string) string {
+		if recv == "axios" || axios {
+			return "axios"
+		}
+		return verbClientFramework
+	}
 	for _, m := range lowerVerbCall.FindAllSubmatchIndex(src, -1) {
-		if isServer(identifierEndingAt(src, m[0])) {
+		recv := identifierEndingAt(src, m[0])
+		if isServer(recv) {
 			continue
 		}
 		method := strings.ToUpper(string(src[m[2]:m[3]]))
 		raw := firstNonEmptyGroup(src, m, 2, 3, 4)
-		add(raw, method, "axios", m[0], "")
+		add(raw, method, verbFramework(recv), m[0], "")
 	}
 
 	// Pass 2c — lowercase verb calls whose argument is an interpolation-headed
@@ -399,7 +409,7 @@ func extractHTTPClientFactsCounted(src []byte, relFile string) ([]facts.Fact, cl
 			continue
 		}
 		method := strings.ToUpper(string(src[m[2]:m[3]]))
-		add(raw, method, "axios", m[0], "template-tail")
+		add(raw, method, verbFramework(identifierEndingAt(src, m[0])), m[0], "template-tail")
 	}
 
 	// Pass 3 — options-object clients: a `url:` property inside an object literal
@@ -782,4 +792,18 @@ func factoryHint(src []byte) string {
 		}
 	}
 	return ""
+}
+
+// verbClientFramework labels a verb-named call (`client.get('/x')`) on a client that is
+// not axios: a typed fetch wrapper, a generated client's instance, an in-house class.
+const verbClientFramework = "http-client"
+
+// importsAxios reports a file that imports or requires axios.
+func importsAxios(src []byte) bool {
+	for _, s := range []string{`from 'axios'`, `from "axios"`, `require('axios')`, `require("axios")`} {
+		if bytes.Contains(src, []byte(s)) {
+			return true
+		}
+	}
+	return false
 }

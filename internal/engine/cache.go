@@ -3393,7 +3393,9 @@ import (
 // fmt.Sprintf URL is read from its first slash, and a base variable named for a service
 // (ordersURL, cfg.LedgerBaseURL) is its target hint. TypeScript: a file taking its client
 // from one service-named factory (getLedgerClient()) hints that service.
-const cacheVersion = "v522"
+// v523: TypeScript: a verb-named client call (`client.get('/x')`) is labelled axios only in a
+// file that uses axios; any other client is http-client.
+const cacheVersion = "v523"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
