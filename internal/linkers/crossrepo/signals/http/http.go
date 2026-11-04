@@ -113,9 +113,17 @@ func servedNowhere(m *routeindex.Matcher, call callResolution, server map[string
 // The call is still unresolved, and stays counted, but as a dependency the snapshot
 // does not hold rather than a call resolution could not follow.
 func hintOutsideSnapshot(m *routeindex.Matcher, f facts.Fact, loaded map[string]bool) bool {
+	// Only a hint that names a service can say where a call goes. One read off a
+	// variable or field name (`baseUrl` -> "base", `this.FAVORITE_URL` -> "favorite")
+	// names a resource as often, and a call it labelled outside was one the snapshot
+	// serves under a prefix the linker did not compose: a blind spot, reported as
+	// none. Without a service name the call stays path_unknown.
+	if f.PropString(facts.PropTargetHintFrom) == "" {
+		return false
+	}
 	raw := f.PropString("target_hint")
 	hint := facts.NormalizeRepoLabel(raw)
-	if len(hint) < 3 {
+	if len(hint) < 3 || genericHints[hint] {
 		return false
 	}
 	if _, aliased := m.ServiceAlias(raw); aliased {
@@ -127,6 +135,14 @@ func hintOutsideSnapshot(m *routeindex.Matcher, f facts.Fact, loaded map[string]
 		}
 	}
 	return true
+}
+
+// genericHints are hints that name the kind of thing a base is, not a service:
+// API_BASE_URL -> "api" says only that the base is an API.
+var genericHints = map[string]bool{
+	"api": true, "base": true, "default": true, "remote": true, "root": true, "server": true, "backend": true, "app": true,
+	"service": true, "gateway": true, "local": true, "internal": true, "public": true,
+	"host": true, "web": true,
 }
 
 // RouteMatch is one server route a resolved client call reaches, named by the
@@ -869,8 +885,30 @@ const (
 	ReasonVersionMismatch = "version_mismatch"
 )
 
-// UnmatchedClientRouteKeys returns the identity (see routeindex.RouteIdentity) of every client
-// route the cross-repo HTTP linker could not resolve to a loaded server route,
+// UnmatchedClientRouteKeys is UnmatchedClientCallReasons keyed by route identity (see
+// routeindex.RouteIdentity), for a caller holding no call site. Two call sites of one
+// identity can be unresolved for different reasons; the first in fact order is kept.
+// Stamping a call site reads UnmatchedClientCallReasons instead: under one identity, a
+// call whose hint names a service outside the snapshot labelled its twin with no hint
+// outside_snapshot too, and coverage counted the twin as unresolved.
+func UnmatchedClientRouteKeys(m *routeindex.Matcher, all []facts.Fact) map[string]string {
+	calls := UnmatchedClientCallReasons(m, all)
+	if calls == nil {
+		return nil
+	}
+	out := map[string]string{}
+	for _, f := range all {
+		if reason, ok := calls[ClientCallKey(f)]; ok && f.Kind == facts.KindRoute {
+			if _, seen := out[routeindex.RouteIdentity(f)]; !seen {
+				out[routeindex.RouteIdentity(f)] = reason
+			}
+		}
+	}
+	return out
+}
+
+// UnmatchedClientCallReasons returns, per client call site (see ClientCallKey), every
+// call the cross-repo HTTP linker could not resolve to a loaded server route,
 // mapped to one of the Reason* constants: ReasonNoMethod, ReasonGenericPath,
 // ReasonThinPath, ReasonAmbiguousProvider, ReasonAliasNotServing, ReasonDeclaredTarget,
 // ReasonMethodMismatch (a server serves this path suffix, but not this verb),
@@ -880,7 +918,7 @@ const (
 // fell into the unresolved coverage count — the queryable counterpart to the
 // aggregate edge_coverage numbers. External calls (hardcoded third-party hosts) are
 // expected non-matches and are omitted. Returns nil for single-repo snapshots.
-func UnmatchedClientRouteKeys(m *routeindex.Matcher, all []facts.Fact) map[string]string {
+func UnmatchedClientCallReasons(m *routeindex.Matcher, all []facts.Fact) map[string]string {
 	if len(reposOf(all)) < 2 {
 		return nil
 	}
@@ -925,7 +963,7 @@ func UnmatchedClientRouteKeys(m *routeindex.Matcher, all []facts.Fact) map[strin
 				reason = ReasonPathUnknown
 			}
 		}
-		unmatched[routeindex.RouteIdentity(f)] = reason
+		unmatched[ClientCallKey(f)] = reason
 	}
 	return unmatched
 }

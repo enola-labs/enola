@@ -666,6 +666,35 @@ func TestHTTPClient_NonProviderBasesHintNothing(t *testing.T) {
 	}
 }
 
+// A hint records where it came from only when that names a service: an environment
+// lookup or a SCREAMING_CASE constant does; a camelCase variable or a field of the
+// calling class is a name the code chose, here for the resource it calls, and the
+// linker must not read it as a service outside the snapshot.
+func TestTargetHintSource(t *testing.T) {
+	for _, tc := range []struct{ name, src, hint, from string }{
+		{"env lookup", "fetch(`${process.env.LEDGER_API_URL}/entries/list`);\n", "ledger", facts.HintFromEnv},
+		{"vite env", "fetch(`${import.meta.env.LEDGER_URL}/entries/list`);\n", "ledger", facts.HintFromEnv},
+		{"module constant", "fetch(`${TRACKER_AUTH_URL}/access_tokens`);\n", "trackerauth", facts.HintFromConstant},
+		{"config constant", "fetch(`${config.ACME_HOST}/entries/list`);\n", "acme", facts.HintFromConstant},
+		{"class field", "fetch(`${this.FAVORITE_URL}/type`);\n", "favorite", ""},
+		{"camel variable", "fetch(`${baseUrl}/api/organization`);\n", "base", ""},
+		{"camel remote", "fetch(`${defaultRemoteURL}/trash/{id}`);\n", "defaultremote", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := extractHTTPClientFacts([]byte(tc.src), "src/client.ts")
+			if len(got) != 1 {
+				t.Fatalf("want one client route, got %+v", got)
+			}
+			if h := got[0].PropString("target_hint"); h != tc.hint {
+				t.Errorf("target_hint = %q, want %q", h, tc.hint)
+			}
+			if from := got[0].PropString(facts.PropTargetHintFrom); from != tc.from {
+				t.Errorf("%s = %q, want %q", facts.PropTargetHintFrom, from, tc.from)
+			}
+		})
+	}
+}
+
 func TestTSExternalHost_CommentIsNotACall(t *testing.T) {
 	src := "export async function load() {\n" +
 		"  // await fetch('https://api.example.com/v1/old');\n" +

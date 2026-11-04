@@ -142,12 +142,15 @@ func extractRubyHTTPClientFactsCounted(src []byte, relFile string) ([]facts.Fact
 		if !ok {
 			continue
 		}
-		hint := hintFromReceiver(recv)
+		hint, hintFrom := hintFromReceiver(recv), ""
 		if hint == "" {
 			if h := envVarHint(line); h != "" {
 				hint = h
 			} else {
 				hint = envHint
+			}
+			if hint != "" {
+				hintFrom = facts.HintFromEnv
 			}
 		}
 		out = append(out, facts.Fact{
@@ -166,6 +169,9 @@ func extractRubyHTTPClientFactsCounted(src []byte, relFile string) ([]facts.Fact
 			},
 			Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: factpath.Dir(relFile)}},
 		})
+		if hintFrom != "" {
+			out[len(out)-1].SetProp(facts.PropTargetHintFrom, hintFrom)
+		}
 		if derived != "" {
 			out[len(out)-1].SetProp("derived", derived)
 		}
@@ -333,6 +339,9 @@ func extractWrapperMethodClientFacts(src, relFile, api, envHint string) []facts.
 					},
 					Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: factpath.Dir(relFile)}},
 				})
+				if envHint != "" {
+					out[len(out)-1].SetProp(facts.PropTargetHintFrom, facts.HintFromEnv)
+				}
 			}
 			break
 		}

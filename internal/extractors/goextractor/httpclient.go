@@ -67,6 +67,8 @@ func extractHTTPClientFacts(fset *token.FileSet, f *ast.File, relFile, pkgDir st
 		}
 		if props["target_hint"] == "" {
 			props["target_hint"] = baseVarHint(urlArg)
+		} else {
+			props[facts.PropTargetHintFrom] = facts.HintFromEnv
 		}
 		// extractStringExpr discards the host of a `baseURL + "/path"` concat and
 		// keeps only the path. Recover it here so the linker can bucket a call to

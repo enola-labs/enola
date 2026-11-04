@@ -322,6 +322,23 @@ const PropClientSpec = "client_spec"
 // function symbol carries exactly that name.
 const PropHandlerTarget = "handler_target"
 
+// PropTargetHintFrom says where a client call's target_hint came from, set only when
+// that source names a service: an environment variable or config key (HintFromEnv), a
+// SCREAMING_CASE constant (HintFromConstant), or a declared client's service name
+// (HintFromService). A hint without it was read off a name the code chose for itself,
+// a variable, a class field, a receiver or a factory (`baseUrl` -> "base",
+// `this.FAVORITE_URL` -> "favorite"), and names a resource as often as a service.
+// Either kind may choose between loaded repositories that serve a call; only a hint
+// that names a service may say the call is aimed outside the snapshot.
+const PropTargetHintFrom = "target_hint_from"
+
+// Values of PropTargetHintFrom.
+const (
+	HintFromEnv      = "env"
+	HintFromConstant = "constant"
+	HintFromService  = "service"
+)
+
 // HandWrittenClientSources is the set of RouteSource values that mean "a human wrote
 // this call site", as opposed to a route derived from a generated client or a contract
 // spec. The cross-repo linker reads it to label an edge via="http-client" instead of the

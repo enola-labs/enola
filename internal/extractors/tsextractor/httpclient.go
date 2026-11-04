@@ -299,8 +299,11 @@ func extractHTTPClientFactsCounted(src []byte, relFile string) ([]facts.Fact, cl
 		if derived != "" {
 			props["derived"] = derived
 		}
-		if h := tsBaseHint(rawPath); h != "" {
+		if h, from := tsBaseHint(rawPath); h != "" {
 			props["target_hint"] = h
+			if from != "" {
+				props[facts.PropTargetHintFrom] = from
+			}
 		} else if fileFactoryHint != "" {
 			props["target_hint"] = fileFactoryHint
 		}
@@ -642,27 +645,49 @@ func firstNonEmptyGroup(src []byte, m []int, groups ...int) string {
 // no provider, and a hint that names no provider steers the matcher toward a
 // wrong edge — worse than no edge at all. A token that is not a plain
 // identifier (a call, a quoted lookup) is not a name either.
-func tsBaseHint(raw string) string {
+//
+// from says whether the identifier names a service (see facts.PropTargetHintFrom): an
+// environment lookup (`process.env.X`, `import.meta.env.X`) or a SCREAMING_CASE
+// constant (`HUBSTAFF_AUTH_URL`, `config.ACME_HOST`) does. A camelCase variable
+// (`baseUrl`, `defaultRemoteURL`) or a field of the calling class
+// (`this.FAVORITE_URL = `${API_PREFIX}/favorite“) is a name the code chose, often for
+// the resource it calls, and from is empty.
+func tsBaseHint(raw string) (hint, from string) {
 	p := strings.TrimSpace(raw)
 	if !strings.HasPrefix(p, "${") {
-		return ""
+		return "", ""
 	}
 	i := strings.IndexByte(p, '}')
 	if i < 0 {
-		return ""
+		return "", ""
 	}
-	token := p[2:i]
+	full := strings.TrimSpace(p[2:i])
+	token := full
 	if dot := strings.LastIndexByte(token, '.'); dot >= 0 {
 		token = token[dot+1:]
 	}
-	token = strings.ToLower(strings.TrimSpace(token))
+	ident := strings.TrimSpace(token)
+	token = strings.ToLower(ident)
 	if !tsPlainIdentifier(token) {
-		return ""
+		return "", ""
 	}
 	for _, suf := range []string{"_host_url", "_base_url", "_api_url", "_host", "_url", "_base", "host", "url"} {
 		if t, ok := strings.CutSuffix(token, suf); ok && t != "" {
-			return strings.Trim(strings.ReplaceAll(t, "_", ""), "-")
+			return strings.Trim(strings.ReplaceAll(t, "_", ""), "-"), tsHintSource(full, ident)
 		}
+	}
+	return "", ""
+}
+
+// tsHintSource classifies the base expression a hint was read from (see tsBaseHint).
+func tsHintSource(full, ident string) string {
+	switch {
+	case strings.HasPrefix(full, "process.env.") || strings.HasPrefix(full, "import.meta.env."):
+		return facts.HintFromEnv
+	case strings.HasPrefix(full, "this."):
+		return ""
+	case ident == strings.ToUpper(ident):
+		return facts.HintFromConstant
 	}
 	return ""
 }

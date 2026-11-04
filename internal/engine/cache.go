@@ -3395,7 +3395,11 @@ import (
 // from one service-named factory (getLedgerClient()) hints that service.
 // v523: TypeScript: a verb-named client call (`client.get('/x')`) is labelled axios only in a
 // file that uses axios; any other client is http-client.
-const cacheVersion = "v523"
+// v524: a client call's target_hint records where it came from (target_hint_from) when
+// that names a service: an environment variable (Go, Ruby, PHP, TypeScript), a
+// SCREAMING_CASE constant (TypeScript) or a declared client's service name (Feign,
+// configured TypeScript clients). A hint read off a variable or field name carries none.
+const cacheVersion = "v524"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

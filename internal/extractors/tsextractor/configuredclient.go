@@ -205,6 +205,7 @@ func configuredClientCall(call *sitter.Node, ctx *extractCtx, index map[string]m
 	if svc := argAt(args, m.ServiceArg); svc != nil {
 		if service, ok := r.text(svc); ok && service != "" && !strings.Contains(service, "{}") {
 			props["target_hint"] = service
+			props[facts.PropTargetHintFrom] = facts.HintFromService
 		}
 	}
 	if testDoublePath(ctx.relFile) {

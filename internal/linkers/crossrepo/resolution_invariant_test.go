@@ -52,15 +52,15 @@ func TestResolution_CoverageAndReasonsAgreeOnEveryBranch(t *testing.T) {
 	v.ServiceAliases = map[string]string{"resource-api": "billing"}
 
 	web := []facts.Fact{
-		invariantClient("web", "GET", "/api/v1/widgets/list", nil),                                 // resolved
-		invariantClient("web", "GET", "/v3/charges/refund", map[string]any{"external": true}),      // external
-		invariantClient("web", "", "/api/v1/widgets/list", nil),                                    // no_method
-		invariantClient("web", "GET", "/health", nil),                                              // generic_path
-		invariantClient("web", "POST", "/v1/catalog/imports", nil),                                 // ambiguous_provider
-		invariantClient("web", "POST", "/mcp", map[string]any{"target_hint": "back"}),              // single segment: ambiguous_provider
-		invariantClient("web", "DELETE", "/api/v1/widgets/list", nil),                              // method_mismatch
-		invariantClient("web", "GET", "/v9/nothing/here", nil),                                     // path_unknown
-		invariantClient("web", "GET", "/v1/entries/{id}", map[string]any{"target_hint": "ledger"}), // outside_snapshot
+		invariantClient("web", "GET", "/api/v1/widgets/list", nil),                                                                              // resolved
+		invariantClient("web", "GET", "/v3/charges/refund", map[string]any{"external": true}),                                                   // external
+		invariantClient("web", "", "/api/v1/widgets/list", nil),                                                                                 // no_method
+		invariantClient("web", "GET", "/health", nil),                                                                                           // generic_path
+		invariantClient("web", "POST", "/v1/catalog/imports", nil),                                                                              // ambiguous_provider
+		invariantClient("web", "POST", "/mcp", map[string]any{"target_hint": "back"}),                                                           // single segment: ambiguous_provider
+		invariantClient("web", "DELETE", "/api/v1/widgets/list", nil),                                                                           // method_mismatch
+		invariantClient("web", "GET", "/v9/nothing/here", nil),                                                                                  // path_unknown
+		invariantClient("web", "GET", "/v1/entries/{id}", map[string]any{"target_hint": "ledger", facts.PropTargetHintFrom: facts.HintFromEnv}), // outside_snapshot
 	}
 	sdk := []facts.Fact{
 		// A declared client whose alias names a repository serving none of the matches.
@@ -94,14 +94,14 @@ func TestResolution_CoverageAndReasonsAgreeOnEveryBranch(t *testing.T) {
 			coverage[f.Repo] = coverageInts(f)
 		}
 	}
-	reasons := httpsignal.UnmatchedClientRouteKeys(routeindex.New(v), all)
+	reasons := httpsignal.UnmatchedClientCallReasons(routeindex.New(v), all)
 
 	stamped := map[string]map[string]int{}
 	for _, f := range all {
 		if f.Kind != facts.KindRoute || f.Props["role"] != facts.RoleClient {
 			continue
 		}
-		reason, ok := reasons[routeindex.RouteIdentity(f)]
+		reason, ok := reasons[httpsignal.ClientCallKey(f)]
 		if !ok {
 			continue
 		}
@@ -145,15 +145,15 @@ func TestResolution_CoverageAndReasonsAgreeOnEveryBranch(t *testing.T) {
 	}
 
 	expectReason := map[string]string{
-		routeindex.RouteIdentity(web[2]): httpsignal.ReasonNoMethod,
-		routeindex.RouteIdentity(web[3]): httpsignal.ReasonGenericPath,
-		routeindex.RouteIdentity(web[4]): httpsignal.ReasonAmbiguousProvider,
-		routeindex.RouteIdentity(web[5]): httpsignal.ReasonAmbiguousProvider,
-		routeindex.RouteIdentity(web[6]): httpsignal.ReasonMethodMismatch,
-		routeindex.RouteIdentity(web[7]): httpsignal.ReasonPathUnknown,
-		routeindex.RouteIdentity(sdk[0]): httpsignal.ReasonAliasNotServing,
-		routeindex.RouteIdentity(app[2]): httpsignal.ReasonDeclaredTarget,
-		routeindex.RouteIdentity(app[3]): httpsignal.ReasonDeclaredTarget,
+		httpsignal.ClientCallKey(web[2]): httpsignal.ReasonNoMethod,
+		httpsignal.ClientCallKey(web[3]): httpsignal.ReasonGenericPath,
+		httpsignal.ClientCallKey(web[4]): httpsignal.ReasonAmbiguousProvider,
+		httpsignal.ClientCallKey(web[5]): httpsignal.ReasonAmbiguousProvider,
+		httpsignal.ClientCallKey(web[6]): httpsignal.ReasonMethodMismatch,
+		httpsignal.ClientCallKey(web[7]): httpsignal.ReasonPathUnknown,
+		httpsignal.ClientCallKey(sdk[0]): httpsignal.ReasonAliasNotServing,
+		httpsignal.ClientCallKey(app[2]): httpsignal.ReasonDeclaredTarget,
+		httpsignal.ClientCallKey(app[3]): httpsignal.ReasonDeclaredTarget,
 	}
 	for id, wantReason := range expectReason {
 		if got := reasons[id]; got != wantReason {
@@ -161,7 +161,7 @@ func TestResolution_CoverageAndReasonsAgreeOnEveryBranch(t *testing.T) {
 		}
 	}
 	for _, resolved := range []facts.Fact{web[0], web[1], app[1]} {
-		if reason, ok := reasons[routeindex.RouteIdentity(resolved)]; ok {
+		if reason, ok := reasons[httpsignal.ClientCallKey(resolved)]; ok {
 			t.Errorf("%s %s is resolved or external but carries reason %q", resolved.Repo, resolved.Name, reason)
 		}
 	}

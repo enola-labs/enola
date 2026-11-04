@@ -55,3 +55,54 @@ func TestThinPath_DeclinedWithItsOwnReason(t *testing.T) {
 		t.Errorf("/{}/captions must resolve, got unmatched_reason %q", got)
 	}
 }
+
+// outside_snapshot says a call goes to a service the snapshot does not hold. Only a hint
+// that names a service can say so: one read off a variable or class field ("base",
+// "favorite") left calls the snapshot does serve, under a prefix the linker did not
+// compose, labelled outside, and they dropped out of the unresolved count. A generic word
+// names no service either, whatever it was read from.
+func TestOutsideSnapshot_NeedsAHintThatNamesAService(t *testing.T) {
+	call := func(path, hint, from string) facts.Fact {
+		props := map[string]any{"role": "client", "method": "GET", "target_hint": hint}
+		if from != "" {
+			props[facts.PropTargetHintFrom] = from
+		}
+		return facts.Fact{Kind: facts.KindRoute, Name: path, Repo: "web", File: "src/" + hint + ".ts", Props: props}
+	}
+	envLedger := call("/v1/entries/{id}", "ledger", facts.HintFromEnv)
+	fieldHint := call("/favorite/type/list", "favorite", "")
+	camelBase := call("/api/organization/list", "base", "")
+	genericAPI := call("/api/tenant/list", "api", facts.HintFromConstant)
+	all := []facts.Fact{envLedger, fieldHint, camelBase, genericAPI,
+		{Kind: facts.KindRoute, Name: "/organization", Repo: "backend", Props: map[string]any{"role": "server", "method": "GET"}},
+	}
+	reasons := UnmatchedClientCallReasons(routeindex.New(vocab.Default()), all)
+	if got := reasons[ClientCallKey(envLedger)]; got != ReasonOutsideSnapshot {
+		t.Errorf("env-named service: reason = %q, want %q", got, ReasonOutsideSnapshot)
+	}
+	for _, f := range []facts.Fact{fieldHint, camelBase, genericAPI} {
+		if got := reasons[ClientCallKey(f)]; got != ReasonPathUnknown {
+			t.Errorf("%s (hint %q): reason = %q, want %q", f.Name, f.PropString("target_hint"), got, ReasonPathUnknown)
+		}
+	}
+}
+
+// Two call sites of one verb and path are two calls. One whose hint names a service
+// outside the snapshot does not make its twin with no hint outside too: reasons are kept
+// per call site, as coverage counts them.
+func TestUnmatchedReasons_ArePerCallSite(t *testing.T) {
+	named := facts.Fact{Kind: facts.KindRoute, Name: "/v1/entries/list", Repo: "web", File: "src/a.ts", Line: 3,
+		Props: map[string]any{"role": "client", "method": "GET", "target_hint": "ledger", facts.PropTargetHintFrom: facts.HintFromEnv}}
+	bare := facts.Fact{Kind: facts.KindRoute, Name: "/v1/entries/list", Repo: "web", File: "src/b.ts", Line: 9,
+		Props: map[string]any{"role": "client", "method": "GET"}}
+	all := []facts.Fact{named, bare,
+		{Kind: facts.KindRoute, Name: "/health/live", Repo: "backend", Props: map[string]any{"role": "server", "method": "GET"}},
+	}
+	reasons := UnmatchedClientCallReasons(routeindex.New(vocab.Default()), all)
+	if got := reasons[ClientCallKey(named)]; got != ReasonOutsideSnapshot {
+		t.Errorf("named call: reason = %q, want %q", got, ReasonOutsideSnapshot)
+	}
+	if got := reasons[ClientCallKey(bare)]; got != ReasonPathUnknown {
+		t.Errorf("its twin with no hint: reason = %q, want %q", got, ReasonPathUnknown)
+	}
+}
