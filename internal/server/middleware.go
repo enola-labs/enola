@@ -465,7 +465,8 @@ func (s *Server) freshnessMiddleware(next mcp.MethodHandler) mcp.MethodHandler {
 func (s *Server) freshnessBanner() string {
 	s.freshMu.Lock()
 	defer s.freshMu.Unlock()
-	if !s.freshAt.IsZero() && time.Since(s.freshAt) < freshTTL {
+	key := s.freshnessKey()
+	if !s.freshAt.IsZero() && time.Since(s.freshAt) < freshTTL && s.freshFor == key {
 		return s.freshBanner
 	}
 
@@ -484,7 +485,17 @@ func (s *Server) freshnessBanner() string {
 
 	s.freshBanner = banner
 	s.freshAt = time.Now()
+	s.freshFor = key
 	return banner
+}
+
+// freshnessKey names the loaded snapshot by id and time: a rerun over unchanged inputs
+// keeps its id but is a day younger.
+func (s *Server) freshnessKey() string {
+	if snap := s.eng.Snapshot(); snap != nil {
+		return snap.Meta.SnapshotID + "@" + snap.Meta.GeneratedAt
+	}
+	return ""
 }
 
 // updateMiddleware attaches a one-time notice that a newer enola exists.

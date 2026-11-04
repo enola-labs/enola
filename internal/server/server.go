@@ -66,10 +66,13 @@ type Server struct {
 
 	// Freshness-banner cache. freshnessBanner() shells out to git per repo, so the
 	// result is memoized for freshTTL to keep that cost off the hot path of
-	// back-to-back read tools. Guarded by freshMu.
+	// back-to-back read tools. freshFor is the snapshot it was computed for: a banner
+	// about the graph served before generate_snapshot is not about this one. Guarded
+	// by freshMu.
 	freshMu     sync.Mutex
 	freshBanner string
 	freshAt     time.Time
+	freshFor    string
 
 	// reload restores the workspace's graph from disk and returns its corpus, the
 	// same way startup does. Set by the bootstrap that knows how to restore; nil
