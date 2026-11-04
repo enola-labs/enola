@@ -35,6 +35,7 @@ func (r *Runner) Blame(args []string) {
 		full     = fs.Bool("full", false, "print the whole matching line rather than its head")
 		all      = fs.Bool("all", false, "include working revisions (uncommitted trees)")
 		store    = fs.String("store", "", "also search a shared history store (default: history.shared_dir)")
+		limit    = fs.Int("n", 100, "list at most this many matching facts, counting the rest (0 for all)")
 	)
 	fs.Usage = func() {
 		fmt.Fprint(os.Stderr,
@@ -91,7 +92,7 @@ func (r *Runner) Blame(args []string) {
 		fmt.Println(string(out))
 		return
 	}
-	fmt.Print(renderBlame(b, *full, sh != nil))
+	fmt.Print(renderBlame(b, *full, sh != nil, *limit))
 }
 
 func (r *Runner) historyWithStore(repoArg, storeFlag string, fatal func(string, ...any)) ([]history.Entry, string, *history.Share) {
@@ -164,7 +165,7 @@ func splitPatternAndRepo(args []string) (pattern, repo string) {
 }
 
 // renderBlame prints the events oldest first, each under the revision that produced it.
-func renderBlame(b *history.Blame, full, withOrigins bool) string {
+func renderBlame(b *history.Blame, full, withOrigins bool, limit int) string {
 	var out strings.Builder
 
 	if len(b.Events) == 0 {
@@ -174,26 +175,53 @@ func renderBlame(b *history.Blame, full, withOrigins bool) string {
 		return out.String()
 	}
 
+	// A pattern as broad as a repository name matches every fact in it, and listing them
+	// all is a screenful nobody reads and a megabyte an agent pays for. Past the limit
+	// the rest are counted.
+	listed, total, restEvents := 0, 0, 0
+	capped := func() bool { return limit > 0 && listed >= limit }
+	emit := func(line string) {
+		total++
+		if !capped() {
+			out.WriteString(line)
+			listed++
+		}
+	}
 	for _, ev := range b.Events {
+		if capped() {
+			restEvents++
+			total += len(ev.Added) + len(ev.Removed) + len(ev.Changed)
+			continue
+		}
 		e := ev.Entry
 		origins := ""
 		if withOrigins {
 			origins = "  [" + strings.Join(ev.Origins, ", ") + "]"
 		}
 		fmt.Fprintf(&out, "%-7s  %s  %s%s\n", e.Short(), shortDate(e.At), strings.TrimSpace(decorations(e)), origins)
+		startListed, startTotal := listed, total
 		for _, l := range ev.Added {
-			fmt.Fprintf(&out, "    + %s\n", blameLine(l, full))
+			emit(fmt.Sprintf("    + %s\n", blameLine(l, full)))
 		}
 		for _, l := range ev.Removed {
-			fmt.Fprintf(&out, "    - %s\n", blameLine(l, full))
+			emit(fmt.Sprintf("    - %s\n", blameLine(l, full)))
 		}
 		for _, p := range ev.Changed {
-			fmt.Fprintf(&out, "    ~ %-9s  %s\n", p.Kind, blamePair(p, full))
+			emit(fmt.Sprintf("    ~ %-9s  %s\n", p.Kind, blamePair(p, full)))
 		}
+		if hidden := (total - startTotal) - (listed - startListed); hidden > 0 {
+			fmt.Fprintf(&out, "    … %d more in this revision\n", hidden)
+		}
+	}
+	if restEvents > 0 {
+		fmt.Fprintf(&out, "… and %d later event%s.\n", restEvents, pluralS(restEvents))
 	}
 
 	fmt.Fprintf(&out, "\n%d event%s across %d searched revision%s.\n",
 		len(b.Events), pluralS(len(b.Events)), b.Scanned, pluralS(b.Scanned))
+	if listed < total {
+		fmt.Fprintf(&out, "Listed %d of %d matching facts; narrow the pattern, or pass -n 0 for all.\n", listed, total)
+	}
 	out.WriteString(unreadNote(b))
 	return out.String()
 }
