@@ -35,6 +35,13 @@ type blameArgs struct {
 	First    bool   `json:"first,omitempty" jsonschema:"Stop at the first appearance, for 'when was this introduced'. Default false."`
 }
 
+// defaultBlameLines bounds an architecture_blame answer. A pattern as broad as a repository
+// name matches every fact in it: on a 45k-fact frontend that was 5 MB of text, which the
+// client dropped, and which an agent could not have read anyway.
+// The cap is not a parameter: the remedy for a pattern that matches too much is a
+// narrower pattern, and every parameter is paid for in every session's tool list.
+const maxBlameLines = 100
+
 // registerHistoryTools adds the timeline tools. They are registered even when no history has
 // been recorded: the tool then explains that, which is a better answer than a missing
 // capability an agent cannot ask about.
@@ -84,7 +91,7 @@ func (s *Server) registerHistoryTools() {
 		if err != nil {
 			return errorResult(fmt.Sprintf("blame failed: %v", err)), nil, nil
 		}
-		return textResult(note + renderBlameResult(b)), nil, nil
+		return textResult(note + renderBlameResult(b, maxBlameLines)), nil, nil
 	})
 }
 
@@ -216,7 +223,7 @@ func renderHistoryEntries(entries []history.Entry) string {
 }
 
 // renderBlameResult formats a blame for an agent, leading with the answer.
-func renderBlameResult(b *history.Blame) string {
+func renderBlameResult(b *history.Blame, maxLines int) string {
 	var out strings.Builder
 
 	if intro, ok := b.Introduced(); ok {
@@ -229,20 +236,46 @@ func renderBlameResult(b *history.Blame) string {
 		fmt.Fprintf(&out, "Nothing matching %q in %d searched revision(s).\n", b.Pattern, b.Scanned)
 	}
 
+	listed, total := 0, 0
+	emit := func(line string) {
+		total++
+		if listed < maxLines {
+			out.WriteString(line)
+			listed++
+		}
+	}
+	restEvents := 0
 	for _, ev := range b.Events {
+		if listed >= maxLines {
+			// Past the cap a revision header alone is still a line per revision; count them.
+			restEvents++
+			total += len(ev.Added) + len(ev.Removed) + len(ev.Changed)
+			continue
+		}
 		fmt.Fprintf(&out, "%s  %s  %s\n", ev.Entry.Short(), ev.Entry.At, ev.Entry.Commit())
+		startListed, startTotal := listed, total
 		for _, l := range ev.Added {
-			fmt.Fprintf(&out, "  + %s\n", l)
+			emit("  + " + history.ShortBlameLine(l) + "\n")
 		}
 		for _, l := range ev.Removed {
-			fmt.Fprintf(&out, "  - %s\n", l)
+			emit("  - " + history.ShortBlameLine(l) + "\n")
 		}
 		for _, p := range ev.Changed {
-			fmt.Fprintf(&out, "  ~ %s (same symbol): %s\n    was %s\n", p.Kind, p.To, p.From)
+			emit(fmt.Sprintf("  ~ %-9s %s\n", p.Kind, history.ShortBlamePair(p)))
+		}
+		if hidden := (total - startTotal) - (listed - startListed); hidden > 0 {
+			fmt.Fprintf(&out, "  … %d more in this revision\n", hidden)
 		}
 	}
 
+	if restEvents > 0 {
+		fmt.Fprintf(&out, "… and %d later revision(s) with matching changes.\n", restEvents)
+	}
+
 	fmt.Fprintf(&out, "\nSearched %d revision(s).", b.Scanned)
+	if listed < total {
+		fmt.Fprintf(&out, " Listed %d of %d matching facts; narrow the pattern to a symbol, a file path, or an edge 'a -> b'.", listed, total)
+	}
 	if b.Skipped > 0 {
 		fmt.Fprintf(&out, " %d could NOT be searched — their stored contents have aged out, so anything "+
 			"that appeared and vanished within them is invisible here; treat 'not found' as 'not found in what was readable'.", b.Skipped)

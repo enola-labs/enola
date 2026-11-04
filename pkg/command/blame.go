@@ -230,55 +230,15 @@ func blameLine(line string, full bool) string {
 	if full {
 		return line
 	}
-	var f struct {
-		Kind  string `json:"kind"`
-		Name  string `json:"name"`
-		File  string `json:"file"`
-		Line  int    `json:"line"`
-		Title string `json:"title"`
-	}
-	if err := json.Unmarshal([]byte(line), &f); err != nil {
-		return truncateLine(line, 120)
-	}
-	if f.Title != "" { // a finding
-		return f.Title
-	}
-	where := f.File
-	if where != "" && f.Line > 0 {
-		where = fmt.Sprintf("%s:%d", f.File, f.Line)
-	}
-	if where == "" {
-		return fmt.Sprintf("%-11s %s", f.Kind, f.Name)
-	}
-	return fmt.Sprintf("%-11s %s  (%s)", f.Kind, f.Name, where)
+	return history.ShortBlameLine(line)
 }
 
-// blamePair renders a changed symbol as its new line and where it was before, which is
-// the part of the old line a reader needs once the pair says it is the same symbol.
+// blamePair renders a changed symbol; see history.ShortBlamePair.
 func blamePair(p history.BlamePair, full bool) string {
 	if full {
 		return p.To + "\n                 was " + p.From
 	}
-	var from struct {
-		File string `json:"file"`
-		Line int    `json:"line"`
-		Name string `json:"name"`
-	}
-	if err := json.Unmarshal([]byte(p.From), &from); err != nil {
-		return blameLine(p.To, false)
-	}
-	was := fmt.Sprintf("%s:%d", from.File, from.Line)
-	if p.Kind == history.PairMoved {
-		was = from.Name + "  (" + was + ")"
-	}
-	return blameLine(p.To, false) + "  was " + was
-}
-
-func truncateLine(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[:n] + "…"
+	return history.ShortBlamePair(p)
 }
 
 func (r *Runner) blameFatal(format string, args ...any) { r.cmdFatal("blame", format, args...) }
