@@ -4,10 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/enola-labs/enola/internal/config"
+	"github.com/enola-labs/enola/internal/workspace"
 	"github.com/enola-labs/enola/pkg/history"
 )
 
@@ -41,7 +44,7 @@ func (s *Server) registerHistoryTools() {
 			"Every other tool describes the tree as it is now; this one answers about the past, so prefer it over reading git log and guessing. " +
 			"generate_snapshot records history automatically, so a repository never snapshotted has none yet.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args historyArgs) (*mcp.CallToolResult, any, error) {
-		entries, _, err := s.readHistory(args.RepoPath)
+		entries, _, note, err := s.readHistory(args.RepoPath)
 		if err != nil {
 			return errorResult(err.Error()), nil, nil
 		}
@@ -56,9 +59,9 @@ func (s *Server) registerHistoryTools() {
 			entries = entries[len(entries)-limit:]
 		}
 		if len(entries) == 0 {
-			return textResult("No committed revisions recorded yet. Pass all=true to include snapshots of uncommitted trees."), nil, nil
+			return textResult(note + "No committed revisions recorded yet. Pass all=true to include snapshots of uncommitted trees."), nil, nil
 		}
-		return textResult(renderHistoryEntries(entries)), nil, nil
+		return textResult(note + renderHistoryEntries(entries)), nil, nil
 	})
 
 	mcp.AddTool(s.mcp, &mcp.Tool{
@@ -70,7 +73,7 @@ func (s *Server) registerHistoryTools() {
 		if strings.TrimSpace(args.Pattern) == "" {
 			return errorResult("architecture_blame needs a pattern — a module or symbol name, a file path, or an edge."), nil, nil
 		}
-		entries, root, err := s.readHistory(args.RepoPath)
+		entries, root, note, err := s.readHistory(args.RepoPath)
 		if err != nil {
 			return errorResult(err.Error()), nil, nil
 		}
@@ -80,31 +83,92 @@ func (s *Server) registerHistoryTools() {
 		if err != nil {
 			return errorResult(fmt.Sprintf("blame failed: %v", err)), nil, nil
 		}
-		return textResult(renderBlameResult(b)), nil, nil
+		return textResult(note + renderBlameResult(b)), nil, nil
 	})
 }
 
-// readHistory resolves the repository and loads its recorded entries.
-func (s *Server) readHistory(repoPath string) ([]history.Entry, string, error) {
+// readHistory resolves the repository and loads its recorded entries. note is a line to
+// put before the answer when the path named a cluster rather than one repository.
+func (s *Server) readHistory(repoPath string) (entries []history.Entry, root, note string, err error) {
 	if repoPath == "" {
 		repoPath = s.currentRepoPath()
 	}
 	if repoPath == "" {
-		return nil, "", errors.New("no repository to read a history for — run generate_snapshot first, or pass repo_path")
+		return nil, "", "", errors.New("no repository to read a history for — run generate_snapshot first, or pass repo_path")
 	}
-	root, err := history.Root(repoPath, s.cfg.History.Dir)
+	historyDir := s.cfg.History.Dir
+	members, source, dir, err := clusterMembers(repoPath)
 	if err != nil {
-		return nil, "", fmt.Errorf("cannot locate the history: %w", err)
+		return nil, "", "", err
 	}
-	entries, err := history.Read(root)
+	if len(members) > 0 {
+		if dir != "" {
+			historyDir = dir
+		}
+		repoPath = firstWithHistory(members, historyDir)
+		names := make([]string, len(members))
+		for i, m := range members {
+			names[i] = filepath.Base(m)
+		}
+		note = fmt.Sprintf("Cluster %s: reading the history of %s (members: %s). A cluster snapshot records into every member; pass a member's path for another.\n\n",
+			source, filepath.Base(repoPath), strings.Join(names, ", "))
+	}
+	root, err = history.Root(repoPath, historyDir)
+	if err != nil {
+		return nil, "", "", fmt.Errorf("cannot locate the history: %w", err)
+	}
+	entries, err = history.Read(root)
 	if err != nil {
 		if errors.Is(err, history.ErrNoHistory) {
-			return nil, "", fmt.Errorf("no architecture history recorded for %s yet — it accumulates as generate_snapshot runs", repoPath)
+			return nil, "", "", fmt.Errorf("%sno architecture history recorded for %s yet — it accumulates as generate_snapshot runs", note, repoPath)
 		}
-		return nil, "", err
+		return nil, "", "", err
 	}
 	// Timeline order — see history.SortedByTime.
-	return history.SortedByTime(entries), root, nil
+	return history.SortedByTime(entries), root, note, nil
+}
+
+// clusterMembers returns the repositories path stands for when it is a folder of
+// repositories: those its cluster config lists (with that config's history.dir), or the
+// git repositories under it. Empty for a repository.
+func clusterMembers(path string) (members []string, source, historyDir string, err error) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return nil, "", "", nil
+	}
+	cfgPath, kids := workspace.Cluster(abs)
+	if cfgPath != "" {
+		cfg, err := config.Load(cfgPath)
+		if err != nil {
+			return nil, "", "", fmt.Errorf("reading %s: %w", cfgPath, err)
+		}
+		if len(cfg.Repos) == 0 {
+			return nil, "", "", fmt.Errorf("%s has an empty repos list", cfgPath)
+		}
+		members, err := cfg.RepoPaths()
+		if err != nil {
+			return nil, "", "", fmt.Errorf("resolving the repositories of %s: %w", cfgPath, err)
+		}
+		return members, cfgPath, cfg.History.Dir, nil
+	}
+	for _, k := range kids {
+		members = append(members, filepath.Join(abs, k))
+	}
+	return members, abs, "", nil
+}
+
+// firstWithHistory is the first member that has recorded revisions, or the first member.
+func firstWithHistory(members []string, historyDir string) string {
+	for _, m := range members {
+		root, err := history.Root(m, historyDir)
+		if err != nil {
+			continue
+		}
+		if entries, err := history.Read(root); err == nil && len(entries) > 0 {
+			return m
+		}
+	}
+	return members[0]
 }
 
 func committedOnly(entries []history.Entry) []history.Entry {

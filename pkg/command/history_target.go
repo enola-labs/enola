@@ -93,7 +93,7 @@ func (r *Runner) folderScope(cmd, dir string) (historyScope, bool) {
 			r.cmdFatal(cmd, "reading %s: %v", path, err)
 		}
 		if len(cfg.Repos) == 0 {
-			r.cmdFatal(cmd, "%s lists no repositories under repos:", path)
+			r.cmdFatal(cmd, "%s has an empty repos list", path)
 		}
 		s := r.scopeOf(cmd, cfg)
 		s.cluster = path
