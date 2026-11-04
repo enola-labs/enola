@@ -3356,7 +3356,10 @@ import (
 // v509: A fact in a multi-repo snapshot says its path was prefixed (repo_prefixed), and an id hashes the repository-relative path, so a declaration has one id alone and at any place in a cluster. A prior union without the mark cannot be carried.
 // v510: Python: a function nested in a function or method is a symbol, "<owner>.<path>" with member_of, carrying a span and no edges.
 // v511: A symbol lists the named functions nested in it that have no symbol of their own (nested: "<name>:<line>-<end_line>"): TypeScript and JavaScript local functions, function-valued variables, keys and methods; Go function literals bound to a name; Rust fn items and let-bound closures.
-const cacheVersion = "v511"
+// v512: Rust: a const generic is a generic parameter, not a type; a union is a declaration
+// like a struct; a generic associated type's own parameters are not types; and a generic
+// parameter of a type alias is not the local type of the same name.
+const cacheVersion = "v512"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

@@ -215,6 +215,7 @@ type astWalker struct {
 	registeredNestedDepth int
 	typeParams            []string
 	externalImports       map[string]bool
+	inAliasTarget         bool
 }
 
 // calleeForm classifies how a call_expression's callee was written, so the
@@ -575,7 +576,7 @@ func (w *astWalker) walkItem(c *sitter.Node, attrs rustItemAttrs) {
 		return
 	case "mod_item":
 		w.handleMod(c)
-	case "struct_item":
+	case "struct_item", "union_item":
 		w.handleStruct(c)
 	case "enum_item":
 		w.handleEnum(c)
@@ -1080,13 +1081,16 @@ func (w *astWalker) handleTypeAlias(node *sitter.Node) {
 		},
 		Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: w.dir}},
 	})
+	defer w.enterTypeParams(node)()
 	if len(w.typeStack) == 0 {
-		if t := w.typeOf(node.ChildByFieldName("type")); t != "" {
+		w.inAliasTarget = true
+		t := w.typeOf(node.ChildByFieldName("type"))
+		w.inAliasTarget = false
+		if t != "" {
 			w.out[len(w.out)-1].SetProp(propAliasOf, t)
 		}
 	}
 	w.setDoc(node)
-	defer w.enterTypeParams(node)()
 	w.pushOwner(len(w.out) - 1)
 	w.scanTypeNames(node.ChildByFieldName("type_parameters"))
 	w.scanTypeNames(findChildByKind(node, "where_clause"))
@@ -1415,6 +1419,14 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 		if name := nodeText(node, w.src); isCapitalized(name) {
 			w.emitEdge(facts.RelInstantiates, name)
 		}
+	case "associated_type":
+		// `type Out<U>;` declares its own generic parameters.
+		restore := w.enterTypeParams(node)
+		for i := uint(0); i < uint(node.ChildCount()); i++ {
+			w.walkChild(node.Child(i))
+		}
+		restore()
+		return
 	case "type_identifier":
 		switch {
 		case w.isAssociatedTypeName(node), isDeclaredName(node):
@@ -1458,7 +1470,7 @@ func (w *astWalker) enterTypeParams(node *sitter.Node) func() {
 			switch kindOf(c) {
 			case "type_identifier":
 				w.typeParams = append(w.typeParams, nodeText(c, w.src))
-			case "type_parameter", "constrained_type_parameter", "optional_type_parameter":
+			case "type_parameter", "constrained_type_parameter", "optional_type_parameter", "const_parameter":
 				n := c.ChildByFieldName("name")
 				if n == nil {
 					n = c.ChildByFieldName("left")
