@@ -1,0 +1,14 @@
+$ enola history push --all ../store cluster.yaml
+exit: 0
+--- stdout
+== cluster
+<TMP>/store (source <HOST>)
+  pushed        2 revision(s), 2 payload file(s) new
+  already there 1
+
+== api
+  no local revisions to push
+
+== consumer
+  no local revisions to push
+--- stderr

@@ -166,7 +166,9 @@ cluster's history, and a member's path reads that member alone. `enola gc cluste
 gc` run from the folder, collects the cluster's history and every member's and prints a total;
 `--repo <name>` collects one member. A folder with no `cluster.yaml` stands for the git
 repositories directly under it, the same set `--generate` indexes there. `log --backfill` refuses
-a cluster: pass the member's path.
+a cluster: pass the member's path. `history push` and `pull` on a cluster exchange the cluster's
+history and every member's; a cluster revision is filed in the store under its own identity,
+`cluster:<member identities>`, so pulling a member never imports its cluster's snapshots.
 
 ---
 

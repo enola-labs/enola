@@ -132,6 +132,9 @@ func (r *Recorder) Record(rec Record) {
 	if rec.Repos != nil {
 		entry.Repos = rec.Repos()
 	}
+	if len(rec.Members) > 1 && len(entry.Repos) > 0 {
+		entry.Repo = pkghistory.ClusterIdentity(entry.Repos)
+	}
 
 	opts := Options{
 		WorkingKeep:  r.opts.WorkingKeep,

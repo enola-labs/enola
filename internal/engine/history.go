@@ -40,6 +40,9 @@ type RepoState struct {
 	Label  string
 	Commit string
 	Dirty  bool
+	// Identity is the repository's portable identity: its normalized remote, or its
+	// folder name without one (facts.RepoIdentity).
+	Identity string
 }
 
 // SetSnapshotRecorder registers a function called at the end of every WriteArtifacts,
@@ -77,9 +80,11 @@ func repoStates(e *Engine, b *snapshotBundle) []RepoState {
 	states := make([]RepoState, 0, len(b.repoPaths))
 	for label, abs := range b.repoPaths {
 		r := RepoState{Label: label}
-		if gi := gitInfo(abs, e.cfg.Output.Dir); gi != nil {
+		gi := gitInfo(abs, e.cfg.Output.Dir)
+		if gi != nil {
 			r.Commit, r.Dirty = gi.Commit, gi.Dirty
 		}
+		r.Identity = facts.RepoIdentity(facts.SnapshotMeta{RepoPath: abs, Git: gi})
 		states = append(states, r)
 	}
 	// Sorted by label: repoPaths is a map, so an unsorted vector would reorder itself

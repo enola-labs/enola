@@ -123,6 +123,26 @@ type RepoRef struct {
 	Label  string `json:"label"`
 	Commit string `json:"commit,omitempty"`
 	Dirty  bool   `json:"dirty,omitempty"`
+	// Identity is the repository's portable identity (facts.RepoIdentity), from which a
+	// cluster revision's own identity is built; see ClusterIdentity.
+	Identity string `json:"identity,omitempty"`
+}
+
+// ClusterIdentity is the portable identity of a multi-repo revision: its members'
+// identities, sorted. A cluster revision once carried the identity of whichever member
+// its meta described, which filed it under that repository in a shared store, where a
+// pull imported it into the member's own history.
+func ClusterIdentity(repos []RepoRef) string {
+	ids := make([]string, 0, len(repos))
+	for _, r := range repos {
+		id := r.Identity
+		if id == "" {
+			id = r.Label
+		}
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return "cluster:" + strings.Join(ids, "+")
 }
 
 // BlobRef locates a revision's stored snapshot within the local pack layout. Written in

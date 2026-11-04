@@ -134,6 +134,7 @@ func (r *Runner) scopeOf(cmd string, cfg *config.Config) historyScope {
 type historyRoot struct {
 	root    string
 	labels  []string
+	repos   []string // the absolute paths behind labels
 	cluster bool
 }
 
@@ -155,7 +156,7 @@ func (s historyScope) roots() ([]historyRoot, error) {
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, historyRoot{root: root, labels: memberLabels(s.repos), cluster: true})
+		out = append(out, historyRoot{root: root, labels: memberLabels(s.repos), repos: s.repos, cluster: true})
 	}
 	at := map[string]int{}
 	for _, repo := range s.repos {
@@ -166,10 +167,11 @@ func (s historyScope) roots() ([]historyRoot, error) {
 		label := filepath.Base(repo)
 		if i, ok := at[root]; ok {
 			out[i].labels = append(out[i].labels, label)
+			out[i].repos = append(out[i].repos, repo)
 			continue
 		}
 		at[root] = len(out)
-		out = append(out, historyRoot{root: root, labels: []string{label}})
+		out = append(out, historyRoot{root: root, labels: []string{label}, repos: []string{repo}})
 	}
 	return out, nil
 }
@@ -191,4 +193,23 @@ func (r *Runner) historyRootOf(cmd, arg string) (string, string, *config.Config)
 		return dir, root, scope.cfg
 	}
 	return scope.repos[0], root, scope.cfg
+}
+
+// identities are the repository identities whose revisions belong in this history:
+// the cluster's own for a cluster history, each repository's otherwise. A pull into an
+// empty history has nothing local to tell them by, and the store's only identity may
+// be a cluster's, which would copy the cluster's revisions into a member.
+func (hr historyRoot) identities() []string {
+	if hr.cluster {
+		refs := make([]history.RepoRef, len(hr.repos))
+		for i, repo := range hr.repos {
+			refs[i] = history.RepoRef{Label: filepath.Base(repo), Identity: repoIdentityOf(repo)}
+		}
+		return []string{history.ClusterIdentity(refs)}
+	}
+	ids := make([]string, len(hr.repos))
+	for i, repo := range hr.repos {
+		ids[i] = repoIdentityOf(repo)
+	}
+	return ids
 }

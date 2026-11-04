@@ -483,6 +483,8 @@ func TestCLIContract_Cluster(t *testing.T) {
 		{"gc_cluster_repo_unknown", []string{"gc", "--repo", "nope", "cluster.yaml"}},
 		{"log_cluster_folder", []string{"log", "-n", "1"}},
 		{"log_cluster_backfill_refused", []string{"log", "--backfill", "--dry-run", "cluster.yaml"}},
+		{"history_push_cluster", []string{"history", "push", "--all", "../store", "cluster.yaml"}},
+		{"history_pull_cluster", []string{"history", "pull", "../store", "cluster.yaml"}},
 	})
 }
 

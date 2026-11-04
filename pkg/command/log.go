@@ -169,33 +169,12 @@ func (r *Runner) Log(args []string) {
 // print twenty lines of text — and, worse, would make `enola log` fail on a repository
 // whose config enola cannot fully honour, which is exactly a repository whose history
 // somebody might want to look at.
+//
+// A cluster resolves to its first member; a reader that handles clusters uses
+// historyRootOf instead.
 func (r *Runner) logTarget(arg string) (string, *config.Config) {
 	scope := r.historyTargetOf("log", arg)
-	if scope.cluster == "" {
-		return scope.repos[0], scope.cfg
-	}
-	return r.clusterMember(scope), scope.cfg
-}
-
-// clusterMember picks the repository whose history a reader shows for a cluster. A
-// cluster snapshot records the same revision into every member, so any member that has
-// one answers; the first that does is taken, and the choice is said out loud because the
-// member's own single-repo revisions come with it.
-func (r *Runner) clusterMember(scope historyScope) string {
-	pick := scope.repos[0]
-	for _, repo := range scope.repos {
-		root, err := history.Root(repo, scope.cfg.History.Dir)
-		if err != nil {
-			continue
-		}
-		if entries, err := history.Read(root); err == nil && len(entries) > 0 {
-			pick = repo
-			break
-		}
-	}
-	fmt.Fprintf(os.Stderr, "Cluster %s: reading the history of %s (members: %s). Pass a member's path for another.\n",
-		scope.cluster, filepath.Base(pick), strings.Join(memberLabels(scope.repos), ", "))
-	return pick
+	return scope.repos[0], scope.cfg
 }
 
 // reportNoHistory explains an empty history in terms of what to do about it, and
