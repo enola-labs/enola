@@ -33,6 +33,9 @@ import (
 // test functions that assert the behavior that version introduced. v1 is the
 // implicit baseline (no changelog line), so coverage starts at v2.
 var versionCoverage = map[int][]string{
+	514: {"TestRustGenericParametersOfEveryKindAreNotTypes"},
+	513: {"TestRustGenericParameterIsNotTheLocalTypeOfTheSameName"},
+	512: {"TestRustGenericParametersOfEveryKindAreNotTypes"},
 	511: {"TestNestedFunctionsWithoutSymbolsAreListed", "TestNestedFuncLitsBoundToANameAreListed", "TestNestedClosuresBoundToANameAreListed"},
 	510: {"TestNestedFunctionsAreSymbolsOfTheirOwn"},
 	509: {"TestIdentity_SameAloneAndAtAnyPlaceInACluster"},
@@ -104,7 +107,6 @@ var versionCoverage = map[int][]string{
 	505: {"TestAST_RustRuntimeEntrypointsAreFrameworkRegistered"},
 	506: {"TestRustCallThroughAnImportAliasReachesTheOriginal"},
 	508: {"TestReturnedObjectMembersOnlySayWhereALineIs"},
-	512: {"TestRustGenericParametersOfEveryKindAreNotTypes"},
 	507: {"TestRustImportAliasesBindOnlyTheAlias", "TestRustImportedTypeThroughAFileModuleWithADirectory", "TestRustMethodsInAFileModulesSubdirectoryResolve", "TestRustTypeImportedThroughAReExportResolves", "TestRustTypeAliasIsFollowedToItsType", "TestRustAliasedExternalImportDoesNotHideTheLocalName"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},

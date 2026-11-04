@@ -3359,7 +3359,10 @@ import (
 // v512: Rust: a const generic is a generic parameter, not a type; a union is a declaration
 // like a struct; a generic associated type's own parameters are not types; and a generic
 // parameter of a type alias is not the local type of the same name.
-const cacheVersion = "v512"
+// v513: Rust: a generic parameter in scope (of a function, impl, struct or alias) is never
+// the local type of the same name, in receiver, path-call and return typing.
+// v514: Rust: a union carries union: true, as a C++ union does.
+const cacheVersion = "v514"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
