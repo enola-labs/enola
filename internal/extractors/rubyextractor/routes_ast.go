@@ -331,6 +331,9 @@ func (rw *routeWalker) handleCall(call *sitter.Node, stack []routeScope) {
 			rw.emit(prefix+p, line(call), props)
 		}
 
+	case "use_doorkeeper":
+		rw.emitDoorkeeper(call, args, body, prefix, stack)
+
 	case "root":
 		handler := pairString(args, "to", rw.src)
 		if handler == "" {
@@ -1326,4 +1329,79 @@ func composeController(name, module string, absolute bool) string {
 		return name
 	}
 	return qualifyHandler(name, module)
+}
+
+// doorkeeperRoutes are the routes Doorkeeper's `use_doorkeeper` draws, per controller,
+// under its scope (/oauth by default): the OAuth 2 token, revoke and introspect
+// endpoints every other service in an estate authenticates against, which no route
+// file spells out.
+var doorkeeperRoutes = []struct{ controller, method, path, action string }{
+	{"tokens", "POST", "/token", "create"},
+	{"tokens", "POST", "/revoke", "revoke"},
+	{"tokens", "POST", "/introspect", "introspect"},
+	{"authorizations", "GET", "/authorize/native", "show"},
+	{"authorizations", "GET", "/authorize", "new"},
+	{"authorizations", "POST", "/authorize", "create"},
+	{"authorizations", "DELETE", "/authorize", "destroy"},
+	{"token_info", "GET", "/token/info", "show"},
+	{"applications", "GET", "/applications", "index"},
+	{"applications", "POST", "/applications", "create"},
+	{"applications", "GET", "/applications/new", "new"},
+	{"applications", "GET", "/applications/:id/edit", "edit"},
+	{"applications", "GET", "/applications/:id", "show"},
+	{"applications", "PATCH", "/applications/:id", "update"},
+	{"applications", "PUT", "/applications/:id", "update"},
+	{"applications", "DELETE", "/applications/:id", "destroy"},
+	{"authorized_applications", "GET", "/authorized_applications", "index"},
+	{"authorized_applications", "DELETE", "/authorized_applications/:id", "destroy"},
+}
+
+// emitDoorkeeper emits the routes of a `use_doorkeeper` call. Its block may drop
+// controllers (`skip_controllers :applications`) and rename them
+// (`controllers tokens: 'custom/tokens'`); `scope:` moves the whole set.
+func (rw *routeWalker) emitDoorkeeper(call, args, body *sitter.Node, prefix string, stack []routeScope) {
+	scope := "/oauth"
+	if s := pairString(args, "scope", rw.src); s != "" {
+		scope = "/" + strings.Trim(s, "/")
+	}
+	skipped := map[string]bool{}
+	controllers := map[string]string{}
+	if body != nil {
+		for i := uint(0); i < body.ChildCount(); i++ {
+			c := body.Child(i)
+			if kindOf(c) != "call" {
+				continue
+			}
+			cargs := c.ChildByFieldName("arguments")
+			switch rubyText(c.ChildByFieldName("method"), rw.src) {
+			case "skip_controllers":
+				for _, name := range symbolValues(cargs, rw.src) {
+					skipped[name] = true
+				}
+			case "controllers":
+				for _, r := range doorkeeperRoutes {
+					if v := pairString(cargs, r.controller, rw.src); v != "" {
+						controllers[r.controller] = v
+					}
+				}
+			}
+		}
+	}
+	module := buildModule(stack)
+	for _, r := range doorkeeperRoutes {
+		if skipped[r.controller] {
+			continue
+		}
+		controller := controllers[r.controller]
+		if controller == "" {
+			controller = "doorkeeper/" + r.controller
+		}
+		props := map[string]any{
+			"method":    r.method,
+			"framework": "rails",
+			"language":  "ruby",
+			"handler":   qualifyHandler(controller+"#"+r.action, module),
+		}
+		rw.emit(prefix+scope+r.path, line(call), props)
+	}
 }

@@ -247,6 +247,13 @@ func resolveCall(m *routeindex.Matcher, server map[string][]routeindex.RouteRef,
 		// un-prefixed path ("/tickets/{}/resolve"), as well as the reverse (a
 		// base-relative client calling a longer server path).
 		call.matches, call.matchedPath, call.viaParam = m.LookupClientMatchesDetailed(server, call.clientPath, call.method)
+		// A client path with one literal segment ("{}/prepare", an unknown base and a
+		// word) only matches a server path that says no more than that. Joined to
+		// "/admin/v1/shops/requests/{}/prepare" it shares one word, which is no
+		// evidence the two are the same endpoint.
+		if routeindex.SingleSegmentPath(call.np) {
+			call.matches = atMostOneLiteral(call.matches)
+		}
 		call.provider, call.unambiguous = pickProvider(m, f, call.matches)
 		// A single-segment path (/activate) cleared the generic vocabulary but
 		// is thinner evidence than a multi-segment one: there is less path to
@@ -267,6 +274,16 @@ func resolveCall(m *routeindex.Matcher, server map[string][]routeindex.RouteRef,
 		if call.provider != "" && routeindex.SingleSegmentPath(call.np) && !call.unambiguous &&
 			facts.NormalizeRepoLabel(namedProvider(m, f)) != facts.NormalizeRepoLabel(call.provider) {
 			call.provider = ""
+		}
+		// A base-relative one-segment call ("banners") is a suffix of a URL whose base
+		// was not read: any repository serving a path that ends in that segment could
+		// be its provider, not only one serving it bare. Ambiguous unless the source
+		// names the host.
+		if call.provider != "" && baseRelativeSingleSegment(f.Name, call.np) &&
+			facts.NormalizeRepoLabel(namedProvider(m, f)) != facts.NormalizeRepoLabel(call.provider) {
+			if repos := routeindex.TailRepos(server, lastSegment(call.np), call.method); len(repos) > 1 {
+				call.provider = ""
+			}
 		}
 		if call.provider != "" {
 			call.bucket = bucketResolved
@@ -859,6 +876,40 @@ func reposOf(all []facts.Fact) map[string]bool {
 	for _, f := range all {
 		if f.Repo != "" {
 			out[f.Repo] = true
+		}
+	}
+	return out
+}
+
+// baseRelativeSingleSegment reports whether a client path was written without a
+// leading slash and has one literal segment and no parameter.
+func baseRelativeSingleSegment(raw, np string) bool {
+	raw = strings.TrimSpace(raw)
+	return raw != "" && !strings.HasPrefix(raw, "/") && !strings.Contains(raw, "://") &&
+		!strings.Contains(np, "{}") && routeindex.SingleSegmentPath(np)
+}
+
+func lastSegment(np string) string {
+	np = strings.TrimRight(np, "/")
+	if i := strings.LastIndex(np, "/"); i >= 0 {
+		return np[i+1:]
+	}
+	return np
+}
+
+// atMostOneLiteral keeps the matches whose full server path has at most one literal
+// (non-parameter) segment.
+func atMostOneLiteral(refs []routeindex.RouteRef) []routeindex.RouteRef {
+	var out []routeindex.RouteRef
+	for _, r := range refs {
+		literals := 0
+		for _, seg := range strings.Split(r.FullPath, "/") {
+			if seg != "" && seg != "{}" && strings.Trim(seg, "0123456789") != "" {
+				literals++
+			}
+		}
+		if literals <= 1 {
+			out = append(out, r)
 		}
 	}
 	return out

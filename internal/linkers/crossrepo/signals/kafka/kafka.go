@@ -56,6 +56,11 @@ func (s *Signal) Contribute(in plugin.SignalInput, out plugin.EvidenceSink) {
 		if f.PropString("storage_kind") != facts.StorageKindTopic {
 			continue
 		}
+		// A topic named in test code (an integration suite's own config, a fixture) is
+		// the test's broker, not a dependency of the service.
+		if facts.IsTestPath(f.File) {
+			continue
+		}
 		// Historically every topic fact came from Kafka-aware code extraction.
 		// AsyncAPI introduces other protocols into the same fact kind; an explicit
 		// non-Kafka protocol must not manufacture a via=kafka dependency.
@@ -93,7 +98,7 @@ func producerRepos(all []facts.Fact) map[string]map[string]bool {
 		if f.Repo == "" || f.Kind != facts.KindStorage || f.PropString("storage_kind") != facts.StorageKindTopic {
 			continue
 		}
-		if f.PropString(facts.PropMessagingRole) != facts.MessagingRoleProducer {
+		if f.PropString(facts.PropMessagingRole) != facts.MessagingRoleProducer || facts.IsTestPath(f.File) {
 			continue
 		}
 		if protocol := f.PropString(facts.PropMessaging); protocol != "" && !facts.IsKafkaProtocol(protocol) {

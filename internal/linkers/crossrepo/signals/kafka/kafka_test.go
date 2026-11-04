@@ -154,3 +154,17 @@ func TestDeclaredProducerResolvesNamespacedTopics(t *testing.T) {
 		})
 	}
 }
+
+// A topic named in test code (an integration suite's config) is the test's broker and
+// draws no dependency, consuming or producing.
+func TestTopicsInTestCodeDrawNoEdge(t *testing.T) {
+	consumed := facts.Fact{Kind: facts.KindStorage, Name: "svc-orders.billing.events", Repo: "pricing",
+		File:  "pricing/test/integration/config/config.go",
+		Props: map[string]any{"storage_kind": facts.StorageKindTopic}}
+	in := fakeInput{facts: []facts.Fact{consumed}}
+	sink := &fakeSink{}
+	New(vocab.Default()).Contribute(in, sink)
+	if sink.edges != 0 {
+		t.Errorf("a test topic drew %d edge(s)", sink.edges)
+	}
+}

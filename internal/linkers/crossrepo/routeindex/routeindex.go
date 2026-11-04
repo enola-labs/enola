@@ -113,6 +113,30 @@ func (m *Matcher) IndexServerRef(server map[string][]RouteRef, ref RouteRef) {
 			server[key] = append(server[key], ref)
 		}
 	}
+	if segs := splitSegments(ref.FullPath); len(segs) > 0 {
+		key := TailKey(segs[len(segs)-1], ref.Method)
+		server[key] = append(server[key], ref)
+	}
+}
+
+// TailKey indexes a server route by its last segment alone. It is never matched on: it
+// answers who else could serve a base-relative one-segment client call ("banners",
+// written against a base URL the extractor did not read), whose real URL is any path
+// ending in that segment.
+func TailKey(segment, method string) string {
+	return "\x00tail\x00" + strings.ToLower(segment) + "|" + method
+}
+
+// TailRepos returns the repositories serving some path whose last segment is segment,
+// with the method or with any.
+func TailRepos(server map[string][]RouteRef, segment, method string) map[string]bool {
+	out := map[string]bool{}
+	for _, verb := range []string{method, facts.MethodAny} {
+		for _, ref := range server[TailKey(segment, verb)] {
+			out[ref.Repo] = true
+		}
+	}
+	return out
 }
 
 // IndexServerPathSuffixes returns the set of server route path-suffixes ignoring
@@ -763,11 +787,17 @@ func (m *Matcher) IsGenericPath(normPath string) bool {
 			segs = append(segs, s)
 		}
 	}
-	if strings.Contains(normPath, "{}") {
-		return false
-	}
 	if len(segs) == 0 {
 		return true // bare "/"
+	}
+	// A base-relative path of nothing but parameters ("{}", "{}/{}") names no
+	// resource at all: its literal part is a base URL the extractor could not read,
+	// and it fits any route. An absolute "/{id}" is a route of its own and stays.
+	if allIDs(segs) && !strings.HasPrefix(normPath, "/") {
+		return true
+	}
+	if strings.Contains(normPath, "{}") {
+		return false
 	}
 	if len(segs) == 1 {
 		return m.v.GenericPathSegments[strings.ToLower(segs[0])]
@@ -780,17 +810,25 @@ func (m *Matcher) IsGenericPath(normPath string) bool {
 // generic vocabulary; linkHTTP still demands an unambiguous provider before
 // drawing an edge from one, keeping the linker's preference for a missing edge
 // over a fabricated one.
+//
+// A path that starts with a parameter and has one literal segment ("{}/prepare") is
+// held to the same rule: the parameter is a base the extractor could not read, so the
+// one literal is all the path says.
 func SingleSegmentPath(normPath string) bool {
-	if strings.Contains(normPath, "{}") {
+	segs := splitSegments(normPath)
+	if len(segs) == 0 {
 		return false
 	}
-	n := 0
-	for _, s := range strings.Split(normPath, "/") {
-		if s != "" {
-			n++
+	literals := 0
+	for _, s := range segs {
+		if !isID(s) {
+			literals++
 		}
 	}
-	return n == 1
+	if literals != 1 {
+		return false
+	}
+	return len(segs) == 1 || isID(segs[0])
 }
 
 // normalizeLabel lowercases and strips '-'/'_' so "app-web",

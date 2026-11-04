@@ -1,5 +1,5 @@
 $ enola log --all -n 1 .
 exit: 0
 --- stdout
-9bb9e9f  <TIME>  1 new finding · +4 facts · +4 edges
+f75d66b  <TIME>  1 new finding · +4 facts · +4 edges
 --- stderr

@@ -2497,3 +2497,38 @@ end
 		}
 	}
 }
+
+// `use_doorkeeper` draws the OAuth routes under /oauth; skip_controllers drops a
+// controller's routes and controllers(...) renames the ones that stay.
+func TestRoutes_UseDoorkeeper(t *testing.T) {
+	src := `Rails.application.routes.draw do
+  use_doorkeeper do
+    skip_controllers :applications, :authorized_applications, :token_info
+    controllers(
+      tokens: 'auth/custom_tokens'
+    )
+  end
+end
+`
+	handlers := map[string]string{}
+	for _, f := range parseRouteFileAST([]byte(src), "config/routes.rb") {
+		if f.Kind == facts.KindRoute {
+			handlers[f.PropString("method")+" "+f.Name] = f.PropString("handler")
+		}
+	}
+	for route, want := range map[string]string{
+		"POST /oauth/token":     "auth/custom_tokens#create",
+		"POST /oauth/revoke":    "auth/custom_tokens#revoke",
+		"GET /oauth/authorize":  "doorkeeper/authorizations#new",
+		"POST /oauth/authorize": "doorkeeper/authorizations#create",
+	} {
+		if got := handlers[route]; got != want {
+			t.Errorf("%s handler = %q, want %q; got %v", route, got, want, handlers)
+		}
+	}
+	for route := range handlers {
+		if strings.Contains(route, "applications") || strings.Contains(route, "/token/info") {
+			t.Errorf("skipped controller still routed: %s", route)
+		}
+	}
+}

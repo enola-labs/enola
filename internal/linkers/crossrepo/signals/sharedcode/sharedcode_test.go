@@ -84,6 +84,10 @@ func TestIsNonContractSharedFile(t *testing.T) {
 		{"app/__tests__/feed.tsx", true},
 		{"spec/factories/users.rb", true},
 		{"test/fixtures/payload.json", true},
+		{"config/initializers/patches/schema_dump.rb", true},
+		{"packs/support/config/helpers/request_tags.rb", true},
+		{"engines/billing/config/initializers/billing.rb", true},
+		{"app/config/settings.rb", false},
 		{"libs/ui/src/lib/Gallery/Gallery.tsx", false},
 		{"app/models/widget.rb", false},
 		{"client/components/latest/index.tsx", false}, // "test" inside a word must not match

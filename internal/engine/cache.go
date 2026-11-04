@@ -3371,7 +3371,10 @@ import (
 // v518: Rails: a bare verb inside a namespace with no controller in scope is offered the
 // module path as its controller (`namespace :bins do post :x end` -> bins#x), bound
 // only where declared; an explicit empty path (`delete ”`) is served at the scope's path.
-const cacheVersion = "v518"
+// v519: Rails: `use_doorkeeper` draws Doorkeeper's OAuth routes (/oauth/token, revoke,
+// introspect, authorize, …), honouring skip_controllers, controllers(...) and scope:.
+// Ruby messaging: an ENV lookup in a topic is named after its variable ({shop_env}).
+const cacheVersion = "v519"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
