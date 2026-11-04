@@ -3399,7 +3399,11 @@ import (
 // that names a service: an environment variable (Go, Ruby, PHP, TypeScript), a
 // SCREAMING_CASE constant (TypeScript) or a declared client's service name (Feign,
 // configured TypeScript clients). A hint read off a variable or field name carries none.
-const cacheVersion = "v524"
+// v525: Python: a local bound to what an imported function or a method returns
+// (`e = await get_engine()`, `Registry.default()`, `f().session()`) is typed by that
+// function's return annotation, so calls on it resolve, with the implementor calls a
+// typed receiver gets.
+const cacheVersion = "v525"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

@@ -98,6 +98,7 @@ func extractFileIndexed(src []byte, relFile string, isDjango, isFlask, isFastAPI
 	topo.paths = w.pathRefs
 	topo.consts = collectConsts(root, src, module, w.importMap)
 	local.globals = collectGlobalTypes(root, src, module, w.importMap)
+	local.returns = collectReturnTypes(root, src, module, factpath.Dir(relFile), w.importMap)
 	var pkgDoc string
 	if relFile == "__init__.py" || strings.HasSuffix(relFile, "/__init__.py") {
 		pkgDoc = pyBlockDocstring(root, src)
@@ -2494,6 +2495,14 @@ func (w *pyWalker) emitCallEdge(fn *sitter.Node) {
 			w.recordWrittenIOCall(objNode, obj, attr)
 			return
 		}
+		if isCallMarked(qualType + ".") {
+			// What a call returned, typed once every file is merged (see
+			// factoryreturns.go). Until then the receiver is untyped, as it was for
+			// the loop metrics, which read the call as written.
+			owner.Relations = append(owner.Relations, facts.Relation{Kind: facts.RelCalls, Target: qualType + "." + attr})
+			w.recordWrittenIOCall(objNode, obj, attr)
+			return
+		}
 		target := qualType + "." + attr
 		owner.Relations = append(owner.Relations, facts.Relation{
 			Kind:   facts.RelCalls,
@@ -3166,6 +3175,9 @@ type pySymbolIndex struct {
 	// globals maps a module-level name (`pkg/mod.name`) to its declared type.
 	// See collectGlobalTypes.
 	globals map[string]string
+	// returns maps a function or method (`pkg/mod.f`, `pkg/mod.Cls.m`) to the type
+	// its return annotation names. See factoryreturns.go.
+	returns map[string]pyReturn
 }
 
 // indexTree is buildFileIndex over a tree the caller already parsed, so the

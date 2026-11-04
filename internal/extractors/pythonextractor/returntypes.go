@@ -272,8 +272,29 @@ func (w *pyWalker) callResultType(n *sitter.Node) string {
 	}
 	switch kindOf(fn) {
 	case "attribute":
-		if name := selfAttrName(fn, w.src); name != "" && len(w.returnTypes) > 0 {
-			return w.returnTypes[len(w.returnTypes)-1][name]
+		if name := selfAttrName(fn, w.src); name != "" {
+			if len(w.returnTypes) > 0 {
+				return w.returnTypes[len(w.returnTypes)-1][name]
+			}
+			return ""
+		}
+		// `mod.make()`, `Cls.create()`, `client.session()`: a function or method of
+		// what the receiver names, typed once every file is merged.
+		obj, attr := fn.ChildByFieldName("object"), fn.ChildByFieldName("attribute")
+		if obj == nil || attr == nil {
+			return ""
+		}
+		var recv string
+		switch kindOf(obj) {
+		case "identifier":
+			if name := pyText(obj, w.src); name != "self" && name != "cls" {
+				recv = w.resolveVarType(name)
+			}
+		case "call", "await", "parenthesized_expression":
+			recv = w.callResultType(obj)
+		}
+		if recv != "" {
+			return recv + "." + pyText(attr, w.src) + pyCallMark
 		}
 	case "identifier":
 		name := pyText(fn, w.src)
@@ -282,6 +303,11 @@ func (w *pyWalker) callResultType(n *sitter.Node) string {
 		}
 		if ann, ok := w.funcReturns[name]; ok {
 			return resolveTypeNamePy(ann, w.module, w.importMap)
+		}
+		// An imported function. A capitalized name is a class, whose call is a
+		// construction and typed as one (collectLocalTypes).
+		if target := w.importMap[name]; target != "" && !pyCapitalized(name) {
+			return target + pyCallMark
 		}
 	}
 	return ""
