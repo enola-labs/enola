@@ -481,6 +481,8 @@ func TestCLIContract_Cluster(t *testing.T) {
 		{"gc_cluster_folder", []string{"gc", "--dry-run"}},
 		{"gc_cluster_repo", []string{"gc", "--dry-run", "--repo", "consumer", "cluster.yaml"}},
 		{"gc_cluster_repo_unknown", []string{"gc", "--repo", "nope", "cluster.yaml"}},
+		{"log_cluster_folder", []string{"log", "-n", "1"}},
+		{"log_cluster_backfill_refused", []string{"log", "--backfill", "--dry-run", "cluster.yaml"}},
 	})
 }
 

@@ -175,45 +175,32 @@ func (r *Runner) Log(args []string) {
 // whose config enola cannot fully honour, which is exactly a repository whose history
 // somebody might want to look at.
 func (r *Runner) logTarget(arg string) (string, *config.Config) {
-	cfgPath := "mcp-arch.yaml"
-	repoOverride := ""
+	scope := r.historyTargetOf("log", arg)
+	if scope.cluster == "" {
+		return scope.repos[0], scope.cfg
+	}
+	return r.clusterMember(scope), scope.cfg
+}
 
-	switch {
-	case arg == "":
-	case isDirectory(arg):
-		abs, err := filepath.Abs(arg)
+// clusterMember picks the repository whose history a reader shows for a cluster. A
+// cluster snapshot records the same revision into every member, so any member that has
+// one answers; the first that does is taken, and the choice is said out loud because the
+// member's own single-repo revisions come with it.
+func (r *Runner) clusterMember(scope historyScope) string {
+	pick := scope.repos[0]
+	for _, repo := range scope.repos {
+		root, err := history.Root(repo, scope.cfg.History.Dir)
 		if err != nil {
-			r.logFatal("resolving repo path %q: %v", arg, err)
+			continue
 		}
-		repoOverride = abs
-		if inner := filepath.Join(abs, "mcp-arch.yaml"); fileExists(inner) {
-			cfgPath = inner
+		if entries, err := history.Read(root); err == nil && len(entries) > 0 {
+			pick = repo
+			break
 		}
-	default:
-		cfgPath = arg
 	}
-
-	cfg, err := config.Load(cfgPath)
-	if err != nil {
-		// A missing config is the ordinary case (built-in defaults); anything else is
-		// worth saying out loud, but is still not a reason to refuse to read a history.
-		cfg = config.Default()
-	}
-	if repoOverride != "" {
-		cfg.Repo = repoOverride
-		cfg.Repos = nil
-	}
-	if err := cfg.Normalize(); err != nil {
-		r.logFatal("invalid config: %v", err)
-	}
-
-	repoPaths, err := cfg.RepoPaths()
-	if err != nil || len(repoPaths) == 0 {
-		r.logFatal("failed to resolve repo path: %v", err)
-	}
-	// The FIRST repo of a cluster owns the history: it is the one a multi-repo snapshot
-	// is generated from, so it is where the graph's revisions were recorded.
-	return repoPaths[0], cfg
+	fmt.Fprintf(os.Stderr, "Cluster %s: reading the history of %s (members: %s). Pass a member's path for another.\n",
+		scope.cluster, filepath.Base(pick), strings.Join(memberLabels(scope.repos), ", "))
+	return pick
 }
 
 // reportNoHistory explains an empty history in terms of what to do about it, and

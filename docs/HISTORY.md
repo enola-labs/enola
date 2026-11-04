@@ -149,6 +149,10 @@ collects every member and prints a total. Run from a folder of repositories with
 uses the folder's `cluster.yaml`, or else the git repositories directly under it, the same set
 `--generate` indexes there. `--repo <name>` collects one member only.
 
+`log`, `show`, `diff` and `blame` resolve a cluster or a folder of repositories the same way and
+read the first member that has a history, naming it on stderr. `log --backfill` refuses a cluster:
+pass the member's path.
+
 ---
 
 ## Sharing a history across machines

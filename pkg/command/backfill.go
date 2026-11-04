@@ -32,6 +32,12 @@ import (
 // the obvious mechanism and was rejected for exactly that: it records bookkeeping under
 // .git/worktrees, which is a write.
 func (r *Runner) runBackfill(args backfillArgs) {
+	// Backfill writes, and a cluster is several repositories with separate commit
+	// histories: picking one silently would build a timeline nobody asked for.
+	if scope := r.historyTargetOf("log", args.repoArg); scope.cluster != "" {
+		r.logFatal("--backfill walks one repository's commits, and %s is a cluster; pass a member's path (%s)",
+			scope.cluster, strings.Join(memberLabels(scope.repos), ", "))
+	}
 	repoPath, cfg := r.logTarget(args.repoArg)
 	if !isGitRepo(repoPath) {
 		r.logFatal("%s is not a git repository, so there is no commit history to walk", repoPath)
