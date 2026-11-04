@@ -642,6 +642,9 @@ func (w *astWalker) handleStruct(node *sitter.Node) {
 		},
 		Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: w.dir}},
 	})
+	if kindOf(node) == "union_item" {
+		w.out[len(w.out)-1].SetProp("union", true) // as the C++ extractor marks one
+	}
 	w.setDoc(node)
 	defer w.enterTypeParams(node)()
 	ownerIdx := len(w.out) - 1

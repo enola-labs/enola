@@ -3361,7 +3361,8 @@ import (
 // parameter of a type alias is not the local type of the same name.
 // v513: Rust: a generic parameter in scope (of a function, impl, struct or alias) is never
 // the local type of the same name, in receiver, path-call and return typing.
-const cacheVersion = "v513"
+// v514: Rust: a union carries union: true, as a C++ union does.
+const cacheVersion = "v514"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

@@ -689,6 +689,12 @@ pub fn through_alias(w: Wrap<u8>) { w.k_method(); }
 	if rustSym(t, ff, "src.UU").PropAny("symbol_kind") == nil {
 		t.Error("a union is a declaration")
 	}
+	if rustSym(t, ff, "src.UU").PropAny("union") != true {
+		t.Error("a union is marked union")
+	}
+	if rustSym(t, ff, "src.N").PropAny("union") != nil {
+		t.Error("a struct is not marked union")
+	}
 	if got := names("src.UU"); slices.Contains(got, "T") {
 		t.Errorf("the union's own generic parameter is not a type, got %v", got)
 	}
