@@ -3420,7 +3420,12 @@ import (
 // v529: C++: `auto x = f()` is typed by the return type of the function it calls, a free
 // function, a scoped one or a method of a typed receiver, when that type is a project
 // class through a pointer or reference and no template, so calls on it resolve.
-const cacheVersion = "v529"
+// v530: Rust: a let bound to what a free function returns (`make_engine()`,
+// `factory::make_engine()`), and `?` on a call returning Result<T, _> or Option<T>, are
+// typed, `.await` passing through. PHP: a local takes the type of the object it is
+// assigned or of what a method it is assigned from declares it returns, and a call on
+// a call's result is typed the same way.
+const cacheVersion = "v530"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

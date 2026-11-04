@@ -828,6 +828,9 @@ func (w *astWalker) handleFunction(node *sitter.Node, attrs rustItemAttrs) {
 	if t := w.typeOf(node.ChildByFieldName("return_type")); t != "" {
 		f.SetProp(propReturns, t)
 	}
+	if t := w.tryReturnType(node.ChildByFieldName("return_type")); t != "" {
+		f.SetProp(propTryReturns, t)
+	}
 
 	w.out = append(w.out, f)
 	ownerIdx := len(w.out) - 1
