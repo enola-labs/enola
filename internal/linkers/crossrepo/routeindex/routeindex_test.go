@@ -68,14 +68,17 @@ func TestIsGenericPath(t *testing.T) {
 
 func TestSingleSegmentPath(t *testing.T) {
 	m := New(vocab.Default())
-	for _, p := range []string{"/activate", "/checkout", "activate"} {
+	// A base-relative parameter is an unread base: "{id}/prepare" says one word.
+	for _, p := range []string{"/activate", "/checkout", "activate", "{id}/prepare"} {
 		if !SingleSegmentPath(m.NormalizePath(p)) {
 			t.Errorf("SingleSegmentPath(%q) = false, want true", p)
 		}
 	}
 	// Multi-segment, parameterized, and empty paths do not take the stricter
 	// unambiguous-provider gate in linkHTTP.
-	for _, p := range []string{"/a/b", "/items/{id}", "/{id}", "/"} {
+	// A slash-led parameter is an id after a base the extractor dropped:
+	// "/{id}/captions" says more than its one word.
+	for _, p := range []string{"/a/b", "/items/{id}", "/{id}", "/", "/{id}/captions"} {
 		if SingleSegmentPath(m.NormalizePath(p)) {
 			t.Errorf("SingleSegmentPath(%q) = true, want false", p)
 		}

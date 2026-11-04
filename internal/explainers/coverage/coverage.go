@@ -161,6 +161,7 @@ var reasonOrder = []string{
 	httpsignal.ReasonDeclaredTarget,
 	httpsignal.ReasonNoMethod,
 	httpsignal.ReasonGenericPath,
+	httpsignal.ReasonThinPath,
 }
 
 // unresolvedReasons counts a repository's unresolved client calls by the reason the
@@ -265,7 +266,7 @@ func reasonActions(reasons map[string]int, unextracted []string) []string {
 				"matching route", n))
 		}
 	}
-	if declined := reasons[httpsignal.ReasonNoMethod] + reasons[httpsignal.ReasonGenericPath]; declined > 0 {
+	if declined := reasons[httpsignal.ReasonNoMethod] + reasons[httpsignal.ReasonGenericPath] + reasons[httpsignal.ReasonThinPath]; declined > 0 {
 		out = append(out, fmt.Sprintf("%d call site(s) enola declined to match (no usable method, or a path too short to match "+
 			"safely): not evidence of a missing service", declined))
 	}

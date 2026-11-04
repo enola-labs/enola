@@ -811,9 +811,12 @@ func (m *Matcher) IsGenericPath(normPath string) bool {
 // drawing an edge from one, keeping the linker's preference for a missing edge
 // over a fabricated one.
 //
-// A path that starts with a parameter and has one literal segment ("{}/prepare") is
-// held to the same rule: the parameter is a base the extractor could not read, so the
-// one literal is all the path says.
+// A base-relative path that starts with a parameter and has one literal segment
+// ("{}/prepare") is held to the same rule: the parameter is a base the extractor could
+// not read, so the one literal is all the path says. Written with a leading slash
+// ("/{}/captions") it is not: the extractor dropped a base it recognised and kept what
+// follows, so the parameter is a path parameter (an id) and the path says more than
+// its one word.
 func SingleSegmentPath(normPath string) bool {
 	segs := splitSegments(normPath)
 	if len(segs) == 0 {
@@ -828,7 +831,7 @@ func SingleSegmentPath(normPath string) bool {
 	if literals != 1 {
 		return false
 	}
-	return len(segs) == 1 || isID(segs[0])
+	return len(segs) == 1 || isID(segs[0]) && !strings.HasPrefix(normPath, "/")
 }
 
 // normalizeLabel lowercases and strips '-'/'_' so "app-web",

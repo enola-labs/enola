@@ -2183,3 +2183,32 @@ func TestComputeLinks_HTTP_OneLiteralDoesNotReachALongerServerPath(t *testing.T)
 		t.Errorf("{}/print still reaches /{id}/print; edges=%+v", crossRepoEdges(out))
 	}
 }
+
+// A client path written with a leading slash and one literal after a parameter
+// ("/{}/captions") is not the thin "{}/prepare": the extractor dropped a base it
+// recognised (`${Service.BASE_URL}/${id}/captions`, a class static or this.endPoint)
+// and kept the rest, so "{}" is an id and the call reaches the longer server path.
+// The single-segment rule once caught it by shape and dropped every such call.
+func TestComputeLinks_HTTP_SlashLedIDPathReachesALongerServerPath(t *testing.T) {
+	in := []facts.Fact{
+		serverRoute("media", "/api/v1/videos/{videoId}/captions", "GET"),
+		clientRoute("player", "/{}/captions", "GET", map[string]any{
+			"source": facts.RouteSourceTSHTTPClient, "derived": "template-tail", "target_hint": "basevideo"}),
+		serverRoute("registry", "/plugins/{pluginId}/installations", "POST"),
+		clientRoute("desktop", "/{}/installations", "POST", map[string]any{
+			"source": facts.RouteSourceTSHTTPClient}),
+		// The base-relative form keeps the rule, in the same snapshot.
+		serverRoute("stores", "/admin/v1/stores/requests/{id}/prepare", "POST"),
+		clientRoute("mobile", "{}/prepare", "POST", nil),
+	}
+	out := ComputeLinks(in, nil, allSignals(), vocab.Default())
+	if findEdge(out, "player", "media") == nil {
+		t.Errorf("/{}/captions must reach /api/v1/videos/{videoId}/captions; edges=%+v", crossRepoEdges(out))
+	}
+	if findEdge(out, "desktop", "registry") == nil {
+		t.Errorf("/{}/installations must reach /plugins/{pluginId}/installations; edges=%+v", crossRepoEdges(out))
+	}
+	if findEdge(out, "mobile", "stores") != nil {
+		t.Errorf("{}/prepare must still not reach a longer server path; edges=%+v", crossRepoEdges(out))
+	}
+}

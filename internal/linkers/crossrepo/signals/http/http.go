@@ -295,8 +295,11 @@ func resolveCall(m *routeindex.Matcher, server map[string][]routeindex.RouteRef,
 		// word) only matches a server path that says no more than that. Joined to
 		// "/admin/v1/shops/requests/{}/prepare" it shares one word, which is no
 		// evidence the two are the same endpoint.
-		if routeindex.SingleSegmentPath(call.np) {
-			call.matches = atMostOneLiteral(call.matches)
+		// A rejected match is no verb problem: the verb fits, the path is too thin.
+		if routeindex.SingleSegmentPath(call.np) && len(call.matches) > 0 {
+			if call.matches = atMostOneLiteral(call.matches); len(call.matches) == 0 {
+				call.reason = ReasonThinPath
+			}
 		}
 		call.provider, call.unambiguous = pickProvider(m, f, call.matches)
 		// A single-segment path (/activate) cleared the generic vocabulary but
@@ -845,8 +848,13 @@ const (
 	// ReasonOutsideSnapshot: the call's target hint names a service no loaded
 	// repository is.
 	ReasonOutsideSnapshot = "outside_snapshot"
-	ReasonGenericPath     = "generic_path"    // a sub-2-segment path the matcher deliberately skips
-	ReasonMethodMismatch  = "method_mismatch" // a server route serves this path suffix, but not this verb
+	ReasonGenericPath     = "generic_path" // a sub-2-segment path the matcher deliberately skips
+	// ReasonThinPath marks a call naming one word after a base enola could not read
+	// ("{}/prepare") whose verb and word only servers saying more than that serve
+	// ("/admin/v1/shops/requests/{id}/prepare"). One shared word is no evidence of one
+	// endpoint, so it is declined, not a verb mismatch.
+	ReasonThinPath       = "thin_path"
+	ReasonMethodMismatch = "method_mismatch" // a server route serves this path suffix, but not this verb
 	// ReasonAmbiguousProvider marks a call more than one loaded repository serves, with
 	// nothing that chooses between them. Reporting it as a verb mismatch sent a reader
 	// looking for a wrong verb the call does not have.
@@ -864,7 +872,7 @@ const (
 // UnmatchedClientRouteKeys returns the identity (see routeindex.RouteIdentity) of every client
 // route the cross-repo HTTP linker could not resolve to a loaded server route,
 // mapped to one of the Reason* constants: ReasonNoMethod, ReasonGenericPath,
-// ReasonAmbiguousProvider, ReasonAliasNotServing, ReasonDeclaredTarget,
+// ReasonThinPath, ReasonAmbiguousProvider, ReasonAliasNotServing, ReasonDeclaredTarget,
 // ReasonMethodMismatch (a server serves this path suffix, but not this verb),
 // ReasonVersionMismatch (a server serves it, under another API version), or
 // ReasonPathUnknown (no server shares a >=2-segment suffix with this path). It mirrors
