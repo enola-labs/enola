@@ -195,6 +195,10 @@ func Default() *Set {
 		ConventionSuffixes: []string{"Props", "Types", "Type", "State"},
 		NonContractPaths: []string{
 			"/db/migrate/",
+			// Rails boot configuration: initializers reopen framework classes
+			// (ActiveRecord::Tasks::…) and set up instrumentation every app copies;
+			// that is shared boilerplate, not code one app takes from another.
+			"/config/initializers/", "/config/helpers/",
 			"/spec/support/", "/__mocks__/", "/__tests__/", "/fixtures/", "/factories/", "/mocks/",
 			".stories.", ".test.", ".spec.", "_test.", "_spec.",
 			".gen.", ".pb.", "_pb2.", ".generated.",

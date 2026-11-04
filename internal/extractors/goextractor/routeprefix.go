@@ -57,6 +57,8 @@ type routeIndex struct {
 	// routerFields maps a struct to its fields that hold a router of a
 	// self-contained router package. See ownrouter.go.
 	routerFields map[string][]string
+	// helpers are the module's route registration helpers. See reghelper.go.
+	helpers map[string]regHelper
 }
 
 // funcKeyFor returns the package-qualified identity of a FuncDecl, matching how

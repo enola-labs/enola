@@ -33,6 +33,15 @@ import (
 // test functions that assert the behavior that version introduced. v1 is the
 // implicit baseline (no changelog line), so coverage starts at v2.
 var versionCoverage = map[int][]string{
+	523: {"TestVerbClientLabel"},
+	522: {"TestHOCONTopicsOfAStreamModule", "TestHTTPClientBaseVariableHint", "TestClientFactoryHint"},
+	521: {"TestRoutesRegisteredThroughAHelper", "TestPageRoutesReexportingANamedComponentAreHandled", "TestServerBase"},
+	520: {"TestClientPages_NamesResolveInTheirOwnModule", "TestClientPages_ThroughABarrelEachPageReachesItsOwn", "TestClientPages_EveryPageOfALargeAppIsEveryPage"},
+	519: {"TestRoutes_UseDoorkeeper", "TestRubyMessaging_EnvLookupPlaceholderIsTheKey"},
+	518: {"TestRouteBinding_BareVerbInANamespaceIsServedByTheModule", "TestRoutes_EmptyPathInACollection"},
+	517: {"TestRoutes_NamespaceModuleKeyword"},
+	516: {"TestBundledCopyOfASpecIsReadOnce"},
+	515: {"TestPackwerk_StrictEnforcementIsAPackage"},
 	514: {"TestRustGenericParametersOfEveryKindAreNotTypes"},
 	513: {"TestRustGenericParameterIsNotTheLocalTypeOfTheSameName"},
 	512: {"TestRustGenericParametersOfEveryKindAreNotTypes"},

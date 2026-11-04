@@ -235,6 +235,7 @@ func (c *clientHosts) merge(o clientHosts) {
 func extractHTTPClientFactsCounted(src []byte, relFile string) ([]facts.Fact, clientHosts) {
 	dir := factpath.Dir(relFile)
 	api := tsAPIHint(relFile)
+	fileFactoryHint := factoryHint(src)
 	var bases map[string]string
 	var folds *litfold.Assignments
 	resolveFold := func(name string) (string, bool) {
@@ -300,6 +301,8 @@ func extractHTTPClientFactsCounted(src []byte, relFile string) ([]facts.Fact, cl
 		}
 		if h := tsBaseHint(rawPath); h != "" {
 			props["target_hint"] = h
+		} else if fileFactoryHint != "" {
+			props["target_hint"] = fileFactoryHint
 		}
 		if host != "" {
 			props["external"] = true
@@ -375,13 +378,23 @@ func extractHTTPClientFactsCounted(src []byte, relFile string) ([]facts.Fact, cl
 		}
 		return isServerReceiver(serverRecv, recv)
 	}
+	// The verb-call shape is axios's, and every hand-rolled or typed fetch wrapper's
+	// too (`client.get('/x')`): it is labelled axios only where axios is in use.
+	axios := importsAxios(src)
+	verbFramework := func(recv string) string {
+		if recv == "axios" || axios {
+			return "axios"
+		}
+		return verbClientFramework
+	}
 	for _, m := range lowerVerbCall.FindAllSubmatchIndex(src, -1) {
-		if isServer(identifierEndingAt(src, m[0])) {
+		recv := identifierEndingAt(src, m[0])
+		if isServer(recv) {
 			continue
 		}
 		method := strings.ToUpper(string(src[m[2]:m[3]]))
 		raw := firstNonEmptyGroup(src, m, 2, 3, 4)
-		add(raw, method, "axios", m[0], "")
+		add(raw, method, verbFramework(recv), m[0], "")
 	}
 
 	// Pass 2c — lowercase verb calls whose argument is an interpolation-headed
@@ -396,7 +409,7 @@ func extractHTTPClientFactsCounted(src []byte, relFile string) ([]facts.Fact, cl
 			continue
 		}
 		method := strings.ToUpper(string(src[m[2]:m[3]]))
-		add(raw, method, "axios", m[0], "template-tail")
+		add(raw, method, verbFramework(identifierEndingAt(src, m[0])), m[0], "template-tail")
 	}
 
 	// Pass 3 — options-object clients: a `url:` property inside an object literal
@@ -742,6 +755,53 @@ func tsAPIHint(relFile string) string {
 func testDoublePath(relFile string) bool {
 	for _, segment := range strings.Split(filepath.ToSlash(relFile), "/") {
 		if segment == "mirage" || segment == "msw" || segment == "__mocks__" {
+			return true
+		}
+	}
+	return false
+}
+
+// clientFactoryRe matches a client taken from a factory named for its service:
+// `const client = getBillingClient()`, `= await createLedgerApiClient(...)`.
+var clientFactoryRe = regexp.MustCompile(`(?:const|let|var)\s+\w+\s*=\s*(?:await\s+)?(?:get|create|make|new)([A-Z][A-Za-z0-9]*?)(?:Http|HTTP|Rest|REST|Api|API)*Client\s*\(`)
+
+// genericClientNames name how a client is built, not which service it calls.
+var genericClientNames = map[string]bool{
+	"default": true, "base": true, "shared": true, "common": true, "internal": true,
+	"external": true, "app": true, "main": true, "public": true, "private": true, "auth": true,
+}
+
+// factoryHint names the service a file's requests go to when it takes its client from
+// exactly one factory named for a service. A file using two such clients says nothing
+// about which call goes where, so it gives none.
+func factoryHint(src []byte) string {
+	names := map[string]bool{}
+	for _, m := range clientFactoryRe.FindAllSubmatch(src, -1) {
+		name := strings.ToLower(string(m[1]))
+		if genericClientNames[name] {
+			return "" // a generic client: which service it calls is not in its name
+		}
+		names[name] = true
+	}
+	if len(names) != 1 {
+		return ""
+	}
+	for n := range names {
+		if len(n) >= 3 {
+			return n
+		}
+	}
+	return ""
+}
+
+// verbClientFramework labels a verb-named call (`client.get('/x')`) on a client that is
+// not axios: a typed fetch wrapper, a generated client's instance, an in-house class.
+const verbClientFramework = "http-client"
+
+// importsAxios reports a file that imports or requires axios.
+func importsAxios(src []byte) bool {
+	for _, s := range []string{`from 'axios'`, `from "axios"`, `require('axios')`, `require("axios")`} {
+		if bytes.Contains(src, []byte(s)) {
 			return true
 		}
 	}

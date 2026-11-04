@@ -59,15 +59,42 @@ type fileReach struct {
 	// file declares or imports.
 	calls   map[string]map[string]useMode
 	lexical map[string]map[string]bool
-	modes   []modeSpan // regions an inline event handler or timer callback covers
+	// plain marks, per scope ("" for top level), the names used as a plain identifier
+	// (x, f(), <X/>) rather than as a member (o.x). JavaScript resolves a plain name in
+	// its own module; only a member can name something no import brings in.
+	plain map[string]map[string]bool
+	// namedImports are the local names `import { a, b as c } from '…'` binds.
+	namedImports map[string]bool
+	// importedAs are the renamed ones: `import { b as c } from 'f'` binds c to f's b.
+	importedAs map[string][]renamedExport
+	modes      []modeSpan // regions an inline event handler or timer callback covers
 	// The module edges that carry no name a use could match: a default import read
 	// under a local name of its own, a default re-exported from another file, and a
 	// module loaded by import(). Each names the file it reaches.
 	defaults       []string            // the symbols this file default-exports
 	defaultAliases map[string][]string // local name → files whose default it binds
-	reexports      []string            // files whose default this file re-exports
-	dynamic        map[string][]string // symbol ("" for top level) → files it imports dynamically
-	imports        []string            // every file this one imports, of any kind
+	// reexportAliases are the names `export { default as Name } from '…'` publishes:
+	// unlike an import's local name, other files can import them.
+	reexportAliases map[string][]string
+	// private are the file's top-level declarations it does not export: nothing
+	// outside the file can name them.
+	private map[string]bool
+	// renamed are the names `export { Page as TagsPage } from './tags'` publishes:
+	// the exported name → the file and the name it has there.
+	renamed map[string][]renamedExport
+	// exportsFrom are the files `export … from '…'` re-exports: a barrel's sources.
+	exportsFrom []string
+	// defaultFrom is `export { X as default } from '…'`: the file's default is that
+	// file's X (a page re-exporting its component from a feature's barrel).
+	defaultFrom []renamedExport
+	// members are the file's symbols that belong to a class or object (a receiver).
+	members map[string]bool
+	// returned are, per function, the members of the object it returns (member_of):
+	// `mutationFn` in a `() => ({ mutationFn })` options factory.
+	returned  map[string][]string
+	reexports []string            // files whose default this file re-exports
+	dynamic   map[string][]string // symbol ("" for top level) → files it imports dynamically
+	imports   []string            // every file this one imports, of any kind
 }
 
 // declaredNameOf maps a declaration's kind to the fields that name what it declares
@@ -86,6 +113,10 @@ var declaredNameOf = map[string][]string{
 	"property_signature":             {"name"},
 	"variable_declarator":            {"name"},
 	"pair":                           {"key"},
+	// An enum's name and its members are declarations: `Draft = 'draft'` names a
+	// member, and a member read as a use reached any symbol called Draft.
+	"enum_declaration": {"name"},
+	"enum_assignment":  {"name"},
 }
 
 // collectReach reads one parsed file. result must hold the file's symbol facts, and
@@ -101,11 +132,32 @@ func collectReach(kinds *tsutil.KindTable, root *sitter.Node, src []byte, relFil
 		owner[s.StartByte] = s.Symbol
 	}
 	r := &fileReach{file: relFile, locals: map[string]string{}, uses: map[string]map[string]useMode{}, top: map[string]useMode{}, calls: map[string]map[string]useMode{}, lexical: map[string]map[string]bool{},
+		plain: map[string]map[string]bool{}, namedImports: map[string]bool{}, importedAs: map[string][]renamedExport{}, reexportAliases: map[string][]string{}, private: map[string]bool{}, renamed: map[string][]renamedExport{}, members: map[string]bool{}, returned: map[string][]string{},
 		defaultAliases: map[string][]string{}, dynamic: map[string][]string{}}
 	consts := fileConsts(kinds, root, src)
 	for _, f := range result {
 		if f.Kind == facts.KindSymbol && f.File == relFile {
+			// Types run nothing: an interface, a type alias and an interface's members
+			// (abstract) are not code a page can reach. Kept as targets, a word like
+			// `title` used anywhere reached a props interface's `title` member, ran the
+			// file declaring it, and from there the rest of another feature.
+			if isTypeOnlySymbol(f) || isDataMember(f) || facts.IsTestPath(relFile) {
+				continue
+			}
 			r.symbols = append(r.symbols, f.Name)
+			// A member of a class, or of the object a function returns (member_of), is
+			// reached through that object wherever it travels; only a top-level
+			// declaration the file does not export is private to it.
+			member := f.PropString("receiver") != "" || f.PropString("member_of") != ""
+			if exported, ok := f.PropAny("exported").(bool); ok && !exported && !member {
+				r.private[f.Name] = true
+			}
+			if member {
+				r.members[f.Name] = true
+			}
+			if owner := f.PropString("member_of"); owner != "" {
+				r.returned[owner] = append(r.returned[owner], f.Name)
+			}
 			if f.PropAny(propDefaultExport) == true {
 				r.defaults = append(r.defaults, f.Name)
 			}
@@ -113,6 +165,12 @@ func collectReach(kinds *tsutil.KindTable, root *sitter.Node, src []byte, relFil
 	}
 	importsOf(kinds, root, src, r, resolve)
 	record := func(name, current string, mode useMode, calls, bare bool) {
+		if bare {
+			if r.plain[current] == nil {
+				r.plain[current] = map[string]bool{}
+			}
+			r.plain[current][name] = true
+		}
 		if calls {
 			if r.calls[current] == nil {
 				r.calls[current] = map[string]useMode{}
@@ -145,9 +203,24 @@ func collectReach(kinds *tsutil.KindTable, root *sitter.Node, src []byte, relFil
 	// call's arguments sit below its arguments node, so this is kept for the whole walk
 	// rather than for one node's children.
 	override := map[nodeKey]useMode{}
+	// params is the parameter names of the functions around the node being walked,
+	// innermost last: a lookup per identifier instead of a walk up the tree.
+	var params []map[string]bool
 	var walk func(n *sitter.Node, current string, mode useMode)
 	walk = func(n *sitter.Node, current string, mode useMode) {
 		k := kindOf(kinds, n)
+		if tsFunctionKinds[k] {
+			ps := n.ChildByFieldName("parameters")
+			if ps == nil {
+				ps = n.ChildByFieldName("parameter")
+			}
+			names := map[string]bool{}
+			if ps != nil {
+				collectParamNames(kinds, ps, src, names)
+			}
+			params = append(params, names)
+			defer func() { params = params[:len(params)-1] }()
+		}
 		if tsFunctionKinds[k] {
 			// The callsite index maps a closure inside a symbol to that symbol too: only
 			// entering another symbol starts a new scope, with a plain use.
@@ -210,9 +283,23 @@ func collectReach(kinds *tsutil.KindTable, root *sitter.Node, src []byte, relFil
 				}
 			}
 		case "identifier", "property_identifier", "shorthand_property_identifier",
-			"shorthand_property_identifier_pattern", "type_identifier":
+			"shorthand_property_identifier_pattern":
+			// A type_identifier is a type annotation: it runs nothing. Recorded, it
+			// read like a member name and reached any symbol called the same.
 			if !isDeclaredName(kinds, n) && !bindsWithoutUse(kinds, n, src, current, owner) {
-				record(nodeText(n, src), current, mode, callsOrHandsOver(kinds, n) && !boundAsParameter(kinds, n, src), k == "identifier")
+				// A parameter, destructured or not, is local to its function: reading
+				// `renderItem` inside `({ renderItem }) => …` names the prop it was
+				// handed, not a function of the same name another module declares.
+				param := false
+				if k == "identifier" {
+					name := nodeText(n, src)
+					for i := len(params) - 1; i >= 0 && !param; i-- {
+						param = params[i][name]
+					}
+				}
+				if !param {
+					record(nodeText(n, src), current, mode, callsOrHandsOver(kinds, n), k == "identifier")
+				}
 			}
 		}
 		for i := range n.ChildCount() {
@@ -226,7 +313,100 @@ func collectReach(kinds *tsutil.KindTable, root *sitter.Node, src []byte, relFil
 		}
 	}
 	walk(root, "", plainUse)
+	r.qualify(result)
 	return r
+}
+
+// fileSep joins a symbol's name to its file in the pass's own keys. Symbol names are
+// qualified by directory, so two files of one directory each exporting `Page` share
+// one name; keyed by name alone, one page's Page ran another page's code. No symbol
+// name contains it.
+const fileSep = "\x01"
+
+// keyOf is the pass's key for a symbol declared in file.
+func keyOf(symbol, file string) string { return symbol + fileSep + file }
+
+// symbolOf is the symbol name a key stands for.
+func symbolOf(key string) string {
+	if i := strings.Index(key, fileSep); i >= 0 {
+		return key[:i]
+	}
+	return key
+}
+
+// qualify rewrites every key this file's symbols appear under to keyOf form: its
+// symbols, defaults and private and member sets, and the scopes its uses are recorded
+// under (a symbol, or a local scope inside one).
+func (r *fileReach) qualify(result []facts.Fact) {
+	declared := map[string]bool{}
+	for _, f := range result {
+		if f.Kind == facts.KindSymbol && f.File == r.file {
+			declared[f.Name] = true
+		}
+	}
+	q := func(scope string) string {
+		if scope == "" {
+			return ""
+		}
+		base, rest, _ := strings.Cut(scope, localScopeSep)
+		if !declared[base] {
+			return scope
+		}
+		if rest == "" && !strings.Contains(scope, localScopeSep) {
+			return keyOf(base, r.file)
+		}
+		return keyOf(base, r.file) + localScopeSep + rest
+	}
+	list := func(xs []string) []string {
+		for i, x := range xs {
+			xs[i] = q(x)
+		}
+		return xs
+	}
+	r.symbols = list(r.symbols)
+	r.defaults = list(r.defaults)
+	set := func(m map[string]bool) map[string]bool {
+		out := make(map[string]bool, len(m))
+		for k, v := range m {
+			out[q(k)] = v
+		}
+		return out
+	}
+	r.private, r.members = set(r.private), set(r.members)
+	returned := make(map[string][]string, len(r.returned))
+	for k, v := range r.returned {
+		returned[q(k)] = list(v)
+	}
+	r.returned = returned
+	nested := func(m map[string]map[string]bool) map[string]map[string]bool {
+		out := make(map[string]map[string]bool, len(m))
+		for k, v := range m {
+			out[q(k)] = v
+		}
+		return out
+	}
+	r.lexical, r.plain = nested(r.lexical), nested(r.plain)
+	modes := func(m map[string]map[string]useMode) map[string]map[string]useMode {
+		out := make(map[string]map[string]useMode, len(m))
+		for k, v := range m {
+			out[q(k)] = v
+		}
+		return out
+	}
+	r.uses, r.calls = modes(r.uses), modes(r.calls)
+	dyn := make(map[string][]string, len(r.dynamic))
+	for k, v := range r.dynamic {
+		dyn[q(k)] = v
+	}
+	r.dynamic = dyn
+	locals := make(map[string]string, len(r.locals))
+	for k, v := range r.locals {
+		locals[q(k)] = v
+	}
+	r.locals = locals
+	for i := range r.spans {
+		r.spans[i].scope = q(r.spans[i].scope)
+	}
 }
 
 // localSpan is the lines a local scope's function covers, 1-based and inclusive.
@@ -471,11 +651,28 @@ func importsOf(kinds *tsutil.KindTable, root *sitter.Node, src []byte, r *fileRe
 			continue
 		}
 		r.imports = append(r.imports, file)
+		if k == "export_statement" {
+			r.exportsFrom = append(r.exportsFrom, file)
+		}
 		if k == "import_statement" {
 			if clause := findChildByKind(kinds, stmt, "import_clause"); clause != nil {
 				if def := findChildByKind(kinds, clause, "identifier"); def != nil {
 					local := nodeText(def, src)
 					r.defaultAliases[local] = append(r.defaultAliases[local], file)
+				}
+				if named := findChildByKind(kinds, clause, "named_imports"); named != nil {
+					for j := range named.NamedChildCount() {
+						spec := named.NamedChild(j)
+						local := spec.ChildByFieldName("alias")
+						if local == nil {
+							local = spec.ChildByFieldName("name")
+						} else if orig := spec.ChildByFieldName("name"); orig != nil {
+							r.importedAs[nodeText(local, src)] = append(r.importedAs[nodeText(local, src)], renamedExport{file, nodeText(orig, src)})
+						}
+						if local != nil {
+							r.namedImports[nodeText(local, src)] = true
+						}
+					}
 				}
 			}
 			continue
@@ -485,11 +682,20 @@ func importsOf(kinds *tsutil.KindTable, root *sitter.Node, src []byte, r *fileRe
 			for j := range clause.NamedChildCount() {
 				spec := clause.NamedChild(j)
 				name, alias := spec.ChildByFieldName("name"), spec.ChildByFieldName("alias")
+				if name != nil && alias != nil && nodeText(name, src) != "default" {
+					if nodeText(alias, src) == "default" {
+						r.defaultFrom = append(r.defaultFrom, renamedExport{file, nodeText(name, src)})
+					} else {
+						r.renamed[nodeText(alias, src)] = append(r.renamed[nodeText(alias, src)], renamedExport{file, nodeText(name, src)})
+					}
+					continue
+				}
 				if name == nil || nodeText(name, src) != "default" {
 					continue
 				}
 				if alias != nil {
 					r.defaultAliases[nodeText(alias, src)] = append(r.defaultAliases[nodeText(alias, src)], file)
+					r.reexportAliases[nodeText(alias, src)] = append(r.reexportAliases[nodeText(alias, src)], file)
 				} else {
 					r.reexports = append(r.reexports, file)
 				}
@@ -522,6 +728,14 @@ func isDeclaredName(kinds *tsutil.KindTable, n *sitter.Node) bool {
 	p := n.Parent()
 	if p == nil {
 		return false
+	}
+	if kindOf(kinds, p) == "enum_body" {
+		return true // a member without an initializer: `enum E { A, B }`
+	}
+	// A JSX attribute's name is the prop being set (`renderItem={…}`), not a reference
+	// to anything called renderItem.
+	if kindOf(kinds, p) == "jsx_attribute" && p.NamedChildCount() > 0 && p.NamedChild(0).StartByte() == n.StartByte() {
+		return true
 	}
 	for _, field := range declaredNameOf[kindOf(kinds, p)] {
 		if c := p.ChildByFieldName(field); c != nil && c.StartByte() == n.StartByte() && c.EndByte() == n.EndByte() {
@@ -614,10 +828,15 @@ func markClientReachability(ff []facts.Fact, files []*fileReach, fw tsFrameworks
 		return
 	}
 	roots := map[string]bool{}
+	// The pages client_pages names: the routes the framework serves. Every other root
+	// (an entry file, a file nothing imports) runs code, but is not a page; a library's
+	// own pages/ folder that nothing imports is the latter.
+	pageRoots := map[string]bool{}
 	for _, f := range ff {
 		if f.Kind == facts.KindRoute && f.PropString("framework") == "nextjs" && f.PropAny(facts.PropRole) != facts.RoleClient {
 			if _, ok := inAppDir(f.File, fw.appDirs); ok {
 				roots[f.File] = true
+				pageRoots[f.File] = true
 			}
 		}
 	}
@@ -654,7 +873,9 @@ func markClientReachability(ff []facts.Fact, files []*fileReach, fw tsFrameworks
 			symbolFile[scope] = r
 			byName[name] = append(byName[name], scope)
 		}
-		for name, targets := range r.defaultAliases {
+		// Only a re-exported default is a name another file can import: an import's
+		// own local name (`import Card from './card'`) binds in that file alone.
+		for name, targets := range r.reexportAliases {
 			aliases[name] = append(aliases[name], targets...)
 		}
 		for _, t := range r.imports {
@@ -732,6 +953,7 @@ func markClientReachability(ff []facts.Fact, files []*fileReach, fw tsFrameworks
 	}
 	// A name declared in more than two files cannot say which one runs: it reaches them
 	// all and carries no trigger. Two is a facade method and the client method it wraps.
+	visible := barrelVisibility(byFile)
 	declaredIn := map[string]map[string]bool{}
 	for n, syms := range byName {
 		for _, s := range syms {
@@ -780,14 +1002,21 @@ func markClientReachability(ff []facts.Fact, files []*fileReach, fw tsFrameworks
 			names = r.uses[scope]
 		}
 		for n := range names {
-			propagate(n, byName[n], aliases[n], from.reachedOnly())
+			if own := inScopeOf(r, n, r.plain[scope][n], byName, symbolFile, importsOf, func(f string) *fileReach { return byFile[f] }); len(own) > 0 {
+				propagate(r.file+"\x00"+n, own, nil, from.reachedOnly())
+				continue
+			}
+			if unboundPlainName(r, scope, n) {
+				continue
+			}
+			propagate(n, global(r, byName[n], symbolFile, visible), aliases[n], from.reachedOnly())
 		}
 		for n, m := range calls {
 			t := from.through(m)
 			if lex[n] {
 				var local []string
 				for _, s := range byName[n] {
-					if sf := symbolFile[s]; sf != nil && importsOf[r.file][sf.file] {
+					if sf := symbolFile[s]; sf != nil && (sf == r || importsOf[r.file][sf.file]) {
 						local = append(local, s)
 					}
 				}
@@ -796,8 +1025,12 @@ func markClientReachability(ff []facts.Fact, files []*fileReach, fw tsFrameworks
 					continue
 				}
 			}
-			if len(declaredIn[n]) <= 2 {
-				propagate(n, byName[n], aliases[n], t)
+			if own := inScopeOf(r, n, r.plain[scope][n], byName, symbolFile, importsOf, func(f string) *fileReach { return byFile[f] }); len(own) > 0 {
+				propagate(r.file+"\x00"+n, own, nil, t)
+				continue
+			}
+			if len(declaredIn[n]) <= 2 && !unboundPlainName(r, scope, n) {
+				propagate(n, global(r, byName[n], symbolFile, visible), aliases[n], t)
 			}
 		}
 	}
@@ -814,6 +1047,12 @@ func markClientReachability(ff []facts.Fact, files []*fileReach, fw tsFrameworks
 		use(r, "", t)
 		for _, f := range r.reexports {
 			reachDefault(f, true, t)
+		}
+		// `export { X as default } from '…'`: the file's default is that file's X.
+		for _, e := range r.defaultFrom {
+			for _, s := range resolveExport(e.file, e.name, func(f string) *fileReach { return byFile[f] }, map[string]bool{}) {
+				raise(s, t)
+			}
 		}
 		for _, f := range r.dynamic[""] {
 			reachDefault(f, false, t)
@@ -838,6 +1077,11 @@ func markClientReachability(ff []facts.Fact, files []*fileReach, fw tsFrameworks
 		runFile(r, t)
 		if r != nil {
 			use(r, s, t)
+			// Calling a function that returns an object of functions hands those on:
+			// whoever takes the object (useMutation(options())) calls them.
+			for _, m := range r.returned[s] {
+				raise(m, t)
+			}
 			for _, f := range r.dynamic[s] {
 				reachDefault(f, false, t)
 			}
@@ -856,7 +1100,7 @@ func markClientReachability(ff []facts.Fact, files []*fileReach, fw tsFrameworks
 			classMember[f.Name] = true
 		}
 	}
-	pages, pageOf, pageFile := reachingPages(roots, files, byFile, byName, symbolFile, aliases, declaredIn, importsOf, classMember)
+	pages, pageOf, pageFile := reachingPages(pageRoots, files, byFile, byName, symbolFile, aliases, declaredIn, importsOf, classMember, visible)
 
 	for i := range ff {
 		f := &ff[i]
@@ -875,7 +1119,10 @@ func markClientReachability(ff []facts.Fact, files []*fileReach, fw tsFrameworks
 		if scope := innermostLocal(r, f.Line); scope != "" {
 			t = val[scope]
 		} else if caller := f.PropString(facts.PropCaller); caller != "" {
-			t = val[caller]
+			t = val[keyOf(caller, f.File)]
+			if _, ok := val[keyOf(caller, f.File)]; !ok {
+				t = val[caller] // a caller that is no declared symbol keeps its own name
+			}
 		}
 		f.SetProp(facts.PropClientReachable, t.rank > rankNone)
 		if t.rank == rankNone {
@@ -885,9 +1132,19 @@ func markClientReachability(ff []facts.Fact, files []*fileReach, fw tsFrameworks
 		if scope := innermostLocal(r, f.Line); scope != "" {
 			set = pageOf[scope]
 		} else if caller := f.PropString(facts.PropCaller); caller != "" {
-			set = pageOf[caller]
+			set = pageOf[keyOf(caller, f.File)]
+			if _, ok := pageOf[keyOf(caller, f.File)]; !ok {
+				set = pageOf[caller]
+			}
 		}
-		if names := pages.names(set); len(names) > 0 {
+		everyPage := false
+		if names := pages.names(set); len(names) > everyPageListMax && len(names) == len(pages) {
+			// Reached from every page of an app with more than a handful: that is
+			// what client_every_page says, and a list of them all names none in
+			// particular. A small app's full list stays, it is still the answer.
+			everyPage = true
+			f.SetProp(facts.PropClientEveryPage, true)
+		} else if len(names) > 0 {
 			f.SetProp(facts.PropClientPages, names)
 		}
 		// A request written inside an inline handler or timer callback runs under it.
@@ -898,7 +1155,7 @@ func markClientReachability(ff []facts.Fact, files []*fileReach, fw tsFrameworks
 			continue // reached, but only by name: no trigger to state
 		}
 		f.SetProp(facts.PropClientTrigger, t.name())
-		if t.everyPage {
+		if t.everyPage || everyPage {
 			f.SetProp(facts.PropClientEveryPage, true)
 		}
 		if t.rank == rankPoll && t.ms > 0 {
@@ -967,7 +1224,7 @@ func isPageFile(file string) bool {
 // decides only whether a call runs at all, lets such a name reach them all.
 func reachingPages(roots map[string]bool, files []*fileReach, byFile map[string]*fileReach, byName map[string][]string,
 	symbolFile map[string]*fileReach, aliases map[string][]string, declaredIn map[string]map[string]bool,
-	importsOf map[string]map[string]bool, classMember map[string]bool) (pageIndex, map[string]pageSet, map[string]pageSet) {
+	importsOf map[string]map[string]bool, classMember map[string]bool, visible func(*fileReach, string) bool) (pageIndex, map[string]pageSet, map[string]pageSet) {
 	var index pageIndex
 	for f := range roots {
 		if isPageFile(f) {
@@ -1019,7 +1276,7 @@ func reachingPages(roots map[string]bool, files []*fileReach, byFile map[string]
 			if lex[n] {
 				var local []string
 				for _, s := range byName[n] {
-					if sf := symbolFile[s]; sf != nil && importsOf[r.file][sf.file] && !classMember[s] {
+					if sf := symbolFile[s]; sf != nil && (sf == r || importsOf[r.file][sf.file]) && !classMember[symbolOf(s)] {
 						local = append(local, s)
 					}
 				}
@@ -1031,10 +1288,10 @@ func reachingPages(roots map[string]bool, files []*fileReach, byFile map[string]
 				// or an object's member handed out by a hook. Here and above, it is
 				// never a member of a class: zustand's create(…) is not
 				// OrdersApi.create, even in a file that imports OrdersApi.
-				if len(declaredIn[n]) <= 2 {
+				if len(declaredIn[n]) <= 2 && !unboundPlainName(r, scope, n) {
 					var free []string
-					for _, s := range byName[n] {
-						if !classMember[s] {
+					for _, s := range global(r, byName[n], symbolFile, visible) {
+						if !classMember[symbolOf(s)] {
 							free = append(free, s)
 						}
 					}
@@ -1042,8 +1299,12 @@ func reachingPages(roots map[string]bool, files []*fileReach, byFile map[string]
 				}
 				continue
 			}
-			if len(declaredIn[n]) <= 2 {
-				propagate(n, byName[n], aliases[n], b)
+			if own := inScopeOf(r, n, r.plain[scope][n], byName, symbolFile, importsOf, func(f string) *fileReach { return byFile[f] }); len(own) > 0 {
+				propagate(r.file+"\x00"+n, own, nil, b)
+				continue
+			}
+			if len(declaredIn[n]) <= 2 && !unboundPlainName(r, scope, n) {
+				propagate(n, global(r, byName[n], symbolFile, visible), aliases[n], b)
 			}
 		}
 	}
@@ -1058,6 +1319,12 @@ func reachingPages(roots map[string]bool, files []*fileReach, byFile map[string]
 		use(r, "", b)
 		for _, f := range r.reexports {
 			reachDefault(f, true, b)
+		}
+		// `export { X as default } from '…'`: the file's default is that file's X.
+		for _, e := range r.defaultFrom {
+			for _, s := range resolveExport(e.file, e.name, func(f string) *fileReach { return byFile[f] }, map[string]bool{}) {
+				raise(s, b)
+			}
 		}
 		for _, f := range r.dynamic[""] {
 			reachDefault(f, false, b)
@@ -1082,6 +1349,9 @@ func reachingPages(roots map[string]bool, files []*fileReach, byFile map[string]
 		runFile(r, b)
 		if r != nil {
 			use(r, s, b)
+			for _, m := range r.returned[s] {
+				raise(m, b)
+			}
 			for _, f := range r.dynamic[s] {
 				reachDefault(f, false, b)
 			}
@@ -1111,8 +1381,206 @@ func reachApplies(fw tsFrameworks) bool {
 
 // shortName is the name a symbol is used by: the last segment of its fact name.
 func shortName(symbol string) string {
+	symbol = symbolOf(symbol)
 	if i := strings.LastIndexByte(symbol, '.'); i >= 0 {
 		return symbol[i+1:]
 	}
 	return symbol
+}
+
+// renamedExport is one `export { name as alias } from 'file'`.
+type renamedExport struct{ file, name string }
+
+// inScopeOf returns the symbols a name used in r can be: the ones r itself declares,
+// else the ones in files r imports. A name resolves in its own module first, as
+// JavaScript resolves it; only a name neither declares (a member reached through an
+// object, a name re-exported through a barrel) falls back to every symbol of that name.
+// Falling back first let `COLUMNS` in one feature's table reach another feature's
+// `COLUMNS`, and with it every page of the other feature.
+//
+// Only a plain name prefers its own module's symbol: a member (`api.createLabel`) is
+// the imported module's even where this file declares a createLabel of its own, so
+// for a member both stay candidates.
+func inScopeOf(r *fileReach, n string, plain bool, byName map[string][]string, symbolFile map[string]*fileReach,
+	importsOf map[string]map[string]bool, fileOf func(string) *fileReach) []string {
+	var own, imported []string
+	for _, s := range byName[n] {
+		sf := symbolFile[s]
+		switch {
+		case sf == nil:
+		case sf == r:
+			own = append(own, s)
+		case importsOf[r.file][sf.file]:
+			imported = append(imported, s)
+		}
+	}
+	if plain && len(own) > 0 {
+		return own
+	}
+	// Imported under a name of its own: `import { getCards as getCardsApi }`.
+	for _, e := range r.importedAs[n] {
+		imported = append(imported, resolveExport(e.file, e.name, fileOf, map[string]bool{})...)
+	}
+	if len(imported) > 0 {
+		return append(own, imported...)
+	}
+	// Imported through a barrel: the name a file r imports exports, as it renames
+	// it or re-exports it from further on (`export { Page as TagsPage }`,
+	// `export * from`).
+	for f := range importsOf[r.file] {
+		if f != r.file {
+			imported = append(imported, resolveExport(f, n, fileOf, map[string]bool{})...)
+		}
+	}
+	return append(own, imported...)
+}
+
+// isTypeOnlySymbol reports a declaration with no runtime presence: an interface, a type
+// alias, or an abstract member (an interface's property or method signature).
+func isTypeOnlySymbol(f facts.Fact) bool {
+	switch f.PropString("symbol_kind") {
+	case facts.SymbolInterface, facts.SymbolType:
+		return true
+	}
+	return f.PropBool("abstract")
+}
+
+// unboundPlainName reports a name a scope uses only as a plain identifier that its
+// file neither declares, imports by name nor default-imports: a global (window, fetch)
+// or a binding this pass does not track. It names no symbol of another module, so it
+// must not fall back to every symbol of that name: `<Notification/>` in one file is
+// not a default import called Notification in some other file.
+func unboundPlainName(r *fileReach, scope, n string) bool {
+	return r.plain[scope][n] && !r.namedImports[n] && len(r.defaultAliases[n]) == 0
+}
+
+// global drops from a name's symbols the ones a name used in r cannot be when r
+// neither declares nor imports it: a local scope (a function declared inside another,
+// callable only where it is written), a file's private top-level declaration, and a
+// top-level symbol of a module r cannot see, directly or through the barrels it
+// imports. A member of a class or object stays: an instance's methods are reached
+// through objects, wherever they were created.
+func global(r *fileReach, syms []string, symbolFile map[string]*fileReach, visible func(*fileReach, string) bool) []string {
+	var out []string
+	for _, s := range syms {
+		if strings.Contains(s, localScopeSep) {
+			continue
+		}
+		sf := symbolFile[s]
+		if sf != nil && sf.private[s] {
+			continue
+		}
+		if sf != nil && !sf.members[s] && !visible(r, sf.file) {
+			continue
+		}
+		out = append(out, s)
+	}
+	return out
+}
+
+// barrelVisibility answers whether a file can name another's top-level symbols: the
+// other is one it imports, or one those re-export, through any chain of barrels.
+func barrelVisibility(byFile map[string]*fileReach) func(*fileReach, string) bool {
+	closure := map[string]map[string]bool{}
+	var through func(file string) map[string]bool
+	through = func(file string) map[string]bool {
+		if c, ok := closure[file]; ok {
+			return c
+		}
+		c := map[string]bool{file: true}
+		closure[file] = c // cycles between barrels end here
+		if g := byFile[file]; g != nil {
+			for _, f := range g.exportsFrom {
+				for x := range through(f) {
+					c[x] = true
+				}
+			}
+		}
+		return c
+	}
+	return func(r *fileReach, target string) bool {
+		if r == nil {
+			return true
+		}
+		if r.file == target {
+			return true
+		}
+		for _, f := range r.imports {
+			if through(f)[target] {
+				return true
+			}
+		}
+		return false
+	}
+}
+
+// resolveExport returns the symbols a file exports under name: one it declares, one it
+// renames on the way out (`export { Page as TagsPage } from`), or one a file it
+// re-exports everything from (`export * from`) exports, through any chain of barrels.
+func resolveExport(file, name string, fileOf func(string) *fileReach, seen map[string]bool) []string {
+	if seen[file] {
+		return nil
+	}
+	seen[file] = true
+	g := fileOf(file)
+	if g == nil {
+		return nil
+	}
+	var out []string
+	for _, s := range g.symbols {
+		if shortName(s) == name && !g.private[s] {
+			out = append(out, s)
+		}
+	}
+	if len(out) > 0 {
+		return out
+	}
+	for _, e := range g.renamed[name] {
+		out = append(out, resolveExport(e.file, e.name, fileOf, seen)...)
+	}
+	if len(out) > 0 {
+		return out
+	}
+	for _, f := range g.exportsFrom {
+		out = append(out, resolveExport(f, name, fileOf, seen)...)
+	}
+	return out
+}
+
+// isDataMember reports a class's or object's data field: it holds a value and runs
+// nothing, so a member read of the same name (`x.name`) reaching it reached nothing
+// but the file that declares it, and from there everything that file names.
+func isDataMember(f facts.Fact) bool {
+	if f.PropString("receiver") == "" {
+		return false
+	}
+	switch f.PropString("symbol_kind") {
+	case facts.SymbolVariable, facts.SymbolConstant, "property", "field":
+		return true
+	}
+	return false
+}
+
+// everyPageListMax is the most pages a call reached from all of them is listed by
+// name; above it the call is marked client_every_page instead.
+const everyPageListMax = 20
+
+// collectParamNames adds the names a parameter list binds, directly or by
+// destructuring. A default value is an expression, not a binding.
+func collectParamNames(kinds *tsutil.KindTable, n *sitter.Node, src []byte, out map[string]bool) {
+	switch kindOf(kinds, n) {
+	case "identifier", "shorthand_property_identifier_pattern":
+		out[nodeText(n, src)] = true
+		return
+	case "type_annotation", "type_identifier":
+		return
+	}
+	for i := range n.NamedChildCount() {
+		c := n.NamedChild(i)
+		// A default value is an expression, not a binding.
+		if p := n.ChildByFieldName("value"); p != nil && p.StartByte() == c.StartByte() && kindOf(kinds, n) != "pair_pattern" {
+			continue
+		}
+		collectParamNames(kinds, c, src, out)
+	}
 }

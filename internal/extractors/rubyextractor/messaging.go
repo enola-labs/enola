@@ -397,7 +397,12 @@ func (w *rubyMessagingWalker) stringTopic(node *sitter.Node) string {
 		case "string_content":
 			b.WriteString(rubyText(c, w.src))
 		case "interpolation":
-			name := lastRubyIdentifier(c, w.src)
+			// `#{ENV.fetch('SHOP_ENV')}` and `#{ENV['SHOP_ENV']}` name the variable,
+			// not the method that reads it: the placeholder is {shop_env}, not {fetch}.
+			name := envKeyOf(c, w.src)
+			if name == "" {
+				name = lastRubyIdentifier(c, w.src)
+			}
 			if name == "" {
 				return ""
 			}
@@ -411,6 +416,54 @@ func (w *rubyMessagingWalker) stringTopic(node *sitter.Node) string {
 		return ""
 	}
 	return topic
+}
+
+// envKeyOf returns the variable an ENV lookup inside an expression reads — SHOP_ENV
+// in ENV.fetch('SHOP_ENV'), ENV.fetch("SHOP_ENV", "x") or ENV['SHOP_ENV'] — or "".
+func envKeyOf(node *sitter.Node, src []byte) string {
+	key := ""
+	var visit func(n *sitter.Node) bool
+	visit = func(n *sitter.Node) bool {
+		switch kindOf(n) {
+		case "call", "element_reference":
+			recv := n.ChildByFieldName("receiver")
+			if recv == nil {
+				recv = n.ChildByFieldName("object")
+			}
+			if recv != nil && kindOf(recv) == "constant" && rubyText(recv, src) == "ENV" {
+				if s := firstStringIn(n, src); s != "" {
+					key = s
+					return true
+				}
+			}
+		}
+		for i := uint(0); i < n.NamedChildCount(); i++ {
+			if visit(n.NamedChild(i)) {
+				return true
+			}
+		}
+		return false
+	}
+	visit(node)
+	return key
+}
+
+// firstStringIn returns the content of the first plain string literal under n.
+func firstStringIn(n *sitter.Node, src []byte) string {
+	if kindOf(n) == "string" {
+		for i := uint(0); i < n.NamedChildCount(); i++ {
+			if c := n.NamedChild(i); kindOf(c) == "string_content" {
+				return rubyText(c, src)
+			}
+		}
+		return ""
+	}
+	for i := uint(0); i < n.NamedChildCount(); i++ {
+		if s := firstStringIn(n.NamedChild(i), src); s != "" {
+			return s
+		}
+	}
+	return ""
 }
 
 // lastRubyIdentifier returns the last identifier or constant an expression names:

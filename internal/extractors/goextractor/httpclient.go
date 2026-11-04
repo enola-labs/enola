@@ -65,6 +65,9 @@ func extractHTTPClientFacts(fset *token.FileSet, f *ast.File, relFile, pkgDir st
 			"api":            api,
 			"target_hint":    envHintFromExpr(urlArg),
 		}
+		if props["target_hint"] == "" {
+			props["target_hint"] = baseVarHint(urlArg)
+		}
 		// extractStringExpr discards the host of a `baseURL + "/path"` concat and
 		// keeps only the path. Recover it here so the linker can bucket a call to
 		// a hardcoded host as external rather than mistaking it for an unresolved
@@ -109,6 +112,9 @@ func extractHTTPClientFacts(fset *token.FileSet, f *ast.File, relFile, pkgDir st
 // An expression with no such literal falls back to extractStringExpr, so every
 // shape that resolved before resolves to the same path.
 func clientURLPath(urlArg ast.Expr) string {
+	if p, ok := sprintfPath(urlArg); ok {
+		return p
+	}
 	var operands []ast.Expr
 	var flatten func(e ast.Expr)
 	flatten = func(e ast.Expr) {
@@ -516,4 +522,70 @@ func isModuleLocalCallee(resolved string) bool {
 		head = head[:i]
 	}
 	return !strings.Contains(head, ".") && head != ""
+}
+
+// baseVarHint names the provider a URL's base variable is named for, when no
+// environment lookup names it: `fmt.Sprintf("%s/orders", ordersURL)`,
+// `cfg.BillingBaseURL + "/invoices"`. The variable must end in a base-URL word (URL,
+// Host, BaseURL, Endpoint); a bare `base` or `u` names nothing.
+func baseVarHint(expr ast.Expr) string {
+	hint := ""
+	ast.Inspect(expr, func(n ast.Node) bool {
+		if hint != "" {
+			return false
+		}
+		name := ""
+		switch e := n.(type) {
+		case *ast.Ident:
+			name = e.Name
+		case *ast.SelectorExpr:
+			name = e.Sel.Name
+		default:
+			return true
+		}
+		for _, suf := range []string{"BaseURL", "BaseUrl", "URL", "Url", "Host", "Endpoint", "Addr"} {
+			if t, ok := strings.CutSuffix(name, suf); ok && len(t) >= 3 && !strings.EqualFold(t, "base") {
+				hint = strings.ToLower(t)
+				return false
+			}
+		}
+		return true
+	})
+	return hint
+}
+
+// sprintfPath reads the path of `fmt.Sprintf("%s/orders/%d", base, id)`: the format
+// from its first slash, a verb before it being the base and each verb after it a path
+// parameter.
+func sprintfPath(expr ast.Expr) (string, bool) {
+	call, ok := expr.(*ast.CallExpr)
+	if !ok || len(call.Args) == 0 {
+		return "", false
+	}
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok || identName(sel.X) != "fmt" || sel.Sel.Name != "Sprintf" {
+		return "", false
+	}
+	format, ok := stringLitValue(call.Args[0])
+	if !ok {
+		return "", false
+	}
+	i := strings.IndexByte(format, '/')
+	if i < 0 {
+		return "", false
+	}
+	if head := format[:i]; strings.Trim(head, "%sv") != "" {
+		return "", false // a literal host or scheme before the path: not a base variable
+	}
+	var sb strings.Builder
+	rest := format[i:]
+	for j := 0; j < len(rest); j++ {
+		if rest[j] == '%' && j+1 < len(rest) {
+			sb.WriteString("{}")
+			j++
+			continue
+		}
+		sb.WriteByte(rest[j])
+	}
+	return sb.String(), true
 }

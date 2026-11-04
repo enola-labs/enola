@@ -2118,3 +2118,68 @@ func TestComputeLinks_BaseRelativeClientResolvesAsProbable(t *testing.T) {
 		}
 	}
 }
+
+// A base-relative path of nothing but parameters ("{}", written against a base URL the
+// extractor could not read) names no resource and links nowhere, even where one
+// repository serves a single catch-all route.
+func TestComputeLinks_HTTP_AllParameterRelativePathDoesNotLink(t *testing.T) {
+	in := []facts.Fact{
+		serverRoute("web-shell", "/{path}", "GET"),
+		clientRoute("mobile", "{}", "GET", nil),
+	}
+	if edges := crossRepoEdges(ComputeLinks(in, nil, allSignals(), vocab.Default())); len(edges) != 0 {
+		t.Errorf("an all-parameter relative path must not link, got %+v", edges)
+	}
+}
+
+// A path that starts with a parameter and has one literal ("{}/prepare") is held to the
+// single-segment rule: with two possible providers it draws nothing.
+func TestComputeLinks_HTTP_ParameterBaseSingleLiteralNeedsOneProvider(t *testing.T) {
+	in := []facts.Fact{
+		serverRoute("orders", "/orders/{id}/prepare", "POST"),
+		serverRoute("carts", "/carts/{id}/prepare", "POST"),
+		// A substring hint ("ordersgateway" contains "orders") would pick one of
+		// two providers for a multi-segment path; for this one it is not enough.
+		clientRoute("mobile", "{}/prepare", "POST", map[string]any{"target_hint": "ordersgateway"}),
+	}
+	if edges := crossRepoEdges(ComputeLinks(in, nil, allSignals(), vocab.Default())); len(edges) != 0 {
+		t.Errorf("{}/prepare with two providers must not link on a substring hint, got %+v", edges)
+	}
+}
+
+// A base-relative one-segment call ("banners") is the tail of a URL whose base was not
+// read. One repository serving /banners bare is not enough when another serves a path
+// ending in /banners; an absolute call to the bare path still links.
+func TestComputeLinks_HTTP_BaseRelativeSegmentWithTwoTailProvidersDoesNotLink(t *testing.T) {
+	in := []facts.Fact{
+		serverRoute("shops", "/banners", "GET"),
+		serverRoute("monolith", "/api/v2/banners", "GET"),
+		clientRoute("mobile", "banners", "GET", nil),
+		clientRoute("web", "/banners", "GET", nil),
+	}
+	out := ComputeLinks(in, nil, allSignals(), vocab.Default())
+	if findEdge(out, "mobile", "shops") != nil {
+		t.Errorf("base-relative 'banners' must not pick the bare server among two; edges=%+v", crossRepoEdges(out))
+	}
+	if findEdge(out, "web", "shops") == nil {
+		t.Errorf("an absolute /banners call still links; edges=%+v", crossRepoEdges(out))
+	}
+}
+
+// A one-literal client path with an unknown base ("{}/prepare") does not reach a server
+// path that names more: the shared word "prepare" is all the two have in common.
+func TestComputeLinks_HTTP_OneLiteralDoesNotReachALongerServerPath(t *testing.T) {
+	in := []facts.Fact{
+		serverRoute("shops", "/admin/v1/shops/requests/{id}/prepare", "POST"),
+		clientRoute("mobile", "{}/prepare", "POST", nil),
+		serverRoute("printing", "/{id}/print", "POST"),
+		clientRoute("mobile", "{}/print", "POST", nil),
+	}
+	out := ComputeLinks(in, nil, allSignals(), vocab.Default())
+	if findEdge(out, "mobile", "shops") != nil {
+		t.Errorf("{}/prepare must not reach a longer server path; edges=%+v", crossRepoEdges(out))
+	}
+	if findEdge(out, "mobile", "printing") == nil {
+		t.Errorf("{}/print still reaches /{id}/print; edges=%+v", crossRepoEdges(out))
+	}
+}

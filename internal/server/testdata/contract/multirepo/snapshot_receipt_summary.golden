@@ -5,15 +5,20 @@
 - **Snapshot ID:** `sha256:<HASH>`
 - **enola version:** dev
 - **Generated:** <TIME> (<DURATION>)
-- **Repository:** <TMP>/go_httpclient_multirepo/consumer
-- **Git:** not a git repository
-- **Extractors:** go, manifests
+- **Repositories:** 2 (per-repository provenance below; the facts and insights are their union)
 - **Config hash:** `sha256:<HASH>`
 - **Facts:** 22 · **Insights:** 6
 
+## Repositories
+
+| Repository | Git | Files parsed / seen | Skipped | Parse errors | Extractors |
+|---|---|---|---|---|---|
+| api | not a git repository | 1 / 2 | 0 | 0 | go, manifests |
+| consumer | not a git repository | 1 / 2 | 0 | 0 | go, manifests |
+
 ## Extraction quality
 
-- **Files:** 1 parsed / 2 seen · 0 file(s) + 0 directory tree(s) skipped by ignore globs
+- **Files:** 2 parsed / 4 seen · 0 file(s) + 0 directory tree(s) skipped by ignore globs
 - **Parse errors:** 0
 - **Heuristic insights:** 6 of 6 (confidence < 1.0; the rest are structural facts)
 - **Cross-repo coverage:** 2 service(s), 0 coverage gap(s), 1 unresolved edge(s)

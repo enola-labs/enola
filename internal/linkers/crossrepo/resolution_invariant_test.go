@@ -29,7 +29,7 @@ func coverageInts(svc facts.Fact) map[string]int {
 		if e["edge_type"] != httpsignal.CoverageEdgeType {
 			continue
 		}
-		for _, k := range []string{"detected", "resolved", "unresolved", "external", "declared"} {
+		for _, k := range []string{"detected", "resolved", "unresolved", "external", "declared", "outside"} {
 			if n, ok := e[k].(int); ok {
 				out[k] = n
 			}
@@ -52,14 +52,15 @@ func TestResolution_CoverageAndReasonsAgreeOnEveryBranch(t *testing.T) {
 	v.ServiceAliases = map[string]string{"resource-api": "billing"}
 
 	web := []facts.Fact{
-		invariantClient("web", "GET", "/api/v1/widgets/list", nil),                            // resolved
-		invariantClient("web", "GET", "/v3/charges/refund", map[string]any{"external": true}), // external
-		invariantClient("web", "", "/api/v1/widgets/list", nil),                               // no_method
-		invariantClient("web", "GET", "/health", nil),                                         // generic_path
-		invariantClient("web", "POST", "/v1/catalog/imports", nil),                            // ambiguous_provider
-		invariantClient("web", "POST", "/mcp", map[string]any{"target_hint": "back"}),         // single segment: ambiguous_provider
-		invariantClient("web", "DELETE", "/api/v1/widgets/list", nil),                         // method_mismatch
-		invariantClient("web", "GET", "/v9/nothing/here", nil),                                // path_unknown
+		invariantClient("web", "GET", "/api/v1/widgets/list", nil),                                 // resolved
+		invariantClient("web", "GET", "/v3/charges/refund", map[string]any{"external": true}),      // external
+		invariantClient("web", "", "/api/v1/widgets/list", nil),                                    // no_method
+		invariantClient("web", "GET", "/health", nil),                                              // generic_path
+		invariantClient("web", "POST", "/v1/catalog/imports", nil),                                 // ambiguous_provider
+		invariantClient("web", "POST", "/mcp", map[string]any{"target_hint": "back"}),              // single segment: ambiguous_provider
+		invariantClient("web", "DELETE", "/api/v1/widgets/list", nil),                              // method_mismatch
+		invariantClient("web", "GET", "/v9/nothing/here", nil),                                     // path_unknown
+		invariantClient("web", "GET", "/v1/entries/{id}", map[string]any{"target_hint": "ledger"}), // outside_snapshot
 	}
 	sdk := []facts.Fact{
 		// A declared client whose alias names a repository serving none of the matches.
@@ -107,9 +108,12 @@ func TestResolution_CoverageAndReasonsAgreeOnEveryBranch(t *testing.T) {
 		if stamped[f.Repo] == nil {
 			stamped[f.Repo] = map[string]int{}
 		}
-		if reason == httpsignal.ReasonDeclaredTarget {
+		switch reason {
+		case httpsignal.ReasonDeclaredTarget:
 			stamped[f.Repo]["declared"]++
-		} else {
+		case httpsignal.ReasonOutsideSnapshot:
+			stamped[f.Repo]["outside"]++
+		default:
 			stamped[f.Repo]["unresolved"]++
 		}
 	}
@@ -121,11 +125,14 @@ func TestResolution_CoverageAndReasonsAgreeOnEveryBranch(t *testing.T) {
 		if got, want := stamped[repo]["declared"], coverage[repo]["declared"]; got != want {
 			t.Errorf("%s: edge_coverage declared=%d, but %d call(s) carry attributed_by_intent", repo, want, got)
 		}
+		if got, want := stamped[repo]["outside"], coverage[repo]["outside"]; got != want {
+			t.Errorf("%s: edge_coverage outside=%d, but %d call(s) carry outside_snapshot", repo, want, got)
+		}
 	}
 
 	// The account itself, so an invariant satisfied by two equally wrong numbers fails too.
 	want := map[string]map[string]int{
-		"web": {"detected": 8, "resolved": 1, "external": 1, "declared": 0, "unresolved": 6},
+		"web": {"detected": 9, "resolved": 1, "external": 1, "declared": 0, "outside": 1, "unresolved": 6},
 		"sdk": {"detected": 1, "resolved": 0, "external": 0, "declared": 0, "unresolved": 1},
 		"app": {"detected": 3, "resolved": 1, "external": 0, "declared": 2, "unresolved": 0},
 	}

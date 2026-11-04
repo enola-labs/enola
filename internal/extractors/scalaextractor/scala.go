@@ -193,6 +193,8 @@ func (e *ScalaExtractor) Extract(ctx context.Context, repoPath string, files []s
 	// glob admits and the walker cannot reach — read from disk like the OpenAPI and
 	// Symfony route configs.
 	allFacts = append(allFacts, extractPlayRoutes(repoPath)...)
+	// A stream job's topics live in its configuration, not its code: see hocon.go.
+	allFacts = append(allFacts, hoconTopics(repoPath, scalaFiles)...)
 
 	canonicalizeTargets(allFacts, packageIndex, filePkg)
 	// After canonicalization, so the closure walks edges that point at real facts:

@@ -15,6 +15,7 @@ package tsextractor
 import (
 	"maps"
 	"slices"
+	"sort"
 	"strings"
 
 	"github.com/enola-labs/enola/internal/extractors/tsutil"
@@ -22,6 +23,13 @@ import (
 	"github.com/enola-labs/enola/internal/facts"
 	sitter "github.com/tree-sitter/go-tree-sitter"
 )
+
+// segmentComponentTypes are the route types a component serves: the page, and the
+// segment files Next.js renders around or instead of it (layout, loading, error,
+// template, not-found), each a component its file default-exports.
+var segmentComponentTypes = map[string]bool{
+	"page": true, "layout": true, "loading": true, "error": true, "template": true, "not-found": true,
+}
 
 // fileRouteFrameworks are the frameworks whose page routes are named by file.
 var fileRouteFrameworks = map[string]bool{"nuxt": true, "sveltekit": true, "nextjs": true}
@@ -33,14 +41,19 @@ var svelteKitLoadFiles = []string{"+page.server.ts", "+page.server.js", "+page.t
 // declares, and a SvelteKit page's load. The component is the function the file
 // tags as one (a Next.js page exports generateMetadata beside it), or else the
 // file's one exported function.
-func bindFileRouteHandlers(allFacts []facts.Fact) {
+//
+// A page that re-exports a named component as its default (`export { X as default }
+// from '…'`, or `import { X } from '…'; export default X`), from a feature's barrel,
+// is served by X wherever the barrel chain declares it; reach holds the barrels.
+func bindFileRouteHandlers(allFacts []facts.Fact, reach []*fileReach) {
+	var byFile map[string]*fileReach
 	var components map[string]string // file -> its one exported function, "" when several
 	var tagged map[string]string     // file -> its one function tagged a component
 	var loads map[string]string      // file -> the load it declares
 	var defaults map[string]string   // file -> the function it default-exports
 	for i := range allFacts {
 		f := &allFacts[i]
-		if f.Kind != facts.KindRoute || f.PropString("type") != "page" || !fileRouteFrameworks[f.PropString("framework")] {
+		if f.Kind != facts.KindRoute || !segmentComponentTypes[f.PropString("type")] || !fileRouteFrameworks[f.PropString("framework")] {
 			continue
 		}
 		if components == nil {
@@ -78,6 +91,29 @@ func bindFileRouteHandlers(allFacts []facts.Fact) {
 			f.DelProp(propDefaultFrom)
 			if target == "" {
 				target = defaults[from]
+			}
+		}
+		if named := f.PropString(propDefaultNamed); named != "" {
+			f.DelProp(propDefaultNamed)
+			if target == "" {
+				if byFile == nil {
+					byFile = map[string]*fileReach{}
+					for _, r := range reach {
+						if r != nil {
+							byFile[r.file] = r
+						}
+					}
+				}
+				file, name, _ := strings.Cut(named, "\x00")
+				found := map[string]bool{}
+				for _, k := range resolveExport(file, name, func(f string) *fileReach { return byFile[f] }, map[string]bool{}) {
+					found[symbolOf(k)] = true
+				}
+				if len(found) == 1 {
+					for s := range found {
+						target = s
+					}
+				}
 			}
 		}
 		if target != "" {
@@ -156,7 +192,7 @@ func svelteKitActionRoutes(allFacts []facts.Fact) []facts.Fact {
 // nextRouteVerbs splits each Next.js App Router route.ts into one route per HTTP verb
 // the file exports, handled by that function: `export async function POST()` is the
 // POST route. A route.ts that exports no verb keeps its one ALL route.
-func nextRouteVerbs(allFacts []facts.Fact) []facts.Fact {
+func nextRouteVerbs(allFacts []facts.Fact, reach []*fileReach) []facts.Fact {
 	var verbs map[string][]facts.Fact // file -> its exported verb functions
 	out := allFacts[:0:0]
 	for _, f := range allFacts {
@@ -175,9 +211,15 @@ func nextRouteVerbs(allFacts []facts.Fact) []facts.Fact {
 		}
 		handlers := verbs[f.File]
 		if len(handlers) == 0 {
+			if routes := reexportedVerbRoutes(f, reach); len(routes) > 0 {
+				out = append(out, routes...)
+				continue
+			}
+			f.DelProp(propVerbsFrom)
 			out = append(out, f)
 			continue
 		}
+		f.DelProp(propVerbsFrom)
 		for _, h := range handlers {
 			route := f
 			route.Props = maps.Clone(f.Props)
@@ -196,7 +238,52 @@ func nextRouteVerbs(allFacts []facts.Fact) []facts.Fact {
 const (
 	propDefaultExport = "default_export"
 	propDefaultFrom   = "default_from"
+	// propDefaultNamed is, on a page route, the file and name (joined by \x00) of the
+	// named export the page re-exports as its default.
+	propDefaultNamed = "default_named"
+	// propVerbsFrom is, on a route handler file, the HTTP verbs it exports without
+	// declaring them: "VERB\x00file\x00name", one per line.
+	propVerbsFrom = "verbs_from"
 )
+
+// reexportedVerbRoutes splits a route file that re-exports its verb handlers into one
+// route per verb, each handled by the function the barrel chain declares.
+func reexportedVerbRoutes(f facts.Fact, reach []*fileReach) []facts.Fact {
+	spec := f.PropString(propVerbsFrom)
+	if spec == "" {
+		return nil
+	}
+	byFile := map[string]*fileReach{}
+	for _, r := range reach {
+		if r != nil {
+			byFile[r.file] = r
+		}
+	}
+	var out []facts.Fact
+	for _, line := range strings.Split(spec, "\n") {
+		parts := strings.Split(line, "\x00")
+		if len(parts) != 3 {
+			continue
+		}
+		route := f
+		route.Props = maps.Clone(f.Props)
+		delete(route.Props, propVerbsFrom)
+		route.Props["method"] = parts[0]
+		found := map[string]bool{}
+		for _, k := range resolveExport(parts[1], parts[2], func(x string) *fileReach { return byFile[x] }, map[string]bool{}) {
+			found[symbolOf(k)] = true
+		}
+		route.Relations = slices.Clone(f.Relations)
+		if len(found) == 1 {
+			for s := range found {
+				route.Relations = append(route.Relations, facts.Relation{Kind: facts.RelHandledBy, Target: s})
+			}
+		}
+		out = append(out, route)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].PropString("method") < out[j].PropString("method") })
+	return out
+}
 
 // markDefaultExport marks the first symbol of a default export declaration.
 func markDefaultExport(ff []facts.Fact, isDefault bool) []facts.Fact {
@@ -268,4 +355,96 @@ func reexportedDefaultFile(kinds *tsutil.KindTable, root *sitter.Node, ctx *extr
 		}
 	}
 	return ""
+}
+
+// reexportedNames maps each name a file exports without declaring it to the file and
+// name it comes from: `export { X as Y } from '…'`, `export { Y }` or
+// `export { X as Y }` of an imported name, and `export default X` of one. A route file
+// exporting `GET` that it imported under another name is the common case.
+func reexportedNames(kinds *tsutil.KindTable, root *sitter.Node, ctx *extractCtx) map[string][2]string {
+	resolve := func(source *sitter.Node) string {
+		spec := strings.Trim(nodeText(source, ctx.src), `"'`)
+		if resolved, external := resolveImportPath(spec, ctx.dir, ctx.aliases); !external {
+			if file, _, ok := resolveModuleFile(resolved, ctx.knownFiles); ok {
+				return file
+			}
+		}
+		if file, ok := ctx.files.resolve(spec, ctx.relFile); ok {
+			return file
+		}
+		return ""
+	}
+	imported := map[string][2]string{} // local name -> file, exported name
+	out := map[string][2]string{}
+	type local struct{ exported, local string }
+	var locals []local
+	for i := range root.NamedChildCount() {
+		stmt := root.NamedChild(i)
+		switch kindOf(kinds, stmt) {
+		case "import_statement":
+			source := findChildByKind(kinds, stmt, "string")
+			clause := findChildByKind(kinds, stmt, "import_clause")
+			if source == nil || clause == nil {
+				continue
+			}
+			named := findChildByKind(kinds, clause, "named_imports")
+			if named == nil {
+				continue
+			}
+			file := resolve(source)
+			if file == "" {
+				continue
+			}
+			for j := range named.NamedChildCount() {
+				spec := named.NamedChild(j)
+				name, alias := spec.ChildByFieldName("name"), spec.ChildByFieldName("alias")
+				if name == nil {
+					continue
+				}
+				as := name
+				if alias != nil {
+					as = alias
+				}
+				imported[nodeText(as, ctx.src)] = [2]string{file, nodeText(name, ctx.src)}
+			}
+		case "export_statement":
+			clause, source := findChildByKind(kinds, stmt, "export_clause"), findChildByKind(kinds, stmt, "string")
+			if clause != nil {
+				file := ""
+				if source != nil {
+					if file = resolve(source); file == "" {
+						continue
+					}
+				}
+				for j := range clause.NamedChildCount() {
+					spec := clause.NamedChild(j)
+					name, alias := spec.ChildByFieldName("name"), spec.ChildByFieldName("alias")
+					if name == nil {
+						continue
+					}
+					exported := nodeText(name, ctx.src)
+					if alias != nil {
+						exported = nodeText(alias, ctx.src)
+					}
+					if file != "" {
+						if nodeText(name, ctx.src) != "default" {
+							out[exported] = [2]string{file, nodeText(name, ctx.src)}
+						}
+						continue
+					}
+					locals = append(locals, local{exported, nodeText(name, ctx.src)})
+				}
+				continue
+			}
+			if v := stmt.ChildByFieldName("value"); v != nil && kindOf(kinds, v) == "identifier" {
+				locals = append(locals, local{"default", nodeText(v, ctx.src)})
+			}
+		}
+	}
+	for _, l := range locals {
+		if e, ok := imported[l.local]; ok {
+			out[l.exported] = e
+		}
+	}
+	return out
 }

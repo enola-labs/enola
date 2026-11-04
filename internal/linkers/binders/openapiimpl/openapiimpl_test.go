@@ -259,3 +259,76 @@ func TestDocumentingRepoKeepsItsSpecs(t *testing.T) {
 		t.Errorf("spec with no handler in a documenting repo: role = %q, want server", r)
 	}
 }
+
+// A spec that gives no operationIds still documents the routes the code registers:
+// it is bound by method and path, and never counted as an operation to implement.
+func TestInheritsTheDocumentedRoutesHandlerWithoutOperationID(t *testing.T) {
+	code := facts.Fact{Kind: facts.KindRoute, Name: "/accounts/:account_id/cards", File: "engines/cards/config/routes.rb",
+		Props:     map[string]any{"method": "GET", facts.PropFramework: "rails"},
+		Relations: []facts.Relation{{Kind: facts.RelHandledBy, Target: "Cards::CardsController#index"}}}
+	impl := method("api.Server.ListCards", false)
+	impl.Props["symbol_kind"] = facts.SymbolMethod
+	store := facts.NewStore()
+	store.Add(code, impl, op("/accounts/{account_id}/cards", "api/service.yaml", ""))
+	bind(t, store)
+	if got := handledBy(t, store, "/accounts/{account_id}/cards", "api/service.yaml"); got != "Cards::CardsController#index" {
+		t.Errorf("handled_by = %q", got)
+	}
+	for _, f := range store.ByKind(facts.KindRoute) {
+		if f.PropString("spec_file") == "api/service.yaml" && f.PropString(PropHandlerBinding) != BindingCodeRoute {
+			t.Errorf("handler_binding = %q, want %q", f.PropString(PropHandlerBinding), BindingCodeRoute)
+		}
+	}
+}
+
+func codeRoute(path, method, handler string) facts.Fact {
+	return facts.Fact{Kind: facts.KindRoute, Name: path, File: "config/routes.rb",
+		Props:     map[string]any{"method": method, facts.PropFramework: "rails"},
+		Relations: []facts.Relation{{Kind: facts.RelHandledBy, Target: handler}}}
+}
+
+// A spec written under a server base, or relative to a prefix the code adds, is bound
+// to the code route it documents; a tail two code routes share binds nothing.
+func TestBindsUnderServerBaseAndByUniqueTail(t *testing.T) {
+	based := op("/holidays/{id}", "stores/openapi/v1.yaml", "")
+	based.Props["method"] = "DELETE"
+	based.Props["server_base"] = "/stores/v1"
+	tail := op("/tickets", "openapi/desk-v1.yaml", "")
+	tail.Props["method"] = "POST"
+	shared := op("/status", "openapi/desk-v1.yaml", "")
+	store := facts.NewStore()
+	store.Add(based, tail, shared,
+		codeRoute("/stores/v1/holidays/:id", "DELETE", "Stores::V1::HolidaysController#destroy"),
+		codeRoute("/api/v1/tickets", "POST", "Api::V1::TicketsController#create"),
+		codeRoute("/api/v1/orders/status", "GET", "Api::V1::OrdersController#status"),
+		codeRoute("/api/v1/carts/status", "GET", "Api::V1::CartsController#status"))
+	bind(t, store)
+	if got := handledBy(t, store, "/holidays/{id}", "stores/openapi/v1.yaml"); got != "Stores::V1::HolidaysController#destroy" {
+		t.Errorf("server-based op handled_by = %q", got)
+	}
+	if got := handledBy(t, store, "/tickets", "openapi/desk-v1.yaml"); got != "Api::V1::TicketsController#create" {
+		t.Errorf("tail op handled_by = %q", got)
+	}
+	if got := handledBy(t, store, "/status", "openapi/desk-v1.yaml"); got != "" {
+		t.Errorf("a tail two routes share bound %q", got)
+	}
+}
+
+// A code route whose handler an extractor named but left for a later binder to
+// confirm (handler_target) binds the operation once that symbol exists.
+func TestBindsThroughAConfirmedHandlerTarget(t *testing.T) {
+	route := facts.Fact{Kind: facts.KindRoute, Name: "/app/v1/orders", File: "orders/router.go",
+		Props: map[string]any{"method": "GET", facts.PropFramework: "chi", facts.PropHandlerTarget: "orders/handlers.ListOrders.Handle"}}
+	ghost := facts.Fact{Kind: facts.KindRoute, Name: "/app/v1/carts", File: "orders/router.go",
+		Props: map[string]any{"method": "GET", facts.PropFramework: "chi", facts.PropHandlerTarget: "orders/handlers.Missing.Handle"}}
+	store := facts.NewStore()
+	store.Add(route, ghost, method("orders/handlers.ListOrders.Handle", false),
+		op("/app/v1/orders", "api/openapi/v1.yml", "listOrders"), op("/app/v1/carts", "api/openapi/v1.yml", "listCarts"))
+	bind(t, store)
+	if got := handledBy(t, store, "/app/v1/orders", "api/openapi/v1.yml"); got != "orders/handlers.ListOrders.Handle" {
+		t.Errorf("handled_by = %q", got)
+	}
+	if got := handledBy(t, store, "/app/v1/carts", "api/openapi/v1.yml"); got != "" {
+		t.Errorf("an unconfirmed handler_target bound %q", got)
+	}
+}

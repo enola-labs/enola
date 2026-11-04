@@ -303,7 +303,13 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 		if route.PropString("framework") != "rails" {
 			continue
 		}
-		target := actionFor(route.PropString("handler"))
+		// The route's handled_by target is the action as the Rails extractor resolved
+		// it, inside an engine's isolated namespace too; the handler string alone
+		// (`shelves#create`) does not carry that namespace.
+		target := handledBy(route)
+		if _, ok := symbols[target]; !ok {
+			target = actionFor(route.PropString("handler"))
+		}
 		if target == "" {
 			continue
 		}
@@ -618,6 +624,16 @@ func registersCaller(owner string, f facts.Fact) bool {
 
 func isMigration(file string) bool {
 	return strings.Contains(file, "db/migrate/")
+}
+
+// handledBy is the target of a route's handled_by relation, or "".
+func handledBy(route facts.Fact) string {
+	for _, r := range route.Relations {
+		if r.Kind == facts.RelHandledBy {
+			return r.Target
+		}
+	}
+	return ""
 }
 
 // actionFor turns a Rails handler such as `admin/accounts#show` into the

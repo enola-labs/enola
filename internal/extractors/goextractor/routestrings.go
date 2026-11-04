@@ -34,9 +34,13 @@ const seedKey = "\x00seed"
 // package directory, then name.
 type stringConsts map[string]map[string]string
 
+// A constant built from others of its package, `ItemURL = BaseURL + "/item"`, is
+// read too: the package's constants are evaluated until none changes, so the order
+// they are declared in does not matter.
 func buildStringConsts(pkgs map[string]*parsedPkg) stringConsts {
 	out := stringConsts{}
 	for pkgDir, pp := range pkgs {
+		pending := map[string]ast.Expr{}
 		for _, f := range pp.parsedFiles {
 			for _, decl := range f.Decls {
 				gen, ok := decl.(*ast.GenDecl)
@@ -52,20 +56,54 @@ func buildStringConsts(pkgs map[string]*parsedPkg) stringConsts {
 						if i >= len(vs.Values) {
 							break
 						}
-						lit, ok := vs.Values[i].(*ast.BasicLit)
-						if !ok || lit.Kind != token.STRING {
-							continue
-						}
-						if out[pkgDir] == nil {
-							out[pkgDir] = map[string]string{}
-						}
-						out[pkgDir][name.Name] = strings.Trim(lit.Value, "\"`")
+						pending[name.Name] = vs.Values[i]
 					}
 				}
 			}
 		}
+		known := map[string]string{}
+		for changed := true; changed; {
+			changed = false
+			for name, expr := range pending {
+				if v, ok := constString(expr, known); ok {
+					known[name] = v
+					delete(pending, name)
+					changed = true
+				}
+			}
+		}
+		if len(known) > 0 {
+			out[pkgDir] = known
+		}
 	}
 	return out
+}
+
+// constString evaluates a string constant expression against the constants already
+// known: a literal, a known name, or a + of those.
+func constString(expr ast.Expr, known map[string]string) (string, bool) {
+	switch e := expr.(type) {
+	case *ast.BasicLit:
+		if e.Kind == token.STRING {
+			return strings.Trim(e.Value, "\"`"), true
+		}
+	case *ast.Ident:
+		v, ok := known[e.Name]
+		return v, ok
+	case *ast.ParenExpr:
+		return constString(e.X, known)
+	case *ast.BinaryExpr:
+		if e.Op != token.ADD {
+			return "", false
+		}
+		l, ok := constString(e.X, known)
+		if !ok {
+			return "", false
+		}
+		r, ok := constString(e.Y, known)
+		return l + r, ok
+	}
+	return "", false
 }
 
 // seedStrings puts into prefixes the string constants body refers to: those of its

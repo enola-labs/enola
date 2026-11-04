@@ -3362,7 +3362,40 @@ import (
 // v513: Rust: a generic parameter in scope (of a function, impl, struct or alias) is never
 // the local type of the same name, in receiver, path-call and return typing.
 // v514: Rust: a union carries union: true, as a C++ union does.
-const cacheVersion = "v514"
+// v515: Ruby: a package.yml whose enforce_dependencies or enforce_privacy is "strict"
+// is a packwerk package (enforced, strict recorded), not a parse failure that drops it.
+// v516: OpenAPI: a spec under a bundle directory (bundled/, bundle/, dist/) declaring
+// exactly the operations of a spec outside one is its bundled copy, and is read once.
+// v517: Rails: `namespace :x, module: 'y'` puts its controllers under module y (the URL
+// keeps x), as `path:` overrides the URL and keeps the module.
+// v518: Rails: a bare verb inside a namespace with no controller in scope is offered the
+// module path as its controller (`namespace :bins do post :x end` -> bins#x), bound
+// only where declared; an explicit empty path (`delete ”`) is served at the scope's path.
+// v519: Rails: `use_doorkeeper` draws Doorkeeper's OAuth routes (/oauth/token, revoke,
+// introspect, authorize, …), honouring skip_controllers, controllers(...) and scope:.
+// Ruby messaging: an ENV lookup in a topic is named after its variable ({shop_env}).
+// v520: TypeScript client pages: a name resolves in its own module first (declared, imported,
+// imported under a new name, or re-exported through barrels: `export { X as Y } from`,
+// `export { X as default } from`, `export *`), and falls back to other modules' symbols only
+// for a member, only to ones visible through the file's imports, never to a local scope, a
+// private declaration, a type, a class's data field or test code. Parameters, enum members,
+// JSX attribute names and type annotations are not uses. Pages are the framework's routes,
+// symbols are keyed by file, a function's returned members are reached with it, and a call
+// reached from every page of an app over 20 pages is client_every_page. e2e-tests/ is test code.
+// v521: Go: a call to the module's own route registration helper (a router, a method and a
+// path parameter) is a route, with its operationId argument; string constants built from
+// others are read; `x := pkg.NewT(...)` and `pkg.NewT(...).M` name T's method. Next.js: a
+// page, layout or other segment re-exporting a named component as its default, and a route
+// file re-exporting its verb handlers, are handled by them through barrels. OpenAPI: the path
+// the spec's servers share is recorded as server_base.
+// v522: Scala: Kafka topics named in a module's HOCON configuration (src/main/resources/*.conf
+// of a module that talks to Kafka), with their direction from the block they sit in. Go: a
+// fmt.Sprintf URL is read from its first slash, and a base variable named for a service
+// (ordersURL, cfg.LedgerBaseURL) is its target hint. TypeScript: a file taking its client
+// from one service-named factory (getLedgerClient()) hints that service.
+// v523: TypeScript: a verb-named client call (`client.get('/x')`) is labelled axios only in a
+// file that uses axios; any other client is http-client.
+const cacheVersion = "v523"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

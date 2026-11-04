@@ -16,6 +16,9 @@ type routeInfo struct {
 	handler   string // e.g. "app.Handlers.User.CreatePasswordReset"
 	framework string // "gorilla/mux", "chi", "net/http"
 	line      int
+	// target is the handler's fact name when the call alone settles it (see
+	// helperRoute), "" otherwise.
+	target string
 }
 
 // extractRoutes walks function bodies in a Go file looking for HTTP route registrations.
@@ -69,7 +72,8 @@ func extractRoutes(fset *token.FileSet, f *ast.File, relFile, pkgDir string, rou
 				seedReceiverRouters(prefixes, pkgDir, recvVar, recvType, routes.routerFields)
 			}
 			seedLocalMounts(prefixes, fn.Body)
-			w := &routeWalk{fset: fset, prefixes: prefixes, closures: map[string]*ast.FuncLit{}, framework: framework, relFile: relFile, pkgDir: pkgDir, result: &result, recvVar: recvVar, recvType: recvType}
+			w := &routeWalk{fset: fset, prefixes: prefixes, closures: map[string]*ast.FuncLit{}, framework: framework, relFile: relFile, pkgDir: pkgDir, result: &result, recvVar: recvVar, recvType: recvType,
+				helpers: routes.helpers, imports: fileImports}
 			for _, stmt := range fn.Body.List {
 				w.stmt(stmt)
 			}
@@ -158,10 +162,21 @@ type routeWalk struct {
 	// localTypes are the function's locals whose type a struct literal states,
 	// `r := artifactRoutes{...}`; "" for a name bound to two types.
 	localTypes map[string]string
+	// helpers are the module's route registration helpers (reghelper.go), and imports
+	// the file's import names, to resolve a call to one.
+	helpers map[string]regHelper
+	imports map[string]string
 }
 
 func (w *routeWalk) emit(call *ast.CallExpr) {
-	for _, r := range extractRoutesFromCall(w.fset, call, w.prefixes, w.framework) {
+	routes := extractRoutesFromCall(w.fset, call, w.prefixes, w.framework)
+	opID := ""
+	if len(routes) == 0 {
+		if r, id, ok := w.helperRoute(call); ok {
+			routes, opID = []routeInfo{r}, id
+		}
+	}
+	for _, r := range routes {
 		fact := routeToFact(r, w.relFile, w.pkgDir)
 		// A method value on the receiver, `hs.LoginPost` inside a method of
 		// HTTPServer, names that type's method.
@@ -169,11 +184,19 @@ func (w *routeWalk) emit(call *ast.CallExpr) {
 			switch {
 			case recv == w.recvVar && w.recvType != "":
 				fact.SetProp(facts.PropHandlerTarget, w.pkgDir+"."+w.recvType+"."+method)
+			case strings.HasPrefix(w.localTypes[recv], qualifiedLocalType):
+				fact.SetProp(facts.PropHandlerTarget, strings.TrimPrefix(w.localTypes[recv], qualifiedLocalType)+"."+method)
 			case w.localTypes[recv] != "":
 				// A method value on a local of a stated type, `r.uploadArtifact`
 				// after `r := artifactRoutes{...}`, names that type's method.
 				fact.SetProp(facts.PropHandlerTarget, w.pkgDir+"."+w.localTypes[recv]+"."+method)
 			}
+		}
+		if opID != "" {
+			fact.SetProp("operationId", opID)
+		}
+		if r.target != "" && fact.PropString(facts.PropHandlerTarget) == "" {
+			fact.SetProp(facts.PropHandlerTarget, r.target)
 		}
 		*w.result = append(*w.result, fact)
 	}
@@ -185,6 +208,27 @@ func (w *routeWalk) noteLocalType(name string, value ast.Expr) {
 	if u, ok := value.(*ast.UnaryExpr); ok && u.Op == token.AND {
 		value = u.X
 	}
+	// Go's constructor convention: `h := handlers.NewOrders(...)` is a handlers.Orders.
+	// The binder keeps a handler named this way only where that method exists.
+	if call, ok := value.(*ast.CallExpr); ok {
+		typ := ""
+		switch fn := call.Fun.(type) {
+		case *ast.Ident:
+			if t, ok := strings.CutPrefix(fn.Name, "New"); ok && token.IsExported(t) {
+				typ = t
+			}
+		case *ast.SelectorExpr:
+			if pkg, ok := fn.X.(*ast.Ident); ok && w.imports[pkg.Name] != "" {
+				if t, ok := strings.CutPrefix(fn.Sel.Name, "New"); ok && token.IsExported(t) {
+					typ = qualifiedLocalType + w.imports[pkg.Name] + "." + t
+				}
+			}
+		}
+		if typ != "" {
+			w.setLocalType(name, typ)
+		}
+		return
+	}
 	lit, ok := value.(*ast.CompositeLit)
 	if !ok {
 		return
@@ -193,14 +237,22 @@ func (w *routeWalk) noteLocalType(name string, value ast.Expr) {
 	if !ok {
 		return
 	}
+	w.setLocalType(name, typ.Name)
+}
+
+// qualifiedLocalType marks a local type recorded with its package path, for a type
+// of another package; a bare name is this package's.
+const qualifiedLocalType = "\x00"
+
+func (w *routeWalk) setLocalType(name, typ string) {
 	if w.localTypes == nil {
 		w.localTypes = map[string]string{}
 	}
-	if prev, seen := w.localTypes[name]; seen && prev != typ.Name {
+	if prev, seen := w.localTypes[name]; seen && prev != typ {
 		w.localTypes[name] = ""
 		return
 	}
-	w.localTypes[name] = typ.Name
+	w.localTypes[name] = typ
 }
 
 func (w *routeWalk) block(body *ast.BlockStmt) {

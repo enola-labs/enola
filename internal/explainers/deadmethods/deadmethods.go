@@ -105,9 +105,18 @@ type candidate struct {
 // routedActions names every controller action a route handler points at, in
 // the symbol's own spelling (`Admin::AccountsController#show`); a routed
 // action is called by the router, which the graph holds as a route, not a call.
+//
+// The route's handled_by target counts first: it is the action as the route
+// extractor resolved it, inside an engine's isolated namespace too, which the
+// handler string (`shelves#create` for `Shop::ShelvesController#create`) leaves out.
 func routedActions(store *facts.Store) map[string]bool {
 	out := map[string]bool{}
 	for _, fact := range store.ByKind(facts.KindRoute) {
+		for _, r := range fact.Relations {
+			if r.Kind == facts.RelHandledBy {
+				out[r.Target] = true
+			}
+		}
 		handler, _ := fact.PropAny("handler").(string)
 		controller, action, ok := strings.Cut(handler, "#")
 		if !ok || controller == "" {
@@ -134,24 +143,30 @@ func controllerClass(path string) string {
 }
 
 func candidates(store *facts.Store) (uncalled, testOnly []candidate) {
-	callers := map[string]map[string]bool{}
+	// Callers by repository, then bare name: a method is kept alive, or reported
+	// as test-only, by what its own repository holds. In a cluster snapshot another
+	// repository's spec naming the same word is neither a caller nor evidence.
+	callers := map[string]map[string]map[string]bool{}
 	prefixes := []string{}
-	addCaller := func(target, file string) {
+	addCaller := func(repo, target, file string) {
 		name := bareName(target)
 		if name == "" {
 			return
 		}
-		if callers[name] == nil {
-			callers[name] = map[string]bool{}
+		if callers[repo] == nil {
+			callers[repo] = map[string]map[string]bool{}
 		}
-		callers[name][file] = true
+		if callers[repo][name] == nil {
+			callers[repo][name] = map[string]bool{}
+		}
+		callers[repo][name][file] = true
 	}
 	reflected := map[string]bool{}
 	for _, kind := range []string{facts.KindSymbol, facts.KindFileRef, facts.KindTestRef} {
 		for _, fact := range store.ByKind(kind) {
 			for _, rel := range fact.Relations {
 				if rel.Kind == facts.RelCalls || rel.Kind == facts.RelNames {
-					addCaller(rel.Target, fact.File)
+					addCaller(fact.Repo, rel.Target, fact.File)
 					if class := reflectedClass(rel.Target); class != "" {
 						reflected[class] = true
 					}
@@ -209,7 +224,7 @@ func candidates(store *facts.Store) (uncalled, testOnly []candidate) {
 		if matchesPrefix(method, prefixes) {
 			continue
 		}
-		by := callers[method]
+		by := callers[fact.Repo][method]
 		var others, specs []string
 		for file := range by {
 			if isTestFile(repoRelative(file)) {

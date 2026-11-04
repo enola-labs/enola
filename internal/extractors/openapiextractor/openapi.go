@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/enola-labs/enola/internal/factpath"
@@ -93,7 +94,58 @@ func (e *OpenAPIExtractor) Extract(ctx context.Context, repoPath string, _ []str
 		return nil
 	})
 
-	return allFacts, err
+	return dropBundledCopies(allFacts), err
+}
+
+// bundleDirs name the directories a spec bundler writes its output into: one file
+// per spec with every $ref inlined, committed beside the sources it was built from.
+var bundleDirs = map[string]bool{"bundled": true, "bundle": true, "dist": true}
+
+// dropBundledCopies removes the routes of a spec that is the bundled output of
+// another spec in the repository: it sits under a bundle directory and declares
+// exactly the operations (method and path) of a spec outside one. Read twice, every
+// operation was a second route at the same path, which doubles route counts and
+// gives each client call two matches.
+func dropBundledCopies(all []facts.Fact) []facts.Fact {
+	ops := map[string][]string{} // spec file -> sorted "METHOD path" keys
+	for _, f := range all {
+		if f.Kind == facts.KindRoute {
+			ops[f.File] = append(ops[f.File], f.PropString("method")+" "+f.Name)
+		}
+	}
+	sources := map[string]bool{}
+	for file, keys := range ops {
+		sort.Strings(keys)
+		if !inBundleDir(file) {
+			sources[strings.Join(keys, "\n")] = true
+		}
+	}
+	drop := map[string]bool{}
+	for file, keys := range ops {
+		if inBundleDir(file) && sources[strings.Join(keys, "\n")] {
+			drop[file] = true
+		}
+	}
+	if len(drop) == 0 {
+		return all
+	}
+	kept := all[:0]
+	for _, f := range all {
+		if !drop[f.File] {
+			kept = append(kept, f)
+		}
+	}
+	return kept
+}
+
+func inBundleDir(relFile string) bool {
+	parts := strings.Split(relFile, "/")
+	for _, p := range parts[:len(parts)-1] {
+		if bundleDirs[p] {
+			return true
+		}
+	}
+	return false
 }
 
 // openAPISpec is the minimal structure needed to extract route facts.
@@ -102,6 +154,10 @@ type openAPISpec struct {
 	Swagger string                            `yaml:"swagger"`
 	Info    openAPIInfo                       `yaml:"info"`
 	Paths   map[string]map[string]interface{} `yaml:"paths"`
+	Servers []struct {
+		URL string `yaml:"url"`
+	} `yaml:"servers"`
+	BasePath string `yaml:"basePath"` // Swagger 2
 }
 
 // openAPIInfo captures the info block, including custom gateway config extensions.
@@ -159,6 +215,8 @@ func parseOpenAPIFile(absPath, relFile string) ([]facts.Fact, error) {
 		gatewayPrefix = strings.TrimRight(prefix, "/")
 	}
 
+	serverBase := specServerBase(spec)
+
 	specDir := factpath.Dir(relFile)
 	var result []facts.Fact
 	refs := newPathItemResolver(absPath, relFile)
@@ -192,6 +250,9 @@ func parseOpenAPIFile(absPath, relFile string) ([]facts.Fact, error) {
 			}
 			if itemFile != "" {
 				props["path_item_file"] = itemFile
+			}
+			if serverBase != "" {
+				props["server_base"] = serverBase
 			}
 
 			if opRaw != nil {
@@ -328,4 +389,45 @@ func skipDir(name string) bool {
 		return true
 	}
 	return false
+}
+
+// specServerBase is the path every server of a spec puts its paths under: the path of
+// `servers[].url` (`http://localhost:8080/stores/v1` serves /items at /stores/v1/items),
+// or Swagger 2's basePath. "" when the servers disagree or name a host alone.
+func specServerBase(spec openAPISpec) string {
+	if spec.BasePath != "" {
+		return normalizeBase(spec.BasePath)
+	}
+	base, seen := "", false
+	for _, s := range spec.Servers {
+		u := s.URL
+		if i := strings.Index(u, "://"); i >= 0 {
+			u = u[i+3:]
+			if j := strings.Index(u, "/"); j >= 0 {
+				u = u[j:]
+			} else {
+				u = ""
+			}
+		}
+		if strings.Contains(u, "{") {
+			return "" // a server variable: the base is not known
+		}
+		b := normalizeBase(u)
+		if seen && b != base {
+			return ""
+		}
+		base, seen = b, true
+	}
+	return base
+}
+
+func normalizeBase(p string) string {
+	p = strings.TrimRight(strings.TrimSpace(p), "/")
+	if p == "" {
+		return ""
+	}
+	if !strings.HasPrefix(p, "/") {
+		p = "/" + p
+	}
+	return p
 }

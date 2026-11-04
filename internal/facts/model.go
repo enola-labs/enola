@@ -788,6 +788,23 @@ type Receipt struct {
 	FactCount    int            `json:"fact_count"`
 	InsightCount int            `json:"insight_count"`
 	Quality      ReceiptQuality `json:"quality"`
+	// Members is, for a snapshot of several repositories, each one's own provenance
+	// and extraction counts. The fields above are then the last repository indexed;
+	// the facts and insights are the whole union.
+	Members []MemberReceipt `json:"members,omitempty"`
+}
+
+// MemberReceipt is one repository of a multi-repo snapshot.
+type MemberReceipt struct {
+	Repo         string   `json:"repo"`
+	RepoPath     string   `json:"repo_path"`
+	Git          *GitInfo `json:"git,omitempty"`
+	Extractors   []string `json:"extractors"`
+	FilesSeen    int      `json:"files_seen"`
+	FilesParsed  int      `json:"files_parsed"`
+	FilesSkipped int      `json:"files_skipped"`
+	DirsSkipped  int      `json:"dirs_skipped"`
+	ParseErrors  int      `json:"parse_errors"`
 }
 
 // ReceiptQuality groups the extraction-completeness metrics — the loop signal a

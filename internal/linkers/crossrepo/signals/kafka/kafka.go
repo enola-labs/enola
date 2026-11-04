@@ -47,6 +47,10 @@ func (s *Signal) topicOwner(topic string) string {
 // reference to its OWN topic (owner == repo) is intra-repo and draws no edge, and a
 // topic owned by no loaded repo (an export sink, a third-party service) is simply
 // left unlinked.
+// CoverageEdgeType is the edge type consumed topics are counted under in a service's
+// edge_coverage.
+const CoverageEdgeType = "kafka"
+
 func (s *Signal) Contribute(in plugin.SignalInput, out plugin.EvidenceSink) {
 	producers := producerRepos(in.Facts())
 	for _, f := range in.Facts() {
@@ -54,6 +58,11 @@ func (s *Signal) Contribute(in plugin.SignalInput, out plugin.EvidenceSink) {
 			continue
 		}
 		if f.PropString("storage_kind") != facts.StorageKindTopic {
+			continue
+		}
+		// A topic named in test code (an integration suite's own config, a fixture) is
+		// the test's broker, not a dependency of the service.
+		if facts.IsTestPath(f.File) {
 			continue
 		}
 		// Historically every topic fact came from Kafka-aware code extraction.
@@ -69,16 +78,28 @@ func (s *Signal) Contribute(in plugin.SignalInput, out plugin.EvidenceSink) {
 			continue
 		}
 		label, ok := declaredProducer(producers, f.Name, f.Repo)
+		owner := ""
 		if !ok {
-			owner := s.topicOwner(f.Name)
-			if owner == "" {
-				continue
+			owner = s.topicOwner(f.Name)
+			if owner != "" {
+				label, ok = in.ResolveRepo(owner)
 			}
-			label, ok = in.ResolveRepo(owner)
 		}
-		if !ok || label == f.Repo {
-			continue // owner not loaded, or the repo's own topic (it is the producer)
+		if ok && label == f.Repo {
+			continue // the repo's own topic: it is the producer
 		}
+		// Every consumed topic is a detected outbound edge, as every client call is for
+		// HTTP: resolved when a loaded repo owns it, outside the snapshot when its name
+		// says whose it is and that repo is not loaded, unresolved otherwise.
+		cov := out.Coverage(f.Repo, CoverageEdgeType)
+		cov.Detected++
+		if !ok {
+			if owner != "" {
+				cov.Outside++
+			}
+			continue
+		}
+		cov.Resolved++
 		e := out.Edge(f.Repo, label)
 		e.Via(facts.ViaKafka)
 		e.Sample(plugin.BucketTopics, f.Name)
@@ -93,7 +114,7 @@ func producerRepos(all []facts.Fact) map[string]map[string]bool {
 		if f.Repo == "" || f.Kind != facts.KindStorage || f.PropString("storage_kind") != facts.StorageKindTopic {
 			continue
 		}
-		if f.PropString(facts.PropMessagingRole) != facts.MessagingRoleProducer {
+		if f.PropString(facts.PropMessagingRole) != facts.MessagingRoleProducer || facts.IsTestPath(f.File) {
 			continue
 		}
 		if protocol := f.PropString(facts.PropMessaging); protocol != "" && !facts.IsKafkaProtocol(protocol) {

@@ -2,6 +2,7 @@ package engine
 
 import (
 	"path/filepath"
+	"sort"
 
 	"github.com/enola-labs/enola/internal/facts"
 )
@@ -58,4 +59,42 @@ func (e *Engine) MetaFor(repoPath string) facts.SnapshotMeta {
 		return withMemberProvenance(b.snapshot.Meta, turn)
 	}
 	return b.snapshot.Meta
+}
+
+// Receipt is the current snapshot's receipt, with a member entry per repository when
+// the snapshot holds several: their provenance is each its own, and the top-level
+// fields describe only the repository indexed last.
+func (e *Engine) Receipt() facts.Receipt {
+	b := e.current.Load()
+	if b == nil || b.snapshot == nil {
+		return facts.Receipt{}
+	}
+	r := b.snapshot.Meta.Receipt()
+	if len(b.members) < 2 {
+		return r
+	}
+	for path, m := range b.members {
+		label := m.RepoLabel
+		if label == "" {
+			label = filepath.Base(path)
+		}
+		r.Members = append(r.Members, facts.MemberReceipt{
+			Repo: label, RepoPath: path, Git: m.Git, Extractors: m.Extractors,
+			FilesSeen: m.FilesSeen, FilesParsed: m.FilesParsed, FilesSkipped: m.FilesSkipped, DirsSkipped: m.DirsSkipped, ParseErrors: m.ParseErrors,
+		})
+	}
+	// The union's extraction quality is its members' together; the samples were the
+	// last member's alone, and are each member's own receipt's to give.
+	q := &r.Quality
+	q.FilesSeen, q.FilesParsed, q.FilesSkipped, q.DirsSkipped, q.ParseErrors = 0, 0, 0, 0, 0
+	q.SkippedSample, q.ParseErrorSample = nil, nil
+	for _, m := range r.Members {
+		q.FilesSeen += m.FilesSeen
+		q.FilesParsed += m.FilesParsed
+		q.FilesSkipped += m.FilesSkipped
+		q.DirsSkipped += m.DirsSkipped
+		q.ParseErrors += m.ParseErrors
+	}
+	sort.Slice(r.Members, func(i, j int) bool { return r.Members[i].Repo < r.Members[j].Repo })
+	return r
 }

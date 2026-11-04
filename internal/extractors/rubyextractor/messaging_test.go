@@ -140,3 +140,26 @@ end
 		t.Errorf("got %v, want only %q", got, want)
 	}
 }
+
+// An ENV lookup in a topic names the variable: `#{ENV.fetch('SHOP_ENV')}` and
+// `#{ENV['SHOP_ENV']}` are {shop_env}, not {fetch} or {env}.
+func TestRubyMessaging_EnvLookupPlaceholderIsTheKey(t *testing.T) {
+	src := `class Billing::Subscriptions
+  def run
+    Broker.publish_event(payload, topic: "shop.#{ENV.fetch('SHOP_ENV')}.orders.closed")
+    Broker.publish_event(payload, topic: "shop.#{ENV['SHOP_ENV']}.orders.opened")
+    Broker.publish_event(payload, topic: "shop.#{ENV.fetch("SHOP_ENV", "dev")}.orders.held")
+  end
+end
+`
+	got := messagingOps(rubyMessaging(src, "app/billing/subscriptions.rb"))
+	for _, w := range []string{
+		"publish shop.{shop_env}.orders.closed Billing::Subscriptions#run",
+		"publish shop.{shop_env}.orders.opened Billing::Subscriptions#run",
+		"publish shop.{shop_env}.orders.held Billing::Subscriptions#run",
+	} {
+		if !got[w] {
+			t.Errorf("missing %q in %v", w, got)
+		}
+	}
+}

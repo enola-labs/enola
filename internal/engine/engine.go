@@ -1001,11 +1001,15 @@ func (e *Engine) WriteArtifacts(repoPath string) error {
 	factsPath := filepath.Join(outDir, "facts.jsonl")
 	var factsHash string
 	if e.lastFacts.store == b.store && e.lastFacts.path != factsPath && fileExists(e.lastFacts.path) {
-		if err := copyFile(e.lastFacts.path, factsPath); err != nil {
+		// Linked, not copied: twenty repositories of one cluster each held their own
+		// copy of a 0.8 GB union. Every writer replaces facts.jsonl by renaming a new
+		// file over it, so a later write to one repository's dir never reaches the
+		// others through the shared file.
+		if err := linkOrCopyFile(e.lastFacts.path, factsPath); err != nil {
 			return fmt.Errorf("copying facts.jsonl: %w", err)
 		}
 		factsHash = e.lastFacts.digest
-		log.Printf("[engine] wrote %s (copied from this run's first write)", factsPath)
+		log.Printf("[engine] wrote %s (linked to this run's first write)", factsPath)
 	} else {
 		var err error
 		factsHash, err = writeFactsJSONL(b.store, factsPath)
@@ -1133,7 +1137,10 @@ func fileExists(path string) bool {
 // Durability is deliberately unchanged from the os.WriteFile this replaced: neither is
 // atomic, and making facts.jsonl atomic is a separate decision from making it cheap.
 func writeFactsJSONL(store *facts.Store, path string) (string, error) {
-	f, err := os.Create(path)
+	// Written beside and renamed over: the file at path may be linked from other
+	// repositories' dirs of a cluster, and truncating it in place would rewrite theirs.
+	tmp := path + ".tmp"
+	f, err := os.Create(tmp)
 	if err != nil {
 		return "", fmt.Errorf("creating facts.jsonl: %w", err)
 	}
@@ -1148,6 +1155,9 @@ func writeFactsJSONL(store *facts.Store, path string) (string, error) {
 		return "", fmt.Errorf("writing facts.jsonl: %w", err)
 	}
 	if err := f.Close(); err != nil {
+		return "", fmt.Errorf("writing facts.jsonl: %w", err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
 		return "", fmt.Errorf("writing facts.jsonl: %w", err)
 	}
 	return hashPrefix + hex.EncodeToString(h.Sum(nil)), nil
@@ -1187,7 +1197,7 @@ func (e *Engine) GetArtifact(name string) ([]byte, error) {
 	case "snapshot.meta.json":
 		return json.MarshalIndent(b.snapshot.Meta, "", "  ")
 	case "receipt.json":
-		return json.MarshalIndent(b.snapshot.Meta.Receipt(), "", "  ")
+		return json.MarshalIndent(e.Receipt(), "", "  ")
 	default:
 		for _, a := range b.snapshot.Artifacts {
 			if a.Name == name {

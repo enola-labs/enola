@@ -278,3 +278,41 @@ func TestExtract_SkipsTestdataFixtures(t *testing.T) {
 		}
 	}
 }
+
+// A bundler's output, committed beside the sources it was built from, declares the
+// same operations again; it is read once. A file under a bundle directory with
+// operations of its own is a spec like any other.
+func TestBundledCopyOfASpecIsReadOnce(t *testing.T) {
+	repo := t.TempDir()
+	spec := "openapi: 3.0.0\npaths:\n  /orders:\n    get:\n      summary: list\n    post:\n      summary: create\n"
+	writeSpec(t, repo, "openapi/orders-api.yaml", spec)
+	writeSpec(t, repo, "openapi/bundled/orders-api.yaml", spec)
+	writeSpec(t, repo, "openapi/bundled/admin-api.yaml", "openapi: 3.0.0\npaths:\n  /admin/orders:\n    get:\n      summary: list\n")
+	got := map[string]int{}
+	for _, f := range extract(t, repo) {
+		if f.Kind == facts.KindRoute {
+			got[f.File]++
+		}
+	}
+	if got["openapi/orders-api.yaml"] != 2 || got["openapi/bundled/orders-api.yaml"] != 0 || got["openapi/bundled/admin-api.yaml"] != 1 {
+		t.Errorf("routes per spec file = %v", got)
+	}
+}
+
+// The path every server of a spec shares is where its paths are served; servers that
+// disagree, or name a host alone, give none.
+func TestServerBase(t *testing.T) {
+	repo := t.TempDir()
+	writeSpec(t, repo, "openapi/stores.yaml", "openapi: 3.0.0\nservers:\n  - url: http://127.0.0.1:8080/stores/v1\n  - url: https://stores.example.com/stores/v1/\npaths:\n  /holidays:\n    get:\n      summary: list\n")
+	writeSpec(t, repo, "openapi/desk.yaml", "openapi: 3.0.0\nservers:\n  - url: https://desk.example.com\npaths:\n  /tickets:\n    get:\n      summary: list\n")
+	writeSpec(t, repo, "openapi/mixed.yaml", "openapi: 3.0.0\nservers:\n  - url: http://a.example.com/v1\n  - url: http://b.example.com/v2\npaths:\n  /things:\n    get:\n      summary: list\n")
+	got := map[string]string{}
+	for _, f := range extract(t, repo) {
+		if f.Kind == facts.KindRoute {
+			got[f.Name] = f.PropString("server_base")
+		}
+	}
+	if got["/holidays"] != "/stores/v1" || got["/tickets"] != "" || got["/things"] != "" {
+		t.Errorf("server_base = %v", got)
+	}
+}
