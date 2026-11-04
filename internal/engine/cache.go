@@ -3407,7 +3407,13 @@ import (
 // another (`const e = await getEngine()`, `Registry.default()`, `make().session()`), is
 // typed by its return annotation, `Promise<T>` read as T once awaited, or by the class
 // every return constructs, so calls on it resolve.
-const cacheVersion = "v526"
+// v527: Kotlin: a local or property bound to what a function or method returns
+// (`val e = makeEngine()`, `Registry.default()`, `Pool.create()`, `make().session()`) is
+// typed by its declared return type, the class an expression body constructs, or for a
+// builder's `= apply { … }` and `= this` the class it is declared in, so calls on it
+// resolve. A class reached by name (`Outer.Builder(…)`) is constructed, and a simple
+// return type names a nested class of the function's own class first.
+const cacheVersion = "v527"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

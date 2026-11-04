@@ -981,6 +981,13 @@ func (w *astWalker) handleFunctionDeclaration(node *sitter.Node) {
 		f.SetProp("io_direct", true)
 		f.SetProp("performs_io", true)
 	}
+	owner := ""
+	if len(w.typeStack) > 0 {
+		owner = strings.TrimSuffix(f.Name, "."+name)
+	}
+	if t := w.functionReturnType(node, owner); t != "" {
+		f.SetProp(propReturnType, t)
+	}
 
 	w.out = append(w.out, f)
 	ownerIdx := len(w.out) - 1

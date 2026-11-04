@@ -173,6 +173,9 @@ func (w *astWalker) bindProperty(into map[string]string, prop *sitter.Node) {
 	if t == "" && firstTypeChild(vd) == nil {
 		t = w.constructedType(prop)
 	}
+	if t == "" && firstTypeChild(vd) == nil {
+		t = w.initializerCallType(prop)
+	}
 	if t != "" {
 		into[nodeText(name, w.src)] = t
 	} else {
@@ -237,6 +240,10 @@ func (w *astWalker) bindParameters(fn *sitter.Node) {
 func (w *astWalker) receiverType(recv *sitter.Node) string {
 	if recv == nil {
 		return ""
+	}
+	// `make().run()`: what the call returns (factoryreturns.go).
+	if kindOf(recv) == "call_expression" {
+		return w.callResultType(recv)
 	}
 	if kotlinIsIdentifier(recv) {
 		name := nodeText(recv, w.src)
@@ -391,12 +398,22 @@ func resolveTypedCalls(all []facts.Fact) {
 	}
 
 	memberTypes := map[string]map[string]string{}
+	returns := map[string]string{}
+	classes := map[string]bool{}
 	for i := range all {
+		if all[i].Kind == facts.KindSymbol && all[i].PropString("symbol_kind") == facts.SymbolClass {
+			classes[all[i].Name] = true
+		}
 		if m, ok := all[i].PropAny(propMemberTypes).(map[string]string); ok {
 			memberTypes[all[i].Name] = m
 			all[i].DelProp(propMemberTypes)
 		}
+		if t, ok := all[i].PropAny(propReturnType).(string); ok {
+			returns[all[i].Name] = t
+			all[i].DelProp(propReturnType)
+		}
 	}
+	rt := returnTypes{returns: returns, exists: exists, classes: classes, declaring: declaring}
 	// target is the method a call of method on a typ reaches: one the type declares,
 	// or, where method names a property of the type, that property's operator
 	// invoke: `bundle.loadOrders(id)` on a bundle whose loadOrders is a use case.
@@ -404,7 +421,7 @@ func resolveTypedCalls(all []facts.Fact) {
 		if t := declaring(typ, method); t != "" {
 			return t
 		}
-		if pt := memberTypes[typ][method]; pt != "" && exists[pt] {
+		if pt := rt.typeOf(memberTypes[typ][method]); pt != "" && exists[pt] {
 			return declaring(pt, "invoke")
 		}
 		return ""
@@ -426,6 +443,7 @@ func resolveTypedCalls(all []facts.Fact) {
 			if c.via != "" {
 				c.typ = memberTypes[c.typ][c.via]
 			}
+			c.typ = rt.typeOf(c.typ)
 			if !exists[c.typ] {
 				continue
 			}
@@ -507,6 +525,13 @@ func resolveSplitPackages(all []facts.Fact, siblings map[string][]string) {
 	}
 	exists := func(name string) bool { return names[name] }
 	split := func(target string) string { return jvmsrc.SplitTarget(target, siblings, exists) }
+	// A marked type (factoryreturns.go) is re-homed by the function it starts from.
+	splitType := func(t string) string {
+		if i := strings.Index(t, callMark); i > 0 {
+			return split(t[:i]) + t[i:]
+		}
+		return split(t)
+	}
 	for i := range all {
 		f := &all[i]
 		for j := range f.Relations {
@@ -531,8 +556,11 @@ func resolveSplitPackages(all []facts.Fact, siblings map[string][]string) {
 		}
 		if calls, ok := f.PropAny(propTypedCalls).([]typedCall); ok {
 			for k := range calls {
-				calls[k].typ = split(calls[k].typ)
+				calls[k].typ = splitType(calls[k].typ)
 			}
+		}
+		if t, ok := f.PropAny(propReturnType).(string); ok {
+			f.SetProp(propReturnType, split(t))
 		}
 		if cands, ok := f.PropAny(propCapitalCalls).([]string); ok {
 			for k := range cands {
