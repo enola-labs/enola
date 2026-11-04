@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -29,6 +30,7 @@ func (r *Runner) GC(args []string) {
 		dryRun       = fs.Bool("dry-run", false, "report what would be removed and change nothing")
 		olderThan    = fs.String("thin-older-than", "", "drop the stored contents of revisions older than this (e.g. 90d, 720h); their summary lines stay")
 		pruneWorking = fs.Bool("prune-working", false, "remove working revisions (snapshots of uncommitted trees) from the log entirely")
+		only         = fs.String("repo", "", "in a cluster, collect only this member (its folder name)")
 	)
 	fs.Usage = func() {
 		fmt.Fprint(os.Stderr,
@@ -59,6 +61,15 @@ func (r *Runner) GC(args []string) {
 	if err != nil {
 		r.gcFatal("cannot locate the history: %v", err)
 	}
+	if *only != "" {
+		if scope.cluster == "" {
+			r.gcFatal("--repo picks a member of a cluster, and %s is one repository", scope.repos[0])
+		}
+		roots = rootsFor(roots, *only)
+		if len(roots) == 0 {
+			r.gcFatal("no repository %q in %s; members: %s", *only, scope.cluster, strings.Join(memberLabels(scope.repos), ", "))
+		}
+	}
 
 	opts := inthistory.GCOptions{DryRun: *dryRun, PruneWorking: *pruneWorking}
 	if *olderThan != "" {
@@ -69,7 +80,7 @@ func (r *Runner) GC(args []string) {
 		opts.ThinOlderThan = d
 	}
 
-	if scope.cluster == "" {
+	if scope.cluster == "" || *only != "" {
 		rep, err := inthistory.GC(roots[0].root, opts)
 		if err != nil {
 			r.gcFatal("%v", err)
@@ -188,4 +199,24 @@ func pluralY(n int) string {
 		return "y"
 	}
 	return "ies"
+}
+
+// rootsFor keeps the history that the member labelled label records into.
+func rootsFor(roots []historyRoot, label string) []historyRoot {
+	for _, hr := range roots {
+		for _, l := range hr.labels {
+			if l == label {
+				return []historyRoot{hr}
+			}
+		}
+	}
+	return nil
+}
+
+func memberLabels(repos []string) []string {
+	out := make([]string, len(repos))
+	for i, r := range repos {
+		out[i] = filepath.Base(r)
+	}
+	return out
 }

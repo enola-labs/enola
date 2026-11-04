@@ -22,6 +22,8 @@ Flags:
     	report what would be removed and change nothing
   -prune-working
     	remove working revisions (snapshots of uncommitted trees) from the log entirely
+  -repo string
+    	in a cluster, collect only this member (its folder name)
   -thin-older-than string
     	drop the stored contents of revisions older than this (e.g. 90d, 720h); their summary lines stay
 

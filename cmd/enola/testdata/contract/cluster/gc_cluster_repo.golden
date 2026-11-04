@@ -1,0 +1,13 @@
+$ enola gc --dry-run --repo consumer cluster.yaml
+exit: 0
+--- stdout
+<TMP>/.enola/graphs/consumer-<KEY>/history
+
+  revisions      3
+    with contents 3  (replayable)
+    working      3  (snapshots of uncommitted trees)
+  segments       1
+  stored         7 KB
+
+Nothing to remove.
+--- stderr

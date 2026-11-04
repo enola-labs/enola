@@ -479,6 +479,8 @@ func TestCLIContract_Cluster(t *testing.T) {
 		{"folder_autocluster_generate", []string{"--generate", "."}},
 		{"gc_cluster_config", []string{"gc", "--dry-run", "cluster.yaml"}},
 		{"gc_cluster_folder", []string{"gc", "--dry-run"}},
+		{"gc_cluster_repo", []string{"gc", "--dry-run", "--repo", "consumer", "cluster.yaml"}},
+		{"gc_cluster_repo_unknown", []string{"gc", "--repo", "nope", "cluster.yaml"}},
 	})
 }
 

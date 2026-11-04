@@ -147,7 +147,7 @@ garbage; `--thin-older-than=90d` drops old contents while keeping the timeline, 
 A cluster snapshot records into each member repository's own history, so `enola gc cluster.yaml`
 collects every member and prints a total. Run from a folder of repositories with no argument, it
 uses the folder's `cluster.yaml`, or else the git repositories directly under it, the same set
-`--generate` indexes there.
+`--generate` indexes there. `--repo <name>` collects one member only.
 
 ---
 
