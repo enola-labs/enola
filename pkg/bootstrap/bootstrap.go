@@ -486,6 +486,8 @@ func RecordHistory(eng *engine.Engine, cfg *config.Config) {
 			Snapshot:    rec.Snapshot,
 			FactsPath:   rec.FactsPath,
 			PreviousDir: rec.PreviousDir,
+			Members:     rec.Members,
+			PriorDirs:   rec.PriorDirs,
 			Parents:     rec.Parents,
 			Repos: func() []pkghistory.RepoRef {
 				states := rec.Repos()

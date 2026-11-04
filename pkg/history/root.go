@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -61,8 +62,11 @@ func Root(repoPath, override string) (string, error) {
 // divergence would be untidy rather than wrong.
 func workspaceKey(absRepoPath string) string {
 	sum := sha256.Sum256([]byte(absRepoPath))
-	short := hex.EncodeToString(sum[:])[:8]
+	return keyName(filepath.Base(absRepoPath)) + "-" + hex.EncodeToString(sum[:])[:8]
+}
 
+// keyName sanitizes a folder name for use in a directory key.
+func keyName(name string) string {
 	base := strings.Map(func(r rune) rune {
 		switch {
 		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
@@ -72,11 +76,11 @@ func workspaceKey(absRepoPath string) string {
 		default:
 			return '_'
 		}
-	}, filepath.Base(absRepoPath))
+	}, name)
 	if base == "" {
 		base = "repo"
 	}
-	return base + "-" + short
+	return base
 }
 
 // canonicalRepoPath normalizes a repo path so the same workspace always maps to the same
@@ -91,4 +95,71 @@ func canonicalRepoPath(p string) string {
 		return resolved
 	}
 	return abs
+}
+
+// ClusterDirName holds cluster histories under a configured history dir.
+const ClusterDirName = "clusters"
+
+// ClusterRoot returns the directory holding the architecture history of a multi-repo
+// graph: the revisions recorded from snapshots of all of members together.
+//
+// A cluster revision used to be appended to every member's own history, which stored the
+// same union N times and mixed it into each member's single-repository timeline, where
+// the step between a member alone and the whole cluster read as tens of thousands of
+// facts appearing and vanishing. A cluster has one history of its own instead.
+//
+// It is keyed by the member set, not by the cluster config: the same repositories are
+// the same graph whether they were indexed from a cluster.yaml, a folder of
+// repositories, or a list passed over MCP, and only the member set is known in all
+// three. The readable part of the name is the members' common parent folder.
+//
+// With history.dir set, it lives under that member-independent part of the first
+// member's root, in clusters/<key>; segments are only ever read from seg/, so a
+// subdirectory of a history root is never mistaken for one.
+func ClusterRoot(members []string, override string) (string, error) {
+	if len(members) == 0 {
+		return "", fmt.Errorf("a cluster history needs its members")
+	}
+	canon := make([]string, len(members))
+	for i, m := range members {
+		canon[i] = canonicalRepoPath(m)
+	}
+	sort.Strings(canon)
+	key := clusterKey(canon)
+	if override != "" {
+		root, err := Root(canon[0], override)
+		if err != nil {
+			return "", err
+		}
+		return filepath.Join(root, ClusterDirName, key), nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("resolving home dir: %w", err)
+	}
+	return filepath.Join(home, ".enola", "graphs", key, "history"), nil
+}
+
+// clusterKey names a sorted member set: the common parent folder's sanitized name and a
+// short hash of every member path.
+func clusterKey(sorted []string) string {
+	sum := sha256.Sum256([]byte(strings.Join(sorted, "\n")))
+	short := hex.EncodeToString(sum[:])[:8]
+	parent := commonDir(sorted)
+	name := "cluster"
+	if base := filepath.Base(parent); base != string(filepath.Separator) && base != "." {
+		name = base
+	}
+	return keyName(name) + "-cluster-" + short
+}
+
+// commonDir is the deepest folder containing every path.
+func commonDir(paths []string) string {
+	dir := filepath.Dir(paths[0])
+	for _, p := range paths[1:] {
+		for dir != filepath.Dir(dir) && !strings.HasPrefix(p+string(filepath.Separator), dir+string(filepath.Separator)) {
+			dir = filepath.Dir(dir)
+		}
+	}
+	return dir
 }

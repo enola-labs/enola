@@ -144,14 +144,28 @@ length: a revision is stored as a patch against the previous one, with a full co
 garbage; `--thin-older-than=90d` drops old contents while keeping the timeline, and
 `--prune-working` discards uncommitted-tree snapshots.
 
-A cluster snapshot records into each member repository's own history, so `enola gc cluster.yaml`
-collects every member and prints a total. Run from a folder of repositories with no argument, it
-uses the folder's `cluster.yaml`, or else the git repositories directly under it, the same set
-`--generate` indexes there. `--repo <name>` collects one member only.
+### Clusters
 
-`log`, `show`, `diff` and `blame` resolve a cluster or a folder of repositories the same way and
-read the first member that has a history, naming it on stderr. `log --backfill` refuses a cluster:
-pass the member's path.
+A cluster has a history of its own: every snapshot of its repositories together is one revision
+in `~/.enola/graphs/<folder>-cluster-<hash>/history/`, keyed by the member set, so the same
+repositories land in one history whether they were indexed from a `cluster.yaml`, a folder of
+repositories, or a list over MCP. With `history.dir` set it is `<that dir>/clusters/<key>/`. Each
+member's history holds only the snapshots of that member alone. Cluster snapshots taken before
+this were appended to every member's history, and stay readable there through a member's path.
+
+A revision's delta is computed against the history's own latest revision, never against
+whatever the output directory held before. A member snapshotted alone after its cluster holds
+the cluster's union there, and comparing the two reported the switch of scope as tens of thousands
+of facts appearing and vanishing. When that revision is on disk nowhere, it is rebuilt from the
+history's stored contents; a history that kept only the summary line records the revision with
+"no comparable predecessor".
+
+`log`, `show`, `diff` and `blame` on a cluster config or a folder of repositories read the
+cluster's history, and a member's path reads that member alone. `enola gc cluster.yaml`, or `enola
+gc` run from the folder, collects the cluster's history and every member's and prints a total;
+`--repo <name>` collects one member. A folder with no `cluster.yaml` stands for the git
+repositories directly under it, the same set `--generate` indexes there. `log --backfill` refuses
+a cluster: pass the member's path.
 
 ---
 

@@ -129,15 +129,34 @@ func (r *Runner) scopeOf(cmd string, cfg *config.Config) historyScope {
 }
 
 // historyRoot is one history directory and the repositories that record into it. Members
-// share one only when history.dir is an absolute path.
+// share one only when history.dir is an absolute path. cluster marks the history of the
+// members together, recorded from snapshots of the whole cluster.
 type historyRoot struct {
-	root   string
-	labels []string
+	root    string
+	labels  []string
+	cluster bool
 }
 
-// roots returns the distinct history directories of the scope, in repository order.
+// root is the history a reader shows for the scope: the cluster's own for a cluster,
+// the repository's otherwise.
+func (s historyScope) root() (string, error) {
+	if s.cluster != "" {
+		return history.ClusterRoot(s.repos, s.cfg.History.Dir)
+	}
+	return history.Root(s.repos[0], s.cfg.History.Dir)
+}
+
+// roots returns every history directory of the scope: for a cluster its own history
+// first, then each member's, in repository order and without duplicates.
 func (s historyScope) roots() ([]historyRoot, error) {
 	var out []historyRoot
+	if s.cluster != "" {
+		root, err := history.ClusterRoot(s.repos, s.cfg.History.Dir)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, historyRoot{root: root, labels: memberLabels(s.repos), cluster: true})
+	}
 	at := map[string]int{}
 	for _, repo := range s.repos {
 		root, err := history.Root(repo, s.cfg.History.Dir)
@@ -153,4 +172,23 @@ func (s historyScope) roots() ([]historyRoot, error) {
 		out = append(out, historyRoot{root: root, labels: []string{label}})
 	}
 	return out, nil
+}
+
+// historyRootOf resolves a history reader's argument to the path it reports on, the
+// history directory to read, and the config in force. For a cluster the path is the
+// folder holding the cluster config, or the folder of repositories.
+func (r *Runner) historyRootOf(cmd, arg string) (string, string, *config.Config) {
+	scope := r.historyTargetOf(cmd, arg)
+	root, err := scope.root()
+	if err != nil {
+		r.cmdFatal(cmd, "cannot locate the history: %v", err)
+	}
+	if scope.cluster != "" {
+		dir := scope.cluster
+		if !isDirectory(dir) {
+			dir = filepath.Dir(dir)
+		}
+		return dir, root, scope.cfg
+	}
+	return scope.repos[0], root, scope.cfg
 }

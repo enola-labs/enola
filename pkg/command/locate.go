@@ -185,11 +185,7 @@ func (r *Runner) locateFacts(ctx context.Context, repoArg, at, factsPath string,
 		return snap.Facts, nil, nil
 	}
 	if at != "" {
-		repoPath, cfg := r.logTarget(repoArg)
-		root, err := history.Root(repoPath, cfg.History.Dir)
-		if err != nil {
-			return nil, nil, fmt.Errorf("cannot locate the history: %w", err)
-		}
+		repoPath, root, _ := r.historyRootOf("locate", repoArg)
 		entries, err := history.Read(root)
 		if err != nil {
 			if errors.Is(err, history.ErrNoHistory) {

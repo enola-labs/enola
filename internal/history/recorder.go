@@ -41,6 +41,12 @@ type Record struct {
 	FactsPath string
 	// PreviousDir holds the rotated preceding snapshot, the parent revision.
 	PreviousDir string
+	// Members are a multi-repo graph's repositories, sorted; nil for one repository.
+	// Such a graph is recorded once, into its own history (pkghistory.ClusterRoot).
+	Members []string
+	// PriorDirs are the other output directories that may hold the graph's preceding
+	// snapshot; see engine.SnapshotRecord.
+	PriorDirs []string
 	// Parents and Repos are asked for only when a revision is actually appended, since
 	// each costs a git invocation and a cluster writes one union many times.
 	Parents func() []string
@@ -83,7 +89,13 @@ func (r *Recorder) Record(rec Record) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	root, err := pkghistory.Root(rec.RepoPath, r.opts.Dir)
+	var root string
+	var err error
+	if len(rec.Members) > 1 {
+		root, err = pkghistory.ClusterRoot(rec.Members, r.opts.Dir)
+	} else {
+		root, err = pkghistory.Root(rec.RepoPath, r.opts.Dir)
+	}
 	if err != nil {
 		log.Printf("[history] warning: cannot locate history dir: %v", err)
 		return
@@ -97,13 +109,22 @@ func (r *Recorder) Record(rec Record) {
 	current := *rec.Snapshot
 	current.Meta = rec.Meta
 
+	last, hasLast := lastEntry(root)
+	var previous *previousSide
+	if hasLast {
+		previous = predecessor(rec, root, last)
+	}
+	summary := r.summarizeOnce(&current, previous)
+	if previous == nil && hasLast {
+		summary.Initial, summary.NoBase = false, true
+	}
 	entry := pkghistory.Entry{
 		ID:      rec.Meta.SnapshotID,
 		Repo:    facts.RepoIdentity(rec.Meta),
 		At:      rec.Meta.GeneratedAt,
 		Epoch:   pkghistory.Epoch(rec.Meta),
 		Git:     rec.Meta.Git,
-		Summary: r.summarizeOnce(&current, previousSideFor(rec.PreviousDir)),
+		Summary: summary,
 	}
 	if rec.Parents != nil {
 		entry.Parents = rec.Parents()
@@ -188,6 +209,50 @@ func readLines(path string) ([]string, error) {
 		return nil, err
 	}
 	return lines, nil
+}
+
+// lastEntry is the revision last written to the history at root.
+func lastEntry(root string) (pkghistory.Entry, bool) {
+	entries, err := pkghistory.Read(root)
+	if err != nil || len(entries) == 0 {
+		return pkghistory.Entry{}, false
+	}
+	return entries[len(entries)-1], true
+}
+
+// predecessor finds the history's latest revision as a side a delta can be computed
+// against, or nil when there is none to compare with.
+//
+// previous/ is whatever this output directory held before, and that is not always the
+// history's parent: a member snapshotted alone after its cluster holds the cluster's
+// union there, and the cluster history's own parent may sit in any member's directory,
+// rotated or not yet rewritten in this run. Comparing across those scopes reported tens
+// of thousands of facts appearing and vanishing at every switch. A snapshot on disk
+// whose id is the latest revision's is that revision; failing that, the revision is
+// rebuilt from the history's stored contents, which costs a replay and is needed only
+// after a switch of scope.
+func predecessor(rec Record, root string, last pkghistory.Entry) *previousSide {
+	dirs := rec.PriorDirs
+	if len(dirs) == 0 {
+		dirs = []string{rec.PreviousDir}
+	}
+	for _, dir := range dirs {
+		if dir == "" {
+			continue
+		}
+		if p := previousSideFor(dir); p != nil && p.meta.SnapshotID == last.ID {
+			return p
+		}
+	}
+	if last.Blob == nil {
+		return nil
+	}
+	snap, err := pkghistory.Load(root, last)
+	if err != nil {
+		log.Printf("[history] warning: could not rebuild revision %s to compare against: %v", last.Short(), err)
+		return nil
+	}
+	return &previousSide{facts: diff.SliceSource(snap.Facts), insights: snap.Insights, meta: snap.Meta}
 }
 
 // previousSide describes the rotated preceding snapshot WITHOUT its facts: the small

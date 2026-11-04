@@ -57,8 +57,8 @@ func TestDeferLinking_ClusterEndsInTheSameUnion(t *testing.T) {
 }
 
 // A cluster writes its one union to every repository's output dir. The second
-// dir gets byte-identical facts.jsonl under the same digest, and a history store
-// those dirs share records the revision once, not once per dir.
+// dir gets byte-identical facts.jsonl under the same digest, and the revision is
+// recorded once, into the cluster's history, not once per dir.
 func TestWriteArtifacts_SameBundleToManyDirsWritesOnceAndRecordsOnce(t *testing.T) {
 	repoA, repoB := freezeTestRepo(t), freezeTestRepo(t)
 	historyRoot := t.TempDir()
@@ -99,11 +99,20 @@ func TestWriteArtifacts_SameBundleToManyDirsWritesOnceAndRecordsOnce(t *testing.
 		t.Fatalf("facts.jsonl differs between dirs (%d vs %d bytes)", len(factsA), len(factsB))
 	}
 
-	entries, err := pkghistory.Read(historyRoot)
+	// The union is the cluster's revision: recorded once into the cluster's own history,
+	// and into neither member's.
+	clusterRoot, err := pkghistory.ClusterRoot([]string{repoA, repoB}, historyRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries, err := pkghistory.Read(clusterRoot)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(entries) != 1 {
-		t.Fatalf("shared history has %d revisions after one cluster write, want 1", len(entries))
+		t.Fatalf("cluster history has %d revisions after one cluster write, want 1", len(entries))
+	}
+	if _, err := pkghistory.Read(historyRoot); err == nil {
+		t.Errorf("the members' shared history must hold no cluster revision")
 	}
 }

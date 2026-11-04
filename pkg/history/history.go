@@ -168,6 +168,13 @@ type Summary struct {
 	// extractor set, edited ignore globs). The counts are real arithmetic over two fact
 	// sets and a fiction as a description of anyone's change.
 	Incomparable bool `json:"incomparable,omitempty"`
+
+	// NoBase marks a revision whose predecessor in this history could not be compared:
+	// the snapshot on disk before it was of another scope (the cluster, when this is one
+	// of its members alone, or the reverse) or newer than anything recorded. Its counts
+	// describe the whole graph. A delta against that snapshot would report the step
+	// between two scopes as an architectural change.
+	NoBase bool `json:"no_base,omitempty"`
 }
 
 // Empty reports whether a revision changed nothing structural.
@@ -186,6 +193,9 @@ func (s Summary) Empty() bool {
 func (s Summary) Headline() string {
 	if s.Initial {
 		return fmt.Sprintf("initial: %d facts, %d findings", s.FactCount, s.InsightCount)
+	}
+	if s.NoBase {
+		return fmt.Sprintf("%d facts, %d findings (no comparable predecessor)", s.FactCount, s.InsightCount)
 	}
 	var parts []string
 	if s.FindingsNew > 0 {

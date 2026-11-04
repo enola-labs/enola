@@ -92,12 +92,7 @@ func (r *Runner) Log(args []string) {
 		return
 	}
 
-	repoPath, cfg := r.logTarget(arg)
-
-	root, err := history.Root(repoPath, cfg.History.Dir)
-	if err != nil {
-		r.logFatal("cannot locate the history: %v", err)
-	}
+	repoPath, root, cfg := r.historyRootOf("log", arg)
 	entries, err := history.Read(root)
 	if err != nil {
 		if errors.Is(err, history.ErrNoHistory) {
@@ -209,6 +204,14 @@ func (r *Runner) clusterMember(scope historyScope) string {
 // snapshot, not a setting. Being told to enable something that is already enabled is how
 // a diagnostic becomes noise.
 func (r *Runner) reportNoHistory(repoPath, root string, cfg *config.Config) {
+	if len(cfg.Repos) > 1 && cfg.HistoryEnabled() {
+		fmt.Fprintf(os.Stderr, "No architecture history for the cluster in %s.\n\n"+
+			"A cluster's history holds snapshots of all its repositories together. Run\n"+
+			"`%s --generate` over the cluster and the first revision lands in\n%s\n\n"+
+			"Cluster snapshots taken before enola kept one history per cluster were recorded\n"+
+			"into each member's own history; pass a member's path to read them.\n", repoPath, r.name(), root)
+		return
+	}
 	fmt.Fprintf(os.Stderr, "No architecture history for %s.\n", repoPath)
 	if !cfg.HistoryEnabled() {
 		fmt.Fprintf(os.Stderr,

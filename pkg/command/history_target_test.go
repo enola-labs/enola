@@ -98,7 +98,7 @@ func TestHistoryTarget_RepoStaysSingle(t *testing.T) {
 }
 
 // An absolute history.dir is shared by every member; it is one history and is collected
-// once.
+// once, beside the cluster's own.
 func TestHistoryRoots_SharedDirCollectedOnce(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	dir, _ := filepath.EvalSymlinks(t.TempDir())
@@ -114,7 +114,10 @@ func TestHistoryRoots_SharedDirCollectedOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(roots) != 1 || roots[0].root != shared || !equalStrings(roots[0].labels, []string{"api", "web"}) {
-		t.Errorf("roots = %+v, want one shared root labelled [api web]", roots)
+	if len(roots) != 2 || !roots[0].cluster {
+		t.Fatalf("roots = %+v, want the cluster's own history, then the shared one", roots)
+	}
+	if roots[1].root != shared || !equalStrings(roots[1].labels, []string{"api", "web"}) {
+		t.Errorf("members' root = %+v, want one shared root labelled [api web]", roots[1])
 	}
 }

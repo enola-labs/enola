@@ -1099,7 +1099,10 @@ func (e *Engine) WriteArtifacts(repoPath string) error {
 	// come from the artifact itself. It also costs nothing when history blobs are off,
 	// which the previous arrangement could not manage.
 	if e.recordSnapshot != nil && b.snapshot != nil {
+		members, priorDirs := clusterLayout(b, e.cfg.Output.Dir, absRepo)
 		e.recordSnapshot(SnapshotRecord{
+			Members:     members,
+			PriorDirs:   priorDirs,
 			RepoPath:    repoPath,
 			Meta:        meta,
 			Snapshot:    b.snapshot,

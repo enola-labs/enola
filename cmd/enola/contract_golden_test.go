@@ -107,7 +107,7 @@ var cliNormalizers = []struct {
 	// changes that leave every answer alone.
 	{regexp.MustCompile(`\bv\d{3,}\b`), "<EXTRACTOR_VERSION>"},
 	// The per-workspace directory is keyed on a hash of the repository's absolute path.
-	{regexp.MustCompile(`(\.enola/graphs/[\w.]+)-[0-9a-f]{8}\b`), "$1-<KEY>"},
+	{regexp.MustCompile(`(\.enola/graphs/[\w.-]+)-[0-9a-f]{8}\b`), "$1-<KEY>"},
 	// doctor reports the machine's memory.
 	{regexp.MustCompile(`soft memory limit .*`), "soft memory limit <MACHINE>"},
 	{regexp.MustCompile(`"memory_limit": \d+`), `"memory_limit": "<MACHINE>"`},

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -96,39 +97,61 @@ func (s *Server) registerHistoryTools() {
 }
 
 // readHistory resolves the repository and loads its recorded entries. note is a line to
-// put before the answer when the path named a cluster rather than one repository.
+// put before the answer when the target is a cluster, whose history is its own: the
+// snapshots of all its members together, which no member's history holds.
 func (s *Server) readHistory(repoPath string) (entries []history.Entry, root, note string, err error) {
-	if repoPath == "" {
+	historyDir := s.cfg.History.Dir
+	var members []string
+	source := ""
+	if repoPath == "" && s.eng != nil {
+		// A loaded multi-repo graph is a cluster whatever path its meta names.
+		if paths := s.eng.RepoPaths(); len(paths) > 1 {
+			for _, p := range paths {
+				members = append(members, p)
+			}
+			sort.Strings(members)
+			source = "the loaded graph"
+		}
+	}
+	if repoPath == "" && len(members) == 0 {
 		repoPath = s.currentRepoPath()
 	}
-	if repoPath == "" {
+	if repoPath == "" && len(members) == 0 {
 		return nil, "", "", errors.New("no repository to read a history for — run generate_snapshot first, or pass repo_path")
 	}
-	historyDir := s.cfg.History.Dir
-	members, source, dir, err := clusterMembers(repoPath)
-	if err != nil {
-		return nil, "", "", err
-	}
-	if len(members) > 0 {
+	if len(members) == 0 {
+		var dir string
+		members, source, dir, err = clusterMembers(repoPath)
+		if err != nil {
+			return nil, "", "", err
+		}
 		if dir != "" {
 			historyDir = dir
 		}
-		repoPath = firstWithHistory(members, historyDir)
+	}
+
+	if len(members) > 0 {
 		names := make([]string, len(members))
 		for i, m := range members {
 			names[i] = filepath.Base(m)
 		}
-		note = fmt.Sprintf("Cluster %s: reading the history of %s (members: %s). A cluster snapshot records into every member; pass a member's path for another.\n\n",
-			source, filepath.Base(repoPath), strings.Join(names, ", "))
+		note = fmt.Sprintf("Cluster %s (members: %s): its own history, of snapshots of all members together. A member's path reads that member alone.\n\n",
+			source, strings.Join(names, ", "))
+		root, err = history.ClusterRoot(members, historyDir)
+	} else {
+		root, err = history.Root(repoPath, historyDir)
 	}
-	root, err = history.Root(repoPath, historyDir)
 	if err != nil {
 		return nil, "", "", fmt.Errorf("cannot locate the history: %w", err)
 	}
 	entries, err = history.Read(root)
 	if err != nil {
 		if errors.Is(err, history.ErrNoHistory) {
-			return nil, "", "", fmt.Errorf("%sno architecture history recorded for %s yet — it accumulates as generate_snapshot runs", note, repoPath)
+			if len(members) > 0 {
+				return nil, "", "", fmt.Errorf("%sno cluster history recorded yet — it accumulates as generate_snapshot runs over the cluster. "+
+					"Cluster snapshots from before enola kept one history per cluster were recorded into each member; pass a member's path to read them", note)
+			}
+			return nil, "", "", fmt.Errorf("no architecture history recorded for %s yet — it accumulates as generate_snapshot runs", repoPath)
 		}
 		return nil, "", "", err
 	}
@@ -170,20 +193,6 @@ func clusterMembers(path string) (members []string, source, historyDir string, e
 		members = append(members, filepath.Join(abs, k))
 	}
 	return members, abs, "", nil
-}
-
-// firstWithHistory is the first member that has recorded revisions, or the first member.
-func firstWithHistory(members []string, historyDir string) string {
-	for _, m := range members {
-		root, err := history.Root(m, historyDir)
-		if err != nil {
-			continue
-		}
-		if entries, err := history.Read(root); err == nil && len(entries) > 0 {
-			return m
-		}
-	}
-	return members[0]
 }
 
 func committedOnly(entries []history.Entry) []history.Entry {

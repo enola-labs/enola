@@ -3,8 +3,8 @@ exit: 0
 --- stdout
 Cluster <TMP>/services/cluster.yaml: 2 repositories
 
-== api
-<TMP>/.enola/graphs/api-<KEY>/history
+== cluster
+<TMP>/.enola/graphs/services-cluster-<KEY>/history
 
   revisions      3
     with contents 3  (replayable)
@@ -13,17 +13,16 @@ Cluster <TMP>/services/cluster.yaml: 2 repositories
   stored         7 KB
 
 Nothing to remove.
+
+== api
+<TMP>/.enola/graphs/api-<KEY>/history
+
+No revisions recorded.
 
 == consumer
 <TMP>/.enola/graphs/consumer-<KEY>/history
 
-  revisions      3
-    with contents 3  (replayable)
-    working      3  (snapshots of uncommitted trees)
-  segments       1
-  stored         7 KB
+No revisions recorded.
 
-Nothing to remove.
-
-Total: 6 revisions, 14 KB stored, 0 B would be reclaimed
+Total: 3 revisions, 7 KB stored, 0 B would be reclaimed
 --- stderr

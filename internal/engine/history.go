@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -19,6 +20,15 @@ type SnapshotRecord struct {
 	FactsPath string
 	// PreviousDir holds the snapshot the write rotated out, the one before this.
 	PreviousDir string
+	// Members are the absolute paths of a multi-repo graph's repositories, sorted; nil
+	// for one repository. A multi-repo graph is recorded once, as itself, not into each
+	// member's history.
+	Members []string
+	// PriorDirs are every output directory that may hold an earlier snapshot of this
+	// graph: each member's previous/ and, for members not yet rewritten in this run,
+	// its current output. Which of them is the history's latest revision is for the
+	// recorder to tell; PreviousDir alone is only that for a single repository.
+	PriorDirs []string
 	// Parents and Repos each cost a git invocation, so they are functions: a recorder
 	// that has already recorded this snapshot never calls them.
 	Parents func() []string
@@ -76,4 +86,24 @@ func repoStates(e *Engine, b *snapshotBundle) []RepoState {
 	// between runs and make two byte-identical graphs produce two different log lines.
 	sort.Slice(states, func(i, j int) bool { return states[i].Label < states[j].Label })
 	return states
+}
+
+// clusterLayout returns a multi-repo graph's sorted member paths and the output
+// directories that may hold an earlier snapshot of it; nil for one repository.
+func clusterLayout(b *snapshotBundle, outputDir, writing string) (members, priorDirs []string) {
+	if len(b.repoPaths) < 2 {
+		return nil, nil
+	}
+	for _, abs := range b.repoPaths {
+		members = append(members, abs)
+	}
+	sort.Strings(members)
+	for _, m := range members {
+		out := filepath.Join(m, outputDir)
+		priorDirs = append(priorDirs, filepath.Join(out, PreviousSubdir))
+		if m != writing {
+			priorDirs = append(priorDirs, out)
+		}
+	}
+	return members, priorDirs
 }

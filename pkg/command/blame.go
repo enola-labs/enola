@@ -95,11 +95,7 @@ func (r *Runner) Blame(args []string) {
 }
 
 func (r *Runner) historyWithStore(repoArg, storeFlag string, fatal func(string, ...any)) ([]history.Entry, string, *history.Share) {
-	repoPath, cfg := r.logTarget(repoArg)
-	root, err := history.Root(repoPath, cfg.History.Dir)
-	if err != nil {
-		fatal("cannot locate the history: %v", err)
-	}
+	repoPath, root, cfg := r.historyRootOf("blame", repoArg)
 	storeDir := resolveStoreDir(storeFlag, repoPath, cfg)
 
 	entries, err := history.Read(root)

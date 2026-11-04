@@ -43,7 +43,7 @@ func (r *Runner) GC(args []string) {
 				"Revisions whose contents are dropped keep their summary line: the timeline stays\n"+
 				"complete, and only replay is lost. `log --backfill` can rebuild them.\n\n"+
 				"A cluster config, or a folder of repositories (the default when run from one),\n"+
-				"collects every member's history: a cluster snapshot records into each of them.\n\n"+
+				"collects the cluster's own history and every member's; --repo picks one member.\n\n"+
 				"Flags:\n")
 		fs.PrintDefaults()
 		r.writeHelpFooter(fs.Output(), args, "gc")
@@ -89,16 +89,21 @@ func (r *Runner) GC(args []string) {
 		return
 	}
 
-	// A cluster records into every member's history, so every member is collected. One
-	// that fails does not stop the rest: the others are independent directories.
+	// A cluster has its own history, of snapshots of the whole cluster, and each member
+	// keeps its own of snapshots of it alone; all of them are collected. One that fails
+	// does not stop the rest: they are independent directories.
 	fmt.Printf("Cluster %s: %d repositor%s\n", scope.cluster, len(scope.repos), pluralY(len(scope.repos)))
 	var total inthistory.GCReport
 	failed := 0
 	for _, hr := range roots {
-		fmt.Printf("\n== %s\n", strings.Join(hr.labels, ", "))
+		name := strings.Join(hr.labels, ", ")
+		if hr.cluster {
+			name = "cluster"
+		}
+		fmt.Printf("\n== %s\n", name)
 		rep, err := inthistory.GC(hr.root, opts)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "%s gc: %s: %v\n", r.name(), strings.Join(hr.labels, ", "), err)
+			fmt.Fprintf(os.Stderr, "%s gc: %s: %v\n", r.name(), name, err)
 			failed++
 			continue
 		}
@@ -204,6 +209,9 @@ func pluralY(n int) string {
 // rootsFor keeps the history that the member labelled label records into.
 func rootsFor(roots []historyRoot, label string) []historyRoot {
 	for _, hr := range roots {
+		if hr.cluster {
+			continue
+		}
 		for _, l := range hr.labels {
 			if l == label {
 				return []historyRoot{hr}

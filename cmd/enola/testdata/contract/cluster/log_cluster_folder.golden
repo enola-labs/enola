@@ -2,5 +2,4 @@ $ enola log -n 1
 exit: 0
 --- stdout
 --- stderr
-Cluster <TMP>/services/cluster.yaml: reading the history of api (members: api, consumer). Pass a member's path for another.
 No committed revisions recorded yet (3 revisions hidden by the filters — try --all).
