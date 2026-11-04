@@ -477,6 +477,8 @@ func TestCLIContract_Cluster(t *testing.T) {
 		{"check_clean", []string{"check", "cluster.yaml"}},
 		{"constraints_lint_undeclared", []string{"constraints", "lint", "cluster.yaml"}},
 		{"folder_autocluster_generate", []string{"--generate", "."}},
+		{"gc_cluster_config", []string{"gc", "--dry-run", "cluster.yaml"}},
+		{"gc_cluster_folder", []string{"gc", "--dry-run"}},
 	})
 }
 

@@ -14,6 +14,9 @@ needs asking for.
 Revisions whose contents are dropped keep their summary line: the timeline stays
 complete, and only replay is lost. `log --backfill` can rebuild them.
 
+A cluster config, or a folder of repositories (the default when run from one),
+collects every member's history: a cluster snapshot records into each of them.
+
 Flags:
   -dry-run
     	report what would be removed and change nothing

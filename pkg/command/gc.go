@@ -4,10 +4,10 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	inthistory "github.com/enola-labs/enola/internal/history"
-	"github.com/enola-labs/enola/pkg/history"
 )
 
 // GC is `enola gc`: report what a history holds and remove what it no longer needs.
@@ -40,6 +40,8 @@ func (r *Runner) GC(args []string) {
 				"needs asking for.\n\n"+
 				"Revisions whose contents are dropped keep their summary line: the timeline stays\n"+
 				"complete, and only replay is lost. `log --backfill` can rebuild them.\n\n"+
+				"A cluster config, or a folder of repositories (the default when run from one),\n"+
+				"collects every member's history: a cluster snapshot records into each of them.\n\n"+
 				"Flags:\n")
 		fs.PrintDefaults()
 		r.writeHelpFooter(fs.Output(), args, "gc")
@@ -52,8 +54,8 @@ func (r *Runner) GC(args []string) {
 	if rest := fs.Args(); len(rest) > 0 {
 		arg = rest[0]
 	}
-	repoPath, cfg := r.logTarget(arg)
-	root, err := history.Root(repoPath, cfg.History.Dir)
+	scope := r.historyTargetOf("gc", arg)
+	roots, err := scope.roots()
 	if err != nil {
 		r.gcFatal("cannot locate the history: %v", err)
 	}
@@ -67,11 +69,42 @@ func (r *Runner) GC(args []string) {
 		opts.ThinOlderThan = d
 	}
 
-	rep, err := inthistory.GC(root, opts)
-	if err != nil {
-		r.gcFatal("%v", err)
+	if scope.cluster == "" {
+		rep, err := inthistory.GC(roots[0].root, opts)
+		if err != nil {
+			r.gcFatal("%v", err)
+		}
+		fmt.Print(renderGC(rep, *dryRun, roots[0].root))
+		return
 	}
-	fmt.Print(renderGC(rep, *dryRun, root))
+
+	// A cluster records into every member's history, so every member is collected. One
+	// that fails does not stop the rest: the others are independent directories.
+	fmt.Printf("Cluster %s: %d repositor%s\n", scope.cluster, len(scope.repos), pluralY(len(scope.repos)))
+	var total inthistory.GCReport
+	failed := 0
+	for _, hr := range roots {
+		fmt.Printf("\n== %s\n", strings.Join(hr.labels, ", "))
+		rep, err := inthistory.GC(hr.root, opts)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%s gc: %s: %v\n", r.name(), strings.Join(hr.labels, ", "), err)
+			failed++
+			continue
+		}
+		fmt.Print(renderGC(rep, *dryRun, hr.root))
+		total.Revisions += rep.Revisions
+		total.BytesBefore += rep.BytesBefore
+		total.BytesFreed += rep.BytesFreed
+	}
+	verb := "reclaimed"
+	if *dryRun {
+		verb = "would be reclaimed"
+	}
+	fmt.Printf("\nTotal: %d revision%s, %s stored, %s %s\n",
+		total.Revisions, pluralS(total.Revisions), humanBytes(total.BytesBefore), humanBytes(total.BytesFreed), verb)
+	if failed > 0 {
+		r.gcFatal("%d of %d histories could not be collected", failed, len(roots))
+	}
 }
 
 // parseAge accepts a Go duration or a plain day count ("90d"), because "older than ninety
@@ -149,3 +182,10 @@ func humanBytes(n int64) string {
 }
 
 func (r *Runner) gcFatal(format string, args ...any) { r.cmdFatal("gc", format, args...) }
+
+func pluralY(n int) string {
+	if n == 1 {
+		return "y"
+	}
+	return "ies"
+}
