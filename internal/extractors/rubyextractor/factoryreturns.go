@@ -21,8 +21,10 @@ import (
 // ended there. The walker now gives a local or instance variable a type token from
 // what it is assigned:
 //
-//	Engine     a constant, looked up from the caller's namespace
-//	@engine    an instance variable assigned elsewhere in the class
+//	Engine        a constant, looked up from the caller's namespace
+//	@engine       an instance variable assigned elsewhere in the class
+//	User.find()   what a class method of a constant returns: for a finder on a model,
+//	              an instance of the model
 //
 // and a call on a typed receiver records "<token>#<method>" with the target the call
 // had before (propTypedCalls). Once every class is known, resolveTypedCalls turns the
@@ -44,7 +46,19 @@ const (
 	propIvarTypes = "rb_ivar_types"
 	// tokNil is the token of `nil`, which neither types a variable nor untypes it.
 	tokNil = "\x00nil"
+	// callMark follows a call whose result a token is.
+	callMark = "()"
 )
+
+// modelFinders are the class methods of an ActiveRecord or Sequel model that return
+// one instance of it. `where`, `all` and `count` return something else.
+var modelFinders = map[string]bool{
+	"find": true, "find_by": true, "find_by!": true, "find_sole_by": true, "sole": true,
+	"first": true, "first!": true, "last": true, "last!": true, "take": true, "take!": true,
+	"create": true, "create!": true, "find_or_create_by": true, "find_or_create_by!": true,
+	"find_or_initialize_by": true, "create_or_find_by": true, "create_or_find_by!": true,
+	"with_pk": true, "with_pk!": true,
+}
 
 // beginTyping starts the variable types of a method body.
 func (w *rubyWalker) beginTyping(method *sitter.Node) {
@@ -113,10 +127,16 @@ func (w *rubyWalker) valueToken(n *sitter.Node) string {
 		return tokNil
 	case "call":
 		recv, meth := n.ChildByFieldName("receiver"), n.ChildByFieldName("method")
-		if recv != nil && meth != nil && rubyText(meth, w.src) == "new" {
+		if recv != nil && meth != nil {
 			switch kindOf(recv) {
 			case "constant", "scope_resolution":
-				return stripLeadingColons(rubyText(recv, w.src))
+				class := stripLeadingColons(rubyText(recv, w.src))
+				switch name := rubyText(meth, w.src); {
+				case name == "new":
+					return class
+				case modelFinders[name]:
+					return class + "." + name + callMark
+				}
 			}
 		}
 	case "identifier":
@@ -199,6 +219,8 @@ func appendPropOnce(f *facts.Fact, key, entry string) {
 // typeResolver turns type tokens into the classes they name.
 type typeResolver struct {
 	ix *handlerIndex
+	// models holds the ActiveRecord and Sequel models.
+	models map[string]bool
 	// ivars maps a class to the token of each instance variable its instance methods
 	// assign, "" for one assigned two types or a value of no known type.
 	ivars map[string]map[string]string
@@ -207,9 +229,12 @@ type typeResolver struct {
 // resolveTypedCalls adds the edge of every call on a typed receiver whose class
 // declares the method, and removes both temporary props.
 func resolveTypedCalls(allFacts []facts.Fact, ix *handlerIndex) {
-	r := typeResolver{ix: ix, ivars: map[string]map[string]string{}}
+	r := typeResolver{ix: ix, models: map[string]bool{}, ivars: map[string]map[string]string{}}
 	for i := range allFacts {
 		f := &allFacts[i]
+		if f.Kind == facts.KindStorage && f.PropString("storage_kind") == "model" {
+			r.models[f.Name] = true
+		}
 		list, _ := f.PropAny(propIvarTypes).([]string)
 		if list == nil {
 			continue
@@ -304,5 +329,37 @@ func (r typeResolver) typeOf(tok, owner, sep string, depth int) string {
 		}
 		return ""
 	}
+	if strings.HasSuffix(tok, callMark) {
+		path := strings.TrimSuffix(tok, callMark)
+		dot := strings.LastIndexByte(path, '.')
+		if dot <= 0 {
+			return ""
+		}
+		class := r.ix.lexical(path[:dot], owner)
+		if class != "" && modelFinders[path[dot+1:]] && r.isModel(class) {
+			return class
+		}
+		return ""
+	}
 	return r.ix.lexical(tok, owner)
+}
+
+// isModel reports whether class is a model or inherits from one, as an STI subclass
+// does.
+func (r typeResolver) isModel(class string) bool {
+	for range maxAncestors {
+		if r.models[class] {
+			return true
+		}
+		super, ok := r.ix.superclass[class]
+		if !ok {
+			return false
+		}
+		next := r.ix.lexical(super, class)
+		if next == "" || next == class {
+			return false
+		}
+		class = next
+	}
+	return false
 }

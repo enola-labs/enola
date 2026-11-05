@@ -122,3 +122,64 @@ end
 	// A method the class does not declare keeps the call as written.
 	wantCalls(t, got, "Sync#undeclared", "e.stop")
 }
+
+func TestRubyLocalFromAModelFinderIsTypedAsTheModel(t *testing.T) {
+	got := rubyTypedRepo(t, map[string]string{
+		"app/models/application_record.rb": `
+class ApplicationRecord < ActiveRecord::Base
+  self.abstract_class = true
+end
+`,
+		"app/models/user.rb": `
+class User < ApplicationRecord
+  def suspend!(reason); end
+  def activate; end
+end
+
+class Admin < User
+end
+`,
+		"app/services/registry.rb": `
+class Registry
+  def self.find(id); end
+  def lookup; end
+end
+`,
+		"app/services/moderation.rb": `
+class Moderation
+  def by_id(id)
+    user = User.find(id)
+    user.suspend!(:spam)
+  end
+
+  def by_email(email)
+    @user = User.find_by!(email: email)
+    @user.activate
+  end
+
+  def sti(id)
+    admin = Admin.first
+    admin.activate
+  end
+
+  def not_a_model(id)
+    r = Registry.find(id)
+    r.lookup
+  end
+
+  def not_a_finder
+    u = User.where(active: true)
+    u.activate
+  end
+end
+`,
+	})
+	wantCalls(t, got, "Moderation#by_id", "User#suspend!")
+	wantNoCall(t, got, "Moderation#by_id", "user.suspend!")
+	wantCalls(t, got, "Moderation#by_email", "User#activate")
+	wantCalls(t, got, "Moderation#sti", "User#activate")
+	// A class method named like a finder on a class that is no model types nothing,
+	// and neither does a finder that returns a relation.
+	wantNoCall(t, got, "Moderation#not_a_model", "Registry#lookup")
+	wantNoCall(t, got, "Moderation#not_a_finder", "User#activate")
+}
