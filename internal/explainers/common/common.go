@@ -28,15 +28,60 @@ const OversizedClusterModules = 8
 // Mutual references across many directories are the expected topology there.
 var autoloadedLanguages = map[string]bool{"ruby": true, "php": true}
 
-// ModuleLanguages maps each module to the language its extractor recorded.
+// ModuleLanguages maps each module to the language its extractor recorded, keyed
+// as BuildModuleGraph keys its nodes.
 func ModuleLanguages(store *facts.Store) map[string]string {
+	keys := NewModuleKeys(store)
 	out := make(map[string]string)
 	for _, m := range store.ByKind(facts.KindModule) {
 		if lang, _ := m.Props["language"].(string); lang != "" {
-			out[m.Name] = lang
+			out[keys.Key(m.Repo, m.Name)] = lang
 		}
 	}
 	return out
+}
+
+// ModuleKeys names module-graph nodes in a multi-repo snapshot.
+//
+// Module facts keep their repo-relative name there, so two repositories that both
+// have a "config" or "internal/log" package declare the same module name. Keyed by
+// name alone they became one node, and an edge from each repo joined into a cycle
+// that exists in neither: a -> b in one repo and b -> a in the other. A name
+// declared by more than one repo is keyed "<repo>/<name>" instead, the same shape a
+// file path takes there. A name only one repo declares keeps its bare name, so a
+// single-repo snapshot is unchanged.
+type ModuleKeys struct {
+	repos map[string]map[string]bool // module name -> repos declaring it
+}
+
+// NewModuleKeys records which repos declare each module name.
+func NewModuleKeys(store *facts.Store) ModuleKeys {
+	repos := map[string]map[string]bool{}
+	for _, m := range store.ByKind(facts.KindModule) {
+		if repos[m.Name] == nil {
+			repos[m.Name] = map[string]bool{}
+		}
+		repos[m.Name][m.Repo] = true
+	}
+	return ModuleKeys{repos: repos}
+}
+
+// Shared reports whether more than one repo declares name.
+func (k ModuleKeys) Shared(name string) bool {
+	return len(k.repos[name]) > 1
+}
+
+// Declares reports whether repo declares a module called name.
+func (k ModuleKeys) Declares(repo, name string) bool {
+	return k.repos[name][repo]
+}
+
+// Key is the graph node for module name as seen from repo.
+func (k ModuleKeys) Key(repo, name string) string {
+	if repo == "" || !k.Shared(name) {
+		return name
+	}
+	return repo + "/" + name
 }
 
 // AutoloadedComponent reports whether every module of a strongly-connected
@@ -362,9 +407,13 @@ func BuildModuleGraphExcluding(store *facts.Store, excludeKinds ...string) map[s
 	}
 
 	moduleNames, testModules := ModuleNameSets(store)
-	for name := range moduleNames {
-		if _, ok := graph[name]; !ok {
-			graph[name] = nil
+	keys := NewModuleKeys(store)
+	for _, m := range store.ByKind(facts.KindModule) {
+		if !moduleNames[m.Name] {
+			continue
+		}
+		if node := keys.Key(m.Repo, m.Name); graph[node] == nil {
+			graph[node] = nil
 		}
 	}
 
@@ -421,9 +470,18 @@ func BuildModuleGraphExcluding(store *facts.Store, excludeKinds ...string) map[s
 			// This gate is authoritative; we deliberately do NOT pre-filter with
 			// IsExternalImport, which misclassifies single-segment internal modules
 			// (top-level "cmd", "config") as external and would drop real edges here.
-			if moduleNames[target] {
-				graph[sourceModule] = append(graph[sourceModule], target)
+			if !moduleNames[target] {
+				continue
 			}
+			// A name several repos declare is resolved inside the importing repo:
+			// an import cannot reach another repository's package by its relative
+			// path. When the importing repo declares no such module the target is
+			// ambiguous, and no edge is better than one into the wrong repo.
+			if keys.Shared(target) && !keys.Declares(dep.Repo, target) {
+				continue
+			}
+			from, to := keys.Key(dep.Repo, sourceModule), keys.Key(dep.Repo, target)
+			graph[from] = append(graph[from], to)
 		}
 	}
 
