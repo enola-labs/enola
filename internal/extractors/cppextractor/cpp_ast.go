@@ -930,6 +930,9 @@ func (w *astWalker) handleFunctionDefinition(node *sitter.Node) {
 		f.SetProp("receiver", receiver)
 	}
 	w.applyFuncQualifiers(&f, node, fdecl)
+	if t := returnTypeName(node, w.src); t != "" {
+		f.SetProp(propReturnType, t)
+	}
 
 	w.out = append(w.out, f)
 	idx := len(w.out) - 1
@@ -2007,8 +2010,12 @@ func (w *astWalker) handleCall(node *sitter.Node) {
 		if typ := w.receiverTypes[root]; typ != "" {
 			target := typ + "::" + name
 			w.addOwnerEdge(relReceiverCallCandidate, target)
-			w.recordCallMetrics(target)
-			break
+			if !strings.HasSuffix(typ, callMark) {
+				w.recordCallMetrics(target)
+				break
+			}
+			// An `auto` typed by a call (factoryreturns.go): the loop metrics read
+			// the call as written, as for any receiver of unknown type.
 		}
 		// Unknown receiver calls still feed the in-loop metric. Skip obviously cheap
 		// container/iterator methods to keep calls_in_loop focused.
@@ -2030,6 +2037,26 @@ func collectExplicitReceiverTypes(kinds *tsutil.KindTable, lang string, fdecl, b
 	out := map[string]string{}
 	addDeclaration := func(node *sitter.Node) {
 		typeNode := node.ChildByFieldName("type")
+		if isAuto(kinds, typeNode, src) {
+			// `auto e = makeEngine()`: what the call returns (factoryreturns.go).
+			for i := uint(0); i < node.ChildCount(); i++ {
+				d := node.Child(i)
+				if node.FieldNameForChild(uint32(i)) != "declarator" || kindOf(kinds, d) != "init_declarator" {
+					continue
+				}
+				name := declaratorLeafName(kinds, referencedDeclarator(kinds, d), src)
+				typ := autoCallType(kinds, d.ChildByFieldName("value"), src, out)
+				if name == "" || typ == "" {
+					continue
+				}
+				if prior, exists := out[name]; !exists {
+					out[name] = typ
+				} else if prior != typ {
+					out[name] = ""
+				}
+			}
+			return
+		}
 		typ := simpleTypeName(typeNode, src)
 		if typ == "" || !isTypeName(typ) || (typeNode != nil && strings.Contains(nodeText(typeNode, src), "<")) {
 			return

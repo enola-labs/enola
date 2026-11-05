@@ -997,6 +997,9 @@ func (e *TSExtractor) memberFact(kinds *tsutil.KindTable, member *sitter.Node, c
 		Props:     mProps,
 		Relations: mRels,
 	}
+	if kindOf(kinds, member) == "method_definition" {
+		recordReturns(&f, kinds, member, ctx)
+	}
 	setDecoratedStart(kinds, &f, member)
 	return f, true
 }
@@ -1159,6 +1162,7 @@ func (e *TSExtractor) variableFacts(kinds *tsutil.KindTable, node, decl *sitter.
 			f.SetProp("takes_parameters", takes)
 		}
 		applyTSMetrics(f.Props, vMetrics)
+		recordReturns(&f, kinds, body, ctx)
 	}
 	classifySymbol(kinds, &f, symbolName, body, ctx, symbolKind)
 	if piniaStore {
@@ -1250,6 +1254,7 @@ func (e *TSExtractor) funcSymbol(kinds *tsutil.KindTable, declNode, body *sitter
 	}
 	applyTSMetrics(f.Props, m)
 	classifySymbol(kinds, &f, name, body, ctx, facts.SymbolFunc)
+	recordReturns(&f, kinds, body, ctx)
 	return f
 }
 
@@ -3685,7 +3690,7 @@ func collectCallsWithMetrics(node *sitter.Node, scope callScope, selfName, selfS
 	}
 	paramScope, paramIndex := tsParamScope(kinds, fn, src)
 	w.paramScope, w.paramIndex = []tsLoopScope{paramScope}, paramIndex
-	w.memberRoots = withLocalRoots(scope.memberRoots, tsLocalTypes(kinds, fn, node, src, scope.dir, scope.importMap, scope.typeNames, scope.methodReturns))
+	w.memberRoots = withLocalRoots(scope.memberRoots, tsLocalTypes(kinds, fn, node, src, scope.dir, scope.importMap, scope.typeNames, scope.methodReturns, scope.memberRoots))
 	w.constLocals = tsConstLiteralLocals(kinds, node, src)
 	w.walk(node)
 	return w.rels, m
@@ -3913,6 +3918,21 @@ func (s callScope) resolve(call *sitter.Node) string {
 				if typ, ok := returnTypes[nodeText(callee, src)]; ok {
 					return typ + "." + nodeText(property, src)
 				}
+			}
+		}
+		// `make().method()` and `(await make()).method()` on a function of another
+		// file, typed once every file is in (factoryreturns.go).
+		if kindOf(kinds, property) == "property_identifier" {
+			inner := object
+			for inner != nil && kindOf(kinds, inner) == "parenthesized_expression" {
+				inner = inner.NamedChild(0)
+			}
+			var declared map[string]bool
+			if s.typeNames != nil {
+				declared = s.typeNames.of(kinds, call, src)
+			}
+			if t := factoryResultType(kinds, inner, src, dir, importMap, memberRoots, declared); t != "" {
+				return t + "." + nodeText(property, src)
 			}
 		}
 		// `this.field.method()`: the field's stated type names the method's class.

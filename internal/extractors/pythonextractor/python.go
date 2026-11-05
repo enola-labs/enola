@@ -123,7 +123,7 @@ func (e *PythonExtractor) Extract(ctx context.Context, repoPath string, files []
 
 	// Merge the per-file indices in file order, so duplicate-module last-write-wins
 	// stays deterministic, then answer the held-back lookups against the result.
-	idx := &pySymbolIndex{classes: make(map[string]*pyClassInfo), moduleDefs: make(map[string]map[string]bool), globals: make(map[string]string)}
+	idx := &pySymbolIndex{classes: make(map[string]*pyClassInfo), moduleDefs: make(map[string]map[string]bool), globals: make(map[string]string), returns: make(map[string]pyReturn)}
 	for _, r := range perFileFacts {
 		if r.idx == nil {
 			continue
@@ -136,6 +136,9 @@ func (e *PythonExtractor) Extract(ctx context.Context, repoPath string, files []
 		}
 		for name, typ := range r.idx.globals {
 			idx.globals[name] = typ
+		}
+		for name, ret := range r.idx.returns {
+			idx.returns[name] = ret
 		}
 	}
 	finalizeImplMap(idx)
@@ -194,7 +197,7 @@ func (e *PythonExtractor) Extract(ctx context.Context, repoPath string, files []
 	// canonical slash symbol names (dropping stdlib/third-party edges) now that the
 	// full file set is known. Without this, functions reached via absolute imports
 	// have no incoming edge and read as dead code.
-	resolveCallTargetsWith(allFacts, fileModules, pkgDirs, idx.globals)
+	resolveCallTargetsWith(allFacts, fileModules, pkgDirs, idx)
 	// Before resolveImplementsTargets, which consumes the import bindings a console
 	// script's target may have to be followed through.
 	composeCommandNames(allFacts, fileModules, pkgDirs)

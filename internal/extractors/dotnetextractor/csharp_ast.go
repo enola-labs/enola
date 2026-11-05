@@ -633,6 +633,9 @@ func (w *astWalker) handleMethod(node *sitter.Node) {
 			props[m] = true
 		}
 	}
+	if kindOf(node) == "method_declaration" {
+		w.recordReturns(props, node)
+	}
 	// An extension method is a static method whose first parameter carries `this`.
 	// The receiver type is recorded but NOT turned into an edge: binding `y.Foo()`
 	// to it needs the receiver's static type, which this extractor does not track.

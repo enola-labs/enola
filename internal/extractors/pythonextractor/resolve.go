@@ -87,10 +87,16 @@ func resolveCallTargets(allFacts []facts.Fact, fileModules map[string]bool, pkgD
 	resolveCallTargetsWith(allFacts, fileModules, pkgDirs, nil)
 }
 
-// resolveCallTargetsWith is resolveCallTargets given the declared types of the
-// repository's module-level names (see collectGlobalTypes), through which a call
-// on an imported global resolves to a method of its type.
-func resolveCallTargetsWith(allFacts []facts.Fact, fileModules map[string]bool, pkgDirs map[string]bool, globals map[string]string) {
+// resolveCallTargetsWith is resolveCallTargets given the merged symbol index: the
+// declared types of the repository's module-level names (see collectGlobalTypes),
+// through which a call on an imported global resolves to a method of its type,
+// and the return types of its functions and methods, through which a call on what
+// one returned does (see factoryreturns.go).
+func resolveCallTargetsWith(allFacts []facts.Fact, fileModules map[string]bool, pkgDirs map[string]bool, idx *pySymbolIndex) {
+	var globals map[string]string
+	if idx != nil {
+		globals = idx.globals
+	}
 	fileIdx := buildSuffixIndex(fileModules, pkgDirs)
 	topPkgs := importableRoots(fileModules, pkgDirs)
 	reexports := buildReexportIndex(allFacts, pkgDirs)
@@ -103,6 +109,10 @@ func resolveCallTargetsWith(allFacts []facts.Fact, fileModules map[string]bool, 
 			symbols[allFacts[i].Name] = true
 		}
 	}
+	var returns *returnResolver
+	if idx != nil && len(idx.returns) > 0 {
+		returns = &returnResolver{returns: idx.returns, symbols: symbols, fileIdx: fileIdx, topPkgs: topPkgs, reexports: reexports}
+	}
 
 	for i := range allFacts {
 		f := &allFacts[i]
@@ -114,6 +124,7 @@ func resolveCallTargetsWith(allFacts []facts.Fact, fileModules map[string]bool, 
 		if len(f.Relations) == 0 {
 			continue
 		}
+		resolveMarkedRelations(f, returns, idx)
 		importerDir := fileDir(f.File)
 		// resolve is resolveDottedTarget, and where that lands on no symbol, the
 		// same for the target read as a method of a module-level name's declared

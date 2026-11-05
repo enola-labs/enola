@@ -26,8 +26,9 @@ import (
 // classes, the return type of one of their methods (`getRepo().save(x)`), a
 // parameter, a local with a written type, `var x = new T(…)`, the
 // variable of a for-each, and a capitalised name that is not a variable, which is
-// a static call on a type. Nothing is inferred. A call on a call's result, on a
-// lambda parameter or on a `var` initialised any other way stays unresolved.
+// a static call on a type. A call's result, and a `var` initialised from one, is
+// the called method's declared return type (factoryreturns.go). A call on a lambda
+// parameter stays unresolved.
 //
 // The walker cannot tell whether the type is one this repository declares, or
 // which class in its hierarchy declares the method. It records the pair as
@@ -95,6 +96,9 @@ func (w *astWalker) bindDeclared(into map[string]string, typeNode, decl *sitter.
 		if dt == "" && typeNode != nil && nodeText(typeNode, w.src) == "var" {
 			if v := d.ChildByFieldName("value"); v != nil && kindOf(v) == "object_creation_expression" {
 				dt = w.receiverTypeOf(v.ChildByFieldName("type"))
+			} else if v != nil {
+				// `var engine = factory.make()`: what the method returns.
+				dt = w.callResultType(v)
 			}
 		}
 		if dt != "" {
@@ -171,18 +175,9 @@ func (w *astWalker) receiverType(obj *sitter.Node) string {
 			return w.fqnForSimple(name)
 		}
 	case "method_invocation":
-		// `getRepo().save(x)`, `this.getRepo().save(x)`: a method of an enclosing
-		// class, by its declared return type.
-		if o := obj.ChildByFieldName("object"); o == nil || kindOf(o) == "this" {
-			if n := obj.ChildByFieldName("name"); n != nil {
-				key := nodeText(n, w.src) + "()"
-				for i := len(w.fieldTypes) - 1; i >= 0; i-- {
-					if t, ok := w.fieldTypes[i][key]; ok {
-						return t
-					}
-				}
-			}
-		}
+		// `getRepo().save(x)`: a method of an enclosing class, by its declared return
+		// type, and `factory.make().save(x)`: any other's, marked (factoryreturns.go).
+		return w.callResultType(obj)
 	case "field_access":
 		// `this.repo.save(x)`
 		if o := obj.ChildByFieldName("object"); o != nil && kindOf(o) == "this" && len(w.fieldTypes) > 0 {
@@ -273,6 +268,7 @@ func resolveTypedCalls(all []facts.Fact, typeIndex map[string]string) {
 		return ""
 	}
 
+	resolveCallMarks(all, typeIndex, declaring)
 	liftIOTypes(all, supers, ioType)
 
 	// Which declarations make a library I/O call, before any is marked: see

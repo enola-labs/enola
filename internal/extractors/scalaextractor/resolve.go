@@ -87,6 +87,7 @@ func canonicalizeTargets(allFacts []facts.Fact, crossLangIndex, filePkg map[stri
 		}
 	}
 
+	marks := newReturnMarks(allFacts, filePkg, typeIndex, packageDir)
 	for i := range allFacts {
 		f := &allFacts[i]
 		if f.Kind == facts.KindDependency {
@@ -99,7 +100,17 @@ func canonicalizeTargets(allFacts []facts.Fact, crossLangIndex, filePkg map[stri
 			case facts.RelImplements, facts.RelInstantiates, facts.RelInjects, facts.RelNames:
 				r.Target = resolveTypeTarget(r.Target, filePkg[f.File], typeIndex, packageDir)
 			case facts.RelCalls:
-				r.Target = resolveCallTarget(r.Target, filePkg[f.File], typeIndex)
+				r.Target = resolveCallTarget(marks.resolve(r.Target, filePkg[f.File]), filePkg[f.File], typeIndex)
+			}
+		}
+		// The loop metrics recorded the same targets; a mark must not leave as text.
+		for _, key := range []string{"calls_in_loop", "calls_in_scaling_loop"} {
+			if list, ok := f.PropAny(key).([]string); ok {
+				for j, c := range list {
+					if strings.Contains(c, callMark+".") {
+						list[j] = resolveCallTarget(marks.resolve(c, filePkg[f.File]), filePkg[f.File], typeIndex)
+					}
+				}
 			}
 		}
 	}

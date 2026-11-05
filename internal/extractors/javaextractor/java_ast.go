@@ -857,6 +857,9 @@ func (w *astWalker) handleMethod(node *sitter.Node) {
 	if strings.Contains(modifierText, "static") {
 		f.SetProp("static", true)
 	}
+	if t := w.receiverTypeOf(node.ChildByFieldName("type")); t != "" {
+		f.SetProp(propReturnType, t)
+	}
 
 	// Request-mapping annotation on a method: a server route on a @Controller, or an
 	// outbound client route on a @FeignClient interface (same annotations, the

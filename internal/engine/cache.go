@@ -3399,7 +3399,49 @@ import (
 // that names a service: an environment variable (Go, Ruby, PHP, TypeScript), a
 // SCREAMING_CASE constant (TypeScript) or a declared client's service name (Feign,
 // configured TypeScript clients). A hint read off a variable or field name carries none.
-const cacheVersion = "v524"
+// v525: Python: a local bound to what an imported function or a method returns
+// (`e = await get_engine()`, `Registry.default()`, `f().session()`) is typed by that
+// function's return annotation, so calls on it resolve, with the implementor calls a
+// typed receiver gets.
+// v526: TypeScript: a local bound to what a function or method returns, in this file or
+// another (`const e = await getEngine()`, `Registry.default()`, `make().session()`), is
+// typed by its return annotation, `Promise<T>` read as T once awaited, or by the class
+// every return constructs, so calls on it resolve.
+// v527: Kotlin: a local or property bound to what a function or method returns
+// (`val e = makeEngine()`, `Registry.default()`, `Pool.create()`, `make().session()`) is
+// typed by its declared return type, the class an expression body constructs, or for a
+// builder's `= apply { … }` and `= this` the class it is declared in, so calls on it
+// resolve. A class reached by name (`Outer.Builder(…)`) is constructed, and a simple
+// return type names a nested class of the function's own class first.
+// v528: Java and C#: a `var` bound to what a method returns, and a call on a call's
+// result (`var e = EngineFactory.make(); e.run()`, `make().session().commit()`), are
+// typed by the method's declared return type; in C# `await` on a `Task<T>` or
+// `ValueTask<T>` gives T.
+// v529: C++: `auto x = f()` is typed by the return type of the function it calls, a free
+// function, a scoped one or a method of a typed receiver, when that type is a project
+// class through a pointer or reference and no template, so calls on it resolve.
+// v530: Rust: a let bound to what a free function returns (`make_engine()`,
+// `factory::make_engine()`), and `?` on a call returning Result<T, _> or Option<T>, are
+// typed, `.await` passing through. PHP: a local takes the type of the object it is
+// assigned or of what a method it is assigned from declares it returns, and a call on
+// a call's result is typed the same way.
+// v531: Scala: a val or var in a def body is a local of the def, not a member of the
+// enclosing type, so the calls in its initializer are the def's. A local is typed by
+// its ascribed type, the class it constructs, or what the def it is assigned from
+// declares it returns, and a call on a call's result is typed the same way.
+// v532: Ruby: a local or instance variable assigned `X.new` is typed as X (an instance
+// variable class-wide, through ancestors, when every assignment agrees), and a call on it
+// reaches the method X or an ancestor declares; an unresolved spelling is kept.
+// v533: Ruby: a variable assigned from a model finder (`User.find`, `find_by!`, `first`,
+// `create`, ...) is typed as the model, an STI subclass included.
+// v534: Ruby: a method's return type is inferred from its body (every return and the
+// last expression agreeing: X.new, new in a class method, self, a typed variable,
+// @x ||= X.new, another method's result), so a variable assigned from a factory, a bare
+// call of a memoized reader or attr_reader, and a chain of calls are typed.
+// v535: Ruby: a YARD `@return [T]` tag (nil aside, `self` in an instance method) naming a
+// class of the repository declares the method's return type, ahead of what its body is
+// inferred to return; a core or library type leaves the inferred one.
+const cacheVersion = "v535"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

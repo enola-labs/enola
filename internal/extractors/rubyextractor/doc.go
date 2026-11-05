@@ -16,8 +16,22 @@ var rubyDocDirectives = []string{"frozen_string_literal", "rubocop:", "typed:", 
 
 // rubyDoc returns the doc prop for the declaration n, or "".
 func rubyDoc(n *sitter.Node, src []byte) string {
+	lines := rubyDocLines(n, src)
+	// YARD: the description ends at the first tag.
+	for i, l := range lines {
+		if strings.HasPrefix(l, "@") {
+			lines = lines[:i]
+			break
+		}
+	}
+	return facts.DocText(strings.Join(lines, "\n"))
+}
+
+// rubyDocLines returns the comment lines above n, tags included, "#" and surrounding
+// space removed.
+func rubyDocLines(n *sitter.Node, src []byte) []string {
 	if n == nil {
-		return ""
+		return nil
 	}
 	// The first statement of a body has no sibling before it: a comment above it is
 	// the body's sibling, written before the body begins.
@@ -38,14 +52,7 @@ func rubyDoc(n *sitter.Node, src []byte) string {
 		lines = append([]string{line}, lines...)
 		next = c
 	}
-	// YARD: the description ends at the first tag.
-	for i, l := range lines {
-		if strings.HasPrefix(l, "@") {
-			lines = lines[:i]
-			break
-		}
-	}
-	return facts.DocText(strings.Join(lines, "\n"))
+	return lines
 }
 
 func isRubyDirective(line string) bool {

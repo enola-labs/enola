@@ -141,6 +141,10 @@ type astWalker struct {
 	// first injected dependency.
 	localTypes []map[string]string
 
+	// inDefBody is set while walking a def's body and cleared inside a type declared
+	// there, so a val is a local of the def or a member of the type.
+	inDefBody bool
+
 	// ownerStack[len-1] indexes into out for the symbol currently being built.
 	// An index rather than a pointer: nested declarations append to out, which can
 	// reallocate the backing array and strand a raw pointer.
@@ -328,10 +332,21 @@ func (w *astWalker) walk(n *sitter.Node) {
 	case "function_definition", "function_declaration":
 		w.handleFunction(n)
 		return
-	case "val_definition", "val_declaration":
+	case "val_definition", "var_definition":
+		if w.inDefBody {
+			w.handleLocalValue(n) // a local, not a member (factoryreturns.go)
+			return
+		}
+		if kindOf(n) == "val_definition" {
+			w.handleValue(n, facts.SymbolConstant)
+		} else {
+			w.handleValue(n, facts.SymbolVariable)
+		}
+		return
+	case "val_declaration":
 		w.handleValue(n, facts.SymbolConstant)
 		return
-	case "var_definition", "var_declaration":
+	case "var_declaration":
 		w.handleValue(n, facts.SymbolVariable)
 		return
 	case "type_definition":
@@ -720,9 +735,18 @@ func (w *astWalker) memberTarget(recvNode *sitter.Node, receiver, member string)
 		// method parameter, an ascribed val. `repo.find(id)` with `repo: UserRepo`
 		// binds to UserRepo.find. The declared type may be a trait the runtime
 		// value overrides, which is the honest answer rather than a guess: the
-		// implements edges say who else could serve it.
+		// implements edges say who else could serve it. A local holding a def's
+		// result, and a call on a call's result, are marked (factoryreturns.go).
 		if typeName := w.lookupLocalType(receiver); typeName != "" {
+			if strings.HasSuffix(typeName, callMark) {
+				return typeName + "." + member
+			}
 			return w.resolveTypeName(typeName) + "." + member
+		}
+		if recvNode != nil && (kindOf(recvNode) == "call_expression" || kindOf(recvNode) == "parenthesized_expression") {
+			if t := w.valueType(recvNode); t != "" {
+				return t + "." + member
+			}
 		}
 	}
 	return member
@@ -1094,6 +1118,10 @@ func (w *astWalker) handleTypeLike(n *sitter.Node, symbolKind string) {
 		w.walkChildren(n)
 		return
 	}
+	// A type declared in a def body has members, not locals.
+	savedBody := w.inDefBody
+	w.inDefBody = false
+	defer func() { w.inDefBody = savedBody }()
 
 	props := map[string]any{
 		"language":    "scala",
@@ -1329,6 +1357,10 @@ func (w *astWalker) handleFunction(n *sitter.Node) {
 		props["implicit"] = true
 	}
 
+	if rt := w.resolveTypeName(w.baseTypeName(n.ChildByFieldName("return_type"))); rt != "" {
+		props[propReturnType] = rt
+	}
+
 	idx := len(w.out)
 	w.out = append(w.out, facts.Fact{
 		Kind:      facts.KindSymbol,
@@ -1348,15 +1380,16 @@ func (w *astWalker) handleFunction(n *sitter.Node) {
 	// Metrics are saved and restored around the body rather than accumulated
 	// globally, so a `def` nested inside another neither inherits its parent's loop
 	// nesting nor leaks its own back out.
-	saved := w.m
+	saved, savedBody := w.m, w.inDefBody
 	w.m = metrics{inFunction: true, selfName: name}
+	w.inDefBody = true
 	popScope := w.pushScope(n)
 	w.ownerStack = append(w.ownerStack, idx)
 	w.walkMembers(n, n.ChildByFieldName("name"))
 	w.ownerStack = w.ownerStack[:len(w.ownerStack)-1]
 	popScope()
 	w.m.applyTo(props)
-	w.m = saved
+	w.m, w.inDefBody = saved, savedBody
 }
 
 // handleValue emits a val/var. Scala's `val` is an immutable binding, so it maps

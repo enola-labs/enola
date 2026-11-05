@@ -174,33 +174,15 @@ func (w *phpWalker) className(raw string) string {
 }
 
 // recordReceiverCall notes an instance call whose receiver type is declared: `$this`,
-// a typed property of `$this`, a typed parameter, or an object created in place
-// (`(new Action)->execute()`). The call keeps its bare-name
+// a typed property of `$this`, a typed parameter, an object created in place
+// (`(new Action)->execute()`), or a local or call result of known type
+// (factoryreturns.go). The call keeps its bare-name
 // edge; bindReceiverCalls adds the resolved one once every file is read.
 func (w *phpWalker) recordReceiverCall(call *sitter.Node, ownerIdx int, method string) {
 	if ownerIdx < 0 {
 		return
 	}
-	obj := call.ChildByFieldName("object")
-	typ := ""
-	switch kindOf(obj) {
-	case "variable_name":
-		if name := variableName(obj, w.src); name != "this" {
-			typ = w.paramTypes[name]
-		} else if len(w.typeStack) > 0 {
-			typ = w.typeStack[len(w.typeStack)-1]
-		}
-	case "member_access_expression":
-		typ = w.propTypes[thisProperty(obj, w.src)]
-	case "parenthesized_expression", "object_creation_expression":
-		created := obj
-		if kindOf(obj) == "parenthesized_expression" && obj.NamedChildCount() == 1 {
-			created = obj.NamedChild(0)
-		}
-		if kindOf(created) == "object_creation_expression" {
-			typ = w.className(w.creationClass(created))
-		}
-	}
+	typ := w.receiverOf(call.ChildByFieldName("object"), w.localTypes)
 	if typ == "" {
 		return
 	}
@@ -260,6 +242,13 @@ func bindReceiverCalls(allFacts []facts.Fact) {
 		}
 		return known
 	}
+	marks := returnMarks{ix: ix, returns: map[string]string{}}
+	for i := range allFacts {
+		if t, ok := allFacts[i].Props[propReturnType].(string); ok {
+			marks.returns[allFacts[i].Name] = t
+			delete(allFacts[i].Props, propReturnType)
+		}
+	}
 	for i := range allFacts {
 		f := &allFacts[i]
 		if f.Kind != facts.KindSymbol || f.Props == nil {
@@ -272,6 +261,12 @@ func bindReceiverCalls(allFacts []facts.Fact) {
 			if sep <= 0 {
 				continue
 			}
+			typ := marks.typeOf(call[:sep], 0)
+			if typ == "" {
+				continue
+			}
+			call = typ + call[sep:]
+			sep = len(typ)
 			targets := ix.callTargets(call[:sep], call[sep+2:])
 			// A model calling a framework method on itself says nothing new.
 			if len(targets) == 0 && !strings.HasPrefix(f.Name, call[:sep]+"::") && isModel(call[:sep]) {

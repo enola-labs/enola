@@ -68,6 +68,8 @@ type phpWalker struct {
 	// paramTypes of each parameter of the enclosing callable (receivers.go).
 	propTypes  map[string]string
 	paramTypes map[string]string
+	// localTypes of the enclosing callable's locals (factoryreturns.go).
+	localTypes map[string]string
 	selfName   string // enclosing callable's qualified name (for recursion detection)
 	selfShort  string // enclosing callable's short name
 }
@@ -346,6 +348,9 @@ func (w *phpWalker) handleCallable(node *sitter.Node, isMethod bool) {
 		if hasModifier(node, "abstract_modifier") {
 			props["abstract"] = true
 		}
+		if t := w.declaredType(node.ChildByFieldName("return_type")); t != "" {
+			props[propReturnType] = t
+		}
 	}
 
 	w.out = append(w.out, facts.Fact{
@@ -371,8 +376,9 @@ func (w *phpWalker) handleCallable(node *sitter.Node, isMethod bool) {
 	w.selfName = fullName
 	w.selfShort = name
 	w.paramTypes = w.parameterTypes(node.ChildByFieldName("parameters"), nil)
+	w.localTypes = w.callableLocalTypes(node.ChildByFieldName("body"))
 	w.walkForCalls(node.ChildByFieldName("body"), ownerIdx, seen)
-	w.paramTypes = nil
+	w.paramTypes, w.localTypes = nil, nil
 	props["cyclomatic"] = 1 + w.metrics.decisions
 	if w.metrics.loopDepth > 0 {
 		props["loop_depth"] = w.metrics.loopDepth

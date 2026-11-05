@@ -549,6 +549,45 @@ func TestAnalyze_CallThroughAnInterfaceReachesItsImplementation(t *testing.T) {
 	}
 }
 
+// An abstract class, and an abstract method of a concrete one, are followed into
+// their subclasses as an interface is. A concrete method is not followed into an
+// override.
+func TestAnalyze_CallThroughAnAbstractBaseReachesItsSubclass(t *testing.T) {
+	abstract := func(f facts.Fact) facts.Fact { f.Props["abstract"] = true; return f }
+	ff := []facts.Fact{
+		route("POST", "/nodes", "api.add"),
+		sym("api.add", "api/add.py", "db.Engine.add_nodes", "db.Store.save", "db.Cache.get"),
+		abstract(typ("db.Engine", "db/engine.py", facts.SymbolClass)),
+		method("db.Engine.add_nodes", "db/engine.py"),
+		typ("db.Kuzu", "db/kuzu.py", facts.SymbolClass, "db.Engine"),
+		method("db.Kuzu.add_nodes", "db/kuzu.py", "db.Kuzu.write"),
+		method("db.Kuzu.write", "db/kuzu.py"),
+		typ("db.Store", "db/store.py", facts.SymbolClass),
+		abstract(method("db.Store.save", "db/store.py")),
+		typ("db.Disk", "db/disk.py", facts.SymbolClass, "db.Store"),
+		method("db.Disk.save", "db/disk.py"),
+		typ("db.Cache", "db/cache.py", facts.SymbolClass),
+		method("db.Cache.get", "db/cache.py"),
+		typ("db.Lru", "db/lru.py", facts.SymbolClass, "db.Cache"),
+		method("db.Lru.get", "db/lru.py"),
+	}
+	a := analyze(ff...)
+	if len(a.Flows) != 1 {
+		t.Fatalf("flows = %v", names(a))
+	}
+	if got := a.Flows[0].Metrics.Reach; got != 7 {
+		t.Errorf("reach = %d, want 7: the handler, the three methods it calls, Kuzu.add_nodes and what it calls, Disk.save", got)
+	}
+	for _, want := range []string{"db.Kuzu.write", "db.Disk.save"} {
+		if got, _ := a.Through(want); len(got) != 1 {
+			t.Errorf("%s is reached through its abstract base: through = %v", want, got)
+		}
+	}
+	if got, _ := a.Through("db.Lru.get"); got != nil {
+		t.Errorf("a concrete method is not followed into an override: through db.Lru.get = %v", got)
+	}
+}
+
 // A command of a command-line program is an entry named the way a user types it.
 func TestAnalyze_ACommandIsAnEntryNamedByItsCommand(t *testing.T) {
 	check := sym("pkg/command.Runner.Check", "pkg/command/check.go", "pkg/command.verdict")

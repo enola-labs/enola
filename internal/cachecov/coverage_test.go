@@ -33,6 +33,17 @@ import (
 // test functions that assert the behavior that version introduced. v1 is the
 // implicit baseline (no changelog line), so coverage starts at v2.
 var versionCoverage = map[int][]string{
+	535: {"TestRubyYardReturnTagDeclaresTheReturnType"},
+	534: {"TestRubyCallOnAFactorysResultReachesTheReturnedClass"},
+	533: {"TestRubyLocalFromAModelFinderIsTypedAsTheModel"},
+	532: {"TestRubyCallOnAVariableHoldingANewInstanceIsAnEdge"},
+	531: {"TestScalaLocalValIsALocalTypedByWhatItHolds"},
+	530: {"TestRustLetBoundToAFunctionsResultIsTyped", "TestPHPLocalIsTypedByWhatItIsAssigned"},
+	529: {"TestCppAutoBoundToAFactoryIsTypedByItsReturnType"},
+	528: {"TestJavaCallOnAMethodsResultIsAnEdge", "TestCSharpCallOnAMethodsResultIsAnEdge"},
+	527: {"TestKotlinCallOnAFactorysResultIsAnEdge"},
+	526: {"TestCallOnAFactorysResultResolvesByItsReturnType"},
+	525: {"TestCallOnImportedFactoryResultResolvesByReturnType"},
 	524: {"TestTargetHintSource", "TestGoHTTPClient_EnvVarHint"},
 	523: {"TestVerbClientLabel"},
 	522: {"TestHOCONTopicsOfAStreamModule", "TestHTTPClientBaseVariableHint", "TestClientFactoryHint"},

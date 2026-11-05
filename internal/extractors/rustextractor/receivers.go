@@ -37,6 +37,8 @@ const (
 	propTypedCalls = "rust_typed_calls"
 	propFieldTypes = "rust_field_types"
 	propReturns    = "rust_returns"
+	// propTryReturns is the T of a function returning Result<T, E> or Option<T>.
+	propTryReturns = "rust_try_returns"
 	propAliasOf    = "rust_alias_of"
 )
 
@@ -45,18 +47,85 @@ const (
 type rustStep struct {
 	call bool
 	name string
+	// try is `f()?`: the T of the Result<T, _> or Option<T> the call returns.
+	try bool
 }
 
-// rustTypeExpr is a type the walker could not name yet: base, then each step.
+// rustTypeExpr is a type the walker could not name yet: base, then each step. An
+// expression that starts from what a free function returns (`make_engine()`,
+// `factory::make_engine()`) has the function's canonical name in fn instead of a
+// base, marked rustEitherDir where a module path or an import named it.
 type rustTypeExpr struct {
 	base  string
+	fn    string
+	fnTry bool // `make_engine()?`
 	steps []rustStep
 }
 
 func (e rustTypeExpr) then(s rustStep) rustTypeExpr {
 	steps := make([]rustStep, len(e.steps), len(e.steps)+1)
 	copy(steps, e.steps)
-	return rustTypeExpr{base: e.base, steps: append(steps, s)}
+	return rustTypeExpr{base: e.base, fn: e.fn, fnTry: e.fnTry, steps: append(steps, s)}
+}
+
+// tried is the expression for `e?`: the call it ends in, unwrapped.
+func (e rustTypeExpr) tried() (rustTypeExpr, bool) {
+	if n := len(e.steps); n > 0 {
+		if !e.steps[n-1].call || e.steps[n-1].try {
+			return rustTypeExpr{}, false
+		}
+		steps := append([]rustStep{}, e.steps...)
+		steps[n-1].try = true
+		return rustTypeExpr{base: e.base, fn: e.fn, fnTry: e.fnTry, steps: steps}, true
+	}
+	if e.fn == "" || e.fnTry {
+		return rustTypeExpr{}, false
+	}
+	return rustTypeExpr{fn: e.fn, fnTry: true}, true
+}
+
+// rustTryTypes are the return types `?` unwraps to their first argument.
+var rustTryTypes = map[string]bool{"Result": true, "Option": true}
+
+// tryReturnType is T for a declared return type `Result<T, E>` or `Option<T>`.
+func (w *astWalker) tryReturnType(node *sitter.Node) string {
+	if node == nil || kindOf(node) != "generic_type" || !rustTryTypes[simpleTypeName(node.ChildByFieldName("type"), w.src)] {
+		return ""
+	}
+	if args := node.ChildByFieldName("type_arguments"); args != nil && args.NamedChildCount() > 0 {
+		return w.typeOf(args.NamedChild(0))
+	}
+	return ""
+}
+
+// freeCallType is the expression for what a free function's call returns: `f()`
+// by the name a bare call resolves to, `module::f()` by the module's directory.
+func (w *astWalker) freeCallType(fn *sitter.Node) (rustTypeExpr, bool) {
+	switch kindOf(fn) {
+	case "identifier":
+		name := nodeText(fn, w.src)
+		if _, local := w.localTypes[name]; local || isCapitalized(name) {
+			return rustTypeExpr{}, false // a closure held in a local, or a tuple struct
+		}
+		if target, ok := w.importMap[name]; ok {
+			if target == "" {
+				return rustTypeExpr{}, false
+			}
+			return rustTypeExpr{fn: rustEitherDir + target}, true
+		}
+		if t := w.resolveCall(name); t != "" {
+			return rustTypeExpr{fn: t}, true
+		}
+	case "scoped_identifier":
+		path, name := fn.ChildByFieldName("path"), fn.ChildByFieldName("name")
+		if path == nil || name == nil {
+			return rustTypeExpr{}, false
+		}
+		if dir := w.modulePathDir(strings.Split(nodeText(path, w.src), "::")); dir != "" {
+			return rustTypeExpr{fn: rustEitherDir + dir + "." + nodeText(name, w.src)}, true
+		}
+	}
+	return rustTypeExpr{}, false
 }
 
 // rustTypedCall is one method call whose receiver's type is an expression.
@@ -158,6 +227,18 @@ func (w *astWalker) exprType(node *sitter.Node) (rustTypeExpr, bool) {
 		if t, ok := w.localTypes[nodeText(node, w.src)]; ok {
 			return t, true
 		}
+	case "try_expression":
+		// `make_engine()?`
+		if node.NamedChildCount() > 0 {
+			if t, ok := w.exprType(node.NamedChild(0)); ok {
+				return t.tried()
+			}
+		}
+	case "await_expression":
+		// `make_engine().await`: an async fn is declared with the type it resolves to.
+		if node.NamedChildCount() > 0 {
+			return w.exprType(node.NamedChild(0))
+		}
 	case "parenthesized_expression", "reference_expression":
 		inner := node.ChildByFieldName("value")
 		if inner == nil && node.NamedChildCount() > 0 {
@@ -204,6 +285,11 @@ func (w *astWalker) exprType(node *sitter.Node) (rustTypeExpr, bool) {
 			if t := w.scopedCallType(fn); t != "" {
 				return rustTypeExpr{base: t}.then(rustStep{call: true, name: nodeText(fn.ChildByFieldName("name"), w.src)}), true
 			}
+			// `factory::make_engine()`: a free function of a module.
+			return w.freeCallType(fn)
+		case "identifier":
+			// `make_engine()`: what a free function returns.
+			return w.freeCallType(fn)
 		}
 	}
 	return rustTypeExpr{}, false
@@ -389,6 +475,7 @@ func resolveTypedCalls(all []facts.Fact) {
 	exists := make(map[string]bool, len(all))
 	fields := make(map[string]string)
 	returns := make(map[string]string)
+	tryReturns := make(map[string]string)
 	traits := make(map[string][]string)
 	byName := make(map[string][]string)
 	aliases := make(map[string]string)
@@ -418,6 +505,10 @@ func resolveTypedCalls(all []facts.Fact) {
 			returns[f.Name] = t
 			f.DelProp(propReturns)
 		}
+		if t, ok := f.PropAny(propTryReturns).(string); ok {
+			tryReturns[f.Name] = t
+			f.DelProp(propTryReturns)
+		}
 		for _, r := range f.Relations {
 			if r.Kind == facts.RelImplements {
 				traits[f.Name] = append(traits[f.Name], r.Target)
@@ -442,11 +533,42 @@ func resolveTypedCalls(all []facts.Fact) {
 		}
 		return ""
 	}
+	// function is the free function a marked name declares: in the directory named,
+	// or, by a file module, the one above it.
+	function := func(t string) string {
+		c, marked := strings.CutPrefix(t, rustEitherDir)
+		if exists[c] || !marked {
+			return c
+		}
+		if dot := strings.LastIndexByte(c, '.'); dot > 0 {
+			if slash := strings.LastIndexByte(c[:dot], '/'); slash >= 0 {
+				if up := c[:slash] + c[dot:]; exists[up] {
+					return up
+				}
+			}
+		}
+		return c
+	}
 	eval := func(e rustTypeExpr) []string {
-		types := canonType(e.base, exists, byName, aliases)
+		var types []string
+		if e.fn != "" {
+			from := returns
+			if e.fnTry {
+				from = tryReturns
+			}
+			next := from[function(e.fn)]
+			if next == "" {
+				return nil
+			}
+			types = canonType(next, exists, byName, aliases)
+		} else {
+			types = canonType(e.base, exists, byName, aliases)
+		}
 		for _, s := range e.steps {
 			var next string
-			if s.call {
+			if s.call && s.try {
+				next = tryReturns[method(types, s.name)]
+			} else if s.call {
 				next = returns[method(types, s.name)]
 			} else {
 				for _, t := range types {

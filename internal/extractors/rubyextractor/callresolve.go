@@ -63,6 +63,7 @@ func resolveRubyCalls(allFacts []facts.Fact) {
 			f.SetProp(propNamedReceivers, named)
 		}
 	}
+	resolveTypedCalls(allFacts, ix)
 }
 
 // propNamedReceivers lists, on a method, the classes it calls a singleton method
