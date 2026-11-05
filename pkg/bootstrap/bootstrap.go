@@ -61,6 +61,7 @@ import (
 	"github.com/enola-labs/enola/internal/linkers/binders/emberresolver"
 	"github.com/enola-labs/enola/internal/linkers/binders/frameworkroots"
 	"github.com/enola-labs/enola/internal/linkers/binders/generatedclients"
+	"github.com/enola-labs/enola/internal/linkers/binders/generatedreach"
 	"github.com/enola-labs/enola/internal/linkers/binders/grpcclientfqn"
 	"github.com/enola-labs/enola/internal/linkers/binders/grpcimpl"
 	"github.com/enola-labs/enola/internal/linkers/binders/httphandler"
@@ -555,6 +556,7 @@ func registerOSSPlugins(eng *engine.Engine, cfg *config.Config) {
 	// are client specs whose calls generated-clients then looks for.
 	eng.RegisterBinder(openapiimpl.New())
 	eng.RegisterBinder(generatedclients.New())
+	eng.RegisterBinder(generatedreach.New())
 	eng.RegisterBinder(messagingcontract.New())
 	eng.RegisterBinder(unmatchedroutes.New(linkVocab))
 	eng.RegisterBinder(testexercises.New(linkVocab))
