@@ -419,6 +419,53 @@ func TestBuildModuleGraph_RepoPrefixedFilesResolve(t *testing.T) {
 	}
 }
 
+// TestBuildModuleGraph_SameNameInTwoReposStaysTwoNodes covers two repos that each
+// declare a package of the same repo-relative name. Keyed by name alone, settings
+// -> i18n -> telemetry in one repo and telemetry -> settings in the other joined
+// into a cycle neither repo has.
+func TestBuildModuleGraph_SameNameInTwoReposStaysTwoNodes(t *testing.T) {
+	s := facts.NewStore()
+	for _, m := range []struct{ repo, name string }{
+		{"orders", "settings"}, {"orders", "i18n"}, {"orders", "telemetry"},
+		{"billing", "settings"}, {"billing", "i18n"}, {"billing", "telemetry"},
+		{"billing", "api"},
+	} {
+		s.Add(facts.Fact{Kind: facts.KindModule, Name: m.name, Repo: m.repo, File: m.repo + "/" + m.name})
+	}
+	imp := func(repo, from, to string) {
+		s.Add(facts.Fact{
+			Kind: facts.KindDependency, Repo: repo, File: repo + "/" + from + "/x.go",
+			Relations: []facts.Relation{{Kind: facts.RelImports, Target: to}},
+		})
+	}
+	imp("orders", "settings", "i18n")
+	imp("orders", "i18n", "telemetry")
+	imp("billing", "telemetry", "settings")
+	imp("billing", "api", "telemetry")
+
+	graph := BuildModuleGraph(s)
+
+	for _, scc := range StronglyConnectedComponents(graph) {
+		if len(scc) > 1 {
+			t.Fatalf("cycle across repos: %v", scc)
+		}
+	}
+	want := map[string]string{
+		"orders/settings":   "orders/i18n",
+		"orders/i18n":       "orders/telemetry",
+		"billing/telemetry": "billing/settings",
+		"api":               "billing/telemetry",
+	}
+	for from, to := range want {
+		if edges := graph[from]; len(edges) != 1 || edges[0] != to {
+			t.Errorf("%s edges = %v, want [%s]", from, edges, to)
+		}
+	}
+	if _, ok := graph["settings"]; ok {
+		t.Error("shared name kept a bare node")
+	}
+}
+
 // TestModuleDir pins the two spaces apart: a repo-prefixed file resolves into
 // module-name space, while a single-repo file is unchanged.
 func TestModuleDir(t *testing.T) {

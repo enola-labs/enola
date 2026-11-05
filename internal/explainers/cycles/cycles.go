@@ -84,10 +84,11 @@ func (e *CycleExplainer) Explain(ctx context.Context, store *facts.Store) ([]fac
 	// Which build unit each module compiles into, where the language models one.
 	// See facts.CompilationUnitProps: a cycle confined to a single unit is not a
 	// build-order defect, and saying it "can cause initialization issues" is untrue.
+	keys := common.NewModuleKeys(store)
 	unitOf := make(map[string]string)
 	for _, m := range store.ByKind(facts.KindModule) {
 		if u := facts.CompilationUnit(m); u != "" {
-			unitOf[m.Name] = u
+			unitOf[keys.Key(m.Repo, m.Name)] = u
 		}
 	}
 	langOf := common.ModuleLanguages(store)
