@@ -44,8 +44,13 @@ const (
 	// variable it assigns, with an empty token for a value of no known type. It does
 	// not leave the extractor.
 	propIvarTypes = "rb_ivar_types"
+	// propReturnType holds, on a method, the type token of what it returns. It does
+	// not leave the extractor.
+	propReturnType = "rb_return_type"
 	// tokNil is the token of `nil`, which neither types a variable nor untypes it.
 	tokNil = "\x00nil"
+	// tokSelf is an instance of the class the method is declared in.
+	tokSelf = "self"
 	// callMark follows a call whose result a token is.
 	callMark = "()"
 )
@@ -61,14 +66,17 @@ var modelFinders = map[string]bool{
 }
 
 // beginTyping starts the variable types of a method body.
-func (w *rubyWalker) beginTyping(method *sitter.Node) {
+func (w *rubyWalker) beginTyping(method *sitter.Node, isClassMethod bool, locals map[string]bool) {
 	w.types = map[string]string{}
 	w.untyped = map[string]bool{}
+	w.locals = locals
+	w.inSingle = isClassMethod
+	w.returns = nil
 	collectBlockParams(method.ChildByFieldName("body"), w.src, w.untyped)
 }
 
 func (w *rubyWalker) endTyping() {
-	w.types, w.untyped = nil, nil
+	w.types, w.untyped, w.locals, w.returns = nil, nil, nil, nil
 }
 
 // noteAssignment types the variable an assignment writes.
@@ -112,8 +120,8 @@ func (w *rubyWalker) noteAssignment(node *sitter.Node, ownerIdx int) {
 	}
 }
 
-// valueToken returns the type token of an assigned value, tokNil for `nil`, and ""
-// for a value of no known type.
+// valueToken returns the type token of a value, tokNil for `nil`, and "" for a value
+// of no known type.
 func (w *rubyWalker) valueToken(n *sitter.Node) string {
 	if n == nil {
 		return ""
@@ -125,55 +133,170 @@ func (w *rubyWalker) valueToken(n *sitter.Node) string {
 		}
 	case "nil":
 		return tokNil
-	case "call":
-		recv, meth := n.ChildByFieldName("receiver"), n.ChildByFieldName("method")
-		if recv != nil && meth != nil {
-			switch kindOf(recv) {
-			case "constant", "scope_resolution":
-				class := stripLeadingColons(rubyText(recv, w.src))
-				switch name := rubyText(meth, w.src); {
-				case name == "new":
-					return class
-				case modelFinders[name]:
-					return class + "." + name + callMark
-				}
-			}
+	case "self":
+		// In a class method self is the class, which is no instance of it.
+		if !w.inSingle {
+			return tokSelf
+		}
+	case "assignment", "operator_assignment":
+		// `@engine ||= Engine.new` is the value it stores.
+		if n.Kind() == "assignment" || rubyText(n.ChildByFieldName("operator"), w.src) == "||=" {
+			return w.valueToken(n.ChildByFieldName("right"))
 		}
 	case "identifier":
-		return w.types[rubyText(n, w.src)]
+		name := rubyText(n, w.src)
+		if w.locals[name] {
+			return w.types[name]
+		}
+		if name == "new" {
+			// `new` with no parentheses parses as an identifier.
+			if w.inSingle {
+				return tokSelf
+			}
+			return ""
+		}
+		// An identifier that is no local is a call of the method of that name.
+		if !rubyNonCalls[name] {
+			return "#" + name + callMark
+		}
 	case "instance_variable":
 		name := rubyText(n, w.src)
 		if t, seen := w.types[name]; seen {
 			return t
 		}
 		return name
+	case "call":
+		return w.callToken(n)
 	}
 	return ""
+}
+
+// callToken returns the type token of what a call returns.
+func (w *rubyWalker) callToken(n *sitter.Node) string {
+	recv, meth := n.ChildByFieldName("receiver"), n.ChildByFieldName("method")
+	if meth == nil || kindOf(meth) != "identifier" {
+		return ""
+	}
+	name := rubyText(meth, w.src)
+	if recv == nil {
+		switch {
+		case name == "new":
+			// `new(...)` in a class method builds an instance of the class.
+			if w.inSingle {
+				return tokSelf
+			}
+			return ""
+		case w.locals[name] || rubyNonCalls[name]:
+			return ""
+		}
+		return "#" + name + callMark
+	}
+	switch kindOf(recv) {
+	case "constant", "scope_resolution":
+		class := stripLeadingColons(rubyText(recv, w.src))
+		if name == "new" {
+			return class
+		}
+		return class + "." + name + callMark
+	case "self":
+		if name == "new" {
+			if w.inSingle {
+				return tokSelf
+			}
+			return ""
+		}
+		return "#" + name + callMark
+	}
+	rt := w.valueToken(recv)
+	switch {
+	case rt == "" || rt == tokNil || name == "new":
+		return ""
+	case name == "tap":
+		return rt
+	}
+	return rt + "#" + name + callMark
 }
 
 // receiverToken returns the type token of a call's receiver, "" when it has none.
-func (w *rubyWalker) receiverToken(recv *sitter.Node, locals map[string]bool) string {
-	switch kindOf(recv) {
-	case "parenthesized_statements":
-		if recv.NamedChildCount() == 1 {
-			return w.receiverToken(recv.NamedChild(0), locals)
-		}
-	case "identifier":
-		if name := rubyText(recv, w.src); locals[name] {
-			return w.types[name]
-		}
-	case "instance_variable":
-		name := rubyText(recv, w.src)
-		if t, seen := w.types[name]; seen {
-			return t
-		}
-		return name
+func (w *rubyWalker) receiverToken(recv *sitter.Node) string {
+	if t := w.valueToken(recv); t != tokNil {
+		return t
 	}
 	return ""
 }
 
+// noteReturn records the type of what a `return` returns. One in a lambda returns
+// from the lambda.
+func (w *rubyWalker) noteReturn(node *sitter.Node) {
+	if w.types == nil {
+		return
+	}
+	for p := node.Parent(); p != nil; p = p.Parent() {
+		k := kindOf(p)
+		if k == "lambda" {
+			return
+		}
+		if k == "method" || k == "singleton_method" {
+			break
+		}
+	}
+	tok := tokNil
+	if node.NamedChildCount() > 0 {
+		tok = ""
+		if args := node.NamedChild(0); kindOf(args) == "argument_list" && args.NamedChildCount() == 1 {
+			tok = w.valueToken(args.NamedChild(0))
+		}
+	}
+	w.returns = append(w.returns, tok)
+}
+
+// recordReturnType writes onto a method the type token of what it returns: the one
+// type of its last expression and every `return`, nil aside. A body with a rescue,
+// ensure or else clause, or ending in a branch, records none.
+func (w *rubyWalker) recordReturnType(method *sitter.Node, ownerIdx int) {
+	body := method.ChildByFieldName("body")
+	if body == nil {
+		return
+	}
+	last := body
+	if kindOf(body) == "body_statement" {
+		last = nil
+		for i := uint(0); i < body.NamedChildCount(); i++ {
+			c := body.NamedChild(i)
+			switch kindOf(c) {
+			case "rescue", "else", "ensure":
+				return
+			case "comment":
+				continue
+			}
+			last = c
+		}
+	}
+	toks := w.returns
+	if last != nil && kindOf(last) != "return" {
+		switch kindOf(last) {
+		case "if", "unless", "case", "begin", "while", "until", "for", "if_modifier", "unless_modifier", "conditional":
+			return
+		}
+		toks = append(toks, w.valueToken(last))
+	}
+	typ := ""
+	for _, t := range toks {
+		switch {
+		case t == tokNil:
+		case t == "" || (typ != "" && t != typ):
+			return
+		default:
+			typ = t
+		}
+	}
+	if typ != "" {
+		w.out[ownerIdx].SetProp(propReturnType, typ)
+	}
+}
+
 // noteTypedCall records a call on a typed receiver for resolveTypedCalls.
-func (w *rubyWalker) noteTypedCall(node *sitter.Node, ownerIdx int, locals map[string]bool) {
+func (w *rubyWalker) noteTypedCall(node *sitter.Node, ownerIdx int) {
 	if w.types == nil {
 		return
 	}
@@ -185,7 +308,7 @@ func (w *rubyWalker) noteTypedCall(node *sitter.Node, ownerIdx int, locals map[s
 	if name == "new" {
 		return
 	}
-	tok := w.receiverToken(recv, locals)
+	tok := w.receiverToken(recv)
 	if tok == "" {
 		return
 	}
@@ -221,6 +344,10 @@ type typeResolver struct {
 	ix *handlerIndex
 	// models holds the ActiveRecord and Sequel models.
 	models map[string]bool
+	// returns maps a method to the type token of what it returns, read from the
+	// method's own class. readers holds the attr_reader and attr_accessor methods.
+	returns map[string]string
+	readers map[string]bool
 	// ivars maps a class to the token of each instance variable its instance methods
 	// assign, "" for one assigned two types or a value of no known type.
 	ivars map[string]map[string]string
@@ -229,11 +356,24 @@ type typeResolver struct {
 // resolveTypedCalls adds the edge of every call on a typed receiver whose class
 // declares the method, and removes both temporary props.
 func resolveTypedCalls(allFacts []facts.Fact, ix *handlerIndex) {
-	r := typeResolver{ix: ix, models: map[string]bool{}, ivars: map[string]map[string]string{}}
+	r := typeResolver{ix: ix, models: map[string]bool{}, ivars: map[string]map[string]string{},
+		returns: map[string]string{}, readers: map[string]bool{}}
 	for i := range allFacts {
 		f := &allFacts[i]
 		if f.Kind == facts.KindStorage && f.PropString("storage_kind") == "model" {
 			r.models[f.Name] = true
+		}
+		if f.Kind == facts.KindSymbol && f.PropString("symbol_kind") == facts.SymbolVariable {
+			if k := f.PropString("attr_kind"); k == "reader" || k == "accessor" {
+				r.readers[f.Name] = true
+			}
+		}
+		if t, ok := f.PropAny(propReturnType).(string); ok {
+			delete(f.Props, propReturnType)
+			if _, seen := r.returns[f.Name]; seen && r.returns[f.Name] != t {
+				t = "" // reopened with another body
+			}
+			r.returns[f.Name] = t
 		}
 		list, _ := f.PropAny(propIvarTypes).([]string)
 		if list == nil {
@@ -329,19 +469,56 @@ func (r typeResolver) typeOf(tok, owner, sep string, depth int) string {
 		}
 		return ""
 	}
+	if tok == tokSelf {
+		return owner
+	}
 	if strings.HasSuffix(tok, callMark) {
 		path := strings.TrimSuffix(tok, callMark)
-		dot := strings.LastIndexByte(path, '.')
-		if dot <= 0 {
+		at := strings.LastIndexAny(path, "#.")
+		if at < 0 {
 			return ""
 		}
-		class := r.ix.lexical(path[:dot], owner)
-		if class != "" && modelFinders[path[dot+1:]] && r.isModel(class) {
-			return class
+		recv, name := path[:at], path[at+1:]
+		var fn string
+		switch {
+		case path[at] == '#' && recv == "":
+			// `make` / `self.make`: a method of the caller's own kind.
+			if owner == "" {
+				return ""
+			}
+			fn = r.ix.member(owner, sep, name)
+		case path[at] == '#':
+			class := r.typeOf(recv, owner, sep, depth+1)
+			if class == "" {
+				return ""
+			}
+			fn = r.ix.member(class, "#", name)
+		default:
+			class := r.ix.lexical(recv, owner)
+			if class == "" {
+				return ""
+			}
+			if modelFinders[name] && r.isModel(class) {
+				return class
+			}
+			fn = r.ix.member(class, ".", name)
 		}
-		return ""
+		return r.returnOf(fn, depth+1)
 	}
 	return r.ix.lexical(tok, owner)
+}
+
+// returnOf returns the class of what method fn returns, or "". A reader returns its
+// instance variable.
+func (r typeResolver) returnOf(fn string, depth int) string {
+	if fn == "" {
+		return ""
+	}
+	owner, sep := methodOwner(fn)
+	if r.readers[fn] {
+		return r.typeOf("@"+fn[strings.LastIndexByte(fn, '#')+1:], owner, "#", depth)
+	}
+	return r.typeOf(r.returns[fn], owner, sep, depth)
 }
 
 // isModel reports whether class is a model or inherits from one, as an STI subclass

@@ -183,3 +183,121 @@ end
 	wantNoCall(t, got, "Moderation#not_a_model", "Registry#lookup")
 	wantNoCall(t, got, "Moderation#not_a_finder", "User#activate")
 }
+
+func TestRubyCallOnAFactorysResultReachesTheReturnedClass(t *testing.T) {
+	got := rubyTypedRepo(t, map[string]string{
+		"lib/engine.rb": `
+class Engine
+  def run; end
+  def session
+    Session.new
+  end
+end
+
+class Session
+  def commit; end
+end
+`,
+		"lib/engine_factory.rb": `
+module EngineFactory
+  def self.make_engine
+    Engine.new
+  end
+
+  def self.maybe(flag)
+    return nil unless flag
+    Engine.new
+  end
+
+  def self.either(flag)
+    return 1 if flag
+    Engine.new
+  end
+end
+
+class Pool
+  def self.build(size)
+    new
+  end
+
+  def checkout; end
+end
+
+class Builder
+  def with(x)
+    self
+  end
+
+  def build
+    Engine.new
+  end
+end
+`,
+		"lib/api.rb": `
+class Api
+  attr_reader :held
+
+  def initialize
+    @held = Engine.new
+  end
+
+  def imported
+    e = EngineFactory.make_engine
+    e.run
+  end
+
+  def nullable(flag)
+    e = EngineFactory.maybe(flag)
+    e.run
+  end
+
+  def mixed(flag)
+    e = EngineFactory.either(flag)
+    e.run
+  end
+
+  def chained
+    EngineFactory.make_engine.session.commit
+  end
+
+  def own
+    e = local_engine
+    e.run
+  end
+
+  def memo
+    engine.run
+  end
+
+  def reader
+    held.run
+  end
+
+  def built
+    Pool.build(2).checkout
+  end
+
+  def builder
+    Builder.new.with(1).with(2).build.run
+  end
+
+  private
+
+  def local_engine
+    Engine.new
+  end
+
+  def engine
+    @engine ||= Engine.new
+  end
+end
+`,
+	})
+	for _, m := range []string{"Api#imported", "Api#nullable", "Api#own", "Api#memo", "Api#reader", "Api#builder"} {
+		wantCalls(t, got, m, "Engine#run")
+	}
+	wantCalls(t, got, "Api#chained", "Session#commit")
+	wantCalls(t, got, "Api#built", "Pool#checkout")
+	// A method that returns an Integer on one path declares no type.
+	wantNoCall(t, got, "Api#mixed", "Engine#run")
+}

@@ -3434,7 +3434,11 @@ import (
 // reaches the method X or an ancestor declares; an unresolved spelling is kept.
 // v533: Ruby: a variable assigned from a model finder (`User.find`, `find_by!`, `first`,
 // `create`, ...) is typed as the model, an STI subclass included.
-const cacheVersion = "v533"
+// v534: Ruby: a method's return type is inferred from its body (every return and the
+// last expression agreeing: X.new, new in a class method, self, a typed variable,
+// @x ||= X.new, another method's result), so a variable assigned from a factory, a bare
+// call of a memoized reader or attr_reader, and a chain of calls are typed.
+const cacheVersion = "v534"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
