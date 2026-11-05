@@ -3429,7 +3429,10 @@ import (
 // enclosing type, so the calls in its initializer are the def's. A local is typed by
 // its ascribed type, the class it constructs, or what the def it is assigned from
 // declares it returns, and a call on a call's result is typed the same way.
-const cacheVersion = "v531"
+// v532: Ruby: a local or instance variable assigned `X.new` is typed as X (an instance
+// variable class-wide, through ancestors, when every assignment agrees), and a call on it
+// reaches the method X or an ancestor declares; an unresolved spelling is kept.
+const cacheVersion = "v532"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

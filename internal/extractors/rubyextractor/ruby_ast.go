@@ -225,6 +225,13 @@ type rubyWalker struct {
 	loops        []rubyLoop
 	loopScales   []bool
 	scalingDepth int
+
+	// types holds, while a method body is walked, the type token of each local and
+	// instance variable assigned in it, "" for one that is not one type. untypable
+	// names the method's block parameters, which shadow a local of the same name.
+	// See factoryreturns.go.
+	types   map[string]string
+	untyped map[string]bool
 }
 
 // rubyBodyMetrics accumulates per-method complexity signals during the single
@@ -1053,7 +1060,9 @@ func (w *rubyWalker) handleMethod(node *sitter.Node, isClassMethod bool) {
 	w.loops, w.loopScales, w.scalingDepth = nil, nil, 0
 	w.selfName = fullName
 	w.selfShort = name
+	w.beginTyping(node)
 	w.walkForCalls(node.ChildByFieldName("body"), ownerIdx, seen, locals)
+	w.endTyping()
 	props["cyclomatic"] = 1 + w.metrics.decisions
 	if w.metrics.loopDepth > 0 {
 		props["loop_depth"] = w.metrics.loopDepth
@@ -1337,6 +1346,7 @@ func (w *rubyWalker) walkForCalls(node *sitter.Node, ownerIdx int, seen, locals 
 				w.addInstantiation(ownerIdx, stripLeadingColons(rubyText(recv, w.src)), oneShotCallOn(node, w.src))
 			}
 		}
+		w.noteTypedCall(node, ownerIdx, locals)
 		if target := w.callTarget(node); target != "" {
 			w.addCall(ownerIdx, seen, target)
 			// Recursion only for a same-object self dispatch. callTarget returns a bare
@@ -1482,6 +1492,7 @@ func (w *rubyWalker) walkForCalls(node *sitter.Node, ownerIdx int, seen, locals 
 		}
 		return
 	case "assignment", "operator_assignment":
+		w.noteAssignment(node, ownerIdx)
 		// `@client = …` is a write; `@count += 1` is both. Handled here rather
 		// than in the declaration pass because that pass runs with metrics off,
 		// and handled before the generic descent because descending would walk
