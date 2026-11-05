@@ -1,6 +1,7 @@
 package rubyextractor
 
 import (
+	"regexp"
 	"strings"
 	"unicode"
 
@@ -47,6 +48,9 @@ const (
 	// propReturnType holds, on a method, the type token of what it returns. It does
 	// not leave the extractor.
 	propReturnType = "rb_return_type"
+	// propDeclaredReturn holds, on a method, the type token its YARD `@return` tag
+	// names. It does not leave the extractor.
+	propDeclaredReturn = "rb_declared_return"
 	// tokNil is the token of `nil`, which neither types a variable nor untypes it.
 	tokNil = "\x00nil"
 	// tokSelf is an instance of the class the method is declared in.
@@ -254,6 +258,9 @@ func (w *rubyWalker) noteReturn(node *sitter.Node) {
 // type of its last expression and every `return`, nil aside. A body with a rescue,
 // ensure or else clause, or ending in a branch, records none.
 func (w *rubyWalker) recordReturnType(method *sitter.Node, ownerIdx int) {
+	if typ := w.declaredReturn(method); typ != "" {
+		w.out[ownerIdx].SetProp(propDeclaredReturn, typ)
+	}
 	body := method.ChildByFieldName("body")
 	if body == nil {
 		return
@@ -346,8 +353,9 @@ type typeResolver struct {
 	models map[string]bool
 	// returns maps a method to the type token of what it returns, read from the
 	// method's own class. readers holds the attr_reader and attr_accessor methods.
-	returns map[string]string
-	readers map[string]bool
+	returns  map[string]string
+	declared map[string]string
+	readers  map[string]bool
 	// ivars maps a class to the token of each instance variable its instance methods
 	// assign, "" for one assigned two types or a value of no known type.
 	ivars map[string]map[string]string
@@ -357,7 +365,7 @@ type typeResolver struct {
 // declares the method, and removes both temporary props.
 func resolveTypedCalls(allFacts []facts.Fact, ix *handlerIndex) {
 	r := typeResolver{ix: ix, models: map[string]bool{}, ivars: map[string]map[string]string{},
-		returns: map[string]string{}, readers: map[string]bool{}}
+		returns: map[string]string{}, declared: map[string]string{}, readers: map[string]bool{}}
 	for i := range allFacts {
 		f := &allFacts[i]
 		if f.Kind == facts.KindStorage && f.PropString("storage_kind") == "model" {
@@ -367,6 +375,10 @@ func resolveTypedCalls(allFacts []facts.Fact, ix *handlerIndex) {
 			if k := f.PropString("attr_kind"); k == "reader" || k == "accessor" {
 				r.readers[f.Name] = true
 			}
+		}
+		if t, ok := f.PropAny(propDeclaredReturn).(string); ok {
+			delete(f.Props, propDeclaredReturn)
+			r.declared[f.Name] = t
 		}
 		if t, ok := f.PropAny(propReturnType).(string); ok {
 			delete(f.Props, propReturnType)
@@ -518,6 +530,11 @@ func (r typeResolver) returnOf(fn string, depth int) string {
 	if r.readers[fn] {
 		return r.typeOf("@"+fn[strings.LastIndexByte(fn, '#')+1:], owner, "#", depth)
 	}
+	if d := r.declared[fn]; d != "" {
+		if class := r.typeOf(d, owner, sep, depth); class != "" {
+			return class
+		}
+	}
 	return r.typeOf(r.returns[fn], owner, sep, depth)
 }
 
@@ -539,4 +556,53 @@ func (r typeResolver) isModel(class string) bool {
 		class = next
 	}
 	return false
+}
+
+// constantPath matches a type YARD names that a constant can resolve: `Engine`,
+// `Ci::Pipeline`, `::Engine`. A generic (`Array<Engine>`) or duck type does not.
+var constantPath = regexp.MustCompile(`^(::)?[A-Z][A-Za-z0-9_]*(::[A-Z][A-Za-z0-9_]*)*$`)
+
+// declaredReturn returns the type token of the type a method's YARD `@return [T]`
+// tag declares, `nil` aside: `[Engine]`, `[Engine, nil]`, and `[self]` in an instance
+// method. Where it names a class of the repository it takes precedence over what the
+// body is inferred to return; a core or library type (`[Hash]`) leaves the inferred
+// one, since tags are often loose (`@return [Hash]` on a method returning a class
+// that behaves like one).
+func (w *rubyWalker) declaredReturn(method *sitter.Node) string {
+	for _, l := range rubyDocLines(method, w.src) {
+		rest, ok := strings.CutPrefix(l, "@return")
+		if !ok {
+			continue
+		}
+		rest = strings.TrimSpace(rest)
+		if !strings.HasPrefix(rest, "[") {
+			return ""
+		}
+		end := strings.IndexByte(rest, ']')
+		if end < 0 {
+			return ""
+		}
+		typ := ""
+		for _, t := range strings.Split(rest[1:end], ",") {
+			switch t = strings.TrimSpace(t); t {
+			case "nil", "NilClass", "void", "":
+				continue
+			}
+			if typ != "" {
+				return ""
+			}
+			typ = t
+		}
+		switch {
+		case typ == "self":
+			if w.inSingle {
+				return ""
+			}
+			return tokSelf
+		case constantPath.MatchString(typ):
+			return stripLeadingColons(typ)
+		}
+		return ""
+	}
+	return ""
 }

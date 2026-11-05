@@ -3438,7 +3438,10 @@ import (
 // last expression agreeing: X.new, new in a class method, self, a typed variable,
 // @x ||= X.new, another method's result), so a variable assigned from a factory, a bare
 // call of a memoized reader or attr_reader, and a chain of calls are typed.
-const cacheVersion = "v534"
+// v535: Ruby: a YARD `@return [T]` tag (nil aside, `self` in an instance method) naming a
+// class of the repository declares the method's return type, ahead of what its body is
+// inferred to return; a core or library type leaves the inferred one.
+const cacheVersion = "v535"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

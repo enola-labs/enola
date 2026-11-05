@@ -20,7 +20,8 @@ func rubyTypedRepo(t *testing.T, files map[string]string) map[string][]string {
 		t.Fatal(err)
 	}
 	for _, f := range ff {
-		if f.PropAny(propTypedCalls) != nil || f.PropAny(propIvarTypes) != nil {
+		if f.PropAny(propTypedCalls) != nil || f.PropAny(propIvarTypes) != nil ||
+			f.PropAny(propReturnType) != nil || f.PropAny(propDeclaredReturn) != nil {
 			t.Errorf("%s keeps a typing prop that must not leave the extractor", f.Name)
 		}
 	}
@@ -300,4 +301,84 @@ end
 	wantCalls(t, got, "Api#built", "Pool#checkout")
 	// A method that returns an Integer on one path declares no type.
 	wantNoCall(t, got, "Api#mixed", "Engine#run")
+}
+
+func TestRubyYardReturnTagDeclaresTheReturnType(t *testing.T) {
+	got := rubyTypedRepo(t, map[string]string{
+		"lib/ci/pipeline.rb": `
+module Ci
+  class Pipeline
+    def retry!; end
+  end
+end
+`,
+		"lib/ci/finder.rb": `
+module Ci
+  class Finder
+    # Finds the latest pipeline.
+    #
+    # @param ref [String] the ref
+    # @return [Ci::Pipeline, nil] the pipeline, if any
+    def latest(ref)
+      lookup(ref)
+    end
+
+    # @return [Array<Ci::Pipeline>]
+    def all
+      lookup(nil)
+    end
+
+    # @return [self]
+    def scoped
+      dup
+    end
+
+    # @return [Hash]
+    def loose
+      Pipeline.new
+    end
+
+    # @return [Ci::Pipeline]
+    def declared
+      Finder.new
+    end
+
+    def retry_all; end
+  end
+end
+`,
+		"lib/ci/service.rb": `
+module Ci
+  class Service
+    def latest(finder)
+      p = Finder.new.latest("main")
+      p.retry!
+    end
+
+    def generic
+      Finder.new.all.retry!
+    end
+
+    def chained
+      Finder.new.scoped.retry_all
+    end
+
+    def loose_tag
+      Finder.new.loose.retry!
+    end
+
+    def declared_wins
+      Finder.new.declared.retry!
+    end
+  end
+end
+`,
+	})
+	wantCalls(t, got, "Ci::Service#latest", "Ci::Pipeline#retry!")
+	wantCalls(t, got, "Ci::Service#chained", "Ci::Finder#retry_all")
+	// A generic declares no class. A declared class of the repository wins over the
+	// body; a core type does not, and the body's type stands.
+	wantNoCall(t, got, "Ci::Service#generic", "Ci::Pipeline#retry!")
+	wantCalls(t, got, "Ci::Service#declared_wins", "Ci::Pipeline#retry!")
+	wantCalls(t, got, "Ci::Service#loose_tag", "Ci::Pipeline#retry!")
 }
