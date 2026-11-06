@@ -128,6 +128,7 @@ var versionCoverage = map[int][]string{
 	505: {"TestAST_RustRuntimeEntrypointsAreFrameworkRegistered"},
 	506: {"TestRustCallThroughAnImportAliasReachesTheOriginal"},
 	508: {"TestReturnedObjectMembersOnlySayWhereALineIs"},
+	536: {"TestRustItemLevelErrorAttributeCallsAreReferences"},
 	507: {"TestRustImportAliasesBindOnlyTheAlias", "TestRustImportedTypeThroughAFileModuleWithADirectory", "TestRustMethodsInAFileModulesSubdirectoryResolve", "TestRustTypeImportedThroughAReExportResolves", "TestRustTypeAliasIsFollowedToItsType", "TestRustAliasedExternalImportDoesNotHideTheLocalName"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},
