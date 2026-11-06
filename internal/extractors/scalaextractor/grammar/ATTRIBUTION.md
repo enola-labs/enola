@@ -13,11 +13,13 @@ Scala source into an AST. It is third-party code, distributed under a different 
 ## Why it is vendored rather than required
 
 Until v0.24.1 the upstream Go module was consumed directly. Every release since v0.25.0
-commits a `src/parser.c` that declares `LANGUAGE_VERSION 15`, while
-`go-tree-sitter v0.24.0` accepts at most ABI 14. `SetLanguage` returns an error, every
-file parses to nothing, and the result is **indistinguishable from a repository that
-contains no Scala** — the same trap documented for the C# and Dart grammars, and the
-reason `TestGrammarSmoke` asserts the grammar still loads.
+commits a `src/parser.c` at `LANGUAGE_VERSION 15`. The runtime loads ABI 15, but that
+parser carries upstream's `reserved` word set, which reserves Scala 3's soft keywords
+(`given`, `export`, `enum`, `macro`) in every position. A member selection of a Java API
+such as `RestAssured.given()`, and a Scala 2 identifier named `enum`, then become ERROR
+nodes and the calls around them are lost: on openwhisk that was 43 call edges across five
+test files, measured on v0.26.2 and unchanged on v0.26.4.
+`TestGrammarSoftKeywordsAreIdentifiers` in the parent package pins those forms.
 
 Staying on v0.24.1 is not a neutral choice: it predates the grammar's support for Scala 3
 **capture checking** (`T^`, `T^{x}`, `A ->{x} B`, `class Box[T, C^]`, `Box[T, {any}]`).
@@ -31,7 +33,7 @@ extractor silently drops and mis-nests symbols, with no parse error reported.
 |---|---|
 | `src/scanner.c` | Copied verbatim from the upstream repository at the commit above. |
 | `grammar.json` | Copied verbatim from the upstream repository's `src/grammar.json`. |
-| `src/parser.c`, `src/node-types.json`, `src/tree_sitter/*.h` | **Generated** locally from `grammar.json` using the tree-sitter CLI at ABI 14. The upstream committed parser is ABI 15 and therefore unusable here. |
+| `src/parser.c`, `src/node-types.json`, `src/tree_sitter/*.h` | **Generated** locally from `grammar.json` using the tree-sitter CLI at ABI 14, so the reserved-word set is left out. |
 
 The generated parser is a deterministic product of the upstream `grammar.json`; it was
 not hand-edited. The `cgo_parser.c` / `cgo_scanner.c` shims and `binding.go` in this
@@ -45,8 +47,8 @@ cd internal/extractors/scalaextractor/grammar
 tree-sitter generate grammar.json --abi 14
 ```
 
-The ABI (14) is pinned to match `github.com/tree-sitter/go-tree-sitter v0.24.0`. This
-was produced with `tree-sitter-cli` v0.25.3.
+The ABI (14) is a choice, not a runtime limit: see above. This was produced with
+`tree-sitter-cli` v0.25.3.
 
 ## Known grammar gap at ABI 14
 

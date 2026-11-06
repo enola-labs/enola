@@ -11,13 +11,12 @@ import (
 // TestGrammarSmoke is the ABI guard, and it is the most important test in this
 // package.
 //
-// tree-sitter-scala v0.25.0 and later are generated against tree-sitter ABI 15,
-// while the vendored go-tree-sitter runtime accepts at most 14. The rejection is
-// SILENT: SetLanguage fails, every file parses to nothing, and the result is
-// indistinguishable from a repository that contains no Scala. That is exactly how
-// the C# grammar failed once, which is why the grammar is vendored under grammar/
-// and regenerated at ABI 14, and why this test asserts it still loads rather than
-// trusting the vendored bytes to stay put.
+// A grammar the go-tree-sitter runtime refuses is refused SILENTLY: SetLanguage fails,
+// every file parses to nothing, and the result is indistinguishable from a repository
+// that contains no Scala. That is exactly how the C# grammar failed once. The grammar is
+// vendored under grammar/ and regenerated at ABI 14 (see
+// TestGrammarSoftKeywordsAreIdentifiers for why), so this asserts it still loads rather
+// than trusting the vendored bytes to stay put.
 //
 // If this fails after a grammar update, the fix is to regenerate at ABI 14 (see
 // grammar/ATTRIBUTION.md), not to loosen the assertion.
@@ -26,7 +25,7 @@ func TestGrammarSmoke(t *testing.T) {
 	defer parser.Close()
 	if err := parser.SetLanguage(sitter.NewLanguage(scala.Language())); err != nil {
 		t.Fatalf("SetLanguage failed — the grammar is almost certainly built against a "+
-			"newer tree-sitter ABI than the vendored runtime accepts. Regenerate "+
+			"tree-sitter ABI the runtime does not accept. Regenerate "+
 			"grammar/src/parser.c with --abi 14. Error: %v", err)
 	}
 
@@ -196,5 +195,30 @@ object Caps {
 		if f.Name == "src.Caps.get" || f.Name == "src.Caps.put" {
 			t.Errorf("%s: a Box member was hoisted out of Box", f.Name)
 		}
+	}
+}
+
+// TestGrammarSoftKeywordsAreIdentifiers is why the grammar stays regenerated at ABI 14.
+// Upstream's ABI 15 parser reserves Scala 3's soft keywords (`given`, `export`, `enum`,
+// `macro`) in every position, so a member selection of a Java API such as
+// `RestAssured.given()`, and a Scala 2 identifier named `enum`, become ERROR nodes and
+// the calls around them are lost. ABI 14 cannot carry a reserved-word set, so these
+// parse as the compiler reads them.
+func TestGrammarSoftKeywordsAreIdentifiers(t *testing.T) {
+	parser := sitter.NewParser()
+	defer parser.Close()
+	if err := parser.SetLanguage(sitter.NewLanguage(scala.Language())); err != nil {
+		t.Fatal(err)
+	}
+	for _, src := range []string{
+		"object A {\n  def f() = RestAssured.given().config(c).get(u)\n}\n",
+		"object A {\n  val r = RestAssured.\n    given().\n    auth()\n}\n",
+		"object A {\n  val enum = 1\n  def g() = x.export(enum)\n}\n",
+	} {
+		tree := parser.Parse([]byte(src), nil)
+		if tree.RootNode().HasError() {
+			t.Errorf("%q parsed with an error: %s", src, tree.RootNode().ToSexp())
+		}
+		tree.Close()
 	}
 }

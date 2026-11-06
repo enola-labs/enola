@@ -1,12 +1,11 @@
 // Package grammar vendors the tree-sitter Scala grammar (tree-sitter/tree-sitter-scala).
 //
-// The upstream Go binding cannot be consumed directly past v0.24.1: v0.25.0 and later
-// commit a src/parser.c generated against tree-sitter ABI 15, while the vendored
-// go-tree-sitter runtime accepts at most 14. That rejection is SILENT — SetLanguage
-// fails, every file parses to nothing, and the result is indistinguishable from a
-// repository containing no Scala. v0.24.1 predates the grammar's support for Scala 3
-// capture checking (`T^{x}`, `A ->{x} B`, `Box[T, C^]`), and on capture-checked
-// sources it drops and mis-nests symbols without reporting a parse error.
+// The upstream Go binding is not consumed directly although the runtime loads its ABI 15
+// parser: that parser reserves Scala 3's soft keywords (`given`, `export`, `enum`,
+// `macro`) in every position, so `RestAssured.given()` or a Scala 2 `val enum` becomes an
+// ERROR node and the calls around it are lost. ABI 14 cannot carry a reserved-word set.
+// Releases up to v0.24.1, the last shipped at ABI 14, predate Scala 3 capture checking
+// (`T^{x}`, `A ->{x} B`, `Box[T, C^]`) and drop and mis-nest symbols on it.
 //
 // So the parser is regenerated from the upstream grammar.json at ABI 14 and committed
 // under src/, alongside the hand-written scanner.c copied verbatim. Regenerate with:
