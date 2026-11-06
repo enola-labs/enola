@@ -48,7 +48,9 @@ tree-sitter generate grammar.json --abi 14
 ```
 
 The ABI (14) is a choice, not a runtime limit: see above. This was produced with
-`tree-sitter-cli` v0.25.3.
+`tree-sitter-cli` v0.27.1, the CLI the Swift grammar is generated with too. After
+regenerating, build with `go build -a`: Go's build cache does not track the files the
+`cgo_*.c` shims include.
 
 ## Known grammar gap at ABI 14
 

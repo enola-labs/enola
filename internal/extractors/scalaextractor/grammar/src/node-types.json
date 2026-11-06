@@ -1,177 +1,5 @@
 [
   {
-    "type": "_definition",
-    "named": true,
-    "subtypes": [
-      {
-        "type": "class_definition",
-        "named": true
-      },
-      {
-        "type": "enum_definition",
-        "named": true
-      },
-      {
-        "type": "export_declaration",
-        "named": true
-      },
-      {
-        "type": "extension_definition",
-        "named": true
-      },
-      {
-        "type": "function_declaration",
-        "named": true
-      },
-      {
-        "type": "function_definition",
-        "named": true
-      },
-      {
-        "type": "given_definition",
-        "named": true
-      },
-      {
-        "type": "import_declaration",
-        "named": true
-      },
-      {
-        "type": "object_definition",
-        "named": true
-      },
-      {
-        "type": "package_clause",
-        "named": true
-      },
-      {
-        "type": "package_object",
-        "named": true
-      },
-      {
-        "type": "trait_definition",
-        "named": true
-      },
-      {
-        "type": "type_definition",
-        "named": true
-      },
-      {
-        "type": "val_declaration",
-        "named": true
-      },
-      {
-        "type": "val_definition",
-        "named": true
-      },
-      {
-        "type": "var_declaration",
-        "named": true
-      },
-      {
-        "type": "var_definition",
-        "named": true
-      }
-    ]
-  },
-  {
-    "type": "_pattern",
-    "named": true,
-    "subtypes": [
-      {
-        "type": "alternative_pattern",
-        "named": true
-      },
-      {
-        "type": "boolean_literal",
-        "named": true
-      },
-      {
-        "type": "capture_pattern",
-        "named": true
-      },
-      {
-        "type": "case_class_pattern",
-        "named": true
-      },
-      {
-        "type": "character_literal",
-        "named": true
-      },
-      {
-        "type": "floating_point_literal",
-        "named": true
-      },
-      {
-        "type": "given_pattern",
-        "named": true
-      },
-      {
-        "type": "identifier",
-        "named": true
-      },
-      {
-        "type": "infix_pattern",
-        "named": true
-      },
-      {
-        "type": "integer_literal",
-        "named": true
-      },
-      {
-        "type": "interpolated_string_expression",
-        "named": true
-      },
-      {
-        "type": "named_tuple_pattern",
-        "named": true
-      },
-      {
-        "type": "null_literal",
-        "named": true
-      },
-      {
-        "type": "operator_identifier",
-        "named": true
-      },
-      {
-        "type": "quote_expression",
-        "named": true
-      },
-      {
-        "type": "repeat_pattern",
-        "named": true
-      },
-      {
-        "type": "stable_identifier",
-        "named": true
-      },
-      {
-        "type": "string",
-        "named": true
-      },
-      {
-        "type": "tuple_pattern",
-        "named": true
-      },
-      {
-        "type": "typed_pattern",
-        "named": true
-      },
-      {
-        "type": "unit",
-        "named": true
-      },
-      {
-        "type": "wildcard",
-        "named": true
-      },
-      {
-        "type": "xml_pattern",
-        "named": true
-      }
-    ]
-  },
-  {
     "type": "expression",
     "named": true,
     "subtypes": [
@@ -368,7 +196,95 @@
       "required": true,
       "types": [
         {
-          "type": "_pattern",
+          "type": "alternative_pattern",
+          "named": true
+        },
+        {
+          "type": "boolean_literal",
+          "named": true
+        },
+        {
+          "type": "capture_pattern",
+          "named": true
+        },
+        {
+          "type": "case_class_pattern",
+          "named": true
+        },
+        {
+          "type": "character_literal",
+          "named": true
+        },
+        {
+          "type": "floating_point_literal",
+          "named": true
+        },
+        {
+          "type": "given_pattern",
+          "named": true
+        },
+        {
+          "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "infix_pattern",
+          "named": true
+        },
+        {
+          "type": "integer_literal",
+          "named": true
+        },
+        {
+          "type": "interpolated_string_expression",
+          "named": true
+        },
+        {
+          "type": "named_tuple_pattern",
+          "named": true
+        },
+        {
+          "type": "null_literal",
+          "named": true
+        },
+        {
+          "type": "operator_identifier",
+          "named": true
+        },
+        {
+          "type": "quote_expression",
+          "named": true
+        },
+        {
+          "type": "repeat_pattern",
+          "named": true
+        },
+        {
+          "type": "stable_identifier",
+          "named": true
+        },
+        {
+          "type": "string",
+          "named": true
+        },
+        {
+          "type": "tuple_pattern",
+          "named": true
+        },
+        {
+          "type": "typed_pattern",
+          "named": true
+        },
+        {
+          "type": "unit",
+          "named": true
+        },
+        {
+          "type": "wildcard",
+          "named": true
+        },
+        {
+          "type": "xml_pattern",
           "named": true
         }
       ]
@@ -1205,7 +1121,7 @@
       "required": false,
       "types": [
         {
-          "type": "_definition",
+          "type": "class_definition",
           "named": true
         },
         {
@@ -1213,7 +1129,71 @@
           "named": true
         },
         {
+          "type": "enum_definition",
+          "named": true
+        },
+        {
+          "type": "export_declaration",
+          "named": true
+        },
+        {
           "type": "expression",
+          "named": true
+        },
+        {
+          "type": "extension_definition",
+          "named": true
+        },
+        {
+          "type": "function_declaration",
+          "named": true
+        },
+        {
+          "type": "function_definition",
+          "named": true
+        },
+        {
+          "type": "given_definition",
+          "named": true
+        },
+        {
+          "type": "import_declaration",
+          "named": true
+        },
+        {
+          "type": "object_definition",
+          "named": true
+        },
+        {
+          "type": "package_clause",
+          "named": true
+        },
+        {
+          "type": "package_object",
+          "named": true
+        },
+        {
+          "type": "trait_definition",
+          "named": true
+        },
+        {
+          "type": "type_definition",
+          "named": true
+        },
+        {
+          "type": "val_declaration",
+          "named": true
+        },
+        {
+          "type": "val_definition",
+          "named": true
+        },
+        {
+          "type": "var_declaration",
+          "named": true
+        },
+        {
+          "type": "var_definition",
           "named": true
         }
       ]
@@ -1393,7 +1373,95 @@
         "required": true,
         "types": [
           {
-            "type": "_pattern",
+            "type": "alternative_pattern",
+            "named": true
+          },
+          {
+            "type": "boolean_literal",
+            "named": true
+          },
+          {
+            "type": "capture_pattern",
+            "named": true
+          },
+          {
+            "type": "case_class_pattern",
+            "named": true
+          },
+          {
+            "type": "character_literal",
+            "named": true
+          },
+          {
+            "type": "floating_point_literal",
+            "named": true
+          },
+          {
+            "type": "given_pattern",
+            "named": true
+          },
+          {
+            "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "infix_pattern",
+            "named": true
+          },
+          {
+            "type": "integer_literal",
+            "named": true
+          },
+          {
+            "type": "interpolated_string_expression",
+            "named": true
+          },
+          {
+            "type": "named_tuple_pattern",
+            "named": true
+          },
+          {
+            "type": "null_literal",
+            "named": true
+          },
+          {
+            "type": "operator_identifier",
+            "named": true
+          },
+          {
+            "type": "quote_expression",
+            "named": true
+          },
+          {
+            "type": "repeat_pattern",
+            "named": true
+          },
+          {
+            "type": "stable_identifier",
+            "named": true
+          },
+          {
+            "type": "string",
+            "named": true
+          },
+          {
+            "type": "tuple_pattern",
+            "named": true
+          },
+          {
+            "type": "typed_pattern",
+            "named": true
+          },
+          {
+            "type": "unit",
+            "named": true
+          },
+          {
+            "type": "wildcard",
+            "named": true
+          },
+          {
+            "type": "xml_pattern",
             "named": true
           }
         ]
@@ -1543,11 +1611,99 @@
             "named": false
           },
           {
-            "type": "_pattern",
+            "type": "alternative_pattern",
+            "named": true
+          },
+          {
+            "type": "boolean_literal",
+            "named": true
+          },
+          {
+            "type": "capture_pattern",
+            "named": true
+          },
+          {
+            "type": "case_class_pattern",
+            "named": true
+          },
+          {
+            "type": "character_literal",
+            "named": true
+          },
+          {
+            "type": "floating_point_literal",
+            "named": true
+          },
+          {
+            "type": "given_pattern",
+            "named": true
+          },
+          {
+            "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "infix_pattern",
+            "named": true
+          },
+          {
+            "type": "integer_literal",
+            "named": true
+          },
+          {
+            "type": "interpolated_string_expression",
             "named": true
           },
           {
             "type": "named_pattern",
+            "named": true
+          },
+          {
+            "type": "named_tuple_pattern",
+            "named": true
+          },
+          {
+            "type": "null_literal",
+            "named": true
+          },
+          {
+            "type": "operator_identifier",
+            "named": true
+          },
+          {
+            "type": "quote_expression",
+            "named": true
+          },
+          {
+            "type": "repeat_pattern",
+            "named": true
+          },
+          {
+            "type": "stable_identifier",
+            "named": true
+          },
+          {
+            "type": "string",
+            "named": true
+          },
+          {
+            "type": "tuple_pattern",
+            "named": true
+          },
+          {
+            "type": "typed_pattern",
+            "named": true
+          },
+          {
+            "type": "unit",
+            "named": true
+          },
+          {
+            "type": "wildcard",
+            "named": true
+          },
+          {
+            "type": "xml_pattern",
             "named": true
           }
         ]
@@ -1591,7 +1747,7 @@
             "named": false
           },
           {
-            "type": "_definition",
+            "type": "class_definition",
             "named": true
           },
           {
@@ -1599,7 +1755,71 @@
             "named": true
           },
           {
+            "type": "enum_definition",
+            "named": true
+          },
+          {
+            "type": "export_declaration",
+            "named": true
+          },
+          {
             "type": "expression",
+            "named": true
+          },
+          {
+            "type": "extension_definition",
+            "named": true
+          },
+          {
+            "type": "function_declaration",
+            "named": true
+          },
+          {
+            "type": "function_definition",
+            "named": true
+          },
+          {
+            "type": "given_definition",
+            "named": true
+          },
+          {
+            "type": "import_declaration",
+            "named": true
+          },
+          {
+            "type": "object_definition",
+            "named": true
+          },
+          {
+            "type": "package_clause",
+            "named": true
+          },
+          {
+            "type": "package_object",
+            "named": true
+          },
+          {
+            "type": "trait_definition",
+            "named": true
+          },
+          {
+            "type": "type_definition",
+            "named": true
+          },
+          {
+            "type": "val_declaration",
+            "named": true
+          },
+          {
+            "type": "val_definition",
+            "named": true
+          },
+          {
+            "type": "var_declaration",
+            "named": true
+          },
+          {
+            "type": "var_definition",
             "named": true
           }
         ]
@@ -1609,7 +1829,95 @@
         "required": true,
         "types": [
           {
-            "type": "_pattern",
+            "type": "alternative_pattern",
+            "named": true
+          },
+          {
+            "type": "boolean_literal",
+            "named": true
+          },
+          {
+            "type": "capture_pattern",
+            "named": true
+          },
+          {
+            "type": "case_class_pattern",
+            "named": true
+          },
+          {
+            "type": "character_literal",
+            "named": true
+          },
+          {
+            "type": "floating_point_literal",
+            "named": true
+          },
+          {
+            "type": "given_pattern",
+            "named": true
+          },
+          {
+            "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "infix_pattern",
+            "named": true
+          },
+          {
+            "type": "integer_literal",
+            "named": true
+          },
+          {
+            "type": "interpolated_string_expression",
+            "named": true
+          },
+          {
+            "type": "named_tuple_pattern",
+            "named": true
+          },
+          {
+            "type": "null_literal",
+            "named": true
+          },
+          {
+            "type": "operator_identifier",
+            "named": true
+          },
+          {
+            "type": "quote_expression",
+            "named": true
+          },
+          {
+            "type": "repeat_pattern",
+            "named": true
+          },
+          {
+            "type": "stable_identifier",
+            "named": true
+          },
+          {
+            "type": "string",
+            "named": true
+          },
+          {
+            "type": "tuple_pattern",
+            "named": true
+          },
+          {
+            "type": "typed_pattern",
+            "named": true
+          },
+          {
+            "type": "unit",
+            "named": true
+          },
+          {
+            "type": "wildcard",
+            "named": true
+          },
+          {
+            "type": "xml_pattern",
             "named": true
           }
         ]
@@ -1649,7 +1957,95 @@
         "required": false,
         "types": [
           {
-            "type": "_pattern",
+            "type": "alternative_pattern",
+            "named": true
+          },
+          {
+            "type": "boolean_literal",
+            "named": true
+          },
+          {
+            "type": "capture_pattern",
+            "named": true
+          },
+          {
+            "type": "case_class_pattern",
+            "named": true
+          },
+          {
+            "type": "character_literal",
+            "named": true
+          },
+          {
+            "type": "floating_point_literal",
+            "named": true
+          },
+          {
+            "type": "given_pattern",
+            "named": true
+          },
+          {
+            "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "infix_pattern",
+            "named": true
+          },
+          {
+            "type": "integer_literal",
+            "named": true
+          },
+          {
+            "type": "interpolated_string_expression",
+            "named": true
+          },
+          {
+            "type": "named_tuple_pattern",
+            "named": true
+          },
+          {
+            "type": "null_literal",
+            "named": true
+          },
+          {
+            "type": "operator_identifier",
+            "named": true
+          },
+          {
+            "type": "quote_expression",
+            "named": true
+          },
+          {
+            "type": "repeat_pattern",
+            "named": true
+          },
+          {
+            "type": "stable_identifier",
+            "named": true
+          },
+          {
+            "type": "string",
+            "named": true
+          },
+          {
+            "type": "tuple_pattern",
+            "named": true
+          },
+          {
+            "type": "typed_pattern",
+            "named": true
+          },
+          {
+            "type": "unit",
+            "named": true
+          },
+          {
+            "type": "wildcard",
+            "named": true
+          },
+          {
+            "type": "xml_pattern",
             "named": true
           }
         ]
@@ -2071,6 +2467,7 @@
   {
     "type": "comment",
     "named": true,
+    "extra": true,
     "fields": {},
     "children": {
       "multiple": false,
@@ -2093,7 +2490,7 @@
       "required": false,
       "types": [
         {
-          "type": "_definition",
+          "type": "class_definition",
           "named": true
         },
         {
@@ -2105,7 +2502,71 @@
           "named": true
         },
         {
+          "type": "enum_definition",
+          "named": true
+        },
+        {
+          "type": "export_declaration",
+          "named": true
+        },
+        {
           "type": "expression",
+          "named": true
+        },
+        {
+          "type": "extension_definition",
+          "named": true
+        },
+        {
+          "type": "function_declaration",
+          "named": true
+        },
+        {
+          "type": "function_definition",
+          "named": true
+        },
+        {
+          "type": "given_definition",
+          "named": true
+        },
+        {
+          "type": "import_declaration",
+          "named": true
+        },
+        {
+          "type": "object_definition",
+          "named": true
+        },
+        {
+          "type": "package_clause",
+          "named": true
+        },
+        {
+          "type": "package_object",
+          "named": true
+        },
+        {
+          "type": "trait_definition",
+          "named": true
+        },
+        {
+          "type": "type_definition",
+          "named": true
+        },
+        {
+          "type": "val_declaration",
+          "named": true
+        },
+        {
+          "type": "val_definition",
+          "named": true
+        },
+        {
+          "type": "var_declaration",
+          "named": true
+        },
+        {
+          "type": "var_definition",
           "named": true
         }
       ]
@@ -2544,7 +3005,7 @@
       "required": false,
       "types": [
         {
-          "type": "_definition",
+          "type": "class_definition",
           "named": true
         },
         {
@@ -2552,11 +3013,75 @@
           "named": true
         },
         {
+          "type": "enum_definition",
+          "named": true
+        },
+        {
+          "type": "export_declaration",
+          "named": true
+        },
+        {
           "type": "expression",
           "named": true
         },
         {
+          "type": "extension_definition",
+          "named": true
+        },
+        {
+          "type": "function_declaration",
+          "named": true
+        },
+        {
+          "type": "function_definition",
+          "named": true
+        },
+        {
+          "type": "given_definition",
+          "named": true
+        },
+        {
+          "type": "import_declaration",
+          "named": true
+        },
+        {
+          "type": "object_definition",
+          "named": true
+        },
+        {
+          "type": "package_clause",
+          "named": true
+        },
+        {
+          "type": "package_object",
+          "named": true
+        },
+        {
           "type": "self_type",
+          "named": true
+        },
+        {
+          "type": "trait_definition",
+          "named": true
+        },
+        {
+          "type": "type_definition",
+          "named": true
+        },
+        {
+          "type": "val_declaration",
+          "named": true
+        },
+        {
+          "type": "val_definition",
+          "named": true
+        },
+        {
+          "type": "var_declaration",
+          "named": true
+        },
+        {
+          "type": "var_definition",
           "named": true
         }
       ]
@@ -2576,7 +3101,7 @@
       "required": false,
       "types": [
         {
-          "type": "_definition",
+          "type": "class_definition",
           "named": true
         },
         {
@@ -2584,11 +3109,75 @@
           "named": true
         },
         {
+          "type": "enum_definition",
+          "named": true
+        },
+        {
+          "type": "export_declaration",
+          "named": true
+        },
+        {
           "type": "expression",
           "named": true
         },
         {
+          "type": "extension_definition",
+          "named": true
+        },
+        {
+          "type": "function_declaration",
+          "named": true
+        },
+        {
+          "type": "function_definition",
+          "named": true
+        },
+        {
+          "type": "given_definition",
+          "named": true
+        },
+        {
+          "type": "import_declaration",
+          "named": true
+        },
+        {
+          "type": "object_definition",
+          "named": true
+        },
+        {
+          "type": "package_clause",
+          "named": true
+        },
+        {
+          "type": "package_object",
+          "named": true
+        },
+        {
           "type": "self_type",
+          "named": true
+        },
+        {
+          "type": "trait_definition",
+          "named": true
+        },
+        {
+          "type": "type_definition",
+          "named": true
+        },
+        {
+          "type": "val_declaration",
+          "named": true
+        },
+        {
+          "type": "val_definition",
+          "named": true
+        },
+        {
+          "type": "var_declaration",
+          "named": true
+        },
+        {
+          "type": "var_definition",
           "named": true
         }
       ]
@@ -2726,11 +3315,23 @@
       "required": true,
       "types": [
         {
-          "type": "_pattern",
+          "type": "alternative_pattern",
+          "named": true
+        },
+        {
+          "type": "capture_pattern",
+          "named": true
+        },
+        {
+          "type": "case_class_pattern",
           "named": true
         },
         {
           "type": "expression",
+          "named": true
+        },
+        {
+          "type": "given_pattern",
           "named": true
         },
         {
@@ -2739,6 +3340,34 @@
         },
         {
           "type": "indented_block",
+          "named": true
+        },
+        {
+          "type": "infix_pattern",
+          "named": true
+        },
+        {
+          "type": "named_tuple_pattern",
+          "named": true
+        },
+        {
+          "type": "repeat_pattern",
+          "named": true
+        },
+        {
+          "type": "stable_identifier",
+          "named": true
+        },
+        {
+          "type": "tuple_pattern",
+          "named": true
+        },
+        {
+          "type": "typed_pattern",
+          "named": true
+        },
+        {
+          "type": "xml_pattern",
           "named": true
         }
       ]
@@ -3050,7 +3679,7 @@
             "named": false
           },
           {
-            "type": "_definition",
+            "type": "class_definition",
             "named": true
           },
           {
@@ -3058,7 +3687,71 @@
             "named": true
           },
           {
+            "type": "enum_definition",
+            "named": true
+          },
+          {
+            "type": "export_declaration",
+            "named": true
+          },
+          {
             "type": "expression",
+            "named": true
+          },
+          {
+            "type": "extension_definition",
+            "named": true
+          },
+          {
+            "type": "function_declaration",
+            "named": true
+          },
+          {
+            "type": "function_definition",
+            "named": true
+          },
+          {
+            "type": "given_definition",
+            "named": true
+          },
+          {
+            "type": "import_declaration",
+            "named": true
+          },
+          {
+            "type": "object_definition",
+            "named": true
+          },
+          {
+            "type": "package_clause",
+            "named": true
+          },
+          {
+            "type": "package_object",
+            "named": true
+          },
+          {
+            "type": "trait_definition",
+            "named": true
+          },
+          {
+            "type": "type_definition",
+            "named": true
+          },
+          {
+            "type": "val_declaration",
+            "named": true
+          },
+          {
+            "type": "val_definition",
+            "named": true
+          },
+          {
+            "type": "var_declaration",
+            "named": true
+          },
+          {
+            "type": "var_definition",
             "named": true
           },
           {
@@ -4647,7 +5340,7 @@
       "required": false,
       "types": [
         {
-          "type": "_definition",
+          "type": "class_definition",
           "named": true
         },
         {
@@ -4655,7 +5348,71 @@
           "named": true
         },
         {
+          "type": "enum_definition",
+          "named": true
+        },
+        {
+          "type": "export_declaration",
+          "named": true
+        },
+        {
           "type": "expression",
+          "named": true
+        },
+        {
+          "type": "extension_definition",
+          "named": true
+        },
+        {
+          "type": "function_declaration",
+          "named": true
+        },
+        {
+          "type": "function_definition",
+          "named": true
+        },
+        {
+          "type": "given_definition",
+          "named": true
+        },
+        {
+          "type": "import_declaration",
+          "named": true
+        },
+        {
+          "type": "object_definition",
+          "named": true
+        },
+        {
+          "type": "package_clause",
+          "named": true
+        },
+        {
+          "type": "package_object",
+          "named": true
+        },
+        {
+          "type": "trait_definition",
+          "named": true
+        },
+        {
+          "type": "type_definition",
+          "named": true
+        },
+        {
+          "type": "val_declaration",
+          "named": true
+        },
+        {
+          "type": "val_definition",
+          "named": true
+        },
+        {
+          "type": "var_declaration",
+          "named": true
+        },
+        {
+          "type": "var_definition",
           "named": true
         }
       ]
@@ -5538,7 +6295,7 @@
       "required": false,
       "types": [
         {
-          "type": "_definition",
+          "type": "class_definition",
           "named": true
         },
         {
@@ -5546,7 +6303,35 @@
           "named": true
         },
         {
+          "type": "enum_definition",
+          "named": true
+        },
+        {
+          "type": "export_declaration",
+          "named": true
+        },
+        {
           "type": "expression",
+          "named": true
+        },
+        {
+          "type": "extension_definition",
+          "named": true
+        },
+        {
+          "type": "function_declaration",
+          "named": true
+        },
+        {
+          "type": "function_definition",
+          "named": true
+        },
+        {
+          "type": "given_definition",
+          "named": true
+        },
+        {
+          "type": "import_declaration",
           "named": true
         },
         {
@@ -5555,6 +6340,42 @@
         },
         {
           "type": "indented_cases",
+          "named": true
+        },
+        {
+          "type": "object_definition",
+          "named": true
+        },
+        {
+          "type": "package_clause",
+          "named": true
+        },
+        {
+          "type": "package_object",
+          "named": true
+        },
+        {
+          "type": "trait_definition",
+          "named": true
+        },
+        {
+          "type": "type_definition",
+          "named": true
+        },
+        {
+          "type": "val_declaration",
+          "named": true
+        },
+        {
+          "type": "val_definition",
+          "named": true
+        },
+        {
+          "type": "var_declaration",
+          "named": true
+        },
+        {
+          "type": "var_definition",
           "named": true
         }
       ]
@@ -6302,7 +7123,95 @@
       "required": true,
       "types": [
         {
-          "type": "_pattern",
+          "type": "alternative_pattern",
+          "named": true
+        },
+        {
+          "type": "boolean_literal",
+          "named": true
+        },
+        {
+          "type": "capture_pattern",
+          "named": true
+        },
+        {
+          "type": "case_class_pattern",
+          "named": true
+        },
+        {
+          "type": "character_literal",
+          "named": true
+        },
+        {
+          "type": "floating_point_literal",
+          "named": true
+        },
+        {
+          "type": "given_pattern",
+          "named": true
+        },
+        {
+          "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "infix_pattern",
+          "named": true
+        },
+        {
+          "type": "integer_literal",
+          "named": true
+        },
+        {
+          "type": "interpolated_string_expression",
+          "named": true
+        },
+        {
+          "type": "named_tuple_pattern",
+          "named": true
+        },
+        {
+          "type": "null_literal",
+          "named": true
+        },
+        {
+          "type": "operator_identifier",
+          "named": true
+        },
+        {
+          "type": "quote_expression",
+          "named": true
+        },
+        {
+          "type": "repeat_pattern",
+          "named": true
+        },
+        {
+          "type": "stable_identifier",
+          "named": true
+        },
+        {
+          "type": "string",
+          "named": true
+        },
+        {
+          "type": "tuple_pattern",
+          "named": true
+        },
+        {
+          "type": "typed_pattern",
+          "named": true
+        },
+        {
+          "type": "unit",
+          "named": true
+        },
+        {
+          "type": "wildcard",
+          "named": true
+        },
+        {
+          "type": "xml_pattern",
           "named": true
         }
       ]
@@ -7458,10 +8367,6 @@
       "required": false,
       "types": [
         {
-          "type": "_definition",
-          "named": true
-        },
-        {
           "type": "annotated_type",
           "named": true
         },
@@ -7474,6 +8379,10 @@
           "named": true
         },
         {
+          "type": "class_definition",
+          "named": true
+        },
+        {
           "type": "compound_type",
           "named": true
         },
@@ -7482,11 +8391,31 @@
           "named": true
         },
         {
+          "type": "enum_definition",
+          "named": true
+        },
+        {
           "type": "existential_type",
           "named": true
         },
         {
+          "type": "export_declaration",
+          "named": true
+        },
+        {
           "type": "expression",
+          "named": true
+        },
+        {
+          "type": "extension_definition",
+          "named": true
+        },
+        {
+          "type": "function_declaration",
+          "named": true
+        },
+        {
+          "type": "function_definition",
           "named": true
         },
         {
@@ -7495,6 +8424,14 @@
         },
         {
           "type": "generic_type",
+          "named": true
+        },
+        {
+          "type": "given_definition",
+          "named": true
+        },
+        {
+          "type": "import_declaration",
           "named": true
         },
         {
@@ -7514,6 +8451,18 @@
           "named": true
         },
         {
+          "type": "object_definition",
+          "named": true
+        },
+        {
+          "type": "package_clause",
+          "named": true
+        },
+        {
+          "type": "package_object",
+          "named": true
+        },
+        {
           "type": "projected_type",
           "named": true
         },
@@ -7530,7 +8479,15 @@
           "named": true
         },
         {
+          "type": "trait_definition",
+          "named": true
+        },
+        {
           "type": "tuple_type",
+          "named": true
+        },
+        {
+          "type": "type_definition",
           "named": true
         },
         {
@@ -7539,6 +8496,22 @@
         },
         {
           "type": "type_lambda",
+          "named": true
+        },
+        {
+          "type": "val_declaration",
+          "named": true
+        },
+        {
+          "type": "val_definition",
+          "named": true
+        },
+        {
+          "type": "var_declaration",
+          "named": true
+        },
+        {
+          "type": "var_definition",
           "named": true
         }
       ]
@@ -7553,7 +8526,7 @@
       "required": false,
       "types": [
         {
-          "type": "_definition",
+          "type": "class_definition",
           "named": true
         },
         {
@@ -7561,11 +8534,75 @@
           "named": true
         },
         {
+          "type": "enum_definition",
+          "named": true
+        },
+        {
+          "type": "export_declaration",
+          "named": true
+        },
+        {
           "type": "expression",
           "named": true
         },
         {
+          "type": "extension_definition",
+          "named": true
+        },
+        {
+          "type": "function_declaration",
+          "named": true
+        },
+        {
+          "type": "function_definition",
+          "named": true
+        },
+        {
+          "type": "given_definition",
+          "named": true
+        },
+        {
+          "type": "import_declaration",
+          "named": true
+        },
+        {
+          "type": "object_definition",
+          "named": true
+        },
+        {
+          "type": "package_clause",
+          "named": true
+        },
+        {
+          "type": "package_object",
+          "named": true
+        },
+        {
           "type": "self_type",
+          "named": true
+        },
+        {
+          "type": "trait_definition",
+          "named": true
+        },
+        {
+          "type": "type_definition",
+          "named": true
+        },
+        {
+          "type": "val_declaration",
+          "named": true
+        },
+        {
+          "type": "val_definition",
+          "named": true
+        },
+        {
+          "type": "var_declaration",
+          "named": true
+        },
+        {
+          "type": "var_definition",
           "named": true
         }
       ]
@@ -7580,7 +8617,95 @@
         "required": true,
         "types": [
           {
-            "type": "_pattern",
+            "type": "alternative_pattern",
+            "named": true
+          },
+          {
+            "type": "boolean_literal",
+            "named": true
+          },
+          {
+            "type": "capture_pattern",
+            "named": true
+          },
+          {
+            "type": "case_class_pattern",
+            "named": true
+          },
+          {
+            "type": "character_literal",
+            "named": true
+          },
+          {
+            "type": "floating_point_literal",
+            "named": true
+          },
+          {
+            "type": "given_pattern",
+            "named": true
+          },
+          {
+            "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "infix_pattern",
+            "named": true
+          },
+          {
+            "type": "integer_literal",
+            "named": true
+          },
+          {
+            "type": "interpolated_string_expression",
+            "named": true
+          },
+          {
+            "type": "named_tuple_pattern",
+            "named": true
+          },
+          {
+            "type": "null_literal",
+            "named": true
+          },
+          {
+            "type": "operator_identifier",
+            "named": true
+          },
+          {
+            "type": "quote_expression",
+            "named": true
+          },
+          {
+            "type": "repeat_pattern",
+            "named": true
+          },
+          {
+            "type": "stable_identifier",
+            "named": true
+          },
+          {
+            "type": "string",
+            "named": true
+          },
+          {
+            "type": "tuple_pattern",
+            "named": true
+          },
+          {
+            "type": "typed_pattern",
+            "named": true
+          },
+          {
+            "type": "unit",
+            "named": true
+          },
+          {
+            "type": "wildcard",
+            "named": true
+          },
+          {
+            "type": "xml_pattern",
             "named": true
           }
         ]
@@ -7851,10 +8976,6 @@
       "required": false,
       "types": [
         {
-          "type": "_definition",
-          "named": true
-        },
-        {
           "type": "annotated_type",
           "named": true
         },
@@ -7867,6 +8988,10 @@
           "named": true
         },
         {
+          "type": "class_definition",
+          "named": true
+        },
+        {
           "type": "compound_type",
           "named": true
         },
@@ -7875,11 +9000,31 @@
           "named": true
         },
         {
+          "type": "enum_definition",
+          "named": true
+        },
+        {
           "type": "existential_type",
           "named": true
         },
         {
+          "type": "export_declaration",
+          "named": true
+        },
+        {
           "type": "expression",
+          "named": true
+        },
+        {
+          "type": "extension_definition",
+          "named": true
+        },
+        {
+          "type": "function_declaration",
+          "named": true
+        },
+        {
+          "type": "function_definition",
           "named": true
         },
         {
@@ -7888,6 +9033,14 @@
         },
         {
           "type": "generic_type",
+          "named": true
+        },
+        {
+          "type": "given_definition",
+          "named": true
+        },
+        {
+          "type": "import_declaration",
           "named": true
         },
         {
@@ -7907,6 +9060,18 @@
           "named": true
         },
         {
+          "type": "object_definition",
+          "named": true
+        },
+        {
+          "type": "package_clause",
+          "named": true
+        },
+        {
+          "type": "package_object",
+          "named": true
+        },
+        {
           "type": "projected_type",
           "named": true
         },
@@ -7923,7 +9088,15 @@
           "named": true
         },
         {
+          "type": "trait_definition",
+          "named": true
+        },
+        {
           "type": "tuple_type",
+          "named": true
+        },
+        {
+          "type": "type_definition",
           "named": true
         },
         {
@@ -7932,6 +9105,22 @@
         },
         {
           "type": "type_lambda",
+          "named": true
+        },
+        {
+          "type": "val_declaration",
+          "named": true
+        },
+        {
+          "type": "val_definition",
+          "named": true
+        },
+        {
+          "type": "var_declaration",
+          "named": true
+        },
+        {
+          "type": "var_definition",
           "named": true
         }
       ]
@@ -8011,7 +9200,7 @@
       "required": false,
       "types": [
         {
-          "type": "_definition",
+          "type": "class_definition",
           "named": true
         },
         {
@@ -8019,11 +9208,75 @@
           "named": true
         },
         {
+          "type": "enum_definition",
+          "named": true
+        },
+        {
+          "type": "export_declaration",
+          "named": true
+        },
+        {
           "type": "expression",
           "named": true
         },
         {
+          "type": "extension_definition",
+          "named": true
+        },
+        {
+          "type": "function_declaration",
+          "named": true
+        },
+        {
+          "type": "function_definition",
+          "named": true
+        },
+        {
+          "type": "given_definition",
+          "named": true
+        },
+        {
+          "type": "import_declaration",
+          "named": true
+        },
+        {
+          "type": "object_definition",
+          "named": true
+        },
+        {
+          "type": "package_clause",
+          "named": true
+        },
+        {
+          "type": "package_object",
+          "named": true
+        },
+        {
           "type": "self_type",
+          "named": true
+        },
+        {
+          "type": "trait_definition",
+          "named": true
+        },
+        {
+          "type": "type_definition",
+          "named": true
+        },
+        {
+          "type": "val_declaration",
+          "named": true
+        },
+        {
+          "type": "val_definition",
+          "named": true
+        },
+        {
+          "type": "var_declaration",
+          "named": true
+        },
+        {
+          "type": "var_definition",
           "named": true
         }
       ]
@@ -8038,7 +9291,7 @@
       "required": false,
       "types": [
         {
-          "type": "_definition",
+          "type": "class_definition",
           "named": true
         },
         {
@@ -8046,11 +9299,75 @@
           "named": true
         },
         {
+          "type": "enum_definition",
+          "named": true
+        },
+        {
+          "type": "export_declaration",
+          "named": true
+        },
+        {
           "type": "expression",
           "named": true
         },
         {
+          "type": "extension_definition",
+          "named": true
+        },
+        {
+          "type": "function_declaration",
+          "named": true
+        },
+        {
+          "type": "function_definition",
+          "named": true
+        },
+        {
+          "type": "given_definition",
+          "named": true
+        },
+        {
+          "type": "import_declaration",
+          "named": true
+        },
+        {
+          "type": "object_definition",
+          "named": true
+        },
+        {
+          "type": "package_clause",
+          "named": true
+        },
+        {
+          "type": "package_object",
+          "named": true
+        },
+        {
           "type": "self_type",
+          "named": true
+        },
+        {
+          "type": "trait_definition",
+          "named": true
+        },
+        {
+          "type": "type_definition",
+          "named": true
+        },
+        {
+          "type": "val_declaration",
+          "named": true
+        },
+        {
+          "type": "val_definition",
+          "named": true
+        },
+        {
+          "type": "var_declaration",
+          "named": true
+        },
+        {
+          "type": "var_definition",
           "named": true
         }
       ]
@@ -8237,7 +9554,95 @@
       "required": true,
       "types": [
         {
-          "type": "_pattern",
+          "type": "alternative_pattern",
+          "named": true
+        },
+        {
+          "type": "boolean_literal",
+          "named": true
+        },
+        {
+          "type": "capture_pattern",
+          "named": true
+        },
+        {
+          "type": "case_class_pattern",
+          "named": true
+        },
+        {
+          "type": "character_literal",
+          "named": true
+        },
+        {
+          "type": "floating_point_literal",
+          "named": true
+        },
+        {
+          "type": "given_pattern",
+          "named": true
+        },
+        {
+          "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "infix_pattern",
+          "named": true
+        },
+        {
+          "type": "integer_literal",
+          "named": true
+        },
+        {
+          "type": "interpolated_string_expression",
+          "named": true
+        },
+        {
+          "type": "named_tuple_pattern",
+          "named": true
+        },
+        {
+          "type": "null_literal",
+          "named": true
+        },
+        {
+          "type": "operator_identifier",
+          "named": true
+        },
+        {
+          "type": "quote_expression",
+          "named": true
+        },
+        {
+          "type": "repeat_pattern",
+          "named": true
+        },
+        {
+          "type": "stable_identifier",
+          "named": true
+        },
+        {
+          "type": "string",
+          "named": true
+        },
+        {
+          "type": "tuple_pattern",
+          "named": true
+        },
+        {
+          "type": "typed_pattern",
+          "named": true
+        },
+        {
+          "type": "unit",
+          "named": true
+        },
+        {
+          "type": "wildcard",
+          "named": true
+        },
+        {
+          "type": "xml_pattern",
           "named": true
         }
       ]
@@ -9126,7 +10531,95 @@
         "required": true,
         "types": [
           {
-            "type": "_pattern",
+            "type": "alternative_pattern",
+            "named": true
+          },
+          {
+            "type": "boolean_literal",
+            "named": true
+          },
+          {
+            "type": "capture_pattern",
+            "named": true
+          },
+          {
+            "type": "case_class_pattern",
+            "named": true
+          },
+          {
+            "type": "character_literal",
+            "named": true
+          },
+          {
+            "type": "floating_point_literal",
+            "named": true
+          },
+          {
+            "type": "given_pattern",
+            "named": true
+          },
+          {
+            "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "infix_pattern",
+            "named": true
+          },
+          {
+            "type": "integer_literal",
+            "named": true
+          },
+          {
+            "type": "interpolated_string_expression",
+            "named": true
+          },
+          {
+            "type": "named_tuple_pattern",
+            "named": true
+          },
+          {
+            "type": "null_literal",
+            "named": true
+          },
+          {
+            "type": "operator_identifier",
+            "named": true
+          },
+          {
+            "type": "quote_expression",
+            "named": true
+          },
+          {
+            "type": "repeat_pattern",
+            "named": true
+          },
+          {
+            "type": "stable_identifier",
+            "named": true
+          },
+          {
+            "type": "string",
+            "named": true
+          },
+          {
+            "type": "tuple_pattern",
+            "named": true
+          },
+          {
+            "type": "typed_pattern",
+            "named": true
+          },
+          {
+            "type": "unit",
+            "named": true
+          },
+          {
+            "type": "wildcard",
+            "named": true
+          },
+          {
+            "type": "xml_pattern",
             "named": true
           }
         ]
@@ -10292,7 +11785,7 @@
       "required": false,
       "types": [
         {
-          "type": "_definition",
+          "type": "class_definition",
           "named": true
         },
         {
@@ -10300,11 +11793,75 @@
           "named": true
         },
         {
+          "type": "enum_definition",
+          "named": true
+        },
+        {
+          "type": "export_declaration",
+          "named": true
+        },
+        {
           "type": "expression",
           "named": true
         },
         {
+          "type": "extension_definition",
+          "named": true
+        },
+        {
+          "type": "function_declaration",
+          "named": true
+        },
+        {
+          "type": "function_definition",
+          "named": true
+        },
+        {
+          "type": "given_definition",
+          "named": true
+        },
+        {
+          "type": "import_declaration",
+          "named": true
+        },
+        {
+          "type": "object_definition",
+          "named": true
+        },
+        {
+          "type": "package_clause",
+          "named": true
+        },
+        {
+          "type": "package_object",
+          "named": true
+        },
+        {
           "type": "self_type",
+          "named": true
+        },
+        {
+          "type": "trait_definition",
+          "named": true
+        },
+        {
+          "type": "type_definition",
+          "named": true
+        },
+        {
+          "type": "val_declaration",
+          "named": true
+        },
+        {
+          "type": "val_definition",
+          "named": true
+        },
+        {
+          "type": "var_declaration",
+          "named": true
+        },
+        {
+          "type": "var_definition",
           "named": true
         }
       ]

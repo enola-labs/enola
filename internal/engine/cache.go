@@ -3450,7 +3450,9 @@ import (
 // not a vendored copy regenerated at ABI 14.
 // v539: Dart: the parser is the one upstream generated at ABI 15, vendored verbatim,
 // not a local regeneration at ABI 14 from the same grammar.json.
-const cacheVersion = "v539"
+// v540: Swift and Scala: the vendored parsers are regenerated with tree-sitter-cli
+// v0.27.1, Swift at ABI 15 and Scala still at ABI 14.
+const cacheVersion = "v540"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

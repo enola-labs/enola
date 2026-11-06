@@ -49,7 +49,7 @@ func TestGrammarABI_EveryGrammarLoadsAtItsPinnedABI(t *testing.T) {
 		{"csharp", csharp.Language(), 15, "class A { void F() {} }\n"},
 		{"dart", dart.Language(), 15, "class A { void f() {} }\n"},
 		{"scala", scala.Language(), 14, "class A { def f(): Unit = () }\n"},
-		{"swift", swift.Language(), 14, "class A { func f() {} }\n"},
+		{"swift", swift.Language(), 15, "class A { func f() {} }\n"},
 	}
 	for _, g := range grammars {
 		t.Run(g.name, func(t *testing.T) {

@@ -5,7 +5,8 @@
 // src/parser.c, so `go build` against the published module fails to compile. To
 // avoid that, the parser is generated from the grammar's grammar.json (vendored
 // here alongside the hand-written scanner.c) and committed under src/. Regenerate
-// with: cd grammar && tree-sitter generate grammar.json --abi 14
+// with: cd grammar && tree-sitter generate grammar.json --abi 15, then build with -a,
+// since Go's build cache does not track the src/ files the cgo_*.c shims include.
 //
 // The generated parser (src/parser.c) and the external scanner (src/scanner.c)
 // are compiled as separate translation units via the cgo_*.c shims in this
