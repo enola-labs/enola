@@ -791,6 +791,15 @@ almost entirely BCL and framework surface — `Task.FromResult`, `Guid.NewGuid`,
 `JsonSerializer.Deserialize`, `IRequestHandler`, `Migration` — which is what "left as
 written" is supposed to look like.
 
+A **reference assembly** is the one duplicate that is not ambiguous. dotnet/runtime puts
+an API-stub project in a directory named `ref` beside nearly every library (MSBuild's
+`IsReferenceAssemblyProject` reads exactly that), and the stub redeclares each public type
+under the same fully qualified name with `throw null` bodies. Between the stub and the
+implementation, the implementation is the type: a reference binds to it whichever was
+indexed last, and the pair does not make the simple name ambiguous. Before this rule the
+last declaration indexed won, and on dotnet/runtime about 35,000 edges pointed at stubs in
+`System.Runtime/ref` instead of `System.Private.CoreLib`.
+
 An **alias** (`using Repo = Acme.Data.OrderRepository;`) and a `using static` are the two
 forms that *do* name a type; both resolve through the type index, and the alias is
 substituted at every reference in that file.

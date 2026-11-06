@@ -3460,7 +3460,10 @@ import (
 // concise constructors; a primary constructor and its final/var fields are symbols.
 // v544: C#: the grammar is vendored again, 8c0abe0 with `*` accepting a cast, `++p`
 // and `p++`, which upstream rejects and which cost whole unsafe files their symbols.
-const cacheVersion = "v544"
+// v545: C#: a type declared both in a reference assembly (a `ref` project directory)
+// and in its implementation resolves to the implementation, and the pair no longer
+// makes its simple name ambiguous.
+const cacheVersion = "v545"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

@@ -53,6 +53,18 @@ func projectForDir(dir string, projects []projectInfo) (string, bool) {
 	return "", false
 }
 
+// inReferenceAssembly reports whether file belongs to a reference-assembly project:
+// API stubs that redeclare an implementation's public types (dotnet/runtime puts one
+// beside nearly every library). MSBuild's own rule is the project directory's name,
+// `ref` (IsReferenceAssemblyProject in dotnet/runtime's Directory.Build.props), and
+// this reads it from the path: any ancestor directory named ref. It is only ever a
+// tie-break between two declarations of one fully qualified name, so a directory
+// named ref that is not a project costs nothing.
+func inReferenceAssembly(file string) bool {
+	file = filepath.ToSlash(file)
+	return strings.HasPrefix(file, "ref/") || strings.Contains(file, "/ref/")
+}
+
 // ── Generated source ────────────────────────────────────────────────────────
 
 // generatedSuffixes are file-name conventions the .NET toolchain and its source
@@ -280,6 +292,7 @@ func resolveCSharpTargets(allFacts []facts.Fact) {
 	nsDir := make(map[string]string)     // "Ns"      -> module dir
 	nsAmbig := make(map[string]bool)     //           -> declared in several dirs
 	typeDir := make(map[string]string)   // "Ns.Type" -> module dir
+	fqnFile := make(map[string]string)   // "Ns.Type" -> file of the declaration in byFQN
 	// Names of `partial` types, whose members were offered speculatively by
 	// resolveOwnMember and have to be checked against what actually exists.
 	partialTypes := make(map[string]bool)
@@ -320,12 +333,32 @@ func resolveCSharpTargets(allFacts []facts.Fact) {
 		if fqn == "" {
 			continue
 		}
-		byFQN[fqn] = f.Name
-
 		simple := fqn
 		if i := strings.LastIndex(simple, "."); i >= 0 {
 			simple = simple[i+1:]
 		}
+
+		// A reference assembly redeclares the public surface of an implementation
+		// under the same fully qualified names, with stub bodies. Between a stub and
+		// the implementation the implementation is the type: the stub is skipped, or
+		// replaces nothing but itself, and the pair never makes the simple name
+		// ambiguous. Any other duplicate keeps the rule below (last declaration wins).
+		if prev, dup := byFQN[fqn]; dup && prev != f.Name {
+			prevRef, curRef := inReferenceAssembly(fqnFile[fqn]), inReferenceAssembly(f.File)
+			if curRef && !prevRef {
+				continue
+			}
+			if prevRef && !curRef {
+				byFQN[fqn], fqnFile[fqn] = f.Name, f.File
+				if bySimple[simple] == prev {
+					bySimple[simple] = f.Name
+				}
+				typeDir[fqn] = factpath.Dir(f.File)
+				continue
+			}
+		}
+		byFQN[fqn], fqnFile[fqn] = f.Name, f.File
+
 		if prev, ok := bySimple[simple]; ok && prev != f.Name {
 			simpleAmbig[simple] = true
 		} else {
