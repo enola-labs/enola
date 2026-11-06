@@ -3452,7 +3452,9 @@ import (
 // not a local regeneration at ABI 14 from the same grammar.json.
 // v540: Swift and Scala: the vendored parsers are regenerated with tree-sitter-cli
 // v0.27.1, Swift at ABI 15 and Scala still at ABI 14.
-const cacheVersion = "v540"
+// v541: the tree-sitter runtime is vendored (internal/treesitter) with adc13ff's two
+// error-recovery changes reverted, so files with syntax errors recover as under v0.24.
+const cacheVersion = "v541"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

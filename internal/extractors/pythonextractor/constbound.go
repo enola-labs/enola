@@ -3,7 +3,7 @@ package pythonextractor
 import (
 	"strings"
 
-	sitter "github.com/tree-sitter/go-tree-sitter"
+	sitter "github.com/enola-labs/enola/internal/treesitter"
 )
 
 // Loops whose trip count is fixed where the code is written. A literal collection

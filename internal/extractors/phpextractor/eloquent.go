@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/enola-labs/enola/internal/facts"
-	sitter "github.com/tree-sitter/go-tree-sitter"
+	sitter "github.com/enola-labs/enola/internal/treesitter"
 )
 
 // The symbol walk leaves what it sees of Eloquent on the symbols it emits, and

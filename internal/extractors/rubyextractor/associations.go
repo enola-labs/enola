@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/enola-labs/enola/internal/facts"
-	sitter "github.com/tree-sitter/go-tree-sitter"
+	sitter "github.com/enola-labs/enola/internal/treesitter"
 )
 
 // How a target model's name was arrived at. These are different confidences and

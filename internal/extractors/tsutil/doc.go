@@ -4,7 +4,7 @@ import (
 	"regexp"
 	"strings"
 
-	sitter "github.com/tree-sitter/go-tree-sitter"
+	sitter "github.com/enola-labs/enola/internal/treesitter"
 )
 
 // Doc comments, for the extractors whose grammars put a declaration's comment

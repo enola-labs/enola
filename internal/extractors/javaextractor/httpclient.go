@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/enola-labs/enola/internal/facts"
-	sitter "github.com/tree-sitter/go-tree-sitter"
+	sitter "github.com/enola-labs/enola/internal/treesitter"
 )
 
 // restTemplateVerbs maps a Spring RestTemplate method name to the HTTP verb it

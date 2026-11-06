@@ -7,7 +7,7 @@ import (
 	swift "github.com/enola-labs/enola/internal/extractors/swiftextractor/grammar"
 	"github.com/enola-labs/enola/internal/extractors/tsutil"
 	"github.com/enola-labs/enola/internal/facts"
-	sitter "github.com/tree-sitter/go-tree-sitter"
+	sitter "github.com/enola-labs/enola/internal/treesitter"
 )
 
 // withTree parses and walks one file and hands the walk's facts to use while the

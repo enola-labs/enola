@@ -5,7 +5,7 @@ import (
 	"sync"
 	"unsafe"
 
-	sitter "github.com/tree-sitter/go-tree-sitter"
+	sitter "github.com/enola-labs/enola/internal/treesitter"
 )
 
 // KindTable maps a grammar's symbol ids to their names, so a node's kind can be read

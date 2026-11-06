@@ -3,8 +3,8 @@ package kotlinextractor
 import (
 	"testing"
 
+	sitter "github.com/enola-labs/enola/internal/treesitter"
 	kotlin "github.com/tree-sitter-grammars/tree-sitter-kotlin/bindings/go"
-	sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
 const nodeKindSrc = `package com.acme.svc

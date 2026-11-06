@@ -2,7 +2,7 @@ package javaextractor
 
 import (
 	"github.com/enola-labs/enola/internal/extractors/tsutil"
-	sitter "github.com/tree-sitter/go-tree-sitter"
+	sitter "github.com/enola-labs/enola/internal/treesitter"
 	java "github.com/tree-sitter/tree-sitter-java/bindings/go"
 )
 

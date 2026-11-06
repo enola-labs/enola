@@ -5,7 +5,7 @@ import (
 	"sort"
 	"testing"
 
-	sitter "github.com/tree-sitter/go-tree-sitter"
+	sitter "github.com/enola-labs/enola/internal/treesitter"
 	php "github.com/tree-sitter/tree-sitter-php/bindings/go"
 )
 

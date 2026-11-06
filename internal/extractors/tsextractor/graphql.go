@@ -10,7 +10,7 @@ import (
 	"github.com/enola-labs/enola/internal/factpath"
 	"github.com/enola-labs/enola/internal/facts"
 	"github.com/enola-labs/enola/internal/gqlscan"
-	sitter "github.com/tree-sitter/go-tree-sitter"
+	sitter "github.com/enola-labs/enola/internal/treesitter"
 	typescript "github.com/tree-sitter/tree-sitter-typescript/bindings/go"
 )
 

@@ -3,7 +3,7 @@ package rustextractor
 import (
 	"testing"
 
-	sitter "github.com/tree-sitter/go-tree-sitter"
+	sitter "github.com/enola-labs/enola/internal/treesitter"
 	rust "github.com/tree-sitter/tree-sitter-rust/bindings/go"
 )
 

@@ -6,6 +6,19 @@ their own licenses, listed below.
 
 --------------------------------------------------------------------------------
 
+go-tree-sitter: tree-sitter runtime and Go binding
+  Location: internal/treesitter/
+  Source:   https://github.com/tree-sitter/go-tree-sitter
+  Version:  commit adc13ffd8b2c
+            (go pseudo-version v0.24.1-0.20250202211042-adc13ffd8b2c)
+  License:  MIT, see internal/treesitter/LICENSE
+
+  Vendored verbatim except src/parser.c, where two error-recovery changes made
+  after v0.24.0 are reverted (see that directory's ATTRIBUTION.md). The upstream
+  tests and module files are left out.
+
+--------------------------------------------------------------------------------
+
 tree-sitter-swift — Swift grammar for tree-sitter
   Location: internal/extractors/swiftextractor/grammar/
   Author:   Alex Pinkus <alex.pinkus@gmail.com>

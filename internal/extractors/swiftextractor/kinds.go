@@ -3,7 +3,7 @@ package swiftextractor
 import (
 	swift "github.com/enola-labs/enola/internal/extractors/swiftextractor/grammar"
 	"github.com/enola-labs/enola/internal/extractors/tsutil"
-	sitter "github.com/tree-sitter/go-tree-sitter"
+	sitter "github.com/enola-labs/enola/internal/treesitter"
 )
 
 // swiftKinds names Swift node kinds without allocating. go-tree-sitter's

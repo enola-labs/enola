@@ -3,7 +3,7 @@ package dartextractor
 import (
 	"github.com/enola-labs/enola/internal/extractors/dartextractor/grammar"
 	"github.com/enola-labs/enola/internal/extractors/tsutil"
-	sitter "github.com/tree-sitter/go-tree-sitter"
+	sitter "github.com/enola-labs/enola/internal/treesitter"
 )
 
 // grammarKinds names Dart node kinds without allocating. go-tree-sitter's

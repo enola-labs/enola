@@ -1,7 +1,7 @@
 package pythonextractor
 
 import (
-	sitter "github.com/tree-sitter/go-tree-sitter"
+	sitter "github.com/enola-labs/enola/internal/treesitter"
 )
 
 // The hierarchical-loop rule, as the Go, TypeScript and PHP extractors apply it.

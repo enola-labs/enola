@@ -3,7 +3,7 @@ package dartextractor
 import (
 	"strings"
 
-	sitter "github.com/tree-sitter/go-tree-sitter"
+	sitter "github.com/enola-labs/enola/internal/treesitter"
 )
 
 // This file holds the tree-sitter navigation helpers. They are collected here rather

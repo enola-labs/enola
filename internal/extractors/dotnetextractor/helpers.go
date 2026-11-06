@@ -4,7 +4,7 @@ import (
 	"strings"
 
 	"github.com/enola-labs/enola/internal/extractors/tsutil"
-	sitter "github.com/tree-sitter/go-tree-sitter"
+	sitter "github.com/enola-labs/enola/internal/treesitter"
 	csharp "github.com/tree-sitter/tree-sitter-c-sharp/bindings/go"
 )
 

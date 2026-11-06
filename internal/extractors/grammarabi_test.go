@@ -4,7 +4,7 @@ import (
 	"testing"
 	"unsafe"
 
-	sitter "github.com/tree-sitter/go-tree-sitter"
+	sitter "github.com/enola-labs/enola/internal/treesitter"
 
 	kotlin "github.com/tree-sitter-grammars/tree-sitter-kotlin/bindings/go"
 	c "github.com/tree-sitter/tree-sitter-c/bindings/go"

@@ -14,7 +14,7 @@ import (
 	"github.com/enola-labs/enola/internal/extractors/tsutil"
 	"strings"
 
-	sitter "github.com/tree-sitter/go-tree-sitter"
+	sitter "github.com/enola-labs/enola/internal/treesitter"
 
 	"github.com/enola-labs/enola/internal/facts"
 )

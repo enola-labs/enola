@@ -2,7 +2,7 @@ package phpextractor
 
 import (
 	"github.com/enola-labs/enola/internal/facts"
-	sitter "github.com/tree-sitter/go-tree-sitter"
+	sitter "github.com/enola-labs/enola/internal/treesitter"
 )
 
 // namedClass returns the class an expression names without calling it: `Foo::class`,

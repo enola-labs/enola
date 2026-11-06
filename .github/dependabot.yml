@@ -17,26 +17,25 @@ updates:
 
     # The tree-sitter bounds below are set by what builds without the module proxy.
     #
-    # The go-tree-sitter runtime accepts tree-sitter ABI 13-15. A grammar outside that
-    # range is refused by SetLanguage, and every extractor returns nil on that error,
-    # so the rejection is SILENT: each file of that language parses to nothing, and
-    # the fact graph becomes indistinguishable from a repository containing none of
-    # it. That has already happened once, to C#. TestGrammarABI in
-    # internal/extractors pins the ABI of every grammar, and TestGrammarSmoke in each
-    # extractor asserts its grammar loads.
+    # The tree-sitter runtime is vendored under internal/treesitter (go-tree-sitter at
+    # commit adc13ff, with two error-recovery changes reverted; see its
+    # ATTRIBUTION.md), so no go-tree-sitter bump changes the build. go.mod still lists
+    # it, indirect, because the grammar modules require it.
+    #
+    # The runtime accepts tree-sitter ABI 13-15. A grammar outside that range is
+    # refused by SetLanguage, and every extractor returns nil on that error, so the
+    # rejection is SILENT: each file of that language parses to nothing, and the fact
+    # graph becomes indistinguishable from a repository containing none of it. That
+    # has already happened once, to C#. TestGrammarABI in internal/extractors pins the
+    # ABI of every grammar, and TestGrammarSmoke in each extractor asserts its grammar
+    # loads.
     #
     # Upstream deleted the go-tree-sitter v0.25.0 tag: `git ls-remote` lists only
-    # v0.23.0, v0.23.1 and v0.24.0, and only the Go module proxy still serves v0.25.0.
-    # Its commit (adc13ff) is still on upstream master, so go.mod pins the runtime to
-    # that commit's pseudo-version, which resolves with GOPROXY=direct too. Some
-    # grammar releases require a go-tree-sitter version that has no tag; adopting one
-    # would make the build depend on proxy.golang.org again, so each is bounded below.
-    # Revisit when upstream tags a go-tree-sitter release above v0.24.0.
+    # v0.23.0, v0.23.1 and v0.24.0. Some grammar releases require a go-tree-sitter
+    # version that has no tag; adopting one would make the build depend on
+    # proxy.golang.org, so each is bounded below.
     ignore:
-      # Pinned to the adc13ff pseudo-version (the code of the deleted v0.25.0 tag);
-      # v0.25.0 itself resolves only through the proxy.
       - dependency-name: "github.com/tree-sitter/go-tree-sitter"
-        versions: [">= 0.25.0"]
 
       # v0.24.1+ require go-tree-sitter v0.24.1, which was never tagged.
       - dependency-name: "github.com/tree-sitter/tree-sitter-c"

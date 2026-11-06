@@ -2,7 +2,7 @@ package tsextractor
 
 import (
 	"github.com/enola-labs/enola/internal/extractors/tsutil"
-	sitter "github.com/tree-sitter/go-tree-sitter"
+	sitter "github.com/enola-labs/enola/internal/treesitter"
 )
 
 // classFieldTypes returns, for one class, the qualified type of each instance field

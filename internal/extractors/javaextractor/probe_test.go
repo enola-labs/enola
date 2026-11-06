@@ -3,7 +3,7 @@ package javaextractor
 import (
 	"testing"
 
-	sitter "github.com/tree-sitter/go-tree-sitter"
+	sitter "github.com/enola-labs/enola/internal/treesitter"
 	java "github.com/tree-sitter/tree-sitter-java/bindings/go"
 )
 

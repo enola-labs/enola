@@ -2,7 +2,7 @@ package kotlinextractor
 
 import (
 	"github.com/enola-labs/enola/internal/facts"
-	sitter "github.com/tree-sitter/go-tree-sitter"
+	sitter "github.com/enola-labs/enola/internal/treesitter"
 )
 
 // Entry points that only this package's tests call. They are kept out of the

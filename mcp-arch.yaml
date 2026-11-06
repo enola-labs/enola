@@ -28,6 +28,9 @@ ignore:
   # copies this file. See internal/extractors/*/grammar/ATTRIBUTION.md.
   - "internal/extractors/*/grammar/src/**"
   - "internal/extractors/*/grammar/*.c"
+  # The vendored tree-sitter runtime: upstream go-tree-sitter, Go and C, with two
+  # error-recovery hunks restored (see internal/treesitter/ATTRIBUTION.md).
+  - "internal/treesitter/**"
   # Python virtual environments, installed dependencies, and tool caches. A
   # repo-local .venv/venv holds the whole dependency tree (thousands of
   # third-party .py files) and must never be indexed — it dominates snapshot

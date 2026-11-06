@@ -14,7 +14,7 @@ Dart source into an AST. It is third-party code, distributed under a different l
 ## Why it is vendored rather than required
 
 The upstream module cannot be consumed as a dependency: its Go binding targets
-`github.com/smacker/go-tree-sitter`, while enola uses `github.com/tree-sitter/go-tree-sitter`.
+`github.com/smacker/go-tree-sitter`, while enola uses `github.com/tree-sitter/go-tree-sitter` (vendored in `internal/treesitter/`).
 The two runtimes have incompatible `Language` handles, so the published binding cannot be
 handed to enola's parser at all. A grammar the runtime refuses fails **silently** (every
 file parses to nothing, indistinguishable from a repository that contains no Dart), which

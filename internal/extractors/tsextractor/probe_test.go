@@ -3,7 +3,7 @@ package tsextractor
 import (
 	"testing"
 
-	sitter "github.com/tree-sitter/go-tree-sitter"
+	sitter "github.com/enola-labs/enola/internal/treesitter"
 	typescript "github.com/tree-sitter/tree-sitter-typescript/bindings/go"
 )
 

@@ -17,7 +17,7 @@ package dotnetextractor
 // read, not a false positive to be explained away afterwards.
 
 import (
-	sitter "github.com/tree-sitter/go-tree-sitter"
+	sitter "github.com/enola-labs/enola/internal/treesitter"
 
 	"github.com/enola-labs/enola/internal/facts"
 )

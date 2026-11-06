@@ -6,7 +6,7 @@ import (
 
 	"github.com/enola-labs/enola/internal/factpath"
 	"github.com/enola-labs/enola/internal/facts"
-	sitter "github.com/tree-sitter/go-tree-sitter"
+	sitter "github.com/enola-labs/enola/internal/treesitter"
 	ruby "github.com/tree-sitter/tree-sitter-ruby/bindings/go"
 )
 
