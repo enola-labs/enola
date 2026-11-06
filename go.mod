@@ -7,14 +7,14 @@ require (
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/pbnjay/memory v0.0.0-20210728143218-7b4eea64cf58
 	github.com/tree-sitter-grammars/tree-sitter-kotlin v1.1.0
-	github.com/tree-sitter/go-tree-sitter v0.24.0
-	github.com/tree-sitter/tree-sitter-c v0.23.6
+	github.com/tree-sitter/go-tree-sitter v0.24.1-0.20250202211042-adc13ffd8b2c
+	github.com/tree-sitter/tree-sitter-c v0.24.0
 	github.com/tree-sitter/tree-sitter-cpp v0.23.4
 	github.com/tree-sitter/tree-sitter-java v0.23.5
 	github.com/tree-sitter/tree-sitter-php v0.23.12
-	github.com/tree-sitter/tree-sitter-python v0.23.6
+	github.com/tree-sitter/tree-sitter-python v0.25.0
 	github.com/tree-sitter/tree-sitter-ruby v0.23.1
-	github.com/tree-sitter/tree-sitter-rust v0.23.3
+	github.com/tree-sitter/tree-sitter-rust v0.24.2
 	github.com/tree-sitter/tree-sitter-typescript v0.23.2
 	golang.org/x/sys v0.49.0
 	gopkg.in/yaml.v3 v3.0.1

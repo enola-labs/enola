@@ -3443,7 +3443,10 @@ import (
 // inferred to return; a core or library type leaves the inferred one.
 // v536: Rust: a call written in an item-level #[error("...", f(x))] (thiserror) on a struct
 // or enum is a reference of that type, as it already was on a variant or a field.
-const cacheVersion = "v536"
+// v537: Grammars: go-tree-sitter at upstream commit adc13ff (ABI 13..15) with
+// tree-sitter-c v0.24.0, tree-sitter-rust v0.24.2 and tree-sitter-python v0.25.0, so C,
+// Rust and Python files parse with the newer grammars' trees.
+const cacheVersion = "v537"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

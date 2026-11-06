@@ -112,25 +112,25 @@ func TestWalkerNodeKindsStillExist(t *testing.T) {
 
 // TestGrammarSmoke is the ABI guard, and it is the most important test in this package.
 //
-// The vendored go-tree-sitter runtime accepts at most tree-sitter ABI 14. A grammar
-// generated against ABI 15 is refused by SetLanguage, and the extractor returns nil on
+// The go-tree-sitter runtime accepts tree-sitter ABI 13 to 15. A grammar outside that
+// range is refused by SetLanguage, and the extractor returns nil on
 // that error — so the rejection is SILENT: every Kotlin file parses to nothing, and the
 // fact graph becomes indistinguishable from a repository containing none. That is exactly
 // how the C# grammar failed once (see dotnetextractor/csharp.go).
 //
-// tree-sitter-kotlin v1.1.0 is both the newest release and still ABI 14, so nothing is
-// pinned back and .github/dependabot.yml carries no bound for it. This test exists for the
-// day upstream regenerates at ABI 15: the bump then fails loudly here instead of quietly
-// deleting every Kotlin fact from the graph, and the fix is to add that bound.
+// tree-sitter-kotlin v1.1.0 is the newest release (ABI 14), so nothing is pinned back and
+// .github/dependabot.yml carries no bound for it. This test exists for the day upstream
+// regenerates beyond what the runtime accepts: the bump then fails loudly here instead of
+// quietly deleting every Kotlin fact from the graph, and the fix is to add that bound.
 //
-// If this fails after a dependency bump, the fix is to pin the grammar back to its last
-// ABI-14 release, not to loosen the assertion.
+// If this fails after a dependency bump, the fix is to pin the grammar back, not to loosen
+// the assertion.
 func TestGrammarSmoke(t *testing.T) {
 	parser := sitter.NewParser()
 	defer parser.Close()
 	if err := parser.SetLanguage(sitter.NewLanguage(kotlin.Language())); err != nil {
 		t.Fatalf("SetLanguage failed — the grammar is almost certainly built against a "+
-			"newer tree-sitter ABI than the vendored runtime accepts. Error: %v", err)
+			"tree-sitter ABI the runtime does not accept. Error: %v", err)
 	}
 
 	// Each case exercises a different half of the grammar, so a regeneration that broke
