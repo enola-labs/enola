@@ -21,6 +21,7 @@ func TestGrammarPatchesParseClean(t *testing.T) {
 		{"03-allows-ref-struct", "class C { void F<T>() where T : class, allows ref struct { } }"},
 		{"04-safe-modifier", "class C { public static safe extern double Acos(double d); }"},
 		{"04-safe-modifier", "struct S { public safe int Handle; }"},
+		{"05-pointer-cast-address-of", "class A { unsafe void F(int v) { var x = *(float*)&v; } }"},
 	}
 	parser := sitter.NewParser()
 	defer parser.Close()

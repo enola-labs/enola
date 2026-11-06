@@ -28,6 +28,7 @@ production `.cs` files across the benchmark corpus that the form left with a par
 | `02-ref-partial-struct.patch` | C# 13's `ref partial struct`: `partial` after `ref`. runtime's `Utf8JsonReader` and its Asn1 value types, 86 files with a parse error. | `TestCSharp13Declarations` |
 | `03-allows-ref-struct.patch` | C# 13's `allows ref struct` anti-constraint, 56 files. `allows` stays an identifier elsewhere. | `TestGrammarPatchesParseClean` |
 | `04-safe-modifier.patch` | The `safe` modifier (unsafe-code evolution) runtime puts on extern methods and fields, 13 files. `safe` stays an identifier elsewhere. | `TestCSharp13Declarations` |
+| `05-pointer-cast-address-of.patch` | A cast of an address-of under `*`, `*(float*)&v`, reinterpreting a local's bytes. 20 more files parse once 01-04 are in. | `TestGrammarPatchesParseClean` |
 
 ## What is vendored, and how it was produced
 
@@ -64,7 +65,12 @@ an ERROR node:
   `x is [.., SyntaxToken { Kind: K } t]` and `is [.., (kind: K)]` (roslyn's parser).
   The parser commits to an element access before it reaches the pattern, so dynamic
   precedence on `list_pattern` does not help.
-- a pointer to an array type, `ParameterInfo[]* p`.
+- a pointer to an array type, `ParameterInfo[]* p` (3 corpus files). Allowing it made
+  `F(advances[i] * scale)` read as a declaration of a `T[]*` variable named `scale`, a
+  wrong parse of code that parses today, and confining it needs declaration expressions
+  restructured.
+- pointer arithmetic in parentheses under `*`, `*(p + i) = v` (4 corpus lines). Taking a
+  parenthesized operand made `*((T**)p)[i]` dereference before it indexes.
 - a ref-returning call as an assignment target, `Unsafe.Add(ref a, i) = v`.
 
 v0.23.5 rejects every one of these too. What differs between grammar versions is only how

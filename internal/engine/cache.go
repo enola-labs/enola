@@ -3465,7 +3465,8 @@ import (
 // makes its simple name ambiguous.
 // v546: C#: grammar patches 02-04, `ref partial struct`, `allows ref struct` and the
 // `safe` modifier, each a declaration upstream's grammar rejects.
-const cacheVersion = "v546"
+// v547: C#: grammar patch 05, `*(T*)&x`.
+const cacheVersion = "v547"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

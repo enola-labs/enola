@@ -1,0 +1,18 @@
+diff --git a/grammar.js b/grammar.js
+index 06f069a..5eccd99 100644
+--- a/grammar.js
++++ b/grammar.js
+@@ -1594,7 +1594,12 @@ export default grammar({
+       '(',
+       field('type', $.type),
+       ')',
+-      field('value', choice($.lvalue_expression, $.parenthesized_expression)),
++      field('value', choice(
++        $.lvalue_expression,
++        $.parenthesized_expression,
++        // `*(T*)&x`: reinterpret a local's bytes.
++        alias($._address_of_expression, $.prefix_unary_expression),
++      )),
+     )),
+ 
+     // Address-of is split out from `prefix_unary_expression` so that
