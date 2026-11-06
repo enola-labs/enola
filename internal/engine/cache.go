@@ -3458,7 +3458,9 @@ import (
 // `(IDENT) && EXPR` cast fix.
 // v543: Dart: the vendored grammar is upstream 0038280, which parses primary and
 // concise constructors; a primary constructor and its final/var fields are symbols.
-const cacheVersion = "v543"
+// v544: C#: the grammar is vendored again, 8c0abe0 with `*` accepting a cast, `++p`
+// and `p++`, which upstream rejects and which cost whole unsafe files their symbols.
+const cacheVersion = "v544"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

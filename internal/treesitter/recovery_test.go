@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	csharp "github.com/tree-sitter/tree-sitter-c-sharp/bindings/go"
+	csharp "github.com/enola-labs/enola/internal/extractors/dotnetextractor/grammar"
 )
 
 // The two error-recovery hunks ATTRIBUTION.md says this copy restores. A re-vendor

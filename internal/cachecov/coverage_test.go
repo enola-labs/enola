@@ -136,6 +136,7 @@ var versionCoverage = map[int][]string{
 	541: {"TestGrammarABI_EveryGrammarLoadsAtItsPinnedABI", "TestRecovery_LinkedParserUsesTheRestoredRecovery"},
 	542: {"TestGrammarABI_EveryGrammarLoadsAtItsPinnedABI", "TestCSharp14Syntax"},
 	543: {"TestGrammarABI_EveryGrammarLoadsAtItsPinnedABI", "TestPrimaryConstructor"},
+	544: {"TestGrammarABI_EveryGrammarLoadsAtItsPinnedABI", "TestPointerIndirectionOperands"},
 	507: {"TestRustImportAliasesBindOnlyTheAlias", "TestRustImportedTypeThroughAFileModuleWithADirectory", "TestRustMethodsInAFileModulesSubdirectoryResolve", "TestRustTypeImportedThroughAReExportResolves", "TestRustTypeAliasIsFollowedToItsType", "TestRustAliasedExternalImportDoesNotHideTheLocalName"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},

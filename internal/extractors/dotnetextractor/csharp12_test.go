@@ -90,3 +90,29 @@ public class Tracer
 		})
 	}
 }
+
+// Pointer dereferences the upstream grammar rejects: `*` took only an lvalue, so a cast,
+// `++p` or `p++` under it was an ERROR, and recovery could take the whole class with it
+// (dotnet/runtime's Number.Parsing.cs and ManagedWebSocket.cs produced no symbols).
+// grammar/pointer-indirection.patch adds the three operand forms.
+func TestPointerIndirectionOperands(t *testing.T) {
+	for _, body := range []string{
+		"*(int*)p = 1;",
+		"*(Vector<byte>*)p ^= m;",
+		"*(int*)(p + 4) = 1;",
+		"c = *++p;",
+		"*--p = 0;",
+		"*p++ ^= m;",
+	} {
+		t.Run(body, func(t *testing.T) {
+			src := "namespace Shop;\n\npublic unsafe class Buf\n{\n    public void Write(byte* p, int m, int c) { " +
+				body + " }\n    public void Run() { }\n}\n"
+			ff := extractFileAST([]byte(src), "src/Buf.cs")
+			for _, want := range []string{"src.Buf", "src.Buf.Write", "src.Buf.Run"} {
+				if factByName(ff, want) == nil {
+					t.Errorf("missing %s; got %v", want, names(ff, facts.KindSymbol))
+				}
+			}
+		})
+	}
+}

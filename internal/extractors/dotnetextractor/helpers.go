@@ -3,9 +3,9 @@ package dotnetextractor
 import (
 	"strings"
 
+	csharp "github.com/enola-labs/enola/internal/extractors/dotnetextractor/grammar"
 	"github.com/enola-labs/enola/internal/extractors/tsutil"
 	sitter "github.com/enola-labs/enola/internal/treesitter"
-	csharp "github.com/tree-sitter/tree-sitter-c-sharp/bindings/go"
 )
 
 // ── Node text ───────────────────────────────────────────────────────────────

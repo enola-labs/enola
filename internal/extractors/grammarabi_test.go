@@ -17,9 +17,9 @@ import (
 	typescript "github.com/tree-sitter/tree-sitter-typescript/bindings/go"
 
 	dart "github.com/enola-labs/enola/internal/extractors/dartextractor/grammar"
+	csharp "github.com/enola-labs/enola/internal/extractors/dotnetextractor/grammar"
 	scala "github.com/enola-labs/enola/internal/extractors/scalaextractor/grammar"
 	swift "github.com/enola-labs/enola/internal/extractors/swiftextractor/grammar"
-	csharp "github.com/tree-sitter/tree-sitter-c-sharp/bindings/go"
 )
 
 // TestGrammarABI_EveryGrammarLoadsAtItsPinnedABI loads every grammar enola parses with

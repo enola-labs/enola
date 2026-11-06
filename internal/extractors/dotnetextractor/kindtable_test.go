@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	csharp "github.com/enola-labs/enola/internal/extractors/dotnetextractor/grammar"
 	sitter "github.com/enola-labs/enola/internal/treesitter"
-	csharp "github.com/tree-sitter/tree-sitter-c-sharp/bindings/go"
 )
 
 // kindOf reads a node's type out of a symbol-id table instead of calling
