@@ -29,8 +29,8 @@ tree-sitter-c-sharp: C# grammar for tree-sitter
 
   src/scanner.c is vendored verbatim. grammar.json, src/parser.c,
   src/node-types.json and src/tree_sitter/*.h are generated from the upstream
-  grammar.js with pointer-indirection.patch applied, which widens the operand
-  of the pointer dereference operator (see that directory's ATTRIBUTION.md).
+  grammar.js with the fixes under patches/ applied, each a form of C# syntax
+  upstream rejects (see that directory's ATTRIBUTION.md).
   The surrounding cgo glue (binding.go, cgo_parser.c, cgo_scanner.c) is enola's
   own code and is not part of the upstream grammar.
 

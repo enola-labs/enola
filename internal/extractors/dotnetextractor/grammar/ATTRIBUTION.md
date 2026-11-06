@@ -9,32 +9,28 @@ C# source into an AST. It is third-party code, distributed under a different lic
 - **Project:** [tree-sitter-c-sharp](https://github.com/tree-sitter/tree-sitter-c-sharp)
 - **License:** MIT, see [LICENSE](./LICENSE) (Copyright (c) 2014-2023 Max Brunsfeld, Damien Guard, Amaan Qureshi, and contributors)
 - **Version vendored:** master commit `8c0abe0b84a3` (Go pseudo-version
-  `v0.23.6-0.20260929081004-8c0abe0b84a3`), with the patch below. No release tag carries
-  the C# 14 syntax dotnet/runtime already uses (`extension` blocks, `?.` assignment).
+  `v0.23.6-0.20260929081004-8c0abe0b84a3`), with the patches below. No release tag
+  carries the C# 14 syntax dotnet/runtime already uses (`extension` blocks, `?.`
+  assignment).
 
 ## Why it is vendored rather than required
 
-Upstream's `*` (`_pointer_indirection_expression`) accepts only an `lvalue_expression`.
-That rejects three forms common in unsafe code:
+Upstream rejects syntax the corpus uses, and under error recovery one rejected form can
+make the whole enclosing class an ERROR node, so the file loses its symbols. Each fix is
+one file under [`patches/`](./patches/), applied to upstream's `grammar.js` in name order.
+Each is pinned by a test in the parent package that fails without it.
 
-- a cast under `*`: `*(int*)p = 1`, `*(Vector<byte>*)p ^= m`, `*(int*)(p + 4)`
-- a pointer stepped first: `c = *++p`
-- a pointer stepped after: `*p++ ^= m`
-
-Each is a syntax error, and under error recovery one of them can make the whole enclosing
-class an ERROR node. dotnet/runtime's `Number.Parsing.cs` and `ManagedWebSocket.cs`
-produced no symbols at all, and PowerShell's `Variant.cs` lost half of its own.
-[`pointer-indirection.patch`](./pointer-indirection.patch) widens the operand to those
-three forms, each restricted the way `*`'s own operand is, so `*(T*)p = v` still parses
-as an assignment to the dereference and `(a) * (b)` and `(a) && (b > 0)` keep their
-upstream parses. `TestPointerIndirectionOperands` in the parent package pins the forms.
+| Patch | Upstream rejects | Test |
+|---|---|---|
+| `01-pointer-indirection.patch` | `*` takes only an lvalue: `*(int*)p = 1`, `*(int*)(p + 4)`, `c = *++p`, `*p++ ^= m`. dotnet/runtime's `Number.Parsing.cs` and `ManagedWebSocket.cs` produced no symbols. The widened operand keeps `*`'s own restriction, so `*(T*)p = v` is still an assignment to the dereference and `(a) * (b)` and `(a) && (b > 0)` keep their upstream parses. | `TestPointerIndirectionOperands` |
 
 ## What is vendored, and how it was produced
 
 | File(s) | Origin |
 |---|---|
 | `src/scanner.c`, `LICENSE` | Copied verbatim from the upstream repository at the commit above. |
-| `grammar.json`, `src/parser.c`, `src/node-types.json`, `src/tree_sitter/*.h` | **Generated** from upstream `grammar.js` with `pointer-indirection.patch` applied. |
+| `grammar.json`, `src/parser.c`, `src/node-types.json`, `src/tree_sitter/*.h` | **Generated** from upstream `grammar.js` with `patches/` applied. |
+| `patches/`, `regenerate.sh` | enola's own (Apache-2.0). |
 
 The `cgo_parser.c` / `cgo_scanner.c` shims and `binding.go` in this directory are enola's
 own glue code (Apache-2.0) and are not part of the upstream grammar.
@@ -42,26 +38,20 @@ own glue code (Apache-2.0) and are not part of the upstream grammar.
 ## Regenerating
 
 ```sh
-git clone https://github.com/tree-sitter/tree-sitter-c-sharp && cd tree-sitter-c-sharp
-git checkout 8c0abe0b84a3
-git apply <enola>/internal/extractors/dotnetextractor/grammar/pointer-indirection.patch
-npx tree-sitter-cli@0.26.5 generate --abi 15
-npx tree-sitter-cli@0.26.5 test
-cp src/grammar.json <this directory>/grammar.json
-cp src/parser.c src/node-types.json <this directory>/src/
-cp src/tree_sitter/*.h <this directory>/src/tree_sitter/
+./regenerate.sh           # clone upstream, apply patches/, generate, test, copy here
+./regenerate.sh --check   # the same, but only verify the committed files match
 ```
 
-Use tree-sitter-cli **0.26.5**, the version upstream's `package.json` names. Without the
-patch it reproduces upstream's committed `src/parser.c` byte for byte. With the patch,
-upstream's test corpus passes 179 of 179. Generating with 0.27.1 instead fails
-upstream's own "Switch statements" test (`case int when i < 5:`), patched or not. After
-replacing the sources, build with `go build -a`: Go's build cache does not track the files
-the `cgo_*.c` shims include.
+The script pins tree-sitter-cli **0.26.5**, the version upstream's `package.json` names.
+Without patches it reproduces upstream's committed `src/parser.c` byte for byte, and with
+them upstream's own test corpus must still pass (the script fails otherwise). Generating
+with 0.27.1 instead fails upstream's "Switch statements" test (`case int when i < 5:`),
+patched or not. After regenerating, build with `go build -a`: Go's build cache does not
+track the files the `cgo_*.c` shims include.
 
 ## Known gaps
 
-Upstream grammar issues the patch does not touch. Each makes the surrounding type or file
+Upstream grammar issues no patch here covers yet. Each makes the surrounding type or file
 an ERROR node:
 
 - `async` used as an identifier, e.g. a variable passed as `F(servers, async, name)`.

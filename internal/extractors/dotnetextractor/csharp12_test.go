@@ -94,7 +94,7 @@ public class Tracer
 // Pointer dereferences the upstream grammar rejects: `*` took only an lvalue, so a cast,
 // `++p` or `p++` under it was an ERROR, and recovery could take the whole class with it
 // (dotnet/runtime's Number.Parsing.cs and ManagedWebSocket.cs produced no symbols).
-// grammar/pointer-indirection.patch adds the three operand forms.
+// grammar/patches/01-pointer-indirection.patch adds the three operand forms.
 func TestPointerIndirectionOperands(t *testing.T) {
 	for _, body := range []string{
 		"*(int*)p = 1;",
