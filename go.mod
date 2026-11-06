@@ -3,7 +3,7 @@ module github.com/enola-labs/enola
 go 1.26.10
 
 require (
-	github.com/ebitengine/purego v0.11.2
+	github.com/ebitengine/purego v0.11.3
 	github.com/mattn/go-pointer v0.0.1
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/pbnjay/memory v0.0.0-20210728143218-7b4eea64cf58
