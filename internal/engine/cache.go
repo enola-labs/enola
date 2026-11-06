@@ -3443,7 +3443,13 @@ import (
 // inferred to return; a core or library type leaves the inferred one.
 // v536: Rust: a call written in an item-level #[error("...", f(x))] (thiserror) on a struct
 // or enum is a reference of that type, as it already was on a variant or a field.
-const cacheVersion = "v536"
+// v537: Rust: a name a module imports from outside the repository is still a reference to
+// the module's own declaration of that name, as with feature-gated twins.
+// v538: Rust: a crate is found by its [lib] name and by a dependency's `package` rename
+// (inline or as its own table, ahead of any workspace package of that name unless the
+// renamed crate is a facade over it), and a `use` that starts from an imported module
+// resolves into it.
+const cacheVersion = "v538"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

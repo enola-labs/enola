@@ -772,3 +772,143 @@ pub enum EnumError { Bad { msg: String } }
 		}
 	}
 }
+
+func TestRustFeatureGatedTwinsKeepTheLocalNameReferenced(t *testing.T) {
+	ff := extractRustRepo(t, map[string]string{
+		"Cargo.toml": "[package]\nname = \"rt\"\n",
+		"src/lib.rs": `
+#[cfg(feature = "full")]
+pub use std::vec::Vec as PropertyValue;
+#[cfg(not(feature = "full"))]
+pub type PropertyValue = ();
+
+pub struct Settings { extra: Option<PropertyValue> }
+pub fn read(x: &PropertyValue) {}
+`,
+	})
+	names := func(sym string) []string {
+		var out []string
+		for _, r := range rustSym(t, ff, sym).Relations {
+			if r.Kind == facts.RelNames {
+				out = append(out, r.Target)
+			}
+		}
+		return out
+	}
+	for _, sym := range []string{"src.Settings", "src.read"} {
+		if got := names(sym); !slices.Contains(got, "PropertyValue") {
+			t.Errorf("%s names %v: the local twin of an imported name must stay referenced", sym, got)
+		}
+	}
+}
+
+func TestRustCratesAreFoundByLibNameAndByDependencyRename(t *testing.T) {
+	ff := extractRustRepo(t, map[string]string{
+		"Cargo.toml":      "[workspace]\nmembers=[\"deps\",\"core\",\"app\"]\n",
+		"deps/Cargo.toml": "[package]\nname = \"my-deps\"\n[lib]\nname = \"fs_deps\"\n",
+		"deps/src/lib.rs": "pub fn install() {}\n",
+		"core/Cargo.toml": "[package]\nname = \"real-core\"\n",
+		"core/src/lib.rs": "pub fn boot() {}\n",
+		"app/Cargo.toml":  "[package]\nname = \"app\"\n[dependencies]\nshort = { path = \"../core\", package = \"real-core\" }\n",
+		"app/src/lib.rs":  "use fs_deps::install;\nuse short::boot;\npub fn run() { install(); boot(); }\n",
+	})
+	got := rustCalls(rustSym(t, ff, "app/src.run"))
+	for _, want := range []string{"deps/src.install", "core/src.boot"} {
+		if !slices.Contains(got, want) {
+			t.Errorf("app/src.run calls %v, want %s", got, want)
+		}
+	}
+}
+
+func TestRustUseThroughAnImportedModuleResolves(t *testing.T) {
+	ff := extractRustRepo(t, map[string]string{
+		"Cargo.toml":                    "[package]\nname = \"rt\"\n",
+		"src/lib.rs":                    "mod runtime;\n",
+		"src/runtime/mod.rs":            "pub mod task;\npub mod sched;\n",
+		"src/runtime/task/mod.rs":       "pub mod trace;\n",
+		"src/runtime/task/trace/mod.rs": "pub fn trace_current_thread() {}\n",
+		"src/runtime/sched.rs":          "use crate::runtime::task;\npub fn run() {\n    use task::trace::trace_current_thread;\n    trace_current_thread();\n}\n",
+	})
+	if got := rustCalls(rustSym(t, ff, "src/runtime.run")); !slices.Contains(got, "src/runtime/task/trace.trace_current_thread") {
+		t.Errorf("src/runtime.run calls %v, want the function behind the imported module", got)
+	}
+}
+
+func TestRustUseThroughAReExportedCrateIsNotAnImportedModule(t *testing.T) {
+	ff := extractRustRepo(t, map[string]string{
+		"Cargo.toml":               "[workspace]\nmembers=[\"tokio\",\"tests-build\",\"wstore\"]\n",
+		"tokio/Cargo.toml":         "[package]\nname = \"tokio\"\n",
+		"tokio/src/lib.rs":         "pub mod runtime;\n",
+		"tokio/src/runtime/mod.rs": "pub fn spawn() {}\n",
+		"tests-build/Cargo.toml":   "[package]\nname = \"tests-build\"\n\n[dependencies]\ntokio = { path = \"../tokio\" }\n",
+		"tests-build/src/lib.rs":   "pub use tokio;\n",
+		"tests-build/tests/a.rs":   "use tests_build::tokio;\nuse tokio::runtime::spawn;\nfn t() { spawn(); }\n",
+		"wstore/Cargo.toml":        "[package]\nname = \"wstore\"\n",
+		"wstore/src/lib.rs":        "pub use rusqlite;\n",
+		"wstore/tests/b.rs":        "use wstore::rusqlite;\nuse rusqlite::types::FromSql;\n",
+	})
+	imports := func(file string) []string {
+		var out []string
+		for _, f := range ff {
+			if f.Kind == facts.KindDependency && f.File == file {
+				for _, r := range f.Relations {
+					out = append(out, r.Target)
+				}
+			}
+		}
+		return out
+	}
+	if got := imports("tests-build/tests/a.rs"); !slices.Contains(got, "tokio/src/runtime") {
+		t.Errorf("use tokio::runtime through a re-exported crate imports %v, want tokio/src/runtime", got)
+	}
+	for _, target := range imports("wstore/tests/b.rs") {
+		if strings.HasPrefix(target, "wstore") && strings.Contains(target, "types") {
+			t.Errorf("an external crate re-exported by wstore is imported as %s", target)
+		}
+	}
+}
+
+func TestRustDependencyRenamesBeatUnrelatedPackagesOfTheSameName(t *testing.T) {
+	ff := extractRustRepo(t, map[string]string{
+		"Cargo.toml":       "[workspace]\nmembers=[\"short\",\"real\",\"tbl\",\"app\"]\n",
+		"short/Cargo.toml": "[package]\nname = \"short\"\n",
+		"short/src/lib.rs": "pub fn boot() {}\n",
+		"real/Cargo.toml":  "[package]\nname = \"real-core\"\n",
+		"real/src/lib.rs":  "pub fn boot() {}\n",
+		"tbl/Cargo.toml":   "[package]\nname = \"table-core\"\n",
+		"tbl/src/lib.rs":   "pub fn spin() {}\n",
+		"app/Cargo.toml": `[package]
+name = "app"
+
+[dependencies]
+short = { path = "../real", package = "real-core" }
+
+[dependencies.viatable]
+path = "../tbl"
+package = "table-core"
+`,
+		"app/src/lib.rs": "use short::boot;\nuse viatable::spin;\npub fn run() { boot(); spin(); }\n",
+	})
+	got := rustCalls(rustSym(t, ff, "app/src.run"))
+	if !slices.Contains(got, "real/src.boot") || slices.Contains(got, "short/src.boot") {
+		t.Errorf("a rename must win over an unrelated package named short, got %v", got)
+	}
+	if !slices.Contains(got, "tbl/src.spin") {
+		t.Errorf("a [dependencies.viatable] rename is ignored, got %v", got)
+	}
+}
+
+func TestRustRenamedFacadeKeepsNamingTheRealCrate(t *testing.T) {
+	ff := extractRustRepo(t, map[string]string{
+		"Cargo.toml":        "[workspace]\nmembers=[\"core\",\"facade\",\"std\"]\n",
+		"core/Cargo.toml":   "[package]\nname = \"core\"\n",
+		"core/src/lib.rs":   "pub fn null_mut() {}\n",
+		"facade/Cargo.toml": "[package]\nname = \"workspace-core\"\n[dependencies]\ncore = { path = \"../core\" }\n",
+		"facade/src/lib.rs": "pub use core::*;\n",
+		"std/Cargo.toml":    "[package]\nname = \"std\"\n[dependencies]\ncore = { path = \"../facade\", package = \"workspace-core\" }\n",
+		"std/src/lib.rs":    "use core::null_mut;\npub fn run() { null_mut(); }\n",
+	})
+	if got := rustCalls(rustSym(t, ff, "std/src.run")); !slices.Contains(got, "core/src.null_mut") {
+		t.Errorf("std/src.run calls %v, want the function in the real core crate", got)
+	}
+}

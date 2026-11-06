@@ -15,7 +15,7 @@ import (
 
 // It also returns the file's inner doc, the doc of the module the file opens.
 func extractFileASTFull(src []byte, relFile string, crates []crateInfo, moduleDirs map[string]bool) ([]facts.Fact, []implPair, []axumBuilder, string) {
-	r := extractRustFile(src, relFile, crates, moduleDirs, false)
+	r := extractRustFile(src, relFile, crates, moduleDirs, nil, false)
 	return r.facts, r.impls, r.builders, r.doc
 }
 
@@ -34,7 +34,7 @@ type rustFileOut struct {
 // extractRustFile extracts one file. testFile walks the whole file as the body of
 // a #[cfg(test)] module, because a parent declared it as one: it emits no symbol,
 // and its calls become the file's test reference.
-func extractRustFile(src []byte, relFile string, crates []crateInfo, moduleDirs map[string]bool, testFile bool) rustFileOut {
+func extractRustFile(src []byte, relFile string, crates []crateInfo, moduleDirs, moduleFiles map[string]bool, testFile bool) rustFileOut {
 	parser := sitter.NewParser()
 	defer parser.Close()
 	if err := parser.SetLanguage(sitter.NewLanguage(rust.Language())); err != nil {
@@ -47,14 +47,15 @@ func extractRustFile(src []byte, relFile string, crates []crateInfo, moduleDirs 
 
 	dir := factpath.Dir(relFile)
 	w := &astWalker{
-		src:        src,
-		relFile:    relFile,
-		dir:        dir,
-		crateDir:   nearestCrateDir(dir, crates),
-		crates:     crates,
-		moduleDirs: moduleDirs,
-		fileRefIdx: -1,
-		inTestMod:  testFile,
+		src:         src,
+		relFile:     relFile,
+		dir:         dir,
+		crateDir:    nearestCrateDir(dir, crates),
+		crates:      crates,
+		moduleDirs:  moduleDirs,
+		moduleFiles: moduleFiles,
+		fileRefIdx:  -1,
+		inTestMod:   testFile,
 	}
 	w.walkSourceFile(root)
 
@@ -99,8 +100,9 @@ type astWalker struct {
 	dir      string
 	crateDir string
 
-	crates     []crateInfo
-	moduleDirs map[string]bool
+	crates      []crateInfo
+	moduleDirs  map[string]bool
+	moduleFiles map[string]bool
 
 	// out is the accumulating fact list; impls collects impl-Trait-for-Type
 	// observations resolved later by applyImplements.
@@ -215,6 +217,7 @@ type astWalker struct {
 	registeredNestedDepth int
 	typeParams            []string
 	externalImports       map[string]bool
+	scopeDeclared         map[string]bool
 }
 
 // calleeForm classifies how a call_expression's callee was written, so the
@@ -280,6 +283,7 @@ func (w *astWalker) walkSourceFile(root *sitter.Node) {
 	}
 	w.modFnStack = append(w.modFnStack, collectFnNames(root, w.src))
 	w.modSubmoduleStack = append(w.modSubmoduleStack, collectSubmoduleNames(root, w.src))
+	w.scopeDeclared = declaredItemNames(root, w.src)
 	w.walkItems(root)
 	w.modSubmoduleStack = w.modSubmoduleStack[:len(w.modSubmoduleStack)-1]
 	w.modFnStack = w.modFnStack[:len(w.modFnStack)-1]
@@ -610,10 +614,10 @@ func (w *astWalker) handleMod(node *sitter.Node) {
 	w.modStack = append(w.modStack, name)
 	w.modFnStack = append(w.modFnStack, collectFnNames(body, w.src))
 	w.modSubmoduleStack = append(w.modSubmoduleStack, collectSubmoduleNames(body, w.src))
-	outerExternal := w.externalImports
-	w.externalImports = nil
+	outerExternal, outerDeclared := w.externalImports, w.scopeDeclared
+	w.externalImports, w.scopeDeclared = nil, declaredItemNames(body, w.src)
 	w.walkItems(body)
-	w.externalImports = outerExternal
+	w.externalImports, w.scopeDeclared = outerExternal, outerDeclared
 	w.modSubmoduleStack = w.modSubmoduleStack[:len(w.modSubmoduleStack)-1]
 	w.modFnStack = w.modFnStack[:len(w.modFnStack)-1]
 	w.modStack = w.modStack[:len(w.modStack)-1]
@@ -1233,6 +1237,10 @@ func (w *astWalker) emitDependency(segs []string, line int) {
 		// own since foo.rs shares its parent's directory (no subdirectory to
 		// find in moduleDirs).
 		target, source = joinRustPath(w.dir, segs, w.moduleDirs), "internal"
+	case w.importedModuleDir(segs) != "":
+		// `use task::trace::f;` after `use crate::runtime::task;`: the path starts
+		// from a module already in scope, not from a crate.
+		target, source = joinRustPath(w.importedModuleDir(segs), segs[1:], w.moduleDirs), "internal"
 	default:
 		target, source = classifyUsePath(segs, w.dir, w.crateDir, w.crates, w.moduleDirs)
 	}
@@ -1249,6 +1257,39 @@ func (w *astWalker) emitDependency(segs []string, line int) {
 		Relations: []facts.Relation{{Kind: facts.RelImports, Target: target}},
 	})
 	w.recordImportMapping(segs, target, source)
+}
+
+// importedModuleDir is the directory of the module a path's first segment names
+// when that name was imported from inside the repository, "" otherwise.
+func (w *astWalker) importedModuleDir(segs []string) string {
+	if len(segs) < 2 || segs[0] == "self" || segs[0] == "super" || segs[0] == "crate" {
+		return ""
+	}
+	imported, ok := w.importMap[segs[0]]
+	if !ok {
+		return ""
+	}
+	base, found := strings.CutSuffix(imported, "."+segs[0])
+	if !found || !w.isRealModule(base, segs[0]) {
+		return ""
+	}
+	return base
+}
+
+// isRealModule reports whether name is a module of the repository: base is its
+// own directory, or base holds name/ or name.rs. A name imported
+// from inside the repository can also be a re-exported crate (`pub use dep;`).
+func (w *astWalker) isRealModule(base, name string) bool {
+	join := func(parts ...string) string {
+		if base == "" || base == "." {
+			return strings.Join(parts, "/")
+		}
+		return base + "/" + strings.Join(parts, "/")
+	}
+	if base == name || strings.HasSuffix(base, "/"+name) {
+		return w.moduleDirs[base]
+	}
+	return w.moduleDirs[join(name)] || w.moduleFiles[join(name+".rs")]
 }
 
 // recordImportMapping maps the imported item's simple name — the last "::"
@@ -1452,8 +1493,10 @@ func (w *astWalker) emitTypeName(name string) {
 	if name == "Self" || name == "_" {
 		return
 	}
-	// A name this module imports from outside the repository is not one it declares.
-	if w.externalImports[name] {
+	// A name this module imports from outside the repository is not one it declares,
+	// unless the module also declares it: feature-gated twins (`#[cfg(a)] use x::T as P;`
+	// beside `#[cfg(not(a))] type P = ();`) share one name.
+	if w.externalImports[name] && !w.scopeDeclared[name] {
 		return
 	}
 	for _, p := range w.typeParams {
@@ -1532,6 +1575,24 @@ func leafBoundName(leaf useLeaf) string {
 		name = leaf.segs[len(leaf.segs)-2]
 	}
 	return name
+}
+
+// declaredItemNames returns the names of the items declared directly in a module body.
+func declaredItemNames(container *sitter.Node, src []byte) map[string]bool {
+	var out map[string]bool
+	for i := uint(0); i < uint(container.NamedChildCount()); i++ {
+		c := container.NamedChild(i)
+		switch kindOf(c) {
+		case "struct_item", "enum_item", "union_item", "trait_item", "type_item", "function_item", "const_item", "static_item":
+			if n := c.ChildByFieldName("name"); n != nil {
+				if out == nil {
+					out = map[string]bool{}
+				}
+				out[nodeText(n, src)] = true
+			}
+		}
+	}
+	return out
 }
 
 // useIsExternal reports whether a `use` path leaves the repository, as emitDependency
