@@ -1,0 +1,22 @@
+diff --git a/grammar.js b/grammar.js
+index 401aba9..06f069a 100644
+--- a/grammar.js
++++ b/grammar.js
+@@ -432,6 +432,9 @@ export default grammar({
+       'public',
+       'readonly',
+       'required',
++      // The `safe` modifier of the unsafe-code evolution (dotnet/csharplang#9704), which
++      // dotnet/runtime already uses on extern methods and fields.
++      'safe',
+       // 'ref',     // `ref` as a modifier can only be used on struct declarations. Other than that it's a ref type or a ref parameter in a declaration.
+       // 'scoped',  // `scoped` is either part of a scoped type or a scoped parameter. Both of which are handled outside of `modifier`.
+       'sealed',
+@@ -2180,6 +2183,7 @@ export default grammar({
+       'orderby',
+       'param',
+       'property',
++      'safe',
+       'scoped',
+       'select',
+       'type',

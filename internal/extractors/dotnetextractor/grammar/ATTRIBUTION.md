@@ -18,11 +18,16 @@ C# source into an AST. It is third-party code, distributed under a different lic
 Upstream rejects syntax the corpus uses, and under error recovery one rejected form can
 make the whole enclosing class an ERROR node, so the file loses its symbols. Each fix is
 one file under [`patches/`](./patches/), applied to upstream's `grammar.js` in name order.
-Each is pinned by a test in the parent package that fails without it.
+Each is pinned by a test in the parent package that fails without it, and
+`TestGrammarPatchesParseClean` pins all of them at the parse level. File counts are
+production `.cs` files across the benchmark corpus that the form left with a parse error.
 
 | Patch | Upstream rejects | Test |
 |---|---|---|
 | `01-pointer-indirection.patch` | `*` takes only an lvalue: `*(int*)p = 1`, `*(int*)(p + 4)`, `c = *++p`, `*p++ ^= m`. dotnet/runtime's `Number.Parsing.cs` and `ManagedWebSocket.cs` produced no symbols. The widened operand keeps `*`'s own restriction, so `*(T*)p = v` is still an assignment to the dereference and `(a) * (b)` and `(a) && (b > 0)` keep their upstream parses. | `TestPointerIndirectionOperands` |
+| `02-ref-partial-struct.patch` | C# 13's `ref partial struct`: `partial` after `ref`. runtime's `Utf8JsonReader` and its Asn1 value types, 86 files with a parse error. | `TestCSharp13Declarations` |
+| `03-allows-ref-struct.patch` | C# 13's `allows ref struct` anti-constraint, 56 files. `allows` stays an identifier elsewhere. | `TestGrammarPatchesParseClean` |
+| `04-safe-modifier.patch` | The `safe` modifier (unsafe-code evolution) runtime puts on extern methods and fields, 13 files. `safe` stays an identifier elsewhere. | `TestCSharp13Declarations` |
 
 ## What is vendored, and how it was produced
 

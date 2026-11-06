@@ -116,3 +116,42 @@ func TestPointerIndirectionOperands(t *testing.T) {
 		})
 	}
 }
+
+// Declaration syntax upstream rejects that costs symbols: C# 13's `ref partial struct`
+// (grammar/patches/02) and the `safe` modifier dotnet/runtime uses on extern methods and
+// fields (04). TestGrammarPatchesParseClean pins every patched form at the parse level.
+func TestCSharp13Declarations(t *testing.T) {
+	for _, tc := range []struct {
+		name, src string
+		want      []string
+	}{
+		{"ref partial struct", `namespace Shop;
+
+public ref partial struct Reader
+{
+    public int Read() => 0;
+}
+
+public class After { public void Run() { } }
+`, []string{"src.Reader", "src.Reader.Read", "src.After.Run"}},
+		{"safe modifier", `namespace Shop;
+
+public static partial class Native
+{
+    public static safe extern double Acos(double d);
+    private static safe partial void Exit(int code);
+    public safe int Handle;
+    public static void Run() { }
+}
+`, []string{"src.Native.Acos", "src.Native.Handle", "src.Native.Run"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ff := extractFileAST([]byte(tc.src), "src/Shop.cs")
+			for _, want := range tc.want {
+				if factByName(ff, want) == nil {
+					t.Errorf("missing %s; got %v", want, names(ff, facts.KindSymbol))
+				}
+			}
+		})
+	}
+}

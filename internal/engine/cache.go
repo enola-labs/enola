@@ -3463,7 +3463,9 @@ import (
 // v545: C#: a type declared both in a reference assembly (a `ref` project directory)
 // and in its implementation resolves to the implementation, and the pair no longer
 // makes its simple name ambiguous.
-const cacheVersion = "v545"
+// v546: C#: grammar patches 02-04, `ref partial struct`, `allows ref struct` and the
+// `safe` modifier, each a declaration upstream's grammar rejects.
+const cacheVersion = "v546"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

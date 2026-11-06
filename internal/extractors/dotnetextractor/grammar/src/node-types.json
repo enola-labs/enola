@@ -6879,6 +6879,10 @@
     "named": false
   },
   {
+    "type": "allows",
+    "named": false
+  },
+  {
     "type": "and",
     "named": false
   },
@@ -7261,6 +7265,10 @@
   },
   {
     "type": "return",
+    "named": false
+  },
+  {
+    "type": "safe",
     "named": false
   },
   {
