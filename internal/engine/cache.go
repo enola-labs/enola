@@ -3454,7 +3454,9 @@ import (
 // v0.27.1, Swift at ABI 15 and Scala still at ABI 14.
 // v541: the tree-sitter runtime is vendored (internal/treesitter) with adc13ff's two
 // error-recovery changes reverted, so files with syntax errors recover as under v0.24.
-const cacheVersion = "v541"
+// v542: C#: tree-sitter-c-sharp at master 8c0abe0, for C# 14 syntax and the
+// `(IDENT) && EXPR` cast fix.
+const cacheVersion = "v542"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
