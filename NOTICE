@@ -31,12 +31,9 @@ tree-sitter-dart — Dart grammar for tree-sitter
   License:  MIT — Copyright (c) 2020-2023 UserNobody14 and others
             see internal/extractors/dartextractor/grammar/LICENSE
 
-  grammar.json and src/scanner.c are vendored verbatim from the upstream
-  project's src/ directory. src/parser.c, src/node-types.json and
-  src/tree_sitter/*.h are generated locally from that grammar.json at
-  tree-sitter ABI 14 — the upstream project ships an ABI 15 parser, which the
-  vendored go-tree-sitter runtime rejects (see that directory's ATTRIBUTION.md
-  for details and the regeneration command). The surrounding cgo glue
+  grammar.json and src/ (the generated parser, src/node-types.json,
+  src/tree_sitter/*.h and the hand-written src/scanner.c) are vendored verbatim
+  from the upstream project (see that directory's ATTRIBUTION.md). The surrounding cgo glue
   (binding.go, cgo_parser.c, cgo_scanner.c) is enola's own code and is not part
   of the upstream grammar.
 

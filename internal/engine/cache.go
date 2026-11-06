@@ -3448,7 +3448,9 @@ import (
 // Rust and Python files parse with the newer grammars' trees.
 // v538: C#: the grammar is the upstream tree-sitter-c-sharp v0.23.5 module at ABI 15,
 // not a vendored copy regenerated at ABI 14.
-const cacheVersion = "v538"
+// v539: Dart: the parser is the one upstream generated at ABI 15, vendored verbatim,
+// not a local regeneration at ABI 14 from the same grammar.json.
+const cacheVersion = "v539"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

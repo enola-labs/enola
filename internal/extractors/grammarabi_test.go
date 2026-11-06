@@ -47,7 +47,7 @@ func TestGrammarABI_EveryGrammarLoadsAtItsPinnedABI(t *testing.T) {
 		{"typescript", typescript.LanguageTypescript(), 14, "class A { f(): void {} }\n"},
 		{"tsx", typescript.LanguageTSX(), 14, "const a = <div />;\n"},
 		{"csharp", csharp.Language(), 15, "class A { void F() {} }\n"},
-		{"dart", dart.Language(), 14, "class A { void f() {} }\n"},
+		{"dart", dart.Language(), 15, "class A { void f() {} }\n"},
 		{"scala", scala.Language(), 14, "class A { def f(): Unit = () }\n"},
 		{"swift", swift.Language(), 14, "class A { func f() {} }\n"},
 	}

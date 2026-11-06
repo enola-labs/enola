@@ -10,23 +10,19 @@ import (
 
 // TestGrammarSmoke is the ABI guard, and it is the most important test in this package.
 //
-// The vendored go-tree-sitter runtime accepts at most tree-sitter ABI 14. The upstream
-// tree-sitter-dart parser is generated against ABI 15, so it is regenerated at 14 and
-// committed under grammar/src (see grammar/ATTRIBUTION.md). If that regeneration is ever
-// lost — a routine `go get -u`, a re-copy from upstream, a regeneration without the
-// --abi flag — the rejection is SILENT: SetLanguage fails, every Dart file parses to
-// nothing, and the result is indistinguishable from a repository containing no Dart.
-// That is exactly how the C# grammar failed once.
+// The tree-sitter-dart parser is vendored under grammar/src (see grammar/ATTRIBUTION.md).
+// If an update brings a parser the go-tree-sitter runtime does not accept, the rejection
+// is SILENT: SetLanguage fails, every Dart file parses to nothing, and the result is
+// indistinguishable from a repository containing no Dart. That is exactly how the C#
+// grammar failed once.
 //
-// If this fails, the fix is to regenerate the parser at ABI 14, not to loosen the
-// assertion.
+// If this fails, the fix is a parser the runtime accepts, not a looser assertion.
 func TestGrammarSmoke(t *testing.T) {
 	parser := sitter.NewParser()
 	defer parser.Close()
 	if err := parser.SetLanguage(sitter.NewLanguage(grammar.Language())); err != nil {
 		t.Fatalf("SetLanguage failed — the vendored parser is almost certainly built "+
-			"against a newer tree-sitter ABI than the runtime accepts. Regenerate with "+
-			"`tree-sitter generate grammar.json --abi 14`. Error: %v", err)
+			"against a tree-sitter ABI the runtime does not accept. Error: %v", err)
 	}
 
 	// Each case exercises a different half of the grammar, so a regeneration that

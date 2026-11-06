@@ -2242,6 +2242,7 @@
   {
     "type": "comment",
     "named": true,
+    "extra": true,
     "fields": {}
   },
   {
@@ -3255,6 +3256,7 @@
   {
     "type": "documentation_comment",
     "named": true,
+    "extra": true,
     "fields": {}
   },
   {
