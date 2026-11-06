@@ -7,6 +7,60 @@ The full per-release change lists — every Added, Changed and Fixed line — ar
 [enola.tech/changelog](https://enola.tech/changelog). This file is the same history at
 the resolution a reader of the repository needs.
 
+## v0.4.40 — 2026-11-06
+
+**Calls through a factory's result resolve in every language, clusters keep one history, and cross-repo links get more honest**
+
+- Return types: a local bound to what a function or method returns is typed by that
+  callee's declared return type, in this file or another, so calls on it resolve and flows
+  continue through it. `e = await get_engine()`, `Registry.default()` and chains like
+  `make().session()` now resolve in Python, TypeScript, Kotlin, Java, C#, C++ (`auto`),
+  Rust (with `?` and `.await`), PHP and Scala. Awaiting a `Promise<T>`, `Task<T>` or
+  `ValueTask<T>` gives T. Ruby types a variable assigned `X.new` or a model finder, infers
+  a method's return type from its body, and reads a YARD `@return` naming a class of the
+  repository. A Scala `val` in a `def` body is a local, not a member of the enclosing type.
+- Flows: a call to a method of an abstract class, or to an abstract method, continues into
+  the subclasses under the same three-implementation cap as an interface.
+- History: a cluster snapshot records once, into a history of its own keyed by the member
+  set, so `cluster.yaml`, a folder of repositories and MCP `repo_paths` share it. `gc`
+  collects every member (`--repo` for one), and `--prune-cluster-copies` removes the
+  copies older builds appended to each member. `log`, `show`, `blame`, history push and
+  pull, and the MCP history tools read a cluster. `blame` and `architecture_blame` list at
+  most 100 matching facts by default (`-n`) and count the rest. Flags may follow the path.
+- Cross-repo: `outside_snapshot` needs a target hint that names a service (an environment
+  variable, a SCREAMING_CASE constant, a declared service name), recorded as
+  `target_hint_from`; a hint read off a variable or field name leaves the call
+  `path_unknown`. The thin-path rule applies to base-relative paths only, so
+  `/{}/captions` matches again, and a declined call is stamped `thin_path`. Coverage
+  counts consumed Kafka topics and gains an Outside snapshot column. Unmatched reasons are
+  stamped per call site.
+- Generated clients: a call in a generated client that only generated or test code reaches
+  is marked `client_reachable=false`, in every language.
+- Multi-repo: two repositories declaring a package of the same name no longer merge into
+  one module graph node, so no cycle neither repository has. The receipt lists each
+  member's provenance and extraction counts, and reports quality as their sum. Cluster
+  output, `previous/` and pinned baselines hard-link `facts.jsonl` instead of copying it.
+- Rails and Ruby: packwerk `strict` enforcement is read, `namespace module:` and
+  `use_doorkeeper` routes resolve, routed actions in engines count as handlers, and
+  dead-method callers are indexed per repository.
+- OpenAPI: a bundled copy of a spec is read once, an operation without an `operationId`
+  binds to its code route, and `server_base` is recorded.
+- TypeScript: `client_pages` resolves names through the file's imports and barrels instead
+  of by name across the repository, and a call every page of a large app reaches is
+  `client_every_page`. Next.js pages and route files that re-export are bound.
+- Go: route registration helpers, constants built from constants, `fmt.Sprintf` URLs and
+  service-named base variables are read. Scala reads Kafka topics from HOCON.
+- Rust: const generics, unions, generic associated types and alias parameters are not
+  types, and a call in an item-level `#[error(..)]` references the type.
+- Constraints resolve Python import targets. `locate` reports `ambiguous` for a stamp it
+  cannot check from facts alone. The MCP freshness banner no longer warns about a graph
+  `generate_snapshot` just replaced.
+- Engine: cache version is v536, so existing caches re-extract.
+
+Thanks to [Nicolas Girod](https://github.com/Xebeth) for the Python constraints fix, a
+first contribution to enola, and to [Gert Lõhmus](https://github.com/GertL) for the Rust
+work.
+
 ## v0.4.39 — 2026-11-03
 
 **`enola touched` ranks the functions a run of commits changed, Rust dead code gets precise, and ids hold across clusters**
