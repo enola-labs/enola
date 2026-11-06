@@ -57,22 +57,28 @@ track the files the `cgo_*.c` shims include.
 
 ## Known gaps
 
-Upstream grammar issues no patch here covers yet. Each makes the surrounding type or file
-an ERROR node:
+Upstream grammar issues no patch here covers. Each was attempted and dropped, because the
+fix changed how code that already parses is read. A candidate patch has to pass two
+checks over every production `.cs` file in the benchmark corpus (51,061 files): no file
+that parses cleanly may change its tree, and no file with errors may get more of them.
 
-- `async` used as an identifier, e.g. a variable passed as `F(servers, async, name)`.
-- a list pattern holding a property or positional subpattern,
-  `x is [.., SyntaxToken { Kind: K } t]` and `is [.., (kind: K)]` (roslyn's parser).
-  The parser commits to an element access before it reaches the pattern, so dynamic
-  precedence on `list_pattern` does not help.
-- a pointer to an array type, `ParameterInfo[]* p` (3 corpus files). Allowing it made
-  `F(advances[i] * scale)` read as a declaration of a `T[]*` variable named `scale`, a
-  wrong parse of code that parses today, and confining it needs declaration expressions
-  restructured.
-- pointer arithmetic in parentheses under `*`, `*(p + i) = v` (4 corpus lines). Taking a
+- **`async` as an identifier before `)`**: `F(stream, async).ConfigureAwait(false)`,
+  `if (async)` (39 files, 10 a whole-file ERROR). `F(a, async, b)` already parses. Listing
+  `async` as a contextual identifier needs a declared conflict with the modifier and the
+  lambda prefix, and resolving that fails upstream's "Async Lambda" and "Lambda expression
+  with modifiers" tests.
+- **A list pattern with a slice before a subpattern**: `x is [.., { IsParams: true }]`,
+  `is [.., var y]` (56 files, 12 a whole-file ERROR, most of them roslyn's parser).
+  `[var y, ..]` parses. Precedence settles `..` as a range before any conflict arises, so
+  neither declaring a conflict nor dynamic precedence on `list_pattern` changes anything,
+  and lowering the range's precedence would also move `a[.., 2]`.
+- **A ref-returning call as an assignment target**: `Unsafe.Add(ref a, i) = v` (70 files).
+  Allowing it, even only as a whole statement, shifts how the generated parser settles
+  unrelated ambiguities: 26 files with errors got more of them (`StubHelpers.cs` went from
+  9 error lines to a whole-file ERROR), and `T? h = await F<T>(a, b)` became comparisons.
+- **A pointer to an array type**: `ParameterInfo[]* p` (3 files). Allowing it made
+  `F(advances[i] * scale)` read as a declaration of a `T[]*` variable named `scale`.
+- **Pointer arithmetic in parentheses under `*`**: `*(p + i) = v` (4 lines). Taking a
   parenthesized operand made `*((T**)p)[i]` dereference before it indexes.
-- a ref-returning call as an assignment target, `Unsafe.Add(ref a, i) = v`.
 
-v0.23.5 rejects every one of these too. What differs between grammar versions is only how
-far the error spreads, which is why roslyn's `LanguageParser.cs` keeps fewer symbols
-under 8c0abe0 than under v0.23.5 while dotnet/runtime as a whole gains 8,436.
+v0.23.5 rejects every one of these too.
