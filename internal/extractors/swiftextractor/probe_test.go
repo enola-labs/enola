@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	swift "github.com/enola-labs/enola/internal/extractors/swiftextractor/grammar"
-	sitter "github.com/tree-sitter/go-tree-sitter"
+	sitter "github.com/enola-labs/enola/internal/treesitter"
 )
 
 // TestGrammarSmoke confirms the vendored tree-sitter Swift grammar links and

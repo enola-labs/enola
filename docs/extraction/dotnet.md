@@ -1196,3 +1196,11 @@ reason.
   matches a production symbol by its last segment, so an unrelated symbol sharing a
   method name is credited with test coverage it does not have. That biases toward a
   *missed* dead-code lead rather than a false accusation, which is the safe direction.
+- **Syntax the C# grammar rejects costs the enclosing type, sometimes the file.** These
+  forms are parse errors in tree-sitter-c-sharp, and error recovery can take the whole
+  surrounding class with them: a list pattern holding a property or positional
+  subpattern (`x is [.., { IsParams: true }]`), `async` used as a variable name, a
+  pointer to an array type (`T[]* p`), and a ref-returning call as an assignment target
+  (`Unsafe.Add(ref a, i) = v`). Pointer dereferences of a cast or a stepped pointer
+  (`*(T*)p`, `*++p`, `*p++`) used to be in this list; the vendored grammar is patched for
+  them (see `internal/extractors/dotnetextractor/grammar/ATTRIBUTION.md`).

@@ -4,7 +4,7 @@ import (
 	"strings"
 
 	"github.com/enola-labs/enola/internal/facts"
-	sitter "github.com/tree-sitter/go-tree-sitter"
+	sitter "github.com/enola-labs/enola/internal/treesitter"
 )
 
 // propReceiverCalls lists, on a function or method, the instance calls whose

@@ -8,65 +8,70 @@ C# source into an AST. It is third-party code, distributed under a different lic
 
 - **Project:** [tree-sitter-c-sharp](https://github.com/tree-sitter/tree-sitter-c-sharp)
 - **License:** MIT, see [LICENSE](./LICENSE) (Copyright (c) 2014-2023 Max Brunsfeld, Damien Guard, Amaan Qureshi, and contributors)
-- **Version vendored:** release `v0.23.5` (commit `cac6d5fb595f5811a076336682d5d595ac1c9e85`)
+- **Version vendored:** master commit `8c0abe0b84a3` (Go pseudo-version
+  `v0.23.6-0.20260929081004-8c0abe0b84a3`), with the patch below. No release tag carries
+  the C# 14 syntax dotnet/runtime already uses (`extension` blocks, `?.` assignment).
 
 ## Why it is vendored rather than required
 
-Until v0.23.1 the upstream Go module was consumed directly. Every release since v0.23.2
-commits a `src/parser.c` that declares `LANGUAGE_VERSION 15`, while
-`go-tree-sitter v0.24.0` accepts at most ABI 14. `SetLanguage` returns an error, every
-file parses to nothing, and the result is **indistinguishable from a repository that
-contains no C#**, the same trap documented for the Scala and Dart grammars, and the
-reason `TestGrammarSmoke` asserts the grammar still loads.
+Upstream's `*` (`_pointer_indirection_expression`) accepts only an `lvalue_expression`.
+That rejects three forms common in unsafe code:
 
-Staying on v0.23.1 was not a neutral choice: it predates C# 12. A body-less type
-declaration (`class GroupJsonContext : JsonSerializerContext;`) or a collection expression
-(`= []`) made the whole file one ERROR node, and the file produced no symbols. Across the
-eight C# repositories of the benchmark corpus that was 5,254 of 62,848 `.cs` files with a
-parse error and 482 that lost every symbol; with this grammar it is 2,596 and 280.
-`TestCSharp12Syntax` in the parent package pins the forms that failed.
+- a cast under `*`: `*(int*)p = 1`, `*(Vector<byte>*)p ^= m`, `*(int*)(p + 4)`
+- a pointer stepped first: `c = *++p`
+- a pointer stepped after: `*p++ ^= m`
+
+Each is a syntax error, and under error recovery one of them can make the whole enclosing
+class an ERROR node. dotnet/runtime's `Number.Parsing.cs` and `ManagedWebSocket.cs`
+produced no symbols at all, and PowerShell's `Variant.cs` lost half of its own.
+[`pointer-indirection.patch`](./pointer-indirection.patch) widens the operand to those
+three forms, each restricted the way `*`'s own operand is, so `*(T*)p = v` still parses
+as an assignment to the dereference and `(a) * (b)` and `(a) && (b > 0)` keep their
+upstream parses. `TestPointerIndirectionOperands` in the parent package pins the forms.
 
 ## What is vendored, and how it was produced
 
 | File(s) | Origin |
 |---|---|
-| `src/scanner.c` | Copied verbatim from the upstream repository at the commit above. |
-| `grammar.json` | Copied verbatim from the upstream repository's `src/grammar.json`. |
-| `src/parser.c`, `src/node-types.json`, `src/tree_sitter/*.h` | **Generated** locally from `grammar.json` using the tree-sitter CLI at ABI 14. The upstream committed parser is ABI 15 and therefore unusable here. |
+| `src/scanner.c`, `LICENSE` | Copied verbatim from the upstream repository at the commit above. |
+| `grammar.json`, `src/parser.c`, `src/node-types.json`, `src/tree_sitter/*.h` | **Generated** from upstream `grammar.js` with `pointer-indirection.patch` applied. |
 
-The generated parser is a deterministic product of the upstream `grammar.json`; it was
-not hand-edited. The `cgo_parser.c` / `cgo_scanner.c` shims and `binding.go` in this
-directory are enola's own glue code (Apache-2.0) and are not part of the upstream
-grammar.
+The `cgo_parser.c` / `cgo_scanner.c` shims and `binding.go` in this directory are enola's
+own glue code (Apache-2.0) and are not part of the upstream grammar.
 
-## Regenerating `src/parser.c`
+## Regenerating
 
 ```sh
-cd internal/extractors/dotnetextractor/grammar
-tree-sitter generate grammar.json --abi 14
+git clone https://github.com/tree-sitter/tree-sitter-c-sharp && cd tree-sitter-c-sharp
+git checkout 8c0abe0b84a3
+git apply <enola>/internal/extractors/dotnetextractor/grammar/pointer-indirection.patch
+npx tree-sitter-cli@0.26.5 generate --abi 15
+npx tree-sitter-cli@0.26.5 test
+cp src/grammar.json <this directory>/grammar.json
+cp src/parser.c src/node-types.json <this directory>/src/
+cp src/tree_sitter/*.h <this directory>/src/tree_sitter/
 ```
 
-The ABI (14) is pinned to match `github.com/tree-sitter/go-tree-sitter v0.24.0`. This
-was produced with `tree-sitter-cli` v0.27.1.
+Use tree-sitter-cli **0.26.5**, the version upstream's `package.json` names. Without the
+patch it reproduces upstream's committed `src/parser.c` byte for byte. With the patch,
+upstream's test corpus passes 179 of 179. Generating with 0.27.1 instead fails
+upstream's own "Switch statements" test (`case int when i < 5:`), patched or not. After
+replacing the sources, build with `go build -a`: Go's build cache does not track the files
+the `cgo_*.c` shims include.
 
-## Grammar behaviour at ABI 14
+## Known gaps
 
-None differs from upstream. The grammar declares no `reserved` word set (its
-`_reserved_identifier` is an ordinary rule for contextual keywords), so nothing is lost
-at ABI 14. Upstream's test corpus gives the same result at ABI 14 and at ABI 15: 167 of
-168 pass, and the one failure ("Switch statements") is upstream's own.
-
-## Known gaps in v0.23.5
-
-Measured against v0.23.1 on the corpus, after the extractor resolves preprocessor
-directives (see `activeBranches` in the parent package). Each makes the surrounding
-type or file an ERROR node; all are upstream grammar issues, not ABI effects:
+Upstream grammar issues the patch does not touch. Each makes the surrounding type or file
+an ERROR node:
 
 - `async` used as an identifier, e.g. a variable passed as `F(servers, async, name)`.
-  It costs runtime's `DnsResolverPal.*.cs` their symbols (about 100).
 - a list pattern holding a property or positional subpattern,
-  `x is [.., SyntaxToken { Kind: K } t]` and `is [.., (kind: K)]` (roslyn).
-- C# 14 syntax: null-conditional assignment (`a?.B = c`) and `extension` blocks.
-- a pointer dereference as an argument, `F(*(IntPtr*)p)`, and other pointer and
-  ref assignments in runtime internals.
-- the withdrawn C# 11 parameter null check `string key!!`, which v0.23.1 accepted.
+  `x is [.., SyntaxToken { Kind: K } t]` and `is [.., (kind: K)]` (roslyn's parser).
+  The parser commits to an element access before it reaches the pattern, so dynamic
+  precedence on `list_pattern` does not help.
+- a pointer to an array type, `ParameterInfo[]* p`.
+- a ref-returning call as an assignment target, `Unsafe.Add(ref a, i) = v`.
+
+v0.23.5 rejects every one of these too. What differs between grammar versions is only how
+far the error spreads, which is why roslyn's `LanguageParser.cs` keeps fewer symbols
+under 8c0abe0 than under v0.23.5 while dotnet/runtime as a whole gains 8,436.

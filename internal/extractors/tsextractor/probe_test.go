@@ -3,7 +3,7 @@ package tsextractor
 import (
 	"testing"
 
-	sitter "github.com/tree-sitter/go-tree-sitter"
+	sitter "github.com/enola-labs/enola/internal/treesitter"
 	typescript "github.com/tree-sitter/tree-sitter-typescript/bindings/go"
 )
 
@@ -125,8 +125,8 @@ func TestWalkerNodeKindsStillExist(t *testing.T) {
 
 // TestGrammarSmoke is the ABI guard, and it is the most important test in this package.
 //
-// The vendored go-tree-sitter runtime accepts at most tree-sitter ABI 14. A grammar
-// generated against ABI 15 is refused by SetLanguage, and the extractor returns nil on
+// The go-tree-sitter runtime accepts tree-sitter ABI 13 to 15. A grammar outside that
+// range is refused by SetLanguage, and the extractor returns nil on
 // that error — so the rejection is SILENT: every file parses to nothing, and the fact
 // graph becomes indistinguishable from a repository containing no TypeScript. That is
 // exactly how the C# grammar failed once (see dotnetextractor/csharp.go).
@@ -135,11 +135,11 @@ func TestWalkerNodeKindsStillExist(t *testing.T) {
 // and the Vue and Svelte readers pick between them the same way — so both are asserted
 // here; they ship as separate generated parsers and could diverge.
 //
-// tree-sitter-typescript v0.23.2 is both the newest release and still ABI 14 in both
-// dialects, so nothing is pinned back and .github/dependabot.yml carries no bound for it.
-// This test exists for the day upstream regenerates at ABI 15: the bump then fails loudly
-// here instead of quietly deleting every TypeScript fact from the graph, and the fix is to
-// add that bound.
+// tree-sitter-typescript v0.23.2 is the newest release (ABI 14 in both dialects), so
+// nothing is pinned back and .github/dependabot.yml carries no bound for it. This test
+// exists for the day upstream regenerates beyond what the runtime accepts: the bump then
+// fails loudly here instead of quietly deleting every TypeScript fact from the graph, and
+// the fix is to add that bound.
 func TestGrammarSmoke(t *testing.T) {
 	for _, g := range []struct {
 		name string
@@ -170,7 +170,7 @@ func TestGrammarSmoke(t *testing.T) {
 			defer parser.Close()
 			if err := parser.SetLanguage(g.lang); err != nil {
 				t.Fatalf("SetLanguage failed for the %s dialect — it is almost certainly built "+
-					"against a newer tree-sitter ABI than the vendored runtime accepts. Error: %v",
+					"against a tree-sitter ABI the runtime does not accept. Error: %v",
 					g.name, err)
 			}
 			for _, tc := range g.srcs {

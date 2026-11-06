@@ -29,8 +29,10 @@ upstream grammar.
 
 ```sh
 cd internal/extractors/swiftextractor/grammar
-tree-sitter generate grammar.json --abi 14
+tree-sitter generate grammar.json --abi 15
 ```
 
-The ABI (14) is pinned to match `github.com/tree-sitter/go-tree-sitter v0.24.0`.
-This was produced with `tree-sitter-cli` v0.24.7 (e.g. `npx tree-sitter-cli@0.24.7`).
+This was produced with `tree-sitter-cli` v0.27.1 (e.g. `npx tree-sitter-cli@0.27.1`), the
+CLI the Scala grammar is generated with too. The grammar declares no reserved-word set, so
+ABI 15 parses as ABI 14 did. After regenerating, build with `go build -a`: Go's build cache
+does not track the files the `cgo_*.c` shims include.

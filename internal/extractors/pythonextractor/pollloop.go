@@ -1,7 +1,7 @@
 package pythonextractor
 
 import (
-	sitter "github.com/tree-sitter/go-tree-sitter"
+	sitter "github.com/enola-labs/enola/internal/treesitter"
 )
 
 // Round loops: a loop that goes round again because of what the round fetched,

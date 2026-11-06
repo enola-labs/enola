@@ -3,7 +3,7 @@ package dartextractor
 import (
 	"strings"
 
-	sitter "github.com/tree-sitter/go-tree-sitter"
+	sitter "github.com/enola-labs/enola/internal/treesitter"
 )
 
 // This file holds the tree-sitter navigation helpers. They are collected here rather
@@ -255,6 +255,11 @@ done:
 		return ids[0] + "." + ids[1]
 	}
 	if len(ids) == 1 {
+		// A concise named constructor (`new named()`, `factory named()`) spells the
+		// name without the type; it is the same constructor as `Type.named()`.
+		if ids[0] != typeName {
+			return typeName + "." + ids[0]
+		}
 		return ids[0]
 	}
 	return typeName

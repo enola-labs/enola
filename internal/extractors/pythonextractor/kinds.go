@@ -2,7 +2,7 @@ package pythonextractor
 
 import (
 	"github.com/enola-labs/enola/internal/extractors/tsutil"
-	sitter "github.com/tree-sitter/go-tree-sitter"
+	sitter "github.com/enola-labs/enola/internal/treesitter"
 	python "github.com/tree-sitter/tree-sitter-python/bindings/go"
 )
 

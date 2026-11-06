@@ -1,0 +1,38 @@
+diff --git a/grammar.js b/grammar.js
+index c4fd33d..6a8142c 100644
+--- a/grammar.js
++++ b/grammar.js
+@@ -1561,7 +1561,33 @@ export default grammar({
+ 
+     _pointer_indirection_expression: $ => prec.right(PREC.UNARY, seq(
+       '*',
++      choice(
++        $.lvalue_expression,
++        alias($._pointer_cast_expression, $.cast_expression),
++        alias($._pointer_step_expression, $.prefix_unary_expression),
++        alias($._pointer_postfix_step_expression, $.postfix_unary_expression),
++      ),
++    )),
++
++    // `*++p` and `*--p`: a pointer stepped before it is dereferenced.
++    _pointer_step_expression: $ => prec.right(PREC.UNARY, seq(
++      choice('++', '--'),
++      $.lvalue_expression,
++    )),
++
++    // `*p++` and `*p--`: the pointer is stepped, not the value it points at.
++    _pointer_postfix_step_expression: $ => prec(PREC.POSTFIX, seq(
+       $.lvalue_expression,
++      choice('++', '--'),
++    )),
++
++    // `*(T*)p`: a cast directly under `*`. Its operand is restricted the way `*`'s own is,
++    // so `*(T*)p = v` still parses as an assignment to the dereference.
++    _pointer_cast_expression: $ => prec(PREC.CAST, seq(
++      '(',
++      field('type', $.type),
++      ')',
++      field('value', choice($.lvalue_expression, $.parenthesized_expression)),
+     )),
+ 
+     // Address-of is split out from `prefix_unary_expression` so that

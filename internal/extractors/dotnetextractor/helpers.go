@@ -5,7 +5,7 @@ import (
 
 	csharp "github.com/enola-labs/enola/internal/extractors/dotnetextractor/grammar"
 	"github.com/enola-labs/enola/internal/extractors/tsutil"
-	sitter "github.com/tree-sitter/go-tree-sitter"
+	sitter "github.com/enola-labs/enola/internal/treesitter"
 )
 
 // ── Node text ───────────────────────────────────────────────────────────────

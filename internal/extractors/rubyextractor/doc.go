@@ -4,7 +4,7 @@ import (
 	"strings"
 
 	"github.com/enola-labs/enola/internal/facts"
-	sitter "github.com/tree-sitter/go-tree-sitter"
+	sitter "github.com/enola-labs/enola/internal/treesitter"
 )
 
 // The doc prop: the run of `#` lines ending on the line above a `def`, `class` or

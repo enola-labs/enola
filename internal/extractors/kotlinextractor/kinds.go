@@ -2,8 +2,8 @@ package kotlinextractor
 
 import (
 	"github.com/enola-labs/enola/internal/extractors/tsutil"
+	sitter "github.com/enola-labs/enola/internal/treesitter"
 	kotlin "github.com/tree-sitter-grammars/tree-sitter-kotlin/bindings/go"
-	sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
 // kotlinKinds names Kotlin node kinds without allocating. go-tree-sitter's

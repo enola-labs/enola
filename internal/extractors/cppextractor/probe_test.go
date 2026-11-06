@@ -3,28 +3,28 @@ package cppextractor
 import (
 	"testing"
 
-	sitter "github.com/tree-sitter/go-tree-sitter"
+	sitter "github.com/enola-labs/enola/internal/treesitter"
 	c "github.com/tree-sitter/tree-sitter-c/bindings/go"
 	cpp "github.com/tree-sitter/tree-sitter-cpp/bindings/go"
 )
 
 // TestGrammarSmoke is the ABI guard, and it is the most important test in this package.
 //
-// The vendored go-tree-sitter runtime accepts at most tree-sitter ABI 14. A grammar
-// generated against ABI 15 is refused by SetLanguage, and extractFileAST returns nil on
+// The go-tree-sitter runtime accepts tree-sitter ABI 13 to 15. A grammar outside that
+// range is refused by SetLanguage, and extractFileAST returns nil on
 // that error — so the rejection is SILENT: every file parses to nothing, and the fact
 // graph becomes indistinguishable from a repository containing no C or C++. That is
 // exactly how the C# grammar failed once (see dotnetextractor/csharp.go).
 //
-// This package is the only one that loads TWO grammars, and they are at different
-// distances from the ceiling:
+// This package is the only one that loads TWO grammars, and both are asserted:
 //
-//   - tree-sitter-c is pinned at v0.23.6, the last ABI-14 release; v0.24.0+ are ABI 15.
-//   - tree-sitter-cpp v0.23.4 is both the newest release and still ABI 14.
+//   - tree-sitter-c is pinned at v0.24.0 (ABI 15): later releases require
+//     go-tree-sitter v0.24.1, which was never tagged, so they build only through the
+//     module proxy. The bound is recorded in .github/dependabot.yml.
+//   - tree-sitter-cpp v0.23.4 is the newest release (ABI 14).
 //
-// Both bounds are recorded in .github/dependabot.yml. If this fails after a dependency
-// bump, the fix is to pin the offending grammar back to its last ABI-14 release, not to
-// loosen the assertion.
+// If this fails after a dependency bump, the fix is to pin the offending grammar back,
+// not to loosen the assertion.
 func TestGrammarSmoke(t *testing.T) {
 	for _, g := range []struct {
 		name string
@@ -33,7 +33,7 @@ func TestGrammarSmoke(t *testing.T) {
 		srcs []struct{ name, src string }
 	}{
 		{
-			name: "c", lang: sitter.NewLanguage(c.Language()), pin: "v0.23.6",
+			name: "c", lang: sitter.NewLanguage(c.Language()), pin: "v0.24.0",
 			srcs: []struct{ name, src string }{
 				{"decls_and_includes", "#include <stdio.h>\n#include \"local.h\"\n\n" +
 					"typedef struct Point { int x; int y; } Point;\n" +
@@ -68,7 +68,7 @@ func TestGrammarSmoke(t *testing.T) {
 			defer parser.Close()
 			if err := parser.SetLanguage(g.lang); err != nil {
 				t.Fatalf("SetLanguage failed for the %s grammar — it is almost certainly built "+
-					"against a newer tree-sitter ABI than the vendored runtime accepts. Pin it "+
+					"against a tree-sitter ABI the runtime does not accept. Pin it "+
 					"back to %s. Error: %v", g.name, g.pin, err)
 			}
 			for _, tc := range g.srcs {

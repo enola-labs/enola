@@ -3,7 +3,7 @@ package pythonextractor
 import (
 	"strings"
 
-	sitter "github.com/tree-sitter/go-tree-sitter"
+	sitter "github.com/enola-labs/enola/internal/treesitter"
 )
 
 // Batch loops: a loop that takes the input a batch at a time.

@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	csharp "github.com/enola-labs/enola/internal/extractors/dotnetextractor/grammar"
-	sitter "github.com/tree-sitter/go-tree-sitter"
+	sitter "github.com/enola-labs/enola/internal/treesitter"
 )
 
 const csMainSrc = `#if DEBUG
@@ -149,24 +149,20 @@ func TestWalkerNodeKindsStillExist(t *testing.T) {
 
 // TestGrammarSmoke is the ABI guard, and it is the most important test in this package.
 //
-// The vendored go-tree-sitter runtime accepts at most tree-sitter ABI 14. A grammar
-// generated against ABI 15 is refused by SetLanguage, and the extractor returns nil on
-// that error — so the rejection is SILENT: every C# file parses to nothing, and the
-// fact graph becomes indistinguishable from a repository containing none. That is exactly
-// how the C# grammar failed once (see dotnetextractor/csharp.go).
+// The go-tree-sitter runtime accepts a range of tree-sitter ABIs. A grammar outside it
+// is refused by SetLanguage, and the extractor returns nil on that error — so the
+// rejection is SILENT: every C# file parses to nothing, and the fact graph becomes
+// indistinguishable from a repository containing none. That is exactly how the C#
+// grammar failed once, when upstream moved to ABI 15 ahead of the runtime.
 //
-// The grammar is vendored in ./grammar: upstream v0.23.5 regenerated at ABI 14, because
-// every release after v0.23.1 ships at ABI 15. This is the grammar the whole policy
-// exists because of: it is the one that actually shipped broken once.
-//
-// If this fails after a regeneration, the fix is to regenerate with `--abi 14` (see
-// grammar/ATTRIBUTION.md), not to loosen the assertion.
+// If this fails after a grammar or runtime bump, the fix is a grammar the runtime
+// accepts, not a looser assertion.
 func TestGrammarSmoke(t *testing.T) {
 	parser := sitter.NewParser()
 	defer parser.Close()
 	if err := parser.SetLanguage(sitter.NewLanguage(csharp.Language())); err != nil {
 		t.Fatalf("SetLanguage failed — the grammar is almost certainly built against a "+
-			"newer tree-sitter ABI than the vendored runtime accepts. Error: %v", err)
+			"tree-sitter ABI the runtime does not accept. Error: %v", err)
 	}
 
 	// Each case exercises a different half of the grammar, so a regeneration that broke

@@ -8,8 +8,8 @@ import (
 	"github.com/enola-labs/enola/internal/extractors/tsutil"
 	"github.com/enola-labs/enola/internal/factpath"
 	"github.com/enola-labs/enola/internal/facts"
+	sitter "github.com/enola-labs/enola/internal/treesitter"
 	kotlin "github.com/tree-sitter-grammars/tree-sitter-kotlin/bindings/go"
-	sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
 // withTree parses and walks one file and hands the walk's facts to use while the

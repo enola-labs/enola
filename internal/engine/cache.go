@@ -3443,7 +3443,24 @@ import (
 // inferred to return; a core or library type leaves the inferred one.
 // v536: Rust: a call written in an item-level #[error("...", f(x))] (thiserror) on a struct
 // or enum is a reference of that type, as it already was on a variant or a field.
-const cacheVersion = "v536"
+// v537: Grammars: go-tree-sitter at upstream commit adc13ff (ABI 13..15) with
+// tree-sitter-c v0.24.0, tree-sitter-rust v0.24.2 and tree-sitter-python v0.25.0, so C,
+// Rust and Python files parse with the newer grammars' trees.
+// v538: C#: the grammar is the upstream tree-sitter-c-sharp v0.23.5 module at ABI 15,
+// not a vendored copy regenerated at ABI 14.
+// v539: Dart: the parser is the one upstream generated at ABI 15, vendored verbatim,
+// not a local regeneration at ABI 14 from the same grammar.json.
+// v540: Swift and Scala: the vendored parsers are regenerated with tree-sitter-cli
+// v0.27.1, Swift at ABI 15 and Scala still at ABI 14.
+// v541: the tree-sitter runtime is vendored (internal/treesitter) with adc13ff's two
+// error-recovery changes reverted, so files with syntax errors recover as under v0.24.
+// v542: C#: tree-sitter-c-sharp at master 8c0abe0, for C# 14 syntax and the
+// `(IDENT) && EXPR` cast fix.
+// v543: Dart: the vendored grammar is upstream 0038280, which parses primary and
+// concise constructors; a primary constructor and its final/var fields are symbols.
+// v544: C#: the grammar is vendored again, 8c0abe0 with `*` accepting a cast, `++p`
+// and `p++`, which upstream rejects and which cost whole unsafe files their symbols.
+const cacheVersion = "v544"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

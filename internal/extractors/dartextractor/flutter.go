@@ -1,7 +1,7 @@
 package dartextractor
 
 import (
-	sitter "github.com/tree-sitter/go-tree-sitter"
+	sitter "github.com/enola-labs/enola/internal/treesitter"
 )
 
 // This file classifies Flutter's architectural roles. The route, HTTP-client and

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"sync"
 
-	sitter "github.com/tree-sitter/go-tree-sitter"
+	sitter "github.com/enola-labs/enola/internal/treesitter"
 
 	"github.com/enola-labs/enola/internal/extractors/callsite"
 	"github.com/enola-labs/enola/internal/extractors/dartextractor/grammar"
@@ -313,7 +313,8 @@ func (w *walker) classDecl(n *sitter.Node, construct string) {
 	}
 
 	body := childOfKind(n, "class_body", "extension_body", "enum_body")
-	members := w.memberDecls(body, name)
+	members := w.primaryConstructor(n, name)
+	members = append(members, w.memberDecls(body, name)...)
 	for _, m := range members {
 		rels = append(rels, facts.Relation{Kind: facts.RelDeclares, Target: m.name})
 	}
@@ -396,6 +397,65 @@ func (w *walker) memberDecls(body *sitter.Node, typeName string) []memberInfo {
 			w.setDoc(n)
 			out = append(out, memberInfo{name: full, isField: true})
 		}
+	}
+	return out
+}
+
+// primaryConstructor emits a Dart primary constructor (`class Point(final int x)`):
+// the constructor itself, named as an ordinary one would be, and a field for each
+// `final` or `var` parameter, since those declare the class's fields. Only public
+// fields become symbols, as for fields declared in the body (see declarationMember);
+// an initializing formal (`this.x`) declares nothing.
+func (w *walker) primaryConstructor(n *sitter.Node, typeName string) []memberInfo {
+	pc := n.ChildByFieldName("primary_constructor")
+	if pc == nil {
+		return nil
+	}
+	name := typeName
+	if nm := pc.ChildByFieldName("name"); nm != nil && nm.Utf8Text(w.src) != "new" {
+		name = typeName + "." + nm.Utf8Text(w.src)
+	}
+	full := w.qualify(typeName + "." + name)
+	w.out = append(w.out, facts.Fact{
+		Kind: facts.KindSymbol, Name: full, File: w.relFile, Line: lineOf(pc), EndLine: tsutil.EndLine(pc),
+		Props: map[string]any{
+			"language": "dart", "symbol_kind": facts.SymbolMethod,
+			"constructor": true, "primary_constructor": true, "exported": !strings.HasPrefix(name, "_"),
+		},
+		Relations: w.injectRelations(pc),
+	})
+	out := []memberInfo{{name: full, isCtor: true}}
+
+	var visit func(*sitter.Node)
+	visit = func(p *sitter.Node) {
+		if kindOf(p) != "formal_parameter" {
+			for _, c := range namedChildren(p) {
+				visit(c)
+			}
+			return
+		}
+		if childOfKind(p, "final_builtin", "inferred_type") == nil {
+			return
+		}
+		id := p.ChildByFieldName("name")
+		if id == nil {
+			return
+		}
+		fieldName := id.Utf8Text(w.src)
+		fieldFull := w.qualify(typeName + "." + fieldName)
+		if !strings.HasPrefix(fieldName, "_") {
+			w.out = append(w.out, facts.Fact{
+				Kind: facts.KindSymbol, Name: fieldFull, File: w.relFile, Line: lineOf(p), EndLine: tsutil.EndLine(p),
+				Props: map[string]any{
+					"language": "dart", "symbol_kind": facts.SymbolVariable,
+					"field": true, "exported": true,
+				},
+			})
+		}
+		out = append(out, memberInfo{name: fieldFull, isField: true})
+	}
+	if params := pc.ChildByFieldName("parameters"); params != nil {
+		visit(params)
 	}
 	return out
 }

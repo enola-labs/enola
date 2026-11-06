@@ -98,49 +98,85 @@ func sameRepo(fs []facts.Fact, repo string) []facts.Fact {
 	return out
 }
 
-// lookupModule finds the module fact focus names. A focus that starts with a repo
-// label, the form every file path in a multi-repo store takes, names that repo's
-// module without the label; module names never carry it. Without this the path fell
-// through to the file match, where the only fact filed under a directory is its own
-// module, and explore answered "Total facts: 1".
-func (s *Server) lookupModule(store *facts.Store, focus string) *facts.Fact {
-	// find returns the first module fact named name, from repo when repo is set.
-	find := func(name, repo string) *facts.Fact {
+// lookupModule finds the module facts focus names: one per language that filed a
+// module under that directory (a Go package beside its cgo C sources is two), all
+// from one repo, in a fixed order. A focus that starts with a repo label, the form
+// every file path in a multi-repo store takes, names that repo's module without the
+// label; module names never carry it. Without this the path fell through to the file
+// match, where the only fact filed under a directory is its own module, and explore
+// answered "Total facts: 1".
+//
+// Returning only the first match made the answer depend on store order, which differs
+// between a fresh generate and a restore from disk: the same directory read as C after
+// one and as Go after the other.
+func (s *Server) lookupModule(store *facts.Store, focus string) []facts.Fact {
+	// find returns the module facts named name, from repo when repo is set, else from
+	// the repo of the first match, sorted so the order is the same however they loaded.
+	find := func(name, repo string) []facts.Fact {
+		var out []facts.Fact
 		for _, f := range store.LookupByExactName(name) {
-			if f.Kind == facts.KindModule && (repo == "" || f.Repo == repo) {
-				m := f
-				return &m
+			if f.Kind != facts.KindModule || (repo != "" && f.Repo != repo) {
+				continue
 			}
+			if repo == "" {
+				repo = f.Repo
+			}
+			out = append(out, f)
 		}
-		return nil
+		slices.SortStableFunc(out, func(a, b facts.Fact) int {
+			la, _ := a.PropAny("language").(string)
+			lb, _ := b.PropAny("language").(string)
+			return cmp.Or(cmp.Compare(la, lb), cmp.Compare(a.File, b.File))
+		})
+		return out
 	}
-	if mod := find(focus, ""); mod != nil {
-		return mod
+	if mods := find(focus, ""); len(mods) > 0 {
+		return mods
 	}
 	for _, label := range s.repoLabels() {
 		if rest, ok := strings.CutPrefix(focus, label+"/"); ok && rest != "" {
-			if mod := find(rest, label); mod != nil {
-				return mod
+			if mods := find(rest, label); len(mods) > 0 {
+				return mods
 			}
 		}
 	}
 	return nil
 }
 
+// moduleProps returns the distinct string values of prop across mods, sorted.
+func moduleProps(mods []facts.Fact, prop string) []string {
+	var out []string
+	for _, m := range mods {
+		if v, ok := m.PropAny(prop).(string); ok && v != "" && !slices.Contains(out, v) {
+			out = append(out, v)
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
 func (s *Server) exploreModule(store *facts.Store, focus string, depth int, mode string, sb *strings.Builder) bool {
-	mod := s.lookupModule(store, focus)
-	if mod == nil {
+	mods := s.lookupModule(store, focus)
+	if len(mods) == 0 {
 		return false
+	}
+	mod := &mods[0]
+	// The packwerk section reads one module's props; it is the Ruby one if any is.
+	for i := range mods {
+		if mods[i].PropBool("packwerk") {
+			mod = &mods[i]
+			break
+		}
 	}
 
 	sb.WriteString(fmt.Sprintf("# Module: %s\n\n", mod.Name))
 
-	// Props summary
-	if lang, ok := mod.PropAny("language").(string); ok {
-		sb.WriteString(fmt.Sprintf("- Language: %s\n", lang))
+	// Props summary, over every language that filed a module here.
+	if langs := moduleProps(mods, "language"); len(langs) > 0 {
+		sb.WriteString(fmt.Sprintf("- Language: %s\n", strings.Join(langs, ", ")))
 	}
-	if pkg, ok := mod.PropAny("package").(string); ok {
-		sb.WriteString(fmt.Sprintf("- Package: %s\n", pkg))
+	if pkgs := moduleProps(mods, "package"); len(pkgs) > 0 {
+		sb.WriteString(fmt.Sprintf("- Package: %s\n", strings.Join(pkgs, ", ")))
 	}
 	sb.WriteString("\n")
 
@@ -185,14 +221,16 @@ func (s *Server) exploreModule(store *facts.Store, focus string, depth int, mode
 			depsByKind[r.Kind] = append(depsByKind[r.Kind], r.Target)
 		}
 	}
-	// Also include the module's own depends_on relations (from packwerk).
-	for _, r := range mod.Relations {
-		key := r.Kind + ":" + r.Target
-		if _, dup := seen[key]; dup {
-			continue
+	// Also include the modules' own depends_on relations (from packwerk).
+	for _, m := range mods {
+		for _, r := range m.Relations {
+			key := r.Kind + ":" + r.Target
+			if _, dup := seen[key]; dup {
+				continue
+			}
+			seen[key] = struct{}{}
+			depsByKind[r.Kind] = append(depsByKind[r.Kind], r.Target)
 		}
-		seen[key] = struct{}{}
-		depsByKind[r.Kind] = append(depsByKind[r.Kind], r.Target)
 	}
 	totalDeps := 0
 	for _, targets := range depsByKind {

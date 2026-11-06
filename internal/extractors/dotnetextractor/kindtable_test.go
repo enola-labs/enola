@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	csharp "github.com/enola-labs/enola/internal/extractors/dotnetextractor/grammar"
-	sitter "github.com/tree-sitter/go-tree-sitter"
+	sitter "github.com/enola-labs/enola/internal/treesitter"
 )
 
 // kindOf reads a node's type out of a symbol-id table instead of calling

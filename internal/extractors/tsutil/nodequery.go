@@ -3,7 +3,7 @@ package tsutil
 import (
 	"sync"
 
-	sitter "github.com/tree-sitter/go-tree-sitter"
+	sitter "github.com/enola-labs/enola/internal/treesitter"
 )
 
 // queryCache holds compiled queries, keyed by grammar name and pattern. Compiling is

@@ -1,17 +1,11 @@
-// Package grammar vendors the tree-sitter C# grammar (tree-sitter/tree-sitter-c-sharp).
+// Package grammar vendors the tree-sitter C# grammar (tree-sitter/tree-sitter-c-sharp)
+// at master commit 8c0abe0, with one change to grammar.js: upstream's `*` accepts only
+// an lvalue, so `*(T*)p`, `*++p` and `*p++` are syntax errors, and under error recovery
+// one of them can turn the whole enclosing class into an ERROR node. pointer-indirection.patch
+// is the change; ATTRIBUTION.md records how src/ was regenerated from it.
 //
-// The upstream Go binding cannot be consumed directly past v0.23.1: v0.23.2 and later
-// commit a src/parser.c generated against tree-sitter ABI 15, while the vendored
-// go-tree-sitter runtime accepts at most 14. That rejection is SILENT: SetLanguage
-// fails, every file parses to nothing, and the result is indistinguishable from a
-// repository containing no C#. v0.23.1 predates C# 12: a body-less type
-// (`class X : Y;`) or a collection expression (`= []`) turns the whole file into one
-// ERROR node, and the file produces no symbols at all.
-//
-// So the parser is regenerated from the upstream grammar.json at ABI 14 and committed
-// under src/, alongside the hand-written scanner.c copied verbatim. Regenerate with:
-//
-//	cd grammar && tree-sitter generate grammar.json --abi 14
+// Go's build cache does not track the src/ files the cgo_*.c shims include: after
+// replacing them, build with -a, or the old parser stays linked.
 //
 // The generated parser (src/parser.c) and the external scanner (src/scanner.c) are
 // compiled as separate translation units via the cgo_*.c shims in this directory, NOT

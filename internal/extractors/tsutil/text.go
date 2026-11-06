@@ -1,6 +1,6 @@
 package tsutil
 
-import sitter "github.com/tree-sitter/go-tree-sitter"
+import sitter "github.com/enola-labs/enola/internal/treesitter"
 
 // Text returns the source text a node covers, or "" for a nil node.
 //

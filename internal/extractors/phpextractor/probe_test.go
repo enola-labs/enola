@@ -3,21 +3,22 @@ package phpextractor
 import (
 	"testing"
 
-	sitter "github.com/tree-sitter/go-tree-sitter"
+	sitter "github.com/enola-labs/enola/internal/treesitter"
 	php "github.com/tree-sitter/tree-sitter-php/bindings/go"
 )
 
 // TestGrammarSmoke is the ABI guard, and it is the most important test in this package.
 //
-// The vendored go-tree-sitter runtime accepts at most tree-sitter ABI 14. A grammar
-// generated against ABI 15 is refused by SetLanguage, and the extractors return nil on
+// The go-tree-sitter runtime accepts tree-sitter ABI 13 to 15. A grammar outside that
+// range is refused by SetLanguage, and the extractors return nil on
 // that error — so the rejection is SILENT: every file parses to nothing, and the fact
 // graph becomes indistinguishable from a repository containing no PHP. That is exactly
 // how the C# grammar failed once (see dotnetextractor/csharp.go).
 //
-// tree-sitter-php is pinned at v0.23.12, the last ABI-14 release; v0.24.0 and later are
-// ABI 15. The bound is recorded in .github/dependabot.yml. If this fails after a
-// dependency bump, the fix is to pin the grammar back, not to loosen the assertion.
+// tree-sitter-php is pinned at v0.23.12: every later release requires go-tree-sitter
+// v0.25.0, a tag upstream deleted, so it builds only through the module proxy. The bound
+// is recorded in .github/dependabot.yml. If this fails after a dependency bump, the fix
+// is to pin the grammar back, not to loosen the assertion.
 //
 // LanguagePHP (not LanguagePHPOnly) is the dialect under test because that is what the
 // extractors load: template files interleaving HTML and <?php must still parse.
@@ -26,7 +27,7 @@ func TestGrammarSmoke(t *testing.T) {
 	defer parser.Close()
 	if err := parser.SetLanguage(sitter.NewLanguage(php.LanguagePHP())); err != nil {
 		t.Fatalf("SetLanguage failed — the grammar is almost certainly built against a "+
-			"newer tree-sitter ABI than the vendored runtime accepts. Pin tree-sitter-php "+
+			"tree-sitter ABI the runtime does not accept. Pin tree-sitter-php "+
 			"to v0.23.12. Error: %v", err)
 	}
 

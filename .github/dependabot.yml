@@ -15,58 +15,40 @@ updates:
           - "github.com/tree-sitter/*"
           - "github.com/tree-sitter-grammars/*"
 
-    # The tree-sitter grammars are capped by ABI, not by preference.
+    # The tree-sitter bounds below are set by what builds without the module proxy.
     #
-    # The go-tree-sitter runtime this module vendors accepts tree-sitter ABI 13-14.
-    # A grammar generated against ABI 15 is refused by SetLanguage, and every
-    # extractor returns nil on that error — so the rejection is SILENT: each file of
-    # that language parses to nothing, and the fact graph becomes indistinguishable
-    # from a repository containing none of it. That has already happened once, to C#
-    # (see internal/extractors/dotnetextractor/csharp.go).
+    # The tree-sitter runtime is vendored under internal/treesitter (go-tree-sitter at
+    # commit adc13ff, with two error-recovery changes reverted; see its
+    # ATTRIBUTION.md), so no go-tree-sitter bump changes the build. go.mod still lists
+    # it, indirect, because the grammar modules require it.
     #
-    # Upstream has been regenerating grammars at ABI 15 since 2025, so for most
-    # languages the NEWEST release is the unusable one. Each bound below is that
-    # language's last ABI-14 release; dependabot will now offer the highest version
-    # that actually loads instead of the highest that exists.
+    # The runtime accepts tree-sitter ABI 13-15. A grammar outside that range is
+    # refused by SetLanguage, and every extractor returns nil on that error, so the
+    # rejection is SILENT: each file of that language parses to nothing, and the fact
+    # graph becomes indistinguishable from a repository containing none of it. That
+    # has already happened once, to C#. TestGrammarABI in internal/extractors pins the
+    # ABI of every grammar, and TestGrammarSmoke in each extractor asserts its grammar
+    # loads.
     #
-    # Verify a bound with:
-    #   grep -m1 'define LANGUAGE_VERSION' $(go env GOMODCACHE)/<module>@<version>/src/parser.c
-    #
-    # Raising any of these requires raising the runtime first — and see the
-    # go-tree-sitter note below for why that is not currently possible.
+    # Upstream deleted the go-tree-sitter v0.25.0 tag: `git ls-remote` lists only
+    # v0.23.0, v0.23.1 and v0.24.0. Some grammar releases require a go-tree-sitter
+    # version that has no tag; adopting one would make the build depend on
+    # proxy.golang.org, so each is bounded below.
     ignore:
-      # NOT a normal ABI bound. go-tree-sitter v0.25.0 would raise the ceiling to
-      # ABI 15 and unblock every entry below it, and it stays backward compatible
-      # (MIN_COMPATIBLE 13), so a bump to it passes CI green. It is excluded because
-      # the upstream v0.25.0 TAG WAS DELETED: `git ls-remote` lists only v0.23.0,
-      # v0.23.1 and v0.24.0, and the GitHub ref API returns 404. Only the Go module
-      # proxy's immutable cache still serves it, so adopting it would break every
-      # build that does not go through proxy.golang.org (GOPROXY=direct, vendored,
-      # air-gapped) while pinning the project to a release its maintainers withdrew.
-      # Revisit if upstream publishes a real release above v0.24.0.
       - dependency-name: "github.com/tree-sitter/go-tree-sitter"
-        versions: [">= 0.25.0"]
 
-      # v0.24.0+ are ABI 15. Last ABI-14 release: v0.23.6.
+      # v0.24.1+ require go-tree-sitter v0.24.1, which was never tagged.
       - dependency-name: "github.com/tree-sitter/tree-sitter-c"
-        versions: [">= 0.24.0"]
+        versions: [">= 0.24.1"]
 
-      # v0.24.0+ are ABI 15. Last ABI-14 release: v0.23.12.
+      # v0.24.0+ require go-tree-sitter v0.25.0, the deleted tag.
       - dependency-name: "github.com/tree-sitter/tree-sitter-php"
         versions: [">= 0.24.0"]
 
-      # v0.25.0+ are ABI 15. Last ABI-14 release: v0.23.6 — the version pinned today.
-      - dependency-name: "github.com/tree-sitter/tree-sitter-python"
-        versions: [">= 0.25.0"]
-
-      # v0.24.0+ are ABI 15. Last ABI-14 release: v0.23.3 — the version pinned today.
-      - dependency-name: "github.com/tree-sitter/tree-sitter-rust"
-        versions: [">= 0.24.0"]
-
-      # No bound for tree-sitter-cpp, -java, -ruby, -typescript or
-      # tree-sitter-kotlin: their newest releases are still ABI 14. When upstream
-      # regenerates one at ABI 15, the TestGrammarSmoke probe in that extractor's
-      # package fails the PR, and the fix is to add its bound here.
+      # No bound for the other grammars: their newest releases require at most
+      # go-tree-sitter v0.24.0. When one changes that, or regenerates beyond ABI 15,
+      # the probe in that extractor's package fails the PR, and the fix is to add its
+      # bound here.
 
   - package-ecosystem: "github-actions"
     directory: "/"

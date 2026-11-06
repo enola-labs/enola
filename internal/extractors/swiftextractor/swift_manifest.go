@@ -7,7 +7,7 @@ import (
 	swift "github.com/enola-labs/enola/internal/extractors/swiftextractor/grammar"
 	"github.com/enola-labs/enola/internal/factpath"
 	"github.com/enola-labs/enola/internal/facts"
-	sitter "github.com/tree-sitter/go-tree-sitter"
+	sitter "github.com/enola-labs/enola/internal/treesitter"
 )
 
 // manifestTarget is a target declared in a Package.swift manifest.

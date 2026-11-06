@@ -3,7 +3,7 @@ package dartextractor
 import (
 	"strings"
 
-	sitter "github.com/tree-sitter/go-tree-sitter"
+	sitter "github.com/enola-labs/enola/internal/treesitter"
 )
 
 // Argument-list helpers. The grammar spells a positional argument `argument` and a

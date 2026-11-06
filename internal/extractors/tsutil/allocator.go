@@ -10,7 +10,7 @@ void ts_set_allocator(
 */
 import "C"
 
-import _ "github.com/tree-sitter/go-tree-sitter"
+import _ "github.com/enola-labs/enola/internal/treesitter"
 
 func init() {
 	C.ts_set_allocator(nil, nil, nil, nil)

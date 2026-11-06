@@ -1,7 +1,7 @@
 package rubyextractor
 
 import (
-	sitter "github.com/tree-sitter/go-tree-sitter"
+	sitter "github.com/enola-labs/enola/internal/treesitter"
 )
 
 // This file is what the Ruby walker knows about a loop beyond that it is one:

@@ -2168,6 +2168,16 @@
           }
         ]
       },
+      "primary_constructor": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "primary_constructor",
+            "named": true
+          }
+        ]
+      },
       "superclass": {
         "multiple": false,
         "required": false,
@@ -2203,6 +2213,10 @@
         },
         {
           "type": "base",
+          "named": true
+        },
+        {
+          "type": "const_builtin",
           "named": true
         },
         {
@@ -2242,6 +2256,7 @@
   {
     "type": "comment",
     "named": true,
+    "extra": true,
     "fields": {}
   },
   {
@@ -2754,7 +2769,26 @@
   {
     "type": "constant_constructor_signature",
     "named": true,
-    "fields": {},
+    "fields": {
+      "name": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": ".",
+            "named": false
+          },
+          {
+            "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "new",
+            "named": false
+          }
+        ]
+      }
+    },
     "children": {
       "multiple": true,
       "required": true,
@@ -2765,10 +2799,6 @@
         },
         {
           "type": "formal_parameter_list",
-          "named": true
-        },
-        {
-          "type": "identifier",
           "named": true
         }
       ]
@@ -3053,7 +3083,7 @@
     "fields": {
       "name": {
         "multiple": true,
-        "required": true,
+        "required": false,
         "types": [
           {
             "type": ".",
@@ -3188,6 +3218,10 @@
           "named": true
         },
         {
+          "type": "primary_constructor_body_signature",
+          "named": true
+        },
+        {
           "type": "record_type",
           "named": true
         },
@@ -3255,6 +3289,7 @@
   {
     "type": "documentation_comment",
     "named": true,
+    "extra": true,
     "fields": {}
   },
   {
@@ -3298,7 +3333,7 @@
     "fields": {},
     "children": {
       "multiple": true,
-      "required": true,
+      "required": false,
       "types": [
         {
           "type": "annotation",
@@ -3371,7 +3406,7 @@
     "fields": {
       "body": {
         "multiple": false,
-        "required": true,
+        "required": false,
         "types": [
           {
             "type": "enum_body",
@@ -3388,6 +3423,26 @@
             "named": true
           }
         ]
+      },
+      "primary_constructor": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "primary_constructor",
+            "named": true
+          }
+        ]
+      },
+      "type_parameters": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "type_parameters",
+            "named": true
+          }
+        ]
       }
     },
     "children": {
@@ -3399,15 +3454,15 @@
           "named": true
         },
         {
+          "type": "const_builtin",
+          "named": true
+        },
+        {
           "type": "interfaces",
           "named": true
         },
         {
           "type": "mixins",
-          "named": true
-        },
-        {
-          "type": "type_parameters",
           "named": true
         }
       ]
@@ -3729,7 +3784,7 @@
     "fields": {
       "body": {
         "multiple": false,
-        "required": true,
+        "required": false,
         "types": [
           {
             "type": "extension_body",
@@ -3813,7 +3868,7 @@
     "fields": {
       "body": {
         "multiple": false,
-        "required": true,
+        "required": false,
         "types": [
           {
             "type": "class_body",
@@ -8352,6 +8407,10 @@
           "named": true
         },
         {
+          "type": "primary_constructor_body_signature",
+          "named": true
+        },
+        {
           "type": "setter_signature",
           "named": true
         }
@@ -10686,6 +10745,55 @@
     }
   },
   {
+    "type": "primary_constructor",
+    "named": true,
+    "fields": {
+      "name": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "new",
+            "named": false
+          }
+        ]
+      },
+      "parameters": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "formal_parameter_list",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "primary_constructor_body_signature",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "initializers",
+          "named": true
+        },
+        {
+          "type": "this",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "program",
     "named": true,
     "root": true,
@@ -11642,7 +11750,7 @@
     "fields": {
       "name": {
         "multiple": false,
-        "required": true,
+        "required": false,
         "types": [
           {
             "type": "identifier",
@@ -11650,9 +11758,19 @@
           }
         ]
       },
+      "parameters": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "formal_parameter_list",
+            "named": true
+          }
+        ]
+      },
       "type": {
         "multiple": true,
-        "required": true,
+        "required": false,
         "types": [
           {
             "type": ".",
@@ -11695,6 +11813,10 @@
       "types": [
         {
           "type": "annotation",
+          "named": true
+        },
+        {
+          "type": "final_builtin",
           "named": true
         },
         {

@@ -3,7 +3,7 @@ package phpextractor
 import (
 	"strings"
 
-	sitter "github.com/tree-sitter/go-tree-sitter"
+	sitter "github.com/enola-labs/enola/internal/treesitter"
 )
 
 // resourceAction is one route of a resource controller. member routes address one
