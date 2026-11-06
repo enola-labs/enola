@@ -210,6 +210,9 @@ findings and 3.
   every `impl`.
 - **`cfg`-gated code** is parsed as written; enola does not evaluate feature flags, so all
   branches contribute facts.
+- **Items in an `extern` block** (`extern "C" { fn f(); static X: T; }`) are not symbols.
+  They declare functions and statics implemented outside the repository, so they are
+  imports rather than Rust code anyone could remove.
 
 ---
 
