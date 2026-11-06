@@ -3446,7 +3446,9 @@ import (
 // v537: Grammars: go-tree-sitter at upstream commit adc13ff (ABI 13..15) with
 // tree-sitter-c v0.24.0, tree-sitter-rust v0.24.2 and tree-sitter-python v0.25.0, so C,
 // Rust and Python files parse with the newer grammars' trees.
-const cacheVersion = "v537"
+// v538: C#: the grammar is the upstream tree-sitter-c-sharp v0.23.5 module at ABI 15,
+// not a vendored copy regenerated at ABI 14.
+const cacheVersion = "v538"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

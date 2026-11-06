@@ -17,9 +17,9 @@ import (
 	typescript "github.com/tree-sitter/tree-sitter-typescript/bindings/go"
 
 	dart "github.com/enola-labs/enola/internal/extractors/dartextractor/grammar"
-	csharp "github.com/enola-labs/enola/internal/extractors/dotnetextractor/grammar"
 	scala "github.com/enola-labs/enola/internal/extractors/scalaextractor/grammar"
 	swift "github.com/enola-labs/enola/internal/extractors/swiftextractor/grammar"
+	csharp "github.com/tree-sitter/tree-sitter-c-sharp/bindings/go"
 )
 
 // TestGrammarABI_EveryGrammarLoadsAtItsPinnedABI loads every grammar enola parses with
@@ -46,7 +46,7 @@ func TestGrammarABI_EveryGrammarLoadsAtItsPinnedABI(t *testing.T) {
 		{"rust", rust.Language(), 15, "fn main() {}\n"},
 		{"typescript", typescript.LanguageTypescript(), 14, "class A { f(): void {} }\n"},
 		{"tsx", typescript.LanguageTSX(), 14, "const a = <div />;\n"},
-		{"csharp", csharp.Language(), 14, "class A { void F() {} }\n"},
+		{"csharp", csharp.Language(), 15, "class A { void F() {} }\n"},
 		{"dart", dart.Language(), 14, "class A { void f() {} }\n"},
 		{"scala", scala.Language(), 14, "class A { def f(): Unit = () }\n"},
 		{"swift", swift.Language(), 14, "class A { func f() {} }\n"},

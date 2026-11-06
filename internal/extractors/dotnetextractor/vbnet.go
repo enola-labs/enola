@@ -7,7 +7,7 @@ package dotnetextractor
 // Class` / `End Sub`, has no braces and no expression-level ambiguity about where
 // a declaration begins, so a scanner with a container stack recovers the same
 // structure a parser would. (There is also no maintained tree-sitter grammar for
-// it, and the vendored runtime caps at ABI 14 — see the package doc.)
+// it.)
 //
 // The measured problem: dotnet/roslyn's VB compiler is 3,652 `.vb` files, and
 // 11,589 of the repository's orphans are C# symbols whose only callers live in

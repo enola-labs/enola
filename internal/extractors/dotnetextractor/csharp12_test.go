@@ -7,7 +7,7 @@ import (
 )
 
 // Under the v0.23.1 grammar each of these made the whole file one ERROR node, so the
-// file produced no symbols at all; the vendored v0.23.5 parses them. Every case puts
+// file produced no symbols at all; v0.23.5 parses them. Every case puts
 // an ordinary member after the construct, because a file that half-parses would
 // still emit the first type.
 func TestCSharp12Syntax(t *testing.T) {

@@ -5,11 +5,11 @@ import (
 	"strings"
 	"sync"
 
-	csharp "github.com/enola-labs/enola/internal/extractors/dotnetextractor/grammar"
 	"github.com/enola-labs/enola/internal/extractors/tsutil"
 	"github.com/enola-labs/enola/internal/factpath"
 	"github.com/enola-labs/enola/internal/facts"
 	sitter "github.com/tree-sitter/go-tree-sitter"
+	csharp "github.com/tree-sitter/tree-sitter-c-sharp/bindings/go"
 )
 
 // grammarErrOnce keeps an unusable-grammar report to a single line rather than
@@ -40,9 +40,9 @@ func extractFileASTFull(src []byte, relFile string) ([]facts.Fact, aspnetScaffol
 	defer parser.Close()
 	if err := parser.SetLanguage(sitter.NewLanguage(csharp.Language())); err != nil {
 		// Reported once rather than per file, but reported: the only way this
-		// fails is a grammar whose ABI the vendored tree-sitter runtime does not
-		// accept, and the symptom — every C# file parsing to nothing — is
-		// otherwise indistinguishable from a repository with no C# in it.
+		// fails is a grammar whose ABI the tree-sitter runtime does not accept,
+		// and the symptom — every C# file parsing to nothing — is otherwise
+		// indistinguishable from a repository with no C# in it.
 		grammarErrOnce.Do(func() {
 			log.Printf("[dotnet-extractor] tree-sitter grammar unusable, no C# will be extracted: %v", err)
 		})
