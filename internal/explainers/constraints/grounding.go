@@ -54,6 +54,8 @@ func pathTargetEdge(rel facts.Relation, from facts.Fact) bool {
 // have elided, in the resolver's own order (mirroring the TS extractor's).
 var importModuleExts = []string{".ts", ".tsx", ".js", ".jsx", ".mjs", ".vue", ".svelte", ".gts", ".gjs"}
 
+var pythonModuleExts = []string{".py", ".pyi"}
+
 // groundSkipConfidence caps the ungroundable-target advisory, for the same
 // reason the reach-skip advisory sits at 0.4: it reports that no verdict was
 // reached for those targets, and silence there must never read as compliance.
@@ -180,29 +182,50 @@ func (g *grounding) outside(rel facts.Relation, from facts.Fact) bool {
 // form the fact carries it. A target is written repo-relative, so it is
 // prefixed with the label where the repository's files are.
 func (g *grounding) resolve(target, repo string) (string, bool) {
+	return g.resolveFrom(target, repo, "")
+}
+
+func (g *grounding) resolveFrom(target, repo, importer string) (string, bool) {
 	set := g.files[repo]
 	if set == nil || target == "" {
 		return "", false
 	}
+
 	base := target
 	if g.prefixed[repo] {
 		base = repo + "/" + target
 	}
+
 	if set[base] {
 		return base, true
 	}
-	for _, ext := range importModuleExts {
-		if p := base + ext; set[p] {
-			return p, true
+
+	extensions := importModuleExts
+	python := strings.HasSuffix(importer, ".py") ||
+		strings.HasSuffix(importer, ".pyi")
+
+	if python {
+		extensions = pythonModuleExts
+	}
+
+	for _, ext := range extensions {
+		if path := base + ext; set[path] {
+			return path, true
 		}
 	}
-	// A directory import resolves to its index file, exactly as the module
-	// resolver the extractor mirrors does.
-	for _, ext := range importModuleExts {
-		if p := base + "/index" + ext; set[p] {
-			return p, true
+
+	if python {
+		if path := base + "/__init__.py"; set[path] {
+			return path, true
+		}
+	} else {
+		for _, ext := range extensions {
+			if path := base + "/index" + ext; set[path] {
+				return path, true
+			}
 		}
 	}
+
 	return "", false
 }
 
@@ -240,7 +263,7 @@ func (g *grounding) resolvedPathIn(rel facts.Relation, from facts.Fact, ok func(
 	if !pathTargetEdge(rel, from) {
 		return false
 	}
-	path, resolved := g.resolve(rel.Target, from.Repo)
+	path, resolved := g.resolveFrom(rel.Target, from.Repo, from.File)
 	if !resolved {
 		return false
 	}
@@ -253,7 +276,7 @@ func (g *grounding) resolves(rel facts.Relation, from facts.Fact) bool {
 	if !pathTargetEdge(rel, from) {
 		return false
 	}
-	_, ok := g.resolve(rel.Target, from.Repo)
+	_, ok := g.resolveFrom(rel.Target, from.Repo, from.File)
 	return ok
 }
 
@@ -265,7 +288,7 @@ func groundedMembers(rel facts.Relation, from facts.Fact, memberFacts []facts.Fa
 	if !pathTargetEdge(rel, from) {
 		return nil
 	}
-	path, ok := g.resolve(rel.Target, from.Repo)
+	path, ok := g.resolveFrom(rel.Target, from.Repo, from.File)
 	if !ok {
 		return nil
 	}
@@ -287,7 +310,7 @@ func (g *grounding) ungroundable(rel facts.Relation, from facts.Fact) bool {
 	if !pathTargetEdge(rel, from) || g.names[rel.Target] {
 		return false
 	}
-	_, resolved := g.resolve(rel.Target, from.Repo)
+	_, resolved := g.resolveFrom(rel.Target, from.Repo, from.File)
 	return !resolved
 }
 

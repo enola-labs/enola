@@ -440,3 +440,40 @@ func TestExplain_RustImportsOutsideTheRepositoryAreCountedApart(t *testing.T) {
 		t.Errorf("the outside count must not read as a verdict not reached: %q", outside.Title)
 	}
 }
+
+func TestGrounding_PythonImportResolvesToModuleFile(t *testing.T) {
+	store := facts.NewStore()
+	store.Add(facts.Fact{
+		Kind: facts.KindFileRef,
+		Name: "src/modules/generator.py",
+		File: "src/modules/generator.py",
+	})
+
+	g := newGrounding(store, nil)
+	rel := facts.Relation{
+		Kind:   facts.RelImports,
+		Target: "src/modules/generator",
+	}
+	from := facts.Fact{
+		Kind: facts.KindDependency,
+		File: "src/modules/verify.py",
+	}
+	components := map[string]component{
+		"constructor": {
+			match: []string{"src/modules/generator.py"},
+		},
+	}
+
+	if !g.inComponent(rel, from, "constructor", components) {
+		t.Fatal("Python import should resolve to generator.py")
+	}
+
+	typescriptImporter := facts.Fact{
+		Kind: facts.KindDependency,
+		File: "src/modules/app.ts",
+	}
+
+	if g.inComponent(rel, typescriptImporter, "constructor", components) {
+		t.Fatal("TypeScript imports must not resolve to Python files")
+	}
+}
