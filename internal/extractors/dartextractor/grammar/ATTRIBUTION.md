@@ -9,7 +9,7 @@ Dart source into an AST. It is third-party code, distributed under a different l
 - **Project:** [tree-sitter-dart](https://github.com/UserNobody14/tree-sitter-dart)
 - **License:** MIT — see [LICENSE](./LICENSE) (Copyright (c) 2020-2023 UserNobody14 and others)
 - **Version vendored:** Go module `github.com/UserNobody14/tree-sitter-dart`
-  pseudo-version `v0.0.0-20260707040301-be07cf7118d3` (commit `be07cf7118d3`)
+  pseudo-version `v0.0.0-20261018035034-0038280b774b` (commit `0038280b774b`)
 
 ## Why it is vendored rather than required
 
@@ -40,11 +40,3 @@ Copy `src/` from the upstream repository at the new commit over `src/` here, and
 `src/grammar.json` over `grammar.json`. Then build with `go build -a`: Go's build cache
 does not track the files the `cgo_*.c` shims include, so a plain build keeps the old
 parser linked.
-
-## Known grammar gap
-
-The grammar does not accept Dart's **primary constructors** (`class const Foo(final
-String name) { … }`), an in-development language feature behind an experiment flag.
-Measured over a ten-repository corpus, the only code affected is the Dart SDK's own
-`pkg/front_end`, which dogfoods it: 64 of its 307 library files, against **zero files in
-every other repository**. See `enola-benchmarks/README.md` for the full measurement.

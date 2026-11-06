@@ -40,7 +40,7 @@ tree-sitter-dart — Dart grammar for tree-sitter
   Author:   UserNobody14 and others
   Source:   https://github.com/UserNobody14/tree-sitter-dart
   Version:  go module github.com/UserNobody14/tree-sitter-dart
-            v0.0.0-20260707040301-be07cf7118d3 (commit be07cf7118d3)
+            v0.0.0-20261018035034-0038280b774b (commit 0038280b774b)
   License:  MIT — Copyright (c) 2020-2023 UserNobody14 and others
             see internal/extractors/dartextractor/grammar/LICENSE
 

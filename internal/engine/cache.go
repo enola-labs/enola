@@ -3456,7 +3456,9 @@ import (
 // error-recovery changes reverted, so files with syntax errors recover as under v0.24.
 // v542: C#: tree-sitter-c-sharp at master 8c0abe0, for C# 14 syntax and the
 // `(IDENT) && EXPR` cast fix.
-const cacheVersion = "v542"
+// v543: Dart: the vendored grammar is upstream 0038280, which parses primary and
+// concise constructors; a primary constructor and its final/var fields are symbols.
+const cacheVersion = "v543"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

@@ -14,9 +14,9 @@ is copied from the golden the test suite asserts against.
 | `class` / `enum` | `symbol` (`class` / `enum`) |
 | `mixin` | `symbol` (`interface`) |
 | `extension`, `extension type`, `typedef` | `symbol` (`type`) |
-| method, getter, setter, constructor | `symbol` (`method`) |
+| method, getter, setter, constructor (a primary constructor too, with `primary_constructor`) | `symbol` (`method`) |
 | top-level function | `symbol` (`function`) |
-| **public** field, enum constant | `symbol` (`variable` / `constant`) |
+| **public** field (a primary constructor's `final`/`var` parameter included), enum constant | `symbol` (`variable` / `constant`) |
 | `extends` / `with` / `implements` | `implements` edge |
 | constructor parameter of a declared type | `injects` edge |
 | `import` / `export` | `dependency` (`stdlib` / `internal` / `external`) |
@@ -267,9 +267,5 @@ in-memory filter and the direct equivalent of JavaScript's `.filter()`.
 - **A call on an arbitrary receiver** draws a bare short-name `calls` edge rather than a
   guessed canonical target, since the receiver's static type is not tracked. Dead-code
   matching still sees the symbol used.
-- **Primary constructors** (`class const Foo(final String name)`) are not accepted by
-  the vendored grammar. Measured across a ten-repository corpus this affects only the
-  Dart SDK's own `pkg/front_end`, which dogfoods the unreleased feature: 64 of its 307
-  library files, against zero elsewhere. `pkg/analyzer` next door parses at 0.00%.
 - **A computed store name** (`collection(path)`, a non-literal drift `tableName`) is
   skipped rather than invented.
