@@ -94,7 +94,7 @@ public class Tracer
 // Pointer dereferences the upstream grammar rejects: `*` took only an lvalue, so a cast,
 // `++p` or `p++` under it was an ERROR, and recovery could take the whole class with it
 // (dotnet/runtime's Number.Parsing.cs and ManagedWebSocket.cs produced no symbols).
-// grammar/pointer-indirection.patch adds the three operand forms.
+// grammar/patches/01-pointer-indirection.patch adds the three operand forms.
 func TestPointerIndirectionOperands(t *testing.T) {
 	for _, body := range []string{
 		"*(int*)p = 1;",
@@ -109,6 +109,45 @@ func TestPointerIndirectionOperands(t *testing.T) {
 				body + " }\n    public void Run() { }\n}\n"
 			ff := extractFileAST([]byte(src), "src/Buf.cs")
 			for _, want := range []string{"src.Buf", "src.Buf.Write", "src.Buf.Run"} {
+				if factByName(ff, want) == nil {
+					t.Errorf("missing %s; got %v", want, names(ff, facts.KindSymbol))
+				}
+			}
+		})
+	}
+}
+
+// Declaration syntax upstream rejects that costs symbols: C# 13's `ref partial struct`
+// (grammar/patches/02) and the `safe` modifier dotnet/runtime uses on extern methods and
+// fields (04). TestGrammarPatchesParseClean pins every patched form at the parse level.
+func TestCSharp13Declarations(t *testing.T) {
+	for _, tc := range []struct {
+		name, src string
+		want      []string
+	}{
+		{"ref partial struct", `namespace Shop;
+
+public ref partial struct Reader
+{
+    public int Read() => 0;
+}
+
+public class After { public void Run() { } }
+`, []string{"src.Reader", "src.Reader.Read", "src.After.Run"}},
+		{"safe modifier", `namespace Shop;
+
+public static partial class Native
+{
+    public static safe extern double Acos(double d);
+    private static safe partial void Exit(int code);
+    public safe int Handle;
+    public static void Run() { }
+}
+`, []string{"src.Native.Acos", "src.Native.Handle", "src.Native.Run"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ff := extractFileAST([]byte(tc.src), "src/Shop.cs")
+			for _, want := range tc.want {
 				if factByName(ff, want) == nil {
 					t.Errorf("missing %s; got %v", want, names(ff, facts.KindSymbol))
 				}

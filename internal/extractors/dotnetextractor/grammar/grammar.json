@@ -723,6 +723,23 @@
           ]
         },
         {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "ALIAS",
+              "content": {
+                "type": "STRING",
+                "value": "partial"
+              },
+              "named": true,
+              "value": "modifier"
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        },
+        {
           "type": "STRING",
           "value": "struct"
         },
@@ -1444,6 +1461,10 @@
           },
           {
             "type": "STRING",
+            "value": "safe"
+          },
+          {
+            "type": "STRING",
             "value": "sealed"
           },
           {
@@ -1693,6 +1714,23 @@
         {
           "type": "SYMBOL",
           "name": "constructor_constraint"
+        },
+        {
+          "type": "SEQ",
+          "members": [
+            {
+              "type": "STRING",
+              "value": "allows"
+            },
+            {
+              "type": "STRING",
+              "value": "ref"
+            },
+            {
+              "type": "STRING",
+              "value": "struct"
+            }
+          ]
         },
         {
           "type": "FIELD",
@@ -7931,6 +7969,15 @@
                 {
                   "type": "SYMBOL",
                   "name": "parenthesized_expression"
+                },
+                {
+                  "type": "ALIAS",
+                  "content": {
+                    "type": "SYMBOL",
+                    "name": "_address_of_expression"
+                  },
+                  "named": true,
+                  "value": "prefix_unary_expression"
                 }
               ]
             }
@@ -10765,6 +10812,10 @@
         },
         {
           "type": "STRING",
+          "value": "allows"
+        },
+        {
+          "type": "STRING",
           "value": "ascending"
         },
         {
@@ -10834,6 +10885,10 @@
         {
           "type": "STRING",
           "value": "property"
+        },
+        {
+          "type": "STRING",
+          "value": "safe"
         },
         {
           "type": "STRING",

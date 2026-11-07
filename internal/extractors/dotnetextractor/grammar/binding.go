@@ -1,8 +1,7 @@
 // Package grammar vendors the tree-sitter C# grammar (tree-sitter/tree-sitter-c-sharp)
-// at master commit 8c0abe0, with one change to grammar.js: upstream's `*` accepts only
-// an lvalue, so `*(T*)p`, `*++p` and `*p++` are syntax errors, and under error recovery
-// one of them can turn the whole enclosing class into an ERROR node. pointer-indirection.patch
-// is the change; ATTRIBUTION.md records how src/ was regenerated from it.
+// at master commit 8c0abe0, with the grammar.js fixes under patches/ applied: each is
+// syntax upstream rejects, where error recovery can turn the whole enclosing class into
+// an ERROR node. ATTRIBUTION.md lists them; regenerate.sh rebuilds src/ from upstream.
 //
 // Go's build cache does not track the src/ files the cgo_*.c shims include: after
 // replacing them, build with -a, or the old parser stays linked.

@@ -3,8 +3,8 @@
 // resolve.go for the project index, type resolution and partial-type merge).
 //
 // The grammar is tree-sitter-c-sharp at master commit 8c0abe0 (ABI 15, with C# 14 syntax
-// no release tag carries yet), vendored under grammar/ with one patch to its pointer
-// dereference rule. A grammar the runtime refuses is silent by nature (every file parses to nothing,
+// no release tag carries yet), vendored under grammar/ with fixes for syntax upstream
+// rejects (grammar/patches). A grammar the runtime refuses is silent by nature (every file parses to nothing,
 // which looks exactly like a repository containing no C#), so extractFileAST logs
 // once when the grammar is refused rather than returning an empty result unremarked.
 package dotnetextractor

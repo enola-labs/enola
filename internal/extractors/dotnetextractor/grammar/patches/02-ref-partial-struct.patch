@@ -1,0 +1,13 @@
+diff --git a/grammar.js b/grammar.js
+index 6a8142c..f4c752d 100644
+--- a/grammar.js
++++ b/grammar.js
+@@ -314,6 +314,8 @@ export default grammar({
+       repeat($._attribute_list),
+       repeat($.modifier),
+       optional('ref'),
++      // C# 13: `partial` may follow `ref`, as in `ref partial struct`.
++      optional(alias('partial', $.modifier)),
+       'struct',
+       field('name', $.identifier),
+       repeat(choice($.type_parameter_list, $.parameter_list, $.base_list)),

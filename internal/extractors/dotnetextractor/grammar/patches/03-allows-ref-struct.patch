@@ -1,0 +1,21 @@
+diff --git a/grammar.js b/grammar.js
+index f4c752d..401aba9 100644
+--- a/grammar.js
++++ b/grammar.js
+@@ -465,6 +465,8 @@ export default grammar({
+       'notnull',
+       'unmanaged',
+       $.constructor_constraint,
++      // C# 13 anti-constraint: the type argument may be a ref struct.
++      seq('allows', 'ref', 'struct'),
+       field('type', $.type),
+     ),
+ 
+@@ -2152,6 +2154,7 @@ export default grammar({
+ 
+     _reserved_identifier: _ => choice(
+       'alias',
++      'allows',
+       'ascending',
+       'by',
+       'descending',

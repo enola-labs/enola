@@ -791,6 +791,15 @@ almost entirely BCL and framework surface — `Task.FromResult`, `Guid.NewGuid`,
 `JsonSerializer.Deserialize`, `IRequestHandler`, `Migration` — which is what "left as
 written" is supposed to look like.
 
+A **reference assembly** is the one duplicate that is not ambiguous. dotnet/runtime puts
+an API-stub project in a directory named `ref` beside nearly every library (MSBuild's
+`IsReferenceAssemblyProject` reads exactly that), and the stub redeclares each public type
+under the same fully qualified name with `throw null` bodies. Between the stub and the
+implementation, the implementation is the type: a reference binds to it whichever was
+indexed last, and the pair does not make the simple name ambiguous. Before this rule the
+last declaration indexed won, and on dotnet/runtime about 35,000 edges pointed at stubs in
+`System.Runtime/ref` instead of `System.Private.CoreLib`.
+
 An **alias** (`using Repo = Acme.Data.OrderRepository;`) and a `using static` are the two
 forms that *do* name a type; both resolve through the type index, and the alias is
 substituted at every reference in that file.
@@ -1198,9 +1207,12 @@ reason.
   *missed* dead-code lead rather than a false accusation, which is the safe direction.
 - **Syntax the C# grammar rejects costs the enclosing type, sometimes the file.** These
   forms are parse errors in tree-sitter-c-sharp, and error recovery can take the whole
-  surrounding class with them: a list pattern holding a property or positional
-  subpattern (`x is [.., { IsParams: true }]`), `async` used as a variable name, a
-  pointer to an array type (`T[]* p`), and a ref-returning call as an assignment target
-  (`Unsafe.Add(ref a, i) = v`). Pointer dereferences of a cast or a stepped pointer
-  (`*(T*)p`, `*++p`, `*p++`) used to be in this list; the vendored grammar is patched for
-  them (see `internal/extractors/dotnetextractor/grammar/ATTRIBUTION.md`).
+  surrounding class with them: a list pattern with a slice before a subpattern
+  (`x is [.., { IsParams: true }]`), `async` as an identifier before `)`
+  (`F(s, async).ConfigureAwait(false)`), a ref-returning call as an assignment target
+  (`Unsafe.Add(ref a, i) = v`), a pointer to an array type (`T[]* p`), and pointer
+  arithmetic in parentheses under `*`. The vendored grammar is patched for the forms that
+  could be fixed without changing how other code parses: pointer dereferences of a cast,
+  an address-of or a stepped pointer, `ref partial struct`, `allows ref struct` and the
+  `safe` modifier. `internal/extractors/dotnetextractor/grammar/ATTRIBUTION.md` records
+  each patch, and why each remaining form was left.
