@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	sitter "github.com/enola-labs/enola/internal/treesitter"
+	"github.com/enola-labs/enola/internal/workspace"
 
 	"github.com/enola-labs/enola/internal/extractors/callsite"
 	"github.com/enola-labs/enola/internal/extractors/tsutil"
@@ -765,7 +766,7 @@ func reachAppDirs(repoPath string, fw tsFrameworks) []string {
 		}
 		if d.IsDir() {
 			name := d.Name()
-			if p != repoPath && (strings.HasPrefix(name, ".") || tsSkipDirs[name] || name == "testdata" || isExampleDir(name)) {
+			if p != repoPath && (strings.HasPrefix(name, ".") || tsSkipDirs[name] || name == "testdata" || isExampleDir(name) || workspace.IsLinkedWorktree(p)) {
 				return filepath.SkipDir
 			}
 			return nil

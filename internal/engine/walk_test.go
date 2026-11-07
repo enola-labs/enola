@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/enola-labs/enola/internal/config"
@@ -210,5 +211,33 @@ func TestGenerateSnapshot_StopsWhenCancelled(t *testing.T) {
 	cancel()
 	if _, err := eng.GenerateSnapshot(ctx, cfg.Repo, false); !errors.Is(err, context.Canceled) {
 		t.Fatalf("GenerateSnapshot on a cancelled context = %v, want context.Canceled", err)
+	}
+}
+
+// TestWalkRepo_SkipsNestedLinkedWorktree: a worktree created inside the repository
+// (.claude/worktrees/<name>, or anywhere else) is another checkout, not source of this
+// one. The walk prunes it even with an ignore list that does not mention it.
+func TestWalkRepo_SkipsNestedLinkedWorktree(t *testing.T) {
+	files, _, _ := walkFixture(t, nil, map[string]string{
+		"pkg/a/a.go":                        "package a\n",
+		".git/worktrees/feat/commondir":     "../..\n",
+		".claude/worktrees/feat/.git":       "gitdir: ../../../.git/worktrees/feat\n",
+		".claude/worktrees/feat/pkg/a/a.go": "package a\n",
+		"wt/other/.git":                     "gitdir: ../../.git/worktrees/feat\n",
+		"wt/other/pkg/a/a.go":               "package a\n",
+		"third_party/sub/.git":              "gitdir: ../../.git/modules/sub\n",
+		"third_party/sub/sub.go":            "package sub\n",
+		".git/modules/sub/HEAD":             "ref: refs/heads/main\n",
+	})
+	for _, f := range files {
+		if strings.HasPrefix(f, ".claude/worktrees/") || strings.HasPrefix(f, "wt/other/") {
+			t.Errorf("walked %s inside a linked worktree", f)
+		}
+	}
+	if !slices.Contains(files, "pkg/a/a.go") {
+		t.Errorf("the repository's own source is missing: %v", files)
+	}
+	if !slices.Contains(files, "third_party/sub/sub.go") {
+		t.Errorf("a submodule's source was pruned: %v", files)
 	}
 }

@@ -97,11 +97,25 @@ func (e *Engine) beginRun(ctx context.Context, repoPath string, appendMode bool)
 	// which at least differed whenever the checkouts did. Fall back to the directory
 	// for the second arrival: it keeps them separate and it is what enola labelled
 	// them before.
+	//
+	// Another checkout of the SAME repository (a worktree, a second clone) is not a
+	// second arrival: it replaces the checkout it shares the label with. A member of a
+	// multi-repository graph keeps its label and moves to the new path; a single-repo
+	// graph is replaced outright, since it holds nothing but the checkout being swapped.
 	if appendMode {
 		if prev := e.current.Load(); prev != nil {
 			if taken, ok := prev.repoPaths[repoLabel]; ok && taken != absRepo {
-				repoLabel = filepath.Base(absRepo)
-				log.Printf("[engine] repo label from remote collides with %q; using directory name %q", taken, repoLabel)
+				if sameRepository(taken, absRepo) {
+					log.Printf("[engine] %s is another checkout of %q; it replaces %s", absRepo, repoLabel, taken)
+				} else {
+					repoLabel = filepath.Base(absRepo)
+					log.Printf("[engine] repo label from remote collides with %q; using directory name %q", taken, repoLabel)
+				}
+			} else if !ok && len(prev.repoPaths) == 0 && prev.snapshot != nil {
+				if loaded := prev.snapshot.Meta.RepoPath; loaded != "" && loaded != absRepo && sameRepository(loaded, absRepo) {
+					appendMode = false
+					log.Printf("[engine] %s is another checkout of the loaded %s; replacing it instead of appending", absRepo, loaded)
+				}
 			}
 		}
 	}

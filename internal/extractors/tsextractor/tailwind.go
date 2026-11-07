@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	sitter "github.com/enola-labs/enola/internal/treesitter"
+	"github.com/enola-labs/enola/internal/workspace"
 	typescript "github.com/tree-sitter/tree-sitter-typescript/bindings/go"
 
 	"github.com/enola-labs/enola/internal/extractors/tsutil"
@@ -791,7 +792,7 @@ func withPackageManifests(repoPath string, files []string) []string {
 		}
 		if d.IsDir() {
 			name := d.Name()
-			if p != repoPath && (strings.HasPrefix(name, ".") || tsSkipDirs[name] || name == "testdata") {
+			if p != repoPath && (strings.HasPrefix(name, ".") || tsSkipDirs[name] || name == "testdata" || workspace.IsLinkedWorktree(p)) {
 				return filepath.SkipDir
 			}
 			return nil

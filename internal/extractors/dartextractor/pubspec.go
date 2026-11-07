@@ -1,14 +1,16 @@
 package dartextractor
 
 import (
-	"github.com/enola-labs/enola/internal/factpath"
-	"github.com/enola-labs/enola/internal/linescan"
 	"io/fs"
 	"log"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/enola-labs/enola/internal/factpath"
+	"github.com/enola-labs/enola/internal/linescan"
+	"github.com/enola-labs/enola/internal/workspace"
 )
 
 // pubPackage is one pub package: the unit Dart actually compiles and publishes, and
@@ -63,7 +65,7 @@ func scanPubspecs(repoPath string) []string {
 			return nil
 		}
 		if d.IsDir() {
-			if skipDetectDir(d.Name()) {
+			if skipDetectDir(d.Name()) || (path != repoPath && workspace.IsLinkedWorktree(path)) {
 				return filepath.SkipDir
 			}
 			return nil

@@ -316,3 +316,18 @@ func TestServerBase(t *testing.T) {
 		t.Errorf("server_base = %v", got)
 	}
 }
+
+// A spec inside a linked worktree nested in the repository belongs to that other
+// checkout: indexing it doubled every route of the repository.
+func TestExtract_SkipsNestedLinkedWorktree(t *testing.T) {
+	repo := t.TempDir()
+	writeSpec(t, repo, "api/openapi/widgets.yaml", widgetsSpec)
+	writeSpec(t, repo, ".git/worktrees/feat/commondir", "../..\n")
+	writeSpec(t, repo, ".claude/worktrees/feat/.git", "gitdir: ../../../.git/worktrees/feat\n")
+	writeSpec(t, repo, ".claude/worktrees/feat/api/openapi/widgets.yaml", widgetsSpec)
+
+	got := extract(t, repo)
+	if len(got) != 3 {
+		t.Fatalf("expected the repository's 3 routes only, got %d: %+v", len(got), got)
+	}
+}

@@ -13,6 +13,7 @@ import (
 	"github.com/enola-labs/enola/internal/extractors/detectnames"
 	"github.com/enola-labs/enola/internal/factpath"
 	"github.com/enola-labs/enola/internal/facts"
+	"github.com/enola-labs/enola/internal/workspace"
 )
 
 // Ansible structure is by-name and literal: a playbook lists the roles it
@@ -265,7 +266,7 @@ func walkAnsibleFiles(repoPath string) []string {
 		}
 		if d.IsDir() {
 			name := d.Name()
-			if path != root && (strings.HasPrefix(name, ".") || ansibleSkipDirs[name]) {
+			if path != root && (strings.HasPrefix(name, ".") || ansibleSkipDirs[name] || workspace.IsLinkedWorktree(path)) {
 				return filepath.SkipDir
 			}
 			return nil

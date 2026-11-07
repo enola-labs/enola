@@ -47,7 +47,9 @@ const modulePath = "github.com/enola-labs/enola/"
 // union, because splitting it into family packages would put one more layer
 // between every command and the engine.
 var hubBudgets = map[string]int{
-	"internal/engine": 15,
+	// 16: internal/workspace, so the engine walk prunes linked worktrees by the same test
+	// the extractors that walk the tree themselves use.
+	"internal/engine": 16,
 	"internal/server": 20,
 	"pkg/command":     33,
 	"pkg/check":       11,
