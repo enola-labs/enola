@@ -3466,7 +3466,10 @@ import (
 // v546: C#: grammar patches 02-04, `ref partial struct`, `allows ref struct` and the
 // `safe` modifier, each a declaration upstream's grammar rejects.
 // v547: C#: grammar patch 05, `*(T*)&x`.
-const cacheVersion = "v547"
+// v548: a linked git worktree nested in the repository is pruned by the walk and by every
+// extractor that walks the tree itself, so its files no longer feed package and alias
+// resolution of the checkout that contains it.
+const cacheVersion = "v548"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

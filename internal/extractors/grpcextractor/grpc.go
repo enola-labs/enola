@@ -19,6 +19,7 @@ import (
 
 	"github.com/enola-labs/enola/internal/factpath"
 	"github.com/enola-labs/enola/internal/facts"
+	"github.com/enola-labs/enola/internal/workspace"
 )
 
 // GRPCExtractor parses .proto files and emits gRPC route/symbol facts.
@@ -48,7 +49,7 @@ func (e *GRPCExtractor) Detect(repoPath string) (bool, error) {
 			return err //nolint:wrapcheck // propagate walk error verbatim
 		}
 		if d.IsDir() {
-			if skipDir(d.Name()) {
+			if skipDir(d.Name()) || (path != repoPath && workspace.IsLinkedWorktree(path)) {
 				return filepath.SkipDir
 			}
 			return nil

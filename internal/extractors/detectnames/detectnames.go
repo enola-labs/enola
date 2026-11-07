@@ -17,6 +17,8 @@ import (
 	"io/fs"
 	"path/filepath"
 	"strings"
+
+	"github.com/enola-labs/enola/internal/workspace"
 )
 
 // pruned names the directories no detection may descend into, whatever it is
@@ -59,7 +61,7 @@ func Walk(repoPath string) []string {
 			return nil
 		}
 		if d.IsDir() {
-			if pruned[d.Name()] || strings.HasPrefix(d.Name(), ".") {
+			if pruned[d.Name()] || strings.HasPrefix(d.Name(), ".") || workspace.IsLinkedWorktree(path) {
 				return filepath.SkipDir
 			}
 			return nil

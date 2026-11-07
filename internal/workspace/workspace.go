@@ -81,6 +81,44 @@ func Folded(dir, configSource string) []string {
 	return repos
 }
 
+// IsLinkedWorktree reports whether dir is the root of a linked git worktree: a second
+// checkout of some repository, created by `git worktree add`. Walks below a repository
+// root prune these. An agent harness creates its worktrees inside the repository it
+// works on (.claude/worktrees/<name>), so without the prune the main checkout indexes
+// every worktree as its own source: each file twice, calls resolved across checkouts,
+// and another agent's uncommitted edits graded as this checkout's change. Ignore globs
+// cannot do this: a project's own list replaces the defaults, several extractors walk
+// without consulting it, and a worktree can be created at any path.
+//
+// The test is git's own marker: .git is a file naming an administrative directory that
+// holds a `commondir` file. A submodule's .git is a file too, but its directory under
+// .git/modules has no commondir, so submodules and nested clones stay indexed as before.
+func IsLinkedWorktree(dir string) bool {
+	dotGit := filepath.Join(dir, ".git")
+	info, err := os.Lstat(dotGit)
+	if err != nil || !info.Mode().IsRegular() {
+		return false
+	}
+	raw, err := os.ReadFile(dotGit)
+	if err != nil {
+		return false
+	}
+	line, _, _ := strings.Cut(string(raw), "\n")
+	gitdir, ok := strings.CutPrefix(strings.TrimSpace(line), "gitdir:")
+	if !ok {
+		return false
+	}
+	gitdir = strings.TrimSpace(gitdir)
+	if gitdir == "" {
+		return false
+	}
+	if !filepath.IsAbs(gitdir) {
+		gitdir = filepath.Join(dir, gitdir)
+	}
+	_, err = os.Stat(filepath.Join(gitdir, "commondir"))
+	return err == nil
+}
+
 // IsRepo reports whether dir is itself a git repository.
 func IsRepo(dir string) bool {
 	_, err := os.Lstat(filepath.Join(dir, ".git"))

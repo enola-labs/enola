@@ -33,6 +33,7 @@ import (
 	"github.com/enola-labs/enola/internal/pathglob"
 	"github.com/enola-labs/enola/internal/providers"
 	"github.com/enola-labs/enola/internal/renderers"
+	"github.com/enola-labs/enola/internal/workspace"
 	"github.com/enola-labs/enola/pkg/plugin"
 )
 
@@ -639,6 +640,13 @@ func (e *Engine) walkRepo(ctx context.Context, repoPath string) (files, testFile
 		// why it is taken here and not two lines lower.
 		if !d.IsDir() {
 			allNames = append(allNames, relPath)
+		}
+
+		// Another checkout of a repository nested inside this one is not this
+		// repository's source, whatever the ignore list says (workspace.IsLinkedWorktree).
+		if d.IsDir() && path != repoPath && workspace.IsLinkedWorktree(path) {
+			log.Printf("[engine] skipping %s/: a linked git worktree, not this checkout's source", relPath)
+			return filepath.SkipDir
 		}
 
 		// Skip ignored paths

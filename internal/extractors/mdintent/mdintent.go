@@ -16,6 +16,7 @@ import (
 	"github.com/enola-labs/enola/internal/extractors/extcoverage"
 	"github.com/enola-labs/enola/internal/facts"
 	"github.com/enola-labs/enola/internal/intent"
+	"github.com/enola-labs/enola/internal/workspace"
 	"github.com/enola-labs/enola/pkg/plugin"
 )
 
@@ -45,7 +46,7 @@ func (e *Extractor) Detect(repoPath string) (bool, error) {
 		}
 		if d.IsDir() {
 			name := d.Name()
-			if path != root && (strings.HasPrefix(name, ".") || mdSkipDirs[name]) {
+			if path != root && (strings.HasPrefix(name, ".") || mdSkipDirs[name] || workspace.IsLinkedWorktree(path)) {
 				return filepath.SkipDir
 			}
 			rel, _ := filepath.Rel(root, path)

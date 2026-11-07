@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/enola-labs/enola/internal/workspace"
 )
 
 const (
@@ -407,7 +409,7 @@ func copyTree(src, dst string, skipRel map[string]bool) error {
 			return err
 		}
 		slashRel := filepath.ToSlash(rel)
-		if d.IsDir() && (d.Name() == ".git" || skipRel[slashRel]) {
+		if d.IsDir() && (d.Name() == ".git" || skipRel[slashRel] || (rel != "." && workspace.IsLinkedWorktree(p))) {
 			if rel == "." {
 				return nil
 			}

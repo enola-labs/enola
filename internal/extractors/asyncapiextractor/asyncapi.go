@@ -13,6 +13,7 @@ import (
 
 	"github.com/enola-labs/enola/internal/factpath"
 	"github.com/enola-labs/enola/internal/facts"
+	"github.com/enola-labs/enola/internal/workspace"
 	"gopkg.in/yaml.v3"
 )
 
@@ -31,7 +32,7 @@ func (e *Extractor) Detect(repoPath string) (bool, error) {
 			return err
 		}
 		if d.IsDir() {
-			if skipDir(d.Name()) {
+			if skipDir(d.Name()) || (path != repoPath && workspace.IsLinkedWorktree(path)) {
 				return filepath.SkipDir
 			}
 			return nil
@@ -56,7 +57,7 @@ func (e *Extractor) Extract(ctx context.Context, repoPath string, _ []string) ([
 		default:
 		}
 		if d.IsDir() {
-			if skipDir(d.Name()) {
+			if skipDir(d.Name()) || (path != repoPath && workspace.IsLinkedWorktree(path)) {
 				return filepath.SkipDir
 			}
 			return nil

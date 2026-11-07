@@ -23,6 +23,7 @@ import (
 	"strings"
 
 	sitter "github.com/enola-labs/enola/internal/treesitter"
+	"github.com/enola-labs/enola/internal/workspace"
 
 	"github.com/enola-labs/enola/internal/extractors/tsutil"
 	"github.com/enola-labs/enola/internal/factpath"
@@ -140,7 +141,7 @@ func angularProjectNames(repoPath string) map[string]string {
 		}
 		if d.IsDir() {
 			name := d.Name()
-			if path != repoPath && (strings.HasPrefix(name, ".") || tsSkipDirs[name] || name == "testdata") {
+			if path != repoPath && (strings.HasPrefix(name, ".") || tsSkipDirs[name] || name == "testdata" || workspace.IsLinkedWorktree(path)) {
 				return filepath.SkipDir
 			}
 			return nil

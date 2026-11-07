@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"github.com/enola-labs/enola/internal/extractors/tsutil"
 	"io/fs"
 	"log"
 	"os"
@@ -17,8 +16,10 @@ import (
 
 	"github.com/enola-labs/enola/internal/clientspec"
 	"github.com/enola-labs/enola/internal/extractors/detectnames"
+	"github.com/enola-labs/enola/internal/extractors/tsutil"
 	"github.com/enola-labs/enola/internal/facts"
 	"github.com/enola-labs/enola/internal/parallel"
+	"github.com/enola-labs/enola/internal/workspace"
 
 	"github.com/enola-labs/enola/internal/factpath"
 	sitter "github.com/enola-labs/enola/internal/treesitter"
@@ -1469,7 +1470,7 @@ func collectPackageNames(repoPath string) (map[string]string, map[string]bool) {
 		}
 		if d.IsDir() {
 			name := d.Name()
-			if path != repoPath && (strings.HasPrefix(name, ".") || tsSkipDirs[name] || name == "testdata") {
+			if path != repoPath && (strings.HasPrefix(name, ".") || tsSkipDirs[name] || name == "testdata" || workspace.IsLinkedWorktree(path)) {
 				return filepath.SkipDir
 			}
 			return nil
@@ -1569,7 +1570,7 @@ func nextJSPackageDirs(repoPath string) []string {
 		}
 		if d.IsDir() {
 			name := d.Name()
-			if path != repoPath && (strings.HasPrefix(name, ".") || tsSkipDirs[name] || name == "testdata" || isExampleDir(name)) {
+			if path != repoPath && (strings.HasPrefix(name, ".") || tsSkipDirs[name] || name == "testdata" || isExampleDir(name) || workspace.IsLinkedWorktree(path)) {
 				return filepath.SkipDir
 			}
 			return nil

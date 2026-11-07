@@ -35,6 +35,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/enola-labs/enola/internal/workspace"
 )
 
 // ErrTermsAbsent reports that the denylist is not on disk. It is a state and
@@ -160,7 +162,7 @@ func Scan(root string, terms []Term) ([]Hit, error) {
 		// own entry and a file by its base name. Checking whole paths instead
 		// would report a directory again for every file beneath it.
 		if entry.IsDir() {
-			if skipDir(entry.Name()) {
+			if skipDir(entry.Name()) || workspace.IsLinkedWorktree(path) {
 				return fs.SkipDir
 			}
 			hits = append(hits, nameHits(terms, relative, entry.Name())...)

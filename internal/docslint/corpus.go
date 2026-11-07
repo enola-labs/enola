@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/enola-labs/enola/internal/workspace"
 )
 
 // repoRoot is the module root, found by walking up from the test's working directory
@@ -67,7 +69,7 @@ func Corpus() ([]Doc, error) {
 			return err
 		}
 		if d.IsDir() {
-			if skipDirs[d.Name()] {
+			if skipDirs[d.Name()] || (path != repoRoot && workspace.IsLinkedWorktree(path)) {
 				return fs.SkipDir
 			}
 			return nil
