@@ -146,14 +146,36 @@ func (s *Server) registerGenerateSnapshotTool() {
 		appendMode := args.Append
 		autoAppended := false
 		autoAppendedFrom := ""
-		if !args.Fresh && !appendMode && s.snapshotsGenerated && s.eng.Store().Count() > 0 && s.eng.Snapshot() != nil {
+
+		// Another checkout of a repository already loaded (an agent moving from the main
+		// checkout into a worktree) replaces that checkout rather than joining it: both
+		// carry the remote's label, and graph nodes are name-keyed. In a single-repo
+		// graph that is a plain replacement, so it is not an append at all; in a
+		// multi-repo graph the engine moves the member to the new path.
+		swappedFrom, replaceAll := "", false
+		if !args.Fresh && s.eng.Snapshot() != nil {
+			other, members := s.eng.LoadedCheckoutOf(absRepo)
+			swappedFrom, replaceAll = other, other != "" && members <= 1
+			if replaceAll {
+				appendMode = false
+			}
+		}
+
+		if !args.Fresh && !appendMode && !replaceAll && s.snapshotsGenerated && s.eng.Store().Count() > 0 && s.eng.Snapshot() != nil {
 			prevRepo := s.eng.Snapshot().Meta.RepoPath
 			if prevRepo != "" && prevRepo != absRepo {
 				appendMode = true
-				autoAppended = true
-				autoAppendedFrom = prevRepo
+				// Moving a member of the graph to another checkout is not the merge
+				// the warning below is about.
+				if swappedFrom == "" {
+					autoAppended = true
+					autoAppendedFrom = prevRepo
+				}
 				log.Printf("[server] auto-enabled append mode: switching from %s to %s", prevRepo, absRepo)
 			}
+		}
+		if swappedFrom != "" {
+			log.Printf("[server] %s is another checkout of the loaded %s; replacing it", absRepo, swappedFrom)
 		}
 
 		// A fresh (non-append) snapshot that discards an auto-loaded store is
@@ -219,6 +241,13 @@ func (s *Server) registerGenerateSnapshotTool() {
 				"⚠️ **Auto-appended to the existing multi-repo store.** You snapshotted %q while %q was loaded, without append=true, so enola merged them into one store. "+
 					"If you meant a FRESH single-repo snapshot of %q, re-run with fresh=true.\n\n---\n\n",
 				filepath.Base(absRepo), filepath.Base(autoAppendedFrom), filepath.Base(absRepo),
+			) + summary
+		}
+
+		if swappedFrom != "" {
+			summary = fmt.Sprintf(
+				"**Switched checkouts.** %s is another checkout of the loaded %s (same repository), so it replaced that checkout in the graph instead of being added beside it.\n\n---\n\n",
+				absRepo, swappedFrom,
 			) + summary
 		}
 
