@@ -169,6 +169,7 @@ var versionCoverage = map[int][]string{
 	552: {"TestPackagesAreNamedByImportPath", "TestStandardLibraryImportIsNotTheRepositorysSameNamedPackage", "TestNestedModuleAndModulelessPackageNames"},
 	551: {"TestMethodValueIsReferenced", "TestMethodValueOfUnknownTypeIsNotResolved"},
 	550: {"TestCollectWorkspacesNPM", "TestResolveWorkspaceImports", "TestExtractWorkspaceImportsResolveToSource", "TestExtractTSConfigAliasMissingTargetFallsBackToWorkspace"},
+	571: {"TestRegression_TearOffReferences", "TestDartTearOffModuleInitializer", "TestDartTearOffShadowingAndNonValues", "TestDartValueReferencesStayInLexicalScope"},
 	507: {"TestRustImportAliasesBindOnlyTheAlias", "TestRustImportedTypeThroughAFileModuleWithADirectory", "TestRustMethodsInAFileModulesSubdirectoryResolve", "TestRustTypeImportedThroughAReExportResolves", "TestRustTypeAliasIsFollowedToItsType", "TestRustAliasedExternalImportDoesNotHideTheLocalName"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},

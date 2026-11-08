@@ -3540,7 +3540,9 @@ import (
 // v575: Go: an HTTP helper's path built with fmt.Sprintf is read at its call site.
 // v576: TypeScript: a verb call on a client the file builds reads a path relative
 // to its base URL (gateway.post(`orders/v1/carts/${id}`)), rooted at "/".
-const cacheVersion = "v576"
+// v577: Dart tear-offs in function bodies and module initializers emit names
+// edges, preserving callback usage without inventing calls or propagating I/O.
+const cacheVersion = "v577"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

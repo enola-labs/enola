@@ -84,7 +84,7 @@ func sortedKeys(m map[string]bool) []string {
 // walkBody walks a function body for call edges and complexity metrics.
 //
 // selfName is the enclosing symbol's canonical name, used for recursion detection.
-func (w *walker) walkBody(body *sitter.Node, selfName string) *bodyWalk {
+func (w *walker) walkBody(body *sitter.Node, selfName string, signature *sitter.Node) *bodyWalk {
 	b := &bodyWalk{
 		callsInLoop:        map[string]bool{},
 		callsInScalingLoop: map[string]bool{},
@@ -96,6 +96,10 @@ func (w *walker) walkBody(body *sitter.Node, selfName string) *bodyWalk {
 	}
 	b.locals = w.localTypes(body)
 	w.walkNode(body, b, selfShort, 0, 0)
+	shadows := map[string]bool{}
+	dartBoundNames(signature, w.src, shadows)
+	dartBoundNames(body, w.src, shadows)
+	w.valueReferences(body, shadows, b)
 	return b
 }
 
