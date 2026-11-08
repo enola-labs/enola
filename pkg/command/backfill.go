@@ -226,7 +226,11 @@ func selectCommits(repoPath string, args backfillArgs) ([]commitInfo, error) {
 		return nil, fmt.Errorf("unknown --sample %q: expected all, merges, tags or daily", args.sample)
 	}
 	if args.since != "" {
-		argv = append(argv, "--since="+args.since)
+		cutoff, err := parseSince(args.since)
+		if err != nil {
+			return nil, err
+		}
+		argv = append(argv, "--since="+cutoff.Format(time.RFC3339))
 	}
 	argv = append(argv, "HEAD")
 

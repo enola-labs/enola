@@ -1,9 +1,12 @@
 package command
 
 import (
+	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/enola-labs/enola/internal/config"
 	"github.com/enola-labs/enola/internal/facts"
@@ -186,5 +189,35 @@ func TestBackfillOptions_CarryTheRetention(t *testing.T) {
 	o := backfillOptions(h, nil)
 	if o.WorkingKeep != 3 || o.RevisionKeep != -1 || o.BlobKeep != 7 {
 		t.Errorf("options %+v do not carry the retention %+v", o, h)
+	}
+}
+
+func TestSelectCommits_SinceAcceptsADuration(t *testing.T) {
+	dir := t.TempDir()
+	commit := func(msg string, at time.Time) {
+		t.Helper()
+		ts := at.Format(time.RFC3339)
+		for _, argv := range [][]string{{"init", "-q"}, {"commit", "-q", "--allow-empty", "-m", msg}} {
+			cmd := exec.Command("git", append([]string{"-C", dir, "-c", "user.name=t", "-c", "user.email=t@t"}, argv...)...)
+			cmd.Env = append(os.Environ(), "GIT_AUTHOR_DATE="+ts, "GIT_COMMITTER_DATE="+ts)
+			if out, err := cmd.CombinedOutput(); err != nil && argv[0] != "init" {
+				t.Fatalf("git %v: %v\n%s", argv, err, out)
+			}
+		}
+	}
+	commit("old", time.Now().Add(-30*24*time.Hour))
+	commit("recent", time.Now().Add(-time.Hour))
+
+	for _, since := range []string{"72h", time.Now().Add(-72 * time.Hour).Format(time.RFC3339)} {
+		got, err := selectCommits(dir, backfillArgs{since: since})
+		if err != nil {
+			t.Fatalf("--since %q: %v", since, err)
+		}
+		if len(got) != 1 || got[0].Subject != "recent" {
+			t.Errorf("--since %q: want only the recent commit, got %+v", since, got)
+		}
+	}
+	if _, err := selectCommits(dir, backfillArgs{since: "last tuesday"}); err == nil {
+		t.Error("an unparseable --since must be an error")
 	}
 }
