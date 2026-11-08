@@ -3609,7 +3609,9 @@ import (
 // over every repository, not in the extractor: an Application states serves and
 // environment, and an address resolves in the caller's cluster, else in its region
 // and environment, else to the single candidate.
-const cacheVersion = "v588"
+// v589: Dart tear-offs in function bodies and module initializers emit names
+// edges, preserving callback usage without inventing calls or propagating I/O.
+const cacheVersion = "v589"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

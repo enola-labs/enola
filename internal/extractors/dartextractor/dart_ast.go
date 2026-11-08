@@ -49,6 +49,9 @@ type walker struct {
 	// stringConsts maps `<Type>.<CONST>` to its string literal, so a route declared as
 	// `path: HomeScreen.routeName` resolves instead of being dropped.
 	stringConsts map[string]string
+	// valueFunctions contains callable declarations visible in this lexical scope.
+	// A bare data read must never bind to an unrelated project-wide method.
+	valueFunctions map[string]string
 }
 
 // extractFile parses one Dart file and returns its facts.
@@ -88,7 +91,9 @@ func extractFile(src []byte, relFile string, pkgs *packageIndex, inheritedImport
 	// Directives first: every later pass is gated on what this file imports, so the
 	// import set has to be complete before any declaration is looked at.
 	w.walkDirectives(root)
+	w.valueFunctions = w.fileCallableValues(root)
 	w.walkDeclarations(root)
+	w.moduleValueReferences(root)
 	w.extractFrameworkSurface(root)
 	w.attributeCallers(root)
 
@@ -365,6 +370,9 @@ func (w *walker) memberDecls(body *sitter.Node, typeName string) []memberInfo {
 	if body == nil {
 		return nil
 	}
+	previous := w.valueFunctions
+	w.valueFunctions = w.memberCallableValues(body, typeName)
+	defer func() { w.valueFunctions = previous }()
 	var out []memberInfo
 	kids := namedChildren(body)
 	for i := 0; i < len(kids); i++ {
@@ -583,7 +591,7 @@ func (w *walker) methodDecl(sig, body *sitter.Node, typeName string, annos []str
 
 	rels := w.injectRelations(inner)
 	if body != nil {
-		bw := w.walkBody(body, full)
+		bw := w.walkBody(body, full, inner)
 		rels = append(rels, bw.relations...)
 		bw.applyTo(props)
 	}
@@ -615,7 +623,7 @@ func (w *walker) functionDecl(sig, body *sitter.Node, dir, _ string, annos []str
 	}
 	var rels []facts.Relation
 	if body != nil {
-		bw := w.walkBody(body, full)
+		bw := w.walkBody(body, full, sig)
 		rels = append(rels, bw.relations...)
 		bw.applyTo(props)
 	}
