@@ -268,3 +268,26 @@ router.get("/health", handler);
 		t.Errorf("double-quoted mount prefix did not compose; got %+v", ff)
 	}
 }
+
+// TestServerRoutes_CommentedRegistrationIsNotARoute: a registration left in a
+// comment serves nothing, and a server route drawn from it is an endpoint the
+// service does not have.
+func TestServerRoutes_CommentedRegistrationIsNotARoute(t *testing.T) {
+	src := `import express from "express";
+
+const app = express();
+// app.get("/commented", (req, res) => res.send("x"));
+/* app.post("/blocked", handler); */
+app.get("/served", (req, res) => res.send("ok"));
+app.listen(3000);
+`
+	got := serverRoutes(extractTS(t, src, "src/server.ts"))
+	for _, phantom := range []string{"/commented", "/blocked"} {
+		if _, found := got[phantom]; found {
+			t.Errorf("%s is only written in a comment, yet it became a server route: %+v", phantom, got)
+		}
+	}
+	if got["/served"] != "GET" {
+		t.Errorf("the real registration must stay: %+v", got)
+	}
+}

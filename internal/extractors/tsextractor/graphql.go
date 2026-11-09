@@ -1175,6 +1175,13 @@ func templateBody(text string, start int) (body string, end int) {
 // following nested braces and any template literals inside — which may
 // themselves interpolate.
 func skipInterpolation(text string, i int) int {
+	end, _ := interpolationEnd(text, i)
+	return end
+}
+
+// interpolationEnd is skipInterpolation that also says whether the `}` was
+// found: a fragment cut off mid-interpolation runs to the end of text.
+func interpolationEnd(text string, i int) (int, bool) {
 	braces := 1
 	for i < len(text) && braces > 0 {
 		switch text[i] {
@@ -1191,7 +1198,7 @@ func skipInterpolation(text string, i int) int {
 		}
 		i++
 	}
-	return i
+	return i, braces == 0
 }
 
 // extractGraphQLTagFactsAST finds template literals through syntax, so examples

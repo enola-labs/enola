@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/enola-labs/enola/internal/facts"
@@ -729,5 +730,106 @@ func TestTSExternalHost_DataObjectIsNotACall(t *testing.T) {
 	ff, _ := extractHTTPClientFactsCounted([]byte(src), "src/lib/payload.ts")
 	if len(ff) != 1 || ff[0].Name != "/v2/events" || ff[0].Props["host"] != "hooks.example.com" {
 		t.Fatalf("only the object that states a verb is a request to a host, got %+v", ff)
+	}
+}
+
+// TestExtractHTTPClientFacts_CommentedCallIsNotARoute: the client patterns are
+// regular expressions over the file, and a usage example in a comment reads
+// exactly like a call. A route drawn from one is an edge no code performs.
+func TestExtractHTTPClientFacts_CommentedCallIsNotARoute(t *testing.T) {
+	src := `import axios from "axios";
+
+// await axios.get("/api/v1/legacy");
+/**
+ * Replaces the legacy endpoint:
+ *   fetch("/api/v1/slots")
+ */
+export async function trailing() {
+  return fetch("/api/v1/trailing"); // a real call with a comment after it
+}
+
+export async function quoted() {
+  return fetch("/api/v1/quoted//double");
+}
+`
+	ff := extractTS(t, src, "src/client.ts")
+	got := clientRoutes(ff)
+	for _, phantom := range []string{"/api/v1/legacy", "/api/v1/slots"} {
+		if _, found := got[phantom]; found {
+			t.Errorf("%s is only written in a comment, yet it became a client route: %+v", phantom, got)
+		}
+	}
+	for _, real := range []string{"/api/v1/trailing", "/api/v1/quoted//double"} {
+		if _, found := got[real]; !found {
+			t.Errorf("%s is a real call and must stay a client route: %+v", real, got)
+		}
+	}
+	for _, f := range ff {
+		if f.Kind == facts.KindRoute && f.Name == "/api/v1/trailing" && f.Line != 9 {
+			t.Errorf("/api/v1/trailing reported at line %d, want 9: blanking must keep offsets", f.Line)
+		}
+	}
+}
+
+// TestExtractHTTPClientFacts_NestedTemplateLiteral: the query-string idiom nests a
+// template inside an interpolation. A capture that ends at the first backtick
+// stops inside it, and what is left is source text, not a path: `/x${qs`. Every
+// URL pattern reads the literal the same way, so each one is pinned here.
+func TestExtractHTTPClientFacts_NestedTemplateLiteral(t *testing.T) {
+	src := "import axios from \"axios\";\n" +
+		"export const usage = (qs: string) => fetch(`/api/v1/usage${qs ? `?${qs}` : \"\"}`);\n" +
+		"export function weekly(qs: string) {\n" +
+		"  const url = `/api/v1/weekly${qs ? `?${qs}` : \"\"}`;\n" +
+		"  return fetch(url);\n" +
+		"}\n" +
+		"export const gen = (client: any, q: string) => client.GET(`/api/v1/gen${q ? `?${q}` : \"\"}`);\n" +
+		"export const lower = (q: string) => axios.get(`/api/v1/lower${q ? `?${q}` : \"\"}`);\n" +
+		"export const opt = (q: string) => request({ url: `/api/v1/opt${q ? `?${q}` : \"\"}`, method: \"POST\", headers: {} });\n" +
+		"export const based = (base: string, q: string) => axios.get(`${base}/api/v1/based${q ? `?${q}` : \"\"}`);\n" +
+		"declare function request(o: any): any;\n"
+	got := clientRoutes(extractTS(t, src, "src/client.ts"))
+	for name := range got {
+		if strings.Contains(name, "${") {
+			t.Errorf("route name %q is a fragment of the source, not a path", name)
+		}
+	}
+	for path, method := range map[string]string{
+		"/api/v1/usage":  "GET",
+		"/api/v1/weekly": "GET",
+		"/api/v1/gen":    "GET",
+		"/api/v1/lower":  "GET",
+		"/api/v1/opt":    "POST",
+		"/api/v1/based":  "GET",
+	} {
+		if got[path] != method {
+			t.Errorf("%s: want %s, got %q in %+v", path, method, got[path], got)
+		}
+	}
+}
+
+// TestCleanTSPath_TernaryInterpolation: a `?` inside an interpolation is a
+// ternary, not the start of a query string. Cutting there leaves `${a` in the
+// name, nested backtick or not.
+func TestCleanTSPath_TernaryInterpolation(t *testing.T) {
+	bases := map[string]string{"basePath": "/api/settings/pricing"}
+	for raw, want := range map[string]string{
+		"/x/${a ? \"b\" : \"c\"}/y":            "/x/{}/y",
+		"/api/v1/usage${qs ? `?${qs}` : \"\"}": "/api/v1/usage",
+		"/v1/access${q ? `?${q}` : ''}":        "/v1/access",
+		"/q?a=${b ? `1` : `2`}":                "/q",
+		"/x${qs}":                              "/x",
+		"/files/${id}":                         "/files/{}",
+		"/items/${id}.json":                    "/items/{}.json",
+		"${this.basePath}/tiers":               "/api/settings/pricing/tiers",
+		"${API}/v1/z":                          "/v1/z",
+		"/q?a=${b}":                            "/q",
+		"/a/${f({ k: `${v}` })}/b":             "/a/{}/b",
+	} {
+		if got, ok := cleanTSPath(raw, bases); !ok || got != want {
+			t.Errorf("cleanTSPath(%q) = %q, %v; want %q", raw, got, ok, want)
+		}
+	}
+	if got, ok := cleanTSPath("${endpoint}", bases); ok {
+		t.Errorf("a fully dynamic URL must be rejected, got %q", got)
 	}
 }
