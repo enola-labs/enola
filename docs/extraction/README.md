@@ -139,7 +139,7 @@ but it is a real trap.
 Extractors receive the walked file list, which the `ignore` globs have already filtered.
 That is right for source files and wrong for the handful of config-format files that carry
 architectural meaning — an OpenAPI spec, Symfony's route YAML, `package.json`'s package
-name, `tsconfig.json`'s path aliases. Those are read **directly from disk**, because the
+name and workspace members, `tsconfig.json`'s path aliases. Those are read **directly from disk**, because the
 globs exist to suppress config/data noise, not to hide files the graph depends on.
 
 If you add such a read, walk from `repoPath` yourself and skip the excluded directories

@@ -210,7 +210,12 @@ only files of a project that styles with Tailwind are read, a config's `prefix`
 - `ecosystem`: the packaging system a declared package was declared in — `go` |
   `npm` | `rubygems` | `cargo` | `pub` | `pypi`.
 - `resolved_via` (TypeScript imports): what resolved an aliased import —
-  `vite-alias` | `nuxt-alias` | `tsconfig-paths`. Absent on a relative import.
+  `vite-alias` | `nuxt-alias` | `tsconfig-paths`, or, for an import of a workspace
+  member by its package name, `workspace` (through the member's `exports` or entry
+  fields, or the source its build output was compiled from) | `workspace-package-dir`
+  (no declared entry names a measured module, so the import names the package
+  directory; constraints place it in the component holding the package's files).
+  Absent on a relative import.
 - `unresolved_reason` (TypeScript imports): why an import matching an alias was not
   resolved — `custom-resolver` (the alias has a `customResolver`) or `dynamic-alias`
   (its replacement is computed at runtime). The import stays external, unguessed.

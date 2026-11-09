@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/enola-labs/enola/internal/facts"
 )
@@ -32,6 +33,12 @@ import (
 const (
 	resolutionLevelProp = "resolution_level"
 	markupDeclaredLevel = "markup-declared"
+	// resolvedViaProp and workspacePackageDirVia mark a TypeScript import of a
+	// workspace package whose declared entry names no measured module (its exports
+	// point at a build output that is not checked in): the import names the package
+	// directory, not a file.
+	resolvedViaProp        = "resolved_via"
+	workspacePackageDirVia = "workspace-package-dir"
 )
 
 // pathTargetEdge reports whether an edge's target is a PATH rather than a fact
@@ -89,6 +96,10 @@ type grounding struct {
 	// as dependencies fetched from elsewhere (a path dependency is not one).
 	crates    map[string]map[string]bool
 	cargoDeps map[string]map[string]bool
+	// sorted is each repository's files in order, built on first use by an
+	// import that landed on a whole package (packageFile).
+	sortedOnce sync.Once
+	sorted     map[string][]string
 }
 
 func newGrounding(store *facts.Store, memberFacts map[string][]facts.Fact) *grounding {
@@ -185,6 +196,50 @@ func (g *grounding) resolve(target, repo string) (string, bool) {
 	return g.resolveFrom(target, repo, "")
 }
 
+// resolveEdge resolves a path-targeting edge's target to a measured file: the file
+// the target names, or, for an import that landed on a whole workspace package,
+// the first file measured in that package. The package is what the import is
+// known to reach, and its first file is what places it in the component that
+// holds the package; a rule about the package's parts cannot be answered finer
+// than the import was resolved.
+func (g *grounding) resolveEdge(rel facts.Relation, from facts.Fact) (string, bool) {
+	if path, ok := g.resolveFrom(rel.Target, from.Repo, from.File); ok {
+		return path, true
+	}
+	if rel.Kind == facts.RelImports && from.PropString(resolvedViaProp) == workspacePackageDirVia {
+		return g.packageFile(rel.Target, from.Repo)
+	}
+	return "", false
+}
+
+// packageFile returns the first measured file, in path order, under a directory.
+func (g *grounding) packageFile(dir, repo string) (string, bool) {
+	if dir == "" {
+		return "", false
+	}
+	g.sortedOnce.Do(func() {
+		g.sorted = make(map[string][]string, len(g.files))
+		for r, set := range g.files {
+			list := make([]string, 0, len(set))
+			for f := range set {
+				list = append(list, f)
+			}
+			sort.Strings(list)
+			g.sorted[r] = list
+		}
+	})
+	prefix := dir + "/"
+	if g.prefixed[repo] {
+		prefix = repo + "/" + prefix
+	}
+	list := g.sorted[repo]
+	i := sort.SearchStrings(list, prefix)
+	if i < len(list) && strings.HasPrefix(list[i], prefix) {
+		return list[i], true
+	}
+	return "", false
+}
+
 func (g *grounding) resolveFrom(target, repo, importer string) (string, bool) {
 	set := g.files[repo]
 	if set == nil || target == "" {
@@ -263,7 +318,7 @@ func (g *grounding) resolvedPathIn(rel facts.Relation, from facts.Fact, ok func(
 	if !pathTargetEdge(rel, from) {
 		return false
 	}
-	path, resolved := g.resolveFrom(rel.Target, from.Repo, from.File)
+	path, resolved := g.resolveEdge(rel, from)
 	if !resolved {
 		return false
 	}
@@ -276,7 +331,7 @@ func (g *grounding) resolves(rel facts.Relation, from facts.Fact) bool {
 	if !pathTargetEdge(rel, from) {
 		return false
 	}
-	_, ok := g.resolveFrom(rel.Target, from.Repo, from.File)
+	_, ok := g.resolveEdge(rel, from)
 	return ok
 }
 
@@ -288,7 +343,7 @@ func groundedMembers(rel facts.Relation, from facts.Fact, memberFacts []facts.Fa
 	if !pathTargetEdge(rel, from) {
 		return nil
 	}
-	path, ok := g.resolveFrom(rel.Target, from.Repo, from.File)
+	path, ok := g.resolveEdge(rel, from)
 	if !ok {
 		return nil
 	}
@@ -310,7 +365,7 @@ func (g *grounding) ungroundable(rel facts.Relation, from facts.Fact) bool {
 	if !pathTargetEdge(rel, from) || g.names[rel.Target] {
 		return false
 	}
-	_, resolved := g.resolveFrom(rel.Target, from.Repo, from.File)
+	_, resolved := g.resolveEdge(rel, from)
 	return !resolved
 }
 

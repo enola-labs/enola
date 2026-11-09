@@ -2029,6 +2029,10 @@ type tsAlias struct {
 	// target is taken, as before.
 	alts  []tsAliasTarget
 	known map[string]bool
+	// ws is the workspace package an entry of withWorkspacePackages stands for. It
+	// is tried only after every configured alias, as TypeScript tries a package in
+	// node_modules only after its paths.
+	ws *workspacePkg
 }
 
 // tsAliasTarget is one further target of a tsconfig `paths` entry (tsAlias.alts).
@@ -2042,7 +2046,7 @@ type tsAliasTarget struct {
 func bindAliasFiles(roots []tsAliasRoot, known map[string]bool) {
 	for _, r := range roots {
 		for k, a := range r.aliases {
-			if len(a.alts) > 0 {
+			if len(a.alts) > 0 || a.ws != nil {
 				a.known = known
 				r.aliases[k] = a
 			}
@@ -2446,7 +2450,7 @@ func resolveImportPathVia(importPath, fileDir string, aliases map[string]tsAlias
 
 	bestPrefix, bestAlias := "", tsAlias{}
 	for prefix, a := range aliases {
-		if a.exact || a.re != nil || !strings.HasPrefix(importPath, prefix) {
+		if a.exact || a.re != nil || a.ws != nil || !strings.HasPrefix(importPath, prefix) {
 			continue
 		}
 		if len(prefix) > len(bestPrefix) || (len(prefix) == len(bestPrefix) && prefix < bestPrefix) {
@@ -2462,6 +2466,12 @@ func resolveImportPathVia(importPath, fileDir string, aliases map[string]tsAlias
 	if strings.HasPrefix(importPath, ".") {
 		resolved := factpath.Clean(factpath.Join(fileDir, importPath))
 		return resolved, false, tsAlias{}
+	}
+
+	// A workspace package, by its name: the package manager links it into
+	// node_modules, so the import names the member's own source.
+	if resolved, a, ok := resolveWorkspaceImport(importPath, aliases); ok {
+		return resolved, false, a
 	}
 
 	// Everything else is external (react, next/image, @tanstack/react-query, etc.)
@@ -2734,7 +2744,7 @@ func (e *TSExtractor) ExtractTestRefs(ctx context.Context, repoPath string, file
 		return nil, nil
 	}
 
-	aliasRoots := collectTSAliasRoots(repoPath)
+	aliasRoots := withWorkspacePackages(repoPath, collectTSAliasRoots(repoPath))
 
 	perFile := parallel.MapFiles(ctx, testFiles, func(relFile string) []facts.Fact {
 		src, err := os.ReadFile(filepath.Join(repoPath, relFile))
