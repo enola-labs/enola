@@ -731,3 +731,41 @@ func TestTSExternalHost_DataObjectIsNotACall(t *testing.T) {
 		t.Fatalf("only the object that states a verb is a request to a host, got %+v", ff)
 	}
 }
+
+// TestExtractHTTPClientFacts_CommentedCallIsNotARoute: the client patterns are
+// regular expressions over the file, and a usage example in a comment reads
+// exactly like a call. A route drawn from one is an edge no code performs.
+func TestExtractHTTPClientFacts_CommentedCallIsNotARoute(t *testing.T) {
+	src := `import axios from "axios";
+
+// await axios.get("/api/v1/legacy");
+/**
+ * Replaces the legacy endpoint:
+ *   fetch("/api/v1/slots")
+ */
+export async function trailing() {
+  return fetch("/api/v1/trailing"); // a real call with a comment after it
+}
+
+export async function quoted() {
+  return fetch("/api/v1/quoted//double");
+}
+`
+	ff := extractTS(t, src, "src/client.ts")
+	got := clientRoutes(ff)
+	for _, phantom := range []string{"/api/v1/legacy", "/api/v1/slots"} {
+		if _, found := got[phantom]; found {
+			t.Errorf("%s is only written in a comment, yet it became a client route: %+v", phantom, got)
+		}
+	}
+	for _, real := range []string{"/api/v1/trailing", "/api/v1/quoted//double"} {
+		if _, found := got[real]; !found {
+			t.Errorf("%s is a real call and must stay a client route: %+v", real, got)
+		}
+	}
+	for _, f := range ff {
+		if f.Kind == facts.KindRoute && f.Name == "/api/v1/trailing" && f.Line != 9 {
+			t.Errorf("/api/v1/trailing reported at line %d, want 9: blanking must keep offsets", f.Line)
+		}
+	}
+}

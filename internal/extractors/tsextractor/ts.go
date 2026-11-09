@@ -268,8 +268,6 @@ func (e *TSExtractor) extractFile(src []byte, relFile string, rc *repoCtx, alias
 		src, emberSegments = blankEmberTemplates(src)
 	}
 
-	result, hosts := sourcePatternFacts(src, relFile, rc)
-
 	lang := typescript.LanguageTypescript()
 	if isTSX {
 		lang = typescript.LanguageTSX()
@@ -277,11 +275,14 @@ func (e *TSExtractor) extractFile(src []byte, relFile string, rc *repoCtx, alias
 	parser := sitter.NewParser()
 	defer parser.Close()
 	if err := parser.SetLanguage(sitter.NewLanguage(lang)); err != nil {
+		result, _ := sourcePatternFacts(src, src, relFile, rc)
 		return tsFileResult{facts: result}
 	}
 	tree := parser.Parse(src, nil)
 	defer tree.Close()
 	root := tree.RootNode()
+
+	result, hosts := sourcePatternFacts(src, blankCommentsIn(root, src), relFile, rc)
 
 	if !facts.IsTestPath(relFile) {
 		result = append(result, astPatternFacts(kinds, root, src, relFile, isTSX, rc.graphqlServer)...)
@@ -344,7 +345,10 @@ func (e *TSExtractor) extractNonScript(kinds *tsutil.KindTable, src []byte, relF
 	return nil, false
 }
 
-func sourcePatternFacts(src []byte, relFile string, rc *repoCtx) ([]facts.Fact, clientHosts) {
+// code is src with every comment blanked to spaces (offsets kept, so lines stay
+// true). The route-call passes read it: they are regular expressions, and a usage
+// example in a comment reads exactly like a call.
+func sourcePatternFacts(src, code []byte, relFile string, rc *repoCtx) ([]facts.Fact, clientHosts) {
 	var result []facts.Fact
 	var hosts clientHosts
 	// Parse openapi-typescript generated files for backend API route dependencies.
@@ -366,12 +370,12 @@ func sourcePatternFacts(src []byte, relFile string, rc *repoCtx) ([]facts.Fact, 
 			result = append(result, extractGraphQLServerSDL(src, relFile)...)
 		}
 		var clientFacts []facts.Fact
-		clientFacts, hosts = extractHTTPClientFactsCounted(src, relFile)
+		clientFacts, hosts = extractHTTPClientFactsCounted(code, relFile)
 		result = append(result, clientFacts...)
 		// Call-registered server routes (Express/Fastify/Hono/Koa). Same test-path
 		// gate: an e2e suite that spins up its own app would otherwise contribute
 		// server routes no production client calls.
-		result = append(result, extractServerRouteFacts(src, relFile)...)
+		result = append(result, extractServerRouteFacts(code, relFile)...)
 	}
 
 	// gRPC-web client call sites become client-role routes to "/pkg.Service/Method".
