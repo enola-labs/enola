@@ -477,3 +477,46 @@ func TestGrounding_PythonImportResolvesToModuleFile(t *testing.T) {
 		t.Fatal("TypeScript imports must not resolve to Python files")
 	}
 }
+
+// A TypeScript import of a workspace package whose exports name only a build
+// output lands on the package directory, which names no file. It is still an
+// import of that package, so it grounds in the component holding the package's
+// files; without that a rule between workspace packages held vacuously for every
+// package published from a build directory.
+func TestExplain_WorkspacePackageDirImportGroundsInThePackage(t *testing.T) {
+	for _, tc := range []struct {
+		via  string
+		want bool
+	}{
+		{"workspace-package-dir", true},
+		{"", false}, // a bare directory target from anything else stays ungrounded
+	} {
+		store := facts.NewStore()
+		props := map[string]any{"language": "typescript", "source": "internal"}
+		if tc.via != "" {
+			props["resolved_via"] = tc.via
+		}
+		store.Add(
+			componentIntent("core", "packages/core/**"),
+			componentIntent("feature", "packages/feature/**"),
+			ruleIntent("feature-avoids-core", "feature", "core", "imports", "packages stay apart"),
+			facts.Fact{Kind: facts.KindDependency, Name: "packages/feature/src -> packages/core", File: "packages/feature/src/index.ts", Props: props,
+				Relations: []facts.Relation{{Kind: facts.RelImports, Target: "packages/core"}}},
+			facts.Fact{Kind: facts.KindFileRef, Name: "packages/core/gen/a.ts", File: "packages/core/gen/a.ts"},
+			facts.Fact{Kind: facts.KindFileRef, Name: "packages/feature/src/index.ts", File: "packages/feature/src/index.ts"},
+		)
+		insights, err := New().Explain(context.Background(), store)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := false
+		for _, in := range insights {
+			if strings.HasPrefix(in.Title, "Constraint feature-avoids-core violated") {
+				got = true
+			}
+		}
+		if got != tc.want {
+			t.Errorf("resolved_via=%q: violated = %v, want %v (%+v)", tc.via, got, tc.want, insights)
+		}
+	}
+}

@@ -2029,6 +2029,10 @@ type tsAlias struct {
 	// target is taken, as before.
 	alts  []tsAliasTarget
 	known map[string]bool
+	// ws is the workspace package an entry of withWorkspacePackages stands for. It
+	// is tried only after every configured alias, as TypeScript tries a package in
+	// node_modules only after its paths.
+	ws *workspacePkg
 }
 
 // tsAliasTarget is one further target of a tsconfig `paths` entry (tsAlias.alts).
@@ -2036,16 +2040,15 @@ type tsAliasTarget struct {
 	replacement, suffix string
 }
 
-// bindAliasFiles gives every alias with further targets the indexed files to
-// choose among them by. It reads the indexed set, not the disk, so the choice
+// bindAliasFiles gives every alias the indexed files: to choose among further
+// targets by, to tell a tsconfig target that names no module (which TypeScript
+// then looks for as a package), and to pick a workspace package's entry. It reads the indexed set, not the disk, so the choice
 // changes only when an input of the extractor cache does.
 func bindAliasFiles(roots []tsAliasRoot, known map[string]bool) {
 	for _, r := range roots {
 		for k, a := range r.aliases {
-			if len(a.alts) > 0 {
-				a.known = known
-				r.aliases[k] = a
-			}
+			a.known = known
+			r.aliases[k] = a
 		}
 	}
 }
@@ -2422,7 +2425,19 @@ func resolveImportPathVia(importPath, fileDir string, aliases map[string]tsAlias
 		case a.external:
 			return resolved, true, a
 		}
-		return factpath.Clean(resolved), false, a
+		resolved = factpath.Clean(resolved)
+		// TypeScript tries a paths target and, when no file is there, resolves the
+		// specifier as a package. For a workspace member that is its own source; a
+		// tsconfig `"@acme/*": ["./packages/*/src/index.ts"]` that cannot spell a
+		// subpath (`@acme/core/extra`) otherwise drew an edge to a file that does
+		// not exist. A bundler alias does not fall back: the bundler replaced the
+		// specifier and resolves only what it produced.
+		if a.via == aliasViaTSConfig && a.known != nil && isModuleSpecifier(importPath) && !moduleIndexed(resolved, a.known) {
+			if ws, wa, ok := resolveWorkspaceImport(importPath, aliases); ok {
+				return ws, false, wa
+			}
+		}
+		return resolved, false, a
 	}
 	// An exact entry wins outright. tsconfig resolves most-specific-first and a pattern
 	// with no `*` matches the whole specifier and nothing else, so it cannot be ranked
@@ -2446,7 +2461,7 @@ func resolveImportPathVia(importPath, fileDir string, aliases map[string]tsAlias
 
 	bestPrefix, bestAlias := "", tsAlias{}
 	for prefix, a := range aliases {
-		if a.exact || a.re != nil || !strings.HasPrefix(importPath, prefix) {
+		if a.exact || a.re != nil || a.ws != nil || !strings.HasPrefix(importPath, prefix) {
 			continue
 		}
 		if len(prefix) > len(bestPrefix) || (len(prefix) == len(bestPrefix) && prefix < bestPrefix) {
@@ -2462,6 +2477,12 @@ func resolveImportPathVia(importPath, fileDir string, aliases map[string]tsAlias
 	if strings.HasPrefix(importPath, ".") {
 		resolved := factpath.Clean(factpath.Join(fileDir, importPath))
 		return resolved, false, tsAlias{}
+	}
+
+	// A workspace package, by its name: the package manager links it into
+	// node_modules, so the import names the member's own source.
+	if resolved, a, ok := resolveWorkspaceImport(importPath, aliases); ok {
+		return resolved, false, a
 	}
 
 	// Everything else is external (react, next/image, @tanstack/react-query, etc.)
@@ -2554,7 +2575,7 @@ func buildImportBindings(kinds *tsutil.KindTable, root *sitter.Node, src []byte,
 			// A folder module (`../lib` -> lib/index.ts) owns its symbols under the
 			// folder itself, not under its parent.
 			qualifier = dir
-		} else if missingAliasTarget(importPath, resolved, alias, isExternal, files) {
+		} else if namesNoModule(importPath, resolved, alias, isExternal, files) {
 			// The module does not exist, so its names are qualified by its own path,
 			// which declares nothing, not by a parent directory that may.
 			qualifier = resolved
@@ -2734,7 +2755,7 @@ func (e *TSExtractor) ExtractTestRefs(ctx context.Context, repoPath string, file
 		return nil, nil
 	}
 
-	aliasRoots := collectTSAliasRoots(repoPath)
+	aliasRoots := withWorkspacePackages(repoPath, collectTSAliasRoots(repoPath))
 
 	perFile := parallel.MapFiles(ctx, testFiles, func(relFile string) []facts.Fact {
 		src, err := os.ReadFile(filepath.Join(repoPath, relFile))

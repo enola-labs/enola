@@ -128,7 +128,7 @@ func (r *fileRefs) resolveModule(node *sitter.Node) (moduleDir, indexPath string
 	// parent directory may well hold one (fs-dir/test -> dir/module/test beside
 	// dir/module/index.js), and binding there drew an edge to a symbol the import
 	// never reaches.
-	if missingAliasTarget(importPath, resolved, alias, false, r.ctx.files) {
+	if namesNoModule(importPath, resolved, alias, false, r.ctx.files) {
 		return resolved, "", true
 	}
 	return factpath.Dir(resolved), "", true

@@ -29,6 +29,9 @@ func (e *TSExtractor) Extract(ctx context.Context, repoPath string, files []stri
 	if fw.isSvelteKit {
 		aliasRoots = withSvelteKitAliasFallbacks(repoPath, aliasRoots)
 	}
+	// Workspace members are imported by package name. Added after every configured
+	// alias, so a tsconfig or bundler mapping of the same name still wins.
+	aliasRoots = withWorkspacePackages(repoPath, aliasRoots)
 
 	tsFiles, htmlFiles, knownFiles := partitionTSFiles(files, fw.isAngular)
 	bindAliasFiles(aliasRoots, knownFiles)

@@ -3472,7 +3472,11 @@ import (
 // v549: TypeScript: the client and server route passes skip comments, and a client
 // URL template that nests another template is read whole, so `/x${q ? `?${q}` : ""}`
 // is the route /x, not the source fragment /x${q.
-const cacheVersion = "v549"
+// v550: TypeScript: an import of a workspace member by its package name (npm, Yarn,
+// pnpm and Bun workspaces) resolves to the member's source through its exports or
+// entry fields, mapping a build output back to src; a tsconfig path that names no
+// file falls back to the same. package.json now feeds the TypeScript cache key.
+const cacheVersion = "v550"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
