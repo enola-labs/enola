@@ -176,6 +176,9 @@ func TestRenderText_AllOutsideIsNotEverythingResolved(t *testing.T) {
 	if !strings.Contains(out, "not loaded") {
 		t.Errorf("text view does not name the calls to an unloaded service:\n%s", out)
 	}
+	if strings.Contains(out, "Unresolved outbound call sites (") {
+		t.Errorf("text view heads calls to an unloaded service as unresolved, while its Unresolved count is 0:\n%s", out)
+	}
 }
 
 // TestRenderMarkdown_IsolatedFooterHoldsForExternalOnlyRow: the footer defines

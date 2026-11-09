@@ -80,12 +80,21 @@ func (r Report) writeUnresolved(sb *strings.Builder) {
 		return
 	}
 
-	total := 0
+	total, outside := 0, false
 	for _, m := range misses {
 		total += m.total
 	}
-	fmt.Fprintf(sb, "\nUnresolved outbound call sites (%d across %s):\n",
-		total, plural(len(misses), "service", "services"))
+	for _, s := range r {
+		outside = outside || s.OutsideTotal > 0
+	}
+	// The heading counts both buckets, so it names both once a call to an unloaded
+	// service is among them: those read 0 in the Unresolved column.
+	heading := "Unresolved outbound call sites"
+	if outside {
+		heading = "Outbound call sites unresolved or to a service not loaded"
+	}
+	fmt.Fprintf(sb, "\n%s (%d across %s):\n",
+		heading, total, plural(len(misses), "service", "services"))
 	for _, m := range misses {
 		kinds := m.kinds
 		if len(kinds) > unresolvedSampleCap {
