@@ -172,8 +172,9 @@ func runGit(repoPath string, args ...string) (string, error) {
 // linker records into a single snapshot-level summary. It returns nil for a
 // single-repo snapshot (no service nodes), matching the coverage explainer.
 //
-// A gap is counted through facts.ClassifyService, so the receipt, coverage_report
-// and the coverage explainer cannot drift apart. UnresolvedEdges accumulates for
+// A service is read and classified through facts.CoverageOf, as coverage_report,
+// the coverage explainer and the dashboard read it, so they cannot drift apart.
+// UnresolvedEdges accumulates the unresolved bucket for
 // every service regardless of class — a partially-covered service still has blind
 // spots worth reporting, it just is not a gap.
 func coverageSummary(store *facts.Store) *facts.CoverageSummary {
@@ -190,54 +191,20 @@ func coverageSummary(store *facts.Store) *facts.CoverageSummary {
 	// are different claims, and one number answering both answers neither.
 	for _, extraction := range extractions {
 		sum.ExtractorsReporting++
-		sum.ExtractionUnresolved += readCoverageField(extraction, "unresolved")
+		sum.ExtractionUnresolved += facts.CoverageOf(extraction).Unresolved
 	}
 	if len(services) == 0 {
 		return sum
 	}
 	for _, svc := range services {
-		detected := readCoverageField(svc, "detected")
-		unresolved := readCoverageField(svc, "unresolved")
-		sum.UnresolvedEdges += unresolved
-		sum.ExternalEdges += readCoverageField(svc, "external")
-		if facts.ClassifyService(facts.DependsOnCount(svc), detected, readCoverageField(svc, "resolved"), unresolved) == facts.ServiceCoverageGap {
+		c := facts.CoverageOf(svc)
+		sum.UnresolvedEdges += c.Unresolved
+		sum.ExternalEdges += c.External
+		if c.Class() == facts.ServiceCoverageGap {
 			sum.CoverageGaps++
 		}
 	}
 	return sum
-}
-
-// readCoverageField sums one numeric field (e.g. "unresolved" or "external") across
-// a service node's edge_coverage entries, tolerating both the in-memory shape and
-// the float64 shape that survives a facts.jsonl JSON round-trip (mirrors
-// coverage.readCoverage).
-func readCoverageField(svc facts.Fact, field string) int {
-	if svc.Props == nil {
-		return 0
-	}
-	var raw []map[string]any
-	switch v := svc.PropAny("edge_coverage").(type) {
-	case []map[string]any:
-		raw = v
-	case []any:
-		for _, item := range v {
-			if m, ok := item.(map[string]any); ok {
-				raw = append(raw, m)
-			}
-		}
-	default:
-		return 0
-	}
-	total := 0
-	for _, m := range raw {
-		switch n := m[field].(type) {
-		case int:
-			total += n
-		case float64:
-			total += int(n)
-		}
-	}
-	return total
 }
 
 // The snapshot ID is a stable content fingerprint of "what the graph was deterministic

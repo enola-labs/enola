@@ -280,3 +280,53 @@ func TestExplain_ClientAppIsNotACandidateServer(t *testing.T) {
 		t.Errorf("a client app must not be named as a candidate server, got:\n%s", actions)
 	}
 }
+
+// TestExplain_AllOutsideServiceIsAGap: every call names a service the snapshot does
+// not hold, so the unresolved bucket is 0 and the outside bucket is 3. The class is
+// coverage_gap on every surface, so the explainer must say so, and must name the
+// calls as outside the snapshot rather than as unresolved.
+func TestExplain_AllOutsideServiceIsAGap(t *testing.T) {
+	store := facts.NewStore()
+	store.Add(facts.Fact{Kind: facts.KindService, Name: "widget-client", Repo: "widget-client",
+		Props: map[string]any{"edge_coverage": []any{map[string]any{
+			"edge_type": "http_client", "detected": 3.0, "resolved": 0.0, "unresolved": 0.0,
+			"external": 0.0, "declared": 0.0, "outside": 3.0,
+		}}}})
+	for _, path := range []string{"/legacy/statuses", "/legacy/queues", "/legacy/jobs"} {
+		store.Add(facts.Fact{Kind: facts.KindRoute, Name: "GET " + path, Repo: "widget-client",
+			File: "widget-client/src/api.ts",
+			Props: map[string]any{"method": "GET", "role": "client",
+				facts.PropUnmatchedByServer: true, "unmatched_reason": "outside_snapshot"}})
+	}
+
+	insights, err := New().Explain(context.Background(), store)
+	if err != nil {
+		t.Fatalf("Explain: %v", err)
+	}
+	var gap *facts.Insight
+	for i := range insights {
+		if strings.Contains(insights[i].Title, "widget-client") {
+			gap = &insights[i]
+		}
+	}
+	if gap == nil {
+		t.Fatalf("no insight for an all-outside service; got %d insight(s)", len(insights))
+	}
+	if !strings.HasPrefix(gap.Title, "Coverage gap") {
+		t.Errorf("title = %q, want a 'Coverage gap' title", gap.Title)
+	}
+	if strings.Contains(gap.Title, "unresolved") {
+		t.Errorf("title = %q calls outside-the-snapshot calls unresolved", gap.Title)
+	}
+	if !strings.Contains(gap.Title+gap.Description, "not loaded") {
+		t.Errorf("insight does not say the target is not loaded:\n%s\n%s", gap.Title, gap.Description)
+	}
+	if !strings.Contains(gap.Description, "3 outside") {
+		t.Errorf("description does not carry the outside bucket:\n%s", gap.Description)
+	}
+	for _, e := range gap.Evidence {
+		if strings.Contains(e.Detail, "from here") && strings.Contains(e.Detail, "unresolved") {
+			t.Errorf("per-directory evidence calls outside-the-snapshot calls unresolved: %s %s", e.Fact, e.Detail)
+		}
+	}
+}

@@ -768,11 +768,11 @@ func TestCoverageDetails(t *testing.T) {
 	if len(services) != 2 || services[0].Service != "app" || services[1].Service != "frontend" {
 		t.Fatalf("services = %+v, want [app, frontend]", services)
 	}
-	if services[0].Status != svcCoverageGap {
-		t.Errorf("app status = %q, want %q", services[0].Status, svcCoverageGap)
+	if services[0].Status != facts.ServiceCoverageGap {
+		t.Errorf("app status = %q, want %q", services[0].Status, facts.ServiceCoverageGap)
 	}
-	if services[1].Status != svcConnected || services[1].Resolved != 1 || services[1].Unresolved != 8 {
-		t.Errorf("frontend row = %+v, want connected/resolved 1/unresolved 8", services[1])
+	if r := services[1]; r.Status != facts.ServiceConnected || r.Outbound != 1 || r.Resolved != 131 || r.Unresolved != 8 {
+		t.Errorf("frontend row = %+v, want connected/outbound 1/resolved 131/unresolved 8", r)
 	}
 	if len(unresolved) != 1 || unresolved[0].Path != "/v2/hide.json" || unresolved[0].Method != "POST" || unresolved[0].Reason != "path_unknown" {
 		t.Fatalf("unresolved = %+v, want one POST /v2/hide.json path_unknown", unresolved)
@@ -890,5 +890,34 @@ func TestTitleIsTheProductName(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Errorf("body missing %q", want)
 		}
+	}
+}
+
+// TestCoverageDetails_AgreesWithTheSharedRule: the dashboard's coverage rows read and
+// classify a service the way coverage_report does. A service whose only call matched
+// its own repo has a resolved call and no depends_on edge; a client whose calls all
+// name an unloaded service has outside 3 and unresolved 0.
+func TestCoverageDetails_AgreesWithTheSharedRule(t *testing.T) {
+	st := facts.NewStore()
+	st.Add(
+		facts.Fact{Kind: facts.KindService, Name: "self-svc", Repo: "self-svc",
+			Props: map[string]any{"edge_coverage": []any{map[string]any{
+				"edge_type": "http_client", "detected": 1.0, "resolved": 1.0, "unresolved": 0.0,
+			}}}},
+		facts.Fact{Kind: facts.KindService, Name: "widget-client", Repo: "widget-client",
+			Props: map[string]any{"edge_coverage": []any{map[string]any{
+				"edge_type": "http_client", "detected": 3.0, "resolved": 0.0, "unresolved": 0.0, "outside": 3.0,
+			}}}},
+	)
+	services, _ := coverageDetails(st)
+	if len(services) != 2 {
+		t.Fatalf("services = %+v, want 2 rows", services)
+	}
+	self, widget := services[0], services[1]
+	if self.Status != facts.ServiceConnected || self.Resolved != 1 || self.Outbound != 0 {
+		t.Errorf("self-svc row = %+v, want connected, Resolved 1 (edge_coverage), Outbound 0", self)
+	}
+	if widget.Status != facts.ServiceCoverageGap || widget.Outside != 3 || widget.Unresolved != 0 {
+		t.Errorf("widget-client row = %+v, want coverage_gap, Outside 3, Unresolved 0", widget)
 	}
 }

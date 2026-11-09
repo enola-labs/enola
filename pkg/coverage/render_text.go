@@ -60,13 +60,16 @@ func (r Report) writeUnresolved(sb *strings.Builder) {
 	}
 	var misses []miss
 	for _, s := range r {
-		if s.UnresolvedTotal == 0 {
+		if s.UnresolvedTotal == 0 && s.OutsideTotal == 0 {
 			continue
 		}
-		m := miss{service: s.Service, total: s.UnresolvedTotal}
+		m := miss{service: s.Service, total: s.UnresolvedTotal + s.OutsideTotal}
 		for _, c := range s.EdgeCoverage {
 			if c.Unresolved > 0 {
 				m.kinds = append(m.kinds, fmt.Sprintf("%s ×%d", c.EdgeType, c.Unresolved))
+			}
+			if c.Outside > 0 {
+				m.kinds = append(m.kinds, fmt.Sprintf("%s ×%d to a service not loaded", c.EdgeType, c.Outside))
 			}
 		}
 		sort.Strings(m.kinds)
@@ -77,12 +80,21 @@ func (r Report) writeUnresolved(sb *strings.Builder) {
 		return
 	}
 
-	total := 0
+	total, outside := 0, false
 	for _, m := range misses {
 		total += m.total
 	}
-	fmt.Fprintf(sb, "\nUnresolved outbound call sites (%d across %s):\n",
-		total, plural(len(misses), "service", "services"))
+	for _, s := range r {
+		outside = outside || s.OutsideTotal > 0
+	}
+	// The heading counts both buckets, so it names both once a call to an unloaded
+	// service is among them: those read 0 in the Unresolved column.
+	heading := "Unresolved outbound call sites"
+	if outside {
+		heading = "Outbound call sites unresolved or to a service not loaded"
+	}
+	fmt.Fprintf(sb, "\n%s (%d across %s):\n",
+		heading, total, plural(len(misses), "service", "services"))
 	for _, m := range misses {
 		kinds := m.kinds
 		if len(kinds) > unresolvedSampleCap {
