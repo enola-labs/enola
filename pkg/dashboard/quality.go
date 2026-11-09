@@ -7,14 +7,16 @@ import (
 )
 
 // coverageRow is one service's cross-repo coverage, backing the Services / Coverage
-// gaps cards. Resolved is the count of resolved outbound (depends_on) edges;
-// Detected/Unresolved/External are summed across the service's edge_coverage
-// entries; Status classifies the node (connected | coverage_gap | isolated).
+// gaps cards, with coverage_report's columns. Outbound is the count of resolved
+// outbound (depends_on) edges; the other counts are summed across the service's
+// edge_coverage entries; Status is facts.CoverageOf's class.
 type coverageRow struct {
 	Service    string
-	Resolved   int
+	Outbound   int
 	Detected   int
+	Resolved   int
 	Unresolved int
+	Outside    int
 	External   int
 	Status     string
 }
@@ -30,27 +32,6 @@ type routeRow struct {
 	Line   int
 }
 
-// Service coverage classifications — mirrors facts.ClassifyService (the OSS logic
-// is internal-only, so the tiny decision is reproduced here).
-const (
-	svcConnected   = "connected"
-	svcCoverageGap = "coverage_gap"
-	svcIsolated    = "isolated"
-)
-
-// classifyService reproduces facts.ClassifyService: any resolved outbound edge →
-// connected; else detected-but-unresolved call sites → coverage_gap (a blind spot);
-// else a genuine leaf → isolated.
-func classifyService(resolved, detected, unresolved int) string {
-	if resolved > 0 {
-		return svcConnected
-	}
-	if detected > 0 && unresolved > 0 {
-		return svcCoverageGap
-	}
-	return svcIsolated
-}
-
 // coverageDetails enumerates cross-repo coverage from the live store: one row per
 // service node (with its edge_coverage tallies and classification) and the list of
 // unmatched client routes (the constituents of the unresolved-edges count). A nil
@@ -61,21 +42,16 @@ func coverageDetails(store *facts.Store) (services []coverageRow, unresolved []r
 	}
 
 	for _, svc := range store.ByKind(facts.KindService) {
-		resolved := 0
-		for _, rel := range svc.Relations {
-			if rel.Kind == facts.RelDependsOn {
-				resolved++
-			}
-		}
-		detected := edgeCoverageSum(svc, "detected")
-		unres := edgeCoverageSum(svc, "unresolved")
+		c := facts.CoverageOf(svc)
 		services = append(services, coverageRow{
 			Service:    svc.Name,
-			Resolved:   resolved,
-			Detected:   detected,
-			Unresolved: unres,
-			External:   edgeCoverageSum(svc, "external"),
-			Status:     classifyService(resolved, detected, unres),
+			Outbound:   c.Outbound,
+			Detected:   c.Detected,
+			Resolved:   c.Resolved,
+			Unresolved: c.Unresolved,
+			Outside:    c.Outside,
+			External:   c.External,
+			Status:     c.Class(),
 		})
 	}
 	sort.Slice(services, func(i, j int) bool { return services[i].Service < services[j].Service })
@@ -104,38 +80,6 @@ func coverageDetails(store *facts.Store) (services []coverageRow, unresolved []r
 	})
 
 	return services, unresolved
-}
-
-// edgeCoverageSum totals a numeric field across a service node's edge_coverage prop
-// (one entry per edge_type). Mirrors the engine's readCoverageField: the value may
-// be []map[string]any or []any, with int (in-process) or float64 (JSON) numbers.
-func edgeCoverageSum(svc facts.Fact, field string) int {
-	if svc.Props == nil {
-		return 0
-	}
-	var entries []map[string]any
-	switch v := svc.PropAny("edge_coverage").(type) {
-	case []map[string]any:
-		entries = v
-	case []any:
-		for _, item := range v {
-			if m, ok := item.(map[string]any); ok {
-				entries = append(entries, m)
-			}
-		}
-	default:
-		return 0
-	}
-	total := 0
-	for _, m := range entries {
-		switch n := m[field].(type) {
-		case int:
-			total += n
-		case float64:
-			total += int(n)
-		}
-	}
-	return total
 }
 
 // propStr returns a string-valued prop, or "" when absent/non-string.

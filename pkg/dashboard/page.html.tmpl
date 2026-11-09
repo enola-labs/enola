@@ -675,9 +675,9 @@
       <button type="button" class="modal-close" aria-label="Close" onclick="closeModal(this)">&times;</button>
     </div>
     <div class="table-scroll"><table>
-      <thead><tr><th>Service</th><th class="num">Resolved</th><th class="num">Detected</th><th class="num">Unresolved</th><th class="num">External</th><th>Status</th></tr></thead>
+      <thead><tr><th>Service</th><th class="num">Outbound edges</th><th class="num">Detected</th><th class="num">Resolved</th><th class="num">Unresolved</th><th class="num">Outside snapshot</th><th class="num">External</th><th>Status</th></tr></thead>
       <tbody>
-        {{range .Coverage}}<tr><td>{{.Service}}</td><td class="num">{{.Resolved}}</td><td class="num">{{.Detected}}</td><td class="num">{{.Unresolved}}</td><td class="num">{{.External}}</td><td>{{.Status}}</td></tr>{{end}}
+        {{range .Coverage}}<tr><td>{{.Service}}</td><td class="num">{{.Outbound}}</td><td class="num">{{.Detected}}</td><td class="num">{{.Resolved}}</td><td class="num">{{.Unresolved}}</td><td class="num">{{.Outside}}</td><td class="num">{{.External}}</td><td>{{.Status}}</td></tr>{{end}}
       </tbody>
     </table></div>
   </div>
