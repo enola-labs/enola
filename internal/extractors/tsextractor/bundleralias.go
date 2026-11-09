@@ -46,6 +46,18 @@ func missingAliasTarget(importPath, resolved string, a tsAlias, isExternal bool,
 	return !moduleIndexed(resolved, files.knownFiles()) && !files.dirs[resolved] && !files.onDisk(resolved)
 }
 
+// namesNoModule reports whether a resolved import names no module whose names a
+// binding may qualify by its parent directory: an alias target that does not
+// exist, or a workspace package the import reached only as a whole. Either way
+// the parent directory may well declare the same names, and binding there drew
+// an edge to a symbol the import never reaches.
+func namesNoModule(importPath, resolved string, a tsAlias, isExternal bool, files *tsFileIndex) bool {
+	if !isExternal && a.via == aliasViaWorkspaceDir {
+		return true
+	}
+	return missingAliasTarget(importPath, resolved, a, isExternal, files)
+}
+
 var (
 	viteConfigNames = []string{"vite.config.ts", "vite.config.mts", "vite.config.js", "vite.config.mjs", "vite.config.cts", "vite.config.cjs"}
 	nuxtConfigNames = []string{"nuxt.config.ts", "nuxt.config.js", "nuxt.config.mjs"}

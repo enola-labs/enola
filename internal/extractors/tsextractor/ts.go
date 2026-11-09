@@ -2040,16 +2040,15 @@ type tsAliasTarget struct {
 	replacement, suffix string
 }
 
-// bindAliasFiles gives every alias with further targets the indexed files to
-// choose among them by. It reads the indexed set, not the disk, so the choice
+// bindAliasFiles gives every alias the indexed files: to choose among further
+// targets by, to tell a tsconfig target that names no module (which TypeScript
+// then looks for as a package), and to pick a workspace package's entry. It reads the indexed set, not the disk, so the choice
 // changes only when an input of the extractor cache does.
 func bindAliasFiles(roots []tsAliasRoot, known map[string]bool) {
 	for _, r := range roots {
 		for k, a := range r.aliases {
-			if len(a.alts) > 0 || a.ws != nil {
-				a.known = known
-				r.aliases[k] = a
-			}
+			a.known = known
+			r.aliases[k] = a
 		}
 	}
 }
@@ -2426,7 +2425,19 @@ func resolveImportPathVia(importPath, fileDir string, aliases map[string]tsAlias
 		case a.external:
 			return resolved, true, a
 		}
-		return factpath.Clean(resolved), false, a
+		resolved = factpath.Clean(resolved)
+		// TypeScript tries a paths target and, when no file is there, resolves the
+		// specifier as a package. For a workspace member that is its own source; a
+		// tsconfig `"@acme/*": ["./packages/*/src/index.ts"]` that cannot spell a
+		// subpath (`@acme/core/extra`) otherwise drew an edge to a file that does
+		// not exist. A bundler alias does not fall back: the bundler replaced the
+		// specifier and resolves only what it produced.
+		if a.via == aliasViaTSConfig && a.known != nil && isModuleSpecifier(importPath) && !moduleIndexed(resolved, a.known) {
+			if ws, wa, ok := resolveWorkspaceImport(importPath, aliases); ok {
+				return ws, false, wa
+			}
+		}
+		return resolved, false, a
 	}
 	// An exact entry wins outright. tsconfig resolves most-specific-first and a pattern
 	// with no `*` matches the whole specifier and nothing else, so it cannot be ranked
@@ -2564,7 +2575,7 @@ func buildImportBindings(kinds *tsutil.KindTable, root *sitter.Node, src []byte,
 			// A folder module (`../lib` -> lib/index.ts) owns its symbols under the
 			// folder itself, not under its parent.
 			qualifier = dir
-		} else if missingAliasTarget(importPath, resolved, alias, isExternal, files) {
+		} else if namesNoModule(importPath, resolved, alias, isExternal, files) {
 			// The module does not exist, so its names are qualified by its own path,
 			// which declares nothing, not by a parent directory that may.
 			qualifier = resolved

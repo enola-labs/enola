@@ -1,10 +1,14 @@
 package tsextractor
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
+
+	"github.com/enola-labs/enola/internal/facts"
 )
 
 func writeTree(t *testing.T, root string, files map[string]string) {
@@ -250,5 +254,99 @@ func TestSplitPackageSpecifier(t *testing.T) {
 		if _, _, ok := splitPackageSpecifier(spec); ok {
 			t.Errorf("%q must not split", spec)
 		}
+	}
+}
+
+// extractWorkspaceRepo runs the extractor over a temporary workspace and returns
+// the imports edges and the calls targets of one file.
+func extractWorkspaceRepo(t *testing.T, files map[string]string, file string) (imports map[string]string, calls map[string]bool) {
+	t.Helper()
+	root := t.TempDir()
+	writeTree(t, root, files)
+	var rel []string
+	for f := range files {
+		rel = append(rel, f)
+	}
+	sort.Strings(rel)
+	ff, err := New().Extract(context.Background(), root, rel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	imports, calls = map[string]string{}, map[string]bool{}
+	for _, f := range ff {
+		if f.File != file {
+			continue
+		}
+		for _, r := range f.Relations {
+			switch r.Kind {
+			case facts.RelImports:
+				imports[r.Target] = f.PropString("resolved_via")
+			case facts.RelCalls:
+				calls[r.Target] = true
+			}
+		}
+	}
+	return imports, calls
+}
+
+var issueWorkspace = map[string]string{
+	"package.json":                  `{"name": "acme", "private": true, "workspaces": ["packages/*"]}`,
+	"tsconfig.json":                 `{"compilerOptions": {"module": "NodeNext", "moduleResolution": "NodeNext", "strict": true}}`,
+	"packages/core/package.json":    `{"name": "@acme/core", "type": "module", "exports": {".": "./src/index.ts", "./extra": "./src/extra.ts"}}`,
+	"packages/core/src/index.ts":    "export const ok = 1\n",
+	"packages/core/src/extra.ts":    "export const extra = 2\n",
+	"packages/feature/package.json": `{"name": "@acme/feature", "type": "module", "dependencies": {"@acme/core": "*"}}`,
+	"packages/feature/src/index.ts": "import { ok } from \"@acme/core\"\nimport { extra } from \"@acme/core/extra\"\nexport const value = ok + extra\nexport function f() { return ok }\n",
+}
+
+func TestExtractWorkspaceImportsResolveToSource(t *testing.T) {
+	imports, _ := extractWorkspaceRepo(t, issueWorkspace, "packages/feature/src/index.ts")
+	for _, want := range []string{"packages/core/src/index.ts", "packages/core/src/extra.ts"} {
+		if imports[want] != aliasViaWorkspace {
+			t.Errorf("import %s via %q, want via %q; imports = %v", want, imports[want], aliasViaWorkspace, imports)
+		}
+	}
+	for target := range imports {
+		if strings.HasPrefix(target, "@acme/") {
+			t.Errorf("workspace import left external: %s", target)
+		}
+	}
+}
+
+// The issue's related case: a wildcard paths entry that cannot spell a subpath.
+// TypeScript falls back to the package, so the subpath resolves through exports.
+func TestExtractTSConfigAliasMissingTargetFallsBackToWorkspace(t *testing.T) {
+	files := map[string]string{}
+	for k, v := range issueWorkspace {
+		files[k] = v
+	}
+	files["tsconfig.json"] = `{"compilerOptions": {"paths": {"@acme/*": ["./packages/*/src/index.ts", "./libs/*/src/index.ts"]}}}`
+	imports, _ := extractWorkspaceRepo(t, files, "packages/feature/src/index.ts")
+	if imports["packages/core/src/index.ts"] != aliasViaTSConfig {
+		t.Errorf("@acme/core must still resolve through tsconfig paths: %v", imports)
+	}
+	if imports["packages/core/src/extra.ts"] != aliasViaWorkspace {
+		t.Errorf("@acme/core/extra must fall back to the workspace package: %v", imports)
+	}
+	if _, phantom := imports["packages/core/extra/src/index.ts"]; phantom {
+		t.Errorf("edge to a file that does not exist: %v", imports)
+	}
+}
+
+// A package reached only as a whole binds its names to nothing, not to whatever
+// the parent directory declares.
+func TestExtractWorkspacePackageDirBindsNothing(t *testing.T) {
+	files := map[string]string{}
+	for k, v := range issueWorkspace {
+		files[k] = v
+	}
+	files["packages/core/package.json"] = `{"name": "@acme/core", "exports": {".": "./generated/bundle.js"}}`
+	files["packages/index.ts"] = "export const ok = 99\n" // a same-named symbol one level up
+	imports, calls := extractWorkspaceRepo(t, files, "packages/feature/src/index.ts")
+	if imports["packages/core"] != aliasViaWorkspaceDir {
+		t.Errorf("want the package directory via %q: %v", aliasViaWorkspaceDir, imports)
+	}
+	if calls["packages.ok"] {
+		t.Errorf("call bound to the parent directory's symbol: %v", calls)
 	}
 }
