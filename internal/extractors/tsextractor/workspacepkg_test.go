@@ -154,6 +154,7 @@ func TestResolveWorkspaceImports(t *testing.T) {
 		"packages/core/src/index.ts":     `export const ok = 1`,
 		"packages/core/src/extra.ts":     `export const extra = 2`,
 		"packages/core/src/ui/button.ts": `export const b = 3`,
+		"packages/core/types.d.ts":       `export type T = 1`,
 	}
 	cases := []struct {
 		name, manifest, spec, want, via string
@@ -176,6 +177,10 @@ func TestResolveWorkspaceImports(t *testing.T) {
 			"@acme/core/src/extra", "packages/core/src/extra", aliasViaWorkspace},
 		{"unexported subpath: package directory", `{"name": "@acme/core", "exports": {".": "./src/index.ts"}}`,
 			"@acme/core/extra", "packages/core", aliasViaWorkspaceDir},
+		{"declaration-only module", `{"name": "@acme/core"}`,
+			"@acme/core/types", "packages/core/types.d.ts", aliasViaWorkspace},
+		{"build rooted above the package", `{"name": "@acme/core", "exports": {"./*": {"types": "./dist/types/feature/src/*.d.ts"}}}`,
+			"@acme/core/index", "packages/feature/src/index", aliasViaWorkspace},
 		{"build output nothing maps: package directory", `{"name": "@acme/core", "exports": {".": "./generated/bundle.js"}}`,
 			"@acme/core", "packages/core", aliasViaWorkspaceDir},
 	}

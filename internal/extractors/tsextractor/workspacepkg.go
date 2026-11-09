@@ -385,6 +385,13 @@ func indexedModule(c string, known map[string]bool) (string, bool) {
 	if moduleIndexed(c, known) {
 		return c, true
 	}
+	// A module that ships only its declarations (`types.d.ts`, `global.d.ts`),
+	// which TypeScript resolves as readily as a source file.
+	for _, ext := range []string{".d.ts", "/index.d.ts"} {
+		if known[c+ext] {
+			return c + ext, true
+		}
+	}
 	return "", false
 }
 
@@ -435,7 +442,8 @@ var (
 
 // sourcesFor lists the source files a build output in the package may have been
 // compiled from: through the package tsconfig's outDir and rootDir when it
-// declares them, then by the common layout of a build directory mirroring src/.
+// declares them, then by the common layout of a build directory mirroring src/,
+// or mirroring the packages directory when the build is rooted above the package.
 // Each is only a candidate; resolve keeps one only if it is an indexed module.
 func (p *workspacePkg) sourcesFor(c string) []string {
 	rel, ok := relUnder(p.dir, c)
@@ -469,6 +477,11 @@ func (p *workspacePkg) sourcesFor(c string) []string {
 		rest := strings.Join(segs, "/")
 		add(path.Join("src", rest))
 		add(rest)
+		// A build rooted above the package mirrors the packages directory:
+		// dist/types/<package>/src/x.d.ts was compiled from <packages>/<package>/src/x.ts.
+		if p.dir != "" {
+			out = append(out, factpath.Clean(factpath.Join(factpath.Dir(p.dir), rest)))
+		}
 	}
 	return out
 }
