@@ -106,7 +106,7 @@ func bindFileRouteHandlers(allFacts []facts.Fact, reach []*fileReach) {
 				}
 				file, name, _ := strings.Cut(named, "\x00")
 				found := map[string]bool{}
-				for _, k := range resolveExport(file, name, func(f string) *fileReach { return byFile[f] }, map[string]bool{}) {
+				for _, k := range newExportIndex(byFile).resolve(file, name) {
 					found[symbolOf(k)] = true
 				}
 				if len(found) == 1 {
@@ -270,7 +270,7 @@ func reexportedVerbRoutes(f facts.Fact, reach []*fileReach) []facts.Fact {
 		delete(route.Props, propVerbsFrom)
 		route.Props["method"] = parts[0]
 		found := map[string]bool{}
-		for _, k := range resolveExport(parts[1], parts[2], func(x string) *fileReach { return byFile[x] }, map[string]bool{}) {
+		for _, k := range newExportIndex(byFile).resolve(parts[1], parts[2]) {
 			found[symbolOf(k)] = true
 		}
 		route.Relations = slices.Clone(f.Relations)
