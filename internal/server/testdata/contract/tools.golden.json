@@ -461,7 +461,7 @@
   },
   {
     "name": "locate",
-    "description": "file:line or diff to symbols: fact id, body_hash, cited_hash. Stamps: current, rewritten, moved, gone, ambiguous; cited intact/changed.",
+    "description": "file:line or diff to symbols: fact id, body_hash, cited_hash. Stamps: current|rewritten|moved|gone|ambiguous; cited intact/changed.",
     "input_schema": {
       "additionalProperties": false,
       "properties": {
@@ -480,7 +480,7 @@
           ]
         },
         "side": {
-          "description": "diff side the snapshot is of: new (default) or old",
+          "description": "snapshot side: new (default) or old",
           "type": "string"
         },
         "stamps": {
@@ -506,6 +506,9 @@
                 "type": "string"
               },
               "name": {
+                "type": "string"
+              },
+              "repo": {
                 "type": "string"
               },
               "symbol_kind": {

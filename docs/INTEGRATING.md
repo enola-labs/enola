@@ -234,7 +234,7 @@ git diff | enola locate --json --diff -         # the symbols a change touched
 Each location comes back as the innermost symbol holding it, with its `id`, `name`,
 `body_hash` and span, and a `cited_hash` / `cited_lines` pair: a version of the cited
 lines themselves (a single line is taken with the line before and after it). Store the
-id, the body hash and the name with the record, and the cited pair when the record is
+id, the body hash, the name and the repository label with the record, and the cited pair when the record is
 about specific lines. A symbol that shares its id with another declaration (a getter and
 its setter, overloads) also carries `decl_hash`: store it, it says which one you meant.
 `match` says how the symbol was found: `span` is exact,
@@ -243,12 +243,12 @@ its setter, overloads) also carries `decl_hash`: store it, it says which one you
 When a record is read, check it against the current graph:
 
 ```bash
-enola locate --json --stamps records.jsonl      # one {"id", "body_hash", "inner_hash", "decl_hash", "name", "symbol_kind", "cited_hash", "cited_lines"} per line
+enola locate --json --stamps records.jsonl      # one {"id", "body_hash", "inner_hash", "decl_hash", "name", "symbol_kind", "repo", "cited_hash", "cited_lines"} per line
 ```
 
 Each stamp comes back `current` (same symbol, same code), `rewritten`, `moved` (a new id
 with the same name and code, after a file or package move), `gone` (with symbols of the
-same name and other code as candidates), or `ambiguous`. `ambiguous` means enola cannot tie
+same name and other code, or a copy in another repository, as candidates), or `ambiguous`. `ambiguous` means enola cannot tie
 the stamp to one symbol, so it lists the `candidates` and names none: keep the record and
 show the candidates to whoever reads it. Do not choose one for them. A rewritten stamp with a cited version also gets `cited:
 intact` when those lines are still in the function, wherever they now sit, or `changed`.

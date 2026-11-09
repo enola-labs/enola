@@ -20,6 +20,11 @@ type Stamp struct {
 	InnerHash  string `json:"inner_hash,omitempty"`
 	Name       string `json:"name,omitempty"`
 	SymbolKind string `json:"symbol_kind,omitempty"`
+	// Repo is the repository label the symbol carried when it was stamped. With it, a
+	// symbol that moved is looked for in that repository only: the same name and body in
+	// another one is a copy, not the stamped symbol, and the id cannot say which repository
+	// it was taken in.
+	Repo string `json:"repo,omitempty"`
 	// CitedHash and CitedLines are the version of the lines the remembered location
 	// cited, as locate reported them (LocationResult). Optional.
 	CitedHash  string `json:"cited_hash,omitempty"`
@@ -37,10 +42,12 @@ const (
 	// cannot be told whether it changed.
 	StatusPresent = "present"
 	// StatusMoved is a symbol under a new id, in another file or package, with the same
-	// declared name and the same body.
+	// declared name and the same body. When the stamp names its repository, only in that
+	// repository; without one, the same name and body anywhere in the graph.
 	StatusMoved = "moved"
 	// StatusGone is a symbol no longer in the graph. Candidates lists symbols with the
-	// same declared name and another body, which may be it moved and rewritten at once.
+	// same declared name and another body, which may be it moved and rewritten at once,
+	// or with the same body in a repository other than the one the stamp names: a copy.
 	StatusGone = "gone"
 	// StatusAmbiguous is a stamp that cannot be tied to one symbol: Candidates lists what it
 	// may be, and Symbol is empty. Saying so is the answer; picking one would report on the
@@ -165,7 +172,7 @@ func (ix *Index) checkSymbol(st Stamp) CheckResult {
 	if st.BodyHash != "" {
 		var moved []Symbol
 		for _, c := range ix.byMove[moveKey(Symbol{Name: st.Name, BodyHash: st.BodyHash})] {
-			if st.SymbolKind == "" || c.SymbolKind == st.SymbolKind {
+			if (st.SymbolKind == "" || c.SymbolKind == st.SymbolKind) && (st.Repo == "" || c.Repo == st.Repo) {
 				moved = append(moved, c)
 			}
 		}

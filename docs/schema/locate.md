@@ -106,7 +106,13 @@ result.
 | `inner_hash` | symbol, when present | A `rewritten` result has no `change` |
 | `name` | symbol | A moved symbol cannot be found: `gone` with no candidates |
 | `symbol_kind` | symbol | Same-name candidates are not narrowed by kind |
+| `repo` | symbol | A copy of the symbol in another repository of the graph can be reported as `moved` |
 | `cited_hash`, `cited_lines` | location | No `cited` result |
+
+`repo` is the label the repository had when the stamp was taken. Two repositories of one graph
+whose names agree get different labels (the second keeps its directory name), so a stamp taken
+when that repository stood alone names a label the graph does not hold, and a move in it reads
+as `gone`, with the moved symbol among the candidates.
 
 ## Stamp check
 
@@ -124,9 +130,9 @@ result.
 |---|---|---|
 | `current` | Same symbol, same code | It still describes the code |
 | `rewritten` | Same symbol, its code changed | Re-check it. `cited: intact` says the lines it cites are still there |
-| `moved` | A new id, in another file or package, with the same declared name and code | Follow `symbol`, and store its new id |
+| `moved` | A new id, in another file or package, with the same declared name and code: in the stamp's `repo` when it names one, anywhere in the graph when it does not | Follow `symbol`, and store its new id |
 | `present` | Same symbol, but one side has no version, so a change cannot be told | Treat as unverified |
-| `gone` | Not in the graph. `candidates` holds symbols of the same name with other code | It may have moved and been rewritten at once. Look, do not assume |
+| `gone` | Not in the graph. `candidates` holds symbols of the same name with other code, or with the same code in a repository other than the stamp's `repo` | It may have moved and been rewritten at once, or been copied. Look, do not assume |
 | `ambiguous` | Cannot be tied to one symbol. No `symbol`; `candidates` holds at least one | Keep it and show the candidates. Do not choose one |
 
 `ambiguous` comes from three situations, told apart by the candidates:
@@ -139,7 +145,7 @@ result.
   checked against. Either the stamped declaration was deleted and this sibling survived, or it
   was given a new signature.
 - **The candidates have other ids and the stamp's `body_hash`.** Two copies of the moved symbol
-  exist, and a move cannot be told from a copy.
+  exist (in the stamp's `repo`, when it names one), and a move cannot be told from a copy.
 
 `cited` is `intact` when the cited lines are still inside the symbol, wherever in it, and
 `changed` when they are not. It is left out when that cannot be told: no cited version in the
