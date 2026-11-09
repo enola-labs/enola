@@ -177,3 +177,33 @@ func TestRenderText_AllOutsideIsNotEverythingResolved(t *testing.T) {
 		t.Errorf("text view does not name the calls to an unloaded service:\n%s", out)
 	}
 }
+
+// TestRenderMarkdown_IsolatedFooterHoldsForExternalOnlyRow: the footer defines
+// `isolated` directly under the rows it classifies, so an isolated row whose calls
+// are all third-party must satisfy the printed definition.
+func TestRenderMarkdown_IsolatedFooterHoldsForExternalOnlyRow(t *testing.T) {
+	api := facts.Fact{Kind: facts.KindService, Name: "api", Repo: "api",
+		Props: map[string]any{"edge_coverage": []map[string]any{
+			{"edge_type": "http_client", "detected": 3, "resolved": 0, "unresolved": 0, "external": 3},
+		}}}
+	r := build(t, api)
+	if r[0].Classification != facts.ServiceIsolated {
+		t.Fatalf("classification = %q, want %q (external-only is expected, not a gap)", r[0].Classification, facts.ServiceIsolated)
+	}
+	out := r.RenderMarkdown()
+	footer := ""
+	for _, line := range strings.Split(out, "\n") {
+		if strings.HasPrefix(line, "`isolated` means") {
+			footer = line
+		}
+	}
+	if footer == "" {
+		t.Fatalf("no isolated footer:\n%s", out)
+	}
+	if strings.Contains(footer, "no detected call sites") {
+		t.Errorf("footer excludes detected call sites, which the row above it has: %q", footer)
+	}
+	if !strings.Contains(footer, "External") {
+		t.Errorf("footer does not name the expected bucket the row's calls are in: %q", footer)
+	}
+}

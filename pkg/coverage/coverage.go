@@ -177,7 +177,9 @@ func (r Report) RenderMarkdown() string {
 	}
 	for _, s := range r {
 		if s.Classification == facts.ServiceIsolated {
-			sb.WriteString("\n`isolated` means no outbound edges and no detected call sites either: a genuine leaf, not a gap in enola's resolution.\n")
+			// The sentence is facts.ClassifyService's isolated branch: nothing resolved
+			// and nothing open, so any detected call is an expected one.
+			sb.WriteString("\n`isolated` means no outbound call resolved and none is left open: every detected call site, if any, goes to a third-party host (`External`) or a declared target. A leaf in this snapshot, not a gap in enola's resolution.\n")
 			break
 		}
 	}
