@@ -228,8 +228,8 @@ func (s *Server) registerGenerateSnapshotTool() {
 		} else {
 			// Single-repo edit-verify loop guidance, tailored to whether a baseline
 			// is already pinned: nudge set_baseline before the agent edits, then
-			// diff_snapshot once a baseline exists. Skipped in multi-repo mode where
-			// the baseline concept is per-first-repo and would only add noise.
+			// diff_snapshot once a baseline exists. Skipped in multi-repo mode, where
+			// the pin lives in the cluster's anchor member and the hint would only add noise.
 			summary += s.loopHint(absRepo)
 		}
 
@@ -279,7 +279,7 @@ func (s *Server) registerSetBaselineTool() {
 		Description: "Pin the current snapshot as the baseline diff_snapshot compares against. Call it once at the START of a task, after generate_snapshot. " +
 			"It survives later generate_snapshot runs, so it holds across several edit rounds, unlike 'previous', which only ever holds the run before.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args setBaselineArgs) (*mcp.CallToolResult, any, error) {
-		repoPath := s.currentRepoPath()
+		repoPath := s.baselineRepoPath()
 		if repoPath == "" {
 			return errorResult("No snapshot available. Run generate_snapshot first, then set_baseline."), nil, nil
 		}
@@ -312,6 +312,9 @@ func (s *Server) registerDiffSnapshotTool() {
 			return errorResult("No snapshot available. Run generate_snapshot first."), nil, nil
 		}
 		repoPath := s.currentRepoPath()
+		// The pin, and the member provenance the current side is read with, belong to
+		// the cluster's anchor; drift is still checked on the repository indexed last.
+		anchor := s.baselineRepoPath()
 
 		// Current = the live engine state (what the agent just generated). Build it
 		// from the store so it works even when the snapshot was auto-loaded.
@@ -321,11 +324,11 @@ func (s *Server) registerDiffSnapshotTool() {
 		// which is immutable once swapped in — exactly FactsRef's contract. All would
 		// copy the entire fact set, plus every relation slice, for a read: on a
 		// kernel-sized graph that is gigabytes of transient garbage on a query path.
-		current := &facts.Snapshot{Meta: s.eng.MetaFor(repoPath), Facts: s.eng.Store().FactsRef(), Insights: snap.Insights}
+		current := &facts.Snapshot{Meta: s.eng.MetaFor(anchor), Facts: s.eng.Store().FactsRef(), Insights: snap.Insights}
 
 		// Resolve the baseline directory from the selector.
 		sel := strings.TrimSpace(args.Baseline)
-		baseline, err := engine.LoadSnapshotDir(s.resolveBaselineDir(repoPath, sel))
+		baseline, err := engine.LoadSnapshotDir(s.resolveBaselineDir(anchor, sel))
 		if err != nil {
 			switch strings.ToLower(sel) {
 			case "", "pinned":
@@ -340,7 +343,7 @@ func (s *Server) registerDiffSnapshotTool() {
 			}
 		}
 
-		note := s.baselineNote(s.resolveBaselineDir(repoPath, sel), sel)
+		note := s.baselineNote(s.resolveBaselineDir(anchor, sel), sel)
 
 		d := diff.Compute(baseline, current)
 		if args.Focus != "" {
@@ -427,7 +430,8 @@ func (s *Server) registerCompareReceiptsTool() {
 		if snap == nil || s.eng.Store().Count() == 0 {
 			return errorResult("No snapshot available. Run generate_snapshot first."), nil, nil
 		}
-		baseDir := s.resolveBaselineDir(s.currentRepoPath(), args.Baseline)
+		anchor := s.baselineRepoPath()
+		baseDir := s.resolveBaselineDir(anchor, args.Baseline)
 		baseline, err := engine.LoadSnapshotDir(baseDir)
 		if err != nil {
 			sel := strings.ToLower(strings.TrimSpace(args.Baseline))
@@ -443,7 +447,7 @@ func (s *Server) registerCompareReceiptsTool() {
 		// Both snapshots, not both metas: a union's members are labels on its facts,
 		// and a meta-only comparison cleared a pair diff_snapshot refused. FactsRef
 		// for the reason diff_snapshot gives — the comparison only reads.
-		current := &facts.Snapshot{Meta: s.eng.MetaFor(s.currentRepoPath()), Facts: s.eng.Store().FactsRef()}
+		current := &facts.Snapshot{Meta: s.eng.MetaFor(anchor), Facts: s.eng.Store().FactsRef()}
 		rc := diff.CompareSnapshotReceipts(baseline, current)
 		if resolveOutputMode(args.OutputMode, modeSummary) == modeFull {
 			return jsonResultCapped(rc, args.MaxTokens)
@@ -629,6 +633,22 @@ func (s *Server) loopHint(absRepo string) string {
 	}
 	return "\n\n**About to change code?** Call set_baseline now to freeze this snapshot as the baseline, then after editing re-run " +
 		"generate_snapshot and diff_snapshot to see exactly what your change did — no need to re-read files to confirm it."
+}
+
+// baselineRepoPath returns the repository whose output dir holds the live graph's
+// pinned baseline: for several repositories, the member engine.BaselineAnchor chooses
+// from the set, which is where `enola baseline pin` writes and `enola check` reads;
+// for one, the live repository.
+func (s *Server) baselineRepoPath() string {
+	paths := s.eng.RepoPaths()
+	if len(paths) < 2 {
+		return s.currentRepoPath()
+	}
+	members := make([]string, 0, len(paths))
+	for _, abs := range paths {
+		members = append(members, abs)
+	}
+	return engine.BaselineAnchor(members)
 }
 
 // currentRepoPath returns the absolute repo path of the live snapshot, falling

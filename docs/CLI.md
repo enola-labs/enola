@@ -750,7 +750,7 @@ enola baseline: regenerating, shopfront moved since its snapshot: 1 modified (e.
 
 That is what makes step 1 safe to run without thinking about it: the "before" is always the tree you were looking at when you typed it, not whenever enola last happened to index. For a cluster, every member must agree on one union before the pin stands, so a config with `repos:` snapshots what it must and links once on the cluster's last turn.
 
-A baseline is stored **per repository**, in that repo's own `.enola/baseline`, so several repositories each keep their own and pinning one never disturbs another. `baseline show` reports what the current one describes - when it was generated, over which repo, how many facts, and its snapshot id - and `baseline clear` removes it.
+A baseline is stored **per repository**, in that repo's own `.enola/baseline`, so several repositories each keep their own and pinning one never disturbs another. A cluster keeps one, in the member whose path sorts first ([CLUSTERS.md](CLUSTERS.md#4-grade-a-change-across-the-seam)). `baseline show` reports what the current one describes - when it was generated, over which repo, how many facts, and its snapshot id - and `baseline clear` removes it.
 
 **Pinned, or one step back?** `check` grades against the pinned baseline. `--baseline=previous` grades against the preceding snapshot instead - the `previous/` set that rotates every time a snapshot is written. The two answer different questions, and diverge as soon as more than one change has landed:
 

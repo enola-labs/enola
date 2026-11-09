@@ -278,10 +278,10 @@ func (r *Runner) Check(ctx context.Context, args []string) {
 	// rather than only the last repo indexed — the same construction diff_snapshot uses,
 	// FactsRef included: diff.Compute reads its inputs and the published bundle is
 	// immutable, so copying the fact set here would buy nothing.
-	// The baseline is anchored on the FIRST repo: that is the one whose snapshot reset
-	// the graph, and it is where `enola baseline pin` writes. Its meta carries that
-	// member's provenance, so the current side is read for the same member.
-	anchor := repoPaths[0]
+	// The baseline lives in the member engine.BaselineAnchor chooses from the member
+	// set, where `enola baseline pin` and the MCP set_baseline both write. Its meta
+	// carries that member's provenance, so the current side is read for the same member.
+	anchor := engine.BaselineAnchor(repoPaths)
 	current := &facts.Snapshot{Meta: eng.MetaFor(anchor), Facts: eng.Store().FactsRef(), Insights: snap.Insights}
 	baseDir := engine.ResolveBaselineDir(eng.OutputDir(anchor), *baseline)
 	base, err := bootstrap.LoadSnapshotDir(baseDir)
@@ -486,7 +486,7 @@ func (r *Runner) Baseline(args []string) {
 	}
 	tgt := r.resolveTarget(arg)
 	eng := tgt.engine
-	anchor := tgt.repoPaths[0]
+	anchor := engine.BaselineAnchor(tgt.repoPaths)
 	outDir := eng.OutputDir(anchor)
 	baseDir := engine.ResolveBaselineDir(outDir, "pinned")
 

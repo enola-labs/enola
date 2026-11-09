@@ -161,6 +161,11 @@ enola baseline pin cluster.yaml     # every member must agree on one union
 enola check cluster.yaml
 ```
 
+A cluster's baseline lives in one member's `.enola/baseline`: the member whose path sorts
+first, whatever order the config, the folder or an MCP `repo_paths` list gives. `enola
+baseline pin`, `enola check`, `set_baseline`, `diff_snapshot` and `compare_receipts` all
+use that member, so a pin made on one surface is the pin the others grade against.
+
 Rename a route in `api` and the verdict can name the client in `web` that called it. This
 can catch a cross-repository mismatch while each repository's tests still pass.
 `enola endpoint 'GET /api/v2/orders' cluster.yaml` asks the same question directly,
