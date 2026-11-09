@@ -90,79 +90,67 @@ func Build(store *facts.Store, service string) Report {
 		if service != "" && svc.Name != service {
 			continue
 		}
-		outbound := facts.DependsOnCount(svc)
-
-		cov := readEdgeCoverage(svc)
-		detected, resolved, unresolved, external, outside := 0, 0, 0, 0, 0
-		for _, c := range cov {
-			detected += c.Detected
-			resolved += c.Resolved
-			unresolved += c.Unresolved
-			external += c.External
-			outside += c.Outside
-		}
-
+		c := facts.CoverageOf(svc)
 		out = append(out, Service{
-			Service: svc.Name,
-			// A call to a service outside the snapshot is still an outbound call: a
-			// service making only those is not an isolate.
-			Classification:  facts.ClassifyService(outbound, detected, resolved, unresolved+outside),
-			OutboundEdges:   outbound,
-			EdgeCoverage:    cov,
-			UnresolvedTotal: unresolved,
-			ExternalTotal:   external,
-			OutsideTotal:    outside,
+			Service:         svc.Name,
+			Classification:  c.Class(),
+			OutboundEdges:   c.Outbound,
+			EdgeCoverage:    edgeCoverage(c.Entries),
+			UnresolvedTotal: c.Unresolved,
+			ExternalTotal:   c.External,
+			OutsideTotal:    c.Outside,
 		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Service < out[j].Service })
 	return out
 }
 
-// readEdgeCoverage extracts the edge_coverage entries from a service node's props,
-// tolerating both the in-memory shape ([]map[string]any, int values) and the shape
-// that survives a facts.jsonl JSON round-trip ([]any of map[string]any, float64).
-func readEdgeCoverage(svc facts.Fact) []EdgeCoverage {
-	if svc.Props == nil {
+// readEdgeCoverage reads the edge_coverage entries of a service or extraction node.
+func readEdgeCoverage(f facts.Fact) []EdgeCoverage {
+	return edgeCoverage(facts.CoverageOf(f).Entries)
+}
+
+// edgeCoverage converts facts' per-edge-type tallies into this package's JSON shape.
+func edgeCoverage(entries []facts.EdgeCoverage) []EdgeCoverage {
+	if len(entries) == 0 {
 		return nil
 	}
-	var raw []map[string]any
-	switch v := svc.PropAny("edge_coverage").(type) {
-	case []map[string]any:
-		raw = v
-	case []any:
-		for _, item := range v {
-			if m, ok := item.(map[string]any); ok {
-				raw = append(raw, m)
-			}
-		}
-	default:
-		return nil
-	}
-	out := make([]EdgeCoverage, 0, len(raw))
-	for _, m := range raw {
-		et, _ := m["edge_type"].(string)
+	out := make([]EdgeCoverage, 0, len(entries))
+	for _, e := range entries {
 		out = append(out, EdgeCoverage{
-			EdgeType:   et,
-			Detected:   readInt(m["detected"]),
-			Resolved:   readInt(m["resolved"]),
-			Unresolved: readInt(m["unresolved"]),
-			External:   readInt(m["external"]),
-			Outside:    readInt(m["outside"]),
+			EdgeType:   e.EdgeType,
+			Detected:   e.Detected,
+			Resolved:   e.Resolved,
+			Unresolved: e.Unresolved,
+			External:   e.External,
+			Outside:    e.Outside,
 		})
 	}
 	return out
 }
 
-// readInt reads an int-valued prop, tolerating the float64 form that survives a JSON
-// round-trip through facts.jsonl.
-func readInt(v any) int {
-	switch n := v.(type) {
-	case int:
-		return n
-	case float64:
-		return int(n)
+// gapCalls names what the coverage_gap rows hold, by bucket, so the warning is true of
+// every row it counts: unresolved call sites are to be verified against source, and
+// calls naming a service the snapshot does not hold are resolved by loading it.
+func (r Report) gapCalls() string {
+	unresolved, outside := false, false
+	for _, s := range r {
+		if s.Classification == facts.ServiceCoverageGap {
+			unresolved = unresolved || s.UnresolvedTotal > 0
+			outside = outside || s.OutsideTotal > 0
+		}
 	}
-	return 0
+	const (
+		u = "unresolved outbound call sites — verify against source"
+		o = "outbound calls to a service that is not loaded — load it to resolve them"
+	)
+	switch {
+	case unresolved && outside:
+		return u + ", or " + o
+	case outside:
+		return o
+	}
+	return u
 }
 
 // RenderMarkdown is the agent-facing view: a table, with coverage gaps called out
@@ -173,7 +161,7 @@ func (r Report) RenderMarkdown() string {
 	sb.WriteString("Distinguishes genuinely isolated services from those whose outbound edges could not be resolved.\n\n")
 
 	if gaps := r.Gaps(); gaps > 0 {
-		fmt.Fprintf(&sb, "⚠️  %d service(s) classified `coverage_gap`: they look isolated but have unresolved outbound call sites — verify against source.\n\n", gaps)
+		fmt.Fprintf(&sb, "⚠️  %d service(s) classified `coverage_gap`: they look isolated but have %s.\n\n", gaps, r.gapCalls())
 	}
 
 	sb.WriteString("| Service | Classification | Outbound edges | Detected | Resolved | Unresolved | Outside snapshot | External |\n")
@@ -194,4 +182,16 @@ func (r Report) RenderMarkdown() string {
 		}
 	}
 	return sb.String()
+}
+
+// readInt reads an int-valued prop, tolerating the float64 form that survives a JSON
+// round-trip through facts.jsonl.
+func readInt(v any) int {
+	switch n := v.(type) {
+	case int:
+		return n
+	case float64:
+		return int(n)
+	}
+	return 0
 }

@@ -60,13 +60,16 @@ func (r Report) writeUnresolved(sb *strings.Builder) {
 	}
 	var misses []miss
 	for _, s := range r {
-		if s.UnresolvedTotal == 0 {
+		if s.UnresolvedTotal == 0 && s.OutsideTotal == 0 {
 			continue
 		}
-		m := miss{service: s.Service, total: s.UnresolvedTotal}
+		m := miss{service: s.Service, total: s.UnresolvedTotal + s.OutsideTotal}
 		for _, c := range s.EdgeCoverage {
 			if c.Unresolved > 0 {
 				m.kinds = append(m.kinds, fmt.Sprintf("%s ×%d", c.EdgeType, c.Unresolved))
+			}
+			if c.Outside > 0 {
+				m.kinds = append(m.kinds, fmt.Sprintf("%s ×%d to a service not loaded", c.EdgeType, c.Outside))
 			}
 		}
 		sort.Strings(m.kinds)

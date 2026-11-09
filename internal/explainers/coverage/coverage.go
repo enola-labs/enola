@@ -91,25 +91,19 @@ func (e *CoverageExplainer) Name() string {
 }
 
 // Explain reads the edge_coverage props on service nodes and emits one insight per
-// service that has unresolved outbound call sites, distinguishing a service that
-// appears isolated (no resolved outbound edges at all) from one that is merely
-// partially covered. It returns nothing for single-repo snapshots (no services).
+// service with open outbound call sites (unresolved, or naming a service the
+// snapshot does not hold), distinguishing a coverage gap from a service that is
+// merely partially covered by facts.CoverageOf's class. It returns nothing for
+// single-repo snapshots (no services).
 func (e *CoverageExplainer) Explain(ctx context.Context, store *facts.Store) ([]facts.Insight, error) {
 	var insights []facts.Insight
 	for _, svc := range store.ByKind(facts.KindService) {
-		cov := readCoverage(svc)
-		var unresolved, detected, resolved int
-		for _, c := range cov {
-			detected += c.detected
-			resolved += c.resolved
-			unresolved += c.unresolved
-		}
-		if unresolved == 0 {
+		c := facts.CoverageOf(svc)
+		if c.Open() == 0 {
 			continue
 		}
 
-		outbound := facts.DependsOnCount(svc)
-		evidence := []facts.Evidence{{Fact: svc.Name, Detail: coverageDetail(cov)}}
+		evidence := []facts.Evidence{{Fact: svc.Name, Detail: coverageDetail(c.Entries)}}
 		// "External target or unloaded repo" is the honest ambiguity, and it is
 		// also the whole question: one means add a repository to the cluster, the
 		// other means this is a third party and nothing is missing. Naming the
@@ -118,28 +112,28 @@ func (e *CoverageExplainer) Explain(ctx context.Context, store *facts.Store) ([]
 		reasons := unresolvedReasons(store, svc.Repo)
 		evidence = append(evidence, reasonEvidence(svc.Name, reasons)...)
 		evidence = append(evidence, unresolvedCallers(store, svc.Repo)...)
-		actions := reasonActions(reasons, unextractedServers(store, svc.Repo))
+		actions := reasonActions(c.Unresolved, reasons, unextractedServers(store, svc.Repo))
 
 		var insight facts.Insight
-		if facts.ClassifyService(outbound, detected, resolved, unresolved) == facts.ServiceCoverageGap {
+		if c.Class() == facts.ServiceCoverageGap {
 			insight = facts.Insight{
-				Title: fmt.Sprintf("Coverage gap: service %s appears isolated but has %d unresolved outbound call site(s)",
-					svc.Name, unresolved),
-				Description: fmt.Sprintf("enola detected %d outbound call site(s) from %s but could not resolve "+
-					"%d of them to a loaded service, and the service has no resolved outbound dependencies. "+
-					"It may not be isolated — verify these call sites against source. Details: %s.",
-					detected, svc.Name, unresolved, coverageDetail(cov)),
+				Title: fmt.Sprintf("Coverage gap: service %s appears isolated but has %s",
+					svc.Name, openPhrase(c)),
+				Description: fmt.Sprintf("enola detected %d outbound call site(s) from %s and resolved none of them "+
+					"to a loaded service: %s. The service has no resolved outbound dependencies, but it is not "+
+					"isolated. Details: %s.",
+					c.Detected, svc.Name, openPhrase(c), coverageDetail(c.Entries)),
 				Confidence: 0.9,
 				Evidence:   evidence,
 				Actions:    actions,
 			}
 		} else {
 			insight = facts.Insight{
-				Title: fmt.Sprintf("Partial coverage: service %s has %d unresolved outbound call site(s)",
-					svc.Name, unresolved),
+				Title: fmt.Sprintf("Partial coverage: service %s has %s",
+					svc.Name, openPhrase(c)),
 				Description: fmt.Sprintf("enola resolved some of %s's outbound dependencies but %d of %d detected "+
-					"call site(s) did not resolve to a loaded service (external target or unloaded repo). Details: %s.",
-					svc.Name, unresolved, detected, coverageDetail(cov)),
+					"call site(s) did not resolve to a loaded service: %s. Details: %s.",
+					svc.Name, c.Open(), c.Detected, openPhrase(c), coverageDetail(c.Entries)),
 				Confidence: 0.75,
 				Evidence:   evidence,
 				Actions:    actions,
@@ -157,6 +151,7 @@ var reasonOrder = []string{
 	httpsignal.ReasonVersionMismatch,
 	httpsignal.ReasonPathUnknown,
 	httpsignal.ReasonAliasNotServing,
+	httpsignal.ReasonOutsideSnapshot,
 	httpsignal.ReasonAmbiguousProvider,
 	httpsignal.ReasonDeclaredTarget,
 	httpsignal.ReasonNoMethod,
@@ -211,11 +206,7 @@ func unextractedServers(store *facts.Store, self string) []string {
 		if svc.Repo == self || serving[svc.Repo] {
 			continue
 		}
-		detected := 0
-		for _, c := range readCoverage(svc) {
-			detected += c.detected
-		}
-		if detected > 0 || facts.DependsOnCount(svc) > 0 {
+		if c := facts.CoverageOf(svc); c.Detected > 0 || c.Outbound > 0 {
 			continue
 		}
 		out = append(out, svc.Name)
@@ -228,8 +219,11 @@ func unextractedServers(store *facts.Store, self string) []string {
 // sentence telling the reader to append the called service's repository, which is the
 // wrong advice when that service is loaded with its routes unextracted, and points away
 // from a method mismatch, which is usually a defect in the caller.
-func reasonActions(reasons map[string]int, unextracted []string) []string {
-	out := []string{"Verify the unresolved call sites against source"}
+func reasonActions(unresolved int, reasons map[string]int, unextracted []string) []string {
+	var out []string
+	if unresolved > 0 {
+		out = append(out, "Verify the unresolved call sites against source")
+	}
 	for _, reason := range reasonOrder {
 		n := reasons[reason]
 		if n == 0 {
@@ -258,6 +252,9 @@ func reasonActions(reasons map[string]int, unextracted []string) []string {
 		case httpsignal.ReasonAliasNotServing:
 			out = append(out, fmt.Sprintf("%d call site(s) go through a configured service alias whose repository serves none of "+
 				"the matching routes: check the alias", n))
+		case httpsignal.ReasonOutsideSnapshot:
+			out = append(out, fmt.Sprintf("%d call site(s) name a service that is not loaded (an env var, a client name): "+
+				"add its repository to the snapshot to resolve them", n))
 		case httpsignal.ReasonAmbiguousProvider:
 			out = append(out, fmt.Sprintf("%d call site(s) are served by more than one loaded repository, and nothing says which "+
 				"one is called: declare the target", n))
@@ -304,10 +301,7 @@ func silentClients(store *facts.Store) []facts.Insight {
 			bySpec[spec] = t
 		}
 		receivers := asInt(f.PropAny("receivers"))
-		calls := 0
-		for _, c := range readCoverage(f) {
-			calls += c.detected
-		}
+		calls := facts.CoverageOf(f).Detected
 		t.receivers += receivers
 		t.calls += calls
 		where := f.Repo
@@ -349,65 +343,39 @@ func silentClients(store *facts.Store) []facts.Insight {
 	return out
 }
 
-// coverageEntry is one edge_type's tally, read back tolerantly from a service node.
-type coverageEntry struct {
-	edgeType   string
-	detected   int
-	resolved   int
-	unresolved int
-	external   int
+// openPhrase names a service's open call sites by bucket: the unresolved ones, and
+// the ones naming a service the snapshot does not hold, which are not unresolved.
+func openPhrase(c facts.ServiceCoverage) string {
+	unresolved := fmt.Sprintf("%d unresolved outbound call site(s)", c.Unresolved)
+	outside := fmt.Sprintf("%d outbound call site(s) to a service that is not loaded", c.Outside)
+	switch {
+	case c.Outside == 0:
+		return unresolved
+	case c.Unresolved == 0:
+		return outside
+	}
+	return fmt.Sprintf("%d unresolved outbound call site(s) and %d to a service that is not loaded", c.Unresolved, c.Outside)
 }
 
 // coverageDetail renders the per-edge-type counts for an insight description. The
-// external count (calls to hardcoded third-party hosts) is shown only when present,
-// since it is expected rather than a blind spot.
-func coverageDetail(cov []coverageEntry) string {
+// external, declared and outside buckets are shown only when present.
+func coverageDetail(cov []facts.EdgeCoverage) string {
 	out := ""
 	for i, c := range cov {
 		if i > 0 {
 			out += ", "
 		}
-		out += fmt.Sprintf("%s %d/%d resolved (%d unresolved", c.edgeType, c.resolved, c.detected, c.unresolved)
-		if c.external > 0 {
-			out += fmt.Sprintf(", %d external", c.external)
+		out += fmt.Sprintf("%s %d/%d resolved (%d unresolved", c.EdgeType, c.Resolved, c.Detected, c.Unresolved)
+		if c.Outside > 0 {
+			out += fmt.Sprintf(", %d outside the snapshot", c.Outside)
+		}
+		if c.External > 0 {
+			out += fmt.Sprintf(", %d external", c.External)
+		}
+		if c.Declared > 0 {
+			out += fmt.Sprintf(", %d declared", c.Declared)
 		}
 		out += ")"
-	}
-	return out
-}
-
-// readCoverage extracts the edge_coverage entries from a service node's props,
-// tolerating both the in-memory shape ([]map[string]any with int values) and the
-// shape that survives a facts.jsonl JSON round-trip ([]any of map[string]any with
-// float64 values).
-func readCoverage(svc facts.Fact) []coverageEntry {
-	if svc.Props == nil {
-		return nil
-	}
-	var raw []map[string]any
-	switch v := svc.PropAny("edge_coverage").(type) {
-	case []map[string]any:
-		raw = v
-	case []any:
-		for _, item := range v {
-			if m, ok := item.(map[string]any); ok {
-				raw = append(raw, m)
-			}
-		}
-	default:
-		return nil
-	}
-
-	out := make([]coverageEntry, 0, len(raw))
-	for _, m := range raw {
-		edgeType, _ := m["edge_type"].(string)
-		out = append(out, coverageEntry{
-			edgeType:   edgeType,
-			detected:   asInt(m["detected"]),
-			resolved:   asInt(m["resolved"]),
-			unresolved: asInt(m["unresolved"]),
-			external:   asInt(m["external"]),
-		})
 	}
 	return out
 }

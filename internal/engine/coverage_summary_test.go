@@ -91,3 +91,23 @@ func TestCoverageSummary_ExternalBucket(t *testing.T) {
 		t.Errorf("ExternalEdges = %d, want 7 (3+4)", sum.ExternalEdges)
 	}
 }
+
+// A service whose every call names a service the snapshot does not hold carries
+// unresolved 0 and outside 3. coverage_report calls it a gap; the receipt must too.
+func TestCoverageSummary_AllOutsideServiceIsAGap(t *testing.T) {
+	st := facts.NewStore()
+	st.Add(facts.Fact{Kind: facts.KindService, Name: "widget-client", Repo: "widget-client",
+		Props: map[string]any{"edge_coverage": []map[string]any{{
+			"edge_type": "http_client", "detected": 3, "resolved": 0, "unresolved": 0, "outside": 3,
+		}}}})
+	sum := coverageSummary(st)
+	if sum == nil {
+		t.Fatal("expected a CoverageSummary")
+	}
+	if sum.CoverageGaps != 1 {
+		t.Errorf("CoverageGaps = %d, want 1 (calls to an unloaded service are open, not expected)", sum.CoverageGaps)
+	}
+	if sum.UnresolvedEdges != 0 {
+		t.Errorf("UnresolvedEdges = %d, want 0 (outside calls are not unresolved ones)", sum.UnresolvedEdges)
+	}
+}

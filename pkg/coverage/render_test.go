@@ -130,3 +130,50 @@ func TestRenderMarkdownAndText_AgreeOnTheNumbers(t *testing.T) {
 		t.Errorf("web resolved = %d, want 4", got)
 	}
 }
+
+// allOutside is a client whose three calls all name a service the snapshot does not
+// hold: unresolved 0, outside 3.
+func allOutside() facts.Fact {
+	return facts.Fact{Kind: facts.KindService, Name: "widget-client", Repo: "widget-client",
+		Props: map[string]any{"edge_coverage": []map[string]any{
+			{"edge_type": "http_client", "detected": 3, "resolved": 0, "unresolved": 0, "outside": 3},
+		}}}
+}
+
+// TestRenderMarkdown_GapWarningNamesOutsideCalls: the warning above the table must be
+// true of the row it counts. An all-outside row reads Unresolved 0, so the warning
+// may not say it has unresolved call sites.
+func TestRenderMarkdown_GapWarningNamesOutsideCalls(t *testing.T) {
+	r := build(t, allOutside())
+	if r[0].Classification != facts.ServiceCoverageGap {
+		t.Fatalf("classification = %q, want %q", r[0].Classification, facts.ServiceCoverageGap)
+	}
+	out := r.RenderMarkdown()
+	warn := ""
+	for _, line := range strings.Split(out, "\n") {
+		if strings.HasPrefix(line, "⚠️") {
+			warn = line
+		}
+	}
+	if warn == "" {
+		t.Fatalf("no gap warning:\n%s", out)
+	}
+	if strings.Contains(warn, "unresolved") {
+		t.Errorf("warning calls outside-the-snapshot calls unresolved: %q", warn)
+	}
+	if !strings.Contains(warn, "not loaded") {
+		t.Errorf("warning does not say the target is not loaded: %q", warn)
+	}
+}
+
+// TestRenderText_AllOutsideIsNotEverythingResolved: a client whose calls all name
+// an unloaded service resolved nothing, and the text view may not say otherwise.
+func TestRenderText_AllOutsideIsNotEverythingResolved(t *testing.T) {
+	out := build(t, allOutside()).RenderText()
+	if strings.Contains(out, "Every detected outbound call site resolved") {
+		t.Errorf("text view claims everything resolved for an all-outside client:\n%s", out)
+	}
+	if !strings.Contains(out, "not loaded") {
+		t.Errorf("text view does not name the calls to an unloaded service:\n%s", out)
+	}
+}
