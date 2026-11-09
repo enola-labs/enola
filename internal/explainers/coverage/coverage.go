@@ -38,7 +38,10 @@ const maxUnresolvedCallers = 8
 // sites; a second matcher with its own normalization listed calls the linker had
 // resolved through "{id}" against ":id", or through a ".json" suffix.
 func unresolvedCallers(store *facts.Store, repo string) []facts.Evidence {
-	byComponent := map[string]int{}
+	// A call naming a service the snapshot does not hold is counted apart, and a call
+	// attributed to a declared target is not open at all: the per-directory line must
+	// agree with the buckets the service row shows.
+	byComponent, outside := map[string]int{}, map[string]int{}
 	for _, fact := range store.ByKind(facts.KindRoute) {
 		if fact.Repo != repo {
 			continue
@@ -52,11 +55,18 @@ func unresolvedCallers(store *facts.Store, repo string) []facts.Evidence {
 		if unmatched, _ := fact.PropAny(facts.PropUnmatchedByServer).(bool); !unmatched {
 			continue
 		}
+		reason, _ := fact.PropAny("unmatched_reason").(string)
+		if reason == httpsignal.ReasonDeclaredTarget {
+			continue
+		}
 		component := fact.File
 		if idx := strings.LastIndex(component, "/"); idx > 0 {
 			component = component[:idx]
 		}
 		byComponent[component]++
+		if reason == httpsignal.ReasonOutsideSnapshot {
+			outside[component]++
+		}
 	}
 	if len(byComponent) == 0 {
 		return nil
@@ -80,10 +90,21 @@ func unresolvedCallers(store *facts.Store, repo string) []facts.Evidence {
 	for _, component := range components {
 		out = append(out, facts.Evidence{
 			Fact:   component,
-			Detail: fmt.Sprintf("%d unresolved outbound call site(s) from here", byComponent[component]),
+			Detail: openFromHere(byComponent[component]-outside[component], outside[component]),
 		})
 	}
 	return out
+}
+
+// openFromHere words one directory's open call sites by bucket.
+func openFromHere(unresolved, outside int) string {
+	switch {
+	case outside == 0:
+		return fmt.Sprintf("%d unresolved outbound call site(s) from here", unresolved)
+	case unresolved == 0:
+		return fmt.Sprintf("%d outbound call site(s) from here to a service that is not loaded", outside)
+	}
+	return fmt.Sprintf("%d unresolved outbound call site(s) from here, and %d to a service that is not loaded", unresolved, outside)
 }
 
 func (e *CoverageExplainer) Name() string {

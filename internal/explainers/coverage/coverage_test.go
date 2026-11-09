@@ -292,6 +292,12 @@ func TestExplain_AllOutsideServiceIsAGap(t *testing.T) {
 			"edge_type": "http_client", "detected": 3.0, "resolved": 0.0, "unresolved": 0.0,
 			"external": 0.0, "declared": 0.0, "outside": 3.0,
 		}}}})
+	for _, path := range []string{"/legacy/statuses", "/legacy/queues", "/legacy/jobs"} {
+		store.Add(facts.Fact{Kind: facts.KindRoute, Name: "GET " + path, Repo: "widget-client",
+			File: "widget-client/src/api.ts",
+			Props: map[string]any{"method": "GET", "role": "client",
+				facts.PropUnmatchedByServer: true, "unmatched_reason": "outside_snapshot"}})
+	}
 
 	insights, err := New().Explain(context.Background(), store)
 	if err != nil {
@@ -317,5 +323,10 @@ func TestExplain_AllOutsideServiceIsAGap(t *testing.T) {
 	}
 	if !strings.Contains(gap.Description, "3 outside") {
 		t.Errorf("description does not carry the outside bucket:\n%s", gap.Description)
+	}
+	for _, e := range gap.Evidence {
+		if strings.Contains(e.Detail, "from here") && strings.Contains(e.Detail, "unresolved") {
+			t.Errorf("per-directory evidence calls outside-the-snapshot calls unresolved: %s %s", e.Fact, e.Detail)
+		}
 	}
 }
