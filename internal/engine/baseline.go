@@ -71,6 +71,30 @@ func (e *Engine) OutputDir(repoPath string) string {
 	return filepath.Join(repoPath, e.cfg.Output.Dir)
 }
 
+// BaselineAnchor returns the member of a graph whose output dir holds its pinned
+// baseline: the member whose canonical path sorts first, returned as given. One
+// repository is its own anchor; no members have none.
+//
+// It is chosen from the member set, not from an order, because the same cluster
+// reaches enola in several orders: a cluster.yaml lists its members as written, a
+// folder walk and an MCP repo_paths list have orders of their own, and a fan-out
+// finishes in yet another. The CLI anchored on the config's first entry and the MCP
+// on the member indexed last, so each found no pin where the other had written one,
+// or graded against a different one. The history keys a cluster on its sorted
+// member set for the same reason.
+func BaselineAnchor(members []string) string {
+	if len(members) == 0 {
+		return ""
+	}
+	anchor, key := members[0], canonicalRepoPath(members[0])
+	for _, m := range members[1:] {
+		if k := canonicalRepoPath(m); k < key {
+			anchor, key = m, k
+		}
+	}
+	return anchor
+}
+
 // ResolveBaselineDir maps a baseline selector to the directory holding that
 // snapshot's artifacts: "" / "pinned" → the explicit SetBaseline pin, "previous" → the
 // automatically-rotated preceding run, anything else → an explicit path.
