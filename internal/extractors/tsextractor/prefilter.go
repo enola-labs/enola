@@ -59,8 +59,10 @@ func routerVerbCalls(src []byte, routers map[string]bool) [][]int {
 func fileAssignments(src []byte) *litfold.Assignments {
 	folds := litfold.NewAssignments()
 	declared := map[int]bool{}
+	lits := &urlLiterals{src: src}
 	for _, m := range urlAssignDecl.FindAllSubmatchIndex(src, -1) {
-		folds.Add(string(src[m[2]:m[3]]), firstNonEmptyGroup(src, m, 2, 3, 4))
+		lit, _ := lits.at(m, 2, 3, 4)
+		folds.Add(string(src[m[2]:m[3]]), lit)
 		declared[m[2]] = true
 	}
 	for _, m := range bareAssign.FindAllSubmatchIndex(src, -1) {

@@ -125,7 +125,8 @@ var requestVerbProperty = regexp.MustCompile(`\b(?:type|method)\s*:\s*['"]([A-Za
 // of these payload keys.
 var requestPayloadKey = regexp.MustCompile(`\b(?:token|payload|pagination|signal|headers|body|query|params)\s*:`)
 
-// tsInterpolation matches a template-literal interpolation, e.g. ${id}.
+// tsInterpolation matches a template-literal interpolation, e.g. ${id}. It sees
+// no nesting; cleanTSPath uses collapseInterpolations, which does.
 var tsInterpolation = regexp.MustCompile(`\$\{[^}]*\}`)
 
 // baseLiteralDecl binds an identifier to a "/"-rooted string literal: a const/let/
@@ -237,6 +238,7 @@ func extractHTTPClientFactsCounted(src []byte, relFile string) ([]facts.Fact, cl
 	api := tsAPIHint(relFile)
 	fileFactoryHint := factoryHint(src)
 	var bases map[string]string
+	lits := &urlLiterals{src: src}
 	var folds *litfold.Assignments
 	resolveFold := func(name string) (string, bool) {
 		if folds == nil {
@@ -328,9 +330,9 @@ func extractHTTPClientFactsCounted(src []byte, relFile string) ([]facts.Fact, cl
 	// word-boundary char and would mis-count the line when that char is a newline.
 	hasFetch := containsAny(src, fetchNames)
 	for _, m := range findAllSubmatchIndexIf(hasFetch, httpClientCall, src) {
-		raw := firstNonEmptyGroup(src, m, 2, 3, 4)
+		raw, end := lits.at(m, 2, 3, 4)
 		method := "GET"
-		if opts := optionsObjectAfter(src, m[1]); opts != nil {
+		if opts := optionsObjectAfter(src, end); opts != nil {
 			if mm := httpClientMethod.FindSubmatch(opts); mm != nil {
 				method = strings.ToUpper(string(mm[1]))
 			}
@@ -360,7 +362,7 @@ func extractHTTPClientFactsCounted(src []byte, relFile string) ([]facts.Fact, cl
 	// Pass 2 — verb-named generated-client calls; the method is the call name.
 	for _, m := range verbNamedCall.FindAllSubmatchIndex(src, -1) {
 		method := strings.ToUpper(string(src[m[2]:m[3]]))
-		raw := firstNonEmptyGroup(src, m, 2, 3, 4)
+		raw, _ := lits.at(m, 2, 3, 4)
 		add(raw, method, "openapi-fetch", m[0], "")
 	}
 
@@ -396,7 +398,7 @@ func extractHTTPClientFactsCounted(src []byte, relFile string) ([]facts.Fact, cl
 			continue
 		}
 		method := strings.ToUpper(string(src[m[2]:m[3]]))
-		raw := firstNonEmptyGroup(src, m, 2, 3, 4)
+		raw, _ := lits.at(m, 2, 3, 4)
 		add(raw, method, verbFramework(recv), m[0], "")
 	}
 
@@ -407,7 +409,7 @@ func extractHTTPClientFactsCounted(src []byte, relFile string) ([]facts.Fact, cl
 		if isServer(identifierEndingAt(src, m[0])) {
 			continue
 		}
-		raw := string(src[m[4]:m[5]])
+		raw, _ := lits.at(m, 2)
 		if !litfold.TemplateTailPath(raw) {
 			continue
 		}
@@ -421,7 +423,8 @@ func extractHTTPClientFactsCounted(src []byte, relFile string) ([]facts.Fact, cl
 	// a neighbouring object's verb cannot bleed in.
 	hasURL := bytes.Contains(src, urlWord)
 	for _, m := range findAllSubmatchIndexIf(hasURL, urlProperty, src) {
-		window := enclosingObject(src, m[0], m[1])
+		raw, end := lits.at(m, 1, 2, 3)
+		window := enclosingObject(src, m[0], end)
 		if window == nil {
 			continue // no enclosing object literal
 		}
@@ -440,7 +443,6 @@ func extractHTTPClientFactsCounted(src []byte, relFile string) ([]facts.Fact, cl
 		if !haveVerb && !requestPayloadKey.Match(window) {
 			continue // a plain link / config / SEO-metadata object
 		}
-		raw := firstNonEmptyGroup(src, m, 1, 2, 3)
 		if !haveVerb && isAbsoluteURL(raw) {
 			continue
 		}
@@ -629,6 +631,63 @@ func firstNonEmptyGroup(src []byte, m []int, groups ...int) string {
 	return ""
 }
 
+// urlLiterals reads the URL literal a client pattern matched. The patterns spell
+// a template literal as `([^`]*)`, which ends at the first backtick; RE2 cannot
+// balance, so the query-string idiom `/x${qs ? `?${qs}` : ""}` is captured as
+// `/x${qs ? `. A matched template is therefore re-read whole with templateBody,
+// the scanner the GraphQL pass already uses for the same limit.
+type urlLiterals struct {
+	src  []byte
+	text string // src as a string, made on the first template only
+}
+
+// at returns the literal of the first matched group and the offset just past
+// it. Only the template group can differ from the match: an unterminated
+// template yields "" (a missing edge beats a wrong one).
+func (l *urlLiterals) at(m []int, groups ...int) (string, int) {
+	for _, g := range groups {
+		if 2*g+1 >= len(m) {
+			continue
+		}
+		s, e := m[2*g], m[2*g+1]
+		if s < 0 || e <= s {
+			continue
+		}
+		if s == 0 || l.src[s-1] != '`' {
+			return string(l.src[s:e]), m[1]
+		}
+		if l.text == "" {
+			l.text = string(l.src)
+		}
+		body, end := templateBody(l.text, s-1)
+		return body, end
+	}
+	return "", m[1]
+}
+
+// collapseInterpolations replaces every balanced ${…}, nested templates and
+// braces included, with {}. ok is false when one never closes.
+func collapseInterpolations(p string) (string, bool) {
+	if !strings.Contains(p, "${") {
+		return p, true
+	}
+	var b strings.Builder
+	for i := 0; i < len(p); {
+		if p[i] == '$' && i+1 < len(p) && p[i+1] == '{' {
+			end, closed := interpolationEnd(p, i+2)
+			if !closed {
+				return "", false
+			}
+			b.WriteString("{}")
+			i = end
+			continue
+		}
+		b.WriteByte(p[i])
+		i++
+	}
+	return b.String(), true
+}
+
 // cleanTSPath turns a fetch/makeRequest URL literal into a matchable route path,
 // or returns ok=false when it is not a backend path (fully dynamic, external,
 // or empty). It strips a leading ${...} base-URL token, drops the query string,
@@ -714,9 +773,9 @@ func cleanTSPath(raw string, bases map[string]string) (string, bool) {
 	// stripping it when the base is not a known literal (an injected/env/absolute
 	// base we cannot know statically).
 	if strings.HasPrefix(p, "${") {
-		if i := strings.IndexByte(p, '}'); i >= 0 {
-			token := p[2:i] // inside ${...}
-			rest := p[i+1:]
+		if end, closed := interpolationEnd(p, 2); closed {
+			token := p[2 : end-1] // inside ${...}
+			rest := p[end:]
 			if dot := strings.LastIndexByte(token, '.'); dot >= 0 {
 				token = token[dot+1:] // this.basePath -> basePath
 			}
@@ -731,10 +790,16 @@ func cleanTSPath(raw string, bases map[string]string) (string, bool) {
 	if strings.HasPrefix(p, "http") {
 		return "", false
 	}
+	// Collapse interpolations before looking for the query string: a `?` inside
+	// one is a ternary, and cutting there left `${a` in the name. A literal whose
+	// interpolation never closes is a fragment of source, not a path.
+	p, ok := collapseInterpolations(p)
+	if !ok {
+		return "", false
+	}
 	if i := strings.IndexByte(p, '?'); i >= 0 {
 		p = p[:i]
 	}
-	p = tsInterpolation.ReplaceAllString(p, "{}")
 	p = strings.TrimSpace(p)
 	// Strip a query-string placeholder fused to the final segment. A `${queryParams}`
 	// / `${queryString}` appended to a path collapses (above) to a `{}` glued to the

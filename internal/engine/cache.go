@@ -3469,7 +3469,10 @@ import (
 // v548: a linked git worktree nested in the repository is pruned by the walk and by every
 // extractor that walks the tree itself, so its files no longer feed package and alias
 // resolution of the checkout that contains it.
-const cacheVersion = "v548"
+// v549: TypeScript: the client and server route passes skip comments, and a client
+// URL template that nests another template is read whole, so `/x${q ? `?${q}` : ""}`
+// is the route /x, not the source fragment /x${q.
+const cacheVersion = "v549"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
