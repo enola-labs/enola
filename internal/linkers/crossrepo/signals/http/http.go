@@ -59,8 +59,8 @@ func (s *Signal) Contribute(in plugin.SignalInput, out plugin.EvidenceSink) {
 		// Every client call site is a detected outbound edge. Counting here, before
 		// the low-signal filters in resolveCall, means call sites we choose not to
 		// resolve (no method, generic path) and call sites with no matching server
-		// both fall into unresolved (detected - resolved) — the blind spot the report
-		// exposes.
+		// both fall into unresolved (detected - resolved - external - declared -
+		// outside) — the blind spot the report exposes.
 		out.Coverage(f.Repo, CoverageEdgeType).Detected++
 		call := resolveCall(m, server, declaredTargets, f)
 		switch call.bucket {
