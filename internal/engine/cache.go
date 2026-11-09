@@ -3611,7 +3611,9 @@ import (
 // and environment, else to the single candidate.
 // v589: Dart tear-offs in function bodies and module initializers emit names
 // edges, preserving callback usage without inventing calls or propagating I/O.
-const cacheVersion = "v589"
+// v590: Dart qualified calls bind only to declared members, including the
+// declaring type repeated in named-constructor identities.
+const cacheVersion = "v590"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
