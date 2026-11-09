@@ -3,6 +3,7 @@ package docslint
 import (
 	"net/url"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"regexp"
@@ -131,14 +132,25 @@ func TestBacktickedPathsExist(t *testing.T) {
 }
 
 // TestStaleForeignPaths is the converse. A waived path that now EXISTS is no longer
-// foreign, and leaving it waived means the real one stops being checked.
+// foreign, and leaving it waived means the real one stops being checked. A path git
+// ignores is not part of the repository even when it is on disk: running
+// `enola install` in this checkout writes the files it would write into any other.
 func TestStaleForeignPaths(t *testing.T) {
 	for p, why := range foreignPaths {
+		if gitIgnored(p) {
+			continue
+		}
 		if _, err := os.Stat(filepath.Join(repoRoot, filepath.FromSlash(p))); err == nil {
 			t.Errorf("foreignPaths waives %q (%s), but that path now exists — "+
 				"drop the waiver so the reference is checked", p, why)
 		}
 	}
+}
+
+// gitIgnored reports whether git ignores rel in this checkout; false when git cannot
+// say, so the check stays strict without it.
+func gitIgnored(rel string) bool {
+	return exec.Command("git", "-C", repoRoot, "check-ignore", "-q", "--", rel).Run() == nil
 }
 
 // guardedPaths are the executable files that decide behaviour from a path, where a
