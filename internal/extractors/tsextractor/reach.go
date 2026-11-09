@@ -966,6 +966,7 @@ func markClientReachability(ff []facts.Fact, files []*fileReach, fw tsFrameworks
 			}
 		}
 	}
+	exports := newExportIndex(byFile)
 	importsOf := map[string]map[string]bool{}
 	for _, r := range files {
 		if r == nil {
@@ -1003,7 +1004,7 @@ func markClientReachability(ff []facts.Fact, files []*fileReach, fw tsFrameworks
 			names = r.uses[scope]
 		}
 		for n := range names {
-			if own := inScopeOf(r, n, r.plain[scope][n], byName, symbolFile, importsOf, func(f string) *fileReach { return byFile[f] }); len(own) > 0 {
+			if own := inScopeOf(r, n, r.plain[scope][n], byName, symbolFile, importsOf, exports); len(own) > 0 {
 				propagate(r.file+"\x00"+n, own, nil, from.reachedOnly())
 				continue
 			}
@@ -1026,7 +1027,7 @@ func markClientReachability(ff []facts.Fact, files []*fileReach, fw tsFrameworks
 					continue
 				}
 			}
-			if own := inScopeOf(r, n, r.plain[scope][n], byName, symbolFile, importsOf, func(f string) *fileReach { return byFile[f] }); len(own) > 0 {
+			if own := inScopeOf(r, n, r.plain[scope][n], byName, symbolFile, importsOf, exports); len(own) > 0 {
 				propagate(r.file+"\x00"+n, own, nil, t)
 				continue
 			}
@@ -1051,7 +1052,7 @@ func markClientReachability(ff []facts.Fact, files []*fileReach, fw tsFrameworks
 		}
 		// `export { X as default } from '…'`: the file's default is that file's X.
 		for _, e := range r.defaultFrom {
-			for _, s := range resolveExport(e.file, e.name, func(f string) *fileReach { return byFile[f] }, map[string]bool{}) {
+			for _, s := range exports.resolve(e.file, e.name) {
 				raise(s, t)
 			}
 		}
@@ -1226,6 +1227,7 @@ func isPageFile(file string) bool {
 func reachingPages(roots map[string]bool, files []*fileReach, byFile map[string]*fileReach, byName map[string][]string,
 	symbolFile map[string]*fileReach, aliases map[string][]string, declaredIn map[string]map[string]bool,
 	importsOf map[string]map[string]bool, classMember map[string]bool, visible func(*fileReach, string) bool) (pageIndex, map[string]pageSet, map[string]pageSet) {
+	exports := newExportIndex(byFile)
 	var index pageIndex
 	for f := range roots {
 		if isPageFile(f) {
@@ -1300,7 +1302,7 @@ func reachingPages(roots map[string]bool, files []*fileReach, byFile map[string]
 				}
 				continue
 			}
-			if own := inScopeOf(r, n, r.plain[scope][n], byName, symbolFile, importsOf, func(f string) *fileReach { return byFile[f] }); len(own) > 0 {
+			if own := inScopeOf(r, n, r.plain[scope][n], byName, symbolFile, importsOf, exports); len(own) > 0 {
 				propagate(r.file+"\x00"+n, own, nil, b)
 				continue
 			}
@@ -1323,7 +1325,7 @@ func reachingPages(roots map[string]bool, files []*fileReach, byFile map[string]
 		}
 		// `export { X as default } from '…'`: the file's default is that file's X.
 		for _, e := range r.defaultFrom {
-			for _, s := range resolveExport(e.file, e.name, func(f string) *fileReach { return byFile[f] }, map[string]bool{}) {
+			for _, s := range exports.resolve(e.file, e.name) {
 				raise(s, b)
 			}
 		}
@@ -1403,7 +1405,7 @@ type renamedExport struct{ file, name string }
 // the imported module's even where this file declares a createLabel of its own, so
 // for a member both stay candidates.
 func inScopeOf(r *fileReach, n string, plain bool, byName map[string][]string, symbolFile map[string]*fileReach,
-	importsOf map[string]map[string]bool, fileOf func(string) *fileReach) []string {
+	importsOf map[string]map[string]bool, exports *exportIndex) []string {
 	var own, imported []string
 	for _, s := range byName[n] {
 		sf := symbolFile[s]
@@ -1420,7 +1422,7 @@ func inScopeOf(r *fileReach, n string, plain bool, byName map[string][]string, s
 	}
 	// Imported under a name of its own: `import { getCards as getCardsApi }`.
 	for _, e := range r.importedAs[n] {
-		imported = append(imported, resolveExport(e.file, e.name, fileOf, map[string]bool{})...)
+		imported = append(imported, exports.resolve(e.file, e.name)...)
 	}
 	if len(imported) > 0 {
 		return append(own, imported...)
@@ -1430,7 +1432,7 @@ func inScopeOf(r *fileReach, n string, plain bool, byName map[string][]string, s
 	// `export * from`).
 	for f := range importsOf[r.file] {
 		if f != r.file {
-			imported = append(imported, resolveExport(f, n, fileOf, map[string]bool{})...)
+			imported = append(imported, exports.resolve(f, n)...)
 		}
 	}
 	return append(own, imported...)
@@ -1515,35 +1517,72 @@ func barrelVisibility(byFile map[string]*fileReach) func(*fileReach, string) boo
 	}
 }
 
+// exportIndex answers what a file exports under a name, over files that no longer
+// change once the reachability pass starts. Every lookup starts a fresh walk, so its
+// answer depends on the file and the name alone and is kept: a file that imports a
+// workspace package's barrel asks it for each name it uses, and the barrel's
+// `export *` chains were walked again, symbol by symbol, for every one of them.
+type exportIndex struct {
+	byFile map[string]*fileReach
+	named  map[*fileReach]map[string][]string
+	memo   map[[2]string][]string
+}
+
+func newExportIndex(byFile map[string]*fileReach) *exportIndex {
+	return &exportIndex{byFile: byFile, named: map[*fileReach]map[string][]string{}, memo: map[[2]string][]string{}}
+}
+
+// resolve returns the symbols file exports under name; see resolveExport.
+func (x *exportIndex) resolve(file, name string) []string {
+	k := [2]string{file, name}
+	if out, ok := x.memo[k]; ok {
+		return out
+	}
+	out := x.resolveExport(file, name, map[string]bool{})
+	x.memo[k] = out
+	return out
+}
+
+// exported returns the symbols g declares and exports under name, in declaration order.
+func (x *exportIndex) exported(g *fileReach, name string) []string {
+	idx, ok := x.named[g]
+	if !ok {
+		idx = map[string][]string{}
+		for _, s := range g.symbols {
+			if !g.private[s] {
+				n := shortName(s)
+				idx[n] = append(idx[n], s)
+			}
+		}
+		x.named[g] = idx
+	}
+	return idx[name]
+}
+
 // resolveExport returns the symbols a file exports under name: one it declares, one it
 // renames on the way out (`export { Page as TagsPage } from`), or one a file it
 // re-exports everything from (`export * from`) exports, through any chain of barrels.
-func resolveExport(file, name string, fileOf func(string) *fileReach, seen map[string]bool) []string {
+func (x *exportIndex) resolveExport(file, name string, seen map[string]bool) []string {
 	if seen[file] {
 		return nil
 	}
 	seen[file] = true
-	g := fileOf(file)
+	g := x.byFile[file]
 	if g == nil {
 		return nil
 	}
+	if own := x.exported(g, name); len(own) > 0 {
+		return append([]string(nil), own...)
+	}
 	var out []string
-	for _, s := range g.symbols {
-		if shortName(s) == name && !g.private[s] {
-			out = append(out, s)
-		}
-	}
-	if len(out) > 0 {
-		return out
-	}
 	for _, e := range g.renamed[name] {
-		out = append(out, resolveExport(e.file, e.name, fileOf, seen)...)
+		out = append(out, x.resolveExport(e.file, e.name, seen)...)
 	}
 	if len(out) > 0 {
 		return out
 	}
 	for _, f := range g.exportsFrom {
-		out = append(out, resolveExport(f, name, fileOf, seen)...)
+		out = append(out, x.resolveExport(f, name, seen)...)
 	}
 	return out
 }
