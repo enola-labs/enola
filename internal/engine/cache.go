@@ -3542,7 +3542,9 @@ import (
 // to its base URL (gateway.post(`orders/v1/carts/${id}`)), rooted at "/".
 // v577: Dart tear-offs in function bodies and module initializers emit names
 // edges, preserving callback usage without inventing calls or propagating I/O.
-const cacheVersion = "v577"
+// v578: Dart qualified calls bind only to declared members, including the
+// declaring type repeated in named-constructor identities.
+const cacheVersion = "v578"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

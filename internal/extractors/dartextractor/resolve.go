@@ -35,6 +35,7 @@ func resolveCallTargets(all []facts.Fact) []facts.Fact {
 	// symbol with 117 dependents. A call resolves to something callable or it stays
 	// bare, which dead-code matching still handles.
 	byShort := map[string][]string{}
+	byCallable := map[string][]string{}
 	// bare type name -> canonical names, for implements/injects targets
 	byType := map[string][]string{}
 	for i := range all {
@@ -50,6 +51,7 @@ func resolveCallTargets(all []facts.Fact) []facts.Fact {
 		switch f.PropString("symbol_kind") {
 		case facts.SymbolMethod, facts.SymbolFunc:
 			byShort[short] = append(byShort[short], f.Name)
+			byCallable[f.Name] = append(byCallable[f.Name], f.Name)
 		case facts.SymbolClass, facts.SymbolInterface, facts.SymbolEnum, facts.SymbolType:
 			byType[short] = append(byType[short], f.Name)
 		}
@@ -88,19 +90,27 @@ func resolveCallTargets(all []facts.Fact) []facts.Fact {
 					r.Target = canon
 				}
 			case facts.RelCalls:
-				if canon, ok := unique(byShort, r.Target); ok {
-					r.Target = canon
-					continue
-				}
-				// `Foo.named` — try the member under its declaring type.
+				// Qualified calls must stay under their written owner. Looking up
+				// only the member would bind an external ListView.builder to an
+				// unrelated local type's uniquely named builder constructor.
 				if typeName, member, found := strings.Cut(r.Target, "."); found {
 					if owner, ok := unique(byType, typeName); ok {
-						if canon, ok := unique(byShort, owner+"."+member); ok {
-							r.Target = canon
-						} else {
-							r.Target = owner + "." + member
+						method := owner + "." + member
+						// Constructor declarations include the type in the member
+						// name: module.Foo.Foo.named. Ordinary/static methods do not.
+						constructor := owner + "." + typeName + "." + member
+						if len(byCallable[method])+len(byCallable[constructor]) == 1 {
+							if canon, ok := unique(byCallable, method); ok {
+								r.Target = canon
+							} else if canon, ok := unique(byCallable, constructor); ok {
+								r.Target = canon
+							}
 						}
 					}
+					continue
+				}
+				if canon, ok := unique(byShort, r.Target); ok {
+					r.Target = canon
 				}
 			}
 		}
