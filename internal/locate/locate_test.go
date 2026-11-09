@@ -458,6 +458,45 @@ func TestCheckMoveTie(t *testing.T) {
 	}
 }
 
+// A body copied into another repository is a copy, not the stamped symbol moved. A stamp
+// that names its repository only moves within it; one that names none cannot tell the
+// two apart and keeps the old answer.
+func TestCheckMoveStaysInStampRepo(t *testing.T) {
+	inRepo := func(repo, name, file, body string) facts.Fact {
+		f := sym(name, file, 1, 3, body)
+		f.Repo = repo
+		return f
+	}
+	stamp := func(repo string) Stamp {
+		return Stamp{ID: facts.FactID(repo, facts.KindSymbol, "src.f", "src/a.ts"), BodyHash: "f1", Name: "src.f", Repo: repo}
+	}
+	copyOnly := NewIndex([]facts.Fact{inRepo("lib", "pkg.f", "pkg/a.ts", "f1")})
+	moveAndCopy := NewIndex([]facts.Fact{inRepo("app", "core.f", "core/a.ts", "f1"), inRepo("lib", "pkg.f", "pkg/a.ts", "f1")})
+
+	cases := map[string]struct {
+		ix         *Index
+		st         Stamp
+		status     string
+		symbolRepo string
+		candidates int
+	}{
+		"repo not loaded, a copy elsewhere":   {copyOnly, stamp("scratch"), StatusGone, "", 1},
+		"moved in its repo, a copy elsewhere": {moveAndCopy, stamp("app"), StatusMoved, "app", 0},
+		"no repo, one copy":                   {copyOnly, Stamp{ID: stamp("scratch").ID, BodyHash: "f1", Name: "src.f"}, StatusMoved, "lib", 0},
+		"no repo, two copies":                 {moveAndCopy, Stamp{ID: stamp("scratch").ID, BodyHash: "f1", Name: "src.f"}, StatusAmbiguous, "", 2},
+	}
+	for name, tc := range cases {
+		r := tc.ix.Check([]Stamp{tc.st})[0]
+		gotRepo := ""
+		if r.Symbol != nil {
+			gotRepo = r.Symbol.Repo
+		}
+		if r.Status != tc.status || gotRepo != tc.symbolRepo || len(r.Candidates) != tc.candidates {
+			t.Errorf("%s: %s on repo %q with %d candidates, want %s on %q with %d", name, r.Status, gotRepo, len(r.Candidates), tc.status, tc.symbolRepo, tc.candidates)
+		}
+	}
+}
+
 func TestCheckSaysWhatKindOfRewrite(t *testing.T) {
 	const stamped = "private f(x: number) {\n  return x;\n}\n"
 	version := func(src string) facts.Fact {

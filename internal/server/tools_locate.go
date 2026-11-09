@@ -14,7 +14,7 @@ import (
 type locateArgs struct {
 	Locations []string       `json:"locations,omitempty" jsonschema:"file:line or file:a-b"`
 	Diff      string         `json:"diff,omitempty" jsonschema:"unified diff"`
-	Side      string         `json:"side,omitempty" jsonschema:"diff side the snapshot is of: new (default) or old"`
+	Side      string         `json:"side,omitempty" jsonschema:"snapshot side: new (default) or old"`
 	Stamps    []locate.Stamp `json:"stamps,omitempty"`
 }
 
@@ -38,7 +38,7 @@ const maxLocateInputs = 500
 func (s *Server) registerLocateTool() {
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "locate",
-		Description: "file:line or diff to symbols: fact id, body_hash, cited_hash. Stamps: current, rewritten, moved, gone, ambiguous; cited intact/changed.",
+		Description: "file:line or diff to symbols: fact id, body_hash, cited_hash. Stamps: current|rewritten|moved|gone|ambiguous; cited intact/changed.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args locateArgs) (*mcp.CallToolResult, any, error) {
 		if len(args.Locations) == 0 && args.Diff == "" && len(args.Stamps) == 0 {
 			return errorResult("locate needs locations, a diff or stamps"), nil, nil

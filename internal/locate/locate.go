@@ -204,7 +204,9 @@ func (ix *Index) Symbols() []Symbol {
 
 // moveKey is what a symbol keeps when it moves: its declared name and its body. The
 // kind is left out so a stamp that did not record it can still be found; the declared
-// name and body together already make a false pairing rare.
+// name and body together make a false pairing rare within one repository. Across the
+// repositories of a multi-repo graph they do not, since copied code keeps both, so the
+// check narrows a key's symbols to the stamp's repository when it names one.
 func moveKey(s Symbol) string {
 	return declared(s.Name) + "\x00" + s.BodyHash
 }
