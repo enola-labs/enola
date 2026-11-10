@@ -114,6 +114,8 @@ type Server struct {
 	// fixed is the graph a fixed instance serves to every session; nil otherwise. See
 	// serve_fixed.go.
 	fixed *fixedGraph
+	// shortNames shortens Go names in text answers; see shortnames.go.
+	shortNames shortenCache
 	// token is the id of the bearer token the session authenticated with; "-" when
 	// unknown. Set by Pool.newSession.
 	token string
@@ -223,6 +225,8 @@ func newServer(eng *engine.Engine, cfg *config.Config, sc *ServeConfig) (*Server
 	// freshness one, and therefore measures the response the agent actually
 	// receives — banner included. Both are registered here rather than per tool, so
 	// they cover every tool on the server, including any added after New returns.
+	// Innermost: answers are shortened before anything is added to or measured of them.
+	s.mcp.AddReceivingMiddleware(s.shortNamesMiddleware)
 	s.mcp.AddReceivingMiddleware(s.valueMiddleware)
 	s.mcp.AddReceivingMiddleware(s.freshnessMiddleware)
 	if !s.served {

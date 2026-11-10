@@ -1,6 +1,6 @@
 # Symbol: pkg/b.Beta
 
-## example.com/gosample/pkg/b.Beta
+## pkg/b.Beta
 
 - File: pkg/b/b.go
 - Line: 6
@@ -10,16 +10,19 @@
 
 ### Relations
 
-- calls → example.com/gosample/pkg/a.Alpha
-- declares → example.com/gosample/pkg/b
+- calls → pkg/a.Alpha
+- declares → pkg/b
 
 ### Related Facts
 
-- **example.com/gosample/pkg/a.Alpha** (symbol) — pkg/a/a.go:7
-- **example.com/gosample/pkg/b** (module) — pkg/b
+- **pkg/a.Alpha** (symbol) — pkg/a/a.go:7
+- **pkg/b** (module) — pkg/b
 
 ### Referenced By
 
 - example.com/gosample.main (calls)
-- example.com/gosample/pkg/a.Alpha (calls)
+- pkg/a.Alpha (calls)
 
+
+
+Go names are shown relative to their module (example.com/gosample); pass either form as input.

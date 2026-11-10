@@ -1,20 +1,23 @@
 First appeared in revision 8c55d97 (<TIME>).
 
 8c55d97  <TIME>  
-  + dependency  example.com/gosample -> example.com/gosample/pkg/a  (main.go:4)
-  + dependency  example.com/gosample/pkg/a -> example.com/gosample/pkg/b  (pkg/a/a.go:3)
-  + dependency  example.com/gosample/pkg/b -> example.com/gosample/pkg/a  (pkg/b/b.go:3)
-  + module      example.com/gosample/pkg/a  (pkg/a)
+  + dependency  example.com/gosample -> pkg/a  (main.go:4)
+  + dependency  pkg/a -> pkg/b  (pkg/a/a.go:3)
+  + dependency  pkg/b -> pkg/a  (pkg/b/b.go:3)
+  + module      pkg/a  (pkg/a)
   + symbol      example.com/gosample.main  (main.go:10)
-  + symbol      example.com/gosample/pkg/a.Alpha  (pkg/a/a.go:7)
-  + symbol      example.com/gosample/pkg/a.Gamma  (pkg/a/a.go:43)
-  + symbol      example.com/gosample/pkg/a.GetPath  (pkg/a/a.go:15)
-  + symbol      example.com/gosample/pkg/a.Seed  (pkg/a/a.go:24)
-  + symbol      example.com/gosample/pkg/a.getByID  (pkg/a/a.go:30)
-  + symbol      example.com/gosample/pkg/a.helper  (pkg/a/a.go:37)
-  + symbol      example.com/gosample/pkg/a.setup  (pkg/a/a.go:31)
-  + symbol      example.com/gosample/pkg/b.Beta  (pkg/b/b.go:6)
+  + symbol      pkg/a.Alpha  (pkg/a/a.go:7)
+  + symbol      pkg/a.Gamma  (pkg/a/a.go:43)
+  + symbol      pkg/a.GetPath  (pkg/a/a.go:15)
+  + symbol      pkg/a.Seed  (pkg/a/a.go:24)
+  + symbol      pkg/a.getByID  (pkg/a/a.go:30)
+  + symbol      pkg/a.helper  (pkg/a/a.go:37)
+  + symbol      pkg/a.setup  (pkg/a/a.go:31)
+  + symbol      pkg/b.Beta  (pkg/b/b.go:6)
   + test_ref    pkg/a/a_ext_test.go  (pkg/a/a_ext_test.go)
   + test_ref    pkg/a/a_test.go  (pkg/a/a_test.go)
 
 Searched 1 revision(s).
+
+
+Go names are shown relative to their module (example.com/gosample); pass either form as input.

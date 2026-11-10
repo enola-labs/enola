@@ -1,21 +1,24 @@
-# Impact: example.com/gosample/pkg/a.Alpha
+# Impact: pkg/a.Alpha
 
 2 total dependents — depth 1: 2 symbols
 
 ## Depth 1 (2)
 
 - example.com/gosample.main (symbol) — main.go:10
-- example.com/gosample/pkg/b.Beta (symbol) — pkg/b/b.go:6
+- pkg/b.Beta (symbol) — pkg/b/b.go:6
 
-# Forward dependencies of example.com/gosample/pkg/a.Alpha (what it depends on)
+# Forward dependencies of pkg/a.Alpha (what it depends on)
 
 ## Depth 1 (2)
 
-- example.com/gosample/pkg/a (module) — pkg/a
-- example.com/gosample/pkg/b.Beta (symbol) — pkg/b/b.go:6
+- pkg/a (module) — pkg/a
+- pkg/b.Beta (symbol) — pkg/b/b.go:6
 
 ## Depth 2 (1)
 
-- example.com/gosample/pkg/b (module) — pkg/b
+- pkg/b (module) — pkg/b
 
 _Stats: 3 visited, max depth 1._
+
+
+Go names are shown relative to their module (example.com/gosample); pass either form as input.

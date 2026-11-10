@@ -4,12 +4,12 @@ _Baseline <TIME> → current <TIME>._
 
 ## Regressions introduced (1)
 
-### 1. Dead code candidate: function example.com/gosample/pkg/a.UsesGamma
+### 1. Dead code candidate: function pkg/a.UsesGamma
 - explainer: dead-code · confidence: 0.80
-- function "example.com/gosample/pkg/a.UsesGamma" is unreferenced — nothing in the snapshot graph references it (high confidence). References are matched by short name and biased conservative, so verify against dynamic/reflective dispatch and consumers outside the snapshot before removing.
+- function "pkg/a.UsesGamma" is unreferenced — nothing in the snapshot graph references it (high confidence). References are matched by short name and biased conservative, so verify against dynamic/reflective dispatch and consumers outside the snapshot before removing.
 - evidence (2):
-    - example.com/gosample/pkg/a.UsesGamma pkg/a/gamma.go — function · unreferenced · pkg/a/gamma.go:6
-    - example.com/gosample/pkg/a.UsesGamma — exported — may be used outside this snapshot; verify before removal
+    - pkg/a.UsesGamma pkg/a/gamma.go — function · unreferenced · pkg/a/gamma.go:6
+    - pkg/a.UsesGamma — exported — may be used outside this snapshot; verify before removal
 - suggested actions:
     - Confirm no dynamic/reflective or out-of-snapshot callers, then remove the symbol
 
@@ -22,15 +22,18 @@ _Baseline <TIME> → current <TIME>._
 
 ## New coupling — edges added (4)
 
-- example.com/gosample/pkg/a -> example.com/gosample/pkg/c --imports--> example.com/gosample/pkg/c
-- example.com/gosample/pkg/a.UsesGamma --calls--> example.com/gosample/pkg/c.Gamma
-- example.com/gosample/pkg/a.UsesGamma --declares--> example.com/gosample/pkg/a
-- example.com/gosample/pkg/c.Gamma --declares--> example.com/gosample/pkg/c
+- pkg/a -> pkg/c --imports--> pkg/c
+- pkg/a.UsesGamma --calls--> pkg/c.Gamma
+- pkg/a.UsesGamma --declares--> pkg/a
+- pkg/c.Gamma --declares--> pkg/c
 
 ## Facts added (4)
 
-- dependency example.com/gosample/pkg/a -> example.com/gosample/pkg/c (pkg/a/gamma.go:3)
-- module example.com/gosample/pkg/c (pkg/c:0)
-- symbol example.com/gosample/pkg/a.UsesGamma (pkg/a/gamma.go:6)
-- symbol example.com/gosample/pkg/c.Gamma (pkg/c/c.go:4)
+- dependency pkg/a -> pkg/c (pkg/a/gamma.go:3)
+- module pkg/c (pkg/c:0)
+- symbol pkg/a.UsesGamma (pkg/a/gamma.go:6)
+- symbol pkg/c.Gamma (pkg/c/c.go:4)
 
+
+
+Go names are shown relative to their module (example.com/gosample); pass either form as input.

@@ -1,10 +1,10 @@
-### example.com/gosample/pkg/a.Alpha
+### pkg/a.Alpha
 Kind: function  File: pkg/a/a.go  Line: 7
 
 ```go
    1│ package a
    2│ 
-   3│ import "example.com/gosample/pkg/b"
+   3│ import "pkg/b"
    4│ 
    5│ // Alpha calls into package b, forming one side of a deliberate a<->b import
    6│ // cycle so the cycles explainer (Tarjan SCC) has something to detect.
@@ -48,3 +48,6 @@ Kind: function  File: pkg/a/a.go  Line: 7
   44│ 
 
 ```
+
+
+Go names are shown relative to their module (example.com/gosample); pass either form as input.

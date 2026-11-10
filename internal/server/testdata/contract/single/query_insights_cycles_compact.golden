@@ -2,12 +2,15 @@ Found **1** insight(s).
 
 ### 1. Cyclic dependency detected (2 modules)
 - explainer: cycles · confidence: 1.00
-- The following modules form a dependency cycle: example.com/gosample/pkg/a -> example.com/gosample/pkg/b -> example.com/gosample/pkg/a. This can cause initialization issues, make refactoring harder, and indicates tight coupling.
+- The following modules form a dependency cycle: pkg/a -> pkg/b -> pkg/a. This can cause initialization issues, make refactoring harder, and indicates tight coupling.
 - evidence (2):
-    - example.com/gosample/pkg/a — module "example.com/gosample/pkg/a" is part of the cycle
-    - example.com/gosample/pkg/b — module "example.com/gosample/pkg/b" is part of the cycle
+    - pkg/a — module "pkg/a" is part of the cycle
+    - pkg/b — module "pkg/b" is part of the cycle
 - suggested actions:
     - Introduce an interface to break the cycle
     - Extract shared types to a separate package
     - Consider merging tightly coupled modules
 
+
+
+Go names are shown relative to their module (example.com/gosample); pass either form as input.

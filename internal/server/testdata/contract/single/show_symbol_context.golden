@@ -1,4 +1,4 @@
-### example.com/gosample/pkg/a.Alpha
+### pkg/a.Alpha
 Kind: function  File: pkg/a/a.go  Line: 7
 
 ```go
@@ -9,3 +9,6 @@ Kind: function  File: pkg/a/a.go  Line: 7
   10│ 
 
 ```
+
+
+Go names are shown relative to their module (example.com/gosample); pass either form as input.
