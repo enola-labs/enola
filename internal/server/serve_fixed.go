@@ -19,6 +19,8 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -60,6 +62,8 @@ type fixedGraph struct {
 	loaded, seen fileStamp
 	// err is why the graph is not loaded, for the consumer's error; nil once it is.
 	err error
+	// loads counts the graphs read, so a reload is told from the first load.
+	loads int
 }
 
 // ServeFixed makes the pool serve repoPaths, restored from their artifacts on disk,
@@ -112,10 +116,23 @@ func (fg *fixedGraph) load(eng *engine.Engine, st fileStamp) {
 		fg.loaded = st
 		return
 	}
+	reload := fg.loads > 0
 	fg.loaded, fg.err = st, nil
+	fg.loads++
 	snap := eng.Snapshot()
 	log.Printf("[serve] serving the graph of %s: %d facts, snapshot %s from %s",
 		strings.Join(fg.paths, ", "), eng.Graph().FactCount(), snap.Meta.SnapshotID, snap.Meta.GeneratedAt)
+	if reload {
+		// The graph replaced is garbage once the calls reading it finish. Left to
+		// itself, Go keeps that heap for reuse up to the soft limit, so a server that
+		// reloads a large graph daily would hold two of them for good.
+		go func() {
+			debug.FreeOSMemory()
+			var m runtime.MemStats
+			runtime.ReadMemStats(&m)
+			log.Printf("[serve] heap after the reload: %d MiB live, %d MiB held from the OS", m.HeapAlloc>>20, (m.HeapSys-m.HeapReleased)>>20)
+		}()
+	}
 }
 
 // poll checks the watched meta every interval and reloads once a change has held

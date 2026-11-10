@@ -110,7 +110,18 @@ output:
   root: /var/lib/enola
 ```
 
-`--memory-budget` does not apply: there is one graph, and it is always served.
+`--memory-budget` does not apply: there is one graph, and it is always served. While
+a reload reads the new graph, the old one is still served, so for those seconds the
+process holds both; afterwards it holds one again and gives the rest back.
+
+Measured with a client that opens a new session for every call and never closes it:
+
+| What | Result |
+|---|---|
+| 500 such calls | 0.48 s, RSS from 29 to 41 MB |
+| Roslyn (378k facts) served, 8 clients calling for 25 s while it reloads | 54,735 calls, 0 errors, p50 3 ms, p99 7 ms, slowest 300 ms |
+| Live heap after that reload | 660 MiB, one graph |
+| A new symbol, from the end of `enola --generate` until a new session sees it | 6.8 s |
 
 ## Sessions and graphs
 
