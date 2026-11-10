@@ -68,7 +68,7 @@ func (e *Engine) writeSessionMark(dir, name string) error {
 
 // OutputDir returns the absolute .enola output directory for repoPath.
 func (e *Engine) OutputDir(repoPath string) string {
-	return filepath.Join(repoPath, e.cfg.Output.Dir)
+	return e.cfg.OutputDirFor(repoPath)
 }
 
 // BaselineAnchor returns the member of a graph whose output dir holds its pinned

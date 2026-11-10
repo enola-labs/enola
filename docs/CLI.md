@@ -1089,7 +1089,7 @@ To run a one-shot snapshot without starting the MCP server:
 enola --generate [config_path]   # config_path is optional; defaults to mcp-arch.yaml, falling back to built-in defaults if absent
 ```
 
-Artifacts are written to the configured `output.dir` (default `.enola/`). The config file is optional - see **[ARCHITECTURE.md → Configuration](../ARCHITECTURE.md#configuration)** for the full field reference and defaults.
+Artifacts are written to the configured `output.dir` (default `.enola/`), inside each repository, or under `output.root` when that is set. The config file is optional - see **[ARCHITECTURE.md → Configuration](../ARCHITECTURE.md#configuration)** for the full field reference and defaults.
 
 **Indexing a whole cluster in one command.** Cross-repo linking needs several repositories in one graph. Name them with `repos:` and a single run indexes them all - the first fresh, the rest appended - producing the service nodes, cross-repo edges, `coverage_report` and unused-route findings that a single-repo snapshot cannot have:
 

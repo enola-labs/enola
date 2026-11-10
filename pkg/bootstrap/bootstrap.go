@@ -846,7 +846,7 @@ func autoLoad(eng *Engine, cfg *config.Config) (map[string]int, string) {
 	if err != nil {
 		return nil, ""
 	}
-	dir := filepath.Join(repoPath, cfg.Output.Dir)
+	dir := cfg.OutputDirFor(repoPath)
 	if _, err := os.Stat(filepath.Join(dir, "facts.jsonl")); err != nil {
 		return nil, "" // nothing on disk; start empty
 	}
@@ -917,14 +917,14 @@ func LoadDashboardSnapshot(eng *Engine, cfg *config.Config) bool {
 		for _, repo := range repos {
 			paths[filepath.Base(repo)] = repo
 		}
-		dir := filepath.Join(repos[0], cfg.Output.Dir)
+		dir := cfg.OutputDirFor(repos[0])
 		return eng.RestoreFromDir(dir, paths, "") == nil
 	}
 	repoPath, err := filepath.Abs(cfg.Repo)
 	if err != nil {
 		return false
 	}
-	dir := filepath.Join(repoPath, cfg.Output.Dir)
+	dir := cfg.OutputDirFor(repoPath)
 	label := restoredLabel(dir, repoPath)
 	if err := eng.RestoreFromDir(dir, map[string]string{label: repoPath}, label); err != nil {
 		return false
@@ -1040,7 +1040,7 @@ func restoreFromGlobalReceipt(eng *Engine, cfg *config.Config, gr *facts.GraphRe
 		return false
 	}
 
-	completeDir, ok := newestSnapshotDir(gr.Repos, cfg.Output.Dir)
+	completeDir, ok := newestSnapshotDir(gr.Repos, cfg.OutputDirFor)
 	if !ok {
 		return false
 	}
@@ -1068,7 +1068,7 @@ func restoreFromGlobalReceipt(eng *Engine, cfg *config.Config, gr *facts.GraphRe
 // newestSnapshotDir picks the repo snapshot directory with the newest generated_at
 // among the graph's repos — the one whose facts.jsonl holds the complete store.
 // Returns false when no repo dir has a readable snapshot timestamp.
-func newestSnapshotDir(repos []facts.GraphRepoEntry, outDir string) (string, bool) {
+func newestSnapshotDir(repos []facts.GraphRepoEntry, outputDirFor func(string) string) (string, bool) {
 	var bestDir string
 	var bestTS time.Time
 	found := false
@@ -1076,7 +1076,7 @@ func newestSnapshotDir(repos []facts.GraphRepoEntry, outDir string) (string, boo
 		if r.Path == "" {
 			continue
 		}
-		dir := filepath.Join(r.Path, outDir)
+		dir := outputDirFor(r.Path)
 		ts, ok := snapshotGeneratedAt(dir)
 		if !ok {
 			continue

@@ -1024,7 +1024,15 @@ renderers:
 output:
   dir: ".enola"
   max_context_tokens: 16000
+  # root: /var/lib/enola   # write each repository's artifacts under here instead of inside it
 ```
+
+`output.root` moves every repository's artifacts out of the repository: those of
+`/srv/repos/api` are written to `<root>/srv/repos/api/.enola`, the repository's
+absolute path mirrored under the root, so two repositories sharing a name stay apart.
+Snapshots, the extractor cache, the pinned baseline and the previous run all move with
+it. Use it for checkouts somebody else keeps current, whose reset or clean would
+otherwise delete them.
 
 The bundled [`mcp-arch.yaml`](mcp-arch.yaml) ships a much fuller `ignore` list (Android/Gradle, Xcode/SPM, Rails, CI, Docker, env files, …); see it and the per-language configs under [`examples/`](examples/) for ready-made starting points. It deliberately declares **no** `extractors:`, `explainers:` or `renderers:` — see the override rule below.
 

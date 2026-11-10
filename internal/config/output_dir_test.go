@@ -147,3 +147,45 @@ func TestNormalize_IgnoresANestedOutputDirectory(t *testing.T) {
 		}
 	}
 }
+
+func TestOutputDirFor(t *testing.T) {
+	repo := filepath.Join(t.TempDir(), "srv", "api")
+	c := Default()
+	if err := c.Normalize(); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := c.OutputDirFor(repo), filepath.Join(repo, ".enola"); got != want {
+		t.Errorf("no root: %s, want %s", got, want)
+	}
+
+	root := t.TempDir()
+	c.Output.Root = root
+	got := c.OutputDirFor(repo)
+	if want := filepath.Join(root, mirrorPath(repo), ".enola"); got != want {
+		t.Errorf("with root: %s, want %s", got, want)
+	}
+	if !strings.HasPrefix(got, root+string(filepath.Separator)) {
+		t.Errorf("with root: %s is not under %s", got, root)
+	}
+	// Two repositories sharing a name in different places stay apart.
+	other := filepath.Join(t.TempDir(), "srv", "api")
+	if c.OutputDirFor(other) == got {
+		t.Errorf("%s and %s share an output directory", repo, other)
+	}
+	// A relative repository path names the same directory as its absolute form.
+	wd, _ := os.Getwd()
+	if rel, err := filepath.Rel(wd, repo); err == nil && c.OutputDirFor(rel) != got {
+		t.Errorf("relative %s: %s, want %s", rel, c.OutputDirFor(rel), got)
+	}
+}
+
+func TestNormalize_MakesOutputRootAbsolute(t *testing.T) {
+	c := Default()
+	c.Output.Root = "out"
+	if err := c.Normalize(); err != nil {
+		t.Fatal(err)
+	}
+	if !filepath.IsAbs(c.Output.Root) {
+		t.Errorf("output.root %q is not absolute", c.Output.Root)
+	}
+}

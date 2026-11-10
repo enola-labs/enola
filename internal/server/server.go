@@ -128,7 +128,7 @@ func startHint(cfg *config.Config) string {
 // (a clean checkout, a deleted .enola), and then nothing is restored.
 func hasSavedGraph(cfg *config.Config) bool {
 	hasFacts := func(repo string) bool {
-		_, err := os.Stat(filepath.Join(repo, cfg.Output.Dir, "facts.jsonl"))
+		_, err := os.Stat(filepath.Join(cfg.OutputDirFor(repo), "facts.jsonl"))
 		return err == nil
 	}
 	if repo, err := filepath.Abs(cfg.Repo); err == nil && hasFacts(repo) {

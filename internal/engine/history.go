@@ -95,7 +95,7 @@ func repoStates(e *Engine, b *snapshotBundle) []RepoState {
 
 // clusterLayout returns a multi-repo graph's sorted member paths and the output
 // directories that may hold an earlier snapshot of it; nil for one repository.
-func clusterLayout(b *snapshotBundle, outputDir, writing string) (members, priorDirs []string) {
+func clusterLayout(b *snapshotBundle, outputDirFor func(string) string, writing string) (members, priorDirs []string) {
 	if len(b.repoPaths) < 2 {
 		return nil, nil
 	}
@@ -104,7 +104,7 @@ func clusterLayout(b *snapshotBundle, outputDir, writing string) (members, prior
 	}
 	sort.Strings(members)
 	for _, m := range members {
-		out := filepath.Join(m, outputDir)
+		out := outputDirFor(m)
 		priorDirs = append(priorDirs, filepath.Join(out, PreviousSubdir))
 		if m != writing {
 			priorDirs = append(priorDirs, out)

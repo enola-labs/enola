@@ -178,7 +178,7 @@ func (e *Engine) repoSourceBytes(b *snapshotBundle, absRepo string) int64 {
 	if b.snapshot != nil && b.snapshot.Meta.RepoPath == absRepo {
 		return b.snapshot.Meta.SourceBytes
 	}
-	data, err := os.ReadFile(filepath.Join(absRepo, e.cfg.Output.Dir, snapshotMetaFileName))
+	data, err := os.ReadFile(filepath.Join(e.cfg.OutputDirFor(absRepo), snapshotMetaFileName))
 	if err != nil {
 		return 0
 	}

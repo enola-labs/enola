@@ -985,7 +985,7 @@ func (e *Engine) WriteArtifacts(repoPath string) error {
 	if err != nil {
 		return fmt.Errorf("resolving repo path: %w", err)
 	}
-	outDir := filepath.Join(absRepo, e.cfg.Output.Dir)
+	outDir := e.cfg.OutputDirFor(absRepo)
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
 		return fmt.Errorf("creating output dir: %w", err)
 	}
@@ -1124,7 +1124,7 @@ func (e *Engine) WriteArtifacts(repoPath string) error {
 	// come from the artifact itself. It also costs nothing when history blobs are off,
 	// which the previous arrangement could not manage.
 	if e.recordSnapshot != nil && b.snapshot != nil {
-		members, priorDirs := clusterLayout(b, e.cfg.Output.Dir, absRepo)
+		members, priorDirs := clusterLayout(b, e.cfg.OutputDirFor, absRepo)
 		e.recordSnapshot(SnapshotRecord{
 			Members:     members,
 			PriorDirs:   priorDirs,

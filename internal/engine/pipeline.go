@@ -271,7 +271,7 @@ func (e *Engine) extract(r *snapshotRun) error {
 	tStage := time.Now()
 	// 3. Detect and run extractors (with optional per-extractor caching).
 	var cache *extractorCache
-	cachePath := extractorCachePath(filepath.Join(r.absRepo, e.cfg.Output.Dir))
+	cachePath := extractorCachePath(e.cfg.OutputDirFor(r.absRepo))
 	if e.cfg.IncrementalEnabled() {
 		cache = loadExtractorCache(cachePath, e.persistCache)
 		// The cache now holds an open temp file from the moment it is created, so

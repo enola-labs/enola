@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"path/filepath"
@@ -22,7 +23,20 @@ import (
 // every repository appended into a fresh store with linking run once, on the last.
 // The caller holds genMu.
 func (s *Server) generateCluster(ctx context.Context, dir string, names []string) (*mcp.CallToolResult, any, error) {
-	path, existing, writeErr := workspace.EnsureClusterConfig(dir, names)
+	var path string
+	var existing bool
+	var writeErr error
+	if s.served {
+		// A served instance writes nothing into the checkouts it is pointed at: they
+		// are somebody else's to keep current. A cluster config already there is read.
+		if p, _ := workspace.Cluster(dir); p != "" {
+			path, existing = p, true
+		} else {
+			writeErr = errors.New("a served instance does not write into the repositories it serves")
+		}
+	} else {
+		path, existing, writeErr = workspace.EnsureClusterConfig(dir, names)
+	}
 	var repoPaths []string
 	if existing {
 		cfg, err := config.Load(path)
@@ -166,7 +180,7 @@ func (s *Server) indexRepo(ctx context.Context, absRepo string, appendMode bool)
 	// refresh from one that has real work to re-derive. Disk rather than the
 	// in-memory snapshot because in append mode the loaded snapshot describes
 	// whichever repo was indexed last, not this one.
-	prevID, prevHashes := previousSnapshot(absRepo)
+	prevID, prevHashes := s.previousSnapshot(absRepo)
 	priorCorpus := s.priorCorpusTokens(absRepo)
 
 	snapshot, err := s.eng.GenerateSnapshot(ctx, absRepo, appendMode)

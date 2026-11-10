@@ -103,9 +103,26 @@ tool outside the allowlist).
 ## What it leaves alone
 
 A served instance writes no `~/.enola/receipt.json`: that receipt tracks the workspace
-an agent on this machine worked in last, and a server must not overwrite it. Snapshots
-are written where they always are, into each repository's `.enola` directory, so the
-directories under `--root` must be writable by the user serve runs as.
+an agent on this machine worked in last, and a server must not overwrite it.
+
+The checkouts under `--root` belong to whoever keeps them current, and a `git clean`
+or a fresh clone there would delete anything enola wrote, the pinned baseline included.
+`--output-root` moves every repository's artifacts out of it:
+
+```sh
+enola serve --root /srv/repos --output-root /var/lib/enola --token-file /etc/enola/tokens
+```
+
+The artifacts of `/srv/repos/api` then live in `/var/lib/enola/srv/repos/api/.enola`:
+the snapshot, the extractor cache, the pinned baseline and the previous run. With it,
+a served instance writes nothing into the repositories at all, so they can be
+read-only to the user serve runs as. A folder of repositories is still indexed as a
+cluster, from the `cluster.yaml` already there or from the repositories under it, but
+a served instance never writes that file. The same setting is `output.root` in a
+config file, for the CLI and the stdio server.
+
+Without `--output-root`, snapshots are written where they always are, into each
+repository's `.enola` directory, and the directories under `--root` must be writable.
 
 A repository or cluster config given as the last argument has its graph restored from
 disk at start, so the first call does not wait for an index:

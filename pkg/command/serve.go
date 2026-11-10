@@ -50,6 +50,7 @@ func (r *Runner) runServe(ctx context.Context, args []string, stderr io.Writer) 
 		maxConcurrent  = fs.Int("max-concurrent", runtime.NumCPU(), "tool calls running at once; more wait")
 		callTimeout    = fs.Duration("call-timeout", 15*time.Minute, "cancel a tool call running longer (0 for no limit)")
 		sessionTimeout = fs.Duration("session-timeout", 30*time.Minute, "close a session idle this long")
+		outputRoot     = fs.String("output-root", "", "write every repository's artifacts under this directory instead of inside the repository")
 	)
 	fs.Usage = func() {
 		_, _ = fmt.Fprint(stderr,
@@ -59,7 +60,8 @@ func (r *Runner) runServe(ctx context.Context, args []string, stderr io.Writer) 
 				"call names, and every repository it reaches, must lie inside a --root; others\n"+
 				"are refused. A repository or config given here has its graph restored from disk\n"+
 				"at start; otherwise consumers index with generate_snapshot. Nothing is written\n"+
-				"to ~/.enola/receipt.json. One line per tool call is logged to stderr.\n\n"+
+				"to ~/.enola/receipt.json, and nothing into the repositories when --output-root\n"+
+				"is set. One line per tool call is logged to stderr.\n\n"+
 				"Exit codes:\n"+
 				"  0  stopped by a signal\n"+
 				"  1  the server failed\n"+
@@ -98,6 +100,20 @@ func (r *Runner) runServe(ctx context.Context, args []string, stderr io.Writer) 
 	if err != nil {
 		say("%v", err)
 		return 2
+	}
+	if *outputRoot != "" {
+		abs, err := filepath.Abs(*outputRoot)
+		if err == nil {
+			err = os.MkdirAll(abs, 0o755)
+		}
+		if err == nil {
+			err = checkWritable(abs)
+		}
+		if err != nil {
+			say("--output-root: %v", err)
+			return 2
+		}
+		cfg.Output.Root = abs
 	}
 	var restorePaths []string
 	if restore {
@@ -138,6 +154,9 @@ func (r *Runner) runServe(ctx context.Context, args []string, stderr io.Writer) 
 	loopback := isLoopback(ln.Addr())
 	_, _ = fmt.Fprintf(stderr, "%s serve %s: MCP over Streamable HTTP at http://%s/mcp\n", r.name(), version.Version, ln.Addr())
 	_, _ = fmt.Fprintf(stderr, "  Roots:       %s\n", strings.Join(resolved, ", "))
+	if cfg.Output.Root != "" {
+		_, _ = fmt.Fprintf(stderr, "  Output:      %s\n", cfg.Output.Root)
+	}
 	_, _ = fmt.Fprintf(stderr, "  Tokens:      %d accepted\n", len(tokens))
 	_, _ = fmt.Fprintf(stderr, "  Limits:      %d concurrent calls, %s per call, sessions idle %s\n", *maxConcurrent, *callTimeout, *sessionTimeout)
 	if restore {
@@ -188,6 +207,18 @@ func readTokenFile(path string) ([]string, error) {
 		return nil, fmt.Errorf("token file %s holds no tokens", path)
 	}
 	return tokens, nil
+}
+
+// checkWritable fails now, at start, for a directory serve could not write a snapshot
+// into, rather than on the first generate_snapshot a consumer makes.
+func checkWritable(dir string) error {
+	f, err := os.CreateTemp(dir, ".enola-write-check-")
+	if err != nil {
+		return err
+	}
+	name := f.Name()
+	_ = f.Close()
+	return os.Remove(name)
 }
 
 func isLoopback(a net.Addr) bool {

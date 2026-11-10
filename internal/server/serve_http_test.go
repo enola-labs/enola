@@ -2,6 +2,8 @@ package server_test
 
 import (
 	"context"
+	"fmt"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -13,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/enola-labs/enola/internal/config"
 	"github.com/enola-labs/enola/internal/server"
 	"github.com/enola-labs/enola/pkg/bootstrap"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -40,11 +43,19 @@ type served struct {
 	repo string
 }
 
-func startServed(t *testing.T, sc bootstrap.ServeOptions) *served {
+func startServed(t *testing.T, sc bootstrap.ServeOptions, tweak ...func(*config.Config)) *served {
 	t.Helper()
 	root := t.TempDir()
 	repo := copyTree(t, filepath.Join("..", "engine", "testdata", "repos", "go_sample"), root)
+	return startServedAt(t, sc, root, repo, tweak...)
+}
+
+func startServedAt(t *testing.T, sc bootstrap.ServeOptions, root, repo string, tweak ...func(*config.Config)) *served {
+	t.Helper()
 	eng, cfg := newTestEngine(t)
+	for _, f := range tweak {
+		f(cfg)
+	}
 	sc.Roots = []string{root}
 	srv, roots, err := bootstrap.NewServedServer(eng, cfg, sc)
 	if err != nil {
@@ -288,5 +299,111 @@ func TestServe_CallTimeoutCancels(t *testing.T) {
 	res, err := sess.cs.CallTool(context.Background(), &mcp.CallToolParams{Name: "generate_snapshot", Arguments: map[string]any{"repo_path": s.repo}})
 	if err == nil && !res.IsError {
 		t.Error("generate_snapshot finished inside a 1ns call timeout")
+	}
+}
+
+// tree lists every path under dir with its size and mode, to show a directory was
+// left exactly as it was.
+func tree(t *testing.T, dir string) map[string]string {
+	t.Helper()
+	out := map[string]string{}
+	err := filepath.Walk(dir, func(p string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, _ := filepath.Rel(dir, p)
+		out[rel] = fmt.Sprintf("%d %s %d", info.Size(), info.Mode(), info.ModTime().UnixNano())
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+// With an output root, a served instance leaves the repositories it reads exactly as
+// it found them: the snapshot, the extractor cache, the pinned baseline and the
+// previous run all live under the root, and a restart restores from there.
+func TestServe_OutputRootLeavesRepositoriesUntouched(t *testing.T) {
+	out := t.TempDir()
+	withRoot := func(c *config.Config) { c.Output.Root = out }
+	s := startServed(t, bootstrap.ServeOptions{}, withRoot)
+	before := tree(t, s.root)
+
+	sess, err := s.connect(t, testToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess.snapshot(t)
+	if res := sess.call(t, "set_baseline", map[string]any{}); res.IsError {
+		t.Fatalf("set_baseline: %s", text(res))
+	}
+	sess.snapshot(t)
+	if res := sess.call(t, "diff_snapshot", map[string]any{}); res.IsError {
+		t.Fatalf("diff_snapshot against the pinned baseline: %s", text(res))
+	}
+	if res := sess.call(t, "diff_snapshot", map[string]any{"baseline": "previous"}); res.IsError {
+		t.Fatalf("diff_snapshot against the previous run: %s", text(res))
+	}
+
+	if after := tree(t, s.root); !maps.Equal(before, after) {
+		for p := range after {
+			if _, ok := before[p]; !ok {
+				t.Errorf("written into the served repositories: %s", p)
+			}
+		}
+		t.Errorf("the served repositories changed")
+	}
+	cfg := config.Default()
+	cfg.Output.Root = out
+	if err := cfg.Normalize(); err != nil {
+		t.Fatal(err)
+	}
+	dir := cfg.OutputDirFor(s.repo)
+	for _, f := range []string{"facts.jsonl", "snapshot.meta.json", "baseline/facts.jsonl", "previous/facts.jsonl", "extractor_cache.json"} {
+		if _, err := os.Stat(filepath.Join(dir, f)); err != nil {
+			t.Errorf("%s is not under the output root: %v", f, err)
+		}
+	}
+
+	// A restart restores the graph from the output root, not from the repository.
+	again := startServedAt(t, bootstrap.ServeOptions{Restore: []string{s.repo}}, s.root, s.repo, withRoot)
+	sess2, err := again.connect(t, testToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := sess2.call(t, "query_facts", map[string]any{"kind": "symbol", "output_mode": "summary"})
+	if res.IsError || !strings.Contains(text(res), "matching facts") {
+		t.Fatalf("query_facts after a restore from the output root: %s", text(res))
+	}
+}
+
+// A folder of repositories is indexed as a cluster, and the stdio server writes a
+// cluster.yaml listing them into the folder. A served instance writes nothing there.
+func TestServe_ClusterWritesNoConfigIntoTheFolder(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	out := t.TempDir()
+	s := startServed(t, bootstrap.ServeOptions{}, func(c *config.Config) { c.Output.Root = out })
+	folder := filepath.Join(s.root, "cluster")
+	for _, name := range []string{"one", "two"} {
+		m := filepath.Join(folder, name)
+		copyTree(t, filepath.Join("..", "engine", "testdata", "repos", "go_sample"), m)
+		if b, err := exec.Command("git", "-C", m, "init", "-q").CombinedOutput(); err != nil {
+			t.Fatalf("git init: %v\n%s", err, b)
+		}
+	}
+	before := tree(t, folder)
+	sess, err := s.connect(t, testToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := sess.call(t, "generate_snapshot", map[string]any{"repo_path": folder})
+	if res.IsError || !strings.Contains(text(res), "indexed as a cluster") {
+		t.Fatalf("generate_snapshot on a folder of repositories: %s", text(res))
+	}
+	if after := tree(t, folder); !maps.Equal(before, after) {
+		t.Errorf("a served cluster snapshot wrote into the folder")
 	}
 }
