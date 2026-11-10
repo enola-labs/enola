@@ -93,7 +93,9 @@ func declaredPatterns(store *facts.Store, repo string) []*archPattern {
 			if m.Repo != repo {
 				continue
 			}
-			stripped := strings.TrimPrefix(m.Name, repo+"/")
+			// The module's path, not its name: a Go package is named by its import
+			// path and declared by its directory, like everything else.
+			stripped := strings.TrimPrefix(facts.ModulePath(m), repo+"/")
 			for _, en := range entries {
 				if matchDeclaredLayerPath(stripped, en.paths) {
 					modules[m.Name] = en.name
@@ -106,6 +108,7 @@ func declaredPatterns(store *facts.Store, repo string) []*archPattern {
 			Confidence: 1.0,
 			Layers:     layerDefs,
 			Modules:    modules,
+			Dirs:       facts.NewModuleDirs(store.ByKind(facts.KindModule)),
 		})
 	}
 	return patterns
