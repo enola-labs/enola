@@ -1774,3 +1774,19 @@ func TestNodeFor_DeclarationsOfASharedName(t *testing.T) {
 		}
 	}
 }
+
+// A path a service serves and the same path it calls on another service are one
+// node. The route a handler serves is the fact that records the handled_by edge, not
+// whichever of the two comes first.
+func TestReverseFacts_ReturnsTheFactCarryingTheEdge(t *testing.T) {
+	ff := []Fact{
+		{Kind: KindRoute, Name: "/orders", File: "api/client/billing.yml", Props: map[string]any{"method": "POST", "role": "client"}},
+		{Kind: KindRoute, Name: "/orders", File: "api/service.yml", Props: map[string]any{"method": "GET", "role": "server"},
+			Relations: []Relation{{Kind: RelHandledBy, Target: "shop/http.Server.Orders"}}},
+		{Kind: KindSymbol, Name: "shop/http.Server.Orders", File: "http/server.go"},
+	}
+	got := NewGraph(ff).ReverseFacts("shop/http.Server.Orders", RelHandledBy)
+	if len(got) != 1 || got[0].File != "api/service.yml" || got[0].PropString("method") != "GET" {
+		t.Errorf("ReverseFacts = %+v, want only the served GET /orders", got)
+	}
+}
