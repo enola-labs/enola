@@ -21,9 +21,16 @@ import "go/ast"
 // function of the in-repository package that import names: `mustInit(svg.Init)` and
 // a handler registered as `m.Post("/cancel", repo.CancelStopwatch)` are references to
 // those functions, and without them an orphan check that matches functions by package
-// path reports both as dead. A variable, constant or type of the same name, a method
-// value, and anything in a package outside the repository stay unrecorded. A missing
-// edge beats a wrong one.
+// path reports both as dead.
+//
+// A method value, `srv.AddReceivingMiddleware(s.restoreMiddleware)`, is resolved the
+// way the call `s.restoreMiddleware(next)` would be, through the receiver's or the
+// variable's known type, and counts only when that names a method the module declares:
+// a field of the same name, a value of a type nobody declared, or a receiver whose
+// type is not known stays unrecorded. Every middleware of this repository's MCP server
+// read as dead code before. A variable, constant or type of the same name, and
+// anything in a package outside the repository, stay unrecorded too. A missing edge
+// beats a wrong one.
 
 // funcValueRefs returns qualified names for this package's top-level functions that
 // appear in n as a value rather than as the thing being called. Calls are already
@@ -40,7 +47,7 @@ func packageLevelFuncRefs(n ast.Node, ctx resolveCtx) []string {
 }
 
 func packageFuncRefs(n ast.Node, ctx resolveCtx, valueOnly bool) []string {
-	if n == nil || (len(ctx.pkgFuncs) == 0 && len(ctx.moduleFuncs) == 0) {
+	if n == nil || (len(ctx.pkgFuncs) == 0 && len(ctx.moduleFuncs) == 0 && len(ctx.moduleMethods) == 0) {
 		return nil
 	}
 
@@ -122,7 +129,12 @@ func packageFuncRefs(n ast.Node, ctx resolveCtx, valueOnly bool) []string {
 	}
 	ast.Inspect(n, func(node ast.Node) bool {
 		if sel, ok := node.(*ast.SelectorExpr); ok {
-			if q, ok := importedFuncRef(sel, ctx, shadowed); ok && (!valueOnly || !called[sel]) {
+			if valueOnly && called[sel] {
+				return true
+			}
+			if q, ok := importedFuncRef(sel, ctx, shadowed); ok {
+				add(q)
+			} else if q, ok := methodValueRef(sel, ctx); ok {
 				add(q)
 			}
 			return true
@@ -159,6 +171,21 @@ func importedFuncRef(sel *ast.SelectorExpr, ctx resolveCtx, shadowed map[string]
 	}
 	q := dir + "." + sel.Sel.Name
 	return q, ctx.moduleFuncs[q]
+}
+
+// methodValueRef resolves `x.Method` used as a value to the method it names, with the
+// qualification resolveChain gives the call `x.Method()`, so the value and a call land
+// on one node. It answers only when that is a method the module declares.
+func methodValueRef(sel *ast.SelectorExpr, ctx resolveCtx) (string, bool) {
+	if ctx.moduleMethods == nil {
+		return "", false
+	}
+	chain := flattenSelector(sel)
+	if len(chain) < 2 {
+		return "", false
+	}
+	q := resolveChain(chain, ctx)
+	return q, q != "" && ctx.moduleMethods[q]
 }
 
 // packageLevelRefs collects the function references in a file's package-level var and

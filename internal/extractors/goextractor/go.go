@@ -85,6 +85,10 @@ func (e *GoExtractor) OwnsFile(relFile string) bool {
 
 // parsedPkg holds parsing results for a single Go package directory.
 type parsedPkg struct {
+	// dir is the package's repository-relative directory. The map holding parsed
+	// packages is keyed by import path, which is also how every fact is named; dir is
+	// where the files are, for the module fact's File.
+	dir         string
 	pkgName     string
 	relFiles    []string
 	parsedFiles []*ast.File
@@ -132,6 +136,18 @@ func (e *GoExtractor) Extract(ctx context.Context, repoPath string, files []stri
 		pp.fileMap[f] = parsed
 	}
 
+	// Packages are named by import path from here on: the module path their go.mod
+	// declares, joined with their place in the module. Their directory names them
+	// only inside one repository, and several repositories in one graph have an
+	// internal/config each; the import path is unique by Go's own rules, and it is
+	// what another repository's import of the package writes, so the two meet.
+	byPath := make(map[string]*parsedPkg, len(parsedPkgs))
+	for dir, pp := range parsedPkgs {
+		pp.dir = dir
+		byPath[mods.importPathOf(dir)] = pp
+	}
+	parsedPkgs = byPath
+
 	pkgDirs := make([]string, 0, len(parsedPkgs))
 	for pkgDir := range parsedPkgs {
 		pkgDirs = append(pkgDirs, pkgDir)
@@ -174,7 +190,7 @@ func (e *GoExtractor) Extract(ctx context.Context, repoPath string, files []stri
 	// on a call's result (`eng.Resolver().NodeName(x)`) and a variable assigned from
 	// one (`r := eng.Resolver()`) resolve to the method they reach.
 	callTypes := callTypeTables{
-		returns: make(map[string][]string), aliases: aliases, funcs: make(map[string]bool),
+		returns: make(map[string][]string), aliases: aliases, funcs: make(map[string]bool), methods: make(map[string]bool),
 		elems: elemTypes{byType: make(map[string]string), byField: make(map[string]string)},
 	}
 	for _, pkgDir := range pkgDirs {
@@ -184,6 +200,9 @@ func (e *GoExtractor) Extract(ctx context.Context, repoPath string, files []stri
 		}
 		for name := range collectPackageFuncs(parsedPkgs[pkgDir].parsedFiles) {
 			callTypes.funcs[pkgDir+"."+name] = true
+		}
+		for name := range collectPackageMethods(parsedPkgs[pkgDir].parsedFiles) {
+			callTypes.methods[pkgDir+"."+name] = true
 		}
 	}
 
@@ -336,7 +355,7 @@ func (e *GoExtractor) extractPackage(fset *token.FileSet, pkgDir string, pp *par
 	moduleFact := facts.Fact{
 		Kind: facts.KindModule,
 		Name: pkgDir,
-		File: pkgDir,
+		File: pp.dir,
 		Props: map[string]any{
 			"package":  pp.pkgName,
 			"language": "go",
@@ -363,7 +382,7 @@ func (e *GoExtractor) extractPackage(fset *token.FileSet, pkgDir string, pp *par
 	// root, so a nested module's path here would send its targets to the wrong
 	// directory; resolving into a nested module from another repository is not
 	// done yet.
-	if mp := mods.rootPath(); pkgDir == "." && mp != "" {
+	if mp := mods.rootPath(); pp.dir == "." && mp != "" {
 		moduleFact.SetProp("modulePath", mp)
 	}
 	if doc := packageDoc(pp); doc != "" {
@@ -421,13 +440,10 @@ func (e *GoExtractor) extractFile(fset *token.FileSet, f *ast.File, relFile, pkg
 	for _, imp := range f.Imports {
 		importPath := strings.Trim(imp.Path.Value, `"`)
 
-		// Normalize internal import targets to short paths (e.g.
-		// "github.com/foo/bar/internal/pkg" → "internal/pkg") so they
-		// match the module fact names used elsewhere in the store.
+		// The target is the import path as written: the repository's own packages are
+		// named by it too, so an internal import lands on its package, and another
+		// repository's package in the same graph is reached the same way.
 		relTarget := importPath
-		if dir, ok := mods.resolve(importPath); ok {
-			relTarget = dir
-		}
 
 		result = append(result, facts.Fact{
 			Kind: facts.KindDependency,
@@ -556,10 +572,11 @@ func (e *GoExtractor) extractFunc(fset *token.FileSet, fn *ast.FuncDecl, relFile
 			pkgConsts:  pkgConsts,
 			localPkgs:  pkgNames,
 
-			returnTypes: callTypes.returns,
-			aliases:     callTypes.aliases,
-			moduleFuncs: callTypes.funcs,
-			elemTypes:   callTypes.elems,
+			returnTypes:   callTypes.returns,
+			aliases:       callTypes.aliases,
+			moduleFuncs:   callTypes.funcs,
+			moduleMethods: callTypes.methods,
+			elemTypes:     callTypes.elems,
 
 			registryFields: callTypes.registries,
 		}
@@ -856,6 +873,9 @@ type resolveCtx struct {
 	// "pkgDir.Func" for every top-level function in the module. nil where a pass
 	// does not resolve function values across packages.
 	moduleFuncs map[string]bool
+	// "pkgDir.Type.Method" for every method in the module. nil where a pass does not
+	// resolve method values.
+	moduleMethods map[string]bool
 	// Every name this package declares at top level: functions, types, variables
 	// and constants. nil where a pass does not collect it.
 	pkgScope map[string]bool
@@ -1449,13 +1469,9 @@ func buildFileImports(f *ast.File, mods goModules, pkgNames map[string]string) m
 			}
 		}
 
-		// A package importing a module root maps to that module's directory
-		// ("." at the repository root) so that call targets resolve to the
-		// root package's fact names.
+		// Every package is named by its import path, the repository's own included,
+		// so the path the source writes is already the name its facts carry.
 		relTarget := importPath
-		if dir, ok := mods.resolve(importPath); ok {
-			relTarget = dir
-		}
 
 		alias := ""
 		if imp.Name != nil {
@@ -1880,6 +1896,14 @@ func resolveTypeName(typeStr string, ctx resolveCtx) string {
 	if !strings.Contains(typeStr, ".") {
 		return aliasTarget(ctx.pkgDir+"."+typeStr, ctx.aliases)
 	}
+	// Already qualified: a package's import path has a "/" ("example.com/app/svc.T")
+	// or, for a module root named like a host, more than one "." ("gitea.dev.T").
+	// Source writes a type as alias.T, one dot and no slash. Split at its first dot,
+	// "github.com/acme/app/svc.T" read as the alias github, which a file importing
+	// go-github has, and glued the rest onto that package.
+	if strings.Contains(typeStr, "/") || strings.Count(typeStr, ".") > 1 {
+		return typeStr
+	}
 	parts := strings.SplitN(typeStr, ".", 2)
 	if resolvedPkg, ok := ctx.imports[parts[0]]; ok {
 		return aliasTarget(resolvedPkg+"."+parts[1], ctx.aliases)
@@ -2092,6 +2116,24 @@ func collectPackageFuncs(files []*ast.File) map[string]bool {
 				continue
 			}
 			out[fn.Name.Name] = true
+		}
+	}
+	return out
+}
+
+// collectPackageMethods returns "Type.Method" for every method declared in files,
+// with the receiver written as extractFunc writes it into the method's symbol name.
+func collectPackageMethods(files []*ast.File) map[string]bool {
+	out := map[string]bool{}
+	for _, f := range files {
+		for _, decl := range f.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok || fn.Recv == nil || len(fn.Recv.List) == 0 || fn.Name == nil {
+				continue
+			}
+			if recv := typeExprToString(fn.Recv.List[0].Type); recv != "" {
+				out[recv+"."+fn.Name.Name] = true
+			}
 		}
 	}
 	return out

@@ -88,7 +88,7 @@ func refsFromGoTest(src []byte, relFile string, mods goModules) []facts.Fact {
 	}
 
 	base := resolveCtx{
-		pkgDir: factpath.Dir(relFile),
+		pkgDir: mods.importPathOf(factpath.Dir(relFile)),
 		mods:   mods,
 		// pkgNames is deliberately nil. It exists to recover a declared package name
 		// that differs from its directory base ("go-auth" → package auth), which

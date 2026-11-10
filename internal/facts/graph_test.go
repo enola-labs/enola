@@ -793,84 +793,33 @@ func contains(ss []string, s string) bool {
 	return false
 }
 
-// TestNewGraph_CrossRepoCallNormalisation verifies that cross-repo call targets
-// whose import paths include a known Go module path are normalised to the
-// repo-relative fact name when building the graph.
-func TestNewGraph_CrossRepoCallNormalisation(t *testing.T) {
-	// Simulate two repos loaded together:
-	//   - go-auth repo: root module fact with modulePath prop, plus symbol facts
-	//   - golf repo: symbol with a call target using the full external import path
-	facts := []Fact{
-		// go-auth root module fact — carries the Go module path
-		{
-			Kind: KindModule,
-			Name: ".",
-			Repo: "go-auth",
-			Props: map[string]any{
-				"package":    "goauth",
-				"language":   "go",
-				"modulePath": "github.com/dejo1307/go-auth",
-			},
-		},
-		// go-auth adapters module
-		{Kind: KindModule, Name: "adapters", Repo: "go-auth"},
-		// go-auth symbol: adapters.AuthHandler.Login
-		{
-			Kind: KindSymbol,
-			Name: "adapters.AuthHandler.Login",
-			Repo: "go-auth",
-		},
-		// golf symbol with an unresolved external call target
-		{
-			Kind: KindSymbol,
-			Name: "internal/auth.LoginWrapper.Login",
-			Repo: "golf",
-			Relations: []Relation{
-				{Kind: RelCalls, Target: "github.com/dejo1307/go-auth/adapters.AuthHandler.Login"},
-			},
-		},
+// Go facts are named by import path, so a call another repository writes with the
+// import path lands on the library's own symbol with no translation.
+func TestNewGraph_CrossRepoGoCallLinksByImportPath(t *testing.T) {
+	ff := []Fact{
+		{Kind: KindModule, Name: "github.com/acme/go-auth/adapters", File: "go-auth/adapters", Repo: "go-auth"},
+		{Kind: KindSymbol, Name: "github.com/acme/go-auth/adapters.Handler.Login", File: "go-auth/adapters/h.go", Repo: "go-auth"},
+		{Kind: KindSymbol, Name: "github.com/acme/web/server.Routes", File: "web/server/r.go", Repo: "web",
+			Relations: []Relation{{Kind: RelCalls, Target: "github.com/acme/go-auth/adapters.Handler.Login"}}},
 	}
-
-	g := NewGraph(facts)
-
-	// The forward edge from golf's LoginWrapper.Login should point to the
-	// normalised fact name "adapters.AuthHandler.Login", not the full import path.
-	edges := g.ForwardEdges("internal/auth.LoginWrapper.Login")
-	if len(edges) == 0 {
-		t.Fatal("expected at least one forward edge from LoginWrapper.Login")
-	}
-	found := false
-	for _, e := range edges {
-		if e.RelKind == RelCalls && e.Target == "adapters.AuthHandler.Login" {
-			found = true
-		}
-	}
-	if !found {
-		t.Errorf("expected normalised call edge to adapters.AuthHandler.Login; got edges: %v", edges)
+	g := NewGraph(ff)
+	if got := g.ReverseFacts("github.com/acme/go-auth/adapters.Handler.Login", RelCalls); len(got) != 1 || got[0].Name != "github.com/acme/web/server.Routes" {
+		t.Errorf("the cross-repo call did not land on the library's symbol: %v", got)
 	}
 }
 
-// TestNormalizeExternalTarget verifies the helper directly.
-func TestNormalizeExternalTarget(t *testing.T) {
-	// Longest first, as NewGraph orders them, so the nested module claims its targets.
-	mods := []string{"github.com/dejo1307/go-auth/tools", "github.com/dejo1307/go-auth"}
-
-	cases := []struct {
-		target string
-		want   string
-	}{
-		{"github.com/dejo1307/go-auth/tools.Run", "..Run"},
-		{"github.com/dejo1307/go-auth/adapters.Handler.Login", "adapters.Handler.Login"},
-		{"github.com/dejo1307/go-auth.SecurityHeaders", "..SecurityHeaders"},
-		{"github.com/other/lib/pkg.Type.Method", ""}, // no matching module
-		{"github.com/dejo1307/go-auth", ""},          // no separator after module path
+// A call target under an import path nothing declares stays unresolved. It is not
+// shortened to a directory-style name that some other fact happens to carry.
+func TestNewGraph_UnresolvedImportPathIsNotShortened(t *testing.T) {
+	ff := []Fact{
+		{Kind: KindModule, Name: "adapters", File: "adapters", Repo: "py", Props: map[string]any{"modulePath": "github.com/acme/go-auth"}},
+		{Kind: KindSymbol, Name: "adapters.Handler.Login", File: "adapters/h.py", Repo: "py"},
+		{Kind: KindSymbol, Name: "github.com/acme/web/server.Routes", File: "web/server/r.go", Repo: "web",
+			Relations: []Relation{{Kind: RelCalls, Target: "github.com/acme/go-auth/adapters.Handler.Login"}}},
 	}
-
-	for _, tc := range cases {
-		got := normalizeExternalTarget(tc.target, mods)
-		if got != tc.want {
-			t.Errorf("normalizeExternalTarget(%q) = %q, want %q", tc.target, got, tc.want)
-		}
+	g := NewGraph(ff)
+	if got := g.ReverseFacts("adapters.Handler.Login", RelCalls); len(got) != 0 {
+		t.Errorf("an import-path call was shortened onto an unrelated fact: %v", got)
 	}
 }
 

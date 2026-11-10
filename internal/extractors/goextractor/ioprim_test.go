@@ -61,6 +61,7 @@ func extractGoModule(t *testing.T, files map[string]string) map[string]facts.Fac
 	if err != nil {
 		t.Fatal(err)
 	}
+	ff = dirNamed(t, dir, ff)
 	out := make(map[string]facts.Fact)
 	for _, f := range ff {
 		if f.Kind == facts.KindSymbol {

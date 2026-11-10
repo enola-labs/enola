@@ -59,7 +59,7 @@ func TestResolveModuleDir_BothSnapshotShapes(t *testing.T) {
 			for _, m := range tt.prod {
 				prod[m] = true
 			}
-			if got := resolveModuleDir(tt.fact, prod, map[string]bool{}); got != tt.want {
+			if got := resolveModuleDir(tt.fact, prod, map[string]bool{}, nil); got != tt.want {
 				t.Errorf("resolveModuleDir() = %q, want %q", got, tt.want)
 			}
 		})
@@ -73,7 +73,7 @@ func TestResolveModuleDir_ExactBeatsWalkUp(t *testing.T) {
 	f := facts.Fact{Repo: "consumer", File: "consumer/src/client.ts"}
 	prod := map[string]bool{"consumer": true, "src": true}
 
-	if got := resolveModuleDir(f, prod, map[string]bool{}); got != "src" {
+	if got := resolveModuleDir(f, prod, map[string]bool{}, nil); got != "src" {
 		t.Errorf("resolveModuleDir() = %q, want %q — a walk-up to the repo label beat an exact match", got, "src")
 	}
 }

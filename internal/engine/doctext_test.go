@@ -24,7 +24,7 @@ func TestDocText_LeavesTheFactsForTheSideTable(t *testing.T) {
 		"package c\n\n// C places an order.\n//\n// It charges the card first.\nfunc C() {}\n")
 	other := freezeTestRepo(t)
 	label := filepath.Base(repo)
-	key := facts.FactKey{Repo: label, Kind: facts.KindSymbol, Name: "pkg/c.C", File: "pkg/c/c.go"}
+	key := facts.FactKey{Repo: label, Kind: facts.KindSymbol, Name: "testmod/pkg/c.C", File: "pkg/c/c.go"}
 	want := "C places an order.\n\nIt charges the card first."
 
 	for run := 0; run < 2; run++ {
@@ -37,7 +37,7 @@ func TestDocText_LeavesTheFactsForTheSideTable(t *testing.T) {
 		if got := eng.Store().DocText(key); got != want {
 			t.Errorf("run %d: DocText = %q, want %q", run, got, want)
 		}
-		for _, f := range eng.Store().ByName("pkg/c.C") {
+		for _, f := range eng.Store().ByName("testmod/pkg/c.C") {
 			if f.PropString(facts.PropDoc) != "C places an order." {
 				t.Errorf("run %d: doc = %q", run, f.PropString(facts.PropDoc))
 			}

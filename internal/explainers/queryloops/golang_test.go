@@ -132,7 +132,7 @@ func drain(rows *sql.Rows) []int {
 		byKey[f.Symbol+" "+f.Call] = f
 	}
 
-	f, ok := byKey["domain/trip.Service.GetTrips domain/trip.Repository.GetPricing"]
+	f, ok := byKey["example.com/app/domain/trip.Service.GetTrips example.com/app/domain/trip.Repository.GetPricing"]
 	if !ok {
 		t.Fatalf("the loop over a repository call through its interface is the N+1; got %v", keysOf(byKey))
 	}
@@ -141,14 +141,14 @@ func drain(rows *sql.Rows) []int {
 	}
 	// The depth is the extractor's scaling depth: a loop over the outer loop's element
 	// is bounded by its rules, so this one is reported, at the depth it assigns.
-	if _, ok := byKey["domain/trip.Service.Nested domain/trip.Repository.GetPricing"]; !ok {
+	if _, ok := byKey["example.com/app/domain/trip.Service.Nested example.com/app/domain/trip.Repository.GetPricing"]; !ok {
 		t.Errorf("the nested loop should be reported, got %v", keysOf(byKey))
 	}
-	if inv, ok := byKey["domain/trip.Service.Totals domain/trip.Repository.Settings"]; !ok || inv.Confidence != 0.5 {
+	if inv, ok := byKey["example.com/app/domain/trip.Service.Totals example.com/app/domain/trip.Repository.Settings"]; !ok || inv.Confidence != 0.5 {
 		t.Errorf("a call that ignores the element repeats one query: want it at 0.5, got %+v (found %v)", inv, ok)
 	}
 	for key := range byKey {
-		if strings.HasPrefix(key, "adapters/db.drain ") {
+		if strings.HasPrefix(key, "example.com/app/adapters/db.drain ") {
 			t.Errorf("draining a cursor is one query, not a finding: %s", key)
 		}
 	}
@@ -158,8 +158,8 @@ func drain(rows *sql.Rows) []int {
 		t.Fatal(err)
 	}
 	for _, in := range insights {
-		if strings.HasPrefix(in.Title, "domain/trip.Service.GetTrips ") {
-			if !strings.Contains(in.Description, "adapters/db.TripRepository.GetPricing") ||
+		if strings.HasPrefix(in.Title, "example.com/app/domain/trip.Service.GetTrips ") {
+			if !strings.Contains(in.Description, "example.com/app/adapters/db.TripRepository.GetPricing") ||
 				!strings.Contains(in.Description, "database/sql.Tx.QueryRowContext") {
 				t.Errorf("the description should print the path to the query: %q", in.Description)
 			}

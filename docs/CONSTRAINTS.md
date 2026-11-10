@@ -213,6 +213,13 @@ which is a different report and reads differently.
 Declared layers keep the first two forms and not the third: a layer is
 a place, and a filename that appears in several places is not one.
 
+Go names are import paths (`github.com/acme/app/internal/billing.*`). A
+`name_pattern`, `to_name`, `when_edge_to` or exemption witness written with a Go
+package's directory, as names read before that (`internal/billing.*`,
+`pkg/a -> example.com/app/pkg/b -> pkg/b via imports`), still matches what it
+matched: Go names are compared in both forms, so a declaration written then keeps
+excusing and failing exactly what it did.
+
 `name_pattern` narrows membership to a family of fact names, and it
 speaks the bounded name dialect `require_name`'s `pattern` and
 `require`'s `when_edge_to` speak: an exact name, one trailing `*`

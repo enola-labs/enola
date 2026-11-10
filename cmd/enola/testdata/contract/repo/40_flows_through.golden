@@ -3,8 +3,8 @@ exit: 0
 --- stdout
 1 flow reaches pkg/a.Alpha
 
-   #  flow     reach  modules  unresolved  note
-   1  ..main       3        3           0
+   #  flow                        reach  modules  unresolved  note
+   1  example.com/gosample.main       3        3           0
 --- stderr
 enola: no mcp-arch.yaml in <TMP>/go_sample, using built-in defaults
 enola flows: repo <TMP>/go_sample (built-in default config)

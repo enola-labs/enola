@@ -8,14 +8,14 @@ exit: 0
     "generated_at": "<TIME>"
   },
   "facts": [
-    "dependency pkg/a -\u003e example.com/gosample/pkg/b",
-    "symbol pkg/a.Alpha",
-    "symbol pkg/a.Gamma",
-    "symbol pkg/a.GetPath",
-    "symbol pkg/a.Seed",
-    "symbol pkg/a.getByID",
-    "symbol pkg/a.helper",
-    "symbol pkg/a.setup"
+    "dependency example.com/gosample/pkg/a -\u003e example.com/gosample/pkg/b",
+    "symbol example.com/gosample/pkg/a.Alpha",
+    "symbol example.com/gosample/pkg/a.Gamma",
+    "symbol example.com/gosample/pkg/a.GetPath",
+    "symbol example.com/gosample/pkg/a.Seed",
+    "symbol example.com/gosample/pkg/a.getByID",
+    "symbol example.com/gosample/pkg/a.helper",
+    "symbol example.com/gosample/pkg/a.setup"
   ],
   "memberships": [
     {
@@ -23,39 +23,39 @@ exit: 0
       "selector": "match pkg/a/**",
       "source": "enola-intent.yaml",
       "members": [
-        "pkg/a.Alpha",
-        "pkg/a.Gamma",
-        "pkg/a.GetPath",
-        "pkg/a.Seed",
-        "pkg/a.getByID",
-        "pkg/a.helper",
-        "pkg/a.setup"
+        "example.com/gosample/pkg/a.Alpha",
+        "example.com/gosample/pkg/a.Gamma",
+        "example.com/gosample/pkg/a.GetPath",
+        "example.com/gosample/pkg/a.Seed",
+        "example.com/gosample/pkg/a.getByID",
+        "example.com/gosample/pkg/a.helper",
+        "example.com/gosample/pkg/a.setup"
       ]
     }
   ],
   "outgoing": [
     {
-      "from": "pkg/a -\u003e example.com/gosample/pkg/b",
+      "from": "example.com/gosample/pkg/a -\u003e example.com/gosample/pkg/b",
       "kind": "imports",
-      "target": "pkg/b",
+      "target": "example.com/gosample/pkg/b",
       "line": 3
     },
     {
-      "from": "pkg/a.Alpha",
+      "from": "example.com/gosample/pkg/a.Alpha",
       "kind": "calls",
-      "target": "pkg/b.Beta",
+      "target": "example.com/gosample/pkg/b.Beta",
       "line": 7
     },
     {
-      "from": "pkg/a.GetPath",
+      "from": "example.com/gosample/pkg/a.GetPath",
       "kind": "calls",
-      "target": "pkg/a.getByID",
+      "target": "example.com/gosample/pkg/a.getByID",
       "line": 15
     },
     {
-      "from": "pkg/a.Seed",
+      "from": "example.com/gosample/pkg/a.Seed",
       "kind": "calls",
-      "target": "pkg/a.setup",
+      "target": "example.com/gosample/pkg/a.setup",
       "line": 24
     }
   ],
@@ -65,7 +65,7 @@ exit: 0
       "component": "(no part)",
       "count": 3,
       "sources": [
-        "..main",
+        "example.com/gosample.main",
         "pkg/a/a_ext_test.go",
         "pkg/a/a_test.go"
       ]
@@ -75,7 +75,7 @@ exit: 0
       "component": "pkg-b",
       "count": 1,
       "sources": [
-        "pkg/b.Beta"
+        "example.com/gosample/pkg/b.Beta"
       ]
     }
   ],
@@ -88,14 +88,14 @@ exit: 0
     "vanish": [
       {
         "rule": "a-avoids-b",
-        "title": "Constraint a-avoids-b violated: pkg/a -\u003e example.com/gosample/pkg/b -\u003e pkg/b via imports",
+        "title": "Constraint a-avoids-b violated: example.com/gosample/pkg/a -\u003e example.com/gosample/pkg/b -\u003e example.com/gosample/pkg/b via imports",
         "because": "a must stay deliverable without b",
         "cut": "No cut the graph can see: the far part declares no public surface and the offender's other edges name no part to move it to",
         "evidence": [
           {
             "file": "pkg/a/a.go",
-            "symbol": "pkg/a -\u003e example.com/gosample/pkg/b",
-            "fact": "pkg/b",
+            "symbol": "example.com/gosample/pkg/a -\u003e example.com/gosample/pkg/b",
+            "fact": "example.com/gosample/pkg/b",
             "detail": "forbidden imports edge",
             "line": 3
           }

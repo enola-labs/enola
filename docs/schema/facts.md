@@ -83,6 +83,18 @@ guarantees.
 Use `id` rather than `(repo, kind, name)` to keep same-named facts from different
 files separate. Retain `repo`; removing it merges identities across repositories.
 
+Go names: a Go package is named by its import path, the module path its `go.mod`
+declares joined with the package's directory inside the module
+(`github.com/acme/app/internal/server`), and its symbols carry that name as their
+qualifier (`github.com/acme/app/internal/server.Server`; the module root's
+`main` is `github.com/acme/app.main`). The import path is unique across
+repositories by Go's own rules, so two repositories' `internal/config` stay two
+packages in one graph, and an import of another loaded repository's package names
+that package's own fact. The module fact's `file` is the package's directory. A
+package no `go.mod` covers keeps its directory as its name. The query tools accept
+the directory form as well ("internal/server.Server", "internal/server", and the
+older "..main" for a root symbol) and resolve it to the import-path name.
+
 Name normalization: for path-shaped kinds (`module`, `test_ref`, `file_ref`)
 the store normalizes `name` to forward slashes. No other kind's name is
 normalized — PHP symbol names use backslashes as namespace separators
@@ -94,7 +106,7 @@ fact's name exactly as that fact carries it.
 
 | Kind | Name is | Carries relations | Notes |
 |---|---|---|---|
-| `module` | repo-relative directory path | yes | A package-level grouping (Go package, TS module dir, ...) |
+| `module` | repo-relative directory path; a Go package's import path | yes | A package-level grouping (Go package, TS module dir, ...); `file` is its directory |
 | `symbol` | canonical symbol name (`pkg.Type`, `Owner#method`) | yes | Functions, methods, types, classes, variables, ... |
 | `route` | endpoint path or wire path (`/v1/x`, `/pkg.Svc/M`) | yes | HTTP/gRPC/GraphQL surface, client or server side |
 | `storage` | table / bucket / topic name | yes (`declares`) | Databases, object stores, messaging topics |

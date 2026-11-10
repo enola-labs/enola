@@ -3,7 +3,7 @@
   "facts": [
     {
       "kind": "symbol",
-      "name": "..main",
+      "name": "example.com/gosample.main",
       "file": "main.go",
       "line": 10,
       "end_line": 13,
@@ -20,21 +20,21 @@
       "relations": [
         {
           "kind": "declares",
-          "target": "."
+          "target": "example.com/gosample"
         },
         {
           "kind": "calls",
-          "target": "pkg/a.Alpha"
+          "target": "example.com/gosample/pkg/a.Alpha"
         },
         {
           "kind": "calls",
-          "target": "pkg/b.Beta"
+          "target": "example.com/gosample/pkg/b.Beta"
         }
       ],
       "related_facts": [
         {
           "kind": "module",
-          "name": ".",
+          "name": "example.com/gosample",
           "file": ".",
           "repo": "go_sample",
           "props": {
@@ -45,7 +45,7 @@
         },
         {
           "kind": "symbol",
-          "name": "pkg/a.Alpha",
+          "name": "example.com/gosample/pkg/a.Alpha",
           "file": "pkg/a/a.go",
           "line": 7,
           "end_line": 9,
@@ -62,17 +62,17 @@
           "relations": [
             {
               "kind": "declares",
-              "target": "pkg/a"
+              "target": "example.com/gosample/pkg/a"
             },
             {
               "kind": "calls",
-              "target": "pkg/b.Beta"
+              "target": "example.com/gosample/pkg/b.Beta"
             }
           ]
         },
         {
           "kind": "symbol",
-          "name": "pkg/b.Beta",
+          "name": "example.com/gosample/pkg/b.Beta",
           "file": "pkg/b/b.go",
           "line": 6,
           "end_line": 8,
@@ -89,11 +89,11 @@
           "relations": [
             {
               "kind": "declares",
-              "target": "pkg/b"
+              "target": "example.com/gosample/pkg/b"
             },
             {
               "kind": "calls",
-              "target": "pkg/a.Alpha"
+              "target": "example.com/gosample/pkg/a.Alpha"
             }
           ]
         }
@@ -101,7 +101,7 @@
     },
     {
       "kind": "symbol",
-      "name": "pkg/a.Alpha",
+      "name": "example.com/gosample/pkg/a.Alpha",
       "file": "pkg/a/a.go",
       "line": 7,
       "end_line": 9,
@@ -118,17 +118,17 @@
       "relations": [
         {
           "kind": "declares",
-          "target": "pkg/a"
+          "target": "example.com/gosample/pkg/a"
         },
         {
           "kind": "calls",
-          "target": "pkg/b.Beta"
+          "target": "example.com/gosample/pkg/b.Beta"
         }
       ],
       "related_facts": [
         {
           "kind": "module",
-          "name": "pkg/a",
+          "name": "example.com/gosample/pkg/a",
           "file": "pkg/a",
           "repo": "go_sample",
           "props": {
@@ -140,7 +140,7 @@
     },
     {
       "kind": "symbol",
-      "name": "pkg/a.GetPath",
+      "name": "example.com/gosample/pkg/a.GetPath",
       "file": "pkg/a/a.go",
       "line": 15,
       "end_line": 19,
@@ -148,10 +148,10 @@
       "props": {
         "body_hash": "4f11210da4184dd2",
         "calls_in_loop": [
-          "pkg/a.getByID"
+          "example.com/gosample/pkg/a.getByID"
         ],
         "calls_in_scaling_loop": [
-          "pkg/a.getByID"
+          "example.com/gosample/pkg/a.getByID"
         ],
         "calls_in_scaling_loop_depth": [
           0
@@ -171,17 +171,17 @@
       "relations": [
         {
           "kind": "declares",
-          "target": "pkg/a"
+          "target": "example.com/gosample/pkg/a"
         },
         {
           "kind": "calls",
-          "target": "pkg/a.getByID"
+          "target": "example.com/gosample/pkg/a.getByID"
         }
       ],
       "related_facts": [
         {
           "kind": "symbol",
-          "name": "pkg/a.getByID",
+          "name": "example.com/gosample/pkg/a.getByID",
           "file": "pkg/a/a.go",
           "line": 30,
           "end_line": 30,
@@ -196,7 +196,7 @@
           "relations": [
             {
               "kind": "declares",
-              "target": "pkg/a"
+              "target": "example.com/gosample/pkg/a"
             }
           ]
         }
@@ -204,7 +204,7 @@
     },
     {
       "kind": "symbol",
-      "name": "pkg/a.Seed",
+      "name": "example.com/gosample/pkg/a.Seed",
       "file": "pkg/a/a.go",
       "line": 24,
       "end_line": 28,
@@ -212,7 +212,7 @@
       "props": {
         "body_hash": "28ed7fea27090db9",
         "calls_in_loop": [
-          "pkg/a.setup"
+          "example.com/gosample/pkg/a.setup"
         ],
         "calls_in_scaling_loop": [],
         "calls_in_scaling_loop_depth": [],
@@ -231,17 +231,17 @@
       "relations": [
         {
           "kind": "declares",
-          "target": "pkg/a"
+          "target": "example.com/gosample/pkg/a"
         },
         {
           "kind": "calls",
-          "target": "pkg/a.setup"
+          "target": "example.com/gosample/pkg/a.setup"
         }
       ],
       "related_facts": [
         {
           "kind": "symbol",
-          "name": "pkg/a.setup",
+          "name": "example.com/gosample/pkg/a.setup",
           "file": "pkg/a/a.go",
           "line": 31,
           "end_line": 31,
@@ -256,7 +256,7 @@
           "relations": [
             {
               "kind": "declares",
-              "target": "pkg/a"
+              "target": "example.com/gosample/pkg/a"
             }
           ]
         }
@@ -264,7 +264,7 @@
     },
     {
       "kind": "symbol",
-      "name": "pkg/b.Beta",
+      "name": "example.com/gosample/pkg/b.Beta",
       "file": "pkg/b/b.go",
       "line": 6,
       "end_line": 8,
@@ -281,17 +281,17 @@
       "relations": [
         {
           "kind": "declares",
-          "target": "pkg/b"
+          "target": "example.com/gosample/pkg/b"
         },
         {
           "kind": "calls",
-          "target": "pkg/a.Alpha"
+          "target": "example.com/gosample/pkg/a.Alpha"
         }
       ],
       "related_facts": [
         {
           "kind": "module",
-          "name": "pkg/b",
+          "name": "example.com/gosample/pkg/b",
           "file": "pkg/b",
           "repo": "go_sample",
           "props": {
@@ -312,7 +312,7 @@
       "relations": [
         {
           "kind": "calls",
-          "target": "pkg/a.Gamma"
+          "target": "example.com/gosample/pkg/a.Gamma"
         },
         {
           "kind": "calls",
@@ -322,7 +322,7 @@
       "related_facts": [
         {
           "kind": "symbol",
-          "name": "pkg/a.Gamma",
+          "name": "example.com/gosample/pkg/a.Gamma",
           "file": "pkg/a/a.go",
           "line": 43,
           "end_line": 43,
@@ -338,7 +338,7 @@
           "relations": [
             {
               "kind": "declares",
-              "target": "pkg/a"
+              "target": "example.com/gosample/pkg/a"
             }
           ]
         }
@@ -355,7 +355,7 @@
       "relations": [
         {
           "kind": "calls",
-          "target": "pkg/a.helper"
+          "target": "example.com/gosample/pkg/a.helper"
         },
         {
           "kind": "calls",
@@ -365,7 +365,7 @@
       "related_facts": [
         {
           "kind": "symbol",
-          "name": "pkg/a.helper",
+          "name": "example.com/gosample/pkg/a.helper",
           "file": "pkg/a/a.go",
           "line": 37,
           "end_line": 37,
@@ -381,7 +381,7 @@
           "relations": [
             {
               "kind": "declares",
-              "target": "pkg/a"
+              "target": "example.com/gosample/pkg/a"
             }
           ]
         }

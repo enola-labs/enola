@@ -191,6 +191,7 @@ func collect(store *facts.Store) ([]pkgInput, []importEdge, []string) {
 	acc := make(map[string]*pkgAcc)
 	order := make([]string, 0)
 	moduleSet := make(map[string]struct{})
+	modulePaths := facts.NewModulePaths(store.ByKind(facts.KindModule))
 	// excluded holds module names tagged as non-production (test/tooling). They are
 	// kept OUT of moduleSet so their symbols aren't counted and — because
 	// resolveToModule only resolves to moduleSet — import edges touching them (and
@@ -200,7 +201,7 @@ func collect(store *facts.Store) ([]pkgInput, []importEdge, []string) {
 	// exclusions that match the caller's filter instead of the repo-wide total.
 	excludedNames := make([]string, 0)
 	for _, f := range store.ByKind(facts.KindModule) {
-		if mcputil.IsGeneratedPath(f.Name) {
+		if mcputil.IsGeneratedPath(facts.ModulePath(f)) {
 			continue
 		}
 		role, _ := f.PropAny(propModuleRole).(string)
@@ -218,7 +219,7 @@ func collect(store *facts.Store) ([]pkgInput, []importEdge, []string) {
 		// consistently. Excluding the module keeps it out of moduleSet, which also
 		// drops its import edges (resolveToModule only resolves into moduleSet), so
 		// production Ca isn't inflated by test→production imports.
-		if (role == "" || role == facts.ModuleRoleUnknown) && looksNonProduction(f.Name) {
+		if (role == "" || role == facts.ModuleRoleUnknown) && looksNonProduction(facts.ModulePath(f)) {
 			excluded[f.Name] = struct{}{}
 			excludedNames = append(excludedNames, f.Name)
 			continue
@@ -251,7 +252,7 @@ func collect(store *facts.Store) ([]pkgInput, []importEdge, []string) {
 			}
 		}
 		pkg := declaringModule(f, moduleSet)
-		if pkg == "" || mcputil.IsGeneratedPath(pkg) {
+		if pkg == "" || mcputil.IsGeneratedPath(modulePaths.Of(pkg)) {
 			continue
 		}
 		if _, ex := excluded[pkg]; ex {
@@ -262,7 +263,7 @@ func collect(store *facts.Store) ([]pkgInput, []importEdge, []string) {
 			// Symbol declared in a package with no module fact. Skip it if the path
 			// looks like test/tooling (defense-in-depth: an un-modeled test leaf must
 			// not sneak back into the production population); otherwise track it.
-			if looksNonProduction(pkg) {
+			if looksNonProduction(modulePaths.Of(pkg)) {
 				continue
 			}
 			a = &pkgAcc{repo: f.Repo}

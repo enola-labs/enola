@@ -13,8 +13,8 @@ import (
 // dotted module path by its slashed one.
 func TestSpellings_NameAsCodeWritesIt(t *testing.T) {
 	store := storeWith(
-		facts.Fact{Kind: facts.KindModule, Name: ".", Props: map[string]any{"package": "gin"}},
-		facts.Fact{Kind: facts.KindModule, Name: "internal/server", Props: map[string]any{"package": "server"}},
+		facts.Fact{Kind: facts.KindModule, Name: ".", File: ".", Props: map[string]any{"package": "gin"}},
+		facts.Fact{Kind: facts.KindModule, Name: "internal/server", File: "internal/server", Props: map[string]any{"package": "server"}},
 		facts.Fact{Kind: facts.KindModule, Name: "render", Props: map[string]any{"package": "render"}},
 		facts.Fact{Kind: facts.KindSymbol, Name: "..Engine.ServeHTTP", File: "gin.go"},
 		facts.Fact{Kind: facts.KindSymbol, Name: "internal/server.Server", File: "internal/server/server.go"},
@@ -66,5 +66,39 @@ func TestSpellings_SamePackageNameTwiceIsAmbiguous(t *testing.T) {
 	alts := got + "," + strings.Join(res.Alternatives, ",")
 	if !strings.Contains(alts, "..Handler") || !strings.Contains(alts, "cmd/main.Handler") {
 		t.Errorf("alternatives %v, want both handlers", res.Alternatives)
+	}
+}
+
+// A Go package is named by its import path, and a reader writes its directory. The
+// directory spells the package, and a name under it spells the symbol; the old root
+// form, "..Engine", spells the root package's symbol too. In a multi-repo store a
+// directory that is a package of two repositories offers both.
+func TestSpellings_GoDirectorySpellsTheImportPath(t *testing.T) {
+	store := storeWith(
+		facts.Fact{Kind: facts.KindModule, Name: "github.com/gin-gonic/gin", File: ".", Props: map[string]any{"package": "gin", "language": "go"}},
+		facts.Fact{Kind: facts.KindModule, Name: "github.com/gin-gonic/gin/internal/json", File: "internal/json", Props: map[string]any{"package": "json", "language": "go"}},
+		facts.Fact{Kind: facts.KindSymbol, Name: "github.com/gin-gonic/gin.Engine", File: "gin.go"},
+		facts.Fact{Kind: facts.KindSymbol, Name: "github.com/gin-gonic/gin/internal/json.Marshal", File: "internal/json/json.go"},
+	)
+	r := Resolver{Store: store}
+	for in, want := range map[string]string{
+		"internal/json":         "github.com/gin-gonic/gin/internal/json",
+		"internal/json.Marshal": "github.com/gin-gonic/gin/internal/json.Marshal",
+		"..Engine":              "github.com/gin-gonic/gin.Engine",
+		"gin.Engine":            "github.com/gin-gonic/gin.Engine",
+	} {
+		got, res, err := r.NodeName(in)
+		if err != nil || got != want || res != nil {
+			t.Errorf("NodeName(%q) = %q, %v, %v; want %q", in, got, res, err, want)
+		}
+	}
+
+	two := storeWith(
+		facts.Fact{Kind: facts.KindModule, Name: "example.com/a/internal/config", File: "a/internal/config", Repo: "a", RepoPrefixed: true, Props: map[string]any{"language": "go"}},
+		facts.Fact{Kind: facts.KindModule, Name: "example.com/b/internal/config", File: "b/internal/config", Repo: "b", RepoPrefixed: true, Props: map[string]any{"language": "go"}},
+	)
+	got := Resolver{Store: two}.Spellings(two, "internal/config")
+	if len(got) != 2 {
+		t.Errorf("a directory two repositories share spelled %v, want both packages", got)
 	}
 }

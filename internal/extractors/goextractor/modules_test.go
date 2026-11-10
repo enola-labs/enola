@@ -131,6 +131,7 @@ func TestExtract_NestedModulesResolveAndAreInternal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	ff = dirNamed(t, dir, ff)
 	for name, target := range map[string]string{
 		"svc/a/cmd -> example.com/a/pkg/x":  "svc/a/pkg/x",
 		"svc/a/cmd -> example.com/b/client": "svc/b/client",

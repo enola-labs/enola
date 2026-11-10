@@ -85,8 +85,8 @@ func TestInsightsArtifact_FactIDsNameFactsInTheSnapshot(t *testing.T) {
 	withEvidence.Insights = []facts.Insight{{
 		Title: "injected", Source: "test", Description: "d", Confidence: 1,
 		Evidence: []facts.Evidence{
-			{Symbol: "a.A", Detail: "a symbol the fixture declares"},
-			{Fact: "a", Detail: "a module the fixture declares"},
+			{Symbol: "example.com/ins2/a.A", Detail: "a symbol the fixture declares"},
+			{Fact: "example.com/ins2/a", Detail: "a module the fixture declares"},
 			{Symbol: "NoSuchThing", Detail: "names nothing: must get no id"},
 		},
 	}}

@@ -356,7 +356,7 @@ func (s *Server) registerQueryFactsTool() {
 			Files:      normFiles,
 			FilePrefix: prefixes[0],
 			Name:       args.Name,
-			Names:      args.Names,
+			Names:      s.spellNames(store, args.Names),
 			Repo:       args.Repo,
 			RelKind:    args.Relation,
 			Prop:       args.Prop,
@@ -395,6 +395,7 @@ func (s *Server) registerQueryFactsTool() {
 		note := ""
 		if total == 0 && len(prefixes) == 1 {
 			if retry, label, ok := s.withoutRepoLabel(opts); ok {
+				retry.Names = s.spellNames(store, retry.Names)
 				if r2, t2 := query(retry); t2 > 0 {
 					results, total, opts = r2, t2, retry
 					note = fmt.Sprintf("Nothing matched as given: names never carry the repo label, file paths do. "+
@@ -545,6 +546,30 @@ func (s *Server) registerShowSymbolTool() {
 		}
 		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: sb.String()}}}, nil, nil
 	})
+}
+
+// spellNames replaces each name that names no fact by the exact names it spells (see
+// resolve.Resolver.Spellings): a Go package's directory form, "internal/svc.Upper",
+// for its import-path name. A name that names a fact, or spells none, is kept as
+// given, so the filter stays exact.
+func (s *Server) spellNames(store *facts.Store, names []string) []string {
+	if len(names) == 0 || store == nil {
+		return names
+	}
+	out := make([]string, 0, len(names))
+	for _, n := range names {
+		if len(store.LookupByExactName(n)) > 0 {
+			out = append(out, n)
+			continue
+		}
+		spelled := s.resolver(store).Spellings(store, n)
+		if len(spelled) == 0 {
+			out = append(out, n)
+			continue
+		}
+		out = append(out, spelled...)
+	}
+	return out
 }
 
 // maxShowSymbolNames caps one show_symbol call, so a list cannot read a package whole.

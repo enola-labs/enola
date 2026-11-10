@@ -55,7 +55,7 @@ func extractAll(t *testing.T, files map[string]string) []facts.Fact {
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
-	return result
+	return dirNamed(t, dir, result)
 }
 
 func findFact(ff []facts.Fact, name string) (facts.Fact, bool) {

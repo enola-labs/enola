@@ -120,7 +120,7 @@ func TestFlows_JSONIsOneDocumentWithStages(t *testing.T) {
 	if len(f.ID) != 32 || len(f.Entry.ID) != 32 || f.Entry.File != "cmd/shop/main.go" || f.Summary == "" {
 		t.Errorf("flow = %+v", f)
 	}
-	if len(f.Stages) == 0 || f.Stages[0].Name != "order.Place" || f.Stages[0].Parent != "" {
+	if len(f.Stages) == 0 || f.Stages[0].Name != "example.com/shop/order.Place" || f.Stages[0].Parent != "" {
 		t.Fatalf("stages = %+v", f.Stages)
 	}
 	if len(f.Stages) < 2 || f.Stages[1].Parent != f.Stages[0].ID {

@@ -9,11 +9,12 @@ Result: fails
   Fails the build (dead-code).
 
 What you changed
-  Added 1 folder of code and 2 functions and types (pkg/c).
-  pkg/b now uses pkg/c.
+  Added 1 folder of code and 2 functions and types
+  (example.com/gosample/pkg/c).
+  example.com/gosample/pkg/b now uses example.com/gosample/pkg/c.
 
 Got worse
-  pkg/b.UsesGamma  (pkg/b/gamma.go:6)
+  example.com/gosample/pkg/b.UsesGamma  (pkg/b/gamma.go:6)
     Fails the build. This function looks unused. Check it before deleting it:
     something may call it by name at runtime. (likely)
 

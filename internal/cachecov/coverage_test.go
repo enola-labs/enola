@@ -142,6 +142,8 @@ var versionCoverage = map[int][]string{
 	547: {"TestGrammarPatchesParseClean", "TestGrammarABI_EveryGrammarLoadsAtItsPinnedABI"},
 	548: {"TestWalkRepo_SkipsNestedLinkedWorktree", "TestExtract_SkipsNestedLinkedWorktree", "TestIsLinkedWorktree"},
 	549: {"TestExtractHTTPClientFacts_CommentedCallIsNotARoute", "TestServerRoutes_CommentedRegistrationIsNotARoute", "TestExtractHTTPClientFacts_NestedTemplateLiteral", "TestCleanTSPath_TernaryInterpolation"},
+	552: {"TestPackagesAreNamedByImportPath", "TestStandardLibraryImportIsNotTheRepositorysSameNamedPackage", "TestNestedModuleAndModulelessPackageNames"},
+	551: {"TestMethodValueIsReferenced", "TestMethodValueOfUnknownTypeIsNotResolved"},
 	550: {"TestCollectWorkspacesNPM", "TestResolveWorkspaceImports", "TestExtractWorkspaceImportsResolveToSource", "TestExtractTSConfigAliasMissingTargetFallsBackToWorkspace"},
 	507: {"TestRustImportAliasesBindOnlyTheAlias", "TestRustImportedTypeThroughAFileModuleWithADirectory", "TestRustMethodsInAFileModulesSubdirectoryResolve", "TestRustTypeImportedThroughAReExportResolves", "TestRustTypeAliasIsFollowedToItsType", "TestRustAliasedExternalImportDoesNotHideTheLocalName"},
 	440: {"TestStoreMethodsRunWhenCalled"},

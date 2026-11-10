@@ -91,6 +91,7 @@ func (e *SurfaceExplainer) Explain(ctx context.Context, store *facts.Store) ([]f
 	// guessing from its name. See common.SymbolModuleIn: a .NET directory contains
 	// dots, so the guess split every jellyfin project at its first one.
 	declared := make(map[string]bool)
+	modulePaths := facts.NewModulePaths(store.ByKind(facts.KindModule))
 	for _, m := range store.ByKind(facts.KindModule) {
 		declared[m.Name] = true
 	}
@@ -129,7 +130,7 @@ func (e *SurfaceExplainer) Explain(ctx context.Context, store *facts.Store) ([]f
 	}
 	var candidates []candidate
 	for mod, ms := range mods {
-		if ms.total < minSymbols || excludedModule(mod) {
+		if ms.total < minSymbols || excludedModule(modulePaths.Of(mod)) {
 			continue
 		}
 		ratio := float64(len(ms.exported)) / float64(ms.total)

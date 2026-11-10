@@ -4,7 +4,7 @@ exit: 0
 == cluster
 <TMP>/store (repo cluster:api+consumer)
   pulled        0 revision(s)
-  already local 2
+  already local 1
 
 == api
 <TMP>/store (repo api)

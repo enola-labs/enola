@@ -70,6 +70,7 @@ func TestNewThing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	ff = dirNamed(t, dir, ff)
 	got := targetsOf(t, ff, "pkg/svc/svc_test.go")
 
 	if !got["pkg/svc.NewThing"] {
@@ -113,6 +114,7 @@ func TestExternal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	ff = dirNamed(t, dir, ff)
 	got := targetsOf(t, ff, "pkg/svc/ext_test.go")
 
 	if !got["pkg/svc.NewThing"] {
@@ -155,6 +157,7 @@ func TestHelper(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	ff = dirNamed(t, dir, ff)
 	for _, f := range ff {
 		if f.Kind != facts.KindTestRef {
 			t.Fatalf("emitted a non-test_ref fact: %+v", f)
@@ -212,6 +215,7 @@ func TestExtractTestRefs_ReferenceFreeFileYieldsNoFact(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	ff = dirNamed(t, dir, ff)
 	if len(ff) != 0 {
 		t.Fatalf("want no fact for a reference-free test file, got %+v", ff)
 	}

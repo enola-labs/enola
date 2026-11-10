@@ -44,7 +44,7 @@ func TestExplore_RepoPrefixedDirectoryInAMultiRepoStore(t *testing.T) {
 	}
 
 	out := text(s.call(t, "explore", map[string]any{"focus": "beta/internal/svc"}))
-	if !strings.HasPrefix(out, "# Module: internal/svc") {
+	if !strings.HasPrefix(out, "# Module: example.com/beta/internal/svc") {
 		t.Fatalf("a repo-prefixed module directory was not explored as a module:\n%s", out)
 	}
 	if !strings.Contains(out, "BetaUpper") || strings.Contains(out, "AlphaUpper") {

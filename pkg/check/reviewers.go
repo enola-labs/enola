@@ -94,12 +94,13 @@ func AttachReviewers(v Verdict, store *facts.Store, a *Authorship, actor string)
 	}
 
 	prod, test := common.ModuleNameSets(store)
+	dirs := common.NewModuleDirs(store)
 	touched := map[string]bool{}
 	for _, cf := range changedFiles(v.Diff) {
 		// changedFiles yields fact File paths, which ARE repo-prefixed in an
 		// append-mode snapshot — unlike the git-log paths ReadAuthorship resolved.
 		// Carrying the repo through is what lets ModuleDirCandidates strip it.
-		mod := common.ResolveModule(facts.Fact{File: cf.Path, Repo: cf.Repo}, prod, test)
+		mod := common.ResolveModule(facts.Fact{File: cf.Path, Repo: cf.Repo}, prod, test, dirs)
 		if prod[mod] {
 			touched[mod] = true
 		}

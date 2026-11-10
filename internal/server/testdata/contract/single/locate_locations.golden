@@ -6,9 +6,9 @@
       "match": "span",
       "symbols": [
         {
-          "id": "c8f7c0664a0a2ca73e2dc23371b834a4",
+          "id": "316c3d178da94730a98f25c2b07f272d",
           "repo": "go_sample",
-          "name": "pkg/a.Alpha",
+          "name": "example.com/gosample/pkg/a.Alpha",
           "symbol_kind": "function",
           "file": "pkg/a/a.go",
           "line": 7,

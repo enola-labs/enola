@@ -499,10 +499,16 @@ func addFinding(g *FindingGroup, it RankedItem, confidence float64) {
 // with a codegen banner (or from a generated path). A name with no fact is judged
 // by its path alone.
 func generatedName(store *facts.Store, name string) bool {
-	if mcputil.IsGeneratedPath(name) {
+	ff := store.LookupByExactName(name)
+	path := name
+	for _, f := range ff {
+		if facts.IsGoPackage(f) {
+			path = facts.ModulePath(f) // a Go package's import path is no location
+		}
+	}
+	if mcputil.IsGeneratedPath(path) {
 		return true
 	}
-	ff := store.LookupByExactName(name)
 	if len(ff) == 0 {
 		return false
 	}

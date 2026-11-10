@@ -1,22 +1,22 @@
 {
   "orphans": [
     {
-      "name": "..main",
+      "name": "example.com/gosample.main",
       "kind": "function",
       "class": "unreferenced",
       "confidence": "high",
-      "package": ".",
+      "package": "example.com/gosample",
       "file": "main.go",
       "line": 10,
       "repo": "go_sample",
       "exported": false
     },
     {
-      "name": "pkg/a.Gamma",
+      "name": "example.com/gosample/pkg/a.Gamma",
       "kind": "function",
       "class": "test-only",
       "confidence": "high",
-      "package": "pkg/a",
+      "package": "example.com/gosample/pkg/a",
       "file": "pkg/a/a.go",
       "line": 43,
       "repo": "go_sample",
@@ -24,11 +24,11 @@
       "note": "referenced only by test code — remove it together with the tests that call it, or find the production caller they stand in for"
     },
     {
-      "name": "pkg/a.GetPath",
+      "name": "example.com/gosample/pkg/a.GetPath",
       "kind": "function",
       "class": "unreferenced",
       "confidence": "high",
-      "package": "pkg/a",
+      "package": "example.com/gosample/pkg/a",
       "file": "pkg/a/a.go",
       "line": 15,
       "repo": "go_sample",
@@ -36,11 +36,11 @@
       "note": "exported — may be used outside this snapshot; verify before removal"
     },
     {
-      "name": "pkg/a.Seed",
+      "name": "example.com/gosample/pkg/a.Seed",
       "kind": "function",
       "class": "unreferenced",
       "confidence": "high",
-      "package": "pkg/a",
+      "package": "example.com/gosample/pkg/a",
       "file": "pkg/a/a.go",
       "line": 24,
       "repo": "go_sample",
@@ -48,11 +48,11 @@
       "note": "exported — may be used outside this snapshot; verify before removal"
     },
     {
-      "name": "pkg/a.helper",
+      "name": "example.com/gosample/pkg/a.helper",
       "kind": "function",
       "class": "test-only",
       "confidence": "high",
-      "package": "pkg/a",
+      "package": "example.com/gosample/pkg/a",
       "file": "pkg/a/a.go",
       "line": 37,
       "repo": "go_sample",

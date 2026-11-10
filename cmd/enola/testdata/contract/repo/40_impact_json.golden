@@ -2,11 +2,11 @@ $ enola impact --json pkg/a.Alpha .
 exit: 0
 --- stdout
 {
-  "target": "pkg/a.Alpha",
+  "target": "example.com/gosample/pkg/a.Alpha",
   "by_depth": {
     "1": [
       {
-        "name": "..main",
+        "name": "example.com/gosample.main",
         "kind": "symbol",
         "file": "main.go",
         "line": 10,
@@ -14,7 +14,7 @@ exit: 0
         "depth": 1
       },
       {
-        "name": "pkg/b.Beta",
+        "name": "example.com/gosample/pkg/b.Beta",
         "kind": "symbol",
         "file": "pkg/b/b.go",
         "line": 6,
@@ -25,23 +25,23 @@ exit: 0
   },
   "edges": [
     {
-      "source": "..main",
-      "target": "pkg/a.Alpha",
+      "source": "example.com/gosample.main",
+      "target": "example.com/gosample/pkg/a.Alpha",
       "kind": "calls"
     },
     {
-      "source": "pkg/b.Beta",
-      "target": "pkg/a.Alpha",
+      "source": "example.com/gosample/pkg/b.Beta",
+      "target": "example.com/gosample/pkg/a.Alpha",
       "kind": "calls"
     },
     {
-      "source": "..main",
-      "target": "pkg/b.Beta",
+      "source": "example.com/gosample.main",
+      "target": "example.com/gosample/pkg/b.Beta",
       "kind": "calls"
     },
     {
-      "source": "pkg/a.Alpha",
-      "target": "pkg/b.Beta",
+      "source": "example.com/gosample/pkg/a.Alpha",
+      "target": "example.com/gosample/pkg/b.Beta",
       "kind": "calls"
     }
   ],

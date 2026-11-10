@@ -592,6 +592,10 @@ type archPattern struct {
 	Specificity int // from patternDef.specificity(); used to break ties in bestPattern
 	Layers      map[string]*layerDef
 	Modules     map[string]string // module -> layer name
+	// Dirs maps the directory of a module not named by its directory (a Go package,
+	// named by import path) to its name, so a file resolves to it. See
+	// common.ModuleDirs.
+	Dirs common.ModuleDirs
 
 	// Scanned, Classified and Graded are the denominators the statement is built
 	// from. Classified counts every module the taxonomy named; Graded counts the
@@ -1017,12 +1021,13 @@ func (e *LayerExplainer) detectPatterns(allModules []facts.Fact, frameworks map[
 			Specificity: def.specificity(),
 			Layers:      make(map[string]*layerDef),
 			Modules:     make(map[string]string),
+			Dirs:        moduleDirsOf(modules),
 			Languages:   cohortLangs,
 		}
 
 		matchCount := 0
 		for _, mod := range modules {
-			if i, ok := classifyModule(mod.Name, def); ok {
+			if i, ok := classifyModule(layerPath(mod), def); ok {
 				pattern.Layers[def.layers[i].Name] = &def.layers[i]
 				pattern.Modules[mod.Name] = def.layers[i].Name
 				matchCount++
@@ -1039,7 +1044,7 @@ func (e *LayerExplainer) detectPatterns(allModules []facts.Fact, frameworks map[
 				if _, classified := pattern.Modules[mod.Name]; classified {
 					continue
 				}
-				name, ok := autoloadedLayer(mod.Name, def.autoloadRoot)
+				name, ok := autoloadedLayer(layerPath(mod), def.autoloadRoot)
 				if !ok {
 					continue
 				}
@@ -1331,7 +1336,7 @@ func orientAndroid(scoped []facts.Fact, pattern *archPattern) {
 		if dep.Kind != facts.KindDependency || facts.IsTestPath(dep.File) {
 			continue
 		}
-		sourceModule, ok := resolveLayerModuleFor(dep, pattern.Modules)
+		sourceModule, ok := resolveLayerModuleFor(dep, pattern)
 		if !ok {
 			continue
 		}
@@ -1422,7 +1427,7 @@ func (e *LayerExplainer) detectViolations(scoped []facts.Fact, pattern *archPatt
 		// layout whose top-level package carries the repo's own name, where stripping
 		// removes a real path segment. Using either alone silences this explainer for
 		// one of the two shapes.
-		sourceModule, sourceOK := resolveLayerModuleFor(dep, pattern.Modules)
+		sourceModule, sourceOK := resolveLayerModuleFor(dep, pattern)
 		if !sourceOK {
 			continue
 		}
@@ -1592,7 +1597,13 @@ func resolveLayerModule(path string, modules map[string]string) (string, bool) {
 // reason as common.resolveModuleDir: a walk-up can reach a short ancestor that exists
 // only because of the OTHER snapshot shape, and letting it beat an exact match would
 // attribute the import to the wrong module.
-func resolveLayerModuleFor(dep facts.Fact, modules map[string]string) (string, bool) {
+func resolveLayerModuleFor(dep facts.Fact, pattern *archPattern) (string, bool) {
+	modules := pattern.Modules
+	for _, c := range common.ModuleDirCandidatesIn(dep, pattern.Dirs) {
+		if _, ok := modules[c]; ok {
+			return c, true
+		}
+	}
 	candidates := common.ModuleDirCandidates(dep)
 	for _, c := range candidates {
 		if _, ok := modules[c]; ok {
@@ -1605,6 +1616,25 @@ func resolveLayerModuleFor(dep facts.Fact, modules map[string]string) (string, b
 		}
 	}
 	return "", false
+}
+
+// layerPath is what a module's layer is read from: its directory. A module is named by
+// its directory except a Go package, named by import path, whose host and repository
+// segments are no layer ("github.com/acme/api/internal/store" would put every package
+// of a module called api in the api layer).
+func layerPath(mod facts.Fact) string {
+	if facts.IsGoPackage(mod) && mod.File != "" && mod.File != mod.Name {
+		if mod.Repo != "" {
+			return strings.TrimPrefix(mod.File, mod.Repo+"/")
+		}
+		return mod.File
+	}
+	return mod.Name
+}
+
+// moduleDirsOf indexes the modules of a cohort that are not named by their directory.
+func moduleDirsOf(modules []facts.Fact) common.ModuleDirs {
+	return facts.NewModuleDirs(modules)
 }
 
 // matchesLayerIn compares whole path segments, and with dotted=true each

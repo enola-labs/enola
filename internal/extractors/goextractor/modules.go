@@ -84,6 +84,36 @@ func readModules(repoPath string, files []string) goModules {
 	return mods
 }
 
+// importPathOf returns the import path of the package in the repository-relative
+// directory dir: the path of the module whose directory is the longest that contains
+// dir, joined with dir's place inside it. A directory no module contains keeps its
+// own path, as every package did before packages were named by import path.
+func (m goModules) importPathOf(dir string) string {
+	best := -1
+	for i, mod := range m.list {
+		if mod.dir != "." && dir != mod.dir && !strings.HasPrefix(dir, mod.dir+"/") {
+			continue
+		}
+		if best < 0 || len(mod.dir) > len(m.list[best].dir) || m.list[best].dir == "." {
+			if best < 0 || mod.dir != "." {
+				best = i
+			}
+		}
+	}
+	if best < 0 {
+		return dir
+	}
+	mod := m.list[best]
+	rel := dir
+	if mod.dir != "." {
+		rel = strings.TrimPrefix(strings.TrimPrefix(dir, mod.dir), "/")
+	}
+	if rel == "." || rel == "" {
+		return mod.path
+	}
+	return mod.path + "/" + rel
+}
+
 // rootPath is the module path of the go.mod at the repository root, or "".
 func (m goModules) rootPath() string {
 	for _, mod := range m.list {

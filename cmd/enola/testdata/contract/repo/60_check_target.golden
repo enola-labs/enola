@@ -4,25 +4,27 @@ exit: 0
 
 ## Scope
 
-**Reached beyond the declared scope.** 1 of 2 package(s) touched were predicted or declared, match ratio 0.5.
+**Reached beyond the declared scope.** 1 of 3 package(s) touched were predicted or declared, match ratio 0.33.
 
 Spillover — touched but neither predicted nor declared:
-  - pkg/c
+  - example.com/gosample/pkg/c
+  - pkg/b
 
 A package here was changed by something the declaration did not describe.
 That is worth reading even when every finding is clean.
 
 Predicted but not touched (usually fine — the change was narrower than its blast radius):
-  - pkg/a
+  - example.com/gosample
+  - example.com/gosample/pkg/a
 PASS — no structural regression.
 could not see: 2 files and 0 directories excluded by ignore globs
 law: 1 rule · 1 breach · none excused
 
 Measurements over threshold:
-  - [fail] 1 package(s) reached outside the declared scope
+  - [fail] 2 package(s) reached outside the declared scope
 
 New findings (reported — no failure policy set):
-  - [dead-code] 0.80 — Dead code candidate: function pkg/b.UsesGamma
+  - [dead-code] 0.80 — Dead code candidate: function example.com/gosample/pkg/b.UsesGamma
       function · unreferenced · pkg/b/gamma.go:6
       pkg/b/gamma.go:6
       func UsesGamma() string { return c.Gamma() }
@@ -38,16 +40,16 @@ What changed
   edges        +4  (imports +1, calls +1, declares +2)
 
 Added (4):
-  module     pkg/c                                        pkg/c
-  symbol     pkg/b.UsesGamma                              pkg/b/gamma.go:6
-  symbol     pkg/c.Gamma                                  pkg/c/c.go:4
-  dependency pkg/b -> example.com/gosample/pkg/c          pkg/b/gamma.go:3
+  module     example.com/gosample/pkg/c                   pkg/c
+  symbol     example.com/gosample/pkg/b.UsesGamma         pkg/b/gamma.go:6
+  symbol     example.com/gosample/pkg/c.Gamma             pkg/c/c.go:4
+  dependency …osample/pkg/b -> example.com/gosample/pkg/c pkg/b/gamma.go:3
 
 New coupling (4):
-  pkg/b                                        --imports--> pkg/c
-  pkg/b.UsesGamma                              --calls--> pkg/c.Gamma
-  pkg/b.UsesGamma                              --declares--> pkg/b
-  pkg/c.Gamma                                  --declares--> pkg/c
+  example.com/gosample/pkg/b                   --imports--> example.com/gosample/pkg/c
+  example.com/gosample/pkg/b.UsesGamma         --calls--> example.com/gosample/pkg/c.Gamma
+  example.com/gosample/pkg/b.UsesGamma         --declares--> example.com/gosample/pkg/b
+  example.com/gosample/pkg/c.Gamma             --declares--> example.com/gosample/pkg/c
 
 New coupling is reported, not failed: an added call edge is what ordinary work
 looks like. Inspect the list above if it is more than you expected.

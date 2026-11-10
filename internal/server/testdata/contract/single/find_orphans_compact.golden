@@ -2,7 +2,7 @@ Orphan symbols — 4 (mode=both):
 
 | Kind | Name | Class | Conf | Location |
 |------|------|-------|------|----------|
-| function | pkg/a.Gamma | test-only | high | pkg/a/a.go:43 |
-| function | pkg/a.GetPath | unreferenced | high | pkg/a/a.go:15 |
-| function | pkg/a.Seed | unreferenced | high | pkg/a/a.go:24 |
-| function | pkg/a.helper | test-only | high | pkg/a/a.go:37 |
+| function | example.com/gosample/pkg/a.Gamma | test-only | high | pkg/a/a.go:43 |
+| function | example.com/gosample/pkg/a.GetPath | unreferenced | high | pkg/a/a.go:15 |
+| function | example.com/gosample/pkg/a.Seed | unreferenced | high | pkg/a/a.go:24 |
+| function | example.com/gosample/pkg/a.helper | test-only | high | pkg/a/a.go:37 |

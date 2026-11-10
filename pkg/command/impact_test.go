@@ -82,7 +82,7 @@ func TestImpact_JSONLocatesEveryDependent(t *testing.T) {
 		}
 		where[n.Name] = n.File
 	}
-	if where["pkg/b.Beta"] != "pkg/b/b.go" {
+	if where["example.com/impact/pkg/b.Beta"] != "pkg/b/b.go" {
 		t.Errorf("Beta should be a depth-1 dependent in pkg/b/b.go; got %v", where)
 	}
 	if len(where) != 2 {
@@ -107,10 +107,10 @@ func TestImpact_SummaryCountsAndListLocates(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("list exit = %d, want 0", code)
 	}
-	if !strings.Contains(stdout, "depth 1 (1):\n  ..main (symbol)  main.go:") {
+	if !strings.Contains(stdout, "depth 1 (1):\n  example.com/impact.main (symbol)  main.go:") {
 		t.Errorf("--list should name Beta's caller with its file and line; got:\n%s", stdout)
 	}
-	if !strings.Contains(stdout, "what the target depends on:") || !strings.Contains(stdout, "pkg/a.Alpha (symbol)  pkg/a/a.go:") {
+	if !strings.Contains(stdout, "what the target depends on:") || !strings.Contains(stdout, "example.com/impact/pkg/a.Alpha (symbol)  pkg/a/a.go:") {
 		t.Errorf("--include-forward should list what Beta depends on; got:\n%s", stdout)
 	}
 }
@@ -246,7 +246,7 @@ func TestImpact_FilePathReportsItsSymbols(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit = %d, want 0; stdout:\n%s", code, stdout)
 	}
-	for _, want := range []string{"pkg/a/a.go is a file, not a node; this is the impact of the", "pkg/b.Beta (symbol)  pkg/b/b.go:"} {
+	for _, want := range []string{"pkg/a/a.go is a file, not a node; this is the impact of the", "example.com/impact/pkg/b.Beta (symbol)  pkg/b/b.go:"} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("--list on a file should contain %q; got:\n%s", want, stdout)
 		}

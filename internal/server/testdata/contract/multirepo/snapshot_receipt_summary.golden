@@ -7,7 +7,7 @@
 - **Generated:** <TIME> (<DURATION>)
 - **Repositories:** 2 (per-repository provenance below; the facts and insights are their union)
 - **Config hash:** `sha256:<HASH>`
-- **Facts:** 22 · **Insights:** 6
+- **Facts:** 22 · **Insights:** 8
 
 ## Repositories
 
@@ -20,7 +20,7 @@
 
 - **Files:** 2 parsed / 4 seen · 0 file(s) + 0 directory tree(s) skipped by ignore globs
 - **Parse errors:** 0
-- **Heuristic insights:** 6 of 6 (confidence < 1.0; the rest are structural facts)
+- **Heuristic insights:** 8 of 8 (confidence < 1.0; the rest are structural facts)
 - **Cross-repo coverage:** 2 service(s), 0 coverage gap(s), 1 unresolved edge(s)
 
 _Use output_mode='full' for the complete JSON receipt (output hashes, skipped-path sample, per-metric detail)._

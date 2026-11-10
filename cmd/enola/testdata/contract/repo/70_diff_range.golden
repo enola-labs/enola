@@ -1,7 +1,7 @@
 $ enola diff @1..@2 .
 exit: 0
 --- stdout
-# 6fb416f..f75d66b · <TIME> → <TIME>
+# af1f601..5828a68 · <TIME> → <TIME>
 
 # Architecture diff
 
@@ -9,12 +9,12 @@ _Baseline <TIME> → current <TIME>._
 
 ## Regressions introduced (1)
 
-### 1. Dead code candidate: function pkg/b.UsesGamma
+### 1. Dead code candidate: function example.com/gosample/pkg/b.UsesGamma
 - explainer: dead-code · confidence: 0.80
-- function "pkg/b.UsesGamma" is unreferenced — nothing in the snapshot graph references it (high confidence). References are matched by short name and biased conservative, so verify against dynamic/reflective dispatch and consumers outside the snapshot before removing.
+- function "example.com/gosample/pkg/b.UsesGamma" is unreferenced — nothing in the snapshot graph references it (high confidence). References are matched by short name and biased conservative, so verify against dynamic/reflective dispatch and consumers outside the snapshot before removing.
 - evidence (2):
-    - pkg/b.UsesGamma pkg/b/gamma.go — function · unreferenced · pkg/b/gamma.go:6
-    - pkg/b.UsesGamma — exported — may be used outside this snapshot; verify before removal
+    - example.com/gosample/pkg/b.UsesGamma pkg/b/gamma.go — function · unreferenced · pkg/b/gamma.go:6
+    - example.com/gosample/pkg/b.UsesGamma — exported — may be used outside this snapshot; verify before removal
 - suggested actions:
     - Confirm no dynamic/reflective or out-of-snapshot callers, then remove the symbol
 
@@ -27,16 +27,16 @@ _Baseline <TIME> → current <TIME>._
 
 ## New coupling — edges added (4)
 
-- pkg/b -> example.com/gosample/pkg/c --imports--> pkg/c
-- pkg/b.UsesGamma --calls--> pkg/c.Gamma
-- pkg/b.UsesGamma --declares--> pkg/b
-- pkg/c.Gamma --declares--> pkg/c
+- example.com/gosample/pkg/b -> example.com/gosample/pkg/c --imports--> example.com/gosample/pkg/c
+- example.com/gosample/pkg/b.UsesGamma --calls--> example.com/gosample/pkg/c.Gamma
+- example.com/gosample/pkg/b.UsesGamma --declares--> example.com/gosample/pkg/b
+- example.com/gosample/pkg/c.Gamma --declares--> example.com/gosample/pkg/c
 
 ## Facts added (4)
 
-- dependency pkg/b -> example.com/gosample/pkg/c (pkg/b/gamma.go:3)
-- module pkg/c (pkg/c:0)
-- symbol pkg/b.UsesGamma (pkg/b/gamma.go:6)
-- symbol pkg/c.Gamma (pkg/c/c.go:4)
+- dependency example.com/gosample/pkg/b -> example.com/gosample/pkg/c (pkg/b/gamma.go:3)
+- module example.com/gosample/pkg/c (pkg/c:0)
+- symbol example.com/gosample/pkg/b.UsesGamma (pkg/b/gamma.go:6)
+- symbol example.com/gosample/pkg/c.Gamma (pkg/c/c.go:4)
 
 --- stderr
