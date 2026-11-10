@@ -2105,6 +2105,57 @@ func (g *Graph) buildImpactSummary(byDepth map[int][]TraversalNode, total int) s
 // traverseFrom it materializes nothing and applies no node cap, so it yields the
 // true dependent/dependency count even when the displayed set is truncated. It
 // terminates because the graph is finite and the BFS is depth-bounded.
+// ReverseReach returns every node that reaches seeds over relKinds, with its
+// distance, walking back at most maxDepth hops and visiting at most maxNodes nodes;
+// truncated reports a walk cut at maxNodes. Unlike TraverseFrom it records no edges
+// and has no display cap, for a caller that needs the whole reach of a node rather
+// than a page of it: the endpoints a change reaches, several calls up.
+func (g *Graph) ReverseReach(seeds, relKinds []string, maxDepth, maxNodes int) (reach map[string]int, truncated bool) {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+
+	relSet := g.relIDSet(relKinds)
+	depth := make(map[uint32]int)
+	var queue []uint32
+	for _, s := range seeds {
+		if id, ok := g.lookup(s); ok {
+			if _, seen := depth[id]; !seen {
+				depth[id] = 0
+				queue = append(queue, id)
+			}
+		}
+	}
+	for qi := 0; qi < len(queue); qi++ {
+		id := queue[qi]
+		d := depth[id]
+		if d >= maxDepth {
+			continue
+		}
+		tgts, rels := g.adjOf(id, true)
+		for i, tid := range tgts {
+			if relSet != nil {
+				if _, ok := relSet[rels[i]]; !ok {
+					continue
+				}
+			}
+			if _, seen := depth[tid]; seen {
+				continue
+			}
+			if len(depth) >= maxNodes {
+				truncated = true
+				break
+			}
+			depth[tid] = d + 1
+			queue = append(queue, tid)
+		}
+	}
+	reach = make(map[string]int, len(depth))
+	for id, d := range depth {
+		reach[g.names[id]] = d
+	}
+	return reach, truncated
+}
+
 func (g *Graph) reachableCount(seeds []string, direction string, maxDepth int) int {
 	g.mu.RLock()
 	defer g.mu.RUnlock()

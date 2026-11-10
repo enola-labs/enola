@@ -1,5 +1,9 @@
 # Impact: example.com/api.getThing
 
+## Endpoints affected (1)
+
+- GET /v1/things/{id} → example.com/api.getThing (handler is the target)
+
 3 total dependents — depth 1: 1 route, 1 symbol; depth 2: 1 symbol
 
 ## Depth 1 (2)

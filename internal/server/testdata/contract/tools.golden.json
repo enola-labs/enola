@@ -424,7 +424,7 @@
   },
   {
     "name": "impact_analysis",
-    "description": "Blast radius of changing a node: everything that transitively depends on it, grouped by hop depth. For refactoring plans and change risk. include_forward=true adds what the target itself depends on. When knowledge pages declare anchors (enola_intent), it also lists the pages anchored to the target's file: the decisions governing the code you are about to change. Output grows fast: start with output_mode=summary and keep max_depth and max_nodes bounded.",
+    "description": "Blast radius of changing a node: everything that transitively depends on it, grouped by hop depth, and the HTTP endpoints it affects. include_forward=true adds what the target itself depends on. When knowledge pages declare anchors (enola_intent), it also lists the pages anchored to the target's file: the decisions governing the code you are about to change. Output grows fast: start with output_mode=summary and keep max_depth and max_nodes bounded.",
     "input_schema": {
       "additionalProperties": false,
       "properties": {

@@ -4,6 +4,7 @@ package impact
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"path"
 	"path/filepath"
 	"slices"
@@ -38,6 +39,13 @@ type Report struct {
 	// "which packages depend on this one" is the question, and three thousand
 	// symbols are not its answer.
 	Modules []ModuleDependent `json:"modules,omitempty"`
+	// Endpoints are the served routes the change reaches; see endpoints.go.
+	// EndpointsTruncated says their walk stopped at its cap, so the list is a floor.
+	Endpoints          []Endpoint `json:"endpoints,omitempty"`
+	EndpointsTruncated bool       `json:"endpoints_truncated,omitempty"`
+	// ServedRoutes says the snapshot holds routes with handlers at all, so an empty
+	// Endpoints means none reaches the target, not that none is known.
+	ServedRoutes bool `json:"served_routes,omitempty"`
 	facts.ImpactResult
 }
 
@@ -88,20 +96,20 @@ func Analyze(r resolve.Resolver, req Request) (Report, error) {
 	if err != nil {
 		// Nothing is named that. A path to a source file or a directory still says what was meant.
 		if file, seeds := declaredIn(r, req.Target); len(seeds) > 0 {
-			return withPackages(store, Report{
+			return withEndpoints(store, withPackages(store, Report{
 				Resolution:   &resolve.NameResolution{Query: req.Target, Matched: file},
 				Seeds:        seeds,
 				SeedKind:     SeedsFile,
 				ImpactResult: graph.ImpactSetOf(file, seeds, req.MaxDepth, req.MaxNodes, req.IncludeForward),
-			}), nil
+			}), seeds, nil), nil
 		}
 		if dir, seeds, beside := declaredUnder(r, req.Target, "", false); len(seeds) > 0 {
-			return withPackages(store, Report{
+			return withEndpoints(store, withPackages(store, Report{
 				Resolution:   &resolve.NameResolution{Query: req.Target, Matched: dir},
 				Seeds:        seeds,
 				SeedKind:     SeedsDirectory,
 				ImpactResult: graph.ImpactSetOf(dir, append(seeds, beside...), req.MaxDepth, req.MaxNodes, req.IncludeForward),
-			}), nil
+			}), seeds, nil), nil
 		}
 		return Report{}, err
 	}
@@ -132,33 +140,34 @@ func Analyze(r resolve.Resolver, req Request) (Report, error) {
 	// One method under several owners, an interface's and its implementations':
 	// the impact of any of them is the impact of the call that may reach each.
 	if res != nil && len(res.Family) > 1 {
-		return withPackages(store, Report{
+		return withEndpoints(store, withPackages(store, Report{
 			Resolution:   res,
 			Seeds:        res.Family,
 			SeedKind:     SeedsFamily,
 			ImpactResult: graph.ImpactSetOf(targetName, res.Family, req.MaxDepth, req.MaxNodes, req.IncludeForward),
-		}), nil
+		}), res.Family, nil), nil
 	}
 
 	// A namespace is its nested constants, and a directory holding no code of its
 	// own is the code beneath it: walked as one node, either answers "nothing".
 	if seeds := nestedUnder(store, targetName); len(seeds) > 0 {
-		return withPackages(store, Report{
+		names := append([]string{targetName}, seeds...)
+		return withEndpoints(store, withPackages(store, Report{
 			Resolution:   res,
 			Seeds:        seeds,
 			SeedKind:     SeedsNamespace,
-			ImpactResult: graph.ImpactSetOf(targetName, append([]string{targetName}, seeds...), req.MaxDepth, req.MaxNodes, req.IncludeForward),
-		}), nil
+			ImpactResult: graph.ImpactSetOf(targetName, names, req.MaxDepth, req.MaxNodes, req.IncludeForward),
+		}), names, nil), nil
 	}
 	if repo, ok := directoryModule(store, targetName); ok {
 		if _, seeds, beside := declaredUnder(r, targetName, repo, true); len(seeds) > 0 {
 			names := append(append([]string{targetName}, seeds...), beside...)
-			return withPackages(store, Report{
+			return withEndpoints(store, withPackages(store, Report{
 				Resolution:   res,
 				Seeds:        seeds,
 				SeedKind:     SeedsDirectory,
 				ImpactResult: graph.ImpactSetOf(targetName, names, req.MaxDepth, req.MaxNodes, req.IncludeForward),
-			}), nil
+			}), append([]string{targetName}, seeds...), nil), nil
 		}
 	}
 
@@ -175,11 +184,29 @@ func Analyze(r resolve.Resolver, req Request) (Report, error) {
 			report.Seeds, report.SeedKind = own, SeedsPackage
 		}
 		report.Modules = moduleDependents(graph, targetName)
-		return withPackages(store, report), nil
+		packages := map[string]int{targetName: 0}
+		for _, m := range report.Modules {
+			packages[m.Module] = m.Depth
+		}
+		return withEndpoints(store, withPackages(store, report), append([]string{targetName}, own...), packages), nil
 	}
 
 	result := graph.ImpactSet(targetName, req.MaxDepth, req.MaxNodes, req.IncludeForward)
-	return withPackages(store, Report{Resolution: res, ImpactResult: result}), nil
+	return withEndpoints(store, withPackages(store, Report{Resolution: res, ImpactResult: result}), graph.RollupSeeds(targetName), nil), nil
+}
+
+// withEndpoints fills in Endpoints, the served routes whose handlers the change
+// reaches from seeds; see endpoints.go.
+func withEndpoints(store *facts.Store, report Report, seeds []string, packages map[string]int) Report {
+	graph := store.Graph()
+	if graph == nil || len(seeds) == 0 {
+		return report
+	}
+	if report.ServedRoutes = hasServedRoutes(store); !report.ServedRoutes {
+		return report
+	}
+	report.Endpoints, report.EndpointsTruncated = endpointsOf(store, graph, seeds, packages)
+	return report
 }
 
 // maxModuleDependents bounds the module walk; it is far above any package's real
@@ -461,4 +488,88 @@ func owningRoot(roots []string, file string) string {
 		}
 	}
 	return best
+}
+
+// EndpointLines renders a report's endpoints for a text answer: a heading line, then
+// one line per endpoint, call-level ones first, at most max per precision. Empty when
+// the snapshot serves no routes. Shared by impact_analysis and enola impact.
+func (r Report) EndpointLines(max int) []string {
+	if !r.ServedRoutes {
+		return nil
+	}
+	var calls, ifaces, pkgs []Endpoint
+	for _, e := range r.Endpoints {
+		switch e.Precision {
+		case PrecisionCall:
+			calls = append(calls, e)
+		case PrecisionInterface:
+			ifaces = append(ifaces, e)
+		default:
+			pkgs = append(pkgs, e)
+		}
+	}
+	total := len(calls) + len(ifaces) + len(pkgs)
+	if total == 0 {
+		return []string{"Endpoints affected: none. No served route's handler reaches this."}
+	}
+	head := fmt.Sprintf("Endpoints affected (%d", total)
+	if len(ifaces)+len(pkgs) > 0 {
+		var parts []string
+		for _, p := range []struct {
+			n    int
+			what string
+		}{{len(calls), "through calls"}, {len(ifaces), "through an interface"}, {len(pkgs), "by package"}} {
+			if p.n > 0 {
+				parts = append(parts, fmt.Sprintf("%d %s", p.n, p.what))
+			}
+		}
+		head += ": " + strings.Join(parts, ", ")
+	}
+	head += ")"
+	if r.EndpointsTruncated {
+		head += ", at least: the walk stopped at its cap"
+	}
+	out := []string{head}
+	route := func(e Endpoint) string {
+		if e.Method != "" && e.Method != "ALL" {
+			return e.Method + " " + e.Path
+		}
+		return e.Path
+	}
+	for i, e := range calls {
+		if i == max {
+			out = append(out, fmt.Sprintf("… %d more through calls (output_mode=compact or full lists more)", len(calls)-max))
+			break
+		}
+		hops := "is the target"
+		if e.Depth > 0 {
+			hops = fmt.Sprintf("%d call%s away", e.Depth, map[bool]string{true: "", false: "s"}[e.Depth == 1])
+		}
+		out = append(out, fmt.Sprintf("%s → %s (handler %s)", route(e), e.Handler, hops))
+	}
+	if len(ifaces) > 0 {
+		out = append(out, "Through an interface: the handler calls an interface method whose implementation reaches this; another implementation could be the one called:")
+		for i, e := range ifaces {
+			if i == max {
+				out = append(out, fmt.Sprintf("… %d more through an interface (output_mode=compact or full lists more)", len(ifaces)-max))
+				break
+			}
+			out = append(out, fmt.Sprintf("%s → %s (handler %d call%s away)", route(e), e.Handler, e.Depth, map[bool]string{true: "", false: "s"}[e.Depth == 1]))
+		}
+	}
+	if len(pkgs) > 0 {
+		out = append(out, "By package only: the handler's package depends on the target's, and no path from this handler was found, so it may not be affected:")
+		for i, e := range pkgs {
+			if i == max {
+				out = append(out, fmt.Sprintf("… %d more by package (output_mode=compact or full lists more)", len(pkgs)-max))
+				break
+			}
+			where := "in the target package"
+			if e.Depth > 0 {
+				where = fmt.Sprintf("%s, %d import%s away", e.Package, e.Depth, map[bool]string{true: "", false: "s"}[e.Depth == 1])
+			}
+			out = append(out, fmt.Sprintf("%s → %s (%s)", route(e), e.Handler, where))
+		}
+	}
+	return out
 }
