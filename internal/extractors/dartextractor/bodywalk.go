@@ -28,9 +28,19 @@ type bodyWalk struct {
 	// selfCalls are the bare and `this.` calls, which inside a class are calls on
 	// the object a method runs on (facts.PropMemberCalls).
 	selfCalls map[string]bool
+	// locals are the body's local variables whose type the declaration states,
+	// and typedCalls the calls made on them, spelled through that type
+	// (propTypedCalls).
+	locals     map[string]string
+	typedCalls map[string]bool
 
 	seenRel map[string]bool
 }
+
+// propTypedCalls is the working prop holding a body's calls on a local of known type,
+// spelled `Type.member`. resolveCallTargets binds each through the type and its
+// supertypes and deletes it.
+const propTypedCalls = "dart_typed_calls"
 
 // applyTo writes the metrics onto a symbol fact's props.
 func (b *bodyWalk) applyTo(props map[string]any) {
@@ -57,6 +67,9 @@ func (b *bodyWalk) applyTo(props map[string]any) {
 	if len(b.selfCalls) > 0 {
 		props[facts.PropMemberCalls] = sortedKeys(b.selfCalls)
 	}
+	if len(b.typedCalls) > 0 {
+		props[propTypedCalls] = sortedKeys(b.typedCalls)
+	}
 }
 
 func sortedKeys(m map[string]bool) []string {
@@ -81,8 +94,83 @@ func (w *walker) walkBody(body *sitter.Node, selfName string) *bodyWalk {
 	if i := strings.LastIndexByte(selfShort, '.'); i >= 0 {
 		selfShort = selfShort[i+1:]
 	}
+	b.locals = w.localTypes(body)
 	w.walkNode(body, b, selfShort, 0, 0)
 	return b
+}
+
+// localTypes maps each local variable of a body to the type its declaration names:
+// `Concrete c = ...`, `final c = Concrete()`, `var c = new Concrete()`. A named
+// constructor and a static factory read alike (`Concrete.named()`), so an untyped
+// one is left out, and so is a name declared twice with different types.
+func (w *walker) localTypes(body *sitter.Node) map[string]string {
+	out := map[string]string{}
+	var visit func(n *sitter.Node)
+	visit = func(n *sitter.Node) {
+		if n == nil {
+			return
+		}
+		if kindOf(n) == "initialized_variable_definition" {
+			if name, typ := w.declaredLocal(n); name != "" {
+				if prev, ok := out[name]; ok && prev != typ {
+					typ = ""
+				}
+				out[name] = typ
+			}
+		}
+		for _, c := range namedChildren(n) {
+			visit(c)
+		}
+	}
+	visit(body)
+	for k, v := range out {
+		if v == "" {
+			delete(out, k)
+		}
+	}
+	return out
+}
+
+// declaredLocal reads one local declaration: its name, and the type it is declared
+// with or constructed as ("" when neither says).
+func (w *walker) declaredLocal(n *sitter.Node) (name, typ string) {
+	kids := namedChildren(n)
+	at := -1
+	for i, c := range kids {
+		switch kindOf(c) {
+		case "type_identifier":
+			if at < 0 && typ == "" {
+				typ = c.Utf8Text(w.src)
+			}
+		case "identifier":
+			if at < 0 {
+				at = i
+				name = c.Utf8Text(w.src)
+			}
+		}
+		if at >= 0 {
+			break
+		}
+	}
+	if at < 0 {
+		return "", ""
+	}
+	if typ != "" {
+		return name, typ
+	}
+	value := kids[at+1:]
+	switch {
+	case len(value) == 1 && (kindOf(value[0]) == "new_expression" || kindOf(value[0]) == "const_object_expression"):
+		if t := childOfKind(value[0], "type_identifier"); t != nil {
+			return name, t.Utf8Text(w.src)
+		}
+	case len(value) == 2 && kindOf(value[0]) == "identifier" && kindOf(value[1]) == "selector" &&
+		childOfKind(value[1], "argument_part") != nil:
+		if t := value[0].Utf8Text(w.src); namesAType(t) {
+			return name, t
+		}
+	}
+	return name, ""
 }
 
 // walkNode is the recursive body walk.
@@ -206,6 +294,14 @@ func (w *walker) scanCallChain(n *sitter.Node, b *bodyWalk, selfShort string, lo
 			// and per the governing rule a bare name that dead-code matching can still
 			// see beats a fabricated qualified target.
 			b.addRelation(facts.RelCalls, name)
+			if typ := b.locals[receiver]; typ != "" && receiver != name && !isBuiltinType(typ) {
+				// A call on a local of known type: resolution binds it through the
+				// type, so a call on a subtype keeps the subtype it went through.
+				if b.typedCalls == nil {
+					b.typedCalls = map[string]bool{}
+				}
+				b.typedCalls[typ+"."+name] = true
+			}
 			if receiver == name || receiver == "this" {
 				// Inside a class, a call on the object: the inherited-calls binder
 				// resolves it through the class and its supertypes, where the bare

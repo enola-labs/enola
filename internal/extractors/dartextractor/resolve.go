@@ -1,6 +1,7 @@
 package dartextractor
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/enola-labs/enola/internal/factpath"
@@ -61,10 +62,22 @@ func resolveCallTargets(all []facts.Fact) []facts.Fact {
 		return "", false
 	}
 
+	typed := typedCallResolver(all, byType, unique)
+
 	for i := range all {
 		f := &all[i]
+		bound := typed(f)
 		for j := range f.Relations {
 			r := &f.Relations[j]
+			if r.Kind == facts.RelCalls {
+				if decls, ok := bound[r.Target]; ok {
+					r.Target = decls[0]
+					for _, d := range decls[1:] {
+						f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelCalls, Target: d})
+					}
+					continue
+				}
+			}
 			// An already-canonical target contains the module path; leave it.
 			if strings.Contains(r.Target, "/") {
 				continue
@@ -93,6 +106,85 @@ func resolveCallTargets(all []facts.Fact) []facts.Fact {
 		}
 	}
 	return all
+}
+
+// typedCallResolver returns, for a caller, the declarations its calls on typed locals
+// reach, keyed by the bare name the call edge carries: `c.run()` on a `Concrete c`
+// reaches the run Concrete declares, else the one its nearest supertype declares,
+// and a call reaching an inherited one keeps the type it went through
+// (facts.PropInheritedCalls). A call whose type or member is not found is left to
+// the bare-name rule. The working prop is removed either way.
+func typedCallResolver(all []facts.Fact, byType map[string][]string, unique func(map[string][]string, string) (string, bool)) func(*facts.Fact) map[string][]string {
+	members := map[string]bool{}
+	bases := map[string][]string{}
+	for _, f := range all {
+		if f.Kind != facts.KindSymbol {
+			continue
+		}
+		switch f.PropString("symbol_kind") {
+		case facts.SymbolMethod, facts.SymbolFunc, facts.SymbolGetter:
+			members[f.Name] = true
+		case facts.SymbolClass, facts.SymbolInterface, facts.SymbolEnum, facts.SymbolType:
+			for _, r := range f.Relations {
+				if r.Kind != facts.RelImplements {
+					continue
+				}
+				base := r.Target
+				if canon, ok := unique(byType, base); ok {
+					base = canon
+				}
+				bases[f.Name] = append(bases[f.Name], base)
+			}
+		}
+	}
+	// declares finds the nearest type at or above t declaring m, breadth-first.
+	declares := func(t, m string) string {
+		seen := map[string]bool{t: true}
+		for queue := []string{t}; len(queue) > 0; queue = queue[1:] {
+			if members[queue[0]+"."+m] {
+				return queue[0] + "." + m
+			}
+			for _, b := range bases[queue[0]] {
+				if !seen[b] {
+					seen[b] = true
+					queue = append(queue, b)
+				}
+			}
+		}
+		return ""
+	}
+	return func(f *facts.Fact) map[string][]string {
+		spelled := f.PropStrings(propTypedCalls)
+		if len(spelled) == 0 {
+			return nil
+		}
+		delete(f.Props, propTypedCalls)
+		var out map[string][]string
+		for _, s := range spelled {
+			typ, m, ok := strings.Cut(s, ".")
+			if !ok {
+				continue
+			}
+			owner, ok := unique(byType, typ)
+			if !ok {
+				continue
+			}
+			decl := declares(owner, m)
+			if decl == "" {
+				continue
+			}
+			if out == nil {
+				out = map[string][]string{}
+			}
+			if !slices.Contains(out[m], decl) {
+				out[m] = append(out[m], decl)
+			}
+			if decl != owner+"."+m {
+				f.AddInheritedCalls(owner + "." + m)
+			}
+		}
+		return out
+	}
 }
 
 // attributeSymbolsToModules gives every symbol a leading `declares` edge to the module

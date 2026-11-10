@@ -3497,7 +3497,10 @@ import (
 // resolves through the base classes; Scala types class-body vals, C# reads `this.x`
 // receivers, Go promotes an embedded struct's fields, and a TypeScript field read
 // for a call (`this.helper.work()`) is no longer a call to `helper`.
-const cacheVersion = "v556"
+// v557: Dart: a call on a local whose declaration names its type (`final c =
+// Concrete()`, `Concrete c = ...`) binds through that type and its supertypes, and a
+// call through a subtype keeps the subtype (inherited_calls).
+const cacheVersion = "v557"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

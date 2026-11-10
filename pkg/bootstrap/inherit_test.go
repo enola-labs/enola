@@ -36,8 +36,7 @@ var inheritNames = map[string]map[string]string{
 // Calls through inheritance resolve in every language: c.run() on a Concrete reaches
 // the Base.run it inherits (I1), a self-call to an inherited member reaches it (I2),
 // main's flow runs Concrete's override of step from inside Base.run (O), and not
-// Other's (OX). Dart tracks no receiver types, so the subtype c.run() went through is
-// unknown there and an abstract step runs every override: OX is not asserted for it.
+// Other's (OX).
 func TestInheritedCallsResolvePerLanguage(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	for lang, names := range inheritNames {
@@ -77,7 +76,7 @@ func TestInheritedCallsResolvePerLanguage(t *testing.T) {
 			if !reaches(names["Concrete.step"]) {
 				t.Errorf("O: main's flow does not reach %s", names["Concrete.step"])
 			}
-			if lang != "dart" && reaches(names["Other.step"]) {
+			if reaches(names["Other.step"]) {
 				t.Errorf("OX: main's flow reaches %s", names["Other.step"])
 			}
 		})
