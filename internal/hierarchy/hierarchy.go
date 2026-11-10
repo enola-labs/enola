@@ -44,6 +44,8 @@ type Index struct {
 	members  map[key]map[string]string
 	parents  map[key][]string
 	children map[key][]string
+	// ancestors memoizes Ancestors, which a walk asks for on every call it follows.
+	ancestors map[key][]string
 }
 
 // Build reads the type tree out of a fact set.
@@ -51,6 +53,7 @@ func Build(fs []facts.Fact) *Index {
 	ix := &Index{
 		types: map[key]bool{}, abstract: map[key]bool{}, byShort: map[key][]string{},
 		members: map[key]map[string]string{}, parents: map[key][]string{}, children: map[key][]string{},
+		ancestors: map[key][]string{},
 	}
 	rawBases := map[key][]string{}
 	for i := range fs {
@@ -196,9 +199,16 @@ func (ix *Index) Overriders(repo, typ, member string) []string {
 	return out
 }
 
-// Ancestors returns a type's bases, transitively, nearest first.
+// Ancestors returns a type's bases, transitively, nearest first. The result is
+// shared: callers must not modify it. An Index is not safe for concurrent use.
 func (ix *Index) Ancestors(repo, typ string) []string {
-	return ix.closure(repo, typ, ix.parents)
+	k := key{repo, typ}
+	if a, ok := ix.ancestors[k]; ok {
+		return a
+	}
+	a := ix.closure(repo, typ, ix.parents)
+	ix.ancestors[k] = a
+	return a
 }
 
 // Descendants returns a type's subtypes, transitively, nearest first.

@@ -2,6 +2,8 @@ package flows
 
 import (
 	"fmt"
+	"slices"
+	"sort"
 	"strings"
 )
 
@@ -37,8 +39,11 @@ func (a *Analysis) stages(f *Flow) []Stage {
 	}
 	placed := map[int32]bool{f.entry: true}
 	var out []Stage
+	// The calls the flow's own walk followed, in whatever self type it ran: a
+	// base method's step is the override the walk went to, not the abstract one.
+	_, _, _, followed := a.walkFrom(step{f.entry, a.nodes[f.entry].ownerID}, nil, true)
 
-	type step struct {
+	type stage struct {
 		id    int32
 		share map[int32]bool
 	}
@@ -49,12 +54,25 @@ func (a *Analysis) stages(f *Flow) []Stage {
 			reach []int32
 		}
 		var candidates []candidate
-		a.expand(parent)
-		for _, callee := range a.nodes[parent].callees {
+		// One self type per callee, the first in name order: a step is a symbol.
+		var next []step
+		for _, s := range followed[parent] {
+			if !slices.ContainsFunc(next, func(x step) bool { return x.id == s.id }) {
+				next = append(next, s)
+			}
+		}
+		sort.SliceStable(next, func(i, j int) bool {
+			if next[i].id != next[j].id {
+				return a.less(next[i].id, next[j].id)
+			}
+			return next[i].self < next[j].self
+		})
+		for _, s := range next {
+			callee := s.id
 			if placed[callee] || !share[callee] {
 				continue
 			}
-			walked, _, _ := a.walk(callee, placed)
+			walked, _, _, _ := a.walkFrom(s, placed, false)
 			reach := walked[:0]
 			for _, id := range walked {
 				if share[id] {
@@ -64,7 +82,7 @@ func (a *Analysis) stages(f *Flow) []Stage {
 			candidates = append(candidates, candidate{callee, reach})
 		}
 		covered := map[int32]bool{}
-		var chosen []step
+		var chosen []stage
 		for len(chosen) < stageFanout {
 			best, bestGain := -1, 0
 			for i, c := range candidates {
@@ -94,7 +112,7 @@ func (a *Analysis) stages(f *Flow) []Stage {
 					own[id] = true
 				}
 			}
-			chosen = append(chosen, step{c.id, own})
+			chosen = append(chosen, stage{c.id, own})
 			out = append(out, Stage{Depth: depth, Parent: parentID, Ref: a.ref(c.id), Reach: bestGain})
 		}
 		if depth >= stageDepth {
