@@ -746,9 +746,11 @@ func (e *GoExtractor) extractTypeSpec(fset *token.FileSet, gd *ast.GenDecl, ts *
 		if t.Fields != nil {
 			for _, field := range t.Fields.List {
 				if len(field.Names) == 0 {
-					// Embedded type — a potential interface implementation.
+					// Embedded type — a potential interface implementation. Named as
+					// every other type reference is, so the edge lands on the embedded
+					// type's own symbol and a method it promotes can be found there.
 					if embeddedName := typeExprToString(field.Type); embeddedName != "" {
-						implements = append(implements, embeddedName)
+						implements = append(implements, resolveTypeName(embeddedName, ctx))
 					}
 					continue
 				}

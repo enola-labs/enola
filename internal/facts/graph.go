@@ -1579,6 +1579,11 @@ func fileDirectory(file string) string {
 // ReverseFacts returns all facts that have a relation targeting targetName.
 // When relKind is non-empty only edges of that kind are considered.
 // It uses the reverse adjacency index (O(1) lookup) instead of scanning all facts.
+//
+// Several facts can share a source node: a route path a service serves and the same
+// path it calls on another service are one node. The facts returned are those whose
+// own relations carry the edge, so a handler's route is the served one and not the
+// call beside it; only where none of them records it is one chosen by kind.
 func (g *Graph) ReverseFacts(targetName, relKind string) []Fact {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
@@ -1603,11 +1608,44 @@ func (g *Graph) ReverseFacts(targetName, relKind string) []Fact {
 			continue
 		}
 		seen[sid] = struct{}{}
+		if carriers := g.factsCarrying(sid, rk, id); len(carriers) > 0 {
+			for _, idx := range carriers {
+				result = append(result, g.facts[idx])
+			}
+			continue
+		}
 		if idx, ok := g.factIndexForID(sid, rk); ok {
 			result = append(result, g.facts[idx])
 		}
 	}
 	return result
+}
+
+// factsCarrying returns, when several facts declare node src, the indices of those
+// whose own relations include one of kind relKind to node target. nil when src has
+// one fact, or none of its facts records the edge (it came from elsewhere).
+func (g *Graph) factsCarrying(src uint32, relKind string, target uint32) []int {
+	idxs := g.factIdxsOf(src)
+	if len(idxs) < 2 {
+		return nil
+	}
+	var out []int
+	for _, i32 := range idxs {
+		idx := int(i32)
+		if idx >= len(g.facts) {
+			continue
+		}
+		for _, r := range g.facts[idx].Relations {
+			if r.Kind != relKind {
+				continue
+			}
+			if tid, ok := g.lookup(r.Target); ok && tid == target {
+				out = append(out, idx)
+				break
+			}
+		}
+	}
+	return out
 }
 
 // ForwardEdges returns the outgoing edges of name as a fresh slice, or nil when the
