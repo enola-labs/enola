@@ -23,6 +23,9 @@ func withTree(src []byte, relFile string, isAndroid bool, sourceRoot, basePackag
 	}
 
 	tree := parser.Parse(src, nil)
+	if tree.RootNode().HasError() {
+		tree = reparseSameLineCloses(parser, src, tree)
+	}
 	defer tree.Close()
 
 	root := tree.RootNode()

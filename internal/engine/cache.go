@@ -3500,7 +3500,10 @@ import (
 // v557: Dart: a call on a local whose declaration names its type (`final c =
 // Concrete()`, `Concrete c = ...`) binds through that type and its supertypes, and a
 // call through a subtype keeps the subtype (inherited_calls).
-const cacheVersion = "v557"
+// v558: Kotlin: a file the grammar cannot parse because a body closes on its
+// member's line (`class A { fun f() {} }` with more code after it) is parsed again
+// with a `;` before that `}`, so its declarations are no longer lost.
+const cacheVersion = "v558"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
