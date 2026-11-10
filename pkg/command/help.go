@@ -263,6 +263,13 @@ var helpPages = map[string]helpPage{
 		},
 		seeAlso: []string{"locate", "blame"},
 	},
+	"serve": {
+		examples: []cli.Example{
+			{Comment: "Serve every repository under /srv/repos on loopback", Command: "enola serve --root /srv/repos --token-file /etc/enola/tokens"},
+			{Comment: "Restore a cluster's graph at start", Command: "enola serve --root /srv/repos --token-file /etc/enola/tokens /srv/repos/cluster.yaml"},
+		},
+		seeAlso: []string{"install"},
+	},
 	"blame": {
 		examples: []cli.Example{
 			{Comment: "When did anything matching this enter or leave", Command: "enola blame internal/auth"},

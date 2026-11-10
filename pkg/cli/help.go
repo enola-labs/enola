@@ -107,6 +107,7 @@ func DefaultHelp(bin Binary) HelpSpec {
 			bin.Name + " gc [flags] [repo_path|config_path]",
 			bin.Name + " history <push|pull|verify|gc> [store_dir] [repo_path|config_path]",
 			bin.Name + " install [--hooks] [--global] [--targets=…] [repo_path]",
+			bin.Name + " serve --root DIR --token-file FILE [flags] [repo_path|config_path]",
 		},
 		Commands: []FlagDoc{
 			{Flag: "help", Desc: "Show this page, or with a command, that command's own page: its\nflags, subcommands, exit codes and examples. \"" + bin.Name + " help flows\",\n\"" + bin.Name + " --help flows\" and \"" + bin.Name + " flows --help\" are the same\npage. Subcommands work too: \"" + bin.Name + " help baseline pin\"."},
@@ -131,6 +132,7 @@ func DefaultHelp(bin Binary) HelpSpec {
 			{Flag: "gc", Desc: "EXPERIMENTAL. Report what the architecture history holds — how many\nrevisions, how many can still be replayed, how much disk — and remove\nwhat it no longer needs. With no flags it removes only garbage;\n--thin-older-than and --prune-working discard things a reader could\nstill reach, so each has to be asked for."},
 			{Flag: "history", Desc: "EXPERIMENTAL. Share the architecture history between machines through\na directory store — a git repository, a shared mount, an S3-synced\nfolder. Plain files, content-addressed, tamper-evident. \"push\" copies\nlocal revisions in, \"pull\" imports what other machines pushed,\n\"verify\" walks every chain and names gaps and tampering, \"gc\" applies\nretention — printed first, deleted only with --apply, recorded in the\nchain. Point it with history.shared_dir or the first argument."},
 			{Flag: "doctor", Desc: "Report whether the session hooks are actually FIRING in this\nrepository, not merely configured. `install --hooks` can write a\nconfiguration your agent silently ignores — it reports success\neither way — so this asks the only question that settles it: when\ndid each hook last run, and what did it conclude? A report, not a\ngate: always exits 0."},
+			{Flag: "serve", Desc: "Serve the MCP tools over Streamable HTTP, for a service that calls\n" + bin.Name + " as a tool rather than an agent that started it. Every request\nneeds a bearer token from --token-file, and every path a call names\nmust lie inside a --root. Listens on loopback unless told otherwise.\nRun \"" + bin.Name + " serve --help\" for the flags."},
 			{Flag: "providers", Desc: "The fact providers this binary carries itself. `providers list`\nnames each and whether it is ready; `providers fetch rubydex`\ndownloads the pinned Rubydex engine library, verifies its published\ndigest, and caches it, after which a `providers:` entry named\nrubydex with no command runs in-process. The only network access a\nprovider ever makes, and never at snapshot time."},
 		},
 		Flags: []FlagDoc{

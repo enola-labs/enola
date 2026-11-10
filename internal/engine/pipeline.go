@@ -78,6 +78,11 @@ func (e *Engine) beginRun(ctx context.Context, repoPath string, appendMode bool)
 	if err != nil {
 		return nil, fmt.Errorf("resolving repo path: %w", err)
 	}
+	if e.pathGuard != nil {
+		if err := e.pathGuard(absRepo); err != nil {
+			return nil, err
+		}
+	}
 
 	// Captured ONCE, here, because two things need it and they must agree: the repo
 	// label every fact is tagged with (below) and the snapshot's own git provenance

@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io/fs"
 	"log"
+	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
@@ -290,6 +292,21 @@ func (s *Server) RestoreInBackground(eng *Engine, cfg *config.Config) {
 		corpus, notice := autoLoad(eng, cfg)
 		s.srv.AddNotice(notice)
 		return corpus
+	})
+}
+
+// RestoreReposInBackground restores the on-disk graph of repoPaths while the server is
+// already serving, as RestoreInBackground does for an agent's workspace, but from the
+// repositories named rather than from the machine-wide receipt. A failure is logged
+// and leaves the server empty: consumers can still index with generate_snapshot.
+func (s *Server) RestoreReposInBackground(eng *Engine, repoPaths []string) {
+	s.srv.RestoreInBackground(func() map[string]int {
+		if err := RestoreSnapshot(eng, repoPaths); err != nil {
+			log.Printf("[bootstrap] nothing restored: %v", err)
+			return nil
+		}
+		log.Printf("[bootstrap] restored %d repositories", len(repoPaths))
+		return nil
 	})
 }
 
@@ -634,6 +651,78 @@ func NewServer(eng *Engine, cfg *config.Config) (*Server, error) {
 	// because internal/server cannot reach this package.
 	log.Printf("[runtime] %s", MemoryLimitLine())
 	return &Server{srv: srv}, nil
+}
+
+// ServeOptions configure a served instance; see NewServedServer.
+type ServeOptions struct {
+	// Roots are the directories every path a call names or reaches must lie in.
+	Roots []string
+	// MaxConcurrent caps tool calls running at once; zero means the CPU count.
+	MaxConcurrent int
+	// CallTimeout cancels a tool call that runs longer; zero means no limit.
+	CallTimeout time.Duration
+	// Restore names repositories whose on-disk graph is restored at start. Each must
+	// lie inside Roots.
+	Restore []string
+}
+
+// HTTPOptions configure the transport of a served instance.
+type HTTPOptions struct {
+	// Tokens are the accepted bearer tokens. At least one is required.
+	Tokens []string
+	// SessionTimeout closes a session idle this long; zero means 30 minutes.
+	SessionTimeout time.Duration
+}
+
+// NewServedServer creates a server for consumers over Streamable HTTP. It differs
+// from NewServer in what it leaves out as much as in what it adds: no agent session
+// (receipts and pins are not keyed to the server's parent, which is a shell or a
+// service manager, not an agent), no reload from the machine-wide receipt (that
+// tracks the agent's workspace, not this server's), and the confinement, allowlist
+// and limits of opts. It returns the resolved roots for the caller to report.
+func NewServedServer(eng *Engine, cfg *config.Config, opts ServeOptions) (*Server, []string, error) {
+	roots, err := server.NewRoots(opts.Roots)
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, p := range opts.Restore {
+		if err := roots.Confine(p); err != nil {
+			return nil, nil, err
+		}
+	}
+	srv, err := server.NewServed(eng.eng, cfg, server.ServeConfig{
+		Roots:         roots,
+		MaxConcurrent: opts.MaxConcurrent,
+		CallTimeout:   opts.CallTimeout,
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	srv.SetPlanEngineFactory(PlanEngineFactory(cfg))
+	metrics.Register(srv.MCPServer(), eng.eng.Store)
+	orphans.Register(srv.MCPServer(), eng.eng.Store)
+	perf.Register(srv.MCPServer(), eng.eng.Store)
+	log.Printf("[runtime] %s", MemoryLimitLine())
+	out := &Server{srv: srv}
+	if len(opts.Restore) > 0 {
+		out.RestoreReposInBackground(eng, opts.Restore)
+	}
+	return out, roots, nil
+}
+
+func (o HTTPOptions) internal() server.HTTPConfig {
+	return server.HTTPConfig{Tokens: o.Tokens, SessionTimeout: o.SessionTimeout}
+}
+
+// HTTPHandler returns the authenticated Streamable HTTP handler RunHTTP serves, for a
+// caller that runs its own listener, or a test.
+func (s *Server) HTTPHandler(o HTTPOptions) (http.Handler, error) {
+	return s.srv.HTTPHandler(o.internal())
+}
+
+// RunHTTP serves the instance over Streamable HTTP on ln until ctx is cancelled.
+func (s *Server) RunHTTP(ctx context.Context, ln net.Listener, o HTTPOptions) error {
+	return s.srv.RunHTTP(ctx, ln, o.internal())
 }
 
 // GraphStateFunc returns a callback reporting what this engine currently holds,

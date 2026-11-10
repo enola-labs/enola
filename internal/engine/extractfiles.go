@@ -34,6 +34,11 @@ func (e *Engine) ExtractFiles(ctx context.Context, root, repoLabel string, files
 	if err != nil {
 		return nil, fmt.Errorf("resolving %s: %w", root, err)
 	}
+	if e.pathGuard != nil {
+		if err := e.pathGuard(absRoot); err != nil {
+			return nil, err
+		}
+	}
 	ignored := e.ignoredPaths(absRoot)
 	var keep []string
 	for _, f := range files {

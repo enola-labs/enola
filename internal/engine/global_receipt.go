@@ -244,6 +244,9 @@ func (e *Engine) assembleGraphReceipt(b *snapshotBundle, now time.Time) facts.Gr
 // then atomically replaces the file. It never aborts a snapshot: a missing home dir
 // is logged and skipped, and a corrupt prior receipt is treated as no prior state.
 func (e *Engine) WriteGlobalReceipt() error {
+	if e.noGlobalReceipt {
+		return nil
+	}
 	// Load the published bundle once; everything below reads from it, so the receipt
 	// reflects a single consistent snapshot even if a generate republishes meanwhile.
 	b := e.current.Load()

@@ -1,0 +1,292 @@
+package server_test
+
+import (
+	"context"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"slices"
+	"sort"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/enola-labs/enola/internal/server"
+	"github.com/enola-labs/enola/pkg/bootstrap"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+)
+
+const testToken = "0123456789abcdef0123456789abcdef"
+
+// bearer adds the token to every request the client sends.
+type bearer struct {
+	token string
+	next  http.RoundTripper
+}
+
+func (b bearer) RoundTrip(r *http.Request) (*http.Response, error) {
+	r = r.Clone(r.Context())
+	r.Header.Set("Authorization", "Bearer "+b.token)
+	return b.next.RoundTrip(r)
+}
+
+// served is one served instance behind a real HTTP listener, with the root it is
+// confined to and a copy of go_sample inside that root.
+type served struct {
+	url  string
+	root string
+	repo string
+}
+
+func startServed(t *testing.T, sc bootstrap.ServeOptions) *served {
+	t.Helper()
+	root := t.TempDir()
+	repo := copyTree(t, filepath.Join("..", "engine", "testdata", "repos", "go_sample"), root)
+	eng, cfg := newTestEngine(t)
+	sc.Roots = []string{root}
+	srv, roots, err := bootstrap.NewServedServer(eng, cfg, sc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h, err := srv.HTTPHandler(bootstrap.HTTPOptions{Tokens: []string{testToken}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := httptest.NewServer(h)
+	t.Cleanup(ts.Close)
+	return &served{url: ts.URL + "/mcp", root: roots[0], repo: repo}
+}
+
+func (s *served) connect(t *testing.T, token string) (*session, error) {
+	t.Helper()
+	transport := &mcp.StreamableClientTransport{
+		Endpoint:   s.url,
+		HTTPClient: &http.Client{Transport: bearer{token, http.DefaultTransport}},
+	}
+	client := mcp.NewClient(&mcp.Implementation{Name: "enola-http-test", Version: "0"}, nil)
+	cs, err := client.Connect(context.Background(), transport, nil)
+	if err != nil {
+		return nil, err
+	}
+	t.Cleanup(func() { _ = cs.Close() })
+	return &session{cs: cs, repo: s.repo}, nil
+}
+
+func TestServe_RefusesMissingOrWrongToken(t *testing.T) {
+	s := startServed(t, bootstrap.ServeOptions{})
+	for _, header := range []string{"", "Bearer wrong-token-wrong-token-wrong-token", "Basic " + testToken} {
+		req, _ := http.NewRequest(http.MethodPost, s.url, strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Accept", "application/json, text/event-stream")
+		if header != "" {
+			req.Header.Set("Authorization", header)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = resp.Body.Close()
+		if resp.StatusCode != http.StatusUnauthorized {
+			t.Errorf("Authorization %q: status %d, want 401", header, resp.StatusCode)
+		}
+	}
+	if _, err := s.connect(t, "not-the-token-not-the-token-not-the"); err == nil {
+		t.Error("a client with the wrong token connected")
+	}
+}
+
+func TestServe_RefusesBrowserCrossOrigin(t *testing.T) {
+	s := startServed(t, bootstrap.ServeOptions{})
+	req, _ := http.NewRequest(http.MethodPost, s.url, strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, text/event-stream")
+	req.Header.Set("Authorization", "Bearer "+testToken)
+	req.Header.Set("Origin", "https://attacker.example")
+	req.Header.Set("Sec-Fetch-Site", "cross-site")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Errorf("cross-site browser request: status %d, want 403", resp.StatusCode)
+	}
+}
+
+func TestServe_OnlyMCPPathIsServed(t *testing.T) {
+	s := startServed(t, bootstrap.ServeOptions{})
+	resp, err := http.Get(strings.TrimSuffix(s.url, "/mcp") + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("GET /: status %d, want 404", resp.StatusCode)
+	}
+}
+
+func TestServe_GenerateAndQueryOverHTTP(t *testing.T) {
+	s := startServed(t, bootstrap.ServeOptions{})
+	sess, err := s.connect(t, testToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ins := sess.cs.InitializeResult().Instructions; strings.Contains(ins, "ToolSearch") || !strings.Contains(ins, "directories it serves") {
+		t.Errorf("served instructions are the agent's, or do not mention confinement:\n%s", ins)
+	}
+	// The machine-wide receipt belongs to the agent on this machine, not to a server.
+	// HOME is shared by every test in this binary, so the check is that this test left
+	// it as it found it.
+	home, _ := os.UserHomeDir()
+	receipt := filepath.Join(home, ".enola", "receipt.json")
+	before, _ := os.ReadFile(receipt)
+	sess.snapshot(t)
+	if after, _ := os.ReadFile(receipt); string(after) != string(before) {
+		t.Error("a served instance wrote ~/.enola/receipt.json")
+	}
+	res := sess.call(t, "query_facts", map[string]any{"kind": "symbol", "output_mode": "summary"})
+	if res.IsError || !strings.Contains(text(res), "symbol") {
+		t.Fatalf("query_facts over HTTP: %s", text(res))
+	}
+}
+
+func TestServe_ListsExactlyTheServedTools(t *testing.T) {
+	s := startServed(t, bootstrap.ServeOptions{})
+	sess, err := s.connect(t, testToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lr, err := sess.cs.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, tool := range lr.Tools {
+		got = append(got, tool.Name)
+	}
+	sort.Strings(got)
+	want := slices.Clone(server.ServedTools)
+	sort.Strings(want)
+	if !slices.Equal(got, want) {
+		t.Errorf("served tools\n got %v\nwant %v", got, want)
+	}
+}
+
+// Every tool the stdio server registers must be decided for HTTP: served, or kept
+// off on purpose. A new tool that is neither fails here instead of being exposed to
+// consumers, or hidden from them, by nobody's decision.
+func TestServedToolsAreDecided(t *testing.T) {
+	sess := startInMemory(t)
+	lr, err := sess.cs.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decided := map[string]bool{}
+	for _, n := range append(slices.Clone(server.ServedTools), server.UnservedTools...) {
+		decided[n] = true
+	}
+	for _, tool := range lr.Tools {
+		if !decided[tool.Name] {
+			t.Errorf("tool %q is neither in server.ServedTools nor in server.UnservedTools", tool.Name)
+		}
+	}
+}
+
+func TestServe_UnlistedToolIsRefused(t *testing.T) {
+	saved := server.ServedTools
+	server.ServedTools = slices.DeleteFunc(slices.Clone(saved), func(n string) bool { return n == "query_facts" })
+	t.Cleanup(func() { server.ServedTools = saved })
+	s := startServed(t, bootstrap.ServeOptions{})
+	sess, err := s.connect(t, testToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sess.cs.CallTool(context.Background(), &mcp.CallToolParams{Name: "query_facts", Arguments: map[string]any{}}); err == nil {
+		t.Error("a tool outside the allowlist ran")
+	}
+}
+
+func TestServe_RefusesPathsOutsideRoots(t *testing.T) {
+	s := startServed(t, bootstrap.ServeOptions{})
+	sess, err := s.connect(t, testToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	outside := copyTree(t, filepath.Join("..", "engine", "testdata", "repos", "go_sample"), t.TempDir())
+	escape := filepath.Join(s.root, "escape")
+	if err := os.Symlink(outside, escape); err != nil {
+		t.Fatal(err)
+	}
+
+	cases := []struct {
+		tool string
+		args map[string]any
+	}{
+		{"generate_snapshot", map[string]any{"repo_path": outside}},
+		{"generate_snapshot", map[string]any{"repo_path": escape}},
+		{"generate_snapshot", map[string]any{"repo_path": filepath.Join(s.root, "..", filepath.Base(filepath.Dir(outside)))}},
+		{"generate_snapshot", map[string]any{"repo_paths": []string{s.repo, outside}}},
+		{"touched", map[string]any{"repo_path": outside}},
+		{"architecture_history", map[string]any{"repo_path": outside}},
+		{"diff_snapshot", map[string]any{"baseline": outside}},
+		{"compare_receipts", map[string]any{"baseline": outside}},
+	}
+	for _, c := range cases {
+		res := sess.call(t, c.tool, c.args)
+		if !res.IsError {
+			t.Errorf("%s(%v) ran outside the roots:\n%s", c.tool, c.args, text(res))
+		}
+	}
+	// No default: a call that names no repository is not handed the working directory.
+	if res := sess.call(t, "generate_snapshot", map[string]any{}); !res.IsError {
+		t.Errorf("generate_snapshot with no repo_path indexed the working directory:\n%s", text(res))
+	}
+}
+
+// A cluster config inside a root can list a repository outside it. The argument is
+// inside, so only the engine's guard on every repository a run reads stops it.
+func TestServe_ClusterMemberOutsideRootsIsRefused(t *testing.T) {
+	s := startServed(t, bootstrap.ServeOptions{})
+	sess, err := s.connect(t, testToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	outside := copyTree(t, filepath.Join("..", "engine", "testdata", "repos", "go_sample"), t.TempDir())
+	// A folder is a cluster when it holds git repositories; its cluster.yaml, when
+	// present, is read as the member list, and that list can name anything.
+	folder := filepath.Join(s.root, "cluster")
+	var members []string
+	for _, name := range []string{"one", "two"} {
+		m := filepath.Join(folder, name)
+		copyTree(t, filepath.Join("..", "engine", "testdata", "repos", "go_sample"), m)
+		if out, err := exec.Command("git", "-C", m, "init", "-q").CombinedOutput(); err != nil {
+			t.Fatalf("git init: %v\n%s", err, out)
+		}
+		members = append(members, m)
+	}
+	cfgPath := filepath.Join(folder, "cluster.yaml")
+	if err := os.WriteFile(cfgPath, []byte("repos:\n  - "+members[0]+"\n  - "+outside+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res := sess.call(t, "generate_snapshot", map[string]any{"repo_path": folder})
+	if !res.IsError || !strings.Contains(text(res), "outside") {
+		t.Errorf("a cluster member outside the roots was indexed (IsError=%v):\n%s", res.IsError, text(res))
+	}
+}
+
+func TestServe_CallTimeoutCancels(t *testing.T) {
+	s := startServed(t, bootstrap.ServeOptions{CallTimeout: time.Nanosecond})
+	sess, err := s.connect(t, testToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := sess.cs.CallTool(context.Background(), &mcp.CallToolParams{Name: "generate_snapshot", Arguments: map[string]any{"repo_path": s.repo}})
+	if err == nil && !res.IsError {
+		t.Error("generate_snapshot finished inside a 1ns call timeout")
+	}
+}
