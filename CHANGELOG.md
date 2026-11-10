@@ -7,6 +7,49 @@ The full per-release change lists — every Added, Changed and Fixed line — ar
 [enola.tech/changelog](https://enola.tech/changelog). This file is the same history at
 the resolution a reader of the repository needs.
 
+## v0.5.0 — 2026-11-09
+
+**Tree-sitter runtime on ABI 15, TypeScript workspace packages resolve to their source, and nested worktrees stop doubling a repository**
+
+The minor version moves with every tree-sitter update.
+
+- Parsers: the tree-sitter runtime is on ABI 15, vendored with the v0.24 error recovery so
+  files with syntax errors keep their symbols. C moves to v0.24.0, Python to v0.25.0, Rust
+  to v0.24.2, and C# to upstream master for C# 14. PHP stays on v0.23.12. Scala keeps an
+  ABI 14 parser so Scala 3 soft keywords still parse as identifiers. Dart and Swift
+  parsers are regenerated from upstream. A test pins the ABI of every grammar.
+- C#: grammar patches for `ref partial struct`, `allows ref struct`, `safe`, `*(T*)&x`,
+  `*(T*)p`, `*++p` and `*p++`, rebuilt and checked by `regenerate.sh --check`. A type
+  declared in both a reference-assembly stub and its implementation binds to the
+  implementation. The gaps left unpatched are listed in the extraction limits.
+- Dart: primary constructors are extracted, and `new named()` and `Type.named()` are one
+  symbol.
+- TypeScript: imports of npm, Yarn, pnpm and Bun workspace packages resolve to the
+  package's source after every configured alias. An entry that points at build output maps
+  back through the package tsconfig or the build layout, and a tsconfig path that names no
+  file falls back to the workspace package. Only declared members count. Route calls are
+  read with comments blanked, and a client URL with a nested template literal is read
+  whole. Barrel export lookups are memoized, so workspace resolution does not slow a cold
+  snapshot of a large monorepo.
+- Worktrees: a linked git worktree inside the repository, such as
+  `.claude/worktrees/<name>`, is no longer indexed as part of the main checkout.
+  Snapshotting another checkout of a loaded repository replaces it instead of loading it
+  twice under one label.
+- Coverage: the CLI, MCP, insight and dashboard share one classifier. Calls to a service
+  the snapshot does not hold count as a gap and are named as not loaded, not unresolved.
+  The dashboard's Resolved column reads the edge coverage sum, and the `depends_on` count
+  moves to an Outbound edges column.
+- Clusters: the baseline is pinned in the member whose canonical path sorts first, so the
+  CLI, MCP, a config, a folder and `repo_paths` gate against the same pin. Foreign-path
+  waiver checks skip git-ignored paths.
+- `locate` reports a move only within the repository a stamp was taken in. `backfill
+  --since` accepts durations. `explore` reads every module fact of a directory in a fixed
+  order, so a Go package next to its cgo sources gives the same header after generate and
+  restore.
+- Engine: cache version is v550, so existing caches re-extract.
+
+Thanks to [Gert Lõhmus](https://github.com/GertL) for the `backfill --since` fix.
+
 ## v0.4.40 — 2026-11-06
 
 **Calls through a factory's result resolve in every language, clusters keep one history, and cross-repo links get more honest**
