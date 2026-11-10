@@ -17,6 +17,9 @@ A flow is a floor, not a measurement: the walk ends at any call whose target
 is no symbol in the graph. The unresolved column counts those calls. Most of
 them leave the repository, for the standard library or an imported package;
 the rest are calls on a value whose type the extractor could not name.
+A call through inheritance is followed: to the method a class inherits, to
+the override of the type the walk came through, and through an attribute a
+base class declares.
 Entries that reach the same symbols are folded into one flow, and a flow that
 sits almost wholly inside a larger one says which.
 

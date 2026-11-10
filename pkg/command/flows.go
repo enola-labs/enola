@@ -48,6 +48,9 @@ func (r *Runner) runFlows(ctx context.Context, args []string, stdout, stderr io.
 				"is no symbol in the graph. The unresolved column counts those calls. Most of\n"+
 				"them leave the repository, for the standard library or an imported package;\n"+
 				"the rest are calls on a value whose type the extractor could not name.\n"+
+				"A call through inheritance is followed: to the method a class inherits, to\n"+
+				"the override of the type the walk came through, and through an attribute a\n"+
+				"base class declares.\n"+
 				"Entries that reach the same symbols are folded into one flow, and a flow that\n"+
 				"sits almost wholly inside a larger one says which.\n\n"+
 				"The program's flows are listed first. A flow whose entry is an example, a\n"+
