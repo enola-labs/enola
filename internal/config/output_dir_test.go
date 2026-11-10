@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -146,4 +147,75 @@ func TestNormalize_IgnoresANestedOutputDirectory(t *testing.T) {
 			t.Errorf("custom ignore = %v, want %q", custom.Ignore, want)
 		}
 	}
+}
+
+func TestOutputDirFor(t *testing.T) {
+	repo := filepath.Join(t.TempDir(), "srv", "api")
+	c := Default()
+	if err := c.Normalize(); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := c.OutputDirFor(repo), filepath.Join(repo, ".enola"); got != want {
+		t.Errorf("no root: %s, want %s", got, want)
+	}
+
+	root := t.TempDir()
+	c.Output.Root = root
+	got := c.OutputDirFor(repo)
+	if want := filepath.Join(root, mirrorPath(repo), ".enola"); got != want {
+		t.Errorf("with root: %s, want %s", got, want)
+	}
+	if !strings.HasPrefix(got, root+string(filepath.Separator)) {
+		t.Errorf("with root: %s is not under %s", got, root)
+	}
+	// Two repositories sharing a name in different places stay apart.
+	other := filepath.Join(t.TempDir(), "srv", "api")
+	if c.OutputDirFor(other) == got {
+		t.Errorf("%s and %s share an output directory", repo, other)
+	}
+	// A relative repository path names the same directory as its absolute form.
+	wd, _ := os.Getwd()
+	if rel, err := filepath.Rel(wd, repo); err == nil && c.OutputDirFor(rel) != got {
+		t.Errorf("relative %s: %s, want %s", rel, c.OutputDirFor(rel), got)
+	}
+}
+
+func TestNormalize_MakesOutputRootAbsolute(t *testing.T) {
+	c := Default()
+	c.Output.Root = "out"
+	if err := c.Normalize(); err != nil {
+		t.Fatal(err)
+	}
+	if !filepath.IsAbs(c.Output.Root) {
+		t.Errorf("output.root %q is not absolute", c.Output.Root)
+	}
+}
+
+// Normalizing a normalized config writes nothing, so a served instance can build an
+// engine per session from one shared config while other sessions read it. Run with
+// -race: a write that only restores the same value still races a reader.
+func TestNormalize_NormalizedConfigIsReadOnly(t *testing.T) {
+	c, err := loadYAML(t, `
+clients:
+  - name: " api "
+    language: TS
+    receiver_types: [" Api "]
+    methods:
+      - name: " get "
+        default_verb: get
+        path_arg: 0
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(2)
+		go func() { defer wg.Done(); _ = c.Normalize() }()
+		go func() {
+			defer wg.Done()
+			_ = c.OutputDirFor("/srv/api") + c.Clients[0].Name + c.Clients[0].Methods[0].DefaultVerb
+		}()
+	}
+	wg.Wait()
 }

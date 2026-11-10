@@ -318,7 +318,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  Insights:    %d\n", snapshot.Meta.InsightCount)
 		fmt.Fprintf(os.Stderr, "  Artifacts:   %d\n", len(snapshot.Artifacts))
 		fmt.Fprintf(os.Stderr, "  Duration:    %s\n", snapshot.Meta.Duration)
-		fmt.Fprintf(os.Stderr, "  Output:      %s\n", filepath.Join(repoPaths[len(repoPaths)-1], cfg.Output.Dir))
+		fmt.Fprintf(os.Stderr, "  Output:      %s\n", cfg.OutputDirFor(repoPaths[len(repoPaths)-1]))
 		if len(folded) > 0 {
 			fmt.Fprintf(os.Stderr, "  Warning:     %d git repositories indexed as one; to link them: %s\n",
 				len(folded), workspace.Remedy(binary().Name, foldDir))
@@ -614,7 +614,7 @@ func runRefresh(ctx context.Context, eng *bootstrap.Engine, cfg *config.Config, 
 	fmt.Fprintf(os.Stderr, "  Facts:       %d\n", snapshot.Meta.FactCount)
 	fmt.Fprintf(os.Stderr, "  Insights:    %d\n", snapshot.Meta.InsightCount)
 	fmt.Fprintf(os.Stderr, "  Duration:    %s\n", snapshot.Meta.Duration)
-	fmt.Fprintf(os.Stderr, "  Output:      %s\n", filepath.Join(last, cfg.Output.Dir))
+	fmt.Fprintf(os.Stderr, "  Output:      %s\n", cfg.OutputDirFor(last))
 	if cli.ShowDashboardHint(os.Stderr) {
 		printDashboardHint(os.Stderr, repoArg, cfg.SourcePath)
 	}

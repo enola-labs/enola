@@ -41,8 +41,11 @@ const (
 type SessionMark struct {
 	// AgentPID is the agent process that ran or pinned; zero when it was not known
 	// (a CLI run from a terminal, or a record written before marks existed).
-	AgentPID int    `json:"agent_pid,omitempty"`
-	At       string `json:"at"` // RFC3339 UTC
+	AgentPID int `json:"agent_pid,omitempty"`
+	// Session is the served session that ran or pinned, "<token id>/<session id>",
+	// for a mark written by enola serve; empty otherwise. See SetSessionID.
+	Session string `json:"session,omitempty"`
+	At      string `json:"at"` // RFC3339 UTC
 }
 
 // ReadSessionMark reads a session mark from dir, or returns nil when there is none.
@@ -59,7 +62,7 @@ func ReadSessionMark(dir, name string) *SessionMark {
 }
 
 func (e *Engine) writeSessionMark(dir, name string) error {
-	data, err := json.Marshal(SessionMark{AgentPID: e.SessionClient(), At: time.Now().UTC().Format(time.RFC3339)})
+	data, err := json.Marshal(SessionMark{AgentPID: e.SessionClient(), Session: e.SessionID(), At: time.Now().UTC().Format(time.RFC3339)})
 	if err != nil {
 		return err
 	}
@@ -68,7 +71,7 @@ func (e *Engine) writeSessionMark(dir, name string) error {
 
 // OutputDir returns the absolute .enola output directory for repoPath.
 func (e *Engine) OutputDir(repoPath string) string {
-	return filepath.Join(repoPath, e.cfg.Output.Dir)
+	return e.cfg.OutputDirFor(repoPath)
 }
 
 // BaselineAnchor returns the member of a graph whose output dir holds its pinned
@@ -119,6 +122,7 @@ func ResolveBaselineDir(outDir, selector string) string {
 // error if no snapshot has been written yet.
 func (e *Engine) SetBaseline(repoPath string) error {
 	outDir := e.OutputDir(repoPath)
+	defer lockDir(outDir)()
 	if _, err := os.Stat(filepath.Join(outDir, "facts.jsonl")); err != nil {
 		return fmt.Errorf("no snapshot to pin as baseline (run generate_snapshot first): %w", err)
 	}

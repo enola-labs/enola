@@ -114,26 +114,38 @@ var verbs = map[string]bool{
 var identifier = regexp.MustCompile(`^[A-Za-z_$][\w$]*$`)
 
 // Normalize fills the defaults a spec may leave out. It is idempotent.
+//
+// It writes a field only when its value changes, so normalizing specs that are
+// already normal writes nothing: a served instance builds an engine per session from
+// one shared config, concurrently with other sessions reading it.
 func Normalize(specs []Spec) {
 	for i := range specs {
 		s := &specs[i]
-		s.Name = strings.TrimSpace(s.Name)
-		s.Language = strings.ToLower(strings.TrimSpace(s.Language))
-		if canonical, ok := languageAliases[s.Language]; ok {
-			s.Language = canonical
+		set(&s.Name, strings.TrimSpace(s.Name))
+		lang := strings.ToLower(strings.TrimSpace(s.Language))
+		if canonical, ok := languageAliases[lang]; ok {
+			lang = canonical
 		}
+		set(&s.Language, lang)
 		for j := range s.ReceiverTypes {
-			s.ReceiverTypes[j] = strings.TrimSpace(s.ReceiverTypes[j])
+			set(&s.ReceiverTypes[j], strings.TrimSpace(s.ReceiverTypes[j]))
 		}
 		for j := range s.Methods {
 			m := &s.Methods[j]
-			m.Name = strings.TrimSpace(m.Name)
-			m.VerbOption = strings.TrimSpace(m.VerbOption)
-			m.DefaultVerb = strings.ToUpper(strings.TrimSpace(m.DefaultVerb))
+			set(&m.Name, strings.TrimSpace(m.Name))
+			set(&m.VerbOption, strings.TrimSpace(m.VerbOption))
+			set(&m.DefaultVerb, strings.ToUpper(strings.TrimSpace(m.DefaultVerb)))
 			if m.OptionsArg != nil && m.VerbOption == "" {
 				m.VerbOption = DefaultVerbOption
 			}
 		}
+	}
+}
+
+// set writes v to *p only when it differs.
+func set(p *string, v string) {
+	if *p != v {
+		*p = v
 	}
 }
 

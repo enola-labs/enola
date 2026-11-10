@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io/fs"
 	"log"
+	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
@@ -636,6 +638,123 @@ func NewServer(eng *Engine, cfg *config.Config) (*Server, error) {
 	return &Server{srv: srv}, nil
 }
 
+// ServeOptions configure a served instance; see NewServedServer.
+type ServeOptions struct {
+	// Roots are the directories every path a call names or reaches must lie in.
+	Roots []string
+	// MaxConcurrent caps tool calls running at once; zero means the CPU count.
+	MaxConcurrent int
+	// CallTimeout cancels a tool call that runs longer; zero means no limit.
+	CallTimeout time.Duration
+	// MemoryBudget is the estimated memory the graphs held for sessions may take
+	// before the least recently used one is unloaded; zero means no budget.
+	MemoryBudget int64
+	// Restore names repositories whose on-disk graph is restored at start. Each must
+	// lie inside Roots.
+	Restore []string
+}
+
+// HTTPOptions configure the transport of a served instance.
+type HTTPOptions struct {
+	// Tokens are the accepted bearer tokens. At least one is required.
+	Tokens []string
+	// SessionTimeout closes a session idle this long; zero means 30 minutes.
+	SessionTimeout time.Duration
+}
+
+// ServedPool is a served instance: every MCP session is served by a server and engine
+// of its own, and graphs are shared between sessions through the pool.
+type ServedPool struct {
+	pool *server.Pool
+}
+
+// NewServedPool creates a served instance for consumers over Streamable HTTP. A
+// session's server differs from NewServer's in what it leaves out as much as in what
+// it adds: no agent session (receipts and pins are not keyed to the server's parent,
+// which is a shell or a service manager, not an agent), no reload from the
+// machine-wide receipt (that tracks the agent's workspace, not this server's), and
+// the confinement, allowlist and limits of opts. It returns the resolved roots for
+// the caller to report. Repositories in opts.Restore are loaded into the pool in the
+// background.
+func NewServedPool(cfg *config.Config, opts ServeOptions) (*ServedPool, []string, error) {
+	roots, err := server.NewRoots(opts.Roots)
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, p := range opts.Restore {
+		if err := roots.Confine(p); err != nil {
+			return nil, nil, err
+		}
+	}
+	// One drift memo for every session: proving a pooled graph current for a second
+	// session then stats the files the first one already hashed.
+	drift := engine.NewDriftMemo()
+	build := func(sc server.ServeConfig) (*server.Server, error) {
+		eng, err := NewEngineFromConfig(cfg)
+		if err != nil {
+			return nil, err
+		}
+		eng.eng.UseDriftMemo(drift)
+		srv, err := server.NewServed(eng.eng, cfg, sc)
+		if err != nil {
+			return nil, err
+		}
+		srv.SetPlanEngineFactory(PlanEngineFactory(cfg))
+		metrics.Register(srv.MCPServer(), eng.eng.Store)
+		orphans.Register(srv.MCPServer(), eng.eng.Store)
+		perf.Register(srv.MCPServer(), eng.eng.Store)
+		return srv, nil
+	}
+	restore := func(eng *engine.Engine, repoPaths []string) error {
+		return RestoreSnapshot(&Engine{eng: eng}, repoPaths)
+	}
+	pool, err := server.NewPool(server.ServeConfig{
+		Roots:         roots,
+		MaxConcurrent: opts.MaxConcurrent,
+		CallTimeout:   opts.CallTimeout,
+		MemoryBudget:  opts.MemoryBudget,
+	}, build, restore, cfg.OutputDirFor)
+	if err != nil {
+		return nil, nil, err
+	}
+	log.Printf("[runtime] %s", MemoryLimitLine())
+	if len(opts.Restore) > 0 {
+		go func() {
+			if err := pool.Warm(opts.Restore); err != nil {
+				log.Printf("[bootstrap] nothing restored: %v", err)
+				return
+			}
+			log.Printf("[bootstrap] restored %d repositories into the pool", len(opts.Restore))
+		}()
+	}
+	return &ServedPool{pool: pool}, roots, nil
+}
+
+// Warm loads repoPaths from disk into the pool now, for a caller (a test) that needs
+// the graph resident before its first session.
+func (p *ServedPool) Warm(repoPaths []string) error { return p.pool.Warm(repoPaths) }
+
+// PoolStats is what a served instance holds.
+type PoolStats = server.PoolStats
+
+// Stats reports what the pool holds now.
+func (p *ServedPool) Stats() PoolStats { return p.pool.Stats() }
+
+// HTTPHandler returns the authenticated Streamable HTTP handler RunHTTP serves, for a
+// caller that runs its own listener, or a test.
+func (p *ServedPool) HTTPHandler(o HTTPOptions) (http.Handler, error) {
+	return p.pool.HTTPHandler(o.internal())
+}
+
+// RunHTTP serves the instance over Streamable HTTP on ln until ctx is cancelled.
+func (p *ServedPool) RunHTTP(ctx context.Context, ln net.Listener, o HTTPOptions) error {
+	return p.pool.RunHTTP(ctx, ln, o.internal())
+}
+
+func (o HTTPOptions) internal() server.HTTPConfig {
+	return server.HTTPConfig{Tokens: o.Tokens, SessionTimeout: o.SessionTimeout}
+}
+
 // GraphStateFunc returns a callback reporting what this engine currently holds,
 // for status.Tracker.SetGraphFunc. It is what lets a user with several servers
 // running tell them apart — each instance record then names the repos, snapshot
@@ -757,7 +876,7 @@ func autoLoad(eng *Engine, cfg *config.Config) (map[string]int, string) {
 	if err != nil {
 		return nil, ""
 	}
-	dir := filepath.Join(repoPath, cfg.Output.Dir)
+	dir := cfg.OutputDirFor(repoPath)
 	if _, err := os.Stat(filepath.Join(dir, "facts.jsonl")); err != nil {
 		return nil, "" // nothing on disk; start empty
 	}
@@ -828,14 +947,14 @@ func LoadDashboardSnapshot(eng *Engine, cfg *config.Config) bool {
 		for _, repo := range repos {
 			paths[filepath.Base(repo)] = repo
 		}
-		dir := filepath.Join(repos[0], cfg.Output.Dir)
+		dir := cfg.OutputDirFor(repos[0])
 		return eng.RestoreFromDir(dir, paths, "") == nil
 	}
 	repoPath, err := filepath.Abs(cfg.Repo)
 	if err != nil {
 		return false
 	}
-	dir := filepath.Join(repoPath, cfg.Output.Dir)
+	dir := cfg.OutputDirFor(repoPath)
 	label := restoredLabel(dir, repoPath)
 	if err := eng.RestoreFromDir(dir, map[string]string{label: repoPath}, label); err != nil {
 		return false
@@ -951,7 +1070,7 @@ func restoreFromGlobalReceipt(eng *Engine, cfg *config.Config, gr *facts.GraphRe
 		return false
 	}
 
-	completeDir, ok := newestSnapshotDir(gr.Repos, cfg.Output.Dir)
+	completeDir, ok := newestSnapshotDir(gr.Repos, cfg.OutputDirFor)
 	if !ok {
 		return false
 	}
@@ -979,7 +1098,7 @@ func restoreFromGlobalReceipt(eng *Engine, cfg *config.Config, gr *facts.GraphRe
 // newestSnapshotDir picks the repo snapshot directory with the newest generated_at
 // among the graph's repos — the one whose facts.jsonl holds the complete store.
 // Returns false when no repo dir has a readable snapshot timestamp.
-func newestSnapshotDir(repos []facts.GraphRepoEntry, outDir string) (string, bool) {
+func newestSnapshotDir(repos []facts.GraphRepoEntry, outputDirFor func(string) string) (string, bool) {
 	var bestDir string
 	var bestTS time.Time
 	found := false
@@ -987,7 +1106,7 @@ func newestSnapshotDir(repos []facts.GraphRepoEntry, outDir string) (string, boo
 		if r.Path == "" {
 			continue
 		}
-		dir := filepath.Join(r.Path, outDir)
+		dir := outputDirFor(r.Path)
 		ts, ok := snapshotGeneratedAt(dir)
 		if !ok {
 			continue

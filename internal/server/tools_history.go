@@ -130,6 +130,14 @@ func (s *Server) readHistory(repoPath string) (entries []history.Entry, root, no
 		}
 	}
 
+	if s.roots != nil {
+		// A cluster config inside a root can list repositories outside it.
+		for _, m := range members {
+			if err := s.roots.Confine(m); err != nil {
+				return nil, "", "", err
+			}
+		}
+	}
 	if len(members) > 0 {
 		names := make([]string, len(members))
 		for i, m := range members {

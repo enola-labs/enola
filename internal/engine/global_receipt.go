@@ -178,7 +178,7 @@ func (e *Engine) repoSourceBytes(b *snapshotBundle, absRepo string) int64 {
 	if b.snapshot != nil && b.snapshot.Meta.RepoPath == absRepo {
 		return b.snapshot.Meta.SourceBytes
 	}
-	data, err := os.ReadFile(filepath.Join(absRepo, e.cfg.Output.Dir, snapshotMetaFileName))
+	data, err := os.ReadFile(filepath.Join(e.cfg.OutputDirFor(absRepo), snapshotMetaFileName))
 	if err != nil {
 		return 0
 	}
@@ -244,6 +244,9 @@ func (e *Engine) assembleGraphReceipt(b *snapshotBundle, now time.Time) facts.Gr
 // then atomically replaces the file. It never aborts a snapshot: a missing home dir
 // is logged and skipped, and a corrupt prior receipt is treated as no prior state.
 func (e *Engine) WriteGlobalReceipt() error {
+	if e.noGlobalReceipt {
+		return nil
+	}
 	// Load the published bundle once; everything below reads from it, so the receipt
 	// reflects a single consistent snapshot even if a generate republishes meanwhile.
 	b := e.current.Load()
@@ -300,6 +303,20 @@ func (e *Engine) WriteGlobalReceipt() error {
 // graph it was serving. Call it before serving; a CLI run never does.
 func (e *Engine) SetSessionClient(pid int) {
 	e.sessionClient.Store(int64(pid))
+}
+
+// SetSessionID records the served session this engine serves, "<token id>/<session
+// id>". A served instance has no agent process to key marks by: its parent is a
+// service manager, and every consumer shares it. Each served session has an engine
+// of its own, so the engine is where its identity lives.
+func (e *Engine) SetSessionID(id string) { e.sessionID.Store(&id) }
+
+// SessionID returns the id set by SetSessionID, or "".
+func (e *Engine) SessionID() string {
+	if p := e.sessionID.Load(); p != nil {
+		return *p
+	}
+	return ""
 }
 
 // SessionClient returns the PID set by SetSessionClient, or zero.

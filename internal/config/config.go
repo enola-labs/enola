@@ -208,6 +208,12 @@ func (c *Config) HistoryBlobsEnabled() bool {
 type OutputConfig struct {
 	Dir              string `yaml:"dir"`
 	MaxContextTokens int    `yaml:"max_context_tokens"`
+	// Root, when set, moves every repository's output out of the repository: the
+	// artifacts of /srv/repos/api go to <root>/srv/repos/api/<dir> instead of
+	// /srv/repos/api/<dir>. For checkouts somebody else keeps current, whose
+	// reset or clean would otherwise delete the snapshots and the pinned baseline,
+	// and which may be read-only to enola. See OutputDirFor.
+	Root string `yaml:"root,omitempty"`
 }
 
 // KnownExplainers is every explainer this build ships, in the order Default runs
@@ -665,11 +671,25 @@ func (c *Config) Normalize() error {
 		c.Output.MaxContextTokens = 16000
 	}
 
+	// Every write below happens only when it changes something, so normalizing a
+	// normalized config writes nothing. A served instance builds one engine per
+	// session from one shared config, while other sessions are reading it.
 	dir, err := cleanOutputDir(c.Output.Dir)
 	if err != nil {
 		return err
 	}
-	c.Output.Dir = dir
+	if c.Output.Dir != dir {
+		c.Output.Dir = dir
+	}
+	if c.Output.Root != "" {
+		root, err := filepath.Abs(c.Output.Root)
+		if err != nil {
+			return fmt.Errorf("output.root %q: %w", c.Output.Root, err)
+		}
+		if c.Output.Root != root {
+			c.Output.Root = root
+		}
+	}
 
 	if err := providerspec.Validate(c.Providers); err != nil {
 		return err
@@ -733,6 +753,37 @@ func installedFileGlobs() []string {
 		out = append(out, "**/"+dir+"**/"+file)
 	}
 	return out
+}
+
+// OutputDirFor returns the directory a repository's artifacts are written to and
+// read from: <repo>/<output.dir>, or, with output.root set, the repository's absolute
+// path mirrored under the root, <root>/<repo path>/<output.dir>. Mirroring the whole
+// path keeps two repositories with the same name in different places apart, and needs
+// no registry: the directory follows from the repository alone.
+//
+// Every reader and writer of a repository's artifacts goes through here. Output.Dir
+// on its own is the directory's NAME, for what is relative to the repository: the
+// ignore glob, and what the git dirty check skips.
+func (c *Config) OutputDirFor(repoPath string) string {
+	abs, err := filepath.Abs(repoPath)
+	if err != nil {
+		abs = filepath.Clean(repoPath)
+	}
+	if c.Output.Root == "" {
+		return filepath.Join(abs, c.Output.Dir)
+	}
+	return filepath.Join(c.Output.Root, mirrorPath(abs), c.Output.Dir)
+}
+
+// mirrorPath turns an absolute path into a relative one that names it uniquely:
+// the leading separator dropped, and on Windows the volume's colon too (C:\src\api
+// becomes C\src\api).
+func mirrorPath(abs string) string {
+	vol := filepath.VolumeName(abs)
+	rest := strings.TrimLeft(abs[len(vol):], `/\`)
+	vol = strings.TrimSuffix(vol, ":")
+	vol = strings.TrimLeft(vol, `/\`)
+	return filepath.Join(vol, rest)
 }
 
 // cleanOutputDir validates output.dir and returns it in slash form.

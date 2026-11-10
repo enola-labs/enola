@@ -52,6 +52,7 @@ Start with the page closest to what you need:
 |---|---|
 | [GRAPH.md](GRAPH.md) | What the graph contains, how it is built, how facts are identified, every file a snapshot writes and which are a stable contract, and the ways to consume it. |
 | [INTEGRATING.md](INTEGRATING.md) | Run Enola as a subprocess and load its snapshot artifacts into another store, with Cognee as the named reference implementation. |
+| [SERVING.md](SERVING.md) | Serve the MCP tools over Streamable HTTP to another service: tokens, the directories calls are confined to, limits and the audit log. |
 | [COGNEE.md](COGNEE.md) | For Cognee users: where the Enola binary that came with Cognee is, how to connect it to a coding agent over MCP, how to grade a change with it, and how your runs coexist with Cognee's. |
 
 ## Extending the graph

@@ -159,8 +159,13 @@ func gitInfo(repoPath, outputDir string) *facts.GitInfo {
 }
 
 // runGit runs a git subcommand in repoPath and returns its trimmed stdout.
+//
+// --no-optional-locks keeps every call a pure read. Without it `git status` takes
+// .git/index.lock to refresh the index, and whatever else is working in that
+// repository at the moment (the agent's own git, or the job that keeps a served
+// instance's checkouts current) fails with "index.lock exists".
 func runGit(repoPath string, args ...string) (string, error) {
-	cmd := exec.Command("git", append([]string{"-C", repoPath}, args...)...)
+	cmd := exec.Command("git", append([]string{"--no-optional-locks", "-C", repoPath}, args...)...)
 	out, err := cmd.Output()
 	if err != nil {
 		return "", err

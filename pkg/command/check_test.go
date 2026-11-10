@@ -136,7 +136,7 @@ func TestUnknownArgHelp_DistinguishesTypoFromBadPath(t *testing.T) {
 // TestClosestSubcommand_DoesNotGuessWildly — a suggestion is only useful if it is
 // plausible. Offering "check" for an unrelated word would be worse than no suggestion.
 func TestClosestSubcommand_DoesNotGuessWildly(t *testing.T) {
-	for _, arg := range []string{"frobnicate", "serve", "xyzzy"} {
+	for _, arg := range []string{"frobnicate", "quux", "xyzzy"} {
 		if got := testRunner().closestSubcommand(arg); got != "" {
 			t.Errorf("testRunner().closestSubcommand(%q) = %q, want no suggestion", arg, got)
 		}

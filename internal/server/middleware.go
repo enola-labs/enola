@@ -173,11 +173,11 @@ func (s *Server) loadedCorpusTokens() int {
 	return s.corpusTokensExcept("")
 }
 
-// previousSnapshot reads a repo's last snapshot id and file hashes from its own
-// .enola directory. Returns zero values when there is no readable previous
-// snapshot, which the caller treats as a first build.
-func previousSnapshot(absRepo string) (string, map[string]string) {
-	data, err := os.ReadFile(filepath.Join(absRepo, ".enola", "snapshot.meta.json"))
+// previousSnapshot reads a repo's last snapshot id and file hashes from its output
+// directory. Returns zero values when there is no readable previous snapshot, which
+// the caller treats as a first build.
+func (s *Server) previousSnapshot(absRepo string) (string, map[string]string) {
+	data, err := os.ReadFile(filepath.Join(s.eng.OutputDir(absRepo), "snapshot.meta.json"))
 	if err != nil {
 		return "", nil
 	}

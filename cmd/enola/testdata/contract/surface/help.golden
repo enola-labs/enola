@@ -28,6 +28,7 @@ USAGE
   enola gc [flags] [repo_path|config_path]
   enola history <push|pull|verify|gc> [store_dir] [repo_path|config_path]
   enola install [--hooks] [--global] [--targets=…] [repo_path]
+  enola serve --root DIR --token-file FILE [flags] [repo_path|config_path]
   enola upgrade
 
 COMMANDS
@@ -166,6 +167,11 @@ COMMANDS
                       either way — so this asks the only question that settles it: when
                       did each hook last run, and what did it conclude? A report, not a
                       gate: always exits 0.
+  serve               Serve the MCP tools over Streamable HTTP, for a service that calls
+                      enola as a tool rather than an agent that started it. Every request
+                      needs a bearer token from --token-file, and every path a call names
+                      must lie inside a --root. Listens on loopback unless told otherwise.
+                      Run "enola serve --help" for the flags.
   providers           The fact providers this binary carries itself. `providers list`
                       names each and whether it is ready; `providers fetch rubydex`
                       downloads the pinned Rubydex engine library, verifies its published

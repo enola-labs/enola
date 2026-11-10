@@ -313,7 +313,7 @@ func hookOutputDir(repoDir string) string {
 	if err := cfg.Normalize(); err != nil {
 		return ""
 	}
-	return filepath.Join(repoDir, cfg.Output.Dir)
+	return cfg.OutputDirFor(repoDir)
 }
 
 func act(o install.Options, remove bool) ([]install.Result, error) {

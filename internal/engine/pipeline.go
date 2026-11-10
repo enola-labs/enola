@@ -78,6 +78,11 @@ func (e *Engine) beginRun(ctx context.Context, repoPath string, appendMode bool)
 	if err != nil {
 		return nil, fmt.Errorf("resolving repo path: %w", err)
 	}
+	if e.pathGuard != nil {
+		if err := e.pathGuard(absRepo); err != nil {
+			return nil, err
+		}
+	}
 
 	// Captured ONCE, here, because two things need it and they must agree: the repo
 	// label every fact is tagged with (below) and the snapshot's own git provenance
@@ -266,7 +271,7 @@ func (e *Engine) extract(r *snapshotRun) error {
 	tStage := time.Now()
 	// 3. Detect and run extractors (with optional per-extractor caching).
 	var cache *extractorCache
-	cachePath := extractorCachePath(filepath.Join(r.absRepo, e.cfg.Output.Dir))
+	cachePath := extractorCachePath(e.cfg.OutputDirFor(r.absRepo))
 	if e.cfg.IncrementalEnabled() {
 		cache = loadExtractorCache(cachePath, e.persistCache)
 		// The cache now holds an open temp file from the moment it is created, so

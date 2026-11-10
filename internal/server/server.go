@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"log"
 	"os"
 	"path/filepath"
@@ -102,6 +103,17 @@ type Server struct {
 	// staleness is actionable RIGHT NOW and this is not — would make it wallpaper by
 	// the third call and dilute the banner that does need attention.
 	updateSaid atomic.Bool
+
+	// served is set by NewServed: this instance answers HTTP consumers, not the agent
+	// that started it. See serve.go.
+	served bool
+	// roots are the directories a served instance is confined to; nil otherwise.
+	roots Roots
+	// pool is the served instance this Server is one session of; nil otherwise.
+	pool *Pool
+	// token is the id of the bearer token the session authenticated with; "-" when
+	// unknown. Set by Pool.newSession.
+	token string
 }
 
 // startHint is the instructions' first step. A workspace snapshotted before has its
@@ -121,7 +133,7 @@ func startHint(cfg *config.Config) string {
 // (a clean checkout, a deleted .enola), and then nothing is restored.
 func hasSavedGraph(cfg *config.Config) bool {
 	hasFacts := func(repo string) bool {
-		_, err := os.Stat(filepath.Join(repo, cfg.Output.Dir, "facts.jsonl"))
+		_, err := os.Stat(filepath.Join(cfg.OutputDirFor(repo), "facts.jsonl"))
 		return err == nil
 	}
 	if repo, err := filepath.Abs(cfg.Repo); err == nil && hasFacts(repo) {
@@ -139,11 +151,35 @@ func hasSavedGraph(cfg *config.Config) bool {
 	return false
 }
 
-// New creates a new MCP server wired to the given engine.
+// New creates a new MCP server wired to the given engine, for the agent that started
+// it over stdio.
 func New(eng *engine.Engine, cfg *config.Config) (*Server, error) {
+	return newServer(eng, cfg, nil)
+}
+
+// NewServed creates a server for consumers over HTTP (see serve.go): neutral
+// instructions, no update notice, every path a call names or reaches confined to
+// sc.Roots, the tool allowlist, a concurrency cap, and an audit line per call. The
+// engine stops writing the machine-wide receipt, which belongs to the agent on this
+// machine, not to the server's consumers.
+func NewServed(eng *engine.Engine, cfg *config.Config, sc ServeConfig) (*Server, error) {
+	if len(sc.Roots) == 0 {
+		return nil, errors.New("a served instance needs at least one root")
+	}
+	return newServer(eng, cfg, &sc)
+}
+
+func newServer(eng *engine.Engine, cfg *config.Config, sc *ServeConfig) (*Server, error) {
 	s := &Server{
 		eng: eng,
 		cfg: cfg,
+	}
+	if sc != nil {
+		s.served, s.roots, s.pool = true, sc.Roots, sc.pool
+		if eng != nil {
+			eng.SetPathGuard(sc.Roots.Confine)
+			eng.SetGlobalReceipt(false)
+		}
 	}
 
 	instructions := "enola reports what a change did to a codebase's STRUCTURE: it pins the architecture as a baseline and grades the delta against it. " +
@@ -159,12 +195,19 @@ func New(eng *engine.Engine, cfg *config.Config) (*Server, error) {
 		"To verify a change: generate_snapshot, set_baseline, edit, generate_snapshot, diff_snapshot. diff_snapshot reports only what changed, never pre-existing state, so prefer it over re-reading files. " +
 		"Backend routes no client calls need a multi-repo snapshot of the backend plus its clients, then query_insights(explainer='unused-routes') or query_facts(kind=route, prop=unmatched_by_clients, prop_value=true). " +
 		"A route clients call only from client code that never runs (an API method no page reaches) carries unreached_by_clients instead."
+	if s.served {
+		instructions = serveInstructions()
+	}
+	opts := &mcp.ServerOptions{Instructions: instructions}
+	if s.pool != nil {
+		opts.InitializedHandler = func(_ context.Context, req *mcp.InitializedRequest) {
+			s.pool.attach(s, req.Session)
+		}
+	}
 	mcpServer := mcp.NewServer(&mcp.Implementation{
 		Name:    "enola",
 		Version: version.Version,
-	}, &mcp.ServerOptions{
-		Instructions: instructions,
-	})
+	}, opts)
 
 	s.mcp = mcpServer
 	s.registerTools()
@@ -176,10 +219,17 @@ func New(eng *engine.Engine, cfg *config.Config) (*Server, error) {
 	// they cover every tool on the server, including any added after New returns.
 	s.mcp.AddReceivingMiddleware(s.valueMiddleware)
 	s.mcp.AddReceivingMiddleware(s.freshnessMiddleware)
-	s.mcp.AddReceivingMiddleware(s.updateMiddleware)
+	if !s.served {
+		// The notice asks the agent to upgrade the binary it runs; a consumer of a
+		// served instance does not run it and cannot.
+		s.mcp.AddReceivingMiddleware(s.updateMiddleware)
+	}
 	// restoreMiddleware is registered last, which makes it outermost, so no tool, the
 	// freshness reload included, runs before the startup restore has published.
 	s.mcp.AddReceivingMiddleware(s.restoreMiddleware)
+	if sc != nil {
+		s.serveMiddleware(*sc)
+	}
 
 	return s, nil
 }

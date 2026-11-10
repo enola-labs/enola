@@ -85,6 +85,10 @@ type Engine struct {
 	// drift is what the drift walk last hashed, so a long-lived engine reads a file
 	// again only after it changed; see driftHashes.
 	drift driftMemo
+	// sessionID is the served session this engine serves; see SetSessionID.
+	sessionID atomic.Pointer[string]
+	// sharedDrift, when set, replaces drift; see UseDriftMemo.
+	sharedDrift *driftMemo
 	// deferLinking makes an append-mode GenerateSnapshot stop after extraction;
 	// see SetDeferLinking.
 	deferLinking bool
@@ -96,7 +100,24 @@ type Engine struct {
 	// sessionClient is the PID of the agent process this server serves; zero for a
 	// CLI run. See SetSessionClient.
 	sessionClient atomic.Int64
+	// pathGuard, when set, approves every repository a run reads; see SetPathGuard.
+	pathGuard func(abs string) error
+	// noGlobalReceipt turns WriteGlobalReceipt into a no-op; see SetGlobalReceipt.
+	noGlobalReceipt bool
 }
+
+// SetPathGuard makes every snapshot run ask guard before it reads a repository. A
+// server that serves other processes confines them to the directories its operator
+// named, and this is the one place every repository a run reads passes through:
+// one named by a tool argument, a member of a cluster config found inside it, the
+// configured default. Nil, the default, approves everything. Set it before serving.
+func (e *Engine) SetPathGuard(guard func(abs string) error) { e.pathGuard = guard }
+
+// SetGlobalReceipt turns writing ~/.enola/receipt.json on or off. That receipt
+// tracks the one workspace an agent on this machine worked in last; a server that
+// serves many consumers has no such workspace and must not overwrite the one an agent
+// relies on. On by default. Set it before serving.
+func (e *Engine) SetGlobalReceipt(on bool) { e.noGlobalReceipt = !on }
 
 // New creates a new Engine with the given config.
 // Extractors, explainers, and renderers must be registered after creation.
@@ -968,7 +989,8 @@ func (e *Engine) WriteArtifacts(repoPath string) error {
 	if err != nil {
 		return fmt.Errorf("resolving repo path: %w", err)
 	}
-	outDir := filepath.Join(absRepo, e.cfg.Output.Dir)
+	outDir := e.cfg.OutputDirFor(absRepo)
+	defer lockDir(outDir)()
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
 		return fmt.Errorf("creating output dir: %w", err)
 	}
@@ -1107,7 +1129,7 @@ func (e *Engine) WriteArtifacts(repoPath string) error {
 	// come from the artifact itself. It also costs nothing when history blobs are off,
 	// which the previous arrangement could not manage.
 	if e.recordSnapshot != nil && b.snapshot != nil {
-		members, priorDirs := clusterLayout(b, e.cfg.Output.Dir, absRepo)
+		members, priorDirs := clusterLayout(b, e.cfg.OutputDirFor, absRepo)
 		e.recordSnapshot(SnapshotRecord{
 			Members:     members,
 			PriorDirs:   priorDirs,
