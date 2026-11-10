@@ -111,6 +111,9 @@ type Server struct {
 	roots Roots
 	// pool is the served instance this Server is one session of; nil otherwise.
 	pool *Pool
+	// fixed is the graph a fixed instance serves to every session; nil otherwise. See
+	// serve_fixed.go.
+	fixed *fixedGraph
 	// token is the id of the bearer token the session authenticated with; "-" when
 	// unknown. Set by Pool.newSession.
 	token string
@@ -197,9 +200,12 @@ func newServer(eng *engine.Engine, cfg *config.Config, sc *ServeConfig) (*Server
 		"A route clients call only from client code that never runs (an API method no page reaches) carries unreached_by_clients instead."
 	if s.served {
 		instructions = serveInstructions()
+		if sc.fixed {
+			instructions = fixedInstructions(sc.fixedPaths)
+		}
 	}
 	opts := &mcp.ServerOptions{Instructions: instructions}
-	if s.pool != nil {
+	if s.pool != nil && !sc.fixed {
 		opts.InitializedHandler = func(_ context.Context, req *mcp.InitializedRequest) {
 			s.pool.attach(s, req.Session)
 		}
@@ -223,6 +229,12 @@ func newServer(eng *engine.Engine, cfg *config.Config, sc *ServeConfig) (*Server
 		// The notice asks the agent to upgrade the binary it runs; a consumer of a
 		// served instance does not run it and cannot.
 		s.mcp.AddReceivingMiddleware(s.updateMiddleware)
+	}
+	if sc != nil && sc.fixed {
+		// Inside the restore wait: a call made while the startup restore reads waits
+		// for it, and only then learns there is no graph.
+		s.mcp.AddReceivingMiddleware(s.fixedMiddleware)
+		s.mcp.AddReceivingMiddleware(s.fixedArgsMiddleware)
 	}
 	// restoreMiddleware is registered last, which makes it outermost, so no tool, the
 	// freshness reload included, runs before the startup restore has published.

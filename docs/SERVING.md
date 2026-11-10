@@ -74,7 +74,58 @@ not for a coding agent: no deferred tool loading, no "if asked whether a project
 enola". The notice that a newer enola exists is not sent either; a consumer cannot
 upgrade the binary.
 
+## Serving one graph
+
+Given a repository or a cluster config as its last argument, serve serves that graph
+and nothing else. The operator chooses what is indexed; consumers only query.
+
+```sh
+enola serve --root /srv/repos --token-file /etc/enola/tokens /srv/repos/cluster.yaml
+```
+
+- **Every session queries it at once.** All sessions are served by one server holding
+  the graph, so a consumer that opens a new session for every call (identity resolved
+  per call, several replicas behind a load balancer) needs no `generate_snapshot` and
+  leaves nothing behind on the server, whether or not it closes its sessions.
+- **Nothing indexes.** `generate_snapshot` and `set_baseline` are not listed, and
+  `plan_check` refuses a `patch`, which would index a scratch copy. The instructions
+  tell the consumer the graph is already there.
+- **The operator refreshes it.** Run `enola --generate` over the same config on
+  whatever schedule suits you. serve checks the graph's `snapshot.meta.json` every 5
+  seconds, waits until a change has held still for one more check, so a run still
+  writing is never read half done, and swaps the new graph in. Calls already running
+  finish on the graph they started with. If the new artifacts cannot be read, the old
+  graph stays and the log says why.
+- **Before the first index**, calls answer that the graph is not available yet and
+  that its operator indexes it, not that the consumer should.
+
+Put `output.root` in the config file both use, rather than `--output-root` on serve
+alone, so that `enola --generate` writes where serve reads:
+
+```yaml
+repos:
+  - api
+  - web
+output:
+  root: /var/lib/enola
+```
+
+`--memory-budget` does not apply: there is one graph, and it is always served. While
+a reload reads the new graph, the old one is still served, so for those seconds the
+process holds both; afterwards it holds one again and gives the rest back.
+
+Measured with a client that opens a new session for every call and never closes it:
+
+| What | Result |
+|---|---|
+| 500 such calls | 0.48 s, RSS from 29 to 41 MB |
+| Roslyn (378k facts) served, 8 clients calling for 25 s while it reloads | 54,735 calls, 0 errors, p50 3 ms, p99 7 ms, slowest 300 ms |
+| Live heap after that reload | 660 MiB, one graph |
+| A new symbol, from the end of `enola --generate` until a new session sees it | 6.8 s |
+
 ## Sessions and graphs
+
+Without a repository or config, consumers index what they ask about.
 
 Each MCP session has its own loaded graph: a consumer's `generate_snapshot` changes
 what that session queries and nobody else's. What sessions share is the graphs
@@ -220,13 +271,4 @@ on `.git/index.lock` because a snapshot was running.
 Without `--output-root`, snapshots are written where they always are, into each
 repository's `.enola` directory, and the directories under `--root` must be writable.
 
-A repository or cluster config given as the last argument has its graph restored from
-disk at start, so the first session's `generate_snapshot` of it reuses that graph
-instead of indexing, as long as nothing changed on disk since. For a single repository,
-that is. A restored cluster does not carry each member's own file hashes, so it
-cannot be shown unchanged, and the first request for it builds it again, from the
-extractor cache:
 
-```sh
-enola serve --root /srv/repos --token-file /etc/enola/tokens /srv/repos/cluster.yaml
-```

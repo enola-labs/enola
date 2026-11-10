@@ -649,9 +649,14 @@ type ServeOptions struct {
 	// MemoryBudget is the estimated memory the graphs held for sessions may take
 	// before the least recently used one is unloaded; zero means no budget.
 	MemoryBudget int64
-	// Restore names repositories whose on-disk graph is restored at start. Each must
-	// lie inside Roots.
+	// Restore names the repositories this instance serves, fixed: their graph is
+	// restored from disk at start, every session is served it, the tools that would
+	// index are left out, and it is reloaded when its artifacts on disk change. Each
+	// must lie inside Roots. Empty, consumers index what they ask about.
 	Restore []string
+	// ReloadInterval is how often a fixed instance looks for newer artifacts; zero
+	// means 5 seconds.
+	ReloadInterval time.Duration
 }
 
 // HTTPOptions configure the transport of a served instance.
@@ -676,7 +681,7 @@ type ServedPool struct {
 // the confinement, allowlist and limits of opts. It returns the resolved roots for
 // the caller to report. Repositories in opts.Restore are loaded into the pool in the
 // background.
-func NewServedPool(cfg *config.Config, opts ServeOptions) (*ServedPool, []string, error) {
+func NewServedPool(ctx context.Context, cfg *config.Config, opts ServeOptions) (*ServedPool, []string, error) {
 	roots, err := server.NewRoots(opts.Roots)
 	if err != nil {
 		return nil, nil, err
@@ -709,30 +714,23 @@ func NewServedPool(cfg *config.Config, opts ServeOptions) (*ServedPool, []string
 		return RestoreSnapshot(&Engine{eng: eng}, repoPaths)
 	}
 	pool, err := server.NewPool(server.ServeConfig{
-		Roots:         roots,
-		MaxConcurrent: opts.MaxConcurrent,
-		CallTimeout:   opts.CallTimeout,
-		MemoryBudget:  opts.MemoryBudget,
+		Roots:          roots,
+		MaxConcurrent:  opts.MaxConcurrent,
+		CallTimeout:    opts.CallTimeout,
+		MemoryBudget:   opts.MemoryBudget,
+		ReloadInterval: opts.ReloadInterval,
 	}, build, restore, cfg.OutputDirFor)
 	if err != nil {
 		return nil, nil, err
 	}
 	log.Printf("[runtime] %s", MemoryLimitLine())
 	if len(opts.Restore) > 0 {
-		go func() {
-			if err := pool.Warm(opts.Restore); err != nil {
-				log.Printf("[bootstrap] nothing restored: %v", err)
-				return
-			}
-			log.Printf("[bootstrap] restored %d repositories into the pool", len(opts.Restore))
-		}()
+		if err := pool.ServeFixed(ctx, opts.Restore); err != nil {
+			return nil, nil, err
+		}
 	}
 	return &ServedPool{pool: pool}, roots, nil
 }
-
-// Warm loads repoPaths from disk into the pool now, for a caller (a test) that needs
-// the graph resident before its first session.
-func (p *ServedPool) Warm(repoPaths []string) error { return p.pool.Warm(repoPaths) }
 
 // PoolStats is what a served instance holds.
 type PoolStats = server.PoolStats

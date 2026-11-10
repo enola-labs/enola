@@ -52,6 +52,10 @@ type Pool struct {
 	checkMu sync.Mutex
 	checks  map[any]*currentCheck
 
+	// fixedServer serves every session of a fixed instance; nil otherwise. See
+	// ServeFixed.
+	fixedServer *Server
+
 	mu       sync.Mutex
 	graphs   map[string]*pooledGraph
 	sessions map[*Server]*sessionState
@@ -148,23 +152,6 @@ func (p *Pool) live(id string) bool {
 		}
 	}
 	return false
-}
-
-// Warm loads repoPaths from disk into the pool, so the first session asking for them
-// adopts the graph instead of building it. For `enola serve <repo>`.
-func (p *Pool) Warm(repoPaths []string) error {
-	s, err := p.newSession("-")
-	if err != nil {
-		return err
-	}
-	if err := p.restore(s.eng, repoPaths); err != nil {
-		return err
-	}
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.publishLocked(s.eng.Graph())
-	p.enforceLocked()
-	return nil
 }
 
 // begin runs before each tool call of s: it reloads a graph the pool dropped from
@@ -435,6 +422,11 @@ func (p *Pool) HTTPHandler(cfg HTTPConfig) (http.Handler, error) {
 		maxBody = 16 << 20
 	}
 	mcpHandler := mcp.NewStreamableHTTPHandler(func(r *http.Request) *mcp.Server {
+		if p.fixedServer != nil {
+			// One server for every session: nothing about a session is its own, so a
+			// session per call costs nothing.
+			return p.fixedServer.mcp
+		}
 		// The session's consumer is the token its initialize request authenticated
 		// with; the requests after it carry the session id, not this.
 		token := "-"

@@ -480,7 +480,11 @@ func (s *Server) freshnessBanner() string {
 		for _, c := range st.Changed {
 			parts = append(parts, fmt.Sprintf("%s (%s)", c.Label, c.Reason))
 		}
-		banner = "⚠️ Snapshot may be stale: " + strings.Join(parts, "; ") + ". Run generate_snapshot to refresh."
+		remedy := " Run generate_snapshot to refresh."
+		if s.fixed != nil {
+			remedy = " This server reloads it when its operator indexes the repositories again."
+		}
+		banner = "⚠️ Snapshot may be stale: " + strings.Join(parts, "; ") + "." + remedy
 	}
 
 	s.freshBanner = banner
