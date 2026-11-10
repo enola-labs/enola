@@ -230,12 +230,43 @@ type Bar struct{}
 		t.Errorf("Foo symbol_kind = %v, want struct", foo.Props["symbol_kind"])
 	}
 
-	// Should have implements relations for embedded types
+	// Should have implements relations for embedded types, named as the types are.
 	if !hasRelation(foo, facts.RelImplements, "io.Reader") {
 		t.Error("Foo should have implements relation for io.Reader")
 	}
-	if !hasRelation(foo, facts.RelImplements, "Bar") {
-		t.Error("Foo should have implements relation for Bar")
+	if !hasRelation(foo, facts.RelImplements, "pkg.Bar") {
+		t.Error("Foo should have implements relation for pkg.Bar")
+	}
+}
+
+// An embedded type of another package, written through an import alias and as a
+// pointer, is named by the package it is declared in, not as the source spells it.
+func TestExtract_EmbeddedTypeOfAnotherPackage(t *testing.T) {
+	ff := extractAll(t, map[string]string{
+		"store/store.go": `package store
+
+type Base struct{}
+`,
+		"svc/svc.go": `package svc
+
+import st "testmod/store"
+
+type Service struct {
+	*st.Base
+	*local
+}
+
+type local struct{}
+`,
+	})
+	svc, ok := findFact(ff, "svc.Service")
+	if !ok {
+		t.Fatal("expected fact for svc.Service")
+	}
+	for _, want := range []string{"store.Base", "svc.local"} {
+		if !hasRelation(svc, facts.RelImplements, want) {
+			t.Errorf("Service should have an implements relation for %s; relations: %v", want, svc.Relations)
+		}
 	}
 }
 

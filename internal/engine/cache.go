@@ -3483,7 +3483,9 @@ import (
 // targets that path as written; the module fact keeps the directory as its File.
 // v553: Go: a ServeMux pattern naming a method ("POST /items"; chi's Handle and
 // HandleFunc too) is a route of that method on the path, the host and "{$}" dropped.
-const cacheVersion = "v553"
+// v554: Go: an embedded type's implements edge names the type as every other type
+// reference does (its package's import path), not as the source spells it.
+const cacheVersion = "v554"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
