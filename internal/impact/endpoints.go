@@ -1,6 +1,8 @@
 package impact
 
 import (
+	"maps"
+	"path"
 	"slices"
 	"strings"
 
@@ -12,17 +14,23 @@ import (
 // wants, and the symbol walk cannot give it whole: that walk stops at max_depth and
 // max_nodes, and a handler is usually several calls away.
 //
-// Two precisions, kept apart because they answer different questions:
+// Three precisions, kept apart because they answer different questions:
 //
 //   - call: the handler reaches the target through calls (or by constructing or
-//     injecting what it calls). That handler is affected.
+//     injecting what it calls). That handler is affected. A call through an interface
+//     method counts when the snapshot holds one implementation of it outside tests:
+//     there is nothing else it could call.
 //   - interface: the handler calls an interface method whose implementation reaches the
-//     target. A call through an interface has no edge to its implementation, so the
-//     walk crosses from an implementing method to the interface method it implements.
-//     Very likely affected; another implementation could be the one called at run time.
+//     target, and that method has other implementations. A call through an interface
+//     has no edge to its implementation, so the walk crosses from an implementing
+//     method to the interface method it implements. Very likely affected; another
+//     implementation could be the one called at run time.
 //   - package: for a package target, the handler sits in a package that imports the
 //     target's, directly or through others, and no path was found either way. The
-//     package reaches the target; whether this handler does is not known.
+//     package reaches the target; whether this handler does is not known. A served
+//     route whose handler the extractor could not resolve to a symbol (a handler held
+//     in a variable, such as one wrapped in middleware) is placed by the package it is
+//     registered in, and says its handler is unresolved.
 
 // Endpoint precisions, strongest first.
 const (
@@ -39,13 +47,17 @@ type Endpoint struct {
 	Repo    string `json:"repo,omitempty"`
 	File    string `json:"file,omitempty"`
 	Line    int    `json:"line,omitempty"`
-	// Precision is PrecisionCall or PrecisionPackage.
+	// Precision is PrecisionCall, PrecisionInterface or PrecisionPackage.
 	Precision string `json:"precision"`
 	// Depth is how far the handler is from the target: calls for PrecisionCall, the
 	// handler's package's import hops for PrecisionPackage.
 	Depth int `json:"depth"`
 	// Package is the handler's package, for PrecisionPackage.
 	Package string `json:"package,omitempty"`
+	// HandlerUnresolved marks a route whose handler is no symbol of the snapshot:
+	// Handler is the expression it was registered with, and Package the package
+	// registering it.
+	HandlerUnresolved bool `json:"handler_unresolved,omitempty"`
 }
 
 // endpointRelations are the relations by which code reaches code. Declares and
@@ -73,8 +85,29 @@ func hasServedRoutes(store *facts.Store) bool {
 				return true
 			}
 		}
+		if unresolvedHandler(rt) != "" {
+			return true
+		}
 	}
 	return false
+}
+
+// unresolvedHandler returns the handler expression of a served route bound to no
+// symbol, "" for any other route: one with a handler edge, a client call, or a
+// navigation route.
+func unresolvedHandler(rt facts.Fact) string {
+	if rt.PropString(facts.PropRole) == facts.RoleClient {
+		return ""
+	}
+	if t := rt.PropString("type"); t != "" && t != "route" {
+		return ""
+	}
+	for _, rel := range rt.Relations {
+		if rel.Kind == facts.RelHandledBy {
+			return ""
+		}
+	}
+	return rt.PropString("handler")
 }
 
 // reachers walks back from seeds over endpointRelations and returns every symbol that
@@ -91,12 +124,21 @@ func reachers(graph *facts.Graph, seeds []string, base int, into map[string]int)
 
 // interfaceMethods maps an implementing method ("pkg.T.M") to the interface methods
 // it implements ("pkg.I.M"), from the implementers an interface records (Go) and from
-// implements edges (languages that write them).
-func interfaceMethods(store *facts.Store, graph *facts.Graph) map[string][]string {
+// implements edges (languages that write them). Implementations in test code are
+// left out: a test double is not what the served code calls.
+//
+// sole reports whether an interface method can call one implementation only. The
+// recorded implementers cannot say so: the Go extractor records a type it infers by
+// method set only where that is unambiguous, and none beside a stated one. So every
+// type outside test and mock code whose methods cover the interface's method names
+// counts; matching by name alone counts too many, never too few.
+func interfaceMethods(store *facts.Store, graph *facts.Graph) (impls map[string][]string, sole func(string) bool) {
 	implementers := map[string][]string{} // interface -> implementing types
 	for _, f := range store.ByKind(facts.KindSymbol) {
 		for _, prop := range []string{"implementers", "implementers_inferred"} {
-			implementers[f.Name] = append(implementers[f.Name], stringList(f.PropAny(prop))...)
+			if types := stringList(f.PropAny(prop)); len(types) > 0 {
+				implementers[f.Name] = append(implementers[f.Name], types...)
+			}
 		}
 		for _, r := range f.Relations {
 			if r.Kind == facts.RelImplements {
@@ -104,8 +146,11 @@ func interfaceMethods(store *facts.Store, graph *facts.Graph) map[string][]strin
 			}
 		}
 	}
-	out := map[string][]string{}
+	impls = map[string][]string{}
+	ifaceOf := map[string]string{} // interface method -> its interface
 	for iface, types := range implementers {
+		slices.Sort(types)
+		types = slices.Compact(types)
 		for _, e := range graph.ForwardEdges(iface) {
 			if e.RelKind != facts.RelHasMethod || !strings.HasPrefix(e.Target, iface+".") {
 				continue
@@ -114,13 +159,134 @@ func interfaceMethods(store *facts.Store, graph *facts.Graph) map[string][]strin
 			method := m[len(iface)+1:]
 			for _, t := range types {
 				impl := t + "." + method
-				if len(store.LookupByExactName(impl)) > 0 {
-					out[impl] = append(out[impl], m)
+				if !servedCode(store.LookupByExactName(impl)) || slices.Contains(impls[impl], m) {
+					continue
 				}
+				impls[impl] = append(impls[impl], m)
+				ifaceOf[m] = iface
 			}
 		}
 	}
-	return out
+	var owners map[string]map[string]bool // built on the first question
+	memo := map[string]bool{}
+	sole = func(im string) bool {
+		iface := ifaceOf[im]
+		if v, ok := memo[iface]; ok {
+			return v
+		}
+		if owners == nil {
+			// Only the methods of interfaces an implementation reaches through.
+			want := map[string]bool{}
+			for m, i := range ifaceOf {
+				want[m[len(i)+1:]] = true
+			}
+			owners = methodOwners(store, want)
+		}
+		var cover map[string]bool
+		for _, e := range graph.ForwardEdges(iface) {
+			if e.RelKind != facts.RelHasMethod || !strings.HasPrefix(e.Target, iface+".") {
+				continue
+			}
+			types := owners[e.Target[len(iface)+1:]]
+			if cover == nil {
+				cover = maps.Clone(types)
+				continue
+			}
+			maps.DeleteFunc(cover, func(t string, _ bool) bool { return !types[t] })
+		}
+		memo[iface] = len(cover) == 1
+		return memo[iface]
+	}
+	return impls, sole
+}
+
+// methodOwners maps each wanted method name to the types declaring a method of that
+// name, leaving out interfaces and test and mock code.
+func methodOwners(store *facts.Store, want map[string]bool) map[string]map[string]bool {
+	owners := map[string]map[string]bool{}
+	for _, f := range store.ByKind(facts.KindSymbol) {
+		i := strings.LastIndexAny(f.Name, ".#")
+		if i <= 0 || !want[f.Name[i+1:]] ||
+			f.PropString("symbol_kind") != facts.SymbolMethod || !servedCode([]facts.Fact{f}) || isInterface(store, f.Name[:i]) {
+			continue
+		}
+		m := f.Name[i+1:]
+		if owners[m] == nil {
+			owners[m] = map[string]bool{}
+		}
+		owners[m][f.Name[:i]] = true
+	}
+	return owners
+}
+
+// isInterface reports whether name is an interface's symbol.
+func isInterface(store *facts.Store, name string) bool {
+	for _, f := range store.LookupByExactName(name) {
+		if f.Kind == facts.KindSymbol && f.PropString("symbol_kind") == facts.SymbolInterface {
+			return true
+		}
+	}
+	return false
+}
+
+// servedCode reports whether a name is declared outside test and mock code.
+func servedCode(ff []facts.Fact) bool {
+	for _, f := range ff {
+		if !facts.IsTestPath(f.File) && !mockPath(f.File) {
+			return true
+		}
+	}
+	return false
+}
+
+// mockPath reports a file generated mocks are conventionally written to.
+func mockPath(file string) bool {
+	dir, base := path.Split(file)
+	return strings.Contains("/"+dir, "/mocks/") || strings.Contains("/"+dir, "/mock/") ||
+		strings.HasPrefix(base, "mock_") || strings.HasSuffix(base, "_mock.go") || strings.HasSuffix(base, "_mocks.go")
+}
+
+// crossInterfaces extends reach, in place, across the interface methods its
+// implementing methods implement, where cross allows it, and on to their callers,
+// until nothing new is reached. It reports a walk cut at its cap.
+func crossInterfaces(graph *facts.Graph, impls map[string][]string, cross func(string) bool, reach map[string]int) bool {
+	if len(impls) == 0 {
+		return false
+	}
+	truncated := false
+	frontier := maps.Clone(reach)
+	for round := 0; round < maxEndpointDepth && len(frontier) > 0; round++ {
+		crossed := map[string]int{}
+		for name, d := range frontier {
+			for _, im := range impls[name] {
+				if _, seen := reach[im]; seen || !cross(im) {
+					continue
+				}
+				if old, ok := crossed[im]; !ok || d < old {
+					crossed[im] = d
+				}
+			}
+		}
+		next := map[string]int{}
+		for im, d := range crossed {
+			reach[im] = d
+			next[im] = d
+		}
+		for im, d := range crossed {
+			reached := map[string]int{}
+			if reachers(graph, []string{im}, d, reached) {
+				truncated = true
+			}
+			for r, rd := range reached {
+				if old, seen := reach[r]; !seen || rd < old {
+					reach[r] = rd
+					next[r] = rd
+				}
+			}
+		}
+		frontier = next
+	}
+	return truncated
 }
 
 func stringList(v any) []string {
@@ -145,49 +311,30 @@ func endpointsOf(store *facts.Store, graph *facts.Graph, seeds []string, package
 		direct[s] = 0
 	}
 	truncated = reachers(graph, seeds, 0, direct)
+	impls, sole := interfaceMethods(store, graph)
 
 	// Across interfaces: an implementing method that reaches the target makes the
 	// interface method it implements reach it too, and that method's callers, until
-	// nothing new is reached.
+	// nothing new is reached. An interface method with one implementation can call
+	// nothing else, so its callers reach the target as surely as direct callers do.
+	if crossInterfaces(graph, impls, sole, direct) {
+		truncated = true
+	}
 	viaIface := map[string]int{}
 	for k, v := range direct {
 		viaIface[k] = v
 	}
-	if impls := interfaceMethods(store, graph); len(impls) > 0 {
-		frontier := viaIface
-		for round := 0; round < maxEndpointDepth && len(frontier) > 0; round++ {
-			next := map[string]int{}
-			for name, d := range frontier {
-				for _, im := range impls[name] {
-					if _, seen := viaIface[im]; !seen {
-						next[im] = d
-					}
-				}
-			}
-			for name, d := range next {
-				viaIface[name] = d
-				reached := map[string]int{}
-				if reachers(graph, []string{name}, d, reached) {
-					truncated = true
-				}
-				for r, rd := range reached {
-					if _, seen := viaIface[r]; !seen {
-						viaIface[r] = rd
-						next[r] = rd
-					}
-				}
-			}
-			frontier = next
-		}
+	if crossInterfaces(graph, impls, func(string) bool { return true }, viaIface) {
+		truncated = true
 	}
 	seen := map[string]bool{}
 	key := func(rt facts.Fact, handler string) string {
 		return rt.Repo + "\x00" + rt.PropString("method") + "\x00" + rt.Name + "\x00" + handler
 	}
-	add := func(rt facts.Fact, handler, precision string, depth int, pkg string) {
+	add := func(rt facts.Fact, handler, precision string, depth int, pkg string) bool {
 		k := key(rt, handler)
 		if seen[k] {
-			return
+			return false
 		}
 		seen[k] = true
 		out = append(out, Endpoint{
@@ -195,6 +342,7 @@ func endpointsOf(store *facts.Store, graph *facts.Graph, seeds []string, package
 			Repo: rt.Repo, File: rt.File, Line: rt.Line,
 			Precision: precision, Depth: depth, Package: pkg,
 		})
+		return true
 	}
 	for h, d := range direct {
 		for _, rt := range graph.ReverseFacts(h, facts.RelHandledBy) {
@@ -222,6 +370,14 @@ func endpointsOf(store *facts.Store, graph *facts.Graph, seeds []string, package
 				pkg := handlerPackage(store, rt, rel.Target)
 				if d, ok := packages[pkg]; ok {
 					add(rt, rel.Target, PrecisionPackage, d, pkg)
+				}
+			}
+			// A handler held in a variable has no symbol to reach: the package
+			// registering the route stands in for the handler's.
+			if h := unresolvedHandler(rt); h != "" {
+				pkg := handlerPackage(store, rt, "")
+				if d, ok := packages[pkg]; ok && add(rt, h, PrecisionPackage, d, pkg) {
+					out[len(out)-1].HandlerUnresolved = true
 				}
 			}
 		}

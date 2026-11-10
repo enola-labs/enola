@@ -14,7 +14,7 @@ Filters applied: kind=module
   },
   {
     "kind": "module",
-    "name": "pkg/a",
+    "name": "example.com/gosample/pkg/a",
     "file": "pkg/a",
     "repo": "go_sample",
     "props": {
@@ -24,7 +24,7 @@ Filters applied: kind=module
   },
   {
     "kind": "module",
-    "name": "pkg/b",
+    "name": "example.com/gosample/pkg/b",
     "file": "pkg/b",
     "repo": "go_sample",
     "props": {
@@ -33,5 +33,3 @@ Filters applied: kind=module
     }
   }
 ]
-
-Go names are shown relative to their module (example.com/gosample); pass either form as input.

@@ -69,3 +69,19 @@ func TestShortener_KeepsWhatWouldBeAmbiguous(t *testing.T) {
 		}
 	}
 }
+
+// A JSON document keeps exact names wherever it starts: query_facts' default full
+// output opens with a "Filters applied" line before its JSON.
+func TestHoldsJSON(t *testing.T) {
+	for text, want := range map[string]bool{
+		`{"facts": []}`:                                true,
+		"Filters applied: kind=route\n\n[\n  {":        true,
+		"Filters applied: x\n\n[{\"kind\":\"route\"}]": true,
+		"# Impact\n\n- internal/server.Run":            false,
+		"[docs](https://example.com) for more":         false,
+	} {
+		if got := holdsJSON(text); got != want {
+			t.Errorf("holdsJSON(%q) = %v, want %v", text, got, want)
+		}
+	}
+}

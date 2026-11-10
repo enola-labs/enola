@@ -3,8 +3,6 @@ Filters applied: none. No kind, name, file or prop filter was sent, so this is t
 [
   {
     "kind": "dependency",
-    "name": "example.com/gosample -\u003e pkg/a",
+    "name": "example.com/gosample -\u003e example.com/gosample/pkg/a",
 
 [truncated: JSON output exceeded max_tokens=50 and is no longer valid JSON. Narrow the query (tighter filters, a lower limit or depth, or a smaller output_mode where the tool has one) or raise max_tokens.]
-
-Go names are shown relative to their module (example.com/gosample); pass either form as input.
