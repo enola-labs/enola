@@ -3481,7 +3481,9 @@ import (
 // v552: Go: packages and their symbols are named by import path, the module path their
 // go.mod declares joined with the package's place in the module, and an internal import
 // targets that path as written; the module fact keeps the directory as its File.
-const cacheVersion = "v552"
+// v553: Go: a ServeMux pattern naming a method ("POST /items"; chi's Handle and
+// HandleFunc too) is a route of that method on the path, the host and "{$}" dropped.
+const cacheVersion = "v553"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

@@ -1,6 +1,7 @@
 package goextractor
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/enola-labs/enola/internal/facts"
@@ -244,6 +245,85 @@ func healthHandler(w http.ResponseWriter, r *http.Request) {}
 	}
 	if !found {
 		t.Error("expected net/http route fact for /health")
+	}
+}
+
+// A Go 1.22 ServeMux pattern names the method, and may name a host and end in the
+// exact-match marker: the route is that method on the bare path. chi's Handle and
+// HandleFunc take the same patterns, under a group's prefix.
+func TestExtractRoutes_MethodPatterns(t *testing.T) {
+	ff := extractAll(t, map[string]string{
+		"cmd/main.go": `package main
+
+import "net/http"
+
+func main() {
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /items", create)
+	mux.HandleFunc("GET  /items/{id}", get)
+	mux.Handle("DELETE example.com/items/{id}", http.HandlerFunc(get))
+	mux.HandleFunc("GET /{$}", get)
+	mux.HandleFunc("/legacy", get)
+	http.HandleFunc("PATCH /items/{id}", get)
+}
+
+func create(w http.ResponseWriter, r *http.Request) {}
+func get(w http.ResponseWriter, r *http.Request)    {}
+`,
+		"api/routes.go": `package api
+
+import (
+	"net/http"
+
+	"github.com/go-chi/chi/v5"
+)
+
+func Routes() http.Handler {
+	r := chi.NewRouter()
+	r.Route("/v1", func(r chi.Router) {
+		r.HandleFunc("PUT /things", put)
+		r.Handle("/raw", http.HandlerFunc(put))
+	})
+	return r
+}
+
+func put(w http.ResponseWriter, r *http.Request) {}
+`,
+	})
+	got := map[string]bool{}
+	for _, r := range findFactsByKind(ff, facts.KindRoute) {
+		got[r.PropString("method")+" "+r.Name] = true
+	}
+	for _, want := range []string{
+		"POST /items", "GET /items/{id}", "DELETE /items/{id}", "GET /", "ALL /legacy", "PATCH /items/{id}",
+		"PUT /v1/things", "ALL /v1/raw",
+	} {
+		if !got[want] {
+			t.Errorf("missing route %q; got %v", want, got)
+		}
+	}
+	for k := range got {
+		if strings.Contains(k[strings.Index(k, " ")+1:], " ") {
+			t.Errorf("a method left in the path: %q", k)
+		}
+	}
+}
+
+func TestSplitMethodPattern(t *testing.T) {
+	for in, want := range map[string][2]string{
+		"POST /items":             {"POST", "/items"},
+		"GET\t/x":                 {"GET", "/x"},
+		"GET example.com/x/{$}":   {"GET", "/x/"},
+		"api.local:8080/x":        {"", "/x"},
+		"/plain":                  {"", "/plain"},
+		".diff":                   {"", ".diff"},
+		"{index}/raw":             {"", "{index}/raw"},
+		"get /lower-is-no-method": {"", "get /lower-is-no-method"},
+	} {
+		m, p := splitMethodPattern(in)
+		if m != want[0] || p != want[1] {
+			t.Errorf("splitMethodPattern(%q) = %q, %q; want %q, %q", in, m, p, want[0], want[1])
+		}
 	}
 }
 
