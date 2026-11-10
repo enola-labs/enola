@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/enola-labs/enola/internal/extractors/detectnames"
@@ -918,6 +919,7 @@ type swiftHierarchy struct {
 	factNames    map[string]bool
 	typeSupers   map[string][]string            // simple type -> supertype simple names
 	methodByType map[string]map[string][]string // simple type -> (method short -> qualified names)
+	typeNames    map[string][]string            // simple type -> its qualified names
 	// conformers lists, per protocol or class, the types outside test sources that
 	// name it as a supertype.
 	conformers map[string][]string
@@ -928,6 +930,7 @@ func newSwiftHierarchy(allFacts []facts.Fact) *swiftHierarchy {
 		factNames:    make(map[string]bool, len(allFacts)),
 		typeSupers:   make(map[string][]string),
 		methodByType: make(map[string]map[string][]string),
+		typeNames:    make(map[string][]string),
 		conformers:   make(map[string][]string),
 	}
 	for i := range allFacts {
@@ -940,6 +943,9 @@ func newSwiftHierarchy(allFacts []facts.Fact) *swiftHierarchy {
 		switch sk {
 		case facts.SymbolClass, facts.SymbolStruct, facts.SymbolInterface:
 			simple := lastDotComponent(f.Name)
+			if !slices.Contains(h.typeNames[simple], f.Name) {
+				h.typeNames[simple] = append(h.typeNames[simple], f.Name)
+			}
 			for _, r := range f.Relations {
 				if r.Kind == facts.RelImplements {
 					h.typeSupers[simple] = append(h.typeSupers[simple], r.Target)
@@ -991,6 +997,17 @@ func (h *swiftHierarchy) resolve(typ, short, from string) string {
 		}
 	}
 	return found
+}
+
+// inheritedSpelling returns a call of short on typ spelled through typ's own
+// qualified name, nearest the caller, when the declaration resolveUp finds is a
+// supertype's (PropInheritedCalls); "" when typ declares it or it is not found.
+func (h *swiftHierarchy) inheritedSpelling(typ, short, from string) string {
+	q := h.resolveUp(typ, short, from)
+	if q == "" || lastDotComponent(ownerOf(q)) == typ || len(h.typeNames[typ]) == 0 {
+		return ""
+	}
+	return nearestName(h.typeNames[typ], from) + "." + short
 }
 
 // resolveUp is resolve over typ and its supertypes alone.

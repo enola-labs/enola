@@ -1379,6 +1379,9 @@ func (w *astWalker) handleInvocation(node *sitter.Node) {
 		if target, ok := w.resolveOwnMember(name); ok {
 			w.addEdge(facts.RelCalls, target)
 			w.recordCallMetrics(target, name, args)
+		} else if len(w.typeStack) > 0 {
+			// A member the type inherits: resolveTypedCalls climbs its bases.
+			w.noteTypedCall(name, w.enclosingType(), name)
 		}
 	case "member_access_expression":
 		nameNode := fn.ChildByFieldName("name")
@@ -1413,6 +1416,9 @@ func (w *astWalker) handleInvocation(node *sitter.Node) {
 				} else {
 					w.recordCallMetrics(target, name, args)
 				}
+			} else if recv == "this" && len(w.typeStack) > 0 {
+				// A member the type inherits: resolveTypedCalls climbs its bases.
+				w.noteTypedCall("this."+name, w.enclosingType(), name)
 			}
 		case declared == "" && recvNode != nil && isTypeNameShaped(recvNode, recv):
 			// `Type.Method(...)` — a static call. Emitted as "<Type>.<Method>" and

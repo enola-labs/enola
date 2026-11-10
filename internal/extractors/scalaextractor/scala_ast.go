@@ -726,6 +726,9 @@ func (w *astWalker) memberTarget(recvNode *sitter.Node, receiver, member string)
 		if w.declaresMember(member) {
 			return w.qualify(member)
 		}
+		// Not declared here, but maybe on a supertype: the inherited-calls binder
+		// looks it up through the type's bases and adds the edge only if one does.
+		w.noteMemberCall(member)
 	case isTypeName(receiver):
 		// An object or companion: `Registry.next()`, `WebHook.Create`. Offered
 		// qualified for the merge pass to bind against the declaring type.
@@ -1597,6 +1600,15 @@ func (w *astWalker) addEdge(kind, target string) {
 		}
 	}
 	w.out[idx].Relations = append(w.out[idx].Relations, facts.Relation{Kind: kind, Target: target})
+}
+
+// noteMemberCall records, on the symbol being walked inside a type, a call on the
+// object it runs on that this file cannot place (facts.PropMemberCalls).
+func (w *astWalker) noteMemberCall(member string) {
+	if len(w.memberStack) == 0 || len(w.ownerStack) == 0 || member == "" {
+		return
+	}
+	w.out[w.ownerStack[len(w.ownerStack)-1]].AddPropStrings(facts.PropMemberCalls, member)
 }
 
 // walkMembers walks every named child except skip.

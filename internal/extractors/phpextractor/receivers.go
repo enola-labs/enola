@@ -268,6 +268,10 @@ func bindReceiverCalls(allFacts []facts.Fact) {
 			call = typ + call[sep:]
 			sep = len(typ)
 			targets := ix.callTargets(call[:sep], call[sep+2:])
+			if len(targets) == 1 && targets[0] != call && ix.hasClass(call[:sep]) {
+				// Inherited: keep the class it was called on (PropInheritedCalls).
+				f.AddInheritedCalls(call)
+			}
 			// A model calling a framework method on itself says nothing new.
 			if len(targets) == 0 && !strings.HasPrefix(f.Name, call[:sep]+"::") && isModel(call[:sep]) {
 				targets = []string{call}

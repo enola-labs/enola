@@ -321,6 +321,10 @@ func resolveTypedCalls(all []facts.Fact, typeIndex map[string]string) {
 					have[target] = true
 					f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelCalls, Target: target})
 				}
+				if spelled := typ + "." + c.method; target != spelled {
+					// Inherited: keep the type it was called on (PropInheritedCalls).
+					f.AddInheritedCalls(spelled)
+				}
 				rename[c.written] = target
 			case target == "" && ioType[typ]:
 				ioCalls[c.written] = true

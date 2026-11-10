@@ -72,3 +72,36 @@ func TestBind_NoDuplicateEdgeAndIdempotent(t *testing.T) {
 		t.Errorf("calls = %v, want the declaration once", got)
 	}
 }
+
+// A method's calls on its own object that its file could not place resolve through
+// its type's bases: a member it inherits, and a member of an attribute a base class
+// declares. An entry that lands on no symbol adds nothing, and the working props are
+// gone afterwards.
+func TestBind_MemberCallsResolveThroughTheBases(t *testing.T) {
+	base := symbol("lib.Base", facts.SymbolClass)
+	base.Props[facts.PropFieldTypes] = map[string]any{"helper": "Helper"}
+	handle := symbol("app.Concrete.handle", facts.SymbolMethod)
+	handle.Props[facts.PropMemberCalls] = []any{"common", "helper.work", "helper.gone", "nothing", "repo.save"}
+	s := facts.NewStore()
+	s.Add(
+		base,
+		symbol("lib.Base.common", facts.SymbolMethod),
+		symbol("lib.Helper", facts.SymbolClass),
+		symbol("lib.Helper.work", facts.SymbolMethod),
+		symbol("app.Concrete", facts.SymbolClass, facts.Relation{Kind: facts.RelImplements, Target: "lib.Base"}),
+		handle,
+	)
+	if err := New().Bind(context.Background(), s); err != nil {
+		t.Fatal(err)
+	}
+	got := one(s, "app.Concrete.handle")
+	if want := []string{"lib.Base.common", "lib.Helper.work"}; !reflect.DeepEqual(targets(got), want) {
+		t.Errorf("calls = %v, want %v", targets(got), want)
+	}
+	if _, ok := got.Prop(facts.PropMemberCalls); ok {
+		t.Error("member_calls is kept")
+	}
+	if _, ok := one(s, "lib.Base").Prop(facts.PropFieldTypes); ok {
+		t.Error("field_types is kept")
+	}
+}

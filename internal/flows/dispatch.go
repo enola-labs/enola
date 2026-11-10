@@ -106,17 +106,7 @@ func (a *Analysis) ownerType(f facts.Fact) string {
 // inheritedThrough maps each declaration a symbol's inherited calls resolved to onto
 // the subtypes they were spelled through.
 func (a *Analysis) inheritedThrough(f facts.Fact) map[string][]string {
-	var spelled []string
-	switch v := f.PropAny(facts.PropInheritedCalls).(type) {
-	case []string:
-		spelled = v
-	case []any:
-		for _, x := range v {
-			if s, ok := x.(string); ok {
-				spelled = append(spelled, s)
-			}
-		}
-	}
+	spelled := f.PropStrings(facts.PropInheritedCalls)
 	if len(spelled) == 0 {
 		return nil
 	}

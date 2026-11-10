@@ -346,6 +346,10 @@ func resolveTypedCalls(all []facts.Fact, resolve func(target, fromNS string) (st
 			if !f.HasRelation(facts.RelCalls, target) {
 				f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelCalls, Target: target})
 			}
+			if own := typ + "." + c.method; target != own {
+				// Inherited: keep the type it was called on (PropInheritedCalls).
+				f.AddInheritedCalls(own)
+			}
 			rename[c.written] = target
 		}
 		// A call that does no I/O is worth recording only where its name would be

@@ -465,10 +465,13 @@ One descriptive prop is prose rather than a measurement:
 One descriptive prop records how a call was resolved:
 
 - `inherited_calls` (symbols): the calls this symbol made through a subtype to a
-  member the subtype inherits, as the extractor spelled them (`app.Concrete.run`),
-  sorted. Its `calls` relation names the declaration (`app.Base.run`). The base is
-  read from the subtype's `implements` relations or its `superclass` prop and
-  must be a type of the same repository. Absent when there are none.
+  member the subtype inherits, spelled through the subtype (`app.Concrete.run`),
+  sorted. Its `calls` relation names the declaration (`app.Base.run`). Written by
+  the extractors that resolve such a call themselves (Java, Kotlin, C#, PHP, Ruby,
+  Swift, Rust, C++), and by the inherited-calls binder for one an extractor left
+  spelled through the subtype, whose base it reads from the subtype's `implements`
+  relations or `superclass` prop within the same repository. Absent when there
+  are none.
 
 `doc` adds no node and no edge. The same function, from a build before `doc` and
 from one after:

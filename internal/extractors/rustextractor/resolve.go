@@ -249,7 +249,7 @@ func applyImplements(allFacts []facts.Fact, impls []implPair) {
 		return
 	}
 	byName := make(map[string]int, len(allFacts))
-	declaredTraits := map[string]bool{}
+	declaredTraits := map[string][]string{} // simple name -> the traits the crate declares under it
 	for i := range allFacts {
 		if allFacts[i].Kind != facts.KindSymbol {
 			continue
@@ -258,11 +258,13 @@ func applyImplements(allFacts []facts.Fact, impls []implPair) {
 			byName[allFacts[i].Name] = i
 		}
 		if allFacts[i].PropAny("symbol_kind") == facts.SymbolInterface {
-			declaredTraits[allFacts[i].Name[strings.LastIndex(allFacts[i].Name, ".")+1:]] = true
+			short := allFacts[i].Name[strings.LastIndex(allFacts[i].Name, ".")+1:]
+			declaredTraits[short] = append(declaredTraits[short], allFacts[i].Name)
 		}
 	}
 	for _, p := range impls {
-		if !declaredTraits[p.traitName] {
+		declared := declaredTraits[p.traitName]
+		if len(declared) == 0 {
 			for _, idx := range p.members {
 				allFacts[idx].SetProp("override", true)
 			}
@@ -273,9 +275,33 @@ func applyImplements(allFacts []facts.Fact, impls []implPair) {
 		}
 		allFacts[idx].Relations = append(allFacts[idx].Relations, facts.Relation{
 			Kind:   facts.RelImplements,
-			Target: p.traitName,
+			Target: nearestTrait(p.traitName, p.typeName, declared),
 		})
 	}
+}
+
+// nearestTrait names the trait an impl is for: of the crate's traits with that simple
+// name, the one whose path shares the most with the implementing type's, when exactly
+// one does. A trait the crate does not declare (Display, Iterator) keeps its simple
+// name, and so does one two equally near traits could be.
+func nearestTrait(simple, typeName string, declared []string) string {
+	best, bestLen, tied := simple, -1, false
+	for _, d := range declared {
+		n := 0
+		for n < len(d) && n < len(typeName) && d[n] == typeName[n] {
+			n++
+		}
+		switch {
+		case n > bestLen:
+			best, bestLen, tied = d, n, false
+		case n == bestLen:
+			tied = true
+		}
+	}
+	if tied {
+		return simple
+	}
+	return best
 }
 
 // dropUndeclaredPreludeNames removes the references to Vec, Option and the other

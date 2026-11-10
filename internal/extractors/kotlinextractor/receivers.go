@@ -1,6 +1,7 @@
 package kotlinextractor
 
 import (
+	"slices"
 	"strings"
 
 	sitter "github.com/enola-labs/enola/internal/treesitter"
@@ -453,6 +454,17 @@ func resolveTypedCalls(all []facts.Fact) {
 			}
 			if !f.HasRelation(facts.RelCalls, target) {
 				f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelCalls, Target: target})
+			}
+			if !exists[c.written] {
+				// The walker's guess for a bare call (a same-package function) names
+				// nothing; the member found in its place is the call.
+				f.Relations = slices.DeleteFunc(f.Relations, func(r facts.Relation) bool {
+					return r.Kind == facts.RelCalls && r.Target == c.written
+				})
+			}
+			if own := c.typ + "." + c.method; target != own && target != c.typ+".Companion."+c.method {
+				// Inherited: keep the type it was called on (PropInheritedCalls).
+				f.AddInheritedCalls(own)
 			}
 			rename[c.written] = target
 		}

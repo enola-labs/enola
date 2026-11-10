@@ -226,6 +226,18 @@ const PropMixinMembers = "mixin_members"
 // inherited member dispatches on.
 const PropInheritedCalls = "inherited_calls"
 
+// PropMemberCalls is the prop on a method listing calls on the object it runs on
+// that its file could not resolve, because what they name is declared in another
+// file: `common` for self.common(), `helper.work` for self.helper.work(). The
+// inherited-calls binder resolves each through the method's type and its ancestors
+// (PropFieldTypes for an attribute) and writes a calls relation when it lands on a
+// symbol. Nothing is guessed: an entry that resolves nowhere adds nothing.
+const PropMemberCalls = "member_calls"
+
+// PropFieldTypes is the prop on a type mapping each attribute or field it declares
+// to the type the declaring file gives it, as that file spells it.
+const PropFieldTypes = "field_types"
+
 // Coupling-kind property values annotate a synthetic module-coupling dependency
 // fact (currently emitted by the Ruby extractor) with the reference that produced
 // the edge, so consumers can treat edge classes differently — e.g. the cycles

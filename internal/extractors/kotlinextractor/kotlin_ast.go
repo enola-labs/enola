@@ -1460,6 +1460,13 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 							if w.inExtension && target == w.dir+"."+name {
 								w.noteReceiverCall(owner, target, name)
 							}
+							// Inside a class, a name the class does not declare may be a
+							// member it inherits: noted on the class, resolveTypedCalls
+							// climbs its supertypes and drops the package guess when it
+							// finds the member and the guess names nothing.
+							if target == w.dir+"."+name && len(w.typeStack) > 0 {
+								w.noteTypedCall(target, w.dir+"."+w.enclosingType(), name)
+							}
 						}
 					case navReceiverIsThis(callee, w.src):
 						// `this.method()` resolves to a sibling method of the
@@ -1469,6 +1476,9 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 							t := w.dir + "." + w.enclosingType() + "." + name
 							w.relate(owner, facts.RelCalls, t)
 							w.recordCallMetrics(t, argCount)
+						} else if len(w.typeStack) > 0 {
+							// Inherited: resolveTypedCalls climbs the supertypes.
+							w.noteTypedCall(name, w.dir+"."+w.enclosingType(), name)
 						}
 					case navReceiverIsSuper(callee, w.src):
 						// `super.<self>()` — an override delegating to its supertype. Note

@@ -3485,7 +3485,13 @@ import (
 // HandleFunc too) is a route of that method on the path, the host and "{$}" dropped.
 // v554: Go: an embedded type's implements edge names the type as every other type
 // reference does (its package's import path), not as the source spells it.
-const cacheVersion = "v554"
+// v555: Calls through inheritance: Java, Kotlin, C#, PHP, Ruby, Swift, Rust and C++
+// record the subtype an inherited call went through (inherited_calls); Rust names the
+// trait an impl is for as declared and resolves its default methods; C++ looks a
+// receiver call up through the class's bases; Kotlin and C# resolve an inherited bare
+// or this-call; Python, Scala, Dart and C++ leave the self-calls their file cannot
+// place to the inherited-calls binder (member_calls).
+const cacheVersion = "v555"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

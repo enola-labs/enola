@@ -117,6 +117,11 @@ func Build(fs []facts.Fact) *Index {
 // SplitMember splits a qualified member name at its rightmost member separator
 // (`::`, `#` or `.`) into its owner and the member's own name. A name with no
 // separator, or whose tail is a path, has no owner.
+//
+// A Ruby instance member keeps its `#` (`Base#run` is Base and "#run"), so it and a
+// class method of the same name (`Base.run`) stay two members: `Mailer.notify`
+// does not reach `Mailer#notify`. The member is a key to pass back to Lookup,
+// Declares and Overriders, not a name to print.
 func SplitMember(name string) (owner, member string) {
 	at, width := -1, 0
 	for _, sep := range [...]string{"::", "#", "."} {
@@ -130,6 +135,9 @@ func SplitMember(name string) (owner, member string) {
 	member = name[at+width:]
 	if strings.ContainsAny(member, `/\`) {
 		return "", name
+	}
+	if name[at] == '#' {
+		member = "#" + member
 	}
 	return name[:at], member
 }
@@ -159,9 +167,6 @@ func (ix *Index) Lookup(repo, typ, member string) (string, bool) {
 	}
 	return "", false
 }
-
-// Children returns a type's direct subtypes, sorted.
-func (ix *Index) Children(repo, typ string) []string { return ix.children[key{repo, typ}] }
 
 // Members returns the members a type declares itself, sorted.
 func (ix *Index) Members(repo, typ string) []string {
@@ -211,11 +216,6 @@ func (ix *Index) Ancestors(repo, typ string) []string {
 	return a
 }
 
-// Descendants returns a type's subtypes, transitively, nearest first.
-func (ix *Index) Descendants(repo, typ string) []string {
-	return ix.closure(repo, typ, ix.children)
-}
-
 // Subsumes reports whether anc is typ or one of its ancestors.
 func (ix *Index) Subsumes(repo, anc, typ string) bool {
 	if anc == typ {
@@ -248,8 +248,20 @@ func (ix *Index) closure(repo, typ string, edges map[key][]string) []string {
 	return out
 }
 
-// resolveBase names the repository type a base spelling refers to, or "".
+// ResolveType names the repository type a spelling refers to, as written in the
+// type from: exactly, by its qualified tail, or, bare, by its last segment when one
+// type nearest from carries it. "" when no type of the repository does.
+func (ix *Index) ResolveType(repo, from, raw string) string {
+	return ix.resolveName(repo, from, raw, false)
+}
+
+// resolveBase names the repository type a base spelling refers to, or "". A type is
+// never its own base.
 func (ix *Index) resolveBase(repo, sub, raw string) string {
+	return ix.resolveName(repo, sub, raw, true)
+}
+
+func (ix *Index) resolveName(repo, sub, raw string, notSelf bool) string {
 	name := normalizeBase(raw)
 	if name == "" {
 		return ""
@@ -278,7 +290,7 @@ func (ix *Index) resolveBase(repo, sub, raw string) string {
 	// type of the subclass's own package wins over a namesake elsewhere.
 	best, bestLen, tied := "", -1, false
 	for _, c := range cands {
-		if c == sub {
+		if notSelf && c == sub {
 			continue
 		}
 		n := commonPrefix(c, sub)

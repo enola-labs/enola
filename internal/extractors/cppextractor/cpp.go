@@ -398,6 +398,7 @@ func canonicalizeTargets(allFacts []facts.Fact, types typeIndex, functions funct
 		}
 	}
 	returns := newReturnIndex(allFacts, known, functions, types, visibility)
+	bases := classBases(allFacts, types, visibility)
 	for i := range allFacts {
 		rels := allFacts[i].Relations
 		kept := rels[:0]
@@ -449,6 +450,19 @@ func canonicalizeTargets(allFacts []facts.Fact, types typeIndex, functions funct
 					if candidate != "" {
 						r.Kind = facts.RelCalls
 						r.Target = candidate
+						stats.receiverResolved++
+						break
+					}
+				}
+				// A member the type inherits: declared on the nearest base that has
+				// it, and the call keeps the type it was made on.
+				if dir := types.resolve(typ, source, visibility, nil); dir != "" {
+					own := types.canonical(dir, typ)
+					name := r.Target[strings.LastIndex(r.Target, "::")+2:]
+					if decl := bases.lookup(own, name, known); decl != "" {
+						r.Kind = facts.RelCalls
+						r.Target = decl
+						allFacts[i].AddInheritedCalls(own + "::" + name)
 						stats.receiverResolved++
 						break
 					}
@@ -632,6 +646,58 @@ func (t typeIndex) resolve(name, sourceDir string, visibility *includeVisibility
 
 // sourceDir is the directory a fact's edges originate from. A module fact's File
 // is already its directory.
+// baseIndex maps each class to its bases, both by canonical name.
+type baseIndex map[string][]string
+
+// classBases reads every class's bases, canonicalized as the implements relations
+// they come from are.
+func classBases(allFacts []facts.Fact, types typeIndex, visibility *includeVisibility) baseIndex {
+	out := baseIndex{}
+	for i := range allFacts {
+		f := &allFacts[i]
+		if f.Kind != facts.KindSymbol {
+			continue
+		}
+		for _, r := range f.Relations {
+			if r.Kind != facts.RelImplements {
+				continue
+			}
+			base := r.Target
+			if !strings.Contains(base, ".") {
+				dir := types.resolve(base, sourceDir(f), visibility, nil)
+				if dir == "" {
+					continue
+				}
+				base = types.canonical(dir, base)
+			}
+			if !slices.Contains(out[f.Name], base) {
+				out[f.Name] = append(out[f.Name], base)
+			}
+		}
+	}
+	return out
+}
+
+// lookup returns the member a class inherits under name: the nearest base, breadth
+// first, that declares it. "" when none does.
+func (b baseIndex) lookup(class, name string, known map[string]bool) string {
+	seen := map[string]bool{class: true}
+	queue := append([]string(nil), b[class]...)
+	for len(queue) > 0 {
+		t := queue[0]
+		queue = queue[1:]
+		if seen[t] {
+			continue
+		}
+		seen[t] = true
+		if decl := t + "::" + name; known[decl] {
+			return decl
+		}
+		queue = append(queue, b[t]...)
+	}
+	return ""
+}
+
 func sourceDir(f *facts.Fact) string {
 	if f.Kind == facts.KindModule {
 		return f.Name

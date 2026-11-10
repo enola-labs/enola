@@ -493,6 +493,16 @@ func (w *astWalker) currentOwner() int {
 
 // addOwnerEdge appends a relation to the current owner fact, if any, avoiding
 // duplicate relations on the same fact.
+// noteMemberCall records a call on the object the current method runs on that its
+// class does not declare: a member it may inherit, which the inherited-calls binder
+// looks up through the class's bases (facts.PropMemberCalls). Outside a method the
+// binder finds no owning type and ignores it.
+func (w *astWalker) noteMemberCall(name string) {
+	if idx := w.currentOwner(); idx >= 0 {
+		w.out[idx].AddPropStrings(facts.PropMemberCalls, name)
+	}
+}
+
 func (w *astWalker) addOwnerEdge(kind, target string) {
 	idx := w.currentOwner()
 	if idx < 0 || target == "" {
@@ -1996,12 +2006,17 @@ func (w *astWalker) handleCall(node *sitter.Node) {
 		} else if target := w.resolveCall(name); target != "" {
 			w.addOwnerEdge(facts.RelCalls, target)
 			w.recordCallMetrics(target)
+			if !w.currentMethods()[name] {
+				w.noteMemberCall(name)
+			}
 		}
 	case kind == calleeField && root == "this":
 		if w.currentMethods()[name] {
 			target := w.factName(name)
 			w.addOwnerEdge(facts.RelCalls, target)
 			w.recordCallMetrics(target)
+		} else {
+			w.noteMemberCall(name)
 		}
 	case kind == calleeField:
 		// Resolve only a simple receiver with one explicit, unambiguous parameter or

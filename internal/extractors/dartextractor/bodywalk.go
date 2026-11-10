@@ -25,6 +25,9 @@ type bodyWalk struct {
 	callsInScalingLoop map[string]bool
 	recursiveSelf      bool
 	ioDirect           bool
+	// selfCalls are the bare and `this.` calls, which inside a class are calls on
+	// the object a method runs on (facts.PropMemberCalls).
+	selfCalls map[string]bool
 
 	seenRel map[string]bool
 }
@@ -50,6 +53,9 @@ func (b *bodyWalk) applyTo(props map[string]any) {
 	}
 	if b.ioDirect {
 		props["io_direct"] = true
+	}
+	if len(b.selfCalls) > 0 {
+		props[facts.PropMemberCalls] = sortedKeys(b.selfCalls)
 	}
 }
 
@@ -200,6 +206,15 @@ func (w *walker) scanCallChain(n *sitter.Node, b *bodyWalk, selfShort string, lo
 			// and per the governing rule a bare name that dead-code matching can still
 			// see beats a fabricated qualified target.
 			b.addRelation(facts.RelCalls, name)
+			if receiver == name || receiver == "this" {
+				// Inside a class, a call on the object: the inherited-calls binder
+				// resolves it through the class and its supertypes, where the bare
+				// name is ambiguous across the project.
+				if b.selfCalls == nil {
+					b.selfCalls = map[string]bool{}
+				}
+				b.selfCalls[name] = true
+			}
 		}
 
 		// Recursion requires the call to reach THIS symbol, not merely a method that

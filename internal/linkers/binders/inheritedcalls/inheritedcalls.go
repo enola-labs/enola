@@ -13,12 +13,21 @@
 // inside the inherited member dispatches on, and the edge no longer says it.
 //
 // A target that names a symbol is never touched, so a second run is a no-op.
+//
+// The binder also resolves the calls an extractor could not, on the object a method
+// runs on: PropMemberCalls lists them (`common` for self.common(), `helper.work` for
+// self.helper.work()), because what they name is declared in another file, on a base
+// class. Each is looked up from the method's type through its ancestors, an
+// attribute's type read from PropFieldTypes on the type or ancestor declaring it,
+// and becomes a calls relation only when it lands on a symbol. Both props are
+// working data and are removed once read.
 package inheritedcalls
 
 import (
 	"context"
 	"log"
-	"sort"
+	"slices"
+	"strings"
 
 	"github.com/enola-labs/enola/internal/facts"
 	"github.com/enola-labs/enola/internal/hierarchy"
@@ -64,14 +73,23 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 			}
 		}
 	}
-	if len(rewrite) == 0 {
+	members := memberEdges(store.FactsRef(), ix)
+	if len(rewrite) == 0 && len(members) == 0 && !hasWorkingProps(store.FactsRef()) {
 		return nil
 	}
 
-	rewritten, callers := 0, 0
+	rewritten, callers, added := 0, 0, 0
 	store.UpdateWhere(func(f *facts.Fact) {
 		if f.Kind != facts.KindSymbol {
 			return
+		}
+		f.DelProp(facts.PropMemberCalls)
+		f.DelProp(facts.PropFieldTypes)
+		for _, t := range members[key{f.Repo, f.Name}] {
+			if !f.HasRelation(facts.RelCalls, t) {
+				f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelCalls, Target: t})
+				added++
+			}
 		}
 		var via []string
 		kept := f.Relations[:0:0]
@@ -94,11 +112,89 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 			return
 		}
 		f.Relations = kept
-		f.SetProp(facts.PropInheritedCalls, mergeSorted(f.PropAny(facts.PropInheritedCalls), via))
+		f.AddInheritedCalls(via...)
 		callers++
 	})
-	log.Printf("[inherited-calls] %d call(s) from %d caller(s) resolved to an inherited member", rewritten, callers)
+	log.Printf("[inherited-calls] %d call(s) from %d caller(s) resolved to an inherited member; %d call(s) on self or an attribute resolved", rewritten, callers, added)
 	return nil
+}
+
+// memberEdges resolves every PropMemberCalls entry to the declaration it reaches,
+// per calling symbol.
+func memberEdges(fs []facts.Fact, ix *hierarchy.Index) map[[2]string][]string {
+	fields := map[[2]string]map[string]string{}
+	for _, f := range fs {
+		if f.Kind != facts.KindSymbol {
+			continue
+		}
+		switch m := f.PropAny(facts.PropFieldTypes).(type) {
+		case map[string]string:
+			fields[[2]string{f.Repo, f.Name}] = m
+		case map[string]any:
+			out := make(map[string]string, len(m))
+			for k, v := range m {
+				if s, ok := v.(string); ok {
+					out[k] = s
+				}
+			}
+			fields[[2]string{f.Repo, f.Name}] = out
+		}
+	}
+	out := map[[2]string][]string{}
+	for _, f := range fs {
+		calls := f.PropStrings(facts.PropMemberCalls)
+		if f.Kind != facts.KindSymbol || len(calls) == 0 {
+			continue
+		}
+		owner, _ := hierarchy.SplitMember(f.Name)
+		if owner == "" || !ix.IsType(f.Repo, owner) {
+			continue
+		}
+		for _, c := range calls {
+			typ, method := owner, c
+			if attr, m, ok := strings.Cut(c, "."); ok {
+				if strings.Contains(m, ".") {
+					continue
+				}
+				typ, method = fieldType(ix, fields, f.Repo, owner, attr), m
+			}
+			if typ == "" {
+				continue
+			}
+			decl, ok := ix.Lookup(f.Repo, typ, method)
+			if !ok || decl == f.Name {
+				continue
+			}
+			k := [2]string{f.Repo, f.Name}
+			if !slices.Contains(out[k], decl) {
+				out[k] = append(out[k], decl)
+			}
+		}
+	}
+	return out
+}
+
+// fieldType is the repository type an attribute of a type holds: as declared on the
+// type, else on the nearest ancestor declaring it.
+func fieldType(ix *hierarchy.Index, fields map[[2]string]map[string]string, repo, typ, attr string) string {
+	for _, t := range append([]string{typ}, ix.Ancestors(repo, typ)...) {
+		if raw := fields[[2]string{repo, t}][attr]; raw != "" {
+			return ix.ResolveType(repo, t, raw)
+		}
+	}
+	return ""
+}
+
+func hasWorkingProps(fs []facts.Fact) bool {
+	for _, f := range fs {
+		if _, ok := f.Prop(facts.PropMemberCalls); ok {
+			return true
+		}
+		if _, ok := f.Prop(facts.PropFieldTypes); ok {
+			return true
+		}
+	}
+	return false
 }
 
 func namesSymbol(store *facts.Store, repo, name string) bool {
@@ -117,30 +213,4 @@ func containsCall(rels []facts.Relation, target string) bool {
 		}
 	}
 	return false
-}
-
-// mergeSorted adds names to a recorded list, which reads back from JSON as []any.
-func mergeSorted(prior any, add []string) []string {
-	set := map[string]bool{}
-	switch p := prior.(type) {
-	case []string:
-		for _, s := range p {
-			set[s] = true
-		}
-	case []any:
-		for _, s := range p {
-			if str, ok := s.(string); ok {
-				set[str] = true
-			}
-		}
-	}
-	for _, s := range add {
-		set[s] = true
-	}
-	out := make([]string, 0, len(set))
-	for s := range set {
-		out = append(out, s)
-	}
-	sort.Strings(out)
-	return out
 }

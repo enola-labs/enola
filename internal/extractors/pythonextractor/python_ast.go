@@ -2479,6 +2479,10 @@ func (w *pyWalker) emitCallEdge(fn *sitter.Node) {
 					Target: target,
 				})
 				w.recordCallMetrics(target)
+			} else if w.enclosingType() != "" {
+				// Declared on a base class, likely in another file: the
+				// inherited-calls binder looks it up through the class's bases.
+				owner.AddPropStrings(facts.PropMemberCalls, attr)
 			}
 			return
 		}
