@@ -124,8 +124,9 @@ func reachers(graph *facts.Graph, seeds []string, base int, into map[string]int)
 
 // interfaceMethods maps an implementing method ("pkg.T.M") to the interface methods
 // it implements ("pkg.I.M"), from the implementers an interface records (Go) and from
-// implements edges (languages that write them). Implementations in test code are
-// left out: a test double is not what the served code calls.
+// implements edges (languages that write them). An implementer's method may be one it
+// promotes from a type it embeds (methodOf). Implementations in test code are left
+// out: a test double is not what the served code calls.
 //
 // sole reports whether an interface method can call one implementation only. The
 // recorded implementers cannot say so: the Go extractor records a type it infers by
@@ -158,8 +159,8 @@ func interfaceMethods(store *facts.Store, graph *facts.Graph) (impls map[string]
 			m := e.Target
 			method := m[len(iface)+1:]
 			for _, t := range types {
-				impl := t + "." + method
-				if !servedCode(store.LookupByExactName(impl)) || slices.Contains(impls[impl], m) {
+				impl := methodOf(store, graph, t, method)
+				if impl == "" || slices.Contains(impls[impl], m) {
 					continue
 				}
 				impls[impl] = append(impls[impl], m)
@@ -198,6 +199,44 @@ func interfaceMethods(store *facts.Store, graph *facts.Graph) (impls map[string]
 		return memo[iface]
 	}
 	return impls, sole
+}
+
+// maxEmbedDepth bounds the embedded types methodOf looks through.
+const maxEmbedDepth = 4
+
+// methodOf is the method a value of type t runs for name, outside test and mock code:
+// t's own, or else one t promotes from a type it embeds (an implements edge), the
+// shallowest first, as Go selects it. A type that implements an interface only
+// through what it embeds, such as a struct composing one handler per endpoint, has no
+// method of its own by that name. Two at the same depth are an ambiguous selector Go
+// rejects, and "" is returned, as it is when there is none.
+func methodOf(store *facts.Store, graph *facts.Graph, t, name string) string {
+	frontier := []string{t}
+	seen := map[string]bool{t: true}
+	for depth := 0; depth <= maxEmbedDepth && len(frontier) > 0; depth++ {
+		var found, next []string
+		for _, typ := range frontier {
+			if m := typ + "." + name; servedCode(store.LookupByExactName(m)) {
+				found = append(found, m)
+				continue
+			}
+			for _, e := range graph.ForwardEdges(typ) {
+				if e.RelKind == facts.RelImplements && !seen[e.Target] {
+					seen[e.Target] = true
+					next = append(next, e.Target)
+				}
+			}
+		}
+		switch len(found) {
+		case 0:
+			frontier = next
+		case 1:
+			return found[0]
+		default:
+			return ""
+		}
+	}
+	return ""
 }
 
 // methodOwners maps each wanted method name to the types declaring a method of that
