@@ -564,9 +564,14 @@ func (r Report) EndpointLines(max int) []string {
 				out = append(out, fmt.Sprintf("… %d more by package (output_mode=compact or full lists more)", len(pkgs)-max))
 				break
 			}
-			where := "in the target package"
+			where := "the target package"
 			if e.Depth > 0 {
 				where = fmt.Sprintf("%s, %d import%s away", e.Package, e.Depth, map[bool]string{true: "", false: "s"}[e.Depth == 1])
+			}
+			if e.HandlerUnresolved {
+				where = "handler not resolved to a symbol; registered in " + where
+			} else if e.Depth == 0 {
+				where = "in " + where
 			}
 			out = append(out, fmt.Sprintf("%s → %s (%s)", route(e), e.Handler, where))
 		}
