@@ -60,9 +60,12 @@ func (r *Runner) runServe(ctx context.Context, args []string, stderr io.Writer) 
 				"Serve the MCP tools over Streamable HTTP at /mcp, for a service that calls enola\n"+
 				"as a tool. Every request needs a bearer token from --token-file. Every path a\n"+
 				"call names, and every repository it reaches, must lie inside a --root; others\n"+
-				"are refused. A repository or config given here has its graph restored from disk\n"+
-				"at start; otherwise consumers index with generate_snapshot. Each session has its\n"+
-				"own loaded graph; sessions asking for the same unchanged repositories share one.\n"+
+				"are refused.\n\n"+
+				"Given a repository or a cluster config, serve serves that graph and nothing else:\n"+
+				"it is restored from disk at start, every session queries it, the tools that index\n"+
+				"are left out, and it is reloaded when `enola --generate` writes it again. Without\n"+
+				"one, consumers index with generate_snapshot; each session has its own graph, and\n"+
+				"sessions asking for the same unchanged repositories share one.\n\n"+
 				"Nothing is written\n"+
 				"to ~/.enola/receipt.json, and nothing into the repositories when --output-root\n"+
 				"is set. One line per tool call is logged to stderr.\n\n"+
@@ -105,6 +108,10 @@ func (r *Runner) runServe(ctx context.Context, args []string, stderr io.Writer) 
 		}
 		restore = true
 	}
+	if restore && budget > 0 {
+		say("--memory-budget unloads graphs sessions built; a server given a repository or config serves that one graph and builds none")
+		return 2
+	}
 	_, cfg, err := r.newEngine(bootstrap.Options{ConfigPath: cfgPath})
 	if err != nil {
 		say("%v", err)
@@ -144,7 +151,7 @@ func (r *Runner) runServe(ctx context.Context, args []string, stderr io.Writer) 
 		cfg.Repo, cfg.Repos = "", nil
 	}
 
-	pool, resolved, err := bootstrap.NewServedPool(cfg, bootstrap.ServeOptions{
+	pool, resolved, err := bootstrap.NewServedPool(ctx, cfg, bootstrap.ServeOptions{
 		Roots:         roots,
 		MaxConcurrent: *maxConcurrent,
 		CallTimeout:   *callTimeout,
@@ -173,7 +180,7 @@ func (r *Runner) runServe(ctx context.Context, args []string, stderr io.Writer) 
 		_, _ = fmt.Fprintf(stderr, "  Memory:      graphs unloaded past %s (estimated)\n", *memoryBudget)
 	}
 	if restore {
-		_, _ = fmt.Fprintf(stderr, "  Restoring:   %s\n", strings.Join(restorePaths, ", "))
+		_, _ = fmt.Fprintf(stderr, "  Serving:     %s (fixed: consumers query, the operator indexes)\n", strings.Join(restorePaths, ", "))
 	}
 	if !loopback {
 		_, _ = fmt.Fprintf(stderr, "  Warning:     listening beyond loopback; terminate TLS in front of it\n")

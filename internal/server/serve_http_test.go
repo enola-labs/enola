@@ -60,7 +60,7 @@ func startServedAt(t *testing.T, sc bootstrap.ServeOptions, root, repo string, t
 		f(cfg)
 	}
 	sc.Roots = []string{root}
-	pool, roots, err := bootstrap.NewServedPool(cfg, sc)
+	pool, roots, err := bootstrap.NewServedPool(t.Context(), cfg, sc)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -382,20 +382,17 @@ func TestServe_OutputRootLeavesRepositoriesUntouched(t *testing.T) {
 		}
 	}
 
-	// A restart restores the graph from the output root, not from the repository, and
-	// the first session asking for it adopts it instead of indexing.
-	again := startServedAt(t, bootstrap.ServeOptions{}, s.root, s.repo, withRoot)
-	if err := again.pool.Warm([]string{s.repo}); err != nil {
-		t.Fatalf("restoring from the output root: %v", err)
-	}
+	// Served fixed after a restart, the graph is read from the output root, not from
+	// the repository, which holds no artifacts.
+	again := startServedAt(t, bootstrap.ServeOptions{Restore: []string{s.repo}}, s.root, s.repo, withRoot)
 	sess2, err := again.connect(t, testToken)
 	if err != nil {
 		t.Fatal(err)
 	}
-	res := sess2.call(t, "generate_snapshot", map[string]any{"repo_path": s.repo})
-	if res.IsError || !strings.Contains(text(res), "Reused the graph") {
-		t.Fatalf("generate_snapshot after a restore from the output root did not reuse it: %s", text(res))
+	if !sess2.has(t, "Extra") {
+		t.Fatal("a fixed instance did not restore the graph from the output root")
 	}
+	untouched(before)
 }
 
 // A folder of repositories is indexed as a cluster, and the stdio server writes a

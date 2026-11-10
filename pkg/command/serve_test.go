@@ -63,7 +63,8 @@ func TestServe_RequiresRootAndTokenFile(t *testing.T) {
 		{"--token-file", tokens},
 		{"--root", filepath.Join(root, "missing"), "--token-file", tokens},
 		{"--root", root, "--token-file", writeTokens(t, "x\n", 0o600)},
-		{"--root", root, "--token-file", tokens, t.TempDir()}, // a graph to restore outside the root
+		{"--root", root, "--token-file", tokens, t.TempDir()},                     // a graph to restore outside the root
+		{"--root", root, "--token-file", tokens, "--memory-budget", "1GiB", root}, // nothing to unload on a fixed instance
 	} {
 		var stderr bytes.Buffer
 		if code := testRunner().runServe(t.Context(), args, &stderr); code != 2 {

@@ -46,8 +46,16 @@ type ServeConfig struct {
 	// recently used one is unloaded; zero means no budget. See Pool.
 	MemoryBudget int64
 
+	// ReloadInterval is how often a fixed instance checks its graph's artifacts on
+	// disk for a newer snapshot; zero means 5 seconds. See ServeFixed.
+	ReloadInterval time.Duration
+
 	// pool is the served instance this session's Server belongs to; set by Pool.
 	pool *Pool
+	// fixedPaths are the repositories a fixed instance serves; nil otherwise. Set by
+	// Pool.ServeFixed.
+	fixedPaths []string
+	fixed      bool
 }
 
 // HTTPConfig is the transport half: who may connect and how long a session lives.
@@ -173,10 +181,15 @@ func (s *Server) serveMiddleware(cfg ServeConfig) {
 	for _, n := range ServedTools {
 		served[n] = true
 	}
+	if cfg.fixed {
+		for _, n := range FixedTools {
+			delete(served, n)
+		}
+	}
 
 	// Innermost: the session's graph, reloaded before the call if the pool dropped it
 	// and published after it if the call built one.
-	if pool := cfg.pool; pool != nil {
+	if pool := cfg.pool; pool != nil && !cfg.fixed {
 		s.mcp.AddReceivingMiddleware(func(next mcp.MethodHandler) mcp.MethodHandler {
 			return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
 				if method != "tools/call" {
