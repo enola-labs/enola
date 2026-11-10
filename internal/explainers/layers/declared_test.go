@@ -98,3 +98,39 @@ func TestDeclaredLayers_VerdictsOnlyTheDeclaringRepo(t *testing.T) {
 		}
 	}
 }
+
+// A Go package is named by its import path and declared by its directory: the
+// declaration's paths classify it, and a wrong-direction import between two Go
+// packages is still the proof-class violation it was when packages were named by
+// directory.
+func TestDeclaredLayers_GoPackagesAreClassifiedByDirectory(t *testing.T) {
+	goPkg := func(name, file string) facts.Fact {
+		return facts.Fact{Kind: facts.KindModule, Repo: "svc", Name: name, File: file, Props: map[string]any{"language": "go"}}
+	}
+	store := facts.NewStore()
+	store.Add(
+		layerIntent("svc", "handlers", 0, "app/handlers/**"),
+		layerIntent("svc", "domain", 1, "app/domain/**"),
+		goPkg("example.com/svc/app/handlers", "app/handlers"),
+		goPkg("example.com/svc/app/domain", "app/domain"),
+		facts.Fact{Kind: facts.KindDependency, Repo: "svc", Name: "example.com/svc/app/domain -> example.com/svc/app/handlers",
+			File:      "app/domain/thing.go",
+			Relations: []facts.Relation{{Kind: facts.RelImports, Target: "example.com/svc/app/handlers"}}},
+	)
+	insights, err := New().Explain(context.Background(), store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var violation bool
+	for _, in := range insights {
+		if strings.Contains(in.Title, "classifies no modules") {
+			t.Errorf("a declared layer matched no Go package: %s", in.Title)
+		}
+		if strings.Contains(strings.ToLower(in.Title), "violation") && in.Confidence == 1.0 {
+			violation = true
+		}
+	}
+	if !violation {
+		t.Errorf("the domain package importing handlers was not reported: %+v", insights)
+	}
+}

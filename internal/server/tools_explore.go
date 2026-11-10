@@ -297,7 +297,13 @@ func (s *Server) exploreModule(store *facts.Store, focus string, depth int, mode
 	// (and any per-directory module language) nests modules per directory, so a
 	// directory that is itself a module often has a large subtree of child
 	// modules whose symbols would otherwise be hidden by this exact-module match.
-	s.writeNestedModules(store, mod.Name, len(declaredSymbols), sb)
+	// The subtree is the directory's: a Go package is named by its import path and
+	// filed under its directory, where its nested packages' files are.
+	dir := mod.Name
+	if facts.IsGoPackage(*mod) && mod.File != "" {
+		dir = mod.File
+	}
+	s.writeNestedModules(store, dir, len(declaredSymbols), sb)
 
 	// At depth=2: the default 'summary' mode emits an aggregated Insights section
 	// (what is architecturally significant); compact/full keep the raw per-symbol
@@ -494,7 +500,11 @@ func (s *Server) writeNestedModules(store *facts.Store, modName string, directSy
 	// the children agree with the subtree total printed beside them.
 	childCounts := make(map[string]int)
 	modTotal := store.QueryEach(facts.QueryOpts{Kind: facts.KindModule, FilePrefix: prefix}, func(m *facts.Fact) {
-		rest := strings.TrimPrefix(m.Name, prefix)
+		path := m.Name
+		if facts.IsGoPackage(*m) && m.File != "" {
+			path = m.File
+		}
+		rest := strings.TrimPrefix(path, prefix)
 		seg := rest
 		if i := strings.IndexByte(rest, '/'); i >= 0 {
 			seg = rest[:i]

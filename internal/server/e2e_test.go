@@ -861,3 +861,31 @@ func TestE2E_TextAnswersShortenGoNamesAndRoundTrip(t *testing.T) {
 		t.Errorf("a JSON answer lost its exact names:\n%.600s", path)
 	}
 }
+
+// A Go package that has packages under it lists them, as a directory module does:
+// the subtree is the package's directory, not its import-path name.
+func TestExplore_GoPackageListsItsNestedPackages(t *testing.T) {
+	dir := t.TempDir()
+	for rel, body := range map[string]string{
+		"go.mod":         "module example.com/nest\n\ngo 1.22\n",
+		"svc/svc.go":     "package svc\n\nfunc Serve() {}\n",
+		"svc/a/a.go":     "package a\n\nfunc A() {}\n",
+		"svc/b/inner.go": "package b\n\nfunc B() {}\n",
+	} {
+		p := filepath.Join(dir, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s := startInMemory(t)
+	if res := s.call(t, "generate_snapshot", map[string]any{"repo_path": dir}); res.IsError {
+		t.Fatal(text(res))
+	}
+	out := text(s.call(t, "explore", map[string]any{"focus": "svc"}))
+	if !strings.Contains(out, "svc/a") || !strings.Contains(out, "svc/b") {
+		t.Errorf("a Go package did not list the packages under it:\n%s", out)
+	}
+}
