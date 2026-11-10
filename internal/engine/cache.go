@@ -3503,7 +3503,9 @@ import (
 // v558: Kotlin: a file the grammar cannot parse because a body closes on its
 // member's line (`class A { fun f() {} }` with more code after it) is parsed again
 // with a `;` before that `}`, so its declarations are no longer lost.
-const cacheVersion = "v558"
+// v559: Swift: the top-level statements of main.swift are a `<dir>.main` function,
+// the program's entry point, instead of calls owned by the file.
+const cacheVersion = "v559"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
