@@ -192,7 +192,7 @@ func (s *Server) shortNamesMiddleware(next mcp.MethodHandler) mcp.MethodHandler 
 			if !ok {
 				continue
 			}
-			if t := strings.TrimSpace(tc.Text); strings.HasPrefix(t, "{") || strings.HasPrefix(t, "[") {
+			if holdsJSON(tc.Text) {
 				continue // JSON keeps exact names
 			}
 			text, mods := sh.shorten(tc.Text)
@@ -208,6 +208,24 @@ func (s *Server) shortNamesMiddleware(next mcp.MethodHandler) mcp.MethodHandler 
 		}
 		return res, err
 	}
+}
+
+// holdsJSON reports whether a text answer carries a JSON document: one that is
+// JSON, or one whose JSON follows a header line ("Filters applied: …" before
+// query_facts' default full output). A line opens a document when it is a lone
+// bracket or starts one with a string, an object or an empty value; a Markdown
+// link at a line's start does neither.
+func holdsJSON(text string) bool {
+	for line := range strings.Lines(text) {
+		l := strings.TrimSpace(line)
+		switch {
+		case l == "{" || l == "[" || l == "{}" || l == "[]":
+			return true
+		case strings.HasPrefix(l, `{"`) || strings.HasPrefix(l, "[{") || strings.HasPrefix(l, `["`):
+			return true
+		}
+	}
+	return false
 }
 
 // relativeNote is the one line saying what the shortened names are relative to.
