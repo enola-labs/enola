@@ -1,6 +1,6 @@
-# Traverse summary: pkg/a (forward)
+# Traverse summary: example.com/gosample/pkg/a (forward)
 
-pkg/a **depends on** 1 nodes across 1 modules
+example.com/gosample/pkg/a **depends on** 1 nodes across 1 modules
 
 ## By node kind
 

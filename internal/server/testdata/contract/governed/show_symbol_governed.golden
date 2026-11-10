@@ -1,4 +1,4 @@
-### pkg/a.Alpha
+### example.com/gosample/pkg/a.Alpha
 Kind: function  File: pkg/a/a.go  Line: 7
 Governed by: decision.md (decision, accepted)
 

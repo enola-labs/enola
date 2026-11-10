@@ -12,8 +12,8 @@ Target pkg/a/a.go (path)
       exempt: pkg/a -> example.com/gosample/pkg/b -> pkg/b via imports (by dana since 2026-08-01 — the cycle is scheduled for removal)
       exempt: pkg/a -> example.com/gosample/pkg/z -> pkg/z via imports (by dana since 2026-08-01 — excuses an edge that does not exist)
   Blast radius: fan-in 4, fan-out 2
-    in:  ..main, pkg/a/a_ext_test.go, pkg/a/a_test.go, pkg/b.Beta
-    out: pkg/b, pkg/b.Beta
+    in:  example.com/gosample.main, example.com/gosample/pkg/b.Beta, pkg/a/a_ext_test.go, pkg/a/a_test.go
+    out: example.com/gosample/pkg/b, example.com/gosample/pkg/b.Beta
   If it left every part (1 rule(s) re-run over the loaded snapshot):
     would start failing: nothing
     would stop being checked: nothing

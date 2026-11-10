@@ -19,9 +19,10 @@ import (
 func (e *Explainer) verdictForbidCycles(r rule, store *facts.Store, memberFacts map[string][]facts.Fact) []facts.Insight {
 	parts := append([]string{r.forbidCycles}, r.among...)
 	partOfModule := map[string]string{}
+	dirs := common.NewModuleDirs(store)
 	for _, part := range parts {
 		for _, f := range memberFacts[part] {
-			for _, dir := range moduleDirsOf(f) {
+			for _, dir := range moduleDirsOf(f, dirs) {
 				if _, taken := partOfModule[dir]; !taken {
 					partOfModule[dir] = part
 				}
@@ -99,11 +100,11 @@ func (e *Explainer) verdictForbidCycles(r rule, store *facts.Store, memberFacts 
 
 // moduleDirsOf names the module a member fact lives in, in both the raw and
 // repo-stripped forms the module graph may use.
-func moduleDirsOf(f facts.Fact) []string {
+func moduleDirsOf(f facts.Fact, dirs common.ModuleDirs) []string {
 	if f.Kind == facts.KindModule {
 		return []string{f.Name}
 	}
-	return common.ModuleDirCandidates(f)
+	return common.ModuleDirCandidatesIn(f, dirs)
 }
 
 // nearestPart walks up a directory path until it meets a module a part owns,

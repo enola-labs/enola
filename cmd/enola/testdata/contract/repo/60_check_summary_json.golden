@@ -14,17 +14,17 @@ exit: 0
   },
   "changed": [
     {
-      "text": "Added 1 folder of code and 2 functions and types (pkg/c).",
+      "text": "Added 1 folder of code and 2 functions and types (example.com/gosample/pkg/c).",
       "certainty": "certain"
     },
     {
-      "text": "pkg/b now uses pkg/c.",
+      "text": "example.com/gosample/pkg/b now uses example.com/gosample/pkg/c.",
       "certainty": "certain"
     }
   ],
   "worse": [
     {
-      "subject": "pkg/b.UsesGamma",
+      "subject": "example.com/gosample/pkg/b.UsesGamma",
       "location": "pkg/b/gamma.go:6",
       "text": "This function looks unused. Check it before deleting it: something may call it by name at runtime.",
       "certainty": "likely"

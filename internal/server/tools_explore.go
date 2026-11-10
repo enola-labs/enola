@@ -133,6 +133,27 @@ func (s *Server) lookupModule(store *facts.Store, focus string) []facts.Fact {
 	if mods := find(focus, ""); len(mods) > 0 {
 		return mods
 	}
+	// A Go package is named by its import path and filed under its directory, which is
+	// how a reader writes it: the repo-prefixed path a multi-repo store's files carry,
+	// or the bare directory. The first matching repository answers, as find does.
+	var byDir []facts.Fact
+	for _, f := range store.ByKind(facts.KindModule) {
+		if !facts.IsGoPackage(f) || f.File == "" || f.File == f.Name || (f.File != focus && f.IdentityFile() != focus) {
+			continue
+		}
+		if len(byDir) > 0 && f.Repo != byDir[0].Repo {
+			continue
+		}
+		byDir = append(byDir, f)
+	}
+	if len(byDir) > 0 {
+		slices.SortStableFunc(byDir, func(a, b facts.Fact) int {
+			la, _ := a.PropAny("language").(string)
+			lb, _ := b.PropAny("language").(string)
+			return cmp.Or(cmp.Compare(la, lb), cmp.Compare(a.File, b.File))
+		})
+		return byDir
+	}
 	for _, label := range s.repoLabels() {
 		if rest, ok := strings.CutPrefix(focus, label+"/"); ok && rest != "" {
 			if mods := find(rest, label); len(mods) > 0 {

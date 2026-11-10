@@ -192,16 +192,16 @@ func TestRequireDefines_AnyOfAcceptsEither(t *testing.T) {
 // A bare-method literal matches the method at the end of a chain; a
 // receiver-qualified literal stays exact.
 func TestForbidToName_BareMethodMatchesTheChainedCall(t *testing.T) {
-	if !matchesAnyBoundedName("where.update_all", []string{"update_all"}) {
+	if !matchesAnyBoundedName("where.update_all", []string{"update_all"}, goNames{}) {
 		t.Fatal("update_all must match where.update_all")
 	}
-	if !matchesAnyBoundedName("Order.update_all", []string{"update_all"}) {
+	if !matchesAnyBoundedName("Order.update_all", []string{"update_all"}, goNames{}) {
 		t.Fatal("update_all must match Order.update_all")
 	}
-	if matchesAnyBoundedName("where.update_all", []string{"Order.update_all"}) {
+	if matchesAnyBoundedName("where.update_all", []string{"Order.update_all"}, goNames{}) {
 		t.Fatal("a receiver-qualified literal stays exact")
 	}
-	if matchesAnyBoundedName("where.update_all_later", []string{"update_all"}) {
+	if matchesAnyBoundedName("where.update_all_later", []string{"update_all"}, goNames{}) {
 		t.Fatal("the method must match whole, not as a prefix")
 	}
 }

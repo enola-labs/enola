@@ -223,18 +223,15 @@ type PathResult struct {
 // dependencies are separate facts: module "internal/server" ←→ dependency fact
 // "internal/server -> internal/config" → target "internal/config".
 //
-// For cross-repo call targets (e.g. "github.com/dejo1307/go-auth/adapters.Handler.Login"
-// emitted by an external consumer), the graph normalises the target by stripping known
-// Go module path prefixes (stored in KindModule facts as props["modulePath"]). This
-// allows edges to land on the correct fact in the loaded external repo.
+// A cross-repo Go call target ("github.com/acme/go-auth/adapters.Handler.Login") needs
+// no translation: Go facts are named by import path, so it names the library's own
+// symbol when that repository is loaded, and stays unresolved when it is not.
 func NewGraph(ff []Fact) *Graph { return NewGraphWithAliases(ff, nil) }
 
 // NewGraphWithAliases is NewGraph over a store's target aliases (see
 // Store.SetTargetAliases): an edge whose target names no fact but has an alias lands
 // on the node of the fact the alias names, for every relation kind, including a
-// dependency's import of another repository's package. Without an alias a call
-// target still gets the Go module-path normalization below, which is what a graph
-// built from bare facts (a conformance baseline) has to go on.
+// dependency's import of another repository's package.
 func NewGraphWithAliases(ff []Fact, aliases map[string]FactKey) *Graph {
 	g := &Graph{
 		facts:  ff,
@@ -248,7 +245,6 @@ func NewGraphWithAliases(ff []Fact, aliases map[string]FactKey) *Graph {
 	// declaredNodes a usable boundary: after this loop, an ID below it is a name some
 	// fact declares and an ID at or above it is a dangling edge target.
 	moduleNames := make(map[string]bool)
-	var modulePaths []string          // Go module paths for cross-repo normalisation, longest first
 	nameID := make([]uint32, len(ff)) // per-fact node ID, so the next pass needn't re-hash
 	for i, f := range ff {
 		nameID[i] = noNode
@@ -257,20 +253,10 @@ func NewGraphWithAliases(ff []Fact, aliases map[string]FactKey) *Graph {
 		}
 		if f.Kind == KindModule {
 			moduleNames[f.Name] = true
-			if mp, ok := f.PropAny("modulePath").(string); ok && mp != "" {
-				modulePaths = append(modulePaths, mp)
-			}
 		}
 	}
 	g.declaredNodes = uint32(len(g.names))
-	// Longest first, so a module nested under another's path claims its own targets;
-	// ranging over a map picked between them by iteration order.
-	sort.Slice(modulePaths, func(i, j int) bool {
-		if len(modulePaths[i]) != len(modulePaths[j]) {
-			return len(modulePaths[i]) > len(modulePaths[j])
-		}
-		return modulePaths[i] < modulePaths[j]
-	})
+	moduleDirs := NewModuleDirs(ff)
 
 	// Index which facts declare each node, as CSR. Every fact declaring the name is
 	// recorded, not just the first: which one a node means depends on the edge that
@@ -308,14 +294,6 @@ func NewGraphWithAliases(ff []Fact, aliases map[string]FactKey) *Graph {
 			if !g.declares(target) {
 				if k, ok := aliases[target]; ok && g.declares(k.Name) {
 					target = k.Name
-				} else if rel.Kind == RelCalls {
-					// For unresolved call targets, attempt cross-repo normalisation
-					// by stripping known Go module path prefixes.
-					if normalized := normalizeExternalTarget(target, modulePaths); normalized != "" {
-						if g.declares(normalized) {
-							target = normalized
-						}
-					}
 				}
 			}
 			b.addEdge(b.srcID(nameID[fi], f.Name), rel.Kind, target)
@@ -327,7 +305,7 @@ func NewGraphWithAliases(ff []Fact, aliases map[string]FactKey) *Graph {
 		// handling cases where import paths point to files within a module directory
 		// (e.g., "src/types/tournament" resolves to module "src/types").
 		if f.Kind == KindDependency && f.File != "" {
-			modName := dependencyModule(f, moduleNames)
+			modName := dependencyModule(f, moduleNames, moduleDirs)
 			if moduleNames[modName] {
 				for _, rel := range f.Relations {
 					if rel.Kind == RelImports {
@@ -1549,29 +1527,6 @@ func (g *Graph) impactSeeds(target string) []string {
 	return seeds
 }
 
-// normalizeExternalTarget strips a known Go module path prefix from a call
-// target that doesn't match any fact. This bridges cross-repo call edges where
-// the consumer emits the full import path (e.g. "github.com/x/go-auth/adapters.Handler.Login")
-// but the provider's facts use the repo-relative path (e.g. "adapters.Handler.Login").
-//
-//	subpackage: "github.com/x/go-auth/adapters.Handler.Login" → "adapters.Handler.Login"
-//	root pkg:   "github.com/x/go-auth.SecurityHeaders"        → "..SecurityHeaders"
-func normalizeExternalTarget(target string, modulePaths []string) string {
-	for _, modulePath := range modulePaths {
-		if !strings.HasPrefix(target, modulePath) {
-			continue
-		}
-		after := target[len(modulePath):]
-		switch {
-		case strings.HasPrefix(after, "/"):
-			return after[1:] // subpackage: strip leading "/"
-		case strings.HasPrefix(after, "."):
-			return "." + after // root pkg: ".Sym" → "..Sym" (pkgDir="." naming)
-		}
-	}
-	return ""
-}
-
 // resolveToModule finds the closest matching module for a target by trying
 // the target itself, then walking up parent directories until a match is found.
 func resolveToModule(target string, moduleNames map[string]bool) string {
@@ -1594,13 +1549,20 @@ func resolveToModule(target string, moduleNames map[string]bool) string {
 // ("app/data/api/X.kt") and a module name does not ("data/api"), so a directory that
 // names no module is tried again without the label. A single repository's files carry
 // no label, so a top directory sharing the repository's name is never stripped.
-func dependencyModule(f Fact, moduleNames map[string]bool) string {
+func dependencyModule(f Fact, moduleNames map[string]bool, dirs ModuleDirs) string {
 	dir := fileDirectory(f.File)
+	if n := dirs.Name(f.Repo, dir); n != "" {
+		return n
+	}
 	if moduleNames[dir] || f.Repo == "" {
 		return dir
 	}
 	if f.RepoPrefixed {
-		if d := fileDirectory(f.IdentityFile()); moduleNames[d] {
+		d := fileDirectory(f.IdentityFile())
+		if n := dirs.Name(f.Repo, d); n != "" {
+			return n
+		}
+		if moduleNames[d] {
 			return d
 		}
 	}

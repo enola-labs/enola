@@ -3,6 +3,6 @@ Package metrics — 0 package(s) analyzed (3 type-less excluded):
   avg distance (D):    0.00
   (these averages cover 0 of 3 packages; the other 3 declare no counted type, so A and D say nothing about them)
   off main sequence:   0  (D > 0.7, N ≥ 3, rigid needs Ca ≥ 5 — rigid or useless)
-  most depended-upon:  pkg/a (Ca=2)
+  most depended-upon:  example.com/gosample/pkg/a (Ca=2)
 
 Use output_mode=compact for the per-package table, or full for JSON.

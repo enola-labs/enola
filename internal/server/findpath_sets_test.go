@@ -35,7 +35,7 @@ func TestFindPath_SetsAnswerWithOneSearch(t *testing.T) {
 	if err := json.Unmarshal([]byte(text(res)), &set); err != nil {
 		t.Fatal(err)
 	}
-	if !set.Found || set.From != "pkg/b.Beta" || set.To != "pkg/b.Beta" || len(set.Path) != 1 {
+	if !set.Found || set.From != "example.com/gosample/pkg/b.Beta" || set.To != "example.com/gosample/pkg/b.Beta" || len(set.Path) != 1 {
 		t.Fatalf("got %+v, want the source that is already a target, as FindPath answers a node to itself", set)
 	}
 	if !reflect.DeepEqual(set.UnresolvedFrom, []string{"no.such.Source"}) || !reflect.DeepEqual(set.UnresolvedTo, []string{"no.such.Target"}) {
@@ -96,7 +96,7 @@ func TestFindPath_SetsTakeASourceFileAsTheSymbolsItDeclares(t *testing.T) {
 	if err := json.Unmarshal([]byte(text(res)), &got); err != nil {
 		t.Fatal(err)
 	}
-	if !got.Found || got.To != "pkg/b.Beta" {
+	if !got.Found || got.To != "example.com/gosample/pkg/b.Beta" {
 		t.Fatalf("got %+v, want a path from the symbols main.go declares to pkg/b.Beta, which b.go declares", got)
 	}
 	if got.FromFiles["main.go"] == 0 || got.ToFiles["pkg/b/b.go"] == 0 {
@@ -113,7 +113,7 @@ func TestFindPath_SetsOfferTheNearestNameForAnUnresolvedOne(t *testing.T) {
 
 	var got setPathFiles
 	res := s.call(t, "find_path", map[string]any{
-		"from_nodes": []string{"..main", "b.Beta"},
+		"from_nodes": []string{"..main", "b.Bet"},
 		"to_nodes":   []string{"pkg/b.Beta", "no.such.Target"},
 	})
 	if err := json.Unmarshal([]byte(text(res)), &got); err != nil {
@@ -122,7 +122,7 @@ func TestFindPath_SetsOfferTheNearestNameForAnUnresolvedOne(t *testing.T) {
 	if !got.Found {
 		t.Fatalf("got %+v, want the exact names searched while the unresolved ones are listed", got)
 	}
-	if got.FromCandidates["b.Beta"] != "pkg/b.Beta" {
+	if got.FromCandidates["b.Bet"] != "example.com/gosample/pkg/b.Beta" {
 		t.Errorf("from_candidates %v, want the nearest name for the misspelling", got.FromCandidates)
 	}
 	if _, guessed := got.ToCandidates["no.such.Target"]; guessed && got.ToCandidates["no.such.Target"] == "" {

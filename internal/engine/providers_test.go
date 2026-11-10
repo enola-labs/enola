@@ -160,7 +160,7 @@ func GetOrders(w http.ResponseWriter, r *http.Request) {}
 func TestProviders_DeclaredContractStampsTheExtractedSymbol(t *testing.T) {
 	repo := writeGoRepo(t)
 	script := writeFakeProvider(t,
-		`{"kind":"symbol","name":"rbs-signature: ..M","file":"sig/m.rbs","props":{"resolution_level":"declared","declared_in":"sig/m.rbs","receiver":".","method":"M","singleton":true,"signature":"() -> void"},"relations":[{"kind":"has_method","target":"..M"}]}`)
+		`{"kind":"symbol","name":"rbs-signature: m.M","file":"sig/m.rbs","props":{"resolution_level":"declared","declared_in":"sig/m.rbs","receiver":"m","method":"M","singleton":true,"signature":"() -> void"},"relations":[{"kind":"has_method","target":"m.M"}]}`)
 	snap := providerSnapshot(t, repo, []providers.Provider{{Name: "rbs", Command: []string{script}}})
 
 	byName := map[string]facts.Fact{}
@@ -169,7 +169,7 @@ func TestProviders_DeclaredContractStampsTheExtractedSymbol(t *testing.T) {
 			byName[f.Name] = f
 		}
 	}
-	stamped := byName["..M"]
+	stamped := byName["m.M"]
 	if stamped.Props[providers.PropTyped] != true ||
 		stamped.Props[providers.PropDeclaredSignature] != "() -> void" ||
 		stamped.Props[providers.PropDeclaredIn] != "sig/m.rbs" {
@@ -178,7 +178,7 @@ func TestProviders_DeclaredContractStampsTheExtractedSymbol(t *testing.T) {
 	if stamped.File != "m.go" {
 		t.Errorf("extractor identity must survive: file = %q", stamped.File)
 	}
-	declaration := byName["rbs-signature: ..M"]
+	declaration := byName["rbs-signature: m.M"]
 	if declaration.Repo != filepath.Base(repo) {
 		t.Errorf("declaration repo = %q, want the repo label", declaration.Repo)
 	}
@@ -189,13 +189,13 @@ func TestProviders_DeclaredContractStampsTheExtractedSymbol(t *testing.T) {
 
 func TestProviders_ExtractorIdentityWinsCollisions(t *testing.T) {
 	repo := writeGoRepo(t)
-	// The go extractor emits a symbol named ..M for this fixture; a provider
+	// The go extractor emits a symbol named m.M for this fixture; a provider
 	// claiming the same name+kind must be skipped, never overwrite it.
 	script := writeFakeProvider(t,
-		`{"kind":"symbol","name":"..M","file":"m.go","props":{"resolution_level":"name-only","forged":true}}`)
+		`{"kind":"symbol","name":"m.M","file":"m.go","props":{"resolution_level":"name-only","forged":true}}`)
 	snap := providerSnapshot(t, repo, []providers.Provider{{Name: "fake", Command: []string{script}}})
 	for _, f := range snap.Facts {
-		if f.Name == "..M" && f.Props["forged"] == true {
+		if f.Name == "m.M" && f.Props["forged"] == true {
 			t.Fatal("a provider fact overwrote an extractor identity")
 		}
 	}

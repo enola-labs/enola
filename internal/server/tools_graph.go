@@ -215,8 +215,10 @@ func (s *Server) findPathBetweenSets(store *facts.Store, graph *facts.Graph, arg
 	if len(args.FromNodes) == 0 || len(args.ToNodes) == 0 {
 		return errorResult("both 'from_nodes' and 'to_nodes' are required when either is given"), nil, nil
 	}
-	froms, fromFiles := s.expandDeclaredFiles(store, args.FromNodes)
-	tos, toFiles := s.expandDeclaredFiles(store, args.ToNodes)
+	// A name that names no node but spells some exactly (a Go package's directory
+	// form) stands for them; a set is a union, so all of them join it.
+	froms, fromFiles := s.expandDeclaredFiles(store, s.spellNames(store, args.FromNodes))
+	tos, toFiles := s.expandDeclaredFiles(store, s.spellNames(store, args.ToNodes))
 	result := graph.FindPathBetween(froms, tos, args.RelationKinds, args.MaxDepth)
 	resp := findPathSetsResponse{
 		SetPathResult:  result,

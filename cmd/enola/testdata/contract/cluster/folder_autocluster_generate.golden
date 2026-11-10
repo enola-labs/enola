@@ -15,7 +15,7 @@ Snapshot complete:
     - <TMP>/services/api
     - <TMP>/services/consumer
   Facts:       22
-  Insights:    6
+  Insights:    8
   Artifacts:   3
   Duration:    <DURATION>
   Output:      <TMP>/services/consumer/.enola

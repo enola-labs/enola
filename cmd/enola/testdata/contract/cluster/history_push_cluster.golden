@@ -3,8 +3,7 @@ exit: 0
 --- stdout
 == cluster
 <TMP>/store (source <HOST>)
-  pushed        2 revision(s), 2 payload file(s) new
-  already there 1
+  pushed        1 revision(s), 1 payload file(s) new
 
 == api
   no local revisions to push

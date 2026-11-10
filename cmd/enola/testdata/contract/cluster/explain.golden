@@ -57,19 +57,19 @@ Impact analysis (hotspots)
         (imports did not match any module).
 
 Package metrics
-  packages analyzed             1
+  packages analyzed             1 (1 type-less excluded)
   avg instability (I)        0.00
   avg distance (D)           1.00
   off main sequence             0  (D > 0.7, N >= 3, rigid needs Ca >= 5)
 
 Dead code
-  potential dead code         3  (of 7 symbols)
+  potential dead code         5  (of 7 symbols)
     high confidence           1   (functions — incoming calls tracked; verify dynamic use and compatibility before removal)
-    medium confidence         1   (structs/classes/interfaces — usage tracked via instantiate/inject/implements)
+    medium confidence         3   (structs/classes/interfaces — usage tracked via instantiate/inject/implements)
     low confidence            1   (methods & types — dispatch/reflection & type usage not edge-tracked; verify each)
-    isolated                  0   (breakdown: no references in or out)
+    isolated                  2   (breakdown: no references in or out)
     unreferenced              3   (breakdown: unreferenced, but references others)
-    exported                  2   (breakdown: public API — may be used outside this snapshot)
+    exported                  4   (breakdown: public API — may be used outside this snapshot)
   (heuristic — references matched by short name; verify before removal)
 
 Performance

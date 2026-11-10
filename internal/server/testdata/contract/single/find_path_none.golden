@@ -1,12 +1,12 @@
 {
   "note": "both endpoints resolved uniquely, but no path connects them within 10 hops",
   "from_tried": [
-    "pkg/b.Beta"
+    "example.com/gosample/pkg/b.Beta"
   ],
   "to_tried": [
-    "..main"
+    "example.com/gosample.main"
   ],
-  "from": "pkg/b.Beta",
-  "to": "..main",
+  "from": "example.com/gosample/pkg/b.Beta",
+  "to": "example.com/gosample.main",
   "found": false
 }

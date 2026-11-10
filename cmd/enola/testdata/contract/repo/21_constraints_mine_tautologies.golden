@@ -41,7 +41,7 @@ Thresholds: support >= 1, confidence >= 0.90, exceptions <= 20 per candidate. Ra
            mode: "advisory"
            because: "Mined regularity: 9/9 symbol facts have symbol_kind containing function. No exceptions in the mined snapshot. Rewrite this rationale before adopting."
 
-  3. 1.000 x 8      [naming symbol] 8/8 symbol facts under pkg/ are named pkg/*
+  3. 1.000 x 8      [naming symbol] 8/8 symbol facts under pkg/ are named example.com/gosample/pkg/*
      exceptions: none in the mined snapshot
      would-be rule (adopt by hand: copy into enola/constraints/, rewrite because:, review mode):
        components:
@@ -50,13 +50,13 @@ Thresholds: support >= 1, confidence >= 0.90, exceptions <= 20 per candidate. Ra
            match:
              - "pkg/**"
        rules:
-         - id: "mined-pkg-symbol-named-pkg"
+         - id: "mined-pkg-symbol-named-example-com-gosample-pkg"
            require_name: "mined-pkg"
-           pattern: "pkg/*"
+           pattern: "example.com/gosample/pkg/*"
            mode: "advisory"
-           because: "Mined regularity: 8/8 symbol facts under pkg/ are named pkg/*. No exceptions in the mined snapshot. Rewrite this rationale before adopting."
+           because: "Mined regularity: 8/8 symbol facts under pkg/ are named example.com/gosample/pkg/*. No exceptions in the mined snapshot. Rewrite this rationale before adopting."
 
-  4. 1.000 x 7      [naming symbol] 7/7 symbol facts under pkg/a/ are named pkg/a.*
+  4. 1.000 x 7      [naming symbol] 7/7 symbol facts under pkg/a/ are named example.com/gosample/pkg/a.*
      exceptions: none in the mined snapshot
      would-be rule (adopt by hand: copy into enola/constraints/, rewrite because:, review mode):
        components:
@@ -65,11 +65,11 @@ Thresholds: support >= 1, confidence >= 0.90, exceptions <= 20 per candidate. Ra
            match:
              - "pkg/a/**"
        rules:
-         - id: "mined-pkg-a-symbol-named-pkg-a"
+         - id: "mined-pkg-a-symbol-named-example-com-gosample-pkg-a"
            require_name: "mined-pkg-a"
-           pattern: "pkg/a.*"
+           pattern: "example.com/gosample/pkg/a.*"
            mode: "advisory"
-           because: "Mined regularity: 7/7 symbol facts under pkg/a/ are named pkg/a.*. No exceptions in the mined snapshot. Rewrite this rationale before adopting."
+           because: "Mined regularity: 7/7 symbol facts under pkg/a/ are named example.com/gosample/pkg/a.*. No exceptions in the mined snapshot. Rewrite this rationale before adopting."
 
   5. 1.000 x 3      [prop-implication module] 3/3 module facts have language containing go
      exceptions: none in the mined snapshot
@@ -89,7 +89,7 @@ Thresholds: support >= 1, confidence >= 0.90, exceptions <= 20 per candidate. Ra
            mode: "advisory"
            because: "Mined regularity: 3/3 module facts have language containing go. No exceptions in the mined snapshot. Rewrite this rationale before adopting."
 
-  6. 1.000 x 2      [naming module] 2/2 module facts under pkg/ are named pkg/*
+  6. 1.000 x 2      [naming module] 2/2 module facts under pkg/ are named example.com/gosample/pkg/*
      exceptions: none in the mined snapshot
      would-be rule (adopt by hand: copy into enola/constraints/, rewrite because:, review mode):
        components:
@@ -98,11 +98,11 @@ Thresholds: support >= 1, confidence >= 0.90, exceptions <= 20 per candidate. Ra
            match:
              - "pkg/**"
        rules:
-         - id: "mined-pkg-module-named-pkg"
+         - id: "mined-pkg-module-named-example-com-gosample-pkg"
            require_name: "mined-pkg"
-           pattern: "pkg/*"
+           pattern: "example.com/gosample/pkg/*"
            mode: "advisory"
-           because: "Mined regularity: 2/2 module facts under pkg/ are named pkg/*. No exceptions in the mined snapshot. Rewrite this rationale before adopting."
+           because: "Mined regularity: 2/2 module facts under pkg/ are named example.com/gosample/pkg/*. No exceptions in the mined snapshot. Rewrite this rationale before adopting."
 
   7. 1.000 x 1      [allow-only] 1/1 calls edges leaving pkg/a/ land in pkg/b
      exceptions: none in the mined snapshot
@@ -180,7 +180,7 @@ Thresholds: support >= 1, confidence >= 0.90, exceptions <= 20 per candidate. Ra
            mode: "advisory"
            because: "Mined regularity: 1/1 imports edges leaving pkg/b/ land in pkg. No exceptions in the mined snapshot. Rewrite this rationale before adopting."
 
- 11. 1.000 x 1      [naming symbol] 1/1 symbol facts under pkg/b/ are named *b.Beta
+ 11. 1.000 x 1      [naming symbol] 1/1 symbol facts under pkg/b/ are named example.com/gosample/pkg/b.*
      exceptions: none in the mined snapshot
      would-be rule (adopt by hand: copy into enola/constraints/, rewrite because:, review mode):
        components:
@@ -189,11 +189,11 @@ Thresholds: support >= 1, confidence >= 0.90, exceptions <= 20 per candidate. Ra
            match:
              - "pkg/b/**"
        rules:
-         - id: "mined-pkg-b-symbol-named-b-beta"
+         - id: "mined-pkg-b-symbol-named-example-com-gosample-pkg-b"
            require_name: "mined-pkg-b"
-           pattern: "*b.Beta"
+           pattern: "example.com/gosample/pkg/b.*"
            mode: "advisory"
-           because: "Mined regularity: 1/1 symbol facts under pkg/b/ are named *b.Beta. No exceptions in the mined snapshot. Rewrite this rationale before adopting."
+           because: "Mined regularity: 1/1 symbol facts under pkg/b/ are named example.com/gosample/pkg/b.*. No exceptions in the mined snapshot. Rewrite this rationale before adopting."
 
  12. 1.000 x 1      [prop-implication module] 1/1 module facts whose modulePath contains example.com/gosample also have package containing main
      exceptions: none in the mined snapshot

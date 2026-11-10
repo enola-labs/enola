@@ -4,7 +4,7 @@ exit: 0
 Baseline pinned for <TMP>/services/api
   Generated: <TIME>
   Repo:      <TMP>/services/api
-  Facts:     22 · Insights: 6
+  Facts:     22 · Insights: 8
   Snapshot:  sha256:<HASH>
 
 Now make your changes, then run:

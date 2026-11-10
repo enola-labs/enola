@@ -6,11 +6,11 @@ Cluster <TMP>/services/cluster.yaml: 2 repositories
 == cluster
 <TMP>/.enola/graphs/services-cluster-<KEY>/history
 
-  revisions      3
-    with contents 3  (replayable)
-    working      3  (snapshots of uncommitted trees)
+  revisions      1
+    with contents 1  (replayable)
+    working      1  (snapshots of uncommitted trees)
   segments       1
-  stored         7 KB
+  stored         5 KB
 
 Nothing to remove.
 
@@ -24,5 +24,5 @@ No revisions recorded.
 
 No revisions recorded.
 
-Total: 3 revisions, 7 KB stored, 0 B would be reclaimed
+Total: 1 revision, 5 KB stored, 0 B would be reclaimed
 --- stderr

@@ -9,7 +9,7 @@
   "facts_added": [
     {
       "kind": "dependency",
-      "name": "pkg/a -\u003e example.com/gosample/pkg/c",
+      "name": "example.com/gosample/pkg/a -\u003e example.com/gosample/pkg/c",
       "file": "pkg/a/gamma.go",
       "line": 3,
       "repo": "go_sample",
@@ -20,13 +20,13 @@
       "relations": [
         {
           "kind": "imports",
-          "target": "pkg/c"
+          "target": "example.com/gosample/pkg/c"
         }
       ]
     },
     {
       "kind": "module",
-      "name": "pkg/c",
+      "name": "example.com/gosample/pkg/c",
       "file": "pkg/c",
       "repo": "go_sample",
       "props": {
@@ -36,7 +36,7 @@
     },
     {
       "kind": "symbol",
-      "name": "pkg/a.UsesGamma",
+      "name": "example.com/gosample/pkg/a.UsesGamma",
       "file": "pkg/a/gamma.go",
       "line": 6,
       "end_line": 6,
@@ -53,17 +53,17 @@
       "relations": [
         {
           "kind": "declares",
-          "target": "pkg/a"
+          "target": "example.com/gosample/pkg/a"
         },
         {
           "kind": "calls",
-          "target": "pkg/c.Gamma"
+          "target": "example.com/gosample/pkg/c.Gamma"
         }
       ]
     },
     {
       "kind": "symbol",
-      "name": "pkg/c.Gamma",
+      "name": "example.com/gosample/pkg/c.Gamma",
       "file": "pkg/c/c.go",
       "line": 4,
       "end_line": 4,
@@ -79,53 +79,53 @@
       "relations": [
         {
           "kind": "declares",
-          "target": "pkg/c"
+          "target": "example.com/gosample/pkg/c"
         }
       ]
     }
   ],
   "edges_added": [
     {
-      "source": "pkg/a -\u003e example.com/gosample/pkg/c",
+      "source": "example.com/gosample/pkg/a -\u003e example.com/gosample/pkg/c",
       "kind": "imports",
-      "target": "pkg/c",
+      "target": "example.com/gosample/pkg/c",
       "repo": "go_sample"
     },
     {
-      "source": "pkg/a.UsesGamma",
+      "source": "example.com/gosample/pkg/a.UsesGamma",
       "kind": "calls",
-      "target": "pkg/c.Gamma",
+      "target": "example.com/gosample/pkg/c.Gamma",
       "repo": "go_sample"
     },
     {
-      "source": "pkg/a.UsesGamma",
+      "source": "example.com/gosample/pkg/a.UsesGamma",
       "kind": "declares",
-      "target": "pkg/a",
+      "target": "example.com/gosample/pkg/a",
       "repo": "go_sample"
     },
     {
-      "source": "pkg/c.Gamma",
+      "source": "example.com/gosample/pkg/c.Gamma",
       "kind": "declares",
-      "target": "pkg/c",
+      "target": "example.com/gosample/pkg/c",
       "repo": "go_sample"
     }
   ],
   "findings_new": [
     {
-      "title": "Dead code candidate: function pkg/a.UsesGamma",
+      "title": "Dead code candidate: function example.com/gosample/pkg/a.UsesGamma",
       "source": "dead-code",
-      "description": "function \"pkg/a.UsesGamma\" is unreferenced — nothing in the snapshot graph references it (high confidence). References are matched by short name and biased conservative, so verify against dynamic/reflective dispatch and consumers outside the snapshot before removing.",
+      "description": "function \"example.com/gosample/pkg/a.UsesGamma\" is unreferenced — nothing in the snapshot graph references it (high confidence). References are matched by short name and biased conservative, so verify against dynamic/reflective dispatch and consumers outside the snapshot before removing.",
       "confidence": 0.8,
       "evidence": [
         {
           "file": "pkg/a/gamma.go",
-          "symbol": "pkg/a.UsesGamma",
+          "symbol": "example.com/gosample/pkg/a.UsesGamma",
           "detail": "function · unreferenced · pkg/a/gamma.go:6",
           "line": 6,
           "end_line": 6
         },
         {
-          "symbol": "pkg/a.UsesGamma",
+          "symbol": "example.com/gosample/pkg/a.UsesGamma",
           "detail": "exported — may be used outside this snapshot; verify before removal"
         }
       ],

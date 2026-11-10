@@ -1,24 +1,14 @@
-# Directory: api
+# Module: example.com/api
 
-Total facts: 7
+- Language: go
+- Package: main
 
-## Summary
+## Symbols (4)
 
-- Files: 2
-- Modules: 1
-- Symbols: 3
-- Dependencies: 2
-- Routes: 1
-
-## Modules (1)
-
-- .
-
-## Key Symbols (showing up to 30)
-
-| Name | Kind | File | Line |
-|------|------|------|------|
-| ..main | function | api/server.go | 14 |
-| ..registerThings | function | api/server.go | 23 |
-| ..getThing | function | api/server.go | 27 |
+| Name | Kind | File | Line | Exported |
+|------|------|------|------|----------|
+| example.com/api.main | function | api/server.go | 14 | no |
+| example.com/api.registerThings | function | api/server.go | 23 | no |
+| /v1/things/{id} |  | api/server.go | 24 | no |
+| example.com/api.getThing | function | api/server.go | 27 | no |
 

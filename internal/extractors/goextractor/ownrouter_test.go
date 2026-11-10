@@ -70,6 +70,7 @@ func goRouteTargets(t *testing.T, files map[string]string) map[string]string {
 	if err != nil {
 		t.Fatal(err)
 	}
+	ff = dirNamed(t, repo, ff)
 	out := map[string]string{}
 	for _, f := range ff {
 		if f.Kind == facts.KindRoute {

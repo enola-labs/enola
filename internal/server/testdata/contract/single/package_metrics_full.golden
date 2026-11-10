@@ -1,7 +1,7 @@
 {
   "packages": [
     {
-      "package": "pkg/a",
+      "package": "example.com/gosample/pkg/a",
       "repo": "go_sample",
       "classes_interfaces": 0,
       "afferent_couplings": 2,
@@ -12,7 +12,7 @@
       "data_holder_ratio": 0
     },
     {
-      "package": "pkg/b",
+      "package": "example.com/gosample/pkg/b",
       "repo": "go_sample",
       "classes_interfaces": 0,
       "afferent_couplings": 2,
@@ -23,7 +23,7 @@
       "data_holder_ratio": 0
     },
     {
-      "package": ".",
+      "package": "example.com/gosample",
       "repo": "go_sample",
       "classes_interfaces": 0,
       "afferent_couplings": 0,

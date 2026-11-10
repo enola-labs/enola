@@ -170,6 +170,7 @@ func ReadAuthorship(repo string, window int, store *facts.Store) *Authorship {
 	}
 
 	prod, test := common.ModuleNameSets(store)
+	dirs := common.NewModuleDirs(store)
 
 	// counts[module][author] — a commit contributes ONE unit to a module however many
 	// of that module's files it touched. Weighting by file count would let a
@@ -212,7 +213,7 @@ func ReadAuthorship(repo string, window int, store *facts.Store) *Authorship {
 		// Repo is deliberately empty: git log emits repository-relative paths, which
 		// are already in module-name space. Setting the label would ask
 		// ModuleDirCandidates to strip a prefix these paths never carry.
-		mod := common.ResolveModule(facts.Fact{File: line}, prod, test)
+		mod := common.ResolveModule(facts.Fact{File: line}, prod, test, dirs)
 		if !prod[mod] {
 			continue // test scaffolding, or no module at all
 		}

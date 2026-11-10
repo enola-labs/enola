@@ -45,8 +45,9 @@ func TestQueryFacts_StatesTheFiltersItReceived(t *testing.T) {
 
 // TestQueryFacts_RetriesANameCarryingTheRepoLabel: in a multi-repo store every file
 // path starts with its repo label and no name does, so a name copied from a path
-// matched nothing. An empty answer is retried without the label, scoped to that repo,
-// and says so.
+// matched nothing. A Go name copied that way is the package's directory in that
+// repository, which spells its import-path name exactly; the answer is that
+// repository's symbol and not the other one's.
 func TestQueryFacts_RetriesANameCarryingTheRepoLabel(t *testing.T) {
 	root := t.TempDir()
 	alpha, beta := filepath.Join(root, "alpha"), filepath.Join(root, "beta")
@@ -60,7 +61,7 @@ func TestQueryFacts_RetriesANameCarryingTheRepoLabel(t *testing.T) {
 	out := text(s.call(t, "query_facts", map[string]any{
 		"kind": "symbol", "names": []string{"beta/internal/svc.BetaUpper"}, "output_mode": "compact",
 	}))
-	if !strings.Contains(out, "internal/svc.BetaUpper") || !strings.Contains(out, `Retried without "beta/"`) {
+	if !strings.Contains(out, "example.com/beta/internal/svc.BetaUpper") || strings.Contains(out, "AlphaUpper") {
 		t.Errorf("a repo-labelled name was not retried without the label:\n%s", out)
 	}
 }

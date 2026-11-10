@@ -204,6 +204,10 @@ func (c component) predicated() bool {
 }
 
 type rule struct {
+	// gonames matches a Go name written in directory form as well; see goNames. Set
+	// per evaluation, since it is read from the store.
+	gonames goNames
+
 	id, because, source, mode string
 	recipe, instance          string
 	forbid, to                string
@@ -427,16 +431,20 @@ type evaluated struct {
 
 func (e *Explainer) evaluate(store *facts.Store, opts evaluation) evaluated {
 	components, rules := declarations(store)
+	gonames := newGoNames(store)
+	for i := range rules {
+		rules[i].gonames = gonames
+	}
 	out := evaluated{byRule: map[string][]facts.Insight{}, rules: rules}
 	if len(components) == 0 {
 		return out
 	}
 
-	names := make([]string, 0, len(components))
+	componentNames := make([]string, 0, len(components))
 	for n := range components {
-		names = append(names, n)
+		componentNames = append(componentNames, n)
 	}
-	sort.Strings(names)
+	sort.Strings(componentNames)
 
 	// The counterparty rule, inherited from intentcheck: a component naming a
 	// service no loaded fact carries the label of is UNASKED — the snapshot
@@ -467,7 +475,7 @@ func (e *Explainer) evaluate(store *facts.Store, opts evaluation) evaluated {
 	// the file each violation is evidenced with.
 	members := map[string]map[string]bool{}
 	memberFacts := map[string][]facts.Fact{}
-	for _, name := range names {
+	for _, name := range componentNames {
 		members[name], memberFacts[name] = resolveMembership(store, components[name])
 		if opts.exclude != nil {
 			members[name], memberFacts[name] = withoutExcluded(members[name], memberFacts[name], opts.exclude)
@@ -482,7 +490,7 @@ func (e *Explainer) evaluate(store *facts.Store, opts evaluation) evaluated {
 	// to one exact fact name gets no carriers: a file-level join would attribute
 	// every edge in the file to the single fact the author named.
 	carriers := map[string][]facts.Fact{}
-	for _, name := range names {
+	for _, name := range componentNames {
 		c := components[name]
 		for _, f := range store.ByKind(facts.KindDependency) {
 			if carrierFor(f, c) && (opts.exclude == nil || !opts.exclude(f)) {
@@ -497,7 +505,7 @@ func (e *Explainer) evaluate(store *facts.Store, opts evaluation) evaluated {
 	// What a member ENCLOSES is added per rule by the resolver, because a rule
 	// may override what a component owns for its own reach.
 	carried := map[string][]facts.Fact{}
-	for _, name := range names {
+	for _, name := range componentNames {
 		sources := append(append([]facts.Fact{}, memberFacts[name]...), carriers[name]...)
 		sortFactsByNameThenFile(sources)
 		carried[name] = sources
@@ -667,9 +675,9 @@ func (e *Explainer) evaluate(store *facts.Store, opts evaluation) evaluated {
 		insights = append(insights, unevaluableSelectorInsight(u, components[u.Component]))
 	}
 
-	insights = append(insights, oneLevelSuperclassAdvisories(store, names, components, members, unasked, unevaluable)...)
+	insights = append(insights, oneLevelSuperclassAdvisories(store, componentNames, components, members, unasked, unevaluable)...)
 
-	for _, name := range names {
+	for _, name := range componentNames {
 		c := components[name]
 		if unasked[name] {
 			insights = append(insights, facts.Insight{
@@ -849,6 +857,14 @@ func exemptVerdicts(r rule, verdicts []facts.Insight) []facts.Insight {
 	byTitle := map[string]intent.ConstraintExemption{}
 	for _, ex := range r.exempt {
 		byTitle[r.titled(ex.Witness)] = ex
+		// A witness copied when Go packages were named by directory matches the
+		// verdict that now names them by import path. Matched and reported under
+		// the witness as written.
+		if up := r.gonames.upgradeWitness(ex.Witness); up != "" {
+			if _, taken := byTitle[r.titled(up)]; !taken {
+				byTitle[r.titled(up)] = ex
+			}
+		}
 	}
 	matched := map[string]bool{}
 	skipped := false
@@ -932,7 +948,7 @@ func (e *Explainer) verdictForbid(r rule, resolve *resolver, ground *grounding) 
 			// declaration wrote them.
 			var onto basis
 			if len(r.toName) > 0 {
-				if !matchesAnyBoundedName(rel.Target, r.toName) {
+				if !matchesAnyBoundedName(rel.Target, r.toName, r.gonames) {
 					continue
 				}
 				if r.receiver == "none" && strings.ContainsAny(rel.Target, ".#") {
@@ -1003,9 +1019,9 @@ func forbidFarEnd(r rule) string {
 
 // matchesAnyBoundedName reports whether the target matches any of the literals
 // in the bounded dialect the validator admits.
-func matchesAnyBoundedName(target string, patterns []string) bool {
+func matchesAnyBoundedName(target string, patterns []string, gonames goNames) bool {
 	for _, p := range patterns {
-		if intent.MatchBoundedName(target, p) {
+		if gonames.matchName(target, p) {
 			return true
 		}
 		// A literal naming a bare method matches the method of a chained or
@@ -1551,7 +1567,7 @@ func (e *Explainer) verdictRequire(r rule, memberFacts map[string][]facts.Fact, 
 	first := firstFactByName(memberFacts[r.require])
 	for _, name := range memberNames {
 		f := first[name]
-		witness, selected := factEdgeTo(f, r.via, r.whenEdgeTo)
+		witness, selected := factEdgeTo(f, r.via, r.whenEdgeTo, r.gonames)
 		if !selected {
 			continue
 		}
@@ -1600,7 +1616,7 @@ func (e *Explainer) verdictRequire(r rule, memberFacts map[string][]facts.Fact, 
 // call target arrives qualified — *.reactiveUnwrap matches
 // ember_app/app/utils.reactiveUnwrap without the declaration having to know
 // where the helper lives.
-func factEdgeTo(f facts.Fact, via string, targets []string) (string, bool) {
+func factEdgeTo(f facts.Fact, via string, targets []string, gonames goNames) (string, bool) {
 	if len(targets) == 0 {
 		return "", true
 	}
@@ -1609,7 +1625,7 @@ func factEdgeTo(f facts.Fact, via string, targets []string) (string, bool) {
 			continue
 		}
 		for _, target := range targets {
-			if intent.MatchBoundedName(rel.Target, target) {
+			if gonames.matchName(rel.Target, target) {
 				return rel.Target, true
 			}
 		}
@@ -1752,7 +1768,7 @@ func (e *Explainer) verdictRequireName(r rule, memberFacts map[string][]facts.Fa
 	var out []facts.Insight
 	first := firstFactByName(memberFacts[r.requireName])
 	for _, name := range sortedMemberNames(members[r.requireName]) {
-		if intent.MatchBoundedName(name, r.pattern) {
+		if r.gonames.matchName(name, r.pattern) {
 			continue
 		}
 		f := first[name]
@@ -1787,7 +1803,7 @@ func (e *Explainer) verdictForbidName(r rule, memberFacts map[string][]facts.Fac
 	var out []facts.Insight
 	first := firstFactByName(memberFacts[r.forbidName])
 	for _, name := range sortedMemberNames(members[r.forbidName]) {
-		if !intent.MatchBoundedName(name, r.pattern) && !intent.MatchBoundedName(memberShortName(name), r.pattern) {
+		if !r.gonames.matchName(name, r.pattern) && !intent.MatchBoundedName(memberShortName(name), r.pattern) {
 			continue
 		}
 		f := first[name]
@@ -1845,7 +1861,7 @@ func (e *Explainer) verdictRequireEdge(r rule, graphWalk []facts.Fact, memberFac
 	if len(r.whenEdgeTo) > 0 {
 		var selected []string
 		for _, name := range memberNames {
-			if _, ok := factEdgeTo(first[name], r.whenVia, r.whenEdgeTo); ok {
+			if _, ok := factEdgeTo(first[name], r.whenVia, r.whenEdgeTo, r.gonames); ok {
 				selected = append(selected, name)
 			}
 		}
@@ -2295,6 +2311,10 @@ func componentRecipeProvenance(c component) string {
 // equality, which is what the walk did before the dialect reached it.
 func resolveMembership(store *facts.Store, c component) (map[string]bool, []facts.Fact) {
 	names := map[string]bool{}
+	var gonames goNames
+	if c.namePattern != "" {
+		gonames = newGoNames(store)
+	}
 	var members []facts.Fact
 	var descendants map[string]bool
 	if c.ancestor != "" {
@@ -2316,7 +2336,7 @@ func resolveMembership(store *facts.Store, c component) (map[string]bool, []fact
 			if !matchMemberFile(f, c) {
 				continue
 			}
-			if c.namePattern != "" && !intent.MatchBoundedName(f.Name, c.namePattern) {
+			if c.namePattern != "" && !gonames.matchName(f.Name, c.namePattern) {
 				continue
 			}
 			if !matchesWhere(f, c.where) {

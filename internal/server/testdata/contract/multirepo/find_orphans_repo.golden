@@ -1,7 +1,9 @@
-Orphan symbols — 3 (mode=both):
+Orphan symbols — 5 (mode=both):
 
 | Kind | Name | Class | Conf | Location |
 |------|------|-------|------|----------|
-| struct | ..Client | unreferenced | medium | consumer/client.go:35 |
-| method | ..Client.run | unreferenced | low | consumer/client.go:40 |
-| function | ..NewZepto | unreferenced | high | consumer/client.go:20 |
+| struct | example.com/consumer.Client | unreferenced | medium | consumer/client.go:35 |
+| method | example.com/consumer.Client.run | unreferenced | low | consumer/client.go:40 |
+| function | example.com/consumer.NewZepto | unreferenced | high | consumer/client.go:20 |
+| struct | example.com/consumer.Options | isolated | medium | consumer/client.go:33 |
+| struct | example.com/consumer.Zepto | isolated | medium | consumer/client.go:18 |

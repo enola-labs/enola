@@ -170,6 +170,28 @@ func ModuleDirCandidates(f facts.Fact) []string {
 	return []string{raw, stripped}
 }
 
+// ModuleDirs maps a directory to the module living there under another name. See
+// facts.ModuleDirs.
+type ModuleDirs = facts.ModuleDirs
+
+// NewModuleDirs indexes the modules of store that are not named by their directory.
+func NewModuleDirs(store *facts.Store) ModuleDirs {
+	return facts.NewModuleDirs(store.ByKind(facts.KindModule))
+}
+
+// ModuleDirCandidatesIn is ModuleDirCandidates in module-name space: each candidate
+// directory that a module not named by its directory lives in is replaced by that
+// module's name.
+func ModuleDirCandidatesIn(f facts.Fact, dirs ModuleDirs) []string {
+	candidates := ModuleDirCandidates(f)
+	for i, c := range candidates {
+		if n := dirs.Name(f.Repo, c); n != "" {
+			candidates[i] = n
+		}
+	}
+	return candidates
+}
+
 // resolveModuleDir picks the module a fact's file belongs to, trying every candidate
 // directory against the known module names.
 //
@@ -178,15 +200,15 @@ func ModuleDirCandidates(f facts.Fact) []string {
 // exist in the other snapshot shape (the bare repo label "consumer" in an append-mode
 // graph), so letting a walk-up beat an exact match would let the two shapes
 // cross-match and attribute an edge to the wrong module.
-func resolveModuleDir(f facts.Fact, prod, test map[string]bool) string {
-	candidates := ModuleDirCandidates(f)
+func resolveModuleDir(f facts.Fact, prod, test map[string]bool, dirs ModuleDirs) string {
+	candidates := ModuleDirCandidatesIn(f, dirs)
 	for _, c := range candidates {
 		if prod[c] || test[c] {
 			return c
 		}
 	}
-	for _, c := range candidates {
-		if m := nearestModuleOrEmpty(c, prod, test); m != "" {
+	for _, c := range ModuleDirCandidates(f) {
+		if m := nearestModuleIn(c, f.Repo, prod, test, dirs); m != "" {
 			return m
 		}
 	}
@@ -240,8 +262,9 @@ func hasAuthoritativeRole(m facts.Fact) bool {
 func promoteImportedByProduction(store *facts.Store, prod, test, guessed map[string]bool) {
 	type edge struct{ from, to string }
 	var edges []edge
+	dirs := NewModuleDirs(store)
 	for _, dep := range store.ByKind(facts.KindDependency) {
-		from := resolveModuleDir(dep, prod, test)
+		from := resolveModuleDir(dep, prod, test, dirs)
 		// A file in a guessed module is test code by that same guess, so only its
 		// own name can rule it out; the fixpoint below decides the rest.
 		if facts.IsTestPath(path.Base(dep.File)) || (facts.IsTestPath(dep.File) && !guessed[from]) {
@@ -280,16 +303,25 @@ func promoteImportedByProduction(store *facts.Store, prod, test, guessed map[str
 // is safe) and then walks up to the nearest enclosing module for nested layouts.
 // Anything outside this package that needs to answer "which module is this file in"
 // must come through here rather than reaching for FileDir.
-func ResolveModule(f facts.Fact, prod, test map[string]bool) string {
-	return resolveModuleDir(f, prod, test)
+func ResolveModule(f facts.Fact, prod, test map[string]bool, dirs ModuleDirs) string {
+	return resolveModuleDir(f, prod, test, dirs)
 }
 
 // nearestModuleOrEmpty walks dir up its path until it reaches a known production or
 // test module, returning "" when nothing encloses it — the difference from
 // nearestModule, which reports the input unchanged and so cannot express a miss.
 func nearestModuleOrEmpty(dir string, prod, test map[string]bool) string {
+	return nearestModuleIn(dir, "", prod, test, nil)
+}
+
+// nearestModuleIn walks dir up like nearestModuleOrEmpty, and at each level also asks
+// dirs for a module living in that directory under another name.
+func nearestModuleIn(dir, repo string, prod, test map[string]bool, dirs ModuleDirs) string {
 	cur := dir
 	for {
+		if n := dirs.Name(repo, cur); n != "" && (prod[n] || test[n]) {
+			return n
+		}
 		if prod[cur] || test[cur] {
 			return cur
 		}
@@ -386,7 +418,7 @@ func IsTestModule(m facts.Fact) bool {
 		return false // authoritative: the build file said so
 	}
 	// No usable signal (absent, "", or "unknown") — the five untagged languages.
-	return facts.IsTestPath(m.Name)
+	return facts.IsTestPath(facts.ModulePath(m))
 }
 
 // BuildModuleGraphExcluding is BuildModuleGraph with the ability to drop synthetic
@@ -407,6 +439,7 @@ func BuildModuleGraphExcluding(store *facts.Store, excludeKinds ...string) map[s
 	}
 
 	moduleNames, testModules := ModuleNameSets(store)
+	dirs := NewModuleDirs(store)
 	keys := NewModuleKeys(store)
 	for _, m := range store.ByKind(facts.KindModule) {
 		if !moduleNames[m.Name] {
@@ -437,7 +470,7 @@ func BuildModuleGraphExcluding(store *facts.Store, excludeKinds ...string) map[s
 		// the stripped dir is the one that names no module. Either way the edge used
 		// to hang off a phantom node nothing else referenced, silently zeroing cycle
 		// and depth detection across the whole tree. See resolveModuleDir.
-		sourceModule := resolveModuleDir(dep, moduleNames, testModules)
+		sourceModule := resolveModuleDir(dep, moduleNames, testModules, dirs)
 		if testModules[sourceModule] {
 			continue // edge out of a test bundle — not production architecture
 		}

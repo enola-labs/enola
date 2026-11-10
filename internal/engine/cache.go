@@ -3478,7 +3478,10 @@ import (
 // file falls back to the same. package.json now feeds the TypeScript cache key.
 // v551: Go: a method used as a value (`srv.Use(s.auth)`) is a calls edge to it, resolved
 // as the call would be and only when the module declares that method.
-const cacheVersion = "v551"
+// v552: Go: packages and their symbols are named by import path, the module path their
+// go.mod declares joined with the package's place in the module, and an internal import
+// targets that path as written; the module fact keeps the directory as its File.
+const cacheVersion = "v552"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

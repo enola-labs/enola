@@ -32,7 +32,7 @@ exit: 0
   },
   "start_here": [
     {
-      "subject": "main",
+      "subject": "example.com/gosample.main",
       "location": "main.go:10",
       "text": "The program starts here. From here the code reaches 3 functions in 3 modules.",
       "certainty": "certain"

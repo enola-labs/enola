@@ -14,14 +14,14 @@
         "fan_in": 4,
         "fan_out": 2,
         "in": [
-          "..main",
+          "example.com/gosample.main",
+          "example.com/gosample/pkg/b.Beta",
           "pkg/a/a_ext_test.go",
-          "pkg/a/a_test.go",
-          "pkg/b.Beta"
+          "pkg/a/a_test.go"
         ],
         "out": [
-          "pkg/b",
-          "pkg/b.Beta"
+          "example.com/gosample/pkg/b",
+          "example.com/gosample/pkg/b.Beta"
         ]
       }
     }

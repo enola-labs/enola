@@ -4,16 +4,16 @@ Total facts: 11
 
 ## Symbols (5)
 
-- **..Zepto** (line 18) [struct]
-- **..NewZepto** (line 20) [function]
-- **..Options** (line 33) [struct]
-- **..Client** (line 35) [struct]
-- **..Client.run** (line 40) [method]
+- **example.com/consumer.Zepto** (line 18) [struct]
+- **example.com/consumer.NewZepto** (line 20) [function]
+- **example.com/consumer.Options** (line 33) [struct]
+- **example.com/consumer.Client** (line 35) [struct]
+- **example.com/consumer.Client.run** (line 40) [method]
 
 ## Dependencies (2)
 
-- **. -> context** (line 4)
-- **. -> net/http** (line 5)
+- **example.com/consumer -> context** (line 4)
+- **example.com/consumer -> net/http** (line 5)
 
 ## Routes (4)
 

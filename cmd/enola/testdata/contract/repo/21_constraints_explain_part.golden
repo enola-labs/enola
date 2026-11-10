@@ -6,15 +6,15 @@ part pkg-a: match pkg/a/** (declared in enola-intent.yaml)
 
   members in 2 file(s):
     pkg/a
-      pkg/a
+      example.com/gosample/pkg/a
     pkg/a/a.go
-      pkg/a.Alpha
-      pkg/a.Gamma
-      pkg/a.GetPath
-      pkg/a.Seed
-      pkg/a.getByID
-      pkg/a.helper
-      pkg/a.setup
+      example.com/gosample/pkg/a.Alpha
+      example.com/gosample/pkg/a.Gamma
+      example.com/gosample/pkg/a.GetPath
+      example.com/gosample/pkg/a.Seed
+      example.com/gosample/pkg/a.getByID
+      example.com/gosample/pkg/a.helper
+      example.com/gosample/pkg/a.setup
   public face: none declared
   fan-in (edges landing on the part, by source part):
     (no part)                     5

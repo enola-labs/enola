@@ -1,6 +1,6 @@
 # Symbol: pkg/b.Beta
 
-## pkg/b.Beta
+## example.com/gosample/pkg/b.Beta
 
 - File: pkg/b/b.go
 - Line: 6
@@ -10,16 +10,16 @@
 
 ### Relations
 
-- calls → pkg/a.Alpha
-- declares → pkg/b
+- calls → example.com/gosample/pkg/a.Alpha
+- declares → example.com/gosample/pkg/b
 
 ### Related Facts
 
-- **pkg/a.Alpha** (symbol) — pkg/a/a.go:7
-- **pkg/b** (module) — pkg/b
+- **example.com/gosample/pkg/a.Alpha** (symbol) — pkg/a/a.go:7
+- **example.com/gosample/pkg/b** (module) — pkg/b
 
 ### Referenced By
 
-- ..main (calls)
-- pkg/a.Alpha (calls)
+- example.com/gosample.main (calls)
+- example.com/gosample/pkg/a.Alpha (calls)
 
