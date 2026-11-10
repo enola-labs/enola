@@ -197,6 +197,12 @@ func writeImpactHead(w *strings.Builder, report impact.Report) bool {
 		fmt.Fprintln(w, report.Summary)
 	}
 	writeImpactModules(w, report)
+	if lines := report.EndpointLines(40); len(lines) > 0 {
+		w.WriteString("\n" + strings.ToLower(lines[0][:1]) + lines[0][1:] + "\n")
+		for _, l := range lines[1:] {
+			w.WriteString("  " + l + "\n")
+		}
+	}
 	return true
 }
 

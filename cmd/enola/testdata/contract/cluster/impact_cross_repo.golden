@@ -3,6 +3,9 @@ exit: 0
 --- stdout
 3 total dependents — depth 1: 1 route, 1 symbol; depth 2: 1 symbol
 
+endpoints affected (1)
+  GET /v1/things/{id} → example.com/api.getThing (handler is the target)
+
 depth 1 (2):
   /v1/things/{id} (route)  api/server.go:24
   example.com/api.registerThings (symbol)  api/server.go:23

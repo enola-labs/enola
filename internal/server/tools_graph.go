@@ -338,7 +338,7 @@ func (s *Server) registerEndpointImpactTool() {
 func (s *Server) registerImpactAnalysisTool() {
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name: "impact_analysis",
-		Description: "Blast radius of changing a node: everything that transitively depends on it, grouped by hop depth. For refactoring plans and change risk. " +
+		Description: "Blast radius of changing a node: everything that transitively depends on it, grouped by hop depth, and the HTTP endpoints it affects. " +
 			"include_forward=true adds what the target itself depends on. " +
 			"When knowledge pages declare anchors (enola_intent), it also lists the pages anchored to the target's file: the decisions governing the code you are about to change. " +
 			"Output grows fast: start with output_mode=summary and keep max_depth and max_nodes bounded.",
@@ -584,6 +584,36 @@ func writeImpactModules(sb *strings.Builder, resp impactResponse) {
 	sb.WriteString("\n")
 }
 
+// maxImpactEndpoints and maxImpactEndpointsSummary cap how many endpoints of one
+// precision a compact and a summary answer list; the nearest come first, the count is
+// always whole, and full output carries every one.
+const (
+	maxImpactEndpoints        = 40
+	maxImpactEndpointsSummary = 8
+)
+
+// writeImpactEndpoints lists the served endpoints the change reaches. Beside the
+// dependent packages, it is the line a reader of an impact answer most wants.
+func writeImpactEndpoints(sb *strings.Builder, resp impactResponse, max int) {
+	lines := resp.EndpointLines(max)
+	if len(lines) == 0 {
+		return
+	}
+	if len(lines) == 1 {
+		sb.WriteString(lines[0] + "\n\n")
+		return
+	}
+	sb.WriteString("## " + lines[0] + "\n\n")
+	for _, l := range lines[1:] {
+		if strings.HasPrefix(l, "By package only:") || strings.HasPrefix(l, "Through an interface:") {
+			sb.WriteString("\n" + l + "\n\n")
+			continue
+		}
+		sb.WriteString("- " + l + "\n")
+	}
+	sb.WriteString("\n")
+}
+
 // writeImpactPackages lists the listed dependents per owning package, when the
 // repository declares packages.
 func writeImpactPackages(sb *strings.Builder, resp impactResponse) {
@@ -805,6 +835,7 @@ func renderImpactCompact(resp impactResponse) string {
 	}
 
 	writeImpactModules(&sb, resp)
+	writeImpactEndpoints(&sb, resp, maxImpactEndpoints)
 	if r.Summary != "" {
 		sb.WriteString(r.Summary + "\n\n")
 	} else {
@@ -987,6 +1018,7 @@ func (s *Server) renderImpactSummary(resp impactResponse) string {
 	}
 
 	writeImpactModules(&sb, resp)
+	writeImpactEndpoints(&sb, resp, maxImpactEndpointsSummary)
 	if r.Summary != "" {
 		sb.WriteString(r.Summary + "\n\n")
 	}
