@@ -27,6 +27,10 @@ type callTypeTables struct {
 	// function handed to another package as a value (`mustInit(svg.Init)`) can be
 	// told from a variable, constant or type of the same name. See funcvalues.go.
 	funcs map[string]bool
+	// methods holds "pkgDir.Type.Method" for every method declared in the module, named
+	// as its symbol is, so a method handed somewhere as a value (`srv.Use(s.auth)`) can
+	// be told from a field of the same name. See funcvalues.go.
+	methods map[string]bool
 	// elems is what indexing a collection yields. See collectElemTypes.
 	elems elemTypes
 	// registries holds "pkgDir.Type.field" for the registry fields. See registry.go.

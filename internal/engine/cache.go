@@ -3476,7 +3476,9 @@ import (
 // pnpm and Bun workspaces) resolves to the member's source through its exports or
 // entry fields, mapping a build output back to src; a tsconfig path that names no
 // file falls back to the same. package.json now feeds the TypeScript cache key.
-const cacheVersion = "v550"
+// v551: Go: a method used as a value (`srv.Use(s.auth)`) is a calls edge to it, resolved
+// as the call would be and only when the module declares that method.
+const cacheVersion = "v551"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

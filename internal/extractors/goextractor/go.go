@@ -174,7 +174,7 @@ func (e *GoExtractor) Extract(ctx context.Context, repoPath string, files []stri
 	// on a call's result (`eng.Resolver().NodeName(x)`) and a variable assigned from
 	// one (`r := eng.Resolver()`) resolve to the method they reach.
 	callTypes := callTypeTables{
-		returns: make(map[string][]string), aliases: aliases, funcs: make(map[string]bool),
+		returns: make(map[string][]string), aliases: aliases, funcs: make(map[string]bool), methods: make(map[string]bool),
 		elems: elemTypes{byType: make(map[string]string), byField: make(map[string]string)},
 	}
 	for _, pkgDir := range pkgDirs {
@@ -184,6 +184,9 @@ func (e *GoExtractor) Extract(ctx context.Context, repoPath string, files []stri
 		}
 		for name := range collectPackageFuncs(parsedPkgs[pkgDir].parsedFiles) {
 			callTypes.funcs[pkgDir+"."+name] = true
+		}
+		for name := range collectPackageMethods(parsedPkgs[pkgDir].parsedFiles) {
+			callTypes.methods[pkgDir+"."+name] = true
 		}
 	}
 
@@ -556,10 +559,11 @@ func (e *GoExtractor) extractFunc(fset *token.FileSet, fn *ast.FuncDecl, relFile
 			pkgConsts:  pkgConsts,
 			localPkgs:  pkgNames,
 
-			returnTypes: callTypes.returns,
-			aliases:     callTypes.aliases,
-			moduleFuncs: callTypes.funcs,
-			elemTypes:   callTypes.elems,
+			returnTypes:   callTypes.returns,
+			aliases:       callTypes.aliases,
+			moduleFuncs:   callTypes.funcs,
+			moduleMethods: callTypes.methods,
+			elemTypes:     callTypes.elems,
 
 			registryFields: callTypes.registries,
 		}
@@ -856,6 +860,9 @@ type resolveCtx struct {
 	// "pkgDir.Func" for every top-level function in the module. nil where a pass
 	// does not resolve function values across packages.
 	moduleFuncs map[string]bool
+	// "pkgDir.Type.Method" for every method in the module. nil where a pass does not
+	// resolve method values.
+	moduleMethods map[string]bool
 	// Every name this package declares at top level: functions, types, variables
 	// and constants. nil where a pass does not collect it.
 	pkgScope map[string]bool
@@ -2092,6 +2099,24 @@ func collectPackageFuncs(files []*ast.File) map[string]bool {
 				continue
 			}
 			out[fn.Name.Name] = true
+		}
+	}
+	return out
+}
+
+// collectPackageMethods returns "Type.Method" for every method declared in files,
+// with the receiver written as extractFunc writes it into the method's symbol name.
+func collectPackageMethods(files []*ast.File) map[string]bool {
+	out := map[string]bool{}
+	for _, f := range files {
+		for _, decl := range f.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok || fn.Recv == nil || len(fn.Recv.List) == 0 || fn.Name == nil {
+				continue
+			}
+			if recv := typeExprToString(fn.Recv.List[0].Type); recv != "" {
+				out[recv+"."+fn.Name.Name] = true
+			}
 		}
 	}
 	return out

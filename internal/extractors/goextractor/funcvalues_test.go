@@ -302,3 +302,77 @@ var table = []func(){git.CreateBranch}
 		t.Errorf("a package-level table holding git.CreateBranch should reference it, got %v", got)
 	}
 }
+
+// A method handed somewhere as a value is a reference to it, resolved as the call
+// would be: through the receiver, a typed local or a typed field. Middleware
+// registered as `srv.Use(s.auth)` read as dead code at high confidence before.
+func TestMethodValueIsReferenced(t *testing.T) {
+	ff := extractAll(t, map[string]string{
+		"go.mod": "module example.com/app\n\ngo 1.22\n",
+		"srv/srv.go": `package srv
+
+type Mux struct{}
+
+func (m *Mux) Use(h func()) {}
+
+type Server struct {
+	mux  *Mux
+	name func()
+}
+
+func (s *Server) wire() {
+	s.mux.Use(s.auth)
+	other := &Server{}
+	s.mux.Use(other.logging)
+	s.mux.Use(s.name)
+}
+
+func (s *Server) auth()    {}
+func (s *Server) logging() {}
+`})
+	targets := callTargetsOf(ff, "srv.Server.wire")
+	for _, want := range []string{"srv.Server.auth", "srv.Server.logging"} {
+		if !hasTarget(targets, want) {
+			t.Errorf("wire is missing the method value %q; has %v", want, targets)
+		}
+	}
+	// s.name is a field holding a func, not a method: no edge, and certainly not one
+	// to a method that does not exist.
+	for _, tg := range targets {
+		if tg == "srv.Server.name" {
+			t.Errorf("a field read as a method value: %v", targets)
+		}
+	}
+	// The method being called is a call edge, recorded once.
+	n := 0
+	for _, tg := range targets {
+		if tg == "srv.Mux.Use" {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Errorf("srv.Mux.Use recorded %d times; has %v", n, targets)
+	}
+}
+
+// A method value on a receiver whose type the extractor cannot know stays
+// unrecorded: a wrong edge would hide a real dead method.
+func TestMethodValueOfUnknownTypeIsNotResolved(t *testing.T) {
+	ff := extractAll(t, map[string]string{
+		"go.mod": "module example.com/app\n\ngo 1.22\n",
+		"srv/srv.go": `package srv
+
+type Server struct{}
+
+func (s *Server) auth() {}
+
+func register(h func()) {}
+
+func wire(x interface{ auth() }) {
+	register(x.auth)
+}
+`})
+	if targets := callTargetsOf(ff, "srv.wire"); hasTarget(targets, "srv.Server.auth") {
+		t.Errorf("an interface value's method resolved to a concrete type: %v", targets)
+	}
+}
