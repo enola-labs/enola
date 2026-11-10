@@ -12,6 +12,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -41,6 +42,7 @@ type served struct {
 	url  string
 	root string
 	repo string
+	pool *bootstrap.ServedPool
 }
 
 func startServed(t *testing.T, sc bootstrap.ServeOptions, tweak ...func(*config.Config)) *served {
@@ -52,22 +54,22 @@ func startServed(t *testing.T, sc bootstrap.ServeOptions, tweak ...func(*config.
 
 func startServedAt(t *testing.T, sc bootstrap.ServeOptions, root, repo string, tweak ...func(*config.Config)) *served {
 	t.Helper()
-	eng, cfg := newTestEngine(t)
+	_, cfg := newTestEngine(t)
 	for _, f := range tweak {
 		f(cfg)
 	}
 	sc.Roots = []string{root}
-	srv, roots, err := bootstrap.NewServedServer(eng, cfg, sc)
+	pool, roots, err := bootstrap.NewServedPool(cfg, sc)
 	if err != nil {
 		t.Fatal(err)
 	}
-	h, err := srv.HTTPHandler(bootstrap.HTTPOptions{Tokens: []string{testToken}})
+	h, err := pool.HTTPHandler(bootstrap.HTTPOptions{Tokens: []string{testToken}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	ts := httptest.NewServer(h)
 	t.Cleanup(ts.Close)
-	return &served{url: ts.URL + "/mcp", root: roots[0], repo: repo}
+	return &served{url: ts.URL + "/mcp", root: roots[0], repo: repo, pool: pool}
 }
 
 func (s *served) connect(t *testing.T, token string) (*session, error) {
@@ -338,22 +340,35 @@ func TestServe_OutputRootLeavesRepositoriesUntouched(t *testing.T) {
 	if res := sess.call(t, "set_baseline", map[string]any{}); res.IsError {
 		t.Fatalf("set_baseline: %s", text(res))
 	}
-	sess.snapshot(t)
-	if res := sess.call(t, "diff_snapshot", map[string]any{}); res.IsError {
-		t.Fatalf("diff_snapshot against the pinned baseline: %s", text(res))
-	}
-	if res := sess.call(t, "diff_snapshot", map[string]any{"baseline": "previous"}); res.IsError {
-		t.Fatalf("diff_snapshot against the previous run: %s", text(res))
-	}
-
-	if after := tree(t, s.root); !maps.Equal(before, after) {
+	untouched := func(before map[string]string) {
+		t.Helper()
+		after := tree(t, s.root)
+		if maps.Equal(before, after) {
+			return
+		}
 		for p := range after {
 			if _, ok := before[p]; !ok {
 				t.Errorf("written into the served repositories: %s", p)
 			}
 		}
-		t.Errorf("the served repositories changed")
+		t.Fatalf("the served repositories changed")
 	}
+	untouched(before)
+
+	// The consumer's change, then the second half of the loop.
+	if err := os.WriteFile(filepath.Join(s.repo, "pkg", "a", "extra.go"), []byte("package a\n\nfunc Extra() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	before = tree(t, s.root)
+	sess.snapshot(t)
+	if res := sess.call(t, "diff_snapshot", map[string]any{}); res.IsError || !strings.Contains(text(res), "Extra") {
+		t.Fatalf("diff_snapshot against the pinned baseline does not show the change: %s", text(res))
+	}
+	if res := sess.call(t, "diff_snapshot", map[string]any{"baseline": "previous"}); res.IsError {
+		t.Fatalf("diff_snapshot against the previous run: %s", text(res))
+	}
+
+	untouched(before)
 	cfg := config.Default()
 	cfg.Output.Root = out
 	if err := cfg.Normalize(); err != nil {
@@ -366,15 +381,19 @@ func TestServe_OutputRootLeavesRepositoriesUntouched(t *testing.T) {
 		}
 	}
 
-	// A restart restores the graph from the output root, not from the repository.
-	again := startServedAt(t, bootstrap.ServeOptions{Restore: []string{s.repo}}, s.root, s.repo, withRoot)
+	// A restart restores the graph from the output root, not from the repository, and
+	// the first session asking for it adopts it instead of indexing.
+	again := startServedAt(t, bootstrap.ServeOptions{}, s.root, s.repo, withRoot)
+	if err := again.pool.Warm([]string{s.repo}); err != nil {
+		t.Fatalf("restoring from the output root: %v", err)
+	}
 	sess2, err := again.connect(t, testToken)
 	if err != nil {
 		t.Fatal(err)
 	}
-	res := sess2.call(t, "query_facts", map[string]any{"kind": "symbol", "output_mode": "summary"})
-	if res.IsError || !strings.Contains(text(res), "matching facts") {
-		t.Fatalf("query_facts after a restore from the output root: %s", text(res))
+	res := sess2.call(t, "generate_snapshot", map[string]any{"repo_path": s.repo})
+	if res.IsError || !strings.Contains(text(res), "Reused the graph") {
+		t.Fatalf("generate_snapshot after a restore from the output root did not reuse it: %s", text(res))
 	}
 }
 
@@ -406,4 +425,211 @@ func TestServe_ClusterWritesNoConfigIntoTheFolder(t *testing.T) {
 	if after := tree(t, folder); !maps.Equal(before, after) {
 		t.Errorf("a served cluster snapshot wrote into the folder")
 	}
+}
+
+// addSymbol writes a Go file declaring name into repo, so two copies of go_sample can
+// be told apart by what their graphs hold.
+func addSymbol(t *testing.T, repo, name string) {
+	t.Helper()
+	src := "package a\n\nfunc " + name + "() {}\n"
+	if err := os.WriteFile(filepath.Join(repo, "pkg", "a", strings.ToLower(name)+".go"), []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func (s *session) has(t *testing.T, name string) bool {
+	t.Helper()
+	res := s.call(t, "query_facts", map[string]any{"name": name, "kind": "symbol", "output_mode": "summary"})
+	if res.IsError {
+		t.Fatalf("query_facts(%s): %s", name, text(res))
+	}
+	return !strings.Contains(text(res), "Found **0**")
+}
+
+func (s *session) generate(t *testing.T, repo string) string {
+	t.Helper()
+	res := s.call(t, "generate_snapshot", map[string]any{"repo_path": repo})
+	if res.IsError {
+		t.Fatalf("generate_snapshot(%s): %s", repo, text(res))
+	}
+	return text(res)
+}
+
+// Each session serves the graph it asked for: one consumer indexing another
+// repository does not change what a second consumer is querying.
+func TestServe_SessionsHaveTheirOwnGraph(t *testing.T) {
+	s := startServed(t, bootstrap.ServeOptions{})
+	other := copyAs(t, filepath.Join(s.root, "second"))
+	addSymbol(t, s.repo, "OnlyInFirst")
+	addSymbol(t, other, "OnlyInSecond")
+
+	a, err := s.connect(t, testToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := s.connect(t, testToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.generate(t, s.repo)
+	b.generate(t, other)
+	if !a.has(t, "OnlyInFirst") || a.has(t, "OnlyInSecond") {
+		t.Error("session a does not serve the graph it generated")
+	}
+	if !b.has(t, "OnlyInSecond") || b.has(t, "OnlyInFirst") {
+		t.Error("session b does not serve the graph it generated")
+	}
+	if st := s.pool.Stats(); st.Graphs != 2 || st.Sessions != 2 {
+		t.Errorf("pool holds %d graphs for %d sessions, want 2 and 2", st.Graphs, st.Sessions)
+	}
+}
+
+// A second session asking for the same unchanged repositories adopts the graph the
+// first built; once the tree changes, it builds a new one.
+func TestServe_SessionsShareAnUnchangedGraph(t *testing.T) {
+	s := startServed(t, bootstrap.ServeOptions{})
+	a, err := s.connect(t, testToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := s.connect(t, testToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out := a.generate(t, s.repo); strings.Contains(out, "Reused") {
+		t.Fatalf("the first generate reused a graph nobody built:\n%s", out)
+	}
+	if out := b.generate(t, s.repo); !strings.Contains(out, "Reused the graph") {
+		t.Fatalf("the second session did not reuse the unchanged graph:\n%s", out)
+	}
+	if st := s.pool.Stats(); st.Graphs != 1 {
+		t.Errorf("pool holds %d graphs for one set of repositories", st.Graphs)
+	}
+
+	addSymbol(t, s.repo, "AddedLater")
+	if out := b.generate(t, s.repo); strings.Contains(out, "Reused") {
+		t.Fatalf("a changed tree was answered from the old graph:\n%s", out)
+	}
+	if !b.has(t, "AddedLater") {
+		t.Error("the rebuilt graph does not hold the change")
+	}
+	// The order repositories are listed in does not split one graph into two.
+	other := copyAs(t, filepath.Join(s.root, "second"))
+	if res := a.call(t, "generate_snapshot", map[string]any{"repo_paths": []string{s.repo, other}}); res.IsError {
+		t.Fatal(text(res))
+	}
+	res := b.call(t, "generate_snapshot", map[string]any{"repo_paths": []string{other, s.repo}})
+	if res.IsError || !strings.Contains(text(res), "Reused the graph") {
+		t.Errorf("the same set listed in another order was not reused:\n%s", text(res))
+	}
+}
+
+// Past the memory budget the least recently used graph is unloaded, and the session
+// that held it gets it back from disk at its next call, with the same answers.
+func TestServe_BudgetUnloadsAndReloads(t *testing.T) {
+	s := startServed(t, bootstrap.ServeOptions{MemoryBudget: 1}) // every graph is over it
+	addSymbol(t, s.repo, "Survives")
+	a, err := s.connect(t, testToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.generate(t, s.repo)
+	if st := s.pool.Stats(); st.Evictions == 0 || st.Graphs != 0 {
+		t.Fatalf("a graph over the budget stayed loaded: %+v", st)
+	}
+	res := a.call(t, "query_facts", map[string]any{"name": "Survives", "kind": "symbol", "output_mode": "summary"})
+	if res.IsError || strings.Contains(text(res), "Found **0**") {
+		t.Fatalf("the reloaded graph lost its facts:\n%s", text(res))
+	}
+	if !strings.Contains(text(res), "reloaded from disk") {
+		t.Errorf("the session was not told its graph was reloaded:\n%s", text(res))
+	}
+}
+
+// Many sessions indexing and querying one repository at once: every call succeeds,
+// and the artifacts they all write into one output directory are one run's, whole.
+func TestServe_ConcurrentSessionsOnOneRepository(t *testing.T) {
+	s := startServed(t, bootstrap.ServeOptions{MaxConcurrent: 4})
+	const n = 8
+	sessions := make([]*session, n)
+	for i := range sessions {
+		sess, err := s.connect(t, testToken)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sessions[i] = sess
+	}
+	errs := make(chan string, n*3)
+	var wg sync.WaitGroup
+	for _, sess := range sessions {
+		wg.Add(1)
+		go func(sess *session) {
+			defer wg.Done()
+			for _, call := range []struct {
+				name string
+				args map[string]any
+			}{
+				{"generate_snapshot", map[string]any{"repo_path": s.repo}},
+				{"query_facts", map[string]any{"kind": "symbol", "output_mode": "summary"}},
+				{"generate_snapshot", map[string]any{"repo_path": s.repo, "fresh": true}},
+			} {
+				res, err := sess.cs.CallTool(context.Background(), &mcp.CallToolParams{Name: call.name, Arguments: call.args})
+				switch {
+				case err != nil:
+					errs <- call.name + ": " + err.Error()
+				case res.IsError:
+					errs <- call.name + ": " + text(res)
+				}
+			}
+		}(sess)
+	}
+	wg.Wait()
+	close(errs)
+	for e := range errs {
+		t.Error(e)
+	}
+	if _, err := bootstrap.LoadSnapshotDir(filepath.Join(s.repo, ".enola")); err != nil {
+		t.Errorf("the output directory written by every session at once does not load: %v", err)
+	}
+}
+
+// A session that ends is forgotten; the graph it built stays for the next one.
+func TestServe_EndedSessionIsDetached(t *testing.T) {
+	s := startServed(t, bootstrap.ServeOptions{})
+	a, err := s.connect(t, testToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.generate(t, s.repo)
+	if err := a.cs.Close(); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for s.pool.Stats().Sessions != 0 {
+		if time.Now().After(deadline) {
+			t.Fatalf("a closed session is still attached: %+v", s.pool.Stats())
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if st := s.pool.Stats(); st.Graphs != 1 {
+		t.Errorf("the closed session's graph left the pool: %+v", st)
+	}
+	b, err := s.connect(t, testToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out := b.generate(t, s.repo); !strings.Contains(out, "Reused the graph") {
+		t.Errorf("the next session did not reuse the graph:\n%s", out)
+	}
+}
+
+// copyAs copies go_sample to dst, a directory of another name, so its repository
+// label differs from the original's.
+func copyAs(t *testing.T, dst string) string {
+	t.Helper()
+	tmp := copyTree(t, filepath.Join("..", "engine", "testdata", "repos", "go_sample"), t.TempDir())
+	if err := os.Rename(tmp, dst); err != nil {
+		t.Fatal(err)
+	}
+	return dst
 }

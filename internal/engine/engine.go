@@ -85,6 +85,8 @@ type Engine struct {
 	// drift is what the drift walk last hashed, so a long-lived engine reads a file
 	// again only after it changed; see driftHashes.
 	drift driftMemo
+	// sharedDrift, when set, replaces drift; see UseDriftMemo.
+	sharedDrift *driftMemo
 	// deferLinking makes an append-mode GenerateSnapshot stop after extraction;
 	// see SetDeferLinking.
 	deferLinking bool
@@ -986,6 +988,7 @@ func (e *Engine) WriteArtifacts(repoPath string) error {
 		return fmt.Errorf("resolving repo path: %w", err)
 	}
 	outDir := e.cfg.OutputDirFor(absRepo)
+	defer lockDir(outDir)()
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
 		return fmt.Errorf("creating output dir: %w", err)
 	}

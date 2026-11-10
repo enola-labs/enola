@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -51,6 +52,7 @@ func (r *Runner) runServe(ctx context.Context, args []string, stderr io.Writer) 
 		callTimeout    = fs.Duration("call-timeout", 15*time.Minute, "cancel a tool call running longer (0 for no limit)")
 		sessionTimeout = fs.Duration("session-timeout", 30*time.Minute, "close a session idle this long")
 		outputRoot     = fs.String("output-root", "", "write every repository's artifacts under this directory instead of inside the repository")
+		memoryBudget   = fs.String("memory-budget", "", "unload the least recently used graph when the graphs held exceed this, e.g. 16GiB (default: no budget)")
 	)
 	fs.Usage = func() {
 		_, _ = fmt.Fprint(stderr,
@@ -59,7 +61,9 @@ func (r *Runner) runServe(ctx context.Context, args []string, stderr io.Writer) 
 				"as a tool. Every request needs a bearer token from --token-file. Every path a\n"+
 				"call names, and every repository it reaches, must lie inside a --root; others\n"+
 				"are refused. A repository or config given here has its graph restored from disk\n"+
-				"at start; otherwise consumers index with generate_snapshot. Nothing is written\n"+
+				"at start; otherwise consumers index with generate_snapshot. Each session has its\n"+
+				"own loaded graph; sessions asking for the same unchanged repositories share one.\n"+
+				"Nothing is written\n"+
 				"to ~/.enola/receipt.json, and nothing into the repositories when --output-root\n"+
 				"is set. One line per tool call is logged to stderr.\n\n"+
 				"Exit codes:\n"+
@@ -82,6 +86,11 @@ func (r *Runner) runServe(ctx context.Context, args []string, stderr io.Writer) 
 		say("%v", err)
 		return 2
 	}
+	budget, err := parseSize(*memoryBudget)
+	if err != nil {
+		say("--memory-budget: %v", err)
+		return 2
+	}
 	cfgPath, repoArg := "mcp-arch.yaml", ""
 	restore := false
 	if fs.NArg() == 1 {
@@ -96,7 +105,7 @@ func (r *Runner) runServe(ctx context.Context, args []string, stderr io.Writer) 
 		}
 		restore = true
 	}
-	eng, cfg, err := r.newEngine(bootstrap.Options{ConfigPath: cfgPath})
+	_, cfg, err := r.newEngine(bootstrap.Options{ConfigPath: cfgPath})
 	if err != nil {
 		say("%v", err)
 		return 2
@@ -135,10 +144,11 @@ func (r *Runner) runServe(ctx context.Context, args []string, stderr io.Writer) 
 		cfg.Repo, cfg.Repos = "", nil
 	}
 
-	srv, resolved, err := bootstrap.NewServedServer(eng, cfg, bootstrap.ServeOptions{
+	pool, resolved, err := bootstrap.NewServedPool(cfg, bootstrap.ServeOptions{
 		Roots:         roots,
 		MaxConcurrent: *maxConcurrent,
 		CallTimeout:   *callTimeout,
+		MemoryBudget:  budget,
 		Restore:       restorePaths,
 	})
 	if err != nil {
@@ -159,6 +169,9 @@ func (r *Runner) runServe(ctx context.Context, args []string, stderr io.Writer) 
 	}
 	_, _ = fmt.Fprintf(stderr, "  Tokens:      %d accepted\n", len(tokens))
 	_, _ = fmt.Fprintf(stderr, "  Limits:      %d concurrent calls, %s per call, sessions idle %s\n", *maxConcurrent, *callTimeout, *sessionTimeout)
+	if budget > 0 {
+		_, _ = fmt.Fprintf(stderr, "  Memory:      graphs unloaded past %s (estimated)\n", *memoryBudget)
+	}
 	if restore {
 		_, _ = fmt.Fprintf(stderr, "  Restoring:   %s\n", strings.Join(restorePaths, ", "))
 	}
@@ -166,7 +179,7 @@ func (r *Runner) runServe(ctx context.Context, args []string, stderr io.Writer) 
 		_, _ = fmt.Fprintf(stderr, "  Warning:     listening beyond loopback; terminate TLS in front of it\n")
 	}
 
-	err = srv.RunHTTP(ctx, ln, bootstrap.HTTPOptions{Tokens: tokens, SessionTimeout: *sessionTimeout})
+	err = pool.RunHTTP(ctx, ln, bootstrap.HTTPOptions{Tokens: tokens, SessionTimeout: *sessionTimeout})
 	if err != nil && !errors.Is(err, context.Canceled) {
 		log.Printf("serve: %v", err)
 		return 1
@@ -207,6 +220,34 @@ func readTokenFile(path string) ([]string, error) {
 		return nil, fmt.Errorf("token file %s holds no tokens", path)
 	}
 	return tokens, nil
+}
+
+// parseSize reads a size such as 512MiB, 16GiB or 16G (binary units either way). An
+// empty string is zero, no budget.
+func parseSize(s string) (int64, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, nil
+	}
+	units := []struct {
+		suffix string
+		shift  uint
+	}{{"TiB", 40}, {"GiB", 30}, {"MiB", 20}, {"KiB", 10}, {"T", 40}, {"G", 30}, {"M", 20}, {"K", 10}, {"B", 0}}
+	shift := uint(0)
+	for _, u := range units {
+		if strings.HasSuffix(s, u.suffix) {
+			s, shift = strings.TrimSpace(strings.TrimSuffix(s, u.suffix)), u.shift
+			break
+		}
+	}
+	n, err := strconv.ParseInt(s, 10, 64)
+	if err != nil || n <= 0 {
+		return 0, fmt.Errorf("%q is not a size like 16GiB", s)
+	}
+	if n > (1<<62)>>shift {
+		return 0, fmt.Errorf("%q is too large", s)
+	}
+	return n << shift, nil
 }
 
 // checkWritable fails now, at start, for a directory serve could not write a snapshot

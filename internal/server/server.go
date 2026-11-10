@@ -109,6 +109,8 @@ type Server struct {
 	served bool
 	// roots are the directories a served instance is confined to; nil otherwise.
 	roots Roots
+	// pool is the served instance this Server is one session of; nil otherwise.
+	pool *Pool
 }
 
 // startHint is the instructions' first step. A workspace snapshotted before has its
@@ -170,7 +172,7 @@ func newServer(eng *engine.Engine, cfg *config.Config, sc *ServeConfig) (*Server
 		cfg: cfg,
 	}
 	if sc != nil {
-		s.served, s.roots = true, sc.Roots
+		s.served, s.roots, s.pool = true, sc.Roots, sc.pool
 		if eng != nil {
 			eng.SetPathGuard(sc.Roots.Confine)
 			eng.SetGlobalReceipt(false)
@@ -193,12 +195,16 @@ func newServer(eng *engine.Engine, cfg *config.Config, sc *ServeConfig) (*Server
 	if s.served {
 		instructions = serveInstructions()
 	}
+	opts := &mcp.ServerOptions{Instructions: instructions}
+	if s.pool != nil {
+		opts.InitializedHandler = func(_ context.Context, req *mcp.InitializedRequest) {
+			s.pool.attach(s, req.Session)
+		}
+	}
 	mcpServer := mcp.NewServer(&mcp.Implementation{
 		Name:    "enola",
 		Version: version.Version,
-	}, &mcp.ServerOptions{
-		Instructions: instructions,
-	})
+	}, opts)
 
 	s.mcp = mcpServer
 	s.registerTools()

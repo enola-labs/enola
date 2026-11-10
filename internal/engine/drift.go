@@ -203,6 +203,26 @@ type hashedFile struct {
 // sets it on any content or metadata change. Where the platform gives no change
 // time (see fileStamp) nothing is remembered and every walk hashes, so no platform
 // can answer unchanged for a file it did not check.
+// DriftMemo is a drift memo several engines share. A served instance gives each
+// session an engine of its own, and every one of them proves a pooled graph current
+// before adopting it; with one memo between them, a file hashed for one session is
+// only stat'ed for the next. Safe for concurrent use.
+type DriftMemo struct{ m *driftMemo }
+
+// NewDriftMemo returns an empty memo to share between engines with UseDriftMemo.
+func NewDriftMemo() *DriftMemo { return &DriftMemo{m: &driftMemo{}} }
+
+// UseDriftMemo makes the engine remember file hashes in m instead of its own memo.
+// Set it before the engine is used.
+func (e *Engine) UseDriftMemo(m *DriftMemo) { e.sharedDrift = m.m }
+
+func (e *Engine) driftMemo() *driftMemo {
+	if e.sharedDrift != nil {
+		return e.sharedDrift
+	}
+	return &e.drift
+}
+
 type driftMemo struct {
 	mu    sync.Mutex
 	clock func() time.Time
@@ -264,7 +284,7 @@ func (e *Engine) driftHashes(ctx context.Context, repoPath string, files []strin
 		if err != nil {
 			continue
 		}
-		if hash, ok := e.drift.known(abs, info); ok {
+		if hash, ok := e.driftMemo().known(abs, info); ok {
 			hashes[rel] = hash
 			continue
 		}
@@ -274,8 +294,8 @@ func (e *Engine) driftHashes(ctx context.Context, repoPath string, files []strin
 		}
 		sum := sha256.Sum256(data)
 		hash := hex.EncodeToString(sum[:])
-		e.drift.reads.Add(1)
-		e.drift.remember(abs, info, hash)
+		e.driftMemo().reads.Add(1)
+		e.driftMemo().remember(abs, info, hash)
 		hashes[rel] = hash
 	}
 	return hashes

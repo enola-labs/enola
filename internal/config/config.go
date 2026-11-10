@@ -671,17 +671,24 @@ func (c *Config) Normalize() error {
 		c.Output.MaxContextTokens = 16000
 	}
 
+	// Every write below happens only when it changes something, so normalizing a
+	// normalized config writes nothing. A served instance builds one engine per
+	// session from one shared config, while other sessions are reading it.
 	dir, err := cleanOutputDir(c.Output.Dir)
 	if err != nil {
 		return err
 	}
-	c.Output.Dir = dir
+	if c.Output.Dir != dir {
+		c.Output.Dir = dir
+	}
 	if c.Output.Root != "" {
 		root, err := filepath.Abs(c.Output.Root)
 		if err != nil {
 			return fmt.Errorf("output.root %q: %w", c.Output.Root, err)
 		}
-		c.Output.Root = root
+		if c.Output.Root != root {
+			c.Output.Root = root
+		}
 	}
 
 	if err := providerspec.Validate(c.Providers); err != nil {

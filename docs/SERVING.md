@@ -74,11 +74,70 @@ not for a coding agent: no deferred tool loading, no "if asked whether a project
 enola". The notice that a newer enola exists is not sent either; a consumer cannot
 upgrade the binary.
 
+## Sessions and graphs
+
+Each MCP session has its own loaded graph: a consumer's `generate_snapshot` changes
+what that session queries and nobody else's. What sessions share is the graphs
+themselves. When a session asks for repositories another session already indexed,
+and nothing in them changed on disk since, it adopts that graph instead of indexing
+again or loading a second copy:
+
+```
+Reused the graph this server already holds for these repositories: nothing in them changed since it was built.
+```
+
+The same set of repositories is one graph whatever order they are listed in. A
+change to any file in any of them, or an `append`, builds a new graph as usual. A
+folder indexed as a cluster is always built, since what it stands for depends on its
+contents.
+
+`--memory-budget` (`16GiB`, `512MiB`) bounds the graphs held for sessions. Past it,
+the least recently used graph that no call is reading is unloaded and the server logs
+it. The session that held it reloads it from its artifacts on disk at its next call,
+which is told so in the result:
+
+```
+[pool] unloaded /srv/repos/roslyn (596 MiB) to stay inside the 1024 MiB budget
+[pool] heap after unloading: 411 MiB live, 1187 MiB held from the OS
+```
+
+The budget is an estimate, twice the size of a graph's `facts.jsonl`. Measured as the
+heap a restored graph holds:
+
+| Repository | facts.jsonl | Heap held | Ratio |
+|---|---:|---:|---:|
+| gin | 0.5 MB | 1.3 MB | 2.5 |
+| lobsters | 2.0 MB | 4.7 MB | 2.3 |
+| vite | 6.8 MB | 12.3 MB | 1.8 |
+| roslyn | 296 MB | 332 MB | 1.1 |
+| vscode | 380 MB | 533 MB | 1.4 |
+| dotnet/runtime | 441 MB | 673 MB | 1.5 |
+| gitlab | 438 MB | 705 MB | 1.6 |
+| linux | 1162 MB | 1422 MB | 1.2 |
+
+It bounds the graphs held between calls, not the peak while one is built: indexing
+dotnet/runtime from scratch peaked at about 7 GB of RSS. On macOS, RSS stays high after
+an unload until the system needs the memory; the `heap after unloading` line is the
+number to read.
+
+Measured on one machine (Apple Silicon, 16 cores), serving `~/development` with
+`--output-root`:
+
+| What | Time |
+|---|---:|
+| A new session, connect to initialized | 15 to 40 ms |
+| Roslyn (376k facts), first build in a session | 19 s |
+| The same, 15 more sessions at once, first time the server proves it unchanged | 4.3 s slowest |
+| The same, once the server has hashed its files | 0.6 s one session, 1.3 s slowest of 15 |
+| Roslyn reloaded from disk after an unload | 3.1 s |
+| A query on a loaded graph, over HTTP | about 1 ms |
+
 ## Limits
 
 | Flag | Default | What it bounds |
 |---|---|---|
-| `--max-concurrent` | CPU count | Tool calls running at once. More wait for a slot. |
+| `--max-concurrent` | CPU count | Tool calls running at once, across every session. More wait for a slot. |
+| `--memory-budget` | none | Estimated memory the graphs held for sessions may take. See above. |
 | `--call-timeout` | `15m` | How long one call may run before it is cancelled. `0` for no limit. |
 | `--session-timeout` | `30m` | How long an idle session is kept. |
 
@@ -125,7 +184,11 @@ Without `--output-root`, snapshots are written where they always are, into each
 repository's `.enola` directory, and the directories under `--root` must be writable.
 
 A repository or cluster config given as the last argument has its graph restored from
-disk at start, so the first call does not wait for an index:
+disk at start, so the first session's `generate_snapshot` of it reuses that graph
+instead of indexing, as long as nothing changed on disk since. For a single repository,
+that is. A restored cluster does not carry each member's own file hashes, so it
+cannot be shown unchanged, and the first request for it builds it again, from the
+extractor cache:
 
 ```sh
 enola serve --root /srv/repos --token-file /etc/enola/tokens /srv/repos/cluster.yaml

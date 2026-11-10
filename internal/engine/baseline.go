@@ -119,6 +119,7 @@ func ResolveBaselineDir(outDir, selector string) string {
 // error if no snapshot has been written yet.
 func (e *Engine) SetBaseline(repoPath string) error {
 	outDir := e.OutputDir(repoPath)
+	defer lockDir(outDir)()
 	if _, err := os.Stat(filepath.Join(outDir, "facts.jsonl")); err != nil {
 		return fmt.Errorf("no snapshot to pin as baseline (run generate_snapshot first): %w", err)
 	}

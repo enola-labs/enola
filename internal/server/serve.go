@@ -42,6 +42,12 @@ type ServeConfig struct {
 	MaxConcurrent int
 	// CallTimeout cancels a tool call that runs longer; zero means no limit.
 	CallTimeout time.Duration
+	// MemoryBudget is the estimated memory the pool's graphs may hold before the least
+	// recently used one is unloaded; zero means no budget. See Pool.
+	MemoryBudget int64
+
+	// pool is the served instance this session's Server belongs to; set by Pool.
+	pool *Pool
 }
 
 // HTTPConfig is the transport half: who may connect and how long a session lives.
@@ -143,6 +149,7 @@ func serveInstructions() string {
 	return "enola answers questions about a codebase's STRUCTURE from a graph of facts: modules, symbols, routes, storage and dependencies, across one repository or several linked ones. " +
 		"Index first: generate_snapshot(repo_path) for one repository, generate_snapshot(repo_paths=[...]) for several linked as one set, for example a backend and the frontends that call it. " +
 		"Paths are on the server's filesystem and must lie inside the directories it serves; others are refused. " +
+		"Each session has its own loaded graph; indexing repositories another session already indexed, unchanged since, reuses that graph at once. " +
 		"Then: which packages or files depend on X (impact_analysis(target=X)), who calls X (traverse(start=X, direction=reverse)), how A reaches B (find_path), what a backend endpoint change reaches in its clients (endpoint_impact), what nothing uses (find_orphans, query_insights(explainer='dead-code')). " +
 		"query_insights returns the findings already computed (cycles, layer violations, unused routes, hotspots and more). " +
 		"To grade a change: generate_snapshot, set_baseline, change, generate_snapshot, diff_snapshot; diff_snapshot reports only what changed."
@@ -152,17 +159,37 @@ func serveInstructions() string {
 // every other middleware, so outermost: a refused call never waits on the startup
 // restore, takes a concurrency slot, or is priced by the value middleware.
 func (s *Server) serveMiddleware(cfg ServeConfig) {
-	limit := cfg.MaxConcurrent
-	if limit <= 0 {
-		limit = runtime.NumCPU()
+	var slots chan struct{}
+	if cfg.pool != nil {
+		slots = cfg.pool.slots // one cap for every session together
+	} else {
+		limit := cfg.MaxConcurrent
+		if limit <= 0 {
+			limit = runtime.NumCPU()
+		}
+		slots = make(chan struct{}, limit)
 	}
-	slots := make(chan struct{}, limit)
 	served := make(map[string]bool, len(ServedTools))
 	for _, n := range ServedTools {
 		served[n] = true
 	}
 
-	// Innermost of the four: the slot and the deadline cover only the handler.
+	// Innermost: the session's graph, reloaded before the call if the pool dropped it
+	// and published after it if the call built one.
+	if pool := cfg.pool; pool != nil {
+		s.mcp.AddReceivingMiddleware(func(next mcp.MethodHandler) mcp.MethodHandler {
+			return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+				if method != "tools/call" {
+					return next(ctx, method, req)
+				}
+				pool.begin(s)
+				defer pool.end(s)
+				return next(ctx, method, req)
+			}
+		})
+	}
+
+	// The slot and the deadline cover the handler and the graph's reload.
 	s.mcp.AddReceivingMiddleware(func(next mcp.MethodHandler) mcp.MethodHandler {
 		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
 			if method != "tools/call" {
@@ -333,47 +360,22 @@ func tokenVerifier(tokens []string) auth.TokenVerifier {
 	}
 }
 
-// HTTPHandler returns the Streamable HTTP handler for this server, authenticated and
-// size-limited, mounted at /mcp. Every other path is 404. The SDK's DNS-rebinding
-// protection stays on (it applies when bound to loopback), and browser cross-origin
-// requests are refused; a service calling server to server sends no Origin and is
-// unaffected.
-func (s *Server) HTTPHandler(cfg HTTPConfig) (http.Handler, error) {
-	if len(cfg.Tokens) == 0 {
-		return nil, errors.New("at least one bearer token is required")
-	}
-	if !s.served {
-		return nil, errors.New("server was not built for serving: use NewServed")
-	}
-	sessionTimeout := cfg.SessionTimeout
-	if sessionTimeout <= 0 {
-		sessionTimeout = 30 * time.Minute
-	}
-	maxBody := cfg.MaxBodyBytes
-	if maxBody <= 0 {
-		maxBody = 16 << 20
-	}
-	mcpHandler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return s.mcp }, &mcp.StreamableHTTPOptions{
-		SessionTimeout:        sessionTimeout,
-		CrossOriginProtection: http.NewCrossOriginProtection(),
-	})
-	authed := auth.RequireBearerToken(tokenVerifier(cfg.Tokens), &auth.RequireBearerTokenOptions{AllowMissingExpiration: true})(mcpHandler)
+// wrapHTTP puts bearer authentication and a body size limit in front of an MCP
+// handler and mounts it at /mcp; every other path is 404.
+func wrapHTTP(mcpHandler http.Handler, tokens []string, maxBody int64) http.Handler {
+	authed := auth.RequireBearerToken(tokenVerifier(tokens), &auth.RequireBearerTokenOptions{AllowMissingExpiration: true})(mcpHandler)
 	limited := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		r.Body = http.MaxBytesReader(w, r.Body, maxBody)
 		authed.ServeHTTP(w, r)
 	})
 	mux := http.NewServeMux()
 	mux.Handle("/mcp", limited)
-	return mux, nil
+	return mux
 }
 
-// RunHTTP serves HTTPHandler on ln until ctx is cancelled, then shuts down, giving
+// serveHTTP serves handler on ln until ctx is cancelled, then shuts down, giving
 // calls in flight ten seconds to finish.
-func (s *Server) RunHTTP(ctx context.Context, ln net.Listener, cfg HTTPConfig) error {
-	handler, err := s.HTTPHandler(cfg)
-	if err != nil {
-		return err
-	}
+func serveHTTP(ctx context.Context, ln net.Listener, handler http.Handler) error {
 	srv := &http.Server{
 		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,

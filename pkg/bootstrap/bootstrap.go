@@ -295,21 +295,6 @@ func (s *Server) RestoreInBackground(eng *Engine, cfg *config.Config) {
 	})
 }
 
-// RestoreReposInBackground restores the on-disk graph of repoPaths while the server is
-// already serving, as RestoreInBackground does for an agent's workspace, but from the
-// repositories named rather than from the machine-wide receipt. A failure is logged
-// and leaves the server empty: consumers can still index with generate_snapshot.
-func (s *Server) RestoreReposInBackground(eng *Engine, repoPaths []string) {
-	s.srv.RestoreInBackground(func() map[string]int {
-		if err := RestoreSnapshot(eng, repoPaths); err != nil {
-			log.Printf("[bootstrap] nothing restored: %v", err)
-			return nil
-		}
-		log.Printf("[bootstrap] restored %d repositories", len(repoPaths))
-		return nil
-	})
-}
-
 // SetToolCallback sets a callback invoked once per completed tool call, with the
 // tool name, the absolute repo path the call operated on, whether it succeeded,
 // its response size and any snapshot detail — everything the value model needs
@@ -661,6 +646,9 @@ type ServeOptions struct {
 	MaxConcurrent int
 	// CallTimeout cancels a tool call that runs longer; zero means no limit.
 	CallTimeout time.Duration
+	// MemoryBudget is the estimated memory the graphs held for sessions may take
+	// before the least recently used one is unloaded; zero means no budget.
+	MemoryBudget int64
 	// Restore names repositories whose on-disk graph is restored at start. Each must
 	// lie inside Roots.
 	Restore []string
@@ -674,13 +662,21 @@ type HTTPOptions struct {
 	SessionTimeout time.Duration
 }
 
-// NewServedServer creates a server for consumers over Streamable HTTP. It differs
-// from NewServer in what it leaves out as much as in what it adds: no agent session
-// (receipts and pins are not keyed to the server's parent, which is a shell or a
-// service manager, not an agent), no reload from the machine-wide receipt (that
-// tracks the agent's workspace, not this server's), and the confinement, allowlist
-// and limits of opts. It returns the resolved roots for the caller to report.
-func NewServedServer(eng *Engine, cfg *config.Config, opts ServeOptions) (*Server, []string, error) {
+// ServedPool is a served instance: every MCP session is served by a server and engine
+// of its own, and graphs are shared between sessions through the pool.
+type ServedPool struct {
+	pool *server.Pool
+}
+
+// NewServedPool creates a served instance for consumers over Streamable HTTP. A
+// session's server differs from NewServer's in what it leaves out as much as in what
+// it adds: no agent session (receipts and pins are not keyed to the server's parent,
+// which is a shell or a service manager, not an agent), no reload from the
+// machine-wide receipt (that tracks the agent's workspace, not this server's), and
+// the confinement, allowlist and limits of opts. It returns the resolved roots for
+// the caller to report. Repositories in opts.Restore are loaded into the pool in the
+// background.
+func NewServedPool(cfg *config.Config, opts ServeOptions) (*ServedPool, []string, error) {
 	roots, err := server.NewRoots(opts.Roots)
 	if err != nil {
 		return nil, nil, err
@@ -690,39 +686,73 @@ func NewServedServer(eng *Engine, cfg *config.Config, opts ServeOptions) (*Serve
 			return nil, nil, err
 		}
 	}
-	srv, err := server.NewServed(eng.eng, cfg, server.ServeConfig{
+	// One drift memo for every session: proving a pooled graph current for a second
+	// session then stats the files the first one already hashed.
+	drift := engine.NewDriftMemo()
+	build := func(sc server.ServeConfig) (*server.Server, error) {
+		eng, err := NewEngineFromConfig(cfg)
+		if err != nil {
+			return nil, err
+		}
+		eng.eng.UseDriftMemo(drift)
+		srv, err := server.NewServed(eng.eng, cfg, sc)
+		if err != nil {
+			return nil, err
+		}
+		srv.SetPlanEngineFactory(PlanEngineFactory(cfg))
+		metrics.Register(srv.MCPServer(), eng.eng.Store)
+		orphans.Register(srv.MCPServer(), eng.eng.Store)
+		perf.Register(srv.MCPServer(), eng.eng.Store)
+		return srv, nil
+	}
+	restore := func(eng *engine.Engine, repoPaths []string) error {
+		return RestoreSnapshot(&Engine{eng: eng}, repoPaths)
+	}
+	pool, err := server.NewPool(server.ServeConfig{
 		Roots:         roots,
 		MaxConcurrent: opts.MaxConcurrent,
 		CallTimeout:   opts.CallTimeout,
-	})
+		MemoryBudget:  opts.MemoryBudget,
+	}, build, restore, cfg.OutputDirFor)
 	if err != nil {
 		return nil, nil, err
 	}
-	srv.SetPlanEngineFactory(PlanEngineFactory(cfg))
-	metrics.Register(srv.MCPServer(), eng.eng.Store)
-	orphans.Register(srv.MCPServer(), eng.eng.Store)
-	perf.Register(srv.MCPServer(), eng.eng.Store)
 	log.Printf("[runtime] %s", MemoryLimitLine())
-	out := &Server{srv: srv}
 	if len(opts.Restore) > 0 {
-		out.RestoreReposInBackground(eng, opts.Restore)
+		go func() {
+			if err := pool.Warm(opts.Restore); err != nil {
+				log.Printf("[bootstrap] nothing restored: %v", err)
+				return
+			}
+			log.Printf("[bootstrap] restored %d repositories into the pool", len(opts.Restore))
+		}()
 	}
-	return out, roots, nil
+	return &ServedPool{pool: pool}, roots, nil
+}
+
+// Warm loads repoPaths from disk into the pool now, for a caller (a test) that needs
+// the graph resident before its first session.
+func (p *ServedPool) Warm(repoPaths []string) error { return p.pool.Warm(repoPaths) }
+
+// PoolStats is what a served instance holds.
+type PoolStats = server.PoolStats
+
+// Stats reports what the pool holds now.
+func (p *ServedPool) Stats() PoolStats { return p.pool.Stats() }
+
+// HTTPHandler returns the authenticated Streamable HTTP handler RunHTTP serves, for a
+// caller that runs its own listener, or a test.
+func (p *ServedPool) HTTPHandler(o HTTPOptions) (http.Handler, error) {
+	return p.pool.HTTPHandler(o.internal())
+}
+
+// RunHTTP serves the instance over Streamable HTTP on ln until ctx is cancelled.
+func (p *ServedPool) RunHTTP(ctx context.Context, ln net.Listener, o HTTPOptions) error {
+	return p.pool.RunHTTP(ctx, ln, o.internal())
 }
 
 func (o HTTPOptions) internal() server.HTTPConfig {
 	return server.HTTPConfig{Tokens: o.Tokens, SessionTimeout: o.SessionTimeout}
-}
-
-// HTTPHandler returns the authenticated Streamable HTTP handler RunHTTP serves, for a
-// caller that runs its own listener, or a test.
-func (s *Server) HTTPHandler(o HTTPOptions) (http.Handler, error) {
-	return s.srv.HTTPHandler(o.internal())
-}
-
-// RunHTTP serves the instance over Streamable HTTP on ln until ctx is cancelled.
-func (s *Server) RunHTTP(ctx context.Context, ln net.Listener, o HTTPOptions) error {
-	return s.srv.RunHTTP(ctx, ln, o.internal())
 }
 
 // GraphStateFunc returns a callback reporting what this engine currently holds,

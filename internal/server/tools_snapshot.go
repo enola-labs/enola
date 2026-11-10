@@ -86,6 +86,9 @@ func (s *Server) registerGenerateSnapshotTool() {
 			"append=true adds a repository to what is loaded (automatic when you switch repos); fresh=true starts over for a different project.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args generateSnapshotArgs) (*mcp.CallToolResult, any, error) {
 		ctx = withProgress(ctx, req)
+		if reused := s.reuseGraph(args); reused != nil {
+			return reused, nil, nil
+		}
 		if len(args.RepoPaths) > 0 {
 			paths, err := resolveRepoPaths(args)
 			if err != nil {
