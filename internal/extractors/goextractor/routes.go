@@ -468,7 +468,9 @@ func extractGorillaMuxRoutes(fset *token.FileSet, call *ast.CallExpr, prefixes m
 		case "HandleFunc", "Handle":
 			ri := extractHandleFuncCall(fset, call, prefixes)
 			if ri != nil {
-				ri.method = "ALL"
+				if ri.method == "" {
+					ri.method = "ALL"
+				}
 				ri.framework = "gorilla/mux"
 				return []routeInfo{*ri}
 			}
@@ -564,6 +566,12 @@ func extractChiRoutes(fset *token.FileSet, call *ast.CallExpr, prefixes map[stri
 	path, known := pathArg(call.Args[0], prefixes)
 	if !known {
 		return nil
+	}
+	if httpMethod == "ALL" {
+		// chi's Handle and HandleFunc take a ServeMux pattern: "POST /items".
+		if m, p := splitMethodPattern(path); m != "" {
+			httpMethod, path = m, p
+		}
 	}
 	receiverVar := routerVarName(sel.X)
 	prefix := prefixes[receiverVar]
@@ -791,6 +799,10 @@ func extractNetHTTPRoutes(fset *token.FileSet, call *ast.CallExpr, prefixes map[
 	if !known {
 		return nil
 	}
+	method, path := splitMethodPattern(path)
+	if method == "" {
+		method = "ALL"
+	}
 	if path == "" {
 		path = "/"
 	}
@@ -801,7 +813,7 @@ func extractNetHTTPRoutes(fset *token.FileSet, call *ast.CallExpr, prefixes map[
 	}
 
 	return []routeInfo{{
-		method:    "ALL",
+		method:    method,
 		path:      path,
 		handler:   handler,
 		framework: "net/http",
@@ -832,6 +844,7 @@ func extractHandleFuncCall(fset *token.FileSet, call *ast.CallExpr, prefixes map
 	if !known {
 		return nil
 	}
+	method, path := splitMethodPattern(path)
 
 	// Resolve prefix from receiver variable
 	receiverVar := identName(sel.X)
@@ -850,6 +863,7 @@ func extractHandleFuncCall(fset *token.FileSet, call *ast.CallExpr, prefixes map
 	}
 
 	return &routeInfo{
+		method:  method,
 		path:    path,
 		handler: handler,
 		line:    fset.Position(call.Pos()).Line,

@@ -231,3 +231,36 @@ func extractMatchPathRoutes(fset *token.FileSet, call *ast.CallExpr, prefixes ma
 	}
 	return out
 }
+
+// splitMethodPattern reads a Go 1.22 ServeMux pattern, "[METHOD ][HOST]/[PATH]",
+// which chi's Handle and HandleFunc accept too: `mux.HandleFunc("POST /items", h)`
+// serves POST on /items. It returns the method ("" when the pattern names none) and
+// the path, with the host and the exact-match marker "{$}" dropped. A pattern that is
+// not of that form is returned as it is.
+func splitMethodPattern(pattern string) (method, path string) {
+	path = pattern
+	if i := strings.IndexAny(pattern, " \t"); i > 0 && isMethodToken(pattern[:i]) {
+		method, path = pattern[:i], strings.TrimLeft(pattern[i:], " \t")
+	}
+	// A host comes before the first slash: "example.com/x", "api.local:8080/x".
+	// A relative chi pattern (".diff", "{id}/x") is no host.
+	if i := strings.Index(path, "/"); i > 0 {
+		host := path[:i]
+		if strings.ContainsAny(host, ".:") && !strings.HasPrefix(host, ".") && !strings.HasPrefix(host, ":") && !strings.ContainsAny(host, "{}*") {
+			path = path[i:]
+		}
+	}
+	path = strings.TrimSuffix(path, "{$}")
+	return method, path
+}
+
+// isMethodToken reports an HTTP method as a ServeMux pattern spells it: upper-case
+// letters only.
+func isMethodToken(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] < 'A' || s[i] > 'Z' {
+			return false
+		}
+	}
+	return s != ""
+}
