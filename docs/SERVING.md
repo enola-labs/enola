@@ -132,6 +132,21 @@ Measured on one machine (Apple Silicon, 16 cores), serving `~/development` with
 | Roslyn reloaded from disk after an unload | 3.1 s |
 | A query on a loaded graph, over HTTP | about 1 ms |
 
+## Baselines between consumers
+
+A pinned baseline and the previous run live in a repository's output directory, so
+consumers working on the same repository share them, as two agents on one machine do.
+Each pin and each run records which session wrote it: the token's id and the MCP
+session id. When a consumer diffs against a baseline another session pinned, and that
+session is still connected, the diff says so and names the token:
+
+```
+the baseline was pinned at 2026-11-10T09:27:37Z by another session of this server (token 4612ea736396) that is still running on this repository, so it may include that session's changes, or have replaced a baseline this session pinned
+```
+
+`set_baseline` says the same when it replaces such a pin. A pin by a session that has
+ended is just the baseline, and nothing is said.
+
 ## Limits
 
 | Flag | Default | What it bounds |

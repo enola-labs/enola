@@ -85,6 +85,8 @@ type Engine struct {
 	// drift is what the drift walk last hashed, so a long-lived engine reads a file
 	// again only after it changed; see driftHashes.
 	drift driftMemo
+	// sessionID is the served session this engine serves; see SetSessionID.
+	sessionID atomic.Pointer[string]
 	// sharedDrift, when set, replaces drift; see UseDriftMemo.
 	sharedDrift *driftMemo
 	// deferLinking makes an append-mode GenerateSnapshot stop after extraction;

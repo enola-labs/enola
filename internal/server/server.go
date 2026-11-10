@@ -111,6 +111,9 @@ type Server struct {
 	roots Roots
 	// pool is the served instance this Server is one session of; nil otherwise.
 	pool *Pool
+	// token is the id of the bearer token the session authenticated with; "-" when
+	// unknown. Set by Pool.newSession.
+	token string
 }
 
 // startHint is the instructions' first step. A workspace snapshotted before has its

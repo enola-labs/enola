@@ -328,8 +328,11 @@ func confineArgs(roots Roots, raw json.RawMessage) error {
 	return nil
 }
 
-// tokenID names a token in the log without revealing it: the first 12 hex digits of
-// its SHA-256, enough to tell consumers apart and useless for authenticating.
+// TokenID names a token in the log and in session marks without revealing it: the
+// first 12 hex digits of its SHA-256, enough to tell consumers apart and useless for
+// authenticating.
+func TokenID(token string) string { return tokenID(token) }
+
 func tokenID(token string) string {
 	sum := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(sum[:6])

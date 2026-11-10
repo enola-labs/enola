@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/enola-labs/enola/internal/config"
+	"github.com/enola-labs/enola/internal/engine"
 	"github.com/enola-labs/enola/internal/server"
 	"github.com/enola-labs/enola/pkg/bootstrap"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -632,4 +633,58 @@ func copyAs(t *testing.T, dst string) string {
 		t.Fatal(err)
 	}
 	return dst
+}
+
+// Two consumers on one repository share its pinned baseline, since it lives in the
+// repository's output directory. Each is told when the baseline it diffs against was
+// pinned by the other, by token, while the other is connected; once it is gone, the
+// pin is simply the baseline.
+func TestServe_PinsAreAttributedToTheirSession(t *testing.T) {
+	s := startServed(t, bootstrap.ServeOptions{})
+	a, err := s.connect(t, testToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := s.connect(t, testToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const other = "another session of this server (token " // + the token id
+	a.generate(t, s.repo)
+	if res := a.call(t, "set_baseline", map[string]any{}); res.IsError {
+		t.Fatal(text(res))
+	}
+	if out := text(a.call(t, "diff_snapshot", map[string]any{})); strings.Contains(out, other) {
+		t.Errorf("a session's own pin was attributed to another session:\n%s", out)
+	}
+
+	mark := engine.ReadSessionMark(filepath.Join(s.repo, ".enola", "baseline"), engine.PinMarkFile)
+	if mark == nil || !strings.HasPrefix(mark.Session, server.TokenID(testToken)+"/") {
+		t.Fatalf("the pin mark does not name the served session: %+v", mark)
+	}
+
+	b.generate(t, s.repo)
+	if out := text(b.call(t, "diff_snapshot", map[string]any{})); !strings.Contains(out, other+server.TokenID(testToken)+")") {
+		t.Errorf("a diff against another connected session's pin did not say so:\n%s", out)
+	}
+	if out := text(b.call(t, "set_baseline", map[string]any{})); !strings.Contains(out, "This replaced a baseline another running session of this server") {
+		t.Errorf("re-pinning over another connected session's baseline did not say so:\n%s", out)
+	}
+	if out := text(a.call(t, "diff_snapshot", map[string]any{})); !strings.Contains(out, other) {
+		t.Errorf("the first session was not told its baseline was replaced:\n%s", out)
+	}
+
+	if err := b.cs.Close(); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for s.pool.Stats().Sessions != 1 {
+		if time.Now().After(deadline) {
+			t.Fatal("the closed session is still attached")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if out := text(a.call(t, "diff_snapshot", map[string]any{})); strings.Contains(out, other) {
+		t.Errorf("a pin by a session that has ended is still attributed to it:\n%s", out)
+	}
 }

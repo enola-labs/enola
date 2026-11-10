@@ -294,8 +294,12 @@ func (s *Server) registerSetBaselineTool() {
 			"Now make your changes, re-run generate_snapshot, then call diff_snapshot to see what changed " +
 			"(new findings, new coupling, added/removed symbols). The baseline persists across re-snapshots until you pin a new one."
 		if replaced != nil {
-			msg += fmt.Sprintf("\n\nThis replaced a baseline another running agent session pinned at %s; "+
-				"that session's diffs now compare against this one.", replaced.At)
+			who := "another running agent session"
+			if s.pool != nil {
+				who = "another running " + strings.TrimPrefix(s.otherSessionName(replaced), "another ")
+			}
+			msg += fmt.Sprintf("\n\nThis replaced a baseline %s pinned at %s; "+
+				"that session's diffs now compare against this one.", who, replaced.At)
 		}
 		return textResult(msg), nil, nil
 	})
@@ -497,11 +501,31 @@ func (s *Server) driftOf(repoPath string) (engine.Drift, error) {
 // or re-pinning, so only it is worth a word.
 func (s *Server) otherSessionMark(dir, name string) *engine.SessionMark {
 	m := engine.ReadSessionMark(dir, name)
+	if s.pool != nil {
+		// A served session is known by its mark identity, and is running while it is
+		// connected to this server.
+		me := s.eng.SessionID()
+		if m == nil || m.Session == "" || me == "" || m.Session == me || !s.pool.live(m.Session) {
+			return nil
+		}
+		return m
+	}
 	me := s.eng.SessionClient()
 	if m == nil || m.AgentPID <= 0 || me <= 0 || m.AgentPID == me || !status.ProcessAlive(m.AgentPID) {
 		return nil
 	}
 	return m
+}
+
+// otherSessionName names the session behind a mark for a note: an agent session, or,
+// on a served instance, another of its sessions with the token it connected with, so
+// an operator can tell which consumer it was.
+func (s *Server) otherSessionName(m *engine.SessionMark) string {
+	if s.pool == nil {
+		return "another agent session"
+	}
+	token, _, _ := strings.Cut(m.Session, "/")
+	return fmt.Sprintf("another session of this server (token %s)", token)
 }
 
 // baselineNote says when a diff's "before" came from another running agent session:
@@ -511,13 +535,13 @@ func (s *Server) baselineNote(dir, selector string) string {
 	switch strings.ToLower(strings.TrimSpace(selector)) {
 	case "", "pinned":
 		if m := s.otherSessionMark(dir, engine.PinMarkFile); m != nil {
-			return fmt.Sprintf("the baseline was pinned at %s by another agent session that is still running on this repository, "+
-				"so it may include that session's changes, or have replaced a baseline this session pinned", m.At)
+			return fmt.Sprintf("the baseline was pinned at %s by %s that is still running on this repository, "+
+				"so it may include that session's changes, or have replaced a baseline this session pinned", m.At, s.otherSessionName(m))
 		}
 	case "previous":
 		if m := s.otherSessionMark(dir, engine.RunMarkFile); m != nil {
-			return fmt.Sprintf("the previous run was taken at %s by another agent session that is still running on this repository, "+
-				"so this compares against that session's snapshot, not this session's last one", m.At)
+			return fmt.Sprintf("the previous run was taken at %s by %s that is still running on this repository, "+
+				"so this compares against that session's snapshot, not this session's last one", m.At, s.otherSessionName(m))
 		}
 	}
 	return ""

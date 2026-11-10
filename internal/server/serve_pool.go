@@ -25,6 +25,7 @@ import (
 
 	"github.com/enola-labs/enola/internal/engine"
 	"github.com/enola-labs/enola/internal/workspace"
+	"github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -62,6 +63,8 @@ type pooledGraph struct {
 }
 
 type sessionState struct {
+	// id is the session's identity in session marks, "<token id>/<session id>".
+	id string
 	// graph is what the session served when it was last seen, so a change (a generate,
 	// a restore) is noticed and published.
 	graph *engine.Graph
@@ -101,16 +104,23 @@ func graphKey(paths []string, extractorVersion string) string {
 
 // newSession builds the Server a new MCP session is served by. Called by the HTTP
 // handler for each initialize request.
-func (p *Pool) newSession() (*Server, error) {
+func (p *Pool) newSession(token string) (*Server, error) {
 	sc := p.sc
 	sc.pool = p
-	return p.build(sc)
+	s, err := p.build(sc)
+	if err != nil {
+		return nil, err
+	}
+	s.token = token
+	return s, nil
 }
 
 // attach registers a session once it is initialized, and detaches it when it ends.
 func (p *Pool) attach(s *Server, ss *mcp.ServerSession) {
+	id := s.token + "/" + ss.ID()
+	s.eng.SetSessionID(id)
 	p.mu.Lock()
-	p.sessions[s] = &sessionState{}
+	p.sessions[s] = &sessionState{id: id}
 	p.mu.Unlock()
 	go func() {
 		_ = ss.Wait()
@@ -122,10 +132,22 @@ func (p *Pool) attach(s *Server, ss *mcp.ServerSession) {
 	}()
 }
 
+// live reports whether the session with this mark identity is still connected.
+func (p *Pool) live(id string) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, st := range p.sessions {
+		if st.id == id {
+			return true
+		}
+	}
+	return false
+}
+
 // Warm loads repoPaths from disk into the pool, so the first session asking for them
 // adopts the graph instead of building it. For `enola serve <repo>`.
 func (p *Pool) Warm(repoPaths []string) error {
-	s, err := p.newSession()
+	s, err := p.newSession("-")
 	if err != nil {
 		return err
 	}
@@ -377,8 +399,14 @@ func (p *Pool) HTTPHandler(cfg HTTPConfig) (http.Handler, error) {
 	if maxBody <= 0 {
 		maxBody = 16 << 20
 	}
-	mcpHandler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server {
-		s, err := p.newSession()
+	mcpHandler := mcp.NewStreamableHTTPHandler(func(r *http.Request) *mcp.Server {
+		// The session's consumer is the token its initialize request authenticated
+		// with; the requests after it carry the session id, not this.
+		token := "-"
+		if info := auth.TokenInfoFromContext(r.Context()); info != nil {
+			token = info.UserID
+		}
+		s, err := p.newSession(token)
 		if err != nil {
 			log.Printf("[pool] could not start a session: %v", err)
 			return nil
