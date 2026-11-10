@@ -219,6 +219,13 @@ func IsDocument(f Fact) bool {
 // that brought it, so a reader can tell a declared member from a projected one.
 const PropMixinMembers = "mixin_members"
 
+// PropInheritedCalls is the prop on a caller listing each call it made through a
+// subtype to a member the subtype inherits, spelled as the extractor wrote it
+// (`Concrete.run`). Its calls relation names the declaration (`Base.run`); this
+// keeps the type the call went through, which is the type a self-call inside the
+// inherited member dispatches on.
+const PropInheritedCalls = "inherited_calls"
+
 // Coupling-kind property values annotate a synthetic module-coupling dependency
 // fact (currently emitted by the Ruby extractor) with the reference that produced
 // the edge, so consumers can treat edge classes differently — e.g. the cycles

@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/enola-labs/enola/internal/facts"
+	"github.com/enola-labs/enola/internal/hierarchy"
 )
 
 // Interface dispatch.
@@ -26,87 +27,42 @@ import (
 // and every implementation in the flow would describe none of them.
 const maxImplementations = 3
 
-// dispatchIndex is what the walk knows about types, per repository.
-type dispatchIndex struct {
-	interfaces map[[2]string]bool     // (repo, name) of every interface and abstract class
-	implements map[[2]string][]string // (repo, interface) -> the types implementing it
-	methods    map[[2]string][]string // (repo, type) -> its methods
+// types is the repository's type tree, built the first time the walk needs it.
+func (a *Analysis) types() *hierarchy.Index {
+	if a.tree == nil {
+		a.tree = hierarchy.Build(a.src.FactsRef())
+	}
+	return a.tree
 }
 
-func (a *Analysis) dispatch() *dispatchIndex {
-	if a.ifaces != nil {
-		return a.ifaces
-	}
-	ix := &dispatchIndex{interfaces: map[[2]string]bool{}, implements: map[[2]string][]string{}, methods: map[[2]string][]string{}}
-	for _, f := range a.src.FactsRef() {
-		if f.Kind != facts.KindSymbol {
-			continue
-		}
-		switch f.PropString("symbol_kind") {
-		case facts.SymbolInterface:
-			ix.interfaces[[2]string{f.Repo, f.Name}] = true
-		case facts.SymbolClass:
-			if f.PropBool("abstract") {
-				ix.interfaces[[2]string{f.Repo, f.Name}] = true
-			}
-		case facts.SymbolMethod:
-			if dot := strings.LastIndexByte(f.Name, '.'); dot > 0 {
-				key := [2]string{f.Repo, f.Name[:dot]}
-				if !containsString(ix.methods[key], f.Name) {
-					ix.methods[key] = append(ix.methods[key], f.Name)
-				}
-			}
-		}
-		for _, r := range f.Relations {
-			if r.Kind != facts.RelImplements {
-				continue
-			}
-			key := [2]string{f.Repo, r.Target}
-			if !containsString(ix.implements[key], f.Name) {
-				ix.implements[key] = append(ix.implements[key], f.Name)
-			}
-		}
-	}
-	a.ifaces = ix
-	return ix
-}
-
-// implementations returns the nodes of the methods implementing an interface method,
-// or nil when the node is not one, or has none or too many.
+// implementations returns the nodes of the methods implementing an interface or
+// abstract method, or nil when the node is not one, or has none or too many. They
+// are the topmost overriders below the method's type, however deep the first one
+// down a branch sits.
 func (a *Analysis) implementations(id int32) []int32 {
 	f := a.nodes[id].fact
 	if f.PropString("symbol_kind") != facts.SymbolMethod {
 		return nil
 	}
-	dot := strings.LastIndexByte(f.Name, '.')
-	if dot <= 0 {
+	owner, method := hierarchy.SplitMember(f.Name)
+	t := a.types()
+	if owner == "" || !t.IsType(f.Repo, owner) {
 		return nil
 	}
-	owner, method := f.Name[:dot], f.Name[dot+1:]
-	ix := a.dispatch()
-	if !ix.interfaces[[2]string{f.Repo, owner}] && !f.PropBool("abstract") {
+	if !t.IsAbstract(f.Repo, owner) && !f.PropBool("abstract") {
 		return nil
 	}
-	types := ix.implements[[2]string{f.Repo, owner}]
-	if len(types) == 0 || len(types) > maxImplementations {
+	impls := t.Overriders(f.Repo, owner, method)
+	if len(impls) == 0 || len(impls) > maxImplementations {
 		return nil
 	}
 	var out []int32
-	for _, t := range types {
-		if impl, ok := a.nodeFor(f.Repo, t+"."+method); ok && impl != id {
+	for _, name := range impls {
+		if impl, ok := a.nodeFor(f.Repo, name); ok && impl != id {
 			out = append(out, impl)
 		}
 	}
 	return out
-}
-
-func containsString(list []string, s string) bool {
-	for _, x := range list {
-		if x == s {
-			return true
-		}
-	}
-	return false
 }
 
 // Classes.
@@ -133,7 +89,7 @@ func (a *Analysis) classMembers(id int32) []int32 {
 		return nil
 	}
 	var out []int32
-	for _, m := range a.dispatch().methods[[2]string{f.Repo, f.Name}] {
+	for _, m := range a.types().Members(f.Repo, f.Name) {
 		if n, ok := a.nodeFor(f.Repo, m); ok && n != id {
 			out = append(out, n)
 		}

@@ -68,6 +68,7 @@ import (
 	"github.com/enola-labs/enola/internal/linkers/binders/grpcimpl"
 	"github.com/enola-labs/enola/internal/linkers/binders/httphandler"
 	"github.com/enola-labs/enola/internal/linkers/binders/importaliases"
+	"github.com/enola-labs/enola/internal/linkers/binders/inheritedcalls"
 	"github.com/enola-labs/enola/internal/linkers/binders/messagingcontract"
 	"github.com/enola-labs/enola/internal/linkers/binders/mixinowner"
 	"github.com/enola-labs/enola/internal/linkers/binders/moduleedges"
@@ -550,6 +551,7 @@ func registerOSSPlugins(eng *engine.Engine, cfg *config.Config) {
 	eng.RegisterBinder(grpcimpl.New())
 	eng.RegisterBinder(httphandler.New())
 	eng.RegisterBinder(mixinowner.New())
+	eng.RegisterBinder(inheritedcalls.New())
 	eng.RegisterBinder(frameworkroots.New())
 	eng.RegisterBinder(moduleedges.New())
 	eng.RegisterBinder(stimulusresolver.New())

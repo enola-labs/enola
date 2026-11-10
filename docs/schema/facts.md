@@ -360,7 +360,7 @@ the base URL it was given.
 |---|---|
 | `declares` | Source is declared in target. A symbol, route, or storage fact points to its containing `module`; no inverse module-to-child relation is emitted |
 | `imports` | Source imports/depends on target (module or package) |
-| `calls` | Source calls target |
+| `calls` | Source calls target. A call the extractor spelled through a subtype (`Concrete.run`) to a member the subtype inherits names the declaration (`Base.run`), rewritten by the post-link inherited-calls binder, and the caller lists the spelling it replaced in `inherited_calls` |
 | `implements` | Source implements/extends target (an interface, a base class) |
 | `depends_on` | Source depends on target — used for cross-repo service edges (multi-repo mode) |
 | `instantiates` | Source constructs an instance of target via a constructor call |
@@ -461,6 +461,14 @@ One descriptive prop is prose rather than a measurement:
   300 bytes; the whole comment is in [docs.jsonl](docs.md). Absent when the symbol
   has no comment, and on languages whose extractor does not read one.
   `diff_snapshot` and `enola check` do not report a change to it.
+
+One descriptive prop records how a call was resolved:
+
+- `inherited_calls` (symbols): the calls this symbol made through a subtype to a
+  member the subtype inherits, as the extractor spelled them (`app.Concrete.run`),
+  sorted. Its `calls` relation names the declaration (`app.Base.run`). The base is
+  read from the subtype's `implements` relations or its `superclass` prop and
+  must be a type of the same repository. Absent when there are none.
 
 `doc` adds no node and no edge. The same function, from a build before `doc` and
 from one after:

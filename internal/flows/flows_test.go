@@ -588,6 +588,33 @@ func TestAnalyze_CallThroughAnAbstractBaseReachesItsSubclass(t *testing.T) {
 	}
 }
 
+// The base is found however the extractor wrote it, and so is the method: a base
+// named only in a superclass prop, a PHP or C++ `::` member, and an override that
+// sits a level below a subclass that does not declare the method.
+func TestAnalyze_DispatchReadsTheTypeTreeHoweverItIsSpelled(t *testing.T) {
+	abstract := func(f facts.Fact) facts.Fact { f.Props["abstract"] = true; return f }
+	ts := typ("src.Concrete", "src/concrete.ts", facts.SymbolClass)
+	ts.Props["superclass"] = "Base"
+	ff := []facts.Fact{
+		sym("cmd.main", "cmd/main.ts", "src.Base.run", `App\Job::handle`),
+		abstract(typ("src.Base", "src/base.ts", facts.SymbolClass)),
+		method("src.Base.run", "src/base.ts"),
+		ts,
+		method("src.Concrete.run", "src/concrete.ts"),
+		abstract(typ(`App\Job`, "app/Job.php", facts.SymbolClass)),
+		method(`App\Job::handle`, "app/Job.php"),
+		typ(`App\Mid`, "app/Mid.php", facts.SymbolClass, `App\Job`),
+		typ(`App\Mail`, "app/Mail.php", facts.SymbolClass, `App\Mid`),
+		method(`App\Mail::handle`, "app/Mail.php"),
+	}
+	a := analyze(ff...)
+	for _, want := range []string{"src.Concrete.run", `App\Mail::handle`} {
+		if got, _ := a.Through(want); len(got) != 1 {
+			t.Errorf("%s is reached through its abstract base: through = %v", want, got)
+		}
+	}
+}
+
 // A command of a command-line program is an entry named the way a user types it.
 func TestAnalyze_ACommandIsAnEntryNamedByItsCommand(t *testing.T) {
 	check := sym("pkg/command.Runner.Check", "pkg/command/check.go", "pkg/command.verdict")

@@ -19,6 +19,7 @@ import (
 	"strings"
 
 	"github.com/enola-labs/enola/internal/facts"
+	"github.com/enola-labs/enola/internal/hierarchy"
 )
 
 // Mechanisms an entry is reached through, beside the framework-roots ones
@@ -156,8 +157,9 @@ type Analysis struct {
 	nodes []node
 	index map[[2]string]int32
 	opts  Options
-	// ifaces is built the first time the walk reaches an interface method.
-	ifaces *dispatchIndex
+	// tree is the type tree, built the first time the walk reaches a method that
+	// dispatches or a class it enters through its members.
+	tree *hierarchy.Index
 	// imports is built the first time a call does not resolve: per repository and
 	// file, the packages it imports from outside the repository.
 	imports map[string][]string
