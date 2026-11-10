@@ -1055,6 +1055,7 @@ func (w *astWalker) handleFieldDeclaration(node *sitter.Node) {
 
 	// Data member(s): "Foo *a, b;" → one SymbolVariable per declared name.
 	constMember := strings.Contains(declTypePrefix(node, w.src), "const")
+	fieldType := w.memberTypeName(node)
 	for i := uint(0); i < node.ChildCount(); i++ {
 		if node.FieldNameForChild(uint32(i)) != "declarator" {
 			continue
@@ -1082,7 +1083,51 @@ func (w *astWalker) handleFieldDeclaration(node *sitter.Node) {
 			Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: w.dir}},
 		})
 		w.setDoc(node)
+		if idx := w.currentOwner(); fieldType != "" && idx >= 0 {
+			// The class's field types, for its methods wherever they are defined and
+			// for subclasses, which call through them (facts.PropFieldTypes, read by
+			// the inherited-calls binder).
+			types, _ := w.out[idx].PropAny(facts.PropFieldTypes).(map[string]string)
+			if types == nil {
+				types = map[string]string{}
+			}
+			types[leaf] = fieldType
+			w.out[idx].SetProp(facts.PropFieldTypes, types)
+		}
 	}
+}
+
+// memberTypeName is the class a data member holds, a pointer to or a reference to:
+// a named type, not a builtin, a template or an auto.
+func (w *astWalker) memberTypeName(node *sitter.Node) string {
+	t := node.ChildByFieldName("type")
+	if t == nil {
+		return ""
+	}
+	switch kindOf(w.kinds, t) {
+	case "type_identifier", "qualified_identifier":
+		name := strings.TrimSpace(nodeText(t, w.src))
+		if cppBuiltinTypes[name] {
+			return ""
+		}
+		return name
+	}
+	return ""
+}
+
+// fieldRoot returns the member a call's receiver names, `helper_` or
+// `this->helper_`, or "" for any other receiver.
+func fieldRoot(root string) string {
+	root = strings.TrimPrefix(root, "this->")
+	if root == "" {
+		return ""
+	}
+	for _, r := range root {
+		if r != '_' && !unicode.IsLetter(r) && !unicode.IsDigit(r) {
+			return ""
+		}
+	}
+	return root
 }
 
 // handleTemplate unwraps a template_declaration to its inner class/function/etc.
@@ -2031,6 +2076,13 @@ func (w *astWalker) handleCall(node *sitter.Node) {
 			}
 			// An `auto` typed by a call (factoryreturns.go): the loop metrics read
 			// the call as written, as for any receiver of unknown type.
+		}
+		if w.receiverTypes[root] == "" {
+			// Maybe a member of the class or of a base, typed where it is declared
+			// (facts.PropMemberCalls; the binder reads the field types).
+			if field := fieldRoot(root); field != "" {
+				w.noteMemberCall(field + "." + name)
+			}
 		}
 		// Unknown receiver calls still feed the in-loop metric. Skip obviously cheap
 		// container/iterator methods to keep calls_in_loop focused.

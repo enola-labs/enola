@@ -333,6 +333,9 @@ func lastSegment(name string) string {
 }
 
 func hasQualifiedSuffix(name, suffix string) bool {
+	// A path and a dotted import name spell the same qualifier: app/lib.Helper is
+	// what Python's app.lib.Helper names.
+	name, suffix = strings.ReplaceAll(name, "/", "."), strings.ReplaceAll(suffix, "/", ".")
 	if !strings.HasSuffix(name, suffix) {
 		return false
 	}

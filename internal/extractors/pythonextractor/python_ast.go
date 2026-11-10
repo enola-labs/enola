@@ -1,6 +1,7 @@
 package pythonextractor
 
 import (
+	"maps"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -1379,7 +1380,13 @@ func (w *pyWalker) handleClass(node *sitter.Node, decorators []string) {
 
 	bodyNode := node.ChildByFieldName("body")
 	w.pushType(name, collectPyMethodNames(bodyNode, w.src))
-	w.attrTypes = append(w.attrTypes, collectSelfAttrTypes(bodyNode, w.src, w.importMap, w.module))
+	attrTypes := collectSelfAttrTypes(bodyNode, w.src, w.importMap, w.module)
+	w.attrTypes = append(w.attrTypes, attrTypes)
+	if len(attrTypes) > 0 {
+		// For subclasses in other files, which call through these attributes
+		// (facts.PropFieldTypes, read by the inherited-calls binder).
+		w.out[len(w.out)-1].SetProp(facts.PropFieldTypes, maps.Clone(attrTypes))
+	}
 	w.returnTypes = append(w.returnTypes, collectMethodReturnTypes(bodyNode, w.src, w.importMap, w.module, qualName))
 	if bodyNode != nil {
 		w.walkBody(bodyNode)
@@ -2496,6 +2503,11 @@ func (w *pyWalker) emitCallEdge(fn *sitter.Node) {
 			qualType = w.callResultType(objNode)
 		}
 		if qualType == "" {
+			if name := selfAttrName(objNode, w.src); name != "" && w.enclosingType() != "" {
+				// An attribute a base class may type, in another file: the
+				// inherited-calls binder reads it there (facts.PropMemberCalls).
+				owner.AddPropStrings(facts.PropMemberCalls, name+"."+attr)
+			}
 			w.recordWrittenIOCall(objNode, obj, attr)
 			return
 		}

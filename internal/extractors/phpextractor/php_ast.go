@@ -1,6 +1,7 @@
 package phpextractor
 
 import (
+	"maps"
 	"strings"
 
 	"github.com/enola-labs/enola/internal/extractors/tsutil"
@@ -257,6 +258,11 @@ func (w *phpWalker) handleClassLike(node *sitter.Node, kind string) {
 	}
 	outer := w.propTypes
 	w.propTypes = w.classPropertyTypes(node.ChildByFieldName("body"))
+	if len(w.propTypes) > 0 {
+		// For subclasses in other files, which call through these properties
+		// (facts.PropFieldTypes, read by the inherited-calls binder).
+		w.out[classIdx].SetProp(facts.PropFieldTypes, maps.Clone(w.propTypes))
+	}
 	w.walkProgram(node.ChildByFieldName("body"))
 	w.nameClassesInBody(classIdx, node.ChildByFieldName("body"))
 	w.propTypes = outer

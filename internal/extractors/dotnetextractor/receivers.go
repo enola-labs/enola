@@ -208,13 +208,49 @@ func (w *astWalker) receiverType(recv *sitter.Node) string {
 		return w.callResultType(recv)
 	case "member_access_expression":
 		// `this._repo.Save(x)`
-		if o := recv.ChildByFieldName("expression"); o != nil && kindOf(o) == "this_expression" && len(w.memberTypes) > 0 {
+		if o := recv.ChildByFieldName("expression"); o != nil && isThis(o, w.src) && len(w.memberTypes) > 0 {
 			if n := recv.ChildByFieldName("name"); n != nil {
 				return w.memberTypes[len(w.memberTypes)-1][nodeText(n, w.src)]
 			}
 		}
 	}
 	return ""
+}
+
+// isThis reports whether an expression is `this`. The grammar parses it as an
+// anonymous `this` token, where older grammars had a this_expression node.
+func isThis(n *sitter.Node, src []byte) bool {
+	return kindOf(n) == "this_expression" || nodeText(n, src) == "this"
+}
+
+// untypedMember returns the member a receiver names, `this.x` or a bare `x` that is
+// no local, when no enclosing type declares it: one a base type may. "" otherwise.
+func (w *astWalker) untypedMember(recv *sitter.Node) string {
+	if recv == nil || len(w.typeStack) == 0 {
+		return ""
+	}
+	var name string
+	switch kindOf(recv) {
+	case "identifier":
+		name = nodeText(recv, w.src)
+		if _, local := w.localTypes[name]; local {
+			return ""
+		}
+	case "member_access_expression":
+		o, n := recv.ChildByFieldName("expression"), recv.ChildByFieldName("name")
+		if o == nil || n == nil || !isThis(o, w.src) {
+			return ""
+		}
+		name = nodeText(n, w.src)
+	default:
+		return ""
+	}
+	for i := len(w.memberTypes) - 1; i >= 0; i-- {
+		if _, ok := w.memberTypes[i][name]; ok {
+			return ""
+		}
+	}
+	return name
 }
 
 // noteTypedCall records a call on a receiver of declared type against the member

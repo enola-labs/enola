@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io/fs"
 	"log"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
@@ -804,6 +805,11 @@ func (e *TSExtractor) classFacts(kinds *tsutil.KindTable, node *sitter.Node, ctx
 	}
 	classBody := findChildByKind(kinds, node, "class_body")
 	result := []facts.Fact{e.classSymbol(kinds, node, classBody, ctx, symbolName, isExported)}
+	if ft := classFieldTypes(kinds, classBody, src, dir, ctx.importMap); len(ft) > 0 {
+		// For subclasses in other files, which call through these fields
+		// (facts.PropFieldTypes, read by the inherited-calls binder).
+		result[0].SetProp(facts.PropFieldTypes, ft)
+	}
 
 	// TypeORM: a class decorated @Entity is a table. The storage fact is a COMPANION
 	// to the symbol above, as in Kotlin/Room and Java/JPA — the class keeps its own
@@ -907,6 +913,7 @@ func (e *TSExtractor) classMemberFacts(kinds *tsutil.KindTable, classBody *sitte
 	src := ctx.src
 	scope := ctx.callScope(kinds, symbolName, classFieldTypes(kinds, classBody, src, ctx.dir, ctx.importMap))
 	scope.dataFields = classDataFields(kinds, classBody, src)
+	scope.ownMethods = classMethodNames(kinds, classBody, src)
 	scope.methodReturns = classMethodReturnTypes(kinds, classBody, src, ctx.dir, ctx.importMap, scope.typeNames.of(kinds, classBody, src))
 	var result []facts.Fact
 	var pendingDecorators []string
@@ -2876,6 +2883,7 @@ type tsBodyMetrics struct {
 	ioDirect              bool            // body directly invokes a network/file I/O primitive
 	ioCalls               []string        // the resolved calls that are themselves the round trip
 	ioNamedCalls          []string        // resolved calls that are I/O by method name alone, settled per repo
+	memberCalls           map[string]bool // `this.<field>.<method>` calls on a field this class does not type
 	fieldsWritten         []string        // distinct `this.<name>` targets the body assigns to
 	writeSeen             map[string]bool // dedup set for fieldsWritten
 }
@@ -3450,6 +3458,16 @@ func (w *tsBodyWalker) leaveLoop(scales, repeats bool) {
 func (w *tsBodyWalker) walkCall(n *sitter.Node) bool {
 	target := w.resolve(n)
 	w.noteIOCall(n, target)
+	if target == "" && w.metrics != nil && w.className != "" {
+		// `this.field.method()` on a field a base class may type, in another
+		// file: the inherited-calls binder reads it there (facts.PropMemberCalls).
+		if field, method := w.thisFieldCall(n); field != "" {
+			if w.metrics.memberCalls == nil {
+				w.metrics.memberCalls = map[string]bool{}
+			}
+			w.metrics.memberCalls[field+"."+method] = true
+		}
+	}
 	if target != "" {
 		w.recordResolvedCall(n, target)
 	} else if w.metrics != nil && w.loopDepth > 0 {
@@ -3591,7 +3609,12 @@ func (w *tsBodyWalker) noteThisMember(n *sitter.Node) {
 	}
 	name := nodeText(prop, w.src)
 	target := w.dir + "." + w.className + "." + name
-	if !w.dataFields[name] {
+	// `this.helper.work()` reads helper to call work on it: helper is a field (maybe
+	// a base class's, which dataFields does not list), not a method being called.
+	// A method or accessor of the class stays a call: reading a getter runs it.
+	parent := n.Parent()
+	read := parent != nil && kindOf(w.kinds, parent) == "member_expression" && sameTSNode(parent.ChildByFieldName("object"), n) && !w.ownMethods[name]
+	if !w.dataFields[name] && !read {
 		w.addCallRel(target)
 		return
 	}
@@ -3600,6 +3623,24 @@ func (w *tsBodyWalker) noteThisMember(n *sitter.Node) {
 		w.seen["names:"+target] = true
 		w.rels = append(w.rels, facts.Relation{Kind: facts.RelNames, Target: target})
 	}
+}
+
+// thisFieldCall splits a `this.field.method(...)` call into field and method, or
+// returns "" for any other call.
+func (w *tsBodyWalker) thisFieldCall(call *sitter.Node) (string, string) {
+	fn := call.ChildByFieldName("function")
+	if fn == nil || kindOf(w.kinds, fn) != "member_expression" {
+		return "", ""
+	}
+	object, property := fn.ChildByFieldName("object"), fn.ChildByFieldName("property")
+	if object == nil || property == nil || kindOf(w.kinds, object) != "member_expression" {
+		return "", ""
+	}
+	recv, field := object.ChildByFieldName("object"), object.ChildByFieldName("property")
+	if recv == nil || field == nil || kindOf(w.kinds, recv) != "this" {
+		return "", ""
+	}
+	return nodeText(field, w.src), nodeText(property, w.src)
 }
 
 // walkCallbackSubtree descends toward an iterator's callback, bumping the loop depth
@@ -3768,6 +3809,9 @@ func applyTSMetrics(props map[string]any, m *tsBodyMetrics) {
 		return
 	}
 	props["cyclomatic"] = 1 + m.decisions
+	if len(m.memberCalls) > 0 {
+		props[facts.PropMemberCalls] = slices.Sorted(maps.Keys(m.memberCalls))
+	}
 	if len(m.fieldsWritten) > 0 {
 		sort.Strings(m.fieldsWritten)
 		props["fields_written"] = m.fieldsWritten

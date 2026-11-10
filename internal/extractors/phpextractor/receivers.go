@@ -184,6 +184,11 @@ func (w *phpWalker) recordReceiverCall(call *sitter.Node, ownerIdx int, method s
 	}
 	typ := w.receiverOf(call.ChildByFieldName("object"), w.localTypes)
 	if typ == "" {
+		if prop := thisProperty(call.ChildByFieldName("object"), w.src); prop != "" && len(w.typeStack) > 0 {
+			// A property a parent class may type, in another file: the
+			// inherited-calls binder reads it there (facts.PropMemberCalls).
+			w.out[ownerIdx].AddPropStrings(facts.PropMemberCalls, prop+"."+method)
+		}
 		return
 	}
 	target := typ + "::" + method

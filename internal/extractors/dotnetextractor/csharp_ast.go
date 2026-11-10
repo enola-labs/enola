@@ -2,6 +2,7 @@ package dotnetextractor
 
 import (
 	"log"
+	"maps"
 	"strings"
 	"sync"
 
@@ -443,7 +444,13 @@ func (w *astWalker) handleTypeDecl(node *sitter.Node, kind string) {
 
 	body := node.ChildByFieldName("body")
 	w.typeStack = append(w.typeStack, name)
-	w.memberTypes = append(w.memberTypes, w.collectMemberTypes(node, body))
+	memberTypes := w.collectMemberTypes(node, body)
+	w.memberTypes = append(w.memberTypes, memberTypes)
+	if len(memberTypes) > 0 {
+		// For subtypes in other files, which call through these members
+		// (facts.PropFieldTypes, read by the inherited-calls binder).
+		w.out[idx].SetProp(facts.PropFieldTypes, maps.Clone(memberTypes))
+	}
 	w.methodStack = append(w.methodStack, collectMemberNames(body, w.src))
 	w.interfaceStack = append(w.interfaceStack, kind == facts.SymbolInterface)
 	w.ctorStack = append(w.ctorStack, countConstructors(body))
@@ -1440,6 +1447,13 @@ func (w *astWalker) handleInvocation(node *sitter.Node) {
 			w.addEdge(facts.RelCalls, name)
 			w.recordInLoop(recv, name)
 			w.noteTypedCall(recv+"."+name, declared, name)
+			if member := w.untypedMember(recvNode); declared == "" && member != "" {
+				// A member a base type may declare, in another file: the
+				// inherited-calls binder reads its type there (facts.PropMemberCalls).
+				if owner := w.currentOwner(); owner != nil {
+					owner.AddPropStrings(facts.PropMemberCalls, member+"."+name)
+				}
+			}
 		}
 	}
 }

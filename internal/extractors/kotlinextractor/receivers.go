@@ -1,6 +1,7 @@
 package kotlinextractor
 
 import (
+	"maps"
 	"slices"
 	"strings"
 
@@ -292,6 +293,35 @@ func (w *astWalker) recordMemberTypes() {
 		m[k] = v
 	}
 	w.out[owner].SetProp(propMemberTypes, m)
+	// For subclasses in other files, which call through these members
+	// (facts.PropFieldTypes, read by the inherited-calls binder).
+	w.out[owner].SetProp(facts.PropFieldTypes, maps.Clone(m))
+}
+
+// untypedMember returns the member a receiver names, `this.x` or a bare `x` that is
+// no local, when no enclosing type declares it: one a supertype may. "" otherwise.
+func (w *astWalker) untypedMember(recv *sitter.Node) string {
+	if len(w.typeStack) == 0 || recv == nil {
+		return ""
+	}
+	var name string
+	switch {
+	case kotlinIsIdentifier(recv):
+		name = nodeText(recv, w.src)
+		if _, local := w.localTypes[name]; local || isCapitalized(name) {
+			return ""
+		}
+	case kindOf(recv) == "navigation_expression" && navReceiverIsThis(recv, w.src):
+		name, _ = calleeName(recv, w.src)
+	default:
+		return ""
+	}
+	for i := len(w.memberTypes) - 1; i >= 0; i-- {
+		if _, ok := w.memberTypes[i][name]; ok {
+			return ""
+		}
+	}
+	return name
 }
 
 // noteExtensionMemberCall notes `bundle.load()` inside an extension function, where

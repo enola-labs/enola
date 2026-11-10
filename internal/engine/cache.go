@@ -3491,7 +3491,13 @@ import (
 // receiver call up through the class's bases; Kotlin and C# resolve an inherited bare
 // or this-call; Python, Scala, Dart and C++ leave the self-calls their file cannot
 // place to the inherited-calls binder (member_calls).
-const cacheVersion = "v555"
+// v556: Calls through attributes: Python, TypeScript, Java, Kotlin, C#, PHP, Scala and
+// C++ record a class's attribute types (field_types) and the calls through an
+// attribute their file cannot type (member_calls), which the inherited-calls binder
+// resolves through the base classes; Scala types class-body vals, C# reads `this.x`
+// receivers, Go promotes an embedded struct's fields, and a TypeScript field read
+// for a call (`this.helper.work()`) is no longer a call to `helper`.
+const cacheVersion = "v556"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

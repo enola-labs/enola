@@ -219,6 +219,7 @@ func (e *GoExtractor) Extract(ctx context.Context, repoPath string, files []stri
 			callTypes.embeds[typ] = append(callTypes.embeds[typ], embedded...)
 		}
 	}
+	promoteEmbeddedFields(globalFieldTypes, callTypes.embeds)
 
 	// Pass 2a'': the implementers the source states without an assertion — a
 	// constructor returning the interface — and the ones the method sets infer. See

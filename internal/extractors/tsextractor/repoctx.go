@@ -49,6 +49,9 @@ type callScope struct {
 	// dataFields are the class's fields that hold a value, not a function: a
 	// reference to one is a read, not a call (classDataFields).
 	dataFields map[string]bool
+	// ownMethods are the methods and accessors the class body declares: reading a
+	// getter runs it, so `this.owner.x` calls owner when owner is one.
+	ownMethods map[string]bool
 	// methodReturns are the class's methods' annotated return types, qualified
 	// (classMethodReturnTypes).
 	methodReturns map[string]string

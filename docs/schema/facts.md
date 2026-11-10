@@ -360,7 +360,7 @@ the base URL it was given.
 |---|---|
 | `declares` | Source is declared in target. A symbol, route, or storage fact points to its containing `module`; no inverse module-to-child relation is emitted |
 | `imports` | Source imports/depends on target (module or package) |
-| `calls` | Source calls target. A call the extractor spelled through a subtype (`Concrete.run`) to a member the subtype inherits names the declaration (`Base.run`), rewritten by the post-link inherited-calls binder, and the caller lists the spelling it replaced in `inherited_calls` |
+| `calls` | Source calls target. A call the extractor spelled through a subtype (`Concrete.run`) to a member the subtype inherits names the declaration (`Base.run`), rewritten by the post-link inherited-calls binder, and the caller lists the spelling it replaced in `inherited_calls`. The same binder adds the calls a method makes on its own object, or through one of its attributes, whose target is declared in another file on a base class: the extractor records the attribute types of each class and the calls it could not place, the binder looks each up through the class and its bases, and an edge is written only where it lands on a symbol. Those working records are not kept in the facts |
 | `implements` | Source implements/extends target (an interface, a base class) |
 | `depends_on` | Source depends on target — used for cross-repo service edges (multi-repo mode) |
 | `instantiates` | Source constructs an instance of target via a constructor call |

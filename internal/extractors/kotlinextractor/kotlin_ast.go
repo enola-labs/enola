@@ -1430,6 +1430,13 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 							w.noteTypedCall(nodeText(r, w.src)+"."+name, t, name)
 						} else {
 							w.noteExtensionMemberCall(r, name)
+							if member := w.untypedMember(r); member != "" {
+								// A member a supertype may declare, in another file:
+								// the inherited-calls binder reads its type there.
+								if owner := w.currentOwner(); owner != noOwner {
+									w.out[owner].AddPropStrings(facts.PropMemberCalls, member+"."+name)
+								}
+							}
 						}
 					}
 				} else if !isNav && !isCapitalized(name) {

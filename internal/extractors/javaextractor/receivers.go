@@ -189,6 +189,40 @@ func (w *astWalker) receiverType(obj *sitter.Node) string {
 	return ""
 }
 
+// untypedField returns the field a receiver names, `this.f` or a bare `f` that is
+// no local, when the enclosing class does not declare it: one a superclass may.
+// "" for any other receiver.
+func (w *astWalker) untypedField(obj *sitter.Node) string {
+	if len(w.typeStack) == 0 {
+		return ""
+	}
+	var name string
+	switch kindOf(obj) {
+	case "identifier":
+		name = nodeText(obj, w.src)
+		if _, local := w.localTypes[name]; local {
+			return ""
+		}
+		if r := []rune(name); len(r) == 0 || unicode.IsUpper(r[0]) {
+			return ""
+		}
+	case "field_access":
+		o, f := obj.ChildByFieldName("object"), obj.ChildByFieldName("field")
+		if o == nil || f == nil || kindOf(o) != "this" {
+			return ""
+		}
+		name = nodeText(f, w.src)
+	default:
+		return ""
+	}
+	for i := len(w.fieldTypes) - 1; i >= 0; i-- {
+		if _, ok := w.fieldTypes[i][name]; ok {
+			return ""
+		}
+	}
+	return name
+}
+
 // fqnForSimple resolves a simple type name the way targetForType does.
 func (w *astWalker) fqnForSimple(simple string) string {
 	if fqn, ok := w.importMap[simple]; ok {
