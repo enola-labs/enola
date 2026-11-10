@@ -1,4 +1,4 @@
-# Impact summary: example.com/gosample/pkg/a.Alpha
+# Impact summary: pkg/a.Alpha
 
 2 total dependents — depth 1: 2 symbols
 
@@ -18,3 +18,6 @@
 - pkg/b (1 dependents)
 
 _Use output_mode=compact for the per-depth dependent list, output_mode=full for the raw graph._
+
+
+Go names are shown relative to their module (example.com/gosample); pass either form as input.

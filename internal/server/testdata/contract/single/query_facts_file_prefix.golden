@@ -4,14 +4,17 @@ Found 11 results (showing 11):
 
 | Kind | Name | File | Line |
 |------|------|------|------|
-| dependency | example.com/gosample/pkg/a -> example.com/gosample/pkg/b | pkg/a/a.go | 3 |
-| symbol | example.com/gosample/pkg/a.Alpha | pkg/a/a.go | 7 |
-| symbol | example.com/gosample/pkg/a.GetPath | pkg/a/a.go | 15 |
-| symbol | example.com/gosample/pkg/a.Seed | pkg/a/a.go | 24 |
-| symbol | example.com/gosample/pkg/a.getByID | pkg/a/a.go | 30 |
-| symbol | example.com/gosample/pkg/a.setup | pkg/a/a.go | 31 |
-| symbol | example.com/gosample/pkg/a.helper | pkg/a/a.go | 37 |
-| symbol | example.com/gosample/pkg/a.Gamma | pkg/a/a.go | 43 |
-| module | example.com/gosample/pkg/a | pkg/a | 0 |
+| dependency | pkg/a -> pkg/b | pkg/a/a.go | 3 |
+| symbol | pkg/a.Alpha | pkg/a/a.go | 7 |
+| symbol | pkg/a.GetPath | pkg/a/a.go | 15 |
+| symbol | pkg/a.Seed | pkg/a/a.go | 24 |
+| symbol | pkg/a.getByID | pkg/a/a.go | 30 |
+| symbol | pkg/a.setup | pkg/a/a.go | 31 |
+| symbol | pkg/a.helper | pkg/a/a.go | 37 |
+| symbol | pkg/a.Gamma | pkg/a/a.go | 43 |
+| module | pkg/a | pkg/a | 0 |
 | test_ref | pkg/a/a_ext_test.go | pkg/a/a_ext_test.go | 0 |
 | test_ref | pkg/a/a_test.go | pkg/a/a_test.go | 0 |
+
+
+Go names are shown relative to their module (example.com/gosample); pass either form as input.

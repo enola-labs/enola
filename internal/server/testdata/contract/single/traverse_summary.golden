@@ -1,6 +1,6 @@
-# Traverse summary: example.com/gosample/pkg/a (forward)
+# Traverse summary: pkg/a (forward)
 
-example.com/gosample/pkg/a **depends on** 1 nodes across 1 modules
+pkg/a **depends on** 1 nodes across 1 modules
 
 ## By node kind
 
@@ -15,3 +15,6 @@ example.com/gosample/pkg/a **depends on** 1 nodes across 1 modules
 - pkg/b (1 nodes)
 
 _Stats: 1 nodes matched, 2 walked, 2 edges, max depth 1. Use output_mode=compact for the per-depth node list, output_mode=full for the raw graph._
+
+
+Go names are shown relative to their module (example.com/gosample); pass either form as input.

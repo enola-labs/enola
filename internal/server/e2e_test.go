@@ -242,7 +242,7 @@ func TestE2E_ShowSymbolNames(t *testing.T) {
 	if res.IsError {
 		t.Fatalf("show_symbol(names) errored: %s", out)
 	}
-	for _, want := range []string{"### example.com/gosample/pkg/a.Alpha", "### example.com/gosample/pkg/b.Beta", `No symbols matching "NoSuchThing"`} {
+	for _, want := range []string{"### pkg/a.Alpha", "### pkg/b.Beta", `No symbols matching "NoSuchThing"`} {
 		if !strings.Contains(out, want) {
 			t.Errorf("show_symbol(names) missing %q; got:\n%s", want, out)
 		}
@@ -829,4 +829,35 @@ func copyTree(t *testing.T, src, dstParent string) string {
 		}
 	}
 	return dst
+}
+
+// Text answers name Go packages by directory and say once what they are relative to;
+// a name copied out of one resolves exactly in the next call, and a full answer keeps
+// every name exact.
+func TestE2E_TextAnswersShortenGoNamesAndRoundTrip(t *testing.T) {
+	s := startInMemory(t)
+	s.snapshot(t)
+
+	out := text(s.call(t, "impact_analysis", map[string]any{"target": "pkg/a.Alpha", "output_mode": "compact"}))
+	if !strings.Contains(out, "- pkg/b.Beta (symbol)") || strings.Contains(out, "example.com/gosample/pkg/") {
+		t.Fatalf("a text answer kept the module path on its names:\n%s", out)
+	}
+	if !strings.Contains(out, "Go names are shown relative to their module (example.com/gosample)") {
+		t.Errorf("a shortened answer does not say what its names are relative to:\n%s", out)
+	}
+
+	// The short name, copied back: an exact resolution, no candidates.
+	back := text(s.call(t, "traverse", map[string]any{"start": "pkg/b.Beta", "output_mode": "compact", "max_depth": 1}))
+	if strings.Contains(back, "Resolved") || strings.Contains(back, "Ambiguous") {
+		t.Errorf("a name copied from a short answer did not resolve exactly:\n%s", back)
+	}
+
+	full := text(s.call(t, "impact_analysis", map[string]any{"target": "pkg/a.Alpha", "output_mode": "full"}))
+	if !strings.Contains(full, "example.com/gosample/pkg/b.Beta") || strings.Contains(full, "relative to their module") {
+		t.Errorf("a full answer lost its exact names:\n%.600s", full)
+	}
+	path := text(s.call(t, "find_path", map[string]any{"from": "pkg/b.Beta", "to": "pkg/a.Alpha"}))
+	if !strings.Contains(path, "example.com/gosample/pkg/a.Alpha") {
+		t.Errorf("a JSON answer lost its exact names:\n%.600s", path)
+	}
 }

@@ -93,7 +93,12 @@ packages in one graph, and an import of another loaded repository's package name
 that package's own fact. The module fact's `file` is the package's directory. A
 package no `go.mod` covers keeps its directory as its name. The query tools accept
 the directory form as well ("internal/server.Server", "internal/server", and the
-older "..main" for a root symbol) and resolve it to the import-path name.
+older "..main" for a root symbol) and resolve it to the import-path name. Their text
+answers write a Go package as its directory and say once which module the names are
+relative to; JSON answers, `output_mode=full`, and every artifact keep the full name.
+A name stays in full where the short form could be read as something else: a
+directory two loaded repositories share, a standard library package the code imports,
+or a name another fact carries.
 
 Name normalization: for path-shaped kinds (`module`, `test_ref`, `file_ref`)
 the store normalizes `name` to forward slashes. No other kind's name is

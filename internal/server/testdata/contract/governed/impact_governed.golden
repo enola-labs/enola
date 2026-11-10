@@ -1,4 +1,4 @@
-# Impact summary: example.com/gosample/pkg/a.Alpha
+# Impact summary: pkg/a.Alpha
 
 2 total dependents — depth 1: 2 symbols — governed by 1 intent page(s)
 
@@ -25,3 +25,6 @@ Knowledge pages anchored to the target's file:
   - part-of epic.md (epic, living)
 
 _Use output_mode=compact for the per-depth dependent list, output_mode=full for the raw graph._
+
+
+Go names are shown relative to their module (example.com/gosample); pass either form as input.

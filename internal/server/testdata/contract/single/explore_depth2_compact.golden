@@ -1,4 +1,4 @@
-# Module: example.com/gosample/pkg/a
+# Module: pkg/a
 
 - Language: go
 - Package: a
@@ -7,35 +7,38 @@
 
 | Name | Kind | File | Line | Exported |
 |------|------|------|------|----------|
-| example.com/gosample/pkg/a.Alpha | function | pkg/a/a.go | 7 | yes |
-| example.com/gosample/pkg/a.GetPath | function | pkg/a/a.go | 15 | yes |
-| example.com/gosample/pkg/a.Seed | function | pkg/a/a.go | 24 | yes |
-| example.com/gosample/pkg/a.getByID | function | pkg/a/a.go | 30 | no |
-| example.com/gosample/pkg/a.setup | function | pkg/a/a.go | 31 | no |
-| example.com/gosample/pkg/a.helper | function | pkg/a/a.go | 37 | no |
-| example.com/gosample/pkg/a.Gamma | function | pkg/a/a.go | 43 | yes |
+| pkg/a.Alpha | function | pkg/a/a.go | 7 | yes |
+| pkg/a.GetPath | function | pkg/a/a.go | 15 | yes |
+| pkg/a.Seed | function | pkg/a/a.go | 24 | yes |
+| pkg/a.getByID | function | pkg/a/a.go | 30 | no |
+| pkg/a.setup | function | pkg/a/a.go | 31 | no |
+| pkg/a.helper | function | pkg/a/a.go | 37 | no |
+| pkg/a.Gamma | function | pkg/a/a.go | 43 | yes |
 
 ## Dependencies (1)
 
 ### Imports (1)
 
-- example.com/gosample/pkg/b
+- pkg/b
 
 ## Dependents (4)
 
 - example.com/gosample
-- example.com/gosample -> example.com/gosample/pkg/a
-- example.com/gosample/pkg/b
-- example.com/gosample/pkg/b -> example.com/gosample/pkg/a
+- example.com/gosample -> pkg/a
+- pkg/b
+- pkg/b -> pkg/a
 
 ## Symbol Relations
 
-**example.com/gosample/pkg/a.Alpha**
-  - calls → example.com/gosample/pkg/b.Beta
+**pkg/a.Alpha**
+  - calls → pkg/b.Beta
 
-**example.com/gosample/pkg/a.GetPath**
-  - calls → example.com/gosample/pkg/a.getByID
+**pkg/a.GetPath**
+  - calls → pkg/a.getByID
 
-**example.com/gosample/pkg/a.Seed**
-  - calls → example.com/gosample/pkg/a.setup
+**pkg/a.Seed**
+  - calls → pkg/a.setup
 
+
+
+Go names are shown relative to their module (example.com/gosample); pass either form as input.

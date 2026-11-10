@@ -4,13 +4,16 @@ Found 12 results (showing 12):
 
 example.com/gosample.main  main.go:10
 example.com/gosample  .:0
-example.com/gosample/pkg/a.Alpha  pkg/a/a.go:7
-example.com/gosample/pkg/a.GetPath  pkg/a/a.go:15
-example.com/gosample/pkg/a.Seed  pkg/a/a.go:24
-example.com/gosample/pkg/a.getByID  pkg/a/a.go:30
-example.com/gosample/pkg/a.setup  pkg/a/a.go:31
-example.com/gosample/pkg/a.helper  pkg/a/a.go:37
-example.com/gosample/pkg/a.Gamma  pkg/a/a.go:43
-example.com/gosample/pkg/a  pkg/a:0
-example.com/gosample/pkg/b.Beta  pkg/b/b.go:6
-example.com/gosample/pkg/b  pkg/b:0
+pkg/a.Alpha  pkg/a/a.go:7
+pkg/a.GetPath  pkg/a/a.go:15
+pkg/a.Seed  pkg/a/a.go:24
+pkg/a.getByID  pkg/a/a.go:30
+pkg/a.setup  pkg/a/a.go:31
+pkg/a.helper  pkg/a/a.go:37
+pkg/a.Gamma  pkg/a/a.go:43
+pkg/a  pkg/a:0
+pkg/b.Beta  pkg/b/b.go:6
+pkg/b  pkg/b:0
+
+
+Go names are shown relative to their module (example.com/gosample); pass either form as input.
