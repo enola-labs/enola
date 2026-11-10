@@ -132,6 +132,24 @@ Measured on one machine (Apple Silicon, 16 cores), serving `~/development` with
 | Roslyn reloaded from disk after an unload | 3.1 s |
 | A query on a loaded graph, over HTTP | about 1 ms |
 
+Sessions asking at the same moment whether the same graph is still current share one
+walk of its trees, rather than each walking it.
+
+Under load: 32 to 128 sessions over five sets of repositories (vite, khoj, lobsters,
+gin, and vite with khoj linked), each session indexing its set once and then making
+40 queries, with every graph already built:
+
+| Sessions | `--max-concurrent` | Calls per second | Query p50 | Query p95 | Query p99 | RSS |
+|---:|---:|---:|---:|---:|---:|---:|
+| 32 | 16 | 920 | 9 ms | 99 ms | 444 ms | 408 MB |
+| 64 | 16 | 888 | 19 ms | 217 ms | 851 ms | 409 MB |
+| 128 | 16 | 804 | 33 ms | 664 ms | 1.9 s | 447 MB |
+| 64 | 4 | 871 | 20 ms | 93 ms | 1.1 s | 353 MB |
+
+Throughput is bound by CPU, not by the cap: a lower `--max-concurrent` gives the same
+rate with a shorter p95, because fewer tree walks compete. A session costs a fraction
+of a megabyte; the graphs are the memory.
+
 ## Baselines between consumers
 
 A pinned baseline and the previous run live in a repository's output directory, so
@@ -194,6 +212,10 @@ read-only to the user serve runs as. A folder of repositories is still indexed a
 cluster, from the `cluster.yaml` already there or from the repositories under it, but
 a served instance never writes that file. The same setting is `output.root` in a
 config file, for the CLI and the stdio server.
+
+enola reads each repository's git state (commit, remote, whether the tree is dirty)
+without taking git's index lock, so the job keeping the checkouts current never fails
+on `.git/index.lock` because a snapshot was running.
 
 Without `--output-root`, snapshots are written where they always are, into each
 repository's `.enola` directory, and the directories under `--root` must be writable.

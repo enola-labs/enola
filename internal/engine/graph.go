@@ -45,6 +45,10 @@ func (e *Engine) Adopt(g *Graph) {
 	e.current.Store(g.b)
 }
 
+// Key identifies the published graph g is a handle to: two handles to one graph have
+// the same key. For a map keyed by graph.
+func (g *Graph) Key() any { return g.b }
+
 // Same reports whether g and other are one published graph.
 func (g *Graph) Same(other *Graph) bool {
 	return g != nil && other != nil && g.b == other.b

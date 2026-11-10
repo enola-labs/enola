@@ -47,6 +47,11 @@ type Pool struct {
 	outputDirFor func(string) string
 	slots        chan struct{}
 
+	// checks coalesces proofs that a pooled graph is current: sessions asking for the
+	// same graph while one walk of its trees is running share that walk's answer.
+	checkMu sync.Mutex
+	checks  map[any]*currentCheck
+
 	mu       sync.Mutex
 	graphs   map[string]*pooledGraph
 	sessions map[*Server]*sessionState
@@ -89,6 +94,7 @@ func NewPool(sc ServeConfig, build SessionFactory, restore Restorer, outputDirFo
 		sc: sc, build: build, restore: restore, outputDirFor: outputDirFor,
 		slots:    make(chan struct{}, limit),
 		graphs:   map[string]*pooledGraph{},
+		checks:   map[any]*currentCheck{},
 		sessions: map[*Server]*sessionState{},
 	}
 	return p, nil
@@ -319,6 +325,35 @@ func (p *Pool) victimLocked() *pooledGraph {
 	return victim
 }
 
+type currentCheck struct {
+	done chan struct{}
+	ok   bool
+}
+
+// current reports whether g is current, as eng.Current does, sharing one walk between
+// every caller that asks while it runs. A caller that arrives after a walk started
+// takes its answer: a file changed between the walk passing it and the caller asking
+// is missed, the same as one changed a moment after a lone walk finished.
+func (p *Pool) current(eng *engine.Engine, g *engine.Graph) bool {
+	key := g.Key()
+	p.checkMu.Lock()
+	if c, ok := p.checks[key]; ok {
+		p.checkMu.Unlock()
+		<-c.done
+		return c.ok
+	}
+	c := &currentCheck{done: make(chan struct{})}
+	p.checks[key] = c
+	p.checkMu.Unlock()
+
+	c.ok = eng.Current(g)
+	p.checkMu.Lock()
+	delete(p.checks, key)
+	p.checkMu.Unlock()
+	close(c.done)
+	return c.ok
+}
+
 // PoolStats is what the pool holds, for tests and the log.
 type PoolStats struct {
 	Graphs, Sessions, Evictions int
@@ -367,7 +402,7 @@ func (s *Server) reuseGraph(args generateSnapshotArgs) *mcp.CallToolResult {
 	}
 	s.genMu.Lock()
 	defer s.genMu.Unlock()
-	if !s.eng.Current(g) {
+	if !s.pool.current(s.eng, g) {
 		return nil
 	}
 	s.eng.Adopt(g)
