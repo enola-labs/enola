@@ -3531,7 +3531,9 @@ import (
 // declared type are names edges to the declared types they mention.
 // v571: Swift: a request path interpolating a string property its file sets to
 // one literal reads that literal ("\(endpoint)/details" -> shelves/{}/details).
-const cacheVersion = "v571"
+// v572: Go: a call to an HTTP helper names its verb as an argument of its own
+// (http.MethodPost, "POST") and may build its path where it passes it.
+const cacheVersion = "v572"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

@@ -1,6 +1,8 @@
 package goextractor
 
 import (
+	"go/ast"
+	"go/parser"
 	"testing"
 
 	"github.com/enola-labs/enola/internal/facts"
@@ -436,5 +438,29 @@ func Fetch(ordersURL string, cfg Config, base string) {
 	}
 	if got["/api/v1/orders"] != "orders" || got["/api/v1/entries"] != "ledger" || got["/api/v1/plain"] != "" {
 		t.Errorf("target hints = %v", got)
+	}
+}
+
+// A helper taking the verb as an argument of its own, as an http.MethodX constant
+// or a verb literal, is read with that verb, and a path built where it is passed is
+// read with a parameter for what is not written out.
+func TestPathLiteralArg_VerbArgumentAndBuiltPath(t *testing.T) {
+	for _, tc := range []struct{ src, path, verb string }{
+		{`c.do(http.MethodPost, "/v1/orders", body)`, "/v1/orders", "POST"},
+		{`c.do("DELETE", "/v1/orders/7", nil)`, "/v1/orders/7", "DELETE"},
+		{`c.do(http.MethodPut, "/v1/orders/"+id+"/items", nil)`, "/v1/orders/{}/items", "PUT"},
+		{`c.do("/v1/orders", Options{Method: http.MethodPatch})`, "/v1/orders", "PATCH"},
+		{`c.do("/v1/orders")`, "/v1/orders", "GET"},
+		// A word that is no verb is not one.
+		{`c.log("post", "/v1/orders")`, "/v1/orders", "GET"},
+	} {
+		expr, err := parser.ParseExpr(tc.src)
+		if err != nil {
+			t.Fatal(err)
+		}
+		path, verb, ok := pathLiteralArg(expr.(*ast.CallExpr))
+		if !ok || path != tc.path || verb != tc.verb {
+			t.Errorf("%s: got %q %q %v, want %q %q", tc.src, verb, path, ok, tc.verb, tc.path)
+		}
 	}
 }
