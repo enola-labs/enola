@@ -1409,3 +1409,36 @@ func (h *Holder) Read() int { return h.pair.Get() }
 		t.Errorf("Holder.Read should call Pair.Get through its field; relations: %v", read.Relations)
 	}
 }
+
+// A file with one declaration the parser cannot read keeps every other one: its
+// functions are symbols with their calls, and only the broken declaration is lost.
+func TestExtract_FileWithOneUnreadableDeclaration(t *testing.T) {
+	ff := extractAll(t, map[string]string{
+		"shelf/shelf.go": `package shelf
+
+func count() int { return 3 }
+
+func Total() int { return count() + 1 }
+
+func broken() int {
+	x := := 1
+	return x
+}
+
+func Label() string { return "shelf" }
+`,
+	})
+	total, ok := findFact(ff, "shelf.Total")
+	if !ok {
+		t.Fatal("expected shelf.Total, declared before the broken one")
+	}
+	if !hasRelation(total, facts.RelCalls, "shelf.count") {
+		t.Errorf("shelf.Total should call shelf.count; relations: %v", total.Relations)
+	}
+	if _, ok := findFact(ff, "shelf.Label"); !ok {
+		t.Error("expected shelf.Label, declared after the broken one")
+	}
+	if _, ok := findFact(ff, "shelf.broken"); ok {
+		t.Error("the declaration that failed to parse should be left out")
+	}
+}

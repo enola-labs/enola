@@ -126,8 +126,12 @@ func (e *GoExtractor) Extract(ctx context.Context, repoPath string, files []stri
 		}
 		parsed, err := parser.ParseFile(fset, absFile, src, parser.ParseComments)
 		if err != nil {
-			log.Printf("[go-extractor] error parsing %s: %v", f, err)
-			continue
+			parsed = keepCleanDecls(parsed)
+			if parsed == nil {
+				log.Printf("[go-extractor] error parsing %s: %v", f, err)
+				continue
+			}
+			log.Printf("[go-extractor] read %s in part, leaving out what failed to parse: %v", f, err)
 		}
 		if pp.pkgName == "" {
 			pp.pkgName = parsed.Name.Name

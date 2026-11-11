@@ -83,8 +83,11 @@ func refsFromGoTest(src []byte, relFile string, mods goModules) []facts.Fact {
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, relFile, src, parser.SkipObjectResolution)
 	if err != nil {
-		log.Printf("[go-extractor] error parsing test file %s: %v", relFile, err)
-		return nil
+		if f = keepCleanDecls(f); f == nil {
+			log.Printf("[go-extractor] error parsing test file %s: %v", relFile, err)
+			return nil
+		}
+		log.Printf("[go-extractor] read test file %s in part: %v", relFile, err)
 	}
 
 	base := resolveCtx{

@@ -3525,7 +3525,9 @@ import (
 // a partial fragment is still read only through the $ref that pulls it in.
 // v568: Go: method-set matches the implementer rules reject (a one-method
 // interface with several, or beside a stated implementer) are implementers_candidates.
-const cacheVersion = "v568"
+// v569: Go: a file with a declaration that fails to parse keeps the declarations
+// that parsed whole, instead of being dropped.
+const cacheVersion = "v569"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
