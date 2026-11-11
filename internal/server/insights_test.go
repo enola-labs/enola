@@ -256,3 +256,22 @@ func TestFilterInsights_BareModuleEvidenceBelongsToItsRepo(t *testing.T) {
 		}
 	}
 }
+
+// A list a few entries past the sample is shown whole; a long one is sampled.
+func TestRenderInsightsCompact_ShowsAShortEvidenceListWhole(t *testing.T) {
+	withEvidence := func(n int) facts.Insight {
+		in := facts.Insight{Title: "Shared code", Confidence: 0.8}
+		for i := range n {
+			in.Evidence = append(in.Evidence, facts.Evidence{Detail: fmt.Sprintf("entry-%02d", i)})
+		}
+		return in
+	}
+	out := renderInsightsCompact([]facts.Insight{withEvidence(14)})
+	if !strings.Contains(out, "entry-13") || strings.Contains(out, "more (output_mode='full'") {
+		t.Errorf("14 entries should be shown whole:\n%s", out)
+	}
+	out = renderInsightsCompact([]facts.Insight{withEvidence(40)})
+	if strings.Contains(out, "entry-10") || !strings.Contains(out, "… and 30 more") {
+		t.Errorf("40 entries should be sampled to 10:\n%s", out)
+	}
+}
