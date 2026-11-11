@@ -59,6 +59,9 @@ type Impact struct {
 	// request to the followed routes, each with the endpoints it depends on: the
 	// pages that reach a web call, the nearest screen above a mobile one.
 	Screens []Screen `json:"screens,omitempty"`
+	// OtherMatches counts the routes that contain the query without being it, left
+	// out because one route is it exactly. A query ending in * follows them all.
+	OtherMatches int `json:"other_matches,omitempty"`
 	// StoppedAt names the first hop that produced nothing, so an empty result
 	// reads as a boundary rather than as an answer.
 	StoppedAt string `json:"stopped_at,omitempty"`
@@ -150,6 +153,10 @@ func AnalyzeWith(s *facts.Store, query string, maxRoutes int, findCallers Caller
 			method, needle = strings.ToUpper(verb), strings.TrimSpace(rest)
 		}
 	}
+	// A trailing * asks for every route containing the rest. Without it, a query that
+	// names a route exactly follows that route alone.
+	prefix := strings.HasSuffix(needle, "*")
+	needle = strings.TrimSuffix(needle, "*")
 
 	// Each matched route keeps its fact, so the callers are asked for exactly the routes
 	// the answer follows, after sorting and the cap.
@@ -178,6 +185,22 @@ func AnalyzeWith(s *facts.Store, query string, maxRoutes int, findCallers Caller
 			fact:  fact,
 		})
 	}
+	// "/items" also names "/items-facets" and "/items/batched" by substring, and
+	// following those answered a question about three endpoints when one was asked.
+	broader := 0
+	if !prefix {
+		exact := matched[:0:0]
+		for _, m := range matched {
+			if strings.EqualFold(m.route.Path, needle) {
+				exact = append(exact, m)
+			}
+		}
+		if len(exact) > 0 {
+			broader = len(matched) - len(exact)
+			matched = exact
+		}
+	}
+	out.OtherMatches = broader
 	sort.SliceStable(matched, func(i, j int) bool {
 		if matched[i].route.Path != matched[j].route.Path {
 			return matched[i].route.Path < matched[j].route.Path
@@ -515,6 +538,9 @@ func summarize(out Impact, truncated bool) string {
 	fmt.Fprintf(&b, "%d route(s)", len(out.Routes))
 	if truncated {
 		b.WriteString(" (capped)")
+	}
+	if out.OtherMatches > 0 {
+		fmt.Fprintf(&b, " named exactly; %d other route(s) contain the query, end it with * to follow them too,", out.OtherMatches)
 	}
 	fmt.Fprintf(&b, " -> %d controller(s) -> %d model(s)", len(out.Controllers), len(out.Models))
 	if out.AssociatedTotal > 0 {
