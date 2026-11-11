@@ -74,6 +74,7 @@ import (
 	"github.com/enola-labs/enola/internal/linkers/binders/moduleedges"
 	"github.com/enola-labs/enola/internal/linkers/binders/openapiimpl"
 	"github.com/enola-labs/enola/internal/linkers/binders/stimulusresolver"
+	"github.com/enola-labs/enola/internal/linkers/binders/storageclients"
 	"github.com/enola-labs/enola/internal/linkers/binders/storedfuncs"
 	"github.com/enola-labs/enola/internal/linkers/binders/testexercises"
 	"github.com/enola-labs/enola/internal/linkers/binders/unmatchedroutes"
@@ -554,6 +555,7 @@ func registerOSSPlugins(eng *engine.Engine, cfg *config.Config) {
 	eng.RegisterBinder(mixinowner.New())
 	eng.RegisterBinder(inheritedcalls.New())
 	eng.RegisterBinder(storedfuncs.New())
+	eng.RegisterBinder(storageclients.New())
 	eng.RegisterBinder(frameworkroots.New())
 	eng.RegisterBinder(moduleedges.New())
 	eng.RegisterBinder(stimulusresolver.New())
