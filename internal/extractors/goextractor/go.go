@@ -620,6 +620,14 @@ func (e *GoExtractor) extractFunc(fset *token.FileSet, fn *ast.FuncDecl, relFile
 				Target: inst,
 			})
 		}
+		for _, t := range signatureAndLocalTypes(fn, ctx, typeParams) {
+			if !slices.Contains(m.instantiates, t) {
+				symbolFact.Relations = append(symbolFact.Relations, facts.Relation{
+					Kind:   facts.RelInstantiates,
+					Target: t,
+				})
+			}
+		}
 		// Only emit non-trivial metrics so existing snapshots and facts from
 		// other extractors (which don't compute these) stay clean.
 		symbolFact.SetProp("cyclomatic", m.cyclomatic)

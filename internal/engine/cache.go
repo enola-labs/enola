@@ -3505,7 +3505,10 @@ import (
 // with a `;` before that `}`, so its declarations are no longer lost.
 // v559: Swift: the top-level statements of main.swift are a `<dir>.main` function,
 // the program's entry point, instead of calls owned by the file.
-const cacheVersion = "v559"
+// v560: Go: a type named in a function's signature, a var it declares, make or new,
+// or a type assertion is an instantiates edge from that function, so a type used
+// only that way is no longer dead code.
+const cacheVersion = "v560"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

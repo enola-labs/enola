@@ -23,7 +23,7 @@ Relations
   imports                     4
   calls                       9
   depends_on                  1
-  instantiates                3
+  instantiates                4
 
 Symbol breakdown
   function                    4
