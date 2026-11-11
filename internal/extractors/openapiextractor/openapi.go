@@ -339,9 +339,14 @@ func isOpenAPICandidate(path string) bool {
 	if strings.HasSuffix(base, ".gen.yml") || strings.HasSuffix(base, ".gen.yaml") {
 		return false
 	}
-	// Skip partial/fragment specs (meant to be merged before use).
+	// A partial file is a fragment meant to be merged into a spec: a set of path
+	// items or schemas with no openapi header, read only through the $ref of the
+	// spec that pulls it in. Some services name their root spec partial too
+	// (service.openapi.partial.yml), with an openapi header and the paths of the whole
+	// API, and skipping it by name left that service with no served routes. The
+	// header tells them apart.
 	if strings.Contains(base, ".partial.") {
-		return false
+		return hasOpenAPIContent(path)
 	}
 
 	// Files whose name explicitly references openapi or swagger.

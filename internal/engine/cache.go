@@ -3521,7 +3521,9 @@ import (
 // type resolves.
 // v566: Go: a function records where the function values it handles go
 // (func_flows), and a closure that goes somewhere is a symbol of its own.
-const cacheVersion = "v566"
+// v567: OpenAPI: a root spec named *.partial.yml (it has an openapi header) is read;
+// a partial fragment is still read only through the $ref that pulls it in.
+const cacheVersion = "v567"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

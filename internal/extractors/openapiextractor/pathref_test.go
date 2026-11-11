@@ -132,3 +132,47 @@ paths:
 		t.Errorf("GET /widgets should come from its own spec; got %+v", w)
 	}
 }
+
+// A root spec named partial, with an openapi header and paths that $ref into partial
+// fragments, is read; the fragments themselves are not.
+func TestExtract_PartialNamedRootSpec(t *testing.T) {
+	repo := t.TempDir()
+	writeSpec(t, repo, "api/openapi/service.openapi.partial.yml", `openapi: '3.0.0'
+info:
+  version: 1.0.0
+  title: Shelves
+paths:
+  /shelves:
+    $ref: './common/paths.openapi.partial.yml#/paths/~1shelves'
+  /shelves/{id}:
+    get:
+      operationId: getShelf
+`)
+	writeSpec(t, repo, "api/openapi/common/paths.openapi.partial.yml", `paths:
+  /shelves:
+    get:
+      operationId: listShelves
+    post:
+      operationId: addShelf
+`)
+	writeSpec(t, repo, "api/openapi/common/components.openapi.partial.yml", `components:
+  schemas:
+    Shelf:
+      type: object
+`)
+
+	got := extract(t, repo)
+	for _, want := range [][2]string{{"/shelves", "GET"}, {"/shelves", "POST"}, {"/shelves/{id}", "GET"}} {
+		r := findRoute(got, want[0], want[1])
+		if r == nil {
+			t.Errorf("missing %s %s; got %d routes", want[1], want[0], countRoutes(got))
+			continue
+		}
+		if r.File != "api/openapi/service.openapi.partial.yml" {
+			t.Errorf("%s %s comes from %s, want the root spec", want[1], want[0], r.File)
+		}
+	}
+	if n := countRoutes(got); n != 3 {
+		t.Errorf("got %d routes, want 3: a fragment must not add its own", n)
+	}
+}
