@@ -428,6 +428,7 @@ func (m *Matcher) exactClientMatches(server map[string][]RouteRef, clientPath, m
 func (m *Matcher) suffixClientMatches(server map[string][]RouteRef, clientPath, method string, sameVersion bool) ([]RouteRef, string) {
 	at := func(suf, verb string) []RouteRef {
 		refs := m.sameResourceRefs(server[RouteKey(suf, verb)], clientPath, suf)
+		refs = m.mountOnlyRefs(refs, suf)
 		if !sameVersion {
 			return refs
 		}
@@ -474,6 +475,35 @@ func (m *Matcher) suffixClientMatches(server map[string][]RouteRef, clientPath, 
 		}
 	}
 	return nil, clientPath
+}
+
+// mountOnlyRefs prefers, among the refs one suffix reaches, those whose path adds
+// nothing before it but mount detail: a version, a routing word, an id. A client
+// calling "shelves/{}/books" reaches "/api/v2/shelves/{id}/books" and also
+// "/api/v2/admin/library/shelves/{id}/books", whose "admin" and "library" are
+// resources of their own that the call never named. When no ref is
+// mount-only, every ref is kept: the base the client did not write may be any of them.
+func (m *Matcher) mountOnlyRefs(refs []RouteRef, suf string) []RouteRef {
+	if len(refs) < 2 {
+		return refs
+	}
+	var mount []RouteRef
+	for _, ref := range refs {
+		only := true
+		for _, seg := range splitSegments(strings.TrimSuffix(ref.FullPath, suf)) {
+			if !isID(seg) && !m.isRoutingDetail(seg) {
+				only = false
+				break
+			}
+		}
+		if only {
+			mount = append(mount, ref)
+		}
+	}
+	if len(mount) == 0 || len(mount) == len(refs) {
+		return refs
+	}
+	return mount
 }
 
 // sameVersionRefs keeps the refs a client suffix may join: all of them, unless the
