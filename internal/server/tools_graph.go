@@ -529,7 +529,7 @@ type findPathArgs struct {
 
 // impactAnalysisArgs are the arguments for the impact_analysis tool.
 type endpointImpactArgs struct {
-	Endpoint  string `json:"endpoint" jsonschema:"Path substring, optionally prefixed with a verb: 'GET /v1/candidates' or '/v1/candidates'."`
+	Endpoint  string `json:"endpoint" jsonschema:"Path substring, optionally prefixed with a verb: 'GET /v1/candidates'. 'repo:<label>' follows all a repo serves."`
 	MaxRoutes int    `json:"max_routes,omitempty" jsonschema:"Matched endpoints to follow (1-200); a bare prefix can match hundreds. Default 25."`
 }
 
