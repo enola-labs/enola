@@ -3554,7 +3554,9 @@ import (
 // parenthesized I/O provenance, and untyped Retrofit methods.
 // v582: Dart null assertions, typed loop bindings, verified constructor-local
 // inference, visible extensions/functions/import alternatives and stable getters.
-const cacheVersion = "v582"
+// v583: Dart declaration-backed getter/field/global/return types and scoped
+// initializer aliases; SDK manifest URIs, implicit core and prefixed constructors.
+const cacheVersion = "v583"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

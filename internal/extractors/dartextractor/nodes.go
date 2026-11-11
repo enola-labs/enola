@@ -42,9 +42,12 @@ func childOfKind(n *sitter.Node, kinds ...string) *sitter.Node {
 	if n == nil {
 		return nil
 	}
-	for _, c := range namedChildren(n) {
+	count := n.NamedChildCount()
+	for i := uint(0); i < count; i++ {
+		c := n.NamedChild(i)
+		kind := kindOf(c)
 		for _, k := range kinds {
-			if kindOf(c) == k {
+			if kind == k {
 				return c
 			}
 		}
@@ -78,10 +81,8 @@ func firstOfKind(n *sitter.Node, kinds ...string) *sitter.Node {
 
 // identifierChild returns the first direct `identifier` child's text.
 func identifierChild(n *sitter.Node, src []byte) string {
-	for _, c := range namedChildren(n) {
-		if kindOf(c) == "identifier" {
-			return c.Utf8Text(src)
-		}
+	if c := childOfKind(n, "identifier"); c != nil {
+		return c.Utf8Text(src)
 	}
 	return ""
 }

@@ -177,9 +177,26 @@ func (w *walker) scopedCallTarget(receiver string, direct bool, name string, b *
 	}
 	_, field := w.fieldTypes[root]
 	knownFunction := w.callableValue(root) != ""
+	if typ := b.receiverType(w, root); strings.HasPrefix(typ, "@value:") {
+		target := typ + receiver[len(root):] + "." + name
+		b.instanceCalls[target] = true
+		return target
+	}
+	if !direct && b.shadows[root] {
+		if typ := b.receiverType(w, root); typ != "" && typ != "dynamic" {
+			target := "@type{" + typ + "}" + receiver[len(root):] + "." + name
+			b.instanceCalls[target] = true
+			return target
+		}
+	}
 	if direct && name == "call" && knownFunction && !b.shadows[root] && !field && receiver == root {
 		target := w.callableValue(root)
 		return "@lexical:" + target
+	}
+	if !b.shadows[root] && (field || knownFunction || w.getterNames[root]) && (!direct || b.receiverType(w, root) == "") {
+		target := "@expr:" + receiver + "." + name
+		b.instanceCalls[target] = true
+		return target
 	}
 	if !direct && (b.shadows[root] || field || knownFunction || w.getterNames[root]) {
 		return "(" + root + ")" + receiver[len(root):] + "." + name
@@ -283,7 +300,7 @@ func (w *walker) expressionReceiver(n *sitter.Node) string {
 	}
 	base := w.expressionReceiver(kids[0])
 	for _, c := range kids[1:] {
-		if kindOf(c) == "type_arguments" {
+		if kindOf(c) == "type_arguments" || kindOf(c) == "cascade_section" {
 			continue
 		}
 		if childOfKind(c, "argument_part") != nil {

@@ -23,7 +23,7 @@ void run(List<String> values) { for (final value in values) { clean(value); Labe
 	if hasRelation(clean, facts.RelCalls, "lib.Storage.replaceAll") {
 		t.Fatal("string call bound to storage")
 	}
-	if !hasRelation(clean, facts.RelCalls, "(text).trim().toLowerCase().replaceAll") {
+	if !hasRelation(clean, facts.RelCalls, "String.trim().toLowerCase().replaceAll") {
 		t.Fatalf("lost chained receiver: %+v", clean.Relations)
 	}
 	for _, name := range []string{"lib.clean", "lib.Label.Label.named", "lib.run"} {
@@ -75,7 +75,7 @@ void local() { Source source = external; source.fetch(); }
 		t.Errorf("untyped receiver fabricated target: %+v", f)
 	}
 	f = findFact(all, facts.KindSymbol, "lib.Repo.nested")
-	if !hasRelation(f, facts.RelCalls, "(source).fetch().fetch") {
+	if !hasRelation(f, facts.RelCalls, "Source.fetch().fetch") {
 		t.Errorf("return type assumed equal to receiver: %+v", f)
 	}
 	f = findFact(all, facts.KindSymbol, "lib.run")

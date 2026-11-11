@@ -1,10 +1,10 @@
 package dartextractor
 
 import (
-	"github.com/enola-labs/enola/internal/factpath"
 	"slices"
 	"strings"
 
+	"github.com/enola-labs/enola/internal/factpath"
 	"github.com/enola-labs/enola/internal/facts"
 	sitter "github.com/enola-labs/enola/internal/treesitter"
 )
@@ -102,10 +102,21 @@ type dartMemberResolver struct {
 	exportedTypeCache     map[dartTypeKey][]*facts.Fact
 	exportedFunctionCache map[dartTypeKey][]*facts.Fact
 	importedFunctionCache map[dartImportedFunctionKey][]*facts.Fact
+	globalValues          map[dartGlobalValueKey][]dartDeclaredValue
+	fieldValues           map[dartMemberKey][]dartDeclaredValue
+	currentValues         map[string]dartLocalValue
+	lexicalOwners         map[dartTypeKey]*facts.Fact
+	valueTypeCache        map[dartValueCacheKey]dartValueType
+	sdkLibraryHosts       map[string]map[string]bool
+	sdkHosts              map[string]bool
+	importedValueCache    map[dartImportedFunctionKey][]dartDeclaredValue
+	exportedValueCache    map[dartTypeKey][]dartDeclaredValue
 }
 
 func newDartMemberResolver(all []facts.Fact) *dartMemberResolver {
 	r := &dartMemberResolver{canonicalTypes: map[string][]*facts.Fact{}, members: map[string]dartMemberEntry{}, functions: map[string][]*facts.Fact{}, imports: map[string][]*facts.Fact{}, fileTypes: map[string]map[string][]*facts.Fact{}}
+	r.sdkLibraryHosts = map[string]map[string]bool{}
+	r.sdkHosts = map[string]bool{}
 	r.exportedTypeCache = map[dartTypeKey][]*facts.Fact{}
 	r.exportedFunctionCache = map[dartTypeKey][]*facts.Fact{}
 	r.importedFunctionCache = map[dartImportedFunctionKey][]*facts.Fact{}
@@ -157,6 +168,13 @@ func newDartMemberResolver(all []facts.Fact) *dartMemberResolver {
 	for i := range all {
 		f := &all[i]
 		if f.Kind == facts.KindDependency && f.PropString("uri") != "" {
+			if uri, path := f.PropString("uri"), f.PropString("resolved_file"); strings.HasPrefix(uri, "dart:") && path != "" {
+				if r.sdkLibraryHosts[uri] == nil {
+					r.sdkLibraryHosts[uri] = map[string]bool{}
+				}
+				r.sdkLibraryHosts[uri][r.libraryFile(path)] = true
+				r.sdkHosts[r.libraryFile(path)] = true
+			}
 			host := r.libraryFile(f.File)
 			r.imports[host] = append(r.imports[host], f)
 		}
@@ -182,6 +200,29 @@ func newDartMemberResolver(all []facts.Fact) *dartMemberResolver {
 			r.fileTypes[f.File][short] = append(r.fileTypes[f.File][short], f)
 		}
 	}
+	for host, deps := range r.imports {
+		explicitCore := false
+		for _, dep := range deps {
+			if dep.PropString("uri") == "dart:core" && !dep.PropBool("implicit") {
+				explicitCore = true
+			}
+		}
+		filtered := deps[:0]
+		implicitCore := false
+		for _, dep := range deps {
+			if dep.PropString("uri") == "dart:core" && dep.PropBool("implicit") {
+				if explicitCore || implicitCore {
+					continue
+				}
+				implicitCore = true
+			}
+			filtered = append(filtered, dep)
+		}
+		r.imports[host] = filtered
+	}
+	r.lexicalOwners = map[dartTypeKey]*facts.Fact{}
+	r.valueTypeCache = map[dartValueCacheKey]dartValueType{}
+	r.initializeValues(all)
 	return r
 }
 
@@ -308,7 +349,7 @@ func (r *dartMemberResolver) lookupType(name, file string) *facts.Fact {
 			}
 		}
 		if prefixed {
-			return uniqueDartFact(candidates)
+			return uniqueDartFact(r.preferNonSDKFacts(candidates))
 		}
 		// Canonical owners emitted for this/implicit calls are usable only inside
 		// their own library. A directory name does not create a Dart namespace.
@@ -326,15 +367,22 @@ func (r *dartMemberResolver) lookupType(name, file string) *facts.Fact {
 	if len(local) > 0 {
 		return uniqueDartFact(local)
 	}
-	var imported []*facts.Fact
+	var imported, implicit []*facts.Fact
 	for _, dep := range r.imports[host] {
 		if !dep.PropBool("reexport") && dep.PropString("import_prefix") == "" && dartImportAllows(dep, name) {
 			for _, file := range r.importTargets(dep) {
-				imported = append(imported, r.exportedTypeFacts(file, name)...)
+				if dep.PropBool("implicit") {
+					implicit = append(implicit, r.exportedTypeFacts(file, name)...)
+				} else {
+					imported = append(imported, r.exportedTypeFacts(file, name)...)
+				}
 			}
 		}
 	}
-	return uniqueDartFact(imported)
+	if len(imported) == 0 {
+		imported = implicit
+	}
+	return uniqueDartFact(r.preferNonSDKFacts(imported))
 }
 
 func (r *dartMemberResolver) member(owner *facts.Fact, name string, seen map[*facts.Fact]bool) (*facts.Fact, bool) {
@@ -342,7 +390,7 @@ func (r *dartMemberResolver) member(owner *facts.Fact, name string, seen map[*fa
 		return nil, false
 	}
 	seen[owner] = true
-	if entry, ok := r.members[owner.Name+"."+name]; ok {
+	if entry, ok := r.members[owner.Name+"."+name]; ok && (entry.fact == nil || r.sameDartLibrary(entry.fact, owner)) {
 		if entry.fact == nil {
 			return nil, true
 		}
@@ -366,9 +414,36 @@ func (r *dartMemberResolver) parentMember(owner *facts.Fact, name string, seen m
 		}
 	}
 	if parent := owner.PropString("extends_type"); parent != "" {
-		return r.member(r.typeNamed(parent, owner.File), name, seen)
+		if found, blocked := r.member(r.typeNamed(parent, owner.File), name, seen); blocked {
+			return found, true
+		}
 	}
 	return nil, false
+}
+
+func (r *dartMemberResolver) interfaceMember(owner *facts.Fact, name string) (*facts.Fact, bool) {
+	if owner == nil {
+		return nil, false
+	}
+	seen := map[*facts.Fact]bool{}
+	// An abstract class may expose a callable solely through its interfaces.
+	// Competing declarations remain ambiguous; never guess between contracts.
+	interfaces, _ := owner.Props["interface_types"].([]string)
+	var candidate *facts.Fact
+	foundAny := false
+	for _, iface := range interfaces {
+		if found, blocked := r.member(r.typeNamed(iface, owner.File), name, seen); blocked {
+			// Interfaces expose declarations, never an inherited implementation or its I/O.
+			if found != nil && !found.PropBool("abstract_member") && !found.PropBool("abstract") {
+				continue
+			}
+			if found == nil || (candidate != nil && candidate != found) {
+				return nil, true
+			}
+			candidate, foundAny = found, true
+		}
+	}
+	return candidate, foundAny
 }
 
 func (r *dartMemberResolver) lookupMember(owner *facts.Fact, name string) (*facts.Fact, bool) {
@@ -380,11 +455,27 @@ func (r *dartMemberResolver) lookupMember(owner *facts.Fact, name string) (*fact
 		return cached.Fact, cached.Found
 	}
 	f, found := r.member(owner, name, map[*facts.Fact]bool{})
+	if !found {
+		f, found = r.interfaceMember(owner, name)
+	}
 	r.memberCache[key] = dartMemberResult{f, found}
 	return f, found
 }
 
 func (r *dartMemberResolver) lexicalOwner(from *facts.Fact) *facts.Fact {
+	key := dartTypeKey{from.Name, from.File}
+	if f, ok := r.lexicalOwners[key]; ok {
+		return f
+	}
+	if from.PropString("symbol_kind") == facts.SymbolFunc {
+		r.lexicalOwners[key] = nil
+		return nil
+	}
+	f := r.findLexicalOwner(from)
+	r.lexicalOwners[key] = f
+	return f
+}
+func (r *dartMemberResolver) findLexicalOwner(from *facts.Fact) *facts.Fact {
 	name := from.Name
 	for {
 		if found := r.canonicalTypes[name]; len(found) > 0 {
@@ -418,6 +509,13 @@ func (r *dartMemberResolver) call(target string, from *facts.Fact, implicit, ins
 		return target
 	}
 
+	if !instance && !implicit && !strings.ContainsAny(target, "()@{}") && r.constructorNamespace(target, from.File) {
+		if typ := r.typeNamed(target, from.File); typ != nil {
+			if ctor := r.members[typ.Name+"."+typ.Name[strings.LastIndexByte(typ.Name, '.')+1:]].readable(); ctor != nil && ctor.PropBool("constructor") && r.sameDartLibrary(ctor, typ) {
+				return ctor.Name
+			}
+		}
+	}
 	if dot := strings.LastIndexByte(target, '.'); dot >= 0 {
 		ownerName, member := target[:dot], target[dot+1:]
 		if ownerName == "super" {
@@ -426,9 +524,14 @@ func (r *dartMemberResolver) call(target string, from *facts.Fact, implicit, ins
 			}
 			return target
 		}
-		owner := r.typeNamed(ownerName, from.File)
+		if instance && !strings.ContainsAny(ownerName, "@(){}") && r.typeHasParameter(ownerName, from) {
+			return "(" + ownerName + ")." + member
+		}
+		var owner *facts.Fact
 		if ownerName == "this" || implicit {
 			owner = r.lexicalOwner(from)
+		} else {
+			owner = r.typeNamed(ownerName, from.File)
 		}
 		for _, prefix := range []string{"new ", "const "} {
 			if strings.HasPrefix(ownerName, prefix) && strings.HasSuffix(ownerName, "()") {
@@ -442,7 +545,7 @@ func (r *dartMemberResolver) call(target string, from *facts.Fact, implicit, ins
 		}
 		if owner != nil {
 			if implicit && member == owner.Name[strings.LastIndexByte(owner.Name, '.')+1:] {
-				if ctor := r.members[owner.Name+"."+member].fact; ctor != nil && ctor.PropBool("constructor") {
+				if ctor := r.members[owner.Name+"."+member].fact; ctor != nil && ctor.PropBool("constructor") && r.sameDartLibrary(ctor, owner) {
 					return ctor.Name
 				}
 			}
@@ -452,6 +555,9 @@ func (r *dartMemberResolver) call(target string, from *facts.Fact, implicit, ins
 			if !instance && ctor.count > 0 {
 				existing := r.members[owner.Name+"."+member]
 				if (existing.count > 0 && (existing.fact == nil || existing.fact.PropBool("static"))) || ctor.fact == nil {
+					return target
+				}
+				if !r.sameDartLibrary(ctor.fact, owner) {
 					return target
 				}
 				return ctor.fact.Name
@@ -473,7 +579,13 @@ func (r *dartMemberResolver) call(target string, from *facts.Fact, implicit, ins
 				return fn.Name
 			}
 		}
+		if value := r.valueCall(strings.TrimPrefix(ownerName, "@expr:"), member, from); value != "" {
+			return value
+		}
 		if !implicit {
+			if strings.HasPrefix(target, "@") {
+				return r.displayValueTarget(target)
+			}
 			// Keep an unresolved spelling from accidentally acquiring the ID of an
 			// unrelated canonical symbol when the store serializes the relations.
 			if _, collision := r.members[target]; collision {
@@ -548,14 +660,22 @@ func (r *dartMemberResolver) importedFunctions(prefix, name, file string) []*fac
 	if cached, ok := r.importedFunctionCache[key]; ok {
 		return cached
 	}
-	var out []*facts.Fact
+	var out, implicit []*facts.Fact
 	for _, dep := range r.imports[r.libraryFile(file)] {
 		if !dep.PropBool("reexport") && dep.PropString("import_prefix") == prefix && dartImportAllows(dep, name) {
 			for _, target := range r.importTargets(dep) {
-				out = append(out, r.exportedFunctionFacts(target, name)...)
+				if dep.PropBool("implicit") {
+					implicit = append(implicit, r.exportedFunctionFacts(target, name)...)
+				} else {
+					out = append(out, r.exportedFunctionFacts(target, name)...)
+				}
 			}
 		}
 	}
+	if len(out) == 0 {
+		out = implicit
+	}
+	out = r.preferNonSDKFacts(out)
 	r.importedFunctionCache[key] = out
 	return out
 }
@@ -571,7 +691,7 @@ func (r *dartMemberResolver) extensionMethod(owner *facts.Fact, typ, name, file 
 	}
 	var candidates []*facts.Fact
 	for _, ext := range r.extensionsFor(owner, typ, file) {
-		if entry := r.members[ext.Name+"."+name]; entry.readable() != nil {
+		if entry := r.members[ext.Name+"."+name]; entry.readable() != nil && r.sameDartLibrary(entry.readable(), ext) {
 			candidates = append(candidates, entry.readable())
 		}
 	}
@@ -703,4 +823,44 @@ func (r *dartMemberResolver) exportedFunctionFacts(file, name string) []*facts.F
 	result := r.exportedFunctions(file, name, map[string]bool{})
 	r.exportedFunctionCache[key] = result
 	return result
+}
+
+func (r *dartMemberResolver) constructorNamespace(target, file string) bool {
+	prefix, _, qualified := strings.Cut(target, ".")
+	if !qualified {
+		return true
+	}
+	for _, dep := range r.imports[r.libraryFile(file)] {
+		if !dep.PropBool("reexport") && dep.PropString("import_prefix") == prefix {
+			return true
+		}
+	}
+	return false
+}
+
+func (r *dartMemberResolver) sameDartLibrary(a, b *facts.Fact) bool {
+	return a != nil && b != nil && r.libraryFile(a.File) == r.libraryFile(b.File)
+}
+
+// Dart's import scope gives non-SDK declarations precedence over conflicting
+// SDK declarations, even when both imports are explicit.
+func (r *dartMemberResolver) preferNonSDKFacts(in []*facts.Fact) []*facts.Fact {
+	hasSDK, hasOther := false, false
+	for _, f := range in {
+		if r.sdkHosts[r.libraryFile(f.File)] {
+			hasSDK = true
+		} else {
+			hasOther = true
+		}
+	}
+	if !hasSDK || !hasOther {
+		return in
+	}
+	out := make([]*facts.Fact, 0, len(in))
+	for _, f := range in {
+		if !r.sdkHosts[r.libraryFile(f.File)] {
+			out = append(out, f)
+		}
+	}
+	return out
 }
