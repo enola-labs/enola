@@ -26,6 +26,7 @@ package orphans
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"unicode"
@@ -138,7 +139,7 @@ const modeTestOnly = "test_only"
 // Confidence tiers.
 const (
 	confHigh   = "high"   // plain calls: incoming usage reliably captured as edges
-	confMedium = "medium" // struct/class/interface: instantiate/inject/implement edges ARE tracked, so an orphan is a strong (but not certain — type usage isn't tracked) dead-code lead
+	confMedium = "medium" // struct/class/interface: instantiate/inject/implement edges ARE tracked, so an orphan is a strong (but not certain — outside Go, type usage isn't tracked) dead-code lead
 	confLow    = "low"    // method/type/const/var: usage is not edge-tracked
 )
 
@@ -345,9 +346,18 @@ func bareName(name string) string { return lastSeg(name) }
 // GetBranchCommitID, kept two package-level functions alive that nothing calls. Go
 // functions handed over as values are recorded as edges too (see
 // goextractor/funcvalues.go), which is what makes the narrower match safe.
+//
+// Every symbol is also matched by its own full name. A Go type is named by its
+// package's import path ("example.com/shop/internal/cart.line"), and a reference to
+// it from a field, a literal or a signature arrives in exactly that form, which
+// collect records under the full name only (isForeignGoType cannot tell the
+// module's own import path from another module's).
 func refCandidates(sym symInput) []string {
 	if sym.Kind != facts.SymbolFunc || !strings.HasSuffix(sym.File, ".go") {
 		out := candidateNames(sym.Name, sym.Kind)
+		if !slices.Contains(out, sym.Name) {
+			out = append(out, sym.Name)
+		}
 		if sym.ImportName != "" {
 			out = append(out, sym.ImportName)
 		}
@@ -1535,7 +1545,7 @@ const noteCore = "References are matched by symbol short-name, so detection is c
 	"same-named function or method elsewhere does not keep it alive. CONFIDENCE: 'function' findings are HIGH — plain calls are reliably tracked as " +
 	"edges (operator overloads, invoked through operator syntax, are LOW). 'struct'/'class'/'interface' findings are MEDIUM — these are marked used via " +
 	"instantiates/injects/implements edges (which ARE tracked), so an unreferenced one is a strong " +
-	"dead-code lead, but field/param/return type usage is not edge-tracked so verify before removing. " +
+	"dead-code lead, but outside Go, field/param/return type usage is not edge-tracked so verify before removing. " +
 	"'method'/'type'/'const'/'var' findings are LOW — methods are often reached as method values " +
 	"(e.g. HTTP handler registration — partially rescued via route handler metadata), via interface " +
 	"dispatch, or by reflection, and plain type/const/var usage is not edge-tracked. Treat medium/low " +

@@ -4,6 +4,7 @@ import (
 	"go/ast"
 	"go/token"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -24,11 +25,13 @@ var (
 	reJoinTable = regexp.MustCompile(`(?i)\bJOIN\s+` + "`?" + `"?'?(\w+)`)
 	// reClauseEnd marks where a FROM clause stops and the rest of the statement begins.
 	reClauseEnd = regexp.MustCompile(`(?i)\b(WHERE|GROUP\s+BY|ORDER\s+BY|HAVING|LIMIT|OFFSET|UNION|RETURNING)\b|;`)
-	// reSQLComment matches a `--` line comment inside a SQL string. See stripSQLComments.
-	reSQLComment = regexp.MustCompile(`--[^\n]*`)
+	// reSQLComment matches a `--` line comment or a `/* */` block comment inside a SQL
+	// string. See stripSQLComments.
+	reSQLComment = regexp.MustCompile(`--[^\n]*|/\*(?s:.*?)\*/`)
 )
 
-// stripSQLComments removes `-- …` line comments before the statement patterns run.
+// stripSQLComments removes `-- …` line comments and `/* … */` block comments before the
+// statement patterns run, leaving a space so the words either side stay apart.
 //
 // A comment inside a query is prose that happens to be surrounded by SQL, so it defeats
 // every gate: the literal really is SQL, it really does contain SELECT, and the words in the
@@ -39,7 +42,12 @@ var (
 //
 // which produced a table called `was`. Stripping them is not a heuristic — a SQL comment is
 // defined not to be part of the statement, so removing it is reading the language correctly.
-func stripSQLComments(s string) string { return reSQLComment.ReplaceAllString(s, "") }
+//
+// A block comment is also where a query carries a hint for the database or its proxy,
+// between the keywords a pattern reads: `DELETE /*vt+ MULTI_SHARD_AUTOCOMMIT=1 */ FROM
+// orders` is a DELETE FROM orders that no pattern matched while the hint sat between
+// DELETE and FROM.
+func stripSQLComments(s string) string { return reSQLComment.ReplaceAllString(s, " ") }
 
 // maxSQLLiteral is the largest string literal searched for SQL.
 //
@@ -129,8 +137,18 @@ func selectTables(literal string) []string {
 func selectGate(literal string) bool { return reSelectKeyword.MatchString(literal) }
 
 // extractStorage walks a Go file looking for SQL table references and S3 storage patterns.
-func extractStorage(fset *token.FileSet, f *ast.File, relFile, pkgDir string) []facts.Fact {
-	var result []facts.Fact
+//
+// consts are the package's string constants (buildStringConsts): a query assembled
+// with fmt.Sprintf or + from a constant naming its table is read as the text it builds.
+//
+// uses maps each function of the file, by its symbol name, to the tables the queries
+// it holds name: a query written in its body, or held in a package-level constant or
+// variable the body refers to. A query outside any function names no user.
+func extractStorage(fset *token.FileSet, f *ast.File, relFile, pkgDir string, consts map[string]string) (result []facts.Fact, uses map[string][]string) {
+	uses = map[string][]string{}
+	// owner is the function, or the "\x00value\x00"-prefixed package-level constant or
+	// variable, whose code is being read.
+	owner := ""
 
 	// Track seen (table, operation) pairs per file to deduplicate
 	type tableOp struct{ table, op string }
@@ -146,8 +164,80 @@ func extractStorage(fset *token.FileSet, f *ast.File, relFile, pkgDir string) []
 		}
 	}
 
-	ast.Inspect(f, func(n ast.Node) bool {
+	// scan reads the tables one SQL text names, at line.
+	scan := func(val string, line int) {
+		// A literal too large to be a query is a document; see maxSQLLiteral.
+		if len(val) > maxSQLLiteral {
+			return
+		}
+		val = stripSQLComments(val)
+
+		// Check SQL patterns
+		// Each entry names the tables its statement touches. A function rather than a
+		// bare regex because SELECT needs to read a whole FROM clause (see
+		// selectTables) and the others do not — expressing that as "regex plus
+		// optional gate" pushed the difference into a flag and still could not
+		// express reading more than one table per match.
+		sqlPatterns := []struct {
+			operation string
+			kind      string
+			tables    func(string) []string
+		}{
+			{"CREATE", "table", firstGroups(reCreateTable)},
+			{"ALTER", "table", firstGroups(reAlterTable)},
+			{"INSERT", "table_reference", firstGroups(reInsertInto)},
+			{"UPDATE", "table_reference", firstGroups(reUpdate)},
+			{"DELETE", "table_reference", firstGroups(reDeleteFrom)},
+			{"SELECT", "table_reference", selectTables},
+		}
+
+		for _, pat := range sqlPatterns {
+			for _, tableName := range pat.tables(val) {
+				// Skip common SQL noise words
+				if isSQLNoise(tableName) {
+					continue
+				}
+				if owner != "" && !slices.Contains(uses[owner], tableName) {
+					uses[owner] = append(uses[owner], tableName)
+				}
+				key := tableOp{tableName, pat.operation}
+				if seen[key] {
+					continue
+				}
+				seen[key] = true
+
+				result = append(result, facts.Fact{
+					Kind: facts.KindStorage,
+					Name: tableName,
+					File: relFile,
+					Line: line,
+					Props: map[string]any{
+						"storage_kind": pat.kind,
+						"operation":    pat.operation,
+						"language":     "go",
+					},
+					Relations: []facts.Relation{
+						{Kind: facts.RelDeclares, Target: pkgDir},
+					},
+				})
+			}
+		}
+	}
+	fmtName := importName(f, "fmt")
+
+	visit := func(n ast.Node) bool {
 		switch node := n.(type) {
+		case *ast.CallExpr:
+			if val, ok := sprintfQuery(node, fmtName, consts); ok {
+				scan(val, fset.Position(node.Pos()).Line)
+			}
+		case *ast.BinaryExpr:
+			// The outermost sum is read whole; the sums and literals inside it are
+			// parts of the same text.
+			if val, ok := concatQuery(node, consts); ok {
+				scan(val, fset.Position(node.Pos()).Line)
+				return false
+			}
 		case *ast.BasicLit:
 			if node.Kind != token.STRING {
 				return true
@@ -158,62 +248,7 @@ func extractStorage(fset *token.FileSet, f *ast.File, relFile, pkgDir string) []
 				// Try raw string (backtick) — already unquoted by removing backticks
 				val = strings.Trim(node.Value, "`")
 			}
-
-			// A literal too large to be a query is a document; see maxSQLLiteral.
-			if len(val) > maxSQLLiteral {
-				return true
-			}
-			val = stripSQLComments(val)
-
-			line := fset.Position(node.Pos()).Line
-
-			// Check SQL patterns
-			// Each entry names the tables its statement touches. A function rather than a
-			// bare regex because SELECT needs to read a whole FROM clause (see
-			// selectTables) and the others do not — expressing that as "regex plus
-			// optional gate" pushed the difference into a flag and still could not
-			// express reading more than one table per match.
-			sqlPatterns := []struct {
-				operation string
-				kind      string
-				tables    func(string) []string
-			}{
-				{"CREATE", "table", firstGroups(reCreateTable)},
-				{"ALTER", "table", firstGroups(reAlterTable)},
-				{"INSERT", "table_reference", firstGroups(reInsertInto)},
-				{"UPDATE", "table_reference", firstGroups(reUpdate)},
-				{"DELETE", "table_reference", firstGroups(reDeleteFrom)},
-				{"SELECT", "table_reference", selectTables},
-			}
-
-			for _, pat := range sqlPatterns {
-				for _, tableName := range pat.tables(val) {
-					// Skip common SQL noise words
-					if isSQLNoise(tableName) {
-						continue
-					}
-					key := tableOp{tableName, pat.operation}
-					if seen[key] {
-						continue
-					}
-					seen[key] = true
-
-					result = append(result, facts.Fact{
-						Kind: facts.KindStorage,
-						Name: tableName,
-						File: relFile,
-						Line: line,
-						Props: map[string]any{
-							"storage_kind": pat.kind,
-							"operation":    pat.operation,
-							"language":     "go",
-						},
-						Relations: []facts.Relation{
-							{Kind: facts.RelDeclares, Target: pkgDir},
-						},
-					})
-				}
-			}
+			scan(val, fset.Position(node.Pos()).Line)
 
 		case *ast.TypeSpec:
 			// Detect S3 storage structs
@@ -245,9 +280,66 @@ func extractStorage(fset *token.FileSet, f *ast.File, relFile, pkgDir string) []
 			}
 		}
 		return true
-	})
+	}
 
-	return result
+	const valuePrefix = "\x00value\x00"
+	var funcs []*ast.FuncDecl
+	for _, decl := range f.Decls {
+		switch d := decl.(type) {
+		case *ast.FuncDecl:
+			funcs = append(funcs, d)
+			owner = funcSymbolName(d, pkgDir)
+			ast.Inspect(d, visit)
+		case *ast.GenDecl:
+			for _, spec := range d.Specs {
+				vs, ok := spec.(*ast.ValueSpec)
+				if !ok || len(vs.Values) != len(vs.Names) {
+					owner = ""
+					ast.Inspect(spec, visit)
+					continue
+				}
+				for i, name := range vs.Names {
+					owner = valuePrefix + name.Name
+					ast.Inspect(vs.Values[i], visit)
+				}
+			}
+		}
+	}
+
+	// A function referring to a package-level value that holds a query uses its
+	// tables. Only values of this file are known here; a query held in another file of
+	// the package is read there and has no user.
+	for _, fn := range funcs {
+		if fn.Body == nil {
+			continue
+		}
+		name := funcSymbolName(fn, pkgDir)
+		ast.Inspect(fn.Body, func(n ast.Node) bool {
+			if id, ok := n.(*ast.Ident); ok {
+				for _, table := range uses[valuePrefix+id.Name] {
+					if !slices.Contains(uses[name], table) {
+						uses[name] = append(uses[name], table)
+					}
+				}
+			}
+			return true
+		})
+	}
+	for k := range uses {
+		if strings.HasPrefix(k, valuePrefix) {
+			delete(uses, k)
+		}
+	}
+	return result, uses
+}
+
+// funcSymbolName is the name extractFunc gives a function's symbol.
+func funcSymbolName(fn *ast.FuncDecl, pkgDir string) string {
+	name := fn.Name.Name
+	if fn.Recv != nil && len(fn.Recv.List) > 0 {
+		name = typeExprToString(fn.Recv.List[0].Type) + "." + name
+	}
+	return pkgDir + "." + name
 }
 
 // isSQLNoise returns true for common SQL keywords that are not table names.

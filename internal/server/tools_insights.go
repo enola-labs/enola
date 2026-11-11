@@ -208,8 +208,13 @@ func renderInsightsSummary(insights []facts.Insight) string {
 
 // renderInsightsCompact renders each insight with its description, an evidence
 // sample (capped), and suggested actions.
+//
+// Evidence up to evidenceWhole entries is shown whole: cutting a list a few entries
+// past the sample saves a handful of lines and costs the reader a second call in
+// full mode to see them, which is how an agent missed four of the thirteen shared
+// types a shared-code insight cites.
 func renderInsightsCompact(insights []facts.Insight) string {
-	const evidenceSample = 10
+	const evidenceSample, evidenceWhole = 10, 15
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "Found **%d** insight(s).\n\n", len(insights))
 	for i, in := range insights {
@@ -221,7 +226,7 @@ func renderInsightsCompact(insights []facts.Insight) string {
 		if len(in.Evidence) > 0 {
 			fmt.Fprintf(&sb, "- evidence (%d):\n", len(in.Evidence))
 			shown := len(in.Evidence)
-			if shown > evidenceSample {
+			if shown > evidenceWhole {
 				shown = evidenceSample
 			}
 			for _, ev := range in.Evidence[:shown] {

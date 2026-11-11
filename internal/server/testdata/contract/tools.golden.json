@@ -311,7 +311,7 @@
   },
   {
     "name": "find_path",
-    "description": "Shortest path, by hop count, between two nodes: \"how does X reach Y?\", \"what is the call chain from A to B?\". An ambiguous endpoint is not an error: the top candidates are tried (for a type, its methods and constructor too) and the first path found is returned, with the ranked candidates. With no path, found=false and a note says why. To ask how one part reaches another, pass from_nodes and to_nodes instead: exact node names, one search from any of the first to any of the second. A file path stands for the symbols the file declares.",
+    "description": "Shortest path, by hop count, between two nodes: \"how does X reach Y?\", \"what is the call chain from A to B?\". Crosses interfaces. An ambiguous endpoint is not an error: the top candidates are tried (for a type, its methods and constructor too) and the first path found is returned, with the ranked candidates. With no path, found=false and a note says why. To ask how one part reaches another, pass from_nodes and to_nodes instead: exact node names, one search from any of the first to any of the second. A file path stands for the symbols the file declares.",
     "input_schema": {
       "additionalProperties": false,
       "properties": {
@@ -822,7 +822,7 @@
   },
   {
     "name": "traverse",
-    "description": "Multi-hop walk of the dependency and call graph from one node: forward answers \"what does X depend on?\", reverse answers \"what depends on X?\". Use it instead of repeated explore calls. From a struct or interface, forward follows its methods and their calls; reverse also starts from its methods and constructor, so callers that reach the type only through a method (cross-repo too) appear, as in impact_analysis. Interface method calls cannot be bound to an implementation statically, so those edges may be missing or show as unresolved nodes. Output grows fast: start with output_mode=summary and keep max_depth and max_nodes bounded.",
+    "description": "Multi-hop walk of the dependency and call graph from one node: forward answers \"what does X depend on?\", reverse answers \"what depends on X?\". Use it instead of repeated explore calls. From a struct or interface, forward follows its methods and their calls; reverse also starts from its methods and constructor, so callers that reach the type only through a method (cross-repo too) appear, as in impact_analysis. It crosses interfaces both ways, marking such nodes through_interface: another implementation may run. Output grows fast: start with output_mode=summary and keep max_depth and max_nodes bounded.",
     "input_schema": {
       "additionalProperties": false,
       "properties": {

@@ -319,3 +319,123 @@ const migration = "ALTER TABLE users ADD COLUMN phone VARCHAR(20)"
 		t.Error("expected storage fact for ALTER TABLE users")
 	}
 }
+
+// A hint in a block comment between the keywords does not hide the statement.
+func TestExtractStorage_BlockCommentHintBetweenKeywords(t *testing.T) {
+	ff := extractAll(t, map[string]string{
+		"pkg/db/cleanup.go": `package db
+
+const purge = "DELETE /*+ BATCHED */ FROM shelves WHERE id IN (?)"
+const lookup = "SELECT /* by title */ id FROM books /* primary */ WHERE title = ?"
+`,
+	})
+	got := map[string]string{}
+	for _, s := range findFactsByKind(ff, facts.KindStorage) {
+		got[s.Name], _ = s.Props["operation"].(string)
+	}
+	if got["shelves"] != "DELETE" {
+		t.Errorf("DELETE with a hint before FROM: got %v", got)
+	}
+	if got["books"] != "SELECT" {
+		t.Errorf("SELECT with comments around the FROM clause: got %v", got)
+	}
+}
+
+// A query that names its table through a package constant, with fmt.Sprintf or +,
+// in another file of the package, is read as the text it builds. A part built at
+// run time is not a table, and a format with no constant is left to its literal.
+func TestExtractStorage_TableNamedByAConstant(t *testing.T) {
+	ff := extractAll(t, map[string]string{
+		"pkg/shelf/tables.go": `package shelf
+
+const (
+	shelvesTable = "shelves"
+	booksTable   = "books"
+	loansTable   = "loa" + "ns"
+	idColumn     = "id"
+)
+`,
+		"pkg/shelf/queries.go": `package shelf
+
+import (
+	"fmt"
+	"strings"
+)
+
+func placeholders(n int) string { return strings.Repeat("?,", n) }
+
+func queries(n int) []string {
+	return []string{
+		fmt.Sprintf("SELECT %s, title FROM %s WHERE shelf_id IN (%s)", idColumn, booksTable, placeholders(n)),
+		fmt.Sprintf("DELETE /*+ batched */ FROM %s "+
+			"WHERE %s = ?", shelvesTable, idColumn),
+		"UPDATE " + loansTable + " SET returned = 1 WHERE " + idColumn + " = ?",
+		fmt.Sprintf("SELECT 1 FROM %s", placeholders(n)),
+	}
+}
+`,
+	})
+	got := map[string]string{}
+	for _, s := range findFactsByKind(ff, facts.KindStorage) {
+		got[s.Name], _ = s.Props["operation"].(string)
+	}
+	want := map[string]string{"books": "SELECT", "shelves": "DELETE", "loans": "UPDATE"}
+	for table, op := range want {
+		if got[table] != op {
+			t.Errorf("%s: operation %q, want %q (got %v)", table, got[table], op, got)
+		}
+	}
+	if len(got) != len(want) {
+		t.Errorf("tables %v, want exactly %v", got, want)
+	}
+}
+
+// A function depends on the tables its queries name: a query in its body, or one held
+// in a package-level constant it refers to. A query outside any function names no user.
+func TestExtractStorage_FunctionDependsOnItsTables(t *testing.T) {
+	ff := extractAll(t, map[string]string{
+		"shelf/repo.go": `package shelf
+
+import "fmt"
+
+const booksTable = "books"
+
+const listLoans = "SELECT id FROM loans WHERE returned = 0"
+
+const migration = "CREATE TABLE archive (id INT)"
+
+type Repo struct{}
+
+func (r *Repo) Titles() string {
+	return fmt.Sprintf("SELECT title FROM %s", booksTable)
+}
+
+func (r *Repo) Open() string { return listLoans }
+
+func count() string { return "SELECT COUNT(*) FROM books JOIN loans ON loans.book_id = books.id" }
+`,
+	})
+	for name, want := range map[string][]string{
+		"shelf.Repo.Titles": {"books"},
+		"shelf.Repo.Open":   {"loans"},
+		"shelf.count":       {"books", "loans"},
+	} {
+		sym, ok := findFact(ff, name)
+		if !ok {
+			t.Fatalf("expected a fact for %s", name)
+		}
+		for _, table := range want {
+			if !hasRelation(sym, facts.RelDependsOn, table) {
+				t.Errorf("%s should depend on %s; relations: %v", name, table, sym.Relations)
+			}
+		}
+	}
+	for _, f := range ff {
+		if f.Kind != facts.KindSymbol {
+			continue
+		}
+		if hasRelation(f, facts.RelDependsOn, "archive") {
+			t.Errorf("%s depends on archive, which only a constant nothing refers to names", f.Name)
+		}
+	}
+}

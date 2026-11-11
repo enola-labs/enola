@@ -1790,3 +1790,39 @@ func TestReverseFacts_ReturnsTheFactCarryingTheEdge(t *testing.T) {
 		t.Errorf("ReverseFacts = %+v, want only the served GET /orders", got)
 	}
 }
+
+// A table is where a forward walk ends. Two repositories querying a table of the
+// same name share its node, and walking on from it led into the other repository's
+// packages.
+func TestForwardWalksStopAtStorage(t *testing.T) {
+	ff := []Fact{
+		{Kind: KindModule, Name: "shop/store", Repo: "shop"},
+		{Kind: KindModule, Name: "ledger/books", Repo: "ledger"},
+		{Kind: KindSymbol, Name: "shop/store.Repo.Orders", Repo: "shop",
+			Relations: []Relation{{Kind: RelDeclares, Target: "shop/store"}, {Kind: RelDependsOn, Target: "orders"}}},
+		{Kind: KindStorage, Name: "orders", Repo: "shop", Relations: []Relation{{Kind: RelDeclares, Target: "shop/store"}}},
+		{Kind: KindStorage, Name: "orders", Repo: "ledger", Relations: []Relation{{Kind: RelDeclares, Target: "ledger/books"}}},
+	}
+	g := NewGraph(ff)
+	walk := g.Traverse("shop/store.Repo.Orders", "forward", nil, nil, 5, 50)
+	names := map[string]bool{}
+	for _, n := range walk.Nodes {
+		names[n.Name] = true
+	}
+	if !names["orders"] {
+		t.Errorf("the walk should reach the orders table; got %v", names)
+	}
+	if names["ledger/books"] {
+		t.Errorf("the walk went on from the table into the other repository's package; got %v", names)
+	}
+	if p := g.FindPath("shop/store.Repo.Orders", "ledger/books", nil, 10); p.Found {
+		t.Errorf("find_path went through the table into the other repository: %+v", p.Path)
+	}
+	if p := g.FindPathBetween([]string{"shop/store.Repo.Orders"}, []string{"ledger/books"}, nil, 10); p.Found {
+		t.Errorf("find_path between sets went through the table: %+v", p.Path)
+	}
+	// From the table itself, its packages are still reachable.
+	if from := g.Traverse("orders", "forward", nil, nil, 1, 50); len(from.Nodes) < 3 {
+		t.Errorf("a walk starting at the table should still list the packages naming it; got %+v", from.Nodes)
+	}
+}

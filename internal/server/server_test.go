@@ -1873,7 +1873,7 @@ func TestBestPath_TriesCandidates(t *testing.T) {
 
 	from := []string{"pkg/handler.Handler"}
 	to := []string{"internal/adapters/http/contracts.CartService", "internal/domain/cart.CartService"}
-	res := srv.bestPath(store.Graph(), from, to, nil, 0)
+	res := srv.bestPath(store.Graph(), from, to, nil, 0, nil)
 	if !res.Found {
 		t.Fatal("expected a path to the reachable CartService candidate")
 	}
@@ -1890,7 +1890,7 @@ func TestBestPath_NoPath(t *testing.T) {
 	)
 	store.BuildGraph()
 	srv := newTestServer(store)
-	res := srv.bestPath(store.Graph(), []string{"a.Foo"}, []string{"b.Bar"}, nil, 0)
+	res := srv.bestPath(store.Graph(), []string{"a.Foo"}, []string{"b.Bar"}, nil, 0, nil)
 	if res.Found {
 		t.Error("expected no path between disconnected nodes")
 	}
@@ -1911,7 +1911,7 @@ func TestBestPath_EmptyCandidates_NoPanic(t *testing.T) {
 		{nil, nil},
 	}
 	for _, tc := range cases {
-		res := srv.bestPath(store.Graph(), tc.from, tc.to, nil, 0)
+		res := srv.bestPath(store.Graph(), tc.from, tc.to, nil, 0, nil)
 		if res.Found {
 			t.Errorf("bestPath(from=%v, to=%v): Found = true, want false", tc.from, tc.to)
 		}

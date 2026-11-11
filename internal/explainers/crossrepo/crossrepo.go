@@ -93,6 +93,7 @@ func sharedCodeInsight(store *facts.Store) *facts.Insight {
 	evidence := make([]facts.Evidence, 0, len(pairs))
 	var lines []string
 	verified := false
+	decls := typeDeclarations(store, pairs)
 	for _, p := range pairs {
 		count := propInt(p, "symbol_count")
 		detail := fmt.Sprintf("%d shared type(s)", count)
@@ -103,7 +104,21 @@ func sharedCodeInsight(store *facts.Store) *facts.Insight {
 			verified = true
 		}
 		evidence = append(evidence, facts.Evidence{Fact: p.Name, Detail: detail})
+		samples := stringSlice(p.PropAny("symbol_samples"))
+		if len(samples) > 0 {
+			detail += ": " + strings.Join(samples, ", ")
+			if more := count - len(samples); more > 0 {
+				detail += fmt.Sprintf(" and %d more", more)
+			}
+		}
 		lines = append(lines, p.Name+" ("+detail+")")
+		if repos := stringSlice(p.PropAny("repos")); len(repos) == 2 {
+			for _, name := range samples {
+				if ev, ok := sharedTypeEvidence(decls, name, repos[0], repos[1]); ok {
+					evidence = append(evidence, ev)
+				}
+			}
+		}
 	}
 
 	// A verified count is a measurement of the files, not an inference from names, so
@@ -126,6 +141,81 @@ func sharedCodeInsight(store *facts.Store) *facts.Insight {
 		Confidence: confidence,
 		Evidence:   evidence,
 	}
+}
+
+// typeDeclarations maps each type name a shared-code pair samples to the type
+// symbols declaring it, in any repo.
+func typeDeclarations(store *facts.Store, pairs []facts.Fact) map[string][]facts.Fact {
+	want := map[string]bool{}
+	for _, p := range pairs {
+		for _, name := range stringSlice(p.PropAny("symbol_samples")) {
+			want[name] = true
+		}
+	}
+	out := map[string][]facts.Fact{}
+	if len(want) == 0 {
+		return out
+	}
+	for _, f := range store.ByKind(facts.KindSymbol) {
+		switch f.PropString("symbol_kind") {
+		case facts.SymbolStruct, facts.SymbolInterface, facts.SymbolClass, facts.SymbolType:
+		default:
+			continue
+		}
+		short := f.Name[strings.LastIndexAny(f.Name, ".#")+1:]
+		if want[short] {
+			out[short] = append(out[short], f)
+		}
+	}
+	for _, ff := range out {
+		sort.Slice(ff, func(i, j int) bool {
+			if ff[i].File != ff[j].File {
+				return ff[i].File < ff[j].File
+			}
+			return ff[i].Line < ff[j].Line
+		})
+	}
+	return out
+}
+
+// sharedTypeEvidence cites where a shared type is declared in each repo of a pair,
+// so the copies can be diffed without searching for them. Where a repo declares the
+// name more than once, the declaration at the same path in both repos is taken, as
+// the copy most likely to be the shared one; otherwise the first in each.
+func sharedTypeEvidence(decls map[string][]facts.Fact, name, repoA, repoB string) (facts.Evidence, bool) {
+	var inA, inB []facts.Fact
+	for _, f := range decls[name] {
+		switch f.Repo {
+		case repoA:
+			inA = append(inA, f)
+		case repoB:
+			inB = append(inB, f)
+		}
+	}
+	if len(inA) == 0 || len(inB) == 0 {
+		return facts.Evidence{}, false
+	}
+	a, b := inA[0], inB[0]
+found:
+	for _, x := range inA {
+		for _, y := range inB {
+			if repoRelative(x.File, repoA) == repoRelative(y.File, repoB) {
+				a, b = x, y
+				break found
+			}
+		}
+	}
+	return facts.Evidence{
+		Symbol: a.Name,
+		File:   a.File,
+		Line:   a.Line,
+		Detail: fmt.Sprintf("%s also declares %s at %s:%d", repoB, name, b.File, b.Line),
+	}, true
+}
+
+// repoRelative strips a multi-repo snapshot's leading repo label from a file path.
+func repoRelative(file, repo string) string {
+	return strings.TrimPrefix(file, repo+"/")
 }
 
 // edgeDetail renders a short description of what justifies a cross-repo edge.

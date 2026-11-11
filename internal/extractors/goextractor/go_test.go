@@ -1235,3 +1235,139 @@ func TestExtract_FactSequenceIsIdenticalAcrossRuns(t *testing.T) {
 		}
 	}
 }
+
+// A type named in a function's signature, in a var it declares, in make or new,
+// or in a type assertion is used by that function. A type parameter, a predeclared
+// type, a standard library type and a type declared inside the function are not
+// edges.
+func TestExtract_TypesNamedInSignaturesAndLocalsAreUsed(t *testing.T) {
+	ff := extractAll(t, map[string]string{
+		"store/store.go": `package store
+
+type Row struct{}
+type Total struct{}
+type Request struct{}
+type Reply struct{}
+type Batch struct{}
+type Slot struct{}
+type Tag struct{}
+`,
+		"svc/svc.go": `package svc
+
+import (
+	"time"
+
+	"testmod/store"
+)
+
+func Load(r store.Request) ([]store.Row, error) {
+	var t store.Total
+	_ = t
+	rows := make([]store.Row, 0)
+	b := new(store.Batch)
+	_ = b
+	var v any = r
+	if s, ok := v.(store.Slot); ok {
+		_ = s
+	}
+	cb := func(store.Tag) {}
+	_ = cb
+	return rows, nil
+}
+
+func Decode() (out store.Reply) { return }
+
+func Pick[T any](xs []T, d time.Duration, n int) T {
+	type local struct{}
+	var l local
+	_ = l
+	return xs[0]
+}
+`,
+	})
+	load, ok := findFact(ff, "svc.Load")
+	if !ok {
+		t.Fatal("expected fact for svc.Load")
+	}
+	for _, want := range []string{"store.Request", "store.Row", "store.Total", "store.Batch", "store.Slot", "store.Tag"} {
+		if !hasRelation(load, facts.RelInstantiates, want) {
+			t.Errorf("Load should use %s; relations: %v", want, load.Relations)
+		}
+	}
+	decode, ok := findFact(ff, "svc.Decode")
+	if !ok {
+		t.Fatal("expected fact for svc.Decode")
+	}
+	if !hasRelation(decode, facts.RelInstantiates, "store.Reply") {
+		t.Errorf("Decode should use store.Reply through its result; relations: %v", decode.Relations)
+	}
+	pick, ok := findFact(ff, "svc.Pick")
+	if !ok {
+		t.Fatal("expected fact for svc.Pick")
+	}
+	for _, r := range pick.Relations {
+		if r.Kind == facts.RelInstantiates {
+			t.Errorf("Pick uses only a type parameter, builtins, the standard library and a local type; got %v", r)
+		}
+	}
+}
+
+// A package-level var whose initializer holds a function literal is a function in
+// all but name: it is emitted however it is named, with the calls and type uses of
+// that code. A var holding plain data is emitted only when exported, as before.
+func TestExtract_VarInitializedWithCodeOwnsItsCalls(t *testing.T) {
+	ff := extractAll(t, map[string]string{
+		"shelf/shelf.go": `package shelf
+
+import "sync"
+
+type layout struct{ rows int }
+
+func parse() int { return 3 }
+
+var load = sync.OnceValue(func() layout {
+	return layout{rows: parse()}
+})
+
+var Default = func(n int) []layout { return make([]layout, n) }
+
+var plain = 4
+
+var Limit = 10
+
+func Rows() int { return load().rows + plain }
+`,
+	})
+	load, ok := findFact(ff, "shelf.load")
+	if !ok {
+		t.Fatal("expected a symbol for shelf.load, an unexported var holding code")
+	}
+	if load.Props["exported"] != false {
+		t.Errorf("shelf.load exported = %v, want false", load.Props["exported"])
+	}
+	for _, want := range []struct{ kind, target string }{
+		{facts.RelCalls, "shelf.parse"},
+		{facts.RelInstantiates, "shelf.layout"},
+	} {
+		if !hasRelation(load, want.kind, want.target) {
+			t.Errorf("shelf.load should have %s %s; relations: %v", want.kind, want.target, load.Relations)
+		}
+	}
+	def, ok := findFact(ff, "shelf.Default")
+	if !ok {
+		t.Fatal("expected a symbol for shelf.Default")
+	}
+	if !hasRelation(def, facts.RelInstantiates, "shelf.layout") {
+		t.Errorf("shelf.Default should use shelf.layout; relations: %v", def.Relations)
+	}
+	if _, ok := findFact(ff, "shelf.plain"); ok {
+		t.Error("shelf.plain holds no code and is unexported, so it should not be a symbol")
+	}
+	limit, ok := findFact(ff, "shelf.Limit")
+	if !ok {
+		t.Fatal("expected a symbol for the exported shelf.Limit")
+	}
+	if len(limit.Relations) != 0 {
+		t.Errorf("shelf.Limit holds no code, so it should have no relations; got %v", limit.Relations)
+	}
+}

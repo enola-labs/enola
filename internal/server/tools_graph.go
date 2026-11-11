@@ -22,7 +22,7 @@ func (s *Server) registerTraverseTool() {
 		Name: "traverse",
 		Description: "Multi-hop walk of the dependency and call graph from one node: forward answers \"what does X depend on?\", reverse answers \"what depends on X?\". Use it instead of repeated explore calls. " +
 			"From a struct or interface, forward follows its methods and their calls; reverse also starts from its methods and constructor, so callers that reach the type only through a method (cross-repo too) appear, as in impact_analysis. " +
-			"Interface method calls cannot be bound to an implementation statically, so those edges may be missing or show as unresolved nodes. " +
+			"It crosses interfaces both ways, marking such nodes through_interface: another implementation may run. " +
 			"Output grows fast: start with output_mode=summary and keep max_depth and max_nodes bounded.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args traverseArgs) (*mcp.CallToolResult, any, error) {
 		store := s.eng.Store()
@@ -83,19 +83,20 @@ func (s *Server) registerTraverseTool() {
 		if res != nil && len(res.Family) > 1 {
 			starts = res.Family
 		}
-		var result facts.TraversalResult
-		switch {
-		case direction == "reverse":
+		// A call through an interface has no edge to the method that runs it, so the
+		// walk crosses from an implementation to the interface method (reverse) or
+		// from the interface method to its implementations (forward).
+		dispatch := impact.InterfaceDispatch(store, graph)
+		if direction == "reverse" {
 			var seeds []string
 			for _, start := range starts {
 				seeds = append(seeds, graph.RollupSeeds(start)...)
 			}
-			result = graph.TraverseFrom(seeds, direction, args.RelationKinds, args.NodeKinds, args.MaxDepth, args.MaxNodes)
-		case len(starts) > 1:
-			result = graph.TraverseFrom(starts, direction, args.RelationKinds, args.NodeKinds, args.MaxDepth, args.MaxNodes)
-		default:
-			result = graph.Traverse(startName, direction, args.RelationKinds, args.NodeKinds, args.MaxDepth, args.MaxNodes)
+			starts = seeds
+		} else {
+			dispatch = invertDispatch(dispatch)
 		}
+		result := graph.TraverseDispatching(starts, direction, args.RelationKinds, args.NodeKinds, args.MaxDepth, args.MaxNodes, dispatch)
 
 		resp := traverseResponse{Resolution: res, TraversalResult: result}
 		if wantsFullOutput(mode) {
@@ -108,11 +109,26 @@ func (s *Server) registerTraverseTool() {
 	})
 }
 
+// invertDispatch turns an implementing method -> interface methods map into
+// interface method -> implementing methods.
+func invertDispatch(dispatch map[string][]string) map[string][]string {
+	out := make(map[string][]string, len(dispatch))
+	for impl, ifaces := range dispatch {
+		for _, im := range ifaces {
+			out[im] = append(out[im], impl)
+		}
+	}
+	for _, impls := range out {
+		slices.Sort(impls)
+	}
+	return out
+}
+
 // registerFindPathTool registers the find_path tool.
 func (s *Server) registerFindPathTool() {
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name: "find_path",
-		Description: "Shortest path, by hop count, between two nodes: \"how does X reach Y?\", \"what is the call chain from A to B?\". " +
+		Description: "Shortest path, by hop count, between two nodes: \"how does X reach Y?\", \"what is the call chain from A to B?\". Crosses interfaces. " +
 			"An ambiguous endpoint is not an error: the top candidates are tried (for a type, its methods and constructor too) and the first path found is returned, with the ranked candidates. " +
 			"With no path, found=false and a note says why. " +
 			"To ask how one part reaches another, pass from_nodes and to_nodes instead: exact node names, one search " +
@@ -161,7 +177,7 @@ func (s *Server) registerFindPathTool() {
 			})
 		}
 
-		result := s.bestPath(graph, fromCands, toCands, args.RelationKinds, args.MaxDepth)
+		result := s.bestPath(graph, fromCands, toCands, args.RelationKinds, args.MaxDepth, invertDispatch(impact.InterfaceDispatch(store, graph)))
 
 		resp := findPathResponse{
 			FromResolution: fromRes,
@@ -219,7 +235,7 @@ func (s *Server) findPathBetweenSets(store *facts.Store, graph *facts.Graph, arg
 	// form) stands for them; a set is a union, so all of them join it.
 	froms, fromFiles := s.expandDeclaredFiles(store, s.spellNames(store, args.FromNodes))
 	tos, toFiles := s.expandDeclaredFiles(store, s.spellNames(store, args.ToNodes))
-	result := graph.FindPathBetween(froms, tos, args.RelationKinds, args.MaxDepth)
+	result := graph.FindPathBetweenDispatching(froms, tos, args.RelationKinds, args.MaxDepth, invertDispatch(impact.InterfaceDispatch(store, graph)))
 	resp := findPathSetsResponse{
 		SetPathResult:  result,
 		FromFiles:      fromFiles,
@@ -396,6 +412,13 @@ func (s *Server) pathCandidates(store *facts.Store, input, resolved string, res 
 		out = append(out, n)
 	}
 	add(resolved)
+	// A name that resolved to one fact without ambiguity, or to a fact named exactly
+	// as asked, is the node asked for. The ranked candidates are looser matches, and trying them as well returned the
+	// shortest path to any of them: asked for the table "countries", a path to
+	// "attribute_value_visible_countries".
+	if resolved != "" && (res == nil || resolved == bareTerm(input)) {
+		return out
+	}
 	if res != nil {
 		for _, c := range res.Candidates {
 			add(c.Name)
@@ -405,6 +428,18 @@ func (s *Server) pathCandidates(store *facts.Store, input, resolved string, res 
 		add(c.Name)
 	}
 	return out
+}
+
+// bareTerm is the name an input asks for, without its repo:, kind: and file: scope
+// prefixes.
+func bareTerm(input string) string {
+	fields := strings.Fields(input)
+	for i := len(fields) - 1; i >= 0; i-- {
+		if f := fields[i]; !strings.HasPrefix(f, "repo:") && !strings.HasPrefix(f, "kind:") && !strings.HasPrefix(f, "file:") {
+			return f
+		}
+	}
+	return ""
 }
 
 // firstOr returns the first element of s, or fallback when s is empty.
@@ -420,7 +455,7 @@ func firstOr(s []string, fallback string) string {
 // methods/constructor). It scans in ranked order, keeps the shortest path found,
 // and is bounded by maxPathAttempts (returning early on a ≤2-hop hit). When no
 // path exists it returns a not-found PathResult naming the first from/to tried.
-func (s *Server) bestPath(graph *facts.Graph, fromCands, toCands []string, relKinds []string, maxDepth int) facts.PathResult {
+func (s *Server) bestPath(graph *facts.Graph, fromCands, toCands []string, relKinds []string, maxDepth int, dispatch map[string][]string) facts.PathResult {
 	// Self-defensive: callers are expected to pass non-empty candidate slices, but
 	// guard so an empty slice yields a clean not-found result instead of indexing
 	// fromCands[0]/toCands[0] out of range.
@@ -439,7 +474,7 @@ func (s *Server) bestPath(graph *facts.Graph, fromCands, toCands []string, relKi
 					return facts.PathResult{From: fromCands[0], To: toCands[0], Found: false}
 				}
 				attempts++
-				r := graph.FindPath(from, target, relKinds, maxDepth)
+				r := graph.FindPathDispatching(from, target, relKinds, maxDepth, dispatch)
 				if !r.Found {
 					continue
 				}
@@ -720,6 +755,9 @@ func compactNodeLine(n facts.TraversalNode) string {
 	}
 	if n.Unresolved {
 		s += " [unresolved]"
+	}
+	if n.ThroughInterface {
+		s += " [through interface]"
 	}
 	if len(n.Conflated) > 1 {
 		// The node's name is shared by facts of several kinds, so it merges them.

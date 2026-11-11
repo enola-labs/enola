@@ -138,6 +138,10 @@ type TraversalNode struct {
 	// with DeclarationsTotal giving the full count when the list is cut.
 	Declarations      []Declaration `json:"declarations,omitempty"`
 	DeclarationsTotal int           `json:"declarations_total,omitempty"`
+	// ThroughInterface marks a node reached across an interface: from a method to
+	// the interface method it implements, or back. A call on the interface method
+	// may run another implementation, so the hop is possible, not certain.
+	ThroughInterface bool `json:"through_interface,omitempty"`
 }
 
 // Declaration is one symbol among several sharing a graph node's name.
@@ -694,7 +698,7 @@ func (g *Graph) declaredTypeNamed(name string) string {
 // maxDepth limits traversal depth (0 = use default 5).
 // maxNodes limits total returned nodes (0 = use default 100).
 func (g *Graph) Traverse(start, direction string, relKinds, nodeKinds []string, maxDepth, maxNodes int) TraversalResult {
-	return g.traverseFrom([]string{start}, direction, relKinds, nodeKinds, maxDepth, maxNodes)
+	return g.traverseFrom([]string{start}, direction, relKinds, nodeKinds, maxDepth, maxNodes, nil)
 }
 
 // TraverseFrom performs a BFS traversal seeded at every name in starts (see
@@ -702,7 +706,19 @@ func (g *Graph) Traverse(start, direction string, relKinds, nodeKinds []string, 
 // type also covers its methods and constructor — otherwise callers that reference
 // the type only through its methods are missed (the bug impact_analysis avoids).
 func (g *Graph) TraverseFrom(starts []string, direction string, relKinds, nodeKinds []string, maxDepth, maxNodes int) TraversalResult {
-	return g.traverseFrom(starts, direction, relKinds, nodeKinds, maxDepth, maxNodes)
+	return g.traverseFrom(starts, direction, relKinds, nodeKinds, maxDepth, maxNodes, nil)
+}
+
+// TraverseDispatching is TraverseFrom that also crosses interfaces. dispatch maps
+// a method to the methods a call may move it to: for a reverse walk, an
+// implementing method to the interface methods it implements, so the callers of
+// the interface are reached; for a forward walk, an interface method to its
+// implementations. Each such hop is an implements edge, oriented from the
+// implementation to the interface, and the node it reaches is marked
+// ThroughInterface. It is taken only when relKinds is empty or admits calls or
+// implements.
+func (g *Graph) TraverseDispatching(starts []string, direction string, relKinds, nodeKinds []string, maxDepth, maxNodes int, dispatch map[string][]string) TraversalResult {
+	return g.traverseFrom(starts, direction, relKinds, nodeKinds, maxDepth, maxNodes, dispatch)
 }
 
 // RollupSeeds returns name plus, when name is a type symbol
@@ -718,7 +734,7 @@ func (g *Graph) RollupSeeds(name string) []string {
 // is seeded at depth 0 (deduplicated), so a logical entity spread across several
 // fact nodes — e.g. a type plus its methods and constructor — can be traversed as
 // one origin. Single-source callers pass a one-element slice.
-func (g *Graph) traverseFrom(starts []string, direction string, relKinds, nodeKinds []string, maxDepth, maxNodes int) TraversalResult {
+func (g *Graph) traverseFrom(starts []string, direction string, relKinds, nodeKinds []string, maxDepth, maxNodes int, dispatch map[string][]string) TraversalResult {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 
@@ -739,6 +755,9 @@ func (g *Graph) traverseFrom(starts []string, direction string, relKinds, nodeKi
 
 	relSet := g.relIDSet(relKinds)
 	kindSet := toSet(nodeKinds)
+	if !dispatchAllowed(relKinds) {
+		dispatch = nil
+	}
 
 	var result TraversalResult
 	// Keyed by node ID rather than name: same asymptotics, but hashing a uint32
@@ -771,12 +790,56 @@ func (g *Graph) traverseFrom(starts []string, direction string, relKinds, nodeKi
 	truncated := false
 	maxDepthReached := 0
 
+	// visit enqueues a node reached over one edge, unless already seen, and
+	// records it in the result.
+	visit := func(tid uint32, newDepth int, relKind string, throughInterface bool) {
+		if _, seen := visited[tid]; seen {
+			return
+		}
+		visited[tid] = struct{}{}
+		if newDepth > maxDepthReached {
+			maxDepthReached = newDepth
+		}
+
+		node := g.nodeForID(tid, newDepth, relKind)
+		node.ThroughInterface = throughInterface
+
+		// Apply node kind filter
+		if kindSet != nil {
+			if _, ok := kindSet[node.Kind]; !ok {
+				// Still traverse through this node but don't include it in results
+				queue = append(queue, queueItem{id: tid, depth: newDepth})
+				return
+			}
+		}
+
+		if len(result.Nodes) >= maxNodes {
+			// Still traverse through this node but don't include it in
+			// results — same contract as the node-kind filter above.
+			// maxNodes bounds the returned set, not the walk: dropping the
+			// node from the queue would hide everything reachable only
+			// through it and make NodesVisited/MaxDepthReached describe the
+			// truncated walk rather than the graph. Nodes already appended
+			// are unaffected, so the returned set stays the BFS-order prefix
+			// of an uncapped traversal.
+			truncated = true
+			queue = append(queue, queueItem{id: tid, depth: newDepth})
+			return
+		}
+
+		result.Nodes = append(result.Nodes, node)
+		queue = append(queue, queueItem{id: tid, depth: newDepth})
+	}
+
 	// Use an index pointer instead of re-slicing to avoid keeping the full
 	// backing array alive for the duration of traversal.
 	for qi := 0; qi < len(queue); qi++ {
 		item := queue[qi]
 
 		if item.depth >= maxDepth {
+			continue
+		}
+		if !reverse && item.depth > 0 && g.storageOnly(item.id) {
 			continue
 		}
 
@@ -807,43 +870,21 @@ func (g *Graph) traverseFrom(starts []string, direction string, relKinds, nodeKi
 				})
 			}
 
-			if _, seen := visited[tid]; seen {
+			visit(tid, item.depth+1, relKind, false)
+		}
+
+		for _, other := range dispatch[g.names[item.id]] {
+			tid, ok := g.lookup(other)
+			if !ok {
 				continue
 			}
-			visited[tid] = struct{}{}
-
-			newDepth := item.depth + 1
-			if newDepth > maxDepthReached {
-				maxDepthReached = newDepth
+			impl, iface := g.names[item.id], other
+			if !reverse {
+				impl, iface = other, g.names[item.id]
 			}
-
-			node := g.nodeForID(tid, newDepth, relKind)
-
-			// Apply node kind filter
-			if kindSet != nil {
-				if _, ok := kindSet[node.Kind]; !ok {
-					// Still traverse through this node but don't include it in results
-					queue = append(queue, queueItem{id: tid, depth: newDepth})
-					continue
-				}
-			}
-
-			if len(result.Nodes) >= maxNodes {
-				// Still traverse through this node but don't include it in
-				// results — same contract as the node-kind filter above.
-				// maxNodes bounds the returned set, not the walk: dropping the
-				// node from the queue would hide everything reachable only
-				// through it and make NodesVisited/MaxDepthReached describe the
-				// truncated walk rather than the graph. Nodes already appended
-				// are unaffected, so the returned set stays the BFS-order prefix
-				// of an uncapped traversal.
-				truncated = true
-				queue = append(queue, queueItem{id: tid, depth: newDepth})
-				continue
-			}
-
-			result.Nodes = append(result.Nodes, node)
-			queue = append(queue, queueItem{id: tid, depth: newDepth})
+			result.Stats.EdgesTraversed++
+			result.Edges = append(result.Edges, TraversalEdge{Source: impl, Target: iface, Kind: RelImplements})
+			visit(tid, item.depth+1, RelImplements, true)
 		}
 	}
 
@@ -877,6 +918,25 @@ func (g *Graph) traverseFrom(starts []string, direction string, relKinds, nodeKi
 // relKinds filters to specific relation types (nil = all).
 // maxDepth limits search depth (0 = use default 10).
 func (g *Graph) FindPath(from, to string, relKinds []string, maxDepth int) PathResult {
+	return g.findPath(from, to, relKinds, maxDepth, nil)
+}
+
+// FindPathDispatching is FindPath that also crosses interfaces: dispatch maps an
+// interface method to the implementations a call on it may run, and the walk goes
+// on from the interface method to each. Such a hop is an implemented_by edge, and
+// the node it reaches is marked ThroughInterface. It is taken only when relKinds is
+// empty or admits calls or implemented_by.
+func (g *Graph) FindPathDispatching(from, to string, relKinds []string, maxDepth int, dispatch map[string][]string) PathResult {
+	return g.findPath(from, to, relKinds, maxDepth, dispatch)
+}
+
+// dispatchAllowed reports whether a relation filter admits an interface hop.
+func dispatchAllowed(relKinds []string) bool {
+	return len(relKinds) == 0 || slices.Contains(relKinds, RelCalls) ||
+		slices.Contains(relKinds, RelImplements) || slices.Contains(relKinds, RelImplementedBy)
+}
+
+func (g *Graph) findPath(from, to string, relKinds []string, maxDepth int, dispatch map[string][]string) PathResult {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 
@@ -898,6 +958,9 @@ func (g *Graph) FindPath(from, to string, relKinds []string, maxDepth int) PathR
 	}
 
 	relSet := g.relIDSet(relKinds)
+	if !dispatchAllowed(relKinds) {
+		dispatch = nil
+	}
 
 	fromID, fromOK := g.lookup(from)
 	toID, toOK := g.lookup(to)
@@ -914,6 +977,7 @@ func (g *Graph) FindPath(from, to string, relKinds []string, maxDepth int) PathR
 	visited := make(map[uint32]struct{})
 	parent := make(map[uint32]uint32)    // child → parent
 	parentRel := make(map[uint32]uint16) // child → relation kind of the edge from parent
+	viaIface := make(map[uint32]bool)    // child reached across an interface, not an edge
 
 	visited[fromID] = struct{}{}
 	queue := []queueItem{{id: fromID, depth: 0}}
@@ -925,6 +989,9 @@ func (g *Graph) FindPath(from, to string, relKinds []string, maxDepth int) PathR
 
 		if item.depth >= maxDepth {
 			continue
+		}
+		if item.depth > 0 && g.storageOnly(item.id) {
+			continue // see storageOnly
 		}
 
 		tgts, rels := g.adjOf(item.id, false)
@@ -941,6 +1008,26 @@ func (g *Graph) FindPath(from, to string, relKinds []string, maxDepth int) PathR
 			parent[tid] = item.id
 			parentRel[tid] = rels[i]
 
+			if tid == toID {
+				found = true
+				break
+			}
+			queue = append(queue, queueItem{id: tid, depth: item.depth + 1})
+		}
+		for _, impl := range dispatch[g.names[item.id]] {
+			if found {
+				break
+			}
+			tid, ok := g.lookup(impl)
+			if !ok {
+				continue
+			}
+			if _, seen := visited[tid]; seen {
+				continue
+			}
+			visited[tid] = struct{}{}
+			parent[tid] = item.id
+			viaIface[tid] = true
 			if tid == toID {
 				found = true
 				break
@@ -966,26 +1053,36 @@ func (g *Graph) FindPath(from, to string, relKinds []string, maxDepth int) PathR
 		path[i], path[j] = path[j], path[i]
 	}
 
-	for i, id := range path {
-		// The origin has no incoming edge; every later hop is identified by the
-		// relation that reached it.
-		via := ""
-		if i > 0 {
-			via = g.relName(parentRel[id])
-		}
-		result.Path = append(result.Path, g.nodeForID(id, i, via))
-	}
+	g.writePath(&result, path, parentRel, viaIface)
+	return result
+}
 
-	// Reconstruct edges along the path
+// writePath fills a found result's nodes and edges from the path's node ids, each
+// later hop identified by the relation that reached it, or as an implemented_by
+// hop across an interface.
+func (g *Graph) writePath(result *PathResult, path []uint32, parentRel map[uint32]uint16, viaIface map[uint32]bool) {
+	via := func(id uint32) string {
+		if viaIface[id] {
+			return RelImplementedBy
+		}
+		return g.relName(parentRel[id])
+	}
+	for i, id := range path {
+		// The origin has no incoming edge.
+		node := g.nodeForID(id, i, "")
+		if i > 0 {
+			node = g.nodeForID(id, i, via(id))
+			node.ThroughInterface = viaIface[id]
+		}
+		result.Path = append(result.Path, node)
+	}
 	for i := 1; i < len(path); i++ {
 		result.Edges = append(result.Edges, TraversalEdge{
 			Source: g.names[path[i-1]],
 			Target: g.names[path[i]],
-			Kind:   g.relName(parentRel[path[i]]),
+			Kind:   via(path[i]),
 		})
 	}
-
-	return result
 }
 
 // SetPathResult is the shortest path between two sets of nodes. From and To
@@ -1007,6 +1104,19 @@ type SetPathResult struct {
 // first one in that order is returned and a rerun returns the same one. Names
 // are exact node names; nothing is resolved by substring.
 func (g *Graph) FindPathBetween(froms, tos []string, relKinds []string, maxDepth int) SetPathResult {
+	return g.findPathBetween(froms, tos, relKinds, maxDepth, nil)
+}
+
+// FindPathBetweenDispatching is FindPathBetween crossing interfaces, as
+// FindPathDispatching does.
+func (g *Graph) FindPathBetweenDispatching(froms, tos []string, relKinds []string, maxDepth int, dispatch map[string][]string) SetPathResult {
+	return g.findPathBetween(froms, tos, relKinds, maxDepth, dispatch)
+}
+
+func (g *Graph) findPathBetween(froms, tos []string, relKinds []string, maxDepth int, dispatch map[string][]string) SetPathResult {
+	if !dispatchAllowed(relKinds) {
+		dispatch = nil
+	}
 	// RollupSeeds takes the read lock itself, so the targets are expanded before
 	// this walk takes it.
 	var held, unresolvedTo []string
@@ -1077,6 +1187,7 @@ func (g *Graph) FindPathBetween(froms, tos []string, relKinds []string, maxDepth
 	visited := make(map[uint32]struct{}, len(sources))
 	parent := make(map[uint32]uint32)
 	parentRel := make(map[uint32]uint16)
+	viaIface := make(map[uint32]bool)
 	queue := make([]queueItem, 0, len(sources))
 	for _, id := range sources {
 		visited[id] = struct{}{}
@@ -1088,6 +1199,9 @@ func (g *Graph) FindPathBetween(froms, tos []string, relKinds []string, maxDepth
 		item := queue[qi]
 		if item.depth >= maxDepth {
 			continue
+		}
+		if item.depth > 0 && g.storageOnly(item.id) {
+			continue // see storageOnly
 		}
 		tgts, rels := g.adjOf(item.id, false)
 		// The adjacency is already in neighbour-name order (sortAdjacency), so
@@ -1110,6 +1224,26 @@ func (g *Graph) FindPathBetween(froms, tos []string, relKinds []string, maxDepth
 			}
 			queue = append(queue, queueItem{id: tid, depth: item.depth + 1})
 		}
+		for _, impl := range dispatch[g.names[item.id]] {
+			if found {
+				break
+			}
+			tid, ok := g.lookup(impl)
+			if !ok {
+				continue
+			}
+			if _, seen := visited[tid]; seen {
+				continue
+			}
+			visited[tid] = struct{}{}
+			parent[tid] = item.id
+			viaIface[tid] = true
+			if targetIDs[tid] {
+				reached, found = tid, true
+				break
+			}
+			queue = append(queue, queueItem{id: tid, depth: item.depth + 1})
+		}
 	}
 	if !found {
 		return result
@@ -1123,20 +1257,7 @@ func (g *Graph) FindPathBetween(froms, tos []string, relKinds []string, maxDepth
 		path[i], path[j] = path[j], path[i]
 	}
 	result.From, result.To, result.Found = g.names[path[0]], g.names[reached], true
-	for i, id := range path {
-		via := ""
-		if i > 0 {
-			via = g.relName(parentRel[id])
-		}
-		result.Path = append(result.Path, g.nodeForID(id, i, via))
-	}
-	for i := 1; i < len(path); i++ {
-		result.Edges = append(result.Edges, TraversalEdge{
-			Source: g.names[path[i-1]],
-			Target: g.names[path[i]],
-			Kind:   g.relName(parentRel[path[i]]),
-		})
-	}
+	g.writePath(&result.PathResult, path, parentRel, viaIface)
 	return result
 }
 
@@ -1202,7 +1323,7 @@ func (g *Graph) impactFrom(target string, seeds, forwardFrom []string, maxDepth,
 		maxNodes = 500
 	}
 
-	rev := g.traverseFrom(seeds, "reverse", nil, nil, maxDepth, maxNodes)
+	rev := g.traverseFrom(seeds, "reverse", nil, nil, maxDepth, maxNodes, nil)
 
 	// max_nodes caps rev.Nodes, so len(rev.Nodes) is not the dependent count.
 	// (The cap bounds the returned set only — the BFS itself walks the full
@@ -1990,6 +2111,24 @@ func (g *Graph) symbolForRel(idxs []int32, viaRel string) (int, bool) {
 // conflatedKinds returns the distinct kinds sharing name, sorted, when more than one
 // fact declares it — the honest signal that this graph node merges several facts and
 // their edges. Returns nil for the common single-fact case.
+// storageOnly reports a node every fact of which is storage: a table, a topic, a
+// bucket. A forward walk stops there. Storage depends on nothing; its only outgoing
+// edges say which packages name it, and a table of the same name in another
+// repository is the same node, so walking on led from one service's query into the
+// other service's packages.
+func (g *Graph) storageOnly(id uint32) bool {
+	idxs := g.factIdxsOf(id)
+	if len(idxs) == 0 {
+		return false
+	}
+	for _, idx := range idxs {
+		if int(idx) >= len(g.facts) || g.facts[idx].Kind != KindStorage {
+			return false
+		}
+	}
+	return true
+}
+
 func (g *Graph) conflatedKindsOf(id uint32) []string {
 	idxs := g.factIdxsOf(id)
 	if len(idxs) < 2 {

@@ -3505,7 +3505,18 @@ import (
 // with a `;` before that `}`, so its declarations are no longer lost.
 // v559: Swift: the top-level statements of main.swift are a `<dir>.main` function,
 // the program's entry point, instead of calls owned by the file.
-const cacheVersion = "v559"
+// v560: Go: a type named in a function's signature, a var it declares, make or new,
+// or a type assertion is an instantiates edge from that function, so a type used
+// only that way is no longer dead code.
+// v561: Go: a package-level var whose initializer holds a function literal is a
+// symbol, exported or not, owning that code's calls and type uses.
+// v562: Go: a /* */ comment inside a SQL string is skipped like a -- comment, so a
+// hint between DELETE and FROM no longer hides the table.
+// v563: Go: a query naming its table through a package string constant, assembled
+// with fmt.Sprintf or +, is read as the text it builds.
+// v564: Go: a function depends_on the tables the queries in its body, or in a
+// package-level value it refers to, name.
+const cacheVersion = "v564"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
