@@ -563,7 +563,13 @@ func (a *Analysis) findRoots() map[int32]*root {
 		roots[id] = &root{mechanism: entryMechanism(f)}
 	}
 	for _, r := range roots {
-		sort.Slice(r.routes, func(i, j int) bool { return routeLabel(r.routes[i]) < routeLabel(r.routes[j]) })
+		sort.Slice(r.routes, func(i, j int) bool {
+			x, y := r.routes[i], r.routes[j]
+			if lx, ly := routeLabel(x), routeLabel(y); lx != ly {
+				return lx < ly
+			}
+			return factLess(x, y)
+		})
 	}
 	return roots
 }
@@ -897,14 +903,23 @@ func (a *Analysis) ref(id int32) Ref {
 	return Ref{Name: f.Name, ID: f.Identity(), File: f.File, Line: f.Line, Doc: f.PropString("doc")}
 }
 
-// less orders two symbols by name, then repository, so every list built from
-// node ids comes out the same on every run.
+// less includes source position because same-named entries in different files
+// are distinct nodes. Their order decides which shared-reach representative wins.
 func (a *Analysis) less(x, y int32) bool {
-	fx, fy := a.nodes[x].fact, a.nodes[y].fact
+	return factLess(a.nodes[x].fact, a.nodes[y].fact)
+}
+
+func factLess(fx, fy facts.Fact) bool {
 	if fx.Name != fy.Name {
 		return fx.Name < fy.Name
 	}
-	return fx.Repo < fy.Repo
+	if fx.Repo != fy.Repo {
+		return fx.Repo < fy.Repo
+	}
+	if fx.File != fy.File {
+		return fx.File < fy.File
+	}
+	return fx.Line < fy.Line
 }
 
 // moduleOf is the module a symbol is declared in, or its directory when the
