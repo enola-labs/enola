@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"testing"
+	"unsafe"
 
 	"github.com/enola-labs/enola/internal/facts"
 	pkghistory "github.com/enola-labs/enola/pkg/history"
@@ -437,5 +438,62 @@ func TestBlobs_RetentionCountsRevisionsNotSegments(t *testing.T) {
 	if replayable < 10 {
 		t.Errorf("BlobKeep=10 retained only %d replayable revisions of %d — the window counts "+
 			"revisions, and one-member segments must not shrink it", replayable, len(entries))
+	}
+}
+
+// Contents read from facts.jsonl round-trip like contents handed over as lines, and the
+// lines the parent already holds are not read a second time: each comes back as the
+// parent's own string. On a large cluster those two copies were most of the peak heap.
+func TestBlobs_FactsReadFromThePathShareTheParentsLines(t *testing.T) {
+	first := []string{factLine("A", 10), factLine("B", 20), factLine("D", 40)}
+	second := []string{factLine("A", 10), factLine("C", 30), factLine("D", 40)}
+	path := filepath.Join(t.TempDir(), "facts.jsonl")
+	write := func(lines []string) {
+		var b []byte
+		for _, l := range lines {
+			b = append(b, l+"\n"...)
+		}
+		if err := os.WriteFile(path, b, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	root := t.TempDir()
+	opts := Options{WorkingKeep: -1}
+	for i, lines := range [][]string{first, second} {
+		write(lines)
+		id := fmt.Sprintf("sha256:bbbb%04d", i)
+		c := contents(id, nil, []string{`{"title":"finding","confidence":1}`})
+		c.FactsPath = path
+		opts.Contents = c
+		e := pkghistory.Entry{ID: id, Repo: "github.com/org/repo", At: "2026-08-03T10:00:00Z", Epoch: "epoch1", Git: gitAt(fmt.Sprintf("c%d", i))}
+		if _, err := Append(root, e, opts); err != nil {
+			t.Fatal(err)
+		}
+	}
+	entries, err := pkghistory.Read(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	last := entries[len(entries)-1]
+	got, _, _, err := pkghistory.LoadLines(root, last.Blob.Segment, last.Blob.Member)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fmt.Sprint(got) != fmt.Sprint(second) {
+		t.Fatalf("reconstructed %v, want %v", got, second)
+	}
+
+	write(second)
+	parent := append([]string(nil), first...)
+	lines, err := readLinesSharing(path, parent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fmt.Sprint(lines) != fmt.Sprint(second) {
+		t.Fatalf("read %v, want %v", lines, second)
+	}
+	if unsafe.StringData(lines[0]) != unsafe.StringData(parent[0]) || unsafe.StringData(lines[2]) != unsafe.StringData(parent[2]) {
+		t.Error("a line the parent holds must be the parent's string, not a copy")
 	}
 }
