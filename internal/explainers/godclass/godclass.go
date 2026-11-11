@@ -124,6 +124,12 @@ func (e *GodClassExplainer) Explain(ctx context.Context, store *facts.Store) ([]
 		if facts.IsTestPath(s.File) {
 			continue
 		}
+		// Generated code (an API client, protobuf stubs) is not maintained by hand: a
+		// finding there is not one anyone acts on. Gated as a candidate only, like test
+		// code above, so the distribution it is measured against stays whole.
+		if s.PropBool("generated") {
+			continue
+		}
 		n := fanIn[s.Name]
 		if n < minFanIn || float64(n) <= threshold {
 			continue

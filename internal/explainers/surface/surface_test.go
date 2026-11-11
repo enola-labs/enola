@@ -367,3 +367,22 @@ func TestExplain_MembersDoNotDiluteTheRatio(t *testing.T) {
 		t.Errorf("expected the module reported, got %+v", insights)
 	}
 }
+
+// A module most of whose symbols are generated, an API client package not named
+// "generated", exports everything because its generator does: no finding.
+func TestExplain_GeneratedModuleExcluded(t *testing.T) {
+	s := facts.NewStore()
+	addModuleSymbols(s, "pkg/clients/billingapi", 20, 19)
+	s.UpdateWhere(func(f *facts.Fact) {
+		if strings.HasPrefix(f.Name, "pkg/clients/billingapi.") {
+			f.SetProp("generated", true)
+		}
+	})
+	insights, err := New().Explain(context.Background(), s)
+	if err != nil {
+		t.Fatalf("Explain: %v", err)
+	}
+	if len(insights) != 0 {
+		t.Errorf("a generated module was reported: %+v", insights)
+	}
+}

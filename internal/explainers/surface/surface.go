@@ -72,8 +72,9 @@ func (e *SurfaceExplainer) Name() string {
 }
 
 type moduleSurface struct {
-	total    int
-	exported []string
+	total     int
+	generated int
+	exported  []string
 }
 
 // Explain tallies exported vs total symbols per module and reports the modules
@@ -118,6 +119,9 @@ func (e *SurfaceExplainer) Explain(ctx context.Context, store *facts.Store) ([]f
 			mods[mod] = ms
 		}
 		ms.total++
+		if s.PropBool("generated") {
+			ms.generated++
+		}
 		if exported {
 			ms.exported = append(ms.exported, s.Name)
 		}
@@ -130,7 +134,9 @@ func (e *SurfaceExplainer) Explain(ctx context.Context, store *facts.Store) ([]f
 	}
 	var candidates []candidate
 	for mod, ms := range mods {
-		if ms.total < minSymbols || excludedModule(modulePaths.Of(mod)) {
+		// A module most of whose symbols are generated, such as an API client package
+		// not named "generated", exports everything because its generator does.
+		if ms.total < minSymbols || excludedModule(modulePaths.Of(mod)) || ms.generated*2 > ms.total {
 			continue
 		}
 		ratio := float64(len(ms.exported)) / float64(ms.total)

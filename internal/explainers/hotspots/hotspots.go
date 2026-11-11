@@ -120,6 +120,12 @@ func (e *HotspotExplainer) Explain(ctx context.Context, store *facts.Store) ([]f
 		if facts.IsTestPath(s.File) {
 			continue
 		}
+		// Generated code (an API client, protobuf stubs) is not maintained by hand: a
+		// finding there is not one anyone acts on. Gated as a candidate only, like test
+		// code above, so the distribution it is measured against stays whole.
+		if s.PropBool("generated") {
+			continue
+		}
 		in := graph.ArchitecturalFanIn(s.Name)
 		out := graph.ArchitecturalFanOut(s.Name)
 		if in < minDegree || out < minDegree {
