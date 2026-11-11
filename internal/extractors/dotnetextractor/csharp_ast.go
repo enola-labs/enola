@@ -1027,6 +1027,69 @@ func (w *astWalker) noteNameof(inv *sitter.Node) {
 	}
 }
 
+// noteGenericCallTypes records the type arguments of a generic method call as names
+// edges: `Request<IReadOnlyList<HeadendsDto>>(…)` and
+// `ServiceDescriptor.Transient<IProvider, CachingProvider>()` are where a DTO or an
+// implementation is named, often the only place outside its tests. A container
+// registration is left to noteDIRegistration, which records it as instantiates.
+func (w *astWalker) noteGenericCallTypes(inv *sitter.Node) {
+	fn := inv.ChildByFieldName("function")
+	if fn == nil {
+		return
+	}
+	gen := fn
+	if kindOf(fn) == "member_access_expression" {
+		gen = fn.ChildByFieldName("name")
+	}
+	if gen == nil || kindOf(gen) != "generic_name" {
+		return
+	}
+	if n := firstNamedChild(gen); n != nil && diRegistrars[nodeText(n, w.src)] {
+		return
+	}
+	if targs := findChildByKind(gen, "type_argument_list"); targs != nil {
+		for i := uint(0); i < targs.NamedChildCount(); i++ {
+			w.noteTypeNames(targs.NamedChild(i))
+		}
+	}
+}
+
+// noteTypeNames adds a names edge to every type a type node mentions: the type
+// itself, the arguments of a generic, the element of an array, a nullable or a
+// tuple. The merge pass keeps an edge only when it names a type the repository
+// declares, so BCL containers (`IReadOnlyList`) leave nothing.
+func (w *astWalker) noteTypeNames(n *sitter.Node) {
+	if n == nil {
+		return
+	}
+	switch kindOf(n) {
+	case "identifier", "qualified_name", "generic_name":
+		if isTypeParameter(n, w.src) {
+			return
+		}
+		if t := w.targetForType(n); t != "" {
+			w.addEdge(facts.RelNames, t)
+		}
+		gen := n
+		if kindOf(n) == "qualified_name" {
+			gen = n.ChildByFieldName("name")
+		}
+		if gen != nil && kindOf(gen) == "generic_name" {
+			if targs := findChildByKind(gen, "type_argument_list"); targs != nil {
+				for i := uint(0); i < targs.NamedChildCount(); i++ {
+					w.noteTypeNames(targs.NamedChild(i))
+				}
+			}
+		}
+	case "tuple_element":
+		w.noteTypeNames(n.ChildByFieldName("type"))
+	case "array_type", "nullable_type", "tuple_type", "pointer_type", "ref_type", "scoped_type":
+		for i := uint(0); i < n.NamedChildCount(); i++ {
+			w.noteTypeNames(n.NamedChild(i))
+		}
+	}
+}
+
 // isTypeParameter reports whether a type reference is a bare name declared as a type
 // parameter by an enclosing method, type or delegate: `typeof(T)` inside `Foo<T>`
 // names no declared type.
@@ -1223,6 +1286,9 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 		class := syntacticLoopClass(node, w.src)
 		scope := csLoopScope{amortizes: class.repeats()}
 		if kindOf(node) == "foreach_statement" {
+			// `foreach (HeadendsDto h in root)` names the element type; `var` names
+			// nothing (targetForType drops it).
+			w.noteTypeNames(node.ChildByFieldName("type"))
 			// A loop over what belongs to an enclosing loop's element repeats
 			// without scaling (hierarchy.go).
 			if class.scales() && csReachedThroughElement(node.ChildByFieldName("right"), w.src, w.loopScopes) {
@@ -1283,6 +1349,7 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 		}
 	case "invocation_expression":
 		w.noteNameof(node)
+		w.noteGenericCallTypes(node)
 		w.handleInvocation(node)
 		// A container registration is the only place a DI-wired implementation is
 		// named, so without this it has no inbound edge and reads as dead.

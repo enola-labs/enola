@@ -128,3 +128,69 @@ public sealed class Seen
 		t.Errorf("a [Test] the file can see through its using must bind; got %v", visible.Relations)
 	}
 }
+
+// A type named only as a generic call's type argument, or as a foreach variable's
+// declared type, is used: `Request<IReadOnlyList<HeadendsDto>>(…)`, a
+// `ServiceDescriptor.Transient<IProvider, CachingProvider>()` registration and
+// `foreach (HeadendsDto h in root)` were the only production references such types
+// had. BCL types, type parameters and `var` leave no edge.
+func TestExtract_GenericCallAndForeachTypeNames(t *testing.T) {
+	ff := extractRepo(t, map[string]string{
+		"src/Lib/Lib.csproj": `<Project Sdk="Microsoft.NET.Sdk"></Project>`,
+		"src/Lib/Dtos.cs": `namespace Acme;
+public sealed class HeadendsDto { }
+public sealed class LineupDto { }
+public sealed class Wrapper<T> { }
+public interface IProvider { }
+internal sealed class CachingProvider : IProvider { }
+`,
+		"src/Lib/Client.cs": `namespace Acme;
+public sealed class Client
+{
+    public T Request<T>(string url) => default!;
+
+    public void Headends()
+    {
+        var root = Request<IReadOnlyList<HeadendsDto>>("/headends");
+        foreach (HeadendsDto h in root) { }
+    }
+
+    public void Nested() => Request<Wrapper<LineupDto[]>>("/x");
+
+    public void Register(IServiceCollection services) =>
+        services.Replace(ServiceDescriptor.Transient<IProvider, CachingProvider>());
+
+    public void Plain<TItem>()
+    {
+        Request<List<string>>("/a");
+        Request<TItem>("/b");
+        foreach (var x in new int[0]) { }
+    }
+}
+`,
+	})
+	for sym, wants := range map[string][]string{
+		"src/Lib.Client.Headends": {"src/Lib.HeadendsDto"},
+		"src/Lib.Client.Nested":   {"src/Lib.Wrapper", "src/Lib.LineupDto"},
+		"src/Lib.Client.Register": {"src/Lib.IProvider", "src/Lib.CachingProvider"},
+	} {
+		f := factByName(ff, sym)
+		if f == nil {
+			t.Fatalf("missing %s; got %v", sym, names(ff, facts.KindSymbol))
+		}
+		for _, want := range wants {
+			if !hasRel(f, facts.RelNames, want) {
+				t.Errorf("%s: missing names %s; got %v", sym, want, f.Relations)
+			}
+		}
+	}
+	f := factByName(ff, "src/Lib.Client.Plain")
+	if f == nil {
+		t.Fatal("missing src/Lib.Client.Plain")
+	}
+	for _, r := range f.Relations {
+		if r.Kind == facts.RelNames {
+			t.Errorf("a BCL type, a type parameter or var must leave no names edge; got %v", r)
+		}
+	}
+}

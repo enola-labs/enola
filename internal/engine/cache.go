@@ -3527,7 +3527,9 @@ import (
 // interface with several, or beside a stated implementer) are implementers_candidates.
 // v569: Go: a file with a declaration that fails to parse keeps the declarations
 // that parsed whole, instead of being dropped.
-const cacheVersion = "v569"
+// v570: C#: the type arguments of a generic method call and a foreach variable's
+// declared type are names edges to the declared types they mention.
+const cacheVersion = "v570"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

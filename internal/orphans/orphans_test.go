@@ -50,6 +50,39 @@ func TestCollectNamedReferencesProtectSymbols(t *testing.T) {
 	}
 }
 
+// A class whose only reference is one of its own methods calling a sibling is
+// dead as a unit. The call target names the class in full, and every symbol is
+// matched by its full name, so the receiver fold must not credit the class with
+// its own member's call.
+func TestSiblingCallDoesNotKeepOwnerAlive(t *testing.T) {
+	syms, refs := collectFromJSONL(t, `
+{"kind":"symbol","name":"App.Server/Filters.Provider","file":"App.Server/Filters/Provider.cs","props":{"symbol_kind":"class"}}
+{"kind":"symbol","name":"App.Server/Filters.Provider.Get","file":"App.Server/Filters/Provider.cs","props":{"symbol_kind":"method"},"relations":[{"kind":"calls","target":"App.Server/Filters.Provider.Adjust"}]}
+{"kind":"symbol","name":"App.Server/Filters.Provider.Adjust","file":"App.Server/Filters/Provider.cs","props":{"symbol_kind":"method"}}
+`)
+	all := orphansByName(classify(syms, refs, options{Mode: "both", Visibility: "all"}))
+	if o, ok := all["App.Server/Filters.Provider"]; !ok || o.Class == classTestOnly {
+		t.Fatalf("a class referenced only by its own method must be dead: %+v", all)
+	}
+	// Nor does a member naming its own type keep it alive.
+	syms, refs = collectFromJSONL(t, `
+{"kind":"symbol","name":"App.Server/Filters.Provider","file":"App.Server/Filters/Provider.cs","props":{"symbol_kind":"class"}}
+{"kind":"symbol","name":"App.Server/Filters.Provider.Provider","file":"App.Server/Filters/Provider.cs","props":{"symbol_kind":"method"},"relations":[{"kind":"names","target":"App.Server/Filters.Provider"}]}
+`)
+	if o, ok := orphansByName(classify(syms, refs, options{Mode: "both", Visibility: "all"}))["App.Server/Filters.Provider"]; !ok || o.Class == classTestOnly {
+		t.Fatalf("a class named only by its own member must be dead: %+v", o)
+	}
+	// Another type calling through it still counts.
+	syms, refs = collectFromJSONL(t, `
+{"kind":"symbol","name":"App.Server/Filters.Provider","file":"App.Server/Filters/Provider.cs","props":{"symbol_kind":"class"}}
+{"kind":"symbol","name":"App.Server/Filters.Provider.Adjust","file":"App.Server/Filters/Provider.cs","props":{"symbol_kind":"method"}}
+{"kind":"symbol","name":"App.Server/Startup.Configure","file":"App.Server/Startup.cs","props":{"symbol_kind":"method"},"relations":[{"kind":"calls","target":"App.Server/Filters.Provider.Adjust"}]}
+`)
+	if o, ok := orphansByName(classify(syms, refs, options{Mode: "both", Visibility: "all"}))["App.Server/Filters.Provider"]; ok {
+		t.Fatalf("a class another type calls through must not be reported: %+v", o)
+	}
+}
+
 // TestClassify_ExcludesTestSupportPackages guards against mis-reporting test
 // infrastructure (mocks, testutils) as dead: _test.go files are excluded from the
 // snapshot, so a mock's only callers (tests) are invisible. Such code must be
