@@ -22,7 +22,7 @@ func (s *Server) registerTraverseTool() {
 		Name: "traverse",
 		Description: "Multi-hop walk of the dependency and call graph from one node: forward answers \"what does X depend on?\", reverse answers \"what depends on X?\". Use it instead of repeated explore calls. " +
 			"From a struct or interface, forward follows its methods and their calls; reverse also starts from its methods and constructor, so callers that reach the type only through a method (cross-repo too) appear, as in impact_analysis. " +
-			"It crosses interfaces both ways; a node reached through one is marked through_interface, as another implementation may run. " +
+			"It crosses interfaces both ways, marking such nodes through_interface: another implementation may run. " +
 			"Output grows fast: start with output_mode=summary and keep max_depth and max_nodes bounded.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args traverseArgs) (*mcp.CallToolResult, any, error) {
 		store := s.eng.Store()
@@ -128,7 +128,7 @@ func invertDispatch(dispatch map[string][]string) map[string][]string {
 func (s *Server) registerFindPathTool() {
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name: "find_path",
-		Description: "Shortest path, by hop count, between two nodes: \"how does X reach Y?\", \"what is the call chain from A to B?\". " +
+		Description: "Shortest path, by hop count, between two nodes: \"how does X reach Y?\", \"what is the call chain from A to B?\". Crosses interfaces. " +
 			"An ambiguous endpoint is not an error: the top candidates are tried (for a type, its methods and constructor too) and the first path found is returned, with the ranked candidates. " +
 			"With no path, found=false and a note says why. " +
 			"To ask how one part reaches another, pass from_nodes and to_nodes instead: exact node names, one search " +
@@ -177,7 +177,7 @@ func (s *Server) registerFindPathTool() {
 			})
 		}
 
-		result := s.bestPath(graph, fromCands, toCands, args.RelationKinds, args.MaxDepth)
+		result := s.bestPath(graph, fromCands, toCands, args.RelationKinds, args.MaxDepth, invertDispatch(impact.InterfaceDispatch(store, graph)))
 
 		resp := findPathResponse{
 			FromResolution: fromRes,
@@ -235,7 +235,7 @@ func (s *Server) findPathBetweenSets(store *facts.Store, graph *facts.Graph, arg
 	// form) stands for them; a set is a union, so all of them join it.
 	froms, fromFiles := s.expandDeclaredFiles(store, s.spellNames(store, args.FromNodes))
 	tos, toFiles := s.expandDeclaredFiles(store, s.spellNames(store, args.ToNodes))
-	result := graph.FindPathBetween(froms, tos, args.RelationKinds, args.MaxDepth)
+	result := graph.FindPathBetweenDispatching(froms, tos, args.RelationKinds, args.MaxDepth, invertDispatch(impact.InterfaceDispatch(store, graph)))
 	resp := findPathSetsResponse{
 		SetPathResult:  result,
 		FromFiles:      fromFiles,
@@ -436,7 +436,7 @@ func firstOr(s []string, fallback string) string {
 // methods/constructor). It scans in ranked order, keeps the shortest path found,
 // and is bounded by maxPathAttempts (returning early on a ≤2-hop hit). When no
 // path exists it returns a not-found PathResult naming the first from/to tried.
-func (s *Server) bestPath(graph *facts.Graph, fromCands, toCands []string, relKinds []string, maxDepth int) facts.PathResult {
+func (s *Server) bestPath(graph *facts.Graph, fromCands, toCands []string, relKinds []string, maxDepth int, dispatch map[string][]string) facts.PathResult {
 	// Self-defensive: callers are expected to pass non-empty candidate slices, but
 	// guard so an empty slice yields a clean not-found result instead of indexing
 	// fromCands[0]/toCands[0] out of range.
@@ -455,7 +455,7 @@ func (s *Server) bestPath(graph *facts.Graph, fromCands, toCands []string, relKi
 					return facts.PathResult{From: fromCands[0], To: toCands[0], Found: false}
 				}
 				attempts++
-				r := graph.FindPath(from, target, relKinds, maxDepth)
+				r := graph.FindPathDispatching(from, target, relKinds, maxDepth, dispatch)
 				if !r.Found {
 					continue
 				}

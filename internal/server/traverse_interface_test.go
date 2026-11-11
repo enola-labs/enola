@@ -81,3 +81,41 @@ func TestTraverse_ForwardCrossesInterfaces(t *testing.T) {
 		t.Error("listHandler.ListBooks is reached through Books but not marked through_interface")
 	}
 }
+
+// How a handler reaches code it calls only through interfaces: the path goes on
+// from each interface method to the implementation behind it.
+func TestFindPath_CrossesInterfaces(t *testing.T) {
+	s := startInMemory(t)
+	if res := s.call(t, "generate_snapshot", map[string]any{"repo_path": writeComposedHandlerRepo(t)}); res.IsError {
+		t.Fatal(text(res))
+	}
+	raw := text(s.call(t, "find_path", map[string]any{
+		"from": "example.com/library/internal/http.Gateway.Books",
+		"to":   "example.com/library/internal/shelving.Order",
+	}))
+	var res struct {
+		Found bool `json:"found"`
+		Path  []struct {
+			Name             string `json:"name"`
+			ThroughInterface bool   `json:"through_interface"`
+		} `json:"path"`
+	}
+	if err := json.Unmarshal([]byte(raw), &res); err != nil {
+		t.Fatalf("find_path output: %v\n%.300s", err, raw)
+	}
+	if !res.Found {
+		t.Fatalf("no path from the handler through two interfaces to shelving.Order:\n%s", raw)
+	}
+	through := map[string]bool{}
+	for _, n := range res.Path {
+		through[n.Name] = n.ThroughInterface
+	}
+	for _, name := range []string{
+		"example.com/library/internal/http.listHandler.ListBooks",
+		"example.com/library/internal/app/catalog.Service.List",
+	} {
+		if !through[name] {
+			t.Errorf("%s should be on the path, reached through an interface; path: %+v", name, res.Path)
+		}
+	}
+}

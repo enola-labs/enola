@@ -755,7 +755,7 @@ func (g *Graph) traverseFrom(starts []string, direction string, relKinds, nodeKi
 
 	relSet := g.relIDSet(relKinds)
 	kindSet := toSet(nodeKinds)
-	if len(relKinds) > 0 && !slices.Contains(relKinds, RelCalls) && !slices.Contains(relKinds, RelImplements) {
+	if !dispatchAllowed(relKinds) {
 		dispatch = nil
 	}
 
@@ -915,6 +915,25 @@ func (g *Graph) traverseFrom(starts []string, direction string, relKinds, nodeKi
 // relKinds filters to specific relation types (nil = all).
 // maxDepth limits search depth (0 = use default 10).
 func (g *Graph) FindPath(from, to string, relKinds []string, maxDepth int) PathResult {
+	return g.findPath(from, to, relKinds, maxDepth, nil)
+}
+
+// FindPathDispatching is FindPath that also crosses interfaces: dispatch maps an
+// interface method to the implementations a call on it may run, and the walk goes
+// on from the interface method to each. Such a hop is an implemented_by edge, and
+// the node it reaches is marked ThroughInterface. It is taken only when relKinds is
+// empty or admits calls or implemented_by.
+func (g *Graph) FindPathDispatching(from, to string, relKinds []string, maxDepth int, dispatch map[string][]string) PathResult {
+	return g.findPath(from, to, relKinds, maxDepth, dispatch)
+}
+
+// dispatchAllowed reports whether a relation filter admits an interface hop.
+func dispatchAllowed(relKinds []string) bool {
+	return len(relKinds) == 0 || slices.Contains(relKinds, RelCalls) ||
+		slices.Contains(relKinds, RelImplements) || slices.Contains(relKinds, RelImplementedBy)
+}
+
+func (g *Graph) findPath(from, to string, relKinds []string, maxDepth int, dispatch map[string][]string) PathResult {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 
@@ -936,6 +955,9 @@ func (g *Graph) FindPath(from, to string, relKinds []string, maxDepth int) PathR
 	}
 
 	relSet := g.relIDSet(relKinds)
+	if !dispatchAllowed(relKinds) {
+		dispatch = nil
+	}
 
 	fromID, fromOK := g.lookup(from)
 	toID, toOK := g.lookup(to)
@@ -952,6 +974,7 @@ func (g *Graph) FindPath(from, to string, relKinds []string, maxDepth int) PathR
 	visited := make(map[uint32]struct{})
 	parent := make(map[uint32]uint32)    // child → parent
 	parentRel := make(map[uint32]uint16) // child → relation kind of the edge from parent
+	viaIface := make(map[uint32]bool)    // child reached across an interface, not an edge
 
 	visited[fromID] = struct{}{}
 	queue := []queueItem{{id: fromID, depth: 0}}
@@ -985,6 +1008,26 @@ func (g *Graph) FindPath(from, to string, relKinds []string, maxDepth int) PathR
 			}
 			queue = append(queue, queueItem{id: tid, depth: item.depth + 1})
 		}
+		for _, impl := range dispatch[g.names[item.id]] {
+			if found {
+				break
+			}
+			tid, ok := g.lookup(impl)
+			if !ok {
+				continue
+			}
+			if _, seen := visited[tid]; seen {
+				continue
+			}
+			visited[tid] = struct{}{}
+			parent[tid] = item.id
+			viaIface[tid] = true
+			if tid == toID {
+				found = true
+				break
+			}
+			queue = append(queue, queueItem{id: tid, depth: item.depth + 1})
+		}
 	}
 
 	result := PathResult{From: from, To: to, Found: found}
@@ -1004,26 +1047,36 @@ func (g *Graph) FindPath(from, to string, relKinds []string, maxDepth int) PathR
 		path[i], path[j] = path[j], path[i]
 	}
 
-	for i, id := range path {
-		// The origin has no incoming edge; every later hop is identified by the
-		// relation that reached it.
-		via := ""
-		if i > 0 {
-			via = g.relName(parentRel[id])
-		}
-		result.Path = append(result.Path, g.nodeForID(id, i, via))
-	}
+	g.writePath(&result, path, parentRel, viaIface)
+	return result
+}
 
-	// Reconstruct edges along the path
+// writePath fills a found result's nodes and edges from the path's node ids, each
+// later hop identified by the relation that reached it, or as an implemented_by
+// hop across an interface.
+func (g *Graph) writePath(result *PathResult, path []uint32, parentRel map[uint32]uint16, viaIface map[uint32]bool) {
+	via := func(id uint32) string {
+		if viaIface[id] {
+			return RelImplementedBy
+		}
+		return g.relName(parentRel[id])
+	}
+	for i, id := range path {
+		// The origin has no incoming edge.
+		node := g.nodeForID(id, i, "")
+		if i > 0 {
+			node = g.nodeForID(id, i, via(id))
+			node.ThroughInterface = viaIface[id]
+		}
+		result.Path = append(result.Path, node)
+	}
 	for i := 1; i < len(path); i++ {
 		result.Edges = append(result.Edges, TraversalEdge{
 			Source: g.names[path[i-1]],
 			Target: g.names[path[i]],
-			Kind:   g.relName(parentRel[path[i]]),
+			Kind:   via(path[i]),
 		})
 	}
-
-	return result
 }
 
 // SetPathResult is the shortest path between two sets of nodes. From and To
@@ -1045,6 +1098,19 @@ type SetPathResult struct {
 // first one in that order is returned and a rerun returns the same one. Names
 // are exact node names; nothing is resolved by substring.
 func (g *Graph) FindPathBetween(froms, tos []string, relKinds []string, maxDepth int) SetPathResult {
+	return g.findPathBetween(froms, tos, relKinds, maxDepth, nil)
+}
+
+// FindPathBetweenDispatching is FindPathBetween crossing interfaces, as
+// FindPathDispatching does.
+func (g *Graph) FindPathBetweenDispatching(froms, tos []string, relKinds []string, maxDepth int, dispatch map[string][]string) SetPathResult {
+	return g.findPathBetween(froms, tos, relKinds, maxDepth, dispatch)
+}
+
+func (g *Graph) findPathBetween(froms, tos []string, relKinds []string, maxDepth int, dispatch map[string][]string) SetPathResult {
+	if !dispatchAllowed(relKinds) {
+		dispatch = nil
+	}
 	// RollupSeeds takes the read lock itself, so the targets are expanded before
 	// this walk takes it.
 	var held, unresolvedTo []string
@@ -1115,6 +1181,7 @@ func (g *Graph) FindPathBetween(froms, tos []string, relKinds []string, maxDepth
 	visited := make(map[uint32]struct{}, len(sources))
 	parent := make(map[uint32]uint32)
 	parentRel := make(map[uint32]uint16)
+	viaIface := make(map[uint32]bool)
 	queue := make([]queueItem, 0, len(sources))
 	for _, id := range sources {
 		visited[id] = struct{}{}
@@ -1148,6 +1215,26 @@ func (g *Graph) FindPathBetween(froms, tos []string, relKinds []string, maxDepth
 			}
 			queue = append(queue, queueItem{id: tid, depth: item.depth + 1})
 		}
+		for _, impl := range dispatch[g.names[item.id]] {
+			if found {
+				break
+			}
+			tid, ok := g.lookup(impl)
+			if !ok {
+				continue
+			}
+			if _, seen := visited[tid]; seen {
+				continue
+			}
+			visited[tid] = struct{}{}
+			parent[tid] = item.id
+			viaIface[tid] = true
+			if targetIDs[tid] {
+				reached, found = tid, true
+				break
+			}
+			queue = append(queue, queueItem{id: tid, depth: item.depth + 1})
+		}
 	}
 	if !found {
 		return result
@@ -1161,20 +1248,7 @@ func (g *Graph) FindPathBetween(froms, tos []string, relKinds []string, maxDepth
 		path[i], path[j] = path[j], path[i]
 	}
 	result.From, result.To, result.Found = g.names[path[0]], g.names[reached], true
-	for i, id := range path {
-		via := ""
-		if i > 0 {
-			via = g.relName(parentRel[id])
-		}
-		result.Path = append(result.Path, g.nodeForID(id, i, via))
-	}
-	for i := 1; i < len(path); i++ {
-		result.Edges = append(result.Edges, TraversalEdge{
-			Source: g.names[path[i-1]],
-			Target: g.names[path[i]],
-			Kind:   g.relName(parentRel[path[i]]),
-		})
-	}
+	g.writePath(&result.PathResult, path, parentRel, viaIface)
 	return result
 }
 
