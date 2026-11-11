@@ -412,6 +412,13 @@ func (s *Server) pathCandidates(store *facts.Store, input, resolved string, res 
 		out = append(out, n)
 	}
 	add(resolved)
+	// A name that resolved to one fact without ambiguity, or to a fact named exactly
+	// as asked, is the node asked for. The ranked candidates are looser matches, and trying them as well returned the
+	// shortest path to any of them: asked for the table "countries", a path to
+	// "attribute_value_visible_countries".
+	if resolved != "" && (res == nil || resolved == bareTerm(input)) {
+		return out
+	}
 	if res != nil {
 		for _, c := range res.Candidates {
 			add(c.Name)
@@ -421,6 +428,18 @@ func (s *Server) pathCandidates(store *facts.Store, input, resolved string, res 
 		add(c.Name)
 	}
 	return out
+}
+
+// bareTerm is the name an input asks for, without its repo:, kind: and file: scope
+// prefixes.
+func bareTerm(input string) string {
+	fields := strings.Fields(input)
+	for i := len(fields) - 1; i >= 0; i-- {
+		if f := fields[i]; !strings.HasPrefix(f, "repo:") && !strings.HasPrefix(f, "kind:") && !strings.HasPrefix(f, "file:") {
+			return f
+		}
+	}
+	return ""
 }
 
 // firstOr returns the first element of s, or fallback when s is empty.

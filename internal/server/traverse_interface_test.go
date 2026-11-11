@@ -191,3 +191,54 @@ func Register(mux *http.ServeMux, h Handler) { mux.HandleFunc("GET /loans", h.Li
 		t.Errorf("path ends at %s, want the loans table", last)
 	}
 }
+
+// A table asked for by its exact name is the end of the path, even when the name is
+// also part of other tables' names and one of those is nearer.
+func TestFindPath_ExactNameIsNotTradedForANearerMatch(t *testing.T) {
+	dir := t.TempDir()
+	for rel, body := range map[string]string{
+		"go.mod": "module example.com/library\n\ngo 1.22\n",
+		"internal/store/store.go": `package store
+
+func Near() string { return "SELECT id FROM shelf_loans" }
+
+func far() string { return "SELECT id FROM loans" }
+
+func Far() string { return far() }
+`,
+		"main.go": `package main
+
+import "example.com/library/internal/store"
+
+func main() { _, _ = store.Near(), store.Far() }
+`,
+	} {
+		p := filepath.Join(dir, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s := startInMemory(t)
+	if res := s.call(t, "generate_snapshot", map[string]any{"repo_path": dir}); res.IsError {
+		t.Fatal(text(res))
+	}
+	raw := text(s.call(t, "find_path", map[string]any{"from": "example.com/library.main", "to": "kind:storage loans"}))
+	var res struct {
+		Found bool `json:"found"`
+		Path  []struct {
+			Name string `json:"name"`
+		} `json:"path"`
+	}
+	if err := json.Unmarshal([]byte(raw), &res); err != nil {
+		t.Fatalf("find_path output: %v\n%.300s", err, raw)
+	}
+	if !res.Found {
+		t.Fatalf("no path to the loans table:\n%s", raw)
+	}
+	if last := res.Path[len(res.Path)-1].Name; last != "loans" {
+		t.Errorf("path ends at %s, want loans", last)
+	}
+}
