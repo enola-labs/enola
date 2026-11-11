@@ -65,3 +65,39 @@ func TestBind_HolderFilledFromAParameter(t *testing.T) {
 		t.Errorf("the generic Drain should gain no edge; it calls %v", got)
 	}
 }
+
+// A field set where its struct is built and called by a method of the struct is
+// linked by type: the method calls what the field holds. A field holding more than
+// maxTypedValues functions is a dispatch point and is not.
+func TestBind_FieldStoredDirectly(t *testing.T) {
+	store := facts.NewStore()
+	store.Add(
+		sym("shelf.New", facts.SymbolFunc, []string{"field shelf.Sorter.less <- shelf.New.func1"}),
+		sym("shelf.New.func1", facts.SymbolFunc, nil, "titles.Compare"),
+		sym("shelf.Sorter.Sort", facts.SymbolMethod, []string{"fieldcall shelf.Sorter.less"}),
+		// A constructor handed the function, as its parameter, by one caller.
+		sym("loans.NewTimer", facts.SymbolFunc, []string{"field loans.Timer.onDue <- @0"}),
+		sym("loans.Start", facts.SymbolFunc, []string{"arg loans.NewTimer#0 <- loans.remind"}),
+		sym("loans.Timer.fire", facts.SymbolMethod, []string{"fieldcall loans.Timer.onDue"}),
+	)
+	var many []string
+	for _, h := range []string{"a", "b", "c", "d", "e", "f"} {
+		many = append(many, "field events.Bus.handler <- events."+h)
+	}
+	store.Add(
+		sym("events.Register", facts.SymbolFunc, many),
+		sym("events.Bus.Publish", facts.SymbolMethod, []string{"fieldcall events.Bus.handler"}),
+	)
+	if err := New().Bind(context.Background(), store); err != nil {
+		t.Fatal(err)
+	}
+	if got := callsOf(store, "shelf.Sorter.Sort"); !slices.Equal(got, []string{"shelf.New.func1"}) {
+		t.Errorf("Sort calls %v, want the closure stored in its field", got)
+	}
+	if got := callsOf(store, "loans.Timer.fire"); !slices.Equal(got, []string{"loans.remind"}) {
+		t.Errorf("fire calls %v, want the function its constructor was handed", got)
+	}
+	if got := callsOf(store, "events.Bus.Publish"); len(got) != 0 {
+		t.Errorf("a field holding six functions should not be linked; Publish calls %v", got)
+	}
+}

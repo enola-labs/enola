@@ -20,6 +20,10 @@
 // calling GetMany on ordersCache.rt calls fetch: that call edge is added. Every other
 // read-through cache of the program holds its own fetch in the same field, and joining
 // per type would have made each of them call all of them.
+//
+// A field no holder is filled through, set where its struct is built
+// (`&T{run: func() {...}}`) and called by a method of T, is joined by type, when it
+// holds a few functions only: see linkByType.
 package storedfuncs
 
 import (
@@ -68,7 +72,7 @@ type index struct {
 
 func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 	ix := build(store.FactsRef())
-	if len(ix.calls) == 0 {
+	if len(ix.calls) == 0 && len(ix.fieldCalls) == 0 {
 		return nil
 	}
 	adds := link(ix)
@@ -199,6 +203,7 @@ func link(ix *index) map[slot][]string {
 		}
 	}
 	adds := map[slot][]string{}
+	ix.linkByType(inst, adds)
 	memo := map[slot][]string{}
 	for _, c := range ix.calls {
 		held := inst[slot{c.repo, c.field}]
@@ -215,6 +220,39 @@ func link(ix *index) map[slot][]string {
 		adds[k] = compact(v)
 	}
 	return adds
+}
+
+// maxTypedValues is the most functions a field may hold to be linked by its type.
+const maxTypedValues = 5
+
+// linkByType links a call through a field that no holder is filled through, the
+// method making it calling every function stored in that field anywhere: one stored
+// in a struct literal or by assignment (`&T{run: func() {...}}`, `t.run = fn`), or
+// handed to the parameter that is. Such a field is mostly set in one place. A field
+// holding more than maxTypedValues functions is a dispatch point, every call of
+// which would reach all of them, and is left unlinked. A field a holder is filled
+// through is linked per instance by link, never by type.
+func (ix *index) linkByType(inst map[slot]map[string][]string, adds map[slot][]string) {
+	perInstance := map[slot]bool{}
+	for hk, fields := range inst {
+		for f := range fields {
+			perInstance[slot{hk.repo, f}] = true
+		}
+	}
+	for m, fields := range ix.fieldCalls {
+		for _, f := range fields {
+			field := slot{m.repo, f}
+			if perInstance[field] {
+				continue
+			}
+			vals := ix.valuesOf(field)
+			sort.Strings(vals)
+			vals = compact(vals)
+			if len(vals) > 0 && len(vals) <= maxTypedValues {
+				adds[m] = append(adds[m], vals...)
+			}
+		}
+	}
 }
 
 // fieldsReached returns the fields a parameter's value is stored in, through every
