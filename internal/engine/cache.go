@@ -3529,7 +3529,9 @@ import (
 // that parsed whole, instead of being dropped.
 // v570: C#: the type arguments of a generic method call and a foreach variable's
 // declared type are names edges to the declared types they mention.
-const cacheVersion = "v570"
+// v571: Swift: a request path interpolating a string property its file sets to
+// one literal reads that literal ("\(endpoint)/details" -> shelves/{}/details).
+const cacheVersion = "v571"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
