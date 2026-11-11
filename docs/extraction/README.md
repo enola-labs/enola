@@ -32,6 +32,7 @@ pages changing, the golden tests fail first.
 | [.NET](dotnet.md) | ASP.NET Core attribute + minimal-API routing, Blazor and Razor Pages `@page` | C#, VB.NET, Razor and XAML; MSBuild `ProjectReference` as the assembly graph; `partial` types merged across files and languages |
 | [gRPC and OpenAPI](grpc-openapi.md) | `.proto` services, OpenAPI specs | the contract as the server side of an edge |
 | [AsyncAPI](asyncapi.md) | AsyncAPI 2.x/3.x YAML and JSON specs | event channels as producer/consumer topic facts |
+| [Vespa](vespa.md) | Vespa schema definitions (`.sd`) | document types as storage, joined to the YQL queries reading them |
 | [Terraform / HCL](hcl.md) | resources, modules, variables, outputs, locals | Terraform addresses as symbol names; declared-set bare references |
 | [Ansible](ansible.md) | plays, roles, `include_role`/`import_role` | by-name structure read without rendering a template |
 
