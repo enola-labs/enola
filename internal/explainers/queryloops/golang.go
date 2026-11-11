@@ -254,18 +254,18 @@ func goDescription(f finding) (string, []string) {
 	}
 	if f.invariant {
 		return fmt.Sprintf(
-				"%s calls %s inside a loop nested %d deep, and the call reaches a database query%s. Its "+
-					"arguments do not depend on the loop's element, so every iteration repeats the same query.",
-				f.symbol, f.call, f.depth, via), []string{
-				"run the query once before the loop and reuse the result",
-				"confirm with a query-count test that fails against the current code",
-			}
-	}
-	return fmt.Sprintf(
-			"%s calls %s once per element of a loop nested %d deep, and the call reaches a database "+
-				"query%s. N elements issue N queries.",
+			"%s calls %s inside a loop nested %d deep, and the call reaches a database query%s. Its "+
+				"arguments do not depend on the loop's element, so every iteration repeats the same query.",
 			f.symbol, f.call, f.depth, via), []string{
-			"read the set once before the loop (WHERE id IN (...)) and index it by key",
+			"run the query once before the loop and reuse the result",
 			"confirm with a query-count test that fails against the current code",
 		}
+	}
+	return fmt.Sprintf(
+		"%s calls %s once per element of a loop nested %d deep, and the call reaches a database "+
+			"query%s. N elements issue N queries.",
+		f.symbol, f.call, f.depth, via), []string{
+		"read the set once before the loop (WHERE id IN (...)) and index it by key",
+		"confirm with a query-count test that fails against the current code",
+	}
 }
