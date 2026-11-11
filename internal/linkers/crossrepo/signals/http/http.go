@@ -9,6 +9,7 @@ package http
 
 import (
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -803,6 +804,13 @@ func routesCalledBy(m *routeindex.Matcher, server map[string][]routeindex.RouteR
 		return nil
 	}
 	matches, _ := m.LookupClientMatches(server, routeindex.CanonicalLeadingSlash(np), method)
+	// The thin-path rule resolveCall applies: one word after a base enola could not
+	// read ("{}/details") reaches only a server path that says no more. Without it
+	// here, a call the linker declined was still listed as a caller of every route
+	// ending in a parameter and that word.
+	if routeindex.SingleSegmentPath(np) {
+		matches = atMostOneLiteral(matches)
+	}
 	return declaredMatches(m, f, matches)
 }
 
@@ -847,7 +855,25 @@ func NewCallerFinder(m *routeindex.Matcher, all []facts.Fact) endpoint.CallerFin
 // caller here too. The tool and the command both answer through it, which is what
 // keeps them from composing the finder two ways.
 func AnalyzeEndpoint(store *facts.Store, v *vocab.Set, query string, maxRoutes int) endpoint.Impact {
-	return endpoint.AnalyzeWith(store, query, maxRoutes, NewCallerFinder(routeindex.New(v), store.All()), newEndpointReach(store))
+	m := routeindex.New(v)
+	return endpoint.AnalyzeWith(store, query, maxRoutes, NewCallerFinder(m, store.All()), newEndpointReach(store), newCallsOf(m))
+}
+
+// newCallsOf names the followed routes one client call reaches, under the rule
+// CallersOf finds callers by, so a caller's calls are the routes it was found for.
+func newCallsOf(m *routeindex.Matcher) endpoint.CallsOf {
+	return func(servers []facts.Fact) func(facts.Fact) []string {
+		index, _ := servableIndex(m, servers, false)
+		return func(client facts.Fact) []string {
+			var out []string
+			for _, ref := range routesCalledBy(m, index, client) {
+				if r := ref.Method + " " + ref.Path; !slices.Contains(out, r) {
+					out = append(out, r)
+				}
+			}
+			return out
+		}
+	}
 }
 
 // newEndpointReach answers which endpoints of a calling service reach its call,

@@ -3529,7 +3529,18 @@ import (
 // that parsed whole, instead of being dropped.
 // v570: C#: the type arguments of a generic method call and a foreach variable's
 // declared type are names edges to the declared types they mention.
-const cacheVersion = "v570"
+// v571: Swift: a request path interpolating a string property its file sets to
+// one literal reads that literal ("\(endpoint)/details" -> shelves/{}/details).
+// v572: Go: a call to an HTTP helper names its verb as an argument of its own
+// (http.MethodPost, "POST") and may build its path where it passes it.
+// v573: TypeScript: a Next.js layout seeds the pages beneath it, so a call only a
+// layout reaches names those pages in client_pages.
+// v574: Kotlin: a supertype of the same package in another module is re-homed, so
+// its implements edge reaches the declaration instead of the bare name.
+// v575: Go: an HTTP helper's path built with fmt.Sprintf is read at its call site.
+// v576: TypeScript: a verb call on a client the file builds reads a path relative
+// to its base URL (gateway.post(`orders/v1/carts/${id}`)), rooted at "/".
+const cacheVersion = "v576"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

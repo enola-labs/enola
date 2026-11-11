@@ -126,3 +126,35 @@ func TestCallersOf_AgreesWithTheServerRouteVerdicts(t *testing.T) {
 		}
 	}
 }
+
+// One word after a base enola could not read is no evidence of the endpoint, as the
+// linker already holds: "{}/details" is not a caller of /v2/shelves/{id}/details,
+// while a call naming the resource is.
+func TestCallersOf_ThinPathIsNoCaller(t *testing.T) {
+	server := servedBy("api", "/v2/shelves/{id}/details", "GET")
+	thin := plainCall("ios", "GET", "{}/details")
+	named := plainCall("web", "GET", "shelves/{}/details")
+	got := CallersOf(routeindex.New(vocab.Default()), []facts.Fact{server, thin, named}, []facts.Fact{server})
+	if len(got) != 1 || got[0].Repo != "web" {
+		t.Errorf("callers = %v, want only the call naming the resource", callerRepos(got))
+	}
+}
+
+// A call naming a resource reaches the route serving it under mount detail only, not
+// one that adds resources of its own before the same tail; with no such route, any
+// route of that tail still counts.
+func TestCallersOf_PrefersTheMountOnlyRoute(t *testing.T) {
+	public := servedBy("api", "/api/v2/shelves/{id}/books", "GET")
+	admin := servedBy("api", "/api/v2/admin/library/shelves/{id}/books", "GET")
+	call := plainCall("app", "GET", "shelves/{}/books")
+	m := routeindex.New(vocab.Default())
+	if got := CallersOf(m, []facts.Fact{public, admin, call}, []facts.Fact{admin}); len(got) != 0 {
+		t.Errorf("the admin route should not count the call: %v", callerRepos(got))
+	}
+	if got := CallersOf(m, []facts.Fact{public, admin, call}, []facts.Fact{public}); len(got) != 1 {
+		t.Errorf("the public route should count the call: %v", callerRepos(got))
+	}
+	if got := CallersOf(m, []facts.Fact{admin, call}, []facts.Fact{admin}); len(got) != 1 {
+		t.Errorf("with only the admin route, the call still reaches it: %v", callerRepos(got))
+	}
+}

@@ -14,6 +14,9 @@
       "repo": "consumer",
       "calls_from": [
         "example.com/consumer.Client.run"
+      ],
+      "calls": [
+        "GET /v1/things/{id}"
       ]
     }
   ],

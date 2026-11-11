@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -186,5 +187,83 @@ func main() {
 	}
 	if len(full.Endpoints) != 1 || full.Endpoints[0].Path != "/books" || full.Endpoints[0].Precision != "interface" {
 		t.Errorf("endpoints = %+v, want GET /books through an interface", full.Endpoints)
+	}
+}
+
+// endpoint_impact on a whole repository follows every route it serves, and each
+// caller says which of them it calls.
+func TestEndpointImpact_WholeRepository(t *testing.T) {
+	parent := t.TempDir()
+	stock := writeRepo(t, parent, "stock", map[string]string{
+		"go.mod": "module example.com/stock\n\ngo 1.22\n",
+		"main.go": `package main
+
+import "net/http"
+
+func books(w http.ResponseWriter, r *http.Request)  {}
+func shelves(w http.ResponseWriter, r *http.Request) {}
+
+func main() {
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /books", books)
+	mux.HandleFunc("GET /shelves", shelves)
+	_ = http.ListenAndServe(":8080", mux)
+}
+`,
+	})
+	shelf := writeRepo(t, parent, "shelf", map[string]string{
+		"go.mod": "module example.com/shelf\n\ngo 1.22\n",
+		"client.go": `package main
+
+import "net/http"
+
+const stockBase = "http://stock:8080"
+
+func addBook() { _, _ = http.Post(stockBase+"/books", "application/json", nil) }
+
+func main() { addBook() }
+`,
+	})
+	till := writeRepo(t, parent, "till", map[string]string{
+		"go.mod": "module example.com/till\n\ngo 1.22\n",
+		"client.go": `package main
+
+import "net/http"
+
+const stockBase = "http://stock:8080"
+
+func listShelves() { _, _ = http.Get(stockBase + "/shelves") }
+
+func main() { listShelves() }
+`,
+	})
+	s := startInMemory(t)
+	if res := s.call(t, "generate_snapshot", map[string]any{"repo_paths": []string{stock, shelf, till}}); res.IsError {
+		t.Fatal(text(res))
+	}
+	raw := text(s.call(t, "endpoint_impact", map[string]any{"endpoint": "repo:stock"}))
+	var got struct {
+		Routes  []struct{ Method, Path string } `json:"routes"`
+		Callers []struct {
+			Repo  string   `json:"repo"`
+			Calls []string `json:"calls"`
+		} `json:"callers"`
+		Summary string `json:"summary"`
+	}
+	if err := json.Unmarshal([]byte(raw), &got); err != nil {
+		t.Fatalf("endpoint_impact: %v\n%.400s", err, raw)
+	}
+	if len(got.Routes) != 2 {
+		t.Errorf("routes = %+v, want both routes stock serves", got.Routes)
+	}
+	calls := map[string][]string{}
+	for _, c := range got.Callers {
+		calls[c.Repo] = c.Calls
+	}
+	if len(calls["shelf"]) != 1 || calls["shelf"][0] != "POST /books" || len(calls["till"]) != 1 || calls["till"][0] != "GET /shelves" {
+		t.Errorf("caller calls = %v, want shelf POST /books and till GET /shelves", calls)
+	}
+	if !strings.Contains(got.Summary, "in 2 repositories") {
+		t.Errorf("summary should group callers by repository: %q", got.Summary)
 	}
 }

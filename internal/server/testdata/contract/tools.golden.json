@@ -212,7 +212,7 @@
       "additionalProperties": false,
       "properties": {
         "endpoint": {
-          "description": "Path substring, optionally prefixed with a verb: 'GET /v1/candidates' or '/v1/candidates'.",
+          "description": "Path substring, optionally prefixed with a verb: 'GET /v1/candidates'. 'repo:\u003clabel\u003e' follows all a repo serves.",
           "type": "string"
         },
         "max_routes": {

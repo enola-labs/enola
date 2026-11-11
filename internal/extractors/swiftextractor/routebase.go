@@ -93,12 +93,13 @@ type routeBaseCall struct {
 // skipped.
 func routeBaseCalls(text string, bases map[string]string) []routeBaseCall {
 	var out []routeBaseCall
+	props := stringProps(text)
 	add := func(base string, open int) {
 		args, ok := parenBody(text, open)
 		if !ok {
 			return
 		}
-		path, ok := endpointArgPath(text, open, args)
+		path, ok := endpointArgPath(text, open, args, props)
 		if !ok {
 			return
 		}
@@ -212,7 +213,10 @@ func inheritedBase(clause string, bases map[string]string) string {
 // endpointArgPath resolves a call's top-level `endpoint:` argument to a path: a
 // literal, a single-literal helper call, or a local bound to either earlier in the
 // source.
-func endpointArgPath(text string, open int, args string) (string, bool) {
+//
+// props are the file's single-valued string properties (stringProps): an
+// interpolation naming one, `"\(endpoint)/details"`, is read as its literal.
+func endpointArgPath(text string, open int, args string, props map[string]string) (string, bool) {
 	var value string
 	for _, m := range swiftEndpointArg.FindAllStringIndex(args, -1) {
 		if depthAt(args[:m[0]]) == 0 {
@@ -223,7 +227,7 @@ func endpointArgPath(text string, open int, args string) (string, bool) {
 	if value == "" {
 		return "", false
 	}
-	if p, ok := literalPath(value); ok {
+	if p, ok := literalPath(value, props); ok {
 		return p, true
 	}
 	ident := swiftLeadingIdent.FindString(value)
@@ -240,12 +244,12 @@ func endpointArgPath(text string, open int, args string) (string, bool) {
 	if bound == "" {
 		return "", false
 	}
-	return literalPath(strings.TrimSpace(bound))
+	return literalPath(strings.TrimSpace(bound), props)
 }
 
 // literalPath reads a path from the start of an expression: a string literal or a
 // call whose only argument is one.
-func literalPath(expr string) (string, bool) {
+func literalPath(expr string, props map[string]string) (string, bool) {
 	m := swiftPathExpr.FindStringSubmatch(expr)
 	if m == nil {
 		return "", false
@@ -254,11 +258,72 @@ func literalPath(expr string) (string, bool) {
 	if raw == "" {
 		raw = m[2]
 	}
-	p := cleanSwiftPath(raw)
+	p := cleanSwiftPath(substituteProps(raw, props))
 	if p == "" || hasNonAPIExtension(p) {
 		return "", false
 	}
 	return p, true
+}
+
+// A request type often keeps the resource's path in a property set once, and each
+// request appends to it:
+//
+//	final class Shelves {
+//	    let endpoint: String
+//	    init(id: String) { self.endpoint = "shelves/\(id)" }
+//	}
+//	func details() -> Route { Route(endpoint: "\(endpoint)/details") }
+//
+// Read without the property, the path is "{}/details", one word after a base, which
+// the linker rightly declines or, worse, could join to any route ending in /details.
+
+// swiftSelfStringAssign is `self.<name> = "<literal>"`; swiftStringProp is
+// `let|var <name>(: String)? = "<literal>"`.
+var (
+	swiftSelfStringAssign = regexp.MustCompile(`\bself\.(\w+)\s*=\s*"((?:[^"\\]|\\.)*)"`)
+	swiftStringProp       = regexp.MustCompile(`(?m)^\s*(?:(?:private|fileprivate|internal|public)\s+)?(?:let|var)\s+(\w+)\s*(?::\s*String\s*)?=\s*"((?:[^"\\]|\\.)*)"`)
+	swiftInterpIdent      = regexp.MustCompile(`\\\(\s*(?:self\.)?(\w+)\s*\)`)
+)
+
+// stringProps maps each name a source assigns a string literal to, as a property
+// (`self.endpoint = "…"`) or a binding (`let endpoint = "…"`), to that literal, when
+// the source gives it one value only. A name assigned two different literals, two
+// types each with an endpoint of its own, is left out: which one a request reads is
+// not something a file-wide pass can tell.
+func stringProps(text string) map[string]string {
+	vals := map[string]map[string]bool{}
+	for _, re := range []*regexp.Regexp{swiftSelfStringAssign, swiftStringProp} {
+		for _, m := range re.FindAllStringSubmatch(text, -1) {
+			if vals[m[1]] == nil {
+				vals[m[1]] = map[string]bool{}
+			}
+			vals[m[1]][m[2]] = true
+		}
+	}
+	out := map[string]string{}
+	for name, vs := range vals {
+		if len(vs) != 1 {
+			continue
+		}
+		for v := range vs {
+			out[name] = v
+		}
+	}
+	return out
+}
+
+// substituteProps replaces each interpolation naming a single-valued property with
+// its literal, once: a literal interpolating another property keeps that as is.
+func substituteProps(raw string, props map[string]string) string {
+	if len(props) == 0 || !strings.Contains(raw, "\\(") {
+		return raw
+	}
+	return swiftInterpIdent.ReplaceAllStringFunc(raw, func(m string) string {
+		if v, ok := props[swiftInterpIdent.FindStringSubmatch(m)[1]]; ok {
+			return v
+		}
+		return m
+	})
 }
 
 // topLevelSubmatch is FindStringSubmatch restricted to matches at nesting depth 0.

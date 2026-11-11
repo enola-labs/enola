@@ -451,22 +451,52 @@ func goAPIHint(relFile string) string {
 // set does, and the linker discriminates on it. A composite-literal field named
 // Method carries the override in both the forms Go writes: a string literal, and
 // the net/http constants.
+//
+// The verb may also be an argument of its own, as a helper taking the method first
+// is called: `c.do(http.MethodPost, "/v1/orders", body)`, or `c.do("POST", …)`. And
+// the path may be built where it is passed, `"/v1/orders/" + id + "/items"`, read
+// as clientURLPath reads a URL.
 func pathLiteralArg(call *ast.CallExpr) (path, verb string, ok bool) {
 	verb = "GET"
 	for _, arg := range call.Args {
 		if lit, isLit := arg.(*ast.BasicLit); isLit && lit.Kind == token.STRING {
-			if candidate, err := strconv.Unquote(lit.Value); err == nil && isPathShaped(candidate) && path == "" {
+			candidate, err := strconv.Unquote(lit.Value)
+			if err != nil {
+				continue
+			}
+			if isPathShaped(candidate) && path == "" {
 				path = candidate
+			} else if v, isVerb := httpVerbs[strings.ToUpper(candidate)]; isVerb && candidate == strings.ToUpper(candidate) {
+				verb = v
 			}
 			continue
 		}
-		if composite, isComposite := arg.(*ast.CompositeLit); isComposite {
-			if m := methodFieldOf(composite); m != "" {
+		switch x := arg.(type) {
+		case *ast.CompositeLit:
+			if m := methodFieldOf(x); m != "" {
 				verb = m
+			}
+		case *ast.SelectorExpr:
+			// http.MethodPost and friends, passed on their own.
+			if pkg, isIdent := x.X.(*ast.Ident); isIdent && pkg.Name == "http" && strings.HasPrefix(x.Sel.Name, "Method") {
+				if v, isVerb := httpVerbs[strings.ToUpper(strings.TrimPrefix(x.Sel.Name, "Method"))]; isVerb {
+					verb = v
+				}
+			}
+		case *ast.BinaryExpr, *ast.CallExpr:
+			// A path built by concatenation or by fmt.Sprintf.
+			if p := clientURLPath(x); path == "" && isPathShaped(p) {
+				path = p
 			}
 		}
 	}
 	return path, verb, path != ""
+}
+
+// httpVerbs are the verbs a helper call may name.
+var httpVerbs = map[string]string{
+	"GET": "GET", "POST": "POST", "PUT": "PUT", "PATCH": "PATCH",
+	"DELETE": "DELETE", "HEAD": "HEAD", "OPTIONS": "OPTIONS",
 }
 
 // isPathShaped keeps the candidate list to strings that could name an endpoint.

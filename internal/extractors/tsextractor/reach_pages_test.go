@@ -359,3 +359,44 @@ func TestVerbClientLabel(t *testing.T) {
 		t.Errorf("typed client call labelled %q, want %q", got, verbClientFramework)
 	}
 }
+
+// A nested layout runs on every page beneath it, so a call only its provider makes
+// is on each of those pages, and on no page outside its directory.
+func TestClientPages_ACallOnlyALayoutReaches(t *testing.T) {
+	files := map[string]string{
+		"package.json": `{"dependencies": {"next": "14.0.0", "react": "18.2.0"}}`,
+		"src/app/layout.tsx": `
+export default function RootLayout({ children }) { return <html><body>{children}</body></html>; }
+`,
+		"src/app/shelves/layout.tsx": `
+import { ShelfProvider } from '@/features/shelves/provider';
+export default function ShelvesLayout({ children }) { return <ShelfProvider>{children}</ShelfProvider>; }
+`,
+		"src/app/shelves/page.tsx": `
+export default function ShelvesPage() { return <div />; }
+`,
+		"src/app/shelves/[id]/page.tsx": `
+export default function ShelfPage() { return <div />; }
+`,
+		"src/app/about/page.tsx": `
+export default function AboutPage() { return <div />; }
+`,
+		"src/features/shelves/provider.tsx": `
+import { useEffect } from 'react';
+export function ShelfProvider({ children }) {
+  useEffect(() => { fetch('/api/shelves/unread'); }, []);
+  return children;
+}
+`,
+	}
+	var got []string
+	for _, f := range extractTSRepo(t, files) {
+		if f.Kind == facts.KindRoute && f.PropAny(facts.PropRole) == facts.RoleClient && f.Name == "/api/shelves/unread" {
+			got, _ = f.PropAny(facts.PropClientPages).([]string)
+		}
+	}
+	want := []string{"src/app/shelves/[id]/page.tsx", "src/app/shelves/page.tsx"}
+	if !slices.Equal(got, want) {
+		t.Errorf("client_pages = %v, want the two pages beneath the layout", got)
+	}
+}

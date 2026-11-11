@@ -417,6 +417,27 @@ func extractHTTPClientFactsCounted(src []byte, relFile string) ([]facts.Fact, cl
 		add(raw, method, verbFramework(identifierEndingAt(src, m[0])), m[0], "template-tail")
 	}
 
+	// Pass 2d — a lowercase verb call on a client this file builds, with a path
+	// relative to the client's base URL: `gateway.post(\`orders/v1/carts/${id}\`)` on
+	// `const gateway = new GatewayClient()`. Pass 2b's "/"-rooted rule is what keeps
+	// map.get("a/b") out; here the receiver is the evidence instead, so only a call
+	// on a name bound to a client constructor or factory is read, and the path is
+	// rooted at the base it is relative to.
+	if clients := builtClients(src); len(clients) > 0 {
+		for _, m := range relativeVerbCall.FindAllSubmatchIndex(src, -1) {
+			recv := identifierEndingAt(src, m[0])
+			if !clients[recv] {
+				continue
+			}
+			raw, _ := lits.at(m, 2, 3, 4)
+			if !relativeRequestPath(raw) {
+				continue
+			}
+			method := strings.ToUpper(string(src[m[2]:m[3]]))
+			add("/"+raw, method, verbFramework(recv), m[0], "")
+		}
+	}
+
 	// Pass 3 — options-object clients: a `url:` property inside an object literal
 	// that also carries a request-descriptor key, with the verb from a sibling
 	// `type:`/`method:` (default GET). The scan is scoped to the enclosing object so
@@ -830,6 +851,65 @@ func cleanTSPath(raw string, bases map[string]string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// relativeVerbCall is lowerVerbCall with an argument that does not start with "/",
+// "$" or "." (an absolute URL fails relativeRequestPath on its colon-slash-slash).
+var relativeVerbCall = regexp.MustCompile("\\.(get|post|put|delete|patch)\\s*(?:<[^()]*>)?\\s*\\(\\s*(?:\"([A-Za-z0-9][^\"]*)\"|'([A-Za-z0-9][^']*)'|`([A-Za-z0-9][^`]*)`)")
+
+// clientBinding matches a name bound to a client built in the file: by a
+// constructor (`new GatewayClient()`) or a factory (`createOrdersClient()`).
+var clientBinding = regexp.MustCompile(`(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?::[^=;]+)?=\s*(?:await\s+)?(?:new\s+[A-Z][\w$]*Client|(?:get|create|make)[A-Z][\w$]*Client)\s*[(<]`)
+
+// builtClients returns the names the file binds to a client it builds.
+func builtClients(src []byte) map[string]bool {
+	if !bytes.Contains(src, []byte("Client")) {
+		return nil
+	}
+	var out map[string]bool
+	for _, m := range clientBinding.FindAllSubmatch(src, -1) {
+		if out == nil {
+			out = map[string]bool{}
+		}
+		out[string(m[1])] = true
+	}
+	return out
+}
+
+// mimeTypeHeads are the first segments of a media type, which is shaped like a
+// relative path and is not one.
+var mimeTypeHeads = map[string]bool{"application": true, "image": true, "text": true, "audio": true, "video": true, "multipart": true, "font": true, "model": true, "message": true}
+
+// relativeRequestPath reports whether a string with no leading slash is a request
+// path relative to a client's base URL: two or more segments, the first a literal
+// word, of path characters only (an interpolation or a query string aside), and
+// not a media type. A fragment of source or prose has a space, a quote, a
+// parenthesis or a comma, and a single word is as likely a key or a name as a path.
+func relativeRequestPath(raw string) bool {
+	p, ok := collapseInterpolations(raw)
+	if !ok {
+		return false
+	}
+	if i := strings.IndexByte(p, '?'); i >= 0 {
+		p = p[:i]
+	}
+	segs := strings.Split(p, "/")
+	if len(segs) < 2 || mimeTypeHeads[segs[0]] {
+		return false
+	}
+	head := segs[0]
+	if head == "" || head == "{}" || head[0] == '.' || strings.Contains(p, "//") {
+		return false // "//" is a scheme's or an empty segment
+	}
+	for _, r := range p {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+		case strings.ContainsRune("/-_.{}~:@", r):
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // tsAPIHint returns the source file's base name without extension (e.g.

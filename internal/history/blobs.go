@@ -54,6 +54,11 @@ const DefaultBlobKeep = 200
 type Contents struct {
 	// FactLines are the canonical lines of facts.jsonl.
 	FactLines []string
+	// FactsPath, when FactLines is nil, is the facts.jsonl to read them from. It is
+	// read only once the parent revision is rebuilt, so each line the two revisions share
+	// is held once, as the parent's string, rather than once per side: on a cluster of a
+	// million facts each side is a gigabyte, and nearly every line is in both.
+	FactsPath string
 	// InsightLines are the canonical insight lines (pkghistory.InsightLines).
 	InsightLines []string
 	// Receipt is this revision's provenance, stored per revision so a reconstructed pair
@@ -81,6 +86,14 @@ func writeBlob(root string, entries []pkghistory.Entry, e pkghistory.Entry, c Co
 	state, err := readBlobState(root, entries)
 	if err != nil {
 		return nil, err
+	}
+
+	if c.FactLines == nil && c.FactsPath != "" {
+		lines, err := readLinesSharing(c.FactsPath, state.factLines)
+		if err != nil {
+			return nil, fmt.Errorf("reading %s back: %w", c.FactsPath, err)
+		}
+		c.FactLines = lines
 	}
 
 	// Sort on the way in. A reconstruction always comes back sorted (Patch.Apply says so),

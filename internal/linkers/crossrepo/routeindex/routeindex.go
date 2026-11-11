@@ -428,6 +428,7 @@ func (m *Matcher) exactClientMatches(server map[string][]RouteRef, clientPath, m
 func (m *Matcher) suffixClientMatches(server map[string][]RouteRef, clientPath, method string, sameVersion bool) ([]RouteRef, string) {
 	at := func(suf, verb string) []RouteRef {
 		refs := m.sameResourceRefs(server[RouteKey(suf, verb)], clientPath, suf)
+		refs = m.mountOnlyRefs(refs, suf)
 		if !sameVersion {
 			return refs
 		}
@@ -474,6 +475,35 @@ func (m *Matcher) suffixClientMatches(server map[string][]RouteRef, clientPath, 
 		}
 	}
 	return nil, clientPath
+}
+
+// mountOnlyRefs prefers, among the refs one suffix reaches, those whose path adds
+// nothing before it but mount detail: a version, a routing word, an id. A client
+// calling "shelves/{}/books" reaches "/api/v2/shelves/{id}/books" and also
+// "/api/v2/admin/library/shelves/{id}/books", whose "admin" and "library" are
+// resources of their own that the call never named. When no ref is
+// mount-only, every ref is kept: the base the client did not write may be any of them.
+func (m *Matcher) mountOnlyRefs(refs []RouteRef, suf string) []RouteRef {
+	if len(refs) < 2 {
+		return refs
+	}
+	var mount []RouteRef
+	for _, ref := range refs {
+		only := true
+		for _, seg := range splitSegments(strings.TrimSuffix(ref.FullPath, suf)) {
+			if !isID(seg) && !m.isRoutingDetail(seg) {
+				only = false
+				break
+			}
+		}
+		if only {
+			mount = append(mount, ref)
+		}
+	}
+	if len(mount) == 0 || len(mount) == len(refs) {
+		return refs
+	}
+	return mount
 }
 
 // sameVersionRefs keeps the refs a client suffix may join: all of them, unless the
@@ -774,8 +804,8 @@ func CanonicalLeadingSlash(p string) string {
 // /activate could never resolve to the service serving POST /activate, and the
 // missed edge surfaced only as an unresolved coverage gap. The count is a proxy
 // for the real property (is this name so common that a match proves nothing?),
-// so test that property directly: a lone segment is generic when it is one of
-// the well-known infra/mount names above, not merely because it is alone.
+// so test that property directly: a path is generic when each of its segments is
+// one of the well-known infra/mount names above, not merely because it is short.
 //
 // A single-segment path that clears the vocabulary is still weaker evidence
 // than a multi-segment one, so linkHTTP additionally requires its match to be
@@ -799,10 +829,14 @@ func (m *Matcher) IsGenericPath(normPath string) bool {
 	if strings.Contains(normPath, "{}") {
 		return false
 	}
-	if len(segs) == 1 {
-		return m.v.GenericPathSegments[strings.ToLower(segs[0])]
+	// A path of generic names only is generic at any length: "/healthz/live" is
+	// the probe every service serves, as "/healthz" is.
+	for _, s := range segs {
+		if !m.v.GenericPathSegments[strings.ToLower(s)] {
+			return false
+		}
 	}
-	return false
+	return true
 }
 
 // SingleSegmentPath reports whether a normalized path has exactly one segment

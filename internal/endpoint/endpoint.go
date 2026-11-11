@@ -86,7 +86,15 @@ type Caller struct {
 	// Endpoints are the endpoints the calling service serves whose handlers reach
 	// one of Symbols: what stops working there when this endpoint changes.
 	Endpoints []CallerEndpoint `json:"endpoints,omitempty"`
+	// Calls are the followed routes the file calls ("POST /v1/orders"), when the
+	// analysis was given a way to tell (CallsOf): with a whole service followed,
+	// which of its endpoints each caller uses.
+	Calls []string `json:"calls,omitempty"`
 }
+
+// CallsOf returns, for the server routes followed, a function naming the ones one
+// client call reaches, each as "METHOD path".
+type CallsOf func(servers []facts.Fact) func(client facts.Fact) []string
 
 // CallerEndpoint is an endpoint a calling service serves whose handler reaches the
 // call. Precision is "call" or "interface", as impact reports it.
@@ -135,15 +143,16 @@ type CallerFinder func(servers []facts.Fact) []facts.Fact
 // can match hundreds and following all of them answers a different question.
 // findCallers answers who calls the followed routes; nil reports no callers.
 func Analyze(s *facts.Store, query string, maxRoutes int, findCallers CallerFinder) Impact {
-	return AnalyzeWith(s, query, maxRoutes, findCallers, nil)
+	return AnalyzeWith(s, query, maxRoutes, findCallers, nil, nil)
 }
 
 // AnalyzeWith is Analyze that also reports, for each caller, the endpoints of the
 // calling service that reach the call, through reach.
-func AnalyzeWith(s *facts.Store, query string, maxRoutes int, findCallers CallerFinder, reach EndpointReach) Impact {
-	if maxRoutes <= 0 {
-		maxRoutes = 25
-	}
+//
+// A query may name a repository, "repo:<label>", alone or before a path: every
+// route that repository serves is followed (up to maxRoutes, 100 by default), and
+// calls says which of them each caller uses.
+func AnalyzeWith(s *facts.Store, query string, maxRoutes int, findCallers CallerFinder, reach EndpointReach, calls CallsOf) Impact {
 	out := Impact{Query: query}
 	needle := strings.ToLower(strings.TrimSpace(query))
 	method := ""
@@ -151,6 +160,17 @@ func AnalyzeWith(s *facts.Store, query string, maxRoutes int, findCallers Caller
 		switch strings.ToUpper(verb) {
 		case "GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS":
 			method, needle = strings.ToUpper(verb), strings.TrimSpace(rest)
+		}
+	}
+	repo := ""
+	if rest, ok := strings.CutPrefix(needle, "repo:"); ok {
+		repo, needle, _ = strings.Cut(rest, " ")
+		needle = strings.TrimSpace(needle)
+	}
+	if maxRoutes <= 0 {
+		maxRoutes = 25
+		if repo != "" {
+			maxRoutes = 100
 		}
 	}
 	// A trailing * asks for every route containing the rest. Without it, a query that
@@ -172,6 +192,9 @@ func AnalyzeWith(s *facts.Store, query string, maxRoutes int, findCallers Caller
 		if isDouble, _ := fact.PropAny("test_double").(bool); isDouble {
 			continue
 		}
+		if repo != "" && !strings.EqualFold(fact.Repo, repo) {
+			continue
+		}
 		factMethod, _ := fact.PropAny("method").(string)
 		if method != "" && !strings.EqualFold(factMethod, method) {
 			continue
@@ -188,7 +211,7 @@ func AnalyzeWith(s *facts.Store, query string, maxRoutes int, findCallers Caller
 	// "/items" also names "/items-facets" and "/items/batched" by substring, and
 	// following those answered a question about three endpoints when one was asked.
 	broader := 0
-	if !prefix {
+	if !prefix && needle != "" {
 		exact := matched[:0:0]
 		for _, m := range matched {
 			if strings.EqualFold(m.route.Path, needle) {
@@ -228,7 +251,11 @@ func AnalyzeWith(s *facts.Store, query string, maxRoutes int, findCallers Caller
 	// because of a gap in the backend walk.
 	if findCallers != nil {
 		clients := findCallers(servers)
-		out.Callers = callersFrom(s, clients, reach)
+		var callsOf func(facts.Fact) []string
+		if calls != nil {
+			callsOf = calls(servers)
+		}
+		out.Callers = callersFrom(s, clients, reach, callsOf)
 		out.Screens = screensFrom(s, clients, servers)
 	}
 
@@ -423,7 +450,7 @@ func AnalyzeWith(s *facts.Store, query string, maxRoutes int, findCallers Caller
 // matching says. The screen comes from the Ember convention that app/routes/<name>
 // implements the route declared as <name>, checked against the router's own
 // declarations rather than assumed.
-func callersFrom(s *facts.Store, clients []facts.Fact, reach EndpointReach) []Caller {
+func callersFrom(s *facts.Store, clients []facts.Fact, reach EndpointReach, callsOf func(facts.Fact) []string) []Caller {
 	// Ember route NAMES are what the file layout mirrors, and they are not the
 	// URL: `this.route("admin-company-linking", { path: "/admin/company-linking" })`
 	// is served at one and implemented at app/routes/admin-company-linking.
@@ -455,20 +482,32 @@ func callersFrom(s *facts.Store, clients []facts.Fact, reach EndpointReach) []Ca
 		if caller == "" {
 			caller = enclosingSymbol(s, fact.File, fact.Line)
 		}
+		var called []string
+		if callsOf != nil {
+			called = callsOf(fact)
+		}
 		if i, ok := at[fact.File]; ok {
 			// One call in the file that runs is enough for the file to call it.
 			out[i].NeverRuns = out[i].NeverRuns && !runs
 			if caller != "" && !slices.Contains(out[i].Symbols, caller) {
 				out[i].Symbols = append(out[i].Symbols, caller)
 			}
+			for _, r := range called {
+				if !slices.Contains(out[i].Calls, r) {
+					out[i].Calls = append(out[i].Calls, r)
+				}
+			}
 			continue
 		}
 		at[fact.File] = len(out)
-		c := Caller{File: fact.File, Screen: screenFor(fact.File, screens), NeverRuns: !runs, Repo: fact.Repo}
+		c := Caller{File: fact.File, Screen: screenFor(fact.File, screens), NeverRuns: !runs, Repo: fact.Repo, Calls: called}
 		if caller != "" {
 			c.Symbols = []string{caller}
 		}
 		out = append(out, c)
+	}
+	for i := range out {
+		sort.Strings(out[i].Calls)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].File < out[j].File })
 	if reach != nil {
@@ -561,6 +600,29 @@ func summarize(out Impact, truncated bool) string {
 			}
 		}
 		fmt.Fprintf(&b, " Called from %d file(s)", len(out.Callers))
+		byRepo := map[string]int{}
+		for _, caller := range out.Callers {
+			if caller.Repo != "" {
+				byRepo[caller.Repo]++
+			}
+		}
+		if len(byRepo) > 1 {
+			repos := make([]string, 0, len(byRepo))
+			for r := range byRepo {
+				repos = append(repos, r)
+			}
+			sort.Slice(repos, func(i, j int) bool {
+				if byRepo[repos[i]] != byRepo[repos[j]] {
+					return byRepo[repos[i]] > byRepo[repos[j]]
+				}
+				return repos[i] < repos[j]
+			})
+			parts := make([]string, len(repos))
+			for i, r := range repos {
+				parts[i] = fmt.Sprintf("%s %d", r, byRepo[r])
+			}
+			fmt.Fprintf(&b, " in %d repositories (%s)", len(repos), strings.Join(parts, ", "))
+		}
 		if screens > 0 {
 			fmt.Fprintf(&b, ", %d of them a frontend screen", screens)
 		}

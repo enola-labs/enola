@@ -465,3 +465,29 @@ internal suspend fun OrdersViewModel.sync() {
 		}
 	}
 }
+
+// An interface in a public module and its implementation in another, in one package:
+// the implementation names the interface by its simple name, with no import, and the
+// implements edge reaches the interface's own declaration.
+func TestKotlinSupertypeInTheSamePackageOfAnotherModule(t *testing.T) {
+	const pub = "shelf/public/src/main/kotlin/com/acme/shelf/domain"
+	const impl = "shelf/impl/src/main/java/com/acme/shelf/domain"
+	ff := extractKotlinRepo(t, map[string]string{
+		pub + "/ShelfRepository.kt": `package com.acme.shelf.domain
+
+interface ShelfRepository {
+    suspend fun list(): List<String>
+}
+`,
+		impl + "/ShelfRepositoryImpl.kt": `package com.acme.shelf.domain
+
+class ShelfRepositoryImpl : ShelfRepository {
+    override suspend fun list(): List<String> = emptyList()
+}
+`,
+	})
+	repo := ktSym(t, ff, "ShelfRepositoryImpl")
+	if !repo.HasRelation(facts.RelImplements, pub+".ShelfRepository") {
+		t.Errorf("ShelfRepositoryImpl relations = %v, want implements %s.ShelfRepository", repo.Relations, pub)
+	}
+}

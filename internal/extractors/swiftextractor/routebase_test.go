@@ -316,3 +316,74 @@ func TestExtensionOverload_KeepsTheDeclaration(t *testing.T) {
 		t.Errorf("load calls another module's declaration; calls %v", got)
 	}
 }
+
+// A request built from a path property its type sets once reads the property's
+// literal: "\(endpoint)/details" in a type whose initializer sets endpoint to
+// "shelves/\(id)" is shelves/{}/details, not the thin "{}/details". A name given
+// two different literals in one file stays unresolved.
+func TestRouteBaseRequests_PathPropertySetOnce(t *testing.T) {
+	dir := t.TempDir()
+	files := map[string]string{
+		"Networking/Request.swift": routeBaseSrc,
+		"Shelf/Shelves.swift": `import Networking
+
+final class Shelves {
+    let endpoint: String
+
+    init(id: String) {
+        self.endpoint = "shelves/\(id)"
+    }
+}
+
+extension Shelves {
+    func details() -> Request<Details> {
+        Request(endpoint: "\(endpoint)/details")
+    }
+
+    func rename() -> Request<Empty> {
+        Request(endpoint: "\(self.endpoint)/name", method: .put)
+    }
+}
+`,
+		"Shelf/Two.swift": `import Networking
+
+final class Racks {
+    let endpoint = "racks"
+    func list() -> Request<Empty> { Request(endpoint: "\(endpoint)/all") }
+}
+
+final class Bins {
+    let endpoint = "bins"
+    func list() -> Request<Empty> { Request(endpoint: "\(endpoint)/all") }
+}
+`,
+	}
+	var rels []string
+	for rel, src := range files {
+		p := filepath.Join(dir, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		rels = append(rels, rel)
+	}
+	sort.Strings(rels)
+	bases := prescanSwift(dir, rels).requestBases
+	got := map[string]bool{}
+	for _, rel := range rels {
+		src, _ := os.ReadFile(filepath.Join(dir, rel))
+		for _, f := range routeBaseFacts(string(src), rel, filepath.Dir(rel), bases) {
+			got[f.PropString("method")+" "+f.Name] = true
+		}
+	}
+	for _, want := range []string{"GET shelves/{}/details", "PUT shelves/{}/name"} {
+		if !got[want] {
+			t.Errorf("missing %s; got %v", want, got)
+		}
+	}
+	if !got["GET {}/all"] || got["GET racks/all"] || got["GET bins/all"] {
+		t.Errorf("an endpoint two types set differently should stay unresolved; got %v", got)
+	}
+}
