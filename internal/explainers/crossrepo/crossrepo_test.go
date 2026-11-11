@@ -254,3 +254,70 @@ func TestExplain_SharedCodeVerifiedRaisesConfidence(t *testing.T) {
 		t.Errorf("verified insight must drop the name-only caveat: %q", got.Description)
 	}
 }
+
+// The shared-code insight names the shared types and cites where each repo declares
+// them, so the copies can be compared without searching for them. Where a repo
+// declares a name twice, the copy at the same path in the other repo is the one cited.
+func TestExplain_SharedCodeNamesTheTypesAndTheirFiles(t *testing.T) {
+	s := facts.NewStore()
+	s.Add(
+		facts.Fact{
+			Kind: facts.KindDependency, Name: "fork-a <-> fork-b", Repo: "fork-a",
+			Props: map[string]any{
+				"type": facts.TypeCrossRepoSharedCode, "synthetic": "crossrepo",
+				"via": []string{"shared_symbols"}, "repos": []string{"fork-a", "fork-b"},
+				"symbol_count": 3, "name_match_count": 5,
+				"symbol_samples": []any{"Ledger", "Shelf"},
+			},
+		},
+		facts.Fact{Kind: facts.KindSymbol, Name: "example.com/fork-a/internal/shelf.Shelf", Repo: "fork-a",
+			File: "fork-a/internal/shelf/shelf.go", Line: 7, Props: map[string]any{"symbol_kind": facts.SymbolStruct}},
+		facts.Fact{Kind: facts.KindSymbol, Name: "example.com/fork-b/internal/admin.Shelf", Repo: "fork-b",
+			File: "fork-b/internal/admin/admin.go", Line: 3, Props: map[string]any{"symbol_kind": facts.SymbolStruct}},
+		facts.Fact{Kind: facts.KindSymbol, Name: "example.com/fork-b/internal/shelf.Shelf", Repo: "fork-b",
+			File: "fork-b/internal/shelf/shelf.go", Line: 9, Props: map[string]any{"symbol_kind": facts.SymbolStruct}},
+		facts.Fact{Kind: facts.KindSymbol, Name: "example.com/fork-a/internal/ledger.Ledger", Repo: "fork-a",
+			File: "fork-a/internal/ledger/ledger.go", Line: 4, Props: map[string]any{"symbol_kind": facts.SymbolInterface}},
+		facts.Fact{Kind: facts.KindSymbol, Name: "example.com/fork-b/internal/books.Ledger", Repo: "fork-b",
+			File: "fork-b/internal/books/ledger.go", Line: 12, Props: map[string]any{"symbol_kind": facts.SymbolInterface}},
+		// A function of a shared name is not a type and is not cited.
+		facts.Fact{Kind: facts.KindSymbol, Name: "example.com/fork-a/internal/shelf.Ledger", Repo: "fork-a",
+			File: "fork-a/internal/shelf/ledger.go", Line: 1, Props: map[string]any{"symbol_kind": facts.SymbolFunc}},
+	)
+
+	insights, err := New().Explain(context.Background(), s)
+	if err != nil {
+		t.Fatalf("Explain error: %v", err)
+	}
+	if len(insights) != 1 {
+		t.Fatalf("insights = %d, want 1", len(insights))
+	}
+	got := insights[0]
+	if !strings.Contains(got.Description, "3 of 5 shared type name(s) backed by near-identical files: Ledger, Shelf and 1 more") {
+		t.Errorf("description should name the shared types: %q", got.Description)
+	}
+	want := map[string]facts.Evidence{
+		"example.com/fork-a/internal/ledger.Ledger": {File: "fork-a/internal/ledger/ledger.go", Line: 4,
+			Detail: "fork-b also declares Ledger at fork-b/internal/books/ledger.go:12"},
+		"example.com/fork-a/internal/shelf.Shelf": {File: "fork-a/internal/shelf/shelf.go", Line: 7,
+			Detail: "fork-b also declares Shelf at fork-b/internal/shelf/shelf.go:9"},
+	}
+	cited := 0
+	for _, ev := range got.Evidence {
+		if ev.Symbol == "" {
+			continue
+		}
+		cited++
+		w, ok := want[ev.Symbol]
+		if !ok {
+			t.Errorf("unexpected evidence %+v", ev)
+			continue
+		}
+		if ev.File != w.File || ev.Line != w.Line || ev.Detail != w.Detail {
+			t.Errorf("evidence for %s = %s:%d %q, want %s:%d %q", ev.Symbol, ev.File, ev.Line, ev.Detail, w.File, w.Line, w.Detail)
+		}
+	}
+	if cited != len(want) {
+		t.Errorf("cited %d types, want %d: %+v", cited, len(want), got.Evidence)
+	}
+}
