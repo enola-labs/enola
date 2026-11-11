@@ -221,3 +221,22 @@ func thisMethodCall(kinds *tsutil.KindTable, call *sitter.Node, src []byte) stri
 	}
 	return nodeText(prop, src)
 }
+
+// classMethodNames returns the names of the methods, getters and setters a class
+// body declares.
+func classMethodNames(kinds *tsutil.KindTable, classBody *sitter.Node, src []byte) map[string]bool {
+	out := map[string]bool{}
+	if classBody == nil {
+		return out
+	}
+	for i := range classBody.ChildCount() {
+		member := classBody.Child(i)
+		if kindOf(kinds, member) != "method_definition" {
+			continue
+		}
+		if n := member.ChildByFieldName("name"); n != nil {
+			out[nodeText(n, src)] = true
+		}
+	}
+	return out
+}

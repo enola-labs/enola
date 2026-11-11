@@ -184,6 +184,11 @@ func (w *phpWalker) recordReceiverCall(call *sitter.Node, ownerIdx int, method s
 	}
 	typ := w.receiverOf(call.ChildByFieldName("object"), w.localTypes)
 	if typ == "" {
+		if prop := thisProperty(call.ChildByFieldName("object"), w.src); prop != "" && len(w.typeStack) > 0 {
+			// A property a parent class may type, in another file: the
+			// inherited-calls binder reads it there (facts.PropMemberCalls).
+			w.out[ownerIdx].AddPropStrings(facts.PropMemberCalls, prop+"."+method)
+		}
 		return
 	}
 	target := typ + "::" + method
@@ -268,6 +273,10 @@ func bindReceiverCalls(allFacts []facts.Fact) {
 			call = typ + call[sep:]
 			sep = len(typ)
 			targets := ix.callTargets(call[:sep], call[sep+2:])
+			if len(targets) == 1 && targets[0] != call && ix.hasClass(call[:sep]) {
+				// Inherited: keep the class it was called on (PropInheritedCalls).
+				f.AddInheritedCalls(call)
+			}
 			// A model calling a framework method on itself says nothing new.
 			if len(targets) == 0 && !strings.HasPrefix(f.Name, call[:sep]+"::") && isModel(call[:sep]) {
 				targets = []string{call}

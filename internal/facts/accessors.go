@@ -1,6 +1,9 @@
 package facts
 
-import "strings"
+import (
+	"sort"
+	"strings"
+)
 
 // Small read/copy helpers on Fact. They exist because the same four operations were
 // being redeclared as unexported functions in every package that post-processes an
@@ -204,6 +207,58 @@ func (in Insight) MetricStringMap(key string) map[string]string {
 		for k, e := range v {
 			if s, ok := e.(string); ok {
 				out[k] = s
+			}
+		}
+		return out
+	}
+	return nil
+}
+
+// AddInheritedCalls records calls made through a subtype to a member it inherits,
+// spelled through the subtype (see PropInheritedCalls).
+func (f *Fact) AddInheritedCalls(spelled ...string) { f.AddPropStrings(PropInheritedCalls, spelled...) }
+
+// AddPropStrings adds strings to a prop holding a sorted list without repeats. The
+// list reads back from JSON as []any, which it accepts too.
+func (f *Fact) AddPropStrings(key string, vals ...string) {
+	if len(vals) == 0 {
+		return
+	}
+	set := map[string]bool{}
+	switch p := f.PropAny(key).(type) {
+	case []string:
+		for _, s := range p {
+			set[s] = true
+		}
+	case []any:
+		for _, s := range p {
+			if str, ok := s.(string); ok {
+				set[str] = true
+			}
+		}
+	}
+	for _, s := range vals {
+		set[s] = true
+	}
+	out := make([]string, 0, len(set))
+	for s := range set {
+		out = append(out, s)
+	}
+	sort.Strings(out)
+	f.SetProp(key, out)
+}
+
+// PropStrings reads a prop holding a list of strings, as written ([]string) or as
+// read back from JSON ([]any).
+func (f Fact) PropStrings(key string) []string {
+	switch p := f.PropAny(key).(type) {
+	case []string:
+		return p
+	case []any:
+		out := make([]string, 0, len(p))
+		for _, s := range p {
+			if str, ok := s.(string); ok {
+				out = append(out, str)
 			}
 		}
 		return out

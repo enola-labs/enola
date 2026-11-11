@@ -19,6 +19,7 @@ import (
 	"strings"
 
 	"github.com/enola-labs/enola/internal/facts"
+	"github.com/enola-labs/enola/internal/hierarchy"
 )
 
 // Mechanisms an entry is reached through, beside the framework-roots ones
@@ -156,8 +157,19 @@ type Analysis struct {
 	nodes []node
 	index map[[2]string]int32
 	opts  Options
-	// ifaces is built the first time the walk reaches an interface method.
-	ifaces *dispatchIndex
+	// tree is the type tree, built the first time the walk reaches a method that
+	// dispatches or a class it enters through its members.
+	tree *hierarchy.Index
+	// selves interns the walk's self types (selfID); succ keeps each symbol's
+	// successors per self type (successors).
+	selves  []string
+	selfIDs map[string]int32
+	succ    map[step][]step
+	// mark, contexts, reached and epoch are walkFrom's working state.
+	mark     []uint32
+	contexts []uint8
+	reached  []int32
+	epoch    uint32
 	// imports is built the first time a call does not resolve: per repository and
 	// file, the packages it imports from outside the repository.
 	imports map[string][]string
@@ -180,6 +192,13 @@ type node struct {
 	unresolved int
 	external   int
 	io         bool
+	// owner is the type the symbol is a member of, or "" for a function. It is the
+	// self type the walk carries into the symbol when nothing more precise is known.
+	owner   string
+	ownerID int32
+	// members are the node's calls to a member of a type, resolved or not, which a
+	// walk carrying a self type may send to an override (see dispatch.go).
+	members []memberCall
 	// pending holds the node's facts until it is expanded.
 	pending  []facts.Fact
 	expanded bool
@@ -401,7 +420,8 @@ func (a *Analysis) nodeFor(repo, name string) (int32, bool) {
 	}
 	id := int32(len(a.nodes))
 	a.index[[2]string{repo, name}] = id
-	a.nodes = append(a.nodes, node{fact: first, module: moduleOf(first), pending: own})
+	owner := a.ownerType(first)
+	a.nodes = append(a.nodes, node{fact: first, module: moduleOf(first), pending: own, owner: owner, ownerID: a.selfID(owner)})
 	return id, true
 }
 
@@ -413,11 +433,13 @@ func (a *Analysis) expand(id int32) {
 	pending := a.nodes[id].pending
 	a.nodes[id].pending, a.nodes[id].expanded = nil, true
 	var callees []int32
+	var members []memberCall
 	unresolved, external, io := 0, 0, false
 	for _, f := range pending {
 		if f.PropBool("performs_io") {
 			io = true
 		}
+		through := a.inheritedThrough(f)
 		for _, rel := range f.Relations {
 			instantiates := rel.Kind == facts.RelInstantiates
 			if rel.Kind != facts.RelCalls && !instantiates {
@@ -425,6 +447,9 @@ func (a *Analysis) expand(id int32) {
 			}
 			// nodeFor may grow a.nodes, so nothing holds a pointer into it here.
 			target, ok := a.nodeFor(f.Repo, rel.Target)
+			if !instantiates {
+				members = a.addMemberCall(members, f.Repo, rel.Target, target, ok, through)
+			}
 			if instantiates {
 				// A constructed Flutter widget is put on screen; any other
 				// construction is not a call the walk follows.
@@ -460,6 +485,7 @@ func (a *Analysis) expand(id int32) {
 	sort.Slice(callees, func(i, j int) bool { return a.less(callees[i], callees[j]) })
 	n := &a.nodes[id]
 	n.callees, n.unresolved, n.external, n.io = callees, unresolved, external, io
+	n.members = members
 }
 
 // findRoots collects the entries: a served route's handler, a symbol a
@@ -582,41 +608,92 @@ func (a *Analysis) eligible(id int32) bool {
 // reached (sorted, the start included), the deepest hop, and whether it stopped
 // at the reach bound. Symbols in blocked are neither entered nor counted.
 func (a *Analysis) walk(start int32, blocked map[int32]bool) ([]int32, int, bool) {
-	seen := map[int32]int{start: 0}
-	queue := []int32{start}
+	reach, deepest, truncated, _ := a.walkFrom(step{start, a.nodes[start].ownerID}, blocked, false)
+	return reach, deepest, truncated
+}
+
+// walkFrom is walk from a symbol run in a self type, and with taken set it also
+// returns the calls the walk followed, per symbol: which callees it went on to,
+// each in the self type it went on in.
+//
+// The walk carries a self type, the type whose object the code it is in runs on
+// (see dispatch.go), so one symbol can be walked once per type it is reached
+// through. Reach counts symbols, not those visits.
+func (a *Analysis) walkFrom(first step, blocked map[int32]bool, taken bool) ([]int32, int, bool, map[int32][]step) {
+	type visit = step
+	// Per symbol, reused across walks: whether this walk reached it, and in how
+	// many self types. A walk is a fresh epoch, so nothing is cleared between them.
+	a.epoch++
+	seen := func(id int32) bool {
+		a.growMarks()
+		return a.mark[id] == a.epoch
+	}
+	enter := func(id int32) {
+		if a.mark[id] != a.epoch {
+			a.mark[id], a.contexts[id] = a.epoch, 0
+			a.reached = append(a.reached, id)
+		}
+		a.contexts[id]++
+	}
+	a.reached = a.reached[:0]
+	depthOf := map[visit]int{first: 0}
+	seen(first.id)
+	enter(first.id)
+	var followed map[int32][]step
+	if taken {
+		followed = map[int32][]step{}
+	}
+	queue := []visit{first}
 	deepest, truncated := 0, false
-	for len(queue) > 0 {
-		id := queue[0]
+	for len(queue) > 0 && !truncated {
+		v := queue[0]
 		queue = queue[1:]
-		depth := seen[id]
+		depth := depthOf[v]
 		if depth >= a.opts.MaxDepth {
 			continue
 		}
-		a.expand(id)
-		for _, callee := range a.nodes[id].callees {
-			if _, ok := seen[callee]; ok || blocked[callee] {
+		for _, next := range a.successors(v.id, v.self) {
+			callee, self := next.id, next.self
+			if blocked[callee] {
 				continue
 			}
-			if len(seen) >= a.opts.MaxReach {
+			// Past maxContexts self types a symbol is walked without one, so a
+			// symbol every type in a deep tree reaches is not walked once per type.
+			nv := visit{callee, self}
+			known := seen(callee)
+			if _, ok := depthOf[nv]; !ok && known && a.contexts[callee] >= maxContexts {
+				nv.self = 0
+			}
+			if taken {
+				followed[v.id] = appendStep(followed[v.id], nv)
+			}
+			if _, ok := depthOf[nv]; ok {
+				continue
+			}
+			if !known && len(a.reached) >= a.opts.MaxReach {
 				truncated = true
 				break
 			}
-			seen[callee] = depth + 1
+			enter(callee)
+			depthOf[nv] = depth + 1
 			if depth+1 > deepest {
 				deepest = depth + 1
 			}
-			queue = append(queue, callee)
-		}
-		if truncated {
-			break
+			queue = append(queue, nv)
 		}
 	}
-	reach := make([]int32, 0, len(seen))
-	for id := range seen {
-		reach = append(reach, id)
+	reach := slices.Clone(a.reached)
+	slices.Sort(reach)
+	return reach, deepest, truncated, followed
+}
+
+// growMarks keeps the walk's per-symbol arrays as long as the node list, which
+// grows as the walk names symbols.
+func (a *Analysis) growMarks() {
+	if n := len(a.nodes); len(a.mark) < n {
+		a.mark = append(a.mark, make([]uint32, n-len(a.mark))...)
+		a.contexts = append(a.contexts, make([]uint8, n-len(a.contexts))...)
 	}
-	sort.Slice(reach, func(i, j int) bool { return reach[i] < reach[j] })
-	return reach, deepest, truncated
 }
 
 func (a *Analysis) newFlow(id int32, r *root, reach []int32, depth int, truncated bool) Flow {

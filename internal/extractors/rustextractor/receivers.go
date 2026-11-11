@@ -515,23 +515,27 @@ func resolveTypedCalls(all []facts.Fact) {
 			}
 		}
 	}
-	// method finds what a type's method of that name is: its own, or a default
-	// of a trait it implements.
-	method := func(types []string, name string) string {
+	// methodOf finds what a type's method of that name is: its own, or a default
+	// of a trait it implements, and, for a default, the type it was called on.
+	methodOf := func(types []string, name string) (string, string) {
 		for _, t := range types {
 			if t == "" {
 				continue
 			}
 			if exists[t+"."+name] {
-				return t + "." + name
+				return t + "." + name, ""
 			}
 			for _, tr := range traits[t] {
 				if exists[tr+"."+name] {
-					return tr + "." + name
+					return tr + "." + name, t
 				}
 			}
 		}
-		return ""
+		return "", ""
+	}
+	method := func(types []string, name string) string {
+		m, _ := methodOf(types, name)
+		return m
 	}
 	// function is the free function a marked name declares: in the directory named,
 	// or, by a file module, the one above it.
@@ -594,9 +598,14 @@ func resolveTypedCalls(all []facts.Fact) {
 		f.DelProp(propTypedCalls)
 		rename := make(map[string]string)
 		for _, n := range notes {
-			target := method(eval(n.recv), n.method)
+			target, through := methodOf(eval(n.recv), n.method)
 			if target == "" {
 				continue
+			}
+			if through != "" {
+				// A trait default run on this type: what its self-calls reach is
+				// this type's own methods (PropInheritedCalls).
+				f.AddInheritedCalls(through + "." + n.method)
 			}
 			// Replace one bare edge the walker wrote for this call.
 			for j := range f.Relations {

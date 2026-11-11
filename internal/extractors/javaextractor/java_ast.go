@@ -1,6 +1,7 @@
 package javaextractor
 
 import (
+	"maps"
 	"strings"
 
 	"github.com/enola-labs/enola/internal/extractors/tsutil"
@@ -760,7 +761,13 @@ func (w *astWalker) handleClassLike(node *sitter.Node, kind string) {
 	// Enter the type scope.
 	body := classBody(node)
 	w.typeStack = append(w.typeStack, name)
-	w.fieldTypes = append(w.fieldTypes, w.collectFieldTypes(body))
+	fieldTypes := w.collectFieldTypes(body)
+	w.fieldTypes = append(w.fieldTypes, fieldTypes)
+	if len(fieldTypes) > 0 {
+		// For subclasses in other files, which call through these fields
+		// (facts.PropFieldTypes, read by the inherited-calls binder).
+		w.out[owner].SetProp(facts.PropFieldTypes, maps.Clone(fieldTypes))
+	}
 	w.methodStack = append(w.methodStack, collectMethodNames(body, w.src))
 	w.routeStack = append(w.routeStack, routeScope{
 		isController:  isSpringController(annotations),
@@ -1306,7 +1313,13 @@ func (w *astWalker) handleInvocation(node *sitter.Node) {
 	}
 	// A receiver whose type is declared: receivers.go.
 	recvText := nodeText(obj, w.src)
-	w.noteTypedCall(writtenCall(recvText, name), w.receiverType(obj), name)
+	recvType := w.receiverType(obj)
+	w.noteTypedCall(writtenCall(recvText, name), recvType, name)
+	if field := w.untypedField(obj); recvType == "" && field != "" {
+		// A field a superclass may declare, in another file: the inherited-calls
+		// binder reads its type there (facts.PropMemberCalls).
+		w.out[owner].AddPropStrings(facts.PropMemberCalls, field+"."+name)
+	}
 	if w.metrics != nil && w.loopDepth > 0 && !javaCheapMethods[name] {
 		// Method call on a non-this receiver inside a loop (repo.findById(), …). Its
 		// text feeds the perf metric so the performance analyzer can flag

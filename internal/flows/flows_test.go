@@ -2,6 +2,7 @@ package flows
 
 import (
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -585,6 +586,115 @@ func TestAnalyze_CallThroughAnAbstractBaseReachesItsSubclass(t *testing.T) {
 	}
 	if got, _ := a.Through("db.Lru.get"); got != nil {
 		t.Errorf("a concrete method is not followed into an override: through db.Lru.get = %v", got)
+	}
+}
+
+// The base is found however the extractor wrote it, and so is the method: a base
+// named only in a superclass prop, a PHP or C++ `::` member, and an override that
+// sits a level below a subclass that does not declare the method.
+func TestAnalyze_DispatchReadsTheTypeTreeHoweverItIsSpelled(t *testing.T) {
+	abstract := func(f facts.Fact) facts.Fact { f.Props["abstract"] = true; return f }
+	ts := typ("src.Concrete", "src/concrete.ts", facts.SymbolClass)
+	ts.Props["superclass"] = "Base"
+	ff := []facts.Fact{
+		sym("cmd.main", "cmd/main.ts", "src.Base.run", `App\Job::handle`),
+		abstract(typ("src.Base", "src/base.ts", facts.SymbolClass)),
+		method("src.Base.run", "src/base.ts"),
+		ts,
+		method("src.Concrete.run", "src/concrete.ts"),
+		abstract(typ(`App\Job`, "app/Job.php", facts.SymbolClass)),
+		method(`App\Job::handle`, "app/Job.php"),
+		typ(`App\Mid`, "app/Mid.php", facts.SymbolClass, `App\Job`),
+		typ(`App\Mail`, "app/Mail.php", facts.SymbolClass, `App\Mid`),
+		method(`App\Mail::handle`, "app/Mail.php"),
+	}
+	a := analyze(ff...)
+	for _, want := range []string{"src.Concrete.run", `App\Mail::handle`} {
+		if got, _ := a.Through(want); len(got) != 1 {
+			t.Errorf("%s is reached through its abstract base: through = %v", want, got)
+		}
+	}
+}
+
+// A template: Base.run calls self.step(), which Concrete and Other override. Entered
+// in a Concrete, the walk runs Concrete's step, whether the step on Base has a body,
+// is abstract, or has no symbol at all; Other's never runs.
+func template(step facts.Fact, extra ...facts.Fact) []facts.Fact {
+	return append([]facts.Fact{
+		typ("lib.Base", "lib/base.py", facts.SymbolClass),
+		method("lib.Base.run", "lib/base.py", "lib.Base.step"),
+		step,
+		typ("app.Concrete", "app/concrete.py", facts.SymbolClass, "lib.Base"),
+		method("app.Concrete.step", "app/concrete.py", "app.Repo.save"),
+		method("app.Repo.save", "app/repo.py"),
+		typ("app.Other", "app/other.py", facts.SymbolClass, "lib.Base"),
+		method("app.Other.step", "app/other.py", "app.Audit.log"),
+		method("app.Audit.log", "app/audit.py"),
+	}, extra...)
+}
+
+func TestAnalyze_ASelfCallInABaseRunsTheOverrideOfTheTypeItCameThrough(t *testing.T) {
+	abstract := method("lib.Base.step", "lib/base.py")
+	abstract.Props["abstract"] = true
+	for label, step := range map[string]facts.Fact{
+		"concrete": method("lib.Base.step", "lib/base.py", "lib.Base.log"),
+		"abstract": abstract,
+		"no body":  sym("lib.unrelated", "lib/unrelated.py"),
+	} {
+		t.Run(label, func(t *testing.T) {
+			ff := template(step,
+				route("POST", "/run", "app.Concrete.handle"),
+				method("app.Concrete.handle", "app/concrete.py", "lib.Base.run"))
+			a := analyze(ff...)
+			if got, _ := a.Through("app.Repo.save"); len(got) != 1 {
+				t.Errorf("Concrete's override runs: through Repo.save = %v", got)
+			}
+			if got, _ := a.Through("app.Audit.log"); got != nil {
+				t.Errorf("Other's override does not: through Audit.log = %v", got)
+			}
+			if got, _ := a.Through("lib.Base.log"); got != nil {
+				t.Errorf("the overridden base step does not run: through Base.log = %v", got)
+			}
+		})
+	}
+}
+
+// A function holds no object, so the self type comes from the call: a call the
+// extractor spelled through Concrete and the inherited-calls binder resolved to
+// Base.run still runs in a Concrete. The flow's stages name the override.
+func TestAnalyze_AnInheritedCallKeepsTheTypeItWasSpelledThrough(t *testing.T) {
+	main := sym("app.main", "app/main.py", "lib.Base.run")
+	main.Props[facts.PropInheritedCalls] = []any{"app.Concrete.run"}
+	a := analyze(template(method("lib.Base.step", "lib/base.py"), main)...)
+	if len(a.Flows) != 1 {
+		t.Fatalf("flows = %v", names(a))
+	}
+	if got, _ := a.Through("app.Repo.save"); len(got) != 1 {
+		t.Errorf("through Repo.save = %v", got)
+	}
+	if got, _ := a.Through("app.Audit.log"); got != nil {
+		t.Errorf("through Audit.log = %v", got)
+	}
+	a.Describe(1)
+	if got := stageNames(a.Flows[0]); !slices.ContainsFunc(got, func(s string) bool { return strings.TrimSpace(s) == "app.Concrete.step" }) {
+		t.Errorf("stages = %v, want Concrete's step among them", got)
+	}
+}
+
+// Called on no particular object, a concrete base method runs as declared: the walk
+// does not guess a subclass.
+func TestAnalyze_WithNoSelfTypeAConcreteBaseMethodRunsAsDeclared(t *testing.T) {
+	ff := template(method("lib.Base.step", "lib/base.py", "lib.Base.log"),
+		method("lib.Base.log", "lib/base.py"),
+		sym("app.main", "app/main.py", "lib.Base.run"))
+	a := analyze(ff...)
+	if got, _ := a.Through("lib.Base.log"); len(got) != 1 {
+		t.Errorf("through Base.log = %v", got)
+	}
+	for _, other := range []string{"app.Repo.save", "app.Audit.log"} {
+		if got, _ := a.Through(other); got != nil {
+			t.Errorf("through %s = %v", other, got)
+		}
 	}
 }
 

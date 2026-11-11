@@ -428,6 +428,10 @@ func resolveTypedCalls(allFacts []facts.Fact, ix *handlerIndex) {
 			if fn == "" {
 				continue
 			}
+			if own := class + "#" + typed[at+1:]; fn != own {
+				// Inherited: keep the class it was called on (PropInheritedCalls).
+				f.AddInheritedCalls(own)
+			}
 			f.Relations = replaceCall(f.Relations, fallback, fn)
 		}
 	}

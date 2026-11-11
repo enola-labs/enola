@@ -4,6 +4,7 @@ import (
 	"go/ast"
 	"go/token"
 	"go/types"
+	"sort"
 	"strings"
 )
 
@@ -404,6 +405,62 @@ func exprType(expr ast.Expr, ctx resolveCtx) string {
 		}
 	}
 	return ""
+}
+
+// promoteEmbeddedFields gives a struct the fields of the structs it embeds, as Go
+// does: `c.helper.Work()` on a Concrete that embeds Base reads Base's helper. The
+// nearest embedding wins and a struct's own field shadows any it would promote; at
+// one depth, two embedded structs with a field of that name make it ambiguous, as
+// the compiler says, and neither is promoted.
+func promoteEmbeddedFields(fieldTypes map[string]string, embeds map[string][]string) {
+	fields := make(map[string][]string) // type -> its own field names
+	for k := range fieldTypes {
+		if dot := strings.LastIndexByte(k, '.'); dot > 0 {
+			fields[k[:dot]] = append(fields[k[:dot]], k[dot+1:])
+		}
+	}
+	types := make([]string, 0, len(embeds))
+	for t := range embeds {
+		types = append(types, t)
+	}
+	sort.Strings(types)
+	add := make(map[string]string)
+	for _, t := range types {
+		seen := map[string]bool{t: true}
+		decided := map[string]bool{} // a field found at a shallower depth, promoted or ambiguous
+		level := embeds[t]
+		for depth := 0; len(level) > 0 && depth < 8; depth++ {
+			found := map[string]string{}
+			ambiguous := map[string]bool{}
+			var next []string
+			for _, e := range level {
+				if seen[e] {
+					continue
+				}
+				seen[e] = true
+				for _, f := range fields[e] {
+					if prev, ok := found[f]; ok && prev != fieldTypes[e+"."+f] {
+						ambiguous[f] = true
+					}
+					found[f] = fieldTypes[e+"."+f]
+				}
+				next = append(next, embeds[e]...)
+			}
+			for f, ft := range found {
+				k := t + "." + f
+				if _, own := fieldTypes[k]; own || ambiguous[f] || decided[f] {
+					decided[f] = true
+					continue
+				}
+				decided[f] = true
+				add[k] = ft
+			}
+			level = next
+		}
+	}
+	for k, v := range add {
+		fieldTypes[k] = v
+	}
 }
 
 // fieldType is the qualified type of field name on owner. The field table keeps

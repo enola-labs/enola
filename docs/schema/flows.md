@@ -125,6 +125,29 @@ A flow is a floor, not a measurement. The walk follows `calls` relations that
 resolve to a symbol and stops where one does not, so `reach` undercounts by
 whatever sits behind `unresolved_calls`.
 
+### What the walk follows through types
+
+The walk follows `calls` relations, and three kinds of call need the type tree
+(a type's `implements` relations and `superclass` prop) to say where they go:
+
+- **An inherited member.** `c.run()` on a `Concrete` whose `run` is declared on
+  `Base` names `Base.run` in the facts (see `inherited_calls` in
+  [facts.md](facts.md)), and the walk goes there.
+- **A call on the same object.** Inside a member of a type, a call to another
+  member of that type or of one of its bases (`self.step()`, `this.step()`, or a
+  bare `step()`) runs on the object the walk came in with. The walk carries that
+  object's type: the type of the member it entered, or the subtype an inherited
+  call was spelled through. It goes to the declaration the member name reaches
+  from that type, which is the override when the type has one, whether the base's
+  own declaration has a body, is abstract, or has no symbol. Another subclass's
+  override is not followed.
+- **An abstract method called on no particular object.** It goes on into the
+  topmost overriders below its type, when there are one to three of them. Past
+  three the method is an extension point and the walk stops there.
+
+One symbol may be walked in up to four object types; past that it is walked once
+more with none. `reach` counts symbols, not those visits.
+
 ### What unresolved_calls counts
 
 Every call inside the flow whose target names no symbol in the snapshot. That is

@@ -1,6 +1,7 @@
 package swiftextractor
 
 import (
+	"path"
 	"strings"
 	"unicode"
 
@@ -588,7 +589,14 @@ func (w *astWalker) walkFileScopeCalls(root *sitter.Node) {
 		return
 	}
 
-	w.pushOwner(w.ensureFileRefFact())
+	var owner int
+	if path.Base(w.relFile) == "main.swift" {
+		owner = w.ensureTopLevelMain(root)
+	} else {
+		owner = w.ensureFileRefFact()
+	}
+	savedLocals := w.localTypes
+	w.pushOwner(owner)
 	for i := uint(0); i < uint(root.ChildCount()); i++ {
 		child := root.Child(i)
 		if fileScopeDecls[kindOf(child)] {
@@ -597,12 +605,35 @@ func (w *astWalker) walkFileScopeCalls(root *sitter.Node) {
 		w.walkForCalls(child)
 	}
 	w.popOwner()
+	w.localTypes = savedLocals
+	if w.fileRefIdx < 0 {
+		return
+	}
 
 	// Drop the file-ref fact if none of the statements produced a call edge.
 	if w.fileRefIdx >= 0 && len(w.out[w.fileRefIdx].Relations) == 0 {
 		w.out = append(w.out[:w.fileRefIdx], w.out[w.fileRefIdx+1:]...)
 		w.fileRefIdx = -1
 	}
+}
+
+// ensureTopLevelMain adds the function a main.swift's top-level statements are: Swift
+// runs them as the program's entry point, so their calls belong to a main the flows
+// start from (`Sources/App.main`), not to the file.
+func (w *astWalker) ensureTopLevelMain(root *sitter.Node) int {
+	w.out = append(w.out, facts.Fact{
+		Kind:    facts.KindSymbol,
+		Name:    w.dir + ".main",
+		File:    w.relFile,
+		Line:    1,
+		EndLine: tsutil.EndLine(root),
+		Props: map[string]any{
+			"symbol_kind": facts.SymbolFunc,
+			"language":    "swift",
+		},
+		Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: w.dir}},
+	})
+	return len(w.out) - 1
 }
 
 // ensureFileRefFact returns the index of this file's lazily-created file-scope

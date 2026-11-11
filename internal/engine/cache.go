@@ -3485,7 +3485,27 @@ import (
 // HandleFunc too) is a route of that method on the path, the host and "{$}" dropped.
 // v554: Go: an embedded type's implements edge names the type as every other type
 // reference does (its package's import path), not as the source spells it.
-const cacheVersion = "v554"
+// v555: Calls through inheritance: Java, Kotlin, C#, PHP, Ruby, Swift, Rust and C++
+// record the subtype an inherited call went through (inherited_calls); Rust names the
+// trait an impl is for as declared and resolves its default methods; C++ looks a
+// receiver call up through the class's bases; Kotlin and C# resolve an inherited bare
+// or this-call; Python, Scala, Dart and C++ leave the self-calls their file cannot
+// place to the inherited-calls binder (member_calls).
+// v556: Calls through attributes: Python, TypeScript, Java, Kotlin, C#, PHP, Scala and
+// C++ record a class's attribute types (field_types) and the calls through an
+// attribute their file cannot type (member_calls), which the inherited-calls binder
+// resolves through the base classes; Scala types class-body vals, C# reads `this.x`
+// receivers, Go promotes an embedded struct's fields, and a TypeScript field read
+// for a call (`this.helper.work()`) is no longer a call to `helper`.
+// v557: Dart: a call on a local whose declaration names its type (`final c =
+// Concrete()`, `Concrete c = ...`) binds through that type and its supertypes, and a
+// call through a subtype keeps the subtype (inherited_calls).
+// v558: Kotlin: a file the grammar cannot parse because a body closes on its
+// member's line (`class A { fun f() {} }` with more code after it) is parsed again
+// with a `;` before that `}`, so its declarations are no longer lost.
+// v559: Swift: the top-level statements of main.swift are a `<dir>.main` function,
+// the program's entry point, instead of calls owned by the file.
+const cacheVersion = "v559"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

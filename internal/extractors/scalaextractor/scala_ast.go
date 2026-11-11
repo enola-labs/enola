@@ -1,6 +1,7 @@
 package scalaextractor
 
 import (
+	"maps"
 	"strings"
 
 	scala "github.com/enola-labs/enola/internal/extractors/scalaextractor/grammar"
@@ -726,10 +727,20 @@ func (w *astWalker) memberTarget(recvNode *sitter.Node, receiver, member string)
 		if w.declaresMember(member) {
 			return w.qualify(member)
 		}
+		// Not declared here, but maybe on a supertype: the inherited-calls binder
+		// looks it up through the type's bases and adds the edge only if one does.
+		w.noteMemberCall(member)
 	case isTypeName(receiver):
 		// An object or companion: `Registry.next()`, `WebHook.Create`. Offered
 		// qualified for the merge pass to bind against the declaring type.
 		return w.resolveTypeName(receiver) + "." + member
+	case recvNode != nil && kindOf(recvNode) == "field_expression" && w.thisField(recvNode) != "":
+		// `this.repo.save()`: the attribute's type, from the class's scope frame.
+		field := w.thisField(recvNode)
+		if typeName := w.lookupLocalType(field); typeName != "" && !strings.HasSuffix(typeName, callMark) {
+			return w.resolveTypeName(typeName) + "." + member
+		}
+		w.noteMemberCall(field + "." + member)
 	default:
 		// A binding whose type the source declares — a constructor parameter, a
 		// method parameter, an ascribed val. `repo.find(id)` with `repo: UserRepo`
@@ -748,8 +759,52 @@ func (w *astWalker) memberTarget(recvNode *sitter.Node, receiver, member string)
 				return t + "." + member
 			}
 		}
+		if receiver != "" && !isTypeName(receiver) {
+			// Maybe an attribute a supertype declares, in another file.
+			w.noteMemberCall(receiver + "." + member)
+		}
 	}
 	return member
+}
+
+// thisField returns the attribute a `this.x` expression reads, or "".
+func (w *astWalker) thisField(n *sitter.Node) string {
+	v, f := n.ChildByFieldName("value"), n.ChildByFieldName("field")
+	if v == nil || f == nil || w.text(v) != "this" {
+		return ""
+	}
+	return w.text(f)
+}
+
+// classValTypes maps a class body's vals and vars to their types: the one ascribed,
+// else the class a `new` constructs.
+func (w *astWalker) classValTypes(body *sitter.Node) map[string]string {
+	out := map[string]string{}
+	if body == nil {
+		return out
+	}
+	for i := uint(0); i < body.NamedChildCount(); i++ {
+		c := body.NamedChild(i)
+		if k := kindOf(c); k != "val_definition" && k != "var_definition" {
+			continue
+		}
+		pattern := c.ChildByFieldName("pattern")
+		if pattern == nil || kindOf(pattern) != "identifier" {
+			continue
+		}
+		var typeName string
+		if t := c.ChildByFieldName("type"); t != nil && isTypeNode(kindOf(t)) {
+			typeName = w.baseTypeName(t)
+		} else if v := c.ChildByFieldName("value"); v != nil && kindOf(v) == "instance_expression" {
+			if t := firstNamedChild(v); t != nil && isTypeNode(kindOf(t)) {
+				typeName = w.baseTypeName(t)
+			}
+		}
+		if typeName != "" {
+			out[w.text(pattern)] = typeName
+		}
+	}
+	return out
 }
 
 // lookupLocalType returns the declared type of a binding visible at the current
@@ -1197,6 +1252,18 @@ func (w *astWalker) handleTypeLike(n *sitter.Node, symbolKind string) {
 	w.typeStack = append(w.typeStack, name)
 	w.memberStack = append(w.memberStack, w.collectMembers(n.ChildByFieldName("body")))
 	popScope := w.pushScope(n) // constructor parameters are in scope for the body
+	// The body's vals and vars are the class's attributes as much as its constructor
+	// parameters, for its methods and for subclasses in other files, which call
+	// through them (facts.PropFieldTypes, read by the inherited-calls binder).
+	scope := w.localTypes[len(w.localTypes)-1]
+	for name, typ := range w.classValTypes(n.ChildByFieldName("body")) {
+		if _, ok := scope[name]; !ok {
+			scope[name] = typ
+		}
+	}
+	if len(scope) > 0 {
+		w.out[idx].SetProp(facts.PropFieldTypes, maps.Clone(scope))
+	}
 	w.ownerStack = append(w.ownerStack, idx)
 	w.walkBodyAndParams(n)
 	w.ownerStack = w.ownerStack[:len(w.ownerStack)-1]
@@ -1597,6 +1664,15 @@ func (w *astWalker) addEdge(kind, target string) {
 		}
 	}
 	w.out[idx].Relations = append(w.out[idx].Relations, facts.Relation{Kind: kind, Target: target})
+}
+
+// noteMemberCall records, on the symbol being walked inside a type, a call on the
+// object it runs on that this file cannot place (facts.PropMemberCalls).
+func (w *astWalker) noteMemberCall(member string) {
+	if len(w.memberStack) == 0 || len(w.ownerStack) == 0 || member == "" {
+		return
+	}
+	w.out[w.ownerStack[len(w.ownerStack)-1]].AddPropStrings(facts.PropMemberCalls, member)
 }
 
 // walkMembers walks every named child except skip.

@@ -1,9 +1,12 @@
 package flows
 
 import (
+	"slices"
+	"sort"
 	"strings"
 
 	"github.com/enola-labs/enola/internal/facts"
+	"github.com/enola-labs/enola/internal/hierarchy"
 )
 
 // Interface dispatch.
@@ -26,87 +29,223 @@ import (
 // and every implementation in the flow would describe none of them.
 const maxImplementations = 3
 
-// dispatchIndex is what the walk knows about types, per repository.
-type dispatchIndex struct {
-	interfaces map[[2]string]bool     // (repo, name) of every interface and abstract class
-	implements map[[2]string][]string // (repo, interface) -> the types implementing it
-	methods    map[[2]string][]string // (repo, type) -> its methods
+// Self types.
+//
+// A method runs on an object, and what a call to another member of that object runs
+// depends on the object's type, not on where the method was declared. Base.run calls
+// self.step(); walked from a Concrete it runs Concrete.step, and the graph's edge
+// says Base.step, often an abstract method with no body. So the walk carries a self
+// type, the type of the object the code it is in runs on:
+//
+//   - entering a member of T, it is T;
+//   - a call the extractor spelled through a subtype S (inherited_calls: c.run() on
+//     a Concrete, resolved to Base.run) makes it S;
+//   - inside a member of S or of one of its ancestors, a call to a member of S or of
+//     one of its ancestors is a call on the same object: it goes to the declaration
+//     the member name reaches from S, which is S's override when S has one, and the
+//     self type stays S.
+//
+// With no self type known, an abstract method still goes on into its implementations
+// as below. The rule reads `other.step()` on another object of an ancestor type as a
+// call on self; the walk then follows the override of the type it came through, which
+// is one of the methods that call could run.
+
+// maxContexts is how many self types one symbol is walked in before the walk goes on
+// without one. A base method every subclass of a wide tree reaches is otherwise
+// walked once per subclass.
+const maxContexts = 4
+
+// memberCall is a call to a member of a type, kept with what a self type needs to
+// redirect it.
+type memberCall struct {
+	to     int32 // the node the call names, or -1 when it names no symbol
+	owner  string
+	member string
+	via    []string // the subtypes the call was spelled through (inherited_calls)
 }
 
-func (a *Analysis) dispatch() *dispatchIndex {
-	if a.ifaces != nil {
-		return a.ifaces
-	}
-	ix := &dispatchIndex{interfaces: map[[2]string]bool{}, implements: map[[2]string][]string{}, methods: map[[2]string][]string{}}
-	for _, f := range a.src.FactsRef() {
-		if f.Kind != facts.KindSymbol {
-			continue
-		}
-		switch f.PropString("symbol_kind") {
-		case facts.SymbolInterface:
-			ix.interfaces[[2]string{f.Repo, f.Name}] = true
-		case facts.SymbolClass:
-			if f.PropBool("abstract") {
-				ix.interfaces[[2]string{f.Repo, f.Name}] = true
-			}
-		case facts.SymbolMethod:
-			if dot := strings.LastIndexByte(f.Name, '.'); dot > 0 {
-				key := [2]string{f.Repo, f.Name[:dot]}
-				if !containsString(ix.methods[key], f.Name) {
-					ix.methods[key] = append(ix.methods[key], f.Name)
-				}
-			}
-		}
-		for _, r := range f.Relations {
-			if r.Kind != facts.RelImplements {
-				continue
-			}
-			key := [2]string{f.Repo, r.Target}
-			if !containsString(ix.implements[key], f.Name) {
-				ix.implements[key] = append(ix.implements[key], f.Name)
-			}
-		}
-	}
-	a.ifaces = ix
-	return ix
+// step is where a walk goes from a symbol: a callee and the self type it runs in,
+// interned (selfID), 0 for none.
+type step struct {
+	id   int32
+	self int32
 }
 
-// implementations returns the nodes of the methods implementing an interface method,
-// or nil when the node is not one, or has none or too many.
-func (a *Analysis) implementations(id int32) []int32 {
-	f := a.nodes[id].fact
-	if f.PropString("symbol_kind") != facts.SymbolMethod {
+// selfID interns a self type, so the walk's visited set is keyed by two ints.
+func (a *Analysis) selfID(name string) int32 {
+	if name == "" {
+		return 0
+	}
+	if id, ok := a.selfIDs[name]; ok {
+		return id
+	}
+	if a.selfIDs == nil {
+		a.selfIDs = map[string]int32{}
+		a.selves = []string{""}
+	}
+	id := int32(len(a.selves))
+	a.selves = append(a.selves, name)
+	a.selfIDs[name] = id
+	return id
+}
+
+// ownerType returns the type a symbol is a member of, or "".
+func (a *Analysis) ownerType(f facts.Fact) string {
+	switch f.PropString("symbol_kind") {
+	case facts.SymbolMethod, facts.SymbolGetter, facts.SymbolFunc:
+	default:
+		return ""
+	}
+	owner, _ := hierarchy.SplitMember(f.Name)
+	if owner == "" || !a.types().IsType(f.Repo, owner) {
+		return ""
+	}
+	return owner
+}
+
+// inheritedThrough maps each declaration a symbol's inherited calls resolved to onto
+// the subtypes they were spelled through.
+func (a *Analysis) inheritedThrough(f facts.Fact) map[string][]string {
+	spelled := f.PropStrings(facts.PropInheritedCalls)
+	if len(spelled) == 0 {
 		return nil
 	}
-	dot := strings.LastIndexByte(f.Name, '.')
-	if dot <= 0 {
-		return nil
-	}
-	owner, method := f.Name[:dot], f.Name[dot+1:]
-	ix := a.dispatch()
-	if !ix.interfaces[[2]string{f.Repo, owner}] && !f.PropBool("abstract") {
-		return nil
-	}
-	types := ix.implements[[2]string{f.Repo, owner}]
-	if len(types) == 0 || len(types) > maxImplementations {
-		return nil
-	}
-	var out []int32
-	for _, t := range types {
-		if impl, ok := a.nodeFor(f.Repo, t+"."+method); ok && impl != id {
-			out = append(out, impl)
+	out := map[string][]string{}
+	for _, s := range spelled {
+		owner, member := hierarchy.SplitMember(s)
+		if decl, ok := a.types().Lookup(f.Repo, owner, member); ok && !slices.Contains(out[decl], owner) {
+			out[decl] = append(out[decl], owner)
 		}
 	}
 	return out
 }
 
-func containsString(list []string, s string) bool {
-	for _, x := range list {
-		if x == s {
-			return true
+// addMemberCall records a call when its target is a member of a type.
+func (a *Analysis) addMemberCall(list []memberCall, repo, target string, to int32, resolved bool, through map[string][]string) []memberCall {
+	owner, member := hierarchy.SplitMember(target)
+	if owner == "" || !a.types().IsType(repo, owner) {
+		return list
+	}
+	if !resolved {
+		to = -1
+	}
+	for _, m := range list {
+		if m.owner == owner && m.member == member {
+			return list
 		}
 	}
-	return false
+	return append(list, memberCall{to: to, owner: owner, member: member, via: through[target]})
+}
+
+// successors returns where the walk goes from a symbol run in a self type: its
+// callees, with every call on the same object sent to the declaration the self type
+// reaches, and each callee's own self type. The answer depends only on the pair, and
+// every flow's walk asks again, so it is kept.
+func (a *Analysis) successors(id, self int32) []step {
+	at := step{id, self}
+	if out, ok := a.succ[at]; ok {
+		return out
+	}
+	a.expand(id)
+	// nodeFor below may grow a.nodes, so nothing holds a pointer into it.
+	n := a.nodes[id]
+	repo := n.fact.Repo
+	selfName := ""
+	if self != 0 {
+		selfName = a.selves[self]
+	}
+	var out []step
+	var redirected map[int32]bool
+	if len(n.members) > 0 {
+		t := a.types()
+		inside := selfName != "" && n.owner != "" && t.Subsumes(repo, n.owner, selfName)
+		for _, m := range n.members {
+			on := m.via
+			if len(on) == 0 && inside && t.Subsumes(repo, m.owner, selfName) {
+				on = []string{selfName}
+			}
+			for _, typ := range on {
+				decl, ok := t.Lookup(repo, typ, m.member)
+				if !ok {
+					continue
+				}
+				to, ok := a.nodeFor(repo, decl)
+				if !ok || to == id {
+					continue
+				}
+				if m.to >= 0 {
+					if redirected == nil {
+						redirected = map[int32]bool{}
+					}
+					redirected[m.to] = true
+				}
+				out = appendStep(out, step{to, a.selfID(typ)})
+			}
+		}
+	}
+	for _, c := range n.callees {
+		if !redirected[c] {
+			out = appendStep(out, step{c, a.nodes[c].ownerID})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].id != out[j].id {
+			return a.less(out[i].id, out[j].id)
+		}
+		return out[i].self < out[j].self
+	})
+	if a.succ == nil {
+		a.succ = map[step][]step{}
+	}
+	a.succ[at] = out
+	return out
+}
+
+func appendStep(list []step, s step) []step {
+	for _, x := range list {
+		if x == s {
+			return list
+		}
+	}
+	return append(list, s)
+}
+
+// types is the repository's type tree, built the first time the walk needs it.
+func (a *Analysis) types() *hierarchy.Index {
+	if a.tree == nil {
+		a.tree = hierarchy.Build(a.src.FactsRef())
+	}
+	return a.tree
+}
+
+// implementations returns the nodes of the methods implementing an interface or
+// abstract method, or nil when the node is not one, or has none or too many. They
+// are the topmost overriders below the method's type, however deep the first one
+// down a branch sits.
+func (a *Analysis) implementations(id int32) []int32 {
+	f := a.nodes[id].fact
+	if f.PropString("symbol_kind") != facts.SymbolMethod {
+		return nil
+	}
+	owner, method := hierarchy.SplitMember(f.Name)
+	t := a.types()
+	if owner == "" || !t.IsType(f.Repo, owner) {
+		return nil
+	}
+	if !t.IsAbstract(f.Repo, owner) && !f.PropBool("abstract") {
+		return nil
+	}
+	impls := t.Overriders(f.Repo, owner, method)
+	if len(impls) == 0 || len(impls) > maxImplementations {
+		return nil
+	}
+	var out []int32
+	for _, name := range impls {
+		if impl, ok := a.nodeFor(f.Repo, name); ok && impl != id {
+			out = append(out, impl)
+		}
+	}
+	return out
 }
 
 // Classes.
@@ -133,7 +272,7 @@ func (a *Analysis) classMembers(id int32) []int32 {
 		return nil
 	}
 	var out []int32
-	for _, m := range a.dispatch().methods[[2]string{f.Repo, f.Name}] {
+	for _, m := range a.types().Members(f.Repo, f.Name) {
 		if n, ok := a.nodeFor(f.Repo, m); ok && n != id {
 			out = append(out, n)
 		}
