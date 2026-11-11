@@ -36,6 +36,10 @@ type callTypeTables struct {
 	elems elemTypes
 	// registries holds "pkgDir.Type.field" for the registry fields. See registry.go.
 	registries map[string]bool
+	// funcTypes holds "pkgDir.Type" for every named type of the module whose
+	// underlying type is a function type (`type Source[K, V] func(...)`). A value of
+	// one is a function value. See funcflow.go.
+	funcTypes map[string]bool
 }
 
 // elemTypes holds the element type of the collections the source declares, so an
@@ -468,7 +472,7 @@ func promoteEmbeddedFields(fieldTypes map[string]string, embeds map[string][]str
 // "error"; a predeclared type has no methods of the package's, so it is not known.
 func fieldType(owner, name string, ctx resolveCtx) (string, bool) {
 	ft, ok := ctx.fieldTypes[owner+"."+name]
-	if !ok {
+	if !ok || ft == funcFieldType {
 		return "", false
 	}
 	if bare := ft[strings.LastIndexByte(ft, '.')+1:]; types.Universe.Lookup(bare) != nil {

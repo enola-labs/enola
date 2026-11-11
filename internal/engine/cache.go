@@ -3519,7 +3519,9 @@ import (
 // v565: Go: a method of a generic type with several type parameters (`*Pair[K, V]`)
 // is named by its type instead of "pkg..Method", and a call through a field of that
 // type resolves.
-const cacheVersion = "v565"
+// v566: Go: a function records where the function values it handles go
+// (func_flows), and a closure that goes somewhere is a symbol of its own.
+const cacheVersion = "v566"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

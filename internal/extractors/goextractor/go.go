@@ -190,7 +190,7 @@ func (e *GoExtractor) Extract(ctx context.Context, repoPath string, files []stri
 	// on a call's result (`eng.Resolver().NodeName(x)`) and a variable assigned from
 	// one (`r := eng.Resolver()`) resolve to the method they reach.
 	callTypes := callTypeTables{
-		returns: make(map[string][]string), aliases: aliases, funcs: make(map[string]bool), methods: make(map[string]bool),
+		returns: make(map[string][]string), aliases: aliases, funcs: make(map[string]bool), methods: make(map[string]bool), funcTypes: make(map[string]bool),
 		elems: elemTypes{byType: make(map[string]string), byField: make(map[string]string)},
 	}
 	for _, pkgDir := range pkgDirs {
@@ -203,6 +203,9 @@ func (e *GoExtractor) Extract(ctx context.Context, repoPath string, files []stri
 		}
 		for name := range collectPackageMethods(parsedPkgs[pkgDir].parsedFiles) {
 			callTypes.methods[pkgDir+"."+name] = true
+		}
+		for name := range collectFuncTypes(parsedPkgs[pkgDir].parsedFiles) {
+			callTypes.funcTypes[pkgDir+"."+name] = true
 		}
 	}
 
@@ -617,6 +620,35 @@ func (e *GoExtractor) extractFunc(fset *token.FileSet, fn *ast.FuncDecl, relFile
 				Target: inst,
 			})
 		}
+		flows, closures := funcFlows(fn, ctx, qualifiedName)
+		if len(flows) > 0 {
+			symbolFact.SetProp(propFuncFlows, flows)
+		}
+		closureNames := make([]string, 0, len(closures))
+		for name := range closures {
+			closureNames = append(closureNames, name)
+		}
+		sort.Strings(closureNames)
+		for _, name := range closureNames {
+			lit := closures[name]
+			// The function names its closure: a reference, which keeps a closure
+			// nothing else calls out of dead code.
+			symbolFact.Relations = append(symbolFact.Relations, facts.Relation{Kind: facts.RelNames, Target: name})
+			result = append(result, facts.Fact{
+				Kind:    facts.KindSymbol,
+				Name:    name,
+				File:    relFile,
+				Line:    fset.Position(lit.Pos()).Line,
+				EndLine: fset.Position(lit.End()).Line,
+				Props: map[string]any{
+					"symbol_kind": facts.SymbolFunc,
+					"exported":    false,
+					"language":    "go",
+					"closure":     true,
+				},
+				Relations: append([]facts.Relation{{Kind: facts.RelDeclares, Target: pkgDir}}, initializerRelations(lit, ctx, name)...),
+			})
+		}
 		for _, t := range typeUses(fn.Type, fn.Body, ctx, typeParams) {
 			if !slices.Contains(m.instantiates, t) {
 				symbolFact.Relations = append(symbolFact.Relations, facts.Relation{
@@ -709,6 +741,7 @@ func bodyCtx(pkgDir string, mods goModules, fileImports, fieldTypes map[string]s
 		aliases:       callTypes.aliases,
 		moduleFuncs:   callTypes.funcs,
 		moduleMethods: callTypes.methods,
+		funcTypes:     callTypes.funcTypes,
 		elemTypes:     callTypes.elems,
 
 		registryFields: callTypes.registries,
@@ -731,7 +764,9 @@ func initializerRelations(value ast.Expr, ctx resolveCtx, selfName string) []fac
 	if !hasLit {
 		return nil
 	}
-	ctx.localTypes = collectLocalTypesFrom(value, ctx, nil, nil)
+	// A closure inside a function also sees that function's parameters and locals,
+	// which ctx carries; a package-level initializer has none.
+	ctx.localTypes = collectLocalTypesFrom(value, ctx, ctx.localTypes, nil)
 	m := analyzeBody(value, ctx, selfName, nil)
 	var rels []facts.Relation
 	seen := map[string]bool{}
@@ -962,6 +997,8 @@ type resolveCtx struct {
 	// "pkgDir.Type.Method" for every method in the module. nil where a pass does not
 	// resolve method values.
 	moduleMethods map[string]bool
+	// funcTypes is callTypeTables.funcTypes.
+	funcTypes map[string]bool
 	// Every name this package declares at top level: functions, types, variables
 	// and constants. nil where a pass does not collect it.
 	pkgScope map[string]bool
@@ -1608,6 +1645,12 @@ func collectFieldTypes(files []*ast.File, pkgDir string, mods goModules, pkgName
 				}
 				typeName := ts.Name.Name
 				for _, field := range st.Fields.List {
+					if _, isFunc := field.Type.(*ast.FuncType); isFunc {
+						for _, fname := range field.Names {
+							m[pkgDir+"."+typeName+"."+fname.Name] = funcFieldType
+						}
+						continue
+					}
 					typeStr := typeExprToString(field.Type)
 					if typeStr == "" {
 						continue
