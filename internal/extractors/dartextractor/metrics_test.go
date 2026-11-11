@@ -170,7 +170,7 @@ void build() {
 }
 `
 	var build *facts.Fact
-	all := walkSource(t, "lib/a.dart", src)
+	all := resolveCallTargets(walkSource(t, "lib/a.dart", src))
 	for i := range all {
 		if all[i].Name == "lib.build" {
 			build = &all[i]
@@ -185,7 +185,7 @@ void build() {
 			targets[r.Target] = true
 		}
 	}
-	for _, want := range []string{"getTiles", "other"} {
+	for _, want := range []string{"lib.getTiles", "lib.other"} {
 		if !targets[want] {
 			t.Errorf("a call inside a closure body should be recorded: missing %q (got %v)",
 				want, keysOf(targets))
@@ -227,7 +227,18 @@ func TestRecursionRequiresSelfReceiver(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got, _ := funcProps(t, tc.src)["recursive_self"].(bool)
+			// this/super have meaning only inside a class method.
+			var props map[string]any
+			for _, f := range walkSource(t, "lib/a.dart", "class Runner extends Base {"+tc.src+"}") {
+				if f.PropString("symbol_kind") == facts.SymbolMethod {
+					props = f.Props
+					break
+				}
+			}
+			if props == nil {
+				t.Fatal("fixture emitted no method")
+			}
+			got, _ := props["recursive_self"].(bool)
 			if got != tc.want {
 				t.Errorf("recursive_self = %v, want %v", got, tc.want)
 			}

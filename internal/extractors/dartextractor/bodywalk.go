@@ -12,39 +12,60 @@ import (
 // bodyWalk is one function body's derived facts: the edges it draws and the metrics the
 // complexity-outliers explainer and the performance analyzer read.
 type bodyWalk struct {
-	relations []facts.Relation
+	relations        []facts.Relation
+	receiverTypes    map[string]string
+	receiverGenerics map[string]bool
+	shadows          map[string]bool
+	selfName         string
+	callReceivers    map[string]map[string]bool
+	ioCalls          map[string]bool
+	implicitCalls    map[string]bool
+	instanceCalls    map[string]bool
+	constructedTypes map[string]bool
+	getterReads      map[string]dartGetterRead
 
 	cyclomatic int
 	loopCount  int
 	maxLoop    int
 	maxScaling int
-	// callsInLoop / callsInScalingLoop are metric strings, NOT graph edges: they name
-	// what was invoked per iteration so the performance analyzer can spot an N+1, and
-	// they deliberately include receiver-qualified targets that no fact resolves to.
+	// callsInLoop / callsInScalingLoop name what was invoked per iteration.
+	// They share call targets with the relations, including unresolved receivers;
+	// the resolution pass canonicalizes both together.
 	callsInLoop        map[string]bool
 	callsInScalingLoop map[string]bool
 	recursiveSelf      bool
 	ioDirect           bool
-	// selfCalls are the bare and `this.` calls, which inside a class are calls on
-	// the object a method runs on (facts.PropMemberCalls).
-	selfCalls map[string]bool
-	// locals are the body's local variables whose type the declaration states,
-	// and typedCalls the calls made on them, spelled through that type
-	// (propTypedCalls).
-	locals     map[string]string
-	typedCalls map[string]bool
 
 	seenRel map[string]bool
 }
 
-// propTypedCalls is the working prop holding a body's calls on a local of known type,
-// spelled `Type.member`. resolveCallTargets binds each through the type and its
-// supertypes and deletes it.
-const propTypedCalls = "dart_typed_calls"
-
 // applyTo writes the metrics onto a symbol fact's props.
 func (b *bodyWalk) applyTo(props map[string]any) {
 	props["cyclomatic"] = b.cyclomatic + 1
+	if len(b.callReceivers) > 0 {
+		paths := map[string][]string{}
+		for target, receivers := range b.callReceivers {
+			paths[target] = sortedKeys(receivers)
+		}
+		props["call_receivers"] = paths
+	}
+	if len(b.ioCalls) > 0 {
+		props["io_calls"] = sortedKeys(b.ioCalls)
+	}
+	if len(b.implicitCalls) > 0 {
+		props["_dart_implicit_calls"] = sortedKeys(b.implicitCalls)
+	}
+	if len(b.instanceCalls) > 0 {
+		props["_dart_instance_calls"] = sortedKeys(b.instanceCalls)
+	}
+	if len(b.constructedTypes) > 0 {
+		props["_dart_constructed_types"] = sortedKeys(b.constructedTypes)
+	}
+
+	if len(b.getterReads) > 0 {
+		props["_dart_getter_reads"] = b.getterReads
+	}
+
 	if b.loopCount > 0 {
 		props["loop_count"] = b.loopCount
 		props["loop_depth"] = b.maxLoop
@@ -64,12 +85,6 @@ func (b *bodyWalk) applyTo(props map[string]any) {
 	if b.ioDirect {
 		props["io_direct"] = true
 	}
-	if len(b.selfCalls) > 0 {
-		props[facts.PropMemberCalls] = sortedKeys(b.selfCalls)
-	}
-	if len(b.typedCalls) > 0 {
-		props[propTypedCalls] = sortedKeys(b.typedCalls)
-	}
 }
 
 func sortedKeys(m map[string]bool) []string {
@@ -84,97 +99,39 @@ func sortedKeys(m map[string]bool) []string {
 // walkBody walks a function body for call edges and complexity metrics.
 //
 // selfName is the enclosing symbol's canonical name, used for recursion detection.
-func (w *walker) walkBody(body *sitter.Node, selfName string, signature *sitter.Node) *bodyWalk {
+func (w *walker) walkBody(body *sitter.Node, selfName string, signature *sitter.Node, initializers ...*sitter.Node) *bodyWalk {
 	b := &bodyWalk{
+		selfName:           selfName,
 		callsInLoop:        map[string]bool{},
 		callsInScalingLoop: map[string]bool{},
 		seenRel:            map[string]bool{},
+		callReceivers:      map[string]map[string]bool{},
+		ioCalls:            map[string]bool{},
+		implicitCalls:      map[string]bool{}, instanceCalls: map[string]bool{}, constructedTypes: map[string]bool{},
+		getterReads: map[string]dartGetterRead{},
 	}
 	selfShort := selfName
 	if i := strings.LastIndexByte(selfShort, '.'); i >= 0 {
 		selfShort = selfShort[i+1:]
 	}
-	b.locals = w.localTypes(body)
-	w.walkNode(body, b, selfShort, 0, 0)
 	shadows := map[string]bool{}
-	dartBoundNames(signature, w.src, shadows)
-	dartBoundNames(body, w.src, shadows)
-	w.valueReferences(body, shadows, b)
+	bindings := &dartReceiverBindings{types: map[string]string{}, seen: map[string]bool{}}
+	// The enclosing declaration is callable; only its parameters introduce
+	// bindings here. Nested declarations in the body still shadow conservatively.
+	if params := firstOfKind(signature, "formal_parameter_list"); params != nil {
+		dartBoundNames(params, w.src, shadows, bindings)
+	}
+	dartBoundNames(body, w.src, shadows, bindings)
+	for _, init := range initializers {
+		dartBoundNames(init, w.src, shadows)
+	}
+	b.shadows = shadows
+	b.receiverTypes, b.receiverGenerics = w.bodyReceiverTypes(signature, shadows, bindings)
+	for _, init := range initializers {
+		w.walkNode(init, b, selfShort, 0, 0)
+	}
+	w.walkNode(body, b, selfShort, 0, 0)
 	return b
-}
-
-// localTypes maps each local variable of a body to the type its declaration names:
-// `Concrete c = ...`, `final c = Concrete()`, `var c = new Concrete()`. A named
-// constructor and a static factory read alike (`Concrete.named()`), so an untyped
-// one is left out, and so is a name declared twice with different types.
-func (w *walker) localTypes(body *sitter.Node) map[string]string {
-	out := map[string]string{}
-	var visit func(n *sitter.Node)
-	visit = func(n *sitter.Node) {
-		if n == nil {
-			return
-		}
-		if kindOf(n) == "initialized_variable_definition" {
-			if name, typ := w.declaredLocal(n); name != "" {
-				if prev, ok := out[name]; ok && prev != typ {
-					typ = ""
-				}
-				out[name] = typ
-			}
-		}
-		for _, c := range namedChildren(n) {
-			visit(c)
-		}
-	}
-	visit(body)
-	for k, v := range out {
-		if v == "" {
-			delete(out, k)
-		}
-	}
-	return out
-}
-
-// declaredLocal reads one local declaration: its name, and the type it is declared
-// with or constructed as ("" when neither says).
-func (w *walker) declaredLocal(n *sitter.Node) (name, typ string) {
-	kids := namedChildren(n)
-	at := -1
-	for i, c := range kids {
-		switch kindOf(c) {
-		case "type_identifier":
-			if at < 0 && typ == "" {
-				typ = c.Utf8Text(w.src)
-			}
-		case "identifier":
-			if at < 0 {
-				at = i
-				name = c.Utf8Text(w.src)
-			}
-		}
-		if at >= 0 {
-			break
-		}
-	}
-	if at < 0 {
-		return "", ""
-	}
-	if typ != "" {
-		return name, typ
-	}
-	value := kids[at+1:]
-	switch {
-	case len(value) == 1 && (kindOf(value[0]) == "new_expression" || kindOf(value[0]) == "const_object_expression"):
-		if t := childOfKind(value[0], "type_identifier"); t != nil {
-			return name, t.Utf8Text(w.src)
-		}
-	case len(value) == 2 && kindOf(value[0]) == "identifier" && kindOf(value[1]) == "selector" &&
-		childOfKind(value[1], "argument_part") != nil:
-		if t := value[0].Utf8Text(w.src); namesAType(t) {
-			return name, t
-		}
-	}
-	return name, ""
 }
 
 // walkNode is the recursive body walk.
@@ -189,6 +146,16 @@ func (w *walker) walkNode(n *sitter.Node, b *bodyWalk, selfShort string, loopDep
 		return
 	}
 	kind := kindOf(n)
+	if dartLexicalScope(n) {
+		defer w.enterDartScope(n, b)()
+	}
+	if kind == "identifier" {
+		name := n.Utf8Text(w.src)
+		w.recordValueReference(n, name, b.shadows, b)
+		if w.getterNames[name] && !b.shadows[name] && kindOf(n.Parent()) != "label" && kindOf(n.Parent()) != "cascade_section" && kindOf(n.Parent()) != "cascade_selector" && !strings.HasSuffix(kindOf(n.Parent()), "assignable_selector") {
+			w.recordGetterRead("this."+name, n, b, loopDepth, scalingDepth)
+		}
+	}
 
 	// A nested function/closure DEFINITION resets loop depth: its body is deferred, not
 	// executed per iteration of the enclosing loop. An iterator callback is handled at
@@ -241,8 +208,15 @@ func (w *walker) walkNode(n *sitter.Node, b *bodyWalk, selfShort string, loopDep
 }
 
 func (w *walker) walkChildren(n *sitter.Node, b *bodyWalk, selfShort string, loopDepth, scalingDepth int) {
-	for _, c := range namedChildren(n) {
-		w.walkNode(c, b, selfShort, loopDepth, scalingDepth)
+	kids := namedChildren(n)
+	for i, c := range kids {
+		if kindOf(n) == "try_statement" && kindOf(c) == "block" && i > 0 && kindOf(kids[i-1]) == "catch_clause" {
+			restore := w.enterDartScope(kids[i-1], b)
+			w.walkNode(c, b, selfShort, loopDepth, scalingDepth)
+			restore()
+		} else {
+			w.walkNode(c, b, selfShort, loopDepth, scalingDepth)
+		}
 	}
 }
 
@@ -272,7 +246,25 @@ func (w *walker) scanCallChain(n *sitter.Node, b *bodyWalk, selfShort string, lo
 			}
 			continue
 		}
-		if kindOf(c) != "selector" || childOfKind(c, "argument_part") == nil {
+		if kindOf(c) != "selector" {
+			continue
+		}
+		if childOfKind(c, "argument_part") == nil {
+			if i+1 < len(kids) && childOfKind(kids[i+1], "argument_part") != nil {
+				continue
+			}
+			sel := childOfKind(c, "unconditional_assignable_selector", "conditional_assignable_selector")
+			name := identifierChild(sel, w.src)
+			receiver, direct := w.callReceiver(kids, i+1)
+			if name != "" && direct {
+				typ := b.receiverType(w, receiver)
+				if receiver == "this" {
+					typ = "this"
+				}
+				if typ != "" && typ != "dynamic" {
+					w.recordGetterRead(typ+"."+name, c, b, loopDepth, scalingDepth)
+				}
+			}
 			continue
 		}
 
@@ -281,40 +273,22 @@ func (w *walker) scanCallChain(n *sitter.Node, b *bodyWalk, selfShort string, lo
 			continue
 		}
 
-		switch {
-		case baseIsType && receiver == name:
-			// `Foo(...)` — a bare capitalised identifier invoked with arguments is a
-			// constructor call in Dart, where `new` has been optional since Dart 2.
+		sourceReceiver, directReceiver := w.callReceiver(kids, i)
+		target := w.scopedCallTarget(sourceReceiver, directReceiver, name, b)
+		previous := i - 1
+		if previous >= 0 && kindOf(kids[previous]) == "type_arguments" {
+			previous--
+		}
+		constructor := baseIsType && receiver == name && previous >= 0 && kindOf(kids[previous]) != "selector" && !b.shadows[name] && w.callableValue(name) == ""
+		if _, field := w.fieldTypes[name]; field {
+			constructor = false
+		}
+		if constructor {
+			target = name
+			b.constructedTypes[name] = true
 			b.addRelation(facts.RelInstantiates, name)
-		case baseIsType:
-			// `Foo.named(...)` — a named constructor or a static method. The two are
-			// syntactically identical, so the edge is drawn to the qualified member
-			// and left for resolution to bind; guessing which it is would manufacture
-			// an instantiates edge half the time.
-			b.addRelation(facts.RelCalls, receiver+"."+name)
-		default:
-			// Any other receiver: the edge is the bare method name. The receiver's
-			// static type is not tracked, so a canonical target cannot be verified —
-			// and per the governing rule a bare name that dead-code matching can still
-			// see beats a fabricated qualified target.
-			b.addRelation(facts.RelCalls, name)
-			if typ := b.locals[receiver]; typ != "" && receiver != name && !isBuiltinType(typ) {
-				// A call on a local of known type: resolution binds it through the
-				// type, so a call on a subtype keeps the subtype it went through.
-				if b.typedCalls == nil {
-					b.typedCalls = map[string]bool{}
-				}
-				b.typedCalls[typ+"."+name] = true
-			}
-			if receiver == name || receiver == "this" {
-				// Inside a class, a call on the object: the inherited-calls binder
-				// resolves it through the class and its supertypes, where the bare
-				// name is ambiguous across the project.
-				if b.selfCalls == nil {
-					b.selfCalls = map[string]bool{}
-				}
-				b.selfCalls[name] = true
-			}
+		} else {
+			b.addRelation(facts.RelCalls, target)
 		}
 
 		// Recursion requires the call to reach THIS symbol, not merely a method that
@@ -330,17 +304,24 @@ func (w *walker) scanCallChain(n *sitter.Node, b *bodyWalk, selfShort string, lo
 		// self kept: a bare call (`foo()`, where calleeOf reports the base as its own
 		// name) and `this.foo()`. `super.foo()` is deliberately excluded — it dispatches
 		// to the ancestor's implementation, which is the opposite of recursing.
-		if name == selfShort && (receiver == "" || receiver == name || receiver == "this") {
+		if strings.TrimPrefix(target, "@lexical:") == b.selfName || (target == "this."+name && (sourceReceiver == "" || sourceReceiver == "this") && w.callOwner+"."+name == b.selfName) {
 			b.recursiveSelf = true
 		}
-		if w.isIOCall(name, receiver) {
+		// I/O evidence belongs to the source receiver, including a query chain;
+		// it must not be erased by type resolution or by an intermediate call.
+		ioReceiver := dartIORoot(sourceReceiver)
+		if w.isIOCall(name, ioReceiver) {
 			b.ioDirect = true
+			b.ioCalls[target] = true
 		}
 
-		metric := name
-		if receiver != "" && receiver != name {
-			metric = receiver + "." + name
+		if (loopDepth > 0 || scalingDepth > 0) && sourceReceiver != "" {
+			if b.callReceivers[target] == nil {
+				b.callReceivers[target] = map[string]bool{}
+			}
+			b.callReceivers[target][sourceReceiver+"."+name] = true
 		}
+		metric := target
 		if loopDepth > 0 {
 			b.callsInLoop[metric] = true
 		}
@@ -375,11 +356,21 @@ func (w *walker) calleeOf(kids []*sitter.Node, i int) (name, receiver string, ba
 	if i == 0 {
 		return "", "", false
 	}
-	prev := kids[i-1]
+	previous := i - 1
+	if kindOf(kids[previous]) == "type_arguments" {
+		previous--
+	}
+	if previous < 0 {
+		return "", "", false
+	}
+	prev := kids[previous]
 
 	// Case 1: the arguments follow a `.name` selector — a method or named constructor.
-	if kindOf(prev) == "selector" {
+	if kindOf(prev) == "selector" || kindOf(prev) == "unconditional_assignable_selector" || kindOf(prev) == "conditional_assignable_selector" {
 		sel := childOfKind(prev, "unconditional_assignable_selector", "conditional_assignable_selector")
+		if kindOf(prev) != "selector" {
+			sel = prev
+		}
 		if sel == nil {
 			return "", "", false
 		}
@@ -389,8 +380,8 @@ func (w *walker) calleeOf(kids []*sitter.Node, i int) (name, receiver string, ba
 		}
 		// Walk back past the selector run to the chain base.
 		base := ""
-		for j := i - 2; j >= 0; j-- {
-			if kindOf(kids[j]) == "selector" {
+		for j := previous - 1; j >= 0; j-- {
+			if kindOf(kids[j]) == "selector" || kindOf(kids[j]) == "unconditional_assignable_selector" || kindOf(kids[j]) == "conditional_assignable_selector" {
 				continue
 			}
 			base = strings.TrimSpace(kids[j].Utf8Text(w.src))

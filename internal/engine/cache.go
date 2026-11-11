@@ -3613,7 +3613,17 @@ import (
 // edges, preserving callback usage without inventing calls or propagating I/O.
 // v590: Dart qualified calls bind only to declared members, including the
 // declaring type repeated in named-constructor identities.
-const cacheVersion = "v590"
+// v591: Dart calls retain receiver scope; typed and lexical targets drive I/O
+// propagation and loop metrics, without global method-name inference. Constructor
+// initializers preserve lexical calls that global guesses previously masked.
+// v592: Dart retains source receiver evidence for I/O, resolves inherited and
+// import-prefixed members, preserves initializing-formal types, reads accessor
+// pairs consistently, and deduplicates calls after target rewriting.
+// v593: Dart lexical binding scopes, library visibility/parts, cascade writes,
+// parenthesized I/O provenance, and untyped Retrofit methods.
+// v594: Dart null assertions, typed loop bindings, verified constructor-local
+// inference, visible extensions/functions/import alternatives and stable getters.
+const cacheVersion = "v594"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
