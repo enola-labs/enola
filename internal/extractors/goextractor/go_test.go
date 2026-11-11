@@ -1311,3 +1311,63 @@ func Pick[T any](xs []T, d time.Duration, n int) T {
 		}
 	}
 }
+
+// A package-level var whose initializer holds a function literal is a function in
+// all but name: it is emitted however it is named, with the calls and type uses of
+// that code. A var holding plain data is emitted only when exported, as before.
+func TestExtract_VarInitializedWithCodeOwnsItsCalls(t *testing.T) {
+	ff := extractAll(t, map[string]string{
+		"shelf/shelf.go": `package shelf
+
+import "sync"
+
+type layout struct{ rows int }
+
+func parse() int { return 3 }
+
+var load = sync.OnceValue(func() layout {
+	return layout{rows: parse()}
+})
+
+var Default = func(n int) []layout { return make([]layout, n) }
+
+var plain = 4
+
+var Limit = 10
+
+func Rows() int { return load().rows + plain }
+`,
+	})
+	load, ok := findFact(ff, "shelf.load")
+	if !ok {
+		t.Fatal("expected a symbol for shelf.load, an unexported var holding code")
+	}
+	if load.Props["exported"] != false {
+		t.Errorf("shelf.load exported = %v, want false", load.Props["exported"])
+	}
+	for _, want := range []struct{ kind, target string }{
+		{facts.RelCalls, "shelf.parse"},
+		{facts.RelInstantiates, "shelf.layout"},
+	} {
+		if !hasRelation(load, want.kind, want.target) {
+			t.Errorf("shelf.load should have %s %s; relations: %v", want.kind, want.target, load.Relations)
+		}
+	}
+	def, ok := findFact(ff, "shelf.Default")
+	if !ok {
+		t.Fatal("expected a symbol for shelf.Default")
+	}
+	if !hasRelation(def, facts.RelInstantiates, "shelf.layout") {
+		t.Errorf("shelf.Default should use shelf.layout; relations: %v", def.Relations)
+	}
+	if _, ok := findFact(ff, "shelf.plain"); ok {
+		t.Error("shelf.plain holds no code and is unexported, so it should not be a symbol")
+	}
+	limit, ok := findFact(ff, "shelf.Limit")
+	if !ok {
+		t.Fatal("expected a symbol for the exported shelf.Limit")
+	}
+	if len(limit.Relations) != 0 {
+		t.Errorf("shelf.Limit holds no code, so it should have no relations; got %v", limit.Relations)
+	}
+}

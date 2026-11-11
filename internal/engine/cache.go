@@ -3508,7 +3508,9 @@ import (
 // v560: Go: a type named in a function's signature, a var it declares, make or new,
 // or a type assertion is an instantiates edge from that function, so a type used
 // only that way is no longer dead code.
-const cacheVersion = "v560"
+// v561: Go: a package-level var whose initializer holds a function literal is a
+// symbol, exported or not, owning that code's calls and type uses.
+const cacheVersion = "v561"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

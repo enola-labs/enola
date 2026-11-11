@@ -462,12 +462,13 @@ func (e *GoExtractor) extractFile(fset *token.FileSet, f *ast.File, relFile, pkg
 	}
 
 	// Walk declarations
+	varCtx := bodyCtx(pkgDir, mods, fileImports, fieldTypes, callTypes, pkgFuncs, pkgScope, pkgConsts, pkgNames)
 	for _, decl := range f.Decls {
 		switch d := decl.(type) {
 		case *ast.FuncDecl:
 			result = append(result, e.extractFunc(fset, d, relFile, pkgDir, mods, fileImports, fieldTypes, callTypes, pkgFuncs, pkgScope, pkgConsts, pkgNames)...)
 		case *ast.GenDecl:
-			result = append(result, e.extractGenDecl(fset, d, relFile, pkgDir, mods, fileImports, pkgScope, pkgNames)...)
+			result = append(result, e.extractGenDecl(fset, d, relFile, pkgDir, mods, fileImports, pkgScope, pkgNames, &varCtx)...)
 		}
 	}
 
@@ -561,26 +562,8 @@ func (e *GoExtractor) extractFunc(fset *token.FileSet, fn *ast.FuncDecl, relFile
 	// body walk. The metrics ride on Props (map[string]any) and feed the
 	// performance analyzer; they are parser-derived, never inferred.
 	if fn.Body != nil {
-		ctx := resolveCtx{
-			pkgDir:     pkgDir,
-			mods:       mods,
-			imports:    fileImports,
-			recvVar:    recvVar,
-			recvType:   receiver,
-			fieldTypes: fieldTypes,
-			pkgFuncs:   pkgFuncs,
-			pkgScope:   pkgScope,
-			pkgConsts:  pkgConsts,
-			localPkgs:  pkgNames,
-
-			returnTypes:   callTypes.returns,
-			aliases:       callTypes.aliases,
-			moduleFuncs:   callTypes.funcs,
-			moduleMethods: callTypes.methods,
-			elemTypes:     callTypes.elems,
-
-			registryFields: callTypes.registries,
-		}
+		ctx := bodyCtx(pkgDir, mods, fileImports, fieldTypes, callTypes, pkgFuncs, pkgScope, pkgConsts, pkgNames)
+		ctx.recvVar, ctx.recvType = recvVar, receiver
 		typeParams := typeParamNames(fn.Recv, fn.Type)
 		ctx.localTypes = collectLocalTypesFrom(fn.Body, ctx, signatureTypes(fn.Type, ctx, typeParams), typeParams)
 		if dispatches := stringDispatches(fn.Body, ctx); len(dispatches) > 0 {
@@ -620,7 +603,7 @@ func (e *GoExtractor) extractFunc(fset *token.FileSet, fn *ast.FuncDecl, relFile
 				Target: inst,
 			})
 		}
-		for _, t := range signatureAndLocalTypes(fn, ctx, typeParams) {
+		for _, t := range typeUses(fn.Type, fn.Body, ctx, typeParams) {
 			if !slices.Contains(m.instantiates, t) {
 				symbolFact.Relations = append(symbolFact.Relations, facts.Relation{
 					Kind:   facts.RelInstantiates,
@@ -680,7 +663,7 @@ func (e *GoExtractor) extractFunc(fset *token.FileSet, fn *ast.FuncDecl, relFile
 	return result
 }
 
-func (e *GoExtractor) extractGenDecl(fset *token.FileSet, gd *ast.GenDecl, relFile, pkgDir string, mods goModules, fileImports map[string]string, pkgScope map[string]bool, pkgNames map[string]string) []facts.Fact {
+func (e *GoExtractor) extractGenDecl(fset *token.FileSet, gd *ast.GenDecl, relFile, pkgDir string, mods goModules, fileImports map[string]string, pkgScope map[string]bool, pkgNames map[string]string, varCtx *resolveCtx) []facts.Fact {
 	var result []facts.Fact
 
 	for _, spec := range gd.Specs {
@@ -688,11 +671,74 @@ func (e *GoExtractor) extractGenDecl(fset *token.FileSet, gd *ast.GenDecl, relFi
 		case *ast.TypeSpec:
 			result = append(result, e.extractTypeSpec(fset, gd, s, relFile, pkgDir, mods, fileImports, pkgScope, pkgNames)...)
 		case *ast.ValueSpec:
-			result = append(result, e.extractValueSpec(fset, gd, s, relFile, pkgDir)...)
+			result = append(result, e.extractValueSpec(fset, gd, s, relFile, pkgDir, varCtx)...)
 		}
 	}
 
 	return result
+}
+
+// bodyCtx is the resolution context for code in a package: a function's body, or
+// the initializer of a package-level var.
+func bodyCtx(pkgDir string, mods goModules, fileImports, fieldTypes map[string]string, callTypes callTypeTables, pkgFuncs, pkgScope, pkgConsts map[string]bool, pkgNames map[string]string) resolveCtx {
+	return resolveCtx{
+		pkgDir:     pkgDir,
+		mods:       mods,
+		imports:    fileImports,
+		fieldTypes: fieldTypes,
+		pkgFuncs:   pkgFuncs,
+		pkgScope:   pkgScope,
+		pkgConsts:  pkgConsts,
+		localPkgs:  pkgNames,
+
+		returnTypes:   callTypes.returns,
+		aliases:       callTypes.aliases,
+		moduleFuncs:   callTypes.funcs,
+		moduleMethods: callTypes.methods,
+		elemTypes:     callTypes.elems,
+
+		registryFields: callTypes.registries,
+	}
+}
+
+// initializerRelations are the calls and type uses of a package-level var's
+// initializer when it holds code: a function literal, alone or handed to a call
+// (`var load = sync.OnceValue(func() config {...})`). Such a var is a function in
+// all but name, and its body's calls and types are otherwise owned by nothing. An
+// initializer without a function literal yields none.
+func initializerRelations(value ast.Expr, ctx resolveCtx, selfName string) []facts.Relation {
+	hasLit := false
+	ast.Inspect(value, func(n ast.Node) bool {
+		if _, ok := n.(*ast.FuncLit); ok {
+			hasLit = true
+		}
+		return !hasLit
+	})
+	if !hasLit {
+		return nil
+	}
+	ctx.localTypes = collectLocalTypesFrom(value, ctx, nil, nil)
+	m := analyzeBody(value, ctx, selfName, nil)
+	var rels []facts.Relation
+	seen := map[string]bool{}
+	for _, call := range m.calls {
+		seen[call] = true
+		rels = append(rels, facts.Relation{Kind: facts.RelCalls, Target: call})
+	}
+	for _, ref := range funcValueRefs(value, ctx) {
+		if !seen[ref] {
+			rels = append(rels, facts.Relation{Kind: facts.RelCalls, Target: ref})
+		}
+	}
+	for _, inst := range m.instantiates {
+		rels = append(rels, facts.Relation{Kind: facts.RelInstantiates, Target: inst})
+	}
+	for _, t := range typeUses(nil, value, ctx, nil) {
+		if !slices.Contains(m.instantiates, t) {
+			rels = append(rels, facts.Relation{Kind: facts.RelInstantiates, Target: t})
+		}
+	}
+	return rels
 }
 
 // extractValueSpec emits exported package-level consts and vars as symbols.
@@ -703,17 +749,28 @@ func (e *GoExtractor) extractGenDecl(fset *token.FileSet, gd *ast.GenDecl, relFi
 // question could join against. Unexported names stay out; they are
 // implementation detail, and emitting every private binding would drown
 // the symbol set in noise.
-func (e *GoExtractor) extractValueSpec(fset *token.FileSet, gd *ast.GenDecl, vs *ast.ValueSpec, relFile, pkgDir string) []facts.Fact {
+//
+// A var whose initializer holds code (see initializerRelations) is emitted however
+// it is named, with that code's calls and type uses: it is called like a function,
+// and leaving it out leaves its calls with no caller and its types unused.
+func (e *GoExtractor) extractValueSpec(fset *token.FileSet, gd *ast.GenDecl, vs *ast.ValueSpec, relFile, pkgDir string, ctx *resolveCtx) []facts.Fact {
 	kind := facts.SymbolVariable
 	if gd.Tok == token.CONST {
 		kind = facts.SymbolConstant
 	}
 	var result []facts.Fact
-	for _, ident := range vs.Names {
-		if !ident.IsExported() {
+	for i, ident := range vs.Names {
+		if ident.Name == "_" {
 			continue
 		}
-		result = append(result, facts.Fact{
+		var rels []facts.Relation
+		if kind == facts.SymbolVariable && ctx != nil && len(vs.Values) == len(vs.Names) {
+			rels = initializerRelations(vs.Values[i], *ctx, pkgDir+"."+ident.Name)
+		}
+		if !ident.IsExported() && len(rels) == 0 {
+			continue
+		}
+		f := facts.Fact{
 			Kind:    facts.KindSymbol,
 			Name:    pkgDir + "." + ident.Name,
 			File:    relFile,
@@ -721,10 +778,14 @@ func (e *GoExtractor) extractValueSpec(fset *token.FileSet, gd *ast.GenDecl, vs 
 			EndLine: fset.Position(vs.End()).Line,
 			Props: map[string]any{
 				"symbol_kind": kind,
-				"exported":    true,
+				"exported":    ident.IsExported(),
 				"language":    "go",
 			},
-		})
+		}
+		if len(rels) > 0 {
+			f.Relations = append([]facts.Relation{{Kind: facts.RelDeclares, Target: pkgDir}}, rels...)
+		}
+		result = append(result, f)
 	}
 	return result
 }
