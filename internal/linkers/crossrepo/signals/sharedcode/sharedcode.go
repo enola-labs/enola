@@ -11,6 +11,7 @@
 package sharedcode
 
 import (
+	"fmt"
 	"regexp"
 	"sort"
 	"strings"
@@ -241,18 +242,24 @@ func jaccard(a, b map[string]bool) float64 {
 	return float64(inter) / float64(union)
 }
 
-// verifyIdentity reports whether any pairing of the files declaring id in repos a and b
-// is similar enough to count. A class reopened across files gives several candidates;
-// the best pairing wins, since one shared file is enough to evidence shared code.
-func (s *Signal) verifyIdentity(byRepo map[string][]facts.Fact, a, b string, fc *fileComparer) bool {
+// verifyIdentity returns the first pairing of the declarations of id in repos a and b
+// whose files are similar enough to count. A class reopened across files gives several
+// candidates; one shared file is enough to evidence shared code.
+func (s *Signal) verifyIdentity(byRepo map[string][]facts.Fact, a, b string, fc *fileComparer) (facts.Fact, facts.Fact, bool) {
 	for _, fa := range byRepo[a] {
 		for _, fb := range byRepo[b] {
 			if fc.similar(fa, fb) {
-				return true
+				return fa, fb, true
 			}
 		}
 	}
-	return false
+	return facts.Fact{}, facts.Fact{}, false
+}
+
+// sharedFileSample is a BucketSharedFiles value: a shared type and the files, in repos
+// a and b, whose declarations matched.
+func sharedFileSample(id string, fa, fb facts.Fact) string {
+	return fmt.Sprintf("%s: %s:%d <-> %s:%d", id, fa.File, fa.Line, fb.File, fb.Line)
 }
 
 // linkSharedSymbols connects repos that declare enough of the same distinctive types.
@@ -336,14 +343,17 @@ func (s *Signal) Contribute(in plugin.SignalInput, out plugin.EvidenceSink) {
 	for key, ids := range pairShared {
 		nameMatches[key] = len(ids)
 	}
+	// matchedFiles[key] lists, per verified identity, the declarations that matched.
+	matchedFiles := map[string][]string{}
 	if in.HasSource() {
 		fc := s.newFileComparer(in)
 		for key, ids := range pairShared {
 			a, b, _ := strings.Cut(key, "\x00")
 			verified := map[string]bool{}
 			for id := range ids {
-				if s.verifyIdentity(idToRepos[id], a, b, fc) {
+				if fa, fb, ok := s.verifyIdentity(idToRepos[id], a, b, fc); ok {
 					verified[id] = true
+					matchedFiles[key] = append(matchedFiles[key], sharedFileSample(id, fa, fb))
 				}
 			}
 			pairShared[key] = verified
@@ -372,6 +382,9 @@ func (s *Signal) Contribute(in plugin.SignalInput, out plugin.EvidenceSink) {
 			for id := range ids {
 				c.Sample(plugin.BucketSymbols, id)
 			}
+			for _, f := range matchedFiles[key] {
+				c.Sample(plugin.BucketSharedFiles, f)
+			}
 			continue
 		}
 		for _, pair := range pairs {
@@ -380,6 +393,9 @@ func (s *Signal) Contribute(in plugin.SignalInput, out plugin.EvidenceSink) {
 			e.Unverified(plugin.BucketSymbols, nameMatches[key])
 			for id := range ids {
 				e.Sample(plugin.BucketSymbols, id)
+			}
+			for _, f := range matchedFiles[key] {
+				e.Sample(plugin.BucketSharedFiles, f)
 			}
 		}
 	}

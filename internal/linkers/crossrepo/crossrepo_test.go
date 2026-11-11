@@ -3,6 +3,7 @@ package crossrepo
 import (
 	"reflect"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/enola-labs/enola/internal/facts"
@@ -2210,5 +2211,50 @@ func TestComputeLinks_HTTP_SlashLedIDPathReachesALongerServerPath(t *testing.T) 
 	}
 	if findEdge(out, "mobile", "stores") != nil {
 		t.Errorf("{}/prepare must still not reach a longer server path; edges=%+v", crossRepoEdges(out))
+	}
+}
+
+// Each verified shared type records the pair of files that matched, including when a
+// repo declares the name twice and only its second declaration is the copy.
+func TestComputeLinks_SharedSymbolsRecordTheMatchedFiles(t *testing.T) {
+	in := []facts.Fact{
+		module("svc-a", "app"),
+		symInFile("svc-a", "app.WidgetRegistry", "svc-a/app/widget_registry.rb"),
+		symInFile("svc-a", "app.PaymentLedger", "svc-a/app/payment_ledger.rb"),
+		symInFile("svc-a", "app.RetryPolicy", "svc-a/app/retry_policy.rb"),
+		module("svc-b", "app"),
+		symInFile("svc-b", "app.WidgetRegistry", "svc-b/app/generated.rb"),
+		symInFile("svc-b", "app.WidgetRegistry", "svc-b/app/widget_registry.rb"),
+		symInFile("svc-b", "app.PaymentLedger", "svc-b/app/payment_ledger.rb"),
+		symInFile("svc-b", "app.RetryPolicy", "svc-b/app/retry_policy.rb"),
+	}
+	src := fakeSource(map[string]string{
+		"svc-a/app/widget_registry.rb": bodyAlpha,
+		"svc-b/app/generated.rb":       bodyBeta,
+		"svc-b/app/widget_registry.rb": bodyAlpha,
+		"svc-a/app/payment_ledger.rb":  bodyAlpha,
+		"svc-b/app/payment_ledger.rb":  bodyAlpha,
+		"svc-a/app/retry_policy.rb":    bodyAlpha,
+		"svc-b/app/retry_policy.rb":    bodyAlpha,
+	})
+	sc := findSharedCode(ComputeLinks(in, src, allSignals(), vocab.Default()), "svc-a", "svc-b")
+	if sc == nil {
+		t.Fatal("3 verified shared types should couple the pair")
+	}
+	files, _ := sc.Props["shared_files"].([]string)
+	if len(files) != 3 {
+		t.Fatalf("shared_files = %v, want one entry per verified type", files)
+	}
+	found := false
+	for _, f := range files {
+		if strings.HasPrefix(f, "app.WidgetRegistry: ") || strings.HasPrefix(f, "WidgetRegistry: ") {
+			found = true
+			if !strings.Contains(f, "svc-a/app/widget_registry.rb") || !strings.Contains(f, "<-> svc-b/app/widget_registry.rb") {
+				t.Errorf("WidgetRegistry cites %q, want the two widget_registry.rb files", f)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("no entry for WidgetRegistry in %v", files)
 	}
 }
