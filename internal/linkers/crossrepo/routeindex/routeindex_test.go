@@ -34,13 +34,13 @@ func TestNormalizePath(t *testing.T) {
 
 func TestIsGenericPath(t *testing.T) {
 	m := New(vocab.Default())
-	generic := []string{"/health", "/status", "/metrics", "/"}
+	generic := []string{"/health", "/status", "/metrics", "/", "/healthz/live", "/health/ready"}
 	for _, p := range generic {
 		if !m.IsGenericPath(m.NormalizePath(p)) {
 			t.Errorf("m.IsGenericPath(%q) = false, want true", p)
 		}
 	}
-	specific := []string{"/api/items", "/items/{id}", "/a/b"}
+	specific := []string{"/api/items", "/items/{id}", "/a/b", "/healthz/orders"}
 	for _, p := range specific {
 		if m.IsGenericPath(m.NormalizePath(p)) {
 			t.Errorf("m.IsGenericPath(%q) = true, want false", p)
