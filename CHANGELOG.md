@@ -7,6 +7,45 @@ The full per-release change lists — every Added, Changed and Fixed line — ar
 [enola.tech/changelog](https://enola.tech/changelog). This file is the same history at
 the resolution a reader of the repository needs.
 
+## v0.5.1 — 2026-11-11
+
+**`enola serve` over HTTP, Go packages named by import path, and an impact lists the endpoints it reaches**
+
+- Serve: `enola serve` exposes the MCP tools over Streamable HTTP. Every request needs a
+  bearer token from an owner-only token file, and every path a call names or a snapshot
+  reads must lie inside a `--root`. Tools are exposed through an allowlist. Each session
+  gets its own engine; sessions asking for the same unchanged repositories share one
+  graph, and `--memory-budget` unloads the least recently used graph no call is reading.
+  Given a repository or cluster config, `serve` instead serves that one graph read-only to
+  every session and reloads it once the snapshot on disk has held still. A served
+  instance writes no `~/.enola/receipt.json` and sends no update notice.
+- Output: with `output.root` (`--output-root` on `serve`), a repository's artifacts and
+  pinned baseline are written under that root instead of inside the checkout. Every git
+  read runs with `--no-optional-locks`, so a snapshot never takes `.git/index.lock`.
+- Go: packages and their symbols are named by import path, so two repositories that both
+  have `internal/config` no longer merge into one node, and a call into another loaded
+  repository lands on its own symbol. Text answers write a Go package as its directory
+  and say once which module names are relative to; JSON and `output_mode=full` keep full
+  names. The directory form is still accepted as input, by constraints and exemptions too.
+  Declared layer paths match Go packages again, and `explore` lists packages nested under
+  a Go package.
+- Go: a method passed as a value, such as `srv.Use(s.auth)`, counts as a call to it. An
+  embedded type is resolved like any other type reference, and an interface call follows
+  to a method the implementer promotes from what it embeds. `ServeMux` and chi patterns
+  like `"POST /items"` store the method and path apart.
+- Impact: `impact_analysis` and `enola impact` list the served routes whose handler
+  reaches the target, labelled through calls, through an interface, or by package only.
+  An interface with one implementation counts as a call, and routes without a handler are
+  listed. A route a service both serves and calls is no longer reported under the method
+  of the call.
+- Flows: calls spelled through a subtype resolve to the declaring base, and the walk
+  dispatches a self-call to the override of the type it came through. Calls through
+  attributes a base class types resolve. Dart calls on typed locals dispatch through
+  supertypes, a Kotlin file whose bodies close on the member's line parses, and
+  `main.swift` top-level code is the program's entry.
+- `query_facts` keeps exact names in JSON output that follows its filters line.
+- Go 1.26.11. Engine: cache version is v559, so existing caches re-extract.
+
 ## v0.5.0 — 2026-11-09
 
 **Tree-sitter runtime on ABI 15, TypeScript workspace packages resolve to their source, and nested worktrees stop doubling a repository**
