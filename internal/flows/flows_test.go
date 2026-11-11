@@ -449,7 +449,7 @@ func TestSidePath_XcodePreviews(t *testing.T) {
 		"Sources/CubePreview/CubePreview.swift":                                  false,
 		"web/src/previews/LinkPreview.tsx":                                       false,
 		"src/Files.App/ViewModels/UserControls/Previews/TextPreviewViewModel.cs": false,
-		"App/iOS/App.swift":                                                      false,
+		"App/iOS/App.swift": false,
 	} {
 		if got := sidePath(file); got != want {
 			t.Errorf("sidePath(%q) = %v, want %v", file, got, want)

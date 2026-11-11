@@ -5,6 +5,7 @@ package endpoint
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -58,6 +59,9 @@ type Impact struct {
 	// request to the followed routes, each with the endpoints it depends on: the
 	// pages that reach a web call, the nearest screen above a mobile one.
 	Screens []Screen `json:"screens,omitempty"`
+	// OtherMatches counts the routes that contain the query without being it, left
+	// out because one route is it exactly. A query ending in * follows them all.
+	OtherMatches int `json:"other_matches,omitempty"`
 	// StoppedAt names the first hop that produced nothing, so an empty result
 	// reads as a boundary rather than as an answer.
 	StoppedAt string `json:"stopped_at,omitempty"`
@@ -75,7 +79,27 @@ type Caller struct {
 	// the application cannot run (facts.PropClientReachable false): an API method no
 	// page reaches. The call is in the source and is never sent.
 	NeverRuns bool `json:"never_runs,omitempty"`
+	// Repo is the repository of the calling file, in a multi-repo snapshot.
+	Repo string `json:"repo,omitempty"`
+	// Symbols are the functions in the file that make the call.
+	Symbols []string `json:"calls_from,omitempty"`
+	// Endpoints are the endpoints the calling service serves whose handlers reach
+	// one of Symbols: what stops working there when this endpoint changes.
+	Endpoints []CallerEndpoint `json:"endpoints,omitempty"`
 }
+
+// CallerEndpoint is an endpoint a calling service serves whose handler reaches the
+// call. Precision is "call" or "interface", as impact reports it.
+type CallerEndpoint struct {
+	Method    string `json:"method,omitempty"`
+	Path      string `json:"path"`
+	Handler   string `json:"handler"`
+	Precision string `json:"precision"`
+}
+
+// EndpointReach returns the endpoints served in repo whose handlers reach any of
+// symbols. nil leaves Caller.Endpoints empty.
+type EndpointReach func(repo string, symbols []string) []CallerEndpoint
 
 // Route is one matched endpoint.
 type Route struct {
@@ -111,6 +135,12 @@ type CallerFinder func(servers []facts.Fact) []facts.Fact
 // can match hundreds and following all of them answers a different question.
 // findCallers answers who calls the followed routes; nil reports no callers.
 func Analyze(s *facts.Store, query string, maxRoutes int, findCallers CallerFinder) Impact {
+	return AnalyzeWith(s, query, maxRoutes, findCallers, nil)
+}
+
+// AnalyzeWith is Analyze that also reports, for each caller, the endpoints of the
+// calling service that reach the call, through reach.
+func AnalyzeWith(s *facts.Store, query string, maxRoutes int, findCallers CallerFinder, reach EndpointReach) Impact {
 	if maxRoutes <= 0 {
 		maxRoutes = 25
 	}
@@ -123,6 +153,10 @@ func Analyze(s *facts.Store, query string, maxRoutes int, findCallers CallerFind
 			method, needle = strings.ToUpper(verb), strings.TrimSpace(rest)
 		}
 	}
+	// A trailing * asks for every route containing the rest. Without it, a query that
+	// names a route exactly follows that route alone.
+	prefix := strings.HasSuffix(needle, "*")
+	needle = strings.TrimSuffix(needle, "*")
 
 	// Each matched route keeps its fact, so the callers are asked for exactly the routes
 	// the answer follows, after sorting and the cap.
@@ -151,6 +185,22 @@ func Analyze(s *facts.Store, query string, maxRoutes int, findCallers CallerFind
 			fact:  fact,
 		})
 	}
+	// "/items" also names "/items-facets" and "/items/batched" by substring, and
+	// following those answered a question about three endpoints when one was asked.
+	broader := 0
+	if !prefix {
+		exact := matched[:0:0]
+		for _, m := range matched {
+			if strings.EqualFold(m.route.Path, needle) {
+				exact = append(exact, m)
+			}
+		}
+		if len(exact) > 0 {
+			broader = len(matched) - len(exact)
+			matched = exact
+		}
+	}
+	out.OtherMatches = broader
 	sort.SliceStable(matched, func(i, j int) bool {
 		if matched[i].route.Path != matched[j].route.Path {
 			return matched[i].route.Path < matched[j].route.Path
@@ -178,7 +228,7 @@ func Analyze(s *facts.Store, query string, maxRoutes int, findCallers CallerFind
 	// because of a gap in the backend walk.
 	if findCallers != nil {
 		clients := findCallers(servers)
-		out.Callers = callersFrom(s, clients)
+		out.Callers = callersFrom(s, clients, reach)
 		out.Screens = screensFrom(s, clients, servers)
 	}
 
@@ -373,7 +423,7 @@ func Analyze(s *facts.Store, query string, maxRoutes int, findCallers CallerFind
 // matching says. The screen comes from the Ember convention that app/routes/<name>
 // implements the route declared as <name>, checked against the router's own
 // declarations rather than assumed.
-func callersFrom(s *facts.Store, clients []facts.Fact) []Caller {
+func callersFrom(s *facts.Store, clients []facts.Fact, reach EndpointReach) []Caller {
 	// Ember route NAMES are what the file layout mirrors, and they are not the
 	// URL: `this.route("admin-company-linking", { path: "/admin/company-linking" })`
 	// is served at one and implemented at app/routes/admin-company-linking.
@@ -401,16 +451,69 @@ func callersFrom(s *facts.Store, clients []facts.Fact) []Caller {
 			continue
 		}
 		runs := fact.PropAny(facts.PropClientReachable) != false
+		caller := fact.PropString(facts.PropCaller)
+		if caller == "" {
+			caller = enclosingSymbol(s, fact.File, fact.Line)
+		}
 		if i, ok := at[fact.File]; ok {
 			// One call in the file that runs is enough for the file to call it.
 			out[i].NeverRuns = out[i].NeverRuns && !runs
+			if caller != "" && !slices.Contains(out[i].Symbols, caller) {
+				out[i].Symbols = append(out[i].Symbols, caller)
+			}
 			continue
 		}
 		at[fact.File] = len(out)
-		out = append(out, Caller{File: fact.File, Screen: screenFor(fact.File, screens), NeverRuns: !runs})
+		c := Caller{File: fact.File, Screen: screenFor(fact.File, screens), NeverRuns: !runs, Repo: fact.Repo}
+		if caller != "" {
+			c.Symbols = []string{caller}
+		}
+		out = append(out, c)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].File < out[j].File })
+	if reach != nil {
+		for i := range out {
+			if len(out[i].Symbols) > 0 {
+				sort.Strings(out[i].Symbols)
+				out[i].Endpoints = reach(out[i].Repo, out[i].Symbols)
+			}
+		}
+	}
 	return out
+}
+
+// enclosingSymbol is the innermost function or method of file whose lines hold line,
+// for a call site its extractor did not attribute to the symbol making it.
+func enclosingSymbol(s *facts.Store, file string, line int) string {
+	if line <= 0 {
+		return ""
+	}
+	best, span := "", 0
+	for _, f := range s.ByFile(file) {
+		if f.Kind != facts.KindSymbol || f.Line > line || f.EndLine < line {
+			continue
+		}
+		switch f.PropString("symbol_kind") {
+		case facts.SymbolFunc, facts.SymbolMethod:
+		default:
+			continue
+		}
+		if n := f.EndLine - f.Line; best == "" || n < span {
+			best, span = f.Name, n
+		}
+	}
+	return best
+}
+
+// maxReachedInSummary caps the calling services' endpoints named in the summary;
+// every one is listed under its caller.
+const maxReachedInSummary = 8
+
+func firstN(s []string, n int) []string {
+	if len(s) <= n {
+		return s
+	}
+	return append(s[:n:n], fmt.Sprintf("and %d more", len(s)-n))
 }
 
 // screenFor maps a route-module file to the router declaration it implements.
@@ -435,6 +538,9 @@ func summarize(out Impact, truncated bool) string {
 	fmt.Fprintf(&b, "%d route(s)", len(out.Routes))
 	if truncated {
 		b.WriteString(" (capped)")
+	}
+	if out.OtherMatches > 0 {
+		fmt.Fprintf(&b, " named exactly; %d other route(s) contain the query, end it with * to follow them too,", out.OtherMatches)
 	}
 	fmt.Fprintf(&b, " -> %d controller(s) -> %d model(s)", len(out.Controllers), len(out.Models))
 	if out.AssociatedTotal > 0 {
@@ -467,6 +573,17 @@ func summarize(out Impact, truncated bool) string {
 		}
 		if len(out.Screens) > 0 {
 			fmt.Fprintf(&b, " Felt on %d screen(s) of the client applications, listed under screens with the endpoints each depends on.", len(out.Screens))
+		}
+		var reached []string
+		for _, caller := range out.Callers {
+			for _, e := range caller.Endpoints {
+				reached = append(reached, strings.TrimSpace(caller.Repo+" "+e.Method+" "+e.Path))
+			}
+		}
+		if len(reached) > 0 {
+			sort.Strings(reached)
+			reached = slices.Compact(reached)
+			fmt.Fprintf(&b, " Through those calls %d endpoint(s) of the calling services depend on it, listed under each caller: %s.", len(reached), strings.Join(firstN(reached, maxReachedInSummary), ", "))
 		}
 		if never == len(out.Callers) {
 			b.WriteString(" None of those calls runs: each sits in client code no page or component reaches.")

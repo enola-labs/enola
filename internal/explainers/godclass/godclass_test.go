@@ -469,3 +469,30 @@ func TestExplain_ExcludesInstantiateFanIn(t *testing.T) {
 		}
 	}
 }
+
+// A generated symbol with outsized fan-in, an API client's request helper, is not
+// reported; the hand-written hub is.
+func TestExplain_GeneratedSymbolExcluded(t *testing.T) {
+	syms := ringGraph(200, 4, 60)
+	syms[0].Props = map[string]any{"generated": true}
+	insights, err := New().Explain(context.Background(), storeInOrder(syms))
+	if err != nil {
+		t.Fatalf("Explain: %v", err)
+	}
+	for _, in := range insights {
+		if strings.Contains(in.Title, "pkg/s0.Fn") {
+			t.Errorf("a generated symbol was reported: %q", in.Title)
+		}
+	}
+	plain, err := New().Explain(context.Background(), storeInOrder(ringGraph(200, 4, 60)))
+	if err != nil {
+		t.Fatalf("Explain: %v", err)
+	}
+	found := false
+	for _, in := range plain {
+		found = found || strings.Contains(in.Title, "pkg/s0.Fn")
+	}
+	if !found {
+		t.Fatalf("fixture: the hub should be reported when it is not generated")
+	}
+}

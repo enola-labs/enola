@@ -144,7 +144,10 @@ func InterfaceDispatch(store *facts.Store, graph *facts.Graph) map[string][]stri
 func interfaceMethods(store *facts.Store, graph *facts.Graph) (impls map[string][]string, sole func(string) bool) {
 	implementers := map[string][]string{} // interface -> implementing types
 	for _, f := range store.ByKind(facts.KindSymbol) {
-		for _, prop := range []string{"implementers", "implementers_inferred"} {
+		// Candidates are types an interface's method set matches where the extractor
+		// would not call them implementers: a call through the interface may still run
+		// them, and sole below counts them, so such a hop is never call-precise.
+		for _, prop := range []string{"implementers", "implementers_inferred", "implementers_candidates"} {
 			if types := stringList(f.PropAny(prop)); len(types) > 0 {
 				implementers[f.Name] = append(implementers[f.Name], types...)
 			}
@@ -353,12 +356,31 @@ func stringList(v any) []string {
 }
 
 func endpointsOf(store *facts.Store, graph *facts.Graph, seeds []string, packages map[string]int) (out []Endpoint, truncated bool) {
+	impls, sole := interfaceMethods(store, graph)
+	return endpointsReaching(store, graph, seeds, packages, impls, sole)
+}
+
+// EndpointFinder returns the served endpoints whose handlers reach any of seeds, by
+// calls or through an interface, as impact lists them.
+type EndpointFinder func(seeds []string) []Endpoint
+
+// NewEndpointFinder is an EndpointFinder over one snapshot. The implementations
+// behind each interface are worked out once, for every question it is asked.
+func NewEndpointFinder(store *facts.Store, graph *facts.Graph) EndpointFinder {
+	impls, sole := interfaceMethods(store, graph)
+	return func(seeds []string) []Endpoint {
+		out, _ := endpointsReaching(store, graph, seeds, nil, impls, sole)
+		return out
+	}
+}
+
+// endpointsReaching is endpointsOf with the interface implementations worked out.
+func endpointsReaching(store *facts.Store, graph *facts.Graph, seeds []string, packages map[string]int, impls map[string][]string, sole func(string) bool) (out []Endpoint, truncated bool) {
 	direct := map[string]int{}
 	for _, s := range seeds {
 		direct[s] = 0
 	}
 	truncated = reachers(graph, seeds, 0, direct)
-	impls, sole := interfaceMethods(store, graph)
 
 	// Across interfaces: an implementing method that reaches the target makes the
 	// interface method it implements reach it too, and that method's callers, until

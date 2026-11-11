@@ -321,3 +321,41 @@ func TestExplain_SharedCodeNamesTheTypesAndTheirFiles(t *testing.T) {
 		t.Errorf("cited %d types, want %d: %+v", cited, len(want), got.Evidence)
 	}
 }
+
+// The files the linker matched are the ones cited, even where a repo declares the
+// type's name elsewhere too, in a file the name lookup would pick first.
+func TestExplain_SharedCodeCitesTheMatchedFiles(t *testing.T) {
+	s := facts.NewStore()
+	s.Add(
+		facts.Fact{
+			Kind: facts.KindDependency, Name: "fork-a <-> fork-b", Repo: "fork-a",
+			Props: map[string]any{
+				"type": facts.TypeCrossRepoSharedCode, "synthetic": "crossrepo",
+				"via": []string{"shared_symbols"}, "repos": []string{"fork-a", "fork-b"},
+				"symbol_count": 1, "name_match_count": 2,
+				"symbol_samples": []any{"Version"},
+				"shared_files":   []any{"Version: fork-a/internal/app/version.go:3 <-> fork-b/internal/model/version.go:5"},
+			},
+		},
+		facts.Fact{Kind: facts.KindSymbol, Name: "example.com/fork-a/internal/app.Version", Repo: "fork-a",
+			File: "fork-a/internal/app/version.go", Line: 3, Props: map[string]any{"symbol_kind": facts.SymbolStruct}},
+		facts.Fact{Kind: facts.KindSymbol, Name: "example.com/fork-b/internal/api.Version", Repo: "fork-b",
+			File: "fork-b/internal/api/generated.go", Line: 900, Props: map[string]any{"symbol_kind": facts.SymbolStruct}},
+		facts.Fact{Kind: facts.KindSymbol, Name: "example.com/fork-b/internal/model.Version", Repo: "fork-b",
+			File: "fork-b/internal/model/version.go", Line: 5, Props: map[string]any{"symbol_kind": facts.SymbolStruct}},
+	)
+	insights, err := New().Explain(context.Background(), s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, ev := range insights[0].Evidence {
+		if ev.Symbol == "" {
+			continue
+		}
+		if ev.File != "fork-a/internal/app/version.go" || ev.Detail != "fork-b also declares Version at fork-b/internal/model/version.go:5" {
+			t.Errorf("evidence = %s %q, want the matched pair", ev.File, ev.Detail)
+		}
+		return
+	}
+	t.Fatalf("no evidence for Version: %+v", insights[0].Evidence)
+}

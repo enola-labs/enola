@@ -25,6 +25,7 @@ Nothing here is a setting. enola looks for the markers below and runs whatever i
 | Terraform / HCL | any `.tf`/`.hcl` file (blocks as Terraform addresses; prefixed and declared-set bare references; local module sources draw directory dependencies) |
 | Ansible    | `ansible.cfg` or a `roles/` directory beside plays (plays → roles by name; `include_role`/`import_role`; templates counted, never rendered) |
 | AsyncAPI   | any AsyncAPI 2.x/3.x YAML or JSON spec (channels and producer/consumer operations → messaging topics; local `$ref` and payload-schema identity) |
+| Vespa      | any Vespa schema definition (`.sd`): each `document` type → a `storage` fact (`storage_kind: document_type`, `engine: vespa`), with the types it inherits; YQL `select … from <type>` in code reaches the same node |
 | OpenAPI    | any spec with an `openapi:` / `swagger:` key |
 | gRPC       | any `.proto` file (proto services → routes; TypeScript gRPC-web client calls detected) |
 | GraphQL    | graphql-ruby root types (server) + gql tags, `.graphql` operation documents and Ruby operation strings (clients); operation documents activate detection without a TypeScript root |

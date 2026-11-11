@@ -1,6 +1,7 @@
 package endpoint
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/enola-labs/enola/internal/facts"
@@ -436,5 +437,29 @@ func TestAnalyzeMarksCallersThatNeverRun(t *testing.T) {
 		if v, ok := never[f]; !ok || v != w {
 			t.Errorf("%s: never runs = %v (listed %v), want %v", f, v, ok, w)
 		}
+	}
+}
+
+// A query naming a route exactly follows that route, not every route containing it;
+// a trailing * follows them all.
+func TestAnalyzeFollowsTheRouteNamedExactly(t *testing.T) {
+	st := facts.NewStore()
+	for _, path := range []string{"/shelves", "/shelves-count", "/shelves/batched"} {
+		st.Add(facts.Fact{Kind: facts.KindRoute, Name: path, Props: map[string]any{"method": "POST"}})
+	}
+	st.BuildGraph()
+
+	got := Analyze(st, "POST /shelves", 25, nil)
+	if len(got.Routes) != 1 || got.Routes[0].Path != "/shelves" {
+		t.Errorf("routes = %+v, want only /shelves", got.Routes)
+	}
+	if got.OtherMatches != 2 || !strings.Contains(got.Summary, "2 other route(s)") {
+		t.Errorf("other matches = %d, summary %q: want the two broader routes counted", got.OtherMatches, got.Summary)
+	}
+	if all := Analyze(st, "POST /shelves*", 25, nil); len(all.Routes) != 3 {
+		t.Errorf("a trailing * should follow all three routes, got %+v", all.Routes)
+	}
+	if part := Analyze(st, "/shelv", 25, nil); len(part.Routes) != 3 {
+		t.Errorf("a query naming no route exactly matches by substring as before, got %+v", part.Routes)
 	}
 }

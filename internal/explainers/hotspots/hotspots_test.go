@@ -518,3 +518,20 @@ func TestExplain_ReportedFanOutCountsOnlyOutgoingCoupling(t *testing.T) {
 		}
 	}
 }
+
+// A generated symbol is no hotspot anyone acts on, however central.
+func TestExplain_GeneratedSymbolExcluded(t *testing.T) {
+	store := makeStore("core.Hub", 5, 5)
+	store.UpdateWhere(func(f *facts.Fact) {
+		if f.Name == "core.Hub" {
+			f.SetProp("generated", true)
+		}
+	})
+	insights, err := New().Explain(context.Background(), store)
+	if err != nil {
+		t.Fatalf("Explain: %v", err)
+	}
+	if len(insights) != 0 {
+		t.Errorf("a generated hub was reported: %+v", insights)
+	}
+}

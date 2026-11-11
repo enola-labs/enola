@@ -115,6 +115,10 @@ var cliNormalizers = []struct {
 	// An excuse's age is counted from today.
 	{regexp.MustCompile(`\b\d+ days?\b`), "<N> days"},
 	{regexp.MustCompile(`"(age_days|oldest_excuse_days)": \d+`), `"$1": "<N>"`},
+	// What history stores depends on the machine that wrote it (its host name, its
+	// temporary paths, the compressor of the Go release that built enola), and a size
+	// near a kilobyte boundary printed 4 KB on one machine and 5 KB on another.
+	{regexp.MustCompile(`\b\d+(\.\d+)? (B|KB|MB|GB)\b`), "<SIZE>"},
 	// The history epoch fingerprints the extractor version among other things.
 	{regexp.MustCompile(`"epoch": "[0-9a-f]+"`), `"epoch": "<EPOCH>"`},
 }

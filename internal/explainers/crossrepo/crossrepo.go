@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/enola-labs/enola/internal/facts"
@@ -113,7 +114,15 @@ func sharedCodeInsight(store *facts.Store) *facts.Insight {
 		}
 		lines = append(lines, p.Name+" ("+detail+")")
 		if repos := stringSlice(p.PropAny("repos")); len(repos) == 2 {
+			matched := matchedFiles(stringSlice(p.PropAny("shared_files")))
 			for _, name := range samples {
+				if m, ok := matched[name]; ok {
+					evidence = append(evidence, facts.Evidence{
+						Symbol: name, File: m.fileA, Line: m.lineA,
+						Detail: fmt.Sprintf("%s also declares %s at %s:%d", repos[1], name, m.fileB, m.lineB),
+					})
+					continue
+				}
 				if ev, ok := sharedTypeEvidence(decls, name, repos[0], repos[1]); ok {
 					evidence = append(evidence, ev)
 				}
@@ -141,6 +150,42 @@ func sharedCodeInsight(store *facts.Store) *facts.Insight {
 		Confidence: confidence,
 		Evidence:   evidence,
 	}
+}
+
+// matchedFile is the pair of declarations of a shared type whose files the linker
+// found alike.
+type matchedFile struct {
+	fileA, fileB string
+	lineA, lineB int
+}
+
+// matchedFiles reads the linker's shared_files samples, "Name: a.go:12 <-> b.go:9",
+// by type name.
+func matchedFiles(samples []string) map[string]matchedFile {
+	out := map[string]matchedFile{}
+	for _, s := range samples {
+		name, pair, ok := strings.Cut(s, ": ")
+		a, b, ok2 := strings.Cut(pair, " <-> ")
+		if !ok || !ok2 {
+			continue
+		}
+		fa, la := fileLine(a)
+		fb, lb := fileLine(b)
+		out[name] = matchedFile{fileA: fa, lineA: la, fileB: fb, lineB: lb}
+	}
+	return out
+}
+
+func fileLine(s string) (string, int) {
+	i := strings.LastIndex(s, ":")
+	if i < 0 {
+		return s, 0
+	}
+	n, err := strconv.Atoi(s[i+1:])
+	if err != nil {
+		return s, 0
+	}
+	return s[:i], n
 }
 
 // typeDeclarations maps each type name a shared-code pair samples to the type
@@ -179,7 +224,8 @@ func typeDeclarations(store *facts.Store, pairs []facts.Fact) map[string][]facts
 }
 
 // sharedTypeEvidence cites where a shared type is declared in each repo of a pair,
-// so the copies can be diffed without searching for them. Where a repo declares the
+// so the copies can be diffed without searching for them, for a snapshot whose
+// linker recorded no matched files (it had no source to compare). Where a repo declares the
 // name more than once, the declaration at the same path in both repos is taken, as
 // the copy most likely to be the shared one; otherwise the first in each.
 func sharedTypeEvidence(decls map[string][]facts.Fact, name, repoA, repoB string) (facts.Evidence, bool) {

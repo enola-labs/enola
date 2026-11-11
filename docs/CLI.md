@@ -1077,7 +1077,7 @@ Running servers register themselves under `~/.enola/instances/`; a record is rem
 
 ## Build from source
 
-Prerequisites: **Go 1.26+** and a **C compiler** (for the tree-sitter bindings).
+Prerequisites: **Go 1.27+** and a **C compiler** (for the tree-sitter bindings).
 
 ```bash
 go build -o enola ./cmd/enola   # or: go install ./cmd/enola

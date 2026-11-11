@@ -329,9 +329,9 @@ func (s *Server) nearestNames(store *facts.Store, unresolved []string) map[strin
 func (s *Server) registerEndpointImpactTool() {
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name: "endpoint_impact",
-		Description: "What changing an HTTP endpoint reaches, on both sides: the route, the controller serving it, the models and tables behind it, " +
-			"and who notices: the client call sites that send it and the screens of the web and mobile apps that depend on it, each with the endpoints it uses. " +
-			"Use this when you have a URL or a path prefix, impact_analysis when you have a symbol.",
+		Description: "What changing an HTTP endpoint reaches: the route, its controller, the models and tables behind it, " +
+			"the client call sites that send it with the calling service's own endpoints that reach them, and the app screens that depend on it. " +
+			"Use it with a URL (a trailing * matches every route containing it), impact_analysis with a symbol.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args endpointImpactArgs) (*mcp.CallToolResult, any, error) {
 		store := s.eng.Store()
 		if store.Count() == 0 {

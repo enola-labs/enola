@@ -213,7 +213,7 @@ jobs:
           # morning, so an unrelated PR can go red on a new check the author never
           # touched — the same class of surprise this repo refuses everywhere else.
           # Dependabot does not track this field, so bump it deliberately.
-          version: v2.12.2
+          version: v2.15.0
 
   vuln:
     runs-on: ubuntu-latest

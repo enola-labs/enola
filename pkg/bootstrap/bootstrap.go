@@ -57,6 +57,7 @@ import (
 	"github.com/enola-labs/enola/internal/extractors/scalaextractor"
 	"github.com/enola-labs/enola/internal/extractors/swiftextractor"
 	"github.com/enola-labs/enola/internal/extractors/tsextractor"
+	"github.com/enola-labs/enola/internal/extractors/vespaextractor"
 	"github.com/enola-labs/enola/internal/facts"
 	"github.com/enola-labs/enola/internal/history"
 	"github.com/enola-labs/enola/internal/linkers/binders/clientseam"
@@ -74,6 +75,7 @@ import (
 	"github.com/enola-labs/enola/internal/linkers/binders/moduleedges"
 	"github.com/enola-labs/enola/internal/linkers/binders/openapiimpl"
 	"github.com/enola-labs/enola/internal/linkers/binders/stimulusresolver"
+	"github.com/enola-labs/enola/internal/linkers/binders/storageclients"
 	"github.com/enola-labs/enola/internal/linkers/binders/storedfuncs"
 	"github.com/enola-labs/enola/internal/linkers/binders/testexercises"
 	"github.com/enola-labs/enola/internal/linkers/binders/unmatchedroutes"
@@ -533,6 +535,7 @@ func registerOSSPlugins(eng *engine.Engine, cfg *config.Config) {
 	eng.RegisterExtractor(rustextractor.New())
 	eng.RegisterExtractor(scalaextractor.New())
 	eng.RegisterExtractor(dartextractor.New())
+	eng.RegisterExtractor(vespaextractor.New())
 
 	// Resolve the linking vocabulary once and hand it to everything that matches under
 	// it, so the signals and the unmatched-route binder cannot disagree about what
@@ -554,6 +557,7 @@ func registerOSSPlugins(eng *engine.Engine, cfg *config.Config) {
 	eng.RegisterBinder(mixinowner.New())
 	eng.RegisterBinder(inheritedcalls.New())
 	eng.RegisterBinder(storedfuncs.New())
+	eng.RegisterBinder(storageclients.New())
 	eng.RegisterBinder(frameworkroots.New())
 	eng.RegisterBinder(moduleedges.New())
 	eng.RegisterBinder(stimulusresolver.New())

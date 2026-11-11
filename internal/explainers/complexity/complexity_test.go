@@ -296,3 +296,21 @@ func TestExplain_TestSymbolsDoNotMoveTheThreshold(t *testing.T) {
 		}
 	}
 }
+
+// A generated function's complexity is its generator's, not a finding.
+func TestExplain_GeneratedFunctionExcluded(t *testing.T) {
+	s := facts.NewStore()
+	for i := 0; i < 20; i++ {
+		s.Add(fn(fmt.Sprintf("pkg/x.simple%d", i), 2))
+	}
+	monster := fn("pkg/x.decodeMonster", 30)
+	monster.Props["generated"] = true
+	s.Add(monster)
+	insights, err := New().Explain(context.Background(), s)
+	if err != nil {
+		t.Fatalf("Explain: %v", err)
+	}
+	if len(insights) != 0 {
+		t.Errorf("a generated function was reported: %+v", insights)
+	}
+}

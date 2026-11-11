@@ -126,8 +126,12 @@ func (e *GoExtractor) Extract(ctx context.Context, repoPath string, files []stri
 		}
 		parsed, err := parser.ParseFile(fset, absFile, src, parser.ParseComments)
 		if err != nil {
-			log.Printf("[go-extractor] error parsing %s: %v", f, err)
-			continue
+			parsed = keepCleanDecls(parsed)
+			if parsed == nil {
+				log.Printf("[go-extractor] error parsing %s: %v", f, err)
+				continue
+			}
+			log.Printf("[go-extractor] read %s in part, leaving out what failed to parse: %v", f, err)
 		}
 		if pp.pkgName == "" {
 			pp.pkgName = parsed.Name.Name
@@ -233,7 +237,7 @@ func (e *GoExtractor) Extract(ctx context.Context, repoPath string, files []stri
 	for _, pkgDir := range pkgDirs {
 		collectTypeDecls(decls, parsedPkgs[pkgDir], pkgDir, mods, pkgNames, aliases)
 	}
-	stated, inferred := implementersFrom(decls, callTypes.embeds, callTypes.implementers)
+	stated, inferred, candidates := implementersFrom(decls, callTypes.embeds, callTypes.implementers)
 	for _, found := range []map[string][]string{stated, inferred} {
 		for iface, impls := range found {
 			for _, t := range impls {
@@ -310,7 +314,7 @@ func (e *GoExtractor) Extract(ctx context.Context, repoPath string, files []stri
 	}
 	bindCommands(allFacts, commandLits, mods)
 	bindTools(allFacts)
-	annotateImplementers(allFacts, stated, inferred)
+	annotateImplementers(allFacts, stated, inferred, candidates)
 
 	// Carry io_direct to every function that reaches one, across packages, and
 	// through an interface to the types asserted to implement it.

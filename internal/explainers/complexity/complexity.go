@@ -74,6 +74,12 @@ func (e *ComplexityExplainer) Explain(ctx context.Context, store *facts.Store) (
 		if facts.IsTestPath(s.File) {
 			continue
 		}
+		// Generated code is not maintained by hand, and a generated decoder's
+		// complexity is the generator's: it neither belongs in the average nor is a
+		// finding.
+		if s.PropBool("generated") {
+			continue
+		}
 		if !isCallable(s) {
 			continue
 		}

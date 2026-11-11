@@ -15,6 +15,7 @@ import (
 
 	"github.com/enola-labs/enola/internal/endpoint"
 	"github.com/enola-labs/enola/internal/facts"
+	"github.com/enola-labs/enola/internal/impact"
 	"github.com/enola-labs/enola/internal/linkers/crossrepo/routeindex"
 	"github.com/enola-labs/enola/internal/linkers/vocab"
 	"github.com/enola-labs/enola/pkg/plugin"
@@ -846,7 +847,40 @@ func NewCallerFinder(m *routeindex.Matcher, all []facts.Fact) endpoint.CallerFin
 // caller here too. The tool and the command both answer through it, which is what
 // keeps them from composing the finder two ways.
 func AnalyzeEndpoint(store *facts.Store, v *vocab.Set, query string, maxRoutes int) endpoint.Impact {
-	return endpoint.Analyze(store, query, maxRoutes, NewCallerFinder(routeindex.New(v), store.All()))
+	return endpoint.AnalyzeWith(store, query, maxRoutes, NewCallerFinder(routeindex.New(v), store.All()), newEndpointReach(store))
+}
+
+// newEndpointReach answers which endpoints of a calling service reach its call,
+// with impact's endpoint search, built on the first question. A route both a spec
+// and its generated wrapper serve is one endpoint, at the stronger precision.
+func newEndpointReach(store *facts.Store) endpoint.EndpointReach {
+	var find impact.EndpointFinder
+	return func(repo string, symbols []string) []endpoint.CallerEndpoint {
+		graph := store.Graph()
+		if graph == nil {
+			return nil
+		}
+		if find == nil {
+			find = impact.NewEndpointFinder(store, graph)
+		}
+		var out []endpoint.CallerEndpoint
+		at := map[string]int{}
+		for _, e := range find(symbols) {
+			if repo != "" && e.Repo != repo {
+				continue
+			}
+			key := e.Method + " " + e.Path
+			if i, ok := at[key]; ok {
+				if out[i].Precision != impact.PrecisionCall && e.Precision == impact.PrecisionCall {
+					out[i].Precision, out[i].Handler = e.Precision, e.Handler
+				}
+				continue
+			}
+			at[key] = len(out)
+			out = append(out, endpoint.CallerEndpoint{Method: e.Method, Path: e.Path, Handler: e.Handler, Precision: e.Precision})
+		}
+		return out
+	}
 }
 
 // The Reason* constants are the exhaustive set of values written to a client route's
