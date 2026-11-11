@@ -839,6 +839,9 @@ func (g *Graph) traverseFrom(starts []string, direction string, relKinds, nodeKi
 		if item.depth >= maxDepth {
 			continue
 		}
+		if !reverse && item.depth > 0 && g.storageOnly(item.id) {
+			continue
+		}
 
 		tgts, rels := g.adjOf(item.id, reverse)
 		for i, tid := range tgts {
@@ -986,6 +989,9 @@ func (g *Graph) findPath(from, to string, relKinds []string, maxDepth int, dispa
 
 		if item.depth >= maxDepth {
 			continue
+		}
+		if item.depth > 0 && g.storageOnly(item.id) {
+			continue // see storageOnly
 		}
 
 		tgts, rels := g.adjOf(item.id, false)
@@ -1193,6 +1199,9 @@ func (g *Graph) findPathBetween(froms, tos []string, relKinds []string, maxDepth
 		item := queue[qi]
 		if item.depth >= maxDepth {
 			continue
+		}
+		if item.depth > 0 && g.storageOnly(item.id) {
+			continue // see storageOnly
 		}
 		tgts, rels := g.adjOf(item.id, false)
 		// The adjacency is already in neighbour-name order (sortAdjacency), so
@@ -2102,6 +2111,24 @@ func (g *Graph) symbolForRel(idxs []int32, viaRel string) (int, bool) {
 // conflatedKinds returns the distinct kinds sharing name, sorted, when more than one
 // fact declares it — the honest signal that this graph node merges several facts and
 // their edges. Returns nil for the common single-fact case.
+// storageOnly reports a node every fact of which is storage: a table, a topic, a
+// bucket. A forward walk stops there. Storage depends on nothing; its only outgoing
+// edges say which packages name it, and a table of the same name in another
+// repository is the same node, so walking on led from one service's query into the
+// other service's packages.
+func (g *Graph) storageOnly(id uint32) bool {
+	idxs := g.factIdxsOf(id)
+	if len(idxs) == 0 {
+		return false
+	}
+	for _, idx := range idxs {
+		if int(idx) >= len(g.facts) || g.facts[idx].Kind != KindStorage {
+			return false
+		}
+	}
+	return true
+}
+
 func (g *Graph) conflatedKindsOf(id uint32) []string {
 	idxs := g.factIdxsOf(id)
 	if len(idxs) < 2 {
