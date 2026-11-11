@@ -4,6 +4,7 @@ import (
 	"go/ast"
 	"go/token"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -139,8 +140,15 @@ func selectGate(literal string) bool { return reSelectKeyword.MatchString(litera
 //
 // consts are the package's string constants (buildStringConsts): a query assembled
 // with fmt.Sprintf or + from a constant naming its table is read as the text it builds.
-func extractStorage(fset *token.FileSet, f *ast.File, relFile, pkgDir string, consts map[string]string) []facts.Fact {
-	var result []facts.Fact
+//
+// uses maps each function of the file, by its symbol name, to the tables the queries
+// it holds name: a query written in its body, or held in a package-level constant or
+// variable the body refers to. A query outside any function names no user.
+func extractStorage(fset *token.FileSet, f *ast.File, relFile, pkgDir string, consts map[string]string) (result []facts.Fact, uses map[string][]string) {
+	uses = map[string][]string{}
+	// owner is the function, or the "\x00value\x00"-prefixed package-level constant or
+	// variable, whose code is being read.
+	owner := ""
 
 	// Track seen (table, operation) pairs per file to deduplicate
 	type tableOp struct{ table, op string }
@@ -189,6 +197,9 @@ func extractStorage(fset *token.FileSet, f *ast.File, relFile, pkgDir string, co
 				if isSQLNoise(tableName) {
 					continue
 				}
+				if owner != "" && !slices.Contains(uses[owner], tableName) {
+					uses[owner] = append(uses[owner], tableName)
+				}
 				key := tableOp{tableName, pat.operation}
 				if seen[key] {
 					continue
@@ -214,7 +225,7 @@ func extractStorage(fset *token.FileSet, f *ast.File, relFile, pkgDir string, co
 	}
 	fmtName := importName(f, "fmt")
 
-	ast.Inspect(f, func(n ast.Node) bool {
+	visit := func(n ast.Node) bool {
 		switch node := n.(type) {
 		case *ast.CallExpr:
 			if val, ok := sprintfQuery(node, fmtName, consts); ok {
@@ -269,9 +280,66 @@ func extractStorage(fset *token.FileSet, f *ast.File, relFile, pkgDir string, co
 			}
 		}
 		return true
-	})
+	}
 
-	return result
+	const valuePrefix = "\x00value\x00"
+	var funcs []*ast.FuncDecl
+	for _, decl := range f.Decls {
+		switch d := decl.(type) {
+		case *ast.FuncDecl:
+			funcs = append(funcs, d)
+			owner = funcSymbolName(d, pkgDir)
+			ast.Inspect(d, visit)
+		case *ast.GenDecl:
+			for _, spec := range d.Specs {
+				vs, ok := spec.(*ast.ValueSpec)
+				if !ok || len(vs.Values) != len(vs.Names) {
+					owner = ""
+					ast.Inspect(spec, visit)
+					continue
+				}
+				for i, name := range vs.Names {
+					owner = valuePrefix + name.Name
+					ast.Inspect(vs.Values[i], visit)
+				}
+			}
+		}
+	}
+
+	// A function referring to a package-level value that holds a query uses its
+	// tables. Only values of this file are known here; a query held in another file of
+	// the package is read there and has no user.
+	for _, fn := range funcs {
+		if fn.Body == nil {
+			continue
+		}
+		name := funcSymbolName(fn, pkgDir)
+		ast.Inspect(fn.Body, func(n ast.Node) bool {
+			if id, ok := n.(*ast.Ident); ok {
+				for _, table := range uses[valuePrefix+id.Name] {
+					if !slices.Contains(uses[name], table) {
+						uses[name] = append(uses[name], table)
+					}
+				}
+			}
+			return true
+		})
+	}
+	for k := range uses {
+		if strings.HasPrefix(k, valuePrefix) {
+			delete(uses, k)
+		}
+	}
+	return result, uses
+}
+
+// funcSymbolName is the name extractFunc gives a function's symbol.
+func funcSymbolName(fn *ast.FuncDecl, pkgDir string) string {
+	name := fn.Name.Name
+	if fn.Recv != nil && len(fn.Recv.List) > 0 {
+		name = typeExprToString(fn.Recv.List[0].Type) + "." + name
+	}
+	return pkgDir + "." + name
 }
 
 // isSQLNoise returns true for common SQL keywords that are not table names.

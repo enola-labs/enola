@@ -389,3 +389,53 @@ func queries(n int) []string {
 		t.Errorf("tables %v, want exactly %v", got, want)
 	}
 }
+
+// A function depends on the tables its queries name: a query in its body, or one held
+// in a package-level constant it refers to. A query outside any function names no user.
+func TestExtractStorage_FunctionDependsOnItsTables(t *testing.T) {
+	ff := extractAll(t, map[string]string{
+		"shelf/repo.go": `package shelf
+
+import "fmt"
+
+const booksTable = "books"
+
+const listLoans = "SELECT id FROM loans WHERE returned = 0"
+
+const migration = "CREATE TABLE archive (id INT)"
+
+type Repo struct{}
+
+func (r *Repo) Titles() string {
+	return fmt.Sprintf("SELECT title FROM %s", booksTable)
+}
+
+func (r *Repo) Open() string { return listLoans }
+
+func count() string { return "SELECT COUNT(*) FROM books JOIN loans ON loans.book_id = books.id" }
+`,
+	})
+	for name, want := range map[string][]string{
+		"shelf.Repo.Titles": {"books"},
+		"shelf.Repo.Open":   {"loans"},
+		"shelf.count":       {"books", "loans"},
+	} {
+		sym, ok := findFact(ff, name)
+		if !ok {
+			t.Fatalf("expected a fact for %s", name)
+		}
+		for _, table := range want {
+			if !hasRelation(sym, facts.RelDependsOn, table) {
+				t.Errorf("%s should depend on %s; relations: %v", name, table, sym.Relations)
+			}
+		}
+	}
+	for _, f := range ff {
+		if f.Kind != facts.KindSymbol {
+			continue
+		}
+		if hasRelation(f, facts.RelDependsOn, "archive") {
+			t.Errorf("%s depends on archive, which only a constant nothing refers to names", f.Name)
+		}
+	}
+}

@@ -3514,7 +3514,9 @@ import (
 // hint between DELETE and FROM no longer hides the table.
 // v563: Go: a query naming its table through a package string constant, assembled
 // with fmt.Sprintf or +, is read as the text it builds.
-const cacheVersion = "v563"
+// v564: Go: a function depends_on the tables the queries in its body, or in a
+// package-level value it refers to, name.
+const cacheVersion = "v564"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

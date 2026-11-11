@@ -489,7 +489,20 @@ func (e *GoExtractor) extractFile(fset *token.FileSet, f *ast.File, relFile, pkg
 	result = append(result, extractGRPCClientFacts(fset, f, relFile, pkgDir, mods, fileImports, fieldTypes, pkgVarClients, grpcStubs)...)
 
 	// Extract storage patterns
-	result = append(result, extractStorage(fset, f, relFile, pkgDir, strConsts)...)
+	storage, tableUses := extractStorage(fset, f, relFile, pkgDir, strConsts)
+	result = append(result, storage...)
+	// A function depends on the tables its queries name, so a walk from a route can
+	// end at the table it reads or writes, and a table's dependents are the code
+	// touching it.
+	for i := range result {
+		sym := &result[i]
+		if sym.Kind != facts.KindSymbol || sym.File != relFile {
+			continue
+		}
+		for _, table := range tableUses[sym.Name] {
+			sym.Relations = append(sym.Relations, facts.Relation{Kind: facts.RelDependsOn, Target: table})
+		}
+	}
 
 	// Extract Kafka topic references (produced/consumed), for async cross-repo links
 	result = append(result, extractKafkaFacts(fset, f, relFile, pkgDir)...)

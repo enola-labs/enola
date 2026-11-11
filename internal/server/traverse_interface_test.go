@@ -2,6 +2,8 @@ package server_test
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -117,5 +119,75 @@ func TestFindPath_CrossesInterfaces(t *testing.T) {
 		if !through[name] {
 			t.Errorf("%s should be on the path, reached through an interface; path: %+v", name, res.Path)
 		}
+	}
+}
+
+// A route reaches the table its handler's service queries: through the interface
+// the handler calls, to the repository method whose query names the table.
+func TestFindPath_RouteToTable(t *testing.T) {
+	dir := t.TempDir()
+	for rel, body := range map[string]string{
+		"go.mod": "module example.com/library\n\ngo 1.22\n",
+		"internal/store/store.go": `package store
+
+import (
+	"database/sql"
+	"fmt"
+)
+
+const loansTable = "loans"
+
+type Repo struct{ db *sql.DB }
+
+func (r *Repo) Open() (*sql.Rows, error) {
+	return r.db.Query(fmt.Sprintf("SELECT id FROM %s WHERE returned = 0", loansTable))
+}
+`,
+		"internal/http/http.go": `package http
+
+import (
+	"database/sql"
+	"net/http"
+)
+
+type Loans interface{ Open() (*sql.Rows, error) }
+
+type Handler struct{ loans Loans }
+
+func (h Handler) List(w http.ResponseWriter, r *http.Request) { _, _ = h.loans.Open() }
+
+func Register(mux *http.ServeMux, h Handler) { mux.HandleFunc("GET /loans", h.List) }
+`,
+	} {
+		p := filepath.Join(dir, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s := startInMemory(t)
+	if res := s.call(t, "generate_snapshot", map[string]any{"repo_path": dir}); res.IsError {
+		t.Fatal(text(res))
+	}
+	raw := text(s.call(t, "find_path", map[string]any{
+		"from": "example.com/library/internal/http.Handler.List",
+		"to":   "kind:storage loans",
+	}))
+	var res struct {
+		Found bool `json:"found"`
+		Path  []struct {
+			Name string `json:"name"`
+		} `json:"path"`
+	}
+	if err := json.Unmarshal([]byte(raw), &res); err != nil {
+		t.Fatalf("find_path output: %v\n%.300s", err, raw)
+	}
+	if !res.Found {
+		t.Fatalf("no path from the handler to the loans table:\n%s", raw)
+	}
+	if last := res.Path[len(res.Path)-1].Name; last != "loans" {
+		t.Errorf("path ends at %s, want the loans table", last)
 	}
 }
