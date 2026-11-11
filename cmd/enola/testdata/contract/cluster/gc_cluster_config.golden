@@ -10,7 +10,7 @@ Cluster <TMP>/services/cluster.yaml: 2 repositories
     with contents 1  (replayable)
     working      1  (snapshots of uncommitted trees)
   segments       1
-  stored         5 KB
+  stored         4 KB
 
 Nothing to remove.
 
@@ -24,5 +24,5 @@ No revisions recorded.
 
 No revisions recorded.
 
-Total: 1 revision, 5 KB stored, 0 B would be reclaimed
+Total: 1 revision, 4 KB stored, 0 B would be reclaimed
 --- stderr

@@ -26,6 +26,7 @@ package orphans
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"unicode"
@@ -345,9 +346,18 @@ func bareName(name string) string { return lastSeg(name) }
 // GetBranchCommitID, kept two package-level functions alive that nothing calls. Go
 // functions handed over as values are recorded as edges too (see
 // goextractor/funcvalues.go), which is what makes the narrower match safe.
+//
+// Every symbol is also matched by its own full name. A Go type is named by its
+// package's import path ("example.com/shop/internal/cart.line"), and a reference to
+// it from a field, a literal or a signature arrives in exactly that form, which
+// collect records under the full name only (isForeignGoType cannot tell the
+// module's own import path from another module's).
 func refCandidates(sym symInput) []string {
 	if sym.Kind != facts.SymbolFunc || !strings.HasSuffix(sym.File, ".go") {
 		out := candidateNames(sym.Name, sym.Kind)
+		if !slices.Contains(out, sym.Name) {
+			out = append(out, sym.Name)
+		}
 		if sym.ImportName != "" {
 			out = append(out, sym.ImportName)
 		}

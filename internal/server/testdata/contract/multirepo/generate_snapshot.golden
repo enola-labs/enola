@@ -6,7 +6,7 @@ Snapshot generated successfully.
 
 - Repositories (2): api (<TMP>/go_httpclient_multirepo/api), consumer (<TMP>/go_httpclient_multirepo/consumer)
 - Facts: 22
-- Insights: 8
+- Insights: 6
 - Artifacts: 3
 - Duration: <DURATION>
 - Extractors: [go manifests]
