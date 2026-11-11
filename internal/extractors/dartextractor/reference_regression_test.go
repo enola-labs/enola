@@ -115,3 +115,35 @@ Object standalone() => consume(message);
 	}
 	t.Fatal("same-class method tear-off was lost")
 }
+
+func TestDartTearOffScopeRestoration(t *testing.T) {
+	for _, body := range []string{
+		`items.forEach((callback) => consume(callback));`,
+		`{ final callback = external; consume(callback); }`,
+		`for(final callback in items) { consume(callback); }`,
+		`try {} catch(callback) { consume(callback); }`,
+		`void nested(callback) { consume(callback); }`,
+	} {
+		for _, outer := range []bool{false, true} {
+			source := `import 'package:http/http.dart'; Object callback() { httpClient.get('/'); return null; } Object run(items) { ` + body
+			if outer {
+				source += ` consume(callback); `
+			}
+			source += ` return null; }`
+			all := dartReviewFacts(t, map[string]string{"lib/a.dart": source})
+			f := findFact(all, facts.KindSymbol, "lib.run")
+			if f == nil {
+				t.Fatal("missing run")
+			}
+			names := false
+			for _, rel := range f.Relations {
+				if rel.Kind == facts.RelNames && rel.Target == "lib.callback" {
+					names = true
+				}
+			}
+			if names != outer || hasReviewCall(f, "lib.callback") || f.PropBool("performs_io") || f.PropBool("recursive_self") {
+				t.Errorf("scope %s (outer=%v): %+v", body, outer, f)
+			}
+		}
+	}
+}

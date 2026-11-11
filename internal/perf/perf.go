@@ -74,6 +74,7 @@ type funcInfo struct {
 	Line       int
 	Repo       string
 	Package    string
+	Accessor   string
 	Exported   bool
 	Cyclomatic int
 	LoopDepth  int
@@ -120,14 +121,15 @@ type funcInfo struct {
 	// above from "passes an element" and "loops over a parameter" to "loops over
 	// THE parameter the element arrives in". Either is nil when its extractor does
 	// not report positions, and continuesWalk then falls back to the pair.
-	ElementArg map[string]int
-	LoopParams map[int]bool
-	Recursive  bool     // extractor flagged a direct self-call
-	PerformsIO bool     // extractor flagged transitive network/file I/O
-	IODirect   bool     // extractor flagged the body's own I/O call
-	IOCalls    []string // extractor: the calls in this body that are I/O entry points
-	PureCalls  []string // extractor: the library calls in this body that perform no I/O
-	Calls      []string // all resolved call targets
+	ElementArg    map[string]int
+	LoopParams    map[int]bool
+	Recursive     bool                // extractor flagged a direct self-call
+	PerformsIO    bool                // extractor flagged transitive network/file I/O
+	IODirect      bool                // extractor flagged the body's own I/O call
+	IOCalls       []string            // extractor: the calls in this body that are I/O entry points
+	PureCalls     []string            // extractor: the library calls in this body that perform no I/O
+	CallReceivers map[string][]string // source receiver paths, keyed by resolved target
+	Calls         []string            // all resolved call targets
 	// BoundedFanout marks a bounded background-job/mailer fan-out (see isBoundedFanout).
 	// It is precomputed by markNonScaling rather than derived where it is needed, because
 	// computeEffectiveDepths (per-name) and effectiveDepthOf (per-fact) must never disagree
@@ -825,6 +827,7 @@ func collect(store *facts.Store) (funcs []funcInfo, storage, routeHandlers, asso
 			Line:                f.Line,
 			Repo:                f.Repo,
 			Package:             pkg,
+			Accessor:            f.PropString("accessor"),
 			Exported:            boolProp(f.Props, propExported),
 			Cyclomatic:          intProp(f.Props, propCyclomatic),
 			LoopDepth:           intProp(f.Props, propLoopDepth),
@@ -845,6 +848,7 @@ func collect(store *facts.Store) (funcs []funcInfo, storage, routeHandlers, asso
 			IODirect:            boolProp(f.Props, propIODirect),
 			IOCalls:             stringSliceProp(f.Props, propIOCalls),
 			PureCalls:           stringSliceProp(f.Props, propPureCalls),
+			CallReceivers:       callReceiverPaths(f.Props),
 			Calls:               calls,
 		})
 	}
@@ -1373,18 +1377,6 @@ var dartExpensivePrefixes = []string{
 	"firestore.", "_firestore.", "rootBundle.", "supabase.",
 }
 
-// dartDispatchNames are Dart/Flutter indirection and construction primitives. They are
-// excluded from the loose short-name performs_io path (not from the exact-name or
-// receiver paths), because a name this generic carries no information about what the
-// call actually reaches.
-var dartDispatchNames = map[string]bool{
-	"call":         true, // callback.call(x) — invoking a function object
-	"build":        true, // a widget constructing its subtree
-	"createState":  true,
-	"noSuchMethod": true,
-	"toString":     true,
-}
-
 // isExpensiveDartCall reports whether a Dart in-loop call is per-iteration I/O: a
 // storage fact, a resolved callee the extractor flagged performs_io, an I/O receiver,
 // or a distinctive round-trip method.
@@ -1393,7 +1385,7 @@ var dartDispatchNames = map[string]bool{
 // the same accepted false negative the Swift, JVM and TypeScript handlers take, and it
 // buys the same thing: the ubiquitous collection verbs stop manufacturing N+1 findings
 // about list filtering.
-func isExpensiveDartCall(target string, storage map[string]bool, byName map[string]funcInfo, ioMethods map[string]bool) bool {
+func isExpensiveDartCall(target string, storage map[string]bool, byName map[string]funcInfo) bool {
 	if storage[target] {
 		return true
 	}
@@ -1401,22 +1393,6 @@ func isExpensiveDartCall(target string, storage map[string]bool, byName map[stri
 		return true
 	}
 	method := methodSegment(target)
-	// The transitive performs_io signal by short name: an in-loop call to a wrapper is
-	// recorded as a receiver-qualified metric string (`repo.loadPage`), which the exact
-	// byName lookup above misses.
-	//
-	// Skipped for Dart's dispatch primitives. A short-name match is evidence only when
-	// the name is distinctive, and `call` is the least distinctive name in the
-	// language: `callback.call(x)` is how you invoke a function stored in a variable,
-	// so ANY symbol named `call` that performs I/O makes every callback invocation in
-	// the codebase look like per-iteration I/O. Measured on AppFlowy, 12 of 28
-	// remaining call-in-loop findings were driven by nothing but `.call`, and 4 more by
-	// `build` — a widget constructing its subtree, which is in-memory by definition.
-	// The exact-name and receiver paths still apply, so a genuinely resolved I/O callee
-	// is unaffected.
-	if ioMethods[method] && !dartDispatchNames[method] {
-		return true
-	}
 	for _, kw := range dartExpensiveMethods {
 		if containsKeyword(method, kw) {
 			return true
@@ -1727,7 +1703,7 @@ func markNonScaling(funcs []funcInfo, byName map[string]funcInfo, storage, assoc
 		funcs[i].BoundedFanout = isBoundedFanout(funcs[i], byName, storage, assoc)
 	}
 	for i := range funcs {
-		if _, ok := byName[funcs[i].Name]; ok {
+		if selected, ok := byName[funcs[i].Name]; ok && selected.File == funcs[i].File && selected.Line == funcs[i].Line && selected.Repo == funcs[i].Repo && selected.Accessor == funcs[i].Accessor {
 			byName[funcs[i].Name] = funcs[i]
 		}
 	}
@@ -1923,12 +1899,42 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 	// a name and byName keeps one of them, so "this name does no I/O" has to be
 	// asked of all of them.
 	ioByName := make(map[string]bool, len(funcs))
+	dartCounts := map[string]int{}
 	for _, f := range funcs {
-		byName[f.Name] = f
-		byDotted[strings.ReplaceAll(f.Name, "/", ".")] = f
+		readable := f
+		indexable := true
+		if strings.HasSuffix(f.File, ".dart") {
+			dartCounts[f.Name]++
+			if dartCounts[f.Name] > 1 {
+				previous, ok := byName[f.Name]
+				pair := ok && dartCounts[f.Name] == 2 && previous.File == f.File && previous.Repo == f.Repo && ((previous.Accessor == "getter" && f.Accessor == "setter") || (previous.Accessor == "setter" && f.Accessor == "getter"))
+				if pair {
+					if previous.Accessor == "getter" {
+						readable = previous
+					}
+				} else {
+					indexable = false
+				}
+			}
+		}
+		if indexable {
+			byName[f.Name] = readable
+			byDotted[strings.ReplaceAll(f.Name, "/", ".")] = readable
+		} else {
+			delete(byName, f.Name)
+			delete(byDotted, strings.ReplaceAll(f.Name, "/", "."))
+		}
 		nameCount[f.Name]++
 		if f.PerformsIO || f.IODirect {
 			ioByName[f.Name] = true
+		}
+	}
+
+	// The name-only call index represents reads/calls, not setter writes.
+	for name, f := range byName {
+		if strings.HasSuffix(f.File, ".dart") && f.Accessor == "setter" {
+			delete(byName, name)
+			delete(byDotted, strings.ReplaceAll(name, "/", "."))
 		}
 	}
 	// In languages with method overloading (Java, Kotlin, Swift) sibling overloads
@@ -2156,8 +2162,11 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 			if slices.Contains(f.PureCalls, callee) {
 				continue
 			}
-			ioMethods := loose
-			if lang := langFamily(f.File); strictIOIndex[lang] {
+			var ioMethods map[string]bool
+			if !dart {
+				ioMethods = loose
+			}
+			if lang := langFamily(f.File); !dart && strictIOIndex[lang] {
 				ioMethods = strict[lang]
 				// The index is for a callee nobody could see.
 				if _, ok := byName[callee]; ok {
@@ -2177,6 +2186,7 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 				}
 			}
 			var isExpensive bool
+			dartReceiverEvidence := ""
 			switch {
 			case swift:
 				// Swift: the generic keyword list matches ubiquitous in-memory verbs
@@ -2200,7 +2210,16 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 				// single most common collection call in the language. On AppFlowy it
 				// produced 58 call-in-loop findings about list processing. Use the
 				// extractor's import-gated performs_io signal plus an I/O receiver.
-				isExpensive = isExpensiveDartCall(callee, storage, byName, ioMethods)
+				isExpensive = isExpensiveDartCall(callee, storage, byName)
+				if !isExpensive {
+					for _, path := range f.CallReceivers[callee] {
+						if isExpensiveDartCall(path, nil, nil) {
+							isExpensive = true
+							dartReceiverEvidence = path
+							break
+						}
+					}
+				}
 			case rust:
 				// Rust: an async runtime's vocabulary IS the generic keyword list.
 				// send/recv on a channel, read/write on a buffer, poll on a future and
@@ -2314,6 +2333,9 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 				continue
 			}
 			basis := callBasis(f, callee, golang, storage, byName, byDotted, ioMethods)
+			if dartReceiverEvidence != "" && !basisIsFact(basis) {
+				basis = basisIOReceiver
+			}
 			// A receiver token is read off the call target, and for a callee that
 			// resolved to a function of this repository the target is that
 			// function's own name: `dao/sql.RelationEntity.toData` holds "sql."
@@ -2322,7 +2344,7 @@ func analyze(funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) []
 			// spelling. That says where the function lives, not what it is called
 			// on. Such a callee is I/O when it reaches I/O, or when its method is
 			// named for it, and not otherwise.
-			if basis == basisIOReceiver && tokenNotOwnPath[langFamily(f.File)] && tokenIsOwnPath(callee, byName, ioByName, jvm) {
+			if basis == basisIOReceiver && dartReceiverEvidence == "" && tokenNotOwnPath[langFamily(f.File)] && tokenIsOwnPath(callee, byName, ioByName, jvm) {
 				continue
 			}
 			if basisIsFact(basis) {
@@ -3186,4 +3208,18 @@ func Summarize(store *facts.Store) Summary {
 		s.Top = findings
 	}
 	return s
+}
+
+func callReceiverPaths(props map[string]any) map[string][]string {
+	if paths, ok := props["call_receivers"].(map[string][]string); ok {
+		return paths
+	}
+	if paths, ok := props["call_receivers"].(map[string]any); ok {
+		out := make(map[string][]string, len(paths))
+		for target, value := range paths {
+			out[target] = stringSliceProp(map[string]any{"value": value}, "value")
+		}
+		return out
+	}
+	return nil
 }
