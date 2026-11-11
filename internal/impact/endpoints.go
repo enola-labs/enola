@@ -144,7 +144,10 @@ func InterfaceDispatch(store *facts.Store, graph *facts.Graph) map[string][]stri
 func interfaceMethods(store *facts.Store, graph *facts.Graph) (impls map[string][]string, sole func(string) bool) {
 	implementers := map[string][]string{} // interface -> implementing types
 	for _, f := range store.ByKind(facts.KindSymbol) {
-		for _, prop := range []string{"implementers", "implementers_inferred"} {
+		// Candidates are types an interface's method set matches where the extractor
+		// would not call them implementers: a call through the interface may still run
+		// them, and sole below counts them, so such a hop is never call-precise.
+		for _, prop := range []string{"implementers", "implementers_inferred", "implementers_candidates"} {
 			if types := stringList(f.PropAny(prop)); len(types) > 0 {
 				implementers[f.Name] = append(implementers[f.Name], types...)
 			}

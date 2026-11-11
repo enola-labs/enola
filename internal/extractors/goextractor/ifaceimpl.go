@@ -39,9 +39,20 @@ import (
 // propImplementers and propImplementersInferred name, on an interface's symbol fact,
 // the types stated and inferred to implement it, so an analysis that runs on the
 // stored facts can follow a call through the interface as the extractor does.
+//
+// propImplementerCandidates names the types that match an interface by method set
+// where the rules above reject the match: the second and later match of a
+// one-method interface, and a match beside a stated implementer (a constructor
+// that wraps the interface it returns states the wrapper, and the wrapped type it
+// may also hand back is a match only). They are not carried through the I/O
+// closure. An impact analysis may follow a call through them, as one that could
+// reach another implementation, which is what an interface call is. More than
+// maxImplementerCandidates is a signature half the code has, and none are kept.
 const (
-	propImplementers         = "implementers"
-	propImplementersInferred = "implementers_inferred"
+	propImplementers          = "implementers"
+	propImplementersInferred  = "implementers_inferred"
+	propImplementerCandidates = "implementers_candidates"
+	maxImplementerCandidates  = 4
 )
 
 // methodSig is the shape a method is matched by: its parameter and result types,
@@ -250,9 +261,10 @@ func isMockFile(relFile string, f *ast.File) bool {
 // implementers: stated by an interface assertion (asserted) or a constructor, and
 // inferred from method sets where nothing but a mock is stated. An interface's
 // embedded interfaces contribute their methods first. No mock is in either.
-func implementersFrom(d typeDecls, embeds, asserted map[string][]string) (stated, inferred map[string][]string) {
+func implementersFrom(d typeDecls, embeds, asserted map[string][]string) (stated, inferred, candidates map[string][]string) {
 	stated = make(map[string][]string)
 	inferred = make(map[string][]string)
+	candidates = make(map[string][]string)
 	add := func(iface, t string) {
 		if !d.mockTypes[t] && !contains(stated[iface], t) {
 			stated[iface] = append(stated[iface], t)
@@ -297,9 +309,6 @@ func implementersFrom(d typeDecls, embeds, asserted map[string][]string) (stated
 		}
 	}
 	for iface := range d.ifaceMethods {
-		if len(stated[iface]) > 0 {
-			continue // the source says what implements it; a name match adds only noise
-		}
 		want := ifaceMethodSet(iface, d, 0)
 		if len(want) == 0 {
 			continue
@@ -324,22 +333,32 @@ func implementersFrom(d typeDecls, embeds, asserted map[string][]string) (stated
 				matches = append(matches, t)
 			}
 		}
-		if len(matches) == 0 || (len(want) < 2 && len(matches) != 1) {
-			continue
-		}
 		sort.Strings(matches)
+		var rest []string
 		for _, t := range matches {
 			if !contains(stated[iface], t) {
-				inferred[iface] = append(inferred[iface], t)
+				rest = append(rest, t)
 			}
 		}
+		if len(rest) == 0 {
+			continue
+		}
+		// The source says what implements it, or the interface is one method many
+		// types have: a name match is no implementer, only a candidate.
+		if len(stated[iface]) > 0 || (len(want) < 2 && len(matches) != 1) {
+			if len(rest) <= maxImplementerCandidates {
+				candidates[iface] = rest
+			}
+			continue
+		}
+		inferred[iface] = rest
 	}
 	for _, m := range []map[string][]string{stated, inferred} {
 		for k := range m {
 			sort.Strings(m[k])
 		}
 	}
-	return stated, inferred
+	return stated, inferred, candidates
 }
 
 // ifaceMethodSet is an interface's methods with those of the module interfaces it
@@ -361,7 +380,7 @@ func ifaceMethodSet(iface string, d typeDecls, depth int) map[string]methodSig {
 }
 
 // annotateImplementers records the implementers on each interface's symbol fact.
-func annotateImplementers(all []facts.Fact, stated, inferred map[string][]string) {
+func annotateImplementers(all []facts.Fact, stated, inferred, candidates map[string][]string) {
 	for i := range all {
 		f := &all[i]
 		if f.Kind != facts.KindSymbol || f.PropString("symbol_kind") != facts.SymbolInterface {
@@ -372,6 +391,9 @@ func annotateImplementers(all []facts.Fact, stated, inferred map[string][]string
 		}
 		if ts := inferred[f.Name]; len(ts) > 0 {
 			f.SetProp(propImplementersInferred, ts)
+		}
+		if ts := candidates[f.Name]; len(ts) > 0 {
+			f.SetProp(propImplementerCandidates, ts)
 		}
 	}
 }

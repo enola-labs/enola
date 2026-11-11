@@ -233,7 +233,7 @@ func (e *GoExtractor) Extract(ctx context.Context, repoPath string, files []stri
 	for _, pkgDir := range pkgDirs {
 		collectTypeDecls(decls, parsedPkgs[pkgDir], pkgDir, mods, pkgNames, aliases)
 	}
-	stated, inferred := implementersFrom(decls, callTypes.embeds, callTypes.implementers)
+	stated, inferred, candidates := implementersFrom(decls, callTypes.embeds, callTypes.implementers)
 	for _, found := range []map[string][]string{stated, inferred} {
 		for iface, impls := range found {
 			for _, t := range impls {
@@ -310,7 +310,7 @@ func (e *GoExtractor) Extract(ctx context.Context, repoPath string, files []stri
 	}
 	bindCommands(allFacts, commandLits, mods)
 	bindTools(allFacts)
-	annotateImplementers(allFacts, stated, inferred)
+	annotateImplementers(allFacts, stated, inferred, candidates)
 
 	// Carry io_direct to every function that reaches one, across packages, and
 	// through an interface to the types asserted to implement it.

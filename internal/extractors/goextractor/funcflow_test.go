@@ -165,3 +165,74 @@ func TestFuncFlows_ReadThroughCache(t *testing.T) {
 		t.Errorf("the constructor should name its closure; relations: %v", enclosing.Relations)
 	}
 }
+
+// A method-set match the implementer rules reject is kept as a candidate: the
+// second match of a one-method interface, and a match beside a stated implementer.
+// A signature too many types share keeps none.
+func TestImplementerCandidates(t *testing.T) {
+	ff := extractAll(t, map[string]string{
+		"lib/lib.go": `package lib
+
+import "context"
+
+type Params struct{ Query string }
+type Result struct{ IDs []int }
+
+// One method, two types with it.
+type searcher interface {
+	Search(ctx context.Context, p Params) (*Result, error)
+}
+
+type Client struct{}
+
+func (c *Client) Search(ctx context.Context, p Params) (*Result, error) { return nil, nil }
+
+// A decorator stated through its constructor, which may also hand back what it wraps.
+type Searcher interface {
+	Search(ctx context.Context, p Params) (*Result, error)
+}
+
+type flagged struct{ inner Searcher }
+
+func (f *flagged) Search(ctx context.Context, p Params) (*Result, error) { return f.inner.Search(ctx, p) }
+
+func Wrap(inner Searcher, on bool) Searcher {
+	if !on {
+		return inner
+	}
+	return &flagged{inner: inner}
+}
+
+// One method every type below has.
+type namer interface{ Name() string }
+
+type a struct{}
+type b struct{}
+type c struct{}
+type d struct{}
+type e struct{}
+
+func (a) Name() string { return "a" }
+func (b) Name() string { return "b" }
+func (c) Name() string { return "c" }
+func (d) Name() string { return "d" }
+func (e) Name() string { return "e" }
+`,
+	})
+	props := func(name string) (stated, inferred, cands []string) {
+		f, ok := findFact(ff, name)
+		if !ok {
+			t.Fatalf("expected a fact for %s", name)
+		}
+		return stringSliceProp(f.Props[propImplementers]), stringSliceProp(f.Props[propImplementersInferred]), stringSliceProp(f.Props[propImplementerCandidates])
+	}
+	if _, inferred, cands := props("lib.searcher"); len(inferred) != 0 || !slices.Equal(cands, []string{"lib.Client", "lib.flagged"}) {
+		t.Errorf("searcher: inferred %v, candidates %v; want both matches as candidates only", inferred, cands)
+	}
+	if stated, _, cands := props("lib.Searcher"); !slices.Equal(stated, []string{"lib.flagged"}) || !slices.Equal(cands, []string{"lib.Client"}) {
+		t.Errorf("Searcher: stated %v, candidates %v; want the wrapper stated and the client a candidate", stated, cands)
+	}
+	if _, inferred, cands := props("lib.namer"); len(inferred) != 0 || len(cands) != 0 {
+		t.Errorf("namer: inferred %v, candidates %v; five matches is a shared signature, want none", inferred, cands)
+	}
+}

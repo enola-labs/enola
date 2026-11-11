@@ -142,6 +142,7 @@ var versionCoverage = map[int][]string{
 	547: {"TestGrammarPatchesParseClean", "TestGrammarABI_EveryGrammarLoadsAtItsPinnedABI"},
 	548: {"TestWalkRepo_SkipsNestedLinkedWorktree", "TestExtract_SkipsNestedLinkedWorktree", "TestIsLinkedWorktree"},
 	549: {"TestExtractHTTPClientFacts_CommentedCallIsNotARoute", "TestServerRoutes_CommentedRegistrationIsNotARoute", "TestExtractHTTPClientFacts_NestedTemplateLiteral", "TestCleanTSPath_TernaryInterpolation"},
+	568: {"TestImplementerCandidates"},
 	567: {"TestExtract_PartialNamedRootSpec"},
 	566: {"TestFuncFlows_ReadThroughCache"},
 	565: {"TestExtract_MethodOfATypeWithSeveralTypeParameters"},

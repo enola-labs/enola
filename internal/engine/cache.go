@@ -3523,7 +3523,9 @@ import (
 // (func_flows), and a closure that goes somewhere is a symbol of its own.
 // v567: OpenAPI: a root spec named *.partial.yml (it has an openapi header) is read;
 // a partial fragment is still read only through the $ref that pulls it in.
-const cacheVersion = "v567"
+// v568: Go: method-set matches the implementer rules reject (a one-method
+// interface with several, or beside a stated implementer) are implementers_candidates.
+const cacheVersion = "v568"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

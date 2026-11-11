@@ -117,3 +117,74 @@ func main() {
 		t.Errorf("caller endpoints = %v, want only GET /shelf (reached through the lister interface)", paths)
 	}
 }
+
+// A route whose handler reaches a client only through a one-method interface that
+// two types implement, the client and a decorator wrapping it, is reached through
+// that interface: impact on the client lists it.
+func TestImpact_ThroughAnInterfaceTwoTypesImplement(t *testing.T) {
+	root := writeRepo(t, t.TempDir(), "library", map[string]string{
+		"go.mod": "module example.com/library\n\ngo 1.22\n",
+		"search/client.go": `package search
+
+import "context"
+
+type Params struct{ Query string }
+type Result struct{ IDs []int }
+
+type Client struct{}
+
+func (c *Client) Find(ctx context.Context, p Params) (*Result, error) { return nil, nil }
+`,
+		"search/flagged.go": `package search
+
+import "context"
+
+type finder interface {
+	Find(ctx context.Context, p Params) (*Result, error)
+}
+
+type Flagged struct{ inner finder }
+
+func (f *Flagged) Find(ctx context.Context, p Params) (*Result, error) { return f.inner.Find(ctx, p) }
+`,
+		"main.go": `package main
+
+import (
+	"context"
+	"net/http"
+
+	"example.com/library/search"
+)
+
+type finder interface {
+	Find(ctx context.Context, p search.Params) (*search.Result, error)
+}
+
+type handler struct{ search finder }
+
+func (h handler) books(w http.ResponseWriter, r *http.Request) {
+	_, _ = h.search.Find(r.Context(), search.Params{})
+}
+
+func main() {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /books", handler{search: &search.Client{}}.books)
+	_ = http.ListenAndServe(":8080", mux)
+}
+`,
+	})
+	s := startInMemory(t)
+	if res := s.call(t, "generate_snapshot", map[string]any{"repo_path": root}); res.IsError {
+		t.Fatal(text(res))
+	}
+	var full struct {
+		Endpoints []struct{ Method, Path, Precision string } `json:"endpoints"`
+	}
+	raw := text(s.call(t, "impact_analysis", map[string]any{"target": "example.com/library/search.Client.Find", "output_mode": "full"}))
+	if err := json.Unmarshal([]byte(raw), &full); err != nil {
+		t.Fatalf("full output: %v\n%.300s", err, raw)
+	}
+	if len(full.Endpoints) != 1 || full.Endpoints[0].Path != "/books" || full.Endpoints[0].Precision != "interface" {
+		t.Errorf("endpoints = %+v, want GET /books through an interface", full.Endpoints)
+	}
+}
