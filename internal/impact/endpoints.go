@@ -429,6 +429,7 @@ func endpointsOf(store *facts.Store, graph *facts.Graph, seeds []string, package
 			}
 		}
 	}
+	out = dropCoveredMounts(out)
 	rank := map[string]int{PrecisionCall: 0, PrecisionInterface: 1, PrecisionPackage: 2}
 	slices.SortFunc(out, func(a, b Endpoint) int {
 		if a.Precision != b.Precision {
@@ -446,6 +447,40 @@ func endpointsOf(store *facts.Store, graph *facts.Graph, seeds []string, package
 		return strings.Compare(a.Handler, b.Handler)
 	})
 	return out, truncated
+}
+
+// dropCoveredMounts leaves out a mount listed by package alone, whose handler is no
+// symbol (a router held in a variable, mounted at "/" or a prefix), when an endpoint
+// under its path in the same repository is already listed as reached by calls or
+// through an interface. The mount is how those requests arrive; listing it again
+// with the weakest precision says nothing the precise entries do not.
+func dropCoveredMounts(out []Endpoint) []Endpoint {
+	covered := map[int]bool{}
+	for i, m := range out {
+		if !m.HandlerUnresolved || m.Precision != PrecisionPackage {
+			continue
+		}
+		for _, e := range out {
+			if e.Repo == m.Repo && e.Precision != PrecisionPackage && underPath(e.Path, m.Path) {
+				covered[i] = true
+				break
+			}
+		}
+	}
+	kept := out[:0]
+	for i, e := range out {
+		if !covered[i] {
+			kept = append(kept, e)
+		}
+	}
+	return kept
+}
+
+// underPath reports whether path is mount or lies under it, segment by segment:
+// "/api/items" is under "/api" and "/", "/apix" is not under "/api".
+func underPath(path, mount string) bool {
+	mount = strings.TrimSuffix(mount, "/")
+	return mount == "" || path == mount || strings.HasPrefix(path, mount+"/")
 }
 
 // handlerPackage is the package that declares a route's handler, or, when the handler
