@@ -833,3 +833,34 @@ func TestCleanTSPath_TernaryInterpolation(t *testing.T) {
 		t.Errorf("a fully dynamic URL must be rejected, got %q", got)
 	}
 }
+
+// A path written relative to its client's base URL is read, rooted at it, on a
+// receiver the file builds as a client; the same call on anything else is not.
+func TestHTTPClientFacts_PathRelativeToABuiltClient(t *testing.T) {
+	for _, raw := range []string{"orders/v1/carts/${id}/items", "orders/v1/carts?x=${q}"} {
+		if !relativeRequestPath(raw) {
+			t.Errorf("relativeRequestPath(%q) = false, want true", raw)
+		}
+	}
+	for _, raw := range []string{",", "carts", "application/json", "image/png", "./carts/1", "fetch(url, opts)/x", "a b/c", "https://x.test/a"} {
+		if relativeRequestPath(raw) {
+			t.Errorf("relativeRequestPath(%q) = true, want false", raw)
+		}
+	}
+	src := []byte(`const gateway = new GatewayClient()
+const cache = new Map<string, string>()
+export const addItem = (id: string) =>
+  gateway.post<Resp>(
+    ` + "`orders/v1/carts/${id}/items`" + `,
+    {},
+  )
+export const cached = (id: string) => cache.get(` + "`user/${id}/profile`" + `)
+`)
+	var got []string
+	for _, f := range extractHTTPClientFacts(src, "src/api.ts") {
+		got = append(got, f.PropString("method")+" "+f.Name)
+	}
+	if len(got) != 1 || got[0] != "POST /orders/v1/carts/{}/items" {
+		t.Errorf("client calls = %v, want [POST /orders/v1/carts/{}/items]", got)
+	}
+}

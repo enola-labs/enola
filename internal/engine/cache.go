@@ -3538,7 +3538,9 @@ import (
 // v574: Kotlin: a supertype of the same package in another module is re-homed, so
 // its implements edge reaches the declaration instead of the bare name.
 // v575: Go: an HTTP helper's path built with fmt.Sprintf is read at its call site.
-const cacheVersion = "v575"
+// v576: TypeScript: a verb call on a client the file builds reads a path relative
+// to its base URL (gateway.post(`orders/v1/carts/${id}`)), rooted at "/".
+const cacheVersion = "v576"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
