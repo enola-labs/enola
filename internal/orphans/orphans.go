@@ -1202,6 +1202,11 @@ func collect(store *facts.Store) ([]symInput, refIndex) {
 				si.Package = r.Target
 			case isUsageKind(r.Kind):
 				si.UsageOut = true
+				// A member naming its own type (`CreateLogger<Self>()`,
+				// `typeof(Self)`) is internal use, like a sibling call below.
+				if r.Kind == facts.RelNames && memberOwner(f.Name) == r.Target {
+					continue
+				}
 				add(r.Target, f.Name)
 				// A Go type another module declares is matched by its import path
 				// only: its bare name would mark every same-named type in this
@@ -1219,6 +1224,13 @@ func collect(store *facts.Store) ([]symInput, refIndex) {
 				// so a class referenced only via a call (e.g. Ruby PostCreator.create)
 				// is not mis-reported as an unreferenced orphan.
 				for _, recv := range constReceiverRefs(r.Target) {
+					// A member calling a sibling through its own type is internal use,
+					// the rule foldMemberUseIntoOwner applies. Recorded, the type's
+					// full name would count as referenced by its own method, since
+					// refSummary only discounts a source equal to the name itself.
+					if memberOwner(f.Name) == recv {
+						continue
+					}
 					add(recv, f.Name)
 				}
 				// Fold self-qualified dispatch (`self.class.foo`, `cls.foo`) down to
