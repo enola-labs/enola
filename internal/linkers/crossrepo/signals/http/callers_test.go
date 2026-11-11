@@ -126,3 +126,16 @@ func TestCallersOf_AgreesWithTheServerRouteVerdicts(t *testing.T) {
 		}
 	}
 }
+
+// One word after a base enola could not read is no evidence of the endpoint, as the
+// linker already holds: "{}/details" is not a caller of /v2/shelves/{id}/details,
+// while a call naming the resource is.
+func TestCallersOf_ThinPathIsNoCaller(t *testing.T) {
+	server := servedBy("api", "/v2/shelves/{id}/details", "GET")
+	thin := plainCall("ios", "GET", "{}/details")
+	named := plainCall("web", "GET", "shelves/{}/details")
+	got := CallersOf(routeindex.New(vocab.Default()), []facts.Fact{server, thin, named}, []facts.Fact{server})
+	if len(got) != 1 || got[0].Repo != "web" {
+		t.Errorf("callers = %v, want only the call naming the resource", callerRepos(got))
+	}
+}

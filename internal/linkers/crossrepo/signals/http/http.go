@@ -803,6 +803,13 @@ func routesCalledBy(m *routeindex.Matcher, server map[string][]routeindex.RouteR
 		return nil
 	}
 	matches, _ := m.LookupClientMatches(server, routeindex.CanonicalLeadingSlash(np), method)
+	// The thin-path rule resolveCall applies: one word after a base enola could not
+	// read ("{}/details") reaches only a server path that says no more. Without it
+	// here, a call the linker declined was still listed as a caller of every route
+	// ending in a parameter and that word.
+	if routeindex.SingleSegmentPath(np) {
+		matches = atMostOneLiteral(matches)
+	}
 	return declaredMatches(m, f, matches)
 }
 
