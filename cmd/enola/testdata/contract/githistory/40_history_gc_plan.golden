@@ -4,7 +4,7 @@ exit: 0
 <TMP>/store
   revisions  2 — 1 kept under policy keep-last 1
 
-Would remove 1 revision(s) (3 KB):
+Would remove 1 revision(s) (<SIZE>):
   31d85c9  <TIME>  go_sample  (pushed by <HOST>)
 
 Nothing was deleted. Re-run with --apply to prune, which records the removal in the chain.
