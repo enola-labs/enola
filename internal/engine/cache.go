@@ -3533,7 +3533,9 @@ import (
 // one literal reads that literal ("\(endpoint)/details" -> shelves/{}/details).
 // v572: Go: a call to an HTTP helper names its verb as an argument of its own
 // (http.MethodPost, "POST") and may build its path where it passes it.
-const cacheVersion = "v572"
+// v573: TypeScript: a Next.js layout seeds the pages beneath it, so a call only a
+// layout reaches names those pages in client_pages.
+const cacheVersion = "v573"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

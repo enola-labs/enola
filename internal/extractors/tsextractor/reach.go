@@ -3,6 +3,7 @@ package tsextractor
 import (
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -1203,6 +1204,13 @@ func (p pageIndex) names(s pageSet) []string {
 	return out
 }
 
+// isLayoutFile reports a Next.js app-router layout: app/**/layout.tsx and the like.
+func isLayoutFile(file string) bool {
+	base := file[strings.LastIndex(file, "/")+1:]
+	stem := strings.TrimSuffix(base, filepath.Ext(base))
+	return stem == "layout" && (strings.HasPrefix(file, "app/") || strings.Contains(file, "/app/"))
+}
+
 // isPageFile reports whether a root is one page rather than code every page runs: a
 // Next.js page under app/, or a file under the pages router other than its _app,
 // _document or an API route.
@@ -1333,15 +1341,43 @@ func reachingPages(roots map[string]bool, files []*fileReach, byFile map[string]
 			reachDefault(f, false, b)
 		}
 	}
-	for i, file := range index {
-		b := make(pageSet, i/64+1)
-		b[i/64] = 1 << (i % 64)
+	seed := func(file string, b pageSet) {
 		r := byFile[file]
 		runFile(r, b)
 		if r != nil {
 			for _, s := range r.symbols {
 				raise(s, b)
 			}
+		}
+	}
+	for i, file := range index {
+		b := make(pageSet, i/64+1)
+		b[i/64] = 1 << (i % 64)
+		seed(file, b)
+	}
+	// A layout runs on every page beneath it: what only a layout reaches, a provider
+	// it mounts or a slot registry it holds, is on each of those pages. A layout was
+	// a root that reached no page, so its code was reached with no page to name.
+	var layouts []string
+	for f := range roots {
+		if isLayoutFile(f) {
+			layouts = append(layouts, f)
+		}
+	}
+	sort.Strings(layouts)
+	for _, l := range layouts {
+		dir := path.Dir(l) + "/"
+		var b pageSet
+		for i, page := range index {
+			if strings.HasPrefix(page, dir) {
+				for len(b) <= i/64 {
+					b = append(b, 0)
+				}
+				b[i/64] |= 1 << (i % 64)
+			}
+		}
+		if len(b) > 0 {
+			seed(l, b)
 		}
 	}
 	for len(queue) > 0 {
