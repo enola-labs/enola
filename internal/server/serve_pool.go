@@ -440,10 +440,12 @@ func (p *Pool) HTTPHandler(cfg HTTPConfig) (http.Handler, error) {
 		}
 		return s.mcp
 	}, &mcp.StreamableHTTPOptions{
-		SessionTimeout:        sessionTimeout,
-		CrossOriginProtection: http.NewCrossOriginProtection(),
+		SessionTimeout: sessionTimeout,
 	})
-	return wrapHTTP(mcpHandler, cfg.Tokens, maxBody), nil
+	// A browser on another origin may not call the server: the SDK's option for
+	// that is deprecated in favour of this middleware around its handler.
+	protected := http.NewCrossOriginProtection().Handler(mcpHandler)
+	return wrapHTTP(protected, cfg.Tokens, maxBody), nil
 }
 
 // RunHTTP serves HTTPHandler on ln until ctx is cancelled, then shuts down, giving
