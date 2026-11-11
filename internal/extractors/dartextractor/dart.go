@@ -145,7 +145,7 @@ func isGeneratedDart(relFile string) bool {
 // attributed to which compilation unit, and resolves every `package:` import, so a
 // change to one changes this extractor's output for files it did not touch.
 func (e *DartExtractor) OwnsFile(relFile string) bool {
-	if filepath.Base(relFile) == "pubspec.yaml" {
+	if filepath.Base(relFile) == "pubspec.yaml" || strings.HasSuffix(filepath.ToSlash(relFile), "lib/libraries.json") {
 		return true
 	}
 	return isDartFile(relFile) && !isGeneratedDart(relFile)
@@ -184,19 +184,32 @@ type fileResult struct {
 // output) is excluded from the file list before this point.
 func reextractParts(results []fileResult, dartFiles []string, pkgs *packageIndex, read func(string) []byte) []fileResult {
 	hostImports := make(map[string][]string, len(results))
+	partHosts := map[string]string{}
 	for i, r := range results {
 		if len(r.parts) > 0 {
-			hostImports[filepath.ToSlash(dartFiles[i])] = r.importURIs
+			host := filepath.ToSlash(dartFiles[i])
+			hostImports[host] = r.importURIs
+			for _, part := range r.parts {
+				if prior, ok := partHosts[part]; ok && prior != host {
+					partHosts[part] = ""
+				} else if !ok {
+					partHosts[part] = host
+				}
+			}
 		}
 	}
 	if len(hostImports) == 0 {
 		return results
 	}
 	for i, r := range results {
-		if r.partOf == "" {
+		host := r.partOf
+		if host == "" {
+			host = partHosts[filepath.ToSlash(dartFiles[i])]
+		}
+		if host == "" {
 			continue
 		}
-		imports, ok := hostImports[filepath.ToSlash(r.partOf)]
+		imports, ok := hostImports[filepath.ToSlash(host)]
 		if !ok || len(imports) == 0 {
 			continue
 		}

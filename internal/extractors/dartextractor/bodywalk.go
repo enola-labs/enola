@@ -23,6 +23,7 @@ type bodyWalk struct {
 	instanceCalls    map[string]bool
 	constructedTypes map[string]bool
 	getterReads      map[string]dartGetterRead
+	valueBindings    map[string]dartLocalValue
 
 	cyclomatic int
 	loopCount  int
@@ -42,6 +43,9 @@ type bodyWalk struct {
 // applyTo writes the metrics onto a symbol fact's props.
 func (b *bodyWalk) applyTo(props map[string]any) {
 	props["cyclomatic"] = b.cyclomatic + 1
+	if len(b.valueBindings) > 0 {
+		props["_dart_value_bindings"] = b.valueBindings
+	}
 	if len(b.callReceivers) > 0 {
 		paths := map[string][]string{}
 		for target, receivers := range b.callReceivers {
@@ -108,7 +112,7 @@ func (w *walker) walkBody(body *sitter.Node, selfName string, signature *sitter.
 		callReceivers:      map[string]map[string]bool{},
 		ioCalls:            map[string]bool{},
 		implicitCalls:      map[string]bool{}, instanceCalls: map[string]bool{}, constructedTypes: map[string]bool{},
-		getterReads: map[string]dartGetterRead{},
+		getterReads: map[string]dartGetterRead{}, valueBindings: map[string]dartLocalValue{},
 	}
 	selfShort := selfName
 	if i := strings.LastIndexByte(selfShort, '.'); i >= 0 {
@@ -157,6 +161,9 @@ func (w *walker) walkNode(n *sitter.Node, b *bodyWalk, selfShort string, loopDep
 		}
 	}
 
+	// The call scan and recursive walk inspect the same immutable sibling list.
+	kids := namedChildren(n)
+
 	// A nested function/closure DEFINITION resets loop depth: its body is deferred, not
 	// executed per iteration of the enclosing loop. An iterator callback is handled at
 	// the call site below, where it is entered WITH the incremented depth.
@@ -168,8 +175,8 @@ func (w *walker) walkNode(n *sitter.Node, b *bodyWalk, selfShort string, loopDep
 		// pervasive in Flutter — `onPressed: () => save()`, `builder: (c) => Widget()`,
 		// `.map((e) => f(e))` — and every call inside one was missing, which inflates
 		// the dead-code report with functions that are plainly used.
-		w.scanCallChain(n, b, selfShort, 0, 0)
-		w.walkChildren(n, b, selfShort, 0, 0)
+		w.scanCallChain(kids, b, selfShort, 0, 0)
+		w.walkChildren(kind, kids, b, selfShort, 0, 0)
 		return
 	}
 
@@ -196,21 +203,20 @@ func (w *walker) walkNode(n *sitter.Node, b *bodyWalk, selfShort string, loopDep
 			nextScaling++
 		}
 		b.observeDepth(nextLoop, nextScaling)
-		w.walkChildren(n, b, selfShort, nextLoop, nextScaling)
+		w.walkChildren(kind, kids, b, selfShort, nextLoop, nextScaling)
 		return
 	}
 
 	// Calls are found by scanning a node's children as a SEQUENCE, because the grammar
 	// models `api.fetch(id)` as three siblings (identifier, `.fetch` selector, `(id)`
 	// selector) rather than as a nested call expression.
-	w.scanCallChain(n, b, selfShort, loopDepth, scalingDepth)
-	w.walkChildren(n, b, selfShort, loopDepth, scalingDepth)
+	w.scanCallChain(kids, b, selfShort, loopDepth, scalingDepth)
+	w.walkChildren(kind, kids, b, selfShort, loopDepth, scalingDepth)
 }
 
-func (w *walker) walkChildren(n *sitter.Node, b *bodyWalk, selfShort string, loopDepth, scalingDepth int) {
-	kids := namedChildren(n)
+func (w *walker) walkChildren(kind string, kids []*sitter.Node, b *bodyWalk, selfShort string, loopDepth, scalingDepth int) {
 	for i, c := range kids {
-		if kindOf(n) == "try_statement" && kindOf(c) == "block" && i > 0 && kindOf(kids[i-1]) == "catch_clause" {
+		if kind == "try_statement" && kindOf(c) == "block" && i > 0 && kindOf(kids[i-1]) == "catch_clause" {
 			restore := w.enterDartScope(kids[i-1], b)
 			w.walkNode(c, b, selfShort, loopDepth, scalingDepth)
 			restore()
@@ -235,18 +241,18 @@ func (b *bodyWalk) observeDepth(loop, scaling int) {
 // [identifier users][.map][(f)][.toList][()]. An invocation is a selector holding an
 // `argument_part`; the name being invoked is the nearest preceding `.name` selector, or
 // the chain's base identifier when the arguments follow it directly.
-func (w *walker) scanCallChain(n *sitter.Node, b *bodyWalk, selfShort string, loopDepth, scalingDepth int) {
-	kids := namedChildren(n)
+func (w *walker) scanCallChain(kids []*sitter.Node, b *bodyWalk, selfShort string, loopDepth, scalingDepth int) {
 	for i, c := range kids {
 		// `const Foo(...)` / `new Foo(...)` are their own nodes rather than selector
 		// chains, so they are matched directly.
-		if kindOf(c) == "const_object_expression" || kindOf(c) == "new_expression" {
+		kind := kindOf(c)
+		if kind == "const_object_expression" || kind == "new_expression" {
 			if t := childOfKind(c, "type_identifier"); t != nil {
 				b.addRelation(facts.RelInstantiates, t.Utf8Text(w.src))
 			}
 			continue
 		}
-		if kindOf(c) != "selector" {
+		if kind != "selector" {
 			continue
 		}
 		if childOfKind(c, "argument_part") == nil {
@@ -342,7 +348,7 @@ func (w *walker) scanCallChain(n *sitter.Node, b *bodyWalk, selfShort string, lo
 			}
 			b.observeDepth(nextLoop, nextScaling)
 			for _, arg := range namedChildren(c) {
-				w.walkChildren(arg, b, selfShort, nextLoop, nextScaling)
+				w.walkChildren(kindOf(arg), namedChildren(arg), b, selfShort, nextLoop, nextScaling)
 			}
 		}
 	}

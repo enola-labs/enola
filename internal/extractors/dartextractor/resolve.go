@@ -19,9 +19,11 @@ import (
 // Instance methods without receiver evidence remain unresolved, even if their
 // short name happens to be unique elsewhere in the repository.
 func resolveCallTargets(all []facts.Fact) []facts.Fact {
+	disambiguateDartGetters(all)
 	r := newDartMemberResolver(all)
 	for i := range all {
 		f := &all[i]
+		r.currentValues, _ = f.Props["_dart_value_bindings"].(map[string]dartLocalValue)
 		implicit := dartCallSet(f.Props["_dart_implicit_calls"])
 		instances := dartCallSet(f.Props["_dart_instance_calls"])
 		constructed := map[string]*facts.Fact{}
@@ -48,6 +50,7 @@ func resolveCallTargets(all []facts.Fact) []facts.Fact {
 				}
 			}
 		}
+		var replacements map[string]string
 		for j := range f.Relations {
 			rel := &f.Relations[j]
 			switch rel.Kind {
@@ -66,11 +69,15 @@ func resolveCallTargets(all []facts.Fact) []facts.Fact {
 					rel.Target = r.call(before, f, implicit[before], instances[before], constructed)
 				}
 				if rel.Target != before {
-					rewriteDartCallMetrics(f, before, rel.Target)
+					if replacements == nil {
+						replacements = map[string]string{}
+					}
+					replacements[before] = rel.Target
 					recordInheritedCall(r, f, before, rel.Target)
 				}
 			}
 		}
+		rewriteDartCallMetrics(f, replacements)
 		if reads, ok := f.Props["_dart_getter_reads"].(map[string]dartGetterRead); ok {
 			candidates := make([]string, 0, len(reads))
 			for candidate := range reads {
@@ -95,6 +102,7 @@ func resolveCallTargets(all []facts.Fact) []facts.Fact {
 				}
 			}
 		}
+		delete(f.Props, "_dart_value_bindings")
 		delete(f.Props, "_dart_getter_reads")
 		delete(f.Props, "_dart_implicit_calls")
 		delete(f.Props, "_dart_instance_calls")
@@ -128,7 +136,15 @@ func recordInheritedCall(r *dartMemberResolver, f *facts.Fact, spelled, target s
 	if dot < 0 || tdot < 0 || spelled[dot+1:] != target[tdot+1:] {
 		return
 	}
-	typ := r.typeNamed(strings.TrimSuffix(spelled[:dot], "()"), f.File)
+	receiver := spelled[:dot]
+	var typ *facts.Fact
+	if strings.HasPrefix(receiver, "@value:") {
+		if vt := r.expressionType(receiver, f, r.currentValues, map[string]bool{}); vt.Name != "" && !vt.Namespace {
+			typ = r.valueOwner(vt)
+		}
+	} else {
+		typ = r.typeNamed(strings.TrimSuffix(receiver, "()"), f.File)
+	}
 	if typ != nil && typ.Name != target[:tdot] {
 		f.AddInheritedCalls(typ.Name + spelled[dot:])
 	}
@@ -316,22 +332,57 @@ func computeDartPerformsIO(all []facts.Fact) {
 
 // Loop metrics use the same target as the call edge, so downstream analysis does
 // not recover a different callee by matching only its method segment.
-func rewriteDartCallMetrics(f *facts.Fact, before, after string) {
+// Rewrite each original target once. Sequential substitutions both scan every
+// metric repeatedly and can incorrectly remap a canonical name a second time.
+func rewriteDartCallMetrics(f *facts.Fact, replacements map[string]string) {
+	if len(replacements) == 0 {
+		return
+	}
 	if paths, ok := f.Props["call_receivers"].(map[string][]string); ok {
-		if aliases, found := paths[before]; found {
-			paths[after] = append(paths[after], aliases...)
-			sort.Strings(paths[after])
-			paths[after] = slices.Compact(paths[after])
-			delete(paths, before)
+		rewritten := make(map[string][]string, len(paths))
+		for target, aliases := range paths {
+			if replacement, ok := replacements[target]; ok {
+				target = replacement
+			}
+			rewritten[target] = append(rewritten[target], aliases...)
 		}
+		for target, aliases := range rewritten {
+			sort.Strings(aliases)
+			rewritten[target] = slices.Compact(aliases)
+		}
+		f.Props["call_receivers"] = rewritten
 	}
 	for _, prop := range []string{"calls_in_loop", "calls_in_scaling_loop", "io_calls"} {
 		if calls, ok := f.Props[prop].([]string); ok {
-			for i := range calls {
-				if calls[i] == before {
+			for i, before := range calls {
+				if after, ok := replacements[before]; ok {
 					calls[i] = after
 				}
 			}
+		}
+	}
+}
+
+// Newly represented top-level getters must not make an existing function's
+// name ambiguous. Use the getter's file namespace only for these collisions.
+func disambiguateDartGetters(all []facts.Fact) {
+	files := map[string]string{}
+	collisions := map[string]bool{}
+	for _, f := range all {
+		if f.Kind != facts.KindSymbol {
+			continue
+		}
+		if prior, ok := files[f.Name]; ok && prior != f.File {
+			collisions[f.Name] = true
+		} else {
+			files[f.Name] = f.File
+		}
+	}
+	for i := range all {
+		f := &all[i]
+		if collisions[f.Name] && f.PropString("symbol_kind") == facts.SymbolFunc && f.PropString("accessor") == "getter" {
+			short := f.Name[strings.LastIndexByte(f.Name, '.')+1:]
+			f.Name = strings.TrimSuffix(f.File, ".dart") + "." + short
 		}
 	}
 }

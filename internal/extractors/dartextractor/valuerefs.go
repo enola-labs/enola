@@ -3,6 +3,7 @@ package dartextractor
 import (
 	"github.com/enola-labs/enola/internal/facts"
 	sitter "github.com/enola-labs/enola/internal/treesitter"
+	"strings"
 )
 
 // Module initializers need a value-only traversal. Function bodies collect the
@@ -157,7 +158,9 @@ func dartBoundNames(root *sitter.Node, src []byte, out map[string]bool, receiver
 			if explicitName && len(receivers) > 0 && (kind == "formal_parameter" || kind == "initialized_variable_definition" || kind == "for_loop_parts") {
 				typ := declaredReceiverType(root, src)
 				if typ == "" && kind == "initialized_variable_definition" {
-					typ = dartConstructedBinding(root, src)
+					if expr := dartInitializerExpression(root, src); expr != "" {
+						typ = "@infer:" + expr
+					}
 				}
 				receivers[0].record(key, typ)
 			}
@@ -200,8 +203,7 @@ func (w *walker) moduleValueReferences(root *sitter.Node) {
 		}
 	}
 	if len(b.relations) > 0 {
-		w.out = append(w.out, facts.Fact{Kind: facts.KindFileRef, Name: w.relFile, File: w.relFile,
-			Props: map[string]any{"language": "dart"}, Relations: b.relations})
+		w.mergeFileReference(nil, b.relations)
 	}
 }
 
@@ -233,12 +235,26 @@ func (w *walker) enterDartScope(n *sitter.Node, b *bodyWalk) func() {
 	// Only bindings introduced by this scope need saving. The outer maps stay
 	// in place, including blank type entries that deliberately hide field types.
 	saved := make([]dartScopeRestore, 0, len(local))
+	pending := map[string]string{}
+	for name, typ := range bindings.types {
+		if strings.HasPrefix(typ, "@infer:") {
+			expr := strings.TrimPrefix(typ, "@infer:")
+			id := b.allocateValueBinding(name, expr)
+			bindings.types[name] = id
+			pending[id] = expr
+		}
+	}
 	for name := range local {
 		shadow, hadShadow := b.shadows[name]
 		typ, hadType := b.receiverTypes[name]
 		saved = append(saved, dartScopeRestore{name, shadow, hadShadow, typ, hadType})
 		b.shadows[name] = true
 		b.receiverTypes[name] = bindings.types[name]
+	}
+	for id, expr := range pending {
+		binding := b.valueBindings[id]
+		binding.Expression = w.expressionForBinding(expr, b)
+		b.valueBindings[id] = binding
 	}
 	return func() {
 		for _, old := range saved {
