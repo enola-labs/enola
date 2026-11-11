@@ -822,7 +822,7 @@
   },
   {
     "name": "traverse",
-    "description": "Multi-hop walk of the dependency and call graph from one node: forward answers \"what does X depend on?\", reverse answers \"what depends on X?\". Use it instead of repeated explore calls. From a struct or interface, forward follows its methods and their calls; reverse also starts from its methods and constructor, so callers that reach the type only through a method (cross-repo too) appear, as in impact_analysis. Interface method calls cannot be bound to an implementation statically, so those edges may be missing or show as unresolved nodes. Output grows fast: start with output_mode=summary and keep max_depth and max_nodes bounded.",
+    "description": "Multi-hop walk of the dependency and call graph from one node: forward answers \"what does X depend on?\", reverse answers \"what depends on X?\". Use it instead of repeated explore calls. From a struct or interface, forward follows its methods and their calls; reverse also starts from its methods and constructor, so callers that reach the type only through a method (cross-repo too) appear, as in impact_analysis. It crosses interfaces both ways; a node reached through one is marked through_interface, as another implementation may run. Output grows fast: start with output_mode=summary and keep max_depth and max_nodes bounded.",
     "input_schema": {
       "additionalProperties": false,
       "properties": {

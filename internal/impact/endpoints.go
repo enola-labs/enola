@@ -122,6 +122,14 @@ func reachers(graph *facts.Graph, seeds []string, base int, into map[string]int)
 	return truncated
 }
 
+// InterfaceDispatch maps each implementing method outside test and mock code to the
+// interface methods it implements, including a method an implementer promotes from
+// a type it embeds: the hops a call through an interface can take.
+func InterfaceDispatch(store *facts.Store, graph *facts.Graph) map[string][]string {
+	impls, _ := interfaceMethods(store, graph)
+	return impls
+}
+
 // interfaceMethods maps an implementing method ("pkg.T.M") to the interface methods
 // it implements ("pkg.I.M"), from the implementers an interface records (Go) and from
 // implements edges (languages that write them). An implementer's method may be one it

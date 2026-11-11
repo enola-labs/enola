@@ -138,6 +138,10 @@ type TraversalNode struct {
 	// with DeclarationsTotal giving the full count when the list is cut.
 	Declarations      []Declaration `json:"declarations,omitempty"`
 	DeclarationsTotal int           `json:"declarations_total,omitempty"`
+	// ThroughInterface marks a node reached across an interface: from a method to
+	// the interface method it implements, or back. A call on the interface method
+	// may run another implementation, so the hop is possible, not certain.
+	ThroughInterface bool `json:"through_interface,omitempty"`
 }
 
 // Declaration is one symbol among several sharing a graph node's name.
@@ -694,7 +698,7 @@ func (g *Graph) declaredTypeNamed(name string) string {
 // maxDepth limits traversal depth (0 = use default 5).
 // maxNodes limits total returned nodes (0 = use default 100).
 func (g *Graph) Traverse(start, direction string, relKinds, nodeKinds []string, maxDepth, maxNodes int) TraversalResult {
-	return g.traverseFrom([]string{start}, direction, relKinds, nodeKinds, maxDepth, maxNodes)
+	return g.traverseFrom([]string{start}, direction, relKinds, nodeKinds, maxDepth, maxNodes, nil)
 }
 
 // TraverseFrom performs a BFS traversal seeded at every name in starts (see
@@ -702,7 +706,19 @@ func (g *Graph) Traverse(start, direction string, relKinds, nodeKinds []string, 
 // type also covers its methods and constructor — otherwise callers that reference
 // the type only through its methods are missed (the bug impact_analysis avoids).
 func (g *Graph) TraverseFrom(starts []string, direction string, relKinds, nodeKinds []string, maxDepth, maxNodes int) TraversalResult {
-	return g.traverseFrom(starts, direction, relKinds, nodeKinds, maxDepth, maxNodes)
+	return g.traverseFrom(starts, direction, relKinds, nodeKinds, maxDepth, maxNodes, nil)
+}
+
+// TraverseDispatching is TraverseFrom that also crosses interfaces. dispatch maps
+// a method to the methods a call may move it to: for a reverse walk, an
+// implementing method to the interface methods it implements, so the callers of
+// the interface are reached; for a forward walk, an interface method to its
+// implementations. Each such hop is an implements edge, oriented from the
+// implementation to the interface, and the node it reaches is marked
+// ThroughInterface. It is taken only when relKinds is empty or admits calls or
+// implements.
+func (g *Graph) TraverseDispatching(starts []string, direction string, relKinds, nodeKinds []string, maxDepth, maxNodes int, dispatch map[string][]string) TraversalResult {
+	return g.traverseFrom(starts, direction, relKinds, nodeKinds, maxDepth, maxNodes, dispatch)
 }
 
 // RollupSeeds returns name plus, when name is a type symbol
@@ -718,7 +734,7 @@ func (g *Graph) RollupSeeds(name string) []string {
 // is seeded at depth 0 (deduplicated), so a logical entity spread across several
 // fact nodes — e.g. a type plus its methods and constructor — can be traversed as
 // one origin. Single-source callers pass a one-element slice.
-func (g *Graph) traverseFrom(starts []string, direction string, relKinds, nodeKinds []string, maxDepth, maxNodes int) TraversalResult {
+func (g *Graph) traverseFrom(starts []string, direction string, relKinds, nodeKinds []string, maxDepth, maxNodes int, dispatch map[string][]string) TraversalResult {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 
@@ -739,6 +755,9 @@ func (g *Graph) traverseFrom(starts []string, direction string, relKinds, nodeKi
 
 	relSet := g.relIDSet(relKinds)
 	kindSet := toSet(nodeKinds)
+	if len(relKinds) > 0 && !slices.Contains(relKinds, RelCalls) && !slices.Contains(relKinds, RelImplements) {
+		dispatch = nil
+	}
 
 	var result TraversalResult
 	// Keyed by node ID rather than name: same asymptotics, but hashing a uint32
@@ -770,6 +789,47 @@ func (g *Graph) traverseFrom(starts []string, direction string, relKinds, nodeKi
 
 	truncated := false
 	maxDepthReached := 0
+
+	// visit enqueues a node reached over one edge, unless already seen, and
+	// records it in the result.
+	visit := func(tid uint32, newDepth int, relKind string, throughInterface bool) {
+		if _, seen := visited[tid]; seen {
+			return
+		}
+		visited[tid] = struct{}{}
+		if newDepth > maxDepthReached {
+			maxDepthReached = newDepth
+		}
+
+		node := g.nodeForID(tid, newDepth, relKind)
+		node.ThroughInterface = throughInterface
+
+		// Apply node kind filter
+		if kindSet != nil {
+			if _, ok := kindSet[node.Kind]; !ok {
+				// Still traverse through this node but don't include it in results
+				queue = append(queue, queueItem{id: tid, depth: newDepth})
+				return
+			}
+		}
+
+		if len(result.Nodes) >= maxNodes {
+			// Still traverse through this node but don't include it in
+			// results — same contract as the node-kind filter above.
+			// maxNodes bounds the returned set, not the walk: dropping the
+			// node from the queue would hide everything reachable only
+			// through it and make NodesVisited/MaxDepthReached describe the
+			// truncated walk rather than the graph. Nodes already appended
+			// are unaffected, so the returned set stays the BFS-order prefix
+			// of an uncapped traversal.
+			truncated = true
+			queue = append(queue, queueItem{id: tid, depth: newDepth})
+			return
+		}
+
+		result.Nodes = append(result.Nodes, node)
+		queue = append(queue, queueItem{id: tid, depth: newDepth})
+	}
 
 	// Use an index pointer instead of re-slicing to avoid keeping the full
 	// backing array alive for the duration of traversal.
@@ -807,43 +867,21 @@ func (g *Graph) traverseFrom(starts []string, direction string, relKinds, nodeKi
 				})
 			}
 
-			if _, seen := visited[tid]; seen {
+			visit(tid, item.depth+1, relKind, false)
+		}
+
+		for _, other := range dispatch[g.names[item.id]] {
+			tid, ok := g.lookup(other)
+			if !ok {
 				continue
 			}
-			visited[tid] = struct{}{}
-
-			newDepth := item.depth + 1
-			if newDepth > maxDepthReached {
-				maxDepthReached = newDepth
+			impl, iface := g.names[item.id], other
+			if !reverse {
+				impl, iface = other, g.names[item.id]
 			}
-
-			node := g.nodeForID(tid, newDepth, relKind)
-
-			// Apply node kind filter
-			if kindSet != nil {
-				if _, ok := kindSet[node.Kind]; !ok {
-					// Still traverse through this node but don't include it in results
-					queue = append(queue, queueItem{id: tid, depth: newDepth})
-					continue
-				}
-			}
-
-			if len(result.Nodes) >= maxNodes {
-				// Still traverse through this node but don't include it in
-				// results — same contract as the node-kind filter above.
-				// maxNodes bounds the returned set, not the walk: dropping the
-				// node from the queue would hide everything reachable only
-				// through it and make NodesVisited/MaxDepthReached describe the
-				// truncated walk rather than the graph. Nodes already appended
-				// are unaffected, so the returned set stays the BFS-order prefix
-				// of an uncapped traversal.
-				truncated = true
-				queue = append(queue, queueItem{id: tid, depth: newDepth})
-				continue
-			}
-
-			result.Nodes = append(result.Nodes, node)
-			queue = append(queue, queueItem{id: tid, depth: newDepth})
+			result.Stats.EdgesTraversed++
+			result.Edges = append(result.Edges, TraversalEdge{Source: impl, Target: iface, Kind: RelImplements})
+			visit(tid, item.depth+1, RelImplements, true)
 		}
 	}
 
@@ -1202,7 +1240,7 @@ func (g *Graph) impactFrom(target string, seeds, forwardFrom []string, maxDepth,
 		maxNodes = 500
 	}
 
-	rev := g.traverseFrom(seeds, "reverse", nil, nil, maxDepth, maxNodes)
+	rev := g.traverseFrom(seeds, "reverse", nil, nil, maxDepth, maxNodes, nil)
 
 	// max_nodes caps rev.Nodes, so len(rev.Nodes) is not the dependent count.
 	// (The cap bounds the returned set only — the BFS itself walks the full
