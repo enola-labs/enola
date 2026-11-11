@@ -3535,7 +3535,9 @@ import (
 // (http.MethodPost, "POST") and may build its path where it passes it.
 // v573: TypeScript: a Next.js layout seeds the pages beneath it, so a call only a
 // layout reaches names those pages in client_pages.
-const cacheVersion = "v573"
+// v574: Kotlin: a supertype of the same package in another module is re-homed, so
+// its implements edge reaches the declaration instead of the bare name.
+const cacheVersion = "v574"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

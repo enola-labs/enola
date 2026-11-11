@@ -609,6 +609,16 @@ func resolveSplitPackages(all []facts.Fact, siblings map[string][]string) {
 				cands[k] = split(cands[k])
 			}
 		}
+		// A supertype written by its simple name, in the same package but another
+		// module (an interface in a public module, its implementation in another), is
+		// a candidate in the implementation's own directory until it is re-homed: left
+		// there, the implements edge stayed the bare name and a walk up from the
+		// implementation never reached the interface's callers.
+		if cands, ok := f.PropAny(propSuperCandidates).([]string); ok {
+			for k := range cands {
+				cands[k] = split(cands[k])
+			}
+		}
 		if notes, ok := f.PropAny(propReceiverCalls).([]receiverCall); ok {
 			for k := range notes {
 				notes[k].typ = split(notes[k].typ)
