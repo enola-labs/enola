@@ -353,12 +353,31 @@ func stringList(v any) []string {
 }
 
 func endpointsOf(store *facts.Store, graph *facts.Graph, seeds []string, packages map[string]int) (out []Endpoint, truncated bool) {
+	impls, sole := interfaceMethods(store, graph)
+	return endpointsReaching(store, graph, seeds, packages, impls, sole)
+}
+
+// EndpointFinder returns the served endpoints whose handlers reach any of seeds, by
+// calls or through an interface, as impact lists them.
+type EndpointFinder func(seeds []string) []Endpoint
+
+// NewEndpointFinder is an EndpointFinder over one snapshot. The implementations
+// behind each interface are worked out once, for every question it is asked.
+func NewEndpointFinder(store *facts.Store, graph *facts.Graph) EndpointFinder {
+	impls, sole := interfaceMethods(store, graph)
+	return func(seeds []string) []Endpoint {
+		out, _ := endpointsReaching(store, graph, seeds, nil, impls, sole)
+		return out
+	}
+}
+
+// endpointsReaching is endpointsOf with the interface implementations worked out.
+func endpointsReaching(store *facts.Store, graph *facts.Graph, seeds []string, packages map[string]int, impls map[string][]string, sole func(string) bool) (out []Endpoint, truncated bool) {
 	direct := map[string]int{}
 	for _, s := range seeds {
 		direct[s] = 0
 	}
 	truncated = reachers(graph, seeds, 0, direct)
-	impls, sole := interfaceMethods(store, graph)
 
 	// Across interfaces: an implementing method that reaches the target makes the
 	// interface method it implements reach it too, and that method's callers, until

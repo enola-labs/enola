@@ -10,7 +10,11 @@
   ],
   "callers": [
     {
-      "file": "consumer/client.go"
+      "file": "consumer/client.go",
+      "repo": "consumer",
+      "calls_from": [
+        "example.com/consumer.Client.run"
+      ]
     }
   ],
   "stopped_at": "controller",
