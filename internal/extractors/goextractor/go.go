@@ -2088,7 +2088,9 @@ func typeExprToString(expr ast.Expr) string {
 		if x, ok := t.X.(*ast.Ident); ok {
 			return x.Name + "." + t.Sel.Name
 		}
-	case *ast.IndexExpr:
+	case *ast.IndexExpr: // Box[T]
+		return typeExprToString(t.X)
+	case *ast.IndexListExpr: // Pair[K, V]
 		return typeExprToString(t.X)
 	}
 	return ""

@@ -1371,3 +1371,41 @@ func Rows() int { return load().rows + plain }
 		t.Errorf("shelf.Limit holds no code, so it should have no relations; got %v", limit.Relations)
 	}
 }
+
+// A method of a generic type with several type parameters is named by its type, as
+// one with a single type parameter is, and a call through a field of that type
+// reaches it. The receiver `*Pair[K, V]` was read as no type at all, so every such
+// method of a package was named "pkg..Get" and owned by nothing.
+func TestExtract_MethodOfATypeWithSeveralTypeParameters(t *testing.T) {
+	ff := extractAll(t, map[string]string{
+		"box/box.go": `package box
+
+type Pair[K comparable, V any] struct{ k K; v V }
+
+func (p *Pair[K, V]) Get() V { return p.v }
+
+func (p Pair[K, V]) Key() K { return p.k }
+
+type Holder struct{ pair *Pair[string, int] }
+
+func (h *Holder) Read() int { return h.pair.Get() }
+`,
+	})
+	for _, name := range []string{"box.Pair.Get", "box.Pair.Key"} {
+		if _, ok := findFact(ff, name); !ok {
+			t.Errorf("expected a method fact named %s", name)
+		}
+	}
+	for _, f := range ff {
+		if strings.Contains(f.Name, "..") {
+			t.Errorf("a method was named without its type: %s", f.Name)
+		}
+	}
+	read, ok := findFact(ff, "box.Holder.Read")
+	if !ok {
+		t.Fatal("expected a fact for box.Holder.Read")
+	}
+	if !hasRelation(read, facts.RelCalls, "box.Pair.Get") {
+		t.Errorf("Holder.Read should call Pair.Get through its field; relations: %v", read.Relations)
+	}
+}
