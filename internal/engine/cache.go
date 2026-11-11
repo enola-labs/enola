@@ -3512,7 +3512,9 @@ import (
 // symbol, exported or not, owning that code's calls and type uses.
 // v562: Go: a /* */ comment inside a SQL string is skipped like a -- comment, so a
 // hint between DELETE and FROM no longer hides the table.
-const cacheVersion = "v562"
+// v563: Go: a query naming its table through a package string constant, assembled
+// with fmt.Sprintf or +, is read as the text it builds.
+const cacheVersion = "v563"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

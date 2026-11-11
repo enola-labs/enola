@@ -136,7 +136,10 @@ func selectTables(literal string) []string {
 func selectGate(literal string) bool { return reSelectKeyword.MatchString(literal) }
 
 // extractStorage walks a Go file looking for SQL table references and S3 storage patterns.
-func extractStorage(fset *token.FileSet, f *ast.File, relFile, pkgDir string) []facts.Fact {
+//
+// consts are the package's string constants (buildStringConsts): a query assembled
+// with fmt.Sprintf or + from a constant naming its table is read as the text it builds.
+func extractStorage(fset *token.FileSet, f *ast.File, relFile, pkgDir string, consts map[string]string) []facts.Fact {
 	var result []facts.Fact
 
 	// Track seen (table, operation) pairs per file to deduplicate
@@ -153,8 +156,77 @@ func extractStorage(fset *token.FileSet, f *ast.File, relFile, pkgDir string) []
 		}
 	}
 
+	// scan reads the tables one SQL text names, at line.
+	scan := func(val string, line int) {
+		// A literal too large to be a query is a document; see maxSQLLiteral.
+		if len(val) > maxSQLLiteral {
+			return
+		}
+		val = stripSQLComments(val)
+
+		// Check SQL patterns
+		// Each entry names the tables its statement touches. A function rather than a
+		// bare regex because SELECT needs to read a whole FROM clause (see
+		// selectTables) and the others do not — expressing that as "regex plus
+		// optional gate" pushed the difference into a flag and still could not
+		// express reading more than one table per match.
+		sqlPatterns := []struct {
+			operation string
+			kind      string
+			tables    func(string) []string
+		}{
+			{"CREATE", "table", firstGroups(reCreateTable)},
+			{"ALTER", "table", firstGroups(reAlterTable)},
+			{"INSERT", "table_reference", firstGroups(reInsertInto)},
+			{"UPDATE", "table_reference", firstGroups(reUpdate)},
+			{"DELETE", "table_reference", firstGroups(reDeleteFrom)},
+			{"SELECT", "table_reference", selectTables},
+		}
+
+		for _, pat := range sqlPatterns {
+			for _, tableName := range pat.tables(val) {
+				// Skip common SQL noise words
+				if isSQLNoise(tableName) {
+					continue
+				}
+				key := tableOp{tableName, pat.operation}
+				if seen[key] {
+					continue
+				}
+				seen[key] = true
+
+				result = append(result, facts.Fact{
+					Kind: facts.KindStorage,
+					Name: tableName,
+					File: relFile,
+					Line: line,
+					Props: map[string]any{
+						"storage_kind": pat.kind,
+						"operation":    pat.operation,
+						"language":     "go",
+					},
+					Relations: []facts.Relation{
+						{Kind: facts.RelDeclares, Target: pkgDir},
+					},
+				})
+			}
+		}
+	}
+	fmtName := importName(f, "fmt")
+
 	ast.Inspect(f, func(n ast.Node) bool {
 		switch node := n.(type) {
+		case *ast.CallExpr:
+			if val, ok := sprintfQuery(node, fmtName, consts); ok {
+				scan(val, fset.Position(node.Pos()).Line)
+			}
+		case *ast.BinaryExpr:
+			// The outermost sum is read whole; the sums and literals inside it are
+			// parts of the same text.
+			if val, ok := concatQuery(node, consts); ok {
+				scan(val, fset.Position(node.Pos()).Line)
+				return false
+			}
 		case *ast.BasicLit:
 			if node.Kind != token.STRING {
 				return true
@@ -165,62 +237,7 @@ func extractStorage(fset *token.FileSet, f *ast.File, relFile, pkgDir string) []
 				// Try raw string (backtick) — already unquoted by removing backticks
 				val = strings.Trim(node.Value, "`")
 			}
-
-			// A literal too large to be a query is a document; see maxSQLLiteral.
-			if len(val) > maxSQLLiteral {
-				return true
-			}
-			val = stripSQLComments(val)
-
-			line := fset.Position(node.Pos()).Line
-
-			// Check SQL patterns
-			// Each entry names the tables its statement touches. A function rather than a
-			// bare regex because SELECT needs to read a whole FROM clause (see
-			// selectTables) and the others do not — expressing that as "regex plus
-			// optional gate" pushed the difference into a flag and still could not
-			// express reading more than one table per match.
-			sqlPatterns := []struct {
-				operation string
-				kind      string
-				tables    func(string) []string
-			}{
-				{"CREATE", "table", firstGroups(reCreateTable)},
-				{"ALTER", "table", firstGroups(reAlterTable)},
-				{"INSERT", "table_reference", firstGroups(reInsertInto)},
-				{"UPDATE", "table_reference", firstGroups(reUpdate)},
-				{"DELETE", "table_reference", firstGroups(reDeleteFrom)},
-				{"SELECT", "table_reference", selectTables},
-			}
-
-			for _, pat := range sqlPatterns {
-				for _, tableName := range pat.tables(val) {
-					// Skip common SQL noise words
-					if isSQLNoise(tableName) {
-						continue
-					}
-					key := tableOp{tableName, pat.operation}
-					if seen[key] {
-						continue
-					}
-					seen[key] = true
-
-					result = append(result, facts.Fact{
-						Kind: facts.KindStorage,
-						Name: tableName,
-						File: relFile,
-						Line: line,
-						Props: map[string]any{
-							"storage_kind": pat.kind,
-							"operation":    pat.operation,
-							"language":     "go",
-						},
-						Relations: []facts.Relation{
-							{Kind: facts.RelDeclares, Target: pkgDir},
-						},
-					})
-				}
-			}
+			scan(val, fset.Position(node.Pos()).Line)
 
 		case *ast.TypeSpec:
 			// Detect S3 storage structs

@@ -340,13 +340,14 @@ func (e *GoExtractor) extractPackage(fset *token.FileSet, pkgDir string, pp *par
 	pkgFuncs := collectPackageFuncs(pp.parsedFiles)
 	pkgScope := collectPackageScope(pp.parsedFiles)
 	pkgConsts := collectPackageConsts(pp.parsedFiles)
+	strConsts := buildStringConsts(map[string]*parsedPkg{pkgDir: pp})[pkgDir]
 
 	for _, relFile := range pp.relFiles {
 		f, ok := pp.fileMap[relFile]
 		if !ok {
 			continue
 		}
-		result = append(result, e.extractFile(fset, f, relFile, pkgDir, mods, fieldTypes, callTypes, pkgNames, grpcStubs, pkgVarClients, baseURLLits, routePrefixes, pkgFuncs, pkgScope, pkgConsts)...)
+		result = append(result, e.extractFile(fset, f, relFile, pkgDir, mods, fieldTypes, callTypes, pkgNames, grpcStubs, pkgVarClients, baseURLLits, routePrefixes, pkgFuncs, pkgScope, pkgConsts, strConsts)...)
 	}
 
 	// Kafka topics passed through a package constructor, whose declaration and
@@ -431,7 +432,7 @@ func isDocGo(rel string) bool {
 	return rel == "doc.go" || strings.HasSuffix(rel, "/doc.go")
 }
 
-func (e *GoExtractor) extractFile(fset *token.FileSet, f *ast.File, relFile, pkgDir string, mods goModules, fieldTypes map[string]string, callTypes callTypeTables, pkgNames map[string]string, grpcStubs *goGRPCStubIndex, pkgVarClients map[string]string, baseURLLits map[string][]string, routePrefixes routeIndex, pkgFuncs, pkgScope, pkgConsts map[string]bool) []facts.Fact {
+func (e *GoExtractor) extractFile(fset *token.FileSet, f *ast.File, relFile, pkgDir string, mods goModules, fieldTypes map[string]string, callTypes callTypeTables, pkgNames map[string]string, grpcStubs *goGRPCStubIndex, pkgVarClients map[string]string, baseURLLits map[string][]string, routePrefixes routeIndex, pkgFuncs, pkgScope, pkgConsts map[string]bool, strConsts map[string]string) []facts.Fact {
 	var result []facts.Fact
 
 	// Build per-file import alias map for call resolution.
@@ -488,7 +489,7 @@ func (e *GoExtractor) extractFile(fset *token.FileSet, f *ast.File, relFile, pkg
 	result = append(result, extractGRPCClientFacts(fset, f, relFile, pkgDir, mods, fileImports, fieldTypes, pkgVarClients, grpcStubs)...)
 
 	// Extract storage patterns
-	result = append(result, extractStorage(fset, f, relFile, pkgDir)...)
+	result = append(result, extractStorage(fset, f, relFile, pkgDir, strConsts)...)
 
 	// Extract Kafka topic references (produced/consumed), for async cross-repo links
 	result = append(result, extractKafkaFacts(fset, f, relFile, pkgDir)...)

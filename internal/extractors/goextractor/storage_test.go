@@ -340,3 +340,52 @@ const lookup = "SELECT /* by title */ id FROM books /* primary */ WHERE title = 
 		t.Errorf("SELECT with comments around the FROM clause: got %v", got)
 	}
 }
+
+// A query that names its table through a package constant, with fmt.Sprintf or +,
+// in another file of the package, is read as the text it builds. A part built at
+// run time is not a table, and a format with no constant is left to its literal.
+func TestExtractStorage_TableNamedByAConstant(t *testing.T) {
+	ff := extractAll(t, map[string]string{
+		"pkg/shelf/tables.go": `package shelf
+
+const (
+	shelvesTable = "shelves"
+	booksTable   = "books"
+	loansTable   = "loa" + "ns"
+	idColumn     = "id"
+)
+`,
+		"pkg/shelf/queries.go": `package shelf
+
+import (
+	"fmt"
+	"strings"
+)
+
+func placeholders(n int) string { return strings.Repeat("?,", n) }
+
+func queries(n int) []string {
+	return []string{
+		fmt.Sprintf("SELECT %s, title FROM %s WHERE shelf_id IN (%s)", idColumn, booksTable, placeholders(n)),
+		fmt.Sprintf("DELETE /*+ batched */ FROM %s "+
+			"WHERE %s = ?", shelvesTable, idColumn),
+		"UPDATE " + loansTable + " SET returned = 1 WHERE " + idColumn + " = ?",
+		fmt.Sprintf("SELECT 1 FROM %s", placeholders(n)),
+	}
+}
+`,
+	})
+	got := map[string]string{}
+	for _, s := range findFactsByKind(ff, facts.KindStorage) {
+		got[s.Name], _ = s.Props["operation"].(string)
+	}
+	want := map[string]string{"books": "SELECT", "shelves": "DELETE", "loans": "UPDATE"}
+	for table, op := range want {
+		if got[table] != op {
+			t.Errorf("%s: operation %q, want %q (got %v)", table, got[table], op, got)
+		}
+	}
+	if len(got) != len(want) {
+		t.Errorf("tables %v, want exactly %v", got, want)
+	}
+}
