@@ -3537,7 +3537,8 @@ import (
 // layout reaches names those pages in client_pages.
 // v574: Kotlin: a supertype of the same package in another module is re-homed, so
 // its implements edge reaches the declaration instead of the bare name.
-const cacheVersion = "v574"
+// v575: Go: an HTTP helper's path built with fmt.Sprintf is read at its call site.
+const cacheVersion = "v575"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

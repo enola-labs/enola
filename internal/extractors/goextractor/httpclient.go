@@ -483,7 +483,8 @@ func pathLiteralArg(call *ast.CallExpr) (path, verb string, ok bool) {
 					verb = v
 				}
 			}
-		case *ast.BinaryExpr:
+		case *ast.BinaryExpr, *ast.CallExpr:
+			// A path built by concatenation or by fmt.Sprintf.
 			if p := clientURLPath(x); path == "" && isPathShaped(p) {
 				path = p
 			}

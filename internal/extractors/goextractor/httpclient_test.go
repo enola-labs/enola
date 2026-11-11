@@ -449,6 +449,7 @@ func TestPathLiteralArg_VerbArgumentAndBuiltPath(t *testing.T) {
 		{`c.do(http.MethodPost, "/v1/orders", body)`, "/v1/orders", "POST"},
 		{`c.do("DELETE", "/v1/orders/7", nil)`, "/v1/orders/7", "DELETE"},
 		{`c.do(http.MethodPut, "/v1/orders/"+id+"/items", nil)`, "/v1/orders/{}/items", "PUT"},
+		{`c.do(http.MethodPut, fmt.Sprintf("/v1/orders/%d/items", id), nil)`, "/v1/orders/{}/items", "PUT"},
 		{`c.do("/v1/orders", Options{Method: http.MethodPatch})`, "/v1/orders", "PATCH"},
 		{`c.do("/v1/orders")`, "/v1/orders", "GET"},
 		// A word that is no verb is not one.
