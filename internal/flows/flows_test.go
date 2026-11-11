@@ -1,6 +1,7 @@
 package flows
 
 import (
+	"bytes"
 	"reflect"
 	"slices"
 	"strings"
@@ -492,6 +493,81 @@ func TestAnalyze_SameNamedEntriesAreOneFlowPerFile(t *testing.T) {
 	}
 	if through, known := a.Through("cmd/perf.main"); !known || len(through) != 2 {
 		t.Errorf("through the shared entry name = %v, known %v", through, known)
+	}
+}
+
+// Same-named programs with identical downstream calls share one flow. Its
+// representative must not depend on root-map iteration or fact insertion order.
+func TestAnalyze_SameNamedSharedReachHasStableRepresentative(t *testing.T) {
+	ff := []facts.Fact{
+		sym("app.main", "app/c.dart", "core.load"),
+		sym("app.main", "app/a.dart", "core.load"),
+		sym("app.main", "app/b.dart", "core.load"),
+		sym("app.main", "app/d.dart", "core.other"),
+		sym("core.load", "core/load.dart", "core.finish"),
+		sym("core.finish", "core/finish.dart"),
+		sym("core.other", "core/other.dart"),
+	}
+	var want []byte
+	for run := 0; run < 64; run++ {
+		ordered := make([]facts.Fact, len(ff))
+		for i := range ordered {
+			index := (i + run) % len(ff)
+			if run%2 != 0 {
+				index = len(ff) - 1 - index
+			}
+			ordered[i] = ff[index]
+		}
+		a := analyze(ordered...)
+		if len(a.Flows) != 2 || a.Roots[MechanismMain] != 4 {
+			t.Fatalf("run %d: roots %v, flows %+v", run, a.Roots, a.Flows)
+		}
+		if f := a.Flows[0]; f.Entry.File != "app/a.dart" || len(f.SameReachAs) != 2 {
+			t.Fatalf("run %d: shared flow representative = %+v", run, f)
+		}
+		got, err := a.Document(len(a.Flows)).JSON()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if run == 0 {
+			want = got
+		} else if !bytes.Equal(got, want) {
+			t.Fatalf("run %d: flow export changed with fact order", run)
+		}
+	}
+}
+
+func TestAnalyze_DuplicateRouteLabelsHaveStableOrder(t *testing.T) {
+	first := route("GET", "/orders", "api/orders.list")
+	first.File, first.Line = "api/routes.py", 10
+	second := first
+	second.Line = 20
+	third := first
+	third.File = "spec/openapi.json"
+	ff := []facts.Fact{third, second, first,
+		sym("api/orders.list", "api/orders.py", "db/orders.load"),
+		sym("db/orders.load", "db/orders.py"),
+	}
+	var want []byte
+	for shift := range ff {
+		ordered := append(append([]facts.Fact{}, ff[shift:]...), ff[:shift]...)
+		a := analyze(ordered...)
+		if len(a.Flows) != 1 {
+			t.Fatalf("flows = %+v", a.Flows)
+		}
+		routes := a.Flows[0].Routes
+		if len(routes) != 3 || routes[0].File != first.File || routes[0].Line != 10 || routes[1].Line != 20 || routes[2].File != third.File {
+			t.Fatalf("route order = %+v", routes)
+		}
+		got, err := a.Document(len(a.Flows)).JSON()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if shift == 0 {
+			want = got
+		} else if !bytes.Equal(got, want) {
+			t.Fatalf("shift %d: export changed with route order", shift)
+		}
 	}
 }
 
