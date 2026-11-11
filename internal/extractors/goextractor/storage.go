@@ -24,11 +24,13 @@ var (
 	reJoinTable = regexp.MustCompile(`(?i)\bJOIN\s+` + "`?" + `"?'?(\w+)`)
 	// reClauseEnd marks where a FROM clause stops and the rest of the statement begins.
 	reClauseEnd = regexp.MustCompile(`(?i)\b(WHERE|GROUP\s+BY|ORDER\s+BY|HAVING|LIMIT|OFFSET|UNION|RETURNING)\b|;`)
-	// reSQLComment matches a `--` line comment inside a SQL string. See stripSQLComments.
-	reSQLComment = regexp.MustCompile(`--[^\n]*`)
+	// reSQLComment matches a `--` line comment or a `/* */` block comment inside a SQL
+	// string. See stripSQLComments.
+	reSQLComment = regexp.MustCompile(`--[^\n]*|/\*(?s:.*?)\*/`)
 )
 
-// stripSQLComments removes `-- …` line comments before the statement patterns run.
+// stripSQLComments removes `-- …` line comments and `/* … */` block comments before the
+// statement patterns run, leaving a space so the words either side stay apart.
 //
 // A comment inside a query is prose that happens to be surrounded by SQL, so it defeats
 // every gate: the literal really is SQL, it really does contain SELECT, and the words in the
@@ -39,7 +41,12 @@ var (
 //
 // which produced a table called `was`. Stripping them is not a heuristic — a SQL comment is
 // defined not to be part of the statement, so removing it is reading the language correctly.
-func stripSQLComments(s string) string { return reSQLComment.ReplaceAllString(s, "") }
+//
+// A block comment is also where a query carries a hint for the database or its proxy,
+// between the keywords a pattern reads: `DELETE /*vt+ MULTI_SHARD_AUTOCOMMIT=1 */ FROM
+// orders` is a DELETE FROM orders that no pattern matched while the hint sat between
+// DELETE and FROM.
+func stripSQLComments(s string) string { return reSQLComment.ReplaceAllString(s, " ") }
 
 // maxSQLLiteral is the largest string literal searched for SQL.
 //

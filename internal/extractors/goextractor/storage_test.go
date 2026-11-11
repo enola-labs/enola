@@ -319,3 +319,24 @@ const migration = "ALTER TABLE users ADD COLUMN phone VARCHAR(20)"
 		t.Error("expected storage fact for ALTER TABLE users")
 	}
 }
+
+// A hint in a block comment between the keywords does not hide the statement.
+func TestExtractStorage_BlockCommentHintBetweenKeywords(t *testing.T) {
+	ff := extractAll(t, map[string]string{
+		"pkg/db/cleanup.go": `package db
+
+const purge = "DELETE /*+ BATCHED */ FROM shelves WHERE id IN (?)"
+const lookup = "SELECT /* by title */ id FROM books /* primary */ WHERE title = ?"
+`,
+	})
+	got := map[string]string{}
+	for _, s := range findFactsByKind(ff, facts.KindStorage) {
+		got[s.Name], _ = s.Props["operation"].(string)
+	}
+	if got["shelves"] != "DELETE" {
+		t.Errorf("DELETE with a hint before FROM: got %v", got)
+	}
+	if got["books"] != "SELECT" {
+		t.Errorf("SELECT with comments around the FROM clause: got %v", got)
+	}
+}

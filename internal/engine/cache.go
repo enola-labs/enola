@@ -3510,7 +3510,9 @@ import (
 // only that way is no longer dead code.
 // v561: Go: a package-level var whose initializer holds a function literal is a
 // symbol, exported or not, owning that code's calls and type uses.
-const cacheVersion = "v561"
+// v562: Go: a /* */ comment inside a SQL string is skipped like a -- comment, so a
+// hint between DELETE and FROM no longer hides the table.
+const cacheVersion = "v562"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
