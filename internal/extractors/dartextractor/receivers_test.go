@@ -23,7 +23,7 @@ void run(List<String> values) { for (final value in values) { clean(value); Labe
 	if hasRelation(clean, facts.RelCalls, "lib.Storage.replaceAll") {
 		t.Fatal("string call bound to storage")
 	}
-	if !hasRelation(clean, facts.RelCalls, "String.trim().toLowerCase().replaceAll") {
+	if !hasRelation(clean, facts.RelCalls, "sdk/lib/core.String.replaceAll") {
 		t.Fatalf("lost chained receiver: %+v", clean.Relations)
 	}
 	for _, name := range []string{"lib.clean", "lib.Label.Label.named", "lib.run"} {

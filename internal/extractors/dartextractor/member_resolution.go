@@ -111,6 +111,7 @@ type dartMemberResolver struct {
 	sdkLibraryHosts       map[string]map[string]bool
 	sdkHosts              map[string]bool
 	enumConstants         map[string]bool
+	bundledHosts          map[string]bool
 	importedValueCache    map[dartImportedFunctionKey][]dartDeclaredValue
 	exportedValueCache    map[dartTypeKey][]dartDeclaredValue
 }
@@ -120,6 +121,7 @@ func newDartMemberResolver(all []facts.Fact) *dartMemberResolver {
 	r.sdkLibraryHosts = map[string]map[string]bool{}
 	r.sdkHosts = map[string]bool{}
 	r.enumConstants = map[string]bool{}
+	r.bundledHosts = map[string]bool{}
 	r.exportedTypeCache = map[dartTypeKey][]*facts.Fact{}
 	r.exportedFunctionCache = map[dartTypeKey][]*facts.Fact{}
 	r.importedFunctionCache = map[dartImportedFunctionKey][]*facts.Fact{}
@@ -171,7 +173,13 @@ func newDartMemberResolver(all []facts.Fact) *dartMemberResolver {
 	for i := range all {
 		f := &all[i]
 		if f.Kind == facts.KindDependency && f.PropString("uri") != "" {
-			if uri, path := f.PropString("uri"), f.PropString("resolved_file"); strings.HasPrefix(uri, "dart:") && path != "" {
+			uri, path := f.PropString("uri"), f.PropString("resolved_file")
+			if path == "" && strings.HasPrefix(uri, "dart:") {
+				if path = sdkIndexHost(uri); path != "" {
+					r.bundledHosts[path] = true
+				}
+			}
+			if strings.HasPrefix(uri, "dart:") && path != "" {
 				if r.sdkLibraryHosts[uri] == nil {
 					r.sdkLibraryHosts[uri] = map[string]bool{}
 				}
@@ -440,7 +448,7 @@ func (r *dartMemberResolver) interfaceMember(owner *facts.Fact, name string) (*f
 	for _, iface := range interfaces {
 		if found, blocked := r.member(r.typeNamed(iface, owner.File), name, seen); blocked {
 			// Interfaces expose declarations, never an inherited implementation or its I/O.
-			if found != nil && !found.PropBool("abstract_member") && !found.PropBool("abstract") {
+			if found != nil && !found.PropBool("abstract_member") && !found.PropBool("abstract") && !r.bundledHosts[found.File] {
 				continue
 			}
 			if found == nil || (candidate != nil && candidate != found) {
@@ -760,7 +768,9 @@ func (r *dartMemberResolver) importTargets(dep *facts.Fact) []string {
 		path := dep.PropString("resolved_file")
 		if path == "" {
 			path = dep.PropString("uri")
-			if !strings.Contains(path, ":") {
+			if host := sdkIndexHost(path); host != "" && strings.HasPrefix(path, "dart:") {
+				path = host
+			} else if !strings.Contains(path, ":") {
 				path = factpath.Join(factpath.Dir(dep.File), path)
 			}
 		}
