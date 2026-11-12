@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -485,5 +486,57 @@ func TestStaleness_AgeFromLoadedSnapshotNotForeignReceipt(t *testing.T) {
 	}
 	if want := 1 * time.Hour; st.Age != want {
 		t.Errorf("Age=%s, want %s (the loaded snapshot's own generated_at)", st.Age, want)
+	}
+}
+
+// A graph published as built and the same graph restored from disk hold every fact's
+// relations in the same order, so a tool answers the same whichever way it got there.
+func TestRestoreFromDir_RelationOrderMatchesBuilt(t *testing.T) {
+	repo := t.TempDir()
+	writeFile(t, filepath.Join(repo, "go.mod"), "module testmod\n\ngo 1.21\n")
+	writeFile(t, filepath.Join(repo, "pkg", "a", "a.go"), "package a\n\nimport \"testmod/pkg/b\"\n\nfunc Z() {}\n\nfunc A() { b.B(); Z(); M() }\n\nfunc M() {}\n")
+	writeFile(t, filepath.Join(repo, "pkg", "b", "b.go"), "package b\n\nfunc B() {}\n")
+
+	cfg := config.Default()
+	eng, err := engine.New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	eng.RegisterExtractor(goextractor.New())
+	if _, err := eng.GenerateSnapshot(context.Background(), repo, false); err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	if err := eng.WriteArtifacts(repo); err != nil {
+		t.Fatalf("write artifacts: %v", err)
+	}
+	built := map[string][]facts.Relation{}
+	multi := 0
+	for _, f := range eng.Store().FactsRef() {
+		built[f.Kind+"\x00"+f.Name+"\x00"+f.File] = f.Relations
+		if len(f.Relations) > 2 {
+			multi++
+		}
+	}
+	if multi == 0 {
+		t.Fatal("precondition: expected a fact with several relations")
+	}
+
+	fresh, err := engine.New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	label := filepath.Base(repo)
+	if err := fresh.RestoreFromDir(eng.OutputDir(repo), map[string]string{label: repo}, label); err != nil {
+		t.Fatalf("restore: %v", err)
+	}
+	for _, f := range fresh.Store().FactsRef() {
+		want, ok := built[f.Kind+"\x00"+f.Name+"\x00"+f.File]
+		if !ok {
+			t.Errorf("restored %s %s not in the built graph", f.Kind, f.Name)
+			continue
+		}
+		if !reflect.DeepEqual(f.Relations, want) {
+			t.Errorf("%s %s: built %v, restored %v", f.Kind, f.Name, want, f.Relations)
+		}
 	}
 }

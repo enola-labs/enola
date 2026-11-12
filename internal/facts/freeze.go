@@ -1,8 +1,10 @@
 package facts
 
 import (
+	"slices"
 	"sort"
 	"strconv"
+	"strings"
 )
 
 // Freeze collapses structurally identical Props maps and Relations slices onto shared
@@ -89,6 +91,7 @@ func (sh *sharer) share(f *Fact) {
 	}
 
 	if len(f.Relations) > 0 {
+		sortRelations(f.Relations)
 		key := appendRelations(sh.buf[:0], f.Relations)
 		sh.buf = key
 		if canon, hit := sh.relSeen[string(key)]; hit {
@@ -102,6 +105,29 @@ func (sh *sharer) share(f *Fact) {
 			f.Relations = shared
 			sh.relSeen[string(key)] = shared
 		}
+	}
+}
+
+// compareRelations orders relations by kind, then target: the order facts.jsonl has
+// always written them in, and so the order a restored graph holds them in.
+func compareRelations(a, b Relation) int {
+	if c := strings.Compare(a.Kind, b.Kind); c != 0 {
+		return c
+	}
+	return strings.Compare(a.Target, b.Target)
+}
+
+// sortRelations puts rs in compareRelations order, in place. Extractors append
+// relations in map-iteration order, so a graph published as built held them in an order
+// that varied run to run and differed from the same graph restored from disk, and a
+// tool listing a fact's relations answered differently by how the graph got there.
+//
+// Sorted in place, and only when out of order: a slice already sorted is never written,
+// which is every slice a published store holds, so one shared into this store from
+// another (a restore, an append) is read and never touched.
+func sortRelations(rs []Relation) {
+	if len(rs) > 1 && !slices.IsSortedFunc(rs, compareRelations) {
+		slices.SortFunc(rs, compareRelations)
 	}
 }
 

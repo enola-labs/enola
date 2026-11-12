@@ -9,6 +9,7 @@ import (
 	"iter"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -1136,8 +1137,8 @@ func estimateJSONLSize(ff []Fact) int {
 // order. Extractors emit facts (and within-fact relations) in map-iteration
 // order, which varies run to run; sorting here makes facts.jsonl byte-stable for
 // a given commit, so the snapshot is reproducible and incremental regenerations
-// don't churn the file. Relations are sorted on a copy so the in-memory store is
-// left untouched.
+// don't churn the file. Relations are sorted on a copy here; Freeze puts the store's
+// own into the same order (see sortRelations), so a frozen store already matches.
 //
 // This is also where each fact's id and each relation's target_id are computed
 // (see wire.go and id.go). They are written and never stored, so no internal
@@ -1189,12 +1190,7 @@ func (s *Store) WriteJSONL(w io.Writer) error {
 			rels = append(rels, wr)
 		}
 		if len(rels) > 1 {
-			sort.Slice(rels, func(i, j int) bool {
-				if rels[i].Kind != rels[j].Kind {
-					return rels[i].Kind < rels[j].Kind
-				}
-				return rels[i].Target < rels[j].Target
-			})
+			slices.SortFunc(rels, func(a, b wireRelation) int { return compareRelations(a.Relation, b.Relation) })
 		}
 		// f is a copy, and its own Relations field is shadowed by the one below,
 		// so neither the store's facts nor their relation slices are touched.

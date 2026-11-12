@@ -71,9 +71,10 @@ func TestFreeze_SharesIdenticalRelations(t *testing.T) {
 	if sameRels(ff[0].Relations, ff[2].Relations) {
 		t.Error("a two-relation slice was shared with a one-relation slice")
 	}
-	// Order is part of the value: X,Y and Y,X are different edges lists.
-	if sameRels(ff[0].Relations, ff[3].Relations) {
-		t.Error("relation slices differing only in order were shared")
+	// Freeze puts relations in the order facts.jsonl holds them, so Y,X is X,Y once
+	// published and shares with it, as it would after a restore.
+	if !sameRels(ff[0].Relations, ff[3].Relations) {
+		t.Error("relation slices differing only in order were not shared once sorted")
 	}
 }
 
@@ -269,6 +270,8 @@ func TestFreeze_PreservesEveryFactValue(t *testing.T) {
 		t.Fatalf("freeze changed the fact count: %d -> %d", len(before), len(after))
 	}
 	for i := range before {
+		// The one change Freeze makes on purpose: relations in facts.jsonl's order.
+		sortRelations(before[i].Relations)
 		if !reflect.DeepEqual(before[i], after[i]) {
 			t.Fatalf("fact %d changed value across Freeze:\nbefore %+v\nafter  %+v", i, before[i], after[i])
 		}
