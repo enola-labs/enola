@@ -21,7 +21,7 @@ func TestOfKind_YieldsWhatByKindReturns(t *testing.T) {
 		for f := range s.OfKind(kind) {
 			got = append(got, f)
 		}
-		if want := s.ByKind(kind); !reflect.DeepEqual(got, want) && !(len(got) == 0 && len(want) == 0) {
+		if want := s.ByKind(kind); !reflect.DeepEqual(got, want) && (len(got) != 0 || len(want) != 0) {
 			t.Fatalf("OfKind(%s) yielded %v, ByKind returns %v", kind, got, want)
 		}
 	}

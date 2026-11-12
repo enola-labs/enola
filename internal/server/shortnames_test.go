@@ -97,8 +97,7 @@ func TestShortenCache_DoesNotPinTheStore(t *testing.T) {
 	var c shortenCache
 	store := shortStore(goModule("github.com/acme/app/internal/server", "internal/server", "app"))
 	c.get(store)
-	w := weak.Make(store)
-	store = nil
+	w := weak.Make(store) // store is dead from here: nothing below reads it
 	runtime.GC()
 	runtime.GC()
 	if w.Value() != nil {

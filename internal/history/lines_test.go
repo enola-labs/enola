@@ -161,14 +161,12 @@ func TestBlobs_AnUnsortedFactsFileIsReadInAndSorted(t *testing.T) {
 // it used to hold the lines, a signed copy of each, the encoding and the gzip of it,
 // about four times facts.jsonl alive at once beside the store it was written from.
 func TestBlobs_ABaseRevisionDoesNotHoldTheFile(t *testing.T) {
-	lines := bigFacts(160000)
 	path := filepath.Join(t.TempDir(), "facts.jsonl")
-	writeLines(t, path, lines)
+	writeLines(t, path, bigFacts(160000)) // held by nothing once written
 	info, err := os.Stat(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	lines = nil
 
 	root := t.TempDir()
 	var before, after runtime.MemStats
