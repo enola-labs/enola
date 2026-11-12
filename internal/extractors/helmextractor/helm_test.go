@@ -491,3 +491,49 @@ func TestActionLinesFollowAnActionAcrossLines(t *testing.T) {
 		t.Errorf("actionLines = %q, want %q", got, want)
 	}
 }
+
+// Each literal kind in an if/else is a resource the chart can create, and each shares
+// its document's calls.
+func TestAlternativeKindsInOneDocumentAreEachAResource(t *testing.T) {
+	ff := extract(t, map[string]string{
+		"app/Chart.yaml":       "apiVersion: v2\nname: app\nversion: 1.0.0\n",
+		"app/templates/_h.tpl": `{{ define "app.name" }}app{{ end }}`,
+		"app/templates/workload.yaml": `{{- if eq .Values.kind "daemonset" }}
+apiVersion: apps/v1
+kind: DaemonSet
+{{- else }}
+apiVersion: apps/v1
+kind: Deployment
+{{- end }}
+metadata:
+  name: {{ include "app.name" . }}
+`,
+		"app/templates/secret.yaml": `{{- if .Values.a }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: first
+{{- else if .Values.b }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: second
+{{- end }}
+`,
+	})
+	for name, line := range map[string]int{
+		"app.DaemonSet.workload": 2, "app.Deployment.workload": 5, "app.Secret.first": 2, "app.Secret.second": 7,
+	} {
+		f := find(ff, name)
+		if f == nil {
+			t.Errorf("%s missing", name)
+			continue
+		}
+		if f.Line != line {
+			t.Errorf("%s line = %d, want %d", name, f.Line, line)
+		}
+	}
+	if got := targets(find(ff, "app.Deployment.workload"), facts.RelCalls); !reflect.DeepEqual(got, []string{"app.template.app.name"}) {
+		t.Errorf("Deployment calls = %v", got)
+	}
+}

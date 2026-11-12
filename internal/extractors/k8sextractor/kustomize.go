@@ -56,6 +56,7 @@ type patchTarget struct{ kind, name string }
 type generatedObj struct {
 	kind, name string
 	line       int
+	generator  string // configMapGenerator | secretGenerator
 }
 
 type kustFile struct {
@@ -200,13 +201,14 @@ func readKustomizations(repoPath string, files []string) map[string]*kustomizati
 		for _, gen := range []struct {
 			kind    string
 			entries []map[string]any
-		}{{"ConfigMap", kf.ConfigMapGenerator}, {"Secret", kf.SecretGenerator}} {
+			field   string
+		}{{"ConfigMap", kf.ConfigMapGenerator, "configMapGenerator"}, {"Secret", kf.SecretGenerator, "secretGenerator"}} {
 			for _, g := range gen.entries {
 				name := str(g, "name")
 				if name == "" || str(g, "behavior") == "merge" || str(g, "behavior") == "replace" {
 					continue
 				}
-				k.generated = append(k.generated, generatedObj{gen.kind, name, lines[name]})
+				k.generated = append(k.generated, generatedObj{gen.kind, name, lines[name], gen.field})
 			}
 		}
 		out[dir] = k

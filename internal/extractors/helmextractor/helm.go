@@ -378,18 +378,28 @@ func readTemplate(c *chart, rel, text string) {
 	isYAML := k8syaml.IsYAML(rel)
 	var cur *define
 	depth := 0
+	// A document may hold several literal kinds, each in its own branch of an if/else
+	// (victoriametrics emits a DaemonSet or a Deployment from one file, mariadb one of
+	// two Secrets). Each is a resource the chart can create, and all of them share the
+	// document's calls and reads. obj is the one the lines being read belong to.
+	var objs []*object
 	var obj *object
 	var doc refs
 	inMetadata := false
 	pendingAPI, apiLineNo := "", 0
 	flush := func() {
-		if obj != nil {
-			obj.refs = doc
-			c.objects = append(c.objects, obj)
-		} else {
+		if len(objs) == 0 {
 			file.merge(doc)
 		}
-		obj, doc, inMetadata, pendingAPI, apiLineNo = nil, refs{}, false, "", 0
+		for _, o := range objs {
+			o.refs = refs{
+				calls: append([]string{}, doc.calls...),
+				reads: append([][]string{}, doc.reads...),
+				named: append([][]string{}, doc.named...),
+			}
+			c.objects = append(c.objects, o)
+		}
+		objs, obj, doc, inMetadata, pendingAPI, apiLineNo = nil, nil, refs{}, false, "", 0
 	}
 	for i, ln := range lines {
 		lineNo := i + 1
@@ -430,20 +440,23 @@ func readTemplate(c *chart, rel, text string) {
 			continue
 		}
 		doc.add(acts[i])
-		if m := kindLine.FindStringSubmatch(ln); m != nil && obj == nil {
-			// The object sits where its document starts: the apiVersion line when
-			// one came first, as it usually does, else the kind line.
+		if m := kindLine.FindStringSubmatch(ln); m != nil {
+			// The object sits where it starts: the apiVersion line when one came first,
+			// as it usually does, else the kind line.
 			start := lineNo
 			if apiLineNo > 0 {
 				start = apiLineNo
 			}
 			obj = &object{kind: m[1], file: rel, line: start, helmKind: "resource", apiVersion: pendingAPI}
+			objs = append(objs, obj)
+			pendingAPI, apiLineNo, inMetadata = "", 0, false
+			continue
+		}
+		if m := apiLine.FindStringSubmatch(ln); m != nil {
+			pendingAPI, apiLineNo = m[1], lineNo
 			continue
 		}
 		if obj == nil {
-			if m := apiLine.FindStringSubmatch(ln); m != nil {
-				pendingAPI, apiLineNo = m[1], lineNo
-			}
 			continue
 		}
 		switch {
@@ -454,15 +467,12 @@ func readTemplate(c *chart, rel, text string) {
 				obj.name = m[1]
 			}
 		}
-		if m := apiLine.FindStringSubmatch(ln); m != nil && m[1] != "" && obj.apiVersion == "" {
-			obj.apiVersion = m[1]
-		}
 		if ln != "" && ln[0] != ' ' && ln[0] != '#' && ln[0] != '{' && !strings.HasPrefix(ln, "metadata:") {
 			inMetadata = false
 		}
 	}
 	flush()
-	if len(file.calls) > 0 || len(file.reads) > 0 {
+	if len(file.calls) > 0 || len(file.reads) > 0 || len(file.named) > 0 {
 		c.fileRefs[rel] = file
 	}
 }

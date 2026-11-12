@@ -372,6 +372,7 @@ func TestDetectFilesByName(t *testing.T) {
 		{"kubernetes-manifests/frontend.yaml"},
 		{"ops/web-deployment.yaml"},
 		{"config/service.yaml"},
+		{"hack/test-resources/crashing-pod.yaml"},
 	}
 	no := [][]string{
 		{"config/settings.yaml", ".github/workflows/ci.yml"},

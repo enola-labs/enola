@@ -123,7 +123,7 @@ func TestKustomizationIsABuildOfWhatItLists(t *testing.T) {
 	}
 	// The generated ConfigMap is an object the Deployment names.
 	cm := find(ff, facts.KindSymbol, "base.ConfigMap.api-env")
-	if cm == nil || cm.Props["generated"] != true || cm.File != "base/kustomization.yaml" || cm.Line != 7 {
+	if cm == nil || cm.Props["generator"] != "configMapGenerator" || cm.File != "base/kustomization.yaml" || cm.Line != 7 {
 		t.Errorf("generated ConfigMap = %+v", cm)
 	}
 	dep := find(ff, facts.KindSymbol, "base.Deployment.api")

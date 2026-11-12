@@ -3578,7 +3578,13 @@ import (
 // ports; a bare word never is. A workload whose image skaffold.yaml builds carries
 // build_contexts, and the workload-source binder draws a module dependency from the
 // manifest's directory to each code module in that build directory.
-const cacheVersion = "v581"
+// v582: a kustomize generator's object says which field generates it in `generator`,
+// no longer in `generated`, which the engine sets on facts from files with a
+// code-generator banner (release manifests carry one). Every literal kind at column 0
+// outside a define is a Helm resource, so the alternatives of an if/else in one
+// document are each a symbol sharing the document's references. A YAML file named
+// *pod.yaml marks a repository as holding manifests.
+const cacheVersion = "v582"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

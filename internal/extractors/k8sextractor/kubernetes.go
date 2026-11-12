@@ -55,7 +55,7 @@ var deploySegments = []string{
 var kindWords = []string{
 	"deployment", "statefulset", "daemonset", "cronjob", "ingress", "configmap",
 	"serviceaccount", "clusterrole", "rolebinding", "networkpolicy",
-	"poddisruptionbudget", "service.y", "svc.y",
+	"poddisruptionbudget", "service.y", "svc.y", "pod.y",
 }
 
 // DetectFiles implements plugin.FileListDetector. Detection is by name only, so that
@@ -122,9 +122,12 @@ func underChart(rel string, charts []string) bool {
 // obj is an object with its fact name.
 type obj struct {
 	k8syaml.Object
-	dir       string
-	symbol    string
-	generated bool
+	dir    string
+	symbol string
+	// generator is the kustomize field that generates the object, if one does. It is
+	// not the engine's `generated` prop, which marks facts read from a file with a
+	// code-generator banner.
+	generator string
 	// builds are the kustomizations whose closure holds this object's file, smallest
 	// first.
 	builds []*kustomization
@@ -192,7 +195,7 @@ func (e *Extractor) Extract(_ context.Context, repoPath string, _ []string) ([]f
 					File: k.file, Line: g.line, Doc: map[string]any{},
 				},
 				dir:       k.dir,
-				generated: true,
+				generator: g.generator,
 			})
 		}
 	}
@@ -275,8 +278,8 @@ func emit(objs []*obj, ks map[string]*kustomization, kdirs []string, contexts ma
 		if o.Namespace != "" {
 			f.SetProp("namespace", o.Namespace)
 		}
-		if o.generated {
-			f.SetProp("generated", true)
+		if o.generator != "" {
+			f.SetProp("generator", o.generator)
 		}
 		if imgs := images(o.Doc); len(imgs) > 0 {
 			f.SetProp("images", imgs)
@@ -342,7 +345,7 @@ func kustomizationFact(k *kustomization, ks map[string]*kustomization, idx *inde
 		resources[r] = true
 	}
 	for _, o := range idx.all {
-		if resources[o.File] || (o.generated && o.File == k.file) {
+		if resources[o.File] || (o.generator != "" && o.File == k.file) {
 			targets[o.symbol] = true
 		}
 	}

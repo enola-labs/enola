@@ -27,7 +27,7 @@ Fixture: [`k8s_sample`](../../internal/engine/testdata/repos/k8s_sample/)
 | a `kustomization.yaml` | a symbol `<dir>.Kustomization` (or `.Component`) | `symbol` |
 | its `resources`, `bases`, `components` | `depends_on` to the objects in the files it lists and to the kustomizations it includes | relation |
 | its `patches` | `depends_on` to each object a patch targets; the patch file is not an object | relation |
-| `configMapGenerator`, `secretGenerator` | an object like any other, `generated: true`, on the line naming it | `symbol` |
+| `configMapGenerator`, `secretGenerator` | an object like any other, with `generator` naming the field, on the line naming it | `symbol` |
 | `namespace`, `namePrefix`, `nameSuffix`, `images`, remote resources | props on the kustomization, applied to no object | props |
 | `{{ .Values.x }}`, `${VAR}` | nothing: a template is not a name | none |
 
@@ -136,7 +136,7 @@ symbol  overlays/prod.Kustomization   overlays/prod/kustomization.yaml:1
                    depends_on -> k8s.Kustomization,
                    depends_on -> overlays/prod.ConfigMap.web-flags
 symbol  overlays/prod.ConfigMap.web-flags   overlays/prod/kustomization.yaml:12
-        props: generated=true, namespace=shop
+        props: generator=configMapGenerator, namespace=shop
 ```
 
 `web-replicas.yaml` is a partial Deployment, so it is not an object; it becomes the
@@ -171,7 +171,7 @@ The set of extractors a repository is detected for is part of its snapshot, so
 detection must not flip on every YAML file a repository carries. It reads names only:
 a `kustomization.yaml`, or a YAML file under a directory such as `k8s/`,
 `kubernetes/`, `manifests/`, `deploy/` or `overlays/`, or one whose name is a kind
-(`web-deployment.yaml`, `service.yaml`). Files inside a chart and dot directories do
+(`web-deployment.yaml`, `service.yaml`, `crashing-pod.yaml`). Files inside a chart and dot directories do
 not count. A manifest in a directory with none of those names, in a repository with
 no other marker, is not read; that is a stated blind spot.
 
