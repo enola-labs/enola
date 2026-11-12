@@ -19,12 +19,13 @@ var clusterScoped = map[string]bool{
 
 // index finds objects by kind and name.
 type index struct {
+	all        []*obj
 	byKindName map[string][]*obj
 	workloads  []*obj
 }
 
 func newIndex(objs []*obj) *index {
-	ix := &index{byKindName: map[string][]*obj{}}
+	ix := &index{all: objs, byKindName: map[string][]*obj{}}
 	for _, o := range objs {
 		k := o.Kind + "\x00" + o.Name
 		ix.byKindName[k] = append(ix.byKindName[k], o)
@@ -45,58 +46,114 @@ func nsAgree(from *obj, to *obj, ns string) bool {
 	return ns == "" || to.Namespace == "" || ns == to.Namespace
 }
 
-// resolve finds the object of kind and name a reference from `from` means: the one
-// in from's directory, else the one in the repository, else none. ns is the
-// namespace the reference states, if any.
-func (ix *index) resolve(from *obj, kind, name, ns string) *obj {
+// resolve finds the objects of kind and name a reference from `from` means. The one
+// in from's directory, if there is exactly one; else, for every kustomize build
+// holding from, the one that build emits, if it emits exactly one; else the one in
+// the repository. A base used by several builds can mean a different object in each
+// (an install that generates its own Secret, another that ships one), and each is an
+// edge a build states. ns is the namespace the reference states, if any.
+func (ix *index) resolve(from *obj, kind, name, ns string) []*obj {
 	if !k8syaml.Literal(name) {
 		return nil
 	}
-	var local, all []*obj
+	var cands []*obj
 	for _, c := range ix.byKindName[kind+"\x00"+name] {
-		if !nsAgree(from, c, ns) {
+		if nsAgree(from, c, ns) {
+			cands = append(cands, c)
+		}
+	}
+	return pick(from, cands, true)
+}
+
+// pick narrows candidates by scope. With unique, every scope must hold exactly one
+// candidate to answer; without it (a label selector), every match in the scope
+// counts. The directory answers alone; the builds answer together; the repository
+// answers last, and always with one.
+func pick(from *obj, cands []*obj, unique bool) []*obj {
+	if len(cands) == 0 {
+		return nil
+	}
+	if got := inScope(cands, func(c *obj) bool { return c.dir == from.dir }); got != nil {
+		if unique && len(got) > 1 {
+			return nil
+		}
+		return got
+	}
+	var union []*obj
+	seen := map[*obj]bool{}
+	inAnyBuild := false
+	for _, b := range from.builds {
+		got := inScope(cands, func(c *obj) bool { return b.files[c.File] })
+		if got == nil {
 			continue
 		}
-		all = append(all, c)
-		if c.dir == from.dir {
-			local = append(local, c)
+		inAnyBuild = true
+		if unique && len(got) > 1 {
+			continue
+		}
+		for _, g := range got {
+			if !seen[g] {
+				seen[g] = true
+				union = append(union, g)
+			}
 		}
 	}
-	if len(local) == 1 {
-		return local[0]
+	if inAnyBuild {
+		return union
 	}
-	if len(local) == 0 && len(all) == 1 {
-		return all[0]
+	if len(cands) == 1 {
+		return cands
 	}
 	return nil
 }
 
-// selectWorkloads finds the workloads whose pod labels carry every label in sel: the
-// ones in from's directory, else the one in the repository.
+func inScope(cands []*obj, in func(*obj) bool) []*obj {
+	var out []*obj
+	for _, c := range cands {
+		if in(c) {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+func one(cands []*obj) *obj {
+	if len(cands) == 1 {
+		return cands[0]
+	}
+	return nil
+}
+
+// inBuild finds the object of kind and name a kustomization's patch targets: the
+// one its build emits.
+func (ix *index) inBuild(k *kustomization, kind, name string) *obj {
+	if kind == "" || name == "" {
+		return nil
+	}
+	var cands []*obj
+	for _, c := range ix.byKindName[kind+"\x00"+name] {
+		if k.files[c.File] {
+			cands = append(cands, c)
+		}
+	}
+	return one(cands)
+}
+
+// selectWorkloads finds the workloads whose pod labels carry every label in sel:
+// every match in from's directory, else every match in each build holding from, else
+// the one match in the repository.
 func (ix *index) selectWorkloads(from *obj, sel map[string]string) []*obj {
 	if len(sel) == 0 {
 		return nil
 	}
-	var local, all []*obj
+	var all []*obj
 	for _, w := range ix.workloads {
-		if w == from || !nsAgree(from, w, "") {
-			continue
-		}
-		if !labelsMatch(podLabels(w.Object), sel) {
+		if w == from || !nsAgree(from, w, "") || !labelsMatch(podLabels(w.Object), sel) {
 			continue
 		}
 		all = append(all, w)
-		if w.dir == from.dir {
-			local = append(local, w)
-		}
 	}
-	if len(local) > 0 {
-		return local
-	}
-	if len(all) == 1 {
-		return all
-	}
-	return nil
+	return pick(from, all, false)
 }
 
 func labelsMatch(labels, sel map[string]string) bool {
@@ -111,8 +168,8 @@ func labelsMatch(labels, sel map[string]string) bool {
 // references lists the fact names of the objects o names.
 func (ix *index) references(o *obj) []string {
 	var out []string
-	add := func(t *obj) {
-		if t != nil {
+	add := func(ts []*obj) {
+		for _, t := range ts {
 			out = append(out, t.symbol)
 		}
 	}
@@ -120,9 +177,7 @@ func (ix *index) references(o *obj) []string {
 	switch o.Kind {
 	case "Service":
 		if k8syaml.String(doc, "spec", "type") != "ExternalName" {
-			for _, w := range ix.selectWorkloads(o, k8syaml.Labels(k8syaml.Map(doc, "spec", "selector"))) {
-				add(w)
-			}
+			add(ix.selectWorkloads(o, k8syaml.Labels(k8syaml.Map(doc, "spec", "selector"))))
 		}
 	case "Ingress":
 		for _, name := range ingressBackends(doc) {
@@ -167,9 +222,7 @@ func (ix *index) references(o *obj) []string {
 			add(ix.resolve(o, str(t, "kind"), str(t, "name"), ""))
 		}
 	case "PodDisruptionBudget":
-		for _, w := range ix.selectWorkloads(o, k8syaml.Labels(k8syaml.Map(doc, "spec", "selector", "matchLabels"))) {
-			add(w)
-		}
+		add(ix.selectWorkloads(o, k8syaml.Labels(k8syaml.Map(doc, "spec", "selector", "matchLabels"))))
 	case "PersistentVolumeClaim":
 		add(ix.resolve(o, "StorageClass", k8syaml.String(doc, "spec", "storageClassName"), ""))
 	}

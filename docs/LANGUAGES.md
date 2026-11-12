@@ -24,7 +24,7 @@ Nothing here is a setting. enola looks for the markers below and runs whatever i
 | PHP        | `composer.json`, WordPress markers, or any `.php` source (WordPress / Laravel / Symfony route + outbound HTTP-client aware; Laravel route files composed under what loads them; Eloquent models and relations; instance calls resolved through declared types) |
 | Terraform / HCL | any `.tf`/`.hcl` file (blocks as Terraform addresses; prefixed and declared-set bare references; local module sources draw directory dependencies) |
 | Ansible    | `ansible.cfg` or a role directory (`roles/<name>/tasks/` and the like) (plays → roles by name; `include_role`/`import_role`; templates counted, never rendered) |
-| Kubernetes | a kustomization, or YAML under a manifests directory or named for a kind (objects as symbols; selectors, backends, mounted ConfigMaps/Secrets/claims, service accounts, role bindings and scaler targets as edges; nothing rendered) |
+| Kubernetes | a kustomization, or YAML under a manifests directory or named for a kind (objects as symbols; selectors, backends, mounted ConfigMaps/Secrets/claims, service accounts, role bindings and scaler targets as edges; kustomizations as builds with their patches and generators; nothing rendered) |
 | AsyncAPI   | any AsyncAPI 2.x/3.x YAML or JSON spec (channels and producer/consumer operations → messaging topics; local `$ref` and payload-schema identity) |
 | Vespa      | any Vespa schema definition (`.sd`): each `document` type → a `storage` fact (`storage_kind: document_type`, `engine: vespa`), with the types it inherits; YQL `select … from <type>` in code reaches the same node |
 | OpenAPI    | any spec with an `openapi:` / `swagger:` key |

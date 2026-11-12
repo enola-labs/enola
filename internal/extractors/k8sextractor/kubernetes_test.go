@@ -359,7 +359,8 @@ items:
 			names = append(names, f.Name)
 		}
 	}
-	want := []string{"deploy.ConfigMap.ok", "deploy.ConfigMap.from-list"}
+	// The kustomization is a symbol of its own, never an object (kustomize_test.go).
+	want := []string{"deploy.Kustomization", "deploy.ConfigMap.ok", "deploy.ConfigMap.from-list"}
 	if !reflect.DeepEqual(names, want) {
 		t.Errorf("symbols = %v, want %v", names, want)
 	}

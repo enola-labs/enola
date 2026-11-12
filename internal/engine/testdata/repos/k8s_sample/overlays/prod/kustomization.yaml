@@ -1,0 +1,16 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: shop
+namePrefix: prod-
+resources:
+  - ../../k8s
+  - https://github.com/example/observability//collector?ref=v2.1.0
+images:
+  - name: example/web
+    newTag: "2.1"
+configMapGenerator:
+  - name: web-flags
+    literals:
+      - CHECKOUT_V2=true
+patches:
+  - path: web-replicas.yaml

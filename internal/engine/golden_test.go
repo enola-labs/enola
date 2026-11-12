@@ -139,7 +139,10 @@ var fixtures = []fixture{
 	// Secret and service account, an HPA's target, and a RoleBinding reaching a
 	// ServiceAccount declared in another directory because the name is unique. The
 	// RBAC files sit under deploy/rbac/roles/, which pins v577's Ansible half by
-	// ABSENCE: a directory named roles is not an Ansible role.
+	// ABSENCE: a directory named roles is not an Ansible role. v578 adds kustomize:
+	// k8s/ is a base and overlays/prod an overlay that builds on it, patches the web
+	// Deployment from a file that is therefore not an object, generates a ConfigMap,
+	// and records its prefix, namespace, image override and remote resource.
 	{name: "k8s_sample", subRepos: []string{"."}},
 	{name: "ruby_sample", subRepos: []string{"."}},
 	{name: "swift_sample", subRepos: []string{"."}},

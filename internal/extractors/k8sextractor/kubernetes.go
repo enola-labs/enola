@@ -122,41 +122,87 @@ func underChart(rel string, charts []string) bool {
 // obj is an object with its fact name.
 type obj struct {
 	k8syaml.Object
-	dir    string
-	symbol string
+	dir       string
+	symbol    string
+	generated bool
+	// builds are the kustomizations whose closure holds this object's file, smallest
+	// first.
+	builds []*kustomization
 }
 
 // Extract walks the repository itself: YAML is ignore-globbed by default, the
 // Ansible and OpenAPI precedent.
 func (e *Extractor) Extract(_ context.Context, repoPath string, _ []string) ([]facts.Fact, error) {
-	files := k8syaml.Walk(repoPath, k8syaml.IsYAML, func(abs string) bool {
+	files := k8syaml.Walk(repoPath, func(rel string) bool {
+		return k8syaml.IsYAML(rel) || factpath.Base(rel) == "Kustomization"
+	}, func(abs string) bool {
 		_, err := os.Stat(filepath.Join(abs, "Chart.yaml"))
 		return err == nil
 	})
 	sort.Strings(files)
 
+	ks := readKustomizations(repoPath, files)
+	patchFiles := patchFileSet(ks)
+	patchTargets := map[string][]patchTarget{}
+
 	var objs []*obj
 	seen := map[string]bool{}
+	add := func(o *obj) {
+		key := o.dir + "\x00" + o.Kind + "\x00" + o.Namespace + "\x00" + o.Name
+		if !seen[key] {
+			seen[key] = true
+			objs = append(objs, o)
+		}
+	}
 	for _, rel := range files {
-		if isKustomization(strings.ToLower(detectnames.Base(rel))) {
+		base := factpath.Base(rel)
+		if isKustomization(strings.ToLower(base)) || base == "Kustomization" {
 			continue
 		}
 		data, err := os.ReadFile(filepath.Join(repoPath, rel))
 		if err != nil {
 			continue
 		}
-		for _, o := range k8syaml.Decode(data, rel) {
-			dir := factpath.Dir(rel)
-			key := dir + "\x00" + o.Kind + "\x00" + o.Namespace + "\x00" + o.Name
-			if seen[key] {
-				continue
+		decoded := k8syaml.Decode(data, rel)
+		if patchFiles[rel] {
+			// A patch is not an object: it changes the one it names.
+			for _, o := range decoded {
+				patchTargets[rel] = append(patchTargets[rel], patchTarget{o.Kind, o.Name})
 			}
-			seen[key] = true
-			objs = append(objs, &obj{Object: o, dir: dir})
+			continue
+		}
+		for _, o := range decoded {
+			add(&obj{Object: o, dir: factpath.Dir(rel)})
 		}
 	}
+	dirs := make([]string, 0, len(ks))
+	for d := range ks {
+		dirs = append(dirs, d)
+	}
+	sort.Strings(dirs)
+	for _, d := range dirs {
+		k := ks[d]
+		for _, f := range k.patchFiles {
+			k.patches = append(k.patches, patchTargets[f]...)
+		}
+		for _, g := range k.generated {
+			add(&obj{
+				Object: k8syaml.Object{
+					APIVersion: "v1", Kind: g.kind, Name: g.name, Namespace: k.namespace,
+					File: k.file, Line: g.line, Doc: map[string]any{},
+				},
+				dir:       k.dir,
+				generated: true,
+			})
+		}
+	}
+	closeBuilds(ks)
+	holding := buildsHolding(ks)
+	for _, o := range objs {
+		o.builds = holding[o.File]
+	}
 	nameObjects(objs)
-	return emit(objs), nil
+	return emit(objs, ks, dirs), nil
 }
 
 // nameObjects gives each object its fact name, <dir>.<Kind>.<name>. Two objects of
@@ -181,25 +227,35 @@ func nameObjects(objs []*obj) {
 	}
 }
 
-func emit(objs []*obj) []facts.Fact {
+func sortedSet(set map[string]bool) []string {
+	out := make([]string, 0, len(set))
+	for t := range set {
+		out = append(out, t)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func emit(objs []*obj, ks map[string]*kustomization, kdirs []string) []facts.Fact {
 	idx := newIndex(objs)
 	var out []facts.Fact
 	dirs := map[string]bool{}
 	for _, o := range objs {
 		dirs[o.dir] = true
 	}
-	dirList := make([]string, 0, len(dirs))
-	for d := range dirs {
-		dirList = append(dirList, d)
+	for _, d := range kdirs {
+		dirs[d] = true
 	}
-	sort.Strings(dirList)
-	for _, d := range dirList {
+	for _, d := range sortedSet(dirs) {
 		out = append(out, facts.Fact{
 			Kind:  facts.KindModule,
 			Name:  d,
 			File:  d,
 			Props: map[string]any{"language": "kubernetes"},
 		})
+	}
+	for _, d := range kdirs {
+		out = append(out, kustomizationFact(ks[d], ks, idx))
 	}
 	for _, o := range objs {
 		f := facts.Fact{
@@ -219,6 +275,9 @@ func emit(objs []*obj) []facts.Fact {
 		if o.Namespace != "" {
 			f.SetProp("namespace", o.Namespace)
 		}
+		if o.generated {
+			f.SetProp("generated", true)
+		}
 		if imgs := images(o.Doc); len(imgs) > 0 {
 			f.SetProp("images", imgs)
 		}
@@ -231,15 +290,72 @@ func emit(objs []*obj) []facts.Fact {
 				targets[t] = true
 			}
 		}
-		sorted := make([]string, 0, len(targets))
-		for t := range targets {
-			sorted = append(sorted, t)
-		}
-		sort.Strings(sorted)
-		for _, t := range sorted {
+		for _, t := range sortedSet(targets) {
 			f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelDependsOn, Target: t})
 		}
 		out = append(out, f)
 	}
 	return out
+}
+
+// kustomizationFact is a kustomization as a symbol: it depends on the objects in the
+// files it lists, the kustomizations it includes, and the objects it patches.
+func kustomizationFact(k *kustomization, ks map[string]*kustomization, idx *index) facts.Fact {
+	f := facts.Fact{
+		Kind: facts.KindSymbol,
+		Name: k.sym,
+		File: k.file,
+		Line: 1,
+		Props: map[string]any{
+			"language":    "kubernetes",
+			"symbol_kind": "type",
+			"k8s_kind":    k.kind,
+			"exported":    true,
+		},
+		Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: k.dir}},
+	}
+	if k.namespace != "" {
+		f.SetProp("namespace", k.namespace)
+	}
+	if k.prefix != "" {
+		f.SetProp("name_prefix", k.prefix)
+	}
+	if k.suffix != "" {
+		f.SetProp("name_suffix", k.suffix)
+	}
+	if len(k.images) > 0 {
+		f.SetProp("image_overrides", k.images)
+	}
+	if len(k.remote) > 0 {
+		remote := append([]string{}, k.remote...)
+		sort.Strings(remote)
+		f.SetProp("remote_resources", remote)
+	}
+	targets := map[string]bool{}
+	resources := map[string]bool{}
+	for _, r := range k.resources {
+		resources[r] = true
+	}
+	for _, o := range idx.all {
+		if resources[o.File] || (o.generated && o.File == k.file) {
+			targets[o.symbol] = true
+		}
+	}
+	for _, d := range k.subdirs {
+		if sub := ks[d]; sub != nil && sub != k {
+			targets[sub.sym] = true
+		}
+	}
+	for _, p := range k.patches {
+		if t := idx.inBuild(k, p.kind, p.name); t != nil {
+			targets[t.symbol] = true
+		}
+	}
+	if len(k.patches) > 0 {
+		f.SetProp("patches", len(k.patches))
+	}
+	for _, t := range sortedSet(targets) {
+		f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelDependsOn, Target: t})
+	}
+	return f
 }

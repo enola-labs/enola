@@ -22,6 +22,11 @@ Fixture: [`k8s_sample`](../../internal/engine/testdata/repos/k8s_sample/)
 | a RoleBinding or ClusterRoleBinding | `depends_on` to its `roleRef` and ServiceAccount subjects | relation |
 | an HPA, VPA or PodDisruptionBudget | `depends_on` to the workload it scales or protects | relation |
 | an Ingress's hosts and paths | `ingress_paths` on the Ingress, never a route | props |
+| a `kustomization.yaml` | a symbol `<dir>.Kustomization` (or `.Component`) | `symbol` |
+| its `resources`, `bases`, `components` | `depends_on` to the objects in the files it lists and to the kustomizations it includes | relation |
+| its `patches` | `depends_on` to each object a patch targets; the patch file is not an object | relation |
+| `configMapGenerator`, `secretGenerator` | an object like any other, `generated: true`, on the line naming it | `symbol` |
+| `namespace`, `namePrefix`, `nameSuffix`, `images`, remote resources | props on the kustomization, applied to no object | props |
 | `{{ .Values.x }}`, `${VAR}` | nothing: a template is not a name | none |
 
 ## Objects become symbols in their directory's module
@@ -76,11 +81,14 @@ the Terraform extractor makes. Each symbol sits on the line its document starts 
 A `kind: List` contributes its items. When two objects of one kind and name share a
 directory and differ only by namespace, each name ends in `@<namespace>`.
 
-## Names resolve in the directory first, then only when unique
+## Names resolve in the directory, then in each build, then only when unique
 
 A reference resolves to the one object of that kind and name in the referrer's own
-directory. If there is none, it resolves to the one object of that kind and name in
-the whole repository. If there are several, or none, it draws nothing. Namespaces must
+directory. If there is none, every kustomize build holding the referrer answers on
+its own: a build that emits exactly one object of that kind and name contributes an
+edge to it. If no build emits one, the reference resolves to the one object of that
+kind and name in the whole repository. If there are several, or none, it draws
+nothing. Namespaces must
 agree when both sides state one; cluster-scoped kinds (ClusterRole, StorageClass,
 IngressClass and the like) match from any namespace.
 
@@ -93,9 +101,56 @@ symbol  deploy/rbac/roles/reader.RoleBinding.api-reader
                    depends_on -> k8s.ServiceAccount.api
 ```
 
-A repository that keeps a copy of the same manifests per environment declares every
-name more than once, so a reference across directories there draws nothing rather
-than picking a copy. Kustomize overlays are the usual reason for such copies.
+A repository that keeps a copy of the same manifests per environment, with no
+kustomization joining them, declares every name more than once, so a reference across
+directories there draws nothing rather than picking a copy.
+
+## A kustomization is a build
+
+```yaml
+# overlays/prod/kustomization.yaml
+namespace: shop
+namePrefix: prod-
+resources:
+  - ../../k8s
+  - https://github.com/example/observability//collector?ref=v2.1.0
+images:
+  - name: example/web
+    newTag: "2.1"
+configMapGenerator:
+  - name: web-flags
+    literals:
+      - CHECKOUT_V2=true
+patches:
+  - path: web-replicas.yaml
+```
+
+```
+symbol  overlays/prod.Kustomization   overlays/prod/kustomization.yaml:1
+        props: namespace=shop, name_prefix=prod-, patches=1,
+               image_overrides=[example/web=example/web:2.1],
+               remote_resources=[https://github.com/example/observability//collector?ref=v2.1.0]
+        relations: depends_on -> k8s.Deployment.web,
+                   depends_on -> k8s.Kustomization,
+                   depends_on -> overlays/prod.ConfigMap.web-flags
+symbol  overlays/prod.ConfigMap.web-flags   overlays/prod/kustomization.yaml:12
+        props: generated=true, namespace=shop
+```
+
+`web-replicas.yaml` is a partial Deployment, so it is not an object; it becomes the
+edge to `k8s.Deployment.web`, the object it patches in this build. Patches are read in
+all three forms: a path, a `target` with an inline JSON 6902 patch, and an inline
+strategic-merge patch whose `kind` and `metadata.name` name its target.
+
+The prefix, the namespace and the image override are recorded and applied to nothing.
+One base serves every overlay that includes it, and each overlay renames it
+differently; the base's objects keep the names their files state, which are also the
+names every reference in the base uses.
+
+A base can mean a different object in each build that includes it. In kubeflow's
+katib, the `db-manager` component names the Secret `katib-mysql-secrets`: one install
+generates it, another ships a manifest for it. Each build emits exactly one, so the
+Deployment carries one edge per build. A remote resource is counted, never fetched.
 
 ## What is not an object
 
@@ -126,8 +181,11 @@ a route it would be matched against every HTTP client in a cluster.
 
 ## What is deliberately not extracted
 
-- **Rendering and substitution.** No Helm template, kustomize patch or `envsubst`
-  placeholder is evaluated. A templated name draws nothing.
+- **Rendering and substitution.** No Helm template or `envsubst` placeholder is
+  evaluated, and no kustomize build is run: prefixes, suffixes, namespaces,
+  `replacements` and `vars` are not applied. A templated name draws nothing.
+- **Remote kustomize resources** are listed on the kustomization, never fetched.
+- **Kustomizations inside a Helm chart's tree** belong to the chart and are not read.
 - **What a cluster adds at apply time.** Admission webhooks, defaulted fields,
   controllers creating objects (a Deployment's ReplicaSets, an operator's children)
   are runtime, not architecture.

@@ -3547,7 +3547,13 @@ import (
 // resolved in the same directory first and then only when unique. Ansible detects
 // a role only by a roles/<name>/ directory holding tasks, handlers, meta, defaults
 // or vars, so a directory merely named roles is no longer Ansible.
-const cacheVersion = "v577"
+// v578: kustomize. A kustomization is a symbol depending on the objects in the files
+// it lists, the kustomizations and components it includes, and the objects its
+// patches target; a patch file is no longer an object; configMapGenerator and
+// secretGenerator entries are objects. A reference resolves in the referrer's
+// directory, else in each kustomize build holding it (one edge per build that emits
+// exactly one candidate), else uniquely in the repository.
+const cacheVersion = "v578"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
