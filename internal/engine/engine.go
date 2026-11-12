@@ -260,8 +260,11 @@ func (e *Engine) RestoreFromDir(dir string, repoPaths map[string]string, singleR
 		return fmt.Errorf("no snapshot at %s: %w", dir, err)
 	}
 
+	// Shared as it is read (see ReadJSONLFileShared), so from here until Freeze below
+	// nothing may write a fact's Props or Relations: the steps between label facts and
+	// build indexes beside them, and must keep to that.
 	work := facts.NewStore()
-	if err := work.ReadJSONLFile(factsPath); err != nil {
+	if err := work.ReadJSONLFileShared(factsPath); err != nil {
 		return fmt.Errorf("reading facts from %s: %w", factsPath, err)
 	}
 	if singleRepoLabel != "" {
@@ -297,10 +300,10 @@ func (e *Engine) RestoreFromDir(dir string, repoPaths map[string]string, singleR
 			snap.Meta = meta
 		}
 	}
-	// Same as the generation path: nothing writes this store again, so collapse the
-	// duplicate Props maps and Relations slices the snapshot was serialized with. A
-	// restored graph is the long-lived case this matters most for — the server holds
-	// it for hours without regenerating.
+	// Same as the generation path: nothing writes this store again. The read already
+	// shared the duplicate Props maps and Relations slices the snapshot was serialized
+	// with; Freeze marks the store published. A restored graph is the long-lived case
+	// this matters most for — the server holds it for hours without regenerating.
 	work.Freeze()
 
 	// FactsRef aliases the store's slice (never copied): `work` is published here and
