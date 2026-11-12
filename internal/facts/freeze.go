@@ -77,7 +77,7 @@ func newSharer() *sharer {
 // share points f's Props and Relations at the first equal ones seen, or records f's
 // as the ones later facts will share.
 func (sh *sharer) share(f *Fact) {
-	if f.PropCount() > 0 {
+	if len(f.Props) > 0 {
 		if key, ok := appendProps(sh.buf[:0], f.Props, sh.keys); ok {
 			sh.buf = key
 			if canon, hit := sh.propSeen[string(key)]; hit {

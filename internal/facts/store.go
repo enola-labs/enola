@@ -282,7 +282,7 @@ func (s *Store) All() []Fact {
 			copy(rels, result[i].Relations)
 			result[i].Relations = rels
 		}
-		if result[i].PropCount() > 0 {
+		if len(result[i].Props) > 0 {
 			result[i].Props = result[i].CloneProps()
 		}
 	}
@@ -1146,6 +1146,7 @@ func (s *Store) WriteJSONL(w io.Writer) error {
 	// the largest graph.
 	rels := make([]wireRelation, 0, 8)
 	var idScratch []byte
+	propScratch := make(map[string]any, 16)
 	var factID string
 	for _, f := range s.facts {
 		rels = rels[:0]
@@ -1181,7 +1182,7 @@ func (s *Store) WriteJSONL(w io.Writer) error {
 			// store's shared Props map is never written.
 			f.Props, idScratch = withFactRefIDs(f.Props, f.Repo, f.File, f.RepoPrefixed, idScratch)
 		}
-		b, err := json.Marshal(wireFact{Fact: f, Relations: rels, ID: factID})
+		b, err := json.Marshal(wireFact{FactJSON: f.jsonViewInto(propScratch), Relations: rels, ID: factID})
 		if err != nil {
 			s.mu.RUnlock()
 			return fmt.Errorf("encoding fact %q: %w", f.Name, err)
@@ -1250,6 +1251,7 @@ func (s *Store) readJSONL(r io.Reader, share bool) error {
 			return fmt.Errorf("decoding fact: %w", err)
 		}
 		dropWireIDs(&f)
+		f.liftIdentProps()
 		s.mu.Lock()
 		idx := s.addLocked(f)
 		if share {

@@ -23,6 +23,10 @@ type Fact struct {
 	RepoPrefixed bool           `json:"repo_prefixed,omitempty"`
 	Props        map[string]any `json:"props,omitempty"`     // Kind-specific properties
 	Relations    []Relation     `json:"relations,omitempty"` // Edges to other facts
+
+	// ident holds the identity props (body_hash, inner_hash, decl_hash, span_start)
+	// outside Props. Read and write them as props; see identProps for why they are here.
+	ident *identProps
 }
 
 // Relation represents a directed edge between two facts.

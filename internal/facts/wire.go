@@ -32,7 +32,9 @@ type wireRelation struct {
 // wireFact is a Fact plus its identity, with its relations widened to carry
 // theirs.
 type wireFact struct {
-	Fact
+	// FactJSON, not Fact: Fact's MarshalJSON would be promoted to this type and
+	// encode only the embedded fact, dropping the two fields below.
+	FactJSON
 	// Relations shadows Fact.Relations: a field at depth 0 wins over a promoted
 	// one at depth 1, so this is what marshals, under the same key.
 	Relations []wireRelation `json:"relations,omitempty"`
