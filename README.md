@@ -256,7 +256,7 @@ More than twenty languages and formats, detected automatically. A repository wit
 
 - **Application code:** Go, Java, Kotlin, Scala, JavaScript, TypeScript, Vue, Svelte, Ember, Angular, Python, Ruby, PHP, Swift, Dart/Flutter, Rust, C/C++, .NET (C#, VB.NET, F#)
 - **APIs and messaging:** OpenAPI, gRPC, GraphQL, AsyncAPI
-- **Infrastructure:** Terraform/HCL, Ansible
+- **Infrastructure:** Terraform/HCL, Ansible, Kubernetes manifests and kustomize, Helm charts
 
 On top of the language it understands the frameworks that shape routes, storage and wiring, among them Rails, Django, FastAPI, Spring, Express, Next.js, ASP.NET Core, Laravel, Axum, SwiftUI and Jetpack Compose. The full table is in [docs/LANGUAGES.md](docs/LANGUAGES.md). A language you do not see there is a gap worth [reporting](https://github.com/enola-labs/enola/issues).
 

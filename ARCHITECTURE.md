@@ -50,7 +50,8 @@ Repository
 ┌──────────────────┐  Go · Java · Kotlin · Scala · Dart · JS/TS · Vue ·
 │   Extractors     │  Svelte · Ember · Angular · Python · Swift · Ruby · Rust ·
 └──────────────────┘  C/C++ · .NET · PHP · Terraform/HCL · Ansible ·
-                      OpenAPI · gRPC · GraphQL   (source → facts)
+                      Kubernetes · Helm · OpenAPI · gRPC · GraphQL
+                      (source → facts)
    │
    ▼
 ┌──────────────────┐

@@ -170,7 +170,10 @@ it (`with.Values.a`), and a dotted path written as a string for a helper to look
 (`"providedValues" (list "server.masterKey")`), counted only when the chart declares
 that path. Template actions spanning several lines are read whole. A read that stops
 at a map (`toYaml .Values.service.annotations`, `with .Values.persistence`) reads
-every key under it.
+every key under it, and a bare `.Values` reads every value: airflow passes it whole to
+its security-context helpers (`include "localPodSecurityContext" (list .Values.redis
+.Values)`), so each resource doing so names all of airflow's values, 9,644 edges in all.
+That errs toward an edge too many, never toward a value reported unused that is read.
 
 Two readers are easy to miss and are not missed. `values.yaml` itself can hold
 templates, rendered with `tpl`: bitnami's rabbitmq writes its configuration there,

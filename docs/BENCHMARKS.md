@@ -672,6 +672,64 @@ touches nothing.
 `store` and `destroy` routes for a controller that declares neither. The routes exist
 and would fail when called; enola reports them unbound instead of dropping them.
 
+### Kubernetes / Helm
+
+Six new repositories under `k8s/`, plus angular/dashboard's chart. Before the two
+extractors, not one of their facts came from a manifest, a kustomization or a chart:
+bitnami/charts' 32,928 facts were all Markdown headings from chart READMEs.
+`bench-k8s.sh` counts every surface from source without enola's code (PyYAML, and a
+regex scan for templates) and fails on any difference. At v582 there is none:
+
+| Repository | Facts before → after | Objects | Kustomizations | Charts | Named templates | Template resources | Values | Index time |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| bitnami/charts | 32,928 → 63,710 | 0 | 0 | 115 | 2,794 | 3,241 | 23,804 | 3.1 s |
+| prometheus-community/helm-charts | 891 → 5,317 | 0 | 0 | 46 | 403 | 591 | 3,189 | 0.7 s |
+| kubeflow/community-distribution | 858 → 3,644 | 1,161 | 261 | 26 | 88 | 146 | 317 | 1.3 s |
+| microservices-demo | 3,453 → 3,892 | 139 | 21 | 1 | 0 | 84 | 85 | 0.3 s |
+| podinfo | 1,068 → 1,321 | 54 | 8 | 1 | 9 | 22 | 126 | 0.1 s |
+| argocd-example-apps | 26 → 167 | 59 | 3 | 5 | 6 | 6 | 40 | 0.1 s |
+| angular/dashboard | 10,896 → 11,045 | 32 | 0 | 1 | 14 | 24 | 68 | 1.2 s |
+
+Objects include the ConfigMaps and Secrets kustomize generates (53 in kubeflow, 4 in
+podinfo). Beside the counts, a hand-checked key: microservices-demo's service graph
+reproduces the project's architecture diagram edge for edge (17 address edges, from
+`CART_SERVICE_ADDR=cartservice:7070` and its siblings), and each of its three deploy
+directories imports the code skaffold builds its images from.
+
+Each repository is here for a shape the others lack:
+
+| Repo | What it is the control for |
+|---|---|
+| bitnami/charts | scale, and a library chart (`common`) every other chart depends on from a registry the repository itself publishes to |
+| helm-charts | umbrella charts: kube-prometheus-stack's dependencies are `condition`-gated and aliased, its CRDs in `crds/` |
+| community-distribution | kustomize at scale: 261 kustomizations, components, overlays, remote resources |
+| microservices-demo | the service graph, and manifests beside the code of eleven services in five languages |
+| podinfo | a small Go service beside its chart, kustomize bases and raw manifests |
+| argocd-example-apps | the small clean control: plain, kustomize and Helm guestbooks |
+
+#### What the new repositories exposed
+
+- **A shared base means different things in different installs.** kubeflow's katib
+  `db-manager` names the Secret `katib-mysql-secrets`, which one install generates and
+  another ships. Resolving in the smallest build picked one; each build now contributes
+  the object it emits.
+- **Values are read in seven forms.** The first count of unread values in bitnami was
+  405. Each sampled one was read through a form the scan did not know: a variable
+  holding the root context, a dict key bitnami passes it under, an `index` with a
+  variable key, a value path written as a string, a template written inside
+  values.yaml, an action spanning lines. It is 2 now, both genuinely unread.
+- **A template document can hold several kinds.** victoriametrics emits a DaemonSet
+  or a Deployment from one file, chosen by an if/else; only the first was read.
+- **Release manifests carry a code-generator banner**, and the engine marks every
+  fact from such a file `generated`, the prop kustomize-generated objects used too.
+
+**What it found in the charts.** 14 bitnami resources call a named template no loaded
+chart defines, each inside a branch the default values never take: a typo
+(`commot.tplvalues.render`), templates copied from another chart (tomcat calling
+`wordpress.databasePort`, pytorch calling `mxnet.*`), names defined nowhere. In
+helm-charts, prometheus-modbus-exporter declares `configReloaderSidecar.enabled` and
+reads `.enable`. podinfo's frontend HPA targets the `backend` Deployment.
+
 ## 1. Reproducibility
 
 Each repository was indexed **three times** — once cold, twice warm — and the
