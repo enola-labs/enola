@@ -197,6 +197,9 @@ func (w *MemWatch) Report(out io.Writer, factCount int) {
 	}
 }
 
+// MemWatchActive reports whether a memory flag started a watch in this process.
+func MemWatchActive() bool { return activeWatch.Load() != nil }
+
 // MarkMemPhase marks the end of a phase of a long-running process on the watch this
 // process started, writing to stderr; it does nothing when no memory flag was given.
 // See MemWatch.Mark.

@@ -189,6 +189,7 @@ func (r *Runner) runServe(ctx context.Context, args []string, stderr io.Writer) 
 		_, _ = fmt.Fprintf(stderr, "  Warning:     listening beyond loopback; terminate TLS in front of it\n")
 	}
 
+	probeMemOnSignal(ctx)
 	err = pool.RunHTTP(ctx, ln, bootstrap.HTTPOptions{Tokens: tokens, SessionTimeout: *sessionTimeout})
 	// serve exits from here, past main's exit-time memory report.
 	bootstrap.MarkMemPhase("exit", 0)
