@@ -169,33 +169,97 @@ const revisionMagic = "enola-history-revision 1"
 // interleaved against 5,451 split — a 20% saving for an ordering choice. On this repository
 // 65 of the 82 changed lines are such moves, so it is the common case rather than a corner.
 func (r Revision) Encode(w io.Writer) error {
+	return r.EncodeFacts(w, r.Facts.writeTo)
+}
+
+// EncodeFacts writes the revision exactly as Encode does, except that the facts section
+// comes from facts rather than r.Facts, which is ignored. facts must write its lines
+// through the SectionWriter in stored order: ascending by line, '-' before '+' on a tie.
+//
+// It exists for the patch that is too big to hold: a base revision of a large graph is
+// every line of facts.jsonl, and the caller can stream those from the file instead of
+// materializing them as strings to build a Patch the encoder then copies twice more.
+func (r Revision) EncodeFacts(w io.Writer, facts func(*SectionWriter) error) error {
 	receiptJSON, err := json.Marshal(r.Receipt)
 	if err != nil {
 		return fmt.Errorf("encoding receipt: %w", err)
 	}
 
-	var b bytes.Buffer
-	b.WriteString(revisionMagic + "\n")
+	var header bytes.Buffer
+	header.WriteString(revisionMagic + "\n")
 	if r.Parent != "" {
-		fmt.Fprintf(&b, "parent %s\n", r.Parent)
+		fmt.Fprintf(&header, "parent %s\n", r.Parent)
 	}
-	fmt.Fprintf(&b, "facts %s\n", r.FactsHash)
-	fmt.Fprintf(&b, "receipt %d\n", len(receiptJSON))
-	b.Write(receiptJSON)
-	b.WriteByte('\n')
+	fmt.Fprintf(&header, "facts %s\n", r.FactsHash)
+	fmt.Fprintf(&header, "receipt %d\n", len(receiptJSON))
+	header.Write(receiptJSON)
+	header.WriteString("\nfacts\n")
 
-	writeSection := func(name string, p Patch) {
-		b.WriteString(name + "\n")
-		for _, line := range interleave(p) {
-			b.WriteString(line)
-			b.WriteByte('\n')
+	bw := bufio.NewWriterSize(w, 256*1024)
+	if _, err := bw.Write(header.Bytes()); err != nil {
+		return err
+	}
+	sw := &SectionWriter{w: bw}
+	if err := facts(sw); err != nil {
+		return err
+	}
+	if _, err := bw.WriteString("insights\n"); err != nil {
+		return err
+	}
+	if err := r.Insights.writeTo(sw); err != nil {
+		return err
+	}
+	return bw.Flush()
+}
+
+// SectionWriter writes the lines of one patch section. A write error is sticky: it is
+// returned by every later call and by the Flush that ends the encoding.
+type SectionWriter struct {
+	w *bufio.Writer
+}
+
+// Line writes one line with its sign, '+' for an addition and '-' for a removal.
+func (s *SectionWriter) Line(sign byte, line []byte) error {
+	_ = s.w.WriteByte(sign)
+	_, _ = s.w.Write(line)
+	return s.w.WriteByte('\n')
+}
+
+// LineString is Line for a line held as a string.
+func (s *SectionWriter) LineString(sign byte, line string) error {
+	_ = s.w.WriteByte(sign)
+	_, _ = s.w.WriteString(line)
+	return s.w.WriteByte('\n')
+}
+
+// writeTo writes the patch in stored order. Del and Add are each sorted whenever the patch
+// came from ComputePatch or DecodeRevision, and then the order is a merge of the two,
+// with no copy; a hand-built patch that is not sorted goes through interleave instead.
+// A line is never in both halves (ComputePatch nets them out), so no tie needs breaking.
+func (p Patch) writeTo(s *SectionWriter) error {
+	if !sort.StringsAreSorted(p.Del) || !sort.StringsAreSorted(p.Add) {
+		for _, l := range interleave(p) {
+			if err := s.LineString(l[0], l[1:]); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	i, j := 0, 0
+	for i < len(p.Del) || j < len(p.Add) {
+		var err error
+		if j == len(p.Add) || (i < len(p.Del) && p.Del[i] <= p.Add[j]) {
+			err = s.LineString('-', p.Del[i])
+			i++
+		} else {
+			err = s.LineString('+', p.Add[j])
+			j++
+		}
+		if err != nil {
+			return err
 		}
 	}
-	writeSection("facts", r.Facts)
-	writeSection("insights", r.Insights)
-
-	_, err = w.Write(b.Bytes())
-	return err
+	return nil
 }
 
 // interleave renders a patch as "+line" / "-line" entries ordered by the line itself, so

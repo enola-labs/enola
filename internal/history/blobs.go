@@ -1,7 +1,7 @@
 package history
 
 import (
-	"bytes"
+	"bufio"
 	"compress/gzip"
 	"errors"
 	"fmt"
@@ -55,9 +55,8 @@ type Contents struct {
 	// FactLines are the canonical lines of facts.jsonl.
 	FactLines []string
 	// FactsPath, when FactLines is nil, is the facts.jsonl to read them from. It is
-	// read only once the parent revision is rebuilt, so each line the two revisions share
-	// is held once, as the parent's string, rather than once per side: on a cluster of a
-	// million facts each side is a gigabyte, and nearly every line is in both.
+	// streamed, twice, and never held: on a cluster of a million facts it is a gigabyte,
+	// and it is recorded while the store it was written from is still live.
 	FactsPath string
 	// InsightLines are the canonical insight lines (pkghistory.InsightLines).
 	InsightLines []string
@@ -88,29 +87,39 @@ func writeBlob(root string, entries []pkghistory.Entry, e pkghistory.Entry, c Co
 		return nil, err
 	}
 
-	if c.FactLines == nil && c.FactsPath != "" {
-		lines, err := readLinesSharing(c.FactsPath, state.factLines)
-		if err != nil {
-			return nil, fmt.Errorf("reading %s back: %w", c.FactsPath, err)
-		}
-		c.FactLines = lines
+	// A reconstruction comes back sorted (Patch.Apply sorts), and the merge below relies on
+	// it. Checked rather than assumed, since a parent out of order would merge into a patch
+	// that reconstructs something else.
+	if !sort.StringsAreSorted(state.factLines) {
+		state.factLines = sortedLines(state.factLines)
 	}
 
-	// Sort on the way in. A reconstruction always comes back sorted (Patch.Apply says so),
-	// so hashing the caller's ORDER rather than the canonical one produces a blob that can
-	// never verify — it fails the integrity check on first read, reporting damage where
-	// there is none. Today's only caller hands over facts.jsonl, which WriteJSONL already
-	// sorted, so the bug is invisible in production and waits for the second caller.
-	factLines := sortedLines(c.FactLines)
-	insightLines := sortedLines(c.InsightLines)
+	// First pass: the facts hash (the header carries it, ahead of the lines) and the
+	// patch's size against the parent, which decides whether this revision chains or cuts
+	// a new segment. Neither needs a line kept.
+	src := factSource(c)
+	factsHash, patchSize, err := measureLines(state.factLines, src)
+	if errors.Is(err, errUnsorted) {
+		// Not as facts.Store.WriteJSONL writes it. Read it in, sharing the parent's
+		// strings, and sort it: the path every caller took before the file was streamed.
+		lines, rerr := readLinesSharing(c.FactsPath, state.factLines)
+		if rerr != nil {
+			return nil, fmt.Errorf("reading %s back: %w", c.FactsPath, rerr)
+		}
+		src = sliceLines(sortedLines(lines))
+		factsHash, patchSize, err = measureLines(state.factLines, src)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("reading %s back: %w", c.FactsPath, err)
+	}
 
+	insightLines := sortedLines(c.InsightLines)
 	rev := pkghistory.Revision{
-		FactsHash: pkghistory.HashLines(factLines),
+		FactsHash: factsHash,
 		Receipt:   c.Receipt,
 	}
 
 	segment, member := state.segment, state.member+1
-	factsPatch := pkghistory.ComputePatch(state.factLines, factLines)
 	switch {
 	case state.segment == 0:
 		// No parent to chain from. Number the new segment above every number ever ISSUED,
@@ -125,23 +134,39 @@ func writeBlob(root string, entries []pkghistory.Entry, e pkghistory.Entry, c Co
 	case member > segmentLen,
 		state.epoch != e.Epoch,
 		state.baseSize >= segmentMinBaseForRatio &&
-			float64(factsPatch.Size()) > segmentMaxDeltaRatio*float64(state.baseSize):
+			float64(patchSize) > segmentMaxDeltaRatio*float64(state.baseSize):
 		segment, member = state.segment+1, 1
 	}
 
+	// Second pass: the facts section, written as it is merged. A new segment's first
+	// revision is a patch against the empty set. Not a special case bolted on — it is what
+	// "a patch against nothing" already means — so the encoder, decoder and apply path
+	// stay single.
+	parent := state.factLines
 	if member == 1 {
-		// A new segment's first revision is a patch against the empty set. Not a special
-		// case bolted on — it is what "a patch against nothing" already means — so the
-		// encoder, decoder and apply path stay single.
-		rev.Facts = pkghistory.ComputePatch(nil, factLines)
+		parent = nil
 		rev.Insights = pkghistory.ComputePatch(nil, insightLines)
 	} else {
 		rev.Parent = state.factsHash
-		rev.Facts = factsPatch
 		rev.Insights = pkghistory.ComputePatch(state.insightLines, insightLines)
 	}
-
-	if err := writeRevisionFile(pkghistory.RevisionPath(root, segment, member), rev); err != nil {
+	writeFacts := func(sw *pkghistory.SectionWriter) error {
+		// Hashed again on the way out: the file is read twice, and a facts.jsonl rewritten
+		// between the reads would otherwise be stored under the first read's hash, as a
+		// revision that fails its own integrity check.
+		again := newLineHasher()
+		if err := mergeLines(parent, src,
+			func(line string) error { return sw.LineString('-', line) },
+			func(line []byte) error { return sw.Line('+', line) },
+			again.add); err != nil {
+			return err
+		}
+		if again.sum() != factsHash {
+			return fmt.Errorf("%s changed while it was being recorded", c.FactsPath)
+		}
+		return nil
+	}
+	if err := writeRevisionFile(pkghistory.RevisionPath(root, segment, member), rev, writeFacts); err != nil {
 		return nil, err
 	}
 	if err := pruneSegments(root, keep); err != nil {
@@ -228,26 +253,15 @@ func baseSizeOf(root string, segment int) (int, error) {
 // writeRevisionFile encodes, gzips and publishes one revision, staging into a temp file and
 // renaming, so a reader never observes a half-written blob and a failure leaves nothing
 // behind to be mistaken for one.
-func writeRevisionFile(path string, rev pkghistory.Revision) error {
+func writeRevisionFile(path string, rev pkghistory.Revision, facts func(*pkghistory.SectionWriter) error) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("creating %s: %w", dir, err)
 	}
 
-	var raw bytes.Buffer
-	if err := rev.Encode(&raw); err != nil {
-		return err
-	}
-	var gzipped bytes.Buffer
-	zw := gzip.NewWriter(&gzipped)
-	if _, err := zw.Write(raw.Bytes()); err != nil {
-		_ = zw.Close()
-		return fmt.Errorf("compressing revision: %w", err)
-	}
-	if err := zw.Close(); err != nil {
-		return fmt.Errorf("compressing revision: %w", err)
-	}
-
+	// Encoded through gzip straight into the staged file: on a large graph a base revision
+	// is the size of facts.jsonl, and holding it encoded and then compressed would be two
+	// more copies of it alive beside the store.
 	tmp, err := os.CreateTemp(dir, ".tmp-rev-")
 	if err != nil {
 		return fmt.Errorf("staging revision in %s: %w", dir, err)
@@ -255,7 +269,18 @@ func writeRevisionFile(path string, rev pkghistory.Revision) error {
 	tmpName := tmp.Name()
 	defer func() { _ = os.Remove(tmpName) }()
 
-	if _, err := tmp.Write(gzipped.Bytes()); err != nil {
+	bw := bufio.NewWriterSize(tmp, 256*1024)
+	zw := gzip.NewWriter(bw)
+	if err := rev.EncodeFacts(zw, facts); err != nil {
+		_ = zw.Close()
+		_ = tmp.Close()
+		return fmt.Errorf("writing revision: %w", err)
+	}
+	if err := zw.Close(); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("compressing revision: %w", err)
+	}
+	if err := bw.Flush(); err != nil {
 		_ = tmp.Close()
 		return fmt.Errorf("writing revision: %w", err)
 	}
