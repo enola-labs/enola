@@ -82,6 +82,7 @@ import (
 	"github.com/enola-labs/enola/internal/linkers/binders/testexercises"
 	"github.com/enola-labs/enola/internal/linkers/binders/unmatchedroutes"
 	"github.com/enola-labs/enola/internal/linkers/binders/vendoredspecs"
+	"github.com/enola-labs/enola/internal/linkers/binders/workloadsource"
 	graphqlsignal "github.com/enola-labs/enola/internal/linkers/crossrepo/signals/graphqlsig"
 	httpsignal "github.com/enola-labs/enola/internal/linkers/crossrepo/signals/http"
 	importsignal "github.com/enola-labs/enola/internal/linkers/crossrepo/signals/imports"
@@ -564,6 +565,7 @@ func registerOSSPlugins(eng *engine.Engine, cfg *config.Config) {
 	eng.RegisterBinder(storageclients.New())
 	eng.RegisterBinder(frameworkroots.New())
 	eng.RegisterBinder(moduleedges.New())
+	eng.RegisterBinder(workloadsource.New())
 	eng.RegisterBinder(stimulusresolver.New())
 	eng.RegisterBinder(vendoredspecs.New())
 	// After vendored-specs, before generated-clients: the specs it finds unimplemented

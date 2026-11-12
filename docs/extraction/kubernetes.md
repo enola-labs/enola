@@ -22,6 +22,8 @@ Fixture: [`k8s_sample`](../../internal/engine/testdata/repos/k8s_sample/)
 | a RoleBinding or ClusterRoleBinding | `depends_on` to its `roleRef` and ServiceAccount subjects | relation |
 | an HPA, VPA or PodDisruptionBudget | `depends_on` to the workload it scales or protects | relation |
 | an Ingress's hosts and paths | `ingress_paths` on the Ingress, never a route | props |
+| an env value or ConfigMap entry that is a Service's address | `depends_on` to that Service | relation |
+| an image `skaffold.yaml` builds | `build_contexts` on the workload, and an `imports` dependency from its directory to the code modules there | props, `dependency` |
 | a `kustomization.yaml` | a symbol `<dir>.Kustomization` (or `.Component`) | `symbol` |
 | its `resources`, `bases`, `components` | `depends_on` to the objects in the files it lists and to the kustomizations it includes | relation |
 | its `patches` | `depends_on` to each object a patch targets; the patch file is not an object | relation |
@@ -179,6 +181,63 @@ no other marker, is not read; that is a stated blind spot.
 and no route fact. An ingress prefix is where traffic enters, not an endpoint, and as
 a route it would be matched against every HTTP client in a cluster.
 
+## Workloads find each other by address
+
+Services in a cluster are told where their peers are through literal values:
+microservices-demo's checkout service gets `CART_SERVICE_ADDR=cartservice:7070`. An env
+value, or an entry of a ConfigMap a pod reads, that is an address of a Service the
+repository declares is a dependency on that Service:
+
+```yaml
+# k8s/web.yaml (excerpt)
+env:
+  - name: API_URL
+    value: http://api:80
+  - name: FEATURE
+    value: api
+```
+
+```
+symbol  k8s.Deployment.web
+        relations: depends_on -> k8s.Service.api
+```
+
+Env values are arbitrary text and Services are often named after common words, so an
+address is narrow: a URL, a `host:port` pair, a gRPC `dns:///host:port` target, or a
+cluster name ending in `.svc` or `.svc.cluster.local`. `FEATURE=api` above names
+nothing. A second label is read as the namespace only before `.svc`
+(`cart.shop.svc.cluster.local`), so `cart.example.com` is never the cart Service.
+When the address states a port and the Service declares ports, the port must be one
+of them. The name then resolves by the rules above.
+
+On microservices-demo this is the application's whole service graph, and it matches
+the project's architecture diagram edge for edge: the frontend reaches eight
+services, checkout six, cart reaches redis, recommendation the product catalog, the
+load generator the frontend. On the other corpus repositories it adds six edges, each
+checked by hand: gateways reaching `istiod.istio-system.svc:15012`, a cache-warming
+CronJob calling `http://frontend`, a user service reaching `user-db:27017`.
+
+## A workload runs the code its image is built from
+
+`skaffold.yaml` states which directory each image is built from. A workload running
+one of those images (by name, or by the image's last path segment when the artifact
+is named without a registry, which is how skaffold's default repository rewrites it)
+carries `build_contexts`, and a binder joins each directory to the modules the other
+extractors found in it:
+
+```
+symbol      k8s.Deployment.api   props: images=[example/api:1.4], build_contexts=[src/api]
+dependency  k8s -> example.com/shop/src/api   props: source=build_context
+            relations: imports -> example.com/shop/src/api
+```
+
+The edge sits at the module layer because a manifest deploys a program, not one of its
+functions. It is drawn by a binder, after every extractor, because the module's name
+is the other extractor's to decide: a Go package is named by its import path, a C#
+project by its directory. Change microservices-demo's `src/checkoutservice` and impact
+analysis reaches `kubernetes-manifests`, `kustomize/base` and `release`, the three
+places that deploy it.
+
 ## What is deliberately not extracted
 
 - **Rendering and substitution.** No Helm template or `envsubst` placeholder is
@@ -192,4 +251,8 @@ a route it would be matched against every HTTP client in a cluster.
 - **Ambiguous names.** A name declared more than once outside the referrer's
   directory resolves to nothing, rather than to a guess.
 - **Ingress paths as routes**, for the reason above.
+- **Addresses that are not literal** (`$(CART_HOST):7070`, a value from a Secret), a
+  bare service name, and a host outside the cluster's service names.
+- **Image builds other than skaffold's.** A Dockerfile path, a Makefile or a CI
+  pipeline that builds an image states its directory in a form this does not read.
 - **Manifests outside the detection names**, in a repository with no other marker.

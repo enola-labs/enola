@@ -142,7 +142,10 @@ var fixtures = []fixture{
 	// ABSENCE: a directory named roles is not an Ansible role. v578 adds kustomize:
 	// k8s/ is a base and overlays/prod an overlay that builds on it, patches the web
 	// Deployment from a file that is therefore not an object, generates a ConfigMap,
-	// and records its prefix, namespace, image override and remote resource.
+	// and records its prefix, namespace, image override and remote resource. v581
+	// adds wiring: web's API_URL is an address of the api Service (its FEATURE=api is
+	// a bare word and is not), and skaffold builds example/api from src/api, so the
+	// workload-source binder joins k8s/ to the Go package there.
 	{name: "k8s_sample", subRepos: []string{"."}},
 	// Helm: a library chart reached by name from a registry dependency its version
 	// satisfies, a file:// dependency, a vendored subchart, a remote dependency left

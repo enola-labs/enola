@@ -3572,7 +3572,13 @@ import (
 // literal kind carry their calls and reads on a file_ref; template actions spanning
 // lines are read whole. A library chart's module is published, and an unread helm
 // value is a high-confidence orphan.
-const cacheVersion = "v580"
+// v581: wiring between workloads. A literal env value, or a ConfigMap entry, that is
+// an address (a URL, host:port, dns:///host:port, or a .svc name) of a Service the
+// repository declares is a depends_on edge to it, port checked against the Service's
+// ports; a bare word never is. A workload whose image skaffold.yaml builds carries
+// build_contexts, and the workload-source binder draws a module dependency from the
+// manifest's directory to each code module in that build directory.
+const cacheVersion = "v581"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

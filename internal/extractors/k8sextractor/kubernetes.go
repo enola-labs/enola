@@ -202,7 +202,7 @@ func (e *Extractor) Extract(_ context.Context, repoPath string, _ []string) ([]f
 		o.builds = holding[o.File]
 	}
 	nameObjects(objs)
-	return emit(objs, ks, dirs), nil
+	return emit(objs, ks, dirs, buildContexts(repoPath, files)), nil
 }
 
 // nameObjects gives each object its fact name, <dir>.<Kind>.<name>. Two objects of
@@ -236,7 +236,7 @@ func sortedSet(set map[string]bool) []string {
 	return out
 }
 
-func emit(objs []*obj, ks map[string]*kustomization, kdirs []string) []facts.Fact {
+func emit(objs []*obj, ks map[string]*kustomization, kdirs []string, contexts map[string]string) []facts.Fact {
 	idx := newIndex(objs)
 	var out []facts.Fact
 	dirs := map[string]bool{}
@@ -280,6 +280,11 @@ func emit(objs []*obj, ks map[string]*kustomization, kdirs []string) []facts.Fac
 		}
 		if imgs := images(o.Doc); len(imgs) > 0 {
 			f.SetProp("images", imgs)
+			if ctxs := contextsFor(imgs, contexts); len(ctxs) > 0 {
+				// Read by the workload-source binder, which joins the directory to the
+				// modules the other extractors found in it.
+				f.SetProp(facts.PropBuildContexts, ctxs)
+			}
 		}
 		if paths := ingressPaths(o); len(paths) > 0 {
 			f.SetProp("ingress_paths", paths)

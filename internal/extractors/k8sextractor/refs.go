@@ -230,6 +230,10 @@ func (ix *index) references(o *obj) []string {
 		for _, r := range podSpecRefs(spec) {
 			add(ix.resolve(o, r.kind, r.name, ""))
 		}
+		add(ix.addressRefs(o, envValues(spec)))
+	}
+	if o.Kind == "ConfigMap" {
+		add(ix.addressRefs(o, configMapValues(doc)))
 	}
 	return out
 }

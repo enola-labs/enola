@@ -14,6 +14,11 @@ spec:
       containers:
         - name: web
           image: example/web:2.0
+          env:
+            - name: API_URL
+              value: http://api:80
+            - name: FEATURE
+              value: api
 ---
 apiVersion: v1
 kind: Service

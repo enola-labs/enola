@@ -288,6 +288,11 @@ const (
 // when the manifest says so; an absent prop means not published.
 const PropPublished = "published"
 
+// PropBuildContexts marks a Kubernetes workload with the directories, relative to its
+// repository, that the images it runs are built from (skaffold.yaml's artifacts).
+// The workload-source binder joins each to the modules other extractors found there.
+const PropBuildContexts = "build_contexts"
+
 // ModuleRoleForPath classifies a module by its directory path segments, for use
 // when the extractor has no more authoritative signal (e.g. a leaf-directory
 // fallback module covered by no declared target/package): a test-directory segment
