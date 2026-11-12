@@ -154,15 +154,37 @@ func (f *Fact) liftIdentProps() {
 	if len(f.Props) == 0 {
 		return
 	}
+	// Collected on the stack and allocated once: with() per key would allocate a copy for
+	// each of the four, on every symbol a restore reads.
+	var p identProps
+	if f.ident != nil {
+		p = *f.ident
+	}
+	lifted := false
 	for _, k := range identKeys {
 		v, ok := f.Props[k]
 		if !ok {
 			continue
 		}
-		if s, n, ok := identValue(k, v); ok {
-			f.ident = f.ident.with(k, s, n)
-			delete(f.Props, k)
+		s, n, ok := identValue(k, v)
+		if !ok {
+			continue
 		}
+		switch k {
+		case PropBodyHash:
+			p.bodyHash = s
+		case PropInnerHash:
+			p.innerHash = s
+		case PropDeclHash:
+			p.declHash = s
+		case PropSpanStart:
+			p.spanStart = n
+		}
+		delete(f.Props, k)
+		lifted = true
+	}
+	if lifted {
+		f.ident = &p
 	}
 	if len(f.Props) == 0 {
 		f.Props = nil
