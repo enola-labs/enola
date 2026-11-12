@@ -101,17 +101,29 @@ func collectMinimalAPIRoutes(root *sitter.Node, src []byte, relFile, dir string)
 // nil outside a body; a body starts with an empty map, so a variable in one method
 // cannot leak into another.
 func (s *minimalAPIScan) walk(node *sitter.Node, groups map[string]groupPrefix) {
+	if node != nil {
+		s.walkAt(*node, groups)
+	}
+}
+
+// walkAt is walk taking the node by value and recursing by value, for the reason
+// testRefCollector.walkAt gives.
+func (s *minimalAPIScan) walkAt(nv sitter.Node, groups map[string]groupPrefix) {
+	node := &nv
 	switch kindOf(node) {
 	case "class_declaration", "struct_declaration", "record_declaration", "interface_declaration":
 		name := nodeText(node.ChildByFieldName("name"), s.src)
 		s.typeStack = append(s.typeStack, name)
 		for i := uint(0); i < uint(node.ChildCount()); i++ {
-			s.walk(node.Child(i), nil)
+			if c, ok := node.ChildAt(i); ok {
+				s.walkAt(c, nil)
+			}
 		}
 		s.typeStack = s.typeStack[:len(s.typeStack)-1]
 		return
 	case "method_declaration", "constructor_declaration", "local_function_statement":
-		s.methods = append(s.methods, scanMethod{nodeText(node.ChildByFieldName("name"), s.src), node})
+		kept := nv // node is this frame's copy; the stack entry outlives the frame
+		s.methods = append(s.methods, scanMethod{nodeText(node.ChildByFieldName("name"), s.src), &kept})
 		defer func() { s.methods = s.methods[:len(s.methods)-1] }()
 		scope := map[string]groupPrefix{}
 		if body := node.ChildByFieldName("body"); body != nil {
@@ -142,7 +154,9 @@ func (s *minimalAPIScan) walk(node *sitter.Node, groups map[string]groupPrefix) 
 	}
 
 	for i := uint(0); i < uint(node.ChildCount()); i++ {
-		s.walk(node.Child(i), groups)
+		if c, ok := node.ChildAt(i); ok {
+			s.walkAt(c, groups)
+		}
 	}
 }
 

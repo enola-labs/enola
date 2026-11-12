@@ -751,7 +751,7 @@ func claimedHas(claimed map[string]struct{}, name string) bool {
 func collect(store *facts.Store) (funcs []funcInfo, storage, routeHandlers, assoc map[string]bool) {
 	claimed := queryloops.ClaimedSymbols(store)
 	storage = make(map[string]bool)
-	for _, f := range store.ByKind(facts.KindStorage) {
+	for f := range store.OfKind(facts.KindStorage) {
 		storage[f.Name] = true
 	}
 
@@ -778,13 +778,13 @@ func collect(store *facts.Store) (funcs []funcInfo, storage, routeHandlers, asso
 	// ActiveRecord association names (Rails). A no-arg call to one of these inside
 	// a loop is a lazy-loaded association read — the classic N+1.
 	assoc = make(map[string]bool)
-	for _, f := range store.ByKind(facts.KindDependency) {
+	for f := range store.OfKind(facts.KindDependency) {
 		if a, ok := f.PropAny(propAssociation).(string); ok && a != "" {
 			assoc[a] = true
 		}
 	}
 
-	for _, f := range store.ByKind(facts.KindSymbol) {
+	for f := range store.OfKind(facts.KindSymbol) {
 		for _, m := range stringSliceProp(f.Props, propIOMembers) {
 			if !isTestPath(f.File) {
 				funcs = append(funcs, funcInfo{Port: true, Name: f.Name + "." + m, File: f.File, Line: f.Line, Repo: f.Repo, PerformsIO: true})

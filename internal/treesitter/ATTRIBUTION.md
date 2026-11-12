@@ -16,8 +16,9 @@ enola extractor parses with. It is third-party code under the MIT license (see
 
 The module's `*.go`, `*.c` and `*.h` files, `include/` and `src/`, copied verbatim
 except for `src/parser.c` (below). Left out: the upstream tests, `README.md`, `copy.sh`,
-`go.mod` and `go.sum`. `ATTRIBUTION.md`, `recovery_test.go` and `testdata/` are enola's
-own.
+`go.mod` and `go.sum`. `ATTRIBUTION.md`, `node_value.go`, `recovery_test.go` and `testdata/` are
+enola's own. `node_value.go` adds value-returning child accessors, so a walker can avoid
+a heap allocation per child; it changes no upstream file.
 
 ## Why it is vendored, and the one change
 

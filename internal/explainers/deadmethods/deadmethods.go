@@ -163,7 +163,7 @@ func candidates(store *facts.Store) (uncalled, testOnly []candidate) {
 	}
 	reflected := map[string]bool{}
 	for _, kind := range []string{facts.KindSymbol, facts.KindFileRef, facts.KindTestRef} {
-		for _, fact := range store.ByKind(kind) {
+		for fact := range store.OfKind(kind) {
 			for _, rel := range fact.Relations {
 				if rel.Kind == facts.RelCalls || rel.Kind == facts.RelNames {
 					addCaller(fact.Repo, rel.Target, fact.File)
@@ -184,7 +184,7 @@ func candidates(store *facts.Store) (uncalled, testOnly []candidate) {
 	}
 	routed := routedActions(store)
 
-	for _, fact := range store.ByKind(facts.KindSymbol) {
+	for fact := range store.OfKind(facts.KindSymbol) {
 		if lang, _ := fact.PropAny("language").(string); lang != "ruby" {
 			continue
 		}

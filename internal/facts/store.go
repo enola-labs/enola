@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"iter"
 	"os"
 	"path/filepath"
 	"sort"
@@ -395,6 +396,27 @@ func (s *Store) ByKind(kind string) []Fact {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.collectByIndex(s.byKind[kind])
+}
+
+// OfKind yields the facts of the given kind without copying them into a slice, as
+// ByKind does: ByKind(symbol) on a large graph is a copy of most of the store, made by
+// each of a dozen passes that only read it, and on runtime that was 2.5 GB of a run's
+// allocation.
+//
+// It reads the facts as they were when iteration began, like ByKind, so facts added
+// during the loop are not yielded. Unlike ByKind it holds no copy: a loop that writes
+// facts of this kind while iterating may see some of its writes. Use ByKind there.
+func (s *Store) OfKind(kind string) iter.Seq[Fact] {
+	return func(yield func(Fact) bool) {
+		s.mu.RLock()
+		idx, ff := s.byKind[kind], s.facts
+		s.mu.RUnlock()
+		for _, i := range idx {
+			if i < len(ff) && !yield(ff[i]) {
+				return
+			}
+		}
+	}
 }
 
 // ByFile returns all facts for the given file.

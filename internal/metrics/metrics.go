@@ -200,7 +200,7 @@ func collect(store *facts.Store) ([]pkgInput, []importEdge, []string) {
 	// excludedNames keeps the NAMES, not just a count, so the summary can report the
 	// exclusions that match the caller's filter instead of the repo-wide total.
 	excludedNames := make([]string, 0)
-	for _, f := range store.ByKind(facts.KindModule) {
+	for f := range store.OfKind(facts.KindModule) {
 		if mcputil.IsGeneratedPath(facts.ModulePath(f)) {
 			continue
 		}
@@ -336,7 +336,7 @@ func collect(store *facts.Store) ([]pkgInput, []importEdge, []string) {
 	// "stdlib". The reliable signal is whether the import target resolves to a
 	// known module; external/stdlib targets simply do not and are dropped.
 	edges := make([]importEdge, 0)
-	for _, f := range store.ByKind(facts.KindDependency) {
+	for f := range store.OfKind(facts.KindDependency) {
 		fromRaw := importerOf(f.Name)
 		if fromRaw == "" {
 			continue
