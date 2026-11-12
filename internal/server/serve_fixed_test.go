@@ -36,6 +36,12 @@ func indexAs(t *testing.T, cfg *config.Config, repo string) {
 // artifacts are written first.
 func startFixed(t *testing.T, indexed bool) (*served, *config.Config) {
 	t.Helper()
+	return startFixedWith(t, indexed, nil)
+}
+
+// startFixedWith is startFixed with an OnPhase hook.
+func startFixedWith(t *testing.T, indexed bool, onPhase func(string, int)) (*served, *config.Config) {
+	t.Helper()
 	root := t.TempDir()
 	repo := copyTree(t, filepath.Join("..", "engine", "testdata", "repos", "go_sample"), root)
 	addSymbol(t, repo, "FromTheOperator")
@@ -47,6 +53,7 @@ func startFixed(t *testing.T, indexed bool) (*served, *config.Config) {
 		Roots:          []string{root},
 		Restore:        []string{repo},
 		ReloadInterval: 20 * time.Millisecond,
+		OnPhase:        onPhase,
 	})
 	if err != nil {
 		t.Fatal(err)

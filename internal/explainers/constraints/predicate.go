@@ -194,7 +194,7 @@ func measureProps(store *facts.Store, service string) propCensus {
 			continue
 		}
 		census.facts++
-		for prop := range f.Props {
+		for prop := range f.PropNames() {
 			census.present[prop] = true
 			if _, ok := propNumber(f, prop); ok {
 				census.numeric[prop] = true

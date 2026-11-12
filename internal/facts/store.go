@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"iter"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -46,6 +48,12 @@ type Store struct {
 	// Relations slices are now SHARED between facts. See Freeze for what that
 	// forbids.
 	frozen bool
+
+	// sharing, while set, holds the shapes ReadJSONLFileShared has already shared
+	// facts[:sharedUpTo] onto, so Freeze carries on from there rather than encoding
+	// every fact a second time. Freeze drops it.
+	sharing    *sharer
+	sharedUpTo int
 
 	// targetAliases maps a relation target that names no fact to the one fact it
 	// refers to in another repository, keyed by the target exactly as written. See
@@ -136,32 +144,38 @@ func (s *Store) Add(ff ...Fact) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, f := range ff {
-		f.File = s.canonical(factpath.Slash(f.File))
-		if pathShapedName[f.Kind] {
-			f.Name = factpath.Slash(f.Name)
-		}
-		if len(f.Relations) > 0 {
-			// Rewrite in place: Relations is the caller's slice, but Add already
-			// takes ownership of the fact (it is stored, not copied), and the
-			// targets are being replaced with equal values.
-			for i := range f.Relations {
-				f.Relations[i].Target = s.canonical(f.Relations[i].Target)
-			}
-		}
+		s.addLocked(f)
+	}
+}
 
-		idx := len(s.facts)
-		s.facts = append(s.facts, f)
-		s.byKind[f.Kind] = append(s.byKind[f.Kind], idx)
-		if f.File != "" {
-			s.byFile[f.File] = append(s.byFile[f.File], idx)
-		}
-		if f.Name != "" {
-			s.indexName(f.Name, idx)
-		}
-		if f.Repo != "" {
-			s.byRepo[f.Repo] = append(s.byRepo[f.Repo], idx)
+// addLocked is Add for one fact, returning its index. The caller must hold s.mu.
+func (s *Store) addLocked(f Fact) int {
+	f.File = s.canonical(factpath.Slash(f.File))
+	if pathShapedName[f.Kind] {
+		f.Name = factpath.Slash(f.Name)
+	}
+	if len(f.Relations) > 0 {
+		// Rewrite in place: Relations is the caller's slice, but Add already
+		// takes ownership of the fact (it is stored, not copied), and the
+		// targets are being replaced with equal values.
+		for i := range f.Relations {
+			f.Relations[i].Target = s.canonical(f.Relations[i].Target)
 		}
 	}
+
+	idx := len(s.facts)
+	s.facts = append(s.facts, f)
+	s.byKind[f.Kind] = append(s.byKind[f.Kind], idx)
+	if f.File != "" {
+		s.byFile[f.File] = append(s.byFile[f.File], idx)
+	}
+	if f.Name != "" {
+		s.indexName(f.Name, idx)
+	}
+	if f.Repo != "" {
+		s.byRepo[f.Repo] = append(s.byRepo[f.Repo], idx)
+	}
+	return idx
 }
 
 // indexName records that facts[idx] carries name. The caller must hold s.mu.
@@ -270,7 +284,7 @@ func (s *Store) All() []Fact {
 			copy(rels, result[i].Relations)
 			result[i].Relations = rels
 		}
-		if result[i].PropCount() > 0 {
+		if len(result[i].Props) > 0 {
 			result[i].Props = result[i].CloneProps()
 		}
 	}
@@ -383,6 +397,27 @@ func (s *Store) ByKind(kind string) []Fact {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.collectByIndex(s.byKind[kind])
+}
+
+// OfKind yields the facts of the given kind without copying them into a slice, as
+// ByKind does: ByKind(symbol) on a large graph is a copy of most of the store, made by
+// each of a dozen passes that only read it, and on runtime that was 2.5 GB of a run's
+// allocation.
+//
+// It reads the facts as they were when iteration began, like ByKind, so facts added
+// during the loop are not yielded. Unlike ByKind it holds no copy: a loop that writes
+// facts of this kind while iterating may see some of its writes. Use ByKind there.
+func (s *Store) OfKind(kind string) iter.Seq[Fact] {
+	return func(yield func(Fact) bool) {
+		s.mu.RLock()
+		idx, ff := s.byKind[kind], s.facts
+		s.mu.RUnlock()
+		for _, i := range idx {
+			if i < len(ff) && !yield(ff[i]) {
+				return
+			}
+		}
+	}
 }
 
 // ByFile returns all facts for the given file.
@@ -1028,6 +1063,7 @@ func (s *Store) Clear() {
 	s.graph = nil
 	s.intern = nil
 	s.frozen = false
+	s.sharing, s.sharedUpTo = nil, 0
 	s.targetAliases = nil
 	s.docTexts = nil
 }
@@ -1101,8 +1137,8 @@ func estimateJSONLSize(ff []Fact) int {
 // order. Extractors emit facts (and within-fact relations) in map-iteration
 // order, which varies run to run; sorting here makes facts.jsonl byte-stable for
 // a given commit, so the snapshot is reproducible and incremental regenerations
-// don't churn the file. Relations are sorted on a copy so the in-memory store is
-// left untouched.
+// don't churn the file. Relations are sorted on a copy here; Freeze puts the store's
+// own into the same order (see sortRelations), so a frozen store already matches.
 //
 // This is also where each fact's id and each relation's target_id are computed
 // (see wire.go and id.go). They are written and never stored, so no internal
@@ -1133,6 +1169,7 @@ func (s *Store) WriteJSONL(w io.Writer) error {
 	// the largest graph.
 	rels := make([]wireRelation, 0, 8)
 	var idScratch []byte
+	propScratch := make(map[string]any, 16)
 	var factID string
 	for _, f := range s.facts {
 		rels = rels[:0]
@@ -1153,12 +1190,7 @@ func (s *Store) WriteJSONL(w io.Writer) error {
 			rels = append(rels, wr)
 		}
 		if len(rels) > 1 {
-			sort.Slice(rels, func(i, j int) bool {
-				if rels[i].Kind != rels[j].Kind {
-					return rels[i].Kind < rels[j].Kind
-				}
-				return rels[i].Target < rels[j].Target
-			})
+			slices.SortFunc(rels, func(a, b wireRelation) int { return compareRelations(a.Relation, b.Relation) })
 		}
 		// f is a copy, and its own Relations field is shadowed by the one below,
 		// so neither the store's facts nor their relation slices are touched.
@@ -1168,7 +1200,7 @@ func (s *Store) WriteJSONL(w io.Writer) error {
 			// store's shared Props map is never written.
 			f.Props, idScratch = withFactRefIDs(f.Props, f.Repo, f.File, f.RepoPrefixed, idScratch)
 		}
-		b, err := json.Marshal(wireFact{Fact: f, Relations: rels, ID: factID})
+		b, err := json.Marshal(wireFact{FactJSON: f.jsonViewInto(propScratch), Relations: rels, ID: factID})
 		if err != nil {
 			s.mu.RUnlock()
 			return fmt.Errorf("encoding fact %q: %w", f.Name, err)
@@ -1219,6 +1251,11 @@ func (s *Store) WriteJSONLFile(path string) error {
 
 // ReadJSONL reads facts from a JSONL reader and adds them to the store.
 func (s *Store) ReadJSONL(r io.Reader) error {
+	return s.readJSONL(r, false)
+}
+
+// readJSONL is ReadJSONL, sharing each fact as it is added when share is set.
+func (s *Store) readJSONL(r io.Reader, share bool) error {
 	scanner := bufio.NewScanner(r)
 	// Allow large lines
 	scanner.Buffer(make([]byte, 0, 1024*1024), 10*1024*1024)
@@ -1232,9 +1269,84 @@ func (s *Store) ReadJSONL(r io.Reader) error {
 			return fmt.Errorf("decoding fact: %w", err)
 		}
 		dropWireIDs(&f)
-		s.Add(f)
+		f.liftIdentProps()
+		s.mu.Lock()
+		idx := s.addLocked(f)
+		if share {
+			s.sharing.share(&s.facts[idx])
+			s.sharedUpTo = idx + 1
+		}
+		s.mu.Unlock()
 	}
 	return scanner.Err()
+}
+
+// ReadJSONLFileShared reads path as ReadJSONLFile does, and shares each fact's Props
+// and Relations with an equal earlier fact's as it goes: what Freeze does, done while
+// reading. Decoding gives every fact its own Props map, and on a kernel-sized graph
+// nine in ten of them repeat one already read; sharing them only at Freeze held every
+// copy alive at once first, which put a restore's peak near twice what it settles at.
+//
+// It carries Freeze's precondition from the first fact it reads: nothing may write a
+// fact's Props or Relations again, and the store must be Frozen before it is
+// published. Freeze then shares only what was added after the read.
+//
+// The fact array is sized from the file's line count, so it is allocated once rather
+// than doubled its way up, which held the outgrown arrays as garbage at the peak and
+// left up to half of the last one unused for as long as the store lived.
+func (s *Store) ReadJSONLFileShared(path string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("opening %s: %w", path, err)
+	}
+	defer func() { _ = f.Close() }()
+
+	lines, err := countLines(f)
+	if err != nil {
+		return fmt.Errorf("reading %s: %w", path, err)
+	}
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		return fmt.Errorf("reading %s: %w", path, err)
+	}
+
+	s.mu.Lock()
+	grown := make([]Fact, len(s.facts), len(s.facts)+lines)
+	copy(grown, s.facts)
+	s.facts = grown
+	if s.sharing == nil {
+		s.sharing = newSharer()
+	}
+	for i := s.sharedUpTo; i < len(s.facts); i++ {
+		s.sharing.share(&s.facts[i])
+	}
+	s.sharedUpTo = len(s.facts)
+	s.mu.Unlock()
+
+	return s.readJSONL(f, true)
+}
+
+// countLines counts the lines in r, a final line without its newline included. It is an
+// upper bound on the facts in a JSONL file, which may hold blank lines.
+func countLines(r io.Reader) (int, error) {
+	buf := make([]byte, 256*1024)
+	n, last := 0, byte('\n')
+	for {
+		k, err := r.Read(buf)
+		if k > 0 {
+			n += bytes.Count(buf[:k], []byte{'\n'})
+			last = buf[k-1]
+		}
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return 0, err
+		}
+	}
+	if last != '\n' {
+		n++
+	}
+	return n, nil
 }
 
 // MarkLegacyRepoPrefixes sets RepoPrefixed on a multi-repo store read from a file written

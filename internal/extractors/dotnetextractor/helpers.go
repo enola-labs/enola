@@ -18,9 +18,12 @@ func findChildByKind(node *sitter.Node, kind string) *sitter.Node {
 	if node == nil {
 		return nil
 	}
+	// By value, so only the match is allocated: this runs over every child of every
+	// declaration, and Child allocated each one it looked at.
 	for i := uint(0); i < uint(node.ChildCount()); i++ {
-		if c := node.Child(i); kindOf(c) == kind {
-			return c
+		if c, ok := node.ChildAt(i); ok && kindOf(&c) == kind {
+			found := c // a copy, so c itself stays on the stack
+			return &found
 		}
 	}
 	return nil

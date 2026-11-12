@@ -16,8 +16,9 @@ enola extractor parses with. It is third-party code under the MIT license (see
 
 The module's `*.go`, `*.c` and `*.h` files, `include/` and `src/`, copied verbatim
 except for `src/parser.c` (below). Left out: the upstream tests, `README.md`, `copy.sh`,
-`go.mod` and `go.sum`. `ATTRIBUTION.md`, `recovery_test.go` and `testdata/` are enola's
-own.
+`go.mod` and `go.sum`. `ATTRIBUTION.md`, `node_value.go`, `recovery_test.go` and `testdata/` are
+enola's own. `node_value.go` adds value-returning child accessors and the slab allocator
+`newNode` uses (below).
 
 ## Why it is vendored, and the one change
 
@@ -34,9 +35,19 @@ This copy restores both v0.24.0 behaviours and changes nothing else, so enola ke
 ABI 15 runtime with the recovery it was built against. The restored lines are pinned
 by `recovery_test.go`.
 
+## The other change: how a node is allocated
+
+`newNode` in `node.go` returns `allocNode(node)` instead of `&Node{_inner: node}`. That
+is the only edit to an upstream Go file. `allocNode`, in enola's `node_value.go`, carves
+nodes from pooled 8 KiB slabs: every `Child`, `Parent` or `ChildByFieldName` returned a
+fresh 32-byte allocation, which was 45 to 80% of all a cold index allocated in every
+language. Behaviour is unchanged; a node kept alive keeps its slab alive, which the
+tree's own lifetime bounds.
+
 ## Updating
 
-Copy the new upstream files over these, re-apply the two hunks to `src/parser.c`, and
+Copy the new upstream files over these, re-apply the two hunks to `src/parser.c` and
+the one-line `newNode` change to `node.go`, and
 build and test with `-a`: Go's build cache does not track the files `tree_sitter.go`
 includes from `src/`, so without it the old parser stays linked.
 `TestRecovery_LinkedParserUsesTheRestoredRecovery` fails when that happens.

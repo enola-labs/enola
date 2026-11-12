@@ -1211,9 +1211,16 @@ func (w *astWalker) walkBodyWithMetrics(node *sitter.Node, idx int, shortName st
 }
 
 func (w *astWalker) walkForCalls(node *sitter.Node) {
-	if node == nil {
-		return
+	if node != nil {
+		w.walkForCallsAt(*node)
 	}
+}
+
+// walkForCallsAt is walkForCalls taking the node by value. walkChildren hands children
+// to it by value: a child's address handed back into this recursion would move every
+// child to the heap, since escape analysis cannot tell the recursive frames apart.
+func (w *astWalker) walkForCallsAt(nv sitter.Node) {
+	node := &nv
 	kind := kindOf(node)
 	w.noteDeclaration(node, kind)
 
@@ -1379,21 +1386,29 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 
 func (w *astWalker) walkChildren(node *sitter.Node) {
 	for i := uint(0); i < uint(node.ChildCount()); i++ {
-		w.walkForCalls(node.Child(i))
+		if c, ok := node.ChildAt(i); ok {
+			w.walkForCallsAt(c)
+		}
 	}
 }
 
 // walkChildrenExcept walks every child except the subtree rooted at skip.
 func (w *astWalker) walkChildrenExcept(node, skip *sitter.Node) {
+	w.walkChildrenExceptAt(*node, skip)
+}
+
+func (w *astWalker) walkChildrenExceptAt(nv sitter.Node, skip *sitter.Node) {
+	node := &nv
 	for i := uint(0); i < uint(node.ChildCount()); i++ {
-		c := node.Child(i)
+		c, ok := node.ChildAt(i)
 		switch {
-		case sameNode(c, skip):
+		case !ok:
+		case sameNode(&c, skip):
 			// skipped
-		case contains(c, skip):
-			w.walkChildrenExcept(c, skip)
+		case contains(&c, skip):
+			w.walkChildrenExceptAt(c, skip)
 		default:
-			w.walkForCalls(c)
+			w.walkForCallsAt(c)
 		}
 	}
 }

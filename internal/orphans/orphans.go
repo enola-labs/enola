@@ -1117,7 +1117,7 @@ func collect(store *facts.Store) ([]symInput, refIndex) {
 	// A Go repository's module path, from its root package, so a symbol can be matched
 	// under the import path another repository's code uses for it.
 	modulePaths := map[string]string{}
-	for _, f := range store.ByKind(facts.KindModule) {
+	for f := range store.OfKind(facts.KindModule) {
 		if f.Name == "." && f.Repo != "" {
 			if mp := f.PropString("modulePath"); mp != "" {
 				modulePaths[f.Repo] = mp
@@ -1268,7 +1268,7 @@ func collect(store *facts.Store) ([]symInput, refIndex) {
 	// — see goextractor/funcvalues.go. Without this, every parser reachable only
 	// through such a table reads as dead at high confidence. Only usage relations are
 	// folded in; a module's `imports` and `declares` say nothing about a symbol.
-	for _, f := range store.ByKind(facts.KindModule) {
+	for f := range store.OfKind(facts.KindModule) {
 		for _, r := range f.Relations {
 			if !isUsageKind(r.Kind) {
 				continue
@@ -1288,7 +1288,7 @@ func collect(store *facts.Store) ([]symInput, refIndex) {
 	// VALUES, so this usage never appears as a "calls" edge — fold it in here so
 	// handler methods are not mis-reported as orphans. The route name is the
 	// reference source (never equal to a symbol name).
-	for _, f := range store.ByKind(facts.KindRoute) {
+	for f := range store.OfKind(facts.KindRoute) {
 		h, _ := f.PropAny(propHandler).(string)
 		if h == "" {
 			continue
@@ -1323,7 +1323,7 @@ func collect(store *facts.Store) ([]symInput, refIndex) {
 	// this introduces no self-reference. They are recorded as TEST use, which keeps
 	// the symbol out of the dead classes but leaves it test-only when nothing else
 	// calls it.
-	for _, f := range store.ByKind(facts.KindTestRef) {
+	for f := range store.OfKind(facts.KindTestRef) {
 		for _, r := range f.Relations {
 			if r.Kind != facts.RelCalls && r.Kind != facts.RelNames {
 				continue
@@ -1354,7 +1354,7 @@ func collect(store *facts.Store) ([]symInput, refIndex) {
 	// Always production use, even under a test-looking path: a fixtures tree holds
 	// seed data the application loads as often as test data, and calling a symbol
 	// test-only on that evidence would invent a finding.
-	for _, f := range store.ByKind(facts.KindFileRef) {
+	for f := range store.OfKind(facts.KindFileRef) {
 		add := refSources.add
 		for _, r := range f.Relations {
 			if r.Kind != facts.RelCalls && r.Kind != facts.RelNames {
@@ -1382,7 +1382,7 @@ func collect(store *facts.Store) ([]symInput, refIndex) {
 	// module fact. Fold those in so the registered entry points are not mis-reported
 	// as orphans. The module name (`<dir>`) is the source — never equal to a symbol
 	// name (`<dir>.<name>`), so this introduces no self-reference.
-	for _, f := range store.ByKind(facts.KindModule) {
+	for f := range store.OfKind(facts.KindModule) {
 		for _, r := range f.Relations {
 			if !isUsageKind(r.Kind) {
 				continue
@@ -1422,7 +1422,7 @@ func collect(store *facts.Store) ([]symInput, refIndex) {
 	// package's public API. Such names are referenced via the package, not by a
 	// call edge, so fold them in as references to avoid mis-reporting public
 	// re-exported symbols as orphans. The dependency fact name is the source.
-	for _, f := range store.ByKind(facts.KindDependency) {
+	for f := range store.OfKind(facts.KindDependency) {
 		if names, ok := f.Prop(propReexports); ok {
 			for _, n := range toStringSlice(names) {
 				addRef(refSources, n, f.Name)
@@ -1452,7 +1452,7 @@ func collect(store *facts.Store) ([]symInput, refIndex) {
 	// is not mis-reported as dead. Evidence-based (only fires when such a symbol
 	// exists) and additive — it can only hide a real orphan, never invent one.
 	var dynPrefixes []string
-	for _, f := range store.ByKind(facts.KindFileRef) {
+	for f := range store.OfKind(facts.KindFileRef) {
 		if raw, ok := f.Prop(propDynamicSendPrefixes); ok {
 			dynPrefixes = append(dynPrefixes, toStringSlice(raw)...)
 		}

@@ -52,12 +52,12 @@
       },
       "relations": [
         {
-          "kind": "declares",
-          "target": "example.com/gosample/pkg/a"
-        },
-        {
           "kind": "calls",
           "target": "example.com/gosample/pkg/c.Gamma"
+        },
+        {
+          "kind": "declares",
+          "target": "example.com/gosample/pkg/a"
         }
       ]
     },

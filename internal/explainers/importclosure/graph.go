@@ -199,8 +199,10 @@ func (g *Graph) ancestorPackages(target string) []string {
 // submodules by absolute path — the target there names the package the importer IS,
 // so it resolves to no distinct file.
 func (g *Graph) reexportedSubmodules(dep facts.Fact, resolved string) []string {
-	raw, ok := dep.PropAny("reexports").([]any)
-	if !ok || len(raw) == 0 {
+	// PropStrings reads both forms: []string as extracted (a cold build), []any as
+	// decoded from the extractor cache or facts.jsonl (a warm build, a restore).
+	raw := dep.PropStrings("reexports")
+	if len(raw) == 0 {
 		return nil
 	}
 	pkgDir := ""
@@ -213,8 +215,7 @@ func (g *Graph) reexportedSubmodules(dep facts.Fact, resolved string) []string {
 		return nil
 	}
 	var out []string
-	for _, r := range raw {
-		name, _ := r.(string)
+	for _, name := range raw {
 		if name == "" || strings.Contains(name, ".") {
 			continue // a dotted entry is the module path, not a bound short name
 		}

@@ -79,11 +79,10 @@ func buildFileMethodIndex(kinds *tsutil.KindTable, root *sitter.Node, src []byte
 		}
 		idx[owner][method] = true
 	}
-	var visit func(n *sitter.Node)
-	visit = func(n *sitter.Node) {
-		if n == nil {
-			return
-		}
+	// By value, for the reason walkForCallsAt gives.
+	var visit func(nv sitter.Node)
+	visit = func(nv sitter.Node) {
+		n := &nv
 		switch kindOf(kinds, n) {
 		case "class_specifier", "struct_specifier", "union_specifier":
 			if nn := n.ChildByFieldName("name"); nn != nil {
@@ -103,10 +102,14 @@ func buildFileMethodIndex(kinds *tsutil.KindTable, root *sitter.Node, src []byte
 			}
 		}
 		for i := uint(0); i < n.ChildCount(); i++ {
-			visit(n.Child(i))
+			if c, ok := n.ChildAt(i); ok {
+				visit(c)
+			}
 		}
 	}
-	visit(root)
+	if root != nil {
+		visit(*root)
+	}
 	return idx
 }
 
@@ -1483,21 +1486,28 @@ func (w *astWalker) expandMacroDeclaration(typ, declarator *sitter.Node) bool {
 // real functions, so this is generic (no hard-coded macro names) and safe.
 func (w *astWalker) salvageMacroStructAssigns(root *sitter.Node) {
 	var assigns []*sitter.Node
-	var walk func(n *sitter.Node)
-	walk = func(n *sitter.Node) {
-		if n == nil || kindOf(w.kinds, n) == "function_definition" {
+	// By value, for the reason walkForCallsAt gives.
+	var walk func(nv sitter.Node)
+	walk = func(nv sitter.Node) {
+		n := &nv
+		if kindOf(w.kinds, n) == "function_definition" {
 			return
 		}
 		if kindOf(w.kinds, n) == "assignment_expression" {
 			if l := n.ChildByFieldName("left"); l != nil && kindOf(w.kinds, l) == "field_expression" {
-				assigns = append(assigns, n)
+				kept := *n // n may be a child held on the caller's stack (ChildAt)
+				assigns = append(assigns, &kept)
 			}
 		}
 		for i := uint(0); i < n.ChildCount(); i++ {
-			walk(n.Child(i))
+			if c, ok := n.ChildAt(i); ok {
+				walk(c)
+			}
 		}
 	}
-	walk(root)
+	if root != nil {
+		walk(*root)
+	}
 	if len(assigns) == 0 {
 		return
 	}
@@ -1863,6 +1873,15 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 	if node == nil {
 		return
 	}
+	w.walkForCallsAt(*node)
+}
+
+// walkForCallsAt is walkForCalls taking the node by value. It recurses by value too:
+// passing a child's address into its own parameter would move every child to the heap,
+// since escape analysis cannot tell the recursive frames apart, and that was 128M
+// allocations on the linux kernel. node points at this frame's copy.
+func (w *astWalker) walkForCallsAt(nv sitter.Node) {
+	node := &nv
 	kind := kindOf(w.kinds, node)
 
 	// A function definition inside a function body is not this function's code.
@@ -1872,7 +1891,9 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 	switch kind {
 	case "function_definition":
 		if w.metrics != nil && w.localClassDepth == 0 && !w.isMisreadStatement(node, true) {
-			w.swallowed = append(w.swallowed, node)
+			// A copy: node may be a child the caller holds on its stack (ChildAt).
+			kept := *node
+			w.swallowed = append(w.swallowed, &kept)
 			return
 		}
 	case "class_specifier", "struct_specifier", "union_specifier":
@@ -1888,7 +1909,9 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 		saved, savedScaling, savedRepeat := w.loopDepth, w.scalingDepth, w.repeatDepth
 		w.loopDepth, w.scalingDepth, w.repeatDepth = 0, 0, 0
 		for i := uint(0); i < node.ChildCount(); i++ {
-			w.walkForCalls(node.Child(i))
+			if c, ok := node.ChildAt(i); ok {
+				w.walkForCallsAt(c)
+			}
 		}
 		w.loopDepth, w.scalingDepth, w.repeatDepth = saved, savedScaling, savedRepeat
 		return
@@ -1930,7 +1953,9 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 			w.repeatDepth++
 		}
 		for i := uint(0); i < node.ChildCount(); i++ {
-			w.walkForCalls(node.Child(i))
+			if c, ok := node.ChildAt(i); ok {
+				w.walkForCallsAt(c)
+			}
 		}
 		w.loopDepth--
 		if class.scales() {
@@ -1957,10 +1982,11 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 					w.metrics.scalingLoopDepth = w.scalingDepth + 1
 				}
 				for i := uint(0); i < node.ChildCount(); i++ {
-					if c := node.Child(i); cppByteContains(c, lambda) {
-						w.walkCppLambdaSubtree(c, lambda)
+					c, _ := node.ChildAt(i)
+					if cppByteContains(&c, lambda) {
+						w.walkCppLambdaSubtree(&c, lambda)
 					} else {
-						w.walkForCalls(c)
+						w.walkForCallsAt(c)
 					}
 				}
 				return
@@ -1981,7 +2007,9 @@ func (w *astWalker) walkForCalls(node *sitter.Node) {
 	}
 
 	for i := uint(0); i < node.ChildCount(); i++ {
-		w.walkForCalls(node.Child(i))
+		if c, ok := node.ChildAt(i); ok {
+			w.walkForCallsAt(c)
+		}
 	}
 }
 
@@ -2232,7 +2260,9 @@ func (w *astWalker) walkCppLambdaSubtree(node, lambda *sitter.Node) {
 		w.scalingDepth++
 		w.repeatDepth++
 		for i := uint(0); i < node.ChildCount(); i++ {
-			w.walkForCalls(node.Child(i))
+			if c, ok := node.ChildAt(i); ok {
+				w.walkForCalls(&c)
+			}
 		}
 		w.loopDepth--
 		w.scalingDepth--

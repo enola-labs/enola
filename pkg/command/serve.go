@@ -157,6 +157,9 @@ func (r *Runner) runServe(ctx context.Context, args []string, stderr io.Writer) 
 		CallTimeout:   *callTimeout,
 		MemoryBudget:  budget,
 		Restore:       restorePaths,
+		// The hidden --memstats flag, taken off the arguments by main, reports each
+		// graph this instance loads; without it this does nothing.
+		OnPhase: bootstrap.MarkMemPhase,
 	})
 	if err != nil {
 		say("%v", err)
@@ -186,7 +189,10 @@ func (r *Runner) runServe(ctx context.Context, args []string, stderr io.Writer) 
 		_, _ = fmt.Fprintf(stderr, "  Warning:     listening beyond loopback; terminate TLS in front of it\n")
 	}
 
+	probeMemOnSignal(ctx)
 	err = pool.RunHTTP(ctx, ln, bootstrap.HTTPOptions{Tokens: tokens, SessionTimeout: *sessionTimeout})
+	// serve exits from here, past main's exit-time memory report.
+	bootstrap.MarkMemPhase("exit", 0)
 	if err != nil && !errors.Is(err, context.Canceled) {
 		log.Printf("serve: %v", err)
 		return 1

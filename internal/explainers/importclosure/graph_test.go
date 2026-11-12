@@ -186,21 +186,31 @@ func TestBuild_DeferredImportCarriesNoParents(t *testing.T) {
 // bound name is a MODULE Python loads, not an attribute of the package. The import
 // target names only the package, so without the re-exported names the submodule — and
 // anything it pulls in — is invisible.
+//
+// Both forms of the prop: []string is what the extractor writes, so a cold build sees
+// it; []any is what a warm build reads back from the extractor cache and a restore
+// from facts.jsonl. Reading only []any made a cold build report a smaller closure than
+// a warm one over identical facts.
 func TestBuild_FromPackageImportSubmodule(t *testing.T) {
-	d := dep("app.py", "pkg", false)
-	d.Props["from"] = true
-	d.Props["reexports"] = []any{"submod", "a_function"}
-	g := build(
-		sym("app.py"), sym("pkg/__init__.py"), sym("pkg/submod.py"), d,
-	)
-	c := g.Closure("app.py")
-	if _, ok := c["pkg/submod.py"]; !ok {
-		t.Error("pkg/submod.py not loaded — the re-exported submodule was not followed")
-	}
-	// "a_function" names no file, so nothing may be invented for it.
-	for f := range c {
-		if strings.HasSuffix(f, "a_function.py") {
-			t.Errorf("invented a file for the non-module name: %s", f)
+	for name, reexports := range map[string]any{
+		"as extracted": []string{"submod", "a_function"},
+		"as decoded":   []any{"submod", "a_function"},
+	} {
+		d := dep("app.py", "pkg", false)
+		d.Props["from"] = true
+		d.Props["reexports"] = reexports
+		g := build(
+			sym("app.py"), sym("pkg/__init__.py"), sym("pkg/submod.py"), d,
+		)
+		c := g.Closure("app.py")
+		if _, ok := c["pkg/submod.py"]; !ok {
+			t.Errorf("%s: pkg/submod.py not loaded — the re-exported submodule was not followed", name)
+		}
+		// "a_function" names no file, so nothing may be invented for it.
+		for f := range c {
+			if strings.HasSuffix(f, "a_function.py") {
+				t.Errorf("%s: invented a file for the non-module name: %s", name, f)
+			}
 		}
 	}
 }

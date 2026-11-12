@@ -19,14 +19,18 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"weak"
 
 	"github.com/enola-labs/enola/internal/facts"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // shortener rewrites the Go package names of one store into their directories.
+//
+// It keeps no reference to the store it was built from: a served instance swaps graphs
+// in place, and a cache holding the previous store would keep a whole graph alive
+// after a reload until the next call. The store is passed to shorten instead.
 type shortener struct {
-	store *facts.Store
 	// dirOf maps a package that may be shortened to its directory.
 	dirOf map[string]string
 	// moduleOf maps such a package to the module path its name starts with, for the
@@ -39,7 +43,7 @@ type shortener struct {
 }
 
 func newShortener(store *facts.Store) *shortener {
-	sh := &shortener{store: store, dirOf: map[string]string{}, moduleOf: map[string]string{}, taken: map[string]bool{}}
+	sh := &shortener{dirOf: map[string]string{}, moduleOf: map[string]string{}, taken: map[string]bool{}}
 	if store == nil {
 		return sh
 	}
@@ -88,7 +92,7 @@ func pathChar(c byte) bool {
 
 // shorten rewrites every Go name in text that may be shortened and returns the text
 // and the module paths of the names it rewrote.
-func (sh *shortener) shorten(text string) (string, []string) {
+func (sh *shortener) shorten(store *facts.Store, text string) (string, []string) {
 	if len(sh.dirOf) == 0 || !strings.Contains(text, "/") {
 		return text, nil
 	}
@@ -105,7 +109,7 @@ func (sh *shortener) shorten(text string) (string, []string) {
 		for j < len(text) && pathChar(text[j]) {
 			j++
 		}
-		b.WriteString(sh.token(text[i:j], modules))
+		b.WriteString(sh.token(store, text[i:j], modules))
 		i = j
 	}
 	if len(modules) == 0 {
@@ -121,7 +125,7 @@ func (sh *shortener) shorten(text string) (string, []string) {
 
 // token rewrites one run of name characters: the longest package name it starts with,
 // ending where a "." or the run does, becomes that package's directory.
-func (sh *shortener) token(tok string, modules map[string]bool) string {
+func (sh *shortener) token(store *facts.Store, tok string, modules map[string]bool) string {
 	if !strings.Contains(tok, "/") {
 		return tok
 	}
@@ -140,7 +144,7 @@ func (sh *shortener) token(tok string, modules map[string]bool) string {
 		if member == "" && sh.taken[tok[:k]] {
 			return tok
 		}
-		if member != "" && len(sh.store.LookupByExactName(dir+member)) > 0 {
+		if member != "" && len(store.LookupByExactName(dir+member)) > 0 {
 			return tok
 		}
 		modules[sh.moduleOf[tok[:k]]] = true
@@ -150,17 +154,19 @@ func (sh *shortener) token(tok string, modules map[string]bool) string {
 }
 
 // shortenCache holds the shortener of the store it was built for.
+// shortenCache keeps the shortener of the last store it was asked about, and that
+// store only weakly: a strong reference would keep a replaced graph alive.
 type shortenCache struct {
 	mu    sync.Mutex
-	store *facts.Store
+	store weak.Pointer[facts.Store]
 	sh    *shortener
 }
 
 func (c *shortenCache) get(store *facts.Store) *shortener {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.sh == nil || c.store != store {
-		c.store, c.sh = store, newShortener(store)
+	if c.sh == nil || c.store.Value() != store {
+		c.store, c.sh = weak.Make(store), newShortener(store)
 	}
 	return c.sh
 }
@@ -195,7 +201,7 @@ func (s *Server) shortNamesMiddleware(next mcp.MethodHandler) mcp.MethodHandler 
 			if holdsJSON(tc.Text) {
 				continue // JSON keeps exact names
 			}
-			text, mods := sh.shorten(tc.Text)
+			text, mods := sh.shorten(store, tc.Text)
 			if len(mods) == 0 {
 				continue
 			}

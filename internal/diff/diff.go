@@ -956,7 +956,7 @@ func groupByKey(fs []facts.Fact) map[string][]facts.Fact {
 // that already shares an identity. It never enters factKey, so a lone fact that
 // merely moves is still unchanged — see TestCompute_LineShiftIsNotAChange.
 func intraGroupOrder(f facts.Fact) string {
-	return fmt.Sprintf("%09d\x00%s\x00%s", f.Line, propsJSON(f.Props), relationsJSON(f.Relations))
+	return fmt.Sprintf("%09d\x00%s\x00%s", f.Line, propsJSON(f.AllProps()), relationsJSON(f.Relations))
 }
 
 // relationsJSON renders relations order-stably for use as a tiebreak.
@@ -1152,7 +1152,7 @@ func propsChanged(a, b facts.Fact) bool {
 	if a.PropCount() == 0 && b.PropCount() == 0 {
 		return false
 	}
-	if propsJSON(a.Props) == propsJSON(b.Props) {
+	if propsJSON(a.AllProps()) == propsJSON(b.AllProps()) {
 		return false
 	}
 	if !hasNonArchitectural(a) && !hasNonArchitectural(b) {

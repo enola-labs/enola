@@ -116,7 +116,7 @@ func newReachIndex(store *facts.Store) *reachIndex {
 		viaInterface:  map[string][]string{},
 		routeTraffic:  map[string]traffic{},
 	}
-	for _, f := range store.ByKind(facts.KindRoute) {
+	for f := range store.OfKind(facts.KindRoute) {
 		if f.PropAny(facts.PropRole) == facts.RoleClient || f.Name == "" {
 			continue
 		}
@@ -145,7 +145,7 @@ func newReachIndex(store *facts.Store) *reachIndex {
 
 	// Methods by owner, so an interface's methods and an implementation's can be paired.
 	methods := map[string][]string{} // owner → method short names
-	for _, f := range store.ByKind(facts.KindSymbol) {
+	for f := range store.OfKind(facts.KindSymbol) {
 		sk := f.PropString("symbol_kind")
 		if sk != facts.SymbolMethod {
 			continue
@@ -154,7 +154,7 @@ func newReachIndex(store *facts.Store) *reachIndex {
 			methods[f.Name[:i]] = append(methods[f.Name[:i]], f.Name[i+1:])
 		}
 	}
-	for _, f := range store.ByKind(facts.KindSymbol) {
+	for f := range store.OfKind(facts.KindSymbol) {
 		if f.PropString("symbol_kind") != facts.SymbolInterface {
 			continue
 		}

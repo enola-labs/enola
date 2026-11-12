@@ -1,8 +1,10 @@
 package facts
 
 import (
+	"slices"
 	"sort"
 	"strconv"
+	"strings"
 )
 
 // Freeze collapses structurally identical Props maps and Relations slices onto shared
@@ -41,45 +43,92 @@ func (s *Store) Freeze() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	sh, from := s.sharing, s.sharedUpTo
+	if sh == nil {
+		sh, from = newSharer(), 0
+	}
+	for i := from; i < len(s.facts); i++ {
+		sh.share(&s.facts[i])
+	}
+	s.sharing, s.sharedUpTo = nil, 0
+	s.frozen = true
+}
+
+// sharer is Freeze's memory of the shapes it has seen. It can run over a store all at
+// once (Freeze) or one fact at a time as a store is read (ReadJSONLFileShared), which
+// is the same sharing done before the duplicates pile up rather than after.
+type sharer struct {
 	// Keyed by an injective encoding of the value, so a key hit means equality and no
 	// confirming comparison is needed. Values that cannot be encoded soundly are left
 	// alone rather than guessed at (see appendPropValue).
-	propSeen := make(map[string]map[string]any)
-	relSeen := make(map[string][]Relation)
+	propSeen map[string]map[string]any
+	relSeen  map[string][]Relation
+	buf      []byte
+	keys     *propKeys
+}
 
-	buf := make([]byte, 0, 1024)
-	keys := &propKeys{buf: make([]string, 0, 64)}
-	for i := range s.facts {
-		f := &s.facts[i]
+func newSharer() *sharer {
+	return &sharer{
+		propSeen: make(map[string]map[string]any),
+		relSeen:  make(map[string][]Relation),
+		buf:      make([]byte, 0, 1024),
+		keys:     &propKeys{buf: make([]string, 0, 64)},
+	}
+}
 
-		if f.PropCount() > 0 {
-			if key, ok := appendProps(buf[:0], f.Props, keys); ok {
-				buf = key
-				if canon, hit := propSeen[string(key)]; hit {
-					f.Props = canon
-				} else {
-					propSeen[string(key)] = f.Props
-				}
-			}
-		}
-
-		if len(f.Relations) > 0 {
-			key := appendRelations(buf[:0], f.Relations)
-			buf = key
-			if canon, hit := relSeen[string(key)]; hit {
-				f.Relations = canon
+// share points f's Props and Relations at the first equal ones seen, or records f's
+// as the ones later facts will share.
+func (sh *sharer) share(f *Fact) {
+	if len(f.Props) > 0 {
+		if key, ok := appendProps(sh.buf[:0], f.Props, sh.keys); ok {
+			sh.buf = key
+			if canon, hit := sh.propSeen[string(key)]; hit {
+				f.Props = canon
 			} else {
-				// Trim the capacity to the length before sharing. An append by a later
-				// holder then always reallocates instead of writing into spare capacity
-				// that other facts are now reading through — the quieter half of the
-				// aliasing hazard, and the one a reader would never suspect.
-				shared := f.Relations[:len(f.Relations):len(f.Relations)]
-				f.Relations = shared
-				relSeen[string(key)] = shared
+				sh.propSeen[string(key)] = f.Props
 			}
 		}
 	}
-	s.frozen = true
+
+	if len(f.Relations) > 0 {
+		sortRelations(f.Relations)
+		key := appendRelations(sh.buf[:0], f.Relations)
+		sh.buf = key
+		if canon, hit := sh.relSeen[string(key)]; hit {
+			f.Relations = canon
+		} else {
+			// Trim the capacity to the length before sharing. An append by a later
+			// holder then always reallocates instead of writing into spare capacity
+			// that other facts are now reading through — the quieter half of the
+			// aliasing hazard, and the one a reader would never suspect.
+			shared := f.Relations[:len(f.Relations):len(f.Relations)]
+			f.Relations = shared
+			sh.relSeen[string(key)] = shared
+		}
+	}
+}
+
+// compareRelations orders relations by kind, then target: the order facts.jsonl has
+// always written them in, and so the order a restored graph holds them in.
+func compareRelations(a, b Relation) int {
+	if c := strings.Compare(a.Kind, b.Kind); c != 0 {
+		return c
+	}
+	return strings.Compare(a.Target, b.Target)
+}
+
+// sortRelations puts rs in compareRelations order, in place. Extractors append
+// relations in map-iteration order, so a graph published as built held them in an order
+// that varied run to run and differed from the same graph restored from disk, and a
+// tool listing a fact's relations answered differently by how the graph got there.
+//
+// Sorted in place, and only when out of order: a slice already sorted is never written,
+// which is every slice a published store holds, so one shared into this store from
+// another (a restore, an append) is read and never touched.
+func sortRelations(rs []Relation) {
+	if len(rs) > 1 && !slices.IsSortedFunc(rs, compareRelations) {
+		slices.SortFunc(rs, compareRelations)
+	}
 }
 
 // Frozen reports whether Freeze has been called. It exists for tests and for the

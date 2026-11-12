@@ -34,6 +34,9 @@ import (
 // treats them the same, and distinguishing them has never been the question being
 // asked.
 func (f Fact) PropString(key string) string {
+	if s, ok := f.ident.str(key); ok {
+		return s
+	}
 	if f.Props == nil {
 		return ""
 	}
@@ -45,16 +48,19 @@ func (f Fact) PropString(key string) string {
 // the JSON round-trip a restored snapshot goes through, where a bool survives as a
 // bool but nothing guarantees the key exists at all.
 func (f Fact) PropBool(key string) bool {
-	if f.Props == nil {
-		return false
-	}
-	v, _ := f.Props[key].(bool)
-	return v
+	v, _ := f.Prop(key)
+	b, _ := v.(bool)
+	return b
 }
 
 // Prop reads a prop, reporting whether the key was present. It is the comma-ok map
 // read, through a possibly-nil map.
 func (f Fact) Prop(key string) (any, bool) {
+	if f.ident != nil {
+		if v, ok := f.ident.get(key); ok {
+			return v, true
+		}
+	}
 	if f.Props == nil {
 		return nil, false
 	}
@@ -65,10 +71,8 @@ func (f Fact) Prop(key string) (any, bool) {
 // PropAny reads a prop, returning nil when the map is nil or the key is absent. It is
 // the one-value map read, and callers type-assert the result as they always did.
 func (f Fact) PropAny(key string) any {
-	if f.Props == nil {
-		return nil
-	}
-	return f.Props[key]
+	v, _ := f.Prop(key)
+	return v
 }
 
 // SetProp stores a prop, creating the map when the fact has none. Assigning into a nil
@@ -77,6 +81,9 @@ func (f Fact) PropAny(key string) any {
 // The receiver is a POINTER, unlike the readers above, because it may replace a nil
 // map. It is not the only write path; see the note at the top of this file.
 func (f *Fact) SetProp(key string, val any) {
+	if f.setIdentProp(key, val) {
+		return
+	}
 	if f.Props == nil {
 		f.Props = make(map[string]any, 4)
 	}
@@ -86,14 +93,17 @@ func (f *Fact) SetProp(key string, val any) {
 // DelProp removes a prop. Like delete on a nil map, removing from a fact with no props
 // does nothing.
 func (f *Fact) DelProp(key string) {
+	if isIdentKey(key) {
+		f.ident = f.ident.without(key)
+	}
 	if f.Props == nil {
 		return
 	}
 	delete(f.Props, key)
 }
 
-// PropCount returns how many props the fact carries.
-func (f Fact) PropCount() int { return len(f.Props) }
+// PropCount returns how many props the fact carries, the identity props included.
+func (f Fact) PropCount() int { return len(f.Props) + f.ident.count() }
 
 // HasRelation reports whether the fact already carries this exact edge. It is what
 // makes a binder idempotent across appends: every binder re-runs on every snapshot,
@@ -110,6 +120,10 @@ func (f Fact) HasRelation(kind, target string) bool {
 // CloneProps returns a shallow copy of the props map, so a rewritten fact does not
 // mutate the map the original shares. Returns a non-nil empty map for a nil source,
 // so the caller can assign into the result unconditionally.
+//
+// The identity props are not in it: they stay on the fact (see identProps), and a
+// copy assigned back to Props keeps them. A caller building a NEW fact from the
+// copy reads them with Prop and sets them with SetProp.
 func (f Fact) CloneProps() map[string]any {
 	out := make(map[string]any, len(f.Props)+1)
 	for k, v := range f.Props {

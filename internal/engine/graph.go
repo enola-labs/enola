@@ -79,6 +79,15 @@ func (g *Graph) ExtractorVersion() string {
 	return g.b.snapshot.Meta.ExtractorVersion
 }
 
+// SnapshotID is the content fingerprint of g's snapshot, as its snapshot.meta.json
+// records it: two graphs with one ID hold the same facts.
+func (g *Graph) SnapshotID() string {
+	if g == nil || g.b.snapshot == nil {
+		return ""
+	}
+	return g.b.snapshot.Meta.SnapshotID
+}
+
 // FactCount is how many facts g holds.
 func (g *Graph) FactCount() int {
 	if g == nil || g.b.store == nil {

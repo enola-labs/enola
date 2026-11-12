@@ -380,11 +380,11 @@ func hasVocabularyPrefix(name string) bool {
 // here is caught as an undeclared divergence (one test changes).
 func TestWireFormat_WireFactFields(t *testing.T) {
 	full := wireFact{
-		Fact: Fact{
+		FactJSON: Fact{
 			Kind: KindModule, Name: "cmd/enola", File: "cmd/enola", Line: 1,
 			EndLine: 2, Column: 3, EndColumn: 4, Repo: "enola",
 			Props: map[string]any{"language": "go"},
-		},
+		}.JSONView(),
 		Relations: []wireRelation{{Relation: Relation{Kind: RelImports, Target: "context"}}},
 		ID:        "0123456789abcdef0123456789abcdef",
 	}
@@ -395,7 +395,7 @@ func TestWireFormat_WireFactFields(t *testing.T) {
 
 	// id has no omitempty: every fact carries one, so a consumer may key on it
 	// unconditionally. A minimal fact is the struct's keys plus exactly that.
-	assertKeys(t, wireFact{Fact: Fact{Kind: KindModule, Name: "cmd/enola"}},
+	assertKeys(t, wireFact{FactJSON: Fact{Kind: KindModule, Name: "cmd/enola"}.JSONView()},
 		[]string{"kind", "name", "id"})
 }
 

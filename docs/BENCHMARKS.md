@@ -681,11 +681,22 @@ from-scratch run agree, not merely that the same code path repeats itself.
 
 > **107 of 107 repositories in this sweep produced a byte-identical `snapshot_id` and a
 > byte-identical `facts.jsonl` across all three runs — 321 runs, 9,224,829 facts,
-> zero drift.** `insights.json` is byte-stable on 102 of the 107; the five where it is
-> not (cognee, superset, airflow, cognee-rs, spark) differed in the previous sweeps too,
-> and their facts do not. grafana left that list at v474: of two equally short paths
+> zero drift.** `insights.json` is byte-stable on all 107 as well, in five consecutive
+> full sweeps. grafana left the unstable list at v474: of two equally short paths
 > from a loop to a query, the `query-loops` explainer named whichever a map iteration
 > reached first, and ente and nhost had the same tie.
+
+The last five (cognee, superset, airflow, cognee-rs, spark) were one defect. The sweep
+showed only that they differed; the serving benchmark named the cause. The `import-closure` explainer read a
+module's re-exports only in the shape they take once decoded from disk, so a cold build,
+which holds them as extracted, counted a smaller closure: cognee's package loaded 883
+modules cold and 888 warm, over identical facts. bench-serve asks the same questions of
+one repository built in a session, adopted, restored and served fixed, and any
+difference between those paths is a finding. The same check found that a graph served
+as built listed each fact's relations in extraction order while the same graph restored
+from disk listed them sorted, so a tool's answer depended on how the server came to hold
+the graph. Relations are now put in the order `facts.jsonl` stores them before a graph is
+published, and all four paths return byte-identical answers.
 
 Two defects had to be fixed for that sentence to be true again, and both had the same
 shape: **a snapshot must not depend on whether a previous snapshot exists.** A
@@ -987,7 +998,7 @@ so the demonstration proves its own limit in the same run.
 | Largest Go | Grafana — 11,365 files, 214,666 facts, 11.2s / 6.3s |
 | Throughput | 1,500 to 37,000 facts/sec cold, depending on language |
 | Parse errors, all 107 repositories | **32 files read only in part**, all Ruby (openproject 19, devise 9, fastlane 2, grape 2): tree-sitter error nodes the Ruby extractor counts and names since v413, rather than reading around them silently |
-| Memory | peak heap per run is recorded by the sweep (`--memstats`) alongside time and hashes. The Linux kernel is the high-water mark at **7,026 MiB**; only six others exceed 1 GiB (GitLab 2,688, dotnet/runtime 2,425, VS Code 2,058, rust-lang/rust 1,627, roslyn 1,558, dart-sdk 1,558). No repository required tuning on this machine |
+| Memory | peak heap per run is recorded by the sweep (`--memstats`) alongside time and hashes. The Linux kernel is the high-water mark at **6,997 MiB**; only six others exceed 1 GiB (GitLab 2,738, dotnet/runtime 2,311, VS Code 1,772, dart-sdk 1,596, roslyn 1,579, rust-lang/rust 1,469). No repository required tuning on this machine |
 
 Times here are the engine's own `duration` for the snapshot. Warm runs are 1.1×–12.6×
 faster than cold (median 1.6×, over the 83 repositories whose cold run exceeds 0.5s;
@@ -1128,9 +1139,69 @@ what the new facts and fields account for: nested Python functions as symbols, R
 references, and two more fields on symbols. The corpus cold wall reads 591.0s against
 598.9s and warm 295.9s against 294.1s, both within run-to-run noise.
 
-Every ceiling in `mem-ceilings.json` is met at the v511 pin: linux at 7,026 MiB peak
-against 8,000 and 472.3 mallocs per fact against 480, runtime at 2,425 against 2,700 and
-730.3 against 740.
+**What a server holds: a second memory round, and a benchmark for serving.** `enola
+serve` keeps graphs in memory for as long as it runs, so the figures that matter there
+are steady heap and what a restore costs, not the peak of one index. Five changes went
+in, and none changes an output: every `facts.jsonl` and `insights.json` in the corpus is
+byte-identical to the previous binary's.
+
+- The architecture history streams a revision from `facts.jsonl` into its gzip blob,
+  reading the file twice, instead of holding every line as a string. Recording a base
+  revision used to hold about four times the size of `facts.jsonl` beside the live graph.
+- A restore shares identical props maps and relation lists while it reads, not after.
+- The four props that identify a symbol's declaration and version (`body_hash`,
+  `inner_hash`, `decl_hash`, `span_start`) live in a field on the fact, not in its props
+  map. They are unique per symbol, so once every symbol carried them, almost no two maps
+  were equal and sharing equal maps had stopped saving anything. On the wire they are
+  props exactly as before.
+- The C, C++ and C# tree-sitter walkers take each child by value, and passes that only
+  read the graph iterate it instead of copying it.
+- Tree-sitter nodes are carved from pooled 8 KiB slabs instead of allocated one at a time.
+
+Before is the binary preceding this work, after the final one, same host. The first
+index is bench-serve's: a cold `--generate` into an empty output root, which records a
+history base. The served graph is a fixed `enola serve` restoring that index from disk.
+Ranges are separate runs.
+
+| | before | after | |
+|---|---:|---:|---:|
+| linux, first index, peak heap | 9,736 MiB | 6,887 to 7,108 MiB | **-27% to -29%** |
+| dotnet/runtime, first index, peak heap | 3,612 MiB | 2,278 to 2,400 MiB | **-34% to -37%** |
+| linux, steady heap after indexing | 2,236 MiB | 1,604 MiB | **-28%** |
+| linux, served graph, peak during restore | 3,928 MiB | 2,391 to 2,453 MiB | **-38% to -39%** |
+| linux, served graph, steady | 1,976 MiB | 1,399 MiB | **-29%** |
+| dotnet/runtime, served graph, steady | 636 MiB | 510 MiB | **-20%** |
+| corpus, cold allocations | 6,810 M | 3,121 M | **-54%** |
+| corpus, cold bytes allocated | 510,538 MiB | 481,550 MiB | -5.7% |
+| corpus, steady heap summed | 9,953 MiB | 8,382 MiB | -15.8% |
+
+The corpus rows compare two full bench-all sweeps. Allocations per fact fell 39% to 66%
+on the nine largest repositories: VS Code 1,164.5 to 392.6, dotnet/runtime 787.1 to
+282.3, linux 525.5 to 253.2, GitLab 822.6 to 502.7. Corpus wall clock did not move, 747.7s cold and 387.5s warm against
+744.9s and 382.9s.
+
+Two figures stayed where they were, and why is part of the result. The sweep's own peaks
+moved little (linux 7,070 to 6,997 MiB, dotnet/runtime 2,443 to 2,311): peak follows the
+live set more than the allocation rate, and the history change targets the run that
+records a base, which bench-serve's empty output root always is. And a restore allocates
+per fact about what it did (linux 30.7 to 31.0): moving the identity props out of each
+symbol's map costs an allocation that the sharing saves back.
+
+bench-serve runs in every bench-all and grades each figure against a ceiling. It indexes
+six repositories and a 34-repository cluster with the binary under test, then serves each
+fixed. It re-indexes under a running server, serves five repository sets under a memory
+budget that fits two (11 unloads, 5 restores, 286 MiB held once idle), and runs 32 to
+128 sessions, 16 at a time, against a fixed roslyn at 84 to 88 calls per second with no
+errors. It also opens 2,000 sessions that never close: each costs 6.1 KiB until it times
+out, and the heap returns to within 1 MiB of where it started. Besides the two determinism defects in section 1, it
+found a replaced graph kept alive by a name cache until the next call, and a session's
+unloaded graph reloaded from artifacts another session had since rewritten with a
+different set of repositories, so the session was served a graph it never built.
+
+Every ceiling in `mem-ceilings.json` is met and was lowered with this work: linux at
+6,997 MiB peak against 7,650 and 253.2 allocations per fact against 275, dotnet/runtime at
+2,311 against 2,600 and 282.3 against 305. The serving ceilings grade restore peak and
+allocations per repository, index peak, reload peak and session cost.
 
 
 ## 5. What the extractors see
@@ -1426,6 +1497,9 @@ Stated so the numbers above are not read as more than they are.
   six areas, so its precision is measured. Its coverage is 88 relationships on seven
   repositories, read by hand; a relationship of the same kind elsewhere that enola never
   claims is not counted.
+- **Serving latency as a gate.** bench-serve records call latency under load and its
+  memory figures are graded, but its timings are not: they depend on what else the
+  machine is doing, and one host is measured.
 - **A ranking against other tools.** The harness has adapters for graphify, codegraph
   and codebase-memory-mcp, and they ran on the same questions, each measured against
   its own claims beside the same bare arm. Nothing on this page ranks enola against

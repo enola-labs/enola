@@ -48,7 +48,7 @@ func referenceWriteJSONL(t *testing.T, s *Store, w io.Writer) {
 				return rels[i].Target < rels[j].Target
 			})
 		}
-		b, err := json.Marshal(wireFact{Fact: f, Relations: rels, ID: f.Identity()})
+		b, err := json.Marshal(wireFact{FactJSON: f.JSONView(), Relations: rels, ID: f.Identity()})
 		if err != nil {
 			t.Fatal(err)
 		}

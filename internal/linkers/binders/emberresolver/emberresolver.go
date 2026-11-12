@@ -438,7 +438,7 @@ func buildIndex(store *facts.Store) *index {
 			idx.byBase[repo][base] = append(idx.byBase[repo][base], slashed)
 		}
 	}
-	for _, s := range store.ByKind(facts.KindSymbol) {
+	for s := range store.OfKind(facts.KindSymbol) {
 		addFile(s.Repo, s.File)
 		if idx.fileSymbols[s.Repo] == nil {
 			idx.fileSymbols[s.Repo] = map[string][]symbolInfo{}
@@ -453,7 +453,7 @@ func buildIndex(store *facts.Store) *index {
 			defaultExport: s.PropBool(defaultExportProp),
 		})
 	}
-	for _, f := range store.ByKind(facts.KindFileRef) {
+	for f := range store.OfKind(facts.KindFileRef) {
 		if f.PropBool(templateProp) {
 			addFile(f.Repo, f.File)
 		}
@@ -462,7 +462,7 @@ func buildIndex(store *facts.Store) *index {
 	// symbols; the extractor records each as a reexport-flagged dependency
 	// whose imports relation carries the resolved target. Indexing those files
 	// and their targets is what lets the primary-symbol pick chase the chain.
-	for _, d := range store.ByKind(facts.KindDependency) {
+	for d := range store.OfKind(facts.KindDependency) {
 		if !d.PropBool("reexport") || d.File == "" {
 			continue
 		}
@@ -496,12 +496,12 @@ func buildIndex(store *facts.Store) *index {
 		}
 		idx.reexports[d.Repo][stub] = target
 	}
-	for _, sym := range store.ByKind(facts.KindSymbol) {
+	for sym := range store.OfKind(facts.KindSymbol) {
 		if entries := propStrings(sym.PropAny(yieldHashProp)); len(entries) > 0 {
 			idx.addYieldHash(sym.Repo, sym.Name, entries)
 		}
 	}
-	for _, s := range store.ByKind(facts.KindStorage) {
+	for s := range store.OfKind(facts.KindStorage) {
 		if s.PropString("framework") != "ember-data" {
 			continue
 		}

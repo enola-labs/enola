@@ -139,6 +139,16 @@ func (c *testRefCollector) add(target string) {
 }
 
 func (c *testRefCollector) walk(node *sitter.Node) {
+	if node != nil {
+		c.walkAt(*node)
+	}
+}
+
+// walkAt is walk taking the node by value, and recursing by value: a child's address
+// handed to the walker's own parameter would move every child to the heap, since escape
+// analysis cannot tell the recursive frames apart.
+func (c *testRefCollector) walkAt(nv sitter.Node) {
+	node := &nv
 	switch kindOf(node) {
 	case "invocation_expression":
 		fn := node.ChildByFieldName("function")
@@ -160,7 +170,9 @@ func (c *testRefCollector) walk(node *sitter.Node) {
 		}
 	}
 	for i := uint(0); i < uint(node.ChildCount()); i++ {
-		c.walk(node.Child(i))
+		if ch, ok := node.ChildAt(i); ok {
+			c.walkAt(ch)
+		}
 	}
 }
 

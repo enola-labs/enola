@@ -48,7 +48,7 @@ type goKey struct{ repo, name string }
 // goCandidates returns the Go findings in a store.
 func goCandidates(store *facts.Store) []finding {
 	syms := make(map[goKey]facts.Fact)
-	for _, f := range store.ByKind(facts.KindSymbol) {
+	for f := range store.OfKind(facts.KindSymbol) {
 		if strings.HasSuffix(f.File, ".go") && !goExcludedFile(f.File) {
 			syms[goKey{f.Repo, f.Name}] = f
 		}

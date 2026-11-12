@@ -128,7 +128,7 @@ func (s *side) pass1(src FactSource) error {
 	return src(func(f facts.Fact) error {
 		s.flat = append(s.flat, factRec{
 			key:   hash64(factKey(f)),
-			props: hash64(propsJSON(f.Props)),
+			props: hash64(propsJSON(f.AllProps())),
 			kind:  s.kinds.id(f.Kind),
 		})
 		if facts.IsDocument(f) {
@@ -158,7 +158,7 @@ func (s *side) pass2(src FactSource, keys map[uint64]bool) error {
 		}
 		s.groups[k] = append(s.groups[k], member{
 			ord:   intraGroupOrder(f),
-			props: hash64(propsJSON(f.Props)),
+			props: hash64(propsJSON(f.AllProps())),
 			kind:  s.kinds.id(f.Kind),
 		})
 		return nil

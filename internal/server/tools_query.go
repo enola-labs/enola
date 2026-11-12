@@ -42,9 +42,10 @@ type queryFactsArgs struct {
 	MaxTokens  int    `json:"max_tokens,omitempty" jsonschema:"Approximate token cap on the output. Default: none."`
 }
 
-// enrichedFact wraps a Fact with resolved relation targets.
+// enrichedFact wraps a Fact with resolved relation targets. It embeds the fact's
+// JSON view, not the Fact: see facts.FactJSON.
 type enrichedFact struct {
-	facts.Fact
+	facts.FactJSON
 	RelatedFacts []facts.Fact `json:"related_facts,omitempty"`
 }
 
@@ -442,7 +443,7 @@ func (s *Server) registerQueryFactsTool() {
 			enriched := make([]enrichedFact, len(results))
 			seen := make(map[string]struct{}) // deduplicate related facts
 			for i, f := range results {
-				enriched[i] = enrichedFact{Fact: f}
+				enriched[i] = enrichedFact{FactJSON: f.JSONView()}
 				for _, rel := range f.Relations {
 					if _, dup := seen[rel.Target]; dup {
 						continue
