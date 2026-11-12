@@ -17,7 +17,7 @@ func newNode(node C.TSNode) *Node {
 	if node.id == nil {
 		return nil
 	}
-	return &Node{_inner: node}
+	return allocNode(node) // enola: from a slab, see node_value.go
 }
 
 // Get a numeric id for this node that is unique.
