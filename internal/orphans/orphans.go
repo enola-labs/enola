@@ -915,6 +915,13 @@ func confidenceFor(sym symInput) string {
 		}
 		return confLow
 	}
+	// A Helm value is read only by its own chart's templates and the named templates
+	// they include, and every such read is a `.Values` path the helm extractor turns
+	// into an edge (passing a whole map reads its children too). A value nothing
+	// reads does nothing when it is set, which is as certain as an uncalled function.
+	if sym.Language == "helm" && kind == facts.SymbolVariable {
+		return confHigh
+	}
 	switch kind {
 	case facts.SymbolFunc:
 		return confHigh

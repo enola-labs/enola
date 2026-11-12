@@ -97,28 +97,55 @@ type chart struct {
 	remote  []string // dependency names left to a registry
 	defines map[string]*define
 	objects []*object
+	// fileRefs carry the calls and value reads no define or resource holds: those
+	// in NOTES.txt, in a file with no literal kind, or outside every define of a .tpl.
+	fileRefs map[string]*refs
+	values   []valueKey
+}
+
+// refs are the named templates a carrier calls and the value paths it reads.
+// named are dotted value paths written as strings ("server.masterKey" handed to a
+// helper that looks the value up), which count only when the chart declares them.
+type refs struct {
+	calls []string
+	reads [][]string
+	named [][]string
+}
+
+func (r *refs) add(line string) {
+	for _, cm := range callsIn(line) {
+		r.calls = append(r.calls, cm[1])
+	}
+	r.reads = append(r.reads, readsIn(line)...)
+	r.named = append(r.named, pathStringsIn(line)...)
+}
+
+func (r *refs) merge(o refs) {
+	r.calls = append(r.calls, o.calls...)
+	r.reads = append(r.reads, o.reads...)
+	r.named = append(r.named, o.named...)
 }
 
 type define struct {
+	refs
 	name, file string
 	line       int
 	sym        string
-	calls      []string
 }
 
 type object struct {
+	refs
 	kind, name, file string
 	line             int
 	sym              string
 	helmKind         string // resource | crd
 	apiVersion       string
-	calls            []string
 }
 
 // Extract walks the repository itself: YAML is ignore-globbed by default.
 func (e *Extractor) Extract(_ context.Context, repoPath string, _ []string) ([]facts.Fact, error) {
 	files := k8syaml.Walk(repoPath, func(rel string) bool {
-		return k8syaml.IsYAML(rel) || strings.HasSuffix(rel, ".tpl") || detectnames.Base(rel) == "Chart.yaml"
+		return k8syaml.IsYAML(rel) || strings.HasSuffix(rel, ".tpl") || strings.HasSuffix(rel, ".txt")
 	}, nil)
 	sort.Strings(files)
 
@@ -145,7 +172,7 @@ func (e *Extractor) Extract(_ context.Context, repoPath string, _ []string) ([]f
 				}
 			}
 		}
-		c := &chart{dir: dir, file: rel, meta: meta, defines: map[string]*define{}}
+		c := &chart{dir: dir, file: rel, meta: meta, defines: map[string]*define{}, fileRefs: map[string]*refs{}}
 		c.sym = qualify(dir, "Chart."+meta.Name)
 		charts[dir] = c
 	}
@@ -169,6 +196,17 @@ func (e *Extractor) Extract(_ context.Context, repoPath string, _ []string) ([]f
 			continue
 		}
 		switch {
+		case inside == "values.yaml":
+			c.values = readValues(data)
+			// A values string can itself be a template, rendered with tpl: bitnami's
+			// rabbitmq builds its configuration in values.yaml from other values.
+			vr := &refs{}
+			for _, act := range actionLines(string(data)) {
+				vr.add(act)
+			}
+			if len(vr.calls) > 0 || len(vr.reads) > 0 || len(vr.named) > 0 {
+				c.fileRefs[rel] = vr
+			}
 		case strings.HasPrefix(inside, "templates/"):
 			readTemplate(c, rel, string(data))
 		case strings.HasPrefix(inside, "crds/") && k8syaml.IsYAML(rel):
@@ -220,7 +258,104 @@ var (
 	kindLine  = regexp.MustCompile(`^kind:\s*["']?([A-Za-z][A-Za-z0-9]*)["']?\s*$`)
 	apiLine   = regexp.MustCompile(`^apiVersion:\s*(?:["']?([^"'\s{]+)["']?|\{\{.*\}\})\s*$`)
 	nameLine  = regexp.MustCompile(`^  name:\s*["']?([^"'\s{]+)["']?\s*$`)
+	// The root context reaches .Values as `.Values`, `$.Values`, through a variable
+	// holding it (`$root.Values`, `$global.Values`), or through a dict key it was
+	// passed under (`.context.Values`, bitnami's idiom).
+	// A keyword may be glued to it (`with.Values.x` parses).
+	valuesRe   = regexp.MustCompile(`(?:^|[^\w$.]|\b(?:with|if|range|not|and|or))(?:\$\w*)?(?:\.\w+)*?\.Values((?:\.[A-Za-z_][A-Za-z0-9_]*)*)`)
+	indexRe    = regexp.MustCompile(`\bindex\s+(?:\$\w*)?(?:\.\w+)*?\.Values((?:\.[A-Za-z_][A-Za-z0-9_]*)*)((?:\s+"[^"]+")*)`)
+	quotedRe   = regexp.MustCompile(`"([^"]+)"`)
+	dottedPath = regexp.MustCompile(`^[A-Za-z_][\w-]*(?:\.[A-Za-z_][\w-]*)+$`)
 )
+
+// actionLines returns, for each line of a template, the template-action text on it,
+// each piece wrapped back in {{ }}. An action may span lines (a dict built over
+// several, one key per line), and its continuation lines are action text too; a
+// line outside every action contributes nothing, so text a template emits is never
+// read as a call or a value.
+func actionLines(text string) []string {
+	lines := strings.Split(text, "\n")
+	out := make([]string, len(lines))
+	inside := false
+	for i, ln := range lines {
+		var b strings.Builder
+		rest := ln
+		for rest != "" {
+			if !inside {
+				open := strings.Index(rest, "{{")
+				if open < 0 {
+					break
+				}
+				rest = rest[open+2:]
+				inside = true
+				continue
+			}
+			end := strings.Index(rest, "}}")
+			if end < 0 {
+				b.WriteString("{{" + rest + "}}")
+				rest = ""
+				break
+			}
+			b.WriteString("{{" + rest[:end] + "}}")
+			rest = rest[end+2:]
+			inside = false
+		}
+		out[i] = b.String()
+	}
+	return out
+}
+
+// pathStringsIn finds quoted strings inside a line's template actions shaped like a
+// dotted value path.
+func pathStringsIn(ln string) [][]string {
+	var out [][]string
+	for _, action := range actionRe.FindAllString(ln, -1) {
+		for _, q := range quotedRe.FindAllStringSubmatch(action, -1) {
+			if dottedPath.MatchString(q[1]) {
+				out = append(out, strings.Split(q[1], "."))
+			}
+		}
+	}
+	return out
+}
+
+// readsIn finds the value paths a line's template actions read: `.Values.a.b` in
+// any of the forms valuesRe accepts, and `index .Values.a "b" "c"`, whose literal keys
+// extend the path and whose variable keys leave it at the map they index. A bare
+// `.Values` is a read of every value, and comes back as an empty path.
+func readsIn(ln string) [][]string {
+	var out [][]string
+	for _, action := range actionRe.FindAllString(ln, -1) {
+		for _, m := range indexRe.FindAllStringSubmatchIndex(action, -1) {
+			path := splitDotted(action[m[2]:m[3]])
+			for _, q := range quotedRe.FindAllStringSubmatch(action[m[4]:m[5]], -1) {
+				path = append(path, q[1])
+			}
+			out = append(out, path)
+		}
+		for _, m := range valuesRe.FindAllStringSubmatchIndex(action, -1) {
+			if inIndex(action, m[0]) {
+				continue
+			}
+			out = append(out, splitDotted(action[m[2]:m[3]]))
+		}
+	}
+	return out
+}
+
+func splitDotted(p string) []string {
+	if p == "" {
+		return []string{}
+	}
+	return strings.Split(strings.TrimPrefix(p, "."), ".")
+}
+
+// inIndex reports whether the .Values at pos is the subject of an index call, which
+// readsIn has already read with its keys.
+func inIndex(action string, pos int) bool {
+	before := strings.TrimRight(action[:pos+1], " ")
+	return strings.HasSuffix(before, "index") || strings.HasSuffix(strings.TrimRight(action[:pos], " "), "index")
+}
 
 // callsIn finds the named-template calls inside a line's template actions. A call
 // outside {{ }} is text the template emits, such as a config file that happens to
@@ -234,40 +369,42 @@ func callsIn(ln string) [][]string {
 }
 
 // readTemplate reads one file under templates/: the named templates it defines, the
-// calls inside each, and the resources its documents emit with the calls outside
-// any define.
+// resources its documents emit, and the calls and value reads of each. What falls
+// outside every define and every resource belongs to the file.
 func readTemplate(c *chart, rel, text string) {
 	lines := strings.Split(text, "\n")
+	acts := actionLines(text)
+	file := &refs{}
+	isYAML := k8syaml.IsYAML(rel)
 	var cur *define
 	depth := 0
 	var obj *object
-	var docCalls []string
+	var doc refs
 	inMetadata := false
 	pendingAPI, apiLineNo := "", 0
 	flush := func() {
 		if obj != nil {
-			obj.calls = docCalls
+			obj.refs = doc
 			c.objects = append(c.objects, obj)
+		} else {
+			file.merge(doc)
 		}
-		obj, docCalls, inMetadata, pendingAPI, apiLineNo = nil, nil, false, "", 0
+		obj, doc, inMetadata, pendingAPI, apiLineNo = nil, refs{}, false, "", 0
 	}
 	for i, ln := range lines {
 		lineNo := i + 1
 		if cur == nil {
 			if m := defineRe.FindStringSubmatch(ln); m != nil {
-				name := m[1]
-				d := &define{name: name, file: rel, line: lineNo}
-				if _, dup := c.defines[name]; !dup {
-					c.defines[name] = d
+				at := strings.Index(ln, m[0])
+				d := &define{name: m[1], file: rel, line: lineNo}
+				if _, dup := c.defines[d.name]; !dup {
+					c.defines[d.name] = d
 				}
 				cur, depth = d, 0
-				rest := ln[strings.Index(ln, m[0])+len(m[0]):]
+				rest := ln[at+len(m[0]):]
+				d.add(acts[i])
 				depth += len(blockOpen.FindAllString(rest, -1))
-				ends := len(endRe.FindAllString(rest, -1))
-				for _, cm := range callsIn(rest) {
-					d.calls = append(d.calls, cm[1])
-				}
-				if ends > depth {
+				if ends := len(endRe.FindAllString(rest, -1)); ends > depth {
 					cur = nil
 				} else {
 					depth -= ends
@@ -276,9 +413,7 @@ func readTemplate(c *chart, rel, text string) {
 			}
 		}
 		if cur != nil {
-			for _, cm := range callsIn(ln) {
-				cur.calls = append(cur.calls, cm[1])
-			}
+			cur.add(acts[i])
 			depth += len(blockOpen.FindAllString(ln, -1))
 			depth -= len(endRe.FindAllString(ln, -1))
 			if depth < 0 {
@@ -286,16 +421,15 @@ func readTemplate(c *chart, rel, text string) {
 			}
 			continue
 		}
-		if !k8syaml.IsYAML(rel) {
+		if !isYAML {
+			file.add(acts[i])
 			continue
 		}
 		if strings.HasPrefix(ln, "---") {
 			flush()
 			continue
 		}
-		for _, cm := range callsIn(ln) {
-			docCalls = append(docCalls, cm[1])
-		}
+		doc.add(acts[i])
 		if m := kindLine.FindStringSubmatch(ln); m != nil && obj == nil {
 			// The object sits where its document starts: the apiVersion line when
 			// one came first, as it usually does, else the kind line.
@@ -328,4 +462,7 @@ func readTemplate(c *chart, rel, text string) {
 		}
 	}
 	flush()
+	if len(file.calls) > 0 || len(file.reads) > 0 {
+		c.fileRefs[rel] = file
+	}
 }

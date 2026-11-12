@@ -187,7 +187,8 @@ the entities the claim is about. There are nineteen, and they fall into six kind
   claim that a large distance is a problem is an opinion. `dead-code` asks what
   nothing references, in every language, and answers in three confidence tiers that
   encode what the graph can actually see rather than how sure it feels: functions
-  high, types medium, everything else low. `performance` reports where cost may grow
+  high, types medium, everything else low, except a Helm value, which is high
+  because every read of it is a `.Values` path in its own chart. `performance` reports where cost may grow
   with the input, from loop-nesting and call-in-loop props the parsers record. It
   states a Big-O only where it can stand behind one: a call inside a single loop,
   and a recursion. For nested loops, for nesting that continues across calls, and

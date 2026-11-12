@@ -1761,3 +1761,14 @@ func TestGoLibraryTypeUsedFromAnotherRepository(t *testing.T) {
 		}
 	}
 }
+
+// A Helm value is read only through .Values paths the extractor records, so one
+// nothing reads is a high-confidence orphan; a variable anywhere else stays low.
+func TestHelmValueOrphanIsHighConfidence(t *testing.T) {
+	if got := confidenceFor(symInput{Name: "charts/web.values.image.tag", Kind: facts.SymbolVariable, Language: "helm"}); got != confHigh {
+		t.Errorf("helm value = %q, want %q", got, confHigh)
+	}
+	if got := confidenceFor(symInput{Name: "pkg.Var", Kind: facts.SymbolVariable, Language: "go"}); got != confLow {
+		t.Errorf("go variable = %q, want %q", got, confLow)
+	}
+}

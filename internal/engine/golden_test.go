@@ -149,7 +149,11 @@ var fixtures = []fixture{
 	// to its registry, named templates called across charts, resources named by
 	// their template file, a CRD read as YAML. deploy/ inflates the local chart
 	// through kustomize helmCharts, which pins the edge between the two extractors
-	// and that the kubernetes extractor leaves every chart's tree to helm.
+	// and that the kubernetes extractor leaves every chart's tree to helm. v580 adds
+	// values: shop's keys are symbols, `.Values` reads are names edges (fullnameOverride
+	// is read by common's define on shop's behalf and credited to shop's resources),
+	// NOTES.txt carries its reads on a file_ref, postgresql is a dependency's key and
+	// no value of shop's, and legacyCheckout is the value nothing reads.
 	{name: "helm_sample", subRepos: []string{"."}},
 	{name: "ruby_sample", subRepos: []string{"."}},
 	{name: "swift_sample", subRepos: []string{"."}},

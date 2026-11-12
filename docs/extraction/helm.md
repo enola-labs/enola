@@ -24,7 +24,10 @@ Fixture: [`helm_sample`](../../internal/engine/testdata/repos/helm_sample/)
 | a document in a template file with a literal `kind:` | a symbol `<dir>.<Kind>.<name>`, `helm_kind: resource` | `symbol` |
 | a manifest under `crds/` | a symbol, `helm_kind: crd` | `symbol` |
 | an include no loaded chart defines | `unresolved_includes` on the caller | props |
-| `.Values`, `tpl`, conditionals | nothing: values are given at install time | none |
+| a key in `values.yaml`, two levels deep | a symbol `<dir>.values.<path>`, `helm_kind: value`, `symbol_kind: variable` | `symbol` |
+| a `.Values` read | `names` to the value, from the define, resource or file reading it | relation |
+| calls and reads in `NOTES.txt`, a file with no `kind:`, or `values.yaml` | the same edges, from a `file_ref` for the file | `file_ref` |
+| conditionals, `tpl` output, the values given at install | nothing: rendering decides them | none |
 
 ## A chart depends on what it loads and what it emits
 
@@ -123,6 +126,73 @@ its literal `metadata.name` when it has one and otherwise by its path under
 in one file keep the first name, and the rest take their line. A document whose
 `kind:` is templated is not read. Each resource sits on the line its document starts.
 
+## Values are variables, and a value nothing reads is dead
+
+```yaml
+# charts/shop/values.yaml
+fullnameOverride: ""
+replicaCount: 2
+image:
+  repository: example/shop
+  tag: "4.2.1"
+service:
+  port: 80
+  annotations:
+    prometheus.io/scrape: "true"
+legacyCheckout: false
+postgresql:
+  enabled: false
+```
+
+```
+symbol    charts/shop.values.image.tag   charts/shop/values.yaml:5   props: helm_kind=value
+symbol    charts/shop.Deployment.deployment
+          relations: names -> charts/shop.values.fullnameOverride,
+                     names -> charts/shop.values.image, ...image.repository, ...image.tag,
+                     names -> charts/shop.values.replicaCount
+file_ref  charts/shop/templates/NOTES.txt
+          relations: calls -> charts/common.template.common.names.fullname,
+                     names -> charts/shop.values.service, ...service.port,
+                     names -> charts/shop.values.fullnameOverride
+```
+
+Keys two levels deep become symbols: deep enough to name what a chart exposes
+(`image.tag`, `service.port`) without turning every nested default into a node;
+bitnami/charts declares 23,804 of them at that depth. `global` and a key naming a
+chart this one loads (`postgresql` above, a dependency's alias, a subchart) are
+values passed to another chart, not this one's, and are left out.
+
+A read is a `.Values` path in any form a chart writes it: `.Values.a.b`,
+`$.Values.a`, a variable holding the root context (`$root.Values.a`), a dict key it
+was passed under (`.context.Values.a`, bitnami's idiom), `index .Values "a" "b"`, an
+`index` with a variable key (a read of the whole map it indexes), a keyword glued to
+it (`with.Values.a`), and a dotted path written as a string for a helper to look up
+(`"providedValues" (list "server.masterKey")`), counted only when the chart declares
+that path. Template actions spanning several lines are read whole. A read that stops
+at a map (`toYaml .Values.service.annotations`, `with .Values.persistence`) reads
+every key under it.
+
+Two readers are easy to miss and are not missed. `values.yaml` itself can hold
+templates, rendered with `tpl`: bitnami's rabbitmq writes its configuration there,
+from `memoryHighWatermark.value`. And a named template of another chart reads the
+values of the chart including it: `common.names.fullname` reads shop's
+`fullnameOverride`. That read is credited to shop's Deployment, Service and
+`NOTES.txt`, the carriers that reach the define, and never to the define itself,
+which would draw an edge from the library chart into every chart using it.
+
+Every read of a value is therefore an edge, so a value with none does nothing when
+it is set: `find_orphans` reports it at **high** confidence, like an uncalled
+function. `legacyCheckout` above is one. On the corpus, the values nothing reads are
+2 of 23,804 in bitnami/charts, 7 of 3,189 in prometheus-community/helm-charts and 50 of
+317 in kubeflow, whose experimental charts carry keys their templates never use. A
+sample of each, checked by hand, held no false positive. Among them is a real bug:
+prometheus-modbus-exporter declares `configReloaderSidecar.enabled` and its template
+reads `.enable`.
+
+A named template nothing calls is dead the same way, outside a library chart: a
+library chart's module is `published`, since its templates are written for charts
+elsewhere.
+
 ## Kustomize inflating a chart
 
 A kustomization's `helmCharts:` entry depends on the chart when the repository holds
@@ -135,6 +205,9 @@ depends on `charts/shop.Chart.shop`. See [Kubernetes](kubernetes.md).
 - **Rendering.** No template is executed, so nothing that depends on values is known:
   which conditional branch is taken, what a templated name expands to, which
   optional dependency a `condition` turns on.
+- **Values deeper than two levels**, and a read through a variable bound to part of
+  the values (`$cfg := .Values.config`, then `$cfg.port`), which reads `config` as a
+  whole rather than `config.port`.
 - **References between a chart's resources.** A Service's selector and a pod's
   ConfigMap name are templated in nearly every chart, so the edges the kubernetes
   extractor draws between manifests are not drawn between chart resources.

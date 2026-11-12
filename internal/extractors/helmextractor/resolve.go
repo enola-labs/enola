@@ -129,18 +129,25 @@ func emit(charts map[string]*chart, dirs []string) []facts.Fact {
 	for _, d := range dirs {
 		c := charts[d]
 		loaded := closure(c)
-		out = append(out, facts.Fact{
-			Kind:  facts.KindModule,
-			Name:  c.dir,
-			File:  c.dir,
-			Props: map[string]any{"language": "helm"},
-		})
-
-		cf := symbol(c.sym, c.file, 1, c.dir, "chart")
+		vals := newValueIndex(c)
 		chartType := c.meta.Type
 		if chartType == "" {
 			chartType = "application"
 		}
+		module := facts.Fact{
+			Kind:  facts.KindModule,
+			Name:  c.dir,
+			File:  c.dir,
+			Props: map[string]any{"language": "helm"},
+		}
+		if chartType == "library" {
+			// A library chart exists to be loaded by other charts: its named templates
+			// are written for callers outside this repository as much as inside it.
+			module.SetProp(facts.PropPublished, true)
+		}
+		out = append(out, module)
+
+		cf := symbol(c.sym, c.file, 1, c.dir, "chart")
 		cf.SetProp("chart_type", chartType)
 		if c.meta.Version != "" {
 			cf.SetProp("version", c.meta.Version)
@@ -164,6 +171,14 @@ func emit(charts map[string]*chart, dirs []string) []facts.Fact {
 		addRelations(&cf, facts.RelDependsOn, targets)
 		out = append(out, cf)
 
+		for _, v := range vals.keys {
+			f := symbol(v.sym, prefix(c.dir)+"values.yaml", v.line, c.dir, "value")
+			f.SetProp("symbol_kind", facts.SymbolVariable)
+			f.SetProp("exported", false)
+			f.SetProp("value_path", v.dotted)
+			out = append(out, f)
+		}
+
 		names := make([]string, 0, len(c.defines))
 		for n := range c.defines {
 			names = append(names, n)
@@ -172,8 +187,8 @@ func emit(charts map[string]*chart, dirs []string) []facts.Fact {
 		for _, n := range names {
 			def := c.defines[n]
 			f := symbol(def.sym, def.file, def.line, c.dir, "named_template")
-			f.SetProp("symbol_kind", "function")
-			callsFrom(&f, c, loaded, def.calls, def.sym)
+			f.SetProp("symbol_kind", facts.SymbolFunc)
+			refsFrom(&f, c, loaded, vals, def.refs, def.sym)
 			out = append(out, f)
 		}
 		for _, o := range c.objects {
@@ -182,8 +197,28 @@ func emit(charts map[string]*chart, dirs []string) []facts.Fact {
 			if o.apiVersion != "" {
 				f.SetProp("api_version", o.apiVersion)
 			}
-			callsFrom(&f, c, loaded, o.calls, o.sym)
+			refsFrom(&f, c, loaded, vals, o.refs, o.sym)
 			out = append(out, f)
+		}
+		files := make([]string, 0, len(c.fileRefs))
+		for f := range c.fileRefs {
+			files = append(files, f)
+		}
+		sort.Strings(files)
+		for _, file := range files {
+			// Reference-only, like a test_ref: it marks what NOTES.txt or a file with no
+			// literal kind uses, and is consumed by dead-code analysis alone.
+			f := facts.Fact{
+				Kind:  facts.KindFileRef,
+				Name:  file,
+				File:  file,
+				Line:  1,
+				Props: map[string]any{"language": "helm"},
+			}
+			refsFrom(&f, c, loaded, vals, *c.fileRefs[file], "")
+			if len(f.Relations) > 0 {
+				out = append(out, f)
+			}
 		}
 	}
 	return out
@@ -205,24 +240,69 @@ func symbol(name, file string, line int, dir, helmKind string) facts.Fact {
 	}
 }
 
-// callsFrom draws a calls edge to each named template an include or template action
-// names, and counts the names no loaded chart defines.
-func callsFrom(f *facts.Fact, c *chart, loaded []*chart, calls []string, self string) {
-	targets := map[string]bool{}
+// refsFrom draws a calls edge to each named template a carrier includes and a names
+// edge to each value it reads, and counts the include names no loaded chart defines.
+//
+// A named template another chart defines reads the values of whichever chart
+// includes it: bitnami's common.names.fullname reads `.Values.fullnameOverride` of
+// the chart rendering it. Its reads are therefore credited to the carrier here that
+// reaches it, through any number of that chart's own templates, and resolved against
+// this chart's values. Crediting them to the define instead would draw an edge from
+// the library into every chart using it, and a cycle with each.
+func refsFrom(f *facts.Fact, c *chart, loaded []*chart, vals *valueIndex, r refs, self string) {
+	calls := map[string]bool{}
+	reads := map[string]bool{}
 	unresolved := map[string]bool{}
-	for _, name := range calls {
-		if d := lookup(c, loaded, name); d != nil {
-			if d.sym != self {
-				targets[d.sym] = true
-			}
-		} else {
+	for _, name := range r.calls {
+		d := lookup(c, loaded, name)
+		if d == nil {
 			unresolved[name] = true
+			continue
+		}
+		if d.sym != self {
+			calls[d.sym] = true
 		}
 	}
-	addRelations(f, facts.RelCalls, targets)
+	for _, p := range r.reads {
+		vals.resolve(p, reads)
+	}
+	for _, p := range r.named {
+		vals.resolveDeclared(p, reads)
+	}
+	for _, d := range foreignReach(c, loaded, r.calls) {
+		for _, p := range d.reads {
+			vals.resolve(p, reads)
+		}
+		for _, p := range d.named {
+			vals.resolveDeclared(p, reads)
+		}
+	}
+	addRelations(f, facts.RelCalls, calls)
+	addRelations(f, facts.RelNames, reads)
 	if len(unresolved) > 0 {
 		f.SetProp("unresolved_includes", len(unresolved))
 	}
+}
+
+// foreignReach lists the named templates of other charts that calls reach, directly
+// or through other foreign templates. A template of c itself stops the walk: it is a
+// carrier of its own, with its own edges.
+func foreignReach(c *chart, loaded []*chart, calls []string) []*define {
+	var out []*define
+	seen := map[*define]bool{}
+	queue := append([]string{}, calls...)
+	for len(queue) > 0 {
+		name := queue[0]
+		queue = queue[1:]
+		d := lookup(c, loaded, name)
+		if d == nil || seen[d] || c.defines[name] == d {
+			continue
+		}
+		seen[d] = true
+		out = append(out, d)
+		queue = append(queue, d.calls...)
+	}
+	return out
 }
 
 func addRelations(f *facts.Fact, kind string, targets map[string]bool) {

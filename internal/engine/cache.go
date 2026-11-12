@@ -3563,7 +3563,16 @@ import (
 // Helm 2 requirements.yaml) dependencies are declared packages of a new helm
 // ecosystem, resolved against the chart's own Chart.lock. A kustomization's
 // helmCharts entry depends on the chart when the repository holds it.
-const cacheVersion = "v579"
+// v580: Helm values. Keys of a chart's values.yaml two levels deep are variable
+// symbols (global and keys passed to a loaded chart excluded); every .Values read,
+// through $, a root-holding variable, a dict key, index with literal or variable
+// keys, a dotted path string the chart declares, or a template written inside
+// values.yaml, is a names edge. A read made by another chart's named template is
+// credited to this chart's carrier that reaches it. NOTES.txt and files with no
+// literal kind carry their calls and reads on a file_ref; template actions spanning
+// lines are read whole. A library chart's module is published, and an unread helm
+// value is a high-confidence orphan.
+const cacheVersion = "v580"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

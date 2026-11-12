@@ -1,11 +1,16 @@
+fullnameOverride: ""
 replicaCount: 2
 image:
   repository: example/shop
   tag: "4.2.1"
 service:
   port: 80
+  annotations:
+    prometheus.io/scrape: "true"
 serviceAccount:
   create: true
   name: ""
+# Read by nothing: the chart dropped the feature and kept the key.
+legacyCheckout: false
 postgresql:
   enabled: false

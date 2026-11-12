@@ -261,3 +261,233 @@ func TestSatisfies(t *testing.T) {
 		}
 	}
 }
+
+func valuesRepo() map[string]string {
+	return map[string]string{
+		"lib/Chart.yaml": "apiVersion: v2\nname: lib\nversion: 1.0.0\ntype: library\n",
+		"lib/templates/_names.tpl": `{{- define "lib.fullname" -}}
+{{- default .Chart.Name .Values.fullnameOverride -}}
+{{- end -}}
+{{- define "lib.image" -}}
+{{ include "lib.registry" . }}/{{ .imageRoot.repository }}
+{{- end -}}
+{{- define "lib.registry" -}}{{ .Values.global.imageRegistry }}{{- end -}}
+`,
+		"app/Chart.yaml": `apiVersion: v2
+name: app
+version: 1.0.0
+dependencies:
+  - name: lib
+    version: 1.x.x
+    repository: file://../lib
+  - name: redis
+    version: 19.x.x
+    repository: oci://registry.example.com/charts
+    alias: cache
+`,
+		"app/values.yaml": `fullnameOverride: ""
+image:
+  registry: docker.io
+  repository: example/app
+  tag: "1.0"
+service:
+  port: 80
+  annotations:
+    prometheus.io/scrape: "true"
+persistence:
+  enabled: false
+  size: 8Gi
+unusedSetting: true
+debug:
+  verbose: false
+  level: info
+global:
+  imageRegistry: ""
+cache:
+  enabled: true
+`,
+		"app/templates/deployment.yaml": `apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "lib.fullname" . }}
+spec:
+  template:
+    spec:
+      containers:
+        - name: app
+          image: {{ include "lib.image" (dict "imageRoot" .Values.image "global" .Values.global) }}
+          {{- with .Values.persistence }}
+          volumeMounts: {{ .enabled }}
+          {{- end }}
+          env:
+            - name: LEVEL
+              value: {{ index .Values "debug" "level" | quote }}
+`,
+		"app/templates/service.yaml": `apiVersion: v1
+kind: Service
+metadata:
+  name: app
+  annotations: {{- toYaml $.Values.service.annotations | nindent 4 }}
+spec:
+  ports:
+    - port: {{ .Values.service.port }}
+`,
+		"app/templates/NOTES.txt": `Visit port {{ .Values.service.port }}.
+{{ include "app.notes.extra" . }}`,
+		"app/templates/_helpers.tpl": `{{- define "app.notes.extra" -}}
+debug={{ .Values.debug.verbose }}
+{{- end -}}
+{{- define "app.unused" -}}x{{- end -}}
+`,
+	}
+}
+
+func TestValuesAreSymbolsNamedByTheirReaders(t *testing.T) {
+	ff := extract(t, valuesRepo())
+	// Declared keys two levels deep become symbols; global and the aliased
+	// dependency's key are values for other charts, not this one.
+	for _, n := range []string{"app.values.image", "app.values.image.tag", "app.values.unusedSetting"} {
+		if find(ff, n) == nil {
+			t.Errorf("%s missing", n)
+		}
+	}
+	if find(ff, "app.values.service.annotations.prometheus.io/scrape") != nil {
+		t.Error("a key three levels deep became a symbol")
+	}
+	for _, n := range []string{"app.values.global", "app.values.global.imageRegistry", "app.values.cache", "app.values.cache.enabled"} {
+		if find(ff, n) != nil {
+			t.Errorf("%s is passed to another chart and must not be a value of this one", n)
+		}
+	}
+	tag := find(ff, "app.values.image.tag")
+	if tag == nil || tag.Props["helm_kind"] != "value" || tag.Props["symbol_kind"] != "variable" || tag.Line != 5 || tag.File != "app/values.yaml" {
+		t.Fatalf("image.tag = %+v", tag)
+	}
+
+	dep := find(ff, "app.Deployment.deployment")
+	want := []string{
+		"app.values.debug", "app.values.debug.level", // index .Values "debug" "level"
+		"app.values.fullnameOverride",                                                                          // read by lib.fullname on this chart's behalf
+		"app.values.image", "app.values.image.registry", "app.values.image.repository", "app.values.image.tag", // passed whole
+		"app.values.persistence", "app.values.persistence.enabled", "app.values.persistence.size", // with .Values.persistence
+	}
+	if got := targets(dep, facts.RelNames); !reflect.DeepEqual(got, want) {
+		t.Errorf("Deployment names =\n %v\nwant\n %v", got, want)
+	}
+	// The library's define reads no value of its own chart and draws no edge into app.
+	if got := targets(find(ff, "lib.template.lib.fullname"), facts.RelNames); got != nil {
+		t.Errorf("lib.fullname names = %v, want nothing: its reads belong to the chart including it", got)
+	}
+	svc := find(ff, "app.Service.app")
+	if got := targets(svc, facts.RelNames); !reflect.DeepEqual(got, []string{"app.values.service", "app.values.service.annotations", "app.values.service.port"}) {
+		t.Errorf("Service names = %v", got)
+	}
+	// NOTES.txt is no resource: its calls and reads land on a file_ref.
+	var notes *facts.Fact
+	for i := range ff {
+		if ff[i].Kind == facts.KindFileRef && ff[i].Name == "app/templates/NOTES.txt" {
+			notes = &ff[i]
+		}
+	}
+	if notes == nil {
+		t.Fatal("NOTES.txt file_ref missing")
+	}
+	if got := targets(notes, facts.RelCalls); !reflect.DeepEqual(got, []string{"app.template.app.notes.extra"}) {
+		t.Errorf("NOTES.txt calls = %v", got)
+	}
+	if got := targets(find(ff, "app.template.app.notes.extra"), facts.RelNames); !reflect.DeepEqual(got, []string{"app.values.debug", "app.values.debug.verbose"}) {
+		t.Errorf("notes define names = %v", got)
+	}
+	// unusedSetting has no reader at all.
+	for _, f := range ff {
+		for _, r := range f.Relations {
+			if r.Target == "app.values.unusedSetting" {
+				t.Errorf("%s names unusedSetting", f.Name)
+			}
+		}
+	}
+}
+
+func TestALibraryChartIsPublished(t *testing.T) {
+	ff := extract(t, valuesRepo())
+	for _, f := range ff {
+		if f.Kind == facts.KindModule && f.Name == "lib" {
+			if f.Props[facts.PropPublished] != true {
+				t.Errorf("library module props = %v", f.Props)
+			}
+			return
+		}
+	}
+	t.Error("lib module missing")
+}
+
+func TestReadsIn(t *testing.T) {
+	cases := map[string][][]string{
+		`{{ .Values.a.b }}`:                     {{"a", "b"}},
+		`{{ $.Values.a }}`:                      {{"a"}},
+		`{{ toYaml .Values | nindent 2 }}`:      {{}},
+		`{{ index .Values "a" "b-c" }}`:         {{"a", "b-c"}},
+		`{{ $root.Values.a }}`:                  {{"a"}},
+		`{{ .context.Values.a.b }}`:             {{"a", "b"}},
+		`{{ index $.Values.hooks $name }}`:      {{"hooks"}},
+		`{{ index .Values.a "b" }}`:             {{"a", "b"}},
+		`{{- with.Values.a }}`:                  {{"a"}},
+		`{{ .Values.notValues }}`:               {{"notValues"}},
+		`text .Values.a outside an action`:      nil,
+		`{{ .Values.a }} and {{ .Values.b.c }}`: {{"a"}, {"b", "c"}},
+	}
+	for in, want := range cases {
+		if got := readsIn(in); !reflect.DeepEqual(got, want) {
+			t.Errorf("readsIn(%q) = %v, want %v", in, got, want)
+		}
+	}
+	if got := pathStringsIn(`{{ include "x" (dict "providedValues" (list "server.masterKey" "plain")) }} "not.in.action"`); !reflect.DeepEqual(got, [][]string{{"server", "masterKey"}}) {
+		t.Errorf("pathStringsIn = %v", got)
+	}
+}
+
+// A value read only by a template written inside values.yaml, or named as a string
+// for a helper to look up, is read.
+func TestValuesReadFromValuesAndByName(t *testing.T) {
+	files := valuesRepo()
+	files["app/values.yaml"] += `memory:
+  limit: 1Gi
+configuration: |-
+  vm_memory = {{ .Values.memory.limit }}
+secretKey: ""
+`
+	files["app/templates/secret.yaml"] = `apiVersion: v1
+kind: Secret
+metadata:
+  name: app
+data:
+  key: {{ include "lib.fullname" (dict "providedValues" (list "secretKey" "secretKey.missing") "context" $) }}
+  {{- $cfg := tpl .Values.configuration . }}
+`
+	ff := extract(t, files)
+	var vref *facts.Fact
+	for i := range ff {
+		if ff[i].Kind == facts.KindFileRef && ff[i].Name == "app/values.yaml" {
+			vref = &ff[i]
+		}
+	}
+	if got := targets(vref, facts.RelNames); !reflect.DeepEqual(got, []string{"app.values.memory", "app.values.memory.limit"}) {
+		t.Errorf("values.yaml file_ref names = %v", got)
+	}
+	// "secretKey.missing" is not declared to its depth; "secretKey" alone is one
+	// segment, not a dotted path, so neither string reads anything.
+	sec := find(ff, "app.Secret.app")
+	for _, n := range targets(sec, facts.RelNames) {
+		if n == "app.values.secretKey" {
+			t.Errorf("an undeclared dotted string resolved to its prefix: %v", targets(sec, facts.RelNames))
+		}
+	}
+}
+
+func TestActionLinesFollowAnActionAcrossLines(t *testing.T) {
+	got := actionLines("a: {{ dict\n  \"k\" (.Values.x | toString)\n  \"j\" 1 }} b\nplain .Values.y\n{{ .Values.z }}")
+	want := []string{"{{ dict}}", `{{  "k" (.Values.x | toString)}}`, `{{  "j" 1 }}`, "", "{{ .Values.z }}"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("actionLines = %q, want %q", got, want)
+	}
+}
