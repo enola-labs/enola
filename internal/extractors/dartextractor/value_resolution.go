@@ -62,8 +62,14 @@ func (r *dartMemberResolver) initializeValues(all []facts.Fact) {
 		}
 	}
 }
-func (r *dartMemberResolver) declaredValueType(v dartDeclaredValue, seen map[string]bool) dartValueType {
+func (r *dartMemberResolver) declaredValueType(v dartDeclaredValue, seen map[string]bool, sub *dartSubst) dartValueType {
 	if v.Type == "dynamic" {
+		return dartValueType{}
+	}
+	if sub != nil && v.Type != "" {
+		if typ, ok := r.substituteType(v.Type, v.File, sub); ok {
+			return typ
+		}
 		return dartValueType{}
 	}
 	if r.typeHasParameter(v.Type, r.declarationContext(v.Owner, v.File)) {
@@ -74,7 +80,7 @@ func (r *dartMemberResolver) declaredValueType(v dartDeclaredValue, seen map[str
 	}
 	return r.expressionType(v.Expression, r.declarationContext(v.Owner, v.File), nil, seen)
 }
-func (r *dartMemberResolver) resultType(f *facts.Fact, seen map[string]bool) dartValueType {
+func (r *dartMemberResolver) resultType(f *facts.Fact, seen map[string]bool, sub *dartSubst) dartValueType {
 	if f == nil {
 		return dartValueType{}
 	}
@@ -90,6 +96,14 @@ func (r *dartMemberResolver) resultType(f *facts.Fact, seen map[string]bool) dar
 		}
 	}
 	if typ := f.PropString("return_type"); typ != "" {
+		if sub != nil && typ != "dynamic" && typ != "void" && r.lexicalOwner(f) == sub.Owner {
+			if own, _ := f.Props["type_parameters"].([]string); !dartMentionsAny(typ, own) {
+				if t, ok := r.substituteType(typ, f.File, sub); ok {
+					return t
+				}
+			}
+			return dartValueType{}
+		}
 		if typ == "dynamic" || typ == "void" || r.typeHasParameter(typ, f) {
 			return dartValueType{}
 		}
@@ -98,25 +112,28 @@ func (r *dartMemberResolver) resultType(f *facts.Fact, seen map[string]bool) dar
 	if owner := r.lexicalOwner(f); owner != nil && !f.PropBool("static") {
 		name := f.Name[strings.LastIndexByte(f.Name, '.')+1:]
 		if parent, _ := r.parentMember(owner, name, map[*facts.Fact]bool{}); parent != nil {
-			return r.resultType(parent, seen)
+			return r.resultType(parent, seen, nil)
 		}
 	}
 	return r.expressionType(f.PropString("return_expression"), f, nil, seen)
 }
-func (r *dartMemberResolver) fieldType(owner *facts.Fact, name string, namespace bool, seen map[string]bool, visited map[*facts.Fact]bool) dartValueType {
+func (r *dartMemberResolver) fieldType(owner *facts.Fact, name string, namespace bool, seen map[string]bool, visited map[*facts.Fact]bool, sub *dartSubst) dartValueType {
 	if owner == nil || visited[owner] {
 		return dartValueType{}
 	}
 	visited[owner] = true
+	if sub != nil && sub.Owner != owner {
+		sub = nil
+	}
 	if values, ok := r.fieldValues[dartMemberKey{owner, name}]; ok {
 		if len(values) != 1 || (namespace && !values[0].Static) {
 			return dartValueType{}
 		}
-		return r.declaredValueType(values[0], seen)
+		return r.declaredValueType(values[0], seen, sub)
 	}
 	if entry, ok := r.members[owner.Name+"."+name]; ok && (entry.fact == nil || r.sameDartLibrary(entry.fact, owner)) {
 		if f := entry.readable(); f != nil && f.PropString("accessor") == "getter" && (!namespace || f.PropBool("static")) {
-			return r.resultType(f, seen)
+			return r.resultType(f, seen, sub)
 		}
 		// An own callable is a tear-off, not a base field.
 		if entry.readable() != nil {
@@ -125,11 +142,11 @@ func (r *dartMemberResolver) fieldType(owner *facts.Fact, name string, namespace
 	}
 	mixins, _ := owner.Props["mixin_types"].([]string)
 	for i := len(mixins) - 1; i >= 0; i-- {
-		if t := r.fieldType(r.typeNamed(mixins[i], owner.File), name, namespace, seen, visited); t.Name != "" {
+		if t := r.fieldType(r.typeNamed(mixins[i], owner.File), name, namespace, seen, visited, nil); t.Name != "" {
 			return t
 		}
 	}
-	return r.fieldType(r.typeNamed(owner.PropString("extends_type"), owner.File), name, namespace, seen, visited)
+	return r.fieldType(r.typeNamed(owner.PropString("extends_type"), owner.File), name, namespace, seen, visited, nil)
 }
 func (r *dartMemberResolver) exportedValues(file, name string, seen map[string]bool) []dartDeclaredValue {
 	file = r.libraryFile(file)
@@ -200,21 +217,21 @@ func (r *dartMemberResolver) globalValueType(prefix, name string, from *facts.Fa
 		own := r.globalValues[dartGlobalValueKey{r.libraryFile(from.File), name}]
 		if len(own) > 0 {
 			if v, ok := uniqueDartValue(own); ok {
-				return r.declaredValueType(v, seen)
+				return r.declaredValueType(v, seen, nil)
 			}
 			return dartValueType{}
 		}
 		for _, f := range r.functions[name] {
 			if r.libraryFile(f.File) == r.libraryFile(from.File) && f.PropString("accessor") == "getter" {
-				return r.resultType(f, seen)
+				return r.resultType(f, seen, nil)
 			}
 		}
 	}
 	if v, ok := uniqueDartValue(r.importedValues(prefix, name, from.File)); ok {
-		return r.declaredValueType(v, seen)
+		return r.declaredValueType(v, seen, nil)
 	}
 	if f := uniqueDartFact(r.importedFunctions(prefix, name, from.File)); f != nil && f.PropString("accessor") == "getter" {
-		return r.resultType(f, seen)
+		return r.resultType(f, seen, nil)
 	}
 	return dartValueType{}
 }
@@ -298,7 +315,7 @@ func (r *dartMemberResolver) expressionType(expr string, from *facts.Fact, local
 
 		} else {
 			if owner := r.lexicalOwner(from); owner != nil {
-				typ = r.fieldType(owner, name, false, seen, map[*facts.Fact]bool{})
+				typ = r.fieldType(owner, name, false, seen, map[*facts.Fact]bool{}, nil)
 			}
 			if typ.Name == "" {
 				typ = r.globalValueType("", name, from, seen)
@@ -321,7 +338,7 @@ func (r *dartMemberResolver) expressionType(expr string, from *facts.Fact, local
 				if owner := r.typeNamed(name+"."+member, from.File); owner != nil {
 					typ = dartValueType{Name: owner.Name, File: owner.File, Namespace: !called, Owner: owner}
 				} else if called {
-					typ = r.resultType(uniqueDartFact(r.importedFunctions(name, member, from.File)), seen)
+					typ = r.resultType(uniqueDartFact(r.importedFunctions(name, member, from.File)), seen, nil)
 				} else {
 					typ = r.globalValueType(name, member, from, seen)
 				}
@@ -345,7 +362,7 @@ func (r *dartMemberResolver) expressionType(expr string, from *facts.Fact, local
 			if typ.Namespace {
 				ctor := r.members[owner.Name+"."+owner.Name[strings.LastIndexByte(owner.Name, '.')+1:]+"."+name].readable()
 				if ctor != nil && ctor.PropBool("constructor") {
-					typ = r.resultType(ctor, seen)
+					typ = r.resultType(ctor, seen, nil)
 					continue
 				}
 			}
@@ -353,9 +370,9 @@ func (r *dartMemberResolver) expressionType(expr string, from *facts.Fact, local
 			if !found || f == nil || (typ.Namespace && !f.PropBool("static")) {
 				return dartValueType{}
 			}
-			typ = r.resultType(f, seen)
+			typ = r.resultType(f, seen, r.receiverSubst(typ, owner))
 		} else {
-			typ = r.fieldType(owner, name, typ.Namespace, seen, map[*facts.Fact]bool{})
+			typ = r.fieldType(owner, name, typ.Namespace, seen, map[*facts.Fact]bool{}, r.receiverSubst(typ, owner))
 		}
 	}
 	return typ
@@ -448,7 +465,7 @@ func (r *dartMemberResolver) hasValueField(owner *facts.Fact, name string, seen 
 func (r *dartMemberResolver) callableValueType(typ dartValueType, seen map[string]bool) dartValueType {
 	if owner := r.valueOwner(typ); owner != nil {
 		if f, found := r.lookupMember(owner, "call"); found && f != nil && f.PropString("accessor") == "" {
-			return r.resultType(f, seen)
+			return r.resultType(f, seen, nil)
 		}
 	}
 	return dartValueType{}
@@ -457,27 +474,27 @@ func (r *dartMemberResolver) bareCallType(name string, construct bool, from *fac
 	if !construct {
 		if owner := r.lexicalOwner(from); owner != nil {
 			if r.hasValueField(owner, name, map[*facts.Fact]bool{}) {
-				return r.callableValueType(r.fieldType(owner, name, false, seen, map[*facts.Fact]bool{}), seen)
+				return r.callableValueType(r.fieldType(owner, name, false, seen, map[*facts.Fact]bool{}, nil), seen)
 			}
 			if f, found := r.lookupMember(owner, name); found {
 				if f != nil && f.PropString("accessor") == "getter" {
-					return r.callableValueType(r.resultType(f, seen), seen)
+					return r.callableValueType(r.resultType(f, seen, nil), seen)
 				}
-				return r.resultType(f, seen)
+				return r.resultType(f, seen, nil)
 			}
 		}
 		if values := r.globalValues[dartGlobalValueKey{r.libraryFile(from.File), name}]; len(values) > 0 {
 			if v, ok := uniqueDartValue(values); ok {
-				return r.callableValueType(r.declaredValueType(v, seen), seen)
+				return r.callableValueType(r.declaredValueType(v, seen, nil), seen)
 			}
 			return dartValueType{}
 		}
 		for _, f := range r.functions[name] {
 			if r.libraryFile(f.File) == r.libraryFile(from.File) {
 				if f.PropString("accessor") == "getter" {
-					return r.callableValueType(r.resultType(f, seen), seen)
+					return r.callableValueType(r.resultType(f, seen, nil), seen)
 				}
-				return r.resultType(f, seen)
+				return r.resultType(f, seen, nil)
 			}
 		}
 	}
@@ -485,7 +502,7 @@ func (r *dartMemberResolver) bareCallType(name string, construct bool, from *fac
 		return dartValueType{Name: owner.Name, File: owner.File, Owner: owner}
 	}
 	if !construct {
-		return r.resultType(uniqueDartFact(r.importedFunctions("", name, from.File)), seen)
+		return r.resultType(uniqueDartFact(r.importedFunctions("", name, from.File)), seen, nil)
 	}
 	return dartValueType{}
 }

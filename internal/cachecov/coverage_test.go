@@ -188,6 +188,7 @@ var versionCoverage = map[int][]string{
 	587: {"TestDartScopeReviewShadowing", "TestDartScopeReviewTypeVisibility", "TestDartScopeReviewPartLibrary", "TestDartScopeReviewRetrofitUntyped", "TestDartScopeReviewCascadeWrite", "TestDartScopeReviewConstructorLoop", "TestDartScopeReviewParenthesizedIO", "TestDartScopeReviewNestedBindings", "TestDartScopeReviewExplicitThisWithPrefixCollision"},
 	586: {"TestDartReviewLoopReceiverEvidence", "TestDartReviewChainedIO", "TestDartReviewInheritedCalls", "TestDartReviewDeduplicateResolvedCalls", "TestDartReviewInitializingFormalKeepsFieldType", "TestDartReviewGetterSetterIO", "TestDartReviewInternalPrefixedType", "TestDartReviewGetterReadsAndWrites", "TestDartReviewMixinAndInheritanceAmbiguity", "TestDartReviewAmbiguousGetterDoesNotSupplyLoopIO"},
 	589: {"TestDartTypeFlowReceivers", "TestDartTypeFlowPreservesFalseMatchRemovals", "TestDartTypeFlowDeclaredReturnAndShadowing", "TestDartSDKLibraryIdentities", "TestDartTypeFlowValueNamespaceShadowsImportedConstructor"},
+	590: {"TestDartGenericReceiverTypes"},
 	507: {"TestRustImportAliasesBindOnlyTheAlias", "TestRustImportedTypeThroughAFileModuleWithADirectory", "TestRustMethodsInAFileModulesSubdirectoryResolve", "TestRustTypeImportedThroughAReExportResolves", "TestRustTypeAliasIsFollowedToItsType", "TestRustAliasedExternalImportDoesNotHideTheLocalName"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},

@@ -183,7 +183,7 @@ func (w *walker) scopedCallTarget(receiver string, direct bool, name string, b *
 		return target
 	}
 	if !direct && b.shadows[root] {
-		if typ := b.receiverType(w, root); typ != "" && typ != "dynamic" {
+		if typ := b.writtenReceiverType(w, root); typ != "" && typ != "dynamic" {
 			target := "@type{" + typ + "}" + receiver[len(root):] + "." + name
 			b.instanceCalls[target] = true
 			return target
@@ -323,6 +323,14 @@ func (w *walker) expressionReceiver(n *sitter.Node) string {
 // Locals are an overlay; the class field index is shared by every method and
 // nested scope. A blank local deliberately hides a typed field.
 func (b *bodyWalk) receiverType(w *walker, receiver string) string {
+	typ := b.writtenReceiverType(w, receiver)
+	if strings.HasPrefix(typ, "@") {
+		return typ
+	}
+	return dartBaseType(typ)
+}
+
+func (b *bodyWalk) writtenReceiverType(w *walker, receiver string) string {
 	typ, local := b.receiverTypes[receiver]
 	if !local {
 		field := strings.TrimPrefix(receiver, "this.")

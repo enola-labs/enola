@@ -3625,7 +3625,9 @@ import (
 // inference, visible extensions/functions/import alternatives and stable getters.
 // v595: Dart declaration-backed getter/field/global/return types and scoped
 // initializer aliases; SDK manifest URIs, implicit core and prefixed constructors.
-const cacheVersion = "v595"
+// v596: Dart receiver types keep their type arguments, so a field, getter or
+// method result declared as a class type parameter resolves to the argument.
+const cacheVersion = "v596"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

@@ -157,6 +157,9 @@ func dartBoundNames(root *sitter.Node, src []byte, out map[string]bool, receiver
 			out[key] = true
 			if explicitName && len(receivers) > 0 && (kind == "formal_parameter" || kind == "initialized_variable_definition" || kind == "for_loop_parts") {
 				typ := declaredReceiverType(root, src)
+				if written := dartWrittenType(root, src); typ != "" && strings.Contains(written, "<") && dartBaseType(written) == typ {
+					typ = written
+				}
 				if typ == "" && kind == "initialized_variable_definition" {
 					if expr := dartInitializerExpression(root, src); expr != "" {
 						typ = "@infer:" + expr
