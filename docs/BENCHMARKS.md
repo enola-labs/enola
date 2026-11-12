@@ -6,7 +6,9 @@ a repeatable fixed-corpus benchmark of enola's structural verdicts.
 
 The fixed corpus was measured on 2026-11-03, at extractor version v511, on 107 public
 open-source repositories, with one binary, by scripts you can re-run. It carries the
-latest sweep rather than a released version's, so it moves when the extractors do.
+latest sweep rather than a released version's, so it moves when the extractors do. At
+v582 six Kubernetes and Helm repositories joined; the corpus totals and reproducibility
+counts below are from that sweep, the per-verdict passages from the version they name.
 Where a number is unflattering it is still here.
 
 ## Real-session usage
@@ -213,13 +215,13 @@ would have been.
 
 ## The corpus
 
-107 repositories, 500,404 source files parsed of 828,008 seen, 9,224,829 facts
-carrying 26 distinct language tags (Ansible, C, C++, C#, Dart, F#, Go, HCL, Java,
-Kotlin, Markdown, PHP, Python, Razor, Ruby, Rust, Scala, SQL, Stimulus, Swift,
+113 repositories, 507,174 source files parsed of 836,197 seen, 9,275,495 facts
+carrying 28 distinct language tags (Ansible, C, C++, C#, Dart, F#, Go, HCL, Helm, Java,
+Kotlin, Kubernetes, Markdown, PHP, Python, Razor, Ruby, Rust, Scala, SQL, Stimulus, Swift,
 TypeScript, VB.NET, XAML, gRPC, OpenAPI, and enola's own intent pages). Public open-source only: every row is a
 repository you can clone and re-run.
 
-**107 of 107 reproduce** — identical `snapshot_id` and identical
+**113 of 113 reproduce** — identical `snapshot_id` and identical
 `facts.jsonl` hash across a cold run and two warm ones, i.e. across cache states.
 
 **And 81 of 81 reproduce across separate sweeps**, measured when 0.4.0 was validated:
@@ -737,10 +739,10 @@ receipt's `snapshot_id` and the SHA-256 of `facts.jsonl` were compared across al
 three. Running cold then warm is the point: it tests that a cached run and a
 from-scratch run agree, not merely that the same code path repeats itself.
 
-> **107 of 107 repositories in this sweep produced a byte-identical `snapshot_id` and a
-> byte-identical `facts.jsonl` across all three runs — 321 runs, 9,224,829 facts,
-> zero drift.** `insights.json` is byte-stable on all 107 as well, in five consecutive
-> full sweeps. grafana left the unstable list at v474: of two equally short paths
+> **113 of 113 repositories in this sweep produced a byte-identical `snapshot_id` and a
+> byte-identical `facts.jsonl` across all three runs — 339 runs, 9,275,495 facts,
+> zero drift.** `insights.json` is byte-stable on all 113 as well, and was on all 107
+> in the five consecutive full sweeps before them. grafana left the unstable list at v474: of two equally short paths
 > from a loop to a query, the `query-loops` explainer named whichever a map iteration
 > reached first, and ente and nhost had the same tie.
 
@@ -1055,7 +1057,7 @@ so the demonstration proves its own limit in the same run.
 | Largest Scala | Spark — 5,742 files, 220,768 facts, 9.7s / 7.6s |
 | Largest Go | Grafana — 11,365 files, 214,666 facts, 11.2s / 6.3s |
 | Throughput | 1,500 to 37,000 facts/sec cold, depending on language |
-| Parse errors, all 107 repositories | **32 files read only in part**, all Ruby (openproject 19, devise 9, fastlane 2, grape 2): tree-sitter error nodes the Ruby extractor counts and names since v413, rather than reading around them silently |
+| Parse errors, all 113 repositories | **32 files read only in part**, all Ruby (openproject 19, devise 9, fastlane 2, grape 2): tree-sitter error nodes the Ruby extractor counts and names since v413, rather than reading around them silently |
 | Memory | peak heap per run is recorded by the sweep (`--memstats`) alongside time and hashes. The Linux kernel is the high-water mark at **6,997 MiB**; only six others exceed 1 GiB (GitLab 2,738, dotnet/runtime 2,311, VS Code 1,772, dart-sdk 1,596, roslyn 1,579, rust-lang/rust 1,469). No repository required tuning on this machine |
 
 Times here are the engine's own `duration` for the snapshot. Warm runs are 1.1×–12.6×
