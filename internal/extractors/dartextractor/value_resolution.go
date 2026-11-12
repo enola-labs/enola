@@ -291,10 +291,14 @@ func (r *dartMemberResolver) expressionType(expr string, from *facts.Fact, local
 		}
 		typ = r.expressionType(binding.Expression, from, locals, seen)
 	} else if strings.HasPrefix(root, "@type{") && strings.HasSuffix(root, "}") {
-		if r.typeHasParameter(root[6:len(root)-1], from) {
-			return dartValueType{}
+		written := root[6 : len(root)-1]
+		if r.typeHasParameter(written, from) {
+			written = dartBaseType(written)
+			if r.typeHasParameter(written, from) {
+				return dartValueType{}
+			}
 		}
-		typ = dartValueType{Name: root[6 : len(root)-1], File: from.File}
+		typ = dartValueType{Name: written, File: from.File}
 	} else if strings.HasPrefix(root, "@unknown") || strings.HasPrefix(root, "(") {
 		return typ
 	} else if root == "this" || root == "super" {
@@ -416,7 +420,7 @@ func (r *dartMemberResolver) displayValueTarget(target string) string {
 	}
 	if strings.HasPrefix(target, "@type{") {
 		if end := strings.IndexByte(target, '}'); end >= 0 {
-			return target[6:end] + target[end+1:]
+			return dartBaseType(target[6:end]) + target[end+1:]
 		}
 	}
 	return target

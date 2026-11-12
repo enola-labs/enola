@@ -52,3 +52,20 @@ func TestDartGenericReceiverTypes(t *testing.T) {
 		t.Errorf("loop target lost: %v", calls)
 	}
 }
+
+func TestDartGenericReceiverKeepsBaseWhenArgumentIsATypeParameter(t *testing.T) {
+	all := dartReviewFacts(t, map[string]string{
+		"lib/repo.dart": `class Repo {void load() {}}
+ class Box<T> {final T value; Box(this.value);}
+ class Holder<T> {
+   int cmp(List<T> a, List<T> b) => a.length.compareTo(b.length);
+   void leak(Box<T> b, Repo r) {b.value.load();}
+ }
+ `})
+	if f := findFact(all, facts.KindSymbol, "lib.Holder.leak"); hasReviewCall(f, "lib.Repo.load") {
+		t.Errorf("a caller's type parameter was substituted: %+v", f)
+	}
+	if f := findFact(all, facts.KindSymbol, "lib.Holder.cmp"); hasReviewCall(f, "lib.Repo.load") {
+		t.Errorf("unexpected target: %+v", f)
+	}
+}
