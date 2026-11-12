@@ -20,8 +20,9 @@ import (
 // short name happens to be unique elsewhere in the repository.
 func resolveCallTargets(all []facts.Fact) []facts.Fact {
 	disambiguateDartGetters(all)
+	all, count := withSDKIndex(all)
 	r := newDartMemberResolver(all)
-	for i := range all {
+	for i := 0; i < count; i++ {
 		f := &all[i]
 		r.currentValues, _ = f.Props["_dart_value_bindings"].(map[string]dartLocalValue)
 		implicit := dartCallSet(f.Props["_dart_implicit_calls"])
@@ -127,7 +128,7 @@ func resolveCallTargets(all []facts.Fact) []facts.Fact {
 			}
 		}
 	}
-	return all
+	return all[:count]
 }
 
 func recordInheritedCall(r *dartMemberResolver, f *facts.Fact, spelled, target string) {
