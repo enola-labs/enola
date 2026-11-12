@@ -142,6 +142,7 @@ var versionCoverage = map[int][]string{
 	547: {"TestGrammarPatchesParseClean", "TestGrammarABI_EveryGrammarLoadsAtItsPinnedABI"},
 	548: {"TestWalkRepo_SkipsNestedLinkedWorktree", "TestExtract_SkipsNestedLinkedWorktree", "TestIsLinkedWorktree"},
 	549: {"TestExtractHTTPClientFacts_CommentedCallIsNotARoute", "TestServerRoutes_CommentedRegistrationIsNotARoute", "TestExtractHTTPClientFacts_NestedTemplateLiteral", "TestCleanTSPath_TernaryInterpolation"},
+	577: {"TestManifestObjectsAndTheNamesTheyUse", "TestReferencesResolveInScope", "TestAnsible_ARolesDirectoryIsNotARole"},
 	576: {"TestHTTPClientFacts_PathRelativeToABuiltClient"},
 	575: {"TestPathLiteralArg_VerbArgumentAndBuiltPath"},
 	574: {"TestKotlinSupertypeInTheSamePackageOfAnotherModule"},

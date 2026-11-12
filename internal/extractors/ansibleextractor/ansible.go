@@ -23,8 +23,10 @@ import (
 // does.
 //
 // Detection is the whole false-positive risk (arbitrary YAML must not read as
-// Ansible), so it demands an unambiguous marker: an ansible.cfg, or a roles/
-// directory beside playbooks whose plays declare `hosts`.
+// Ansible), so it demands an unambiguous marker: an ansible.cfg, or a role, which is
+// a roles/<name>/ directory holding one of the directories only an Ansible role has
+// (tasks, handlers, meta, defaults, vars). A directory merely named roles is not
+// one: Rails views, RBAC manifests and user-permission modules all use the name.
 
 // Extractor extracts Ansible facts.
 type Extractor struct{}
@@ -35,20 +37,16 @@ func New() *Extractor { return &Extractor{} }
 // Name returns the extractor name.
 func (e *Extractor) Name() string { return "ansible" }
 
-// Detect requires an ansible.cfg or a roles/ directory, within three
-// directory levels — infrastructure repos commonly nest their Ansible under
-// <area>/ansible/.
+// Detect walks the tree and answers from its names.
 func (e *Extractor) Detect(repoPath string) (bool, error) {
 	return e.DetectFiles(repoPath, detectnames.Walk(repoPath))
 }
 
-// DetectFiles implements plugin.FileListDetector: an ansible.cfg or a roles/
-// directory at any depth, where the old walk stopped at three. Both signals now
-// read off the names — a roles/ segment anywhere in a path is the directory the
-// walk used to have to reach, and ansible.cfg is a name rather than a stat.
+// DetectFiles implements plugin.FileListDetector: an ansible.cfg, or a file inside
+// a role's own directory structure, at any depth.
 func (e *Extractor) DetectFiles(_ string, files []string) (bool, error) {
 	for _, rel := range files {
-		if detectnames.HasSegment(rel, "roles") {
+		if _, ok := roleDirOf(rel); ok {
 			return true, nil
 		}
 		if detectnames.Base(rel) == "ansible.cfg" {
@@ -56,6 +54,24 @@ func (e *Extractor) DetectFiles(_ string, files []string) (bool, error) {
 		}
 	}
 	return false, nil
+}
+
+// roleSubdirs are the directories only an Ansible role has. templates/ and files/
+// are role directories too, but plenty of trees that are not Ansible have them.
+var roleSubdirs = map[string]bool{
+	"tasks": true, "handlers": true, "meta": true, "defaults": true, "vars": true,
+}
+
+// roleDirOf returns the role directory (".../roles/<name>") a path lies in, when the
+// path is inside one of that role's own subdirectories.
+func roleDirOf(rel string) (string, bool) {
+	segs := strings.Split(filepath.ToSlash(rel), "/")
+	for i := 0; i+3 < len(segs); i++ {
+		if segs[i] == "roles" && segs[i+1] != "" && roleSubdirs[segs[i+2]] {
+			return strings.Join(segs[:i+2], "/"), true
+		}
+	}
+	return "", false
 }
 
 type play struct {
@@ -81,13 +97,8 @@ func (e *Extractor) Extract(ctx context.Context, repoPath string, _ []string) ([
 	sort.Strings(files)
 
 	for _, relFile := range files {
-		slashed := filepath.ToSlash(relFile)
-		if idx := strings.Index(slashed, "roles/"); idx >= 0 && (idx == 0 || slashed[idx-1] == '/') {
-			rest := slashed[idx+len("roles/"):]
-			if slash := strings.IndexByte(rest, '/'); slash > 0 {
-				name := rest[:slash]
-				roleDirs[name] = slashed[:idx] + "roles/" + name
-			}
+		if dir, ok := roleDirOf(relFile); ok {
+			roleDirs[factpath.Base(dir)] = dir
 		}
 	}
 	roleNames := make([]string, 0, len(roleDirs))

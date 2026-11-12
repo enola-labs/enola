@@ -23,8 +23,11 @@ Fixture: [`ansible_sample`](../../internal/engine/testdata/repos/ansible_sample/
 ## Detection is the whole false-positive risk
 
 Arbitrary YAML must not read as Ansible, so detection demands an unambiguous
-marker within three directory levels: an `ansible.cfg`, or a `roles/`
-directory. The extractor also walks the repository itself rather than
+marker at any depth: an `ansible.cfg`, or a role, which is a `roles/<name>/`
+directory holding `tasks/`, `handlers/`, `meta/`, `defaults/` or `vars/`. A
+directory merely named `roles` is not one: Rails views, RBAC manifests and
+user-permission modules all use the name, and before v577 each of them was
+detected as Ansible. The extractor also walks the repository itself rather than
 consuming the engine's file list — YAML is ignore-globbed by default (the
 OpenAPI self-walk precedent), so the excluded directories are re-skipped
 explicitly.

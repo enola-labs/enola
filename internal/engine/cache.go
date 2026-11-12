@@ -3540,7 +3540,14 @@ import (
 // v575: Go: an HTTP helper's path built with fmt.Sprintf is read at its call site.
 // v576: TypeScript: a verb call on a client the file builds reads a path relative
 // to its base URL (gateway.post(`orders/v1/carts/${id}`)), rooted at "/".
-const cacheVersion = "v576"
+// v577: Kubernetes manifests are read: each object is a symbol named
+// <dir>.<Kind>.<name> in its directory's module, and the names it uses (a Service's
+// selector, an Ingress or HTTPRoute backend, a pod's ConfigMaps, Secrets, claims and
+// service account, a binding's role, a scaler's target) are depends_on edges,
+// resolved in the same directory first and then only when unique. Ansible detects
+// a role only by a roles/<name>/ directory holding tasks, handlers, meta, defaults
+// or vars, so a directory merely named roles is no longer Ansible.
+const cacheVersion = "v577"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

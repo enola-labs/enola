@@ -35,6 +35,7 @@ pages changing, the golden tests fail first.
 | [Vespa](vespa.md) | Vespa schema definitions (`.sd`) | document types as storage, joined to the YQL queries reading them |
 | [Terraform / HCL](hcl.md) | resources, modules, variables, outputs, locals | Terraform addresses as symbol names; declared-set bare references |
 | [Ansible](ansible.md) | plays, roles, `include_role`/`import_role` | by-name structure read without rendering a template |
+| [Kubernetes](kubernetes.md) | Deployments, Services, Ingresses, Gateway API routes, RBAC, scalers | label selectors and names resolved in the directory first, then only when unique |
 
 ## Loops: what counts as nesting
 

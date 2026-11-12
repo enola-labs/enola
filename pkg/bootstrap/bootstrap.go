@@ -46,6 +46,7 @@ import (
 	"github.com/enola-labs/enola/internal/extractors/grpcextractor"
 	"github.com/enola-labs/enola/internal/extractors/hclextractor"
 	"github.com/enola-labs/enola/internal/extractors/javaextractor"
+	"github.com/enola-labs/enola/internal/extractors/k8sextractor"
 	"github.com/enola-labs/enola/internal/extractors/kotlinextractor"
 	"github.com/enola-labs/enola/internal/extractors/manifestextractor"
 	"github.com/enola-labs/enola/internal/extractors/mdintent"
@@ -524,6 +525,7 @@ func registerOSSPlugins(eng *engine.Engine, cfg *config.Config) {
 	eng.RegisterExtractor(grpcextractor.New())
 	eng.RegisterExtractor(hclextractor.New())
 	eng.RegisterExtractor(ansibleextractor.New())
+	eng.RegisterExtractor(k8sextractor.New())
 	eng.RegisterExtractor(javaextractor.New())
 	eng.RegisterExtractor(kotlinextractor.New())
 	eng.RegisterExtractor(openapiextractor.New())

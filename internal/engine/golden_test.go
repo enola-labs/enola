@@ -134,6 +134,13 @@ var fixtures = []fixture{
 	// role edges, templates count without rendering. Self-walking (YAML is
 	// ignore-globbed), so the fixture also pins that the walk stays in bounds.
 	{name: "ansible_sample", subRepos: []string{"."}},
+	// Kubernetes: objects as symbols in their directory's module, a Service selecting
+	// its Deployment by label, an Ingress naming two Services, a pod's ConfigMap,
+	// Secret and service account, an HPA's target, and a RoleBinding reaching a
+	// ServiceAccount declared in another directory because the name is unique. The
+	// RBAC files sit under deploy/rbac/roles/, which pins v577's Ansible half by
+	// ABSENCE: a directory named roles is not an Ansible role.
+	{name: "k8s_sample", subRepos: []string{"."}},
 	{name: "ruby_sample", subRepos: []string{"."}},
 	{name: "swift_sample", subRepos: []string{"."}},
 	{name: "kotlin_sample", subRepos: []string{"."}},

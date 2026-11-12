@@ -63,6 +63,7 @@ var extractorDocs = map[string]extractorDoc{
 	"typescript": {Labels: []string{"TypeScript", "TypeScript / JavaScript"}, Page: "typescript.md"},
 	"hcl":        {Labels: []string{"Terraform / HCL"}, Page: "hcl.md"},
 	"ansible":    {Labels: []string{"Ansible"}, Page: "ansible.md"},
+	"kubernetes": {Labels: []string{"Kubernetes"}, Page: "kubernetes.md"},
 	"asyncapi":   {Labels: []string{"AsyncAPI"}, Page: "asyncapi.md"},
 	"vespa":      {Labels: []string{"Vespa"}, Page: "vespa.md"},
 	"openapi":    {Labels: []string{"OpenAPI", "gRPC and OpenAPI"}, Page: "grpc-openapi.md"},
