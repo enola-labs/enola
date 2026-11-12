@@ -651,3 +651,75 @@ version = "4.14.0"
 		}
 	}
 }
+
+// A chart's dependencies resolve against the Chart.lock beside it and never an
+// ancestor's; a file:// dependency is the repository's own chart.
+func TestHelmChartDependencies(t *testing.T) {
+	dir := t.TempDir()
+	write := func(rel, body string) {
+		p := filepath.Join(dir, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("charts/app/Chart.yaml", `apiVersion: v2
+name: app
+version: 1.0.0
+dependencies:
+  - name: postgresql
+    version: 15.x.x
+    repository: oci://registry-1.docker.io/bitnamicharts
+    condition: postgresql.enabled
+  - name: common
+    version: 2.31.4
+    repository: oci://registry-1.docker.io/bitnamicharts
+  - name: lib
+    version: 0.1.0
+    repository: file://../lib
+`)
+	write("charts/app/Chart.lock", `dependencies:
+- name: postgresql
+  repository: oci://registry-1.docker.io/bitnamicharts
+  version: 15.5.38
+digest: sha256:abc
+`)
+	write("charts/app/charts/sub/Chart.yaml", `apiVersion: v2
+name: sub
+version: 0.1.0
+dependencies:
+  - name: redis
+    version: ">=19.0.0"
+    repository: https://charts.bitnami.com/bitnami
+`)
+	write("legacy/Chart.yaml", "apiVersion: v1\nname: legacy\nversion: 0.1.0\n")
+	write("legacy/requirements.yaml", "dependencies:\n  - name: mysql\n    version: 1.6.9\n    repository: https://charts.helm.sh/stable\n")
+
+	ff, err := New().Extract(context.Background(), dir, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byName := map[string]map[string]any{}
+	for _, f := range ff {
+		byName[f.Name] = f.Props
+	}
+	pg := byName["pkg:helm/postgresql"]
+	if pg == nil || pg["resolved_version"] != "15.5.38" || pg["pinned"] != true || pg["ecosystem"] != "helm" {
+		t.Errorf("postgresql = %v, want resolved from the chart's own lock", pg)
+	}
+	if c := byName["pkg:helm/common"]; c == nil || c["pinned"] != true || c["resolved_version"] != "" {
+		t.Errorf("common = %v, want pinned by its exact constraint", c)
+	}
+	if l := byName["pkg:helm/lib"]; l == nil || l["path"] != "../lib" {
+		t.Errorf("lib = %v, want the file:// path", l)
+	}
+	// The subchart has no lock; its parent's does not resolve it.
+	if r := byName["pkg:helm/redis"]; r == nil || r["pinned"] != false || r["manifest"] != "charts/app/charts/sub/Chart.yaml" {
+		t.Errorf("redis = %v, want unpinned, declared by the subchart", r)
+	}
+	if m := byName["pkg:helm/mysql"]; m == nil || m["manifest"] != "legacy/requirements.yaml" || m["pinned"] != true {
+		t.Errorf("mysql = %v, want read from the Helm 2 requirements.yaml", m)
+	}
+}

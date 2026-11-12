@@ -64,6 +64,7 @@ var extractorDocs = map[string]extractorDoc{
 	"hcl":        {Labels: []string{"Terraform / HCL"}, Page: "hcl.md"},
 	"ansible":    {Labels: []string{"Ansible"}, Page: "ansible.md"},
 	"kubernetes": {Labels: []string{"Kubernetes"}, Page: "kubernetes.md"},
+	"helm":       {Labels: []string{"Helm"}, Page: "helm.md"},
 	"asyncapi":   {Labels: []string{"AsyncAPI"}, Page: "asyncapi.md"},
 	"vespa":      {Labels: []string{"Vespa"}, Page: "vespa.md"},
 	"openapi":    {Labels: []string{"OpenAPI", "gRPC and OpenAPI"}, Page: "grpc-openapi.md"},

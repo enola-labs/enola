@@ -1,7 +1,7 @@
 $ enola blame --first --full pkg/c .
 exit: 0
 --- stdout
-07d85ff  <TIME>  (9522ef6c8541, backfill)
+b49af76  <TIME>  (9522ef6c8541, backfill)
     + {"kind":"dependency","name":"example.com/gosample/pkg/b -\u003e example.com/gosample/pkg/c","file":"pkg/b/gamma.go","line":3,"repo":"go_sample","props":{"language":"go","source":"internal"},"relations":[{"kind":"imports","target":"example.com/gosample/pkg/c","target_id":"0c67fbe9d7f24686c77b0d038e9c2cd2"}],"id":"a54464798a3144ac23ee76155cfb4e30"}
     + {"kind":"module","name":"example.com/gosample/pkg/c","file":"pkg/c","repo":"go_sample","props":{"language":"go","package":"c"},"id":"0c67fbe9d7f24686c77b0d038e9c2cd2"}
     + {"kind":"symbol","name":"example.com/gosample/pkg/b.UsesGamma","file":"pkg/b/gamma.go","line":6,"end_line":6,"repo":"go_sample","props":{"body_hash":"17ff5fbcd7d1c52d","cyclomatic":1,"doc":"UsesGamma couples pkg/b to the new package.","exported":true,"language":"go","orphan_class":"unreferenced","symbol_kind":"function"},"relations":[{"kind":"calls","target":"example.com/gosample/pkg/c.Gamma","target_id":"1508d391286103492e7115522153f5c2"},{"kind":"declares","target":"example.com/gosample/pkg/b","target_id":"4c958a161b2c43b249e18812baffddac"}],"id":"48e677c624ea8ea8779e3137417479a0"}

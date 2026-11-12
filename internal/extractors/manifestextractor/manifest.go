@@ -46,6 +46,7 @@ const (
 	EcosystemCargo    = facts.EcosystemCargo
 	EcosystemPub      = facts.EcosystemPub
 	EcosystemPyPI     = facts.EcosystemPyPI
+	EcosystemHelm     = facts.EcosystemHelm
 
 	TypePackage = facts.TypePackage
 )
@@ -59,6 +60,7 @@ var purlType = map[string]string{
 	EcosystemCargo:    "cargo",
 	EcosystemPub:      "pub",
 	EcosystemPyPI:     "pypi",
+	EcosystemHelm:     "helm",
 }
 
 // manifestReaders maps a manifest's base name to the parser that reads it. The
@@ -72,6 +74,7 @@ var manifestReaders = map[string]func(rc *readCtx, relFile string) []pkgDep{
 	"pubspec.yaml":     readPubspec,
 	"requirements.txt": readRequirements,
 	"pyproject.toml":   readPyproject,
+	"Chart.yaml":       readChart,
 }
 
 // pkgDep is one declared direct dependency before it becomes a fact.

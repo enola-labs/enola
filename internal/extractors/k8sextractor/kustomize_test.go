@@ -187,3 +187,26 @@ secretGenerator:
 		t.Errorf("Pod depends_on = %v, want %v", got, want)
 	}
 }
+
+// helmCharts inflates a chart: one the repository holds under the chart home is an
+// edge to the helm extractor's chart symbol, one it would fetch is named.
+func TestKustomizeHelmChartsNameTheChart(t *testing.T) {
+	ff := extract(t, map[string]string{
+		"apps/kustomization.yaml": `helmGlobals: {chartHome: ../charts}
+helmCharts:
+  - name: web
+    releaseName: web
+  - name: ingress-nginx
+    repo: https://kubernetes.github.io/ingress-nginx
+    version: 4.10.0
+`,
+		"charts/web/Chart.yaml": "apiVersion: v2\nname: web\nversion: 0.1.0\n",
+	})
+	k := find(ff, facts.KindSymbol, "apps.Kustomization")
+	if got := dependsOn(k); !reflect.DeepEqual(got, []string{"charts/web.Chart.web"}) {
+		t.Errorf("depends_on = %v, want the local chart", got)
+	}
+	if got := k.Props["remote_charts"]; !reflect.DeepEqual(got, []string{"ingress-nginx"}) {
+		t.Errorf("remote_charts = %v", got)
+	}
+}

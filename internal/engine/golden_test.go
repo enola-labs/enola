@@ -144,6 +144,13 @@ var fixtures = []fixture{
 	// Deployment from a file that is therefore not an object, generates a ConfigMap,
 	// and records its prefix, namespace, image override and remote resource.
 	{name: "k8s_sample", subRepos: []string{"."}},
+	// Helm: a library chart reached by name from a registry dependency its version
+	// satisfies, a file:// dependency, a vendored subchart, a remote dependency left
+	// to its registry, named templates called across charts, resources named by
+	// their template file, a CRD read as YAML. deploy/ inflates the local chart
+	// through kustomize helmCharts, which pins the edge between the two extractors
+	// and that the kubernetes extractor leaves every chart's tree to helm.
+	{name: "helm_sample", subRepos: []string{"."}},
 	{name: "ruby_sample", subRepos: []string{"."}},
 	{name: "swift_sample", subRepos: []string{"."}},
 	{name: "kotlin_sample", subRepos: []string{"."}},

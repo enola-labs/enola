@@ -346,6 +346,12 @@ func kustomizationFact(k *kustomization, ks map[string]*kustomization, idx *inde
 			targets[sub.sym] = true
 		}
 	}
+	for _, c := range k.charts {
+		targets[c] = true
+	}
+	if len(k.remoteCharts) > 0 {
+		f.SetProp("remote_charts", k.remoteCharts)
+	}
 	for _, p := range k.patches {
 		if t := idx.inBuild(k, p.kind, p.name); t != nil {
 			targets[t.symbol] = true

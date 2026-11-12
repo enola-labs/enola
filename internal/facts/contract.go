@@ -175,6 +175,7 @@ const (
 	EcosystemCargo    = "cargo"
 	EcosystemPub      = "pub"
 	EcosystemPyPI     = "pypi"
+	EcosystemHelm     = "helm"
 )
 
 // AllPackageEcosystems is every registered ecosystem value.
@@ -185,6 +186,7 @@ var AllPackageEcosystems = map[string]bool{
 	EcosystemCargo:    true,
 	EcosystemPub:      true,
 	EcosystemPyPI:     true,
+	EcosystemHelm:     true,
 }
 
 // TypePackage is the `type` prop marking a KindDependency fact as a DECLARED

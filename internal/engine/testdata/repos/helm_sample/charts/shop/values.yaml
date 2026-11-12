@@ -1,0 +1,11 @@
+replicaCount: 2
+image:
+  repository: example/shop
+  tag: "4.2.1"
+service:
+  port: 80
+serviceAccount:
+  create: true
+  name: ""
+postgresql:
+  enabled: false

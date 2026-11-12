@@ -3553,7 +3553,17 @@ import (
 // secretGenerator entries are objects. A reference resolves in the referrer's
 // directory, else in each kustomize build holding it (one edge per build that emits
 // exactly one candidate), else uniquely in the repository.
-const cacheVersion = "v578"
+// v579: Helm. A chart is a module and a symbol <dir>.Chart.<name> depending on the
+// charts it loads (its charts/ subcharts, file:// dependencies, and a registry
+// dependency the repository holds as the one chart of that name whose version
+// satisfies the constraint) and on the resources its templates emit. Named
+// templates are symbols; include and template actions are calls edges, resolved in
+// the chart and then across what it loads, unique or not at all. Resources are named
+// by a literal metadata.name or by their path under templates/. Chart.yaml (and a
+// Helm 2 requirements.yaml) dependencies are declared packages of a new helm
+// ecosystem, resolved against the chart's own Chart.lock. A kustomization's
+// helmCharts entry depends on the chart when the repository holds it.
+const cacheVersion = "v579"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

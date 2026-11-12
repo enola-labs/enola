@@ -34,16 +34,18 @@ type kustomization struct {
 	kind string // Kustomization | Component
 	sym  string
 
-	resources  []string // local files, repo-relative
-	subdirs    []string // local directories holding a kustomization, repo-relative
-	remote     []string
-	patchFiles []string // repo-relative
-	patches    []patchTarget
-	generated  []generatedObj
-	namespace  string
-	prefix     string
-	suffix     string
-	images     []string
+	resources    []string // local files, repo-relative
+	subdirs      []string // local directories holding a kustomization, repo-relative
+	remote       []string
+	patchFiles   []string // repo-relative
+	patches      []patchTarget
+	generated    []generatedObj
+	namespace    string
+	prefix       string
+	suffix       string
+	images       []string
+	charts       []string // chart symbols, for helmCharts the repository holds
+	remoteCharts []string
 
 	files map[string]bool // closure: every object file this build emits
 	size  int
@@ -71,6 +73,8 @@ type kustFile struct {
 	Images                []map[string]any `yaml:"images"`
 	ConfigMapGenerator    []map[string]any `yaml:"configMapGenerator"`
 	SecretGenerator       []map[string]any `yaml:"secretGenerator"`
+	HelmCharts            []map[string]any `yaml:"helmCharts"`
+	HelmGlobals           map[string]any   `yaml:"helmGlobals"`
 }
 
 func isRemote(p string) bool {
@@ -176,6 +180,22 @@ func readKustomizations(repoPath string, files []string) map[string]*kustomizati
 			}
 		}
 		sort.Strings(k.images)
+		chartHome := "charts"
+		if h := str(kf.HelmGlobals, "chartHome"); h != "" {
+			chartHome = h
+		}
+		for _, hc := range kf.HelmCharts {
+			name := str(hc, "name")
+			if name == "" {
+				continue
+			}
+			if sym := localChart(repoPath, factpath.Clean(factpath.Join(dir, chartHome, name))); sym != "" {
+				k.charts = append(k.charts, sym)
+			} else {
+				k.remoteCharts = append(k.remoteCharts, name)
+			}
+		}
+		sort.Strings(k.remoteCharts)
 		lines := generatorLines(data)
 		for _, gen := range []struct {
 			kind    string
@@ -320,4 +340,23 @@ func patchFileSet(ks map[string]*kustomization) map[string]bool {
 		}
 	}
 	return out
+}
+
+// localChart names the chart symbol the helm extractor emits for a chart directory,
+// <dir>.Chart.<name>, when the directory holds a Chart.yaml with a literal name.
+func localChart(repoPath, dir string) string {
+	data, err := os.ReadFile(filepath.Join(repoPath, filepath.FromSlash(dir), "Chart.yaml"))
+	if err != nil {
+		return ""
+	}
+	var c struct {
+		Name string `yaml:"name"`
+	}
+	if yaml.Unmarshal(data, &c) != nil || !k8syaml.Literal(c.Name) || c.Name == "" {
+		return ""
+	}
+	if dir == "." {
+		return "Chart." + c.Name
+	}
+	return dir + ".Chart." + c.Name
 }
