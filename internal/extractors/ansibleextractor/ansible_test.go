@@ -104,3 +104,34 @@ func TestAnsible_DetectDemandsMarkers(t *testing.T) {
 		t.Fatalf("Detect = %v, %v — arbitrary YAML must not read as Ansible", ok, err)
 	}
 }
+
+// A directory named roles is not a role. The old rule detected Ansible on any roles/
+// segment, which fired on Rails views (app/views/admin/roles), RBAC manifests and
+// user-permission modules across a third of the corpus.
+func TestAnsible_ARolesDirectoryIsNotARole(t *testing.T) {
+	notAnsible := []string{
+		"app/views/admin/roles/index.html.erb",
+		"config/authz/roles/admin.yml",
+		"deploy/rbac/roles/reader/role.yaml",
+		"cognee/modules/users/roles/methods/create_role.py",
+	}
+	if ok, _ := New().DetectFiles("", notAnsible); ok {
+		t.Errorf("DetectFiles(%v) = true, want false", notAnsible)
+	}
+	for _, rel := range []string{"roles/web/tasks/main.yml", "ansible/roles/db/handlers/main.yml", "x/roles/r/meta/main.yml"} {
+		if ok, _ := New().DetectFiles("", []string{rel}); !ok {
+			t.Errorf("DetectFiles(%s) = false, want true", rel)
+		}
+	}
+	ff := extractAnsible(t, map[string]string{
+		"ansible.cfg":                        "[defaults]\n",
+		"roles/web/tasks/main.yml":           "- name: x\n  debug: {}\n",
+		"deploy/rbac/roles/reader/role.yaml": "kind: Role\n",
+	})
+	if find(ff, facts.KindSymbol, "roles/web.web") == nil {
+		t.Error("real role missing")
+	}
+	if find(ff, facts.KindSymbol, "deploy/rbac/roles/reader.reader") != nil {
+		t.Error("a roles/<name>/ directory with no role structure became a role")
+	}
+}

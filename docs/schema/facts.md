@@ -225,7 +225,7 @@ only files of a project that styles with Tailwind are read, a config's `prefix`
   with no relation attached, because shared code is not a dependency and does
   not compose across hops.
 - `ecosystem`: the packaging system a declared package was declared in — `go` |
-  `npm` | `rubygems` | `cargo` | `pub` | `pypi`.
+  `npm` | `rubygems` | `cargo` | `pub` | `pypi` | `helm`.
 - `resolved_via` (TypeScript imports): what resolved an aliased import —
   `vite-alias` | `nuxt-alias` | `tsconfig-paths`, or, for an import of a workspace
   member by its package name, `workspace` (through the member's `exports` or entry

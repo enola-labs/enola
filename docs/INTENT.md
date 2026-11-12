@@ -345,12 +345,15 @@ manifests for one thing: its **declared direct dependencies**.
 | `Cargo.toml` | `Cargo.lock` | `cargo` |
 | `pubspec.yaml` | `pubspec.lock` | `pub` |
 | `requirements.txt`, `pyproject.toml` | itself — `==` is pip's pin | `pypi` |
+| `Chart.yaml` (or a Helm 2 `requirements.yaml`) | `Chart.lock` (`requirements.lock`) beside it, never an ancestor's | `helm` |
 
 A lockfile is looked for **at or above** the manifest, nearest first, because
 that is where package managers put it: a monorepo keeps one lock at the
 workspace root and a manifest in every package. Reading only the sibling
 reported five of excalidraw's dependencies as unpinned when its root
-`yarn.lock` pins all of them.
+`yarn.lock` pins all of them. Helm is the exception: every chart, subcharts
+included, locks its own dependencies, so a `Chart.lock` is read only beside its
+own `Chart.yaml`.
 
 Each package becomes one `kind: dependency` fact carrying `type: package`,
 named by its Package URL (`pkg:gem/rails`, `pkg:npm/@scope/thing`) so a

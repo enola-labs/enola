@@ -6,7 +6,9 @@ a repeatable fixed-corpus benchmark of enola's structural verdicts.
 
 The fixed corpus was measured on 2026-11-03, at extractor version v511, on 107 public
 open-source repositories, with one binary, by scripts you can re-run. It carries the
-latest sweep rather than a released version's, so it moves when the extractors do.
+latest sweep rather than a released version's, so it moves when the extractors do. At
+v582 six Kubernetes and Helm repositories joined; the corpus totals and reproducibility
+counts below are from that sweep, the per-verdict passages from the version they name.
 Where a number is unflattering it is still here.
 
 ## Real-session usage
@@ -213,13 +215,13 @@ would have been.
 
 ## The corpus
 
-107 repositories, 500,404 source files parsed of 828,008 seen, 9,224,829 facts
-carrying 26 distinct language tags (Ansible, C, C++, C#, Dart, F#, Go, HCL, Java,
-Kotlin, Markdown, PHP, Python, Razor, Ruby, Rust, Scala, SQL, Stimulus, Swift,
+113 repositories, 507,174 source files parsed of 836,197 seen, 9,275,495 facts
+carrying 28 distinct language tags (Ansible, C, C++, C#, Dart, F#, Go, HCL, Helm, Java,
+Kotlin, Kubernetes, Markdown, PHP, Python, Razor, Ruby, Rust, Scala, SQL, Stimulus, Swift,
 TypeScript, VB.NET, XAML, gRPC, OpenAPI, and enola's own intent pages). Public open-source only: every row is a
 repository you can clone and re-run.
 
-**107 of 107 reproduce** — identical `snapshot_id` and identical
+**113 of 113 reproduce** — identical `snapshot_id` and identical
 `facts.jsonl` hash across a cold run and two warm ones, i.e. across cache states.
 
 **And 81 of 81 reproduce across separate sweeps**, measured when 0.4.0 was validated:
@@ -672,6 +674,64 @@ touches nothing.
 `store` and `destroy` routes for a controller that declares neither. The routes exist
 and would fail when called; enola reports them unbound instead of dropping them.
 
+### Kubernetes / Helm
+
+Six new repositories under `k8s/`, plus angular/dashboard's chart. Before the two
+extractors, not one of their facts came from a manifest, a kustomization or a chart:
+bitnami/charts' 32,928 facts were all Markdown headings from chart READMEs.
+`bench-k8s.sh` counts every surface from source without enola's code (PyYAML, and a
+regex scan for templates) and fails on any difference. At v582 there is none:
+
+| Repository | Facts before → after | Objects | Kustomizations | Charts | Named templates | Template resources | Values | Index time |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| bitnami/charts | 32,928 → 63,710 | 0 | 0 | 115 | 2,794 | 3,241 | 23,804 | 3.1 s |
+| prometheus-community/helm-charts | 891 → 5,317 | 0 | 0 | 46 | 403 | 591 | 3,189 | 0.7 s |
+| kubeflow/community-distribution | 858 → 3,644 | 1,161 | 261 | 26 | 88 | 146 | 317 | 1.3 s |
+| microservices-demo | 3,453 → 3,892 | 139 | 21 | 1 | 0 | 84 | 85 | 0.3 s |
+| podinfo | 1,068 → 1,321 | 54 | 8 | 1 | 9 | 22 | 126 | 0.1 s |
+| argocd-example-apps | 26 → 167 | 59 | 3 | 5 | 6 | 6 | 40 | 0.1 s |
+| angular/dashboard | 10,896 → 11,045 | 32 | 0 | 1 | 14 | 24 | 68 | 1.2 s |
+
+Objects include the ConfigMaps and Secrets kustomize generates (53 in kubeflow, 4 in
+podinfo). Beside the counts, a hand-checked key: microservices-demo's service graph
+reproduces the project's architecture diagram edge for edge (17 address edges, from
+`CART_SERVICE_ADDR=cartservice:7070` and its siblings), and each of its three deploy
+directories imports the code skaffold builds its images from.
+
+Each repository is here for a shape the others lack:
+
+| Repo | What it is the control for |
+|---|---|
+| bitnami/charts | scale, and a library chart (`common`) every other chart depends on from a registry the repository itself publishes to |
+| helm-charts | umbrella charts: kube-prometheus-stack's dependencies are `condition`-gated and aliased, its CRDs in `crds/` |
+| community-distribution | kustomize at scale: 261 kustomizations, components, overlays, remote resources |
+| microservices-demo | the service graph, and manifests beside the code of eleven services in five languages |
+| podinfo | a small Go service beside its chart, kustomize bases and raw manifests |
+| argocd-example-apps | the small clean control: plain, kustomize and Helm guestbooks |
+
+#### What the new repositories exposed
+
+- **A shared base means different things in different installs.** kubeflow's katib
+  `db-manager` names the Secret `katib-mysql-secrets`, which one install generates and
+  another ships. Resolving in the smallest build picked one; each build now contributes
+  the object it emits.
+- **Values are read in seven forms.** The first count of unread values in bitnami was
+  405. Each sampled one was read through a form the scan did not know: a variable
+  holding the root context, a dict key bitnami passes it under, an `index` with a
+  variable key, a value path written as a string, a template written inside
+  values.yaml, an action spanning lines. It is 2 now, both genuinely unread.
+- **A template document can hold several kinds.** victoriametrics emits a DaemonSet
+  or a Deployment from one file, chosen by an if/else; only the first was read.
+- **Release manifests carry a code-generator banner**, and the engine marks every
+  fact from such a file `generated`, the prop kustomize-generated objects used too.
+
+**What it found in the charts.** 14 bitnami resources call a named template no loaded
+chart defines, each inside a branch the default values never take: a typo
+(`commot.tplvalues.render`), templates copied from another chart (tomcat calling
+`wordpress.databasePort`, pytorch calling `mxnet.*`), names defined nowhere. In
+helm-charts, prometheus-modbus-exporter declares `configReloaderSidecar.enabled` and
+reads `.enable`. podinfo's frontend HPA targets the `backend` Deployment.
+
 ## 1. Reproducibility
 
 Each repository was indexed **three times** — once cold, twice warm — and the
@@ -679,10 +739,10 @@ receipt's `snapshot_id` and the SHA-256 of `facts.jsonl` were compared across al
 three. Running cold then warm is the point: it tests that a cached run and a
 from-scratch run agree, not merely that the same code path repeats itself.
 
-> **107 of 107 repositories in this sweep produced a byte-identical `snapshot_id` and a
-> byte-identical `facts.jsonl` across all three runs — 321 runs, 9,224,829 facts,
-> zero drift.** `insights.json` is byte-stable on all 107 as well, in five consecutive
-> full sweeps. grafana left the unstable list at v474: of two equally short paths
+> **113 of 113 repositories in this sweep produced a byte-identical `snapshot_id` and a
+> byte-identical `facts.jsonl` across all three runs — 339 runs, 9,275,495 facts,
+> zero drift.** `insights.json` is byte-stable on all 113 as well, and was on all 107
+> in the five consecutive full sweeps before them. grafana left the unstable list at v474: of two equally short paths
 > from a loop to a query, the `query-loops` explainer named whichever a map iteration
 > reached first, and ente and nhost had the same tie.
 
@@ -997,7 +1057,7 @@ so the demonstration proves its own limit in the same run.
 | Largest Scala | Spark — 5,742 files, 220,768 facts, 9.7s / 7.6s |
 | Largest Go | Grafana — 11,365 files, 214,666 facts, 11.2s / 6.3s |
 | Throughput | 1,500 to 37,000 facts/sec cold, depending on language |
-| Parse errors, all 107 repositories | **32 files read only in part**, all Ruby (openproject 19, devise 9, fastlane 2, grape 2): tree-sitter error nodes the Ruby extractor counts and names since v413, rather than reading around them silently |
+| Parse errors, all 113 repositories | **32 files read only in part**, all Ruby (openproject 19, devise 9, fastlane 2, grape 2): tree-sitter error nodes the Ruby extractor counts and names since v413, rather than reading around them silently |
 | Memory | peak heap per run is recorded by the sweep (`--memstats`) alongside time and hashes. The Linux kernel is the high-water mark at **6,997 MiB**; only six others exceed 1 GiB (GitLab 2,738, dotnet/runtime 2,311, VS Code 1,772, dart-sdk 1,596, roslyn 1,579, rust-lang/rust 1,469). No repository required tuning on this machine |
 
 Times here are the engine's own `duration` for the snapshot. Warm runs are 1.1×–12.6×

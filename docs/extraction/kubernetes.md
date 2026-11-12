@@ -1,0 +1,258 @@
+# Kubernetes: objects joined by the names they use
+
+A manifest's structure is by name and by label, and both are literal. A Service
+selects the pods whose labels it names, an Ingress names the Services it sends to, a
+Deployment names the ConfigMaps, Secrets, claims and service account its pods use, a
+RoleBinding names its Role. The extractor reads those names and resolves them against
+the objects the repository declares. Nothing is rendered or substituted.
+
+Fixture: [`k8s_sample`](../../internal/engine/testdata/repos/k8s_sample/)
+
+## At a glance
+
+| You write | enola stores | Kind |
+|---|---|---|
+| a directory holding manifests | one module, keyed by that path | `module` |
+| a document with `apiVersion`, `kind` and a literal `metadata.name` | a symbol named `<dir>.<Kind>.<name>`, with `k8s_kind`, `api_version`, `namespace` | `symbol` |
+| a pod template's container images | `images` on the workload, sorted | props |
+| a Service's `selector` | `depends_on` to every workload whose pod labels carry it | relation |
+| an Ingress backend, `ingressClassName` | `depends_on` to the Service, the IngressClass | relation |
+| an HTTPRoute (or GRPC, TCP, TLS, UDP route) | `depends_on` to its `parentRefs` and `backendRefs` | relation |
+| `envFrom`, `valueFrom`, `volumes`, `imagePullSecrets`, `serviceAccountName` | `depends_on` from the workload to each ConfigMap, Secret, claim and ServiceAccount | relation |
+| a RoleBinding or ClusterRoleBinding | `depends_on` to its `roleRef` and ServiceAccount subjects | relation |
+| an HPA, VPA or PodDisruptionBudget | `depends_on` to the workload it scales or protects | relation |
+| an Ingress's hosts and paths | `ingress_paths` on the Ingress, never a route | props |
+| an env value or ConfigMap entry that is a Service's address | `depends_on` to that Service | relation |
+| an image `skaffold.yaml` builds | `build_contexts` on the workload, and an `imports` dependency from its directory to the code modules there | props, `dependency` |
+| a `kustomization.yaml` | a symbol `<dir>.Kustomization` (or `.Component`) | `symbol` |
+| its `resources`, `bases`, `components` | `depends_on` to the objects in the files it lists and to the kustomizations it includes | relation |
+| its `patches` | `depends_on` to each object a patch targets; the patch file is not an object | relation |
+| `configMapGenerator`, `secretGenerator` | an object like any other, with `generator` naming the field, on the line naming it | `symbol` |
+| `namespace`, `namePrefix`, `nameSuffix`, `images`, remote resources | props on the kustomization, applied to no object | props |
+| `{{ .Values.x }}`, `${VAR}` | nothing: a template is not a name | none |
+
+## Objects become symbols in their directory's module
+
+```yaml
+# k8s/api.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+spec:
+  template:
+    metadata:
+      labels:
+        app: api
+    spec:
+      serviceAccountName: api
+      containers:
+        - name: api
+          image: example/api:1.4
+          envFrom:
+            - configMapRef:
+                name: api-config
+          env:
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: db
+                  key: password
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api
+spec:
+  selector:
+    app: api
+```
+
+```
+module  k8s
+symbol  k8s.Deployment.api   k8s/api.yaml:1   props: k8s_kind=Deployment, images=[example/api:1.4]
+        relations: depends_on -> k8s.ConfigMap.api-config,
+                   depends_on -> k8s.Secret.db,
+                   depends_on -> k8s.ServiceAccount.api
+symbol  k8s.Service.api      k8s/api.yaml:28  props: k8s_kind=Service
+        relations: depends_on -> k8s.Deployment.api
+```
+
+A directory is a module because it is what `kubectl apply -f` takes, the same choice
+the Terraform extractor makes. Each symbol sits on the line its document starts on.
+A `kind: List` contributes its items. When two objects of one kind and name share a
+directory and differ only by namespace, each name ends in `@<namespace>`.
+
+## Names resolve in the directory, then in each build, then only when unique
+
+A reference resolves to the one object of that kind and name in the referrer's own
+directory. If there is none, every kustomize build holding the referrer answers on
+its own: a build that emits exactly one object of that kind and name contributes an
+edge to it. If no build emits one, the reference resolves to the one object of that
+kind and name in the whole repository. If there are several, or none, it draws
+nothing. Namespaces must
+agree when both sides state one; cluster-scoped kinds (ClusterRole, StorageClass,
+IngressClass and the like) match from any namespace.
+
+In the fixture, `deploy/rbac/roles/reader/role.yaml` binds the ServiceAccount `api`,
+which is declared once, in `k8s/`:
+
+```
+symbol  deploy/rbac/roles/reader.RoleBinding.api-reader
+        relations: depends_on -> deploy/rbac/roles/reader.Role.reader,
+                   depends_on -> k8s.ServiceAccount.api
+```
+
+A repository that keeps a copy of the same manifests per environment, with no
+kustomization joining them, declares every name more than once, so a reference across
+directories there draws nothing rather than picking a copy.
+
+## A kustomization is a build
+
+```yaml
+# overlays/prod/kustomization.yaml
+namespace: shop
+namePrefix: prod-
+resources:
+  - ../../k8s
+  - https://github.com/example/observability//collector?ref=v2.1.0
+images:
+  - name: example/web
+    newTag: "2.1"
+configMapGenerator:
+  - name: web-flags
+    literals:
+      - CHECKOUT_V2=true
+patches:
+  - path: web-replicas.yaml
+```
+
+```
+symbol  overlays/prod.Kustomization   overlays/prod/kustomization.yaml:1
+        props: namespace=shop, name_prefix=prod-, patches=1,
+               image_overrides=[example/web=example/web:2.1],
+               remote_resources=[https://github.com/example/observability//collector?ref=v2.1.0]
+        relations: depends_on -> k8s.Deployment.web,
+                   depends_on -> k8s.Kustomization,
+                   depends_on -> overlays/prod.ConfigMap.web-flags
+symbol  overlays/prod.ConfigMap.web-flags   overlays/prod/kustomization.yaml:12
+        props: generator=configMapGenerator, namespace=shop
+```
+
+`web-replicas.yaml` is a partial Deployment, so it is not an object; it becomes the
+edge to `k8s.Deployment.web`, the object it patches in this build. Patches are read in
+all three forms: a path, a `target` with an inline JSON 6902 patch, and an inline
+strategic-merge patch whose `kind` and `metadata.name` name its target.
+
+The prefix, the namespace and the image override are recorded and applied to nothing.
+One base serves every overlay that includes it, and each overlay renames it
+differently; the base's objects keep the names their files state, which are also the
+names every reference in the base uses.
+
+A base can mean a different object in each build that includes it. In kubeflow's
+katib, the `db-manager` component names the Secret `katib-mysql-secrets`: one install
+generates it, another ships a manifest for it. Each build emits exactly one, so the
+Deployment carries one edge per build. A remote resource is counted, never fetched.
+
+## What is not an object
+
+A document counts only when its `apiVersion` is one Kubernetes serves (`v1`, a legacy
+group such as `apps/v1`, or a dotted group such as `networking.k8s.io/v1`) and it has
+a kind and a literal `metadata.name`. That keeps out a tool's own configuration that
+happens to carry `apiVersion` and `kind`: `skaffold.yaml`, a kubeconfig, a kind
+cluster config, a `kustomization.yaml`. A document that fails to parse ends its file.
+
+The extractor reads YAML itself, because YAML is ignore-globbed by default, and skips
+dot directories, `testdata`, `vendor`, `node_modules` and every Helm chart's tree.
+
+## Detection is by file name
+
+The set of extractors a repository is detected for is part of its snapshot, so
+detection must not flip on every YAML file a repository carries. It reads names only:
+a `kustomization.yaml`, or a YAML file under a directory such as `k8s/`,
+`kubernetes/`, `manifests/`, `deploy/` or `overlays/`, or one whose name is a kind
+(`web-deployment.yaml`, `service.yaml`, `crashing-pod.yaml`). Files inside a chart and dot directories do
+not count. A manifest in a directory with none of those names, in a repository with
+no other marker, is not read; that is a stated blind spot.
+
+## Ingress paths are not routes
+
+`k8s.Ingress.public` carries `ingress_paths: [shop.example.com/, shop.example.com/api]`
+and no route fact. An ingress prefix is where traffic enters, not an endpoint, and as
+a route it would be matched against every HTTP client in a cluster.
+
+## Workloads find each other by address
+
+Services in a cluster are told where their peers are through literal values:
+microservices-demo's checkout service gets `CART_SERVICE_ADDR=cartservice:7070`. An env
+value, or an entry of a ConfigMap a pod reads, that is an address of a Service the
+repository declares is a dependency on that Service:
+
+```yaml
+# k8s/web.yaml (excerpt)
+env:
+  - name: API_URL
+    value: http://api:80
+  - name: FEATURE
+    value: api
+```
+
+```
+symbol  k8s.Deployment.web
+        relations: depends_on -> k8s.Service.api
+```
+
+Env values are arbitrary text and Services are often named after common words, so an
+address is narrow: a URL, a `host:port` pair, a gRPC `dns:///host:port` target, or a
+cluster name ending in `.svc` or `.svc.cluster.local`. `FEATURE=api` above names
+nothing. A second label is read as the namespace only before `.svc`
+(`cart.shop.svc.cluster.local`), so `cart.example.com` is never the cart Service.
+When the address states a port and the Service declares ports, the port must be one
+of them. The name then resolves by the rules above.
+
+On microservices-demo this is the application's whole service graph, and it matches
+the project's architecture diagram edge for edge: the frontend reaches eight
+services, checkout six, cart reaches redis, recommendation the product catalog, the
+load generator the frontend. On the other corpus repositories it adds six edges, each
+checked by hand: gateways reaching `istiod.istio-system.svc:15012`, a cache-warming
+CronJob calling `http://frontend`, a user service reaching `user-db:27017`.
+
+## A workload runs the code its image is built from
+
+`skaffold.yaml` states which directory each image is built from. A workload running
+one of those images (by name, or by the image's last path segment when the artifact
+is named without a registry, which is how skaffold's default repository rewrites it)
+carries `build_contexts`, and a binder joins each directory to the modules the other
+extractors found in it:
+
+```
+symbol      k8s.Deployment.api   props: images=[example/api:1.4], build_contexts=[src/api]
+dependency  k8s -> example.com/shop/src/api   props: source=build_context
+            relations: imports -> example.com/shop/src/api
+```
+
+The edge sits at the module layer because a manifest deploys a program, not one of its
+functions. It is drawn by a binder, after every extractor, because the module's name
+is the other extractor's to decide: a Go package is named by its import path, a C#
+project by its directory. Change microservices-demo's `src/checkoutservice` and impact
+analysis reaches `kubernetes-manifests`, `kustomize/base` and `release`, the three
+places that deploy it.
+
+## What is deliberately not extracted
+
+- **Rendering and substitution.** No Helm template or `envsubst` placeholder is
+  evaluated, and no kustomize build is run: prefixes, suffixes, namespaces,
+  `replacements` and `vars` are not applied. A templated name draws nothing.
+- **Remote kustomize resources** are listed on the kustomization, never fetched.
+- **Kustomizations inside a Helm chart's tree** belong to the chart and are not read.
+- **What a cluster adds at apply time.** Admission webhooks, defaulted fields,
+  controllers creating objects (a Deployment's ReplicaSets, an operator's children)
+  are runtime, not architecture.
+- **Ambiguous names.** A name declared more than once outside the referrer's
+  directory resolves to nothing, rather than to a guess.
+- **Ingress paths as routes**, for the reason above.
+- **Addresses that are not literal** (`$(CART_HOST):7070`, a value from a Secret), a
+  bare service name, and a host outside the cluster's service names.
+- **Image builds other than skaffold's.** A Dockerfile path, a Makefile or a CI
+  pipeline that builds an image states its directory in a form this does not read.
+- **Manifests outside the detection names**, in a repository with no other marker.

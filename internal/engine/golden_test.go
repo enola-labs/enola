@@ -134,6 +134,30 @@ var fixtures = []fixture{
 	// role edges, templates count without rendering. Self-walking (YAML is
 	// ignore-globbed), so the fixture also pins that the walk stays in bounds.
 	{name: "ansible_sample", subRepos: []string{"."}},
+	// Kubernetes: objects as symbols in their directory's module, a Service selecting
+	// its Deployment by label, an Ingress naming two Services, a pod's ConfigMap,
+	// Secret and service account, an HPA's target, and a RoleBinding reaching a
+	// ServiceAccount declared in another directory because the name is unique. The
+	// RBAC files sit under deploy/rbac/roles/, which pins v577's Ansible half by
+	// ABSENCE: a directory named roles is not an Ansible role. v578 adds kustomize:
+	// k8s/ is a base and overlays/prod an overlay that builds on it, patches the web
+	// Deployment from a file that is therefore not an object, generates a ConfigMap,
+	// and records its prefix, namespace, image override and remote resource. v581
+	// adds wiring: web's API_URL is an address of the api Service (its FEATURE=api is
+	// a bare word and is not), and skaffold builds example/api from src/api, so the
+	// workload-source binder joins k8s/ to the Go package there.
+	{name: "k8s_sample", subRepos: []string{"."}},
+	// Helm: a library chart reached by name from a registry dependency its version
+	// satisfies, a file:// dependency, a vendored subchart, a remote dependency left
+	// to its registry, named templates called across charts, resources named by
+	// their template file, a CRD read as YAML. deploy/ inflates the local chart
+	// through kustomize helmCharts, which pins the edge between the two extractors
+	// and that the kubernetes extractor leaves every chart's tree to helm. v580 adds
+	// values: shop's keys are symbols, `.Values` reads are names edges (fullnameOverride
+	// is read by common's define on shop's behalf and credited to shop's resources),
+	// NOTES.txt carries its reads on a file_ref, postgresql is a dependency's key and
+	// no value of shop's, and legacyCheckout is the value nothing reads.
+	{name: "helm_sample", subRepos: []string{"."}},
 	{name: "ruby_sample", subRepos: []string{"."}},
 	{name: "swift_sample", subRepos: []string{"."}},
 	{name: "kotlin_sample", subRepos: []string{"."}},

@@ -1,0 +1,15 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "common.names.fullname" . }}
+  labels: {{- include "common.labels.standard" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  template:
+    metadata:
+      labels: {{- include "common.labels.standard" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "shop.serviceAccountName" . }}
+      containers:
+        - name: shop
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"

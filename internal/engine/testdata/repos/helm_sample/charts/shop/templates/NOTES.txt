@@ -1,0 +1,2 @@
+The shop is listening on port {{ .Values.service.port }}.
+Release: {{ include "common.names.fullname" . }}

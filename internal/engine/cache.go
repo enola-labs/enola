@@ -3540,7 +3540,51 @@ import (
 // v575: Go: an HTTP helper's path built with fmt.Sprintf is read at its call site.
 // v576: TypeScript: a verb call on a client the file builds reads a path relative
 // to its base URL (gateway.post(`orders/v1/carts/${id}`)), rooted at "/".
-const cacheVersion = "v576"
+// v577: Kubernetes manifests are read: each object is a symbol named
+// <dir>.<Kind>.<name> in its directory's module, and the names it uses (a Service's
+// selector, an Ingress or HTTPRoute backend, a pod's ConfigMaps, Secrets, claims and
+// service account, a binding's role, a scaler's target) are depends_on edges,
+// resolved in the same directory first and then only when unique. Ansible detects
+// a role only by a roles/<name>/ directory holding tasks, handlers, meta, defaults
+// or vars, so a directory merely named roles is no longer Ansible.
+// v578: kustomize. A kustomization is a symbol depending on the objects in the files
+// it lists, the kustomizations and components it includes, and the objects its
+// patches target; a patch file is no longer an object; configMapGenerator and
+// secretGenerator entries are objects. A reference resolves in the referrer's
+// directory, else in each kustomize build holding it (one edge per build that emits
+// exactly one candidate), else uniquely in the repository.
+// v579: Helm. A chart is a module and a symbol <dir>.Chart.<name> depending on the
+// charts it loads (its charts/ subcharts, file:// dependencies, and a registry
+// dependency the repository holds as the one chart of that name whose version
+// satisfies the constraint) and on the resources its templates emit. Named
+// templates are symbols; include and template actions are calls edges, resolved in
+// the chart and then across what it loads, unique or not at all. Resources are named
+// by a literal metadata.name or by their path under templates/. Chart.yaml (and a
+// Helm 2 requirements.yaml) dependencies are declared packages of a new helm
+// ecosystem, resolved against the chart's own Chart.lock. A kustomization's
+// helmCharts entry depends on the chart when the repository holds it.
+// v580: Helm values. Keys of a chart's values.yaml two levels deep are variable
+// symbols (global and keys passed to a loaded chart excluded); every .Values read,
+// through $, a root-holding variable, a dict key, index with literal or variable
+// keys, a dotted path string the chart declares, or a template written inside
+// values.yaml, is a names edge. A read made by another chart's named template is
+// credited to this chart's carrier that reaches it. NOTES.txt and files with no
+// literal kind carry their calls and reads on a file_ref; template actions spanning
+// lines are read whole. A library chart's module is published, and an unread helm
+// value is a high-confidence orphan.
+// v581: wiring between workloads. A literal env value, or a ConfigMap entry, that is
+// an address (a URL, host:port, dns:///host:port, or a .svc name) of a Service the
+// repository declares is a depends_on edge to it, port checked against the Service's
+// ports; a bare word never is. A workload whose image skaffold.yaml builds carries
+// build_contexts, and the workload-source binder draws a module dependency from the
+// manifest's directory to each code module in that build directory.
+// v582: a kustomize generator's object says which field generates it in `generator`,
+// no longer in `generated`, which the engine sets on facts from files with a
+// code-generator banner (release manifests carry one). Every literal kind at column 0
+// outside a define is a Helm resource, so the alternatives of an if/else in one
+// document are each a symbol sharing the document's references. A YAML file named
+// *pod.yaml marks a repository as holding manifests.
+const cacheVersion = "v582"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

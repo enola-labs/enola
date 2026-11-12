@@ -3,6 +3,10 @@ package manifestextractor
 import (
 	"encoding/json"
 	"strings"
+
+	"gopkg.in/yaml.v3"
+
+	"github.com/enola-labs/enola/internal/factpath"
 )
 
 // lockNames are the resolution files read beside a manifest. They are owned for
@@ -15,6 +19,8 @@ var lockNames = map[string]bool{
 	"Gemfile.lock":      true,
 	"Cargo.lock":        true,
 	"pubspec.lock":      true,
+	"Chart.lock":        true,
+	"requirements.lock": true,
 }
 
 // readGoMod reads a go.mod's require directives.
@@ -831,4 +837,73 @@ func unquote(s string) string {
 		}
 	}
 	return s
+}
+
+// helmDeps is the dependencies list of a Chart.yaml (apiVersion v2), a Helm 2
+// requirements.yaml, and either one's lockfile.
+type helmDeps struct {
+	Dependencies []struct {
+		Name       string `yaml:"name"`
+		Version    string `yaml:"version"`
+		Repository string `yaml:"repository"`
+		Alias      string `yaml:"alias"`
+	} `yaml:"dependencies"`
+}
+
+// readChart reads a Helm chart's dependencies: Chart.yaml's own list, or for a
+// Helm 2 chart the requirements.yaml beside it. Each lockfile is read only beside
+// its own chart, never from an ancestor: a subchart with no lock of its own is not
+// resolved by its parent's, which locks the parent's dependencies.
+//
+// A file:// dependency is a chart the repository holds, so it carries its path like
+// a Cargo path dependency and is never read as a package from elsewhere. The helm
+// extractor draws the structural edge to it; this fact is the declaration.
+func readChart(rc *readCtx, relFile string) []pkgDep {
+	dir := factpath.Dir(relFile)
+	beside := func(name string) string {
+		if dir == "." {
+			return name
+		}
+		return dir + "/" + name
+	}
+	var chart helmDeps
+	if yaml.Unmarshal([]byte(rc.read(relFile)), &chart) != nil {
+		return nil
+	}
+	manifest, lockName := relFile, "Chart.lock"
+	if len(chart.Dependencies) == 0 {
+		if text := rc.read(beside("requirements.yaml")); text != "" {
+			if yaml.Unmarshal([]byte(text), &chart) != nil {
+				return nil
+			}
+			manifest, lockName = beside("requirements.yaml"), "requirements.lock"
+		}
+	}
+	resolved := map[string]string{}
+	unread := ""
+	if text := rc.read(beside(lockName)); text != "" {
+		var lock helmDeps
+		if yaml.Unmarshal([]byte(text), &lock) == nil {
+			for _, d := range lock.Dependencies {
+				resolved[d.Name] = d.Version
+			}
+		} else {
+			unread = beside(lockName)
+		}
+	}
+	var out []pkgDep
+	for _, d := range chart.Dependencies {
+		if d.Name == "" {
+			continue
+		}
+		dep := pkgDep{
+			Name: d.Name, Ecosystem: EcosystemHelm, Constraint: d.Version,
+			Resolved: resolved[d.Name], Manifest: manifest, LockUnread: unread,
+		}
+		if strings.HasPrefix(d.Repository, "file://") {
+			dep.Path = strings.TrimPrefix(d.Repository, "file://")
+		}
+		out = append(out, dep)
+	}
+	return out
 }
