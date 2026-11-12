@@ -64,6 +64,8 @@ type fixedGraph struct {
 	err error
 	// loads counts the graphs read, so a reload is told from the first load.
 	loads int
+	// phase is the pool's, told of every graph read.
+	phase func(name string, factCount int)
 }
 
 // ServeFixed makes the pool serve repoPaths, restored from their artifacts on disk,
@@ -84,6 +86,7 @@ func (p *Pool) ServeFixed(ctx context.Context, repoPaths []string) error {
 		paths:   repoPaths,
 		restore: p.restore,
 		meta:    filepath.Join(p.outputDirFor(repoPaths[0]), "snapshot.meta.json"),
+		phase:   p.phase,
 	}
 	s.fixed = fg
 	p.fixedServer = s
@@ -105,7 +108,6 @@ func (p *Pool) ServeFixed(ctx context.Context, repoPaths []string) error {
 func (fg *fixedGraph) load(eng *engine.Engine, st fileStamp) {
 	err := fg.restore(eng, fg.paths)
 	fg.mu.Lock()
-	defer fg.mu.Unlock()
 	fg.seen = fileStamp{}
 	if err != nil {
 		if eng.Graph() == nil {
@@ -114,11 +116,18 @@ func (fg *fixedGraph) load(eng *engine.Engine, st fileStamp) {
 		log.Printf("[serve] could not load the graph of %s: %v", strings.Join(fg.paths, ", "), err)
 		// Remember what failed, so the same broken artifacts are not read every interval.
 		fg.loaded = st
+		fg.mu.Unlock()
 		return
 	}
 	reload := fg.loads > 0
 	fg.loaded, fg.err = st, nil
 	fg.loads++
+	fg.mu.Unlock()
+	if reload {
+		fg.phase("reload", eng.Graph().FactCount())
+	} else {
+		fg.phase("load", eng.Graph().FactCount())
+	}
 	snap := eng.Snapshot()
 	log.Printf("[serve] serving the graph of %s: %d facts, snapshot %s from %s",
 		strings.Join(fg.paths, ", "), eng.Graph().FactCount(), snap.Meta.SnapshotID, snap.Meta.GeneratedAt)

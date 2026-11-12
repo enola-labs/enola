@@ -83,6 +83,9 @@ type sessionState struct {
 	// inflight counts this session's calls running now: a graph a call is reading is
 	// never dropped.
 	inflight int
+	// restored is the graph begin reloaded for the call running now, so end publishes
+	// it without reporting it as built.
+	restored *engine.Graph
 }
 
 // NewPool creates a served instance. sc.MemoryBudget of zero means no budget.
@@ -190,11 +193,37 @@ func (p *Pool) begin(s *Server) {
 		return
 	}
 	s.AddNotice(fmt.Sprintf("The graph of %s was unloaded to stay inside the server's memory budget, and was reloaded from disk for this call.", strings.Join(reload, ", ")))
+	g := s.eng.Graph()
+	p.mu.Lock()
+	st.restored = g
+	p.mu.Unlock()
+	p.phase("restore", g.FactCount())
+}
+
+// phase tells the operator's OnPhase that the instance changed what it holds:
+//
+//	load     a fixed instance read its graph at start
+//	reload   a fixed instance read the graph the operator wrote again
+//	build    a session's call built a graph
+//	restore  a session's graph, unloaded for the budget, was read back from disk
+//	unload   graphs were unloaded for the budget, and the heap given back
+//
+// Never called with p.mu held: the memory instrument stops the world for a GC.
+func (p *Pool) phase(name string, factCount int) {
+	if p.sc.OnPhase != nil {
+		p.sc.OnPhase(name, factCount)
+	}
 }
 
 // end runs after each tool call of s: it publishes a graph the call built and holds
 // the pool to its budget.
 func (p *Pool) end(s *Server) {
+	built := 0
+	defer func() {
+		if built > 0 {
+			p.phase("build", built)
+		}
+	}()
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	st := p.sessions[s]
@@ -202,7 +231,13 @@ func (p *Pool) end(s *Server) {
 		return
 	}
 	st.inflight--
+	restored := st.restored
+	st.restored = nil
 	if g := s.eng.Graph(); g != nil && !g.Same(st.graph) {
+		// Adopted from the pool or reloaded by begin, it was not built by this call.
+		if p.entryFor(g) == nil && !g.Same(restored) {
+			built = g.FactCount()
+		}
 		st.graph = g
 		p.publishLocked(g)
 	} else if pg := p.entryFor(st.graph); pg != nil {
@@ -261,6 +296,7 @@ func (p *Pool) enforceLocked() {
 				var m runtime.MemStats
 				runtime.ReadMemStats(&m)
 				log.Printf("[pool] heap after unloading: %d MiB live, %d MiB held from the OS", m.HeapAlloc>>20, (m.HeapSys-m.HeapReleased)>>20)
+				p.phase("unload", 0)
 			}()
 		}
 	}()

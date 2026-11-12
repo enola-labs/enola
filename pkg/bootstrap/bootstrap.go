@@ -665,6 +665,10 @@ type ServeOptions struct {
 	// ReloadInterval is how often a fixed instance looks for newer artifacts; zero
 	// means 5 seconds.
 	ReloadInterval time.Duration
+	// OnPhase is told when the instance has loaded, reloaded, built, restored or
+	// unloaded a graph; nil is told nothing. MarkMemPhase reports each to the memory
+	// instrument.
+	OnPhase func(phase string, factCount int)
 }
 
 // HTTPOptions configure the transport of a served instance.
@@ -727,6 +731,7 @@ func NewServedPool(ctx context.Context, cfg *config.Config, opts ServeOptions) (
 		CallTimeout:    opts.CallTimeout,
 		MemoryBudget:   opts.MemoryBudget,
 		ReloadInterval: opts.ReloadInterval,
+		OnPhase:        opts.OnPhase,
 	}, build, restore, cfg.OutputDirFor)
 	if err != nil {
 		return nil, nil, err

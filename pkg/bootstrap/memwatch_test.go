@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -114,4 +116,60 @@ func waitForPeak(t *testing.T, w *MemWatch) {
 		sleepTick()
 	}
 	t.Fatal("sampler recorded no heap reading")
+}
+
+// A served instance is sized by its worst phase, so each mark reports the peak since
+// the previous one: a phase that allocated nothing must not inherit the peak of the
+// load before it. The line is parsed by enola-benchmarks, like the summary line.
+func TestMemWatch_MarkReportsThePeakOfItsPhase(t *testing.T) {
+	w := StartMemWatch("")
+	defer w.Report(&bytes.Buffer{}, 0)
+
+	big := make([]byte, 64<<20)
+	for i := range big {
+		big[i] = 1
+	}
+	for range 3 {
+		sleepTick() // let the sampler see it
+	}
+	runtime.KeepAlive(big)
+	var a bytes.Buffer
+	w.Mark(&a, "load", 42) // the buffer is garbage now, but it was the phase's peak
+
+	var b bytes.Buffer
+	w.Mark(&b, "reload", 7)
+
+	for _, field := range []string{"[memwatch] phase=load ", "peakHeapMiB=", "steadyHeapMiB=", "mallocs=", "facts=42", "phaseMs="} {
+		if !strings.Contains(a.String(), field) {
+			t.Errorf("mark line lacks %q: %q", field, a.String())
+		}
+	}
+	peakA, peakB := field(t, a.String(), "peakHeapMiB"), field(t, b.String(), "peakHeapMiB")
+	if peakA < 64 {
+		t.Errorf("the load phase held 64 MiB and reported a peak of %d", peakA)
+	}
+	if peakB >= 64 {
+		t.Errorf("the reload phase allocated nothing and reported a peak of %d: it inherited the load's", peakB)
+	}
+}
+
+// MarkMemPhase without a watch is the uninstrumented server, and does nothing.
+func TestMemWatch_MarkWithoutWatchIsSafe(t *testing.T) {
+	var w *MemWatch
+	w.Mark(&bytes.Buffer{}, "load", 1)
+}
+
+func field(t *testing.T, line, key string) int {
+	t.Helper()
+	for _, kv := range strings.Fields(line) {
+		if v, ok := strings.CutPrefix(kv, key+"="); ok {
+			n, err := strconv.Atoi(v)
+			if err != nil {
+				t.Fatalf("%s=%q is not a number", key, v)
+			}
+			return n
+		}
+	}
+	t.Fatalf("no %s in %q", key, line)
+	return 0
 }

@@ -50,6 +50,11 @@ type ServeConfig struct {
 	// disk for a newer snapshot; zero means 5 seconds. See ServeFixed.
 	ReloadInterval time.Duration
 
+	// OnPhase is told when the instance has loaded, reloaded, built, restored or
+	// unloaded a graph, with the facts it now holds; nil is told nothing. The memory
+	// instrument marks its phases with it. See Pool.phase for the names.
+	OnPhase func(phase string, factCount int)
+
 	// pool is the served instance this session's Server belongs to; set by Pool.
 	pool *Pool
 	// fixedPaths are the repositories a fixed instance serves; nil otherwise. Set by

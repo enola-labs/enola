@@ -6,6 +6,7 @@ import (
 	"os"
 	"runtime"
 	"runtime/pprof"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -39,7 +40,20 @@ type MemWatch struct {
 	done        chan struct{}
 	peak        atomic.Uint64
 	start       time.Time
+
+	// The phase half, for a long-running server: Mark reports the peak since the
+	// previous mark rather than since start, so a reload is not hidden behind the
+	// startup load that came before it.
+	phasePeak   atomic.Uint64
+	markMu      sync.Mutex
+	lastMark    time.Time
+	markMallocs uint64
 }
+
+// activeWatch is the watch this process started, for callers that run far from
+// main and are not handed it: a served instance marks its phases through
+// MarkMemPhase. Nil when no memory flag was given.
+var activeWatch atomic.Pointer[MemWatch]
 
 // Sampling rate. ReadMemStats stops the world, so this trades resolution against
 // perturbing the thing it measures.
@@ -74,8 +88,23 @@ func StartMemWatch(profilePath string) *MemWatch {
 		done:        make(chan struct{}),
 		start:       time.Now(),
 	}
+	w.lastMark = w.start
+	var ms runtime.MemStats
+	runtime.ReadMemStats(&ms)
+	w.markMallocs = ms.Mallocs
+	activeWatch.Store(w)
 	go w.run()
 	return w
+}
+
+// raise stores v in a if it is higher than what a holds.
+func raise(a *atomic.Uint64, v uint64) {
+	for {
+		cur := a.Load()
+		if v <= cur || a.CompareAndSwap(cur, v) {
+			return
+		}
+	}
 }
 
 func (w *MemWatch) run() {
@@ -91,6 +120,7 @@ func (w *MemWatch) run() {
 			return
 		case <-t.C:
 			runtime.ReadMemStats(&ms)
+			raise(&w.phasePeak, ms.HeapAlloc)
 			if ms.HeapAlloc > w.peak.Load() {
 				w.peak.Store(ms.HeapAlloc)
 				w.writeProfile(w.profilePath)
@@ -165,4 +195,43 @@ func (w *MemWatch) Report(out io.Writer, factCount int) {
 		_, _ = fmt.Fprintf(out, "[memwatch] wrote %s (peak) and %s.final (steady state)\n",
 			w.profilePath, w.profilePath)
 	}
+}
+
+// MarkMemPhase marks the end of a phase of a long-running process on the watch this
+// process started, writing to stderr; it does nothing when no memory flag was given.
+// See MemWatch.Mark.
+func MarkMemPhase(phase string, factCount int) {
+	activeWatch.Load().Mark(os.Stderr, phase, factCount)
+}
+
+// Mark writes one line for the phase that just ended: the peak heap since the
+// previous mark (or since start), the heap retained once it is over, and the
+// allocations made in between. A served instance calls it after it loads, reloads,
+// builds or unloads a graph, because its exit-time Report would fold all of those
+// into one peak, and a server is sized by the worst of them, not by their maximum
+// alone.
+//
+// Everything is process-wide: calls served during the phase count towards it, and
+// two phases ending together share their figures. mallocs is the deterministic one
+// for a phase with no traffic, such as the startup load.
+func (w *MemWatch) Mark(out io.Writer, phase string, factCount int) {
+	if w == nil {
+		return
+	}
+	w.markMu.Lock()
+	defer w.markMu.Unlock()
+
+	var ms runtime.MemStats
+	runtime.ReadMemStats(&ms)
+	raise(&w.phasePeak, ms.HeapAlloc) // the sampler may not have ticked since the peak
+	peak := w.phasePeak.Load()
+	runtime.GC()
+	runtime.ReadMemStats(&ms)
+	now := time.Now()
+
+	_, _ = fmt.Fprintf(out, "[memwatch] phase=%s peakHeapMiB=%d steadyHeapMiB=%d mallocs=%d facts=%d phaseMs=%d\n",
+		phase, peak>>20, ms.HeapAlloc>>20, ms.Mallocs-w.markMallocs, factCount, now.Sub(w.lastMark).Milliseconds())
+
+	w.lastMark, w.markMallocs = now, ms.Mallocs
+	w.phasePeak.Store(ms.HeapAlloc)
 }
