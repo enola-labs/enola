@@ -387,6 +387,11 @@ func (w *walker) classDecl(n *sitter.Node, construct string) {
 	if parent := childOfKind(n, "superclass"); parent != nil {
 		if typ := declaredReceiverType(parent, w.src); typ != "" {
 			props["extends_type"] = typ
+			if typ == "State" {
+				if args := dartTypeArguments(dartWrittenType(parent, w.src)); len(args) == 1 {
+					props["state_widget"] = args[0]
+				}
+			}
 		}
 	}
 	mixins := childOfKind(n, "mixins")

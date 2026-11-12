@@ -324,6 +324,13 @@ func (r *dartMemberResolver) expressionType(expr string, from *facts.Fact, local
 			if typ.Name == "" {
 				typ = r.globalValueType("", name, from, seen)
 			}
+			if typ.Name == "" && name == "widget" {
+				if owner := r.lexicalOwner(from); owner != nil {
+					if arg := owner.PropString("state_widget"); arg != "" && !r.typeHasParameter(arg, from) {
+						typ = dartValueType{Name: arg, File: owner.File}
+					}
+				}
+			}
 			if typ.Name == "" {
 				owner := r.lexicalOwner(from)
 				_, memberBound := r.lookupMember(owner, name)

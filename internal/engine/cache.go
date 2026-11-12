@@ -3627,7 +3627,8 @@ import (
 // initializer aliases; SDK manifest URIs, implicit core and prefixed constructors.
 // v596: Dart receiver types keep their type arguments, so a field, getter or
 // method result declared as a class type parameter resolves to the argument.
-const cacheVersion = "v596"
+// v597: Dart: widget in a class extending State<X> is an X.
+const cacheVersion = "v597"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

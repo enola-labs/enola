@@ -69,3 +69,45 @@ func TestDartGenericReceiverKeepsBaseWhenArgumentIsATypeParameter(t *testing.T) 
 		t.Errorf("unexpected target: %+v", f)
 	}
 }
+
+func TestDartStateWidgetResolvesToTheStatefulWidget(t *testing.T) {
+	all := dartReviewFacts(t, map[string]string{
+		"lib/page.dart": `import 'package:http/http.dart';
+ class Controller {void attach() {httpClient.get('/');} void detach() {}}
+ class Other {void attach() {}}
+ class Page { final Controller controller; Page(this.controller); }
+ class State<T> { T get widget => throw 0; }
+ class PageState extends State<Page> {
+   void init() {widget.controller.attach();}
+   void direct() {widget.controller.detach();}
+ }
+ class Generic<T> extends State<Page> { void run(Other widget) {widget.attach();} }
+ `})
+	for _, name := range []string{"lib.PageState.init", "lib.PageState.direct"} {
+		want := "lib.Controller.attach"
+		if name == "lib.PageState.direct" {
+			want = "lib.Controller.detach"
+		}
+		if f := findFact(all, facts.KindSymbol, name); !hasReviewCall(f, want) {
+			t.Errorf("%s did not resolve widget: %+v", name, f)
+		}
+	}
+	if f := findFact(all, facts.KindSymbol, "lib.PageState.init"); !f.PropBool("performs_io") {
+		t.Errorf("I/O did not propagate: %+v", f)
+	}
+	if f := findFact(all, facts.KindSymbol, "lib.Generic.run"); hasReviewCall(f, "lib.Controller.attach") {
+		t.Errorf("a parameter named widget was replaced: %+v", f)
+	}
+}
+
+func TestDartStateWidgetWithFrameworkOutsideTheRepo(t *testing.T) {
+	all := dartReviewFacts(t, map[string]string{
+		"lib/page.dart": `import 'package:flutter/widgets.dart';
+ class Controller {void detach() {}}
+ class Page extends StatefulWidget { final Controller controller; Page(this.controller); }
+ class PageState extends State<Page> {void direct() {widget.controller.detach();}}
+ `})
+	if f := findFact(all, facts.KindSymbol, "lib.PageState.direct"); !hasReviewCall(f, "lib.Controller.detach") {
+		t.Errorf("widget did not resolve: %+v", f)
+	}
+}
