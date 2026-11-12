@@ -48,6 +48,7 @@ type MemWatch struct {
 	markMu      sync.Mutex
 	lastMark    time.Time
 	markMallocs uint64
+	marks       int
 }
 
 // activeWatch is the watch this process started, for callers that run far from
@@ -237,4 +238,10 @@ func (w *MemWatch) Mark(out io.Writer, phase string, factCount int) {
 
 	w.lastMark, w.markMallocs = now, ms.Mallocs
 	w.phasePeak.Store(ms.HeapAlloc)
+	w.marks++
+	if w.profilePath != "" {
+		// The retained heap at the end of the phase, after the GC above: what a server
+		// holds between phases is read from these.
+		w.writeProfile(fmt.Sprintf("%s.%d-%s", w.profilePath, w.marks, phase))
+	}
 }
