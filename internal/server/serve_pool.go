@@ -10,11 +10,13 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
@@ -59,6 +61,11 @@ type Pool struct {
 	mu       sync.Mutex
 	graphs   map[string]*pooledGraph
 	sessions map[*Server]*sessionState
+	// restoring are the reloads from disk in flight, by pool key.
+	restoring map[string]*restoreCall
+	// sizes remembers the estimate of each graph only sessions hold, by graph key, so
+	// accounting at the end of every call does not stat its files again.
+	sizes map[any]int64
 	// evictions counts graphs dropped to stay inside the budget, for the log and tests.
 	evictions int
 }
@@ -78,15 +85,30 @@ type sessionState struct {
 	// a restore) is noticed and published.
 	graph *engine.Graph
 	// reload names the repositories of a graph the pool dropped from under this
-	// session, to load again at its next call. Nil when nothing was dropped.
-	reload []string
+	// session, to load again at its next call, and reloadID the snapshot it was. Nil
+	// when nothing was dropped. The artifacts on disk are reloaded only while they
+	// still hold that snapshot: another session indexing these repositories, alone or
+	// linked with others, rewrites them, and serving that would answer for repositories
+	// this session never asked about.
+	reload   []string
+	reloadID string
 	// inflight counts this session's calls running now: a graph a call is reading is
 	// never dropped.
 	inflight int
-	// restored is the graph begin reloaded for the call running now, so end publishes
-	// it without reporting it as built.
-	restored *engine.Graph
 }
+
+// restoreCall is a reload from disk in flight. Sessions whose graph it is wait for it
+// and share what it read, rather than each reading a copy the budget does not see.
+type restoreCall struct {
+	done    chan struct{}
+	g       *engine.Graph
+	err     error
+	waiting []*sessionState
+}
+
+// errReplaced is why a dropped graph is not reloaded: the artifacts it would be read
+// from now hold another snapshot.
+var errReplaced = errors.New("its artifacts on disk now hold another snapshot, written since by a session that indexed these repositories, alone or linked with others")
 
 // NewPool creates a served instance. sc.MemoryBudget of zero means no budget.
 func NewPool(sc ServeConfig, build SessionFactory, restore Restorer, outputDirFor func(string) string) (*Pool, error) {
@@ -99,10 +121,11 @@ func NewPool(sc ServeConfig, build SessionFactory, restore Restorer, outputDirFo
 	}
 	p := &Pool{
 		sc: sc, build: build, restore: restore, outputDirFor: outputDirFor,
-		slots:    make(chan struct{}, limit),
-		graphs:   map[string]*pooledGraph{},
-		checks:   map[any]*currentCheck{},
-		sessions: map[*Server]*sessionState{},
+		slots:     make(chan struct{}, limit),
+		graphs:    map[string]*pooledGraph{},
+		checks:    map[any]*currentCheck{},
+		sessions:  map[*Server]*sessionState{},
+		restoring: map[string]*restoreCall{},
 	}
 	return p, nil
 }
@@ -157,47 +180,124 @@ func (p *Pool) live(id string) bool {
 	return false
 }
 
-// begin runs before each tool call of s: it reloads a graph the pool dropped from
-// under the session, and counts the call as in flight.
-func (p *Pool) begin(s *Server) {
+// begin runs before each tool call of s: it counts the call as in flight and reloads a
+// graph the pool dropped from under the session. A call that builds a graph anyway,
+// generate_snapshot without append, skips the reload. A non-empty result refuses the
+// call with that message: the graph could not be reloaded, and an answer from no graph
+// would be wrong without saying so.
+func (p *Pool) begin(s *Server, builds bool) string {
 	p.mu.Lock()
 	st := p.sessions[s]
 	if st == nil {
 		// Not attached: the call arrived before the initialized notification. Serve it;
 		// it is accounted from its next call on.
 		p.mu.Unlock()
-		return
+		return ""
 	}
 	st.inflight++
-	reload := st.reload
-	st.reload = nil
-	if reload != nil {
-		if pg := p.graphs[graphKey(reload, engine.ExtractorVersion())]; pg != nil {
-			s.eng.Adopt(pg.g)
-			st.graph, pg.lastUsed = pg.g, time.Now()
-			reload = nil
+	paths, want := st.reload, st.reloadID
+	st.reload, st.reloadID = nil, ""
+	if paths == nil || builds {
+		p.mu.Unlock()
+		return ""
+	}
+	key := graphKey(paths, engine.ExtractorVersion())
+	where := strings.Join(paths, ", ")
+	if pg := p.graphs[key]; pg != nil {
+		// Another session holds these repositories. If it is another snapshot of them,
+		// it is the one generate_snapshot would serve now too.
+		st.graph, pg.lastUsed = pg.g, time.Now()
+		p.mu.Unlock()
+		s.eng.Adopt(pg.g)
+		s.AddNotice(fmt.Sprintf("The graph of %s was unloaded to stay inside the server's memory budget; this call is served the copy another session holds.", where))
+		return ""
+	}
+	rc, leader := p.restoring[key], false
+	if rc == nil {
+		rc, leader = &restoreCall{done: make(chan struct{})}, true
+		p.restoring[key] = rc
+	}
+	rc.waiting = append(rc.waiting, st)
+	p.mu.Unlock()
+
+	if leader {
+		// Outside the pool lock: a restore reads a whole graph from disk.
+		g, err := p.reload(s, paths, want)
+		p.mu.Lock()
+		delete(p.restoring, key)
+		rc.g, rc.err = g, err
+		if g != nil {
+			// In the pool and held by every session waiting for it before the lock is let
+			// go: counted by the budget, and busy, so it is not dropped again at once.
+			p.publishLocked(g)
+			for _, w := range rc.waiting {
+				w.graph = g
+			}
+		}
+		p.mu.Unlock()
+		close(rc.done)
+		if err != nil {
+			log.Printf("[pool] did not reload %s: %v", where, err)
+		} else {
+			p.phase("restore", g.FactCount())
+		}
+	} else {
+		<-rc.done
+		if rc.g != nil {
+			if want != "" && rc.g.SnapshotID() != want {
+				p.mu.Lock()
+				st.graph = nil
+				p.mu.Unlock()
+				return fmt.Sprintf("The graph of %s was unloaded to stay inside the server's memory budget and was not reloaded: %v. Call generate_snapshot to build it again.", where, errReplaced)
+			}
+			s.eng.Adopt(rc.g)
 		}
 	}
-	p.mu.Unlock()
-	if reload == nil {
-		return
+	if rc.err != nil {
+		return fmt.Sprintf("The graph of %s was unloaded to stay inside the server's memory budget and was not reloaded: %v. Call generate_snapshot to build it again.", where, rc.err)
 	}
-	// Outside the pool lock: a restore reads a whole graph from disk.
+	s.AddNotice(fmt.Sprintf("The graph of %s was unloaded to stay inside the server's memory budget, and was reloaded from disk for this call.", where))
+	return ""
+}
+
+// reload reads the graph of paths from disk into s's engine, as long as the artifacts
+// still hold the snapshot want: checked before reading, which costs one small file,
+// and again after, for a generate that rewrote them in between.
+func (p *Pool) reload(s *Server, paths []string, want string) (*engine.Graph, error) {
+	if want != "" && p.diskSnapshotID(paths) != want {
+		return nil, errReplaced
+	}
 	s.genMu.Lock()
-	err := p.restore(s.eng, reload)
+	err := p.restore(s.eng, paths)
 	s.genMu.Unlock()
 	if err != nil {
-		log.Printf("[pool] could not reload %s: %v", strings.Join(reload, ", "), err)
-		s.AddNotice(fmt.Sprintf("The graph of %s was unloaded to stay inside the server's memory budget and could not be reloaded from disk (%v). Call generate_snapshot to build it again.",
-			strings.Join(reload, ", "), err))
-		return
+		return nil, err
 	}
-	s.AddNotice(fmt.Sprintf("The graph of %s was unloaded to stay inside the server's memory budget, and was reloaded from disk for this call.", strings.Join(reload, ", ")))
 	g := s.eng.Graph()
-	p.mu.Lock()
-	st.restored = g
-	p.mu.Unlock()
-	p.phase("restore", g.FactCount())
+	if g == nil {
+		return nil, errors.New("the artifacts held no graph")
+	}
+	if want != "" && g.SnapshotID() != want {
+		s.eng.Adopt(nil)
+		return nil, errReplaced
+	}
+	return g, nil
+}
+
+// diskSnapshotID is the snapshot the artifacts of paths hold now, as the restore reads
+// them: from the first repository's output directory.
+func (p *Pool) diskSnapshotID(paths []string) string {
+	raw, err := os.ReadFile(filepath.Join(p.outputDirFor(paths[0]), "snapshot.meta.json"))
+	if err != nil {
+		return ""
+	}
+	var meta struct {
+		SnapshotID string `json:"snapshot_id"`
+	}
+	if json.Unmarshal(raw, &meta) != nil {
+		return ""
+	}
+	return meta.SnapshotID
 }
 
 // phase tells the operator's OnPhase that the instance changed what it holds:
@@ -231,17 +331,31 @@ func (p *Pool) end(s *Server) {
 		return
 	}
 	st.inflight--
-	restored := st.restored
-	st.restored = nil
+	now := time.Now()
 	if g := s.eng.Graph(); g != nil && !g.Same(st.graph) {
-		// Adopted from the pool or reloaded by begin, it was not built by this call.
-		if p.entryFor(g) == nil && !g.Same(restored) {
+		pg := p.graphs[graphKey(g.RepoPaths(), g.ExtractorVersion())]
+		switch {
+		case pg != nil && pg.g.Same(g):
+			// Adopted from the pool: built by nobody now.
+			st.graph, pg.lastUsed = g, now
+		case pg != nil && pg.g.SnapshotID() == g.SnapshotID():
+			// Built the snapshot another session already holds, the two builds having
+			// run at once. Serve the held one and let this copy go, unless another call
+			// of this session is still reading it.
 			built = g.FactCount()
+			if st.inflight == 0 {
+				s.eng.Adopt(pg.g)
+				st.graph, pg.lastUsed = pg.g, now
+			} else {
+				st.graph = g
+			}
+		default:
+			built = g.FactCount()
+			st.graph = g
+			p.publishLocked(g)
 		}
-		st.graph = g
-		p.publishLocked(g)
 	} else if pg := p.entryFor(st.graph); pg != nil {
-		pg.lastUsed = time.Now()
+		pg.lastUsed = now
 	}
 	p.enforceLocked()
 }
@@ -277,10 +391,50 @@ func (p *Pool) lookup(repoPaths []string) *engine.Graph {
 	return nil
 }
 
-// enforceLocked drops least recently used graphs until the pool fits its budget. A
-// graph a call is reading right now is never dropped, so the pool can sit above the
-// budget while every graph in it is busy; it is logged, and the next call to end
-// tries again.
+// holding is one graph the instance holds: in the pool, or only by sessions, such as a
+// session's older snapshot of repositories another session has rebuilt since.
+type holding struct {
+	g        *engine.Graph
+	paths    []string
+	bytes    int64
+	lastUsed time.Time
+	// key is its pool key when the pool holds it; "" when only sessions do.
+	key string
+}
+
+// holdingsLocked is every distinct graph held, each counted once however many
+// sessions serve it. A graph only sessions hold has no last use and goes first.
+func (p *Pool) holdingsLocked() []*holding {
+	seen := map[any]*holding{}
+	var out []*holding
+	for key, pg := range p.graphs {
+		h := &holding{g: pg.g, paths: pg.paths, bytes: pg.bytes, lastUsed: pg.lastUsed, key: key}
+		seen[pg.g.Key()] = h
+		out = append(out, h)
+	}
+	sizes := map[any]int64{}
+	for _, st := range p.sessions {
+		if st.graph == nil || seen[st.graph.Key()] != nil {
+			continue
+		}
+		key := st.graph.Key()
+		b, ok := p.sizes[key]
+		if !ok {
+			b = st.graph.EstimatedBytes(p.outputDirFor)
+		}
+		sizes[key] = b
+		h := &holding{g: st.graph, paths: st.graph.RepoPaths(), bytes: b}
+		seen[key] = h
+		out = append(out, h)
+	}
+	p.sizes = sizes // only the graphs still held, so a dropped one is forgotten
+	return out
+}
+
+// enforceLocked drops least recently used graphs until what the instance holds fits
+// its budget. A graph a call is reading right now is never dropped, so the instance
+// can sit above the budget while every graph is busy; it is logged, and the next call
+// to end tries again.
 func (p *Pool) enforceLocked() {
 	if p.sc.MemoryBudget <= 0 {
 		return
@@ -300,20 +454,33 @@ func (p *Pool) enforceLocked() {
 			}()
 		}
 	}()
-	for p.residentLocked() > p.sc.MemoryBudget {
-		victim := p.victimLocked()
-		if victim == nil {
-			log.Printf("[pool] %d MiB resident, over the %d MiB budget, and every graph is in use",
-				p.residentLocked()>>20, p.sc.MemoryBudget>>20)
+	for {
+		held := p.holdingsLocked()
+		var resident int64
+		for _, h := range held {
+			resident += h.bytes
+		}
+		if resident <= p.sc.MemoryBudget {
+			if evicted {
+				log.Printf("[pool] holding %d graphs, %d MiB estimated, within the %d MiB budget", len(held), resident>>20, p.sc.MemoryBudget>>20)
+			}
 			return
 		}
-		delete(p.graphs, victim.key)
+		victim := p.victimLocked(held)
+		if victim == nil {
+			log.Printf("[pool] holding %d graphs, %d MiB estimated, over the %d MiB budget, and every one is in use",
+				len(held), resident>>20, p.sc.MemoryBudget>>20)
+			return
+		}
+		if victim.key != "" {
+			delete(p.graphs, victim.key)
+		}
 		p.evictions++
 		evicted = true
 		for s, st := range p.sessions {
 			if victim.g.Same(st.graph) {
 				s.eng.Adopt(nil)
-				st.graph, st.reload = nil, victim.paths
+				st.graph, st.reload, st.reloadID = nil, victim.paths, victim.g.SnapshotID()
 			}
 		}
 		log.Printf("[pool] unloaded %s (%d MiB) to stay inside the %d MiB budget",
@@ -323,26 +490,27 @@ func (p *Pool) enforceLocked() {
 
 func (p *Pool) residentLocked() int64 {
 	var n int64
-	for _, pg := range p.graphs {
-		n += pg.bytes
+	for _, h := range p.holdingsLocked() {
+		n += h.bytes
 	}
 	return n
 }
 
-func (p *Pool) victimLocked() *pooledGraph {
-	busy := map[string]bool{}
+// victimLocked is the least recently used graph no running call is reading.
+func (p *Pool) victimLocked(held []*holding) *holding {
+	busy := map[any]bool{}
 	for _, st := range p.sessions {
 		if st.inflight > 0 && st.graph != nil {
-			busy[graphKey(st.graph.RepoPaths(), st.graph.ExtractorVersion())] = true
+			busy[st.graph.Key()] = true
 		}
 	}
-	var victim *pooledGraph
-	for _, pg := range p.graphs {
-		if busy[pg.key] {
+	var victim *holding
+	for _, h := range held {
+		if busy[h.g.Key()] {
 			continue
 		}
-		if victim == nil || pg.lastUsed.Before(victim.lastUsed) {
-			victim = pg
+		if victim == nil || h.lastUsed.Before(victim.lastUsed) {
+			victim = h
 		}
 	}
 	return victim
@@ -380,14 +548,17 @@ func (p *Pool) current(eng *engine.Engine, g *engine.Graph) bool {
 // PoolStats is what the pool holds, for tests and the log.
 type PoolStats struct {
 	Graphs, Sessions, Evictions int
-	ResidentBytes               int64
+	// Held counts the distinct graphs held, in the pool or only by sessions.
+	Held          int
+	ResidentBytes int64
 }
 
 // Stats reports the pool's state now.
 func (p *Pool) Stats() PoolStats {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return PoolStats{Graphs: len(p.graphs), Sessions: len(p.sessions), Evictions: p.evictions, ResidentBytes: p.residentLocked()}
+	return PoolStats{Graphs: len(p.graphs), Sessions: len(p.sessions), Evictions: p.evictions,
+		Held: len(p.holdingsLocked()), ResidentBytes: p.residentLocked()}
 }
 
 // reuseGraph answers generate_snapshot from the pool when it holds a graph of exactly

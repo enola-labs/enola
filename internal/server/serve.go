@@ -200,8 +200,11 @@ func (s *Server) serveMiddleware(cfg ServeConfig) {
 				if method != "tools/call" {
 					return next(ctx, method, req)
 				}
-				pool.begin(s)
+				refusal := pool.begin(s, buildsAnyway(req))
 				defer pool.end(s)
+				if refusal != "" {
+					return errorResult(refusal), nil
+				}
 				return next(ctx, method, req)
 			}
 		})
@@ -263,6 +266,20 @@ func (s *Server) serveMiddleware(cfg ServeConfig) {
 	})
 
 	s.mcp.AddReceivingMiddleware(auditMiddleware)
+}
+
+// buildsAnyway reports whether a call builds the session's graph whatever it held:
+// generate_snapshot without append, which a graph reloaded first would only delay.
+func buildsAnyway(req mcp.Request) bool {
+	params, ok := req.GetParams().(*mcp.CallToolParamsRaw)
+	if !ok || params.Name != "generate_snapshot" {
+		return false
+	}
+	var args struct {
+		Append bool `json:"append"`
+	}
+	_ = json.Unmarshal(params.Arguments, &args)
+	return !args.Append
 }
 
 // auditMiddleware logs one line per tool call after it ran: who (the token's id, never
