@@ -2392,7 +2392,7 @@ func findFunctionDeclarator(kinds *tsutil.KindTable, node *sitter.Node) *sitter.
 			return node
 		case "pointer_declarator", "reference_declarator", "array_declarator",
 			"parenthesized_declarator", "init_declarator":
-			node = node.ChildByFieldName("declarator")
+			node = declaratorChild(kinds, node)
 			if node == nil {
 				return nil
 			}
@@ -2401,6 +2401,31 @@ func findFunctionDeclarator(kinds *tsutil.KindTable, node *sitter.Node) *sitter.
 		}
 	}
 	return nil
+}
+
+// declaratorChild returns the declarator that a wrapper node wraps.
+//
+// The wrapper kinds do not agree about tagging it. A pointer_declarator's inner node
+// carries field "declarator"; a reference_declarator's carries no field at all — the
+// grammar puts the `&` and the wrapped node in as bare children. A descent written
+// against the field alone therefore follows `float* fn()` happily and stops dead at
+// `float& fn()`, and the symbol vanishes with no symptom: no declaration, no
+// definition, no callers, and an override that never reaches the props orphans reads.
+// So: trust the field when it is there, otherwise take the first child that is itself
+// a declarator, then the first named child.
+func declaratorChild(kinds *tsutil.KindTable, node *sitter.Node) *sitter.Node {
+	if node == nil {
+		return nil
+	}
+	if d := node.ChildByFieldName("declarator"); d != nil {
+		return d
+	}
+	for i := uint(0); i < node.ChildCount(); i++ {
+		if c := node.Child(i); strings.HasSuffix(kindOf(kinds, c), "_declarator") {
+			return c
+		}
+	}
+	return firstNamedChild(node)
 }
 
 // declaratorLeafName descends a declarator subtree to its leaf name (identifier,
@@ -2419,17 +2444,12 @@ func declaratorLeafName(kinds *tsutil.KindTable, node *sitter.Node, src []byte) 
 			}
 			return strings.Join(append(scopes, leaf), "::")
 		case "function_declarator", "pointer_declarator", "reference_declarator",
-			"array_declarator", "init_declarator":
-			node = node.ChildByFieldName("declarator")
-		case "parenthesized_declarator":
+			"array_declarator", "init_declarator", "parenthesized_declarator":
 			// A function-pointer declarator nests the name in an unnamed-field
 			// child, e.g. "(*g_cb)(void)" → parenthesized_declarator → pointer_
-			// declarator → identifier. Fall back to the first named child.
-			if d := node.ChildByFieldName("declarator"); d != nil {
-				node = d
-			} else {
-				node = firstNamedChild(node)
-			}
+			// declarator → identifier, which is why the descent cannot rely on the
+			// field alone. See declaratorChild.
+			node = declaratorChild(kinds, node)
 		default:
 			node = firstNamedChild(node)
 		}
