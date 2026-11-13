@@ -267,29 +267,21 @@ func TestPipeline_SecondRunRepeatsEveryStage(t *testing.T) {
 	}
 }
 
-// Deferred linking stops after extraction: the cluster walk links once at the
-// end, so nothing downstream of extraction may run per repository.
+// A cluster stops every repository but the last after extraction: it links once at
+// the end, so nothing downstream of extraction may run per repository.
 func TestPipeline_DeferredLinkingStopsAfterExtraction(t *testing.T) {
 	eng, p, repo := recordingEngine(t)
-	eng.SetDeferLinking(true)
+	other := t.TempDir()
 
-	if _, err := eng.GenerateSnapshot(context.Background(), repo, false); err != nil {
-		t.Fatalf("GenerateSnapshot: %v", err)
-	}
-	if got, want := p.log.snapshot(), []string{"detect", "extract"}; !reflect.DeepEqual(got, want) {
-		t.Errorf("deferred run:\n got %v\nwant %v", got, want)
-	}
-	if !eng.Store().Frozen() || !hasFact(eng.Store(), facts.KindModule, "extracted") {
-		t.Error("a deferred run must still publish a frozen store holding the extracted facts")
-	}
-
-	eng.SetDeferLinking(false)
-	if _, err := eng.GenerateSnapshot(context.Background(), repo, false); err != nil {
-		t.Fatalf("GenerateSnapshot after deferral: %v", err)
+	if _, err := eng.GenerateCluster(context.Background(), []string{repo, other}, false); err != nil {
+		t.Fatalf("GenerateCluster: %v", err)
 	}
 	want := []string{"detect", "extract", "detect", "extract", "bind:pre-link", "bind:post-link", "annotate", "explain", "render"}
 	if got := p.log.snapshot(); !reflect.DeepEqual(got, want) {
-		t.Errorf("run after deferral:\n got %v\nwant %v", got, want)
+		t.Errorf("cluster run:\n got %v\nwant %v", got, want)
+	}
+	if !eng.Store().Frozen() || !hasFact(eng.Store(), facts.KindModule, "extracted") {
+		t.Error("the cluster must publish a frozen store holding the extracted facts")
 	}
 }
 

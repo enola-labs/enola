@@ -61,12 +61,7 @@ func TestWriteArtifacts_ClusterMembersKeepTheirOwnReceipts(t *testing.T) {
 	eng.RegisterExtractor(goextractor.New())
 	eng.RegisterExplainer(cycles.New())
 
-	eng.SetDeferLinking(true)
-	if _, err := eng.GenerateSnapshot(context.Background(), repoA, false); err != nil {
-		t.Fatal(err)
-	}
-	eng.SetDeferLinking(false)
-	if _, err := eng.GenerateSnapshot(context.Background(), repoB, true); err != nil {
+	if _, err := eng.GenerateCluster(context.Background(), []string{repoA, repoB}, false); err != nil {
 		t.Fatal(err)
 	}
 	for _, repo := range []string{repoA, repoB} {

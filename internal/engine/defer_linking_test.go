@@ -15,24 +15,30 @@ import (
 	pkghistory "github.com/enola-labs/enola/pkg/history"
 )
 
-// A cluster walked with linking deferred on every turn but the last ends in
-// the same union as one linked on every turn: the same facts, the same
-// insights, the same repo paths. What the deferral removes is work nobody
-// reads, never a result.
+// A cluster generated in one GenerateCluster, linked once, ends in the same union as
+// one linked on every turn: the same facts, the same insights, the same repo paths.
+// What linking once removes is work nobody reads, never a result.
 func TestDeferLinking_ClusterEndsInTheSameUnion(t *testing.T) {
 	repoA, repoB, repoC := freezeTestRepo(t), freezeTestRepo(t), freezeTestRepo(t)
 	repos := []string{repoA, repoB, repoC}
 
 	walk := func(deferred bool) ([]string, int, int) {
 		eng := freezeTestEngine(t)
-		for i, repo := range repos {
-			eng.SetDeferLinking(deferred && i < len(repos)-1)
-			snap, err := eng.GenerateSnapshot(context.Background(), repo, i > 0)
+		if deferred {
+			snaps, err := eng.GenerateCluster(context.Background(), repos, false)
 			if err != nil {
-				t.Fatalf("generate %d: %v", i, err)
+				t.Fatal(err)
 			}
-			if deferred && i < len(repos)-1 && len(snap.Insights) != 0 {
-				t.Fatalf("turn %d published insights while deferred", i)
+			for i, snap := range snaps[:len(snaps)-1] {
+				if len(snap.Insights) != 0 {
+					t.Fatalf("turn %d produced insights while deferred", i)
+				}
+			}
+		} else {
+			for i, repo := range repos {
+				if _, err := eng.GenerateSnapshot(context.Background(), repo, i > 0); err != nil {
+					t.Fatalf("generate %d: %v", i, err)
+				}
 			}
 		}
 		snap := eng.Snapshot()
@@ -73,12 +79,7 @@ func TestWriteArtifacts_SameBundleToManyDirsWritesOnceAndRecordsOnce(t *testing.
 	eng.RegisterExtractor(goextractor.New())
 	eng.RegisterExplainer(cycles.New())
 
-	eng.SetDeferLinking(true)
-	if _, err := eng.GenerateSnapshot(context.Background(), repoA, false); err != nil {
-		t.Fatal(err)
-	}
-	eng.SetDeferLinking(false)
-	if _, err := eng.GenerateSnapshot(context.Background(), repoB, true); err != nil {
+	if _, err := eng.GenerateCluster(context.Background(), []string{repoA, repoB}, false); err != nil {
 		t.Fatal(err)
 	}
 	for _, repo := range []string{repoA, repoB} {

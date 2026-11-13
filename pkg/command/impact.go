@@ -111,13 +111,9 @@ func (r *Runner) runImpact(ctx context.Context, args []string, stdout, stderr io
 		say("reading the snapshot written %s, which matches the working tree", generatedAt)
 	} else {
 		say("taking a snapshot for this run, %s", stale)
-		for i, repoPath := range tgt.repoPaths {
-			// Defer linking to the last member, as --generate does.
-			tgt.engine.SetDeferLinking(i < len(tgt.repoPaths)-1)
-			if _, err := tgt.engine.GenerateSnapshot(ctx, repoPath, i > 0); err != nil {
-				say("snapshot generation failed for %s: %v", repoPath, err)
-				return usageError
-			}
+		if _, err := tgt.engine.GenerateCluster(ctx, tgt.repoPaths, false); err != nil {
+			say("%v", err)
+			return usageError
 		}
 	}
 

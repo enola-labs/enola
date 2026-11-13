@@ -218,11 +218,8 @@ func (r *Runner) locateFacts(ctx context.Context, repoArg, at, factsPath string,
 		say("reading the snapshot written %s, which matches the working tree", generatedAt)
 	} else {
 		say("taking a snapshot for this run, %s", stale)
-		for i, repoPath := range tgt.repoPaths {
-			tgt.engine.SetDeferLinking(i < len(tgt.repoPaths)-1)
-			if _, err := tgt.engine.GenerateSnapshot(ctx, repoPath, i > 0); err != nil {
-				return nil, nil, fmt.Errorf("snapshot generation failed for %s: %w", repoPath, err)
-			}
+		if _, err := tgt.engine.GenerateCluster(ctx, tgt.repoPaths, false); err != nil {
+			return nil, nil, err
 		}
 	}
 	eng := tgt.engine

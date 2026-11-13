@@ -14,7 +14,6 @@ import (
 
 	"github.com/enola-labs/enola/internal/config"
 	"github.com/enola-labs/enola/internal/engine"
-	"github.com/enola-labs/enola/internal/facts"
 	"github.com/enola-labs/enola/internal/updatecheck"
 	"github.com/enola-labs/enola/internal/upgrade"
 	"github.com/enola-labs/enola/internal/version"
@@ -275,20 +274,13 @@ func main() {
 		// whole run to complete and the notice can be current on this run, not the next.
 		command.SpawnUpdateRefresh()
 
-		var snapshot *facts.Snapshot
-		for i, repoPath := range repoPaths {
-			// The first repository resets the store; the rest append to it, which is
-			// what makes one process produce one linked graph. Linking and the
-			// explainers run once, on the last turn, over the whole union: they are
-			// recomputed from scratch on every append, so running them earlier only
-			// cost time (on a 22-repo cluster, twenty-one passes over a growing
-			// union, and twenty-one writes of it).
-			eng.SetDeferLinking(i < len(repoPaths)-1)
-			snapshot, err = eng.GenerateSnapshot(ctx, repoPath, i > 0)
-			if err != nil {
-				log.Fatalf("snapshot generation failed for %s: %v", repoPath, err)
-			}
+		// One linked graph over every repository, linked, explained and published
+		// once, over the whole union. See engine.Engine.GenerateCluster.
+		snaps, err := eng.GenerateCluster(ctx, repoPaths, false)
+		if err != nil {
+			log.Fatalf("%v", err)
 		}
+		snapshot := snaps[len(snaps)-1]
 		// Every repository's output dir receives the complete linked union, written
 		// once, now that it exists. Before, each received the union as of its own
 		// turn and only the last was complete; a consumer reading any repo's own
@@ -509,12 +501,11 @@ func runExplain(ctx context.Context, eng *bootstrap.Engine, cfg *config.Config, 
 	// --explain is a read-only, no-artifacts mode: reuse a cache if one exists,
 	// but never write to .enola.
 	eng.SetPersistCache(false)
-	for i, repoPath := range repoPaths {
+	for _, repoPath := range repoPaths {
 		fmt.Fprintf(os.Stderr, "Analyzing %s …\n", repoPath)
-		eng.SetDeferLinking(i < len(repoPaths)-1)
-		if _, err := eng.GenerateSnapshot(ctx, repoPath, i > 0); err != nil {
-			log.Fatalf("snapshot generation failed for %s: %v", repoPath, err)
-		}
+	}
+	if _, err := eng.GenerateCluster(ctx, repoPaths, false); err != nil {
+		log.Fatalf("%v", err)
 	}
 
 	report := explain.Compute(eng)

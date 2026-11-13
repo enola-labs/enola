@@ -514,11 +514,8 @@ func (r *Runner) Baseline(args []string) {
 			fmt.Fprintf(os.Stderr, r.name()+" baseline: the snapshot written %s matches every working tree under this build and config; pinned without regenerating\n", generatedAt)
 		} else {
 			fmt.Fprintf(os.Stderr, r.name()+" baseline: regenerating, %s\n", stale)
-			for i, repoPath := range tgt.repoPaths {
-				eng.SetDeferLinking(i < len(tgt.repoPaths)-1)
-				if _, err := eng.GenerateSnapshot(context.Background(), repoPath, i > 0); err != nil {
-					r.checkFatal("snapshot generation failed for %s: %v", repoPath, err)
-				}
+			if _, err := eng.GenerateCluster(context.Background(), tgt.repoPaths, false); err != nil {
+				r.checkFatal("%v", err)
 			}
 			for _, repoPath := range tgt.repoPaths {
 				if err := eng.WriteArtifacts(repoPath); err != nil {

@@ -35,6 +35,8 @@ type snapshotRun struct {
 	repoLabel  string
 	resolved   *intent.Declaration
 	appendMode bool
+	// deferred stops the run after extraction; see holdDeferred.
+	deferred bool
 
 	// Set by prepareStore: the published bundle this run replaces, and the store,
 	// repo paths and declarations it is building to replace it with.
@@ -108,7 +110,7 @@ func (e *Engine) beginRun(ctx context.Context, repoPath string, appendMode bool)
 	// multi-repository graph keeps its label and moves to the new path; a single-repo
 	// graph is replaced outright, since it holds nothing but the checkout being swapped.
 	if appendMode {
-		if prev := e.current.Load(); prev != nil {
+		if prev := e.prevBundle(); prev != nil {
 			if taken, ok := prev.repoPaths[repoLabel]; ok && taken != absRepo {
 				if sameRepository(taken, absRepo) {
 					log.Printf("[engine] %s is another checkout of %q; it replaces %s", absRepo, repoLabel, taken)
@@ -146,15 +148,29 @@ func (e *Engine) beginRun(ctx context.Context, repoPath string, appendMode bool)
 	}, nil
 }
 
+// prevBundle is what this run extends: the union a cluster is building, when there
+// is one, and the published bundle otherwise.
+func (e *Engine) prevBundle() *snapshotBundle {
+	if e.building != nil {
+		return e.building
+	}
+	return e.current.Load()
+}
+
 // prepareStore builds the store this run extracts into: empty, or in append mode
-// the published union carried forward with this repository's prior slice removed.
-// The published bundle is never written to.
+// the union so far with this repository's prior slice removed. The published bundle
+// is never written to.
 func (e *Engine) prepareStore(r *snapshotRun) {
 	// Build into a BRAND-NEW store off to the side. The currently-published bundle
-	// (prev) is never mutated, so any in-flight reader keeps iterating a consistent,
+	// is never mutated, so any in-flight reader keeps iterating a consistent,
 	// frozen snapshot while we regenerate. We publish the new store atomically at the
 	// end (see e.current.Store below), which is the single linearization point.
-	r.prev = e.current.Load()
+	//
+	// The one store that is extended in place is a cluster's own unpublished union
+	// (e.building): no reader can see it, so the turn after it appends to it rather
+	// than copying it.
+	r.prev = e.prevBundle()
+	owned := e.building != nil && r.prev == e.building
 	r.work = facts.NewStore()
 	// Declarations accumulate exactly like repoPaths: carried forward from the
 	// published bundle in append mode, replaced wholesale otherwise, and handed
@@ -187,7 +203,11 @@ func (e *Engine) prepareStore(r *snapshotRun) {
 		for k, v := range r.prev.intent {
 			r.intent[k] = v
 		}
-		if r.prev.store != nil {
+		switch {
+		case owned:
+			r.work = r.prev.store
+			r.work.RemoveDocTexts(r.repoLabel)
+		case r.prev.store != nil:
 			r.work.Add(r.prev.store.All()...)
 			r.work.CarryDocTexts(r.prev.store, func(k facts.FactKey) bool { return k.Repo != r.repoLabel })
 		}
@@ -281,7 +301,7 @@ func (e *Engine) extract(r *snapshotRun) error {
 		defer cache.discard()
 	}
 	r.preCount = e.store.Count()
-	r.progress = newExtractionProgress(r.ctx, r.absRepo, r.files, e.stagesAfterExtraction())
+	r.progress = newExtractionProgress(r.ctx, r.absRepo, r.files, stagesAfterExtraction(r.deferred))
 	var err error
 	r.usedExtractors, r.shadowed, r.parseErrs, err = e.runExtractors(r.ctx, r.srcRoot, r.files, r.allNames, r.hashes, cache, r.progress)
 	if err != nil {
@@ -352,23 +372,24 @@ func (e *Engine) extract(r *snapshotRun) error {
 // over: the providers, and unless linking is deferred to a later turn of the
 // cluster, linking, the explainers and the renderers. It is announced with the
 // walk so the total a client sees does not move as the run goes on.
-func (e *Engine) stagesAfterExtraction() int {
-	if e.deferLinking {
+func stagesAfterExtraction(deferred bool) int {
+	if deferred {
 		return 1
 	}
 	return 4
 }
 
-// publishDeferred is where a cluster's intermediate turns stop. Linking, the graph and the
-// explainers are recomputed from scratch on every append and only the last
-// turn's result is kept, so running them after each of twenty-two
-// repositories was twenty-one full passes over a growing union for nothing
-// anyone read. The caller that walks a cluster sets deferLinking for every
-// turn but the last; that turn runs the full pipeline once over the whole
-// union. The bundle published here carries the store, the repo paths and
-// the intent the next turn needs, and a meta that says what was extracted.
-func (e *Engine) publishDeferred(r *snapshotRun) *facts.Snapshot {
-	r.work.Freeze()
+// holdDeferred is where a cluster's intermediate turns stop. Linking, the graph and
+// the explainers run once, on the last turn, over the whole union. The bundle held
+// here is not published: it is e.building, which carries the store, the repo paths,
+// the intent and the member metas the next turn extends, and a meta that says what
+// this turn extracted.
+//
+// DetachFrom leaves this turn's facts exactly as a cluster always carried them
+// forward (relations sorted, Props and Relations their own), so the union the last
+// turn links is the same as when every turn copied it.
+func (e *Engine) holdDeferred(r *snapshotRun) *facts.Snapshot {
+	r.work.DetachFrom(r.preCount)
 	duration := time.Since(r.start)
 	deferredPrefix := ""
 	if r.appendMode {
@@ -399,10 +420,14 @@ func (e *Engine) publishDeferred(r *snapshotRun) *facts.Snapshot {
 			ParseErrorSample:   capParseErrors(r.parseErrs),
 			Census:             e.fileCensus(r.files, deferredPrefix, r.skips, r.usedExtractors, r.parseErrs),
 		},
-		Facts: e.store.FactsRef(),
+		// No Facts. This turn's facts are the store's slice as it stands now, and
+		// later turns grow that slice into new arrays: a snapshot holding the view
+		// would keep each outgrown array alive for as long as the caller keeps the
+		// turn's snapshot, which GenerateCluster returns. The union's snapshot, on
+		// the last turn, carries the facts.
 	}
-	e.current.Store(&snapshotBundle{store: r.work, snapshot: snapshot, repoPaths: r.repoPaths, intent: r.intent,
-		members: memberMetas(r.prev, r.appendMode, r.absRepo, snapshot.Meta)})
+	e.building = &snapshotBundle{store: r.work, snapshot: snapshot, repoPaths: r.repoPaths, intent: r.intent,
+		members: memberMetas(r.prev, r.appendMode, r.absRepo, snapshot.Meta)}
 	log.Printf("[engine] %s extracted into the union in %s (%d facts so far); linking and explaining deferred to the cluster's last turn",
 		r.repoLabel, duration.Round(time.Millisecond), e.store.Count())
 	log.Printf("[engine] timings: walk=%s hash=%s extract=%s", r.t.walk.Round(time.Millisecond), r.t.hash.Round(time.Millisecond), r.t.extract.Round(time.Millisecond))

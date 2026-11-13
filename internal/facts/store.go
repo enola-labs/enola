@@ -291,6 +291,30 @@ func (s *Store) All() []Fact {
 	return result
 }
 
+// DetachFrom gives every fact from startIdx on its own Relations slice, in
+// compareRelations order, and its own Props map: the state a fact has always had
+// when a cluster carried it from one turn to the next (Freeze sorted its relations,
+// then All copied both apart). A cluster that keeps appending into one store instead
+// of copying it every turn calls this at the end of each turn but the last, so the
+// union the linkers see is the same, fact for fact, at a cost linear in the turn
+// rather than in the union.
+func (s *Store) DetachFrom(startIdx int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := startIdx; i < len(s.facts); i++ {
+		f := &s.facts[i]
+		if len(f.Relations) > 0 {
+			sortRelations(f.Relations)
+			rels := make([]Relation, len(f.Relations))
+			copy(rels, f.Relations)
+			f.Relations = rels
+		}
+		if len(f.Props) > 0 {
+			f.Props = f.CloneProps()
+		}
+	}
+}
+
 // FactsRef returns the store's underlying fact slice WITHOUT copying it. Unlike
 // All, the caller must treat the result as read-only and must not retain it past
 // the next mutation (Add/Clear/RemoveWhere may replace or grow the backing
@@ -1426,6 +1450,18 @@ func (s *Store) DocText(k FactKey) string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.docTexts[k]
+}
+
+// RemoveDocTexts drops the doc texts of every fact labelled repo. A repository
+// replaced inside a union loses its facts through RemoveWhere, and its texts here.
+func (s *Store) RemoveDocTexts(repo string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for k := range s.docTexts {
+		if k.Repo == repo {
+			delete(s.docTexts, k)
+		}
+	}
 }
 
 // CarryDocTexts copies into s the doc texts held by from whose key keep accepts.

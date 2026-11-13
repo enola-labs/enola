@@ -354,3 +354,42 @@ func BenchmarkFreeze(b *testing.B) {
 		s.Freeze()
 	}
 }
+
+// TestDetachFrom_MatchesFreezeThenAll: a cluster that keeps one store detaches each
+// turn's facts instead of freezing the union and copying it. The facts must end the
+// way the copy left them: relations sorted, and Props and Relations their own, so a
+// binder writing to one fact cannot reach another. Facts before startIdx are untouched.
+func TestDetachFrom_MatchesFreezeThenAll(t *testing.T) {
+	shared := map[string]any{"symbol_kind": "function"}
+	rels := []Relation{{Kind: "calls", Target: "z"}, {Kind: "calls", Target: "a"}}
+	s := NewStore()
+	s.Add(Fact{Kind: KindSymbol, Name: "Before", File: "a.go", Props: shared})
+	s.Add(
+		Fact{Kind: KindSymbol, Name: "F1", File: "a.go", Props: shared, Relations: rels},
+		Fact{Kind: KindSymbol, Name: "F2", File: "a.go", Props: shared, Relations: rels},
+	)
+
+	ref := NewStore()
+	ref.Add(
+		Fact{Kind: KindSymbol, Name: "F1", File: "a.go", Props: map[string]any{"symbol_kind": "function"},
+			Relations: []Relation{{Kind: "calls", Target: "z"}, {Kind: "calls", Target: "a"}}},
+		Fact{Kind: KindSymbol, Name: "F2", File: "a.go", Props: map[string]any{"symbol_kind": "function"},
+			Relations: []Relation{{Kind: "calls", Target: "z"}, {Kind: "calls", Target: "a"}}},
+	)
+	ref.Freeze()
+	want := ref.All()
+
+	s.DetachFrom(1)
+	got := s.FactsRef()
+	for i, w := range want {
+		if !reflect.DeepEqual(got[i+1].Relations, w.Relations) || !reflect.DeepEqual(got[i+1].Props, w.Props) {
+			t.Fatalf("fact %d: got %+v, want %+v", i+1, got[i+1], w)
+		}
+	}
+	if sameMap(got[1].Props, got[2].Props) || sameMap(got[1].Props, shared) || sameRels(got[1].Relations, got[2].Relations) {
+		t.Fatal("detached facts still share Props or Relations")
+	}
+	if !sameMap(got[0].Props, shared) {
+		t.Fatal("a fact before startIdx was touched")
+	}
+}

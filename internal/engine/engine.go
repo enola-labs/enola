@@ -89,9 +89,10 @@ type Engine struct {
 	sessionID atomic.Pointer[string]
 	// sharedDrift, when set, replaces drift; see UseDriftMemo.
 	sharedDrift *driftMemo
-	// deferLinking makes an append-mode GenerateSnapshot stop after extraction;
-	// see SetDeferLinking.
-	deferLinking bool
+	// building is the union a GenerateCluster has extracted so far and not yet
+	// published: each turn but the last appends into its store, and the next turn
+	// extends it rather than the published bundle. Nil outside GenerateCluster.
+	building *snapshotBundle
 	// lastFacts remembers the facts.jsonl this run last serialized, so the next
 	// output dir that receives the same bundle copies the bytes instead.
 	lastFacts lastFactsWrite
@@ -147,14 +148,6 @@ func New(cfg *config.Config) (*Engine, error) {
 	e.current.Store(&snapshotBundle{store: st})
 	return e, nil
 }
-
-// SetDeferLinking tells the next GenerateSnapshot calls to stop after
-// extraction: no linking, no graph, no explainers, no renderers. For a cluster
-// walked repo by repo, only the last turn's linked and explained union is ever
-// read, so the caller sets this for every turn but the last (the first turn
-// included) and clears it before the last. Nothing else sets it; the server's
-// generate_snapshot and a single-repo --generate never see it.
-func (e *Engine) SetDeferLinking(defer_ bool) { e.deferLinking = defer_ }
 
 // SetPersistCache controls whether the per-extractor cache is written to disk
 // after a snapshot. One-shot --explain disables this so it leaves .enola
@@ -362,11 +355,59 @@ func (e *Engine) ResolveFactFile(f *facts.Fact) string {
 func (e *Engine) GenerateSnapshot(ctx context.Context, repoPath string, appendMode bool) (*facts.Snapshot, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	return e.generate(ctx, repoPath, appendMode, false)
+}
 
+// RepoError is a GenerateCluster failure: the member that failed, and why.
+type RepoError struct {
+	Repo string
+	Err  error
+}
+
+func (e *RepoError) Error() string {
+	return fmt.Sprintf("snapshot generation failed for %s: %v", e.Repo, e.Err)
+}
+func (e *RepoError) Unwrap() error { return e.Err }
+
+// GenerateCluster indexes repoPaths as one linked graph and publishes it once.
+//
+// Each repository is extracted into one store that the run keeps to itself. Linking,
+// the graph, the explainers and the renderers run once, on the last repository, over
+// the whole union. Nothing is published before that: readers keep the graph they had
+// until the complete union replaces it in one swap, and a failure partway leaves that
+// graph published. It used to publish after every repository and copy the whole
+// union into a fresh store at the start of the next, which made a cluster quadratic
+// in its size and showed readers unlinked partial unions while it ran.
+//
+// appendFirst extends the published graph with the first repository instead of
+// starting over. The returned snapshots are one per repository, in order; the last
+// is the union. A failure is a *RepoError naming the repository.
+func (e *Engine) GenerateCluster(ctx context.Context, repoPaths []string, appendFirst bool) ([]*facts.Snapshot, error) {
+	if len(repoPaths) == 0 {
+		return nil, errors.New("no repositories to index")
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	defer func() { e.building = nil }()
+	snaps := make([]*facts.Snapshot, 0, len(repoPaths))
+	for i, repo := range repoPaths {
+		snap, err := e.generate(ctx, repo, appendFirst || i > 0, i < len(repoPaths)-1)
+		if err != nil {
+			return nil, &RepoError{Repo: repo, Err: err}
+		}
+		snaps = append(snaps, snap)
+	}
+	return snaps, nil
+}
+
+// generate is one turn of the pipeline. deferred stops it after extraction and
+// holds the result for the next turn; see holdDeferred. The caller holds e.mu.
+func (e *Engine) generate(ctx context.Context, repoPath string, appendMode, deferred bool) (*facts.Snapshot, error) {
 	r, err := e.beginRun(ctx, repoPath, appendMode)
 	if err != nil {
 		return nil, err
 	}
+	r.deferred = deferred
 	e.prepareStore(r)
 
 	if err := e.walk(r); err != nil {
@@ -375,8 +416,8 @@ func (e *Engine) GenerateSnapshot(ctx context.Context, repoPath string, appendMo
 	if err := e.extract(r); err != nil {
 		return nil, err
 	}
-	if e.deferLinking {
-		return e.publishDeferred(r), nil
+	if r.deferred {
+		return e.holdDeferred(r), nil
 	}
 
 	e.link(r)
