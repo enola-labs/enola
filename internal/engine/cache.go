@@ -3589,7 +3589,12 @@ import (
 // version, from a Helm source or a plugin's CHART_NAME/CHART_VERSION, plugin,
 // release name) and depends on its AppProject and, when its source is a plain path
 // of this repository (no plugin, no chart), on that path's kustomization or objects.
-const cacheVersion = "v583"
+// v584: the values files of an Application whose chart is remote (its source path
+// is local and holds no chart or kustomization) are read: helm.valueFiles, or the
+// path's *values* files with a file named for a cluster belonging to that cluster's
+// Application, merged in order. image, replicaCount, autoscaling min/max, resources,
+// UPPER_SNAKE env and namespaced in-cluster addresses become props.
+const cacheVersion = "v584"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

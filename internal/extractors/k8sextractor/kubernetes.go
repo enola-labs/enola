@@ -133,6 +133,8 @@ type obj struct {
 	builds []*kustomization
 	// app is the release an Argo CD Application states, nil for any other object.
 	app *application
+	// release is what the values files of an Application's remote chart state.
+	release *release
 }
 
 // Extract walks the repository itself: YAML is ignore-globbed by default, the
@@ -211,6 +213,7 @@ func (e *Extractor) Extract(_ context.Context, repoPath string, _ []string) ([]f
 		o.app = readApplication(o)
 	}
 	markLocal(repoPath, objs)
+	readReleases(repoPath, files, objs, ks)
 	return emit(objs, ks, dirs, buildContexts(repoPath, files)), nil
 }
 
@@ -305,6 +308,11 @@ func emit(objs []*obj, ks map[string]*kustomization, kdirs []string, contexts ma
 				f.SetProp(k, v)
 			}
 			refs = append(refs, idx.applicationRefs(o, ks)...)
+		}
+		if o.release != nil {
+			for k, v := range o.release.props() {
+				f.SetProp(k, v)
+			}
 		}
 		for _, t := range refs {
 			if t != o.symbol {

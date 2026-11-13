@@ -31,6 +31,7 @@ Fixture: [`k8s_sample`](../../internal/engine/testdata/repos/k8s_sample/)
 | `namespace`, `namePrefix`, `nameSuffix`, `images`, remote resources | props on the kustomization, applied to no object | props |
 | an Argo CD Application | `destination_cluster`, `destination_namespace`, `argocd_project`, `source_repo`, `source_path`, `target_revision`, `chart`, `chart_version`, `source_plugin`, `release_name` | props |
 | its `project`, its source path in this repository | `depends_on` to the AppProject, and to the kustomization or the objects in that path | relation |
+| the values files beside an Application whose chart is remote | `value_files`, `images`, `replicas`, `min_replicas`, `max_replicas`, `resources`, `env`, `addresses` on the Application | props |
 | `{{ .Values.x }}`, `${VAR}` | nothing: a template is not a name | none |
 
 ## Objects become symbols in their directory's module
@@ -287,6 +288,59 @@ origin remote's. A plain path source then depends on what that path applies: its
 kustomization, or else every object in it. A plugin or chart source renders the
 release instead, so the objects beside it, often its siblings for other clusters,
 are not part of it.
+
+## A remote chart's values are the release's configuration
+
+A GitOps repository rarely holds the chart it deploys: the Application names a chart
+in a registry and keeps its configuration in values files beside it. Those files say
+what runs, so when an Application's source path is in this repository and holds no
+chart and no kustomization, its values files are read into props on the
+Application.
+
+The files are the ones `helm.valueFiles` lists, relative to the source path (a
+`$ref/` file or a URL belongs to another source and is skipped). A plugin source lists
+none and reads its path by its own convention, so then every YAML file there that
+holds no object and has `values` in its name is read. A file named for one of the
+clusters the Applications sharing the path deploy to belongs to that cluster's
+Application alone: with `web-eu1` and `web-us1` both pointing at `apps/web/`,
+`eu1-values.yaml` is `web-eu1`'s, and `values.yaml` is both. Files merge in order,
+later keys winning: shared before a cluster's own, and a file named `override` last.
+
+```yaml
+# apps/web/values.yaml
+image: {repository: acme/web, tag: "1.0"}
+resources:
+  requests: {cpu: 100m, memory: 128Mi}
+# apps/web/eu1-values.yaml
+replicaCount: 6
+autoscaling: {minReplicas: 6, maxReplicas: 20}
+environment:
+  CART_URL: http://cart-api.cart.svc:8080
+# apps/web/eu1-values.override.yaml
+image: {tag: "1.1"}
+```
+
+```
+symbol  apps/web.Application.web-eu1
+        props: value_files=[apps/web/values.yaml, apps/web/eu1-values.yaml,
+                            apps/web/eu1-values.override.yaml],
+               images=[acme/web:1.1], replicas=6, min_replicas=6, max_replicas=20,
+               resources=[requests.cpu=100m, requests.memory=128Mi],
+               env=[CART_URL=http://cart-api.cart.svc:8080], addresses=[cart-api.cart:8080]
+```
+
+What is read follows the keys `helm create` writes, which most charts keep: `image`
+anywhere in the tree (a string, or `repository` and `tag`), top-level `replicaCount`,
+`autoscaling.minReplicas` and `maxReplicas`, and `resources.requests` and `limits`.
+`env` is every UPPER_SNAKE key holding a scalar, wherever the chart keeps it, and
+every name/value pair in a list named `env` or `extraEnv`; a value is cut at 200
+characters. `addresses` are the in-cluster addresses in any string, by the rules a
+pod's env follows, recorded only when they name a namespace: a bare `host:port` in a
+values file is as often a sidecar or a local port as a peer.
+
+Values a plugin layers in from elsewhere by its own convention (a shared directory
+of numbered files, a cluster-wide defaults file) are not read: nothing in the
+Application names them.
 
 ## What is deliberately not extracted
 

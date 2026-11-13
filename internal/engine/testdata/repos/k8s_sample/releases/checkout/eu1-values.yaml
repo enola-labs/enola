@@ -1,0 +1,7 @@
+image:
+  repository: example/checkout
+  tag: "1.9"
+replicaCount: 3
+environment:
+  CART_URL: http://cart.cart.svc:7070
+  PAYMENTS_HOST: payments.example.com:443
