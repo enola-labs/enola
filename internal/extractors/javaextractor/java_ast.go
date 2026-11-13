@@ -731,6 +731,12 @@ func (w *astWalker) handleClassLike(node *sitter.Node, kind string) {
 	if hasModifier(modifiers, "abstract") {
 		f.SetProp("abstract", true)
 	}
+	// `final` on a type is the inheritance ban javac enforces; the C++ extractor
+	// emits the same prop for `class X final` and the final-inheritance explainer
+	// verdicts edges that cross it.
+	if hasModifier(modifiers, "final") {
+		f.SetProp("final", true)
+	}
 	if kindOf(node) == "record_declaration" {
 		f.SetProp("record", true)
 	}
@@ -862,6 +868,11 @@ func (w *astWalker) handleMethod(node *sitter.Node) {
 	}
 	if hasModifier(modifiers, "static") {
 		f.SetProp("static", true)
+	}
+	// `final` on a method means no override may shadow it — the same prop C++
+	// members carry from their virtual_specifier.
+	if hasModifier(modifiers, "final") {
+		f.SetProp("final", true)
 	}
 	// `@Override` is a compiler-checked claim: javac rejects it on a method that
 	// overrides nothing, so the annotation on its own is a fact rather than a guess,

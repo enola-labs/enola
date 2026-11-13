@@ -128,3 +128,52 @@ public class Item {
 		t.Errorf("plain: symbol_kind = %q, want %q", sk, facts.SymbolVariable)
 	}
 }
+
+// `final` is read from the modifiers node like every other keyword, and lands on
+// types and methods as the final prop — the fact the final-inheritance explainer
+// needs to verdict edges into `final class` types. `final` fields keep encoding
+// as constants (symbol_kind constant), which is their meaning downstream.
+func TestJavaFinalKeywordRecordedOnTypesAndMethods(t *testing.T) {
+	ff := extractAll(t, map[string]string{
+		"src/main/java/com/acme/Closed.java": `
+package com.acme;
+
+public final class Closed {
+  public final int compute() { return 1; }
+  public int open() { return 2; }
+}
+
+class User {
+  Closed c;
+}
+`,
+	})
+
+	look := func(suffix string) facts.Fact {
+		t.Helper()
+		for _, f := range ff {
+			if strings.HasSuffix(f.Name, suffix) {
+				return f
+			}
+		}
+		t.Fatalf("no fact ending in %q", suffix)
+		return facts.Fact{}
+	}
+
+	closed := look(".Closed")
+	if v, _ := closed.Props["final"].(bool); !v {
+		t.Errorf("Closed: final = %v, want true", closed.Props["final"])
+	}
+	compute := look(".Closed.compute")
+	if v, _ := compute.Props["final"].(bool); !v {
+		t.Errorf("compute: final = %v, want true", compute.Props["final"])
+	}
+	openM := look(".Closed.open")
+	if v, ok := openM.Props["final"].(bool); ok && v {
+		t.Error("open: final = true, want absent")
+	}
+	user := look(".User")
+	if v, ok := user.Props["final"].(bool); ok && v {
+		t.Error("User: final = true, want absent — package-private is not final")
+	}
+}

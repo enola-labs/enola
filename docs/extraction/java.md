@@ -14,6 +14,7 @@ Fixture: [`java_sample`](../../internal/engine/testdata/repos/java_sample/)
 | `class` / `interface` / `enum` | a symbol with `fqn` and `abstract` | `symbol` |
 | a method | a symbol with `receiver`, `cyclomatic` | `symbol` |
 | `@Override` on a method | `override=true` — kept out of the dead-code report, since an override is reached through its supertype | props |
+| `final` on a class or method | `final=true` — the inheritance ban javac enforces; `enola check --fail-on final-inheritance` verdicts any type that derives from it | props |
 | a method that calls itself | `recursive_self=true` | props |
 | `import …` | a dependency tagged `internal` / `external` | `dependency` |
 | `@Repository`, `@Service`, `@Controller` | `framework=spring`, `component=repository` | props |
