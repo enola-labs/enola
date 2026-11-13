@@ -569,6 +569,7 @@ type QueryOpts struct {
 	RelKind    string   // relation kind filter
 	Prop       string   // property name filter
 	PropValue  string   // property value filter (requires Prop)
+	PropOp     string   // how PropValue compares: PropOps; "" is eq
 	Offset     int      // number of results to skip
 	Limit      int      // max results to return (0 = default 100, max 500)
 }
@@ -714,7 +715,7 @@ func (s *Store) eachMatch(opts QueryOpts, visit func(*Fact)) {
 			if !ok {
 				return false
 			}
-			if opts.PropValue != "" && fmt.Sprintf("%v", v) != opts.PropValue {
+			if opts.PropValue != "" && !PropMatches(v, opts.PropOp, opts.PropValue) {
 				return false
 			}
 		}

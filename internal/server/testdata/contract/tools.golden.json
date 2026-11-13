@@ -607,7 +607,7 @@
   },
   {
     "name": "query_facts",
-    "description": "Precision filter over extracted facts, for subsets explore does not give you: all symbols in a file, all external dependencies, all routes. Filters are OR within a dimension (name with names; file with files and file_prefix; kind with kinds) and AND across dimensions. Size an unfamiliar result set with output_mode=summary first. For dependencies, prop=source with prop_value internal, external, stdlib or framework cuts the noise.",
+    "description": "Precision filter over extracted facts, for subsets explore does not give you: all symbols in a file, all routes. Filters are OR within a dimension (name with names; file with files and file_prefix; kind with kinds) and AND across dimensions. Size an unfamiliar result set with output_mode=summary first. For dependencies, prop=source with prop_value internal, external, stdlib or framework cuts the noise.",
     "input_schema": {
       "additionalProperties": false,
       "properties": {
@@ -678,11 +678,15 @@
           "type": "string"
         },
         "prop": {
-          "description": "Property name, e.g. source, symbol_kind, exported, framework, storage_kind, role, method, unmatched_by_clients, unreached_by_clients. output_mode=summary lists the notable boolean flags present in the result.",
+          "description": "Property name, e.g. source, symbol_kind, role, method, unmatched_by_clients; output_mode=summary lists boolean flags present.",
+          "type": "string"
+        },
+        "prop_op": {
+          "description": "eq (default), ne, lt, le, gt, ge (by version), prefix, contains; lists match any element.",
           "type": "string"
         },
         "prop_value": {
-          "description": "Property value; requires prop.",
+          "description": "Requires prop.",
           "type": "string"
         },
         "relation": {

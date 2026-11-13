@@ -292,6 +292,11 @@ parameters; `CHART_NAME`/`CHART` and `CHART_VERSION`, with or without a `HELM_`
 prefix, are read as the chart and its version. A multi-source Application
 (`spec.sources`) takes each field from the first source stating it.
 
+The props answer fleet questions directly: every release on a chart older than a
+version is `query_facts(kind=symbol, prop=chart_version, prop_op=lt,
+prop_value=0.150)`, compared as a version, with `prop=chart` to narrow to one chart
+in a second query.
+
 The source path is this repository's when the directory exists and the source
 repository, if stated, has this repository's name: the checkout's directory, or the
 origin remote's. A plain path source then depends on what that path applies: its
