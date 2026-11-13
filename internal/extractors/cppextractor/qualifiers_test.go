@@ -144,3 +144,60 @@ int staticLike(int n) { return n; }
 		t.Errorf("staticLike: exported = %v, want true", external.Props["exported"])
 	}
 }
+
+// `final` spelled on a TYPE is the other use of that word: it marks the class as
+// underivable, rides on the class fact alone, and must not leak onto the members or
+// imply `virtual` anywhere.
+func TestCppClassFinalSpecifier(t *testing.T) {
+	ff := extractProject(t, map[string]string{
+		"fig/shape.hpp": `
+class Shape {
+public:
+  virtual void draw();
+};
+
+class Square final : public Shape {
+public:
+  void draw() override;
+};
+
+struct Sealed final : public Shape {
+public:
+  void draw() override;
+};
+
+struct Open : public Shape {
+public:
+  void draw() override;
+};
+`,
+	})
+
+	for _, name := range []string{"fig.Square", "fig.Sealed"} {
+		f := mustFact(t, ff, name)
+		if v, _ := f.Props["final"].(bool); !v {
+			t.Errorf("%s: final = %v, want true — the type is declared final", name, f.Props["final"])
+		}
+		if v, ok := f.Props["virtual"].(bool); ok && v {
+			t.Errorf("%s: virtual = true, want absent — a final class is not a virtual member", name)
+		}
+		if o, ok := f.Props["override"].(bool); ok && o {
+			t.Errorf("%s: override = true, want absent — a type never overrides", name)
+		}
+	}
+
+	open := mustFact(t, ff, "fig.Open")
+	if v, ok := open.Props["final"].(bool); ok && v {
+		t.Error("Open: final = true, want absent — it derives, it is not final")
+	}
+
+	// The member inside a final class keeps its own specifiers and nothing else: it
+	// overrides, and it is not itself final.
+	member := mustFact(t, ff, "fig.Square::draw")
+	if o, _ := member.Props["override"].(bool); !o {
+		t.Errorf("Square::draw: override = %v, want true", member.Props["override"])
+	}
+	if v, ok := member.Props["final"].(bool); ok && v {
+		t.Error("Square::draw: final = true, want absent — the class is final, the member is not")
+	}
+}

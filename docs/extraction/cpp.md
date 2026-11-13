@@ -25,6 +25,7 @@ Fixture: [`cpp_sample`](../../internal/engine/testdata/repos/cpp_sample/)
 | `virtual void draw();` | a method with `virtual=true` | props |
 | `void draw() override;` | `override=true`, and `virtual=true` even though the keyword is not repeated | props |
 | `void draw() final;` | `final=true`, plus `override=true` and `virtual=true` (only a virtual member that overrides may be `final`) | props |
+| `class Square final : public Shape` | the class with `final=true` — nothing may derive from it; implies nothing about its members | props |
 | `int staticCast(int);` | **no** `static` — a name containing a keyword is not a specifier | props |
 | a call inside a `for`/`while` | `calls_in_loop` / `calls_in_scaling_loop` | props |
 
@@ -137,7 +138,10 @@ it is spelled. A C++11 override does not repeat the base's `virtual`, so with no
 specifier stored it is indistinguishable from an ordinary method: `find_orphans` reports
 it as unreferenced dead code, when in fact it is reached through the base and cannot be
 deleted in isolation. Both specifiers imply `virtual=true` — that is a language
-guarantee, not a dispatch guess. Fixture: [`shapes.hpp`](../../internal/engine/testdata/repos/cpp_sample/include/shapes.hpp),
+guarantee, not a dispatch guess. A `final` spelled on a **type** (`class Square final :
+public Shape`) is the other use of the word: it is recorded on the class fact alone,
+means nothing may derive from it, and implies nothing about that class's members.
+Fixture: [`shapes.hpp`](../../internal/engine/testdata/repos/cpp_sample/include/shapes.hpp),
 with its out-of-line half in [`shapes.cpp`](../../internal/engine/testdata/repos/cpp_sample/drivers/shapes.cpp).
 
 > **Corpus caveat.** The C++ corpora this extractor was validated against (getdp, gmsh,

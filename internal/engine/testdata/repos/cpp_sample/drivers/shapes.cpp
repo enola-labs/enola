@@ -26,6 +26,8 @@ void Circle::draw() {}
 
 int Circle::staticCast(int raw) { return raw; }
 
+void Square::draw() {}
+
 void Shape::describe() const {}
 
 Shape *Shape::make(const char *kind) { return new Circle(); }

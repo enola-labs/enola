@@ -786,6 +786,9 @@ func (w *astWalker) handleClassLike(node *sitter.Node, kind string) {
 	if kindOf(w.kinds, node) == "union_specifier" {
 		f.SetProp("union", true)
 	}
+	if classCarriesFinal(w.kinds, node, w.src) {
+		f.SetProp("final", true)
+	}
 	for _, base := range baseClassNames(w.kinds, node, w.src) {
 		f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelImplements, Target: base})
 	}
@@ -1887,6 +1890,20 @@ func (w *astWalker) applyFuncQualifiers(f *facts.Fact, node, fdecl *sitter.Node)
 	}
 }
 
+// classCarriesFinal reports a `class X final` / `struct X final` — a type nothing
+// may derive from. The specifier is a named `virtual_specifier` child of the spec
+// node, and at type level it can only ever read `final`, since `override` on a type
+// is ill-formed. It says nothing about the members: a final class still declares
+// ordinary virtuals, so this must not imply `virtual` anywhere.
+func classCarriesFinal(kinds *tsutil.KindTable, node *sitter.Node, src []byte) bool {
+	for i := uint(0); i < node.ChildCount(); i++ {
+		c := node.Child(i)
+		if kindOf(kinds, c) == "virtual_specifier" && nodeText(c, src) == "final" {
+			return true
+		}
+	}
+	return false
+}
 
 // --- call graph ---
 

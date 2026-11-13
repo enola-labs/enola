@@ -2,8 +2,9 @@
 // corpus this extractor was validated against (getdp, gmsh, the Linux kernel) is
 // pre-C++11 and never writes `override`, so the specifier path had no coverage on
 // real code. This header is the fixture that exercises it: an override keeps
-// `virtual` even though the keyword is not repeated, `final` is recorded on a member,
-// and a member whose NAME merely contains a specifier keyword (`staticCast`) gets none.
+// `virtual` even though the keyword is not repeated, `final` is recorded on a member
+// and on a type, and a member whose NAME merely contains a specifier keyword
+// (`staticCast`) gets none.
 //
 // Parsed with tree-sitter-cpp. drivers/shapes.cpp holds the out-of-line half, and it
 // is deliberately in ANOTHER directory: a symbol name carries its directory, so the
@@ -43,6 +44,13 @@ public:
     // A name containing a keyword is not a specifier. Before the specifiers were
     // read from the AST, this member was tagged `static`.
     int staticCast(int raw);
+};
+
+// `final` on a type: nothing may derive from Square. Its member is an ordinary
+// override, so a type-level `final` must not imply `virtual` on anything.
+class Square final : public Shape {
+public:
+    void draw() override;
 };
 
 } // namespace shapes
