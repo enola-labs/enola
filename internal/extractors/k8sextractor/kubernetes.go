@@ -313,6 +313,7 @@ func emit(objs []*obj, ks map[string]*kustomization, kdirs []string, contexts ma
 			for k, v := range o.release.props() {
 				f.SetProp(k, v)
 			}
+			refs = append(refs, idx.releaseRefs(o)...)
 		}
 		for _, t := range refs {
 			if t != o.symbol {

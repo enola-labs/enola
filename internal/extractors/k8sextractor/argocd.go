@@ -233,3 +233,72 @@ func (ix *index) applicationRefs(o *obj, ks map[string]*kustomization) []string 
 	}
 	return out
 }
+
+// An address in a release's values names a Service the chart renders, so no Service
+// object is there to resolve it to. The Application deploying that Service is:
+// `cart-api.cart.svc` names the Applications deploying to namespace `cart` that
+// serve `cart-api`, by their release name, their own name, their `app`,
+// `app.kubernetes.io/name` or `app.kubernetes.io/instance` label, or their name with
+// their cluster appended (`cart-api-eu1`). A cluster name resolves inside the
+// caller's cluster, so the Applications in the caller's own cluster answer when there
+// are any; failing that, the one Application in the repository serving it, as a
+// service mesh spanning clusters would route it, and never a guess among several:
+// across clusters, several are usually production's and sandbox's. An address with
+// no namespace is the caller's own namespace. A Service the repository declares
+// still answers by the usual rules.
+
+// servesName reports whether an Application deploys a Service of that name.
+func servesName(c *obj, name string) bool {
+	a := c.app
+	if a.releaseName == name || c.Name == name || (a.cluster != "" && c.Name == name+"-"+a.cluster) {
+		return true
+	}
+	labels := k8syaml.Labels(k8syaml.Map(c.Doc, "metadata", "labels"))
+	for _, k := range []string{"app", "app.kubernetes.io/name", "app.kubernetes.io/instance"} {
+		if labels[k] == name {
+			return true
+		}
+	}
+	return false
+}
+
+// releaseRefs lists what the addresses in an Application's values name: the
+// Applications serving them, and the Services the repository declares.
+func (ix *index) releaseRefs(o *obj) []string {
+	a := o.app
+	var out []string
+	for _, addr := range o.release.addresses {
+		ns := addr.namespace
+		if ns == "" {
+			ns = a.namespace
+		}
+		if ns == "" {
+			continue
+		}
+		var cands, same []*obj
+		for _, c := range ix.appsByNS[ns] {
+			if c != o && servesName(c, addr.name) {
+				cands = append(cands, c)
+				if c.app.cluster == a.cluster {
+					same = append(same, c)
+				}
+			}
+		}
+		switch {
+		case len(same) > 0:
+			cands = same
+		case len(cands) > 1:
+			cands = nil
+		}
+		for _, c := range cands {
+			out = append(out, c.symbol)
+		}
+		in := &obj{Object: k8syaml.Object{Namespace: ns}, dir: o.dir}
+		for _, svc := range ix.resolve(in, "Service", addr.name, ns) {
+			if portAgrees(svc, addr.port) {
+				out = append(out, svc.symbol)
+			}
+		}
+	}
+	return out
+}

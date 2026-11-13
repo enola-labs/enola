@@ -3594,7 +3594,11 @@ import (
 // path's *values* files with a file named for a cluster belonging to that cluster's
 // Application, merged in order. image, replicaCount, autoscaling min/max, resources,
 // UPPER_SNAKE env and namespaced in-cluster addresses become props.
-const cacheVersion = "v584"
+// v585: an address in a release's values is a depends_on edge to the Application
+// serving it: deploying to the address's namespace (the caller's, when none) and
+// serving the name by release name, own name, app label or name-<cluster>, in the
+// caller's cluster, else the one such Application in the repository.
+const cacheVersion = "v585"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

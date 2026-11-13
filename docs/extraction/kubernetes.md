@@ -32,6 +32,7 @@ Fixture: [`k8s_sample`](../../internal/engine/testdata/repos/k8s_sample/)
 | an Argo CD Application | `destination_cluster`, `destination_namespace`, `argocd_project`, `source_repo`, `source_path`, `target_revision`, `chart`, `chart_version`, `source_plugin`, `release_name` | props |
 | its `project`, its source path in this repository | `depends_on` to the AppProject, and to the kustomization or the objects in that path | relation |
 | the values files beside an Application whose chart is remote | `value_files`, `images`, `replicas`, `min_replicas`, `max_replicas`, `resources`, `env`, `addresses` on the Application | props |
+| an address in those values | `depends_on` to the Application serving it, in the caller's cluster | relation |
 | `{{ .Values.x }}`, `${VAR}` | nothing: a template is not a name | none |
 
 ## Objects become symbols in their directory's module
@@ -341,6 +342,33 @@ values file is as often a sidecar or a local port as a peer.
 Values a plugin layers in from elsewhere by its own convention (a shared directory
 of numbered files, a cluster-wide defaults file) are not read: nothing in the
 Application names them.
+
+## An address in a release names the Application serving it
+
+The chart renders the Service a values address names, so the repository holds no
+Service object to resolve it to. The Application deploying that Service is what
+answers. `http://cart-api.cart.svc:8080` names the Applications deploying to
+namespace `cart` that serve `cart-api`: by their release name, their own name, their
+`app`, `app.kubernetes.io/name` or `app.kubernetes.io/instance` label, or their name
+with their cluster appended (`cart-api-eu1`). An address with no namespace is the
+caller's own namespace.
+
+```
+symbol  apps/web.Application.web-eu1      (destination eu1, env CART_URL=http://cart-api.cart.svc:8080)
+        relations: depends_on -> apps/cart.Application.cart-api-eu1
+dependency  module-edge: apps/web -> apps/cart
+```
+
+A cluster name resolves inside the caller's cluster, so the Applications in the
+caller's own cluster answer. Failing that, the one Application in the repository
+serving the name answers, as a mesh spanning clusters would route it; among several
+in other clusters none is picked, because across clusters several are usually
+production's and sandbox's. A port is not checked, since the chart decides the
+Service's ports. A Service the repository declares still answers by the usual rules.
+
+The edges roll up to module edges between the directories, so a release directory's
+dependencies are the services its values point at. On a GitOps repository with
+13,000 Applications this draws 15,600 edges, all but two inside one cluster.
 
 ## What is deliberately not extracted
 
