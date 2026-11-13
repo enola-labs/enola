@@ -203,3 +203,65 @@ public:
 		t.Error("Square::draw: final = true, want absent — the class is final, the member is not")
 	}
 }
+
+// Stacked macro attributes break the grammar and bury the specifiers: tree-sitter
+// absorbs the first attribute macro as the return type and error recovery
+// re-tokenizes `static`/`virtual` as plain identifier tokens inside an ERROR node.
+// A specifier scan over named children alone silently loses the flag on exactly
+// these lines (gtest's paired GTEST_ATTRIBUTE_* macros hit this seven times).
+// The recovery reads the keywords back off the ERROR span — token-exact, so
+// `staticCast` as an identifier stays unfalsified even inside a broken parse.
+func TestCppStackedMacroAttributeSpecifiers(t *testing.T) {
+	ff := extractProject(t, map[string]string{
+		"gated/gate.cpp": `
+#define NOINL __attribute__((noinline))
+#define NOSAN __attribute__((no_sanitize("address")))
+
+NOINL
+NOSAN
+static bool stack_grows_down() { return true; }
+
+NOINL
+NOSAN
+virtual bool poly_gate() { return true; }
+
+NOINL
+static bool one_attr_static() { return true; }
+
+bool plain() { return true; }
+int staticCast(int raw);
+`,
+		"gated/gate.c": `
+#define NOINL __attribute__((noinline))
+#define NOSAN __attribute__((no_sanitize("address")))
+
+NOINL
+NOSAN
+static int c_gate(int v) { return v; }
+`,
+	})
+
+	grown := mustFact(t, ff, "gated.stack_grows_down")
+	if v, _ := grown.Props["static"].(bool); !v {
+		t.Error("stack_grows_down: static = false, want true — specifier buried in an ERROR node must be recovered")
+	}
+	poly := mustFact(t, ff, "gated.poly_gate")
+	if v, _ := poly.Props["virtual"].(bool); !v {
+		t.Error("poly_gate: virtual = false, want true — same recovery, virtual spelling")
+	}
+	if o, ok := poly.Props["override"].(bool); ok && o {
+		t.Error("poly_gate: override = true, want absent — recovered virtual declares, it does not override")
+	}
+	one := mustFact(t, ff, "gated.one_attr_static")
+	if v, _ := one.Props["static"].(bool); !v {
+		t.Error("one_attr_static: static = false, want true — single-attribute form must keep working")
+	}
+
+	cGate := mustFact(t, ff, "gated.c_gate")
+	if v, _ := cGate.Props["static"].(bool); !v {
+		t.Error("c_gate: static = false, want true — C grammar, same recovery")
+	}
+	if v, ok := cGate.Props["exported"].(bool); ok && v {
+		t.Error("c_gate: exported = true, want false — recovered C static keeps internal linkage")
+	}
+}

@@ -134,7 +134,14 @@ The virtual specifiers are read from the AST, not from the declaration's text:
 the function declarator. Reading the text instead would tag a member named `staticCast`
 or `callVirtual` with a specifier it does not have — and in C a spurious `static` also
 flips `exported=false`, which moves the symbol into the "safe to delete" half of the
-orphan report.
+orphan report. One shape defeats a scan of named specifier children alone: **stacked
+macro attributes**. `ATTR1 ATTR2 static bool f()` absorbs `ATTR1` as the return type,
+and error recovery re-tokenizes `static` (or `virtual`) as a plain identifier inside an
+`ERROR` node — the specifier exists in the tree, but not as a specifier node. The scan
+recovers those keywords from the `ERROR` span on exact whole-token text only: no
+identifier can be *named* `static` or `virtual`, so the recovery cannot re-invent what
+the text scan used to. Without it, paired attribute macros (gtest's `GTEST_ATTRIBUTE_*`,
+absl and Qt attributes, MSVC `__declspec` pairs) silently drop real specifiers.
 
 `override` and `final` are recorded because they change what a symbol *is*, not just how
 it is spelled. A C++11 override does not repeat the base's `virtual`, so with no

@@ -1844,6 +1844,15 @@ func (w *astWalker) handleInclude(node *sitter.Node) {
 // the Swift, Kotlin, Dart, Rust and C# extractors already emit, which is what
 // orphans reads.
 func (w *astWalker) applyFuncQualifiers(f *facts.Fact, node, fdecl *sitter.Node) {
+	applyStatic := func() {
+		f.SetProp("static", true)
+		// In C a `static` function has internal linkage — it is file-private, not
+		// externally visible. (C++ keeps exported=true: file scope there is rare and
+		// visibility is expressed via access specifiers / anonymous namespaces.)
+		if w.lang == langC {
+			f.SetProp("exported", false)
+		}
+	}
 	for i := uint(0); i < node.ChildCount(); i++ {
 		c := node.Child(i)
 		switch kindOf(w.kinds, c) {
@@ -1853,12 +1862,26 @@ func (w *astWalker) applyFuncQualifiers(f *facts.Fact, node, fdecl *sitter.Node)
 			if nodeText(c, w.src) != "static" {
 				continue
 			}
-			f.SetProp("static", true)
-			// In C a `static` function has internal linkage — it is file-private, not
-			// externally visible. (C++ keeps exported=true: file scope there is rare and
-			// visibility is expressed via access specifiers / anonymous namespaces.)
-			if w.lang == langC {
-				f.SetProp("exported", false)
+			applyStatic()
+		case "ERROR":
+			// Stacked macro attributes break the parse and bury the specifiers:
+			// `ATTR1 ATTR2 static bool f()` absorbs ATTR1 as the return type, and
+			// error recovery re-tokenizes `static` (and `virtual`) as plain
+			// identifier tokens inside an ERROR node. A declaration-level scan
+			// that only trusts named specifier children silently loses the flag
+			// on exactly these lines — gtest's paired GTEST_ATTRIBUTE_* macros
+			// hit this seven times in its own tree. So scan the ERROR span, but
+			// only for token-exact keyword text: no identifier can be *named*
+			// static or virtual (they are reserved keywords in both grammars),
+			// which keeps the old substring bug — `staticCast`, `callVirtual` —
+			// dead while recovering the real specifiers.
+			for _, kw := range errorSpecifierKeywords(w.kinds, c, w.src) {
+				switch kw {
+				case "virtual":
+					f.SetProp("virtual", true)
+				case "static":
+					applyStatic()
+				}
 			}
 		}
 	}
@@ -1888,6 +1911,36 @@ func (w *astWalker) applyFuncQualifiers(f *facts.Fact, node, fdecl *sitter.Node)
 			}
 		}
 	}
+}
+
+// errorSpecifierKeywords returns the C/C++ specifier keywords that error
+// recovery re-tokenized as ordinary identifier tokens inside an ERROR node.
+// Only an exact whole-token match counts — the ERROR span holds real source,
+// so a substring would repeat the bug the AST read replaced. The walk is
+// depth-bounded: ERROR recovery nests shallowly, and a deep walk could
+// wander into a body it has no business reading specifiers from.
+func errorSpecifierKeywords(kinds *tsutil.KindTable, node *sitter.Node, src []byte) []string {
+	var out []string
+	var walk func(n *sitter.Node, depth uint)
+	walk = func(n *sitter.Node, depth uint) {
+		if depth > 3 {
+			return
+		}
+		for i := uint(0); i < n.ChildCount(); i++ {
+			c := n.Child(i)
+			switch kindOf(kinds, c) {
+			case "ERROR":
+				walk(c, depth+1)
+			case "identifier", "type_identifier":
+				switch nodeText(c, src) {
+				case "static", "virtual":
+					out = append(out, nodeText(c, src))
+				}
+			}
+		}
+	}
+	walk(node, 0)
+	return out
 }
 
 // classCarriesFinal reports a `class X final` / `struct X final` — a type nothing
