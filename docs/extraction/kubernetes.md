@@ -35,6 +35,7 @@ Fixture: [`k8s_sample`](../../internal/engine/testdata/repos/k8s_sample/)
 | an Application's served names and environment | `serves`, `environment` | props |
 | an address in those values | `depends_on` to the Application serving it, joined across repositories by the release-addresses binder | relation |
 | the same object in several files of one directory | one symbol, `declared_in` listing the files | props |
+| the loaded repository whose code an Application runs | `deploys_repo` on it, and a service edge via `deployment` | props, `dependency` |
 | `{{ .Values.x }}`, `${VAR}` | nothing: a template is not a name | none |
 
 ## Objects become symbols in their directory's module
@@ -410,6 +411,28 @@ repository declares still answers by the usual rules, in the extractor.
 Edges within one repository roll up to module edges between release directories.
 On two GitOps repositories holding 13,000 Applications the binder draws 34,400
 edges, 14,500 of them from one repository into the other.
+
+## A release runs the code of another repository
+
+A GitOps repository deploys code that lives elsewhere, and only once both are loaded
+can the two meet. The `deployed-code` binder sets `deploys_repo` on an Application
+when its release runs a loaded repository's code: an image path segment below the
+registry host that names the repository (`registry.example.com/shop-web/app:1.2`
+runs `shop-web`), else the destination namespace, else a name it serves. When its
+images name several repositories, the namespace must name one of them, or it names
+none; its own repository never answers. Names compare as cross-repo linking compares
+them, case, `-` and `_` folded.
+
+The `deployment` cross-repo signal turns those props into service edges, via
+`deployment`, from the repository holding the Applications to the one whose code they
+run, with the Applications as `deployment_samples`:
+
+```
+dependency  shop-deploy -> shop-web   props: via=[deployment], deployment_count=14
+```
+
+It reports no coverage: most releases in a GitOps repository deploy software no
+loaded repository holds, and that is not a blind spot.
 
 ## What is deliberately not extracted
 

@@ -193,7 +193,10 @@ var (
 	BucketEndpoints = Bucket{Name: "endpoints", CountProp: "endpoint_count", SamplesProp: "endpoints"}
 	BucketImports   = Bucket{Name: "imports", CountProp: "import_count", SamplesProp: "import_samples"}
 	BucketTopics    = Bucket{Name: "topics", CountProp: "topic_count", SamplesProp: "topic_samples"}
-	BucketSymbols   = Bucket{Name: "symbols", CountProp: "symbol_count", SamplesProp: "symbol_samples", UnverifiedProp: "name_match_count"}
+	// BucketDeployments holds the releases (Argo CD Applications) by which one repo
+	// deploys another's code.
+	BucketDeployments = Bucket{Name: "deployments", CountProp: "deployment_count", SamplesProp: "deployment_samples"}
+	BucketSymbols     = Bucket{Name: "symbols", CountProp: "symbol_count", SamplesProp: "symbol_samples", UnverifiedProp: "name_match_count"}
 	// BucketSharedFiles holds, for each shared type verified against source, the pair of
 	// files that matched: "Name: a/file.go:12 <-> b/file.go:9". A repository declaring
 	// the name more than once leaves only the matching declaration to cite.

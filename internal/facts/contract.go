@@ -147,6 +147,10 @@ const (
 	// declarations — a declared object-storage seam states a data dependency
 	// extraction cannot confirm or deny.
 	ViaObjectStorage = "object-storage"
+	// ViaDeployment is a deployment repository's edge to the code repository whose
+	// program one of its releases runs (an image built from it, a namespace named
+	// for it): the code a GitOps change deploys.
+	ViaDeployment = "deployment"
 )
 
 // AllViaKinds is every registered via value, for intent-declaration validation
@@ -160,6 +164,7 @@ var AllViaKinds = map[string]bool{
 	ViaImport:        true,
 	ViaSharedSymbols: true,
 	ViaObjectStorage: true,
+	ViaDeployment:    true,
 }
 
 // Package ecosystems — the `ecosystem` prop a declared external dependency

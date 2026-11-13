@@ -717,7 +717,8 @@ func readSourceWindow(absFile string, centerLine, contextLines int) (string, err
 var manifestProps = []string{
 	"k8s_kind", "namespace", "destination_cluster", "destination_namespace",
 	"argocd_project", "source_repo", "source_path", "target_revision", "chart",
-	"chart_version", "source_plugin", "release_name", "images", "replicas",
+	"chart_version", "source_plugin", "release_name", "environment", "serves",
+	"deploys_repo", "images", "replicas",
 	"min_replicas", "max_replicas", "resources", "addresses", "ingress_paths",
 	"value_files", "declared_in", "env",
 }

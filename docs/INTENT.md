@@ -165,9 +165,10 @@ decision lives, not inside the repo it governs.
 
 - **`via`** — how a seam is mechanized: `http`, `http-client`,
   `grpc`, `graphql`, `kafka`, `import`, `shared_symbols`,
-  `object-storage`. The last two name coupling a call graph cannot
-  see: shared/vendored code, and bucket-mediated export/import
-  handoffs. A via outside this set is a parse error naming the set.
+  `object-storage`, `deployment`. `shared_symbols` and `object-storage`
+  name coupling a call graph cannot see: shared/vendored code, and
+  bucket-mediated export/import handoffs; `deployment` is a GitOps
+  repository's edge to the code its releases run. A via outside this set is a parse error naming the set.
 - **`dependencies`** — the external packages this repo means to depend on.
   Each entry names one and states its **purpose**, which is mandatory: the
   `manifests` extractor already measures which packages are declared, which

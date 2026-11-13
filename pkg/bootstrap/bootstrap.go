@@ -63,6 +63,7 @@ import (
 	"github.com/enola-labs/enola/internal/facts"
 	"github.com/enola-labs/enola/internal/history"
 	"github.com/enola-labs/enola/internal/linkers/binders/clientseam"
+	"github.com/enola-labs/enola/internal/linkers/binders/deployedcode"
 	"github.com/enola-labs/enola/internal/linkers/binders/emberresolver"
 	"github.com/enola-labs/enola/internal/linkers/binders/frameworkroots"
 	"github.com/enola-labs/enola/internal/linkers/binders/generatedclients"
@@ -84,6 +85,7 @@ import (
 	"github.com/enola-labs/enola/internal/linkers/binders/unmatchedroutes"
 	"github.com/enola-labs/enola/internal/linkers/binders/vendoredspecs"
 	"github.com/enola-labs/enola/internal/linkers/binders/workloadsource"
+	deploymentsignal "github.com/enola-labs/enola/internal/linkers/crossrepo/signals/deployment"
 	graphqlsignal "github.com/enola-labs/enola/internal/linkers/crossrepo/signals/graphqlsig"
 	httpsignal "github.com/enola-labs/enola/internal/linkers/crossrepo/signals/http"
 	importsignal "github.com/enola-labs/enola/internal/linkers/crossrepo/signals/imports"
@@ -568,6 +570,7 @@ func registerOSSPlugins(eng *engine.Engine, cfg *config.Config) {
 	eng.RegisterBinder(moduleedges.New())
 	eng.RegisterBinder(workloadsource.New())
 	eng.RegisterBinder(releaseaddresses.New())
+	eng.RegisterBinder(deployedcode.New())
 	eng.RegisterBinder(stimulusresolver.New())
 	eng.RegisterBinder(vendoredspecs.New())
 	// After vendored-specs, before generated-clients: the specs it finds unimplemented
@@ -586,6 +589,7 @@ func registerOSSPlugins(eng *engine.Engine, cfg *config.Config) {
 	eng.RegisterCrossRepoSignal(importsignal.New())
 	eng.RegisterCrossRepoSignal(kafkasignal.New(linkVocab))
 	eng.RegisterCrossRepoSignal(graphqlsignal.New())
+	eng.RegisterCrossRepoSignal(deploymentsignal.New())
 	eng.RegisterCrossRepoSignal(sharedcodesignal.New(linkVocab))
 
 	// Register all OSS explainers
