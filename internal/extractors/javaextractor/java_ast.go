@@ -697,16 +697,17 @@ func (w *astWalker) handleClassLike(node *sitter.Node, kind string) {
 	name := nodeText(nameNode, w.src)
 
 	modifiers := findChildByKind(node, "modifiers")
-	modifierText := ""
 	var annotations []javaAnnotation
 	if modifiers != nil {
-		modifierText = nodeText(modifiers, w.src)
 		annotations = parseAnnotations(modifiers, w.src)
 	}
 	// A top-level type is exported when public; nested types inherit visibility
-	// loosely — treat anything not explicitly private as part of the surface.
-	exported := strings.Contains(modifierText, "public") ||
-		(!strings.Contains(modifierText, "private") && len(w.typeStack) > 0)
+	// loosely — treat anything not explicitly private as part of the surface. The
+	// keywords are read from the modifiers node, not from its text: that span also
+	// covers annotation arguments, so `@NamedQuery(name = "public.find")` says nothing
+	// about visibility.
+	exported := hasModifier(modifiers, "public") ||
+		(!hasModifier(modifiers, "private") && len(w.typeStack) > 0)
 
 	f := facts.Fact{
 		Kind:    facts.KindSymbol,
@@ -727,7 +728,7 @@ func (w *astWalker) handleClassLike(node *sitter.Node, kind string) {
 	if doc := javaDoc(node, w.src); doc != "" {
 		facts.SetDoc(&f, doc)
 	}
-	if strings.Contains(modifierText, "abstract") {
+	if hasModifier(modifiers, "abstract") {
 		f.SetProp("abstract", true)
 	}
 	if kindOf(node) == "record_declaration" {
@@ -832,13 +833,11 @@ func (w *astWalker) handleMethod(node *sitter.Node) {
 	name := nodeText(nameNode, w.src)
 
 	modifiers := findChildByKind(node, "modifiers")
-	modifierText := ""
 	var annotations []javaAnnotation
 	if modifiers != nil {
-		modifierText = nodeText(modifiers, w.src)
 		annotations = parseAnnotations(modifiers, w.src)
 	}
-	exported := strings.Contains(modifierText, "public")
+	exported := hasModifier(modifiers, "public")
 
 	f := facts.Fact{
 		Kind:    facts.KindSymbol,
@@ -970,16 +969,17 @@ func (w *astWalker) handleMethod(node *sitter.Node) {
 
 func (w *astWalker) handleField(node *sitter.Node, owner int) {
 	modifiers := findChildByKind(node, "modifiers")
-	modifierText := ""
 	var annotations []javaAnnotation
 	if modifiers != nil {
-		modifierText = nodeText(modifiers, w.src)
 		annotations = parseAnnotations(modifiers, w.src)
 	}
-	exported := strings.Contains(modifierText, "public")
+	exported := hasModifier(modifiers, "public")
 
 	symbolKind := facts.SymbolVariable
-	if strings.Contains(modifierText, "final") {
+	// `final` on a field is a keyword child of `modifiers`. Read from the node because
+	// the text span covers annotation arguments, and `@Column(name = "final_price")`
+	// used to turn an ordinary private String into a recorded constant.
+	if hasModifier(modifiers, "final") {
 		symbolKind = facts.SymbolConstant
 	}
 
