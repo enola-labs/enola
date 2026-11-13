@@ -7,6 +7,67 @@ The full per-release change lists — every Added, Changed and Fixed line — ar
 [enola.tech/changelog](https://enola.tech/changelog). This file is the same history at
 the resolution a reader of the repository needs.
 
+## v0.5.2 — 2026-11-13
+
+**Kubernetes, Helm and Argo CD manifests, interface hops in traverse and find_path, and endpoint_impact by repository**
+
+- Kubernetes: manifests, kustomizations and Helm charts are read without rendering. Helm
+  values are read as variables. Workloads link to the Services they address and the code
+  they run; only a URL, host:port, `dns:///` target or `.svc` name counts as an address.
+- Argo CD: an Application is read as a release with its cluster, namespace, project,
+  source, revision, chart and chart version. Values files beside a remote chart become its
+  props (image, replicas, autoscaling, resources, env, addresses), with shared values files
+  layered by name. A binder resolves release addresses to the Applications serving them
+  across repositories, and another links each release to the code repository it runs.
+  A per-cluster object keeps every declaring file in `declared_in`. `show_symbol` lists a
+  Kubernetes object's props above its source.
+- endpoint_impact: a query can name a repository, `repo:<label>`, and follows every route
+  it serves. A query naming a route exactly follows only that route; a trailing `*` follows
+  every route containing the rest. Each caller lists its repository, the functions making
+  the call (`calls_from`) and the calling service's own endpoints that reach it.
+- Client matching: the thin-path rule applies to endpoint callers and route verdicts too.
+  A call prefers the route that adds only versions, routing words and ids to its path. A
+  path of generic names (`/healthz/live`) is generic at any length. Swift request paths
+  read through a property the file sets, Go HTTP helpers read the verb argument and paths
+  built with `+` or `fmt.Sprintf`, and a TypeScript client built in the file reads paths
+  relative to its base URL. Next.js layouts name the pages beneath them. A root OpenAPI
+  spec named `*.partial.*` is read when it has an openapi or swagger header.
+- Interfaces: `traverse` and `find_path` cross from an interface method to its
+  implementations and back, marked `through_interface`. A method-set match too weak to
+  infer an implementer is recorded as `implementers_candidates` (up to four), which impact
+  follows at interface precision. A Kotlin supertype in another module of the same package
+  resolves.
+- Go: function values passed to constructors, stored in fields and called later are linked
+  to the call site, per holder field, so two caches of one generic type reach only their
+  own fetch. Methods of a type with several type parameters are named correctly. A type
+  named in a signature, a local, `make`, `new` or a type assertion counts as used. A
+  package-level var initialized with code owns its calls. A file with one unreadable
+  declaration keeps the rest.
+- Storage: a Go function depends on the tables its queries name, including tables named
+  through constants in `fmt.Sprintf` or `+`. SQL block comments are stripped. Calls on a
+  go-redis client link to a per-repository `redis:<repo>` storage node. Vespa `.sd` schemas
+  are read as document-type storage. Forward walks stop at storage, and `find_path` keeps
+  to a name that resolves exactly.
+- Dead code: a type's own members calling each other no longer keep it alive. C# generic
+  call type arguments and `foreach` types count as references.
+- Insights: generated code is left out of god-class, hotspot, complexity and
+  public-surface findings. The shared-code insight names the shared types and cites the
+  file pair each matched in. Compact evidence lists of up to fifteen entries are shown
+  whole.
+- `query_facts`: `prop_op` compares `prop_value` with lt, le, gt, ge (versions and
+  numbers), ne, prefix or contains.
+- Serve: `--memstats` reports memory per phase, SIGUSR1 writes a probe mark, and
+  `--memprofile` writes a heap profile at each mark. A reload serves only the snapshot that
+  was unloaded, and the budget counts every graph sessions hold. Cross-origin requests are
+  refused by middleware instead of the deprecated SDK option.
+- Memory: tree-sitter nodes come from pooled slabs, identity props live outside the Props
+  map, and history streams revisions into gzip and shares the parent's lines. On a
+  28-repository cluster the history step holds 940 MiB less.
+- `diff_snapshot` pairs same-title findings by evidence before position. Flow entry and
+  route ordering is deterministic.
+- Go 1.27.4, golangci-lint v2.15.0. Engine: cache version is v588, so existing caches
+  re-extract.
+
 ## v0.5.1 — 2026-11-11
 
 **`enola serve` over HTTP, Go packages named by import path, and an impact lists the endpoints it reaches**
