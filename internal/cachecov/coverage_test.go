@@ -189,6 +189,7 @@ var versionCoverage = map[int][]string{
 	592: {"TestDartReviewLoopReceiverEvidence", "TestDartReviewChainedIO", "TestDartReviewInheritedCalls", "TestDartReviewDeduplicateResolvedCalls", "TestDartReviewInitializingFormalKeepsFieldType", "TestDartReviewGetterSetterIO", "TestDartReviewInternalPrefixedType", "TestDartReviewGetterReadsAndWrites", "TestDartReviewMixinAndInheritanceAmbiguity", "TestDartReviewAmbiguousGetterDoesNotSupplyLoopIO"},
 	595: {"TestDartTypeFlowReceivers", "TestDartTypeFlowPreservesFalseMatchRemovals", "TestDartTypeFlowDeclaredReturnAndShadowing", "TestDartSDKLibraryIdentities", "TestDartTypeFlowValueNamespaceShadowsImportedConstructor"},
 	596: {"TestDartGenericReceiverTypes"},
+	598: {"TestDartProviderReceiversAreTypedByTheirDeclaration", "TestDartEnumConstantReceiverResolvesItsMembers"},
 	597: {"TestDartStateWidgetResolvesToTheStatefulWidget", "TestDartStateWidgetWithFrameworkOutsideTheRepo"},
 	507: {"TestRustImportAliasesBindOnlyTheAlias", "TestRustImportedTypeThroughAFileModuleWithADirectory", "TestRustMethodsInAFileModulesSubdirectoryResolve", "TestRustTypeImportedThroughAReExportResolves", "TestRustTypeAliasIsFollowedToItsType", "TestRustAliasedExternalImportDoesNotHideTheLocalName"},
 	440: {"TestStoreMethodsRunWhenCalled"},

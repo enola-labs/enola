@@ -3628,7 +3628,9 @@ import (
 // v596: Dart receiver types keep their type arguments, so a field, getter or
 // method result declared as a class type parameter resolves to the argument.
 // v597: Dart: widget in a class extending State<X> is an X.
-const cacheVersion = "v597"
+// v598: Dart: a read of a state-management provider is typed by the provider's declared
+// type arguments, and an enum constant's members resolve on the enum.
+const cacheVersion = "v598"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

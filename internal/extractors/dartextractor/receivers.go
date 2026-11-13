@@ -126,7 +126,7 @@ func (w *walker) callReceiver(kids []*sitter.Node, i int) (string, bool) {
 			continue
 		}
 		if childOfKind(kids[j], "argument_part") != nil {
-			base += "()"
+			base += "(" + w.providerArgument(kids[j], base) + ")"
 			direct = false
 			continue
 		}
@@ -340,4 +340,39 @@ func (b *bodyWalk) writtenReceiverType(w *walker, receiver string) string {
 		return ""
 	}
 	return typ
+}
+
+var dartProviderReads = []string{".read", ".watch", ".notifier"}
+
+func (w *walker) providerArgument(sel *sitter.Node, base string) string {
+	return dartProviderArgument(sel, base, w.src)
+}
+
+// dartProviderArgument keeps the one provider a state-management read names, so the
+// resolver can type the result from the provider's declaration. Every other
+// argument list stays empty: argument contents never become part of a target.
+func dartProviderArgument(sel *sitter.Node, base string, src []byte) string {
+	reads := false
+	for _, suffix := range dartProviderReads {
+		if strings.HasSuffix(base, suffix) {
+			reads = true
+		}
+	}
+	if !reads {
+		return ""
+	}
+	args := childOfKind(childOfKind(sel, "argument_part"), "arguments")
+	if args == nil {
+		return ""
+	}
+	kids := namedChildren(args)
+	if len(kids) != 1 || kindOf(kids[0]) != "argument" {
+		return ""
+	}
+	text := strings.TrimSpace(kids[0].Utf8Text(src))
+	name := strings.TrimSuffix(text, ".notifier")
+	if isPlainIdentifier(name) && strings.HasSuffix(name, "Provider") {
+		return text
+	}
+	return ""
 }

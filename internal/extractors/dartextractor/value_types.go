@@ -48,6 +48,9 @@ func dartValueExpression(nodes []*sitter.Node, src []byte) string {
 		return ""
 	}
 	n := nodes[0]
+	if typ := dartProviderType(nodes, src); typ != "" {
+		return "@type{" + typ + "}"
+	}
 	base := ""
 	switch kindOf(n) {
 	case "identifier", "this", "super":
@@ -91,7 +94,7 @@ func dartValueExpression(nodes []*sitter.Node, src []byte) string {
 			return ""
 		}
 		if childOfKind(c, "argument_part") != nil {
-			base += "()"
+			base += "(" + dartProviderArgument(c, base, src) + ")"
 			continue
 		}
 		sel := childOfKind(c, "unconditional_assignable_selector", "conditional_assignable_selector")
@@ -292,4 +295,56 @@ func (w *walker) returnExpression(signature, body *sitter.Node) string {
 		dartBoundNames(params, w.src, shadows, bindings)
 	}
 	return w.expressionForBinding(expr, &bodyWalk{shadows: shadows, receiverTypes: bindings.types})
+}
+
+func dartHasArguments(n *sitter.Node) bool {
+	return n != nil && kindOf(n) == "selector" && childOfKind(n, "argument_part") != nil
+}
+
+// dartProviderType reads `XProvider<A, B>(...)`, or `XProvider((ref) => A())` whose
+// closure builds the one object the provider holds, as the written provider type.
+func dartProviderType(nodes []*sitter.Node, src []byte) string {
+	if len(nodes) < 2 || kindOf(nodes[0]) != "identifier" {
+		return ""
+	}
+	name := nodes[0].Utf8Text(src)
+	if !strings.HasSuffix(name, "Provider") {
+		return ""
+	}
+	if kindOf(nodes[1]) == "type_arguments" {
+		if len(nodes) > 2 && dartHasArguments(nodes[2]) && len(nodes) == 3 {
+			return name + strings.TrimSpace(nodes[1].Utf8Text(src))
+		}
+		return ""
+	}
+	if len(nodes) != 2 || !dartHasArguments(nodes[1]) {
+		return ""
+	}
+	part := childOfKind(nodes[1], "argument_part")
+	if written := childOfKind(part, "type_arguments"); written != nil {
+		return name + strings.TrimSpace(written.Utf8Text(src))
+	}
+	args := childOfKind(part, "arguments")
+	if args == nil {
+		return ""
+	}
+	first := childOfKind(args, "argument")
+	if first == nil {
+		return ""
+	}
+	closure := childOfKind(first, "function_expression")
+	body := childOfKind(closure, "function_expression_body")
+	if body == nil {
+		return ""
+	}
+	kids := namedChildren(body)
+	switch {
+	case len(kids) == 1 && (kindOf(kids[0]) == "new_expression" || kindOf(kids[0]) == "const_object_expression"):
+		if typ := declaredReceiverType(kids[0], src); typ != "" {
+			return name + "<" + typ + ">"
+		}
+	case len(kids) == 2 && kindOf(kids[0]) == "identifier" && dartHasArguments(kids[1]) && namesAType(kids[0].Utf8Text(src)):
+		return name + "<" + kids[0].Utf8Text(src) + ">"
+	}
+	return ""
 }

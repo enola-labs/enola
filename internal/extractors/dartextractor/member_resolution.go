@@ -110,6 +110,7 @@ type dartMemberResolver struct {
 	valueTypeCache        map[dartValueCacheKey]dartValueType
 	sdkLibraryHosts       map[string]map[string]bool
 	sdkHosts              map[string]bool
+	enumConstants         map[string]bool
 	importedValueCache    map[dartImportedFunctionKey][]dartDeclaredValue
 	exportedValueCache    map[dartTypeKey][]dartDeclaredValue
 }
@@ -118,6 +119,7 @@ func newDartMemberResolver(all []facts.Fact) *dartMemberResolver {
 	r := &dartMemberResolver{canonicalTypes: map[string][]*facts.Fact{}, members: map[string]dartMemberEntry{}, functions: map[string][]*facts.Fact{}, imports: map[string][]*facts.Fact{}, fileTypes: map[string]map[string][]*facts.Fact{}}
 	r.sdkLibraryHosts = map[string]map[string]bool{}
 	r.sdkHosts = map[string]bool{}
+	r.enumConstants = map[string]bool{}
 	r.exportedTypeCache = map[dartTypeKey][]*facts.Fact{}
 	r.exportedFunctionCache = map[dartTypeKey][]*facts.Fact{}
 	r.importedFunctionCache = map[dartImportedFunctionKey][]*facts.Fact{}
@@ -183,6 +185,9 @@ func newDartMemberResolver(all []facts.Fact) *dartMemberResolver {
 			continue
 		}
 		short := f.Name[strings.LastIndexByte(f.Name, '.')+1:]
+		if f.PropBool("enum_constant") {
+			r.enumConstants[f.Name] = true
+		}
 		if on := f.PropString("extension_on"); on != "" {
 			key := on[strings.LastIndexByte(on, '.')+1:]
 			r.extensions[key] = append(r.extensions[key], f)

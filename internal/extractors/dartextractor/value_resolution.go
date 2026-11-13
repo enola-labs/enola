@@ -243,9 +243,9 @@ func dartExpressionParts(expr string) []string {
 	start, depth := 0, 0
 	for i, c := range expr {
 		switch c {
-		case '{':
+		case '{', '(':
 			depth++
-		case '}':
+		case '}', ')':
 			depth--
 		case '.':
 			if depth == 0 {
@@ -300,7 +300,12 @@ func (r *dartMemberResolver) expressionType(expr string, from *facts.Fact, local
 		}
 		typ = dartValueType{Name: written, File: from.File}
 	} else if strings.HasPrefix(root, "@unknown") || strings.HasPrefix(root, "(") {
-		return typ
+		if len(rest) == 0 {
+			return typ
+		}
+		if _, _, ok := dartProviderStep(rest[0]); !ok {
+			return typ
+		}
 	} else if root == "this" || root == "super" {
 		owner := r.lexicalOwner(from)
 		if root == "super" && owner != nil {
@@ -360,6 +365,10 @@ func (r *dartMemberResolver) expressionType(expr string, from *facts.Fact, local
 		}
 	}
 	for _, step := range rest {
+		if method, provider, ok := dartProviderStep(step); ok {
+			typ = r.providerResult(typ, method, provider, from, locals, seen)
+			continue
+		}
 		if typ.Name == "" {
 			return typ
 		}
@@ -382,6 +391,8 @@ func (r *dartMemberResolver) expressionType(expr string, from *facts.Fact, local
 				return dartValueType{}
 			}
 			typ = r.resultType(f, seen, r.receiverSubst(typ, owner))
+		} else if constant := r.enumConstant(owner, name, typ); constant.Name != "" {
+			typ = constant
 		} else {
 			typ = r.fieldType(owner, name, typ.Namespace, seen, map[*facts.Fact]bool{}, r.receiverSubst(typ, owner))
 		}
