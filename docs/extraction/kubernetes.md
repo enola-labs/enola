@@ -32,7 +32,8 @@ Fixture: [`k8s_sample`](../../internal/engine/testdata/repos/k8s_sample/)
 | an Argo CD Application | `destination_cluster`, `destination_namespace`, `argocd_project`, `source_repo`, `source_path`, `target_revision`, `chart`, `chart_version`, `source_plugin`, `release_name` | props |
 | its `project`, its source path in this repository | `depends_on` to the AppProject, and to the kustomization or the objects in that path | relation |
 | the values files beside an Application whose chart is remote | `value_files`, `images`, `replicas`, `min_replicas`, `max_replicas`, `resources`, `env`, `addresses` on the Application | props |
-| an address in those values | `depends_on` to the Application serving it, in the caller's cluster | relation |
+| an Application's served names and environment | `serves`, `environment` | props |
+| an address in those values | `depends_on` to the Application serving it, joined across repositories by the release-addresses binder | relation |
 | the same object in several files of one directory | one symbol, `declared_in` listing the files | props |
 | `{{ .Values.x }}`, `${VAR}` | nothing: a template is not a name | none |
 
@@ -374,11 +375,21 @@ merge in name order, before the Application's own.
 
 The chart renders the Service a values address names, so the repository holds no
 Service object to resolve it to. The Application deploying that Service is what
-answers. `http://cart-api.cart.svc:8080` names the Applications deploying to
-namespace `cart` that serve `cart-api`: by their release name, their own name, their
-`app`, `app.kubernetes.io/name` or `app.kubernetes.io/instance` label, or their name
-with their cluster appended (`cart-api-eu1`). An address with no namespace is the
-caller's own namespace.
+answers, and it often lives in another repository than the caller: a platform's
+GitOps repository beside one generated per service. The extractor reads one
+repository at a time, so it states both sides, and the `release-addresses` binder
+joins them once every repository is read.
+
+On the serving side, `serves` lists the names an Application deploys a Service
+under: its release name, its own name and that name without its cluster appended
+(`cart-api-eu1` serves `cart-api`), and its `app`, `app.kubernetes.io/name` and
+`app.kubernetes.io/instance` labels. `environment` is its `environment` or `env`
+label, else the one environment word among its project name's parts
+(`shop-production`); production/prod, sandbox, staging/stage, development/dev, test
+and qa are spelled one way each.
+
+`http://cart-api.cart.svc:8080` then names the Applications deploying to namespace
+`cart` that serve `cart-api`:
 
 ```
 symbol  apps/web.Application.web-eu1      (destination eu1, env CART_URL=http://cart-api.cart.svc:8080)
@@ -387,15 +398,18 @@ dependency  module-edge: apps/web -> apps/cart
 ```
 
 A cluster name resolves inside the caller's cluster, so the Applications in the
-caller's own cluster answer. Failing that, the one Application in the repository
-serving the name answers, as a mesh spanning clusters would route it; among several
-in other clusters none is picked, because across clusters several are usually
+caller's own cluster answer. Failing that, a mesh spanning clusters routes to a
+neighbour: those in clusters of the caller's region (the cluster name's leading
+letters and digits) and environment answer, so a monolith on its own cluster reaches
+the service on the application cluster beside it. Failing that, the one candidate
+there is, and never a pick among several: across clusters, several are usually
 production's and sandbox's. A port is not checked, since the chart decides the
-Service's ports. A Service the repository declares still answers by the usual rules.
+Service's ports. Only addresses naming a namespace are joined. A Service the
+repository declares still answers by the usual rules, in the extractor.
 
-The edges roll up to module edges between the directories, so a release directory's
-dependencies are the services its values point at. On a GitOps repository with
-13,000 Applications this draws 15,600 edges, all but two inside one cluster.
+Edges within one repository roll up to module edges between release directories.
+On two GitOps repositories holding 13,000 Applications the binder draws 34,400
+edges, 14,500 of them from one repository into the other.
 
 ## What is deliberately not extracted
 

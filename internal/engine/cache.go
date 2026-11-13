@@ -3605,7 +3605,11 @@ import (
 // wholly into what the Application answers to (cluster, region, workload, labels,
 // project, namespace, names), or say global/common/default/all/base/shared; merged
 // in name order before its own values.
-const cacheVersion = "v587"
+// v588: release addresses are joined to Applications by the release-addresses binder
+// over every repository, not in the extractor: an Application states serves and
+// environment, and an address resolves in the caller's cluster, else in its region
+// and environment, else to the single candidate.
+const cacheVersion = "v588"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

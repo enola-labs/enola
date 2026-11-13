@@ -320,6 +320,10 @@ func emit(objs []*obj, ks map[string]*kustomization, kdirs []string, contexts ma
 			for k, v := range o.app.props() {
 				f.SetProp(k, v)
 			}
+			f.SetProp("serves", serves(o))
+			if env := environment(o); env != "" {
+				f.SetProp("environment", env)
+			}
 			refs = append(refs, idx.applicationRefs(o, ks)...)
 		}
 		if o.release != nil {

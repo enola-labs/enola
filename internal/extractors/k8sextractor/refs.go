@@ -22,20 +22,15 @@ type index struct {
 	all        []*obj
 	byKindName map[string][]*obj
 	workloads  []*obj
-	// appsByNS are the Argo CD Applications by the namespace they deploy to.
-	appsByNS map[string][]*obj
 }
 
 func newIndex(objs []*obj) *index {
-	ix := &index{all: objs, byKindName: map[string][]*obj{}, appsByNS: map[string][]*obj{}}
+	ix := &index{all: objs, byKindName: map[string][]*obj{}}
 	for _, o := range objs {
 		k := o.Kind + "\x00" + o.Name
 		ix.byKindName[k] = append(ix.byKindName[k], o)
 		if podTemplate(o.Object) != nil {
 			ix.workloads = append(ix.workloads, o)
-		}
-		if o.app != nil && o.app.namespace != "" {
-			ix.appsByNS[o.app.namespace] = append(ix.appsByNS[o.app.namespace], o)
 		}
 	}
 	return ix

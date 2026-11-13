@@ -234,64 +234,45 @@ func (ix *index) applicationRefs(o *obj, ks map[string]*kustomization) []string 
 	return out
 }
 
-// An address in a release's values names a Service the chart renders, so no Service
-// object is there to resolve it to. The Application deploying that Service is:
-// `cart-api.cart.svc` names the Applications deploying to namespace `cart` that
-// serve `cart-api`, by their release name, their own name, their `app`,
-// `app.kubernetes.io/name` or `app.kubernetes.io/instance` label, or their name with
-// their cluster appended (`cart-api-eu1`). A cluster name resolves inside the
-// caller's cluster, so the Applications in the caller's own cluster answer when there
-// are any; failing that, the one Application in the repository serving it, as a
-// service mesh spanning clusters would route it, and never a guess among several:
-// across clusters, several are usually production's and sandbox's. An address with
-// no namespace is the caller's own namespace. A Service the repository declares
-// still answers by the usual rules.
+// An address in a release's values names a Service the chart renders, so it is the
+// Application deploying that Service that answers, and it may live in another
+// repository: the release-addresses binder joins them once every repository is read.
+// The extractor states each side: the Application's addresses (props of its
+// release), and the names it serves and the environment it deploys to.
 
-// servesName reports whether an Application deploys a Service of that name.
-func servesName(c *obj, name string) bool {
-	a := c.app
-	if a.releaseName == name || c.Name == name || (a.cluster != "" && c.Name == name+"-"+a.cluster) {
-		return true
+// serves lists the Service names an Application deploys: its release name, its own
+// name and that name without its cluster appended (`cart-api-eu1` serves
+// `cart-api`), and its `app`, `app.kubernetes.io/name` and
+// `app.kubernetes.io/instance` labels.
+func serves(o *obj) []string {
+	a := o.app
+	set := map[string]bool{o.Name: true}
+	if a.releaseName != "" {
+		set[a.releaseName] = true
 	}
-	labels := k8syaml.Labels(k8syaml.Map(c.Doc, "metadata", "labels"))
+	if a.cluster != "" && strings.HasSuffix(o.Name, "-"+a.cluster) {
+		set[strings.TrimSuffix(o.Name, "-"+a.cluster)] = true
+	}
+	labels := k8syaml.Labels(k8syaml.Map(o.Doc, "metadata", "labels"))
 	for _, k := range []string{"app", "app.kubernetes.io/name", "app.kubernetes.io/instance"} {
-		if labels[k] == name {
-			return true
+		if v := labels[k]; v != "" {
+			set[v] = true
 		}
 	}
-	return false
+	return sortedSet(set)
 }
 
-// releaseRefs lists what the addresses in an Application's values name: the
-// Applications serving them, and the Services the repository declares.
+// releaseRefs lists the Services the repository declares that a release's
+// addresses name; the Applications serving them are the binder's.
 func (ix *index) releaseRefs(o *obj) []string {
-	a := o.app
 	var out []string
 	for _, addr := range o.release.addresses {
 		ns := addr.namespace
 		if ns == "" {
-			ns = a.namespace
+			ns = o.app.namespace
 		}
 		if ns == "" {
 			continue
-		}
-		var cands, same []*obj
-		for _, c := range ix.appsByNS[ns] {
-			if c != o && servesName(c, addr.name) {
-				cands = append(cands, c)
-				if c.app.cluster == a.cluster {
-					same = append(same, c)
-				}
-			}
-		}
-		switch {
-		case len(same) > 0:
-			cands = same
-		case len(cands) > 1:
-			cands = nil
-		}
-		for _, c := range cands {
-			out = append(out, c.symbol)
 		}
 		in := &obj{Object: k8syaml.Object{Namespace: ns}, dir: o.dir}
 		for _, svc := range ix.resolve(in, "Service", addr.name, ns) {
@@ -301,4 +282,35 @@ func (ix *index) releaseRefs(o *obj) []string {
 		}
 	}
 	return out
+}
+
+// environments maps the words naming an environment to one spelling each.
+var environments = map[string]string{
+	"production": "production", "prod": "production", "sandbox": "sandbox",
+	"staging": "staging", "stage": "staging", "development": "development",
+	"dev": "development", "test": "test", "qa": "qa",
+}
+
+// environment is the environment an Application deploys to: its `environment` or
+// `env` label, else the one environment word among its project name's parts, or "".
+func environment(o *obj) string {
+	labels := k8syaml.Labels(k8syaml.Map(o.Doc, "metadata", "labels"))
+	for _, k := range []string{"environment", "env"} {
+		if v := strings.ToLower(labels[k]); v != "" {
+			if e, ok := environments[v]; ok {
+				return e
+			}
+			return v
+		}
+	}
+	found := ""
+	for _, p := range strings.Split(strings.ToLower(o.app.project), "-") {
+		if e, ok := environments[p]; ok {
+			if found != "" && found != e {
+				return ""
+			}
+			found = e
+		}
+	}
+	return found
 }

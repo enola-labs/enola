@@ -76,6 +76,7 @@ import (
 	"github.com/enola-labs/enola/internal/linkers/binders/mixinowner"
 	"github.com/enola-labs/enola/internal/linkers/binders/moduleedges"
 	"github.com/enola-labs/enola/internal/linkers/binders/openapiimpl"
+	"github.com/enola-labs/enola/internal/linkers/binders/releaseaddresses"
 	"github.com/enola-labs/enola/internal/linkers/binders/stimulusresolver"
 	"github.com/enola-labs/enola/internal/linkers/binders/storageclients"
 	"github.com/enola-labs/enola/internal/linkers/binders/storedfuncs"
@@ -566,6 +567,7 @@ func registerOSSPlugins(eng *engine.Engine, cfg *config.Config) {
 	eng.RegisterBinder(frameworkroots.New())
 	eng.RegisterBinder(moduleedges.New())
 	eng.RegisterBinder(workloadsource.New())
+	eng.RegisterBinder(releaseaddresses.New())
 	eng.RegisterBinder(stimulusresolver.New())
 	eng.RegisterBinder(vendoredspecs.New())
 	// After vendored-specs, before generated-clients: the specs it finds unimplemented
