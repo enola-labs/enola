@@ -1,0 +1,14 @@
+# The web release: its manifests are the k8s/ kustomization in this repository.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: web
+  namespace: argocd
+spec:
+  destination:
+    name: eu1
+    namespace: shop
+  project: shop
+  source:
+    path: k8s
+    targetRevision: HEAD

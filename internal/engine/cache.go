@@ -3584,7 +3584,12 @@ import (
 // outside a define is a Helm resource, so the alternatives of an if/else in one
 // document are each a symbol sharing the document's references. A YAML file named
 // *pod.yaml marks a repository as holding manifests.
-const cacheVersion = "v582"
+// v583: an Argo CD Application carries its release as props (destination cluster
+// and namespace, project, source repository, path and revision, chart and chart
+// version, from a Helm source or a plugin's CHART_NAME/CHART_VERSION, plugin,
+// release name) and depends on its AppProject and, when its source is a plain path
+// of this repository (no plugin, no chart), on that path's kustomization or objects.
+const cacheVersion = "v583"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

@@ -29,6 +29,8 @@ Fixture: [`k8s_sample`](../../internal/engine/testdata/repos/k8s_sample/)
 | its `patches` | `depends_on` to each object a patch targets; the patch file is not an object | relation |
 | `configMapGenerator`, `secretGenerator` | an object like any other, with `generator` naming the field, on the line naming it | `symbol` |
 | `namespace`, `namePrefix`, `nameSuffix`, `images`, remote resources | props on the kustomization, applied to no object | props |
+| an Argo CD Application | `destination_cluster`, `destination_namespace`, `argocd_project`, `source_repo`, `source_path`, `target_revision`, `chart`, `chart_version`, `source_plugin`, `release_name` | props |
+| its `project`, its source path in this repository | `depends_on` to the AppProject, and to the kustomization or the objects in that path | relation |
 | `{{ .Values.x }}`, `${VAR}` | nothing: a template is not a name | none |
 
 ## Objects become symbols in their directory's module
@@ -237,6 +239,54 @@ is the other extractor's to decide: a Go package is named by its import path, a 
 project by its directory. Change microservices-demo's `src/checkoutservice` and impact
 analysis reaches `kubernetes-manifests`, `kustomize/base` and `release`, the three
 places that deploy it.
+
+## An Argo CD Application is a release
+
+In a GitOps repository most objects are Applications, and an Application's name says
+little. What it states is the release: the cluster and namespace it deploys to, the
+project governing it, and where its manifests come from. Those become props.
+
+```yaml
+# apps/web/eu1-application.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: web-eu1
+  namespace: argocd
+spec:
+  destination: {name: eu1, namespace: shop}
+  project: shop
+  source:
+    repoURL: https://git.example.com/acme/shop-deploy.git
+    path: apps/web/
+    plugin:
+      name: chart-resolver
+      env:
+        - {name: CHART_NAME, value: base-service}
+        - {name: CHART_VERSION, value: 1.42.0}
+```
+
+```
+symbol  apps/web.Application.web-eu1
+        props: destination_cluster=eu1, destination_namespace=shop, argocd_project=shop,
+               source_repo=https://git.example.com/acme/shop-deploy.git,
+               source_path=apps/web, chart=base-service, chart_version=1.42.0,
+               source_plugin=chart-resolver
+        relations: depends_on -> apps.AppProject.shop
+```
+
+A Helm source states its chart as `chart` and pins it with `targetRevision`. A
+config-management plugin that resolves the chart itself is handed it in its env or
+parameters; `CHART_NAME`/`CHART` and `CHART_VERSION`, with or without a `HELM_`
+prefix, are read as the chart and its version. A multi-source Application
+(`spec.sources`) takes each field from the first source stating it.
+
+The source path is this repository's when the directory exists and the source
+repository, if stated, has this repository's name: the checkout's directory, or the
+origin remote's. A plain path source then depends on what that path applies: its
+kustomization, or else every object in it. A plugin or chart source renders the
+release instead, so the objects beside it, often its siblings for other clusters,
+are not part of it.
 
 ## What is deliberately not extracted
 

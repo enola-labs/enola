@@ -131,6 +131,8 @@ type obj struct {
 	// builds are the kustomizations whose closure holds this object's file, smallest
 	// first.
 	builds []*kustomization
+	// app is the release an Argo CD Application states, nil for any other object.
+	app *application
 }
 
 // Extract walks the repository itself: YAML is ignore-globbed by default, the
@@ -205,6 +207,10 @@ func (e *Extractor) Extract(_ context.Context, repoPath string, _ []string) ([]f
 		o.builds = holding[o.File]
 	}
 	nameObjects(objs)
+	for _, o := range objs {
+		o.app = readApplication(o)
+	}
+	markLocal(repoPath, objs)
 	return emit(objs, ks, dirs, buildContexts(repoPath, files)), nil
 }
 
@@ -293,7 +299,14 @@ func emit(objs []*obj, ks map[string]*kustomization, kdirs []string, contexts ma
 			f.SetProp("ingress_paths", paths)
 		}
 		targets := map[string]bool{}
-		for _, t := range idx.references(o) {
+		refs := idx.references(o)
+		if o.app != nil {
+			for k, v := range o.app.props() {
+				f.SetProp(k, v)
+			}
+			refs = append(refs, idx.applicationRefs(o, ks)...)
+		}
+		for _, t := range refs {
 			if t != o.symbol {
 				targets[t] = true
 			}

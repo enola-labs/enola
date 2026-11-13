@@ -142,6 +142,7 @@ var versionCoverage = map[int][]string{
 	547: {"TestGrammarPatchesParseClean", "TestGrammarABI_EveryGrammarLoadsAtItsPinnedABI"},
 	548: {"TestWalkRepo_SkipsNestedLinkedWorktree", "TestExtract_SkipsNestedLinkedWorktree", "TestIsLinkedWorktree"},
 	549: {"TestExtractHTTPClientFacts_CommentedCallIsNotARoute", "TestServerRoutes_CommentedRegistrationIsNotARoute", "TestExtractHTTPClientFacts_NestedTemplateLiteral", "TestCleanTSPath_TernaryInterpolation"},
+	583: {"TestAnApplicationStatesItsRelease", "TestALocalSourcePathIsWhatTheApplicationApplies"},
 	582: {"TestAlternativeKindsInOneDocumentAreEachAResource", "TestKustomizationIsABuildOfWhatItLists", "TestDetectFilesByName"},
 	581: {"TestWorkloadsDependOnTheServicesTheirAddressesName", "TestParseAddress", "TestAWorkloadDependsOnTheModulesItsImageIsBuiltFrom"},
 	580: {"TestValuesAreSymbolsNamedByTheirReaders", "TestValuesReadFromValuesAndByName", "TestHelmValueOrphanIsHighConfidence", "TestALibraryChartIsPublished", "TestActionLinesFollowAnActionAcrossLines"},
