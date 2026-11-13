@@ -861,7 +861,7 @@ func (w *astWalker) handleMethod(node *sitter.Node) {
 	if t := w.enclosingType(); t != "" {
 		f.SetProp("receiver", t)
 	}
-	if strings.Contains(modifierText, "static") {
+	if hasModifier(modifiers, "static") {
 		f.SetProp("static", true)
 	}
 	if t := w.receiverTypeOf(node.ChildByFieldName("type")); t != "" {
@@ -980,8 +980,8 @@ func (w *astWalker) handleField(node *sitter.Node, owner int) {
 	injected := hasAnnotation(annotations, "Autowired", "Inject", "Resource", "Reference")
 	// A `static final String FOO = "literal"` constant exposes its value so that
 	// references to it (e.g. @Table(name = FOO)) can be resolved in a later pass.
-	captureValue := strings.Contains(modifierText, "static") &&
-		strings.Contains(modifierText, "final") &&
+	captureValue := hasModifier(modifiers, "static") &&
+		hasModifier(modifiers, "final") &&
 		typeFullName(typeNode, w.src) == "String"
 
 	for i := uint(0); i < uint(node.ChildCount()); i++ {
@@ -1589,3 +1589,26 @@ func firstNamedChild(node *sitter.Node) *sitter.Node {
 }
 
 func nodeText(node *sitter.Node, src []byte) string { return tsutil.Text(node, src) }
+
+// hasModifier reports whether a `modifiers` node carries the given Java keyword as
+// one of its children — `static`, `public`, `final`, and so on.
+//
+// The keyword has to come from the nodes rather than from the modifier text, because
+// that text span also covers annotation arguments, and javac's lint categories are
+// spelled like modifiers: `@SuppressWarnings("static")`, the routine way to silence
+// "the static method … should be accessed in a static way", gave every method it
+// annotates `static=true` — a fact no consumer can tell from a real modifier. Of the
+// suppressible categories, `static` is the only one that collides with a Java
+// modifier, which is why these are the only two substring sites in this file that
+// bite in practice.
+func hasModifier(modifiers *sitter.Node, keyword string) bool {
+	if modifiers == nil {
+		return false
+	}
+	for i := uint(0); i < modifiers.ChildCount(); i++ {
+		if kindOf(modifiers.Child(i)) == keyword {
+			return true
+		}
+	}
+	return false
+}
