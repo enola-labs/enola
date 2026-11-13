@@ -26,7 +26,7 @@ var loadDartSDKIndex = sync.OnceValue(func() *dartSDKIndex {
 	if err != nil {
 		return idx
 	}
-	defer zr.Close()
+	defer func() { _ = zr.Close() }()
 	if json.NewDecoder(zr).Decode(idx) != nil {
 		return &dartSDKIndex{}
 	}
