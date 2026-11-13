@@ -3598,7 +3598,9 @@ import (
 // serving it: deploying to the address's namespace (the caller's, when none) and
 // serving the name by release name, own name, app label or name-<cluster>, in the
 // caller's cluster, else the one such Application in the repository.
-const cacheVersion = "v585"
+// v586: an object declared again in another file of the same directory (one copy per
+// cluster) stays one symbol and lists every declaring file in declared_in.
+const cacheVersion = "v586"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

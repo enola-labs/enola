@@ -5,6 +5,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -135,6 +136,8 @@ type obj struct {
 	app *application
 	// release is what the values files of an Application's remote chart state.
 	release *release
+	// alsoIn are the other files declaring the same object in the same directory.
+	alsoIn []string
 }
 
 // Extract walks the repository itself: YAML is ignore-globbed by default, the
@@ -153,13 +156,20 @@ func (e *Extractor) Extract(_ context.Context, repoPath string, _ []string) ([]f
 	patchTargets := map[string][]patchTarget{}
 
 	var objs []*obj
-	seen := map[string]bool{}
+	seen := map[string]*obj{}
 	add := func(o *obj) {
 		key := o.dir + "\x00" + o.Kind + "\x00" + o.Namespace + "\x00" + o.Name
-		if !seen[key] {
-			seen[key] = true
-			objs = append(objs, o)
+		if first := seen[key]; first != nil {
+			// The same object again, as a GitOps repository writes one copy per
+			// cluster (eu1-serviceaccount.yaml, us1-serviceaccount.yaml): one symbol,
+			// which says every file declaring it.
+			if o.File != first.File && !slices.Contains(first.alsoIn, o.File) {
+				first.alsoIn = append(first.alsoIn, o.File)
+			}
+			return
 		}
+		seen[key] = o
+		objs = append(objs, o)
 	}
 	for _, rel := range files {
 		base := factpath.Base(rel)
@@ -289,6 +299,9 @@ func emit(objs []*obj, ks map[string]*kustomization, kdirs []string, contexts ma
 		}
 		if o.generator != "" {
 			f.SetProp("generator", o.generator)
+		}
+		if len(o.alsoIn) > 0 {
+			f.SetProp("declared_in", append([]string{o.File}, o.alsoIn...))
 		}
 		if imgs := images(o.Doc); len(imgs) > 0 {
 			f.SetProp("images", imgs)

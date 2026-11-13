@@ -33,6 +33,7 @@ Fixture: [`k8s_sample`](../../internal/engine/testdata/repos/k8s_sample/)
 | its `project`, its source path in this repository | `depends_on` to the AppProject, and to the kustomization or the objects in that path | relation |
 | the values files beside an Application whose chart is remote | `value_files`, `images`, `replicas`, `min_replicas`, `max_replicas`, `resources`, `env`, `addresses` on the Application | props |
 | an address in those values | `depends_on` to the Application serving it, in the caller's cluster | relation |
+| the same object in several files of one directory | one symbol, `declared_in` listing the files | props |
 | `{{ .Values.x }}`, `${VAR}` | nothing: a template is not a name | none |
 
 ## Objects become symbols in their directory's module
@@ -81,6 +82,12 @@ symbol  k8s.Deployment.api   k8s/api.yaml:1   props: k8s_kind=Deployment, images
 symbol  k8s.Service.api      k8s/api.yaml:28  props: k8s_kind=Service
         relations: depends_on -> k8s.Deployment.api
 ```
+
+A GitOps repository often writes one copy of an object per cluster in one directory
+(`eu1-serviceaccount.yaml`, `us1-serviceaccount.yaml`, the same ServiceAccount in
+each). That is one symbol, on the first file, with `declared_in` listing every file
+declaring it, so which clusters have it stays answerable while a reference to it still
+resolves to one object.
 
 A directory is a module because it is what `kubectl apply -f` takes, the same choice
 the Terraform extractor makes. Each symbol sits on the line its document starts on.

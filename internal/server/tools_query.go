@@ -719,7 +719,7 @@ var manifestProps = []string{
 	"argocd_project", "source_repo", "source_path", "target_revision", "chart",
 	"chart_version", "source_plugin", "release_name", "images", "replicas",
 	"min_replicas", "max_replicas", "resources", "addresses", "ingress_paths",
-	"value_files", "env",
+	"value_files", "declared_in", "env",
 }
 
 // manifestSummary lists a Kubernetes object's props, one per line, or "" for any
