@@ -405,11 +405,16 @@ func ComputeChanged(baseline, current *facts.Snapshot, changedFiles []string) *S
 	// because a NEW caller changed a symbol's fan-in is still counted as real).
 	touched := d.touchedNames()
 	silenced := newSilencing(baseline, current)
+	pairings := make(map[string]groupPairing, len(curFind))
+	for k, curGroup := range curFind {
+		pairings[k] = pairInsightGroup(baseFind[k], curGroup)
+	}
 	for k, curGroup := range curFind {
 		baseGroup := baseFind[k]
+		p := pairings[k]
 		for i, in := range curGroup {
-			if i >= len(baseGroup) {
-				// Genuinely new: the current side has more findings under this identity.
+			if p.curToBase[i] < 0 {
+				// Genuinely new: no baseline member of this identity is left to pair it with.
 				switch {
 				case silenced.byNewDeclaration(in):
 					if by, hit := witnessTouchedBy(in, touched, changed); hit {
@@ -427,14 +432,17 @@ func ComputeChanged(baseline, current *facts.Snapshot, changedFiles []string) *S
 			// Present on both sides under the same identity. It is the SAME finding —
 			// but that says nothing about whether it is UNCHANGED, which is the
 			// conflation this bucket exists to undo.
-			if insightChanged(baseGroup[i], in) {
-				d.FindingsChanged = append(d.FindingsChanged, InsightChange{Before: baseGroup[i], After: in})
+			if before := baseGroup[p.curToBase[i]]; insightChanged(before, in) {
+				d.FindingsChanged = append(d.FindingsChanged, InsightChange{Before: before, After: in})
 			}
 		}
 	}
 	for k, baseGroup := range baseFind {
-		curGroup := curFind[k]
-		for i := len(curGroup); i < len(baseGroup); i++ {
+		p, ok := pairings[k]
+		if !ok {
+			p = pairInsightGroup(baseGroup, nil)
+		}
+		for _, i := range p.unpairedBase {
 			in := baseGroup[i]
 			switch {
 			case silenced.byDeclarationChange(in):
@@ -1041,6 +1049,61 @@ func groupInsightsByKey(ins []facts.Insight) map[string][]facts.Insight {
 		}
 	}
 	return groups
+}
+
+// groupPairing says which baseline member each current member of one finding identity
+// is the same finding as: curToBase[i] is an index into the baseline group, or -1 when
+// the current member is new. unpairedBase lists the baseline members nothing pairs
+// with, in group order: the ones that went away.
+type groupPairing struct {
+	curToBase    []int
+	unpairedBase []int
+}
+
+// pairInsightGroup pairs the members of one finding identity across the two sides.
+//
+// Members citing exactly the same evidence are the same finding, so they pair first.
+// Only what is left pairs positionally. Pairing everything by position let one new
+// member shift every pair after it: a new layer violation whose evidence sorted before
+// the existing ones was paired with an old one (reported as "changed"), and the last
+// old one became the leftover, cited nothing the change touched, and was filed as
+// incidental, so `--fail-on=layers` exited 0 on a violation the change made.
+//
+// Groups of one are unaffected: a lone finding whose evidence moved still pairs with
+// its predecessor (TestCompute_SummaryFindingDoesNotChurn).
+func pairInsightGroup(base, cur []facts.Insight) groupPairing {
+	p := groupPairing{curToBase: make([]int, len(cur))}
+	byEvidence := make(map[string][]int, len(base))
+	for i, in := range base {
+		e := sortedEvidenceEntities(in)
+		byEvidence[e] = append(byEvidence[e], i)
+	}
+	usedBase := make([]bool, len(base))
+	var restCur []int
+	for i, in := range cur {
+		e := sortedEvidenceEntities(in)
+		if q := byEvidence[e]; len(q) > 0 {
+			p.curToBase[i], byEvidence[e] = q[0], q[1:]
+			usedBase[q[0]] = true
+			continue
+		}
+		p.curToBase[i] = -1
+		restCur = append(restCur, i)
+	}
+	var restBase []int
+	for i := range base {
+		if !usedBase[i] {
+			restBase = append(restBase, i)
+		}
+	}
+	// Both rests keep group order (intraInsightOrder), so this fallback is the old
+	// positional pairing, restricted to the members evidence could not place.
+	n := min(len(restCur), len(restBase))
+	for j := 0; j < n; j++ {
+		p.curToBase[restCur[j]] = restBase[j]
+	}
+	p.unpairedBase = restBase[n:]
+	return p
 }
 
 // intraInsightOrder totally orders findings that share a findingKey. Evidence comes
