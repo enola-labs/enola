@@ -44,9 +44,11 @@ import (
 const (
 	propSymbolKind = "symbol_kind"
 	propExported   = "exported"
-	// propOverride: symbol fact (Kotlin/Swift) → the declaration is an `override`,
-	// dispatched polymorphically through its supertype and never referenced by its
-	// own literal name (framework lifecycle callbacks, interface implementations).
+	// propOverride: symbol fact (Kotlin/Swift/Rust/Dart/C#/C++) → the declaration is
+	// an `override`, dispatched polymorphically through its supertype and never
+	// referenced by its own literal name (framework lifecycle callbacks, interface
+	// implementations). Java is the gap: no `override` prop is emitted there, since
+	// `@Override` is optional and a supertype-name match is not a language guarantee.
 	propOverride = "override"
 	// propDIProvider: symbol fact (Kotlin) → a Dagger/Hilt @Provides/@Binds method,
 	// invoked reflectively by the DI container, never by name.
