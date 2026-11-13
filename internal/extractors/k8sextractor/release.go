@@ -71,6 +71,7 @@ func readReleases(repoPath string, files []string, objs []*obj, ks map[string]*k
 			clusters[a.path][a.cluster] = true
 		}
 	}
+	layers := layerDirs(byDirFiles(byDir))
 	for _, o := range objs {
 		a := o.app
 		if a == nil || !a.local || ks[a.path] != nil || chartAt(repoPath, a.path) {
@@ -80,7 +81,7 @@ func readReleases(repoPath string, files []string, objs []*obj, ks map[string]*k
 		if len(a.valueFiles) > 0 {
 			vf = listedValueFiles(a, files)
 		} else {
-			vf = conventionalValueFiles(a, byDir[a.path], clusters[a.path])
+			vf = append(layeredValueFiles(o, layers, byDir), conventionalValueFiles(a, byDir[a.path], clusters[a.path])...)
 		}
 		if len(vf) > 0 {
 			o.release = readValues(repoPath, vf)
@@ -349,6 +350,15 @@ func (r *release) props() map[string]any {
 	}
 	if len(addrs) > 0 {
 		out["addresses"] = addrs
+	}
+	return out
+}
+
+// byDirFiles flattens the non-object files by directory back into one list.
+func byDirFiles(byDir map[string][]string) []string {
+	var out []string
+	for _, fs := range byDir {
+		out = append(out, fs...)
 	}
 	return out
 }

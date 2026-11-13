@@ -346,9 +346,29 @@ characters. `addresses` are the in-cluster addresses in any string, by the rules
 pod's env follows, recorded only when they name a namespace: a bare `host:port` in a
 values file is as often a sidecar or a local port as a peer.
 
-Values a plugin layers in from elsewhere by its own convention (a shared directory
-of numbered files, a cluster-wide defaults file) are not read: nothing in the
-Application names them.
+Some plugins also layer shared values under an Application's own, from a directory
+named for values beside an ancestor of its path, choosing files by name:
+
+```
+shop/_layered_values/01-global.yaml           every Application
+shop/_layered_values/20-production.yaml       the production environment's
+shop/_layered_values/30-eu1.yaml              region eu1's
+shop/_layered_values/40-eu1prod1.yaml         cluster eu1prod1's
+shop/_layered_values/50-web.yaml              the web workload's
+shop/_layered_values/60-web-production.yaml   web's in production
+shop/live/web/eu1prod1-application.yaml
+```
+
+A layered file named `global`, `common`, `default(s)`, `all`, `base` or `shared`
+applies to every Application below. Any other applies when its name, without the
+leading number, splits wholly into names the Application answers to: its cluster, its
+region (the cluster name's leading letters and digits), its workload (the source
+path's last directory, or its path below the values directory's parent joined by
+dashes, `live-web`), its label values, its project and each dash-separated part of
+it, its namespace, its own name and its release name. A part none of those accounts
+for excludes the file: `50-web.yaml` is not `web-admin`'s, `60-web-sandbox.yaml` is
+not production's. The nearest ancestor holding a values directory answers; its files
+merge in name order, before the Application's own.
 
 ## An address in a release names the Application serving it
 

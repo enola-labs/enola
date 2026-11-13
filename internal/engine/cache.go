@@ -3600,7 +3600,12 @@ import (
 // caller's cluster, else the one such Application in the repository.
 // v586: an object declared again in another file of the same directory (one copy per
 // cluster) stays one symbol and lists every declaring file in declared_in.
-const cacheVersion = "v586"
+// v587: layered values. A values directory beside the nearest ancestor of a plugin
+// Application's path contributes the files whose names (number prefix dropped) split
+// wholly into what the Application answers to (cluster, region, workload, labels,
+// project, namespace, names), or say global/common/default/all/base/shared; merged
+// in name order before its own values.
+const cacheVersion = "v587"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
