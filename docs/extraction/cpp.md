@@ -20,6 +20,11 @@ Fixture: [`cpp_sample`](../../internal/engine/testdata/repos/cpp_sample/)
 | `.lock = fn` in a compound literal | a call edge to `fn` | relation |
 | a function name inside a `#define` body | a call edge recovered by a macro pre-pass | relation |
 | a token-pasted callback (`_pfx##_name##_show`) | a call edge to the pasted name | relation |
+| `a call through a base pointer` | an edge to the **declared** method, never to an override | relation |
+| `virtual void draw();` | a method with `virtual=true` | props |
+| `void draw() override;` | `override=true`, and `virtual=true` even though the keyword is not repeated | props |
+| `void draw() final;` | `final=true`, plus `override=true` and `virtual=true` (only a virtual member that overrides may be `final`) | props |
+| `int staticCast(int);` | **no** `static` — a name containing a keyword is not a specifier | props |
 | a call inside a `for`/`while` | `calls_in_loop` / `calls_in_scaling_loop` | props |
 
 ## Symbols, and why `has_body` matters
@@ -112,10 +117,24 @@ A `for` is constant-bounded only when it both starts and stops at a constant. `f
 Namespaces, templates and class methods are extracted, with header and source methods
 merged into one symbol as above.
 
-> **A note on `override`.** The C++ corpus used to validate this extractor
-> (getdp, gmsh, the Linux kernel) is pre-C++11 and never uses the `override`
-> specifier, so the code path that consumes it has zero exercise on real code.
-> `virtual` is the specifier that is actually in play there.
+The virtual specifiers are read from the AST, not from the declaration's text:
+`virtual` and `static` are children of the declaration, `override` and `final` hang off
+the function declarator. Reading the text instead would tag a member named `staticCast`
+or `callVirtual` with a specifier it does not have — and in C a spurious `static` also
+flips `exported=false`, which moves the symbol into the "safe to delete" half of the
+orphan report.
+
+`override` and `final` are recorded because they change what a symbol *is*, not just how
+it is spelled. A C++11 override does not repeat the base's `virtual`, so with no
+specifier stored it is indistinguishable from an ordinary method: `find_orphans` reports
+it as unreferenced dead code, when in fact it is reached through the base and cannot be
+deleted in isolation. Both specifiers imply `virtual=true` — that is a language
+guarantee, not a dispatch guess. Fixture: [`shapes.hpp`](../../internal/engine/testdata/repos/cpp_sample/include/shapes.hpp),
+with its out-of-line half in [`shapes.cpp`](../../internal/engine/testdata/repos/cpp_sample/drivers/shapes.cpp).
+
+> **Corpus caveat.** The C++ corpora this extractor was validated against (getdp, gmsh,
+> the Linux kernel) are pre-C++11 and never write `override` or `final`, so those two
+> specifiers are pinned by the fixture above rather than by a measured repository.
 
 ## What is deliberately not extracted
 
@@ -123,7 +142,9 @@ merged into one symbol as above.
   a configuration, so facts from mutually exclusive branches can coexist.
 - **Template instantiation.** A template is one symbol, not one per instantiation.
 - **Virtual dispatch.** A call through a base-class pointer resolves to the declared
-  method, not to every override.
+  method, not to every override. What makes the limit findable rather than silent is
+  that the overrides are marked: `virtual`, `override` and `final` sit on the
+  declaration, so the targets dispatch would add can be listed instead of guessed.
 - **Linker-level symbol resolution.** Two static functions with the same name in different
   translation units are distinguished by module, not by object file.
 

@@ -1821,44 +1821,73 @@ func (w *astWalker) handleInclude(node *sitter.Node) {
 	})
 }
 
-// applyFuncQualifiers tags a function/method fact with static/virtual/const flags
-// read from its signature text.
+// applyFuncQualifiers tags a function/method fact with the static, virtual,
+// override, final and const specifiers its AST actually carries.
+//
+// These were once substring tests over the declaration's source text, which
+// cannot tell a specifier from an identifier that merely contains one: a function
+// named `staticCast` or `callVirtual` was tagged static and virtual, and in C the
+// bogus `static` also set exported=false. Every specifier here is a named node in
+// both grammars, so the text is not needed:
+//
+//	virtual           an anonymous `virtual` child of the declaration
+//	static            a `storage_class_specifier` child of the declaration
+//	override / final  a `virtual_specifier` child of the function_declarator
+//	const             a `type_qualifier` child of the function_declarator, after the parameters
+//
+// `override` matters beyond accuracy. A C++11 override does not repeat the base's
+// `virtual`, so with no specifier recorded it is indistinguishable from an ordinary
+// method: find_orphans reports it as unreferenced dead code (an override is reached
+// through the base, never by its own name), and the polymorphic surface of the class
+// reads as flat. The prop name matches what the Swift, Kotlin, Dart, Rust and C#
+// extractors already emit, which is the prop orphans reads.
 func (w *astWalker) applyFuncQualifiers(f *facts.Fact, node, fdecl *sitter.Node) {
-	header := w.signatureText(node)
-	if strings.Contains(header, "static") {
-		f.SetProp("static", true)
-		// In C a `static` function has internal linkage — it is file-private, not
-		// externally visible. (C++ keeps exported=true: file scope there is rare and
-		// visibility is expressed via access specifiers / anonymous namespaces.)
-		if w.lang == langC {
-			f.SetProp("exported", false)
-		}
-	}
-	if strings.Contains(header, "virtual") {
-		f.SetProp("virtual", true)
-	}
-	// Trailing const: a type_qualifier child after the parameter_list.
-	if fdecl != nil {
-		params := fdecl.ChildByFieldName("parameters")
-		for i := uint(0); i < fdecl.ChildCount(); i++ {
-			c := fdecl.Child(i)
-			if kindOf(w.kinds, c) == "type_qualifier" && params != nil && c.StartByte() >= params.EndByte() {
-				if nodeText(c, w.src) == "const" {
-					f.SetProp("const", true)
-				}
+	for i := uint(0); i < node.ChildCount(); i++ {
+		c := node.Child(i)
+		switch kindOf(w.kinds, c) {
+		case "virtual":
+			f.SetProp("virtual", true)
+		case "storage_class_specifier":
+			if nodeText(c, w.src) != "static" {
+				continue
+			}
+			f.SetProp("static", true)
+			// In C a `static` function has internal linkage — it is file-private, not
+			// externally visible. (C++ keeps exported=true: file scope there is rare and
+			// visibility is expressed via access specifiers / anonymous namespaces.)
+			if w.lang == langC {
+				f.SetProp("exported", false)
 			}
 		}
 	}
-}
-
-// signatureText returns the source from the declaration start up to the body
-// (or the whole node when there is no body).
-func (w *astWalker) signatureText(node *sitter.Node) string {
-	end := node.EndByte()
-	if body := node.ChildByFieldName("body"); body != nil {
-		end = body.StartByte()
+	if fdecl == nil {
+		return
 	}
-	return string(w.src[node.StartByte():end])
+	params := fdecl.ChildByFieldName("parameters")
+	for i := uint(0); i < fdecl.ChildCount(); i++ {
+		c := fdecl.Child(i)
+		switch kindOf(w.kinds, c) {
+		case "type_qualifier":
+			// Trailing const: a type_qualifier child after the parameter_list.
+			if params != nil && c.StartByte() >= params.EndByte() && nodeText(c, w.src) == "const" {
+				f.SetProp("const", true)
+			}
+		case "virtual_specifier":
+			// Both specifiers imply `virtual`, and both imply the member
+			// overrides one: a member function may only be marked `override`
+			// or `final` if it is virtual and overrides a base member, so this
+			// is a language guarantee rather than a dispatch guess. Recording
+			// `override` for `final` as well is what keeps a final override out
+			// of the dead-code report — orphans treats the prop as "reached
+			// through the supertype, never by its own name, and not deletable
+			// in isolation", which is exactly true of a final override.
+			f.SetProp("virtual", true)
+			f.SetProp("override", true)
+			if nodeText(c, w.src) == "final" {
+				f.SetProp("final", true)
+			}
+		}
+	}
 }
 
 // --- call graph ---
