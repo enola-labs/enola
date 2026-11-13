@@ -127,6 +127,8 @@ func TestCStaticStillMeansInternalLinkage(t *testing.T) {
 		"drv/board.c": `
 static int omap_reserve(void) { return 0; }
 int staticLike(int n) { return n; }
+int add_virtual_intf(void *priv) { return 0; }
+struct net_device *virtual_addr;
 `,
 	})
 	internal := mustFact(t, ff, "drv.omap_reserve")
