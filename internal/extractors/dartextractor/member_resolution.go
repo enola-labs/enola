@@ -56,11 +56,12 @@ func (e dartMemberEntry) readable() *facts.Fact {
 }
 
 func (e dartMemberEntry) add(f *facts.Fact) dartMemberEntry {
-	if e.count == 0 {
+	switch e.count {
+	case 0:
 		e.fact = f
-	} else if e.count == 1 {
+	case 1:
 		e.fact = dartReadablePair(e.fact, f)
-	} else {
+	default:
 		e.fact = nil
 	}
 	e.count++

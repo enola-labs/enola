@@ -446,7 +446,7 @@ func (r *dartMemberResolver) typeHasParameter(typ string, from *facts.Fact) bool
 		return false
 	}
 	for _, word := range strings.FieldsFunc(typ, func(c rune) bool {
-		return !(c == '_' || c == '$' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9')
+		return c != '_' && c != '$' && (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (c < '0' || c > '9')
 	}) {
 		for _, param := range params {
 			if word == param {
