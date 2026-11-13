@@ -2238,21 +2238,25 @@ func collectExplicitReceiverTypes(kinds *tsutil.KindTable, lang string, fdecl, b
 	return out
 }
 
-// referencedDeclarator steps through the reference in `T &name` and
-// `T &name = init`. The grammar gives a reference_declarator's operand no field
-// name, so declaratorLeafName, which descends by the declarator field, stops there.
+// referencedDeclarator steps through the wrappers around a local declaration's name:
+// `T &name`, `T &name = init`, `T (&name)[3]`. It is the same descent members and
+// out-of-line definitions use (findFunctionDeclarator, declaratorLeafName) — one rule,
+// declaratorChild, rather than a second copy of the reference step that only locals knew
+// about. That copy is why the reference-declarator gap looked like a member-only bug:
+// locals had always handled the untagged operand, everything else did not.
 func referencedDeclarator(kinds *tsutil.KindTable, node *sitter.Node) *sitter.Node {
-	if kindOf(kinds, node) == "init_declarator" {
-		if inner := node.ChildByFieldName("declarator"); inner != nil {
+	for {
+		switch kindOf(kinds, node) {
+		case "init_declarator", "reference_declarator":
+			inner := declaratorChild(kinds, node)
+			if inner == nil || inner == node {
+				return node
+			}
 			node = inner
+		default:
+			return node
 		}
 	}
-	if kindOf(kinds, node) == "reference_declarator" && node.ChildByFieldName("declarator") == nil {
-		if inner := firstNamedChild(node); inner != nil {
-			return inner
-		}
-	}
-	return node
 }
 
 // declaredInsideLambda reports whether node sits under a lambda between it and
