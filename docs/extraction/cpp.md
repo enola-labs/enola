@@ -147,6 +147,20 @@ means nothing may derive from it, and implies nothing about that class's members
 Fixture: [`shapes.hpp`](../../internal/engine/testdata/repos/cpp_sample/include/shapes.hpp),
 with its out-of-line half in [`shapes.cpp`](../../internal/engine/testdata/repos/cpp_sample/drivers/shapes.cpp).
 
+A member that **returns a reference** is descended the way a pointer return is. The
+grammar tags the wrapped node as field `declarator` on `pointer_declarator` and leaves it
+untagged on `reference_declarator` — the `&` and the operand are both bare children — so a
+walk written against that field follows `float* ptr()` and stops dead at `const float&
+Get_Factory() const`. The member then falls through to the data-member branch, which looks
+for the same field: no declaration, no definition, no callers, no orphan entry. One rule
+(`declaratorChild`) descends every declarator wrapper now — trust the field where the
+grammar supplies it, otherwise the first child that is itself a declarator, then the first
+named child. Local declarations already needed that step (`referencedDeclarator`); members
+and out-of-line definitions did not have it, which is how 1,397 of 52,766 symbols in a
+3,274-file engine tree went missing with no symptom but a short symbol list — every
+`operator=` returning `T&` among them.
+Fixture: [`refs.cpp`](../../internal/engine/testdata/repos/cpp_sample/drivers/refs.cpp).
+
 > **Corpus caveat.** The C++ corpora this extractor was validated against (getdp, gmsh,
 > the Linux kernel) are pre-C++11 and never write `override` or `final`, so those two
 > specifiers are pinned by the fixture above rather than by a measured repository.
