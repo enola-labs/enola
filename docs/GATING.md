@@ -184,7 +184,7 @@ So enola states what it measured and stops there. The exception it makes for its
 - **scope spillover** - packages your change reached outside the area you declared with `--target`, gated with `--max-spillover=N`. A change can trip this with zero failing findings.
 - **a gate that could not run.** A missing baseline or a bad flag exits `2`; a baseline that isn't comparable to the current code exits `3` and enola declines to grade rather than blaming your change. Neither is a judgement about the code, and neither is suppressed by `--warn-only`.
 
-**Which of them can actually fail at the default floor: four.** `cycles`, `intent`, `constraints`, and `layers` when the order is declared in `enola-intent.yaml` are the ones enola computes with certainty, so only they reach `1.00`. Everything else is an estimate measured against your own repository - "this file has unusually many dependents *for this codebase*" - and caps below `1.00` by design ([`MaxHeuristicConfidence`](../internal/explainers/common/common.go) is `0.95`). Naming an inferred explainer in `--fail-on` and nothing else therefore changes nothing at all; it needs `--min-confidence` too.
+**Which of them can actually fail at the default floor: five.** `cycles`, `intent`, `constraints`, `layers` when the order is declared in `enola-intent.yaml`, and `final-inheritance` - a type deriving from a `final` type, which every compiler rejects - are the ones enola computes with certainty, so only they reach `1.00`. Everything else is an estimate measured against your own repository - "this file has unusually many dependents *for this codebase*" - and caps below `1.00` by design ([`MaxHeuristicConfidence`](../internal/explainers/common/common.go) is `0.95`). Naming an inferred explainer in `--fail-on` and nothing else therefore changes nothing at all; it needs `--min-confidence` too.
 
 ### Changing what counts
 
@@ -193,7 +193,7 @@ So enola states what it measured and stops there. The exception it makes for its
 | The default: report everything, fail nothing | `enola check` |
 | Fail on violations of a layer order you declared | `enola check --fail-on=layers` |
 | Also fail on a cross-repo seam nobody declared, a declared rule breached, and new cycles | `enola check --fail-on=layers,intent,cycles,constraints` |
-| Everything above, plus every explainer enola infers rather than proves | `enola check --fail-on=layers,intent,cycles,constraints,crossrepo,coverage,unused-routes,messaging-coverage,god-class,hotspots,dependency-depth,exported-surface,complexity-outliers,domain,query-loops,entry-points,dead-methods,package-metrics,dead-code,performance,import-closure,packwerk --min-confidence=0.8` |
+| Everything above, plus every explainer enola infers rather than proves | `enola check --fail-on=layers,intent,cycles,constraints,crossrepo,coverage,unused-routes,messaging-coverage,god-class,hotspots,dependency-depth,exported-surface,complexity-outliers,domain,query-loops,entry-points,dead-methods,package-metrics,dead-code,performance,import-closure,packwerk,final-inheritance --min-confidence=0.8` |
 | Fail if the change spread outside the area you named | `enola check --target=internal/auth --max-spillover=0` |
 | Enforce a policy you set, but only warn this time | `enola check --fail-on=layers --warn-only` |
 

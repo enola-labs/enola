@@ -405,8 +405,11 @@ func TestContract_EveryToolIsPinned(t *testing.T) {
 //
 // Raised from 29,500 for locate, the one tool that turns a location into a fact id;
 // its own text was cut first. Raised from 29,900 for touched, the one tool that answers
-// from git history, with its parameters and text cut first.
-const toolCatalogueBudget = 30_500
+// from git history, with its parameters and text cut first. Raised from 30,500 for
+// final-inheritance, the proof-class explainer the query_insights filter must name:
+// the explainer= tag is that vocabulary's one full listing, and the vocabulary test
+// refuses to let it drift, so a new explainer costs its literal and nothing else can pay.
+const toolCatalogueBudget = 30_600
 
 func TestToolCatalogue_SizeBudget(t *testing.T) {
 	s := startInMemory(t)
