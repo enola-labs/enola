@@ -14,13 +14,14 @@ Fixture: [`cpp_sample`](../../internal/engine/testdata/repos/cpp_sample/)
 | a source directory | one module per directory | `module` |
 | `int foo(void) { … }` | a symbol with `has_body=true` | `symbol` |
 | `static int foo(void)` | the same, with `static=true`, `exported=false` | `symbol` |
-| a declaration in a header + definition in a `.c` | **one** merged symbol, not two | `symbol` |
+| a declaration in a header + definition in a `.c` **in the same directory** | **one** merged symbol, not two | `symbol` |
+| the same pair split across two directories | **two** symbols: the declaration carries the specifiers, the definition carries `has_body` | `symbol` |
 | `#define X`, `const int` | a `constant` symbol | `symbol` |
 | `gc->set = xlp_gpio_set;` | a call edge to the assigned function | relation |
 | `.lock = fn` in a compound literal | a call edge to `fn` | relation |
 | a function name inside a `#define` body | a call edge recovered by a macro pre-pass | relation |
 | a token-pasted callback (`_pfx##_name##_show`) | a call edge to the pasted name | relation |
-| `a call through a base pointer` | an edge to the **declared** method, never to an override | relation |
+| `shape->draw()` on a base pointer | an edge to the **declared** method, never to an override | relation |
 | `virtual void draw();` | a method with `virtual=true` | props |
 | `void draw() override;` | `override=true`, and `virtual=true` even though the keyword is not repeated | props |
 | `void draw() final;` | `final=true`, plus `override=true` and `virtual=true` (only a virtual member that overrides may be `final`) | props |
@@ -115,7 +116,14 @@ A `for` is constant-bounded only when it both starts and stops at a constant. `f
 ## C++ specifics
 
 Namespaces, templates and class methods are extracted, with header and source methods
-merged into one symbol as above.
+merged into one symbol as above — and as above, that means a pair in the *same*
+directory. A symbol name carries its directory, so the usual C++ split (declaration in
+`include/`, definition in `src/`) stays two symbols: the marked declaration and the
+unmarked body. `find_orphans` then drops the declaration from the dead-code report and
+still lists the definition, at `confidence=low` — the override is findable by its props,
+but the pair was never one symbol, so the report is not fully cleaned up. The fixture
+below is split this way on purpose; a same-directory pair, which does merge, is pinned
+by `qualifiers_test.go`.
 
 The virtual specifiers are read from the AST, not from the declaration's text:
 `virtual` and `static` are children of the declaration, `override` and `final` hang off
@@ -145,6 +153,9 @@ with its out-of-line half in [`shapes.cpp`](../../internal/engine/testdata/repos
   method, not to every override. What makes the limit findable rather than silent is
   that the overrides are marked: `virtual`, `override` and `final` sit on the
   declaration, so the targets dispatch would add can be listed instead of guessed.
+  A receiver the extractor cannot type — `shapes[i]->draw()` on a subscripted
+  `Shape **` — produces no edge at all rather than a guess; both shapes are in the
+  fixture.
 - **Linker-level symbol resolution.** Two static functions with the same name in different
   translation units are distinguished by module, not by object file.
 

@@ -1835,12 +1835,11 @@ func (w *astWalker) handleInclude(node *sitter.Node) {
 //	override / final  a `virtual_specifier` child of the function_declarator
 //	const             a `type_qualifier` child of the function_declarator, after the parameters
 //
-// `override` matters beyond accuracy. A C++11 override does not repeat the base's
-// `virtual`, so with no specifier recorded it is indistinguishable from an ordinary
-// method: find_orphans reports it as unreferenced dead code (an override is reached
-// through the base, never by its own name), and the polymorphic surface of the class
-// reads as flat. The prop name matches what the Swift, Kotlin, Dart, Rust and C#
-// extractors already emit, which is the prop orphans reads.
+// `override` matters beyond accuracy: a C++11 override does not repeat the base's
+// `virtual`, so unmarked it reads as an ordinary method and find_orphans calls it
+// dead code. docs/extraction/cpp.md carries the reasoning; the prop name is the one
+// the Swift, Kotlin, Dart, Rust and C# extractors already emit, which is what
+// orphans reads.
 func (w *astWalker) applyFuncQualifiers(f *facts.Fact, node, fdecl *sitter.Node) {
 	for i := uint(0); i < node.ChildCount(); i++ {
 		c := node.Child(i)
@@ -1873,14 +1872,12 @@ func (w *astWalker) applyFuncQualifiers(f *facts.Fact, node, fdecl *sitter.Node)
 				f.SetProp("const", true)
 			}
 		case "virtual_specifier":
-			// Both specifiers imply `virtual`, and both imply the member
-			// overrides one: a member function may only be marked `override`
-			// or `final` if it is virtual and overrides a base member, so this
-			// is a language guarantee rather than a dispatch guess. Recording
-			// `override` for `final` as well is what keeps a final override out
-			// of the dead-code report — orphans treats the prop as "reached
-			// through the supertype, never by its own name, and not deletable
-			// in isolation", which is exactly true of a final override.
+			// [class.virtual]: only a virtual member that overrides a base member
+			// may carry `override` or `final`, so both spellings imply `virtual`
+			// and both are overrides — a language guarantee, not a dispatch guess.
+			// Marking `final` as an override too is what keeps a final override out
+			// of the dead-code report: orphans treats the prop as reached through
+			// the supertype and not deletable in isolation, which is exactly true.
 			f.SetProp("virtual", true)
 			f.SetProp("override", true)
 			if nodeText(c, w.src) == "final" {
@@ -1889,6 +1886,7 @@ func (w *astWalker) applyFuncQualifiers(f *facts.Fact, node, fdecl *sitter.Node)
 		}
 	}
 }
+
 
 // --- call graph ---
 

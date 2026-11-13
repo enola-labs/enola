@@ -2,19 +2,23 @@
 // corpus this extractor was validated against (getdp, gmsh, the Linux kernel) is
 // pre-C++11 and never writes `override`, so the specifier path had no coverage on
 // real code. This header is the fixture that exercises it: an override keeps
-// `virtual` even though the keyword is not repeated, `final` is recorded, and a
-// member whose NAME merely contains a specifier keyword (`staticCast`) gets none.
+// `virtual` even though the keyword is not repeated, `final` is recorded on a member,
+// and a member whose NAME merely contains a specifier keyword (`staticCast`) gets none.
 //
-// Parsed with tree-sitter-cpp. See drivers/shapes.cpp for the out-of-line half of
-// the merge, and docs/extraction/cpp.md for what each prop means.
+// Parsed with tree-sitter-cpp. drivers/shapes.cpp holds the out-of-line half, and it
+// is deliberately in ANOTHER directory: a symbol name carries its directory, so the
+// declaration here and its definition there stay two symbols — the specifier rides on
+// this half, `has_body` on that one. A same-directory pair does collapse into one
+// symbol, and that case is pinned by
+// internal/extractors/cppextractor/qualifiers_test.go.
+// docs/extraction/cpp.md says what each prop means.
 #pragma once
 
 namespace shapes {
 
 class Shape {
 public:
-    // Virtual declared here, defined out-of-line in drivers/shapes.cpp: the merged
-    // symbol carries `virtual` from this declaration and `has_body` from there.
+    // Virtual declared here, defined out-of-line in drivers/shapes.cpp.
     virtual double area();
 
     // A pure virtual: one symbol, no body.
