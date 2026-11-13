@@ -20,8 +20,9 @@ type queryFactsArgs struct {
 	File      string `json:"file,omitempty" jsonschema:"File path."`
 	Name      string `json:"name,omitempty" jsonschema:"Name substring, case-insensitive."`
 	Relation  string `json:"relation,omitempty" jsonschema:"Relation kind: declares, imports, calls, implements, or depends_on."`
-	Prop      string `json:"prop,omitempty" jsonschema:"Property name, e.g. source, symbol_kind, exported, framework, storage_kind, role, method, unmatched_by_clients, unreached_by_clients. output_mode=summary lists the notable boolean flags present in the result."`
-	PropValue string `json:"prop_value,omitempty" jsonschema:"Property value; requires prop."`
+	Prop      string `json:"prop,omitempty" jsonschema:"Property name, e.g. source, symbol_kind, role, method, unmatched_by_clients; output_mode=summary lists boolean flags present."`
+	PropValue string `json:"prop_value,omitempty" jsonschema:"Requires prop."`
+	PropOp    string `json:"prop_op,omitempty" jsonschema:"eq (default), ne, lt, le, gt, ge (by version), prefix, contains; lists match any element."`
 
 	// Batch filters — OR within dimension, AND across dimensions
 	Names      []string `json:"names,omitempty" jsonschema:"Exact fact names, which are package-qualified (e.g. internal/server.Server, not Server). OR with each other and with name."`
@@ -161,7 +162,9 @@ func describeFilters(args queryFactsArgs) string {
 		add("relation=%s", args.Relation)
 	}
 	if args.Prop != "" {
-		if args.PropValue != "" {
+		if args.PropValue != "" && args.PropOp != "" && args.PropOp != facts.PropOpEq {
+			add("%s %s %s", args.Prop, args.PropOp, args.PropValue)
+		} else if args.PropValue != "" {
 			add("%s=%s", args.Prop, args.PropValue)
 		} else {
 			add("has prop %s", args.Prop)
@@ -323,7 +326,7 @@ func (q *querySummary) render(total int) string {
 func (s *Server) registerQueryFactsTool() {
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name: "query_facts",
-		Description: "Precision filter over extracted facts, for subsets explore does not give you: all symbols in a file, all external dependencies, all routes. " +
+		Description: "Precision filter over extracted facts, for subsets explore does not give you: all symbols in a file, all routes. " +
 			"Filters are OR within a dimension (name with names; file with files and file_prefix; kind with kinds) and AND across dimensions. " +
 			"Size an unfamiliar result set with output_mode=summary first. " +
 			"For dependencies, prop=source with prop_value internal, external, stdlib or framework cuts the noise.",
@@ -331,6 +334,9 @@ func (s *Server) registerQueryFactsTool() {
 		store := s.eng.Store()
 		if store.Count() == 0 {
 			return errorResult("No facts available. Run generate_snapshot first."), nil, nil
+		}
+		if !facts.ValidPropOp(args.PropOp) {
+			return errorResult(fmt.Sprintf("prop_op %q is not one of %s", args.PropOp, strings.Join(facts.PropOps, ", "))), nil, nil
 		}
 
 		// Normalize absolute filesystem paths to store-relative paths.
@@ -362,6 +368,7 @@ func (s *Server) registerQueryFactsTool() {
 			RelKind:    args.Relation,
 			Prop:       args.Prop,
 			PropValue:  args.PropValue,
+			PropOp:     args.PropOp,
 			Offset:     args.Offset,
 			Limit:      limit,
 		}
@@ -645,6 +652,7 @@ func (s *Server) showSymbol(store *facts.Store, name string, contextLines int) (
 		if comp, ok := fact.PropAny("ios_component").(string); ok {
 			sb.WriteString(fmt.Sprintf("iOS Component: %s\n", comp))
 		}
+		sb.WriteString(manifestSummary(fact))
 		if g := store.Graph(); g != nil {
 			if pages := g.GoverningIntentForFile(fact.Repo, fact.File); len(pages) > 0 {
 				var refs []string
@@ -708,4 +716,45 @@ func readSourceWindow(absFile string, centerLine, contextLines int) (string, err
 		sb.WriteString(fmt.Sprintf("%4d│ %s\n", i, lines[i-1]))
 	}
 	return sb.String(), nil
+}
+
+// manifestProps are the props a Kubernetes object carries that its source window
+// does not show: for an Argo CD Application, the release it states and what its
+// values files say, which live in other files.
+var manifestProps = []string{
+	"k8s_kind", "namespace", "destination_cluster", "destination_namespace",
+	"argocd_project", "source_repo", "source_path", "target_revision", "chart",
+	"chart_version", "source_plugin", "release_name", "environment", "serves",
+	"deploys_repo", "images", "replicas",
+	"min_replicas", "max_replicas", "resources", "addresses", "ingress_paths",
+	"value_files", "declared_in", "env",
+}
+
+// manifestSummary lists a Kubernetes object's props, one per line, or "" for any
+// other fact.
+func manifestSummary(fact facts.Fact) string {
+	if fact.PropString("k8s_kind") == "" {
+		return ""
+	}
+	var sb strings.Builder
+	for _, k := range manifestProps {
+		switch v := fact.PropAny(k).(type) {
+		case nil:
+		case []string:
+			if len(v) > 0 {
+				fmt.Fprintf(&sb, "%s: %s\n", k, strings.Join(v, ", "))
+			}
+		case []any:
+			parts := make([]string, 0, len(v))
+			for _, e := range v {
+				parts = append(parts, fmt.Sprint(e))
+			}
+			if len(parts) > 0 {
+				fmt.Fprintf(&sb, "%s: %s\n", k, strings.Join(parts, ", "))
+			}
+		default:
+			fmt.Fprintf(&sb, "%s: %v\n", k, v)
+		}
+	}
+	return sb.String()
 }

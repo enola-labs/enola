@@ -5,6 +5,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -131,6 +132,12 @@ type obj struct {
 	// builds are the kustomizations whose closure holds this object's file, smallest
 	// first.
 	builds []*kustomization
+	// app is the release an Argo CD Application states, nil for any other object.
+	app *application
+	// release is what the values files of an Application's remote chart state.
+	release *release
+	// alsoIn are the other files declaring the same object in the same directory.
+	alsoIn []string
 }
 
 // Extract walks the repository itself: YAML is ignore-globbed by default, the
@@ -149,13 +156,20 @@ func (e *Extractor) Extract(_ context.Context, repoPath string, _ []string) ([]f
 	patchTargets := map[string][]patchTarget{}
 
 	var objs []*obj
-	seen := map[string]bool{}
+	seen := map[string]*obj{}
 	add := func(o *obj) {
 		key := o.dir + "\x00" + o.Kind + "\x00" + o.Namespace + "\x00" + o.Name
-		if !seen[key] {
-			seen[key] = true
-			objs = append(objs, o)
+		if first := seen[key]; first != nil {
+			// The same object again, as a GitOps repository writes one copy per
+			// cluster (eu1-serviceaccount.yaml, us1-serviceaccount.yaml): one symbol,
+			// which says every file declaring it.
+			if o.File != first.File && !slices.Contains(first.alsoIn, o.File) {
+				first.alsoIn = append(first.alsoIn, o.File)
+			}
+			return
 		}
+		seen[key] = o
+		objs = append(objs, o)
 	}
 	for _, rel := range files {
 		base := factpath.Base(rel)
@@ -205,6 +219,11 @@ func (e *Extractor) Extract(_ context.Context, repoPath string, _ []string) ([]f
 		o.builds = holding[o.File]
 	}
 	nameObjects(objs)
+	for _, o := range objs {
+		o.app = readApplication(o)
+	}
+	markLocal(repoPath, objs)
+	readReleases(repoPath, files, objs, ks)
 	return emit(objs, ks, dirs, buildContexts(repoPath, files)), nil
 }
 
@@ -281,6 +300,9 @@ func emit(objs []*obj, ks map[string]*kustomization, kdirs []string, contexts ma
 		if o.generator != "" {
 			f.SetProp("generator", o.generator)
 		}
+		if len(o.alsoIn) > 0 {
+			f.SetProp("declared_in", append([]string{o.File}, o.alsoIn...))
+		}
 		if imgs := images(o.Doc); len(imgs) > 0 {
 			f.SetProp("images", imgs)
 			if ctxs := contextsFor(imgs, contexts); len(ctxs) > 0 {
@@ -293,7 +315,24 @@ func emit(objs []*obj, ks map[string]*kustomization, kdirs []string, contexts ma
 			f.SetProp("ingress_paths", paths)
 		}
 		targets := map[string]bool{}
-		for _, t := range idx.references(o) {
+		refs := idx.references(o)
+		if o.app != nil {
+			for k, v := range o.app.props() {
+				f.SetProp(k, v)
+			}
+			f.SetProp("serves", serves(o))
+			if env := environment(o); env != "" {
+				f.SetProp("environment", env)
+			}
+			refs = append(refs, idx.applicationRefs(o, ks)...)
+		}
+		if o.release != nil {
+			for k, v := range o.release.props() {
+				f.SetProp(k, v)
+			}
+			refs = append(refs, idx.releaseRefs(o)...)
+		}
+		for _, t := range refs {
 			if t != o.symbol {
 				targets[t] = true
 			}

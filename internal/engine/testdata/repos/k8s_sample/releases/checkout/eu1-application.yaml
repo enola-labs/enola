@@ -1,0 +1,22 @@
+# checkout's chart lives in a registry; its configuration is the values beside this file.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: checkout-eu1
+  namespace: argocd
+  labels:
+    app: checkout
+spec:
+  destination:
+    name: eu1
+    namespace: checkout
+  project: shop
+  source:
+    path: releases/checkout
+    plugin:
+      name: chart-resolver
+      env:
+        - name: CHART_NAME
+          value: base-service
+        - name: CHART_VERSION
+          value: 2.3.0

@@ -29,6 +29,13 @@ Fixture: [`k8s_sample`](../../internal/engine/testdata/repos/k8s_sample/)
 | its `patches` | `depends_on` to each object a patch targets; the patch file is not an object | relation |
 | `configMapGenerator`, `secretGenerator` | an object like any other, with `generator` naming the field, on the line naming it | `symbol` |
 | `namespace`, `namePrefix`, `nameSuffix`, `images`, remote resources | props on the kustomization, applied to no object | props |
+| an Argo CD Application | `destination_cluster`, `destination_namespace`, `argocd_project`, `source_repo`, `source_path`, `target_revision`, `chart`, `chart_version`, `source_plugin`, `release_name` | props |
+| its `project`, its source path in this repository | `depends_on` to the AppProject, and to the kustomization or the objects in that path | relation |
+| the values files beside an Application whose chart is remote | `value_files`, `images`, `replicas`, `min_replicas`, `max_replicas`, `resources`, `env`, `addresses` on the Application | props |
+| an Application's served names and environment | `serves`, `environment` | props |
+| an address in those values | `depends_on` to the Application serving it, joined across repositories by the release-addresses binder | relation |
+| the same object in several files of one directory | one symbol, `declared_in` listing the files | props |
+| the loaded repository whose code an Application runs | `deploys_repo` on it, and a service edge via `deployment` | props, `dependency` |
 | `{{ .Values.x }}`, `${VAR}` | nothing: a template is not a name | none |
 
 ## Objects become symbols in their directory's module
@@ -77,6 +84,12 @@ symbol  k8s.Deployment.api   k8s/api.yaml:1   props: k8s_kind=Deployment, images
 symbol  k8s.Service.api      k8s/api.yaml:28  props: k8s_kind=Service
         relations: depends_on -> k8s.Deployment.api
 ```
+
+A GitOps repository often writes one copy of an object per cluster in one directory
+(`eu1-serviceaccount.yaml`, `us1-serviceaccount.yaml`, the same ServiceAccount in
+each). That is one symbol, on the first file, with `declared_in` listing every file
+declaring it, so which clusters have it stays answerable while a reference to it still
+resolves to one object.
 
 A directory is a module because it is what `kubectl apply -f` takes, the same choice
 the Terraform extractor makes. Each symbol sits on the line its document starts on.
@@ -237,6 +250,194 @@ is the other extractor's to decide: a Go package is named by its import path, a 
 project by its directory. Change microservices-demo's `src/checkoutservice` and impact
 analysis reaches `kubernetes-manifests`, `kustomize/base` and `release`, the three
 places that deploy it.
+
+## An Argo CD Application is a release
+
+In a GitOps repository most objects are Applications, and an Application's name says
+little. What it states is the release: the cluster and namespace it deploys to, the
+project governing it, and where its manifests come from. Those become props.
+
+```yaml
+# apps/web/eu1-application.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: web-eu1
+  namespace: argocd
+spec:
+  destination: {name: eu1, namespace: shop}
+  project: shop
+  source:
+    repoURL: https://git.example.com/acme/shop-deploy.git
+    path: apps/web/
+    plugin:
+      name: chart-resolver
+      env:
+        - {name: CHART_NAME, value: base-service}
+        - {name: CHART_VERSION, value: 1.42.0}
+```
+
+```
+symbol  apps/web.Application.web-eu1
+        props: destination_cluster=eu1, destination_namespace=shop, argocd_project=shop,
+               source_repo=https://git.example.com/acme/shop-deploy.git,
+               source_path=apps/web, chart=base-service, chart_version=1.42.0,
+               source_plugin=chart-resolver
+        relations: depends_on -> apps.AppProject.shop
+```
+
+A Helm source states its chart as `chart` and pins it with `targetRevision`. A
+config-management plugin that resolves the chart itself is handed it in its env or
+parameters; `CHART_NAME`/`CHART` and `CHART_VERSION`, with or without a `HELM_`
+prefix, are read as the chart and its version. A multi-source Application
+(`spec.sources`) takes each field from the first source stating it.
+
+The props answer fleet questions directly: every release on a chart older than a
+version is `query_facts(kind=symbol, prop=chart_version, prop_op=lt,
+prop_value=0.150)`, compared as a version, with `prop=chart` to narrow to one chart
+in a second query.
+
+The source path is this repository's when the directory exists and the source
+repository, if stated, has this repository's name: the checkout's directory, or the
+origin remote's. A plain path source then depends on what that path applies: its
+kustomization, or else every object in it. A plugin or chart source renders the
+release instead, so the objects beside it, often its siblings for other clusters,
+are not part of it.
+
+## A remote chart's values are the release's configuration
+
+A GitOps repository rarely holds the chart it deploys: the Application names a chart
+in a registry and keeps its configuration in values files beside it. Those files say
+what runs, so when an Application's source path is in this repository and holds no
+chart and no kustomization, its values files are read into props on the
+Application.
+
+The files are the ones `helm.valueFiles` lists, relative to the source path (a
+`$ref/` file or a URL belongs to another source and is skipped). A plugin source lists
+none and reads its path by its own convention, so then every YAML file there that
+holds no object and has `values` in its name is read. A file named for one of the
+clusters the Applications sharing the path deploy to belongs to that cluster's
+Application alone: with `web-eu1` and `web-us1` both pointing at `apps/web/`,
+`eu1-values.yaml` is `web-eu1`'s, and `values.yaml` is both. Files merge in order,
+later keys winning: shared before a cluster's own, and a file named `override` last.
+
+```yaml
+# apps/web/values.yaml
+image: {repository: acme/web, tag: "1.0"}
+resources:
+  requests: {cpu: 100m, memory: 128Mi}
+# apps/web/eu1-values.yaml
+replicaCount: 6
+autoscaling: {minReplicas: 6, maxReplicas: 20}
+environment:
+  CART_URL: http://cart-api.cart.svc:8080
+# apps/web/eu1-values.override.yaml
+image: {tag: "1.1"}
+```
+
+```
+symbol  apps/web.Application.web-eu1
+        props: value_files=[apps/web/values.yaml, apps/web/eu1-values.yaml,
+                            apps/web/eu1-values.override.yaml],
+               images=[acme/web:1.1], replicas=6, min_replicas=6, max_replicas=20,
+               resources=[requests.cpu=100m, requests.memory=128Mi],
+               env=[CART_URL=http://cart-api.cart.svc:8080], addresses=[cart-api.cart:8080]
+```
+
+What is read follows the keys `helm create` writes, which most charts keep: `image`
+anywhere in the tree (a string, or `repository` and `tag`), top-level `replicaCount`,
+`autoscaling.minReplicas` and `maxReplicas`, and `resources.requests` and `limits`.
+`env` is every UPPER_SNAKE key holding a scalar, wherever the chart keeps it, and
+every name/value pair in a list named `env` or `extraEnv`; a value is cut at 200
+characters. `addresses` are the in-cluster addresses in any string, by the rules a
+pod's env follows, recorded only when they name a namespace: a bare `host:port` in a
+values file is as often a sidecar or a local port as a peer.
+
+Some plugins also layer shared values under an Application's own, from a directory
+named for values beside an ancestor of its path, choosing files by name:
+
+```
+shop/_layered_values/01-global.yaml           every Application
+shop/_layered_values/20-production.yaml       the production environment's
+shop/_layered_values/30-eu1.yaml              region eu1's
+shop/_layered_values/40-eu1prod1.yaml         cluster eu1prod1's
+shop/_layered_values/50-web.yaml              the web workload's
+shop/_layered_values/60-web-production.yaml   web's in production
+shop/live/web/eu1prod1-application.yaml
+```
+
+A layered file named `global`, `common`, `default(s)`, `all`, `base` or `shared`
+applies to every Application below. Any other applies when its name, without the
+leading number, splits wholly into names the Application answers to: its cluster, its
+region (the cluster name's leading letters and digits), its workload (the source
+path's last directory, or its path below the values directory's parent joined by
+dashes, `live-web`), its label values, its project and each dash-separated part of
+it, its namespace, its own name and its release name. A part none of those accounts
+for excludes the file: `50-web.yaml` is not `web-admin`'s, `60-web-sandbox.yaml` is
+not production's. The nearest ancestor holding a values directory answers; its files
+merge in name order, before the Application's own.
+
+## An address in a release names the Application serving it
+
+The chart renders the Service a values address names, so the repository holds no
+Service object to resolve it to. The Application deploying that Service is what
+answers, and it often lives in another repository than the caller: a platform's
+GitOps repository beside one generated per service. The extractor reads one
+repository at a time, so it states both sides, and the `release-addresses` binder
+joins them once every repository is read.
+
+On the serving side, `serves` lists the names an Application deploys a Service
+under: its release name, its own name and that name without its cluster appended
+(`cart-api-eu1` serves `cart-api`), and its `app`, `app.kubernetes.io/name` and
+`app.kubernetes.io/instance` labels. `environment` is its `environment` or `env`
+label, else the one environment word among its project name's parts
+(`shop-production`); production/prod, sandbox, staging/stage, development/dev, test
+and qa are spelled one way each.
+
+`http://cart-api.cart.svc:8080` then names the Applications deploying to namespace
+`cart` that serve `cart-api`:
+
+```
+symbol  apps/web.Application.web-eu1      (destination eu1, env CART_URL=http://cart-api.cart.svc:8080)
+        relations: depends_on -> apps/cart.Application.cart-api-eu1
+dependency  module-edge: apps/web -> apps/cart
+```
+
+A cluster name resolves inside the caller's cluster, so the Applications in the
+caller's own cluster answer. Failing that, a mesh spanning clusters routes to a
+neighbour: those in clusters of the caller's region (the cluster name's leading
+letters and digits) and environment answer, so a monolith on its own cluster reaches
+the service on the application cluster beside it. Failing that, the one candidate
+there is, and never a pick among several: across clusters, several are usually
+production's and sandbox's. A port is not checked, since the chart decides the
+Service's ports. Only addresses naming a namespace are joined. A Service the
+repository declares still answers by the usual rules, in the extractor.
+
+Edges within one repository roll up to module edges between release directories.
+On two GitOps repositories holding 13,000 Applications the binder draws 34,400
+edges, 14,500 of them from one repository into the other.
+
+## A release runs the code of another repository
+
+A GitOps repository deploys code that lives elsewhere, and only once both are loaded
+can the two meet. The `deployed-code` binder sets `deploys_repo` on an Application
+when its release runs a loaded repository's code: an image path segment below the
+registry host that names the repository (`registry.example.com/shop-web/app:1.2`
+runs `shop-web`), else the destination namespace, else a name it serves. When its
+images name several repositories, the namespace must name one of them, or it names
+none; its own repository never answers. Names compare as cross-repo linking compares
+them, case, `-` and `_` folded.
+
+The `deployment` cross-repo signal turns those props into service edges, via
+`deployment`, from the repository holding the Applications to the one whose code they
+run, with the Applications as `deployment_samples`:
+
+```
+dependency  shop-deploy -> shop-web   props: via=[deployment], deployment_count=14
+```
+
+It reports no coverage: most releases in a GitOps repository deploy software no
+loaded repository holds, and that is not a blind spot.
 
 ## What is deliberately not extracted
 

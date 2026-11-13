@@ -3584,7 +3584,32 @@ import (
 // outside a define is a Helm resource, so the alternatives of an if/else in one
 // document are each a symbol sharing the document's references. A YAML file named
 // *pod.yaml marks a repository as holding manifests.
-const cacheVersion = "v582"
+// v583: an Argo CD Application carries its release as props (destination cluster
+// and namespace, project, source repository, path and revision, chart and chart
+// version, from a Helm source or a plugin's CHART_NAME/CHART_VERSION, plugin,
+// release name) and depends on its AppProject and, when its source is a plain path
+// of this repository (no plugin, no chart), on that path's kustomization or objects.
+// v584: the values files of an Application whose chart is remote (its source path
+// is local and holds no chart or kustomization) are read: helm.valueFiles, or the
+// path's *values* files with a file named for a cluster belonging to that cluster's
+// Application, merged in order. image, replicaCount, autoscaling min/max, resources,
+// UPPER_SNAKE env and namespaced in-cluster addresses become props.
+// v585: an address in a release's values is a depends_on edge to the Application
+// serving it: deploying to the address's namespace (the caller's, when none) and
+// serving the name by release name, own name, app label or name-<cluster>, in the
+// caller's cluster, else the one such Application in the repository.
+// v586: an object declared again in another file of the same directory (one copy per
+// cluster) stays one symbol and lists every declaring file in declared_in.
+// v587: layered values. A values directory beside the nearest ancestor of a plugin
+// Application's path contributes the files whose names (number prefix dropped) split
+// wholly into what the Application answers to (cluster, region, workload, labels,
+// project, namespace, names), or say global/common/default/all/base/shared; merged
+// in name order before its own values.
+// v588: release addresses are joined to Applications by the release-addresses binder
+// over every repository, not in the extractor: an Application states serves and
+// environment, and an address resolves in the caller's cluster, else in its region
+// and environment, else to the single candidate.
+const cacheVersion = "v588"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
