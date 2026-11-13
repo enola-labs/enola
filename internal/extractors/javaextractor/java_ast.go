@@ -864,6 +864,15 @@ func (w *astWalker) handleMethod(node *sitter.Node) {
 	if hasModifier(modifiers, "static") {
 		f.SetProp("static", true)
 	}
+	// `@Override` is a compiler-checked claim: javac rejects it on a method that
+	// overrides nothing, so the annotation on its own is a fact rather than a guess,
+	// and it is what keeps an override out of the dead-code report (an override is
+	// reached through its supertype, never by its own name). Precision is total,
+	// recall is not: the annotation is optional in Java, and inferring the rest from
+	// the supertype graph would decide dead-code output on a bare name match.
+	if hasAnnotation(annotations, "Override", "java.lang.Override") {
+		f.SetProp("override", true)
+	}
 	if t := w.receiverTypeOf(node.ChildByFieldName("type")); t != "" {
 		f.SetProp(propReturnType, t)
 	}
