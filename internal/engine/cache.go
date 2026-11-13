@@ -3630,12 +3630,9 @@ import (
 // v597: Dart: widget in a class extending State<X> is an X.
 // v598: Dart: a read of a state-management provider is typed by the provider's declared
 // type arguments, and an enum constant's members resolve on the enum.
-// v597: Dart: widget in a class extending State<X> is an X.
-// v597: Dart: widget in a class extending State<X> is an X.
-// v599: Dart: calls on dart:core, async, collection, convert, math, io and typed_data
 // v599: Dart: calls on dart:core, async, collection, convert, math, io and typed_data
 // types resolve against bundled SDK signatures when the repository has no SDK sources.
-const cacheVersion = "v598"
+const cacheVersion = "v599"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
