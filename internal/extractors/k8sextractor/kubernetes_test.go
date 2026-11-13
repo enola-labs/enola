@@ -391,3 +391,35 @@ func TestDetectFilesByName(t *testing.T) {
 		}
 	}
 }
+
+func TestOneObjectPerClusterFileIsOneSymbolDeclaredInEach(t *testing.T) {
+	const sa = "apiVersion: v1\nkind: ServiceAccount\nmetadata:\n  name: web\n  namespace: shop\n"
+	const rb = `apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: web-exec, namespace: shop}
+roleRef: {kind: ClusterRole, name: exec}
+subjects: [{kind: ServiceAccount, name: web}]
+`
+	ff := extract(t, map[string]string{
+		"shop/us1-serviceaccount.yaml": sa,
+		"shop/eu1-serviceaccount.yaml": sa,
+		"shop/eu1-rolebinding.yaml":    rb,
+	})
+	got := find(ff, "symbol", "shop.ServiceAccount.web")
+	if got == nil {
+		t.Fatal("no ServiceAccount symbol")
+	}
+	if want := []string{"shop/eu1-serviceaccount.yaml", "shop/us1-serviceaccount.yaml"}; !reflect.DeepEqual(got.Props["declared_in"], want) {
+		t.Errorf("declared_in = %v, want %v", got.Props["declared_in"], want)
+	}
+	if got.File != "shop/eu1-serviceaccount.yaml" {
+		t.Errorf("file = %s, want the first", got.File)
+	}
+	// The binding still resolves: one symbol, not one per cluster.
+	if deps := dependsOn(find(ff, "symbol", "shop.RoleBinding.web-exec")); !reflect.DeepEqual(deps, []string{"shop.ServiceAccount.web"}) {
+		t.Errorf("binding depends_on = %v", deps)
+	}
+	if find(ff, "symbol", "shop.RoleBinding.web-exec").Props["declared_in"] != nil {
+		t.Error("an object declared once has no declared_in")
+	}
+}

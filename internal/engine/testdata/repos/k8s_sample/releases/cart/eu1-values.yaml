@@ -1,0 +1,4 @@
+image:
+  repository: example/cart
+  tag: "4.0"
+replicaCount: 2

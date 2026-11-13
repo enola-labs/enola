@@ -1,0 +1,22 @@
+# cart's chart lives in a registry; its configuration is the values beside this file.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cart-eu1
+  namespace: argocd
+  labels:
+    app: cart
+spec:
+  destination:
+    name: eu1
+    namespace: cart
+  project: shop
+  source:
+    path: releases/cart
+    plugin:
+      name: chart-resolver
+      env:
+        - name: CHART_NAME
+          value: base-service
+        - name: CHART_VERSION
+          value: 2.3.0

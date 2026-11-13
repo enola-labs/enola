@@ -430,6 +430,7 @@ edge was established.
 | `import` | shared-library import |
 | `shared_symbols` | two repos declaring the same exported symbols — evidence of shared code, not a call |
 | `object-storage` | one repo writes objects to a bucket path another reads (declared seams; no linker measures it yet) |
+| `deployment` | a deployment repo's release runs the code of another repo (the Application's `deploys_repo`) |
 
 ## Descriptive props
 
