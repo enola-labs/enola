@@ -54,6 +54,17 @@ const float& LoudMesh::vert(int i) const { return m_v[i]; }
 	if c, _ := derived.Props["const"].(bool); !c {
 		t.Error("LoudMesh.vert: const = false, want true — the trailing const is on the declarator")
 	}
+	// The two fixes on this branch compose: a member that is missed by the declarator
+	// walk cannot carry a specifier either, so the corpus sites that produced no
+	// `override` prop were producing no symbol. With the descent fixed, the specifier
+	// reading reaches them. The engine fixture shows the same shape on
+	// drivers.LoudRegistry::slot: `override` and `has_body` in one fact.
+	if o, _ := derived.Props["override"].(bool); !o {
+		t.Errorf("LoudMesh.vert: override = %v, want true", derived.Props["override"])
+	}
+	if v, _ := derived.Props["virtual"].(bool); !v {
+		t.Error("LoudMesh.vert: virtual = false, want true — an override is virtual")
+	}
 	if _, ok := findFact(ff, "r.r::LoudMesh::vert"); !ok {
 		t.Error("LoudMesh.vert: the declaration and its definition must collapse to one fact")
 	}
