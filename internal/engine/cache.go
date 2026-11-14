@@ -3634,8 +3634,9 @@ import (
 // the module's own declaration of that name, as with feature-gated twins.
 // v600: Rust: a crate is found by its [lib] name and by a dependency's `package` rename
 // (inline or as its own table, ahead of any workspace package of that name unless the
-// renamed crate is a facade over it), and a `use` that starts from an imported module
-// resolves into it.
+// renamed crate is a facade over it, or inherited from [workspace.dependencies], written
+// dotted or as a table), and a `use` that starts from a module imported in the same module
+// scope resolves into it.
 const cacheVersion = "v600"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.

@@ -912,3 +912,100 @@ func TestRustRenamedFacadeKeepsNamingTheRealCrate(t *testing.T) {
 		t.Errorf("std/src.run calls %v, want the function in the real core crate", got)
 	}
 }
+
+func TestRustWorkspaceInheritedAndDottedRenamesResolve(t *testing.T) {
+	ff := extractRustRepo(t, map[string]string{
+		"Cargo.toml": `[workspace]
+members = ["short", "real", "tbl", "dot", "app"]
+
+[workspace.dependencies]
+inline = { path = "real", package = "real-core" }
+dotted.path = "dot"
+dotted.package = "dot-core"
+
+[workspace.dependencies.viatable]
+path = "tbl"
+package = "table-core"
+
+[package]
+name = "root"
+`,
+		"short/Cargo.toml": "[package]\nname = \"inline\"\n",
+		"short/src/lib.rs": "pub fn boot() {}\n",
+		"real/Cargo.toml":  "[package]\nname = \"real-core\"\n",
+		"real/src/lib.rs":  "pub fn boot() {}\n",
+		"tbl/Cargo.toml":   "[package]\nname = \"table-core\"\n",
+		"tbl/src/lib.rs":   "pub fn spin() {}\n",
+		"dot/Cargo.toml":   "[package]\nname = \"dot-core\"\n",
+		"dot/src/lib.rs":   "pub fn dial() {}\n",
+		"app/Cargo.toml": `[package]
+name = "app"
+
+[dependencies]
+inline.workspace = true
+dotted = { workspace = true }
+
+[dependencies.viatable]
+workspace = true
+`,
+		"app/src/lib.rs": "use inline::boot;\nuse viatable::spin;\nuse dotted::dial;\npub fn run() { boot(); spin(); dial(); }\n",
+	})
+	got := rustCalls(rustSym(t, ff, "app/src.run"))
+	for _, want := range []string{"real/src.boot", "tbl/src.spin", "dot/src.dial"} {
+		if !slices.Contains(got, want) {
+			t.Errorf("a workspace rename inherited by a member is not applied: want %s in %v", want, got)
+		}
+	}
+	if slices.Contains(got, "short/src.boot") {
+		t.Errorf("the workspace rename must win over the package named inline, got %v", got)
+	}
+}
+
+func TestRustDottedPackageRenameInADependenciesSection(t *testing.T) {
+	ff := extractRustRepo(t, map[string]string{
+		"Cargo.toml":       "[workspace]\nmembers=[\"short\",\"real\",\"app\"]\n",
+		"short/Cargo.toml": "[package]\nname = \"short\"\n",
+		"short/src/lib.rs": "pub fn boot() {}\n",
+		"real/Cargo.toml":  "[package]\nname = \"real-core\"\n",
+		"real/src/lib.rs":  "pub fn boot() {}\n",
+		"app/Cargo.toml":   "[package]\nname = \"app\"\n\n[dependencies]\nshort.path = \"../real\"\nshort.package = \"real-core\"\n",
+		"app/src/lib.rs":   "use short::boot;\npub fn run() { boot(); }\n",
+	})
+	got := rustCalls(rustSym(t, ff, "app/src.run"))
+	if !slices.Contains(got, "real/src.boot") || slices.Contains(got, "short/src.boot") {
+		t.Errorf("short.package = \"real-core\" is not read as a rename, got %v", got)
+	}
+}
+
+func TestRustAnImportInsideAModuleDoesNotRouteAUseOutsideIt(t *testing.T) {
+	ff := extractRustRepo(t, map[string]string{
+		"Cargo.toml":         "[package]\nname = \"app\"\n",
+		"src/lib.rs":         "mod a;\nmod b;\n",
+		"src/a/mod.rs":       "pub mod serde;\n",
+		"src/a/serde/mod.rs": "pub fn local() {}\n",
+		"src/b.rs":           "mod inner {\n    use crate::a::serde;\n    pub fn f() { serde::local(); }\n}\nuse serde::Deserialize;\npub fn g() {}\n",
+	})
+	for _, f := range ff {
+		if f.Kind == facts.KindDependency && f.File == "src/b.rs" && strings.Contains(f.Name, "Deserialize") {
+			for _, r := range f.Relations {
+				if strings.HasPrefix(r.Target, "src/a") {
+					t.Errorf("use serde::Deserialize outside the module that imported crate::a::serde resolved into the repository: %v", f)
+				}
+			}
+		}
+	}
+}
+
+func TestRustUseThroughAnImportedFileModuleResolves(t *testing.T) {
+	ff := extractRustRepo(t, map[string]string{
+		"Cargo.toml":                "[package]\nname = \"rt\"\n",
+		"src/lib.rs":                "mod runtime;\n",
+		"src/runtime/mod.rs":        "pub mod task;\npub mod sched;\n",
+		"src/runtime/task.rs":       "pub mod trace;\n",
+		"src/runtime/task/trace.rs": "pub fn trace_current_thread() {}\n",
+		"src/runtime/sched.rs":      "use crate::runtime::task;\npub fn run() {\n    use task::trace::trace_current_thread;\n    trace_current_thread();\n}\n",
+	})
+	if got := rustCalls(rustSym(t, ff, "src/runtime.run")); !slices.Contains(got, "src/runtime/task.trace_current_thread") {
+		t.Errorf("src/runtime.run calls %v, want the function behind the imported file module", got)
+	}
+}

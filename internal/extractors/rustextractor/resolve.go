@@ -39,27 +39,49 @@ var (
 // is normalized the same way.
 func buildCrateIndex(repoPath string, cargoFiles []string) []crateInfo {
 	var crates []crateInfo
+	type manifest struct {
+		dir, text string
+		deps      cargoDeps
+	}
+	var manifests []manifest
+	workspaces := map[string]map[string]string{}
 	for _, rel := range cargoFiles {
 		data, err := os.ReadFile(filepath.Join(repoPath, rel))
 		if err != nil {
 			continue
 		}
-		name := parseCargoPackageName(string(data))
+		mf := manifest{dir: factpath.Dir(rel), text: string(data)}
+		mf.deps = parseCargoRenames(mf.text)
+		if len(mf.deps.workspace) > 0 {
+			workspaces[mf.dir] = mf.deps.workspace
+		}
+		manifests = append(manifests, mf)
+	}
+	for _, mf := range manifests {
+		dir, text, cd := mf.dir, mf.text, mf.deps
+		name := parseCargoPackageName(text)
 		if name == "" {
 			continue
 		}
-		dir := factpath.Dir(rel)
 		pkg := strings.ReplaceAll(name, "-", "_")
-		publishable := parseCargoPublishable(string(data))
-		crates = append(crates, crateInfo{
-			name:        pkg,
-			dir:         dir,
-			publishable: publishable,
-		})
-		crates[len(crates)-1].renames, crates[len(crates)-1].deps = parseCargoRenames(string(data))
+		publishable := parseCargoPublishable(text)
+		crates = append(crates, crateInfo{name: pkg, dir: dir, publishable: publishable, renames: cd.renames, deps: cd.deps})
+		inherited := cd.inherited
+		crateIdx := len(crates) - 1
+		for dep := range inherited {
+			if _, own := crates[crateIdx].renames[dep]; own {
+				continue
+			}
+			if real := workspaceRename(dir, dep, workspaces); real != "" {
+				if crates[crateIdx].renames == nil {
+					crates[crateIdx].renames = map[string]string{}
+				}
+				crates[crateIdx].renames[dep] = real
+			}
+		}
 		// `use` paths name the library target, which `[lib] name` can set apart from
 		// the package.
-		if lib := strings.ReplaceAll(parseCargoLibName(string(data)), "-", "_"); lib != "" && lib != pkg {
+		if lib := strings.ReplaceAll(parseCargoLibName(text), "-", "_"); lib != "" && lib != pkg {
 			crates = append(crates, crateInfo{name: lib, dir: dir, publishable: publishable})
 		}
 	}
@@ -111,25 +133,47 @@ var tomlDepTableRe = regexp.MustCompile(`(?:^|\.)(?:dev-|build-)?dependencies\.(
 // tomlPackageRe matches the `package = "real-name"` line of a dependency table.
 var tomlPackageRe = regexp.MustCompile(`^\s*package\s*=\s*"([^"]+)"`)
 
-// parseCargoRenames returns the dependencies a Cargo.toml renames, local name (with
-// hyphens as underscores, as `use` paths spell it) to the real crate name, and the
-// local names of all its dependencies.
-func parseCargoRenames(data string) (renames map[string]string, deps map[string]bool) {
+// cargoDeps is what a Cargo.toml says about its dependencies. Names are spelled as `use`
+// paths spell them, hyphens as underscores.
+type cargoDeps struct {
+	renames   map[string]string // local name to the real crate, `package = "..."`
+	deps      map[string]bool   // every dependency the manifest declares
+	inherited map[string]bool   // dependencies taken from [workspace.dependencies]
+	workspace map[string]string // renames declared in [workspace.dependencies]
+}
+
+var (
+	tomlDottedPackageRe = regexp.MustCompile(`^\s*([A-Za-z0-9_-]+)\.package\s*=\s*"([^"]+)"`)
+	tomlInheritedRe     = regexp.MustCompile(`^\s*([A-Za-z0-9_-]+)(?:\.workspace\s*=\s*true|\s*=\s*\{[^}]*\bworkspace\s*=\s*true)`)
+	tomlWorkspaceTrueRe = regexp.MustCompile(`^\s*workspace\s*=\s*true`)
+)
+
+func parseCargoRenames(data string) cargoDeps {
+	var out cargoDeps
 	norm := func(n string) string { return strings.ReplaceAll(n, "-", "_") }
-	addDep := func(name string) {
-		if deps == nil {
-			deps = map[string]bool{}
+	set := func(m *map[string]string, k, v string) {
+		if *m == nil {
+			*m = map[string]string{}
 		}
-		deps[norm(name)] = true
+		(*m)[norm(k)] = norm(v)
 	}
-	inDeps, table := false, ""
+	mark := func(m *map[string]bool, k string) {
+		if *m == nil {
+			*m = map[string]bool{}
+		}
+		(*m)[norm(k)] = true
+	}
+	inDeps, inWorkspace, table := false, false, ""
 	for _, line := range strings.Split(data, "\n") {
 		if m := tomlSectionRe.FindStringSubmatch(line); m != nil {
 			sec := strings.TrimSpace(m[1])
 			table = ""
+			inWorkspace = strings.HasPrefix(sec, "workspace.")
 			if t := tomlDepTableRe.FindStringSubmatch(sec); t != nil {
 				table = t[1]
-				addDep(table)
+				if !inWorkspace {
+					mark(&out.deps, table)
+				}
 			}
 			inDeps = table == "" && strings.HasSuffix(sec, "dependencies")
 			continue
@@ -137,24 +181,48 @@ func parseCargoRenames(data string) (renames map[string]string, deps map[string]
 		switch {
 		case table != "":
 			if m := tomlPackageRe.FindStringSubmatch(line); m != nil {
-				if renames == nil {
-					renames = map[string]string{}
+				if inWorkspace {
+					set(&out.workspace, table, m[1])
+				} else {
+					set(&out.renames, table, m[1])
 				}
-				renames[norm(table)] = norm(m[1])
+			} else if !inWorkspace && tomlWorkspaceTrueRe.MatchString(line) {
+				mark(&out.inherited, table)
+			}
+		case inDeps && inWorkspace:
+			if m := tomlRenameRe.FindStringSubmatch(line); m != nil {
+				set(&out.workspace, m[1], m[2])
+			} else if m := tomlDottedPackageRe.FindStringSubmatch(line); m != nil {
+				set(&out.workspace, m[1], m[2])
 			}
 		case inDeps:
 			if m := tomlDependencyKeyRe.FindStringSubmatch(line); m != nil {
-				addDep(m[1])
+				mark(&out.deps, m[1])
+			}
+			if m := tomlInheritedRe.FindStringSubmatch(line); m != nil {
+				mark(&out.inherited, m[1])
 			}
 			if m := tomlRenameRe.FindStringSubmatch(line); m != nil {
-				if renames == nil {
-					renames = map[string]string{}
-				}
-				renames[norm(m[1])] = norm(m[2])
+				set(&out.renames, m[1], m[2])
+			} else if m := tomlDottedPackageRe.FindStringSubmatch(line); m != nil {
+				set(&out.renames, m[1], m[2])
 			}
 		}
 	}
-	return renames, deps
+	return out
+}
+
+// workspaceRename is the rename a workspace manifest at or above dir declares for a
+// dependency a member inherits.
+func workspaceRename(dir, name string, workspaces map[string]map[string]string) string {
+	for d := dir; ; d = parentRustDir(d) {
+		if real := workspaces[d][name]; real != "" {
+			return real
+		}
+		if d == "." || d == "" {
+			return ""
+		}
+	}
 }
 
 // parseCargoPublishable reports whether a Cargo.toml's [package] section can go to

@@ -218,6 +218,7 @@ type astWalker struct {
 	typeParams            []string
 	externalImports       map[string]bool
 	scopeDeclared         map[string]bool
+	scopeImports          map[string]bool
 }
 
 // calleeForm classifies how a call_expression's callee was written, so the
@@ -614,10 +615,10 @@ func (w *astWalker) handleMod(node *sitter.Node) {
 	w.modStack = append(w.modStack, name)
 	w.modFnStack = append(w.modFnStack, collectFnNames(body, w.src))
 	w.modSubmoduleStack = append(w.modSubmoduleStack, collectSubmoduleNames(body, w.src))
-	outerExternal, outerDeclared := w.externalImports, w.scopeDeclared
-	w.externalImports, w.scopeDeclared = nil, declaredItemNames(body, w.src)
+	outerExternal, outerDeclared, outerImports := w.externalImports, w.scopeDeclared, w.scopeImports
+	w.externalImports, w.scopeDeclared, w.scopeImports = nil, declaredItemNames(body, w.src), nil
 	w.walkItems(body)
-	w.externalImports, w.scopeDeclared = outerExternal, outerDeclared
+	w.externalImports, w.scopeDeclared, w.scopeImports = outerExternal, outerDeclared, outerImports
 	w.modSubmoduleStack = w.modSubmoduleStack[:len(w.modSubmoduleStack)-1]
 	w.modFnStack = w.modFnStack[:len(w.modFnStack)-1]
 	w.modStack = w.modStack[:len(w.modStack)-1]
@@ -1180,6 +1181,7 @@ func (w *astWalker) handleUse(node *sitter.Node) {
 		}
 		if leaf.alias != "_" && resolved && len(leaf.segs) > 1 && last != "self" {
 			w.importMap[leaf.alias] = target
+			w.markScopeImport(leaf.alias, target != "")
 		}
 		if leaf.alias != "_" && resolved && target == "" {
 			if w.externalImports == nil {
@@ -1259,6 +1261,18 @@ func (w *astWalker) emitDependency(segs []string, line int) {
 	w.recordImportMapping(segs, target, source)
 }
 
+// markScopeImport records whether a name the current module imported is a repository one.
+func (w *astWalker) markScopeImport(name string, internal bool) {
+	if !internal {
+		delete(w.scopeImports, name)
+		return
+	}
+	if w.scopeImports == nil {
+		w.scopeImports = map[string]bool{}
+	}
+	w.scopeImports[name] = true
+}
+
 // importedModuleDir is the directory of the module a path's first segment names
 // when that name was imported from inside the repository, "" otherwise.
 func (w *astWalker) importedModuleDir(segs []string) string {
@@ -1266,7 +1280,7 @@ func (w *astWalker) importedModuleDir(segs []string) string {
 		return ""
 	}
 	imported, ok := w.importMap[segs[0]]
-	if !ok {
+	if !ok || !w.scopeImports[segs[0]] {
 		return ""
 	}
 	base, found := strings.CutSuffix(imported, "."+segs[0])
@@ -1310,9 +1324,11 @@ func (w *astWalker) recordImportMapping(segs []string, target, source string) {
 	}
 	if source == "internal" {
 		w.importMap[last] = target + "." + last
+		w.markScopeImport(last, true)
 		delete(w.externalImports, last)
 	} else {
 		w.importMap[last] = ""
+		w.markScopeImport(last, false)
 		if w.externalImports == nil {
 			w.externalImports = make(map[string]bool)
 		}
