@@ -6,8 +6,9 @@ import (
 	_ "embed"
 	"encoding/json"
 	"sort"
-	"strings"
 	"sync"
+
+	"github.com/enola-labs/enola/internal/factpath"
 
 	"github.com/enola-labs/enola/internal/facts"
 )
@@ -46,42 +47,63 @@ var loadDartSDKIndex = sync.OnceValue(func() *dartSDKIndex {
 	return idx
 })
 
-// withSDKIndex appends the bundled SDK signatures for the libraries the facts
-// import, unless the repository carries its own SDK sources. The appended facts
-// are resolver input only; callers drop them before returning.
+// withSDKIndex appends the bundled SDK and Flutter signatures for the libraries
+// the facts import, skipping any library whose sources the repository carries.
+// The appended facts are resolver input only; callers drop them before returning.
 func withSDKIndex(all []facts.Fact) ([]facts.Fact, int) {
 	idx := loadDartSDKIndex()
 	n := len(all)
-	used := map[string]bool{idx.Libs["dart:core"]: true}
+	hostOf := map[string]string{}
+	for uri, host := range idx.Libs {
+		hostOf[host] = uri
+	}
+	present := map[string]bool{}
 	files := map[string]bool{}
 	for i := range all {
 		f := &all[i]
-		switch f.Kind {
-		case facts.KindDependency:
-			uri := f.PropString("uri")
-			if !strings.HasPrefix(uri, "dart:") {
-				continue
-			}
-			if f.PropString("resolved_file") != "" {
-				return all, n
-			}
-			if host, ok := idx.Libs[uri]; ok {
-				used[host] = true
-			}
-		case facts.KindSymbol:
+		if f.Kind == facts.KindSymbol {
 			files[f.File] = true
+		}
+		for dir := factpath.Dir(f.File); dir != "" && dir != "." && !present[dir]; dir = factpath.Dir(dir) {
+			present[dir] = true
 		}
 	}
 	if len(files) == 0 || idx.Libs["dart:core"] == "" {
 		return all, n
 	}
-	names := make([]string, 0, len(files))
-	for file := range files {
-		names = append(names, file)
+	local := func(host string) bool { return present[factpath.Dir(host)] }
+	used := map[string]bool{}
+	var mark func(host string)
+	mark = func(host string) {
+		if used[host] || local(host) {
+			return
+		}
+		used[host] = true
+		for _, f := range idx.Facts {
+			if f.Kind == facts.KindDependency && f.File == host {
+				if next := idx.Libs[f.PropString("uri")]; next != "" {
+					mark(next)
+				}
+			}
+		}
 	}
-	sort.Strings(names)
-	for _, file := range names {
-		all = append(all, facts.Fact{Kind: facts.KindDependency, Name: file + " -> dart:core", File: file, Props: map[string]any{"uri": "dart:core", "implicit": true}})
+	mark(idx.Libs["dart:core"])
+	for i := range all {
+		if f := &all[i]; f.Kind == facts.KindDependency {
+			if host := idx.Libs[f.PropString("uri")]; host != "" && f.PropString("resolved_file") == "" {
+				mark(host)
+			}
+		}
+	}
+	if used[idx.Libs["dart:core"]] {
+		names := make([]string, 0, len(files))
+		for file := range files {
+			names = append(names, file)
+		}
+		sort.Strings(names)
+		for _, file := range names {
+			all = append(all, facts.Fact{Kind: facts.KindDependency, Name: file + " -> dart:core", File: file, Props: map[string]any{"uri": "dart:core", "implicit": true}})
+		}
 	}
 	for _, f := range idx.Facts {
 		if used[f.File] {
@@ -91,5 +113,5 @@ func withSDKIndex(all []facts.Fact) ([]facts.Fact, int) {
 	return all, n
 }
 
-// sdkIndexHost is the bundled host file of a dart: URI.
+// sdkIndexHost is the bundled host file of a dart: or package: URI.
 func sdkIndexHost(uri string) string { return loadDartSDKIndex().Libs[uri] }

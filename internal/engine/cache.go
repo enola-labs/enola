@@ -3632,7 +3632,8 @@ import (
 // type arguments, and an enum constant's members resolve on the enum.
 // v599: Dart: calls on dart:core, async, collection, convert, math, io and typed_data
 // types resolve against bundled SDK signatures when the repository has no SDK sources.
-const cacheVersion = "v599"
+// v600: Dart: calls on Flutter framework and dart:ui types resolve against bundled signatures.
+const cacheVersion = "v600"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

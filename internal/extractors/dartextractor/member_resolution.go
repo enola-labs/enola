@@ -174,12 +174,12 @@ func newDartMemberResolver(all []facts.Fact) *dartMemberResolver {
 		f := &all[i]
 		if f.Kind == facts.KindDependency && f.PropString("uri") != "" {
 			uri, path := f.PropString("uri"), f.PropString("resolved_file")
-			if path == "" && strings.HasPrefix(uri, "dart:") {
+			if path == "" {
 				if path = sdkIndexHost(uri); path != "" {
 					r.bundledHosts[path] = true
 				}
 			}
-			if strings.HasPrefix(uri, "dart:") && path != "" {
+			if path != "" && (strings.HasPrefix(uri, "dart:") || r.bundledHosts[path]) {
 				if r.sdkLibraryHosts[uri] == nil {
 					r.sdkLibraryHosts[uri] = map[string]bool{}
 				}
@@ -716,6 +716,9 @@ func (r *dartMemberResolver) extensionMethod(owner *facts.Fact, typ, name, file 
 
 func (r *dartMemberResolver) extensionsFor(owner *facts.Fact, typ, file string) []*facts.Fact {
 	host := r.libraryFile(file)
+	if owner == nil && !strings.ContainsAny(typ, "()[]<>@") {
+		owner = r.typeNamed(typ, file)
+	}
 	key := dartExtensionReceiver{owner, typ, host}
 	if cached, ok := r.applicableExtensions[key]; ok {
 		return cached
@@ -768,7 +771,7 @@ func (r *dartMemberResolver) importTargets(dep *facts.Fact) []string {
 		path := dep.PropString("resolved_file")
 		if path == "" {
 			path = dep.PropString("uri")
-			if host := sdkIndexHost(path); host != "" && strings.HasPrefix(path, "dart:") {
+			if host := sdkIndexHost(path); host != "" {
 				path = host
 			} else if !strings.Contains(path, ":") {
 				path = factpath.Join(factpath.Dir(dep.File), path)
