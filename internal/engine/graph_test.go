@@ -42,7 +42,7 @@ func TestAdopt_NilReleasesEveryReference(t *testing.T) {
 		t.Fatal(err)
 	}
 	published := e.current.Load().store
-	if e.store != published || e.lastFacts.store != published {
+	if e.store != published || e.lastShared.store != published {
 		t.Fatalf("precondition: the scratch store and the last write should be the published store")
 	}
 	e.Adopt(nil)
@@ -52,7 +52,7 @@ func TestAdopt_NilReleasesEveryReference(t *testing.T) {
 	if e.store == published {
 		t.Error("the scratch store still holds the unloaded graph")
 	}
-	if e.lastFacts.store == published {
+	if e.lastShared.store == published {
 		t.Error("the last facts.jsonl write still holds the unloaded graph")
 	}
 }

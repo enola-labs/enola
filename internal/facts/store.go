@@ -1329,7 +1329,17 @@ func (s *Store) ReadJSONLFileShared(path string) error {
 		return fmt.Errorf("opening %s: %w", path, err)
 	}
 	defer func() { _ = f.Close() }()
+	return s.ReadJSONLShared(f)
+}
 
+// ReadJSONLShared is ReadJSONLFileShared over a file already open, read from its
+// start. A caller that must read the facts and the files beside them from one write
+// opens them all first.
+func (s *Store) ReadJSONLShared(f *os.File) error {
+	path := f.Name()
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		return fmt.Errorf("reading %s: %w", path, err)
+	}
 	lines, err := countLines(f)
 	if err != nil {
 		return fmt.Errorf("reading %s: %w", path, err)

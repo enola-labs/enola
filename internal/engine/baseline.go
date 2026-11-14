@@ -186,15 +186,9 @@ func copyArtifacts(srcDir, dstDir string) error {
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	for _, name := range snapshotArtifactFiles {
-		// facts.jsonl is the bulk of a snapshot, and every writer replaces it by
-		// renaming a new file over it, so the baseline can hold the same file rather
-		// than a copy: the next write leaves the linked one as it was. The small
-		// artifacts are written in place and are copied.
-		place := copyFile
-		if name == "facts.jsonl" {
-			place = linkOrCopyFile
-		}
-		if err := place(filepath.Join(srcDir, name), filepath.Join(tmpDir, name)); err != nil {
+		// Every writer replaces these files by renaming a new file over them, so the
+		// copy can hold the same file: the next write leaves the linked one as it was.
+		if err := linkOrCopyFile(filepath.Join(srcDir, name), filepath.Join(tmpDir, name)); err != nil {
 			if os.IsNotExist(err) {
 				continue
 			}
@@ -238,14 +232,21 @@ func copyFile(src, dst string) error {
 
 // linkOrCopyFile makes dst the same file as src: a hard link where the filesystem
 // allows one, a copy where it does not (another device, a filesystem without links).
+// The link is made beside dst and renamed over it, so a reader of dst finds the old
+// file or the new one, never none.
 func linkOrCopyFile(src, dst string) error {
-	if err := os.Remove(dst); err != nil && !os.IsNotExist(err) {
+	tmp := dst + ".tmp-link"
+	if err := os.Remove(tmp); err != nil && !os.IsNotExist(err) {
 		return copyFile(src, dst)
 	}
-	if err := os.Link(src, dst); err == nil {
-		return nil
+	if err := os.Link(src, tmp); err != nil {
+		return copyFile(src, dst)
 	}
-	return copyFile(src, dst)
+	if err := os.Rename(tmp, dst); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return nil
 }
 
 // LoadSnapshotDir reads a persisted snapshot (facts.jsonl plus, when present,

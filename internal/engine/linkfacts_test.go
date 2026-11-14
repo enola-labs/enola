@@ -76,3 +76,17 @@ func TestRotatedFactsAreLinkedAndKept(t *testing.T) {
 		t.Errorf("previous/facts.jsonl changed with the new snapshot:\n%s", got)
 	}
 }
+
+// The meta lists file hashes by path, so it is the same bytes for the same files.
+func TestFileHashesOf_SortedByPath(t *testing.T) {
+	hashes := map[string]string{}
+	for _, p := range []string{"z.go", "a/b.go", "m.go", "a.go", "b/a.go"} {
+		hashes[p] = "h"
+	}
+	got := fileHashesOf(t.TempDir(), hashes)
+	for i := 1; i < len(got); i++ {
+		if got[i-1].Path >= got[i].Path {
+			t.Fatalf("not sorted by path: %v", got)
+		}
+	}
+}
