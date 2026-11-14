@@ -193,6 +193,8 @@ var versionCoverage = map[int][]string{
 	597: {"TestDartStateWidgetResolvesToTheStatefulWidget", "TestDartStateWidgetWithFrameworkOutsideTheRepo"},
 	599: {"TestRustFeatureGatedTwinsKeepTheLocalNameReferenced"},
 	600: {"TestRustCratesAreFoundByLibNameAndByDependencyRename", "TestRustUseThroughAnImportedModuleResolves", "TestRustUseThroughAReExportedCrateIsNotAnImportedModule", "TestRustDependencyRenamesBeatUnrelatedPackagesOfTheSameName", "TestRustRenamedFacadeKeepsNamingTheRealCrate", "TestRustWorkspaceInheritedAndDottedRenamesResolve", "TestRustDottedPackageRenameInADependenciesSection", "TestRustAnImportInsideAModuleDoesNotRouteAUseOutsideIt", "TestRustUseThroughAnImportedFileModuleResolves"},
+	601: {"TestDartBundledSDKSignatures"},
+	602: {"TestDartBundledFlutterSignatures"},
 	507: {"TestRustImportAliasesBindOnlyTheAlias", "TestRustImportedTypeThroughAFileModuleWithADirectory", "TestRustMethodsInAFileModulesSubdirectoryResolve", "TestRustTypeImportedThroughAReExportResolves", "TestRustTypeAliasIsFollowedToItsType", "TestRustAliasedExternalImportDoesNotHideTheLocalName"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},

@@ -3637,7 +3637,10 @@ import (
 // renamed crate is a facade over it, or inherited from [workspace.dependencies], written
 // dotted or as a table), and a `use` that starts from a module imported in the same module
 // scope resolves into it.
-const cacheVersion = "v600"
+// v601: Dart: calls on dart:core, async, collection, convert, math, io and typed_data
+// types resolve against bundled SDK signatures when the repository has no SDK sources.
+// v602: Dart: calls on Flutter framework and dart:ui types resolve against bundled signatures.
+const cacheVersion = "v602"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
