@@ -1,7 +1,7 @@
 $ enola diff --store ../store HEAD~1..HEAD .
 exit: 0
 --- stdout
-# 2dcdfb2..b49af76 · <TIME> → <TIME> · left from local, right from local
+# 3214786..93a2639 · <TIME> → <TIME> · left from local, right from local
 
 # Architecture diff
 

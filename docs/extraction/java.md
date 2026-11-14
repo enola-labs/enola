@@ -13,6 +13,8 @@ Fixture: [`java_sample`](../../internal/engine/testdata/repos/java_sample/)
 | a package directory | one module | `module` |
 | `class` / `interface` / `enum` | a symbol with `fqn` and `abstract` | `symbol` |
 | a method | a symbol with `receiver`, `cyclomatic` | `symbol` |
+| `@Override` on a method | `override=true` — kept out of the dead-code report, since an override is reached through its supertype | props |
+| `final` on a class or method | `final=true` — the inheritance ban javac enforces; `enola check --fail-on final-inheritance` verdicts any type that derives from it | props |
 | a method that calls itself | `recursive_self=true` | props |
 | `import …` | a dependency tagged `internal` / `external` | `dependency` |
 | `@Repository`, `@Service`, `@Controller` | `framework=spring`, `component=repository` | props |
@@ -21,6 +23,13 @@ Fixture: [`java_sample`](../../internal/engine/testdata/repos/java_sample/)
 | a Dubbo SPI entry in `META-INF/` | a `file_ref` with a call edge to the implementation | `file_ref` |
 | `restTemplate.exchange(url, GET, …)` | a client route | `route` |
 | `@FeignClient` + `@GetMapping` | a client route with a `target_hint` | `route` |
+
+`override` is recorded **only** from `@Override`, including the qualified
+`@java.lang.Override`. The annotation is a compiler-checked claim — javac rejects it on a
+method that overrides nothing — so the prop is never a guess. It is also partial: the
+annotation is optional in Java, so an override written without it stays invisible, and
+enola does not infer one from a matching supertype method, because that would decide
+dead-code output on a bare name match.
 
 ## Symbols
 

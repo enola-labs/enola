@@ -708,7 +708,7 @@
       "additionalProperties": false,
       "properties": {
         "explainer": {
-          "description": "Filter to insights produced by this explainer. One of: cycles, layers, crossrepo, coverage, unused-routes, messaging-coverage, god-class, hotspots, dependency-depth, exported-surface, complexity-outliers, intent, constraints, domain, query-loops, entry-points, dead-methods, vendored-candidates, import-closure, package-metrics, dead-code, performance, packwerk. Empty = all.",
+          "description": "Filter to insights produced by this explainer. One of: cycles, layers, crossrepo, coverage, unused-routes, messaging-coverage, god-class, hotspots, dependency-depth, exported-surface, complexity-outliers, intent, constraints, domain, query-loops, entry-points, dead-methods, vendored-candidates, import-closure, package-metrics, dead-code, performance, packwerk, final-inheritance. Empty = all.",
           "type": "string"
         },
         "max_tokens": {

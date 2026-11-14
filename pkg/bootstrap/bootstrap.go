@@ -26,6 +26,7 @@ import (
 	"github.com/enola-labs/enola/internal/explainers/depth"
 	"github.com/enola-labs/enola/internal/explainers/domain"
 	"github.com/enola-labs/enola/internal/explainers/entrypoints"
+	"github.com/enola-labs/enola/internal/explainers/finalinherit"
 	"github.com/enola-labs/enola/internal/explainers/godclass"
 	"github.com/enola-labs/enola/internal/explainers/hotspots"
 	"github.com/enola-labs/enola/internal/explainers/importclosure"
@@ -616,6 +617,7 @@ func registerOSSPlugins(eng *engine.Engine, cfg *config.Config) {
 	eng.RegisterExplainer(orphans.NewExplainer())
 	eng.RegisterExplainer(perf.NewExplainer())
 	eng.RegisterExplainer(packwerkexp.New())
+	eng.RegisterExplainer(finalinherit.New())
 
 	// Register all OSS renderers
 	eng.RegisterRenderer(llmcontext.New(cfg.Output.MaxContextTokens))
