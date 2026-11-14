@@ -3630,10 +3630,17 @@ import (
 // v597: Dart: widget in a class extending State<X> is an X.
 // v598: Dart: a read of a state-management provider is typed by the provider's declared
 // type arguments, and an enum constant's members resolve on the enum.
-// v599: Dart: calls on dart:core, async, collection, convert, math, io and typed_data
+// v599: Rust: a name a module imports from outside the repository is still a reference to
+// the module's own declaration of that name, as with feature-gated twins.
+// v600: Rust: a crate is found by its [lib] name and by a dependency's `package` rename
+// (inline or as its own table, ahead of any workspace package of that name unless the
+// renamed crate is a facade over it, or inherited from [workspace.dependencies], written
+// dotted or as a table), and a `use` that starts from a module imported in the same module
+// scope resolves into it.
+// v601: Dart: calls on dart:core, async, collection, convert, math, io and typed_data
 // types resolve against bundled SDK signatures when the repository has no SDK sources.
-// v600: Dart: calls on Flutter framework and dart:ui types resolve against bundled signatures.
-const cacheVersion = "v600"
+// v602: Dart: calls on Flutter framework and dart:ui types resolve against bundled signatures.
+const cacheVersion = "v602"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
