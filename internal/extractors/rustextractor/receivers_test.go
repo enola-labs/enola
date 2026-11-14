@@ -772,3 +772,32 @@ pub enum EnumError { Bad { msg: String } }
 		}
 	}
 }
+
+func TestRustFeatureGatedTwinsKeepTheLocalNameReferenced(t *testing.T) {
+	ff := extractRustRepo(t, map[string]string{
+		"Cargo.toml": "[package]\nname = \"rt\"\n",
+		"src/lib.rs": `
+#[cfg(feature = "full")]
+pub use std::vec::Vec as PropertyValue;
+#[cfg(not(feature = "full"))]
+pub type PropertyValue = ();
+
+pub struct Settings { extra: Option<PropertyValue> }
+pub fn read(x: &PropertyValue) {}
+`,
+	})
+	names := func(sym string) []string {
+		var out []string
+		for _, r := range rustSym(t, ff, sym).Relations {
+			if r.Kind == facts.RelNames {
+				out = append(out, r.Target)
+			}
+		}
+		return out
+	}
+	for _, sym := range []string{"src.Settings", "src.read"} {
+		if got := names(sym); !slices.Contains(got, "PropertyValue") {
+			t.Errorf("%s names %v: the local twin of an imported name must stay referenced", sym, got)
+		}
+	}
+}
