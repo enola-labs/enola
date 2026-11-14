@@ -6,10 +6,31 @@ import (
 	"context"
 	"runtime"
 	"sync"
+	"sync/atomic"
 )
 
-// MapFiles applies fn to each item concurrently, bounded by GOMAXPROCS workers,
-// and returns the results in the SAME order as items (results[i] == fn(items[i])).
+// helpers is the process's pool of extra workers, one token per CPU. Every MapFiles
+// call shares it, so a cluster extracting several repositories at once keeps about
+// GOMAXPROCS files in flight in all, rather than GOMAXPROCS per repository. Sized
+// once, at the first call.
+var helpers struct {
+	once   sync.Once
+	tokens chan struct{}
+}
+
+func helperTokens() chan struct{} {
+	helpers.once.Do(func() { helpers.tokens = make(chan struct{}, runtime.GOMAXPROCS(0)) })
+	return helpers.tokens
+}
+
+// MapFiles applies fn to each item concurrently and returns the results in the SAME
+// order as items (results[i] == fn(items[i])).
+//
+// The calling goroutine works through the items itself, and up to GOMAXPROCS-1
+// helpers join it, each holding a token of the process-wide pool while it works. A
+// helper that gets no token before the caller has claimed every item does not start,
+// so a call never waits on the pool: one made from inside another, or while other
+// calls hold every token, runs on its caller alone.
 //
 // Output order is independent of completion order, so callers that concatenate
 // the per-item results get byte-for-byte deterministic output regardless of how
@@ -22,34 +43,40 @@ func MapFiles[T any](ctx context.Context, items []string, fn func(item string) T
 		return results
 	}
 
-	workers := runtime.GOMAXPROCS(0)
-	if workers > len(items) {
-		workers = len(items)
+	var next atomic.Int64
+	work := func() {
+		for {
+			i := int(next.Add(1) - 1)
+			if i >= len(items) {
+				return
+			}
+			// Honor cancellation by skipping the items not yet started.
+			if ctx.Err() != nil {
+				continue
+			}
+			results[i] = fn(items[i])
+		}
 	}
 
-	idxCh := make(chan int)
+	extra := min(runtime.GOMAXPROCS(0), len(items)) - 1
+	tokens := helperTokens()
+	claimed := make(chan struct{})
 	var wg sync.WaitGroup
-	wg.Add(workers)
-	for w := 0; w < workers; w++ {
+	wg.Add(extra)
+	for w := 0; w < extra; w++ {
 		go func() {
 			defer wg.Done()
-			for i := range idxCh {
-				// Honor cancellation, but keep draining idxCh so the producer
-				// below never blocks on a full send.
-				select {
-				case <-ctx.Done():
-					continue
-				default:
-				}
-				results[i] = fn(items[i])
+			select {
+			case tokens <- struct{}{}:
+			case <-claimed:
+				return
 			}
+			defer func() { <-tokens }()
+			work()
 		}()
 	}
-
-	for i := range items {
-		idxCh <- i
-	}
-	close(idxCh)
+	work()
+	close(claimed)
 	wg.Wait()
 
 	return results

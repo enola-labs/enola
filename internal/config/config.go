@@ -36,6 +36,13 @@ type Config struct {
 	// run from. (Repo keeps its historical cwd-relative behaviour.)
 	Repos []string `yaml:"repos"`
 
+	// ClusterJobs is how many of Repos are extracted at once. Each is extracted into a
+	// store of its own and taken into the union in the order Repos lists them, so the
+	// graph is the same whatever it is; it trades memory for time, one repository's
+	// extraction per job. Zero means the default (DefaultClusterJobs); 1 extracts one
+	// repository after another.
+	ClusterJobs int `yaml:"cluster_jobs,omitempty"`
+
 	// Intent is the cluster config's intent block: declared architectural
 	// intent keyed by repo label, for repos the operator observes but does not
 	// own. An entry here overrides that repo's own enola-intent.yaml wholesale
@@ -116,6 +123,19 @@ type Config struct {
 	// are unchanged. Defaults to true. Set `incremental: false` to force a full
 	// re-extraction every run.
 	Incremental *bool `yaml:"incremental,omitempty"`
+}
+
+// DefaultClusterJobs is how many repositories a cluster extracts at once unless its
+// config says otherwise.
+const DefaultClusterJobs = 4
+
+// ClusterJobsFor is how many of a cluster's n repositories are extracted at once.
+func (c *Config) ClusterJobsFor(n int) int {
+	jobs := c.ClusterJobs
+	if jobs <= 0 {
+		jobs = DefaultClusterJobs
+	}
+	return min(jobs, n)
 }
 
 // IncrementalEnabled reports whether per-extractor caching is on (the default).

@@ -2,9 +2,12 @@ package parallel
 
 import (
 	"context"
+	"runtime"
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 // MapFiles must return results aligned to input order regardless of how the
@@ -86,5 +89,65 @@ func TestMapFiles_Deterministic(t *testing.T) {
 		if a[i] != b[i] {
 			t.Fatalf("non-deterministic at %d: %q vs %q", i, a[i], b[i])
 		}
+	}
+}
+
+// Calls made at once share one pool: however many run, about GOMAXPROCS items are in
+// flight in all, plus one per caller, which always works through its own items.
+func TestMapFiles_CallsShareOnePool(t *testing.T) {
+	procs := runtime.GOMAXPROCS(0)
+	const calls = 4
+	var inFlight, peak atomic.Int64
+	items := make([]string, 200)
+	var wg sync.WaitGroup
+	for range calls {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			MapFiles(context.Background(), items, func(string) int {
+				n := inFlight.Add(1)
+				for {
+					p := peak.Load()
+					if n <= p || peak.CompareAndSwap(p, n) {
+						break
+					}
+				}
+				time.Sleep(200 * time.Microsecond)
+				inFlight.Add(-1)
+				return 0
+			})
+		}()
+	}
+	wg.Wait()
+	if limit := int64(procs + calls); peak.Load() > limit {
+		t.Fatalf("%d items in flight at once, want at most %d (GOMAXPROCS %d + %d callers)", peak.Load(), limit, procs, calls)
+	}
+}
+
+// A call made from inside another, with every token of the pool held, finishes: it
+// runs on its caller rather than waiting for the pool.
+func TestMapFiles_NestedCallsDoNotWaitForThePool(t *testing.T) {
+	outer := make([]string, 4*runtime.GOMAXPROCS(0))
+	inner := make([]string, 50)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		got := MapFiles(context.Background(), outer, func(string) int {
+			sum := 0
+			for _, v := range MapFiles(context.Background(), inner, func(string) int { return 1 }) {
+				sum += v
+			}
+			return sum
+		})
+		for i, v := range got {
+			if v != len(inner) {
+				t.Errorf("outer item %d: %d inner results, want %d", i, v, len(inner))
+			}
+		}
+	}()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("nested MapFiles did not finish")
 	}
 }

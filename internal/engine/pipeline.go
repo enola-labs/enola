@@ -37,6 +37,9 @@ type snapshotRun struct {
 	appendMode bool
 	// deferred stops the run after extraction; see holdDeferred.
 	deferred bool
+	// detached says this run's facts were detached where they were extracted, apart
+	// from the union; see prefetchRepo.
+	detached bool
 
 	// Set by prepareStore: the published bundle this run replaces, and the store,
 	// repo paths and declarations it is building to replace it with.
@@ -71,18 +74,35 @@ type snapshotRun struct {
 // its facts will carry, and the intent it declares.
 func (e *Engine) beginRun(ctx context.Context, repoPath string, appendMode bool) (*snapshotRun, error) {
 	start := time.Now()
+	id, err := e.identify(repoPath)
+	if err != nil {
+		return nil, err
+	}
+	return e.beginRunAs(ctx, id, appendMode, start)
+}
 
+// repoIdentity is what a run knows of a repository on its own, before it is placed
+// in a graph: where it is, its git state, and the label its name gives it.
+type repoIdentity struct {
+	absRepo string
+	git     *facts.GitInfo
+	label   string
+}
+
+// identify reads a repository's identity. It reads nothing but the repository, so a
+// cluster identifies its members side by side.
+func (e *Engine) identify(repoPath string) (repoIdentity, error) {
 	if repoPath == "" {
 		repoPath = e.cfg.Repo
 	}
 
 	absRepo, err := filepath.Abs(repoPath)
 	if err != nil {
-		return nil, fmt.Errorf("resolving repo path: %w", err)
+		return repoIdentity{}, fmt.Errorf("resolving repo path: %w", err)
 	}
 	if e.pathGuard != nil {
 		if err := e.pathGuard(absRepo); err != nil {
-			return nil, err
+			return repoIdentity{}, err
 		}
 	}
 
@@ -96,7 +116,23 @@ func (e *Engine) beginRun(ctx context.Context, repoPath string, appendMode bool)
 		remote = git.Remote
 	}
 	// The repository NAME, not the directory it happens to sit in — see facts.RepoLabel.
-	repoLabel := repoLabelFor(absRepo, remote)
+	return repoIdentity{absRepo: absRepo, git: git, label: repoLabelFor(absRepo, remote)}, nil
+}
+
+// resolveIntent is the intent a repository declares under label: its own
+// enola-intent.yaml, the cluster config's entry, or the entry overriding the file.
+func (e *Engine) resolveIntent(absRepo, label string) (*intent.Declaration, error) {
+	fromFile, err := intent.LoadRepoFile(absRepo)
+	if err != nil {
+		return nil, err
+	}
+	return intent.Resolve(fromFile, e.cfg.Intent[label]), nil
+}
+
+// beginRunAs places an identified repository in what this run extends: the label it
+// takes there, and whether it is appended.
+func (e *Engine) beginRunAs(ctx context.Context, id repoIdentity, appendMode bool, start time.Time) (*snapshotRun, error) {
+	absRepo, git, repoLabel := id.absRepo, id.git, id.label
 	// A cluster can hold two repositories whose NAMES agree and whose owners do not
 	// (acme/web and other-org/web). Labels are how facts from different repos stay
 	// apart, and graph nodes are name-keyed, so a collision would silently MERGE two
@@ -133,11 +169,10 @@ func (e *Engine) beginRun(ctx context.Context, repoPath string, appendMode bool)
 	// invalid declaration fails the snapshot: a declaration that cannot be
 	// trusted is worse than none, and silent skips are how vocabulary drift
 	// would creep back in.
-	fromFile, err := intent.LoadRepoFile(absRepo)
+	resolved, err := e.resolveIntent(absRepo, repoLabel)
 	if err != nil {
 		return nil, err
 	}
-	resolved := intent.Resolve(fromFile, e.cfg.Intent[repoLabel])
 	if resolved != nil && resolved.Overridden {
 		log.Printf("[engine] intent for %q: cluster config overrides %s (wholesale)", repoLabel, intent.RepoFileName)
 	}
@@ -389,7 +424,9 @@ func stagesAfterExtraction(deferred bool) int {
 // forward (relations sorted, Props and Relations their own), so the union the last
 // turn links is the same as when every turn copied it.
 func (e *Engine) holdDeferred(r *snapshotRun) *facts.Snapshot {
-	r.work.DetachFrom(r.preCount)
+	if !r.detached {
+		r.work.DetachFrom(r.preCount)
+	}
 	duration := time.Since(r.start)
 	deferredPrefix := ""
 	if r.appendMode {

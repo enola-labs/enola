@@ -379,6 +379,10 @@ func (e *RepoError) Unwrap() error { return e.Err }
 // union into a fresh store at the start of the next, which made a cluster quadratic
 // in its size and showed readers unlinked partial unions while it ran.
 //
+// The repositories are extracted several at a time (Config.ClusterJobsFor), each into
+// a store of its own, and taken into the union in the order given; see
+// cluster_prefetch.go.
+//
 // appendFirst extends the published graph with the first repository instead of
 // starting over. The returned snapshots are one per repository, in order; the last
 // is the union. A failure is a *RepoError naming the repository.
@@ -389,9 +393,11 @@ func (e *Engine) GenerateCluster(ctx context.Context, repoPaths []string, append
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	defer func() { e.building = nil }()
+	pre := e.startPrefetch(ctx, repoPaths, appendFirst)
+	defer pre.stop()
 	snaps := make([]*facts.Snapshot, 0, len(repoPaths))
 	for i, repo := range repoPaths {
-		snap, err := e.generate(ctx, repo, appendFirst || i > 0, i < len(repoPaths)-1)
+		snap, err := e.generateTurn(ctx, repo, appendFirst || i > 0, i < len(repoPaths)-1, pre.take(i))
 		if err != nil {
 			return nil, &RepoError{Repo: repo, Err: err}
 		}
@@ -403,18 +409,32 @@ func (e *Engine) GenerateCluster(ctx context.Context, repoPaths []string, append
 // generate is one turn of the pipeline. deferred stops it after extraction and
 // holds the result for the next turn; see holdDeferred. The caller holds e.mu.
 func (e *Engine) generate(ctx context.Context, repoPath string, appendMode, deferred bool) (*facts.Snapshot, error) {
-	r, err := e.beginRun(ctx, repoPath, appendMode)
+	return e.generateTurn(ctx, repoPath, appendMode, deferred, nil)
+}
+
+// generateTurn is generate for a turn whose repository may have been extracted
+// ahead, in pf; see adoptPrefetched.
+func (e *Engine) generateTurn(ctx context.Context, repoPath string, appendMode, deferred bool, pf *prefetched) (*facts.Snapshot, error) {
+	var r *snapshotRun
+	var err error
+	if pf != nil && pf.err == nil {
+		r, err = e.beginRunAs(ctx, pf.id, appendMode, pf.run.start)
+	} else {
+		r, err = e.beginRun(ctx, repoPath, appendMode)
+	}
 	if err != nil {
 		return nil, err
 	}
 	r.deferred = deferred
 	e.prepareStore(r)
 
-	if err := e.walk(r); err != nil {
-		return nil, err
-	}
-	if err := e.extract(r); err != nil {
-		return nil, err
+	if !e.adoptPrefetched(r, pf) {
+		if err := e.walk(r); err != nil {
+			return nil, err
+		}
+		if err := e.extract(r); err != nil {
+			return nil, err
+		}
 	}
 	if r.deferred {
 		return e.holdDeferred(r), nil
