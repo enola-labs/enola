@@ -2,6 +2,7 @@ package dartextractor
 
 import (
 	"slices"
+	"sort"
 	"strings"
 
 	"github.com/enola-labs/enola/internal/factpath"
@@ -13,178 +14,152 @@ import (
 
 // resolveCallTargets rewrites bare reference targets to the canonical symbol they name.
 //
-// The walker emits a call target as it is WRITTEN (`fetch`, `User.named`) because a
-// receiver's static type is not tracked and a file cannot see another file's
-// declarations. This pass binds those against the assembled symbol set.
-//
-// The binding rule is deliberately narrow: a name is rewritten only when the project
-// declares EXACTLY ONE symbol with it. An ambiguous short name is left bare, which is
-// the outcome that matters — a bare target still lets dead-code matching see the symbol
-// used, while a target picked from several candidates would be a fabricated edge into
-// whichever module happened to sort first. `build`, `dispose`, `toJson` and `copyWith`
-// are declared by hundreds of types in any Flutter app, so this is the common case and
-// not the corner one.
+// The walker preserves receiver paths and substitutes explicitly declared types.
+// This pass binds typed members and top-level functions visible in the library.
+// Instance methods without receiver evidence remain unresolved, even if their
+// short name happens to be unique elsewhere in the repository.
 func resolveCallTargets(all []facts.Fact) []facts.Fact {
-	// short name -> canonical names of CALLABLE symbols declaring it.
-	//
-	// Callable-only is load-bearing. A bare call target is resolved by unique short
-	// name, and Dart's short names collide across kinds: immich declares an enum
-	// constant `LogLevel.severe` and also calls `log.severe(...)` on a logger. With
-	// every symbol kind in the index the constant was the unique `severe`, so 117 call
-	// sites bound to it — and god-class then reported a data constant as a high-fan-in
-	// symbol with 117 dependents. A call resolves to something callable or it stays
-	// bare, which dead-code matching still handles.
-	byShort := map[string][]string{}
-	// bare type name -> canonical names, for implements/injects targets
-	byType := map[string][]string{}
+	disambiguateDartGetters(all)
+	r := newDartMemberResolver(all)
 	for i := range all {
 		f := &all[i]
-		if f.Kind != facts.KindSymbol {
-			continue
-		}
-		short := f.Name
-		if i := strings.LastIndexByte(short, '.'); i >= 0 {
-			short = short[i+1:]
-		}
-
-		switch f.PropString("symbol_kind") {
-		case facts.SymbolMethod, facts.SymbolFunc:
-			byShort[short] = append(byShort[short], f.Name)
-		case facts.SymbolClass, facts.SymbolInterface, facts.SymbolEnum, facts.SymbolType:
-			byType[short] = append(byType[short], f.Name)
-		}
-	}
-
-	unique := func(idx map[string][]string, name string) (string, bool) {
-		if cands := idx[name]; len(cands) == 1 {
-			return cands[0], true
-		}
-		return "", false
-	}
-
-	typed := typedCallResolver(all, byType, unique)
-
-	for i := range all {
-		f := &all[i]
-		bound := typed(f)
-		for j := range f.Relations {
-			r := &f.Relations[j]
-			if r.Kind == facts.RelCalls {
-				if decls, ok := bound[r.Target]; ok {
-					r.Target = decls[0]
-					for _, d := range decls[1:] {
-						f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelCalls, Target: d})
-					}
-					continue
+		r.currentValues, _ = f.Props["_dart_value_bindings"].(map[string]dartLocalValue)
+		implicit := dartCallSet(f.Props["_dart_implicit_calls"])
+		instances := dartCallSet(f.Props["_dart_instance_calls"])
+		constructed := map[string]*facts.Fact{}
+		if names, ok := f.Props["_dart_constructed_types"].([]string); ok {
+			for _, name := range names {
+				if typ := r.typeNamed(name, f.File); typ != nil {
+					constructed[name+"()"] = typ
 				}
 			}
-			// An already-canonical target contains the module path; leave it.
-			if strings.Contains(r.Target, "/") {
+		}
+		var resolved []string
+		for j, rel := range f.Relations {
+			if rel.Kind != facts.RelCalls {
 				continue
 			}
-			switch r.Kind {
+			if resolved == nil {
+				resolved = make([]string, len(f.Relations))
+			}
+			target := r.call(rel.Target, f, implicit[rel.Target], instances[rel.Target], nil)
+			resolved[j] = target
+			if ctor := r.members[target].fact; ctor != nil && ctor.PropBool("constructor") {
+				if typ := r.lexicalOwner(ctor); typ != nil {
+					constructed[rel.Target+"()"] = typ
+				}
+			}
+		}
+		var replacements map[string]string
+		for j := range f.Relations {
+			rel := &f.Relations[j]
+			switch rel.Kind {
 			case facts.RelImplements, facts.RelInjects, facts.RelInstantiates:
-				if canon, ok := unique(byType, r.Target); ok {
-					r.Target = canon
+				if typ := r.typeNamed(rel.Target, f.File); typ != nil {
+					rel.Target = typ.Name
+				} else if len(r.canonicalTypes[rel.Target]) > 0 {
+					rel.Target = "(" + rel.Target + ")"
 				}
 			case facts.RelCalls:
-				if canon, ok := unique(byShort, r.Target); ok {
-					r.Target = canon
+				before := rel.Target
+				rel.Target = resolved[j]
+				// Only calls on a verified constructor result depend on the completed
+				// construction index. Ordinary calls reuse the first pass's result.
+				if dot := strings.LastIndexByte(before, '.'); dot >= 0 && constructed[before[:dot]] != nil {
+					rel.Target = r.call(before, f, implicit[before], instances[before], constructed)
+				}
+				if rel.Target != before {
+					if replacements == nil {
+						replacements = map[string]string{}
+					}
+					replacements[before] = rel.Target
+					recordInheritedCall(r, f, before, rel.Target)
+				}
+			}
+		}
+		rewriteDartCallMetrics(f, replacements)
+		if reads, ok := f.Props["_dart_getter_reads"].(map[string]dartGetterRead); ok {
+			candidates := make([]string, 0, len(reads))
+			for candidate := range reads {
+				candidates = append(candidates, candidate)
+			}
+			sort.Strings(candidates)
+			for _, candidate := range candidates {
+				read := reads[candidate]
+				target := r.call(candidate, f, false, true, constructed)
+				entry := r.members[target]
+				if entry.fact == nil || entry.fact.PropString("accessor") != "getter" {
 					continue
 				}
-				// `Foo.named` — try the member under its declaring type.
-				if typeName, member, found := strings.Cut(r.Target, "."); found {
-					if owner, ok := unique(byType, typeName); ok {
-						if canon, ok := unique(byShort, owner+"."+member); ok {
-							r.Target = canon
-						} else {
-							r.Target = owner + "." + member
-						}
-					}
+				f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelCalls, Target: target})
+				if read.Loop {
+					calls, _ := f.Props["calls_in_loop"].([]string)
+					f.Props["calls_in_loop"] = append(calls, target)
 				}
+				if read.Scaling {
+					calls, _ := f.Props["calls_in_scaling_loop"].([]string)
+					f.Props["calls_in_scaling_loop"] = append(calls, target)
+				}
+			}
+		}
+		delete(f.Props, "_dart_value_bindings")
+		delete(f.Props, "_dart_getter_reads")
+		delete(f.Props, "_dart_implicit_calls")
+		delete(f.Props, "_dart_instance_calls")
+		delete(f.Props, "_dart_constructed_types")
+		// Different source spellings can resolve to the same declaration.
+		seen := map[facts.Relation]bool{}
+		relations := f.Relations[:0]
+		for _, rel := range f.Relations {
+			if rel.Kind == facts.RelCalls {
+				if seen[rel] {
+					continue
+				}
+				seen[rel] = true
+			}
+			relations = append(relations, rel)
+		}
+		f.Relations = relations
+		for _, prop := range []string{"calls_in_loop", "calls_in_scaling_loop", "io_calls"} {
+			if calls, ok := f.Props[prop].([]string); ok {
+				sort.Strings(calls)
+				f.Props[prop] = slices.Compact(calls)
 			}
 		}
 	}
 	return all
 }
 
-// typedCallResolver returns, for a caller, the declarations its calls on typed locals
-// reach, keyed by the bare name the call edge carries: `c.run()` on a `Concrete c`
-// reaches the run Concrete declares, else the one its nearest supertype declares,
-// and a call reaching an inherited one keeps the type it went through
-// (facts.PropInheritedCalls). A call whose type or member is not found is left to
-// the bare-name rule. The working prop is removed either way.
-func typedCallResolver(all []facts.Fact, byType map[string][]string, unique func(map[string][]string, string) (string, bool)) func(*facts.Fact) map[string][]string {
-	members := map[string]bool{}
-	bases := map[string][]string{}
-	for _, f := range all {
-		if f.Kind != facts.KindSymbol {
-			continue
-		}
-		switch f.PropString("symbol_kind") {
-		case facts.SymbolMethod, facts.SymbolFunc, facts.SymbolGetter:
-			members[f.Name] = true
-		case facts.SymbolClass, facts.SymbolInterface, facts.SymbolEnum, facts.SymbolType:
-			for _, r := range f.Relations {
-				if r.Kind != facts.RelImplements {
-					continue
-				}
-				base := r.Target
-				if canon, ok := unique(byType, base); ok {
-					base = canon
-				}
-				bases[f.Name] = append(bases[f.Name], base)
-			}
-		}
+func recordInheritedCall(r *dartMemberResolver, f *facts.Fact, spelled, target string) {
+	dot := strings.LastIndexByte(spelled, '.')
+	tdot := strings.LastIndexByte(target, '.')
+	if dot < 0 || tdot < 0 || spelled[dot+1:] != target[tdot+1:] {
+		return
 	}
-	// declares finds the nearest type at or above t declaring m, breadth-first.
-	declares := func(t, m string) string {
-		seen := map[string]bool{t: true}
-		for queue := []string{t}; len(queue) > 0; queue = queue[1:] {
-			if members[queue[0]+"."+m] {
-				return queue[0] + "." + m
-			}
-			for _, b := range bases[queue[0]] {
-				if !seen[b] {
-					seen[b] = true
-					queue = append(queue, b)
-				}
-			}
+	receiver := spelled[:dot]
+	var typ *facts.Fact
+	if strings.HasPrefix(receiver, "@value:") {
+		if vt := r.expressionType(receiver, f, r.currentValues, map[string]bool{}); vt.Name != "" && !vt.Namespace {
+			typ = r.valueOwner(vt)
 		}
-		return ""
+	} else {
+		typ = r.typeNamed(strings.TrimSuffix(receiver, "()"), f.File)
 	}
-	return func(f *facts.Fact) map[string][]string {
-		spelled := f.PropStrings(propTypedCalls)
-		if len(spelled) == 0 {
-			return nil
-		}
-		delete(f.Props, propTypedCalls)
-		var out map[string][]string
-		for _, s := range spelled {
-			typ, m, ok := strings.Cut(s, ".")
-			if !ok {
-				continue
-			}
-			owner, ok := unique(byType, typ)
-			if !ok {
-				continue
-			}
-			decl := declares(owner, m)
-			if decl == "" {
-				continue
-			}
-			if out == nil {
-				out = map[string][]string{}
-			}
-			if !slices.Contains(out[m], decl) {
-				out[m] = append(out[m], decl)
-			}
-			if decl != owner+"."+m {
-				f.AddInheritedCalls(owner + "." + m)
-			}
-		}
-		return out
+	if typ != nil && typ.Name != target[:tdot] {
+		f.AddInheritedCalls(typ.Name + spelled[dot:])
 	}
+}
+
+func dartCallSet(value any) map[string]bool {
+	names, _ := value.([]string)
+	if len(names) == 0 {
+		return nil
+	}
+	out := make(map[string]bool, len(names))
+	for _, name := range names {
+		out[name] = true
+	}
+	return out
 }
 
 // attributeSymbolsToModules gives every symbol a leading `declares` edge to the module
@@ -306,22 +281,16 @@ func seedRetrofitIO(all []facts.Fact) {
 // a mutually recursive pair converges instead of oscillating.
 func computeDartPerformsIO(all []facts.Fact) {
 	seedRetrofitIO(all)
-	idx := make(map[string]*facts.Fact, len(all))
 	for i := range all {
-		if all[i].Kind == facts.KindSymbol {
-			idx[all[i].Name] = &all[i]
+		if all[i].Kind == facts.KindSymbol && all[i].PropBool("io_direct") {
+			all[i].SetProp("performs_io", true)
 		}
 	}
-	// Short-name index for the targets resolution left bare, so the closure crosses an
-	// ambiguous hop by name the way the Swift and TypeScript closures do. It is bounded
-	// to unique names for the same reason the resolver is.
-	byShort := map[string][]*facts.Fact{}
-	for name, f := range idx {
-		short := name
-		if i := strings.LastIndexByte(short, '.'); i >= 0 {
-			short = short[i+1:]
+	idx := map[string]dartMemberEntry{}
+	for i := range all {
+		if all[i].Kind == facts.KindSymbol {
+			idx[all[i].Name] = idx[all[i].Name].add(&all[i])
 		}
-		byShort[short] = append(byShort[short], f)
 	}
 
 	performsIO := func(f *facts.Fact) bool {
@@ -346,12 +315,8 @@ func computeDartPerformsIO(all []facts.Fact) {
 				if r.Kind != facts.RelCalls {
 					continue
 				}
-				var target *facts.Fact
-				if t, ok := idx[r.Target]; ok {
-					target = t
-				} else if cands := byShort[r.Target]; len(cands) == 1 {
-					target = cands[0]
-				}
+				target := idx[r.Target].readable()
+
 				if target != nil && performsIO(target) {
 					if f.Props == nil {
 						f.Props = map[string]any{}
@@ -361,6 +326,63 @@ func computeDartPerformsIO(all []facts.Fact) {
 					break
 				}
 			}
+		}
+	}
+}
+
+// Loop metrics use the same target as the call edge, so downstream analysis does
+// not recover a different callee by matching only its method segment.
+// Rewrite each original target once. Sequential substitutions both scan every
+// metric repeatedly and can incorrectly remap a canonical name a second time.
+func rewriteDartCallMetrics(f *facts.Fact, replacements map[string]string) {
+	if len(replacements) == 0 {
+		return
+	}
+	if paths, ok := f.Props["call_receivers"].(map[string][]string); ok {
+		rewritten := make(map[string][]string, len(paths))
+		for target, aliases := range paths {
+			if replacement, ok := replacements[target]; ok {
+				target = replacement
+			}
+			rewritten[target] = append(rewritten[target], aliases...)
+		}
+		for target, aliases := range rewritten {
+			sort.Strings(aliases)
+			rewritten[target] = slices.Compact(aliases)
+		}
+		f.Props["call_receivers"] = rewritten
+	}
+	for _, prop := range []string{"calls_in_loop", "calls_in_scaling_loop", "io_calls"} {
+		if calls, ok := f.Props[prop].([]string); ok {
+			for i, before := range calls {
+				if after, ok := replacements[before]; ok {
+					calls[i] = after
+				}
+			}
+		}
+	}
+}
+
+// Newly represented top-level getters must not make an existing function's
+// name ambiguous. Use the getter's file namespace only for these collisions.
+func disambiguateDartGetters(all []facts.Fact) {
+	files := map[string]string{}
+	collisions := map[string]bool{}
+	for _, f := range all {
+		if f.Kind != facts.KindSymbol {
+			continue
+		}
+		if prior, ok := files[f.Name]; ok && prior != f.File {
+			collisions[f.Name] = true
+		} else {
+			files[f.Name] = f.File
+		}
+	}
+	for i := range all {
+		f := &all[i]
+		if collisions[f.Name] && f.PropString("symbol_kind") == facts.SymbolFunc && f.PropString("accessor") == "getter" {
+			short := f.Name[strings.LastIndexByte(f.Name, '.')+1:]
+			f.Name = strings.TrimSuffix(f.File, ".dart") + "." + short
 		}
 	}
 }

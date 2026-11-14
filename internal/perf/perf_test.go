@@ -1717,14 +1717,10 @@ func TestIsExpensiveDartCall(t *testing.T) {
 	byName := map[string]funcInfo{
 		"repo.loadPage": {Name: "repo.loadPage", PerformsIO: true},
 	}
-	// Short-name performs_io index, from the extractor's import-gated io_direct plus
-	// its transitive closure.
-	ioMethods := map[string]bool{"syncRemote": true, "call": true, "build": true}
 
 	expensive := []string{
 		"mobile/lib/db.assets",       // storage fact
 		"repo.loadPage",              // resolved callee flagged performs_io
-		"service.syncRemote",         // performs_io wrapper via the short-name index
 		"_db.select",                 // drift receiver — immich's real N+1 shape
 		"_db.insertOnConflictUpdate", // drift round-trip method
 		"db.rawQuery",                // sqflite
@@ -1734,12 +1730,14 @@ func TestIsExpensiveDartCall(t *testing.T) {
 		"rootBundle.loadString",      // asset I/O
 	}
 	for _, c := range expensive {
-		if !isExpensiveDartCall(c, storage, byName, ioMethods) {
+		if !isExpensiveDartCall(c, storage, byName) {
 			t.Errorf("isExpensiveDartCall(%q) = false, want true", c)
 		}
 	}
 
 	cheap := []string{
+		"service.syncRemote", // a namesake I/O method does not type this receiver
+		"Matrix4.identity",   // an unrelated identity getter must not supply I/O
 		// The collision this handler exists for: Dart's in-memory collection API.
 		"children.where", "items.map", "list.insert", "map.update",
 		"nodes.firstWhere", "values.fold", "set.add",
@@ -1753,7 +1751,7 @@ func TestIsExpensiveDartCall(t *testing.T) {
 		"utils.formatDuration",
 	}
 	for _, c := range cheap {
-		if isExpensiveDartCall(c, storage, byName, ioMethods) {
+		if isExpensiveDartCall(c, storage, byName) {
 			t.Errorf("isExpensiveDartCall(%q) = true, want false", c)
 		}
 	}
