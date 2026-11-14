@@ -4,9 +4,11 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -198,5 +200,70 @@ func TestServeFixed_DroppedSessionsHoldNothing(t *testing.T) {
 	}
 	if st := s.pool.Stats(); st.Sessions != 0 || st.Graphs != 0 {
 		t.Errorf("dropped sessions left state behind: %+v", st)
+	}
+}
+
+// A cluster's generate writes the union into each member in turn. The reload waits
+// for the last member: one started on the first would run beside a generate that
+// still holds its whole graph, and the two peaks would meet on the same machine.
+func TestServeFixed_ClusterReloadsAfterTheLastMember(t *testing.T) {
+	root := t.TempDir()
+	sample := filepath.Join("..", "engine", "testdata", "repos", "go_sample")
+	member := func(name string) string {
+		dst := filepath.Join(root, name)
+		if err := os.Rename(copyTree(t, sample, root), dst); err != nil {
+			t.Fatal(err)
+		}
+		return dst
+	}
+	first, last := member("first"), member("last")
+	members := []string{first, last}
+	_, cfg := newTestEngine(t)
+	// index runs the operator's generate over the cluster and writes the members
+	// listed, in order: all of them is a finished generate, fewer one still writing.
+	index := func(write ...string) {
+		t.Helper()
+		eng, err := bootstrap.NewEngineFromConfig(cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := eng.GenerateCluster(context.Background(), members, false); err != nil {
+			t.Fatal(err)
+		}
+		for _, m := range write {
+			if err := eng.WriteArtifacts(m); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	index(members...)
+
+	var reloads atomic.Int32
+	if _, _, err := bootstrap.NewServedPool(t.Context(), cfg, bootstrap.ServeOptions{
+		Roots:          []string{root},
+		Restore:        members,
+		ReloadInterval: 20 * time.Millisecond,
+		OnPhase: func(phase string, _ int) {
+			if phase == "reload" {
+				reloads.Add(1)
+			}
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	addSymbol(t, first, "AddedByTheOperator")
+	index(first)
+	time.Sleep(300 * time.Millisecond) // fifteen intervals
+	if n := reloads.Load(); n != 0 {
+		t.Fatalf("reloaded %d times with only the first member written", n)
+	}
+	index(last)
+	deadline := time.Now().Add(5 * time.Second)
+	for reloads.Load() == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("never reloaded after the last member was written")
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 }

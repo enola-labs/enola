@@ -52,8 +52,11 @@ func stampOf(path string) fileStamp {
 type fixedGraph struct {
 	paths   []string
 	restore Restorer
-	// meta is the snapshot.meta.json the reload watches: the first repository's. A
-	// cluster's generate writes the whole union into every member, so one is enough.
+	// meta is the snapshot.meta.json the reload watches: the last repository's. A
+	// cluster's generate writes the whole union into every member, one after another,
+	// and a member's meta last; so the last member's meta is the generate's last
+	// artifact. Watching an earlier member's would start the reload while the generate
+	// still holds its whole graph and writes the rest, and the two peaks would meet.
 	meta string
 
 	mu sync.Mutex
@@ -85,7 +88,7 @@ func (p *Pool) ServeFixed(ctx context.Context, repoPaths []string) error {
 	fg := &fixedGraph{
 		paths:   repoPaths,
 		restore: p.restore,
-		meta:    filepath.Join(p.outputDirFor(repoPaths[0]), "snapshot.meta.json"),
+		meta:    filepath.Join(p.outputDirFor(repoPaths[len(repoPaths)-1]), "snapshot.meta.json"),
 		phase:   p.phase,
 	}
 	s.fixed = fg
@@ -131,17 +134,17 @@ func (fg *fixedGraph) load(eng *engine.Engine, st fileStamp) {
 	snap := eng.Snapshot()
 	log.Printf("[serve] serving the graph of %s: %d facts, snapshot %s from %s",
 		strings.Join(fg.paths, ", "), eng.Graph().FactCount(), snap.Meta.SnapshotID, snap.Meta.GeneratedAt)
-	if reload {
-		// The graph replaced is garbage once the calls reading it finish. Left to
-		// itself, Go keeps that heap for reuse up to the soft limit, so a server that
-		// reloads a large graph daily would hold two of them for good.
-		go func() {
-			debug.FreeOSMemory()
-			var m runtime.MemStats
-			runtime.ReadMemStats(&m)
-			log.Printf("[serve] heap after the reload: %d MiB live, %d MiB held from the OS", m.HeapAlloc>>20, (m.HeapSys-m.HeapReleased)>>20)
-		}()
-	}
+	// A load allocates about twice the graph it leaves, and the graph a reload
+	// replaces is garbage once the calls reading it finish. Left to itself, Go keeps
+	// that heap for reuse up to the soft limit, so a server would hold the load's peak
+	// while the operator's next generate runs beside it, and one that reloads a large
+	// graph daily would hold two graphs for good.
+	go func() {
+		debug.FreeOSMemory()
+		var m runtime.MemStats
+		runtime.ReadMemStats(&m)
+		log.Printf("[serve] heap after the load: %d MiB live, %d MiB held from the OS", m.HeapAlloc>>20, (m.HeapSys-m.HeapReleased)>>20)
+	}()
 }
 
 // poll checks the watched meta every interval and reloads once a change has held

@@ -952,6 +952,11 @@ func (e *Engine) runExplainers(ctx context.Context, allNames []string) ([]facts.
 	var usedNames []string
 
 	e.runAnnotators(ctx)
+	// The annotators are the last writers of facts: explainers, renderers and the
+	// snapshot only read. Sharing the identical Props and Relations now rather than at
+	// publication takes the duplicates out of the heap while the explainers, the
+	// largest transient allocators of a generate, run over it.
+	e.store.Freeze()
 
 	for _, exp := range e.explainers.All() {
 		if !e.cfg.IsExplainerEnabled(exp.Name()) {

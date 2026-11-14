@@ -48,6 +48,9 @@ type Store struct {
 	// Relations slices are now SHARED between facts. See Freeze for what that
 	// forbids.
 	frozen bool
+	// frozenUpTo is how many facts the last Freeze shared, so another Freeze starts
+	// after them. Anything that rebuilds the slice resets it to 0.
+	frozenUpTo int
 
 	// sharing, while set, holds the shapes ReadJSONLFileShared has already shared
 	// facts[:sharedUpTo] onto, so Freeze carries on from there rather than encoding
@@ -1023,6 +1026,7 @@ func (s *Store) RemoveWhere(pred func(Fact) bool) int {
 
 	// Rebuild facts slice and all indices from scratch.
 	s.facts = kept
+	s.frozenUpTo = 0
 	s.byKind = make(map[string][]int)
 	s.byFile = make(map[string][]int)
 	s.byName = make(map[string]int32)
@@ -1087,7 +1091,7 @@ func (s *Store) Clear() {
 	s.byRepo = make(map[string][]int)
 	s.graph = nil
 	s.intern = nil
-	s.frozen = false
+	s.frozen, s.frozenUpTo = false, 0
 	s.sharing, s.sharedUpTo = nil, 0
 	s.targetAliases = nil
 	s.docTexts = nil

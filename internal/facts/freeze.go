@@ -38,20 +38,22 @@ import (
 // Store.All, which copies Props and Relations precisely so the copy can be mutated
 // freely. See the comment there.
 //
-// Freeze is idempotent and safe to call on an already-frozen store.
+// Freeze is idempotent and safe to call on an already-frozen store. A second call
+// shares only the facts added since the first, among themselves: the engine freezes
+// once the last writer has run, before the explainers, and again at publication.
 func (s *Store) Freeze() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	sh, from := s.sharing, s.sharedUpTo
 	if sh == nil {
-		sh, from = newSharer(), 0
+		sh, from = newSharer(), s.frozenUpTo
 	}
 	for i := from; i < len(s.facts); i++ {
 		sh.share(&s.facts[i])
 	}
 	s.sharing, s.sharedUpTo = nil, 0
-	s.frozen = true
+	s.frozen, s.frozenUpTo = true, len(s.facts)
 }
 
 // sharer is Freeze's memory of the shapes it has seen. It can run over a store all at

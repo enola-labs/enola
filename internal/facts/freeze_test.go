@@ -393,3 +393,39 @@ func TestDetachFrom_MatchesFreezeThenAll(t *testing.T) {
 		t.Fatal("a fact before startIdx was touched")
 	}
 }
+
+// Freezing twice, with facts added between, leaves the store as one Freeze at the end
+// would: every fact's relations sorted, and the facts added after the first call
+// sharing among themselves. A removal between the calls rebuilds the slice, and the
+// second call then goes over all of it.
+func TestFreeze_AgainCoversFactsAddedSince(t *testing.T) {
+	unsorted := func() []Relation {
+		return []Relation{{Kind: RelCalls, Target: "z"}, {Kind: RelCalls, Target: "a"}}
+	}
+	fact := func(name string) Fact {
+		return Fact{Kind: KindSymbol, Name: name, File: "f.go",
+			Props: map[string]any{"language": "go"}, Relations: unsorted()}
+	}
+	for _, remove := range []bool{false, true} {
+		s := NewStore()
+		s.Add(fact("a"), fact("b"))
+		s.Freeze()
+		s.Add(fact("c"), fact("d"))
+		if remove {
+			s.RemoveWhere(func(f Fact) bool { return f.Name == "a" })
+			// A fact the first call never saw, now at an index it already covered.
+			s.Add(fact("e"))
+		}
+		s.Freeze()
+		all := s.FactsRef()
+		for _, f := range all {
+			if f.Relations[0].Target != "a" {
+				t.Fatalf("remove=%v: %s's relations are not sorted after the second Freeze", remove, f.Name)
+			}
+		}
+		last := len(all) - 1
+		if !sameMap(all[last].Props, all[last-1].Props) {
+			t.Fatalf("remove=%v: facts added after the first Freeze do not share their Props", remove)
+		}
+	}
+}
