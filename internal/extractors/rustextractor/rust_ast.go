@@ -15,7 +15,7 @@ import (
 
 // It also returns the file's inner doc, the doc of the module the file opens.
 func extractFileASTFull(src []byte, relFile string, crates []crateInfo, moduleDirs map[string]bool) ([]facts.Fact, []implPair, []axumBuilder, string) {
-	r := extractRustFile(src, relFile, crates, moduleDirs, false)
+	r := extractRustFile(src, relFile, crates, moduleDirs, nil, false)
 	return r.facts, r.impls, r.builders, r.doc
 }
 
@@ -34,7 +34,7 @@ type rustFileOut struct {
 // extractRustFile extracts one file. testFile walks the whole file as the body of
 // a #[cfg(test)] module, because a parent declared it as one: it emits no symbol,
 // and its calls become the file's test reference.
-func extractRustFile(src []byte, relFile string, crates []crateInfo, moduleDirs map[string]bool, testFile bool) rustFileOut {
+func extractRustFile(src []byte, relFile string, crates []crateInfo, moduleDirs, moduleFiles map[string]bool, testFile bool) rustFileOut {
 	parser := sitter.NewParser()
 	defer parser.Close()
 	if err := parser.SetLanguage(sitter.NewLanguage(rust.Language())); err != nil {
@@ -47,14 +47,15 @@ func extractRustFile(src []byte, relFile string, crates []crateInfo, moduleDirs 
 
 	dir := factpath.Dir(relFile)
 	w := &astWalker{
-		src:        src,
-		relFile:    relFile,
-		dir:        dir,
-		crateDir:   nearestCrateDir(dir, crates),
-		crates:     crates,
-		moduleDirs: moduleDirs,
-		fileRefIdx: -1,
-		inTestMod:  testFile,
+		src:         src,
+		relFile:     relFile,
+		dir:         dir,
+		crateDir:    nearestCrateDir(dir, crates),
+		crates:      crates,
+		moduleDirs:  moduleDirs,
+		moduleFiles: moduleFiles,
+		fileRefIdx:  -1,
+		inTestMod:   testFile,
 	}
 	w.walkSourceFile(root)
 
@@ -99,8 +100,9 @@ type astWalker struct {
 	dir      string
 	crateDir string
 
-	crates     []crateInfo
-	moduleDirs map[string]bool
+	crates      []crateInfo
+	moduleDirs  map[string]bool
+	moduleFiles map[string]bool
 
 	// out is the accumulating fact list; impls collects impl-Trait-for-Type
 	// observations resolved later by applyImplements.
@@ -216,6 +218,7 @@ type astWalker struct {
 	typeParams            []string
 	externalImports       map[string]bool
 	scopeDeclared         map[string]bool
+	scopeImports          map[string]bool
 }
 
 // calleeForm classifies how a call_expression's callee was written, so the
@@ -612,10 +615,10 @@ func (w *astWalker) handleMod(node *sitter.Node) {
 	w.modStack = append(w.modStack, name)
 	w.modFnStack = append(w.modFnStack, collectFnNames(body, w.src))
 	w.modSubmoduleStack = append(w.modSubmoduleStack, collectSubmoduleNames(body, w.src))
-	outerExternal, outerDeclared := w.externalImports, w.scopeDeclared
-	w.externalImports, w.scopeDeclared = nil, declaredItemNames(body, w.src)
+	outerExternal, outerDeclared, outerImports := w.externalImports, w.scopeDeclared, w.scopeImports
+	w.externalImports, w.scopeDeclared, w.scopeImports = nil, declaredItemNames(body, w.src), nil
 	w.walkItems(body)
-	w.externalImports, w.scopeDeclared = outerExternal, outerDeclared
+	w.externalImports, w.scopeDeclared, w.scopeImports = outerExternal, outerDeclared, outerImports
 	w.modSubmoduleStack = w.modSubmoduleStack[:len(w.modSubmoduleStack)-1]
 	w.modFnStack = w.modFnStack[:len(w.modFnStack)-1]
 	w.modStack = w.modStack[:len(w.modStack)-1]
@@ -1178,6 +1181,7 @@ func (w *astWalker) handleUse(node *sitter.Node) {
 		}
 		if leaf.alias != "_" && resolved && len(leaf.segs) > 1 && last != "self" {
 			w.importMap[leaf.alias] = target
+			w.markScopeImport(leaf.alias, target != "")
 		}
 		if leaf.alias != "_" && resolved && target == "" {
 			if w.externalImports == nil {
@@ -1235,6 +1239,10 @@ func (w *astWalker) emitDependency(segs []string, line int) {
 		// own since foo.rs shares its parent's directory (no subdirectory to
 		// find in moduleDirs).
 		target, source = joinRustPath(w.dir, segs, w.moduleDirs), "internal"
+	case w.importedModuleDir(segs) != "":
+		// `use task::trace::f;` after `use crate::runtime::task;`: the path starts
+		// from a module already in scope, not from a crate.
+		target, source = joinRustPath(w.importedModuleDir(segs), segs[1:], w.moduleDirs), "internal"
 	default:
 		target, source = classifyUsePath(segs, w.dir, w.crateDir, w.crates, w.moduleDirs)
 	}
@@ -1251,6 +1259,51 @@ func (w *astWalker) emitDependency(segs []string, line int) {
 		Relations: []facts.Relation{{Kind: facts.RelImports, Target: target}},
 	})
 	w.recordImportMapping(segs, target, source)
+}
+
+// markScopeImport records whether a name the current module imported is a repository one.
+func (w *astWalker) markScopeImport(name string, internal bool) {
+	if !internal {
+		delete(w.scopeImports, name)
+		return
+	}
+	if w.scopeImports == nil {
+		w.scopeImports = map[string]bool{}
+	}
+	w.scopeImports[name] = true
+}
+
+// importedModuleDir is the directory of the module a path's first segment names
+// when that name was imported from inside the repository, "" otherwise.
+func (w *astWalker) importedModuleDir(segs []string) string {
+	if len(segs) < 2 || segs[0] == "self" || segs[0] == "super" || segs[0] == "crate" {
+		return ""
+	}
+	imported, ok := w.importMap[segs[0]]
+	if !ok || !w.scopeImports[segs[0]] {
+		return ""
+	}
+	base, found := strings.CutSuffix(imported, "."+segs[0])
+	if !found || !w.isRealModule(base, segs[0]) {
+		return ""
+	}
+	return base
+}
+
+// isRealModule reports whether name is a module of the repository: base is its
+// own directory, or base holds name/ or name.rs. A name imported
+// from inside the repository can also be a re-exported crate (`pub use dep;`).
+func (w *astWalker) isRealModule(base, name string) bool {
+	join := func(parts ...string) string {
+		if base == "" || base == "." {
+			return strings.Join(parts, "/")
+		}
+		return base + "/" + strings.Join(parts, "/")
+	}
+	if base == name || strings.HasSuffix(base, "/"+name) {
+		return w.moduleDirs[base]
+	}
+	return w.moduleDirs[join(name)] || w.moduleFiles[join(name+".rs")]
 }
 
 // recordImportMapping maps the imported item's simple name — the last "::"
@@ -1271,9 +1324,11 @@ func (w *astWalker) recordImportMapping(segs []string, target, source string) {
 	}
 	if source == "internal" {
 		w.importMap[last] = target + "." + last
+		w.markScopeImport(last, true)
 		delete(w.externalImports, last)
 	} else {
 		w.importMap[last] = ""
+		w.markScopeImport(last, false)
 		if w.externalImports == nil {
 			w.externalImports = make(map[string]bool)
 		}
