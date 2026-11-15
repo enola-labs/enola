@@ -1142,58 +1142,11 @@ func (s *Store) WriteJSONL(w io.Writer) error {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	n := len(s.facts)
-	keys := make([]byte, n*jsonlKeyLen)
-	long := make([]bool, n) // the line runs past its key
-	if err := inChunks(n, func(lo, hi int, ws *wireScratch) error {
-		for i := lo; i < hi; i++ {
-			// The scalar fields a line opens with are usually the whole key; the
-			// line is marshalled for it only when they are shorter.
-			b, err := ws.head(&s.facts[i])
-			if err != nil {
-				return err
-			}
-			// A line always runs past its head, so a key taken from a head is long
-			// even when the head ends exactly at the key's end.
-			long[i] = true
-			if len(b) < jsonlKeyLen {
-				if b, err = s.wireLine(s.facts[i], ws); err != nil {
-					return err
-				}
-				long[i] = len(b) > jsonlKeyLen
-			}
-			copy(keys[i*jsonlKeyLen:(i+1)*jsonlKeyLen], b)
-		}
-		return nil
-	}); err != nil {
+	order, err := s.jsonlOrder()
+	if err != nil {
 		return err
 	}
-	key := func(i int32) []byte { return keys[int(i)*jsonlKeyLen : (int(i)+1)*jsonlKeyLen] }
-
-	// A key is the line's first bytes, zero-padded; JSON holds no zero byte, so a line
-	// that ends inside the key sorts before every longer line sharing its bytes, as it
-	// does in full.
-	order := make([]int32, n)
-	for i := range order {
-		order[i] = int32(i)
-	}
-	slices.SortFunc(order, func(a, b int32) int { return bytes.Compare(key(a), key(b)) })
-
-	// Equal keys are equal lines unless a line runs on; those runs are sorted in full.
-	ws := newWireScratch()
-	for lo := 0; lo < n; {
-		hi, anyLong := lo+1, long[order[lo]]
-		for hi < n && bytes.Equal(key(order[lo]), key(order[hi])) {
-			anyLong = anyLong || long[order[hi]]
-			hi++
-		}
-		if anyLong && hi-lo > 1 {
-			if err := s.sortRunByLine(order[lo:hi], ws); err != nil {
-				return err
-			}
-		}
-		lo = hi
-	}
+	n := len(order)
 
 	// Written a window at a time: the window's chunks are marshalled side by side and
 	// then written in order, so what is held is the window, not the file.
@@ -1223,6 +1176,136 @@ func (s *Store) WriteJSONL(w io.Writer) error {
 		}
 	}
 	return bw.Flush()
+}
+
+// jsonlOrder returns the fact indices in the order facts.jsonl lists the facts (see
+// WriteJSONL). The caller must hold s.mu.
+func (s *Store) jsonlOrder() ([]int32, error) {
+	n := len(s.facts)
+	keys := make([]byte, n*jsonlKeyLen)
+	long := make([]bool, n) // the line runs past its key
+	if err := inChunks(n, func(lo, hi int, ws *wireScratch) error {
+		for i := lo; i < hi; i++ {
+			// The scalar fields a line opens with are usually the whole key; the
+			// line is marshalled for it only when they are shorter.
+			b, err := ws.head(&s.facts[i])
+			if err != nil {
+				return err
+			}
+			// A line always runs past its head, so a key taken from a head is long
+			// even when the head ends exactly at the key's end.
+			long[i] = true
+			if len(b) < jsonlKeyLen {
+				if b, err = s.wireLine(s.facts[i], ws); err != nil {
+					return err
+				}
+				long[i] = len(b) > jsonlKeyLen
+			}
+			copy(keys[i*jsonlKeyLen:(i+1)*jsonlKeyLen], b)
+		}
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	key := func(i int32) []byte { return keys[int(i)*jsonlKeyLen : (int(i)+1)*jsonlKeyLen] }
+
+	// A key is the line's first bytes, zero-padded; JSON holds no zero byte, so a line
+	// that ends inside the key sorts before every longer line sharing its bytes, as it
+	// does in full.
+	order := make([]int32, n)
+	for i := range order {
+		order[i] = int32(i)
+	}
+	slices.SortFunc(order, func(a, b int32) int { return bytes.Compare(key(a), key(b)) })
+
+	// Equal keys are equal lines unless a line runs on; those runs are sorted in full.
+	ws := newWireScratch()
+	for lo := 0; lo < n; {
+		hi, anyLong := lo+1, long[order[lo]]
+		for hi < n && bytes.Equal(key(order[lo]), key(order[hi])) {
+			anyLong = anyLong || long[order[hi]]
+			hi++
+		}
+		if anyLong && hi-lo > 1 {
+			if err := s.sortRunByLine(order[lo:hi], ws); err != nil {
+				return nil, err
+			}
+		}
+		lo = hi
+	}
+	return order, nil
+}
+
+// SortLikeJSONL puts the facts in the order facts.jsonl lists them, so a store built
+// by a generate holds them as a store read back from that file does. Extractors emit
+// in map-iteration order, so without it a built store's order differs from one run to
+// the next and from a restored store's, and so does everything that lists facts in
+// store order: an offset-paged query read across an unload and restore skipped some
+// facts and repeated others. The facts are moved, not changed, so a frozen store may
+// be sorted; Freeze sorts relations, which are part of a line, so sort after it.
+// The indexes and the graph are remapped in place rather than rebuilt.
+func (s *Store) SortLikeJSONL() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	order, err := s.jsonlOrder()
+	if err != nil {
+		return err
+	}
+	inv := make([]int32, len(order))
+	moved := false
+	for to, from := range order {
+		inv[from] = int32(to)
+		moved = moved || int(from) != to
+	}
+	if !moved {
+		return nil
+	}
+	// facts[to] = old facts[order[to]], one cycle at a time, marking order as it goes.
+	for start := range order {
+		if order[start] < 0 {
+			continue
+		}
+		held := s.facts[start]
+		at := start
+		for {
+			from := int(order[at])
+			order[at] = -1
+			if from == start {
+				s.facts[at] = held
+				break
+			}
+			s.facts[at] = s.facts[from]
+			at = from
+		}
+	}
+
+	remap := func(idxs []int) {
+		for i, x := range idxs {
+			idxs[i] = int(inv[x])
+		}
+		slices.Sort(idxs)
+	}
+	for _, m := range []map[string][]int{s.byKind, s.byFile, s.byRepo} {
+		for _, idxs := range m {
+			remap(idxs)
+		}
+	}
+	for name, v := range s.byName {
+		if v >= 0 {
+			s.byName[name] = inv[v]
+		}
+	}
+	for _, idxs := range s.byNameDup {
+		for i, x := range idxs {
+			idxs[i] = inv[x]
+		}
+		slices.Sort(idxs)
+	}
+	if s.graph != nil {
+		s.graph.remapFacts(s.facts, inv)
+	}
+	return nil
 }
 
 // jsonlChunk is how many facts one worker marshals at a time.

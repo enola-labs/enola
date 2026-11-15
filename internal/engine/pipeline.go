@@ -616,6 +616,14 @@ func (e *Engine) publish(r *snapshotRun, snapshot *facts.Snapshot) {
 	tStage := time.Now()
 	r.work.Freeze()
 	log.Printf("[engine] froze fact store in %s", time.Since(tStage).Round(time.Millisecond))
+	// In facts.jsonl's order, the one a restore of this snapshot reads back, so a query
+	// answers alike however the graph got here, and offset paging stays consistent
+	// across an unload and restore. After Freeze, which sorts relations.
+	tStage = time.Now()
+	if err := r.work.SortLikeJSONL(); err != nil {
+		log.Printf("[engine] warning: facts left in extraction order: %v", err)
+	}
+	log.Printf("[engine] sorted fact store in %s", time.Since(tStage).Round(time.Millisecond))
 
 	// Publish atomically. This single Store() is the linearization point: before it
 	// readers see the prior bundle, after it the new one — never a half-built store.
