@@ -3640,7 +3640,11 @@ import (
 // v601: Dart: calls on dart:core, async, collection, convert, math, io and typed_data
 // types resolve against bundled SDK signatures when the repository has no SDK sources.
 // v602: Dart: calls on Flutter framework and dart:ui types resolve against bundled signatures.
-const cacheVersion = "v602"
+// v603: C/C++: a loop macro over a call inside a body, `FOR_NODES(next()) { ... }`, no
+// longer defines the callee at the call site.
+// v604: Dart: a closure passed to an iterator method is walked once, at the loop's
+// depth, so its branches count once in cyclomatic.
+const cacheVersion = "v604"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

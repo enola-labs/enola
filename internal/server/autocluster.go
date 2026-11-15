@@ -12,6 +12,7 @@ import (
 
 	"github.com/enola-labs/enola/internal/clientspec"
 	"github.com/enola-labs/enola/internal/config"
+	"github.com/enola-labs/enola/internal/engine"
 	"github.com/enola-labs/enola/internal/facts"
 	"github.com/enola-labs/enola/internal/workspace"
 	"github.com/enola-labs/enola/pkg/status"
@@ -74,27 +75,37 @@ func (s *Server) generateCluster(ctx context.Context, dir string, names []string
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: summary}}}, nil, nil
 }
 
-// indexSet indexes repoPaths into the store as one linked set, linking once, on the
-// last: every repository before it defers linking. appendFirst keeps what the store
-// already holds; otherwise the first repository resets it. On failure it returns the
+// indexSet indexes repoPaths into the store as one linked set (engine.GenerateCluster):
+// linked once, on the last, and published once, so a call running meanwhile is
+// answered from the graph before the set and never from part of it. appendFirst
+// keeps what the store already holds; otherwise the first repository resets it. On failure it returns the
 // repository that failed. Artifacts and the global receipt are written once, at the end.
 // The caller holds genMu.
 func (s *Server) indexSet(ctx context.Context, repoPaths []string, appendFirst bool) (indexedSet, string, error) {
 	if !appendFirst {
 		s.resetCorpus()
 	}
-	defer s.eng.SetDeferLinking(false)
 	announceArtifacts(ctx, len(repoPaths))
 	set := indexedSet{repoPaths: repoPaths}
 	start := time.Now()
+	// Each member's previous snapshot is read before the set is generated: nothing is
+	// written to disk until the artifacts below, so these are the snapshots it replaces.
+	priors := make([]priorSnapshot, len(repoPaths))
 	for i, repo := range repoPaths {
-		s.eng.SetDeferLinking(i < len(repoPaths)-1)
-		snap, err := s.indexRepo(ctx, repo, appendFirst || i > 0)
-		if err != nil {
-			return indexedSet{}, repo, err
-		}
-		set.snapshots = append(set.snapshots, snap)
+		priors[i] = s.priorSnapshotOf(repo)
 	}
+	snaps, err := s.eng.GenerateCluster(ctx, repoPaths, appendFirst)
+	if err != nil {
+		var re *engine.RepoError
+		if errors.As(err, &re) {
+			return indexedSet{}, re.Repo, re.Err
+		}
+		return indexedSet{}, repoPaths[0], err
+	}
+	for i, snap := range snaps {
+		s.recordIndexed(ctx, repoPaths[i], appendFirst || i > 0, priors[i], snap)
+	}
+	set.snapshots = snaps
 	set.duration = time.Since(start)
 	for _, repo := range repoPaths {
 		if err := s.eng.WriteArtifacts(repo); err != nil {
@@ -175,30 +186,44 @@ func (s *Server) generateSet(ctx context.Context, repoPaths []string, appendMode
 // indexRepo snapshots one repository into the store and records what the snapshot was
 // worth. The caller holds genMu and writes the artifacts.
 func (s *Server) indexRepo(ctx context.Context, absRepo string, appendMode bool) (*facts.Snapshot, error) {
-	// Read this repo's previous snapshot from disk before overwriting it, so the
-	// value model can tell a first build from a refresh, and an unchanged
-	// refresh from one that has real work to re-derive. Disk rather than the
-	// in-memory snapshot because in append mode the loaded snapshot describes
-	// whichever repo was indexed last, not this one.
-	prevID, prevHashes := s.previousSnapshot(absRepo)
-	priorCorpus := s.priorCorpusTokens(absRepo)
-
+	prior := s.priorSnapshotOf(absRepo)
 	snapshot, err := s.eng.GenerateSnapshot(ctx, absRepo, appendMode)
 	if err != nil {
 		return nil, err
 	}
-	s.snapshotsGenerated = true
+	s.recordIndexed(ctx, absRepo, appendMode, prior, snapshot)
+	return snapshot, nil
+}
 
+// priorSnapshot is what a repository's previous snapshot on disk said, read before
+// it is overwritten, so the value model can tell a first build from a refresh, and
+// an unchanged refresh from one that has real work to re-derive. Disk rather than
+// the in-memory snapshot because in append mode the loaded snapshot describes
+// whichever repo was indexed last, not this one.
+type priorSnapshot struct {
+	id     string
+	hashes map[string]string
+	corpus int
+}
+
+func (s *Server) priorSnapshotOf(absRepo string) priorSnapshot {
+	id, hashes := s.previousSnapshot(absRepo)
+	return priorSnapshot{id: id, hashes: hashes, corpus: s.priorCorpusTokens(absRepo)}
+}
+
+// recordIndexed is the bookkeeping after a repository was indexed: its corpus size
+// for query pricing, and the value record.
+func (s *Server) recordIndexed(ctx context.Context, absRepo string, appendMode bool, prior priorSnapshot, snapshot *facts.Snapshot) {
+	s.snapshotsGenerated = true
 	corpusTokens := int(snapshot.Meta.SourceBytes / charsPerToken)
 	s.rememberCorpus(absRepo, corpusTokens)
 	recordSnapshot(ctx, absRepo, status.SnapshotValue{
 		CorpusTokens:      corpusTokens,
-		PriorCorpusTokens: priorCorpus,
+		PriorCorpusTokens: prior.corpus,
 		Append:            appendMode,
-		Unchanged:         prevID != "" && prevID == snapshot.Meta.SnapshotID,
-		ChangedFraction:   changedFraction(prevHashes, snapshot.Meta.FileHashes),
+		Unchanged:         prior.id != "" && prior.id == snapshot.Meta.SnapshotID,
+		ChangedFraction:   changedFraction(prior.hashes, snapshot.Meta.FileHashes),
 	})
-	return snapshot, nil
 }
 
 // snapshotSummary is the part of a generate_snapshot answer every snapshot gets.

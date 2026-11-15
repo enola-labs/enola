@@ -56,7 +56,26 @@ Snapshot complete:
 
 The command prints the last repository's output directory, but every repository receives
 the same complete linked graph. Reading either `api/.enola` or `web/.enola` returns the
-whole cluster.
+whole cluster. The files that hold the whole graph are written once and hard-linked into
+the other repositories' directories, so the cluster takes their space once on disk.
+
+### Large clusters
+
+The repositories are extracted four at a time, the largest first, and then linked in
+the order the config lists them; the graph is the same as extracting them one after
+another. `cluster_jobs` sets how many at a time (`1` is one after another):
+
+```yaml
+repos:
+  - api
+  - web
+cluster_jobs: 4
+```
+
+Four is the default because more did not help on the machine it was measured on: at
+100 repositories, eight jobs built no faster and spent about twice the system time.
+Memory for a cluster built and served on one machine is in
+[SERVING.md](SERVING.md#sizing-a-large-graph).
 
 ## 2. How the edge is resolved
 

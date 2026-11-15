@@ -14,9 +14,9 @@ import (
 // the session that made the request.
 //
 // MCP requires the progress to increase with each notification. A cluster
-// generates one repository after another and each starts its count again, so
-// each repository's files and stages are counted on from where the one before
-// it ended, and the total grows as each repository's walk finds its files. A
+// extracts several repositories at once and each counts from zero, so the
+// progress is the sum of every repository's count, and the total grows as each
+// repository's walk finds its files. A
 // repository's stages after extraction are part of its total from the walk on,
 // and so are the artifacts the handler writes afterwards once it has said how
 // many, so a client sees extraction fill most of the bar, the stages after it
@@ -26,12 +26,12 @@ type progressReporter struct {
 	session *mcp.ServerSession
 	token   any
 
-	repo        string
-	base, found float64
-	counted     float64
-	tail, wrote float64
-	last        float64
-	sent        bool
+	// found and counted are each repository's total and count, and the sums of both.
+	found, counted       map[string]float64
+	foundSum, countedSum float64
+	tail, wrote          float64
+	last                 float64
+	sent                 bool
 }
 
 type progressReporterKey struct{}
@@ -85,12 +85,13 @@ func artifactsWritten(ctx context.Context, repo string) {
 func (p *progressReporter) engine(ctx context.Context, e engine.Progress) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if e.Repo != p.repo {
-		p.base += p.found
-		p.repo = e.Repo
+	if p.found == nil {
+		p.found, p.counted = map[string]float64{}, map[string]float64{}
 	}
-	p.found = float64(e.Found + e.Stages)
-	p.counted = float64(e.Extracted + e.Done)
+	found, counted := float64(e.Found+e.Stages), float64(e.Extracted+e.Done)
+	p.foundSum += found - p.found[e.Repo]
+	p.countedSum += counted - p.counted[e.Repo]
+	p.found[e.Repo], p.counted[e.Repo] = found, counted
 	msg := fmt.Sprintf("%s: %d of %d files extracted", filepath.Base(e.Repo), e.Extracted, e.Found)
 	switch {
 	case e.Extractor != "":
@@ -105,11 +106,11 @@ func (p *progressReporter) engine(ctx context.Context, e engine.Progress) {
 // A report that would not raise the progress, which is the walk's and an
 // extractor that claimed no new file, is dropped rather than sent. Held under mu.
 func (p *progressReporter) send(ctx context.Context, msg string) {
-	total := p.base + p.found + p.tail
+	total := p.foundSum + p.tail
 	if total == 0 {
 		return
 	}
-	done := p.base + p.counted + p.wrote
+	done := p.countedSum + p.wrote
 	if p.sent && done <= p.last {
 		return
 	}

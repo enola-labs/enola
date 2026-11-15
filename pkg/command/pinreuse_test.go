@@ -47,11 +47,8 @@ func TestSnapshotIsCurrent_OnlyWhenEveryMemberMatchesItsTree(t *testing.T) {
 		t.Fatal("a dir with no snapshot read as current")
 	}
 
-	for i, repo := range repos {
-		eng.SetDeferLinking(i < len(repos)-1)
-		if _, err := eng.GenerateSnapshot(context.Background(), repo, i > 0); err != nil {
-			t.Fatal(err)
-		}
+	if _, err := eng.GenerateCluster(context.Background(), repos, false); err != nil {
+		t.Fatal(err)
 	}
 	for _, repo := range repos {
 		if err := eng.WriteArtifacts(repo); err != nil {

@@ -354,3 +354,78 @@ func BenchmarkFreeze(b *testing.B) {
 		s.Freeze()
 	}
 }
+
+// TestDetachFrom_MatchesFreezeThenAll: a cluster that keeps one store detaches each
+// turn's facts instead of freezing the union and copying it. The facts must end the
+// way the copy left them: relations sorted, and Props and Relations their own, so a
+// binder writing to one fact cannot reach another. Facts before startIdx are untouched.
+func TestDetachFrom_MatchesFreezeThenAll(t *testing.T) {
+	shared := map[string]any{"symbol_kind": "function"}
+	rels := []Relation{{Kind: "calls", Target: "z"}, {Kind: "calls", Target: "a"}}
+	s := NewStore()
+	s.Add(Fact{Kind: KindSymbol, Name: "Before", File: "a.go", Props: shared})
+	s.Add(
+		Fact{Kind: KindSymbol, Name: "F1", File: "a.go", Props: shared, Relations: rels},
+		Fact{Kind: KindSymbol, Name: "F2", File: "a.go", Props: shared, Relations: rels},
+	)
+
+	ref := NewStore()
+	ref.Add(
+		Fact{Kind: KindSymbol, Name: "F1", File: "a.go", Props: map[string]any{"symbol_kind": "function"},
+			Relations: []Relation{{Kind: "calls", Target: "z"}, {Kind: "calls", Target: "a"}}},
+		Fact{Kind: KindSymbol, Name: "F2", File: "a.go", Props: map[string]any{"symbol_kind": "function"},
+			Relations: []Relation{{Kind: "calls", Target: "z"}, {Kind: "calls", Target: "a"}}},
+	)
+	ref.Freeze()
+	want := ref.All()
+
+	s.DetachFrom(1)
+	got := s.FactsRef()
+	for i, w := range want {
+		if !reflect.DeepEqual(got[i+1].Relations, w.Relations) || !reflect.DeepEqual(got[i+1].Props, w.Props) {
+			t.Fatalf("fact %d: got %+v, want %+v", i+1, got[i+1], w)
+		}
+	}
+	if sameMap(got[1].Props, got[2].Props) || sameMap(got[1].Props, shared) || sameRels(got[1].Relations, got[2].Relations) {
+		t.Fatal("detached facts still share Props or Relations")
+	}
+	if !sameMap(got[0].Props, shared) {
+		t.Fatal("a fact before startIdx was touched")
+	}
+}
+
+// Freezing twice, with facts added between, leaves the store as one Freeze at the end
+// would: every fact's relations sorted, and the facts added after the first call
+// sharing among themselves. A removal between the calls rebuilds the slice, and the
+// second call then goes over all of it.
+func TestFreeze_AgainCoversFactsAddedSince(t *testing.T) {
+	unsorted := func() []Relation {
+		return []Relation{{Kind: RelCalls, Target: "z"}, {Kind: RelCalls, Target: "a"}}
+	}
+	fact := func(name string) Fact {
+		return Fact{Kind: KindSymbol, Name: name, File: "f.go",
+			Props: map[string]any{"language": "go"}, Relations: unsorted()}
+	}
+	for _, remove := range []bool{false, true} {
+		s := NewStore()
+		s.Add(fact("a"), fact("b"))
+		s.Freeze()
+		s.Add(fact("c"), fact("d"))
+		if remove {
+			s.RemoveWhere(func(f Fact) bool { return f.Name == "a" })
+			// A fact the first call never saw, now at an index it already covered.
+			s.Add(fact("e"))
+		}
+		s.Freeze()
+		all := s.FactsRef()
+		for _, f := range all {
+			if f.Relations[0].Target != "a" {
+				t.Fatalf("remove=%v: %s's relations are not sorted after the second Freeze", remove, f.Name)
+			}
+		}
+		last := len(all) - 1
+		if !sameMap(all[last].Props, all[last-1].Props) {
+			t.Fatalf("remove=%v: facts added after the first Freeze do not share their Props", remove)
+		}
+	}
+}

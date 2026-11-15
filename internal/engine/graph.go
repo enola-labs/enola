@@ -36,7 +36,7 @@ func (e *Engine) Graph() *Graph {
 func (e *Engine) Adopt(g *Graph) {
 	e.mu.Lock()
 	e.store = facts.NewStore()
-	e.lastFacts = lastFactsWrite{}
+	e.lastShared = sharedWrite{}
 	e.mu.Unlock()
 	if g == nil {
 		e.current.Store(&snapshotBundle{store: facts.NewStore()})

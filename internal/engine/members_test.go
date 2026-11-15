@@ -11,12 +11,7 @@ import (
 func TestMetaFor_ReturnsTheMembersOwnProvenanceOverTheUnion(t *testing.T) {
 	repoA, repoB := freezeTestRepo(t), freezeTestRepo(t)
 	eng := freezeTestEngine(t)
-	eng.SetDeferLinking(true)
-	if _, err := eng.GenerateSnapshot(context.Background(), repoA, false); err != nil {
-		t.Fatal(err)
-	}
-	eng.SetDeferLinking(false)
-	if _, err := eng.GenerateSnapshot(context.Background(), repoB, true); err != nil {
+	if _, err := eng.GenerateCluster(context.Background(), []string{repoA, repoB}, false); err != nil {
 		t.Fatal(err)
 	}
 	published := eng.Snapshot().Meta

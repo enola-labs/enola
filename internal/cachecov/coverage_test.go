@@ -195,6 +195,8 @@ var versionCoverage = map[int][]string{
 	600: {"TestRustCratesAreFoundByLibNameAndByDependencyRename", "TestRustUseThroughAnImportedModuleResolves", "TestRustUseThroughAReExportedCrateIsNotAnImportedModule", "TestRustDependencyRenamesBeatUnrelatedPackagesOfTheSameName", "TestRustRenamedFacadeKeepsNamingTheRealCrate", "TestRustWorkspaceInheritedAndDottedRenamesResolve", "TestRustDottedPackageRenameInADependenciesSection", "TestRustAnImportInsideAModuleDoesNotRouteAUseOutsideIt", "TestRustUseThroughAnImportedFileModuleResolves"},
 	601: {"TestDartBundledSDKSignatures"},
 	602: {"TestDartBundledFlutterSignatures"},
+	603: {"TestLoopMacroOverACallDoesNotDefineTheCallee", "TestParenthesizedDefinitionsAtFileScopeAreExtracted"},
+	604: {"TestNestedIteratorClosuresAreWalkedOnce", "TestCyclomaticCountsDartOperators"},
 	507: {"TestRustImportAliasesBindOnlyTheAlias", "TestRustImportedTypeThroughAFileModuleWithADirectory", "TestRustMethodsInAFileModulesSubdirectoryResolve", "TestRustTypeImportedThroughAReExportResolves", "TestRustTypeAliasIsFollowedToItsType", "TestRustAliasedExternalImportDoesNotHideTheLocalName"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},

@@ -502,6 +502,19 @@ func buildCSR(from, to []uint32, rel []uint16, n uint32) (off, tgt []uint32, kin
 	return off, tgt, kinds
 }
 
+// remapFacts follows the store's facts to new positions: inv[old] is where the fact
+// at old now sits in ff. The declaring facts of a node are sorted again, as their last
+// tiebreak is the index.
+func (g *Graph) remapFacts(ff []Fact, inv []int32) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.facts = ff
+	for i, x := range g.factIdxs {
+		g.factIdxs[i] = inv[x]
+	}
+	sortDeclaringFacts(g.factOff, g.factIdxs, ff)
+}
+
 // sortDeclaringFacts orders the facts declaring each node by repo, file, line and
 // kind. Where several facts of one kind share a name (a Ruby module reopened in
 // forty files) the first of them is the one a traversal reports the node as, and in

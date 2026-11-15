@@ -37,6 +37,10 @@ type bodyWalk struct {
 	recursiveSelf      bool
 	ioDirect           bool
 
+	// loopWalked holds the iterator calls whose arguments scanCallChain already walked
+	// at the loop's depth, so the ordinary walk does not walk them a second time.
+	loopWalked map[uintptr]bool
+
 	seenRel map[string]bool
 }
 
@@ -146,7 +150,7 @@ func (w *walker) walkBody(body *sitter.Node, selfName string, signature *sitter.
 // collection literal runs a fixed number of times, so counting it would turn an honest
 // O(n) into a fabricated O(n²).
 func (w *walker) walkNode(n *sitter.Node, b *bodyWalk, selfShort string, loopDepth, scalingDepth int) {
-	if n == nil {
+	if n == nil || b.loopWalked[n.Id()] {
 		return
 	}
 	kind := kindOf(n)
@@ -350,6 +354,13 @@ func (w *walker) scanCallChain(kids []*sitter.Node, b *bodyWalk, selfShort strin
 			for _, arg := range namedChildren(c) {
 				w.walkChildren(kindOf(arg), namedChildren(arg), b, selfShort, nextLoop, nextScaling)
 			}
+			// The closure has been walked at the loop's depth. Walking it again at this
+			// depth counted its branches twice, and doubled the work at every nested
+			// iterator: twenty nested `fold` closures walked 2^20 times.
+			if b.loopWalked == nil {
+				b.loopWalked = map[uintptr]bool{}
+			}
+			b.loopWalked[c.Id()] = true
 		}
 	}
 }

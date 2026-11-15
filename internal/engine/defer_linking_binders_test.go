@@ -34,10 +34,15 @@ func TestDeferLinking_BindersEndInTheSameUnion(t *testing.T) {
 			t.Fatalf("NewEngine: %v", err)
 		}
 		eng.SetPersistCache(false)
-		for i, repo := range repos {
-			eng.SetDeferLinking(deferred && i < len(repos)-1)
-			if _, err := eng.GenerateSnapshot(context.Background(), repo, i > 0); err != nil {
-				t.Fatalf("generate %s: %v", repo, err)
+		if deferred {
+			if _, err := eng.GenerateCluster(context.Background(), repos, false); err != nil {
+				t.Fatal(err)
+			}
+		} else {
+			for i, repo := range repos {
+				if _, err := eng.GenerateSnapshot(context.Background(), repo, i > 0); err != nil {
+					t.Fatalf("generate %s: %v", repo, err)
+				}
 			}
 		}
 		out := make([]string, 0, eng.Store().Count())

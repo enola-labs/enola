@@ -199,11 +199,13 @@ func (e *Engine) Resolver() resolve.Resolver {
 	return r
 }
 
-// GenerateSnapshot runs the full pipeline: walk -> extract -> explain -> render.
-// SetDeferLinking is engine.Engine.SetDeferLinking: a cluster walked repo by
-// repo sets it for every turn but the last.
-func (e *Engine) SetDeferLinking(defer_ bool) { e.eng.SetDeferLinking(defer_) }
+// GenerateCluster is engine.Engine.GenerateCluster: repoPaths indexed as one linked
+// graph, published once. A failure names the repository it happened in.
+func (e *Engine) GenerateCluster(ctx context.Context, repoPaths []string, appendFirst bool) ([]*facts.Snapshot, error) {
+	return e.eng.GenerateCluster(ctx, repoPaths, appendFirst)
+}
 
+// GenerateSnapshot runs the full pipeline: walk -> extract -> explain -> render.
 func (e *Engine) GenerateSnapshot(ctx context.Context, repoPath string, appendMode bool) (*facts.Snapshot, error) {
 	return e.eng.GenerateSnapshot(ctx, repoPath, appendMode)
 }

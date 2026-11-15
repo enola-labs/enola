@@ -89,12 +89,13 @@ type Engine struct {
 	sessionID atomic.Pointer[string]
 	// sharedDrift, when set, replaces drift; see UseDriftMemo.
 	sharedDrift *driftMemo
-	// deferLinking makes an append-mode GenerateSnapshot stop after extraction;
-	// see SetDeferLinking.
-	deferLinking bool
-	// lastFacts remembers the facts.jsonl this run last serialized, so the next
-	// output dir that receives the same bundle copies the bytes instead.
-	lastFacts lastFactsWrite
+	// building is the union a GenerateCluster has extracted so far and not yet
+	// published: each turn but the last appends into its store, and the next turn
+	// extends it rather than the published bundle. Nil outside GenerateCluster.
+	building *snapshotBundle
+	// lastShared remembers where this engine last wrote a bundle's union artifacts,
+	// so the next output dir that receives the same bundle links them instead.
+	lastShared sharedWrite
 	// recordSnapshot is called at the end of WriteArtifacts; see SetSnapshotRecorder.
 	recordSnapshot func(SnapshotRecord)
 	// sessionClient is the PID of the agent process this server serves; zero for a
@@ -147,14 +148,6 @@ func New(cfg *config.Config) (*Engine, error) {
 	e.current.Store(&snapshotBundle{store: st})
 	return e, nil
 }
-
-// SetDeferLinking tells the next GenerateSnapshot calls to stop after
-// extraction: no linking, no graph, no explainers, no renderers. For a cluster
-// walked repo by repo, only the last turn's linked and explained union is ever
-// read, so the caller sets this for every turn but the last (the first turn
-// included) and clears it before the last. Nothing else sets it; the server's
-// generate_snapshot and a single-repo --generate never see it.
-func (e *Engine) SetDeferLinking(defer_ bool) { e.deferLinking = defer_ }
 
 // SetPersistCache controls whether the per-extractor cache is written to disk
 // after a snapshot. One-shot --explain disables this so it leaves .enola
@@ -256,15 +249,32 @@ func (e *Engine) SetSnapshot(snap *facts.Snapshot) {
 // on-disk snapshot while requests continue reading the previous bundle.
 func (e *Engine) RestoreFromDir(dir string, repoPaths map[string]string, singleRepoLabel string) error {
 	factsPath := filepath.Join(dir, "facts.jsonl")
-	if _, err := os.Stat(factsPath); err != nil {
+	// The three files are opened together, under the lock a write to dir holds, and
+	// read through those handles after. A write renames new files over these rather
+	// than writing through them, so what is read is one write's facts, insights and
+	// meta, even when a write to dir runs while the facts are read (a pool serving one
+	// repository alone and in a cluster).
+	unlock := lockDir(dir)
+	factsFile, err := os.Open(factsPath)
+	if err != nil {
+		unlock()
 		return fmt.Errorf("no snapshot at %s: %w", dir, err)
+	}
+	defer func() { _ = factsFile.Close() }()
+	insightsFile, _ := os.Open(filepath.Join(dir, "insights.json"))
+	metaFile, _ := os.Open(filepath.Join(dir, "snapshot.meta.json"))
+	unlock()
+	for _, f := range []*os.File{insightsFile, metaFile} {
+		if f != nil {
+			defer func() { _ = f.Close() }()
+		}
 	}
 
 	// Shared as it is read (see ReadJSONLFileShared), so from here until Freeze below
 	// nothing may write a fact's Props or Relations: the steps between label facts and
 	// build indexes beside them, and must keep to that.
 	work := facts.NewStore()
-	if err := work.ReadJSONLFileShared(factsPath); err != nil {
+	if err := work.ReadJSONLShared(factsFile); err != nil {
 		return fmt.Errorf("reading facts from %s: %w", factsPath, err)
 	}
 	if singleRepoLabel != "" {
@@ -288,13 +298,13 @@ func (e *Engine) RestoreFromDir(dir string, repoPaths map[string]string, singleR
 	// Default the primary repo path from the dir; snapshot.meta.json (loaded below)
 	// overrides it when present.
 	snap := &facts.Snapshot{Meta: facts.SnapshotMeta{RepoPath: filepath.Dir(dir)}}
-	if data, err := os.ReadFile(filepath.Join(dir, "insights.json")); err == nil {
+	if data, err := readOpen(insightsFile); err == nil {
 		var ins []facts.Insight
 		if err := json.Unmarshal(data, &ins); err == nil {
 			snap.Insights = ins
 		}
 	}
-	if data, err := os.ReadFile(filepath.Join(dir, "snapshot.meta.json")); err == nil {
+	if data, err := readOpen(metaFile); err == nil {
 		var meta facts.SnapshotMeta
 		if err := json.Unmarshal(data, &meta); err == nil {
 			snap.Meta = meta
@@ -362,21 +372,89 @@ func (e *Engine) ResolveFactFile(f *facts.Fact) string {
 func (e *Engine) GenerateSnapshot(ctx context.Context, repoPath string, appendMode bool) (*facts.Snapshot, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	return e.generate(ctx, repoPath, appendMode, false)
+}
 
-	r, err := e.beginRun(ctx, repoPath, appendMode)
+// RepoError is a GenerateCluster failure: the member that failed, and why.
+type RepoError struct {
+	Repo string
+	Err  error
+}
+
+func (e *RepoError) Error() string {
+	return fmt.Sprintf("snapshot generation failed for %s: %v", e.Repo, e.Err)
+}
+func (e *RepoError) Unwrap() error { return e.Err }
+
+// GenerateCluster indexes repoPaths as one linked graph and publishes it once.
+//
+// Each repository is extracted into one store that the run keeps to itself. Linking,
+// the graph, the explainers and the renderers run once, on the last repository, over
+// the whole union. Nothing is published before that: readers keep the graph they had
+// until the complete union replaces it in one swap, and a failure partway leaves that
+// graph published. It used to publish after every repository and copy the whole
+// union into a fresh store at the start of the next, which made a cluster quadratic
+// in its size and showed readers unlinked partial unions while it ran.
+//
+// The repositories are extracted several at a time (Config.ClusterJobsFor), each into
+// a store of its own, and taken into the union in the order given; see
+// cluster_prefetch.go.
+//
+// appendFirst extends the published graph with the first repository instead of
+// starting over. The returned snapshots are one per repository, in order; the last
+// is the union. A failure is a *RepoError naming the repository.
+func (e *Engine) GenerateCluster(ctx context.Context, repoPaths []string, appendFirst bool) ([]*facts.Snapshot, error) {
+	if len(repoPaths) == 0 {
+		return nil, errors.New("no repositories to index")
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	defer func() { e.building = nil }()
+	pre := e.startPrefetch(ctx, repoPaths, appendFirst)
+	defer pre.stop()
+	snaps := make([]*facts.Snapshot, 0, len(repoPaths))
+	for i, repo := range repoPaths {
+		snap, err := e.generateTurn(ctx, repo, appendFirst || i > 0, i < len(repoPaths)-1, pre.take(i))
+		if err != nil {
+			return nil, &RepoError{Repo: repo, Err: err}
+		}
+		snaps = append(snaps, snap)
+	}
+	return snaps, nil
+}
+
+// generate is one turn of the pipeline. deferred stops it after extraction and
+// holds the result for the next turn; see holdDeferred. The caller holds e.mu.
+func (e *Engine) generate(ctx context.Context, repoPath string, appendMode, deferred bool) (*facts.Snapshot, error) {
+	return e.generateTurn(ctx, repoPath, appendMode, deferred, nil)
+}
+
+// generateTurn is generate for a turn whose repository may have been extracted
+// ahead, in pf; see adoptPrefetched.
+func (e *Engine) generateTurn(ctx context.Context, repoPath string, appendMode, deferred bool, pf *prefetched) (*facts.Snapshot, error) {
+	var r *snapshotRun
+	var err error
+	if pf != nil && pf.err == nil {
+		r, err = e.beginRunAs(ctx, pf.id, appendMode, pf.run.start)
+	} else {
+		r, err = e.beginRun(ctx, repoPath, appendMode)
+	}
 	if err != nil {
 		return nil, err
 	}
+	r.deferred = deferred
 	e.prepareStore(r)
 
-	if err := e.walk(r); err != nil {
-		return nil, err
+	if !e.adoptPrefetched(r, pf) {
+		if err := e.walk(r); err != nil {
+			return nil, err
+		}
+		if err := e.extract(r); err != nil {
+			return nil, err
+		}
 	}
-	if err := e.extract(r); err != nil {
-		return nil, err
-	}
-	if e.deferLinking {
-		return e.publishDeferred(r), nil
+	if r.deferred {
+		return e.holdDeferred(r), nil
 	}
 
 	e.link(r)
@@ -537,9 +615,7 @@ func (e *Engine) linkCrossRepo(repoPaths map[string]string) {
 	// A cross-repo edge needs two repos, and ComputeLinks says so itself — but only
 	// after newInput has walked the copy it was handed. Asking the store first makes
 	// the single-repo case, which is most snapshots, free: RepoLabels is O(repos) off
-	// the byRepo index, where e.store.All() below is a deep copy of every fact
-	// (Props map and Relations slice included) built solely to be counted and
-	// dropped.
+	// the byRepo index, where newInput walks every fact only to count the repos.
 	//
 	// The two conditions cannot disagree in the direction that would matter.
 	// ComputeLinks counts labels after NormalizeRepoLabel folds case, '-' and '_';
@@ -559,7 +635,10 @@ func (e *Engine) linkCrossRepo(repoPaths map[string]string) {
 		log.Printf("[engine] invalid linking vocabulary, using defaults: %v", err)
 		v = vocab.Default()
 	}
-	links := crossrepo.ComputeLinks(e.store.All(), sourceReaderFor(repoPaths), e.signals.All(), v)
+	// The store's own facts, not a copy: the linker and its signals only read them, and
+	// nothing writes the store until it returns. A deep copy here was 5 GB, a third of
+	// the live heap, on a 100-repository cluster.
+	links := crossrepo.ComputeLinks(e.store.FactsRef(), sourceReaderFor(repoPaths), e.signals.All(), v)
 	if len(links) == 0 {
 		return
 	}
@@ -911,6 +990,11 @@ func (e *Engine) runExplainers(ctx context.Context, allNames []string) ([]facts.
 	var usedNames []string
 
 	e.runAnnotators(ctx)
+	// The annotators are the last writers of facts: explainers, renderers and the
+	// snapshot only read. Sharing the identical Props and Relations now rather than at
+	// publication takes the duplicates out of the heap while the explainers, the
+	// largest transient allocators of a generate, run over it.
+	e.store.Freeze()
 
 	for _, exp := range e.explainers.All() {
 		if !e.cfg.IsExplainerEnabled(exp.Name()) {
@@ -1010,47 +1094,33 @@ func (e *Engine) WriteArtifacts(repoPath string) error {
 	// receipt.json themselves are not hashed — they carry these hashes.
 	outputHashes := make(map[string]string)
 
-	// Write renderer artifacts (e.g. llm_context.md)
+	// Every artifact is written beside its path and renamed over it, never through
+	// it: the file at the path may be linked from another member's dir of a cluster
+	// or from previous/ and baseline/, and writing through it would rewrite those.
+	//
+	// The union artifacts (renderer output, facts.jsonl, insights.json) are the same
+	// bytes for every member of a cluster, so each is written to the first member's
+	// dir and linked into the others'. At 100 repositories that was 31 GB of copies.
 	for _, a := range b.snapshot.Artifacts {
-		path := filepath.Join(outDir, a.Name)
-		if err := os.WriteFile(path, a.Content, 0o644); err != nil {
+		digest, err := e.placeShared(b, outDir, a.Name, func(path string) (string, error) {
+			return hashBytes(a.Content), writeFileAtomic(path, a.Content, 0o644)
+		})
+		if err != nil {
 			return fmt.Errorf("writing %s: %w", a.Name, err)
 		}
-		outputHashes[a.Name] = hashBytes(a.Content)
-		log.Printf("[engine] wrote %s (%d bytes)", path, len(a.Content))
+		outputHashes[a.Name] = digest
 	}
 
 	// Write facts.jsonl, hashing the bytes as they go past rather than building the
 	// whole file in memory to write and then hash it. On a kernel-sized graph that
 	// buffer was 792 MiB, allocated at the end of a run and never released before the
 	// process went back to idle.
-	// A cluster writes the same published bundle to every repository's output
-	// dir. The first write serializes; the rest copy the bytes of that file,
-	// which is the same serialization by construction and a fraction of the
-	// time (a 1.5M-fact union serializes in seconds, copies in a fraction of
-	// one). The copy is keyed on the frozen store, which every generate replaces
-	// and the receipt republish below keeps, so a new generate never copies a
-	// stale file.
 	factsPath := filepath.Join(outDir, "facts.jsonl")
-	var factsHash string
-	if e.lastFacts.store == b.store && e.lastFacts.path != factsPath && fileExists(e.lastFacts.path) {
-		// Linked, not copied: twenty repositories of one cluster each held their own
-		// copy of a 0.8 GB union. Every writer replaces facts.jsonl by renaming a new
-		// file over it, so a later write to one repository's dir never reaches the
-		// others through the shared file.
-		if err := linkOrCopyFile(e.lastFacts.path, factsPath); err != nil {
-			return fmt.Errorf("copying facts.jsonl: %w", err)
-		}
-		factsHash = e.lastFacts.digest
-		log.Printf("[engine] wrote %s (linked to this run's first write)", factsPath)
-	} else {
-		var err error
-		factsHash, err = writeFactsJSONL(b.store, factsPath)
-		if err != nil {
-			return err
-		}
-		e.lastFacts = lastFactsWrite{store: b.store, path: factsPath, digest: factsHash}
-		log.Printf("[engine] wrote %s", factsPath)
+	factsHash, err := e.placeShared(b, outDir, "facts.jsonl", func(path string) (string, error) {
+		return writeFactsJSONL(b.store, path)
+	})
+	if err != nil {
+		return err
 	}
 	outputHashes["facts.jsonl"] = factsHash
 
@@ -1062,16 +1132,17 @@ func (e *Engine) WriteArtifacts(repoPath string) error {
 	if insights == nil {
 		insights = []facts.Insight{}
 	}
-	insightsJSON, err := b.store.MarshalInsights(insights)
+	insightsHash, err := e.placeShared(b, outDir, "insights.json", func(path string) (string, error) {
+		insightsJSON, err := b.store.MarshalInsights(insights)
+		if err != nil {
+			return "", fmt.Errorf("marshaling insights: %w", err)
+		}
+		return hashBytes(insightsJSON), writeFileAtomic(path, insightsJSON, 0o644)
+	})
 	if err != nil {
-		return fmt.Errorf("marshaling insights: %w", err)
-	}
-	insightsPath := filepath.Join(outDir, "insights.json")
-	if err := os.WriteFile(insightsPath, insightsJSON, 0o644); err != nil {
 		return fmt.Errorf("writing insights.json: %w", err)
 	}
-	outputHashes["insights.json"] = hashBytes(insightsJSON)
-	log.Printf("[engine] wrote %s (%d bytes)", insightsPath, len(insightsJSON))
+	outputHashes["insights.json"] = insightsHash
 
 	// Record the output hashes on a COPY of the meta rather than mutating the
 	// published (shared, immutable) snapshot in place. SnapshotMeta is a value type,
@@ -1092,7 +1163,7 @@ func (e *Engine) WriteArtifacts(repoPath string) error {
 		return fmt.Errorf("marshaling meta: %w", err)
 	}
 	metaPath := filepath.Join(outDir, "snapshot.meta.json")
-	if err := os.WriteFile(metaPath, metaJSON, 0o644); err != nil {
+	if err := writeFileAtomic(metaPath, metaJSON, 0o644); err != nil {
 		return fmt.Errorf("writing snapshot.meta.json: %w", err)
 	}
 	log.Printf("[engine] wrote %s (%d bytes)", metaPath, len(metaJSON))
@@ -1103,7 +1174,7 @@ func (e *Engine) WriteArtifacts(repoPath string) error {
 		return fmt.Errorf("marshaling receipt: %w", err)
 	}
 	receiptPath := filepath.Join(outDir, "receipt.json")
-	if err := os.WriteFile(receiptPath, receiptJSON, 0o644); err != nil {
+	if err := writeFileAtomic(receiptPath, receiptJSON, 0o644); err != nil {
 		return fmt.Errorf("writing receipt.json: %w", err)
 	}
 	log.Printf("[engine] wrote %s (%d bytes)", receiptPath, len(receiptJSON))
@@ -1154,15 +1225,112 @@ func (e *Engine) WriteArtifacts(repoPath string) error {
 	return nil
 }
 
-type lastFactsWrite struct {
-	store  *facts.Store
-	path   string
-	digest string
+// sharedWrite is the output dir that first received a bundle's union artifacts, and
+// each file written there with its digest.
+type sharedWrite struct {
+	store *facts.Store
+	dir   string
+	files map[string]sharedFile
 }
 
-func fileExists(path string) bool {
-	info, err := os.Stat(path)
-	return err == nil && !info.IsDir()
+type sharedFile struct {
+	digest string
+	info   os.FileInfo
+}
+
+// placeShared puts the union artifact name into outDir and returns its digest. When
+// this engine already wrote the same bundle's artifact to another dir, that file is
+// linked here (copied where links are not available); otherwise write writes it to
+// the path and returns the digest of the bytes written. The record is keyed on the
+// published store, which every generate replaces, so a new generate never links a
+// stale file.
+func (e *Engine) placeShared(b *snapshotBundle, outDir, name string, write func(path string) (string, error)) (string, error) {
+	path := filepath.Join(outDir, name)
+	w := &e.lastShared
+	if w.store == b.store && w.dir != outDir {
+		if f, ok := w.files[name]; ok {
+			placed, err := placeSameFile(f.info, filepath.Join(w.dir, name), path)
+			if err != nil {
+				return "", err
+			}
+			if placed {
+				log.Printf("[engine] wrote %s (linked to this run's first write)", path)
+				return f.digest, nil
+			}
+		}
+	}
+	digest, err := write(path)
+	if err != nil {
+		return "", err
+	}
+	if w.store != b.store {
+		*w = sharedWrite{store: b.store, dir: outDir, files: map[string]sharedFile{}}
+	}
+	if w.dir == outDir {
+		if info, err := os.Stat(path); err == nil {
+			w.files[name] = sharedFile{digest: digest, info: info}
+		}
+	}
+	log.Printf("[engine] wrote %s", path)
+	return digest, nil
+}
+
+// readOpen reads all of f, which may be nil for a file that was not there.
+func readOpen(f *os.File) ([]byte, error) {
+	if f == nil {
+		return nil, os.ErrNotExist
+	}
+	return io.ReadAll(f)
+}
+
+// placeSameFile makes dst the file want, found at src, and reports whether it could.
+// Another writer may have replaced src since, in this process (another graph holding
+// the same repository) or another, so the file is checked after it is held, not
+// before: the link made beside dst, or the open handle a copy reads from. A file is
+// never written in place once it exists, so the same file is the same bytes.
+func placeSameFile(want os.FileInfo, src, dst string) (bool, error) {
+	tmp := dst + ".tmp-link"
+	_ = os.Remove(tmp)
+	if err := os.Link(src, tmp); err == nil {
+		got, err := os.Lstat(tmp)
+		if err != nil || !os.SameFile(got, want) {
+			_ = os.Remove(tmp)
+			return false, nil
+		}
+		if err := os.Rename(tmp, dst); err != nil {
+			_ = os.Remove(tmp)
+			return false, err
+		}
+		return true, nil
+	}
+	// No link here (another device, a filesystem without links): copy from a handle
+	// on the file that was checked.
+	in, err := os.Open(src)
+	if err != nil {
+		return false, nil
+	}
+	defer func() { _ = in.Close() }()
+	if got, err := in.Stat(); err != nil || !os.SameFile(got, want) {
+		return false, nil
+	}
+	out, err := os.Create(tmp)
+	if err != nil {
+		return false, err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		_ = out.Close()
+		_ = os.Remove(tmp)
+		return false, err
+	}
+	if err := out.Close(); err != nil {
+		_ = os.Remove(tmp)
+		return false, err
+	}
+	if err := os.Rename(tmp, dst); err != nil {
+		_ = os.Remove(tmp)
+		return false, err
+	}
+	return true, nil
 }
 
 // writeFactsJSONL serializes the store straight to path, returning the
@@ -1277,12 +1445,19 @@ func fileModTime(path string) string {
 	return info.ModTime().UTC().Format(time.RFC3339)
 }
 
+// fileHashesOf lists the hashes by path, so the meta holding them is the same bytes
+// for the same files.
 func fileHashesOf(absRepo string, hashes map[string]string) []facts.FileHash {
+	paths := make([]string, 0, len(hashes))
+	for path := range hashes {
+		paths = append(paths, path)
+	}
+	sort.Strings(paths)
 	out := make([]facts.FileHash, 0, len(hashes))
-	for path, hash := range hashes {
+	for _, path := range paths {
 		out = append(out, facts.FileHash{
 			Path:    path,
-			Hash:    hash,
+			Hash:    hashes[path],
 			ModTime: fileModTime(filepath.Join(absRepo, path)),
 		})
 	}

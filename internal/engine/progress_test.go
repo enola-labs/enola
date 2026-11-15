@@ -69,12 +69,15 @@ func TestGenerateSnapshotReportsProgressAndProducesTheSameSnapshot(t *testing.T)
 // A repository linked later in a cluster stops after its providers, and says
 // so from the walk, so its share of the total is complete when it is done.
 func TestGenerateSnapshotDeferredLinkingAnnouncesOneStage(t *testing.T) {
-	repo := freezeTestRepo(t)
+	repo, other := freezeTestRepo(t), freezeTestRepo(t)
 	var got []engine.Progress
-	ctx := engine.WithProgress(context.Background(), func(p engine.Progress) { got = append(got, p) })
+	ctx := engine.WithProgress(context.Background(), func(p engine.Progress) {
+		if p.Repo == repo {
+			got = append(got, p)
+		}
+	})
 	eng := freezeTestEngine(t)
-	eng.SetDeferLinking(true)
-	if _, err := eng.GenerateSnapshot(ctx, repo, true); err != nil {
+	if _, err := eng.GenerateCluster(ctx, []string{repo, other}, false); err != nil {
 		t.Fatal(err)
 	}
 	last := got[len(got)-1]

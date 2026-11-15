@@ -56,7 +56,7 @@ var hubBudgets = map[string]int{
 	"internal/config": 4,
 	"pkg/dashboard":   6,
 	"pkg/explain":     7,
-	"cmd/enola":       14,
+	"cmd/enola":       13,
 }
 
 // maxChainBudget is the number of packages on the longest import chain. Today:
