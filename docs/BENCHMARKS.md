@@ -1263,6 +1263,92 @@ Every ceiling in `mem-ceilings.json` is met and was lowered with this work: linu
 2,311 against 2,600 and 282.3 against 305. The serving ceilings grade restore peak and
 allocations per repository, index peak, reload peak and session cost.
 
+### Clusters
+
+A cluster is several repositories indexed as one linked graph, from a config that lists
+them (see [CLUSTERS.md](CLUSTERS.md)). `bench-cluster-scale.sh` builds four clusters from
+the corpus, of 10, 30, 50 and 100 repositories, and runs each four times: cold, warm,
+warm again, and warm beside a fixed `enola serve` holding the previous graph, which
+reloads once the generate finishes. Before is the binary preceding this work (main at
+v588), after the current one, same host (Apple M4 Max), a quiet machine.
+
+| repositories | facts | cold, before | cold, after | warm, before | warm, after |
+|---:|---:|---:|---:|---:|---:|
+| 10 | 420,100 | 36 s | **24 s** | 25 to 26 s | **18 s** |
+| 30 | 2,404,815 | 284 to 293 s | **162 s** | 200 to 210 s | **121 to 123 s** |
+| 50 | 3,993,436 | 517 s | **274 s** | 405 to 412 s | **204 s** |
+| 100 | 8,600,117 | 1,402 s | **607 s** | 1,097 to 1,126 s | **420 to 433 s** |
+
+The target was 100 repositories on a 64 GB machine with serve running beside the
+generate. Before, that pair peaked at 59.5 GiB of RSS; it now peaks at 46.6 GiB.
+
+| at 100 repositories | before | after |
+|---|---:|---:|
+| generate, peak RSS over four runs | 45.0 to 47.6 GiB | **32.0 to 35.3 GiB** |
+| generate, peak heap | 37.2 to 39.7 GiB | **21.9 to 25.3 GiB** |
+| serve, steady heap holding the graph | 6.5 GiB | 6.5 GiB |
+| serve, peak heap while it reloads | 20.0 GiB | 20.0 GiB |
+| generate and serve together, peak RSS | 59.5 GiB | **46.6 GiB** |
+| disk, all members' `.enola` after a warm run | 47.7 GiB | **16.8 GiB** |
+
+| disk after a warm run | before | after |
+|---:|---:|---:|
+| 10 | 1.2 GiB | 0.9 GiB |
+| 30 | 8.2 GiB | 4.9 GiB |
+| 50 | 16.9 GiB | 8.0 GiB |
+| 100 | 47.7 GiB | 16.8 GiB |
+
+Five changes, none of which changes an output:
+
+- The cluster is built in one store and published once. Each member used to be indexed
+  in append mode against everything before it, and each step re-copied the union so far.
+- Facts are shared before the explainers run rather than after, so the explainers walk
+  one copy of each repeated props map and relation list.
+- Members are extracted several at a time (`cluster_jobs`, default 4), largest first
+  by git index size so the kernel does not start last and become the tail, and taken
+  into the union in config order. At 100, 8 jobs measured no faster than 4 and doubled
+  system time.
+- The union's artifacts (`facts.jsonl`, `insights.json`, `docs.jsonl`, `flows.json`,
+  `llm_context.md`) are written once and hard-linked into every member's `.enola`, as
+  are `previous/` and `baseline/`. Each was a full copy per member, about 6 GiB of
+  `facts.jsonl` alone at 100.
+- `facts.jsonl` is sorted by a fixed-length key taken from each line's leading fields
+  and marshalled again as it is written, where it used to hold every marshalled line in
+  one buffer of over 6 GiB to sort them. The cross-repo linker reads the union in place instead
+  of a deep copy of it, about 5 GiB at 100.
+
+**Output is identical, and that is checked rather than assumed.** Every run at every
+tier writes the same `facts.jsonl` and `insights.json` hashes, cold and warm, at 4
+and 8 jobs, and the same hashes the binary before this work wrote. Every member's
+artifacts are hashed and compared, and so are the inode links. A test builds a cluster
+at 1 job and at 4 with a same-named fork, a second checkout of one repository and a
+repeated member, and compares the unions fact for fact; another shuffles every golden's
+facts and requires byte-identical `facts.jsonl`. Both were mutation-checked, and the
+second exists because full bench-all sweeps caught a sort that kept input order on
+ties when a line's leading fields filled the key exactly; six repositories stopped
+reproducing until it was fixed.
+
+**What is left is serve's reload.** It holds the old graph while it reads the new one,
+so it peaks at about three times its steady heap. Most of that is live data, not GC
+pacing: `GOGC=10` still reaches 16.1 GiB. It does not add to the generate's peak, since a
+fixed serve reloads when the last member's metadata is written, after the generate has
+finished. `GOMEMLIMIT` caps either process on a machine that needs it; the generate
+figures with it are in [SERVING.md](SERVING.md#sizing-a-large-graph).
+
+**Two races, found by bench-serve while this work was checked, both older than it.** A
+restore read `facts.jsonl`, `insights.json` and the metadata by path, one after another
+and unlocked, so a session rewriting the same repository between those reads could
+hand a reader one write's facts under the other write's snapshot id, which passes the
+pool's id check. A restore now opens all three under the directory's write lock and
+reads through the handles. And linking a member's artifacts from the first member's
+directory did not check that the directory still held the files this run wrote, when
+another graph may have rewritten that repository on its own; the link is now kept
+only if it is the file the run wrote. Each has a test that fails without the fix.
+
+The cluster ceilings in `mem-ceilings.json` grade each tier's generate peak heap, cold
+allocations per fact, and serve's load and reload peaks. A cluster run takes over an
+hour, so bench-all does not include it; `bench-cluster-scale.sh` grades its own output.
+
 
 ## 5. What the extractors see
 
