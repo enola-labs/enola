@@ -168,6 +168,58 @@ int register_cpus(void)
 	}
 }
 
+// A loop macro whose argument is a call, `FOR_NODES(next_compat()) { ... }`, parses as a
+// definition whose declarator is the call in parentheses. Descending into them names a
+// definition of next_compat at the call site, which in the same directory replaces the
+// real one in another file.
+func TestLoopMacroOverACallDoesNotDefineTheCallee(t *testing.T) {
+	ff := extractProject(t, map[string]string{
+		"src/shared.c": `const char *next_compat(void)
+{
+	return "psc";
+}
+`,
+		"src/clock.c": `void register_clocks(void)
+{
+	int idx;
+
+	FOR_NODES(next_compat()) {
+		NODE_PREP;
+		idx = 1;
+	}
+}
+`,
+	})
+	def := mustFact(t, ff, "src.next_compat")
+	if def.File != "src/shared.c" {
+		t.Errorf("src.next_compat should be the definition in src/shared.c, got %s:%d", def.File, def.Line)
+	}
+}
+
+// At file scope the same parentheses are a real definition: a function returning a
+// pointer to an array, and one whose return type is spelled with typeof.
+func TestParenthesizedDefinitionsAtFileScopeAreExtracted(t *testing.T) {
+	ff := extractProject(t, map[string]string{
+		"src/x.c": `static const unsigned short
+(*find_coeffs(int colorspace, int limited))[4]
+{
+	return 0;
+}
+
+static inline
+typeof(table->call)(find_entry(unsigned type))
+{
+	return 0;
+}
+`,
+	})
+	for _, name := range []string{"src.find_coeffs", "src.find_entry"} {
+		if def := mustFact(t, ff, name); def.File != "src/x.c" {
+			t.Errorf("%s should be defined in src/x.c, got %s", name, def.File)
+		}
+	}
+}
+
 // An attribute macro on a local, `be128 __aligned(8) lengths;`, reads as a K&R
 // definition of a function named __aligned whose "parameter" is a literal, with
 // the statements up to the next block as its body.

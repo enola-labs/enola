@@ -641,9 +641,17 @@ func (w *astWalker) walkDecl(node *sitter.Node) {
 // which handleFunctionDefinition knows; inside a body it is a loop macro,
 // `for_each_possible_cpu(i) { ... }`, and is the body's own code.
 func (w *astWalker) isMisreadStatement(node *sitter.Node, inBody bool) bool {
-	fdecl := findFunctionDeclarator(w.kinds, node.ChildByFieldName("declarator"))
+	declarator := node.ChildByFieldName("declarator")
+	fdecl := findFunctionDeclarator(w.kinds, declarator)
 	if fdecl == nil {
 		return inBody
+	}
+	// Inside a body, a definition whose own declarator is parenthesized is the loop
+	// macro `FOR_NODES(next()) { ... }`: the call in parentheses would become a
+	// phantom definition of a function that is only called. At file scope the same
+	// shape is real, `typeof(x)(find_entry(uint type)) { ... }`.
+	if inBody && kindOf(w.kinds, declarator) == "parenthesized_declarator" {
+		return true
 	}
 	name := declaratorLeafName(w.kinds, fdecl.ChildByFieldName("declarator"), w.src)
 	if cppStatementKeywords[name] {
@@ -2448,7 +2456,7 @@ func findFunctionDeclarator(kinds *tsutil.KindTable, node *sitter.Node) *sitter.
 		case "function_declarator":
 			return node
 		case "pointer_declarator", "reference_declarator", "array_declarator",
-			"parenthesized_declarator", "init_declarator":
+			"init_declarator", "parenthesized_declarator":
 			node = declaratorChild(kinds, node)
 			if node == nil {
 				return nil

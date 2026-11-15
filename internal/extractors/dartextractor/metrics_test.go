@@ -3,6 +3,7 @@ package dartextractor
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/enola-labs/enola/internal/facts"
 )
@@ -42,6 +43,7 @@ func TestCyclomaticCountsDartOperators(t *testing.T) {
 		{"if", "int f(a) { if (a) { return 1; } return 0; }", 2},
 		{"switch arms", "String f(x) { switch (x) { case 1: return 'a'; case 2: return 'b'; } return ''; }", 3},
 		{"catch", "void f() { try { g(); } catch (e) { h(); } }", 2},
+		{"an iterator closure's branch counts once", "List<int> f(List<int> xs) { return xs.map((e) => e > 0 ? 1 : 2).toList(); }", 3},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got, _ := funcProps(t, tc.src)["cyclomatic"].(int)
@@ -294,5 +296,30 @@ func TestSymbolsDeclareTheirModule(t *testing.T) {
 	// The member edge survives; it is what makes the type's surface walkable.
 	if !hasRelation(repo, facts.RelDeclares, "lib/data.Repo.save") {
 		t.Error("the class should still declare its member")
+	}
+}
+
+// TestNestedIteratorClosuresAreWalkedOnce pins the cost of nested iterator calls. A
+// closure passed to `fold` was walked at the loop's depth and then again by the ordinary
+// walk, so each nesting level doubled the work: twenty levels took over a minute.
+func TestNestedIteratorClosuresAreWalkedOnce(t *testing.T) {
+	const depth = 22
+	var sb strings.Builder
+	sb.WriteString("int f(List<int> xs) => ")
+	for i := 0; i < depth; i++ {
+		sb.WriteString("xs.fold(0, (a, e) => ")
+	}
+	sb.WriteString("a + e")
+	sb.WriteString(strings.Repeat(")", depth))
+	sb.WriteString(";")
+	done := make(chan map[string]any, 1)
+	go func() { done <- funcProps(t, sb.String()) }()
+	select {
+	case props := <-done:
+		if got, _ := props["cyclomatic"].(int); got != depth+1 {
+			t.Errorf("cyclomatic = %d, want %d: one per fold", got, depth+1)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatalf("%d nested fold closures did not finish in 10s", depth)
 	}
 }
