@@ -16,6 +16,7 @@ import (
 	"errors"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"sync"
 	"testing"
 
@@ -276,9 +277,18 @@ func TestPipeline_DeferredLinkingStopsAfterExtraction(t *testing.T) {
 	if _, err := eng.GenerateCluster(context.Background(), []string{repo, other}, false); err != nil {
 		t.Fatalf("GenerateCluster: %v", err)
 	}
-	want := []string{"detect", "extract", "detect", "extract", "bind:pre-link", "bind:post-link", "annotate", "explain", "render"}
-	if got := p.log.snapshot(); !reflect.DeepEqual(got, want) {
-		t.Errorf("cluster run:\n got %v\nwant %v", got, want)
+	// Members extract several at a time, so their detect and extract stages
+	// interleave; only what follows the last extraction has a fixed order.
+	got := p.log.snapshot()
+	perMember := []string{"detect", "detect", "extract", "extract"}
+	once := []string{"bind:pre-link", "bind:post-link", "annotate", "explain", "render"}
+	if len(got) != len(perMember)+len(once) {
+		t.Fatalf("cluster run: got %v, want each member detected and extracted, then %v once", got, once)
+	}
+	head := append([]string{}, got[:len(perMember)]...)
+	sort.Strings(head)
+	if !reflect.DeepEqual(head, perMember) || !reflect.DeepEqual(got[len(perMember):], once) {
+		t.Errorf("cluster run: got %v, want each member detected and extracted, then %v once", got, once)
 	}
 	if !eng.Store().Frozen() || !hasFact(eng.Store(), facts.KindModule, "extracted") {
 		t.Error("the cluster must publish a frozen store holding the extracted facts")
