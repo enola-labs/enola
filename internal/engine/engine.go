@@ -615,9 +615,7 @@ func (e *Engine) linkCrossRepo(repoPaths map[string]string) {
 	// A cross-repo edge needs two repos, and ComputeLinks says so itself — but only
 	// after newInput has walked the copy it was handed. Asking the store first makes
 	// the single-repo case, which is most snapshots, free: RepoLabels is O(repos) off
-	// the byRepo index, where e.store.All() below is a deep copy of every fact
-	// (Props map and Relations slice included) built solely to be counted and
-	// dropped.
+	// the byRepo index, where newInput walks every fact only to count the repos.
 	//
 	// The two conditions cannot disagree in the direction that would matter.
 	// ComputeLinks counts labels after NormalizeRepoLabel folds case, '-' and '_';
@@ -637,7 +635,10 @@ func (e *Engine) linkCrossRepo(repoPaths map[string]string) {
 		log.Printf("[engine] invalid linking vocabulary, using defaults: %v", err)
 		v = vocab.Default()
 	}
-	links := crossrepo.ComputeLinks(e.store.All(), sourceReaderFor(repoPaths), e.signals.All(), v)
+	// The store's own facts, not a copy: the linker and its signals only read them, and
+	// nothing writes the store until it returns. A deep copy here was 5 GB, a third of
+	// the live heap, on a 100-repository cluster.
+	links := crossrepo.ComputeLinks(e.store.FactsRef(), sourceReaderFor(repoPaths), e.signals.All(), v)
 	if len(links) == 0 {
 		return
 	}

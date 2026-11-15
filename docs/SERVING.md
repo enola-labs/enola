@@ -123,6 +123,28 @@ Measured with a client that opens a new session for every call and never closes 
 | Live heap after that reload | 660 MiB, one graph |
 | A new symbol, from the end of `enola --generate` until a new session sees it | 6.8 s |
 
+### Sizing a large graph
+
+`enola --generate` needs more memory than the graph it writes, and most of the
+difference is the Go garbage collector letting the heap grow before it collects. On a
+machine that also runs serve, cap it with Go's own soft limit, `GOMEMLIMIT`: the
+collector then works harder near the limit instead of growing past it. It is a limit
+on the heap, not on the process, and a run whose live data exceeds it still finishes,
+more slowly.
+
+Measured on a 100-repository cluster (8.6M facts) rebuilt over a warm cache, on an
+Apple M4 Max:
+
+| `enola --generate` | Wall time | Peak RSS |
+|---|---:|---:|
+| default | 451 s | 37.5 GB |
+| `GOMEMLIMIT=20GiB` | 464 s | 32.3 GB |
+| `GOMEMLIMIT=16GiB` | 488 s | 28.2 GB |
+
+```bash
+GOMEMLIMIT=16GiB enola --generate cluster.yaml
+```
+
 ## Sessions and graphs
 
 Without a repository or config, consumers index what they ask about.

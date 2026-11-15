@@ -9,10 +9,12 @@ import (
 	"iter"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/enola-labs/enola/internal/factpath"
 )
@@ -1118,50 +1120,6 @@ func (s *Store) Graph() *Graph {
 	return s.graph
 }
 
-// Byte cost of the two wire-only id fields, for the size estimate: `,"id":"…"`
-// with a 32-character value, and `,"target_id":"…"` likewise.
-const (
-	idFieldBytes       = len(`,"id":""`) + 2*idBytes
-	idTargetFieldBytes = len(`,"target_id":""`) + 2*idBytes
-)
-
-// estimateJSONLSize guesses the serialized size of ff by marshalling a sample and
-// extrapolating, so WriteJSONL can allocate its buffer once.
-//
-// It is a size hint and nothing more: too small merely restores the append growth it
-// was avoiding, and too large wastes the difference until the buffer is released. The
-// 10% margin and the sample size are chosen so that ordinary variation between facts
-// does not push a real corpus over the estimate.
-func estimateJSONLSize(ff []Fact) int {
-	const sampleSize = 512
-	if len(ff) == 0 {
-		return 0
-	}
-	// Sample evenly across the slice rather than the first N: facts are grouped by
-	// extractor and by file, so a prefix is a poor stand-in for the whole.
-	stride := len(ff) / sampleSize
-	if stride < 1 {
-		stride = 1
-	}
-	total, n := 0, 0
-	for i := 0; i < len(ff); i += stride {
-		b, err := json.Marshal(ff[i])
-		if err != nil {
-			continue // the real pass reports it; the estimate just skips it
-		}
-		// A Fact marshals without the two id fields the wire shape adds, so
-		// count them here. Assuming every relation resolves over-estimates (most
-		// corpora resolve about half), which is the safe direction: too small
-		// restores the append growth this exists to avoid.
-		total += len(b) + 1 + idFieldBytes + idTargetFieldBytes*len(ff[i].Relations)
-		n++
-	}
-	if n == 0 {
-		return 0
-	}
-	return (total / n) * len(ff) * 11 / 10
-}
-
 // WriteJSONL writes all facts as JSONL to the given writer in a deterministic
 // order. Extractors emit facts (and within-fact relations) in map-iteration
 // order, which varies run to run; sorting here makes facts.jsonl byte-stable for
@@ -1172,96 +1130,267 @@ func estimateJSONLSize(ff []Fact) int {
 // This is also where each fact's id and each relation's target_id are computed
 // (see wire.go and id.go). They are written and never stored, so no internal
 // reader can come to depend on them.
+//
+// The lines are sorted without holding them all. Each line is marshalled once to keep
+// its first jsonlKeyLen bytes, the facts are sorted by those, the few runs whose lines
+// share all of them and run longer are marshalled again and sorted in full, and the
+// lines are marshalled a last time in that order as they are written. Holding every
+// line instead cost the size of facts.jsonl in heap at the end of a run: 6.8 GB of a
+// 14.7 GB live peak on a 100-repository cluster. The order is the one a byte-wise sort
+// of the whole lines gives, so facts.jsonl and every id derived from it are unchanged.
 func (s *Store) WriteJSONL(w io.Writer) error {
 	s.mu.RLock()
+	defer s.mu.RUnlock()
 
-	// One contiguous buffer holding every marshalled line back to back, plus an index
-	// of where each begins. The sort then reorders 8-byte offsets rather than moving
-	// the lines, and the line bytes exist exactly once.
-	//
-	// Collecting a []string instead held each line TWICE — json.Marshal's []byte and
-	// the string(b) copy of it — and made 1.89M separate allocations of it, on top of
-	// whatever buffer the caller was writing into. Measured on a 1.89M-fact graph
-	// whose output is 792 MiB, this function moved live heap from 1,212 to 5,016 MiB,
-	// and the engine calls it twice per snapshot. That spike, not the graph, was what
-	// drove peak footprint to 11.3 GB.
-	// Pre-size the buffer from a sample of the first lines. Growing it by append
-	// instead means repeatedly allocating a larger array and copying into it, which
-	// at this size holds the old and the new one at once — the exact transient this
-	// function exists to avoid — and leaves up to 25% slack in the survivor.
-	// Over-estimating slightly is cheaper than either.
-	buf := make([]byte, 0, estimateJSONLSize(s.facts))
-	starts := make([]int, 0, len(s.facts)+1)
-	// One scratch relation slice for the whole pass. Relations are marshalled
-	// immediately, so the previous fact's are dead by the time the next one
-	// overwrites them, and a per-fact allocation here would be paid 39M times on
-	// the largest graph.
-	rels := make([]wireRelation, 0, 8)
-	var idScratch []byte
-	propScratch := make(map[string]any, 16)
-	var factID string
-	for _, f := range s.facts {
-		rels = rels[:0]
-		for _, r := range f.Relations {
-			wr := wireRelation{Relation: r}
-			if t := s.targetFactFor(r.Target, f.Repo); t >= 0 {
-				if tf := s.facts[t]; LandsByName(f, r, tf) {
-					wr.TargetID, idScratch = factIDInto(idScratch, tf.Repo, tf.Kind, tf.Name, tf.IdentityFile())
-				}
-			} else if k, ok := s.targetAliases[r.Target]; ok {
-				// A repository's facts are prefixed together, so any of them answers for k.
-				prefixed := false
-				if in := s.byRepo[k.Repo]; len(in) > 0 {
-					prefixed = s.facts[in[0]].RepoPrefixed
-				}
-				wr.TargetID, idScratch = factIDInto(idScratch, k.Repo, k.Kind, k.Name, identityFile(k.Repo, k.File, prefixed))
+	n := len(s.facts)
+	keys := make([]byte, n*jsonlKeyLen)
+	long := make([]bool, n) // the line runs past its key
+	if err := inChunks(n, func(lo, hi int, ws *wireScratch) error {
+		for i := lo; i < hi; i++ {
+			// The scalar fields a line opens with are usually the whole key; the
+			// line is marshalled for it only when they are shorter.
+			b, err := ws.head(&s.facts[i])
+			if err != nil {
+				return err
 			}
-			rels = append(rels, wr)
+			// A line always runs past its head, so a key taken from a head is long
+			// even when the head ends exactly at the key's end.
+			long[i] = true
+			if len(b) < jsonlKeyLen {
+				if b, err = s.wireLine(s.facts[i], ws); err != nil {
+					return err
+				}
+				long[i] = len(b) > jsonlKeyLen
+			}
+			copy(keys[i*jsonlKeyLen:(i+1)*jsonlKeyLen], b)
 		}
-		if len(rels) > 1 {
-			slices.SortFunc(rels, func(a, b wireRelation) int { return compareRelations(a.Relation, b.Relation) })
-		}
-		// f is a copy, and its own Relations field is shadowed by the one below,
-		// so neither the store's facts nor their relation slices are touched.
-		factID, idScratch = factIDInto(idScratch, f.Repo, f.Kind, f.Name, f.IdentityFile())
-		if f.Kind == KindRoute {
-			// f is a copy, and withFactRefIDs copies before widening, so the
-			// store's shared Props map is never written.
-			f.Props, idScratch = withFactRefIDs(f.Props, f.Repo, f.File, f.RepoPrefixed, idScratch)
-		}
-		b, err := json.Marshal(wireFact{FactJSON: f.jsonViewInto(propScratch), Relations: rels, ID: factID})
-		if err != nil {
-			s.mu.RUnlock()
-			return fmt.Errorf("encoding fact %q: %w", f.Name, err)
-		}
-		starts = append(starts, len(buf))
-		buf = append(buf, b...)
+		return nil
+	}); err != nil {
+		return err
 	}
-	starts = append(starts, len(buf)) // sentinel: one past the last line
-	s.mu.RUnlock()
+	key := func(i int32) []byte { return keys[int(i)*jsonlKeyLen : (int(i)+1)*jsonlKeyLen] }
 
-	// Sort the index, comparing the lines it points at. bytes.Compare orders byte by
-	// byte and so did sort.Strings over the same lines, so the emitted order — and
-	// therefore facts.jsonl and every snapshot ID derived from it — is unchanged.
-	order := make([]int, len(starts)-1)
+	// A key is the line's first bytes, zero-padded; JSON holds no zero byte, so a line
+	// that ends inside the key sorts before every longer line sharing its bytes, as it
+	// does in full.
+	order := make([]int32, n)
 	for i := range order {
-		order[i] = i
+		order[i] = int32(i)
 	}
-	sort.Slice(order, func(a, b int) bool {
-		x, y := order[a], order[b]
-		return bytes.Compare(buf[starts[x]:starts[x+1]], buf[starts[y]:starts[y+1]]) < 0
-	})
+	slices.SortFunc(order, func(a, b int32) int { return bytes.Compare(key(a), key(b)) })
 
-	bw := bufio.NewWriter(w)
-	for _, i := range order {
-		if _, err := bw.Write(buf[starts[i]:starts[i+1]]); err != nil {
+	// Equal keys are equal lines unless a line runs on; those runs are sorted in full.
+	ws := newWireScratch()
+	for lo := 0; lo < n; {
+		hi, anyLong := lo+1, long[order[lo]]
+		for hi < n && bytes.Equal(key(order[lo]), key(order[hi])) {
+			anyLong = anyLong || long[order[hi]]
+			hi++
+		}
+		if anyLong && hi-lo > 1 {
+			if err := s.sortRunByLine(order[lo:hi], ws); err != nil {
+				return err
+			}
+		}
+		lo = hi
+	}
+
+	// Written a window at a time: the window's chunks are marshalled side by side and
+	// then written in order, so what is held is the window, not the file.
+	bw := bufio.NewWriterSize(w, 1<<20)
+	window := jsonlChunk * runtime.GOMAXPROCS(0)
+	out := make([][]byte, (window+jsonlChunk-1)/jsonlChunk)
+	for start := 0; start < n; start += window {
+		part := order[start:min(start+window, n)]
+		if err := inChunks(len(part), func(lo, hi int, ws *wireScratch) error {
+			buf := out[lo/jsonlChunk][:0]
+			for _, i := range part[lo:hi] {
+				b, err := s.wireLine(s.facts[i], ws)
+				if err != nil {
+					return err
+				}
+				buf = append(buf, b[:len(b)+1]...) // the newline the encoder ended it with
+			}
+			out[lo/jsonlChunk] = buf
+			return nil
+		}); err != nil {
 			return err
 		}
-		if err := bw.WriteByte('\n'); err != nil {
-			return err
+		for c := 0; c*jsonlChunk < len(part); c++ {
+			if _, err := bw.Write(out[c]); err != nil {
+				return err
+			}
 		}
 	}
 	return bw.Flush()
+}
+
+// jsonlChunk is how many facts one worker marshals at a time.
+const jsonlChunk = 4096
+
+// inChunks runs fn over [0, n) in chunks of jsonlChunk, GOMAXPROCS at a time, each
+// worker with its own scratch, and returns the first error. Chunks start at multiples
+// of jsonlChunk.
+func inChunks(n int, fn func(lo, hi int, ws *wireScratch) error) error {
+	var next atomic.Int64
+	var mu sync.Mutex
+	var first error
+	var wg sync.WaitGroup
+	for w := min(runtime.GOMAXPROCS(0), (n+jsonlChunk-1)/jsonlChunk); w > 0; w-- {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			ws := newWireScratch()
+			for {
+				lo := int(next.Add(jsonlChunk)) - jsonlChunk
+				if lo >= n {
+					return
+				}
+				if err := fn(lo, min(lo+jsonlChunk, n), ws); err != nil {
+					mu.Lock()
+					if first == nil {
+						first = err
+					}
+					mu.Unlock()
+					return
+				}
+			}
+		}()
+	}
+	wg.Wait()
+	return first
+}
+
+func newWireScratch() *wireScratch {
+	ws := &wireScratch{rels: make([]wireRelation, 0, 8), props: make(map[string]any, 16)}
+	ws.enc = json.NewEncoder(&ws.buf)
+	return ws
+}
+
+// wireHead is the scalar fields a facts.jsonl line opens with, in its order and under
+// its tags: a Fact's fields before props. TestWireHead_IsALinesPrefix holds it to that.
+type wireHead struct {
+	Kind         string `json:"kind"`
+	Name         string `json:"name"`
+	File         string `json:"file,omitempty"`
+	Line         int    `json:"line,omitempty"`
+	EndLine      int    `json:"end_line,omitempty"`
+	Column       int    `json:"column,omitempty"`
+	EndColumn    int    `json:"end_column,omitempty"`
+	Repo         string `json:"repo,omitempty"`
+	RepoPrefixed bool   `json:"repo_prefixed,omitempty"`
+}
+
+// head returns the bytes f's line opens with: its head fields without the closing
+// brace, which the line continues past. Valid until ws is used again.
+func (ws *wireScratch) head(f *Fact) ([]byte, error) {
+	ws.buf.Reset()
+	// Through a pointer to ws's own, so the call boxes no copy of it.
+	ws.hd = wireHead{f.Kind, f.Name, f.File, f.Line, f.EndLine, f.Column, f.EndColumn, f.Repo, f.RepoPrefixed}
+	if err := ws.enc.Encode(&ws.hd); err != nil {
+		return nil, fmt.Errorf("encoding fact %q: %w", f.Name, err)
+	}
+	b := ws.buf.Bytes()
+	return b[:len(b)-2], nil // "}\n"
+}
+
+// jsonlKeyLen is how much of a line the first sort compares. Lines begin with the
+// kind and the name, so most differ within it.
+const jsonlKeyLen = 96
+
+// wireScratch is reused from one line to the next: a line is marshalled before the
+// next one overwrites it, and a per-fact allocation would be paid tens of millions of
+// times on the largest graphs.
+type wireScratch struct {
+	rels  []wireRelation
+	ids   []byte
+	props map[string]any
+	// The encoder writes into buf, which a line is read from before the next is
+	// encoded: json.Marshal would allocate every line's bytes afresh.
+	buf bytes.Buffer
+	enc *json.Encoder
+	hd  wireHead
+}
+
+// sortRunByLine sorts a run of facts whose keys are equal by their whole lines.
+//
+// Most are told apart by their heads: two lines whose heads differ, neither being a
+// prefix of the other, compare as their heads do. Only the rest are marshalled, once
+// each; at 96 bytes half the lines of a large repository share their key with another,
+// and marshalling all of those again cost a third of the function's allocations.
+func (s *Store) sortRunByLine(run []int32, ws *wireScratch) error {
+	heads := make(map[int32][]byte, len(run))
+	for _, i := range run {
+		h, err := ws.head(&s.facts[i])
+		if err != nil {
+			return err
+		}
+		heads[i] = bytes.Clone(h)
+	}
+	lines := map[int32][]byte{}
+	var failed error
+	line := func(i int32) []byte {
+		if b, ok := lines[i]; ok {
+			return b
+		}
+		b, err := s.wireLine(s.facts[i], ws)
+		if err != nil && failed == nil {
+			failed = err
+		}
+		b = bytes.Clone(b)
+		lines[i] = b
+		return b
+	}
+	slices.SortStableFunc(run, func(a, b int32) int {
+		ha, hb := heads[a], heads[b]
+		if n := min(len(ha), len(hb)); !bytes.Equal(ha[:n], hb[:n]) {
+			return bytes.Compare(ha, hb)
+		}
+		return bytes.Compare(line(a), line(b))
+	})
+	return failed
+}
+
+// wireLine marshals f as its facts.jsonl line, without the newline, computing the ids
+// WriteJSONL describes. Called with s.mu held for reading. The line is in ws's buffer,
+// followed there by its newline, and valid until ws is used again.
+func (s *Store) wireLine(f Fact, ws *wireScratch) ([]byte, error) {
+	rels := ws.rels[:0]
+	for _, r := range f.Relations {
+		wr := wireRelation{Relation: r}
+		if t := s.targetFactFor(r.Target, f.Repo); t >= 0 {
+			if tf := s.facts[t]; LandsByName(f, r, tf) {
+				wr.TargetID, ws.ids = factIDInto(ws.ids, tf.Repo, tf.Kind, tf.Name, tf.IdentityFile())
+			}
+		} else if k, ok := s.targetAliases[r.Target]; ok {
+			// A repository's facts are prefixed together, so any of them answers for k.
+			prefixed := false
+			if in := s.byRepo[k.Repo]; len(in) > 0 {
+				prefixed = s.facts[in[0]].RepoPrefixed
+			}
+			wr.TargetID, ws.ids = factIDInto(ws.ids, k.Repo, k.Kind, k.Name, identityFile(k.Repo, k.File, prefixed))
+		}
+		rels = append(rels, wr)
+	}
+	ws.rels = rels
+	if len(rels) > 1 {
+		slices.SortFunc(rels, func(a, b wireRelation) int { return compareRelations(a.Relation, b.Relation) })
+	}
+	// f is a copy, and its own Relations field is shadowed by the one below, so
+	// neither the store's facts nor their relation slices are touched.
+	var factID string
+	factID, ws.ids = factIDInto(ws.ids, f.Repo, f.Kind, f.Name, f.IdentityFile())
+	if f.Kind == KindRoute {
+		// f is a copy, and withFactRefIDs copies before widening, so the store's
+		// shared Props map is never written.
+		f.Props, ws.ids = withFactRefIDs(f.Props, f.Repo, f.File, f.RepoPrefixed, ws.ids)
+	}
+	ws.buf.Reset()
+	if err := ws.enc.Encode(wireFact{FactJSON: f.jsonViewInto(ws.props), Relations: rels, ID: factID}); err != nil {
+		return nil, fmt.Errorf("encoding fact %q: %w", f.Name, err)
+	}
+	b := ws.buf.Bytes()
+	return b[:len(b)-1], nil
 }
 
 // WriteJSONLFile writes all facts as JSONL to the given file path.
