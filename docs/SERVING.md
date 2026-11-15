@@ -145,6 +145,12 @@ Apple M4 Max:
 GOMEMLIMIT=16GiB enola --generate cluster.yaml
 ```
 
+Serve holds one graph, about 6.5 GB of heap for that cluster, and needs about three
+times that while it reloads, since it serves the old graph until the new one is read:
+20.4 GB at the peak, 22.9 GB RSS. It reloads once the generate has written its last
+file, so the two peaks do not meet: the generate beside a serve holding its graph
+peaked at 50.5 GB of RSS together. `GOMEMLIMIT` works the same way on serve.
+
 ## Sessions and graphs
 
 Without a repository or config, consumers index what they ask about.
