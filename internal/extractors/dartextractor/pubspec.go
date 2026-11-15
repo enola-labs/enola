@@ -37,7 +37,8 @@ type pubPackage struct {
 // (a line scan, no YAML parser and no tree-sitter), so each file's walk can resolve its
 // own imports synchronously instead of needing a second pass.
 type packageIndex struct {
-	byName map[string]*pubPackage
+	byName       map[string]*pubPackage
+	sdkLibraries map[string][]string
 	// dirs is every package directory, longest first, so ownerOf can attribute a file
 	// to the NEAREST enclosing package rather than to whichever matched first. A
 	// workspace root frequently has its own pubspec beside the packages it contains.
@@ -85,7 +86,7 @@ func scanPubspecs(repoPath string) []string {
 
 // buildPackageIndex reads every pubspec.yaml in the file list.
 func buildPackageIndex(repoPath string, pubspecs []string) *packageIndex {
-	idx := &packageIndex{byName: map[string]*pubPackage{}}
+	idx := &packageIndex{byName: map[string]*pubPackage{}, sdkLibraries: loadDartSDKLibraries(repoPath)}
 	for _, rel := range pubspecs {
 		p := parsePubspec(filepath.Join(repoPath, rel))
 		if p == nil || p.Name == "" {

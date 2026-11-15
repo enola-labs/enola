@@ -33,7 +33,8 @@
     "package-metrics",
     "dead-code",
     "performance",
-    "packwerk"
+    "packwerk",
+    "final-inheritance"
   ],
   "renderers": [
     "llm_context",

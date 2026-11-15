@@ -786,6 +786,9 @@ func (w *astWalker) handleClassLike(node *sitter.Node, kind string) {
 	if kindOf(w.kinds, node) == "union_specifier" {
 		f.SetProp("union", true)
 	}
+	if classCarriesFinal(w.kinds, node, w.src) {
+		f.SetProp("final", true)
+	}
 	for _, base := range baseClassNames(w.kinds, node, w.src) {
 		f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelImplements, Target: base})
 	}
@@ -1821,11 +1824,27 @@ func (w *astWalker) handleInclude(node *sitter.Node) {
 	})
 }
 
-// applyFuncQualifiers tags a function/method fact with static/virtual/const flags
-// read from its signature text.
+// applyFuncQualifiers tags a function/method fact with the static, virtual,
+// override, final and const specifiers its AST actually carries.
+//
+// These were once substring tests over the declaration's source text, which
+// cannot tell a specifier from an identifier that merely contains one: a function
+// named `staticCast` or `callVirtual` was tagged static and virtual, and in C the
+// bogus `static` also set exported=false. Every specifier here is a named node in
+// both grammars, so the text is not needed:
+//
+//	virtual           an anonymous `virtual` child of the declaration
+//	static            a `storage_class_specifier` child of the declaration
+//	override / final  a `virtual_specifier` child of the function_declarator
+//	const             a `type_qualifier` child of the function_declarator, after the parameters
+//
+// `override` matters beyond accuracy: a C++11 override does not repeat the base's
+// `virtual`, so unmarked it reads as an ordinary method and find_orphans calls it
+// dead code. docs/extraction/cpp.md carries the reasoning; the prop name is the one
+// the Swift, Kotlin, Dart, Rust and C# extractors already emit, which is what
+// orphans reads.
 func (w *astWalker) applyFuncQualifiers(f *facts.Fact, node, fdecl *sitter.Node) {
-	header := w.signatureText(node)
-	if strings.Contains(header, "static") {
+	applyStatic := func() {
 		f.SetProp("static", true)
 		// In C a `static` function has internal linkage — it is file-private, not
 		// externally visible. (C++ keeps exported=true: file scope there is rare and
@@ -1834,31 +1853,109 @@ func (w *astWalker) applyFuncQualifiers(f *facts.Fact, node, fdecl *sitter.Node)
 			f.SetProp("exported", false)
 		}
 	}
-	if strings.Contains(header, "virtual") {
-		f.SetProp("virtual", true)
-	}
-	// Trailing const: a type_qualifier child after the parameter_list.
-	if fdecl != nil {
-		params := fdecl.ChildByFieldName("parameters")
-		for i := uint(0); i < fdecl.ChildCount(); i++ {
-			c := fdecl.Child(i)
-			if kindOf(w.kinds, c) == "type_qualifier" && params != nil && c.StartByte() >= params.EndByte() {
-				if nodeText(c, w.src) == "const" {
-					f.SetProp("const", true)
+	for i := uint(0); i < node.ChildCount(); i++ {
+		c := node.Child(i)
+		switch kindOf(w.kinds, c) {
+		case "virtual":
+			f.SetProp("virtual", true)
+		case "storage_class_specifier":
+			if nodeText(c, w.src) != "static" {
+				continue
+			}
+			applyStatic()
+		case "ERROR":
+			// Stacked macro attributes break the parse and bury the specifiers:
+			// `ATTR1 ATTR2 static bool f()` absorbs ATTR1 as the return type, and
+			// error recovery re-tokenizes `static` (and `virtual`) as plain
+			// identifier tokens inside an ERROR node. A declaration-level scan
+			// that only trusts named specifier children silently loses the flag
+			// on exactly these lines — gtest's paired GTEST_ATTRIBUTE_* macros
+			// hit this seven times in its own tree. So scan the ERROR span, but
+			// only for token-exact keyword text: no identifier can be *named*
+			// static or virtual (they are reserved keywords in both grammars),
+			// which keeps the old substring bug — `staticCast`, `callVirtual` —
+			// dead while recovering the real specifiers.
+			for _, kw := range errorSpecifierKeywords(w.kinds, c, w.src) {
+				switch kw {
+				case "virtual":
+					f.SetProp("virtual", true)
+				case "static":
+					applyStatic()
 				}
+			}
+		}
+	}
+	if fdecl == nil {
+		return
+	}
+	params := fdecl.ChildByFieldName("parameters")
+	for i := uint(0); i < fdecl.ChildCount(); i++ {
+		c := fdecl.Child(i)
+		switch kindOf(w.kinds, c) {
+		case "type_qualifier":
+			// Trailing const: a type_qualifier child after the parameter_list.
+			if params != nil && c.StartByte() >= params.EndByte() && nodeText(c, w.src) == "const" {
+				f.SetProp("const", true)
+			}
+		case "virtual_specifier":
+			// [class.virtual]: only a virtual member that overrides a base member
+			// may carry `override` or `final`, so both spellings imply `virtual`
+			// and both are overrides — a language guarantee, not a dispatch guess.
+			// Marking `final` as an override too is what keeps a final override out
+			// of the dead-code report: orphans treats the prop as reached through
+			// the supertype and not deletable in isolation, which is exactly true.
+			f.SetProp("virtual", true)
+			f.SetProp("override", true)
+			if nodeText(c, w.src) == "final" {
+				f.SetProp("final", true)
 			}
 		}
 	}
 }
 
-// signatureText returns the source from the declaration start up to the body
-// (or the whole node when there is no body).
-func (w *astWalker) signatureText(node *sitter.Node) string {
-	end := node.EndByte()
-	if body := node.ChildByFieldName("body"); body != nil {
-		end = body.StartByte()
+// errorSpecifierKeywords returns the C/C++ specifier keywords that error
+// recovery re-tokenized as ordinary identifier tokens inside an ERROR node.
+// Only an exact whole-token match counts — the ERROR span holds real source,
+// so a substring would repeat the bug the AST read replaced. The walk is
+// depth-bounded: ERROR recovery nests shallowly, and a deep walk could
+// wander into a body it has no business reading specifiers from.
+func errorSpecifierKeywords(kinds *tsutil.KindTable, node *sitter.Node, src []byte) []string {
+	var out []string
+	var walk func(n *sitter.Node, depth uint)
+	walk = func(n *sitter.Node, depth uint) {
+		if depth > 3 {
+			return
+		}
+		for i := uint(0); i < n.ChildCount(); i++ {
+			c := n.Child(i)
+			switch kindOf(kinds, c) {
+			case "ERROR":
+				walk(c, depth+1)
+			case "identifier", "type_identifier":
+				switch nodeText(c, src) {
+				case "static", "virtual":
+					out = append(out, nodeText(c, src))
+				}
+			}
+		}
 	}
-	return string(w.src[node.StartByte():end])
+	walk(node, 0)
+	return out
+}
+
+// classCarriesFinal reports a `class X final` / `struct X final` — a type nothing
+// may derive from. The specifier is a named `virtual_specifier` child of the spec
+// node, and at type level it can only ever read `final`, since `override` on a type
+// is ill-formed. It says nothing about the members: a final class still declares
+// ordinary virtuals, so this must not imply `virtual` anywhere.
+func classCarriesFinal(kinds *tsutil.KindTable, node *sitter.Node, src []byte) bool {
+	for i := uint(0); i < node.ChildCount(); i++ {
+		c := node.Child(i)
+		if kindOf(kinds, c) == "virtual_specifier" && nodeText(c, src) == "final" {
+			return true
+		}
+	}
+	return false
 }
 
 // --- call graph ---
@@ -2194,21 +2291,25 @@ func collectExplicitReceiverTypes(kinds *tsutil.KindTable, lang string, fdecl, b
 	return out
 }
 
-// referencedDeclarator steps through the reference in `T &name` and
-// `T &name = init`. The grammar gives a reference_declarator's operand no field
-// name, so declaratorLeafName, which descends by the declarator field, stops there.
+// referencedDeclarator steps through the wrappers around a local declaration's name:
+// `T &name`, `T &name = init`, `T (&name)[3]`. It is the same descent members and
+// out-of-line definitions use (findFunctionDeclarator, declaratorLeafName) — one rule,
+// declaratorChild, rather than a second copy of the reference step that only locals knew
+// about. That copy is why the reference-declarator gap looked like a member-only bug:
+// locals had always handled the untagged operand, everything else did not.
 func referencedDeclarator(kinds *tsutil.KindTable, node *sitter.Node) *sitter.Node {
-	if kindOf(kinds, node) == "init_declarator" {
-		if inner := node.ChildByFieldName("declarator"); inner != nil {
+	for {
+		switch kindOf(kinds, node) {
+		case "init_declarator", "reference_declarator":
+			inner := declaratorChild(kinds, node)
+			if inner == nil || inner == node {
+				return node
+			}
 			node = inner
+		default:
+			return node
 		}
 	}
-	if kindOf(kinds, node) == "reference_declarator" && node.ChildByFieldName("declarator") == nil {
-		if inner := firstNamedChild(node); inner != nil {
-			return inner
-		}
-	}
-	return node
 }
 
 // declaredInsideLambda reports whether node sits under a lambda between it and
@@ -2348,7 +2449,7 @@ func findFunctionDeclarator(kinds *tsutil.KindTable, node *sitter.Node) *sitter.
 			return node
 		case "pointer_declarator", "reference_declarator", "array_declarator",
 			"parenthesized_declarator", "init_declarator":
-			node = node.ChildByFieldName("declarator")
+			node = declaratorChild(kinds, node)
 			if node == nil {
 				return nil
 			}
@@ -2357,6 +2458,31 @@ func findFunctionDeclarator(kinds *tsutil.KindTable, node *sitter.Node) *sitter.
 		}
 	}
 	return nil
+}
+
+// declaratorChild returns the declarator that a wrapper node wraps.
+//
+// The wrapper kinds do not agree about tagging it. A pointer_declarator's inner node
+// carries field "declarator"; a reference_declarator's carries no field at all — the
+// grammar puts the `&` and the wrapped node in as bare children. A descent written
+// against the field alone therefore follows `float* fn()` happily and stops dead at
+// `float& fn()`, and the symbol vanishes with no symptom: no declaration, no
+// definition, no callers, and an override that never reaches the props orphans reads.
+// So: trust the field when it is there, otherwise take the first child that is itself
+// a declarator, then the first named child.
+func declaratorChild(kinds *tsutil.KindTable, node *sitter.Node) *sitter.Node {
+	if node == nil {
+		return nil
+	}
+	if d := node.ChildByFieldName("declarator"); d != nil {
+		return d
+	}
+	for i := uint(0); i < node.ChildCount(); i++ {
+		if c := node.Child(i); strings.HasSuffix(kindOf(kinds, c), "_declarator") {
+			return c
+		}
+	}
+	return firstNamedChild(node)
 }
 
 // declaratorLeafName descends a declarator subtree to its leaf name (identifier,
@@ -2375,17 +2501,12 @@ func declaratorLeafName(kinds *tsutil.KindTable, node *sitter.Node, src []byte) 
 			}
 			return strings.Join(append(scopes, leaf), "::")
 		case "function_declarator", "pointer_declarator", "reference_declarator",
-			"array_declarator", "init_declarator":
-			node = node.ChildByFieldName("declarator")
-		case "parenthesized_declarator":
+			"array_declarator", "init_declarator", "parenthesized_declarator":
 			// A function-pointer declarator nests the name in an unnamed-field
 			// child, e.g. "(*g_cb)(void)" → parenthesized_declarator → pointer_
-			// declarator → identifier. Fall back to the first named child.
-			if d := node.ChildByFieldName("declarator"); d != nil {
-				node = d
-			} else {
-				node = firstNamedChild(node)
-			}
+			// declarator → identifier, which is why the descent cannot rely on the
+			// field alone. See declaratorChild.
+			node = declaratorChild(kinds, node)
 		default:
 			node = firstNamedChild(node)
 		}

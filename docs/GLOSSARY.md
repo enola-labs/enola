@@ -60,6 +60,7 @@ vocabulary you type, not internals:
 | `import-closure` | what `import yourpackage` actually executes, and the package `__init__.py` files responsible for most of it |
 | `packwerk` | packwerk dependencies a package declares but its code never references, and packages its code references without declaring them |
 | `package-metrics` | how stable and how abstract a package is, and how far that puts it from Martin's main sequence |
+| `final-inheritance` | a type deriving from a `final` type — the compiler rejects this construct, so it runs at proof confidence and is safe to gate with `--fail-on final-inheritance` |
 | `dead-code` | a symbol nothing in the snapshot references, in any language, reported with a confidence tier rather than a verdict |
 | `performance` | a call inside a loop or a recursion, with its estimated Big-O, or loops that nest, within a function or across calls, with their depth (a count, not a complexity) |
 

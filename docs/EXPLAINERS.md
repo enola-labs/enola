@@ -40,7 +40,7 @@ find*. It is **what happens to a finding after you have found it** — and that 
 entirely on the thing [SNAPSHOTS.md](SNAPSHOTS.md) describes: whether your graph is a
 value you can compare against another one, or a picture of right now.
 
-## Twenty-three explainers: three proofs and sixteen estimates
+## Twenty-four explainers: four proofs and twenty estimates
 
 An explainer reads the fact graph and emits **findings** — a claim, a confidence, and
 the entities the claim is about. There are nineteen, and they fall into six kinds:
@@ -69,6 +69,10 @@ the entities the claim is about. There are nineteen, and they fall into six kind
   membership over measured edges, so it is proof-class; the one place it estimates is
   a `forbid_reach` membership too large to walk, which degrades to a single `0.4`
   advisory rather than guessing.
+  `final-inheritance` is the fourth: an implements edge whose target's symbol fact
+  carries `final` — C++ `class X final`, Java `final class`, Swift `final class` — is
+  a construct the compiler rejects outright, and both endpoints are emitted
+  deterministically by the extractors, so the verdict runs at 1.0 like the others.
 - **Outlier tests.** `god-class`, `hotspots` and `complexity-outliers` compute a
   distribution over your repository and flag what sits above `mean + 2σ`.
 - **Graph shape.** `dependency-depth` measures the longest transitive import chain;
@@ -274,7 +278,7 @@ Comparing findings across two snapshots gives three outcomes, not two:
 
 The third bucket prevents statistical movement from being attributed to the change.
 
-Most of the twenty-three explainers are relative to your repository. `mean + 2σ` moves when the
+Most of the twenty-four explainers are relative to your repository. `mean + 2σ` moves when the
 population moves. A ranked top-N list has fixed membership size, so when a worse
 offender is deleted the next module rises into the window — and a finding "appears" for
 a module nobody edited. Both are real effects of statistics, not of your work.
@@ -286,8 +290,9 @@ grade them.
 ## What can fail the build
 
 At the default confidence floor of `1.0`, only proof-class findings are eligible:
-dependency cycles, `intent` set differences, violations of a declared layer order, and
-breaches of declared constraints. Heuristic findings are capped below `1.0`.
+dependency cycles, `intent` set differences, violations of a declared layer order,
+breaches of declared constraints, and types deriving from a `final` type
+(`final-inheritance`). Heuristic findings are capped below `1.0`.
 
 Eligibility is not enforcement. A finding fails the build only when `--fail-on` names
 its explainer. Lowering `--min-confidence` can include advisory findings such as god

@@ -160,7 +160,7 @@ func (w *walker) retrofitRoutes(root *sitter.Node) {
 				if kindOf(kids[j]) == "annotation" {
 					continue
 				}
-				if sig := firstOfKind(kids[j], "function_signature"); sig != nil {
+				if sig := firstOfKind(kids[j], "function_signature", "constructor_signature"); sig != nil {
 					handler = signatureName(sig, w.src)
 				}
 				break

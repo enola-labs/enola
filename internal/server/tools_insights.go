@@ -377,7 +377,7 @@ func (s *Server) registerQueryInsightsTool() {
 }
 
 type queryInsightsArgs struct {
-	Explainer     string  `json:"explainer,omitempty" jsonschema:"Filter to insights produced by this explainer. One of: cycles, layers, crossrepo, coverage, unused-routes, messaging-coverage, god-class, hotspots, dependency-depth, exported-surface, complexity-outliers, intent, constraints, domain, query-loops, entry-points, dead-methods, vendored-candidates, import-closure, package-metrics, dead-code, performance, packwerk. Empty = all."`
+	Explainer     string  `json:"explainer,omitempty" jsonschema:"Filter to insights produced by this explainer. One of: cycles, layers, crossrepo, coverage, unused-routes, messaging-coverage, god-class, hotspots, dependency-depth, exported-surface, complexity-outliers, intent, constraints, domain, query-loops, entry-points, dead-methods, vendored-candidates, import-closure, package-metrics, dead-code, performance, packwerk, final-inheritance. Empty = all."`
 	Repo          string  `json:"repo,omitempty" jsonschema:"Repo label: in multi-repo snapshots, the repository the evidence belongs to; in single-repo snapshots, a substring. Empty = all."`
 	MinConfidence float64 `json:"min_confidence,omitempty" jsonschema:"Minimum confidence (0.0-1.0). Default 0. unused-routes findings are emitted at 0.6, as review candidates."`
 	OutputMode    string  `json:"output_mode,omitempty" jsonschema:"'summary' (DEFAULT, one row per insight: explainer, confidence, title), 'compact' (adds description, evidence sample, actions), or 'full' (complete JSON)."`

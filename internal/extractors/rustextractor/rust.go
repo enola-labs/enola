@@ -104,7 +104,7 @@ func (e *RustExtractor) Extract(ctx context.Context, repoPath string, files []st
 			log.Printf("[rust-extractor] error reading %s: %v", relFile, err)
 			return rustFileOut{}
 		}
-		return extractRustFile(src, relFile, crates, moduleDirs, false)
+		return extractRustFile(src, relFile, crates, moduleDirs, moduleFiles, false)
 	})
 
 	// A file a parent declares as `#[cfg(test)] mod name;` is test code, though
@@ -134,7 +134,7 @@ func (e *RustExtractor) Extract(ctx context.Context, repoPath string, files []st
 		if err != nil {
 			continue
 		}
-		r := extractRustFile(src, rustFiles[i], crates, moduleDirs, true)
+		r := extractRustFile(src, rustFiles[i], crates, moduleDirs, moduleFiles, true)
 		perFileFacts[i] = rustFileOut{facts: r.facts}
 		queue(i, r.testSubmods)
 	}

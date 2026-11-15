@@ -342,10 +342,14 @@ class DataSource {
 }
 
 class Repo {
+  final DataSource source;
+  Repo(this.source);
   Future<String> load(String id) => source.fetch(id);
 }
 
 class Screen {
+  final Repo repo;
+  Screen(this.repo);
   Future<void> refresh() => repo.load('1');
 }
 `
@@ -458,6 +462,8 @@ abstract class MeClient {
 }
 
 class MeSource {
+  final MeClient client;
+  MeSource(this.client);
   Future<String> load() => client.me();
   String label() => client.describe();
 }

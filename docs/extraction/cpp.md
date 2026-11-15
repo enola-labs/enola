@@ -14,12 +14,19 @@ Fixture: [`cpp_sample`](../../internal/engine/testdata/repos/cpp_sample/)
 | a source directory | one module per directory | `module` |
 | `int foo(void) { … }` | a symbol with `has_body=true` | `symbol` |
 | `static int foo(void)` | the same, with `static=true`, `exported=false` | `symbol` |
-| a declaration in a header + definition in a `.c` | **one** merged symbol, not two | `symbol` |
+| a declaration in a header + definition in a `.c` **in the same directory** | **one** merged symbol, not two | `symbol` |
+| the same pair split across two directories | **two** symbols: the declaration carries the specifiers, the definition carries `has_body` | `symbol` |
 | `#define X`, `const int` | a `constant` symbol | `symbol` |
 | `gc->set = xlp_gpio_set;` | a call edge to the assigned function | relation |
 | `.lock = fn` in a compound literal | a call edge to `fn` | relation |
 | a function name inside a `#define` body | a call edge recovered by a macro pre-pass | relation |
 | a token-pasted callback (`_pfx##_name##_show`) | a call edge to the pasted name | relation |
+| `shape->draw()` on a base pointer | an edge to the **declared** method, never to an override | relation |
+| `virtual void draw();` | a method with `virtual=true` | props |
+| `void draw() override;` | `override=true`, and `virtual=true` even though the keyword is not repeated | props |
+| `void draw() final;` | `final=true`, plus `override=true` and `virtual=true` (only a virtual member that overrides may be `final`) | props |
+| `class Square final : public Shape` | the class with `final=true` — nothing may derive from it; implies nothing about its members | props |
+| `int staticCast(int);` | **no** `static` — a name containing a keyword is not a specifier | props |
 | a call inside a `for`/`while` | `calls_in_loop` / `calls_in_scaling_loop` | props |
 
 ## Symbols, and why `has_body` matters
@@ -110,12 +117,60 @@ A `for` is constant-bounded only when it both starts and stops at a constant. `f
 ## C++ specifics
 
 Namespaces, templates and class methods are extracted, with header and source methods
-merged into one symbol as above.
+merged into one symbol as above — and as above, that means a pair in the *same*
+directory. A symbol name carries its directory, so the usual C++ split (declaration in
+`include/`, definition in `src/`) stays two symbols: the marked declaration and the
+unmarked body. `find_orphans` then drops the declaration from the dead-code report and
+still lists the definition, at `confidence=low` — the override is findable by its props,
+but the pair was never one symbol, so the report is not fully cleaned up. The fixture
+below is split this way on purpose; a same-directory pair, which does merge, is pinned
+by `qualifiers_test.go`. How often it matters follows from the layout, not the
+extractor: in a 3,274-file engine tree where every header sits beside its `.cpp`, all
+87 marked overrides merged and the split cost nothing; in an `include/` + `src/` tree it
+costs one row per override.
 
-> **A note on `override`.** The C++ corpus used to validate this extractor
-> (getdp, gmsh, the Linux kernel) is pre-C++11 and never uses the `override`
-> specifier, so the code path that consumes it has zero exercise on real code.
-> `virtual` is the specifier that is actually in play there.
+The virtual specifiers are read from the AST, not from the declaration's text:
+`virtual` and `static` are children of the declaration, `override` and `final` hang off
+the function declarator. Reading the text instead would tag a member named `staticCast`
+or `callVirtual` with a specifier it does not have — and in C a spurious `static` also
+flips `exported=false`, which moves the symbol into the "safe to delete" half of the
+orphan report. One shape defeats a scan of named specifier children alone: **stacked
+macro attributes**. `ATTR1 ATTR2 static bool f()` absorbs `ATTR1` as the return type,
+and error recovery re-tokenizes `static` (or `virtual`) as a plain identifier inside an
+`ERROR` node — the specifier exists in the tree, but not as a specifier node. The scan
+recovers those keywords from the `ERROR` span on exact whole-token text only: no
+identifier can be *named* `static` or `virtual`, so the recovery cannot re-invent what
+the text scan used to. Without it, paired attribute macros (gtest's `GTEST_ATTRIBUTE_*`,
+absl and Qt attributes, MSVC `__declspec` pairs) silently drop real specifiers.
+
+`override` and `final` are recorded because they change what a symbol *is*, not just how
+it is spelled. A C++11 override does not repeat the base's `virtual`, so with no
+specifier stored it is indistinguishable from an ordinary method: `find_orphans` reports
+it as unreferenced dead code, when in fact it is reached through the base and cannot be
+deleted in isolation. Both specifiers imply `virtual=true` — that is a language
+guarantee, not a dispatch guess. A `final` spelled on a **type** (`class Square final :
+public Shape`) is the other use of the word: it is recorded on the class fact alone,
+means nothing may derive from it, and implies nothing about that class's members.
+Fixture: [`shapes.hpp`](../../internal/engine/testdata/repos/cpp_sample/include/shapes.hpp),
+with its out-of-line half in [`shapes.cpp`](../../internal/engine/testdata/repos/cpp_sample/drivers/shapes.cpp).
+
+A member that **returns a reference** is descended the way a pointer return is. The
+grammar tags the wrapped node as field `declarator` on `pointer_declarator` and leaves it
+untagged on `reference_declarator` — the `&` and the operand are both bare children — so a
+walk written against that field follows `float* ptr()` and stops dead at `const float&
+Get_Factory() const`. The member then falls through to the data-member branch, which looks
+for the same field: no declaration, no definition, no callers, no orphan entry. One rule
+(`declaratorChild`) descends every declarator wrapper now — trust the field where the
+grammar supplies it, otherwise the first child that is itself a declarator, then the first
+named child. Local declarations already needed that step (`referencedDeclarator`); members
+and out-of-line definitions did not have it, which is how 1,397 of 52,766 symbols in a
+3,274-file engine tree went missing with no symptom but a short symbol list — every
+`operator=` returning `T&` among them.
+Fixture: [`refs.cpp`](../../internal/engine/testdata/repos/cpp_sample/drivers/refs.cpp).
+
+> **Corpus caveat.** The C++ corpora this extractor was validated against (getdp, gmsh,
+> the Linux kernel) are pre-C++11 and never write `override` or `final`, so those two
+> specifiers are pinned by the fixture above rather than by a measured repository.
 
 ## What is deliberately not extracted
 
@@ -123,7 +178,12 @@ merged into one symbol as above.
   a configuration, so facts from mutually exclusive branches can coexist.
 - **Template instantiation.** A template is one symbol, not one per instantiation.
 - **Virtual dispatch.** A call through a base-class pointer resolves to the declared
-  method, not to every override.
+  method, not to every override. What makes the limit findable rather than silent is
+  that the overrides are marked: `virtual`, `override` and `final` sit on the
+  declaration, so the targets dispatch would add can be listed instead of guessed.
+  A receiver the extractor cannot type — `shapes[i]->draw()` on a subscripted
+  `Shape **` — produces no edge at all rather than a guess; both shapes are in the
+  fixture.
 - **Linker-level symbol resolution.** Two static functions with the same name in different
   translation units are distinguished by module, not by object file.
 

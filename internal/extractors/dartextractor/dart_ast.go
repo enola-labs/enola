@@ -49,6 +49,14 @@ type walker struct {
 	// stringConsts maps `<Type>.<CONST>` to its string literal, so a route declared as
 	// `path: HomeScreen.routeName` resolves instead of being dropped.
 	stringConsts map[string]string
+	// valueFunctions contains callable declarations visible in this lexical scope.
+	// A bare data read must never bind to an unrelated project-wide method.
+	valueFunctions    map[string]string
+	memberFunctions   map[string]string
+	fieldTypes        map[string]string
+	callOwner         string
+	getterNames       map[string]bool
+	valueDeclarations []dartValueDeclaration
 }
 
 // extractFile parses one Dart file and returns its facts.
@@ -88,7 +96,31 @@ func extractFile(src []byte, relFile string, pkgs *packageIndex, inheritedImport
 	// Directives first: every later pass is gated on what this file imports, so the
 	// import set has to be complete before any declaration is looked at.
 	w.walkDirectives(root)
+	hasCore := false
+	for _, uri := range w.importURIs {
+		if uri == "dart:core" {
+			hasCore = true
+		}
+	}
+	if !hasCore {
+		if core, ok := w.pkgs.resolveSDKURI("dart:core", w.relFile); ok {
+			w.out = append(w.out, facts.Fact{Kind: facts.KindDependency, Name: w.dir + " -> dart:core", File: w.relFile, Props: map[string]any{"language": "dart", "uri": "dart:core", "source": facts.DepSourceStdlib, "resolved_file": core, "implicit": true}, Relations: []facts.Relation{{Kind: facts.RelImports, Target: "dart:core"}}})
+		}
+	}
+	if w.partOf != "" || len(w.parts) > 0 {
+		props := map[string]any{"language": "dart"}
+		if w.partOf != "" {
+			props["library_file"] = w.partOf
+		}
+		if len(w.parts) > 0 {
+			props["library_parts"] = w.parts
+		}
+		w.out = append(w.out, facts.Fact{Kind: facts.KindFileRef, Name: w.relFile, File: w.relFile, Props: props})
+	}
+	w.valueFunctions = w.fileCallableValues(root)
 	w.walkDeclarations(root)
+	w.moduleValueReferences(root)
+	w.emitValueDeclarations()
 	w.extractFrameworkSurface(root)
 	w.attributeCallers(root)
 
@@ -154,6 +186,75 @@ func (w *walker) importDirective(n *sitter.Node, isExport bool) {
 	if isExport {
 		props["reexport"] = true
 	}
+	if spec := firstOfKind(n, "import_specification"); spec != nil {
+		if prefix := childOfKind(spec, "identifier"); prefix != nil {
+			props["import_prefix"] = prefix.Utf8Text(w.src)
+		}
+	}
+	var combinators func(*sitter.Node)
+	combinators = func(node *sitter.Node) {
+		if kindOf(node) == "combinator" {
+			var names []string
+			for _, id := range namedChildren(node) {
+				if kindOf(id) == "identifier" {
+					names = append(names, id.Utf8Text(w.src))
+				}
+			}
+			if strings.HasPrefix(strings.TrimSpace(node.Utf8Text(w.src)), "hide") {
+				old, _ := props["hide_names"].([]string)
+				props["hide_names"] = append(old, names...)
+			} else {
+				if old, exists := props["show_names"]; exists {
+					var intersection []string
+					for _, name := range names {
+						for _, prior := range old.([]string) {
+							if name == prior {
+								intersection = append(intersection, name)
+								break
+							}
+						}
+					}
+					names = intersection
+				}
+				props["show_names"] = names
+				if len(names) == 0 {
+					props["show_none"] = true
+				}
+			}
+			return
+		}
+		for _, c := range namedChildren(node) {
+			combinators(c)
+		}
+	}
+	combinators(n)
+
+	if source == facts.DepSourceInternal || (strings.HasPrefix(uri, "dart:") && w.resolveRelativeURI(uri) != uri) {
+		props["resolved_file"] = w.resolveRelativeURI(uri)
+	}
+	var uris []string
+	var collectURIs func(*sitter.Node)
+	collectURIs = func(node *sitter.Node) {
+		if kindOf(node) == "uri" {
+			if value := stringLiteralValue(childOfKind(node, "string_literal"), w.src); value != "" {
+				uris = append(uris, value)
+			}
+			return
+		}
+		for _, c := range namedChildren(node) {
+			collectURIs(c)
+		}
+	}
+	collectURIs(n)
+	if len(uris) > 1 {
+		props["conditional_import"] = true
+		paths := make([]string, 0, len(uris))
+		for _, uri := range uris {
+			paths = append(paths, w.resolveRelativeURI(uri))
+		}
+		props["resolved_files"] = paths
+	}
+
 	// `<importer> -> <imported>` is the shared dependency-fact naming convention, and
 	// it is a contract rather than a style: the package-metrics explainer
 	// recovers the IMPORTING side by splitting the name on " -> ". Naming a dependency
@@ -206,6 +307,11 @@ func (w *walker) classifyImport(uri string) (target, source string) {
 // resolveRelativeURI resolves a relative import against this file's directory.
 func (w *walker) resolveRelativeURI(uri string) string {
 	if strings.Contains(uri, ":") {
+		if strings.HasPrefix(uri, "dart:") {
+			if resolved, ok := w.pkgs.resolveSDKURI(uri, w.relFile); ok {
+				return resolved
+			}
+		}
 		if resolved, ok := w.pkgs.resolvePackageURI(uri); ok {
 			return resolved
 		}
@@ -216,29 +322,10 @@ func (w *walker) resolveRelativeURI(uri string) string {
 
 // uriOf pulls the string literal out of a directive, unquoted.
 func (w *walker) uriOf(n *sitter.Node) string {
-	var found string
-	var visit func(*sitter.Node)
-	visit = func(node *sitter.Node) {
-		if found != "" {
-			return
-		}
-		switch kindOf(node) {
-		case "configurable_uri", "uri", "string_literal":
-			txt := strings.TrimSpace(node.Utf8Text(w.src))
-			txt = strings.Trim(txt, `"'`)
-			if txt != "" && !strings.Contains(txt, "\n") {
-				found = txt
-				return
-			}
-		}
-		for _, c := range namedChildren(node) {
-			visit(c)
-		}
+	if literal := firstOfKind(n, "string_literal"); literal != nil {
+		return stringLiteralValue(literal, w.src)
 	}
-	for _, c := range namedChildren(n) {
-		visit(c)
-	}
-	return found
+	return ""
 }
 
 // ---------------------------------------------------------------------------
@@ -267,7 +354,9 @@ func (w *walker) walkDeclarations(root *sitter.Node) {
 			w.enumDecl(n)
 		case "type_alias":
 			w.typeAliasDecl(n)
-		case "function_signature":
+		case "initialized_variable_definition", "static_final_declaration_list", "initialized_identifier_list":
+			w.recordValueDeclaration(n, "", dartGlobalWrittenType(kids, i, w.src))
+		case "function_signature", "getter_signature":
 			body := nextBody(kids, i)
 			w.functionDecl(n, body, w.dir, "", annotationsBefore(kids, i, w.src))
 		}
@@ -288,6 +377,32 @@ func (w *walker) classDecl(n *sitter.Node, construct string) {
 		"symbol_kind":    symbolKindFor(construct),
 		"dart_construct": construct,
 		"exported":       !strings.HasPrefix(name, "_"),
+	}
+	if params := dartTypeParameterNames(n, w.src); len(params) > 0 {
+		props["type_parameters"] = params
+	}
+	if kindOf(n) == "extension_declaration" && childOfKind(n, "type_parameters", "type_arguments") == nil {
+		props["extension_on"] = declaredReceiverType(n, w.src)
+	}
+	if parent := childOfKind(n, "superclass"); parent != nil {
+		if typ := declaredReceiverType(parent, w.src); typ != "" {
+			props["extends_type"] = typ
+			if typ == "State" {
+				if args := dartTypeArguments(dartWrittenType(parent, w.src)); len(args) == 1 {
+					props["state_widget"] = args[0]
+				}
+			}
+		}
+	}
+	mixins := childOfKind(n, "mixins")
+	if mixins == nil {
+		mixins = childOfKind(childOfKind(n, "superclass"), "mixins")
+	}
+	if names := w.inheritedTypeNames(mixins); len(names) > 0 {
+		props["mixin_types"] = names
+	}
+	if names := w.inheritedTypeNames(childOfKind(n, "interfaces")); len(names) > 0 {
+		props["interface_types"] = names
 	}
 	if w.pkg != nil {
 		props["pub_package"] = w.pkg.Name
@@ -365,6 +480,16 @@ func (w *walker) memberDecls(body *sitter.Node, typeName string) []memberInfo {
 	if body == nil {
 		return nil
 	}
+	previous, previousFields, previousOwner := w.memberFunctions, w.fieldTypes, w.callOwner
+	previousGetters := w.getterNames
+	w.getterNames = map[string]bool{}
+	w.memberFunctions = w.memberCallableValues(body, typeName)
+	w.fieldTypes = w.memberReceiverTypes(body)
+	w.callOwner = w.qualify(typeName)
+	defer func() {
+		w.memberFunctions, w.fieldTypes, w.callOwner = previous, previousFields, previousOwner
+		w.getterNames = previousGetters
+	}()
 	var out []memberInfo
 	kids := namedChildren(body)
 	for i := 0; i < len(kids); i++ {
@@ -466,22 +591,41 @@ func (w *walker) declarationMember(n *sitter.Node, typeName string, annos []stri
 	for _, c := range namedChildren(n) {
 		switch kindOf(c) {
 		case "constructor_signature", "factory_constructor_signature", "constant_constructor_signature":
-			name := constructorName(c, typeName, w.src)
+			ctor := dartConstructorSignature(c, typeName, w.src)
+			name := signatureName(c, w.src)
+			if ctor {
+				name = constructorName(c, typeName, w.src)
+			}
 			full := w.qualify(typeName + "." + name)
 			props := map[string]any{
 				"language": "dart", "symbol_kind": facts.SymbolMethod,
-				"constructor": true, "exported": !strings.HasPrefix(name, "_"),
+				"exported": !strings.HasPrefix(name, "_"),
+			}
+			if ctor {
+				props["constructor"] = true
+			} else {
+				props["abstract_member"] = true
 			}
 			if len(annos) > 0 {
 				props["annotations"] = annos
 			}
+			if !ctor {
+				if typ := dartWrittenType(c, w.src); typ != "" {
+					props["return_type"] = typ
+				}
+			}
 			rels := w.injectRelations(c)
+			if init := childOfKind(n, "initializers"); init != nil {
+				bw := w.walkBody(init, full, c)
+				rels = append(rels, bw.relations...)
+				bw.applyTo(props)
+			}
 			w.out = append(w.out, facts.Fact{
 				Kind: facts.KindSymbol, Name: full, File: w.relFile, Line: lineOf(c), EndLine: tsutil.EndLine(c),
 				Props: props, Relations: rels,
 			})
 			w.setDoc(n)
-			out = append(out, memberInfo{name: full, isCtor: true})
+			out = append(out, memberInfo{name: full, isCtor: ctor, isMethod: !ctor, isAbstract: !ctor})
 
 		case "function_signature", "getter_signature", "setter_signature":
 			// No body sibling inside a `declaration` means this is abstract.
@@ -492,7 +636,16 @@ func (w *walker) declarationMember(n *sitter.Node, typeName string, annos []stri
 			full := w.qualify(typeName + "." + name)
 			props := map[string]any{
 				"language": "dart", "symbol_kind": facts.SymbolMethod,
-				"abstract_member": true, "exported": !strings.HasPrefix(name, "_"),
+				"abstract_member": true, "exported": !strings.HasPrefix(name, "_"), "static": hasToken(n, "static"),
+			}
+			if typ := dartWrittenType(c, w.src); typ != "" {
+				props["return_type"] = typ
+			}
+			if kindOf(c) == "getter_signature" {
+				props["accessor"] = "getter"
+			}
+			if kindOf(c) == "setter_signature" {
+				props["accessor"] = "setter"
 			}
 			if len(annos) > 0 {
 				props["annotations"] = annos
@@ -511,6 +664,7 @@ func (w *walker) declarationMember(n *sitter.Node, typeName string, annos []stri
 			// Recording the value here is what lets the route pass resolve that
 			// reference instead of dropping the route.
 			w.recordStringConstants(c, typeName)
+			w.recordValueDeclaration(n, w.qualify(typeName))
 			for _, fieldName := range identifierNames(c, w.src) {
 				full := w.qualify(typeName + "." + fieldName)
 				// Only PUBLIC fields become symbols, for the reason C# gives: private
@@ -545,7 +699,11 @@ func (w *walker) methodDecl(sig, body *sitter.Node, typeName string, annos []str
 	var name string
 	switch kindOf(inner) {
 	case "factory_constructor_signature", "constructor_signature":
-		name = constructorName(inner, typeName, w.src)
+		if dartConstructorSignature(inner, typeName, w.src) {
+			name = constructorName(inner, typeName, w.src)
+		} else {
+			name = signatureName(inner, w.src)
+		}
 	default:
 		name = signatureName(inner, w.src)
 	}
@@ -564,7 +722,9 @@ func (w *walker) methodDecl(sig, body *sitter.Node, typeName string, annos []str
 	case "setter_signature":
 		props["accessor"] = "setter"
 	case "factory_constructor_signature", "constructor_signature":
-		props["constructor"] = true
+		if dartConstructorSignature(inner, typeName, w.src) {
+			props["constructor"] = true
+		}
 	}
 	if hasToken(sig, "static") {
 		props["static"] = true
@@ -581,9 +741,24 @@ func (w *walker) methodDecl(sig, body *sitter.Node, typeName string, annos []str
 		}
 	}
 
+	if params := dartTypeParameterNames(inner, w.src); len(params) > 0 {
+		props["type_parameters"] = params
+	}
+	if props["constructor"] != true {
+		if typ := dartWrittenType(inner, w.src); typ != "" {
+			props["return_type"] = typ
+		} else if expr := w.returnExpression(inner, body); expr != "" {
+			props["return_expression"] = expr
+		}
+	}
+
 	rels := w.injectRelations(inner)
-	if body != nil {
-		bw := w.walkBody(body, full)
+	var init *sitter.Node
+	if props["constructor"] == true {
+		init = childOfKind(sig, "initializers")
+	}
+	if body != nil || init != nil {
+		bw := w.walkBody(body, full, inner, init)
 		rels = append(rels, bw.relations...)
 		bw.applyTo(props)
 	}
@@ -613,9 +788,21 @@ func (w *walker) functionDecl(sig, body *sitter.Node, dir, _ string, annos []str
 	if len(annos) > 0 {
 		props["annotations"] = annos
 	}
+	if params := dartTypeParameterNames(sig, w.src); len(params) > 0 {
+		props["type_parameters"] = params
+	}
+	if kindOf(sig) == "getter_signature" {
+		props["accessor"] = "getter"
+	}
+	if typ := dartWrittenType(sig, w.src); typ != "" {
+		props["return_type"] = typ
+	} else if expr := w.returnExpression(sig, body); expr != "" {
+		props["return_expression"] = expr
+	}
+
 	var rels []facts.Relation
 	if body != nil {
-		bw := w.walkBody(body, full)
+		bw := w.walkBody(body, full, sig)
 		rels = append(rels, bw.relations...)
 		bw.applyTo(props)
 	}

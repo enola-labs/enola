@@ -3609,7 +3609,38 @@ import (
 // over every repository, not in the extractor: an Application states serves and
 // environment, and an address resolves in the caller's cluster, else in its region
 // and environment, else to the single candidate.
-const cacheVersion = "v588"
+// v589: Dart tear-offs in function bodies and module initializers emit names
+// edges, preserving callback usage without inventing calls or propagating I/O.
+// v590: Dart qualified calls bind only to declared members, including the
+// declaring type repeated in named-constructor identities.
+// v591: Dart calls retain receiver scope; typed and lexical targets drive I/O
+// propagation and loop metrics, without global method-name inference. Constructor
+// initializers preserve lexical calls that global guesses previously masked.
+// v592: Dart retains source receiver evidence for I/O, resolves inherited and
+// import-prefixed members, preserves initializing-formal types, reads accessor
+// pairs consistently, and deduplicates calls after target rewriting.
+// v593: Dart lexical binding scopes, library visibility/parts, cascade writes,
+// parenthesized I/O provenance, and untyped Retrofit methods.
+// v594: Dart null assertions, typed loop bindings, verified constructor-local
+// inference, visible extensions/functions/import alternatives and stable getters.
+// v595: Dart declaration-backed getter/field/global/return types and scoped
+// initializer aliases; SDK manifest URIs, implicit core and prefixed constructors.
+// v596: Dart receiver types keep their type arguments, so a field, getter or
+// method result declared as a class type parameter resolves to the argument.
+// v597: Dart: widget in a class extending State<X> is an X.
+// v598: Dart: a read of a state-management provider is typed by the provider's declared
+// type arguments, and an enum constant's members resolve on the enum.
+// v599: Rust: a name a module imports from outside the repository is still a reference to
+// the module's own declaration of that name, as with feature-gated twins.
+// v600: Rust: a crate is found by its [lib] name and by a dependency's `package` rename
+// (inline or as its own table, ahead of any workspace package of that name unless the
+// renamed crate is a facade over it, or inherited from [workspace.dependencies], written
+// dotted or as a table), and a `use` that starts from a module imported in the same module
+// scope resolves into it.
+// v601: Dart: calls on dart:core, async, collection, convert, math, io and typed_data
+// types resolve against bundled SDK signatures when the repository has no SDK sources.
+// v602: Dart: calls on Flutter framework and dart:ui types resolve against bundled signatures.
+const cacheVersion = "v602"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
