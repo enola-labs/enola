@@ -113,6 +113,9 @@ func (s *Server) indexSet(ctx context.Context, repoPaths []string, appendFirst b
 		}
 		artifactsWritten(ctx, repo)
 	}
+	if err := s.eng.WriteClusterHome(); err != nil {
+		log.Printf("[server] warning: failed to write the cluster's artifacts: %v", err)
+	}
 	if err := s.eng.WriteGlobalReceipt(); err != nil {
 		log.Printf("[server] warning: failed to write global receipt: %v", err)
 	}

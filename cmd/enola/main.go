@@ -314,6 +314,9 @@ func main() {
 				log.Fatalf("failed to write artifacts for %s: %v", repoPath, err)
 			}
 		}
+		if err := eng.WriteClusterHome(); err != nil {
+			log.Fatalf("failed to write the cluster's artifacts: %v", err)
+		}
 
 		// Refresh the graph-wide receipt at ~/.enola/receipt.json. Non-fatal: a
 		// failure here must not abort an otherwise-successful snapshot.
@@ -620,6 +623,9 @@ func runRefresh(ctx context.Context, eng *bootstrap.Engine, cfg *config.Config, 
 		if err := eng.WriteArtifacts(last); err != nil {
 			log.Fatalf("failed to write artifacts for %s: %v", last, err)
 		}
+	}
+	if err := eng.WriteClusterHome(); err != nil {
+		log.Fatalf("failed to write the cluster's artifacts: %v", err)
 	}
 	if err := eng.WriteGlobalReceipt(); err != nil {
 		log.Printf("warning: failed to write global receipt: %v", err)

@@ -1,6 +1,9 @@
 package engine
 
 import (
+	"encoding/json"
+	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 
@@ -87,11 +90,17 @@ func (e *Engine) Receipt() facts.Receipt {
 	if b == nil || b.snapshot == nil {
 		return facts.Receipt{}
 	}
-	r := b.snapshot.Meta.Receipt()
-	if len(b.members) < 2 {
+	return clusterReceipt(b.snapshot.Meta, b.members)
+}
+
+// clusterReceipt is meta's receipt, with a member entry per repository when members
+// holds several.
+func clusterReceipt(meta facts.SnapshotMeta, members map[string]facts.SnapshotMeta) facts.Receipt {
+	r := meta.Receipt()
+	if len(members) < 2 {
 		return r
 	}
-	for path, m := range b.members {
+	for path, m := range members {
 		label := m.RepoLabel
 		if label == "" {
 			label = filepath.Base(path)
@@ -115,4 +124,68 @@ func (e *Engine) Receipt() facts.Receipt {
 	}
 	sort.Slice(r.Members, func(i, j int) bool { return r.Members[i].Repo < r.Members[j].Repo })
 	return r
+}
+
+// memberPaths is every repository b holds, by absolute path, sorted. Both maps are
+// read: members is keyed by path, so two repositories that share a label are still
+// two, and repoPaths is all a graph restored from disk has.
+func (b *snapshotBundle) memberPaths() []string {
+	seen := map[string]bool{}
+	for _, abs := range b.repoPaths {
+		seen[abs] = true
+	}
+	for abs := range b.members {
+		seen[abs] = true
+	}
+	out := make([]string, 0, len(seen))
+	for abs := range seen {
+		out = append(out, abs)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// MembersMetaFile is the file in a cluster's directory holding each member's own
+// provenance: what each member's snapshot.meta.json said when members held a copy of
+// the union. Drift, restore labels and freshness read a member's entry here.
+const MembersMetaFile = "members.json"
+
+// writeMembersMeta writes b's member metas, sorted by path, into dir. The union
+// fields are the cluster's snapshot.meta.json's; each entry carries only the
+// member's own provenance.
+func writeMembersMeta(dir string, b *snapshotBundle) error {
+	paths := make([]string, 0, len(b.members))
+	for p := range b.members {
+		paths = append(paths, p)
+	}
+	sort.Strings(paths)
+	out := make([]facts.SnapshotMeta, 0, len(paths))
+	for _, p := range paths {
+		out = append(out, withMemberProvenance(facts.SnapshotMeta{}, b.members[p]))
+	}
+	data, err := json.MarshalIndent(out, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshaling %s: %w", MembersMetaFile, err)
+	}
+	if err := writeFileAtomic(filepath.Join(dir, MembersMetaFile), data, 0o644); err != nil {
+		return fmt.Errorf("writing %s: %w", MembersMetaFile, err)
+	}
+	return nil
+}
+
+// ReadMembersMeta reads a cluster directory's members.json, keyed by member path.
+func ReadMembersMeta(dir string) (map[string]facts.SnapshotMeta, error) {
+	data, err := os.ReadFile(filepath.Join(dir, MembersMetaFile))
+	if err != nil {
+		return nil, err
+	}
+	var list []facts.SnapshotMeta
+	if err := json.Unmarshal(data, &list); err != nil {
+		return nil, fmt.Errorf("reading %s: %w", MembersMetaFile, err)
+	}
+	out := make(map[string]facts.SnapshotMeta, len(list))
+	for _, m := range list {
+		out[m.RepoPath] = m
+	}
+	return out, nil
 }

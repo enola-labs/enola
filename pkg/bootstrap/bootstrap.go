@@ -215,6 +215,12 @@ func (e *Engine) WriteArtifacts(repoPath string) error {
 	return e.eng.WriteArtifacts(repoPath)
 }
 
+// WriteClusterHome writes a graph of several repositories to the cluster's own
+// directory; see engine.Engine.WriteClusterHome.
+func (e *Engine) WriteClusterHome() error {
+	return e.eng.WriteClusterHome()
+}
+
 // WriteGlobalReceipt refreshes the graph-wide receipt at ~/.enola/receipt.json
 // and this workspace's own copy under ~/.enola/graphs/.
 func (e *Engine) WriteGlobalReceipt() error {

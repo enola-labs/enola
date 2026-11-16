@@ -213,6 +213,9 @@ func (s *Server) registerGenerateSnapshotTool() {
 		if err := s.eng.WriteArtifacts(absRepo); err != nil {
 			log.Printf("[server] warning: failed to write artifacts: %v", err)
 		}
+		if err := s.eng.WriteClusterHome(); err != nil {
+			log.Printf("[server] warning: failed to write the cluster's artifacts: %v", err)
+		}
 		artifactsWritten(ctx, absRepo)
 
 		// Refresh the graph-wide receipt at ~/.enola/receipt.json (non-fatal).

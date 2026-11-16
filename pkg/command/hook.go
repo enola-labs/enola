@@ -427,6 +427,9 @@ func (r *Runner) pinBaselineSingleFlight(ctx context.Context, repoDir string, ag
 			return
 		}
 	}
+	if err := eng.WriteClusterHome(); err != nil {
+		return
+	}
 	if err := eng.SetBaseline(anchor); err != nil {
 		return
 	}

@@ -989,12 +989,47 @@ func (e *Engine) WriteArtifacts(repoPath string) error {
 	if b.snapshot == nil {
 		return fmt.Errorf("no snapshot generated")
 	}
-
 	absRepo, err := filepath.Abs(repoPath)
 	if err != nil {
 		return fmt.Errorf("resolving repo path: %w", err)
 	}
-	outDir := e.cfg.OutputDirFor(absRepo)
+	// A cluster shares one union and its hashes across every repository dir; the
+	// repository's own provenance (path, git, extractors, walk and parse counts) is
+	// the turn that read it, not the turn that happened to be last.
+	metaOf := func(union facts.SnapshotMeta) facts.SnapshotMeta {
+		if turn, ok := b.members[absRepo]; ok {
+			return withMemberProvenance(union, turn)
+		}
+		return union
+	}
+	return e.writeBundle(b, e.cfg.OutputDirFor(absRepo), metaOf, repoPath, absRepo)
+}
+
+// WriteClusterHome writes the published graph, when it holds several repositories,
+// to the cluster's own directory (config.GraphOutputDir): the union artifacts, the
+// union's meta and receipt, and members.json, each member's own provenance. A graph
+// of one repository has no such directory, and nothing is written.
+func (e *Engine) WriteClusterHome() error {
+	b := e.current.Load()
+	if b.snapshot == nil {
+		return fmt.Errorf("no snapshot generated")
+	}
+	members := b.memberPaths()
+	if len(members) < 2 {
+		return nil
+	}
+	dir := e.cfg.GraphOutputDir(members)
+	if err := e.writeBundle(b, dir, func(m facts.SnapshotMeta) facts.SnapshotMeta { return m }, "", ""); err != nil {
+		return err
+	}
+	return writeMembersMeta(dir, b)
+}
+
+// writeBundle writes b's artifacts into outDir. meta derives the meta written there
+// from the union's; recordRepo, when set, is the repository the revision is recorded
+// in the architecture history for (absRepo its absolute form).
+func (e *Engine) writeBundle(b *snapshotBundle, outDir string, metaOf func(facts.SnapshotMeta) facts.SnapshotMeta, repoPath, absRepo string) error {
+
 	defer lockDir(outDir)()
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
 		return fmt.Errorf("creating output dir: %w", err)
@@ -1065,15 +1100,9 @@ func (e *Engine) WriteArtifacts(repoPath string) error {
 	// Record the output hashes on a COPY of the meta rather than mutating the
 	// published (shared, immutable) snapshot in place. SnapshotMeta is a value type,
 	// so this copy shares its slices but overrides only OutputHashes.
-	// A cluster shares one union and its hashes across every repository dir; the
-	// repository's own provenance (path, git, extractors, walk and parse counts) is
-	// the turn that read it, not the turn that happened to be last.
 	unionMeta := b.snapshot.Meta
 	unionMeta.OutputHashes = outputHashes
-	meta := unionMeta
-	if turn, ok := b.members[absRepo]; ok {
-		meta = withMemberProvenance(unionMeta, turn)
-	}
+	meta := metaOf(unionMeta)
 
 	// Write snapshot.meta.json (the internal superset, incl. per-file hashes)
 	metaJSON, err := json.MarshalIndent(meta, "", "  ")
@@ -1087,7 +1116,13 @@ func (e *Engine) WriteArtifacts(repoPath string) error {
 	log.Printf("[engine] wrote %s (%d bytes)", metaPath, len(metaJSON))
 
 	// Write receipt.json (the compact provenance + quality manifest)
-	receiptJSON, err := json.MarshalIndent(meta.Receipt(), "", "  ")
+	// A cluster's own directory carries the cluster's receipt, a member entry each;
+	// a member's dir its own.
+	rcpt := meta.Receipt()
+	if repoPath == "" {
+		rcpt = clusterReceipt(meta, b.members)
+	}
+	receiptJSON, err := json.MarshalIndent(rcpt, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshaling receipt: %w", err)
 	}
@@ -1120,7 +1155,7 @@ func (e *Engine) WriteArtifacts(repoPath string) error {
 	// same requirement, satisfied by the strongest possible evidence, since the bytes
 	// come from the artifact itself. It also costs nothing when history blobs are off,
 	// which the previous arrangement could not manage.
-	if e.recordSnapshot != nil && b.snapshot != nil {
+	if e.recordSnapshot != nil && b.snapshot != nil && repoPath != "" {
 		members, priorDirs := clusterLayout(b, e.cfg.OutputDirFor, absRepo)
 		e.recordSnapshot(SnapshotRecord{
 			Members:     members,

@@ -268,6 +268,9 @@ func (r *Runner) Check(ctx context.Context, args []string) {
 				r.checkFatal("failed to write artifacts for %s: %v", repoPath, err)
 			}
 		}
+		if err := eng.WriteClusterHome(); err != nil {
+			r.checkFatal("failed to write the cluster's artifacts: %v", err)
+		}
 	}
 
 	snap := eng.Snapshot()
@@ -521,6 +524,9 @@ func (r *Runner) Baseline(args []string) {
 				if err := eng.WriteArtifacts(repoPath); err != nil {
 					r.checkFatal("failed to write artifacts for %s: %v", repoPath, err)
 				}
+			}
+			if err := eng.WriteClusterHome(); err != nil {
+				r.checkFatal("failed to write the cluster's artifacts: %v", err)
 			}
 		}
 		if err := eng.SetBaseline(anchor); err != nil {
