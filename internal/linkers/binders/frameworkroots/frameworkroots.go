@@ -360,13 +360,26 @@ func bindRepo(store *facts.Store, repo string) *repoRoots {
 		symbols[f.Name] = f
 		switch f.PropString("symbol_kind") {
 		case facts.SymbolClass, facts.SymbolInterface:
-			c := &class{name: f.Name, component: f.PropString("rails_component"), superclass: f.PropString("superclass"), mixins: map[string]bool{}, names: map[string]bool{}, classes: classes}
+			// A class reopened in another file (an app's extensions, gitlab's EE
+			// modules) is one class with every part's names. Kept as the last part
+			// read, it lost the rest: a reopening that does not repeat the superclass
+			// left the class unbound, and a callback the other part declares unseen.
+			c := classes[f.Name]
+			if c == nil {
+				c = &class{name: f.Name, mixins: map[string]bool{}, names: map[string]bool{}, classes: classes}
+				classes[f.Name] = c
+			}
+			if c.component == "" {
+				c.component = f.PropString("rails_component")
+			}
+			if c.superclass == "" {
+				c.superclass = f.PropString("superclass")
+			}
 			for _, r := range f.Relations {
 				if r.Kind == facts.RelNames {
 					c.names[r.Target] = true
 				}
 			}
-			classes[f.Name] = c
 		}
 	}
 	if len(symbols) == 0 {

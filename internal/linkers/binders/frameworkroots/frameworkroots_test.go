@@ -586,3 +586,20 @@ func TestBind_RepositoriesKeepTheirOwnNames(t *testing.T) {
 		}
 	}
 }
+
+// A class reopened in another file is one class: the part that names the superclass
+// and the part that registers a callback together make the callback a root, in either
+// order. Keeping the last part read lost one or the other.
+func TestBind_ReopenedClassIsOneClass(t *testing.T) {
+	declared := symbol("Order", facts.SymbolClass, "app/models/order.rb", map[string]any{"superclass": "ApplicationRecord"})
+	reopened := symbol("Order", facts.SymbolClass, "app/models/ee/order.rb", nil, names("audit")...)
+	audit := symbol("Order#audit", facts.SymbolMethod, "app/models/ee/order.rb", nil)
+	for _, order := range [][]facts.Fact{{declared, reopened, audit}, {reopened, declared, audit}} {
+		store := facts.NewStore()
+		store.Add(order...)
+		bind(t, store)
+		if got := propOf(store, facts.KindSymbol, "Order#audit", RootProp); got != MechanismCallback {
+			t.Errorf("Order#audit root = %q, want %q (parts in order %s, %s)", got, MechanismCallback, order[0].File, order[1].File)
+		}
+	}
+}
