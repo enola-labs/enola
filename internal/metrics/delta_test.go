@@ -84,13 +84,13 @@ func TestComputeDelta_FromStores(t *testing.T) {
 	const common = `{"kind":"module","name":"app/a","repo":"r"}
 {"kind":"module","name":"app/b","repo":"r"}
 {"kind":"module","name":"app/c","repo":"r"}
-{"kind":"symbol","name":"app/a.A","file":"app/a/a.go","props":{"symbol_kind":"struct"},"relations":[{"kind":"declares","target":"app/a"}]}
-{"kind":"symbol","name":"app/b.B","file":"app/b/b.go","props":{"symbol_kind":"struct"},"relations":[{"kind":"declares","target":"app/b"}]}
-{"kind":"symbol","name":"app/c.C","file":"app/c/c.go","props":{"symbol_kind":"struct"},"relations":[{"kind":"declares","target":"app/c"}]}
-{"kind":"dependency","name":"app/a -> app/b","file":"r/app/a/a.go","relations":[{"kind":"imports","target":"app/b"}]}
+{"kind":"symbol","repo":"r","name":"app/a.A","file":"app/a/a.go","props":{"symbol_kind":"struct"},"relations":[{"kind":"declares","target":"app/a"}]}
+{"kind":"symbol","repo":"r","name":"app/b.B","file":"app/b/b.go","props":{"symbol_kind":"struct"},"relations":[{"kind":"declares","target":"app/b"}]}
+{"kind":"symbol","repo":"r","name":"app/c.C","file":"app/c/c.go","props":{"symbol_kind":"struct"},"relations":[{"kind":"declares","target":"app/c"}]}
+{"kind":"dependency","repo":"r","name":"app/a -> app/b","file":"r/app/a/a.go","relations":[{"kind":"imports","target":"app/b"}]}
 `
 	base := storeFrom(t, common)
-	cur := storeFrom(t, common+`{"kind":"dependency","name":"app/a -> app/c","file":"r/app/a/a.go","relations":[{"kind":"imports","target":"app/c"}]}
+	cur := storeFrom(t, common+`{"kind":"dependency","repo":"r","name":"app/a -> app/c","file":"r/app/a/a.go","relations":[{"kind":"imports","target":"app/c"}]}
 `)
 	d := ComputeDelta(base, cur, nil)
 	byPkg := map[string]DeltaRow{}

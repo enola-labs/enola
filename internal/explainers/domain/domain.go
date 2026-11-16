@@ -141,8 +141,15 @@ func examinedPopulations(store *facts.Store) []facts.Insight {
 // the finding is framed as a change-risk concentration rather than as something
 // to fix, the way the cycles explainer learned to frame an autoloaded cluster.
 func modelHubs(store *facts.Store) []facts.Insight {
+	return eachRepo(store, modelHubsIn)
+}
+
+func modelHubsIn(store *facts.Store, repo string) []facts.Insight {
 	inbound := map[string][]string{}
 	for _, fact := range store.ByKind(facts.KindAssociation) {
+		if fact.Repo != repo {
+			continue
+		}
 		if macro, _ := fact.PropAny("macro").(string); macro == "inherits" {
 			continue
 		}
@@ -211,8 +218,15 @@ func modelHubs(store *facts.Store) []facts.Insight {
 // endpoint or a renamed class nobody finished renaming — both actionable, and
 // neither visible until routes carried handlers.
 func unresolvedHandlers(store *facts.Store) []facts.Insight {
+	return eachRepo(store, unresolvedHandlersIn)
+}
+
+func unresolvedHandlersIn(store *facts.Store, repo string) []facts.Insight {
 	controllers := map[string]bool{}
 	for _, fact := range store.ByKind(facts.KindSymbol) {
+		if fact.Repo != repo {
+			continue
+		}
 		if kind, _ := fact.PropAny("symbol_kind").(string); kind != facts.SymbolClass {
 			continue
 		}
@@ -224,6 +238,9 @@ func unresolvedHandlers(store *facts.Store) []facts.Insight {
 
 	missing := map[string][]string{}
 	for _, fact := range store.ByKind(facts.KindRoute) {
+		if fact.Repo != repo {
+			continue
+		}
 		handler, _ := fact.PropAny("handler").(string)
 		if handler == "" {
 			continue
@@ -302,8 +319,15 @@ func unresolvedHandlers(store *facts.Store) []facts.Insight {
 // an API resource and an admin resource over one table — but it is also how two
 // teams end up owning the same rows without either knowing.
 func tablesSharedAcrossNamespaces(store *facts.Store) []facts.Insight {
+	return eachRepo(store, tablesSharedIn)
+}
+
+func tablesSharedIn(store *facts.Store, repo string) []facts.Insight {
 	byTable := map[string][]string{}
 	for _, fact := range store.ByKind(facts.KindStorage) {
+		if fact.Repo != repo {
+			continue
+		}
 		if kind, _ := fact.PropAny("storage_kind").(string); kind != "model" {
 			continue
 		}
@@ -479,7 +503,11 @@ func outboundIntegrations(store *facts.Store) []facts.Insight {
 		byLabel map[string]facts.Fact
 		hints   map[string]bool
 	}
-	byComponent := map[string]*integration{}
+	// Per repository and component: two repositories of a cluster can have a package
+	// of the same path, and one finding for both took its evidence from whichever the
+	// store held first.
+	type componentKey struct{ repo, name string }
+	byComponent := map[componentKey]*integration{}
 
 	// The claim is that nothing here serves these, so it has to be checked
 	// rather than assumed. Without the check the inventory sweeps up the
@@ -514,10 +542,11 @@ func outboundIntegrations(store *facts.Store) []facts.Insight {
 		if component == "" {
 			continue
 		}
-		entry := byComponent[component]
+		key := componentKey{fact.Repo, component}
+		entry := byComponent[key]
 		if entry == nil {
 			entry = &integration{byLabel: map[string]facts.Fact{}, hints: map[string]bool{}}
-			byComponent[component] = entry
+			byComponent[key] = entry
 		}
 		label := strings.TrimSpace(method + " " + fact.Name)
 		entry.endpoints = append(entry.endpoints, label)
@@ -529,27 +558,31 @@ func outboundIntegrations(store *facts.Store) []facts.Insight {
 		}
 	}
 
-	components := make([]string, 0, len(byComponent))
-	for component := range byComponent {
-		if len(dedupeSorted(byComponent[component].endpoints)) < minOutboundCalls {
+	components := make([]componentKey, 0, len(byComponent))
+	for key := range byComponent {
+		if len(dedupeSorted(byComponent[key].endpoints)) < minOutboundCalls {
 			continue
 		}
-		components = append(components, component)
+		components = append(components, key)
 	}
 	sort.Slice(components, func(i, j int) bool {
 		a, b := byComponent[components[i]], byComponent[components[j]]
 		if len(a.endpoints) != len(b.endpoints) {
 			return len(a.endpoints) > len(b.endpoints)
 		}
-		return components[i] < components[j]
+		if components[i].name != components[j].name {
+			return components[i].name < components[j].name
+		}
+		return components[i].repo < components[j].repo
 	})
 	if len(components) > maxOutbound {
 		components = components[:maxOutbound]
 	}
 
 	var out []facts.Insight
-	for _, component := range components {
-		entry := byComponent[component]
+	for _, key := range components {
+		component := key.name
+		entry := byComponent[key]
 		endpoints := dedupeSorted(entry.endpoints)
 		named := ""
 		if hints := sortedSet(entry.hints); len(hints) > 0 {
@@ -603,5 +636,27 @@ func sortedSet(set map[string]bool) []string {
 		out = append(out, key)
 	}
 	sort.Strings(out)
+	return out
+}
+
+// eachRepo runs find over every repository's facts on its own, in repository order.
+// Models, controllers and tables are an application's: two Rails apps in one cluster
+// both have a User, a users table and an AccountsController, and taken together one
+// app's associations were counted toward the other's hubs, one's controllers hid the
+// other's missing ones, and one table in two apps read as shared across namespaces.
+func eachRepo(store *facts.Store, find func(*facts.Store, string) []facts.Insight) []facts.Insight {
+	set := map[string]bool{"": true} // facts no repository label was put on
+	for _, l := range store.RepoLabels() {
+		set[l] = true
+	}
+	repos := make([]string, 0, len(set))
+	for r := range set {
+		repos = append(repos, r)
+	}
+	sort.Strings(repos)
+	var out []facts.Insight
+	for _, r := range repos {
+		out = append(out, find(store, r)...)
+	}
 	return out
 }

@@ -2,6 +2,7 @@ package metrics
 
 import (
 	"math"
+	"sort"
 	"strings"
 	"testing"
 
@@ -28,14 +29,14 @@ func TestIsGeneratedPath(t *testing.T) {
 func TestCollectExcludesGeneratedPackages(t *testing.T) {
 	jsonl := `{"kind":"module","name":"app/domain","repo":"r"}
 {"kind":"module","name":"data/build/kspCaches/gen","repo":"r"}
-{"kind":"symbol","name":"app/domain.Course","file":"app/domain/course.go","props":{"symbol_kind":"struct"},"relations":[{"kind":"declares","target":"app/domain"}]}
-{"kind":"symbol","name":"data/build/kspCaches/gen.Backup","file":"data/build/kspCaches/gen/b.kt","props":{"symbol_kind":"class"},"relations":[{"kind":"declares","target":"data/build/kspCaches/gen"}]}
+{"kind":"symbol","repo":"r","name":"app/domain.Course","file":"app/domain/course.go","props":{"symbol_kind":"struct"},"relations":[{"kind":"declares","target":"app/domain"}]}
+{"kind":"symbol","repo":"r","name":"data/build/kspCaches/gen.Backup","file":"data/build/kspCaches/gen/b.kt","props":{"symbol_kind":"class"},"relations":[{"kind":"declares","target":"data/build/kspCaches/gen"}]}
 `
 	store := facts.NewStore()
 	if err := store.ReadJSONL(strings.NewReader(jsonl)); err != nil {
 		t.Fatalf("ReadJSONL: %v", err)
 	}
-	pkgs, _, _ := collect(store)
+	pkgs, _, _ := collectAll(store)
 	for _, p := range pkgs {
 		if mcputil.IsGeneratedPath(p.Name) {
 			t.Errorf("generated package leaked into metrics: %q", p.Name)
@@ -56,16 +57,16 @@ func TestCollectExcludesNonProductionRoles(t *testing.T) {
 {"kind":"module","name":"Scripts/Localizations","repo":"r","props":{"module_role":"tooling"}}
 {"kind":"module","name":"Tests/Core","repo":"r","props":{"module_role":"test"}}
 {"kind":"module","name":"Sources/Legacy","repo":"r"}
-{"kind":"symbol","name":"Sources/Core.Thing","file":"Sources/Core/t.swift","props":{"symbol_kind":"class"},"relations":[{"kind":"declares","target":"Sources/Core"}]}
-{"kind":"symbol","name":"Tests/Core.ThingTests","file":"Tests/Core/t.swift","props":{"symbol_kind":"class"},"relations":[{"kind":"declares","target":"Tests/Core"}]}
-{"kind":"dependency","name":"Sources/Feature -> Core","file":"r/Sources/Feature/f.swift","relations":[{"kind":"imports","target":"Sources/Core"}]}
-{"kind":"dependency","name":"Tests/Core -> Core","file":"r/Tests/Core/t.swift","relations":[{"kind":"imports","target":"Sources/Core"}]}
+{"kind":"symbol","repo":"r","name":"Sources/Core.Thing","file":"Sources/Core/t.swift","props":{"symbol_kind":"class"},"relations":[{"kind":"declares","target":"Sources/Core"}]}
+{"kind":"symbol","repo":"r","name":"Tests/Core.ThingTests","file":"Tests/Core/t.swift","props":{"symbol_kind":"class"},"relations":[{"kind":"declares","target":"Tests/Core"}]}
+{"kind":"dependency","repo":"r","name":"Sources/Feature -> Core","file":"r/Sources/Feature/f.swift","relations":[{"kind":"imports","target":"Sources/Core"}]}
+{"kind":"dependency","repo":"r","name":"Tests/Core -> Core","file":"r/Tests/Core/t.swift","relations":[{"kind":"imports","target":"Sources/Core"}]}
 `
 	store := facts.NewStore()
 	if err := store.ReadJSONL(strings.NewReader(jsonl)); err != nil {
 		t.Fatalf("ReadJSONL: %v", err)
 	}
-	pkgs, edges, excluded := collect(store)
+	pkgs, edges, excluded := collectAll(store)
 	if len(excluded) != 2 {
 		t.Errorf("excluded count: got %d want 2 (Tests/Core + Scripts/Localizations)", len(excluded))
 	}
@@ -101,15 +102,15 @@ func TestCollectExcludesUntaggedTestPaths(t *testing.T) {
 	jsonl := `{"kind":"module","name":"airflow/models","repo":"r","props":{"language":"python"}}
 {"kind":"module","name":"devel-common/src/tests_common/test_utils","repo":"r","props":{"language":"python"}}
 {"kind":"module","name":"airflow-e2e-tests/tests/e2e_test_utils","repo":"r","props":{"language":"python"}}
-{"kind":"symbol","name":"airflow/models.DagModel","file":"airflow/models/dag.py","props":{"symbol_kind":"class","language":"python"},"relations":[{"kind":"declares","target":"airflow/models"}]}
-{"kind":"symbol","name":"tu.Helper","file":"devel-common/src/tests_common/test_utils/h.py","props":{"symbol_kind":"class","language":"python"},"relations":[{"kind":"declares","target":"devel-common/src/tests_common/test_utils"}]}
-{"kind":"dependency","name":"devel-common/src/tests_common/test_utils/h -> airflow.models","file":"r/devel-common/src/tests_common/test_utils/h.py","relations":[{"kind":"imports","target":"airflow/models"}]}
+{"kind":"symbol","repo":"r","name":"airflow/models.DagModel","file":"airflow/models/dag.py","props":{"symbol_kind":"class","language":"python"},"relations":[{"kind":"declares","target":"airflow/models"}]}
+{"kind":"symbol","repo":"r","name":"tu.Helper","file":"devel-common/src/tests_common/test_utils/h.py","props":{"symbol_kind":"class","language":"python"},"relations":[{"kind":"declares","target":"devel-common/src/tests_common/test_utils"}]}
+{"kind":"dependency","repo":"r","name":"devel-common/src/tests_common/test_utils/h -> airflow.models","file":"r/devel-common/src/tests_common/test_utils/h.py","relations":[{"kind":"imports","target":"airflow/models"}]}
 `
 	store := facts.NewStore()
 	if err := store.ReadJSONL(strings.NewReader(jsonl)); err != nil {
 		t.Fatalf("ReadJSONL: %v", err)
 	}
-	pkgs, edges, excluded := collect(store)
+	pkgs, edges, excluded := collectAll(store)
 	if len(excluded) != 2 {
 		t.Errorf("excluded count: got %d want 2 (both untagged test-path modules)", len(excluded))
 	}
@@ -236,14 +237,14 @@ func TestCollectResolvesFromSideToModule(t *testing.T) {
 {"kind":"module","name":"pkg/b","repo":"r"}
 {"kind":"module","name":"gopkg","repo":"r"}
 {"kind":"module","name":"gopkg2","repo":"r"}
-{"kind":"dependency","name":"pkg/a/file -> b.thing","file":"r/pkg/a/file.py","relations":[{"kind":"imports","target":"pkg/b"}]}
-{"kind":"dependency","name":"gopkg -> example.com/x","file":"r/gopkg/x.go","relations":[{"kind":"imports","target":"gopkg2"}]}
+{"kind":"dependency","repo":"r","name":"pkg/a/file -> b.thing","file":"r/pkg/a/file.py","relations":[{"kind":"imports","target":"pkg/b"}]}
+{"kind":"dependency","repo":"r","name":"gopkg -> example.com/x","file":"r/gopkg/x.go","relations":[{"kind":"imports","target":"gopkg2"}]}
 `
 	store := facts.NewStore()
 	if err := store.ReadJSONL(strings.NewReader(jsonl)); err != nil {
 		t.Fatalf("ReadJSONL: %v", err)
 	}
-	_, edges, _ := collect(store)
+	_, edges, _ := collectAll(store)
 	want := map[string]string{"pkg/a": "pkg/b", "gopkg": "gopkg2"}
 	got := make(map[string]string)
 	for _, e := range edges {
@@ -264,15 +265,15 @@ func TestCollectResolvesFromSideToModule(t *testing.T) {
 // and symbol_kind=interface still does too.
 func TestCollectCountsAbstractProp(t *testing.T) {
 	jsonl := `{"kind":"module","name":"p","repo":"r"}
-{"kind":"symbol","name":"p.Concrete","file":"p/c.py","props":{"symbol_kind":"class"},"relations":[{"kind":"declares","target":"p"}]}
-{"kind":"symbol","name":"p.AbstractBase","file":"p/a.py","props":{"symbol_kind":"class","abstract":true},"relations":[{"kind":"declares","target":"p"}]}
-{"kind":"symbol","name":"p.Iface","file":"p/i.go","props":{"symbol_kind":"interface"},"relations":[{"kind":"declares","target":"p"}]}
+{"kind":"symbol","repo":"r","name":"p.Concrete","file":"p/c.py","props":{"symbol_kind":"class"},"relations":[{"kind":"declares","target":"p"}]}
+{"kind":"symbol","repo":"r","name":"p.AbstractBase","file":"p/a.py","props":{"symbol_kind":"class","abstract":true},"relations":[{"kind":"declares","target":"p"}]}
+{"kind":"symbol","repo":"r","name":"p.Iface","file":"p/i.go","props":{"symbol_kind":"interface"},"relations":[{"kind":"declares","target":"p"}]}
 `
 	store := facts.NewStore()
 	if err := store.ReadJSONL(strings.NewReader(jsonl)); err != nil {
 		t.Fatalf("ReadJSONL: %v", err)
 	}
-	pkgs, _, _ := collect(store)
+	pkgs, _, _ := collectAll(store)
 	if len(pkgs) != 1 {
 		t.Fatalf("expected 1 package, got %+v", pkgs)
 	}
@@ -291,16 +292,16 @@ func TestCollectCountsAbstractProp(t *testing.T) {
 // (abstract:true) and a Go interface (no prop) count as abstract.
 func TestCollectAbstractPropDemotesInterface(t *testing.T) {
 	jsonl := `{"kind":"module","name":"p","repo":"r"}
-{"kind":"symbol","name":"p.Namespace","file":"p/n.rb","props":{"symbol_kind":"interface","abstract":false},"relations":[{"kind":"declares","target":"p"}]}
-{"kind":"symbol","name":"p.Mixin","file":"p/m.rb","props":{"symbol_kind":"interface","abstract":true},"relations":[{"kind":"declares","target":"p"}]}
-{"kind":"symbol","name":"p.Iface","file":"p/i.go","props":{"symbol_kind":"interface"},"relations":[{"kind":"declares","target":"p"}]}
-{"kind":"symbol","name":"p.Model","file":"p/o.rb","props":{"symbol_kind":"class"},"relations":[{"kind":"declares","target":"p"}]}
+{"kind":"symbol","repo":"r","name":"p.Namespace","file":"p/n.rb","props":{"symbol_kind":"interface","abstract":false},"relations":[{"kind":"declares","target":"p"}]}
+{"kind":"symbol","repo":"r","name":"p.Mixin","file":"p/m.rb","props":{"symbol_kind":"interface","abstract":true},"relations":[{"kind":"declares","target":"p"}]}
+{"kind":"symbol","repo":"r","name":"p.Iface","file":"p/i.go","props":{"symbol_kind":"interface"},"relations":[{"kind":"declares","target":"p"}]}
+{"kind":"symbol","repo":"r","name":"p.Model","file":"p/o.rb","props":{"symbol_kind":"class"},"relations":[{"kind":"declares","target":"p"}]}
 `
 	store := facts.NewStore()
 	if err := store.ReadJSONL(strings.NewReader(jsonl)); err != nil {
 		t.Fatalf("ReadJSONL: %v", err)
 	}
-	pkgs, _, _ := collect(store)
+	pkgs, _, _ := collectAll(store)
 	if len(pkgs) != 1 {
 		t.Fatalf("expected 1 package, got %+v", pkgs)
 	}
@@ -320,17 +321,17 @@ func TestCollectAbstractPropDemotesInterface(t *testing.T) {
 func TestCollectExcludesEnumAndDIFromN(t *testing.T) {
 	jsonl := `{"kind":"module","name":"app/model","repo":"r"}
 {"kind":"module","name":"app/di","repo":"r"}
-{"kind":"symbol","name":"app/model.User","props":{"symbol_kind":"class","data_class":true},"relations":[{"kind":"declares","target":"app/model"}]}
-{"kind":"symbol","name":"app/model.Plain","props":{"symbol_kind":"class"},"relations":[{"kind":"declares","target":"app/model"}]}
-{"kind":"symbol","name":"app/model.Status","props":{"symbol_kind":"class","enum":true},"relations":[{"kind":"declares","target":"app/model"}]}
-{"kind":"symbol","name":"app/di.AppComponent","props":{"symbol_kind":"interface","di_component":true},"relations":[{"kind":"declares","target":"app/di"}]}
-{"kind":"symbol","name":"app/di.NetModule","props":{"symbol_kind":"class","di_module":true},"relations":[{"kind":"declares","target":"app/di"}]}
+{"kind":"symbol","repo":"r","name":"app/model.User","props":{"symbol_kind":"class","data_class":true},"relations":[{"kind":"declares","target":"app/model"}]}
+{"kind":"symbol","repo":"r","name":"app/model.Plain","props":{"symbol_kind":"class"},"relations":[{"kind":"declares","target":"app/model"}]}
+{"kind":"symbol","repo":"r","name":"app/model.Status","props":{"symbol_kind":"class","enum":true},"relations":[{"kind":"declares","target":"app/model"}]}
+{"kind":"symbol","repo":"r","name":"app/di.AppComponent","props":{"symbol_kind":"interface","di_component":true},"relations":[{"kind":"declares","target":"app/di"}]}
+{"kind":"symbol","repo":"r","name":"app/di.NetModule","props":{"symbol_kind":"class","di_module":true},"relations":[{"kind":"declares","target":"app/di"}]}
 `
 	store := facts.NewStore()
 	if err := store.ReadJSONL(strings.NewReader(jsonl)); err != nil {
 		t.Fatalf("ReadJSONL: %v", err)
 	}
-	pkgs, _, _ := collect(store)
+	pkgs, _, _ := collectAll(store)
 	m := byName(compute(pkgs, nil))
 
 	if got := m["app/model"].ClassesInterfaces; got != 2 {
@@ -353,17 +354,17 @@ func TestCollectExcludesTSInterfaceFromN(t *testing.T) {
 	jsonl := `{"kind":"module","name":"ui/types","repo":"r"}
 {"kind":"module","name":"ui/svc","repo":"r"}
 {"kind":"module","name":"go/pkg","repo":"r"}
-{"kind":"symbol","name":"ui/types.Props","props":{"symbol_kind":"interface","language":"typescript"},"relations":[{"kind":"declares","target":"ui/types"}]}
-{"kind":"symbol","name":"ui/types.UserId","props":{"symbol_kind":"type","language":"typescript"},"relations":[{"kind":"declares","target":"ui/types"}]}
-{"kind":"symbol","name":"ui/svc.BaseService","props":{"symbol_kind":"class","abstract":true,"language":"typescript"},"relations":[{"kind":"declares","target":"ui/svc"}]}
-{"kind":"symbol","name":"ui/svc.Concrete","props":{"symbol_kind":"class","language":"typescript"},"relations":[{"kind":"declares","target":"ui/svc"}]}
-{"kind":"symbol","name":"go/pkg.Reader","props":{"symbol_kind":"interface","language":"go"},"relations":[{"kind":"declares","target":"go/pkg"}]}
+{"kind":"symbol","repo":"r","name":"ui/types.Props","props":{"symbol_kind":"interface","language":"typescript"},"relations":[{"kind":"declares","target":"ui/types"}]}
+{"kind":"symbol","repo":"r","name":"ui/types.UserId","props":{"symbol_kind":"type","language":"typescript"},"relations":[{"kind":"declares","target":"ui/types"}]}
+{"kind":"symbol","repo":"r","name":"ui/svc.BaseService","props":{"symbol_kind":"class","abstract":true,"language":"typescript"},"relations":[{"kind":"declares","target":"ui/svc"}]}
+{"kind":"symbol","repo":"r","name":"ui/svc.Concrete","props":{"symbol_kind":"class","language":"typescript"},"relations":[{"kind":"declares","target":"ui/svc"}]}
+{"kind":"symbol","repo":"r","name":"go/pkg.Reader","props":{"symbol_kind":"interface","language":"go"},"relations":[{"kind":"declares","target":"go/pkg"}]}
 `
 	store := facts.NewStore()
 	if err := store.ReadJSONL(strings.NewReader(jsonl)); err != nil {
 		t.Fatalf("ReadJSONL: %v", err)
 	}
-	pkgs, _, _ := collect(store)
+	pkgs, _, _ := collectAll(store)
 	m := byName(compute(pkgs, nil))
 
 	// TS interface + TS type alias both excluded → type-less.
@@ -815,15 +816,15 @@ func TestLooksNonProduction_CoversTheTestPathSet(t *testing.T) {
 // there were DTO, constant and attribute packages told to extract interfaces.
 func TestCollectCountsStructuralDataHolders(t *testing.T) {
 	jsonl := `{"kind":"module","name":"Api/Models/UserDtos","repo":"r"}
-{"kind":"symbol","name":"Api/Models/UserDtos.UserDto","props":{"symbol_kind":"class","data_holder":true,"language":"csharp"},"relations":[{"kind":"declares","target":"Api/Models/UserDtos"}]}
-{"kind":"symbol","name":"Api/Models/UserDtos.NameDto","props":{"symbol_kind":"class","data_holder":true,"language":"csharp"},"relations":[{"kind":"declares","target":"Api/Models/UserDtos"}]}
-{"kind":"symbol","name":"Api/Models/UserDtos.Mapper","props":{"symbol_kind":"class","language":"csharp"},"relations":[{"kind":"declares","target":"Api/Models/UserDtos"}]}
+{"kind":"symbol","repo":"r","name":"Api/Models/UserDtos.UserDto","props":{"symbol_kind":"class","data_holder":true,"language":"csharp"},"relations":[{"kind":"declares","target":"Api/Models/UserDtos"}]}
+{"kind":"symbol","repo":"r","name":"Api/Models/UserDtos.NameDto","props":{"symbol_kind":"class","data_holder":true,"language":"csharp"},"relations":[{"kind":"declares","target":"Api/Models/UserDtos"}]}
+{"kind":"symbol","repo":"r","name":"Api/Models/UserDtos.Mapper","props":{"symbol_kind":"class","language":"csharp"},"relations":[{"kind":"declares","target":"Api/Models/UserDtos"}]}
 `
 	store := facts.NewStore()
 	if err := store.ReadJSONL(strings.NewReader(jsonl)); err != nil {
 		t.Fatalf("ReadJSONL: %v", err)
 	}
-	pkgs, _, _ := collect(store)
+	pkgs, _, _ := collectAll(store)
 	m := byName(compute(pkgs, nil))
 
 	if got := m["Api/Models/UserDtos"].ClassesInterfaces; got != 3 {
@@ -1011,5 +1012,67 @@ func TestMostDependedUpon_TieIsDeterministic(t *testing.T) {
 	}
 	if !strings.Contains(first, "common/data (") {
 		t.Fatalf("got %q, want the lexically first package", first)
+	}
+}
+
+// collectAll is collect over every repository in store, concatenated, for tests that
+// look at the packages and edges themselves.
+func collectAll(store *facts.Store) ([]pkgInput, []importEdge, []string) {
+	repoSet := map[string]bool{}
+	for f := range store.OfKind(facts.KindModule) {
+		repoSet[f.Repo] = true
+	}
+	repos := make([]string, 0, len(repoSet))
+	for r := range repoSet {
+		repos = append(repos, r)
+	}
+	sort.Strings(repos)
+	var pkgs []pkgInput
+	var edges []importEdge
+	var excluded []string
+	for _, r := range repos {
+		p, e, x := collect(store, r)
+		pkgs, edges, excluded = append(pkgs, p...), append(edges, e...), append(excluded, x...)
+	}
+	return pkgs, edges, excluded
+}
+
+// Two repositories of a cluster both have an app and an app/models. Each gets its
+// own numbers, whichever is read first; computed together they were one package,
+// labelled with the first repository, and the other got none.
+func TestComputeAll_RepositoriesKeepTheirOwnPackages(t *testing.T) {
+	repo := func(r string, importsModels bool) string {
+		out := `{"kind":"module","name":"app","repo":"` + r + `"}
+{"kind":"module","name":"app/models","repo":"` + r + `"}
+{"kind":"symbol","name":"app.Ctl","repo":"` + r + `","props":{"symbol_kind":"class"},"relations":[{"kind":"declares","target":"app"}]}
+{"kind":"symbol","name":"app/models.User","repo":"` + r + `","props":{"symbol_kind":"class"},"relations":[{"kind":"declares","target":"app/models"}]}
+`
+		if importsModels {
+			out += `{"kind":"dependency","name":"app -> app/models","repo":"` + r + `","relations":[{"kind":"imports","target":"app/models"}]}
+`
+		}
+		return out
+	}
+	for _, jsonl := range []string{repo("shop", true) + repo("admin", false), repo("admin", false) + repo("shop", true)} {
+		store := facts.NewStore()
+		if err := store.ReadJSONL(strings.NewReader(jsonl)); err != nil {
+			t.Fatal(err)
+		}
+		got := map[string]PackageMetric{}
+		for _, m := range Compute(store) {
+			got[m.Repo+" "+m.Package] = m
+		}
+		if len(got) != 4 {
+			t.Fatalf("want 4 packages, two per repository: %v", got)
+		}
+		if m := got["shop app"]; m.Ce != 1 {
+			t.Errorf("shop app Ce = %d, want 1", m.Ce)
+		}
+		if m := got["admin app"]; m.Ce != 0 {
+			t.Errorf("admin app Ce = %d, want 0: it took shop's import", m.Ce)
+		}
+		if m := got["admin app/models"]; m.Ca != 0 {
+			t.Errorf("admin app/models Ca = %d, want 0", m.Ca)
+		}
 	}
 }

@@ -170,11 +170,41 @@ func round3(f float64) float64 {
 // caller narrows). It is exported for the dashboard's Package Metrics panel, which
 // scores the live store rather than going through the tool.
 func Compute(store *facts.Store) []PackageMetric {
-	pkgs, edges, _ := collect(store)
-	return compute(pkgs, edges)
+	metrics, _ := computeAll(store)
+	return metrics
 }
 
-func collect(store *facts.Store) ([]pkgInput, []importEdge, []string) {
+// computeAll computes every repository's packages on their own, in repository order,
+// and returns them with the modules left out as test or tooling code. Package names
+// are a repository's: src, app/models, config and . recur across the repositories of
+// a cluster, and computed together they merged into one package, labelled with
+// whichever repository came first in the store, so the numbers moved with the
+// members' order and the others got none.
+func computeAll(store *facts.Store) ([]PackageMetric, []string) {
+	if store == nil {
+		return nil, nil
+	}
+	repoSet := map[string]bool{}
+	for f := range store.OfKind(facts.KindModule) {
+		repoSet[f.Repo] = true
+	}
+	repos := make([]string, 0, len(repoSet))
+	for r := range repoSet {
+		repos = append(repos, r)
+	}
+	sort.Strings(repos)
+	var metrics []PackageMetric
+	var excluded []string
+	for _, repo := range repos {
+		pkgs, edges, ex := collect(store, repo)
+		metrics = append(metrics, compute(pkgs, edges)...)
+		excluded = append(excluded, ex...)
+	}
+	return metrics, excluded
+}
+
+// collect reads repository repo's packages and the imports between them.
+func collect(store *facts.Store, repo string) ([]pkgInput, []importEdge, []string) {
 	// A dashboard renders before the first snapshot is generated, and the whole page
 	// is written to degrade to a note rather than fail. The sibling readers on that
 	// page (coverageDetails, graphDetails) all guard the same way.
@@ -201,7 +231,7 @@ func collect(store *facts.Store) ([]pkgInput, []importEdge, []string) {
 	// exclusions that match the caller's filter instead of the repo-wide total.
 	excludedNames := make([]string, 0)
 	for f := range store.OfKind(facts.KindModule) {
-		if mcputil.IsGeneratedPath(facts.ModulePath(f)) {
+		if f.Repo != repo || mcputil.IsGeneratedPath(facts.ModulePath(f)) {
 			continue
 		}
 		role, _ := f.PropAny(propModuleRole).(string)
@@ -235,6 +265,9 @@ func collect(store *facts.Store) ([]pkgInput, []importEdge, []string) {
 	// CanonicalSymbols collapses #if/#else duplicates so a type declared once per
 	// branch is not counted twice toward N; genuine overloads are preserved.
 	for _, f := range facts.CanonicalSymbols(store.ByKind(facts.KindSymbol)) {
+		if f.Repo != repo {
+			continue
+		}
 		sk, _ := f.PropAny(propSymbolKind).(string)
 		if sk != facts.SymbolStruct && sk != facts.SymbolClass && sk != facts.SymbolInterface {
 			continue
@@ -337,6 +370,9 @@ func collect(store *facts.Store) ([]pkgInput, []importEdge, []string) {
 	// known module; external/stdlib targets simply do not and are dropped.
 	edges := make([]importEdge, 0)
 	for f := range store.OfKind(facts.KindDependency) {
+		if f.Repo != repo {
+			continue
+		}
 		fromRaw := importerOf(f.Name)
 		if fromRaw == "" {
 			continue
@@ -585,8 +621,7 @@ func Register(srv *mcp.Server, store func() *facts.Store) {
 			return mcputil.ErrorResult("No facts available. Run generate_snapshot first."), nil, nil
 		}
 
-		pkgs, edges, excluded := collect(store())
-		population := compute(pkgs, edges)
+		population, excluded := computeAll(store())
 
 		// Filter FIRST. `total` used to be captured here, before filterMetrics ran, and
 		// was then returned as the JSON `total` beside a filtered `returned` — the same
@@ -974,8 +1009,8 @@ type Summary struct {
 // Summarize computes the aggregate health numbers over the whole store, using the
 // same collect/compute core as the package_metrics tool so the two agree.
 func Summarize(store *facts.Store) Summary {
-	pkgs, edges, excluded := collect(store)
-	agg := aggregateMetrics(compute(pkgs, edges))
+	metrics, excluded := computeAll(store)
+	agg := aggregateMetrics(metrics)
 	return Summary{
 		Analyzed:            agg.analyzed,
 		Typeless:            agg.typeless,

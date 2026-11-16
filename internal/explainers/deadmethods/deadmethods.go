@@ -269,8 +269,21 @@ func candidates(store *facts.Store) (uncalled, testOnly []candidate) {
 			testOnly = append(testOnly, c)
 		}
 	}
-	sort.Slice(uncalled, func(i, j int) bool { return uncalled[i].name < uncalled[j].name })
-	sort.Slice(testOnly, func(i, j int) bool { return testOnly[i].name < testOnly[j].name })
+	// By name, then repository and file: two repositories of a cluster can both have
+	// the method, and a tie left in store order moved with the members' order.
+	byName := func(cs []candidate) func(i, j int) bool {
+		return func(i, j int) bool {
+			if cs[i].name != cs[j].name {
+				return cs[i].name < cs[j].name
+			}
+			if cs[i].repo != cs[j].repo {
+				return cs[i].repo < cs[j].repo
+			}
+			return cs[i].file < cs[j].file
+		}
+	}
+	sort.Slice(uncalled, byName(uncalled))
+	sort.Slice(testOnly, byName(testOnly))
 	return uncalled, testOnly
 }
 

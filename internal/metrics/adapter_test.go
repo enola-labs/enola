@@ -23,7 +23,7 @@ func TestCollectAgainstBundledSnapshot(t *testing.T) {
 		t.Fatalf("loading facts: %v", err)
 	}
 
-	pkgs, edges, _ := collect(store)
+	pkgs, edges, _ := collectAll(store)
 	if len(pkgs) == 0 {
 		t.Fatal("expected packages from a real snapshot, got none")
 	}
