@@ -93,6 +93,7 @@ func main() {
 	noDashboard := false
 	noCluster := false  // index a folder of repositories as one repository
 	noParallel := false // extract and explain one at a time, for less memory
+	forceMode := false  // regenerate even when nothing changed since the last generate
 	cfgPath := "mcp-arch.yaml"
 	repoArg := "" // optional positional repo path, for --explain and --generate
 
@@ -162,6 +163,8 @@ func main() {
 			noCluster = true
 		case "--no-parallel":
 			noParallel = true
+		case "--force":
+			forceMode = true
 		default:
 			// The positional argument is a REPOSITORY when it names a directory and a
 			// CONFIG FILE when it names a file, so both `--explain /path/to/repo` and
@@ -297,6 +300,11 @@ func main() {
 		// writing it. Started before the snapshot rather than after, so the check has the
 		// whole run to complete and the notice can be current on this run, not the next.
 		command.SpawnUpdateRefresh()
+
+		// Nothing to do when the graph on disk is what this run would write.
+		if !forceMode && graphUnchanged(eng, repoPaths, repoArg, cfgPath) {
+			os.Exit(0)
+		}
 
 		// One linked graph over every repository, linked, explained and published
 		// once, over the whole union. See engine.Engine.GenerateCluster.
@@ -636,4 +644,31 @@ func runRefresh(ctx context.Context, eng *bootstrap.Engine, cfg *config.Config, 
 	if cli.ShowDashboardHint(os.Stderr) {
 		printDashboardHint(os.Stderr, repoArg, cfg.SourcePath)
 	}
+}
+
+// graphUnchanged reports whether the graph on disk is what generating repoPaths would
+// write now (every repository at the same commit with the same files, under the same
+// build and config), saying so when it is and why not when a graph was there. The
+// check reads only the files whose size and time do not settle it, so on a large
+// cluster it takes seconds where a generate takes minutes.
+func graphUnchanged(eng *bootstrap.Engine, repoPaths []string, repoArg, cfgPath string) bool {
+	start := time.Now()
+	u := eng.CheckUnchanged(repoPaths)
+	took := time.Since(start).Round(time.Millisecond)
+	if !u.Same {
+		if u.GeneratedAt != "" {
+			fmt.Fprintf(os.Stderr, "Generating: %s (checked in %s)\n", u.Reason, took)
+		}
+		return false
+	}
+	log.Printf("[generate] unchanged: %d repositories checked in %s, %d files read", u.Checked, took, u.Read)
+	fmt.Fprintf(os.Stderr, "\nSnapshot unchanged:\n")
+	fmt.Fprintf(os.Stderr, "  Repositories: %d, checked in %s\n", u.Checked, took)
+	fmt.Fprintf(os.Stderr, "  Generated:   %s\n", u.GeneratedAt)
+	fmt.Fprintf(os.Stderr, "  Output:      %s\n", u.Dir)
+	fmt.Fprintf(os.Stderr, "  Nothing changed since; pass --force to generate again anyway.\n")
+	if cli.ShowDashboardHint(os.Stderr) {
+		printDashboardHint(os.Stderr, repoArg, cfgPath)
+	}
+	return true
 }

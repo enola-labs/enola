@@ -52,6 +52,7 @@ type snapshotRun struct {
 	files, testFiles, allNames []string
 	skips                      walkSkips
 	hashes                     map[string]string
+	stats                      map[string]fileStat // each hashed file's size and time when read
 
 	// Set by extract. preCount is where this repository's facts begin in the store.
 	preCount       int
@@ -311,7 +312,7 @@ func (e *Engine) walk(r *snapshotRun) error {
 
 	// 2. Compute file hashes (for snapshot metadata)
 	tStage = time.Now()
-	r.hashes = e.computeFileHashes(r.ctx, r.srcRoot, r.files)
+	r.hashes, r.stats = e.hashFilesWithStat(r.ctx, r.srcRoot, r.files)
 	r.t.hash = time.Since(tStage)
 	if err := r.ctx.Err(); err != nil {
 		return err
@@ -444,7 +445,7 @@ func (e *Engine) holdDeferred(r *snapshotRun) *facts.Snapshot {
 			Duration:           duration.String(),
 			Extractors:         r.usedExtractors,
 			Renderers:          []string{},
-			FileHashes:         fileHashesOf(r.absRepo, r.hashes),
+			FileHashes:         fileHashesOf(r.hashes, r.stats),
 			FactCount:          e.store.Count(),
 			EnolaVersion:       version.Version,
 			ExtractorVersion:   cacheVersion,
@@ -514,7 +515,7 @@ func (e *Engine) explain(r *snapshotRun) ([]facts.Insight, []string, error) {
 // buildSnapshot assembles the snapshot and its metadata, the receipt included.
 func (e *Engine) buildSnapshot(r *snapshotRun, allInsights []facts.Insight, usedExplainers []string) (*facts.Snapshot, error) {
 	// 5. Build file hashes for the snapshot meta
-	fileHashes := fileHashesOf(r.absRepo, r.hashes)
+	fileHashes := fileHashesOf(r.hashes, r.stats)
 
 	// 6. Build snapshot.
 	//

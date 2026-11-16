@@ -79,6 +79,15 @@ move it. A `cluster.yaml` enola writes also records it as `output.cluster_dir`. 
 goes to `<root>/clusters/<key>/`. Graphs written by older enola into every member's
 `.enola` are removed with `enola gc --prune-cluster-copies`.
 
+### Regenerating
+
+`--generate` first compares every repository with the graph on disk: its commit, and
+every file enola reads (including ones `.gitignore` excludes), plus the enola build and
+the config. When all match it prints `Snapshot unchanged` and exits without writing;
+otherwise it says which repository changed and generates the whole graph. Files whose
+size and modification time are the recorded ones are not read, so on a large cluster the
+check takes seconds. `--force` generates regardless.
+
 ### Large clusters
 
 The repositories are extracted four at a time, the largest first, and then linked in

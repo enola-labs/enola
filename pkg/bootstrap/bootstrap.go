@@ -227,6 +227,12 @@ func (e *Engine) WriteArtifacts(repoPath string) error {
 	return e.eng.WriteArtifacts(repoPath)
 }
 
+// CheckUnchanged reports whether the graph of members on disk is what a generate would
+// write now; see engine.Engine.CheckUnchanged.
+func (e *Engine) CheckUnchanged(members []string) engine.Unchanged {
+	return e.eng.CheckUnchanged(members)
+}
+
 // SetRestoreDocTexts makes a restore read the whole doc comments back, for a graph
 // that will be extended; see engine.Engine.SetRestoreDocTexts.
 func (e *Engine) SetRestoreDocTexts(on bool) { e.eng.SetRestoreDocTexts(on) }

@@ -1348,34 +1348,52 @@ func (e *Engine) GetArtifact(name string) ([]byte, error) {
 // parallelizing.
 // It stops early once ctx is done, returning what it has; the caller checks ctx.
 func (e *Engine) computeFileHashes(ctx context.Context, repoPath string, files []string) map[string]string {
+	hashes, _ := e.hashFilesWithStat(ctx, repoPath, files)
+	return hashes
+}
+
+// fileStat is a file's size and modification time as they were when it was hashed.
+// mod is empty when the file had been modified too recently to be told apart from a
+// modification later in the same second, which makes a later check read it.
+type fileStat struct {
+	size int64
+	mod  string
+}
+
+// hashFilesWithStat hashes files and records each one's size and modification time,
+// taken before it is read: a file modified after that has a later time, so a later run
+// that finds the recorded size and time may take the recorded hash as the file's
+// content (see CheckUnchanged). The recorded time has a resolution of a second, so a
+// file modified in the last moments before it was read gets no time at all.
+func (e *Engine) hashFilesWithStat(ctx context.Context, repoPath string, files []string) (map[string]string, map[string]fileStat) {
 	hashes := make(map[string]string, len(files))
+	stats := make(map[string]fileStat, len(files))
 	for _, relFile := range files {
 		if ctx.Err() != nil {
 			break
 		}
 		absFile := filepath.Join(repoPath, relFile)
+		info, statErr := os.Stat(absFile)
 		data, err := os.ReadFile(absFile)
 		if err != nil {
 			continue
 		}
 		h := sha256.Sum256(data)
 		hashes[relFile] = hex.EncodeToString(h[:])
+		if statErr == nil && info.Size() == int64(len(data)) {
+			st := fileStat{size: info.Size()}
+			if time.Since(info.ModTime()) > driftRacyWindow {
+				st.mod = info.ModTime().UTC().Format(time.RFC3339)
+			}
+			stats[relFile] = st
+		}
 	}
-	return hashes
-}
-
-// fileModTime returns the modification time of a file as an RFC3339 string.
-func fileModTime(path string) string {
-	info, err := os.Stat(path)
-	if err != nil {
-		return ""
-	}
-	return info.ModTime().UTC().Format(time.RFC3339)
+	return hashes, stats
 }
 
 // fileHashesOf lists the hashes by path, so the meta holding them is the same bytes
 // for the same files.
-func fileHashesOf(absRepo string, hashes map[string]string) []facts.FileHash {
+func fileHashesOf(hashes map[string]string, stats map[string]fileStat) []facts.FileHash {
 	paths := make([]string, 0, len(hashes))
 	for path := range hashes {
 		paths = append(paths, path)
@@ -1383,11 +1401,8 @@ func fileHashesOf(absRepo string, hashes map[string]string) []facts.FileHash {
 	sort.Strings(paths)
 	out := make([]facts.FileHash, 0, len(hashes))
 	for _, path := range paths {
-		out = append(out, facts.FileHash{
-			Path:    path,
-			Hash:    hashes[path],
-			ModTime: fileModTime(filepath.Join(absRepo, path)),
-		})
+		st := stats[path]
+		out = append(out, facts.FileHash{Path: path, Hash: hashes[path], ModTime: st.mod, Size: st.size})
 	}
 	return out
 }
