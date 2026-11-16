@@ -960,6 +960,10 @@ func (s *Store) TagUntagged(repo, filePrefix string) int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	count := 0
+	// The whole doc comments are keyed by repo and file too, and must follow their
+	// facts: left under the old key, the first repository of a cluster, tagged here
+	// when the second arrives, rendered its comments flattened to the one-line summary.
+	var moved map[FactKey]FactKey
 	for i := range s.facts {
 		f := &s.facts[i]
 
@@ -967,6 +971,7 @@ func (s *Store) TagUntagged(repo, filePrefix string) int {
 		if f.Repo != "" && f.Repo != repo {
 			continue
 		}
+		before := FactKey{Repo: f.Repo, Kind: f.Kind, Name: f.Name, File: f.File}
 
 		// Set Repo if not already set.
 		if f.Repo == "" {
@@ -985,6 +990,26 @@ func (s *Store) TagUntagged(repo, filePrefix string) int {
 			s.byFile[f.File] = append(s.byFile[f.File], i)
 			count++
 		}
+
+		if after := (FactKey{Repo: f.Repo, Kind: f.Kind, Name: f.Name, File: f.File}); after != before {
+			if _, ok := s.docTexts[before]; ok {
+				if moved == nil {
+					moved = map[FactKey]FactKey{}
+				}
+				moved[before] = after
+			}
+		}
+	}
+	// Every text is read before any is deleted: two facts can share an old key.
+	texts := make(map[FactKey]string, len(moved))
+	for before, after := range moved {
+		texts[after] = s.docTexts[before]
+	}
+	for before := range moved {
+		delete(s.docTexts, before)
+	}
+	for after, text := range texts {
+		s.docTexts[after] = text
 	}
 	return count
 }
@@ -1668,6 +1693,21 @@ func (s *Store) TakeDocTexts(startIdx int) int {
 		delete(s.facts[i].Props, PropDocText)
 	}
 	return n
+}
+
+// SetDocText records text as the whole comment of the fact with key k: a restore that
+// will be extended reads the texts back from docs.jsonl, since facts.jsonl carries only
+// the one-line PropDoc.
+func (s *Store) SetDocText(k FactKey, text string) {
+	if text == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.docTexts == nil {
+		s.docTexts = make(map[FactKey]string)
+	}
+	s.docTexts[k] = text
 }
 
 // DocText returns the whole comment of the fact with key k, or "" when its PropDoc

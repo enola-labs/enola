@@ -1087,3 +1087,25 @@ func TestMarkLegacyRepoPrefixes(t *testing.T) {
 		t.Errorf("a marked file was re-marked (%d): s/b.go is repository s's own directory s", n)
 	}
 }
+
+// A fact's whole doc comment follows the fact when it is tagged: the first repository
+// of a cluster is indexed untagged and tagged when the second arrives, and its texts
+// left under the untagged key were never found again, so docs.jsonl flattened them.
+func TestTagUntagged_MovesDocTexts(t *testing.T) {
+	s := NewStore()
+	s.Add(
+		Fact{Kind: KindSymbol, Name: "a.Main", File: "main.go", Props: map[string]any{PropDoc: "Main runs.", PropDocText: "Main runs.\nIt runs twice."}},
+		Fact{Kind: KindSymbol, Name: "a.Other", File: "other.go", Repo: "b", RepoPrefixed: true, Props: map[string]any{PropDoc: "Other.", PropDocText: "Other.\nKept."}},
+	)
+	s.TakeDocTexts(0)
+	s.TagUntagged("api", "api/")
+	if got := s.DocText(FactKey{Repo: "api", Kind: KindSymbol, Name: "a.Main", File: "api/main.go"}); got != "Main runs.\nIt runs twice." {
+		t.Errorf("tagged fact's doc text = %q", got)
+	}
+	if got := s.DocText(FactKey{Kind: KindSymbol, Name: "a.Main", File: "main.go"}); got != "" {
+		t.Errorf("the text stayed under the untagged key too: %q", got)
+	}
+	if got := s.DocText(FactKey{Repo: "b", Kind: KindSymbol, Name: "a.Other", File: "other.go"}); got != "Other.\nKept." {
+		t.Errorf("another repository's text moved: %q", got)
+	}
+}

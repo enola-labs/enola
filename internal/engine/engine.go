@@ -94,6 +94,8 @@ type Engine struct {
 	// published: each turn but the last appends into its store, and the next turn
 	// extends it rather than the published bundle. Nil outside GenerateCluster.
 	building *snapshotBundle
+	// restoreDocTexts makes RestoreFromDir read docs.jsonl too; see SetRestoreDocTexts.
+	restoreDocTexts bool
 	// recordSnapshot is called at the end of WriteArtifacts; see SetSnapshotRecorder.
 	recordSnapshot func(SnapshotRecord)
 	// sessionClient is the PID of the agent process this server serves; zero for a
@@ -262,8 +264,12 @@ func (e *Engine) RestoreFromDir(dir string, repoPaths map[string]string, singleR
 	insightsFile, _ := os.Open(filepath.Join(dir, "insights.json"))
 	metaFile, _ := os.Open(filepath.Join(dir, "snapshot.meta.json"))
 	membersFile, _ := os.Open(filepath.Join(dir, MembersMetaFile))
+	var docsFile *os.File
+	if e.restoreDocTexts {
+		docsFile, _ = os.Open(filepath.Join(dir, docsArtifact))
+	}
 	unlock()
-	for _, f := range []*os.File{insightsFile, metaFile, membersFile} {
+	for _, f := range []*os.File{insightsFile, metaFile, membersFile, docsFile} {
 		if f != nil {
 			defer func() { _ = f.Close() }()
 		}
@@ -286,6 +292,11 @@ func (e *Engine) RestoreFromDir(dir string, repoPaths map[string]string, singleR
 			}
 			if want := recorded.OutputHashes["insights.json"]; want != "" && insightsErr == nil && hashBytes(insightsData) != want {
 				return fmt.Errorf("%w: %s", ErrGraphChanging, dir)
+			}
+			if want := recorded.OutputHashes[docsArtifact]; want != "" && docsFile != nil {
+				if got, err := hashOpenFile(docsFile); err != nil || got != want {
+					return fmt.Errorf("%w: %s", ErrGraphChanging, dir)
+				}
 			}
 		}
 	}
@@ -314,6 +325,11 @@ func (e *Engine) RestoreFromDir(dir string, repoPaths map[string]string, singleR
 		}
 	}
 	work.BuildGraph()
+	if docsFile != nil {
+		if err := readDocTexts(work, docsFile); err != nil {
+			return fmt.Errorf("reading %s: %w", filepath.Join(dir, docsArtifact), err)
+		}
+	}
 
 	// Default the primary repo path from the dir; snapshot.meta.json (loaded below)
 	// overrides it when present.
@@ -1437,4 +1453,39 @@ func hashOpenFile(f *os.File) (string, error) {
 		return "", err
 	}
 	return hashPrefix + hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// docsArtifact is the docs renderer's file: the whole comment of each documented fact.
+const docsArtifact = "docs.jsonl"
+
+// SetRestoreDocTexts makes a restore read every documented fact's whole comment back
+// from docs.jsonl. facts.jsonl carries only the one-line summary, so a graph that is
+// restored and then extended (a refresh of one member) would otherwise render the
+// members it did not re-read with their comments flattened. A restore that only
+// serves the graph has no use for them, and docs.jsonl is the largest artifact, so it
+// is not read unless asked for.
+func (e *Engine) SetRestoreDocTexts(on bool) { e.restoreDocTexts = on }
+
+// readDocTexts records each line of docs.jsonl in f as its fact's whole comment.
+func readDocTexts(store *facts.Store, f *os.File) error {
+	info, err := f.Stat()
+	if err != nil {
+		return err
+	}
+	sc := bufio.NewScanner(io.NewSectionReader(f, 0, info.Size()))
+	sc.Buffer(make([]byte, 0, 1<<20), 64<<20)
+	for sc.Scan() {
+		var l struct {
+			Repo string `json:"repo"`
+			Kind string `json:"kind"`
+			Name string `json:"name"`
+			File string `json:"file"`
+			Doc  string `json:"doc"`
+		}
+		if err := json.Unmarshal(sc.Bytes(), &l); err != nil {
+			return err
+		}
+		store.SetDocText(facts.FactKey{Repo: l.Repo, Kind: l.Kind, Name: l.Name, File: l.File}, l.Doc)
+	}
+	return sc.Err()
 }

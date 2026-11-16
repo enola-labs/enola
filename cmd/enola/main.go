@@ -589,6 +589,9 @@ func runRefresh(ctx context.Context, eng *bootstrap.Engine, cfg *config.Config, 
 	if !member {
 		log.Fatalf("%s is not a repository of the cluster configured by %s; add it to repos: and run a full --generate", target, cfg.SourcePath)
 	}
+	// The union is extended, and renders every member it does not re-read again, so
+	// their whole doc comments are restored with it.
+	eng.SetRestoreDocTexts(true)
 	if restored := bootstrap.AutoLoadSnapshot(eng, cfg); restored == nil {
 		log.Fatalf("no union to refresh into: nothing restored for this workspace. Run a full --generate once; refresh replaces one repository inside an existing union")
 	}

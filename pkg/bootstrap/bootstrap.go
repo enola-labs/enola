@@ -227,6 +227,10 @@ func (e *Engine) WriteArtifacts(repoPath string) error {
 	return e.eng.WriteArtifacts(repoPath)
 }
 
+// SetRestoreDocTexts makes a restore read the whole doc comments back, for a graph
+// that will be extended; see engine.Engine.SetRestoreDocTexts.
+func (e *Engine) SetRestoreDocTexts(on bool) { e.eng.SetRestoreDocTexts(on) }
+
 // WriteGraph writes the published graph where it belongs: one repository's into its
 // own output directory, a cluster's into the cluster's; see engine.Engine.WriteGraph.
 func (e *Engine) WriteGraph() error {
