@@ -1260,8 +1260,20 @@ func collect(store *facts.Store) ([]symInput, refIndex) {
 
 	published := publishedModules(store)
 	if len(published) > 0 {
+		// Symbols share their directory with many others, so each (repository,
+		// directory) walks up once.
+		seen := map[[2]string]bool{}
 		for _, si := range byName {
-			si.Published = inPublishedModule(published, si)
+			key := [2]string{si.Repo, si.Package}
+			if si.Package == "" {
+				key[1] = factpath.Dir(si.File)
+			}
+			v, ok := seen[key]
+			if !ok {
+				v = inPublishedModule(published, si)
+				seen[key] = v
+			}
+			si.Published = v
 		}
 	}
 
@@ -1465,17 +1477,13 @@ func collect(store *facts.Store) ([]symInput, refIndex) {
 			dynPrefixes = append(dynPrefixes, toStringSlice(raw)...)
 		}
 	}
-	if len(dynPrefixes) > 0 {
+	if ps := newPrefixSet(dynPrefixes); len(ps) > 0 {
 		for i := range syms {
 			if syms[i].Kind != facts.SymbolFunc && syms[i].Kind != facts.SymbolMethod {
 				continue
 			}
-			bn := bareName(syms[i].Name)
-			for _, p := range dynPrefixes {
-				if p != "" && strings.HasPrefix(bn, p) {
-					addRef(refSources, bn, "\x00dynamic-dispatch")
-					break
-				}
+			if bn := bareName(syms[i].Name); ps.matches(bn) {
+				addRef(refSources, bn, "\x00dynamic-dispatch")
 			}
 		}
 	}

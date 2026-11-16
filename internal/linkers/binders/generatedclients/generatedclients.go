@@ -405,13 +405,24 @@ func inRepoClientCalls(all []facts.Fact, specs map[string]map[string]*spec, emit
 			}
 		}
 	}
+	// A call can only land in its own repository's spec packages, so a repository
+	// with none is skipped before any of its symbols is looked at, and the test-path
+	// check, the dearest filter, runs last.
+	specRepos := map[string]bool{}
+	for k := range pkgSpec {
+		repo, _, _ := strings.Cut(k, "\x00")
+		specRepos[repo] = true
+	}
 	for _, f := range all {
-		if f.Kind != facts.KindSymbol || f.PropBool("generated") || facts.IsTestPath(f.File) {
+		if f.Kind != facts.KindSymbol || len(f.Relations) == 0 || !specRepos[f.Repo] || f.PropBool("generated") {
 			continue
 		}
 		switch f.PropString("symbol_kind") {
 		case facts.SymbolMethod, facts.SymbolFunc:
 		default:
+			continue
+		}
+		if facts.IsTestPath(f.File) {
 			continue
 		}
 		for _, r := range f.Relations {

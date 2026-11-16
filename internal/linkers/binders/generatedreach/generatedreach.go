@@ -58,13 +58,19 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 	users := map[node][]int{} // target -> facts using it
 	// A name declared in generated code, and one declared outside it. Overloads share
 	// a name, so a name can be both, and then it is not only generated.
+	// runtime is only ever asked about a name that is also generated, so it is kept
+	// for those alone: the test-path check on every other symbol was most of this
+	// binder's time.
 	generated, runtime := map[node]bool{}, map[node]bool{}
+	for _, f := range all {
+		if f.Kind == facts.KindSymbol && f.PropBool("generated") {
+			generated[node{f.Repo, f.Name}] = true
+		}
+	}
 	for i, f := range all {
-		if f.Kind == facts.KindSymbol {
-			if f.PropBool("generated") {
-				generated[node{f.Repo, f.Name}] = true
-			} else if !facts.IsTestPath(f.File) {
-				runtime[node{f.Repo, f.Name}] = true
+		if f.Kind == facts.KindSymbol && len(generated) > 0 && !f.PropBool("generated") {
+			if k := (node{f.Repo, f.Name}); generated[k] && !facts.IsTestPath(f.File) {
+				runtime[k] = true
 			}
 		}
 		for _, r := range f.Relations {
