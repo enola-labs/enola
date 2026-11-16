@@ -478,11 +478,9 @@ func (e *Engine) generateTurn(ctx context.Context, repoPath string, appendMode, 
 // returning the census for the snapshot receipt. preCount marks where this
 // repo's extraction window began: everything the extractors (and the intent
 // compiler) added since is the identity set a provider fact may not collide
-// with — the extractor's account of a name+kind wins, always.
+// with — the extractor's account of a name+kind wins, always. The caller runs it only
+// with providers configured.
 func (e *Engine) runProviders(ctx context.Context, absRepo string, preCount int, in providers.Input) []facts.ProviderRecord {
-	if len(e.cfg.Providers) == 0 {
-		return nil
-	}
 	extracted := e.store.FactsRef()[preCount:]
 	owned := make(map[string]bool, len(extracted))
 	for _, f := range extracted {
