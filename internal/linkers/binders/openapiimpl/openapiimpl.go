@@ -9,6 +9,7 @@ import (
 	"unicode"
 
 	"github.com/enola-labs/enola/internal/facts"
+	"github.com/enola-labs/enola/internal/linkers/binders/httphandler"
 	"github.com/enola-labs/enola/internal/linkers/binders/vendoredspecs"
 	"github.com/enola-labs/enola/pkg/plugin"
 )
@@ -144,6 +145,10 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 	for _, s := range store.ByKind(facts.KindSymbol) {
 		declared[s.Repo+"\x00"+s.Name] = true
 	}
+	// The code route's handler as http-handler resolves it, which runs after this one:
+	// read from its edges, a graph restored and bound again (a refresh) had them and a
+	// fresh one did not yet, and the two bound different operations.
+	resolver := httphandler.NewResolver(store)
 	for _, f := range store.ByKind(facts.KindRoute) {
 		if f.PropString(facts.PropSource) == facts.RouteSourceOpenAPI || f.PropString(facts.PropRole) == facts.RoleClient {
 			continue
@@ -155,6 +160,9 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 			}
 		}
 		if t := f.PropString(facts.PropHandlerTarget); len(targets) == 0 && t != "" && declared[f.Repo+"\x00"+t] {
+			targets = append(targets, t)
+		}
+		if t := resolver.Target(f); t != "" && !contains(targets, t) {
 			targets = append(targets, t)
 		}
 		for _, target := range targets {
@@ -325,4 +333,13 @@ func codeRouteHandler(f facts.Fact, codeHandlers map[string]string) string {
 		found = h
 	}
 	return found
+}
+
+func contains(list []string, v string) bool {
+	for _, x := range list {
+		if x == v {
+			return true
+		}
+	}
+	return false
 }
