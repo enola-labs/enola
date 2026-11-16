@@ -101,3 +101,44 @@ func TestLoad_RelativeClusterDirResolvesAgainstTheConfig(t *testing.T) {
 		t.Errorf("cluster_dir = %s, want %s", cfg.Output.ClusterDir, want)
 	}
 }
+
+// A cluster written with --out leaves a pointer in its default directory; a config
+// that does not set cluster_dir follows it, a config that does keeps its own, a pointer
+// to a directory that is gone is ignored, and recording the default directory itself
+// removes the pointer.
+func TestGraphOutputDir_FollowsTheOutPointer(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	repos := clusterRepos(t, "api", "web")
+	c := Default()
+	def := c.GraphOutputDir(repos)
+	out := filepath.Join(t.TempDir(), "my-index")
+	if err := os.MkdirAll(out, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.RecordClusterDir(repos, out); err != nil {
+		t.Fatal(err)
+	}
+	if got := c.GraphOutputDir([]string{repos[1], repos[0]}); got != out {
+		t.Errorf("GraphOutputDir = %s, want the --out directory %s", got, out)
+	}
+	explicit := Default()
+	explicit.Output.ClusterDir = t.TempDir()
+	if got := explicit.GraphOutputDir(repos); got != explicit.Output.ClusterDir {
+		t.Errorf("an explicit cluster_dir lost to the pointer: %s", got)
+	}
+	if err := os.RemoveAll(out); err != nil {
+		t.Fatal(err)
+	}
+	if got := c.GraphOutputDir(repos); got != def {
+		t.Errorf("a pointer to a removed directory was followed: %s", got)
+	}
+	if err := os.MkdirAll(out, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.RecordClusterDir(repos, def); err != nil {
+		t.Fatal(err)
+	}
+	if got := c.GraphOutputDir(repos); got != def {
+		t.Errorf("recording the default directory left the pointer: %s", got)
+	}
+}

@@ -1043,7 +1043,8 @@ otherwise delete them.
 A graph of several repositories is not written into any of them. It has a directory of
 its own, `config.GraphOutputDir`: `output.cluster_dir` (or `--generate --out`) when set,
 `<root>/clusters/<key>` with `output.root`, else `~/.enola/graphs/<key>/` beside the
-cluster's history. The key names the sorted member set. The directory holds the union's
+cluster's history. A write to another directory leaves a pointer to it there
+(`graph_dir.json`), which a config without `cluster_dir` follows. The key names the sorted member set. The directory holds the union's
 artifacts, its baseline and previous run, and `members.json`, each member's own
 provenance; members keep only their extractor caches.
 

@@ -1038,7 +1038,18 @@ func (e *Engine) WriteGraph() error {
 // directory: the union artifacts, the union's meta and a receipt with an entry per
 // member, and members.json, each member's own provenance.
 func (e *Engine) writeClusterHome(b *snapshotBundle, members []string) error {
-	return e.writeBundle(b, e.cfg.GraphOutputDir(members), "", "")
+	dir := e.cfg.GraphOutputDir(members)
+	if err := e.writeBundle(b, dir, "", ""); err != nil {
+		return err
+	}
+	// --out (cluster_dir) is remembered beside the cluster's history, so a command
+	// given a config that does not say it, the dashboard's included, still finds it.
+	if e.cfg.Output.ClusterDir != "" {
+		if err := e.cfg.RecordClusterDir(members, dir); err != nil {
+			log.Printf("[engine] warning: could not record where the cluster's graph is: %v", err)
+		}
+	}
+	return nil
 }
 
 // writeBundle writes b's artifacts into outDir: one repository's own output directory
