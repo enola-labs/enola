@@ -484,6 +484,10 @@ func (e *Engine) link(r *snapshotRun) {
 	// import/shared-lib references. Recomputed from scratch each run (prior
 	// synthetic facts are dropped first) so it stays idempotent across appends.
 	tStage := time.Now()
+	// In an order that depends only on the facts, so the binders and explainers below
+	// keep the same one of several same-named facts whether the store was just
+	// extracted or restored and extended (a refresh). See SortByLocation.
+	e.store.SortByLocation()
 	e.runBinders(r.ctx, plugin.StagePreLink)
 	e.linkCrossRepo(r.repoPaths)
 	e.runBinders(r.ctx, plugin.StagePostLink)

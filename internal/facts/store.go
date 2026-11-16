@@ -1277,6 +1277,64 @@ func (s *Store) SortLikeJSONL() error {
 	if err != nil {
 		return err
 	}
+	s.applyOrder(order)
+	return nil
+}
+
+// SortByLocation puts the facts in an order that depends only on where each one is:
+// repository, kind, name, file, line, end line, then the method, role and language
+// extraction gave it. Linking runs over the store in its order, and binders and explainers that
+// keep the first or last of several same-named facts (a Ruby class reopened across
+// files, a Go method on several receivers) keep whichever that order puts there. A
+// generate held the facts in extraction order and a store restored from facts.jsonl
+// in that file's order, so a refresh, which links a restored store, bound some of them
+// differently from a full generate of the same trees. Neither key is what linking
+// writes, so both paths sort to the same order.
+func (s *Store) SortByLocation() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	order := make([]int32, len(s.facts))
+	for i := range order {
+		order[i] = int32(i)
+	}
+	slices.SortStableFunc(order, func(a, b int32) int {
+		fa, fb := &s.facts[a], &s.facts[b]
+		if c := strings.Compare(fa.Repo, fb.Repo); c != 0 {
+			return c
+		}
+		if c := strings.Compare(fa.Kind, fb.Kind); c != 0 {
+			return c
+		}
+		if c := strings.Compare(fa.Name, fb.Name); c != 0 {
+			return c
+		}
+		if c := strings.Compare(fa.File, fb.File); c != 0 {
+			return c
+		}
+		if fa.Line != fb.Line {
+			return fa.Line - fb.Line
+		}
+		if fa.EndLine != fb.EndLine {
+			return fa.EndLine - fb.EndLine
+		}
+		// Extraction sets these and linking does not: routes on one path and line
+		// differ by method and role, modules two extractors emit by language.
+		for _, key := range locationTieProps {
+			if c := strings.Compare(fa.PropString(key), fb.PropString(key)); c != 0 {
+				return c
+			}
+		}
+		return 0
+	})
+	s.applyOrder(order)
+}
+
+// locationTieProps break ties between facts at one location (see SortByLocation).
+var locationTieProps = []string{"method", "role", "language"}
+
+// applyOrder moves the facts so facts[to] is the fact that was at order[to], and
+// remaps every index and the graph. Caller holds s.mu.
+func (s *Store) applyOrder(order []int32) {
 	inv := make([]int32, len(order))
 	moved := false
 	for to, from := range order {
@@ -1284,7 +1342,7 @@ func (s *Store) SortLikeJSONL() error {
 		moved = moved || int(from) != to
 	}
 	if !moved {
-		return nil
+		return
 	}
 	// facts[to] = old facts[order[to]], one cycle at a time, marking order as it goes.
 	for start := range order {
@@ -1330,7 +1388,6 @@ func (s *Store) SortLikeJSONL() error {
 	if s.graph != nil {
 		s.graph.remapFacts(s.facts, inv)
 	}
-	return nil
 }
 
 // jsonlChunk is how many facts one worker marshals at a time.

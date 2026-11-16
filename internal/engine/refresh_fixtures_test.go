@@ -62,7 +62,12 @@ func TestCluster_RefreshIsExactAcrossFixtures(t *testing.T) {
 	shop := add("shop", filepath.Join(src, "ruby_sample"))
 	admin := add("admin", filepath.Join(src, "ruby_sample"))
 	writeFiles(t, admin, map[string]string{"app/models/customer_record.rb": "class CustomerRecord < ApplicationRecord\n" +
-		"  include Trackable\n  before_save :track!\n\n  def display_name\n    name.upcase\n  end\nend\n"})
+		"  include Trackable\n  before_save :track!\n\n  def display_name\n    name.upcase\n  end\nend\n",
+		// The class reopened in another file, as a Rails app's extensions do: one
+		// repository holding two facts of one name, which binders tell apart only by
+		// the order the store holds them in.
+		"app/models/ee/customer_record.rb": "class CustomerRecord < ApplicationRecord\n" +
+			"  after_commit :audit\n\n  def audit\n    display_name\n  end\nend\n"})
 	redisRepo := func(name string) {
 		dir := filepath.Join(base, name)
 		writeFiles(t, dir, map[string]string{
