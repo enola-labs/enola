@@ -948,7 +948,7 @@ func autoLoad(eng *Engine, cfg *config.Config) (map[string]int, string) {
 	// from the path restores a graph whose facts nothing can find — silently, as an
 	// empty result rather than an error.
 	label := restoredLabel(dir, repoPath)
-	if err := eng.RestoreFromDir(dir, map[string]string{label: repoPath}, label); err != nil {
+	if err := restoreWhole(eng, dir, map[string]string{label: repoPath}, label); err != nil {
 		log.Printf("[bootstrap] warning: failed to restore snapshot from %s: %v", dir, err)
 		return nil, ""
 	}
@@ -1159,7 +1159,7 @@ func restoreFromGlobalReceipt(eng *Engine, cfg *config.Config, gr *facts.GraphRe
 		}
 	}
 
-	if err := eng.RestoreFromDir(completeDir, repoPaths, singleLabel); err != nil {
+	if err := restoreWhole(eng, completeDir, repoPaths, singleLabel); err != nil {
 		log.Printf("[bootstrap] warning: multi-repo restore from %s failed: %v", completeDir, err)
 		return false
 	}
@@ -1168,6 +1168,20 @@ func restoreFromGlobalReceipt(eng *Engine, cfg *config.Config, gr *facts.GraphRe
 	}
 	log.Printf("[bootstrap] restored graph of %d repo(s) from %s", len(repoPaths), completeDir)
 	return true
+}
+
+// restoreWhole restores the graph in dir for a process that holds none yet. When a
+// write is publishing the next graph while dir is read, the graph before it, rotated
+// into previous/ a moment earlier and whole, is restored instead: a server starting
+// mid-write answers from the last complete graph rather than from nothing.
+func restoreWhole(eng *Engine, dir string, repoPaths map[string]string, label string) error {
+	err := eng.RestoreFromDir(dir, repoPaths, label)
+	if !errors.Is(err, engine.ErrGraphChanging) {
+		return err
+	}
+	prev := filepath.Join(dir, engine.PreviousSubdir)
+	log.Printf("[bootstrap] %s is being replaced by a newer write; restoring the graph before it from %s", dir, prev)
+	return eng.RestoreFromDir(prev, repoPaths, label)
 }
 
 // graphDirOf is the directory holding the graph a receipt describes. A cluster's is

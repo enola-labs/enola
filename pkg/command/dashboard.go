@@ -60,7 +60,7 @@ func (r *Runner) Dashboard(ctx context.Context, args []string) {
 	t := r.resolveTarget(arg)
 	snapshotDir := t.engine.GraphDir(t.repoPaths)
 	fmt.Fprintf(os.Stderr, "Loading dashboard snapshot from %s...\n", snapshotDir)
-	bootstrap.LoadDashboardSnapshot(t.engine, t.engine.Config())
+	loaded := bootstrap.LoadDashboardSnapshot(t.engine, t.engine.Config())
 	// A dashboard-only process is still an active Enola session. Register it just
 	// like the MCP startup path does so Activity does not claim zero sessions while
 	// the process serving that very page is running. No tool callback is installed:
@@ -85,7 +85,7 @@ func (r *Runner) Dashboard(ctx context.Context, args []string) {
 	opts.GenerateCommand = r.dashboardGenerateCommand(arg)
 	opts.CurrentExtractorVersion = engine.ExtractorVersion()
 	opts.HistoryDir = t.engine.Config().History.Dir
-	opts.Refresh = snapshotReloader(t.engine, snapshotDir)
+	opts.Refresh = snapshotReloader(t.engine, snapshotDir, loaded)
 	dash, err := dashboard.Start(t.engine, opts)
 	if err != nil {
 		r.dashboardFatal("starting dashboard: %v", err)
@@ -121,12 +121,20 @@ func (r *Runner) dashboardGenerateCommand(target string) string {
 }
 
 // snapshotReloader turns a dashboard-only process into a live view of the
-// selected persisted snapshot. Receipt writes complete after the rest of the
+// selected persisted snapshot. The receipt is published after the rest of the
 // artifact bundle, so its digest is the publication marker. A mutex prevents a
 // manual refresh and the background browser poll from restoring concurrently.
-func snapshotReloader(eng *bootstrap.Engine, snapshotDir string) func() (bool, error) {
+//
+// A load that fails keeps the graph already shown and leaves the marker as it was,
+// so the next poll tries again: a load that opened the files while a write was
+// publishing them succeeds a moment later. loaded is whether the first load, before
+// the reloader existed, succeeded; when it did not, the first poll tries.
+func snapshotReloader(eng *bootstrap.Engine, snapshotDir string, loaded bool) func() (bool, error) {
 	var mu sync.Mutex
-	last := snapshotMarker(snapshotDir)
+	var last [sha256.Size]byte
+	if loaded {
+		last = snapshotMarker(snapshotDir)
+	}
 	return func() (bool, error) {
 		mu.Lock()
 		defer mu.Unlock()

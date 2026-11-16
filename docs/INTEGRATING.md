@@ -73,6 +73,11 @@ enola: no mcp-arch.yaml in /tmp/work, using built-in defaults
 Record that line with the subprocess logs. A present but invalid configuration
 is an error.
 
+A write builds the next snapshot in a hidden `.next/` directory beside the artifacts and
+publishes it by renaming each file into place, `receipt.json` last, after rotating the
+current one into `previous/`. A reader that may run during a write should read
+`receipt.json` first and check each file it then reads against `output_hashes`; on a
+mismatch, read again a moment later, or read `previous/`, which is whole.
 Exit status `0` means generation and artifact writing succeeded. On any non-zero
 status, do not ingest files already present in the output directory; they may be
 from an earlier run.
