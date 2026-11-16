@@ -560,36 +560,28 @@ func (e *Engine) runBinders(ctx context.Context, stage plugin.BindStage) {
 // against the code behind them. It mirrors ResolveFactFile's repo-prefix-strip-and-join,
 // but reads from the passed-in map rather than the published bundle (see linkCrossRepo).
 // Returns nil when no repo paths are known, which turns verification off rather than
-// silently comparing nothing. Files are read at most once per snapshot.
+// silently comparing nothing.
+//
+// It keeps no state, so the linker may call it from several goroutines at once. The
+// shared-code signal remembers what it derives from each file, so each is still read at
+// most once per link.
 func sourceReaderFor(repoPaths map[string]string) crossrepo.SourceReader {
 	if len(repoPaths) == 0 {
 		return nil
 	}
-	cache := map[string]string{}
-	missing := map[string]bool{}
 	return func(f facts.Fact) (string, bool) {
 		if f.File == "" || f.Repo == "" {
 			return "", false
 		}
-		if text, ok := cache[f.File]; ok {
-			return text, true
-		}
-		if missing[f.File] {
-			return "", false
-		}
 		root, ok := repoPaths[f.Repo]
 		if !ok {
-			missing[f.File] = true
 			return "", false
 		}
-		abs := filepath.Join(root, f.IdentityFile())
-		data, err := os.ReadFile(abs)
+		data, err := os.ReadFile(filepath.Join(root, f.IdentityFile()))
 		if err != nil {
-			missing[f.File] = true
 			return "", false
 		}
-		cache[f.File] = string(data)
-		return cache[f.File], true
+		return string(data), true
 	}
 }
 
@@ -636,7 +628,7 @@ func (e *Engine) linkCrossRepo(repoPaths map[string]string) {
 	// The store's own facts, not a copy: the linker and its signals only read them, and
 	// nothing writes the store until it returns. A deep copy here was 5 GB, a third of
 	// the live heap, on a 100-repository cluster.
-	links := crossrepo.ComputeLinks(e.store.FactsRef(), sourceReaderFor(repoPaths), e.signals.All(), v)
+	links := crossrepo.ComputeLinks(e.store.FactsRef(), sourceReaderFor(repoPaths), e.signals.All(), v, e.analysisJobs())
 	if len(links) == 0 {
 		return
 	}

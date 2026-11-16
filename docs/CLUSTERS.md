@@ -78,9 +78,10 @@ Memory for a cluster built and served on one machine is in
 [SERVING.md](SERVING.md#sizing-a-large-graph).
 
 After linking, the explainers run several at a time too: half the cores, at most four.
-`analysis_jobs` sets how many (`1` is one after another). Each running explainer holds
-its own working set, so more at once is faster and holds more memory at its peak. The
-output is the same either way. `enola --generate --no-parallel` sets both to `1` for one
+`analysis_jobs` sets how many (`1` is one after another), and also how many source files
+the linker reads at once when it checks whether two repositories share code. Each running
+explainer holds its own working set, so more at once is faster and holds more memory at
+its peak. The output is the same either way. `enola --generate --no-parallel` sets both to `1` for one
 run.
 
 ## 2. How the edge is resolved

@@ -87,7 +87,7 @@ func TestResolution_CoverageAndReasonsAgreeOnEveryBranch(t *testing.T) {
 		all = append(all, group...)
 	}
 
-	linked := ComputeLinks(all, nil, []plugin.CrossRepoSignal{httpsignal.New(v)}, v)
+	linked := ComputeLinks(all, nil, []plugin.CrossRepoSignal{httpsignal.New(v)}, v, 1)
 	coverage := map[string]map[string]int{}
 	for _, f := range linked {
 		if f.Kind == facts.KindService {

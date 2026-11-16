@@ -17,12 +17,14 @@ import (
 // each is computed on first use and reused, so a signal that needs the same index costs
 // nothing, and adding one does not add a walk.
 //
-// It is not safe for concurrent use: signals run sequentially within a phase, and the
-// memoization is deliberately unsynchronized rather than paying for a mutex on a hot
-// read path that has no concurrency to protect against.
+// It is not safe for concurrent use, ReadSource aside: signals run sequentially within
+// a phase, and the memoization is deliberately unsynchronized rather than paying for a
+// mutex on a hot read path that has no concurrency to protect against. ReadSource keeps
+// no state, so a signal may read up to jobs files at once.
 type input struct {
-	all []facts.Fact
-	src SourceReader
+	all  []facts.Fact
+	src  SourceReader
+	jobs int
 
 	repos       []string          // sorted labels
 	normToLabel map[string]string // normalized label -> actual
@@ -31,15 +33,10 @@ type input struct {
 	topDirs     map[string]map[string]bool
 	ownScopes   map[string]map[string]bool
 	moduleNames map[string][]string
-
-	// fileCache memoizes source reads so a file behind several shared identities is
-	// read once per snapshot rather than once per comparison.
-	fileCache map[string]string
-	fileMiss  map[string]bool
 }
 
-func newInput(all []facts.Fact, src SourceReader) *input {
-	in := &input{all: all, src: src, normToLabel: map[string]string{}}
+func newInput(all []facts.Fact, src SourceReader, jobs int) *input {
+	in := &input{all: all, src: src, jobs: max(1, jobs), normToLabel: map[string]string{}}
 	for _, f := range all {
 		if f.Repo != "" {
 			in.normToLabel[facts.NormalizeRepoLabel(f.Repo)] = f.Repo
@@ -193,30 +190,20 @@ func (in *input) ModuleNames(repo string) []string {
 	return in.moduleNames[repo]
 }
 
-// ReadSource returns the text of the file a fact came from, memoized per snapshot.
-// Reports false when no SourceReader was supplied or the file could not be read — which
-// callers must treat as "cannot verify", never as "does not match".
+// HasSource reports whether a SourceReader was supplied at all.
 func (in *input) HasSource() bool { return in.src != nil }
 
+// ReadSource returns the text of the file a fact came from. Reports false when no
+// SourceReader was supplied or the file could not be read, which callers must treat as
+// "cannot verify", never as "does not match". It caches nothing: its one caller keeps
+// what it derives from each file, and holding every compared file's text as well was
+// a second copy of it for the whole link.
 func (in *input) ReadSource(f facts.Fact) (string, bool) {
 	if in.src == nil {
 		return "", false
 	}
-	if in.fileCache == nil {
-		in.fileCache = map[string]string{}
-		in.fileMiss = map[string]bool{}
-	}
-	if text, ok := in.fileCache[f.File]; ok {
-		return text, true
-	}
-	if in.fileMiss[f.File] {
-		return "", false
-	}
-	text, ok := in.src(f)
-	if !ok {
-		in.fileMiss[f.File] = true
-		return "", false
-	}
-	in.fileCache[f.File] = text
-	return text, true
+	return in.src(f)
 }
+
+// ReadJobs is how many files a signal may read at once.
+func (in *input) ReadJobs() int { return in.jobs }

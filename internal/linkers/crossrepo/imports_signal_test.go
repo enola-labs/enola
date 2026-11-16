@@ -38,7 +38,7 @@ func TestImports_PositionAndLanguage(t *testing.T) {
 		imp("app", "ruby", "rspec/core/rake_task"),
 	}
 	var edges []string
-	for _, f := range ComputeLinks(in, nil, []plugin.CrossRepoSignal{importsignal.New()}, vocab.Default()) {
+	for _, f := range ComputeLinks(in, nil, []plugin.CrossRepoSignal{importsignal.New()}, vocab.Default(), 1) {
 		if f.Kind == facts.KindDependency && f.PropString("type") == "cross_repo" {
 			edges = append(edges, f.Name)
 		}

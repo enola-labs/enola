@@ -182,7 +182,7 @@ func TestComputeLinks_HTTP_SingleSegmentPath(t *testing.T) {
 		serverRoute("licensing-api", "/activate", "POST"),
 		clientRoute("enterprise", "/activate", "POST", nil),
 	}
-	out := ComputeLinks(in, nil, allSignals(), vocab.Default())
+	out := ComputeLinks(in, nil, allSignals(), vocab.Default(), 1)
 
 	if findEdge(out, "enterprise", "licensing-api") == nil {
 		t.Fatalf("enterprise should depend on licensing-api via POST /activate; edges=%+v", crossRepoEdges(out))
@@ -213,7 +213,7 @@ func TestComputeLinks_HTTP_GenericPathDoesNotLink(t *testing.T) {
 		serverRoute("svc-a", "/health", "GET"),
 		clientRoute("svc-b", "/health", "GET", nil),
 	}
-	if edges := crossRepoEdges(ComputeLinks(in, nil, allSignals(), vocab.Default())); len(edges) != 0 {
+	if edges := crossRepoEdges(ComputeLinks(in, nil, allSignals(), vocab.Default(), 1)); len(edges) != 0 {
 		t.Errorf("/health must not link, got %d edge(s): %+v", len(edges), edges)
 	}
 }
@@ -226,7 +226,7 @@ func TestComputeLinks_HTTP_SingleSegmentAmbiguousDoesNotLink(t *testing.T) {
 		serverRoute("licensing-b", "/activate", "POST"),
 		clientRoute("enterprise", "/activate", "POST", nil),
 	}
-	if edges := crossRepoEdges(ComputeLinks(in, nil, allSignals(), vocab.Default())); len(edges) != 0 {
+	if edges := crossRepoEdges(ComputeLinks(in, nil, allSignals(), vocab.Default(), 1)); len(edges) != 0 {
 		t.Errorf("ambiguous single-segment match must not link, got %d edge(s): %+v", len(edges), edges)
 	}
 }
@@ -239,7 +239,7 @@ func TestComputeLinks_HTTPMatch(t *testing.T) {
 		serverRoute("svc-beta", "/api/items/{itemId}", "GET"),
 		serverRoute("svc-beta", "/api/items/{itemId}", "POST"), // method mismatch — ignored
 	}
-	out := ComputeLinks(in, nil, allSignals(), vocab.Default())
+	out := ComputeLinks(in, nil, allSignals(), vocab.Default(), 1)
 
 	if got, want := serviceNodes(out), []string{"svc-alpha", "svc-beta"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("service nodes = %v, want %v", got, want)
@@ -272,7 +272,7 @@ func TestComputeLinks_ExternalClientBucketed(t *testing.T) {
 		clientRoute("svc-alpha", "/api/unknown/{id}", "GET", nil),                               // internal, no server -> unresolved
 		serverRoute("svc-beta", "/api/items/{itemId}", "GET"),
 	}
-	out := ComputeLinks(in, nil, allSignals(), vocab.Default())
+	out := ComputeLinks(in, nil, allSignals(), vocab.Default(), 1)
 
 	ec := edgeCoverageOf(out, "svc-alpha")
 	if ec == nil {
@@ -346,7 +346,7 @@ func TestComputeLinks_HTTPGatewayPath(t *testing.T) {
 		clientRoute("svc-alpha", "/api/catalogue/items/{id}", "GET", nil),
 		server,
 	}
-	if findEdge(ComputeLinks(in, nil, allSignals(), vocab.Default()), "svc-alpha", "svc-beta") == nil {
+	if findEdge(ComputeLinks(in, nil, allSignals(), vocab.Default(), 1), "svc-alpha", "svc-beta") == nil {
 		t.Errorf("expected gateway-path match to produce an edge")
 	}
 }
@@ -359,7 +359,7 @@ func TestComputeLinks_HTTPClientPrefixMatch(t *testing.T) {
 		clientRoute("golf-ui", "/api/settings/tickets/{id}/resolve", "POST", nil),
 		serverRoute("golf", "/tickets/{id:[0-9]+}/resolve", "POST"),
 	}
-	out := ComputeLinks(in, nil, allSignals(), vocab.Default())
+	out := ComputeLinks(in, nil, allSignals(), vocab.Default(), 1)
 	if !hasServiceEdge(out, "golf-ui", "golf") {
 		t.Fatalf("client prefix path did not resolve to server; got %+v", out)
 	}
@@ -376,7 +376,7 @@ func TestComputeLinks_HTTPNextjsDynamicSegment(t *testing.T) {
 		clientRoute("svc-alpha", "/api/items/{id}", "GET", nil),
 		serverRoute("svc-beta", "/api/items/[id]", "GET"),
 	}
-	if !hasServiceEdge(ComputeLinks(in, nil, allSignals(), vocab.Default()), "svc-alpha", "svc-beta") {
+	if !hasServiceEdge(ComputeLinks(in, nil, allSignals(), vocab.Default(), 1), "svc-alpha", "svc-beta") {
 		t.Errorf("Next.js [id] server segment did not match client {} placeholder")
 	}
 }
@@ -389,7 +389,7 @@ func TestComputeLinks_HTTPFormatSuffixMatch(t *testing.T) {
 		clientRoute("android", "v2/devices/{id}.json", "DELETE", nil),
 		serverRoute("golf", "/devices/:id", "DELETE"),
 	}
-	if !hasServiceEdge(ComputeLinks(in, nil, allSignals(), vocab.Default()), "android", "golf") {
+	if !hasServiceEdge(ComputeLinks(in, nil, allSignals(), vocab.Default(), 1), "android", "golf") {
 		t.Errorf("client .json path did not match server route without the suffix")
 	}
 }
@@ -399,7 +399,7 @@ func TestComputeLinks_HTTPGenericPathSkipped(t *testing.T) {
 		clientRoute("svc-alpha", "/health", "GET", nil),
 		serverRoute("svc-beta", "/health", "GET"),
 	}
-	if edges := crossRepoEdges(ComputeLinks(in, nil, allSignals(), vocab.Default())); len(edges) != 0 {
+	if edges := crossRepoEdges(ComputeLinks(in, nil, allSignals(), vocab.Default(), 1)); len(edges) != 0 {
 		t.Errorf("generic path produced edges: %+v", edges)
 	}
 }
@@ -409,7 +409,7 @@ func TestComputeLinks_HTTPSelfLinkSkipped(t *testing.T) {
 		clientRoute("svc-alpha", "/api/items/{id}", "GET", nil),
 		serverRoute("svc-alpha", "/api/items/{id}", "GET"),
 	}
-	if out := ComputeLinks(in, nil, allSignals(), vocab.Default()); len(out) != 0 {
+	if out := ComputeLinks(in, nil, allSignals(), vocab.Default(), 1); len(out) != 0 {
 		t.Errorf("self-link produced links: %+v", out)
 	}
 }
@@ -423,7 +423,7 @@ func TestComputeLinks_HTTPSelfServedPreferredOverOtherRepo(t *testing.T) {
 		serverRoute("svc-alpha", "/api/items/{id}", "GET"),
 		serverRoute("svc-rewrite", "/api/items/{id}", "GET"),
 	}
-	out := ComputeLinks(in, nil, allSignals(), vocab.Default())
+	out := ComputeLinks(in, nil, allSignals(), vocab.Default(), 1)
 	if e := findEdge(out, "svc-alpha", "svc-rewrite"); e != nil {
 		t.Errorf("client bound to an API-compatible other repo: %+v", e)
 	}
@@ -436,7 +436,7 @@ func TestComputeLinks_HTTPSelfPreferenceDoesNotSuppressOthers(t *testing.T) {
 		clientRoute("svc-alpha", "/api/items/{id}", "GET", nil),
 		serverRoute("svc-beta", "/api/items/{id}", "GET"),
 	}
-	if findEdge(ComputeLinks(in, nil, allSignals(), vocab.Default()), "svc-alpha", "svc-beta") == nil {
+	if findEdge(ComputeLinks(in, nil, allSignals(), vocab.Default(), 1), "svc-alpha", "svc-beta") == nil {
 		t.Errorf("a genuine cross-repo call was suppressed")
 	}
 }
@@ -447,7 +447,7 @@ func TestComputeLinks_HTTPAmbiguousResolvedByHint(t *testing.T) {
 		serverRoute("svc-beta", "/api/items/{id}", "GET"),
 		serverRoute("svc-other", "/api/items/{id}", "GET"),
 	}
-	out := ComputeLinks(in, nil, allSignals(), vocab.Default())
+	out := ComputeLinks(in, nil, allSignals(), vocab.Default(), 1)
 	if findEdge(out, "svc-alpha", "svc-beta") == nil {
 		t.Errorf("hint did not resolve to svc-beta: %+v", out)
 	}
@@ -462,7 +462,7 @@ func TestComputeLinks_HTTPAmbiguousNoHintSkipped(t *testing.T) {
 		serverRoute("svc-beta", "/api/items/{id}", "GET"),
 		serverRoute("svc-other", "/api/items/{id}", "GET"),
 	}
-	for _, f := range ComputeLinks(in, nil, allSignals(), vocab.Default()) {
+	for _, f := range ComputeLinks(in, nil, allSignals(), vocab.Default(), 1) {
 		if f.Kind == facts.KindDependency {
 			t.Errorf("ambiguous match without hint produced edge: %+v", f)
 		}
@@ -481,7 +481,7 @@ func TestComputeLinks_CoverageBlindSpot(t *testing.T) {
 		clientRoute("svc-gamma", "/api/items/{id}", "GET", nil),
 		serverRoute("svc-beta", "/api/items/{id}", "GET"),
 	}
-	out := ComputeLinks(in, nil, allSignals(), vocab.Default())
+	out := ComputeLinks(in, nil, allSignals(), vocab.Default(), 1)
 
 	// svc-alpha: detected but unresolved, and no outbound edge formed.
 	if hasServiceEdge(out, "svc-alpha", "svc-beta") {
@@ -517,7 +517,7 @@ func TestComputeLinks_ImportMatch(t *testing.T) {
 		importDep("app-web-app", "@app-web/lib-api/api-client-util"),
 		{Kind: facts.KindModule, Name: "lib-api", Repo: "app-web"},
 	}
-	out := ComputeLinks(in, nil, allSignals(), vocab.Default())
+	out := ComputeLinks(in, nil, allSignals(), vocab.Default(), 1)
 	e := findEdge(out, "app-web-app", "app-web")
 	if e == nil {
 		t.Fatalf("missing import edge; got %+v", out)
@@ -535,7 +535,7 @@ func TestComputeLinks_ImportRubyStyle(t *testing.T) {
 		importDep("svc-alpha", "lib-core/money/converter"),
 		{Kind: facts.KindModule, Name: "money", Repo: "lib-core"},
 	}
-	if findEdge(ComputeLinks(in, nil, allSignals(), vocab.Default()), "svc-alpha", "lib-core") == nil {
+	if findEdge(ComputeLinks(in, nil, allSignals(), vocab.Default(), 1), "svc-alpha", "lib-core") == nil {
 		t.Errorf("expected svc-alpha -> lib-core import edge")
 	}
 }
@@ -546,7 +546,7 @@ func TestComputeLinks_ImportRelativeAndSelfIgnored(t *testing.T) {
 		importDep("svc-alpha", "svc-alpha/inner"), // self — skip
 		{Kind: facts.KindModule, Name: "x", Repo: "lib-core"},
 	}
-	if edges := crossRepoEdges(ComputeLinks(in, nil, allSignals(), vocab.Default())); len(edges) != 0 {
+	if edges := crossRepoEdges(ComputeLinks(in, nil, allSignals(), vocab.Default(), 1)); len(edges) != 0 {
 		t.Errorf("relative/self imports produced edges: %+v", edges)
 	}
 }
@@ -568,7 +568,7 @@ func TestComputeLinks_ImportIntraRepoNamespaceSkipped(t *testing.T) {
 		importDep("mobile", "github.com/x/go-auth/adapters"),
 		module("go-auth", "adapters"),
 	}
-	out := ComputeLinks(in, nil, allSignals(), vocab.Default())
+	out := ComputeLinks(in, nil, allSignals(), vocab.Default(), 1)
 	if findEdge(out, "mobile", "backend") != nil {
 		t.Errorf("intra-repo namespace path must not link to a same-named repo; got edge to backend")
 	}
@@ -587,7 +587,7 @@ func TestComputeLinks_ImportSelfNamedTargetSkipped(t *testing.T) {
 		importDep("app-ios", "acme"),
 		serverRoute("acme", "/api/items/{id}", "GET"),
 	}
-	if findEdge(ComputeLinks(in, nil, allSignals(), vocab.Default()), "app-ios", "acme") != nil {
+	if findEdge(ComputeLinks(in, nil, allSignals(), vocab.Default(), 1), "app-ios", "acme") != nil {
 		t.Errorf("importing the app's own same-named module must not link to the backend repo")
 	}
 }
@@ -614,7 +614,7 @@ func TestComputeLinks_ImportOwnScopeSkipped(t *testing.T) {
 		module("cognee", "api"),
 		serverRoute("cognee", "/api/items/{id}", "GET"),
 	}
-	if e := findEdge(ComputeLinks(in, nil, allSignals(), vocab.Default()), "cognee-rs", "cognee"); e != nil {
+	if e := findEdge(ComputeLinks(in, nil, allSignals(), vocab.Default(), 1), "cognee-rs", "cognee"); e != nil {
 		t.Errorf("importing a package under the repo's own scope linked to another repo: %+v", e)
 	}
 }
@@ -628,7 +628,7 @@ func TestComputeLinks_ImportForeignScopeStillLinks(t *testing.T) {
 		importDep("app-ios", "@app-web/lib-api"),
 		module("app-web", "lib-api"),
 	}
-	if findEdge(ComputeLinks(in, nil, allSignals(), vocab.Default()), "app-ios", "app-web") == nil {
+	if findEdge(ComputeLinks(in, nil, allSignals(), vocab.Default(), 1), "app-ios", "app-web") == nil {
 		t.Errorf("import of another repo's scope must still link")
 	}
 }
@@ -642,7 +642,7 @@ func TestComputeLinks_MergedViaAndDeterministic(t *testing.T) {
 		importDep("svc-alpha", "svc-beta/client"),
 		{Kind: facts.KindModule, Name: "client", Repo: "svc-beta"},
 	}
-	out1 := ComputeLinks(in, nil, allSignals(), vocab.Default())
+	out1 := ComputeLinks(in, nil, allSignals(), vocab.Default(), 1)
 	e := findEdge(out1, "svc-alpha", "svc-beta")
 	if e == nil {
 		t.Fatalf("missing merged edge: %+v", out1)
@@ -652,7 +652,7 @@ func TestComputeLinks_MergedViaAndDeterministic(t *testing.T) {
 	}
 
 	// Deterministic: identical input yields identical output.
-	out2 := ComputeLinks(in, nil, allSignals(), vocab.Default())
+	out2 := ComputeLinks(in, nil, allSignals(), vocab.Default(), 1)
 	if !reflect.DeepEqual(out1, out2) {
 		t.Errorf("ComputeLinks not deterministic:\n%+v\n%+v", out1, out2)
 	}
@@ -663,7 +663,7 @@ func TestComputeLinks_SingleRepoNoLinks(t *testing.T) {
 		clientRoute("svc-alpha", "/api/items/{id}", "GET", nil),
 		serverRoute("svc-alpha", "/api/items/{id}", "GET"),
 	}
-	if out := ComputeLinks(in, nil, allSignals(), vocab.Default()); out != nil {
+	if out := ComputeLinks(in, nil, allSignals(), vocab.Default(), 1); out != nil {
 		t.Errorf("single repo produced links: %+v", out)
 	}
 }
@@ -680,7 +680,7 @@ func TestComputeLinks_HTTPWildcardServerMethod(t *testing.T) {
 		serverRoute("svc-beta", "/v1/widgets/details", facts.MethodAny),
 		clientRoute("svc-alpha", "v1/widgets/details", "GET", nil),
 	}
-	out := ComputeLinks(in, nil, allSignals(), vocab.Default())
+	out := ComputeLinks(in, nil, allSignals(), vocab.Default(), 1)
 	e := findEdge(out, "svc-alpha", "svc-beta")
 	if e == nil {
 		t.Fatalf("GET client should resolve to a wildcard-method server route; edges=%+v", crossRepoEdges(out))
@@ -717,7 +717,7 @@ func TestComputeLinks_Kafka(t *testing.T) {
 		topicFact("svc-alpha", "svc-alpha.cache.v1.evictions"), // alpha's own topic — no edge
 		topicFact("svc-alpha", "sink.third_party.user_state"),  // owner not loaded — no edge
 	}
-	out := ComputeLinks(in, nil, allSignals(), vocab.Default())
+	out := ComputeLinks(in, nil, allSignals(), vocab.Default(), 1)
 
 	e := findEdge(out, "svc-alpha", "svc-beta")
 	if e == nil {
@@ -744,7 +744,7 @@ func TestComputeLinks_HTTPSuffixMatch(t *testing.T) {
 		clientRoute("android", "/api/settings/entitlements/definitions", "GET", nil),
 		clientRoute("golf-ui", "/settings/entitlements/definitions", "GET", nil), // leading slash, no /api
 	}
-	out := ComputeLinks(in, nil, allSignals(), vocab.Default())
+	out := ComputeLinks(in, nil, allSignals(), vocab.Default(), 1)
 	for _, consumer := range []string{"ios", "android", "golf-ui"} {
 		if findEdge(out, consumer, "golf") == nil {
 			t.Errorf("%s did not link to golf via suffix match; out=%+v", consumer, out)
@@ -761,7 +761,7 @@ func TestComputeLinks_HTTPSuffixMinSegments(t *testing.T) {
 		serverRoute("golf", "/api/settings/definitions", "GET"),
 		clientRoute("ios", "definitions", "GET", nil),
 	}
-	if edges := crossRepoEdges(ComputeLinks(in, nil, allSignals(), vocab.Default())); len(edges) != 0 {
+	if edges := crossRepoEdges(ComputeLinks(in, nil, allSignals(), vocab.Default(), 1)); len(edges) != 0 {
 		t.Errorf("single-segment suffix should not link: %+v", edges)
 	}
 }
@@ -771,7 +771,7 @@ func TestComputeLinks_HTTPSuffixMethodMismatch(t *testing.T) {
 		serverRoute("golf", "/api/settings/feedback", "GET"),
 		clientRoute("golf-ui", "settings/feedback", "POST", nil),
 	}
-	if edges := crossRepoEdges(ComputeLinks(in, nil, allSignals(), vocab.Default())); len(edges) != 0 {
+	if edges := crossRepoEdges(ComputeLinks(in, nil, allSignals(), vocab.Default(), 1)); len(edges) != 0 {
 		t.Errorf("method mismatch should not link: %+v", edges)
 	}
 }
@@ -789,7 +789,7 @@ func TestComputeLinks_PerRepoServiceNodes(t *testing.T) {
 		{Kind: facts.KindModule, Name: "app", Repo: "android"},
 		{Kind: facts.KindModule, Name: "App", Repo: "ios"},
 	}
-	out := ComputeLinks(in, nil, allSignals(), vocab.Default())
+	out := ComputeLinks(in, nil, allSignals(), vocab.Default(), 1)
 
 	got := serviceNodes(out)
 	want := []string{"android", "go-auth", "golf", "golf-ui", "ios"}
@@ -838,7 +838,7 @@ func TestComputeLinks_SharedSymbolsMatch(t *testing.T) {
 		typeSym("gmsh", "Common.GmshServer", facts.SymbolClass),
 		typeSym("gmsh", "Common.onelab::remoteNetworkClient", facts.SymbolClass),
 	}
-	out := ComputeLinks(in, nil, allSignals(), vocab.Default())
+	out := ComputeLinks(in, nil, allSignals(), vocab.Default(), 1)
 
 	sc := findSharedCode(out, "getdp", "gmsh")
 	if sc == nil {
@@ -869,7 +869,7 @@ func TestComputeLinks_SharedSymbolsBelowThreshold(t *testing.T) {
 		module("beta", "lib"),
 		typeSym("beta", "lib.WidgetRegistry", facts.SymbolClass),
 	}
-	out := ComputeLinks(in, nil, allSignals(), vocab.Default())
+	out := ComputeLinks(in, nil, allSignals(), vocab.Default(), 1)
 	if sc := sharedCodeFacts(out); len(sc) != 0 {
 		t.Errorf("must not couple the repos either: %+v", sc)
 	}
@@ -893,7 +893,7 @@ func TestComputeLinks_SharedSymbolsGenericNamesIgnored(t *testing.T) {
 		typeSym("beta", "lib.Node", facts.SymbolClass),
 		typeSym("beta", "lib.Item", facts.SymbolClass),
 	}
-	out := ComputeLinks(in, nil, allSignals(), vocab.Default())
+	out := ComputeLinks(in, nil, allSignals(), vocab.Default(), 1)
 	if sc := sharedCodeFacts(out); len(sc) != 0 {
 		t.Errorf("must not couple the repos either: %+v", sc)
 	}
@@ -921,7 +921,7 @@ func TestComputeLinks_SharedSymbolsFrameworkConventionIgnored(t *testing.T) {
 		typeSym("svc-b", "app.Ability", facts.SymbolClass),
 		typeSym("svc-b", "app.ApplicationCable::Connection", facts.SymbolClass),
 	}
-	out := ComputeLinks(in, nil, allSignals(), vocab.Default())
+	out := ComputeLinks(in, nil, allSignals(), vocab.Default(), 1)
 	if sc := sharedCodeFacts(out); len(sc) != 0 {
 		t.Errorf("must not couple the repos either: %+v", sc)
 	}
@@ -950,7 +950,7 @@ func TestComputeLinks_SharedSymbolsMigrationsIgnored(t *testing.T) {
 		migrationSym("svc-b", "AddIndexToWidgets"),
 		migrationSym("svc-b", "InitSchema"),
 	}
-	out := ComputeLinks(in, nil, allSignals(), vocab.Default())
+	out := ComputeLinks(in, nil, allSignals(), vocab.Default(), 1)
 	if sc := sharedCodeFacts(out); len(sc) != 0 {
 		t.Errorf("must not couple the repos either: %+v", sc)
 	}
@@ -978,7 +978,7 @@ func TestComputeLinks_SharedSymbolsGenuineSurvivesBoilerplate(t *testing.T) {
 		typeSym("svc-b", "app.PaymentLedger", facts.SymbolClass),
 		typeSym("svc-b", "app.RetryPolicy", facts.SymbolClass),
 	}
-	out := ComputeLinks(in, nil, allSignals(), vocab.Default())
+	out := ComputeLinks(in, nil, allSignals(), vocab.Default(), 1)
 	sc := findSharedCode(out, "svc-a", "svc-b")
 	if sc == nil {
 		t.Fatalf("genuine shared types should still couple the pair; out=%+v", out)
@@ -1001,7 +1001,7 @@ func TestComputeLinks_SharedSymbolsNonTypesIgnored(t *testing.T) {
 		typeSym("beta", "lib.parseHeader", facts.SymbolFunc),
 		typeSym("beta", "lib.computeChecksum", facts.SymbolFunc),
 	}
-	out := ComputeLinks(in, nil, allSignals(), vocab.Default())
+	out := ComputeLinks(in, nil, allSignals(), vocab.Default(), 1)
 	if sc := sharedCodeFacts(out); len(sc) != 0 {
 		t.Errorf("must not couple the repos either: %+v", sc)
 	}
@@ -1031,7 +1031,7 @@ func TestComputeLinks_SharedSymbolsCrossLanguageUnqualifiedSkipped(t *testing.T)
 		typeSymLang("ios", "Sources.FeedItem", facts.SymbolClass, "swift"),
 		typeSymLang("ios", "Sources.AccountViewModel", facts.SymbolClass, "swift"),
 	}
-	out := ComputeLinks(in, nil, allSignals(), vocab.Default())
+	out := ComputeLinks(in, nil, allSignals(), vocab.Default(), 1)
 	if sc := sharedCodeFacts(out); len(sc) != 0 {
 		t.Errorf("must not couple the repos either: %+v", sc)
 	}
@@ -1054,7 +1054,7 @@ func TestComputeLinks_SharedSymbolsSameLanguageUnqualifiedLinks(t *testing.T) {
 		typeSymLang("svc-b", "lib.PaymentLedger", facts.SymbolClass, "go"),
 		typeSymLang("svc-b", "lib.RetryPolicy", facts.SymbolClass, "go"),
 	}
-	if findSharedCode(ComputeLinks(in, nil, allSignals(), vocab.Default()), "svc-a", "svc-b") == nil {
+	if findSharedCode(ComputeLinks(in, nil, allSignals(), vocab.Default(), 1), "svc-a", "svc-b") == nil {
 		t.Errorf("same-language repos sharing distinctive types should still couple")
 	}
 }
@@ -1073,7 +1073,7 @@ func TestComputeLinks_SharedSymbolsQualifiedCrossLanguageLinks(t *testing.T) {
 		typeSymLang("repo-b", "vendor.onelab::clientB", facts.SymbolClass, "c"),
 		typeSymLang("repo-b", "vendor.onelab::clientC", facts.SymbolClass, "c"),
 	}
-	if findSharedCode(ComputeLinks(in, nil, allSignals(), vocab.Default()), "repo-a", "repo-b") == nil {
+	if findSharedCode(ComputeLinks(in, nil, allSignals(), vocab.Default(), 1), "repo-a", "repo-b") == nil {
 		t.Errorf("qualified shared identities should couple even across languages")
 	}
 }
@@ -1093,7 +1093,7 @@ func TestComputeLinks_SharedSymbolsCrossLanguageNestedTypesSkipped(t *testing.T)
 		typeSymLang("ios", "Sources.HandicapAnalytics.DifferentialEntry", facts.SymbolClass, "swift"),
 		typeSymLang("ios", "Sources.FullAnalysisDataBuilder.TimeWindow", facts.SymbolClass, "swift"),
 	}
-	out := ComputeLinks(in, nil, allSignals(), vocab.Default())
+	out := ComputeLinks(in, nil, allSignals(), vocab.Default(), 1)
 	if sc := sharedCodeFacts(out); len(sc) != 0 {
 		t.Errorf("must not couple the repos either: %+v", sc)
 	}
@@ -1117,7 +1117,7 @@ func TestComputeLinks_SharedSymbolsSameLanguageNestedTypesLink(t *testing.T) {
 		typeSymLang("app-b", "lib.HandicapAnalytics.DifferentialEntry", facts.SymbolClass, "kotlin"),
 		typeSymLang("app-b", "lib.FullAnalysisDataBuilder.TimeWindow", facts.SymbolClass, "kotlin"),
 	}
-	if findSharedCode(ComputeLinks(in, nil, allSignals(), vocab.Default()), "app-a", "app-b") == nil {
+	if findSharedCode(ComputeLinks(in, nil, allSignals(), vocab.Default(), 1), "app-a", "app-b") == nil {
 		t.Errorf("same-language repos sharing distinctive nested types should still couple")
 	}
 }
@@ -1141,7 +1141,7 @@ func TestComputeLinks_SharedSymbolsFleetVocabularyNotLinked(t *testing.T) {
 			in = append(in, typeSymLang(repo, "app."+name, facts.SymbolClass, "go"))
 		}
 	}
-	out := ComputeLinks(in, nil, allSignals(), vocab.Default())
+	out := ComputeLinks(in, nil, allSignals(), vocab.Default(), 1)
 	if sc := sharedCodeFacts(out); len(sc) != 0 {
 		t.Errorf("must not couple the repos either: %+v", sc)
 	}
@@ -1169,7 +1169,7 @@ func TestComputeLinks_SharedSymbolsPairSpecificSurvivesFleetVocabulary(t *testin
 		in = append(in, typeSymLang("svc-1", "app."+name, facts.SymbolClass, "go"))
 		in = append(in, typeSymLang("svc-2", "app."+name, facts.SymbolClass, "go"))
 	}
-	out := ComputeLinks(in, nil, allSignals(), vocab.Default())
+	out := ComputeLinks(in, nil, allSignals(), vocab.Default(), 1)
 	sc := findSharedCode(out, "svc-1", "svc-2")
 	if sc == nil {
 		t.Fatalf("pair-specific distinctive types should couple svc-1/svc-2; got=%+v", sharedCodeFacts(out))
@@ -1197,7 +1197,7 @@ func TestComputeLinks_SharedSymbolsSmallRepoSetVocabularyFilterOff(t *testing.T)
 			in = append(in, typeSymLang(repo, "app."+name, facts.SymbolClass, "go"))
 		}
 	}
-	out := ComputeLinks(in, nil, allSignals(), vocab.Default())
+	out := ComputeLinks(in, nil, allSignals(), vocab.Default(), 1)
 	for _, pair := range [][2]string{{"svc-a", "svc-b"}, {"svc-a", "svc-c"}, {"svc-b", "svc-c"}} {
 		if findSharedCode(out, pair[0], pair[1]) == nil {
 			t.Errorf("with only 3 repos the vocabulary filter must stay off; missing %s <-> %s", pair[0], pair[1])
@@ -1223,7 +1223,7 @@ func TestComputeLinks_SharedSymbolsGeneratedCodeIgnored(t *testing.T) {
 	for _, name := range []string{"GetCountersResponse", "CounterBatchRequest", "EventCounterModel", "CountersClientWithResponses"} {
 		in = append(in, genTypeSym("svc-a", name), genTypeSym("svc-b", name))
 	}
-	out := ComputeLinks(in, nil, allSignals(), vocab.Default())
+	out := ComputeLinks(in, nil, allSignals(), vocab.Default(), 1)
 	if sc := sharedCodeFacts(out); len(sc) != 0 {
 		t.Errorf("must not couple the repos either: %+v", sc)
 	}
@@ -1245,7 +1245,7 @@ func TestComputeLinks_SharedSymbolsGeneratedExcludedFromCount(t *testing.T) {
 			typeSymLang("svc-a", "internal."+name, facts.SymbolClass, "go"),
 			typeSymLang("svc-b", "internal."+name, facts.SymbolClass, "go"))
 	}
-	e := findSharedCode(ComputeLinks(in, nil, allSignals(), vocab.Default()), "svc-a", "svc-b")
+	e := findSharedCode(ComputeLinks(in, nil, allSignals(), vocab.Default(), 1), "svc-a", "svc-b")
 	if e == nil {
 		t.Fatalf("hand-written distinctive shared types should still couple")
 	}
@@ -1261,7 +1261,7 @@ func TestComputeLinks_HTTPClientViaTag(t *testing.T) {
 		clientRoute("svc-alpha", "/api/items/list", "GET", map[string]any{"source": "go-http-client"}),
 		serverRoute("svc-beta", "/api/items/list", "GET"),
 	}
-	e := findEdge(ComputeLinks(in, nil, allSignals(), vocab.Default()), "svc-alpha", "svc-beta")
+	e := findEdge(ComputeLinks(in, nil, allSignals(), vocab.Default(), 1), "svc-alpha", "svc-beta")
 	if e == nil {
 		t.Fatal("missing svc-alpha -> svc-beta edge")
 	}
@@ -1284,7 +1284,7 @@ func TestComputeLinks_HandWrittenClientViaTag(t *testing.T) {
 				clientRoute("svc-alpha", "/api/items/list", "GET", map[string]any{"source": source}),
 				serverRoute("svc-beta", "/api/items/list", "GET"),
 			}
-			e := findEdge(ComputeLinks(in, nil, allSignals(), vocab.Default()), "svc-alpha", "svc-beta")
+			e := findEdge(ComputeLinks(in, nil, allSignals(), vocab.Default(), 1), "svc-alpha", "svc-beta")
 			if e == nil {
 				t.Fatal("missing svc-alpha -> svc-beta edge")
 			}
@@ -1300,7 +1300,7 @@ func TestComputeLinks_OpenAPIViaStaysHTTP(t *testing.T) {
 		clientRoute("svc-alpha", "/api/items/list", "GET", map[string]any{"source": "openapi"}),
 		serverRoute("svc-beta", "/api/items/list", "GET"),
 	}
-	e := findEdge(ComputeLinks(in, nil, allSignals(), vocab.Default()), "svc-alpha", "svc-beta")
+	e := findEdge(ComputeLinks(in, nil, allSignals(), vocab.Default(), 1), "svc-alpha", "svc-beta")
 	if e == nil {
 		t.Fatal("missing edge")
 	}
@@ -1315,7 +1315,7 @@ func TestComputeLinks_ConfidenceVerified(t *testing.T) {
 		clientRoute("svc-alpha", "/api/items/list", "GET", nil),
 		serverRoute("svc-beta", "/api/items/list", "GET"),
 	}
-	e := findEdge(ComputeLinks(in, nil, allSignals(), vocab.Default()), "svc-alpha", "svc-beta")
+	e := findEdge(ComputeLinks(in, nil, allSignals(), vocab.Default(), 1), "svc-alpha", "svc-beta")
 	if e == nil || e.Props["confidence"] != "verified" {
 		t.Errorf("confidence = %v, want verified", e.Props["confidence"])
 	}
@@ -1327,7 +1327,7 @@ func TestComputeLinks_ConfidenceProbableSuffixOnly(t *testing.T) {
 		clientRoute("svc-alpha", "settings/feedback", "POST", nil),
 		serverRoute("svc-beta", "/api/settings/feedback", "POST"),
 	}
-	e := findEdge(ComputeLinks(in, nil, allSignals(), vocab.Default()), "svc-alpha", "svc-beta")
+	e := findEdge(ComputeLinks(in, nil, allSignals(), vocab.Default(), 1), "svc-alpha", "svc-beta")
 	if e == nil || e.Props["confidence"] != "probable" {
 		t.Errorf("confidence = %v, want probable", e.Props["confidence"])
 	}
@@ -1338,7 +1338,7 @@ func TestComputeLinks_ConfidenceProbableInferred(t *testing.T) {
 		clientRoute("svc-alpha", "/api/items/{id}", "GET", nil),
 		serverRoute("svc-beta", "/api/items/{id}", "GET"),
 	}
-	e := findEdge(ComputeLinks(in, nil, allSignals(), vocab.Default()), "svc-alpha", "svc-beta")
+	e := findEdge(ComputeLinks(in, nil, allSignals(), vocab.Default(), 1), "svc-alpha", "svc-beta")
 	if e == nil || e.Props["confidence"] != "probable" {
 		t.Errorf("confidence = %v, want probable (inferred {})", e.Props["confidence"])
 	}
@@ -1351,14 +1351,14 @@ func TestComputeLinks_ConfidenceProbableHintDisambiguated(t *testing.T) {
 		serverRoute("svc-beta", "/api/items/list", "GET"),
 		serverRoute("svc-other", "/api/items/list", "GET"),
 	}
-	e := findEdge(ComputeLinks(in, nil, allSignals(), vocab.Default()), "svc-alpha", "svc-beta")
+	e := findEdge(ComputeLinks(in, nil, allSignals(), vocab.Default(), 1), "svc-alpha", "svc-beta")
 	if e == nil {
 		t.Fatal("missing svc-alpha -> svc-beta edge")
 	}
 	if e.Props["confidence"] != "probable" {
 		t.Errorf("confidence = %v, want probable", e.Props["confidence"])
 	}
-	if findEdge(ComputeLinks(in, nil, allSignals(), vocab.Default()), "svc-alpha", "svc-other") != nil {
+	if findEdge(ComputeLinks(in, nil, allSignals(), vocab.Default(), 1), "svc-alpha", "svc-other") != nil {
 		t.Error("should not link to svc-other")
 	}
 }
@@ -1371,7 +1371,7 @@ func TestComputeLinks_ConfidenceMixedIsVerified(t *testing.T) {
 		serverRoute("svc-beta", "/api/items/list", "GET"),
 		serverRoute("svc-beta", "/api/settings/feedback", "POST"),
 	}
-	e := findEdge(ComputeLinks(in, nil, allSignals(), vocab.Default()), "svc-alpha", "svc-beta")
+	e := findEdge(ComputeLinks(in, nil, allSignals(), vocab.Default(), 1), "svc-alpha", "svc-beta")
 	if e == nil || e.Props["confidence"] != "verified" {
 		t.Errorf("confidence = %v, want verified", e.Props["confidence"])
 	}
@@ -1384,7 +1384,7 @@ func TestComputeLinks_TargetHintResolvesProvider(t *testing.T) {
 		serverRoute("svc-checkout", "/api/purchase/build", "POST"),
 		serverRoute("svc-other", "/api/purchase/build", "POST"),
 	}
-	out := ComputeLinks(in, nil, allSignals(), vocab.Default())
+	out := ComputeLinks(in, nil, allSignals(), vocab.Default(), 1)
 	if findEdge(out, "core", "svc-checkout") == nil {
 		t.Error("target_hint should resolve provider svc-checkout")
 	}
@@ -1534,7 +1534,7 @@ func TestComputeLinks_ExternalClientStillMatchesLoadedServer(t *testing.T) {
 		// a genuinely third-party external call: no server serves it -> external bucket.
 		clientRoute("consumer", "/v1/widgets", "GET", map[string]any{"external": true, "host": "api.example.com"}),
 	}
-	out := ComputeLinks(in, nil, allSignals(), vocab.Default())
+	out := ComputeLinks(in, nil, allSignals(), vocab.Default(), 1)
 
 	if !hasServiceEdge(out, "consumer", "api") {
 		t.Errorf("external-tagged client route to a loaded server must produce an edge; got %+v", serviceNodes(out))
@@ -1591,7 +1591,7 @@ func TestComputeLinks_SharedSymbolsRespectsImportDirection(t *testing.T) {
 		typeSym("lib", "libs/ui.TileProps", facts.SymbolClass),
 		typeSym("lib", "libs/ui.ProbeSlot", facts.SymbolClass),
 	}
-	out := ComputeLinks(in, nil, allSignals(), vocab.Default())
+	out := ComputeLinks(in, nil, allSignals(), vocab.Default(), 1)
 
 	e := findEdge(out, "app", "lib")
 	if e == nil {
@@ -1627,7 +1627,7 @@ func TestComputeLinks_SharedSymbolsRespectsHTTPDirection(t *testing.T) {
 		typeSym("api", "app.PaymentLedger", facts.SymbolClass),
 		typeSym("api", "app.RetryPolicy", facts.SymbolClass),
 	}
-	out := ComputeLinks(in, nil, allSignals(), vocab.Default())
+	out := ComputeLinks(in, nil, allSignals(), vocab.Default(), 1)
 
 	if e := findEdge(out, "web", "api"); e == nil {
 		t.Fatalf("missing web -> api edge; out=%+v", out)
@@ -1653,7 +1653,7 @@ func TestComputeLinks_SharedSymbolsCoupleWithoutDirection(t *testing.T) {
 		typeSym("fork-b", "client.PaymentLedger", facts.SymbolClass),
 		typeSym("fork-b", "client.RetryPolicy", facts.SymbolClass),
 	}
-	out := ComputeLinks(in, nil, allSignals(), vocab.Default())
+	out := ComputeLinks(in, nil, allSignals(), vocab.Default(), 1)
 	if findSharedCode(out, "fork-a", "fork-b") == nil {
 		t.Fatalf("missing shared-code coupling for the fork pair; out=%+v", out)
 	}
@@ -1686,7 +1686,7 @@ func TestComputeLinks_SharedSymbolsComponentConventionIgnored(t *testing.T) {
 		typeSym("web-b", "libs.PanelSectionProps", facts.SymbolInterface),
 		typeSym("web-b", "libs.Layout", facts.SymbolClass),
 	}
-	out := ComputeLinks(in, nil, allSignals(), vocab.Default())
+	out := ComputeLinks(in, nil, allSignals(), vocab.Default(), 1)
 	if sc := sharedCodeFacts(out); len(sc) != 0 {
 		t.Errorf("must not couple the repos either: %+v", sc)
 	}
@@ -1712,7 +1712,7 @@ func TestComputeLinks_SharedSymbolsDistinctiveComponentNamesSurvive(t *testing.T
 		typeSym("web-b", "libs.TListRow", facts.SymbolEnum),
 		typeSym("web-b", "libs.ProbeSlot", facts.SymbolInterface),
 	}
-	out := ComputeLinks(in, nil, allSignals(), vocab.Default())
+	out := ComputeLinks(in, nil, allSignals(), vocab.Default(), 1)
 	e := findSharedCode(out, "web-a", "web-b")
 	if e == nil {
 		t.Fatalf("distinctive component names must still couple the pair; out=%+v", out)
@@ -1741,7 +1741,7 @@ func TestComputeLinks_SharedSymbolsStoryAndTestFilesIgnored(t *testing.T) {
 		storySym("web-b", "client.WidgetRegistry", "client/widget/widget.test.ts"),
 		storySym("web-b", "client.PaymentLedger", "client/__mocks__/ledger.ts"),
 	}
-	out := ComputeLinks(in, nil, allSignals(), vocab.Default())
+	out := ComputeLinks(in, nil, allSignals(), vocab.Default(), 1)
 	if sc := sharedCodeFacts(out); len(sc) != 0 {
 		t.Errorf("must not couple the repos either: %+v", sc)
 	}
@@ -1768,7 +1768,7 @@ func TestComputeLinks_SharedSymbolsRespectsGRPCDirection(t *testing.T) {
 		typeSym("server", "internal.PaymentLedger", facts.SymbolClass),
 		typeSym("server", "internal.RetryPolicy", facts.SymbolClass),
 	}
-	out := ComputeLinks(in, nil, allSignals(), vocab.Default())
+	out := ComputeLinks(in, nil, allSignals(), vocab.Default(), 1)
 
 	e := findEdge(out, "client", "server")
 	if e == nil {
@@ -1806,7 +1806,7 @@ func TestComputeLinks_SharedCodeDoesNotCompose(t *testing.T) {
 		typeSym("twin", "app.PaymentLedger", facts.SymbolClass),
 		typeSym("twin", "app.RetryPolicy", facts.SymbolClass),
 	}
-	out := ComputeLinks(in, nil, allSignals(), vocab.Default())
+	out := ComputeLinks(in, nil, allSignals(), vocab.Default(), 1)
 
 	if findEdge(out, "web", "api") == nil {
 		t.Fatalf("the real HTTP dependency must survive; out=%+v", out)
@@ -1906,12 +1906,12 @@ func TestComputeLinks_SharedSymbolsVerifiedAgainstSource(t *testing.T) {
 		"svc-b/app/retry_policy.rb":   bodyBeta,
 	})
 
-	if sc := sharedCodeFacts(ComputeLinks(in, src, allSignals(), vocab.Default())); len(sc) != 0 {
+	if sc := sharedCodeFacts(ComputeLinks(in, src, allSignals(), vocab.Default(), 1)); len(sc) != 0 {
 		t.Errorf("only 1 of 3 names is backed by shared code, below the threshold — no coupling expected: %+v", sc)
 	}
 	// Without a reader the same input still couples on names alone, which is what the
 	// verification is an improvement over.
-	if sc := sharedCodeFacts(ComputeLinks(in, nil, allSignals(), vocab.Default())); len(sc) != 1 {
+	if sc := sharedCodeFacts(ComputeLinks(in, nil, allSignals(), vocab.Default(), 1)); len(sc) != 1 {
 		t.Errorf("name-only matching (nil reader) should still couple the pair, got %+v", sc)
 	}
 }
@@ -1945,7 +1945,7 @@ func TestComputeLinks_SharedSymbolsVerifiedReportsBothCounts(t *testing.T) {
 		"svc-b/app/invoice_reconciler.rb": bodyBeta,
 	})
 
-	sc := findSharedCode(ComputeLinks(in, src, allSignals(), vocab.Default()), "svc-a", "svc-b")
+	sc := findSharedCode(ComputeLinks(in, src, allSignals(), vocab.Default(), 1), "svc-a", "svc-b")
 	if sc == nil {
 		t.Fatalf("3 verified shared types should still couple the pair")
 	}
@@ -1980,7 +1980,7 @@ func TestComputeLinks_SharedSymbolsNameMatchCountOmittedWhenEqual(t *testing.T) 
 		symInFile("svc-b", "app.PaymentLedger", "svc-b/app/a.rb"),
 		symInFile("svc-b", "app.RetryPolicy", "svc-b/app/a.rb"),
 	}
-	sc := findSharedCode(ComputeLinks(in, nil, allSignals(), vocab.Default()), "svc-a", "svc-b")
+	sc := findSharedCode(ComputeLinks(in, nil, allSignals(), vocab.Default(), 1), "svc-a", "svc-b")
 	if sc == nil {
 		t.Fatalf("name-only matching should couple the pair")
 	}
@@ -2010,7 +2010,7 @@ func TestComputeLinks_SharedSymbolsUnreadableSourceDropsIdentity(t *testing.T) {
 		"svc-a/app/payment_ledger.rb":  bodyAlpha,
 		"svc-a/app/retry_policy.rb":    bodyAlpha,
 	})
-	if sc := sharedCodeFacts(ComputeLinks(in, src, allSignals(), vocab.Default())); len(sc) != 0 {
+	if sc := sharedCodeFacts(ComputeLinks(in, src, allSignals(), vocab.Default(), 1)); len(sc) != 0 {
 		t.Errorf("unreadable source must not count as verified: %+v", sc)
 	}
 }
@@ -2040,7 +2040,7 @@ func TestComputeLinks_SharedSymbolsVerificationAppliesToAnnotatedEdges(t *testin
 		"lib/libs/ui/retry_policy.ts":    bodyBeta, // name only
 	})
 
-	out := ComputeLinks(in, src, allSignals(), vocab.Default())
+	out := ComputeLinks(in, src, allSignals(), vocab.Default(), 1)
 	e := findEdge(out, "app", "lib")
 	if e == nil {
 		t.Fatalf("the import edge must survive; out=%+v", out)
@@ -2088,7 +2088,7 @@ func TestComputeLinks_BaseRelativeClientResolvesAsProbable(t *testing.T) {
 		clientRoute("web", "/v2/categories.json", "GET", nil),
 		clientRoute("web", "/public/v1/complaints.json", "POST", nil),
 	}
-	out := ComputeLinks(in, nil, allSignals(), vocab.Default())
+	out := ComputeLinks(in, nil, allSignals(), vocab.Default(), 1)
 
 	e := findEdge(out, "web", "api")
 	if e == nil {
@@ -2128,7 +2128,7 @@ func TestComputeLinks_HTTP_AllParameterRelativePathDoesNotLink(t *testing.T) {
 		serverRoute("web-shell", "/{path}", "GET"),
 		clientRoute("mobile", "{}", "GET", nil),
 	}
-	if edges := crossRepoEdges(ComputeLinks(in, nil, allSignals(), vocab.Default())); len(edges) != 0 {
+	if edges := crossRepoEdges(ComputeLinks(in, nil, allSignals(), vocab.Default(), 1)); len(edges) != 0 {
 		t.Errorf("an all-parameter relative path must not link, got %+v", edges)
 	}
 }
@@ -2143,7 +2143,7 @@ func TestComputeLinks_HTTP_ParameterBaseSingleLiteralNeedsOneProvider(t *testing
 		// two providers for a multi-segment path; for this one it is not enough.
 		clientRoute("mobile", "{}/prepare", "POST", map[string]any{"target_hint": "ordersgateway"}),
 	}
-	if edges := crossRepoEdges(ComputeLinks(in, nil, allSignals(), vocab.Default())); len(edges) != 0 {
+	if edges := crossRepoEdges(ComputeLinks(in, nil, allSignals(), vocab.Default(), 1)); len(edges) != 0 {
 		t.Errorf("{}/prepare with two providers must not link on a substring hint, got %+v", edges)
 	}
 }
@@ -2158,7 +2158,7 @@ func TestComputeLinks_HTTP_BaseRelativeSegmentWithTwoTailProvidersDoesNotLink(t 
 		clientRoute("mobile", "banners", "GET", nil),
 		clientRoute("web", "/banners", "GET", nil),
 	}
-	out := ComputeLinks(in, nil, allSignals(), vocab.Default())
+	out := ComputeLinks(in, nil, allSignals(), vocab.Default(), 1)
 	if findEdge(out, "mobile", "shops") != nil {
 		t.Errorf("base-relative 'banners' must not pick the bare server among two; edges=%+v", crossRepoEdges(out))
 	}
@@ -2176,7 +2176,7 @@ func TestComputeLinks_HTTP_OneLiteralDoesNotReachALongerServerPath(t *testing.T)
 		serverRoute("printing", "/{id}/print", "POST"),
 		clientRoute("mobile", "{}/print", "POST", nil),
 	}
-	out := ComputeLinks(in, nil, allSignals(), vocab.Default())
+	out := ComputeLinks(in, nil, allSignals(), vocab.Default(), 1)
 	if findEdge(out, "mobile", "shops") != nil {
 		t.Errorf("{}/prepare must not reach a longer server path; edges=%+v", crossRepoEdges(out))
 	}
@@ -2202,7 +2202,7 @@ func TestComputeLinks_HTTP_SlashLedIDPathReachesALongerServerPath(t *testing.T) 
 		serverRoute("stores", "/admin/v1/stores/requests/{id}/prepare", "POST"),
 		clientRoute("mobile", "{}/prepare", "POST", nil),
 	}
-	out := ComputeLinks(in, nil, allSignals(), vocab.Default())
+	out := ComputeLinks(in, nil, allSignals(), vocab.Default(), 1)
 	if findEdge(out, "player", "media") == nil {
 		t.Errorf("/{}/captions must reach /api/v1/videos/{videoId}/captions; edges=%+v", crossRepoEdges(out))
 	}
@@ -2237,7 +2237,7 @@ func TestComputeLinks_SharedSymbolsRecordTheMatchedFiles(t *testing.T) {
 		"svc-a/app/retry_policy.rb":    bodyAlpha,
 		"svc-b/app/retry_policy.rb":    bodyAlpha,
 	})
-	sc := findSharedCode(ComputeLinks(in, src, allSignals(), vocab.Default()), "svc-a", "svc-b")
+	sc := findSharedCode(ComputeLinks(in, src, allSignals(), vocab.Default(), 1), "svc-a", "svc-b")
 	if sc == nil {
 		t.Fatal("3 verified shared types should couple the pair")
 	}

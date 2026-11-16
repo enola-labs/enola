@@ -2,7 +2,9 @@ package sharedcode
 
 import (
 	"reflect"
+	"sort"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/enola-labs/enola/internal/facts"
@@ -173,6 +175,86 @@ func TestFileComparer_ReadsEachFileOnce(t *testing.T) {
 	for file, n := range reads {
 		if n != 1 {
 			t.Errorf("file %s read %d times, want 1", file, n)
+		}
+	}
+}
+
+// jobsInput is fakeInput reading with a set number of jobs, counting each file's reads.
+type jobsInput struct {
+	fakeInput
+	jobs int
+}
+
+func (j jobsInput) ReadJobs() int { return j.jobs }
+
+// TestVerifyPairs_JobsDoNotChangeTheResult pins that verifying the repository pairs in
+// parallel keeps and rejects exactly the identities a sequential pass does, records the
+// same matched files, and still reads each file once. Run under -race it is also the
+// check that the comparer is safe to share.
+func TestVerifyPairs_JobsDoNotChangeTheResult(t *testing.T) {
+	s := New(vocab.Default())
+	repos := []string{"r0", "r1", "r2", "r3", "r4", "r5"}
+	// Identity i is declared in every repository; in r0 to r2 the files are copies,
+	// in the rest each repository has its own body, so only pairs inside r0..r2 verify.
+	idToRepos := map[string]map[string][]facts.Fact{}
+	for i := range 40 {
+		id := "app.Shared" + string(rune('A'+i%26)) + strings.Repeat("x", i/26)
+		idToRepos[id] = map[string][]facts.Fact{}
+		for _, r := range repos {
+			file := r + "/app/" + id + ".rb"
+			idToRepos[id][r] = []facts.Fact{symInFile(r, id, file)}
+		}
+	}
+	body := func(f facts.Fact) string {
+		switch f.Repo {
+		case "r0", "r1", "r2":
+			return bodyAlpha
+		}
+		return bodyBeta + "\n# " + f.Repo
+	}
+	run := func(jobs int) (map[string]map[string]bool, map[string][]string, map[string]int) {
+		pairShared := map[string]map[string]bool{}
+		for a := range repos {
+			for b := a + 1; b < len(repos); b++ {
+				key := repos[a] + "\x00" + repos[b]
+				pairShared[key] = map[string]bool{}
+				for id := range idToRepos {
+					pairShared[key][id] = true
+				}
+			}
+		}
+		var mu sync.Mutex
+		reads := map[string]int{}
+		in := jobsInput{jobs: jobs, fakeInput: fakeInput{read: func(f facts.Fact) (string, bool) {
+			mu.Lock()
+			reads[f.File]++
+			mu.Unlock()
+			return body(f), true
+		}}}
+		matched := map[string][]string{}
+		s.verifyPairs(in, pairShared, idToRepos, matched)
+		for k := range matched {
+			sort.Strings(matched[k])
+		}
+		return pairShared, matched, reads
+	}
+	wantPairs, wantMatched, _ := run(1)
+	if len(wantPairs["r0\x00r1"]) != 40 || len(wantPairs["r0\x00r3"]) != 0 {
+		t.Fatalf("fixture: r0/r1 verified %d, r0/r3 verified %d; want 40 and 0",
+			len(wantPairs["r0\x00r1"]), len(wantPairs["r0\x00r3"]))
+	}
+	for _, jobs := range []int{2, 8} {
+		gotPairs, gotMatched, reads := run(jobs)
+		if !reflect.DeepEqual(gotPairs, wantPairs) {
+			t.Errorf("jobs=%d: verified identities differ from the sequential pass", jobs)
+		}
+		if !reflect.DeepEqual(gotMatched, wantMatched) {
+			t.Errorf("jobs=%d: matched files differ from the sequential pass", jobs)
+		}
+		for file, n := range reads {
+			if n != 1 {
+				t.Errorf("jobs=%d: %s read %d times, want 1", jobs, file, n)
+			}
 		}
 	}
 }

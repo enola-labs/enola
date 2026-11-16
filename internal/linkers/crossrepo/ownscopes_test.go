@@ -12,7 +12,7 @@ import (
 func importEdges(t *testing.T, all []facts.Fact) map[string]bool {
 	t.Helper()
 	edges := map[string]bool{}
-	for _, f := range ComputeLinks(all, nil, []plugin.CrossRepoSignal{importsignal.New()}, vocab.Default()) {
+	for _, f := range ComputeLinks(all, nil, []plugin.CrossRepoSignal{importsignal.New()}, vocab.Default(), 1) {
 		if f.Kind == facts.KindDependency {
 			edges[f.Name] = true
 		}

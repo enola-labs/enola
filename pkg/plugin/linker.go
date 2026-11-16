@@ -165,6 +165,10 @@ type SignalInput interface {
 	// source is unavailable, which every caller must treat as "cannot verify" rather
 	// than "does not match".
 	ReadSource(f facts.Fact) (string, bool)
+	// ReadJobs is how many goroutines may call ReadSource at once, at least 1.
+	// ReadSource is safe for that many; every other method is not, and stays on the
+	// signal's own goroutine.
+	ReadJobs() int
 }
 
 // Bucket names one class of evidence an edge can carry, together with the props it
