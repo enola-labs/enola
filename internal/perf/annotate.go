@@ -16,8 +16,9 @@ import (
 // whose order could churn a diff.
 const PropPerfRisk = "perf_risk"
 
-// Annotate marks high-severity performance risks on their symbol facts, so a diff
-// between two snapshots can say WHICH function a change made expensive.
+// ComputeAnnotations is the read-only half of Annotate, which marks high-severity
+// performance risks on their symbol facts, so a diff between two snapshots can say
+// WHICH function a change made expensive.
 //
 // It exists because this explainer caps its insight list at 50 plus a rollup, and
 // a diff identifies findings by title: past the cap, a newly slow function moved
@@ -44,7 +45,7 @@ const PropPerfRisk = "perf_risk"
 // loop is hot. It is more misleading as a persisted prop than as a finding, which
 // is why it carries the kind rather than a bare severity: `call-in-loop` says what
 // was seen, where `slow: true` would say what was concluded.
-func (e *Explainer) Annotate(_ context.Context, store *facts.Store) error {
+func (e *Explainer) ComputeAnnotations(_ context.Context, store *facts.Store) (func(), error) {
 	// Keyed by (repo, name) for the reason orphans is: symbol names are unique only
 	// within a repo, and a multi-repo snapshot can hold same-named symbols in
 	// several of them.
@@ -62,25 +63,35 @@ func (e *Explainer) Annotate(_ context.Context, store *facts.Store) error {
 		}
 	}
 	if len(risky) == 0 {
-		return nil
+		return nil, nil
 	}
 
-	store.UpdateWhere(func(f *facts.Fact) {
-		if f.Kind != facts.KindSymbol {
-			return
-		}
-		kind, ok := risky[key{f.Repo, f.Name}]
-		if !ok {
-			// Written ONLY for a symbol that carries a risk. Marking every other
-			// symbol would add a prop to every symbol fact in the graph, and a diff
-			// against a baseline taken without annotations would report thousands of
-			// changed facts instead of the few that moved.
-			return
-		}
-		if f.Props == nil {
-			f.Props = make(map[string]any, 1)
-		}
-		f.SetProp(PropPerfRisk, kind)
-	})
-	return nil
+	return func() {
+		store.UpdateWhere(func(f *facts.Fact) {
+			if f.Kind != facts.KindSymbol {
+				return
+			}
+			kind, ok := risky[key{f.Repo, f.Name}]
+			if !ok {
+				// Written ONLY for a symbol that carries a risk. Marking every other
+				// symbol would add a prop to every symbol fact in the graph, and a diff
+				// against a baseline taken without annotations would report thousands of
+				// changed facts instead of the few that moved.
+				return
+			}
+			if f.Props == nil {
+				f.Props = make(map[string]any, 1)
+			}
+			f.SetProp(PropPerfRisk, kind)
+		})
+	}, nil
+}
+
+// Annotate is ComputeAnnotations and its write, back to back; see plugin.SplitAnnotator.
+func (e *Explainer) Annotate(ctx context.Context, store *facts.Store) error {
+	apply, err := e.ComputeAnnotations(ctx, store)
+	if apply != nil {
+		apply()
+	}
+	return err
 }

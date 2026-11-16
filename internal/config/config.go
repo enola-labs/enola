@@ -43,6 +43,14 @@ type Config struct {
 	// repository after another.
 	ClusterJobs int `yaml:"cluster_jobs,omitempty"`
 
+	// AnalysisJobs is how many explainers run at once after linking, and whether the
+	// annotators' read-only passes run beside each other. Every explainer reads a
+	// frozen store and the results are assembled in registration order, so the
+	// snapshot is the same whatever it is; it trades memory for time, each running
+	// explainer holding its own working set. Zero means the default
+	// (DefaultAnalysisJobs); 1 runs one after another.
+	AnalysisJobs int `yaml:"analysis_jobs,omitempty"`
+
 	// Intent is the cluster config's intent block: declared architectural
 	// intent keyed by repo label, for repos the operator observes but does not
 	// own. An entry here overrides that repo's own enola-intent.yaml wholesale
@@ -136,6 +144,23 @@ func (c *Config) ClusterJobsFor(n int) int {
 		jobs = DefaultClusterJobs
 	}
 	return min(jobs, n)
+}
+
+// DefaultAnalysisJobs is how many explainers run at once unless the config says
+// otherwise: half the cores, at most four. Past four the slowest explainer is the
+// whole wait, and the memory the concurrent ones hold grows with the count while
+// fewer cores collect it, so a smaller machine, which has less memory too, runs
+// fewer.
+func DefaultAnalysisJobs(cores int) int {
+	return max(1, min(4, cores/2))
+}
+
+// AnalysisJobsFor is how many explainers run at once on a machine with cores cores.
+func (c *Config) AnalysisJobsFor(cores int) int {
+	if c.AnalysisJobs > 0 {
+		return c.AnalysisJobs
+	}
+	return DefaultAnalysisJobs(cores)
 }
 
 // IncrementalEnabled reports whether per-extractor caching is on (the default).

@@ -174,6 +174,20 @@ type Annotator interface {
 	Annotate(ctx context.Context, store *facts.Store) error
 }
 
+// SplitAnnotator is an Annotator whose work splits in two: a read-only pass, which
+// the engine may run beside other annotators' read-only passes, and the write it
+// returns, which the engine applies one annotator at a time in registration order.
+// Annotate is the two run back to back.
+//
+// ComputeAnnotations must not write the store, and must not read a prop any annotator
+// writes: run concurrently, it sees none of the other annotators' writes, and run one
+// after another it would see the earlier ones', so the snapshot would depend on which.
+// apply may be nil when there is nothing to write.
+type SplitAnnotator interface {
+	Annotator
+	ComputeAnnotations(ctx context.Context, store *facts.Store) (apply func(), err error)
+}
+
 // Explainer analyzes facts and produces architectural insights.
 type Explainer interface {
 	// Name returns the explainer identifier (e.g. "cycles", "layers").

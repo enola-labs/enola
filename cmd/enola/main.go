@@ -91,7 +91,8 @@ func main() {
 	statusMode := false
 	statusAll := false
 	noDashboard := false
-	noCluster := false // index a folder of repositories as one repository
+	noCluster := false  // index a folder of repositories as one repository
+	noParallel := false // extract and explain one at a time, for less memory
 	cfgPath := "mcp-arch.yaml"
 	repoArg := "" // optional positional repo path, for --explain and --generate
 
@@ -152,6 +153,8 @@ func main() {
 			noDashboard = true
 		case "--no-cluster":
 			noCluster = true
+		case "--no-parallel":
+			noParallel = true
 		default:
 			// The positional argument is a REPOSITORY when it names a directory and a
 			// CONFIG FILE when it names a file, so both `--explain /path/to/repo` and
@@ -246,6 +249,12 @@ func main() {
 		default:
 			fmt.Fprint(os.Stderr, workspace.FoldWarning(binary().Name, foldDir, folded))
 		}
+	}
+
+	// Set on the config the engine holds, after the last engine above was built from
+	// it. It overrides what the config file says, for one run.
+	if noParallel {
+		cfg.ClusterJobs, cfg.AnalysisJobs = 1, 1
 	}
 
 	if explainMode {

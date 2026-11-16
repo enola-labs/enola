@@ -590,6 +590,7 @@ Every path argument follows the same rule: **a directory is a repository, a file
 |------|--------------|
 | `--generate [repo_path\|config_path]` | Generate a snapshot and exit - no MCP server. Artifacts go to `output.dir` (default `.enola/`). With `repos:` in the config, indexes the whole cluster in one run. A directory whose immediate subfolders include two or more git repositories is indexed as a cluster: enola says it detected them, writes `cluster.yaml` there (see `cluster init`) or uses the one already there, and keeps the other settings of the config in force. A directory that is itself a git repository is indexed as one repository, with a warning. |
 | `--no-cluster` | With `--generate` on a directory holding several git repositories, index it as one repository instead of as a cluster. |
+| `--no-parallel` | With `--generate`, extract one repository of a cluster at a time and run one explainer at a time: slower, and less memory at once. Same as `cluster_jobs: 1` and `analysis_jobs: 1`. |
 | `--explain [repo_path\|config_path]` | Print the statistics report above and exit. Read-only: nothing is written to `.enola/`. A directory is a repository; a file is a config, so a `repos:` config reports over the whole cluster. |
 | `--summary` | With `--explain`, print the [plain-language summary](#plain-language-summary) instead of the report. With `--json` as well, print it as JSON. Refused on its own. |
 | `--list` | List the MCP tools this build serves, with one-line summaries. |
