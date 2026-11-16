@@ -145,6 +145,7 @@ func DefaultHelp(bin Binary) HelpSpec {
 			{Flag: "--status --all", Desc: "Show the per-repo breakdown instead (from ~/.enola/usage/)"},
 			{Flag: "--no-dashboard", Desc: "Do not start the localhost dashboard alongside the MCP server"},
 			{Flag: "--no-cluster", Desc: "With --generate on a folder that holds several git repositories:\nindex it as one repository instead of as a cluster"},
+			{Flag: "--no-parallel", Desc: "With --generate: extract one repository of a cluster at a time and\nrun one explainer at a time. Slower, and holds less memory at once.\nSame as cluster_jobs: 1 and analysis_jobs: 1 in the config."},
 			{Flag: "--version", Desc: "Print version information"},
 			{Flag: "--version --json", Desc: "Print the version and the extractor version as JSON, on stdout.\nThis is the release manifest: what a build is called, and what it\nEXTRACTS LIKE. See UPDATES."},
 			{Flag: "--help, -h", Desc: "Show this help message. Followed by a command, show that\ncommand's help instead: " + bin.Name + " --help <command>"},

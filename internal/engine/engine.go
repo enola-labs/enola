@@ -478,11 +478,9 @@ func (e *Engine) generateTurn(ctx context.Context, repoPath string, appendMode, 
 // returning the census for the snapshot receipt. preCount marks where this
 // repo's extraction window began: everything the extractors (and the intent
 // compiler) added since is the identity set a provider fact may not collide
-// with — the extractor's account of a name+kind wins, always.
+// with — the extractor's account of a name+kind wins, always. The caller runs it only
+// with providers configured.
 func (e *Engine) runProviders(ctx context.Context, absRepo string, preCount int, in providers.Input) []facts.ProviderRecord {
-	if len(e.cfg.Providers) == 0 {
-		return nil
-	}
 	extracted := e.store.FactsRef()[preCount:]
 	owned := make(map[string]bool, len(extracted))
 	for _, f := range extracted {
@@ -957,78 +955,6 @@ func (e *Engine) runTestRefExtractors(ctx context.Context, repoPath string, test
 		e.store.Add(refFacts...)
 		log.Printf("[engine] extractor %s: emitted %d test-ref facts from %d files", ext.Name(), len(refFacts), len(owned))
 	}
-}
-
-// runAnnotators lets enabled explainers write derived values back onto the facts
-// before any of them run Explain.
-//
-// Two orderings matter and neither is incidental. It runs AFTER the graph is built, so
-// whole-graph derivations (afferent/efferent coupling) are computable at all; and it runs
-// BEFORE every Explain rather than interleaved per explainer, so one explainer's insights
-// can never depend on whether another happened to be registered ahead of it — which would
-// make the snapshot depend on registration order.
-//
-// An annotator failure is logged and skipped, exactly as an explainer failure is: a
-// missing derived prop costs a diff some detail, and refusing to produce a snapshot over
-// it would cost the caller everything else in the graph.
-func (e *Engine) runAnnotators(ctx context.Context) {
-	for _, exp := range e.explainers.All() {
-		ann, ok := exp.(plugin.Annotator)
-		if !ok || !e.cfg.IsExplainerEnabled(exp.Name()) {
-			continue
-		}
-		log.Printf("[engine] running annotator: %s", exp.Name())
-		if err := ann.Annotate(ctx, e.store); err != nil {
-			log.Printf("[engine] annotator %s error: %v", exp.Name(), err)
-		}
-	}
-}
-
-// runExplainers runs all enabled explainers.
-func (e *Engine) runExplainers(ctx context.Context, allNames []string) ([]facts.Insight, []string, error) {
-	var allInsights []facts.Insight
-	var usedNames []string
-
-	e.runAnnotators(ctx)
-	// The annotators are the last writers of facts: explainers, renderers and the
-	// snapshot only read. Sharing the identical Props and Relations now rather than at
-	// publication takes the duplicates out of the heap while the explainers, the
-	// largest transient allocators of a generate, run over it.
-	e.store.Freeze()
-
-	for _, exp := range e.explainers.All() {
-		if !e.cfg.IsExplainerEnabled(exp.Name()) {
-			continue
-		}
-
-		log.Printf("[engine] running explainer: %s", exp.Name())
-		// An explainer whose evidence includes files no extractor parses gets the
-		// walked names too; see plugin.WalkAware.
-		var insights []facts.Insight
-		var err error
-		if wa, ok := exp.(plugin.WalkAware); ok {
-			insights, err = wa.ExplainFiles(ctx, e.store, allNames)
-		} else {
-			insights, err = exp.Explain(ctx, e.store)
-		}
-		if err != nil {
-			log.Printf("[engine] explainer %s error: %v", exp.Name(), err)
-			continue
-		}
-
-		// Tag each insight with its producing explainer so clients can fetch and
-		// filter findings by source (e.g. query_insights(explainer="unused-routes"))
-		// without every explainer having to set the field itself.
-		for i := range insights {
-			insights[i].Source = exp.Name()
-		}
-
-		allInsights = append(allInsights, insights...)
-		usedNames = append(usedNames, exp.Name())
-		log.Printf("[engine] explainer %s: produced %d insights", exp.Name(), len(insights))
-	}
-
-	return allInsights, usedNames, nil
 }
 
 // runRenderers runs all enabled renderers.

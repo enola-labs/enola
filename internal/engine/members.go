@@ -41,6 +41,24 @@ func memberMetas(prev *snapshotBundle, appendMode bool, absRepo string, turn fac
 	return members
 }
 
+// gitAt is repository abs's git state as the turn that indexed it into b read it,
+// and a fresh read for a repository b holds no turn for (a graph restored from
+// disk). The history vector and the graph receipt ask for every member after a
+// cluster build, and reading git again there costs four subprocesses per member for
+// an answer the run already has. It is also the more accurate answer: the facts
+// describe the tree as it was when the turn read it, not as it is now.
+func (b *snapshotBundle) gitAt(abs, outputDir string) *facts.GitInfo {
+	turn, ok := b.members[abs]
+	if !ok {
+		return gitInfo(abs, outputDir)
+	}
+	if turn.Git == nil {
+		return nil
+	}
+	g := *turn.Git
+	return &g
+}
+
 // MetaFor is the meta the published union writes into repoPath's own dir: the
 // union's fields with the member's provenance overlaid, when that member is known
 // to the bundle, and the published meta otherwise. A baseline pinned from a member

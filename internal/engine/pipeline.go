@@ -365,7 +365,12 @@ func (e *Engine) extract(r *snapshotRun) error {
 	// an extractor already owns is never overwritten, so the census can say a
 	// provider contributed less than it emitted but the graph cannot silently
 	// change authorship.
-	r.provRecords = e.runProviders(r.ctx, r.srcRoot, r.preCount, providerInput(r.files, r.testFiles, r.hashes, e.computeFileHashes(r.ctx, r.srcRoot, r.testFiles), cache))
+	// Only with providers configured: their input hashes every test file, which
+	// nothing else reads, so building it unconditionally re-read a repository's
+	// tests on every run for a call that returns at once.
+	if len(e.cfg.Providers) > 0 {
+		r.provRecords = e.runProviders(r.ctx, r.srcRoot, r.preCount, providerInput(r.files, r.testFiles, r.hashes, e.computeFileHashes(r.ctx, r.srcRoot, r.testFiles), cache))
+	}
 	r.progress.stage("providers")
 	if cache != nil {
 		log.Printf("[engine] extractor cache: %d reused", cache.hits)

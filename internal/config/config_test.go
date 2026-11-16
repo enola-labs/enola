@@ -219,3 +219,15 @@ func TestExtractorAlias(t *testing.T) {
 		t.Error("an extractors list that omits .NET must keep it disabled")
 	}
 }
+
+func TestAnalysisJobsFor(t *testing.T) {
+	for _, c := range []struct{ set, cores, want int }{
+		{0, 1, 1}, {0, 2, 1}, {0, 4, 2}, {0, 8, 4}, {0, 16, 4}, {0, 64, 4},
+		{1, 16, 1}, {6, 4, 6},
+	} {
+		cfg := &Config{AnalysisJobs: c.set}
+		if got := cfg.AnalysisJobsFor(c.cores); got != c.want {
+			t.Errorf("analysis_jobs=%d on %d cores: got %d, want %d", c.set, c.cores, got, c.want)
+		}
+	}
+}

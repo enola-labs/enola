@@ -223,7 +223,7 @@ Two more things are worth knowing, and neither follows from the trade above.
   link layer — the one place two repositories' facts meet — so a client call can resolve to a route
   the server side has since removed, or miss one it has since added. That is ordinary staleness
   rather than anything peculiar to composition: the freshness check reports it per repository, and
-  the graph receipt records each repository's git ref, commit and dirty state. Re-snapshot a
+  the graph receipt records each repository's git ref, commit and dirty state as of that run. Re-snapshot a
   repository before trusting edges that cross into it.
 
 ### How narrowly to read this

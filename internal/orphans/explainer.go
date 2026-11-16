@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"sync"
 
 	"github.com/enola-labs/enola/internal/explainers/common"
 	"github.com/enola-labs/enola/internal/explainers/vendoredcandidates"
@@ -19,7 +20,34 @@ const maxIndividualInsights = common.MaxIndividualInsights
 // findings surface via the OSS query_insights tool (explainer="dead-code"),
 // alongside the OSS explainers. It runs during generate_snapshot and reuses the
 // same collect/classify core as the find_orphans MCP tool.
-type Explainer struct{}
+type Explainer struct {
+	// held is the collect pass Annotate ran, kept for Explain over the same store.
+	// collect is most of either pass, and between the two only annotators write, and
+	// none of them a prop collect reads (dead-code writes orphan_class, metrics and
+	// perf their own). An annotator that starts writing one must clear this.
+	mu   sync.Mutex
+	held *collected
+}
+
+type collected struct {
+	store *facts.Store
+	count int
+	syms  []symInput
+	refs  refIndex
+}
+
+// collectFor is collect(store), served once from what Annotate held when it ran over
+// the same store at the same size, and computed otherwise.
+func (e *Explainer) collectFor(store *facts.Store) ([]symInput, refIndex) {
+	e.mu.Lock()
+	h := e.held
+	e.held = nil
+	e.mu.Unlock()
+	if h != nil && h.store == store && h.count == store.Count() {
+		return h.syms, h.refs
+	}
+	return collect(store)
+}
 
 // NewExplainer creates a dead-code Explainer.
 func NewExplainer() *Explainer { return &Explainer{} }
@@ -33,7 +61,7 @@ func (e *Explainer) Name() string { return "dead-code" }
 // symbols are included but labelled as such and ranked after every dead one: see
 // orphansToInsights.
 func (e *Explainer) Explain(_ context.Context, store *facts.Store) ([]facts.Insight, error) {
-	syms, refSources := collect(store)
+	syms, refSources := e.collectFor(store)
 	orphans := classify(syms, refSources, options{Mode: "both", Visibility: "all"})
 	sortOrphans(orphans)
 	return orphansToInsights(orphans), nil

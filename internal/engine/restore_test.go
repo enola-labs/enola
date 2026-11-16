@@ -540,3 +540,59 @@ func TestRestoreFromDir_RelationOrderMatchesBuilt(t *testing.T) {
 		}
 	}
 }
+
+// The graph receipt records each repository's git state as the run read it, not a
+// second read taken after the build: an edit made while the graph was built leaves
+// the receipt clean, and the staleness check, which reads git live, reports it.
+func TestGraphReceipt_RecordsGitAsTheRunReadIt(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	isolateGit(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	repo := t.TempDir()
+	writeFile(t, filepath.Join(repo, "go.mod"), "module receiptgit\n\ngo 1.21\n")
+	writeFile(t, filepath.Join(repo, "pkg", "a", "a.go"), "package a\n\nfunc A() {}\n")
+	initGitRepo(t, repo)
+
+	eng, err := engine.New(config.Default())
+	if err != nil {
+		t.Fatal(err)
+	}
+	eng.RegisterExtractor(goextractor.New())
+	if _, err := eng.GenerateSnapshot(context.Background(), repo, false); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(repo, "pkg", "a", "a.go"), "package a\n\nfunc A() {}\nfunc Added() {}\n")
+	if err := eng.WriteGlobalReceipt(); err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(home, ".enola", "receipt.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var gr struct {
+		Repos []struct {
+			Git *struct {
+				Commit string `json:"commit"`
+				Dirty  bool   `json:"dirty"`
+			} `json:"git"`
+		} `json:"repos"`
+	}
+	if err := json.Unmarshal(data, &gr); err != nil {
+		t.Fatal(err)
+	}
+	if len(gr.Repos) != 1 || gr.Repos[0].Git == nil || gr.Repos[0].Git.Commit == "" {
+		t.Fatalf("receipt repos = %s, want one entry with git", data)
+	}
+	if gr.Repos[0].Git.Dirty {
+		t.Error("receipt recorded the tree after the run, dirty, instead of as the run read it")
+	}
+	st := eng.Staleness(24*time.Hour, time.Now())
+	if len(st.Changed) != 1 || st.Changed[0].Reason != "uncommitted changes" {
+		t.Errorf("got Changed=%+v, want the edit reported as uncommitted changes", st.Changed)
+	}
+}
