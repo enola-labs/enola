@@ -117,8 +117,12 @@ func (fg *fixedGraph) load(eng *engine.Engine, st fileStamp) {
 			fg.err = err
 		}
 		log.Printf("[serve] could not load the graph of %s: %v", strings.Join(fg.paths, ", "), err)
-		// Remember what failed, so the same broken artifacts are not read every interval.
-		fg.loaded = st
+		// Remember what failed, so the same broken artifacts are not read every
+		// interval. Files read while a write published the next graph are not broken:
+		// they are whole a moment later, so the next interval reads them again.
+		if !errors.Is(err, engine.ErrGraphChanging) {
+			fg.loaded = st
+		}
 		fg.mu.Unlock()
 		return
 	}

@@ -268,6 +268,27 @@ func (e *Engine) RestoreFromDir(dir string, repoPaths map[string]string, singleR
 			defer func() { _ = f.Close() }()
 		}
 	}
+	insightsData, insightsErr := readOpen(insightsFile)
+	metaData, metaErr := readOpen(metaFile)
+	// The files opened must be one write's: a reader in another process can open them
+	// while a write publishes the next graph. The meta records the hash of each file it
+	// was written with, so a facts.jsonl or insights.json it does not describe is
+	// refused before anything is parsed.
+	if metaErr == nil {
+		var recorded struct {
+			OutputHashes map[string]string `json:"output_hashes"`
+		}
+		if json.Unmarshal(metaData, &recorded) == nil {
+			if want := recorded.OutputHashes["facts.jsonl"]; want != "" {
+				if got, err := hashOpenFile(factsFile); err != nil || got != want {
+					return fmt.Errorf("%w: %s", ErrGraphChanging, dir)
+				}
+			}
+			if want := recorded.OutputHashes["insights.json"]; want != "" && insightsErr == nil && hashBytes(insightsData) != want {
+				return fmt.Errorf("%w: %s", ErrGraphChanging, dir)
+			}
+		}
+	}
 
 	// Shared as it is read (see ReadJSONLFileShared), so from here until Freeze below
 	// nothing may write a fact's Props or Relations: the steps between label facts and
@@ -297,15 +318,15 @@ func (e *Engine) RestoreFromDir(dir string, repoPaths map[string]string, singleR
 	// Default the primary repo path from the dir; snapshot.meta.json (loaded below)
 	// overrides it when present.
 	snap := &facts.Snapshot{Meta: facts.SnapshotMeta{RepoPath: filepath.Dir(dir)}}
-	if data, err := readOpen(insightsFile); err == nil {
+	if insightsErr == nil {
 		var ins []facts.Insight
-		if err := json.Unmarshal(data, &ins); err == nil {
+		if err := json.Unmarshal(insightsData, &ins); err == nil {
 			snap.Insights = ins
 		}
 	}
-	if data, err := readOpen(metaFile); err == nil {
+	if metaErr == nil {
 		var meta facts.SnapshotMeta
-		if err := json.Unmarshal(data, &meta); err == nil {
+		if err := json.Unmarshal(metaData, &meta); err == nil {
 			snap.Meta = meta
 		}
 	}
@@ -1058,21 +1079,21 @@ func (e *Engine) writeBundle(b *snapshotBundle, outDir string, repoPath, absRepo
 	cluster := repoPath == ""
 
 	defer lockDir(outDir)()
-	if err := os.MkdirAll(outDir, 0o755); err != nil {
+	// Everything is written into a staging directory first, while outDir still holds
+	// the previous graph whole: a reader in another process (a dashboard, a served
+	// instance, an agent's server starting) that reads outDir during a write reads the
+	// old graph, not new facts beside old insights. Only once every file is on disk is
+	// the graph published, by renames (see publishStaged).
+	stage := filepath.Join(outDir, StagingSubdir)
+	if err := os.RemoveAll(stage); err != nil {
+		return fmt.Errorf("clearing %s: %w", stage, err)
+	}
+	if err := os.MkdirAll(stage, 0o755); err != nil {
 		return fmt.Errorf("creating output dir: %w", err)
 	}
-
-	// Rotate the prior snapshot into previous/ before overwriting, so diff_snapshot
-	// can compare against the immediately-preceding run with no explicit pin. The
-	// pinned baseline/ (SetBaseline) is left untouched here.
-	if err := rotatePrevious(outDir); err != nil {
-		log.Printf("[engine] warning: could not rotate previous snapshot: %v", err)
-	}
-	// A cluster's members.json before anything else: a reader that finds the new
-	// snapshot.meta.json, written after every artifact, must find the members it
-	// describes.
+	defer func() { _ = os.RemoveAll(stage) }()
 	if cluster {
-		if err := writeMembersMeta(outDir, b); err != nil {
+		if err := writeMembersMeta(stage, b); err != nil {
 			return err
 		}
 	}
@@ -1086,11 +1107,9 @@ func (e *Engine) writeBundle(b *snapshotBundle, outDir string, repoPath, absRepo
 	// it: the file at the path may be linked from previous/ and baseline/, and writing
 	// through it would rewrite those.
 	for _, a := range b.snapshot.Artifacts {
-		path := filepath.Join(outDir, a.Name)
-		if err := writeFileAtomic(path, a.Content, 0o644); err != nil {
+		if err := writeFileAtomic(filepath.Join(stage, a.Name), a.Content, 0o644); err != nil {
 			return fmt.Errorf("writing %s: %w", a.Name, err)
 		}
-		log.Printf("[engine] wrote %s", path)
 		outputHashes[a.Name] = hashBytes(a.Content)
 	}
 
@@ -1099,11 +1118,10 @@ func (e *Engine) writeBundle(b *snapshotBundle, outDir string, repoPath, absRepo
 	// buffer was 792 MiB, allocated at the end of a run and never released before the
 	// process went back to idle.
 	factsPath := filepath.Join(outDir, "facts.jsonl")
-	factsHash, err := writeFactsJSONL(b.store, factsPath)
+	factsHash, err := writeFactsJSONL(b.store, filepath.Join(stage, "facts.jsonl"))
 	if err != nil {
 		return err
 	}
-	log.Printf("[engine] wrote %s", factsPath)
 	outputHashes["facts.jsonl"] = factsHash
 
 	// Write insights.json. A nil slice marshals to `null`, not `[]`, so a repository
@@ -1118,11 +1136,9 @@ func (e *Engine) writeBundle(b *snapshotBundle, outDir string, repoPath, absRepo
 	if err != nil {
 		return fmt.Errorf("marshaling insights: %w", err)
 	}
-	insightsPath := filepath.Join(outDir, "insights.json")
-	if err := writeFileAtomic(insightsPath, insightsJSON, 0o644); err != nil {
+	if err := writeFileAtomic(filepath.Join(stage, "insights.json"), insightsJSON, 0o644); err != nil {
 		return fmt.Errorf("writing insights.json: %w", err)
 	}
-	log.Printf("[engine] wrote %s", insightsPath)
 	insightsHash := hashBytes(insightsJSON)
 	outputHashes["insights.json"] = insightsHash
 
@@ -1149,11 +1165,9 @@ func (e *Engine) writeBundle(b *snapshotBundle, outDir string, repoPath, absRepo
 	if err != nil {
 		return fmt.Errorf("marshaling meta: %w", err)
 	}
-	metaPath := filepath.Join(outDir, "snapshot.meta.json")
-	if err := writeFileAtomic(metaPath, metaJSON, 0o644); err != nil {
+	if err := writeFileAtomic(filepath.Join(stage, "snapshot.meta.json"), metaJSON, 0o644); err != nil {
 		return fmt.Errorf("writing snapshot.meta.json: %w", err)
 	}
-	log.Printf("[engine] wrote %s (%d bytes)", metaPath, len(metaJSON))
 
 	// Write receipt.json (the compact provenance + quality manifest)
 	// A cluster's directory carries the cluster's receipt, a member entry each.
@@ -1165,11 +1179,20 @@ func (e *Engine) writeBundle(b *snapshotBundle, outDir string, repoPath, absRepo
 	if err != nil {
 		return fmt.Errorf("marshaling receipt: %w", err)
 	}
-	receiptPath := filepath.Join(outDir, "receipt.json")
-	if err := writeFileAtomic(receiptPath, receiptJSON, 0o644); err != nil {
+	if err := writeFileAtomic(filepath.Join(stage, "receipt.json"), receiptJSON, 0o644); err != nil {
 		return fmt.Errorf("writing receipt.json: %w", err)
 	}
-	log.Printf("[engine] wrote %s (%d bytes)", receiptPath, len(receiptJSON))
+
+	// Rotate the prior snapshot into previous/, so diff_snapshot can compare against
+	// the immediately-preceding run with no explicit pin, then publish. The pinned
+	// baseline/ (SetBaseline) is left untouched here.
+	if err := rotatePrevious(outDir); err != nil {
+		log.Printf("[engine] warning: could not rotate previous snapshot: %v", err)
+	}
+	if err := publishStaged(stage, outDir); err != nil {
+		return err
+	}
+	log.Printf("[engine] wrote %s (%d facts)", outDir, meta.FactCount)
 
 	// Republish so in-memory receipt tools (snapshot_receipt/compare_receipts) reflect
 	// the output hashes, WITHOUT mutating the snapshot we just read. Only publish if
@@ -1359,4 +1382,59 @@ func readOpen(f *os.File) ([]byte, error) {
 		return nil, os.ErrNotExist
 	}
 	return io.ReadAll(f)
+}
+
+// StagingSubdir is where a write puts a graph's files before publishing them.
+const StagingSubdir = ".next"
+
+// publishStaged moves every file of stage into outDir by rename: the artifacts, then
+// facts.jsonl and insights.json, members.json, snapshot.meta.json, and receipt.json
+// last. A rename replaces a file in one step, so the window in which outDir holds part
+// of each graph is these few renames, not the writing of the files; a reader that opens
+// files inside it is told by RestoreFromDir, which checks them against the meta. A
+// dashboard reloads on the receipt, and a served instance on the meta, so neither starts
+// a reload before the graph's files are in place.
+func publishStaged(stage, outDir string) error {
+	entries, err := os.ReadDir(stage)
+	if err != nil {
+		return err
+	}
+	last := map[string]int{"facts.jsonl": 1, "insights.json": 2, MembersMetaFile: 3, snapshotMetaFileName: 4, "receipt.json": 5}
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		if !e.IsDir() {
+			names = append(names, e.Name())
+		}
+	}
+	sort.SliceStable(names, func(i, j int) bool {
+		if last[names[i]] != last[names[j]] {
+			return last[names[i]] < last[names[j]]
+		}
+		return names[i] < names[j]
+	})
+	for _, n := range names {
+		if err := os.Rename(filepath.Join(stage, n), filepath.Join(outDir, n)); err != nil {
+			return fmt.Errorf("publishing %s: %w", n, err)
+		}
+	}
+	return nil
+}
+
+// ErrGraphChanging is a restore that found files of two writes in one directory: a write
+// was publishing the next graph while they were opened. The directory is whole again a
+// moment later, and its previous/ is the graph before.
+var ErrGraphChanging = errors.New("the graph's files are being replaced by a newer write")
+
+// hashOpenFile is the sha256 of f's whole content, read from its start without moving
+// its offset, in the form output_hashes records.
+func hashOpenFile(f *os.File) (string, error) {
+	info, err := f.Stat()
+	if err != nil {
+		return "", err
+	}
+	h := sha256.New()
+	if _, err := io.Copy(h, io.NewSectionReader(f, 0, info.Size())); err != nil {
+		return "", err
+	}
+	return hashPrefix + hex.EncodeToString(h.Sum(nil)), nil
 }
