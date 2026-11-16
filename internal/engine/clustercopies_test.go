@@ -17,7 +17,10 @@ func writeSnapshotFiles(t *testing.T, dir string, cluster bool, generatedAt stri
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	quality := map[string]any{"files_seen": 1}
+	// One repository's receipt carries a coverage rollup too, with no services, when an
+	// extractor reported what it could not resolve; a cluster's counts its services.
+	quality := map[string]any{"files_seen": 1,
+		"coverage": map[string]any{"services_total": 0, "extractors_reporting": 2, "extraction_unresolved": 346}}
 	if cluster {
 		quality["coverage"] = map[string]any{"services_total": 2}
 	}
@@ -135,5 +138,29 @@ func TestClusterCopies_HomePinIsKept(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(cfg.OutputDirFor(api), engine.BaselineSubdir)); err == nil {
 		t.Error("the copy's baseline was left")
+	}
+}
+
+// A repository's own snapshot, previous run and pin are never taken for a cluster's,
+// even when its receipt carries a coverage rollup: gc would delete them.
+func TestClusterCopies_OwnSnapshotIsNotACopy(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	root := t.TempDir()
+	api, web := filepath.Join(root, "api"), filepath.Join(root, "web")
+	cfg := config.Default()
+	out := cfg.OutputDirFor(api)
+	for _, d := range []string{out, filepath.Join(out, engine.PreviousSubdir), filepath.Join(out, engine.BaselineSubdir)} {
+		writeSnapshotFiles(t, d, false, "2026-11-16T00:00:00Z")
+	}
+	if copies := engine.FindClusterCopies(cfg, []string{api, web}); len(copies) != 0 {
+		t.Fatalf("a repository's own snapshots were taken for cluster copies: %+v", copies)
+	}
+	if _, err := engine.PruneClusterCopies(engine.FindClusterCopies(cfg, []string{api, web}), cfg.GraphOutputDir([]string{api, web})); err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range []string{out, filepath.Join(out, engine.PreviousSubdir), filepath.Join(out, engine.BaselineSubdir)} {
+		if _, err := os.Stat(filepath.Join(d, "facts.jsonl")); err != nil {
+			t.Errorf("pruning removed %s", d)
+		}
 	}
 }
