@@ -96,6 +96,13 @@ func main() {
 	cfgPath := "mcp-arch.yaml"
 	repoArg := "" // optional positional repo path, for --explain and --generate
 
+	// --out takes a value, which the exact-match loop below cannot, so it is taken
+	// out of args first.
+	args, outDir, err := takeOut(args)
+	if err != nil {
+		log.Fatalf("%v", err)
+	}
+
 	// --json qualifies --version rather than standing alone, so it has to be known
 	// BEFORE the loop below reaches --version and exits. The loop is an exact-match
 	// switch that acts on the first flag it recognises, which makes it order-sensitive
@@ -255,6 +262,14 @@ func main() {
 	// it. It overrides what the config file says, for one run.
 	if noParallel {
 		cfg.ClusterJobs, cfg.AnalysisJobs = 1, 1
+	}
+	if outDir != "" {
+		if !generateMode {
+			log.Fatalf("--out goes with --generate: %s --generate <folder of repositories> --out DIR", binary().Name)
+		}
+		if err := applyOut(cfg, outDir); err != nil {
+			log.Fatalf("--out: %v", err)
+		}
 	}
 
 	if explainMode {

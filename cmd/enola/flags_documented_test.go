@@ -106,34 +106,47 @@ func TestDocumentedFlagsAreAccepted(t *testing.T) {
 // cmd/enola/main.go — the binary's complete flag vocabulary.
 func acceptedFlags(t *testing.T) []string {
 	t.Helper()
-	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, "main.go", nil, 0)
-	if err != nil {
-		t.Fatalf("parsing main.go: %v", err)
-	}
-
 	seen := map[string]bool{}
 	var out []string
-	ast.Inspect(file, func(n ast.Node) bool {
-		clause, ok := n.(*ast.CaseClause)
-		if !ok {
+	add := func(lit *ast.BasicLit) {
+		if lit == nil || lit.Kind != token.STRING {
+			return
+		}
+		val, err := strconv.Unquote(lit.Value)
+		if err != nil || !strings.HasPrefix(val, "-") {
+			return
+		}
+		if !seen[val] {
+			seen[val] = true
+			out = append(out, val)
+		}
+	}
+	// main.go's switches, and out.go's: a flag that takes a value is taken out of
+	// args before main.go's exact-match loop, by a `case a == "--flag":` there.
+	for _, name := range []string{"main.go", "out.go"} {
+		fset := token.NewFileSet()
+		file, err := parser.ParseFile(fset, name, nil, 0)
+		if err != nil {
+			t.Fatalf("parsing %s: %v", name, err)
+		}
+		ast.Inspect(file, func(n ast.Node) bool {
+			clause, ok := n.(*ast.CaseClause)
+			if !ok {
+				return true
+			}
+			for _, expr := range clause.List {
+				switch e := expr.(type) {
+				case *ast.BasicLit:
+					add(e)
+				case *ast.BinaryExpr:
+					if e.Op == token.EQL {
+						lit, _ := e.Y.(*ast.BasicLit)
+						add(lit)
+					}
+				}
+			}
 			return true
-		}
-		for _, expr := range clause.List {
-			lit, ok := expr.(*ast.BasicLit)
-			if !ok || lit.Kind != token.STRING {
-				continue
-			}
-			val, err := strconv.Unquote(lit.Value)
-			if err != nil || !strings.HasPrefix(val, "-") {
-				continue
-			}
-			if !seen[val] {
-				seen[val] = true
-				out = append(out, val)
-			}
-		}
-		return true
-	})
+		})
+	}
 	return out
 }
