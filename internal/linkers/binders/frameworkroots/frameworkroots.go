@@ -260,11 +260,101 @@ func (b *Binder) Name() string { return "framework-roots" }
 
 func (b *Binder) Stage() plugin.BindStage { return plugin.StagePostLink }
 
+// Bind finds the roots and walks them in each repository on its own. Ruby names
+// are a repository's: two Rails applications in one cluster both have a User and a
+// Avatarable, and a lookup across repositories kept whichever was read last, so a
+// method's verdict depended on the other members and on their order in the store,
+// and a refresh, which moves the re-read member to the end, changed it. Every run
+// also clears what an earlier one set on the facts it governs, so a restored graph
+// bound again ends where a fresh one does.
 func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
+	repoSet := map[string]bool{}
+	for _, f := range store.ByKind(facts.KindSymbol) {
+		if f.PropString("language") == "ruby" {
+			repoSet[f.Repo] = true
+		}
+	}
+	if len(repoSet) == 0 {
+		return nil
+	}
+	repos := sortedKeys(repoSet)
+	results := map[string]*repoRoots{}
+	perMechanism := map[string]int{}
+	var rootCount, unresolvedRoutes, reachedCount, unreached int
+	for _, repo := range repos {
+		r := bindRepo(store, repo)
+		if r == nil {
+			continue
+		}
+		results[repo] = r
+		rootCount += len(r.roots)
+		unresolvedRoutes += r.unresolvedRoutes
+		reachedCount += len(r.reached)
+		unreached += r.unreached
+	}
+
+	store.UpdateWhere(func(f *facts.Fact) {
+		r := results[f.Repo]
+		switch f.Kind {
+		case facts.KindRoute:
+			if f.PropString("framework") != "rails" || !repoSet[f.Repo] {
+				return
+			}
+			clearProp(f, RootProp)
+			if r == nil {
+				return
+			}
+			target, ok := r.routeTargets[routeKey(*f)]
+			if !ok {
+				return
+			}
+			setProp(f, RootProp, MechanismRoute)
+			if !f.HasRelation(facts.RelHandledBy, target) {
+				f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelHandledBy, Target: target})
+			}
+		case facts.KindSymbol:
+			if f.PropString("language") != "ruby" {
+				return
+			}
+			clearProp(f, RootProp)
+			clearProp(f, ReachedFromProp)
+			if r == nil {
+				return
+			}
+			if mechanism, ok := r.roots[f.Name]; ok {
+				setProp(f, RootProp, mechanism)
+				perMechanism[mechanism]++
+				return
+			}
+			if by, ok := r.reached[f.Name]; ok {
+				setProp(f, ReachedFromProp, joinSorted(by))
+			}
+		}
+	})
+
+	if rootCount > 0 {
+		log.Printf("[framework-roots] %d root(s) (route %d, job %d, mailer %d, hook %d, task %d, callback %d, registry %d); %d route handler(s) name no known action; %d symbol(s) reached, %d method(s) unreached",
+			rootCount, perMechanism[MechanismRoute], perMechanism[MechanismJob], perMechanism[MechanismMailer], perMechanism[MechanismHook], perMechanism[MechanismTask], perMechanism[MechanismCallback], perMechanism[MechanismRegistry],
+			unresolvedRoutes, reachedCount, unreached)
+	}
+	return nil
+}
+
+// repoRoots is what Bind found in one repository: each root symbol's mechanism, the
+// mechanisms that reach each other symbol, and the action each route resolves to.
+type repoRoots struct {
+	roots        map[string]string
+	reached      map[string]map[string]bool
+	routeTargets map[string]string
+
+	unresolvedRoutes, unreached int
+}
+
+func bindRepo(store *facts.Store, repo string) *repoRoots {
 	symbols := map[string]facts.Fact{}
 	classes := map[string]*class{}
 	for _, f := range store.ByKind(facts.KindSymbol) {
-		if f.PropString("language") != "ruby" {
+		if f.Repo != repo || f.PropString("language") != "ruby" {
 			continue
 		}
 		symbols[f.Name] = f
@@ -284,7 +374,7 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 	}
 	resolveSuperclasses(classes)
 	for _, dep := range store.ByKind(facts.KindDependency) {
-		if dep.PropString("mixin_kind") == "" {
+		if dep.Repo != repo || dep.PropString("mixin_kind") == "" {
 			continue
 		}
 		includer, module, ok := strings.Cut(dep.Name, " -> ")
@@ -300,7 +390,7 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 	routeTargets := map[string]string{}
 	unresolvedRoutes := 0
 	for _, route := range store.ByKind(facts.KindRoute) {
-		if route.PropString("framework") != "rails" {
+		if route.Repo != repo || route.PropString("framework") != "rails" {
 			continue
 		}
 		// The route's handled_by target is the action as the Rails extractor resolved
@@ -346,7 +436,7 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 	rootFrameworkLoaded(symbols, classes, roots)
 	rootRegistryContracts(symbols, classes, roots)
 
-	adjacency := edges(store, symbols, classes)
+	adjacency := edges(store, repo, symbols, classes)
 	reached := map[string]map[string]bool{}
 	for _, mechanism := range mechanisms {
 		frontier := []string{}
@@ -377,30 +467,6 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 		}
 	}
 
-	perMechanism := map[string]int{}
-	store.UpdateWhere(func(f *facts.Fact) {
-		switch f.Kind {
-		case facts.KindRoute:
-			target, ok := routeTargets[routeKey(*f)]
-			if !ok {
-				return
-			}
-			setProp(f, RootProp, MechanismRoute)
-			if !f.HasRelation(facts.RelHandledBy, target) {
-				f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelHandledBy, Target: target})
-			}
-		case facts.KindSymbol:
-			if mechanism, ok := roots[f.Name]; ok {
-				setProp(f, RootProp, mechanism)
-				perMechanism[mechanism]++
-				return
-			}
-			if by, ok := reached[f.Name]; ok {
-				setProp(f, ReachedFromProp, joinSorted(by))
-			}
-		}
-	})
-
 	unreached := 0
 	for name, f := range symbols {
 		if f.PropString("symbol_kind") != facts.SymbolMethod {
@@ -413,12 +479,7 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 			unreached++
 		}
 	}
-	if len(roots) > 0 {
-		log.Printf("[framework-roots] %d root(s) (route %d, job %d, mailer %d, hook %d, task %d, callback %d, registry %d); %d route handler(s) name no known action; %d symbol(s) reached, %d method(s) unreached",
-			len(roots), perMechanism[MechanismRoute], perMechanism[MechanismJob], perMechanism[MechanismMailer], perMechanism[MechanismHook], perMechanism[MechanismTask], perMechanism[MechanismCallback], perMechanism[MechanismRegistry],
-			unresolvedRoutes, len(reached), unreached)
-	}
-	return nil
+	return &repoRoots{roots: roots, reached: reached, routeTargets: routeTargets, unresolvedRoutes: unresolvedRoutes, unreached: unreached}
 }
 
 func mechanismFor(c *class, f facts.Fact, method string, singleton bool) string {
@@ -676,7 +737,7 @@ func splitMember(name string) (owner, method string, singleton bool) {
 // caller's own class, the modules it includes and its superclasses, and
 // nowhere else. Building an instance runs its initialize, and building a view
 // component runs the lifecycle its render calls.
-func edges(store *facts.Store, symbols map[string]facts.Fact, classes map[string]*class) map[string][]string {
+func edges(store *facts.Store, repo string, symbols map[string]facts.Fact, classes map[string]*class) map[string][]string {
 	out := map[string][]string{}
 	add := func(source, target string) {
 		if resolved := resolve(source, target, symbols, classes); resolved != "" && resolved != source {
@@ -716,6 +777,9 @@ func edges(store *facts.Store, symbols map[string]facts.Fact, classes map[string
 		}
 	}
 	for _, f := range store.ByKind(facts.KindSymbol) {
+		if f.Repo != repo {
+			continue
+		}
 		if _, ok := symbols[f.Name]; !ok {
 			continue
 		}
@@ -724,6 +788,9 @@ func edges(store *facts.Store, symbols map[string]facts.Fact, classes map[string
 		}
 	}
 	for _, f := range store.ByKind(facts.KindDependency) {
+		if f.Repo != repo {
+			continue
+		}
 		source, _, ok := strings.Cut(f.Name, " -> ")
 		if !ok {
 			continue
@@ -795,6 +862,12 @@ func lexical(owner, target string, symbols map[string]facts.Fact) string {
 			return ""
 		}
 		scope = scope[:i]
+	}
+}
+
+func clearProp(f *facts.Fact, key string) {
+	if f.Props != nil {
+		delete(f.Props, key)
 	}
 }
 

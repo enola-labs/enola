@@ -52,7 +52,38 @@ func (b *Binder) Name() string { return "storage-clients" }
 // built after.
 func (b *Binder) Stage() plugin.BindStage { return plugin.StagePreLink }
 
+// syntheticMarker marks the storage facts this binder adds.
+const syntheticMarker = "storage-clients"
+
 func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
+	// What an earlier run added goes first: a restored graph bound again (a refresh)
+	// added a second copy of every storage node, and kept edges to stores no longer used.
+	previous := map[string]bool{}
+	for _, f := range store.ByKind(facts.KindStorage) {
+		if f.PropString("synthetic") == syntheticMarker {
+			previous[f.Name] = true
+		}
+	}
+	if len(previous) > 0 {
+		store.RemoveWhere(func(f facts.Fact) bool {
+			return f.Kind == facts.KindStorage && f.PropString("synthetic") == syntheticMarker
+		})
+		store.UpdateWhere(func(f *facts.Fact) {
+			if f.Kind != facts.KindSymbol {
+				return
+			}
+			kept := f.Relations[:0:0]
+			for _, r := range f.Relations {
+				if r.Kind == facts.RelDependsOn && previous[r.Target] {
+					continue
+				}
+				kept = append(kept, r)
+			}
+			if len(kept) != len(f.Relations) {
+				f.Relations = kept
+			}
+		})
+	}
 	all := store.FactsRef()
 
 	// The libraries each file imports.
@@ -113,7 +144,7 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 		lib := libByEngine(engine)
 		store.Add(facts.Fact{
 			Kind: facts.KindStorage, Name: name, File: f.File, Line: f.Line, Repo: f.Repo,
-			Props: map[string]any{"storage_kind": lib.storageKind, "engine": lib.engine, "synthetic": "storage-clients"},
+			Props: map[string]any{"storage_kind": lib.storageKind, "engine": lib.engine, "synthetic": syntheticMarker},
 		})
 	}
 	store.UpdateWhere(func(f *facts.Fact) {

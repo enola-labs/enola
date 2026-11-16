@@ -538,3 +538,51 @@ func TestBind_QualifiedCallsResolveThroughTheCallersNamespace(t *testing.T) {
 		}
 	}
 }
+
+// Two Rails applications in one cluster share class names. Each one's roots are its
+// own: a callback one binds is not a root in the other, whichever is read first. And
+// binding again leaves what binding once did, with nothing of the first run kept.
+func TestBind_RepositoriesKeepTheirOwnNames(t *testing.T) {
+	inRepo := func(f facts.Fact, repo string) facts.Fact {
+		f.Repo = repo
+		f.File = repo + "/" + f.File
+		return f
+	}
+	bound := inRepo(symbol("Order", facts.SymbolClass, "app/models/order.rb", map[string]any{"superclass": "ApplicationRecord"}, names("audit")...), "shop")
+	boundAudit := inRepo(symbol("Order#audit", facts.SymbolMethod, "app/models/order.rb", nil), "shop")
+	plain := inRepo(symbol("Order", facts.SymbolClass, "app/models/order.rb", nil), "admin")
+	plainAudit := inRepo(symbol("Order#audit", facts.SymbolMethod, "app/models/order.rb", nil), "admin")
+
+	rootIn := func(store *facts.Store, repo string) string {
+		for _, f := range store.ByKind(facts.KindSymbol) {
+			if f.Repo == repo && f.Name == "Order#audit" {
+				return f.PropString(RootProp)
+			}
+		}
+		return "?"
+	}
+	for _, order := range [][]facts.Fact{
+		{bound, boundAudit, plain, plainAudit},
+		{plain, plainAudit, bound, boundAudit},
+	} {
+		store := facts.NewStore()
+		store.Add(order...)
+		bind(t, store)
+		if got := rootIn(store, "shop"); got != MechanismCallback {
+			t.Errorf("shop's Order#audit root = %q, want %q", got, MechanismCallback)
+		}
+		if got := rootIn(store, "admin"); got != "" {
+			t.Errorf("admin's Order#audit took shop's root: %q", got)
+		}
+		before := map[string]string{}
+		for _, f := range store.FactsRef() {
+			before[f.Repo+" "+f.Name] = f.PropString(RootProp) + "|" + f.PropString(ReachedFromProp)
+		}
+		bind(t, store)
+		for _, f := range store.FactsRef() {
+			if got := f.PropString(RootProp) + "|" + f.PropString(ReachedFromProp); got != before[f.Repo+" "+f.Name] {
+				t.Errorf("%s %s after binding again: %q, once: %q", f.Repo, f.Name, got, before[f.Repo+" "+f.Name])
+			}
+		}
+	}
+}
