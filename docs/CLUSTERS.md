@@ -71,8 +71,11 @@ output:
   cluster_dir: graph     # relative to this file
 ```
 
-`--out` on a folder of repositories is written into the `cluster.yaml` enola writes there,
-so later commands given that file find the graph. With `output.root` set, a cluster's graph
+After a run with `--out`, every later command finds the graph there whatever config it is
+given (the dashboard, `check`, `baseline`, `gc`, the MCP tools), and a later `--generate`
+without `--out` writes it there again: the cluster's default directory keeps a pointer to
+it (`graph_dir.json`, beside the cluster's history). Pass `--out` with another directory to
+move it. A `cluster.yaml` enola writes also records it as `output.cluster_dir`. With `output.root` set, a cluster's graph
 goes to `<root>/clusters/<key>/`. Graphs written by older enola into every member's
 `.enola` are removed with `enola gc --prune-cluster-copies`.
 

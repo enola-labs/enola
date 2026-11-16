@@ -116,9 +116,9 @@ func TestFoldedRepos_ClusterConfigSaysNothing(t *testing.T) {
 	}
 }
 
-// --out on a folder of repositories is written into the cluster config enola writes,
-// so a later command given that config finds the graph; a config already there is the
-// user's, and gets a note instead of an edit.
+// --out on a folder of repositories is written into the cluster config enola writes; a
+// config already there is the user's and is not edited. (Later commands find the graph
+// either way, through the pointer the write leaves; see config.GraphOutputDir.)
 func TestClusterConfig_RecordsOut(t *testing.T) {
 	dir := folderOfRepos(t, "api", "web")
 	out := filepath.Join(t.TempDir(), "graph")
@@ -138,21 +138,10 @@ func TestClusterConfig_RecordsOut(t *testing.T) {
 		t.Errorf("the written config lists %v, want the two repositories", paths)
 	}
 
-	// Run again: the config is now the user's, and already says so.
-	msg.Reset()
-	if _, _, err := clusterConfig(&msg, "enola", config.Default(), dir, []string{"api", "web"}, out); err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(msg.String(), "does not set output.cluster_dir") {
-		t.Errorf("a config that records --out got a note anyway:\n%s", msg.String())
-	}
-	msg.Reset()
+	// Run again with another --out: the config is now the user's, and stays as it is.
 	other := filepath.Join(t.TempDir(), "elsewhere")
 	if _, _, err := clusterConfig(&msg, "enola", config.Default(), dir, []string{"api", "web"}, other); err != nil {
 		t.Fatal(err)
-	}
-	if !strings.Contains(msg.String(), "does not set output.cluster_dir to "+other) {
-		t.Errorf("a config with another cluster_dir got no note:\n%s", msg.String())
 	}
 	if loaded, _ := config.Load(path); loaded.Output.ClusterDir != out {
 		t.Errorf("the user's config was edited: cluster_dir = %q", loaded.Output.ClusterDir)

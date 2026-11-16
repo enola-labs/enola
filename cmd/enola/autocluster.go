@@ -32,9 +32,9 @@ func foldedRepos(cfg *config.Config) (string, []string) {
 // config in force keeps every other setting. A folder that cannot be written to is still
 // indexed as a cluster, for this run, and the returned path is "".
 //
-// outDir is --out. A cluster config written here records it as output.cluster_dir, so
-// a later command given the same config finds the graph; one already there is the
-// user's, and gets a note instead of an edit.
+// outDir is --out. A cluster config written here records it as output.cluster_dir; one
+// already there is the user's and is left as it is. Either way later commands find the
+// graph, through the pointer the write leaves in the cluster's default directory.
 func clusterConfig(out io.Writer, binName string, cfg *config.Config, dir string, repos []string, outDir string) (*config.Config, string, error) {
 	_, _ = fmt.Fprintf(out, "\nDetected %d git repositories in %s: %s\n", len(repos), dir, workspace.Names(repos))
 	_, _ = fmt.Fprintln(out, "Indexing them as a cluster, so each one becomes a service and the calls between them are linked.")
@@ -48,10 +48,6 @@ func clusterConfig(out io.Writer, binName string, cfg *config.Config, dir string
 			return nil, "", err
 		}
 		_, _ = fmt.Fprintf(out, "  Using the cluster config already there: %s\n", path)
-		if abs, err := filepath.Abs(outDir); outDir != "" && err == nil && loaded.Output.ClusterDir != abs {
-			_, _ = fmt.Fprintf(out, "  It does not set output.cluster_dir to %s; add it there, or pass --out again,\n"+
-				"  so later commands given that config find this graph.\n", abs)
-		}
 		if cfg.SourcePath != "" {
 			_, _ = fmt.Fprintf(out, "  Settings from %s are not applied; that cluster config governs this run.\n", cfg.SourcePath)
 		}

@@ -53,3 +53,59 @@ func TestGraphDirOf_Cluster(t *testing.T) {
 		t.Errorf("a cluster with a member gone was restored from %s", dir)
 	}
 }
+
+func goRepo(t *testing.T, dir, name string) string {
+	t.Helper()
+	for path, body := range map[string]string{
+		"go.mod":  "module example.com/" + name + "\n\ngo 1.21\n",
+		"main.go": "package main\n\nfunc main() { run() }\n\nfunc run() {}\n",
+	} {
+		full := filepath.Join(dir, name, path)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return filepath.Join(dir, name)
+}
+
+// A cluster generated with --out is found by a command given a config that does not
+// say so: the dashboard was given the cluster.yaml already in the folder and opened
+// on nothing.
+func TestLoadDashboardSnapshot_FindsAGraphWrittenWithOut(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	root := t.TempDir()
+	repos := []string{goRepo(t, root, "api"), goRepo(t, root, "web")}
+
+	gen := config.Default()
+	gen.Repos = repos
+	gen.Output.ClusterDir = filepath.Join(root, "my-index")
+	eng, err := NewEngineFromConfig(gen)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := eng.GenerateCluster(t.Context(), repos, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := eng.WriteGraph(); err != nil {
+		t.Fatal(err)
+	}
+
+	later := config.Default()
+	later.Repos = []string{repos[1], repos[0]}
+	if got := later.GraphOutputDir(later.Repos); got != gen.Output.ClusterDir {
+		t.Fatalf("a config without cluster_dir looks in %s, not the --out directory", got)
+	}
+	dash, err := NewEngineFromConfig(later)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !LoadDashboardSnapshot(dash, later) {
+		t.Fatal("the dashboard found no graph")
+	}
+	if dash.Store().Count() == 0 {
+		t.Error("the dashboard loaded an empty graph")
+	}
+}

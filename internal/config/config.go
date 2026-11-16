@@ -3,6 +3,7 @@ package config
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path"
@@ -857,6 +858,12 @@ func (c *Config) OutputDirFor(repoPath string) string {
 // With no home directory (a sandbox without $HOME) the cluster's directory goes inside
 // the output dir of the member that sorts first, where the output.dir ignore glob
 // already keeps it out of the walk.
+//
+// A cluster written with --out leaves a pointer to that directory in its default one
+// (ClusterPointerFile), which always exists because the cluster's history is there.
+// Without cluster_dir set, the pointer is followed, so every command finds a graph
+// written with --out whatever config it is given, and a later generate writes it there
+// again. A pointer to a directory that is gone is ignored.
 func (c *Config) GraphOutputDir(members []string) string {
 	if len(members) == 0 {
 		return ""
@@ -867,6 +874,65 @@ func (c *Config) GraphOutputDir(members []string) string {
 	if c.Output.ClusterDir != "" {
 		return c.Output.ClusterDir
 	}
+	def := c.DefaultClusterDir(members)
+	if dir := readClusterPointer(def); dir != "" {
+		return dir
+	}
+	return def
+}
+
+// ClusterPointerFile, in a cluster's default directory, names the directory --out
+// wrote the cluster's graph to.
+const ClusterPointerFile = "graph_dir.json"
+
+type clusterPointer struct {
+	Dir string `json:"dir"`
+}
+
+func readClusterPointer(def string) string {
+	data, err := os.ReadFile(filepath.Join(def, ClusterPointerFile))
+	if err != nil {
+		return ""
+	}
+	var p clusterPointer
+	if json.Unmarshal(data, &p) != nil || !filepath.IsAbs(p.Dir) {
+		return ""
+	}
+	if info, err := os.Stat(p.Dir); err != nil || !info.IsDir() {
+		return ""
+	}
+	return p.Dir
+}
+
+// RecordClusterDir makes dir the directory a cluster of members is found in by every
+// command that does not set cluster_dir: a pointer in the default directory, or none
+// when dir is the default directory itself.
+func (c *Config) RecordClusterDir(members []string, dir string) error {
+	def := c.DefaultClusterDir(members)
+	ptr := filepath.Join(def, ClusterPointerFile)
+	if filepath.Clean(dir) == filepath.Clean(def) {
+		if err := os.Remove(ptr); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		return nil
+	}
+	if err := os.MkdirAll(def, 0o755); err != nil {
+		return err
+	}
+	data, err := json.Marshal(clusterPointer{Dir: dir})
+	if err != nil {
+		return err
+	}
+	tmp := ptr + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, ptr)
+}
+
+// DefaultClusterDir is the directory a cluster of members has without cluster_dir:
+// <output.root>/clusters/<key>, else ~/.enola/graphs/<key>, beside its history.
+func (c *Config) DefaultClusterDir(members []string) string {
 	canon := make([]string, len(members))
 	for i, m := range members {
 		canon[i] = canonicalPath(m)
