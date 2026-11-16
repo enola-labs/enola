@@ -332,6 +332,16 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  Artifacts:   %d\n", len(snapshot.Artifacts))
 		fmt.Fprintf(os.Stderr, "  Duration:    %s\n", snapshot.Meta.Duration)
 		fmt.Fprintf(os.Stderr, "  Output:      %s\n", cfg.GraphOutputDir(repoPaths))
+		if len(repoPaths) > 1 {
+			if copies := engine.FindClusterCopies(cfg, repoPaths); len(copies) > 0 {
+				target := cfgPath
+				if target == "" || target == "mcp-arch.yaml" {
+					target = "<cluster config or folder>"
+				}
+				fmt.Fprintf(os.Stderr, "  Note:        %d older copies of a cluster's graph are still in members' output dirs;\n"+
+					"               %s gc --prune-cluster-copies %s removes them\n", len(copies), binary().Name, target)
+			}
+		}
 		if len(folded) > 0 {
 			fmt.Fprintf(os.Stderr, "  Warning:     %d git repositories indexed as one; to link them: %s\n",
 				len(folded), workspace.Remedy(binary().Name, foldDir))
