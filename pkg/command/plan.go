@@ -69,7 +69,7 @@ func (r *Runner) Plan(ctx context.Context, args []string) {
 	eng.SetPersistCache(false)
 	anchor := tgt.repoPaths[0]
 	label := filepath.Base(anchor)
-	outDir := eng.OutputDir(anchor)
+	outDir := eng.GraphDir(tgt.repoPaths)
 
 	info := plan.SnapshotInfo{}
 	var measured []facts.Fact

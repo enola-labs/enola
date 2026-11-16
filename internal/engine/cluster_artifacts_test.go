@@ -4,118 +4,48 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/enola-labs/enola/internal/engine"
 	"github.com/enola-labs/enola/pkg/bootstrap"
 )
 
-// unionArtifacts are the same bytes for every member of a cluster; the rest describe
-// the member they are written to.
+// unionArtifacts are the artifacts a graph's directory holds that describe the whole
+// graph; memberArtifacts describe the graph they are written with.
 var (
 	unionArtifacts  = []string{"facts.jsonl", "insights.json", "llm_context.md", "docs.jsonl", "flows.json"}
 	memberArtifacts = []string{"snapshot.meta.json", "receipt.json"}
 )
 
-// A cluster writes each union artifact once and links it into every member's dir, and
-// rotates previous/ by linking too. Regenerating one member later replaces its own
-// files and leaves the other members' and its own previous/ as they were.
-func TestClusterArtifacts_LinkedOnceAndKept(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
-	base := t.TempDir()
-	a := copyTree(t, filepath.Join("testdata", "repos", "go_sample"), filepath.Join(base, "a"))
-	b := copyTree(t, filepath.Join("testdata", "repos", "go_sample"), filepath.Join(base, "b"))
-	eng, _, err := bootstrap.NewEngine(bootstrap.Options{ConfigPath: filepath.Join(t.TempDir(), "no-such-config.yaml")})
-	if err != nil {
+// outputFiles reads every file under dir except the extractor cache, which a run
+// updates on purpose: it is the repository's own input cache, not output.
+func outputFiles(t *testing.T, dir string) map[string]string {
+	t.Helper()
+	out := map[string]string{}
+	err := filepath.Walk(dir, func(p string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return err
+		}
+		rel, _ := filepath.Rel(dir, p)
+		if strings.HasPrefix(rel, "extractor_cache") {
+			return nil
+		}
+		data, err := os.ReadFile(p)
+		out[rel] = string(data)
+		return err
+	})
+	if err != nil && !os.IsNotExist(err) {
 		t.Fatal(err)
 	}
-	ctx := context.Background()
-	cluster := func() {
-		t.Helper()
-		if _, err := eng.GenerateCluster(ctx, []string{a, b}, false); err != nil {
-			t.Fatal(err)
-		}
-		for _, repo := range []string{a, b} {
-			if err := eng.WriteArtifacts(repo); err != nil {
-				t.Fatal(err)
-			}
-		}
-	}
-	stat := func(path string) os.FileInfo {
-		t.Helper()
-		st, err := os.Stat(path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return st
-	}
-	outA, outB := eng.OutputDir(a), eng.OutputDir(b)
-
-	rotated := []string{"facts.jsonl", "insights.json", "snapshot.meta.json", "receipt.json", engine.RunMarkFile}
-	cluster()
-	first := map[string]os.FileInfo{}
-	for _, name := range rotated {
-		first[name] = stat(filepath.Join(outA, name))
-	}
-	cluster() // rotates the first write into previous/
-	for _, name := range unionArtifacts {
-		if !os.SameFile(stat(filepath.Join(outA, name)), stat(filepath.Join(outB, name))) {
-			t.Errorf("%s: the members hold two files, not one", name)
-		}
-	}
-	for _, name := range memberArtifacts {
-		if os.SameFile(stat(filepath.Join(outA, name)), stat(filepath.Join(outB, name))) {
-			t.Errorf("%s: the members share one file, but it describes each member", name)
-		}
-	}
-	for _, name := range rotated {
-		if !os.SameFile(first[name], stat(filepath.Join(outA, engine.PreviousSubdir, name))) {
-			t.Errorf("previous/%s is a copy, not a link", name)
-		}
-	}
-
-	keepB := map[string][]byte{}
-	for _, name := range append(unionArtifacts, memberArtifacts...) {
-		keepB[name], _ = os.ReadFile(filepath.Join(outB, name))
-	}
-	alone, _ := os.ReadFile(filepath.Join(outA, "facts.jsonl"))
-
-	// a alone: its union shrinks to itself.
-	if _, err := eng.GenerateSnapshot(ctx, a, false); err != nil {
-		t.Fatal(err)
-	}
-	if err := eng.WriteArtifacts(a); err != nil {
-		t.Fatal(err)
-	}
-	if got, _ := os.ReadFile(filepath.Join(outA, "facts.jsonl")); string(got) == string(alone) {
-		t.Fatal("precondition: a alone should write other facts than the cluster")
-	}
-	for name, want := range keepB {
-		if got, _ := os.ReadFile(filepath.Join(outB, name)); string(got) != string(want) {
-			t.Errorf("writing a alone changed b's %s", name)
-		}
-	}
-	for _, name := range unionArtifacts {
-		if os.SameFile(stat(filepath.Join(outA, name)), stat(filepath.Join(outB, name))) {
-			t.Errorf("%s: a's new file is still b's", name)
-		}
-	}
-	// previous/ of a holds the second cluster write, the one b still has.
-	for _, name := range []string{"facts.jsonl", "insights.json"} {
-		got, _ := os.ReadFile(filepath.Join(outA, engine.PreviousSubdir, name))
-		if string(got) != string(keepB[name]) {
-			t.Errorf("previous/%s of a is not the cluster write it was rotated from", name)
-		}
-	}
+	return out
 }
 
-// Two graphs sharing a repository write to its dir. When the graph holding that
-// repository alone replaces its files after the cluster wrote them and before the
-// cluster reached its next member, the next member must not link the replacement:
-// it would hold one repository's facts under the cluster's meta.
-func TestClusterArtifacts_NeverLinksAFileReplacedSince(t *testing.T) {
+// A cluster writes its graph once, into its own directory, and leaves every member's
+// output dir exactly as it was: each member's own snapshot, previous/ and baseline/.
+// The cluster's directory rotates its own previous/ by linking, and a member written
+// alone afterwards leaves the cluster's directory as it was.
+func TestClusterArtifacts_MembersAreLeftAsTheyWere(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
@@ -130,30 +60,79 @@ func TestClusterArtifacts_NeverLinksAFileReplacedSince(t *testing.T) {
 		return eng
 	}
 	ctx := context.Background()
-	cluster, alone := newEngine(), newEngine()
-	if _, err := cluster.GenerateCluster(ctx, []string{a, b}, false); err != nil {
+	alone := newEngine()
+	for _, repo := range []string{a, b, a} { // a twice: it has a previous/ of its own
+		if _, err := alone.GenerateSnapshot(ctx, repo, false); err != nil {
+			t.Fatal(err)
+		}
+		if err := alone.WriteGraph(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := alone.SetBaseline(a); err != nil {
 		t.Fatal(err)
 	}
+	before := map[string]map[string]string{a: outputFiles(t, alone.OutputDir(a)), b: outputFiles(t, alone.OutputDir(b))}
+	if len(before[a]) == 0 || before[a][filepath.Join(engine.BaselineSubdir, "facts.jsonl")] == "" {
+		t.Fatalf("precondition: a should hold its own snapshot, previous/ and baseline/: %d files", len(before[a]))
+	}
+
+	cluster := newEngine()
+	write := func() {
+		t.Helper()
+		if _, err := cluster.GenerateCluster(ctx, []string{a, b}, false); err != nil {
+			t.Fatal(err)
+		}
+		if err := cluster.WriteGraph(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write()
+	dir := cluster.GraphDir([]string{a, b})
+	for _, name := range append(unionArtifacts, memberArtifacts...) {
+		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
+			t.Fatalf("the cluster's directory has no %s: %v", name, err)
+		}
+	}
+	first := map[string]os.FileInfo{}
+	for _, name := range []string{"facts.jsonl", "insights.json", "snapshot.meta.json", "receipt.json", engine.MembersMetaFile, engine.RunMarkFile} {
+		st, err := os.Stat(filepath.Join(dir, name))
+		if err != nil {
+			t.Fatalf("the cluster's directory has no %s: %v", name, err)
+		}
+		first[name] = st
+	}
+	write() // rotates the first write into the cluster's previous/
+
+	for _, repo := range []string{a, b} {
+		after := outputFiles(t, cluster.OutputDir(repo))
+		if len(after) != len(before[repo]) {
+			t.Errorf("%s: %d output files before the cluster ran, %d after", filepath.Base(filepath.Dir(repo)), len(before[repo]), len(after))
+		}
+		for name, want := range before[repo] {
+			if after[name] != want {
+				t.Errorf("%s: the cluster changed %s", filepath.Base(filepath.Dir(repo)), name)
+			}
+		}
+	}
+	for name, st := range first {
+		got, err := os.Stat(filepath.Join(dir, engine.PreviousSubdir, name))
+		if err != nil || !os.SameFile(st, got) {
+			t.Errorf("previous/%s of the cluster is not the first write, linked", name)
+		}
+	}
+
+	// a alone again: the cluster's directory is not a's to write.
+	keep := outputFiles(t, dir)
 	if _, err := alone.GenerateSnapshot(ctx, a, false); err != nil {
 		t.Fatal(err)
 	}
-	if err := cluster.WriteArtifacts(a); err != nil {
+	if err := alone.WriteGraph(); err != nil {
 		t.Fatal(err)
 	}
-	union := map[string][]byte{}
-	for _, name := range unionArtifacts {
-		union[name], _ = os.ReadFile(filepath.Join(cluster.OutputDir(a), name))
-	}
-	if err := alone.WriteArtifacts(a); err != nil {
-		t.Fatal(err)
-	}
-	if err := cluster.WriteArtifacts(b); err != nil {
-		t.Fatal(err)
-	}
-	for _, name := range []string{"facts.jsonl", "insights.json"} {
-		got, _ := os.ReadFile(filepath.Join(cluster.OutputDir(b), name))
-		if string(got) != string(union[name]) {
-			t.Errorf("%s of b is not the cluster's: it linked the file a alone wrote", name)
+	for name, want := range keep {
+		if got := outputFiles(t, dir)[name]; got != want && !strings.HasPrefix(name, "history") {
+			t.Errorf("writing a alone changed the cluster's %s", name)
 		}
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/enola-labs/enola/internal/engine"
 	"github.com/enola-labs/enola/pkg/bootstrap"
 )
 
@@ -50,27 +51,26 @@ func TestSnapshotIsCurrent_OnlyWhenEveryMemberMatchesItsTree(t *testing.T) {
 	if _, err := eng.GenerateCluster(context.Background(), repos, false); err != nil {
 		t.Fatal(err)
 	}
-	for _, repo := range repos {
-		if err := eng.WriteArtifacts(repo); err != nil {
-			t.Fatal(err)
-		}
+	if err := eng.WriteGraph(); err != nil {
+		t.Fatal(err)
 	}
 	if _, stale := snapshotIsCurrent(eng, repos); stale != "" {
 		t.Fatalf("a snapshot just written for an unchanged tree did not read as current: %s", stale)
 	}
 
-	metaPath := filepath.Join(eng.OutputDir(repoB), "snapshot.meta.json")
-	raw, err := os.ReadFile(metaPath)
+	// A member the cluster's directory does not describe has no snapshot there.
+	membersPath := filepath.Join(eng.GraphDir(repos), engine.MembersMetaFile)
+	raw, err := os.ReadFile(membersPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(metaPath, []byte(strings.Replace(string(raw), "\"snapshot_id\": \"sha256:", "\"snapshot_id\": \"sha256:0", 1)), 0o644); err != nil {
+	if err := os.WriteFile(membersPath, []byte(strings.ReplaceAll(string(raw), repoB, repoB+"-elsewhere")), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if _, stale := snapshotIsCurrent(eng, repos); stale == "" {
-		t.Fatal("members holding different unions still read as current")
+		t.Fatal("a member missing from the cluster's directory still read as current")
 	}
-	if err := os.WriteFile(metaPath, raw, 0o644); err != nil {
+	if err := os.WriteFile(membersPath, raw, 0o644); err != nil {
 		t.Fatal(err)
 	}
 

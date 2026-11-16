@@ -51,13 +51,30 @@ Snapshot complete:
   Insights:    3
   Artifacts:   1
   Duration:    14.396792ms
-  Output:      ./web/.enola
+  Output:      ~/.enola/graphs/services-cluster-1a2b3c4d
 ```
 
-The command prints the last repository's output directory, but every repository receives
-the same complete linked graph. Reading either `api/.enola` or `web/.enola` returns the
-whole cluster. The files that hold the whole graph are written once and hard-linked into
-the other repositories' directories, so the cluster takes their space once on disk.
+The cluster's graph is written once, to a directory of its own: `Output:` names it. It is
+`~/.enola/graphs/<key>/`, beside the cluster's history, where `<key>` names the set of
+repositories, so the same repositories find the same graph from a `cluster.yaml`, a folder
+or an MCP `repo_paths` list, in any order. Nothing of the cluster is written into a
+member's `.enola`: each member keeps its own snapshot, `previous/` and baseline, and only
+its extractor cache is updated.
+
+To put the graph somewhere else, pass `--out DIR`, or set it in the config:
+
+```yaml
+repos:
+  - api
+  - web
+output:
+  cluster_dir: graph     # relative to this file
+```
+
+`--out` on a folder of repositories is written into the `cluster.yaml` enola writes there,
+so later commands given that file find the graph. With `output.root` set, a cluster's graph
+goes to `<root>/clusters/<key>/`. Graphs written by older enola into every member's
+`.enola` are removed with `enola gc --prune-cluster-copies`.
 
 ### Large clusters
 
@@ -187,10 +204,10 @@ enola baseline pin cluster.yaml     # every member must agree on one union
 enola check cluster.yaml
 ```
 
-A cluster's baseline lives in one member's `.enola/baseline`: the member whose path sorts
-first, whatever order the config, the folder or an MCP `repo_paths` list gives. `enola
-baseline pin`, `enola check`, `set_baseline`, `diff_snapshot` and `compare_receipts` all
-use that member, so a pin made on one surface is the pin the others grade against.
+A cluster's baseline lives in the cluster's own directory, in `baseline/`, whatever order
+the config, the folder or an MCP `repo_paths` list gives. `enola baseline pin`, `enola
+check`, `set_baseline`, `diff_snapshot` and `compare_receipts` all use it, so a pin made on
+one surface is the pin the others grade against, and no member's own baseline is touched.
 
 Rename a route in `api` and the verdict can name the client in `web` that called it. This
 can catch a cross-repository mismatch while each repository's tests still pass.

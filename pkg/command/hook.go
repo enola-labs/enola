@@ -422,12 +422,10 @@ func (r *Runner) pinBaselineSingleFlight(ctx context.Context, repoDir string, ag
 			return
 		}
 	}
-	for _, p := range repoPaths {
-		if err := eng.WriteArtifacts(p); err != nil {
-			return
-		}
+	if err := eng.WriteGraph(); err != nil {
+		return
 	}
-	if err := eng.SetBaseline(anchor); err != nil {
+	if err := eng.SetBaseline(repoPaths...); err != nil {
 		return
 	}
 	// Stamp it as ours, so a later session may replace it and a deliberate pin may not be

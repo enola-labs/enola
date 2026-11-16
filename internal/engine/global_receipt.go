@@ -178,6 +178,9 @@ func (e *Engine) repoSourceBytes(b *snapshotBundle, absRepo string) int64 {
 	if b.snapshot != nil && b.snapshot.Meta.RepoPath == absRepo {
 		return b.snapshot.Meta.SourceBytes
 	}
+	if turn, ok := b.members[absRepo]; ok {
+		return turn.SourceBytes
+	}
 	data, err := os.ReadFile(filepath.Join(e.cfg.OutputDirFor(absRepo), snapshotMetaFileName))
 	if err != nil {
 		return 0
@@ -234,6 +237,11 @@ func (e *Engine) assembleGraphReceipt(b *snapshotBundle, now time.Time) facts.Gr
 		gr.SnapshotID = b.snapshot.Meta.SnapshotID
 		gr.FactCount = b.snapshot.Meta.FactCount
 		gr.InsightCount = b.snapshot.Meta.InsightCount
+	}
+	// Recorded, not derived on restore: --out puts a cluster's graph where the config
+	// a later server starts with does not say.
+	if members := b.memberPaths(); len(members) > 1 {
+		gr.GraphDir = e.cfg.GraphOutputDir(members)
 	}
 	return gr
 }

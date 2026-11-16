@@ -1,7 +1,6 @@
 package engine_test
 
 import (
-	"bytes"
 	"context"
 	"os"
 	"path/filepath"
@@ -62,10 +61,11 @@ func TestDeferLinking_ClusterEndsInTheSameUnion(t *testing.T) {
 	}
 }
 
-// A cluster writes its one union to every repository's output dir. The second
-// dir gets byte-identical facts.jsonl under the same digest, and the revision is
-// recorded once, into the cluster's history, not once per dir.
-func TestWriteArtifacts_SameBundleToManyDirsWritesOnceAndRecordsOnce(t *testing.T) {
+// A cluster writes its one union once, to its own directory, and the revision is
+// recorded once, into the cluster's history, not once per member. Writing the same
+// bundle again, naming any member, records nothing new.
+func TestWriteGraph_ClusterWritesOnceAndRecordsOnce(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	repoA, repoB := freezeTestRepo(t), freezeTestRepo(t)
 	historyRoot := t.TempDir()
 
@@ -82,22 +82,20 @@ func TestWriteArtifacts_SameBundleToManyDirsWritesOnceAndRecordsOnce(t *testing.
 	if _, err := eng.GenerateCluster(context.Background(), []string{repoA, repoB}, false); err != nil {
 		t.Fatal(err)
 	}
+	if err := eng.WriteGraph(); err != nil {
+		t.Fatal(err)
+	}
 	for _, repo := range []string{repoA, repoB} {
 		if err := eng.WriteArtifacts(repo); err != nil {
 			t.Fatalf("write %s: %v", repo, err)
 		}
+		if _, err := os.Stat(filepath.Join(repo, cfg.Output.Dir, "facts.jsonl")); err == nil {
+			t.Errorf("%s got a copy of the union", repo)
+		}
 	}
-
-	factsA, err := os.ReadFile(filepath.Join(repoA, cfg.Output.Dir, "facts.jsonl"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	factsB, err := os.ReadFile(filepath.Join(repoB, cfg.Output.Dir, "facts.jsonl"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(factsA) == 0 || !bytes.Equal(factsA, factsB) {
-		t.Fatalf("facts.jsonl differs between dirs (%d vs %d bytes)", len(factsA), len(factsB))
+	factsHome, err := os.ReadFile(filepath.Join(eng.GraphDir([]string{repoA, repoB}), "facts.jsonl"))
+	if err != nil || len(factsHome) == 0 {
+		t.Fatalf("the cluster's directory has no facts.jsonl: %v", err)
 	}
 
 	// The union is the cluster's revision: recorded once into the cluster's own history,

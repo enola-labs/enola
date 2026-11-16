@@ -137,7 +137,7 @@ func DefaultHelp(bin Binary) HelpSpec {
 		},
 		Flags: []FlagDoc{
 			{Flag: "--generate", Desc: "Generate a snapshot and exit (do not start MCP server)"},
-			{Flag: "--refresh", Desc: "With --generate on a cluster config: re-read ONE configured repository\ninto the union the last full generate produced, replacing its slice,\nand write the result to that repository and to the union's home. The\nother repositories are not re-read. Needs a prior full --generate."},
+			{Flag: "--refresh", Desc: "With --generate on a cluster config: re-read ONE configured repository\ninto the union the last full generate produced, replacing its slice,\nand write the result to the cluster's own directory. The other\nrepositories are not re-read. Needs a prior full --generate."},
 			{Flag: "--explain [path]", Desc: "Print a human-readable repository statistics report and exit.\nA directory is a repository; a file is a config, so a `repos:`\nconfig reports over the whole cluster."},
 			{Flag: "--summary", Desc: "With --explain: print a short, plain-language summary instead.\nWhat the repository is, whether its structure holds, where to\nstart reading, what is risky to change and what is worth a look,\neach marked with how sure enola is. --json prints it as JSON."},
 			{Flag: "--list", Desc: "List the MCP tools this build can serve"},
@@ -145,6 +145,7 @@ func DefaultHelp(bin Binary) HelpSpec {
 			{Flag: "--status --all", Desc: "Show the per-repo breakdown instead (from ~/.enola/usage/)"},
 			{Flag: "--no-dashboard", Desc: "Do not start the localhost dashboard alongside the MCP server"},
 			{Flag: "--no-cluster", Desc: "With --generate on a folder that holds several git repositories:\nindex it as one repository instead of as a cluster"},
+			{Flag: "--out DIR", Desc: "With --generate on a cluster: write the cluster's graph to DIR.\nWithout it a cluster writes to a directory of its own under\n~/.enola/graphs/. Members keep their own snapshots either way.\nSame as output.cluster_dir in the config."},
 			{Flag: "--no-parallel", Desc: "With --generate: extract one repository of a cluster at a time and\nrun one explainer at a time. Slower, and holds less memory at once.\nSame as cluster_jobs: 1 and analysis_jobs: 1 in the config."},
 			{Flag: "--version", Desc: "Print version information"},
 			{Flag: "--version --json", Desc: "Print the version and the extractor version as JSON, on stdout.\nThis is the release manifest: what a build is called, and what it\nEXTRACTS LIKE. See UPDATES."},

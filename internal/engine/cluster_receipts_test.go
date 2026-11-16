@@ -31,23 +31,12 @@ func gitRepoWithOneCommit(t *testing.T, repo, marker string) {
 	}
 }
 
-func readReceipt(t *testing.T, repo, outputDir string) facts.Receipt {
-	t.Helper()
-	data, err := os.ReadFile(filepath.Join(repo, outputDir, "receipt.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var r facts.Receipt
-	if err := json.Unmarshal(data, &r); err != nil {
-		t.Fatal(err)
-	}
-	return r
-}
-
-// A cluster's fan-out writes the same union to every member dir, and each member's
-// receipt still describes that member: its own path and commit, the extractors and
-// counts of the turn that read it. Sharing the union must not share the provenance.
-func TestWriteArtifacts_ClusterMembersKeepTheirOwnReceipts(t *testing.T) {
+// A cluster writes one union to its own directory, and each member's provenance still
+// describes that member: its own path and commit, the extractors and counts of the turn
+// that read it, in the cluster receipt's member entries and in ReadMemberMeta. Sharing
+// the union must not share the provenance, and no member gets a receipt of the union.
+func TestWriteGraph_ClusterMembersKeepTheirOwnProvenance(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	repoA, repoB := freezeTestRepo(t), freezeTestRepo(t)
 	gitRepoWithOneCommit(t, repoA, "a")
 	gitRepoWithOneCommit(t, repoB, "b")
@@ -64,32 +53,57 @@ func TestWriteArtifacts_ClusterMembersKeepTheirOwnReceipts(t *testing.T) {
 	if _, err := eng.GenerateCluster(context.Background(), []string{repoA, repoB}, false); err != nil {
 		t.Fatal(err)
 	}
+	if err := eng.WriteGraph(); err != nil {
+		t.Fatal(err)
+	}
 	for _, repo := range []string{repoA, repoB} {
-		if err := eng.WriteArtifacts(repo); err != nil {
-			t.Fatalf("write %s: %v", repo, err)
+		if _, err := os.Stat(filepath.Join(repo, cfg.Output.Dir, "receipt.json")); err == nil {
+			t.Errorf("%s got a receipt of the union", repo)
 		}
 	}
 
-	a, b := readReceipt(t, repoA, cfg.Output.Dir), readReceipt(t, repoB, cfg.Output.Dir)
+	dir := eng.GraphDir([]string{repoA, repoB})
+	var r facts.Receipt
+	data, err := os.ReadFile(filepath.Join(dir, "receipt.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(data, &r); err != nil {
+		t.Fatal(err)
+	}
+	byPath := map[string]facts.MemberReceipt{}
+	for _, m := range r.Members {
+		byPath[m.RepoPath] = m
+	}
+	ra, rb := byPath[repoA], byPath[repoB]
+	if ra.Git == nil || rb.Git == nil || ra.Git.Commit == rb.Git.Commit {
+		t.Fatalf("member entries share a commit: %+v vs %+v", ra.Git, rb.Git)
+	}
+	if ra.FilesParsed == 0 || ra.FilesParsed == rb.FilesParsed {
+		t.Fatalf("member entries share parse counts: %d vs %d", ra.FilesParsed, rb.FilesParsed)
+	}
+
+	a, err := engine.ReadMemberMeta(dir, repoA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := engine.ReadMemberMeta(dir, repoB)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if a.RepoPath != repoA || b.RepoPath != repoB {
-		t.Fatalf("receipts name the wrong repo: %q (want %q), %q (want %q)", a.RepoPath, repoA, b.RepoPath, repoB)
+		t.Fatalf("member metas name the wrong repo: %q, %q", a.RepoPath, b.RepoPath)
 	}
 	if a.Git == nil || b.Git == nil || a.Git.Commit == b.Git.Commit {
-		t.Fatalf("receipts share a commit: %+v vs %+v", a.Git, b.Git)
+		t.Fatalf("member metas share a commit: %+v vs %+v", a.Git, b.Git)
 	}
-	if a.Quality.FilesSeen == 0 || a.Quality.FilesSeen == b.Quality.FilesSeen {
-		t.Fatalf("receipts share walk counts: %d vs %d files seen", a.Quality.FilesSeen, b.Quality.FilesSeen)
+	if len(a.FileHashes) == 0 || len(a.FileHashes) == len(b.FileHashes) {
+		t.Fatalf("member metas share file hashes: %d vs %d", len(a.FileHashes), len(b.FileHashes))
 	}
-	if a.Quality.FilesParsed == 0 || a.Quality.FilesParsed == b.Quality.FilesParsed {
-		t.Fatalf("receipts share parse counts: %d vs %d files parsed", a.Quality.FilesParsed, b.Quality.FilesParsed)
+	if a.SnapshotID == "" || a.SnapshotID != b.SnapshotID || a.SnapshotID != r.SnapshotID {
+		t.Fatalf("member metas disagree on the union: %q, %q, receipt %q", a.SnapshotID, b.SnapshotID, r.SnapshotID)
 	}
-	if a.SnapshotID == "" || a.SnapshotID != b.SnapshotID {
-		t.Fatalf("members disagree on the union they hold: %q vs %q", a.SnapshotID, b.SnapshotID)
-	}
-	if a.OutputHashes["facts.jsonl"] == "" || a.OutputHashes["facts.jsonl"] != b.OutputHashes["facts.jsonl"] {
-		t.Fatalf("members disagree on the facts bytes: %v vs %v", a.OutputHashes, b.OutputHashes)
-	}
-	if a.FactCount != b.FactCount {
-		t.Fatalf("fact_count describes the dir's facts.jsonl, which is shared: %d vs %d", a.FactCount, b.FactCount)
+	if a.FactCount != r.FactCount || a.OutputHashes["facts.jsonl"] != r.OutputHashes["facts.jsonl"] {
+		t.Fatalf("member meta does not carry the union's counts and hashes")
 	}
 }

@@ -80,6 +80,19 @@ from an earlier run.
 The default output directory is `.enola`. A configured `output.dir` must be a
 subdirectory of the repository and is excluded from extraction automatically.
 
+A cluster (a config with `repos:`, or a folder of repositories) writes the same artifacts
+once, to a directory of its own, and nothing into its members' `.enola`. Pass `--out DIR`
+to choose it, and read the artifacts there:
+
+```sh
+enola --generate cluster.yaml --out /var/lib/acme/enola-graph
+```
+
+`receipt.json` there describes the whole cluster; its `members` array carries each
+repository's own provenance (path, git state, extractors, counts), and every fact's
+`repo` field names the member it came from. Without `--out` the directory is
+`~/.enola/graphs/<key>/`, printed as `Output:` on stderr.
+
 ### Side effects
 
 Generation writes more than the three contract artifacts:

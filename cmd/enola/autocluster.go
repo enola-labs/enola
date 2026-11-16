@@ -3,7 +3,9 @@ package main
 import (
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
+	"strconv"
 
 	"github.com/enola-labs/enola/internal/clientspec"
 	"github.com/enola-labs/enola/internal/config"
@@ -29,7 +31,11 @@ func foldedRepos(cfg *config.Config) (string, []string) {
 // dir is the user's and is used as it is. Otherwise one listing repos is written and the
 // config in force keeps every other setting. A folder that cannot be written to is still
 // indexed as a cluster, for this run, and the returned path is "".
-func clusterConfig(out io.Writer, binName string, cfg *config.Config, dir string, repos []string) (*config.Config, string, error) {
+//
+// outDir is --out. A cluster config written here records it as output.cluster_dir, so
+// a later command given the same config finds the graph; one already there is the
+// user's, and gets a note instead of an edit.
+func clusterConfig(out io.Writer, binName string, cfg *config.Config, dir string, repos []string, outDir string) (*config.Config, string, error) {
 	_, _ = fmt.Fprintf(out, "\nDetected %d git repositories in %s: %s\n", len(repos), dir, workspace.Names(repos))
 	_, _ = fmt.Fprintln(out, "Indexing them as a cluster, so each one becomes a service and the calls between them are linked.")
 
@@ -42,6 +48,10 @@ func clusterConfig(out io.Writer, binName string, cfg *config.Config, dir string
 			return nil, "", err
 		}
 		_, _ = fmt.Fprintf(out, "  Using the cluster config already there: %s\n", path)
+		if abs, err := filepath.Abs(outDir); outDir != "" && err == nil && loaded.Output.ClusterDir != abs {
+			_, _ = fmt.Fprintf(out, "  It does not set output.cluster_dir to %s; add it there, or pass --out again,\n"+
+				"  so later commands given that config find this graph.\n", abs)
+		}
 		if cfg.SourcePath != "" {
 			_, _ = fmt.Fprintf(out, "  Settings from %s are not applied; that cluster config governs this run.\n", cfg.SourcePath)
 		}
@@ -53,6 +63,11 @@ func clusterConfig(out io.Writer, binName string, cfg *config.Config, dir string
 		path = ""
 		_, _ = fmt.Fprintf(out, "  Could not write a cluster config (%v); indexing them as a cluster for this run only.\n", writeErr)
 	default:
+		if outDir != "" {
+			if err := recordClusterDir(path, outDir); err != nil {
+				_, _ = fmt.Fprintf(out, "  Could not record --out in %s (%v); pass --out again with it.\n", path, err)
+			}
+		}
 		_, _ = fmt.Fprintf(out, "  Wrote %s; pass it to --generate to index the same cluster directly.\n", path)
 		if cfg.SourcePath != "" {
 			_, _ = fmt.Fprintf(out, "  Settings from %s apply to this run; %s lists only the repositories.\n", cfg.SourcePath, filepath.Base(path))
@@ -71,4 +86,22 @@ func withRepos(cfg *config.Config, dir string, repos []string) *config.Config {
 		run.Repos[i] = filepath.Join(dir, r)
 	}
 	return &run
+}
+
+// recordClusterDir adds output.cluster_dir to a cluster config enola has just written,
+// which holds nothing but repos:.
+func recordClusterDir(path, outDir string) error {
+	abs, err := filepath.Abs(outDir)
+	if err != nil {
+		return err
+	}
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(f, "output:\n  cluster_dir: %s\n", strconv.Quote(abs)); err != nil {
+		_ = f.Close()
+		return err
+	}
+	return f.Close()
 }

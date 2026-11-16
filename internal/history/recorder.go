@@ -44,9 +44,6 @@ type Record struct {
 	// Members are a multi-repo graph's repositories, sorted; nil for one repository.
 	// Such a graph is recorded once, into its own history (pkghistory.ClusterRoot).
 	Members []string
-	// PriorDirs are the other output directories that may hold the graph's preceding
-	// snapshot; see engine.SnapshotRecord.
-	PriorDirs []string
 	// Parents and Repos are asked for only when a revision is actually appended, since
 	// each costs a git invocation and a cluster writes one union many times.
 	Parents func() []string
@@ -233,23 +230,15 @@ func lastEntry(root string) (pkghistory.Entry, bool) {
 // against, or nil when there is none to compare with.
 //
 // previous/ is whatever this output directory held before, and that is not always the
-// history's parent: a member snapshotted alone after its cluster holds the cluster's
-// union there, and the cluster history's own parent may sit in any member's directory,
-// rotated or not yet rewritten in this run. Comparing across those scopes reported tens
-// of thousands of facts appearing and vanishing at every switch. A snapshot on disk
-// whose id is the latest revision's is that revision; failing that, the revision is
-// rebuilt from the history's stored contents, which costs a replay and is needed only
-// after a switch of scope.
+// history's parent: an output directory an older enola wrote a cluster's union into
+// holds a snapshot of another scope, and comparing across scopes reported tens of
+// thousands of facts appearing and vanishing. A snapshot on disk whose id is the
+// latest revision's is that revision; failing that, the revision is rebuilt from the
+// history's stored contents, which costs a replay and is needed only after a switch
+// of scope.
 func predecessor(rec Record, root string, last pkghistory.Entry) *previousSide {
-	dirs := rec.PriorDirs
-	if len(dirs) == 0 {
-		dirs = []string{rec.PreviousDir}
-	}
-	for _, dir := range dirs {
-		if dir == "" {
-			continue
-		}
-		if p := previousSideFor(dir); p != nil && p.meta.SnapshotID == last.ID {
+	if rec.PreviousDir != "" {
+		if p := previousSideFor(rec.PreviousDir); p != nil && p.meta.SnapshotID == last.ID {
 			return p
 		}
 	}

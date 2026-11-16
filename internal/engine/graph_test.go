@@ -29,9 +29,8 @@ func graphRepo(t *testing.T) string {
 }
 
 // Unloading a graph must let go of every reference the engine keeps to it, not only
-// the published one: after a build, the scratch store is the published store, and the
-// last facts.jsonl write remembers it too. Missing either, an unloaded graph stays
-// resident and a memory budget unloads nothing.
+// the published one: after a build, the scratch store is the published store. Missing
+// it, an unloaded graph stays resident and a memory budget unloads nothing.
 func TestAdopt_NilReleasesEveryReference(t *testing.T) {
 	repo := graphRepo(t)
 	e := graphEngine(t)
@@ -42,8 +41,8 @@ func TestAdopt_NilReleasesEveryReference(t *testing.T) {
 		t.Fatal(err)
 	}
 	published := e.current.Load().store
-	if e.store != published || e.lastShared.store != published {
-		t.Fatalf("precondition: the scratch store and the last write should be the published store")
+	if e.store != published {
+		t.Fatalf("precondition: the scratch store should be the published store")
 	}
 	e.Adopt(nil)
 	if e.Graph() != nil {
@@ -51,9 +50,6 @@ func TestAdopt_NilReleasesEveryReference(t *testing.T) {
 	}
 	if e.store == published {
 		t.Error("the scratch store still holds the unloaded graph")
-	}
-	if e.lastShared.store == published {
-		t.Error("the last facts.jsonl write still holds the unloaded graph")
 	}
 }
 

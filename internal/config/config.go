@@ -1,10 +1,13 @@
 package config
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -260,6 +263,11 @@ type OutputConfig struct {
 	// reset or clean would otherwise delete the snapshots and the pinned baseline,
 	// and which may be read-only to enola. See OutputDirFor.
 	Root string `yaml:"root,omitempty"`
+	// ClusterDir, when set, is where a graph of several repositories writes its
+	// artifacts, exactly this directory. Unset, a cluster gets a directory of its
+	// own keyed by its members; see GraphOutputDir. A relative value resolves against
+	// the config file's directory, like the repos: entries beside it.
+	ClusterDir string `yaml:"cluster_dir,omitempty"`
 }
 
 // KnownExplainers is every explainer this build ships, in the order Default runs
@@ -736,6 +744,17 @@ func (c *Config) Normalize() error {
 			c.Output.Root = root
 		}
 	}
+	if c.Output.ClusterDir != "" && !filepath.IsAbs(c.Output.ClusterDir) {
+		base := ""
+		if c.SourcePath != "" {
+			base = filepath.Dir(c.SourcePath)
+		}
+		dir, err := filepath.Abs(filepath.Join(base, c.Output.ClusterDir))
+		if err != nil {
+			return fmt.Errorf("output.cluster_dir %q: %w", c.Output.ClusterDir, err)
+		}
+		c.Output.ClusterDir = dir
+	}
 
 	if err := providerspec.Validate(c.Providers); err != nil {
 		return err
@@ -819,6 +838,102 @@ func (c *Config) OutputDirFor(repoPath string) string {
 		return filepath.Join(abs, c.Output.Dir)
 	}
 	return filepath.Join(c.Output.Root, mirrorPath(abs), c.Output.Dir)
+}
+
+// GraphOutputDir returns the directory a graph's artifacts are written to and read
+// from. One repository's graph is that repository's own: OutputDirFor. A graph of
+// several repositories, a cluster, has a directory of its own, so its artifacts are
+// written once and no member's own snapshot, previous/ or baseline/ is touched:
+//
+//   - output.cluster_dir (or --out) when set, exactly that directory
+//   - with output.root set, <root>/clusters/<key>
+//   - otherwise ~/.enola/graphs/<key>, beside the cluster's history
+//
+// The key names the member SET, not an order: the same repositories reach enola from a
+// cluster.yaml, a folder walk and an MCP repo_paths list, each in its own order, and all
+// three must find the same graph. It is the key pkg/history uses for the cluster's
+// history, so both sit in one directory; a test pins the two equal.
+//
+// With no home directory (a sandbox without $HOME) the cluster's directory goes inside
+// the output dir of the member that sorts first, where the output.dir ignore glob
+// already keeps it out of the walk.
+func (c *Config) GraphOutputDir(members []string) string {
+	if len(members) == 0 {
+		return ""
+	}
+	if len(members) == 1 {
+		return c.OutputDirFor(members[0])
+	}
+	if c.Output.ClusterDir != "" {
+		return c.Output.ClusterDir
+	}
+	canon := make([]string, len(members))
+	for i, m := range members {
+		canon[i] = canonicalPath(m)
+	}
+	sort.Strings(canon)
+	key := clusterKey(canon)
+	if c.Output.Root != "" {
+		return filepath.Join(c.Output.Root, "clusters", key)
+	}
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		return filepath.Join(home, ".enola", "graphs", key)
+	}
+	return filepath.Join(c.OutputDirFor(canon[0]), "clusters", key)
+}
+
+// clusterKey names a sorted set of canonical member paths: the members' common parent
+// folder's name and a short hash of every path. It must stay identical to
+// pkg/history's clusterKey, which names the same cluster's history (pkg/history may
+// import nothing but internal/facts, so the two are separate implementations).
+func clusterKey(sorted []string) string {
+	sum := sha256.Sum256([]byte(strings.Join(sorted, "\n")))
+	short := hex.EncodeToString(sum[:])[:8]
+	name := "cluster"
+	if base := filepath.Base(commonDir(sorted)); base != string(filepath.Separator) && base != "." {
+		name = base
+	}
+	return keyName(name) + "-cluster-" + short
+}
+
+func keyName(name string) string {
+	base := strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+			return r
+		case r == '-', r == '_', r == '.':
+			return r
+		default:
+			return '_'
+		}
+	}, name)
+	if base == "" {
+		base = "repo"
+	}
+	return base
+}
+
+func commonDir(paths []string) string {
+	dir := filepath.Dir(paths[0])
+	for _, p := range paths[1:] {
+		for dir != filepath.Dir(dir) && !strings.HasPrefix(p+string(filepath.Separator), dir+string(filepath.Separator)) {
+			dir = filepath.Dir(dir)
+		}
+	}
+	return dir
+}
+
+// canonicalPath is a path made absolute with symlinks resolved, so one repository
+// referenced two ways (macOS /var and /private/var) is one member.
+func canonicalPath(p string) string {
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		abs = p
+	}
+	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+		return resolved
+	}
+	return abs
 }
 
 // mirrorPath turns an absolute path into a relative one that names it uniquely:

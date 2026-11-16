@@ -31,12 +31,11 @@ func (e *Engine) Graph() *Graph {
 // other engine serves it either.
 //
 // The published bundle is not the only reference an engine keeps: after a build its
-// scratch store IS the published store, and the last facts.jsonl write remembers it
-// too. Both are let go here, or unloading a graph would free nothing.
+// scratch store IS the published store. Both are let go here, or unloading a graph
+// would free nothing.
 func (e *Engine) Adopt(g *Graph) {
 	e.mu.Lock()
 	e.store = facts.NewStore()
-	e.lastShared = sharedWrite{}
 	e.mu.Unlock()
 	if g == nil {
 		e.current.Store(&snapshotBundle{store: facts.NewStore()})
@@ -59,10 +58,7 @@ func (g *Graph) RepoPaths() []string {
 	if g == nil {
 		return nil
 	}
-	var out []string
-	for _, p := range g.b.repoPaths {
-		out = append(out, p)
-	}
+	out := g.b.memberPaths()
 	if len(out) == 0 && g.b.snapshot != nil && g.b.snapshot.Meta.RepoPath != "" {
 		out = append(out, g.b.snapshot.Meta.RepoPath)
 	}
@@ -97,21 +93,19 @@ func (g *Graph) FactCount() int {
 }
 
 // EstimatedBytes is a rough measure of the memory g holds, for a budget that has to
-// choose which graph to drop: the size of its facts.jsonl in the first repository's
-// output directory, times bytesPerJSONLByte. It is an estimate by design: measuring
-// the heap a store holds would mean walking it, on every publish.
-func (g *Graph) EstimatedBytes(outputDirFor func(string) string) int64 {
+// choose which graph to drop: the size of its facts.jsonl in the graph's directory,
+// times bytesPerJSONLByte. It is an estimate by design: measuring the heap a store
+// holds would mean walking it, on every publish.
+func (g *Graph) EstimatedBytes(graphDirFor func([]string) string) int64 {
 	paths := g.RepoPaths()
 	if len(paths) == 0 {
 		return 0
 	}
-	var best int64
-	for _, p := range paths {
-		if info, err := os.Stat(filepath.Join(outputDirFor(p), "facts.jsonl")); err == nil && info.Size() > best {
-			best = info.Size()
-		}
+	info, err := os.Stat(filepath.Join(graphDirFor(paths), "facts.jsonl"))
+	if err != nil {
+		return 0
 	}
-	return best * bytesPerJSONLByte
+	return info.Size() * bytesPerJSONLByte
 }
 
 // bytesPerJSONLByte is the heap a loaded graph holds per byte of its facts.jsonl,

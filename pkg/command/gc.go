@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/enola-labs/enola/internal/engine"
 	inthistory "github.com/enola-labs/enola/internal/history"
 )
 
@@ -31,7 +32,7 @@ func (r *Runner) GC(args []string) {
 		olderThan    = fs.String("thin-older-than", "", "drop the stored contents of revisions older than this (e.g. 90d, 720h); their summary lines stay")
 		pruneWorking = fs.Bool("prune-working", false, "remove working revisions (snapshots of uncommitted trees) from the log entirely")
 		only         = fs.String("repo", "", "in a cluster, collect only this member (its folder name)")
-		pruneCopies  = fs.Bool("prune-cluster-copies", false, "remove cluster snapshots from members' own histories, where older enola copied them; the cluster's history keeps its own")
+		pruneCopies  = fs.Bool("prune-cluster-copies", false, "remove the copies of a cluster's graph older enola wrote into members: from their output dirs (a pinned one moves to the cluster's own directory) and from their histories")
 	)
 	fs.Usage = func() {
 		fmt.Fprint(os.Stderr,
@@ -71,6 +72,8 @@ func (r *Runner) GC(args []string) {
 			r.gcFatal("no repository %q in %s; members: %s", *only, scope.cluster, strings.Join(memberLabels(scope.repos), ", "))
 		}
 	}
+
+	r.gcClusterCopies(scope, *only, *pruneCopies, *dryRun)
 
 	opts := inthistory.GCOptions{DryRun: *dryRun, PruneWorking: *pruneWorking}
 	if *olderThan != "" {
@@ -239,4 +242,93 @@ func memberLabels(repos []string) []string {
 		out[i] = filepath.Base(r)
 	}
 	return out
+}
+
+// gcClusterCopies reports, and with prune removes, the copies of a cluster's graph that
+// enola before the cluster had a directory of its own wrote into every member's output
+// dir. A copy pinned as a baseline is the cluster's pin: on a cluster it moves to the
+// cluster's directory, and on a single repository, where the cluster is not known, it
+// is kept and named.
+func (r *Runner) gcClusterCopies(scope historyScope, only string, prune, dryRun bool) {
+	repos := scope.repos
+	if only != "" {
+		repos = nil
+		for _, repo := range scope.repos {
+			if filepath.Base(repo) == only {
+				repos = append(repos, repo)
+			}
+		}
+	}
+	copies := engine.FindClusterCopies(scope.cfg, repos)
+	home := ""
+	if scope.cluster != "" {
+		home = scope.cfg.GraphOutputDir(scope.repos)
+	}
+	var kept []engine.ClusterCopy
+	if home == "" {
+		var rest []engine.ClusterCopy
+		for _, c := range copies {
+			if c.Where == "baseline" {
+				kept = append(kept, c)
+			} else {
+				rest = append(rest, c)
+			}
+		}
+		copies = rest
+	}
+	if len(copies) == 0 && len(kept) == 0 {
+		if prune {
+			fmt.Printf("No copies of a cluster's graph in the output dirs.\n\n")
+		}
+		return
+	}
+
+	members := map[string]bool{}
+	for _, c := range copies {
+		members[c.Member] = true
+	}
+	size := engine.MeasureClusterCopies(copies)
+	fmt.Printf("Copies of a cluster's graph in %d output dir%s: %s as files, %s on disk\n",
+		len(members), pluralS(len(members)), humanBytes(size.Apparent), humanBytes(size.Freed))
+	for _, c := range kept {
+		fmt.Printf("  kept %s: a cluster's pinned baseline; run gc on the cluster (its config or folder) to move it to the cluster's directory\n", c.Dir)
+	}
+	switch {
+	case len(copies) == 0:
+	case !prune:
+		fmt.Printf("  --prune-cluster-copies removes them\n")
+	case dryRun:
+		fmt.Printf("  Would remove %d cop%s, %s reclaimed\n", len(copies), pluralY(len(copies)), humanBytes(size.Freed))
+		if moves := movableBaseline(copies, home); moves != nil {
+			fmt.Printf("  Would move the cluster's baseline from %s to %s\n", moves.Dir, filepath.Join(home, engine.BaselineSubdir))
+		}
+	default:
+		moved, err := engine.PruneClusterCopies(copies, home)
+		if moved != nil {
+			fmt.Printf("  Moved the cluster's baseline from %s to %s\n", moved.Dir, filepath.Join(home, engine.BaselineSubdir))
+		}
+		if err != nil {
+			r.gcFatal("removing cluster copies: %v", err)
+		}
+		fmt.Printf("  Removed %d cop%s, %s reclaimed\n", len(copies), pluralY(len(copies)), humanBytes(size.Freed))
+	}
+	fmt.Println()
+}
+
+// movableBaseline is the copy PruneClusterCopies would move to home: the newest
+// pinned one, when home has no baseline of its own.
+func movableBaseline(copies []engine.ClusterCopy, home string) *engine.ClusterCopy {
+	if home == "" {
+		return nil
+	}
+	if _, err := os.Stat(filepath.Join(home, engine.BaselineSubdir, "facts.jsonl")); err == nil {
+		return nil
+	}
+	var best *engine.ClusterCopy
+	for i := range copies {
+		if c := &copies[i]; c.Where == "baseline" && (best == nil || c.GeneratedAt > best.GeneratedAt) {
+			best = c
+		}
+	}
+	return best
 }

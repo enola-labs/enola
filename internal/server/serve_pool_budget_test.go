@@ -27,11 +27,44 @@ func twoRepos(t *testing.T) (root, api, web string) {
 	return root, api, web
 }
 
-// A session's graph is unloaded; another session then indexes the same repository
-// linked with a second one, which rewrites its artifacts with the union. The first
-// session must not be served that union as its own graph: its call is refused, and
-// generate_snapshot gives it its own graph back.
+// A session's graph is unloaded; another session then rebuilds the same repository
+// changed, which rewrites its artifacts. The first session must not be served that
+// snapshot as its own graph: its call is refused, and generate_snapshot gives it a
+// graph of the tree as it is now.
 func TestServePool_UnloadedGraphIsNotReloadedFromAnotherSnapshot(t *testing.T) {
+	root, api, _ := twoRepos(t)
+	s := startServedAt(t, bootstrap.ServeOptions{MemoryBudget: 1}, root, api) // every graph is over it
+	a, err := s.connect(t, testToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := s.connect(t, testToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.generate(t, api)
+	addSymbol(t, api, "AddedLater")
+	b.generate(t, api)
+
+	res := a.call(t, "query_facts", map[string]any{"name": "AddedLater", "kind": "symbol", "output_mode": "summary"})
+	if !res.IsError {
+		t.Fatalf("the session was answered from another session's snapshot of api:\n%s", text(res))
+	}
+	if !strings.Contains(text(res), "another snapshot") || !strings.Contains(text(res), "generate_snapshot") {
+		t.Errorf("the refusal does not say why or what to do:\n%s", text(res))
+	}
+
+	a.generate(t, api)
+	if !a.has(t, "AddedLater") {
+		t.Error("after generate_snapshot the session does not see the tree as it is")
+	}
+}
+
+// A session's graph of one repository is unloaded; another session indexes that
+// repository linked with a second one. The cluster's graph is written to its own
+// directory, so the repository's own artifacts still hold the first session's graph,
+// and its next call is answered from it.
+func TestServePool_ClusterLeavesAMembersGraphItsOwn(t *testing.T) {
 	root, api, web := twoRepos(t)
 	s := startServedAt(t, bootstrap.ServeOptions{MemoryBudget: 1}, root, api) // every graph is over it
 	a, err := s.connect(t, testToken)
@@ -46,21 +79,11 @@ func TestServePool_UnloadedGraphIsNotReloadedFromAnotherSnapshot(t *testing.T) {
 	if res := b.call(t, "generate_snapshot", map[string]any{"repo_paths": []string{api, web}}); res.IsError {
 		t.Fatal(text(res))
 	}
-
-	res := a.call(t, "query_facts", map[string]any{"name": "OnlyInWeb", "kind": "symbol", "output_mode": "summary"})
-	if !res.IsError {
-		t.Fatalf("the session that indexed api alone was answered from the api+web graph:\n%s", text(res))
-	}
-	if !strings.Contains(text(res), "another snapshot") || !strings.Contains(text(res), "generate_snapshot") {
-		t.Errorf("the refusal does not say why or what to do:\n%s", text(res))
-	}
-
-	a.generate(t, api)
 	if a.has(t, "OnlyInWeb") {
-		t.Error("after generate_snapshot the session still sees web")
+		t.Error("the session that indexed api alone was answered from the api+web graph")
 	}
 	if !a.has(t, "OnlyInAPI") {
-		t.Error("after generate_snapshot the session does not see api")
+		t.Error("the session that indexed api alone lost its graph")
 	}
 }
 

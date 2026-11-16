@@ -21,7 +21,7 @@ Flags:
   -dry-run
     	report what would be removed and change nothing
   -prune-cluster-copies
-    	remove cluster snapshots from members' own histories, where older enola copied them; the cluster's history keeps its own
+    	remove the copies of a cluster's graph older enola wrote into members: from their output dirs (a pinned one moves to the cluster's own directory) and from their histories
   -prune-working
     	remove working revisions (snapshots of uncommitted trees) from the log entirely
   -repo string

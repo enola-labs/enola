@@ -107,10 +107,11 @@ func (s *Server) indexSet(ctx context.Context, repoPaths []string, appendFirst b
 	}
 	set.snapshots = snaps
 	set.duration = time.Since(start)
+	// Written once, to the cluster's own directory when the set is several.
+	if err := s.eng.WriteGraph(); err != nil {
+		log.Printf("[server] warning: failed to write artifacts: %v", err)
+	}
 	for _, repo := range repoPaths {
-		if err := s.eng.WriteArtifacts(repo); err != nil {
-			log.Printf("[server] warning: failed to write artifacts for %s: %v", repo, err)
-		}
 		artifactsWritten(ctx, repo)
 	}
 	if err := s.eng.WriteGlobalReceipt(); err != nil {

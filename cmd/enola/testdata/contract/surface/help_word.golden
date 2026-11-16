@@ -185,8 +185,8 @@ FLAGS
   --generate          Generate a snapshot and exit (do not start MCP server)
   --refresh           With --generate on a cluster config: re-read ONE configured repository
                       into the union the last full generate produced, replacing its slice,
-                      and write the result to that repository and to the union's home. The
-                      other repositories are not re-read. Needs a prior full --generate.
+                      and write the result to the cluster's own directory. The other
+                      repositories are not re-read. Needs a prior full --generate.
   --explain [path]    Print a human-readable repository statistics report and exit.
                       A directory is a repository; a file is a config, so a `repos:`
                       config reports over the whole cluster.
@@ -202,6 +202,10 @@ FLAGS
   --no-dashboard      Do not start the localhost dashboard alongside the MCP server
   --no-cluster        With --generate on a folder that holds several git repositories:
                       index it as one repository instead of as a cluster
+  --out DIR           With --generate on a cluster: write the cluster's graph to DIR.
+                      Without it a cluster writes to a directory of its own under
+                      ~/.enola/graphs/. Members keep their own snapshots either way.
+                      Same as output.cluster_dir in the config.
   --no-parallel       With --generate: extract one repository of a cluster at a time and
                       run one explainer at a time. Slower, and holds less memory at once.
                       Same as cluster_jobs: 1 and analysis_jobs: 1 in the config.
