@@ -58,7 +58,7 @@ func (r *Runner) Dashboard(ctx context.Context, args []string) {
 	// Validate before binding a listener so a missing snapshot produces the useful
 	// generate-first guidance without briefly registering a dashboard process.
 	t := r.resolveTarget(arg)
-	snapshotDir := t.engine.OutputDir(t.repoPaths[0])
+	snapshotDir := t.engine.GraphDir(t.repoPaths)
 	fmt.Fprintf(os.Stderr, "Loading dashboard snapshot from %s...\n", snapshotDir)
 	bootstrap.LoadDashboardSnapshot(t.engine, t.engine.Config())
 	// A dashboard-only process is still an active Enola session. Register it just

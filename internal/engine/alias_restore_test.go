@@ -18,6 +18,9 @@ func TestGraph_CrossRepoAliasSurvivesRestore(t *testing.T) {
 	if _, err := os.Stat(customClientExample); err != nil {
 		t.Skipf("example not present: %v", err)
 	}
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	root := copyTree(t, customClientExample, t.TempDir())
 	config := filepath.Join(root, "cluster-with-params.yaml")
 
@@ -37,16 +40,15 @@ func TestGraph_CrossRepoAliasSurvivesRestore(t *testing.T) {
 	if p := eng.Store().Graph().FindPath(from, to, nil, 3); !p.Found {
 		t.Fatalf("generated graph does not follow the aliased call: %+v", p)
 	}
-	backend := filepath.Join(root, "backend")
-	if err := eng.WriteArtifacts(backend); err != nil {
-		t.Fatalf("WriteArtifacts: %v", err)
+	if err := eng.WriteGraph(); err != nil {
+		t.Fatalf("WriteGraph: %v", err)
 	}
 
 	restored, _, err := bootstrap.NewEngine(bootstrap.Options{ConfigPath: config})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := restored.RestoreFromDir(eng.OutputDir(backend), nil, ""); err != nil {
+	if err := restored.RestoreFromDir(eng.GraphDir(paths), nil, ""); err != nil {
 		t.Fatalf("RestoreFromDir: %v", err)
 	}
 	if p := restored.Store().Graph().FindPath(from, to, nil, 3); !p.Found {

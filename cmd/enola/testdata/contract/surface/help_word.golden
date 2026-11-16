@@ -185,8 +185,8 @@ FLAGS
   --generate          Generate a snapshot and exit (do not start MCP server)
   --refresh           With --generate on a cluster config: re-read ONE configured repository
                       into the union the last full generate produced, replacing its slice,
-                      and write the result to that repository and to the union's home. The
-                      other repositories are not re-read. Needs a prior full --generate.
+                      and write the result to the cluster's own directory. The other
+                      repositories are not re-read. Needs a prior full --generate.
   --explain [path]    Print a human-readable repository statistics report and exit.
                       A directory is a repository; a file is a config, so a `repos:`
                       config reports over the whole cluster.

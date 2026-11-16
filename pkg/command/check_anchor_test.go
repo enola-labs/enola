@@ -9,10 +9,10 @@ import (
 
 // A cluster config lists its members in whatever order its author wrote them, and the
 // MCP tools see the same cluster as a repo_paths list or a folder with an order of its
-// own. The pin therefore lives in the member chosen from the member set, not in the
-// config's first entry, or `enola check` and diff_snapshot each find "no pinned
-// baseline" in the other's pin, or grade against two different ones.
-func TestBaseline_ClusterPinsInTheMemberChosenFromTheSet(t *testing.T) {
+// own. The pin therefore lives in the cluster's own directory, keyed by the member
+// set, and in no member: `enola check` and diff_snapshot read the same pin, and every
+// member's own baseline stays its own.
+func TestBaseline_ClusterPinsInItsOwnDirectory(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds the binary")
 	}
@@ -57,15 +57,17 @@ func TestBaseline_ClusterPinsInTheMemberChosenFromTheSet(t *testing.T) {
 	if code, out := run("baseline", "pin", "cluster.yaml"); code != 0 {
 		t.Fatalf("baseline pin exited %d:\n%s", code, out)
 	}
-	pinned := func(member string) bool {
-		_, err := os.Stat(filepath.Join(parent, member, ".enola", "baseline", "facts.jsonl"))
-		return err == nil
+	// A member keeps its extractor cache; it gets no snapshot and no pin.
+	for _, member := range []string{"api", "web"} {
+		for _, name := range []string{"facts.jsonl", filepath.Join("baseline", "facts.jsonl")} {
+			if _, err := os.Stat(filepath.Join(parent, member, ".enola", name)); err == nil {
+				t.Errorf("the cluster wrote %s into %s's output dir", name, member)
+			}
+		}
 	}
-	if !pinned("api") {
-		t.Errorf("the pin is not in api, the member the set chooses")
-	}
-	if pinned("web") {
-		t.Errorf("the pin was written into web, the config's first entry")
+	pins, _ := filepath.Glob(filepath.Join(home, ".enola", "graphs", "*-cluster-*", "baseline", "facts.jsonl"))
+	if len(pins) != 1 {
+		t.Errorf("want one pin, in the cluster's own directory; found %v", pins)
 	}
 	if code, out := run("baseline", "show", "cluster.yaml"); code != 0 {
 		t.Errorf("baseline show exited %d against the cluster's own pin:\n%s", code, out)

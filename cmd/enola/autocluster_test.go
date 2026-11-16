@@ -32,7 +32,7 @@ func TestClusterConfig_WritesTheConfigAndKeepsSettingsInForce(t *testing.T) {
 	inForce.Clients = []clientspec.Spec{{Name: "sdk-http", Language: "typescript"}}
 
 	var out bytes.Buffer
-	run, path, err := clusterConfig(&out, "enola", inForce, dir, []string{"api", "web"})
+	run, path, err := clusterConfig(&out, "enola", inForce, dir, []string{"api", "web"}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +67,7 @@ func TestClusterConfig_ExistingConfigIsUsedNotRewritten(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	run, path, err := clusterConfig(&out, "enola", config.Default(), dir, []string{"api", "web"})
+	run, path, err := clusterConfig(&out, "enola", config.Default(), dir, []string{"api", "web"}, "")
 	if err != nil || path != existing {
 		t.Fatalf("path = %q, err = %v; want the existing config", path, err)
 	}
@@ -94,7 +94,7 @@ func TestClusterConfig_UnwritableFolderStillClusters(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
 
 	var out bytes.Buffer
-	run, path, err := clusterConfig(&out, "enola", config.Default(), dir, []string{"api", "web"})
+	run, path, err := clusterConfig(&out, "enola", config.Default(), dir, []string{"api", "web"}, "")
 	if err != nil || path != "" {
 		t.Fatalf("path = %q, err = %v; want a cluster run without a file", path, err)
 	}
@@ -113,5 +113,48 @@ func TestFoldedRepos_ClusterConfigSaysNothing(t *testing.T) {
 	}
 	if _, repos := foldedRepos(&config.Config{Repo: dir, Repos: []string{"api", "web"}}); repos != nil {
 		t.Errorf("a config with repos: already names a cluster, got %v", repos)
+	}
+}
+
+// --out on a folder of repositories is written into the cluster config enola writes,
+// so a later command given that config finds the graph; a config already there is the
+// user's, and gets a note instead of an edit.
+func TestClusterConfig_RecordsOut(t *testing.T) {
+	dir := folderOfRepos(t, "api", "web")
+	out := filepath.Join(t.TempDir(), "graph")
+	var msg bytes.Buffer
+	_, path, err := clusterConfig(&msg, "enola", config.Default(), dir, []string{"api", "web"}, out)
+	if err != nil || path == "" {
+		t.Fatalf("path = %q, err = %v", path, err)
+	}
+	loaded, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Output.ClusterDir != out {
+		t.Errorf("the written config's output.cluster_dir = %q, want %q", loaded.Output.ClusterDir, out)
+	}
+	if paths, _ := loaded.RepoPaths(); len(paths) != 2 {
+		t.Errorf("the written config lists %v, want the two repositories", paths)
+	}
+
+	// Run again: the config is now the user's, and already says so.
+	msg.Reset()
+	if _, _, err := clusterConfig(&msg, "enola", config.Default(), dir, []string{"api", "web"}, out); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(msg.String(), "does not set output.cluster_dir") {
+		t.Errorf("a config that records --out got a note anyway:\n%s", msg.String())
+	}
+	msg.Reset()
+	other := filepath.Join(t.TempDir(), "elsewhere")
+	if _, _, err := clusterConfig(&msg, "enola", config.Default(), dir, []string{"api", "web"}, other); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(msg.String(), "does not set output.cluster_dir to "+other) {
+		t.Errorf("a config with another cluster_dir got no note:\n%s", msg.String())
+	}
+	if loaded, _ := config.Load(path); loaded.Output.ClusterDir != out {
+		t.Errorf("the user's config was edited: cluster_dir = %q", loaded.Output.ClusterDir)
 	}
 }

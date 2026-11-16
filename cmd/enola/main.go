@@ -242,7 +242,7 @@ func main() {
 		case noCluster:
 			folded = nil
 		case generateMode && !workspace.IsRepo(foldDir):
-			clusterCfg, clusterPath, err := clusterConfig(os.Stderr, binary().Name, cfg, foldDir, folded)
+			clusterCfg, clusterPath, err := clusterConfig(os.Stderr, binary().Name, cfg, foldDir, folded, outDir)
 			if err != nil {
 				log.Fatalf("failed to read cluster config: %v", err)
 			}
@@ -305,17 +305,11 @@ func main() {
 			log.Fatalf("%v", err)
 		}
 		snapshot := snaps[len(snaps)-1]
-		// Every repository's output dir receives the complete linked union, written
-		// once, now that it exists. Before, each received the union as of its own
-		// turn and only the last was complete; a consumer reading any repo's own
-		// artifacts (the CI check, enola plan) now reads the same whole graph.
-		for _, repoPath := range repoPaths {
-			if err := eng.WriteArtifacts(repoPath); err != nil {
-				log.Fatalf("failed to write artifacts for %s: %v", repoPath, err)
-			}
-		}
-		if err := eng.WriteClusterHome(); err != nil {
-			log.Fatalf("failed to write the cluster's artifacts: %v", err)
+		// The linked graph is written once, where it belongs: one repository's into
+		// its own output dir, a cluster's into the cluster's own directory, leaving
+		// every member's own snapshot as it was.
+		if err := eng.WriteGraph(); err != nil {
+			log.Fatalf("failed to write artifacts: %v", err)
 		}
 
 		// Refresh the graph-wide receipt at ~/.enola/receipt.json. Non-fatal: a
@@ -337,7 +331,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  Insights:    %d\n", snapshot.Meta.InsightCount)
 		fmt.Fprintf(os.Stderr, "  Artifacts:   %d\n", len(snapshot.Artifacts))
 		fmt.Fprintf(os.Stderr, "  Duration:    %s\n", snapshot.Meta.Duration)
-		fmt.Fprintf(os.Stderr, "  Output:      %s\n", cfg.OutputDirFor(repoPaths[len(repoPaths)-1]))
+		fmt.Fprintf(os.Stderr, "  Output:      %s\n", cfg.GraphOutputDir(repoPaths))
 		if len(folded) > 0 {
 			fmt.Fprintf(os.Stderr, "  Warning:     %d git repositories indexed as one; to link them: %s\n",
 				len(folded), workspace.Remedy(binary().Name, foldDir))
@@ -613,19 +607,9 @@ func runRefresh(ctx context.Context, eng *bootstrap.Engine, cfg *config.Config, 
 	if err != nil {
 		log.Fatalf("refresh failed for %s: %v", target, err)
 	}
-	// The repository's own directory, for the readers that look there (plan, the
-	// CI check), and the union's home at the last configured repository.
-	last := repoPaths[len(repoPaths)-1]
-	if err := eng.WriteArtifacts(target); err != nil {
-		log.Fatalf("failed to write artifacts for %s: %v", target, err)
-	}
-	if last != target {
-		if err := eng.WriteArtifacts(last); err != nil {
-			log.Fatalf("failed to write artifacts for %s: %v", last, err)
-		}
-	}
-	if err := eng.WriteClusterHome(); err != nil {
-		log.Fatalf("failed to write the cluster's artifacts: %v", err)
+	// The union is written to the cluster's own directory, as a full generate writes it.
+	if err := eng.WriteGraph(); err != nil {
+		log.Fatalf("failed to write artifacts: %v", err)
 	}
 	if err := eng.WriteGlobalReceipt(); err != nil {
 		log.Printf("warning: failed to write global receipt: %v", err)
@@ -635,7 +619,7 @@ func runRefresh(ctx context.Context, eng *bootstrap.Engine, cfg *config.Config, 
 	fmt.Fprintf(os.Stderr, "  Facts:       %d\n", snapshot.Meta.FactCount)
 	fmt.Fprintf(os.Stderr, "  Insights:    %d\n", snapshot.Meta.InsightCount)
 	fmt.Fprintf(os.Stderr, "  Duration:    %s\n", snapshot.Meta.Duration)
-	fmt.Fprintf(os.Stderr, "  Output:      %s\n", cfg.OutputDirFor(last))
+	fmt.Fprintf(os.Stderr, "  Output:      %s\n", cfg.GraphOutputDir(repoPaths))
 	if cli.ShowDashboardHint(os.Stderr) {
 		printDashboardHint(os.Stderr, repoArg, cfg.SourcePath)
 	}

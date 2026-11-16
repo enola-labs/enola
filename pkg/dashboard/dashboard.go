@@ -81,14 +81,14 @@ const defaultTitle = "enola"
 // extractor the binary carries. *bootstrap.Engine satisfies it.
 //
 //   - GetArtifact fetches the live in-memory receipt ("receipt.json").
-//   - ActiveRepo + OutputDir locate the last-written receipt on disk, used as a
-//     fallback: AutoLoadSnapshot restores a snapshot's facts with an near-empty
-//     Meta, so after a server restart the in-memory receipt is blank while a full
-//     one persists at <repo>/.enola/receipt.json.
+//   - ActiveGraphDir locates the last-written receipt on disk, used as a fallback:
+//     AutoLoadSnapshot restores a snapshot's facts with an near-empty Meta, so after
+//     a server restart the in-memory receipt is blank while a full one persists in
+//     the graph's directory (<repo>/.enola, or a cluster's own).
 type Engine interface {
 	GetArtifact(name string) ([]byte, error)
 	ActiveRepo() string
-	OutputDir(repoPath string) string
+	ActiveGraphDir() string
 	// DashboardState captures one immutable engine publication. Every snapshot
 	// panel in a response must use these returned values rather than independently
 	// loading live accessors that a concurrent regeneration could swap between.
@@ -792,11 +792,11 @@ func (s *Server) currentReceipt(snapshot *facts.Snapshot) *facts.Receipt {
 		}
 	}
 
-	repo := s.eng.ActiveRepo()
-	if repo == "" {
+	dir := s.eng.ActiveGraphDir()
+	if dir == "" {
 		return nil
 	}
-	b, err := os.ReadFile(filepath.Join(s.eng.OutputDir(repo), "receipt.json"))
+	b, err := os.ReadFile(filepath.Join(dir, "receipt.json"))
 	if err != nil {
 		return nil
 	}
@@ -825,11 +825,11 @@ func (s *Server) currentInsights(snapshot *facts.Snapshot) []facts.Insight {
 		}
 	}
 
-	repo := s.eng.ActiveRepo()
-	if repo == "" {
+	dir := s.eng.ActiveGraphDir()
+	if dir == "" {
 		return nil
 	}
-	b, err := os.ReadFile(filepath.Join(s.eng.OutputDir(repo), "insights.json"))
+	b, err := os.ReadFile(filepath.Join(dir, "insights.json"))
 	if err != nil {
 		return nil
 	}

@@ -30,12 +30,7 @@ func TestClusterHome_HoldsTheUnionAndEveryMembersProvenance(t *testing.T) {
 	if _, err := eng.GenerateCluster(context.Background(), []string{a, b}, false); err != nil {
 		t.Fatal(err)
 	}
-	for _, repo := range []string{a, b} {
-		if err := eng.WriteArtifacts(repo); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := eng.WriteClusterHome(); err != nil {
+	if err := eng.WriteGraph(); err != nil {
 		t.Fatal(err)
 	}
 
@@ -44,14 +39,8 @@ func TestClusterHome_HoldsTheUnionAndEveryMembersProvenance(t *testing.T) {
 		t.Fatalf("cluster directory %s is not under ~/.enola/graphs", dir)
 	}
 	for _, name := range unionArtifacts {
-		got, err := os.ReadFile(filepath.Join(dir, name))
-		if err != nil {
+		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
 			t.Errorf("%s missing from the cluster's directory: %v", name, err)
-			continue
-		}
-		want, _ := os.ReadFile(filepath.Join(eng.OutputDir(a), name))
-		if string(got) != string(want) {
-			t.Errorf("%s in the cluster's directory differs from the union a member holds", name)
 		}
 	}
 
@@ -99,11 +88,17 @@ func TestClusterHome_NothingForOneRepository(t *testing.T) {
 	if _, err := eng.GenerateCluster(context.Background(), []string{a}, false); err != nil {
 		t.Fatal(err)
 	}
-	if err := eng.WriteClusterHome(); err != nil {
+	if err := eng.WriteGraph(); err != nil {
 		t.Fatal(err)
 	}
-	if entries, _ := os.ReadDir(filepath.Join(home, ".enola", "graphs")); len(entries) != 0 {
-		t.Errorf("a single repository wrote a cluster directory: %v", entries)
+	entries, _ := os.ReadDir(filepath.Join(home, ".enola", "graphs"))
+	for _, e := range entries {
+		if strings.Contains(e.Name(), "-cluster-") {
+			t.Errorf("a single repository wrote a cluster directory: %s", e.Name())
+		}
+	}
+	if _, err := os.Stat(filepath.Join(eng.OutputDir(a), "facts.jsonl")); err != nil {
+		t.Errorf("a single repository's graph is not in its own output dir: %v", err)
 	}
 }
 

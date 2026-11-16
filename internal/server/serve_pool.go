@@ -45,9 +45,10 @@ type Pool struct {
 	sc      ServeConfig
 	build   SessionFactory
 	restore Restorer
-	// outputDirFor locates a repository's artifacts, for sizing a graph.
-	outputDirFor func(string) string
-	slots        chan struct{}
+	// graphDirFor locates a graph's artifacts: one repository's output dir, or a
+	// cluster's own directory.
+	graphDirFor func([]string) string
+	slots       chan struct{}
 
 	// checks coalesces proofs that a pooled graph is current: sessions asking for the
 	// same graph while one walk of its trees is running share that walk's answer.
@@ -111,7 +112,7 @@ type restoreCall struct {
 var errReplaced = errors.New("its artifacts on disk now hold another snapshot, written since by a session that indexed these repositories, alone or linked with others")
 
 // NewPool creates a served instance. sc.MemoryBudget of zero means no budget.
-func NewPool(sc ServeConfig, build SessionFactory, restore Restorer, outputDirFor func(string) string) (*Pool, error) {
+func NewPool(sc ServeConfig, build SessionFactory, restore Restorer, graphDirFor func([]string) string) (*Pool, error) {
 	if len(sc.Roots) == 0 {
 		return nil, errors.New("a served instance needs at least one root")
 	}
@@ -120,7 +121,7 @@ func NewPool(sc ServeConfig, build SessionFactory, restore Restorer, outputDirFo
 		limit = 1
 	}
 	p := &Pool{
-		sc: sc, build: build, restore: restore, outputDirFor: outputDirFor,
+		sc: sc, build: build, restore: restore, graphDirFor: graphDirFor,
 		slots:     make(chan struct{}, limit),
 		graphs:    map[string]*pooledGraph{},
 		checks:    map[any]*currentCheck{},
@@ -285,9 +286,9 @@ func (p *Pool) reload(s *Server, paths []string, want string) (*engine.Graph, er
 }
 
 // diskSnapshotID is the snapshot the artifacts of paths hold now, as the restore reads
-// them: from the first repository's output directory.
+// them: from the graph's directory.
 func (p *Pool) diskSnapshotID(paths []string) string {
-	raw, err := os.ReadFile(filepath.Join(p.outputDirFor(paths[0]), "snapshot.meta.json"))
+	raw, err := os.ReadFile(filepath.Join(p.graphDirFor(paths), "snapshot.meta.json"))
 	if err != nil {
 		return ""
 	}
@@ -377,7 +378,7 @@ func (p *Pool) publishLocked(g *engine.Graph) {
 	}
 	paths := g.RepoPaths()
 	key := graphKey(paths, g.ExtractorVersion())
-	p.graphs[key] = &pooledGraph{key: key, paths: paths, g: g, bytes: g.EstimatedBytes(p.outputDirFor), lastUsed: time.Now()}
+	p.graphs[key] = &pooledGraph{key: key, paths: paths, g: g, bytes: g.EstimatedBytes(p.graphDirFor), lastUsed: time.Now()}
 }
 
 // lookup returns the pooled graph of exactly repoPaths, or nil.
@@ -420,7 +421,7 @@ func (p *Pool) holdingsLocked() []*holding {
 		key := st.graph.Key()
 		b, ok := p.sizes[key]
 		if !ok {
-			b = st.graph.EstimatedBytes(p.outputDirFor)
+			b = st.graph.EstimatedBytes(p.graphDirFor)
 		}
 		sizes[key] = b
 		h := &holding{g: st.graph, paths: st.graph.RepoPaths(), bytes: b}

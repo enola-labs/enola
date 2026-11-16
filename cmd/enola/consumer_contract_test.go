@@ -43,11 +43,11 @@ type consumerSnapshot struct {
 // generateAsConsumer runs `enola --generate <target>` with the environment pair
 // INTEGRATING.md step 2 prescribes, and returns stderr. Stdout is discarded: it
 // is not part of the contract.
-func generateAsConsumer(t *testing.T, bin, home, workDir, target string) string {
+func generateAsConsumer(t *testing.T, bin, home, workDir, target string, extra ...string) string {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, bin, "--generate", target)
+	cmd := exec.CommandContext(ctx, bin, append([]string{"--generate", target}, extra...)...)
 	cmd.Dir = workDir
 	cmd.Env = append(sandboxEnv(home), "ENOLA_NO_PROMPTS=1")
 	var stderr bytes.Buffer
@@ -80,7 +80,12 @@ func decodeJSON(t *testing.T, data []byte, into any) {
 
 func readConsumerSnapshot(t *testing.T, repo string) consumerSnapshot {
 	t.Helper()
-	snap := consumerSnapshot{dir: filepath.Join(repo, ".enola"), ids: map[string]map[string]any{}}
+	return readConsumerSnapshotDir(t, filepath.Join(repo, ".enola"))
+}
+
+func readConsumerSnapshotDir(t *testing.T, dir string) consumerSnapshot {
+	t.Helper()
+	snap := consumerSnapshot{dir: dir, ids: map[string]map[string]any{}}
 	read := func(name string) []byte {
 		data, err := os.ReadFile(filepath.Join(snap.dir, name))
 		if err != nil {
@@ -617,31 +622,17 @@ func TestConsumerContract_Cluster(t *testing.T) {
 	if err := os.WriteFile(config, []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	generateAsConsumer(t, bin, home, configDir, config)
-
-	// The whole linked graph lands in every member's .enola, so a consumer may
-	// read any one of them.
-	snap := readConsumerSnapshot(t, server)
-	other := readConsumerSnapshot(t, consumer)
-	for _, name := range []string{"facts.jsonl", "flows.json", "docs.jsonl"} {
-		serverData, err := os.ReadFile(filepath.Join(snap.dir, name))
-		if err != nil {
-			t.Fatal(err)
-		}
-		consumerData, err := os.ReadFile(filepath.Join(other.dir, name))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !bytes.Equal(serverData, consumerData) {
-			t.Errorf("the cluster's members hold different %s files", name)
+	// The whole linked graph lands once, in the directory --out names, and no member's
+	// own .enola receives a copy of it.
+	out := filepath.Join(t.TempDir(), "graph")
+	generateAsConsumer(t, bin, home, configDir, config, "--out", out)
+	for _, member := range []string{server, consumer} {
+		if _, err := os.Stat(filepath.Join(member, ".enola", "facts.jsonl")); err == nil {
+			t.Errorf("%s received a copy of the cluster's graph", filepath.Base(member))
 		}
 	}
-	if snap.receipt["snapshot_id"] != other.receipt["snapshot_id"] {
-		t.Errorf("the cluster's members disagree on snapshot_id: %v vs %v",
-			snap.receipt["snapshot_id"], other.receipt["snapshot_id"])
-	}
+	snap := readConsumerSnapshotDir(t, out)
 	assertReceiptContract(t, snap)
-	assertReceiptContract(t, other)
 	assertFactsContract(t, snap)
 	assertInsightsContract(t, snap)
 	if n := assertFlowsContract(t, snap); n == 0 {
@@ -656,7 +647,7 @@ func TestConsumerContract_Cluster(t *testing.T) {
 
 	// A member is labelled by its remote's repository name, else by its
 	// directory name. A consumer maps labels back to members with exactly that
-	// rule, reading the remote from the member's own receipt.
+	// rule, reading the remote from the member's entry in the cluster's receipt.
 	labels := map[string]bool{}
 	for _, fact := range snap.facts {
 		labels[fact["repo"].(string)] = true
@@ -664,9 +655,19 @@ func TestConsumerContract_Cluster(t *testing.T) {
 	if len(labels) != 2 || !labels["server"] || !labels["consumer"] {
 		t.Errorf("repo labels = %v, want exactly server (from the remote) and consumer (from the directory)", labels)
 	}
-	gitInfo, _ := snap.receipt["git"].(map[string]any)
+	members, _ := snap.receipt["members"].([]any)
+	var serverEntry map[string]any
+	for _, m := range members {
+		if entry, _ := m.(map[string]any); entry["repo"] == "server" {
+			serverEntry = entry
+		}
+	}
+	if len(members) != 2 || serverEntry == nil {
+		t.Fatalf("the cluster's receipt has %d member entries and none for server: %#v", len(members), members)
+	}
+	gitInfo, _ := serverEntry["git"].(map[string]any)
 	if gitInfo["remote"] != "example.com/acme/server" {
-		t.Errorf("the git member's receipt git.remote = %#v, want the normalized remote", gitInfo["remote"])
+		t.Errorf("the git member's entry git.remote = %#v, want the normalized remote", gitInfo["remote"])
 	}
 
 	// A client call carries its calling symbol and the server routes it

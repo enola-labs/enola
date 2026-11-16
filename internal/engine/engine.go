@@ -54,7 +54,8 @@ type snapshotBundle struct {
 	// it is reading: both change in the same atomic swap, or neither does.
 	intent map[string]*intent.Declaration
 	// members holds each repository's own turn meta, keyed by absolute path, so a
-	// cluster's fan-out can write per-repo provenance beside the shared union.
+	// cluster's directory carries each member's provenance beside the union
+	// (members.json).
 	members map[string]facts.SnapshotMeta
 }
 
@@ -93,9 +94,6 @@ type Engine struct {
 	// published: each turn but the last appends into its store, and the next turn
 	// extends it rather than the published bundle. Nil outside GenerateCluster.
 	building *snapshotBundle
-	// lastShared remembers where this engine last wrote a bundle's union artifacts,
-	// so the next output dir that receives the same bundle links them instead.
-	lastShared sharedWrite
 	// recordSnapshot is called at the end of WriteArtifacts; see SetSnapshotRecorder.
 	recordSnapshot func(SnapshotRecord)
 	// sessionClient is the PID of the agent process this server serves; zero for a
@@ -263,8 +261,9 @@ func (e *Engine) RestoreFromDir(dir string, repoPaths map[string]string, singleR
 	defer func() { _ = factsFile.Close() }()
 	insightsFile, _ := os.Open(filepath.Join(dir, "insights.json"))
 	metaFile, _ := os.Open(filepath.Join(dir, "snapshot.meta.json"))
+	membersFile, _ := os.Open(filepath.Join(dir, MembersMetaFile))
 	unlock()
-	for _, f := range []*os.File{insightsFile, metaFile} {
+	for _, f := range []*os.File{insightsFile, metaFile, membersFile} {
 		if f != nil {
 			defer func() { _ = f.Close() }()
 		}
@@ -310,6 +309,19 @@ func (e *Engine) RestoreFromDir(dir string, repoPaths map[string]string, singleR
 			snap.Meta = meta
 		}
 	}
+	// A cluster's directory carries each member's own provenance. Restored with the
+	// facts, so a refresh of one member writes every member's back, and drift is
+	// measured per member, as after a generate.
+	var members map[string]facts.SnapshotMeta
+	if data, err := readOpen(membersFile); err == nil {
+		var list []facts.SnapshotMeta
+		if err := json.Unmarshal(data, &list); err == nil {
+			members = make(map[string]facts.SnapshotMeta, len(list))
+			for _, m := range list {
+				members[m.RepoPath] = m
+			}
+		}
+	}
 	// Same as the generation path: nothing writes this store again. The read already
 	// shared the duplicate Props maps and Relations slices the snapshot was serialized
 	// with; Freeze marks the store published. A restored graph is the long-lived case
@@ -324,7 +336,7 @@ func (e *Engine) RestoreFromDir(dir string, repoPaths map[string]string, singleR
 	// so the parsed declarations are not known here. The compiled intent FACTS are
 	// in the restored store, which is what the explainer verdicts from; Intent()
 	// reports nothing until the next generate re-reads the files.
-	e.current.Store(&snapshotBundle{store: work, snapshot: snap, repoPaths: repoPaths})
+	e.current.Store(&snapshotBundle{store: work, snapshot: snap, repoPaths: repoPaths, members: members})
 	log.Printf("[engine] restored %d facts, %d insights from %s", work.Count(), len(snap.Insights), dir)
 	return nil
 }
@@ -979,8 +991,10 @@ func (e *Engine) runRenderers(ctx context.Context, snapshot *facts.Snapshot) ([]
 	return usedNames, nil
 }
 
-// WriteArtifacts writes all snapshot artifacts to the output directory,
-// including facts.jsonl, insights.json, and snapshot.meta.json.
+// WriteArtifacts writes the published graph's artifacts: for one repository into its
+// output directory, including facts.jsonl, insights.json, and snapshot.meta.json. A
+// graph of several repositories is written to the cluster's own directory whichever
+// member is named, never into a member's: see WriteGraph.
 func (e *Engine) WriteArtifacts(repoPath string) error {
 	// Load the published bundle once and read only from it. The bundle is immutable,
 	// so serializing facts/insights/meta here is race-free even if another generate
@@ -989,46 +1003,48 @@ func (e *Engine) WriteArtifacts(repoPath string) error {
 	if b.snapshot == nil {
 		return fmt.Errorf("no snapshot generated")
 	}
+	if members := b.memberPaths(); len(members) > 1 {
+		return e.writeClusterHome(b, members)
+	}
 	absRepo, err := filepath.Abs(repoPath)
 	if err != nil {
 		return fmt.Errorf("resolving repo path: %w", err)
 	}
-	// A cluster shares one union and its hashes across every repository dir; the
-	// repository's own provenance (path, git, extractors, walk and parse counts) is
-	// the turn that read it, not the turn that happened to be last.
-	metaOf := func(union facts.SnapshotMeta) facts.SnapshotMeta {
-		if turn, ok := b.members[absRepo]; ok {
-			return withMemberProvenance(union, turn)
-		}
-		return union
-	}
-	return e.writeBundle(b, e.cfg.OutputDirFor(absRepo), metaOf, repoPath, absRepo)
+	return e.writeBundle(b, e.cfg.OutputDirFor(absRepo), repoPath, absRepo)
 }
 
-// WriteClusterHome writes the published graph, when it holds several repositories,
-// to the cluster's own directory (config.GraphOutputDir): the union artifacts, the
-// union's meta and receipt, and members.json, each member's own provenance. A graph
-// of one repository has no such directory, and nothing is written.
-func (e *Engine) WriteClusterHome() error {
+// WriteGraph writes the published graph where it belongs: one repository's into its
+// own output directory, a cluster's once into the cluster's directory
+// (config.GraphOutputDir). A cluster writes nothing into its members' output
+// directories, so each member's own snapshot, previous/ and baseline/ are left as they
+// were.
+func (e *Engine) WriteGraph() error {
 	b := e.current.Load()
 	if b.snapshot == nil {
 		return fmt.Errorf("no snapshot generated")
 	}
 	members := b.memberPaths()
-	if len(members) < 2 {
-		return nil
+	if len(members) > 1 {
+		return e.writeClusterHome(b, members)
 	}
-	dir := e.cfg.GraphOutputDir(members)
-	if err := e.writeBundle(b, dir, func(m facts.SnapshotMeta) facts.SnapshotMeta { return m }, "", ""); err != nil {
-		return err
+	repo := b.snapshot.Meta.RepoPath
+	if len(members) == 1 {
+		repo = members[0]
 	}
-	return writeMembersMeta(dir, b)
+	return e.WriteArtifacts(repo)
 }
 
-// writeBundle writes b's artifacts into outDir. meta derives the meta written there
-// from the union's; recordRepo, when set, is the repository the revision is recorded
-// in the architecture history for (absRepo its absolute form).
-func (e *Engine) writeBundle(b *snapshotBundle, outDir string, metaOf func(facts.SnapshotMeta) facts.SnapshotMeta, repoPath, absRepo string) error {
+// writeClusterHome writes a graph of several repositories to the cluster's own
+// directory: the union artifacts, the union's meta and a receipt with an entry per
+// member, and members.json, each member's own provenance.
+func (e *Engine) writeClusterHome(b *snapshotBundle, members []string) error {
+	return e.writeBundle(b, e.cfg.GraphOutputDir(members), "", "")
+}
+
+// writeBundle writes b's artifacts into outDir: one repository's own output directory
+// (repoPath, absRepo its absolute form), or a cluster's directory (repoPath "").
+func (e *Engine) writeBundle(b *snapshotBundle, outDir string, repoPath, absRepo string) error {
+	cluster := repoPath == ""
 
 	defer lockDir(outDir)()
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
@@ -1041,6 +1057,14 @@ func (e *Engine) writeBundle(b *snapshotBundle, outDir string, metaOf func(facts
 	if err := rotatePrevious(outDir); err != nil {
 		log.Printf("[engine] warning: could not rotate previous snapshot: %v", err)
 	}
+	// A cluster's members.json before anything else: a reader that finds the new
+	// snapshot.meta.json, written after every artifact, must find the members it
+	// describes.
+	if cluster {
+		if err := writeMembersMeta(outDir, b); err != nil {
+			return err
+		}
+	}
 
 	// Hash every written artifact so the receipt records the exact output bytes
 	// (the verifiable counterpart to the per-input-file FileHashes). meta.json and
@@ -1048,20 +1072,15 @@ func (e *Engine) writeBundle(b *snapshotBundle, outDir string, metaOf func(facts
 	outputHashes := make(map[string]string)
 
 	// Every artifact is written beside its path and renamed over it, never through
-	// it: the file at the path may be linked from another member's dir of a cluster
-	// or from previous/ and baseline/, and writing through it would rewrite those.
-	//
-	// The union artifacts (renderer output, facts.jsonl, insights.json) are the same
-	// bytes for every member of a cluster, so each is written to the first member's
-	// dir and linked into the others'. At 100 repositories that was 31 GB of copies.
+	// it: the file at the path may be linked from previous/ and baseline/, and writing
+	// through it would rewrite those.
 	for _, a := range b.snapshot.Artifacts {
-		digest, err := e.placeShared(b, outDir, a.Name, func(path string) (string, error) {
-			return hashBytes(a.Content), writeFileAtomic(path, a.Content, 0o644)
-		})
-		if err != nil {
+		path := filepath.Join(outDir, a.Name)
+		if err := writeFileAtomic(path, a.Content, 0o644); err != nil {
 			return fmt.Errorf("writing %s: %w", a.Name, err)
 		}
-		outputHashes[a.Name] = digest
+		log.Printf("[engine] wrote %s", path)
+		outputHashes[a.Name] = hashBytes(a.Content)
 	}
 
 	// Write facts.jsonl, hashing the bytes as they go past rather than building the
@@ -1069,12 +1088,11 @@ func (e *Engine) writeBundle(b *snapshotBundle, outDir string, metaOf func(facts
 	// buffer was 792 MiB, allocated at the end of a run and never released before the
 	// process went back to idle.
 	factsPath := filepath.Join(outDir, "facts.jsonl")
-	factsHash, err := e.placeShared(b, outDir, "facts.jsonl", func(path string) (string, error) {
-		return writeFactsJSONL(b.store, path)
-	})
+	factsHash, err := writeFactsJSONL(b.store, factsPath)
 	if err != nil {
 		return err
 	}
+	log.Printf("[engine] wrote %s", factsPath)
 	outputHashes["facts.jsonl"] = factsHash
 
 	// Write insights.json. A nil slice marshals to `null`, not `[]`, so a repository
@@ -1085,16 +1103,16 @@ func (e *Engine) writeBundle(b *snapshotBundle, outDir string, metaOf func(facts
 	if insights == nil {
 		insights = []facts.Insight{}
 	}
-	insightsHash, err := e.placeShared(b, outDir, "insights.json", func(path string) (string, error) {
-		insightsJSON, err := b.store.MarshalInsights(insights)
-		if err != nil {
-			return "", fmt.Errorf("marshaling insights: %w", err)
-		}
-		return hashBytes(insightsJSON), writeFileAtomic(path, insightsJSON, 0o644)
-	})
+	insightsJSON, err := b.store.MarshalInsights(insights)
 	if err != nil {
+		return fmt.Errorf("marshaling insights: %w", err)
+	}
+	insightsPath := filepath.Join(outDir, "insights.json")
+	if err := writeFileAtomic(insightsPath, insightsJSON, 0o644); err != nil {
 		return fmt.Errorf("writing insights.json: %w", err)
 	}
+	log.Printf("[engine] wrote %s", insightsPath)
+	insightsHash := hashBytes(insightsJSON)
 	outputHashes["insights.json"] = insightsHash
 
 	// Record the output hashes on a COPY of the meta rather than mutating the
@@ -1102,7 +1120,18 @@ func (e *Engine) writeBundle(b *snapshotBundle, outDir string, metaOf func(facts
 	// so this copy shares its slices but overrides only OutputHashes.
 	unionMeta := b.snapshot.Meta
 	unionMeta.OutputHashes = outputHashes
-	meta := metaOf(unionMeta)
+	// One repository's dir carries its own provenance. A cluster's directory carries
+	// its anchor member's (BaselineAnchor), as the anchor's own dir did when members
+	// held the union: the union's own names whichever member was indexed last, so a
+	// refresh and a full generate of one cluster would read as two repositories.
+	meta := unionMeta
+	provenance := absRepo
+	if cluster {
+		provenance = BaselineAnchor(b.memberPaths())
+	}
+	if turn, ok := b.members[provenance]; ok {
+		meta = withMemberProvenance(unionMeta, turn)
+	}
 
 	// Write snapshot.meta.json (the internal superset, incl. per-file hashes)
 	metaJSON, err := json.MarshalIndent(meta, "", "  ")
@@ -1116,10 +1145,9 @@ func (e *Engine) writeBundle(b *snapshotBundle, outDir string, metaOf func(facts
 	log.Printf("[engine] wrote %s (%d bytes)", metaPath, len(metaJSON))
 
 	// Write receipt.json (the compact provenance + quality manifest)
-	// A cluster's own directory carries the cluster's receipt, a member entry each;
-	// a member's dir its own.
+	// A cluster's directory carries the cluster's receipt, a member entry each.
 	rcpt := meta.Receipt()
-	if repoPath == "" {
+	if cluster {
 		rcpt = clusterReceipt(meta, b.members)
 	}
 	receiptJSON, err := json.MarshalIndent(rcpt, "", "  ")
@@ -1155,11 +1183,16 @@ func (e *Engine) writeBundle(b *snapshotBundle, outDir string, metaOf func(facts
 	// same requirement, satisfied by the strongest possible evidence, since the bytes
 	// come from the artifact itself. It also costs nothing when history blobs are off,
 	// which the previous arrangement could not manage.
-	if e.recordSnapshot != nil && b.snapshot != nil && repoPath != "" {
-		members, priorDirs := clusterLayout(b, e.cfg.OutputDirFor, absRepo)
+	if e.recordSnapshot != nil && b.snapshot != nil {
+		// A cluster is recorded once, into its own history, and its preceding
+		// snapshot is its own previous/; git parents are read from the anchor member.
+		var members []string
+		if cluster {
+			members = b.memberPaths()
+			repoPath = BaselineAnchor(members)
+		}
 		e.recordSnapshot(SnapshotRecord{
 			Members:     members,
-			PriorDirs:   priorDirs,
 			RepoPath:    repoPath,
 			Meta:        meta,
 			Snapshot:    b.snapshot,
@@ -1176,114 +1209,6 @@ func (e *Engine) writeBundle(b *snapshotBundle, outDir string, metaOf func(facts
 		log.Printf("[engine] warning: could not record the run's session: %v", err)
 	}
 	return nil
-}
-
-// sharedWrite is the output dir that first received a bundle's union artifacts, and
-// each file written there with its digest.
-type sharedWrite struct {
-	store *facts.Store
-	dir   string
-	files map[string]sharedFile
-}
-
-type sharedFile struct {
-	digest string
-	info   os.FileInfo
-}
-
-// placeShared puts the union artifact name into outDir and returns its digest. When
-// this engine already wrote the same bundle's artifact to another dir, that file is
-// linked here (copied where links are not available); otherwise write writes it to
-// the path and returns the digest of the bytes written. The record is keyed on the
-// published store, which every generate replaces, so a new generate never links a
-// stale file.
-func (e *Engine) placeShared(b *snapshotBundle, outDir, name string, write func(path string) (string, error)) (string, error) {
-	path := filepath.Join(outDir, name)
-	w := &e.lastShared
-	if w.store == b.store && w.dir != outDir {
-		if f, ok := w.files[name]; ok {
-			placed, err := placeSameFile(f.info, filepath.Join(w.dir, name), path)
-			if err != nil {
-				return "", err
-			}
-			if placed {
-				log.Printf("[engine] wrote %s (linked to this run's first write)", path)
-				return f.digest, nil
-			}
-		}
-	}
-	digest, err := write(path)
-	if err != nil {
-		return "", err
-	}
-	if w.store != b.store {
-		*w = sharedWrite{store: b.store, dir: outDir, files: map[string]sharedFile{}}
-	}
-	if w.dir == outDir {
-		if info, err := os.Stat(path); err == nil {
-			w.files[name] = sharedFile{digest: digest, info: info}
-		}
-	}
-	log.Printf("[engine] wrote %s", path)
-	return digest, nil
-}
-
-// readOpen reads all of f, which may be nil for a file that was not there.
-func readOpen(f *os.File) ([]byte, error) {
-	if f == nil {
-		return nil, os.ErrNotExist
-	}
-	return io.ReadAll(f)
-}
-
-// placeSameFile makes dst the file want, found at src, and reports whether it could.
-// Another writer may have replaced src since, in this process (another graph holding
-// the same repository) or another, so the file is checked after it is held, not
-// before: the link made beside dst, or the open handle a copy reads from. A file is
-// never written in place once it exists, so the same file is the same bytes.
-func placeSameFile(want os.FileInfo, src, dst string) (bool, error) {
-	tmp := dst + ".tmp-link"
-	_ = os.Remove(tmp)
-	if err := os.Link(src, tmp); err == nil {
-		got, err := os.Lstat(tmp)
-		if err != nil || !os.SameFile(got, want) {
-			_ = os.Remove(tmp)
-			return false, nil
-		}
-		if err := os.Rename(tmp, dst); err != nil {
-			_ = os.Remove(tmp)
-			return false, err
-		}
-		return true, nil
-	}
-	// No link here (another device, a filesystem without links): copy from a handle
-	// on the file that was checked.
-	in, err := os.Open(src)
-	if err != nil {
-		return false, nil
-	}
-	defer func() { _ = in.Close() }()
-	if got, err := in.Stat(); err != nil || !os.SameFile(got, want) {
-		return false, nil
-	}
-	out, err := os.Create(tmp)
-	if err != nil {
-		return false, err
-	}
-	if _, err := io.Copy(out, in); err != nil {
-		_ = out.Close()
-		_ = os.Remove(tmp)
-		return false, err
-	}
-	if err := out.Close(); err != nil {
-		_ = os.Remove(tmp)
-		return false, err
-	}
-	if err := os.Rename(tmp, dst); err != nil {
-		_ = os.Remove(tmp)
-		return false, err
-	}
-	return true, nil
 }
 
 // writeFactsJSONL serializes the store straight to path, returning the
@@ -1415,4 +1340,12 @@ func fileHashesOf(absRepo string, hashes map[string]string) []facts.FileHash {
 		})
 	}
 	return out
+}
+
+// readOpen reads all of f, which may be nil for a file that was not there.
+func readOpen(f *os.File) ([]byte, error) {
+	if f == nil {
+		return nil, os.ErrNotExist
+	}
+	return io.ReadAll(f)
 }

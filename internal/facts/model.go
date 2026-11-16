@@ -902,6 +902,7 @@ type GraphReceipt struct {
 	CrossRepoEdgeCount int              `json:"cross_repo_edge_count"` // consumer->provider edges in the cross-repo "graph of graphs" (NOT the total dependency-fact count, which also covers ordinary imports)
 	Coverage           *CoverageSummary `json:"coverage,omitempty"`    // cross-repo edge-coverage rollup, nil in single-repo mode
 	Repos              []GraphRepoEntry `json:"repos"`                 // one entry per repository in the graph, sorted by Label
+	GraphDir           string           `json:"graph_dir,omitempty"`   // where a graph of several repositories was written (config.GraphOutputDir); empty for one repository, whose graph is in its own output dir
 	Writer             *GraphWriter     `json:"writer,omitempty"`      // the process that wrote this receipt; nil in receipts written before it was recorded
 }
 

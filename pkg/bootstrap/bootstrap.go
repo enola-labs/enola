@@ -155,6 +155,18 @@ func (e *Engine) ActiveRepo() string {
 	return ""
 }
 
+// ActiveGraphDir is the directory holding the loaded graph: the repository's own
+// output dir, or a cluster's own directory. Empty when nothing is loaded.
+func (e *Engine) ActiveGraphDir() string {
+	if members := e.eng.Members(); len(members) > 1 {
+		return e.eng.GraphDir(members)
+	}
+	if repo := e.ActiveRepo(); repo != "" {
+		return e.eng.OutputDir(repo)
+	}
+	return ""
+}
+
 // SetSnapshot sets the snapshot (used when auto-loading from disk).
 func (e *Engine) SetSnapshot(snap *facts.Snapshot) {
 	e.eng.SetSnapshot(snap)
@@ -215,10 +227,10 @@ func (e *Engine) WriteArtifacts(repoPath string) error {
 	return e.eng.WriteArtifacts(repoPath)
 }
 
-// WriteClusterHome writes a graph of several repositories to the cluster's own
-// directory; see engine.Engine.WriteClusterHome.
-func (e *Engine) WriteClusterHome() error {
-	return e.eng.WriteClusterHome()
+// WriteGraph writes the published graph where it belongs: one repository's into its
+// own output directory, a cluster's into the cluster's; see engine.Engine.WriteGraph.
+func (e *Engine) WriteGraph() error {
+	return e.eng.WriteGraph()
 }
 
 // WriteGlobalReceipt refreshes the graph-wide receipt at ~/.enola/receipt.json
@@ -248,9 +260,20 @@ func (e *Engine) DashboardState() (*facts.Store, *facts.Snapshot, *facts.GraphRe
 	return e.eng.DashboardState()
 }
 
-// SetBaseline pins the current on-disk snapshot as the diff baseline.
-func (e *Engine) SetBaseline(repoPath string) error {
-	return e.eng.SetBaseline(repoPath)
+// SetBaseline pins the on-disk snapshot of the graph of members as the diff
+// baseline: one repository's, or a cluster's in its own directory.
+func (e *Engine) SetBaseline(members ...string) error {
+	return e.eng.SetBaseline(members...)
+}
+
+// GraphDir is the directory holding the graph of members; see engine.Engine.GraphDir.
+func (e *Engine) GraphDir(members []string) string {
+	return e.eng.GraphDir(members)
+}
+
+// GraphMeta is the meta the graph of members writes; see engine.Engine.GraphMeta.
+func (e *Engine) GraphMeta(members []string) facts.SnapshotMeta {
+	return e.eng.GraphMeta(members)
 }
 
 // OutputDir returns the absolute .enola output directory for repoPath.
@@ -509,7 +532,6 @@ func RecordHistory(eng *engine.Engine, cfg *config.Config) {
 			FactsPath:   rec.FactsPath,
 			PreviousDir: rec.PreviousDir,
 			Members:     rec.Members,
-			PriorDirs:   rec.PriorDirs,
 			Parents:     rec.Parents,
 			Repos: func() []pkghistory.RepoRef {
 				states := rec.Repos()
@@ -754,7 +776,7 @@ func NewServedPool(ctx context.Context, cfg *config.Config, opts ServeOptions) (
 		MemoryBudget:   opts.MemoryBudget,
 		ReloadInterval: opts.ReloadInterval,
 		OnPhase:        opts.OnPhase,
-	}, build, restore, cfg.OutputDirFor)
+	}, build, restore, cfg.GraphOutputDir)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -976,11 +998,11 @@ func LoadDashboardSnapshot(eng *Engine, cfg *config.Config) bool {
 		if err != nil || len(repos) == 0 {
 			return false
 		}
-		paths := make(map[string]string, len(repos))
-		for _, repo := range repos {
-			paths[filepath.Base(repo)] = repo
+		dir := cfg.GraphOutputDir(repos)
+		paths, err := memberLabels(dir, repos, cfg.OutputDirFor)
+		if err != nil {
+			return false
 		}
-		dir := cfg.OutputDirFor(repos[0])
 		return eng.RestoreFromDir(dir, paths, "") == nil
 	}
 	repoPath, err := filepath.Abs(cfg.Repo)
@@ -1000,7 +1022,7 @@ func RestoreSnapshot(eng *Engine, repoPaths []string) error {
 	if len(repoPaths) == 0 {
 		return errors.New("no repository to restore")
 	}
-	dir := eng.OutputDir(repoPaths[0])
+	dir := eng.GraphDir(repoPaths)
 	raw, err := os.ReadFile(filepath.Join(dir, "insights.json"))
 	if err != nil {
 		return fmt.Errorf("reading insights from %s: %w", dir, err)
@@ -1010,13 +1032,9 @@ func RestoreSnapshot(eng *Engine, repoPaths []string) error {
 		return fmt.Errorf("reading insights from %s: %w", dir, err)
 	}
 
-	paths := make(map[string]string, len(repoPaths))
-	for _, repoPath := range repoPaths {
-		label := restoredLabel(eng.OutputDir(repoPath), repoPath)
-		if other, taken := paths[label]; taken {
-			return fmt.Errorf("%s and %s are both labelled %q", other, repoPath, label)
-		}
-		paths[label] = repoPath
+	paths, err := memberLabels(dir, repoPaths, eng.OutputDir)
+	if err != nil {
+		return err
 	}
 	single := ""
 	if len(repoPaths) == 1 {
@@ -1028,6 +1046,30 @@ func RestoreSnapshot(eng *Engine, repoPaths []string) error {
 // restoredLabel reads the repo label recorded in a snapshot directory, falling back to
 // the checkout directory name when the snapshot predates the recorded label — which is
 // exactly what labelled the facts in that older snapshot.
+// memberLabels maps each repository of the graph in dir to the label its facts carry.
+// A cluster's directory records them in members.json; a member absent there (a graph
+// written by an older enola, into each member) is labelled from its own output dir.
+func memberLabels(dir string, repoPaths []string, outputDirFor func(string) string) (map[string]string, error) {
+	recorded, _ := engine.ReadMembersMeta(dir)
+	paths := make(map[string]string, len(repoPaths))
+	for _, repoPath := range repoPaths {
+		label := ""
+		if abs, err := filepath.Abs(repoPath); err == nil {
+			if m, ok := recorded[abs]; ok {
+				label = m.RepoLabel
+			}
+		}
+		if label == "" {
+			label = restoredLabel(outputDirFor(repoPath), repoPath)
+		}
+		if other, taken := paths[label]; taken {
+			return nil, fmt.Errorf("%s and %s are both labelled %q", other, repoPath, label)
+		}
+		paths[label] = repoPath
+	}
+	return paths, nil
+}
+
 func restoredLabel(dir, repoPath string) string {
 	data, err := os.ReadFile(filepath.Join(dir, "snapshot.meta.json"))
 	if err != nil {
@@ -1103,7 +1145,7 @@ func restoreFromGlobalReceipt(eng *Engine, cfg *config.Config, gr *facts.GraphRe
 		return false
 	}
 
-	completeDir, ok := newestSnapshotDir(gr.Repos, cfg.OutputDirFor)
+	completeDir, ok := graphDirOf(gr, cfg)
 	if !ok {
 		return false
 	}
@@ -1126,6 +1168,38 @@ func restoreFromGlobalReceipt(eng *Engine, cfg *config.Config, gr *facts.GraphRe
 	}
 	log.Printf("[bootstrap] restored graph of %d repo(s) from %s", len(repoPaths), completeDir)
 	return true
+}
+
+// graphDirOf is the directory holding the graph a receipt describes. A cluster's is
+// its own directory: the one the receipt recorded, else the one this config gives the
+// same members. Failing both, the member directory with the newest snapshot, where an
+// older enola wrote a cluster's union.
+//
+// A cluster whose members are not all on disk is not restored: its directory outlives
+// the checkouts it describes, and a graph of repositories that are gone answers about
+// files nothing can open.
+func graphDirOf(gr *facts.GraphReceipt, cfg *config.Config) (string, bool) {
+	if len(gr.Repos) > 1 {
+		paths := make([]string, 0, len(gr.Repos))
+		for _, r := range gr.Repos {
+			if r.Path == "" {
+				continue
+			}
+			if _, err := os.Stat(r.Path); err != nil {
+				return "", false
+			}
+			paths = append(paths, r.Path)
+		}
+		for _, dir := range []string{gr.GraphDir, cfg.GraphOutputDir(paths)} {
+			if dir == "" {
+				continue
+			}
+			if _, err := os.Stat(filepath.Join(dir, "facts.jsonl")); err == nil {
+				return dir, true
+			}
+		}
+	}
+	return newestSnapshotDir(gr.Repos, cfg.OutputDirFor)
 }
 
 // newestSnapshotDir picks the repo snapshot directory with the newest generated_at

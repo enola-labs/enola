@@ -126,6 +126,16 @@ func clusterReceipt(meta facts.SnapshotMeta, members map[string]facts.SnapshotMe
 	return r
 }
 
+// Members is every repository the published graph holds, by absolute path, sorted.
+// Several make a cluster, whose artifacts are in GraphDir(Members()).
+func (e *Engine) Members() []string {
+	b := e.current.Load()
+	if b == nil {
+		return nil
+	}
+	return b.memberPaths()
+}
+
 // memberPaths is every repository b holds, by absolute path, sorted. Both maps are
 // read: members is keyed by path, so two repositories that share a label are still
 // two, and repoPaths is all a graph restored from disk has.
@@ -188,4 +198,36 @@ func ReadMembersMeta(dir string) (map[string]facts.SnapshotMeta, error) {
 		out[m.RepoPath] = m
 	}
 	return out, nil
+}
+
+// ReadMemberMeta is repoPath's meta in the cluster directory dir: the cluster's
+// snapshot.meta.json with the member's own provenance from members.json overlaid. It
+// is what that member's own snapshot.meta.json held when a cluster wrote its union
+// into every member.
+func ReadMemberMeta(dir, repoPath string) (*facts.SnapshotMeta, error) {
+	if _, err := os.Stat(filepath.Join(dir, "facts.jsonl")); err != nil {
+		return nil, err
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, snapshotMetaFileName))
+	if err != nil {
+		return nil, err
+	}
+	var union facts.SnapshotMeta
+	if err := json.Unmarshal(raw, &union); err != nil {
+		return nil, err
+	}
+	members, err := ReadMembersMeta(dir)
+	if err != nil {
+		return nil, err
+	}
+	abs, err := filepath.Abs(repoPath)
+	if err != nil {
+		return nil, err
+	}
+	turn, ok := members[abs]
+	if !ok {
+		return nil, fmt.Errorf("%s is not a member of the graph in %s", repoPath, dir)
+	}
+	m := withMemberProvenance(union, turn)
+	return &m, nil
 }

@@ -209,12 +209,10 @@ func (s *Server) registerGenerateSnapshotTool() {
 			return errorResult(fmt.Sprintf("snapshot generation failed: %v", err)), nil, nil
 		}
 
-		// Write artifacts to disk
-		if err := s.eng.WriteArtifacts(absRepo); err != nil {
+		// Write the graph where it belongs: this repository's own output dir, or, once
+		// appended to others, the cluster's own directory.
+		if err := s.eng.WriteGraph(); err != nil {
 			log.Printf("[server] warning: failed to write artifacts: %v", err)
-		}
-		if err := s.eng.WriteClusterHome(); err != nil {
-			log.Printf("[server] warning: failed to write the cluster's artifacts: %v", err)
 		}
 		artifactsWritten(ctx, absRepo)
 
@@ -285,12 +283,12 @@ func (s *Server) registerSetBaselineTool() {
 		Description: "Pin the current snapshot as the baseline diff_snapshot compares against. Call it once at the START of a task, after generate_snapshot. " +
 			"It survives later generate_snapshot runs, so it holds across several edit rounds, unlike 'previous', which only ever holds the run before.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args setBaselineArgs) (*mcp.CallToolResult, any, error) {
-		repoPath := s.baselineRepoPath()
-		if repoPath == "" {
+		members := s.graphMembers()
+		if len(members) == 0 {
 			return errorResult("No snapshot available. Run generate_snapshot first, then set_baseline."), nil, nil
 		}
-		replaced := s.otherSessionMark(s.resolveBaselineDir(repoPath, "pinned"), engine.PinMarkFile)
-		if err := s.eng.SetBaseline(repoPath); err != nil {
+		replaced := s.otherSessionMark(s.resolveBaselineDir(members, "pinned"), engine.PinMarkFile)
+		if err := s.eng.SetBaseline(members...); err != nil {
 			return errorResult(fmt.Sprintf("could not set baseline: %v", err)), nil, nil
 		}
 		msg := "Baseline pinned from the current snapshot.\n\n" +
@@ -322,9 +320,10 @@ func (s *Server) registerDiffSnapshotTool() {
 			return errorResult("No snapshot available. Run generate_snapshot first."), nil, nil
 		}
 		repoPath := s.currentRepoPath()
-		// The pin, and the member provenance the current side is read with, belong to
-		// the cluster's anchor; drift is still checked on the repository indexed last.
-		anchor := s.baselineRepoPath()
+		// The pin is the graph's: one repository's own, or the cluster's in its own
+		// directory, whose meta carries no member's provenance. Drift is still checked
+		// on the repository indexed last.
+		members := s.graphMembers()
 
 		// Current = the live engine state (what the agent just generated). Build it
 		// from the store so it works even when the snapshot was auto-loaded.
@@ -334,11 +333,11 @@ func (s *Server) registerDiffSnapshotTool() {
 		// which is immutable once swapped in — exactly FactsRef's contract. All would
 		// copy the entire fact set, plus every relation slice, for a read: on a
 		// kernel-sized graph that is gigabytes of transient garbage on a query path.
-		current := &facts.Snapshot{Meta: s.eng.MetaFor(anchor), Facts: s.eng.Store().FactsRef(), Insights: snap.Insights}
+		current := &facts.Snapshot{Meta: s.eng.GraphMeta(members), Facts: s.eng.Store().FactsRef(), Insights: snap.Insights}
 
 		// Resolve the baseline directory from the selector.
 		sel := strings.TrimSpace(args.Baseline)
-		baseline, err := engine.LoadSnapshotDir(s.resolveBaselineDir(anchor, sel))
+		baseline, err := engine.LoadSnapshotDir(s.resolveBaselineDir(members, sel))
 		if err != nil {
 			switch strings.ToLower(sel) {
 			case "", "pinned":
@@ -353,7 +352,7 @@ func (s *Server) registerDiffSnapshotTool() {
 			}
 		}
 
-		note := s.baselineNote(s.resolveBaselineDir(anchor, sel), sel)
+		note := s.baselineNote(s.resolveBaselineDir(members, sel), sel)
 
 		d := diff.Compute(baseline, current)
 		if args.Focus != "" {
@@ -440,8 +439,8 @@ func (s *Server) registerCompareReceiptsTool() {
 		if snap == nil || s.eng.Store().Count() == 0 {
 			return errorResult("No snapshot available. Run generate_snapshot first."), nil, nil
 		}
-		anchor := s.baselineRepoPath()
-		baseDir := s.resolveBaselineDir(anchor, args.Baseline)
+		members := s.graphMembers()
+		baseDir := s.resolveBaselineDir(members, args.Baseline)
 		baseline, err := engine.LoadSnapshotDir(baseDir)
 		if err != nil {
 			sel := strings.ToLower(strings.TrimSpace(args.Baseline))
@@ -457,7 +456,7 @@ func (s *Server) registerCompareReceiptsTool() {
 		// Both snapshots, not both metas: a union's members are labels on its facts,
 		// and a meta-only comparison cleared a pair diff_snapshot refused. FactsRef
 		// for the reason diff_snapshot gives — the comparison only reads.
-		current := &facts.Snapshot{Meta: s.eng.MetaFor(anchor), Facts: s.eng.Store().FactsRef()}
+		current := &facts.Snapshot{Meta: s.eng.GraphMeta(members), Facts: s.eng.Store().FactsRef()}
 		rc := diff.CompareSnapshotReceipts(baseline, current)
 		if resolveOutputMode(args.OutputMode, modeSummary) == modeFull {
 			return jsonResultCapped(rc, args.MaxTokens)
@@ -482,10 +481,18 @@ func conformanceFirst(conf *conformance.Report, body string) string {
 
 // driftOf measures drift for one repository against its own snapshot meta. The published
 // snapshot's meta describes the primary repository only, so another member of a
-// multi-repo graph is measured against the meta in its own output directory.
+// multi-repo graph is measured against its entry in the cluster directory's
+// members.json, or, for a graph an older enola wrote, the meta in its own output dir.
 func (s *Server) driftOf(repoPath string) (engine.Drift, error) {
 	if snap := s.eng.Snapshot(); snap != nil && snap.Meta.RepoPath == repoPath {
 		return s.eng.Drift(repoPath)
+	}
+	if members := s.graphMembers(); len(members) > 1 {
+		if recorded, err := engine.ReadMembersMeta(s.eng.GraphDir(members)); err == nil {
+			if meta, ok := recorded[repoPath]; ok {
+				return s.eng.DriftFromMeta(repoPath, meta)
+			}
+		}
 	}
 	raw, err := os.ReadFile(filepath.Join(s.eng.OutputDir(repoPath), "snapshot.meta.json"))
 	if err != nil {
@@ -553,8 +560,8 @@ func (s *Server) baselineNote(dir, selector string) string {
 // resolveBaselineDir maps a baseline selector ('pinned'/”/'previous'/explicit
 // path) to the on-disk directory holding that snapshot's artifacts — the same
 // resolution diff_snapshot uses, shared so compare_receipts stays consistent.
-func (s *Server) resolveBaselineDir(repoPath, selector string) string {
-	return engine.ResolveBaselineDir(s.eng.OutputDir(repoPath), selector)
+func (s *Server) resolveBaselineDir(members []string, selector string) string {
+	return engine.ResolveBaselineDir(s.eng.GraphDir(members), selector)
 }
 
 // renderReceipt produces the compact markdown summary for the snapshot_receipt
@@ -665,20 +672,17 @@ func (s *Server) loopHint(absRepo string) string {
 		"generate_snapshot and diff_snapshot to see exactly what your change did — no need to re-read files to confirm it."
 }
 
-// baselineRepoPath returns the repository whose output dir holds the live graph's
-// pinned baseline: for several repositories, the member engine.BaselineAnchor chooses
-// from the set, which is where `enola baseline pin` writes and `enola check` reads;
-// for one, the live repository.
-func (s *Server) baselineRepoPath() string {
-	paths := s.eng.RepoPaths()
-	if len(paths) < 2 {
-		return s.currentRepoPath()
+// graphMembers is the live graph's repositories, sorted: several for a cluster, whose
+// pin and previous/ are in the cluster's own directory, and otherwise the live
+// repository alone. Empty when there is no graph and no configured repository.
+func (s *Server) graphMembers() []string {
+	if members := s.eng.Members(); len(members) > 1 {
+		return members
 	}
-	members := make([]string, 0, len(paths))
-	for _, abs := range paths {
-		members = append(members, abs)
+	if repo := s.currentRepoPath(); repo != "" {
+		return []string{repo}
 	}
-	return engine.BaselineAnchor(members)
+	return nil
 }
 
 // currentRepoPath returns the absolute repo path of the live snapshot, falling

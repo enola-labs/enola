@@ -203,10 +203,13 @@ func TestServeFixed_DroppedSessionsHoldNothing(t *testing.T) {
 	}
 }
 
-// A cluster's generate writes the union into each member in turn. The reload waits
-// for the last member: one started on the first would run beside a generate that
-// still holds its whole graph, and the two peaks would meet on the same machine.
-func TestServeFixed_ClusterReloadsAfterTheLastMember(t *testing.T) {
+// A served cluster reloads when the cluster's own graph is written, once, and not when
+// one of its members is snapshotted alone: that writes the member's own output dir,
+// which the cluster's graph is not in.
+func TestServeFixed_ClusterReloadsWhenItsGraphIsWritten(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	root := t.TempDir()
 	sample := filepath.Join("..", "engine", "testdata", "repos", "go_sample")
 	member := func(name string) string {
@@ -219,21 +222,18 @@ func TestServeFixed_ClusterReloadsAfterTheLastMember(t *testing.T) {
 	first, last := member("first"), member("last")
 	members := []string{first, last}
 	_, cfg := newTestEngine(t)
-	// index runs the operator's generate over the cluster and writes the members
-	// listed, in order: all of them is a finished generate, fewer one still writing.
-	index := func(write ...string) {
+	// index runs a generate over repos and writes its graph.
+	index := func(repos ...string) {
 		t.Helper()
 		eng, err := bootstrap.NewEngineFromConfig(cfg)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := eng.GenerateCluster(context.Background(), members, false); err != nil {
+		if _, err := eng.GenerateCluster(context.Background(), repos, false); err != nil {
 			t.Fatal(err)
 		}
-		for _, m := range write {
-			if err := eng.WriteArtifacts(m); err != nil {
-				t.Fatal(err)
-			}
+		if err := eng.WriteGraph(); err != nil {
+			t.Fatal(err)
 		}
 	}
 	index(members...)
@@ -256,13 +256,13 @@ func TestServeFixed_ClusterReloadsAfterTheLastMember(t *testing.T) {
 	index(first)
 	time.Sleep(300 * time.Millisecond) // fifteen intervals
 	if n := reloads.Load(); n != 0 {
-		t.Fatalf("reloaded %d times with only the first member written", n)
+		t.Fatalf("reloaded %d times after a member was written alone", n)
 	}
-	index(last)
+	index(members...)
 	deadline := time.Now().Add(5 * time.Second)
 	for reloads.Load() == 0 {
 		if time.Now().After(deadline) {
-			t.Fatal("never reloaded after the last member was written")
+			t.Fatal("never reloaded after the cluster's graph was written")
 		}
 		time.Sleep(20 * time.Millisecond)
 	}

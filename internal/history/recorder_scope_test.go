@@ -83,21 +83,18 @@ func TestRecord_PreviousOfAnotherScopeIsNoBase(t *testing.T) {
 	}
 }
 
-// A cluster is recorded once, into its own history, and its predecessor is found in
-// whichever member directory holds it: the member written first may have been
-// snapshotted alone since, while another still holds the last union.
+// A cluster is recorded once, into its own history, and its predecessor is the
+// cluster directory's own previous/.
 func TestRecord_ClusterHistoryIsItsOwn(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	a, b := t.TempDir(), t.TempDir()
 	members := []string{a, b}
+	home := t.TempDir()
 	r := NewRecorder(RecorderOptions{})
 	cluster := func(id string, names ...string) Record {
 		rec := recordOf(a, id, names...)
 		rec.Members = members
-		rec.PriorDirs = []string{
-			filepath.Join(a, ".enola", "previous"),
-			filepath.Join(b, ".enola", "previous"), filepath.Join(b, ".enola"),
-		}
+		rec.PreviousDir = filepath.Join(home, "previous")
 		return rec
 	}
 
@@ -113,8 +110,9 @@ func TestRecord_ClusterHistoryIsItsOwn(t *testing.T) {
 		}
 	}
 
+	// The member snapshotted alone since does not stand in for the cluster.
 	writeSnapshotDir(t, filepath.Join(a, ".enola", "previous"), "a-alone", "a")
-	writeSnapshotDir(t, filepath.Join(b, ".enola"), "c1", "a", "b")
+	writeSnapshotDir(t, filepath.Join(home, "previous"), "c1", "a", "b")
 	r.Record(cluster("c2", "a", "b", "c"))
 	if s := lastSummary(t, clusterRoot); s.NoBase || s.FactsAdded != 1 || s.FactsRemoved != 0 {
 		t.Fatalf("second cluster revision: %+v, want +1 fact against c1", s)

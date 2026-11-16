@@ -25,8 +25,9 @@ const (
 
 // snapshotArtifactFiles are the on-disk files that constitute a persisted
 // snapshot. receipt.json rides along so a pinned/previous baseline carries its
-// provenance + quality receipt, which compare_receipts diffs against the current.
-var snapshotArtifactFiles = []string{"facts.jsonl", "insights.json", "snapshot.meta.json", "receipt.json", RunMarkFile}
+// provenance + quality receipt, which compare_receipts diffs against the current;
+// members.json, in a cluster's directory, so it carries each member's own.
+var snapshotArtifactFiles = []string{"facts.jsonl", "insights.json", "snapshot.meta.json", "receipt.json", MembersMetaFile, RunMarkFile}
 
 // Session marks record which agent session produced a run (run.json, beside the
 // artifacts and rotated into previous/ with them) or pinned a baseline (pin.json,
@@ -69,9 +70,28 @@ func (e *Engine) writeSessionMark(dir, name string) error {
 	return writeFileAtomic(filepath.Join(dir, name), data, 0o644)
 }
 
-// OutputDir returns the absolute .enola output directory for repoPath.
+// OutputDir returns the absolute .enola output directory for repoPath: that
+// repository's own graph. A graph of several repositories is in GraphDir.
 func (e *Engine) OutputDir(repoPath string) string {
 	return e.cfg.OutputDirFor(repoPath)
+}
+
+// GraphDir returns the directory holding the graph of members: the repository's own
+// output directory for one, the cluster's directory for several. Its baseline/ and
+// previous/ are the graph's.
+func (e *Engine) GraphDir(members []string) string {
+	return e.cfg.GraphOutputDir(members)
+}
+
+// GraphMeta is the meta the graph of members writes to GraphDir(members): one
+// repository's own, or for a cluster the union's with its anchor member's provenance
+// (see writeBundle). A baseline pinned there has the same shape, so a diff reads the
+// current side with this.
+func (e *Engine) GraphMeta(members []string) facts.SnapshotMeta {
+	if len(members) == 0 {
+		return facts.SnapshotMeta{}
+	}
+	return e.MetaFor(BaselineAnchor(members))
 }
 
 // BaselineAnchor returns the member of a graph whose output dir holds its pinned
@@ -117,11 +137,14 @@ func ResolveBaselineDir(outDir, selector string) string {
 	}
 }
 
-// SetBaseline pins the current on-disk snapshot as the diff baseline by copying
-// the snapshot artifacts from the output dir into <output>/baseline/. Returns an
-// error if no snapshot has been written yet.
-func (e *Engine) SetBaseline(repoPath string) error {
-	outDir := e.OutputDir(repoPath)
+// SetBaseline pins the graph of members' on-disk snapshot as the diff baseline by
+// copying its artifacts into <GraphDir>/baseline/: one repository's own output
+// directory, or a cluster's. Returns an error if no snapshot has been written yet.
+func (e *Engine) SetBaseline(members ...string) error {
+	if len(members) == 0 {
+		return fmt.Errorf("no repository to pin a baseline for")
+	}
+	outDir := e.GraphDir(members)
 	defer lockDir(outDir)()
 	if _, err := os.Stat(filepath.Join(outDir, "facts.jsonl")); err != nil {
 		return fmt.Errorf("no snapshot to pin as baseline (run generate_snapshot first): %w", err)

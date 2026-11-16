@@ -62,7 +62,7 @@ func (r *Runner) ConstraintsMine(args []string) {
 	fmt.Fprintf(os.Stderr, r.name()+" constraints mine: %s\n", tgt.configNote)
 	tgt.engine.SetPersistCache(false)
 
-	outDir := tgt.engine.OutputDir(tgt.repoPaths[0])
+	outDir := tgt.engine.GraphDir(tgt.repoPaths)
 	snap, err := bootstrap.LoadSnapshotDir(outDir)
 	if err != nil {
 		r.constraintsFatal("no snapshot at %s — mining reads an existing snapshot and never generates one; run `%s --generate` first (%v)", outDir, r.name(), err)

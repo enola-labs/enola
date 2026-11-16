@@ -9,4 +9,4 @@ Refresh complete:
   Facts:       22
   Insights:    6
   Duration:    <DURATION>
-  Output:      <TMP>/services/consumer/.enola
+  Output:      <TMP>/.enola/graphs/services-cluster-<KEY>

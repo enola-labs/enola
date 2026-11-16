@@ -148,6 +148,11 @@ func hasSavedGraph(cfg *config.Config) bool {
 	if err != nil {
 		return false
 	}
+	if gr.GraphDir != "" {
+		if _, err := os.Stat(filepath.Join(gr.GraphDir, "facts.jsonl")); err == nil {
+			return true
+		}
+	}
 	for _, r := range gr.Repos {
 		if r.Path != "" && hasFacts(r.Path) {
 			return true

@@ -52,11 +52,11 @@ func stampOf(path string) fileStamp {
 type fixedGraph struct {
 	paths   []string
 	restore Restorer
-	// meta is the snapshot.meta.json the reload watches: the last repository's. A
-	// cluster's generate writes the whole union into every member, one after another,
-	// and a member's meta last; so the last member's meta is the generate's last
-	// artifact. Watching an earlier member's would start the reload while the generate
-	// still holds its whole graph and writes the rest, and the two peaks would meet.
+	// meta is the snapshot.meta.json the reload watches, in the graph's directory: a
+	// generate writes it after every other artifact, so a change to it means the whole
+	// graph is on disk. Watching anything written earlier would start the reload while
+	// the generate still holds its whole graph and writes the rest, and the two peaks
+	// would meet.
 	meta string
 
 	mu sync.Mutex
@@ -88,7 +88,7 @@ func (p *Pool) ServeFixed(ctx context.Context, repoPaths []string) error {
 	fg := &fixedGraph{
 		paths:   repoPaths,
 		restore: p.restore,
-		meta:    filepath.Join(p.outputDirFor(repoPaths[len(repoPaths)-1]), "snapshot.meta.json"),
+		meta:    filepath.Join(p.graphDirFor(repoPaths), "snapshot.meta.json"),
 		phase:   p.phase,
 	}
 	s.fixed = fg

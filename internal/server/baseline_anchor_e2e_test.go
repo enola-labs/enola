@@ -6,13 +6,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/enola-labs/enola/internal/engine"
+	"github.com/enola-labs/enola/internal/config"
 )
 
-// A multi-repo graph pins its baseline in the member engine.BaselineAnchor chooses
-// from the member set, the member `enola check` and `enola baseline` read. The MCP
-// tools anchored on the member indexed last instead, so a pin written by one surface
-// was invisible to the other, and once both had pinned each graded against its own.
+// A multi-repo graph pins its baseline in the cluster's own directory, keyed by the
+// member set, which is where `enola check` and `enola baseline` read it whatever order
+// the members arrive in. Neither member gets a pin, and a pin left in a member's own
+// output dir is that member's, not the cluster's.
 func TestE2E_ClusterBaselineLivesWhereTheCLIReadsIt(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("USERPROFILE", t.TempDir())
@@ -20,55 +20,45 @@ func TestE2E_ClusterBaselineLivesWhereTheCLIReadsIt(t *testing.T) {
 	parent := t.TempDir()
 	api := copyTree(t, filepath.Join(src, "api"), parent)
 	consumer := copyTree(t, filepath.Join(src, "consumer"), parent)
-	anchor := engine.BaselineAnchor([]string{consumer, api})
-	if anchor != api {
-		t.Fatalf("fixture: the member set should choose api, got %s", anchor)
-	}
-	pinIn := func(member string) string { return filepath.Join(member, ".enola", "baseline") }
-	pinned := func(member string) bool {
-		_, err := os.Stat(filepath.Join(pinIn(member), "facts.jsonl"))
+	// The CLI reads the cluster in another order than the MCP list below.
+	clusterPin := filepath.Join(config.Default().GraphOutputDir([]string{consumer, api}), "baseline")
+	memberPin := func(member string) string { return filepath.Join(member, ".enola", "baseline") }
+	pinned := func(dir string) bool {
+		_, err := os.Stat(filepath.Join(dir, "facts.jsonl"))
 		return err == nil
 	}
 
 	s := startInMemory(t)
-	// api first: the member indexed last is consumer, which is not the anchor.
 	if res := s.call(t, "generate_snapshot", map[string]any{"repo_paths": []string{api, consumer}}); res.IsError {
 		t.Fatalf("generate_snapshot: %s", text(res))
 	}
 	if res := s.call(t, "set_baseline", nil); res.IsError {
 		t.Fatalf("set_baseline: %s", text(res))
 	}
-	if !pinned(api) {
-		t.Errorf("set_baseline did not pin in api, the member the CLI reads")
+	if !pinned(clusterPin) {
+		t.Errorf("set_baseline did not pin in the cluster's directory, where the CLI reads")
 	}
-	if pinned(consumer) {
-		t.Errorf("set_baseline pinned in consumer, the member indexed last")
-	}
-
-	// A pin only the anchor holds, as `enola baseline pin` leaves it, is the one
-	// diff_snapshot and compare_receipts grade against.
-	if err := os.RemoveAll(pinIn(consumer)); err != nil {
-		t.Fatal(err)
+	for _, m := range []string{api, consumer} {
+		if pinned(memberPin(m)) {
+			t.Errorf("set_baseline pinned in member %s", m)
+		}
 	}
 	if res := s.call(t, "diff_snapshot", nil); res.IsError {
-		t.Errorf("diff_snapshot found no pin in the anchor:\n%s", text(res))
+		t.Errorf("diff_snapshot found no pin in the cluster's directory:\n%s", text(res))
 	}
 	if res := s.call(t, "compare_receipts", nil); res.IsError {
-		t.Errorf("compare_receipts found no pin in the anchor:\n%s", text(res))
+		t.Errorf("compare_receipts found no pin in the cluster's directory:\n%s", text(res))
 	}
 
-	// A pin left in another member is not read: the anchor's is the cluster's pin.
-	if err := os.RemoveAll(pinIn(api)); err != nil {
+	// A pin in a member's own output dir is not the cluster's.
+	if err := os.MkdirAll(filepath.Join(api, ".enola"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if res := s.call(t, "set_baseline", nil); res.IsError {
-		t.Fatalf("set_baseline: %s", text(res))
-	}
-	if err := os.Rename(pinIn(api), pinIn(consumer)); err != nil {
+	if err := os.Rename(clusterPin, memberPin(api)); err != nil {
 		t.Fatal(err)
 	}
 	res := s.call(t, "diff_snapshot", nil)
 	if !res.IsError || !strings.Contains(text(res), "No pinned baseline") {
-		t.Errorf("diff_snapshot graded against a pin outside the anchor:\n%s", text(res))
+		t.Errorf("diff_snapshot graded against a pin in a member:\n%s", text(res))
 	}
 }

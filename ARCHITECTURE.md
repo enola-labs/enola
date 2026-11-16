@@ -1030,6 +1030,7 @@ output:
   dir: ".enola"
   max_context_tokens: 16000
   # root: /var/lib/enola   # write each repository's artifacts under here instead of inside it
+  # cluster_dir: graph      # a cluster's graph goes here (relative to this file); default ~/.enola/graphs/<key>
 ```
 
 `output.root` moves every repository's artifacts out of the repository: those of
@@ -1038,6 +1039,13 @@ absolute path mirrored under the root, so two repositories sharing a name stay a
 Snapshots, the extractor cache, the pinned baseline and the previous run all move with
 it. Use it for checkouts somebody else keeps current, whose reset or clean would
 otherwise delete them.
+
+A graph of several repositories is not written into any of them. It has a directory of
+its own, `config.GraphOutputDir`: `output.cluster_dir` (or `--generate --out`) when set,
+`<root>/clusters/<key>` with `output.root`, else `~/.enola/graphs/<key>/` beside the
+cluster's history. The key names the sorted member set. The directory holds the union's
+artifacts, its baseline and previous run, and `members.json`, each member's own
+provenance; members keep only their extractor caches.
 
 The bundled [`mcp-arch.yaml`](mcp-arch.yaml) ships a much fuller `ignore` list (Android/Gradle, Xcode/SPM, Rails, CI, Docker, env files, …); see it and the per-language configs under [`examples/`](examples/) for ready-made starting points. It deliberately declares **no** `extractors:`, `explainers:` or `renderers:` — see the override rule below.
 

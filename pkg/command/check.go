@@ -263,13 +263,8 @@ func (r *Runner) Check(ctx context.Context, args []string) {
 		}
 	}
 	if *write {
-		for _, repoPath := range repoPaths {
-			if err := eng.WriteArtifacts(repoPath); err != nil {
-				r.checkFatal("failed to write artifacts for %s: %v", repoPath, err)
-			}
-		}
-		if err := eng.WriteClusterHome(); err != nil {
-			r.checkFatal("failed to write the cluster's artifacts: %v", err)
+		if err := eng.WriteGraph(); err != nil {
+			r.checkFatal("failed to write artifacts: %v", err)
 		}
 	}
 
@@ -281,12 +276,14 @@ func (r *Runner) Check(ctx context.Context, args []string) {
 	// rather than only the last repo indexed — the same construction diff_snapshot uses,
 	// FactsRef included: diff.Compute reads its inputs and the published bundle is
 	// immutable, so copying the fact set here would buy nothing.
-	// The baseline lives in the member engine.BaselineAnchor chooses from the member
-	// set, where `enola baseline pin` and the MCP set_baseline both write. Its meta
-	// carries that member's provenance, so the current side is read for the same member.
+	// The baseline lives in the graph's directory, where `enola baseline pin` and the
+	// MCP set_baseline both write: one repository's own output dir, or a cluster's own
+	// directory. The current side is read with the meta written there. The anchor
+	// member still names the committed ledger and the history for a cluster.
 	anchor := engine.BaselineAnchor(repoPaths)
-	current := &facts.Snapshot{Meta: eng.MetaFor(anchor), Facts: eng.Store().FactsRef(), Insights: snap.Insights}
-	baseDir := engine.ResolveBaselineDir(eng.OutputDir(anchor), *baseline)
+	graphDir := eng.GraphDir(repoPaths)
+	current := &facts.Snapshot{Meta: eng.GraphMeta(repoPaths), Facts: eng.Store().FactsRef(), Insights: snap.Insights}
+	baseDir := engine.ResolveBaselineDir(graphDir, *baseline)
 	base, err := bootstrap.LoadSnapshotDir(baseDir)
 	if err != nil {
 		r.checkFatal("%s", r.baselineHelp(*baseline, baseDir, anchor, err))
@@ -339,7 +336,7 @@ func (r *Runner) Check(ctx context.Context, args []string) {
 	// against the CURRENT snapshot, baselined or not — the one deliberate
 	// exception to delta scoping.
 	verdict := check.EvaluateCurrent(d, policy, current.Insights, measurements...)
-	blame := check.NewBlameReader(anchor, eng.OutputDir(anchor))
+	blame := check.NewBlameReader(anchor, graphDir)
 	verdict = check.ApplyTime(verdict, base, r.revisionAt(anchor, tgt.historyDir), blame.Age)
 	if err := blame.Save(); err != nil {
 		fmt.Fprintf(os.Stderr, "enola: blame cache not written: %v\n", err)
@@ -490,7 +487,7 @@ func (r *Runner) Baseline(args []string) {
 	tgt := r.resolveTarget(arg)
 	eng := tgt.engine
 	anchor := engine.BaselineAnchor(tgt.repoPaths)
-	outDir := eng.OutputDir(anchor)
+	outDir := eng.GraphDir(tgt.repoPaths)
 	baseDir := engine.ResolveBaselineDir(outDir, "pinned")
 
 	switch action {
@@ -520,19 +517,18 @@ func (r *Runner) Baseline(args []string) {
 			if _, err := eng.GenerateCluster(context.Background(), tgt.repoPaths, false); err != nil {
 				r.checkFatal("%v", err)
 			}
-			for _, repoPath := range tgt.repoPaths {
-				if err := eng.WriteArtifacts(repoPath); err != nil {
-					r.checkFatal("failed to write artifacts for %s: %v", repoPath, err)
-				}
-			}
-			if err := eng.WriteClusterHome(); err != nil {
-				r.checkFatal("failed to write the cluster's artifacts: %v", err)
+			if err := eng.WriteGraph(); err != nil {
+				r.checkFatal("failed to write artifacts: %v", err)
 			}
 		}
-		if err := eng.SetBaseline(anchor); err != nil {
+		if err := eng.SetBaseline(tgt.repoPaths...); err != nil {
 			r.checkFatal("could not pin baseline: %v", err)
 		}
-		fmt.Printf("Baseline pinned for %s\n", anchor)
+		if len(tgt.repoPaths) > 1 {
+			fmt.Printf("Baseline pinned for the cluster of %d repositories in %s\n", len(tgt.repoPaths), outDir)
+		} else {
+			fmt.Printf("Baseline pinned for %s\n", anchor)
+		}
 		if replaced != nil {
 			fmt.Fprintf(os.Stderr, r.name()+" baseline: this replaced a baseline another running agent session pinned at %s; "+
 				"that session's diffs and its end-of-session grade now compare against this one\n", replaced.At)
@@ -540,7 +536,11 @@ func (r *Runner) Baseline(args []string) {
 		if snap, err := bootstrap.LoadSnapshotDir(baseDir); err == nil {
 			describeBaseline(snap)
 		}
-		fmt.Printf("\nNow make your changes, then run:\n    %s check %s\n", r.name(), anchor)
+		checkArg := anchor
+		if len(tgt.repoPaths) > 1 && arg != "" {
+			checkArg = arg
+		}
+		fmt.Printf("\nNow make your changes, then run:\n    %s check %s\n", r.name(), checkArg)
 	case "show":
 		snap, err := bootstrap.LoadSnapshotDir(baseDir)
 		if err != nil {

@@ -6,27 +6,34 @@ import (
 	"path/filepath"
 
 	"github.com/enola-labs/enola/internal/diff"
+	"github.com/enola-labs/enola/internal/engine"
 	"github.com/enola-labs/enola/internal/facts"
 	"github.com/enola-labs/enola/pkg/bootstrap"
 	"github.com/enola-labs/enola/pkg/check"
 )
 
-// snapshotIsCurrent reports whether every member's on-disk snapshot describes its
-// working tree under this build and config, so a pin can freeze what is already
-// there. It reads each member's own snapshot.meta.json, never the facts: the
-// decision is a few hashes per member, not a reload of the union. Any doubt,
-// including a member with no snapshot or a meta without file hashes, answers no.
-// A cluster writes one union to every member, so the members must also agree on
-// the snapshot id; a fan-out interrupted halfway leaves them disagreeing, and that
-// is regenerated rather than frozen. The provider set is not compared here: CurrentMeta describes a run that has not
-// happened, so it cannot say which providers will run, and an equal config hash
-// already proves the same providers are configured.
+// snapshotIsCurrent reports whether the graph's on-disk snapshot describes every
+// member's working tree under this build and config, so a pin can freeze what is
+// already there. It reads metas, never the facts: the decision is a few hashes per
+// member, not a reload of the union. A cluster's members are read from its own
+// directory (members.json over the cluster's meta), one repository from its own
+// output dir. Any doubt, including a member with no snapshot or a meta without file
+// hashes, answers no. The provider set is not compared here: CurrentMeta describes a
+// run that has not happened, so it cannot say which providers will run, and an equal
+// config hash already proves the same providers are configured.
 func snapshotIsCurrent(eng *bootstrap.Engine, repoPaths []string) (string, string) {
 	newest := ""
 	union := ""
+	graphDir := eng.GraphDir(repoPaths)
 	for _, repoPath := range repoPaths {
 		name := filepath.Base(repoPath)
-		meta, err := readSnapshotMeta(eng.OutputDir(repoPath))
+		var meta *facts.SnapshotMeta
+		var err error
+		if len(repoPaths) > 1 {
+			meta, err = engine.ReadMemberMeta(graphDir, repoPath)
+		} else {
+			meta, err = readSnapshotMeta(graphDir)
+		}
 		if err != nil {
 			return "", name + " holds no snapshot"
 		}

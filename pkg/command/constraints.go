@@ -104,7 +104,7 @@ func (r *Runner) Constraints(args []string) {
 		problems += r.lintRepoDeclaration(tgt.engine.Config().Intent[filepath.Base(repoPath)], repoPath, declared)
 	}
 
-	problems += r.lintResolveComponents(tgt.engine, tgt.repoPaths[0], declared)
+	problems += r.lintResolveComponents(tgt.engine, tgt.repoPaths, declared)
 
 	if problems > 0 {
 		fmt.Printf("\nFAIL — %s.\n", plural(problems, "validation problem"))
@@ -329,11 +329,11 @@ func lintStore(measured []facts.Fact, declared []facts.Fact, label string) *fact
 	return store
 }
 
-func (r *Runner) lintResolveComponents(eng *bootstrap.Engine, anchor string, declared *facts.Store) int {
+func (r *Runner) lintResolveComponents(eng *bootstrap.Engine, repoPaths []string, declared *facts.Store) int {
 	if len(declared.ByKind(facts.KindIntent)) == 0 {
 		return 0
 	}
-	outDir := eng.OutputDir(anchor)
+	outDir := eng.GraphDir(repoPaths)
 	snap, err := bootstrap.LoadSnapshotDir(outDir)
 	if err != nil {
 		fmt.Printf("\nComponent resolution: no snapshot at %s - validation only.\n", outDir)

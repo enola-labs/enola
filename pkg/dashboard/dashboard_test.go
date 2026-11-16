@@ -172,7 +172,7 @@ func (f fakeArtifacts) GetArtifact(name string) ([]byte, error) {
 
 func (f fakeArtifacts) ActiveRepo() string { return f.activeRepo }
 
-func (f fakeArtifacts) OutputDir(repoPath string) string { return f.outputDir }
+func (f fakeArtifacts) ActiveGraphDir() string { return f.outputDir }
 
 func (f fakeArtifacts) DashboardState() (*facts.Store, *facts.Snapshot, *facts.GraphReceipt) {
 	return f.store, f.snapshot, f.graph

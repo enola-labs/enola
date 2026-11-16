@@ -18,4 +18,4 @@ Snapshot complete:
   Insights:    6
   Artifacts:   3
   Duration:    <DURATION>
-  Output:      <TMP>/services/consumer/.enola
+  Output:      <TMP>/.enola/graphs/services-cluster-<KEY>
