@@ -80,7 +80,7 @@ func repoStates(e *Engine, b *snapshotBundle) []RepoState {
 	states := make([]RepoState, 0, len(b.repoPaths))
 	for label, abs := range b.repoPaths {
 		r := RepoState{Label: label}
-		gi := gitInfo(abs, e.cfg.Output.Dir)
+		gi := b.gitAt(abs, e.cfg.Output.Dir)
 		if gi != nil {
 			r.Commit, r.Dirty = gi.Commit, gi.Dirty
 		}

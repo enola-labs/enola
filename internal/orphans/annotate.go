@@ -49,7 +49,11 @@ func (e *Explainer) Annotate(_ context.Context, store *facts.Store) error {
 	// called.
 	type key struct{ repo, name string }
 	dead := make(map[key]string)
-	for _, o := range Detect(store) {
+	syms, refSources := collect(store)
+	e.mu.Lock()
+	e.held = &collected{store: store, count: store.Count(), syms: syms, refs: refSources}
+	e.mu.Unlock()
+	for _, o := range detectFrom(syms, refSources) {
 		if o.Confidence != confHigh {
 			continue
 		}

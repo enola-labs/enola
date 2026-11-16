@@ -1029,13 +1029,11 @@ func population(syms []symInput, opts options) int {
 
 // A symbol is an orphan when nothing else references it; it is classed
 // "isolated" when it also references nothing, else "unreferenced".
-// Detect returns dead-code orphans in the store using the same collect+classify
-// core as the find_orphans tool, with the tool's default options (mode=both, all
-// kinds and visibility, tests and entry points excluded). It is what the package's
-// own annotate pass runs to mark orphan symbols on the store. Test-only symbols are
-// left out: see options.deadOnly.
-func Detect(store *facts.Store) []Orphan {
-	syms, refSources := collect(store)
+// detectFrom returns the dead-code orphans of a collect pass, with the find_orphans
+// tool's default options (mode=both, all kinds and visibility, tests and entry points
+// excluded). It is what the package's own annotate pass runs to mark orphan symbols
+// on the store. Test-only symbols are left out: see options.deadOnly.
+func detectFrom(syms []symInput, refSources refIndex) []Orphan {
 	orphans := classify(syms, refSources, options{Mode: "both", Visibility: "all", deadOnly: true})
 	sortOrphans(orphans)
 	return orphans

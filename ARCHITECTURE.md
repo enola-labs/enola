@@ -1198,7 +1198,7 @@ Because the receipt fields live in `snapshot.meta.json`, they ride into every pi
 
 #### The graph receipt, and why each workspace keeps its own
 
-Alongside the per-snapshot receipt in `.enola/`, a snapshot writes a **graph receipt** describing the whole graph the server holds — every repo in it, where each lives, its git state and fact count. That is what a restart reads (`bootstrap.AutoLoadSnapshot`) to reload a *multi-repo* graph without re-running any extractor: the per-repo `.enola/` dirs alone cannot say which repos were appended.
+Alongside the per-snapshot receipt in `.enola/`, a snapshot writes a **graph receipt** describing the whole graph the server holds — every repo in it, where each lives, its git state as the run that indexed it read it, and its fact count. That is what a restart reads (`bootstrap.AutoLoadSnapshot`) to reload a *multi-repo* graph without re-running any extractor: the per-repo `.enola/` dirs alone cannot say which repos were appended.
 
 It is written to three places ([`internal/engine/global_receipt.go`](internal/engine/global_receipt.go)):
 

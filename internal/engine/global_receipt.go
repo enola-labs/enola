@@ -137,7 +137,7 @@ func LoadGlobalReceipt() (*facts.GraphReceipt, error) {
 // repoEntries returns one GraphRepoEntry per repository currently in the graph.
 // In multi-repo (append) mode it iterates RepoPaths(); in single-repo mode it
 // falls back to the sole primary repo from the snapshot meta. Git state is captured
-// per repo via gitInfo (nil for non-git dirs) and fact counts come from the store's
+// per repo via gitAt (nil for non-git dirs) and fact counts come from the store's
 // byRepo index. AddedAt/CommitChangedAt are left to the merge step; InGraphFor is
 // derived at write time. Entries are sorted by Label for stable output.
 func (e *Engine) repoEntries(b *snapshotBundle) []facts.GraphRepoEntry {
@@ -158,7 +158,7 @@ func (e *Engine) repoEntries(b *snapshotBundle) []facts.GraphRepoEntry {
 		entries = append(entries, facts.GraphRepoEntry{
 			Label:       label,
 			Path:        abs,
-			Git:         gitInfo(abs, e.cfg.Output.Dir),
+			Git:         b.gitAt(abs, e.cfg.Output.Dir),
 			FactCount:   b.store.CountByRepo(label),
 			SourceBytes: e.repoSourceBytes(b, abs),
 		})
