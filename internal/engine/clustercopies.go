@@ -28,7 +28,7 @@ type ClusterCopy struct {
 var copyRenderers = []string{"llm_context.md", "docs.jsonl", "flows.json"}
 
 // FindClusterCopies lists the cluster graphs held in the output directories of repos:
-// snapshots whose receipt carries a cross-repo coverage rollup, which a graph of one
+// snapshots whose receipt counts more than one service, which a graph of one
 // repository never has. Only the receipt is read, so finding none costs a few small
 // reads per repository.
 func FindClusterCopies(cfg *config.Config, repos []string) []ClusterCopy {
@@ -64,18 +64,24 @@ type copyReceipt struct {
 	GeneratedAt  string            `json:"generated_at"`
 	OutputHashes map[string]string `json:"output_hashes"`
 	Quality      struct {
-		Coverage json.RawMessage `json:"coverage"`
+		Coverage *struct {
+			ServicesTotal int `json:"services_total"`
+		} `json:"coverage"`
 	} `json:"quality"`
 }
 
-// readCopyReceipt reads dir's receipt and reports whether it describes a cluster.
+// readCopyReceipt reads dir's receipt and reports whether it describes a cluster: a
+// graph with more than one service node, which only repositories linked together
+// have. A coverage rollup alone is not that: one repository's receipt carries one
+// too, with no services, when an extractor reported what it could not resolve, and
+// taking it for a cluster's would delete the repository's own snapshot.
 func readCopyReceipt(dir string) (copyReceipt, bool) {
 	var r copyReceipt
 	data, err := os.ReadFile(filepath.Join(dir, "receipt.json"))
 	if err != nil || json.Unmarshal(data, &r) != nil {
 		return r, false
 	}
-	return r, len(r.Quality.Coverage) > 0 && string(r.Quality.Coverage) != "null"
+	return r, r.Quality.Coverage != nil && r.Quality.Coverage.ServicesTotal > 1
 }
 
 // topLevelCopyFiles are the files of a copy at the top of an output dir: the snapshot's
