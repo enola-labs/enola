@@ -1481,8 +1481,22 @@ const docsArtifact = "docs.jsonl"
 // is not read unless asked for.
 func (e *Engine) SetRestoreDocTexts(on bool) { e.restoreDocTexts = on }
 
-// readDocTexts records each line of docs.jsonl in f as its fact's whole comment.
+// readDocTexts records the whole comments docs.jsonl in f holds, the way the generate
+// that wrote it held them. A text is kept per fact key (repo, kind, name, file), which
+// overloads share, and a fact the generate kept none for rendered its own one-line
+// summary: so a line whose doc is its fact's summary records nothing. Recording every
+// line gave all of a name's overloads the last one's comment.
 func readDocTexts(store *facts.Store, f *os.File) error {
+	type at struct {
+		key  facts.FactKey
+		line int
+	}
+	summary := map[at]string{}
+	for _, fact := range store.FactsRef() {
+		if doc := fact.PropString(facts.PropDoc); doc != "" {
+			summary[at{facts.FactKey{Repo: fact.Repo, Kind: fact.Kind, Name: fact.Name, File: fact.File}, fact.Line}] = doc
+		}
+	}
 	info, err := f.Stat()
 	if err != nil {
 		return err
@@ -1495,12 +1509,17 @@ func readDocTexts(store *facts.Store, f *os.File) error {
 			Kind string `json:"kind"`
 			Name string `json:"name"`
 			File string `json:"file"`
+			Line int    `json:"line"`
 			Doc  string `json:"doc"`
 		}
 		if err := json.Unmarshal(sc.Bytes(), &l); err != nil {
 			return err
 		}
-		store.SetDocText(facts.FactKey{Repo: l.Repo, Kind: l.Kind, Name: l.Name, File: l.File}, l.Doc)
+		key := facts.FactKey{Repo: l.Repo, Kind: l.Kind, Name: l.Name, File: l.File}
+		if l.Doc == summary[at{key, l.Line}] {
+			continue
+		}
+		store.SetDocText(key, l.Doc)
 	}
 	return sc.Err()
 }
