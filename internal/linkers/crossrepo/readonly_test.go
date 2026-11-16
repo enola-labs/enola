@@ -41,7 +41,7 @@ func TestComputeLinks_LeavesItsInputAsItWas(t *testing.T) {
 		if err := store.WriteJSONL(&before); err != nil {
 			t.Fatal(err)
 		}
-		links := crossrepo.ComputeLinks(store.FactsRef(), nil, signals, v)
+		links := crossrepo.ComputeLinks(store.FactsRef(), nil, signals, v, 1)
 		linked += len(links)
 		var after bytes.Buffer
 		if err := store.WriteJSONL(&after); err != nil {

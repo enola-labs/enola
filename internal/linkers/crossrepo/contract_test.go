@@ -62,7 +62,7 @@ func contractFixture() []facts.Fact {
 }
 
 func runWith(order []plugin.CrossRepoSignal) []byte {
-	out := ComputeLinks(contractFixture(), nil, order, vocab.Default())
+	out := ComputeLinks(contractFixture(), nil, order, vocab.Default(), 1)
 	b, _ := json.Marshal(out)
 	return b
 }
@@ -124,7 +124,7 @@ func TestComputeLinks_RepeatedRunsAreStable(t *testing.T) {
 func TestMaterialize_PropSurfaceIsStable(t *testing.T) {
 	out := ComputeLinks(contractFixture(), nil, []plugin.CrossRepoSignal{
 		httpsignal.New(vocab.Default()), importsignal.New(), kafkasignal.New(vocab.Default()), sharedcodesignal.New(vocab.Default()),
-	}, vocab.Default())
+	}, vocab.Default(), 1)
 
 	seen := map[string]map[string]bool{
 		facts.KindService:    {},
@@ -168,7 +168,7 @@ func TestComputeLinks_SingleRepoIsNoOp(t *testing.T) {
 		{Kind: facts.KindRoute, Name: "/api/items", Repo: "solo",
 			Props: map[string]any{"method": "GET", facts.PropRole: facts.RoleClient}},
 	}
-	if out := ComputeLinks(in, nil, []plugin.CrossRepoSignal{httpsignal.New(vocab.Default())}, vocab.Default()); len(out) != 0 {
+	if out := ComputeLinks(in, nil, []plugin.CrossRepoSignal{httpsignal.New(vocab.Default())}, vocab.Default(), 1); len(out) != 0 {
 		t.Errorf("single-repo snapshot produced %d synthetic facts, want 0: %+v", len(out), out)
 	}
 }
@@ -203,7 +203,7 @@ func TestVocabularyOverlay_SuppressesAFalseEdge(t *testing.T) {
 	}
 
 	// Half one: with the framework unknown, the two apps are coupled.
-	before := sharedCodeFacts(ComputeLinks(in, nil, signals(vocab.Default()), vocab.Default()))
+	before := sharedCodeFacts(ComputeLinks(in, nil, signals(vocab.Default()), vocab.Default(), 1))
 	if len(before) != 1 {
 		t.Fatalf("precondition: unknown framework boilerplate should couple the apps; got %d couplings", len(before))
 	}
@@ -215,7 +215,7 @@ func TestVocabularyOverlay_SuppressesAFalseEdge(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
-	after := sharedCodeFacts(ComputeLinks(in, nil, signals(tuned), tuned))
+	after := sharedCodeFacts(ComputeLinks(in, nil, signals(tuned), tuned, 1))
 	if len(after) != 0 {
 		t.Errorf("the overlay did not suppress the false coupling: %+v", after)
 	}

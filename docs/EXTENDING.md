@@ -193,11 +193,16 @@ OwnScopes(repo string) map[string]bool        // npm @scopes the repo publishes
 ModuleNames(repo string) []string             // longest first
 HasSource() bool
 ReadSource(f facts.Fact) (string, bool)
+ReadJobs() int                                // how many goroutines may call ReadSource at once
 ```
 
 Every derived accessor is computed lazily and at most once per snapshot, so needing the
 same index as another signal costs nothing. Do not re-walk `Facts()` to rebuild one of
 these; add an accessor if what you need is missing.
+
+`ReadSource` caches nothing and is the one method safe to call from several goroutines,
+up to `ReadJobs()` of them; keep what you derive from a file if you need it twice. The
+rest stay on the signal's own goroutine.
 
 **`HasSource()` and `ReadSource()` are not the same question.** `HasSource()` false means
 no source is available at all, so verification cannot run and must be skipped. A failed

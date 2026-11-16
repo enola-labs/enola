@@ -123,6 +123,7 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 	if len(production) == 0 {
 		return nil
 	}
+	res := &resolver{production: production, test: test, dirs: dirs}
 
 	// Keyed by (repo, name), never by name alone: 82 of this cluster's symbol
 	// names are carried by more than one repository, and a name-keyed map
@@ -165,7 +166,7 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 		}
 		knownSymbols[f.Name] = true
 		shortNameCount[symbolShortName(f.Name)]++
-		module := resolve(f, production, test, dirs)
+		module := res.of(f)
 		if module == "" || !production[module] {
 			continue
 		}
@@ -246,7 +247,7 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 		// declaration was credited to the winning module, so the binder
 		// derived an edge from a directory that never made the call and
 		// omitted the one that did.
-		sourceModule := resolve(f, production, test, dirs)
+		sourceModule := res.of(f)
 		if sourceModule == "" || !production[sourceModule] {
 			continue
 		}
@@ -424,6 +425,26 @@ func moduleNames(store *facts.Store) (production, test map[string]bool) {
 // resolve names the module a fact's file belongs to, through the same
 // candidate walk the module graph builder uses, so an edge this binder
 // derives and an edge the builder attributes cannot land on different nodes.
+// resolver is resolve with the answer for the last file kept: a file's facts sit
+// together in the store, and resolve depends on nothing of a fact but its repository
+// and file, so each run of them pays for one.
+type resolver struct {
+	production, test map[string]bool
+	dirs             common.ModuleDirs
+	repo, file       string
+	module           string
+	ok               bool
+}
+
+func (r *resolver) of(f facts.Fact) string {
+	if r.ok && f.File == r.file && f.Repo == r.repo {
+		return r.module
+	}
+	r.repo, r.file, r.ok = f.Repo, f.File, true
+	r.module = resolve(f, r.production, r.test, r.dirs)
+	return r.module
+}
+
 func resolve(f facts.Fact, production, test map[string]bool, dirs common.ModuleDirs) string {
 	for _, candidate := range common.ModuleDirCandidatesIn(f, dirs) {
 		if production[candidate] || test[candidate] {
@@ -452,9 +473,9 @@ func resolve(f facts.Fact, production, test map[string]bool, dirs common.ModuleD
 // so a derived edge never restates one that was read from source.
 func extractorEdges(store *facts.Store, production, test map[string]bool) map[[2]string]bool {
 	out := map[[2]string]bool{}
-	dirs := common.NewModuleDirs(store)
+	res := &resolver{production: production, test: test, dirs: common.NewModuleDirs(store)}
 	for _, dep := range store.ByKind(facts.KindDependency) {
-		source := resolve(dep, production, test, dirs)
+		source := res.of(dep)
 		if source == "" {
 			continue
 		}

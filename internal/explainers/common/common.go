@@ -117,11 +117,11 @@ const MaxHeuristicConfidence = 0.95
 // FileDir returns the directory portion of a file path, which enola uses as the
 // canonical module name. A path with no separator maps to ".".
 func FileDir(file string) string {
-	parts := strings.Split(file, "/")
-	if len(parts) <= 1 {
+	i := strings.LastIndexByte(file, '/')
+	if i < 0 {
 		return "."
 	}
-	return strings.Join(parts[:len(parts)-1], "/")
+	return file[:i]
 }
 
 // ModuleDir returns the directory of a fact's file in MODULE-NAME space: FileDir with

@@ -161,12 +161,34 @@ func candidates(store *facts.Store) (uncalled, testOnly []candidate) {
 		}
 		callers[repo][name][file] = true
 	}
+	// Only a repository holding a Ruby method can have a candidate, and callers are
+	// read only by a candidate's own repository, so the per-file caller sets are
+	// built for those alone: in a mixed cluster the rest are most of the calls.
+	// Whether any call exists at all is still counted everywhere, for the early
+	// return below.
+	rubyRepos := map[string]bool{}
+	for fact := range store.OfKind(facts.KindSymbol) {
+		if rubyRepos[fact.Repo] {
+			continue
+		}
+		if lang, _ := fact.PropAny("language").(string); lang == "ruby" {
+			if kind, _ := fact.PropAny("symbol_kind").(string); kind == "method" {
+				rubyRepos[fact.Repo] = true
+			}
+		}
+	}
+	anyCaller := false
 	reflected := map[string]bool{}
 	for _, kind := range []string{facts.KindSymbol, facts.KindFileRef, facts.KindTestRef} {
 		for fact := range store.OfKind(kind) {
+			wanted := rubyRepos[fact.Repo]
 			for _, rel := range fact.Relations {
 				if rel.Kind == facts.RelCalls || rel.Kind == facts.RelNames {
-					addCaller(fact.Repo, rel.Target, fact.File)
+					if !wanted {
+						anyCaller = anyCaller || bareName(rel.Target) != ""
+					} else {
+						addCaller(fact.Repo, rel.Target, fact.File)
+					}
 					if class := reflectedClass(rel.Target); class != "" {
 						reflected[class] = true
 					}
@@ -179,7 +201,7 @@ func candidates(store *facts.Store) (uncalled, testOnly []candidate) {
 			}
 		}
 	}
-	if len(callers) == 0 {
+	if len(callers) == 0 && !anyCaller {
 		return nil, nil
 	}
 	routed := routedActions(store)

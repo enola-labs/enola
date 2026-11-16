@@ -41,6 +41,7 @@ const SyntheticMarker = "crossrepo"
 // could be read. It is how a signal — which otherwise only ever sees facts — gets at
 // source, so a shared type NAME can be checked against the actual code behind it.
 // Callers that cannot supply source pass nil, and matching falls back to names alone.
+// ComputeLinks calls it from several goroutines at once when given more than one job.
 type SourceReader func(f facts.Fact) (string, bool)
 
 // ComputeLinks runs the given signals over a multi-repo fact set and returns the
@@ -57,8 +58,11 @@ type SourceReader func(f facts.Fact) (string, bool)
 // passed rather than read from a global so two snapshots taken under different
 // vocabularies cannot interfere, and so the value is visibly part of the input whose
 // fingerprint the snapshot's config hash covers.
-func ComputeLinks(all []facts.Fact, src SourceReader, signals []plugin.CrossRepoSignal, v *vocab.Set) []facts.Fact {
-	in := newInput(all, src)
+//
+// jobs is how many source files a signal may read at once (below 1 counts as 1). The
+// result does not depend on it.
+func ComputeLinks(all []facts.Fact, src SourceReader, signals []plugin.CrossRepoSignal, v *vocab.Set, jobs int) []facts.Fact {
+	in := newInput(all, src, jobs)
 	if len(in.Repos()) < 2 {
 		return nil // need at least two repos to have a cross-repo edge
 	}

@@ -135,10 +135,14 @@ var testRunnerConfigs = map[string]bool{
 // plugin names its host and device tests the same way, so the list of targets need
 // not be kept here.
 func IsTestSourceSet(segs []string, i int) bool {
-	if i == 0 || segs[i-1] != "src" {
+	return i > 0 && isTestSourceSetSeg(segs[i-1], segs[i])
+}
+
+// isTestSourceSetSeg is IsTestSourceSet for a segment and the one before it.
+func isTestSourceSetSeg(prev, seg string) bool {
+	if prev != "src" {
 		return false
 	}
-	seg := segs[i]
 	name, ok := strings.CutSuffix(seg, "Test")
 	if !ok || name == "" || seg[0] < 'a' || seg[0] > 'z' {
 		return false
@@ -150,10 +154,10 @@ func IsTestSourceSet(segs []string, i int) bool {
 
 // testSupportTokens name what a test-support module holds. IsTestSupportModule pairs
 // one of them with a test token.
-var testSupportTokens = map[string]bool{
-	"support": true, "utils": true, "util": true, "helpers": true, "helper": true,
-	"fixtures": true, "fixture": true, "common": true, "shared": true, "lib": true,
-	"kit": true, "tools": true,
+var testSupportTokens = []string{
+	"support", "utils", "util", "helpers", "helper",
+	"fixtures", "fixture", "common", "shared", "lib",
+	"kit", "tools",
 }
 
 // IsTestSupportModule reports whether a directory name is a test-support module:
@@ -187,8 +191,10 @@ func IsTestSupportModule(seg string) bool {
 }
 
 // isTestSupportToken reports whether tok, in any case, is one of testSupportTokens.
+// A slice, not a map: ranging over a map starts a randomized iterator on every call,
+// and this runs once per '-'/'_' token of every path segment.
 func isTestSupportToken(tok string) bool {
-	for t := range testSupportTokens {
+	for _, t := range testSupportTokens {
 		if strings.EqualFold(tok, t) {
 			return true
 		}
@@ -214,9 +220,16 @@ func IsTestPath(p string) bool {
 		return false
 	}
 	p = filepath.ToSlash(p)
-	segs := strings.Split(p, "/")
-	for i, seg := range segs {
-		if testSegments[seg] || IsTestSourceSet(segs, i) || IsTestSupportModule(seg) {
+	// Walk the segments in place rather than splitting: every analysis pass asks this
+	// of every fact's file, and the split was most of the cost.
+	prev, base := "", p
+	for rest, first := p, true; ; first = false {
+		seg := rest
+		i := strings.IndexByte(rest, '/')
+		if i >= 0 {
+			seg, rest = rest[:i], rest[i+1:]
+		}
+		if testSegments[seg] || (!first && isTestSourceSetSeg(prev, seg)) || IsTestSupportModule(seg) {
 			return true
 		}
 		for _, suf := range testProjectSuffixes {
@@ -224,10 +237,11 @@ func IsTestPath(p string) bool {
 				return true
 			}
 		}
-	}
-	base := p
-	if i := strings.LastIndex(base, "/"); i >= 0 {
-		base = base[i+1:]
+		if i < 0 {
+			base = seg
+			break
+		}
+		prev = seg
 	}
 	for _, suf := range testFileSuffixes {
 		if strings.HasSuffix(base, suf) {

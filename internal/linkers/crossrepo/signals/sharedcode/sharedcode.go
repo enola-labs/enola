@@ -15,6 +15,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"unicode"
 
 	"github.com/enola-labs/enola/internal/facts"
@@ -155,35 +156,52 @@ func splitCamelCase(s string) []string {
 // comparison count.
 
 // fileComparer scores how similar two source files are, memoizing both the per-file
-// line sets and the per-pair score. Several shared identities usually resolve to the
+// token sets and the per-pair score. Several shared identities usually resolve to the
 // same file pair, and every file is read at most once.
+//
+// It is safe for concurrent use. Each file is read and tokenized once, by whichever
+// goroutine asks first, while others asking for the same file wait for it; files
+// nobody else is waiting on read in parallel. A score computed twice by two
+// goroutines is the same number, so that race is harmless.
 type fileComparer struct {
-	v     *vocab.Set
-	src   plugin.SignalInput
-	lines map[string]map[string]bool // fact file path -> normalized line set (nil = unreadable)
-	score map[string]float64         // "fileA\x00fileB" -> similarity
+	v   *vocab.Set
+	src plugin.SignalInput
+
+	mu    sync.Mutex
+	lines map[string]*fileTokens // fact file path -> its token set, once read
+	score map[string]float64     // "fileA\x00fileB" -> similarity
+}
+
+// fileTokens is one file's token set, nil when unreadable or too large.
+type fileTokens struct {
+	once sync.Once
+	set  map[string]bool
 }
 
 func (s *Signal) newFileComparer(src plugin.SignalInput) *fileComparer {
 	return &fileComparer{
 		v:     s.v,
 		src:   src,
-		lines: map[string]map[string]bool{},
+		lines: map[string]*fileTokens{},
 		score: map[string]float64{},
 	}
 }
 
-// linesOf returns the normalized line set of a fact's file, or nil when unreadable.
+// linesOf returns the token set of a fact's file, or nil when unreadable.
 func (fc *fileComparer) linesOf(f facts.Fact) map[string]bool {
-	if set, ok := fc.lines[f.File]; ok {
-		return set
+	fc.mu.Lock()
+	ft := fc.lines[f.File]
+	if ft == nil {
+		ft = &fileTokens{}
+		fc.lines[f.File] = ft
 	}
-	var set map[string]bool
-	if text, ok := fc.src.ReadSource(f); ok && len(text) <= fc.v.Thresholds.MaxComparedFileBytes {
-		set = tokenSet(text)
-	}
-	fc.lines[f.File] = set
-	return set
+	fc.mu.Unlock()
+	ft.once.Do(func() {
+		if text, ok := fc.src.ReadSource(f); ok && len(text) <= fc.v.Thresholds.MaxComparedFileBytes {
+			ft.set = tokenSet(text)
+		}
+	})
+	return ft.set
 }
 
 // similar reports whether the files declaring a and b are alike enough to treat the
@@ -193,11 +211,15 @@ func (fc *fileComparer) similar(a, b facts.Fact) bool {
 	if b.File < a.File {
 		key = b.File + "\x00" + a.File
 	}
-	if score, ok := fc.score[key]; ok {
-		return score >= fc.v.Thresholds.MinFileSimilarity
+	fc.mu.Lock()
+	score, ok := fc.score[key]
+	fc.mu.Unlock()
+	if !ok {
+		score = jaccard(fc.linesOf(a), fc.linesOf(b))
+		fc.mu.Lock()
+		fc.score[key] = score
+		fc.mu.Unlock()
 	}
-	score := jaccard(fc.linesOf(a), fc.linesOf(b))
-	fc.score[key] = score
 	return score >= fc.v.Thresholds.MinFileSimilarity
 }
 
@@ -240,6 +262,65 @@ func jaccard(a, b map[string]bool) float64 {
 		return 0
 	}
 	return float64(inter) / float64(union)
+}
+
+// verifyPairs keeps, for each repository pair, only the shared identities whose
+// declaring files are alike, and records the files that matched. Each pair's answer
+// depends only on its own declarations, so the pairs are spread over in.ReadJobs()
+// workers: the work is reading files, and one at a time it was most of the link's
+// wall time on a large cluster. Results are written back on this goroutine.
+func (s *Signal) verifyPairs(in plugin.SignalInput, pairShared map[string]map[string]bool, idToRepos map[string]map[string][]facts.Fact, matchedFiles map[string][]string) {
+	fc := s.newFileComparer(in)
+	keys := make([]string, 0, len(pairShared))
+	for k := range pairShared {
+		keys = append(keys, k)
+	}
+	type result struct {
+		verified map[string]bool
+		matched  []string
+	}
+	results := make([]result, len(keys))
+	verify := func(i int) {
+		key := keys[i]
+		a, b, _ := strings.Cut(key, "\x00")
+		r := result{verified: map[string]bool{}}
+		for id := range pairShared[key] {
+			if fa, fb, ok := s.verifyIdentity(idToRepos[id], a, b, fc); ok {
+				r.verified[id] = true
+				r.matched = append(r.matched, sharedFileSample(id, fa, fb))
+			}
+		}
+		results[i] = r
+	}
+	jobs := min(in.ReadJobs(), len(keys))
+	if jobs <= 1 {
+		for i := range keys {
+			verify(i)
+		}
+	} else {
+		next := make(chan int)
+		var wg sync.WaitGroup
+		for range jobs {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for i := range next {
+					verify(i)
+				}
+			}()
+		}
+		for i := range keys {
+			next <- i
+		}
+		close(next)
+		wg.Wait()
+	}
+	for i, key := range keys {
+		pairShared[key] = results[i].verified
+		if len(results[i].matched) > 0 {
+			matchedFiles[key] = append(matchedFiles[key], results[i].matched...)
+		}
+	}
 }
 
 // verifyIdentity returns the first pairing of the declarations of id in repos a and b
@@ -346,18 +427,7 @@ func (s *Signal) Contribute(in plugin.SignalInput, out plugin.EvidenceSink) {
 	// matchedFiles[key] lists, per verified identity, the declarations that matched.
 	matchedFiles := map[string][]string{}
 	if in.HasSource() {
-		fc := s.newFileComparer(in)
-		for key, ids := range pairShared {
-			a, b, _ := strings.Cut(key, "\x00")
-			verified := map[string]bool{}
-			for id := range ids {
-				if fa, fb, ok := s.verifyIdentity(idToRepos[id], a, b, fc); ok {
-					verified[id] = true
-					matchedFiles[key] = append(matchedFiles[key], sharedFileSample(id, fa, fb))
-				}
-			}
-			pairShared[key] = verified
-		}
+		s.verifyPairs(in, pairShared, idToRepos, matchedFiles)
 	}
 
 	// Materialize an edge for each pair over the threshold — counted in VERIFIED

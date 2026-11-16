@@ -43,8 +43,9 @@ type Config struct {
 	// repository after another.
 	ClusterJobs int `yaml:"cluster_jobs,omitempty"`
 
-	// AnalysisJobs is how many explainers run at once after linking, and whether the
-	// annotators' read-only passes run beside each other. Every explainer reads a
+	// AnalysisJobs is how many explainers run at once after linking, whether the
+	// annotators' read-only passes run beside each other, and how many source files
+	// the cross-repo linker reads at once to verify shared code. Every explainer reads a
 	// frozen store and the results are assembled in registration order, so the
 	// snapshot is the same whatever it is; it trades memory for time, each running
 	// explainer holding its own working set. Zero means the default
