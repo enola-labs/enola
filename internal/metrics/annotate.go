@@ -39,14 +39,14 @@ const (
 // where an unrounded float would let an unchanged tree produce a different snapshot on
 // every run.
 func (e *Explainer) ComputeAnnotations(_ context.Context, store *facts.Store) (func(), error) {
-	pkgs, edges, _ := collect(store)
+	metrics, _ := computeAll(store)
 
 	// Keyed by (repo, package): module names are only unique WITHIN a repo, and a
 	// multi-repo snapshot routinely holds several packages called "src" or "internal".
 	// Keying on the name alone would write one repo's coupling onto another's module.
 	type key struct{ repo, pkg string }
-	byPkg := make(map[key]PackageMetric, len(pkgs))
-	for _, m := range compute(pkgs, edges) {
+	byPkg := make(map[key]PackageMetric, len(metrics))
+	for _, m := range metrics {
 		byPkg[key{m.Repo, m.Package}] = m
 	}
 

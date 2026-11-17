@@ -1087,3 +1087,66 @@ func TestMarkLegacyRepoPrefixes(t *testing.T) {
 		t.Errorf("a marked file was re-marked (%d): s/b.go is repository s's own directory s", n)
 	}
 }
+
+// A fact's whole doc comment follows the fact when it is tagged: the first repository
+// of a cluster is indexed untagged and tagged when the second arrives, and its texts
+// left under the untagged key were never found again, so docs.jsonl flattened them.
+func TestTagUntagged_MovesDocTexts(t *testing.T) {
+	s := NewStore()
+	s.Add(
+		Fact{Kind: KindSymbol, Name: "a.Main", File: "main.go", Props: map[string]any{PropDoc: "Main runs.", PropDocText: "Main runs.\nIt runs twice."}},
+		Fact{Kind: KindSymbol, Name: "a.Other", File: "other.go", Repo: "b", RepoPrefixed: true, Props: map[string]any{PropDoc: "Other.", PropDocText: "Other.\nKept."}},
+	)
+	s.TakeDocTexts(0)
+	s.TagUntagged("api", "api/")
+	if got := s.DocText(FactKey{Repo: "api", Kind: KindSymbol, Name: "a.Main", File: "api/main.go"}); got != "Main runs.\nIt runs twice." {
+		t.Errorf("tagged fact's doc text = %q", got)
+	}
+	if got := s.DocText(FactKey{Kind: KindSymbol, Name: "a.Main", File: "main.go"}); got != "" {
+		t.Errorf("the text stayed under the untagged key too: %q", got)
+	}
+	if got := s.DocText(FactKey{Repo: "b", Kind: KindSymbol, Name: "a.Other", File: "other.go"}); got != "Other.\nKept." {
+		t.Errorf("another repository's text moved: %q", got)
+	}
+}
+
+// Two stores holding the same facts in different orders hold them in one order after
+// SortByLocation, with their indexes remapped: a store just extracted and one restored
+// from facts.jsonl link alike.
+func TestSortByLocation_SameFactsSameOrder(t *testing.T) {
+	fs := []Fact{
+		{Kind: KindSymbol, Name: "Order", File: "app/models/order.rb", Line: 1, Repo: "shop", Props: map[string]any{"language": "ruby"}},
+		{Kind: KindSymbol, Name: "Order", File: "app/models/ee/order.rb", Line: 1, Repo: "shop", Props: map[string]any{"language": "ruby"}},
+		{Kind: KindRoute, Name: "/orders", File: "config/routes.rb", Line: 3, Repo: "shop", Props: map[string]any{"method": "POST"}},
+		{Kind: KindRoute, Name: "/orders", File: "config/routes.rb", Line: 3, Repo: "shop", Props: map[string]any{"method": "GET"}},
+		{Kind: KindModule, Name: "app", Repo: "admin"},
+	}
+	a, b := NewStore(), NewStore()
+	a.Add(fs...)
+	for i := len(fs) - 1; i >= 0; i-- {
+		b.Add(fs[i])
+	}
+	a.SortByLocation()
+	b.SortByLocation()
+	key := func(f Fact) string {
+		return f.Repo + " " + f.Kind + " " + f.Name + " " + f.File + " " + f.PropString("method")
+	}
+	for i := range fs {
+		if ka, kb := key(a.FactsRef()[i]), key(b.FactsRef()[i]); ka != kb {
+			t.Fatalf("position %d: %q vs %q", i, ka, kb)
+		}
+	}
+	if got := a.FactsRef()[0].Repo; got != "admin" {
+		t.Errorf("first fact is from %q, want admin (repository sorts first)", got)
+	}
+	for _, s := range []*Store{a, b} {
+		if n := len(s.ByKind(KindRoute)); n != 2 {
+			t.Errorf("ByKind(route) = %d after the sort, want 2", n)
+		}
+		for _, f := range s.ByKind(KindRoute) {
+			if f.Kind != KindRoute {
+				t.Errorf("the route index points at a %s", f.Kind)
+			}
+		}
+	}
+}

@@ -332,3 +332,25 @@ func TestBindsThroughAConfirmedHandlerTarget(t *testing.T) {
 		t.Errorf("an unconfirmed handler_target bound %q", got)
 	}
 }
+
+// A code route whose handler http-handler resolves (it runs after this binder) gives
+// the documented operation its handler whether or not the route already carries the
+// edge http-handler adds: a fresh graph does not yet, a graph restored and bound again
+// (a refresh) does, and the two bound different operations.
+func TestInheritsAHandlerHTTPHandlerResolves(t *testing.T) {
+	for _, edged := range []bool{false, true} {
+		code := facts.Fact{Kind: facts.KindRoute, Name: "/v1/things", File: "server.go",
+			Props: map[string]any{"method": "GET", facts.PropFramework: "gin", "handler": "ctl.GetThings", "language": "go"}}
+		if edged {
+			code.Relations = []facts.Relation{{Kind: facts.RelHandledBy, Target: "app.Controller.GetThings"}}
+		}
+		handler := facts.Fact{Kind: facts.KindSymbol, Name: "app.Controller.GetThings",
+			Props: map[string]any{"symbol_kind": facts.SymbolMethod, "http_handler": true}}
+		store := facts.NewStore()
+		store.Add(code, handler, op("/v1/things", "api/openapi.yaml", "listAllThings"))
+		bind(t, store)
+		if got := handledBy(t, store, "/v1/things", "api/openapi.yaml"); got != "app.Controller.GetThings" {
+			t.Errorf("edge on the code route %v: handled_by = %q, want app.Controller.GetThings", edged, got)
+		}
+	}
+}

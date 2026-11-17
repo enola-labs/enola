@@ -3,6 +3,7 @@ exit: 0
 --- stdout
 --- stderr
 enola: no mcp-arch.yaml in <TMP>/go_sample, using built-in defaults
+Generating: go_sample: pkg/b/gamma.go added (checked in <DURATION>)
 
 Snapshot complete:
   Repository:  <TMP>/go_sample

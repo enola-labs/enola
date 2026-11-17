@@ -161,6 +161,7 @@
 .file_hashes[].hash string
 .file_hashes[].mod_time string
 .file_hashes[].path string
+.file_hashes[].size number
 .files_parsed number
 .files_seen number
 .files_skipped number

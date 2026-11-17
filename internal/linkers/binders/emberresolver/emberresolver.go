@@ -88,6 +88,7 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 	bound := 0
 
 	type templateWork struct {
+		repo        string
 		ownerSymbol string
 		targets     []string
 		linkTargets []string
@@ -158,7 +159,7 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 		if !f.PropBool(templateProp) {
 			continue
 		}
-		w := &templateWork{}
+		w := &templateWork{repo: f.Repo}
 		if owner := f.PropString(ownerFileProp); owner != "" {
 			w.ownerSymbol = idx.primarySymbolIn(f.Repo, owner)
 		} else if sym := idx.primarySymbolIn(f.Repo, f.Name); sym != "" {
@@ -171,17 +172,17 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 				idx.addYieldHash(f.Repo, w.ownerSymbol, entries)
 			}
 		}
-		work[f.Name] = w
+		work[rk(f.Repo, f.Name)] = w
 	}
 	for _, f := range store.ByKind(facts.KindFileRef) {
 		if !f.PropBool(templateProp) {
 			continue
 		}
-		w := work[f.Name]
+		w := work[rk(f.Repo, f.Name)]
 		for _, name := range propStrings(f.PropAny(invocationsProp)) {
 			if target := idx.resolveInvocation(f.Repo, name, f.Name); target != "" {
 				w.targets = append(w.targets, target)
-				invokedAs.record(target, name)
+				invokedAs.record(f.Repo, target, name)
 			} else {
 				w.unresolved = append(w.unresolved, name)
 			}
@@ -209,7 +210,7 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 			}
 			if len(targets) > 0 {
 				sort.Strings(targets)
-				injections[s.Name] = targets
+				injections[rk(s.Repo, s.Name)] = targets
 			}
 		}
 		// An adapter/serializer/transform serves the model its file base names;
@@ -218,7 +219,7 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 			base := strings.TrimSuffix(filepath.Base(s.File), filepath.Ext(s.File))
 			if base != "application" {
 				if target := idx.resolveModel(s.Repo, base); target != "" {
-					dataRoleTargets[s.Name] = target
+					dataRoleTargets[rk(s.Repo, s.Name)] = target
 				}
 			}
 		}
@@ -229,7 +230,7 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 			file := filepath.ToSlash(s.File)
 			if strings.HasSuffix(file, ".gjs") || strings.HasSuffix(file, ".gts") {
 				if owner := idx.resolveRouteOwner(s.Repo, file); owner != "" && owner != s.Name {
-					templateOwners[owner] = append(templateOwners[owner], s.Name)
+					templateOwners[rk(s.Repo, owner)] = append(templateOwners[rk(s.Repo, owner)], s.Name)
 				}
 			}
 		}
@@ -243,10 +244,11 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 		if w.ownerSymbol == "" {
 			continue
 		}
-		merged := ownerTargets[w.ownerSymbol]
+		key := rk(w.repo, w.ownerSymbol)
+		merged := ownerTargets[key]
 		merged = append(merged, w.targets...)
 		merged = append(merged, w.linkTargets...)
-		ownerTargets[w.ownerSymbol] = merged
+		ownerTargets[key] = merged
 	}
 	for owner := range ownerTargets {
 		sort.Strings(ownerTargets[owner])
@@ -270,7 +272,18 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 		}
 		if len(targets) > 0 {
 			sort.Strings(targets)
-			relationships[s.Name] = targets
+			relationships[rk(s.Repo, s.Name)] = targets
+		}
+	}
+
+	// A symbol's own invocations name their targets too. Recorded before any fact is
+	// written, so the names a target is written with do not depend on whether the
+	// fact invoking it came before or after it in the store.
+	for _, s := range store.ByKind(facts.KindSymbol) {
+		for _, name := range propStrings(s.PropAny(invocationsProp)) {
+			if t := idx.resolveInvocation(s.Repo, name, s.File); t != "" && t != s.Name {
+				invokedAs.record(s.Repo, t, name)
+			}
 		}
 	}
 
@@ -285,7 +298,7 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 			return
 		}
 		if f.Kind == facts.KindFileRef {
-			if w, ok := work[f.Name]; ok && f.PropBool(templateProp) {
+			if w, ok := work[rk(f.Repo, f.Name)]; ok && f.PropBool(templateProp) {
 				if w.ownerSymbol == "" {
 					for _, t := range append(append([]string{}, w.targets...), w.linkTargets...) {
 						if !f.HasRelation(facts.RelCalls, t) {
@@ -306,7 +319,7 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 			return
 		}
 		if f.Kind == facts.KindStorage {
-			if targets, ok := relationships[f.Name]; ok {
+			if targets, ok := relationships[rk(f.Repo, f.Name)]; ok {
 				for _, t := range targets {
 					if t != f.Name && !f.HasRelation(facts.RelDependsOn, t) {
 						f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelDependsOn, Target: t})
@@ -325,10 +338,10 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 		if f.Kind != facts.KindSymbol {
 			return
 		}
-		if names := invokedAs.namesFor(f.Name); len(names) > 0 {
+		if names := invokedAs.namesFor(f.Repo, f.Name); len(names) > 0 {
 			f.SetProp(invokedAsProp, names)
 		}
-		if targets, ok := injections[f.Name]; ok {
+		if targets, ok := injections[rk(f.Repo, f.Name)]; ok {
 			for _, t := range targets {
 				if t != f.Name && !f.HasRelation(facts.RelInjects, t) {
 					f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelInjects, Target: t})
@@ -336,13 +349,13 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 				}
 			}
 		}
-		if t, ok := dataRoleTargets[f.Name]; ok {
+		if t, ok := dataRoleTargets[rk(f.Repo, f.Name)]; ok {
 			if !f.HasRelation(facts.RelDependsOn, t) {
 				f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelDependsOn, Target: t})
 				bound++
 			}
 		}
-		if comps, ok := templateOwners[f.Name]; ok {
+		if comps, ok := templateOwners[rk(f.Repo, f.Name)]; ok {
 			for _, t := range comps {
 				if !f.HasRelation(facts.RelCalls, t) {
 					f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelCalls, Target: t})
@@ -357,9 +370,6 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 			}
 		}
 		for _, name := range propStrings(f.PropAny(invocationsProp)) {
-			if t := idx.resolveInvocation(f.Repo, name, f.File); t != "" && t != f.Name {
-				invokedAs.record(t, name)
-			}
 			if t := idx.resolveInvocation(f.Repo, name, f.File); t != "" && t != f.Name && !f.HasRelation(facts.RelCalls, t) {
 				f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelCalls, Target: t})
 				bound++
@@ -371,7 +381,7 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 				bound++
 			}
 		}
-		for _, t := range ownerTargets[f.Name] {
+		for _, t := range ownerTargets[rk(f.Repo, f.Name)] {
 			if t != f.Name && !f.HasRelation(facts.RelCalls, t) {
 				f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelCalls, Target: t})
 				bound++
@@ -832,19 +842,20 @@ func newInvocationNames() *invocationNames {
 	return &invocationNames{byTarget: map[string]map[string]bool{}}
 }
 
-func (n *invocationNames) record(target, name string) {
+func (n *invocationNames) record(repo, target, name string) {
 	name = strings.TrimPrefix(name, "component:")
 	if target == "" || name == "" {
 		return
 	}
-	if n.byTarget[target] == nil {
-		n.byTarget[target] = map[string]bool{}
+	key := rk(repo, target)
+	if n.byTarget[key] == nil {
+		n.byTarget[key] = map[string]bool{}
 	}
-	n.byTarget[target][name] = true
+	n.byTarget[key][name] = true
 }
 
-func (n *invocationNames) namesFor(target string) []string {
-	set := n.byTarget[target]
+func (n *invocationNames) namesFor(repo, target string) []string {
+	set := n.byTarget[rk(repo, target)]
 	if len(set) == 0 {
 		return nil
 	}
@@ -855,3 +866,7 @@ func (n *invocationNames) namesFor(target string) []string {
 	sort.Strings(out)
 	return out
 }
+
+// rk keys a name by its repository: Ember apps in one cluster share component, route
+// and service names, and what one resolves must not land on the other's.
+func rk(repo, name string) string { return repo + "\x00" + name }

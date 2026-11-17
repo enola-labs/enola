@@ -202,6 +202,9 @@ FLAGS
   --no-dashboard      Do not start the localhost dashboard alongside the MCP server
   --no-cluster        With --generate on a folder that holds several git repositories:
                       index it as one repository instead of as a cluster
+  --force             With --generate: generate even when nothing changed. Without it,
+                      --generate first checks every repository against the graph on disk
+                      (commit, files, build, config) and exits when all match.
   --out DIR           With --generate on a cluster: write the cluster's graph to DIR.
                       Without it a cluster writes to a directory of its own under
                       ~/.enola/graphs/. Members keep their own snapshots either way.

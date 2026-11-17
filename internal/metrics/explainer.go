@@ -30,8 +30,8 @@ func (e *Explainer) Name() string { return "package-metrics" }
 // Explain emits insights for packages far from the main sequence plus the
 // most-depended-upon (god) package.
 func (e *Explainer) Explain(_ context.Context, store *facts.Store) ([]facts.Insight, error) {
-	pkgs, edges, _ := collect(store)
-	return metricsToInsights(compute(pkgs, edges)), nil
+	metrics, _ := computeAll(store)
+	return metricsToInsights(metrics), nil
 }
 
 // metricsToInsights flags packages with distance > painfulDistance (worst first)

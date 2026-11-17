@@ -1113,6 +1113,10 @@ func sortOrphans(o []Orphan) {
 func collect(store *facts.Store) ([]symInput, refIndex) {
 	claimed := deadmethods.ClaimedSymbols(store)
 	symbols := store.ByKind(facts.KindSymbol)
+	// In a fixed order, so the fact a name is reported through (its file, line and
+	// repository) and the properties taken from the first copy do not follow the
+	// store's order, which the members' order and a refresh change.
+	facts.SortByLocation(symbols)
 	// References are matched by name (see responseNote), so a symbol's identity is
 	// its name. Snapshots can carry several facts for one name (re-exports, the
 	// same relative path across repos, extractor quirks); collapse them into one

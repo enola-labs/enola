@@ -77,15 +77,7 @@ func (e *HotspotExplainer) Explain(ctx context.Context, store *facts.Store) ([]f
 	// fact per file, all sharing a Name and therefore identical in/out degree.
 	// De-dupe here so both the outlier distribution and the candidate set are over
 	// distinct symbols (repeated values would otherwise skew the threshold).
-	distinct := make([]facts.Fact, 0, len(symbols))
-	seen := make(map[string]bool, len(symbols))
-	for _, s := range symbols {
-		if seen[s.Name] {
-			continue
-		}
-		seen[s.Name] = true
-		distinct = append(distinct, s)
-	}
+	distinct := facts.DistinctByName(symbols)
 
 	scores := make(map[string]int, len(distinct))
 	values := make([]float64, 0, len(distinct))

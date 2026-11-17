@@ -78,6 +78,10 @@ publishes it by renaming each file into place, `receipt.json` last, after rotati
 current one into `previous/`. A reader that may run during a write should read
 `receipt.json` first and check each file it then reads against `output_hashes`; on a
 mismatch, read again a moment later, or read `previous/`, which is whole.
+When nothing changed since the last run (every repository at the same commit with the
+same files, the same enola build and config), `--generate` prints `Snapshot unchanged`,
+writes nothing and exits `0`: the artifacts already there are current. Pass `--force` to
+regenerate anyway.
 Exit status `0` means generation and artifact writing succeeded. On any non-zero
 status, do not ingest files already present in the output directory; they may be
 from an earlier run.

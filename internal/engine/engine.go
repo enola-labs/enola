@@ -94,6 +94,8 @@ type Engine struct {
 	// published: each turn but the last appends into its store, and the next turn
 	// extends it rather than the published bundle. Nil outside GenerateCluster.
 	building *snapshotBundle
+	// restoreDocTexts makes RestoreFromDir read docs.jsonl too; see SetRestoreDocTexts.
+	restoreDocTexts bool
 	// recordSnapshot is called at the end of WriteArtifacts; see SetSnapshotRecorder.
 	recordSnapshot func(SnapshotRecord)
 	// sessionClient is the PID of the agent process this server serves; zero for a
@@ -262,8 +264,12 @@ func (e *Engine) RestoreFromDir(dir string, repoPaths map[string]string, singleR
 	insightsFile, _ := os.Open(filepath.Join(dir, "insights.json"))
 	metaFile, _ := os.Open(filepath.Join(dir, "snapshot.meta.json"))
 	membersFile, _ := os.Open(filepath.Join(dir, MembersMetaFile))
+	var docsFile *os.File
+	if e.restoreDocTexts {
+		docsFile, _ = os.Open(filepath.Join(dir, docsArtifact))
+	}
 	unlock()
-	for _, f := range []*os.File{insightsFile, metaFile, membersFile} {
+	for _, f := range []*os.File{insightsFile, metaFile, membersFile, docsFile} {
 		if f != nil {
 			defer func() { _ = f.Close() }()
 		}
@@ -286,6 +292,11 @@ func (e *Engine) RestoreFromDir(dir string, repoPaths map[string]string, singleR
 			}
 			if want := recorded.OutputHashes["insights.json"]; want != "" && insightsErr == nil && hashBytes(insightsData) != want {
 				return fmt.Errorf("%w: %s", ErrGraphChanging, dir)
+			}
+			if want := recorded.OutputHashes[docsArtifact]; want != "" && docsFile != nil {
+				if got, err := hashOpenFile(docsFile); err != nil || got != want {
+					return fmt.Errorf("%w: %s", ErrGraphChanging, dir)
+				}
 			}
 		}
 	}
@@ -314,6 +325,11 @@ func (e *Engine) RestoreFromDir(dir string, repoPaths map[string]string, singleR
 		}
 	}
 	work.BuildGraph()
+	if docsFile != nil {
+		if err := readDocTexts(work, docsFile); err != nil {
+			return fmt.Errorf("reading %s: %w", filepath.Join(dir, docsArtifact), err)
+		}
+	}
 
 	// Default the primary repo path from the dir; snapshot.meta.json (loaded below)
 	// overrides it when present.
@@ -1332,34 +1348,52 @@ func (e *Engine) GetArtifact(name string) ([]byte, error) {
 // parallelizing.
 // It stops early once ctx is done, returning what it has; the caller checks ctx.
 func (e *Engine) computeFileHashes(ctx context.Context, repoPath string, files []string) map[string]string {
+	hashes, _ := e.hashFilesWithStat(ctx, repoPath, files)
+	return hashes
+}
+
+// fileStat is a file's size and modification time as they were when it was hashed.
+// mod is empty when the file had been modified too recently to be told apart from a
+// modification later in the same second, which makes a later check read it.
+type fileStat struct {
+	size int64
+	mod  string
+}
+
+// hashFilesWithStat hashes files and records each one's size and modification time,
+// taken before it is read: a file modified after that has a later time, so a later run
+// that finds the recorded size and time may take the recorded hash as the file's
+// content (see CheckUnchanged). The recorded time has a resolution of a second, so a
+// file modified in the last moments before it was read gets no time at all.
+func (e *Engine) hashFilesWithStat(ctx context.Context, repoPath string, files []string) (map[string]string, map[string]fileStat) {
 	hashes := make(map[string]string, len(files))
+	stats := make(map[string]fileStat, len(files))
 	for _, relFile := range files {
 		if ctx.Err() != nil {
 			break
 		}
 		absFile := filepath.Join(repoPath, relFile)
+		info, statErr := os.Stat(absFile)
 		data, err := os.ReadFile(absFile)
 		if err != nil {
 			continue
 		}
 		h := sha256.Sum256(data)
 		hashes[relFile] = hex.EncodeToString(h[:])
+		if statErr == nil && info.Size() == int64(len(data)) {
+			st := fileStat{size: info.Size()}
+			if time.Since(info.ModTime()) > driftRacyWindow {
+				st.mod = info.ModTime().UTC().Format(time.RFC3339)
+			}
+			stats[relFile] = st
+		}
 	}
-	return hashes
-}
-
-// fileModTime returns the modification time of a file as an RFC3339 string.
-func fileModTime(path string) string {
-	info, err := os.Stat(path)
-	if err != nil {
-		return ""
-	}
-	return info.ModTime().UTC().Format(time.RFC3339)
+	return hashes, stats
 }
 
 // fileHashesOf lists the hashes by path, so the meta holding them is the same bytes
 // for the same files.
-func fileHashesOf(absRepo string, hashes map[string]string) []facts.FileHash {
+func fileHashesOf(hashes map[string]string, stats map[string]fileStat) []facts.FileHash {
 	paths := make([]string, 0, len(hashes))
 	for path := range hashes {
 		paths = append(paths, path)
@@ -1367,11 +1401,8 @@ func fileHashesOf(absRepo string, hashes map[string]string) []facts.FileHash {
 	sort.Strings(paths)
 	out := make([]facts.FileHash, 0, len(hashes))
 	for _, path := range paths {
-		out = append(out, facts.FileHash{
-			Path:    path,
-			Hash:    hashes[path],
-			ModTime: fileModTime(filepath.Join(absRepo, path)),
-		})
+		st := stats[path]
+		out = append(out, facts.FileHash{Path: path, Hash: hashes[path], ModTime: st.mod, Size: st.size})
 	}
 	return out
 }
@@ -1437,4 +1468,58 @@ func hashOpenFile(f *os.File) (string, error) {
 		return "", err
 	}
 	return hashPrefix + hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// docsArtifact is the docs renderer's file: the whole comment of each documented fact.
+const docsArtifact = "docs.jsonl"
+
+// SetRestoreDocTexts makes a restore read every documented fact's whole comment back
+// from docs.jsonl. facts.jsonl carries only the one-line summary, so a graph that is
+// restored and then extended (a refresh of one member) would otherwise render the
+// members it did not re-read with their comments flattened. A restore that only
+// serves the graph has no use for them, and docs.jsonl is the largest artifact, so it
+// is not read unless asked for.
+func (e *Engine) SetRestoreDocTexts(on bool) { e.restoreDocTexts = on }
+
+// readDocTexts records the whole comments docs.jsonl in f holds, the way the generate
+// that wrote it held them. A text is kept per fact key (repo, kind, name, file), which
+// overloads share, and a fact the generate kept none for rendered its own one-line
+// summary: so a line whose doc is its fact's summary records nothing. Recording every
+// line gave all of a name's overloads the last one's comment.
+func readDocTexts(store *facts.Store, f *os.File) error {
+	type at struct {
+		key  facts.FactKey
+		line int
+	}
+	summary := map[at]string{}
+	for _, fact := range store.FactsRef() {
+		if doc := fact.PropString(facts.PropDoc); doc != "" {
+			summary[at{facts.FactKey{Repo: fact.Repo, Kind: fact.Kind, Name: fact.Name, File: fact.File}, fact.Line}] = doc
+		}
+	}
+	info, err := f.Stat()
+	if err != nil {
+		return err
+	}
+	sc := bufio.NewScanner(io.NewSectionReader(f, 0, info.Size()))
+	sc.Buffer(make([]byte, 0, 1<<20), 64<<20)
+	for sc.Scan() {
+		var l struct {
+			Repo string `json:"repo"`
+			Kind string `json:"kind"`
+			Name string `json:"name"`
+			File string `json:"file"`
+			Line int    `json:"line"`
+			Doc  string `json:"doc"`
+		}
+		if err := json.Unmarshal(sc.Bytes(), &l); err != nil {
+			return err
+		}
+		key := facts.FactKey{Repo: l.Repo, Kind: l.Kind, Name: l.Name, File: l.File}
+		if l.Doc == summary[at{key, l.Line}] {
+			continue
+		}
+		store.SetDocText(key, l.Doc)
+	}
+	return sc.Err()
 }

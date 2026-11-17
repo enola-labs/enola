@@ -960,6 +960,10 @@ func (s *Store) TagUntagged(repo, filePrefix string) int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	count := 0
+	// The whole doc comments are keyed by repo and file too, and must follow their
+	// facts: left under the old key, the first repository of a cluster, tagged here
+	// when the second arrives, rendered its comments flattened to the one-line summary.
+	var moved map[FactKey]FactKey
 	for i := range s.facts {
 		f := &s.facts[i]
 
@@ -967,6 +971,7 @@ func (s *Store) TagUntagged(repo, filePrefix string) int {
 		if f.Repo != "" && f.Repo != repo {
 			continue
 		}
+		before := FactKey{Repo: f.Repo, Kind: f.Kind, Name: f.Name, File: f.File}
 
 		// Set Repo if not already set.
 		if f.Repo == "" {
@@ -985,6 +990,26 @@ func (s *Store) TagUntagged(repo, filePrefix string) int {
 			s.byFile[f.File] = append(s.byFile[f.File], i)
 			count++
 		}
+
+		if after := (FactKey{Repo: f.Repo, Kind: f.Kind, Name: f.Name, File: f.File}); after != before {
+			if _, ok := s.docTexts[before]; ok {
+				if moved == nil {
+					moved = map[FactKey]FactKey{}
+				}
+				moved[before] = after
+			}
+		}
+	}
+	// Every text is read before any is deleted: two facts can share an old key.
+	texts := make(map[FactKey]string, len(moved))
+	for before, after := range moved {
+		texts[after] = s.docTexts[before]
+	}
+	for before := range moved {
+		delete(s.docTexts, before)
+	}
+	for after, text := range texts {
+		s.docTexts[after] = text
 	}
 	return count
 }
@@ -1252,6 +1277,64 @@ func (s *Store) SortLikeJSONL() error {
 	if err != nil {
 		return err
 	}
+	s.applyOrder(order)
+	return nil
+}
+
+// SortByLocation puts the facts in an order that depends only on where each one is:
+// repository, kind, name, file, line, end line, then the method, role and language
+// extraction gave it. Linking runs over the store in its order, and binders and explainers that
+// keep the first or last of several same-named facts (a Ruby class reopened across
+// files, a Go method on several receivers) keep whichever that order puts there. A
+// generate held the facts in extraction order and a store restored from facts.jsonl
+// in that file's order, so a refresh, which links a restored store, bound some of them
+// differently from a full generate of the same trees. Neither key is what linking
+// writes, so both paths sort to the same order.
+func (s *Store) SortByLocation() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	order := make([]int32, len(s.facts))
+	for i := range order {
+		order[i] = int32(i)
+	}
+	slices.SortStableFunc(order, func(a, b int32) int {
+		fa, fb := &s.facts[a], &s.facts[b]
+		if c := strings.Compare(fa.Repo, fb.Repo); c != 0 {
+			return c
+		}
+		if c := strings.Compare(fa.Kind, fb.Kind); c != 0 {
+			return c
+		}
+		if c := strings.Compare(fa.Name, fb.Name); c != 0 {
+			return c
+		}
+		if c := strings.Compare(fa.File, fb.File); c != 0 {
+			return c
+		}
+		if fa.Line != fb.Line {
+			return fa.Line - fb.Line
+		}
+		if fa.EndLine != fb.EndLine {
+			return fa.EndLine - fb.EndLine
+		}
+		// Extraction sets these and linking does not: routes on one path and line
+		// differ by method and role, modules two extractors emit by language.
+		for _, key := range locationTieProps {
+			if c := strings.Compare(fa.PropString(key), fb.PropString(key)); c != 0 {
+				return c
+			}
+		}
+		return 0
+	})
+	s.applyOrder(order)
+}
+
+// locationTieProps break ties between facts at one location (see SortByLocation).
+var locationTieProps = []string{"method", "role", "language"}
+
+// applyOrder moves the facts so facts[to] is the fact that was at order[to], and
+// remaps every index and the graph. Caller holds s.mu.
+func (s *Store) applyOrder(order []int32) {
 	inv := make([]int32, len(order))
 	moved := false
 	for to, from := range order {
@@ -1259,7 +1342,7 @@ func (s *Store) SortLikeJSONL() error {
 		moved = moved || int(from) != to
 	}
 	if !moved {
-		return nil
+		return
 	}
 	// facts[to] = old facts[order[to]], one cycle at a time, marking order as it goes.
 	for start := range order {
@@ -1305,7 +1388,6 @@ func (s *Store) SortLikeJSONL() error {
 	if s.graph != nil {
 		s.graph.remapFacts(s.facts, inv)
 	}
-	return nil
 }
 
 // jsonlChunk is how many facts one worker marshals at a time.
@@ -1668,6 +1750,21 @@ func (s *Store) TakeDocTexts(startIdx int) int {
 		delete(s.facts[i].Props, PropDocText)
 	}
 	return n
+}
+
+// SetDocText records text as the whole comment of the fact with key k: a restore that
+// will be extended reads the texts back from docs.jsonl, since facts.jsonl carries only
+// the one-line PropDoc.
+func (s *Store) SetDocText(k FactKey, text string) {
+	if text == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.docTexts == nil {
+		s.docTexts = make(map[FactKey]string)
+	}
+	s.docTexts[k] = text
 }
 
 // DocText returns the whole comment of the fact with key k, or "" when its PropDoc

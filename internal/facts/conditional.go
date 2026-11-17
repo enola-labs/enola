@@ -1,5 +1,7 @@
 package facts
 
+import "sort"
+
 // CanonicalSymbols collapses conditional-compilation duplicates in a slice of
 // symbol facts. A type or member declared once per branch of a #if/#else block is
 // emitted as multiple same-name facts, because the Swift and C++ extractors walk
@@ -33,4 +35,50 @@ func CanonicalSymbols(syms []Fact) []Fact {
 		out = append(out, s)
 	}
 	return out
+}
+
+// DistinctByName keeps one fact per name: the one that sorts first by repository,
+// file and line. The graph keys nodes by name, so an explainer scoring a node reports
+// it through one of the facts that share the name, and in a cluster two repositories
+// often have one (a User, an app.Main). Which one it was used to be whichever the
+// store held first, so a finding's file followed the members' order, and a refresh,
+// which reorders the store, moved it. The result keeps the order of first appearance.
+func DistinctByName(fs []Fact) []Fact {
+	best := make(map[string]int, len(fs))
+	out := make([]Fact, 0, len(fs))
+	for _, f := range fs {
+		i, seen := best[f.Name]
+		if !seen {
+			best[f.Name] = len(out)
+			out = append(out, f)
+			continue
+		}
+		if sortsBefore(f, out[i]) {
+			out[i] = f
+		}
+	}
+	return out
+}
+
+func sortsBefore(a, b Fact) bool {
+	if a.Repo != b.Repo {
+		return a.Repo < b.Repo
+	}
+	if a.File != b.File {
+		return a.File < b.File
+	}
+	if a.Line != b.Line {
+		return a.Line < b.Line
+	}
+	if a.Name != b.Name {
+		return a.Name < b.Name
+	}
+	return a.Kind < b.Kind
+}
+
+// SortByLocation orders fs, in place, by repository, file, line, name and kind: the
+// order in which an explainer that keeps the first fact per name keeps the same one
+// however the store came to hold them (the members' order, a refresh).
+func SortByLocation(fs []Fact) {
+	sort.SliceStable(fs, func(i, j int) bool { return sortsBefore(fs[i], fs[j]) })
 }

@@ -67,6 +67,44 @@ func (b *Binder) Name() string { return "http-handler" }
 func (b *Binder) Stage() plugin.BindStage { return plugin.StagePostLink }
 
 func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
+	res := NewResolver(store)
+	bound := 0
+	store.UpdateWhere(func(f *facts.Fact) {
+		if f.Kind != facts.KindRoute || f.Props == nil {
+			return
+		}
+		t := res.Target(*f)
+		if t == "" || f.HasRelation(facts.RelHandledBy, t) {
+			return // idempotent across appends
+		}
+		// Deliberately NOT overwriting Props["handler"]: unlike grpcimpl, which
+		// reconstructs an exact FQN, the raw prop here is the literal
+		// registration-site expression and is the only record of HOW the route was
+		// wired. The resolved symbol lives on the edge.
+		f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelHandledBy, Target: t})
+		bound++
+	})
+	if bound > 0 {
+		log.Printf("[binder:http-handler] bound %d HTTP route(s) to their handler", bound)
+	}
+	settleTargets(store)
+	return nil
+}
+
+// Resolver finds an HTTP route's handler symbol from the extracted facts alone: the
+// route's handler expression and the repository's symbols. It is what Bind adds, and a
+// binder that runs before Bind (openapi-impl) asks it rather than reading the edges
+// Bind left, which a graph restored and bound again (a refresh) has and a fresh one
+// does not yet.
+type Resolver struct {
+	index     map[string]map[string]string // repo -> method name -> symbol name
+	ambiguous map[string]map[string]bool   // repo -> method name -> seen twice
+	byFQN     map[string]map[string]string
+	exact     map[string]string
+}
+
+// NewResolver indexes store's handler symbols.
+func NewResolver(store *facts.Store) *Resolver {
 	// Index handler symbols by method name, per repo. A method name claimed by two
 	// handlers is poisoned: from the registration site alone there is nothing left to
 	// tell them apart, and grpcimpl's precedent is to skip rather than guess.
@@ -106,65 +144,44 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 		}
 	}
 
-	exact := resolveExactHandlers(store, byFQN)
+	return &Resolver{index: index, ambiguous: ambiguous, byFQN: byFQN, exact: resolveExactHandlers(store, byFQN)}
+}
 
-	bound := 0
-	store.UpdateWhere(func(f *facts.Fact) {
-		if f.Kind != facts.KindRoute || f.Props == nil {
-			return
-		}
-		switch f.PropString(facts.PropRouteType) {
-		case facts.RouteTypeMiddleware:
-			// Middleware's "handler" is a middleware func, not an HTTP handler. It
-			// carries no HandlerProp so it could not bind anyway, but skip it
-			// explicitly: binding middleware to a route would pollute the very edges
-			// this exists to make trustworthy.
-			return
-		case facts.RouteTypeGRPC:
-			// A gRPC route is grpcimpl's to bind, and by the time both have run it
-			// carries a `handler` prop holding a fully qualified method name whose
-			// last segment could collide with an HTTP handler's method name. Without
-			// this gate the two binders would not be independent — the result would
-			// depend on which ran first, which the Binder contract forbids. The old
-			// `language == "go"` test excluded these only by accident, gRPC routes
-			// carrying language="grpc".
-			return
-		}
-		if key, _, _ := exactCandidate(*f, byFQN); key != "" && exact[key] != "" {
-			t := exact[key]
-			if !f.HasRelation(facts.RelHandledBy, t) {
-				f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelHandledBy, Target: t})
-				bound++
-			}
-			return
-		}
-		handler := f.PropString("handler")
-		if handler == "" {
-			return
-		}
-		method := facts.ShortName(handler)
-		if method == "" || ambiguous[f.Repo][method] {
-			return
-		}
-		target := index[f.Repo][method]
-		if target == "" {
-			return
-		}
-		if f.HasRelation(facts.RelHandledBy, target) {
-			return // idempotent across appends
-		}
-		f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelHandledBy, Target: target})
-		// Deliberately NOT overwriting Props["handler"]: unlike grpcimpl, which
-		// reconstructs an exact FQN, the raw prop here is the literal
-		// registration-site expression and is the only record of HOW the route was
-		// wired. The resolved symbol lives on the edge.
-		bound++
-	})
-	if bound > 0 {
-		log.Printf("[binder:http-handler] bound %d HTTP route(s) to their handler", bound)
+// Target is the symbol route f's handler resolves to, "" when it does not resolve or
+// names two.
+func (r *Resolver) Target(f facts.Fact) string {
+	if f.Kind != facts.KindRoute || f.Props == nil {
+		return ""
 	}
-	settleTargets(store)
-	return nil
+	switch f.PropString(facts.PropRouteType) {
+	case facts.RouteTypeMiddleware:
+		// Middleware's "handler" is a middleware func, not an HTTP handler. It
+		// carries no HandlerProp so it could not bind anyway, but skip it
+		// explicitly: binding middleware to a route would pollute the very edges
+		// this exists to make trustworthy.
+		return ""
+	case facts.RouteTypeGRPC:
+		// A gRPC route is grpcimpl's to bind, and by the time both have run it
+		// carries a `handler` prop holding a fully qualified method name whose
+		// last segment could collide with an HTTP handler's method name. Without
+		// this gate the two binders would not be independent — the result would
+		// depend on which ran first, which the Binder contract forbids. The old
+		// `language == "go"` test excluded these only by accident, gRPC routes
+		// carrying language="grpc".
+		return ""
+	}
+	if key, _, _ := exactCandidate(f, r.byFQN); key != "" && r.exact[key] != "" {
+		return r.exact[key]
+	}
+	handler := f.PropString("handler")
+	if handler == "" {
+		return ""
+	}
+	method := facts.ShortName(handler)
+	if method == "" || r.ambiguous[f.Repo][method] {
+		return ""
+	}
+	return r.index[f.Repo][method]
 }
 
 // resolveExactHandlers resolves the routes whose handler names its symbol outright,

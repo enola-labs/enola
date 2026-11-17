@@ -83,7 +83,7 @@ func TestFileHashesOf_SortedByPath(t *testing.T) {
 	for _, p := range []string{"z.go", "a/b.go", "m.go", "a.go", "b/a.go"} {
 		hashes[p] = "h"
 	}
-	got := fileHashesOf(t.TempDir(), hashes)
+	got := fileHashesOf(hashes, nil)
 	for i := 1; i < len(got); i++ {
 		if got[i-1].Path >= got[i].Path {
 			t.Fatalf("not sorted by path: %v", got)

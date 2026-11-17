@@ -87,7 +87,7 @@ func (e *Engine) adoptPrefetched(r *snapshotRun, pf *prefetched) bool {
 	r.preCount = e.store.Count()
 	e.store.Add(pf.store.FactsRef()...)
 	e.store.CarryDocTexts(pf.store, func(facts.FactKey) bool { return true })
-	r.files, r.testFiles, r.allNames, r.skips, r.hashes = p.files, p.testFiles, p.allNames, p.skips, p.hashes
+	r.files, r.testFiles, r.allNames, r.skips, r.hashes, r.stats = p.files, p.testFiles, p.allNames, p.skips, p.hashes, p.stats
 	r.usedExtractors, r.shadowed, r.parseErrs, r.provRecords = p.usedExtractors, p.shadowed, p.parseErrs, p.provRecords
 	r.progress, r.t, r.detached = p.progress, p.t, p.detached
 	return true

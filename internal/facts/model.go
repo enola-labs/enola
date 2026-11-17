@@ -675,6 +675,10 @@ type FileHash struct {
 	Path    string `json:"path"`
 	Hash    string `json:"hash"`
 	ModTime string `json:"mod_time"`
+	// Size, with ModTime, lets a later run take a file whose size and modification
+	// time are unchanged as unchanged without reading it. Zero in metas from before
+	// it was recorded, which makes every file be read.
+	Size int64 `json:"size,omitempty"`
 }
 
 // GitInfo records the VCS state of the repository at snapshot time, so a receipt

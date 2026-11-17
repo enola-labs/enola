@@ -10,12 +10,8 @@ Indexing them as a cluster, so each one becomes a service and the calls between 
   To index <TMP>/services as one repository instead: enola --generate --no-cluster <TMP>/services
 
 
-Snapshot complete:
-  Repositories: 2
-    - <TMP>/services/api
-    - <TMP>/services/consumer
-  Facts:       22
-  Insights:    6
-  Artifacts:   3
-  Duration:    <DURATION>
+Snapshot unchanged:
+  Repositories: 2, checked in <DURATION>
+  Generated:   <TIME>
   Output:      <TMP>/.enola/graphs/services-cluster-<KEY>
+  Nothing changed since; pass --force to generate again anyway.
