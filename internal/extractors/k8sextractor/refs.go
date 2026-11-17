@@ -204,6 +204,38 @@ func (ix *index) references(o *obj) []string {
 		}
 	case "Gateway":
 		add(ix.resolve(o, "GatewayClass", k8syaml.String(doc, "spec", "gatewayClassName"), ""))
+	case "VirtualService":
+		// Istio: the Services its http, tcp and tls routes send to, and the
+		// gateways it binds to (`name` or `namespace/name`; `mesh` is the sidecars).
+		for _, section := range []string{"http", "tcp", "tls"} {
+			for _, r := range k8syaml.List(doc, "spec", section) {
+				rule, ok := r.(map[string]any)
+				if !ok {
+					continue
+				}
+				routes, _ := rule["route"].([]any)
+				for _, rt := range routes {
+					if m, ok := rt.(map[string]any); ok {
+						if d, ok := m["destination"].(map[string]any); ok {
+							name, ns := istioHost(str(d, "host"))
+							add(ix.resolve(o, "Service", name, ns))
+						}
+					}
+				}
+			}
+		}
+		for _, g := range k8syaml.List(doc, "spec", "gateways") {
+			if gw, ok := g.(string); ok && gw != "mesh" && k8syaml.Literal(gw) {
+				ns, name, found := strings.Cut(gw, "/")
+				if !found {
+					ns, name = "", gw
+				}
+				add(ix.resolve(o, "Gateway", name, ns))
+			}
+		}
+	case "DestinationRule":
+		name, ns := istioHost(k8syaml.String(doc, "spec", "host"))
+		add(ix.resolve(o, "Service", name, ns))
 	case "RoleBinding", "ClusterRoleBinding":
 		if rr := k8syaml.Map(doc, "roleRef"); rr != nil {
 			add(ix.resolve(o, str(rr, "kind"), str(rr, "name"), ""))
@@ -236,6 +268,26 @@ func (ix *index) references(o *obj) []string {
 		add(ix.addressRefs(o, configMapValues(doc)))
 	}
 	return out
+}
+
+// istioHost splits an Istio destination host into a Service name and namespace:
+// `orders`, `orders.shop`, `orders.shop.svc.cluster.local`. An external host
+// (a dotted name past the namespace that is not the cluster suffix) names no
+// Service.
+func istioHost(host string) (name, namespace string) {
+	if host == "" || !k8syaml.Literal(host) || strings.Contains(host, "*") {
+		return "", ""
+	}
+	parts := strings.Split(host, ".")
+	switch {
+	case len(parts) == 1:
+		return parts[0], ""
+	case len(parts) == 2:
+		return parts[0], parts[1]
+	case len(parts) >= 3 && parts[2] == "svc":
+		return parts[0], parts[1]
+	}
+	return "", ""
 }
 
 func str(m map[string]any, k string) string {

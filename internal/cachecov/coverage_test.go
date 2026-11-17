@@ -239,6 +239,7 @@ var versionCoverage = map[int][]string{
 	644: {"TestTerragruntUnits"},
 	645: {"TestAvroNamedTypesAndReferences"},
 	646: {"TestRegoRulesAndReferences"},
+	647: {"TestIstioVirtualServiceAndDestinationRule"},
 	507: {"TestRustImportAliasesBindOnlyTheAlias", "TestRustImportedTypeThroughAFileModuleWithADirectory", "TestRustMethodsInAFileModulesSubdirectoryResolve", "TestRustTypeImportedThroughAReExportResolves", "TestRustTypeAliasIsFollowedToItsType", "TestRustAliasedExternalImportDoesNotHideTheLocalName"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},

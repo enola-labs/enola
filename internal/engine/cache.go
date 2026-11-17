@@ -3698,7 +3698,8 @@ import (
 // v644: HCL: Terragrunt units become modules with include, source and dependency edges.
 // v645: Avro is a new FileOwner (.avdl, .avsc).
 // v646: Rego is a new FileOwner (.rego).
-const cacheVersion = "v646"
+// v647: Kubernetes: Istio VirtualService and DestinationRule reference Services and Gateways.
+const cacheVersion = "v647"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

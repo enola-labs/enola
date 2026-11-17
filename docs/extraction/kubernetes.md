@@ -18,6 +18,8 @@ Fixture: [`k8s_sample`](../../internal/engine/testdata/repos/k8s_sample/)
 | a Service's `selector` | `depends_on` to every workload whose pod labels carry it | relation |
 | an Ingress backend, `ingressClassName` | `depends_on` to the Service, the IngressClass | relation |
 | an HTTPRoute (or GRPC, TCP, TLS, UDP route) | `depends_on` to its `parentRefs` and `backendRefs` | relation |
+| an Istio VirtualService | `depends_on` to the Services its `http`/`tcp`/`tls` routes send to (`svc`, `svc.ns`, `svc.ns.svc.cluster.local`; external hosts name nothing) and the Gateways in `gateways` (`mesh` excepted) | relation |
+| an Istio DestinationRule | `depends_on` to its `host` Service | relation |
 | `envFrom`, `valueFrom`, `volumes`, `imagePullSecrets`, `serviceAccountName` | `depends_on` from the workload to each ConfigMap, Secret, claim and ServiceAccount | relation |
 | a RoleBinding or ClusterRoleBinding | `depends_on` to its `roleRef` and ServiceAccount subjects | relation |
 | an HPA, VPA or PodDisruptionBudget | `depends_on` to the workload it scales or protects | relation |
