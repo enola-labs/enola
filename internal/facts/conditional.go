@@ -37,29 +37,6 @@ func CanonicalSymbols(syms []Fact) []Fact {
 	return out
 }
 
-// DistinctByName keeps one fact per name: the one that sorts first by repository,
-// file and line. The graph keys nodes by name, so an explainer scoring a node reports
-// it through one of the facts that share the name, and in a cluster two repositories
-// often have one (a User, an app.Main). Which one it was used to be whichever the
-// store held first, so a finding's file followed the members' order, and a refresh,
-// which reorders the store, moved it. The result keeps the order of first appearance.
-func DistinctByName(fs []Fact) []Fact {
-	best := make(map[string]int, len(fs))
-	out := make([]Fact, 0, len(fs))
-	for _, f := range fs {
-		i, seen := best[f.Name]
-		if !seen {
-			best[f.Name] = len(out)
-			out = append(out, f)
-			continue
-		}
-		if sortsBefore(f, out[i]) {
-			out[i] = f
-		}
-	}
-	return out
-}
-
 func sortsBefore(a, b Fact) bool {
 	if a.Repo != b.Repo {
 		return a.Repo < b.Repo
@@ -83,9 +60,12 @@ func SortByLocation(fs []Fact) {
 	sort.SliceStable(fs, func(i, j int) bool { return sortsBefore(fs[i], fs[j]) })
 }
 
-// DistinctByNode is DistinctByName over graph nodes: one fact per node, so a name
-// declared in several repositories, which is a node in each, is kept once per
-// repository.
+// DistinctByNode keeps one fact per graph node: the one that sorts first by
+// repository, file and line. An explainer scoring a node reports it through one of the
+// facts declaring it, and which one used to be whichever the store held first, so a
+// finding's file followed the members' order and moved on a refresh, which reorders
+// the store. A name declared in several repositories is a node in each, and is kept
+// once per repository. The result keeps the order of first appearance.
 func DistinctByNode(fs []Fact, g *Graph) []Fact {
 	best := make(map[string]int, len(fs))
 	out := make([]Fact, 0, len(fs))
