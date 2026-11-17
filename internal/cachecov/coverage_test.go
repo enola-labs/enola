@@ -202,6 +202,7 @@ var versionCoverage = map[int][]string{
 	607: {"TestExtract_SpecTitleAndServerHost"},
 	608: {"TestExtract_GatewayFacadeGivesTheServiceRoutesTheirGatewayPath"},
 	609: {"TestRouterMount_FastifyPluginsServeWhereTheAppTakesThem", "TestServerFile_RegistrationsAreNotClientCalls"},
+	610: {"TestImportedWrapper_HelpersOverAnAxiosInstance"},
 	507: {"TestRustImportAliasesBindOnlyTheAlias", "TestRustImportedTypeThroughAFileModuleWithADirectory", "TestRustMethodsInAFileModulesSubdirectoryResolve", "TestRustTypeImportedThroughAReExportResolves", "TestRustTypeAliasIsFollowedToItsType", "TestRustAliasedExternalImportDoesNotHideTheLocalName"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},

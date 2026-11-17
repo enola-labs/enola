@@ -210,3 +210,49 @@ export async function removePolicy(id: string) {
 		t.Errorf("a call through fetchPost was read as a GET: %v", got)
 	}
 }
+
+// A shared client is often an axios instance, `axios.create({ baseURL })`, behind one
+// exported helper per verb. A call to a helper is a request with that helper's verb.
+func TestImportedWrapper_HelpersOverAnAxiosInstance(t *testing.T) {
+	ff := extractTSRepo(t, map[string]string{
+		"src/utilities/api.ts": `
+import axios from 'axios'
+
+const api = axios.create({ baseURL: '/', withCredentials: true })
+
+export async function apiGet<T>(url: string, config?: object) {
+  const response = await api.get<T>(url, config)
+  return response.data
+}
+
+export async function apiPatch<T>(url: string, data?: unknown) {
+  const response = await api.patch<T>(url, data)
+  return response.data
+}
+`,
+		"src/data/tickets.ts": `
+import { apiGet, apiPatch } from '../utilities/api'
+
+export const getTeams = () => apiGet('/api/v2/teams')
+export const moveTicket = (id: number, queue: number) =>
+  apiPatch(` + "`/api/v2/tickets/${id}/change_queue`" + `, { queue })
+`,
+	})
+	want := map[string]string{"/api/v2/teams": "GET", "/api/v2/tickets/{}/change_queue": "PATCH"}
+	for _, f := range ff {
+		if f.Kind == facts.KindRoute && f.PropString(facts.PropRole) == facts.RoleClient && f.File == "src/data/tickets.ts" {
+			if want[f.Name] == f.PropString("method") {
+				delete(want, f.Name)
+			}
+		}
+	}
+	if len(want) != 0 {
+		var got []string
+		for _, f := range ff {
+			if f.Kind == facts.KindRoute {
+				got = append(got, f.PropString("method")+" "+f.Name+" "+f.File)
+			}
+		}
+		t.Fatalf("missing client calls %v; routes: %v", want, got)
+	}
+}

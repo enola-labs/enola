@@ -3652,7 +3652,9 @@ import (
 // facade's gateway path.
 // v609: TypeScript: a Fastify plugin's routes serve where the app takes the plugin, and a
 // server file's registrations on its app or a chained app are not outbound calls.
-const cacheVersion = "v609"
+// v610: TypeScript: a request helper may call an axios.create() instance, and an awaited
+// generic call is read through the await.
+const cacheVersion = "v610"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

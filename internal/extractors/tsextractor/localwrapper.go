@@ -243,7 +243,7 @@ func wrapperThrough(kinds *tsutil.KindTable, fn *sitter.Node, src []byte, module
 	var found *localWrapper
 	agree := true
 	walkCalls(kinds, body, func(call *sitter.Node) {
-		framework, through, method := requestLibrary(kinds, call, src), "", ""
+		framework, through, method := requestLibrary(kinds, call, src, module), "", ""
 		args := callArguments(kinds, call)
 		if framework != "" {
 			method = requestVerb(kinds, call, args, src)
@@ -313,10 +313,11 @@ func firstParameter(kinds *tsutil.KindTable, fn *sitter.Node, src []byte) string
 	return ""
 }
 
-// requestLibrary names the library a call is a request through: fetch(…), axios(…) or
-// axios.<verb>(…). "" for any other call.
-func requestLibrary(kinds *tsutil.KindTable, call *sitter.Node, src []byte) string {
-	fn := call.ChildByFieldName("function")
+// requestLibrary names the library a call is a request through: fetch(…), axios(…),
+// axios.<verb>(…), or <instance>.<verb>(…) on an instance the module binds once to
+// axios.create(…). "" for any other call.
+func requestLibrary(kinds *tsutil.KindTable, call *sitter.Node, src []byte, module map[string]*sitter.Node) string {
+	fn := calleeOf(kinds, call)
 	if fn == nil {
 		return ""
 	}
@@ -329,11 +330,22 @@ func requestLibrary(kinds *tsutil.KindTable, call *sitter.Node, src []byte) stri
 			return "axios"
 		}
 	case "member_expression":
-		if obj := fn.ChildByFieldName("object"); obj != nil && kindOf(kinds, obj) == "identifier" && nodeText(obj, src) == "axios" {
-			return "axios"
+		if obj := fn.ChildByFieldName("object"); obj != nil && kindOf(kinds, obj) == "identifier" {
+			if name := nodeText(obj, src); name == "axios" || isAxiosInstance(module[name], src) {
+				return "axios"
+			}
 		}
 	}
 	return ""
+}
+
+// isAxiosInstance reports whether a module-level value is `axios.create(…)`.
+func isAxiosInstance(init *sitter.Node, src []byte) bool {
+	if init == nil {
+		return false
+	}
+	text := strings.Join(strings.Fields(nodeText(init, src)), "")
+	return strings.HasPrefix(text, "axios.create(")
 }
 
 // localDeclarations collects every declaration of each local in a body, and the locals
@@ -535,7 +547,7 @@ func afterBase(r pathResolver, n *sitter.Node) (string, bool) {
 // `axios.post(…)`, or a literal method in fetch's options. "" when it does not, and
 // the options a helper passes through decide.
 func requestVerb(kinds *tsutil.KindTable, call *sitter.Node, args []*sitter.Node, src []byte) string {
-	if fn := call.ChildByFieldName("function"); fn != nil && kindOf(kinds, fn) == "member_expression" {
+	if fn := calleeOf(kinds, call); fn != nil && kindOf(kinds, fn) == "member_expression" {
 		if prop := fn.ChildByFieldName("property"); prop != nil {
 			switch v := strings.ToUpper(nodeText(prop, src)); v {
 			case "GET", "POST", "PUT", "PATCH", "DELETE":
