@@ -3689,7 +3689,8 @@ import (
 // v635: Kotlin: a repository is Android when any module (up to three levels deep) has a manifest.
 // v636: Next.js: aliased route handlers (export { fn as GET }) and generate* convention exports.
 // v637: Python: behave / pytest-bdd step definitions are framework-registered.
-const cacheVersion = "v637"
+// v638: Kotlin: a top-level declaration the grammar reads as an assignment is reparsed alone.
+const cacheVersion = "v638"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

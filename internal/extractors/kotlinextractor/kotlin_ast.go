@@ -623,6 +623,8 @@ func (w *astWalker) walkSourceFile(root *sitter.Node) {
 		case "annotated_expression":
 			w.handleMisparsedDeclaration(child)
 			continue
+		case "assignment":
+			w.recoverMisreadDeclaration(child)
 		}
 		// Split-off annotations belong to the declaration right after them.
 		if k := kindOf(child); k != "line_comment" && k != "block_comment" {
