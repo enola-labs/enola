@@ -3684,7 +3684,8 @@ import (
 // v630: Go: a limited write loop that stops on a short RowsAffected() is a batch loop.
 // v631: Ruby: a Rails view helper module (app/helpers) is concrete for abstractness.
 // v632: Go: symbols list the calls edges that hand a function over as a value (value_refs).
-const cacheVersion = "v632"
+// v633: performs_io does not propagate over value_refs edges.
+const cacheVersion = "v633"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

@@ -225,6 +225,7 @@ var versionCoverage = map[int][]string{
 	630: {"TestLimitedWriteLoopIsABatchLoop"},
 	631: {"TestRailsViewHelperIsNotAnAbstraction"},
 	632: {"TestGoQueryLoops_MethodValueIsNotACall"},
+	633: {"TestValueRefDoesNotCarryIO", "TestPropagate_ValueRefIsNotACall"},
 	507: {"TestRustImportAliasesBindOnlyTheAlias", "TestRustImportedTypeThroughAFileModuleWithADirectory", "TestRustMethodsInAFileModulesSubdirectoryResolve", "TestRustTypeImportedThroughAReExportResolves", "TestRustTypeAliasIsFollowedToItsType", "TestRustAliasedExternalImportDoesNotHideTheLocalName"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},

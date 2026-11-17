@@ -233,3 +233,36 @@ func climb(id int) {
 		t.Errorf("climb: calls_in_scaling_loop = %v, want pkg.up", scaling)
 	}
 }
+
+// A function that only hands a querying method over as a value does no I/O.
+func TestValueRefDoesNotCarryIO(t *testing.T) {
+	ff := extractAll(t, map[string]string{"pkg/x.go": `package pkg
+
+import "database/sql"
+
+type H struct{ db *sql.DB }
+
+func (h *H) Expire(id int) { h.db.Exec("update t set x = 1 where id = ?", id) }
+
+type W struct{}
+
+func (w *W) Register(fn func(int)) {}
+
+type S struct {
+	w *W
+	h *H
+}
+
+func (s *S) wire() { s.w.Register(s.h.Expire) }
+`})
+	wire, ok := findFact(ff, "pkg.S.wire")
+	if !ok {
+		t.Fatal("missing pkg.S.wire")
+	}
+	if wire.PropBool("performs_io") {
+		t.Errorf("wire performs_io: handing a method over is not running it")
+	}
+	if refs := strSliceProp(wire, "value_refs"); !containsStr(refs, "pkg.H.Expire") {
+		t.Errorf("value_refs = %v, want pkg.H.Expire", refs)
+	}
+}
