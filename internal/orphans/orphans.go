@@ -580,13 +580,41 @@ func constReceiverRefs(target string) []string {
 	}
 	recv := target[:i]
 	if r := rune(recv[0]); r < 'A' || r > 'Z' {
-		return nil
+		return moduleTypeReceiver(recv)
 	}
 	out := []string{recv}
 	if j := strings.LastIndex(recv, "::"); j >= 0 {
 		if tail := recv[j+2:]; tail != "" {
 			out = append(out, tail)
 		}
+	}
+	return out
+}
+
+// moduleTypeReceiver folds a receiver that is a type reached through a dotted module
+// path, a lowercase module and then a capitalized name: Python's
+// `shop.models.Order.STATUS`, a JVM `com.shop.config.Order.copy`. The type is used,
+// under its own name and under the slash-separated module path a Python symbol is
+// named by (`shop/models.Order`). A receiver whose last but one segment is
+// capitalized is a member, not a module (`Holder.Outer` in a C# name), and a path
+// with a slash is a Go import path, whose capitalized names are exported functions
+// as often as types (`pkg.Open.func2` is a closure of Open): both fold to nothing.
+func moduleTypeReceiver(recv string) []string {
+	dot := strings.LastIndex(recv, ".")
+	if dot <= 0 || dot == len(recv)-1 || strings.Contains(recv, "/") {
+		return nil
+	}
+	mod, typ := recv[:dot], recv[dot+1:]
+	if typ[0] < 'A' || typ[0] > 'Z' {
+		return nil
+	}
+	seg := mod[strings.LastIndex(mod, ".")+1:]
+	if seg == "" || seg[0] < 'a' || seg[0] > 'z' {
+		return nil
+	}
+	out := []string{recv}
+	if strings.Contains(mod, ".") {
+		out = append(out, strings.ReplaceAll(mod, ".", "/")+"."+typ)
 	}
 	return out
 }
