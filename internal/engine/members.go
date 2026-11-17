@@ -110,9 +110,26 @@ func clusterReceipt(meta facts.SnapshotMeta, members map[string]facts.SnapshotMe
 			FilesSeen: m.FilesSeen, FilesParsed: m.FilesParsed, FilesSkipped: m.FilesSkipped, DirsSkipped: m.DirsSkipped, ParseErrors: m.ParseErrors,
 		})
 	}
+	// The top-level provenance was one member's, the anchor's (see writeBundle): its
+	// path, its git state, the time indexing it took, the extractors it needed and
+	// its walk census. Each member's entry carries those; the cluster's own are the
+	// extractors any member needed, and no path, git state, duration or census.
+	r.RepoPath, r.Git, r.Duration = "", nil, ""
+	extractors := map[string]bool{}
+	for _, m := range r.Members {
+		for _, x := range m.Extractors {
+			extractors[x] = true
+		}
+	}
+	r.Extractors = make([]string, 0, len(extractors))
+	for x := range extractors {
+		r.Extractors = append(r.Extractors, x)
+	}
+	sort.Strings(r.Extractors)
 	// The union's extraction quality is its members' together; the samples were the
 	// last member's alone, and are each member's own receipt's to give.
 	q := &r.Quality
+	q.Census = nil
 	q.FilesSeen, q.FilesParsed, q.FilesSkipped, q.DirsSkipped, q.ParseErrors = 0, 0, 0, 0, 0
 	q.SkippedSample, q.ParseErrorSample = nil, nil
 	for _, m := range r.Members {

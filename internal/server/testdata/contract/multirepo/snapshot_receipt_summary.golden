@@ -4,7 +4,7 @@
 
 - **Snapshot ID:** `sha256:<HASH>`
 - **enola version:** dev
-- **Generated:** <TIME> (<DURATION>)
+- **Generated:** <TIME>
 - **Repositories:** 2 (per-repository provenance below; the facts and insights are their union)
 - **Config hash:** `sha256:<HASH>`
 - **Facts:** 22 · **Insights:** 6

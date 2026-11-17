@@ -116,7 +116,7 @@ func (fg *fixedGraph) load(eng *engine.Engine, st fileStamp) {
 		if eng.Graph() == nil {
 			fg.err = err
 		}
-		log.Printf("[serve] could not load the graph of %s: %v", strings.Join(fg.paths, ", "), err)
+		log.Printf("[serve] could not load the graph of %s: %v", shortPathList(fg.paths), err)
 		// Remember what failed, so the same broken artifacts are not read every
 		// interval. Files read while a write published the next graph are not broken:
 		// they are whole a moment later, so the next interval reads them again.
@@ -137,7 +137,7 @@ func (fg *fixedGraph) load(eng *engine.Engine, st fileStamp) {
 	}
 	snap := eng.Snapshot()
 	log.Printf("[serve] serving the graph of %s: %d facts, snapshot %s from %s",
-		strings.Join(fg.paths, ", "), eng.Graph().FactCount(), snap.Meta.SnapshotID, snap.Meta.GeneratedAt)
+		shortPathList(fg.paths), eng.Graph().FactCount(), snap.Meta.SnapshotID, snap.Meta.GeneratedAt)
 	// A load allocates about twice the graph it leaves, and the graph a reload
 	// replaces is garbage once the calls reading it finish. Left to itself, Go keeps
 	// that heap for reuse up to the soft limit, so a server would hold the load's peak
@@ -202,7 +202,7 @@ func (fg *fixedGraph) unavailable() string {
 	}
 	return fmt.Sprintf("This server serves the graph of %s, and it is not available: %s. "+
 		"Its operator indexes it with enola --generate; the server loads it when that finishes.",
-		strings.Join(fg.paths, ", "), reason)
+		shortPathList(fg.paths), reason)
 }
 
 // fixedMiddleware answers every tool call with the unavailable error while the
@@ -252,4 +252,14 @@ func fixedInstructions(paths []string) string {
 		"This server serves one graph, already indexed, of: " + strings.Join(paths, ", ") + ". Query it directly; there is nothing to index first. " +
 		"Which packages or files depend on X (impact_analysis(target=X)), who calls X (traverse(start=X, direction=reverse)), how A reaches B (find_path), what a backend endpoint change reaches in its clients (endpoint_impact), what nothing uses (find_orphans, query_insights(explainer='dead-code')). " +
 		"query_insights returns the findings already computed (cycles, layer violations, unused routes, hotspots and more)."
+}
+
+// shortPathList names a few paths and how many more there are: the graph of a
+// cluster of hundreds of repositories is not a log line, nor an error message.
+func shortPathList(paths []string) string {
+	const shown = 3
+	if len(paths) <= shown+1 {
+		return strings.Join(paths, ", ")
+	}
+	return fmt.Sprintf("%s and %d more (%d repositories)", strings.Join(paths[:shown], ", "), len(paths)-shown, len(paths))
 }

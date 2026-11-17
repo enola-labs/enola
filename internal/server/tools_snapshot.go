@@ -574,7 +574,11 @@ func renderReceipt(r facts.Receipt) string {
 	sb.WriteString("## Provenance\n\n")
 	fmt.Fprintf(&sb, "- **Snapshot ID:** `%s`\n", orDashStr(r.SnapshotID))
 	fmt.Fprintf(&sb, "- **enola version:** %s\n", orDashStr(r.EnolaVersion))
-	fmt.Fprintf(&sb, "- **Generated:** %s (%s)\n", orDashStr(r.GeneratedAt), r.Duration)
+	if r.Duration != "" {
+		fmt.Fprintf(&sb, "- **Generated:** %s (%s)\n", orDashStr(r.GeneratedAt), r.Duration)
+	} else {
+		fmt.Fprintf(&sb, "- **Generated:** %s\n", orDashStr(r.GeneratedAt))
+	}
 	if len(r.Members) > 0 {
 		fmt.Fprintf(&sb, "- **Repositories:** %d (per-repository provenance below; the facts and insights are their union)\n", len(r.Members))
 	} else {
