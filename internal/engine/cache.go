@@ -3660,7 +3660,9 @@ import (
 // above it, resolves into the repository rather than to a library.
 // v613: Scala: a declaration names the types its signature, fields and type arguments
 // name, where the file, its imports or its package declare them.
-const cacheVersion = "v613"
+// v614: Kotlin: a declaration names the types its signature, properties, constructor
+// parameters and type arguments name.
+const cacheVersion = "v614"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

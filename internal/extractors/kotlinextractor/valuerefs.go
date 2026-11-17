@@ -56,6 +56,13 @@ func (w *astWalker) noteValueRef(node *sitter.Node) {
 		if kotlinValuePosition(node, parent) {
 			segs = kotlinPathSegments(node, w.src)
 		}
+	case "user_type":
+		// A type a declaration's signature, a property, a type argument or a cast
+		// names. The type test below records its own.
+		if kindOf(parent) == "type_test" {
+			return
+		}
+		segs = kotlinTypeSegments(node, w.src)
 	case "type_test":
 		if ut := findChildByKind(node, "user_type"); ut != nil {
 			for i := uint(0); i < ut.NamedChildCount(); i++ {
@@ -213,4 +220,38 @@ func (w *astWalker) noteAnnotationArgs(ann *sitter.Node) {
 		}
 	}
 	walk(args)
+}
+
+// kotlinTypeSegments returns the identifiers of a user type's own path: `Outer.Inner`
+// of `Outer.Inner<Arg>`, without its type arguments, which are user types of their own.
+func kotlinTypeSegments(ut *sitter.Node, src []byte) []string {
+	var segs []string
+	for i := uint(0); i < ut.NamedChildCount(); i++ {
+		if c := ut.NamedChild(i); kotlinIsIdentifier(c) {
+			segs = append(segs, nodeText(c, src))
+		}
+	}
+	return segs
+}
+
+// noteSignatureTypes records the types a function's signature names, its parameters,
+// receiver and return type, against the function: a data class it takes or returns
+// is used by it, though nothing constructs it there. The body is walked for calls
+// separately, and records its own.
+func (w *astWalker) noteSignatureTypes(fn *sitter.Node) {
+	var walk func(n *sitter.Node)
+	walk = func(n *sitter.Node) {
+		switch kindOf(n) {
+		case "function_body", "modifiers":
+			return
+		case "user_type":
+			w.noteValueRef(n)
+		}
+		for i := uint(0); i < n.NamedChildCount(); i++ {
+			walk(n.NamedChild(i))
+		}
+	}
+	for i := uint(0); i < fn.NamedChildCount(); i++ {
+		walk(fn.NamedChild(i))
+	}
 }

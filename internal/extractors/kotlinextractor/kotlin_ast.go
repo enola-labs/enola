@@ -1013,6 +1013,7 @@ func (w *astWalker) handleFunctionDeclaration(node *sitter.Node) {
 	defer func() { w.localTypes, w.extReceiver, w.inExtension = savedLocals, savedExt, savedInExt }()
 	w.extReceiver, w.inExtension = w.extensionReceiver(node)
 	w.bindParameters(node)
+	w.noteSignatureTypes(node)
 	w.loopDepth = 0
 	w.scalingLoopDepth, w.repeatDepth = 0, 0
 	w.selfName = f.Name
