@@ -76,6 +76,26 @@ func (s *Signal) topicOwners(topic string) []string {
 	return nil
 }
 
+// maxOwnerSegment bounds how far into a topic name an owner is looked for: the
+// namespace a broker or a contract registry puts first is a segment or two deep.
+const maxOwnerSegment = 4
+
+// innerOwner resolves a topic whose leading segment names no loaded repo by the
+// first of its next segments that does, the last segment excepted (it names the
+// event, not its owner).
+func (s *Signal) innerOwner(topic string, in plugin.SignalInput) (string, bool) {
+	segs := strings.Split(strings.TrimSpace(topic), s.v.TopicOwnerSeparator)
+	for i := 1; i < len(segs)-1 && i < maxOwnerSegment; i++ {
+		if segs[i] == "" {
+			continue
+		}
+		if label, ok := in.ResolveRepo(segs[i]); ok {
+			return label, true
+		}
+	}
+	return "", false
+}
+
 // cdcEnvSuffixes name the environment a database copy serves.
 var cdcEnvSuffixes = []string{"_sandbox", "_staging", "_production", "_prod", "_dev", "_test"}
 
@@ -128,12 +148,21 @@ func (s *Signal) Contribute(in plugin.SignalInput, out plugin.EvidenceSink) {
 		}
 		label, ok := declaredProducer(producers, f.Name, f.Repo)
 		owner := ""
+		inner := false
 		if !ok {
 			for _, candidate := range s.topicOwners(f.Name) {
 				owner = candidate
 				if label, ok = in.ResolveRepo(candidate); ok {
 					break
 				}
+			}
+		}
+		// A namespaced topic names its owner further in
+		// (`contracts.backend.orders.order_placed`): when the leading segment
+		// names no loaded repo, the first later segment that does is the owner.
+		if !ok {
+			if label, ok = s.innerOwner(f.Name, in); ok {
+				inner = true
 			}
 		}
 		if ok && label == f.Repo {
@@ -153,6 +182,9 @@ func (s *Signal) Contribute(in plugin.SignalInput, out plugin.EvidenceSink) {
 		cov.Resolved++
 		e := out.Edge(f.Repo, label)
 		e.Via(facts.ViaKafka)
+		if inner {
+			e.Confidence("probable")
+		}
 		e.Sample(plugin.BucketTopics, f.Name)
 	}
 }

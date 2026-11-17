@@ -226,3 +226,23 @@ func TestCDCTopicIsTheDatabaseOwners(t *testing.T) {
 		t.Errorf("an unloaded database's CDC topic: edges %d, coverage %+v, want outside", sink.edges, c)
 	}
 }
+
+// A contract-registry topic names its owner after a namespace:
+// `contracts.backend.svc-orders.order_placed` is svc-orders'. The event name at
+// the end is never read as an owner.
+func TestNamespacedTopicNamesItsOwnerFurtherIn(t *testing.T) {
+	ns := topic("kafka", "consumer")
+	ns.Name = "contracts.backend.svc-orders.order_placed"
+	sink := &fakeSink{}
+	New(vocab.Default()).Contribute(fakeInput{facts: []facts.Fact{ns}}, sink)
+	if sink.edges != 1 {
+		t.Errorf("edges = %d, want the consumer linked to svc-orders", sink.edges)
+	}
+	last := topic("kafka", "consumer")
+	last.Name = "events.backend.svc-orders"
+	sink = &fakeSink{}
+	New(vocab.Default()).Contribute(fakeInput{facts: []facts.Fact{last}}, sink)
+	if sink.edges != 0 {
+		t.Errorf("the last segment was read as an owner: edges = %d", sink.edges)
+	}
+}
