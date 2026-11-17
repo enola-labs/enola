@@ -79,7 +79,7 @@ func (s *Server) registerTraverseTool() {
 		// A name that is one method under several owners — an interface's method and
 		// its implementations — is walked from all of them: a call on the interface
 		// may reach any, and the implementations are where the calls are.
-		starts := []string{startName}
+		starts := []string{s.graphKey(store, args.Start, startName, res)}
 		if res != nil && len(res.Family) > 1 {
 			starts = res.Family
 		}
@@ -164,8 +164,8 @@ func (s *Server) registerFindPathTool() {
 		// a path across the combinations rather than silently giving up when a name
 		// is ambiguous. This delivers the "give me vague names and I'll find the
 		// connection" behavior.
-		fromCands := s.pathCandidates(store, args.From, fromName, fromRes)
-		toCands := s.pathCandidates(store, args.To, toName, toRes)
+		fromCands := s.scopeCandidates(store, args.From, s.pathCandidates(store, args.From, fromName, fromRes))
+		toCands := s.scopeCandidates(store, args.To, s.pathCandidates(store, args.To, toName, toRes))
 		if len(fromCands) == 0 || len(toCands) == 0 {
 			return jsonResult(findPathResponse{
 				FromResolution: fromRes,
@@ -1152,4 +1152,14 @@ type findPathResponse struct {
 	FromTried []string `json:"from_tried,omitempty"`
 	ToTried   []string `json:"to_tried,omitempty"`
 	facts.PathResult
+}
+
+// scopeCandidates keys each path candidate to the repository input named, so a path
+// asked for in one repository starts and ends there.
+func (s *Server) scopeCandidates(store *facts.Store, input string, cands []string) []string {
+	out := make([]string, len(cands))
+	for i, c := range cands {
+		out[i] = s.graphKey(store, input, c, nil)
+	}
+	return out
 }

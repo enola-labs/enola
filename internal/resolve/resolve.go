@@ -165,6 +165,17 @@ func (r Resolver) resolveNodeName(store *facts.Store, input string) (string, *Na
 	// wants the candidate set narrowed, not bypassed).
 	if !scoped {
 		if exact := store.LookupByExactName(term); len(exact) > 0 {
+			// The same module or symbol name in several repositories is several
+			// unrelated things (each repository's app/models): which one is meant is
+			// the caller's to say, as for a substring match spanning repositories.
+			if ranked := sharedAcrossRepos(exact, sq); ranked != nil {
+				return "", &NameResolution{
+					Query:        query,
+					Alternatives: scopedNames(ranked),
+					Candidates:   topCandidates(ranked),
+					Ambiguous:    true,
+				}, nil
+			}
 			return exact[0].Name, nil, nil
 		}
 		// The name as code spells it, which a substring search cannot find when
@@ -694,4 +705,71 @@ func (r Resolver) expandFilePrefix(prefix string) []string {
 		return []string{prefix}
 	}
 	return expanded
+}
+
+// GraphKey is the graph node a resolved name stands for, as input asked for it. A
+// name declared in several repositories is a node in each; when input scoped a
+// repository (repo:<label>), or the resolution picked a candidate in one, the key is
+// that repository's node, so a walk from it stays in that repository. Otherwise it is
+// the name, which stands for all of them.
+func (r Resolver) GraphKey(input, name string, res *NameResolution) string {
+	if r.Store == nil || name == "" {
+		return name
+	}
+	g := r.Store.Graph()
+	if g == nil {
+		return name
+	}
+	repo := parseScopedQuery(r.maybePrefixRepoLabel(input)).Repo
+	if repo == "" && res != nil {
+		for _, c := range res.Candidates {
+			if c.Name == name {
+				repo = c.Repo
+				break
+			}
+		}
+	}
+	if repo == "" {
+		return name
+	}
+	for _, f := range r.Store.LookupByExactName(name) {
+		if strings.EqualFold(f.Repo, repo) {
+			return g.KeyOf(&f)
+		}
+	}
+	return name
+}
+
+// sharedAcrossRepos ranks exact, the facts named exactly as asked, when they are
+// modules or symbols in more than one repository, and returns nil otherwise.
+func sharedAcrossRepos(exact []facts.Fact, sq scopedQuery) []ScoredCandidate {
+	repos := map[string]bool{}
+	for _, f := range exact {
+		if f.Repo != "" && (f.Kind == facts.KindModule || f.Kind == facts.KindSymbol) {
+			repos[f.Repo] = true
+		}
+	}
+	if len(repos) < 2 {
+		return nil
+	}
+	return rankCandidates(exact, sq)
+}
+
+// scopedNames is each candidate as a query naming its repository, which is how a
+// caller picks one of a name declared in several.
+func scopedNames(ranked []ScoredCandidate) []string {
+	var out []string
+	for _, c := range ranked {
+		n := c.Name
+		if c.Repo != "" {
+			n = facts.ScopedName(c.Repo, c.Name)
+		}
+		if !slices.Contains(out, n) {
+			out = append(out, n)
+		}
+		if len(out) >= MaxAlternatives {
+			break
+		}
+	}
+	return out
 }
