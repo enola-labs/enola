@@ -3,6 +3,7 @@ package goextractor
 import (
 	"go/ast"
 	"go/token"
+	"path/filepath"
 	"reflect"
 	"strconv"
 	"strings"
@@ -132,6 +133,9 @@ func namespacedTopic(topic string) bool {
 // whole pass is gated by an imported Kafka client package, which keeps identically
 // named in-process Publish/Subscribe methods out of the architecture graph.
 func extractKafkaOperationFacts(fset *token.FileSet, f *ast.File, relFile, pkgDir string) []facts.Fact {
+	if devUtility(f, relFile) {
+		return nil
+	}
 	client := importsKafkaClient(f)
 	packageBindings := kafkaPackageStringBindings(f)
 	seen := map[string]bool{}
@@ -486,7 +490,7 @@ func extractKafkaConstructorFacts(fset *token.FileSet, pp *parsedPkg, pkgDir str
 	var out []facts.Fact
 	for _, relFile := range pp.relFiles {
 		f, ok := pp.fileMap[relFile]
-		if !ok {
+		if !ok || devUtility(f, relFile) {
 			continue
 		}
 		seen := map[string]bool{}
@@ -692,4 +696,23 @@ func subscriptionLiteral(call *ast.CallExpr, bindings map[string]string) (string
 		}
 	}
 	return found, found != ""
+}
+
+// devUtilityDirs are the directories a repository keeps developer programs in.
+var devUtilityDirs = map[string]bool{"tools": true, "scripts": true, "hack": true, "dev": true}
+
+// devUtility reports whether f is a program a developer runs by hand: package main
+// under one of devUtilityDirs. Such a program publishes to another service's topic to
+// try something locally; it does not make its repository a producer of that topic.
+// A service's own mains live elsewhere (cmd/) and are read as usual.
+func devUtility(f *ast.File, relFile string) bool {
+	if f.Name == nil || f.Name.Name != "main" {
+		return false
+	}
+	for _, seg := range strings.Split(filepath.ToSlash(relFile), "/") {
+		if devUtilityDirs[seg] {
+			return true
+		}
+	}
+	return false
 }

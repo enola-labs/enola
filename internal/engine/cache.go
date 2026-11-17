@@ -3646,7 +3646,8 @@ import (
 // depth, so its branches count once in cyclomatic.
 // v605: Go: a Kafka topic in a Topic or TopicName field at any depth of a literal, held
 // in a variable, built by a package helper, or written out in a subscription registration.
-const cacheVersion = "v605"
+// v606: Go: a package main under tools/, scripts/, hack/ or dev/ publishes and consumes no topic.
+const cacheVersion = "v606"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

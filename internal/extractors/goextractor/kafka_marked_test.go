@@ -1,6 +1,8 @@
 package goextractor
 
 import (
+	"go/parser"
+	"go/token"
 	"testing"
 
 	"github.com/enola-labs/enola/internal/facts"
@@ -112,5 +114,27 @@ func setup(m *Manager) {
 	}
 	if _, ok := got["catalog.items.item_listed"]; ok {
 		t.Error("a bus Subscribe without a Kafka client is not read from its literal")
+	}
+}
+
+func TestKafka_DeveloperProgramIsNotAProducer(t *testing.T) {
+	src := `package main
+
+import "github.com/segmentio/kafka-go"
+
+func main() {
+	w.WriteMessages(ctx, kafka.Message{Topic: "billing.orders.order_placed"})
+}
+`
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "x.go", src, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := extractKafkaOperationFacts(fset, f, "tools/local-publisher/main.go", "tools/local-publisher"); len(got) != 0 {
+		t.Fatalf("a local publishing tool emitted %+v", got)
+	}
+	if got := extractKafkaOperationFacts(fset, f, "cmd/publisher/main.go", "cmd/publisher"); len(got) != 1 {
+		t.Fatalf("a service main must still publish, got %+v", got)
 	}
 }
