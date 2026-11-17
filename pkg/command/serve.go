@@ -2,6 +2,7 @@ package command
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -11,10 +12,13 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/enola-labs/enola/internal/engine"
+	"github.com/enola-labs/enola/internal/facts"
 	"github.com/enola-labs/enola/internal/version"
 	"github.com/enola-labs/enola/pkg/bootstrap"
 )
@@ -56,14 +60,16 @@ func (r *Runner) runServe(ctx context.Context, args []string, stderr io.Writer) 
 	)
 	fs.Usage = func() {
 		_, _ = fmt.Fprint(stderr,
-			"Usage: "+r.name()+" serve --root DIR --token-file FILE [flags] [repo_path|config_path]\n\n"+
+			"Usage: "+r.name()+" serve --root DIR --token-file FILE [flags] [repo_path|config_path|graph_dir]\n\n"+
 				"Serve the MCP tools over Streamable HTTP at /mcp, for a service that calls enola\n"+
 				"as a tool. Every request needs a bearer token from --token-file. Every path a\n"+
 				"call names, and every repository it reaches, must lie inside a --root; others\n"+
 				"are refused.\n\n"+
 				"Given a repository or a cluster config, serve serves that graph and nothing else:\n"+
 				"it is restored from disk at start, every session queries it, the tools that index\n"+
-				"are left out, and it is reloaded when `enola --generate` writes it again. Without\n"+
+				"are left out, and it is reloaded when `enola --generate` writes it again. A\n"+
+				"graph's own directory (what `enola --generate --out DIR` wrote) is served\n"+
+				"from there, and its repositories need not be checked out. Without\n"+
 				"one, consumers index with generate_snapshot; each session has its own graph, and\n"+
 				"sessions asking for the same unchanged repositories share one.\n\n"+
 				"Nothing is written\n"+
@@ -94,10 +100,12 @@ func (r *Runner) runServe(ctx context.Context, args []string, stderr io.Writer) 
 		say("--memory-budget: %v", err)
 		return 2
 	}
-	cfgPath, repoArg := "mcp-arch.yaml", ""
+	cfgPath, repoArg, graphDir := "mcp-arch.yaml", "", ""
 	restore := false
 	if fs.NArg() == 1 {
 		switch arg := fs.Arg(0); {
+		case isGraphDir(arg):
+			graphDir = arg
 		case IsDirectory(arg):
 			repoArg = arg
 		case FileExists(arg):
@@ -132,7 +140,20 @@ func (r *Runner) runServe(ctx context.Context, args []string, stderr io.Writer) 
 		cfg.Output.Root = abs
 	}
 	var restorePaths []string
-	if restore {
+	if restore && graphDir != "" {
+		// The graph's own directory: its members are the repositories it records, and
+		// it is read from there whether or not they are checked out beside it.
+		abs, err := filepath.Abs(graphDir)
+		if err == nil {
+			restorePaths, err = graphMembers(abs)
+		}
+		if err != nil {
+			say("%v", err)
+			return 2
+		}
+		cfg.Output.GraphDir = abs
+		cfg.Repo, cfg.Repos = "", restorePaths
+	} else if restore {
 		if repoArg != "" {
 			abs, err := filepath.Abs(repoArg)
 			if err != nil {
@@ -183,7 +204,11 @@ func (r *Runner) runServe(ctx context.Context, args []string, stderr io.Writer) 
 		_, _ = fmt.Fprintf(stderr, "  Memory:      graphs unloaded past %s (estimated)\n", *memoryBudget)
 	}
 	if restore {
-		_, _ = fmt.Fprintf(stderr, "  Serving:     %s (fixed: consumers query, the operator indexes)\n", strings.Join(restorePaths, ", "))
+		what := shortPathList(restorePaths)
+		if graphDir != "" {
+			what = cfg.Output.GraphDir + ", the graph of " + what
+		}
+		_, _ = fmt.Fprintf(stderr, "  Serving:     %s (fixed: consumers query, the operator indexes)\n", what)
 	}
 	if !loopback {
 		_, _ = fmt.Fprintf(stderr, "  Warning:     listening beyond loopback; terminate TLS in front of it\n")
@@ -278,4 +303,46 @@ func checkWritable(dir string) error {
 func isLoopback(a net.Addr) bool {
 	tcp, ok := a.(*net.TCPAddr)
 	return ok && tcp.IP.IsLoopback()
+}
+
+// isGraphDir reports whether dir is a graph's output directory rather than a
+// repository: it holds the snapshot.meta.json a generate writes last.
+func isGraphDir(dir string) bool {
+	return IsDirectory(dir) && FileExists(filepath.Join(dir, "snapshot.meta.json"))
+}
+
+// graphMembers returns the repositories the graph in dir was built from, sorted: a
+// cluster's members.json, or the one repository its snapshot.meta.json names.
+func graphMembers(dir string) ([]string, error) {
+	members, err := engine.ReadMembersMeta(dir)
+	if err == nil && len(members) > 0 {
+		paths := make([]string, 0, len(members))
+		for p := range members {
+			paths = append(paths, p)
+		}
+		sort.Strings(paths)
+		return paths, nil
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, "snapshot.meta.json"))
+	if err != nil {
+		return nil, fmt.Errorf("reading the graph in %s: %w", dir, err)
+	}
+	var meta facts.SnapshotMeta
+	if err := json.Unmarshal(raw, &meta); err != nil {
+		return nil, fmt.Errorf("reading the graph in %s: %w", dir, err)
+	}
+	if meta.RepoPath == "" {
+		return nil, fmt.Errorf("the graph in %s names no repository", dir)
+	}
+	return []string{meta.RepoPath}, nil
+}
+
+// shortPathList names a few paths, and how many more there are: a cluster of
+// hundreds of repositories is not a log line.
+func shortPathList(paths []string) string {
+	const shown = 3
+	if len(paths) <= shown+1 {
+		return strings.Join(paths, ", ")
+	}
+	return fmt.Sprintf("%s and %d more (%d repositories)", strings.Join(paths[:shown], ", "), len(paths)-shown, len(paths))
 }
