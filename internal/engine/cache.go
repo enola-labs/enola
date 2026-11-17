@@ -3654,7 +3654,9 @@ import (
 // server file's registrations on its app or a chained app are not outbound calls.
 // v610: TypeScript: a request helper may call an axios.create() instance, and an awaited
 // generic call is read through the await.
-const cacheVersion = "v610"
+// v611: Python: a function names the types its parameter and return annotations name,
+// and a class the types its annotated fields name, string forward references included.
+const cacheVersion = "v611"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
