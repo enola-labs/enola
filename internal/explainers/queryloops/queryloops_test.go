@@ -382,3 +382,20 @@ func TestAllReturnsFindingsPastTheCap(t *testing.T) {
 		t.Errorf("Explain does not roll up the rest:\n%s", got[len(got)-200:])
 	}
 }
+
+// A query made once per batch is in calls_in_loop and not in the per-element
+// list the extractor narrows it to: it is the batching. One made per element is
+// still reported.
+func TestABatchedQueryIsNotPerIteration(t *testing.T) {
+	batched := symbol("Lookup#by_ids", []string{"Projection.where"}, 1)
+	batched.Props["calls_in_scaling_loop"] = []any{}
+	perElement := symbol("Lookup#each_id", []string{"Projection.where"}, 1)
+	perElement.Props["calls_in_scaling_loop"] = []any{"Projection.where"}
+	out := titles(t, store(model("Projection"), batched, perElement))
+	if strings.Contains(out, "Lookup#by_ids") {
+		t.Errorf("a query per batch was reported:\n%s", out)
+	}
+	if !strings.Contains(out, "Lookup#each_id") {
+		t.Errorf("a query per element was not reported:\n%s", out)
+	}
+}
