@@ -83,7 +83,33 @@ func (m *Matcher) IndexServerRoutes(all []facts.Fact) map[string][]RouteRef {
 // the index left out or miss one it put in.
 func IsIndexedServerRoute(f facts.Fact) bool {
 	return f.Kind == facts.KindRoute && f.Repo != "" && RoleOf(f) != facts.RoleClient && !IsUIRoute(f) &&
-		!IsNonHTTPRoute(f) && NormalizeMethod(f.PropString("method")) != "" && !IsCatchAll(f.Name)
+		!IsNonHTTPRoute(f) && NormalizeMethod(f.PropString("method")) != "" && !IsCatchAll(f.Name) && !IsStandInServer(f)
+}
+
+// standInWords name code that stands in for a server in tests or local runs.
+var standInWords = map[string]bool{
+	"mock": true, "mocks": true, "mockserver": true, "servermock": true, "wiremock": true,
+	"dummy": true, "fake": true, "fakes": true, "stub": true, "stubs": true,
+}
+
+// IsStandInServer reports whether a server route is served by a stand-in rather than
+// the service: declared in test code, or in a file or directory named as a mock,
+// dummy, fake or stub (core-api-mock.yaml, test/servermock/, dummy_upstreams.go). A
+// stand-in serves the paths of the service it imitates, so as a provider it competed
+// with that service for every call, and as a route it was reported unused.
+func IsStandInServer(f facts.Fact) bool {
+	file := f.IdentityFile()
+	if facts.IsTestPath(file) {
+		return true
+	}
+	for _, seg := range strings.Split(file, "/") {
+		for _, w := range strings.FieldsFunc(strings.ToLower(seg), func(r rune) bool { return r == '-' || r == '_' || r == '.' }) {
+			if standInWords[w] {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // IsCatchAll reports whether a route path ends in a segment that takes the rest of
@@ -176,7 +202,8 @@ func (m *Matcher) IndexServerPathSuffixes(all []facts.Fact) map[string][]string 
 	for _, f := range all {
 		// The routes IndexServerRoutes matches, verb aside: a UI page or a catch-all
 		// serving the path says nothing about the endpoint a call wants.
-		if f.Kind != facts.KindRoute || f.Repo == "" || RoleOf(f) == facts.RoleClient || IsNonHTTPRoute(f) || IsUIRoute(f) || IsCatchAll(f.Name) {
+		if f.Kind != facts.KindRoute || f.Repo == "" || RoleOf(f) == facts.RoleClient || IsNonHTTPRoute(f) || IsUIRoute(f) ||
+			IsCatchAll(f.Name) || IsStandInServer(f) {
 			continue
 		}
 		if NormalizeMethod(f.PropString("method")) == "" {
@@ -275,7 +302,8 @@ func (m *Matcher) IsLinkable(f facts.Fact) bool {
 // callers in a single repository, where a frontend and its backend share one tree, do
 // not.
 func (m *Matcher) IsServableRoute(f facts.Fact) bool {
-	if f.Kind != facts.KindRoute || RoleOf(f) == facts.RoleClient || IsUIRoute(f) || IsNonHTTPRoute(f) {
+	if f.Kind != facts.KindRoute || RoleOf(f) == facts.RoleClient || IsUIRoute(f) || IsNonHTTPRoute(f) ||
+		IsCatchAll(f.Name) || IsStandInServer(f) {
 		return false
 	}
 	if NormalizeMethod(f.PropString("method")) == "" {
