@@ -1772,3 +1772,24 @@ func TestHelmValueOrphanIsHighConfidence(t *testing.T) {
 		t.Errorf("go variable = %q, want %q", got, confLow)
 	}
 }
+
+// Code generated from a schema or contract calls the hand-written code behind it,
+// and is often its only caller. The generated file is no candidate itself, but what
+// it calls is used.
+func TestGeneratedCallerKeepsHandWrittenCodeAlive(t *testing.T) {
+	syms, refs := collectFromJSONL(t, `
+{"kind":"symbol","name":"graph/model.Comment.Author","file":"graph/model/comment.go","props":{"symbol_kind":"method"}}
+{"kind":"symbol","name":"graph/model.unused","file":"graph/model/comment.go","props":{"symbol_kind":"function"}}
+{"kind":"symbol","name":"graph/generated.commentResolver.Author","file":"graph/generated/generated.go","props":{"symbol_kind":"method"},"relations":[{"kind":"calls","target":"graph/model.Comment.Author"}]}
+`)
+	all := orphansByName(classify(syms, refs, options{Mode: "both", Visibility: "all"}))
+	if o, ok := all["graph/model.Comment.Author"]; ok {
+		t.Fatalf("a method generated code calls was reported: %+v", o)
+	}
+	if _, ok := all["graph/model.unused"]; !ok {
+		t.Fatalf("genuinely dead code must still be reported: %+v", all)
+	}
+	if _, ok := all["graph/generated.commentResolver.Author"]; ok {
+		t.Fatal("generated code is never a candidate")
+	}
+}
