@@ -2,6 +2,7 @@ package pythonextractor
 
 import (
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/enola-labs/enola/internal/facts"
@@ -54,5 +55,37 @@ def place(order: Order, note: Optional["Note"] = None) -> models.Line:
 	}
 	if got := namesOf(pySym(t, ff, "models.Order")); !slices.Equal(got, []string{"shop/models.Line", "shop/models.Note"}) {
 		t.Errorf("Order names %v", got)
+	}
+}
+
+// A script puts its own directory on sys.path. In a package src/ run as scripts,
+// `from reports import scoring` imports src/reports/scoring.py, though reports is no
+// root of a package path; its calls are internal. A library import stays external.
+func TestImportBesideTheScriptIsInternal(t *testing.T) {
+	ff := extractPyRepo(t, map[string]string{
+		"jobs/src/__init__.py":        ``,
+		"jobs/src/reports/scoring.py": "def summary(rows):\n    return len(rows)\n",
+		"jobs/src/reports/partner.py": `
+import pandas as pd
+from reports import scoring
+
+def build(rows):
+    pd.DataFrame(rows)
+    return scoring.summary(rows)
+`,
+	})
+	var calls []string
+	for _, r := range pySym(t, ff, "partner.build").Relations {
+		if r.Kind == facts.RelCalls {
+			calls = append(calls, r.Target)
+		}
+	}
+	if !slices.Contains(calls, "jobs/src/reports/scoring.summary") {
+		t.Fatalf("calls %v, want the module beside the importer", calls)
+	}
+	for _, c := range calls {
+		if strings.HasPrefix(c, "pandas") || strings.HasPrefix(c, "pd.") {
+			t.Fatalf("a library call was kept: %v", calls)
+		}
 	}
 }

@@ -3656,7 +3656,9 @@ import (
 // generic call is read through the await.
 // v611: Python: a function names the types its parameter and return annotations name,
 // and a class the types its annotated fields name, string forward references included.
-const cacheVersion = "v611"
+// v612: Python: a call through a module beside the importing script, or beside a directory
+// above it, resolves into the repository rather than to a library.
+const cacheVersion = "v612"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
