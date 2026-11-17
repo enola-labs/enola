@@ -565,7 +565,8 @@ func TestExplain_DeploymentResourceIsNotAGodClass(t *testing.T) {
 	}
 }
 
-// A dbt model many models select from is a shared table, not a class to split.
+// A dbt model many models select from is a shared table, not a class to split;
+// the same holds for an Avro envelope (see common.IsDataDefinition).
 func TestExplain_DbtModelIsNotAGodClass(t *testing.T) {
 	s := facts.NewStore()
 	s.Add(facts.Fact{Kind: facts.KindSymbol, Name: "orders.dim_users", File: "models/dim_users.sql",

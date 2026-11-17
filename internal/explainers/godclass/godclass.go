@@ -139,10 +139,11 @@ func (e *GodClassExplainer) Explain(ctx context.Context, store *facts.Store) ([]
 		// Generated code (an API client, protobuf stubs) is not maintained by hand: a
 		// finding there is not one anyone acts on. Gated as a candidate only, like test
 		// code above, so the distribution it is measured against stays whole.
-		// A dbt model many models select from is a shared table, and "split it along
-		// its responsibilities" is not advice that applies to one; the hotspot
-		// explainer still names the central ones.
-		if s.PropBool("generated") || common.IsDeploymentResource(s) || s.PropString("language") == "dbt" {
+		// A dbt model many models select from is a shared table, an Avro envelope
+		// every event carries is shared by design: "split it along its
+		// responsibilities" is not advice that applies. The hotspot explainer still
+		// names the central ones.
+		if s.PropBool("generated") || common.IsDeploymentResource(s) || common.IsDataDefinition(s) {
 			continue
 		}
 		n := fanIn[graph.KeyOf(&s)]
