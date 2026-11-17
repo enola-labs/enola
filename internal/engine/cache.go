@@ -3654,7 +3654,9 @@ import (
 // server file's registrations on its app or a chained app are not outbound calls.
 // v610: TypeScript: a request helper may call an axios.create() instance, and an awaited
 // generic call is read through the await.
-const cacheVersion = "v610"
+// v611: Go: only a call that sets a subscription up (Register, New, Add, Create,
+// Subscribe) takes its topic as a plain string; verifying or cancelling one does not.
+const cacheVersion = "v611"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
