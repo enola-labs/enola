@@ -3670,7 +3670,8 @@ import (
 // v618: TypeScript: an import the compiler erases (import type, all-type clauses)
 // is marked as type-only coupling.
 // v619: Kotlin and Java modules name the build module they compile into.
-const cacheVersion = "v619"
+// v620: a CamelCase directory ending in Mocks (CustomMocks, GeneratedMocks) is test code.
+const cacheVersion = "v620"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

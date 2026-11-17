@@ -12,6 +12,9 @@ func TestIsTestPath(t *testing.T) {
 		// (Xcode targets, Gradle source sets, pytest/rspec convention).
 		{"swift xcode test target", "Tests/Testability/Sources/Assert.swift", true},
 		{"swift xcode mock target", "Mocks/APIStub.swift", true},
+		{"swift fakes beside a contract", "Shop/ShopContract/Pricing/CustomMocks/PricerFake.swift", true},
+		{"swift generated mocks", "Shop/ShopContract/GeneratedMocks/CartFake.swift", true},
+		{"a lowercase directory ending in Mocks", "Shop/apiMocks/Client.swift", false},
 		{"gradle unit test source set", "app/src/test/java/de/example/app/FooTest.kt", true},
 		{"gradle instrumented source set", "app/src/androidTest/java/de/example/app/EspressoMocks.kt", true},
 		{"kmp per-target test tree", "shared/src/commonTest/kotlin/Foo.kt", true},

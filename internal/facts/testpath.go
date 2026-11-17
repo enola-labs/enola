@@ -138,6 +138,15 @@ func IsTestSourceSet(segs []string, i int) bool {
 	return i > 0 && isTestSourceSetSeg(segs[i-1], segs[i])
 }
 
+// isCompoundMocksSeg reports a directory named like Xcode's `Mocks` with a word
+// before it: CustomMocks, SharedMocks, GeneratedMocks, JSONMocks. Swift projects
+// keep fakes there, inside or beside the production target, and import them
+// only from tests.
+func isCompoundMocksSeg(seg string) bool {
+	head, ok := strings.CutSuffix(seg, "Mocks")
+	return ok && head != "" && head[0] >= 'A' && head[0] <= 'Z'
+}
+
 // isTestSourceSetSeg is IsTestSourceSet for a segment and the one before it.
 func isTestSourceSetSeg(prev, seg string) bool {
 	if prev != "src" {
@@ -233,7 +242,8 @@ func IsTestPath(p string) bool {
 		if i >= 0 {
 			seg, rest = rest[:i], rest[i+1:]
 		}
-		if testSegments[seg] || (!first && isTestSourceSetSeg(prev, seg)) || IsTestSupportModule(seg) {
+		if testSegments[seg] || (!first && isTestSourceSetSeg(prev, seg)) || IsTestSupportModule(seg) ||
+			isCompoundMocksSeg(seg) {
 			return true
 		}
 		for _, suf := range testProjectSuffixes {
