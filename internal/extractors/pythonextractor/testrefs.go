@@ -39,13 +39,23 @@ func (e *PythonExtractor) ExtractTestRefs(ctx context.Context, repoPath string, 
 		return nil, nil
 	}
 
-	perFile := parallel.MapFiles(ctx, pyTests, func(relFile string) []facts.Fact {
+	return resolvedRefs(ctx, repoPath, pyTests, prodFiles, func(relFile string, src []byte) []facts.Fact {
+		return refsFromPyTest(src, relFile)
+	}), nil
+}
+
+// resolvedRefs reads each of refFiles with read, which returns its one
+// reference-only fact, and resolves the fact's targets against the production
+// modules the way production calls resolve, keeping only those that name a
+// production symbol.
+func resolvedRefs(ctx context.Context, repoPath string, refFiles, prodFiles []string, read func(relFile string, src []byte) []facts.Fact) []facts.Fact {
+	perFile := parallel.MapFiles(ctx, refFiles, func(relFile string) []facts.Fact {
 		src, err := os.ReadFile(filepath.Join(repoPath, relFile))
 		if err != nil {
-			log.Printf("[python-extractor] error reading test file %s: %v", relFile, err)
+			log.Printf("[python-extractor] error reading %s: %v", relFile, err)
 			return nil
 		}
-		return refsFromPyTest(src, relFile)
+		return read(relFile, src)
 	})
 
 	var out []facts.Fact
@@ -53,7 +63,7 @@ func (e *PythonExtractor) ExtractTestRefs(ctx context.Context, repoPath string, 
 		out = append(out, ff...)
 	}
 	if len(out) == 0 {
-		return nil, nil
+		return nil
 	}
 
 	// Rewrite dotted absolute-import targets into canonical slash symbol names,
@@ -125,7 +135,7 @@ func (e *PythonExtractor) ExtractTestRefs(ctx context.Context, repoPath string, 
 			kept = append(kept, f)
 		}
 	}
-	return kept, nil
+	return kept
 }
 
 // refsFromPyTest parses one test file and returns a single reference-only fact
