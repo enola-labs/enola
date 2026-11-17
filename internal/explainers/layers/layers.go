@@ -56,7 +56,11 @@ var (
 		{Name: "adapter", Patterns: []string{"adapter", "adapters", "infrastructure", "infra", "gateway", "network"}, Level: 2},
 		{Name: "repository", Patterns: []string{"repository", "repositories", "repo", "repos", "store", "storage", "persistence", "db", "database"}, Level: 2},
 		{Name: "presentation", Patterns: []string{"presentation", "ui", "view", "views", "screen", "screens", "page", "pages"}, Level: 3},
-		{Name: "handler", Patterns: []string{"handler", "handlers", "controller", "controllers", "api", "http", "grpc", "rest"}, Level: 3},
+		// Not `api`: a directory of that name holds a module's public contract as
+		// often as its handlers (an Android feature's api module, a generated
+		// client), and read as the outermost layer every import of a contract was a
+		// violation.
+		{Name: "handler", Patterns: []string{"handler", "handlers", "controller", "controllers", "http", "grpc", "rest"}, Level: 3},
 		// `core` is deliberately absent, for the reason the Angular taxonomy gives
 		// for the same word: it names a CONTAINER, not a layer. A PHP platform
 		// keeping its whole product under src/Core/ had 1049 of its 1491 classified
@@ -73,7 +77,11 @@ var (
 		{Name: "components", Patterns: []string{"components", "ui"}, Level: 2},
 		{Name: "hooks", Patterns: []string{"hooks"}, Level: 1},
 		{Name: "lib", Patterns: []string{"lib", "utils", "helpers"}, Level: 0},
-		{Name: "api", Patterns: []string{"api"}, Level: 3},
+		// Beside services, not with the pages: outside pages/api and app/api (which
+		// classify as pages first) an `api` directory is the client a library calls
+		// its backend through, generated or written, which components and hooks are
+		// supposed to depend on.
+		{Name: "api", Patterns: []string{"api"}, Level: 1},
 		{Name: "services", Patterns: []string{"services"}, Level: 1},
 		{Name: "types", Patterns: []string{"types"}, Level: 0},
 	}
@@ -794,10 +802,11 @@ func (e *LayerExplainer) explainRepo(store *facts.Store, repo string) []facts.In
 		// statement quotes their denominator: how many imports obeyed the order is
 		// not knowable until the same walk that found the ones that did not.
 		violations, conf := e.detectViolations(scoped, best)
+		description := describePattern(best, conf, distinctModules(modules))
 
 		insights = append(insights, facts.Insight{
 			Title:         fmt.Sprintf("Architecture pattern: %s", best.Name),
-			Description:   describePattern(best, conf, distinctModules(modules)),
+			Description:   description,
 			Confidence:    best.Confidence,
 			Informational: true, // Which pattern was recognised is not a defect, at any confidence.
 			Metrics:       patternMetrics(best, conf),
