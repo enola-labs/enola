@@ -295,6 +295,38 @@ func TestExplain_AssociationEdgesExcluded(t *testing.T) {
 	}
 }
 
+// A cycle closed only by an import the compiler erases loads nothing in a loop;
+// the same pair joined by a value import both ways is still one.
+func TestExplain_TypeOnlyImportClosesNoCycle(t *testing.T) {
+	build := func(kind string) *facts.Store {
+		s := facts.NewStore()
+		s.Add(facts.Fact{Kind: facts.KindModule, Name: "src/orders"},
+			facts.Fact{Kind: facts.KindModule, Name: "src/cart"},
+			facts.Fact{
+				Kind: facts.KindDependency, File: "src/orders/list.ts",
+				Relations: []facts.Relation{{Kind: facts.RelImports, Target: "src/cart"}},
+			})
+		edge := facts.Fact{
+			Kind: facts.KindDependency, File: "src/cart/total.ts",
+			Relations: []facts.Relation{{Kind: facts.RelImports, Target: "src/orders"}},
+		}
+		if kind != "" {
+			edge.Props = map[string]any{facts.PropCouplingKind: kind}
+		}
+		s.Add(edge)
+		return s
+	}
+	for kind, want := range map[string]int{facts.CouplingTypeOnly: 0, "": 1} {
+		insights, err := New().Explain(context.Background(), build(kind))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(insights) != want {
+			t.Errorf("back edge %q: %d insights, want %d", kind, len(insights), want)
+		}
+	}
+}
+
 // TestExplain_Deterministic guards BUG-2: the cycle path, evidence order, and
 // multi-cycle insight order used to depend on Go's randomized map iteration
 // (tarjanSCC ranged the graph map directly and never sorted). Each Explain call

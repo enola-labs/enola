@@ -3667,7 +3667,9 @@ import (
 // v616: gRPC: a message names the messages its fields hold, and an RPC its request and
 // response messages.
 // v617: a Gradle src/testFixtures source set is test code.
-const cacheVersion = "v617"
+// v618: TypeScript: an import the compiler erases (import type, all-type clauses)
+// is marked as type-only coupling.
+const cacheVersion = "v618"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

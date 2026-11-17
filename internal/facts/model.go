@@ -267,6 +267,10 @@ const (
 	// a font. It is coupling — the importer needs the file — but nothing in it runs,
 	// so it orders no initialization and closes no cycle.
 	CouplingAsset = "asset"
+	// CouplingTypeOnly is an import the compiler erases: TypeScript's `import type`
+	// or a clause naming only types. The importer needs the declarations to
+	// compile, but at run time nothing is loaded, so it closes no cycle.
+	CouplingTypeOnly = "type-only"
 )
 
 // Module role property values classify a module fact as production code vs.

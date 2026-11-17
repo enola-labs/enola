@@ -630,6 +630,8 @@ func (e *TSExtractor) extractImports(kinds *tsutil.KindTable, root *sitter.Node,
 		}
 		if importSource == "internal" && isAssetImport(resolved) {
 			props[facts.PropCouplingKind] = facts.CouplingAsset
+		} else if typeOnlyImport(kinds, child) {
+			props[facts.PropCouplingKind] = facts.CouplingTypeOnly
 		}
 		setAliasProvenance(props, alias)
 
