@@ -438,6 +438,7 @@ func (e *TSExtractor) fileDeclarations(kinds *tsutil.KindTable, root *sitter.Nod
 	if ctx.isNextJS {
 		markNextConventionExports(kinds, root, ctx, decls)
 	}
+	markK6Entrypoints(ctx, decls)
 	return applyMCPTools(kinds, root, ctx, decls)
 }
 
@@ -1912,6 +1913,38 @@ func isAppRouteFile(relFile string) bool {
 		}
 	}
 	return false
+}
+
+// k6Import spots a k6 script: it imports from k6 or a k6/ module.
+var k6Import = regexp.MustCompile(`(?:from\s+|require\(\s*)['"]k6(?:/[^'"]*)?['"]`)
+
+// k6Exec captures the exported functions a scenario names to run (`exec: 'browse'`).
+var k6Exec = regexp.MustCompile(`\bexec\s*:\s*['"]([A-Za-z_$][\w$]*)['"]`)
+
+// k6Lifecycle are the exports k6 calls on every script.
+var k6Lifecycle = map[string]bool{"setup": true, "teardown": true, "handleSummary": true}
+
+// markK6Entrypoints roots what k6 runs in a load-test script: its default export,
+// its lifecycle functions and the functions its scenarios name. None is called by
+// the script itself.
+func markK6Entrypoints(ctx *extractCtx, decls []facts.Fact) {
+	if !k6Import.Match(ctx.src) {
+		return
+	}
+	run := map[string]bool{}
+	for _, m := range k6Exec.FindAllSubmatch(ctx.src, -1) {
+		run[string(m[1])] = true
+	}
+	for i := range decls {
+		f := &decls[i]
+		if f.Kind != facts.KindSymbol || f.PropString("symbol_kind") != facts.SymbolFunc {
+			continue
+		}
+		local := f.Name[strings.LastIndexByte(f.Name, '.')+1:]
+		if f.PropBool("default_export") || k6Lifecycle[local] || run[local] {
+			f.SetProp(facts.PropFrameworkRoot, "k6")
+		}
+	}
 }
 
 // nextConventionExports are the functions an App Router file exports for Next.js

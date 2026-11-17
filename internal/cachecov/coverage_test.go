@@ -231,6 +231,7 @@ var versionCoverage = map[int][]string{
 	636: {"TestNextConventionExports"},
 	637: {"TestBDDStepsAreFrameworkRegistered"},
 	638: {"TestMisreadDeclarationsAfterAnExpressionBody"},
+	639: {"TestK6EntrypointsAreRoots"},
 	507: {"TestRustImportAliasesBindOnlyTheAlias", "TestRustImportedTypeThroughAFileModuleWithADirectory", "TestRustMethodsInAFileModulesSubdirectoryResolve", "TestRustTypeImportedThroughAReExportResolves", "TestRustTypeAliasIsFollowedToItsType", "TestRustAliasedExternalImportDoesNotHideTheLocalName"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},

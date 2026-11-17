@@ -3690,7 +3690,8 @@ import (
 // v636: Next.js: aliased route handlers (export { fn as GET }) and generate* convention exports.
 // v637: Python: behave / pytest-bdd step definitions are framework-registered.
 // v638: Kotlin: a top-level declaration the grammar reads as an assignment is reparsed alone.
-const cacheVersion = "v638"
+// v639: k6 scripts: default export, lifecycle exports and scenario exec targets are roots.
+const cacheVersion = "v639"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
