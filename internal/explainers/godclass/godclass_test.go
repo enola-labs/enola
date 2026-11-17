@@ -564,3 +564,28 @@ func TestExplain_DeploymentResourceIsNotAGodClass(t *testing.T) {
 		}
 	}
 }
+
+// A dbt model many models select from is a shared table, not a class to split.
+func TestExplain_DbtModelIsNotAGodClass(t *testing.T) {
+	s := facts.NewStore()
+	s.Add(facts.Fact{Kind: facts.KindSymbol, Name: "orders.dim_users", File: "models/dim_users.sql",
+		Props: map[string]any{"language": "dbt"}})
+	for i := 0; i < 12; i++ {
+		s.Add(facts.Fact{Kind: facts.KindSymbol, Name: fmt.Sprintf("orders.fct_%d", i), File: fmt.Sprintf("models/fct_%d.sql", i),
+			Props:     map[string]any{"language": "dbt"},
+			Relations: []facts.Relation{{Kind: facts.RelDependsOn, Target: "orders.dim_users"}}})
+	}
+	s.Add(facts.Fact{Kind: facts.KindSymbol, Name: "leaf.A", File: "leaf/x.go"},
+		facts.Fact{Kind: facts.KindSymbol, Name: "leaf.B", File: "leaf/x.go"},
+		facts.Fact{Kind: facts.KindSymbol, Name: "leaf.C", File: "leaf/x.go"})
+	s.BuildGraph()
+	insights, err := New().Explain(context.Background(), s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, in := range insights {
+		if strings.Contains(in.Title, "dim_users") {
+			t.Fatalf("a dbt model was reported as a god class: %s", in.Title)
+		}
+	}
+}
