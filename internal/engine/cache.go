@@ -3680,7 +3680,8 @@ import (
 // v626: Ruby: constants named at file scope (initializer blocks) are module coupling.
 // v627: Ruby: a block on a blockless each_slice enumerator runs once per batch.
 // v628: packwerk usage ignores constants defined under a package's config/ tree.
-const cacheVersion = "v628"
+// v629: Go: a pager that stops on an empty page, and a range over slices.Chunk, are batch loops.
+const cacheVersion = "v629"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

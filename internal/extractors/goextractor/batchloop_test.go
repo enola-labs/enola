@@ -131,3 +131,63 @@ func TestRowCursorWithAQueryPerRowIsNotABatchLoop(t *testing.T) {
 		t.Errorf("row cursor: scaling_loop_depth = %d, want at most 1", got)
 	}
 }
+
+// A keyset pager that hands each page on whole, and a range over chunks of the
+// input, fetch once per batch. A loop that stops on an empty result but fetches
+// per element is still one fetch per element.
+func TestPagerAndChunkRangeAreBatchLoops(t *testing.T) {
+	ff := extractAll(t, map[string]string{"pkg/x.go": `package pkg
+
+import "slices"
+
+func readPage(cursor int) []int { return nil }
+func insertAll(rows []int)      {}
+func queryIn(ids []int) []int   { return nil }
+func lookup(id int) []int       { return nil }
+
+func backfill() {
+	cursor := 0
+	for {
+		rows := readPage(cursor)
+		if len(rows) == 0 {
+			break
+		}
+		insertAll(rows)
+		cursor = rows[len(rows)-1]
+	}
+}
+
+func byIDs(ids []int) {
+	for batch := range slices.Chunk(ids, 1000) {
+		queryIn(batch)
+	}
+}
+
+func perID(ids []int) {
+	for _, id := range ids {
+		if len(lookup(id)) == 0 {
+			continue
+		}
+	}
+}
+`})
+	for name, batched := range map[string][]string{
+		"pkg.backfill": {"pkg.readPage", "pkg.insertAll"},
+		"pkg.byIDs":    {"pkg.queryIn"},
+	} {
+		f, ok := findFact(ff, name)
+		if !ok {
+			t.Fatalf("missing %s", name)
+		}
+		scaling := strSliceProp(f, "calls_in_scaling_loop")
+		for _, c := range batched {
+			if containsStr(scaling, c) {
+				t.Errorf("%s: calls_in_scaling_loop = %v: %s runs once per batch", name, scaling, c)
+			}
+		}
+	}
+	per, _ := findFact(ff, "pkg.perID")
+	if scaling := strSliceProp(per, "calls_in_scaling_loop"); !containsStr(scaling, "pkg.lookup") {
+		t.Errorf("perID: calls_in_scaling_loop = %v, want pkg.lookup", scaling)
+	}
+}

@@ -1263,7 +1263,8 @@ func analyzeBody(body ast.Node, ctx resolveCtx, selfName string, params map[stri
 			head := newLoopHead(x.X, rangeScales, rangeAmortizes)
 			head.once = terminalBlocks(x.Body)
 			loopHeads = append(loopHeads, head)
-			loopScopes = append(loopScopes, loopScope{end: x.End(), vars: rangeLoopVars(x), amortizes: rangeAmortizes})
+			loopScopes = append(loopScopes, loopScope{end: x.End(), vars: rangeLoopVars(x), amortizes: rangeAmortizes,
+				batch: rangesOverChunks(x)})
 		case *ast.AssignStmt:
 			// A value computed from the current element is still the current element
 			// as far as the traversal is concerned: `rel := norm(f); use(rel)` hands

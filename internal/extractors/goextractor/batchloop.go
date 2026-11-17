@@ -3,6 +3,7 @@ package goextractor
 import (
 	"go/ast"
 	"go/token"
+	"strings"
 )
 
 // Batch loops: a loop that takes the input a batch at a time.
@@ -92,6 +93,12 @@ func goBatchLoop(x *ast.ForStmt) (pageVars []string, ok, walk bool) {
 			break
 		}
 	}
+	// A pager that hands each page on whole (`insert(ctx, rows)`) drains it in
+	// the callee. What says it pages is the stop: the loop ends when a fetch
+	// comes back empty.
+	if !drained && !walk && endsOnEmpty(x.Body, bound) {
+		drained = true
+	}
 	if !drained {
 		return nil, false, false
 	}
@@ -99,6 +106,72 @@ func goBatchLoop(x *ast.ForStmt) (pageVars []string, ok, walk bool) {
 		pageVars = append(pageVars, name)
 	}
 	return pageVars, !walk, walk
+}
+
+// endsOnEmpty reports a loop body that leaves the loop when one of the given
+// locals is empty: `if len(rows) == 0 { break }` (or return), at the top level of
+// the body.
+func endsOnEmpty(body *ast.BlockStmt, locals map[string]bool) bool {
+	for _, st := range body.List {
+		ifs, ok := st.(*ast.IfStmt)
+		if !ok || !lenIsZero(ifs.Cond, locals) || len(ifs.Body.List) == 0 {
+			continue
+		}
+		switch last := ifs.Body.List[len(ifs.Body.List)-1].(type) {
+		case *ast.BranchStmt:
+			if last.Tok == token.BREAK {
+				return true
+			}
+		case *ast.ReturnStmt:
+			return true
+		}
+	}
+	return false
+}
+
+// lenIsZero matches `len(x) == 0` and `len(x) < 1` for x among locals.
+func lenIsZero(cond ast.Expr, locals map[string]bool) bool {
+	b, ok := cond.(*ast.BinaryExpr)
+	if !ok {
+		return false
+	}
+	call, ok := b.X.(*ast.CallExpr)
+	if !ok || len(call.Args) != 1 {
+		return false
+	}
+	if fn, isIdent := call.Fun.(*ast.Ident); !isIdent || fn.Name != "len" {
+		return false
+	}
+	arg, isIdent := call.Args[0].(*ast.Ident)
+	lit, isLit := b.Y.(*ast.BasicLit)
+	if !isIdent || !locals[arg.Name] || !isLit {
+		return false
+	}
+	return (b.Op == token.EQL && lit.Value == "0") || (b.Op == token.LSS && lit.Value == "1")
+}
+
+// goChunkers are the functions that split a slice into batches: ranging over
+// what they return visits a batch a round.
+var goChunkers = map[string]bool{"Chunk": true, "Chunks": true, "ChunkSlice": true, "Batch": true, "Batches": true}
+
+// rangesOverChunks reports `for batch := range slices.Chunk(ids, n)` and the
+// like: a call made in its body is made once per batch.
+func rangesOverChunks(x *ast.RangeStmt) bool {
+	call, ok := x.X.(*ast.CallExpr)
+	if !ok || len(call.Args) < 2 {
+		return false
+	}
+	switch fn := call.Fun.(type) {
+	case *ast.SelectorExpr:
+		return goChunkers[fn.Sel.Name]
+	case *ast.IndexExpr: // a generic call with an explicit type argument
+		if sel, isSel := fn.X.(*ast.SelectorExpr); isSel {
+			return goChunkers[sel.Sel.Name]
+		}
+	case *ast.Ident:
+		return goChunkers[fn.Name] || goChunkers[strings.ToUpper(fn.Name[:1])+fn.Name[1:]]
+	}
+	return false
 }
 
 // goElementTakers are the methods a cursor is advanced by, one element a call.
