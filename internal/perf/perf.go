@@ -802,7 +802,7 @@ func collect(store *facts.Store) (funcs []funcInfo, storage, routeHandlers, asso
 		if sk != facts.SymbolFunc && sk != facts.SymbolMethod && !hasComplexityMetrics(f.Props) {
 			continue
 		}
-		if mcputil.IsGeneratedPath(f.File) || isTestPath(f.File) || isIgnoredPath(f.File) {
+		if f.PropBool("generated") || mcputil.IsGeneratedPath(f.File) || isTestPath(f.File) || isIgnoredPath(f.File) {
 			continue
 		}
 		pkg := ""

@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -222,5 +223,68 @@ func (c *Ctl) read(id int)  { c.db.QueryRow("select 1", id) }
 	}
 	if !strings.Contains(want, "app.Ctl.alpha") {
 		t.Errorf("path %q: the first of the tied callers by name is named", want)
+	}
+}
+
+// A generated executor loops over its fields and calls a hand-written resolver that
+// reads: the loop is the generator's and is not reported. A hand-written loop that
+// reaches the same read through the generated code still is.
+func TestGoQueryLoops_GeneratedLoopIsNotReported(t *testing.T) {
+	built := goStore(t, map[string]string{
+		"graph/exec/exec.go": `package exec
+
+import "example.com/app/graph/resolve"
+
+type Executor struct{ r *resolve.Resolver }
+
+func (e *Executor) Fields(ids []int) {
+	for _, id := range ids {
+		e.r.Price(id)
+	}
+}
+
+func (e *Executor) Field(id int) { e.r.Price(id) }
+`,
+		"graph/resolve/resolve.go": `package resolve
+
+import "database/sql"
+
+type Resolver struct{ db *sql.DB }
+
+func (r *Resolver) Price(id int) int {
+	var p int
+	r.db.QueryRow("select price from items where id = ?", id).Scan(&p)
+	return p
+}
+`,
+		"jobs/jobs.go": `package jobs
+
+import "example.com/app/graph/exec"
+
+type Job struct{ e *exec.Executor }
+
+func (j *Job) Refresh(ids []int) {
+	for _, id := range ids {
+		j.e.Field(id)
+	}
+}
+`,
+	})
+	store := facts.NewStore()
+	for _, f := range built.All() {
+		if f.File == "graph/exec/exec.go" && f.Kind == facts.KindSymbol {
+			if f.Props == nil {
+				f.Props = map[string]any{}
+			}
+			f.Props["generated"] = true
+		}
+		store.Add(f)
+	}
+	var got []string
+	for _, f := range All(store) {
+		got = append(got, f.Symbol)
+	}
+	if want := []string{"example.com/app/jobs.Job.Refresh"}; !slices.Equal(got, want) {
+		t.Fatalf("findings = %v, want only the hand-written loop %v", got, want)
 	}
 }

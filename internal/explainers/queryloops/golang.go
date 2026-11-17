@@ -140,7 +140,10 @@ func goCandidates(store *facts.Store) []finding {
 	for _, k := range keys {
 		f := syms[k]
 		inLoop := propStrings(f.Props["calls_in_scaling_loop"])
-		if len(inLoop) == 0 {
+		// Generated code stays in the reach graph, so a hand-written function
+		// called through it still counts, but its own loops are the generator's:
+		// nothing in the file can be edited to batch them.
+		if len(inLoop) == 0 || f.PropBool("generated") {
 			continue
 		}
 		depths := propInts(f.Props["calls_in_scaling_loop_depth"])
