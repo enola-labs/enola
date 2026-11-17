@@ -68,3 +68,48 @@ func keys(m map[string]facts.Fact) []string {
 	}
 	return out
 }
+
+// A block-bodied annotated function after an expression-bodied one with a string
+// template comes out as an annotated expression; it is recovered too, with its
+// calls.
+func TestMisreadAnnotatedFunctionAfterATemplateBody(t *testing.T) {
+	src := `package p
+
+internal fun pickerTag(code: String): String = "${code}_picker"
+
+@Composable
+private fun ScreenPreview(content: @Composable () -> Unit) {
+    com.example.ui.Preview {
+        content()
+    }
+}
+
+@PreviewLightDark
+@PreviewSnapshot
+@Composable
+private fun PreviewGridContent() {
+    ScreenPreview {
+        GridContent(options = sampleOptions())
+    }
+}
+
+private fun sampleOptions() = listOf(1, 2)
+`
+	got := map[string]facts.Fact{}
+	for _, f := range extractAST(t, src, true) {
+		if f.Kind == facts.KindSymbol {
+			got[f.Name] = f
+		}
+	}
+	f, ok := got["pkg.PreviewGridContent"]
+	if !ok {
+		t.Fatalf("missing pkg.PreviewGridContent among %v", keys(got))
+	}
+	calls := false
+	for _, r := range f.Relations {
+		calls = calls || (r.Kind == facts.RelCalls && r.Target == "pkg.sampleOptions")
+	}
+	if !calls {
+		t.Errorf("recovered preview lost its call to sampleOptions: %v", f.Relations)
+	}
+}

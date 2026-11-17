@@ -621,7 +621,12 @@ func (w *astWalker) walkSourceFile(root *sitter.Node) {
 		case "type_alias":
 			w.handleTypeAlias(child)
 		case "annotated_expression":
+			before := len(w.out)
 			w.handleMisparsedDeclaration(child)
+			// A function the shapes above do not cover: parsed alone, it is one.
+			if len(w.out) == before && w.recoverMisreadDeclaration(child) {
+				w.pending = nil
+			}
 			continue
 		case "assignment":
 			w.recoverMisreadDeclaration(child)

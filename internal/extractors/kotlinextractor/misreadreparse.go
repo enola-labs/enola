@@ -26,11 +26,12 @@ import (
 var kotlinDeclKeyword = regexp.MustCompile(`(?m)(^|\s)(fun|class|interface|object|val|var)\s`)
 
 // recoverMisreadDeclaration walks the declarations a top-level statement holds
-// when the statement's text, parsed alone, is declarations.
-func (w *astWalker) recoverMisreadDeclaration(node *sitter.Node) {
+// when the statement's text, parsed alone, is declarations, and reports whether
+// it found any.
+func (w *astWalker) recoverMisreadDeclaration(node *sitter.Node) bool {
 	start, end := node.StartByte(), node.EndByte()
 	if !kotlinDeclKeyword.Match(w.src[start:end]) {
-		return
+		return false
 	}
 	masked := make([]byte, len(w.src))
 	for i, b := range w.src {
@@ -44,24 +45,30 @@ func (w *astWalker) recoverMisreadDeclaration(node *sitter.Node) {
 	parser := sitter.NewParser()
 	defer parser.Close()
 	if err := parser.SetLanguage(sitter.NewLanguage(kotlin.Language())); err != nil {
-		return
+		return false
 	}
 	tree := parser.Parse(masked, nil)
 	if tree == nil {
-		return
+		return false
 	}
 	defer tree.Close()
 	root := tree.RootNode()
+	found := false
 	for i := uint(0); i < root.ChildCount(); i++ {
 		switch child := root.Child(i); kindOf(child) {
 		case "class_declaration":
 			w.handleClassDeclaration(child)
+			found = true
 		case "object_declaration":
 			w.handleObjectDeclaration(child)
+			found = true
 		case "function_declaration":
 			w.handleFunctionDeclaration(child)
+			found = true
 		case "property_declaration":
 			w.handlePropertyDeclaration(child)
+			found = true
 		}
 	}
+	return found
 }

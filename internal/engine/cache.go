@@ -3691,7 +3691,8 @@ import (
 // v637: Python: behave / pytest-bdd step definitions are framework-registered.
 // v638: Kotlin: a top-level declaration the grammar reads as an assignment is reparsed alone.
 // v639: k6 scripts: default export, lifecycle exports and scenario exec targets are roots.
-const cacheVersion = "v639"
+// v640: Kotlin: a function the grammar reads as an annotated expression is reparsed alone.
+const cacheVersion = "v640"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
