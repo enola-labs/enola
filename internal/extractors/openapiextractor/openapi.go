@@ -163,6 +163,7 @@ type openAPISpec struct {
 
 // openAPIInfo captures the info block, including custom gateway config extensions.
 type openAPIInfo struct {
+	Title string `yaml:"title"`
 	// x-gateway-config is a custom extension that configures the API Gateway.
 	// Example: { at-gateway-prefix: "/svc-example" }
 	GatewayConfig map[string]interface{} `yaml:"x-gateway-config"`
@@ -217,6 +218,10 @@ func parseOpenAPIFile(absPath, relFile string) ([]facts.Fact, error) {
 	}
 
 	serverBase := specServerBase(spec)
+	// Who the spec says it describes: its title, and the host its first server is at.
+	// A copy of another service's spec says that service's name in one or both.
+	title := strings.TrimSpace(spec.Info.Title)
+	host := specServerHost(spec)
 
 	specDir := factpath.Dir(relFile)
 	var result []facts.Fact
@@ -254,6 +259,12 @@ func parseOpenAPIFile(absPath, relFile string) ([]facts.Fact, error) {
 			}
 			if serverBase != "" {
 				props["server_base"] = serverBase
+			}
+			if title != "" {
+				props[facts.PropSpecTitle] = title
+			}
+			if host != "" {
+				props[facts.PropSpecServerHost] = host
 			}
 
 			if opRaw != nil {
@@ -436,4 +447,25 @@ func normalizeBase(p string) string {
 		p = "/" + p
 	}
 	return p
+}
+
+// specServerHost is the host of the spec's first server with an absolute URL and no
+// variable in its host, lower-cased, or "".
+func specServerHost(spec openAPISpec) string {
+	for _, srv := range spec.Servers {
+		u := srv.URL
+		i := strings.Index(u, "://")
+		if i < 0 {
+			continue
+		}
+		u = u[i+3:]
+		if j := strings.IndexAny(u, "/:"); j >= 0 {
+			u = u[:j]
+		}
+		if u == "" || strings.Contains(u, "{") {
+			continue
+		}
+		return strings.ToLower(u)
+	}
+	return ""
 }

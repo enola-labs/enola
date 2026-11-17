@@ -3647,7 +3647,8 @@ import (
 // v605: Go: a Kafka topic in a Topic or TopicName field at any depth of a literal, held
 // in a variable, built by a package helper, or written out in a subscription registration.
 // v606: Go: a package main under tools/, scripts/, hack/ or dev/ publishes and consumes no topic.
-const cacheVersion = "v606"
+// v607: OpenAPI: an operation carries its spec's title and server host.
+const cacheVersion = "v607"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

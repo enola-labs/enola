@@ -331,3 +331,33 @@ func TestExtract_SkipsNestedLinkedWorktree(t *testing.T) {
 		t.Fatalf("expected the repository's 3 routes only, got %d: %+v", len(got), got)
 	}
 }
+
+func TestExtract_SpecTitleAndServerHost(t *testing.T) {
+	repo := t.TempDir()
+	writeSpec(t, repo, "api/openapi/chat.yml", `openapi: 3.0.0
+info:
+  title: chat main-app OpenAPI Specification
+  version: 1.0.0
+servers:
+  - url: https://{env}.example.com
+  - url: https://Chat.Sandbox.example.com:8443/api
+paths:
+  /v1/conversations:
+    get:
+      operationId: listConversations
+`)
+	got, err := New().Extract(context.Background(), repo, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("want one route, got %d", len(got))
+	}
+	if title := got[0].PropString(facts.PropSpecTitle); title != "chat main-app OpenAPI Specification" {
+		t.Errorf("spec_title = %q", title)
+	}
+	// The first server whose host is known: a variable host says nothing.
+	if host := got[0].PropString(facts.PropSpecServerHost); host != "chat.sandbox.example.com" {
+		t.Errorf("spec_server_host = %q", host)
+	}
+}

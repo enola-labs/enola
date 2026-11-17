@@ -190,3 +190,46 @@ func TestGenuineClientSpecNeverPromoted(t *testing.T) {
 		t.Errorf("%s set on a spec the extractor already classified as client", PropVendoredSpec)
 	}
 }
+
+func specRoute(repo, name, file, title, host string) facts.Fact {
+	f := route(repo, name, facts.RouteSourceOpenAPI, facts.RoleServer)
+	f.File, f.RepoPrefixed = repo+"/"+file, true
+	f.Props["spec_file"] = file
+	if title != "" {
+		f.Props[facts.PropSpecTitle] = title
+	}
+	if host != "" {
+		f.Props[facts.PropSpecServerHost] = host
+	}
+	return f
+}
+
+// A backend keeps copies of the specs of services it calls beside its own, and a
+// registry repository keeps every service's. A copy names its service: in its title,
+// its server's host, or the directory it sits in. Only a loaded repository's exact
+// name counts, and the repository's own name never does.
+func TestDemotesASpecThatDescribesAnotherLoadedRepo(t *testing.T) {
+	store := facts.NewStore()
+	store.Add(
+		specRoute("orders", "/v1/orders/{id}", "api/openapi/service.yml", "orders API", "orders.internal.example"),
+		specRoute("orders", "/v1/conversations/{id}", "api/openapi/chat.yml", "chat main-app OpenAPI", ""),
+		specRoute("orders", "/v1/fees", "api/openapi/fees.yml", "", "pricing.example.com"),
+		specRoute("registry", "/v1/orders/{id}/lines", "apis/orders/v1/spec.yml", "Orders", ""),
+		specRoute("orders", "/v1/quotes", "api/openapi/quote.yml", "chatty quotes", "quotes.example.com"),
+		route("chat", "/v1/conversations/{id}", facts.RouteSourceRetrofit, facts.RoleClient),
+		route("pricing", "/health", "go-http", facts.RoleServer),
+		route("registry", "/health", "go-http", facts.RoleServer),
+	)
+	bind(t, store)
+	for name, want := range map[string]string{
+		"/v1/orders/{id}":        facts.RoleServer, // its own spec
+		"/v1/conversations/{id}": facts.RoleClient, // titled after chat
+		"/v1/fees":               facts.RoleClient, // served from pricing's host
+		"/v1/orders/{id}/lines":  facts.RoleClient, // filed under orders in a registry
+		"/v1/quotes":             facts.RoleServer, // no loaded repository named
+	} {
+		if role, _ := roleOf(t, store, name); role != want {
+			t.Errorf("%s: role = %q, want %q", name, role, want)
+		}
+	}
+}
