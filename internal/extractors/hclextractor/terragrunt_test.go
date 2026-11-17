@@ -18,7 +18,7 @@ func TestTerragruntUnits(t *testing.T) {
 	dir := t.TempDir()
 	files := map[string]string{
 		"live/root.hcl":                 "locals { env = \"prod\" }\n",
-		"live/apps/module.hcl":          "terraform {\n  source = \"git::https://example.test/modules//app?ref=v1\"\n}\n",
+		"live/apps/module.hcl":          "locals {\n  url     = \"git::https://example.test/modules//app\"\n  version = \"v1\"\n}\nterraform {\n  source = \"${local.url}?ref=${local.version}\"\n}\n",
 		"live/apps/shop/terragrunt.hcl": "include \"root\" {\n  path = find_in_parent_folders(\"root.hcl\")\n}\ninclude \"module\" {\n  path = find_in_parent_folders(\"module.hcl\")\n}\ndependency \"network\" {\n  config_path = \"../../network\"\n}\n# dependency \"old\" {\n#   config_path = \"../../old\"\n# }\ninputs = { name = \"shop\" }\n",
 		"live/network/terragrunt.hcl":   "include {\n  path = find_in_parent_folders(\"root.hcl\")\n}\nterraform {\n  source = \"../../modules/vpc//net?ref=v2\"\n}\ndependencies {\n  paths = [\"../dns\"]\n}\n",
 		"live/dns/terragrunt.hcl":       "terraform {\n  source = \"../../modules/dns\"\n}\n",

@@ -137,14 +137,39 @@ func terragruntFacts(repoPath string, files []string, hasModule map[string]bool)
 	return out
 }
 
-// terraformSource returns the source a terraform { } block names, or "".
+// terraformSource returns the source a terraform { } block names, or "". A
+// `${local.x}` the same file's locals set to a plain string is substituted.
 func terraformSource(text string) string {
 	if m := tgTerraform.FindStringSubmatch(text); m != nil {
 		if s := tgSource.FindStringSubmatch(m[1]); s != nil {
-			return s[1]
+			return substituteLocals(s[1], text)
 		}
 	}
 	return ""
+}
+
+var (
+	tgLocals     = regexp.MustCompile(`(?ms)^\s*locals\s*\{(.*?)^\}`)
+	tgLocalValue = regexp.MustCompile(`(?m)^\s*([A-Za-z_][\w-]*)\s*=\s*"([^"$]*)"\s*$`)
+	tgLocalRef   = regexp.MustCompile(`\$\{local\.([A-Za-z_][\w-]*)\}`)
+)
+
+func substituteLocals(src, text string) string {
+	if !strings.Contains(src, "${local.") {
+		return src
+	}
+	values := map[string]string{}
+	for _, m := range tgLocals.FindAllStringSubmatch(text, -1) {
+		for _, v := range tgLocalValue.FindAllStringSubmatch(m[1], -1) {
+			values[v[1]] = v[2]
+		}
+	}
+	return tgLocalRef.ReplaceAllStringFunc(src, func(ref string) string {
+		if v, ok := values[tgLocalRef.FindStringSubmatch(ref)[1]]; ok {
+			return v
+		}
+		return ref
+	})
 }
 
 // includedFile resolves an include block's path: find_in_parent_folders("x.hcl")
