@@ -15,6 +15,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/enola-labs/enola/internal/factpath"
@@ -101,7 +102,58 @@ func (e *GRPCExtractor) Extract(ctx context.Context, repoPath string, files []st
 
 		out = append(out, factsForProtoFile(pf, rel, dir)...)
 	}
+	resolveMessageRefs(out)
 	return out, nil
+}
+
+// propMessageRefs holds, on a message or an RPC, the message types it names as
+// written, until resolveMessageRefs turns them into edges. It does not leave the
+// extractor.
+const propMessageRefs = "message_refs"
+
+// resolveMessageRefs turns each message type a message's fields hold, or an RPC
+// takes and returns, into a names edge to the message the repository declares: one
+// of that name in the same directory, else the only one of that name anywhere. A
+// qualified name (`pkg.Other`) is matched by its last segment. A type declared
+// nowhere here (google.protobuf.Timestamp) adds nothing.
+func resolveMessageRefs(all []facts.Fact) {
+	dirsOf := map[string][]string{}
+	for _, f := range all {
+		if f.Kind != facts.KindSymbol || f.PropString("language") != "grpc" {
+			continue
+		}
+		switch f.PropString("symbol_kind") {
+		case facts.SymbolStruct, facts.SymbolEnum:
+			dot := strings.LastIndex(f.Name, ".")
+			name, dir := f.Name[dot+1:], f.Name[:dot]
+			if !slices.Contains(dirsOf[name], dir) {
+				dirsOf[name] = append(dirsOf[name], dir)
+			}
+		}
+	}
+	for i := range all {
+		f := &all[i]
+		refs, ok := f.PropAny(propMessageRefs).([]string)
+		if !ok {
+			continue
+		}
+		f.DelProp(propMessageRefs)
+		dir := factpath.Dir(f.File)
+		for _, ref := range refs {
+			name := ref[strings.LastIndex(ref, ".")+1:]
+			dirs := dirsOf[name]
+			target := ""
+			switch {
+			case slices.Contains(dirs, dir):
+				target = dir + "." + name
+			case len(dirs) == 1:
+				target = dirs[0] + "." + name
+			}
+			if target != "" && target != f.Name && !f.HasRelation(facts.RelNames, target) {
+				f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelNames, Target: target})
+			}
+		}
+	}
 }
 
 // factsForProtoFile turns one parsed .proto into its facts: a server route per
@@ -123,16 +175,20 @@ func factsForProtoFile(pf protoFile, relFile, dir string) []facts.Fact {
 	}
 
 	for _, msg := range pf.messages {
+		props := map[string]any{
+			"symbol_kind": symbolKindForMessage(msg.kind),
+			"language":    "grpc",
+			"exported":    true,
+		}
+		if len(msg.fieldTypes) > 0 {
+			props[propMessageRefs] = msg.fieldTypes
+		}
 		out = append(out, facts.Fact{
-			Kind: facts.KindSymbol,
-			Name: dir + "." + msg.name,
-			File: relFile,
-			Line: msg.line,
-			Props: map[string]any{
-				"symbol_kind": symbolKindForMessage(msg.kind),
-				"language":    "grpc",
-				"exported":    true,
-			},
+			Kind:      facts.KindSymbol,
+			Name:      dir + "." + msg.name,
+			File:      relFile,
+			Line:      msg.line,
+			Props:     props,
 			Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: dir}},
 		})
 	}
@@ -171,6 +227,7 @@ func factsForProtoFile(pf protoFile, relFile, dir string) []facts.Fact {
 					facts.PropFramework: facts.FrameworkGRPC,
 					"exported":          true,
 					"streaming":         streamingKind(rpc),
+					propMessageRefs:     []string{rpc.input, rpc.output},
 				},
 				Relations: []facts.Relation{
 					{Kind: facts.RelDeclares, Target: dir},

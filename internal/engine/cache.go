@@ -3664,7 +3664,9 @@ import (
 // parameters and type arguments name.
 // v615: Go: a package-level var uses the types its declared type and initializer name,
 // and a generic call the types of its type arguments.
-const cacheVersion = "v615"
+// v616: gRPC: a message names the messages its fields hold, and an RPC its request and
+// response messages.
+const cacheVersion = "v616"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
