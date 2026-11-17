@@ -170,3 +170,46 @@ func TestPackwerkUsage_FileScopeBlockIsAUse(t *testing.T) {
 		t.Errorf("a file-scope use left the dependency unused: %v", got)
 	}
 }
+
+// A constant defined under another package's config/ is not autoloaded, and
+// packwerk never maps it to that package: referencing it is no dependency.
+func TestPackwerkUsage_ConfigConstantIsNoDependency(t *testing.T) {
+	ff := []facts.Fact{
+		packFact("packs/workers", true),
+		packFact("packs/utils", false),
+		symFact("EnvSettings", "packs/utils/config/helpers", facts.SymbolClass),
+		symFact("Utils::Retry", "packs/utils/app/lib/utils", facts.SymbolClass),
+		{
+			Kind: facts.KindFileRef, Name: "packs/workers/config/initializers/kafka.rb",
+			File: "packs/workers/config/initializers/kafka.rb",
+			Relations: []facts.Relation{
+				{Kind: facts.RelCalls, Target: "EnvSettings.fetch"},
+			},
+		},
+	}
+	resolveImports(ff, true)
+	if got := propStrings(packByName(t, ff, "packs/workers"), facts.PropPackwerkUndeclared); len(got) != 0 {
+		t.Errorf("a config/ constant was read as a dependency: %v", got)
+	}
+}
+
+// A declaration made for a config/ helper is used, even though packwerk would
+// not have asked for it.
+func TestPackwerkUsage_ConfigConstantKeepsItsDeclarationUsed(t *testing.T) {
+	ff := []facts.Fact{
+		packFact("packs/workers", true, "packs/utils"),
+		packFact("packs/utils", false),
+		symFact("EnvSettings", "packs/utils/config/helpers", facts.SymbolClass),
+		{
+			Kind: facts.KindFileRef, Name: "packs/workers/config/initializers/kafka.rb",
+			File: "packs/workers/config/initializers/kafka.rb",
+			Relations: []facts.Relation{
+				{Kind: facts.RelCalls, Target: "EnvSettings.fetch"},
+			},
+		},
+	}
+	resolveImports(ff, true)
+	if got := propStrings(packByName(t, ff, "packs/workers"), facts.PropPackwerkUnused); len(got) != 0 {
+		t.Errorf("a declaration used through a config/ helper was reported unused: %v", got)
+	}
+}
