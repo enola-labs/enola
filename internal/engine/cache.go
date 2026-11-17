@@ -3677,7 +3677,8 @@ import (
 // of the "// @endpoint" comment above its builder.
 // v624: Go net/http and Kotlin Retrofit/servlet routes are not read from test sources.
 // v625: Rails: a draw(:key) placeholder route goes once the drawn file is parsed.
-const cacheVersion = "v625"
+// v626: Ruby: constants named at file scope (initializer blocks) are module coupling.
+const cacheVersion = "v626"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

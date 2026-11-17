@@ -148,3 +148,25 @@ packs/billing:
 		t.Errorf("missing todo = %v, want nil", got)
 	}
 }
+
+// An initializer's `after_fork do … end` names a constant from a declared package
+// at file scope, not in any method. It runs when the file loads and is a use.
+func TestPackwerkUsage_FileScopeBlockIsAUse(t *testing.T) {
+	ff := []facts.Fact{
+		packFact("packs/workers", false, "packs/warmup"),
+		packFact("packs/warmup", false),
+		symFact("Warmup::Cache", "packs/warmup/app/models/warmup", facts.SymbolClass),
+		{
+			Kind: facts.KindFileRef, Name: "packs/workers/config/initializers/workers.rb",
+			File: "packs/workers/config/initializers/workers.rb",
+			Relations: []facts.Relation{
+				{Kind: facts.RelCalls, Target: "Warmup::Cache.warm"},
+			},
+		},
+	}
+	resolveImports(ff, true)
+	workers := packByName(t, ff, "packs/workers")
+	if got := propStrings(workers, facts.PropPackwerkUnused); len(got) != 0 {
+		t.Errorf("a file-scope use left the dependency unused: %v", got)
+	}
+}
