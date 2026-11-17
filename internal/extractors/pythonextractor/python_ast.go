@@ -3,6 +3,7 @@ package pythonextractor
 import (
 	"maps"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"unicode"
@@ -157,6 +158,10 @@ type pyWalker struct {
 	// in any codebase. The import is the discriminator. Set during the walk, so it is
 	// reliable for the module-level imports that precede the definitions it guards.
 	importsModal bool
+
+	// importsBDD records whether the file imports behave or pytest-bdd, whose step
+	// decorators (@given, @when, @then) are too generic to match without it.
+	importsBDD bool
 
 	// emittedImports holds the start byte of every import statement that has already
 	// produced a dependency fact. A method body is registered TWICE — once by
@@ -937,6 +942,25 @@ func (w *pyWalker) noteModalImport(module string) {
 	if module == "modal" || strings.HasPrefix(module, "modal.") {
 		w.importsModal = true
 	}
+	if module == "behave" || strings.HasPrefix(module, "behave.") || module == "pytest_bdd" || strings.HasPrefix(module, "pytest_bdd.") {
+		w.importsBDD = true
+	}
+}
+
+// applyBDDStep marks a behave or pytest-bdd step definition: the runner matches
+// a feature file's step text to it, and nothing calls it by name.
+func applyBDDStep(props map[string]any, decoratorName string, importsBDD bool) {
+	if !importsBDD {
+		return
+	}
+	last := decoratorName
+	if i := strings.LastIndex(last, "."); i >= 0 {
+		last = last[i+1:]
+	}
+	switch last {
+	case "given", "when", "then", "step", "Given", "When", "Then", "Step", "scenario", "scenarios":
+		props["framework_registered"] = true
+	}
 }
 
 // relativeImportTarget binds a name imported by a relative from-import. Each dot
@@ -1329,6 +1353,7 @@ func (w *pyWalker) handleClass(node *sitter.Node, decorators []string) {
 
 	for _, dec := range decorators {
 		applyDecoratorProps(props, dec, w.importsModal)
+		applyBDDStep(props, dec, w.importsBDD)
 	}
 
 	// Django classification.
@@ -1376,7 +1401,8 @@ func (w *pyWalker) handleClass(node *sitter.Node, decorators []string) {
 
 	setDecoratedStart(&f, node)
 	w.out = append(w.out, f)
-	w.pushOwner(len(w.out) - 1)
+	classIdx := len(w.out) - 1
+	w.pushOwner(classIdx)
 
 	bodyNode := node.ChildByFieldName("body")
 	w.pushType(name, collectPyMethodNames(bodyNode, w.src))
@@ -1396,6 +1422,19 @@ func (w *pyWalker) handleClass(node *sitter.Node, decorators []string) {
 		// walkForCalls stops at nested defs, so methods keep their own owners. Metrics
 		// are nil here, so complexity is unaffected.
 		w.walkForCalls(bodyNode)
+		// Its annotated fields (`order: Order`, `items: list[Item]`) use the types
+		// they name: a dataclass, pydantic model or TypedDict field is the commonest
+		// way one model refers to another.
+		owner := &w.out[classIdx]
+		for i := uint(0); i < uint(bodyNode.ChildCount()); i++ {
+			stmt := bodyNode.Child(i)
+			if kindOf(stmt) == "expression_statement" && stmt.NamedChildCount() == 1 {
+				stmt = stmt.NamedChild(0)
+			}
+			if kindOf(stmt) == "assignment" {
+				owner.Relations = append(owner.Relations, w.annotationRelations(stmt.ChildByFieldName("type"))...)
+			}
+		}
 	}
 	w.popType()
 	w.popOwner()
@@ -1445,12 +1484,16 @@ func (w *pyWalker) handleFunction(node *sitter.Node, decorators []string) {
 
 	for _, dec := range decorators {
 		applyDecoratorProps(props, dec, w.importsModal)
+		applyBDDStep(props, dec, w.importsBDD)
 	}
 	if doc := pyDocstring(node, w.src); doc != "" {
 		facts.SetDocProp(props, doc)
 	}
 
 	rels := []facts.Relation{{Kind: facts.RelDeclares, Target: w.dir}}
+	// The types its signature names are used by it: a request model a route takes, the
+	// dataclass a function returns.
+	rels = append(rels, w.signatureTypeRelations(node)...)
 
 	f := facts.Fact{
 		Kind:      facts.KindSymbol,
@@ -3514,3 +3557,97 @@ func setDecoratedStart(f *facts.Fact, def *sitter.Node) {
 		facts.SetSpanStart(f, int(p.StartPosition().Row)+1)
 	}
 }
+
+// signatureTypeRelations returns a names edge to every internal type a function's
+// parameter and return annotations name.
+func (w *pyWalker) signatureTypeRelations(fn *sitter.Node) []facts.Relation {
+	var rels []facts.Relation
+	if params := fn.ChildByFieldName("parameters"); params != nil {
+		for i := uint(0); i < uint(params.ChildCount()); i++ {
+			switch c := params.Child(i); kindOf(c) {
+			case "typed_parameter", "typed_default_parameter":
+				rels = append(rels, w.annotationRelations(c.ChildByFieldName("type"))...)
+			}
+		}
+	}
+	return append(rels, w.annotationRelations(fn.ChildByFieldName("return_type"))...)
+}
+
+// annotationRelations returns a names edge to every internal type an annotation
+// names: a bare name, a dotted name through an imported module (`models.Order`), and
+// a string forward reference ("Order"), at any depth of Optional[...], list[...] or
+// a union. A name resolves only as a value reference does: an import, or a
+// definition of this module. Builtins and typing's own names resolve to nothing.
+func (w *pyWalker) annotationRelations(n *sitter.Node) []facts.Relation {
+	if n == nil {
+		return nil
+	}
+	var rels []facts.Relation
+	seen := map[string]bool{}
+	add := func(target string) {
+		if target != "" && !seen[target] {
+			seen[target] = true
+			rels = append(rels, facts.Relation{Kind: facts.RelNames, Target: target})
+		}
+	}
+	var walk func(n *sitter.Node)
+	walk = func(n *sitter.Node) {
+		switch kindOf(n) {
+		case "identifier":
+			if name := pyText(n, w.src); !pyBuiltins[name] {
+				add(w.annotationName(name))
+			}
+			return
+		case "attribute":
+			add(w.annotationDotted(pyText(n, w.src)))
+			return
+		case "string":
+			if c := firstChildOfKind(n, "string_content"); c != nil && firstChildOfKind(n, "interpolation") == nil {
+				// A forward reference is an annotation written as a string:
+				// "Order", "models.Order", "Order | None", "list[Line]".
+				for _, ref := range pyAnnotationRef.FindAllString(pyText(c, w.src), -1) {
+					if strings.Contains(ref, ".") {
+						add(w.annotationDotted(ref))
+					} else if !pyBuiltins[ref] {
+						add(w.annotationName(ref))
+					}
+				}
+			}
+			return
+		}
+		for i := uint(0); i < uint(n.ChildCount()); i++ {
+			walk(n.Child(i))
+		}
+	}
+	walk(n)
+	return rels
+}
+
+// annotationName resolves a bare name in an annotation: an imported name, or a
+// definition of this module. A type is not a local, so the enclosing scope's
+// bindings do not shadow it.
+func (w *pyWalker) annotationName(name string) string {
+	if t, ok := w.importMap[name]; ok && t != "" {
+		return t
+	}
+	if w.idx != nil && w.idx.moduleDefs[w.module][name] {
+		return w.module + "." + name
+	}
+	return ""
+}
+
+// annotationDotted resolves `alias.Name` (or `pkg.mod.Name`) whose first segment is
+// an imported module.
+func (w *pyWalker) annotationDotted(dotted string) string {
+	head, rest, ok := strings.Cut(dotted, ".")
+	if !ok || rest == "" {
+		return ""
+	}
+	if t, ok := w.importMap[head]; ok && t != "" {
+		return t + "." + rest
+	}
+	return ""
+}
+
+// pyAnnotationRef matches each name, dotted or bare, in a string annotation.
+var pyAnnotationRef = regexp.MustCompile(`[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*`)

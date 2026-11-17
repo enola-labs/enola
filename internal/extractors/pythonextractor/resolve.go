@@ -131,6 +131,11 @@ func resolveCallTargetsWith(allFacts []facts.Fact, fileModules map[string]bool, 
 		// type: `pkg.security_manager.can_access` as `SecurityManager.can_access`.
 		resolve := func(target string) (string, bool) {
 			resolved, keep := resolveDottedTarget(target, fileIdx, topPkgs, importerDir, reexports, symbols)
+			if !keep {
+				if local := besideImporter(target, importerDir, fileModules, symbols); local != "" {
+					return local, true
+				}
+			}
 			if !keep || symbols[resolved] || len(globals) == 0 {
 				return resolved, keep
 			}
@@ -946,4 +951,38 @@ var pyStdlib = map[string]bool{
 	"rlcompleter": true, "sre_compile": true, "sre_constants": true, "sre_parse": true, "syslog": true,
 	"tabnanny": true, "this": true, "turtle": true, "turtledemo": true, "winreg": true,
 	"winsound": true, "wsgiref": true,
+}
+
+// besideImporter resolves a dotted target read as a library's to a module next to
+// the importing file, or next to one of the directories above it. A script puts its
+// own directory on sys.path, so `from reports import scoring` in a file run from
+// src/ imports src/reports/scoring.py, whether or not src/ is itself a package (in
+// which case importableRoots does not count reports as a root). Only a target naming
+// a symbol of such a module counts: a library of the same name as a local directory
+// keeps its calls.
+func besideImporter(dotted, importerDir string, fileModules, symbols map[string]bool) string {
+	// The importer's directory, each directory above it, and the repository root.
+	var dirs []string
+	for d := importerDir; d != "" && d != "."; d = fileDir(d) {
+		dirs = append(dirs, d)
+		if !strings.Contains(d, "/") {
+			break
+		}
+	}
+	dirs = append(dirs, ".")
+	for _, dir := range dirs {
+		for cut := strings.LastIndexByte(dotted, '.'); cut > 0; cut = strings.LastIndexByte(dotted[:cut], '.') {
+			mod := strings.ReplaceAll(dotted[:cut], ".", "/")
+			if dir != "." {
+				mod = dir + "/" + mod
+			}
+			if !fileModules[mod] {
+				continue
+			}
+			if cand := mod + "." + dotted[cut+1:]; symbols[cand] {
+				return cand
+			}
+		}
+	}
+	return ""
 }

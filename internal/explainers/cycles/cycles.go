@@ -78,8 +78,11 @@ func (e *CycleExplainer) Explain(ctx context.Context, store *facts.Store) ([]fac
 	// cycles: the metrics suite, impact, and the layer rules.
 	// Asset imports (a stylesheet, an image) are excluded too: nothing in the file
 	// runs, so a page importing a stylesheet beside the barrel that re-exports the
-	// page is no load-order cycle.
-	graph := common.BuildModuleGraphExcluding(store, facts.CouplingAssociation, facts.CouplingReference, facts.CouplingSymbolRollup, facts.CouplingAsset)
+	// page is no load-order cycle. A type-only import is erased by the compiler
+	// and loads nothing either, and a deferred one (inside a function, or under
+	// TYPE_CHECKING) runs after every module has loaded, or never.
+	graph := common.BuildModuleGraphExcluding(store, facts.CouplingAssociation, facts.CouplingReference,
+		facts.CouplingSymbolRollup, facts.CouplingAsset, facts.CouplingTypeOnly, common.DeferredImports)
 
 	// Which build unit each module compiles into, where the language models one.
 	// See facts.CompilationUnitProps: a cycle confined to a single unit is not a

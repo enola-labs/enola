@@ -40,8 +40,10 @@ import (
 	"github.com/enola-labs/enola/internal/explainers/vendoredcandidates"
 	"github.com/enola-labs/enola/internal/extractors/ansibleextractor"
 	"github.com/enola-labs/enola/internal/extractors/asyncapiextractor"
+	"github.com/enola-labs/enola/internal/extractors/avroextractor"
 	"github.com/enola-labs/enola/internal/extractors/cppextractor"
 	"github.com/enola-labs/enola/internal/extractors/dartextractor"
+	"github.com/enola-labs/enola/internal/extractors/dbtextractor"
 	"github.com/enola-labs/enola/internal/extractors/dotnetextractor"
 	"github.com/enola-labs/enola/internal/extractors/goextractor"
 	"github.com/enola-labs/enola/internal/extractors/grpcextractor"
@@ -50,11 +52,13 @@ import (
 	"github.com/enola-labs/enola/internal/extractors/javaextractor"
 	"github.com/enola-labs/enola/internal/extractors/k8sextractor"
 	"github.com/enola-labs/enola/internal/extractors/kotlinextractor"
+	"github.com/enola-labs/enola/internal/extractors/lookmlextractor"
 	"github.com/enola-labs/enola/internal/extractors/manifestextractor"
 	"github.com/enola-labs/enola/internal/extractors/mdintent"
 	"github.com/enola-labs/enola/internal/extractors/openapiextractor"
 	"github.com/enola-labs/enola/internal/extractors/phpextractor"
 	"github.com/enola-labs/enola/internal/extractors/pythonextractor"
+	"github.com/enola-labs/enola/internal/extractors/regoextractor"
 	"github.com/enola-labs/enola/internal/extractors/rubyextractor"
 	"github.com/enola-labs/enola/internal/extractors/rustextractor"
 	"github.com/enola-labs/enola/internal/extractors/scalaextractor"
@@ -585,6 +589,10 @@ func registerOSSPlugins(eng *engine.Engine, cfg *config.Config) {
 	eng.RegisterExtractor(scalaextractor.New())
 	eng.RegisterExtractor(dartextractor.New())
 	eng.RegisterExtractor(vespaextractor.New())
+	eng.RegisterExtractor(dbtextractor.New())
+	eng.RegisterExtractor(lookmlextractor.New())
+	eng.RegisterExtractor(avroextractor.New())
+	eng.RegisterExtractor(regoextractor.New())
 
 	// Resolve the linking vocabulary once and hand it to everything that matches under
 	// it, so the signals and the unmatched-route binder cannot disagree about what

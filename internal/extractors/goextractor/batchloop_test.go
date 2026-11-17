@@ -131,3 +131,138 @@ func TestRowCursorWithAQueryPerRowIsNotABatchLoop(t *testing.T) {
 		t.Errorf("row cursor: scaling_loop_depth = %d, want at most 1", got)
 	}
 }
+
+// A keyset pager that hands each page on whole, and a range over chunks of the
+// input, fetch once per batch. A loop that stops on an empty result but fetches
+// per element is still one fetch per element.
+func TestPagerAndChunkRangeAreBatchLoops(t *testing.T) {
+	ff := extractAll(t, map[string]string{"pkg/x.go": `package pkg
+
+import "slices"
+
+func readPage(cursor int) []int { return nil }
+func insertAll(rows []int)      {}
+func queryIn(ids []int) []int   { return nil }
+func lookup(id int) []int       { return nil }
+
+func backfill() {
+	cursor := 0
+	for {
+		rows := readPage(cursor)
+		if len(rows) == 0 {
+			break
+		}
+		insertAll(rows)
+		cursor = rows[len(rows)-1]
+	}
+}
+
+func byIDs(ids []int) {
+	for batch := range slices.Chunk(ids, 1000) {
+		queryIn(batch)
+	}
+}
+
+func perID(ids []int) {
+	for _, id := range ids {
+		if len(lookup(id)) == 0 {
+			continue
+		}
+	}
+}
+`})
+	for name, batched := range map[string][]string{
+		"pkg.backfill": {"pkg.readPage", "pkg.insertAll"},
+		"pkg.byIDs":    {"pkg.queryIn"},
+	} {
+		f, ok := findFact(ff, name)
+		if !ok {
+			t.Fatalf("missing %s", name)
+		}
+		scaling := strSliceProp(f, "calls_in_scaling_loop")
+		for _, c := range batched {
+			if containsStr(scaling, c) {
+				t.Errorf("%s: calls_in_scaling_loop = %v: %s runs once per batch", name, scaling, c)
+			}
+		}
+	}
+	per, _ := findFact(ff, "pkg.perID")
+	if scaling := strSliceProp(per, "calls_in_scaling_loop"); !containsStr(scaling, "pkg.lookup") {
+		t.Errorf("perID: calls_in_scaling_loop = %v, want pkg.lookup", scaling)
+	}
+}
+
+// UPDATE … LIMIT n until a round touches fewer rows is a batched write; a
+// chain walk that stops at zero is still a query per level.
+func TestLimitedWriteLoopIsABatchLoop(t *testing.T) {
+	ff := extractAll(t, map[string]string{"pkg/x.go": `package pkg
+
+type Result struct{}
+
+func (Result) RowsAffected() (int64, error) { return 0, nil }
+
+func exec(q string, limit int) Result { return Result{} }
+func up(id int) int                   { return 0 }
+
+func nullify() {
+	const limit = 200
+	for {
+		res := exec("UPDATE t SET x = NULL WHERE y = 1 LIMIT ?", limit)
+		n, _ := res.RowsAffected()
+		if n < limit {
+			break
+		}
+	}
+}
+
+func climb(id int) {
+	for {
+		id = up(id)
+		if id == 0 {
+			break
+		}
+	}
+}
+`})
+	f, _ := findFact(ff, "pkg.nullify")
+	if scaling := strSliceProp(f, "calls_in_scaling_loop"); containsStr(scaling, "pkg.exec") {
+		t.Errorf("nullify: calls_in_scaling_loop = %v: one limited write a round is the batching", scaling)
+	}
+	c, _ := findFact(ff, "pkg.climb")
+	if scaling := strSliceProp(c, "calls_in_scaling_loop"); !containsStr(scaling, "pkg.up") {
+		t.Errorf("climb: calls_in_scaling_loop = %v, want pkg.up", scaling)
+	}
+}
+
+// A function that only hands a querying method over as a value does no I/O.
+func TestValueRefDoesNotCarryIO(t *testing.T) {
+	ff := extractAll(t, map[string]string{"pkg/x.go": `package pkg
+
+import "database/sql"
+
+type H struct{ db *sql.DB }
+
+func (h *H) Expire(id int) { h.db.Exec("update t set x = 1 where id = ?", id) }
+
+type W struct{}
+
+func (w *W) Register(fn func(int)) {}
+
+type S struct {
+	w *W
+	h *H
+}
+
+func (s *S) wire() { s.w.Register(s.h.Expire) }
+`})
+	wire, ok := findFact(ff, "pkg.S.wire")
+	if !ok {
+		t.Fatal("missing pkg.S.wire")
+	}
+	if wire.PropBool("performs_io") {
+		t.Errorf("wire performs_io: handing a method over is not running it")
+	}
+	if refs := strSliceProp(wire, "value_refs"); !containsStr(refs, "pkg.H.Expire") {
+		t.Errorf("value_refs = %v, want pkg.H.Expire", refs)
+	}
+}

@@ -261,3 +261,61 @@ func TestDetect_IgnoresTestdataFixtures(t *testing.T) {
 		t.Errorf("Detect = %v, %v; want true, nil (first-party .proto present)", ok, err)
 	}
 }
+
+// A message another message holds, or an RPC takes or returns, is used by it,
+// across files of the repository; a scalar or an external type adds nothing.
+func TestMessageRefs_FieldsAndRPCsNameTheirMessages(t *testing.T) {
+	repo := t.TempDir()
+	write := func(rel, src string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Join(repo, filepath.Dir(rel)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(repo, rel), []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("proto/events.proto", `syntax = "proto3";
+package shop;
+import "google/protobuf/timestamp.proto";
+message LineEvent { string sku = 1; }
+message OrderEvent {
+  repeated LineEvent lines = 1;
+  google.protobuf.Timestamp at = 2;
+  map<string, LineEvent> by_sku = 3;
+}
+`)
+	write("proto/api.proto", `syntax = "proto3";
+package shop;
+message Ack { bool ok = 1; }
+service Orders {
+  rpc Publish(shop.OrderEvent) returns (Ack);
+}
+`)
+	ff, err := New().Extract(context.Background(), repo, []string{"proto/events.proto", "proto/api.proto"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := func(name string) []string {
+		var out []string
+		for _, f := range ff {
+			if f.Name == name {
+				for _, r := range f.Relations {
+					if r.Kind == facts.RelNames {
+						out = append(out, r.Target)
+					}
+				}
+				if _, leaked := f.Props[propMessageRefs]; leaked {
+					t.Errorf("%s carries %s", name, propMessageRefs)
+				}
+			}
+		}
+		return out
+	}
+	if got := names("proto.OrderEvent"); len(got) != 1 || got[0] != "proto.LineEvent" {
+		t.Errorf("OrderEvent names %v, want only LineEvent", got)
+	}
+	if got := names("proto.Orders.Publish"); len(got) != 2 {
+		t.Errorf("Publish names %v, want its request and response", got)
+	}
+}

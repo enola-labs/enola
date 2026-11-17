@@ -177,10 +177,10 @@ func TestExplain_CycleUnderCountRegression(t *testing.T) {
 		}
 		seen[ev.Fact] = true
 	}
-	// The cycle members m/a and m/b share a depth of 5 (>= minDepth) and must be
-	// reported too — as a single component insight keyed on the smallest member.
-	if _, ok := byModule["m/a"]; !ok {
-		t.Errorf("cycle component (m/a) at depth 5 should be reported; got %v", titles(insights))
+	// The cycle members m/a and m/b are the next hop of m/r's chain: the same chain
+	// again with one module fewer on top, so they are not a finding of their own.
+	if _, ok := byModule["m/a"]; ok {
+		t.Errorf("the cycle component on m/r's chain was reported again: %v", titles(insights))
 	}
 }
 
@@ -193,9 +193,20 @@ func titles(ins []facts.Insight) []string {
 }
 
 func TestExplain_CapsAtMaxInsights(t *testing.T) {
-	// A single long chain: a/m0..a/m15. Modules a/m0..a/m11 have depth >= minDepth
-	// (5), i.e. 12 qualifying modules — more than the cap of 10.
-	mods, deps := chain(16)
+	// Twelve separate chains, each deep enough to report: more than the cap of 10.
+	// The k-th is k modules longer, so the deepest ranks first.
+	var mods []string
+	deps := map[string][]string{}
+	for k := 0; k < 12; k++ {
+		n := minDepth + k
+		for i := 0; i < n; i++ {
+			mods = append(mods, fmt.Sprintf("c%02d/m%02d", k, i))
+			if i > 0 {
+				prev := fmt.Sprintf("c%02d/m%02d", k, i-1)
+				deps[prev] = []string{fmt.Sprintf("c%02d/m%02d", k, i)}
+			}
+		}
+	}
 	insights, err := New().Explain(context.Background(), makeStore(mods, deps))
 	if err != nil {
 		t.Fatalf("Explain: %v", err)
@@ -203,8 +214,37 @@ func TestExplain_CapsAtMaxInsights(t *testing.T) {
 	if len(insights) != maxInsights {
 		t.Fatalf("expected output capped at %d, got %d", maxInsights, len(insights))
 	}
-	if !strings.Contains(insights[0].Title, "a/m0 (") || !strings.Contains(insights[0].Title, "depth 16") {
-		t.Errorf("deepest module a/m0 (depth 16) should rank first, got %q", insights[0].Title)
+	if want := fmt.Sprintf("c11/m00 (depth %d)", minDepth+11); !strings.Contains(insights[0].Title, want) {
+		t.Errorf("the deepest chain should rank first as %q, got %q", want, insights[0].Title)
+	}
+}
+
+// One long chain is one finding: each module below its head starts the same
+// chain again, one module shorter.
+func TestExplain_OneChainIsOneFinding(t *testing.T) {
+	mods, deps := chain(16)
+	insights, err := New().Explain(context.Background(), makeStore(mods, deps))
+	if err != nil {
+		t.Fatalf("Explain: %v", err)
+	}
+	if len(insights) != 1 || !strings.Contains(insights[0].Title, "a/m0 (depth 16)") {
+		t.Fatalf("want the one chain from a/m0, got %v", titles(insights))
+	}
+}
+
+// Two pages above one feature library are two heads of one chain: the second,
+// whose next hop is already listed, is not reported again.
+func TestExplain_HeadsOfAListedChainAreOneFinding(t *testing.T) {
+	mods, deps := chain(8)
+	mods = append(mods, "app/page1", "app/page2")
+	deps["app/page1"] = []string{"a/m0"}
+	deps["app/page2"] = []string{"a/m0"}
+	insights, err := New().Explain(context.Background(), makeStore(mods, deps))
+	if err != nil {
+		t.Fatalf("Explain: %v", err)
+	}
+	if got := titles(insights); len(got) != 1 || !strings.Contains(got[0], "app/page1 (depth 9)") {
+		t.Fatalf("want one finding from app/page1, got %v", got)
 	}
 }
 

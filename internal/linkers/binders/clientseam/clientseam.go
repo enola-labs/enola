@@ -53,7 +53,9 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 	var out []facts.Fact
 	chosen := map[string]int{}
 	for _, f := range all {
-		if f.Kind != facts.KindSymbol {
+		// A test harness's calls to the service under test are not the
+		// repository's requests.
+		if f.Kind != facts.KindSymbol || facts.IsTestPath(f.File) {
 			continue
 		}
 		for _, candidate := range propStrings(f.PropAny("client_path_calls")) {

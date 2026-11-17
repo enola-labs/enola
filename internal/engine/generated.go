@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // generatedMarkers are the conventional banners codegen tools put at the top of
@@ -142,11 +143,12 @@ func hasCommentPrefix(line []byte) bool {
 // globs already cover the tools that emit into a conventional generated/ dir.
 func (e *Engine) markGeneratedFacts(repoPath string, startIdx int) {
 	cache := map[string]bool{}
+	bundles := vendoredBundles{root: repoPath, licensed: map[string]bool{}}
 	files := 0
 	marked := e.store.SetPropRange(startIdx, "generated", true, func(file string) bool {
 		gen, seen := cache[file]
 		if !seen {
-			gen = looksGenerated(filepath.Join(repoPath, file))
+			gen = bundles.contains(file) || looksGenerated(filepath.Join(repoPath, file))
 			cache[file] = gen
 			if gen {
 				files++
@@ -157,4 +159,54 @@ func (e *Engine) markGeneratedFacts(repoPath string, startIdx int) {
 	if marked > 0 {
 		log.Printf("[engine] flagged %d facts from %d generated file(s)", marked, files)
 	}
+}
+
+// webRootDirs are the directories a web app serves as is. A library copied into
+// one keeps its own files, license included, so it is shipped, not written here.
+var webRootDirs = map[string]bool{"public": true, "static": true}
+
+// vendoredBundles finds files inside a third-party bundle copied into a web root:
+// an editor or widget unpacked under public/ with its own license beside it. Its
+// code is the library's, minified or not, and every dead-code or loop finding in
+// it is noise. The license is what tells it from the app's own scripts, which
+// share the repository's license at the root rather than carrying one per folder.
+type vendoredBundles struct {
+	root     string
+	licensed map[string]bool // directory (repo-relative) → holds a license file
+}
+
+func (v vendoredBundles) contains(file string) bool {
+	parts := strings.Split(filepath.ToSlash(file), "/")
+	for i := 0; i < len(parts)-2; i++ {
+		if !webRootDirs[parts[i]] {
+			continue
+		}
+		// Directories below the web root, down to the file's own.
+		for j := i + 2; j < len(parts); j++ {
+			if v.hasLicense(strings.Join(parts[:j], "/")) {
+				return true
+			}
+		}
+		return false
+	}
+	return false
+}
+
+func (v vendoredBundles) hasLicense(dir string) bool {
+	if got, ok := v.licensed[dir]; ok {
+		return got
+	}
+	found := false
+	if entries, err := os.ReadDir(filepath.Join(v.root, filepath.FromSlash(dir))); err == nil {
+		for _, e := range entries {
+			name := strings.ToLower(e.Name())
+			if !e.IsDir() && (strings.HasPrefix(name, "license") || strings.HasPrefix(name, "licence") ||
+				strings.HasPrefix(name, "copying")) {
+				found = true
+				break
+			}
+		}
+	}
+	v.licensed[dir] = found
+	return found
 }

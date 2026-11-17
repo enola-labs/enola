@@ -193,3 +193,22 @@ func TestPropagate_ApartFactAnswersForItself(t *testing.T) {
 		}
 	}
 }
+
+// Handing a function that does I/O over as a value does not make the one handing
+// it do I/O.
+func TestPropagate_ValueRefIsNotACall(t *testing.T) {
+	all := []facts.Fact{
+		{Kind: facts.KindSymbol, Name: "h.Expire", Props: map[string]any{"io_direct": true}},
+		{Kind: facts.KindSymbol, Name: "s.wire", Props: map[string]any{"value_refs": []string{"h.Expire"}},
+			Relations: []facts.Relation{{Kind: facts.RelCalls, Target: "h.Expire"}}},
+		{Kind: facts.KindSymbol, Name: "s.run",
+			Relations: []facts.Relation{{Kind: facts.RelCalls, Target: "h.Expire"}}},
+	}
+	Propagate(all)
+	if all[1].PropBool("performs_io") {
+		t.Error("wiring a handler was read as doing its I/O")
+	}
+	if !all[2].PropBool("performs_io") {
+		t.Error("calling the handler no longer performs its I/O")
+	}
+}

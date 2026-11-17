@@ -74,8 +74,11 @@ func goCandidates(store *facts.Store) []finding {
 	}
 	for k, f := range syms {
 		once := stringSet(propStrings(f.Props["calls_once"]))
+		// A function handed over as a value (`w.Register(h.Expire)`) is an edge
+		// for impact and dead code, but registering it runs nothing.
+		values := stringSet(propStrings(f.Props["value_refs"]))
 		for _, r := range f.Relations {
-			if r.Kind != facts.RelCalls || once[r.Target] {
+			if r.Kind != facts.RelCalls || once[r.Target] || values[r.Target] {
 				continue
 			}
 			callee := goKey{k.repo, r.Target}
@@ -140,7 +143,10 @@ func goCandidates(store *facts.Store) []finding {
 	for _, k := range keys {
 		f := syms[k]
 		inLoop := propStrings(f.Props["calls_in_scaling_loop"])
-		if len(inLoop) == 0 {
+		// Generated code stays in the reach graph, so a hand-written function
+		// called through it still counts, but its own loops are the generator's:
+		// nothing in the file can be edited to batch them.
+		if len(inLoop) == 0 || f.PropBool("generated") {
 			continue
 		}
 		depths := propInts(f.Props["calls_in_scaling_loop_depth"])

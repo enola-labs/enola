@@ -745,6 +745,12 @@ func Analyze(store *facts.Store) []Finding {
 	return findings
 }
 
+// storageNameIsData are the storage kinds whose fact name is a data identifier
+// (a table, a topic, an index), not anything a call targets.
+var storageNameIsData = map[string]bool{
+	"table": true, "table_reference": true, "document_type": true, "topic": true, "cache": true,
+}
+
 func claimedHas(claimed map[string]struct{}, name string) bool {
 	_, ok := claimed[name]
 	return ok
@@ -754,6 +760,13 @@ func collect(store *facts.Store) (funcs []funcInfo, storage, routeHandlers, asso
 	claimed := queryloops.ClaimedSymbols(store)
 	storage = make(map[string]bool)
 	for f := range store.OfKind(facts.KindStorage) {
+		// A callee is matched against these names, so only the ones code calls
+		// belong: a model class, a storage client. A table, topic or index is
+		// named in a query, never called, and `attributes` or `items` as a table
+		// made every bare method of that name a database read.
+		if storageNameIsData[f.PropString("storage_kind")] {
+			continue
+		}
 		storage[f.Name] = true
 	}
 
@@ -802,7 +815,7 @@ func collect(store *facts.Store) (funcs []funcInfo, storage, routeHandlers, asso
 		if sk != facts.SymbolFunc && sk != facts.SymbolMethod && !hasComplexityMetrics(f.Props) {
 			continue
 		}
-		if mcputil.IsGeneratedPath(f.File) || isTestPath(f.File) || isIgnoredPath(f.File) {
+		if f.PropBool("generated") || mcputil.IsGeneratedPath(f.File) || isTestPath(f.File) || isIgnoredPath(f.File) {
 			continue
 		}
 		pkg := ""
@@ -1046,9 +1059,23 @@ func isExpensiveGoCall(target string, storage map[string]bool, byName map[string
 // there the name is the convention for code that does talk to the outside.
 func goIOPackage(target string, byName map[string]funcInfo) bool {
 	_, inRepo := byName[target]
-	ownHTTP := inRepo && goPackageName(target) == "http"
+	pkg := goPackageName(target)
+	ownHTTP := inRepo && pkg == "http"
 	for _, kw := range expensivePrefixes {
-		if kw == "http." && ownHTTP {
+		switch kw {
+		case "http.":
+			// `http` itself and a wrapper named for it (`lokihttp`).
+			if !ownHTTP && strings.HasSuffix(pkg, "http") {
+				return true
+			}
+			continue
+		case "db.", "sql.":
+			// The package's own name, not a substring of the path: a query
+			// builder in a package named `mysql` or `postgres` (go-jet) builds
+			// expressions in memory, and `mysql.Int64(id)` sends nothing.
+			if pkg == strings.TrimSuffix(kw, ".") {
+				return true
+			}
 			continue
 		}
 		if strings.Contains(target, kw) {

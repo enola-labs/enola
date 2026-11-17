@@ -423,3 +423,60 @@ subjects: [{kind: ServiceAccount, name: web}]
 		t.Error("an object declared once has no declared_in")
 	}
 }
+
+// An Istio VirtualService depends on the Services its routes send to (a short,
+// namespaced or cluster-qualified host) and the gateways it binds to; an external
+// host and the mesh gateway name nothing. A DestinationRule depends on its host.
+func TestIstioVirtualServiceAndDestinationRule(t *testing.T) {
+	ff := extract(t, map[string]string{
+		"k8s/svc.yaml": `apiVersion: v1
+kind: Service
+metadata: {name: orders, namespace: shop}
+spec: {selector: {app: orders}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: carts, namespace: shop}
+spec: {selector: {app: carts}}
+---
+apiVersion: networking.istio.io/v1beta1
+kind: Gateway
+metadata: {name: public, namespace: edge}
+spec: {selector: {istio: ingressgateway}}
+`,
+		"k8s/istio.yaml": `apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata: {name: shop, namespace: shop}
+spec:
+  hosts: [shop.example.com]
+  gateways: [edge/public, mesh]
+  http:
+    - match: [{uri: {prefix: /orders}}]
+      route:
+        - destination: {host: orders.shop.svc.cluster.local, port: {number: 80}}
+    - route:
+        - destination: {host: carts}
+          weight: 90
+        - destination: {host: api.partner.example.com}
+          weight: 10
+---
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata: {name: orders, namespace: shop}
+spec: {host: orders.shop}
+`,
+	})
+	for name, want := range map[string][]string{
+		"k8s.VirtualService.shop":    {"k8s.Gateway.public", "k8s.Service.carts", "k8s.Service.orders"},
+		"k8s.DestinationRule.orders": {"k8s.Service.orders"},
+	} {
+		f := find(ff, facts.KindSymbol, name)
+		if f == nil {
+			t.Errorf("%s missing", name)
+			continue
+		}
+		if got := dependsOn(f); !reflect.DeepEqual(got, want) {
+			t.Errorf("%s depends_on = %v, want %v", name, got, want)
+		}
+	}
+}

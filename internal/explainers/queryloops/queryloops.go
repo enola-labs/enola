@@ -475,9 +475,16 @@ func rubyCandidates(store *facts.Store) []finding {
 			continue
 		}
 		depth := propInt(fact.PropAny("loop_depth"))
+		// The calls made once per element of a loop that grows with the input.
+		// A query made once per batch (`ids.each_slice(500) { |b| Model.where(id: b) }`)
+		// or in a loop over a literal is in calls_in_loop and not here: it is the
+		// batching, not the N+1. A fact without the list predates it, and keeps
+		// the wider reading.
+		_, narrowed := fact.Props["calls_in_scaling_loop"]
+		scaling := stringSet(propStrings(fact.PropAny("calls_in_scaling_loop")))
 		for _, call := range propStrings(fact.PropAny("calls_in_loop")) {
 			receiver, method, ok := strings.Cut(call, ".")
-			if !ok || !queryMethods[method] {
+			if !ok || !queryMethods[method] || (narrowed && !scaling[call]) {
 				continue
 			}
 			if !models[demodulize(receiver)] {

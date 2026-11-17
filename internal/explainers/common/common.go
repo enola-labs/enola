@@ -424,12 +424,20 @@ func IsTestModule(m facts.Fact) bool {
 	return facts.IsTestPath(facts.ModulePath(m))
 }
 
+// DeferredImports, passed to BuildModuleGraphExcluding, drops the imports that do
+// not run at load time. It is not a coupling kind: no fact carries it.
+const DeferredImports = "deferred-imports"
+
 // BuildModuleGraphExcluding is BuildModuleGraph with the ability to drop synthetic
 // coupling edges by their Props["coupling_kind"] (see facts.Coupling* constants).
 // A dependency fact whose coupling_kind is in excludeKinds contributes no edge.
 // The cycles explainer uses this to exclude ActiveRecord associations, whose
 // inherent bidirectionality would otherwise manufacture false cycles. With no
 // excludeKinds it is identical to BuildModuleGraph.
+//
+// DeferredImports among excludeKinds also drops an import that does not run when
+// its module loads: Python's function-local and `if TYPE_CHECKING:` imports, which
+// the extractor marks Props["deferred"].
 func BuildModuleGraphExcluding(store *facts.Store, excludeKinds ...string) map[string][]string {
 	graph := make(map[string][]string)
 
@@ -479,6 +487,9 @@ func BuildModuleGraphExcluding(store *facts.Store, excludeKinds ...string) map[s
 		}
 		if excluded != nil {
 			if ck, _ := dep.PropAny(facts.PropCouplingKind).(string); excluded[ck] {
+				continue
+			}
+			if excluded[DeferredImports] && dep.PropBool("deferred") {
 				continue
 			}
 		}
@@ -549,6 +560,27 @@ var rubyFrameworkBaseClasses = map[string]bool{
 var rubyBaseClassSuffixes = []string{
 	"BaseController", "BaseJob", "BaseService", "BaseMailer", "BaseSerializer",
 	"BasePolicy", "BasePresenter", "BaseInteractor", "Base",
+}
+
+// dataDefinitionLanguages define data rather than behaviour: dbt models, Avro
+// schemas, LookML views.
+var dataDefinitionLanguages = map[string]bool{"dbt": true, "avro": true, "lookml": true}
+
+// IsDataDefinition reports a symbol that defines a shape of data: a table a dbt
+// model builds, an Avro type, a LookML view. Many definitions using one (an
+// event envelope, a shared dimension table) is the design, and "split it along
+// its responsibilities" is not advice that applies to it.
+func IsDataDefinition(f facts.Fact) bool {
+	return dataDefinitionLanguages[f.PropString("language")]
+}
+
+// IsDeploymentResource reports a symbol that is a deployment manifest resource:
+// an Argo CD Application, a ClusterRole, a Kustomization. Its dependents are the
+// bindings and environments that reference it, and a role every namespace binds
+// is how the cluster is meant to be configured, not code concentrating change
+// risk. Call-graph metrics (fan-in outliers, hotspots) skip it as a candidate.
+func IsDeploymentResource(f facts.Fact) bool {
+	return f.PropString("language") == "kubernetes"
 }
 
 // IsRubyFrameworkBaseSymbol reports whether a symbol is a Rails/framework base

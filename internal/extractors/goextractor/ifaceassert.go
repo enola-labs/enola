@@ -155,7 +155,7 @@ func collectEmbeddedTypes(files []*ast.File, pkgDir string, mods goModules, pkgN
 // promotedCallProps are the props that repeat a function's call targets, and so
 // have to be rewritten with them.
 var promotedCallProps = []string{
-	"calls_in_loop", "calls_in_scaling_loop", "calls_on_loop_element", "io_calls", "calls_once",
+	"calls_in_loop", "calls_in_scaling_loop", "calls_on_loop_element", "io_calls", "calls_once", "value_refs",
 }
 
 // resolvePromotedCalls points a call on a promoted method at the method it runs.

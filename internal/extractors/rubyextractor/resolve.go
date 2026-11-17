@@ -74,6 +74,20 @@ func resolveImports(allFacts []facts.Fact, isRails bool) []facts.Fact {
 					}
 				}
 			}
+		case facts.KindFileRef:
+			// Code at file scope and in blocks there: an initializer's
+			// `after_fork do … end`, a routes or config file. It runs when the
+			// file loads, so a constant it names is as much a dependency as one
+			// a method names.
+			src := fileDir(f.File)
+			for _, rel := range f.Relations {
+				if rel.Kind != facts.RelCalls {
+					continue
+				}
+				if c := constFromCall(rel.Target); c != "" {
+					add(src, ix.resolve(c, src), facts.CouplingReference)
+				}
+			}
 		case facts.KindDependency:
 			src := fileDir(f.File)
 			for j := range f.Relations {

@@ -164,10 +164,34 @@ func extractAllRoutes(repoPath string, files []string) ([]facts.Fact, map[string
 		parse(relFile, "", "")
 	}
 
+	allFacts = dropResolvedDraws(allFacts, idx.drawTargets, parsed)
+
 	if fact, ok := routeCoverageFact(repoPath, len(allFacts), unresolvedMacros); ok {
 		allFacts = append(allFacts, fact)
 	}
 	return allFacts, namespaceOf
+}
+
+// dropResolvedDraws removes the placeholder route a `draw(:key)` call leaves once
+// a file it delegates to has been parsed: that file's routes are the delegation's
+// real surface, and the placeholder beside them was counted as one more route. A
+// draw whose file enola could not find keeps its placeholder, so the delegation
+// stays visible.
+func dropResolvedDraws(all []facts.Fact, targets map[string][]string, parsed map[string]bool) []facts.Fact {
+	out := all[:0]
+	for _, f := range all {
+		if f.Kind == facts.KindRoute && f.PropString("method") == "DRAW" {
+			resolved := false
+			for _, t := range targets[f.PropString("delegate")] {
+				resolved = resolved || parsed[t]
+			}
+			if resolved {
+				continue
+			}
+		}
+		out = append(out, f)
+	}
+	return out
 }
 
 // sortedDrawKeys returns m's keys in sorted order, so route emission is deterministic.

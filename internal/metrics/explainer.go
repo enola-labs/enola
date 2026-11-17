@@ -92,11 +92,20 @@ func metricsToInsights(results []PackageMetric, multiRepo bool) []facts.Insight 
 			mostCoupled = m
 		}
 	}
+	// Most of the list sits at D=1.00, so within a distance the package more
+	// packages depend on comes first: a hub under 900 dependents is a bigger
+	// change risk than a leaf under 3, and naming them alphabetically hid that.
 	sort.SliceStable(off, func(i, j int) bool {
 		if off[i].Distance != off[j].Distance {
 			return off[i].Distance > off[j].Distance
 		}
-		return off[i].Package < off[j].Package
+		if off[i].Ca != off[j].Ca {
+			return off[i].Ca > off[j].Ca
+		}
+		if off[i].Package != off[j].Package {
+			return off[i].Package < off[j].Package
+		}
+		return off[i].Repo < off[j].Repo
 	})
 
 	out := make([]facts.Insight, 0, len(off)+1)

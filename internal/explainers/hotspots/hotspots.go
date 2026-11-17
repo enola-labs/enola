@@ -116,7 +116,7 @@ func (e *HotspotExplainer) Explain(ctx context.Context, store *facts.Store) ([]f
 		// Generated code (an API client, protobuf stubs) is not maintained by hand: a
 		// finding there is not one anyone acts on. Gated as a candidate only, like test
 		// code above, so the distribution it is measured against stays whole.
-		if s.PropBool("generated") {
+		if s.PropBool("generated") || common.IsDeploymentResource(s) {
 			continue
 		}
 		key := graph.KeyOf(&s)

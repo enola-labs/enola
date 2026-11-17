@@ -56,7 +56,11 @@ var (
 		{Name: "adapter", Patterns: []string{"adapter", "adapters", "infrastructure", "infra", "gateway", "network"}, Level: 2},
 		{Name: "repository", Patterns: []string{"repository", "repositories", "repo", "repos", "store", "storage", "persistence", "db", "database"}, Level: 2},
 		{Name: "presentation", Patterns: []string{"presentation", "ui", "view", "views", "screen", "screens", "page", "pages"}, Level: 3},
-		{Name: "handler", Patterns: []string{"handler", "handlers", "controller", "controllers", "api", "http", "grpc", "rest"}, Level: 3},
+		// Not `api`: a directory of that name holds a module's public contract as
+		// often as its handlers (an Android feature's api module, a generated
+		// client), and read as the outermost layer every import of a contract was a
+		// violation.
+		{Name: "handler", Patterns: []string{"handler", "handlers", "controller", "controllers", "http", "grpc", "rest"}, Level: 3},
 		// `core` is deliberately absent, for the reason the Angular taxonomy gives
 		// for the same word: it names a CONTAINER, not a layer. A PHP platform
 		// keeping its whole product under src/Core/ had 1049 of its 1491 classified
@@ -73,7 +77,11 @@ var (
 		{Name: "components", Patterns: []string{"components", "ui"}, Level: 2},
 		{Name: "hooks", Patterns: []string{"hooks"}, Level: 1},
 		{Name: "lib", Patterns: []string{"lib", "utils", "helpers"}, Level: 0},
-		{Name: "api", Patterns: []string{"api"}, Level: 3},
+		// Beside services, not with the pages: outside pages/api and app/api (which
+		// classify as pages first) an `api` directory is the client a library calls
+		// its backend through, generated or written, which components and hooks are
+		// supposed to depend on.
+		{Name: "api", Patterns: []string{"api"}, Level: 1},
 		{Name: "services", Patterns: []string{"services"}, Level: 1},
 		{Name: "types", Patterns: []string{"types"}, Level: 0},
 	}
@@ -656,6 +664,18 @@ func (c conformance) obeys() (float64, bool) {
 	return float64(c.Inward) / float64(total), true
 }
 
+// minContradicting is the number of ordered imports below which an inferred order is
+// graded whatever its share: too few to say the order is not the code's own.
+const minContradicting = 20
+
+// contradicts reports an inferred order most of the measured imports run against.
+// A layout recognised from directory names is a guess about the dependency order;
+// when the imports overwhelmingly disagree, the guess is wrong, not the code.
+func (c conformance) contradicts() bool {
+	share, applies := c.obeys()
+	return applies && c.Inward+c.Against >= minContradicting && share < 0.5
+}
+
 // Explain analyzes the fact store and detects architectural patterns, one
 // repository at a time.
 //
@@ -794,10 +814,18 @@ func (e *LayerExplainer) explainRepo(store *facts.Store, repo string) []facts.In
 		// statement quotes their denominator: how many imports obeyed the order is
 		// not knowable until the same walk that found the ones that did not.
 		violations, conf := e.detectViolations(scoped, best)
+		description := describePattern(best, conf, distinctModules(modules))
+		if conf.contradicts() {
+			// The names fit the taxonomy and the imports do not: the order is not this
+			// repository's, and each import against it is not a defect of the code.
+			description += fmt.Sprintf(" Most imports run against the order (%d of %d), so it does not describe how this code is layered, and they are not reported as violations.",
+				conf.Against, conf.Inward+conf.Against)
+			violations = nil
+		}
 
 		insights = append(insights, facts.Insight{
 			Title:         fmt.Sprintf("Architecture pattern: %s", best.Name),
-			Description:   describePattern(best, conf, distinctModules(modules)),
+			Description:   description,
 			Confidence:    best.Confidence,
 			Informational: true, // Which pattern was recognised is not a defect, at any confidence.
 			Metrics:       patternMetrics(best, conf),

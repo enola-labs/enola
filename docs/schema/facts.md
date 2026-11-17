@@ -257,7 +257,9 @@ only files of a project that styles with Tailwind are read, a config's `prefix`
   references produce one edge the hardest kind wins. On an import's own
   dependency fact, `asset` marks an import of a file holding no code (a
   stylesheet, an image, a font): coupling, but it orders no initialization, so
-  the cycles explainer leaves it out.
+  the cycles explainer leaves it out. `type-only` marks a TypeScript import the
+  compiler erases (`import type`, or a clause whose every name is `type`); it
+  too is left out of cycles.
 
 ### storage
 

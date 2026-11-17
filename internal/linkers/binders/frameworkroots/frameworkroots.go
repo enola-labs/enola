@@ -92,6 +92,13 @@ var mixinHooks = map[string]map[string]bool{
 	"Sidekiq::Job::Iterable": {"build_enumerator": true, "each_iteration": true, "on_start": true, "on_resume": true, "on_stop": true, "on_complete": true, "on_cancel": true, "around_iteration": true},
 	"Pundit::Authorization":  {"pundit_user": true, "pundit_params_for": true, "policy_scope": true, "authorize": true},
 	"Pundit":                 {"pundit_user": true, "pundit_params_for": true, "policy_scope": true, "authorize": true},
+	// chained_job fans a job out over the argument list the class supplies, in
+	// as many parallel chains as it asks for.
+	"ChainedJob::Middleware": {"array_of_job_arguments": true, "parallelism": true, "job_arguments_key": true, "handle_retry?": true},
+	// Temporal calls an interceptor's intercept_* for each side it includes.
+	"Temporalio::Client::Interceptor":           {"intercept_client": true},
+	"Temporalio::Worker::Interceptor::Activity": {"intercept_activity": true},
+	"Temporalio::Worker::Interceptor::Workflow": {"intercept_workflow": true},
 }
 
 var walkedRelations = map[string]bool{facts.RelCalls: true, facts.RelHandledBy: true, facts.RelDependsOn: true, facts.RelInstantiates: true}
@@ -108,6 +115,12 @@ var superclassHooks = map[string]map[string]bool{
 	"Avo::Filters::BooleanFilter":                     {"apply": true, "options": true, "default": true},
 	"Avo::Filters::TextFilter":                        {"apply": true, "default": true},
 	"Avo::Filters::DateTimeFilter":                    {"apply": true, "default": true},
+	// Faraday runs a middleware's request and response callbacks around each call.
+	"Faraday::Middleware": {"on_request": true, "on_complete": true, "on_error": true, "call": true},
+	// Controller hooks a library mixed into ActionController calls by name:
+	// CanCanCan's current_ability, PaperTrail's whodunnit and metadata.
+	"ActionController::Base": {"current_ability": true, "user_for_paper_trail": true, "info_for_paper_trail": true},
+	"ActionController::API":  {"current_ability": true, "user_for_paper_trail": true, "info_for_paper_trail": true},
 }
 
 // taskSuperclasses names, per library base class, the methods its runner
@@ -193,6 +206,29 @@ func (c *class) singletonHookedBy(method string) bool {
 		if singletonHooks[base(a.superclass)][method] {
 			return true
 		}
+	}
+	return c.fastlaneAction() && fastlaneActionHooks[method]
+}
+
+// fastlaneActionHooks are the class methods fastlane calls on an action: the
+// run itself and the metadata `fastlane action <name>` and its docs read.
+var fastlaneActionHooks = map[string]bool{
+	"run": true, "is_supported?": true, "description": true, "details": true,
+	"available_options": true, "output": true, "return_value": true, "return_type": true,
+	"authors": true, "author": true, "example_code": true, "category": true,
+	"deprecated_notes": true, "step_text": true, "sample_return_value": true,
+}
+
+// fastlaneAction says a class is a fastlane action: declared in
+// Fastlane::Actions and inheriting fastlane's Action, which it writes bare
+// inside that namespace.
+func (c *class) fastlaneAction() bool {
+	if !strings.HasPrefix(c.name, "Fastlane::Actions::") {
+		return false
+	}
+	switch base(c.superclass) {
+	case "Action", "Fastlane::Action":
+		return true
 	}
 	return false
 }
