@@ -291,3 +291,32 @@ app.listen(3000);
 		t.Errorf("the real registration must stay: %+v", got)
 	}
 }
+
+// In a file that imports a server framework, a route registered on a chained app or
+// a conventionally named one is no outbound call. A call on any other receiver in the
+// same file still is.
+func TestServerFile_RegistrationsAreNotClientCalls(t *testing.T) {
+	all := extractAll(t, map[string]string{
+		"src/server/routes/save.ts": `
+import { Elysia } from "elysia";
+import { billing } from "../clients/billing";
+
+export function saveRoutes(ctx: Ctx) {
+  return new Elysia().use(ctx).put("/fields/:id/value", handler);
+}
+
+export async function sync() {
+  return billing.post("/v1/invoices/sync", {});
+}
+`,
+	}, false)
+	var clients []string
+	for _, f := range all {
+		if f.Kind == facts.KindRoute && f.PropString(facts.PropRole) == facts.RoleClient {
+			clients = append(clients, f.PropString("method")+" "+f.Name)
+		}
+	}
+	if len(clients) != 1 || clients[0] != "POST /v1/invoices/sync" {
+		t.Fatalf("client calls = %v, want only the billing call", clients)
+	}
+}

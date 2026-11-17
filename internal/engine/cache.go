@@ -3650,7 +3650,9 @@ import (
 // v607: OpenAPI: an operation carries its spec's title and server host.
 // v608: OpenAPI: an operation a gateway facade spec exposes by reference carries the
 // facade's gateway path.
-const cacheVersion = "v608"
+// v609: TypeScript: a Fastify plugin's routes serve where the app takes the plugin, and a
+// server file's registrations on its app or a chained app are not outbound calls.
+const cacheVersion = "v609"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

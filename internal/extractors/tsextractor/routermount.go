@@ -200,7 +200,8 @@ func collectRouterFile(src []byte, relFile string, aliases map[string]tsAlias, k
 	resolve := importResolver(relFile, aliases, knownFiles)
 	imports := collectRouterImports(src, resolve)
 	reexports, reexportsAll := collectRouterReexports(src, resolve)
-	if len(bindings) == 0 && len(imports) == 0 && len(reexports) == 0 && len(reexportsAll) == 0 {
+	plugins := fastifyPlugins(src)
+	if len(bindings) == 0 && len(imports) == 0 && len(reexports) == 0 && len(reexportsAll) == 0 && len(plugins) == 0 {
 		return nil
 	}
 
@@ -250,6 +251,14 @@ func collectRouterFile(src []byte, relFile string, aliases map[string]tsAlias, k
 			handler:   routeHandlerName(lastCallArgument(src, m[1])),
 		})
 	}
+
+	// A Fastify plugin is a router named after its function: the routes its app
+	// parameter registers wait for the app it is given, at the prefix it is given.
+	for _, p := range plugins {
+		f.routers[p.name] = true
+		f.pending[p.name] = append(f.pending[p.name], p.routes...)
+	}
+	f.mounts = append(f.mounts, pluginMounts(src, relFile)...)
 
 	hasUse := hasMemberAccess(src, useMember)
 	for _, m := range findAllSubmatchIf(hasUse, mountCall, src) {
@@ -785,5 +794,112 @@ func sortedSet(m map[string]bool) []string {
 		out = append(out, k)
 	}
 	sort.Strings(out)
+	return out
+}
+
+// fastifyPlugin is a function that registers routes on the Fastify instance it is
+// handed, and the routes it registers there.
+type fastifyPlugin struct {
+	name   string
+	routes []pendingRoute
+}
+
+// The forms of a Fastify plugin's head: a function, or an arrow bound to a name,
+// whose first parameter is typed FastifyInstance, or a variable typed as a plugin.
+var (
+	pluginFuncHead  = regexp.MustCompile(`(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(\s*([A-Za-z_$][\w$]*)\s*:\s*FastifyInstance\b`)
+	pluginArrowHead = regexp.MustCompile(`(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?::\s*FastifyPlugin(?:Async|Callback)?\b[^=]*)?=\s*(?:async\s*)?\(\s*([A-Za-z_$][\w$]*)\s*(?::\s*FastifyInstance\b[^,)]*)?[,)]`)
+	pluginTypedVar  = regexp.MustCompile(`:\s*FastifyPlugin(?:Async|Callback)?\b`)
+)
+
+// fastifyPlugins finds the plugins a file declares and the routes each registers on
+// its instance parameter. A route belongs to the nearest plugin head before it whose
+// parameter it is called on.
+func fastifyPlugins(src []byte) []fastifyPlugin {
+	if !bytes.Contains(src, []byte("Fastify")) {
+		return nil
+	}
+	type head struct {
+		pos         int
+		name, param string
+	}
+	var heads []head
+	for _, m := range pluginFuncHead.FindAllSubmatchIndex(src, -1) {
+		heads = append(heads, head{m[0], string(src[m[2]:m[3]]), string(src[m[4]:m[5]])})
+	}
+	for _, m := range pluginArrowHead.FindAllSubmatchIndex(src, -1) {
+		// The arrow form counts only when the plugin type or the instance type says
+		// so: `const handler = async (req) => …` is not a plugin.
+		if !pluginTypedVar.Match(src[m[0]:m[1]]) && !bytes.Contains(src[m[0]:m[1]], []byte("FastifyInstance")) {
+			continue
+		}
+		heads = append(heads, head{m[0], string(src[m[2]:m[3]]), string(src[m[4]:m[5]])})
+	}
+	if len(heads) == 0 {
+		return nil
+	}
+	sort.Slice(heads, func(i, j int) bool { return heads[i].pos < heads[j].pos })
+	byName := map[string]*fastifyPlugin{}
+	var out []*fastifyPlugin
+	for _, m := range serverVerbCall.FindAllSubmatchIndex(src, -1) {
+		recv := string(src[m[2]:m[3]])
+		var owner *head
+		for i := range heads {
+			if heads[i].pos > m[0] {
+				break
+			}
+			if heads[i].param == recv {
+				owner = &heads[i]
+			}
+		}
+		if owner == nil {
+			continue
+		}
+		path, ok := cleanServerPath(firstNonEmptyGroup(src, m, 3, 4, 5))
+		if !ok {
+			continue
+		}
+		p := byName[owner.name]
+		if p == nil {
+			p = &fastifyPlugin{name: owner.name}
+			byName[owner.name] = p
+			out = append(out, p)
+		}
+		p.routes = append(p.routes, pendingRoute{
+			verb:      strings.ToUpper(nodeSlice(src, m, 2)),
+			path:      path,
+			line:      1 + bytes.Count(src[:m[0]], []byte("\n")),
+			framework: "fastify",
+			handler:   routeHandlerName(lastCallArgument(src, m[1])),
+		})
+	}
+	plugins := make([]fastifyPlugin, len(out))
+	for i, p := range out {
+		plugins[i] = *p
+	}
+	return plugins
+}
+
+// The two ways an app takes a plugin: registered, optionally under a prefix, or
+// called with the app.
+var (
+	pluginRegister = regexp.MustCompile("([A-Za-z_$][\\w$]*)\\s*\\.\\s*register\\s*\\(\\s*([A-Za-z_$][\\w$]*)\\s*(?:,\\s*\\{[^}]*?\\bprefix\\s*:\\s*(?:\"([^\"]*)\"|'([^']*)'|`([^`]*)`))?")
+	pluginCall     = regexp.MustCompile(`(?:await\s+)?([A-Za-z_$][\w$]*)\s*\(\s*([A-Za-z_$][\w$]*)\s*[,)]`)
+)
+
+// pluginMounts records the plugins a file gives an app: `app.register(plugin, {
+// prefix: '/x' })` mounts it at /x, `plugin(app, opts)` at the app's own path. The
+// child resolves only to a declared plugin, so a call that is not one adds nothing.
+func pluginMounts(src []byte, relFile string) []routerMountEdge {
+	if !bytes.Contains(src, []byte("register")) && !bytes.Contains(src, []byte("Fastify")) && !bytes.Contains(src, []byte("fastify")) {
+		return nil
+	}
+	var out []routerMountEdge
+	for _, m := range pluginRegister.FindAllSubmatch(src, -1) {
+		out = append(out, routerMountEdge{file: relFile, parent: string(m[1]), child: string(m[2]), prefix: firstNonEmpty(m[3], m[4], m[5])})
+	}
+	for _, m := range pluginCall.FindAllSubmatch(src, -1) {
+		out = append(out, routerMountEdge{file: relFile, parent: string(m[2]), child: string(m[1])})
+	}
 	return out
 }

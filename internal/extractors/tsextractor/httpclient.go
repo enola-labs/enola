@@ -377,11 +377,13 @@ func extractHTTPClientFactsCounted(src []byte, relFile string) ([]facts.Fact, cl
 	// emitted twice, once in each direction. Only known server receivers are skipped:
 	// an unknown one stays a client call, exactly as before this pass existed.
 	var serverRecv map[string]serverBinding
+	var registrar func(string) bool
 	isServer := func(recv string) bool {
 		if serverRecv == nil {
 			serverRecv = serverBindings(src)
+			registrar = serverFileRegistrar(src)
 		}
-		return isServerReceiver(serverRecv, recv)
+		return isServerReceiver(serverRecv, recv) || registrar(recv)
 	}
 	// The verb-call shape is axios's, and every hand-rolled or typed fetch wrapper's
 	// too (`client.get('/x')`): it is labelled axios only where axios is in use.
