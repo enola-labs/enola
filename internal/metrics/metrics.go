@@ -184,33 +184,68 @@ func computeAll(store *facts.Store) ([]PackageMetric, []string) {
 	if store == nil {
 		return nil, nil
 	}
-	repoSet := map[string]bool{}
-	for f := range store.OfKind(facts.KindModule) {
-		repoSet[f.Repo] = true
-	}
-	repos := make([]string, 0, len(repoSet))
-	for r := range repoSet {
-		repos = append(repos, r)
-	}
-	sort.Strings(repos)
+	in := partition(store)
 	var metrics []PackageMetric
 	var excluded []string
-	for _, repo := range repos {
-		pkgs, edges, ex := collect(store, repo)
+	for _, repo := range in.repos {
+		pkgs, edges, ex := collect(in.byRepo[repo], in.modulePaths)
 		metrics = append(metrics, compute(pkgs, edges)...)
 		excluded = append(excluded, ex...)
 	}
 	return metrics, excluded
 }
 
-// collect reads repository repo's packages and the imports between them.
-func collect(store *facts.Store, repo string) ([]pkgInput, []importEdge, []string) {
-	// A dashboard renders before the first snapshot is generated, and the whole page
-	// is written to degrade to a note rather than fail. The sibling readers on that
-	// page (coverageDetails, graphDetails) all guard the same way.
-	if store == nil {
-		return nil, nil, nil
+// repoFacts is one repository's share of what collect reads, in store order.
+type repoFacts struct {
+	modules, symbols, deps []facts.Fact
+}
+
+// collectInput is the store read once and split by repository: reading the whole
+// store once per repository made a 100-repository cluster pay 100 passes over every
+// symbol (seconds became most of a minute, and each pass copied the symbols).
+type collectInput struct {
+	repos       []string // the repositories with a module fact, sorted
+	byRepo      map[string]*repoFacts
+	modulePaths facts.ModulePaths
+}
+
+func partition(store *facts.Store) collectInput {
+	in := collectInput{byRepo: map[string]*repoFacts{}}
+	of := func(repo string) *repoFacts {
+		rf := in.byRepo[repo]
+		if rf == nil {
+			rf = &repoFacts{}
+			in.byRepo[repo] = rf
+		}
+		return rf
 	}
+	modules := store.ByKind(facts.KindModule)
+	in.modulePaths = facts.NewModulePaths(modules)
+	for _, f := range modules {
+		rf := of(f.Repo)
+		rf.modules = append(rf.modules, f)
+	}
+	for repo := range in.byRepo {
+		in.repos = append(in.repos, repo)
+	}
+	sort.Strings(in.repos)
+	// Canonical over the whole store, then split, exactly as each repository's pass
+	// read it before.
+	for _, f := range facts.CanonicalSymbols(store.ByKind(facts.KindSymbol)) {
+		if rf := in.byRepo[f.Repo]; rf != nil {
+			rf.symbols = append(rf.symbols, f)
+		}
+	}
+	for f := range store.OfKind(facts.KindDependency) {
+		if rf := in.byRepo[f.Repo]; rf != nil {
+			rf.deps = append(rf.deps, f)
+		}
+	}
+	return in
+}
+
+// collect reads repository repo's packages and the imports between them.
+func collect(rf *repoFacts, modulePaths facts.ModulePaths) ([]pkgInput, []importEdge, []string) {
 	// 1. Seed packages from module facts and remember their names + short names.
 	type pkgAcc struct {
 		repo        string
@@ -221,7 +256,6 @@ func collect(store *facts.Store, repo string) ([]pkgInput, []importEdge, []strin
 	acc := make(map[string]*pkgAcc)
 	order := make([]string, 0)
 	moduleSet := make(map[string]struct{})
-	modulePaths := facts.NewModulePaths(store.ByKind(facts.KindModule))
 	// excluded holds module names tagged as non-production (test/tooling). They are
 	// kept OUT of moduleSet so their symbols aren't counted and — because
 	// resolveToModule only resolves to moduleSet — import edges touching them (and
@@ -230,8 +264,8 @@ func collect(store *facts.Store, repo string) ([]pkgInput, []importEdge, []strin
 	// excludedNames keeps the NAMES, not just a count, so the summary can report the
 	// exclusions that match the caller's filter instead of the repo-wide total.
 	excludedNames := make([]string, 0)
-	for f := range store.OfKind(facts.KindModule) {
-		if f.Repo != repo || mcputil.IsGeneratedPath(facts.ModulePath(f)) {
+	for _, f := range rf.modules {
+		if mcputil.IsGeneratedPath(facts.ModulePath(f)) {
 			continue
 		}
 		role, _ := f.PropAny(propModuleRole).(string)
@@ -264,10 +298,7 @@ func collect(store *facts.Store, repo string) ([]pkgInput, []importEdge, []strin
 	// 2. Count classes/interfaces per owning package (via the declares relation).
 	// CanonicalSymbols collapses #if/#else duplicates so a type declared once per
 	// branch is not counted twice toward N; genuine overloads are preserved.
-	for _, f := range facts.CanonicalSymbols(store.ByKind(facts.KindSymbol)) {
-		if f.Repo != repo {
-			continue
-		}
+	for _, f := range rf.symbols {
 		sk, _ := f.PropAny(propSymbolKind).(string)
 		if sk != facts.SymbolStruct && sk != facts.SymbolClass && sk != facts.SymbolInterface {
 			continue
@@ -369,10 +400,7 @@ func collect(store *facts.Store, repo string) ([]pkgInput, []importEdge, []strin
 	// "stdlib". The reliable signal is whether the import target resolves to a
 	// known module; external/stdlib targets simply do not and are dropped.
 	edges := make([]importEdge, 0)
-	for f := range store.OfKind(facts.KindDependency) {
-		if f.Repo != repo {
-			continue
-		}
+	for _, f := range rf.deps {
 		fromRaw := importerOf(f.Name)
 		if fromRaw == "" {
 			continue
