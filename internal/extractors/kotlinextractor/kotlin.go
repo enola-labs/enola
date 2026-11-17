@@ -229,6 +229,15 @@ func detectAndroidProject(repoPath string) bool {
 			return true
 		}
 	}
+	// A multi-module build names its application module anything
+	// (`application/`), and its feature modules sit deeper
+	// (`app-features/cart/impl/`). Any module's manifest says the repository is
+	// an Android one.
+	for _, g := range []string{"*/src/main/AndroidManifest.xml", "*/*/src/main/AndroidManifest.xml", "*/*/*/src/main/AndroidManifest.xml"} {
+		if m, _ := filepath.Glob(filepath.Join(repoPath, g)); len(m) > 0 {
+			return true
+		}
+	}
 	return false
 }
 

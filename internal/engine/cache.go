@@ -3686,7 +3686,8 @@ import (
 // v632: Go: symbols list the calls edges that hand a function over as a value (value_refs).
 // v633: performs_io does not propagate over value_refs edges.
 // v634: Ruby: scheduler configs (sidekiq-cron class:, Temporal workflow:) name the classes they run.
-const cacheVersion = "v634"
+// v635: Kotlin: a repository is Android when any module (up to three levels deep) has a manifest.
+const cacheVersion = "v635"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
