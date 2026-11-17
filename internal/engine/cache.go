@@ -3682,7 +3682,8 @@ import (
 // v628: packwerk usage ignores constants defined under a package's config/ tree.
 // v629: Go: a pager that stops on an empty page, and a range over slices.Chunk, are batch loops.
 // v630: Go: a limited write loop that stops on a short RowsAffected() is a batch loop.
-const cacheVersion = "v630"
+// v631: Ruby: a Rails view helper module (app/helpers) is concrete for abstractness.
+const cacheVersion = "v631"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

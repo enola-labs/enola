@@ -852,7 +852,19 @@ func (w *rubyWalker) handleModule(node *sitter.Node) {
 	if s := w.cur(); s != nil && s.hasInstanceMethod {
 		props["abstract"] = true
 	}
+	// A view helper is a bag of methods Rails mixes into every view on its own
+	// (`helper :all`), not an abstraction anything implements. Abstract, with the
+	// views that use it invisible as dependents, it read as "useless".
+	if w.isRails && railsHelperFile(w.relFile) {
+		props["abstract"] = false
+	}
 	w.pop()
+}
+
+// railsHelperFile reports a file in an app/helpers tree, the application's or a
+// package's or engine's.
+func railsHelperFile(rel string) bool {
+	return strings.HasPrefix(rel, "app/helpers/") || strings.Contains(rel, "/app/helpers/")
 }
 
 func (w *rubyWalker) handleClass(node *sitter.Node) {
