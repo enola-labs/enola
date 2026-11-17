@@ -23,3 +23,19 @@ func TestAPILayer_IsAContractNotTheOuterLayer(t *testing.T) {
 		t.Error("an api module is no handler in the hexagonal taxonomy")
 	}
 }
+
+func TestConformance_Contradicts(t *testing.T) {
+	for _, c := range []struct {
+		conf conformance
+		want bool
+	}{
+		{conformance{Inward: 3, Against: 30}, true},
+		{conformance{Inward: 30, Against: 3}, false},
+		{conformance{Inward: 2, Against: 5}, false}, // too few imports to judge
+		{conformance{}, false},
+	} {
+		if got := c.conf.contradicts(); got != c.want {
+			t.Errorf("%+v.contradicts() = %v, want %v", c.conf, got, c.want)
+		}
+	}
+}

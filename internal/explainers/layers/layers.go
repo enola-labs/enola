@@ -664,6 +664,18 @@ func (c conformance) obeys() (float64, bool) {
 	return float64(c.Inward) / float64(total), true
 }
 
+// minContradicting is the number of ordered imports below which an inferred order is
+// graded whatever its share: too few to say the order is not the code's own.
+const minContradicting = 20
+
+// contradicts reports an inferred order most of the measured imports run against.
+// A layout recognised from directory names is a guess about the dependency order;
+// when the imports overwhelmingly disagree, the guess is wrong, not the code.
+func (c conformance) contradicts() bool {
+	share, applies := c.obeys()
+	return applies && c.Inward+c.Against >= minContradicting && share < 0.5
+}
+
 // Explain analyzes the fact store and detects architectural patterns, one
 // repository at a time.
 //
@@ -803,6 +815,13 @@ func (e *LayerExplainer) explainRepo(store *facts.Store, repo string) []facts.In
 		// not knowable until the same walk that found the ones that did not.
 		violations, conf := e.detectViolations(scoped, best)
 		description := describePattern(best, conf, distinctModules(modules))
+		if conf.contradicts() {
+			// The names fit the taxonomy and the imports do not: the order is not this
+			// repository's, and each import against it is not a defect of the code.
+			description += fmt.Sprintf(" Most imports run against the order (%d of %d), so it does not describe how this code is layered, and they are not reported as violations.",
+				conf.Against, conf.Inward+conf.Against)
+			violations = nil
+		}
 
 		insights = append(insights, facts.Insight{
 			Title:         fmt.Sprintf("Architecture pattern: %s", best.Name),
