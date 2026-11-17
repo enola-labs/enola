@@ -76,12 +76,15 @@ func (k ModuleKeys) Declares(repo, name string) bool {
 	return k.repos[name][repo]
 }
 
-// Key is the graph node for module name as seen from repo.
+// Key is the graph node for module name as seen from repo. A name several
+// repositories declare is keyed the way the fact graph keys it (facts.ScopedName),
+// which a finding's evidence resolves to that repository's module. Joined with a
+// slash it read as a path no module has, and the evidence resolved to nothing.
 func (k ModuleKeys) Key(repo, name string) string {
 	if repo == "" || !k.Shared(name) {
 		return name
 	}
-	return repo + "/" + name
+	return facts.ScopedName(repo, name)
 }
 
 // AutoloadedComponent reports whether every module of a strongly-connected
