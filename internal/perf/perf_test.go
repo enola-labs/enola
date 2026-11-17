@@ -2621,3 +2621,21 @@ func TestAnalyze_JavaAccessorIsNotReadByTheIndex(t *testing.T) {
 		t.Error("a non-accessor name every bearer of which performs I/O is still read through the index")
 	}
 }
+
+// A Go package is I/O by its own name, not by a substring of its path: go-jet's
+// `mysql` package builds expressions in memory.
+func TestGoIOPackage_NameNotSubstring(t *testing.T) {
+	for target, want := range map[string]bool{
+		"database/sql.Tx.ExecContext":                  true,
+		"example.com/shop/internal/db.Store.Rows":      true,
+		"net/http.Client.Do":                           true,
+		"example.com/shop/internal/lokihttp.Push":      true,
+		"github.com/go-jet/jet/v2/mysql.Int64":         false,
+		"github.com/go-jet/jet/v2/postgres.String":     false,
+		"example.com/shop/internal/dbconfig.Load.Path": false,
+	} {
+		if got := goIOPackage(target, nil); got != want {
+			t.Errorf("goIOPackage(%q) = %v, want %v", target, got, want)
+		}
+	}
+}

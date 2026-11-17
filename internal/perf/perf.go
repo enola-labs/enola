@@ -1046,9 +1046,23 @@ func isExpensiveGoCall(target string, storage map[string]bool, byName map[string
 // there the name is the convention for code that does talk to the outside.
 func goIOPackage(target string, byName map[string]funcInfo) bool {
 	_, inRepo := byName[target]
-	ownHTTP := inRepo && goPackageName(target) == "http"
+	pkg := goPackageName(target)
+	ownHTTP := inRepo && pkg == "http"
 	for _, kw := range expensivePrefixes {
-		if kw == "http." && ownHTTP {
+		switch kw {
+		case "http.":
+			// `http` itself and a wrapper named for it (`lokihttp`).
+			if !ownHTTP && strings.HasSuffix(pkg, "http") {
+				return true
+			}
+			continue
+		case "db.", "sql.":
+			// The package's own name, not a substring of the path: a query
+			// builder in a package named `mysql` or `postgres` (go-jet) builds
+			// expressions in memory, and `mysql.Int64(id)` sends nothing.
+			if pkg == strings.TrimSuffix(kw, ".") {
+				return true
+			}
 			continue
 		}
 		if strings.Contains(target, kw) {
