@@ -39,6 +39,55 @@ func (s *Signal) topicOwner(topic string) string {
 	return topic
 }
 
+// cdcPrefix opens a change-data-capture topic: `cdc.<database>.<table>`, written by
+// a CDC connector from the database's binlog rather than by any code. The data is
+// the database owner's, so the owner is named by the database segment, not by
+// the prefix.
+const cdcPrefix = "cdc."
+
+// topicOwners returns the names a topic's owner may go by, most likely first: the
+// leading segment, or for a CDC topic its database, as written and with
+// underscores as hyphens (a service's database `svc_orders` for `svc-orders`).
+func (s *Signal) topicOwners(topic string) []string {
+	topic = strings.TrimSpace(topic)
+	if rest, ok := strings.CutPrefix(topic, cdcPrefix); ok {
+		db, _, _ := strings.Cut(rest, ".")
+		if db == "" {
+			return nil
+		}
+		var out []string
+		seen := map[string]bool{}
+		add := func(name string) {
+			if name != "" && !seen[name] {
+				seen[name] = true
+				out = append(out, name)
+			}
+		}
+		// A database per environment (`svc_orders_sandbox`) is the same owner's.
+		for _, name := range []string{db, trimEnvSuffix(db)} {
+			add(name)
+			add(strings.ReplaceAll(name, "_", "-"))
+		}
+		return out
+	}
+	if owner := s.topicOwner(topic); owner != "" {
+		return []string{owner}
+	}
+	return nil
+}
+
+// cdcEnvSuffixes name the environment a database copy serves.
+var cdcEnvSuffixes = []string{"_sandbox", "_staging", "_production", "_prod", "_dev", "_test"}
+
+func trimEnvSuffix(db string) string {
+	for _, suf := range cdcEnvSuffixes {
+		if trimmed, ok := strings.CutSuffix(db, suf); ok && trimmed != "" {
+			return trimmed
+		}
+	}
+	return db
+}
+
 // linkKafka binds asynchronous coupling: a repo that references a Kafka topic owned
 // by ANOTHER loaded repo consumes that repo's events, so it depends on it. The edge
 // is drawn consumer -> producer (mirroring HTTP client -> server), keyed on the
@@ -80,9 +129,11 @@ func (s *Signal) Contribute(in plugin.SignalInput, out plugin.EvidenceSink) {
 		label, ok := declaredProducer(producers, f.Name, f.Repo)
 		owner := ""
 		if !ok {
-			owner = s.topicOwner(f.Name)
-			if owner != "" {
-				label, ok = in.ResolveRepo(owner)
+			for _, candidate := range s.topicOwners(f.Name) {
+				owner = candidate
+				if label, ok = in.ResolveRepo(candidate); ok {
+					break
+				}
 			}
 		}
 		if ok && label == f.Repo {
