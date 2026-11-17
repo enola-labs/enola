@@ -106,3 +106,28 @@ func TestUnmatchedReasons_ArePerCallSite(t *testing.T) {
 		t.Errorf("its twin with no hint: reason = %q, want %q", got, ReasonPathUnknown)
 	}
 }
+
+// A client spec kept to generate a client names the service it describes in its file
+// name. Read from a spec, a call no loaded server serves goes to that service: outside
+// the snapshot when no loaded repository shares a word with it, unresolved when one does.
+func TestOutsideSnapshot_ClientSpecNamesItsService(t *testing.T) {
+	spec := func(path, file string) facts.Fact {
+		return facts.Fact{Kind: facts.KindRoute, Name: path, Repo: "wallet", File: file,
+			Props: map[string]any{"role": "client", "method": "GET", "source": "openapi"}}
+	}
+	ledger := spec("/v1/account_holders/{id}", "wallet/api/openapi/client/ledger-api.yml")
+	orders := spec("/v1/order_lines/{id}", "wallet/api/openapi/client/orders_client.yaml")
+	generic := spec("/v1/statements/{id}", "wallet/api/openapi/client/api.yml")
+	all := []facts.Fact{ledger, orders, generic,
+		{Kind: facts.KindRoute, Name: "/health/live", Repo: "orders-service", Props: map[string]any{"role": "server", "method": "GET"}},
+	}
+	reasons := UnmatchedClientCallReasons(routeindex.New(vocab.Default()), all)
+	if got := reasons[ClientCallKey(ledger)]; got != ReasonOutsideSnapshot {
+		t.Errorf("spec of an unloaded service: reason = %q, want %q", got, ReasonOutsideSnapshot)
+	}
+	for _, f := range []facts.Fact{orders, generic} {
+		if got := reasons[ClientCallKey(f)]; got != ReasonPathUnknown {
+			t.Errorf("%s: reason = %q, want %q", f.File, got, ReasonPathUnknown)
+		}
+	}
+}

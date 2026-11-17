@@ -8,6 +8,7 @@
 package http
 
 import (
+	"path"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -49,6 +50,8 @@ func (s *Signal) Contribute(in plugin.SignalInput, out plugin.EvidenceSink) {
 	loaded := map[string]bool{}
 	for r := range reposOf(all) {
 		loaded[facts.NormalizeRepoLabel(r)] = true
+		// As written too: a spec file name is compared with it word by word.
+		loaded[strings.ToLower(r)] = true
 	}
 	var serverSuffixes map[string][]string // built on the first unresolved call
 
@@ -121,7 +124,7 @@ func hintOutsideSnapshot(m *routeindex.Matcher, f facts.Fact, loaded map[string]
 	// serves under a prefix the linker did not compose: a blind spot, reported as
 	// none. Without a service name the call stays path_unknown.
 	if f.PropString(facts.PropTargetHintFrom) == "" {
-		return false
+		return specOutsideSnapshot(f, loaded)
 	}
 	raw := f.PropString("target_hint")
 	hint := facts.NormalizeRepoLabel(raw)
@@ -137,6 +140,54 @@ func hintOutsideSnapshot(m *routeindex.Matcher, f facts.Fact, loaded map[string]
 		}
 	}
 	return true
+}
+
+// specOutsideSnapshot reports a call read from a client spec whose file is named
+// after a service none of the loaded repositories is: a copy of another service's
+// API description (orders-api.yml, billing_client.yaml) kept to generate a client.
+// The name is compared by its words, so orders-api.yml names a loaded orders-service.
+func specOutsideSnapshot(f facts.Fact, loaded map[string]bool) bool {
+	spec := f.PropString("spec_file")
+	if spec == "" && f.PropString(facts.PropSource) == "openapi" {
+		spec = f.File
+	}
+	if spec == "" {
+		return false
+	}
+	words := serviceWords(strings.TrimSuffix(path.Base(spec), path.Ext(spec)))
+	if len(words) == 0 {
+		return false
+	}
+	for label := range loaded {
+		for w := range serviceWords(label) {
+			if words[w] {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// specNameNoise are words a spec file name carries that say what the file is, not
+// which service it describes.
+var specNameNoise = map[string]bool{
+	"api": true, "apis": true, "client": true, "clients": true, "spec": true, "openapi": true, "swagger": true,
+	"service": true, "svc": true, "internal": true, "public": true, "external": true, "partial": true,
+	"schema": true, "v1": true, "v2": true, "v3": true, "http": true, "rest": true, "mock": true,
+}
+
+// serviceWords are the words of a service or spec name that can tell services apart:
+// at least three letters, and none of specNameNoise.
+func serviceWords(name string) map[string]bool {
+	out := map[string]bool{}
+	for _, w := range strings.FieldsFunc(strings.ToLower(name), func(r rune) bool {
+		return r == '-' || r == '_' || r == '.' || r == ' '
+	}) {
+		if len(w) >= 3 && !specNameNoise[w] && !genericHints[w] {
+			out[w] = true
+		}
+	}
+	return out
 }
 
 // genericHints are hints that name the kind of thing a base is, not a service:
@@ -988,6 +1039,8 @@ func UnmatchedClientCallReasons(m *routeindex.Matcher, all []facts.Fact) map[str
 	loaded := map[string]bool{}
 	for r := range reposOf(all) {
 		loaded[facts.NormalizeRepoLabel(r)] = true
+		// As written too: a spec file name is compared with it word by word.
+		loaded[strings.ToLower(r)] = true
 	}
 	unmatched := map[string]string{}
 	for _, f := range all {
