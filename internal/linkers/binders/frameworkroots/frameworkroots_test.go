@@ -648,3 +648,28 @@ func TestBind_GemHooksRootWithTheirInclude(t *testing.T) {
 		}
 	}
 }
+
+// fastlane calls an action's class methods by convention; a class outside
+// Fastlane::Actions with the same superclass name is not an action.
+func TestBind_FastlaneActionClassMethodsAreRoots(t *testing.T) {
+	store := facts.NewStore()
+	store.Add(
+		symbol("Fastlane::Actions::UploadAction", facts.SymbolClass, "fastlane/actions/upload.rb", map[string]any{"superclass": "Action"}),
+		symbol("Fastlane::Actions::UploadAction.run", facts.SymbolFunc, "fastlane/actions/upload.rb", nil),
+		symbol("Fastlane::Actions::UploadAction.is_supported?", facts.SymbolFunc, "fastlane/actions/upload.rb", nil),
+		symbol("Fastlane::Actions::UploadAction.helper", facts.SymbolFunc, "fastlane/actions/upload.rb", nil),
+		symbol("Jobs::Upload", facts.SymbolClass, "lib/jobs/upload.rb", map[string]any{"superclass": "Action"}),
+		symbol("Jobs::Upload.is_supported?", facts.SymbolFunc, "lib/jobs/upload.rb", nil),
+	)
+	bind(t, store)
+	for name, want := range map[string]bool{
+		"Fastlane::Actions::UploadAction.run":           true,
+		"Fastlane::Actions::UploadAction.is_supported?": true,
+		"Fastlane::Actions::UploadAction.helper":        false,
+		"Jobs::Upload.is_supported?":                    false,
+	} {
+		if got := propOf(store, facts.KindSymbol, name, RootProp) != ""; got != want {
+			t.Errorf("%s rooted = %v, want %v", name, got, want)
+		}
+	}
+}

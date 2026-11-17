@@ -207,6 +207,29 @@ func (c *class) singletonHookedBy(method string) bool {
 			return true
 		}
 	}
+	return c.fastlaneAction() && fastlaneActionHooks[method]
+}
+
+// fastlaneActionHooks are the class methods fastlane calls on an action: the
+// run itself and the metadata `fastlane action <name>` and its docs read.
+var fastlaneActionHooks = map[string]bool{
+	"run": true, "is_supported?": true, "description": true, "details": true,
+	"available_options": true, "output": true, "return_value": true, "return_type": true,
+	"authors": true, "author": true, "example_code": true, "category": true,
+	"deprecated_notes": true, "step_text": true, "sample_return_value": true,
+}
+
+// fastlaneAction says a class is a fastlane action: declared in
+// Fastlane::Actions and inheriting fastlane's Action, which it writes bare
+// inside that namespace.
+func (c *class) fastlaneAction() bool {
+	if !strings.HasPrefix(c.name, "Fastlane::Actions::") {
+		return false
+	}
+	switch base(c.superclass) {
+	case "Action", "Fastlane::Action":
+		return true
+	}
 	return false
 }
 
