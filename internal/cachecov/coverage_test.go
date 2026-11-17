@@ -205,6 +205,7 @@ var versionCoverage = map[int][]string{
 	610: {"TestImportedWrapper_HelpersOverAnAxiosInstance"},
 	611: {"TestAnnotations_NameTheTypesTheyUse"},
 	612: {"TestImportBesideTheScriptIsInternal"},
+	613: {"TestSignatureTypes_AreUsedByTheirDeclaration"},
 	507: {"TestRustImportAliasesBindOnlyTheAlias", "TestRustImportedTypeThroughAFileModuleWithADirectory", "TestRustMethodsInAFileModulesSubdirectoryResolve", "TestRustTypeImportedThroughAReExportResolves", "TestRustTypeAliasIsFollowedToItsType", "TestRustAliasedExternalImportDoesNotHideTheLocalName"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},

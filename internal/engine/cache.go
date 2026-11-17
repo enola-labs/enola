@@ -3658,7 +3658,9 @@ import (
 // and a class the types its annotated fields name, string forward references included.
 // v612: Python: a call through a module beside the importing script, or beside a directory
 // above it, resolves into the repository rather than to a library.
-const cacheVersion = "v612"
+// v613: Scala: a declaration names the types its signature, fields and type arguments
+// name, where the file, its imports or its package declare them.
+const cacheVersion = "v613"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
