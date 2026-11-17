@@ -3662,7 +3662,9 @@ import (
 // name, where the file, its imports or its package declare them.
 // v614: Kotlin: a declaration names the types its signature, properties, constructor
 // parameters and type arguments name.
-const cacheVersion = "v614"
+// v615: Go: a package-level var uses the types its declared type and initializer name,
+// and a generic call the types of its type arguments.
+const cacheVersion = "v615"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

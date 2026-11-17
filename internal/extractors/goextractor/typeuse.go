@@ -52,6 +52,17 @@ func typeUses(sig *ast.FuncType, body ast.Node, ctx resolveCtx, typeParams map[s
 			if id, ok := x.Fun.(*ast.Ident); ok && (id.Name == "make" || id.Name == "new") && len(x.Args) > 0 {
 				add(x.Args[0])
 			}
+			// The type arguments of a generic call, `decode[Health](body)`. Only in
+			// the callee's place is an index a type: elsewhere it indexes a map or
+			// a slice with a value.
+			switch fn := x.Fun.(type) {
+			case *ast.IndexExpr:
+				add(fn.Index)
+			case *ast.IndexListExpr:
+				for _, idx := range fn.Indices {
+					add(idx)
+				}
+			}
 		}
 		return true
 	})

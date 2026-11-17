@@ -207,6 +207,7 @@ var versionCoverage = map[int][]string{
 	612: {"TestImportBesideTheScriptIsInternal"},
 	613: {"TestSignatureTypes_AreUsedByTheirDeclaration"},
 	614: {"TestSignatureTypes_AreUsedByTheirDeclaration"},
+	615: {"TestTypeUses_PackageVarsAndTypeArguments", "TestTypeUses_GeneratedRegistryIsNoUse"},
 	507: {"TestRustImportAliasesBindOnlyTheAlias", "TestRustImportedTypeThroughAFileModuleWithADirectory", "TestRustMethodsInAFileModulesSubdirectoryResolve", "TestRustTypeImportedThroughAReExportResolves", "TestRustTypeAliasIsFollowedToItsType", "TestRustAliasedExternalImportDoesNotHideTheLocalName"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},

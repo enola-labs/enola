@@ -471,6 +471,7 @@ func (e *GoExtractor) extractFile(fset *token.FileSet, f *ast.File, relFile, pkg
 
 	// Walk declarations
 	varCtx := bodyCtx(pkgDir, mods, fileImports, fieldTypes, callTypes, pkgFuncs, pkgScope, pkgConsts, pkgNames)
+	varCtx.generated = ast.IsGenerated(f)
 	for _, decl := range f.Decls {
 		switch d := decl.(type) {
 		case *ast.FuncDecl:
@@ -794,6 +795,57 @@ func initializerRelations(value ast.Expr, ctx resolveCtx, selfName string) []fac
 	return rels
 }
 
+// valueTypeRelations returns an instantiates edge to every internal type a
+// package-level var's declared type or initializer names without code to run:
+// `var key = ctxKey{}`, `var rules = [...]Rule{...}`, `var cache map[ID]*Entry`.
+// The type is used by the var, though no function constructs it.
+func valueTypeRelations(declared ast.Expr, value ast.Expr, ctx resolveCtx) []facts.Relation {
+	var exprs, callees []ast.Expr
+	if declared != nil {
+		exprs = append(exprs, declared)
+	}
+	ast.Inspect(value, func(n ast.Node) bool {
+		switch x := n.(type) {
+		case *ast.CompositeLit:
+			if x.Type != nil {
+				exprs = append(exprs, x.Type)
+			}
+		case *ast.CallExpr:
+			// A call the initializer makes when the package loads, or a conversion
+			// (`Level("debug")`) that reads the same: either way the callee is used.
+			callees = append(callees, x.Fun)
+		}
+		return true
+	})
+	var rels []facts.Relation
+	seen := map[string]bool{}
+	for _, group := range []struct {
+		kind  string
+		exprs []ast.Expr
+	}{{facts.RelInstantiates, exprs}, {facts.RelCalls, callees}} {
+		kind := group.kind
+		for _, e := range group.exprs {
+			for _, typeStr := range namedTypesIn(e, nil) {
+				if !strings.Contains(typeStr, ".") && !ctx.pkgScope[typeStr] {
+					continue
+				}
+				target := resolveTypeName(typeStr, ctx)
+				if !seen[target] && isTrackedTypeTarget(target, ctx) {
+					seen[target] = true
+					rels = append(rels, facts.Relation{Kind: kind, Target: target})
+				}
+			}
+		}
+	}
+	for _, t := range typeUses(nil, value, ctx, nil) {
+		if !seen[t] {
+			seen[t] = true
+			rels = append(rels, facts.Relation{Kind: facts.RelInstantiates, Target: t})
+		}
+	}
+	return rels
+}
+
 // extractValueSpec emits exported package-level consts and vars as symbols.
 // They are part of a package's declared surface — a shared vocabulary
 // constant or a sentinel error is exactly the kind of declaration other
@@ -819,6 +871,9 @@ func (e *GoExtractor) extractValueSpec(fset *token.FileSet, gd *ast.GenDecl, vs 
 		var rels []facts.Relation
 		if kind == facts.SymbolVariable && ctx != nil && len(vs.Values) == len(vs.Names) {
 			rels = initializerRelations(vs.Values[i], *ctx, pkgDir+"."+ident.Name)
+			if len(rels) == 0 && !ctx.generated {
+				rels = valueTypeRelations(vs.Type, vs.Values[i], *ctx)
+			}
 		}
 		if !ident.IsExported() && len(rels) == 0 {
 			continue
@@ -979,6 +1034,11 @@ func interfaceMethodSymbols(fset *token.FileSet, iface *ast.InterfaceType, relFi
 
 // resolveCtx holds the context needed to resolve call targets within a function body.
 type resolveCtx struct {
+	// generated is set for a file that says it is generated ("Code generated ...
+	// DO NOT EDIT."). Its package-level registries name every type it holds, which
+	// is no use of them; see valueTypeRelations.
+	generated bool
+
 	pkgDir     string
 	mods       goModules
 	imports    map[string]string // alias → relative package path
