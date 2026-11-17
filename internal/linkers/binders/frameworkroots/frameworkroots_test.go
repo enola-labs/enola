@@ -603,3 +603,48 @@ func TestBind_ReopenedClassIsOneClass(t *testing.T) {
 		}
 	}
 }
+
+// Gem hooks the class's own include or superclass names: chained_job's fan-out
+// configuration, Temporal interceptors, Faraday middleware callbacks, and the
+// controller hooks CanCanCan and PaperTrail call. The same names on a plain
+// class root nothing.
+func TestBind_GemHooksRootWithTheirInclude(t *testing.T) {
+	store := facts.NewStore()
+	mixin := func(includer, module string) facts.Fact {
+		return facts.Fact{Kind: facts.KindDependency, Name: includer + " -> " + module, File: "app/x.rb", Repo: "app",
+			Props: map[string]any{"language": "ruby", "mixin_kind": "include"}, Relations: []facts.Relation{{Kind: facts.RelImplements, Target: module}}}
+	}
+	store.Add(
+		symbol("PurgeJob", facts.SymbolClass, "app/jobs/purge_job.rb", map[string]any{"superclass": "ApplicationJob"}),
+		symbol("PurgeJob#array_of_job_arguments", facts.SymbolMethod, "app/jobs/purge_job.rb", nil),
+		symbol("PurgeJob#parallelism", facts.SymbolMethod, "app/jobs/purge_job.rb", nil),
+		mixin("PurgeJob", "ChainedJob::Middleware"),
+		symbol("Interceptors::RequestId", facts.SymbolClass, "lib/interceptors/request_id.rb", nil),
+		symbol("Interceptors::RequestId#intercept_client", facts.SymbolMethod, "lib/interceptors/request_id.rb", nil),
+		symbol("Interceptors::RequestId#intercept_activity", facts.SymbolMethod, "lib/interceptors/request_id.rb", nil),
+		mixin("Interceptors::RequestId", "Temporalio::Client::Interceptor"),
+		symbol("ApiErrors", facts.SymbolClass, "lib/api_errors.rb", map[string]any{"superclass": "Faraday::Middleware"}),
+		symbol("ApiErrors#on_complete", facts.SymbolMethod, "lib/api_errors.rb", nil),
+		symbol("ApplicationController", facts.SymbolClass, "app/controllers/application_controller.rb", map[string]any{"rails_component": "controller", "superclass": "ActionController::Base"}),
+		symbol("Admin::BaseController", facts.SymbolClass, "app/controllers/admin/base_controller.rb", map[string]any{"rails_component": "controller", "superclass": "ApplicationController"}),
+		symbol("Admin::BaseController#current_ability", facts.SymbolMethod, "app/controllers/admin/base_controller.rb", nil),
+		symbol("Plain", facts.SymbolClass, "lib/plain.rb", nil),
+		symbol("Plain#parallelism", facts.SymbolMethod, "lib/plain.rb", nil),
+		symbol("Plain#on_complete", facts.SymbolMethod, "lib/plain.rb", nil),
+	)
+	bind(t, store)
+	for name, want := range map[string]string{
+		"PurgeJob#array_of_job_arguments":            MechanismHook,
+		"PurgeJob#parallelism":                       MechanismHook,
+		"Interceptors::RequestId#intercept_client":   MechanismHook,
+		"Interceptors::RequestId#intercept_activity": "",
+		"ApiErrors#on_complete":                      MechanismHook,
+		"Admin::BaseController#current_ability":      MechanismHook,
+		"Plain#parallelism":                          "",
+		"Plain#on_complete":                          "",
+	} {
+		if got := propOf(store, facts.KindSymbol, name, RootProp); got != want {
+			t.Errorf("%s root = %q, want %q", name, got, want)
+		}
+	}
+}

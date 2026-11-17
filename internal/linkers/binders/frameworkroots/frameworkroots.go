@@ -92,6 +92,13 @@ var mixinHooks = map[string]map[string]bool{
 	"Sidekiq::Job::Iterable": {"build_enumerator": true, "each_iteration": true, "on_start": true, "on_resume": true, "on_stop": true, "on_complete": true, "on_cancel": true, "around_iteration": true},
 	"Pundit::Authorization":  {"pundit_user": true, "pundit_params_for": true, "policy_scope": true, "authorize": true},
 	"Pundit":                 {"pundit_user": true, "pundit_params_for": true, "policy_scope": true, "authorize": true},
+	// chained_job fans a job out over the argument list the class supplies, in
+	// as many parallel chains as it asks for.
+	"ChainedJob::Middleware": {"array_of_job_arguments": true, "parallelism": true, "job_arguments_key": true, "handle_retry?": true},
+	// Temporal calls an interceptor's intercept_* for each side it includes.
+	"Temporalio::Client::Interceptor":           {"intercept_client": true},
+	"Temporalio::Worker::Interceptor::Activity": {"intercept_activity": true},
+	"Temporalio::Worker::Interceptor::Workflow": {"intercept_workflow": true},
 }
 
 var walkedRelations = map[string]bool{facts.RelCalls: true, facts.RelHandledBy: true, facts.RelDependsOn: true, facts.RelInstantiates: true}
@@ -108,6 +115,12 @@ var superclassHooks = map[string]map[string]bool{
 	"Avo::Filters::BooleanFilter":                     {"apply": true, "options": true, "default": true},
 	"Avo::Filters::TextFilter":                        {"apply": true, "default": true},
 	"Avo::Filters::DateTimeFilter":                    {"apply": true, "default": true},
+	// Faraday runs a middleware's request and response callbacks around each call.
+	"Faraday::Middleware": {"on_request": true, "on_complete": true, "on_error": true, "call": true},
+	// Controller hooks a library mixed into ActionController calls by name:
+	// CanCanCan's current_ability, PaperTrail's whodunnit and metadata.
+	"ActionController::Base": {"current_ability": true, "user_for_paper_trail": true, "info_for_paper_trail": true},
+	"ActionController::API":  {"current_ability": true, "user_for_paper_trail": true, "info_for_paper_trail": true},
 }
 
 // taskSuperclasses names, per library base class, the methods its runner
