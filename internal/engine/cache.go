@@ -3666,7 +3666,8 @@ import (
 // and a generic call the types of its type arguments.
 // v616: gRPC: a message names the messages its fields hold, and an RPC its request and
 // response messages.
-const cacheVersion = "v616"
+// v617: a Gradle src/testFixtures source set is test code.
+const cacheVersion = "v617"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

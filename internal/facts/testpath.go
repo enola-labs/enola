@@ -143,6 +143,10 @@ func isTestSourceSetSeg(prev, seg string) bool {
 	if prev != "src" {
 		return false
 	}
+	// Gradle's java-test-fixtures plugin: fakes and builders shared by tests.
+	if seg == "testFixtures" {
+		return true
+	}
 	name, ok := strings.CutSuffix(seg, "Test")
 	if !ok || name == "" || seg[0] < 'a' || seg[0] > 'z' {
 		return false

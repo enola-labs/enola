@@ -15,6 +15,8 @@ func TestIsTestPath(t *testing.T) {
 		{"gradle unit test source set", "app/src/test/java/de/example/app/FooTest.kt", true},
 		{"gradle instrumented source set", "app/src/androidTest/java/de/example/app/EspressoMocks.kt", true},
 		{"kmp per-target test tree", "shared/src/commonTest/kotlin/Foo.kt", true},
+		{"gradle test fixtures source set", "core/screen/src/testFixtures/java/com/example/FakePhrases.kt", true},
+		{"a package named testFixtures in main", "app/src/main/java/com/example/testFixtures/Seed.kt", false},
 		{"jest colocated", "src/components/__tests__/Button.tsx", true},
 		{"rspec tree", "spec/models/user_spec.rb", true},
 		{"go testdata", "internal/engine/testdata/repos/x/main.go", true},
