@@ -3685,7 +3685,8 @@ import (
 // v631: Ruby: a Rails view helper module (app/helpers) is concrete for abstractness.
 // v632: Go: symbols list the calls edges that hand a function over as a value (value_refs).
 // v633: performs_io does not propagate over value_refs edges.
-const cacheVersion = "v633"
+// v634: Ruby: scheduler configs (sidekiq-cron class:, Temporal workflow:) name the classes they run.
+const cacheVersion = "v634"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
