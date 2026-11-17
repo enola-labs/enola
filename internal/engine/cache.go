@@ -3693,7 +3693,8 @@ import (
 // v639: k6 scripts: default export, lifecycle exports and scenario exec targets are roots.
 // v640: Kotlin: a function the grammar reads as an annotated expression is reparsed alone.
 // v641: Python: Jupyter notebooks are read for the production symbols their cells call.
-const cacheVersion = "v641"
+// v642: dbt is a new FileOwner (.sql, .yml/.yaml, dbt_project.yml), which reshuffles shared files.
+const cacheVersion = "v642"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
