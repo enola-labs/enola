@@ -538,3 +538,29 @@ func TestExplain_FanInFromGeneratedCodeIsNotAGodClass(t *testing.T) {
 		t.Error("a type with mostly hand-written dependents must still be reported")
 	}
 }
+
+// A ClusterRole every namespace binds is how the cluster is configured, not a
+// god class.
+func TestExplain_DeploymentResourceIsNotAGodClass(t *testing.T) {
+	s := facts.NewStore()
+	s.Add(facts.Fact{Kind: facts.KindSymbol, Name: "rbac.ClusterRole.executor", File: "rbac/roles.yaml",
+		Props: map[string]any{"language": "kubernetes"}})
+	for i := 0; i < 12; i++ {
+		s.Add(facts.Fact{Kind: facts.KindSymbol, Name: fmt.Sprintf("ns%d.RoleBinding.executor", i), File: fmt.Sprintf("ns%d/rb.yaml", i),
+			Props:     map[string]any{"language": "kubernetes"},
+			Relations: []facts.Relation{{Kind: facts.RelDependsOn, Target: "rbac.ClusterRole.executor"}}})
+	}
+	s.Add(facts.Fact{Kind: facts.KindSymbol, Name: "leaf.A", File: "leaf/x.go"},
+		facts.Fact{Kind: facts.KindSymbol, Name: "leaf.B", File: "leaf/x.go"},
+		facts.Fact{Kind: facts.KindSymbol, Name: "leaf.C", File: "leaf/x.go"})
+	s.BuildGraph()
+	insights, err := New().Explain(context.Background(), s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, in := range insights {
+		if strings.Contains(in.Title, "ClusterRole") {
+			t.Fatalf("a deployment resource was reported: %s", in.Title)
+		}
+	}
+}

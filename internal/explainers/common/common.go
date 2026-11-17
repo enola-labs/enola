@@ -562,6 +562,15 @@ var rubyBaseClassSuffixes = []string{
 	"BasePolicy", "BasePresenter", "BaseInteractor", "Base",
 }
 
+// IsDeploymentResource reports a symbol that is a deployment manifest resource:
+// an Argo CD Application, a ClusterRole, a Kustomization. Its dependents are the
+// bindings and environments that reference it, and a role every namespace binds
+// is how the cluster is meant to be configured, not code concentrating change
+// risk. Call-graph metrics (fan-in outliers, hotspots) skip it as a candidate.
+func IsDeploymentResource(f facts.Fact) bool {
+	return f.PropString("language") == "kubernetes"
+}
+
 // IsRubyFrameworkBaseSymbol reports whether a symbol is a Rails/framework base
 // class — one whose high fan-in is a product of inheritance (every subclass
 // "depends on" it) rather than a design smell. Gated on a .rb file so non-Ruby
