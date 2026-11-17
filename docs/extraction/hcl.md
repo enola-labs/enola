@@ -94,6 +94,21 @@ module-to-module edge. A remote source (registry, git) is recorded on the
 module symbol as `module_source` with `external=true` and draws nothing — a
 missing edge beats a wrong one.
 
+## Terragrunt units
+
+A directory holding a `terragrunt.hcl` is a unit, deployed on its own. Its file
+usually declares no Terraform block, so each unit is made a module of its own
+(`terragrunt_unit: true`), with a dependency (`terragrunt` naming why) on:
+
+| The unit writes | Dependency on | `terragrunt` |
+|---|---|---|
+| `include { path = find_in_parent_folders("module.hcl") }` | the nearest ancestor directory holding `module.hcl` (no argument: `terragrunt.hcl` or `root.hcl`); a literal `path` relative to the unit | `include` |
+| `terraform { source = "../../modules/vpc//net?ref=v2" }`, its own or the included file's | the module directory, `modules/vpc/net` | `source` |
+| `dependency "network" { config_path = "../network" }`, `dependencies { paths = [...] }` | the other unit's directory | `dependency` |
+
+A remote source (registry, git, S3, or one built with `${…}`) draws no edge and is
+recorded on the unit as `module_source`. Commented-out blocks are ignored.
+
 ## What is deliberately not extracted
 
 - **Remote modules** are named, never followed — no registry fetch, no git

@@ -3695,7 +3695,8 @@ import (
 // v641: Python: Jupyter notebooks are read for the production symbols their cells call.
 // v642: dbt is a new FileOwner (.sql, .yml/.yaml, dbt_project.yml), which reshuffles shared files.
 // v643: dbt emits the table each model builds; LookML is a new FileOwner (.lkml/.lookml).
-const cacheVersion = "v643"
+// v644: HCL: Terragrunt units become modules with include, source and dependency edges.
+const cacheVersion = "v644"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
