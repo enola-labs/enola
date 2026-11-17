@@ -3644,7 +3644,9 @@ import (
 // longer defines the callee at the call site.
 // v604: Dart: a closure passed to an iterator method is walked once, at the loop's
 // depth, so its branches count once in cyclomatic.
-const cacheVersion = "v604"
+// v605: Go: a Kafka topic in a Topic or TopicName field at any depth of a literal, held
+// in a variable, built by a package helper, or written out in a subscription registration.
+const cacheVersion = "v605"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

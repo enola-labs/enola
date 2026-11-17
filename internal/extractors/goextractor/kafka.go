@@ -85,13 +85,54 @@ var kafkaSubscribeMethods = map[string]bool{
 	"Subscribe": true, "Consume": true, "ConsumeTopic": true, "ConsumePartition": true,
 }
 
+// messagingCallRole reads which side of a topic a call is on from its name: the
+// exact client methods above, or a name that says so (PublishEvent,
+// RegisterSubscription, NewBatchConsumer). The second form is only trusted for a
+// topic the code marks as one, a Topic or TopicName field; see topicArg.
+func messagingCallRole(name string, marked bool) (operation, role string) {
+	switch {
+	case kafkaPublishMethods[name]:
+		return facts.MessagingOperationPublish, facts.MessagingRoleProducer
+	case kafkaSubscribeMethods[name]:
+		return facts.MessagingOperationSubscribe, facts.MessagingRoleConsumer
+	case !marked:
+		return "", ""
+	case strings.Contains(name, "Publish") || strings.Contains(name, "Produce"):
+		return facts.MessagingOperationPublish, facts.MessagingRoleProducer
+	case strings.Contains(name, "Subscri") || strings.Contains(name, "Consume"):
+		return facts.MessagingOperationSubscribe, facts.MessagingRoleConsumer
+	}
+	return "", ""
+}
+
+// topicFields are the struct fields whose value is a topic: a client's message or
+// writer config (Topic) and a subscription's config (TopicName). A retry or
+// dead-letter topic beside them is the service's own plumbing, not the topic it is
+// subscribed to.
+var topicFields = map[string]bool{"Topic": true, "TopicName": true}
+
+// callName is the name a call is made by: the function's, or the method's.
+func callName(call *ast.CallExpr) string {
+	switch fn := call.Fun.(type) {
+	case *ast.Ident:
+		return fn.Name
+	case *ast.SelectorExpr:
+		return fn.Sel.Name
+	}
+	return ""
+}
+
+// namespacedTopic is the bar for a topic found without a Kafka client import: the
+// field marks it, and the name is dotted like a topic rather than a word.
+func namespacedTopic(topic string) bool {
+	return strings.Contains(topic, ".") && plausibleKafkaTopic(topic)
+}
+
 // extractKafkaOperationFacts recognizes conservative Kafka call-site shapes. The
 // whole pass is gated by an imported Kafka client package, which keeps identically
 // named in-process Publish/Subscribe methods out of the architecture graph.
 func extractKafkaOperationFacts(fset *token.FileSet, f *ast.File, relFile, pkgDir string) []facts.Fact {
-	if !importsKafkaClient(f) {
-		return nil
-	}
+	client := importsKafkaClient(f)
 	packageBindings := kafkaPackageStringBindings(f)
 	seen := map[string]bool{}
 	var out []facts.Fact
@@ -105,6 +146,7 @@ func extractKafkaOperationFacts(fset *token.FileSet, f *ast.File, relFile, pkgDi
 			bindings[name] = value
 		}
 		collectKafkaStringBindings(fn.Body, bindings)
+		carriers := collectTopicCarriers(fn.Body, bindings, nil, true)
 		symbol := pkgDir + "." + fn.Name.Name
 		if fn.Recv != nil && len(fn.Recv.List) > 0 {
 			symbol = pkgDir + "." + typeExprToString(fn.Recv.List[0].Type) + "." + fn.Name.Name
@@ -114,21 +156,27 @@ func extractKafkaOperationFacts(fset *token.FileSet, f *ast.File, relFile, pkgDi
 			if !ok {
 				return true
 			}
-			sel, ok := call.Fun.(*ast.SelectorExpr)
-			if !ok {
+			name := callName(call)
+			topic, marked := "", false
+			if sel, ok := call.Fun.(*ast.SelectorExpr); ok && client && (kafkaPublishMethods[sel.Sel.Name] || kafkaSubscribeMethods[sel.Sel.Name]) {
+				topic = kafkaCallTopic(call, sel.Sel.Name, bindings)
+			}
+			if topic == "" {
+				topic, marked = carriedTopic(call, carriers, bindings, true)
+			}
+			if topic == "" && strings.Contains(name, "Subscription") {
+				// A subscription registered with its topic written out: the call's
+				// name marks it as one. An in-process bus subscribes and publishes;
+				// it does not register subscriptions.
+				topic, marked = subscriptionLiteral(call, bindings)
+			}
+			operation, role := messagingCallRole(name, marked)
+			if operation == "" || topic == "" || !plausibleKafkaTopic(topic) {
 				return true
 			}
-			operation, role := "", ""
-			switch {
-			case kafkaPublishMethods[sel.Sel.Name]:
-				operation, role = facts.MessagingOperationPublish, facts.MessagingRoleProducer
-			case kafkaSubscribeMethods[sel.Sel.Name]:
-				operation, role = facts.MessagingOperationSubscribe, facts.MessagingRoleConsumer
-			default:
-				return true
-			}
-			topic := kafkaCallTopic(call, sel.Sel.Name, bindings)
-			if topic == "" || !plausibleKafkaTopic(topic) {
+			// Without a Kafka client in sight, only a topic the code marks as one, in a
+			// Topic or TopicName field, and named like one.
+			if !client && (!marked || !namespacedTopic(topic)) {
 				return true
 			}
 			line := fset.Position(call.Pos()).Line
@@ -143,7 +191,7 @@ func extractKafkaOperationFacts(fset *token.FileSet, f *ast.File, relFile, pkgDi
 					"storage_kind": facts.StorageKindTopic, facts.PropMessaging: "kafka",
 					facts.PropMessagingRole: role, facts.PropMessagingOperation: operation,
 					facts.PropSource: facts.MessagingSourceGoKafkaCall,
-					"language":       "go", "code_symbol": symbol, "call": sel.Sel.Name,
+					"language":       "go", "code_symbol": symbol, "call": name,
 				},
 				Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: pkgDir}},
 			})
@@ -151,6 +199,94 @@ func extractKafkaOperationFacts(fset *token.FileSet, f *ast.File, relFile, pkgDi
 		})
 	}
 	return out
+}
+
+// collectTopicCarriers maps each local variable that holds a value carrying a topic
+// to that topic: a struct literal with a Topic or TopicName field, at any depth,
+// or the result of one of ctors, a package helper that builds one from its
+// argument. Assigned twice, a variable carries neither: which reaches the call
+// would be a guess.
+func collectTopicCarriers(body ast.Node, bindings map[string]string, ctors map[string]kafkaTopicCtor, literals bool) map[string]string {
+	out := map[string]string{}
+	ambiguous := map[string]bool{}
+	bind := func(name, topic string) {
+		if topic == "" || ambiguous[name] {
+			return
+		}
+		if _, seen := out[name]; seen {
+			delete(out, name)
+			ambiguous[name] = true
+			return
+		}
+		out[name] = topic
+	}
+	ast.Inspect(body, func(n ast.Node) bool {
+		assign, ok := n.(*ast.AssignStmt)
+		if !ok {
+			return true
+		}
+		for i, lhs := range assign.Lhs {
+			id, ok := lhs.(*ast.Ident)
+			if !ok || i >= len(assign.Rhs) {
+				continue
+			}
+			switch rhs := assign.Rhs[i].(type) {
+			case *ast.CallExpr:
+				if ctor, ok := ctors[callName(rhs)]; ok && ctor.param < len(rhs.Args) {
+					bind(id.Name, kafkaTopicExpr(rhs.Args[ctor.param], bindings))
+				}
+			default:
+				if literals {
+					bind(id.Name, markedTopic(rhs, bindings))
+				}
+			}
+		}
+		return true
+	})
+	return out
+}
+
+// markedTopic is the topic a struct literal (or its address) holds in a Topic or
+// TopicName field, at any depth.
+func markedTopic(expr ast.Expr, bindings map[string]string) string {
+	switch node := expr.(type) {
+	case *ast.UnaryExpr:
+		return markedTopic(node.X, bindings)
+	case *ast.CompositeLit:
+		for _, elt := range node.Elts {
+			kv, ok := elt.(*ast.KeyValueExpr)
+			if !ok {
+				continue
+			}
+			if id, ok := kv.Key.(*ast.Ident); ok && topicFields[id.Name] {
+				if topic := kafkaTopicExpr(kv.Value, bindings); topic != "" {
+					return topic
+				}
+			}
+			if topic := markedTopic(kv.Value, bindings); topic != "" {
+				return topic
+			}
+		}
+	}
+	return ""
+}
+
+// carriedTopic is the topic a call's arguments carry in a marked field: a struct
+// literal written in the call, or a variable holding one.
+func carriedTopic(call *ast.CallExpr, carriers, bindings map[string]string, literals bool) (string, bool) {
+	for _, arg := range call.Args {
+		if !literals {
+			// Variables only: a literal in the call is the file pass's to read.
+		} else if topic := markedTopic(arg, bindings); topic != "" {
+			return topic, true
+		}
+		if id, ok := arg.(*ast.Ident); ok {
+			if topic, ok := carriers[id.Name]; ok {
+				return topic, true
+			}
+		}
+	}
+	return "", false
 }
 
 func importsKafkaClient(f *ast.File) bool {
@@ -368,20 +504,30 @@ func extractKafkaConstructorFacts(fset *token.FileSet, pp *parsedPkg, pkgDir str
 			if fn.Recv != nil && len(fn.Recv.List) > 0 {
 				symbol = pkgDir + "." + typeExprToString(fn.Recv.List[0].Type) + "." + fn.Name.Name
 			}
+			carriers := collectTopicCarriers(fn.Body, bindings, ctors, false)
 			ast.Inspect(fn.Body, func(n ast.Node) bool {
 				call, ok := n.(*ast.CallExpr)
 				if !ok {
 					return true
 				}
-				id, ok := call.Fun.(*ast.Ident)
-				if !ok {
-					return true
+				name := callName(call)
+				ctor, ok := ctors[name]
+				topic := ""
+				switch {
+				case ok && ctor.role != "" && ctor.param < len(call.Args):
+					topic = kafkaTopicExpr(call.Args[ctor.param], bindings)
+				default:
+					// A helper's result, held in a variable, passed to a call that
+					// says which side it is.
+					var marked bool
+					if topic, marked = carriedTopic(call, carriers, bindings, false); !marked {
+						return true
+					}
+					ctor.operation, ctor.role = messagingCallRole(name, true)
+					if ctor.role == "" || !namespacedTopic(topic) {
+						return true
+					}
 				}
-				ctor, ok := ctors[id.Name]
-				if !ok || ctor.param >= len(call.Args) {
-					return true
-				}
-				topic := kafkaTopicExpr(call.Args[ctor.param], bindings)
 				if topic == "" || !plausibleKafkaTopic(topic) {
 					return true
 				}
@@ -397,7 +543,7 @@ func extractKafkaConstructorFacts(fset *token.FileSet, pp *parsedPkg, pkgDir str
 						"storage_kind": facts.StorageKindTopic, facts.PropMessaging: "kafka",
 						facts.PropMessagingRole: ctor.role, facts.PropMessagingOperation: ctor.operation,
 						facts.PropSource: facts.MessagingSourceGoKafkaCall,
-						"language":       "go", "code_symbol": symbol, "call": id.Name,
+						"language":       "go", "code_symbol": symbol, "call": name,
 					},
 					Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: pkgDir}},
 				})
@@ -417,7 +563,7 @@ func collectKafkaTopicCtors(files []*ast.File) map[string]kafkaTopicCtor {
 	for _, f := range files {
 		for _, decl := range f.Decls {
 			fn, ok := decl.(*ast.FuncDecl)
-			if !ok || fn.Body == nil || fn.Recv != nil || fn.Type.Params == nil {
+			if !ok || fn.Body == nil || fn.Type.Params == nil {
 				continue
 			}
 			params := map[string]int{}
@@ -440,6 +586,8 @@ func collectKafkaTopicCtors(files []*ast.File) map[string]kafkaTopicCtor {
 				}
 				if ctor, ok := kafkaTopicComposite(lit, params); ok {
 					found = append(found, ctor)
+					// The literal is read whole, its nested ones included.
+					return false
 				}
 				return true
 			})
@@ -453,8 +601,15 @@ func collectKafkaTopicCtors(files []*ast.File) map[string]kafkaTopicCtor {
 					unique = false
 				}
 			}
+			name := fn.Name.Name
+			if _, clash := out[name]; clash {
+				// Two functions or methods of the package by one name: a call by
+				// that name could be either.
+				unique = false
+				delete(out, name)
+			}
 			if unique {
-				out[fn.Name.Name] = ctor
+				out[name] = ctor
 			}
 		}
 	}
@@ -474,7 +629,7 @@ func kafkaTopicComposite(lit *ast.CompositeLit, params map[string]int) (kafkaTop
 		if !ok {
 			continue
 		}
-		if key.Name == "Topic" {
+		if topicFields[key.Name] {
 			if v, ok := kv.Value.(*ast.Ident); ok {
 				if i, ok := params[v.Name]; ok {
 					param = i
@@ -483,6 +638,13 @@ func kafkaTopicComposite(lit *ast.CompositeLit, params map[string]int) (kafkaTop
 		}
 		if kafkaGroupFields[key.Name] {
 			grouped = true
+		}
+		// A message's metadata nests the struct that holds the topic.
+		if inner, ok := kv.Value.(*ast.CompositeLit); ok && param < 0 {
+			if ctor, ok := kafkaTopicComposite(inner, params); ok {
+				param = ctor.param
+				grouped = grouped || ctor.role == facts.MessagingRoleConsumer
+			}
 		}
 	}
 	if param < 0 {
@@ -500,5 +662,34 @@ func kafkaTopicComposite(lit *ast.CompositeLit, params map[string]int) (kafkaTop
 			return kafkaTopicCtor{param: param, role: facts.MessagingRoleProducer, operation: facts.MessagingOperationPublish}, true
 		}
 	}
-	return kafkaTopicCtor{}, false
+	// Neither side shows here: the value carries the topic to a call that does.
+	return kafkaTopicCtor{param: param}, true
+}
+
+// subscriptionLiteral is the one namespaced topic a subscription call is given as a
+// string, or in a string slice: more than one, and which is the topic is a guess.
+func subscriptionLiteral(call *ast.CallExpr, bindings map[string]string) (string, bool) {
+	found := ""
+	for _, arg := range call.Args {
+		var values []string
+		if lit, ok := arg.(*ast.CompositeLit); ok {
+			for _, elt := range lit.Elts {
+				if v, ok := stringLitValue(elt); ok {
+					values = append(values, v)
+				}
+			}
+		} else if v := kafkaTopicExpr(arg, bindings); v != "" {
+			values = append(values, v)
+		}
+		for _, v := range values {
+			if !namespacedTopic(v) {
+				continue
+			}
+			if found != "" && found != v {
+				return "", false
+			}
+			found = v
+		}
+	}
+	return found, found != ""
 }
