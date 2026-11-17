@@ -497,7 +497,17 @@ func BuildModuleGraphExcluding(store *facts.Store, excludeKinds ...string) map[s
 			// class-/file-suffixed target and silently loses those edges (e.g. all
 			// Kotlin-sourced cycles). Walking up mirrors package_metrics and the source
 			// resolution above; it is a no-op where the target is already a module.
-			target = nearestModule(target, moduleNames, testModules)
+			//
+			// A Go import names one package exactly. One the snapshot does not hold
+			// (under a directory named vendor, which is not indexed) is no import of
+			// its parent, and walking up drew cycles Go would not compile.
+			if dep.PropString("language") == "go" {
+				if !moduleNames[target] {
+					continue
+				}
+			} else {
+				target = nearestModule(target, moduleNames, testModules)
+			}
 
 			// A target is included only if it names a known internal PRODUCTION module.
 			// This gate is authoritative; we deliberately do NOT pre-filter with

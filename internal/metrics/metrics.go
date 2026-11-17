@@ -391,6 +391,12 @@ func collect(store *facts.Store, repo string) ([]pkgInput, []importEdge, []strin
 				continue
 			}
 			to := resolveToModule(r.Target, moduleSet)
+			if f.PropString("language") == "go" {
+				// A Go import names one package: one the snapshot lacks is not its parent.
+				if _, ok := moduleSet[r.Target]; !ok {
+					to = ""
+				}
+			}
 			if to == "" || to == from {
 				continue
 			}

@@ -354,7 +354,7 @@ func NewGraphWithAliases(ff []Fact, aliases map[string]FactKey) *Graph {
 			if moduleNames[modName] {
 				for _, rel := range f.Relations {
 					if rel.Kind == RelImports {
-						target, repo := resolveToModule(rel.Target, moduleNames), f.Repo
+						target, repo := moduleOfImport(f, rel.Target, moduleNames), f.Repo
 						if k, ok := aliases[rel.Target]; ok && target == "" && k.Kind == KindModule {
 							target, repo = k.Name, k.Repo
 						}
@@ -1780,6 +1780,21 @@ func (g *Graph) memberSeeds(id uint32) []string {
 		seeds = append(seeds, g.keyOf(tid))
 	}
 	return seeds
+}
+
+// moduleOfImport is the module an import of target by dependency fact f lands in. A
+// Go import names one package exactly: an import of a package the snapshot does not
+// hold (one under a directory named vendor, which is not indexed) is no import of its
+// parent directory, and climbing to it drew a cycle Go would not compile. Other
+// languages import files and directories within a module, so they climb.
+func moduleOfImport(f Fact, target string, moduleNames map[string]bool) string {
+	if f.PropString("language") == "go" {
+		if moduleNames[target] {
+			return target
+		}
+		return ""
+	}
+	return resolveToModule(target, moduleNames)
 }
 
 // resolveToModule finds the closest matching module for a target by trying
