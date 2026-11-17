@@ -137,6 +137,11 @@ func (e *JavaExtractor) Extract(ctx context.Context, repoPath string, files []st
 		if doc := pkgDocs[dir]; doc != "" {
 			facts.SetDocProp(props, doc)
 		}
+		// The build module the package compiles into: a cycle between packages
+		// of one module is legal, one between modules the build rejects.
+		if unit := jvmsrc.BuildModule(dir); unit != "" {
+			props["jvm_module"] = unit
+		}
 		allFacts = append(allFacts, facts.Fact{
 			Kind:  facts.KindModule,
 			Name:  dir,

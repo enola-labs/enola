@@ -484,7 +484,7 @@ const (
 var CompilationUnitProps = []string{
 	"crate",      // Rust: the Cargo crate a module directory belongs to
 	"project",    // C#: the MSBuild project (assembly) a module directory belongs to
-	"jvm_module", // Scala: the sbt/Maven/Gradle module a source directory compiles into
+	"jvm_module", // Scala, Kotlin, Java: the sbt/Maven/Gradle module a source directory compiles into
 	// Dart: the pub package a library belongs to. Dart is the most permissive case
 	// this table covers — where MSBuild and Cargo FORBID a cycle between units, Dart
 	// does not even forbid one between libraries INSIDE a unit: circular imports are

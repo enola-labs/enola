@@ -3669,7 +3669,8 @@ import (
 // v617: a Gradle src/testFixtures source set is test code.
 // v618: TypeScript: an import the compiler erases (import type, all-type clauses)
 // is marked as type-only coupling.
-const cacheVersion = "v618"
+// v619: Kotlin and Java modules name the build module they compile into.
+const cacheVersion = "v619"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
