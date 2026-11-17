@@ -288,3 +288,55 @@ func (j *Job) Refresh(ids []int) {
 		t.Fatalf("findings = %v, want only the hand-written loop %v", got, want)
 	}
 }
+
+// Handing a method over as a value runs nothing: registering each handler in a
+// loop is not a query per handler, though the handler queries. Calling it is.
+func TestGoQueryLoops_MethodValueIsNotACall(t *testing.T) {
+	store := goStore(t, map[string]string{
+		"app/app.go": `package app
+
+import "database/sql"
+
+type Handlers struct{ db *sql.DB }
+
+func (h *Handlers) Expire(id int) {
+	h.db.Exec("update strikes set expired = 1 where id = ?", id)
+}
+
+type Worker struct{}
+
+func (w *Worker) Register(fn func(int)) {}
+
+type Setup struct {
+	w *Worker
+	h *Handlers
+}
+
+func (s *Setup) wire() {
+	s.w.Register(s.h.Expire)
+}
+
+func (s *Setup) RegisterAll(names []string) {
+	for range names {
+		s.wire()
+	}
+}
+
+func (s *Setup) RunAll(ids []int) {
+	for _, id := range ids {
+		s.h.Expire(id)
+	}
+}
+`,
+	})
+	var got []string
+	for _, f := range All(store) {
+		got = append(got, f.Symbol)
+	}
+	if slices.Contains(got, "example.com/app/app.Setup.RegisterAll") {
+		t.Errorf("registering a handler was read as running it: %v", got)
+	}
+	if !slices.Contains(got, "example.com/app/app.Setup.RunAll") {
+		t.Errorf("calling the handler per element is no longer found: %v", got)
+	}
+}

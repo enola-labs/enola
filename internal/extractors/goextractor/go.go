@@ -610,6 +610,7 @@ func (e *GoExtractor) extractFunc(fset *token.FileSet, fn *ast.FuncDecl, relFile
 		for _, call := range m.calls {
 			called[call] = true
 		}
+		var valueRefs []string
 		for _, ref := range funcValueRefs(fn.Body, ctx) {
 			if called[ref] {
 				continue // already recorded as a call from this same body
@@ -618,6 +619,13 @@ func (e *GoExtractor) extractFunc(fset *token.FileSet, fn *ast.FuncDecl, relFile
 				Kind:   facts.RelCalls,
 				Target: ref,
 			})
+			valueRefs = append(valueRefs, ref)
+		}
+		// Which of those edges hand a function over rather than run it. The edge
+		// keeps the callee reachable for impact and dead code; what runs per
+		// iteration (query-loops) must not follow it.
+		if len(valueRefs) > 0 {
+			symbolFact.SetProp("value_refs", valueRefs)
 		}
 		for _, inst := range m.instantiates {
 			symbolFact.Relations = append(symbolFact.Relations, facts.Relation{

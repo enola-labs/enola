@@ -224,6 +224,7 @@ var versionCoverage = map[int][]string{
 	629: {"TestPagerAndChunkRangeAreBatchLoops"},
 	630: {"TestLimitedWriteLoopIsABatchLoop"},
 	631: {"TestRailsViewHelperIsNotAnAbstraction"},
+	632: {"TestGoQueryLoops_MethodValueIsNotACall"},
 	507: {"TestRustImportAliasesBindOnlyTheAlias", "TestRustImportedTypeThroughAFileModuleWithADirectory", "TestRustMethodsInAFileModulesSubdirectoryResolve", "TestRustTypeImportedThroughAReExportResolves", "TestRustTypeAliasIsFollowedToItsType", "TestRustAliasedExternalImportDoesNotHideTheLocalName"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},

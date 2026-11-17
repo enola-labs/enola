@@ -74,8 +74,11 @@ func goCandidates(store *facts.Store) []finding {
 	}
 	for k, f := range syms {
 		once := stringSet(propStrings(f.Props["calls_once"]))
+		// A function handed over as a value (`w.Register(h.Expire)`) is an edge
+		// for impact and dead code, but registering it runs nothing.
+		values := stringSet(propStrings(f.Props["value_refs"]))
 		for _, r := range f.Relations {
-			if r.Kind != facts.RelCalls || once[r.Target] {
+			if r.Kind != facts.RelCalls || once[r.Target] || values[r.Target] {
 				continue
 			}
 			callee := goKey{k.repo, r.Target}

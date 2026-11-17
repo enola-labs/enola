@@ -3683,7 +3683,8 @@ import (
 // v629: Go: a pager that stops on an empty page, and a range over slices.Chunk, are batch loops.
 // v630: Go: a limited write loop that stops on a short RowsAffected() is a batch loop.
 // v631: Ruby: a Rails view helper module (app/helpers) is concrete for abstractness.
-const cacheVersion = "v631"
+// v632: Go: symbols list the calls edges that hand a function over as a value (value_refs).
+const cacheVersion = "v632"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
