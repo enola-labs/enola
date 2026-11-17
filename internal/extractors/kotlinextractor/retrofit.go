@@ -68,6 +68,7 @@ func extractRetrofitFacts(src []byte, relFile string) []facts.Fact {
 	var out []facts.Fact
 	dir := factpath.Dir(relFile)
 	api := apiHint(relFile)
+	consts := fileStringConsts(src)
 
 	for i, line := range strings.Split(string(src), "\n") {
 		m := retrofitAnnotation.FindStringSubmatch(line)
@@ -75,7 +76,7 @@ func extractRetrofitFacts(src []byte, relFile string) []facts.Fact {
 			continue
 		}
 		method := strings.ToUpper(m[1])
-		path := cleanClientPath(m[2])
+		path := cleanClientPath(substituteConsts(m[2], consts))
 		if path == "" {
 			continue
 		}
@@ -108,6 +109,48 @@ func extractRetrofitFacts(src []byte, relFile string) []facts.Fact {
 		})
 	}
 	return out
+}
+
+// stringConst matches a Kotlin string constant with a plain literal value:
+// `const val ROUTE_PREFIX = "orders/api/v2"`, top level or in a companion.
+var stringConst = regexp.MustCompile(`\bconst\s+val\s+([A-Za-z_][A-Za-z0-9_]*)\s*(?::\s*String\s*)?=\s*"([^"$\\]*)"`)
+
+// stringTemplateRef matches a template reference in a string literal: `${NAME}`
+// or `$NAME`.
+var stringTemplateRef = regexp.MustCompile(`\$\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}|\$([A-Za-z_][A-Za-z0-9_]*)`)
+
+// fileStringConsts returns the string constants a file declares. A Retrofit
+// interface commonly keeps the service prefix in its companion and writes
+// "${ROUTE_PREFIX}/read" in every annotation.
+func fileStringConsts(src []byte) map[string]string {
+	ms := stringConst.FindAllSubmatch(src, -1)
+	if len(ms) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(ms))
+	for _, m := range ms {
+		out[string(m[1])] = string(m[2])
+	}
+	return out
+}
+
+// substituteConsts replaces the template references to a file's string constants
+// in a path. A reference to anything else is left as written.
+func substituteConsts(path string, consts map[string]string) string {
+	if len(consts) == 0 || !strings.Contains(path, "$") {
+		return path
+	}
+	return stringTemplateRef.ReplaceAllStringFunc(path, func(ref string) string {
+		m := stringTemplateRef.FindStringSubmatch(ref)
+		name := m[1]
+		if name == "" {
+			name = m[2]
+		}
+		if v, ok := consts[name]; ok {
+			return v
+		}
+		return ref
+	})
 }
 
 // cleanClientPath strips a query string from a client route path and trims

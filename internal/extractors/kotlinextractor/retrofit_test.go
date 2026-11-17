@@ -1,6 +1,9 @@
 package kotlinextractor
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestExtractRetrofitFacts(t *testing.T) {
 	src := `package com.fairwayhub.mygolfjournal.data.api
@@ -126,5 +129,35 @@ interface NetworkApi {
 		if got := byName[path]; got != want {
 			t.Errorf("route %q method = %q, want %q (all of: %+v)", path, got, want, byName)
 		}
+	}
+}
+
+// A prefix kept in a constant is substituted into the path; a reference to a
+// name the file does not declare is left as written.
+func TestRetrofit_ConstantPrefixIsSubstituted(t *testing.T) {
+	src := []byte(`package com.shop.orders.api
+
+interface OrderEducationApi {
+    @POST("${ROUTE_PREFIX}/read-educations")
+    fun markRead(): Single<BaseResponse>
+
+    @GET("$ROUTE_PREFIX/orders/{id}/educations")
+    fun educations(@Path("id") id: String): Single<BaseResponse>
+
+    @GET("${OTHER}/elsewhere")
+    fun elsewhere(): Single<BaseResponse>
+
+    companion object {
+        private const val ROUTE_PREFIX = "orders/api/v2"
+    }
+}
+`)
+	var got []string
+	for _, f := range extractRetrofitFacts(src, "api/OrderEducationApi.kt") {
+		got = append(got, f.Name)
+	}
+	want := []string{"orders/api/v2/read-educations", "orders/api/v2/orders/{id}/educations", "${OTHER}/elsewhere"}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("paths = %q, want %q", got, want)
 	}
 }

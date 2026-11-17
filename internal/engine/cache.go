@@ -3672,7 +3672,8 @@ import (
 // v619: Kotlin and Java modules name the build module they compile into.
 // v620: a CamelCase directory ending in Mocks (CustomMocks, GeneratedMocks) is test code.
 // v621: Swift: a root Package.swift's default target path is Sources/<name>, not ./Sources/<name>.
-const cacheVersion = "v621"
+// v622: Kotlin Retrofit paths substitute the file's string constants (${ROUTE_PREFIX}/x).
+const cacheVersion = "v622"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
