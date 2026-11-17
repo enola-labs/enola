@@ -191,3 +191,45 @@ func perID(ids []int) {
 		t.Errorf("perID: calls_in_scaling_loop = %v, want pkg.lookup", scaling)
 	}
 }
+
+// UPDATE … LIMIT n until a round touches fewer rows is a batched write; a
+// chain walk that stops at zero is still a query per level.
+func TestLimitedWriteLoopIsABatchLoop(t *testing.T) {
+	ff := extractAll(t, map[string]string{"pkg/x.go": `package pkg
+
+type Result struct{}
+
+func (Result) RowsAffected() (int64, error) { return 0, nil }
+
+func exec(q string, limit int) Result { return Result{} }
+func up(id int) int                   { return 0 }
+
+func nullify() {
+	const limit = 200
+	for {
+		res := exec("UPDATE t SET x = NULL WHERE y = 1 LIMIT ?", limit)
+		n, _ := res.RowsAffected()
+		if n < limit {
+			break
+		}
+	}
+}
+
+func climb(id int) {
+	for {
+		id = up(id)
+		if id == 0 {
+			break
+		}
+	}
+}
+`})
+	f, _ := findFact(ff, "pkg.nullify")
+	if scaling := strSliceProp(f, "calls_in_scaling_loop"); containsStr(scaling, "pkg.exec") {
+		t.Errorf("nullify: calls_in_scaling_loop = %v: one limited write a round is the batching", scaling)
+	}
+	c, _ := findFact(ff, "pkg.climb")
+	if scaling := strSliceProp(c, "calls_in_scaling_loop"); !containsStr(scaling, "pkg.up") {
+		t.Errorf("climb: calls_in_scaling_loop = %v, want pkg.up", scaling)
+	}
+}

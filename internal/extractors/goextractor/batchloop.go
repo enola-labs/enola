@@ -60,10 +60,18 @@ func goBatchLoop(x *ast.ForStmt) (pageVars []string, ok, walk bool) {
 	}
 	walk = condition && goTakesElement(x.Cond)
 	bound := map[string]bool{}
+	affected := map[string]bool{} // locals holding a write's RowsAffected()
 	for _, st := range x.Body.List {
 		as, isAssign := st.(*ast.AssignStmt)
 		if !isAssign || len(as.Rhs) != 1 {
 			continue
+		}
+		if call, isCall := as.Rhs[0].(*ast.CallExpr); isCall {
+			if sel, isSel := call.Fun.(*ast.SelectorExpr); isSel && sel.Sel.Name == "RowsAffected" {
+				if id, isIdent := as.Lhs[0].(*ast.Ident); isIdent {
+					affected[id.Name] = true
+				}
+			}
 		}
 		switch as.Rhs[0].(type) {
 		case *ast.CallExpr, *ast.SliceExpr:
@@ -75,6 +83,11 @@ func goBatchLoop(x *ast.ForStmt) (pageVars []string, ok, walk bool) {
 				bound[id.Name] = true
 			}
 		}
+	}
+	// A write loop that updates or deletes a limited batch a round and stops
+	// when a round touches fewer rows than the limit is batching too.
+	if condition && !walk && len(affected) > 0 && endsOnEmpty(x.Body, affected, false) {
+		return nil, true, false
 	}
 	if len(bound) == 0 {
 		return nil, false, false
@@ -96,7 +109,7 @@ func goBatchLoop(x *ast.ForStmt) (pageVars []string, ok, walk bool) {
 	// A pager that hands each page on whole (`insert(ctx, rows)`) drains it in
 	// the callee. What says it pages is the stop: the loop ends when a fetch
 	// comes back empty.
-	if !drained && !walk && endsOnEmpty(x.Body, bound) {
+	if !drained && !walk && endsOnEmpty(x.Body, bound, true) {
 		drained = true
 	}
 	if !drained {
@@ -108,13 +121,14 @@ func goBatchLoop(x *ast.ForStmt) (pageVars []string, ok, walk bool) {
 	return pageVars, !walk, walk
 }
 
-// endsOnEmpty reports a loop body that leaves the loop when one of the given
-// locals is empty: `if len(rows) == 0 { break }` (or return), at the top level of
-// the body.
-func endsOnEmpty(body *ast.BlockStmt, locals map[string]bool) bool {
+// endsOnEmpty reports a loop body that leaves the loop when a round came back
+// short: `if len(rows) == 0 { break }`, `if len(ids) < size { break }` (or
+// return), at the top level of the body. With byLen unset the locals are counts
+// (`if affected < limit`), compared directly.
+func endsOnEmpty(body *ast.BlockStmt, locals map[string]bool, byLen bool) bool {
 	for _, st := range body.List {
 		ifs, ok := st.(*ast.IfStmt)
-		if !ok || !lenIsZero(ifs.Cond, locals) || len(ifs.Body.List) == 0 {
+		if !ok || !comesBackShort(ifs.Cond, locals, byLen) || len(ifs.Body.List) == 0 {
 			continue
 		}
 		switch last := ifs.Body.List[len(ifs.Body.List)-1].(type) {
@@ -129,25 +143,33 @@ func endsOnEmpty(body *ast.BlockStmt, locals map[string]bool) bool {
 	return false
 }
 
-// lenIsZero matches `len(x) == 0` and `len(x) < 1` for x among locals.
-func lenIsZero(cond ast.Expr, locals map[string]bool) bool {
+// comesBackShort matches `len(x) == 0` and `len(x) < n` for x among locals, or,
+// with byLen unset, `x == 0` and `x < n`.
+func comesBackShort(cond ast.Expr, locals map[string]bool, byLen bool) bool {
 	b, ok := cond.(*ast.BinaryExpr)
-	if !ok {
+	if !ok || (b.Op != token.EQL && b.Op != token.LSS && b.Op != token.LEQ) {
 		return false
 	}
-	call, ok := b.X.(*ast.CallExpr)
-	if !ok || len(call.Args) != 1 {
+	operand := b.X
+	if byLen {
+		call, isCall := b.X.(*ast.CallExpr)
+		if !isCall || len(call.Args) != 1 {
+			return false
+		}
+		if fn, isIdent := call.Fun.(*ast.Ident); !isIdent || fn.Name != "len" {
+			return false
+		}
+		operand = call.Args[0]
+	}
+	arg, isIdent := operand.(*ast.Ident)
+	if !isIdent || !locals[arg.Name] {
 		return false
 	}
-	if fn, isIdent := call.Fun.(*ast.Ident); !isIdent || fn.Name != "len" {
-		return false
+	if b.Op == token.EQL {
+		lit, isLit := b.Y.(*ast.BasicLit)
+		return isLit && lit.Value == "0"
 	}
-	arg, isIdent := call.Args[0].(*ast.Ident)
-	lit, isLit := b.Y.(*ast.BasicLit)
-	if !isIdent || !locals[arg.Name] || !isLit {
-		return false
-	}
-	return (b.Op == token.EQL && lit.Value == "0") || (b.Op == token.LSS && lit.Value == "1")
+	return true
 }
 
 // goChunkers are the functions that split a slice into batches: ranging over

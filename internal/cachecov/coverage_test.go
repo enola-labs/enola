@@ -222,6 +222,7 @@ var versionCoverage = map[int][]string{
 	627: {"TestRbScaling_ChainedBatchEnumeratorIsBatched"},
 	628: {"TestPackwerkUsage_ConfigConstantIsNoDependency", "TestPackwerkUsage_ConfigConstantKeepsItsDeclarationUsed"},
 	629: {"TestPagerAndChunkRangeAreBatchLoops"},
+	630: {"TestLimitedWriteLoopIsABatchLoop"},
 	507: {"TestRustImportAliasesBindOnlyTheAlias", "TestRustImportedTypeThroughAFileModuleWithADirectory", "TestRustMethodsInAFileModulesSubdirectoryResolve", "TestRustTypeImportedThroughAReExportResolves", "TestRustTypeAliasIsFollowedToItsType", "TestRustAliasedExternalImportDoesNotHideTheLocalName"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},
