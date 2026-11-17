@@ -3694,7 +3694,8 @@ import (
 // v640: Kotlin: a function the grammar reads as an annotated expression is reparsed alone.
 // v641: Python: Jupyter notebooks are read for the production symbols their cells call.
 // v642: dbt is a new FileOwner (.sql, .yml/.yaml, dbt_project.yml), which reshuffles shared files.
-const cacheVersion = "v642"
+// v643: dbt emits the table each model builds; LookML is a new FileOwner (.lkml/.lookml).
+const cacheVersion = "v643"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

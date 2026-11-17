@@ -235,6 +235,7 @@ var versionCoverage = map[int][]string{
 	640: {"TestMisreadAnnotatedFunctionAfterATemplateBody"},
 	641: {"TestNotebookReferencesTheHelpersItCalls"},
 	642: {"TestDbtModelsRefsAndSources"},
+	643: {"TestLookMLViewsAndExplores", "TestDbtModelsRefsAndSources"},
 	507: {"TestRustImportAliasesBindOnlyTheAlias", "TestRustImportedTypeThroughAFileModuleWithADirectory", "TestRustMethodsInAFileModulesSubdirectoryResolve", "TestRustTypeImportedThroughAReExportResolves", "TestRustTypeAliasIsFollowedToItsType", "TestRustAliasedExternalImportDoesNotHideTheLocalName"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},

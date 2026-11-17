@@ -68,6 +68,7 @@ var extractorDocs = map[string]extractorDoc{
 	"asyncapi":   {Labels: []string{"AsyncAPI"}, Page: "asyncapi.md"},
 	"vespa":      {Labels: []string{"Vespa"}, Page: "vespa.md"},
 	"dbt":        {Labels: []string{"dbt"}, Page: "dbt.md"},
+	"lookml":     {Labels: []string{"LookML"}, Page: "lookml.md"},
 	"openapi":    {Labels: []string{"OpenAPI", "gRPC and OpenAPI"}, Page: "grpc-openapi.md"},
 	"grpc":       {Labels: []string{"gRPC", "gRPC and OpenAPI"}, Page: "grpc-openapi.md"},
 

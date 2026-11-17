@@ -33,6 +33,7 @@ pages changing, the golden tests fail first.
 | [gRPC and OpenAPI](grpc-openapi.md) | `.proto` services, OpenAPI specs | the contract as the server side of an edge |
 | [AsyncAPI](asyncapi.md) | AsyncAPI 2.x/3.x YAML and JSON specs | event channels as producer/consumer topic facts |
 | [dbt](dbt.md) | dbt projects (`dbt_project.yml`, model SQL, properties YAML) | models as symbols with their `ref`/`source` lineage, source tables as storage |
+| [LookML](lookml.md) | Looker views, explores and models (`.lkml`) | views and explores as symbols, joined to the tables (and dbt models) they read |
 | [Vespa](vespa.md) | Vespa schema definitions (`.sd`) | document types as storage, joined to the YQL queries reading them |
 | [Terraform / HCL](hcl.md) | resources, modules, variables, outputs, locals | Terraform addresses as symbol names; declared-set bare references |
 | [Ansible](ansible.md) | plays, roles, `include_role`/`import_role` | by-name structure read without rendering a template |

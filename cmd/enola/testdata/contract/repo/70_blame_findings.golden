@@ -1,7 +1,7 @@
 $ enola blame --all --findings cycle .
 exit: 0
 --- stdout
-7365ae5  <TIME>  
+497f546  <TIME>  
     + Cyclic dependency detected (2 modules)
 
 1 event across 2 searched revisions.

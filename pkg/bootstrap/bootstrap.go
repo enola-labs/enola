@@ -51,6 +51,7 @@ import (
 	"github.com/enola-labs/enola/internal/extractors/javaextractor"
 	"github.com/enola-labs/enola/internal/extractors/k8sextractor"
 	"github.com/enola-labs/enola/internal/extractors/kotlinextractor"
+	"github.com/enola-labs/enola/internal/extractors/lookmlextractor"
 	"github.com/enola-labs/enola/internal/extractors/manifestextractor"
 	"github.com/enola-labs/enola/internal/extractors/mdintent"
 	"github.com/enola-labs/enola/internal/extractors/openapiextractor"
@@ -587,6 +588,7 @@ func registerOSSPlugins(eng *engine.Engine, cfg *config.Config) {
 	eng.RegisterExtractor(dartextractor.New())
 	eng.RegisterExtractor(vespaextractor.New())
 	eng.RegisterExtractor(dbtextractor.New())
+	eng.RegisterExtractor(lookmlextractor.New())
 
 	// Resolve the linking vocabulary once and hand it to everything that matches under
 	// it, so the signals and the unmatched-route binder cannot disagree about what
