@@ -3697,7 +3697,8 @@ import (
 // v643: dbt emits the table each model builds; LookML is a new FileOwner (.lkml/.lookml).
 // v644: HCL: Terragrunt units become modules with include, source and dependency edges.
 // v645: Avro is a new FileOwner (.avdl, .avsc).
-const cacheVersion = "v645"
+// v646: Rego is a new FileOwner (.rego).
+const cacheVersion = "v646"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

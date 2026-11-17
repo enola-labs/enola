@@ -70,6 +70,7 @@ var extractorDocs = map[string]extractorDoc{
 	"dbt":        {Labels: []string{"dbt"}, Page: "dbt.md"},
 	"lookml":     {Labels: []string{"LookML"}, Page: "lookml.md"},
 	"avro":       {Labels: []string{"Avro"}, Page: "avro.md"},
+	"rego":       {Labels: []string{"Rego"}, Page: "rego.md"},
 	"openapi":    {Labels: []string{"OpenAPI", "gRPC and OpenAPI"}, Page: "grpc-openapi.md"},
 	"grpc":       {Labels: []string{"gRPC", "gRPC and OpenAPI"}, Page: "grpc-openapi.md"},
 
