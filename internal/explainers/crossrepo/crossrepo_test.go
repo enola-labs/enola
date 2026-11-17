@@ -2,6 +2,7 @@ package crossrepo
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -358,4 +359,39 @@ func TestExplain_SharedCodeCitesTheMatchedFiles(t *testing.T) {
 		return
 	}
 	t.Fatalf("no evidence for Version: %+v", insights[0].Evidence)
+}
+
+func crossRepoEdge(from, to string) facts.Fact {
+	return facts.Fact{Kind: facts.KindDependency, Name: from + " -> " + to, Repo: from,
+		Props: map[string]any{"type": "cross_repo", "synthetic": "crossrepo", "via": []string{"http-client"}, "endpoint_count": 1}}
+}
+
+func TestExplain_CountsEveryEdgeAndListsABoundedNumber(t *testing.T) {
+	s := facts.NewStore()
+	for i := range maxListedEdges + 20 {
+		s.Add(crossRepoEdge(fmt.Sprintf("caller-%04d", i), "provider"))
+	}
+	insights, _ := New().Explain(context.Background(), s)
+	in := insights[0]
+	if want := fmt.Sprintf("Cross-repo dependencies (%d edges)", maxListedEdges+20); in.Title != want {
+		t.Fatalf("title = %q, want %q", in.Title, want)
+	}
+	if len(in.Evidence) != maxListedEdges || !strings.Contains(in.Description, "and 20 more") {
+		t.Fatalf("want %d listed and the rest counted, got %d evidence", maxListedEdges, len(in.Evidence))
+	}
+}
+
+func TestExplain_MutuallyDependentRepositories(t *testing.T) {
+	s := facts.NewStore()
+	s.Add(crossRepoEdge("orders", "billing"), crossRepoEdge("billing", "orders"), crossRepoEdge("web", "orders"))
+	insights, _ := New().Explain(context.Background(), s)
+	var mutual *facts.Insight
+	for i := range insights {
+		if strings.HasPrefix(insights[i].Title, "Mutually dependent") {
+			mutual = &insights[i]
+		}
+	}
+	if mutual == nil || mutual.Title != "Mutually dependent repositories (1 pair(s))" || !strings.Contains(mutual.Description, "billing <-> orders") {
+		t.Fatalf("mutual finding = %+v", mutual)
+	}
 }
