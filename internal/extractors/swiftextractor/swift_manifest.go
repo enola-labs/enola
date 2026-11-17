@@ -80,7 +80,7 @@ func parsePackageManifest(src []byte, manifestRel string, dirToFile map[string]s
 			if name == "" {
 				continue
 			}
-			dir := pkgDir + "/Sources/" + name
+			dir := factpath.Join(pkgDir, "Sources", name)
 			if p := argString(tArgs, "path", src); p != "" {
 				dir = filepath.ToSlash(filepath.Join(pkgDir, p))
 			}
@@ -197,7 +197,7 @@ func manifestTargetRoots(src []byte, manifestRel string) map[string]string {
 			if name == "" {
 				continue
 			}
-			dir := pkgDir + "/Sources/" + name
+			dir := factpath.Join(pkgDir, "Sources", name)
 			if p := argString(tArgs, "path", src); p != "" {
 				dir = filepath.ToSlash(filepath.Join(pkgDir, p))
 			}
