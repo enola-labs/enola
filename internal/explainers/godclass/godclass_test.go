@@ -496,3 +496,45 @@ func TestExplain_GeneratedSymbolExcluded(t *testing.T) {
 		t.Fatalf("fixture: the hub should be reported when it is not generated")
 	}
 }
+
+// A codec type every generated file calls per field has the generator's fan-in:
+// it is not reported. The same fan-in from hand-written callers still is.
+func TestExplain_FanInFromGeneratedCodeIsNotAGodClass(t *testing.T) {
+	build := func(generatedCallers int) *facts.Store {
+		s := facts.NewStore()
+		s.Add(facts.Fact{Kind: facts.KindSymbol, Name: "codec.Decoder", File: "codec/decoder.go"})
+		for i, c := range manyCallers(12) {
+			f := facts.Fact{
+				Kind: facts.KindSymbol, Name: c, File: fmt.Sprintf("api/c%d.go", i),
+				Relations: []facts.Relation{{Kind: facts.RelCalls, Target: "codec.Decoder"}},
+			}
+			if i < generatedCallers {
+				f.Props = map[string]any{"generated": true}
+			}
+			s.Add(f)
+		}
+		s.Add(facts.Fact{Kind: facts.KindSymbol, Name: "leaf.A", File: "leaf/x.go"},
+			facts.Fact{Kind: facts.KindSymbol, Name: "leaf.B", File: "leaf/x.go"},
+			facts.Fact{Kind: facts.KindSymbol, Name: "leaf.C", File: "leaf/x.go"})
+		s.BuildGraph()
+		return s
+	}
+	reported := func(s *facts.Store) bool {
+		insights, err := New().Explain(context.Background(), s)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, in := range insights {
+			if strings.Contains(in.Title, "codec.Decoder ") {
+				return true
+			}
+		}
+		return false
+	}
+	if reported(build(10)) {
+		t.Error("a type most of whose dependents are generated was reported")
+	}
+	if !reported(build(2)) {
+		t.Error("a type with mostly hand-written dependents must still be reported")
+	}
+}

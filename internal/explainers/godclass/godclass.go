@@ -70,8 +70,12 @@ func (e *GodClassExplainer) Explain(ctx context.Context, store *facts.Store) ([]
 	// per repository.
 	distinct := make([]facts.Fact, 0, len(symbols))
 	seen := make(map[string]bool, len(symbols))
+	generated := make(map[string]bool)
 	for _, s := range symbols {
 		key := graph.KeyOf(&s)
+		if s.PropBool("generated") {
+			generated[key] = true
+		}
 		if seen[key] {
 			continue
 		}
@@ -144,8 +148,19 @@ func (e *GodClassExplainer) Explain(ctx context.Context, store *facts.Store) ([]
 		}
 		edges := graph.ArchitecturalReverseEdges(graph.KeyOf(&s))
 		dependents := make([]string, 0, len(edges))
+		fromGenerated := 0
 		for _, edge := range edges {
 			dependents = append(dependents, edge.Target)
+			if generated[edge.Target] {
+				fromGenerated++
+			}
+		}
+		// A runtime the generated code is written against (a codec's Decoder that
+		// every generated type calls per field) has the generator's fan-in, not the
+		// team's. Most of its dependents being generated is what says so; splitting
+		// it would mean changing the generator, not the symbol.
+		if 2*fromGenerated > len(edges) {
+			continue
 		}
 		sort.Strings(dependents)
 		candidates = append(candidates, candidate{fact: s, fanIn: n, labels: dependents})
