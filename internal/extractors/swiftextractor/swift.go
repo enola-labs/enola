@@ -163,6 +163,7 @@ func (e *SwiftExtractor) Extract(ctx context.Context, repoPath string, files []s
 		dir := moduleForFile(relFile)
 		clients := append(extractURLSessionFactsWithDir(src, relFile, dir), extractEndpointFacts(src, relFile, dir, defaultURLPrefix)...)
 		clients = append(clients, routeBaseFacts(string(src), relFile, dir, requestBases)...)
+		applyEndpointAnnotations(src, clients)
 		return extractFileWithClients(src, relFile, isiOS, dir, clients)
 	})
 

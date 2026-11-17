@@ -215,6 +215,7 @@ var versionCoverage = map[int][]string{
 	620: {"TestIsTestPath"},
 	621: {"TestRootManifestTargetsOwnTheirSubdirectories"},
 	622: {"TestRetrofit_ConstantPrefixIsSubstituted"},
+	623: {"TestEndpointAnnotationNamesAnInterpolatedRoute"},
 	507: {"TestRustImportAliasesBindOnlyTheAlias", "TestRustImportedTypeThroughAFileModuleWithADirectory", "TestRustMethodsInAFileModulesSubdirectoryResolve", "TestRustTypeImportedThroughAReExportResolves", "TestRustTypeAliasIsFollowedToItsType", "TestRustAliasedExternalImportDoesNotHideTheLocalName"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},

@@ -3673,7 +3673,9 @@ import (
 // v620: a CamelCase directory ending in Mocks (CustomMocks, GeneratedMocks) is test code.
 // v621: Swift: a root Package.swift's default target path is Sources/<name>, not ./Sources/<name>.
 // v622: Kotlin Retrofit paths substitute the file's string constants (${ROUTE_PREFIX}/x).
-const cacheVersion = "v622"
+// v623: Swift: a client route with an unresolved interpolation takes the path and verb
+// of the "// @endpoint" comment above its builder.
+const cacheVersion = "v623"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
