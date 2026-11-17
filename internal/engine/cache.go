@@ -3675,7 +3675,8 @@ import (
 // v622: Kotlin Retrofit paths substitute the file's string constants (${ROUTE_PREFIX}/x).
 // v623: Swift: a client route with an unresolved interpolation takes the path and verb
 // of the "// @endpoint" comment above its builder.
-const cacheVersion = "v623"
+// v624: Go net/http and Kotlin Retrofit/servlet routes are not read from test sources.
+const cacheVersion = "v624"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

@@ -136,7 +136,12 @@ func (e *KotlinExtractor) Extract(ctx context.Context, repoPath string, files []
 			log.Printf("[kotlin-extractor] error reading %s: %v", relFile, err)
 			return nil
 		}
-		clients := append(extractRetrofitFacts(src, relFile), extractServletRouteFacts(src, relFile)...)
+		// A test declares fake endpoints to exercise the client; they are not
+		// routes the app calls or serves.
+		var clients []facts.Fact
+		if !jvmsrc.IsTestSource(relFile) && !facts.IsTestPath(relFile) {
+			clients = append(extractRetrofitFacts(src, relFile), extractServletRouteFacts(src, relFile)...)
+		}
 		index := packageIndex
 		if jvmsrc.IsTestSource(relFile) {
 			index = testIndex

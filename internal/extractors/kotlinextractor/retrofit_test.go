@@ -3,6 +3,8 @@ package kotlinextractor
 import (
 	"strings"
 	"testing"
+
+	"github.com/enola-labs/enola/internal/facts"
 )
 
 func TestExtractRetrofitFacts(t *testing.T) {
@@ -159,5 +161,30 @@ interface OrderEducationApi {
 	want := []string{"orders/api/v2/read-educations", "orders/api/v2/orders/{id}/educations", "${OTHER}/elsewhere"}
 	if strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Fatalf("paths = %q, want %q", got, want)
+	}
+}
+
+// A test declares fake Retrofit endpoints to exercise the client; they are not
+// routes the app calls.
+func TestRetrofit_TestSourcesDeclareNoRoutes(t *testing.T) {
+	api := `package com.shop.net
+
+interface Probe {
+    @GET("/already/with/slash")
+    fun probe(): Single<BaseResponse>
+}
+`
+	ff := extractKotlinRepo(t, map[string]string{
+		"net/src/test/java/com/shop/net/ProbeTest.kt": api,
+		"net/src/main/java/com/shop/net/Probe.kt":     api,
+	})
+	var files []string
+	for _, f := range ff {
+		if f.Kind == facts.KindRoute {
+			files = append(files, f.File)
+		}
+	}
+	if len(files) != 1 || files[0] != "net/src/main/java/com/shop/net/Probe.kt" {
+		t.Fatalf("routes declared in %v, want only the main source", files)
 	}
 }
