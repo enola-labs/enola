@@ -82,3 +82,24 @@ func sortsBefore(a, b Fact) bool {
 func SortByLocation(fs []Fact) {
 	sort.SliceStable(fs, func(i, j int) bool { return sortsBefore(fs[i], fs[j]) })
 }
+
+// DistinctByNode is DistinctByName over graph nodes: one fact per node, so a name
+// declared in several repositories, which is a node in each, is kept once per
+// repository.
+func DistinctByNode(fs []Fact, g *Graph) []Fact {
+	best := make(map[string]int, len(fs))
+	out := make([]Fact, 0, len(fs))
+	for _, f := range fs {
+		key := g.KeyOf(&f)
+		i, seen := best[key]
+		if !seen {
+			best[key] = len(out)
+			out = append(out, f)
+			continue
+		}
+		if sortsBefore(f, out[i]) {
+			out[i] = f
+		}
+	}
+	return out
+}

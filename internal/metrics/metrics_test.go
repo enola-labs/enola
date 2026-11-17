@@ -405,7 +405,7 @@ func TestDataHolderPackageNotOffMainSequence(t *testing.T) {
 		t.Errorf("non-data rigid package should be off-main-sequence")
 	}
 
-	ins := metricsToInsights([]PackageMetric{data, logic})
+	ins := metricsToInsights([]PackageMetric{data, logic}, false)
 	offTitle := func(pkg string) bool {
 		for _, in := range ins {
 			if strings.Contains(in.Title, pkg) && strings.HasPrefix(in.Title, "Off main sequence") {
@@ -999,7 +999,7 @@ func TestMostDependedUpon_TieIsDeterministic(t *testing.T) {
 	a := PackageMetric{Package: "common/data", Repo: "r", Ca: 396}
 	b := PackageMetric{Package: "common/data/id", Repo: "r", Ca: 396}
 	title := func(results []PackageMetric) string {
-		for _, in := range metricsToInsights(results) {
+		for _, in := range metricsToInsights(results, false) {
 			if strings.HasPrefix(in.Title, "Most depended-upon package") {
 				return in.Title
 			}
@@ -1074,5 +1074,25 @@ func TestComputeAll_RepositoriesKeepTheirOwnPackages(t *testing.T) {
 		if m := got["admin app/models"]; m.Ca != 0 {
 			t.Errorf("admin app/models Ca = %d, want 0", m.Ca)
 		}
+	}
+}
+
+func TestMetricsToInsights_ClusterNamesTheRepository(t *testing.T) {
+	m := PackageMetric{Package: "config/initializers", Repo: "billing", Ca: 9, Instability: 0.02, Distance: 0.98}
+	ins := metricsToInsights([]PackageMetric{m}, true)
+	var most *facts.Insight
+	for i := range ins {
+		if strings.HasPrefix(ins[i].Title, "Most depended-upon package:") {
+			most = &ins[i]
+		}
+	}
+	if most == nil {
+		t.Fatalf("no most-depended-upon finding in %+v", ins)
+	}
+	if most.Title != "Most depended-upon package: config/initializers in billing (Ca=9)" {
+		t.Fatalf("title = %q", most.Title)
+	}
+	if most.Evidence[0].Fact != facts.ScopedName("billing", "config/initializers") {
+		t.Fatalf("evidence cites %q", most.Evidence[0].Fact)
 	}
 }
