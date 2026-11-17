@@ -129,6 +129,7 @@ func (e *DepthExplainer) Explain(ctx context.Context, store *facts.Store) ([]fac
 	}
 
 	type result struct {
+		comp   int
 		module string
 		depth  int
 		chain  []string
@@ -140,7 +141,7 @@ func (e *DepthExplainer) Explain(ctx context.Context, store *facts.Store) ([]fac
 			continue
 		}
 		results = append(results, result{
-			module: scc[0], depth: depth[i],
+			comp: i, module: scc[0], depth: depth[i],
 			chain: chainFor(i, sccs, bestSucc), path: chainPath(i, sccs, bestSucc),
 		})
 	}
@@ -153,10 +154,21 @@ func (e *DepthExplainer) Explain(ctx context.Context, store *facts.Store) ([]fac
 		return results[i].module < results[j].module
 	})
 
+	// One finding per chain. A module on a chain already listed, or one whose
+	// next hop is, reports that chain again with a module more or less at the
+	// top: ten pages of one app above the same feature library read as ten
+	// findings and are one. Chains that only meet further down stay separate.
+	covered := make(map[int]bool)
 	var insights []facts.Insight
-	for i, r := range results {
-		if i >= maxInsights {
+	for _, r := range results {
+		if len(insights) >= maxInsights {
 			break
+		}
+		if covered[r.comp] || (bestSucc[r.comp] != -1 && covered[bestSucc[r.comp]]) {
+			continue
+		}
+		for c := r.comp; c != -1; c = bestSucc[c] {
+			covered[c] = true
 		}
 		evidence := make([]facts.Evidence, 0, len(r.chain))
 		for _, m := range r.chain {
