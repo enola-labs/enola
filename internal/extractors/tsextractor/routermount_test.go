@@ -459,3 +459,51 @@ export default router;
 		t.Error("a bare catch-all became a route")
 	}
 }
+
+// A Fastify plugin registers routes on the instance it is handed. Called with the
+// application, they serve at the paths as written; registered under a prefix, under
+// it. The registrations are server routes, never outbound calls.
+func TestRouterMount_FastifyPluginsServeWhereTheAppTakesThem(t *testing.T) {
+	all := extractAll(t, map[string]string{
+		"src/server.ts": `
+import Fastify from "fastify";
+import { sessionRoutes } from "./routes/sessions";
+import adminRoutes from "./routes/admin";
+
+const fastify = Fastify({ logger: true });
+await sessionRoutes(fastify, { db });
+fastify.register(adminRoutes, { prefix: "/admin" });
+`,
+		"src/routes/sessions.ts": `
+import { FastifyInstance } from "fastify";
+
+export async function sessionRoutes(fastify: FastifyInstance, opts: { db: Pool }) {
+  fastify.get<{ Params: { id: string } }>("/sessions/:id", async (req) => load(req.params.id));
+  fastify.post("/sessions", create);
+}
+`,
+		"src/routes/admin.ts": `
+import type { FastifyPluginAsync } from "fastify";
+
+const adminRoutes: FastifyPluginAsync = async (app) => {
+  app.delete("/users/:id", removeUser);
+};
+export default adminRoutes;
+`,
+	}, false)
+	got := serverRoutes(all)
+	for path, want := range map[string]string{
+		"/sessions/:id":    "GET",
+		"/sessions":        "POST",
+		"/admin/users/:id": "DELETE",
+	} {
+		if got[path] != want {
+			t.Errorf("%s: want %s, got %+v", path, want, got)
+		}
+	}
+	for _, f := range all {
+		if f.Kind == facts.KindRoute && f.PropString(facts.PropRole) == facts.RoleClient {
+			t.Errorf("a registration was read as an outbound call: %s %s", f.PropString("method"), f.Name)
+		}
+	}
+}

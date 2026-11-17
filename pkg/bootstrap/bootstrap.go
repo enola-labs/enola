@@ -752,10 +752,22 @@ func NewServedPool(ctx context.Context, cfg *config.Config, opts ServeOptions) (
 	if err != nil {
 		return nil, nil, err
 	}
+	var unread int
 	for _, p := range opts.Restore {
 		if err := roots.Confine(p); err != nil {
+			// A graph handed over as its directory is read from that directory, so it
+			// can be served where its repositories are not checked out, or not under
+			// a root. Only the tools that quote source come up short for those, and
+			// they still cannot read outside the roots.
+			if cfg.Output.GraphDir != "" {
+				unread++
+				continue
+			}
 			return nil, nil, err
 		}
+	}
+	if unread > 0 {
+		log.Printf("[serve] %d of the graph's %d repositories are not checked out under a root: the graph answers for them, source excerpts do not", unread, len(opts.Restore))
 	}
 	// One drift memo for every session: proving a pooled graph current for a second
 	// session then stats the files the first one already hashed.

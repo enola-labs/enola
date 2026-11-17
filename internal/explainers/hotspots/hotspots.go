@@ -77,15 +77,16 @@ func (e *HotspotExplainer) Explain(ctx context.Context, store *facts.Store) ([]f
 	// fact per file, all sharing a Name and therefore identical in/out degree.
 	// De-dupe here so both the outlier distribution and the candidate set are over
 	// distinct symbols (repeated values would otherwise skew the threshold).
-	distinct := facts.DistinctByName(symbols)
+	distinct := facts.DistinctByNode(symbols, graph)
 
 	scores := make(map[string]int, len(distinct))
 	values := make([]float64, 0, len(distinct))
 	for _, s := range distinct {
-		in := graph.ArchitecturalFanIn(s.Name)
-		out := graph.ArchitecturalFanOut(s.Name)
+		key := graph.KeyOf(&s)
+		in := graph.ArchitecturalFanIn(key)
+		out := graph.ArchitecturalFanOut(key)
 		score := in * out
-		scores[s.Name] = score
+		scores[key] = score
 		values = append(values, float64(score))
 	}
 
@@ -118,15 +119,16 @@ func (e *HotspotExplainer) Explain(ctx context.Context, store *facts.Store) ([]f
 		if s.PropBool("generated") {
 			continue
 		}
-		in := graph.ArchitecturalFanIn(s.Name)
-		out := graph.ArchitecturalFanOut(s.Name)
+		key := graph.KeyOf(&s)
+		in := graph.ArchitecturalFanIn(key)
+		out := graph.ArchitecturalFanOut(key)
 		if in < minDegree || out < minDegree {
 			continue
 		}
-		if float64(scores[s.Name]) <= threshold {
+		if float64(scores[key]) <= threshold {
 			continue
 		}
-		candidates = append(candidates, candidate{fact: s, in: in, out: out, score: scores[s.Name]})
+		candidates = append(candidates, candidate{fact: s, in: in, out: out, score: scores[key]})
 	}
 
 	sort.Slice(candidates, func(i, j int) bool {
@@ -146,10 +148,11 @@ func (e *HotspotExplainer) Explain(ctx context.Context, store *facts.Store) ([]f
 			File:   c.fact.File,
 			Detail: fmt.Sprintf("fan-in %d × fan-out %d = score %d", c.in, c.out, c.score),
 		}}
-		for _, edge := range firstN(graph.ArchitecturalReverseEdges(c.fact.Name), maxNeighbors) {
+		key := graph.KeyOf(&c.fact)
+		for _, edge := range firstN(graph.ArchitecturalReverseEdges(key), maxNeighbors) {
 			evidence = append(evidence, facts.Evidence{Symbol: edge.Target, Detail: "calls into " + c.fact.Name})
 		}
-		for _, edge := range firstN(graph.ArchitecturalForwardEdges(c.fact.Name), maxNeighbors) {
+		for _, edge := range firstN(graph.ArchitecturalForwardEdges(key), maxNeighbors) {
 			evidence = append(evidence, facts.Evidence{Symbol: edge.Target, Detail: "called by " + c.fact.Name})
 		}
 

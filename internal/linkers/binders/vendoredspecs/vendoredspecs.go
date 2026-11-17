@@ -22,6 +22,8 @@ package vendoredspecs
 import (
 	"context"
 	"log"
+	"path"
+	"strings"
 
 	"github.com/enola-labs/enola/internal/facts"
 	"github.com/enola-labs/enola/pkg/plugin"
@@ -64,6 +66,10 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 	// anything. Copying the fact set here would duplicate every Props map on every
 	// snapshot, for a pass that writes to a few hundred facts at most.
 	clientOnly := clientOnlyRepos(store.FactsRef())
+	labels := map[string]bool{}
+	for _, l := range store.RepoLabels() {
+		labels[strings.ToLower(l)] = true
+	}
 
 	demoted, restored := 0, 0
 	store.UpdateWhere(func(f *facts.Fact) {
@@ -78,7 +84,7 @@ func (b *Binder) Bind(_ context.Context, store *facts.Store) error {
 		if !wasRewritten && f.PropString(facts.PropRole) == facts.RoleClient {
 			return
 		}
-		if clientOnly[f.Repo] {
+		if clientOnly[f.Repo] || describesAnotherRepo(f, labels) {
 			if f.Props == nil {
 				f.Props = map[string]any{}
 			}
@@ -151,4 +157,35 @@ func clientOnlyRepos(all []facts.Fact) map[string]bool {
 		}
 	}
 	return out
+}
+
+// describesAnotherRepo reports whether an OpenAPI operation belongs to a spec of
+// another loaded repository, kept here to call it or to publish it: the spec's title
+// begins with that repository's name, its server is at a host named after it, or the
+// spec sits in a directory named after it (a registry of every service's specs).
+// Only an exact repository label counts, and never the repository's own.
+func describesAnotherRepo(f *facts.Fact, labels map[string]bool) bool {
+	own := strings.ToLower(f.Repo)
+	other := func(word string) bool {
+		word = strings.ToLower(word)
+		return word != own && labels[word]
+	}
+	if fields := strings.Fields(f.PropString(facts.PropSpecTitle)); len(fields) > 0 && other(fields[0]) {
+		return true
+	}
+	if host := f.PropString(facts.PropSpecServerHost); host != "" {
+		if first, _, _ := strings.Cut(host, "."); other(first) {
+			return true
+		}
+	}
+	spec := f.PropString("spec_file")
+	if spec == "" {
+		spec = f.IdentityFile()
+	}
+	for _, dir := range strings.Split(path.Dir(spec), "/") {
+		if other(dir) {
+			return true
+		}
+	}
+	return false
 }

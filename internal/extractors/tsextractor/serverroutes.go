@@ -264,3 +264,37 @@ func nodeSlice(src []byte, m []int, g int) string {
 	}
 	return string(src[s:e])
 }
+
+// serverFrameworkImport matches an import of a server framework, ESM or CommonJS.
+var serverFrameworkImport = regexp.MustCompile(`(?:from\s+|require\(\s*)['"](?:fastify|fastify-plugin|express|express-promise-router|hono|koa|@koa/router|elysia)['"]`)
+
+// httpClientImport matches an import of an HTTP client library: a file that has one
+// may make outbound calls with the verb shape too.
+var httpClientImport = regexp.MustCompile(`(?:from\s+|require\(\s*)['"](?:axios|ky|got|node-fetch|undici|superagent|ofetch|cross-fetch)['"]`)
+
+// serverTypedReceiver matches a name annotated with a server framework's type: a
+// plugin's parameter (`fastify: FastifyInstance`), a typed app or router.
+var serverTypedReceiver = regexp.MustCompile(`([A-Za-z_$][\w$]*)\s*:\s*(?:FastifyInstance|Express|Application|Router|Hono|Elysia|express\s*\.\s*(?:Express|Application|Router))\b`)
+
+// conventionalServerNames are the names a server file gives its app or router.
+var conventionalServerNames = map[string]bool{"app": true, "server": true, "fastify": true, "router": true}
+
+// serverFileRegistrar returns, for a file that imports a server framework and no HTTP
+// client library, which verb-call receivers register routes rather than call them:
+// one typed as the framework's app or router (a plugin's parameter), one of the
+// names a server file gives its app, and a call chained on an expression rather than
+// a name (`new Elysia().use(ctx).put('/x')`), which identifierEndingAt reports as "".
+// In any other file, or for any other receiver, it reports false: an unknown
+// receiver stays a client call.
+func serverFileRegistrar(src []byte) func(string) bool {
+	if !serverFrameworkImport.Match(src) || httpClientImport.Match(src) {
+		return func(string) bool { return false }
+	}
+	typed := map[string]bool{}
+	for _, m := range serverTypedReceiver.FindAllSubmatch(src, -1) {
+		typed[string(m[1])] = true
+	}
+	return func(recv string) bool {
+		return recv == "" || typed[recv] || conventionalServerNames[recv]
+	}
+}

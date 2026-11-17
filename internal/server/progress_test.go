@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/enola-labs/enola/pkg/bootstrap"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -27,6 +28,24 @@ func (p *progressLog) seen() []*mcp.ProgressNotificationParams {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return append([]*mcp.ProgressNotificationParams(nil), p.notes...)
+}
+
+// settled is seen once the notifications have stopped arriving, or after a second.
+// The client resolves a call's response as the connection reads it, while it hands
+// notifications to their handler through a queue of their own, so the call can return
+// before the handler has logged the last notification the server sent ahead of the
+// response.
+func (p *progressLog) settled() []*mcp.ProgressNotificationParams {
+	deadline := time.Now().Add(time.Second)
+	notes := p.seen()
+	for time.Now().Before(deadline) {
+		if n := len(notes); n > 0 && notes[n-1].Progress == notes[n-1].Total {
+			return notes
+		}
+		time.Sleep(10 * time.Millisecond)
+		notes = p.seen()
+	}
+	return notes
 }
 
 func attachProgressClient(t *testing.T, srv *bootstrap.Server, opts *mcp.ClientOptions) *mcp.ClientSession {
@@ -103,7 +122,7 @@ func TestE2E_GenerateReportsProgressToATokenedRequest(t *testing.T) {
 		t.Fatalf("a generate that carried no progress token was sent %d progress notifications", n)
 	}
 	callWithToken(t, cs, "gen-1", "generate_snapshot", map[string]any{"repo_path": repo, "fresh": true})
-	checkProgress(t, log.seen(), "gen-1")
+	checkProgress(t, log.settled(), "gen-1")
 }
 
 // A set of repositories ends on one total that covers them all, not on the
@@ -132,5 +151,5 @@ func TestE2E_GenerateSetProgressEndsOnItsTotal(t *testing.T) {
 	var log progressLog
 	cs := attachProgressClient(t, srv, &mcp.ClientOptions{ProgressNotificationHandler: log.handler})
 	callWithToken(t, cs, "set-1", "generate_snapshot", map[string]any{"repo_paths": []string{alpha, beta}})
-	checkProgress(t, log.seen(), "set-1")
+	checkProgress(t, log.settled(), "set-1")
 }

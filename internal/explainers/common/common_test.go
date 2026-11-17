@@ -450,11 +450,12 @@ func TestBuildModuleGraph_SameNameInTwoReposStaysTwoNodes(t *testing.T) {
 			t.Fatalf("cycle across repos: %v", scc)
 		}
 	}
+	key := facts.ScopedName
 	want := map[string]string{
-		"orders/settings":   "orders/i18n",
-		"orders/i18n":       "orders/telemetry",
-		"billing/telemetry": "billing/settings",
-		"api":               "billing/telemetry",
+		key("orders", "settings"):   key("orders", "i18n"),
+		key("orders", "i18n"):       key("orders", "telemetry"),
+		key("billing", "telemetry"): key("billing", "settings"),
+		"api":                       key("billing", "telemetry"),
 	}
 	for from, to := range want {
 		if edges := graph[from]; len(edges) != 1 || edges[0] != to {

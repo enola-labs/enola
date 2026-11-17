@@ -72,3 +72,39 @@ func TestServe_RequiresRootAndTokenFile(t *testing.T) {
 		}
 	}
 }
+
+func TestGraphMembers_ReadsTheGraphNotTheDisk(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, body string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("snapshot.meta.json", `{"repo_path":"/elsewhere/api"}`)
+	if !isGraphDir(dir) {
+		t.Fatal("a directory holding snapshot.meta.json is a graph's directory")
+	}
+	if isGraphDir(t.TempDir()) {
+		t.Fatal("an empty directory is not a graph's directory")
+	}
+	got, err := graphMembers(dir)
+	if err != nil || len(got) != 1 || got[0] != "/elsewhere/api" {
+		t.Fatalf("one repository's graph: %v, %v", got, err)
+	}
+	// A cluster's members come from members.json, none of them on this disk.
+	write("members.json", `[{"repo_path":"/elsewhere/web","repo_label":"web"},{"repo_path":"/elsewhere/api","repo_label":"api"}]`)
+	got, err = graphMembers(dir)
+	if err != nil || strings.Join(got, ",") != "/elsewhere/api,/elsewhere/web" {
+		t.Fatalf("cluster members: %v, %v", got, err)
+	}
+}
+
+func TestShortPathList(t *testing.T) {
+	if got := shortPathList([]string{"a", "b", "c", "d"}); got != "a, b, c, d" {
+		t.Fatalf("four paths are listed whole, got %q", got)
+	}
+	if got := shortPathList([]string{"a", "b", "c", "d", "e"}); got != "a, b, c and 2 more (5 repositories)" {
+		t.Fatalf("got %q", got)
+	}
+}

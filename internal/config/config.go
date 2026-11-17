@@ -269,6 +269,10 @@ type OutputConfig struct {
 	// own keyed by its members; see GraphOutputDir. A relative value resolves against
 	// the config file's directory, like the repos: entries beside it.
 	ClusterDir string `yaml:"cluster_dir,omitempty"`
+	// GraphDir, set by a command handed a graph's directory itself rather than the
+	// repositories it was built from, is where that graph is read, whatever its
+	// members. Never read from a config file.
+	GraphDir string `yaml:"-"`
 }
 
 // KnownExplainers is every explainer this build ships, in the order Default runs
@@ -867,6 +871,9 @@ func (c *Config) OutputDirFor(repoPath string) string {
 func (c *Config) GraphOutputDir(members []string) string {
 	if len(members) == 0 {
 		return ""
+	}
+	if c.Output.GraphDir != "" {
+		return c.Output.GraphDir
 	}
 	if len(members) == 1 {
 		return c.OutputDirFor(members[0])

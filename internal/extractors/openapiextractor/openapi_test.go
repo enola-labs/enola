@@ -331,3 +331,74 @@ func TestExtract_SkipsNestedLinkedWorktree(t *testing.T) {
 		t.Fatalf("expected the repository's 3 routes only, got %d: %+v", len(got), got)
 	}
 }
+
+func TestExtract_SpecTitleAndServerHost(t *testing.T) {
+	repo := t.TempDir()
+	writeSpec(t, repo, "api/openapi/chat.yml", `openapi: 3.0.0
+info:
+  title: chat main-app OpenAPI Specification
+  version: 1.0.0
+servers:
+  - url: https://{env}.example.com
+  - url: https://Chat.Sandbox.example.com:8443/api
+paths:
+  /v1/conversations:
+    get:
+      operationId: listConversations
+`)
+	got, err := New().Extract(context.Background(), repo, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("want one route, got %d", len(got))
+	}
+	if title := got[0].PropString(facts.PropSpecTitle); title != "chat main-app OpenAPI Specification" {
+		t.Errorf("spec_title = %q", title)
+	}
+	// The first server whose host is known: a variable host says nothing.
+	if host := got[0].PropString(facts.PropSpecServerHost); host != "chat.sandbox.example.com" {
+		t.Errorf("spec_server_host = %q", host)
+	}
+}
+
+// A gateway facade spec lists the paths the gateway exposes as references to the
+// service spec's own. The service's operations are extracted once, from its spec, and
+// carry the path a client calls them at through the gateway.
+func TestExtract_GatewayFacadeGivesTheServiceRoutesTheirGatewayPath(t *testing.T) {
+	repo := t.TempDir()
+	writeSpec(t, repo, "api/openapi/service.openapi.partial.yml", `openapi: 3.0.0
+info:
+  title: shop service
+  version: 1.0.0
+paths:
+  /public/items:
+    get:
+      operationId: listItems
+  /internal/items/reindex:
+    post:
+      operationId: reindex
+`)
+	writeSpec(t, repo, "api/openapi/public/public.openapi.partial.yml", `openapi: 3.0.0
+info:
+  title: shop public API
+  version: 1.0.0
+  x-gateway-config:
+    at-gateway-prefix: "/shop"
+    at-service-prefix: "/public"
+paths:
+  /items:
+    $ref: '../service.openapi.partial.yml#/paths/~1public~1items'
+`)
+	got := extract(t, repo)
+	if len(got) != 2 {
+		t.Fatalf("want the service's two operations once each, got %d: %+v", len(got), got)
+	}
+	items := findRoute(got, "/public/items", "GET")
+	if items == nil || items.PropString("gateway_path") != "/shop/items" {
+		t.Fatalf("exposed operation = %+v, want gateway_path /shop/items", items)
+	}
+	if r := findRoute(got, "/internal/items/reindex", "POST"); r == nil || r.PropString("gateway_path") != "" {
+		t.Fatalf("an operation the facade does not expose has no gateway path: %+v", r)
+	}
+}

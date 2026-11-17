@@ -741,3 +741,26 @@ func TestExplain_LargeCycleOutsideAutoloadIsACycle(t *testing.T) {
 		})
 	}
 }
+
+// A Go import names one package. A package the snapshot does not hold, under a
+// directory named vendor that is not indexed, is not its parent directory's package:
+// read as the parent, the import drew a cycle Go would not compile.
+func TestExplain_GoImportOfAnUnheldPackageIsNotItsParent(t *testing.T) {
+	store := facts.NewStore()
+	mod := "example.com/probe/internal/collect"
+	store.Add(
+		facts.Fact{Kind: facts.KindModule, Name: mod, File: "internal/collect", Props: map[string]any{"language": "go"}},
+		facts.Fact{Kind: facts.KindModule, Name: mod + "/dmi", File: "internal/collect/dmi", Props: map[string]any{"language": "go"}},
+		facts.Fact{Kind: facts.KindDependency, Name: mod + " -> " + mod + "/dmi", File: "internal/collect/collect.go",
+			Props: map[string]any{"language": "go"}, Relations: []facts.Relation{{Kind: facts.RelImports, Target: mod + "/dmi"}}},
+		facts.Fact{Kind: facts.KindDependency, Name: mod + "/dmi -> " + mod + "/vendor", File: "internal/collect/dmi/dmi.go",
+			Props: map[string]any{"language": "go"}, Relations: []facts.Relation{{Kind: facts.RelImports, Target: mod + "/vendor"}}},
+	)
+	insights, err := New().Explain(context.Background(), store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(insights) != 0 {
+		t.Fatalf("no Go import cycle exists here, got %+v", insights)
+	}
+}

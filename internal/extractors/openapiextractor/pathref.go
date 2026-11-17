@@ -128,3 +128,36 @@ func jsonPointer(doc any, pointer string) (any, bool) {
 	}
 	return node, true
 }
+
+// fullSpecPath reports a path item that is only a reference to a path of another
+// full spec in the repository: `../service.yml#/paths/~1public~1items`. It returns
+// that spec's repository-relative file and the path. Such an item is how a gateway
+// facade lists what it exposes: the operations are the other spec's, which extracts
+// them itself.
+func (r *pathItemResolver) fullSpecPath(item map[string]any) (string, string, bool) {
+	ref, ok := item["$ref"].(string)
+	if !ok || len(item) != 1 {
+		return "", "", false
+	}
+	filePart, pointer, _ := strings.Cut(ref, "#")
+	if filePart == "" || strings.Contains(filePart, "://") || !strings.HasPrefix(pointer, "/paths/") {
+		return "", "", false
+	}
+	targetAbs := filepath.Clean(filepath.Join(filepath.Dir(r.specAbs), filepath.FromSlash(filePart))) //factpath:host
+	rel, err := filepath.Rel(r.repoRoot, targetAbs)                                                   //factpath:host
+	if err != nil || strings.HasPrefix(rel, "..") || targetAbs == r.specAbs {
+		return "", "", false
+	}
+	doc, ok := r.load(targetAbs)
+	if !ok {
+		return "", "", false
+	}
+	if m, isMap := doc.(map[string]any); !isMap || (m["openapi"] == nil && m["swagger"] == nil) {
+		return "", "", false
+	}
+	tok := strings.TrimPrefix(pointer, "/paths/")
+	if strings.Contains(tok, "/") {
+		return "", "", false
+	}
+	return factpath.Slash(rel), strings.ReplaceAll(strings.ReplaceAll(tok, "~1", "/"), "~0", "~"), true
+}

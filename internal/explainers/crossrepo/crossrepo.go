@@ -33,6 +33,9 @@ func (e *CrossRepoExplainer) Explain(ctx context.Context, store *facts.Store) ([
 	if in := dependencyInsight(store); in != nil {
 		out = append(out, *in)
 	}
+	if in := mutualInsight(store); in != nil {
+		out = append(out, *in)
+	}
 	if in := sharedCodeInsight(store); in != nil {
 		out = append(out, *in)
 	}
@@ -40,16 +43,22 @@ func (e *CrossRepoExplainer) Explain(ctx context.Context, store *facts.Store) ([
 }
 
 // queryByType fetches the cross-repo dependency facts of one type, name-sorted.
+// All of them: a capped query silently dropped the edges after the first 500 by name
+// while the title still counted what was left.
 func queryByType(store *facts.Store, typ string) []facts.Fact {
-	ff, _ := store.QueryAdvanced(facts.QueryOpts{
-		Kind:      facts.KindDependency,
-		Prop:      "type",
-		PropValue: typ,
-		Limit:     500,
-	})
+	var ff []facts.Fact
+	for f := range store.OfKind(facts.KindDependency) {
+		if f.PropString("type") == typ {
+			ff = append(ff, f)
+		}
+	}
 	sort.Slice(ff, func(i, j int) bool { return ff[i].Name < ff[j].Name })
 	return ff
 }
+
+// maxListedEdges bounds the edges a finding lists in its description and evidence;
+// the count in its title is all of them.
+const maxListedEdges = 500
 
 // dependencyInsight summarizes the real, directional cross-repo edges — the ones whose
 // depends_on relations traversal can follow.
@@ -59,9 +68,13 @@ func dependencyInsight(store *facts.Store) *facts.Insight {
 		return nil
 	}
 
-	evidence := make([]facts.Evidence, 0, len(deps))
+	evidence := make([]facts.Evidence, 0, min(len(deps), maxListedEdges))
 	var lines []string
-	for _, d := range deps {
+	for i, d := range deps {
+		if i == maxListedEdges {
+			lines = append(lines, fmt.Sprintf("and %d more", len(deps)-maxListedEdges))
+			break
+		}
 		detail := edgeDetail(d)
 		evidence = append(evidence, facts.Evidence{
 			Fact:   d.Name,
@@ -77,6 +90,54 @@ func dependencyInsight(store *facts.Store) *facts.Insight {
 			"to follow requests across repos.",
 		Confidence: 0.9,
 		Evidence:   evidence,
+	}
+}
+
+// mutualInsight reports pairs of repositories that each depend on the other: a cycle
+// between services, which a change on either side ripples back through, and which
+// the module-level cycle finding cannot see.
+func mutualInsight(store *facts.Store) *facts.Insight {
+	deps := queryByType(store, facts.TypeCrossRepo)
+	edges := map[[2]string]facts.Fact{}
+	for _, d := range deps {
+		from, to, ok := strings.Cut(d.Name, " -> ")
+		if ok && from != to {
+			edges[[2]string{from, to}] = d
+		}
+	}
+	var pairs [][2]string
+	for e := range edges {
+		if e[0] < e[1] {
+			if _, back := edges[[2]string{e[1], e[0]}]; back {
+				pairs = append(pairs, e)
+			}
+		}
+	}
+	if len(pairs) == 0 {
+		return nil
+	}
+	sort.Slice(pairs, func(i, j int) bool {
+		if pairs[i][0] != pairs[j][0] {
+			return pairs[i][0] < pairs[j][0]
+		}
+		return pairs[i][1] < pairs[j][1]
+	})
+	var evidence []facts.Evidence
+	var names []string
+	for _, p := range pairs {
+		names = append(names, p[0]+" <-> "+p[1])
+		for _, e := range [][2]string{p, {p[1], p[0]}} {
+			d := edges[e]
+			evidence = append(evidence, facts.Evidence{Fact: d.Name, Detail: edgeDetail(d)})
+		}
+	}
+	return &facts.Insight{
+		Title: fmt.Sprintf("Mutually dependent repositories (%d pair(s))", len(pairs)),
+		Description: "Each repository of these pairs depends on the other: " + strings.Join(names, "; ") +
+			". A change to what either side serves can come back to it through the other.",
+		Confidence: 0.8,
+		Evidence:   evidence,
+		Actions:    []string{"Check whether one direction is a callback or an event that could go through a queue instead"},
 	}
 }
 

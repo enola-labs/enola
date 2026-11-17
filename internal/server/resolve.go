@@ -54,3 +54,9 @@ func (s *Server) expandFilePrefix(prefix string) []string {
 	}
 	return s.resolver(s.eng.Store()).ExpandFilePrefix(prefix)
 }
+
+// graphKey is the graph node a resolved name stands for, scoped to the repository
+// the query named; see resolve.Resolver.GraphKey.
+func (s *Server) graphKey(store *facts.Store, input, name string, res *nameResolution) string {
+	return s.resolver(store).GraphKey(input, name, res)
+}

@@ -76,6 +76,14 @@ const PropClientReachable = "client_reachable"
 // call, not a call, and HTTP matching leaves it alone.
 const PropSpecDeclaration = "spec_declaration"
 
+// PropSpecTitle and PropSpecServerHost are, on an OpenAPI operation, its spec's
+// info.title and the host of its first absolute server URL: what the spec says it
+// describes. A copy of another service's spec names that service in one of them.
+const (
+	PropSpecTitle      = "spec_title"
+	PropSpecServerHost = "spec_server_host"
+)
+
 // How a reachable client call is triggered, read from the code that runs it, on a
 // client route and, for a server route, the strongest among the client calls that
 // match it. PropClientTrigger is ClientTriggerPoll (a timer or a query's refetch
@@ -353,9 +361,24 @@ func (s *Store) evidenceFactFor(e Evidence) int {
 	if ref == "" {
 		return -1
 	}
-	first, rest, ok := s.namedIdxs(ref)
+	// A graph key naming one repository's node of a shared name cites that
+	// repository's fact.
+	repo, name := SplitScoped(ref)
+	first, rest, ok := s.namedIdxs(name)
 	if !ok {
 		return -1
+	}
+	if repo != "" {
+		var in []int32
+		for _, i := range append([]int32{int32(first)}, rest...) {
+			if s.facts[i].Repo == repo {
+				in = append(in, i)
+			}
+		}
+		if len(in) == 0 {
+			return -1
+		}
+		first, rest = int(in[0]), in[1:]
 	}
 
 	pick := -1

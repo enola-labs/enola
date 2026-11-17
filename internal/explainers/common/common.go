@@ -76,12 +76,15 @@ func (k ModuleKeys) Declares(repo, name string) bool {
 	return k.repos[name][repo]
 }
 
-// Key is the graph node for module name as seen from repo.
+// Key is the graph node for module name as seen from repo. A name several
+// repositories declare is keyed the way the fact graph keys it (facts.ScopedName),
+// which a finding's evidence resolves to that repository's module. Joined with a
+// slash it read as a path no module has, and the evidence resolved to nothing.
 func (k ModuleKeys) Key(repo, name string) string {
 	if repo == "" || !k.Shared(name) {
 		return name
 	}
-	return repo + "/" + name
+	return facts.ScopedName(repo, name)
 }
 
 // AutoloadedComponent reports whether every module of a strongly-connected
@@ -497,7 +500,17 @@ func BuildModuleGraphExcluding(store *facts.Store, excludeKinds ...string) map[s
 			// class-/file-suffixed target and silently loses those edges (e.g. all
 			// Kotlin-sourced cycles). Walking up mirrors package_metrics and the source
 			// resolution above; it is a no-op where the target is already a module.
-			target = nearestModule(target, moduleNames, testModules)
+			//
+			// A Go import names one package exactly. One the snapshot does not hold
+			// (under a directory named vendor, which is not indexed) is no import of
+			// its parent, and walking up drew cycles Go would not compile.
+			if dep.PropString("language") == "go" {
+				if !moduleNames[target] {
+					continue
+				}
+			} else {
+				target = nearestModule(target, moduleNames, testModules)
+			}
 
 			// A target is included only if it names a known internal PRODUCTION module.
 			// This gate is authoritative; we deliberately do NOT pre-filter with

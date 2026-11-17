@@ -1137,9 +1137,69 @@ func collect(store *facts.Store) ([]symInput, refIndex) {
 		}
 	}
 
+	// recordRefs records what symbol f uses, as candidate si's outgoing use when f is
+	// one (si is nil for a symbol that is never a candidate).
+	recordRefs := func(f facts.Fact, si *symInput) {
+		// A symbol declared in test code (when tests are indexed at all) is a test
+		// source: what it calls is test use, not production use.
+		add := refAdder(refSources, isTestPath(f.File))
+		for _, r := range f.Relations {
+			switch {
+			case r.Kind == facts.RelDeclares && si != nil && si.Package == "":
+				si.Package = r.Target
+			case isUsageKind(r.Kind):
+				if si != nil {
+					si.UsageOut = true
+				}
+				// A member naming its own type (`CreateLogger<Self>()`,
+				// `typeof(Self)`) is internal use, like a sibling call below.
+				if r.Kind == facts.RelNames && memberOwner(f.Name) == r.Target {
+					continue
+				}
+				add(r.Target, f.Name)
+				// A Go type another module declares is matched by its import path
+				// only: its bare name would mark every same-named type in this
+				// repository used ("aws.Config{}" and a local Config).
+				if r.Kind == facts.RelInstantiates && strings.HasSuffix(f.File, ".go") && isForeignGoType(r.Target) {
+					continue
+				}
+				if seg := lastSeg(r.Target); seg != r.Target {
+					add(seg, f.Name)
+				}
+				if q := pkgQualified(r.Target); q != r.Target {
+					add(q, f.Name)
+				}
+				// Fold the constant receiver of a "Foo.bar" call in as a use of Foo,
+				// so a class referenced only via a call (e.g. Ruby PostCreator.create)
+				// is not mis-reported as an unreferenced orphan.
+				for _, recv := range constReceiverRefs(r.Target) {
+					// A member calling a sibling through its own type is internal use,
+					// the rule foldMemberUseIntoOwner applies. Recorded, the type's
+					// full name would count as referenced by its own method, since
+					// refSummary only discounts a source equal to the name itself.
+					if memberOwner(f.Name) == recv {
+						continue
+					}
+					add(recv, f.Name)
+				}
+				// Fold self-qualified dispatch (`self.class.foo`, `cls.foo`) down to
+				// the bare method name, so a method reached only via dynamic
+				// self-dispatch is not mis-reported as an unreferenced orphan.
+				for _, m := range selfReceiverRefs(r.Target) {
+					add(m, f.Name)
+				}
+			}
+		}
+	}
+
 	for _, f := range symbols {
 		if mcputil.IsGeneratedPath(f.File) {
-			continue // build/generated artifact — never a real source orphan
+			// A build or generated artifact is never a real source orphan. What it
+			// calls is still used: a resolver generated from a schema, or a decoder
+			// generated from a contract, is the only caller of the hand-written code
+			// behind it.
+			recordRefs(f, nil)
+			continue
 		}
 		si := byName[f.Name]
 		if si == nil {
@@ -1205,54 +1265,7 @@ func collect(store *facts.Store) ([]symInput, refIndex) {
 			si.FrameworkRoot = true
 			rootedOwners[memberOwner(f.Name)] = true
 		}
-		// A symbol declared in test code (when tests are indexed at all) is a test
-		// source: what it calls is test use, not production use.
-		add := refAdder(refSources, isTestPath(f.File))
-		for _, r := range f.Relations {
-			switch {
-			case r.Kind == facts.RelDeclares && si.Package == "":
-				si.Package = r.Target
-			case isUsageKind(r.Kind):
-				si.UsageOut = true
-				// A member naming its own type (`CreateLogger<Self>()`,
-				// `typeof(Self)`) is internal use, like a sibling call below.
-				if r.Kind == facts.RelNames && memberOwner(f.Name) == r.Target {
-					continue
-				}
-				add(r.Target, f.Name)
-				// A Go type another module declares is matched by its import path
-				// only: its bare name would mark every same-named type in this
-				// repository used ("aws.Config{}" and a local Config).
-				if r.Kind == facts.RelInstantiates && strings.HasSuffix(f.File, ".go") && isForeignGoType(r.Target) {
-					continue
-				}
-				if seg := lastSeg(r.Target); seg != r.Target {
-					add(seg, f.Name)
-				}
-				if q := pkgQualified(r.Target); q != r.Target {
-					add(q, f.Name)
-				}
-				// Fold the constant receiver of a "Foo.bar" call in as a use of Foo,
-				// so a class referenced only via a call (e.g. Ruby PostCreator.create)
-				// is not mis-reported as an unreferenced orphan.
-				for _, recv := range constReceiverRefs(r.Target) {
-					// A member calling a sibling through its own type is internal use,
-					// the rule foldMemberUseIntoOwner applies. Recorded, the type's
-					// full name would count as referenced by its own method, since
-					// refSummary only discounts a source equal to the name itself.
-					if memberOwner(f.Name) == recv {
-						continue
-					}
-					add(recv, f.Name)
-				}
-				// Fold self-qualified dispatch (`self.class.foo`, `cls.foo`) down to
-				// the bare method name, so a method reached only via dynamic
-				// self-dispatch is not mis-reported as an unreferenced orphan.
-				for _, m := range selfReceiverRefs(r.Target) {
-					add(m, f.Name)
-				}
-			}
-		}
+		recordRefs(f, si)
 	}
 
 	// A class a framework enters through one of its members is live as a whole.

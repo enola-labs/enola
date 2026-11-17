@@ -137,6 +137,11 @@ func Analyze(r resolve.Resolver, req Request) (Report, error) {
 		}, nil
 	}
 
+	// The node the query asked for: a name declared in several repositories is one
+	// node per repository, and a target scoped to one walks that one alone.
+	key := r.GraphKey(req.Target, targetName, res)
+	keyRepo, _ := facts.SplitScoped(key)
+
 	// One method under several owners, an interface's and its implementations':
 	// the impact of any of them is the impact of the call that may reach each.
 	if res != nil && len(res.Family) > 1 {
@@ -159,15 +164,15 @@ func Analyze(r resolve.Resolver, req Request) (Report, error) {
 			ImpactResult: graph.ImpactSetOf(targetName, names, req.MaxDepth, req.MaxNodes, req.IncludeForward),
 		}), names, nil), nil
 	}
-	if repo, ok := directoryModule(store, targetName); ok {
+	if repo, ok := directoryModule(store, targetName, keyRepo); ok {
 		if _, seeds, beside := declaredUnder(r, targetName, repo, true); len(seeds) > 0 {
-			names := append(append([]string{targetName}, seeds...), beside...)
+			names := append(append([]string{key}, seeds...), beside...)
 			return withEndpoints(store, withPackages(store, Report{
 				Resolution:   res,
 				Seeds:        seeds,
 				SeedKind:     SeedsDirectory,
-				ImpactResult: graph.ImpactSetOf(targetName, names, req.MaxDepth, req.MaxNodes, req.IncludeForward),
-			}), append([]string{targetName}, seeds...), nil), nil
+				ImpactResult: graph.ImpactSetOf(key, names, req.MaxDepth, req.MaxNodes, req.IncludeForward),
+			}), append([]string{key}, seeds...), nil), nil
 		}
 	}
 
@@ -176,23 +181,27 @@ func Analyze(r resolve.Resolver, req Request) (Report, error) {
 	// package answered "who depends on me" with its own functions, and its importers
 	// were lost among their symbols. They are seeds instead, and the importing
 	// modules are listed by a walk of their own.
-	if repo, ok := directoryModule(store, targetName); ok {
-		own, beside := ownSymbols(store, targetName, repo)
-		names := append(append([]string{targetName}, own...), beside...)
-		report := Report{Resolution: res, ImpactResult: graph.ImpactSetOf(targetName, names, req.MaxDepth, req.MaxNodes, req.IncludeForward)}
+	if repo, ok := directoryModule(store, targetName, keyRepo); ok {
+		if keyRepo == "" {
+			// The module's own repository, when its name is shared with others.
+			key = graph.KeyOf(&facts.Fact{Name: targetName, Repo: repo})
+		}
+		own, beside := ownSymbols(store, graph, targetName, repo)
+		names := append(append([]string{key}, own...), beside...)
+		report := Report{Resolution: res, ImpactResult: graph.ImpactSetOf(key, names, req.MaxDepth, req.MaxNodes, req.IncludeForward)}
 		if len(own) > 0 {
 			report.Seeds, report.SeedKind = own, SeedsPackage
 		}
-		report.Modules = moduleDependents(graph, targetName)
+		report.Modules = moduleDependents(graph, key)
 		packages := map[string]int{targetName: 0}
 		for _, m := range report.Modules {
 			packages[m.Module] = m.Depth
 		}
-		return withEndpoints(store, withPackages(store, report), append([]string{targetName}, own...), packages), nil
+		return withEndpoints(store, withPackages(store, report), append([]string{key}, own...), packages), nil
 	}
 
-	result := graph.ImpactSet(targetName, req.MaxDepth, req.MaxNodes, req.IncludeForward)
-	return withEndpoints(store, withPackages(store, Report{Resolution: res, ImpactResult: result}), graph.RollupSeeds(targetName), nil), nil
+	result := graph.ImpactSet(key, req.MaxDepth, req.MaxNodes, req.IncludeForward)
+	return withEndpoints(store, withPackages(store, Report{Resolution: res, ImpactResult: result}), graph.RollupSeeds(key), nil), nil
 }
 
 // withEndpoints fills in Endpoints, the served routes whose handlers the change
@@ -243,7 +252,7 @@ func moduleDependents(graph *facts.Graph, module string) []ModuleDependent {
 // ownSymbols returns the non-test symbols a module declares in its own directory,
 // not in directories beneath it (in Go those are other packages), and the test
 // facts there, which are walked from but not reported.
-func ownSymbols(store *facts.Store, module, repo string) ([]string, []string) {
+func ownSymbols(store *facts.Store, graph *facts.Graph, module, repo string) ([]string, []string) {
 	var own, beside []string
 	for _, m := range store.LookupByExactName(module) {
 		if m.Kind != facts.KindModule || m.Repo != repo {
@@ -256,9 +265,9 @@ func ownSymbols(store *facts.Store, module, repo string) ([]string, []string) {
 			}
 			switch {
 			case f.Kind == facts.KindTestRef || facts.IsTestPath(f.File):
-				beside = append(beside, f.Name)
+				beside = append(beside, graph.KeyOf(f))
 			case f.Kind == facts.KindSymbol && !f.PropBool(propGenerated) && !facts.IsDocument(*f):
-				own = append(own, f.Name)
+				own = append(own, graph.KeyOf(f))
 			}
 		})
 	}
@@ -389,9 +398,9 @@ const propGenerated = "generated"
 // with code of its own already has edges, while a directory that holds packages
 // (or a package root whose code sits in subdirectories) has none but its
 // manifest's.
-func directoryModule(store *facts.Store, name string) (string, bool) {
+func directoryModule(store *facts.Store, name, repo string) (string, bool) {
 	for _, f := range store.LookupByExactName(name) {
-		if f.Kind == facts.KindModule {
+		if f.Kind == facts.KindModule && (repo == "" || f.Repo == repo) {
 			return f.Repo, true
 		}
 	}

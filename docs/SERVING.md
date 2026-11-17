@@ -99,6 +99,20 @@ enola serve --root /srv/repos --token-file /etc/enola/tokens /srv/repos/cluster.
 - **Before the first index**, calls answer that the graph is not available yet and
   that its operator indexes it, not that the consumer should.
 
+The last argument can also be the graph's own directory, what `enola --generate --out
+DIR` wrote. serve reads the graph from there and takes its repositories from the
+graph, so it can run where they are not checked out, for example on a host the graph
+was copied to:
+
+```sh
+enola --generate cluster.yaml --out /var/lib/enola/graph
+enola serve --root /var/lib/enola --token-file /etc/enola/tokens /var/lib/enola/graph
+```
+
+Every tool answers from the graph. The ones that quote source (`show_symbol`) have
+nothing to quote for a repository that is not there, and serve logs how many are not.
+It reloads when the directory is written again, as above.
+
 Put `output.root` in the config file both use, rather than `--output-root` on serve
 alone, so that `enola --generate` writes where serve reads:
 

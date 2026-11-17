@@ -66,13 +66,16 @@ func (e *GodClassExplainer) Explain(ctx context.Context, store *facts.Store) ([]
 	// findings AND skewed the outlier distribution below (the repeated high value
 	// dragged the threshold up). De-dupe here so both the distribution and the
 	// candidate set are over distinct symbols.
+	// A name declared in several repositories is a node in each, and is scored once
+	// per repository.
 	distinct := make([]facts.Fact, 0, len(symbols))
 	seen := make(map[string]bool, len(symbols))
 	for _, s := range symbols {
-		if seen[s.Name] {
+		key := graph.KeyOf(&s)
+		if seen[key] {
 			continue
 		}
-		seen[s.Name] = true
+		seen[key] = true
 		distinct = append(distinct, s)
 	}
 	// Sorted by name, so this explainer's inputs do not inherit the fact store's
@@ -80,14 +83,19 @@ func (e *GodClassExplainer) Explain(ctx context.Context, store *facts.Store) ([]
 	// MeanStdDev is order-independent on its own, so this is belt and braces; it is
 	// worth having because it removes the non-determinism at the source instead of
 	// relying on every downstream consumer to neutralise it.
-	sort.Slice(distinct, func(i, j int) bool { return distinct[i].Name < distinct[j].Name })
+	sort.Slice(distinct, func(i, j int) bool {
+		if distinct[i].Name != distinct[j].Name {
+			return distinct[i].Name < distinct[j].Name
+		}
+		return distinct[i].Repo < distinct[j].Repo
+	})
 
 	// Fan-in per symbol and the distribution used for outlier detection.
 	fanIn := make(map[string]int, len(distinct))
 	values := make([]float64, 0, len(distinct))
 	for _, s := range distinct {
-		n := graph.ArchitecturalFanIn(s.Name)
-		fanIn[s.Name] = n
+		n := graph.ArchitecturalFanIn(graph.KeyOf(&s))
+		fanIn[graph.KeyOf(&s)] = n
 		values = append(values, float64(n))
 	}
 
@@ -130,11 +138,11 @@ func (e *GodClassExplainer) Explain(ctx context.Context, store *facts.Store) ([]
 		if s.PropBool("generated") {
 			continue
 		}
-		n := fanIn[s.Name]
+		n := fanIn[graph.KeyOf(&s)]
 		if n < minFanIn || float64(n) <= threshold {
 			continue
 		}
-		edges := graph.ArchitecturalReverseEdges(s.Name)
+		edges := graph.ArchitecturalReverseEdges(graph.KeyOf(&s))
 		dependents := make([]string, 0, len(edges))
 		for _, edge := range edges {
 			dependents = append(dependents, edge.Target)

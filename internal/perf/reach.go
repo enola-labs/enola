@@ -188,13 +188,16 @@ func (x *reachIndex) routesReaching(sym string) ([]string, int, traffic) {
 	for depth := 0; depth <= reachMaxDepth && len(frontier) > 0 && len(seen) < reachMaxNodes; depth++ {
 		var next []string
 		for _, n := range frontier {
-			for _, r := range x.handlerRoutes[n] {
+			// A handler reached by a graph key of one repository's node is listed
+			// under its plain name.
+			_, plain := facts.SplitScoped(n)
+			for _, r := range x.handlerRoutes[plain] {
 				routes[r] = true
 			}
 			if x.graph == nil {
 				continue // no graph built: a function's own routes only
 			}
-			callees := append([]string{n}, x.viaInterface[n]...)
+			callees := append([]string{n}, x.viaInterface[plain]...)
 			for _, c := range callees {
 				for _, e := range x.graph.ReverseEdges(c) {
 					if e.RelKind != facts.RelCalls || seen[e.Target] {

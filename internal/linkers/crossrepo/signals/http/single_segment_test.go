@@ -106,3 +106,49 @@ func TestUnmatchedReasons_ArePerCallSite(t *testing.T) {
 		t.Errorf("its twin with no hint: reason = %q, want %q", got, ReasonPathUnknown)
 	}
 }
+
+// A client spec kept to generate a client names the service it describes in its file
+// name. Read from a spec, a call no loaded server serves goes to that service: outside
+// the snapshot when no loaded repository shares a word with it, unresolved when one does.
+func TestOutsideSnapshot_ClientSpecNamesItsService(t *testing.T) {
+	spec := func(path, file string) facts.Fact {
+		return facts.Fact{Kind: facts.KindRoute, Name: path, Repo: "wallet", File: file,
+			Props: map[string]any{"role": "client", "method": "GET", "source": "openapi"}}
+	}
+	ledger := spec("/v1/account_holders/{id}", "wallet/api/openapi/client/ledger-api.yml")
+	orders := spec("/v1/order_lines/{id}", "wallet/api/openapi/client/orders_client.yaml")
+	generic := spec("/v1/statements/{id}", "wallet/api/openapi/client/api.yml")
+	all := []facts.Fact{ledger, orders, generic,
+		{Kind: facts.KindRoute, Name: "/health/live", Repo: "orders-service", Props: map[string]any{"role": "server", "method": "GET"}},
+	}
+	reasons := UnmatchedClientCallReasons(routeindex.New(vocab.Default()), all)
+	if got := reasons[ClientCallKey(ledger)]; got != ReasonOutsideSnapshot {
+		t.Errorf("spec of an unloaded service: reason = %q, want %q", got, ReasonOutsideSnapshot)
+	}
+	for _, f := range []facts.Fact{orders, generic} {
+		if got := reasons[ClientCallKey(f)]; got != ReasonPathUnknown {
+			t.Errorf("%s: reason = %q, want %q", f.File, got, ReasonPathUnknown)
+		}
+	}
+}
+
+// A client generated from one service's spec calls that service. Another repository
+// registering the same path in code does not outrank the service the spec names.
+func TestProvider_ClientSpecNamesTheProviderOverCode(t *testing.T) {
+	call := facts.Fact{Kind: facts.KindRoute, Name: "/users/{id}", Repo: "self-help", File: "self-help/api/openapi/help-center.yaml",
+		Props: map[string]any{"role": "client", "method": "DELETE", "source": "openapi", "spec_file": "api/openapi/help-center.yaml"}}
+	all := []facts.Fact{call,
+		{Kind: facts.KindRoute, Name: "/users/{id}", Repo: "monolith", Props: map[string]any{"role": "server", "method": "DELETE"}},
+		{Kind: facts.KindRoute, Name: "/users/{id}", Repo: "help-center", Props: map[string]any{"role": "server", "method": "DELETE", "source": "openapi"}},
+	}
+	matches := ClientRouteMatches(routeindex.New(vocab.Default()), all)
+	var repos []string
+	for _, ms := range matches {
+		for _, m := range ms {
+			repos = append(repos, m.Repo)
+		}
+	}
+	if len(repos) != 1 || repos[0] != "help-center" {
+		t.Fatalf("matched providers = %v, want the one the spec names", repos)
+	}
+}

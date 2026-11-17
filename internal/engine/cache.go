@@ -3644,7 +3644,17 @@ import (
 // longer defines the callee at the call site.
 // v604: Dart: a closure passed to an iterator method is walked once, at the loop's
 // depth, so its branches count once in cyclomatic.
-const cacheVersion = "v604"
+// v605: Go: a Kafka topic in a Topic or TopicName field at any depth of a literal, held
+// in a variable, built by a package helper, or written out in a subscription registration.
+// v606: Go: a package main under tools/, scripts/, hack/ or dev/ publishes and consumes no topic.
+// v607: OpenAPI: an operation carries its spec's title and server host.
+// v608: OpenAPI: an operation a gateway facade spec exposes by reference carries the
+// facade's gateway path.
+// v609: TypeScript: a Fastify plugin's routes serve where the app takes the plugin, and a
+// server file's registrations on its app or a chained app are not outbound calls.
+// v610: TypeScript: a request helper may call an axios.create() instance, and an awaited
+// generic call is read through the await.
+const cacheVersion = "v610"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

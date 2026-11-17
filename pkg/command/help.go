@@ -267,6 +267,7 @@ var helpPages = map[string]helpPage{
 		examples: []cli.Example{
 			{Comment: "Serve every repository under /srv/repos on loopback", Command: "enola serve --root /srv/repos --token-file /etc/enola/tokens"},
 			{Comment: "Restore a cluster's graph at start", Command: "enola serve --root /srv/repos --token-file /etc/enola/tokens /srv/repos/cluster.yaml"},
+			{Comment: "Serve a graph from the directory --out wrote, without its repositories", Command: "enola serve --root /var/lib/enola --token-file /etc/enola/tokens /var/lib/enola/graph"},
 		},
 		seeAlso: []string{"install"},
 	},

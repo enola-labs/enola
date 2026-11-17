@@ -31,12 +31,53 @@ func (e *Explainer) Name() string { return "package-metrics" }
 // most-depended-upon (god) package.
 func (e *Explainer) Explain(_ context.Context, store *facts.Store) ([]facts.Insight, error) {
 	metrics, _ := computeAll(store)
-	return metricsToInsights(metrics), nil
+	return withPackageFiles(store, metricsToInsights(metrics, len(store.RepoLabels()) > 1)), nil
+}
+
+// withPackageFiles cites, in each finding's evidence, the file of the module it is
+// about. A package path such as config/initializers is a module in many
+// repositories of a cluster, and only the file says which one the finding means.
+func withPackageFiles(store *facts.Store, insights []facts.Insight) []facts.Insight {
+	for i := range insights {
+		for j, ev := range insights[i].Evidence {
+			repo, name := facts.SplitScoped(ev.Fact)
+			if repo == "" {
+				continue
+			}
+			for _, f := range store.LookupByExactName(name) {
+				if f.Kind == facts.KindModule && f.Repo == repo {
+					insights[i].Evidence[j].Fact, insights[i].Evidence[j].File = name, f.File
+					break
+				}
+			}
+		}
+	}
+	return insights
 }
 
 // metricsToInsights flags packages with distance > painfulDistance (worst first)
 // and the highest-Ca package as a change-risk concentrator.
-func metricsToInsights(results []PackageMetric) []facts.Insight {
+func metricsToInsights(results []PackageMetric, multiRepo bool) []facts.Insight {
+	// In a cluster a package is named with its repository: the same relative path is
+	// a package in many of them.
+	label := func(m PackageMetric) string {
+		if multiRepo && m.Repo != "" {
+			return m.Package + " in " + m.Repo
+		}
+		return m.Package
+	}
+	quoted := func(m PackageMetric) string {
+		if multiRepo && m.Repo != "" {
+			return fmt.Sprintf("%q in %s", m.Package, m.Repo)
+		}
+		return fmt.Sprintf("%q", m.Package)
+	}
+	cite := func(m PackageMetric) string {
+		if multiRepo && m.Repo != "" {
+			return facts.ScopedName(m.Repo, m.Package)
+		}
+		return m.Package
+	}
 	off := make([]PackageMetric, 0)
 	var mostCoupled PackageMetric
 	for _, m := range results {
@@ -101,12 +142,12 @@ func metricsToInsights(results []PackageMetric) []facts.Insight {
 			action = "Useless: remove the unused abstraction, or find concrete consumers for it."
 		}
 		out = append(out, facts.Insight{
-			Title: fmt.Sprintf("Off main sequence: %s (D=%.2f)", m.Package, m.Distance),
-			Description: fmt.Sprintf("Package %q sits %.2f from the main sequence (I=%.2f, A=%.2f) — %s.",
-				m.Package, m.Distance, m.Instability, m.Abstractness, kind),
+			Title: fmt.Sprintf("Off main sequence: %s (D=%.2f)", label(m), m.Distance),
+			Description: fmt.Sprintf("Package %s sits %.2f from the main sequence (I=%.2f, A=%.2f) — %s.",
+				quoted(m), m.Distance, m.Instability, m.Abstractness, kind),
 			Confidence: conf,
 			Evidence: []facts.Evidence{{
-				Fact:   m.Package,
+				Fact:   cite(m),
 				Detail: fmt.Sprintf("Ca=%d Ce=%d N=%d I=%.2f A=%.2f D=%.2f", m.Ca, m.Ce, m.ClassesInterfaces, m.Instability, m.Abstractness, m.Distance),
 			}},
 			Actions: []string{action},
@@ -123,12 +164,12 @@ func metricsToInsights(results []PackageMetric) []facts.Insight {
 	}
 	if mostCoupled.Package != "" && mostCoupled.Ca >= 5 {
 		out = append(out, facts.Insight{
-			Title: fmt.Sprintf("Most depended-upon package: %s (Ca=%d)", mostCoupled.Package, mostCoupled.Ca),
-			Description: fmt.Sprintf("%q is depended upon by %d other packages — a change-risk concentrator. "+
-				"Edits ripple across dependents, so keep its public contract stable.", mostCoupled.Package, mostCoupled.Ca),
+			Title: fmt.Sprintf("Most depended-upon package: %s (Ca=%d)", label(mostCoupled), mostCoupled.Ca),
+			Description: fmt.Sprintf("%s is depended upon by %d other packages — a change-risk concentrator. "+
+				"Edits ripple across dependents, so keep its public contract stable.", quoted(mostCoupled), mostCoupled.Ca),
 			Confidence: 0.6,
 			Evidence: []facts.Evidence{{
-				Fact:   mostCoupled.Package,
+				Fact:   cite(mostCoupled),
 				Detail: fmt.Sprintf("Ca=%d I=%.2f", mostCoupled.Ca, mostCoupled.Instability),
 			}},
 			Actions: []string{"Stabilize the package's public contract; split it if it spans multiple responsibilities"},

@@ -34,6 +34,14 @@ type Graph struct {
 	names         []string
 	declaredNodes uint32
 
+	// A module or symbol name declared in more than one repository is one node per
+	// repository: a Rails app's app/models and another app's app/models share a
+	// relative path and nothing else. Each such node is keyed in ids by ScopedName,
+	// while names keeps the bare name, which is what is displayed. split lists the
+	// nodes of each such name, in repository order; scoped holds each node's key.
+	split  map[string][]uint32
+	scoped map[uint32]string
+
 	// Relation-kind table. The vocabulary is closed and tiny (the RelXxx constants,
 	// plus anything an extractor invents), so an ID indexes it instead of repeating
 	// the string on all 5.4M edges.
@@ -73,6 +81,10 @@ type graphBuilder struct {
 	src []uint32
 	tgt []uint32
 	rel []uint16
+
+	// families holds, per declared node, the language families of the code that
+	// declares it (see codeFamily), for the length of the build.
+	families []uint16
 }
 
 // idFor returns the node ID for name, assigning the next one if it is new.
@@ -83,6 +95,24 @@ func (b *graphBuilder) idFor(name string) uint32 {
 	id := uint32(len(b.g.names))
 	b.g.ids[name] = id
 	b.g.names = append(b.g.names, name)
+	return id
+}
+
+// idForIn returns the node ID name has in repo: its own node when the name is
+// declared in several repositories, the shared node otherwise.
+func (b *graphBuilder) idForIn(name, repo string, splitNames map[string]bool) uint32 {
+	if repo == "" || !splitNames[name] {
+		return b.idFor(name)
+	}
+	key := ScopedName(repo, name)
+	if id, ok := b.g.ids[key]; ok {
+		return id
+	}
+	id := uint32(len(b.g.names))
+	b.g.ids[key] = id
+	b.g.names = append(b.g.names, name)
+	b.g.scoped[id] = key
+	b.g.split[name] = append(b.g.split[name], id)
 	return id
 }
 
@@ -241,8 +271,11 @@ func NewGraphWithAliases(ff []Fact, aliases map[string]FactKey) *Graph {
 		facts:  ff,
 		ids:    make(map[string]uint32, len(ff)),
 		relIDs: make(map[string]uint16, 16),
+		split:  map[string][]uint32{},
+		scoped: map[uint32]string{},
 	}
 	b := &graphBuilder{g: g}
+	splitNames := namesInSeveralRepos(ff)
 
 	// First pass: assign a node ID to every name a fact declares, and collect module
 	// names and Go module paths. Doing declared names first is what makes
@@ -253,7 +286,7 @@ func NewGraphWithAliases(ff []Fact, aliases map[string]FactKey) *Graph {
 	for i, f := range ff {
 		nameID[i] = noNode
 		if f.Name != "" {
-			nameID[i] = b.idFor(f.Name)
+			nameID[i] = b.idForIn(f.Name, f.Repo, splitNames)
 		}
 		if f.Kind == KindModule {
 			moduleNames[f.Name] = true
@@ -261,6 +294,7 @@ func NewGraphWithAliases(ff []Fact, aliases map[string]FactKey) *Graph {
 	}
 	g.declaredNodes = uint32(len(g.names))
 	moduleDirs := NewModuleDirs(ff)
+	b.families = nodeFamilies(ff, nameID, g.declaredNodes)
 
 	// Index which facts declare each node, as CSR. Every fact declaring the name is
 	// recorded, not just the first: which one a node means depends on the edge that
@@ -293,14 +327,21 @@ func NewGraphWithAliases(ff []Fact, aliases map[string]FactKey) *Graph {
 		if IsDocument(f) {
 			continue
 		}
+		src := b.srcID(nameID[fi], f.Name)
+		fam := codeFamily(&f)
 		for _, rel := range f.Relations {
-			target := rel.Target
+			target, repo := rel.Target, f.Repo
 			if !g.declares(target) {
 				if k, ok := aliases[target]; ok && g.declares(k.Name) {
-					target = k.Name
+					target, repo = k.Name, k.Repo
 				}
 			}
-			b.addEdge(b.srcID(nameID[fi], f.Name), rel.Kind, target)
+			for _, tid := range b.targetsIn(target, repo) {
+				if b.otherFamily(fam, tid) {
+					continue
+				}
+				b.addEdgeID(src, rel.Kind, tid)
+			}
 		}
 
 		// For dependency facts with imports, also create module→target edges
@@ -313,12 +354,17 @@ func NewGraphWithAliases(ff []Fact, aliases map[string]FactKey) *Graph {
 			if moduleNames[modName] {
 				for _, rel := range f.Relations {
 					if rel.Kind == RelImports {
-						target := resolveToModule(rel.Target, moduleNames)
+						target, repo := moduleOfImport(f, rel.Target, moduleNames), f.Repo
 						if k, ok := aliases[rel.Target]; ok && target == "" && k.Kind == KindModule {
-							target = k.Name
+							target, repo = k.Name, k.Repo
 						}
-						if target != "" && target != modName {
-							b.addEdge(b.idFor(modName), RelImports, target)
+						if target != "" && (target != modName || repo != f.Repo) {
+							src := b.idForIn(modName, f.Repo, splitNames)
+							for _, tid := range b.targetsIn(target, repo) {
+								if tid != src {
+									b.addEdgeID(src, RelImports, tid)
+								}
+							}
 						}
 					}
 				}
@@ -343,7 +389,7 @@ func NewGraphWithAliases(ff []Fact, aliases map[string]FactKey) *Graph {
 			continue
 		}
 		if owner := g.methodOwner(f.Name); owner != "" {
-			b.addEdge(b.idFor(owner), RelHasMethod, f.Name)
+			b.addEdgeID(b.idForIn(owner, f.Repo, splitNames), RelHasMethod, b.idForIn(f.Name, f.Repo, splitNames))
 		}
 	}
 
@@ -361,21 +407,40 @@ func (b *graphBuilder) srcID(id uint32, name string) uint32 {
 	return b.idFor(name)
 }
 
-// addEdge records one directed edge. Duplicates are tolerated here and removed in
-// finish, which is cheaper than the map of concatenated "source\x00kind\x00target"
-// keys this replaced: on the Linux kernel that map held 5.4M freshly built strings,
-// all of them garbage the moment construction ended.
-func (b *graphBuilder) addEdge(src uint32, relKind, target string) {
+// addEdgeID records one directed edge to a resolved target. Duplicates are tolerated
+// here and removed in finish, which is cheaper than the map of concatenated
+// "source\x00kind\x00target" keys this replaced: on the Linux kernel that map held
+// 5.4M freshly built strings, all of them garbage the moment construction ended.
+func (b *graphBuilder) addEdgeID(src uint32, relKind string, tgt uint32) {
 	b.src = append(b.src, src)
-	b.tgt = append(b.tgt, b.idFor(target))
+	b.tgt = append(b.tgt, tgt)
 	b.rel = append(b.rel, b.relIDFor(relKind))
+}
+
+// targetsIn resolves an edge target named from repo. A name declared in several
+// repositories is that repository's own node when repo declares it. Named from a
+// repository that does not, it could be any of them, so the edge reaches each.
+func (b *graphBuilder) targetsIn(target, repo string) []uint32 {
+	nodes := b.g.split[target]
+	if len(nodes) == 0 {
+		return []uint32{b.idFor(target)}
+	}
+	if repo != "" {
+		if id, ok := b.g.ids[ScopedName(repo, target)]; ok {
+			return []uint32{id}
+		}
+	}
+	if id, ok := b.g.ids[target]; ok {
+		return append([]uint32{id}, nodes...)
+	}
+	return nodes
 }
 
 // declares reports whether some fact declares this name — the CSR equivalent of the
 // old `_, exists := g.factIdx[name]` test. Only IDs below declaredNodes qualify:
 // anything above was minted for an edge target that nothing declares.
 func (g *Graph) declares(name string) bool {
-	id, ok := g.ids[name]
+	id, ok := g.lookup(name)
 	return ok && id < g.declaredNodes
 }
 
@@ -586,8 +651,37 @@ func (s *adjacencySorter) Less(i, j int) bool {
 // lookup resolves a node name to its ID. A name with no node is not in the graph at
 // all — neither declared by a fact nor targeted by an edge.
 func (g *Graph) lookup(name string) (uint32, bool) {
+	if id, ok := g.ids[name]; ok {
+		return id, true
+	}
+	if nodes := g.split[name]; len(nodes) > 0 {
+		return nodes[0], true
+	}
+	return 0, false
+}
+
+// lookupAll returns every node name stands for: the one node of a name, or each
+// repository's node of a name declared in several, which a walk seeded from the bare
+// name starts at all of.
+func (g *Graph) lookupAll(name string) []uint32 {
+	nodes := g.split[name]
 	id, ok := g.ids[name]
-	return id, ok
+	switch {
+	case len(nodes) == 0 && ok:
+		return []uint32{id}
+	case ok:
+		return append([]uint32{id}, nodes...)
+	}
+	return nodes
+}
+
+// keyOf is the name that looks node id up again: its scoped name when it is one
+// repository's node of a shared name, its name otherwise.
+func (g *Graph) keyOf(id uint32) string {
+	if k, ok := g.scoped[id]; ok {
+		return k
+	}
+	return g.names[id]
 }
 
 // adjOf returns node id's edges as parallel target/relation-ID slices, sub-slices of
@@ -787,17 +881,19 @@ func (g *Graph) traverseFrom(starts []string, direction string, relKinds, nodeKi
 	// names that may not be in the graph and an empty answer would not say so.
 	var queue []queueItem
 	for _, start := range starts {
-		id, ok := g.lookup(start)
-		if !ok {
+		ids := g.lookupAll(start)
+		if len(ids) == 0 {
 			result.Nodes = append(result.Nodes, TraversalNode{Name: start, Depth: 0, Unresolved: true})
 			continue
 		}
-		if _, seen := visited[id]; seen {
-			continue
+		for _, id := range ids {
+			if _, seen := visited[id]; seen {
+				continue
+			}
+			visited[id] = struct{}{}
+			queue = append(queue, queueItem{id: id, depth: 0})
+			result.Nodes = append(result.Nodes, g.nodeForID(id, 0, ""))
 		}
-		visited[id] = struct{}{}
-		queue = append(queue, queueItem{id: id, depth: 0})
-		result.Nodes = append(result.Nodes, g.nodeForID(id, 0, ""))
 	}
 
 	truncated := false
@@ -975,9 +1071,10 @@ func (g *Graph) findPath(from, to string, relKinds []string, maxDepth int, dispa
 		dispatch = nil
 	}
 
-	fromID, fromOK := g.lookup(from)
-	toID, toOK := g.lookup(to)
-	if !fromOK || !toOK {
+	// A name declared in several repositories is a node in each: the path may start,
+	// or end, at any of them.
+	fromIDs, toIDs := g.lookupAll(from), g.lookupAll(to)
+	if len(fromIDs) == 0 || len(toIDs) == 0 {
 		// One of the endpoints is not in the graph at all, so no path can exist.
 		return PathResult{From: from, To: to, Found: false}
 	}
@@ -992,8 +1089,16 @@ func (g *Graph) findPath(from, to string, relKinds []string, maxDepth int, dispa
 	parentRel := make(map[uint32]uint16) // child → relation kind of the edge from parent
 	viaIface := make(map[uint32]bool)    // child reached across an interface, not an edge
 
-	visited[fromID] = struct{}{}
-	queue := []queueItem{{id: fromID, depth: 0}}
+	isTo := make(map[uint32]bool, len(toIDs))
+	for _, id := range toIDs {
+		isTo[id] = true
+	}
+	var queue []queueItem
+	for _, id := range fromIDs {
+		visited[id] = struct{}{}
+		queue = append(queue, queueItem{id: id, depth: 0})
+	}
+	toID := uint32(0)
 
 	found := false
 	// Use an index pointer to avoid keeping the full backing array alive.
@@ -1021,8 +1126,8 @@ func (g *Graph) findPath(from, to string, relKinds []string, maxDepth int, dispa
 			parent[tid] = item.id
 			parentRel[tid] = rels[i]
 
-			if tid == toID {
-				found = true
+			if isTo[tid] {
+				found, toID = true, tid
 				break
 			}
 			queue = append(queue, queueItem{id: tid, depth: item.depth + 1})
@@ -1041,8 +1146,8 @@ func (g *Graph) findPath(from, to string, relKinds []string, maxDepth int, dispa
 			visited[tid] = struct{}{}
 			parent[tid] = item.id
 			viaIface[tid] = true
-			if tid == toID {
-				found = true
+			if isTo[tid] {
+				found, toID = true, tid
 				break
 			}
 			queue = append(queue, queueItem{id: tid, depth: item.depth + 1})
@@ -1056,10 +1161,15 @@ func (g *Graph) findPath(from, to string, relKinds []string, maxDepth int, dispa
 
 	// Reconstruct path
 	var path []uint32
-	for cur := toID; cur != fromID; cur = parent[cur] {
+	cur := toID
+	for {
 		path = append(path, cur)
+		p, ok := parent[cur]
+		if !ok {
+			break
+		}
+		cur = p
 	}
-	path = append(path, fromID)
 
 	// Reverse to get from → to order
 	for i, j := 0, len(path)-1; i < j; i, j = i+1, j-1 {
@@ -1164,20 +1274,22 @@ func (g *Graph) findPathBetween(froms, tos []string, relKinds []string, maxDepth
 	seeded := map[uint32]bool{}
 	var unresolvedFrom []string
 	for _, from := range sortedUnique(froms) {
-		id, ok := g.lookup(from)
-		if !ok {
+		ids := g.lookupAll(from)
+		if len(ids) == 0 {
 			unresolvedFrom = append(unresolvedFrom, from)
 			continue
 		}
-		if !seeded[id] {
-			seeded[id] = true
-			sources = append(sources, id)
+		for _, id := range ids {
+			if !seeded[id] {
+				seeded[id] = true
+				sources = append(sources, id)
+			}
 		}
 	}
 	result.UnresolvedFrom = unresolvedFrom
 	targetIDs := map[uint32]bool{}
 	for name := range targets {
-		if id, ok := g.lookup(name); ok {
+		for _, id := range g.lookupAll(name) {
 			targetIDs[id] = true
 		}
 	}
@@ -1619,46 +1731,70 @@ func (g *Graph) impactSeeds(target string) []string {
 	defer g.mu.RUnlock()
 
 	seeds := []string{target}
-	// Seed expansion only applies to type symbols, so resolve with symbol context:
-	// a type sharing a name with a module or service must still expand its methods.
-	// When no symbol declares the name the kind check below returns the bare target.
-	idx, ok := g.factIndexFor(target, RelHasMethod)
-	if !ok {
-		return seeds
-	}
-	if g.facts[idx].Kind != KindSymbol {
-		return seeds
-	}
-	switch sk, _ := g.facts[idx].PropAny("symbol_kind").(string); sk {
-	case SymbolStruct, SymbolClass, SymbolInterface, SymbolType:
-	default:
-		return seeds
-	}
-
-	// Methods: has_method edges point from the type to each of its methods. A member
-	// projected from a mixin is the mixin's node, shared by every includer, so its
-	// callers are not this type's: seeding from it would report every other includer.
-	projected, _ := g.facts[idx].PropAny(PropMixinMembers).(map[string]any)
-	if id, ok := g.lookup(target); ok {
-		tgts, rels := g.adjOf(id, false)
-		for i, tid := range tgts {
-			if g.relName(rels[i]) != RelHasMethod {
-				continue
-			}
-			if _, mixedIn := projected[g.names[tid]]; mixedIn {
-				continue
-			}
-			seeds = append(seeds, g.names[tid])
-		}
+	// A name declared in several repositories is a type in each that declares it: each
+	// node brings its own methods.
+	for _, id := range g.lookupAll(target) {
+		seeds = append(seeds, g.memberSeeds(id)...)
 	}
 	// Constructor: "<pkg>.New<Type>" in the same package, when it exists.
-	if dot := strings.LastIndex(target, "."); dot >= 0 {
-		ctor := target[:dot+1] + "New" + target[dot+1:]
+	repo, name := SplitScoped(target)
+	if dot := strings.LastIndex(name, "."); dot >= 0 {
+		ctor := name[:dot+1] + "New" + name[dot+1:]
+		if repo != "" {
+			ctor = ScopedName(repo, ctor)
+		}
 		if g.declares(ctor) {
 			seeds = append(seeds, ctor)
 		}
 	}
 	return seeds
+}
+
+// memberSeeds returns the methods of node id when it is a type symbol, by the keys
+// that look them up again.
+func (g *Graph) memberSeeds(id uint32) []string {
+	// Seed expansion only applies to type symbols, so resolve with symbol context:
+	// a type sharing a name with a module or service must still expand its methods.
+	idx, ok := g.factIndexForID(id, RelHasMethod)
+	if !ok || g.facts[idx].Kind != KindSymbol {
+		return nil
+	}
+	switch sk, _ := g.facts[idx].PropAny("symbol_kind").(string); sk {
+	case SymbolStruct, SymbolClass, SymbolInterface, SymbolType:
+	default:
+		return nil
+	}
+	// Methods: has_method edges point from the type to each of its methods. A member
+	// projected from a mixin is the mixin's node, shared by every includer, so its
+	// callers are not this type's: seeding from it would report every other includer.
+	projected, _ := g.facts[idx].PropAny(PropMixinMembers).(map[string]any)
+	var seeds []string
+	tgts, rels := g.adjOf(id, false)
+	for i, tid := range tgts {
+		if g.relName(rels[i]) != RelHasMethod {
+			continue
+		}
+		if _, mixedIn := projected[g.names[tid]]; mixedIn {
+			continue
+		}
+		seeds = append(seeds, g.keyOf(tid))
+	}
+	return seeds
+}
+
+// moduleOfImport is the module an import of target by dependency fact f lands in. A
+// Go import names one package exactly: an import of a package the snapshot does not
+// hold (one under a directory named vendor, which is not indexed) is no import of its
+// parent directory, and climbing to it drew a cycle Go would not compile. Other
+// languages import files and directories within a module, so they climb.
+func moduleOfImport(f Fact, target string, moduleNames map[string]bool) string {
+	if f.PropString("language") == "go" {
+		if moduleNames[target] {
+			return target
+		}
+		return ""
+	}
+	return resolveToModule(target, moduleNames)
 }
 
 // resolveToModule finds the closest matching module for a target by trying
@@ -1722,37 +1858,52 @@ func (g *Graph) ReverseFacts(targetName, relKind string) []Fact {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 
-	id, ok := g.lookup(targetName)
-	if !ok {
-		return nil
-	}
-	srcs, rels := g.adjOf(id, true)
-	if len(srcs) == 0 {
-		return nil
-	}
-
-	result := make([]Fact, 0, len(srcs))
-	seen := make(map[uint32]struct{}, len(srcs))
-	for i, sid := range srcs {
-		rk := g.relName(rels[i])
-		if relKind != "" && rk != relKind {
-			continue
-		}
-		if _, already := seen[sid]; already {
-			continue
-		}
-		seen[sid] = struct{}{}
-		if carriers := g.factsCarrying(sid, rk, id); len(carriers) > 0 {
-			for _, idx := range carriers {
+	var result []Fact
+	// A bare name declared in several repositories answers for each node of it.
+	for _, id := range g.lookupAll(targetName) {
+		srcs, rels := g.adjOf(id, true)
+		seen := make(map[uint32]struct{}, len(srcs))
+		for i, sid := range srcs {
+			rk := g.relName(rels[i])
+			if relKind != "" && rk != relKind {
+				continue
+			}
+			if _, already := seen[sid]; already {
+				continue
+			}
+			seen[sid] = struct{}{}
+			if carriers := g.factsCarrying(sid, rk, id); len(carriers) > 0 {
+				for _, idx := range carriers {
+					result = append(result, g.facts[idx])
+				}
+				continue
+			}
+			if idx, ok := g.factIndexForID(sid, rk); ok {
 				result = append(result, g.facts[idx])
 			}
-			continue
-		}
-		if idx, ok := g.factIndexForID(sid, rk); ok {
-			result = append(result, g.facts[idx])
 		}
 	}
 	return result
+}
+
+// resolvesTo reports whether a relation target named from repo lands on node id, by
+// the rule the build resolved it with (see graphBuilder.targetsIn).
+func (g *Graph) resolvesTo(target, repo string, id uint32) bool {
+	nodes := g.split[target]
+	if len(nodes) == 0 {
+		tid, ok := g.ids[target]
+		return ok && tid == id
+	}
+	if repo != "" {
+		if tid, ok := g.ids[ScopedName(repo, target)]; ok {
+			return tid == id
+		}
+	}
+	if slices.Contains(nodes, id) {
+		return true
+	}
+	tid, ok := g.ids[target]
+	return ok && tid == id
 }
 
 // factsCarrying returns, when several facts declare node src, the indices of those
@@ -1773,7 +1924,7 @@ func (g *Graph) factsCarrying(src uint32, relKind string, target uint32) []int {
 			if r.Kind != relKind {
 				continue
 			}
-			if tid, ok := g.lookup(r.Target); ok && tid == target {
+			if g.resolvesTo(r.Target, g.facts[idx].Repo, target) {
 				out = append(out, idx)
 				break
 			}
@@ -1789,11 +1940,12 @@ func (g *Graph) factsCarrying(src uint32, relKind string, target uint32) []int {
 func (g *Graph) ForwardEdges(name string) []Edge {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
-	id, ok := g.lookup(name)
-	if !ok {
-		return nil
+	// A bare name declared in several repositories answers for each node of it.
+	var out []Edge
+	for _, id := range g.lookupAll(name) {
+		out = append(out, g.edgesOf(id, false)...)
 	}
-	return g.edgesOf(id, false)
+	return out
 }
 
 // ReverseEdges returns the incoming edges of name as a fresh slice — each Edge's
@@ -1803,22 +1955,23 @@ func (g *Graph) ForwardEdges(name string) []Edge {
 func (g *Graph) ReverseEdges(name string) []Edge {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
-	id, ok := g.lookup(name)
-	if !ok {
-		return nil
+	// A bare name declared in several repositories answers for each node of it.
+	var out []Edge
+	for _, id := range g.lookupAll(name) {
+		out = append(out, g.edgesOf(id, true)...)
 	}
-	return g.edgesOf(id, true)
+	return out
 }
 
 // FanOut returns the number of outgoing edges of name, without materializing them.
 func (g *Graph) FanOut(name string) int {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
-	id, ok := g.lookup(name)
-	if !ok {
-		return 0
+	n := 0
+	for _, id := range g.lookupAll(name) {
+		n += g.degreeOf(id, false)
 	}
-	return g.degreeOf(id, false)
+	return n
 }
 
 // edgesOf materializes node id's edges in the given direction. Callers hold the lock.
@@ -1829,7 +1982,7 @@ func (g *Graph) edgesOf(id uint32, reverse bool) []Edge {
 	}
 	out := make([]Edge, len(tgts))
 	for i, tid := range tgts {
-		out[i] = Edge{RelKind: g.relName(rels[i]), Target: g.names[tid]}
+		out[i] = Edge{RelKind: g.relName(rels[i]), Target: g.keyOf(tid)}
 	}
 	return out
 }
@@ -1869,17 +2022,15 @@ func isReferenceOnlyKind(kind string) bool {
 func (g *Graph) ArchitecturalReverseEdges(name string) []Edge {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
-	id, ok := g.lookup(name)
-	if !ok {
-		return nil
-	}
-	srcs, rels := g.adjOf(id, true)
 	var out []Edge
-	for i, sid := range srcs {
-		if !g.isArchitecturalEdge(sid, rels[i]) {
-			continue
+	for _, id := range g.lookupAll(name) {
+		srcs, rels := g.adjOf(id, true)
+		for i, sid := range srcs {
+			if !g.isArchitecturalEdge(sid, rels[i]) {
+				continue
+			}
+			out = append(out, Edge{RelKind: g.relName(rels[i]), Target: g.keyOf(sid)})
 		}
-		out = append(out, Edge{RelKind: g.relName(rels[i]), Target: g.names[sid]})
 	}
 	return out
 }
@@ -1889,15 +2040,13 @@ func (g *Graph) ArchitecturalReverseEdges(name string) []Edge {
 func (g *Graph) ArchitecturalFanIn(name string) int {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
-	id, ok := g.lookup(name)
-	if !ok {
-		return 0
-	}
-	srcs, rels := g.adjOf(id, true)
 	n := 0
-	for i, sid := range srcs {
-		if g.isArchitecturalEdge(sid, rels[i]) {
-			n++
+	for _, id := range g.lookupAll(name) {
+		srcs, rels := g.adjOf(id, true)
+		for i, sid := range srcs {
+			if g.isArchitecturalEdge(sid, rels[i]) {
+				n++
+			}
 		}
 	}
 	return n
@@ -1925,17 +2074,15 @@ func (g *Graph) ArchitecturalFanIn(name string) int {
 func (g *Graph) ArchitecturalForwardEdges(name string) []Edge {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
-	id, ok := g.lookup(name)
-	if !ok {
-		return nil
-	}
-	tgts, rels := g.adjOf(id, false)
 	var out []Edge
-	for i, tid := range tgts {
-		if !g.isArchitecturalForwardEdge(rels[i]) {
-			continue
+	for _, id := range g.lookupAll(name) {
+		tgts, rels := g.adjOf(id, false)
+		for i, tid := range tgts {
+			if !g.isArchitecturalForwardEdge(rels[i]) {
+				continue
+			}
+			out = append(out, Edge{RelKind: g.relName(rels[i]), Target: g.keyOf(tid)})
 		}
-		out = append(out, Edge{RelKind: g.relName(rels[i]), Target: g.names[tid]})
 	}
 	return out
 }
@@ -1945,15 +2092,13 @@ func (g *Graph) ArchitecturalForwardEdges(name string) []Edge {
 func (g *Graph) ArchitecturalFanOut(name string) int {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
-	id, ok := g.lookup(name)
-	if !ok {
-		return 0
-	}
-	_, rels := g.adjOf(id, false)
 	n := 0
-	for _, rel := range rels {
-		if g.isArchitecturalForwardEdge(rel) {
-			n++
+	for _, id := range g.lookupAll(name) {
+		_, rels := g.adjOf(id, false)
+		for _, rel := range rels {
+			if g.isArchitecturalForwardEdge(rel) {
+				n++
+			}
 		}
 	}
 	return n
@@ -2308,7 +2453,7 @@ func (g *Graph) ReverseReach(seeds, relKinds []string, maxDepth, maxNodes int) (
 	depth := make(map[uint32]int)
 	var queue []uint32
 	for _, s := range seeds {
-		if id, ok := g.lookup(s); ok {
+		for _, id := range g.lookupAll(s) {
 			if _, seen := depth[id]; !seen {
 				depth[id] = 0
 				queue = append(queue, id)
@@ -2341,7 +2486,11 @@ func (g *Graph) ReverseReach(seeds, relKinds []string, maxDepth, maxNodes int) (
 	}
 	reach = make(map[string]int, len(depth))
 	for id, d := range depth {
-		reach[g.names[id]] = d
+		// One repository's node of a shared name reports under the bare name, at the
+		// nearest depth any of them was reached.
+		if prev, ok := reach[g.names[id]]; !ok || d < prev {
+			reach[g.names[id]] = d
+		}
 	}
 	return reach, truncated
 }
@@ -2362,13 +2511,11 @@ func (g *Graph) reachableCount(seeds []string, direction string, maxDepth int) i
 	}
 	var queue []queueItem
 	for _, s := range seeds {
-		id, ok := g.lookup(s)
-		if !ok {
-			continue
-		}
-		if _, seen := visited[id]; !seen {
-			visited[id] = struct{}{}
-			queue = append(queue, queueItem{id: id, depth: 0})
+		for _, id := range g.lookupAll(s) {
+			if _, seen := visited[id]; !seen {
+				visited[id] = struct{}{}
+				queue = append(queue, queueItem{id: id, depth: 0})
+			}
 		}
 	}
 	seedCount := len(visited)
@@ -2452,4 +2599,126 @@ func itoa(n int) string {
 		buf[i] = '-'
 	}
 	return string(buf[i:])
+}
+
+// ScopedName is how the graph keys one repository's node of a name declared in
+// several repositories, and how a caller names that node. It is spelled the way a
+// query scopes a name to a repository, so a key handed back by an edge reads, and
+// resolves, as the query would.
+func ScopedName(repo, name string) string { return "repo:" + repo + " " + name }
+
+// SplitScoped reads a ScopedName back into its repository and name. A name that is
+// not scoped is returned whole, with no repository.
+func SplitScoped(key string) (repo, name string) {
+	rest, ok := strings.CutPrefix(key, "repo:")
+	if !ok {
+		return "", key
+	}
+	repo, name, ok = strings.Cut(rest, " ")
+	if !ok {
+		return "", key
+	}
+	return repo, name
+}
+
+// namesInSeveralRepos returns the module and symbol names declared in more than
+// one repository. Within a repository a name is one thing; across repositories a
+// relative path (app/models, src/utils) or a short constant (App, String) is a
+// coincidence, and a node shared between them gave each repository the other's
+// dependents. Go names its symbols by import path, so a Go name only lands here when
+// two repositories hold the same module.
+func namesInSeveralRepos(ff []Fact) map[string]bool {
+	first := map[string]string{}
+	out := map[string]bool{}
+	for i := range ff {
+		f := &ff[i]
+		if f.Name == "" || f.Repo == "" || (f.Kind != KindModule && f.Kind != KindSymbol) {
+			continue
+		}
+		switch repo, seen := first[f.Name]; {
+		case !seen:
+			first[f.Name] = f.Repo
+		case repo != f.Repo:
+			out[f.Name] = true
+		}
+	}
+	return out
+}
+
+// KeyOf is the name that looks a fact's node up: its scoped name when its name is
+// declared in several repositories, the name itself otherwise. A caller that walks
+// from a fact it holds passes this, so the walk starts at that fact's repository.
+func (g *Graph) KeyOf(f *Fact) string {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	if f.Repo != "" && len(g.split[f.Name]) > 0 {
+		if _, ok := g.ids[ScopedName(f.Repo, f.Name)]; ok {
+			return ScopedName(f.Repo, f.Name)
+		}
+	}
+	return f.Name
+}
+
+// Language families whose code can name each other's declarations. A name written in
+// one family and declared only in another is not a reference to it: Swift code
+// naming String does not mean a Ruby class String a build script reopens, and a
+// Python class Order is not the Ruby one. Within a family names do cross languages
+// (Kotlin calls Java, TypeScript imports JavaScript, Swift calls Objective-C).
+var languageFamily = map[string]uint16{
+	"ruby":   1 << 0,
+	"python": 1 << 1,
+	"php":    1 << 2,
+	"dart":   1 << 3,
+	"csharp": 1 << 4, "dotnet": 1 << 4, "fsharp": 1 << 4, "vb": 1 << 4,
+	"java": 1 << 5, "kotlin": 1 << 5, "scala": 1 << 5, "groovy": 1 << 5,
+	"typescript": 1 << 6, "javascript": 1 << 6, "vue": 1 << 6, "svelte": 1 << 6,
+	"swift": 1 << 7, "objc": 1 << 7, "objective-c": 1 << 7,
+	"elixir": 1 << 8,
+	"rust":   1 << 9,
+}
+
+// codeFamily is the language family of a module, symbol or dependency fact, or 0
+// when it has none this rule knows: such a fact is never kept from an edge.
+func codeFamily(f *Fact) uint16 {
+	switch f.Kind {
+	case KindModule, KindSymbol, KindDependency:
+		return languageFamily[f.PropString("language")]
+	}
+	return 0
+}
+
+// nodeFamilies is, per declared node, the union of the families of the code
+// declaring it. A node declared by anything without a known family gets 0, which
+// lets every edge through.
+func nodeFamilies(ff []Fact, nameID []uint32, declared uint32) []uint16 {
+	fam := make([]uint16, declared)
+	open := make([]bool, declared)
+	for i := range ff {
+		id := nameID[i]
+		if id == noNode || id >= declared {
+			continue
+		}
+		c := codeFamily(&ff[i])
+		if c == 0 {
+			open[id] = true
+			continue
+		}
+		fam[id] |= c
+	}
+	for id, o := range open {
+		if o {
+			fam[id] = 0
+		}
+	}
+	return fam
+}
+
+// otherFamily reports whether an edge from code of family fam to node tid joins two
+// languages that cannot name each other.
+func (b *graphBuilder) otherFamily(fam uint16, tid uint32) bool {
+	if fam == 0 || int(tid) >= len(b.families) {
+		return false
+	}
+	t := b.families[tid]
+	return t != 0 && t&fam == 0
 }
