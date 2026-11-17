@@ -127,3 +127,34 @@ func TestSplitName_SingleRepositoryGraphIsUnchanged(t *testing.T) {
 		t.Fatalf("a single-repository graph splits nothing, got %v", g.split)
 	}
 }
+
+func TestLanguageFamily_NameDoesNotCrossToAnotherFamily(t *testing.T) {
+	s := NewStore()
+	s.Add(
+		Fact{Kind: KindSymbol, Name: "String", File: "tools/ext.rb", Repo: "app",
+			Props: map[string]any{"symbol_kind": SymbolClass, "language": "ruby"}},
+		Fact{Kind: KindSymbol, Name: "Label.render", File: "Sources/Label.swift", Repo: "app",
+			Props:     map[string]any{"symbol_kind": SymbolMethod, "language": "swift"},
+			Relations: []Relation{{Kind: RelNames, Target: "String"}}},
+		Fact{Kind: KindSymbol, Name: "Formatter", File: "lib/formatter.rb", Repo: "app",
+			Props:     map[string]any{"symbol_kind": SymbolClass, "language": "ruby"},
+			Relations: []Relation{{Kind: RelNames, Target: "String"}}},
+		Fact{Kind: KindSymbol, Name: "Money", File: "src/Money.java", Repo: "app",
+			Props: map[string]any{"symbol_kind": SymbolClass, "language": "java"}},
+		Fact{Kind: KindSymbol, Name: "Price", File: "src/Price.kt", Repo: "app",
+			Props:     map[string]any{"symbol_kind": SymbolClass, "language": "kotlin"},
+			Relations: []Relation{{Kind: RelNames, Target: "Money"}}},
+	)
+	s.BuildGraph()
+	g := s.Graph()
+	var callers []string
+	for _, e := range g.ReverseEdges("String") {
+		callers = append(callers, e.Target)
+	}
+	if !slices.Equal(callers, []string{"Formatter"}) {
+		t.Fatalf("String's dependents = %v, want only the Ruby one", callers)
+	}
+	if got := g.ReverseEdges("Money"); len(got) != 1 || got[0].Target != "Price" {
+		t.Fatalf("Kotlin naming a Java class lost its edge: %v", got)
+	}
+}

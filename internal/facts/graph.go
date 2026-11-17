@@ -81,6 +81,10 @@ type graphBuilder struct {
 	src []uint32
 	tgt []uint32
 	rel []uint16
+
+	// families holds, per declared node, the language families of the code that
+	// declares it (see codeFamily), for the length of the build.
+	families []uint16
 }
 
 // idFor returns the node ID for name, assigning the next one if it is new.
@@ -290,6 +294,7 @@ func NewGraphWithAliases(ff []Fact, aliases map[string]FactKey) *Graph {
 	}
 	g.declaredNodes = uint32(len(g.names))
 	moduleDirs := NewModuleDirs(ff)
+	b.families = nodeFamilies(ff, nameID, g.declaredNodes)
 
 	// Index which facts declare each node, as CSR. Every fact declaring the name is
 	// recorded, not just the first: which one a node means depends on the edge that
@@ -323,6 +328,7 @@ func NewGraphWithAliases(ff []Fact, aliases map[string]FactKey) *Graph {
 			continue
 		}
 		src := b.srcID(nameID[fi], f.Name)
+		fam := codeFamily(&f)
 		for _, rel := range f.Relations {
 			target, repo := rel.Target, f.Repo
 			if !g.declares(target) {
@@ -331,6 +337,9 @@ func NewGraphWithAliases(ff []Fact, aliases map[string]FactKey) *Graph {
 				}
 			}
 			for _, tid := range b.targetsIn(target, repo) {
+				if b.otherFamily(fam, tid) {
+					continue
+				}
 				b.addEdgeID(src, rel.Kind, tid)
 			}
 		}
@@ -2633,4 +2642,68 @@ func (g *Graph) KeyOf(f *Fact) string {
 		}
 	}
 	return f.Name
+}
+
+// Language families whose code can name each other's declarations. A name written in
+// one family and declared only in another is not a reference to it: Swift code
+// naming String does not mean a Ruby class String a build script reopens, and a
+// Python class Order is not the Ruby one. Within a family names do cross languages
+// (Kotlin calls Java, TypeScript imports JavaScript, Swift calls Objective-C).
+var languageFamily = map[string]uint16{
+	"ruby":   1 << 0,
+	"python": 1 << 1,
+	"php":    1 << 2,
+	"dart":   1 << 3,
+	"csharp": 1 << 4, "dotnet": 1 << 4, "fsharp": 1 << 4, "vb": 1 << 4,
+	"java": 1 << 5, "kotlin": 1 << 5, "scala": 1 << 5, "groovy": 1 << 5,
+	"typescript": 1 << 6, "javascript": 1 << 6, "vue": 1 << 6, "svelte": 1 << 6,
+	"swift": 1 << 7, "objc": 1 << 7, "objective-c": 1 << 7,
+	"elixir": 1 << 8,
+	"rust":   1 << 9,
+}
+
+// codeFamily is the language family of a module, symbol or dependency fact, or 0
+// when it has none this rule knows: such a fact is never kept from an edge.
+func codeFamily(f *Fact) uint16 {
+	switch f.Kind {
+	case KindModule, KindSymbol, KindDependency:
+		return languageFamily[f.PropString("language")]
+	}
+	return 0
+}
+
+// nodeFamilies is, per declared node, the union of the families of the code
+// declaring it. A node declared by anything without a known family gets 0, which
+// lets every edge through.
+func nodeFamilies(ff []Fact, nameID []uint32, declared uint32) []uint16 {
+	fam := make([]uint16, declared)
+	open := make([]bool, declared)
+	for i := range ff {
+		id := nameID[i]
+		if id == noNode || id >= declared {
+			continue
+		}
+		c := codeFamily(&ff[i])
+		if c == 0 {
+			open[id] = true
+			continue
+		}
+		fam[id] |= c
+	}
+	for id, o := range open {
+		if o {
+			fam[id] = 0
+		}
+	}
+	return fam
+}
+
+// otherFamily reports whether an edge from code of family fam to node tid joins two
+// languages that cannot name each other.
+func (b *graphBuilder) otherFamily(fam uint16, tid uint32) bool {
+	if fam == 0 || int(tid) >= len(b.families) {
+		return false
+	}
+	t := b.families[tid]
+	return t != 0 && t&fam == 0
 }
