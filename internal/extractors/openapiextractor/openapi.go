@@ -58,6 +58,7 @@ func (e *OpenAPIExtractor) Detect(repoPath string) (bool, error) {
 // YAML files are typically excluded by the global ignore patterns.
 func (e *OpenAPIExtractor) Extract(ctx context.Context, repoPath string, _ []string) ([]facts.Fact, error) {
 	var allFacts []facts.Fact
+	var exposures []gatewayExposure
 
 	err := filepath.WalkDir(repoPath, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -86,16 +87,49 @@ func (e *OpenAPIExtractor) Extract(ctx context.Context, repoPath string, _ []str
 		}
 		relFile := factpath.Slash(rawRel)
 
-		routeFacts, parseErr := parseOpenAPIFile(path, relFile)
+		routeFacts, exposed, parseErr := parseSpec(path, relFile)
 		if parseErr != nil {
 			log.Printf("[openapi-extractor] skipping %s: %v", relFile, parseErr)
 			return nil
 		}
 		allFacts = append(allFacts, routeFacts...)
+		exposures = append(exposures, exposed...)
 		return nil
 	})
 
-	return dropBundledCopies(allFacts), err
+	return withGatewayExposures(dropBundledCopies(allFacts), exposures), err
+}
+
+// gatewayExposure is one path a gateway facade spec exposes: the path of another
+// spec's operations (file, path), reached through the gateway at gatewayPath.
+type gatewayExposure struct {
+	file, path, gatewayPath, gatewayPrefix string
+}
+
+// withGatewayExposures gives the operations a gateway facade exposes the path the
+// gateway serves them at. The facade lists `/items` under its gateway prefix `/shop`
+// as a reference to the service spec's `/public/items`: a client calls `/shop/items`,
+// and the service route it reaches is `/public/items`. A route that declares its own
+// gateway path keeps it.
+func withGatewayExposures(all []facts.Fact, exposures []gatewayExposure) []facts.Fact {
+	if len(exposures) == 0 {
+		return all
+	}
+	by := map[string]gatewayExposure{}
+	for _, x := range exposures {
+		by[x.file+"\x00"+x.path] = x
+	}
+	for i := range all {
+		f := &all[i]
+		if f.Kind != facts.KindRoute || f.PropString("gateway_path") != "" {
+			continue
+		}
+		if x, ok := by[f.PropString("spec_file")+"\x00"+f.Name]; ok {
+			f.Props["gateway_path"] = x.gatewayPath
+			f.Props["gateway_prefix"] = x.gatewayPrefix
+		}
+	}
+	return all
 }
 
 // bundleDirs name the directories a spec bundler writes its output into: one file
@@ -181,25 +215,27 @@ var httpMethods = map[string]string{
 	"trace":   "TRACE",
 }
 
-// parseOpenAPIFile reads and parses a single OpenAPI spec file, returning
+// parseSpec reads and parses a single OpenAPI spec file, returning
 // one KindRoute fact per operation defined in the spec.
-func parseOpenAPIFile(absPath, relFile string) ([]facts.Fact, error) {
+// It also returns the paths the spec exposes through a gateway as references to
+// another spec's operations (see withGatewayExposures).
+func parseSpec(absPath, relFile string) ([]facts.Fact, []gatewayExposure, error) {
 	data, err := os.ReadFile(absPath)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	var spec openAPISpec
 	if err := yaml.Unmarshal(data, &spec); err != nil {
-		return nil, fmt.Errorf("parsing yaml: %w", err)
+		return nil, nil, fmt.Errorf("parsing yaml: %w", err)
 	}
 
 	if spec.OpenAPI == "" && spec.Swagger == "" {
-		return nil, fmt.Errorf("not an OpenAPI spec (missing openapi/swagger field)")
+		return nil, nil, fmt.Errorf("not an OpenAPI spec (missing openapi/swagger field)")
 	}
 
 	if len(spec.Paths) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 
 	// Client specs (e.g. api/openapi/client/svc-foo.yml) represent routes that
@@ -225,11 +261,20 @@ func parseOpenAPIFile(absPath, relFile string) ([]facts.Fact, error) {
 
 	specDir := factpath.Dir(relFile)
 	var result []facts.Fact
+	var exposures []gatewayExposure
 	refs := newPathItemResolver(absPath, relFile)
 
 	for path, pathItem := range spec.Paths {
 		if pathItem == nil {
 			continue
+		}
+		// A gateway facade lists what it exposes as references to the paths of the
+		// service's own spec, which extracts those operations itself.
+		if gatewayPrefix != "" {
+			if file, target, ok := refs.fullSpecPath(pathItem); ok {
+				exposures = append(exposures, gatewayExposure{file: file, path: target, gatewayPath: gatewayPrefix + path, gatewayPrefix: gatewayPrefix})
+				continue
+			}
 		}
 		// A path item may be only a `$ref` to one held elsewhere — split specs
 		// keep each path in its own file. Its operations are read from there.
@@ -316,7 +361,7 @@ func parseOpenAPIFile(absPath, relFile string) ([]facts.Fact, error) {
 		}
 	}
 
-	return result, nil
+	return result, exposures, nil
 }
 
 // isClientSpec returns true when the spec file lives inside a "client" (or

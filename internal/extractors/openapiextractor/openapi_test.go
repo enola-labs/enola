@@ -361,3 +361,44 @@ paths:
 		t.Errorf("spec_server_host = %q", host)
 	}
 }
+
+// A gateway facade spec lists the paths the gateway exposes as references to the
+// service spec's own. The service's operations are extracted once, from its spec, and
+// carry the path a client calls them at through the gateway.
+func TestExtract_GatewayFacadeGivesTheServiceRoutesTheirGatewayPath(t *testing.T) {
+	repo := t.TempDir()
+	writeSpec(t, repo, "api/openapi/service.openapi.partial.yml", `openapi: 3.0.0
+info:
+  title: shop service
+  version: 1.0.0
+paths:
+  /public/items:
+    get:
+      operationId: listItems
+  /internal/items/reindex:
+    post:
+      operationId: reindex
+`)
+	writeSpec(t, repo, "api/openapi/public/public.openapi.partial.yml", `openapi: 3.0.0
+info:
+  title: shop public API
+  version: 1.0.0
+  x-gateway-config:
+    at-gateway-prefix: "/shop"
+    at-service-prefix: "/public"
+paths:
+  /items:
+    $ref: '../service.openapi.partial.yml#/paths/~1public~1items'
+`)
+	got := extract(t, repo)
+	if len(got) != 2 {
+		t.Fatalf("want the service's two operations once each, got %d: %+v", len(got), got)
+	}
+	items := findRoute(got, "/public/items", "GET")
+	if items == nil || items.PropString("gateway_path") != "/shop/items" {
+		t.Fatalf("exposed operation = %+v, want gateway_path /shop/items", items)
+	}
+	if r := findRoute(got, "/internal/items/reindex", "POST"); r == nil || r.PropString("gateway_path") != "" {
+		t.Fatalf("an operation the facade does not expose has no gateway path: %+v", r)
+	}
+}

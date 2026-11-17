@@ -3648,7 +3648,9 @@ import (
 // in a variable, built by a package helper, or written out in a subscription registration.
 // v606: Go: a package main under tools/, scripts/, hack/ or dev/ publishes and consumes no topic.
 // v607: OpenAPI: an operation carries its spec's title and server host.
-const cacheVersion = "v607"
+// v608: OpenAPI: an operation a gateway facade spec exposes by reference carries the
+// facade's gateway path.
+const cacheVersion = "v608"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

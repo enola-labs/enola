@@ -200,6 +200,7 @@ var versionCoverage = map[int][]string{
 	605: {"TestKafka_SubscriptionConfigInAVariable", "TestKafka_PublishedMetadataInAVariable", "TestKafka_HelperMethodBuildsTheMetadata", "TestKafka_MarkedTopicNeedsAMessagingCallAndANamespacedName", "TestKafka_SubscriptionRegisteredWithItsTopicWrittenOut"},
 	606: {"TestKafka_DeveloperProgramIsNotAProducer"},
 	607: {"TestExtract_SpecTitleAndServerHost"},
+	608: {"TestExtract_GatewayFacadeGivesTheServiceRoutesTheirGatewayPath"},
 	507: {"TestRustImportAliasesBindOnlyTheAlias", "TestRustImportedTypeThroughAFileModuleWithADirectory", "TestRustMethodsInAFileModulesSubdirectoryResolve", "TestRustTypeImportedThroughAReExportResolves", "TestRustTypeAliasIsFollowedToItsType", "TestRustAliasedExternalImportDoesNotHideTheLocalName"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},
