@@ -83,7 +83,31 @@ func (m *Matcher) IndexServerRoutes(all []facts.Fact) map[string][]RouteRef {
 // the index left out or miss one it put in.
 func IsIndexedServerRoute(f facts.Fact) bool {
 	return f.Kind == facts.KindRoute && f.Repo != "" && RoleOf(f) != facts.RoleClient && !IsUIRoute(f) &&
-		!IsNonHTTPRoute(f) && NormalizeMethod(f.PropString("method")) != ""
+		!IsNonHTTPRoute(f) && NormalizeMethod(f.PropString("method")) != "" && !IsCatchAll(f.Name)
+}
+
+// IsCatchAll reports whether a route path ends in a segment that takes the rest of
+// any path: {name:path}, {name=**}, {name+}, *, **, *name, [...name], [[...name]].
+// Such a route is a proxy or a file server. It serves every path under its prefix,
+// so matching a client call to it says nothing about which endpoint the call wants,
+// and it was what a call no real endpoint serves fell into, verb and all.
+func IsCatchAll(path string) bool {
+	path = strings.TrimSuffix(path, "/")
+	seg := path[strings.LastIndex(path, "/")+1:]
+	switch {
+	case seg == "*" || seg == "**" || strings.HasPrefix(seg, "*") && len(seg) > 1 && !strings.ContainsAny(seg, "{}"):
+		return true
+	case strings.HasPrefix(seg, "[...") || strings.HasPrefix(seg, "[[..."):
+		return true
+	case strings.HasPrefix(seg, "{") && strings.HasSuffix(seg, "}"):
+		inner := seg[1 : len(seg)-1]
+		if name, pattern, ok := strings.Cut(inner, ":"); ok && name != "" {
+			// A typed parameter: only a pattern that spans slashes takes the rest.
+			return pattern == "path" || pattern == ".*" || pattern == ".+"
+		}
+		return strings.HasSuffix(inner, "=**") || strings.HasSuffix(inner, "+") || strings.HasSuffix(inner, "*")
+	}
+	return false
 }
 
 // IsNonHTTPRoute reports whether a route is no HTTP call or endpoint at all: a
@@ -150,7 +174,9 @@ func TailRepos(server map[string][]RouteRef, segment, method string) map[string]
 func (m *Matcher) IndexServerPathSuffixes(all []facts.Fact) map[string][]string {
 	index := map[string][]string{}
 	for _, f := range all {
-		if f.Kind != facts.KindRoute || f.Repo == "" || RoleOf(f) == facts.RoleClient || IsNonHTTPRoute(f) {
+		// The routes IndexServerRoutes matches, verb aside: a UI page or a catch-all
+		// serving the path says nothing about the endpoint a call wants.
+		if f.Kind != facts.KindRoute || f.Repo == "" || RoleOf(f) == facts.RoleClient || IsNonHTTPRoute(f) || IsUIRoute(f) || IsCatchAll(f.Name) {
 			continue
 		}
 		if NormalizeMethod(f.PropString("method")) == "" {
