@@ -353,9 +353,24 @@ func (s *Store) evidenceFactFor(e Evidence) int {
 	if ref == "" {
 		return -1
 	}
-	first, rest, ok := s.namedIdxs(ref)
+	// A graph key naming one repository's node of a shared name cites that
+	// repository's fact.
+	repo, name := SplitScoped(ref)
+	first, rest, ok := s.namedIdxs(name)
 	if !ok {
 		return -1
+	}
+	if repo != "" {
+		var in []int32
+		for _, i := range append([]int32{int32(first)}, rest...) {
+			if s.facts[i].Repo == repo {
+				in = append(in, i)
+			}
+		}
+		if len(in) == 0 {
+			return -1
+		}
+		first, rest = int(in[0]), in[1:]
 	}
 
 	pick := -1
