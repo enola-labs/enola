@@ -131,3 +131,24 @@ func TestOutsideSnapshot_ClientSpecNamesItsService(t *testing.T) {
 		}
 	}
 }
+
+// A client generated from one service's spec calls that service. Another repository
+// registering the same path in code does not outrank the service the spec names.
+func TestProvider_ClientSpecNamesTheProviderOverCode(t *testing.T) {
+	call := facts.Fact{Kind: facts.KindRoute, Name: "/users/{id}", Repo: "self-help", File: "self-help/api/openapi/help-center.yaml",
+		Props: map[string]any{"role": "client", "method": "DELETE", "source": "openapi", "spec_file": "api/openapi/help-center.yaml"}}
+	all := []facts.Fact{call,
+		{Kind: facts.KindRoute, Name: "/users/{id}", Repo: "monolith", Props: map[string]any{"role": "server", "method": "DELETE"}},
+		{Kind: facts.KindRoute, Name: "/users/{id}", Repo: "help-center", Props: map[string]any{"role": "server", "method": "DELETE", "source": "openapi"}},
+	}
+	matches := ClientRouteMatches(routeindex.New(vocab.Default()), all)
+	var repos []string
+	for _, ms := range matches {
+		for _, m := range ms {
+			repos = append(repos, m.Repo)
+		}
+	}
+	if len(repos) != 1 || repos[0] != "help-center" {
+		t.Fatalf("matched providers = %v, want the one the spec names", repos)
+	}
+}

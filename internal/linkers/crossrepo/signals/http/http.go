@@ -517,6 +517,19 @@ func pickProvider(m *routeindex.Matcher, client facts.Fact, matches []routeindex
 	if len(providers) == 0 {
 		return "", false
 	}
+	// A call that names its service picks it among every repository serving the path,
+	// before a specification is set aside for code: a client generated from one
+	// service's spec calls that service, whatever else registers the same path.
+	if _, declared := declaredProvider(m, client); !declared && len(providers) > 1 {
+		all := make([]string, 0, len(providers))
+		for p := range providers {
+			all = append(all, p)
+		}
+		sort.Strings(all)
+		if p, ok := hintedProvider(serviceHint(client), all, true); ok {
+			return p, false
+		}
+	}
 	// A specification describes a server. When one repository registers the path and
 	// another only documents it, they are not two candidates: the first serves the
 	// call and the second is its description.
@@ -545,24 +558,47 @@ func pickProvider(m *routeindex.Matcher, client facts.Fact, matches []routeindex
 	if len(candidates) == 1 {
 		return candidates[0], true
 	}
-	hint := facts.NormalizeRepoLabel(serviceHint(client))
+	p, _ := hintedProvider(serviceHint(client), candidates, false)
+	return p, false
+}
+
+// hintedProvider picks the one candidate a service hint names: by its whole label,
+// else by a label containing the hint or contained in it, else as the only candidate
+// sharing a word of the hint (messaging-internal names chat-messaging).
+//
+// strict leaves out the containment tier, whose loose match is only safe once the
+// candidates have been narrowed to the repositories that implement the path.
+func hintedProvider(raw string, candidates []string, strict bool) (string, bool) {
+	hint := facts.NormalizeRepoLabel(raw)
 	if hint == "" {
 		return "", false // ambiguous, no hint
 	}
-	var exact, partial []string
+	// A generic word names a repository only by being its whole name.
+	loose := !genericHints[hint]
+	var exact, partial, worded []string
+	words := serviceWords(raw)
 	for _, p := range candidates {
 		switch label := facts.NormalizeRepoLabel(p); {
 		case label == hint:
 			exact = append(exact, p)
-		case strings.Contains(label, hint) || strings.Contains(hint, label):
+		case loose && !strict && (strings.Contains(label, hint) || strings.Contains(hint, label)):
 			partial = append(partial, p)
+		case loose:
+			for w := range serviceWords(p) {
+				if words[w] {
+					worded = append(worded, p)
+					break
+				}
+			}
 		}
 	}
 	switch {
 	case len(exact) == 1:
-		return exact[0], false
+		return exact[0], true
 	case len(exact) == 0 && len(partial) == 1:
-		return partial[0], false
+		return partial[0], true
+	case len(exact) == 0 && len(partial) == 0 && len(worded) == 1:
+		return worded[0], true
 	}
 	return "", false
 }
