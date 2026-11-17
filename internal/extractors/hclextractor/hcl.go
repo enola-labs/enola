@@ -105,6 +105,7 @@ func (e *Extractor) Extract(ctx context.Context, repoPath string, files []string
 	sort.Strings(dirs)
 
 	var out []facts.Fact
+	hasModule := map[string]bool{}
 	for _, dir := range dirs {
 		sort.Strings(byDir[dir])
 		var blocks []hclBlock
@@ -126,6 +127,7 @@ func (e *Extractor) Extract(ctx context.Context, repoPath string, files []string
 		if dir == "." {
 			prefix = ""
 		}
+		hasModule[dir] = true
 		out = append(out, facts.Fact{
 			Kind:  facts.KindModule,
 			Name:  dir,
@@ -177,6 +179,7 @@ func (e *Extractor) Extract(ctx context.Context, repoPath string, files []string
 			out = append(out, f)
 		}
 	}
+	out = append(out, terragruntFacts(repoPath, files, hasModule)...)
 	return out, nil
 }
 

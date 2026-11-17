@@ -3654,9 +3654,54 @@ import (
 // server file's registrations on its app or a chained app are not outbound calls.
 // v610: TypeScript: a request helper may call an axios.create() instance, and an awaited
 // generic call is read through the await.
-// v611: Go: only a call that sets a subscription up (Register, New, Add, Create,
+// v611: Python: a function names the types its parameter and return annotations name,
+// and a class the types its annotated fields name, string forward references included.
+// v612: Python: a call through a module beside the importing script, or beside a directory
+// above it, resolves into the repository rather than to a library.
+// v613: Scala: a declaration names the types its signature, fields and type arguments
+// name, where the file, its imports or its package declare them.
+// v614: Kotlin: a declaration names the types its signature, properties, constructor
+// parameters and type arguments name.
+// v615: Go: a package-level var uses the types its declared type and initializer name,
+// and a generic call the types of its type arguments.
+// v616: gRPC: a message names the messages its fields hold, and an RPC its request and
+// response messages.
+// v617: a Gradle src/testFixtures source set is test code.
+// v618: TypeScript: an import the compiler erases (import type, all-type clauses)
+// is marked as type-only coupling.
+// v619: Kotlin and Java modules name the build module they compile into.
+// v620: a CamelCase directory ending in Mocks (CustomMocks, GeneratedMocks) is test code.
+// v621: Swift: a root Package.swift's default target path is Sources/<name>, not ./Sources/<name>.
+// v622: Kotlin Retrofit paths substitute the file's string constants (${ROUTE_PREFIX}/x).
+// v623: Swift: a client route with an unresolved interpolation takes the path and verb
+// of the "// @endpoint" comment above its builder.
+// v624: Go net/http and Kotlin Retrofit/servlet routes are not read from test sources.
+// v625: Rails: a draw(:key) placeholder route goes once the drawn file is parsed.
+// v626: Ruby: constants named at file scope (initializer blocks) are module coupling.
+// v627: Ruby: a block on a blockless each_slice enumerator runs once per batch.
+// v628: packwerk usage ignores constants defined under a package's config/ tree.
+// v629: Go: a pager that stops on an empty page, and a range over slices.Chunk, are batch loops.
+// v630: Go: a limited write loop that stops on a short RowsAffected() is a batch loop.
+// v631: Ruby: a Rails view helper module (app/helpers) is concrete for abstractness.
+// v632: Go: symbols list the calls edges that hand a function over as a value (value_refs).
+// v633: performs_io does not propagate over value_refs edges.
+// v634: Ruby: scheduler configs (sidekiq-cron class:, Temporal workflow:) name the classes they run.
+// v635: Kotlin: a repository is Android when any module (up to three levels deep) has a manifest.
+// v636: Next.js: aliased route handlers (export { fn as GET }) and generate* convention exports.
+// v637: Python: behave / pytest-bdd step definitions are framework-registered.
+// v638: Kotlin: a top-level declaration the grammar reads as an assignment is reparsed alone.
+// v639: k6 scripts: default export, lifecycle exports and scenario exec targets are roots.
+// v640: Kotlin: a function the grammar reads as an annotated expression is reparsed alone.
+// v641: Python: Jupyter notebooks are read for the production symbols their cells call.
+// v642: dbt is a new FileOwner (.sql, .yml/.yaml, dbt_project.yml), which reshuffles shared files.
+// v643: dbt emits the table each model builds; LookML is a new FileOwner (.lkml/.lookml).
+// v644: HCL: Terragrunt units become modules with include, source and dependency edges.
+// v645: Avro is a new FileOwner (.avdl, .avsc).
+// v646: Rego is a new FileOwner (.rego).
+// v647: Kubernetes: Istio VirtualService and DestinationRule reference Services and Gateways.
+// v648: Go: only a call that sets a subscription up (Register, New, Add, Create,
 // Subscribe) takes its topic as a plain string; verifying or cancelling one does not.
-const cacheVersion = "v611"
+const cacheVersion = "v648"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

@@ -154,3 +154,28 @@ func TestBind_SeamsDoNotCrossRepos(t *testing.T) {
 		t.Errorf("zulu has no seam of its own; got %v", routes)
 	}
 }
+
+// A test harness that resets the service it started calls a seam too; that is
+// not a request the repository makes.
+func TestBind_TestHarnessCallsAreNotRoutes(t *testing.T) {
+	store := facts.NewStore()
+	harness := withCandidates(symbol("svc", "test/integration.reset", "internal/api.Request"),
+		"internal/api.Request\x00/reset\x00POST")
+	harness.File = "test/integration/env.go"
+	store.Add(
+		symbol("svc", "internal/api.Request", "net/http.NewRequestWithContext"),
+		harness,
+		withCandidates(symbol("svc", "internal/cli.sync", "internal/api.Request"),
+			"internal/api.Request\x00/sync\x00POST"),
+	)
+	if err := New().Bind(context.Background(), store); err != nil {
+		t.Fatalf("Bind: %v", err)
+	}
+	routes := clientRoutes(store)
+	if _, ok := routes["POST /reset"]; ok {
+		t.Errorf("a test harness call became a route: %v", routes)
+	}
+	if _, ok := routes["POST /sync"]; !ok {
+		t.Errorf("the application's call was lost: %v", routes)
+	}
+}

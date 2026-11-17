@@ -535,3 +535,31 @@ func TestExplain_GeneratedSymbolExcluded(t *testing.T) {
 		t.Errorf("a generated hub was reported: %+v", insights)
 	}
 }
+
+// The same shape on a deployment manifest resource (an Argo CD Application
+// referenced by its environments and referencing its charts) is configuration,
+// not a call-graph hotspot.
+func TestExplain_DeploymentResourceIsNotAHotspot(t *testing.T) {
+	s := facts.NewStore()
+	var deps []facts.Relation
+	for i := 0; i < 5; i++ {
+		tgt := fmt.Sprintf("charts/c%d.Chart", i)
+		deps = append(deps, facts.Relation{Kind: facts.RelDependsOn, Target: tgt})
+		s.Add(facts.Fact{Kind: facts.KindSymbol, Name: tgt, File: "charts/c.yaml", Props: map[string]any{"language": "kubernetes"}})
+	}
+	s.Add(facts.Fact{Kind: facts.KindSymbol, Name: "app.Application.shop", File: "app/application.yaml",
+		Props: map[string]any{"language": "kubernetes"}, Relations: deps})
+	for i := 0; i < 5; i++ {
+		s.Add(facts.Fact{Kind: facts.KindSymbol, Name: fmt.Sprintf("env%d.Project", i), File: "env/p.yaml",
+			Props:     map[string]any{"language": "kubernetes"},
+			Relations: []facts.Relation{{Kind: facts.RelDependsOn, Target: "app.Application.shop"}}})
+	}
+	s.BuildGraph()
+	insights, err := New().Explain(context.Background(), s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(insights) != 0 {
+		t.Fatalf("a deployment resource was reported: %v", insights[0].Title)
+	}
+}

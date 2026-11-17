@@ -237,6 +237,17 @@ func (e *PythonExtractor) Extract(ctx context.Context, repoPath string, files []
 	}
 
 	allFacts = append(allFacts, extractConfiguredPythonRefs(ctx, repoPath, files, pyFiles, allFacts)...)
+
+	// What the notebooks call, resolved against the production modules.
+	var notebooks []string
+	for _, relFile := range files {
+		if isNotebook(relFile) {
+			notebooks = append(notebooks, relFile)
+		}
+	}
+	if len(notebooks) > 0 {
+		allFacts = append(allFacts, resolvedRefs(ctx, repoPath, notebooks, pyFiles, refsFromNotebook)...)
+	}
 	return allFacts, nil
 }
 
@@ -572,4 +583,6 @@ func isPythonFile(path string) bool {
 }
 
 // OwnsFile implements plugin.FileOwner for incremental caching.
-func (e *PythonExtractor) OwnsFile(relFile string) bool { return isPythonFile(relFile) }
+func (e *PythonExtractor) OwnsFile(relFile string) bool {
+	return isPythonFile(relFile) || isNotebook(relFile)
+}

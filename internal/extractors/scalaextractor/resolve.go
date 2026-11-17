@@ -103,6 +103,7 @@ func canonicalizeTargets(allFacts []facts.Fact, crossLangIndex, filePkg map[stri
 				r.Target = resolveCallTarget(marks.resolve(r.Target, filePkg[f.File]), filePkg[f.File], typeIndex)
 			}
 		}
+		dropUnresolvedTypeNames(f)
 		// The loop metrics recorded the same targets; a mark must not leave as text.
 		for _, key := range []string{"calls_in_loop", "calls_in_scaling_loop"} {
 			if list, ok := f.PropAny(key).([]string); ok {
@@ -264,4 +265,19 @@ func parentName(fqn string) string {
 		return fqn[:i]
 	}
 	return ""
+}
+
+// dropUnresolvedTypeNames removes the names edges that still name a bare type once
+// every target is resolved: a type a signature names that is neither declared in
+// its file, imported, nor declared in its package (String, Option, a type
+// parameter). Every other names edge is resolved by then.
+func dropUnresolvedTypeNames(f *facts.Fact) {
+	out := f.Relations[:0]
+	for _, r := range f.Relations {
+		if r.Kind == facts.RelNames && !strings.Contains(r.Target, ".") {
+			continue
+		}
+		out = append(out, r)
+	}
+	f.Relations = out
 }

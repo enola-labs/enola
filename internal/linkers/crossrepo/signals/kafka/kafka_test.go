@@ -196,3 +196,53 @@ func TestConsumedTopicsAreCounted(t *testing.T) {
 		t.Errorf("kafka coverage = %+v, want detected 2, resolved 1, outside 1", c)
 	}
 }
+
+// A change-data-capture topic is the database owner's: `cdc.svc_orders.orders`
+// links its consumer to svc-orders, though no code produces it and its leading
+// segment names no service.
+func TestCDCTopicIsTheDatabaseOwners(t *testing.T) {
+	cdc := topic("kafka", "consumer")
+	cdc.Name = "cdc.svc_orders.orders"
+	sink := &fakeSink{}
+	New(vocab.Default()).Contribute(fakeInput{facts: []facts.Fact{cdc}}, sink)
+	if sink.edges != 1 {
+		t.Fatalf("edges = %d, want the consumer linked to svc-orders", sink.edges)
+	}
+	if c := sink.cov["svc-billing/"+CoverageEdgeType]; c == nil || c.Resolved != 1 {
+		t.Errorf("coverage = %+v, want the CDC topic resolved", c)
+	}
+	sandbox := topic("kafka", "consumer")
+	sandbox.Name = "cdc.svc_orders_sandbox.orders"
+	sink = &fakeSink{}
+	New(vocab.Default()).Contribute(fakeInput{facts: []facts.Fact{sandbox}}, sink)
+	if sink.edges != 1 {
+		t.Errorf("a per-environment database's CDC topic is the owner's too: edges = %d", sink.edges)
+	}
+	unknown := topic("kafka", "consumer")
+	unknown.Name = "cdc.ledger_db.entries"
+	sink = &fakeSink{}
+	New(vocab.Default()).Contribute(fakeInput{facts: []facts.Fact{unknown}}, sink)
+	if c := sink.cov["svc-billing/"+CoverageEdgeType]; sink.edges != 0 || c == nil || c.Outside != 1 {
+		t.Errorf("an unloaded database's CDC topic: edges %d, coverage %+v, want outside", sink.edges, c)
+	}
+}
+
+// A contract-registry topic names its owner after a namespace:
+// `contracts.backend.svc-orders.order_placed` is svc-orders'. The event name at
+// the end is never read as an owner.
+func TestNamespacedTopicNamesItsOwnerFurtherIn(t *testing.T) {
+	ns := topic("kafka", "consumer")
+	ns.Name = "contracts.backend.svc-orders.order_placed"
+	sink := &fakeSink{}
+	New(vocab.Default()).Contribute(fakeInput{facts: []facts.Fact{ns}}, sink)
+	if sink.edges != 1 {
+		t.Errorf("edges = %d, want the consumer linked to svc-orders", sink.edges)
+	}
+	last := topic("kafka", "consumer")
+	last.Name = "events.backend.svc-orders"
+	sink = &fakeSink{}
+	New(vocab.Default()).Contribute(fakeInput{facts: []facts.Fact{last}}, sink)
+	if sink.edges != 0 {
+		t.Errorf("the last segment was read as an owner: edges = %d", sink.edges)
+	}
+}

@@ -112,6 +112,8 @@ func (e *RubyExtractor) Extract(ctx context.Context, repoPath string, files []st
 	// Pass 1: parse packwerk packages (builds package map and privacy boundaries).
 	pkgInfo := parsePackwerk(repoPath)
 	allFacts = append(allFacts, pkgInfo.facts...)
+	// Classes a scheduler runs by the name its config writes.
+	allFacts = append(allFacts, scheduleRefs(repoPath)...)
 
 	// Pass 2: parse .rb files. Route files are parsed separately by the route
 	// extractor, so they are excluded here.

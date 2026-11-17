@@ -23,6 +23,9 @@ const (
 	// run-once guard (Go's sync.Once). The call happens once per process, so what
 	// it does is not what the function does each time it is called.
 	propCallsOnce = "calls_once"
+	// propValueRefs lists the calls edges that hand a function over as a value
+	// (`w.Register(h.Expire)`): the function is reachable, not run.
+	propValueRefs = "value_refs"
 )
 
 // Propagate sets performs_io on every symbol in all that is io_direct or reaches
@@ -113,6 +116,12 @@ func PropagateWith(all []facts.Fact, opts Options) {
 		if once, ok := f.PropAny(propCallsOnce).([]string); ok {
 			for _, c := range once {
 				seen[c] = true // never followed
+			}
+		}
+		// A function handed over as a value is not run by the one handing it.
+		if values, ok := f.PropAny(propValueRefs).([]string); ok {
+			for _, c := range values {
+				seen[c] = true
 			}
 		}
 		for _, r := range f.Relations {
@@ -225,9 +234,11 @@ func reachesIO(f facts.Fact, io map[string]bool, opaque func(string) bool) bool 
 		return false
 	}
 	once, _ := f.PropAny(propCallsOnce).([]string)
+	values, _ := f.PropAny(propValueRefs).([]string)
 	for _, r := range f.Relations {
 		if r.Kind == facts.RelCalls && r.Target != f.Name && io[r.Target] &&
-			!slices.Contains(once, r.Target) && (opaque == nil || !opaque(r.Target)) {
+			!slices.Contains(once, r.Target) && !slices.Contains(values, r.Target) &&
+			(opaque == nil || !opaque(r.Target)) {
 			return true
 		}
 	}

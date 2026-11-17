@@ -1793,3 +1793,33 @@ func TestGeneratedCallerKeepsHandWrittenCodeAlive(t *testing.T) {
 		t.Fatal("generated code is never a candidate")
 	}
 }
+
+// A member of a type reached through its module, `metrics.base.Dimension.SEEN`, uses
+// the type, which is named `metrics/base.Dimension`. A capitalized member of a type
+// (`Holder.Outer`) is no module, and its nested names do not use it.
+func TestModuleQualifiedTypeReceiverIsUsed(t *testing.T) {
+	syms, refs := collectFromJSONL(t, `
+{"kind":"symbol","name":"metrics/base.Dimension","file":"metrics/base.py","props":{"symbol_kind":"class"}}
+{"kind":"symbol","name":"metrics/base.Unused","file":"metrics/base.py","props":{"symbol_kind":"class"}}
+{"kind":"symbol","name":"metrics/defs.build","file":"metrics/defs.py","props":{"symbol_kind":"function"},"relations":[{"kind":"calls","target":"metrics.base.Dimension.SEEN"}]}
+`)
+	all := orphansByName(classify(syms, refs, options{Mode: "both", Visibility: "all"}))
+	if o, ok := all["metrics/base.Dimension"]; ok {
+		t.Fatalf("a class whose member is read through its module was reported: %+v", o)
+	}
+	if _, ok := all["metrics/base.Unused"]; !ok {
+		t.Fatal("genuinely unused code must still be reported")
+	}
+}
+
+// A Go function's closures are named after it, `pkg.Open.func2`: called through a
+// stored value, they do not use the function that made them.
+func TestGoClosureOfAnExportedFunctionDoesNotUseIt(t *testing.T) {
+	syms, refs := collectFromJSONL(t, `
+{"kind":"symbol","name":"example.com/app/bus.Open","file":"bus/bus.go","props":{"symbol_kind":"function"}}
+{"kind":"symbol","name":"example.com/app/bus.Bus.Publish","file":"bus/bus.go","props":{"symbol_kind":"method"},"relations":[{"kind":"calls","target":"example.com/app/bus.Open.func2"}]}
+`)
+	if _, ok := orphansByName(classify(syms, refs, options{Mode: "both", Visibility: "all"}))["example.com/app/bus.Open"]; !ok {
+		t.Fatal("a function only its own closures are called through is still unused")
+	}
+}

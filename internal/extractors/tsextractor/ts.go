@@ -435,6 +435,10 @@ func (e *TSExtractor) fileDeclarations(kinds *tsutil.KindTable, root *sitter.Nod
 	// Mark the corresponding symbols as exported.
 	markExported(decls, collectExportedLocalNames(kinds, root, ctx.src))
 	markDefaultExportedName(kinds, root, ctx, decls)
+	if ctx.isNextJS {
+		markNextConventionExports(kinds, root, ctx, decls)
+	}
+	markK6Entrypoints(ctx, decls)
 	return applyMCPTools(kinds, root, ctx, decls)
 }
 
@@ -630,6 +634,8 @@ func (e *TSExtractor) extractImports(kinds *tsutil.KindTable, root *sitter.Node,
 		}
 		if importSource == "internal" && isAssetImport(resolved) {
 			props[facts.PropCouplingKind] = facts.CouplingAsset
+		} else if typeOnlyImport(kinds, child) {
+			props[facts.PropCouplingKind] = facts.CouplingTypeOnly
 		}
 		setAliasProvenance(props, alias)
 
@@ -1907,6 +1913,109 @@ func isAppRouteFile(relFile string) bool {
 		}
 	}
 	return false
+}
+
+// k6Import spots a k6 script: it imports from k6 or a k6/ module.
+var k6Import = regexp.MustCompile(`(?:from\s+|require\(\s*)['"]k6(?:/[^'"]*)?['"]`)
+
+// k6Exec captures the exported functions a scenario names to run (`exec: 'browse'`).
+var k6Exec = regexp.MustCompile(`\bexec\s*:\s*['"]([A-Za-z_$][\w$]*)['"]`)
+
+// k6Lifecycle are the exports k6 calls on every script.
+var k6Lifecycle = map[string]bool{"setup": true, "teardown": true, "handleSummary": true}
+
+// markK6Entrypoints roots what k6 runs in a load-test script: its default export,
+// its lifecycle functions and the functions its scenarios name. None is called by
+// the script itself.
+func markK6Entrypoints(ctx *extractCtx, decls []facts.Fact) {
+	if !k6Import.Match(ctx.src) {
+		return
+	}
+	run := map[string]bool{}
+	for _, m := range k6Exec.FindAllSubmatch(ctx.src, -1) {
+		run[string(m[1])] = true
+	}
+	for i := range decls {
+		f := &decls[i]
+		if f.Kind != facts.KindSymbol || f.PropString("symbol_kind") != facts.SymbolFunc {
+			continue
+		}
+		local := f.Name[strings.LastIndexByte(f.Name, '.')+1:]
+		if f.PropBool("default_export") || k6Lifecycle[local] || run[local] {
+			f.SetProp(facts.PropFrameworkRoot, "k6")
+		}
+	}
+}
+
+// nextConventionExports are the functions an App Router file exports for Next.js
+// to call by name: static params, metadata, viewport, images, sitemaps.
+var nextConventionExports = map[string]bool{
+	"generateStaticParams": true, "generateMetadata": true, "generateViewport": true,
+	"generateImageMetadata": true, "generateSitemaps": true,
+}
+
+// markNextConventionExports marks what Next.js calls in an App Router file by the
+// name it is exported under. A handler exported under an alias
+// (`export { notFound as GET, notFound as POST }`) is the route's handler, and
+// generateStaticParams or generateMetadata is called at build or render time;
+// none of them is referenced by an in-repository call.
+func markNextConventionExports(kinds *tsutil.KindTable, root *sitter.Node, ctx *extractCtx, decls []facts.Fact) {
+	inApp := false
+	for _, seg := range strings.Split(filepath.ToSlash(ctx.relFile), "/") {
+		inApp = inApp || seg == "app"
+	}
+	if !inApp {
+		return
+	}
+	aliases := map[string][]string{} // local name -> names it is exported as
+	for i := range root.ChildCount() {
+		child := root.Child(i)
+		if kindOf(kinds, child) != "export_statement" || child.ChildByFieldName("source") != nil {
+			continue
+		}
+		clause := findChildByKind(kinds, child, "export_clause")
+		if clause == nil {
+			continue
+		}
+		for j := range clause.ChildCount() {
+			spec := clause.Child(j)
+			if kindOf(kinds, spec) != "export_specifier" {
+				continue
+			}
+			name := spec.ChildByFieldName("name")
+			if name == nil {
+				continue
+			}
+			as := nodeText(name, ctx.src)
+			if alias := spec.ChildByFieldName("alias"); alias != nil {
+				as = nodeText(alias, ctx.src)
+			}
+			local := nodeText(name, ctx.src)
+			aliases[local] = append(aliases[local], as)
+		}
+	}
+	route := isAppRouteFile(ctx.relFile)
+	for i := range decls {
+		f := &decls[i]
+		if f.Kind != facts.KindSymbol || f.PropString("symbol_kind") != facts.SymbolFunc {
+			continue
+		}
+		local := f.Name[strings.LastIndexByte(f.Name, '.')+1:]
+		exportedAs := append([]string{}, aliases[local]...)
+		if f.PropBool("exported") {
+			exportedAs = append(exportedAs, local)
+		}
+		for _, as := range exportedAs {
+			switch {
+			case route && reactHTTPMethods[as] && f.PropString("web_component") == "":
+				f.SetProp("web_component", "route_handler")
+				f.SetProp("method", as)
+				f.SetProp("framework", "nextjs")
+			case nextConventionExports[as]:
+				f.SetProp(facts.PropFrameworkRoot, "nextjs")
+			}
+		}
+	}
 }
 
 // svelteKitLoadFileBasenames are +page/+layout (client or server) file basenames

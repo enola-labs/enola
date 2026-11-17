@@ -72,7 +72,7 @@ type valueRef struct {
 // object. A name resolved neither way (None, Nil, Right) is left out: the walker
 // has no evidence it is this repository's, and an edge to it would be noise.
 func (w *astWalker) resolveValueRefs() {
-	if len(w.valueRefs) == 0 {
+	if len(w.valueRefs) == 0 && len(w.typeRefs) == 0 {
 		return
 	}
 	declared := map[string]string{}
@@ -89,6 +89,17 @@ func (w *astWalker) resolveValueRefs() {
 		target := declared[ref.name]
 		if target == "" {
 			target = w.imports[ref.name]
+		}
+		owner := &w.out[ref.owner]
+		if target == "" || target == owner.Name || owner.HasRelation(facts.RelNames, target) {
+			continue
+		}
+		owner.Relations = append(owner.Relations, facts.Relation{Kind: facts.RelNames, Target: target})
+	}
+	for _, ref := range w.typeRefs {
+		target := declared[ref.name]
+		if target == "" {
+			target = w.resolveTypeName(ref.name)
 		}
 		owner := &w.out[ref.owner]
 		if target == "" || target == owner.Name || owner.HasRelation(facts.RelNames, target) {
@@ -120,6 +131,8 @@ type astWalker struct {
 	imports map[string]string
 	// valueRefs: see resolveValueRefs.
 	valueRefs []valueRef
+	// typeRefs: the types declarations name; see resolveValueRefs.
+	typeRefs []valueRef
 
 	out []facts.Fact
 
@@ -361,6 +374,15 @@ func (w *astWalker) walk(n *sitter.Node) {
 		w.inExtension = true
 		w.walkChildren(n)
 		w.inExtension = prev
+		return
+	case "type_identifier":
+		// A type a signature, a field or a type argument names is used by the
+		// declaration it appears in. Recorded as written; one this file neither
+		// declares nor imports is tried against the file's package after every file
+		// is read, and dropped if it names nothing there (see dropUnresolvedTypeNames).
+		if len(w.ownerStack) > 0 {
+			w.typeRefs = append(w.typeRefs, valueRef{owner: w.ownerStack[len(w.ownerStack)-1], name: w.text(n)})
+		}
 		return
 	case "identifier":
 		// The receiver of `Foo.bar` is already carried by that member's own edge.

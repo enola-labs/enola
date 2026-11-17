@@ -19,6 +19,18 @@ var rubyBatchIterators = map[string]bool{
 	"each_slice": true, "in_groups_of": true, "in_groups": true,
 }
 
+// batchEnumerator reports a receiver that is a batch iterator called without a
+// block: `ids.each_slice(500).each_with_object({}) { |batch, acc| … }` and
+// `ids.each_slice(500).flat_map { |batch| … }` iterate the enumerator each_slice
+// returns, so their block runs once per batch exactly as each_slice's own would.
+func (w *rubyWalker) batchEnumerator(recv *sitter.Node) bool {
+	if recv == nil || recv.Kind() != "call" || recv.ChildByFieldName("block") != nil {
+		return false
+	}
+	m := recv.ChildByFieldName("method")
+	return m != nil && rubyBatchIterators[rubyText(m, w.src)]
+}
+
 // rubyLoop is one enclosing loop of the walk.
 type rubyLoop struct {
 	vars  []string // what the loop binds per round: block parameters, a `for` variable

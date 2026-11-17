@@ -295,6 +295,42 @@ func TestExplain_AssociationEdgesExcluded(t *testing.T) {
 	}
 }
 
+// A cycle closed only by an import that does not run at load time is no
+// load-order cycle: one the compiler erases, or a Python import inside a
+// function. The same pair joined by a plain import both ways still is one.
+func TestExplain_ImportThatDoesNotLoadClosesNoCycle(t *testing.T) {
+	build := func(props map[string]any) *facts.Store {
+		s := facts.NewStore()
+		s.Add(facts.Fact{Kind: facts.KindModule, Name: "src/orders"},
+			facts.Fact{Kind: facts.KindModule, Name: "src/cart"},
+			facts.Fact{
+				Kind: facts.KindDependency, File: "src/orders/list.ts",
+				Relations: []facts.Relation{{Kind: facts.RelImports, Target: "src/cart"}},
+			},
+			facts.Fact{
+				Kind: facts.KindDependency, File: "src/cart/total.ts", Props: props,
+				Relations: []facts.Relation{{Kind: facts.RelImports, Target: "src/orders"}},
+			})
+		return s
+	}
+	for name, c := range map[string]struct {
+		props map[string]any
+		want  int
+	}{
+		"type-only": {map[string]any{facts.PropCouplingKind: facts.CouplingTypeOnly}, 0},
+		"deferred":  {map[string]any{"deferred": true}, 0},
+		"plain":     {nil, 1},
+	} {
+		insights, err := New().Explain(context.Background(), build(c.props))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(insights) != c.want {
+			t.Errorf("%s back edge: %d insights, want %d", name, len(insights), c.want)
+		}
+	}
+}
+
 // TestExplain_Deterministic guards BUG-2: the cycle path, evidence order, and
 // multi-cycle insight order used to depend on Go's randomized map iteration
 // (tarjanSCC ranged the graph map directly and never sorted). Each Explain call

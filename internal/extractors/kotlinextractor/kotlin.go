@@ -136,7 +136,12 @@ func (e *KotlinExtractor) Extract(ctx context.Context, repoPath string, files []
 			log.Printf("[kotlin-extractor] error reading %s: %v", relFile, err)
 			return nil
 		}
-		clients := append(extractRetrofitFacts(src, relFile), extractServletRouteFacts(src, relFile)...)
+		// A test declares fake endpoints to exercise the client; they are not
+		// routes the app calls or serves.
+		var clients []facts.Fact
+		if !jvmsrc.IsTestSource(relFile) && !facts.IsTestPath(relFile) {
+			clients = append(extractRetrofitFacts(src, relFile), extractServletRouteFacts(src, relFile)...)
+		}
 		index := packageIndex
 		if jvmsrc.IsTestSource(relFile) {
 			index = testIndex
@@ -162,14 +167,21 @@ func (e *KotlinExtractor) Extract(ctx context.Context, repoPath string, files []
 	ioclosure.Propagate(allFacts)
 
 	for dir := range modules {
+		props := map[string]any{
+			"language":           "kotlin",
+			facts.PropModuleRole: jvmsrc.ModuleRole(dir),
+		}
+		// The Gradle module the package compiles into: Kotlin, like Scala, allows
+		// a cycle between packages of one module, and Gradle rejects one between
+		// modules, so the cycles explainer reads it to tell the two apart.
+		if unit := jvmsrc.BuildModule(dir); unit != "" {
+			props["jvm_module"] = unit
+		}
 		allFacts = append(allFacts, facts.Fact{
-			Kind: facts.KindModule,
-			Name: dir,
-			File: dir,
-			Props: map[string]any{
-				"language":           "kotlin",
-				facts.PropModuleRole: jvmsrc.ModuleRole(dir),
-			},
+			Kind:  facts.KindModule,
+			Name:  dir,
+			File:  dir,
+			Props: props,
 		})
 	}
 
@@ -214,6 +226,15 @@ func detectAndroidProject(repoPath string) bool {
 	}
 	for _, p := range candidates {
 		if _, err := os.Stat(p); err == nil {
+			return true
+		}
+	}
+	// A multi-module build names its application module anything
+	// (`application/`), and its feature modules sit deeper
+	// (`app-features/cart/impl/`). Any module's manifest says the repository is
+	// an Android one.
+	for _, g := range []string{"*/src/main/AndroidManifest.xml", "*/*/src/main/AndroidManifest.xml", "*/*/*/src/main/AndroidManifest.xml"} {
+		if m, _ := filepath.Glob(filepath.Join(repoPath, g)); len(m) > 0 {
 			return true
 		}
 	}

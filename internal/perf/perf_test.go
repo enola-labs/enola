@@ -2621,3 +2621,37 @@ func TestAnalyze_JavaAccessorIsNotReadByTheIndex(t *testing.T) {
 		t.Error("a non-accessor name every bearer of which performs I/O is still read through the index")
 	}
 }
+
+// A Go package is I/O by its own name, not by a substring of its path: go-jet's
+// `mysql` package builds expressions in memory.
+func TestGoIOPackage_NameNotSubstring(t *testing.T) {
+	for target, want := range map[string]bool{
+		"database/sql.Tx.ExecContext":                  true,
+		"example.com/shop/internal/db.Store.Rows":      true,
+		"net/http.Client.Do":                           true,
+		"example.com/shop/internal/lokihttp.Push":      true,
+		"github.com/go-jet/jet/v2/mysql.Int64":         false,
+		"github.com/go-jet/jet/v2/postgres.String":     false,
+		"example.com/shop/internal/dbconfig.Load.Path": false,
+	} {
+		if got := goIOPackage(target, nil); got != want {
+			t.Errorf("goIOPackage(%q) = %v, want %v", target, got, want)
+		}
+	}
+}
+
+// A table named like a method is not that method: only storage a call can target
+// (a model class) is matched against callees.
+func TestCollect_TableNamesAreNotCallees(t *testing.T) {
+	s := facts.NewStore()
+	s.Add(facts.Fact{Kind: facts.KindStorage, Name: "attributes", Props: map[string]any{"storage_kind": "table"}},
+		facts.Fact{Kind: facts.KindStorage, Name: "events", Props: map[string]any{"storage_kind": "topic"}},
+		facts.Fact{Kind: facts.KindStorage, Name: "Account", Props: map[string]any{"storage_kind": "model"}})
+	_, storage, _, _ := collect(s)
+	if storage["attributes"] || storage["events"] {
+		t.Errorf("a table or topic name is matched against callees: %v", storage)
+	}
+	if !storage["Account"] {
+		t.Errorf("a model class is no longer matched: %v", storage)
+	}
+}

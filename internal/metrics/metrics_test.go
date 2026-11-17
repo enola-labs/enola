@@ -2,6 +2,7 @@ package metrics
 
 import (
 	"math"
+	"slices"
 	"strings"
 	"testing"
 
@@ -1085,5 +1086,22 @@ func TestMetricsToInsights_ClusterNamesTheRepository(t *testing.T) {
 	}
 	if most.Evidence[0].Fact != facts.ScopedName("billing", "config/initializers") {
 		t.Fatalf("evidence cites %q", most.Evidence[0].Fact)
+	}
+}
+
+// At one distance, the package more packages depend on is listed first.
+func TestMetricsToInsights_TiesRankByDependents(t *testing.T) {
+	rigid := func(pkg string, ca int) PackageMetric {
+		return PackageMetric{Package: pkg, ClassesInterfaces: 10, Ca: ca, Distance: 1, RigidCaFloor: 3}
+	}
+	ins := metricsToInsights([]PackageMetric{rigid("a/leaf", 4), rigid("z/hub", 900), rigid("m/mid", 30)}, false)
+	var got []string
+	for _, in := range ins {
+		if strings.HasPrefix(in.Title, "Off main sequence: ") {
+			got = append(got, strings.Fields(strings.TrimPrefix(in.Title, "Off main sequence: "))[0])
+		}
+	}
+	if want := []string{"z/hub", "m/mid", "a/leaf"}; !slices.Equal(got, want) {
+		t.Fatalf("order = %v, want %v", got, want)
 	}
 }

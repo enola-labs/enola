@@ -3,6 +3,7 @@ package goextractor
 import (
 	"go/ast"
 	"go/token"
+	"strings"
 )
 
 // Batch loops: a loop that takes the input a batch at a time.
@@ -59,10 +60,18 @@ func goBatchLoop(x *ast.ForStmt) (pageVars []string, ok, walk bool) {
 	}
 	walk = condition && goTakesElement(x.Cond)
 	bound := map[string]bool{}
+	affected := map[string]bool{} // locals holding a write's RowsAffected()
 	for _, st := range x.Body.List {
 		as, isAssign := st.(*ast.AssignStmt)
 		if !isAssign || len(as.Rhs) != 1 {
 			continue
+		}
+		if call, isCall := as.Rhs[0].(*ast.CallExpr); isCall {
+			if sel, isSel := call.Fun.(*ast.SelectorExpr); isSel && sel.Sel.Name == "RowsAffected" {
+				if id, isIdent := as.Lhs[0].(*ast.Ident); isIdent {
+					affected[id.Name] = true
+				}
+			}
 		}
 		switch as.Rhs[0].(type) {
 		case *ast.CallExpr, *ast.SliceExpr:
@@ -74,6 +83,11 @@ func goBatchLoop(x *ast.ForStmt) (pageVars []string, ok, walk bool) {
 				bound[id.Name] = true
 			}
 		}
+	}
+	// A write loop that updates or deletes a limited batch a round and stops
+	// when a round touches fewer rows than the limit is batching too.
+	if condition && !walk && len(affected) > 0 && endsOnEmpty(x.Body, affected, false) {
+		return nil, true, false
 	}
 	if len(bound) == 0 {
 		return nil, false, false
@@ -92,6 +106,12 @@ func goBatchLoop(x *ast.ForStmt) (pageVars []string, ok, walk bool) {
 			break
 		}
 	}
+	// A pager that hands each page on whole (`insert(ctx, rows)`) drains it in
+	// the callee. What says it pages is the stop: the loop ends when a fetch
+	// comes back empty.
+	if !drained && !walk && endsOnEmpty(x.Body, bound, true) {
+		drained = true
+	}
 	if !drained {
 		return nil, false, false
 	}
@@ -99,6 +119,81 @@ func goBatchLoop(x *ast.ForStmt) (pageVars []string, ok, walk bool) {
 		pageVars = append(pageVars, name)
 	}
 	return pageVars, !walk, walk
+}
+
+// endsOnEmpty reports a loop body that leaves the loop when a round came back
+// short: `if len(rows) == 0 { break }`, `if len(ids) < size { break }` (or
+// return), at the top level of the body. With byLen unset the locals are counts
+// (`if affected < limit`), compared directly.
+func endsOnEmpty(body *ast.BlockStmt, locals map[string]bool, byLen bool) bool {
+	for _, st := range body.List {
+		ifs, ok := st.(*ast.IfStmt)
+		if !ok || !comesBackShort(ifs.Cond, locals, byLen) || len(ifs.Body.List) == 0 {
+			continue
+		}
+		switch last := ifs.Body.List[len(ifs.Body.List)-1].(type) {
+		case *ast.BranchStmt:
+			if last.Tok == token.BREAK {
+				return true
+			}
+		case *ast.ReturnStmt:
+			return true
+		}
+	}
+	return false
+}
+
+// comesBackShort matches `len(x) == 0` and `len(x) < n` for x among locals, or,
+// with byLen unset, `x == 0` and `x < n`.
+func comesBackShort(cond ast.Expr, locals map[string]bool, byLen bool) bool {
+	b, ok := cond.(*ast.BinaryExpr)
+	if !ok || (b.Op != token.EQL && b.Op != token.LSS && b.Op != token.LEQ) {
+		return false
+	}
+	operand := b.X
+	if byLen {
+		call, isCall := b.X.(*ast.CallExpr)
+		if !isCall || len(call.Args) != 1 {
+			return false
+		}
+		if fn, isIdent := call.Fun.(*ast.Ident); !isIdent || fn.Name != "len" {
+			return false
+		}
+		operand = call.Args[0]
+	}
+	arg, isIdent := operand.(*ast.Ident)
+	if !isIdent || !locals[arg.Name] {
+		return false
+	}
+	if b.Op == token.EQL {
+		lit, isLit := b.Y.(*ast.BasicLit)
+		return isLit && lit.Value == "0"
+	}
+	return true
+}
+
+// goChunkers are the functions that split a slice into batches: ranging over
+// what they return visits a batch a round.
+var goChunkers = map[string]bool{"Chunk": true, "Chunks": true, "ChunkSlice": true, "Batch": true, "Batches": true}
+
+// rangesOverChunks reports `for batch := range slices.Chunk(ids, n)` and the
+// like: a call made in its body is made once per batch.
+func rangesOverChunks(x *ast.RangeStmt) bool {
+	call, ok := x.X.(*ast.CallExpr)
+	if !ok || len(call.Args) < 2 {
+		return false
+	}
+	switch fn := call.Fun.(type) {
+	case *ast.SelectorExpr:
+		return goChunkers[fn.Sel.Name]
+	case *ast.IndexExpr: // a generic call with an explicit type argument
+		if sel, isSel := fn.X.(*ast.SelectorExpr); isSel {
+			return goChunkers[sel.Sel.Name]
+		}
+	case *ast.Ident:
+		return goChunkers[fn.Name] || goChunkers[strings.ToUpper(fn.Name[:1])+fn.Name[1:]]
+	}
+	return false
 }
 
 // goElementTakers are the methods a cursor is advanced by, one element a call.

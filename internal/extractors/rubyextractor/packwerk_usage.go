@@ -42,6 +42,19 @@ func sampleOf(f *facts.Fact) packwerkSample {
 	return s
 }
 
+// underConfig reports a directory in a package's config/ tree. Packwerk maps a
+// constant to a package through the autoload paths, and config/ is not one: a
+// helper defined in config/helpers and required by an initializer is a constant
+// packwerk never attributes, so a reference to it is no dependency packwerk asks
+// to declare. It is still a use: a declaration made for it is not unused.
+func underConfig(dir, packDir string) bool {
+	rel := dir
+	if packDir != "." {
+		rel = strings.TrimPrefix(strings.TrimPrefix(dir, packDir), "/")
+	}
+	return rel == "config" || strings.HasPrefix(rel, "config/")
+}
+
 // packwerkPack is one package.yml as annotatePackwerkUsage reads it back off the
 // module fact parsePackwerk emitted.
 type packwerkPack struct {
@@ -107,12 +120,23 @@ func annotatePackwerkUsage(allFacts []facts.Fact, edges map[[2]string]string, sa
 
 	observed := map[*packwerkPack]map[string]bool{}
 	evidence := map[*packwerkPack]map[string]packwerkSample{}
+	// usedOnly holds the packages a package reaches only through constants under
+	// their config/ tree: a use that justifies a declaration, but one packwerk
+	// never attributes, so not a dependency it asks to declare.
+	usedOnly := map[*packwerkPack]map[string]bool{}
 	for e, kind := range edges {
 		if kind == facts.CouplingPackwerk {
 			continue
 		}
 		src, dst := owner(e[0]), owner(e[1])
 		if src == nil || dst == nil || src == dst {
+			continue
+		}
+		if underConfig(e[1], dst.dir) {
+			if usedOnly[src] == nil {
+				usedOnly[src] = map[string]bool{}
+			}
+			usedOnly[src][dst.name] = true
 			continue
 		}
 		if observed[src] == nil {
@@ -134,7 +158,7 @@ func annotatePackwerkUsage(allFacts []facts.Fact, edges map[[2]string]string, sa
 
 		var unused []string
 		for dep := range p.declared {
-			if !observed[p][dep] {
+			if !observed[p][dep] && !usedOnly[p][dep] {
 				unused = append(unused, dep)
 			}
 		}

@@ -496,3 +496,97 @@ func TestExplain_GeneratedSymbolExcluded(t *testing.T) {
 		t.Fatalf("fixture: the hub should be reported when it is not generated")
 	}
 }
+
+// A codec type every generated file calls per field has the generator's fan-in:
+// it is not reported. The same fan-in from hand-written callers still is.
+func TestExplain_FanInFromGeneratedCodeIsNotAGodClass(t *testing.T) {
+	build := func(generatedCallers int) *facts.Store {
+		s := facts.NewStore()
+		s.Add(facts.Fact{Kind: facts.KindSymbol, Name: "codec.Decoder", File: "codec/decoder.go"})
+		for i, c := range manyCallers(12) {
+			f := facts.Fact{
+				Kind: facts.KindSymbol, Name: c, File: fmt.Sprintf("api/c%d.go", i),
+				Relations: []facts.Relation{{Kind: facts.RelCalls, Target: "codec.Decoder"}},
+			}
+			if i < generatedCallers {
+				f.Props = map[string]any{"generated": true}
+			}
+			s.Add(f)
+		}
+		s.Add(facts.Fact{Kind: facts.KindSymbol, Name: "leaf.A", File: "leaf/x.go"},
+			facts.Fact{Kind: facts.KindSymbol, Name: "leaf.B", File: "leaf/x.go"},
+			facts.Fact{Kind: facts.KindSymbol, Name: "leaf.C", File: "leaf/x.go"})
+		s.BuildGraph()
+		return s
+	}
+	reported := func(s *facts.Store) bool {
+		insights, err := New().Explain(context.Background(), s)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, in := range insights {
+			if strings.Contains(in.Title, "codec.Decoder ") {
+				return true
+			}
+		}
+		return false
+	}
+	if reported(build(10)) {
+		t.Error("a type most of whose dependents are generated was reported")
+	}
+	if !reported(build(2)) {
+		t.Error("a type with mostly hand-written dependents must still be reported")
+	}
+}
+
+// A ClusterRole every namespace binds is how the cluster is configured, not a
+// god class.
+func TestExplain_DeploymentResourceIsNotAGodClass(t *testing.T) {
+	s := facts.NewStore()
+	s.Add(facts.Fact{Kind: facts.KindSymbol, Name: "rbac.ClusterRole.executor", File: "rbac/roles.yaml",
+		Props: map[string]any{"language": "kubernetes"}})
+	for i := 0; i < 12; i++ {
+		s.Add(facts.Fact{Kind: facts.KindSymbol, Name: fmt.Sprintf("ns%d.RoleBinding.executor", i), File: fmt.Sprintf("ns%d/rb.yaml", i),
+			Props:     map[string]any{"language": "kubernetes"},
+			Relations: []facts.Relation{{Kind: facts.RelDependsOn, Target: "rbac.ClusterRole.executor"}}})
+	}
+	s.Add(facts.Fact{Kind: facts.KindSymbol, Name: "leaf.A", File: "leaf/x.go"},
+		facts.Fact{Kind: facts.KindSymbol, Name: "leaf.B", File: "leaf/x.go"},
+		facts.Fact{Kind: facts.KindSymbol, Name: "leaf.C", File: "leaf/x.go"})
+	s.BuildGraph()
+	insights, err := New().Explain(context.Background(), s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, in := range insights {
+		if strings.Contains(in.Title, "ClusterRole") {
+			t.Fatalf("a deployment resource was reported: %s", in.Title)
+		}
+	}
+}
+
+// A dbt model many models select from is a shared table, not a class to split;
+// the same holds for an Avro envelope (see common.IsDataDefinition).
+func TestExplain_DbtModelIsNotAGodClass(t *testing.T) {
+	s := facts.NewStore()
+	s.Add(facts.Fact{Kind: facts.KindSymbol, Name: "orders.dim_users", File: "models/dim_users.sql",
+		Props: map[string]any{"language": "dbt"}})
+	for i := 0; i < 12; i++ {
+		s.Add(facts.Fact{Kind: facts.KindSymbol, Name: fmt.Sprintf("orders.fct_%d", i), File: fmt.Sprintf("models/fct_%d.sql", i),
+			Props:     map[string]any{"language": "dbt"},
+			Relations: []facts.Relation{{Kind: facts.RelDependsOn, Target: "orders.dim_users"}}})
+	}
+	s.Add(facts.Fact{Kind: facts.KindSymbol, Name: "leaf.A", File: "leaf/x.go"},
+		facts.Fact{Kind: facts.KindSymbol, Name: "leaf.B", File: "leaf/x.go"},
+		facts.Fact{Kind: facts.KindSymbol, Name: "leaf.C", File: "leaf/x.go"})
+	s.BuildGraph()
+	insights, err := New().Explain(context.Background(), s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, in := range insights {
+		if strings.Contains(in.Title, "dim_users") {
+			t.Fatalf("a dbt model was reported as a god class: %s", in.Title)
+		}
+	}
+}

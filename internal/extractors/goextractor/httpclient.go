@@ -33,7 +33,9 @@ var urlVarSuffixes = []string{
 // them. It runs only when net/http is imported, and skips external absolute URLs
 // and non-literal targets so server-handler code is never misread as a client.
 func extractHTTPClientFacts(fset *token.FileSet, f *ast.File, relFile, pkgDir string, baseURLLits map[string][]string) []facts.Fact {
-	if !importsNetHTTP(f) {
+	// A test harness calls the service it starts (a health check, a reset hook);
+	// those are not requests the application makes.
+	if !importsNetHTTP(f) || facts.IsTestPath(relFile) {
 		return nil
 	}
 	api := goAPIHint(relFile)

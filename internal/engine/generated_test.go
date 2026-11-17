@@ -64,3 +64,43 @@ func TestLooksGenerated(t *testing.T) {
 		t.Error("a missing file must not be reported generated")
 	}
 }
+
+// A library unpacked into a web root ships with its own license; the app's own
+// scripts beside it, and a licensed folder outside any web root, are not vendored.
+func TestVendoredBundles(t *testing.T) {
+	dir := t.TempDir()
+	for _, f := range []string{
+		"web/public/editor/LICENSE.md",
+		"web/public/editor/plugins/image/dialog.js",
+		"web/public/editor/editor.js",
+		"web/public/js/app.js",
+		"web/static/charts/licence.txt",
+		"web/static/charts/charts.js",
+		"LICENSE",
+		"lib/parser/LICENSE",
+		"lib/parser/parse.js",
+		"public/LICENSE",
+		"public/index.js",
+	} {
+		p := filepath.Join(dir, filepath.FromSlash(f))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	v := vendoredBundles{root: dir, licensed: map[string]bool{}}
+	for file, want := range map[string]bool{
+		"web/public/editor/plugins/image/dialog.js": true,
+		"web/public/editor/editor.js":               true,
+		"web/static/charts/charts.js":               true,
+		"web/public/js/app.js":                      false,
+		"lib/parser/parse.js":                       false,
+		"public/index.js":                           false,
+	} {
+		if got := v.contains(file); got != want {
+			t.Errorf("%s vendored = %v, want %v", file, got, want)
+		}
+	}
+}
