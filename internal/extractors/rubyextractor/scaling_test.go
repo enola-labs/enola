@@ -143,3 +143,26 @@ end
 		t.Errorf("fixed: calls_in_scaling_loop = %v, want none", got)
 	}
 }
+
+// each_slice without a block hands its batches to the chained iterator, whose
+// block then runs once per batch: a query there is the batched query.
+func TestRbScaling_ChainedBatchEnumeratorIsBatched(t *testing.T) {
+	f := rbMethod(t, `class Lookup
+  def run(ids)
+    ids.each_slice(500).each_with_object({}) do |batch, acc|
+      acc.merge!(fetch_rows(batch))
+    end
+    ids.each_slice(500).flat_map { |batch| load_flags(batch) }
+    ids.map { |id| load_one(id) }
+  end
+end
+`, "Lookup#run")
+	for _, batched := range []string{"fetch_rows", "load_flags"} {
+		if _, ok := rbCallDepth(t, f, batched); ok {
+			t.Errorf("%s, made once per batch, is listed as a per-element call", batched)
+		}
+	}
+	if _, ok := rbCallDepth(t, f, "load_one"); !ok {
+		t.Errorf("load_one, made once per element, is no longer listed")
+	}
+}

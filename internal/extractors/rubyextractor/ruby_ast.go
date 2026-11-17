@@ -1489,7 +1489,7 @@ func (w *rubyWalker) walkForCalls(node *sitter.Node, ownerIdx int, seen, locals 
 				scales := !w.rootedAtLoopVar(recv)
 				w.pushLoop(rubyLoop{
 					vars:  blockParamNames(block, w.src),
-					batch: rubyBatchIterators[rubyText(method, w.src)],
+					batch: rubyBatchIterators[rubyText(method, w.src)] || w.batchEnumerator(recv),
 				}, scales)
 				w.walkForCalls(c, ownerIdx, seen, locals)
 				w.popLoop()

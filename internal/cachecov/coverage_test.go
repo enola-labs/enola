@@ -219,6 +219,7 @@ var versionCoverage = map[int][]string{
 	624: {"TestHTTPClient_TestHarnessIsNotAClient", "TestRetrofit_TestSourcesDeclareNoRoutes"},
 	625: {"TestDrawPlaceholderGoesOnceTheDrawnFileIsParsed"},
 	626: {"TestPackwerkUsage_FileScopeBlockIsAUse"},
+	627: {"TestRbScaling_ChainedBatchEnumeratorIsBatched"},
 	507: {"TestRustImportAliasesBindOnlyTheAlias", "TestRustImportedTypeThroughAFileModuleWithADirectory", "TestRustMethodsInAFileModulesSubdirectoryResolve", "TestRustTypeImportedThroughAReExportResolves", "TestRustTypeAliasIsFollowedToItsType", "TestRustAliasedExternalImportDoesNotHideTheLocalName"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},
