@@ -125,8 +125,9 @@ type propertiesDoc struct {
 // source('source', 'table'). Only literal arguments name a node; a ref built from
 // a variable is left out.
 var (
-	refCall    = regexp.MustCompile(`\bref\(\s*['"]([^'"]+)['"]\s*(?:,\s*['"]([^'"]+)['"]\s*)?(?:,\s*v(?:ersion)?\s*=\s*[^)]*)?\)`)
-	sourceCall = regexp.MustCompile(`\bsource\(\s*['"]([^'"]+)['"]\s*,\s*['"]([^'"]+)['"]\s*\)`)
+	refCall     = regexp.MustCompile(`\bref\(\s*['"]([^'"]+)['"]\s*(?:,\s*['"]([^'"]+)['"]\s*)?(?:,\s*v(?:ersion)?\s*=\s*[^)]*)?\)`)
+	aliasConfig = regexp.MustCompile(`\balias\s*=\s*['"]([A-Za-z0-9_\-]+)['"]`)
+	sourceCall  = regexp.MustCompile(`\bsource\(\s*['"]([^'"]+)['"]\s*,\s*['"]([^'"]+)['"]\s*\)`)
 )
 
 type model struct {
@@ -136,6 +137,7 @@ type model struct {
 	refs    [][2]string // {package or "", model}
 	sources []string    // "source.table"
 	seed    bool
+	alias   string // the table name a config(alias=...) gives the model
 }
 
 // Extract emits the projects' models, snapshots and sources.
@@ -208,6 +210,9 @@ func (e *Extractor) Extract(ctx context.Context, repoPath string, files []string
 			}
 			for _, s := range sourceCall.FindAllSubmatch(src, -1) {
 				m.sources = append(m.sources, string(s[1])+"."+string(s[2]))
+			}
+			if a := aliasConfig.FindSubmatch(src); a != nil {
+				m.alias = string(a[1])
 			}
 			models = append(models, m)
 		case (ext == ".yml" || ext == ".yaml") && inPath:
@@ -321,8 +326,27 @@ func (e *Extractor) Extract(ctx context.Context, repoPath string, files []string
 			}
 		}
 		out = append(out, f)
+		out = append(out, builtTable(m, name))
 	}
 	return out, nil
+}
+
+// builtTable is the table a model builds, named as the warehouse names it: the
+// model's name, or its alias. A BI tool, an export or another repository's query
+// reads the model by that name, so the table depends on the model and a walk
+// from the model reaches whatever reads it.
+func builtTable(m *model, symbol string) facts.Fact {
+	table := m.name
+	if m.alias != "" {
+		table = m.alias
+	}
+	return facts.Fact{
+		Kind: facts.KindStorage, Name: table, File: m.file, Line: 1,
+		Props: map[string]any{
+			"storage_kind": "table", "engine": "dbt_model", "language": "dbt", "dbt_project": m.project.name,
+		},
+		Relations: []facts.Relation{{Kind: facts.RelDependsOn, Target: symbol}},
+	}
 }
 
 // underAny reports rel inside one of a project's directories.

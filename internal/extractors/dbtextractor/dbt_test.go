@@ -61,6 +61,7 @@ func TestDbtModelsRefsAndSources(t *testing.T) {
 		"orders/models/staging/_sources.yml":      "version: 2\nsources:\n  - name: cdc_changelog\n    database: raw\n    tables:\n      - name: shop_orders\n        description: Orders as written by the shop.\n",
 		"orders/models/staging/stg_orders.sql":    "{{ config(materialized='view') }}\nselect * from {{ source('cdc_changelog', 'shop_orders') }}\n",
 		"orders/models/marts/fct_orders.sql":      "select o.*, d.d from {{ ref(\"stg_orders\") }} o\njoin {{ ref('dim_dates') }} d on true\njoin {{ ref('shared', 'dim_dates') }} d2 on true\njoin {{ ref('country_codes') }} c on true\n",
+		"orders/models/marts/num_daily.sql":       "{{ config(alias='num_dau') }}\nselect count(*) from {{ ref('stg_orders') }}\n",
 		"orders/seeds/country_codes.csv":          "code,name\nFR,France\n",
 		"orders/models/marts/_marts.yml":          "version: 2\nmodels:\n  - name: fct_orders\n    description: One row per order.\n",
 		"orders/snapshots/orders_snapshot.sql":    "{% snapshot orders_snapshot %}\nselect * from {{ ref('stg_orders') }}\n{% endsnapshot %}\n",
@@ -81,6 +82,12 @@ func TestDbtModelsRefsAndSources(t *testing.T) {
 	}
 	if got["symbol orders.country_codes"].PropString("dbt_resource") != "seed" {
 		t.Errorf("the seed is not a seed: %v", got["symbol orders.country_codes"].Props)
+	}
+	for table, model := range map[string]string{"fct_orders": "orders.fct_orders", "num_dau": "orders.num_daily"} {
+		tf, ok := got["storage "+table]
+		if !ok || len(deps(tf)) != 1 || deps(tf)[0] != model {
+			t.Errorf("table %s: found %v, depends on %v, want %s", table, ok, deps(tf), model)
+		}
 	}
 	if _, ok := fct.Props["exported"]; ok {
 		t.Errorf("a model carries an exported prop: %v", fct.Props)
