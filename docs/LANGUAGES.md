@@ -29,6 +29,7 @@ Nothing here is a setting. enola looks for the markers below and runs whatever i
 | AsyncAPI   | any AsyncAPI 2.x/3.x YAML or JSON spec (channels and producer/consumer operations → messaging topics; local `$ref` and payload-schema identity) |
 | dbt        | a `dbt_project.yml`: models and snapshots → symbols `<project>.<model>` (framework roots) with `depends_on` edges from `ref()`/`source()`; `sources:` tables → `storage` facts named `<source>.<table>`; model descriptions → docs |
 | LookML     | `.lkml`/`.lookml`: views → symbols `lookml.<view>` depending on the table they read (joined to the dbt model that builds it); explores → `lookml.<model>.<explore>` depending on their views; all framework roots |
+| Avro       | `.avdl` IDL and `.avsc` JSON: named types → symbols `avro.<namespace>.<name>` with `depends_on` edges to the types their fields use; records name their full name, joining a topic of that name |
 | Vespa      | any Vespa schema definition (`.sd`): each `document` type → a `storage` fact (`storage_kind: document_type`, `engine: vespa`), with the types it inherits; YQL `select … from <type>` in code reaches the same node |
 | OpenAPI    | any spec with an `openapi:` / `swagger:` key |
 | gRPC       | any `.proto` file (proto services → routes; TypeScript gRPC-web client calls detected) |

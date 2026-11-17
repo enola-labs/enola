@@ -3696,7 +3696,8 @@ import (
 // v642: dbt is a new FileOwner (.sql, .yml/.yaml, dbt_project.yml), which reshuffles shared files.
 // v643: dbt emits the table each model builds; LookML is a new FileOwner (.lkml/.lookml).
 // v644: HCL: Terragrunt units become modules with include, source and dependency edges.
-const cacheVersion = "v644"
+// v645: Avro is a new FileOwner (.avdl, .avsc).
+const cacheVersion = "v645"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

@@ -40,6 +40,7 @@ import (
 	"github.com/enola-labs/enola/internal/explainers/vendoredcandidates"
 	"github.com/enola-labs/enola/internal/extractors/ansibleextractor"
 	"github.com/enola-labs/enola/internal/extractors/asyncapiextractor"
+	"github.com/enola-labs/enola/internal/extractors/avroextractor"
 	"github.com/enola-labs/enola/internal/extractors/cppextractor"
 	"github.com/enola-labs/enola/internal/extractors/dartextractor"
 	"github.com/enola-labs/enola/internal/extractors/dbtextractor"
@@ -589,6 +590,7 @@ func registerOSSPlugins(eng *engine.Engine, cfg *config.Config) {
 	eng.RegisterExtractor(vespaextractor.New())
 	eng.RegisterExtractor(dbtextractor.New())
 	eng.RegisterExtractor(lookmlextractor.New())
+	eng.RegisterExtractor(avroextractor.New())
 
 	// Resolve the linking vocabulary once and hand it to everything that matches under
 	// it, so the signals and the unmatched-route binder cannot disagree about what

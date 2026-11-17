@@ -1,7 +1,7 @@
 $ enola diff HEAD~1..HEAD .
 exit: 0
 --- stdout
-# 84f50bc..0350689 · <TIME> → <TIME>
+# 01ca92e..c90c48d · <TIME> → <TIME>
 
 # Architecture diff
 
