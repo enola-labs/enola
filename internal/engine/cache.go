@@ -3676,7 +3676,8 @@ import (
 // v623: Swift: a client route with an unresolved interpolation takes the path and verb
 // of the "// @endpoint" comment above its builder.
 // v624: Go net/http and Kotlin Retrofit/servlet routes are not read from test sources.
-const cacheVersion = "v624"
+// v625: Rails: a draw(:key) placeholder route goes once the drawn file is parsed.
+const cacheVersion = "v625"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
