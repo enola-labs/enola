@@ -3688,7 +3688,8 @@ import (
 // v634: Ruby: scheduler configs (sidekiq-cron class:, Temporal workflow:) name the classes they run.
 // v635: Kotlin: a repository is Android when any module (up to three levels deep) has a manifest.
 // v636: Next.js: aliased route handlers (export { fn as GET }) and generate* convention exports.
-const cacheVersion = "v636"
+// v637: Python: behave / pytest-bdd step definitions are framework-registered.
+const cacheVersion = "v637"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

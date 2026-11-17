@@ -229,6 +229,7 @@ var versionCoverage = map[int][]string{
 	634: {"TestScheduleConfigNamesTheClassesItRuns"},
 	635: {"TestDetectAndroidProject_AnyModuleManifest"},
 	636: {"TestNextConventionExports"},
+	637: {"TestBDDStepsAreFrameworkRegistered"},
 	507: {"TestRustImportAliasesBindOnlyTheAlias", "TestRustImportedTypeThroughAFileModuleWithADirectory", "TestRustMethodsInAFileModulesSubdirectoryResolve", "TestRustTypeImportedThroughAReExportResolves", "TestRustTypeAliasIsFollowedToItsType", "TestRustAliasedExternalImportDoesNotHideTheLocalName"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},

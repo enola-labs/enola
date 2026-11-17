@@ -159,6 +159,10 @@ type pyWalker struct {
 	// reliable for the module-level imports that precede the definitions it guards.
 	importsModal bool
 
+	// importsBDD records whether the file imports behave or pytest-bdd, whose step
+	// decorators (@given, @when, @then) are too generic to match without it.
+	importsBDD bool
+
 	// emittedImports holds the start byte of every import statement that has already
 	// produced a dependency fact. A method body is registered TWICE — once by
 	// handleFunction, once by walkNestedScope reached through the class body's call
@@ -938,6 +942,25 @@ func (w *pyWalker) noteModalImport(module string) {
 	if module == "modal" || strings.HasPrefix(module, "modal.") {
 		w.importsModal = true
 	}
+	if module == "behave" || strings.HasPrefix(module, "behave.") || module == "pytest_bdd" || strings.HasPrefix(module, "pytest_bdd.") {
+		w.importsBDD = true
+	}
+}
+
+// applyBDDStep marks a behave or pytest-bdd step definition: the runner matches
+// a feature file's step text to it, and nothing calls it by name.
+func applyBDDStep(props map[string]any, decoratorName string, importsBDD bool) {
+	if !importsBDD {
+		return
+	}
+	last := decoratorName
+	if i := strings.LastIndex(last, "."); i >= 0 {
+		last = last[i+1:]
+	}
+	switch last {
+	case "given", "when", "then", "step", "Given", "When", "Then", "Step", "scenario", "scenarios":
+		props["framework_registered"] = true
+	}
 }
 
 // relativeImportTarget binds a name imported by a relative from-import. Each dot
@@ -1330,6 +1353,7 @@ func (w *pyWalker) handleClass(node *sitter.Node, decorators []string) {
 
 	for _, dec := range decorators {
 		applyDecoratorProps(props, dec, w.importsModal)
+		applyBDDStep(props, dec, w.importsBDD)
 	}
 
 	// Django classification.
@@ -1460,6 +1484,7 @@ func (w *pyWalker) handleFunction(node *sitter.Node, decorators []string) {
 
 	for _, dec := range decorators {
 		applyDecoratorProps(props, dec, w.importsModal)
+		applyBDDStep(props, dec, w.importsBDD)
 	}
 	if doc := pyDocstring(node, w.src); doc != "" {
 		facts.SetDocProp(props, doc)
