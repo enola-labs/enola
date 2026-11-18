@@ -236,7 +236,8 @@ func detectAndroidProject(repoPath string) bool {
 	for _, g := range []string{"*/src/main/AndroidManifest.xml", "*/*/src/main/AndroidManifest.xml", "*/*/*/src/main/AndroidManifest.xml"} {
 		m, _ := filepath.Glob(filepath.Join(repoPath, g))
 		for _, p := range m {
-			if rel, err := filepath.Rel(repoPath, p); err == nil && !underSampleDir(rel) {
+			rel, err := filepath.Rel(repoPath, p)
+			if err == nil && !underSampleDir(factpath.Slash(rel)) {
 				return true
 			}
 		}
@@ -253,7 +254,7 @@ var sampleDirs = map[string]bool{
 
 // underSampleDir reports whether a repository-relative path lies in a sample directory.
 func underSampleDir(rel string) bool {
-	for _, seg := range strings.Split(filepath.ToSlash(rel), "/") {
+	for _, seg := range strings.Split(rel, "/") {
 		if sampleDirs[strings.ToLower(seg)] {
 			return true
 		}
