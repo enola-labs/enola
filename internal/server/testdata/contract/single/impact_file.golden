@@ -15,6 +15,16 @@
 
 - depth 1: 4
 
+## By type
+
+- go function: 2 — example.com/gosample.main, pkg/b.Beta
+- test_ref: 2 — pkg/a/a_ext_test.go, pkg/a/a_test.go
+
+## By area (repository and first directory)
+
+- go_sample/pkg: 3 (2 test_ref, 1 go function)
+- go_sample: 1 (1 go function)
+
 ## Hotspot modules
 
 - pkg/a (2 dependents)

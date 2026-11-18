@@ -42,6 +42,7 @@ type release struct {
 	resources                      []string
 	env                            []string
 	addresses                      []address
+	enabled                        []string
 }
 
 // maxEnvValue bounds an env value as recorded; a longer one is cut.
@@ -188,6 +189,14 @@ func readValues(repoPath string, files []string) *release {
 			}
 		}
 	}
+	// A chart's optional part is switched on by its own block, `<part>: {enabled:
+	// true}`: a sidecar, an ingress, autoscaling.
+	for k, v := range merged {
+		if m, ok := v.(map[string]any); ok && m["enabled"] == true {
+			r.enabled = append(r.enabled, k)
+		}
+	}
+	sort.Strings(r.enabled)
 	images, env, seenAddr := map[string]bool{}, map[string]bool{}, map[address]bool{}
 	walkValues(merged, "", func(key string, v any) {
 		if key == "image" {
@@ -341,6 +350,9 @@ func (r *release) props() map[string]any {
 	}
 	if len(r.env) > 0 {
 		out["env"] = r.env
+	}
+	if len(r.enabled) > 0 {
+		out["enabled"] = r.enabled
 	}
 	var addrs []string
 	for _, a := range r.addresses {

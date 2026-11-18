@@ -16,7 +16,7 @@ import (
 // facts can only infer.
 const structureSQLPath = "db/structure.sql"
 
-// The recognized pg_dump shapes, and nothing else. This is deliberately not a
+// The recognized pg_dump and mysqldump shapes, and nothing else. This is deliberately not a
 // SQL grammar: structure.sql is machine-written by pg_dump in a handful of
 // stable line shapes, and a line outside them is skipped rather than guessed
 // at — a wrong column census would be worse than none, because a declared rule
@@ -29,6 +29,9 @@ var (
 	// dump does not make.
 	reForeignKey = regexp.MustCompile(`^ADD CONSTRAINT \S+ FOREIGN KEY \(([a-z_][a-z0-9_]*)\) REFERENCES (\S+)\(`)
 	reColumnName = regexp.MustCompile(`^[a-z_][a-z0-9_]*$`)
+	// mysqldump writes a table's foreign keys inside its CREATE TABLE, one
+	// constraint per line.
+	reInlineForeignKey = regexp.MustCompile("^CONSTRAINT \\S+ FOREIGN KEY \\(`([a-z_][a-z0-9_]*)`\\) REFERENCES (\\S+) \\(")
 )
 
 // parsedTable is one CREATE TABLE's census: the sorted column names and the
@@ -137,9 +140,17 @@ func parseStructureSQL(src string) map[string]*parsedTable {
 		trimmed := strings.TrimSpace(line)
 
 		if inTable != nil {
-			if trimmed == ");" {
+			// pg_dump closes a table with ");", mysqldump with ") ENGINE=…;".
+			if strings.HasPrefix(trimmed, ")") {
 				sort.Strings(inTable.columns)
 				inTable = nil
+				continue
+			}
+			if m := reInlineForeignKey.FindStringSubmatch(trimmed); m != nil {
+				if ref, ok := sqlTableName(m[2]); ok {
+					inTable.fks = append(inTable.fks, m[1]+"->"+ref)
+					sort.Strings(inTable.fks)
+				}
 				continue
 			}
 			if col, ok := columnName(trimmed); ok {
@@ -188,12 +199,14 @@ func columnName(trimmed string) (string, bool) {
 	}
 	tok := strings.Fields(trimmed)[0]
 	tok = strings.TrimSuffix(tok, ",")
-	if quoted, ok := strings.CutPrefix(tok, `"`); ok {
-		name, closed := strings.CutSuffix(quoted, `"`)
-		if !closed || name == "" {
-			return "", false
+	for _, q := range []string{`"`, "`"} {
+		if quoted, ok := strings.CutPrefix(tok, q); ok {
+			name, closed := strings.CutSuffix(quoted, q)
+			if !closed || name == "" {
+				return "", false
+			}
+			return name, true
 		}
-		return name, true
 	}
 	if !reColumnName.MatchString(tok) {
 		return "", false
@@ -207,8 +220,8 @@ func columnName(trimmed string) (string, bool) {
 func sqlTableName(ref string) (string, bool) {
 	ref = strings.TrimSuffix(ref, ";")
 	parts := strings.Split(ref, ".")
-	name := strings.Trim(parts[len(parts)-1], `"`)
-	if name == "" || strings.ContainsAny(name, `"()`) {
+	name := strings.Trim(parts[len(parts)-1], "\"`")
+	if name == "" || strings.ContainsAny(name, "\"`()") {
 		return "", false
 	}
 	return name, true

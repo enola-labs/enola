@@ -3705,7 +3705,20 @@ import (
 // block, so a comment below the includes is not read as a codegen banner.
 // v650: Kotlin: an Android manifest under an examples, samples or demo directory does
 // not make the repository an Android one.
-const cacheVersion = "v650"
+// v651: Ruby: db/structure.sql written by mysqldump is read too (backquoted names,
+// keys inside CREATE TABLE, a table closed by ") ENGINE=…;").
+// v652: dbt: exposures become symbols exposure.<project>.<name>, depending on
+// the models and sources they read.
+// v653: Python: a notebook's queries name the tables they read (FROM/JOIN of a
+// qualified table in a cell holding a SELECT).
+// v654: Kubernetes: a release lists the chart parts its values switch on
+// (top-level blocks with enabled: true) as enabled.
+// v655: Python: a notebook table quoted segment by segment
+// (`project.dataset`.`table`) is read whole, not as its dataset.
+// v656: dbt: an exposure's line is its own entry's, not the file's first.
+// v657: the warehouse-lineage binder links dbt sources, change-feed records and
+// topics to what loads them, a Go service's queried tables included.
+const cacheVersion = "v657"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

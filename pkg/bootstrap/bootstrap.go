@@ -89,6 +89,7 @@ import (
 	"github.com/enola-labs/enola/internal/linkers/binders/testexercises"
 	"github.com/enola-labs/enola/internal/linkers/binders/unmatchedroutes"
 	"github.com/enola-labs/enola/internal/linkers/binders/vendoredspecs"
+	"github.com/enola-labs/enola/internal/linkers/binders/warehouselineage"
 	"github.com/enola-labs/enola/internal/linkers/binders/workloadsource"
 	deploymentsignal "github.com/enola-labs/enola/internal/linkers/crossrepo/signals/deployment"
 	graphqlsignal "github.com/enola-labs/enola/internal/linkers/crossrepo/signals/graphqlsig"
@@ -628,6 +629,7 @@ func registerOSSPlugins(eng *engine.Engine, cfg *config.Config) {
 	eng.RegisterBinder(generatedclients.New())
 	eng.RegisterBinder(generatedreach.New())
 	eng.RegisterBinder(messagingcontract.New())
+	eng.RegisterBinder(warehouselineage.New())
 	eng.RegisterBinder(unmatchedroutes.New(linkVocab))
 	eng.RegisterBinder(testexercises.New(linkVocab))
 	eng.RegisterBinder(importaliases.New())

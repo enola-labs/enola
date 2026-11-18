@@ -214,10 +214,67 @@ type ImpactResult struct {
 	Stats           TraversalStats          `json:"stats"`
 	Forward         *TraversalResult        `json:"forward_dependencies,omitempty"`
 	CrossRepoImpact []string                `json:"cross_repo_impact,omitempty"` // other repos with a dependent on the target
+	// Tally counts every dependent within max_depth, by depth, kind, repository and
+	// area, whatever max_nodes kept for display: a walk reaching thousands is
+	// described whole, not by its first page.
+	Tally *ImpactTally `json:"tally,omitempty"`
 	// TargetDeclarations lists the symbols sharing the target's name, when more than
 	// one does: the dependents are those of all of them.
 	TargetDeclarations []Declaration   `json:"target_declarations,omitempty"`
 	GoverningIntent    []GoverningPage `json:"governing_intent,omitempty"` // knowledge pages anchored to the target's file
+}
+
+// ImpactTally is the whole of an impact walk counted, not listed. An area is a
+// repository and the first directory in it: a dbt project, an app, a package root.
+type ImpactTally struct {
+	ByDepth     map[int]int            `json:"by_depth"`
+	ByDepthKind map[int]map[string]int `json:"by_depth_kind"`
+	ByKind      map[string]int         `json:"by_kind"`
+	ByRepo      map[string]int         `json:"by_repo"`
+	ByArea      map[string]int         `json:"by_area"`
+	// ByType counts what each dependent is (see impactType); ByAreaType splits an
+	// area's count the same way, and TypeNames keeps the first few names of each.
+	ByType     map[string]int            `json:"by_type"`
+	ByAreaType map[string]map[string]int `json:"by_area_type"`
+	TypeNames  map[string][]string       `json:"type_names"`
+}
+
+// typeNamesKept bounds TypeNames per type: enough to list a small type whole.
+const typeNamesKept = 15
+
+// impactType names what a dependent is, finer than its kind: a dbt model or
+// exposure, a Looker view, an Avro record, a notebook, a table and its engine.
+func impactType(f *Fact) string {
+	lang := f.PropString("language")
+	switch f.Kind {
+	case KindFileRef:
+		if f.PropBool("notebook") {
+			return "notebook"
+		}
+	case KindStorage:
+		if e := f.PropString("engine"); e != "" {
+			return "storage (" + e + ")"
+		}
+		if k := f.PropString("storage_kind"); k != "" {
+			return "storage (" + k + ")"
+		}
+	case KindSymbol:
+		for _, p := range []string{"dbt_resource", "lookml_kind", "avro_kind"} {
+			if v := f.PropString(p); v != "" {
+				return lang + " " + v
+			}
+		}
+		if lang == "dbt" {
+			return "dbt model"
+		}
+		if lang != "" {
+			if k := f.PropString("symbol_kind"); k != "" {
+				return lang + " " + k
+			}
+			return lang + " symbol"
+		}
+	}
+	return f.Kind
 }
 
 // GoverningPage is a knowledge page whose declared anchors cover the file a
@@ -889,6 +946,15 @@ func (g *Graph) traverseFrom(starts []string, direction string, relKinds, nodeKi
 	// produces a node in the result — an unresolved one — because callers ask about
 	// names that may not be in the graph and an empty answer would not say so.
 	var queue []queueItem
+	var startIDs []uint32
+	for _, start := range starts {
+		startIDs = append(startIDs, g.lookupAll(start)...)
+	}
+	lineage := !reverse && g.lineageStart(startIDs)
+	dependsOn, hasDependsOn := g.relIDs[RelDependsOn]
+	if !hasDependsOn {
+		dependsOn = noRel
+	}
 	for _, start := range starts {
 		ids := g.lookupAll(start)
 		if len(ids) == 0 {
@@ -957,13 +1023,17 @@ func (g *Graph) traverseFrom(starts []string, direction string, relKinds, nodeKi
 		if item.depth >= maxDepth {
 			continue
 		}
-		if !reverse && item.depth > 0 && g.storageOnly(item.id) {
+		throughStorage := !reverse && item.depth > 0 && g.storageOnly(item.id)
+		if throughStorage && !lineage {
 			continue
 		}
 
 		tgts, rels := g.adjOf(item.id, reverse)
 		for i, tid := range tgts {
 			relID := rels[i]
+			if throughStorage && relID != dependsOn {
+				continue
+			}
 			if relSet != nil {
 				if _, ok := relSet[relID]; !ok {
 					continue
@@ -1107,6 +1177,11 @@ func (g *Graph) findPath(from, to string, relKinds []string, maxDepth int, dispa
 		visited[id] = struct{}{}
 		queue = append(queue, queueItem{id: id, depth: 0})
 	}
+	lineage := g.lineageStart(fromIDs)
+	dependsOn, hasDependsOn := g.relIDs[RelDependsOn]
+	if !hasDependsOn {
+		dependsOn = noRel
+	}
 	toID := uint32(0)
 
 	found := false
@@ -1117,12 +1192,16 @@ func (g *Graph) findPath(from, to string, relKinds []string, maxDepth int, dispa
 		if item.depth >= maxDepth {
 			continue
 		}
-		if item.depth > 0 && g.storageOnly(item.id) {
+		throughStorage := item.depth > 0 && g.storageOnly(item.id)
+		if throughStorage && !lineage {
 			continue // see storageOnly
 		}
 
 		tgts, rels := g.adjOf(item.id, false)
 		for i, tid := range tgts {
+			if throughStorage && rels[i] != dependsOn {
+				continue
+			}
 			if relSet != nil {
 				if _, ok := relSet[rels[i]]; !ok {
 					continue
@@ -1322,6 +1401,11 @@ func (g *Graph) findPathBetween(froms, tos []string, relKinds []string, maxDepth
 	parent := make(map[uint32]uint32)
 	parentRel := make(map[uint32]uint16)
 	viaIface := make(map[uint32]bool)
+	lineage := g.lineageStart(sources)
+	dependsOn, hasDependsOn := g.relIDs[RelDependsOn]
+	if !hasDependsOn {
+		dependsOn = noRel
+	}
 	queue := make([]queueItem, 0, len(sources))
 	for _, id := range sources {
 		visited[id] = struct{}{}
@@ -1334,13 +1418,17 @@ func (g *Graph) findPathBetween(froms, tos []string, relKinds []string, maxDepth
 		if item.depth >= maxDepth {
 			continue
 		}
-		if item.depth > 0 && g.storageOnly(item.id) {
+		throughStorage := item.depth > 0 && g.storageOnly(item.id)
+		if throughStorage && !lineage {
 			continue // see storageOnly
 		}
 		tgts, rels := g.adjOf(item.id, false)
 		// The adjacency is already in neighbour-name order (sortAdjacency), so
 		// walking it as stored is the order the breadth-first tie-break needs.
 		for i, tid := range tgts {
+			if throughStorage && rels[i] != dependsOn {
+				continue
+			}
 			if relSet != nil {
 				if _, ok := relSet[rels[i]]; !ok {
 					continue
@@ -1464,7 +1552,7 @@ func (g *Graph) impactFrom(target string, seeds, forwardFrom []string, maxDepth,
 	// reachable set, so rev.Stats.NodesVisited/MaxDepthReached do describe the
 	// graph.) Count with a cheap count-only pass that excludes the seeds
 	// themselves, so the summary is accurate even when the display is truncated.
-	totalDependents := g.reachableCount(seeds, "reverse", maxDepth)
+	totalDependents, tally := g.reachableTally(seeds, maxDepth)
 
 	result := ImpactResult{
 		Target:          target,
@@ -1472,6 +1560,7 @@ func (g *Graph) impactFrom(target string, seeds, forwardFrom []string, maxDepth,
 		Edges:           rev.Edges,
 		TotalDependents: totalDependents,
 		Stats:           rev.Stats,
+		Tally:           tally,
 	}
 	if id, ok := g.lookup(target); ok {
 		result.TargetDeclarations, _ = g.declarationsOf(id)
@@ -1484,9 +1573,12 @@ func (g *Graph) impactFrom(target string, seeds, forwardFrom []string, maxDepth,
 	for _, n := range rev.Nodes {
 		if n.Depth > 0 {
 			result.ByDepth[n.Depth] = append(result.ByDepth[n.Depth], n)
-			if n.Repo != "" && n.Repo != targetRepo {
-				repoSet[n.Repo] = true
-			}
+		}
+	}
+	// Every repository with a dependent, not only those among the nodes listed.
+	for repo := range tally.ByRepo {
+		if repo != "" && repo != targetRepo {
+			repoSet[repo] = true
 		}
 	}
 	if len(repoSet) > 0 {
@@ -1499,7 +1591,7 @@ func (g *Graph) impactFrom(target string, seeds, forwardFrom []string, maxDepth,
 	}
 
 	// Build summary
-	result.Summary = g.buildImpactSummary(result.ByDepth, totalDependents)
+	result.Summary = g.buildImpactSummary(result.ByDepth, tally, totalDependents)
 	if len(result.CrossRepoImpact) > 0 {
 		result.Summary += " — spans repos: " + strings.Join(result.CrossRepoImpact, ", ")
 	}
@@ -2296,6 +2388,38 @@ func (g *Graph) storageOnly(id uint32) bool {
 	return true
 }
 
+// lineageStart reports a walk starting from a data definition: a dbt model or
+// table, a BI view or explore, a schema record, a notebook. Such a walk asks where
+// the data comes from, and the storage it meets on the way is a table something
+// else fills: a forward walk passes through it, along depends_on edges only (the
+// lineage the warehouse facts declare), instead of stopping there as a walk from
+// code does.
+func (g *Graph) lineageStart(ids []uint32) bool {
+	for _, id := range ids {
+		for _, idx := range g.factIdxsOf(id) {
+			if int(idx) >= len(g.facts) {
+				continue
+			}
+			f := &g.facts[idx]
+			switch {
+			case lineageLanguages[f.PropString("language")]:
+				return true
+			case f.Kind == KindFileRef && f.PropBool("notebook"):
+				return true
+			case f.Kind == KindStorage && strings.HasPrefix(f.PropString("engine"), "dbt_"):
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// noRel is a relation ID no edge carries.
+const noRel = ^uint16(0)
+
+// lineageLanguages are the data definitions a lineage walk starts from.
+var lineageLanguages = map[string]bool{"dbt": true, "lookml": true, "avro": true}
+
 func (g *Graph) conflatedKindsOf(id uint32) []string {
 	idxs := g.factIdxsOf(id)
 	if len(idxs) < 2 {
@@ -2384,7 +2508,7 @@ func (g *Graph) nodeForID(id uint32, depth int, viaRel string) TraversalNode {
 // total is the true dependent count within max_depth; when it exceeds the shown
 // count (because the max_nodes cap truncated the display), the summary notes how
 // many are shown.
-func (g *Graph) buildImpactSummary(byDepth map[int][]TraversalNode, total int) string {
+func (g *Graph) buildImpactSummary(byDepth map[int][]TraversalNode, tally *ImpactTally, total int) string {
 	if total == 0 {
 		return "No dependents found."
 	}
@@ -2396,18 +2520,24 @@ func (g *Graph) buildImpactSummary(byDepth map[int][]TraversalNode, total int) s
 
 	summary := ""
 	for d := 1; d <= 10; d++ {
-		nodes := byDepth[d]
-		if len(nodes) == 0 {
-			continue
-		}
-		// Count by kind
+		// Count by kind: every dependent at this depth when the walk was
+		// tallied, else the ones listed.
 		kindCount := make(map[string]int)
-		for _, n := range nodes {
-			k := n.Kind
-			if k == "" {
-				k = "unknown"
+		if tally != nil {
+			for k, n := range tally.ByDepthKind[d] {
+				kindCount[k] = n
 			}
-			kindCount[k]++
+		} else {
+			for _, n := range byDepth[d] {
+				k := n.Kind
+				if k == "" {
+					k = "unknown"
+				}
+				kindCount[k]++
+			}
+		}
+		if len(kindCount) == 0 {
+			continue
 		}
 		if summary != "" {
 			summary += "; "
@@ -2502,6 +2632,83 @@ func (g *Graph) ReverseReach(seeds, relKinds []string, maxDepth, maxNodes int) (
 		}
 	}
 	return reach, truncated
+}
+
+// reachableTally walks back from seeds as reachableCount does and counts each
+// dependent by depth, kind, repository and area.
+func (g *Graph) reachableTally(seeds []string, maxDepth int) (int, *ImpactTally) {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	if maxDepth <= 0 {
+		maxDepth = 3
+	}
+	t := &ImpactTally{ByDepth: map[int]int{}, ByDepthKind: map[int]map[string]int{}, ByKind: map[string]int{}, ByRepo: map[string]int{}, ByArea: map[string]int{},
+		ByType: map[string]int{}, ByAreaType: map[string]map[string]int{}, TypeNames: map[string][]string{}}
+	visited := make(map[uint32]struct{})
+	type queueItem struct {
+		id    uint32
+		depth int
+	}
+	var queue []queueItem
+	for _, s := range seeds {
+		for _, id := range g.lookupAll(s) {
+			if _, seen := visited[id]; !seen {
+				visited[id] = struct{}{}
+				queue = append(queue, queueItem{id: id})
+			}
+		}
+	}
+	total := 0
+	for qi := 0; qi < len(queue); qi++ {
+		item := queue[qi]
+		if item.depth >= maxDepth {
+			continue
+		}
+		tgts, _ := g.adjOf(item.id, true)
+		for _, tid := range tgts {
+			if _, seen := visited[tid]; seen {
+				continue
+			}
+			visited[tid] = struct{}{}
+			d := item.depth + 1
+			queue = append(queue, queueItem{id: tid, depth: d})
+			total++
+			kind, typ, name, repo, file := "unresolved", "unresolved", "", "", ""
+			if idx, ok := g.factIndexForID(tid, ""); ok {
+				f := &g.facts[idx]
+				kind, typ, name, repo, file = f.Kind, impactType(f), f.Name, f.Repo, f.File
+			}
+			t.ByType[typ]++
+			if name != "" && len(t.TypeNames[typ]) < typeNamesKept {
+				t.TypeNames[typ] = append(t.TypeNames[typ], name)
+			}
+			t.ByDepth[d]++
+			if t.ByDepthKind[d] == nil {
+				t.ByDepthKind[d] = map[string]int{}
+			}
+			t.ByDepthKind[d][kind]++
+			t.ByKind[kind]++
+			if repo != "" {
+				t.ByRepo[repo]++
+				area := areaOf(repo, file)
+				t.ByArea[area]++
+				if t.ByAreaType[area] == nil {
+					t.ByAreaType[area] = map[string]int{}
+				}
+				t.ByAreaType[area][typ]++
+			}
+		}
+	}
+	return total, t
+}
+
+// areaOf is a repository and the first directory of a file in it.
+func areaOf(repo, file string) string {
+	rest := strings.TrimPrefix(file, repo+"/")
+	if i := strings.IndexByte(rest, '/'); i > 0 {
+		return repo + "/" + rest[:i]
+	}
+	return repo
 }
 
 func (g *Graph) reachableCount(seeds []string, direction string, maxDepth int) int {

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/enola-labs/enola/internal/facts"
+	"github.com/enola-labs/enola/internal/version"
 )
 
 // Unchanged is what CheckUnchanged found.
@@ -30,8 +31,8 @@ type Unchanged struct {
 
 // CheckUnchanged reports whether the graph of members already on disk is what a
 // generate would write now, so the generate can be skipped. It holds when the graph's
-// directory has a complete snapshot written by this extraction version under this
-// config, for exactly these repositories, each still at the commit it was read at and
+// directory has a complete snapshot written by this enola release and extraction
+// version under this config, for exactly these repositories, each still at the commit it was read at and
 // with every file enola walks as it was: none added, none removed, none changed.
 //
 // A file whose size and modification time are the ones recorded when it was hashed is
@@ -69,6 +70,11 @@ func (e *Engine) CheckUnchanged(members []string) Unchanged {
 	switch {
 	case union.ExtractorVersion != cacheVersion:
 		u.Reason = fmt.Sprintf("written by extractor version %s, this build is %s", union.ExtractorVersion, cacheVersion)
+		return u
+	case union.EnolaVersion != version.Version:
+		// A release can change what the same facts link into (a binder, a signal)
+		// without an extractor change; an upgrade rebuilds the graph once.
+		u.Reason = fmt.Sprintf("written by enola %s, this build is %s", union.EnolaVersion, version.Version)
 		return u
 	case union.ConfigHash != computeConfigHash(e.cfg):
 		u.Reason = "written under another config"

@@ -47,6 +47,9 @@ environment:
 `,
 		"storefront/web/eu1-values.yaml": `replicaCount: 6
 autoscaling: {enabled: true, minReplicas: 6, maxReplicas: 20}
+policy:
+  enabled: true
+ingress: {enabled: false}
 environment:
   CART_URL: http://cart-api.cart.svc:8080
   SIDECAR: localhost:9000
@@ -93,9 +96,18 @@ jobs:
 		t.Errorf("addresses = %v, want %v", got, want)
 	}
 
+	// The chart's parts switched on: autoscaling and the policy sidecar, not the
+	// ingress.
+	if got, want := strs(eu, "enabled"), []string{"autoscaling", "policy"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("enabled = %v, want %v", got, want)
+	}
+
 	us := find(ff, "symbol", "storefront/web.Application.web-us1")
 	if got, want := strs(us, "value_files"), []string{"storefront/web/values.yaml", "storefront/web/us1-values.yaml"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("us1 value_files = %v, want %v: eu1's files are not us1's", got, want)
+	}
+	if got := strs(us, "enabled"); got != nil {
+		t.Errorf("us1 enabled = %v, want none", got)
 	}
 	if us.Props["replicas"] != 3 {
 		t.Errorf("us1 replicas = %v, want 3", us.Props["replicas"])

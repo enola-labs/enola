@@ -49,5 +49,42 @@
     "edges_traversed": 4,
     "max_depth_reached": 1,
     "truncated": false
+  },
+  "tally": {
+    "by_depth": {
+      "1": 2
+    },
+    "by_depth_kind": {
+      "1": {
+        "symbol": 2
+      }
+    },
+    "by_kind": {
+      "symbol": 2
+    },
+    "by_repo": {
+      "go_sample": 2
+    },
+    "by_area": {
+      "go_sample": 1,
+      "go_sample/pkg": 1
+    },
+    "by_type": {
+      "go function": 2
+    },
+    "by_area_type": {
+      "go_sample": {
+        "go function": 1
+      },
+      "go_sample/pkg": {
+        "go function": 1
+      }
+    },
+    "type_names": {
+      "go function": [
+        "example.com/gosample.main",
+        "example.com/gosample/pkg/b.Beta"
+      ]
+    }
   }
 }

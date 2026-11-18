@@ -357,7 +357,8 @@ func (s *Server) registerImpactAnalysisTool() {
 		Description: "Blast radius of changing a node: everything that transitively depends on it, grouped by hop depth, and the HTTP endpoints it affects. " +
 			"include_forward=true adds what the target itself depends on. " +
 			"When knowledge pages declare anchors (enola_intent), it also lists the pages anchored to the target's file: the decisions governing the code you are about to change. " +
-			"Output grows fast: start with output_mode=summary and keep max_depth and max_nodes bounded.",
+			"Output grows fast: start with output_mode=summary and keep max_depth and max_nodes bounded. " +
+			"The summary counts all dependents by depth, kind, type, repo and area.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args impactAnalysisArgs) (*mcp.CallToolResult, any, error) {
 		report, err := impact.Analyze(s.resolver(s.eng.Store()), impact.Request{
 			Target:         args.Target,
@@ -1076,6 +1077,17 @@ func (s *Server) renderImpactSummary(resp impactResponse) string {
 			byModule[moduleOf(n)]++
 		}
 	}
+	// The listing stops at max_nodes; the tally counted the whole walk.
+	depthCount := func(d int) int { return len(r.ByDepth[d]) }
+	if t := r.Tally; t != nil {
+		byKind = t.ByKind
+		depths = depths[:0]
+		for d := range t.ByDepth {
+			depths = append(depths, d)
+		}
+		sort.Ints(depths)
+		depthCount = func(d int) int { return t.ByDepth[d] }
+	}
 
 	if len(byKind) > 0 {
 		sb.WriteString("## Dependents by kind\n\n")
@@ -1088,12 +1100,48 @@ func (s *Server) renderImpactSummary(resp impactResponse) string {
 	if len(depths) > 0 {
 		sb.WriteString("## By depth\n\n")
 		for _, d := range depths {
-			fmt.Fprintf(&sb, "- depth %d: %d\n", d, len(r.ByDepth[d]))
+			fmt.Fprintf(&sb, "- depth %d: %d\n", d, depthCount(d))
 		}
 		sb.WriteString("\n")
 	}
 
 	writeImpactPackages(&sb, resp)
+
+	if t := r.Tally; t != nil && len(t.ByRepo) > 1 {
+		sb.WriteString("## By repository\n\n")
+		for _, repo := range topCounts(t.ByRepo, 15) {
+			fmt.Fprintf(&sb, "- %s: %d\n", repo, t.ByRepo[repo])
+		}
+		if len(t.ByRepo) > 15 {
+			fmt.Fprintf(&sb, "- … %d more repositories\n", len(t.ByRepo)-15)
+		}
+		sb.WriteString("\n")
+	}
+	if t := r.Tally; t != nil && len(t.ByType) > 1 {
+		sb.WriteString("## By type\n\n")
+		for _, typ := range topCounts(t.ByType, len(t.ByType)) {
+			names := t.TypeNames[typ]
+			switch {
+			case len(names) == 0:
+				fmt.Fprintf(&sb, "- %s: %d\n", typ, t.ByType[typ])
+			case len(names) == t.ByType[typ]:
+				fmt.Fprintf(&sb, "- %s: %d — %s\n", typ, t.ByType[typ], strings.Join(names, ", "))
+			default:
+				fmt.Fprintf(&sb, "- %s: %d — e.g. %s\n", typ, t.ByType[typ], strings.Join(names[:min(3, len(names))], ", "))
+			}
+		}
+		sb.WriteString("\n")
+	}
+	if t := r.Tally; t != nil && len(t.ByArea) > 1 {
+		sb.WriteString("## By area (repository and first directory)\n\n")
+		for _, a := range topCounts(t.ByArea, impactAreasShown) {
+			fmt.Fprintf(&sb, "- %s: %d%s\n", a, t.ByArea[a], areaTypes(t.ByAreaType[a]))
+		}
+		if len(t.ByArea) > impactAreasShown {
+			fmt.Fprintf(&sb, "- … %d more areas\n", len(t.ByArea)-impactAreasShown)
+		}
+		sb.WriteString("\n")
+	}
 
 	if len(byModule) > 0 {
 		sb.WriteString("## Hotspot modules\n\n")
@@ -1162,4 +1210,23 @@ func (s *Server) scopeCandidates(store *facts.Store, input string, cands []strin
 		out[i] = s.graphKey(store, input, c, nil)
 	}
 	return out
+}
+
+// impactAreasShown bounds the area list. A warehouse walk reaches some fifty
+// projects and folders; listing them all keeps the small ones countable.
+const impactAreasShown = 60
+
+// areaTypes splits an area's count by type: "(12 dbt model, 10 storage (dbt_model))".
+func areaTypes(types map[string]int) string {
+	if len(types) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, 4)
+	for _, typ := range topCounts(types, 4) {
+		parts = append(parts, fmt.Sprintf("%d %s", types[typ], typ))
+	}
+	if len(types) > 4 {
+		parts = append(parts, "…")
+	}
+	return " (" + strings.Join(parts, ", ") + ")"
 }
