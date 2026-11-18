@@ -77,11 +77,12 @@ func codeCells(src []byte) []string {
 
 // A notebook mostly reads a warehouse: SQL in a string handed to a client, or a
 // %%sql / %%bigquery cell. A table is named after FROM or JOIN, qualified
-// (`project.dataset.table`, dataset.table), possibly with a placeholder for the
+// (`project.dataset.table`, `project.dataset`.`table`, dataset.table), possibly
+// with a placeholder for the
 // project (`{project}.marts.orders`). A cell with no SELECT holds no query, and a
 // Python `from a.b import c` is not one.
 var (
-	sqlTableRef   = regexp.MustCompile("(?i)\\b(?:from|join)\\s+(`[^`\\n]+`|[A-Za-z0-9_{}$-]+(?:\\.[A-Za-z0-9_{}$-]+)+)")
+	sqlTableRef   = regexp.MustCompile("(?i)\\b(?:from|join)\\s+((?:`[^`\\n]+`|[A-Za-z0-9_{}$-]+)(?:\\.(?:`[^`\\n]+`|[A-Za-z0-9_{}$-]+))*)")
 	sqlSelect     = regexp.MustCompile(`(?i)\bselect\b`)
 	pyImportAfter = regexp.MustCompile(`^\s+import\b`)
 	sqlTableName  = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
@@ -99,7 +100,7 @@ func notebookTables(src []byte) []string {
 			if pyImportAfter.MatchString(cell[m[1]:]) {
 				continue
 			}
-			ref := strings.Trim(cell[m[2]:m[3]], "`")
+			ref := strings.ReplaceAll(cell[m[2]:m[3]], "`", "")
 			segs := strings.Split(ref, ".")
 			if len(segs) < 2 {
 				continue

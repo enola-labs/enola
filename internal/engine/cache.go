@@ -3713,7 +3713,9 @@ import (
 // qualified table in a cell holding a SELECT).
 // v654: Kubernetes: a release lists the chart parts its values switch on
 // (top-level blocks with enabled: true) as enabled.
-const cacheVersion = "v654"
+// v655: Python: a notebook table quoted segment by segment
+// (`project.dataset`.`table`) is read whole, not as its dataset.
+const cacheVersion = "v655"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

@@ -1,6 +1,7 @@
 package pythonextractor
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/enola-labs/enola/internal/facts"
@@ -54,6 +55,7 @@ func TestNotebookReadsTheTablesItsQueriesName(t *testing.T) {
   {"cell_type": "code", "source": ["from os.path import join\n", "from google.cloud import bigquery\n"]},
   {"cell_type": "code", "source": ["q = f\"\"\"\n", "SELECT o.id FROM ` + "`{PROJECT}.marts.fct_orders`" + ` o\n", "LEFT JOIN staging.stg_refunds r ON r.id = o.id\n", "\"\"\"\n"]},
   {"cell_type": "code", "source": ["%%bigquery df\n", "select * from ` + "`shop-data.dimensions.dim_users`" + `\n"]},
+  {"cell_type": "code", "source": "q = 'SELECT * FROM ` + "`shop-data.marts`.`mrt_returns`" + `'\n"},
   {"cell_type": "code", "source": "rows = load_from(data.frame)\n"}
  ],
  "metadata": {}, "nbformat": 4, "nbformat_minor": 5
@@ -70,8 +72,8 @@ func TestNotebookReadsTheTablesItsQueriesName(t *testing.T) {
 			}
 		}
 	}
-	want := []string{"dim_users", "fct_orders", "stg_refunds"}
-	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] || got[2] != want[2] {
+	want := []string{"dim_users", "fct_orders", "mrt_returns", "stg_refunds"}
+	if !slices.Equal(got, want) {
 		t.Errorf("tables read = %v, want %v", got, want)
 	}
 }
