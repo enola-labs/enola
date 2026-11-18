@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/enola-labs/enola/internal/config"
+	"github.com/enola-labs/enola/internal/version"
 	"github.com/enola-labs/enola/pkg/bootstrap"
 )
 
@@ -79,6 +80,11 @@ func TestCheckUnchanged(t *testing.T) {
 		}
 	}
 	expect(true, "")
+	// Another release wrote it: rebuilt once, whatever the tree.
+	built := version.Version
+	version.Version = "9.9.9-other"
+	expect(false, "written by enola")
+	version.Version = built
 	if u := eng.CheckUnchanged(members); u.Read != 0 {
 		t.Errorf("an unchanged cluster read %d files; size and time should settle them", u.Read)
 	}
