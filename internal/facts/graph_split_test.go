@@ -189,3 +189,34 @@ func TestCallDoesNotLandOnABareClientPath(t *testing.T) {
 		t.Errorf("a path-shaped target lost its edge: %v", got)
 	}
 }
+
+func TestCallDoesNotLandOnAnotherRepositorysTable(t *testing.T) {
+	s := NewStore()
+	s.Add(
+		Fact{Kind: KindStorage, Name: "parcels", File: "db/schema.sql", Repo: "depot"},
+		Fact{Kind: KindStorage, Name: "parcels", File: "db/structure.sql", Repo: "hub"},
+		Fact{Kind: KindStorage, Name: "labels", File: "db/schema.sql", Repo: "depot"},
+		Fact{Kind: KindSymbol, Name: "store.Parcels.list", File: "store/parcels.go", Repo: "depot",
+			Props:     map[string]any{"symbol_kind": SymbolMethod},
+			Relations: []Relation{{Kind: RelCalls, Target: "parcels"}, {Kind: RelCalls, Target: "labels"}}},
+		Fact{Kind: KindSymbol, Name: "ui.Tracking.render", File: "app/ui/Tracking.kt", Repo: "phone",
+			Props:     map[string]any{"symbol_kind": SymbolMethod, "language": "kotlin"},
+			Relations: []Relation{{Kind: RelCalls, Target: "parcels"}, {Kind: RelCalls, Target: "labels"}}},
+	)
+	s.BuildGraph()
+	g := s.Graph()
+	var from []string
+	for _, name := range []string{"parcels", "labels"} {
+		for _, e := range g.ReverseEdges(name) {
+			from = append(from, e.Target)
+		}
+	}
+	for _, f := range from {
+		if f == "ui.Tracking.render" {
+			t.Errorf("code in a repository declaring no such table reached another's: %v", from)
+		}
+	}
+	if !slices.Contains(from, "store.Parcels.list") {
+		t.Errorf("a query in the repository declaring the table lost its edge: %v", from)
+	}
+}
