@@ -13,6 +13,7 @@ import (
 
 type touchedArgs struct {
 	RepoPath   string `json:"repo_path,omitempty" jsonschema:"default: the snapshot's"`
+	Repo       string `json:"repo,omitempty" jsonschema:"label, not repo_path"`
 	Since      string `json:"since,omitempty" jsonschema:"as git log --since"`
 	Until      string `json:"until,omitempty"`
 	Subject    string `json:"subject,omitempty" jsonschema:"regexp, e.g. (?i)\\bfix"`
@@ -20,6 +21,15 @@ type touchedArgs struct {
 	MaxSymbols int    `json:"max_symbols,omitempty" jsonschema:"skip commits changing more"`
 	Top        int    `json:"top,omitempty" jsonschema:"default 30"`
 	Commits    bool   `json:"commits,omitempty"`
+}
+
+// touchedCommit is one commit as touched lists it: its subject and what it changed.
+type touchedCommit struct {
+	SHA     string   `json:"sha"`
+	Date    string   `json:"date"`
+	Subject string   `json:"subject"`
+	Files   []string `json:"files,omitempty"`
+	Symbols []string `json:"symbols,omitempty"`
 }
 
 // touchedNote travels with the ranking because it can change who comes first, and a session
@@ -31,9 +41,16 @@ const touchedNote = "A nested function with no row of its own counts for the enc
 func (s *Server) registerTouchedTool() {
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "touched",
-		Description: "Symbols commits changed, ranked by count. From git history; long ranges take minutes.",
+		Description: "Symbols commits changed, ranked by count, from git history. Long ranges are slow.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args touchedArgs) (*mcp.CallToolResult, any, error) {
 		repo := args.RepoPath
+		if repo == "" && args.Repo != "" {
+			paths := s.eng.RepoPaths()
+			repo = paths[args.Repo]
+			if repo == "" {
+				return errorResult("repo " + args.Repo + " is not a repository of the loaded graph"), nil, nil
+			}
+		}
 		if repo == "" {
 			repo = s.currentRepoPath()
 		}
@@ -89,12 +106,27 @@ func (s *Server) registerTouchedTool() {
 				res.Ranking[i].Commits = nil
 			}
 		}
+		// With commits asked for, each commit is listed too, newest first: what a change
+		// was called and which functions it changed is what someone following up on
+		// "the latest change" reads first, and per-row SHAs alone cannot say that.
+		var list []touchedCommit
+		if args.Commits {
+			for i := len(res.Commits) - 1; i >= 0 && len(list) < top; i-- {
+				c := res.Commits[i]
+				row := touchedCommit{SHA: c.SHA, Date: c.Date, Subject: c.Subject, Files: c.Files}
+				for _, sym := range c.Symbols {
+					row.Symbols = append(row.Symbols, sym.Name)
+				}
+				list = append(list, row)
+			}
+		}
 		return jsonResult(struct {
 			Commits       int              `json:"commits"`
 			Note          string           `json:"note"`
 			RankedCommits int              `json:"ranked_commits"`
 			Symbols       int              `json:"symbols"`
 			Ranking       []touched.Ranked `json:"ranking,omitempty"`
-		}{len(res.Commits), touchedNote, res.RankedCommits, res.Symbols, res.Ranking})
+			CommitList    []touchedCommit  `json:"commit_list,omitempty"`
+		}{len(res.Commits), touchedNote, res.RankedCommits, res.Symbols, res.Ranking, list})
 	})
 }

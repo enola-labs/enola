@@ -787,7 +787,7 @@
   },
   {
     "name": "touched",
-    "description": "Symbols commits changed, ranked by count. From git history; long ranges take minutes.",
+    "description": "Symbols commits changed, ranked by count, from git history. Long ranges are slow.",
     "input_schema": {
       "additionalProperties": false,
       "properties": {
@@ -800,6 +800,10 @@
         "max_symbols": {
           "description": "skip commits changing more",
           "type": "integer"
+        },
+        "repo": {
+          "description": "label, not repo_path",
+          "type": "string"
         },
         "repo_path": {
           "description": "default: the snapshot's",

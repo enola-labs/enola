@@ -409,7 +409,9 @@ func TestContract_EveryToolIsPinned(t *testing.T) {
 // final-inheritance, the proof-class explainer the query_insights filter must name:
 // the explainer= tag is that vocabulary's one full listing, and the vocabulary test
 // refuses to let it drift, so a new explainer costs its literal and nothing else can pay.
-const toolCatalogueBudget = 30_600
+// Raised from 30,600 for touched's repo, the label a served multi-repo consumer has where
+// it has no filesystem path to name; touched's own text was cut first.
+const toolCatalogueBudget = 30_650
 
 func TestToolCatalogue_SizeBudget(t *testing.T) {
 	s := startInMemory(t)
