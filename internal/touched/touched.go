@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -46,6 +47,11 @@ type Options struct {
 	MaxSymbols int
 	// Declarations credits a symbol that is part of a declaration to the declaration.
 	Declarations bool
+	// NoSymlinks leaves symbolic links out of the scratch tree, so nothing read from it
+	// can resolve to a path outside it. A caller confined to some directories sets it:
+	// the scratch tree lives in the temp directory, where its own confinement would
+	// refuse it, and a link committed to the repository could point anywhere.
+	NoSymlinks bool
 }
 
 // Commit is one commit and the symbols it changed, on its new side.
@@ -116,7 +122,7 @@ func Run(ctx context.Context, repo string, o Options, extract Extract) (*Result,
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		if err := syncTree(ctx, repo, tree, at, c.SHA); err != nil {
+		if err := syncTree(ctx, repo, tree, at, c.SHA, o.NoSymlinks); err != nil {
 			return nil, fmt.Errorf("commit %s: %w", c.SHA, err)
 		}
 		at = c.SHA
@@ -407,7 +413,7 @@ func selectCommits(ctx context.Context, repo string, o Options) ([]Commit, error
 
 // syncTree brings the tree at dir from commit `from` to commit `to`. The first call unpacks
 // the whole tree; later ones write only what changed between the two.
-func syncTree(ctx context.Context, repo, dir, from, to string) error {
+func syncTree(ctx context.Context, repo, dir, from, to string, noLinks bool) error {
 	if from == "" {
 		archive := exec.CommandContext(ctx, "git", "-C", repo, "archive", "--format=tar", to)
 		extract := exec.CommandContext(ctx, "tar", "-x", "-C", dir)
@@ -423,7 +429,13 @@ func syncTree(ctx context.Context, repo, dir, from, to string) error {
 			_ = extract.Wait()
 			return fmt.Errorf("reading the tree: %w", err)
 		}
-		return extract.Wait()
+		if err := extract.Wait(); err != nil {
+			return err
+		}
+		if noLinks {
+			return removeSymlinks(dir)
+		}
+		return nil
 	}
 
 	raw, err := git(ctx, repo, "diff", "--raw", "-z", "--no-abbrev", "--no-renames", from, to)
@@ -447,7 +459,20 @@ func syncTree(ctx context.Context, repo, dir, from, to string) error {
 			writes = append(writes, c)
 		}
 	}
-	return writeBlobs(ctx, repo, dir, writes)
+	return writeBlobs(ctx, repo, dir, writes, noLinks)
+}
+
+// removeSymlinks deletes every symbolic link under dir.
+func removeSymlinks(dir string) error {
+	return filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.Type()&fs.ModeSymlink != 0 {
+			return os.Remove(path)
+		}
+		return nil
+	})
 }
 
 const (
@@ -478,7 +503,7 @@ func parseRaw(raw []byte) ([]change, error) {
 }
 
 // writeBlobs writes the changes' contents through one `git cat-file --batch`.
-func writeBlobs(ctx context.Context, repo, dir string, changes []change) error {
+func writeBlobs(ctx context.Context, repo, dir string, changes []change, noLinks bool) error {
 	if len(changes) == 0 {
 		return nil
 	}
@@ -502,7 +527,7 @@ func writeBlobs(ctx context.Context, repo, dir string, changes []change) error {
 			_ = cmd.Wait()
 			return fmt.Errorf("reading %s: %w", c.path, err)
 		}
-		if err := writeEntry(dir, c, content); err != nil {
+		if err := writeEntry(dir, c, content, noLinks); err != nil {
 			_ = cmd.Wait()
 			return err
 		}
@@ -530,7 +555,7 @@ func readBlob(r *bufio.Reader) ([]byte, error) {
 	return content[:size], nil
 }
 
-func writeEntry(dir string, c change, content []byte) error {
+func writeEntry(dir string, c change, content []byte, noLinks bool) error {
 	path := filepath.Join(dir, filepath.FromSlash(c.path))
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
@@ -540,6 +565,9 @@ func writeEntry(dir string, c change, content []byte) error {
 		return err
 	}
 	if c.mode == modeSymlink {
+		if noLinks {
+			return nil
+		}
 		return os.Symlink(string(content), path)
 	}
 	return os.WriteFile(path, content, 0o644)

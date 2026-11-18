@@ -59,8 +59,18 @@ func (s *Server) registerTouchedTool() {
 		if err != nil {
 			return errorResult(err.Error()), nil, nil
 		}
+		extract := s.eng.ExtractFiles
+		if s.roots != nil {
+			if err := s.roots.Confine(repo); err != nil {
+				return errorResult(err.Error()), nil, nil
+			}
+			// repo_path was confined by the serve middleware; the scratch tree replaying
+			// its history is enola's own, in the temp directory, and kept free of links.
+			opts.NoSymlinks = true
+			extract = s.eng.ExtractScratchFiles
+		}
 		res, err := touched.Run(ctx, repo, opts, func(ctx context.Context, root string, files []string) ([]facts.Fact, error) {
-			return s.eng.ExtractFiles(ctx, root, label, files)
+			return extract(ctx, root, label, files)
 		})
 		if err != nil {
 			return errorResult(err.Error()), nil, nil

@@ -27,6 +27,18 @@ import (
 // with many directories costs more than the parsing: an extractor runs because it owns one
 // of the files, so detection has nothing to add.
 func (e *Engine) ExtractFiles(ctx context.Context, root, repoLabel string, files []string) ([]facts.Fact, error) {
+	return e.extractFiles(ctx, root, repoLabel, files, true)
+}
+
+// ExtractScratchFiles is ExtractFiles over a tree enola itself built from a repository
+// the path guard already approved, such as the history touched replays into a temp
+// directory, so the guard is not asked about root. The caller must keep the tree free
+// of symbolic links: then every file read lies inside it.
+func (e *Engine) ExtractScratchFiles(ctx context.Context, root, repoLabel string, files []string) ([]facts.Fact, error) {
+	return e.extractFiles(ctx, root, repoLabel, files, false)
+}
+
+func (e *Engine) extractFiles(ctx context.Context, root, repoLabel string, files []string, guard bool) ([]facts.Fact, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
@@ -34,7 +46,7 @@ func (e *Engine) ExtractFiles(ctx context.Context, root, repoLabel string, files
 	if err != nil {
 		return nil, fmt.Errorf("resolving %s: %w", root, err)
 	}
-	if e.pathGuard != nil {
+	if guard && e.pathGuard != nil {
 		if err := e.pathGuard(absRoot); err != nil {
 			return nil, err
 		}
