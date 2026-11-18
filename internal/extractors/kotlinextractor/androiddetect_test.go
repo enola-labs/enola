@@ -29,4 +29,20 @@ func TestDetectAndroidProject_AnyModuleManifest(t *testing.T) {
 	if detectAndroidProject(t.TempDir()) {
 		t.Error("a repository without a manifest was detected as Android")
 	}
+	for _, manifest := range []string{
+		"examples/product-sample-kt/app/src/main/AndroidManifest.xml",
+		"samples/app/src/main/AndroidManifest.xml",
+	} {
+		dir := t.TempDir()
+		p := filepath.Join(dir, filepath.FromSlash(manifest))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte("<manifest/>"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if detectAndroidProject(dir) {
+			t.Errorf("%s: a sample app made the repository Android", manifest)
+		}
+	}
 }

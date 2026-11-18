@@ -3703,7 +3703,9 @@ import (
 // Subscribe) takes its topic as a plain string; verifying or cancelling one does not.
 // v649: a C/C++ preprocessor line (#include, #if) ends a file's leading comment
 // block, so a comment below the includes is not read as a codegen banner.
-const cacheVersion = "v649"
+// v650: Kotlin: an Android manifest under an examples, samples or demo directory does
+// not make the repository an Android one.
+const cacheVersion = "v650"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //
