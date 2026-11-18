@@ -7,6 +7,89 @@ The full per-release change lists — every Added, Changed and Fixed line — ar
 [enola.tech/changelog](https://enola.tech/changelog). This file is the same history at
 the resolution a reader of the repository needs.
 
+## v0.5.3 — 2026-11-18
+
+**Hundred-repository clusters build three to four times faster, an unchanged tree skips its generate, and dbt, LookML, Avro, Rego and Terragrunt join the graph**
+
+- Clusters: a cluster is extracted into one store and linked and published once, instead
+  of re-copying the union per member. Its output has a directory of its own
+  (`output.cluster_dir`, `--out`, else `~/.enola/graphs/<key>`), found from any config
+  through a pointer `--out` leaves behind; members keep only their extractor cache, and
+  `gc --prune-cluster-copies` removes the copies older builds wrote. Explainers run
+  `analysis_jobs` at a time over the frozen store, and per-repository passes (package
+  metrics, domain findings, framework roots) run once per repository. At 100
+  repositories and 8.6M facts, against 0.5.2: cold 1,454 s to 467 s, warm 1,165 s to
+  288 s, peak RSS 47 GiB to 37 to 40 GiB. `--no-parallel` runs one job of each.
+- `--generate` first compares every repository with the graph on disk (commit, walked
+  files, extractor version, config, ignore globs) and, when all match, prints
+  `Snapshot unchanged` and exits 0 without writing: 6 s at 100 repositories. `--force`
+  generates anyway. `--refresh` writes what a full generate writes, and a cluster's
+  output no longer depends on member order.
+- Publishing: a write builds the next graph beside the current one and renames it in,
+  receipt last. A restore checks the files against the hashes in their meta and falls
+  back to `previous/`; a dashboard or served instance keeps its graph and retries.
+- Names across repositories: a module or symbol declared in several repositories gets a
+  node per repository (`repo:<label> <name>`), so one app's impact no longer lists
+  another's dependents. A scoped target stays in its repository, and an exact name
+  declared in several returns the candidates. An edge to a name declared only in another
+  language family is dropped. A finding names the pairs of repositories that depend on
+  each other.
+- `enola serve <dir>` serves a graph's output directory, with its repositories from
+  `members.json`; they need not be checked out.
+- New formats: dbt projects (models, seeds, sources, ref lineage and the tables models
+  build), LookML views and explores, Avro schemas, Rego rules, Terragrunt units with
+  their includes, module sources and dependencies, Jupyter notebooks' calls into the
+  repository, and Istio VirtualService and DestinationRule edges to Services and
+  Gateways.
+- Kafka: a struct field named Topic or TopicName marks a topic, also through a helper
+  that fills one; a CDC topic links to the service owning its database; a registry
+  prefix before the service segment is skipped. Mains under `tools/`, `scripts/`,
+  `hack/` and `dev/` are not producers.
+- Client matching: copies of another service's OpenAPI spec are demoted to client calls
+  (`spec_title`, `spec_server_host`), a gateway facade spec exposes the service's
+  operations under its prefix, and a call's own hint is tried first among providers.
+  Fastify plugins, `axios.create()` instances and awaited generic calls read as routes
+  and requests. Retrofit paths substitute the file's constants, and an `// @endpoint`
+  comment names a Swift builder's path. Routes in tests, mocks and catch-alls are not
+  providers, and test sources declare no client routes.
+- Dead code: a type named only in a signature, a field or a type argument is used, in
+  Python, Scala, Kotlin, Go and protobuf. Python resolves imports of sibling
+  directories. Roots for gem hooks (CanCanCan, PaperTrail, Temporal, Faraday,
+  chained_job), sidekiq-cron and Temporal schedules, fastlane actions, behave and
+  pytest-bdd steps, k6 scripts, and Next.js aliased route handlers and `generate*`
+  exports. Android multi-module builds are detected up to three levels deep (samples
+  excepted). Kotlin declarations the grammar misread after an expression-bodied function
+  are parsed again. Hand-written code called only from generated code counts as called.
+- Generated and vendored code: a library bundle with its own license under `public/` or
+  `static/` is treated as vendored, the performance explainer skips functions in
+  generated files, and a banner is looked for only above a C or C++ file's includes.
+- Performance findings: batched loops are recognised (chained `each_slice`, keyset
+  pagers, `slices.Chunk`, limited `UPDATE` rounds). Database rules match a package's own
+  name, storage names match only callable storage, and a function handed over as a value
+  is not followed as a call.
+- Architecture findings: type-only TypeScript imports, deferred Python imports and
+  in-module Kotlin and Java cycles leave the cycles explainer. A layer order guessed from
+  directory names is dropped when the measured imports mostly run against it, and `api`
+  is no longer a hexagonal handler. God-class leaves out generated-dominated codecs, test
+  fixtures, Swift mocks, Kubernetes manifests and data definitions. A root `Package.swift`
+  target owns its subdirectories, Go imports match a package exactly, Rails `draw`
+  placeholders go once the drawn file is read, and package-metrics ties rank by afferent
+  coupling.
+- Dart: calls on SDK and Flutter types resolve from a bundled signature index, and calls
+  resolve on declared evidence: scope, types, type arguments, `State<X>.widget` and
+  Riverpod providers.
+- Rust: crates are found by their lib name and by a dependency rename, and a local
+  declaration also imported under a feature gate stays referenced.
+- C++ and Java: `virtual`, `static`, `override` and `final` are read from the syntax tree,
+  not the source text. Declarations returning a reference and function-pointer typedefs
+  are no longer lost (1,397 symbols on a 3,274-file C++ tree). Java `@Override` marks an
+  override, and `@SuppressWarnings("static")` no longer reads as `static`.
+- Engine: cache version is v650, so existing caches re-extract.
+
+Thanks to [Gert Lõhmus](https://github.com/GertL) for the Dart resolution work and the
+Rust fixes, and to [445350](https://github.com/445350) for the C++ and Java specifier and
+declarator fixes, a first contribution to enola.
+
 ## v0.5.2 — 2026-11-13
 
 **Kubernetes, Helm and Argo CD manifests, interface hops in traverse and find_path, and endpoint_impact by repository**
