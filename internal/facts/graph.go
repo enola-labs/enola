@@ -232,6 +232,49 @@ type ImpactTally struct {
 	ByKind      map[string]int         `json:"by_kind"`
 	ByRepo      map[string]int         `json:"by_repo"`
 	ByArea      map[string]int         `json:"by_area"`
+	// ByType counts what each dependent is (see impactType); ByAreaType splits an
+	// area's count the same way, and TypeNames keeps the first few names of each.
+	ByType     map[string]int            `json:"by_type"`
+	ByAreaType map[string]map[string]int `json:"by_area_type"`
+	TypeNames  map[string][]string       `json:"type_names"`
+}
+
+// typeNamesKept bounds TypeNames per type: enough to list a small type whole.
+const typeNamesKept = 15
+
+// impactType names what a dependent is, finer than its kind: a dbt model or
+// exposure, a Looker view, an Avro record, a notebook, a table and its engine.
+func impactType(f *Fact) string {
+	lang := f.PropString("language")
+	switch f.Kind {
+	case KindFileRef:
+		if f.PropBool("notebook") {
+			return "notebook"
+		}
+	case KindStorage:
+		if e := f.PropString("engine"); e != "" {
+			return "storage (" + e + ")"
+		}
+		if k := f.PropString("storage_kind"); k != "" {
+			return "storage (" + k + ")"
+		}
+	case KindSymbol:
+		for _, p := range []string{"dbt_resource", "lookml_kind", "avro_kind"} {
+			if v := f.PropString(p); v != "" {
+				return lang + " " + v
+			}
+		}
+		if lang == "dbt" {
+			return "dbt model"
+		}
+		if lang != "" {
+			if k := f.PropString("symbol_kind"); k != "" {
+				return lang + " " + k
+			}
+			return lang + " symbol"
+		}
+	}
+	return f.Kind
 }
 
 // GoverningPage is a knowledge page whose declared anchors cover the file a
@@ -2599,7 +2642,8 @@ func (g *Graph) reachableTally(seeds []string, maxDepth int) (int, *ImpactTally)
 	if maxDepth <= 0 {
 		maxDepth = 3
 	}
-	t := &ImpactTally{ByDepth: map[int]int{}, ByDepthKind: map[int]map[string]int{}, ByKind: map[string]int{}, ByRepo: map[string]int{}, ByArea: map[string]int{}}
+	t := &ImpactTally{ByDepth: map[int]int{}, ByDepthKind: map[int]map[string]int{}, ByKind: map[string]int{}, ByRepo: map[string]int{}, ByArea: map[string]int{},
+		ByType: map[string]int{}, ByAreaType: map[string]map[string]int{}, TypeNames: map[string][]string{}}
 	visited := make(map[uint32]struct{})
 	type queueItem struct {
 		id    uint32
@@ -2629,10 +2673,14 @@ func (g *Graph) reachableTally(seeds []string, maxDepth int) (int, *ImpactTally)
 			d := item.depth + 1
 			queue = append(queue, queueItem{id: tid, depth: d})
 			total++
-			kind, repo, file := "unresolved", "", ""
+			kind, typ, name, repo, file := "unresolved", "unresolved", "", "", ""
 			if idx, ok := g.factIndexForID(tid, ""); ok {
 				f := &g.facts[idx]
-				kind, repo, file = f.Kind, f.Repo, f.File
+				kind, typ, name, repo, file = f.Kind, impactType(f), f.Name, f.Repo, f.File
+			}
+			t.ByType[typ]++
+			if name != "" && len(t.TypeNames[typ]) < typeNamesKept {
+				t.TypeNames[typ] = append(t.TypeNames[typ], name)
 			}
 			t.ByDepth[d]++
 			if t.ByDepthKind[d] == nil {
@@ -2642,7 +2690,12 @@ func (g *Graph) reachableTally(seeds []string, maxDepth int) (int, *ImpactTally)
 			t.ByKind[kind]++
 			if repo != "" {
 				t.ByRepo[repo]++
-				t.ByArea[areaOf(repo, file)]++
+				area := areaOf(repo, file)
+				t.ByArea[area]++
+				if t.ByAreaType[area] == nil {
+					t.ByAreaType[area] = map[string]int{}
+				}
+				t.ByAreaType[area][typ]++
 			}
 		}
 	}

@@ -1877,3 +1877,31 @@ func TestLineageWalksPassThroughStorage(t *testing.T) {
 		t.Errorf("a walk from code should stop at the table; got %v", code)
 	}
 }
+
+// The impact tally says what each dependent is, per area, and names a few.
+func TestImpactTallyCountsByType(t *testing.T) {
+	ff := []Fact{
+		{Kind: KindStorage, Name: "raw.shop_orders", Repo: "lake", File: "lake/sales/models/sources.yml", Props: map[string]any{"engine": "dbt_source"}},
+		{Kind: KindSymbol, Name: "sales.stg_orders", Repo: "lake", File: "lake/sales/models/stg_orders.sql", Props: map[string]any{"language": "dbt"},
+			Relations: []Relation{{Kind: RelDependsOn, Target: "raw.shop_orders"}}},
+		{Kind: KindStorage, Name: "stg_orders", Repo: "lake", File: "lake/sales/models/stg_orders.sql", Props: map[string]any{"engine": "dbt_model"},
+			Relations: []Relation{{Kind: RelDependsOn, Target: "sales.stg_orders"}}},
+		{Kind: KindSymbol, Name: "exposure.sales.board", Repo: "lake", File: "lake/sales/models/exposures.yml", Props: map[string]any{"language": "dbt", "dbt_resource": "exposure"},
+			Relations: []Relation{{Kind: RelDependsOn, Target: "sales.stg_orders"}}},
+		{Kind: KindSymbol, Name: "lookml.stg_orders", Repo: "bi", File: "bi/views/stg_orders.view.lkml", Props: map[string]any{"language": "lookml", "lookml_kind": "view"},
+			Relations: []Relation{{Kind: RelDependsOn, Target: "stg_orders"}}},
+		{Kind: KindFileRef, Name: "notebooks/weekly.ipynb", Repo: "nb", File: "nb/notebooks/weekly.ipynb", Props: map[string]any{"notebook": true, "language": "python"},
+			Relations: []Relation{{Kind: RelDependsOn, Target: "stg_orders"}}},
+	}
+	r := NewGraph(ff).ImpactSet("raw.shop_orders", 5, 10, false)
+	want := map[string]int{"dbt model": 1, "storage (dbt_model)": 1, "dbt exposure": 1, "lookml view": 1, "notebook": 1}
+	if !reflect.DeepEqual(r.Tally.ByType, want) {
+		t.Errorf("by type = %v, want %v", r.Tally.ByType, want)
+	}
+	if got := r.Tally.ByAreaType["lake/sales"]; got["dbt model"] != 1 || got["storage (dbt_model)"] != 1 || got["dbt exposure"] != 1 {
+		t.Errorf("lake/sales by type = %v", got)
+	}
+	if got := r.Tally.TypeNames["lookml view"]; !reflect.DeepEqual(got, []string{"lookml.stg_orders"}) {
+		t.Errorf("lookml view names = %v", got)
+	}
+}

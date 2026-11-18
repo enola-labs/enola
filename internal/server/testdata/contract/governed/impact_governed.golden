@@ -14,8 +14,8 @@
 
 ## By area (repository and first directory)
 
-- go_sample: 1
-- go_sample/pkg: 1
+- go_sample: 1 (1 go function)
+- go_sample/pkg: 1 (1 go function)
 
 ## Hotspot modules
 
