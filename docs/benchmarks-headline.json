@@ -44,11 +44,11 @@
     {
       "id": "scale",
       "question": "Does it finish on a real repository?",
-      "figure": "2,068,864",
+      "figure": "2,068,883",
       "label": "facts from the Linux kernel, the largest of 113 repositories indexed",
       "anchor": "4-scale",
       "evidence": [
-        "**2,068,864 facts**"
+        "**2,068,883 facts**"
       ]
     },
     {

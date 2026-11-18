@@ -7,8 +7,9 @@ a repeatable fixed-corpus benchmark of enola's structural verdicts.
 The fixed corpus was measured on 2026-11-03, at extractor version v511, on 107 public
 open-source repositories, with one binary, by scripts you can re-run. It carries the
 latest sweep rather than a released version's, so it moves when the extractors do. At
-v582 six Kubernetes and Helm repositories joined; the corpus totals and reproducibility
-counts below are from that sweep, the per-verdict passages from the version they name.
+v582 six Kubernetes and Helm repositories joined. The corpus totals, reproducibility
+counts and scale figures below are from the v650 sweep of 2026-11-18 (0.5.3), the
+per-verdict passages from the version they name.
 Where a number is unflattering it is still here.
 
 ## Real-session usage
@@ -215,7 +216,7 @@ would have been.
 
 ## The corpus
 
-113 repositories, 507,174 source files parsed of 836,197 seen, 9,275,495 facts
+113 repositories, 507,552 source files parsed of 836,239 seen, 9,318,822 facts
 carrying 28 distinct language tags (Ansible, C, C++, C#, Dart, F#, Go, HCL, Helm, Java,
 Kotlin, Kubernetes, Markdown, PHP, Python, Razor, Ruby, Rust, Scala, SQL, Stimulus, Swift,
 TypeScript, VB.NET, XAML, gRPC, OpenAPI, and enola's own intent pages). Public open-source only: every row is a
@@ -307,113 +308,113 @@ See [the .NET rows](#net) below.
 
 | Repository | Language | Files parsed | Facts | Cold | Warm |
 |---|---|---|---|---|---|
-| linux | c | 57,480 | 2,068,864 | 149.5s | 49.9s |
-| gitlab | ruby | 55,928 | 552,493 | 42.3s | 26.0s |
-| runtime | csharp | 23,686 | 549,974 | 40.2s | 24.1s |
-| dart-sdk | dart | 16,892 | 454,671 | 48.9s | 10.9s |
-| vscode | typescript | 11,973 | 451,782 | 21.8s | 12.9s |
-| rust | rust | 37,685 | 392,175 | 17.8s | 11.4s |
-| roslyn | csharp | 17,511 | 378,251 | 15.8s | 11.9s |
-| shopware | php | 18,730 | 235,645 | 9.1s | 6.2s |
-| spark | scala | 5,742 | 220,768 | 9.7s | 7.6s |
-| grafana | go | 11,365 | 214,666 | 11.2s | 6.3s |
-| flutter | dart | 7,886 | 211,576 | 8.2s | 6.3s |
-| thingsboard | java | 6,621 | 169,893 | 5.8s | 3.9s |
-| discourse | ruby | 13,252 | 145,369 | 9.9s | 6.0s |
-| flutter-packages | dart | 3,971 | 136,492 | 6.2s | 4.5s |
-| gauzy | angular | 8,915 | 132,374 | 6.5s | 3.7s |
-| openproject | ruby | 11,289 | 111,524 | 9.3s | 6.3s |
-| medusa | typescript | 9,956 | 108,123 | 13.6s | 7.5s |
-| nextcloud-server | php | 6,025 | 104,591 | 4.5s | 2.5s |
-| pekko | scala | 2,296 | 97,632 | 2.9s | 2.6s |
-| airflow | python | 13,639 | 97,392 | 9.5s | 6.5s |
-| supabase | typescript | 7,435 | 92,595 | 8.9s | 3.0s |
-| bitwarden-clients | typescript | 5,082 | 87,181 | 4.3s | 2.6s |
-| angular | angular | 7,120 | 86,780 | 4.6s | 2.6s |
-| deno | rust | 4,814 | 85,605 | 5.2s | 2.6s |
-| ente | dart | 3,757 | 85,515 | 4.0s | 2.3s |
-| dubbo | java | 4,374 | 82,958 | 2.4s | 2.2s |
-| spartacus | angular | 7,050 | 77,663 | 4.7s | 2.8s |
-| superset | python | 4,319 | 70,825 | 4.9s | 3.1s |
-| fsharp | fsharp | 1,916 | 69,767 | 2.3s | 1.6s |
-| avalonia | xaml | 3,883 | 64,946 | 2.7s | 1.7s |
-| orchardcore | razor | 7,357 | 61,504 | 6.1s | 2.0s |
-| nhost | typescript | 4,654 | 60,336 | 4.8s | 2.3s |
-| lila | scala | 2,345 | 58,574 | 2.8s | 1.7s |
-| appflowy | dart | 2,510 | 57,391 | 2.0s | 1.7s |
-| cal.com | typescript | 4,984 | 56,364 | 3.8s | 1.7s |
-| dbt-core | rust | 1,507 | 49,248 | 2.2s | 1.4s |
-| peertube | angular | 2,832 | 45,938 | 2.2s | 1.2s |
-| wordpress | php | 2,758 | 45,819 | 3.2s | 1.5s |
-| gitea | go | 5,540 | 44,275 | 2.7s | 1.5s |
-| gmsh | cpp | 1,765 | 43,697 | 2.2s | 1.1s |
-| powershell | csharp | 1,302 | 43,080 | 2.4s | 1.4s |
-| bitwarden-server | csharp | 3,707 | 42,263 | 2.1s | 1.5s |
-| immich | dart | 2,172 | 40,403 | 2.0s | 1.1s |
-| chatwoot | ruby | 3,658 | 40,289 | 2.3s | 1.5s |
-| directus | vue | 2,904 | 38,920 | 2.2s | 1.2s |
-| mudblazor | razor | 3,186 | 38,907 | 1.6s | 0.9s |
-| rails | ruby | 2,672 | 37,933 | 2.1s | 1.6s |
-| taiga-ui | angular | 2,921 | 35,915 | 1.7s | 1.1s |
-| cognee | python | 2,515 | 35,904 | 3.8s | 2.5s |
-| angular-components | angular | 2,276 | 33,264 | 1.6s | 1.1s |
-| flutterfire | dart | 1,188 | 33,006 | 1.7s | 1.1s |
-| mastodon | ruby | 3,435 | 32,635 | 2.6s | 1.5s |
-| saleor | python | 2,501 | 31,484 | 2.4s | 1.5s |
-| flarum | php | 2,734 | 30,460 | 1.2s | 0.8s |
-| mcp | csharp | 2,317 | 28,306 | 1.5s | 1.0s |
-| zio | scala | 1,137 | 28,297 | 1.2s | 0.8s |
-| jellyfin | csharp | 1,892 | 27,633 | 1.1s | 0.7s |
-| koel | php | 2,201 | 27,286 | 1.1s | 0.7s |
-| firefly-iii | php | 1,600 | 25,216 | 1.3s | 0.6s |
-| pekko-http | scala | 1,028 | 23,471 | 0.8s | 0.7s |
-| spotube | dart | 457 | 22,086 | 0.6s | 0.5s |
-| monica | php | 1,695 | 21,008 | 1.4s | 0.5s |
-| drift | dart | 917 | 20,452 | 0.9s | 0.6s |
-| cognee-rs | rust | 1,015 | 17,758 | 0.8s | 0.5s |
-| django | python | 780 | 17,521 | 3.2s | 2.1s |
-| files | xaml | 1,286 | 17,410 | 0.9s | 0.5s |
-| bookstack | php | 1,115 | 16,480 | 1.1s | 0.5s |
-| okhttp | kotlin | 685 | 16,404 | 0.7s | 0.4s |
-| fastlane | ruby | 1,073 | 15,892 | 1.2s | 0.7s |
-| openwhisk | scala | 484 | 15,326 | 0.6s | 0.5s |
+| linux | c | 57,480 | 2,068,883 | 147.6s | 50.0s |
+| runtime | csharp | 23,690 | 565,834 | 37.2s | 24.4s |
+| gitlab | ruby | 55,930 | 554,860 | 46.8s | 29.5s |
+| dart-sdk | dart | 17,097 | 483,234 | 20.1s | 9.9s |
+| vscode | typescript | 11,974 | 452,168 | 24.4s | 10.8s |
+| rust | rust | 37,681 | 392,428 | 18.5s | 10.6s |
+| roslyn | csharp | 17,511 | 378,579 | 16.3s | 10.3s |
+| shopware | php | 18,730 | 236,481 | 10.6s | 6.0s |
+| grafana | go | 11,379 | 218,835 | 14.6s | 5.5s |
+| flutter | dart | 7,924 | 215,305 | 11.2s | 5.6s |
+| spark | scala | 5,753 | 175,475 | 10.0s | 6.6s |
+| thingsboard | java | 6,621 | 170,057 | 6.2s | 3.3s |
+| discourse | ruby | 13,252 | 147,198 | 10.9s | 5.7s |
+| flutter-packages | dart | 3,980 | 137,453 | 7.0s | 4.0s |
+| gauzy | angular | 8,915 | 132,812 | 6.9s | 3.1s |
+| openproject | ruby | 11,289 | 112,934 | 9.5s | 5.7s |
+| medusa | typescript | 9,956 | 109,030 | 15.8s | 6.7s |
+| nextcloud-server | php | 6,025 | 104,717 | 5.3s | 2.3s |
+| airflow | python | 13,756 | 98,451 | 11.1s | 7.2s |
+| supabase | typescript | 7,435 | 92,786 | 10.9s | 3.0s |
+| pekko | scala | 2,297 | 89,906 | 2.7s | 2.1s |
+| ente | dart | 3,768 | 87,272 | 5.0s | 2.1s |
+| bitwarden-clients | typescript | 5,082 | 87,225 | 4.5s | 2.1s |
+| angular | angular | 7,120 | 86,843 | 5.2s | 2.4s |
+| deno | rust | 4,814 | 85,619 | 6.2s | 2.5s |
+| dubbo | java | 4,376 | 83,079 | 2.8s | 2.0s |
+| spartacus | angular | 7,050 | 77,727 | 4.4s | 2.5s |
+| superset | python | 4,349 | 71,200 | 5.5s | 3.1s |
+| fsharp | fsharp | 1,916 | 69,768 | 2.2s | 1.3s |
+| avalonia | xaml | 3,883 | 64,979 | 2.9s | 1.5s |
+| orchardcore | razor | 7,357 | 61,675 | 6.7s | 1.9s |
+| nhost | typescript | 4,654 | 60,476 | 5.7s | 2.2s |
+| appflowy | dart | 2,514 | 58,574 | 2.4s | 1.4s |
+| cal.com | typescript | 4,984 | 58,256 | 4.5s | 1.7s |
+| lila | scala | 2,345 | 55,976 | 3.1s | 1.6s |
+| dbt-core | rust | 1,549 | 49,339 | 2.2s | 1.1s |
+| peertube | angular | 2,832 | 46,025 | 2.4s | 1.1s |
+| wordpress | php | 2,758 | 45,832 | 3.6s | 1.4s |
+| gitea | go | 5,540 | 45,450 | 3.2s | 1.6s |
+| gmsh | cpp | 1,768 | 44,671 | 2.2s | 1.0s |
+| powershell | csharp | 1,302 | 43,093 | 2.5s | 1.2s |
+| bitwarden-server | csharp | 3,707 | 42,280 | 2.4s | 1.4s |
+| immich | dart | 2,174 | 40,927 | 2.2s | 1.0s |
+| chatwoot | ruby | 3,659 | 40,357 | 2.9s | 1.5s |
+| directus | vue | 2,904 | 39,419 | 2.2s | 1.0s |
+| mudblazor | razor | 3,186 | 39,020 | 1.9s | 0.9s |
+| cognee | python | 2,726 | 38,963 | 5.2s | 2.9s |
+| rails | ruby | 2,672 | 38,115 | 2.4s | 1.5s |
+| taiga-ui | angular | 2,921 | 35,924 | 1.9s | 1.1s |
+| flutterfire | dart | 1,203 | 33,632 | 2.1s | 1.0s |
+| angular-components | angular | 2,276 | 33,269 | 1.8s | 1.1s |
+| mastodon | ruby | 3,436 | 32,699 | 2.8s | 1.2s |
+| saleor | python | 2,501 | 31,500 | 2.6s | 1.7s |
+| flarum | php | 2,734 | 30,498 | 1.5s | 0.8s |
+| mcp | csharp | 2,317 | 28,309 | 1.8s | 1.1s |
+| jellyfin | csharp | 1,892 | 27,634 | 1.1s | 0.7s |
+| koel | php | 2,201 | 27,298 | 1.2s | 0.6s |
+| firefly-iii | php | 1,600 | 25,221 | 1.4s | 0.5s |
+| zio | scala | 1,137 | 22,609 | 1.2s | 0.7s |
+| spotube | dart | 457 | 22,325 | 0.8s | 0.5s |
+| pekko-http | scala | 1,028 | 22,146 | 0.8s | 0.6s |
+| drift | dart | 921 | 21,072 | 1.2s | 0.6s |
+| monica | php | 1,695 | 21,018 | 1.6s | 0.5s |
+| enola | go | 909 | 18,551 | 9.7s | 0.9s |
+| cognee-rs | rust | 1,015 | 17,759 | 0.8s | 0.4s |
+| django | python | 780 | 17,539 | 3.7s | 2.2s |
+| files | xaml | 1,286 | 17,419 | 0.9s | 0.5s |
+| bookstack | php | 1,115 | 16,489 | 1.2s | 0.5s |
+| okhttp | kotlin | 685 | 16,406 | 0.8s | 0.4s |
+| fastlane | ruby | 1,073 | 15,901 | 1.2s | 0.7s |
 | tokio | rust | 819 | 14,749 | 0.5s | 0.3s |
-| enola | go | 760 | 14,664 | 9.6s | 0.8s |
-| http4s | scala | 474 | 13,874 | 0.6s | 0.4s |
-| crates-io | rust | 944 | 13,417 | 0.7s | 0.4s |
-| solidus | ruby | 2,036 | 12,954 | 1.1s | 0.7s |
-| excalidraw | typescript | 1,240 | 12,706 | 1.3s | 0.5s |
-| vite | typescript | 1,317 | 12,045 | 1.5s | 0.5s |
-| ngrx | angular | 1,078 | 11,709 | 0.7s | 0.4s |
-| dashboard | angular | 639 | 10,859 | 0.9s | 0.3s |
-| localsend | dart | 449 | 10,741 | 0.5s | 0.3s |
-| rubygems.org | ruby | 1,212 | 6,895 | 0.6s | 0.3s |
-| gitbucket | scala | 238 | 6,557 | 0.3s | 0.2s |
-| nextcloud-collectives | php | 390 | 5,956 | 0.4s | 0.2s |
-| isowords | swift | 387 | 5,924 | 0.3s | 0.2s |
-| csharp-sdk | csharp | 519 | 5,480 | 0.4s | 0.3s |
-| nowinandroid | kotlin | 356 | 5,407 | 0.3s | 0.3s |
-| tailwindcss | typescript | 303 | 4,995 | 0.7s | 0.2s |
-| getdp | cpp | 184 | 4,757 | 0.6s | 0.2s |
-| alamofire | swift | 113 | 4,113 | 0.3s | 0.2s |
-| elk | vue | 398 | 3,650 | 0.2s | 0.1s |
-| eshop | csharp | 585 | 3,631 | 0.3s | 0.2s |
-| lobsters | ruby | 541 | 2,904 | 0.3s | 0.2s |
-| ngx-admin | angular | 254 | 2,880 | 0.2s | 0.1s |
-| grape | ruby | 201 | 2,421 | 0.2s | 0.2s |
-| activeadmin | ruby | 295 | 2,416 | 0.2s | 0.1s |
-| trading | scala | 128 | 2,261 | 0.1s | 0.1s |
+| crates-io | rust | 944 | 13,440 | 0.8s | 0.4s |
+| openwhisk | scala | 484 | 13,108 | 0.6s | 0.4s |
+| solidus | ruby | 2,036 | 13,095 | 1.3s | 0.7s |
+| http4s | scala | 474 | 12,847 | 0.6s | 0.3s |
+| excalidraw | typescript | 1,240 | 12,706 | 1.5s | 0.5s |
+| vite | typescript | 1,317 | 12,164 | 2.0s | 0.6s |
+| ngrx | angular | 1,078 | 11,710 | 0.8s | 0.4s |
+| dashboard | angular | 688 | 11,110 | 1.0s | 0.3s |
+| localsend | dart | 453 | 10,962 | 0.7s | 0.3s |
+| rubygems.org | ruby | 1,212 | 6,972 | 0.6s | 0.3s |
+| nextcloud-collectives | php | 390 | 5,957 | 0.5s | 0.2s |
+| isowords | swift | 387 | 5,863 | 0.4s | 0.2s |
+| gitbucket | scala | 238 | 5,669 | 0.4s | 0.2s |
+| csharp-sdk | csharp | 519 | 5,506 | 0.4s | 0.2s |
+| nowinandroid | kotlin | 356 | 5,424 | 0.4s | 0.3s |
+| tailwindcss | typescript | 303 | 5,004 | 0.7s | 0.2s |
+| getdp | cpp | 184 | 4,788 | 0.6s | 0.1s |
+| alamofire | swift | 113 | 4,113 | 0.4s | 0.2s |
+| elk | vue | 398 | 3,650 | 0.3s | 0.1s |
+| eshop | csharp | 585 | 3,632 | 0.3s | 0.2s |
+| lobsters | ruby | 541 | 2,943 | 0.4s | 0.2s |
+| ngx-admin | angular | 254 | 2,880 | 0.3s | 0.1s |
+| activeadmin | ruby | 295 | 2,434 | 0.2s | 0.1s |
+| grape | ruby | 201 | 2,426 | 0.2s | 0.1s |
+| trading | scala | 144 | 2,150 | 0.2s | 0.1s |
 | nextcloud-contacts | php | 174 | 2,042 | 0.3s | 0.1s |
-| ng-alain | angular | 139 | 1,876 | 0.2s | 0.1s |
+| ng-alain | angular | 139 | 1,875 | 0.2s | 0.1s |
 | cypress-realworld-app | typescript | 134 | 1,866 | 0.2s | 0.1s |
-| devise | ruby | 177 | 1,383 | 0.1s | 0.1s |
-| gin | go | 67 | 1,261 | 0.1s | 0.1s |
+| devise | ruby | 177 | 1,392 | 0.1s | 0.1s |
+| gin | go | 67 | 1,265 | 0.1s | 0.1s |
 | giraffe | fsharp | 48 | 1,241 | 0.1s | 0.1s |
-| grpc-web-example | grpc | 15 | 356 | 0.1s | 0.0s |
+| grpc-web-example | grpc | 15 | 356 | 0.1s | 0.1s |
 | sveltekit-realworld | svelte | 45 | 245 | 0.1s | 0.1s |
-| cachet | php | 30 | 161 | 0.1s | 0.0s |
-| orocrm | php | 8 | 124 | 0.1s | 0.0s |
-| vite-tailwind-graphql | vue | 10 | 64 | 0.1s | 0.0s |
+| cachet | php | 30 | 161 | 0.1s | 0.1s |
+| orocrm | php | 8 | 124 | 0.1s | 0.1s |
+| vite-tailwind-graphql | vue | 10 | 64 | 0.1s | 0.1s |
 
 ### Ruby / Rails
 
@@ -740,7 +741,7 @@ three. Running cold then warm is the point: it tests that a cached run and a
 from-scratch run agree, not merely that the same code path repeats itself.
 
 > **113 of 113 repositories in this sweep produced a byte-identical `snapshot_id` and a
-> byte-identical `facts.jsonl` across all three runs — 339 runs, 9,275,495 facts,
+> byte-identical `facts.jsonl` across all three runs: 339 runs, 9,318,822 facts,
 > zero drift.** `insights.json` is byte-stable on all 113 as well, and was on all 107
 > in the five consecutive full sweeps before them. grafana left the unstable list at v474: of two equally short paths
 > from a loop to a query, the `query-loops` explainer named whichever a map iteration
@@ -1049,24 +1050,24 @@ so the demonstration proves its own limit in the same run.
 
 | | |
 |---|---|
-| Largest repository indexed | **Linux kernel** — 57,480 files, **2,068,864 facts**, 149.5s cold / 49.9s warm |
-| Largest .NET | dotnet/runtime — 23,686 files, 549,974 facts, 40.2s / 24.1s |
-| Largest Ruby | GitLab — 55,928 files, 552,493 facts, 42.3s / 26.0s |
-| Largest TypeScript | VS Code: 11,973 files, 451,782 facts, 21.8s / 12.9s |
-| Largest Rust | rust-lang/rust — 37,685 files, 392,175 facts, 17.8s / 11.4s |
-| Largest Scala | Spark — 5,742 files, 220,768 facts, 9.7s / 7.6s |
-| Largest Go | Grafana — 11,365 files, 214,666 facts, 11.2s / 6.3s |
+| Largest repository indexed | **Linux kernel**: 57,480 files, **2,068,883 facts**, 147.6s cold / 50.0s warm |
+| Largest .NET | dotnet/runtime: 23,690 files, 565,834 facts, 37.2s / 24.4s |
+| Largest Ruby | GitLab: 55,930 files, 554,860 facts, 46.8s / 29.5s |
+| Largest TypeScript | VS Code: 11,974 files, 452,168 facts, 24.4s / 10.8s |
+| Largest Rust | rust-lang/rust: 37,681 files, 392,428 facts, 18.5s / 10.6s |
+| Largest Scala | Spark: 5,753 files, 175,475 facts, 10.0s / 6.6s |
+| Largest Go | Grafana: 11,379 files, 218,835 facts, 14.6s / 5.5s |
 | Throughput | 1,500 to 37,000 facts/sec cold, depending on language |
 | Parse errors, all 113 repositories | **32 files read only in part**, all Ruby (openproject 19, devise 9, fastlane 2, grape 2): tree-sitter error nodes the Ruby extractor counts and names since v413, rather than reading around them silently |
-| Memory | peak heap per run is recorded by the sweep (`--memstats`) alongside time and hashes. The Linux kernel is the high-water mark at **6,997 MiB**; only six others exceed 1 GiB (GitLab 2,738, dotnet/runtime 2,311, VS Code 1,772, dart-sdk 1,596, roslyn 1,579, rust-lang/rust 1,469). No repository required tuning on this machine |
+| Memory | peak heap per run is recorded by the sweep (`--memstats`) alongside time and hashes. The Linux kernel is the high-water mark at **7,783 MiB**; only six others exceed 1 GiB (dotnet/runtime 2,366, GitLab 2,113, dart-sdk 1,782, VS Code 1,744, roslyn 1,479, rust-lang/rust 1,207). No repository required tuning on this machine |
 
-Times here are the engine's own `duration` for the snapshot. Warm runs are 1.1×–12.6×
-faster than cold (median 1.6×, over the 83 repositories whose cold run exceeds 0.5s;
+Times here are the engine's own `duration` for the snapshot. Warm runs are 1.1× to 10.3×
+faster than cold (median 1.9×, over the 86 repositories whose cold run exceeds 0.5s;
 below that the timing is noise), from the per-file content-hash cache in
 `snapshot.meta.json`. The process also writes its artifacts and records the
 architecture-history revision after `duration` stops. A rerun whose `facts.jsonl` is
 unchanged no longer streams the previous one to count a zero delta, so grafana's warm
-run takes 7.9s of wall time against 6.3s of `duration`. These numbers establish that the graph the other four
+run takes 6.4s of wall time against 5.5s of `duration`. These numbers establish that the graph the other four
 sections rely on can actually be built on real code. enola isn't benchmarked on
 speed as a competitive claim.
 
@@ -1269,36 +1270,38 @@ A cluster is several repositories indexed as one linked graph, from a config tha
 them (see [CLUSTERS.md](CLUSTERS.md)). `bench-cluster-scale.sh` builds four clusters from
 the corpus, of 10, 30, 50 and 100 repositories, and runs each four times: cold, warm,
 warm again, and warm beside a fixed `enola serve` holding the previous graph, which
-reloads once the generate finishes. Before is the binary preceding this work (main at
-v588), after the current one, same host (Apple M4 Max), a quiet machine.
+reloads once the generate finishes. Before is 0.5.2 (v588), after is 0.5.3 (v650), on
+2026-11-18, same host (Apple M4 Max), a quiet machine, one build after the other.
 
-| repositories | facts | cold, before | cold, after | warm, before | warm, after |
+| repositories | facts (0.5.3) | cold, 0.5.2 | cold, 0.5.3 | warm, 0.5.2 | warm, 0.5.3 |
 |---:|---:|---:|---:|---:|---:|
-| 10 | 420,100 | 36 s | **24 s** | 25 to 26 s | **18 s** |
-| 30 | 2,404,815 | 284 to 293 s | **162 s** | 200 to 210 s | **121 to 123 s** |
-| 50 | 3,993,436 | 517 s | **274 s** | 405 to 412 s | **204 s** |
-| 100 | 8,600,117 | 1,402 s | **607 s** | 1,097 to 1,126 s | **420 to 433 s** |
+| 10 | 420,350 | 42 s | **21 s** | 29 s | **12 to 13 s** |
+| 30 | 2,436,148 | 311 s | **126 s** | 220 to 221 s | **85 to 86 s** |
+| 50 | 4,026,594 | 554 s | **201 s** | 421 to 422 s | **137 to 138 s** |
+| 100 | 8,638,118 | 1,454 s | **448 to 467 s** | 1,151 to 1,165 s | **281 to 294 s** |
 
 The target was 100 repositories on a 64 GB machine with serve running beside the
-generate. Before, that pair peaked at 59.5 GiB of RSS; it now peaks at 46.6 GiB.
+generate. On 0.5.2 that pair peaked at 59.5 GiB of RSS; on 0.5.3 it peaks at 53.8 GiB.
 
-| at 100 repositories | before | after |
+| at 100 repositories | 0.5.2 | 0.5.3 |
 |---|---:|---:|
-| generate, peak RSS over four runs | 45.0 to 47.6 GiB | **32.0 to 35.3 GiB** |
-| generate, peak heap | 37.2 to 39.7 GiB | **21.9 to 25.3 GiB** |
-| serve, steady heap holding the graph | 6.5 GiB | 6.5 GiB |
-| serve, peak heap while it reloads | 20.0 GiB | 20.0 GiB |
-| generate and serve together, peak RSS | 59.5 GiB | **46.6 GiB** |
-| disk, all members' `.enola` after a warm run | 47.7 GiB | **16.8 GiB** |
+| generate, peak RSS | 46.9 to 47.1 GiB | **37.1 to 40.3 GiB** |
+| generate, peak heap | 36.6 to 39.3 GiB | **26.2 to 30.4 GiB** |
+| generate, allocations, warm | 3,344M | **1,590M** |
+| serve, steady heap holding the graph | 6.5 GiB | 6.8 GiB |
+| serve, peak heap while it reloads | 20.0 GiB | 22.2 GiB |
+| generate and serve together, peak RSS | 59.5 GiB | **53.8 GiB** |
 
-| disk after a warm run | before | after |
+| disk after a warm run, all of it | 0.5.2 | 0.5.3 |
 |---:|---:|---:|
 | 10 | 1.2 GiB | 0.9 GiB |
-| 30 | 8.2 GiB | 4.9 GiB |
-| 50 | 16.9 GiB | 8.0 GiB |
-| 100 | 47.7 GiB | 16.8 GiB |
+| 30 | 8.4 GiB | 5.3 GiB |
+| 50 | 17.2 GiB | 8.6 GiB |
+| 100 | 48.3 GiB | 17.7 GiB |
 
-Five changes, none of which changes an output:
+The 0.5.2 serve figures are from the run that set the target; everything else in these
+tables was measured on 2026-11-18. What changed, none of it changing an output within a
+build:
 
 - The cluster is built in one store and published once. Each member used to be indexed
   in append mode against everything before it, and each step re-copied the union so far.
@@ -1308,18 +1311,26 @@ Five changes, none of which changes an output:
   by git index size so the kernel does not start last and become the tail, and taken
   into the union in config order. At 100, 8 jobs measured no faster than 4 and doubled
   system time.
-- The union's artifacts (`facts.jsonl`, `insights.json`, `docs.jsonl`, `flows.json`,
-  `llm_context.md`) are written once and hard-linked into every member's `.enola`, as
-  are `previous/` and `baseline/`. Each was a full copy per member, about 6 GiB of
-  `facts.jsonl` alone at 100.
+- After linking, explainers run `analysis_jobs` at a time (default half the cores, at
+  most four), slowest first; `--no-parallel` sets both job counts to 1 on a machine
+  short on memory. Dead code reuses the pass its annotator already ran, and a member's
+  git state is taken from the turn that indexed it rather than read again.
+- Package metrics, domain findings and framework roots used to copy every fact of a kind
+  once per repository, which made them repositories times store size; they now walk the
+  store once and split it per repository.
+- The cluster's graph lives in a directory of its own. Members keep only their extractor
+  cache, where 0.5.2 wrote the union, `previous/` and `baseline/` into every member.
 - `facts.jsonl` is sorted by a fixed-length key taken from each line's leading fields
   and marshalled again as it is written, where it used to hold every marshalled line in
   one buffer of over 6 GiB to sort them. The cross-repo linker reads the union in place instead
   of a deep copy of it, about 5 GiB at 100.
 
+An unchanged tree costs less still: `--generate` now compares every member with the
+graph on disk first, and at 100 repositories that check takes 6 s and writes nothing.
+
 **Output is identical, and that is checked rather than assumed.** Every run at every
 tier writes the same `facts.jsonl` and `insights.json` hashes, cold and warm, at 4
-and 8 jobs, and the same hashes the binary before this work wrote. Every member's
+and 8 jobs, and the cluster work wrote the same hashes as the binary before it. Every member's
 artifacts are hashed and compared, and so are the inode links. A test builds a cluster
 at 1 job and at 4 with a same-named fork, a second checkout of one repository and a
 repeated member, and compares the unions fact for fact; another shuffles every golden's
