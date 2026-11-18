@@ -158,3 +158,34 @@ func TestLanguageFamily_NameDoesNotCrossToAnotherFamily(t *testing.T) {
 		t.Fatalf("Kotlin naming a Java class lost its edge: %v", got)
 	}
 }
+
+func TestCallDoesNotLandOnABareClientPath(t *testing.T) {
+	s := NewStore()
+	s.Add(
+		// A client path relative to its base URL is a route named by a bare word.
+		Fact{Kind: KindRoute, Name: "orders", File: "app/api/ShopApi.kt", Repo: "mobile",
+			Props: map[string]any{"role": "client", "language": "kotlin"}},
+		Fact{Kind: KindRoute, Name: "carts", File: "app/api/ShopApi.kt", Repo: "mobile",
+			Props: map[string]any{"role": "client", "language": "kotlin"}},
+		Fact{Kind: KindStorage, Name: "carts", File: "db/schema.sql", Repo: "mobile"},
+		Fact{Kind: KindRoute, Name: "/v1/orders", File: "server/routes.rb", Repo: "mobile"},
+		Fact{Kind: KindSymbol, Name: "ui.OrderList.render", File: "app/ui/OrderList.kt", Repo: "mobile",
+			Props: map[string]any{"symbol_kind": SymbolMethod, "language": "kotlin"},
+			Relations: []Relation{
+				{Kind: RelCalls, Target: "orders"},
+				{Kind: RelCalls, Target: "carts"},
+				{Kind: RelCalls, Target: "/v1/orders"},
+			}},
+	)
+	s.BuildGraph()
+	g := s.Graph()
+	if got := g.ReverseEdges("orders"); len(got) != 0 {
+		t.Errorf("a property read reached the client path `orders`: %v", got)
+	}
+	if got := g.ReverseEdges("carts"); len(got) != 1 {
+		t.Errorf("a name also declared as a table lost its edge: %v", got)
+	}
+	if got := g.ReverseEdges("/v1/orders"); len(got) != 1 {
+		t.Errorf("a path-shaped target lost its edge: %v", got)
+	}
+}
