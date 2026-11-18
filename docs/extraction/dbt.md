@@ -28,6 +28,26 @@ refs is read by a dashboard or an export rather than dead, so none is reported
 as dead code. Impact runs the other way: what depends on a staging model, or on
 a source table, is every model downstream of it.
 
+## Where a source's rows come from
+
+A source names a table something outside the project writes. After every
+repository is extracted, the `warehouse-lineage` binder links each source to what
+loads it, and records the rule on the source as `lineage`:
+
+| The source | is linked to | `lineage` |
+|---|---|---|
+| `marts.fct_orders` (any source naming a table another dbt project builds) | that project's table `fct_orders`; among several, the one under a directory named like the source's `schema` | `model` |
+| `contracts.shop_orders_order_placed` | the Avro record or Kafka topic `contracts.shop.orders.order_placed` (separators aside, the namespace's first segment optional) | `named` |
+| `cdc_changelog.shop_orders` | the change-feed record `cdc.shop.orders` | `named` |
+| `raw.shop__line_items` (no record or topic) | the table `line_items` of the loaded repository `shop` | `cdc` |
+
+A change-feed record or topic, `cdc.<database>.<table>`, is itself linked to the
+table its database's repository declares (a Rails model's table, a `structure.sql`
+table), the database read as written, with underscores as hyphens, and without an
+environment suffix (`_sandbox`, `_prod`, …). A walk from a service's table thus
+reaches its change feed, the sources landing it and every model downstream. A name
+with more than one candidate links nothing.
+
 ## What is deliberately not extracted
 
 A `ref` or `source` whose arguments are not literals (built from a variable or a
