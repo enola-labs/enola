@@ -33,7 +33,7 @@ Fixture: [`k8s_sample`](../../internal/engine/testdata/repos/k8s_sample/)
 | `namespace`, `namePrefix`, `nameSuffix`, `images`, remote resources | props on the kustomization, applied to no object | props |
 | an Argo CD Application | `destination_cluster`, `destination_namespace`, `argocd_project`, `source_repo`, `source_path`, `target_revision`, `chart`, `chart_version`, `source_plugin`, `release_name` | props |
 | its `project`, its source path in this repository | `depends_on` to the AppProject, and to the kustomization or the objects in that path | relation |
-| the values files beside an Application whose chart is remote | `value_files`, `images`, `replicas`, `min_replicas`, `max_replicas`, `resources`, `env`, `addresses` on the Application | props |
+| the values files beside an Application whose chart is remote | `value_files`, `images`, `replicas`, `min_replicas`, `max_replicas`, `resources`, `env`, `addresses`, `enabled` on the Application | props |
 | an Application's served names and environment | `serves`, `environment` | props |
 | an address in those values | `depends_on` to the Application serving it, joined across repositories by the release-addresses binder | relation |
 | the same object in several files of one directory | one symbol, `declared_in` listing the files | props |
@@ -354,6 +354,9 @@ every name/value pair in a list named `env` or `extraEnv`; a value is cut at 200
 characters. `addresses` are the in-cluster addresses in any string, by the rules a
 pod's env follows, recorded only when they name a namespace: a bare `host:port` in a
 values file is as often a sidecar or a local port as a peer.
+`enabled` lists the chart's optional parts the values switch on, every top-level
+block holding `enabled: true` (`autoscaling`, `ingress`, a sidecar such as a policy
+agent), so "which releases run the X sidecar" is one prop query.
 
 Some plugins also layer shared values under an Application's own, from a directory
 named for values beside an ancestor of its path, choosing files by name:

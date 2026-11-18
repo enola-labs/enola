@@ -3711,7 +3711,9 @@ import (
 // the models and sources they read.
 // v653: Python: a notebook's queries name the tables they read (FROM/JOIN of a
 // qualified table in a cell holding a SELECT).
-const cacheVersion = "v653"
+// v654: Kubernetes: a release lists the chart parts its values switch on
+// (top-level blocks with enabled: true) as enabled.
+const cacheVersion = "v654"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

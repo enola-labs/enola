@@ -246,6 +246,7 @@ var versionCoverage = map[int][]string{
 	651: {"TestParseStructureSQL_MySQLDump"},
 	652: {"TestDbtExposures"},
 	653: {"TestNotebookReadsTheTablesItsQueriesName"},
+	654: {"TestValuesFilesOfARemoteChartAreTheRelease"},
 	507: {"TestRustImportAliasesBindOnlyTheAlias", "TestRustImportedTypeThroughAFileModuleWithADirectory", "TestRustMethodsInAFileModulesSubdirectoryResolve", "TestRustTypeImportedThroughAReExportResolves", "TestRustTypeAliasIsFollowedToItsType", "TestRustAliasedExternalImportDoesNotHideTheLocalName"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},
