@@ -3707,7 +3707,9 @@ import (
 // not make the repository an Android one.
 // v651: Ruby: db/structure.sql written by mysqldump is read too (backquoted names,
 // keys inside CREATE TABLE, a table closed by ") ENGINE=…;").
-const cacheVersion = "v651"
+// v652: dbt: exposures become symbols exposure.<project>.<name>, depending on
+// the models and sources they read.
+const cacheVersion = "v652"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

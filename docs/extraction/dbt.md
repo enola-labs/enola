@@ -17,6 +17,7 @@ hold several. Its `model-paths` and `snapshot-paths` (default `models` and
 | a `sources:` table `orders` of source `raw` | a fact `raw.orders`, `storage_kind: table`, `engine: dbt_source`, with its database and schema | `storage` |
 | a model's `description:` in a properties file | the model symbol's doc | prop |
 | the table a model builds (`fct_orders`, or its `alias`) | a fact `fct_orders`, `storage_kind: table`, `engine: dbt_model`, depending on the model | `storage` |
+| an `exposures:` entry `orders_board` (a dashboard, notebook or application) | a symbol `exposure.orders.orders_board` with its `exposure_type`, `label` and `url`, depending on the models and sources in its `depends_on` | `symbol` |
 | `seeds/country_codes.csv` | a symbol `orders.country_codes`, `dbt_resource: seed`, which `ref("country_codes")` reaches | `symbol` |
 
 A `ref` without a package names a model of the same project; failing that, the
@@ -51,7 +52,7 @@ with more than one candidate links nothing.
 ## What is deliberately not extracted
 
 A `ref` or `source` whose arguments are not literals (built from a variable or a
-loop) names nothing. Columns, tests, macros and exposures are not read, nor a seed's contents. Models
+loop) names nothing. Columns, tests and macros are not read, nor a seed's contents. Models
 carry no `exported` prop: dbt has no visibility, so a project-wide public surface
 says nothing. A model many others select from is not reported as a god class
 (splitting a shared table is not advice that applies); hotspots still name the

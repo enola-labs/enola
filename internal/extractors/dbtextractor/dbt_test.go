@@ -123,3 +123,42 @@ func keys(m map[string]facts.Fact) []string {
 	sort.Strings(out)
 	return out
 }
+
+// An exposure is a symbol of its own, named apart from the model it is usually
+// called after, depending on the models and sources it reads.
+func TestDbtExposures(t *testing.T) {
+	ff := extract(t, map[string]string{
+		"orders/dbt_project.yml":             "name: orders\n",
+		"orders/models/marts/fct_orders.sql": "select 1\n",
+		"orders/models/exposures.yml": `version: 2
+exposures:
+  - name: fct_orders
+    type: dashboard
+    label: Orders board
+    url: https://bi.example.com/explore/orders/fct_orders
+    description: Daily orders.
+    depends_on:
+      - ref('fct_orders')
+      - source('raw', 'refunds')
+    owner:
+      name: Analytics
+`,
+	})
+	got := map[string]facts.Fact{}
+	for _, f := range ff {
+		got[f.Kind+" "+f.Name] = f
+	}
+	x, ok := got["symbol exposure.orders.fct_orders"]
+	if !ok {
+		t.Fatalf("no exposure among %v", keys(got))
+	}
+	if d := deps(x); len(d) != 2 || d[0] != "orders.fct_orders" || d[1] != "raw.refunds" {
+		t.Errorf("exposure depends on %v", d)
+	}
+	if x.PropString("exposure_type") != "dashboard" || x.PropString("url") != "https://bi.example.com/explore/orders/fct_orders" || x.PropString(facts.PropFrameworkRoot) != "dbt" {
+		t.Errorf("exposure props = %v", x.Props)
+	}
+	if _, ok := got["symbol orders.fct_orders"]; !ok {
+		t.Error("the model of the same name is gone")
+	}
+}

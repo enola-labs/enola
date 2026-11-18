@@ -109,6 +109,17 @@ type propertiesDoc struct {
 		Name        string `yaml:"name"`
 		Description string `yaml:"description"`
 	} `yaml:"snapshots"`
+	Exposures []struct {
+		Name        string   `yaml:"name"`
+		Type        string   `yaml:"type"`
+		Label       string   `yaml:"label"`
+		URL         string   `yaml:"url"`
+		Description string   `yaml:"description"`
+		DependsOn   []string `yaml:"depends_on"`
+		Owner       struct {
+			Name string `yaml:"name"`
+		} `yaml:"owner"`
+	} `yaml:"exposures"`
 	Sources []struct {
 		Name     string `yaml:"name"`
 		Database string `yaml:"database"`
@@ -129,6 +140,16 @@ var (
 	aliasConfig = regexp.MustCompile(`\balias\s*=\s*['"]([A-Za-z0-9_\-]+)['"]`)
 	sourceCall  = regexp.MustCompile(`\bsource\(\s*['"]([^'"]+)['"]\s*,\s*['"]([^'"]+)['"]\s*\)`)
 )
+
+// exposure is a dashboard, notebook or application a project declares as
+// reading its models.
+type exposure struct {
+	project               *project
+	name, file            string
+	kind, label, url, doc string
+	refs                  [][2]string
+	sources               []string
+}
 
 type model struct {
 	project *project
@@ -176,6 +197,7 @@ func (e *Extractor) Extract(ctx context.Context, repoPath string, files []string
 	sort.Slice(projects, func(i, j int) bool { return len(projects[i].dir) > len(projects[j].dir) })
 
 	var models []*model
+	var exposures []*exposure
 	descriptions := map[string]string{} // "<project>.<model>" -> description
 	var out []facts.Fact
 	seenSource := map[string]bool{}
@@ -228,6 +250,24 @@ func (e *Extractor) Extract(ctx context.Context, repoPath string, files []string
 				if m.Name != "" && m.Description != "" {
 					descriptions[p.name+"."+m.Name] = m.Description
 				}
+			}
+			for _, x := range doc.Exposures {
+				if x.Name == "" {
+					continue
+				}
+				ex := &exposure{project: p, name: x.Name, file: rel, kind: x.Type, label: x.Label, url: x.URL, doc: x.Description}
+				for _, dep := range x.DependsOn {
+					if r := refCall.FindStringSubmatch(dep); r != nil {
+						if r[2] != "" {
+							ex.refs = append(ex.refs, [2]string{r[1], r[2]})
+						} else {
+							ex.refs = append(ex.refs, [2]string{"", r[1]})
+						}
+					} else if m := sourceCall.FindStringSubmatch(dep); m != nil {
+						ex.sources = append(ex.sources, m[1]+"."+m[2])
+					}
+				}
+				exposures = append(exposures, ex)
 			}
 			for _, m := range doc.Snapshots {
 				if m.Name != "" && m.Description != "" {
@@ -327,6 +367,58 @@ func (e *Extractor) Extract(ctx context.Context, repoPath string, files []string
 		}
 		out = append(out, f)
 		out = append(out, builtTable(m, name))
+	}
+
+	// An exposure is what reads the models from outside dbt: a dashboard, a
+	// notebook, an application. It is named apart from the models, since it is
+	// often called after the one model it shows.
+	sort.Slice(exposures, func(i, j int) bool {
+		if exposures[i].file != exposures[j].file {
+			return exposures[i].file < exposures[j].file
+		}
+		return exposures[i].name < exposures[j].name
+	})
+	seenExposure := map[string]bool{}
+	for _, x := range exposures {
+		name := "exposure." + x.project.name + "." + x.name
+		if seenExposure[name] {
+			continue
+		}
+		seenExposure[name] = true
+		props := map[string]any{
+			"symbol_kind":           facts.SymbolType,
+			"language":              "dbt",
+			"dbt_project":           x.project.name,
+			"dbt_resource":          "exposure",
+			facts.PropFrameworkRoot: "dbt",
+		}
+		for k, v := range map[string]string{"exposure_type": x.kind, "label": x.label, "url": x.url} {
+			if v != "" {
+				props[k] = v
+			}
+		}
+		if x.doc != "" {
+			facts.SetDocProp(props, x.doc)
+		}
+		f := facts.Fact{
+			Kind: facts.KindSymbol, Name: name, File: x.file, Line: 1, Props: props,
+			Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: path.Dir(x.file)}},
+		}
+		from := &model{project: x.project}
+		seen := map[string]bool{}
+		for _, r := range x.refs {
+			if t := resolve(from, r[0], r[1]); !seen[t] {
+				seen[t] = true
+				f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelDependsOn, Target: t})
+			}
+		}
+		for _, src := range x.sources {
+			if !seen[src] {
+				seen[src] = true
+				f.Relations = append(f.Relations, facts.Relation{Kind: facts.RelDependsOn, Target: src})
+			}
+		}
+		out = append(out, f)
 	}
 	return out, nil
 }
