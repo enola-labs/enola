@@ -1134,11 +1134,11 @@ func (s *Server) renderImpactSummary(resp impactResponse) string {
 	}
 	if t := r.Tally; t != nil && len(t.ByArea) > 1 {
 		sb.WriteString("## By area (repository and first directory)\n\n")
-		for _, a := range topCounts(t.ByArea, 20) {
+		for _, a := range topCounts(t.ByArea, impactAreasShown) {
 			fmt.Fprintf(&sb, "- %s: %d%s\n", a, t.ByArea[a], areaTypes(t.ByAreaType[a]))
 		}
-		if len(t.ByArea) > 20 {
-			fmt.Fprintf(&sb, "- … %d more areas\n", len(t.ByArea)-20)
+		if len(t.ByArea) > impactAreasShown {
+			fmt.Fprintf(&sb, "- … %d more areas\n", len(t.ByArea)-impactAreasShown)
 		}
 		sb.WriteString("\n")
 	}
@@ -1211,6 +1211,10 @@ func (s *Server) scopeCandidates(store *facts.Store, input string, cands []strin
 	}
 	return out
 }
+
+// impactAreasShown bounds the area list. A warehouse walk reaches some fifty
+// projects and folders; listing them all keeps the small ones countable.
+const impactAreasShown = 60
 
 // areaTypes splits an area's count by type: "(12 dbt model, 10 storage (dbt_model))".
 func areaTypes(types map[string]int) string {
