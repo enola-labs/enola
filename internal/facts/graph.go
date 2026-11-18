@@ -889,6 +889,15 @@ func (g *Graph) traverseFrom(starts []string, direction string, relKinds, nodeKi
 	// produces a node in the result — an unresolved one — because callers ask about
 	// names that may not be in the graph and an empty answer would not say so.
 	var queue []queueItem
+	var startIDs []uint32
+	for _, start := range starts {
+		startIDs = append(startIDs, g.lookupAll(start)...)
+	}
+	lineage := !reverse && g.lineageStart(startIDs)
+	dependsOn, hasDependsOn := g.relIDs[RelDependsOn]
+	if !hasDependsOn {
+		dependsOn = noRel
+	}
 	for _, start := range starts {
 		ids := g.lookupAll(start)
 		if len(ids) == 0 {
@@ -957,13 +966,17 @@ func (g *Graph) traverseFrom(starts []string, direction string, relKinds, nodeKi
 		if item.depth >= maxDepth {
 			continue
 		}
-		if !reverse && item.depth > 0 && g.storageOnly(item.id) {
+		throughStorage := !reverse && item.depth > 0 && g.storageOnly(item.id)
+		if throughStorage && !lineage {
 			continue
 		}
 
 		tgts, rels := g.adjOf(item.id, reverse)
 		for i, tid := range tgts {
 			relID := rels[i]
+			if throughStorage && relID != dependsOn {
+				continue
+			}
 			if relSet != nil {
 				if _, ok := relSet[relID]; !ok {
 					continue
@@ -1107,6 +1120,11 @@ func (g *Graph) findPath(from, to string, relKinds []string, maxDepth int, dispa
 		visited[id] = struct{}{}
 		queue = append(queue, queueItem{id: id, depth: 0})
 	}
+	lineage := g.lineageStart(fromIDs)
+	dependsOn, hasDependsOn := g.relIDs[RelDependsOn]
+	if !hasDependsOn {
+		dependsOn = noRel
+	}
 	toID := uint32(0)
 
 	found := false
@@ -1117,12 +1135,16 @@ func (g *Graph) findPath(from, to string, relKinds []string, maxDepth int, dispa
 		if item.depth >= maxDepth {
 			continue
 		}
-		if item.depth > 0 && g.storageOnly(item.id) {
+		throughStorage := item.depth > 0 && g.storageOnly(item.id)
+		if throughStorage && !lineage {
 			continue // see storageOnly
 		}
 
 		tgts, rels := g.adjOf(item.id, false)
 		for i, tid := range tgts {
+			if throughStorage && rels[i] != dependsOn {
+				continue
+			}
 			if relSet != nil {
 				if _, ok := relSet[rels[i]]; !ok {
 					continue
@@ -1322,6 +1344,11 @@ func (g *Graph) findPathBetween(froms, tos []string, relKinds []string, maxDepth
 	parent := make(map[uint32]uint32)
 	parentRel := make(map[uint32]uint16)
 	viaIface := make(map[uint32]bool)
+	lineage := g.lineageStart(sources)
+	dependsOn, hasDependsOn := g.relIDs[RelDependsOn]
+	if !hasDependsOn {
+		dependsOn = noRel
+	}
 	queue := make([]queueItem, 0, len(sources))
 	for _, id := range sources {
 		visited[id] = struct{}{}
@@ -1334,13 +1361,17 @@ func (g *Graph) findPathBetween(froms, tos []string, relKinds []string, maxDepth
 		if item.depth >= maxDepth {
 			continue
 		}
-		if item.depth > 0 && g.storageOnly(item.id) {
+		throughStorage := item.depth > 0 && g.storageOnly(item.id)
+		if throughStorage && !lineage {
 			continue // see storageOnly
 		}
 		tgts, rels := g.adjOf(item.id, false)
 		// The adjacency is already in neighbour-name order (sortAdjacency), so
 		// walking it as stored is the order the breadth-first tie-break needs.
 		for i, tid := range tgts {
+			if throughStorage && rels[i] != dependsOn {
+				continue
+			}
 			if relSet != nil {
 				if _, ok := relSet[rels[i]]; !ok {
 					continue
@@ -2295,6 +2326,38 @@ func (g *Graph) storageOnly(id uint32) bool {
 	}
 	return true
 }
+
+// lineageStart reports a walk starting from a data definition: a dbt model or
+// table, a BI view or explore, a schema record, a notebook. Such a walk asks where
+// the data comes from, and the storage it meets on the way is a table something
+// else fills: a forward walk passes through it, along depends_on edges only (the
+// lineage the warehouse facts declare), instead of stopping there as a walk from
+// code does.
+func (g *Graph) lineageStart(ids []uint32) bool {
+	for _, id := range ids {
+		for _, idx := range g.factIdxsOf(id) {
+			if int(idx) >= len(g.facts) {
+				continue
+			}
+			f := &g.facts[idx]
+			switch {
+			case lineageLanguages[f.PropString("language")]:
+				return true
+			case f.Kind == KindFileRef && f.PropBool("notebook"):
+				return true
+			case f.Kind == KindStorage && strings.HasPrefix(f.PropString("engine"), "dbt_"):
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// noRel is a relation ID no edge carries.
+const noRel = ^uint16(0)
+
+// lineageLanguages are the data definitions a lineage walk starts from.
+var lineageLanguages = map[string]bool{"dbt": true, "lookml": true, "avro": true}
 
 func (g *Graph) conflatedKindsOf(id uint32) []string {
 	idxs := g.factIdxsOf(id)

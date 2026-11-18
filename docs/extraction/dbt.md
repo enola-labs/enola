@@ -49,6 +49,13 @@ environment suffix (`_sandbox`, `_prod`, …). A walk from a service's table thu
 reaches its change feed, the sources landing it and every model downstream. A name
 with more than one candidate links nothing.
 
+The other direction works too. A forward walk from code stops at the first table,
+since two repositories naming a table alike share its node. A walk from a data
+definition (a dbt model or table, a BI view or explore, an Avro record, a notebook)
+passes through each table along `depends_on` only: from an explore to its view, the
+table, the model building it, that model's sources and the service table behind
+them.
+
 ## What is deliberately not extracted
 
 A `ref` or `source` whose arguments are not literals (built from a variable or a

@@ -1826,3 +1826,53 @@ func TestForwardWalksStopAtStorage(t *testing.T) {
 		t.Errorf("a walk starting at the table should still list the packages naming it; got %+v", from.Nodes)
 	}
 }
+
+// A walk from a data definition asks where the data comes from: it passes through
+// the tables on the way, along depends_on edges only, to the model filling each
+// and on to the service's table. A walk from code still stops at the table.
+func TestLineageWalksPassThroughStorage(t *testing.T) {
+	ff := []Fact{
+		{Kind: KindSymbol, Name: "lookml.lake.orders", Repo: "bi", Props: map[string]any{"language": "lookml"},
+			Relations: []Relation{{Kind: RelDependsOn, Target: "lookml.orders"}}},
+		{Kind: KindSymbol, Name: "lookml.orders", Repo: "bi", Props: map[string]any{"language": "lookml"},
+			Relations: []Relation{{Kind: RelDependsOn, Target: "fct_orders"}}},
+		{Kind: KindStorage, Name: "fct_orders", Repo: "lake", Props: map[string]any{"engine": "dbt_model"},
+			Relations: []Relation{{Kind: RelDeclares, Target: "lake/marts"}, {Kind: RelDependsOn, Target: "lake.fct_orders"}}},
+		{Kind: KindSymbol, Name: "lake.fct_orders", Repo: "lake", Props: map[string]any{"language": "dbt"},
+			Relations: []Relation{{Kind: RelDependsOn, Target: "raw.shop_orders"}}},
+		{Kind: KindStorage, Name: "raw.shop_orders", Repo: "lake", Props: map[string]any{"engine": "dbt_source"},
+			Relations: []Relation{{Kind: RelDependsOn, Target: "Order"}}},
+		{Kind: KindStorage, Name: "Order", Repo: "shop", Props: map[string]any{"storage_kind": "model"},
+			Relations: []Relation{{Kind: RelDeclares, Target: "shop/models"}}},
+		{Kind: KindModule, Name: "lake/marts", Repo: "lake"},
+		{Kind: KindModule, Name: "shop/models", Repo: "shop"},
+		// Code querying the built table by name.
+		{Kind: KindSymbol, Name: "report.Load", Repo: "reports", Relations: []Relation{{Kind: RelDependsOn, Target: "fct_orders"}}},
+	}
+	g := NewGraph(ff)
+	names := map[string]bool{}
+	for _, n := range g.Traverse("lookml.lake.orders", "forward", nil, nil, 10, 50).Nodes {
+		names[n.Name] = true
+	}
+	for _, want := range []string{"fct_orders", "lake.fct_orders", "raw.shop_orders", "Order"} {
+		if !names[want] {
+			t.Errorf("the lineage walk did not reach %s; got %v", want, names)
+		}
+	}
+	if names["lake/marts"] || names["shop/models"] {
+		t.Errorf("the lineage walk left a table by a declares edge; got %v", names)
+	}
+	if p := g.FindPath("lookml.lake.orders", "Order", nil, 10); !p.Found {
+		t.Error("find_path found no lineage from the explore to the service's table")
+	}
+	if p := g.FindPathBetween([]string{"lookml.lake.orders"}, []string{"Order"}, nil, 10); !p.Found {
+		t.Error("find_path between sets found no lineage")
+	}
+	code := map[string]bool{}
+	for _, n := range g.Traverse("report.Load", "forward", nil, nil, 10, 50).Nodes {
+		code[n.Name] = true
+	}
+	if !code["fct_orders"] || code["lake.fct_orders"] {
+		t.Errorf("a walk from code should stop at the table; got %v", code)
+	}
+}
