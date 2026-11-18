@@ -248,6 +248,7 @@ var versionCoverage = map[int][]string{
 	653: {"TestNotebookReadsTheTablesItsQueriesName"},
 	654: {"TestValuesFilesOfARemoteChartAreTheRelease"},
 	655: {"TestNotebookReadsTheTablesItsQueriesName"},
+	656: {"TestDbtExposures"},
 	507: {"TestRustImportAliasesBindOnlyTheAlias", "TestRustImportedTypeThroughAFileModuleWithADirectory", "TestRustMethodsInAFileModulesSubdirectoryResolve", "TestRustTypeImportedThroughAReExportResolves", "TestRustTypeAliasIsFollowedToItsType", "TestRustAliasedExternalImportDoesNotHideTheLocalName"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},

@@ -146,6 +146,7 @@ var (
 type exposure struct {
 	project               *project
 	name, file            string
+	line                  int
 	kind, label, url, doc string
 	refs                  [][2]string
 	sources               []string
@@ -255,7 +256,7 @@ func (e *Extractor) Extract(ctx context.Context, repoPath string, files []string
 				if x.Name == "" {
 					continue
 				}
-				ex := &exposure{project: p, name: x.Name, file: rel, kind: x.Type, label: x.Label, url: x.URL, doc: x.Description}
+				ex := &exposure{project: p, name: x.Name, file: rel, line: entryLine(data, x.Name), kind: x.Type, label: x.Label, url: x.URL, doc: x.Description}
 				for _, dep := range x.DependsOn {
 					if r := refCall.FindStringSubmatch(dep); r != nil {
 						if r[2] != "" {
@@ -401,7 +402,7 @@ func (e *Extractor) Extract(ctx context.Context, repoPath string, files []string
 			facts.SetDocProp(props, x.doc)
 		}
 		f := facts.Fact{
-			Kind: facts.KindSymbol, Name: name, File: x.file, Line: 1, Props: props,
+			Kind: facts.KindSymbol, Name: name, File: x.file, Line: x.line, Props: props,
 			Relations: []facts.Relation{{Kind: facts.RelDeclares, Target: path.Dir(x.file)}},
 		}
 		from := &model{project: x.project}
@@ -439,6 +440,22 @@ func builtTable(m *model, symbol string) facts.Fact {
 		},
 		Relations: []facts.Relation{{Kind: facts.RelDependsOn, Target: symbol}},
 	}
+}
+
+// entryLine is the line of a properties file's list entry `- name: <name>`, or 1.
+// A file of generated exposures holds hundreds, often named like their models.
+func entryLine(data []byte, name string) int {
+	for i, line := range strings.Split(string(data), "\n") {
+		t := strings.TrimSpace(line)
+		rest, ok := strings.CutPrefix(t, "- name:")
+		if !ok {
+			continue
+		}
+		if strings.Trim(strings.TrimSpace(rest), `"'`) == name {
+			return i + 1
+		}
+	}
+	return 1
 }
 
 // underAny reports rel inside one of a project's directories.

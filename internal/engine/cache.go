@@ -3715,7 +3715,8 @@ import (
 // (top-level blocks with enabled: true) as enabled.
 // v655: Python: a notebook table quoted segment by segment
 // (`project.dataset`.`table`) is read whole, not as its dataset.
-const cacheVersion = "v655"
+// v656: dbt: an exposure's line is its own entry's, not the file's first.
+const cacheVersion = "v656"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

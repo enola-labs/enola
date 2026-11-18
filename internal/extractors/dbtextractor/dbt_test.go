@@ -158,6 +158,9 @@ exposures:
 	if x.PropString("exposure_type") != "dashboard" || x.PropString("url") != "https://bi.example.com/explore/orders/fct_orders" || x.PropString(facts.PropFrameworkRoot) != "dbt" {
 		t.Errorf("exposure props = %v", x.Props)
 	}
+	if x.Line != 3 {
+		t.Errorf("exposure at line %d, want its entry's 3", x.Line)
+	}
 	if _, ok := got["symbol orders.fct_orders"]; !ok {
 		t.Error("the model of the same name is gone")
 	}
