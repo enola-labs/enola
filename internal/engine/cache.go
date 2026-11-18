@@ -3709,7 +3709,9 @@ import (
 // keys inside CREATE TABLE, a table closed by ") ENGINE=…;").
 // v652: dbt: exposures become symbols exposure.<project>.<name>, depending on
 // the models and sources they read.
-const cacheVersion = "v652"
+// v653: Python: a notebook's queries name the tables they read (FROM/JOIN of a
+// qualified table in a cell holding a SELECT).
+const cacheVersion = "v653"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

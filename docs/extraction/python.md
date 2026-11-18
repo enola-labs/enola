@@ -182,6 +182,21 @@ dependency client -> server            props: type=cross_repo, via=[grpc], confi
 `confidence=verified`, because both sides are matched through a declared contract rather
 than a string comparison.
 
+## Jupyter notebooks
+
+A notebook (`.ipynb`, outside `.ipynb_checkpoints/`) declares nothing: its code
+cells are read as one reference fact for the file, `notebook: true`.
+
+- What its cells call in the repository's own modules is resolved like a test's
+  references, so a helper only notebooks use is not dead code.
+- What its queries read: in a cell holding a `SELECT` (a query string, a
+  `%%sql` or `%%bigquery` cell), each qualified table after `FROM` or `JOIN`
+  (`` `project.dataset.table` ``, `dataset.table`, a placeholder project such as
+  `{project}.marts.orders`) is a `depends_on` edge to the table's own name, the
+  last segment, which is how a dbt model's built table and a BI view name it. The
+  tables are listed in `reads_tables`. A bare one-segment name (a CTE, an alias)
+  and a Python `from a.b import c` name nothing.
+
 ## What is deliberately not extracted
 
 - **Routes whose path is not a literal.** `@app.get(PREFIX + path_var)` is skipped rather

@@ -44,3 +44,34 @@ func TestNotebookReferencesTheHelpersItCalls(t *testing.T) {
 		t.Errorf("notebook references = %v, want analysis/helpers.load_orders", refs)
 	}
 }
+
+// A notebook's queries, in a string or a %%bigquery cell, name the tables it
+// reads; a Python import and a cell without a query name none.
+func TestNotebookReadsTheTablesItsQueriesName(t *testing.T) {
+	ff := extractRepo(t, map[string]string{
+		"analysis/report.ipynb": `{
+ "cells": [
+  {"cell_type": "code", "source": ["from os.path import join\n", "from google.cloud import bigquery\n"]},
+  {"cell_type": "code", "source": ["q = f\"\"\"\n", "SELECT o.id FROM ` + "`{PROJECT}.marts.fct_orders`" + ` o\n", "LEFT JOIN staging.stg_refunds r ON r.id = o.id\n", "\"\"\"\n"]},
+  {"cell_type": "code", "source": ["%%bigquery df\n", "select * from ` + "`shop-data.dimensions.dim_users`" + `\n"]},
+  {"cell_type": "code", "source": "rows = load_from(data.frame)\n"}
+ ],
+ "metadata": {}, "nbformat": 4, "nbformat_minor": 5
+}`,
+	})
+	var got []string
+	for _, f := range ff {
+		if f.Kind != facts.KindFileRef || f.PropString("reads_tables") == "" {
+			continue
+		}
+		for _, r := range f.Relations {
+			if r.Kind == facts.RelDependsOn {
+				got = append(got, r.Target)
+			}
+		}
+	}
+	want := []string{"dim_users", "fct_orders", "stg_refunds"}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] || got[2] != want[2] {
+		t.Errorf("tables read = %v, want %v", got, want)
+	}
+}

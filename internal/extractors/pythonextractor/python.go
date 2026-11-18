@@ -247,6 +247,7 @@ func (e *PythonExtractor) Extract(ctx context.Context, repoPath string, files []
 	}
 	if len(notebooks) > 0 {
 		allFacts = append(allFacts, resolvedRefs(ctx, repoPath, notebooks, pyFiles, refsFromNotebook)...)
+		allFacts = append(allFacts, notebookTableReads(ctx, repoPath, notebooks)...)
 	}
 	return allFacts, nil
 }
