@@ -43,8 +43,8 @@ loads it, and records the rule on the source as `lineage`:
 | `raw.shop__line_items` (no record or topic) | the table `line_items` of the loaded repository `shop` | `cdc` |
 
 A change-feed record or topic, `cdc.<database>.<table>`, is itself linked to the
-table its database's repository declares (a Rails model's table, a `structure.sql`
-table), the database read as written, with underscores as hyphens, and without an
+table its database's repository declares (a Rails model's or an entity's table, a
+`structure.sql` table, a table the service's SQL queries name), the database read as written, with underscores as hyphens, and without an
 environment suffix (`_sandbox`, `_prod`, …). A walk from a service's table thus
 reaches its change feed, the sources landing it and every model downstream. A name
 with more than one candidate links nothing.

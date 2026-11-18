@@ -184,10 +184,12 @@ func build(all []facts.Fact) *index {
 			ix.built[strings.ToLower(f.Name)] = append(ix.built[strings.ToLower(f.Name)], f)
 		case f.Kind == facts.KindStorage && f.Repo != "" && !strings.HasPrefix(f.PropString("engine"), "dbt_"):
 			table := ""
+			// A model or entity says which table it maps; a table, or a table a
+			// query names (Go's SQL), is named by it.
 			switch f.PropString("storage_kind") {
-			case "model":
+			case "model", "entity":
 				table = f.PropString("table")
-			case "table":
+			case "table", "table_reference":
 				table = f.Name
 			}
 			if table == "" {

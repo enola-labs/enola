@@ -38,6 +38,10 @@ func lineageStore() *facts.Store {
 			Props: map[string]any{"storage_kind": "model", "table": "orders", "language": "ruby"}},
 		facts.Fact{Kind: facts.KindStorage, Name: "line_items", File: "db/structure.sql", Repo: "shop",
 			Props: map[string]any{"storage_kind": "table", "language": "sql"}},
+		// A Go service whose queries name its table.
+		facts.Fact{Kind: facts.KindStorage, Name: "holds", File: "internal/repo/holds.go", Repo: "ledger-api",
+			Props: map[string]any{"storage_kind": "table_reference", "language": "go", "operation": "INSERT"}},
+		record("registry", "cdc.ledger_api.holds"),
 		// The schema registry: an event contract and the orders change feed.
 		record("registry", "contracts.shop.orders.order_placed"),
 		record("registry", "cdc.shop.orders"),
@@ -103,6 +107,8 @@ func TestSourcesLinkToWhatLoadsThem(t *testing.T) {
 		{"reports", "raw.unknown_table", nil},
 		// The change feed and the sandbox copy's topic reach the model.
 		{"registry", "avro.cdc.shop.orders", []string{"Order"}},
+		// A database named like its repository, underscores for hyphens.
+		{"registry", "avro.cdc.ledger_api.holds", []string{"holds"}},
 		{"streams", "cdc.shop_sandbox.orders", []string{"Order"}},
 	}
 	for _, c := range cases {
