@@ -546,8 +546,9 @@ func TestImpactSet_TotalDependents(t *testing.T) {
 func TestImpactSet_SummaryWithNothingShown(t *testing.T) {
 	g, _ := buildTestGraph()
 
+	// Nothing listed, yet the summary describes all three: the tally counted them.
 	result := g.ImpactSet("C", 10, 1, false)
-	if want := "3 total dependents (showing 0)"; result.Summary != want {
+	if want := "3 total dependents (showing 0) — depth 1: 1 module, 1 symbol; depth 2: 1 symbol"; result.Summary != want {
 		t.Errorf("Summary = %q, want %q", result.Summary, want)
 	}
 }

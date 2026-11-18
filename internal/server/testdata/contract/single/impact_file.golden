@@ -15,6 +15,11 @@
 
 - depth 1: 4
 
+## By area (repository and first directory)
+
+- go_sample/pkg: 3
+- go_sample: 1
+
 ## Hotspot modules
 
 - pkg/a (2 dependents)

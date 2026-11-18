@@ -357,7 +357,8 @@ func (s *Server) registerImpactAnalysisTool() {
 		Description: "Blast radius of changing a node: everything that transitively depends on it, grouped by hop depth, and the HTTP endpoints it affects. " +
 			"include_forward=true adds what the target itself depends on. " +
 			"When knowledge pages declare anchors (enola_intent), it also lists the pages anchored to the target's file: the decisions governing the code you are about to change. " +
-			"Output grows fast: start with output_mode=summary and keep max_depth and max_nodes bounded.",
+			"Output grows fast: start with output_mode=summary and keep max_depth and max_nodes bounded. " +
+			"The summary counts all dependents by depth, kind, repo and area.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args impactAnalysisArgs) (*mcp.CallToolResult, any, error) {
 		report, err := impact.Analyze(s.resolver(s.eng.Store()), impact.Request{
 			Target:         args.Target,
@@ -1076,6 +1077,17 @@ func (s *Server) renderImpactSummary(resp impactResponse) string {
 			byModule[moduleOf(n)]++
 		}
 	}
+	// The listing stops at max_nodes; the tally counted the whole walk.
+	depthCount := func(d int) int { return len(r.ByDepth[d]) }
+	if t := r.Tally; t != nil {
+		byKind = t.ByKind
+		depths = depths[:0]
+		for d := range t.ByDepth {
+			depths = append(depths, d)
+		}
+		sort.Ints(depths)
+		depthCount = func(d int) int { return t.ByDepth[d] }
+	}
 
 	if len(byKind) > 0 {
 		sb.WriteString("## Dependents by kind\n\n")
@@ -1088,12 +1100,33 @@ func (s *Server) renderImpactSummary(resp impactResponse) string {
 	if len(depths) > 0 {
 		sb.WriteString("## By depth\n\n")
 		for _, d := range depths {
-			fmt.Fprintf(&sb, "- depth %d: %d\n", d, len(r.ByDepth[d]))
+			fmt.Fprintf(&sb, "- depth %d: %d\n", d, depthCount(d))
 		}
 		sb.WriteString("\n")
 	}
 
 	writeImpactPackages(&sb, resp)
+
+	if t := r.Tally; t != nil && len(t.ByRepo) > 1 {
+		sb.WriteString("## By repository\n\n")
+		for _, repo := range topCounts(t.ByRepo, 15) {
+			fmt.Fprintf(&sb, "- %s: %d\n", repo, t.ByRepo[repo])
+		}
+		if len(t.ByRepo) > 15 {
+			fmt.Fprintf(&sb, "- … %d more repositories\n", len(t.ByRepo)-15)
+		}
+		sb.WriteString("\n")
+	}
+	if t := r.Tally; t != nil && len(t.ByArea) > 1 {
+		sb.WriteString("## By area (repository and first directory)\n\n")
+		for _, a := range topCounts(t.ByArea, 20) {
+			fmt.Fprintf(&sb, "- %s: %d\n", a, t.ByArea[a])
+		}
+		if len(t.ByArea) > 20 {
+			fmt.Fprintf(&sb, "- … %d more areas\n", len(t.ByArea)-20)
+		}
+		sb.WriteString("\n")
+	}
 
 	if len(byModule) > 0 {
 		sb.WriteString("## Hotspot modules\n\n")
