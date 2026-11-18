@@ -3,6 +3,7 @@ package rubyextractor
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/enola-labs/enola/internal/facts"
@@ -172,5 +173,37 @@ func TestExtractStructureSQL_UnrecognizedShapesAreSkipped(t *testing.T) {
 	}
 	if _, hasCols := weird.Props["columns"]; hasCols {
 		t.Errorf("an uppercase first token is not a recognizable column: %+v", weird.Props)
+	}
+}
+
+// The mysqldump shape: backquoted names, keys and foreign keys inside the CREATE
+// TABLE, and a table closed by ") ENGINE=…;". Each table is its own fact, not the
+// first one swallowing the rest of the file.
+func TestParseStructureSQL_MySQLDump(t *testing.T) {
+	const dump = "CREATE TABLE `shops` (\n" +
+		"  `id` bigint(20) NOT NULL AUTO_INCREMENT,\n" +
+		"  `name` varchar(255) NOT NULL,\n" +
+		"  PRIMARY KEY (`id`)\n" +
+		") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;\n" +
+		"/*!40101 SET character_set_client = @saved_cs_client */;\n" +
+		"CREATE TABLE `shelves` (\n" +
+		"  `id` bigint(20) NOT NULL AUTO_INCREMENT,\n" +
+		"  `shop_id` bigint(20) NOT NULL,\n" +
+		"  PRIMARY KEY (`id`),\n" +
+		"  KEY `index_shelves_on_shop_id` (`shop_id`),\n" +
+		"  CONSTRAINT `fk_rails_1` FOREIGN KEY (`shop_id`) REFERENCES `shops` (`id`)\n" +
+		") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;\n"
+	tables := parseStructureSQL(dump)
+	if len(tables) != 2 || tables["shops"] == nil || tables["shelves"] == nil {
+		t.Fatalf("tables = %v, want shops and shelves", tables)
+	}
+	if got := strings.Join(tables["shops"].columns, " "); got != "id name" {
+		t.Errorf("shops columns = %q", got)
+	}
+	if got := strings.Join(tables["shelves"].columns, " "); got != "id shop_id" {
+		t.Errorf("shelves columns = %q", got)
+	}
+	if got := strings.Join(tables["shelves"].fks, " "); got != "shop_id->shops" {
+		t.Errorf("shelves fks = %q", got)
 	}
 }

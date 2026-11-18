@@ -3705,7 +3705,9 @@ import (
 // block, so a comment below the includes is not read as a codegen banner.
 // v650: Kotlin: an Android manifest under an examples, samples or demo directory does
 // not make the repository an Android one.
-const cacheVersion = "v650"
+// v651: Ruby: db/structure.sql written by mysqldump is read too (backquoted names,
+// keys inside CREATE TABLE, a table closed by ") ENGINE=…;").
+const cacheVersion = "v651"
 
 // ExtractorVersion is cacheVersion, named for callers outside this package.
 //

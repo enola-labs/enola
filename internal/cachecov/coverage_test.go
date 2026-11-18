@@ -243,6 +243,7 @@ var versionCoverage = map[int][]string{
 	648: {"TestKafka_BillingSubscriptionCallIsNotATopic"},
 	649: {"TestLooksGenerated"},
 	650: {"TestDetectAndroidProject_AnyModuleManifest"},
+	651: {"TestParseStructureSQL_MySQLDump"},
 	507: {"TestRustImportAliasesBindOnlyTheAlias", "TestRustImportedTypeThroughAFileModuleWithADirectory", "TestRustMethodsInAFileModulesSubdirectoryResolve", "TestRustTypeImportedThroughAReExportResolves", "TestRustTypeAliasIsFollowedToItsType", "TestRustAliasedExternalImportDoesNotHideTheLocalName"},
 	440: {"TestStoreMethodsRunWhenCalled"},
 	439: {"TestClientTriggers"},

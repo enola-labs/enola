@@ -248,7 +248,9 @@ storage  ApiKey  props: storage_kind=model, table=api_keys, table_source=derived
 ```
 
 `structure.sql` additionally yields single-column `fk_constraints` as
-`"column->reftable"`. Both readers are line- and regex-based over the shapes the
+`"column->reftable"`, from pg_dump's `ALTER TABLE … ADD CONSTRAINT` or mysqldump's
+`CONSTRAINT … FOREIGN KEY` inside the `CREATE TABLE` (backquoted names, the table closed
+by `) ENGINE=…;`). Both readers are line- and regex-based over the shapes the
 dumpers actually emit: composite foreign keys and unrecognised lines are skipped, never
 guessed. The correction above runs *before* the fold, so a prefixed table's census
 lands on the model that reads it rather than on whichever model the unprefixed name
