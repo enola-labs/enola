@@ -100,7 +100,7 @@ func leadingCommentBlock(head []byte) []byte {
 			}
 			continue
 		}
-		if !hasCommentPrefix(line) {
+		if !hasCommentPrefix(line) || preprocessorDirective(line) {
 			break // first line of code — the header is over
 		}
 		out = append(out, bytes.ToLower(line)...)
@@ -116,6 +116,30 @@ func docStringDelim(line []byte) string {
 		}
 	}
 	return ""
+}
+
+// preprocessorDirectives open a C, C++ or Objective-C preprocessor line, which
+// starts with `#` like a shell or Python comment but is code: the includes after a
+// license header end it, and a comment below them describes the code, not the file.
+// An include guard (#ifndef, #define), #pragma once and #line are left out: a
+// generator may write them before its banner (flex opens with #line and #define).
+var preprocessorDirectives = []string{
+	"#include", "#import", "#if", "#ifdef", "#elif", "#else", "#endif",
+	"#undef", "#error", "#warning",
+}
+
+// preprocessorDirective reports whether line is a preprocessor directive written
+// the usual way, with the directive right after the `#`.
+func preprocessorDirective(line []byte) bool {
+	for _, d := range preprocessorDirectives {
+		if bytes.HasPrefix(line, []byte(d)) {
+			rest := line[len(d):]
+			if len(rest) == 0 || rest[0] == ' ' || rest[0] == '\t' || rest[0] == '<' || rest[0] == '"' || rest[0] == '(' {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func hasCommentPrefix(line []byte) bool {
